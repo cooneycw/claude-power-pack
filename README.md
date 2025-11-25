@@ -225,8 +225,8 @@ cd claude-power-pack
 
 #### For Best Practices Tools Only:
 ```bash
-conda create -n claude-best-practices python=3.11 -y
-conda activate claude-best-practices
+conda create -n claude-power-pack python=3.11 -y
+conda activate claude-power-pack
 pip install requests  # For Reddit scraper
 ```
 

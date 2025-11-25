@@ -19,7 +19,7 @@ def fetch_claudecode_posts(limit=25):
     reddit = praw.Reddit(
         client_id="your_client_id_here",  # You'll need to add this
         client_secret="your_client_secret_here",  # You'll need to add this
-        user_agent="claude-best-practices-fetcher/1.0"
+        user_agent="claude-power-pack-fetcher/1.0"
     )
 
     print(f"Fetching {limit} posts from r/ClaudeCode...\n")
