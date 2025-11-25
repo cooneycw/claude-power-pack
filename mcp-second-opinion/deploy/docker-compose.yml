@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  second-opinion-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: second-opinion-mcp:latest
+    container_name: second-opinion-mcp
+    environment:
+      # Pass GEMINI_API_KEY from host environment or .env file
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+    # MCP servers use stdin/stdout, no ports needed
+    stdin_open: true
+    tty: true
+    restart: unless-stopped
+    # Resource limits (optional)
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M

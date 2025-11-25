@@ -1,0 +1,40 @@
+[Unit]
+Description=MCP Second Opinion Server (SSE Transport)
+After=network.target
+Documentation=https://github.com/cooneycw/mcp-second-opinion
+
+[Service]
+Type=simple
+User=cooneycw
+WorkingDirectory=/home/cooneycw/PycharmProjects/MCP
+
+# Load environment variables from .env file
+EnvironmentFile=/home/cooneycw/PycharmProjects/MCP/.env
+
+# Explicit port configuration (won't conflict with web servers on 80/443)
+Environment="MCP_SERVER_PORT=8080"
+Environment="MCP_SERVER_HOST=127.0.0.1"
+
+# Use conda run to execute in the correct environment (server in src/)
+ExecStart=/home/cooneycw/miniconda3/bin/conda run -n mcp-second-opinion --no-capture-output python /home/cooneycw/PycharmProjects/MCP/src/server.py
+
+# Restart policy
+Restart=on-failure
+RestartSec=10s
+StartLimitBurst=5
+StartLimitIntervalSec=300
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=mcp-second-opinion
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/cooneycw/PycharmProjects/MCP
+
+[Install]
+WantedBy=multi-user.target
