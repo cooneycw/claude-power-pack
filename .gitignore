@@ -42,8 +42,10 @@ desktop.ini
 *.json
 !package.json
 !tsconfig.json
+!.claude/hooks.json
 node_modules/
-.claude/
+.claude/settings*.json
+.claude/plans/
 
 # Logs
 *.log

@@ -11,6 +11,10 @@ A comprehensive repository combining:
 ## 🎯 Quick Navigation
 
 - [Claude Best Practices](#claude-best-practices) - Community insights & tips
+- [Token-Efficient Tool Organization](#-token-efficient-tool-organization) - **NEW:** Progressive disclosure
+- [Django Workflow Commands](#-django-workflow-commands) - **NEW:** Project setup & git worktrees
+- [Session Initialization](#-session-initialization) - **NEW:** Auto-update checks
+- [On-Demand Documentation](#-on-demand-documentation) - **NEW:** Context optimization
 - [MCP Second Opinion](#mcp-second-opinion-server) - Gemini-powered code review
 - [Installation](#installation) - Get started quickly
 - [GitHub Setup](#github-setup) - Repository configuration
@@ -61,6 +65,131 @@ A comprehensive collection of Claude Code best practices compiled from the r/Cla
    - More isn't better
    - Token consumption is real
    - Consider converting to Skills
+
+## 🎯 Token-Efficient Tool Organization
+
+**New in v1.1.0:** This repository now emphasizes **progressive disclosure** for tool context - a principle endorsed by Anthropic that dramatically improves agent efficiency.
+
+### The Problem
+
+- Claude's context window is finite (200K for Sonnet 4.5)
+- Each MCP tool definition consumes 500-2000 tokens
+- A typical multi-server setup can consume 50-100K tokens BEFORE any work
+- This leaves less room for actual code, conversation, and task context
+
+### The Solution: Gradual Tool Exposure
+
+1. **Load metadata first** (~100 tokens per tool)
+2. **Expand full instructions only when relevant** (<5K tokens)
+3. **Load executable assets only when executing**
+
+### Anthropic's Data
+
+| Scenario | Token Consumption | Savings |
+|----------|-------------------|---------|
+| Traditional loading (100 tools) | ~77K tokens | - |
+| With Tool Search Tool | ~8.7K tokens | **85%** |
+
+**Tool Selection Accuracy:** 49% → 74% (Opus 4), 79.5% → 88.1% (Opus 4.5)
+
+### Quick Wins
+
+1. Use `/context` to audit your current token usage
+2. Disable MCP servers you don't need for the current session
+3. Consolidate similar tools (4 search tools → 1 with parameter)
+4. Convert procedural knowledge from MCP to Skills
+5. Keep tool descriptions under 200 characters
+
+### New Documentation
+
+- **`PROGRESSIVE_DISCLOSURE_GUIDE.md`** - Comprehensive architecture guide
+- **`MCP_TOKEN_AUDIT_CHECKLIST.md`** - Practical optimization checklist
+- **Context-Efficient Architecture** section in main best practices doc
+
+## 🐍 Django Workflow Commands
+
+**New in v1.1.0:** Slash commands for Django project initialization and git worktree workflows.
+
+### Available Commands
+
+- **`/django:init`** - Create new Django project with modern best practices
+  - Split settings (base/local/production)
+  - Apps directory organization
+  - Optional: DRF, Celery, Redis, Docker, CI/CD
+  - Modern dependency management
+
+- **`/django:worktree-setup`** - Configure git worktrees for dev/staging/production
+  - Parallel environment development
+  - Separate virtual environments per branch
+  - Independent database configurations
+  - No more branch switching!
+
+- **`/django:worktree-explain`** - Educational guide on git worktrees
+  - Detailed explanation with examples
+  - Workflow scenarios (feature dev, hotfixes, deployment)
+  - Troubleshooting and best practices
+  - VSCode and tmux integration
+
+### Setup
+
+These commands are in `.claude/commands/django/`. To use them globally:
+
+```bash
+# Option 1: Symlink (recommended)
+mkdir -p ~/.claude/commands
+ln -s /path/to/claude-power-pack/.claude/commands/django ~/.claude/commands/django
+
+# Option 2: Copy
+cp -r .claude/commands/django ~/.claude/commands/
+```
+
+## ⚡ Session Initialization
+
+**New in v1.1.0:** Auto-check for repository updates at session start.
+
+A SessionStart hook (`./claude/hooks.json`) automatically checks if this repository has updates:
+
+```json
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "bash -c 'cd /path/to/claude-power-pack && git fetch && ...'"
+      }
+    ]
+  }
+}
+```
+
+**Benefits:**
+- Stay current with community best practices
+- Minimal context footprint (~20 tokens)
+- Automatic, hands-free
+- Quick "up-to-date" confirmation or update prompt
+
+## 📖 On-Demand Documentation
+
+**New in v1.1.0:** Documentation loads only when needed to preserve context.
+
+### Skills
+
+- **`best-practices`** skill - Triggers on keywords like "best practices", "MCP optimization", "progressive disclosure"
+  - Located: `.claude/skills/best-practices.md`
+  - Loads full documentation only when relevant
+  - ~150 tokens metadata vs ~5K+ when activated
+
+### Slash Commands
+
+- **`/load-best-practices`** - Load full community wisdom
+- **`/load-mcp-docs`** - Load MCP server documentation
+
+### Context Optimization
+
+With these changes, repository baseline drops from 17% → <1% of context:
+
+**Before:** Auto-load all documentation (~21K+ tokens)
+**After:** Minimal `CLAUDE.md` (~200 tokens) + on-demand loading
 
 ## 📊 Raw Data Files
 
@@ -410,8 +539,18 @@ MIT License - See LICENSE file for details
 
 ---
 
-**Repository Version**: 1.0.0
-**Last Updated**: November 2024
+**Repository Version**: 1.1.0 (Context-Efficient Architecture Update)
+**Last Updated**: December 2024
 **Maintainer**: Your Name Here
+
+## What's New in v1.1.0
+
+- **Progressive Disclosure Architecture** - Comprehensive guide with Anthropic's official data
+- **Django Workflow Commands** - `/django:init`, `/django:worktree-setup`, `/django:worktree-explain`
+- **Context Optimization** - 17% → <1% baseline with on-demand loading
+- **MCP Token Audit Checklist** - Practical optimization guide
+- **SessionStart Hook** - Auto-update checking
+- **Best Practices Skill** - On-demand documentation loading
+- **Enhanced Best Practices** - New Context-Efficient Tool Architecture section
 
 *Generated with [Claude Code](https://claude.ai/code) via [Happy](https://happy.engineering)*
