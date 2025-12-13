@@ -2,7 +2,15 @@
 
 import logging
 import os
+from pathlib import Path
 from typing import Dict, List, Optional
+
+from dotenv import load_dotenv
+
+# Load .env file from parent directory (mcp-second-opinion/.env)
+_env_path = Path(__file__).parent.parent / ".env"
+if _env_path.exists():
+    load_dotenv(_env_path)
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +75,9 @@ class _SecretStr:
 class Config:
     """Configuration settings for the MCP server."""
 
-    # Gemini API Configuration (wrapped to prevent accidental logging)
+    # ==========================================================================
+    # Gemini API Configuration
+    # ==========================================================================
     _GEMINI_API_KEY: _SecretStr = _SecretStr(os.getenv("GEMINI_API_KEY"))
 
     @classmethod
@@ -93,6 +103,133 @@ class Config:
         "gemini-3-pro-image-preview": {"input": 2.50, "output": 10.00},
     }
 
+    # ==========================================================================
+    # OpenAI API Configuration
+    # ==========================================================================
+    _OPENAI_API_KEY: _SecretStr = _SecretStr(os.getenv("OPENAI_API_KEY"))
+
+    @classmethod
+    @property
+    def OPENAI_API_KEY(cls) -> Optional[str]:
+        """Get the OpenAI API key. Use this instead of accessing _OPENAI_API_KEY directly."""
+        return cls._OPENAI_API_KEY.get_secret_value()
+
+    # OpenAI Models - Using currently available models
+    # GPT-4o family (multimodal, fast)
+    OPENAI_MODEL_GPT4O: str = "gpt-4o"
+    OPENAI_MODEL_GPT4O_MINI: str = "gpt-4o-mini"
+
+    # GPT-4 Turbo (best for complex reasoning)
+    OPENAI_MODEL_GPT4_TURBO: str = "gpt-4-turbo"
+
+    # Codex models (use Responses API) - Updated Dec 2025
+    # gpt-5.1-codex-max: Most capable for complex coding
+    # gpt-5.1-codex-mini: Cost-effective coding model
+    # o3: Full Codex reasoning agent
+    OPENAI_MODEL_CODEX_MAX: str = "gpt-5.1-codex-max"
+    OPENAI_MODEL_CODEX_MINI: str = "gpt-5.1-codex-mini"
+    OPENAI_MODEL_O3: str = "o3"
+
+    # o1 models (reasoning-focused)
+    OPENAI_MODEL_O1: str = "o1"
+    OPENAI_MODEL_O1_MINI: str = "o1-mini"
+
+    # For image/visual analysis
+    OPENAI_MODEL_IMAGE: str = "gpt-4o"
+
+    # Fallback
+    OPENAI_MODEL_FALLBACK: str = "gpt-4o-mini"
+
+    # OpenAI API Pricing (per million tokens) - Updated 2025-12
+    OPENAI_PRICING: Dict[str, Dict[str, float]] = {
+        "gpt-4o": {"input": 2.50, "output": 10.00},
+        "gpt-4o-mini": {"input": 0.15, "output": 0.60},
+        "gpt-4-turbo": {"input": 10.00, "output": 30.00},
+        # Codex models (use Responses API)
+        "gpt-5.1-codex-max": {"input": 5.00, "output": 20.00},
+        "gpt-5.1-codex-mini": {"input": 1.50, "output": 6.00},
+        "gpt-5-codex": {"input": 3.00, "output": 12.00},
+        "o3": {"input": 10.00, "output": 40.00},
+        # Reasoning models
+        "o1": {"input": 15.00, "output": 60.00},
+        "o1-mini": {"input": 3.00, "output": 12.00},
+    }
+
+    # ==========================================================================
+    # Available Models for Multi-Model Selection
+    # ==========================================================================
+    # All models available for second opinion consultation
+    AVAILABLE_MODELS: Dict[str, Dict[str, str]] = {
+        # Gemini models
+        "gemini-3-pro": {
+            "provider": "gemini",
+            "model_id": "gemini-3-pro-preview",
+            "display_name": "Gemini 3 Pro",
+            "description": "Google's latest, best for comprehensive analysis",
+        },
+        "gemini-2.5-pro": {
+            "provider": "gemini",
+            "model_id": "gemini-2.5-pro",
+            "display_name": "Gemini 2.5 Pro",
+            "description": "Stable, proven performance",
+        },
+        # OpenAI GPT-4o family
+        "gpt-4o": {
+            "provider": "openai",
+            "model_id": "gpt-4o",
+            "display_name": "GPT-4o",
+            "description": "Fast multimodal model, great for code",
+        },
+        "gpt-4o-mini": {
+            "provider": "openai",
+            "model_id": "gpt-4o-mini",
+            "display_name": "GPT-4o Mini",
+            "description": "Fast, cost-effective for simpler tasks",
+        },
+        # OpenAI GPT-4 Turbo
+        "gpt-4-turbo": {
+            "provider": "openai",
+            "model_id": "gpt-4-turbo",
+            "display_name": "GPT-4 Turbo",
+            "description": "Best for complex reasoning tasks",
+        },
+        # OpenAI Codex models (uses Responses API)
+        "codex-max": {
+            "provider": "openai",
+            "model_id": "gpt-5.1-codex-max",
+            "display_name": "Codex Max",
+            "description": "Most capable for complex, long-horizon coding",
+        },
+        "codex-mini": {
+            "provider": "openai",
+            "model_id": "gpt-5.1-codex-mini",
+            "display_name": "Codex Mini",
+            "description": "Cost-effective coding model",
+        },
+        "o3": {
+            "provider": "openai",
+            "model_id": "o3",
+            "display_name": "o3",
+            "description": "Advanced reasoning, powers Codex agent",
+        },
+        # OpenAI o1 reasoning models
+        "o1": {
+            "provider": "openai",
+            "model_id": "o1",
+            "display_name": "o1",
+            "description": "Advanced reasoning, best for hard problems",
+        },
+        "o1-mini": {
+            "provider": "openai",
+            "model_id": "o1-mini",
+            "display_name": "o1 Mini",
+            "description": "Faster reasoning model",
+        },
+    }
+
+    # Default models to use when none specified
+    DEFAULT_MODELS: List[str] = ["gemini-3-pro", "gpt-4o"]
+
     # Token estimation (characters per token approximation)
     # English text averages ~4 characters per token
     CHARS_PER_TOKEN: int = 4
@@ -110,7 +247,7 @@ class Config:
 
     # Server Configuration
     SERVER_NAME: str = "second-opinion-server"
-    SERVER_VERSION: str = "1.4.0"  # Security hardening (secret protection, SSRF mitigation)
+    SERVER_VERSION: str = "1.5.0"  # Multi-model support (OpenAI Codex + GPT-5.2)
 
     # HTTP/SSE Transport Configuration (with safe parsing)
     SERVER_HOST: str = os.getenv("MCP_SERVER_HOST", "127.0.0.1")
@@ -185,11 +322,50 @@ class Config:
     @classmethod
     def validate(cls) -> None:
         """Validate required configuration."""
-        if not cls.GEMINI_API_KEY:
+        has_gemini = bool(cls.GEMINI_API_KEY)
+        has_openai = bool(cls.OPENAI_API_KEY)
+
+        if not has_gemini and not has_openai:
             raise ValueError(
-                "GEMINI_API_KEY environment variable is required. "
+                "At least one API key is required. Set either:\n"
+                "  - GEMINI_API_KEY: https://aistudio.google.com/apikey\n"
+                "  - OPENAI_API_KEY: https://platform.openai.com/api-keys"
+            )
+
+        if not has_gemini:
+            logger.warning(
+                "GEMINI_API_KEY not set - Gemini models will be unavailable. "
                 "Get your API key from https://aistudio.google.com/apikey"
             )
+
+        if not has_openai:
+            logger.warning(
+                "OPENAI_API_KEY not set - OpenAI/Codex models will be unavailable. "
+                "Get your API key from https://platform.openai.com/api-keys"
+            )
+
+    @classmethod
+    def get_available_model_keys(cls) -> List[str]:
+        """Get list of model keys that have valid API keys configured."""
+        available = []
+        for key, model_info in cls.AVAILABLE_MODELS.items():
+            provider = model_info["provider"]
+            if provider == "gemini" and cls.GEMINI_API_KEY:
+                available.append(key)
+            elif provider == "openai" and cls.OPENAI_API_KEY:
+                available.append(key)
+        return available
+
+    @classmethod
+    def get_pricing(cls, model_id: str) -> Dict[str, float]:
+        """Get pricing for a model by its model_id."""
+        if model_id in cls.GEMINI_PRICING:
+            return cls.GEMINI_PRICING[model_id]
+        elif model_id in cls.OPENAI_PRICING:
+            return cls.OPENAI_PRICING[model_id]
+        else:
+            # Default fallback pricing
+            return {"input": 10.00, "output": 30.00}
 
     @classmethod
     def is_url_allowed(cls, url: str, approved_domains: List[str] = None) -> tuple[str, str, str]:

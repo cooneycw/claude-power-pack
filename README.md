@@ -238,35 +238,79 @@ comments = scrape_post_comments("post_id_here", "ClaudeCode")
 
 # MCP Second Opinion Server
 
-An advanced MCP server that provides AI-powered "second opinions" on challenging coding issues using Google Gemini 3 Pro Preview.
+An advanced MCP server that provides AI-powered "second opinions" on challenging coding issues. **Now with multi-model support** - consult Google Gemini, OpenAI Codex (GPT-5.1), and o3 simultaneously!
 
 ## 🌟 Key Features
 
-- **Powered by Gemini 3 Pro Preview**: Latest model with automatic fallback to Gemini 2.5 Pro
+- **Multi-Model Consultation**: Compare opinions from 10 different AI models in parallel
+- **OpenAI Codex Support** (NEW in v1.5.0): GPT-5.1 Codex Max/Mini via Responses API
+- **o3 Reasoning** (NEW in v1.5.0): Advanced reasoning model powering the Codex agent
+- **Google Gemini**: Gemini 3 Pro Preview with automatic fallback to 2.5 Pro
 - **Multi-Turn Sessions**: Maintain context across conversations
-- **Agentic Tool Use**: Gemini can autonomously search the web and fetch documentation
+- **Agentic Tool Use**: Models can autonomously search the web and fetch documentation
 - **Playwright Integration**: Excellent for debugging web UI issues with screenshots
 - **Cost Tracking**: Per-session and daily limits with detailed breakdowns
 - **Security Hardened**: SSRF protection, domain approval system
 
+### Available Models
+
+| Model Key | Display Name | Provider | Best For |
+|-----------|-------------|----------|----------|
+| `gemini-3-pro` | Gemini 3 Pro | Google | Comprehensive analysis |
+| `gemini-2.5-pro` | Gemini 2.5 Pro | Google | Stable, proven |
+| `gpt-4o` | GPT-4o | OpenAI | Fast multimodal, great for code |
+| `gpt-4o-mini` | GPT-4o Mini | OpenAI | Fast, cost-effective |
+| `gpt-4-turbo` | GPT-4 Turbo | OpenAI | Complex reasoning tasks |
+| `codex-max` | Codex Max | OpenAI | Most capable for complex coding |
+| `codex-mini` | Codex Mini | OpenAI | Cost-effective coding model |
+| `o3` | o3 | OpenAI | Advanced reasoning (Codex agent) |
+| `o1` | o1 | OpenAI | Advanced reasoning |
+| `o1-mini` | o1 Mini | OpenAI | Faster reasoning model |
+
 ## 🚀 MCP Quick Start
 
-### 1. Get Gemini API Key
-Get your free key from [Google AI Studio](https://aistudio.google.com/apikey)
+### 1. Get API Keys
 
-### 2. Configure Environment
+You need **at least one** API key (both recommended for multi-model comparison):
+
+- **Gemini**: [Google AI Studio](https://aistudio.google.com/apikey) (free tier available)
+- **OpenAI**: [OpenAI Platform](https://platform.openai.com/api-keys)
+
+### 2. Set Up Environment
+
 ```bash
 cd mcp-second-opinion
+
+# Create environment
+conda env create -f environment.yml
+conda activate mcp-second-opinion
+
+# Create .env from template
 cp .env.example .env
-# Add your GEMINI_API_KEY to .env
 ```
 
-### 3. Start Server
+### 3. Configure API Keys
+
+Edit `.env` with your API keys:
+
 ```bash
+# .env file - NEVER commit this file!
+GEMINI_API_KEY=your-gemini-api-key-here
+OPENAI_API_KEY=your-openai-api-key-here
+```
+
+> **Security Note**: The `.env` file is already in `.gitignore` and will not be committed to version control.
+
+### 4. Start Server
+
+```bash
+conda activate mcp-second-opinion
+cd mcp-second-opinion
 python src/server.py
 ```
 
-### 4. Configure Claude Code
+### 5. Configure Claude Code
+
 Add to `~/.config/claude-code/config.json`:
 ```json
 {
@@ -319,18 +363,44 @@ response = get_code_second_opinion(
 
 ## 📦 MCP Tools Overview
 
-### 10 Available Tools
+### 12 Available Tools
 
-1. **`get_code_second_opinion`** - Comprehensive code analysis
-2. **`health_check`** - Verify server status
-3. **`create_session`** - Start multi-turn consultation
-4. **`consult`** - Send message in session
-5. **`get_session_history`** - Retrieve conversation
-6. **`close_session`** - End with cost summary
-7. **`list_sessions`** - View all sessions
-8. **`approve_fetch_domain`** - Approve URL fetching
-9. **`revoke_fetch_domain`** - Revoke approval
-10. **`list_fetch_domains`** - List approved domains
+#### Multi-Model Consultation (NEW in v1.5.0)
+1. **`list_available_models`** - See all models with availability status
+2. **`get_multi_model_second_opinion`** - Consult 2+ models in parallel, compare responses
+
+#### Single Model Analysis
+3. **`get_code_second_opinion`** - Comprehensive code analysis (Gemini)
+4. **`health_check`** - Verify server status and API key configuration
+
+#### Multi-Turn Sessions
+5. **`create_session`** - Start multi-turn consultation
+6. **`consult`** - Send message in session
+7. **`get_session_history`** - Retrieve conversation
+8. **`close_session`** - End with cost summary
+9. **`list_sessions`** - View all sessions
+
+#### Domain Approval (SSRF Protection)
+10. **`approve_fetch_domain`** - Approve URL fetching
+11. **`revoke_fetch_domain`** - Revoke approval
+12. **`list_fetch_domains`** - List approved domains
+
+### Multi-Model Usage Example
+
+```python
+# Get opinions from multiple models
+result = get_multi_model_second_opinion(
+    code="def fibonacci(n): ...",
+    language="python",
+    models=["gemini-3-pro", "codex-max", "gpt-4o"],
+    issue_description="Is this implementation efficient?"
+)
+
+# Result contains responses from all models with cost tracking
+for response in result["responses"]:
+    print(f"{response['display_name']}: {response['response'][:200]}...")
+print(f"Total cost: ${result['total_cost']}")
+```
 
 ---
 
@@ -369,7 +439,7 @@ conda activate mcp-second-opinion
 Or with pip:
 ```bash
 pip install mcp[cli]>=1.2.0 fastmcp>=1.0 google-generativeai>=0.3.0 \
-           tenacity>=8.0.0 pydantic>=2.0.0 httpx>=0.24.0
+           openai>=1.50.0 tenacity>=8.0.0 pydantic>=2.0.0 httpx>=0.24.0
 ```
 
 ### Step 3: Configure API Keys
@@ -539,18 +609,29 @@ MIT License - See LICENSE file for details
 
 ---
 
-**Repository Version**: 1.1.0 (Context-Efficient Architecture Update)
-**Last Updated**: December 2024
-**Maintainer**: Your Name Here
+**Repository Version**: 1.5.0 (Multi-Model Second Opinion with Codex)
+**Last Updated**: December 2025
+**Maintainer**: cooneycw
 
-## What's New in v1.1.0
+## What's New in v1.5.0
 
-- **Progressive Disclosure Architecture** - Comprehensive guide with Anthropic's official data
-- **Django Workflow Commands** - `/django:init`, `/django:worktree-setup`, `/django:worktree-explain`
-- **Context Optimization** - 17% → <1% baseline with on-demand loading
-- **MCP Token Audit Checklist** - Practical optimization guide
-- **SessionStart Hook** - Auto-update checking
-- **Best Practices Skill** - On-demand documentation loading
-- **Enhanced Best Practices** - New Context-Efficient Tool Architecture section
+- **Multi-Model Consultation** - Compare responses from 10 different AI models in parallel
+- **OpenAI Codex Support** - GPT-5.1 Codex Max/Mini via Responses API
+- **o3 Reasoning Model** - Advanced reasoning that powers the Codex agent
+- **OpenAI Integration** - GPT-4o, GPT-4 Turbo, o1, o1-mini support
+- **New Tools** - `list_available_models`, `get_multi_model_second_opinion`
+- **Flexible API Keys** - Works with Gemini-only, OpenAI-only, or both
+- **Auto-load .env** - API keys loaded automatically from `.env` file
+- **Code Cleanup** - Removed legacy duplicate files from repository root
 
-*Generated with [Claude Code](https://claude.ai/code) via [Happy](https://happy.engineering)*
+### Previous Updates
+
+#### v1.1.0
+- Progressive Disclosure Architecture
+- Django Workflow Commands
+- Context Optimization (17% → <1% baseline)
+- MCP Token Audit Checklist
+- SessionStart Hook for auto-updates
+- Best Practices Skill
+
+*Generated with [Claude Code](https://claude.ai/code)*

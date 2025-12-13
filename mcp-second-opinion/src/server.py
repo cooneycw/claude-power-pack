@@ -3,7 +3,8 @@
 Second Opinion MCP Server
 
 An MCP server that provides LLM-powered second opinions on challenging coding issues.
-Powered by Google Gemini with streaming support.
+Powered by Google Gemini and OpenAI (Codex + GPT-5.2) with streaming support.
+Supports multi-model consultation for comparing responses from different LLMs.
 """
 
 import asyncio
@@ -12,6 +13,7 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 import google.generativeai as genai
+import openai
 from fastmcp import FastMCP
 from tenacity import (
     retry,
@@ -48,7 +50,15 @@ if Config.GEMINI_API_KEY:
     genai.configure(api_key=Config.GEMINI_API_KEY)
     logger.info("Gemini API configured successfully")
 else:
-    logger.warning("GEMINI_API_KEY not set - server will fail on requests")
+    logger.warning("GEMINI_API_KEY not set - Gemini models will be unavailable")
+
+# Configure OpenAI
+_openai_client: Optional[openai.AsyncOpenAI] = None
+if Config.OPENAI_API_KEY:
+    _openai_client = openai.AsyncOpenAI(api_key=Config.OPENAI_API_KEY)
+    logger.info("OpenAI API configured successfully")
+else:
+    logger.warning("OPENAI_API_KEY not set - OpenAI/Codex models will be unavailable")
 
 # Global model instance cache (reuse across requests to avoid cold starts)
 _gemini_models: Dict[str, genai.GenerativeModel] = {}
@@ -232,6 +242,322 @@ async def _try_gemini_model(prompt: str, model_name: str) -> tuple[str, str]:
     except Exception as e:
         logger.error(f"Error getting Gemini response from {model_name}: {e}")
         raise
+
+
+# =============================================================================
+# OpenAI Streaming Functions
+# =============================================================================
+
+
+async def get_openai_streaming_response(
+    prompt: str,
+    model_name: str,
+) -> tuple[str, str]:
+    """
+    Get streaming response from OpenAI with retry logic and model fallback.
+
+    Args:
+        prompt: The prompt to send to OpenAI
+        model_name: The model to use (e.g., gpt-5-codex, gpt-5.2)
+
+    Returns:
+        Tuple of (response text, model used)
+
+    Raises:
+        Exception: If all retries and fallbacks fail
+    """
+    if not _openai_client:
+        raise ValueError("OpenAI API key not configured")
+
+    # Determine fallback model based on primary
+    fallback_model = Config.OPENAI_MODEL_FALLBACK
+
+    # Try primary model
+    try:
+        return await _try_openai_model(prompt, model_name)
+    except Exception as e:
+        logger.warning(f"Primary OpenAI model {model_name} failed: {e}")
+
+        # Try fallback if available
+        if fallback_model and fallback_model != model_name:
+            logger.info(f"Trying fallback model {fallback_model}")
+            try:
+                return await _try_openai_model(prompt, fallback_model)
+            except Exception as fallback_error:
+                logger.error(f"Fallback model {fallback_model} also failed: {fallback_error}")
+                raise
+        else:
+            raise
+
+
+@retry(
+    stop=stop_after_attempt(Config.MAX_RETRIES),
+    wait=wait_exponential(
+        min=Config.RETRY_MIN_WAIT,
+        max=Config.RETRY_MAX_WAIT,
+    ),
+    retry=retry_if_exception_type(Exception),
+    reraise=True,
+)
+async def _try_openai_model(prompt: str, model_name: str) -> tuple[str, str]:
+    """
+    Attempt to get a response from a specific OpenAI model.
+
+    Supports both Chat Completions API and Responses API (for Codex models).
+
+    Args:
+        prompt: The prompt to send
+        model_name: The model to use
+
+    Returns:
+        Tuple of (response text, model used)
+
+    Raises:
+        Exception: If the request fails after retries
+    """
+    if not _openai_client:
+        raise ValueError("OpenAI API key not configured")
+
+    try:
+        logger.info(f"Sending request to OpenAI {model_name}")
+
+        # Codex and o3 models use the Responses API
+        uses_responses_api = any(x in model_name.lower() for x in ["codex", "o3"])
+
+        if uses_responses_api:
+            # Use Responses API for Codex models
+            return await _try_openai_responses_api(prompt, model_name)
+        else:
+            # Use Chat Completions API for other models
+            return await _try_openai_chat_api(prompt, model_name)
+
+    except Exception as e:
+        logger.error(f"Error getting OpenAI response from {model_name}: {e}")
+        raise
+
+
+async def _try_openai_chat_api(prompt: str, model_name: str) -> tuple[str, str]:
+    """Use Chat Completions API for standard models."""
+    # Newer models (gpt-5.x, o1, o3) use max_completion_tokens
+    # Older models (gpt-4, gpt-4o, gpt-3.5) use max_tokens
+    uses_new_tokens_param = any(x in model_name.lower() for x in ["gpt-5", "o1", "o3"])
+
+    # Build request parameters
+    request_params = {
+        "model": model_name,
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": Config.TEMPERATURE,
+        "top_p": Config.TOP_P,
+        "stream": True,
+    }
+
+    # Use appropriate token parameter based on model
+    if uses_new_tokens_param:
+        request_params["max_completion_tokens"] = Config.MAX_TOKENS
+    else:
+        request_params["max_tokens"] = Config.MAX_TOKENS
+
+    # Generate content with streaming
+    response = await _openai_client.chat.completions.create(**request_params)
+
+    # Collect streaming chunks
+    full_response = []
+    async for chunk in response:
+        if chunk.choices and chunk.choices[0].delta.content:
+            content = chunk.choices[0].delta.content
+            full_response.append(content)
+            logger.debug(f"Received chunk: {len(content)} chars")
+
+    result = "".join(full_response)
+    logger.info(f"Completed streaming response from {model_name}: {len(result)} chars")
+    return result, model_name
+
+
+async def _try_openai_responses_api(prompt: str, model_name: str) -> tuple[str, str]:
+    """Use Responses API for Codex models."""
+    logger.info(f"Using Responses API for {model_name}")
+
+    # Responses API uses a different endpoint and format
+    # Note: As of late 2024, this requires openai>=1.50.0
+    response = await _openai_client.responses.create(
+        model=model_name,
+        input=prompt,
+    )
+
+    # Extract the output text from the Responses API format
+    # Response structure: response.output is a list containing:
+    #   - ResponseReasoningItem (content=None, has reasoning summary)
+    #   - ResponseOutputMessage (content=[ResponseOutputText with .text])
+    result = ""
+    if response.output:
+        for item in response.output:
+            # Skip items without content or with None content
+            if hasattr(item, 'content') and item.content is not None:
+                for content_item in item.content:
+                    if hasattr(content_item, 'text') and content_item.text:
+                        result += content_item.text
+
+    if not result:
+        # Fallback: try to get any text representation
+        result = str(response.output) if response.output else "No response generated"
+
+    logger.info(f"Completed response from {model_name}: {len(result)} chars")
+    return result, model_name
+
+
+# =============================================================================
+# Multi-Model Consultation Functions
+# =============================================================================
+
+
+async def get_single_model_response(
+    prompt: str,
+    model_key: str,
+) -> Dict[str, Any]:
+    """
+    Get response from a single model by its key.
+
+    Args:
+        prompt: The prompt to send
+        model_key: The model key from Config.AVAILABLE_MODELS
+
+    Returns:
+        Dict with response, model info, tokens, cost, and success status
+    """
+    model_info = Config.AVAILABLE_MODELS.get(model_key)
+    if not model_info:
+        return {
+            "model_key": model_key,
+            "success": False,
+            "error": f"Unknown model key: {model_key}",
+        }
+
+    provider = model_info["provider"]
+    model_id = model_info["model_id"]
+
+    try:
+        # Route to appropriate provider
+        if provider == "gemini":
+            if not Config.GEMINI_API_KEY:
+                return {
+                    "model_key": model_key,
+                    "model_id": model_id,
+                    "display_name": model_info["display_name"],
+                    "success": False,
+                    "error": "Gemini API key not configured",
+                }
+            response, model_used = await get_gemini_streaming_response(prompt, model_id)
+
+        elif provider == "openai":
+            if not Config.OPENAI_API_KEY:
+                return {
+                    "model_key": model_key,
+                    "model_id": model_id,
+                    "display_name": model_info["display_name"],
+                    "success": False,
+                    "error": "OpenAI API key not configured",
+                }
+            response, model_used = await get_openai_streaming_response(prompt, model_id)
+
+        else:
+            return {
+                "model_key": model_key,
+                "success": False,
+                "error": f"Unknown provider: {provider}",
+            }
+
+        # Calculate tokens and cost
+        input_tokens = len(prompt) // Config.CHARS_PER_TOKEN
+        output_tokens = len(response) // Config.CHARS_PER_TOKEN
+        pricing = Config.get_pricing(model_used)
+        cost = (input_tokens / 1_000_000) * pricing["input"] + \
+               (output_tokens / 1_000_000) * pricing["output"]
+
+        return {
+            "model_key": model_key,
+            "model_id": model_used,
+            "display_name": model_info["display_name"],
+            "provider": provider,
+            "response": response,
+            "success": True,
+            "tokens": {
+                "input": input_tokens,
+                "output": output_tokens,
+                "total": input_tokens + output_tokens,
+            },
+            "cost": round(cost, 5),
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting response from {model_key}: {e}")
+        return {
+            "model_key": model_key,
+            "model_id": model_id,
+            "display_name": model_info["display_name"],
+            "provider": provider,
+            "success": False,
+            "error": str(e),
+        }
+
+
+async def get_multi_model_responses(
+    prompt: str,
+    model_keys: List[str],
+) -> Dict[str, Any]:
+    """
+    Get responses from multiple models in parallel.
+
+    Args:
+        prompt: The prompt to send to all models
+        model_keys: List of model keys to consult
+
+    Returns:
+        Dict with responses from all models, summary, and total cost
+    """
+    if not model_keys:
+        model_keys = Config.DEFAULT_MODELS
+
+    # Filter to only available models
+    available_keys = Config.get_available_model_keys()
+    valid_keys = [k for k in model_keys if k in available_keys]
+    invalid_keys = [k for k in model_keys if k not in available_keys]
+
+    if not valid_keys:
+        return {
+            "success": False,
+            "error": "No valid models available. Check API key configuration.",
+            "invalid_models": invalid_keys,
+        }
+
+    # Run all model requests in parallel
+    tasks = [get_single_model_response(prompt, key) for key in valid_keys]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    # Process results
+    responses = []
+    total_cost = 0.0
+    successful_count = 0
+
+    for result in results:
+        if isinstance(result, Exception):
+            responses.append({
+                "success": False,
+                "error": str(result),
+            })
+        else:
+            responses.append(result)
+            if result.get("success"):
+                successful_count += 1
+                total_cost += result.get("cost", 0)
+
+    return {
+        "success": successful_count > 0,
+        "responses": responses,
+        "models_consulted": len(valid_keys),
+        "models_successful": successful_count,
+        "invalid_models": invalid_keys if invalid_keys else None,
+        "total_cost": round(total_cost, 5),
+    }
 
 
 # =============================================================================
@@ -550,28 +876,217 @@ async def get_code_second_opinion(
 @mcp.tool()
 async def health_check() -> dict:
     """
-    Check if the MCP server and Gemini API are properly configured.
+    Check if the MCP server and all LLM APIs are properly configured.
 
     Returns:
         dict with server status, configuration status, and version info
     """
+    has_gemini = bool(Config.GEMINI_API_KEY)
+    has_openai = bool(Config.OPENAI_API_KEY)
+    available_models = Config.get_available_model_keys()
+
     status = {
         "server_name": Config.SERVER_NAME,
         "server_version": Config.SERVER_VERSION,
-        "gemini_configured": bool(Config.GEMINI_API_KEY),
-        "gemini_model_primary": Config.GEMINI_MODEL_PRIMARY,
-        "gemini_model_fallback": Config.GEMINI_MODEL_FALLBACK,
-        "gemini_model_image": Config.GEMINI_MODEL_IMAGE,
-        "status": "healthy" if Config.GEMINI_API_KEY else "api_key_missing",
+        "status": "healthy" if (has_gemini or has_openai) else "no_api_keys",
+        # Gemini
+        "gemini_configured": has_gemini,
+        "gemini_models": {
+            "primary": Config.GEMINI_MODEL_PRIMARY,
+            "fallback": Config.GEMINI_MODEL_FALLBACK,
+            "image": Config.GEMINI_MODEL_IMAGE,
+        } if has_gemini else None,
+        # OpenAI
+        "openai_configured": has_openai,
+        "openai_models": {
+            "codex": Config.OPENAI_MODEL_CODEX,
+            "codex_max": Config.OPENAI_MODEL_CODEX_MAX,
+            "codex_mini": Config.OPENAI_MODEL_CODEX_MINI,
+            "gpt52": Config.OPENAI_MODEL_GPT52,
+            "gpt52_mini": Config.OPENAI_MODEL_GPT52_MINI,
+        } if has_openai else None,
+        # Available models for multi-model consultation
+        "available_models": available_models,
+        "default_models": Config.DEFAULT_MODELS,
     }
 
-    if not Config.GEMINI_API_KEY:
-        status["message"] = (
-            "GEMINI_API_KEY environment variable is not set. "
-            "Get your API key from https://aistudio.google.com/apikey"
+    messages = []
+    if not has_gemini:
+        messages.append(
+            "GEMINI_API_KEY not set - Gemini models unavailable. "
+            "Get key from https://aistudio.google.com/apikey"
+        )
+    if not has_openai:
+        messages.append(
+            "OPENAI_API_KEY not set - OpenAI/Codex models unavailable. "
+            "Get key from https://platform.openai.com/api-keys"
         )
 
+    if messages:
+        status["messages"] = messages
+
     return status
+
+
+@mcp.tool()
+async def list_available_models() -> dict:
+    """
+    List all available models for second opinion consultation.
+
+    Returns a list of models with their keys, display names, descriptions,
+    and whether they're currently available (API key configured).
+
+    Use this to see which models you can select for get_multi_model_second_opinion.
+
+    Returns:
+        dict with available_models list and configuration status
+
+    Example:
+        {
+            "available_models": [
+                {
+                    "key": "gemini-3-pro",
+                    "display_name": "Gemini 3 Pro",
+                    "provider": "gemini",
+                    "description": "Google's latest, best for comprehensive analysis",
+                    "available": true
+                },
+                {
+                    "key": "codex",
+                    "display_name": "GPT-5 Codex",
+                    "provider": "openai",
+                    "description": "Optimized for code generation and review",
+                    "available": true
+                },
+                ...
+            ],
+            "default_models": ["gemini-3-pro", "codex"]
+        }
+    """
+    available_keys = Config.get_available_model_keys()
+
+    models = []
+    for key, info in Config.AVAILABLE_MODELS.items():
+        models.append({
+            "key": key,
+            "display_name": info["display_name"],
+            "provider": info["provider"],
+            "model_id": info["model_id"],
+            "description": info["description"],
+            "available": key in available_keys,
+        })
+
+    return {
+        "available_models": models,
+        "default_models": Config.DEFAULT_MODELS,
+        "gemini_configured": bool(Config.GEMINI_API_KEY),
+        "openai_configured": bool(Config.OPENAI_API_KEY),
+    }
+
+
+@mcp.tool()
+async def get_multi_model_second_opinion(
+    code: str,
+    language: str,
+    models: List[str],
+    context: str = "",
+    error_messages: Optional[List[str]] = None,
+    issue_description: str = "",
+    verbosity: str = "detailed",
+) -> dict:
+    """
+    Get code review opinions from multiple LLM models in parallel.
+
+    This tool allows you to consult multiple models simultaneously and compare
+    their analyses. Select 2 or more models to get diverse perspectives on your code.
+
+    Available models (use list_available_models to see current availability):
+    - Gemini: "gemini-3-pro", "gemini-2.5-pro"
+    - OpenAI Codex: "codex", "codex-max", "codex-mini"
+    - OpenAI GPT-5.2: "gpt-5.2", "gpt-5.2-mini"
+
+    Args:
+        code: The code to review (required)
+        language: Programming language, e.g., "python", "javascript", "rust" (required)
+        models: List of model keys to consult, e.g., ["gemini-3-pro", "codex", "gpt-5.2"]
+        context: Additional context about the code
+        error_messages: List of error messages you're encountering
+        issue_description: Description of the specific issue
+        verbosity: "brief" for quick feedback, "detailed" for comprehensive analysis
+
+    Returns:
+        dict with responses from each model, comparison summary, and total cost
+
+    Example:
+        {
+            "success": true,
+            "responses": [
+                {
+                    "model_key": "gemini-3-pro",
+                    "display_name": "Gemini 3 Pro",
+                    "response": "# Analysis\\n...",
+                    "success": true,
+                    "tokens": {...},
+                    "cost": 0.012
+                },
+                {
+                    "model_key": "codex",
+                    "display_name": "GPT-5 Codex",
+                    "response": "# Analysis\\n...",
+                    "success": true,
+                    "tokens": {...},
+                    "cost": 0.025
+                }
+            ],
+            "models_consulted": 2,
+            "models_successful": 2,
+            "total_cost": 0.037
+        }
+    """
+    try:
+        # Validate we have at least 1 model (preferably 2+)
+        if not models:
+            return {
+                "success": False,
+                "error": "No models specified. Use list_available_models to see options.",
+            }
+
+        if len(models) < 2:
+            logger.warning("Only 1 model selected - consider using 2+ for comparison")
+
+        # Handle mutable default argument
+        if error_messages is None:
+            error_messages = []
+
+        logger.info(f"Multi-model code review for {language}, models={models}, verbosity={verbosity}")
+
+        # Scan for potential secrets before sending to API
+        potential_secrets = scan_for_secrets(code)
+        if potential_secrets:
+            logger.warning(f"Potential secrets detected in code: {', '.join(potential_secrets)}")
+
+        # Build the prompt
+        prompt = build_code_review_prompt(
+            code=code,
+            language=language,
+            context=context if context else None,
+            error_messages=error_messages if error_messages else None,
+            issue_description=issue_description if issue_description else None,
+            verbosity=verbosity,
+        )
+
+        # Get responses from all models in parallel
+        result = await get_multi_model_responses(prompt, models)
+
+        return result
+
+    except Exception as e:
+        error_msg = f"Failed to get multi-model second opinion: {str(e)}"
+        logger.error(error_msg)
+        return {
+            "success": False,
+            "error": error_msg,
+        }
 
 
 # =============================================================================
