@@ -1,0 +1,72 @@
+name: Feature Request
+description: Request a new command, skill, or capability
+labels: ["enhancement", "feature-request"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Have an idea for a new feature? We'd love to hear it!
+
+  - type: dropdown
+    id: type
+    attributes:
+      label: Feature type
+      options:
+        - New slash command
+        - New skill
+        - MCP server enhancement
+        - Hook/automation
+        - Documentation addition
+        - Integration
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: title
+    attributes:
+      label: Feature name
+      description: A short name for this feature
+      placeholder: "e.g., /django:test-setup command"
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem/Use case
+      description: What problem does this solve? What's the use case?
+      placeholder: |
+        As a [type of user], I want to [do something]
+        so that [benefit/outcome].
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: How should this feature work?
+      placeholder: |
+        Describe the feature:
+        - What would the user do?
+        - What would happen?
+        - What output would they see?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What other solutions have you tried or considered?
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Contribution
+      options:
+        - label: I would be willing to help implement this feature
+          required: false

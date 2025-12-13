@@ -1,0 +1,72 @@
+name: Documentation Correction
+description: Report an error, outdated information, or unclear explanation
+labels: ["documentation", "correction"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Help us keep the documentation accurate and up-to-date!
+
+  - type: dropdown
+    id: document
+    attributes:
+      label: Which document?
+      description: Select the document that needs correction
+      options:
+        - CLAUDE_CODE_BEST_PRACTICES_COMPREHENSIVE.md
+        - CLAUDE_CODE_BEST_PRACTICES.md
+        - PROGRESSIVE_DISCLOSURE_GUIDE.md
+        - MCP_TOKEN_AUDIT_CHECKLIST.md
+        - README.md
+        - Other (specify in description)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: type
+    attributes:
+      label: Type of correction
+      options:
+        - Factual error
+        - Outdated information
+        - Unclear explanation
+        - Broken link
+        - Typo/grammar
+        - Missing information
+    validations:
+      required: true
+
+  - type: input
+    id: section
+    attributes:
+      label: Section/Location
+      description: Which section or heading contains the issue?
+      placeholder: "e.g., MCP Best Practices > Token Efficiency"
+    validations:
+      required: true
+
+  - type: textarea
+    id: current
+    attributes:
+      label: Current content
+      description: Quote the problematic text
+      render: markdown
+    validations:
+      required: true
+
+  - type: textarea
+    id: suggested
+    attributes:
+      label: Suggested correction
+      description: What should it say instead?
+      render: markdown
+    validations:
+      required: true
+
+  - type: textarea
+    id: reason
+    attributes:
+      label: Why is this change needed?
+      description: Explain why the current content is incorrect or how you verified the correction
+    validations:
+      required: false

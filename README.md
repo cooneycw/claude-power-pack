@@ -11,11 +11,12 @@ A comprehensive repository combining:
 ## 🎯 Quick Navigation
 
 - [Claude Best Practices](#claude-best-practices) - Community insights & tips
-- [Token-Efficient Tool Organization](#-token-efficient-tool-organization) - **NEW:** Progressive disclosure
-- [Django Workflow Commands](#-django-workflow-commands) - **NEW:** Project setup & git worktrees
-- [Session Initialization](#-session-initialization) - **NEW:** Auto-update checks
-- [On-Demand Documentation](#-on-demand-documentation) - **NEW:** Context optimization
-- [MCP Second Opinion](#mcp-second-opinion-server) - Gemini-powered code review
+- [Token-Efficient Tool Organization](#-token-efficient-tool-organization) - Progressive disclosure
+- [Django Workflow Commands](#-django-workflow-commands) - Project setup & git worktrees
+- [GitHub Issue Management](#-github-issue-management) - **NEW:** Full CRUD for issues
+- [Session Initialization](#-session-initialization) - Auto-update checks
+- [On-Demand Documentation](#-on-demand-documentation) - Context optimization
+- [MCP Second Opinion](#mcp-second-opinion-server) - Multi-model code review
 - [Installation](#installation) - Get started quickly
 - [GitHub Setup](#github-setup) - Repository configuration
 
@@ -141,6 +142,54 @@ ln -s /path/to/claude-power-pack/.claude/commands/django ~/.claude/commands/djan
 
 # Option 2: Copy
 cp -r .claude/commands/django ~/.claude/commands/
+```
+
+## 🐙 GitHub Issue Management
+
+**New in v1.6.0:** Full CRUD operations for GitHub issues directly from Claude Code.
+
+### Available Commands
+
+| Command | Description |
+|---------|-------------|
+| `/github:help` | Overview of all GitHub commands |
+| `/github:issue-list` | List and search issues with filters |
+| `/github:issue-create` | Create issues with guided prompts |
+| `/github:issue-view` | View issue details and comments |
+| `/github:issue-update` | Update title, body, labels, add comments |
+| `/github:issue-close` | Close issues with optional comment |
+
+### Issue Templates
+
+When creating issues via GitHub web UI, structured templates are available:
+
+- **Best Practice Suggestion** - Share a new technique or tip
+- **Documentation Correction** - Report errors or outdated info
+- **Feature Request** - Request new commands/skills/capabilities
+- **Bug Report** - Report bugs in MCP server or commands
+
+### Quick Examples
+
+```bash
+# List open issues
+/github:issue-list
+
+# Create a new best practice suggestion
+/github:issue-create
+
+# View issue #42
+/github:issue-view 42
+
+# Close issue with comment
+/github:issue-close 42
+```
+
+### Prerequisites
+
+Requires GitHub CLI (`gh`) to be installed and authenticated:
+```bash
+gh auth status  # Check authentication
+gh auth login   # Authenticate if needed
 ```
 
 ## ⚡ Session Initialization
@@ -609,11 +658,17 @@ MIT License - See LICENSE file for details
 
 ---
 
-**Repository Version**: 1.5.0 (Multi-Model Second Opinion with Codex)
+**Repository Version**: 1.6.0 (GitHub Issue Management)
 **Last Updated**: December 2025
 **Maintainer**: cooneycw
 
-## What's New in v1.5.0
+## What's New in v1.6.0
+
+- **GitHub Issue Management** - Full CRUD operations for issues via slash commands
+- **Issue Templates** - Structured templates for best practices, corrections, features, bugs
+- **`/github:*` Commands** - List, create, view, update, and close issues from Claude Code
+
+### Previous: v1.5.0
 
 - **Multi-Model Consultation** - Compare responses from 10 different AI models in parallel
 - **OpenAI Codex Support** - GPT-5.1 Codex Max/Mini via Responses API

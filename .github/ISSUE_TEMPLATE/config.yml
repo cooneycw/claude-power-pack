@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Claude Code Documentation
+    url: https://docs.anthropic.com/en/docs/claude-code
+    about: Official Claude Code documentation
+  - name: r/ClaudeCode Community
+    url: https://reddit.com/r/ClaudeCode
+    about: Community discussion and tips

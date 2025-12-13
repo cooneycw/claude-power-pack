@@ -1,0 +1,78 @@
+name: Best Practice Suggestion
+description: Suggest a new best practice, technique, or tip for Claude Code
+labels: ["enhancement", "best-practice"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for contributing to the Claude Code community knowledge base!
+
+  - type: input
+    id: title
+    attributes:
+      label: Practice Title
+      description: A concise name for this best practice
+      placeholder: "e.g., Use Plan Mode for complex refactors"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      description: Which area does this practice relate to?
+      options:
+        - Skills & Activation
+        - MCP Optimization
+        - Session Management
+        - Context Efficiency
+        - CLAUDE.md Configuration
+        - Hooks & Automation
+        - Workflow Patterns
+        - Plan Mode
+        - Code Quality
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Explain the practice and why it's useful
+      placeholder: |
+        What is the practice?
+        Why does it work?
+        When should it be used?
+    validations:
+      required: true
+
+  - type: textarea
+    id: example
+    attributes:
+      label: Example
+      description: Provide a concrete example of this practice in action
+      placeholder: |
+        Before: [what users typically do]
+        After: [how to do it better]
+    validations:
+      required: false
+
+  - type: input
+    id: source
+    attributes:
+      label: Source (optional)
+      description: Where did you learn this? (Reddit post, personal experience, etc.)
+      placeholder: "e.g., r/ClaudeCode top post, personal experience"
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: verification
+    attributes:
+      label: Verification
+      options:
+        - label: I have personally tested this practice
+          required: false
+        - label: This practice is not already documented in the best practices guide
+          required: true

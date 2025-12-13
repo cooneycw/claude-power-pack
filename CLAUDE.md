@@ -29,11 +29,15 @@ claude-power-pack/
 ├── PROGRESSIVE_DISCLOSURE_GUIDE.md             # Context optimization
 ├── MCP_TOKEN_AUDIT_CHECKLIST.md                # Token efficiency
 ├── mcp-second-opinion/                         # MCP server
-│   └── src/server.py                           # 10 tools
+│   └── src/server.py                           # 12 tools
 ├── .claude/
-│   ├── commands/django/                        # Django workflow commands
+│   ├── commands/
+│   │   ├── django/                             # Django workflow commands
+│   │   └── github/                             # GitHub issue management
 │   ├── skills/best-practices.md                # On-demand best practices
 │   └── hooks.json                              # SessionStart update check
+├── .github/
+│   └── ISSUE_TEMPLATE/                         # Structured issue templates
 └── README.md                                    # Quick start guide
 ```
 
@@ -65,7 +69,19 @@ Available commands:
 - `/django:worktree-setup` - Configure git worktrees for dev/staging/prod
 - `/django:worktree-explain` - Learn about git worktrees
 
+## GitHub Issue Management
+
+**New in v1.6.0:** Manage issues in this repository directly from Claude Code.
+
+Commands:
+- `/github:help` - Overview of all GitHub commands
+- `/github:issue-list` - List and search issues
+- `/github:issue-create` - Create new issues with guided prompts
+- `/github:issue-view` - View issue details and comments
+- `/github:issue-update` - Update existing issues
+- `/github:issue-close` - Close issues with optional comment
+
 ## Version
 
-Current version: 1.0.0
-Next release: 1.1.0 (context-efficient architecture update)
+Current version: 1.6.0
+Previous: 1.5.0 (Multi-Model Second Opinion with Codex)
