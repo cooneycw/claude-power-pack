@@ -125,10 +125,16 @@ class Config:
     # Codex models (use Responses API) - Updated Dec 2025
     # gpt-5.1-codex-max: Most capable for complex coding
     # gpt-5.1-codex-mini: Cost-effective coding model
+    # gpt-5-codex: Base codex model
     # o3: Full Codex reasoning agent
+    OPENAI_MODEL_CODEX: str = "gpt-5-codex"
     OPENAI_MODEL_CODEX_MAX: str = "gpt-5.1-codex-max"
     OPENAI_MODEL_CODEX_MINI: str = "gpt-5.1-codex-mini"
     OPENAI_MODEL_O3: str = "o3"
+
+    # GPT-5.2 models
+    OPENAI_MODEL_GPT52: str = "gpt-5.2"
+    OPENAI_MODEL_GPT52_MINI: str = "gpt-5.2-mini"
 
     # o1 models (reasoning-focused)
     OPENAI_MODEL_O1: str = "o1"
@@ -153,6 +159,9 @@ class Config:
         # Reasoning models
         "o1": {"input": 15.00, "output": 60.00},
         "o1-mini": {"input": 3.00, "output": 12.00},
+        # GPT-5.2 models
+        "gpt-5.2": {"input": 5.00, "output": 15.00},
+        "gpt-5.2-mini": {"input": 1.00, "output": 4.00},
     }
 
     # ==========================================================================
@@ -224,6 +233,26 @@ class Config:
             "model_id": "o1-mini",
             "display_name": "o1 Mini",
             "description": "Faster reasoning model",
+        },
+        # Base Codex model
+        "codex": {
+            "provider": "openai",
+            "model_id": "gpt-5-codex",
+            "display_name": "Codex",
+            "description": "Base Codex model for coding tasks",
+        },
+        # GPT-5.2 models
+        "gpt-5.2": {
+            "provider": "openai",
+            "model_id": "gpt-5.2",
+            "display_name": "GPT-5.2",
+            "description": "Latest GPT model, excellent reasoning",
+        },
+        "gpt-5.2-mini": {
+            "provider": "openai",
+            "model_id": "gpt-5.2-mini",
+            "display_name": "GPT-5.2 Mini",
+            "description": "Cost-effective GPT-5.2 variant",
         },
     }
 
