@@ -276,7 +276,7 @@ class Config:
 
     # Server Configuration
     SERVER_NAME: str = "second-opinion-server"
-    SERVER_VERSION: str = "1.5.0"  # Multi-model support (OpenAI Codex + GPT-5.2)
+    SERVER_VERSION: str = "1.6.1"  # Fixed missing model constants
 
     # HTTP/SSE Transport Configuration (with safe parsing)
     SERVER_HOST: str = os.getenv("MCP_SERVER_HOST", "127.0.0.1")
