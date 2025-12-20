@@ -229,11 +229,13 @@ async def _try_gemini_model(prompt: str, model_name: str) -> tuple[str, str]:
         logger.info(f"Sending request to {model_name}")
         full_response = []
 
-        async for chunk in _gemini_client.aio.models.generate_content_stream(
+        # Await the stream coroutine first, then iterate
+        stream = await _gemini_client.aio.models.generate_content_stream(
             model=model_name,
             contents=prompt,
             config=config,
-        ):
+        )
+        async for chunk in stream:
             if chunk.text:
                 full_response.append(chunk.text)
                 logger.debug(f"Received chunk: {len(chunk.text)} chars")
