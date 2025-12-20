@@ -11,7 +11,7 @@ import re
 from typing import Any, Dict, List, Set
 
 import httpx
-from google.generativeai.types import FunctionDeclaration
+from google.genai import types
 
 from config import Config
 
@@ -63,8 +63,8 @@ def revoke_domain(domain: str) -> bool:
     return True
 
 
-# Gemini function declaration for fetch_url
-FETCH_URL_DECLARATION = FunctionDeclaration(
+# Gemini function declaration for fetch_url (using new google-genai SDK)
+FETCH_URL_DECLARATION = types.FunctionDeclaration(
     name="fetch_url",
     description=(
         "Fetch and read the content of a URL. Best used for documentation pages, "
@@ -73,20 +73,20 @@ FETCH_URL_DECLARATION = FunctionDeclaration(
         "Use this after web_search to read relevant documentation. "
         "Note: Unknown domains require user approval before fetching."
     ),
-    parameters={
-        "type": "object",
-        "properties": {
-            "url": {
-                "type": "string",
-                "description": "The URL to fetch. Must be a valid HTTP/HTTPS URL.",
-            },
-            "max_length": {
-                "type": "integer",
-                "description": "Maximum characters to return (default: 10000, max: 50000)",
-            },
+    parameters=types.Schema(
+        type=types.Type.OBJECT,
+        properties={
+            "url": types.Schema(
+                type=types.Type.STRING,
+                description="The URL to fetch. Must be a valid HTTP/HTTPS URL.",
+            ),
+            "max_length": types.Schema(
+                type=types.Type.INTEGER,
+                description="Maximum characters to return (default: 10000, max: 50000)",
+            ),
         },
-        "required": ["url"],
-    },
+        required=["url"],
+    ),
 )
 
 

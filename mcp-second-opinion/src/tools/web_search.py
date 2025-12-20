@@ -8,12 +8,12 @@ import logging
 from typing import Any, Dict, List
 
 import httpx
-from google.generativeai.types import FunctionDeclaration
+from google.genai import types
 
 logger = logging.getLogger(__name__)
 
-# Gemini function declaration for web_search
-WEB_SEARCH_DECLARATION = FunctionDeclaration(
+# Gemini function declaration for web_search (using new google-genai SDK)
+WEB_SEARCH_DECLARATION = types.FunctionDeclaration(
     name="web_search",
     description=(
         "Search the web for programming documentation, code examples, API references, "
@@ -21,20 +21,20 @@ WEB_SEARCH_DECLARATION = FunctionDeclaration(
         "Use this when you need to look up current documentation, verify API details, "
         "or find code examples for specific libraries or frameworks."
     ),
-    parameters={
-        "type": "object",
-        "properties": {
-            "query": {
-                "type": "string",
-                "description": "Search query. Be specific and include library/framework names.",
-            },
-            "num_results": {
-                "type": "integer",
-                "description": "Number of results to return (default: 5, max: 10)",
-            },
+    parameters=types.Schema(
+        type=types.Type.OBJECT,
+        properties={
+            "query": types.Schema(
+                type=types.Type.STRING,
+                description="Search query. Be specific and include library/framework names.",
+            ),
+            "num_results": types.Schema(
+                type=types.Type.INTEGER,
+                description="Number of results to return (default: 5, max: 10)",
+            ),
         },
-        "required": ["query"],
-    },
+        required=["query"],
+    ),
 )
 
 

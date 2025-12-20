@@ -462,6 +462,31 @@ print(f"Total cost: ${result['total_cost']}")
 - Conda (recommended) or pip
 - Git
 
+#### Installing Conda (if not already installed)
+
+If you don't have conda installed, install Miniconda:
+
+```bash
+# Download and install Miniconda
+curl -fsSL https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -o /tmp/miniconda.sh
+bash /tmp/miniconda.sh -b -p $HOME/miniconda3
+
+# Initialize conda for your shell
+~/miniconda3/bin/conda init bash
+source ~/.bashrc
+
+# Accept Terms of Service (required for new installations)
+conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main
+conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r
+```
+
+For macOS, replace the download URL with:
+```bash
+curl -fsSL https://repo.anaconda.com/miniconda/Miniconda3-latest-MacOSX-x86_64.sh -o /tmp/miniconda.sh
+# Or for Apple Silicon:
+curl -fsSL https://repo.anaconda.com/miniconda/Miniconda3-latest-MacOSX-arm64.sh -o /tmp/miniconda.sh
+```
+
 ### Step 1: Clone Repository
 
 ```bash
@@ -487,7 +512,7 @@ conda activate mcp-second-opinion
 
 Or with pip:
 ```bash
-pip install mcp[cli]>=1.2.0 fastmcp>=1.0 google-generativeai>=0.3.0 \
+pip install mcp[cli]>=1.2.0 fastmcp>=1.0 google-genai>=1.0.0 \
            openai>=1.50.0 tenacity>=8.0.0 pydantic>=2.0.0 httpx>=0.24.0
 ```
 

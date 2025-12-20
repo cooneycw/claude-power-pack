@@ -12,7 +12,8 @@ import logging
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 import openai
 from fastmcp import FastMCP
 from tenacity import (
@@ -45,9 +46,10 @@ logger = logging.getLogger(__name__)
 # Initialize FastMCP server
 mcp = FastMCP(Config.SERVER_NAME)
 
-# Configure Gemini
+# Configure Gemini client (new google-genai SDK)
+_gemini_client: Optional[genai.Client] = None
 if Config.GEMINI_API_KEY:
-    genai.configure(api_key=Config.GEMINI_API_KEY)
+    _gemini_client = genai.Client(api_key=Config.GEMINI_API_KEY)
     logger.info("Gemini API configured successfully")
 else:
     logger.warning("GEMINI_API_KEY not set - Gemini models will be unavailable")
@@ -60,8 +62,7 @@ if Config.OPENAI_API_KEY:
 else:
     logger.warning("OPENAI_API_KEY not set - OpenAI/Codex models will be unavailable")
 
-# Global model instance cache (reuse across requests to avoid cold starts)
-_gemini_models: Dict[str, genai.GenerativeModel] = {}
+# Lock for thread-safe operations
 _model_lock: asyncio.Lock = asyncio.Lock()
 
 # Gemini context cache storage (maps cache_name -> cache_object)
@@ -91,6 +92,9 @@ async def get_or_create_context_cache(
     if not Config.ENABLE_CONTEXT_CACHING:
         return None
 
+    if not _gemini_client:
+        return None
+
     try:
         async with _cache_lock:
             # Check if we have a valid cached version
@@ -115,11 +119,13 @@ async def get_or_create_context_cache(
 
             logger.info(f"Creating new context cache: {cache_key}")
 
-            # Use Gemini's caching API
-            cache = genai.caching.CachedContent.create(
+            # Use new google-genai caching API
+            cache = await _gemini_client.aio.caches.create(
                 model=model_name,
-                system_instruction=system_instruction,
-                ttl=timedelta(minutes=Config.CACHE_TTL_MINUTES),
+                config=types.CreateCachedContentConfig(
+                    system_instruction=system_instruction,
+                    ttl=f"{Config.CACHE_TTL_MINUTES * 60}s",
+                ),
             )
 
             _context_caches[cache_key] = {
@@ -155,6 +161,9 @@ async def get_gemini_streaming_response(
     Raises:
         Exception: If all retries and fallbacks fail
     """
+    if not _gemini_client:
+        raise ValueError("Gemini API key not configured")
+
     # Determine which model to use
     if has_image:
         model_to_use = Config.GEMINI_MODEL_IMAGE
@@ -204,33 +213,27 @@ async def _try_gemini_model(prompt: str, model_name: str) -> tuple[str, str]:
     Raises:
         Exception: If the request fails after retries
     """
-    try:
-        # Reuse model instance from cache (thread-safe)
-        async with _model_lock:
-            if model_name not in _gemini_models:
-                logger.info(f"Creating new model instance for {model_name}")
-                _gemini_models[model_name] = genai.GenerativeModel(model_name)
-            model = _gemini_models[model_name]
+    if not _gemini_client:
+        raise ValueError("Gemini client not initialized")
 
-        # Configure generation parameters
-        generation_config = genai.GenerationConfig(
+    try:
+        # Configure generation parameters using new types
+        config = types.GenerateContentConfig(
             max_output_tokens=Config.MAX_TOKENS,
             temperature=Config.TEMPERATURE,
             top_p=Config.TOP_P,
             top_k=Config.TOP_K,
         )
 
-        # Generate content with streaming
+        # Generate content with streaming using new async API
         logger.info(f"Sending request to {model_name}")
-        response = await model.generate_content_async(
-            prompt,
-            generation_config=generation_config,
-            stream=True,
-        )
-
-        # Collect streaming chunks
         full_response = []
-        async for chunk in response:
+
+        async for chunk in _gemini_client.aio.models.generate_content_stream(
+            model=model_name,
+            contents=prompt,
+            config=config,
+        ):
             if chunk.text:
                 full_response.append(chunk.text)
                 logger.debug(f"Received chunk: {len(chunk.text)} chars")
@@ -598,6 +601,9 @@ async def get_agentic_response(
     Returns:
         Tuple of (response text, model used, list of tool calls made)
     """
+    if not _gemini_client:
+        raise ValueError("Gemini client not initialized")
+
     tool_calls_made = []
 
     # Filter tool declarations to only enabled tools
@@ -612,33 +618,25 @@ async def get_agentic_response(
         return response, model_used, []
 
     try:
-        # Get or create model with tool support
-        async with _model_lock:
-            tool_model_key = f"{model_name}_tools"
-            if tool_model_key not in _gemini_models:
-                logger.info(f"Creating tool-enabled model instance for {model_name}")
-                _gemini_models[tool_model_key] = genai.GenerativeModel(
-                    model_name,
-                    tools=enabled_declarations,
-                )
-            model = _gemini_models[tool_model_key]
-
-        generation_config = genai.GenerationConfig(
+        # Configure generation parameters
+        config = types.GenerateContentConfig(
             max_output_tokens=Config.MAX_TOKENS,
             temperature=Config.TEMPERATURE,
             top_p=Config.TOP_P,
             top_k=Config.TOP_K,
+            tools=enabled_declarations,
         )
-
-        # Start the conversation
-        chat = model.start_chat()
 
         logger.info(f"Starting agentic request to {model_name} with tools: {tools_enabled}")
 
+        # Maintain conversation history for multi-turn
+        contents = [prompt]
+
         # Initial request
-        response = await chat.send_message_async(
-            prompt,
-            generation_config=generation_config,
+        response = await _gemini_client.aio.models.generate_content(
+            model=model_name,
+            contents=contents,
+            config=config,
         )
 
         # Tool call loop
@@ -651,18 +649,21 @@ async def get_agentic_response(
             function_calls = [
                 part.function_call
                 for part in response.candidates[0].content.parts
-                if hasattr(part, "function_call") and part.function_call.name
+                if hasattr(part, "function_call") and part.function_call and part.function_call.name
             ]
 
             if not function_calls:
                 # No more tool calls, we have the final response
                 break
 
-            # Execute each function call
-            function_responses = []
+            # Add the model's response to conversation history
+            contents.append(response.candidates[0].content)
+
+            # Execute each function call and collect responses
+            function_response_parts = []
             for fc in function_calls:
                 tool_name = fc.name
-                tool_args = dict(fc.args)
+                tool_args = dict(fc.args) if fc.args else {}
 
                 logger.info(f"Gemini calling tool: {tool_name}({tool_args})")
 
@@ -678,13 +679,11 @@ async def get_agentic_response(
                             "success": result.get("success", True),
                         })
 
-                        # Create function response for Gemini
-                        function_responses.append(
-                            genai.protos.Part(
-                                function_response=genai.protos.FunctionResponse(
-                                    name=tool_name,
-                                    response={"result": str(result)},
-                                )
+                        # Create function response part
+                        function_response_parts.append(
+                            types.Part.from_function_response(
+                                name=tool_name,
+                                response={"result": str(result)},
                             )
                         )
 
@@ -699,32 +698,30 @@ async def get_agentic_response(
                             "error": str(e),
                         })
 
-                        function_responses.append(
-                            genai.protos.Part(
-                                function_response=genai.protos.FunctionResponse(
-                                    name=tool_name,
-                                    response={"error": str(e)},
-                                )
+                        function_response_parts.append(
+                            types.Part.from_function_response(
+                                name=tool_name,
+                                response={"error": str(e)},
                             )
                         )
                 else:
                     logger.warning(f"Tool {tool_name} not available or not enabled")
-                    function_responses.append(
-                        genai.protos.Part(
-                            function_response=genai.protos.FunctionResponse(
-                                name=tool_name,
-                                response={"error": f"Tool {tool_name} not available"},
-                            )
+                    function_response_parts.append(
+                        types.Part.from_function_response(
+                            name=tool_name,
+                            response={"error": f"Tool {tool_name} not available"},
                         )
                     )
 
                 tool_call_count += 1
 
-            # Send tool results back to Gemini
-            if function_responses:
-                response = await chat.send_message_async(
-                    function_responses,
-                    generation_config=generation_config,
+            # Add function responses to conversation and get next response
+            if function_response_parts:
+                contents.append(types.Content(role="user", parts=function_response_parts))
+                response = await _gemini_client.aio.models.generate_content(
+                    model=model_name,
+                    contents=contents,
+                    config=config,
                 )
 
         # Extract final text response
