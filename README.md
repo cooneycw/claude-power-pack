@@ -12,8 +12,10 @@ A comprehensive repository combining:
 
 - [Claude Best Practices](#claude-best-practices) - Community insights & tips
 - [Token-Efficient Tool Organization](#-token-efficient-tool-organization) - Progressive disclosure
+- [Terminal Labeling](#-terminal-labeling) - **NEW:** Visual session management
+- [Issue-Driven Development](#-issue-driven-development) - **NEW:** Micro-issue methodology
 - [Django Workflow Commands](#-django-workflow-commands) - Project setup & git worktrees
-- [GitHub Issue Management](#-github-issue-management) - **NEW:** Full CRUD for issues
+- [GitHub Issue Management](#-github-issue-management) - Full CRUD for issues
 - [Session Initialization](#-session-initialization) - Auto-update checks
 - [On-Demand Documentation](#-on-demand-documentation) - Context optimization
 - [MCP Second Opinion](#mcp-second-opinion-server) - Multi-model code review
@@ -143,6 +145,83 @@ ln -s /path/to/claude-power-pack/.claude/commands/django ~/.claude/commands/djan
 # Option 2: Copy
 cp -r .claude/commands/django ~/.claude/commands/
 ```
+
+## 🏷️ Terminal Labeling
+
+**New in v1.7.0:** Visual feedback for multi-session Claude Code workflows.
+
+### Why It Matters
+
+When running multiple Claude Code sessions (with tmux or worktrees), terminal labels show:
+- Which issue/task each terminal handles
+- When Claude is working vs. awaiting input
+- Quick session identification
+
+### Quick Setup
+
+```bash
+# Install terminal-label script
+mkdir -p ~/.claude/scripts
+ln -sf /path/to/claude-power-pack/scripts/terminal-label.sh ~/.claude/scripts/
+chmod +x ~/.claude/scripts/terminal-label.sh
+
+# Set your project prefix
+~/.claude/scripts/terminal-label.sh prefix "MyProject"
+```
+
+### Commands
+
+| Command | Description |
+|---------|-------------|
+| `terminal-label.sh issue [PREFIX] NUM [TITLE]` | Set issue label |
+| `terminal-label.sh project [PREFIX]` | Set project selection mode |
+| `terminal-label.sh await` | Set awaiting mode (via hook) |
+| `terminal-label.sh restore` | Restore saved label (via hook) |
+| `terminal-label.sh status` | Show configuration |
+
+### Example
+
+```bash
+# Working on issue #42
+terminal-label.sh issue 42 "Fix Auth Bug"
+# Terminal shows: "Issue #42: Fix Auth Bug"
+
+# With custom prefix
+terminal-label.sh issue NHL 123 "Player API"
+# Terminal shows: "NHL #123: Player API"
+```
+
+## 📋 Issue-Driven Development
+
+**New in v1.7.0:** A methodology for managing complex projects with Claude Code.
+
+### The Concept
+
+Issue-Driven Development (IDD) combines:
+- **Hierarchical Issues** - Phases → Waves → Micro-issues
+- **Git Worktrees** - Parallel development without branch switching
+- **Terminal Labeling** - Visual context for multiple sessions
+- **Structured Commits** - Traceable via "Closes #N"
+
+### Quick Start
+
+1. **Scan your project** with `/project-next`
+2. **Create a worktree** for the recommended issue
+3. **Label your terminal** with the issue number
+4. **Implement and commit** with "Closes #N"
+
+### Documentation
+
+- **[ISSUE_DRIVEN_DEVELOPMENT.md](ISSUE_DRIVEN_DEVELOPMENT.md)** - Full methodology guide
+- **`/project-next`** command - Analyze issues and recommend next steps
+
+### Key Conventions
+
+| Entity | Pattern | Example |
+|--------|---------|---------|
+| Branch | `issue-{N}-{description}` | `issue-123-auth-fix` |
+| Worktree | `{repo}-issue-{N}` | `my-app-issue-123` |
+| Commit | `type(scope): Desc (Closes #N)` | `fix(auth): Resolve bug (Closes #123)` |
 
 ## 🐙 GitHub Issue Management
 

@@ -16,12 +16,14 @@
 6. [MCP Best Practices](#mcp-best-practices)
 7. [Context-Efficient Tool Architecture](#context-efficient-tool-architecture)
 8. [Hooks & Automation](#hooks--automation)
-9. [Session Management](#session-management)
-10. [Plan Mode](#plan-mode)
-11. [Code Quality & Review](#code-quality--review)
-12. [Workflow Patterns](#workflow-patterns)
-13. [Common Pitfalls](#common-pitfalls)
-14. [Tools & Resources](#tools--resources)
+9. [Terminal Labeling & Visual Feedback](#terminal-labeling--visual-feedback) *(NEW)*
+10. [Issue-Driven Development](#issue-driven-development) *(NEW)*
+11. [Session Management](#session-management)
+12. [Plan Mode](#plan-mode)
+13. [Code Quality & Review](#code-quality--review)
+14. [Workflow Patterns](#workflow-patterns)
+15. [Common Pitfalls](#common-pitfalls)
+16. [Tools & Resources](#tools--resources)
 
 ---
 
@@ -433,6 +435,135 @@ This is how Anthropic's Skills system works internally.
 - Use Ctrl-G hook to launch custom tools
 - Extend beyond just opening editor
 - Hook into any workflow automation
+
+---
+
+## Terminal Labeling & Visual Feedback
+
+### Why Terminal Labels Matter
+
+When running multiple Claude Code sessions (especially with tmux or worktrees), knowing which session handles which task becomes critical. Terminal labels provide:
+
+1. **Visual Context** - Instantly see which issue/task each terminal handles
+2. **State Awareness** - Know when Claude is working vs. awaiting input
+3. **Session Management** - Quickly identify sessions to close/resume
+
+### Setup
+
+**User-level installation** (recommended for all projects):
+```bash
+mkdir -p ~/.claude/scripts
+ln -sf /path/to/claude-power-pack/scripts/terminal-label.sh ~/.claude/scripts/
+chmod +x ~/.claude/scripts/terminal-label.sh
+```
+
+**Project-level configuration** (in your project's `.claude/` directory):
+```bash
+# .claude/.terminal-label-config
+DEFAULT_PREFIX="YourProject"
+```
+
+### Commands
+
+| Command | Description | Example |
+|---------|-------------|---------|
+| `terminal-label.sh set "Label"` | Set custom label | `terminal-label.sh set "Feature: Auth"` |
+| `terminal-label.sh issue [PREFIX] NUM [TITLE]` | Set issue label | `terminal-label.sh issue 42 "Bug Fix"` |
+| `terminal-label.sh project [PREFIX]` | Set project mode | `terminal-label.sh project NHL` |
+| `terminal-label.sh await` | Set awaiting mode | (typically via hook) |
+| `terminal-label.sh restore` | Restore saved label | (typically via hook) |
+
+### Hook Integration
+
+Add to your `.claude/hooks.json`:
+
+```json
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/scripts/terminal-label.sh restore 2>/dev/null || true",
+            "timeout": 1000
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/scripts/terminal-label.sh await 2>/dev/null || true",
+            "timeout": 1000
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+### Workflow Example
+
+```bash
+# Start working on issue #42
+terminal-label.sh issue MyProject 42 "Implement OAuth"
+# Terminal shows: "MyProject #42: Implement OAuth"
+
+# When Claude finishes, hook sets: "Claude: Awaiting Input..."
+# When you type next prompt, hook restores: "MyProject #42: Implement OAuth"
+```
+
+---
+
+## Issue-Driven Development
+
+Issue-Driven Development (IDD) is a workflow pattern that combines:
+- **Hierarchical Issues** - Phases → Waves → Micro-issues
+- **Git Worktrees** - Parallel development without branch switching
+- **Terminal Labeling** - Visual context for multiple sessions
+- **Structured Commits** - Traceable, closeable commits via "Closes #N"
+
+### The Three-Level Hierarchy
+
+```
+Phase (Epic)
+├── Wave (Feature Group)
+│   ├── Micro-Issue (Atomic Task)
+│   └── Micro-Issue
+└── Wave
+    └── Micro-Issue
+```
+
+### Why It Works with Claude Code
+
+| Problem | IDD Solution |
+|---------|--------------|
+| Feature too large | Break into micro-issues |
+| Lost context | Each issue has acceptance criteria |
+| Parallel work blocked | Git worktrees enable concurrent development |
+| No traceability | Commits link to issues via "Closes #N" |
+
+### Key Conventions
+
+| Entity | Pattern | Example |
+|--------|---------|---------|
+| Branch | `issue-{N}-{description}` | `issue-123-player-landing` |
+| Worktree | `{repo}-issue-{N}` | `nhl-api-issue-123` |
+| Commit | `type(scope): Desc (Closes #N)` | `feat(api): Add endpoint (Closes #42)` |
+
+### Getting Started
+
+Use the `/project-next` command to analyze your repository's issues and get prioritized recommendations for what to work on next.
+
+**Full documentation:** See [ISSUE_DRIVEN_DEVELOPMENT.md](ISSUE_DRIVEN_DEVELOPMENT.md) for the complete methodology guide including:
+- Micro-issue templates
+- Git worktree commands
+- Multi-agent coordination patterns
+- Best practices and anti-patterns
 
 ---
 

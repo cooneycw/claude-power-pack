@@ -9,6 +9,7 @@ This repository contains two main components:
 ## Quick References
 
 - **Best Practices:** `CLAUDE_CODE_BEST_PRACTICES_COMPREHENSIVE.md`
+- **Issue-Driven Development:** `ISSUE_DRIVEN_DEVELOPMENT.md` *(NEW in v1.7.0)*
 - **Progressive Disclosure:** `PROGRESSIVE_DISCLOSURE_GUIDE.md`
 - **MCP Token Audit:** `MCP_TOKEN_AUDIT_CHECKLIST.md`
 - **MCP Server Docs:** `mcp-second-opinion/`
@@ -26,16 +27,20 @@ This repository contains two main components:
 claude-power-pack/
 ├── CLAUDE_CODE_BEST_PRACTICES_COMPREHENSIVE.md  # Main guide (21KB)
 ├── CLAUDE_CODE_BEST_PRACTICES.md               # Quick reference (9.5KB)
+├── ISSUE_DRIVEN_DEVELOPMENT.md                 # IDD methodology (NEW)
 ├── PROGRESSIVE_DISCLOSURE_GUIDE.md             # Context optimization
 ├── MCP_TOKEN_AUDIT_CHECKLIST.md                # Token efficiency
 ├── mcp-second-opinion/                         # MCP server
 │   └── src/server.py                           # 12 tools
+├── scripts/
+│   └── terminal-label.sh                       # Terminal labeling (NEW)
 ├── .claude/
 │   ├── commands/
 │   │   ├── django/                             # Django workflow commands
-│   │   └── github/                             # GitHub issue management
+│   │   ├── github/                             # GitHub issue management
+│   │   └── project-next.md                     # Next steps orchestrator (NEW)
 │   ├── skills/best-practices.md                # On-demand best practices
-│   └── hooks.json                              # SessionStart update check
+│   └── hooks.json                              # Session/label hooks
 ├── .github/
 │   └── ISSUE_TEMPLATE/                         # Structured issue templates
 └── README.md                                    # Quick start guide
@@ -81,7 +86,35 @@ Commands:
 - `/github:issue-update` - Update existing issues
 - `/github:issue-close` - Close issues with optional comment
 
+## Terminal Labeling
+
+**New in v1.7.0:** Visual feedback for multi-session/multi-worktree workflows.
+
+**Setup:**
+```bash
+mkdir -p ~/.claude/scripts
+ln -sf /path/to/claude-power-pack/scripts/terminal-label.sh ~/.claude/scripts/
+```
+
+**Commands:**
+- `terminal-label.sh issue PREFIX NUM [TITLE]` - Set issue-based label
+- `terminal-label.sh project PREFIX` - Set project selection mode
+- `terminal-label.sh await` - Show "Awaiting Input" (via Stop hook)
+- `terminal-label.sh restore` - Restore saved label (via UserPromptSubmit hook)
+
+See `ISSUE_DRIVEN_DEVELOPMENT.md` for integration with git worktrees.
+
+## Project Next Steps
+
+**New in v1.7.0:** Orchestrator command for GitHub issue prioritization.
+
+Run `/project-next` in any GitHub repository to:
+- Analyze open issues with hierarchy awareness (Wave/Phase patterns)
+- Map worktrees to issues for context-aware recommendations
+- Prioritize actions: Critical → In Progress → Ready → Quick Wins
+- Set terminal labels for the selected work
+
 ## Version
 
-Current version: 1.6.0
-Previous: 1.5.0 (Multi-Model Second Opinion with Codex)
+Current version: 1.7.0
+Previous: 1.6.0 (GitHub Issue Management Commands)
