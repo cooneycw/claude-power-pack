@@ -31,13 +31,24 @@ claude-power-pack/
 ├── MCP_TOKEN_AUDIT_CHECKLIST.md                # Token efficiency
 ├── mcp-second-opinion/                         # MCP server
 │   └── src/server.py                           # 12 tools
+├── lib/secrets/                                # NEW: Secrets management
+│   ├── base.py                                 # SecretValue, SecretsProvider
+│   ├── credentials.py                          # DatabaseCredentials with masking
+│   ├── masking.py                              # Output masking patterns
+│   ├── permissions.py                          # Access control model
+│   └── providers/                              # AWS, env providers
 ├── scripts/
 │   ├── terminal-label.sh                       # Terminal labeling
 │   ├── session-lock.sh                         # Lock coordination
 │   ├── session-register.sh                     # Session lifecycle
 │   ├── session-heartbeat.sh                    # Heartbeat daemon
 │   ├── pytest-locked.sh                        # pytest wrapper
-│   └── worktree-remove.sh                      # Safe worktree removal
+│   ├── worktree-remove.sh                      # Safe worktree removal
+│   ├── conda-detect.sh                         # NEW: Conda env detection
+│   ├── conda-activate.sh                       # NEW: Conda activation
+│   ├── secrets-mask.sh                         # NEW: Output masking
+│   ├── secrets-get.sh                          # NEW: Get credentials
+│   └── secrets-validate.sh                     # NEW: Validate credentials
 ├── .claude/
 │   ├── commands/
 │   │   ├── coordination/                       # Session coordination
@@ -45,10 +56,14 @@ claude-power-pack/
 │   │   │   └── merge-main.md                   # Coordinated merges
 │   │   ├── django/                             # Django workflow commands
 │   │   ├── github/                             # GitHub issue management
+│   │   ├── secrets/                            # NEW: Secrets commands
+│   │   ├── env/                                # NEW: Environment commands
 │   │   ├── project-next.md                     # Next steps orchestrator
 │   │   └── project-lite.md                     # Quick reference
-│   ├── skills/best-practices.md                # On-demand best practices
-│   └── hooks.json                              # Session/label/coordination hooks
+│   ├── skills/
+│   │   ├── best-practices.md                   # On-demand best practices
+│   │   └── secrets.md                          # NEW: Secrets skill
+│   └── hooks.json                              # Session/label/conda hooks
 ├── .github/
 │   └── ISSUE_TEMPLATE/                         # Structured issue templates
 └── README.md                                    # Quick start guide
@@ -220,7 +235,92 @@ Hooks automatically:
 
 See `ISSUE_DRIVEN_DEVELOPMENT.md` for detailed documentation.
 
+## Secrets Management
+
+Secure credential access with provider abstraction and output masking.
+
+### Features
+
+- **Provider abstraction**: AWS Secrets Manager + environment variables
+- **Output masking**: Never exposes actual secret values
+- **Permission model**: Read-only by default, writes require explicit permission
+- **Bash wrappers**: Works in non-Python workflows
+
+### Setup
+
+```bash
+# Symlink scripts
+ln -sf ~/Projects/claude-power-pack/scripts/secrets-*.sh ~/.claude/scripts/
+ln -sf ~/Projects/claude-power-pack/scripts/conda-*.sh ~/.claude/scripts/
+
+# Add lib to PYTHONPATH (for Python usage)
+export PYTHONPATH="$HOME/Projects/claude-power-pack/lib:$PYTHONPATH"
+```
+
+### Commands
+
+| Command | Purpose |
+|---------|---------|
+| `/secrets:get [id]` | Get credentials (masked output) |
+| `/secrets:validate` | Test credential configuration |
+| `/env:detect` | Show detected conda environment |
+
+### Python Usage
+
+```python
+from lib.secrets import get_credentials
+
+creds = get_credentials()  # Auto-detects provider
+print(creds)  # Password masked as ****
+conn = await asyncpg.connect(**creds.dsn)  # dsn has real password
+```
+
+### Bash Usage
+
+```bash
+# Get credentials (masked)
+~/.claude/scripts/secrets-get.sh
+
+# Validate configuration
+~/.claude/scripts/secrets-validate.sh --db
+
+# Mask output
+some_command | ~/.claude/scripts/secrets-mask.sh
+```
+
+## Conda Environment Detection
+
+Automatic conda environment detection on session start.
+
+### Detection Priority
+
+1. `CONDA_ENV_NAME` environment variable
+2. `.conda-env` file in project root
+3. `environment.yml` name field
+4. Directory name matching conda env
+
+### Commands
+
+```bash
+# Show detection info
+~/.claude/scripts/conda-detect.sh --info
+
+# Get activation command
+~/.claude/scripts/conda-detect.sh --activate
+
+# Run command in detected env
+~/.claude/scripts/conda-detect.sh --run pytest tests/
+```
+
+### Creating .conda-env
+
+For projects without `environment.yml`:
+
+```bash
+echo "my-project-env" > .conda-env
+```
+
 ## Version
 
-Current version: 1.9.2
-Previous: 1.9.1 (Terminal label fixes)
+Current version: 2.0.0
+Previous: 1.9.2 (Session coordination improvements)

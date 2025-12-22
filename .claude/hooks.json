@@ -9,6 +9,11 @@
         "type": "command",
         "command": "~/.claude/scripts/session-register.sh start 2>/dev/null || true",
         "timeout": 5000
+      },
+      {
+        "type": "command",
+        "command": "~/.claude/scripts/conda-detect.sh --info 2>/dev/null || true",
+        "timeout": 2000
       }
     ],
     "UserPromptSubmit": [
