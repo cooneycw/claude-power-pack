@@ -9,7 +9,7 @@ This repository contains two main components:
 ## Quick References
 
 - **Best Practices:** `CLAUDE_CODE_BEST_PRACTICES_COMPREHENSIVE.md`
-- **Issue-Driven Development:** `ISSUE_DRIVEN_DEVELOPMENT.md` *(NEW in v1.7.0)*
+- **Issue-Driven Development:** `ISSUE_DRIVEN_DEVELOPMENT.md`
 - **Progressive Disclosure:** `PROGRESSIVE_DISCLOSURE_GUIDE.md`
 - **MCP Token Audit:** `MCP_TOKEN_AUDIT_CHECKLIST.md`
 - **MCP Server Docs:** `mcp-second-opinion/`
@@ -34,13 +34,13 @@ claude-power-pack/
 │   └── src/server.py                           # 12 tools
 ├── scripts/
 │   ├── terminal-label.sh                       # Terminal labeling
-│   ├── session-lock.sh                         # Lock coordination (NEW)
-│   ├── session-register.sh                     # Session lifecycle (NEW)
-│   ├── session-heartbeat.sh                    # Heartbeat daemon (NEW)
-│   └── pytest-locked.sh                        # pytest wrapper (NEW)
+│   ├── session-lock.sh                         # Lock coordination
+│   ├── session-register.sh                     # Session lifecycle
+│   ├── session-heartbeat.sh                    # Heartbeat daemon
+│   └── pytest-locked.sh                        # pytest wrapper
 ├── .claude/
 │   ├── commands/
-│   │   ├── coordination/                       # Session coordination (NEW)
+│   │   ├── coordination/                       # Session coordination
 │   │   │   ├── pr-create.md                    # Coordinated PR creation
 │   │   │   └── merge-main.md                   # Coordinated merges
 │   │   ├── django/                             # Django workflow commands
@@ -84,7 +84,7 @@ Available commands:
 
 ## GitHub Issue Management
 
-**New in v1.6.0:** Manage issues in this repository directly from Claude Code.
+Manage issues in this repository directly from Claude Code.
 
 Commands:
 - `/github:help` - Overview of all GitHub commands
@@ -96,7 +96,7 @@ Commands:
 
 ## Terminal Labeling
 
-**New in v1.7.0:** Visual feedback for multi-session/multi-worktree workflows.
+Visual feedback for multi-session/multi-worktree workflows.
 
 **Setup:**
 ```bash
@@ -121,7 +121,7 @@ Commands for project orientation and issue management:
 | `/project-lite` | Quick project reference | ~500-800 |
 | `/project-next` | Full issue analysis & prioritization | ~15-30K |
 
-### /project-lite (NEW in v1.8.0)
+### /project-lite
 
 Context-efficient quick reference that outputs:
 - Repository info and conventions
@@ -143,7 +143,7 @@ Full orchestrator for GitHub issue prioritization:
 
 ## Session Coordination
 
-**New in v1.9.0:** Prevent conflicts between concurrent Claude Code sessions.
+Prevent conflicts between concurrent Claude Code sessions.
 
 ### Problem Solved
 - Sessions competing for PR creation
