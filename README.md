@@ -12,15 +12,17 @@ A comprehensive repository combining:
 
 - [Claude Best Practices](#claude-best-practices) - Community insights & tips
 - [Token-Efficient Tool Organization](#-token-efficient-tool-organization) - Progressive disclosure
-- [Terminal Labeling](#-terminal-labeling) - **NEW:** Visual session management
-- [Issue-Driven Development](#-issue-driven-development) - **NEW:** Micro-issue methodology
+- [Terminal Labeling](#-terminal-labeling) - Visual session management
+- [Issue-Driven Development](#-issue-driven-development) - Micro-issue methodology
+- [Session Coordination](#-session-coordination) - **NEW v1.9:** Multi-session conflict prevention
+- [Project Commands](#-project-commands) - **NEW v1.8:** `/project-lite` & `/project-next`
 - [Django Workflow Commands](#-django-workflow-commands) - Project setup & git worktrees
 - [GitHub Issue Management](#-github-issue-management) - Full CRUD for issues
 - [Session Initialization](#-session-initialization) - Auto-update checks
 - [On-Demand Documentation](#-on-demand-documentation) - Context optimization
 - [MCP Second Opinion](#mcp-second-opinion-server) - Multi-model code review
 - [Installation](#installation) - Get started quickly
-- [GitHub Setup](#github-setup) - Repository configuration
+- [Disclosures & Legal](#-disclosures--legal) - Attribution & API terms
 
 ---
 
@@ -222,6 +224,84 @@ Issue-Driven Development (IDD) combines:
 | Branch | `issue-{N}-{description}` | `issue-123-auth-fix` |
 | Worktree | `{repo}-issue-{N}` | `my-app-issue-123` |
 | Commit | `type(scope): Desc (Closes #N)` | `fix(auth): Resolve bug (Closes #123)` |
+
+## 🔒 Session Coordination
+
+**New in v1.9.0:** Prevent conflicts between concurrent Claude Code sessions.
+
+### Problem Solved
+
+When running multiple Claude Code sessions (e.g., in tmux with worktrees):
+- Sessions competing for PR creation
+- pytest runs killed by other sessions
+- No visibility into what other sessions are doing
+- Worktree cleanup conflicts
+
+### Quick Setup
+
+```bash
+# Symlink coordination scripts
+ln -sf ~/Projects/claude-power-pack/scripts/session-*.sh ~/.claude/scripts/
+ln -sf ~/Projects/claude-power-pack/scripts/pytest-locked.sh ~/.claude/scripts/
+
+# Create coordination directory
+mkdir -p ~/.claude/coordination/{locks,sessions,heartbeat}
+```
+
+### Available Scripts
+
+| Script | Purpose |
+|--------|---------|
+| `session-lock.sh list` | Show active locks |
+| `session-lock.sh acquire NAME` | Acquire a named lock |
+| `session-lock.sh release NAME` | Release a lock |
+| `session-register.sh status` | Show active sessions |
+| `pytest-locked.sh [args]` | Run pytest with coordination |
+
+### Slash Commands
+
+| Command | Purpose |
+|---------|---------|
+| `/coordination:pr-create` | Create PR with locking to prevent conflicts |
+| `/coordination:merge-main BRANCH` | Merge to main with coordination |
+
+### Hook Integration
+
+Hooks automatically manage session lifecycle:
+- **SessionStart**: Register session
+- **UserPromptSubmit**: Update heartbeat
+- **Stop**: Mark session as paused
+
+See [ISSUE_DRIVEN_DEVELOPMENT.md](ISSUE_DRIVEN_DEVELOPMENT.md) for detailed documentation.
+
+## 📊 Project Commands
+
+**New in v1.8.0:** Commands for project orientation and issue prioritization.
+
+| Command | Purpose | Token Cost |
+|---------|---------|------------|
+| `/project-lite` | Quick project reference | ~500-800 |
+| `/project-next` | Full issue analysis & prioritization | ~15-30K |
+
+### /project-lite
+
+Context-efficient quick reference that outputs:
+- Repository info and conventions
+- Worktree summary (if applicable)
+- Key files presence check
+- Available commands
+
+**Use when:** Starting a session, context is high, or you already know what to work on.
+
+### /project-next
+
+Full orchestrator for GitHub issue prioritization:
+- Analyze open issues with hierarchy awareness (Wave/Phase patterns)
+- Map worktrees to issues for context-aware recommendations
+- Prioritize: Critical → In Progress → Ready → Quick Wins
+- Set terminal labels for selected work
+
+**Use when:** Unsure what to work on, need issue analysis, or want cleanup suggestions.
 
 ## 🐙 GitHub Issue Management
 
@@ -569,7 +649,7 @@ curl -fsSL https://repo.anaconda.com/miniconda/Miniconda3-latest-MacOSX-arm64.sh
 ### Step 1: Clone Repository
 
 ```bash
-git clone https://github.com/yourusername/claude-power-pack.git
+git clone https://github.com/cooneycw/claude-power-pack.git
 cd claude-power-pack
 ```
 
@@ -667,8 +747,8 @@ git add .gitignore
 # Commit
 git commit -m "Initial commit: Claude best practices and MCP second opinion server"
 
-# Add remote (replace with your repository URL)
-git remote add origin https://github.com/yourusername/claude-power-pack.git
+# Add remote
+git remote add origin https://github.com/cooneycw/claude-power-pack.git
 
 # Push
 git push -u origin main
@@ -683,19 +763,38 @@ claude-power-pack/
 ├── README.md                                    # This file
 ├── CLAUDE_CODE_BEST_PRACTICES_COMPREHENSIVE.md # Main best practices guide
 ├── CLAUDE_CODE_BEST_PRACTICES.md              # Quick reference guide
-├── scrape_reddit.py                           # Reddit scraper tool
-├── fetch_reddit_posts.py                      # Alternative scraper
+├── ISSUE_DRIVEN_DEVELOPMENT.md                # IDD methodology guide
+├── PROGRESSIVE_DISCLOSURE_GUIDE.md            # Context optimization
+├── MCP_TOKEN_AUDIT_CHECKLIST.md               # Token efficiency checklist
+├── scripts/                                    # Utility scripts
+│   ├── terminal-label.sh                      # Terminal labeling
+│   ├── session-lock.sh                        # Lock coordination
+│   ├── session-register.sh                    # Session lifecycle
+│   ├── session-heartbeat.sh                   # Heartbeat daemon
+│   └── pytest-locked.sh                       # pytest wrapper
+├── .claude/
+│   ├── commands/
+│   │   ├── coordination/                      # Session coordination
+│   │   │   ├── pr-create.md                   # Coordinated PR creation
+│   │   │   └── merge-main.md                  # Coordinated merges
+│   │   ├── django/                            # Django workflow
+│   │   ├── github/                            # GitHub issue management
+│   │   ├── project-next.md                    # Issue orchestrator
+│   │   └── project-lite.md                    # Quick reference
+│   ├── skills/best-practices.md               # On-demand loading
+│   └── hooks.json                             # Session/label hooks
+├── .github/
+│   └── ISSUE_TEMPLATE/                        # Structured templates
 ├── mcp-second-opinion/                        # MCP server directory
-│   ├── src/                                   # Server source code
-│   │   ├── server.py                         # Main server with 10 tools
-│   │   ├── config.py                         # Configuration
-│   │   ├── sessions.py                       # Session management
-│   │   └── tools/                           # Agentic tools
-│   ├── scripts/                              # Utility scripts
-│   ├── deploy/                               # Deployment configs
-│   ├── environment.yml                       # Conda environment
-│   └── .env.example                         # Environment template
-└── *.json                                    # Scraped data archives
+│   ├── src/
+│   │   ├── server.py                          # Main server (12 tools)
+│   │   ├── config.py                          # Configuration
+│   │   ├── sessions.py                        # Session management
+│   │   └── tools/                             # Agentic tools
+│   ├── environment.yml                        # Conda environment
+│   └── .env.example                           # Environment template
+├── scrape_reddit.py                           # Reddit scraper tool
+└── *.json                                     # Scraped data archives
 ```
 
 ## 📈 Usage Statistics
@@ -736,6 +835,37 @@ Contributions are welcome! To contribute:
 - **Review domain approvals** - Only approve trusted domains
 - **Monitor costs** - Set appropriate limits
 
+## 📋 Disclosures & Legal
+
+### Content Attribution
+
+The best practices content in this repository is compiled from public posts on r/ClaudeCode. This is **community-sourced content**, not official Anthropic documentation.
+
+- **Source**: r/ClaudeCode subreddit (100+ top posts analyzed)
+- **Nature**: Community tips, experiences, and recommendations
+- **Not affiliated with**: Anthropic (makers of Claude)
+
+Original post authors are credited in the Acknowledgments section.
+
+### API Usage
+
+This repository includes tools that use third-party APIs:
+
+| Service | Usage | Terms |
+|---------|-------|-------|
+| Google Gemini | MCP Second Opinion server | [Google AI Terms](https://ai.google.dev/terms) |
+| OpenAI | Multi-model consultation | [OpenAI Terms](https://openai.com/policies/terms-of-use) |
+| GitHub | Issue management commands | [GitHub Terms](https://docs.github.com/en/site-policy/github-terms/github-terms-of-service) |
+
+**You are responsible for**:
+- API costs incurred through your usage
+- Compliance with each service's terms
+- Protecting your API keys
+
+### Code License
+
+The scripts, commands, and MCP server code in this repository are released under the MIT License. The compiled best practices content is provided for educational purposes with attribution to original authors.
+
 ## 📜 License
 
 MIT License - See LICENSE file for details
@@ -762,11 +892,31 @@ MIT License - See LICENSE file for details
 
 ---
 
-**Repository Version**: 1.6.0 (GitHub Issue Management)
+**Repository Version**: 1.9.0 (Session Coordination)
 **Last Updated**: December 2025
 **Maintainer**: cooneycw
 
-## What's New in v1.6.0
+## What's New in v1.9.0
+
+- **Session Coordination** - Prevent conflicts between concurrent Claude Code sessions
+- **Lock System** - `session-lock.sh` for PR creation, pytest, and merge coordination
+- **Session Registry** - Track active sessions with heartbeat monitoring
+- **`/coordination:*` Commands** - `pr-create` and `merge-main` with locking
+- **pytest Wrapper** - `pytest-locked.sh` prevents test conflicts
+
+### Previous: v1.8.0
+
+- **Project Commands** - `/project-lite` and `/project-next` for orientation
+- **Context-Efficient Reference** - Quick project info at ~500 tokens
+- **Issue Prioritization** - Analyze and recommend next steps
+
+### Previous: v1.7.0
+
+- **Terminal Labeling** - Visual feedback for multi-session workflows
+- **Issue-Driven Development** - Methodology guide with micro-issues
+- **Hook Integration** - Automatic label restore on prompt submit
+
+### Previous: v1.6.0
 
 - **GitHub Issue Management** - Full CRUD operations for issues via slash commands
 - **Issue Templates** - Structured templates for best practices, corrections, features, bugs
@@ -780,12 +930,9 @@ MIT License - See LICENSE file for details
 - **OpenAI Integration** - GPT-4o, GPT-4 Turbo, o1, o1-mini support
 - **New Tools** - `list_available_models`, `get_multi_model_second_opinion`
 - **Flexible API Keys** - Works with Gemini-only, OpenAI-only, or both
-- **Auto-load .env** - API keys loaded automatically from `.env` file
-- **Code Cleanup** - Removed legacy duplicate files from repository root
 
-### Previous Updates
+### Previous: v1.1.0
 
-#### v1.1.0
 - Progressive Disclosure Architecture
 - Django Workflow Commands
 - Context Optimization (17% → <1% baseline)
