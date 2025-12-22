@@ -26,7 +26,7 @@ This guide documents the methodology as practiced in real-world projects with 10
 5. [Terminal Labeling](#terminal-labeling)
 6. [Commit Conventions](#commit-conventions)
 7. [Multi-Agent Coordination](#multi-agent-coordination)
-   - [Session Coordination](#session-coordination-new) *(NEW)*
+   - [Session Coordination](#session-coordination)
 8. [Example Workflow](#example-workflow)
 9. [Best Practices](#best-practices)
 10. [Anti-Patterns](#anti-patterns)
@@ -301,6 +301,13 @@ Add to your `.claude/hooks.json`:
 ```json
 {
   "hooks": {
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "~/.claude/scripts/session-register.sh start 2>/dev/null || true",
+        "timeout": 5000
+      }
+    ],
     "UserPromptSubmit": [
       {
         "hooks": [
@@ -308,6 +315,11 @@ Add to your `.claude/hooks.json`:
             "type": "command",
             "command": "~/.claude/scripts/terminal-label.sh restore 2>/dev/null || true",
             "timeout": 1000
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/scripts/session-heartbeat.sh touch 2>/dev/null || true",
+            "timeout": 500
           }
         ]
       }
@@ -318,6 +330,11 @@ Add to your `.claude/hooks.json`:
           {
             "type": "command",
             "command": "~/.claude/scripts/terminal-label.sh await 2>/dev/null || true",
+            "timeout": 1000
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/scripts/session-register.sh pause 2>/dev/null || true",
             "timeout": 1000
           }
         ]
@@ -449,7 +466,7 @@ Main Repo (planning)          Worktree 1 (issue-42)       Worktree 2 (issue-57)
 3. **Label terminals with issue numbers** - Avoid confusion
 4. **Don't share worktrees between sessions** - One session per worktree
 
-### Session Coordination (NEW)
+### Session Coordination
 
 With multiple sessions running on the same repository, conflicts can occur:
 
