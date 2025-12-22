@@ -240,9 +240,9 @@ When running multiple Claude Code sessions (e.g., in tmux with worktrees):
 ### Quick Setup
 
 ```bash
-# Symlink coordination scripts
-ln -sf ~/Projects/claude-power-pack/scripts/session-*.sh ~/.claude/scripts/
-ln -sf ~/Projects/claude-power-pack/scripts/pytest-locked.sh ~/.claude/scripts/
+# Symlink coordination scripts (adjust path to your clone location)
+ln -sf /path/to/claude-power-pack/scripts/session-*.sh ~/.claude/scripts/
+ln -sf /path/to/claude-power-pack/scripts/pytest-locked.sh ~/.claude/scripts/
 
 # Create coordination directory
 mkdir -p ~/.claude/coordination/{locks,sessions,heartbeat}
@@ -519,7 +519,13 @@ python src/server.py
 
 ### 5. Configure Claude Code
 
-Add to `~/.config/claude-code/config.json`:
+Add the MCP server using the Claude CLI:
+
+```bash
+claude mcp add second-opinion --transport sse --url http://127.0.0.1:8080/sse
+```
+
+Or manually add to `~/.claude/.mcp.json`:
 ```json
 {
   "mcpServers": {
@@ -529,6 +535,11 @@ Add to `~/.config/claude-code/config.json`:
     }
   }
 }
+```
+
+Verify the server is configured:
+```bash
+claude mcp list
 ```
 
 ## 🎯 MCP Best Practices
