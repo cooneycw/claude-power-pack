@@ -34,16 +34,11 @@ A comprehensive collection of Claude Code best practices compiled from the r/Cla
 
 ### Main Guides
 
-1. **[CLAUDE_CODE_BEST_PRACTICES_COMPREHENSIVE.md](CLAUDE_CODE_BEST_PRACTICES_COMPREHENSIVE.md)** ⭐ **START HERE**
-   - Complete guide with insights from 100+ top posts
-   - Based on posts with 600+ upvotes
-   - Covers: Skills, Hooks, MCP, Session Management, Plan Mode, and more
-   - 21KB of curated community wisdom
-
-2. **[CLAUDE_CODE_BEST_PRACTICES.md](CLAUDE_CODE_BEST_PRACTICES.md)**
-   - Earlier version with foundational tips
-   - Good quick reference
-   - 9.5KB
+**[CLAUDE_CODE_BEST_PRACTICES.md](CLAUDE_CODE_BEST_PRACTICES.md)** ⭐ **START HERE**
+- Complete guide with insights from 100+ top posts
+- Based on posts with 600+ upvotes
+- Covers: Skills, Hooks, MCP, Session Management, Plan Mode, and more
+- ~21KB of curated community wisdom
 
 ## 🎯 Top 5 Quick Wins
 
@@ -782,8 +777,7 @@ After setup, your repository will have:
 ```
 claude-power-pack/
 ├── README.md                                    # This file
-├── CLAUDE_CODE_BEST_PRACTICES_COMPREHENSIVE.md # Main best practices guide
-├── CLAUDE_CODE_BEST_PRACTICES.md              # Quick reference guide
+├── CLAUDE_CODE_BEST_PRACTICES.md              # Main best practices guide (21KB)
 ├── ISSUE_DRIVEN_DEVELOPMENT.md                # IDD methodology guide
 ├── PROGRESSIVE_DISCLOSURE_GUIDE.md            # Context optimization
 ├── MCP_TOKEN_AUDIT_CHECKLIST.md               # Token efficiency checklist

@@ -1,318 +1,1045 @@
 # Claude Code Best Practices
 
-*Compiled from r/ClaudeCode community insights (November 2025)*
+*Compiled from r/ClaudeCode top posts (Past Month - November 2025)*
 
-## Table of Contents
-1. [Plan Mode & Workflow](#plan-mode--workflow)
-2. [Session Management](#session-management)
-3. [Subagents & Task Delegation](#subagents--task-delegation)
-4. [MCP (Model Context Protocol)](#mcp-model-context-protocol)
-5. [Hooks System](#hooks-system)
-6. [Context & Memory Management](#context--memory-management)
-7. [Code Quality & Review](#code-quality--review)
+**Sources:** 100+ top posts from past month, including the #1 post with 685 upvotes
 
 ---
 
-## Plan Mode & Workflow
+## 📑 Table of Contents
 
-### Use Plan Mode by Default
-- **20-30% better results** when using Plan Mode, even for small tasks
-- Creates a detailed plan before execution
-- Reduces number of prompts needed
-- Improves overall quality
+1. [Top Tips from Power Users](#top-tips-from-power-users)
+2. [Skills System](#skills-system)
+3. [CLAUDE.md Optimization](#claudemd-optimization)
+4. [Avoiding Context Degradation](#avoiding-context-degradation)
+5. [Spec-Driven Development](#spec-driven-development)
+6. [MCP Best Practices](#mcp-best-practices)
+7. [Context-Efficient Tool Architecture](#context-efficient-tool-architecture)
+8. [Hooks & Automation](#hooks--automation)
+9. [Terminal Labeling & Visual Feedback](#terminal-labeling--visual-feedback)
+10. [Issue-Driven Development](#issue-driven-development)
+11. [Session Management](#session-management)
+12. [Plan Mode](#plan-mode)
+13. [Code Quality & Review](#code-quality--review)
+14. [Workflow Patterns](#workflow-patterns)
+15. [Common Pitfalls](#common-pitfalls)
+16. [Tools & Resources](#tools--resources)
 
-**Source:** u/RecurLock - "4 Claude Code CLI tips I wish I knew earlier" (69 upvotes)
+---
 
-### Break Tasks Into Smaller Chunks
-- Split large tasks into smaller, manageable subtasks
-- Use markdown files or issue trackers (like Beads) to track tasks
-- New context window for each task helps maintain quality
-- "Claude is basically the world's dumbest junior engineer" - work with that limitation
+## Top Tips from Power Users
 
-**Sources:**
-- u/whimsicaljess, u/crystalpeaks25 - "When to reset session" thread
+### From "Claude Code is a Beast" (685 upvotes, 6 months experience)
 
-### Multi-Phase Planning Approach
-Advanced users suggest a structured approach:
+**Repository:** https://github.com/diet103/claude-code-infrastructure-showcase
 
-**A. Planning Phase (Use Opus)**
-- Create detailed architectural plan
-- Solidify all impactful decisions (stacks, data structures, classes)
-- Avoid forcing the coding agent to make architectural decisions mid-stream
-- Have separate agent review plan for potential issues
+**Key Insights:**
 
-**B. Sonnet Prompting Phase**
-- Allow Sonnet to write sandboxed/scratch code in separate subdirectory
-- Run side experiments to verify key parts
-- "Run defense" to ensure plan can be implemented without failure
+1. **Skills with Pattern Matching**
+   - Use hooks to pre-fetch skills for activation
+   - Skill = prompt injection + hook + pattern matching
+   - This dramatically improves skill activation rates
 
-**C. Coding Phase**
-- Execute the cut-and-dry implementation with no architectural decisions needed
+2. **Multi-Agent Architecture**
+   - Layer your agents for different concerns
+   - Separate planning from execution
+   - Use specialized agents for review
 
-**Source:** u/Projected_Sigs - Comment on CLI tips thread
+3. **Infrastructure as Code**
+   - Treat your Claude Code setup like infrastructure
+   - Version control everything (.claude directory)
+   - Share reusable patterns across projects
+
+4. **Development Environment Integration**
+   - Use pm2 for process management
+   - Integrate with your existing dev tooling
+   - Make Claude Code part of your environment, not separate
+
+**Community Response:**
+- "99% of gripes, questions, and issues faced in this subreddit can be answered with this post"
+- Praised as "CLAUDE CODE 101" masterpiece
+
+---
+
+## Skills System
+
+### Improving Skill Activation Rates (214 upvotes)
+
+**From "Claude Code skills activate 20% of the time. Here's how I got to 84%"**
+
+**Problem:** Default skill activation is around 20%
+
+**Solution:**
+
+1. **Detailed, Context-Rich Skills**
+   - Include specific examples and patterns
+   - Provide detailed guides for SvelteKit, Svelte 5 runes, data flow patterns
+   - More context = better activation
+
+2. **Pattern Matching**
+   - Skills need clear trigger patterns
+   - Use specific terminology that matches your codebase
+   - Make triggers unambiguous
+
+3. **Regular Testing & Refinement**
+   - Test skill activation regularly
+   - Refine based on what triggers successfully
+   - Remove or merge underperforming skills
+
+### Skills Best Practices
+
+**From Community Discussion:**
+
+- **Skills = Prompt Injection**
+  - At core, skills are just specialized prompts
+  - Power comes from combining with hooks and patterns
+  - Think of them as reusable context modules
+
+- **Don't Overload**
+  - 1-3 well-crafted skills better than 10 mediocre ones
+  - Each skill should have clear, distinct purpose
+  - Avoid overlap between skills
+
+- **Version Control Skills**
+  - Keep skills in git
+  - Share successful patterns with team
+  - Document what triggers each skill
+
+**Registry:** https://claude-plugins.dev/skills (6000+ public skills)
+
+---
+
+## CLAUDE.md Optimization
+
+### Optimized Prompts (+5-10% on SWE Bench)
+
+**From "Optimized CLAUDE.md prompt instructions" (53 upvotes)**
+
+**Key Finding:** You can significantly improve performance by optimizing CLAUDE.md
+
+**Recommendations:**
+
+1. **Experiment with System Prompts**
+   - Don't accept defaults
+   - Test different prompt formulations
+   - Measure results on your specific use cases
+
+2. **Include Project-Specific Context**
+   - Architecture decisions
+   - Coding standards
+   - Common patterns in your codebase
+
+3. **Be Explicit About Constraints**
+   - What NOT to do
+   - Token budgets
+   - Performance requirements
+
+### CLAUDE.md Tips (30 upvotes)
+
+**From "CLAUDE.md tips" thread:**
+
+1. **Structure Matters**
+   - Use clear sections
+   - Prioritize most important info at top
+   - Use markdown formatting effectively
+
+2. **Include Examples**
+   - Show desired code style
+   - Provide example workflows
+   - Demonstrate edge cases
+
+3. **Set Expectations**
+   - Define quality bars
+   - Specify test requirements
+   - Clarify documentation needs
+
+4. **Update Regularly**
+   - CLAUDE.md should evolve with your project
+   - Add learnings from mistakes
+   - Remove outdated guidance
+
+---
+
+## Avoiding Context Degradation
+
+### "How to avoid claude getting dumber (for real)" (47 upvotes)
+
+**Problem:** Claude Code gets progressively worse during long sessions
+
+**Root Cause:** Conversation compacting
+
+**Solutions:**
+
+1. **Avoid Compacting When Possible**
+   - Each compact loses information
+   - Start fresh session instead
+   - Use git commits as natural break points
+
+2. **Strategic Session Resets**
+   - After completing major feature
+   - When switching between different areas of codebase
+   - If you notice quality degradation
+
+3. **Context Files Instead of Conversation**
+   - Store important context in files (CLAUDE.md, docs)
+   - Don't rely on conversation history
+   - Make context accessible via file reads
+
+4. **Initialization Commands**
+   - Use /prepare or similar to load fresh context
+   - Keep context loading consistent
+   - Document what context is needed for what tasks
+
+---
+
+## Spec-Driven Development
+
+### "Why we shifted to Spec-Driven Development" (107 upvotes)
+
+**Problem:** As features multiply, consistency and quality suffer
+
+**Solution:** Spec-Driven Development (SDD)
+
+**Approach:**
+
+1. **Write Detailed Specs First**
+   - Before any code
+   - Include edge cases
+   - Define success criteria
+
+2. **Review Specs, Not Just Code**
+   - Easier to fix design issues before coding
+   - Specs are cheaper to iterate than code
+   - Gets team alignment early
+
+3. **Use Specs as Reference**
+   - Claude can check code against spec
+   - Automated verification possible
+   - Clear acceptance criteria
+
+4. **Iterate on Specs**
+   - Specs are living documents
+   - Update based on learnings
+   - Version control specs like code
+
+**Tools:**
+- GitHub Spec Kit (mentioned but debated in community)
+- Custom spec frameworks
+- Markdown-based specs in repo
+
+**Debate:** Some users question if SDD frameworks add real value vs overhead
+- Works better for teams than solo developers
+- May slow down rapid prototyping
+- Best for complex, multi-person projects
+
+---
+
+## MCP Best Practices
+
+### Code-Mode: Save >60% in tokens (242 upvotes)
+
+**Repository:** https://github.com/universal-tool-calling-protocol/code-mode
+
+**Key Innovation:** Execute MCP tools via code execution instead of direct calls
+
+**Benefits:**
+- 60% token savings
+- More efficient MCP usage
+- Less context bloat
+
+### One MCP to Rule Them All (95 upvotes)
+
+**From "no more toggling MCPs on/off":**
+
+**Approach:** Use orchestrator MCP that manages other MCPs
+
+**Benefits:**
+- Don't need to enable/disable MCPs manually
+- Intelligent routing to appropriate MCP
+- Cleaner context
+
+**Reference:** https://www.anthropic.com/engineering/code-execution-with-mcp
+
+### MCP Selection
+
+**Top MCPs Mentioned:**
+
+1. **DevTools MCP** - Preferred over Playwright by some
+2. **Playwright MCP** - Great for frontend work (but token-heavy)
+3. **Context 7** - Context management
+4. **Supabase** - Database operations
+
+**Wisdom:**
+- "MCP is king of token consumption"
+- Choose 1-3 quality MCPs
+- Many users prefer direct code over MCP
+- MCPs work best with dedicated subagent instructions
+
+### Converting MCP to Skills (175 upvotes)
+
+**From "I've successfully converted 'chrome-devtools-mcp' into Agent Skills":**
+
+**Why Convert:**
+- Chrome-devtools-mcp is useful but token-heavy
+- Skills can be more targeted and efficient
+- Better control over when/how tools activate
+
+**Approach:**
+- Extract core functionality
+- Create focused skills for specific use cases
+- Maintain benefits while reducing token usage
+
+---
+
+## Context-Efficient Tool Architecture
+
+### The Token Budget Reality
+
+**Anthropic's Data (from official engineering blog):**
+
+| Scenario | Token Consumption |
+|----------|-------------------|
+| Traditional tool loading (100 tools) | ~77K tokens |
+| With Tool Search Tool | ~8.7K tokens |
+| **Savings** | **85%** |
+
+**Tool Selection Accuracy Impact:**
+
+| Model | Without Tool Search | With Tool Search |
+|-------|---------------------|------------------|
+| Opus 4 | 49% | 74% |
+| Opus 4.5 | 79.5% | 88.1% |
+
+### Progressive Disclosure Principle
+
+**Definition:** Load tool context in stages, not all at once.
+
+**Three-Tier Pattern:**
+1. **Tier 1 - Metadata** (~100 tokens): Name + brief description
+2. **Tier 2 - Instructions** (<5K tokens): Full documentation when relevant
+3. **Tier 3 - Assets** (variable): Scripts/files only when executing
+
+This is how Anthropic's Skills system works internally.
+
+### Practical Application
+
+**For MCP Users:**
+1. Use `/context` to audit token consumption
+2. Disable unused MCP servers per session
+3. Consolidate similar tools (4 search providers → 1 with parameter)
+4. Keep descriptions under 200 characters
+
+**For Skills Users:**
+1. Structure skills for lazy loading
+2. Put detailed instructions in body, not metadata
+3. Use clear trigger patterns
+4. Let the system load full content only when matched
+
+**For Large Tool Libraries (10+ tools):**
+1. Consider Tool Search Tool pattern
+2. Mark infrequently-used tools as `defer_loading: true`
+3. Keep only essential tools loaded by default
+
+### When to Convert MCP → Skills
+
+| Scenario | Recommendation |
+|----------|----------------|
+| Tool provides external data access | Keep as MCP |
+| Tool teaches a procedure | Convert to Skill |
+| Tool is used in every session | Keep loaded |
+| Tool is used occasionally | Lazy load or Skill |
+| Tool has verbose description | Optimize or convert |
+
+### Red Flags for Token Bloat
+
+- 🚩 MCP server consuming >20K tokens
+- 🚩 More than 5 MCP servers enabled simultaneously
+- 🚩 Tool descriptions >500 characters
+- 🚩 Multiple tools with overlapping functionality
+- 🚩 `/context` shows >40% used by tools before work begins
+
+### MCP Token Optimization Techniques
+
+**From Scott Spence's Production Optimization:**
+
+1. **Consolidate Related Tools**
+   ```
+   Before: web_search_tavily, web_search_brave, web_search_kagi
+   After:  web_search (provider: tavily|brave|kagi)
+   ```
+
+2. **Trim Verbose Descriptions**
+   ```
+   Before (87 tokens): "This tool allows you to search the web using
+   various search engines. It supports multiple providers and returns
+   results in a structured format with titles, URLs, and snippets..."
+
+   After (12 tokens): "Search the web. Returns titles, URLs, snippets."
+   ```
+
+3. **Standardize Parameter Names**
+   - Use `query` not `search_term`
+   - Use `limit` not `max_results`
+   - Use `provider` not `engine`
+
+4. **Selective Activation**
+   ```bash
+   # Use mcpick for session-specific server selection
+   npx mcpick
+
+   # Or use Claude Code native commands
+   /mcp disable github  # When not doing git work
+   /mcp enable playwright  # When doing frontend work
+   ```
+
+**Real Results:**
+- 20 tools → 8 tools (60% reduction)
+- 8,551 tokens saved per session
+- Same functionality maintained
+
+**See also:** `PROGRESSIVE_DISCLOSURE_GUIDE.md` for comprehensive architecture guidance
+
+---
+
+## Hooks & Automation
+
+### Hook System Deep Dive (85 upvotes)
+
+**From "Claude Code hooks confuse everyone at first":**
+
+**Key Resource:** https://github.com/disler/claude-code-hooks-mastery
+
+**Hook Types & Uses:**
+
+1. **SessionStart** - Load context, setup environment
+2. **UserPromptSubmit** - Validate/enrich prompts before sending
+3. **ToolUse** - Intercept or modify tool usage
+4. **ToolResult** - Process outputs before Claude sees them
+5. **SessionEnd** - Cleanup, logging
+
+**Best Practices:**
+
+- Understand lifecycle to avoid fighting execution flow
+- Use hooks for automation, not control
+- Keep hooks simple and fast
+- Log hook activity for debugging
+
+### Advanced Hook Usage
+
+**Pattern Matching for Skills (from 685 upvote post):**
+- Use hooks to pre-fetch relevant skills
+- Match patterns in user prompts
+- Automatically activate appropriate context
+
+**Editor Integration:**
+- Use Ctrl-G hook to launch custom tools
+- Extend beyond just opening editor
+- Hook into any workflow automation
+
+---
+
+## Terminal Labeling & Visual Feedback
+
+### Why Terminal Labels Matter
+
+When running multiple Claude Code sessions (especially with tmux or worktrees), knowing which session handles which task becomes critical. Terminal labels provide:
+
+1. **Visual Context** - Instantly see which issue/task each terminal handles
+2. **State Awareness** - Know when Claude is working vs. awaiting input
+3. **Session Management** - Quickly identify sessions to close/resume
+
+### Setup
+
+**User-level installation** (recommended for all projects):
+```bash
+mkdir -p ~/.claude/scripts
+ln -sf /path/to/claude-power-pack/scripts/terminal-label.sh ~/.claude/scripts/
+chmod +x ~/.claude/scripts/terminal-label.sh
+```
+
+**Project-level configuration** (in your project's `.claude/` directory):
+```bash
+# .claude/.terminal-label-config
+DEFAULT_PREFIX="YourProject"
+```
+
+### Commands
+
+| Command | Description | Example |
+|---------|-------------|---------|
+| `terminal-label.sh set "Label"` | Set custom label | `terminal-label.sh set "Feature: Auth"` |
+| `terminal-label.sh issue [PREFIX] NUM [TITLE]` | Set issue label | `terminal-label.sh issue 42 "Bug Fix"` |
+| `terminal-label.sh project [PREFIX]` | Set project mode | `terminal-label.sh project NHL` |
+| `terminal-label.sh await` | Set awaiting mode | (typically via hook) |
+| `terminal-label.sh restore` | Restore saved label | (typically via hook) |
+
+### Hook Integration
+
+Add to your `.claude/hooks.json`:
+
+```json
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/scripts/terminal-label.sh restore 2>/dev/null || true",
+            "timeout": 1000
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/scripts/terminal-label.sh await 2>/dev/null || true",
+            "timeout": 1000
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+### Workflow Example
+
+```bash
+# Start working on issue #42
+terminal-label.sh issue MyProject 42 "Implement OAuth"
+# Terminal shows: "MyProject #42: Implement OAuth"
+
+# When Claude finishes, hook sets: "Claude: Awaiting Input..."
+# When you type next prompt, hook restores: "MyProject #42: Implement OAuth"
+```
+
+---
+
+## Issue-Driven Development
+
+Issue-Driven Development (IDD) is a workflow pattern that combines:
+- **Hierarchical Issues** - Phases → Waves → Micro-issues
+- **Git Worktrees** - Parallel development without branch switching
+- **Terminal Labeling** - Visual context for multiple sessions
+- **Structured Commits** - Traceable, closeable commits via "Closes #N"
+
+### The Three-Level Hierarchy
+
+```
+Phase (Epic)
+├── Wave (Feature Group)
+│   ├── Micro-Issue (Atomic Task)
+│   └── Micro-Issue
+└── Wave
+    └── Micro-Issue
+```
+
+### Why It Works with Claude Code
+
+| Problem | IDD Solution |
+|---------|--------------|
+| Feature too large | Break into micro-issues |
+| Lost context | Each issue has acceptance criteria |
+| Parallel work blocked | Git worktrees enable concurrent development |
+| No traceability | Commits link to issues via "Closes #N" |
+
+### Key Conventions
+
+| Entity | Pattern | Example |
+|--------|---------|---------|
+| Branch | `issue-{N}-{description}` | `issue-123-player-landing` |
+| Worktree | `{repo}-issue-{N}` | `nhl-api-issue-123` |
+| Commit | `type(scope): Desc (Closes #N)` | `feat(api): Add endpoint (Closes #42)` |
+
+### Getting Started
+
+Use the `/project-next` command to analyze your repository's issues and get prioritized recommendations for what to work on next.
+
+**Full documentation:** See [ISSUE_DRIVEN_DEVELOPMENT.md](ISSUE_DRIVEN_DEVELOPMENT.md) for the complete methodology guide including:
+- Micro-issue templates
+- Git worktree commands
+- Multi-agent coordination patterns
+- Best practices and anti-patterns
 
 ---
 
 ## Session Management
 
-### When to Reset/Compact Sessions
+### The Single Most Useful Line (98 upvotes)
 
-**Multiple Strategies:**
+**From "The single most useful line for getting what you want from Claude Code":**
 
-1. **60% Context Rule**
-   - Reset around 60% context usage
-   - Quality falls off a cliff after this mark
-   - Can still do basic documentation after 60%, but avoid giving it new features
-   - **Source:** u/akatz_ai
+```
+"Please let me know if you have any questions before making the plan!"
+```
 
-2. **Feature-Based Resets**
-   - Clear/compact every 5-10 messages
-   - Reset after implementing each feature
-   - Start fresh for next feature implementation
-   - Claude can gather context from codebase as needed
-   - **Source:** u/ghost_operative
+**Why It Works:**
+- Forces Claude to clarify ambiguities upfront
+- Prevents wasted work on wrong assumptions
+- Creates dialogue before execution
+- Especially powerful in Plan Mode
 
-3. **Task-Based Resets**
-   - Restart session as much as possible
-   - Each session: load basic context + directive
-   - Let Claude explore naturally to find additional context
-   - Save git commit after each task
-   - Use initialization/prepare commands to load memory bank
-   - **Source:** u/solaza
+**Extension:**
+- "Tell me if anything is unclear before proceeding"
+- "What additional information do you need?"
+- "Identify any assumptions you're making"
 
-### Why Reset Frequently?
+### When to Reset Sessions
 
-- Conversation context can be "corrupted" by code changes
-- Prevents context pollution from earlier decisions
-- Forces fresh perspective on codebase
-- Better than trying to force-feed information
+**Patterns from Community:**
 
-**Important:** If you have good conventions, tests, and clear scope, context degradation is less of an issue - **Source:** u/sheriffderek
+1. **Feature-Based** (most common)
+   - One session per feature
+   - Fresh start after git commit
+   - Clear success criteria per session
 
----
+2. **Time-Based**
+   - Every 5-10 messages
+   - After 1-2 hours of work
+   - When reaching 60% context
 
-## Subagents & Task Delegation
+3. **Quality-Based**
+   - When Claude seems "confused"
+   - After multiple failed attempts
+   - When suggestions become repetitive
 
-### Provide Clear Escape Paths
-- If subagent MUST know A, B, C before completing task, but has no way of knowing them
-- Subagent may hang or say "Done" without output
-- **Solution:** Avoid hard restrictions; give agents a way out
+4. **Never Reset** (for some users)
+   - If you have good tests and conventions
+   - Context degradation less of issue
+   - Continuous work style
 
-**Source:** u/RecurLock - Original CLI tips post
+### Context Management Patterns
 
-### Subagents: Use With Caution
-**Experienced user perspective:**
-- Subagents are good for **investigations** but not for coding
-- They can lie, deviate, and change stuff to avoid not finishing
-- "Main thread is not looking" - they may make unauthorized changes
-- **Recommendation:** Avoid them for coding tasks
+**Initialization Context (from multiple sources):**
 
-**Alternative approach:**
-- Use systematic subagents sparingly
+1. Create `/prepare` command
+2. Load from memory bank (markdown files)
+3. Include recent git history
+4. Load relevant docs
 
-**Sources:** u/belheaven, u/woodnoob76
-
-### Sonnet Prioritizes Working Solutions
-- Sonnet 4.0+ prioritizes getting SOMETHING working over following exact instructions
-- Will code workarounds if primary approach fails
-- May be logical from agent's limited context, but not what you wanted
-- **Solution:** Make planning phase very detailed to avoid forcing reactive decisions
-
-**Source:** u/Projected_Sigs
+**Memory Bank Structure:**
+- Project overview
+- Architecture decisions
+- Current priorities
+- Known issues
+- Coding standards
 
 ---
 
-## MCP (Model Context Protocol)
+## Plan Mode
 
-### "MCP is King" ...of Token Consumption
+### Use Plan Mode by Default (72 upvotes)
 
-**Mixed opinions in community:**
+**From "4 Claude Code CLI tips I wish I knew earlier":**
 
 **Benefits:**
-- Adds huge value for certain use cases
-- Examples: Playwright MCP (screenshots, web browsing, automation tests)
-- "If API is for developers/programs, MCP is the same for AI"
+- 20-30% better results
+- Reduces wasted prompts
+- Creates accountability
+- Forces thinking before acting
 
-**Concerns:**
-- Major token consumer
-- Can be insecure and "lame" if not chosen carefully
-- **Recommendation:** Focus on 1-3 high-quality MCPs
-- Build your own toolset instead of bloating with frameworks
+**Enhanced Plan Mode** (37 upvotes)
 
-**Sources:**
-- u/RecurLock (pro-MCP)
-- u/UnitedJuggernaut (56 upvotes on "king of token consumption")
-- u/belheaven (cautionary perspective)
+**From "I made a better version of Plan Mode":**
+- Custom plan mode implementations
+- More detailed planning phases
+- Integration with issue tracking
 
-### MCP Recommendations
-
-**Playwright MCP vs DevTools MCP:**
-- DevTools MCP preferred by some users over Playwright
-- **Source:** u/jenseoparker
-
-**Alternative to MCP:**
-- "Just ask to create a playwright script that does the test. WAYYY better"
-- Direct script creation can be more efficient than MCP
-- **Source:** u/slumdogbi
-
-**Best Practice:**
-- MCP needs dedicated subagent that explains right way to use it
-- **Source:** u/Expensive-Aside-9031
-
----
-
-## Hooks System
-
-### Understanding Claude Code Hooks
-
-The hook system is powerful but confusing. Key hooks in lifecycle:
-
-1. **SessionStart** - Initialization
-2. **Prompt Validation** - Before processing user input
-3. **Permission Handling** - For approvals
-4. **Tool Results** - Processing outputs
-5. **Notifications/Logs** - Monitoring
-6. **SessionEnd** - Cleanup
-
-**Source:** u/Confident_Law_531 - "Claude Code hooks confuse everyone at first" (85 upvotes)
-
-### Hook Resources
-
-**Recommended Repository:**
-- https://github.com/disler/claude-code-hooks-mastery
-- **Source:** u/Circuit-Synth
-
----
-
-## Context & Memory Management
-
-### Use Initialization Context
-
-**"Preparation to Work" System:**
-- Create `/prepare` command that loads from memory bank
-- Memory bank = set of Markdown notes about project
-- Include issue tracker integration
-- Update initialization context after each git commit
-
-**Benefits:**
-- Provides consistent starting point
-- Reduces need for lengthy context windows
-- Organic context exploration from solid foundation
-
-**Source:** u/solaza
-
-### Avoid Context Corruption
-
-- Don't let conversation context linger too long
-- Code changes later in conversation can contradict earlier context
-- Fresh sessions force Claude to read current codebase state
-- Better than maintaining stale conversation history
-
-**Source:** u/ghost_operative
+**Official Updates:**
+- Claude Code 2.0.31 introduced new Plan subagent
+- Enhanced subagent capabilities
+- Better plan quality
 
 ---
 
 ## Code Quality & Review
 
-### Use Codex for Pre-Review
+### Production-Ready Software (76 upvotes)
 
-**Why Codex (GPT-4):**
-- Best at instruction following
-- Excellent at verifying requirements
-- Will ensure Claude delivers "all the dots and commas you asked for"
-- Use for pre-code review even if you're senior developer
+**From "This is how I use the Claude ecosystem to actually build production-ready software":**
 
-**Workflow:**
-1. Claude implements code
-2. Codex verifies against requirements
-3. Codex checks for missed details
-4. Fix any gaps
+**Key Insight:** "You are the issue, not the AI"
 
-**Source:** u/belheaven
+**Approach:**
 
-### Linters Are "Pure Gold"
+1. **Clear Requirements**
+   - Be specific about what you want
+   - Include edge cases
+   - Define quality standards
 
-- Configure and use linters
-- Helps maintain code quality
-- Works well with Claude's workflow
+2. **Iterative Review**
+   - Don't accept first output
+   - Ask for improvements
+   - Challenge assumptions
 
-**Source:** u/belheaven
+3. **Test-Driven**
+   - Write tests first
+   - Verify behavior
+   - Regression protection
 
-### Don't Let Claude Code Make You Lazy
+4. **Use Multiple Claude Tools**
+   - Claude Code for implementation
+   - Claude.ai for design discussions
+   - Different tools for different phases
 
-- "It's difficult but it's the key"
-- Stay engaged in the process
-- Review and understand what's being generated
+### Review Patterns
 
-**Source:** u/belheaven
+**Pre-Code Review with GPT-4:**
+- Use Codex to verify requirements
+- Check for missed details
+- Ensure specification compliance
 
----
-
-## Additional Tips & Tools
-
-### Claude Code Superpowers Plugin
-- Available from Claude marketplace
-- Provides: Brainstorm + agent/task + review/task
-- https://github.com/obra/superpowers
-- **Source:** u/MessageEquivalent347
-
-### Time Awareness
-- Claude may not know current date by default
-- Use MCP or bash command: `bash -c "date"`
-- Important for WebSearch and time-sensitive operations
-- Note: Some users report this has been improved recently
-
-**Source:** u/RecurLock, u/jasutherland
+**Self-Review:**
+- Ask Claude to review its own code
+- Have it identify potential issues
+- Explain design decisions
 
 ---
 
-## Community Wisdom
+## Workflow Patterns
 
-### General Philosophy
+### Parallel Agents (32 upvotes)
 
-1. **Focus on toolset quality over quantity**
-   - 1-3 excellent MCPs better than many mediocre ones
-   - Build custom tools for your specific needs
+**From "Anyone else do this parallel agent hail mary":**
 
-2. **Structure prevents problems**
-   - Good conventions + tests = consistent context
-   - Clear scope boundaries help Claude work effectively
+**When:** Stuck on difficult problem
 
-3. **Work with Claude's limitations**
-   - Treat it like a junior engineer
-   - Clear instructions and constraints
-   - Frequent checkpoints
+**Approach:**
+- Spawn multiple agents with different approaches
+- Let them work in parallel
+- Pick best solution
 
-4. **Stay involved**
-   - Don't become over-reliant
-   - Review and understand changes
-   - Use verification tools (like Codex)
+**Note:** Token-intensive but surprisingly effective
+
+### tmux as Orchestration (59 upvotes)
+
+**From "Using tmux as a bootleg orchestration system":**
+
+**Setup:**
+- Multiple Claude Code sessions in tmux
+- Each pane handles different concern
+- Cross-session coordination
+
+**Benefits:**
+- Separate contexts for separate tasks
+- Easy switching between sessions
+- Visual organization
+
+### Multi-Instance Setup (39 upvotes)
+
+**From "Run 2 (or even more) instances of Claude Code in parallel":**
+
+**Use Cases:**
+- Frontend + Backend simultaneously
+- Different branches
+- Experimentation vs production work
+
+**Technical:**
+- Separate working directories
+- Different credential profiles
+- Process isolation
 
 ---
 
-## Related Resources
+## Common Pitfalls
 
-### GitHub Repositories
-- [Claude Code Hooks Mastery](https://github.com/disler/claude-code-hooks-mastery)
-- [Claude Code Superpowers](https://github.com/obra/superpowers)
-- [Chrome Extension Store Listing Skill](https://github.com/harish-garg/chrome-web-store-listing-prep)
+### Things That Make Claude "Dumber"
 
-### Subreddit
-- r/ClaudeCode - Active community with ongoing discussions
+1. **Long Sessions Without Reset**
+   - Compacting loses information
+   - Contradictory context builds up
+   - Fresh start often better
+
+2. **Unclear Requirements**
+   - Vague prompts = vague results
+   - Missing edge cases
+   - Assumed knowledge
+
+3. **Fighting Claude's Patterns**
+   - Let it use familiar patterns
+   - Don't force unusual approaches
+   - Work with defaults, not against
+
+4. **Over-Reliance on Conversation History**
+   - Put important info in files
+   - Don't trust compacted history
+   - Document decisions
+
+### Warning: Malware in Skills (80 upvotes)
+
+**From "Be careful with people spreading Claude Code Skills as malware on Github":**
+
+**Risk:** Skills can execute arbitrary code
+
+**Protection:**
+- Review skills before installing
+- Use trusted sources only
+- Check skill code, not just description
+- Be wary of skills from unknown authors
 
 ---
 
-## Document History
+## Tools & Resources
 
-- **Compiled:** November 2025
-- **Source:** r/ClaudeCode subreddit posts and comments
-- **Method:** Web scraping (25 posts, detailed analysis of top 3 threads)
-- **Top Contributors:** u/RecurLock, u/Confident_Law_531, u/Projected_Sigs, u/belheaven, u/solaza
+### Essential Tools
+
+**Task Management:**
+- Markdown Task Manager: https://reddit.com/r/ClaudeCode/comments/1ot8nh2 (100 upvotes)
+- Beads (issue tracker)
+- Custom .claude/active/ folder system
+
+**Switching Tools:**
+- Clother - Switch between GLM, Kimi, Minimax, Anthropic endpoints
+  https://github.com/jolehuit/clother
+
+**Model Alternatives:**
+- Gemini 3 Pro via gemini-cli
+  https://github.com/forayconsulting/gemini_cli_skill
+- Kimi K2 Thinking model integration
+- GLM endpoint (but lacks web search)
+
+**Skill Resources:**
+- claude-plugins.dev (6000+ skills)
+- Superpowers plugin: https://github.com/obra/superpowers
+- Prompt Coach skill (analyzes prompt quality)
+
+### Key Repositories
+
+1. **Infrastructure Showcase** (from 685 upvote post)
+   https://github.com/diet103/claude-code-infrastructure-showcase
+
+2. **Hooks Mastery**
+   https://github.com/disler/claude-code-hooks-mastery
+
+3. **Code-Mode (60% token savings)**
+   https://github.com/universal-tool-calling-protocol/code-mode
+
+4. **Chrome DevTools as Skills**
+   (converted from MCP - 175 upvotes)
+
+### Official Updates
+
+**Recent Claude Code Releases:**
+- 2.0.27 - Claude Code on Web
+- 2.0.31 - New Plan subagent
+- 2.0.36 - Web enhancements
+- 2.0.41 - UX improvements
+- 2.0.50 - Latest with enhanced features
+
+**Free Credits:**
+- $1000 free usage for Pro/Max on CC Web (temporary)
+- Credits reset behavior has been buggy
+- May count against weekly limits
 
 ---
 
-## Notes
+## Advanced Patterns
 
-This document represents community wisdom as of November 2025. Best practices may evolve as Claude Code continues to develop. Always test approaches with your specific use case and workflow.
+### Spec-First → Sandbox → Production
 
-Some advice may be contradictory (especially regarding MCP usage and subagents) - this reflects genuine debate within the community about trade-offs between power/convenience and token efficiency/reliability.
+**From 685 upvote post + community:**
+
+1. **Write Spec**
+   - Detailed requirements
+   - Edge cases
+   - Success criteria
+
+2. **Sandbox Testing** (Sonnet)
+   - Separate directory for experiments
+   - Verify key parts work
+   - Try uncertain approaches
+
+3. **Implementation** (Opus for complex, Sonnet for standard)
+   - Cut-and-dry based on verified plan
+   - Minimal decisions needed
+   - Fast execution
+
+4. **Review & Refine**
+   - Test against spec
+   - Iterate if needed
+   - Git commit
+
+### Multi-Repo Management
+
+**From "perfect multi-repo-multi-model Code agent workspace":**
+
+- Separate Claude Code instances per repo
+- Model selection based on task type
+- Coordination via shared documentation
+- Flowchart for decision making
+
+### Progressive Enhancement
+
+**Pattern from Community:**
+
+1. **Claude Prototype** - Get something working
+2. **Vibe Code** - Iterate on feel/UX
+3. **Freelancer Finish** - Professional polish
+
+**Alternative:** All-Claude if quality standards maintained
+
+---
+
+## Best Practices Summary
+
+### Top 10 Rules
+
+1. **Use Plan Mode by default** - Ask Claude to clarify before acting
+2. **Reset sessions frequently** - After features, at 60% context, or when quality drops
+3. **Store context in files, not conversations** - CLAUDE.md, docs, specs
+4. **Choose 1-3 quality MCPs** - More isn't better; efficiency matters
+5. **Write detailed specs first** - Especially for complex work
+6. **Use hooks for automation** - Pre-fetch skills, validate prompts
+7. **Skills need good activation patterns** - Detailed, context-rich, specific triggers
+8. **Review skills before installing** - Security risk from untrusted sources
+9. **Optimize CLAUDE.md for your project** - Experiment, measure, iterate
+10. **Work with Claude's strengths** - Familiar patterns, clear requirements, iterative refinement
+
+### Red Flags
+
+- 🚩 Context >60% and starting new complex feature
+- 🚩 Claude giving contradictory advice
+- 🚩 Repetitive failures on same task
+- 🚩 Ignoring requirements you clearly stated
+- 🚩 Taking approaches you explicitly rejected
+- 🚩 Installing skills from unknown sources
+
+### Green Flags
+
+- ✅ Claude asks clarifying questions before proceeding
+- ✅ Proposes multiple approaches and explains tradeoffs
+- ✅ References your existing code patterns
+- ✅ Suggests tests for new functionality
+- ✅ Explains architectural decisions
+- ✅ Admits when uncertain
+
+---
+
+## Model-Specific Notes
+
+### Sonnet 4.5
+
+**Strengths:**
+- General purpose
+- Good balance of cost/quality
+- "Monster" for most tasks
+
+**1M Context vs 200K:**
+- Debate in community about actual benefits
+- Some users see improvements
+- Others see no difference
+- May depend on use case
+
+### Haiku 4.5
+
+**When to Use:**
+- Burn through limits slower
+- Simple, well-defined tasks
+- Documentation
+- Code review
+
+**Data from Pro user:**
+- Significantly better token efficiency
+- Acceptable quality for many tasks
+- Good for extending weekly limits
+
+### Opus
+
+**When to Use:**
+- Complex architectural decisions
+- Planning phase
+- Novel problems
+- When quality > cost
+
+### Alternative Models
+
+**Gemini 3 Pro:**
+- Via gemini-cli
+- Competitive performance
+- Different strengths/weaknesses
+
+**Kimi K2 Thinking:**
+- Impressive benchmarks
+- Thinking/reasoning model
+- Integration available
+
+---
+
+## Community Insights
+
+### On AI-Assisted Development
+
+**From experienced developers:**
+
+> "Seasoned developers *embracing* AI tools, not shrugging them off as 'stupid' or 'a threat'. This is exactly the way."
+
+> "You are the issue, not the AI" - Most complaints about AI code quality stem from unclear requirements
+
+> "Claude is basically the world's dumbest junior engineer" - Set expectations accordingly
+
+### On Learning Curve
+
+**Progression:**
+1. Fighting with Claude (week 1-2)
+2. Learning to communicate (month 1)
+3. Building infrastructure (months 2-3)
+4. Optimization and mastery (months 4-6)
+
+**Key Turning Point:** When you stop trying to control Claude and start collaborating
+
+### On Productivity
+
+**Mixed Reports:**
+
+**Positive:**
+- 10x productivity on greenfield projects
+- Great for prototyping
+- Excellent for exploration
+
+**Realistic:**
+- Not faster than expert on familiar tasks
+- Saves time on unfamiliar tech
+- Better for breadth than depth
+
+**The Real Value:**
+> "I don't think it writes better code than me... But I can just sit here and watch football and occasionally give direction" - Doing more with less active work
+
+---
+
+## Document Metadata
+
+**Compiled:** November 2025
+**Sources:**
+- 100+ top posts from r/ClaudeCode (past month)
+- 200+ comments analyzed
+- Primary source: 685-upvote "Beast" post
+- Secondary sources: 214-upvote skills post, 117-upvote best practices collation
+
+**Update Frequency:** This represents November 2025 state of community knowledge. Claude Code evolves rapidly, so check recent posts for latest practices.
+
+**Contributing:** This is a living document. Feel free to add your own learnings and share back with the community.
+
+---
+
+## Acknowledgments
+
+Special thanks to the r/ClaudeCode community contributors:
+- u/JokeGold5455 (Beast post)
+- u/rm-rf-rm (Best practices collation v2)
+- u/spences10 (Skills activation)
+- u/daaain (Single most useful line)
+- u/cryptoviksant (Avoiding context degradation)
+- u/NumbNumbJuice21 (CLAUDE.md optimization)
+- u/eastwindtoday (Spec-driven development)
+- u/juanviera23 (Code-mode)
+- And hundreds of other community members sharing their experiences
+
+---
+
+*End of Guide*
+
+For latest updates, join r/ClaudeCode and sort by "Top" → "This Month"

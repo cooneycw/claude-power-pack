@@ -8,7 +8,7 @@ This repository contains two main components:
 
 ## Quick References
 
-- **Best Practices:** `CLAUDE_CODE_BEST_PRACTICES_COMPREHENSIVE.md`
+- **Best Practices:** `CLAUDE_CODE_BEST_PRACTICES.md`
 - **Issue-Driven Development:** `ISSUE_DRIVEN_DEVELOPMENT.md`
 - **Progressive Disclosure:** `PROGRESSIVE_DISCLOSURE_GUIDE.md`
 - **MCP Token Audit:** `MCP_TOKEN_AUDIT_CHECKLIST.md`
@@ -25,8 +25,7 @@ This repository contains two main components:
 
 ```
 claude-power-pack/
-├── CLAUDE_CODE_BEST_PRACTICES_COMPREHENSIVE.md  # Main guide (21KB)
-├── CLAUDE_CODE_BEST_PRACTICES.md               # Quick reference (9.5KB)
+├── CLAUDE_CODE_BEST_PRACTICES.md                # Main guide (21KB)
 ├── ISSUE_DRIVEN_DEVELOPMENT.md                 # IDD methodology
 ├── PROGRESSIVE_DISCLOSURE_GUIDE.md             # Context optimization
 ├── MCP_TOKEN_AUDIT_CHECKLIST.md                # Token efficiency
