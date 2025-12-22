@@ -36,7 +36,8 @@ claude-power-pack/
 │   ├── session-lock.sh                         # Lock coordination
 │   ├── session-register.sh                     # Session lifecycle
 │   ├── session-heartbeat.sh                    # Heartbeat daemon
-│   └── pytest-locked.sh                        # pytest wrapper
+│   ├── pytest-locked.sh                        # pytest wrapper
+│   └── worktree-remove.sh                      # Safe worktree removal
 ├── .claude/
 │   ├── commands/
 │   │   ├── coordination/                       # Session coordination
@@ -110,6 +111,39 @@ ln -sf /path/to/claude-power-pack/scripts/terminal-label.sh ~/.claude/scripts/
 - `terminal-label.sh restore` - Restore saved label (via UserPromptSubmit hook)
 
 See `ISSUE_DRIVEN_DEVELOPMENT.md` for integration with git worktrees.
+
+## Safe Worktree Removal
+
+Prevents the critical mistake of removing a worktree while working from it (which breaks the shell session).
+
+**Setup:**
+```bash
+# Symlink to user scripts (recommended)
+ln -sf ~/Projects/claude-power-pack/scripts/worktree-remove.sh ~/.claude/scripts/
+
+# Or symlink to project scripts
+ln -sf ~/Projects/claude-power-pack/scripts/worktree-remove.sh /path/to/project/scripts/
+```
+
+**Usage:**
+```bash
+# Basic removal (checks for uncommitted changes)
+worktree-remove.sh /path/to/worktree
+
+# Also delete the branch after removal
+worktree-remove.sh /path/to/worktree --delete-branch
+
+# Force remove even with uncommitted changes
+worktree-remove.sh /path/to/worktree --force --delete-branch
+```
+
+**Safety Features:**
+- Refuses to remove worktree if you're currently in it
+- Checks for uncommitted changes (unless --force)
+- Handles squash-merged branches (prompts for force-delete)
+- Works with relative or absolute paths
+
+**Why this matters:** If Claude Code's working directory is a worktree that gets removed, the shell session breaks completely and no bash commands can run.
 
 ## Project Commands
 
