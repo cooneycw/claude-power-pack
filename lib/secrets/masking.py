@@ -58,6 +58,26 @@ SECRET_PATTERNS: List[Tuple[str, Optional[str]]] = [
     (r"(sk_test_)[A-Za-z0-9]{24,}", r"\1**********"),
     (r"(pk_live_)[A-Za-z0-9]{24,}", r"\1**********"),
     (r"(pk_test_)[A-Za-z0-9]{24,}", r"\1**********"),
+    # Anthropic API keys
+    (r"(sk-ant-)[A-Za-z0-9_-]{20,}", r"\1**********"),
+    # Heroku API keys
+    (r"(heroku_api_key\s*[=:]\s*)[A-Za-z0-9_-]+", r"\1****"),
+    # Twilio keys
+    (r"(twilio_auth_token\s*[=:]\s*)[A-Za-z0-9]+", r"\1****"),
+    # NPM tokens
+    (r"(npm_)[A-Za-z0-9]{36}", r"\1**********"),
+    # PyPI tokens
+    (r"(pypi-)[A-Za-z0-9_-]{20,}", r"\1**********"),
+    # Discord tokens
+    (r"([A-Za-z0-9]{24}\.[A-Za-z0-9_-]{6}\.[A-Za-z0-9_-]{27})", r"****"),
+    # Sendgrid API keys
+    (r"(SG\.)[A-Za-z0-9_-]{22,}", r"\1**********"),
+    # Mailgun API keys
+    (r"(key-)[A-Za-z0-9]{32}", r"\1**********"),
+    # Datadog API keys
+    (r"([a-f0-9]{32})", None),  # Detection only - too generic for replacement
+    # SSH private key content
+    (r"(-----BEGIN OPENSSH PRIVATE KEY-----)[\s\S]*?(-----END OPENSSH PRIVATE KEY-----)", r"\1\n[REDACTED]\n\2"),
     # Generic key=value patterns (case insensitive)
     (r'(password\s*[=:]\s*["\']?)([^"\'\s}{,\]]+)(["\']?)', r"\1****\3"),
     (r'(passwd\s*[=:]\s*["\']?)([^"\'\s}{,\]]+)(["\']?)', r"\1****\3"),

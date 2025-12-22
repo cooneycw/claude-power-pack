@@ -3,7 +3,7 @@
     "SessionStart": [
       {
         "type": "command",
-        "command": "bash -c 'cd /home/cooneycw/Projects/claude-power-pack && git fetch origin --quiet 2>/dev/null && BEHIND=$(git rev-list HEAD..origin/main --count 2>/dev/null || echo 0) && if [ \"$BEHIND\" -gt 0 ]; then echo \"⚠️  claude-power-pack has $BEHIND new commit(s). Run: git pull\"; else echo \"✓ claude-power-pack is current\"; fi'"
+        "command": "bash -c 'git fetch origin --quiet 2>/dev/null && BEHIND=$(git rev-list HEAD..origin/main --count 2>/dev/null || echo 0) && if [ \"$BEHIND\" -gt 0 ]; then echo \"⚠️  claude-power-pack has $BEHIND new commit(s). Run: git pull\"; else echo \"✓ claude-power-pack is current\"; fi'"
       },
       {
         "type": "command",

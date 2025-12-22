@@ -50,6 +50,18 @@ mask_patterns() {
     input=$(echo "$input" | sed -E 's|(sk_live_)[A-Za-z0-9]{24,}|\1**********|g')
     input=$(echo "$input" | sed -E 's|(sk_test_)[A-Za-z0-9]{24,}|\1**********|g')
 
+    # Anthropic API keys
+    input=$(echo "$input" | sed -E 's|(sk-ant-)[A-Za-z0-9_-]{20,}|\1**********|g')
+
+    # NPM tokens
+    input=$(echo "$input" | sed -E 's|(npm_)[A-Za-z0-9]{36}|\1**********|g')
+
+    # PyPI tokens
+    input=$(echo "$input" | sed -E 's|(pypi-)[A-Za-z0-9_-]{20,}|\1**********|g')
+
+    # Sendgrid API keys
+    input=$(echo "$input" | sed -E 's|(SG\.)[A-Za-z0-9_-]{22,}|\1**********|g')
+
     # Generic key=value patterns (case insensitive)
     # Using character class for quotes since sed escaping is tricky
     input=$(echo "$input" | sed -E 's|(password[[:space:]]*[=:][[:space:]]*)[^[:space:]}{,"\x27]+|\1****|gi')

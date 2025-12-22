@@ -182,6 +182,12 @@ acquire_lock() {
     local temp_dir="$LOCK_DIR/.${lock_name}.acquiring.$$"
     local wait_start=$(date +%s)
 
+    # Cleanup handler for temp directory
+    cleanup_temp_dir() {
+        rmdir "$temp_dir" 2>/dev/null || true
+    }
+    trap cleanup_temp_dir EXIT
+
     while true; do
         # Check for stale lock and remove it
         if is_lock_stale "$lock_name"; then

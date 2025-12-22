@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -120,7 +121,20 @@ class EnvSecretsProvider(SecretsProvider):
 
         Raises:
             SecretNotFoundError: If no variables with this prefix exist.
+            ValueError: If secret_id is invalid.
         """
+        # Input validation
+        if not secret_id or not isinstance(secret_id, str):
+            raise ValueError("secret_id must be a non-empty string")
+        if len(secret_id) > 100:
+            raise ValueError("secret_id too long (max 100 characters)")
+        # Only allow alphanumeric, hyphens, and underscores
+        if not re.match(r'^[A-Za-z0-9_-]+$', secret_id):
+            raise ValueError(
+                "secret_id must contain only alphanumeric characters, "
+                "hyphens, and underscores"
+            )
+
         prefix = secret_id.upper().replace("-", "_")
         result: Dict[str, Any] = {}
 

@@ -145,7 +145,23 @@ class AWSSecretsProvider(SecretsProvider):
             SecretNotFoundError: If secret doesn't exist.
             ProviderNotAvailableError: If AWS is not configured.
             SecretsError: For other retrieval failures.
+            ValueError: If secret_id is invalid.
         """
+        # Input validation
+        if not secret_id or not isinstance(secret_id, str):
+            raise ValueError("secret_id must be a non-empty string")
+        if len(secret_id) > 512:
+            raise ValueError("secret_id too long (max 512 characters)")
+        # AWS secret names/ARNs: alphanumeric, hyphens, underscores, slashes, plus, equals, periods, at, colon
+        # ARNs start with "arn:" and have colons, so we need to allow those
+        if not secret_id.startswith("arn:"):
+            # For non-ARN names, be more restrictive
+            if not all(c.isalnum() or c in "-_/+.@" for c in secret_id):
+                raise ValueError(
+                    "secret_id must contain only alphanumeric characters, "
+                    "hyphens, underscores, slashes, plus, periods, or at-signs"
+                )
+
         if self._cache_enabled:
             return self._get_secret_cached(secret_id)
         return self._get_secret_uncached(secret_id)
