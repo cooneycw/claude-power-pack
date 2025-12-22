@@ -101,6 +101,214 @@ is_session_alive() {
     [[ $age -lt $STALE_THRESHOLD ]]
 }
 
+# Get heartbeat age in seconds
+get_heartbeat_age() {
+    local session_id="$1"
+    local heartbeat_file="$HEARTBEAT_DIR/${session_id}.heartbeat"
+
+    if [[ -f "$heartbeat_file" ]]; then
+        local last_beat=$(stat -c %Y "$heartbeat_file" 2>/dev/null || echo 0)
+        echo $(($(date +%s) - last_beat))
+    else
+        echo "-1"
+    fi
+}
+
+# Derive label prefix from repo name
+# e.g., nhl-api -> NHL, claude-power-pack -> CPP
+derive_label_prefix() {
+    local repo_name="$1"
+    local first_part="${repo_name%%-*}"
+
+    # If first part is 2-4 chars, use it entirely (uppercase)
+    if [[ ${#first_part} -le 4 ]] && [[ ${#first_part} -ge 2 ]]; then
+        echo "$first_part" | tr '[:lower:]' '[:upper:]'
+    else
+        # Otherwise take first letter of each hyphen-separated word
+        echo "$repo_name" | tr '-' '\n' | awk '{printf toupper(substr($0,1,1))}' | head -c 4
+    fi
+}
+
+# Get repo owner and name from git remote
+get_repo_info() {
+    local remote_url
+    remote_url=$(git remote get-url origin 2>/dev/null || echo "")
+
+    if [[ "$remote_url" =~ github\.com[:/]([^/]+)/([^/.]+) ]]; then
+        echo "${BASH_REMATCH[1]}/${BASH_REMATCH[2]%.git}"
+    else
+        echo ""
+    fi
+}
+
+# Find which session has claimed an issue
+# Usage: find_issue_claim REPO_OWNER REPO_NAME ISSUE_NUMBER
+# Returns: session_id if claimed, empty if available
+find_issue_claim() {
+    local repo_owner="$1"
+    local repo_name="$2"
+    local issue_number="$3"
+
+    for session_file in "$SESSION_DIR"/*.json; do
+        [[ -f "$session_file" ]] || continue
+
+        local claim_issue=$(jq -r '.claim.issue_number // empty' "$session_file" 2>/dev/null)
+        local claim_repo=$(jq -r '.claim.repo_name // empty' "$session_file" 2>/dev/null)
+        local claim_owner=$(jq -r '.claim.repo_owner // empty' "$session_file" 2>/dev/null)
+        local session_id=$(jq -r '.session_id // empty' "$session_file" 2>/dev/null)
+
+        if [[ "$claim_issue" == "$issue_number" ]] && \
+           [[ "$claim_repo" == "$repo_name" ]] && \
+           [[ "$claim_owner" == "$repo_owner" ]]; then
+            echo "$session_id"
+            return 0
+        fi
+    done
+
+    echo ""
+}
+
+# List all claimed issues across active sessions
+# Usage: list_claimed_issues [REPO_OWNER/REPO_NAME]
+# Output: JSON array of claimed issues
+list_claimed_issues() {
+    local filter_repo="${1:-}"
+    local result="[]"
+
+    for session_file in "$SESSION_DIR"/*.json; do
+        [[ -f "$session_file" ]] || continue
+
+        local session_id=$(jq -r '.session_id // empty' "$session_file" 2>/dev/null)
+
+        # Skip stale sessions
+        if ! is_session_alive "$session_id"; then
+            continue
+        fi
+
+        local claim=$(jq -c '.claim // empty' "$session_file" 2>/dev/null)
+        if [[ -n "$claim" ]] && [[ "$claim" != "null" ]] && [[ "$claim" != "" ]]; then
+            local repo_full=$(jq -r '"\(.claim.repo_owner)/\(.claim.repo_name)"' "$session_file" 2>/dev/null)
+
+            # Apply repo filter if provided
+            if [[ -z "$filter_repo" ]] || [[ "$repo_full" == "$filter_repo" ]]; then
+                local age=$(get_heartbeat_age "$session_id")
+                local entry=$(jq -c --arg age "$age" '{
+                    session_id: .session_id,
+                    issue_number: .claim.issue_number,
+                    issue_title: .claim.issue_title,
+                    repo: "\(.claim.repo_owner)/\(.claim.repo_name)",
+                    claimed_at: .claim.claimed_at,
+                    heartbeat_age: ($age | tonumber)
+                }' "$session_file" 2>/dev/null)
+                result=$(echo "$result" | jq --argjson e "$entry" '. + [$e]')
+            fi
+        fi
+    done
+
+    echo "$result"
+}
+
+# Claim an issue for this session
+# Usage: claim_issue REPO_OWNER REPO_NAME ISSUE_NUMBER [TITLE] [PREFIX]
+claim_issue() {
+    local repo_owner="$1"
+    local repo_name="$2"
+    local issue_number="$3"
+    local issue_title="${4:-}"
+    local label_prefix="${5:-}"
+    local session_file="$SESSION_DIR/${CLAUDE_SESSION_ID}.json"
+    local now=$(date -Iseconds)
+
+    # Validate parameters
+    if [[ -z "$repo_owner" ]] || [[ -z "$repo_name" ]] || [[ -z "$issue_number" ]]; then
+        echo -e "${RED}Error: repo_owner, repo_name, and issue_number required${NC}" >&2
+        return 1
+    fi
+
+    # Check if issue is already claimed by another ACTIVE session
+    local conflict_session=""
+    conflict_session=$(find_issue_claim "$repo_owner" "$repo_name" "$issue_number")
+
+    if [[ -n "$conflict_session" ]] && [[ "$conflict_session" != "$CLAUDE_SESSION_ID" ]]; then
+        # Check if that session is alive
+        if is_session_alive "$conflict_session"; then
+            local age=$(get_heartbeat_age "$conflict_session")
+            echo -e "${RED}Error: Issue #${issue_number} already claimed by active session: $conflict_session (${age}s ago)${NC}" >&2
+            return 1
+        else
+            echo -e "${YELLOW}Warning: Overriding stale claim from session: $conflict_session${NC}" >&2
+        fi
+    fi
+
+    # Fetch issue title if not provided
+    if [[ -z "$issue_title" ]]; then
+        issue_title=$(gh issue view "$issue_number" --repo "${repo_owner}/${repo_name}" --json title --jq '.title' 2>/dev/null | head -c 50)
+        issue_title="${issue_title:-Issue $issue_number}"
+    fi
+
+    # Determine label prefix
+    if [[ -z "$label_prefix" ]]; then
+        label_prefix=$(derive_label_prefix "$repo_name")
+    fi
+
+    # Build terminal label
+    local terminal_label="${label_prefix} #${issue_number}: ${issue_title}"
+
+    # Ensure session file exists
+    if [[ ! -f "$session_file" ]]; then
+        register_session
+    fi
+
+    # Update session with claim
+    local tmp=$(mktemp)
+    jq --arg now "$now" \
+       --arg issue_number "$issue_number" \
+       --arg issue_title "$issue_title" \
+       --arg repo_owner "$repo_owner" \
+       --arg repo_name "$repo_name" \
+       --arg prefix "$label_prefix" \
+       --arg terminal_label "$terminal_label" \
+       --arg source "manual" \
+       '.claim = {
+          "issue_number": ($issue_number | tonumber),
+          "issue_title": $issue_title,
+          "repo_owner": $repo_owner,
+          "repo_name": $repo_name,
+          "claimed_at": $now,
+          "source": $source,
+          "label_prefix": $prefix
+        } | .issue = ($issue_number | tonumber) | .terminal_label = $terminal_label' \
+       "$session_file" > "$tmp"
+    mv "$tmp" "$session_file"
+
+    echo -e "${GREEN}Claimed issue #${issue_number}:${NC} ${issue_title}"
+    echo "$terminal_label"
+}
+
+# Release the current session's issue claim
+release_claim() {
+    local session_file="$SESSION_DIR/${CLAUDE_SESSION_ID}.json"
+
+    if [[ ! -f "$session_file" ]]; then
+        echo -e "${YELLOW}No session registered${NC}"
+        return 0
+    fi
+
+    local current_claim=$(jq -r '.claim.issue_number // empty' "$session_file" 2>/dev/null)
+
+    if [[ -z "$current_claim" ]]; then
+        echo -e "${YELLOW}No issue claimed${NC}"
+        return 0
+    fi
+
+    # Clear claim and terminal_label
+    local tmp=$(mktemp)
+    jq '.claim = null | .terminal_label = null' "$session_file" > "$tmp"
+    mv "$tmp" "$session_file"
+
+    echo -e "${GREEN}Released claim on issue #${current_claim}${NC}"
+}
+
 # Register a new session
 register_session() {
     local session_file="$SESSION_DIR/${CLAUDE_SESSION_ID}.json"
@@ -159,9 +367,18 @@ pause_session() {
 end_session() {
     local session_file="$SESSION_DIR/${CLAUDE_SESSION_ID}.json"
     local heartbeat_file="$HEARTBEAT_DIR/${CLAUDE_SESSION_ID}.heartbeat"
+    local label_file="$COORDINATION_DIR/labels/${CLAUDE_SESSION_ID}.state"
+
+    # Log claim release if any
+    if [[ -f "$session_file" ]]; then
+        local claimed_issue=$(jq -r '.claim.issue_number // empty' "$session_file" 2>/dev/null)
+        if [[ -n "$claimed_issue" ]]; then
+            echo -e "${YELLOW}Released claim:${NC} Issue #$claimed_issue"
+        fi
+    fi
 
     # Release any locks held by this session
-    for lock_file in "$LOCK_DIR"/*.lock 2>/dev/null; do
+    for lock_file in "$LOCK_DIR"/*.lock; do
         [[ -f "$lock_file" ]] || continue
         local holder=$(jq -r '.session_id // ""' "$lock_file" 2>/dev/null)
         if [[ "$holder" == "$CLAUDE_SESSION_ID" ]]; then
@@ -171,8 +388,8 @@ end_session() {
         fi
     done
 
-    # Remove session files
-    rm -f "$session_file" "$heartbeat_file"
+    # Remove session files (including per-session label state)
+    rm -f "$session_file" "$heartbeat_file" "$label_file"
     echo -e "${GREEN}Session ended:${NC} $CLAUDE_SESSION_ID"
 }
 
@@ -188,7 +405,7 @@ show_status() {
     echo ""
 
     local found=0
-    for session_file in "$SESSION_DIR"/*.json 2>/dev/null; do
+    for session_file in "$SESSION_DIR"/*.json; do
         [[ -f "$session_file" ]] || continue
         found=1
 
@@ -197,6 +414,9 @@ show_status() {
         local status=$(jq -r '.status // "unknown"' "$session_file")
         local issue=$(jq -r '.issue // "none"' "$session_file")
         local started_at=$(jq -r '.started_at // "unknown"' "$session_file")
+        local claim_issue=$(jq -r '.claim.issue_number // empty' "$session_file")
+        local claim_title=$(jq -r '.claim.issue_title // empty' "$session_file")
+        local terminal_label=$(jq -r '.terminal_label // empty' "$session_file")
 
         # Check if alive
         local alive_status=""
@@ -224,7 +444,14 @@ show_status() {
 
         echo -e "${prefix}${BLUE}$session_id${NC} $alive_status"
         echo -e "    Status: $status"
-        echo -e "    Issue: $issue"
+        if [[ -n "$claim_issue" ]]; then
+            echo -e "    Claimed: ${GREEN}#${claim_issue}${NC} - ${claim_title}"
+            if [[ -n "$terminal_label" ]]; then
+                echo -e "    Label: ${terminal_label}"
+            fi
+        elif [[ "$issue" != "none" ]] && [[ "$issue" != "null" ]]; then
+            echo -e "    Issue: #$issue (from path, not claimed)"
+        fi
         echo -e "    CWD: $cwd"
         echo -e "    Last heartbeat: ${age}s ago"
         echo ""
@@ -239,7 +466,7 @@ show_status() {
     echo -e "${CYAN}Active Locks:${NC}"
     echo ""
     local lock_found=0
-    for lock_file in "$LOCK_DIR"/*.lock 2>/dev/null; do
+    for lock_file in "$LOCK_DIR"/*.lock; do
         [[ -f "$lock_file" ]] || continue
         lock_found=1
 
@@ -265,7 +492,7 @@ cleanup_sessions() {
     echo ""
 
     local cleaned=0
-    for session_file in "$SESSION_DIR"/*.json 2>/dev/null; do
+    for session_file in "$SESSION_DIR"/*.json; do
         [[ -f "$session_file" ]] || continue
 
         local session_id=$(jq -r '.session_id // ""' "$session_file")
@@ -275,7 +502,7 @@ cleanup_sessions() {
 
         if ! is_session_alive "$session_id"; then
             # Release locks held by this session
-            for lock_file in "$LOCK_DIR"/*.lock 2>/dev/null; do
+            for lock_file in "$LOCK_DIR"/*.lock; do
                 [[ -f "$lock_file" ]] || continue
                 local holder=$(jq -r '.session_id // ""' "$lock_file" 2>/dev/null)
                 if [[ "$holder" == "$session_id" ]]; then
@@ -303,20 +530,26 @@ cleanup_sessions() {
 # Print usage
 usage() {
     cat << 'EOF'
-Usage: session-register.sh COMMAND
+Usage: session-register.sh COMMAND [ARGS]
 
-Commands:
-  start     Register new session (called at SessionStart hook)
-  pause     Mark session as paused (called at Stop hook)
-  end       End session and release all locks
-  status    Show all registered sessions and their state
-  cleanup   Remove stale sessions and release their locks
+Session Commands:
+  start                              Register new session (SessionStart hook)
+  pause                              Mark session as paused (Stop hook)
+  end                                End session and release all locks/claims
+  status                             Show all registered sessions and state
+  cleanup                            Remove stale sessions and their locks
+
+Issue Claiming Commands:
+  claim OWNER/REPO NUM [TITLE] [PREFIX]   Claim an issue for this session
+  release-claim                           Release the current claim
+  list-claims [OWNER/REPO]                List all active issue claims (JSON)
+  find-claim OWNER REPO NUM               Find which session claimed an issue
 
 Environment Variables:
   CLAUDE_SESSION_ID  Session identifier (auto-generated if not set)
   COORDINATION_DIR   Override default ~/.claude/coordination
 
-This script is typically called by Claude Code hooks:
+Hook Integration:
   - SessionStart -> session-register.sh start
   - Stop         -> session-register.sh pause
 
@@ -324,8 +557,20 @@ Examples:
   # View all sessions
   session-register.sh status
 
-  # Clean up dead sessions
-  session-register.sh cleanup
+  # Claim issue #167 in cooneycw/NHL-API
+  session-register.sh claim cooneycw/NHL-API 167 "Player Landing" NHL
+
+  # List all active claims
+  session-register.sh list-claims
+
+  # List claims for a specific repo
+  session-register.sh list-claims cooneycw/NHL-API
+
+  # Release current claim
+  session-register.sh release-claim
+
+  # Check if issue is claimed
+  session-register.sh find-claim cooneycw NHL-API 167
 EOF
 }
 
@@ -351,6 +596,36 @@ main() {
             ;;
         cleanup)
             cleanup_sessions
+            ;;
+        claim)
+            # claim OWNER/REPO NUM [TITLE] [PREFIX]
+            local repo_spec="${2:-}"
+            local issue_num="${3:-}"
+            local title="${4:-}"
+            local prefix="${5:-}"
+
+            if [[ -z "$repo_spec" ]] || [[ -z "$issue_num" ]]; then
+                echo -e "${RED}Usage: session-register.sh claim OWNER/REPO ISSUE_NUM [TITLE] [PREFIX]${NC}" >&2
+                exit 1
+            fi
+
+            local repo_owner="${repo_spec%%/*}"
+            local repo_name="${repo_spec##*/}"
+            claim_issue "$repo_owner" "$repo_name" "$issue_num" "$title" "$prefix"
+            ;;
+        release-claim)
+            release_claim
+            ;;
+        list-claims)
+            list_claimed_issues "${2:-}"
+            ;;
+        find-claim)
+            # find-claim OWNER REPO NUM
+            if [[ -z "${2:-}" ]] || [[ -z "${3:-}" ]] || [[ -z "${4:-}" ]]; then
+                echo -e "${RED}Usage: session-register.sh find-claim OWNER REPO ISSUE_NUM${NC}" >&2
+                exit 1
+            fi
+            find_issue_claim "$2" "$3" "$4"
             ;;
         help|--help|-h)
             usage

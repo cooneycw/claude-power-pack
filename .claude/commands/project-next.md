@@ -1,6 +1,6 @@
 ---
 description: Scan GitHub issues and worktree to recommend prioritized next steps (generic)
-allowed-tools: Bash(gh issue list:*), Bash(gh issue view:*), Bash(gh repo view:*), Bash(git worktree:*), Bash(git worktree list:*), Bash(git status:*), Bash(git branch:*), Bash(git log:*), Bash(tree:*), Bash(ls:*), Bash(printf:*), Bash(grep:*), Bash(tmux rename-window:*), Bash(*terminal-label.sh:*)
+allowed-tools: Bash(gh issue list:*), Bash(gh issue view:*), Bash(gh repo view:*), Bash(git worktree:*), Bash(git worktree list:*), Bash(git status:*), Bash(git branch:*), Bash(git log:*), Bash(tree:*), Bash(ls:*), Bash(printf:*), Bash(grep:*), Bash(tmux rename-window:*), Bash(*terminal-label.sh:*), Bash(*session-register.sh:*), Bash(*claim-issue.sh:*)
 ---
 
 # Project Next Steps Recommendation
@@ -147,6 +147,30 @@ For each worktree, check if another session is actively working on it:
 
 ---
 
+## Step 4c: Get Claimed Issues
+
+Check which issues are already claimed by other active Claude Code sessions:
+
+```bash
+# Get the repo info
+REPO_INFO=$(gh repo view --json owner,name --jq '"\(.owner.login)/\(.name)"')
+
+# List all active claims for this repository
+~/.claude/scripts/session-register.sh list-claims "$REPO_INFO" 2>/dev/null
+```
+
+### Claim Filtering
+
+When presenting issues, filter out those claimed by **other** active sessions:
+
+1. **Parse claim list**: Extract issue numbers from `list-claims` output
+2. **Current session's claim is OK**: Don't filter the current session's own claim
+3. **Stale sessions ignored**: Claims from sessions with heartbeat > 60s are not active
+
+Mark filtered issues as `[CLAIMED]` in the output if they appear in recommendations.
+
+---
+
 ## Step 5: Cross-Reference Analysis
 
 Compare issues against worktree state:
@@ -239,6 +263,14 @@ Present findings as:
 - session-abc: working on #{N} in {worktree} (last heartbeat: 5s ago)
 - ...
 
+### Claimed by Other Sessions
+
+| Issue | Title | Session | Last Active |
+|-------|-------|---------|-------------|
+| #{N} | {Title} | tmux-%2 | 3s ago |
+
+*These issues are being worked on by other active Claude Code sessions and are excluded from recommendations.*
+
 ### Recommendations
 - **Cleanup:** {worktrees with merged branches}
 - **Stale:** {worktrees with no recent commits}
@@ -273,19 +305,50 @@ After presenting recommendations, offer:
 
 ## Step 10: Handle User Selection
 
-When the user selects an issue to work on:
+When the user selects an issue to work on, follow this sequence:
+
+### 10.1 Check Availability
+
+```bash
+# Verify issue is still available (may have been claimed since analysis)
+~/.claude/scripts/claim-issue.sh --check {NUMBER}
+```
+
+If claimed, inform user and suggest alternatives.
+
+### 10.2 Claim the Issue
+
+```bash
+# Get repo info for claim
+REPO_INFO=$(gh repo view --json owner,name --jq '"\(.owner.login)/\(.name)"')
+
+# Claim the issue (registers in session coordination)
+~/.claude/scripts/session-register.sh claim "$REPO_INFO" {NUMBER} "{Title}"
+```
+
+### 10.3 Set Terminal Label
 
 ```bash
 # Set terminal label to reflect active issue
 ~/.claude/scripts/terminal-label.sh issue "{PREFIX}" {NUMBER} "{Short Title}"
 ```
 
-If creating a new worktree:
+### 10.4 Create Worktree (if needed)
+
+If the issue doesn't have an existing worktree:
 
 ```bash
 # Create worktree for the issue
 git worktree add -b issue-{N}-{description} ../{repo}-issue-{N}
 ```
+
+### 10.5 Confirmation
+
+Report to user:
+- Issue #{N} claimed by this session
+- Terminal label set
+- Worktree created (if applicable)
+- Ready to begin work
 
 ---
 
