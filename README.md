@@ -830,10 +830,21 @@ Contributions are welcome! To contribute:
 - Use trusted sources only
 - Check skill code, not just descriptions
 
+### For Claude Code Hooks
+- **Hooks execute shell commands** - Review all hooks in `.claude/hooks.json`
+- **SessionStart hooks run automatically** - Every new session triggers these
+- **UserPromptSubmit hooks see your prompts** - Be aware of what data flows through
+- Scripts in `~/.claude/scripts/` should be reviewed before symlinking
+
 ### For MCP Second Opinion
 - **Protect your API key** - Never commit .env files
 - **Review domain approvals** - Only approve trusted domains
 - **Monitor costs** - Set appropriate limits
+
+### For Session Coordination Scripts
+- **Scripts have shell access** - Review `session-*.sh` before installing
+- **Lock files in `~/.claude/coordination/`** - Contain session metadata
+- **Heartbeat data** - Tracks active sessions (local only, not transmitted)
 
 ## 📋 Disclosures & Legal
 
