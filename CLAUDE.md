@@ -38,7 +38,8 @@ claude-power-pack/
 │   ├── commands/
 │   │   ├── django/                             # Django workflow commands
 │   │   ├── github/                             # GitHub issue management
-│   │   └── project-next.md                     # Next steps orchestrator (NEW)
+│   │   ├── project-next.md                     # Next steps orchestrator
+│   │   └── project-lite.md                     # Quick reference (NEW)
 │   ├── skills/best-practices.md                # On-demand best practices
 │   └── hooks.json                              # Session/label hooks
 ├── .github/
@@ -104,17 +105,36 @@ ln -sf /path/to/claude-power-pack/scripts/terminal-label.sh ~/.claude/scripts/
 
 See `ISSUE_DRIVEN_DEVELOPMENT.md` for integration with git worktrees.
 
-## Project Next Steps
+## Project Commands
 
-**New in v1.7.0:** Orchestrator command for GitHub issue prioritization.
+Commands for project orientation and issue management:
 
-Run `/project-next` in any GitHub repository to:
+| Command | Purpose | Token Cost |
+|---------|---------|------------|
+| `/project-lite` | Quick project reference | ~500-800 |
+| `/project-next` | Full issue analysis & prioritization | ~15-30K |
+
+### /project-lite (NEW in v1.8.0)
+
+Context-efficient quick reference that outputs:
+- Repository info and conventions
+- Worktree summary (if applicable)
+- Key files presence check
+- Available commands
+
+**Use when:** Starting a session, context is high, or you know what to work on.
+
+### /project-next
+
+Full orchestrator for GitHub issue prioritization:
 - Analyze open issues with hierarchy awareness (Wave/Phase patterns)
 - Map worktrees to issues for context-aware recommendations
 - Prioritize actions: Critical → In Progress → Ready → Quick Wins
 - Set terminal labels for the selected work
 
+**Use when:** Unsure what to work on, need issue analysis, or want cleanup suggestions.
+
 ## Version
 
-Current version: 1.7.0
-Previous: 1.6.0 (GitHub Issue Management Commands)
+Current version: 1.8.0
+Previous: 1.7.0 (Issue-Driven Development, Terminal Labeling)
