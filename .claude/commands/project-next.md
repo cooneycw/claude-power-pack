@@ -120,6 +120,33 @@ Look for:
 
 ---
 
+## Step 4b: Check Session Coordination State
+
+If coordination scripts are installed, check for active sessions and locks:
+
+```bash
+# Check active locks
+~/.claude/scripts/session-lock.sh list 2>/dev/null
+
+# Check active sessions
+~/.claude/scripts/session-register.sh status 2>/dev/null
+```
+
+### Session Coordination Analysis
+
+For each worktree, check if another session is actively working on it:
+
+1. **Active Sessions**: Sessions with recent heartbeats (< 60s) are actively working
+2. **Held Locks**: Locks indicate ongoing operations (pytest, PR creation, merge)
+3. **Conflict Prevention**: Warn if user selects an issue with active locks
+
+**Include in recommendations:**
+- Mark issues/worktrees with active sessions as "In Progress (by another session)"
+- Highlight locks that may block certain operations
+- Suggest alternative issues when conflicts detected
+
+---
+
 ## Step 5: Cross-Reference Analysis
 
 Compare issues against worktree state:
@@ -197,10 +224,20 @@ Present findings as:
 
 ### Worktree Status
 
-| Directory | Branch | Issue | Status |
-|-----------|--------|-------|--------|
-| {path} | issue-{N}-desc | #{N} | Uncommitted changes |
-| {path} | issue-{M}-desc | #{M} | Clean |
+| Directory | Branch | Issue | Status | Session |
+|-----------|--------|-------|--------|---------|
+| {path} | issue-{N}-desc | #{N} | Uncommitted changes | session-abc (active) |
+| {path} | issue-{M}-desc | #{M} | Clean | - |
+
+### Active Coordination
+
+**Locks:**
+- `pytest-{repo}` held by session-xyz (120s remaining)
+- ...
+
+**Sessions:**
+- session-abc: working on #{N} in {worktree} (last heartbeat: 5s ago)
+- ...
 
 ### Recommendations
 - **Cleanup:** {worktrees with merged branches}

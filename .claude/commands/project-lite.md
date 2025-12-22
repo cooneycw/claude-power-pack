@@ -59,6 +59,24 @@ git worktree list 2>/dev/null | head -10
 
 ---
 
+## Step 3b: Check Session Coordination State
+
+If coordination scripts are available, show active locks and sessions:
+
+```bash
+# Check active locks
+~/.claude/scripts/session-lock.sh list 2>/dev/null || echo "Coordination not installed"
+
+# Check active sessions
+~/.claude/scripts/session-register.sh status 2>/dev/null | head -20
+```
+
+**Include in output if any locks or sessions found:**
+- Active locks (who holds what)
+- Active sessions (which worktrees have live sessions)
+
+---
+
 ## Step 4: Output Format
 
 Generate this compact summary:
@@ -84,6 +102,19 @@ Generate this compact summary:
 
 {if single worktree:}
 Single worktree (main repo only)
+
+### Active Coordination
+{if coordination installed and any locks/sessions:}
+**Locks:** {count} active
+- `pytest-{repo}` held by session-xyz (expires in 120s)
+- ...
+
+**Sessions:** {count} active
+- session-abc in {worktree} (issue #123)
+- ...
+
+{if no locks/sessions:}
+No active locks or sessions.
 
 ### Key Files
 - `CLAUDE.md` - {present/missing}

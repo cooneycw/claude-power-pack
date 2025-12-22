@@ -27,21 +27,28 @@ This repository contains two main components:
 claude-power-pack/
 ├── CLAUDE_CODE_BEST_PRACTICES_COMPREHENSIVE.md  # Main guide (21KB)
 ├── CLAUDE_CODE_BEST_PRACTICES.md               # Quick reference (9.5KB)
-├── ISSUE_DRIVEN_DEVELOPMENT.md                 # IDD methodology (NEW)
+├── ISSUE_DRIVEN_DEVELOPMENT.md                 # IDD methodology
 ├── PROGRESSIVE_DISCLOSURE_GUIDE.md             # Context optimization
 ├── MCP_TOKEN_AUDIT_CHECKLIST.md                # Token efficiency
 ├── mcp-second-opinion/                         # MCP server
 │   └── src/server.py                           # 12 tools
 ├── scripts/
-│   └── terminal-label.sh                       # Terminal labeling (NEW)
+│   ├── terminal-label.sh                       # Terminal labeling
+│   ├── session-lock.sh                         # Lock coordination (NEW)
+│   ├── session-register.sh                     # Session lifecycle (NEW)
+│   ├── session-heartbeat.sh                    # Heartbeat daemon (NEW)
+│   └── pytest-locked.sh                        # pytest wrapper (NEW)
 ├── .claude/
 │   ├── commands/
+│   │   ├── coordination/                       # Session coordination (NEW)
+│   │   │   ├── pr-create.md                    # Coordinated PR creation
+│   │   │   └── merge-main.md                   # Coordinated merges
 │   │   ├── django/                             # Django workflow commands
 │   │   ├── github/                             # GitHub issue management
 │   │   ├── project-next.md                     # Next steps orchestrator
-│   │   └── project-lite.md                     # Quick reference (NEW)
+│   │   └── project-lite.md                     # Quick reference
 │   ├── skills/best-practices.md                # On-demand best practices
-│   └── hooks.json                              # Session/label hooks
+│   └── hooks.json                              # Session/label/coordination hooks
 ├── .github/
 │   └── ISSUE_TEMPLATE/                         # Structured issue templates
 └── README.md                                    # Quick start guide
@@ -134,7 +141,53 @@ Full orchestrator for GitHub issue prioritization:
 
 **Use when:** Unsure what to work on, need issue analysis, or want cleanup suggestions.
 
+## Session Coordination
+
+**New in v1.9.0:** Prevent conflicts between concurrent Claude Code sessions.
+
+### Problem Solved
+- Sessions competing for PR creation
+- pytest runs killed by other sessions
+- No visibility into active work
+- Worktree cleanup conflicts
+
+### Setup
+```bash
+# Symlink scripts
+ln -sf ~/Projects/claude-power-pack/scripts/session-*.sh ~/.claude/scripts/
+ln -sf ~/Projects/claude-power-pack/scripts/pytest-locked.sh ~/.claude/scripts/
+
+# Create coordination directory
+mkdir -p ~/.claude/coordination/{locks,sessions,heartbeat}
+```
+
+### Commands
+
+| Script | Purpose |
+|--------|---------|
+| `session-lock.sh list` | Show active locks |
+| `session-lock.sh acquire NAME` | Acquire a lock |
+| `session-lock.sh release NAME` | Release a lock |
+| `session-register.sh status` | Show active sessions |
+| `pytest-locked.sh [args]` | Run pytest with coordination |
+
+### Skill Commands
+
+| Command | Purpose |
+|---------|---------|
+| `/coordination:pr-create` | Create PR with locking |
+| `/coordination:merge-main BRANCH` | Merge to main with locking |
+
+### Hook Integration
+
+Hooks automatically:
+- Register session at start
+- Update heartbeat on each prompt
+- Mark session paused on stop
+
+See `ISSUE_DRIVEN_DEVELOPMENT.md` for detailed documentation.
+
 ## Version
 
-Current version: 1.8.0
-Previous: 1.7.0 (Issue-Driven Development, Terminal Labeling)
+Current version: 1.9.0
+Previous: 1.8.0 (Project Commands)

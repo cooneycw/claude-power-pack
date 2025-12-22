@@ -26,6 +26,7 @@ This guide documents the methodology as practiced in real-world projects with 10
 5. [Terminal Labeling](#terminal-labeling)
 6. [Commit Conventions](#commit-conventions)
 7. [Multi-Agent Coordination](#multi-agent-coordination)
+   - [Session Coordination](#session-coordination-new) *(NEW)*
 8. [Example Workflow](#example-workflow)
 9. [Best Practices](#best-practices)
 10. [Anti-Patterns](#anti-patterns)
@@ -447,6 +448,49 @@ Main Repo (planning)          Worktree 1 (issue-42)       Worktree 2 (issue-57)
 2. **Use `/project-next` to identify parallel work** - Find non-blocking issues
 3. **Label terminals with issue numbers** - Avoid confusion
 4. **Don't share worktrees between sessions** - One session per worktree
+
+### Session Coordination (NEW)
+
+With multiple sessions running on the same repository, conflicts can occur:
+
+| Problem | Solution |
+|---------|----------|
+| Two sessions create PRs | Lock-based coordination |
+| pytest runs interfere | Test suite locking |
+| Sessions kill each other's work | Session registry + heartbeat |
+| No visibility into active work | `/project-next` shows sessions |
+
+**Coordination Scripts:**
+```bash
+# Check who's working on what
+~/.claude/scripts/session-register.sh status
+
+# View active locks
+~/.claude/scripts/session-lock.sh list
+
+# Run pytest with coordination
+~/.claude/scripts/pytest-locked.sh -m unit
+
+# Create PR with locking
+/coordination:pr-create
+
+# Merge to main with locking
+/coordination:merge-main issue-123-feature
+```
+
+**How It Works:**
+
+1. **Session Registration** - Each session registers at start, maintains heartbeat
+2. **Lock Acquisition** - Operations acquire locks before executing
+3. **Stale Detection** - Sessions without heartbeat for 60s are considered dead
+4. **Auto-Release** - Dead session locks are automatically released
+
+**Hooks Integration:**
+- `SessionStart` → Registers session, sets terminal label
+- `UserPromptSubmit` → Updates heartbeat timestamp
+- `Stop` → Marks session as paused
+
+See `~/.claude/coordination/` for lock files and session registry.
 
 ---
 
