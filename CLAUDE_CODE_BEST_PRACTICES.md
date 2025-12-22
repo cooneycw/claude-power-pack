@@ -265,9 +265,15 @@
 **Top MCPs Mentioned:**
 
 1. **DevTools MCP** - Preferred over Playwright by some
-2. **Playwright MCP** - Great for frontend work (but token-heavy)
+2. **Playwright MCP** (`@playwright/mcp`) - Browser automation, UI testing
 3. **Context 7** - Context management
 4. **Supabase** - Database operations
+
+**Installation Example:**
+```bash
+# Playwright MCP (official package from Microsoft)
+claude mcp add playwright -- npx -y @playwright/mcp@latest
+```
 
 **Wisdom:**
 - "MCP is king of token consumption"
