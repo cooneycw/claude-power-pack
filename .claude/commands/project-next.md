@@ -134,16 +134,24 @@ If coordination scripts are installed, check for active sessions and locks:
 
 ### Session Coordination Analysis
 
-For each worktree, check if another session is actively working on it:
+For each worktree, check if another session is working on it using tiered staleness:
 
-1. **Active Sessions**: Sessions with recent heartbeats (< 60s) are actively working
-2. **Held Locks**: Locks indicate ongoing operations (pytest, PR creation, merge)
-3. **Conflict Prevention**: Warn if user selects an issue with active locks
+| Status | Heartbeat Age | Meaning |
+|--------|---------------|---------|
+| 🟢 **Active** | < 5 min | Actively using Claude Code |
+| 🟡 **Idle** | 5 min - 1 hour | Stepped away briefly |
+| 🟠 **Stale** | 1 - 4 hours | Gone for extended period |
+| ⚫ **Abandoned** | > 24 hours | Auto-released next day |
+
+**Conflict Prevention:**
+- **Active/Idle**: Block claim, suggest alternative issues
+- **Stale**: Allow override with warning
+- **Abandoned**: Auto-released, freely available
 
 **Include in recommendations:**
-- Mark issues/worktrees with active sessions as "In Progress (by another session)"
-- Highlight locks that may block certain operations
-- Suggest alternative issues when conflicts detected
+- Mark issues with active/idle sessions as claimed with status indicator
+- Show time since last heartbeat for context
+- Highlight locks that may block operations
 
 ---
 
@@ -161,13 +169,16 @@ REPO_INFO=$(gh repo view --json owner,name --jq '"\(.owner.login)/\(.name)"')
 
 ### Claim Filtering
 
-When presenting issues, filter out those claimed by **other** active sessions:
+When presenting issues, the `list-claims` output now includes a `status` field with tiered values:
 
-1. **Parse claim list**: Extract issue numbers from `list-claims` output
+1. **Parse claim list**: Each claim includes `status: "active"|"idle"` and `heartbeat_age`
 2. **Current session's claim is OK**: Don't filter the current session's own claim
-3. **Stale sessions ignored**: Claims from sessions with heartbeat > 60s are not active
+3. **Active/Idle sessions block**: Claims from sessions with status "active" or "idle" are blocked
+4. **Stale sessions allow override**: Show warning but don't block
 
-Mark filtered issues as `[CLAIMED]` in the output if they appear in recommendations.
+Display claimed issues with their tier status:
+- 🟢 `[CLAIMED - Active (2m)]` - definitely in use
+- 🟡 `[CLAIMED - Idle (15m)]` - probably still in use, warn before taking
 
 ---
 
@@ -265,11 +276,12 @@ Present findings as:
 
 ### Claimed by Other Sessions
 
-| Issue | Title | Session | Last Active |
-|-------|-------|---------|-------------|
-| #{N} | {Title} | tmux-%2 | 3s ago |
+| Issue | Title | Session | Status | Last Heartbeat |
+|-------|-------|---------|--------|----------------|
+| #{N} | {Title} | tmux-%2 | 🟢 Active | 2m ago |
+| #{M} | {Title} | pid-1234 | 🟡 Idle | 25m ago |
 
-*These issues are being worked on by other active Claude Code sessions and are excluded from recommendations.*
+*Active/Idle claims are blocked. Stale claims (>4h) can be overridden with warning.*
 
 ### Recommendations
 - **Cleanup:** {worktrees with merged branches}

@@ -36,8 +36,10 @@ SESSION_DIR="$COORDINATION_DIR/sessions"
 CONFIG_FILE="$COORDINATION_DIR/config.json"
 
 # Defaults (can be overridden by config.json)
+# Note: For locks, we use shorter thresholds than claims since locks are for
+# short-term operations (pytest, PR creation) that should complete quickly
 DEFAULT_TIMEOUT=300
-STALE_THRESHOLD=60
+STALE_THRESHOLD=300        # 5 minutes - locks should be released if holder is inactive
 MAX_WAIT_SECONDS=120
 
 # Colors for output
@@ -67,7 +69,11 @@ init_dirs() {
 {
   "lock_timeout_default": 300,
   "heartbeat_interval": 30,
-  "stale_threshold": 60,
+  "lock_stale_threshold": 300,
+  "active_threshold": 300,
+  "idle_threshold": 3600,
+  "stale_threshold": 14400,
+  "abandoned_threshold": 86400,
   "strict_mode": true,
   "wait_on_conflict": true,
   "max_wait_seconds": 120

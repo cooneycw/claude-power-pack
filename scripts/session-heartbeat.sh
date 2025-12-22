@@ -23,9 +23,13 @@ COORDINATION_DIR="${COORDINATION_DIR:-$HOME/.claude/coordination}"
 HEARTBEAT_DIR="$COORDINATION_DIR/heartbeat"
 CONFIG_FILE="$COORDINATION_DIR/config.json"
 
-# Defaults
+# Defaults - tiered staleness thresholds (in seconds)
+# Designed for real team workflows where issues take hours/days
 HEARTBEAT_INTERVAL=30
-STALE_THRESHOLD=60
+ACTIVE_THRESHOLD=300        # 5 minutes
+IDLE_THRESHOLD=3600         # 1 hour
+STALE_THRESHOLD=14400       # 4 hours
+ABANDONED_THRESHOLD=86400   # 24 hours
 
 # Colors
 RED='\033[0;31m'
@@ -61,7 +65,57 @@ init_dirs() {
 load_config() {
     if [[ -f "$CONFIG_FILE" ]]; then
         HEARTBEAT_INTERVAL=$(jq -r '.heartbeat_interval // 30' "$CONFIG_FILE" 2>/dev/null || echo 30)
-        STALE_THRESHOLD=$(jq -r '.stale_threshold // 60' "$CONFIG_FILE" 2>/dev/null || echo 60)
+        ACTIVE_THRESHOLD=$(jq -r '.active_threshold // 300' "$CONFIG_FILE" 2>/dev/null || echo 300)
+        IDLE_THRESHOLD=$(jq -r '.idle_threshold // 3600' "$CONFIG_FILE" 2>/dev/null || echo 3600)
+        STALE_THRESHOLD=$(jq -r '.stale_threshold // 14400' "$CONFIG_FILE" 2>/dev/null || echo 14400)
+        ABANDONED_THRESHOLD=$(jq -r '.abandoned_threshold // 86400' "$CONFIG_FILE" 2>/dev/null || echo 86400)
+    fi
+}
+
+# Get tiered session status
+# Returns: "active", "idle", "stale", "abandoned", or "dead"
+get_session_status() {
+    local session_id="$1"
+    local hb_file="$HEARTBEAT_DIR/${session_id}.heartbeat"
+
+    if [[ ! -f "$hb_file" ]]; then
+        echo "dead"
+        return
+    fi
+
+    local last_beat=$(stat -c %Y "$hb_file" 2>/dev/null || echo 0)
+    local now=$(date +%s)
+    local age=$((now - last_beat))
+
+    if [[ $age -lt $ACTIVE_THRESHOLD ]]; then
+        echo "active"
+    elif [[ $age -lt $IDLE_THRESHOLD ]]; then
+        echo "idle"
+    elif [[ $age -lt $ABANDONED_THRESHOLD ]]; then
+        echo "stale"
+    else
+        echo "abandoned"
+    fi
+}
+
+# Format age in human-readable form
+format_age() {
+    local age="$1"
+
+    if [[ $age -lt 0 ]]; then
+        echo "unknown"
+    elif [[ $age -lt 60 ]]; then
+        echo "${age}s"
+    elif [[ $age -lt 3600 ]]; then
+        echo "$((age / 60))m"
+    else
+        local hours=$((age / 3600))
+        local mins=$(((age % 3600) / 60))
+        if [[ $mins -gt 0 ]]; then
+            echo "${hours}h ${mins}m"
+        else
+            echo "${hours}h"
+        fi
     fi
 }
 
@@ -118,7 +172,7 @@ stop_daemon() {
     fi
 }
 
-# Check if a session is alive
+# Check if a session is alive (uses tiered status)
 check_session() {
     local session_id="${1:-$CLAUDE_SESSION_ID}"
     local hb_file="$HEARTBEAT_DIR/${session_id}.heartbeat"
@@ -131,14 +185,31 @@ check_session() {
     local last_beat=$(stat -c %Y "$hb_file" 2>/dev/null || echo 0)
     local now=$(date +%s)
     local age=$((now - last_beat))
+    local age_str=$(format_age "$age")
+    local status=$(get_session_status "$session_id")
 
-    if [[ $age -lt $STALE_THRESHOLD ]]; then
-        echo -e "${GREEN}alive${NC} (last heartbeat: ${age}s ago)"
-        return 0
-    else
-        echo -e "${YELLOW}stale${NC} (last heartbeat: ${age}s ago, threshold: ${STALE_THRESHOLD}s)"
-        return 1
-    fi
+    case "$status" in
+        active)
+            echo -e "${GREEN}active${NC} (last heartbeat: ${age_str})"
+            return 0
+            ;;
+        idle)
+            echo -e "${YELLOW}idle${NC} (last heartbeat: ${age_str})"
+            return 0
+            ;;
+        stale)
+            echo -e "${YELLOW}stale${NC} (last heartbeat: ${age_str})"
+            return 1
+            ;;
+        abandoned)
+            echo -e "${RED}abandoned${NC} (last heartbeat: ${age_str})"
+            return 1
+            ;;
+        *)
+            echo -e "${RED}dead${NC}"
+            return 1
+            ;;
+    esac
 }
 
 # Get heartbeat age
@@ -156,40 +227,86 @@ get_age() {
     echo $((now - last_beat))
 }
 
-# List all heartbeats
+# List all heartbeats with tiered status
 list_heartbeats() {
     echo "Session Heartbeats"
     echo "=================="
     echo ""
 
     local found=0
-    for hb_file in "$HEARTBEAT_DIR"/*.heartbeat 2>/dev/null; do
+    for hb_file in "$HEARTBEAT_DIR"/*.heartbeat; do
         [[ -f "$hb_file" ]] || continue
         found=1
 
         local session_id=$(basename "$hb_file" .heartbeat)
         local last_beat=$(stat -c %Y "$hb_file" 2>/dev/null || echo 0)
         local age=$(($(date +%s) - last_beat))
+        local age_str=$(format_age "$age")
+        local tier=$(get_session_status "$session_id")
 
-        local status
-        if [[ $age -lt $STALE_THRESHOLD ]]; then
-            status="${GREEN}alive${NC}"
-        else
-            status="${RED}stale${NC}"
-        fi
+        local status_display
+        case "$tier" in
+            active)
+                status_display="${GREEN}active${NC}"
+                ;;
+            idle)
+                status_display="${YELLOW}idle${NC}"
+                ;;
+            stale)
+                status_display="${YELLOW}stale${NC}"
+                ;;
+            abandoned)
+                status_display="${RED}abandoned${NC}"
+                ;;
+            *)
+                status_display="${RED}dead${NC}"
+                ;;
+        esac
 
         local current=""
         if [[ "$session_id" == "$CLAUDE_SESSION_ID" ]]; then
             current=" ${YELLOW}(current)${NC}"
         fi
 
-        echo -e "  $session_id: ${age}s ago [$status]$current"
+        echo -e "  $session_id: ${age_str} ago [$status_display]$current"
     done
 
     if [[ $found -eq 0 ]]; then
         echo "  (no heartbeat files)"
     fi
     echo ""
+}
+
+# Cleanup abandoned sessions and their claims
+# Called periodically by the heartbeat daemon
+cleanup_abandoned() {
+    local SESSION_DIR="$COORDINATION_DIR/sessions"
+    local cleaned=0
+
+    for session_file in "$SESSION_DIR"/*.json; do
+        [[ -f "$session_file" ]] || continue
+
+        local session_id=$(jq -r '.session_id // ""' "$session_file" 2>/dev/null)
+        [[ -z "$session_id" ]] && continue
+
+        local status=$(get_session_status "$session_id")
+
+        if [[ "$status" == "abandoned" ]]; then
+            # Log the cleanup
+            local claim_issue=$(jq -r '.claim.issue_number // empty' "$session_file" 2>/dev/null)
+            if [[ -n "$claim_issue" ]]; then
+                echo -e "${YELLOW}Auto-releasing abandoned claim:${NC} Issue #$claim_issue (session: $session_id)"
+            fi
+
+            # Remove session and heartbeat files
+            rm -f "$session_file" "$HEARTBEAT_DIR/${session_id}.heartbeat"
+            ((cleaned++))
+        fi
+    done
+
+    if [[ $cleaned -gt 0 ]]; then
+        echo -e "${GREEN}Cleaned up $cleaned abandoned session(s)${NC}"
+    fi
 }
 
 # Print usage
@@ -204,6 +321,7 @@ Commands:
   check [ID]      Check if session is alive (default: current session)
   age [ID]        Get heartbeat age in seconds
   list            List all session heartbeats
+  cleanup         Remove abandoned sessions (>24 hours inactive)
 
 Environment Variables:
   CLAUDE_SESSION_ID  Session identifier (auto-generated if not set)
@@ -254,6 +372,9 @@ main() {
             ;;
         list)
             list_heartbeats
+            ;;
+        cleanup)
+            cleanup_abandoned
             ;;
         help|--help|-h)
             usage

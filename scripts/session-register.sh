@@ -26,8 +26,16 @@ HEARTBEAT_DIR="$COORDINATION_DIR/heartbeat"
 LOCK_DIR="$COORDINATION_DIR/locks"
 CONFIG_FILE="$COORDINATION_DIR/config.json"
 
-# Defaults
-STALE_THRESHOLD=60
+# Tiered staleness thresholds (in seconds)
+# Designed for real team workflows where issues take hours/days
+# - ACTIVE: < 5 min = actively interacting with Claude
+# - IDLE: 5 min - 1 hour = stepped away briefly
+# - STALE: 1 - 4 hours = gone for extended period, can override
+# - ABANDONED: > 24 hours = next day, auto-release
+ACTIVE_THRESHOLD=300        # 5 minutes
+IDLE_THRESHOLD=3600         # 1 hour
+STALE_THRESHOLD=14400       # 4 hours
+ABANDONED_THRESHOLD=86400   # 24 hours
 
 # Colors
 RED='\033[0;31m'
@@ -64,7 +72,10 @@ init_dirs() {
 # Load configuration
 load_config() {
     if [[ -f "$CONFIG_FILE" ]]; then
-        STALE_THRESHOLD=$(jq -r '.stale_threshold // 60' "$CONFIG_FILE" 2>/dev/null || echo 60)
+        ACTIVE_THRESHOLD=$(jq -r '.active_threshold // 300' "$CONFIG_FILE" 2>/dev/null || echo 300)
+        IDLE_THRESHOLD=$(jq -r '.idle_threshold // 3600' "$CONFIG_FILE" 2>/dev/null || echo 3600)
+        STALE_THRESHOLD=$(jq -r '.stale_threshold // 14400' "$CONFIG_FILE" 2>/dev/null || echo 14400)
+        ABANDONED_THRESHOLD=$(jq -r '.abandoned_threshold // 86400' "$CONFIG_FILE" 2>/dev/null || echo 86400)
     fi
 }
 
@@ -86,6 +97,7 @@ get_repo_name() {
 }
 
 # Check if session is alive (has recent heartbeat)
+# Uses IDLE_THRESHOLD to consider active/idle sessions as "alive"
 is_session_alive() {
     local session_id="$1"
     local heartbeat_file="$HEARTBEAT_DIR/${session_id}.heartbeat"
@@ -98,7 +110,34 @@ is_session_alive() {
     local now=$(date +%s)
     local age=$((now - last_beat))
 
-    [[ $age -lt $STALE_THRESHOLD ]]
+    # Consider alive if active or idle (< 5 minutes)
+    [[ $age -lt $IDLE_THRESHOLD ]]
+}
+
+# Get tiered session status
+# Returns: "active", "idle", "stale", "abandoned", or "dead"
+get_session_status() {
+    local session_id="$1"
+    local heartbeat_file="$HEARTBEAT_DIR/${session_id}.heartbeat"
+
+    if [[ ! -f "$heartbeat_file" ]]; then
+        echo "dead"
+        return
+    fi
+
+    local last_beat=$(stat -c %Y "$heartbeat_file" 2>/dev/null || echo 0)
+    local now=$(date +%s)
+    local age=$((now - last_beat))
+
+    if [[ $age -lt $ACTIVE_THRESHOLD ]]; then
+        echo "active"
+    elif [[ $age -lt $IDLE_THRESHOLD ]]; then
+        echo "idle"
+    elif [[ $age -lt $ABANDONED_THRESHOLD ]]; then
+        echo "stale"
+    else
+        echo "abandoned"
+    fi
 }
 
 # Get heartbeat age in seconds
@@ -111,6 +150,33 @@ get_heartbeat_age() {
         echo $(($(date +%s) - last_beat))
     else
         echo "-1"
+    fi
+}
+
+# Format age in human-readable form (e.g., "5s", "3m", "1h 5m")
+format_age() {
+    local age="$1"
+
+    if [[ $age -lt 0 ]]; then
+        echo "unknown"
+    elif [[ $age -lt 60 ]]; then
+        echo "${age}s"
+    elif [[ $age -lt 3600 ]]; then
+        local mins=$((age / 60))
+        local secs=$((age % 60))
+        if [[ $secs -gt 0 ]]; then
+            echo "${mins}m ${secs}s"
+        else
+            echo "${mins}m"
+        fi
+    else
+        local hours=$((age / 3600))
+        local mins=$(((age % 3600) / 60))
+        if [[ $mins -gt 0 ]]; then
+            echo "${hours}h ${mins}m"
+        else
+            echo "${hours}h"
+        fi
     fi
 }
 
@@ -168,9 +234,9 @@ find_issue_claim() {
     echo ""
 }
 
-# List all claimed issues across active sessions
+# List all claimed issues across active/idle sessions (not stale/abandoned)
 # Usage: list_claimed_issues [REPO_OWNER/REPO_NAME]
-# Output: JSON array of claimed issues
+# Output: JSON array of claimed issues with status tier
 list_claimed_issues() {
     local filter_repo="${1:-}"
     local result="[]"
@@ -180,8 +246,11 @@ list_claimed_issues() {
 
         local session_id=$(jq -r '.session_id // empty' "$session_file" 2>/dev/null)
 
-        # Skip stale sessions
-        if ! is_session_alive "$session_id"; then
+        # Get tiered status
+        local status=$(get_session_status "$session_id")
+
+        # Skip stale/abandoned/dead sessions for active claims list
+        if [[ "$status" == "stale" ]] || [[ "$status" == "abandoned" ]] || [[ "$status" == "dead" ]]; then
             continue
         fi
 
@@ -192,13 +261,14 @@ list_claimed_issues() {
             # Apply repo filter if provided
             if [[ -z "$filter_repo" ]] || [[ "$repo_full" == "$filter_repo" ]]; then
                 local age=$(get_heartbeat_age "$session_id")
-                local entry=$(jq -c --arg age "$age" '{
+                local entry=$(jq -c --arg age "$age" --arg status "$status" '{
                     session_id: .session_id,
                     issue_number: .claim.issue_number,
                     issue_title: .claim.issue_title,
                     repo: "\(.claim.repo_owner)/\(.claim.repo_name)",
                     claimed_at: .claim.claimed_at,
-                    heartbeat_age: ($age | tonumber)
+                    heartbeat_age: ($age | tonumber),
+                    status: $status
                 }' "$session_file" 2>/dev/null)
                 result=$(echo "$result" | jq --argjson e "$entry" '. + [$e]')
             fi
@@ -225,19 +295,36 @@ claim_issue() {
         return 1
     fi
 
-    # Check if issue is already claimed by another ACTIVE session
+    # Check if issue is already claimed by another session
     local conflict_session=""
     conflict_session=$(find_issue_claim "$repo_owner" "$repo_name" "$issue_number")
 
     if [[ -n "$conflict_session" ]] && [[ "$conflict_session" != "$CLAUDE_SESSION_ID" ]]; then
-        # Check if that session is alive
-        if is_session_alive "$conflict_session"; then
-            local age=$(get_heartbeat_age "$conflict_session")
-            echo -e "${RED}Error: Issue #${issue_number} already claimed by active session: $conflict_session (${age}s ago)${NC}" >&2
-            return 1
-        else
-            echo -e "${YELLOW}Warning: Overriding stale claim from session: $conflict_session${NC}" >&2
-        fi
+        local status=$(get_session_status "$conflict_session")
+        local age=$(get_heartbeat_age "$conflict_session")
+        local age_str=$(format_age "$age")
+
+        case "$status" in
+            active)
+                # Fully blocked - actively working
+                echo -e "${RED}Error: Issue #${issue_number} is being worked on by session: $conflict_session (active, ${age_str})${NC}" >&2
+                return 1
+                ;;
+            idle)
+                # Blocked but warn - session is idle
+                echo -e "${RED}Error: Issue #${issue_number} is claimed by idle session: $conflict_session (idle for ${age_str})${NC}" >&2
+                echo -e "${YELLOW}Hint: Wait for session to become stale (>5 min) or ask them to release the claim${NC}" >&2
+                return 1
+                ;;
+            stale)
+                # Allow override with warning
+                echo -e "${YELLOW}Warning: Overriding stale claim from session: $conflict_session (stale for ${age_str})${NC}" >&2
+                ;;
+            abandoned|dead)
+                # Auto-release and continue
+                echo -e "${CYAN}Info: Releasing abandoned claim from session: $conflict_session${NC}" >&2
+                ;;
+        esac
     fi
 
     # Fetch issue title if not provided
@@ -418,13 +505,26 @@ show_status() {
         local claim_title=$(jq -r '.claim.issue_title // empty' "$session_file")
         local terminal_label=$(jq -r '.terminal_label // empty' "$session_file")
 
-        # Check if alive
-        local alive_status=""
-        if is_session_alive "$session_id"; then
-            alive_status="${GREEN}(alive)${NC}"
-        else
-            alive_status="${RED}(stale)${NC}"
-        fi
+        # Get tiered status with appropriate color
+        local session_status=$(get_session_status "$session_id")
+        local status_display=""
+        case "$session_status" in
+            active)
+                status_display="${GREEN}(active)${NC}"
+                ;;
+            idle)
+                status_display="${YELLOW}(idle)${NC}"
+                ;;
+            stale)
+                status_display="${RED}(stale)${NC}"
+                ;;
+            abandoned)
+                status_display="${RED}(abandoned)${NC}"
+                ;;
+            *)
+                status_display="${RED}(dead)${NC}"
+                ;;
+        esac
 
         # Get heartbeat age
         local heartbeat_file="$HEARTBEAT_DIR/${session_id}.heartbeat"
@@ -442,7 +542,7 @@ show_status() {
             prefix="  "
         fi
 
-        echo -e "${prefix}${BLUE}$session_id${NC} $alive_status"
+        echo -e "${prefix}${BLUE}$session_id${NC} $status_display"
         echo -e "    Status: $status"
         if [[ -n "$claim_issue" ]]; then
             echo -e "    Claimed: ${GREEN}#${claim_issue}${NC} - ${claim_title}"
