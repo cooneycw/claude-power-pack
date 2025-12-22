@@ -33,35 +33,52 @@
 #   terminal-label.sh project NHL
 #   # Result: "NHL: Select Next Action..."
 
-# Session ID detection (same as session-register.sh)
-get_session_id() {
+# Terminal ID detection - uses stable identifiers that persist across subprocesses
+# Priority: CLAUDE_SESSION_ID > TMUX_PANE > TTY > TERM_SESSION_ID > fallback
+get_terminal_id() {
+    # 1. Explicit session ID (set by Claude Code or hooks)
     if [[ -n "${CLAUDE_SESSION_ID:-}" ]]; then
         echo "$CLAUDE_SESSION_ID"
         return
     fi
 
+    # 2. tmux pane - stable within a tmux session
     if [[ -n "${TMUX_PANE:-}" ]]; then
         echo "tmux-${TMUX_PANE//[^a-zA-Z0-9]/-}"
-    elif [[ -n "${TERM_SESSION_ID:-}" ]]; then
-        echo "term-${TERM_SESSION_ID:0:16}"
-    else
-        echo "pid-$$"
+        return
     fi
+
+    # 3. TTY device - stable across subprocesses in same terminal
+    # e.g., /dev/pts/3 -> pts-3
+    local tty_device
+    tty_device=$(tty 2>/dev/null | sed 's|/dev/||; s|/|-|g')
+    if [[ -n "$tty_device" && "$tty_device" != "not a tty" ]]; then
+        echo "tty-${tty_device}"
+        return
+    fi
+
+    # 4. macOS Terminal session ID
+    if [[ -n "${TERM_SESSION_ID:-}" ]]; then
+        echo "term-${TERM_SESSION_ID:0:16}"
+        return
+    fi
+
+    # 5. Fallback - use parent PID which is more stable than $$
+    # PPID is the shell that spawned this script, usually the user's interactive shell
+    echo "ppid-${PPID:-$$}"
 }
 
-CLAUDE_SESSION_ID="${CLAUDE_SESSION_ID:-$(get_session_id)}"
+# Use terminal ID for label state (stable across subprocesses)
+TERMINAL_ID="${TERMINAL_ID:-$(get_terminal_id)}"
 
 # Per-session state paths
 COORDINATION_DIR="${COORDINATION_DIR:-$HOME/.claude/coordination}"
 LABELS_DIR="$COORDINATION_DIR/labels"
-STATE_FILE="$LABELS_DIR/${CLAUDE_SESSION_ID}.state"
+STATE_FILE="$LABELS_DIR/${TERMINAL_ID}.state"
 
-# Global override file for cross-session-ID set/restore coordination
-# Solves: Bash subprocess uses pid-$$ while hooks use tmux-PANE
+# Global override file for cross-terminal-ID set/restore coordination
+# Solves edge cases where terminal ID detection differs between set and restore calls
 OVERRIDE_FILE="$LABELS_DIR/.last-set-override"
-
-# Legacy state file for migration
-LEGACY_STATE_FILE="${HOME}/.claude/.terminal-label-state"
 
 # Config files (shared across sessions)
 USER_CONFIG="${HOME}/.claude/.terminal-label-config"
@@ -72,13 +89,9 @@ DEFAULT_PREFIX="Issue"
 # Ensure directories exist
 mkdir -p "$LABELS_DIR" 2>/dev/null
 
-# Migrate legacy state file on first use
-migrate_legacy_state() {
-    if [[ -f "$LEGACY_STATE_FILE" ]] && [[ ! -f "$STATE_FILE" ]]; then
-        cp "$LEGACY_STATE_FILE" "$STATE_FILE" 2>/dev/null
-    fi
-}
-migrate_legacy_state
+# Legacy migration removed - was causing state pollution across terminals
+# Old behavior: copied global state to each new terminal, causing label bleed
+# New behavior: each terminal starts fresh until explicitly set
 
 # Function to get prefix from config files or env
 get_prefix() {
@@ -151,8 +164,9 @@ read_saved_prefix() {
 }
 
 # Sync label from session registration (authoritative source)
+# Note: Session registration uses a different ID scheme than terminal labels
 sync_from_session() {
-    local session_file="$COORDINATION_DIR/sessions/${CLAUDE_SESSION_ID}.json"
+    local session_file="$COORDINATION_DIR/sessions/${TERMINAL_ID}.json"
     if [[ -f "$session_file" ]]; then
         local label
         label=$(jq -r '.terminal_label // empty' "$session_file" 2>/dev/null)
@@ -260,7 +274,7 @@ case "$1" in
             set_title "$synced"
             echo "Synced from session: $synced"
         else
-            echo "No session label found for: $CLAUDE_SESSION_ID"
+            echo "No session label found for: $TERMINAL_ID"
         fi
         ;;
 
@@ -325,7 +339,7 @@ case "$1" in
 
     status)
         echo "=== Terminal Label Configuration ==="
-        echo "Session ID: $CLAUDE_SESSION_ID"
+        echo "Terminal ID: $TERMINAL_ID"
         echo "State file: $STATE_FILE"
         echo "User config: $USER_CONFIG"
         echo "Project config: $PROJECT_CONFIG"
@@ -336,7 +350,7 @@ case "$1" in
         echo ""
 
         # Check session registration
-        session_file="$COORDINATION_DIR/sessions/${CLAUDE_SESSION_ID}.json"
+        session_file="$COORDINATION_DIR/sessions/${TERMINAL_ID}.json"
         if [[ -f "$session_file" ]]; then
             session_label=$(jq -r '.terminal_label // "none"' "$session_file" 2>/dev/null)
             claimed_issue=$(jq -r '.claim.issue_number // "none"' "$session_file" 2>/dev/null)
@@ -370,8 +384,8 @@ case "$1" in
         echo "  status                   Show current configuration"
         echo "  cleanup-labels           Remove orphaned label files"
         echo ""
-        echo "Session: $CLAUDE_SESSION_ID"
-        echo "State:   $STATE_FILE"
+        echo "Terminal: $TERMINAL_ID"
+        echo "State:    $STATE_FILE"
         echo ""
         echo "Examples:"
         echo "  $0 issue 42 'Fix login bug'"

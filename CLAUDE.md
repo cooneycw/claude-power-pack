@@ -188,5 +188,5 @@ See `ISSUE_DRIVEN_DEVELOPMENT.md` for detailed documentation.
 
 ## Version
 
-Current version: 1.9.0
-Previous: 1.8.0 (Project Commands)
+Current version: 1.9.2
+Previous: 1.9.1 (Terminal label fixes)
