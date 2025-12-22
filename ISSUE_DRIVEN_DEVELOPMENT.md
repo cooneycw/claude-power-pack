@@ -243,10 +243,13 @@ git worktree list
 
 **Remove after merge:**
 ```bash
+# IMPORTANT: cd to main repo FIRST to avoid breaking the shell
 cd /path/to/main-repo
 git worktree remove ../repo-issue-{N}
 git branch -d issue-{N}-{description}
 ```
+
+> ⚠️ **Shell CWD Warning:** Always `cd` to the main repo before removing a worktree. If your shell's current working directory is inside the worktree being removed, the shell will break and no further commands will work. Using `git -C /path/to/main-repo worktree remove` does NOT protect against this—only changing the shell's cwd does.
 
 **Prune stale worktrees:**
 ```bash
@@ -568,6 +571,8 @@ gh pr create --title "feat(downloader): Player landing persistence" \
 
 **Step 8: Cleanup (after merge)**
 ```bash
+# CRITICAL: cd to main repo FIRST before removing worktree
+# If shell cwd is inside worktree, removing it breaks the shell
 cd /home/user/Projects/my-api
 git worktree remove ../my-api-issue-123
 git branch -d issue-123-player-landing
@@ -611,6 +616,7 @@ git pull
 | Giant issues | Context overflow | Break into micro-issues |
 | No acceptance criteria | Unclear "done" | Add testable criteria |
 | Starting Claude from worktree | Session breaks on cleanup | Start from main repo |
+| Removing worktree without cd | Shell breaks (cwd deleted) | `cd` to main repo first, then remove |
 | Multiple issues in one commit | Harder to revert | One issue per commit |
 | Skipping cleanup | Branch clutter | Remove worktrees after merge |
 | No parent references | Lost hierarchy | Always link to parent issue |
@@ -627,7 +633,7 @@ git pull
 # Worktree Management
 git worktree add -b issue-N-desc ../repo-issue-N   # Create
 git worktree list                                   # List all
-git worktree remove ../repo-issue-N                # Remove
+cd /path/to/main-repo && git worktree remove ../repo-issue-N  # Remove (cd first!)
 git worktree prune                                 # Clean stale
 
 # Terminal Labels
