@@ -207,10 +207,20 @@ Issue-Driven Development (IDD) combines:
 
 ### Quick Start
 
-1. **Scan your project** with `/project-next`
-2. **Create a worktree** for the recommended issue
-3. **Label your terminal** with the issue number
-4. **Implement and commit** with "Closes #N"
+1. **Scan your project** - Run `/project-next` to analyze issues
+2. **Create a worktree** for the recommended issue:
+   ```bash
+   git worktree add -b issue-42-feature ../myrepo-issue-42
+   cd ../myrepo-issue-42
+   ```
+3. **Label your terminal** with the issue number:
+   ```bash
+   ~/.claude/scripts/terminal-label.sh issue 42 "Feature Name"
+   ```
+4. **Implement and commit** with issue reference:
+   ```bash
+   git commit -m "feat: Add feature (Closes #42)"
+   ```
 
 ### Documentation
 
