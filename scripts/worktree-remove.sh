@@ -1,8 +1,9 @@
 #!/bin/bash
 # worktree-remove.sh - Safely remove git worktrees
 #
-# Prevents the classic mistake of removing a worktree while working from it,
-# which breaks the shell session completely.
+# If you're inside the worktree being removed, the script automatically
+# changes to the main repository first (determined from the worktree's
+# .git file) to prevent breaking your shell session.
 #
 # Usage:
 #   worktree-remove.sh <worktree-path> [--force] [--delete-branch]
@@ -43,8 +44,9 @@ while [[ $# -gt 0 ]]; do
         -h|--help)
             echo "Usage: worktree-remove.sh <worktree-path> [--force] [--delete-branch]"
             echo ""
-            echo "Safely remove git worktrees with protection against removing"
-            echo "the current working directory (which breaks shell sessions)."
+            echo "Safely remove git worktrees. If you're currently inside the worktree"
+            echo "being removed, the script automatically changes to the main repository"
+            echo "first to prevent breaking your shell session."
             echo ""
             echo "Options:"
             echo "  --force          Remove even if worktree has uncommitted changes"
@@ -85,21 +87,10 @@ WORKTREE_PATH="${WORKTREE_PATH%/}"
 CWD="$(pwd 2>/dev/null || echo "")"
 CWD="${CWD%/}"
 
-# CRITICAL SAFETY CHECK: Don't remove the worktree we're currently in
+# Check if we're inside the worktree being removed
+INSIDE_WORKTREE=false
 if [[ -n "$CWD" && "$CWD" == "$WORKTREE_PATH"* ]]; then
-    echo -e "${RED}ERROR: Cannot remove worktree - you are currently working in it!${NC}" >&2
-    echo "" >&2
-    echo -e "${YELLOW}Current directory: ${CWD}${NC}" >&2
-    echo -e "${YELLOW}Worktree to remove: ${WORKTREE_PATH}${NC}" >&2
-    echo "" >&2
-    echo "Removing this worktree would break your shell session." >&2
-    echo "" >&2
-    echo -e "${BLUE}To safely remove this worktree:${NC}" >&2
-    echo "  1. Change to the main repository: cd /path/to/main-repo" >&2
-    echo "  2. Then run this command again" >&2
-    echo "" >&2
-    echo -e "${BLUE}Or start a new Claude Code session from the main repo.${NC}" >&2
-    exit 1
+    INSIDE_WORKTREE=true
 fi
 
 # Check if worktree exists
@@ -132,6 +123,16 @@ MAIN_REPO=$(cat "$WORKTREE_PATH/.git" | sed 's/gitdir: //' | sed 's|/.git/worktr
 if [[ ! -d "$MAIN_REPO/.git" ]]; then
     echo -e "${RED}Error: Could not find main repository${NC}" >&2
     exit 1
+fi
+
+# If we're inside the worktree, cd to main repo first
+if [[ "$INSIDE_WORKTREE" == true ]]; then
+    echo -e "${YELLOW}Currently inside worktree being removed.${NC}"
+    echo -e "${BLUE}Changing to main repository: ${MAIN_REPO}${NC}"
+    cd "$MAIN_REPO" || {
+        echo -e "${RED}Error: Failed to change to main repository${NC}" >&2
+        exit 1
+    }
 fi
 
 # Get the branch name before removing
