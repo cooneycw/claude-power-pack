@@ -139,6 +139,12 @@ except Exception as e:
 PYEOF
 )
 
+# Check for Python 3
+if ! command -v python3 &>/dev/null; then
+    echo "Error: python3 is required but not found in PATH" >&2
+    exit 1
+fi
+
 # Run Python script with environment
 LIB_DIR="$LIB_DIR" \
 SECRET_ID="$SECRET_ID" \

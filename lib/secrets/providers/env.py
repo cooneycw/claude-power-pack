@@ -156,6 +156,10 @@ class EnvSecretsProvider(SecretsProvider):
                                 result[field] = value
 
         if not result:
+            logger.warning(
+                f"No environment variables found with prefix '{prefix}_'. "
+                f"Expected: {prefix}_HOST, {prefix}_USER, {prefix}_PASSWORD, etc."
+            )
             raise SecretNotFoundError(
                 f"No environment variables found with prefix '{prefix}_'. "
                 f"Expected variables like {prefix}_HOST, {prefix}_USER, etc."

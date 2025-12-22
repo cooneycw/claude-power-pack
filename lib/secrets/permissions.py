@@ -8,6 +8,21 @@ This module provides access control for database operations:
 Default behavior is READ_ONLY to prevent accidental data modification.
 Write operations require explicit permission upgrade.
 
+SECURITY NOTE - SQL Injection Prevention:
+    This module controls WHAT operations are allowed, but does NOT prevent
+    SQL injection. Always use parameterized queries:
+
+    ✅ SAFE:
+        cursor.execute("SELECT * FROM users WHERE id = %s", (user_id,))
+        conn.execute(text("SELECT * FROM users WHERE id = :id"), {"id": user_id})
+
+    ❌ UNSAFE (SQL injection vulnerable):
+        cursor.execute(f"SELECT * FROM users WHERE id = {user_id}")
+        cursor.execute("SELECT * FROM users WHERE id = " + user_id)
+
+    The permission system should be used ALONGSIDE parameterized queries,
+    not as a replacement for them.
+
 Usage:
     from lib.secrets.permissions import PermissionConfig, AccessLevel, OperationType
 

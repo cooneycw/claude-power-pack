@@ -19,8 +19,8 @@ from __future__ import annotations
 import json
 import logging
 import os
-from functools import lru_cache
-from typing import Any, Dict, Optional
+import time
+from typing import Any, Dict, Optional, Tuple
 
 from ..base import (
     SecretsProvider,
@@ -49,7 +49,7 @@ class AWSSecretsProvider(SecretsProvider):
 
     This provider:
     - Requires boto3 and valid AWS credentials
-    - Caches secrets to minimize API calls
+    - Caches secrets to minimize API calls (with TTL)
     - Supports both secret names and ARNs
 
     AWS credentials can be provided via:
@@ -58,21 +58,29 @@ class AWSSecretsProvider(SecretsProvider):
     - AWS credentials file (~/.aws/credentials)
     """
 
+    # Default cache TTL: 5 minutes (300 seconds)
+    DEFAULT_CACHE_TTL = 300
+
     def __init__(
         self,
         region: Optional[str] = None,
         cache_enabled: bool = True,
+        cache_ttl: int = DEFAULT_CACHE_TTL,
     ) -> None:
         """Initialize the AWS provider.
 
         Args:
             region: AWS region (default: from AWS_DEFAULT_REGION or us-east-1)
             cache_enabled: If True, cache secrets to minimize API calls
+            cache_ttl: Cache time-to-live in seconds (default: 300)
         """
         self._region = region or os.getenv("AWS_DEFAULT_REGION", "us-east-1")
         self._cache_enabled = cache_enabled
+        self._cache_ttl = cache_ttl
         self._client: Any = None
         self._available: Optional[bool] = None
+        # Time-based cache: {secret_id: (value, timestamp)}
+        self._cache: Dict[str, Tuple[Dict[str, Any], float]] = {}
 
     def _get_client(self) -> Any:
         """Get or create boto3 Secrets Manager client."""
@@ -166,10 +174,25 @@ class AWSSecretsProvider(SecretsProvider):
             return self._get_secret_cached(secret_id)
         return self._get_secret_uncached(secret_id)
 
-    @lru_cache(maxsize=16)
     def _get_secret_cached(self, secret_id: str) -> Dict[str, Any]:
-        """Cached version of secret retrieval."""
-        return self._get_secret_uncached(secret_id)
+        """Cached version of secret retrieval with TTL."""
+        now = time.time()
+
+        # Check if cached and not expired
+        if secret_id in self._cache:
+            value, timestamp = self._cache[secret_id]
+            age = now - timestamp
+            if age < self._cache_ttl:
+                logger.debug(f"Cache hit for '{secret_id}' (age: {age:.1f}s)")
+                return value
+            else:
+                logger.debug(f"Cache expired for '{secret_id}' (age: {age:.1f}s)")
+
+        # Fetch and cache
+        value = self._get_secret_uncached(secret_id)
+        self._cache[secret_id] = (value, now)
+        logger.debug(f"Cached secret '{secret_id}' (TTL: {self._cache_ttl}s)")
+        return value
 
     def _get_secret_uncached(self, secret_id: str) -> Dict[str, Any]:
         """Retrieve secret without caching."""
@@ -192,25 +215,30 @@ class AWSSecretsProvider(SecretsProvider):
             error_msg = e.response.get("Error", {}).get("Message", str(e))
 
             if error_code == "ResourceNotFoundException":
+                logger.error(f"Secret '{secret_id}' not found in AWS Secrets Manager")
                 raise SecretNotFoundError(
                     f"Secret '{secret_id}' not found in AWS Secrets Manager"
                 ) from e
             elif error_code == "AccessDeniedException":
+                logger.error(f"Access denied to secret '{secret_id}' - check IAM permissions")
                 raise SecretsError(
                     f"Access denied to secret '{secret_id}'. "
                     "Check IAM permissions."
                 ) from e
             elif error_code == "DecryptionFailure":
+                logger.error(f"Failed to decrypt secret '{secret_id}' - check KMS permissions")
                 raise SecretsError(
                     f"Failed to decrypt secret '{secret_id}'. "
                     "Check KMS permissions."
                 ) from e
             else:
+                logger.error(f"AWS error retrieving '{secret_id}': {error_code} - {error_msg}")
                 raise SecretsError(
                     f"AWS error retrieving '{secret_id}': {error_code} - {error_msg}"
                 ) from e
 
         except json.JSONDecodeError as e:
+            logger.error(f"Secret '{secret_id}' is not valid JSON")
             raise SecretsError(
                 f"Secret '{secret_id}' is not valid JSON. "
                 "Secrets must be stored as JSON objects."
@@ -221,8 +249,8 @@ class AWSSecretsProvider(SecretsProvider):
 
         Call this after rotating secrets to ensure fresh values.
         """
-        self._get_secret_cached.cache_clear()
-        logger.debug("AWS secrets cache cleared")
+        self._cache.clear()
+        logger.info("AWS secrets cache cleared")
 
     def get_database_secret(
         self,

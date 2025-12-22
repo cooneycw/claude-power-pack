@@ -32,10 +32,13 @@ Pattern adapted from:
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
 from .base import SecretValue
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -130,19 +133,36 @@ class DatabaseCredentials:
         """
         return f"postgresql://{self.username}:****@{self.host}:{self.port}/{self.database}"
 
-    @property
-    def connection_string_real(self) -> str:
+    def get_connection_string_unsafe(self) -> str:
         """Return connection string with REAL password for actual connections.
 
-        WARNING: Never log this! Use for actual database connections only.
+        ⚠️  SECURITY WARNING: This method returns the actual password.
+        - NEVER log the return value
+        - NEVER print it to console
+        - NEVER include in error messages
+        - Use only for actual database connections
+
+        Consider using .dsn property with a database driver instead.
 
         Returns:
             Connection string with real password.
         """
+        logger.warning(
+            "get_connection_string_unsafe() called - ensure return value is not logged"
+        )
         return (
             f"postgresql://{self.username}:{self.password}"
             f"@{self.host}:{self.port}/{self.database}"
         )
+
+    # Deprecated alias - will be removed in future version
+    @property
+    def connection_string_real(self) -> str:
+        """DEPRECATED: Use get_connection_string_unsafe() instead."""
+        logger.warning(
+            "connection_string_real is deprecated, use get_connection_string_unsafe()"
+        )
+        return self.get_connection_string_unsafe()
 
     @property
     def dsn(self) -> Dict[str, Any]:
