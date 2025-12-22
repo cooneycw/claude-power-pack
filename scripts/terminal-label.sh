@@ -56,6 +56,10 @@ COORDINATION_DIR="${COORDINATION_DIR:-$HOME/.claude/coordination}"
 LABELS_DIR="$COORDINATION_DIR/labels"
 STATE_FILE="$LABELS_DIR/${CLAUDE_SESSION_ID}.state"
 
+# Global override file for cross-session-ID set/restore coordination
+# Solves: Bash subprocess uses pid-$$ while hooks use tmux-PANE
+OVERRIDE_FILE="$LABELS_DIR/.last-set-override"
+
 # Legacy state file for migration
 LEGACY_STATE_FILE="${HOME}/.claude/.terminal-label-state"
 
@@ -211,6 +215,8 @@ case "$1" in
         prefix=$(get_prefix)
         set_title "$label"
         save_label "$label" "$prefix"
+        # Write global override for cross-session-ID coordination
+        echo "$label" > "$OVERRIDE_FILE"
         ;;
 
     await)
@@ -219,6 +225,21 @@ case "$1" in
         ;;
 
     restore)
+        # Check for recent global override (within 5 seconds)
+        # Solves race condition when Bash subprocess uses different session ID
+        if [[ -f "$OVERRIDE_FILE" ]]; then
+            override_age=$(($(date +%s) - $(stat -c %Y "$OVERRIDE_FILE" 2>/dev/null || echo 0)))
+            if [[ $override_age -lt 5 ]]; then
+                override_label=$(cat "$OVERRIDE_FILE" 2>/dev/null)
+                if [[ -n "$override_label" ]]; then
+                    set_title "$override_label"
+                    rm -f "$OVERRIDE_FILE"  # One-time use
+                    exit 0
+                fi
+            fi
+            rm -f "$OVERRIDE_FILE"  # Expired, clean up
+        fi
+
         # First try to sync from session registration (authoritative source)
         synced_label=$(sync_from_session)
         if [[ -n "$synced_label" ]]; then
