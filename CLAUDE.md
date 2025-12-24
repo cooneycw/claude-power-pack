@@ -71,6 +71,12 @@ claude-power-pack/
 │   ├── masking.py                              # Output masking patterns
 │   ├── permissions.py                          # Access control model
 │   └── providers/                              # AWS, env providers
+├── lib/spec_bridge/                            # Spec-to-Issue sync
+│   ├── __init__.py                             # Module exports
+│   ├── parser.py                               # Parse spec/tasks files
+│   ├── issue_sync.py                           # GitHub issue creation
+│   ├── status.py                               # Alignment checking
+│   └── cli.py                                  # Command-line interface
 ├── scripts/
 │   ├── prompt-context.sh                       # Shell prompt context
 │   ├── session-lock.sh                         # Lock coordination
@@ -225,6 +231,48 @@ Spec commands integrate with Issue-Driven Development:
 - Each wave in tasks.md becomes a GitHub issue
 - Issues link back to spec files
 - `/project-next` shows spec status alongside issues
+
+### Python CLI (lib/spec_bridge)
+
+For programmatic or CLI usage:
+
+```bash
+# Add lib to PYTHONPATH
+export PYTHONPATH="$HOME/Projects/claude-power-pack/lib:$PYTHONPATH"
+
+# Show status of all specs
+python -m lib.spec_bridge status
+
+# Show specific feature status
+python -m lib.spec_bridge status user-auth
+
+# Sync feature to issues (dry run)
+python -m lib.spec_bridge sync user-auth --dry-run
+
+# Sync feature to issues
+python -m lib.spec_bridge sync user-auth
+
+# Sync all features
+python -m lib.spec_bridge sync --all
+```
+
+Python API:
+```python
+from lib.spec_bridge import parse_tasks, sync_feature, get_all_status
+
+# Parse tasks from spec
+waves = parse_tasks(".specify/specs/user-auth/tasks.md")
+for wave in waves:
+    print(f"{wave.name}: {len(wave.tasks)} tasks")
+
+# Sync to GitHub issues
+result = sync_feature("user-auth", dry_run=True)
+print(f"Would create {len(result.issues_created)} issues")
+
+# Get project status
+status = get_all_status()
+print(f"{status.total_features} features, {status.total_pending} pending sync")
+```
 
 ## Worktree Context in Shell Prompt
 
@@ -611,5 +659,5 @@ echo "my-project-env" > .conda-env
 
 ## Version
 
-Current version: 2.5.0
-Previous: 2.4.0 (Fragmented best practices)
+Current version: 2.6.0
+Previous: 2.5.0 (GitHub Spec Kit integration)
