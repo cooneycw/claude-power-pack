@@ -2,16 +2,18 @@
 
 ## Project Overview
 
-This repository contains four main components:
+This repository contains five main components:
 1. **Claude Code Best Practices** - Community wisdom from r/ClaudeCode
-2. **MCP Second Opinion Server** - Gemini-powered code review
-3. **MCP Playwright Server** - Browser automation for testing
-4. **MCP Coordination Server** - Redis-backed distributed locking
+2. **Spec-Driven Development** - GitHub Spec Kit integration for structured workflows
+3. **MCP Second Opinion Server** - Gemini-powered code review
+4. **MCP Playwright Server** - Browser automation for testing
+5. **MCP Coordination Server** - Redis-backed distributed locking
 
 ## Quick References
 
 - **Best Practices:** `docs/skills/` (fragmented) or `docs/reference/CLAUDE_CODE_BEST_PRACTICES_FULL.md`
 - **Issue-Driven Development:** `ISSUE_DRIVEN_DEVELOPMENT.md`
+- **Spec-Driven Development:** `.specify/` (GitHub Spec Kit integration)
 - **Progressive Disclosure:** `PROGRESSIVE_DISCLOSURE_GUIDE.md`
 - **MCP Token Audit:** `MCP_TOKEN_AUDIT_CHECKLIST.md`
 - **MCP Second Opinion:** `mcp-second-opinion/`
@@ -47,6 +49,11 @@ claude-power-pack/
 ├── ISSUE_DRIVEN_DEVELOPMENT.md                 # IDD methodology
 ├── PROGRESSIVE_DISCLOSURE_GUIDE.md             # Context optimization
 ├── MCP_TOKEN_AUDIT_CHECKLIST.md                # Token efficiency
+├── .specify/                                    # Spec-Driven Development
+│   ├── memory/
+│   │   └── constitution.md                     # Project principles template
+│   ├── specs/                                  # Feature specifications
+│   └── templates/                              # Spec, plan, tasks templates
 ├── mcp-second-opinion/                         # MCP Second Opinion server
 │   └── src/server.py                           # 12 tools
 ├── mcp-playwright-persistent/                  # MCP Playwright server
@@ -79,6 +86,12 @@ claude-power-pack/
 │   │   │   ├── pr-create.md                    # Coordinated PR creation
 │   │   │   └── merge-main.md                   # Coordinated merges
 │   │   ├── github/                             # GitHub issue management
+│   │   ├── spec/                               # Spec-Driven Development
+│   │   │   ├── help.md                         # SDD command overview
+│   │   │   ├── init.md                         # Initialize .specify/
+│   │   │   ├── create.md                       # Create feature spec
+│   │   │   ├── sync.md                         # Sync tasks to issues
+│   │   │   └── status.md                       # Show spec status
 │   │   ├── secrets/                            # Secrets commands
 │   │   ├── env/                                # Environment commands
 │   │   ├── project-next.md                     # Next steps orchestrator
@@ -155,6 +168,62 @@ Commands:
 - `/github:issue-view` - View issue details and comments
 - `/github:issue-update` - Update existing issues
 - `/github:issue-close` - Close issues with optional comment
+
+## Spec-Driven Development
+
+Structured specification workflow based on [GitHub Spec Kit](https://github.com/github/spec-kit) (MIT License).
+
+### Workflow
+
+```
+Constitution (principles) → Spec (what) → Plan (how) → Tasks → Issues → Code
+```
+
+### Commands
+
+| Command | Description |
+|---------|-------------|
+| `/spec:help` | Overview of spec commands |
+| `/spec:init` | Initialize `.specify/` structure |
+| `/spec:create NAME` | Create new feature specification |
+| `/spec:sync [NAME]` | Sync tasks.md to GitHub issues |
+| `/spec:status` | Show spec/issue alignment |
+
+### Quick Start
+
+```bash
+# Initialize (once per project)
+/spec:init
+# Edit .specify/memory/constitution.md with your principles
+
+# Create feature spec
+/spec:create user-authentication
+# Edit spec.md, plan.md, tasks.md in .specify/specs/user-authentication/
+
+# Sync to GitHub issues
+/spec:sync user-authentication
+```
+
+### Directory Structure
+
+```
+.specify/
+├── memory/
+│   └── constitution.md    # Project principles
+├── specs/
+│   └── {feature}/
+│       ├── spec.md        # Requirements & user stories
+│       ├── plan.md        # Technical approach
+│       └── tasks.md       # Actionable items → Issues
+└── templates/             # Reusable templates
+```
+
+### Integration with IDD
+
+Spec commands integrate with Issue-Driven Development:
+- Each wave in tasks.md becomes a GitHub issue
+- Issues link back to spec files
+- `/project-next` shows spec status alongside issues
 
 ## Worktree Context in Shell Prompt
 
@@ -527,5 +596,5 @@ echo "my-project-env" > .conda-env
 
 ## Version
 
-Current version: 2.4.0
-Previous: 2.3.0 (Playwright docs, path fix)
+Current version: 2.5.0
+Previous: 2.4.0 (Fragmented best practices)
