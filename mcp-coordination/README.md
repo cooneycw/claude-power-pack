@@ -119,18 +119,62 @@ Use coordination MCP: session_status()
 | 🟠 Stale | 1 - 4 hr | Override allowed |
 | ⚫ Abandoned | > 24 hr | Auto-released |
 
-## Systemd Service
+## Systemd Service (Recommended)
+
+For persistent operation with auto-restart on boot:
+
+### Step 1: Edit Service File for Your Paths
+
+The service file contains hardcoded paths. Edit before copying:
+
+```bash
+# View the template
+cat deploy/mcp-coordination.service
+
+# Key lines to update:
+# - User=YOUR_USERNAME
+# - WorkingDirectory=/path/to/claude-power-pack/mcp-coordination
+# - ExecStart=/path/to/claude-power-pack/mcp-coordination/start-server.sh --daemon
+# - Environment="PATH=/path/to/miniconda3/bin:..."
+```
+
+### Step 2: Install and Enable
 
 ```bash
 # Copy service file
 sudo cp deploy/mcp-coordination.service /etc/systemd/system/
 
-# Edit for your paths
-sudo systemctl edit mcp-coordination
+# Reload systemd
+sudo systemctl daemon-reload
 
-# Enable and start
+# Enable autostart and start now
 sudo systemctl enable mcp-coordination
 sudo systemctl start mcp-coordination
+```
+
+### Step 3: Verify
+
+```bash
+# Check status
+systemctl status mcp-coordination
+
+# View logs
+journalctl -u mcp-coordination -f
+
+# Test connection
+curl -s http://localhost:8082/health || echo "Not responding"
+```
+
+### Troubleshooting
+
+```bash
+# If service fails to start
+journalctl -u mcp-coordination --no-pager -n 50
+
+# Common issues:
+# - Redis not running: sudo systemctl start redis-server
+# - Wrong paths in service file: sudo systemctl edit mcp-coordination
+# - Port in use: check with `lsof -i :8082`
 ```
 
 ## Configuration
