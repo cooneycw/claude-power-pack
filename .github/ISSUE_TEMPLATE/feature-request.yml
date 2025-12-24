@@ -27,7 +27,7 @@ body:
     attributes:
       label: Feature name
       description: A short name for this feature
-      placeholder: "e.g., /django:test-setup command"
+      placeholder: "e.g., /spec:sync command"
     validations:
       required: true
 

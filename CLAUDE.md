@@ -54,7 +54,6 @@ claude-power-pack/
 │   │   ├── coordination/                       # Session coordination
 │   │   │   ├── pr-create.md                    # Coordinated PR creation
 │   │   │   └── merge-main.md                   # Coordinated merges
-│   │   ├── django/                             # Django workflow commands
 │   │   ├── github/                             # GitHub issue management
 │   │   ├── secrets/                            # NEW: Secrets commands
 │   │   ├── env/                                # NEW: Environment commands
@@ -76,26 +75,6 @@ To preserve context, documentation is NOT auto-loaded. Use these commands when n
 - `/load-best-practices` - Load full community wisdom
 - `/load-mcp-docs` - Load MCP server documentation
 - Or trigger the `best-practices` skill with relevant keywords
-
-## Django Workflow Commands
-
-**Note:** These commands are defined in this repository's `.claude/commands/django/` directory. To use them in other projects:
-
-**Option 1 - Copy to your project:**
-```bash
-cp -r /home/cooneycw/Projects/claude-power-pack/.claude/commands/django ~/.claude/commands/
-```
-
-**Option 2 - Symlink from this repo (recommended):**
-```bash
-mkdir -p ~/.claude/commands
-ln -s /home/cooneycw/Projects/claude-power-pack/.claude/commands/django ~/.claude/commands/django
-```
-
-Available commands:
-- `/django:init` - Create new Django project with best practices
-- `/django:worktree-setup` - Configure git worktrees for dev/staging/prod
-- `/django:worktree-explain` - Learn about git worktrees
 
 ## GitHub Issue Management
 

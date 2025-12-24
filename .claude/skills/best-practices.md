@@ -36,7 +36,7 @@ session management, context efficiency, or progressive disclosure:
 If the user asks about:
 - **Progressive disclosure** or **tool architecture** → Read `PROGRESSIVE_DISCLOSURE_GUIDE.md`
 - **Token audit** or **MCP optimization checklist** → Read `MCP_TOKEN_AUDIT_CHECKLIST.md`
-- **Django workflows** → Mention `/django:init`, `/django:worktree-setup`, `/django:worktree-explain` commands
+- **Git worktrees** or **issue-driven development** → Read `ISSUE_DRIVEN_DEVELOPMENT.md`
 
 ## Response Guidelines
 

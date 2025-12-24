@@ -76,5 +76,4 @@ The override mechanism (`.last-set-override`) continues to bridge cases where te
 ### Added
 
 - GitHub issue management commands
-- Django workflow commands
 - Issue-driven development documentation

@@ -27,7 +27,7 @@ body:
     attributes:
       label: Specific item
       description: Which command, skill, or tool?
-      placeholder: "e.g., /django:init, best-practices skill, get_second_opinion tool"
+      placeholder: "e.g., /github:issue-create, best-practices skill, get_second_opinion tool"
     validations:
       required: false
 

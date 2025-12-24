@@ -371,7 +371,7 @@ If the repository doesn't use worktrees (only main worktree detected):
 1. Skip worktree analysis sections
 2. Focus on branch-to-issue mapping
 3. Suggest worktree setup for complex projects:
-   > "Consider using git worktrees for parallel issue development. Run `/django:worktree-explain` to learn more."
+   > "Consider using git worktrees for parallel issue development. See ISSUE_DRIVEN_DEVELOPMENT.md for guidance."
 
 ---
 

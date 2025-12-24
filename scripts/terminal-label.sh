@@ -27,8 +27,8 @@
 #   terminal-label.sh issue NHL 123 "Player Landing"
 #   # Result: "NHL #123: Player Landing"
 #
-#   TERMINAL_LABEL_PREFIX="Django" terminal-label.sh issue 45 "Auth Flow"
-#   # Result: "Django #45: Auth Flow"
+#   TERMINAL_LABEL_PREFIX="MyApp" terminal-label.sh issue 45 "Auth Flow"
+#   # Result: "MyApp #45: Auth Flow"
 #
 #   terminal-label.sh project NHL
 #   # Result: "NHL: Select Next Action..."
@@ -436,7 +436,7 @@ case "$1" in
         echo "  $0 issue 42 'Fix login bug'"
         echo "  $0 issue NHL 123 'Player Landing'"
         echo "  $0 project MyApp"
-        echo "  $0 prefix Django"
+        echo "  $0 prefix MyProject"
         exit 1
         ;;
 esac

@@ -16,7 +16,6 @@ A comprehensive repository combining:
 - [Issue-Driven Development](#-issue-driven-development) - Micro-issue methodology
 - [Session Coordination](#-session-coordination) - **NEW v1.9:** Multi-session conflict prevention
 - [Project Commands](#-project-commands) - **NEW v1.8:** `/project-lite` & `/project-next`
-- [Django Workflow Commands](#-django-workflow-commands) - Project setup & git worktrees
 - [GitHub Issue Management](#-github-issue-management) - Full CRUD for issues
 - [Session Initialization](#-session-initialization) - Auto-update checks
 - [On-Demand Documentation](#-on-demand-documentation) - Context optimization
@@ -105,43 +104,6 @@ A comprehensive collection of Claude Code best practices compiled from the r/Cla
 - **`PROGRESSIVE_DISCLOSURE_GUIDE.md`** - Comprehensive architecture guide
 - **`MCP_TOKEN_AUDIT_CHECKLIST.md`** - Practical optimization checklist
 - **Context-Efficient Architecture** section in main best practices doc
-
-## 🐍 Django Workflow Commands
-
-**New in v1.1.0:** Slash commands for Django project initialization and git worktree workflows.
-
-### Available Commands
-
-- **`/django:init`** - Create new Django project with modern best practices
-  - Split settings (base/local/production)
-  - Apps directory organization
-  - Optional: DRF, Celery, Redis, Docker, CI/CD
-  - Modern dependency management
-
-- **`/django:worktree-setup`** - Configure git worktrees for dev/staging/production
-  - Parallel environment development
-  - Separate virtual environments per branch
-  - Independent database configurations
-  - No more branch switching!
-
-- **`/django:worktree-explain`** - Educational guide on git worktrees
-  - Detailed explanation with examples
-  - Workflow scenarios (feature dev, hotfixes, deployment)
-  - Troubleshooting and best practices
-  - VSCode and tmux integration
-
-### Setup
-
-These commands are in `.claude/commands/django/`. To use them globally:
-
-```bash
-# Option 1: Symlink (recommended)
-mkdir -p ~/.claude/commands
-ln -s /path/to/claude-power-pack/.claude/commands/django ~/.claude/commands/django
-
-# Option 2: Copy
-cp -r .claude/commands/django ~/.claude/commands/
-```
 
 ## 🏷️ Terminal Labeling
 
@@ -811,7 +773,6 @@ claude-power-pack/
 │   │   ├── coordination/                      # Session coordination
 │   │   │   ├── pr-create.md                   # Coordinated PR creation
 │   │   │   └── merge-main.md                  # Coordinated merges
-│   │   ├── django/                            # Django workflow
 │   │   ├── github/                            # GitHub issue management
 │   │   ├── project-next.md                    # Issue orchestrator
 │   │   └── project-lite.md                    # Quick reference
