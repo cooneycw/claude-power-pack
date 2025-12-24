@@ -1,6 +1,6 @@
 ---
 description: Validate credentials without exposing them
-allowed-tools: Bash(~/.claude/scripts/secrets-validate.sh:*), Bash(aws:*), Bash(psql:*)
+allowed-tools: Bash(python:*), Bash(PYTHONPATH=*), Bash(aws:*), Bash(psql:*)
 ---
 
 # Validate Credentials
@@ -10,7 +10,7 @@ Test that credentials are configured and accessible without displaying actual va
 ## Usage
 
 ```
-/secrets:validate [--env] [--aws] [--db] [--all]
+/secrets:validate [--env] [--aws] [--db]
 ```
 
 ## Options
@@ -18,7 +18,7 @@ Test that credentials are configured and accessible without displaying actual va
 - `--env` - Validate environment variables (DB_HOST, DB_USER, etc.)
 - `--aws` - Validate AWS credentials (test sts:GetCallerIdentity)
 - `--db` - Test database connection
-- `--all` - Run all validations (default)
+- (default) - Run all validations
 
 ## Checks Performed
 
@@ -63,8 +63,8 @@ Test that credentials are configured and accessible without displaying actual va
 ✓ Database connection successful
 ```
 
-## Run Script
+## Run Command
 
 ```bash
-~/.claude/scripts/secrets-validate.sh "$@"
+PYTHONPATH="${HOME}/Projects/claude-power-pack/lib" python -m lib.secrets validate "$@"
 ```

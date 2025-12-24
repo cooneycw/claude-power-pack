@@ -63,7 +63,10 @@ claude-power-pack/
 ├── mcp-coordination/                           # MCP Coordination server
 │   └── src/server.py                           # 8 tools (Redis locking)
 ├── lib/secrets/                                # Secrets management
+│   ├── __init__.py                             # Main exports
+│   ├── __main__.py                             # python -m lib.secrets entry
 │   ├── base.py                                 # SecretValue, SecretsProvider
+│   ├── cli.py                                  # CLI (get, validate commands)
 │   ├── credentials.py                          # DatabaseCredentials with masking
 │   ├── masking.py                              # Output masking patterns
 │   ├── permissions.py                          # Access control model
@@ -83,9 +86,7 @@ claude-power-pack/
 │   ├── worktree-remove.sh                      # Safe worktree removal
 │   ├── conda-detect.sh                         # Conda env detection
 │   ├── conda-activate.sh                       # Conda activation
-│   ├── secrets-mask.sh                         # Output masking
-│   ├── secrets-get.sh                          # Get credentials
-│   └── secrets-validate.sh                     # Validate credentials
+│   └── secrets-mask.sh                         # Output masking
 ├── .claude/
 │   ├── commands/
 │   │   ├── coordination/                       # Session coordination
@@ -566,17 +567,37 @@ Secure credential access with provider abstraction and output masking.
 - **Provider abstraction**: AWS Secrets Manager + environment variables
 - **Output masking**: Never exposes actual secret values
 - **Permission model**: Read-only by default, writes require explicit permission
-- **Bash wrappers**: Works in non-Python workflows
+- **Cross-platform CLI**: Python CLI works on Windows/Mac/Linux
 
 ### Setup
 
 ```bash
-# Symlink scripts
-ln -sf ~/Projects/claude-power-pack/scripts/secrets-*.sh ~/.claude/scripts/
-ln -sf ~/Projects/claude-power-pack/scripts/conda-*.sh ~/.claude/scripts/
-
-# Add lib to PYTHONPATH (for Python usage)
+# Add lib to PYTHONPATH
 export PYTHONPATH="$HOME/Projects/claude-power-pack/lib:$PYTHONPATH"
+
+# For masking pipe filter (bash-only)
+ln -sf ~/Projects/claude-power-pack/scripts/secrets-mask.sh ~/.claude/scripts/
+```
+
+### CLI Usage
+
+```bash
+# Get database credentials (auto-detect provider)
+python -m lib.secrets get
+
+# Get specific secret from AWS
+python -m lib.secrets get --provider aws prod/database
+
+# Get credentials as JSON (masked)
+python -m lib.secrets get --json
+
+# Validate all providers
+python -m lib.secrets validate
+
+# Validate specific provider
+python -m lib.secrets validate --env
+python -m lib.secrets validate --aws
+python -m lib.secrets validate --db
 ```
 
 ### Commands
@@ -597,16 +618,10 @@ print(creds)  # Password masked as ****
 conn = await asyncpg.connect(**creds.dsn)  # dsn has real password
 ```
 
-### Bash Usage
+### Masking Pipe Filter
 
 ```bash
-# Get credentials (masked)
-~/.claude/scripts/secrets-get.sh
-
-# Validate configuration
-~/.claude/scripts/secrets-validate.sh --db
-
-# Mask output
+# Mask secrets in any command output
 some_command | ~/.claude/scripts/secrets-mask.sh
 ```
 
