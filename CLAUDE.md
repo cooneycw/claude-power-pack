@@ -10,7 +10,7 @@ This repository contains four main components:
 
 ## Quick References
 
-- **Best Practices:** `CLAUDE_CODE_BEST_PRACTICES.md`
+- **Best Practices:** `docs/skills/` (fragmented) or `docs/reference/CLAUDE_CODE_BEST_PRACTICES_FULL.md`
 - **Issue-Driven Development:** `ISSUE_DRIVEN_DEVELOPMENT.md`
 - **Progressive Disclosure:** `PROGRESSIVE_DISCLOSURE_GUIDE.md`
 - **MCP Token Audit:** `MCP_TOKEN_AUDIT_CHECKLIST.md`
@@ -31,7 +31,19 @@ This repository contains four main components:
 
 ```
 claude-power-pack/
-├── CLAUDE_CODE_BEST_PRACTICES.md                # Main guide (21KB)
+├── docs/
+│   ├── skills/                                 # Topic-focused best practices (~3K each)
+│   │   ├── context-efficiency.md               # Token optimization
+│   │   ├── session-management.md               # Session & plan mode
+│   │   ├── mcp-optimization.md                 # MCP best practices
+│   │   ├── skills-patterns.md                  # Skill design
+│   │   ├── hooks-automation.md                 # Hook system
+│   │   ├── spec-driven-dev.md                  # SDD workflow
+│   │   ├── idd-workflow.md                     # Issue-driven dev
+│   │   ├── claude-md-config.md                 # CLAUDE.md tips
+│   │   └── code-quality.md                     # Quality patterns
+│   └── reference/
+│       └── CLAUDE_CODE_BEST_PRACTICES_FULL.md  # Complete guide (25K tokens)
 ├── ISSUE_DRIVEN_DEVELOPMENT.md                 # IDD methodology
 ├── PROGRESSIVE_DISCLOSURE_GUIDE.md             # Context optimization
 ├── MCP_TOKEN_AUDIT_CHECKLIST.md                # Token efficiency
@@ -43,7 +55,7 @@ claude-power-pack/
 │   └── README.md                               # Full documentation
 ├── mcp-coordination/                           # MCP Coordination server
 │   └── src/server.py                           # 8 tools (Redis locking)
-├── lib/secrets/                                # NEW: Secrets management
+├── lib/secrets/                                # Secrets management
 │   ├── base.py                                 # SecretValue, SecretsProvider
 │   ├── credentials.py                          # DatabaseCredentials with masking
 │   ├── masking.py                              # Output masking patterns
@@ -56,24 +68,33 @@ claude-power-pack/
 │   ├── session-heartbeat.sh                    # Heartbeat daemon
 │   ├── pytest-locked.sh                        # pytest wrapper
 │   ├── worktree-remove.sh                      # Safe worktree removal
-│   ├── conda-detect.sh                         # NEW: Conda env detection
-│   ├── conda-activate.sh                       # NEW: Conda activation
-│   ├── secrets-mask.sh                         # NEW: Output masking
-│   ├── secrets-get.sh                          # NEW: Get credentials
-│   └── secrets-validate.sh                     # NEW: Validate credentials
+│   ├── conda-detect.sh                         # Conda env detection
+│   ├── conda-activate.sh                       # Conda activation
+│   ├── secrets-mask.sh                         # Output masking
+│   ├── secrets-get.sh                          # Get credentials
+│   └── secrets-validate.sh                     # Validate credentials
 ├── .claude/
 │   ├── commands/
 │   │   ├── coordination/                       # Session coordination
 │   │   │   ├── pr-create.md                    # Coordinated PR creation
 │   │   │   └── merge-main.md                   # Coordinated merges
 │   │   ├── github/                             # GitHub issue management
-│   │   ├── secrets/                            # NEW: Secrets commands
-│   │   ├── env/                                # NEW: Environment commands
+│   │   ├── secrets/                            # Secrets commands
+│   │   ├── env/                                # Environment commands
 │   │   ├── project-next.md                     # Next steps orchestrator
 │   │   └── project-lite.md                     # Quick reference
-│   ├── skills/
-│   │   ├── best-practices.md                   # On-demand best practices
-│   │   └── secrets.md                          # NEW: Secrets skill
+│   ├── skills/                                 # Skill loaders (lightweight)
+│   │   ├── best-practices.md                   # Dispatcher to topic skills
+│   │   ├── context-efficiency.md               # → docs/skills/
+│   │   ├── session-management.md               # → docs/skills/
+│   │   ├── mcp-optimization.md                 # → docs/skills/
+│   │   ├── skills-patterns.md                  # → docs/skills/
+│   │   ├── hooks-automation.md                 # → docs/skills/
+│   │   ├── spec-driven-dev.md                  # → docs/skills/
+│   │   ├── idd-workflow.md                     # → docs/skills/
+│   │   ├── claude-md-config.md                 # → docs/skills/
+│   │   ├── code-quality.md                     # → docs/skills/
+│   │   └── secrets.md                          # Secrets skill
 │   └── hooks.json                              # Session/conda hooks
 ├── .github/
 │   └── ISSUE_TEMPLATE/                         # Structured issue templates
@@ -82,11 +103,24 @@ claude-power-pack/
 
 ## On-Demand Documentation Loading
 
-To preserve context, documentation is NOT auto-loaded. Use these commands when needed:
+To preserve context, documentation is NOT auto-loaded. Use topic-specific skills for 88-92% token savings:
 
-- `/load-best-practices` - Load full community wisdom
+**Topic Skills (load only what you need):**
+| Topic | Trigger Keywords |
+|-------|------------------|
+| Context Efficiency | "context", "tokens", "optimization" |
+| Session Management | "session", "reset", "plan mode" |
+| MCP Optimization | "MCP", "token consumption" |
+| Skills Patterns | "skill activation", "skill design" |
+| Hooks & Automation | "hooks", "automation" |
+| Spec-Driven Dev | "spec driven", "specification" |
+| Issue-Driven Dev | "worktree", "IDD" |
+| CLAUDE.md Config | "CLAUDE.md", "configuration" |
+| Code Quality | "code review", "quality" |
+
+**Commands:**
+- `/load-best-practices` - Load full guide (25K tokens)
 - `/load-mcp-docs` - Load MCP server documentation
-- Or trigger the `best-practices` skill with relevant keywords
 
 ## Using Commands/Skills in Other Projects
 
@@ -493,5 +527,5 @@ echo "my-project-env" > .conda-env
 
 ## Version
 
-Current version: 2.3.0
-Previous: 2.2.0 (MCP Coordination Server)
+Current version: 2.4.0
+Previous: 2.3.0 (Playwright docs, path fix)

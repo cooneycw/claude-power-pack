@@ -1,56 +1,57 @@
 ---
-name: Claude Code Best Practices
-description: Load community best practices from claude-power-pack repository
-trigger: best practices, skills, hooks, MCP optimization, session management, context efficiency, progressive disclosure, token optimization
+name: Best Practices Dispatcher
+description: Routes to topic-specific best practices skills for context efficiency
+trigger: best practices, claude code help, how to, tips
 ---
 
-# Claude Code Best Practices Skill
+# Best Practices Dispatcher
 
-When the user asks about Claude Code best practices, skills, hooks, MCP optimization,
-session management, context efficiency, or progressive disclosure:
+This skill routes questions to topic-specific skills for context efficiency.
+Instead of loading 25K+ tokens, load only the relevant topic (~3K tokens).
 
-1. Read `/home/cooneycw/Projects/claude-power-pack/CLAUDE_CODE_BEST_PRACTICES_COMPREHENSIVE.md`
-2. Extract the relevant section(s) based on the user's question
-3. Provide guidance based on the community wisdom
-4. If the question is about token optimization or context efficiency, also reference `PROGRESSIVE_DISCLOSURE_GUIDE.md`
+## Available Topic Skills
 
-## Available Sections in CLAUDE_CODE_BEST_PRACTICES_COMPREHENSIVE.md
+| Topic | Skill | Triggers |
+|-------|-------|----------|
+| **Context & Tokens** | `context-efficiency` | context, tokens, optimization, progressive disclosure |
+| **Session Management** | `session-management` | session, reset, plan mode, context degradation |
+| **MCP Optimization** | `mcp-optimization` | MCP, token consumption, code-mode |
+| **Skills Design** | `skills-patterns` | skill activation, skill design, prompt injection |
+| **Hooks** | `hooks-automation` | hooks, automation, SessionStart |
+| **Spec-Driven Dev** | `spec-driven-dev` | spec driven, specification, SDD, planning |
+| **Issue-Driven Dev** | `idd-workflow` | issue driven, worktree, IDD |
+| **CLAUDE.md** | `claude-md-config` | CLAUDE.md, configuration, project setup |
+| **Code Quality** | `code-quality` | code review, quality, testing, production |
 
-- **Top Tips from Power Users** - 685 upvotes post insights
-- **Skills System** - Activation patterns, pattern matching
-- **CLAUDE.md Optimization** - Structure and best practices
-- **Avoiding Context Degradation** - Session management
-- **Spec-Driven Development** - Planning workflows
-- **MCP Best Practices** - Code-Mode, selection, token consumption
-- **Context-Efficient Tool Architecture** - NEW: Progressive disclosure, token optimization
-- **Hooks & Automation** - Hook system deep dive
-- **Session Management** - When to reset, context usage
-- **Plan Mode** - Best practices for planning
-- **Code Quality & Review** - Standards and patterns
-- **Workflow Patterns** - Development workflows
-- **Common Pitfalls** - What to avoid
-- **Tools & Resources** - Community tools and links
+## Routing Logic
 
-## Additional Resources to Reference
+When the user asks about best practices:
 
-If the user asks about:
-- **Progressive disclosure** or **tool architecture** → Read `PROGRESSIVE_DISCLOSURE_GUIDE.md`
-- **Token audit** or **MCP optimization checklist** → Read `MCP_TOKEN_AUDIT_CHECKLIST.md`
-- **Git worktrees** or **issue-driven development** → Read `ISSUE_DRIVEN_DEVELOPMENT.md`
+1. **Identify the topic** from their question
+2. **Route to the specific skill** by reading its docs/skills file
+3. **If unclear**, ask which topic they need help with
 
-## Response Guidelines
+## Quick Reference
 
-1. Be specific - cite upvote counts and sources when available
-2. Include practical examples from the documentation
-3. Reference GitHub repositories mentioned in the guides
-4. Suggest related sections if the user might benefit
-5. Keep responses concise but informative
+**Top 10 Rules:**
+1. Use Plan Mode by default
+2. Reset sessions frequently
+3. Store context in files, not conversations
+4. Choose 1-3 quality MCPs
+5. Write detailed specs first
+6. Use hooks for automation
+7. Skills need good activation patterns
+8. Review skills before installing
+9. Optimize CLAUDE.md for your project
+10. Work with Claude's strengths
 
-## Example Triggers
+## Full Reference
 
-- "What are the best practices for Skills?"
-- "How do I optimize MCP token usage?"
-- "When should I reset my session?"
-- "How does progressive disclosure work?"
-- "What are the top tips from power users?"
-- "How do I improve context efficiency?"
+For the complete unabridged guide:
+- Read `docs/reference/CLAUDE_CODE_BEST_PRACTICES_FULL.md`
+
+## Related Resources
+
+- `PROGRESSIVE_DISCLOSURE_GUIDE.md` - Context architecture
+- `MCP_TOKEN_AUDIT_CHECKLIST.md` - Token audit steps
+- `ISSUE_DRIVEN_DEVELOPMENT.md` - IDD methodology
