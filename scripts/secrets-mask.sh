@@ -29,7 +29,13 @@ mask_patterns() {
     input=$(echo "$input" | sed -E 's|(postgres://[^:]+:)[^@]+(@)|\1****\2|g')
     input=$(echo "$input" | sed -E 's|(mysql://[^:]+:)[^@]+(@)|\1****\2|g')
     input=$(echo "$input" | sed -E 's|(mongodb://[^:]+:)[^@]+(@)|\1****\2|g')
+    input=$(echo "$input" | sed -E 's|(mongodb\+srv://[^:]+:)[^@]+(@)|\1****\2|g')
     input=$(echo "$input" | sed -E 's|(redis://[^:]+:)[^@]+(@)|\1****\2|g')
+    input=$(echo "$input" | sed -E 's|(rediss://[^:]+:)[^@]+(@)|\1****\2|g')
+    input=$(echo "$input" | sed -E 's|(amqp://[^:]+:)[^@]+(@)|\1****\2|g')
+    input=$(echo "$input" | sed -E 's|(amqps://[^:]+:)[^@]+(@)|\1****\2|g')
+    input=$(echo "$input" | sed -E 's|(mssql://[^:]+:)[^@]+(@)|\1****\2|g')
+    input=$(echo "$input" | sed -E 's|(oracle://[^:]+:)[^@]+(@)|\1****\2|g')
 
     # API Keys with known prefixes
     input=$(echo "$input" | sed -E 's|(sk-)[A-Za-z0-9]{20,}|\1**********|g')
@@ -62,6 +68,22 @@ mask_patterns() {
     # Sendgrid API keys
     input=$(echo "$input" | sed -E 's|(SG\.)[A-Za-z0-9_-]{22,}|\1**********|g')
 
+    # Cloudflare API tokens
+    input=$(echo "$input" | sed -E 's|(cf_)[A-Za-z0-9_-]{40,}|\1**********|g')
+
+    # DigitalOcean tokens
+    input=$(echo "$input" | sed -E 's|(dop_v1_)[A-Za-z0-9]{64}|\1**********|g')
+    input=$(echo "$input" | sed -E 's|(doo_v1_)[A-Za-z0-9]{64}|\1**********|g')
+
+    # Twilio tokens (Account SID pattern)
+    input=$(echo "$input" | sed -E 's|(AC)[a-f0-9]{32}|\1**********|g')
+
+    # Mailchimp API keys
+    input=$(echo "$input" | sed -E 's|([a-f0-9]{32}-us[0-9]+)|****-****|g')
+
+    # Discord tokens
+    input=$(echo "$input" | sed -E 's|([A-Za-z0-9_-]{24}\.[A-Za-z0-9_-]{6}\.[A-Za-z0-9_-]{27})|****discord****|g')
+
     # Generic key=value patterns (case insensitive)
     # Using character class for quotes since sed escaping is tricky
     input=$(echo "$input" | sed -E 's|(password[[:space:]]*[=:][[:space:]]*)[^[:space:]}{,"\x27]+|\1****|gi')
@@ -87,12 +109,16 @@ USAGE:
     echo "password=secret" | secrets-mask.sh
 
 PATTERNS MASKED:
-    - Connection strings (postgresql://, mysql://, etc.)
-    - API keys (OpenAI sk-, Google AIza, GitHub ghp_, etc.)
+    - Connection strings (postgresql://, mysql://, mongodb://, redis://, amqp://, mssql://, oracle://)
+    - API keys (OpenAI sk-, Google AIza, GitHub ghp_/gho_/github_pat_, GitLab glpat-)
     - AWS keys (AKIA*, ASIA*)
     - Slack tokens (xox*-)
     - Stripe keys (sk_live_, sk_test_)
-    - Generic: password=, secret=, api_key=, token=, etc.
+    - Anthropic keys (sk-ant-)
+    - NPM/PyPI tokens (npm_, pypi-)
+    - Sendgrid (SG.*), Cloudflare (cf_), DigitalOcean (dop_v1_, doo_v1_)
+    - Twilio (AC*), Mailchimp (*-us*), Discord tokens
+    - Generic: password=, secret=, api_key=, token=, bearer, etc.
 
 CONFIGURATION:
     ~/.claude/secrets-mask.conf

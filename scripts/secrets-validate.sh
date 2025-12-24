@@ -21,6 +21,7 @@ LIB_DIR="$(dirname "$SCRIPT_DIR")/lib"
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
+BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 print_status() {
@@ -36,6 +37,9 @@ print_status() {
             ;;
         fail)
             echo -e "${RED}✗${NC} $message"
+            ;;
+        info)
+            echo -e "${BLUE}ℹ${NC} $message"
             ;;
         *)
             echo "  $message"
@@ -207,6 +211,23 @@ CHECKS PERFORMED:
     --env: DB_HOST, DB_USER, DB_PASSWORD, DB_NAME, .env file
     --aws: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, sts:GetCallerIdentity
     --db:  Load credentials, test PostgreSQL connection (if psql available)
+
+TROUBLESHOOTING:
+    "Could not import secrets module"
+        → Ensure PYTHONPATH includes lib directory:
+          export PYTHONPATH="$HOME/Projects/claude-power-pack/lib:$PYTHONPATH"
+
+    "AWS credentials invalid or expired"
+        → Run: aws configure
+        → Or set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY
+
+    "Database connection failed"
+        → Verify DB_HOST, DB_USER, DB_PASSWORD, DB_NAME are set
+        → Check if database server is running
+        → Verify network connectivity: nc -zv $DB_HOST $DB_PORT
+
+    "psql not installed"
+        → Install: sudo apt install postgresql-client
 
 NOTE:
     This script NEVER displays actual secret values.
