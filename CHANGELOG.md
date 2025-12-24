@@ -1,5 +1,27 @@
 # Changelog
 
+## [2.2.0] - 2025-12-24
+
+### Added
+
+- **MCP Coordination Server** (`mcp-coordination/`) - Redis-backed distributed locking:
+  - 8 MCP tools: `acquire_lock`, `release_lock`, `check_lock`, `list_locks`, `register_session`, `heartbeat`, `session_status`, `health_check`
+  - Wave/issue lock hierarchy: lock at issue, wave, or wave.issue level
+  - Auto-detection: use "work" to lock based on current git branch
+  - Session tracking with tiered status (active/idle/stale/abandoned)
+  - Auto-expiry via Redis TTL for locks and heartbeats
+  - Systemd service template for deployment
+
+- **Redis installation** - Native Redis server for distributed coordination
+
+### Changed
+
+- Updated CLAUDE.md with MCP Coordination Server documentation
+- Updated repository structure to include all 4 MCP servers
+- Added port reference for all MCP servers (8080, 8081, 8082)
+
+---
+
 ## [2.1.0] - 2025-12-24
 
 ### Changed

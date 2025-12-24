@@ -2,9 +2,11 @@
 
 ## Project Overview
 
-This repository contains two main components:
+This repository contains four main components:
 1. **Claude Code Best Practices** - Community wisdom from r/ClaudeCode
 2. **MCP Second Opinion Server** - Gemini-powered code review
+3. **MCP Playwright Server** - Browser automation for testing
+4. **MCP Coordination Server** - Redis-backed distributed locking
 
 ## Quick References
 
@@ -12,13 +14,17 @@ This repository contains two main components:
 - **Issue-Driven Development:** `ISSUE_DRIVEN_DEVELOPMENT.md`
 - **Progressive Disclosure:** `PROGRESSIVE_DISCLOSURE_GUIDE.md`
 - **MCP Token Audit:** `MCP_TOKEN_AUDIT_CHECKLIST.md`
-- **MCP Server Docs:** `mcp-second-opinion/`
+- **MCP Second Opinion:** `mcp-second-opinion/`
+- **MCP Playwright:** `mcp-playwright-persistent/`
+- **MCP Coordination:** `mcp-coordination/`
 
 ## Key Conventions
 
 - Python 3.11+
-- Use conda environments for MCP server
-- MCP server runs on port 8080
+- Use conda environments for MCP servers
+- MCP Second Opinion: port 8080
+- MCP Playwright: port 8081
+- MCP Coordination: port 8082
 - All documentation uses progressive disclosure principles
 
 ## Repository Structure
@@ -29,8 +35,12 @@ claude-power-pack/
 ├── ISSUE_DRIVEN_DEVELOPMENT.md                 # IDD methodology
 ├── PROGRESSIVE_DISCLOSURE_GUIDE.md             # Context optimization
 ├── MCP_TOKEN_AUDIT_CHECKLIST.md                # Token efficiency
-├── mcp-second-opinion/                         # MCP server
+├── mcp-second-opinion/                         # MCP Second Opinion server
 │   └── src/server.py                           # 12 tools
+├── mcp-playwright-persistent/                  # MCP Playwright server
+│   └── src/server.py                           # 20+ tools (browser automation)
+├── mcp-coordination/                           # MCP Coordination server
+│   └── src/server.py                           # 8 tools (Redis locking)
 ├── lib/secrets/                                # NEW: Secrets management
 │   ├── base.py                                 # SecretValue, SecretsProvider
 │   ├── credentials.py                          # DatabaseCredentials with masking
@@ -232,6 +242,82 @@ Hooks automatically:
 
 See `ISSUE_DRIVEN_DEVELOPMENT.md` for detailed documentation.
 
+## MCP Coordination Server
+
+Redis-backed distributed locking for multi-session coordination.
+
+### Features
+
+- **Distributed Locks**: Prevent concurrent pytest runs, PR conflicts
+- **Wave/Issue Hierarchy**: Lock at issue, wave, or wave.issue level
+- **Auto-Detection**: Use "work" to lock based on current git branch
+- **Session Tracking**: See all active Claude Code sessions
+- **Auto-Expiry**: Locks and sessions expire automatically
+
+### Prerequisites
+
+```bash
+# Install Redis
+sudo apt install redis-server
+sudo systemctl enable redis-server
+redis-cli ping  # Should return PONG
+```
+
+### Setup
+
+```bash
+# Create conda environment
+cd mcp-coordination
+conda env create -f environment.yml
+conda activate mcp-coordination
+
+# Start server
+./start-server.sh
+```
+
+### Add to Claude Code
+
+```bash
+claude mcp add coordination --transport sse --url http://127.0.0.1:8082/sse
+```
+
+### MCP Tools
+
+| Tool | Description |
+|------|-------------|
+| `acquire_lock(name, timeout)` | Acquire distributed lock |
+| `release_lock(name)` | Release held lock |
+| `check_lock(name)` | Check lock availability |
+| `list_locks(pattern)` | List locks matching pattern |
+| `register_session(metadata)` | Register session for tracking |
+| `heartbeat()` | Update session heartbeat |
+| `session_status()` | Show all sessions and states |
+| `health_check()` | Check Redis connection |
+
+### Lock Naming
+
+```
+# Auto-detect from branch
+acquire_lock("work")          # issue-42-auth → issue:42
+                              # wave-5c.1-feat → wave:5c.1
+
+# Explicit locks
+acquire_lock("issue:42")      # Issue-specific
+acquire_lock("wave:5c")       # Wave-level
+acquire_lock("pytest")        # Resource lock
+```
+
+### Usage Example
+
+```
+# Before running pytest
+Use coordination MCP: acquire_lock("pytest", 600)
+[run pytest]
+Use coordination MCP: release_lock("pytest")
+```
+
+See `mcp-coordination/README.md` for detailed documentation.
+
 ## Secrets Management
 
 Secure credential access with provider abstraction and output masking.
@@ -319,5 +405,5 @@ echo "my-project-env" > .conda-env
 
 ## Version
 
-Current version: 2.0.0
-Previous: 1.9.2 (Session coordination improvements)
+Current version: 2.2.0
+Previous: 2.1.0 (Shell prompt context)

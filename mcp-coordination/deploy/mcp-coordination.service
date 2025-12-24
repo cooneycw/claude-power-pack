@@ -1,0 +1,24 @@
+[Unit]
+Description=MCP Coordination Server (Redis-backed distributed locking)
+After=network.target redis-server.service
+Requires=redis-server.service
+
+[Service]
+Type=simple
+User=cooneycw
+WorkingDirectory=/home/cooneycw/Projects/claude-power-pack/mcp-coordination
+ExecStart=/home/cooneycw/Projects/claude-power-pack/mcp-coordination/start-server.sh --daemon
+Restart=on-failure
+RestartSec=5
+
+# Environment
+Environment="CONDA_ENV=mcp-coordination"
+Environment="PATH=/home/cooneycw/miniconda3/bin:/usr/local/bin:/usr/bin:/bin"
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=mcp-coordination
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,13 @@
+name: mcp-coordination
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - pip
+  - pip:
+      - fastmcp>=2.0.0
+      - redis>=5.0.0
+      - uvicorn>=0.30.0
+      - starlette>=0.38.0
+      - python-dotenv>=1.0.0
