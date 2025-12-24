@@ -27,6 +27,46 @@
         ]
       }
     ],
+    "PreToolUse": [
+      {
+        "matcher": {
+          "tool_name": "Bash"
+        },
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/scripts/hook-validate-command.sh",
+            "timeout": 2000
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": {
+          "tool_name": "Bash"
+        },
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/scripts/hook-mask-output.sh",
+            "timeout": 5000
+          }
+        ]
+      },
+      {
+        "matcher": {
+          "tool_name": "Read"
+        },
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/scripts/hook-mask-output.sh",
+            "timeout": 5000
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [
@@ -36,6 +76,13 @@
             "timeout": 1000
           }
         ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "type": "command",
+        "command": "~/.claude/scripts/session-register.sh end 2>/dev/null || true",
+        "timeout": 2000
       }
     ]
   }
