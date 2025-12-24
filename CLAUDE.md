@@ -86,7 +86,9 @@ claude-power-pack/
 │   ├── worktree-remove.sh                      # Safe worktree removal
 │   ├── conda-detect.sh                         # Conda env detection
 │   ├── conda-activate.sh                       # Conda activation
-│   └── secrets-mask.sh                         # Output masking
+│   ├── secrets-mask.sh                         # Output masking
+│   ├── hook-mask-output.sh                     # PostToolUse: mask secrets
+│   └── hook-validate-command.sh                # PreToolUse: block dangerous commands
 ├── .claude/
 │   ├── commands/
 │   │   ├── coordination/                       # Session coordination
@@ -415,8 +417,52 @@ Hooks automatically:
 - Register session at start
 - Update heartbeat on each prompt
 - Mark session paused on stop
+- End session and release locks on exit
 
 See `ISSUE_DRIVEN_DEVELOPMENT.md` for detailed documentation.
+
+## Security Hooks
+
+Automatic protection for Claude Code sessions.
+
+### Secret Masking (PostToolUse)
+
+All Bash and Read tool output is automatically masked:
+- Connection strings (postgresql://, mysql://, etc.)
+- API keys (OpenAI, Anthropic, GitHub, AWS, etc.)
+- Environment variables (DB_PASSWORD, API_KEY, etc.)
+
+**Setup:**
+```bash
+ln -sf ~/Projects/claude-power-pack/scripts/hook-mask-output.sh ~/.claude/scripts/
+```
+
+### Dangerous Command Blocking (PreToolUse)
+
+Warns before executing destructive commands:
+- `git push --force` to main/master
+- `git reset --hard`
+- `rm -rf /` or system directories
+- `DROP TABLE`, `DELETE FROM` without WHERE
+- `TRUNCATE TABLE`
+
+**Setup:**
+```bash
+ln -sf ~/Projects/claude-power-pack/scripts/hook-validate-command.sh ~/.claude/scripts/
+```
+
+### Hook Configuration
+
+Hooks are configured in `.claude/hooks.json`:
+
+| Hook | Trigger | Purpose |
+|------|---------|---------|
+| SessionStart | Session begins | Register, detect conda |
+| UserPromptSubmit | Each prompt | Update heartbeat |
+| PreToolUse (Bash) | Before command | Block dangerous operations |
+| PostToolUse (Bash/Read) | After tool | Mask secrets in output |
+| Stop | Session paused | Mark session paused |
+| SessionEnd | Session ends | Release locks and claims |
 
 ## MCP Coordination Server
 
@@ -659,5 +705,5 @@ echo "my-project-env" > .conda-env
 
 ## Version
 
-Current version: 2.6.0
-Previous: 2.5.0 (GitHub Spec Kit integration)
+Current version: 2.7.0
+Previous: 2.6.0 (Spec bridge Python module)
