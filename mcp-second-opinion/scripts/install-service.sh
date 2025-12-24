@@ -123,6 +123,13 @@ sed -e "s|\${SERVICE_USER}|$SERVICE_USER|g" \
     -e "s|\${CONDA_BIN}|$CONDA_BIN|g" \
     "$TEMPLATE_FILE" > "$OUTPUT_FILE"
 
+# For user services, remove User= directive (not allowed) and fix WantedBy target
+if [[ "$INSTALL_MODE" == "user" ]]; then
+    sed -i -e '/^User=/d' \
+           -e 's/WantedBy=multi-user.target/WantedBy=default.target/' \
+           "$OUTPUT_FILE"
+fi
+
 echo -e "Generated: ${GREEN}$OUTPUT_FILE${NC}"
 
 if $GENERATE_ONLY; then

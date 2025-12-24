@@ -5,7 +5,6 @@ Documentation=https://github.com/cooneycw/claude-power-pack
 
 [Service]
 Type=simple
-User=cooneycw
 WorkingDirectory=/home/cooneycw/Projects/claude-power-pack/mcp-second-opinion
 
 # Load environment variables from .env file
@@ -37,4 +36,4 @@ ProtectHome=read-only
 ReadWritePaths=/home/cooneycw/Projects/claude-power-pack/mcp-second-opinion
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=default.target
