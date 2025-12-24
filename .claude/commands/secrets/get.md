@@ -1,6 +1,6 @@
 ---
 description: Get credentials securely with masking
-allowed-tools: Bash(python:*), Bash(~/.claude/scripts/secrets-*), Read(*.py), Read(*.env)
+allowed-tools: Bash(python:*), Bash(PYTHONPATH=*), Read(*.py), Read(*.env)
 ---
 
 # Get Credentials
@@ -53,8 +53,8 @@ Connection String: postgresql://developer:****@localhost:5432/myapp_dev
   conn = await asyncpg.connect(**creds.dsn)  # dsn has real password
   ```
 
-## Run Script
+## Run Command
 
 ```bash
-~/.claude/scripts/secrets-get.sh "$@"
+PYTHONPATH="${HOME}/Projects/claude-power-pack/lib" python -m lib.secrets get "$@"
 ```
