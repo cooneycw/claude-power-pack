@@ -516,11 +516,28 @@ OPENAI_API_KEY=your-openai-api-key-here
 
 ### 4. Start Server
 
+**Option A: Manual start (for testing)**
 ```bash
 conda activate mcp-second-opinion
-cd mcp-second-opinion
-python src/server.py
+cd mcp-second-opinion/src
+python server.py
 ```
+
+**Option B: Systemd service (recommended for persistent use)**
+```bash
+cd mcp-second-opinion/scripts
+./install-service.sh           # Install as user service (default)
+systemctl --user enable mcp-second-opinion
+systemctl --user start mcp-second-opinion
+```
+
+The install script auto-detects your installation paths and conda location. Options:
+- `--user` - Install as user service (no sudo, starts on login)
+- `--system` - Install as system service (requires sudo, starts on boot)
+- `--generate-only` - Generate service file without installing
+
+Check status: `systemctl --user status mcp-second-opinion`
+View logs: `journalctl --user -u mcp-second-opinion -f`
 
 ### 5. Configure Claude Code
 
