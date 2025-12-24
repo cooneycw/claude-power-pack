@@ -29,6 +29,20 @@ This repository contains five main components:
 - MCP Coordination: port 8082
 - All documentation uses progressive disclosure principles
 
+## Environment Variables
+
+| Variable | Purpose | Example |
+|----------|---------|---------|
+| `CLAUDE_PROJECT` | Default project for `/project-next` when run from `~/Projects` | `claude-power-pack` |
+| `CONDA_ENV_NAME` | Override conda environment detection | `mcp-second-opinion` |
+
+**Setup (add to `~/.bashrc`):**
+```bash
+export CLAUDE_PROJECT="claude-power-pack"  # Default project
+```
+
+This allows running `/project-next` from `~/Projects` without being in a specific project directory.
+
 ## Repository Structure
 
 ```

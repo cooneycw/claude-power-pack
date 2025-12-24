@@ -21,14 +21,27 @@ Before doing anything else, enter plan mode to systematically gather context.
 
 ### 2.1 Repository Detection
 
-Detect the current repository:
+Detect the current repository with fallback to `CLAUDE_PROJECT` environment variable:
 
 ```bash
-# Get repository info
+# Priority 1: Check for CLAUDE_PROJECT environment variable
+if [ -n "$CLAUDE_PROJECT" ]; then
+  # If set and not already in a git repo, change to project directory
+  if ! git rev-parse --git-dir >/dev/null 2>&1; then
+    PROJECT_DIR="$HOME/Projects/$CLAUDE_PROJECT"
+    if [ -d "$PROJECT_DIR" ]; then
+      cd "$PROJECT_DIR"
+    fi
+  fi
+fi
+
+# Priority 2: Standard git repo detection
 gh repo view --json owner,name,description,defaultBranchRef --jq '{owner: .owner.login, name: .name, desc: .description, default_branch: .defaultBranchRef.name}'
 ```
 
-If this fails, the user is not in a GitHub repository. Stop and inform them.
+If this fails:
+- If `CLAUDE_PROJECT` is set but directory doesn't exist, inform user: "CLAUDE_PROJECT is set to '{value}' but ~/Projects/{value} doesn't exist"
+- If not in a git repo and `CLAUDE_PROJECT` not set, suggest: "Set CLAUDE_PROJECT environment variable or cd to a project directory"
 
 ### 2.2 Prefix Detection
 
@@ -56,6 +69,34 @@ git worktree list
 ```
 
 If only one worktree (the main repo), note that worktrees are not in use.
+
+### 2.4 Spec-Driven Development Detection
+
+Check if the project uses spec-driven development:
+
+```bash
+# Check for .specify directory with feature specs
+ls -d .specify/specs/*/ 2>/dev/null | head -10
+```
+
+If `.specify/specs/` exists with feature directories, get spec status:
+
+```bash
+# Get spec status using Python module (requires lib/spec_bridge)
+PYTHONPATH="$PWD/lib:$PYTHONPATH" python -c "
+from lib.spec_bridge import get_all_status
+status = get_all_status()
+for f in status.features:
+    indicator = lambda fs: '✓' if fs.exists and fs.complete else ('○' if fs.exists else '✗')
+    print(f'{f.name}|{indicator(f.spec)}|{indicator(f.plan)}|{indicator(f.tasks)}|{f.synced_count}|{f.pending_count}')
+" 2>/dev/null || echo "spec_bridge not available"
+```
+
+Note for output:
+- Feature names and their spec/plan/tasks status
+- Which features have pending sync (waves without GitHub issues)
+- Which features are complete (all waves synced)
+- Action needed for features ready to sync
 
 ---
 
@@ -191,6 +232,21 @@ Compare issues against worktree state:
 3. **Orphaned Work**: Branches without corresponding open issues
 4. **Blocked Issues**: Issues waiting on parent completion
 
+### 5.1 Issue-to-Spec Mapping (if .specify/ exists)
+
+For each issue, check if it was created by spec sync:
+
+1. **Label Matching**: Look for labels matching feature names in `.specify/specs/`
+2. **Body References**: Check issue body for "Spec:" or "Feature:" references
+3. **Wave Title Pattern**: Match issue title with wave names from tasks.md (e.g., "Wave 1: Description")
+
+For each worktree, determine if it links to a spec feature:
+- Extract issue number from branch name
+- Look up issue labels
+- Match label to feature directory in `.specify/specs/`
+
+This enables the output table to show spec feature associations
+
 ---
 
 ## Step 6: Generate Recommendations
@@ -210,6 +266,11 @@ Create a prioritized list of next steps:
 - Child issues of completed parent waves
 - Issues with clear acceptance criteria
 - Issues with no blockers
+
+### Priority 3b: Pending Spec Sync (if .specify/ exists)
+- Features with tasks.md containing unsynced waves
+- **Why:** Spec work is defined but not yet tracked in GitHub issues
+- **Action:** `/spec:sync {feature-name}`
 
 ### Priority 4: Quick Wins
 - Low effort issues
@@ -237,6 +298,28 @@ Present findings as:
   - {worktree_path} ({branch}) - Issue #{N}
 - **Uncommitted Work:** {list or "None"}
 
+### Spec Features (if .specify/ exists)
+
+📋 **Spec-Driven Development:**
+
+| Feature | Spec | Plan | Tasks | Synced | Pending | Action |
+|---------|------|------|-------|--------|---------|--------|
+| {name} | ✓/○/✗ | ✓/○/✗ | ✓/○/✗ | {N} | {M} | {action} |
+
+**Legend:**
+- ✓ = File exists and has content
+- ○ = File exists but empty/incomplete
+- ✗ = File missing
+- **Synced** = Waves with GitHub issues created
+- **Pending** = Waves needing `/spec:sync`
+
+**Example:**
+| Feature | Spec | Plan | Tasks | Synced | Pending | Action |
+|---------|------|------|-------|--------|---------|--------|
+| user-auth | ✓ | ✓ | ✓ | 3 | 2 | `/spec:sync user-auth` |
+| api-refactor | ✓ | ✓ | ○ | 0 | 0 | Add tasks to tasks.md |
+| dashboard | ✓ | ✓ | ✓ | 5 | 0 | Complete |
+
 ### Issue Hierarchy
 - **Waves/Phases in Progress:** {list with status}
 - **Blocked Issues:** {count} (waiting on parent completion)
@@ -259,10 +342,13 @@ Present findings as:
 
 ### Worktree Status
 
-| Directory | Branch | Issue | Status | Session |
-|-----------|--------|-------|--------|---------|
-| {path} | issue-{N}-desc | #{N} | Uncommitted changes | session-abc (active) |
-| {path} | issue-{M}-desc | #{M} | Clean | - |
+| Directory | Branch | Issue | Spec Feature | Status | Session |
+|-----------|--------|-------|--------------|--------|---------|
+| {path} | issue-{N}-desc | #{N} | user-auth | Uncommitted changes | session-abc (active) |
+| {path} | issue-{M}-desc | #{M} | api-refactor | Clean | - |
+| {path} | issue-{K}-desc | #{K} | - | Clean | - |
+
+*Spec Feature column shows the linked feature from `.specify/specs/` if the issue was created via `/spec:sync`*
 
 ### Active Coordination
 
@@ -299,6 +385,8 @@ After presenting recommendations, offer:
 3. **Create New Issue** - Document discovered work
 4. **Clean Up** - Remove stale worktrees/branches
 5. **Refresh** - Re-scan for updates
+6. **Sync Pending Specs** - Run `/spec:sync {feature}` for features with pending waves (if .specify/ exists)
+7. **View Spec Status** - Run `/spec:status` for detailed spec alignment (if .specify/ exists)
 
 ---
 
