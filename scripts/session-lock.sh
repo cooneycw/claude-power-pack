@@ -42,6 +42,59 @@ DEFAULT_TIMEOUT=300
 STALE_THRESHOLD=300        # 5 minutes - locks should be released if holder is inactive
 MAX_WAIT_SECONDS=120
 
+# Parameter bounds
+MIN_TIMEOUT=1
+MAX_TIMEOUT=86400          # 24 hours maximum
+MIN_WAIT=1
+MAX_WAIT=3600              # 1 hour maximum wait
+
+# Validate timeout parameter (returns 0 if valid, 1 if invalid)
+validate_timeout() {
+    local value="$1"
+    local param_name="${2:-timeout}"
+
+    # Check if numeric
+    if ! [[ "$value" =~ ^[0-9]+$ ]]; then
+        log ERROR "Invalid $param_name: '$value' is not a positive integer"
+        return 1
+    fi
+
+    # Check bounds
+    if [[ "$value" -lt "$MIN_TIMEOUT" ]]; then
+        log ERROR "Invalid $param_name: $value is below minimum ($MIN_TIMEOUT seconds)"
+        return 1
+    fi
+
+    if [[ "$value" -gt "$MAX_TIMEOUT" ]]; then
+        log ERROR "Invalid $param_name: $value exceeds maximum ($MAX_TIMEOUT seconds / 24 hours)"
+        return 1
+    fi
+
+    return 0
+}
+
+# Validate wait parameter
+validate_wait() {
+    local value="$1"
+
+    if ! [[ "$value" =~ ^[0-9]+$ ]]; then
+        log ERROR "Invalid wait time: '$value' is not a positive integer"
+        return 1
+    fi
+
+    if [[ "$value" -lt "$MIN_WAIT" ]]; then
+        log ERROR "Invalid wait time: $value is below minimum ($MIN_WAIT seconds)"
+        return 1
+    fi
+
+    if [[ "$value" -gt "$MAX_WAIT" ]]; then
+        log ERROR "Invalid wait time: $value exceeds maximum ($MAX_WAIT seconds / 1 hour)"
+        return 1
+    fi
+
+    return 0
+}
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -481,30 +534,34 @@ main() {
 
     case "$cmd" in
         acquire)
-            [[ -n "${1:-}" ]] || { log ERROR "Lock name required"; exit 2; }
-            acquire_lock "$1" "${2:-$DEFAULT_TIMEOUT}"
+            [[ -n "${1:-}" ]] || { log ERROR "Lock name required. Usage: session-lock.sh acquire LOCK_NAME [TIMEOUT]"; exit 2; }
+            local timeout_val="${2:-$DEFAULT_TIMEOUT}"
+            validate_timeout "$timeout_val" "timeout" || exit 2
+            acquire_lock "$1" "$timeout_val"
             ;;
         release)
-            [[ -n "${1:-}" ]] || { log ERROR "Lock name required"; exit 2; }
+            [[ -n "${1:-}" ]] || { log ERROR "Lock name required. Usage: session-lock.sh release LOCK_NAME"; exit 2; }
             release_lock "$1"
             ;;
         check)
-            [[ -n "${1:-}" ]] || { log ERROR "Lock name required"; exit 2; }
+            [[ -n "${1:-}" ]] || { log ERROR "Lock name required. Usage: session-lock.sh check LOCK_NAME"; exit 2; }
             check_lock "$1"
             ;;
         wait)
-            [[ -n "${1:-}" ]] || { log ERROR "Lock name required"; exit 2; }
-            wait_for_lock "$1" "${2:-$MAX_WAIT_SECONDS}"
+            [[ -n "${1:-}" ]] || { log ERROR "Lock name required. Usage: session-lock.sh wait LOCK_NAME [TIMEOUT]"; exit 2; }
+            local wait_val="${2:-$MAX_WAIT_SECONDS}"
+            validate_wait "$wait_val" || exit 2
+            wait_for_lock "$1" "$wait_val"
             ;;
         list)
             list_locks
             ;;
         info)
-            [[ -n "${1:-}" ]] || { log ERROR "Lock name required"; exit 2; }
+            [[ -n "${1:-}" ]] || { log ERROR "Lock name required. Usage: session-lock.sh info LOCK_NAME"; exit 2; }
             show_lock_info "$1"
             ;;
         force-release)
-            [[ -n "${1:-}" ]] || { log ERROR "Lock name required"; exit 2; }
+            [[ -n "${1:-}" ]] || { log ERROR "Lock name required. Usage: session-lock.sh force-release LOCK_NAME"; exit 2; }
             force_release_lock "$1"
             ;;
         status)
