@@ -38,7 +38,9 @@ claude-power-pack/
 ├── mcp-second-opinion/                         # MCP Second Opinion server
 │   └── src/server.py                           # 12 tools
 ├── mcp-playwright-persistent/                  # MCP Playwright server
-│   └── src/server.py                           # 20+ tools (browser automation)
+│   ├── src/server.py                           # 29 tools (browser automation)
+│   ├── deploy/                                 # systemd, docker configs
+│   └── README.md                               # Full documentation
 ├── mcp-coordination/                           # MCP Coordination server
 │   └── src/server.py                           # 8 tools (Redis locking)
 ├── lib/secrets/                                # NEW: Secrets management
@@ -85,6 +87,28 @@ To preserve context, documentation is NOT auto-loaded. Use these commands when n
 - `/load-best-practices` - Load full community wisdom
 - `/load-mcp-docs` - Load MCP server documentation
 - Or trigger the `best-practices` skill with relevant keywords
+
+## Using Commands/Skills in Other Projects
+
+Commands and skills must be installed in your **project's** `.claude` directory (where Claude Code starts), NOT the user home `~/.claude` directory.
+
+**Option 1 - Symlink to project (recommended):**
+```bash
+# In your project directory
+mkdir -p .claude
+ln -s /path/to/claude-power-pack/.claude/commands .claude/commands
+ln -s /path/to/claude-power-pack/.claude/skills .claude/skills
+```
+
+**Option 2 - Symlink to parent directory (covers multiple projects):**
+```bash
+# In ~/Projects/.claude to cover all projects under ~/Projects
+mkdir -p ~/Projects/.claude
+ln -s /path/to/claude-power-pack/.claude/commands ~/Projects/.claude/commands
+ln -s /path/to/claude-power-pack/.claude/skills ~/Projects/.claude/skills
+```
+
+**Note:** User scripts (like `prompt-context.sh`, `session-*.sh`) go in `~/.claude/scripts/` because they're shell utilities, not Claude Code commands.
 
 ## GitHub Issue Management
 
@@ -318,6 +342,70 @@ Use coordination MCP: release_lock("pytest")
 
 See `mcp-coordination/README.md` for detailed documentation.
 
+## MCP Playwright Persistent
+
+Persistent browser automation with session management for testing and web interaction.
+
+### Features
+
+- **Persistent Sessions**: Browser sessions survive across tool calls
+- **Multi-Tab Support**: Open, switch, and manage multiple tabs
+- **Full Automation**: Click, type, fill, select, hover, screenshot
+- **Headless/Headed**: Run with or without visible browser
+- **PDF Generation**: Export pages to PDF (headless only)
+
+### Setup
+
+```bash
+# Create conda environment
+cd mcp-playwright-persistent
+conda env create -f environment.yml
+conda activate mcp-playwright
+
+# Install Playwright browsers
+playwright install chromium
+
+# Start server
+./start-server.sh
+```
+
+### Add to Claude Code
+
+```bash
+claude mcp add playwright-persistent --transport sse --url http://127.0.0.1:8081/sse
+```
+
+### MCP Tools (29 total)
+
+| Category | Tools |
+|----------|-------|
+| **Session** | `create_session`, `close_session`, `list_sessions`, `get_session_info`, `cleanup_idle_sessions` |
+| **Navigation** | `browser_navigate`, `browser_click`, `browser_type`, `browser_fill`, `browser_select_option`, `browser_hover` |
+| **Tabs** | `browser_new_tab`, `browser_switch_tab`, `browser_close_tab`, `browser_go_back`, `browser_go_forward`, `browser_reload` |
+| **Capture** | `browser_screenshot`, `browser_snapshot`, `browser_pdf`, `browser_get_content`, `browser_get_text` |
+| **Evaluation** | `browser_evaluate`, `browser_wait_for`, `browser_wait_for_navigation`, `browser_console_messages` |
+| **Query** | `browser_get_attribute`, `browser_query_selector_all` |
+| **Health** | `health_check` |
+
+### Usage Example
+
+```python
+# Create a session
+session = create_session(headless=True)
+
+# Navigate and interact
+browser_navigate(session["session_id"], "https://example.com")
+browser_click(session["session_id"], "button#submit")
+
+# Take screenshot
+screenshot = browser_screenshot(session["session_id"], full_page=True)
+
+# Close when done
+close_session(session["session_id"])
+```
+
+See `mcp-playwright-persistent/README.md` for detailed documentation.
+
 ## Secrets Management
 
 Secure credential access with provider abstraction and output masking.
@@ -405,5 +493,5 @@ echo "my-project-env" > .conda-env
 
 ## Version
 
-Current version: 2.2.0
-Previous: 2.1.0 (Shell prompt context)
+Current version: 2.3.0
+Previous: 2.2.0 (MCP Coordination Server)
