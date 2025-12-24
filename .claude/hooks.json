@@ -21,11 +21,6 @@
         "hooks": [
           {
             "type": "command",
-            "command": "~/.claude/scripts/terminal-label.sh restore 2>/dev/null || true",
-            "timeout": 1000
-          },
-          {
-            "type": "command",
             "command": "~/.claude/scripts/session-heartbeat.sh touch 2>/dev/null || true",
             "timeout": 500
           }
@@ -35,11 +30,6 @@
     "Stop": [
       {
         "hooks": [
-          {
-            "type": "command",
-            "command": "~/.claude/scripts/terminal-label.sh await 2>/dev/null || true",
-            "timeout": 1000
-          },
           {
             "type": "command",
             "command": "~/.claude/scripts/session-register.sh pause 2>/dev/null || true",

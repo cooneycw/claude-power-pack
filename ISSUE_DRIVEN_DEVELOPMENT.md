@@ -10,7 +10,7 @@ Issue-Driven Development (IDD) is a workflow pattern that emerged from managing 
 
 - **Hierarchical Issue Structure** - Phases, Waves, and Micro-issues
 - **Git Worktrees** - Parallel development without branch switching
-- **Terminal Labeling** - Visual context for multiple sessions
+- **Shell Prompt Context** - Visual context for current worktree
 - **Structured Commit Patterns** - Traceable, closeable commits
 
 This guide documents the methodology as practiced in real-world projects with 100+ issues.
@@ -23,7 +23,7 @@ This guide documents the methodology as practiced in real-world projects with 10
 2. [Issue Hierarchy](#issue-hierarchy)
 3. [Micro-Issue Anatomy](#micro-issue-anatomy)
 4. [Git Worktree Workflow](#git-worktree-workflow)
-5. [Terminal Labeling](#terminal-labeling)
+5. [Shell Prompt Context](#shell-prompt-context)
 6. [Commit Conventions](#commit-conventions)
 7. [Multi-Agent Coordination](#multi-agent-coordination)
    - [Session Coordination](#session-coordination)
@@ -268,102 +268,61 @@ git worktree prune
 
 ---
 
-## Terminal Labeling
+## Shell Prompt Context
 
-### Why Terminal Labels Matter
+### Why Prompt Context Matters
 
-When running multiple Claude Code sessions (especially with tmux or across worktrees), knowing which session handles which task is critical.
+When running multiple Claude Code sessions across worktrees, knowing which issue you're working on is critical. Shell prompt integration provides always-visible context.
 
 ### Setup
 
-**Install the terminal-label script:**
+**Install and configure the prompt-context script:**
+
+Add to `~/.bashrc`:
 ```bash
+# Symlink the script
 mkdir -p ~/.claude/scripts
-ln -sf /path/to/claude-power-pack/scripts/terminal-label.sh ~/.claude/scripts/
+ln -sf ~/Projects/claude-power-pack/scripts/prompt-context.sh ~/.claude/scripts/
+
+# Add to PS1
+export PS1='$(~/.claude/scripts/prompt-context.sh)\w $ '
 ```
 
-**Set project prefix:**
-```bash
-~/.claude/scripts/terminal-label.sh prefix "MyProject"
+For Zsh (`~/.zshrc`):
+```zsh
+precmd() { PS1="$(~/.claude/scripts/prompt-context.sh)%~ %% " }
 ```
 
-### Commands
+### How It Works
 
-| Command | Description | Example |
-|---------|-------------|---------|
-| `terminal-label.sh set "Label"` | Set custom label | `terminal-label.sh set "Feature: Auth"` |
-| `terminal-label.sh issue [PREFIX] NUM [TITLE]` | Set issue label | `terminal-label.sh issue 42 "Bug Fix"` |
-| `terminal-label.sh project [PREFIX]` | Set project selection mode | `terminal-label.sh project NHL` |
-| `terminal-label.sh await` | Set awaiting mode | (via hook) |
-| `terminal-label.sh restore` | Restore saved label | (via hook) |
-| `terminal-label.sh status` | Show configuration | Debug info |
+The script automatically detects:
+1. **Project prefix** from `.claude-prefix` file or derives from repo name
+2. **Issue number** from branch name (pattern: `issue-{N}-*`)
 
-### Hook Integration
-
-Add to your `.claude/hooks.json`:
-```json
-{
-  "hooks": {
-    "SessionStart": [
-      {
-        "type": "command",
-        "command": "~/.claude/scripts/session-register.sh start 2>/dev/null || true",
-        "timeout": 5000
-      }
-    ],
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "~/.claude/scripts/terminal-label.sh restore 2>/dev/null || true",
-            "timeout": 1000
-          },
-          {
-            "type": "command",
-            "command": "~/.claude/scripts/session-heartbeat.sh touch 2>/dev/null || true",
-            "timeout": 500
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "~/.claude/scripts/terminal-label.sh await 2>/dev/null || true",
-            "timeout": 1000
-          },
-          {
-            "type": "command",
-            "command": "~/.claude/scripts/session-register.sh pause 2>/dev/null || true",
-            "timeout": 1000
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-### Workflow Example
+### Example
 
 ```bash
-# Terminal 1: Working on Issue #42
-terminal-label.sh issue 42 "Auth Flow"
-# Shows: "Issue #42: Auth Flow"
+# In worktree on branch issue-42-auth-flow
+[NHL #42] ~/Projects/nhl-api-issue-42 $
 
-# Terminal 2: Working on Issue #57
-terminal-label.sh issue 57 "API Refactor"
-# Shows: "Issue #57: API Refactor"
+# In main repo on main branch
+[NHL] ~/Projects/nhl-api $
 
-# When Claude finishes responding:
-# Shows: "Claude: Awaiting Input..."
-
-# When you type next prompt:
-# Shows: "Issue #42: Auth Flow" (restored)
+# Not in a git repo
+~/Downloads $
 ```
+
+### Customization
+
+Create `.claude-prefix` in project root to set custom prefix:
+```bash
+echo "NHL" > .claude-prefix
+```
+
+Otherwise, prefix is derived from repo name:
+- `nhl-api` → `NHL`
+- `claude-power-pack` → `CPP`
+- `my-django-app` → `MDA`
 
 ---
 
@@ -466,7 +425,7 @@ Main Repo (planning)          Worktree 1 (issue-42)       Worktree 2 (issue-57)
 
 1. **Write issues before starting sessions** - All context upfront
 2. **Use `/project-next` to identify parallel work** - Find non-blocking issues
-3. **Label terminals with issue numbers** - Avoid confusion
+3. **Use prompt context** - Visual confirmation of current worktree/issue
 4. **Don't share worktrees between sessions** - One session per worktree
 
 ### Session Coordination
@@ -506,7 +465,7 @@ With multiple sessions running on the same repository, conflicts can occur:
 4. **Auto-Release** - Dead session locks are automatically released
 
 **Hooks Integration:**
-- `SessionStart` → Registers session, sets terminal label
+- `SessionStart` → Registers session
 - `UserPromptSubmit` → Updates heartbeat timestamp
 - `Stop` → Marks session as paused
 
@@ -527,9 +486,10 @@ git worktree add -b issue-123-player-landing ../my-api-issue-123
 cd ../my-api-issue-123
 ```
 
-**Step 2: Set Terminal Label**
+**Step 2: Verify Prompt Context**
+Your shell prompt should now show:
 ```bash
-terminal-label.sh issue 123 "Player Landing"
+[MAP #123] ~/Projects/my-api-issue-123 $
 ```
 
 **Step 3: Start Claude Code Session**
@@ -602,10 +562,9 @@ git pull
 ### Workflow
 
 1. **Don't start Claude from worktrees** - Start from main repo
-2. **Label terminals immediately** - Prevent confusion
-3. **Close issues via commits** - Automatic tracking
-4. **Clean up worktrees promptly** - Avoid stale branches
-5. **Use `/project-next`** - Get prioritized recommendations
+2. **Close issues via commits** - Automatic tracking
+3. **Clean up worktrees promptly** - Avoid stale branches
+4. **Use `/project-next`** - Get prioritized recommendations
 
 ---
 
@@ -636,12 +595,9 @@ git worktree list                                   # List all
 cd /path/to/main-repo && git worktree remove ../repo-issue-N  # Remove (cd first!)
 git worktree prune                                 # Clean stale
 
-# Terminal Labels
-terminal-label.sh issue N "Title"                  # Set issue label
-terminal-label.sh project MyApp                    # Set project label
-terminal-label.sh await                            # Awaiting mode
-terminal-label.sh restore                          # Restore saved
-terminal-label.sh status                           # Show config
+# Shell Prompt Context (automatic - no commands needed)
+# Prompt shows: [PREFIX #N] when on issue-N-* branch
+# Customize prefix: echo "NHL" > .claude-prefix
 
 # GitHub CLI
 gh issue list --state open                         # List issues

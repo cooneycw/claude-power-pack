@@ -1,6 +1,6 @@
 ---
 description: Scan GitHub issues and worktree to recommend prioritized next steps (generic)
-allowed-tools: Bash(gh issue list:*), Bash(gh issue view:*), Bash(gh repo view:*), Bash(git worktree:*), Bash(git worktree list:*), Bash(git status:*), Bash(git branch:*), Bash(git log:*), Bash(tree:*), Bash(ls:*), Bash(printf:*), Bash(grep:*), Bash(tmux rename-window:*), Bash(*terminal-label.sh:*), Bash(*session-register.sh:*), Bash(*claim-issue.sh:*)
+allowed-tools: Bash(gh issue list:*), Bash(gh issue view:*), Bash(gh repo view:*), Bash(git worktree:*), Bash(git worktree list:*), Bash(git status:*), Bash(git branch:*), Bash(git log:*), Bash(tree:*), Bash(ls:*), Bash(printf:*), Bash(grep:*), Bash(tmux rename-window:*), Bash(*session-register.sh:*), Bash(*claim-issue.sh:*)
 ---
 
 # Project Next Steps Recommendation
@@ -290,20 +290,7 @@ Present findings as:
 
 ---
 
-## Step 8: Set Terminal Label
-
-Before presenting follow-up options, set the terminal label:
-
-```bash
-# Set terminal to project selection mode
-~/.claude/scripts/terminal-label.sh project "{PREFIX}"
-```
-
-Replace `{PREFIX}` with the detected project prefix.
-
----
-
-## Step 9: Present Follow-up Options
+## Step 8: Present Follow-up Options
 
 After presenting recommendations, offer:
 
@@ -315,11 +302,11 @@ After presenting recommendations, offer:
 
 ---
 
-## Step 10: Handle User Selection
+## Step 9: Handle User Selection
 
 When the user selects an issue to work on, follow this sequence:
 
-### 10.1 Check Availability
+### 9.1 Check Availability
 
 ```bash
 # Verify issue is still available (may have been claimed since analysis)
@@ -328,7 +315,7 @@ When the user selects an issue to work on, follow this sequence:
 
 If claimed, inform user and suggest alternatives.
 
-### 10.2 Claim the Issue
+### 9.2 Claim the Issue
 
 ```bash
 # Get repo info for claim
@@ -338,14 +325,7 @@ REPO_INFO=$(gh repo view --json owner,name --jq '"\(.owner.login)/\(.name)"')
 ~/.claude/scripts/session-register.sh claim "$REPO_INFO" {NUMBER} "{Title}"
 ```
 
-### 10.3 Set Terminal Label
-
-```bash
-# Set terminal label to reflect active issue
-~/.claude/scripts/terminal-label.sh issue "{PREFIX}" {NUMBER} "{Short Title}"
-```
-
-### 10.4 Create Worktree (if needed)
+### 9.3 Create Worktree (if needed)
 
 If the issue doesn't have an existing worktree:
 
@@ -354,12 +334,12 @@ If the issue doesn't have an existing worktree:
 git worktree add -b issue-{N}-{description} ../{repo}-issue-{N}
 ```
 
-### 10.5 Confirmation
+### 9.4 Confirmation
 
 Report to user:
 - Issue #{N} claimed by this session
-- Terminal label set
 - Worktree created (if applicable)
+- Shell prompt will show `[PREFIX #N]` when in worktree
 - Ready to begin work
 
 ---
@@ -371,7 +351,7 @@ If the repository doesn't use worktrees (only main worktree detected):
 1. Skip worktree analysis sections
 2. Focus on branch-to-issue mapping
 3. Suggest worktree setup for complex projects:
-   > "Consider using git worktrees for parallel issue development. See ISSUE_DRIVEN_DEVELOPMENT.md for guidance."
+   > "Consider using git worktrees for parallel issue development. See `ISSUE_DRIVEN_DEVELOPMENT.md` for guidance."
 
 ---
 
@@ -384,7 +364,7 @@ Projects can optionally add this configuration block to their CLAUDE.md:
 
 | Setting | Value | Description |
 |---------|-------|-------------|
-| **Terminal Prefix** | NHL | Short prefix for terminal labels |
+| **Prompt Prefix** | NHL | Short prefix for shell prompt context |
 | **Issue Pattern** | wave | Hierarchy style: wave, epic, parent-child, flat |
 | **Priority Labels** | critical, urgent | Labels indicating critical priority |
 ```

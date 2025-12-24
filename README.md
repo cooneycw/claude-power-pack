@@ -12,7 +12,7 @@ A comprehensive repository combining:
 
 - [Claude Best Practices](#claude-best-practices) - Community insights & tips
 - [Token-Efficient Tool Organization](#-token-efficient-tool-organization) - Progressive disclosure
-- [Terminal Labeling](#-terminal-labeling) - Visual session management
+- [Shell Prompt Context](#-shell-prompt-context) - Visual session management
 - [Issue-Driven Development](#-issue-driven-development) - Micro-issue methodology
 - [Session Coordination](#-session-coordination) - **NEW v1.9:** Multi-session conflict prevention
 - [Project Commands](#-project-commands) - **NEW v1.8:** `/project-lite` & `/project-next`
@@ -105,50 +105,44 @@ A comprehensive collection of Claude Code best practices compiled from the r/Cla
 - **`MCP_TOKEN_AUDIT_CHECKLIST.md`** - Practical optimization checklist
 - **Context-Efficient Architecture** section in main best practices doc
 
-## 🏷️ Terminal Labeling
+## 🏷️ Shell Prompt Context
 
-**New in v1.7.0:** Visual feedback for multi-session Claude Code workflows.
+**Updated in v2.1.0:** Always-visible worktree context in your shell prompt.
 
 ### Why It Matters
 
-When running multiple Claude Code sessions (with tmux or worktrees), terminal labels show:
-- Which issue/task each terminal handles
-- When Claude is working vs. awaiting input
-- Quick session identification
+When running multiple Claude Code sessions across worktrees, your shell prompt shows:
+- Which project you're in
+- Which issue or wave you're working on
+- Automatic detection from branch name
 
 ### Quick Setup
 
+Add to `~/.bashrc`:
 ```bash
-# Install terminal-label script
 mkdir -p ~/.claude/scripts
-ln -sf /path/to/claude-power-pack/scripts/terminal-label.sh ~/.claude/scripts/
-chmod +x ~/.claude/scripts/terminal-label.sh
-
-# Set your project prefix
-~/.claude/scripts/terminal-label.sh prefix "MyProject"
+ln -sf ~/Projects/claude-power-pack/scripts/prompt-context.sh ~/.claude/scripts/
+export PS1='$(~/.claude/scripts/prompt-context.sh)\w $ '
 ```
 
-### Commands
+### Supported Branch Patterns
 
-| Command | Description |
-|---------|-------------|
-| `terminal-label.sh issue [PREFIX] NUM [TITLE]` | Set issue label |
-| `terminal-label.sh project [PREFIX]` | Set project selection mode |
-| `terminal-label.sh await` | Set awaiting mode (via hook) |
-| `terminal-label.sh restore` | Restore saved label (via hook) |
-| `terminal-label.sh status` | Show configuration |
+| Branch Pattern | Prompt Shows |
+|----------------|--------------|
+| `issue-42-auth` | `[CPP #42]` |
+| `wave-5c.1-feature` | `[CPP W5c.1]` |
+| `wave-5c-1-feature` | `[CPP W5c.1]` |
+| `wave-3-cleanup` | `[CPP W3]` |
+| `main` | `[CPP]` |
 
-### Example
+### Customization
 
+Create `.claude-prefix` in project root to set custom prefix:
 ```bash
-# Working on issue #42
-terminal-label.sh issue 42 "Fix Auth Bug"
-# Terminal shows: "Issue #42: Fix Auth Bug"
-
-# With custom prefix
-terminal-label.sh issue NHL 123 "Player API"
-# Terminal shows: "NHL #123: Player API"
+echo "NHL" > .claude-prefix
 ```
+
+Otherwise, prefix is derived from repo name (e.g., `claude-power-pack` → `CPP`).
 
 ## 📋 Issue-Driven Development
 
@@ -159,7 +153,7 @@ terminal-label.sh issue NHL 123 "Player API"
 Issue-Driven Development (IDD) combines:
 - **Hierarchical Issues** - Phases → Waves → Micro-issues
 - **Git Worktrees** - Parallel development without branch switching
-- **Terminal Labeling** - Visual context for multiple sessions
+- **Shell Prompt Context** - Visual context for current worktree
 - **Structured Commits** - Traceable via "Closes #N"
 
 ### Quick Start
@@ -170,9 +164,9 @@ Issue-Driven Development (IDD) combines:
    git worktree add -b issue-42-feature ../myrepo-issue-42
    cd ../myrepo-issue-42
    ```
-3. **Label your terminal** with the issue number:
+3. **Your shell prompt** now shows the context automatically:
    ```bash
-   ~/.claude/scripts/terminal-label.sh issue 42 "Feature Name"
+   [CPP #42] ~/Projects/myrepo-issue-42 $
    ```
 4. **Implement and commit** with issue reference:
    ```bash
@@ -763,7 +757,7 @@ claude-power-pack/
 ├── PROGRESSIVE_DISCLOSURE_GUIDE.md            # Context optimization
 ├── MCP_TOKEN_AUDIT_CHECKLIST.md               # Token efficiency checklist
 ├── scripts/                                    # Utility scripts
-│   ├── terminal-label.sh                      # Terminal labeling
+│   ├── prompt-context.sh                      # Shell prompt context
 │   ├── session-lock.sh                        # Lock coordination
 │   ├── session-register.sh                    # Session lifecycle
 │   ├── session-heartbeat.sh                   # Heartbeat daemon

@@ -16,7 +16,7 @@
 6. [MCP Best Practices](#mcp-best-practices)
 7. [Context-Efficient Tool Architecture](#context-efficient-tool-architecture)
 8. [Hooks & Automation](#hooks--automation)
-9. [Terminal Labeling & Visual Feedback](#terminal-labeling--visual-feedback)
+9. [Shell Prompt Context](#shell-prompt-context)
 10. [Issue-Driven Development](#issue-driven-development)
 11. [Session Management](#session-management)
 12. [Plan Mode](#plan-mode)
@@ -444,84 +444,58 @@ This is how Anthropic's Skills system works internally.
 
 ---
 
-## Terminal Labeling & Visual Feedback
+## Shell Prompt Context
 
-### Why Terminal Labels Matter
+### Why Prompt Context Matters
 
-When running multiple Claude Code sessions (especially with tmux or worktrees), knowing which session handles which task becomes critical. Terminal labels provide:
-
-1. **Visual Context** - Instantly see which issue/task each terminal handles
-2. **State Awareness** - Know when Claude is working vs. awaiting input
-3. **Session Management** - Quickly identify sessions to close/resume
+When running multiple Claude Code sessions across worktrees, knowing which issue you're working on is critical. Shell prompt integration provides always-visible context directly in your prompt.
 
 ### Setup
 
-**User-level installation** (recommended for all projects):
+Add to `~/.bashrc`:
 ```bash
+# Symlink the script
 mkdir -p ~/.claude/scripts
-ln -sf /path/to/claude-power-pack/scripts/terminal-label.sh ~/.claude/scripts/
-chmod +x ~/.claude/scripts/terminal-label.sh
+ln -sf ~/Projects/claude-power-pack/scripts/prompt-context.sh ~/.claude/scripts/
+
+# Add to PS1
+export PS1='$(~/.claude/scripts/prompt-context.sh)\w $ '
 ```
 
-**Project-level configuration** (in your project's `.claude/` directory):
-```bash
-# .claude/.terminal-label-config
-DEFAULT_PREFIX="YourProject"
+For Zsh (`~/.zshrc`):
+```zsh
+precmd() { PS1="$(~/.claude/scripts/prompt-context.sh)%~ %% " }
 ```
 
-### Commands
+### How It Works
 
-| Command | Description | Example |
-|---------|-------------|---------|
-| `terminal-label.sh set "Label"` | Set custom label | `terminal-label.sh set "Feature: Auth"` |
-| `terminal-label.sh issue [PREFIX] NUM [TITLE]` | Set issue label | `terminal-label.sh issue 42 "Bug Fix"` |
-| `terminal-label.sh project [PREFIX]` | Set project mode | `terminal-label.sh project NHL` |
-| `terminal-label.sh await` | Set awaiting mode | (typically via hook) |
-| `terminal-label.sh restore` | Restore saved label | (typically via hook) |
+The script automatically detects:
+1. **Project prefix** from `.claude-prefix` file or derived from repo name
+2. **Issue number** from branch name (pattern: `issue-{N}-*`)
 
-### Hook Integration
-
-Add to your `.claude/hooks.json`:
-
-```json
-{
-  "hooks": {
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "~/.claude/scripts/terminal-label.sh restore 2>/dev/null || true",
-            "timeout": 1000
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "~/.claude/scripts/terminal-label.sh await 2>/dev/null || true",
-            "timeout": 1000
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-### Workflow Example
+### Example
 
 ```bash
-# Start working on issue #42
-terminal-label.sh issue MyProject 42 "Implement OAuth"
-# Terminal shows: "MyProject #42: Implement OAuth"
+# In worktree on branch issue-42-auth-flow
+[NHL #42] ~/Projects/nhl-api-issue-42 $
 
-# When Claude finishes, hook sets: "Claude: Awaiting Input..."
-# When you type next prompt, hook restores: "MyProject #42: Implement OAuth"
+# In main repo on main branch
+[NHL] ~/Projects/nhl-api $
+
+# Not in a git repo (no output)
+~/Downloads $
 ```
+
+### Customization
+
+Create `.claude-prefix` in project root:
+```bash
+echo "NHL" > .claude-prefix
+```
+
+Otherwise, prefix is derived from repo name:
+- `nhl-api` → `NHL`
+- `claude-power-pack` → `CPP`
 
 ---
 

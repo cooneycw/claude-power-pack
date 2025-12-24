@@ -38,7 +38,7 @@ claude-power-pack/
 │   ├── permissions.py                          # Access control model
 │   └── providers/                              # AWS, env providers
 ├── scripts/
-│   ├── terminal-label.sh                       # Terminal labeling
+│   ├── prompt-context.sh                       # Shell prompt context
 │   ├── session-lock.sh                         # Lock coordination
 │   ├── session-register.sh                     # Session lifecycle
 │   ├── session-heartbeat.sh                    # Heartbeat daemon
@@ -62,7 +62,7 @@ claude-power-pack/
 │   ├── skills/
 │   │   ├── best-practices.md                   # On-demand best practices
 │   │   └── secrets.md                          # NEW: Secrets skill
-│   └── hooks.json                              # Session/label/conda hooks
+│   └── hooks.json                              # Session/conda hooks
 ├── .github/
 │   └── ISSUE_TEMPLATE/                         # Structured issue templates
 └── README.md                                    # Quick start guide
@@ -88,21 +88,39 @@ Commands:
 - `/github:issue-update` - Update existing issues
 - `/github:issue-close` - Close issues with optional comment
 
-## Terminal Labeling
+## Worktree Context in Shell Prompt
 
-Visual feedback for multi-session/multi-worktree workflows.
+Display current project and issue in your shell prompt for multi-worktree workflows.
 
-**Setup:**
+**Setup (add to `~/.bashrc`):**
 ```bash
-mkdir -p ~/.claude/scripts
-ln -sf /path/to/claude-power-pack/scripts/terminal-label.sh ~/.claude/scripts/
+# Claude Code worktree context
+ln -sf ~/Projects/claude-power-pack/scripts/prompt-context.sh ~/.claude/scripts/
+export PS1='$(~/.claude/scripts/prompt-context.sh)\w $ '
 ```
 
-**Commands:**
-- `terminal-label.sh issue PREFIX NUM [TITLE]` - Set issue-based label
-- `terminal-label.sh project PREFIX` - Set project selection mode
-- `terminal-label.sh await` - Show "Awaiting Input" (via Stop hook)
-- `terminal-label.sh restore` - Restore saved label (via UserPromptSubmit hook)
+**For Zsh (`~/.zshrc`):**
+```zsh
+precmd() { PS1="$(~/.claude/scripts/prompt-context.sh)%~ %% " }
+```
+
+**Result:**
+```bash
+# On issue branch (issue-42-auth)
+[CPP #42] ~/Projects/claude-power-pack-issue-42 $
+
+# On wave branch (wave-5c.1-feature or wave-5c-1-feature)
+[CPP W5c.1] ~/Projects/claude-power-pack $
+
+# On main branch
+[CPP] ~/Projects/claude-power-pack $
+```
+
+**Customization:**
+Create `.claude-prefix` in project root to set custom prefix:
+```bash
+echo "NHL" > .claude-prefix
+```
 
 See `ISSUE_DRIVEN_DEVELOPMENT.md` for integration with git worktrees.
 
@@ -164,7 +182,7 @@ Full orchestrator for GitHub issue prioritization:
 - Analyze open issues with hierarchy awareness (Wave/Phase patterns)
 - Map worktrees to issues for context-aware recommendations
 - Prioritize actions: Critical → In Progress → Ready → Quick Wins
-- Set terminal labels for the selected work
+- Recommend next issue to work on
 
 **Use when:** Unsure what to work on, need issue analysis, or want cleanup suggestions.
 

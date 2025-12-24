@@ -1,5 +1,34 @@
 # Changelog
 
+## [2.1.0] - 2025-12-24
+
+### Changed
+
+- **Replaced terminal labeling with shell prompt context** - More reliable approach:
+  - Removed `terminal-label.sh` (unreliable due to TTY detection issues)
+  - Added `prompt-context.sh` for PS1 integration
+  - Context is always visible in shell prompt, no escape sequences needed
+
+### Added
+
+- **`scripts/prompt-context.sh`** - Generate worktree context for shell prompt
+  - Auto-detects project prefix from `.claude-prefix` or repo name
+  - Supports issue branches: `issue-42-auth` → `[CPP #42]`
+  - Supports wave branches: `wave-5c.1-feature` → `[CPP W5c.1]`
+  - Works with Bash and Zsh
+
+### Removed
+
+- **`scripts/terminal-label.sh`** - Replaced by prompt-context.sh
+- Terminal label hooks from `.claude/hooks.json`
+
+### Updated
+
+- All documentation updated to reflect shell prompt approach
+- CLAUDE.md, README.md, ISSUE_DRIVEN_DEVELOPMENT.md, CLAUDE_CODE_BEST_PRACTICES.md
+
+---
+
 ## [1.9.2] - 2025-12-22
 
 ### Added
