@@ -33,38 +33,62 @@
 #   terminal-label.sh project NHL
 #   # Result: "NHL: Select Next Action..."
 
+# Debug logging - enable with TERMINAL_LABEL_DEBUG=1
+log_debug() {
+    if [[ "${TERMINAL_LABEL_DEBUG:-}" == "1" ]]; then
+        local log_dir="${LABELS_DIR:-$HOME/.claude/coordination/labels}"
+        mkdir -p "$log_dir" 2>/dev/null
+        printf '%s %s\n' "$(date -Iseconds)" "$*" >> "$log_dir/debug.log"
+    fi
+}
+
 # Terminal ID detection - uses stable identifiers that persist across subprocesses
-# Priority: CLAUDE_SESSION_ID > TMUX_PANE > TTY > TERM_SESSION_ID > fallback
+# Priority: CLAUDE_SESSION_ID > TMUX_PANE > TTY (via /dev/tty) > SID > TERM_SESSION_ID > fallback
 get_terminal_id() {
     # 1. Explicit session ID (set by Claude Code or hooks)
     if [[ -n "${CLAUDE_SESSION_ID:-}" ]]; then
+        log_debug "get_terminal_id: using CLAUDE_SESSION_ID=$CLAUDE_SESSION_ID"
         echo "$CLAUDE_SESSION_ID"
         return
     fi
 
     # 2. tmux pane - stable within a tmux session
     if [[ -n "${TMUX_PANE:-}" ]]; then
+        log_debug "get_terminal_id: using TMUX_PANE=$TMUX_PANE"
         echo "tmux-${TMUX_PANE//[^a-zA-Z0-9]/-}"
         return
     fi
 
     # 3. TTY device - stable across subprocesses in same terminal
-    # e.g., /dev/pts/3 -> pts-3
-    local tty_device
-    tty_device=$(tty 2>/dev/null | sed 's|/dev/||; s|/|-|g')
-    if [[ -n "$tty_device" && "$tty_device" != "not a tty" ]]; then
-        echo "tty-${tty_device}"
+    local tty_path
+    tty_path=$(tty 2>/dev/null) || tty_path=""
+    if [[ -n "$tty_path" && "$tty_path" != "not a tty" ]]; then
+        local tty_id="tty-${tty_path#/dev/}"
+        tty_id="${tty_id//\//-}"
+        log_debug "get_terminal_id: using TTY: $tty_id"
+        echo "$tty_id"
         return
     fi
 
-    # 4. macOS Terminal session ID
+    # 4. Session ID (SID) from process tree - more stable than PPID across subshells
+    local sid
+    sid=$(ps -o sid= -p "${PPID:-$$}" 2>/dev/null | tr -d ' ')
+    if [[ -n "$sid" && "$sid" != "0" ]]; then
+        log_debug "get_terminal_id: using SID=$sid"
+        echo "sid-$sid"
+        return
+    fi
+
+    # 5. macOS Terminal session ID
     if [[ -n "${TERM_SESSION_ID:-}" ]]; then
+        log_debug "get_terminal_id: using TERM_SESSION_ID"
         echo "term-${TERM_SESSION_ID:0:16}"
         return
     fi
 
-    # 5. Fallback - use parent PID which is more stable than $$
+    # 6. Fallback - use parent PID which is more stable than $$
     # PPID is the shell that spawned this script, usually the user's interactive shell
+    log_debug "get_terminal_id: fallback to PPID=${PPID:-$$}"
     echo "ppid-${PPID:-$$}"
 }
 
@@ -76,9 +100,9 @@ COORDINATION_DIR="${COORDINATION_DIR:-$HOME/.claude/coordination}"
 LABELS_DIR="$COORDINATION_DIR/labels"
 STATE_FILE="$LABELS_DIR/${TERMINAL_ID}.state"
 
-# Global override file for cross-terminal-ID set/restore coordination
-# Solves edge cases where terminal ID detection differs between set and restore calls
-OVERRIDE_FILE="$LABELS_DIR/.last-set-override"
+# Per-terminal override file for set/restore coordination
+# Each terminal gets its own override to prevent race conditions between terminals
+OVERRIDE_FILE="$LABELS_DIR/${TERMINAL_ID}.override"
 
 # Config files (shared across sessions)
 USER_CONFIG="${HOME}/.claude/.terminal-label-config"
@@ -126,12 +150,25 @@ get_prefix() {
 }
 
 # Function to set terminal title
+# Outputs directly to /dev/tty to ensure it reaches the terminal even in subprocesses
 set_title() {
     local title="$1"
-    # OSC escape sequence for terminal title
-    printf '\033]0;%s\007' "$title"
+    log_debug "set_title: setting title to '$title'"
+
+    # OSC escape sequence for terminal title - write directly to /dev/tty
+    # This ensures the escape sequence reaches the terminal even when stdout is piped
+    # Use a subshell to suppress errors when /dev/tty isn't accessible
+    if [ -c /dev/tty ]; then
+        (printf '\033]0;%s\007' "$title" > /dev/tty) 2>/dev/null || printf '\033]0;%s\007' "$title"
+    else
+        # Fallback to stdout if /dev/tty doesn't exist
+        printf '\033]0;%s\007' "$title"
+    fi
+
     # Also try tmux if available
-    tmux rename-window "$title" 2>/dev/null || true
+    if [[ -n "${TMUX:-}" ]]; then
+        tmux rename-window "$title" 2>/dev/null || true
+    fi
 }
 
 # Function to save current label to state file
@@ -205,7 +242,8 @@ cleanup_labels() {
         # Remove if heartbeat is stale (>5 minutes)
         if [[ -f "$heartbeat" ]]; then
             local last_beat age
-            last_beat=$(stat -c %Y "$heartbeat" 2>/dev/null || echo 0)
+            # Cross-platform: Linux uses -c %Y, macOS uses -f %m
+            last_beat=$(stat -c %Y "$heartbeat" 2>/dev/null || stat -f %m "$heartbeat" 2>/dev/null || echo 0)
             age=$(($(date +%s) - last_beat))
             if [[ $age -gt 300 ]]; then
                 rm -f "$state_file"
@@ -229,7 +267,8 @@ case "$1" in
         prefix=$(get_prefix)
         set_title "$label"
         save_label "$label" "$prefix"
-        # Write global override for cross-session-ID coordination
+        # Write per-terminal override for set/restore coordination
+        log_debug "set: writing override to $OVERRIDE_FILE"
         echo "$label" > "$OVERRIDE_FILE"
         ;;
 
@@ -239,13 +278,19 @@ case "$1" in
         ;;
 
     restore)
-        # Check for recent global override (within 5 seconds)
-        # Solves race condition when Bash subprocess uses different session ID
+        log_debug "restore: checking override file $OVERRIDE_FILE"
+        # Check for recent override (within 5 seconds)
+        # Solves race condition when TTY detection varies between set and restore calls
         if [[ -f "$OVERRIDE_FILE" ]]; then
-            override_age=$(($(date +%s) - $(stat -c %Y "$OVERRIDE_FILE" 2>/dev/null || echo 0)))
+            # Cross-platform: Linux uses -c %Y, macOS uses -f %m
+            local override_mtime
+            override_mtime=$(stat -c %Y "$OVERRIDE_FILE" 2>/dev/null || stat -f %m "$OVERRIDE_FILE" 2>/dev/null || echo 0)
+            override_age=$(($(date +%s) - override_mtime))
+            log_debug "restore: override age=${override_age}s"
             if [[ $override_age -lt 5 ]]; then
                 override_label=$(cat "$OVERRIDE_FILE" 2>/dev/null)
                 if [[ -n "$override_label" ]]; then
+                    log_debug "restore: using override label '$override_label'"
                     set_title "$override_label"
                     rm -f "$OVERRIDE_FILE"  # One-time use
                     exit 0
