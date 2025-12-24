@@ -105,6 +105,10 @@ claude-power-pack/
 │   └── hook-validate-command.sh                # PreToolUse: block dangerous commands
 ├── .claude/
 │   ├── commands/
+│   │   ├── cpp/                                # CPP initialization wizard
+│   │   │   ├── init.md                         # Interactive setup wizard
+│   │   │   ├── status.md                       # Check installation state
+│   │   │   └── help.md                         # Command overview
 │   │   ├── coordination/                       # Session coordination
 │   │   │   ├── pr-create.md                    # Coordinated PR creation
 │   │   │   └── merge-main.md                   # Coordinated merges
@@ -158,9 +162,27 @@ To preserve context, documentation is NOT auto-loaded. Use topic-specific skills
 - `/load-best-practices` - Load full guide (25K tokens)
 - `/load-mcp-docs` - Load MCP server documentation
 
-## Using Commands/Skills in Other Projects
+## Quick Start: /cpp:init
 
-Commands and skills must be installed in your **project's** `.claude` directory (where Claude Code starts), NOT the user home `~/.claude` directory.
+The easiest way to set up Claude Power Pack is with the interactive wizard:
+
+```bash
+/cpp:init
+```
+
+This guides you through a tiered installation:
+
+| Tier | What's Installed |
+|------|------------------|
+| **Minimal** | Commands + Skills symlinks |
+| **Standard** | + Scripts, hooks, shell prompt |
+| **Full** | + MCP servers (conda, API keys) |
+
+Run `/cpp:status` to check current installation, `/cpp:help` for all commands.
+
+## Manual Setup (Alternative)
+
+If you prefer manual setup, commands and skills must be installed in your **project's** `.claude` directory (where Claude Code starts), NOT the user home `~/.claude` directory.
 
 **Option 1 - Symlink to project (recommended):**
 ```bash
@@ -358,6 +380,26 @@ worktree-remove.sh /path/to/worktree --force --delete-branch
 - Works with relative or absolute paths
 
 **Why this matters:** If Claude Code's working directory is a worktree that gets removed, the shell session breaks completely and no bash commands can run.
+
+## CPP Commands
+
+Commands for managing Claude Power Pack installation:
+
+| Command | Purpose |
+|---------|---------|
+| `/cpp:init` | Interactive setup wizard (tiered installation) |
+| `/cpp:status` | Check current installation state |
+| `/cpp:help` | Overview of all CPP commands |
+
+### Installation Tiers
+
+| Tier | Name | What's Included |
+|------|------|-----------------|
+| 1 | Minimal | Commands + Skills symlinks |
+| 2 | Standard | + Scripts, hooks, shell prompt, coordination |
+| 3 | Full | + MCP servers (conda envs, API keys, systemd) |
+
+The wizard detects existing configuration and skips already-installed components (idempotent).
 
 ## Project Commands
 
@@ -719,5 +761,5 @@ echo "my-project-env" > .conda-env
 
 ## Version
 
-Current version: 2.7.0
-Previous: 2.6.0 (Spec bridge Python module)
+Current version: 2.8.0
+Previous: 2.7.0 (Full README documentation update)

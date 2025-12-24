@@ -1,5 +1,27 @@
 # Changelog
 
+## [2.8.0] - 2025-12-24
+
+### Added
+
+- **Full README Documentation Update** - Comprehensive update covering all features:
+  - **Quick Start: /cpp:init** - Promoted as main entry point with tiered installation
+  - **Spec-Driven Development** - Full `.specify/` workflow with `/spec:*` commands
+  - **MCP Playwright Persistent** - 29 browser automation tools (port 8081)
+  - **MCP Coordination Server** - Redis-backed distributed locking (port 8082)
+  - **Secrets Management** - `/secrets:*` commands with `lib/secrets/` Python module
+  - **Environment Commands** - `/env:detect` for conda environment detection
+  - **Security Hooks** - Secret masking and dangerous command blocking
+
+### Changed
+
+- Updated Quick Navigation to include all new sections
+- Reorganized MCP section with three servers (Second Opinion, Playwright, Coordination)
+- Updated Repository Structure tree to match CLAUDE.md
+- Condensed What's New section for clarity
+
+---
+
 ## [2.2.0] - 2025-12-24
 
 ### Added

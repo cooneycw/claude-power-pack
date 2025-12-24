@@ -10,18 +10,72 @@ A comprehensive repository combining:
 
 ## 🎯 Quick Navigation
 
+- [Quick Start: /cpp:init](#-quick-start-cppinit) - **START HERE** - Interactive setup wizard
 - [Claude Best Practices](#claude-best-practices) - Community insights & tips
 - [Token-Efficient Tool Organization](#-token-efficient-tool-organization) - Progressive disclosure
 - [Shell Prompt Context](#-shell-prompt-context) - Visual session management
 - [Issue-Driven Development](#-issue-driven-development) - Micro-issue methodology
-- [Session Coordination](#-session-coordination) - **NEW v1.9:** Multi-session conflict prevention
-- [Project Commands](#-project-commands) - **NEW v1.8:** `/project-lite` & `/project-next`
+- [Spec-Driven Development](#-spec-driven-development) - Specification workflow
+- [Session Coordination](#-session-coordination) - Multi-session conflict prevention
+- [Project Commands](#-project-commands) - `/project-lite` & `/project-next`
 - [GitHub Issue Management](#-github-issue-management) - Full CRUD for issues
-- [Session Initialization](#-session-initialization) - Auto-update checks
-- [On-Demand Documentation](#-on-demand-documentation) - Context optimization
-- [MCP Second Opinion](#mcp-second-opinion-server) - Multi-model code review
+- [Secrets Management](#-secrets-management) - Secure credential access
+- [Environment Commands](#-environment-commands) - Conda detection
+- [Security Hooks](#-security-hooks) - Secret masking & command validation
+- [MCP Servers](#mcp-servers)
+  - [MCP Second Opinion](#mcp-second-opinion-server) - Multi-model code review (port 8080)
+  - [MCP Playwright Persistent](#mcp-playwright-persistent-server) - Browser automation (port 8081)
+  - [MCP Coordination](#mcp-coordination-server) - Redis-backed locking (port 8082)
 - [Installation](#installation) - Get started quickly
 - [Disclosures & Legal](#-disclosures--legal) - Attribution & API terms
+
+---
+
+## 🚀 Quick Start: /cpp:init
+
+The easiest way to set up Claude Power Pack is with the interactive wizard:
+
+```bash
+/cpp:init
+```
+
+This guides you through a tiered installation:
+
+| Tier | Name | What's Installed |
+|------|------|------------------|
+| 1 | **Minimal** | Commands + Skills symlinks |
+| 2 | **Standard** | + Scripts, hooks, shell prompt, coordination |
+| 3 | **Full** | + MCP servers (conda envs, API keys, systemd) |
+
+### CPP Commands
+
+| Command | Purpose |
+|---------|---------|
+| `/cpp:init` | Interactive setup wizard (tiered installation) |
+| `/cpp:status` | Check current installation state |
+| `/cpp:help` | Overview of all CPP commands |
+
+The wizard detects existing configuration and skips already-installed components (idempotent).
+
+### Manual Setup (Alternative)
+
+If you prefer manual setup, commands and skills must be installed in your **project's** `.claude` directory:
+
+```bash
+# In your project directory
+mkdir -p .claude
+ln -s /path/to/claude-power-pack/.claude/commands .claude/commands
+ln -s /path/to/claude-power-pack/.claude/skills .claude/skills
+```
+
+Or in a parent directory to cover multiple projects:
+
+```bash
+# In ~/Projects/.claude to cover all projects under ~/Projects
+mkdir -p ~/Projects/.claude
+ln -s /path/to/claude-power-pack/.claude/commands ~/Projects/.claude/commands
+ln -s /path/to/claude-power-pack/.claude/skills ~/Projects/.claude/skills
+```
 
 ---
 
@@ -186,6 +240,77 @@ Issue-Driven Development (IDD) combines:
 | Worktree | `{repo}-issue-{N}` | `my-app-issue-123` |
 | Commit | `type(scope): Desc (Closes #N)` | `fix(auth): Resolve bug (Closes #123)` |
 
+## 📋 Spec-Driven Development
+
+Structured specification workflow based on [GitHub Spec Kit](https://github.com/github/spec-kit) (MIT License).
+
+### Workflow
+
+```
+Constitution (principles) → Spec (what) → Plan (how) → Tasks → Issues → Code
+```
+
+### Commands
+
+| Command | Description |
+|---------|-------------|
+| `/spec:help` | Overview of spec commands |
+| `/spec:init` | Initialize `.specify/` structure |
+| `/spec:create NAME` | Create new feature specification |
+| `/spec:sync [NAME]` | Sync tasks.md to GitHub issues |
+| `/spec:status` | Show spec/issue alignment |
+
+### Quick Start
+
+```bash
+# Initialize (once per project)
+/spec:init
+# Edit .specify/memory/constitution.md with your principles
+
+# Create feature spec
+/spec:create user-authentication
+# Edit spec.md, plan.md, tasks.md in .specify/specs/user-authentication/
+
+# Sync to GitHub issues
+/spec:sync user-authentication
+```
+
+### Directory Structure
+
+```
+.specify/
+├── memory/
+│   └── constitution.md    # Project principles
+├── specs/
+│   └── {feature}/
+│       ├── spec.md        # Requirements & user stories
+│       ├── plan.md        # Technical approach
+│       └── tasks.md       # Actionable items → Issues
+└── templates/             # Reusable templates
+```
+
+### Integration with IDD
+
+Spec commands integrate with Issue-Driven Development:
+- Each wave in tasks.md becomes a GitHub issue
+- Issues link back to spec files
+- `/project-next` shows spec status alongside issues
+
+### Python CLI (lib/spec_bridge)
+
+For programmatic or CLI usage:
+
+```bash
+# Add lib to PYTHONPATH
+export PYTHONPATH="$HOME/Projects/claude-power-pack/lib:$PYTHONPATH"
+
+# Show status of all specs
+python -m lib.spec_bridge status
+
+# Sync feature to issues
+python -m lib.spec_bridge sync user-auth
+```
+
 ## 🔒 Session Coordination
 
 **New in v1.9.0:** Prevent conflicts between concurrent Claude Code sessions.
@@ -312,6 +437,120 @@ gh auth status  # Check authentication
 gh auth login   # Authenticate if needed
 ```
 
+## 🔐 Secrets Management
+
+Secure credential access with provider abstraction and output masking.
+
+### Features
+
+- **Provider Abstraction**: AWS Secrets Manager + environment variables
+- **Output Masking**: Never exposes actual secret values
+- **Permission Model**: Read-only by default
+- **Cross-Platform CLI**: Python CLI works on Windows/Mac/Linux
+
+### Commands
+
+| Command | Purpose |
+|---------|---------|
+| `/secrets:get [id]` | Get credentials (masked output) |
+| `/secrets:validate` | Test credential configuration |
+
+### CLI Usage
+
+```bash
+# Add lib to PYTHONPATH
+export PYTHONPATH="$HOME/Projects/claude-power-pack/lib:$PYTHONPATH"
+
+# Get database credentials (auto-detect provider)
+python -m lib.secrets get
+
+# Validate all providers
+python -m lib.secrets validate
+```
+
+### Python Usage
+
+```python
+from lib.secrets import get_credentials
+
+creds = get_credentials()  # Auto-detects provider
+print(creds)  # Password masked as ****
+conn = await asyncpg.connect(**creds.dsn)  # dsn has real password
+```
+
+## 🌍 Environment Commands
+
+Automatic conda environment detection on session start.
+
+### Commands
+
+| Command | Purpose |
+|---------|---------|
+| `/env:detect` | Show detected conda environment |
+
+### Detection Priority
+
+1. `CONDA_ENV_NAME` environment variable
+2. `.conda-env` file in project root
+3. `environment.yml` name field
+4. Directory name matching conda env
+
+### Usage
+
+```bash
+# Show detection info
+~/.claude/scripts/conda-detect.sh --info
+
+# Get activation command
+~/.claude/scripts/conda-detect.sh --activate
+
+# Run command in detected env
+~/.claude/scripts/conda-detect.sh --run pytest tests/
+```
+
+## 🛡️ Security Hooks
+
+Automatic protection for Claude Code sessions.
+
+### Secret Masking (PostToolUse)
+
+All Bash and Read tool output is automatically masked:
+- Connection strings (postgresql://, mysql://, etc.)
+- API keys (OpenAI, Anthropic, GitHub, AWS, etc.)
+- Environment variables (DB_PASSWORD, API_KEY, etc.)
+
+**Setup:**
+```bash
+ln -sf ~/Projects/claude-power-pack/scripts/hook-mask-output.sh ~/.claude/scripts/
+```
+
+### Dangerous Command Blocking (PreToolUse)
+
+Warns before executing destructive commands:
+- `git push --force` to main/master
+- `git reset --hard`
+- `rm -rf /` or system directories
+- `DROP TABLE`, `DELETE FROM` without WHERE
+- `TRUNCATE TABLE`
+
+**Setup:**
+```bash
+ln -sf ~/Projects/claude-power-pack/scripts/hook-validate-command.sh ~/.claude/scripts/
+```
+
+### Hook Configuration
+
+Hooks are configured in `.claude/hooks.json`:
+
+| Hook | Trigger | Purpose |
+|------|---------|---------|
+| SessionStart | Session begins | Register, detect conda |
+| UserPromptSubmit | Each prompt | Update heartbeat |
+| PreToolUse (Bash) | Before command | Block dangerous operations |
+| PostToolUse (Bash/Read) | After tool | Mask secrets in output |
+| Stop | Session paused | Mark session paused |
+| SessionEnd | Session ends | Release locks and claims |
+
 ## ⚡ Session Initialization
 
 **New in v1.1.0:** Auto-check for repository updates at session start.
@@ -405,7 +644,19 @@ comments = scrape_post_comments("post_id_here", "ClaudeCode")
 
 ---
 
-# MCP Second Opinion Server
+# MCP Servers
+
+Claude Power Pack includes three MCP servers for enhanced AI capabilities:
+
+| Server | Port | Purpose |
+|--------|------|---------|
+| [Second Opinion](#mcp-second-opinion-server) | 8080 | Multi-model code review |
+| [Playwright Persistent](#mcp-playwright-persistent-server) | 8081 | Browser automation |
+| [Coordination](#mcp-coordination-server) | 8082 | Redis-backed distributed locking |
+
+---
+
+## MCP Second Opinion Server
 
 An advanced MCP server that provides AI-powered "second opinions" on challenging coding issues. **Now with multi-model support** - consult Google Gemini, OpenAI Codex (GPT-5.1), and o3 simultaneously!
 
@@ -603,6 +854,146 @@ print(f"Total cost: ${result['total_cost']}")
 
 ---
 
+## MCP Playwright Persistent Server
+
+Persistent browser automation with session management for testing and web interaction.
+
+### Key Features
+
+- **Persistent Sessions**: Browser sessions survive across tool calls
+- **Multi-Tab Support**: Open, switch, and manage multiple tabs
+- **Full Automation**: Click, type, fill, select, hover, screenshot
+- **Headless/Headed**: Run with or without visible browser
+- **PDF Generation**: Export pages to PDF (headless only)
+
+### Setup
+
+```bash
+cd mcp-playwright-persistent
+conda env create -f environment.yml
+conda activate mcp-playwright
+
+# Install Playwright browsers
+playwright install chromium
+
+# Start server
+./start-server.sh
+```
+
+### Add to Claude Code
+
+```bash
+claude mcp add playwright-persistent --transport sse --url http://127.0.0.1:8081/sse
+```
+
+### Available Tools (29 total)
+
+| Category | Tools |
+|----------|-------|
+| **Session** | `create_session`, `close_session`, `list_sessions`, `get_session_info`, `cleanup_idle_sessions` |
+| **Navigation** | `browser_navigate`, `browser_click`, `browser_type`, `browser_fill`, `browser_select_option`, `browser_hover` |
+| **Tabs** | `browser_new_tab`, `browser_switch_tab`, `browser_close_tab`, `browser_go_back`, `browser_go_forward`, `browser_reload` |
+| **Capture** | `browser_screenshot`, `browser_snapshot`, `browser_pdf`, `browser_get_content`, `browser_get_text` |
+| **Query** | `browser_evaluate`, `browser_wait_for`, `browser_wait_for_navigation`, `browser_get_attribute`, `browser_query_selector_all` |
+
+### Usage Example
+
+```python
+# Create a session
+session = create_session(headless=True)
+
+# Navigate and interact
+browser_navigate(session["session_id"], "https://example.com")
+browser_click(session["session_id"], "button#submit")
+
+# Take screenshot
+screenshot = browser_screenshot(session["session_id"], full_page=True)
+
+# Close when done
+close_session(session["session_id"])
+```
+
+See `mcp-playwright-persistent/README.md` for detailed documentation.
+
+---
+
+## MCP Coordination Server
+
+Redis-backed distributed locking for multi-session coordination.
+
+### Key Features
+
+- **Distributed Locks**: Prevent concurrent pytest runs, PR conflicts
+- **Wave/Issue Hierarchy**: Lock at issue, wave, or wave.issue level
+- **Auto-Detection**: Use "work" to lock based on current git branch
+- **Session Tracking**: See all active Claude Code sessions
+- **Auto-Expiry**: Locks and sessions expire automatically
+
+### Prerequisites
+
+```bash
+# Install Redis
+sudo apt install redis-server
+sudo systemctl enable redis-server
+redis-cli ping  # Should return PONG
+```
+
+### Setup
+
+```bash
+cd mcp-coordination
+conda env create -f environment.yml
+conda activate mcp-coordination
+
+# Start server
+./start-server.sh
+```
+
+### Add to Claude Code
+
+```bash
+claude mcp add coordination --transport sse --url http://127.0.0.1:8082/sse
+```
+
+### Available Tools (8 total)
+
+| Tool | Description |
+|------|-------------|
+| `acquire_lock(name, timeout)` | Acquire distributed lock |
+| `release_lock(name)` | Release held lock |
+| `check_lock(name)` | Check lock availability |
+| `list_locks(pattern)` | List locks matching pattern |
+| `register_session(metadata)` | Register session for tracking |
+| `heartbeat()` | Update session heartbeat |
+| `session_status()` | Show all sessions and states |
+| `health_check()` | Check Redis connection |
+
+### Lock Naming Conventions
+
+```bash
+# Auto-detect from branch
+acquire_lock("work")          # issue-42-auth → issue:42
+                              # wave-5c.1-feat → wave:5c.1
+
+# Explicit locks
+acquire_lock("issue:42")      # Issue-specific
+acquire_lock("wave:5c")       # Wave-level
+acquire_lock("pytest")        # Resource lock
+```
+
+### Session Status Tiers
+
+| Status | Heartbeat Age | Meaning |
+|--------|---------------|---------|
+| 🟢 **Active** | < 5 min | Actively using Claude Code |
+| 🟡 **Idle** | 5 min - 1 hour | Stepped away briefly |
+| 🟠 **Stale** | 1 - 4 hours | Gone for extended period |
+| ⚫ **Abandoned** | > 24 hours | Auto-released next day |
+
+See `mcp-coordination/README.md` for detailed documentation.
+
+---
+
 # Installation
 
 ## Complete Setup
@@ -751,39 +1142,55 @@ After setup, your repository will have:
 
 ```
 claude-power-pack/
-├── README.md                                    # This file
-├── CLAUDE_CODE_BEST_PRACTICES.md              # Main best practices guide (21KB)
-├── ISSUE_DRIVEN_DEVELOPMENT.md                # IDD methodology guide
-├── PROGRESSIVE_DISCLOSURE_GUIDE.md            # Context optimization
-├── MCP_TOKEN_AUDIT_CHECKLIST.md               # Token efficiency checklist
-├── scripts/                                    # Utility scripts
-│   ├── prompt-context.sh                      # Shell prompt context
-│   ├── session-lock.sh                        # Lock coordination
-│   ├── session-register.sh                    # Session lifecycle
-│   ├── session-heartbeat.sh                   # Heartbeat daemon
-│   └── pytest-locked.sh                       # pytest wrapper
+├── docs/
+│   ├── skills/                                 # Topic-focused best practices (~3K each)
+│   │   ├── context-efficiency.md               # Token optimization
+│   │   ├── session-management.md               # Session & plan mode
+│   │   ├── mcp-optimization.md                 # MCP best practices
+│   │   └── ...                                 # 9 topic skills total
+│   └── reference/
+│       └── CLAUDE_CODE_BEST_PRACTICES_FULL.md  # Complete guide (25K tokens)
+├── .specify/                                    # Spec-Driven Development
+│   ├── memory/constitution.md                  # Project principles
+│   ├── specs/                                  # Feature specifications
+│   └── templates/                              # Spec, plan, tasks templates
+├── mcp-second-opinion/                         # Port 8080 - Code review
+│   └── src/server.py                           # 12 tools
+├── mcp-playwright-persistent/                  # Port 8081 - Browser automation
+│   └── src/server.py                           # 29 tools
+├── mcp-coordination/                           # Port 8082 - Redis locking
+│   └── src/server.py                           # 8 tools
+├── lib/
+│   ├── secrets/                                # Secrets management
+│   │   ├── cli.py                              # get, validate commands
+│   │   └── providers/                          # AWS, env providers
+│   └── spec_bridge/                            # Spec-to-Issue sync
+│       ├── parser.py                           # Parse spec/tasks files
+│       └── issue_sync.py                       # GitHub issue creation
+├── scripts/
+│   ├── prompt-context.sh                       # Shell prompt context
+│   ├── session-*.sh                            # Session coordination
+│   ├── hook-mask-output.sh                     # Secret masking
+│   ├── hook-validate-command.sh                # Command validation
+│   ├── conda-detect.sh                         # Conda detection
+│   └── worktree-remove.sh                      # Safe worktree removal
 ├── .claude/
 │   ├── commands/
-│   │   ├── coordination/                      # Session coordination
-│   │   │   ├── pr-create.md                   # Coordinated PR creation
-│   │   │   └── merge-main.md                  # Coordinated merges
-│   │   ├── github/                            # GitHub issue management
-│   │   ├── project-next.md                    # Issue orchestrator
-│   │   └── project-lite.md                    # Quick reference
-│   ├── skills/best-practices.md               # On-demand loading
-│   └── hooks.json                             # Session/label hooks
-├── .github/
-│   └── ISSUE_TEMPLATE/                        # Structured templates
-├── mcp-second-opinion/                        # MCP server directory
-│   ├── src/
-│   │   ├── server.py                          # Main server (12 tools)
-│   │   ├── config.py                          # Configuration
-│   │   ├── sessions.py                        # Session management
-│   │   └── tools/                             # Agentic tools
-│   ├── environment.yml                        # Conda environment
-│   └── .env.example                           # Environment template
-├── scrape_reddit.py                           # Reddit scraper tool
-└── *.json                                     # Scraped data archives
+│   │   ├── cpp/                                # CPP wizard (init, status, help)
+│   │   ├── spec/                               # Spec commands
+│   │   ├── github/                             # GitHub issue management
+│   │   ├── secrets/                            # Secrets commands
+│   │   ├── env/                                # Environment commands
+│   │   ├── coordination/                       # PR/merge coordination
+│   │   ├── project-next.md                     # Issue orchestrator
+│   │   └── project-lite.md                     # Quick reference
+│   ├── skills/                                 # Skill loaders
+│   └── hooks.json                              # Session/security hooks
+├── .github/ISSUE_TEMPLATE/                     # Structured templates
+├── ISSUE_DRIVEN_DEVELOPMENT.md                 # IDD methodology
+├── PROGRESSIVE_DISCLOSURE_GUIDE.md             # Context optimization
+├── MCP_TOKEN_AUDIT_CHECKLIST.md                # Token efficiency
+└── README.md                                    # This file
 ```
 
 ## 📈 Usage Statistics
@@ -892,52 +1299,48 @@ MIT License - See LICENSE file for details
 
 ---
 
-**Repository Version**: 1.9.0 (Session Coordination)
+**Repository Version**: 2.8.0 (Full Documentation Update)
 **Last Updated**: December 2025
 **Maintainer**: cooneycw
 
-## What's New in v1.9.0
+## What's New in v2.8.0
+
+- **CPP Initialization Wizard** - `/cpp:init` with tiered installation (Minimal/Standard/Full)
+- **Spec-Driven Development** - `.specify/` structure with `/spec:*` commands
+- **MCP Playwright Persistent** - 29 tools for browser automation (port 8081)
+- **MCP Coordination Server** - Redis-backed distributed locking (port 8082)
+- **Secrets Management** - `/secrets:*` commands with `lib/secrets/` Python module
+- **Environment Commands** - `/env:detect` for conda environment detection
+- **Security Hooks** - Secret masking and dangerous command blocking
+- **Comprehensive README Update** - Full documentation of all features
+
+### Previous: v2.2.0
+
+- **MCP Coordination Server** - 8 Redis-backed tools for distributed locking
+- **Wave/Issue Hierarchy** - Lock at issue, wave, or wave.issue level
+- **Session Status Tiers** - Active/Idle/Stale/Abandoned with auto-expiry
+
+### Previous: v2.1.0
+
+- **Shell Prompt Context** - Replaced terminal labeling with PS1 integration
+- **Wave Branch Support** - `[CPP W5c.1]` for wave branches
+
+### Previous: v1.9.0
 
 - **Session Coordination** - Prevent conflicts between concurrent Claude Code sessions
 - **Lock System** - `session-lock.sh` for PR creation, pytest, and merge coordination
-- **Session Registry** - Track active sessions with heartbeat monitoring
-- **`/coordination:*` Commands** - `pr-create` and `merge-main` with locking
-- **pytest Wrapper** - `pytest-locked.sh` prevents test conflicts
 
 ### Previous: v1.8.0
 
 - **Project Commands** - `/project-lite` and `/project-next` for orientation
-- **Context-Efficient Reference** - Quick project info at ~500 tokens
-- **Issue Prioritization** - Analyze and recommend next steps
-
-### Previous: v1.7.0
-
-- **Terminal Labeling** - Visual feedback for multi-session workflows
-- **Issue-Driven Development** - Methodology guide with micro-issues
-- **Hook Integration** - Automatic label restore on prompt submit
 
 ### Previous: v1.6.0
 
-- **GitHub Issue Management** - Full CRUD operations for issues via slash commands
-- **Issue Templates** - Structured templates for best practices, corrections, features, bugs
-- **`/github:*` Commands** - List, create, view, update, and close issues from Claude Code
+- **GitHub Issue Management** - Full CRUD via `/github:*` commands
 
 ### Previous: v1.5.0
 
-- **Multi-Model Consultation** - Compare responses from 10 different AI models in parallel
-- **OpenAI Codex Support** - GPT-5.1 Codex Max/Mini via Responses API
-- **o3 Reasoning Model** - Advanced reasoning that powers the Codex agent
-- **OpenAI Integration** - GPT-4o, GPT-4 Turbo, o1, o1-mini support
-- **New Tools** - `list_available_models`, `get_multi_model_second_opinion`
-- **Flexible API Keys** - Works with Gemini-only, OpenAI-only, or both
-
-### Previous: v1.1.0
-
-- Progressive Disclosure Architecture
-- Django Workflow Commands
-- Context Optimization (17% → <1% baseline)
-- MCP Token Audit Checklist
-- SessionStart Hook for auto-updates
-- Best Practices Skill
+- **Multi-Model Consultation** - Compare responses from 10 AI models in parallel
+- **OpenAI Codex Support** - GPT-5.1 Codex Max/Mini
 
 *Generated with [Claude Code](https://claude.ai/code)*
