@@ -22,6 +22,8 @@ from tenacity import (
     stop_after_attempt,
     wait_exponential,
 )
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 
 from config import Config
 from prompts import build_code_review_prompt, scan_for_secrets
@@ -45,6 +47,17 @@ logger = logging.getLogger(__name__)
 
 # Initialize FastMCP server
 mcp = FastMCP(Config.SERVER_NAME)
+
+
+@mcp.custom_route("/", methods=["GET"])
+async def root_health_check(request: Request) -> JSONResponse:
+    """Health check endpoint for Claude Code MCP connection verification."""
+    return JSONResponse({
+        "status": "healthy",
+        "server": Config.SERVER_NAME,
+        "version": Config.SERVER_VERSION,
+    })
+
 
 # Configure Gemini client (new google-genai SDK)
 _gemini_client: Optional[genai.Client] = None

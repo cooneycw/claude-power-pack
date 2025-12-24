@@ -547,17 +547,19 @@ Add the MCP server using the Claude CLI:
 claude mcp add second-opinion --transport sse --url http://127.0.0.1:8080/sse
 ```
 
-Or manually add to `~/.claude/.mcp.json`:
+Or manually create `.mcp.json` in your working directory (e.g., `~/Projects/.mcp.json`):
 ```json
 {
   "mcpServers": {
     "second-opinion": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/client-sse", "http://127.0.0.1:8080/sse"]
+      "type": "sse",
+      "url": "http://localhost:8080/sse"
     }
   }
 }
 ```
+
+> **Important:** The URL must include the `/sse` suffix. Without it, Claude Code's health check will fail.
 
 Verify the server is configured:
 ```bash
