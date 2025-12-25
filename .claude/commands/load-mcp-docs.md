@@ -4,8 +4,8 @@ description: Load MCP Second Opinion server documentation
 
 Read the MCP Second Opinion documentation and summarize the available tools and usage patterns:
 
-1. Read: `/home/cooneycw/Projects/claude-power-pack/README.md` (MCP Second Opinion section)
-2. Read: `/home/cooneycw/Projects/claude-power-pack/mcp-second-opinion/src/server.py` (tool definitions)
+1. Read: `README.md` (MCP Second Opinion section)
+2. Read: `mcp-second-opinion/src/server.py` (tool definitions)
 
 Provide an overview of:
 - The 10 available tools and their purposes
