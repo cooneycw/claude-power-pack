@@ -8,7 +8,7 @@ trigger: CLAUDE.md, configuration, project setup, conventions
 
 When the user asks about CLAUDE.md structure, configuration, or project setup:
 
-1. Read `/home/cooneycw/Projects/claude-power-pack/docs/skills/claude-md-config.md`
+1. Read `docs/skills/claude-md-config.md`
 2. Provide the CLAUDE.md template
 3. Explain structure hierarchy (user, parent, project)
 4. Share optimization tips (+5-10% on SWE Bench)

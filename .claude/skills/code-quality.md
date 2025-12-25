@@ -8,7 +8,7 @@ trigger: code review, quality, testing, production ready, best practices
 
 When the user asks about code quality, review patterns, or production readiness:
 
-1. Read `/home/cooneycw/Projects/claude-power-pack/docs/skills/code-quality.md`
+1. Read `docs/skills/code-quality.md`
 2. Explain the "you are the issue, not the AI" insight
 3. Cover review patterns and workflow strategies
 4. Share the Top 10 Rules and red/green flags

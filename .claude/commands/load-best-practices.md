@@ -3,7 +3,7 @@ description: Load full Claude Code best practices documentation (25K tokens)
 ---
 
 Read and summarize the key points from:
-`/home/cooneycw/Projects/claude-power-pack/docs/reference/CLAUDE_CODE_BEST_PRACTICES_FULL.md`
+`docs/reference/CLAUDE_CODE_BEST_PRACTICES_FULL.md`
 
 **Note:** For context efficiency, consider using topic-specific skills instead:
 - `context-efficiency` - Token optimization
