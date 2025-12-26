@@ -140,7 +140,12 @@ async def close_session_internal(session_id: str):
 # ============================================================================
 
 @mcp.tool()
-async def create_session(headless: bool = True, viewport_width: int = 1280, viewport_height: int = 720) -> dict:
+async def create_session(
+    headless: bool = True,
+    viewport_width: int = 1280,
+    viewport_height: int = 720,
+    cdp_endpoint: Optional[str] = None
+) -> dict:
     """
     Create a new persistent browser session.
 
@@ -148,17 +153,45 @@ async def create_session(headless: bool = True, viewport_width: int = 1280, view
         headless: Run browser in headless mode (default True)
         viewport_width: Browser viewport width (default 1280)
         viewport_height: Browser viewport height (default 720)
+        cdp_endpoint: Optional CDP WebSocket URL to connect to existing Chrome
+                      (e.g., "ws://localhost:9222/devtools/browser/...")
+                      If provided, connects to existing browser instead of launching new one.
 
     Returns:
         Session information including session_id
+
+    Examples:
+        # Launch new browser
+        create_session(headless=True)
+
+        # Connect to existing Chrome (started with --remote-debugging-port=9222)
+        create_session(cdp_endpoint="ws://localhost:9222")
     """
-    browser = await get_browser()
+    global playwright_instance
+
+    if cdp_endpoint:
+        # Connect to existing Chrome via CDP
+        if playwright_instance is None:
+            playwright_instance = await async_playwright().start()
+
+        try:
+            browser = await playwright_instance.chromium.connect_over_cdp(cdp_endpoint)
+            logger.info(f"Connected to existing browser at {cdp_endpoint}")
+            is_external = True
+        except Exception as e:
+            return {"error": f"Failed to connect to CDP endpoint: {str(e)}"}
+    else:
+        # Launch new browser
+        browser = await get_browser()
+        is_external = False
+
     context = await browser.new_context(
         viewport={"width": viewport_width, "height": viewport_height}
     )
 
     session_id = str(uuid.uuid4())[:12]
     session = BrowserSession(session_id, context, headless)
+    session.is_external_browser = is_external  # Track if using external browser
     sessions[session_id] = session
 
     # Create initial page
@@ -166,12 +199,18 @@ async def create_session(headless: bool = True, viewport_width: int = 1280, view
 
     logger.info(f"Created session {session_id}")
 
-    return {
+    result = {
         "session_id": session_id,
         "active_page_id": page_id,
         "headless": headless,
         "viewport": {"width": viewport_width, "height": viewport_height}
     }
+
+    if cdp_endpoint:
+        result["cdp_endpoint"] = cdp_endpoint
+        result["external_browser"] = True
+
+    return result
 
 
 @mcp.tool()
