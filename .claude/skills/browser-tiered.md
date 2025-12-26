@@ -88,3 +88,191 @@ bdg --chrome-ws-url ws://localhost:9222/devtools/page/...
 | Playwright full flow | ~1500 | Complex multi-step |
 
 **Rule of thumb**: Start with bdg, escalate if needed.
+
+---
+
+## Workflow Examples
+
+### 1. Form Submission (bdg only)
+
+```bash
+# Start session
+bdg --headless -t 120 httpbin.org/forms/post
+
+# Discover form structure
+bdg dom form
+# Output shows indexed fields with semantic labels
+
+# Fill fields by index
+bdg dom fill 0 "John Doe"        # Customer name
+bdg dom fill 1 "555-1234"        # Phone
+bdg dom fill 2 "john@example.com" # Email
+bdg dom click 4                   # Select "Medium" radio
+
+# Verify state
+bdg dom form  # Shows filled values
+
+# Submit
+bdg dom click 12  # Submit button
+
+# Save session data
+bdg stop
+```
+
+### 2. Data Extraction (bdg only)
+
+```bash
+# Start session
+bdg --headless -t 60 news.ycombinator.com
+
+# Query specific elements
+bdg dom query ".titleline > a"
+
+# Get accessibility tree for structure
+bdg dom a11y tree | head -50
+
+# Extract via JavaScript
+bdg dom eval "Array.from(document.querySelectorAll('.titleline > a')).map(a => a.textContent).join('\n')"
+
+# Export network data
+bdg network har hn-requests.har
+
+# Stop
+bdg stop
+```
+
+### 3. Login Flow (Escalate to Playwright)
+
+When login requires persistent cookies or complex validation:
+
+```python
+# Playwright MCP - maintains session state
+session = create_session(headless=True)
+sid = session["session_id"]
+
+# Navigate to login
+browser_navigate(sid, "https://example.com/login")
+
+# Fill credentials
+browser_fill(sid, "#username", "user@example.com")
+browser_fill(sid, "#password", "secret123")
+
+# Click login and wait for navigation
+browser_click(sid, "button[type=submit]")
+browser_wait_for_navigation(sid)
+
+# Verify logged in
+text = browser_get_text(sid, ".user-profile")
+
+# Continue with authenticated session...
+# Session persists cookies across calls
+
+# Cleanup when done
+close_session(sid)
+```
+
+### 4. Debug Console Monitoring (bdg only)
+
+```bash
+# Start with longer timeout for debugging
+bdg --headless -t 300 localhost:3000
+
+# Stream console in real-time
+bdg console -f
+
+# Or filter by level
+bdg console --level error --list
+
+# Check for specific errors
+bdg console --list | grep -i "undefined"
+
+# Get network failures
+bdg network list --status 4xx,5xx
+```
+
+### 5. Screenshot Comparison (Playwright)
+
+```python
+# Playwright for high-quality screenshots
+session = create_session(headless=True)
+sid = session["session_id"]
+
+# Navigate
+browser_navigate(sid, "https://example.com")
+
+# Full page screenshot
+screenshot = browser_screenshot(sid, full_page=True)
+# Returns base64 encoded image
+
+# Element-specific screenshot
+element_shot = browser_screenshot(sid, selector=".hero-section")
+
+# Generate PDF
+pdf = browser_pdf(sid, format="A4")
+
+close_session(sid)
+```
+
+### 6. Hybrid: Inspect with bdg, Act with Playwright
+
+```bash
+# Step 1: Quick inspection with bdg
+bdg --headless -t 60 complex-app.com
+bdg dom form           # Understand form structure
+bdg dom a11y tree      # Check accessibility
+bdg network getCookies # See existing cookies
+bdg stop
+```
+
+```python
+# Step 2: Complex interaction with Playwright
+session = create_session(headless=True)
+sid = session["session_id"]
+
+browser_navigate(sid, "https://complex-app.com")
+
+# Multi-step flow based on bdg inspection
+browser_fill(sid, "#search", "query")
+browser_click(sid, ".search-btn")
+browser_wait_for(sid, ".results", state="visible")
+
+# Handle dynamic content
+browser_evaluate(sid, "window.scrollTo(0, document.body.scrollHeight)")
+browser_wait_for(sid, ".load-more", state="visible")
+
+close_session(sid)
+```
+
+### 7. API Response Inspection (bdg only)
+
+```bash
+# Monitor XHR/fetch calls
+bdg --headless -t 120 spa-app.com
+
+# Trigger some action that makes API calls
+bdg dom click ".load-data-btn"
+
+# Wait a moment, then inspect
+sleep 2
+bdg peek --json | jq '.network[] | select(.url | contains("/api/"))'
+
+# Get full response details
+bdg details network <request-id>
+
+bdg stop
+```
+
+---
+
+## Escalation Checklist
+
+Before escalating from bdg to Playwright, ask:
+
+- [ ] Does this need **persistent session state**? → Playwright
+- [ ] Does this need **multi-tab coordination**? → Playwright
+- [ ] Does this need **complex waiting strategies**? → Playwright
+- [ ] Does this need **high-quality screenshots/PDFs**? → Playwright
+- [ ] Is this a **React/Vue/Angular SPA** with complex state? → Playwright
+- [ ] Is this **read-only inspection**? → bdg
+- [ ] Is this **simple form fill/click**? → bdg
+- [ ] Do I need **network/console telemetry**? → bdg
