@@ -122,7 +122,8 @@ claude-power-pack/
 │   │   ├── secrets/                            # Secrets commands
 │   │   ├── env/                                # Environment commands
 │   │   ├── project-next.md                     # Next steps orchestrator
-│   │   └── project-lite.md                     # Quick reference
+│   │   ├── project-lite.md                     # Quick reference
+│   │   └── happy-check.md                      # Happy CLI version check (optional)
 │   ├── skills/                                 # Skill loaders (lightweight)
 │   │   ├── best-practices.md                   # Dispatcher to topic skills
 │   │   ├── context-efficiency.md               # → docs/skills/
@@ -429,6 +430,23 @@ Full orchestrator for GitHub issue prioritization:
 - Recommend next issue to work on
 
 **Use when:** Unsure what to work on, need issue analysis, or want cleanup suggestions.
+
+## Optional Utilities
+
+Optional commands installed via `/cpp:init` (Tier 2 prompts):
+
+| Command | Purpose | Requires |
+|---------|---------|----------|
+| `/happy-check` | Check if happy-cli is up to date | happy-cli installed |
+
+### /happy-check
+
+Checks if the installed [happy-cli](https://github.com/slopus/happy-cli) is on the latest version:
+- Compares installed version against GitHub releases
+- Reports update availability
+- Checks onboarding status
+
+**Use when:** You use happy-cli and want to verify you're on the latest version.
 
 ## Session Coordination
 

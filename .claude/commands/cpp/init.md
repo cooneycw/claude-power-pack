@@ -284,6 +284,38 @@ echo 'export PS1='\''$(~/.claude/scripts/prompt-context.sh)\w $ '\''' >> ~/.bash
 echo "✓ Shell prompt configured (restart shell or source ~/.bashrc)"
 ```
 
+**Happy CLI Integration (Optional)**
+
+Ask the user if they use happy-cli:
+
+```
+Do you use happy-cli (AI coding assistant)?
+https://github.com/slopus/happy-cli
+
+If installed, CPP provides /happy-check to verify your version is current.
+
+Do you use happy-cli? [y/N]
+```
+
+If yes:
+```bash
+# Verify happy-cli is installed
+if command -v happy &>/dev/null; then
+  echo "✓ happy-cli detected"
+  echo "✓ /happy-check command available (run to check for updates)"
+else
+  echo "⚠ happy-cli not found in PATH"
+  echo "  Install: npm install -g happy-coder"
+  echo "  /happy-check will work once installed"
+fi
+```
+
+If no:
+```bash
+echo "→ Happy CLI integration skipped"
+echo "  (The /happy-check command is still available if you install happy-cli later)"
+```
+
 ### Tier 3 Execution
 
 #### 3a. Redis Installation
