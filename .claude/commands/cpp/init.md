@@ -284,36 +284,42 @@ echo 'export PS1='\''$(~/.claude/scripts/prompt-context.sh)\w $ '\''' >> ~/.bash
 echo "✓ Shell prompt configured (restart shell or source ~/.bashrc)"
 ```
 
-**Happy CLI Integration (Optional)**
+**Happy CLI Installation (Optional)**
 
-Ask the user if they use happy-cli:
+Ask the user if they want to install happy-cli:
 
 ```
-Do you use happy-cli (AI coding assistant)?
+=== Optional: Happy CLI ===
+
+Happy CLI is an AI coding assistant that complements Claude Code.
 https://github.com/slopus/happy-cli
 
-If installed, CPP provides /happy-check to verify your version is current.
-
-Do you use happy-cli? [y/N]
+Install happy-cli? [y/N]
 ```
 
 If yes:
 ```bash
-# Verify happy-cli is installed
+# Check if already installed
 if command -v happy &>/dev/null; then
-  echo "✓ happy-cli detected"
-  echo "✓ /happy-check command available (run to check for updates)"
+  echo "→ happy-cli already installed (skipped)"
+  happy --version 2>&1 | head -1
 else
-  echo "⚠ happy-cli not found in PATH"
-  echo "  Install: npm install -g happy-coder"
-  echo "  /happy-check will work once installed"
+  echo "Installing happy-cli..."
+  npm install -g happy-coder
+  if command -v happy &>/dev/null; then
+    echo "✓ happy-cli installed"
+    echo "  Run 'happy' to complete onboarding"
+  else
+    echo "⚠ Installation failed - check npm permissions"
+    echo "  Try: sudo npm install -g happy-coder"
+  fi
 fi
+echo "✓ /happy-check command available (verify version updates)"
 ```
 
 If no:
 ```bash
-echo "→ Happy CLI integration skipped"
-echo "  (The /happy-check command is still available if you install happy-cli later)"
+echo "→ Happy CLI installation skipped"
 ```
 
 ### Tier 3 Execution

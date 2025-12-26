@@ -431,22 +431,26 @@ Full orchestrator for GitHub issue prioritization:
 
 **Use when:** Unsure what to work on, need issue analysis, or want cleanup suggestions.
 
-## Optional Utilities
+## Optional Installs
 
-Optional commands installed via `/cpp:init` (Tier 2 prompts):
+Optional packages offered during `/cpp:init` (Tier 2):
 
-| Command | Purpose | Requires |
-|---------|---------|----------|
-| `/happy-check` | Check if happy-cli is up to date | happy-cli installed |
+| Package | Purpose | Install Command |
+|---------|---------|-----------------|
+| happy-cli | AI coding assistant | `npm install -g happy-coder` |
+
+### happy-cli
+
+[Happy CLI](https://github.com/slopus/happy-cli) is an AI coding assistant that complements Claude Code. If installed via the wizard, CPP provides `/happy-check` to verify your version is current.
 
 ### /happy-check
 
-Checks if the installed [happy-cli](https://github.com/slopus/happy-cli) is on the latest version:
+Checks if the installed happy-cli is on the latest version:
 - Compares installed version against GitHub releases
 - Reports update availability
 - Checks onboarding status
 
-**Use when:** You use happy-cli and want to verify you're on the latest version.
+**Use when:** You have happy-cli installed and want to verify you're on the latest version.
 
 ## Session Coordination
 
