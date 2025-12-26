@@ -63,21 +63,88 @@ bdg stop
 4. **Login sequences**: Persistent auth state needed
 5. **React/Angular/Vue**: Better framework compatibility
 6. **Form validation**: Complex validation feedback handling
+7. **Bot detection triggered**: Site shows CAPTCHA or blocks headless
+
+## Handling Bot Detection
+
+Some sites (DuckDuckGo, Cloudflare-protected) detect headless browsers and trigger CAPTCHA.
+
+### Detection Signs
+
+```bash
+# Check page content for CAPTCHA indicators
+bdg dom eval 'document.body.innerText.includes("robot") || document.body.innerText.includes("CAPTCHA")'
+
+# Look for challenge elements
+bdg dom query "[class*='captcha'], [id*='challenge']"
+```
+
+### Workarounds
+
+**Option 1: Use headed mode (bdg)**
+```bash
+# Run with visible browser
+bdg --no-headless -t 120 protected-site.com
+```
+
+**Option 2: Custom user-agent (bdg)**
+```bash
+# Use Chrome flags to set user-agent
+bdg --chrome-flags="--user-agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'" example.com
+```
+
+**Option 3: Escalate to Playwright (best for persistent sessions)**
+```python
+# Playwright with headed mode
+session = create_session(headless=False)
+# Complete CAPTCHA manually if needed, session persists
+```
+
+**Option 4: Use existing browser session**
+```bash
+# Connect to your regular Chrome (already logged in, cookies set)
+google-chrome --remote-debugging-port=9222
+bdg --chrome-ws-url ws://localhost:9222/devtools/page/...
+```
+
+### Sites Known to Trigger Bot Detection
+
+| Site | Behavior | Workaround |
+|------|----------|------------|
+| DuckDuckGo | CAPTCHA on search | Use headed mode or Google |
+| Cloudflare-protected | Challenge page | Use existing browser |
+| LinkedIn | Login blocked | Use Playwright + headed |
+| Amazon | CAPTCHA on some actions | Use existing browser |
 
 ## Shared CDP Pattern
 
-Both can connect to the same Chrome:
+Both tools can connect to the same Chrome instance for state sharing:
 
 ```bash
-# Start Chrome with debugging
+# Step 1: Start Chrome with debugging
 google-chrome --remote-debugging-port=9222
 
-# bdg connects via CDP
-bdg --chrome-ws-url ws://localhost:9222/devtools/page/...
-
-# Playwright also connects
-# (configure in session creation)
+# Step 2: Get the WebSocket URL
+curl -s http://localhost:9222/json/version | jq -r '.webSocketDebuggerUrl'
+# Returns: ws://localhost:9222/devtools/browser/abc123...
 ```
+
+**bdg connection:**
+```bash
+bdg --chrome-ws-url ws://localhost:9222/devtools/page/...
+```
+
+**Playwright MCP connection:**
+```python
+# Use cdp_endpoint parameter to connect to existing Chrome
+session = create_session(cdp_endpoint="ws://localhost:9222")
+sid = session["session_id"]
+
+# Now operates on the same browser as bdg
+browser_navigate(sid, "https://example.com")
+```
+
+**Use case:** Login manually in headed Chrome, then automate with cookies preserved.
 
 ## Token Efficiency
 
@@ -273,6 +340,46 @@ Before escalating from bdg to Playwright, ask:
 - [ ] Does this need **complex waiting strategies**? → Playwright
 - [ ] Does this need **high-quality screenshots/PDFs**? → Playwright
 - [ ] Is this a **React/Vue/Angular SPA** with complex state? → Playwright
+- [ ] Is the site **triggering bot detection/CAPTCHA**? → Playwright (headed) or existing browser
 - [ ] Is this **read-only inspection**? → bdg
 - [ ] Is this **simple form fill/click**? → bdg
 - [ ] Do I need **network/console telemetry**? → bdg
+
+---
+
+## Troubleshooting
+
+### bdg Issues
+
+| Problem | Solution |
+|---------|----------|
+| "Port in use" | `bdg cleanup --force` or use different port |
+| Session not starting | Check if Chrome is installed: `which google-chrome` |
+| Timeout too short | Increase with `-t 300` (5 minutes) |
+| Selectors not matching | Use `bdg dom a11y tree` to inspect structure |
+| JavaScript errors | Check `bdg console --level error` |
+
+### Common Patterns
+
+**Retry on flaky selectors:**
+```bash
+# Wait for element before querying
+bdg dom eval 'new Promise(r => {
+  const check = () => document.querySelector(".dynamic") ? r(true) : setTimeout(check, 100);
+  check();
+})'
+```
+
+**Extract after navigation:**
+```bash
+bdg dom click ".next-page"
+sleep 2  # Wait for page load
+bdg dom query ".results"
+```
+
+**Quiet mode for scripting:**
+```bash
+# Minimal output, JSON-friendly
+bdg --headless -q -t 60 example.com
+bdg dom form --json 2>/dev/null | jq '.fields[0].value'
+```
