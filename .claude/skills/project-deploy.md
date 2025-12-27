@@ -1,6 +1,6 @@
-# Chess Agent Deployment Skill
+# Project Deployment Skill
 
-Use this skill when working with the chess-agent project and need to deploy or test changes.
+Use this skill when deploying or testing changes in projects with deployment scripts.
 
 ## Trigger Patterns
 
@@ -8,60 +8,68 @@ Use this skill when working with the chess-agent project and need to deploy or t
 - "test my changes", "test this branch"
 - "restart dev", "restart servers"
 
-## Architecture
+## Finding the Deploy Script
 
-The chess-agent has two servers:
-- **FastAPI (port 8000)** - AI backend (MCTS, position analysis, training)
-- **Django (port 8001)** - Web frontend (templates, WebSocket)
+Check for deployment scripts in these locations:
+1. `scripts/deployment/deploy_*.sh`
+2. `scripts/deploy.sh`
+3. `deploy.sh`
 
-Both must run for the application to work properly.
+Run `--help` or `help` to see available commands.
 
-## Deployment Commands
+## Standard Deployment Commands
 
-Always use the deploy script at `scripts/deployment/deploy_chess.sh`:
+Most deploy scripts follow this pattern:
 
 | Command | Git Pull | Use Case |
 |---------|----------|----------|
 | `dev` | No | Test current worktree/branch changes |
 | `dev PATH` | No | Test specific worktree |
-| `local` | Yes | Deploy latest main branch |
-| `prod-local` | Yes | Test production settings |
+| `local` | Yes | Deploy latest main branch locally |
+| `prod-local` | Yes | Test production settings locally |
 | `deploy` | Yes | Full remote deployment |
-| `local-status` | - | Check server status |
-| `local-stop` | - | Stop servers |
+| `status` | - | Check server/infrastructure status |
+| `local-status` | - | Check local server status |
+| `local-stop` | - | Stop local servers |
 | `local-logs` | - | Tail server logs |
 
 ## Common Scenarios
 
 ### Testing a worktree branch
 ```bash
-cd ~/Projects/chess-agent-issue-42
-scripts/deployment/deploy_chess.sh dev
+cd ~/Projects/{project}-issue-42
+scripts/deployment/deploy_{project}.sh dev
 ```
 
 ### Testing from main repo but different worktree
 ```bash
-scripts/deployment/deploy_chess.sh dev ~/Projects/chess-agent-issue-42
+scripts/deployment/deploy_{project}.sh dev ~/Projects/{project}-issue-42
 ```
 
 ### Checking status
 ```bash
-scripts/deployment/deploy_chess.sh local-status
-```
-
-### Stopping servers
-```bash
-scripts/deployment/deploy_chess.sh local-stop
+scripts/deployment/deploy_{project}.sh local-status
 ```
 
 ## Important Notes
 
-1. **Always use the script** - Don't manually start uvicorn or manage.py
+1. **Always use the script** - Don't manually start servers
 2. **dev = no git pull** - Your local changes are preserved
 3. **local = git pull** - Updates to latest main
-4. **Both servers needed** - Django calls FastAPI for AI operations
+4. **Check CLAUDE.md** - Project-specific deployment docs
 
-## Log Locations
+## Project-Specific Notes
 
+### chess-agent
+
+Script: `scripts/deployment/deploy_chess.sh`
+
+Architecture:
+- **FastAPI (port 8000)** - AI backend (MCTS, position analysis)
+- **Django (port 8001)** - Web frontend (templates, WebSocket)
+
+Both servers must run for the application to work.
+
+Logs:
 - FastAPI: `/tmp/fastapi-chess.log`
 - Django: `/tmp/django-chess.log`
