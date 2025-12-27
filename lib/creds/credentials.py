@@ -6,7 +6,7 @@ This module provides typed credential containers that:
 - Provide explicit methods for actual value access (use sparingly)
 
 Usage:
-    from lib.secrets.credentials import DatabaseCredentials
+    from lib.creds.credentials import DatabaseCredentials
 
     creds = DatabaseCredentials.from_dict({
         "host": "localhost",

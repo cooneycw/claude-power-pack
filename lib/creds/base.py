@@ -6,7 +6,7 @@ This module provides:
 - SecretsError: Base exception for secrets-related errors
 
 Usage:
-    from lib.secrets.base import SecretValue, SecretsProvider
+    from lib.creds.base import SecretValue, SecretsProvider
 
     # Wrap a secret value
     api_key = SecretValue("sk-abc123...")

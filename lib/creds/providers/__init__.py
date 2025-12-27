@@ -5,7 +5,7 @@ Available providers:
 - AWSSecretsProvider: AWS Secrets Manager
 
 Usage:
-    from lib.secrets.providers import EnvSecretsProvider, AWSSecretsProvider
+    from lib.creds.providers import EnvSecretsProvider, AWSSecretsProvider
 
     # Get credentials from environment
     env_provider = EnvSecretsProvider()

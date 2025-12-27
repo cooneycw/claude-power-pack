@@ -66,5 +66,5 @@ Test that credentials are configured and accessible without displaying actual va
 ## Run Command
 
 ```bash
-PYTHONPATH="${HOME}/Projects/claude-power-pack/lib" python -m lib.secrets validate "$@"
+PYTHONPATH="${HOME}/Projects/claude-power-pack/lib" python -m lib.creds validate "$@"
 ```

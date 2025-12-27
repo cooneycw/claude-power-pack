@@ -9,7 +9,7 @@ This package provides:
 - PermissionConfig: Access control for database operations
 
 Quick Start:
-    from lib.secrets import get_credentials, DatabaseCredentials
+    from lib.creds import get_credentials, DatabaseCredentials
 
     # Get database credentials (auto-detects provider)
     creds = get_credentials("database")
@@ -23,7 +23,7 @@ Provider Priority:
     2. AWS Secrets Manager (if configured)
 
 Example with explicit provider:
-    from lib.secrets.providers import AWSSecretsProvider, EnvSecretsProvider
+    from lib.creds.providers import AWSSecretsProvider, EnvSecretsProvider
 
     aws = AWSSecretsProvider(region="us-east-1")
     if aws.is_available():

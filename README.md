@@ -462,16 +462,16 @@ Secure credential access with provider abstraction and output masking.
 export PYTHONPATH="$HOME/Projects/claude-power-pack/lib:$PYTHONPATH"
 
 # Get database credentials (auto-detect provider)
-python -m lib.secrets get
+python -m lib.creds get
 
 # Validate all providers
-python -m lib.secrets validate
+python -m lib.creds validate
 ```
 
 ### Python Usage
 
 ```python
-from lib.secrets import get_credentials
+from lib.creds import get_credentials
 
 creds = get_credentials()  # Auto-detects provider
 print(creds)  # Password masked as ****

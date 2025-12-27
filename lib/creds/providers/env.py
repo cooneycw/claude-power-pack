@@ -8,7 +8,7 @@ Convention: Secrets are stored as PREFIX_FIELD environment variables.
 Example: For secret_id="DB", looks for DB_HOST, DB_USER, DB_PASSWORD, etc.
 
 Usage:
-    from lib.secrets.providers import EnvSecretsProvider
+    from lib.creds.providers import EnvSecretsProvider
 
     provider = EnvSecretsProvider()
     creds = provider.get_secret("DB")

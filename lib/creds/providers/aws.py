@@ -4,7 +4,7 @@ This provider fetches secrets from AWS Secrets Manager.
 Requires boto3 and valid AWS credentials.
 
 Usage:
-    from lib.secrets.providers import AWSSecretsProvider
+    from lib.creds.providers import AWSSecretsProvider
 
     provider = AWSSecretsProvider(region="us-east-1")
     if provider.is_available():

@@ -35,7 +35,7 @@ The secrets module auto-detects providers in this order:
 ### Getting Database Credentials
 
 ```python
-from lib.secrets import get_credentials
+from lib.creds import get_credentials
 
 # Auto-detect provider and get credentials
 creds = get_credentials()  # Uses DB_* env vars or AWS
@@ -56,7 +56,7 @@ conn = await asyncpg.connect(**creds.dsn)  # dsn contains real password
 ### Using Explicit Provider
 
 ```python
-from lib.secrets.providers import AWSSecretsProvider, EnvSecretsProvider
+from lib.creds.providers import AWSSecretsProvider, EnvSecretsProvider
 
 # Force AWS
 aws = AWSSecretsProvider(region="us-east-1")
@@ -71,7 +71,7 @@ creds = get_credentials("DB", provider=env)
 ### Masking Output
 
 ```python
-from lib.secrets import mask_output, register_secret
+from lib.creds import mask_output, register_secret
 
 # Mask known patterns
 safe = mask_output("password=secret123")  # "password=****"
@@ -92,7 +92,7 @@ register_secret(api_key)  # Now masked everywhere
 ### Permission Checking
 
 ```python
-from lib.secrets import PermissionConfig, AccessLevel, OperationType
+from lib.creds import PermissionConfig, AccessLevel, OperationType
 
 # Default: read-only
 config = PermissionConfig()

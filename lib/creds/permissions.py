@@ -24,7 +24,7 @@ SECURITY NOTE - SQL Injection Prevention:
     not as a replacement for them.
 
 Usage:
-    from lib.secrets.permissions import PermissionConfig, AccessLevel, OperationType
+    from lib.creds.permissions import PermissionConfig, AccessLevel, OperationType
 
     # Default: read-only
     config = PermissionConfig()

@@ -76,9 +76,9 @@ claude-power-pack/
 │   └── README.md                               # Full documentation
 ├── mcp-coordination/                           # MCP Coordination server
 │   └── src/server.py                           # 8 tools (Redis locking)
-├── lib/secrets/                                # Secrets management
+├── lib/creds/                                  # Secrets management
 │   ├── __init__.py                             # Main exports
-│   ├── __main__.py                             # python -m lib.secrets entry
+│   ├── __main__.py                             # python -m lib.creds entry
 │   ├── base.py                                 # SecretValue, SecretsProvider
 │   ├── cli.py                                  # CLI (get, validate commands)
 │   ├── credentials.py                          # DatabaseCredentials with masking
@@ -707,21 +707,21 @@ ln -sf ~/Projects/claude-power-pack/scripts/secrets-mask.sh ~/.claude/scripts/
 
 ```bash
 # Get database credentials (auto-detect provider)
-python -m lib.secrets get
+python -m lib.creds get
 
 # Get specific secret from AWS
-python -m lib.secrets get --provider aws prod/database
+python -m lib.creds get --provider aws prod/database
 
 # Get credentials as JSON (masked)
-python -m lib.secrets get --json
+python -m lib.creds get --json
 
 # Validate all providers
-python -m lib.secrets validate
+python -m lib.creds validate
 
 # Validate specific provider
-python -m lib.secrets validate --env
-python -m lib.secrets validate --aws
-python -m lib.secrets validate --db
+python -m lib.creds validate --env
+python -m lib.creds validate --aws
+python -m lib.creds validate --db
 ```
 
 ### Commands
@@ -735,7 +735,7 @@ python -m lib.secrets validate --db
 ### Python Usage
 
 ```python
-from lib.secrets import get_credentials
+from lib.creds import get_credentials
 
 creds = get_credentials()  # Auto-detects provider
 print(creds)  # Password masked as ****

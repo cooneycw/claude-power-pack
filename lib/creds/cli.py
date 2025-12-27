@@ -1,26 +1,26 @@
 """Command-line interface for secrets management.
 
 Usage:
-    python -m lib.secrets get [OPTIONS] [SECRET_ID]
-    python -m lib.secrets validate [OPTIONS]
+    python -m lib.creds get [OPTIONS] [SECRET_ID]
+    python -m lib.creds validate [OPTIONS]
 
 Examples:
     # Get database credentials (auto-detect provider)
-    python -m lib.secrets get
+    python -m lib.creds get
 
     # Get specific secret from AWS
-    python -m lib.secrets get --provider aws prod/database
+    python -m lib.creds get --provider aws prod/database
 
     # Get credentials as JSON
-    python -m lib.secrets get --json
+    python -m lib.creds get --json
 
     # Validate all providers
-    python -m lib.secrets validate
+    python -m lib.creds validate
 
     # Validate specific provider
-    python -m lib.secrets validate --env
-    python -m lib.secrets validate --aws
-    python -m lib.secrets validate --db
+    python -m lib.creds validate --env
+    python -m lib.creds validate --aws
+    python -m lib.creds validate --db
 """
 
 from __future__ import annotations
@@ -248,7 +248,7 @@ def cmd_validate(args: argparse.Namespace) -> int:
 def create_parser() -> argparse.ArgumentParser:
     """Create the argument parser."""
     parser = argparse.ArgumentParser(
-        prog="python -m lib.secrets",
+        prog="python -m lib.creds",
         description="Secrets management CLI with provider abstraction and masking",
     )
 

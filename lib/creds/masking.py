@@ -6,7 +6,7 @@ This module provides tools to detect and mask secrets in text output:
 - scan_for_secrets: Detect potential secrets without masking
 
 Usage:
-    from lib.secrets.masking import OutputMasker, mask_output
+    from lib.creds.masking import OutputMasker, mask_output
 
     # Quick masking
     safe_output = mask_output("password=secret123")
