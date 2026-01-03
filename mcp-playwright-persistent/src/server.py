@@ -24,12 +24,17 @@ from typing import Optional
 from dotenv import load_dotenv
 from fastmcp import FastMCP
 from playwright.async_api import async_playwright, Browser, BrowserContext, Page
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 
 # Load environment
 load_dotenv()
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
 logger = logging.getLogger(__name__)
 
 # Server configuration
@@ -60,6 +65,17 @@ mcp = FastMCP(
 sessions: dict = {}
 playwright_instance = None
 browser_instance: Optional[Browser] = None
+
+
+@mcp.custom_route("/", methods=["GET"])
+async def root_health_check(request: Request) -> JSONResponse:
+    """Health check endpoint for Claude Code MCP connection verification."""
+    return JSONResponse({
+        "status": "healthy",
+        "server": "MCP Playwright Persistent",
+        "port": SERVER_PORT,
+        "sessions": len(sessions),
+    })
 
 
 class BrowserSession:
