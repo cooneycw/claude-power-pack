@@ -707,8 +707,9 @@ async def browser_snapshot(session_id: str) -> dict:
     if not page:
         return {"error": "No active page"}
 
-    snapshot = await page.accessibility.snapshot()
-    return {"snapshot": snapshot}
+    # Use new aria_snapshot API (page.accessibility was removed in Playwright 1.49+)
+    snapshot = await page.locator("body").aria_snapshot()
+    return {"snapshot": snapshot, "format": "yaml"}
 
 
 @mcp.tool()
