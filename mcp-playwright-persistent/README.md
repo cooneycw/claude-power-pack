@@ -15,15 +15,15 @@ Persistent browser automation with session management for Claude Code.
 ## Quick Start
 
 ```bash
-# 1. Create conda environment
 cd mcp-playwright-persistent
-conda env create -f environment.yml
-conda activate mcp-playwright
+
+# 1. Install uv if not already installed
+curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # 2. Install Playwright browsers
-playwright install chromium
+uv run playwright install chromium
 
-# 3. Start server
+# 3. Start server (uv handles dependencies automatically)
 ./start-server.sh
 
 # 4. Add to Claude Code
@@ -584,8 +584,8 @@ docker-compose up -d
 ### Manual
 
 ```bash
-conda activate mcp-playwright
-python src/server.py
+cd mcp-playwright-persistent
+uv run python src/server.py
 ```
 
 ---

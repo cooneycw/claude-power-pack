@@ -96,9 +96,9 @@ SessionEnd hooks fire
 ## Common Use Cases
 
 1. **Environment Setup**
-   - Activate conda environment
    - Set environment variables
    - Load project context
+   - Initialize development tools
 
 2. **Session Tracking**
    - Register session for coordination
