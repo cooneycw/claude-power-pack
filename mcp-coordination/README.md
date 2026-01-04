@@ -23,14 +23,15 @@ redis-cli ping  # Should return PONG
 ## Installation
 
 ```bash
-# Create conda environment
-conda env create -f environment.yml
-conda activate mcp-coordination
+cd mcp-coordination
+
+# Install uv if not already installed
+curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # Copy and configure environment
 cp .env.example .env
 
-# Start server
+# Start server (uv handles dependencies automatically)
 ./start-server.sh
 ```
 
@@ -135,7 +136,7 @@ cat deploy/mcp-coordination.service
 # - User=YOUR_USERNAME
 # - WorkingDirectory=/path/to/claude-power-pack/mcp-coordination
 # - ExecStart=/path/to/claude-power-pack/mcp-coordination/start-server.sh --daemon
-# - Environment="PATH=/path/to/miniconda3/bin:..."
+# - ExecStart uses uv run for dependency management
 ```
 
 ### Step 2: Install and Enable

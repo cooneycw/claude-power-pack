@@ -13,7 +13,7 @@
 #
 # The script auto-detects:
 #   - MCP server directory (from git repository root)
-#   - Conda installation path
+#   - uv installation path
 #   - Current user
 
 set -e
@@ -69,34 +69,35 @@ fi
 
 echo -e "MCP Server Directory: ${GREEN}$MCP_SERVER_DIR${NC}"
 
-# Detect conda
-CONDA_BIN=""
-if command -v conda &> /dev/null; then
-    CONDA_BIN="$(dirname "$(which conda)")"
-elif [[ -d "$HOME/miniconda3/bin" ]]; then
-    CONDA_BIN="$HOME/miniconda3/bin"
-elif [[ -d "$HOME/anaconda3/bin" ]]; then
-    CONDA_BIN="$HOME/anaconda3/bin"
-elif [[ -d "/opt/conda/bin" ]]; then
-    CONDA_BIN="/opt/conda/bin"
+# Detect uv
+UV_BIN=""
+if command -v uv &> /dev/null; then
+    UV_BIN="$(dirname "$(which uv)")"
+elif [[ -f "$HOME/.local/bin/uv" ]]; then
+    UV_BIN="$HOME/.local/bin"
+elif [[ -f "$HOME/.cargo/bin/uv" ]]; then
+    UV_BIN="$HOME/.cargo/bin"
+elif [[ -f "/usr/local/bin/uv" ]]; then
+    UV_BIN="/usr/local/bin"
 else
-    echo -e "${RED}Error: Cannot find conda installation${NC}"
-    echo "Please ensure conda is installed and in your PATH"
+    echo -e "${RED}Error: Cannot find uv installation${NC}"
+    echo "Install uv with: curl -LsSf https://astral.sh/uv/install.sh | sh"
     exit 1
 fi
 
-echo -e "Conda Binary Directory: ${GREEN}$CONDA_BIN${NC}"
+echo -e "uv Binary Directory: ${GREEN}$UV_BIN${NC}"
 
-# Verify conda environment exists
-if ! "$CONDA_BIN/conda" env list | grep -q "mcp-playwright"; then
-    echo -e "${YELLOW}Warning: conda environment 'mcp-playwright' not found${NC}"
-    echo "Create it with: conda env create -f $MCP_SERVER_DIR/environment.yml"
+# Check for pyproject.toml
+if [[ ! -f "$MCP_SERVER_DIR/pyproject.toml" ]]; then
+    echo -e "${RED}Error: pyproject.toml not found${NC}"
+    echo "This server requires a pyproject.toml for uv to manage dependencies"
+    exit 1
 fi
 
 # Check for Playwright browsers
-if ! "$CONDA_BIN/conda" run -n mcp-playwright playwright --version &> /dev/null; then
+if ! "$UV_BIN/uv" run --project "$MCP_SERVER_DIR" playwright --version &> /dev/null; then
     echo -e "${YELLOW}Warning: Playwright browsers may not be installed${NC}"
-    echo "Install with: conda run -n mcp-playwright playwright install chromium"
+    echo "Install with: uv run --project $MCP_SERVER_DIR playwright install chromium"
 fi
 
 # Get current user
@@ -125,7 +126,7 @@ echo "Generating service file..."
 # Substitute variables
 sed -e "s|\${SERVICE_USER}|$SERVICE_USER|g" \
     -e "s|\${MCP_SERVER_DIR}|$MCP_SERVER_DIR|g" \
-    -e "s|\${CONDA_BIN}|$CONDA_BIN|g" \
+    -e "s|\${UV_BIN}|$UV_BIN|g" \
     "$TEMPLATE_FILE" > "$OUTPUT_FILE"
 
 # For user services, remove User= directive (not allowed) and fix WantedBy target

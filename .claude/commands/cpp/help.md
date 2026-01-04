@@ -22,7 +22,7 @@ CPP uses a tiered installation model:
 |------|------|-----------------|
 | 1 | **Minimal** | Commands + Skills symlinks |
 | 2 | **Standard** | + Scripts, hooks, shell prompt, coordination |
-| 3 | **Full** | + MCP servers (conda, Redis, API keys, systemd) |
+| 3 | **Full** | + MCP servers (uv, Redis, API keys, systemd) |
 
 ## Quick Start
 
@@ -41,8 +41,8 @@ CPP uses a tiered installation model:
 - **Skills**: Best practices loaders, secrets management
 
 ### Tier 2 - Standard
-- **Scripts**: Session coordination, conda detection, secret masking
-- **Hooks**: Automated conda activation, session tracking, security
+- **Scripts**: Session coordination, secret masking
+- **Hooks**: Session tracking, security
 - **Shell prompt**: Worktree context display (`[CPP #42]`)
 
 ### Tier 3 - Full

@@ -1,0 +1,25 @@
+[project]
+name = "creds"
+version = "0.1.0"
+description = "Secrets management with provider abstraction and output masking"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [
+    {name = "cooneycw"}
+]
+dependencies = []
+
+[project.optional-dependencies]
+dotenv = ["python-dotenv>=1.0.0"]
+aws = ["boto3>=1.26.0"]
+all = ["python-dotenv>=1.0.0", "boto3>=1.26.0"]
+
+[project.scripts]
+creds = "creds.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+dev-dependencies = []

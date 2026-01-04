@@ -15,8 +15,8 @@ EnvironmentFile=${MCP_SERVER_DIR}/.env
 Environment="MCP_SERVER_PORT=8080"
 Environment="MCP_SERVER_HOST=127.0.0.1"
 
-# Use conda run to execute in the correct environment (server in src/)
-ExecStart=${CONDA_BIN}/conda run -n mcp-second-opinion --no-capture-output python ${MCP_SERVER_DIR}/src/server.py
+# Use uv to run in the project environment
+ExecStart=${UV_BIN}/uv run --project ${MCP_SERVER_DIR} python src/server.py
 
 # Restart policy
 Restart=on-failure

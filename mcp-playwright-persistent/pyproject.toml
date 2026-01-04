@@ -1,0 +1,24 @@
+[project]
+name = "mcp-playwright-persistent"
+version = "1.0.0"
+description = "Persistent browser automation MCP server for Claude Code"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [
+    {name = "cooneycw"}
+]
+dependencies = [
+    "fastmcp>=2.0.0",
+    "playwright>=1.40.0",
+    "uvicorn>=0.30.0",
+    "starlette>=0.38.0",
+    "python-dotenv>=1.0.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+dev-dependencies = []

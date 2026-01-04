@@ -1,0 +1,20 @@
+[project]
+name = "spec-bridge"
+version = "0.1.0"
+description = "Parse specifications and sync tasks to GitHub issues"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [
+    {name = "cooneycw"}
+]
+dependencies = []
+
+[project.scripts]
+spec-bridge = "spec_bridge.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+dev-dependencies = []

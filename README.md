@@ -20,7 +20,7 @@ A comprehensive repository combining:
 - [Project Commands](#-project-commands) - `/project-lite` & `/project-next`
 - [GitHub Issue Management](#-github-issue-management) - Full CRUD for issues
 - [Secrets Management](#-secrets-management) - Secure credential access
-- [Environment Commands](#-environment-commands) - Conda detection
+- [Python Environment (uv)](#-python-environment-uv) - Dependency management
 - [Security Hooks](#-security-hooks) - Secret masking & command validation
 - [MCP Servers](#mcp-servers)
   - [MCP Second Opinion](#mcp-second-opinion-server) - Multi-model code review (port 8080)
@@ -45,7 +45,7 @@ This guides you through a tiered installation:
 |------|------|------------------|
 | 1 | **Minimal** | Commands + Skills symlinks |
 | 2 | **Standard** | + Scripts, hooks, shell prompt, coordination |
-| 3 | **Full** | + MCP servers (conda envs, API keys, systemd) |
+| 3 | **Full** | + MCP servers (uv, API keys, systemd) |
 
 ### CPP Commands
 
@@ -478,35 +478,32 @@ print(creds)  # Password masked as ****
 conn = await asyncpg.connect(**creds.dsn)  # dsn has real password
 ```
 
-## 🌍 Environment Commands
+## 🐍 Python Environment (uv)
 
-Automatic conda environment detection on session start.
+This project uses [uv](https://docs.astral.sh/uv/) for Python dependency management.
 
-### Commands
-
-| Command | Purpose |
-|---------|---------|
-| `/env:detect` | Show detected conda environment |
-
-### Detection Priority
-
-1. `CONDA_ENV_NAME` environment variable
-2. `.conda-env` file in project root
-3. `environment.yml` name field
-4. Directory name matching conda env
-
-### Usage
+### Quick Start
 
 ```bash
-# Show detection info
-~/.claude/scripts/conda-detect.sh --info
+# Install uv
+curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# Get activation command
-~/.claude/scripts/conda-detect.sh --activate
+# Run any MCP server (dependencies installed automatically)
+cd mcp-coordination
+./start-server.sh
 
-# Run command in detected env
-~/.claude/scripts/conda-detect.sh --run pytest tests/
+# Or run directly with uv
+uv run python src/server.py
 ```
+
+### Project Structure
+
+Each Python component has its own `pyproject.toml`:
+- `mcp-second-opinion/pyproject.toml`
+- `mcp-playwright-persistent/pyproject.toml`
+- `mcp-coordination/pyproject.toml`
+- `lib/creds/pyproject.toml`
+- `lib/spec_bridge/pyproject.toml`
 
 ## 🛡️ Security Hooks
 
@@ -544,7 +541,7 @@ Hooks are configured in `.claude/hooks.json`:
 
 | Hook | Trigger | Purpose |
 |------|---------|---------|
-| SessionStart | Session begins | Register, detect conda |
+| SessionStart | Session begins | Register session |
 | UserPromptSubmit | Each prompt | Update heartbeat |
 | PreToolUse (Bash) | Before command | Block dangerous operations |
 | PostToolUse (Bash/Read) | After tool | Mask secrets in output |
@@ -701,9 +698,8 @@ You need **at least one** API key (both recommended for multi-model comparison):
 ```bash
 cd mcp-second-opinion
 
-# Create environment
-conda env create -f environment.yml
-conda activate mcp-second-opinion
+# Install uv if not already installed
+curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # Create .env from template
 cp .env.example .env
@@ -725,20 +721,20 @@ OPENAI_API_KEY=your-openai-api-key-here
 
 **Option A: Manual start (for testing)**
 ```bash
-conda activate mcp-second-opinion
-cd mcp-second-opinion/src
-python server.py
+cd mcp-second-opinion
+./start-server.sh
+# Or directly: uv run python src/server.py
 ```
 
 **Option B: Systemd service (recommended for persistent use)**
 ```bash
-cd mcp-second-opinion/scripts
+cd mcp-second-opinion/deploy
 ./install-service.sh           # Install as user service (default)
 systemctl --user enable mcp-second-opinion
 systemctl --user start mcp-second-opinion
 ```
 
-The install script auto-detects your installation paths and conda location. Options:
+The install script auto-detects your installation paths and uv location. Options:
 - `--user` - Install as user service (no sudo, starts on login)
 - `--system` - Install as system service (requires sudo, starts on boot)
 - `--generate-only` - Generate service file without installing
@@ -870,11 +866,12 @@ Persistent browser automation with session management for testing and web intera
 
 ```bash
 cd mcp-playwright-persistent
-conda env create -f environment.yml
-conda activate mcp-playwright
+
+# Install uv if not already installed
+curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # Install Playwright browsers
-playwright install chromium
+uv run playwright install chromium
 
 # Start server
 ./start-server.sh
@@ -942,8 +939,9 @@ redis-cli ping  # Should return PONG
 
 ```bash
 cd mcp-coordination
-conda env create -f environment.yml
-conda activate mcp-coordination
+
+# Install uv if not already installed
+curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # Start server
 ./start-server.sh
@@ -1000,32 +998,20 @@ See `mcp-coordination/README.md` for detailed documentation.
 
 ### Prerequisites
 - Python 3.11+
-- Conda (recommended) or pip
+- [uv](https://docs.astral.sh/uv/) - Modern Python package manager
 - Git
 
-#### Installing Conda (if not already installed)
-
-If you don't have conda installed, install Miniconda:
+#### Installing uv (if not already installed)
 
 ```bash
-# Download and install Miniconda
-curl -fsSL https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -o /tmp/miniconda.sh
-bash /tmp/miniconda.sh -b -p $HOME/miniconda3
+# Linux/macOS
+curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# Initialize conda for your shell
-~/miniconda3/bin/conda init bash
-source ~/.bashrc
+# Or with pip
+pip install uv
 
-# Accept Terms of Service (required for new installations)
-conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main
-conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r
-```
-
-For macOS, replace the download URL with:
-```bash
-curl -fsSL https://repo.anaconda.com/miniconda/Miniconda3-latest-MacOSX-x86_64.sh -o /tmp/miniconda.sh
-# Or for Apple Silicon:
-curl -fsSL https://repo.anaconda.com/miniconda/Miniconda3-latest-MacOSX-arm64.sh -o /tmp/miniconda.sh
+# Verify installation
+uv --version
 ```
 
 ### Step 1: Clone Repository
@@ -1035,26 +1021,24 @@ git clone https://github.com/cooneycw/claude-power-pack.git
 cd claude-power-pack
 ```
 
-### Step 2: Environment Setup
+### Step 2: MCP Server Setup
 
-#### For Best Practices Tools Only:
-```bash
-conda create -n claude-power-pack python=3.11 -y
-conda activate claude-power-pack
-pip install requests  # For Reddit scraper
-```
+Each MCP server automatically manages its dependencies via `pyproject.toml`. Simply run the start script:
 
-#### For MCP Second Opinion:
 ```bash
+# MCP Second Opinion (port 8080)
 cd mcp-second-opinion
-conda env create -f environment.yml
-conda activate mcp-second-opinion
-```
+cp .env.example .env  # Configure API keys
+./start-server.sh
 
-Or with pip:
-```bash
-pip install mcp[cli]>=1.2.0 fastmcp>=1.0 google-genai>=1.0.0 \
-           openai>=1.50.0 tenacity>=8.0.0 pydantic>=2.0.0 httpx>=0.24.0
+# MCP Playwright (port 8081)
+cd mcp-playwright-persistent
+uv run playwright install chromium  # First time only
+./start-server.sh
+
+# MCP Coordination (port 8082)
+cd mcp-coordination
+./start-server.sh
 ```
 
 ### Step 3: Configure API Keys
@@ -1172,7 +1156,6 @@ claude-power-pack/
 │   ├── session-*.sh                            # Session coordination
 │   ├── hook-mask-output.sh                     # Secret masking
 │   ├── hook-validate-command.sh                # Command validation
-│   ├── conda-detect.sh                         # Conda detection
 │   └── worktree-remove.sh                      # Safe worktree removal
 ├── .claude/
 │   ├── commands/
@@ -1299,20 +1282,26 @@ MIT License - See LICENSE file for details
 
 ---
 
-**Repository Version**: 2.8.0 (Full Documentation Update)
-**Last Updated**: December 2025
+**Repository Version**: 3.0.0 (uv Migration)
+**Last Updated**: January 2026
 **Maintainer**: cooneycw
 
-## What's New in v2.8.0
+## What's New in v3.0.0
+
+- **Migrated to uv** - Replaced conda with uv for all Python dependency management
+- **pyproject.toml** - All MCP servers and libraries now use pyproject.toml
+- **Faster Setup** - Dependencies install automatically via `uv run`
+- **Smaller Footprint** - Virtual environments ~200MB vs ~1.5GB with conda
+- **Removed conda scripts** - No more conda-detect.sh, conda-activate.sh, or environment.yml
+
+### Previous: v2.8.0
 
 - **CPP Initialization Wizard** - `/cpp:init` with tiered installation (Minimal/Standard/Full)
 - **Spec-Driven Development** - `.specify/` structure with `/spec:*` commands
 - **MCP Playwright Persistent** - 29 tools for browser automation (port 8081)
 - **MCP Coordination Server** - Redis-backed distributed locking (port 8082)
-- **Secrets Management** - `/secrets:*` commands with `lib/secrets/` Python module
-- **Environment Commands** - `/env:detect` for conda environment detection
+- **Secrets Management** - `/secrets:*` commands with `lib/creds/` Python module
 - **Security Hooks** - Secret masking and dangerous command blocking
-- **Comprehensive README Update** - Full documentation of all features
 
 ### Previous: v2.2.0
 

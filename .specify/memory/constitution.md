@@ -49,7 +49,7 @@ Use Python for all scripting that needs to work across platforms.
 
 - Bash scripts only for simple, Linux-only utilities
 - Python 3.11+ with type hints
-- Use conda for environment management
+- Use uv for dependency management (pyproject.toml)
 - Follow existing `lib/` module patterns
 
 ---

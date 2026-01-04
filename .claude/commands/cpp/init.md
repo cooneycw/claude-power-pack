@@ -1,6 +1,6 @@
 ---
 description: Interactive setup wizard for Claude Power Pack
-allowed-tools: Bash(mkdir:*), Bash(ln:*), Bash(ls:*), Bash(test:*), Bash(readlink:*), Bash(cat:*), Bash(cp:*), Bash(conda env list:*), Bash(conda env create:*), Bash(claude mcp list:*), Bash(claude mcp add:*), Bash(redis-cli:*), Bash(sudo apt install:*), Bash(sudo systemctl:*), Bash(systemctl:*), Bash(playwright install:*), Bash(source:*)
+allowed-tools: Bash(mkdir:*), Bash(ln:*), Bash(ls:*), Bash(test:*), Bash(readlink:*), Bash(cat:*), Bash(cp:*), Bash(uv:*), Bash(claude mcp list:*), Bash(claude mcp add:*), Bash(redis-cli:*), Bash(sudo apt install:*), Bash(sudo systemctl:*), Bash(systemctl:*), Bash(command -v:*)
 ---
 
 # Claude Power Pack Setup Wizard
@@ -54,9 +54,13 @@ HOOKS_EXIST=false
 REDIS_RUNNING=false
 redis-cli ping 2>/dev/null | grep -q PONG && REDIS_RUNNING=true
 
-CONDA_ENVS=""
-for env in mcp-second-opinion mcp-coordination mcp-playwright; do
-  conda env list 2>/dev/null | grep -q "^$env " && CONDA_ENVS="$CONDA_ENVS $env"
+UV_INSTALLED=false
+command -v uv &>/dev/null && UV_INSTALLED=true
+
+# Check for pyproject.toml in each MCP server
+MCP_PROJECTS=""
+for server in mcp-second-opinion mcp-coordination mcp-playwright-persistent; do
+  [ -f "$CPP_DIR/$server/pyproject.toml" ] && MCP_PROJECTS="$MCP_PROJECTS $server"
 done
 
 MCP_SERVERS=""
@@ -80,7 +84,7 @@ Ask the user which tier they want to install using the AskUserQuestion tool:
 |------|------|-------------|
 | 1 | **Minimal** | Commands + Skills symlinks only |
 | 2 | **Standard** | + Scripts, hooks, shell prompt, session coordination |
-| 3 | **Full** | + MCP servers (Redis, conda envs, API keys) |
+| 3 | **Full** | + MCP servers (Redis, uv, API keys) |
 
 Default recommendation: **Standard** for most users, **Full** for multi-session workflows.
 
@@ -126,15 +130,13 @@ This will make the following changes:
     • session-lock.sh        - Distributed locking (file-based)
     • session-heartbeat.sh   - Activity tracking
     • pytest-locked.sh       - Coordinated test execution
-    • conda-detect.sh        - Environment detection
-    • conda-activate.sh      - Activation helper
     • secrets-mask.sh        - Output masking filter
     • hook-mask-output.sh    - PostToolUse secret masking
     • hook-validate-command.sh - PreToolUse safety checks
     • worktree-remove.sh     - Safe worktree cleanup
 
   [Tier 2 - Hooks] (.claude/hooks.json)
-    • SessionStart: conda detection, session registration
+    • SessionStart: Session registration
     • UserPromptSubmit: heartbeat update
     • PreToolUse: block dangerous commands
     • PostToolUse: mask secrets in output
@@ -169,13 +171,13 @@ This will make the following changes:
     • redis-server (~2 MB installed)
     • Auto-enabled to start on boot
 
-  [Tier 3 - Conda Environments] (~1.5 GB total)
-    • mcp-second-opinion  - Gemini/OpenAI code review (~500 MB)
-    • mcp-coordination    - Redis-backed locking (~300 MB)
-    • mcp-playwright      - Browser automation (~500 MB)
+  [Tier 3 - Python Virtual Environments (uv)] (~200 MB total)
+    • mcp-second-opinion/.venv  - Gemini/OpenAI code review (~80 MB)
+    • mcp-coordination/.venv    - Redis-backed locking (~50 MB)
+    • mcp-playwright-persistent/.venv - Browser automation (~70 MB)
 
   [Tier 3 - Playwright Browsers]
-    • Chromium (~150 MB)
+    • Chromium (~150 MB, installed via `uv run playwright install chromium`)
 
   [Tier 3 - API Keys Required]
     • GEMINI_API_KEY - For mcp-second-opinion (get from https://aistudio.google.com/apikey)
@@ -190,15 +192,15 @@ This will make the following changes:
     • mcp-second-opinion/.env
     • mcp-coordination/.env
 
-  Disk usage: ~1.7 GB
+  Disk usage: ~350 MB (venvs) + 150 MB (Chromium)
   Ports used: 8080, 8081, 8082
 
   To undo:
     # Tier 1+2 cleanup (see above)
     sudo apt remove redis-server
-    conda env remove -n mcp-second-opinion
-    conda env remove -n mcp-coordination
-    conda env remove -n mcp-playwright
+    rm -rf {CPP_DIR}/mcp-second-opinion/.venv
+    rm -rf {CPP_DIR}/mcp-coordination/.venv
+    rm -rf {CPP_DIR}/mcp-playwright-persistent/.venv
     claude mcp remove second-opinion
     claude mcp remove coordination
     claude mcp remove playwright-persistent
@@ -345,38 +347,30 @@ else
 fi
 ```
 
-#### 3b. Conda Environments
+#### 3b. Install uv and Sync Dependencies
 
 ```bash
-# mcp-second-opinion
-if ! conda env list | grep -q "^mcp-second-opinion "; then
-  echo "Creating mcp-second-opinion environment..."
-  cd "$CPP_DIR/mcp-second-opinion"
-  conda env create -f environment.yml
-  echo "✓ mcp-second-opinion environment created"
+# Check if uv is installed
+if ! command -v uv &>/dev/null; then
+  echo "Installing uv..."
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+  export PATH="$HOME/.local/bin:$PATH"
+  echo "✓ uv installed"
 else
-  echo "→ mcp-second-opinion environment exists (skipped)"
+  echo "→ uv already installed ($(uv --version))"
 fi
 
-# mcp-coordination
-if ! conda env list | grep -q "^mcp-coordination "; then
-  echo "Creating mcp-coordination environment..."
-  cd "$CPP_DIR/mcp-coordination"
-  conda env create -f environment.yml
-  echo "✓ mcp-coordination environment created"
-else
-  echo "→ mcp-coordination environment exists (skipped)"
-fi
-
-# mcp-playwright
-if ! conda env list | grep -q "^mcp-playwright "; then
-  echo "Creating mcp-playwright environment..."
-  cd "$CPP_DIR/mcp-playwright-persistent"
-  conda env create -f environment.yml
-  echo "✓ mcp-playwright environment created"
-else
-  echo "→ mcp-playwright environment exists (skipped)"
-fi
+# Sync dependencies for each MCP server
+for server in mcp-second-opinion mcp-coordination mcp-playwright-persistent; do
+  if [ ! -d "$CPP_DIR/$server/.venv" ]; then
+    echo "Creating virtual environment for $server..."
+    cd "$CPP_DIR/$server"
+    uv sync
+    echo "✓ $server venv created"
+  else
+    echo "→ $server venv exists (skipped)"
+  fi
+done
 ```
 
 #### 3c. Playwright Browser
@@ -384,9 +378,8 @@ fi
 ```bash
 # Install Chromium for Playwright
 echo "Installing Playwright Chromium browser..."
-source ~/miniconda3/etc/profile.d/conda.sh
-conda activate mcp-playwright
-playwright install chromium
+cd "$CPP_DIR/mcp-playwright-persistent"
+uv run playwright install chromium
 echo "✓ Chromium browser installed"
 ```
 
@@ -551,13 +544,16 @@ Documentation:
 
 ## Error Handling
 
-### Conda Not Installed
+### uv Not Installed
 ```
-⚠ Conda not found. Tier 3 requires conda for MCP server environments.
+⚠ uv not found. Tier 3 requires uv for MCP server environments.
 
-Options:
-  1. Install Miniconda: https://docs.conda.io/en/latest/miniconda.html
-  2. Skip Tier 3 and use Standard tier only
+Installing uv automatically...
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+
+If automatic installation fails:
+  1. Install manually: https://docs.astral.sh/uv/
+  2. Or skip Tier 3 and use Standard tier only
 
 Skip Tier 3 components? [Y/n]
 ```

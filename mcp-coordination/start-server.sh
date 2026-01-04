@@ -17,17 +17,10 @@ if [[ -f .env ]]; then
     set +a
 fi
 
-# Activate conda environment
-CONDA_ENV="${CONDA_ENV:-mcp-coordination}"
-if command -v conda &>/dev/null; then
-    eval "$(conda shell.bash hook)"
-    conda activate "$CONDA_ENV"
-fi
-
-# Run server
-cd src
+# Run server using uv
+echo "Starting Coordination MCP Server..."
 if [[ "${1:-}" == "--daemon" ]]; then
-    exec python server.py
+    exec uv run python src/server.py
 else
-    python server.py
+    uv run python src/server.py
 fi

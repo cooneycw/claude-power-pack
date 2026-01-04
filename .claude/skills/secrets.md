@@ -126,7 +126,6 @@ some_command | ~/.claude/scripts/secrets-mask.sh
 
 - `/secrets:get [secret_id]` - Get and display credentials (masked)
 - `/secrets:validate` - Test credential configuration
-- `/env:detect` - Show conda environment detection
 
 ## Best Practices
 
