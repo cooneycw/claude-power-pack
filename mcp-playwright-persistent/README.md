@@ -318,11 +318,11 @@ screenshot = browser_screenshot(session_id="abc123", selector="div#chart")
 
 #### browser_snapshot
 
-Get an accessibility snapshot of the page.
+Get an accessibility snapshot of the page (ARIA snapshot in YAML format).
 
 ```python
 snapshot = browser_snapshot(session_id="abc123")
-# Returns: {snapshot: {...accessibility tree...}}
+# Returns: {snapshot: "- document: ...", format: "yaml"}
 ```
 
 #### browser_pdf
