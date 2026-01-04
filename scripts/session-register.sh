@@ -699,13 +699,22 @@ main() {
             ;;
         claim)
             # claim OWNER/REPO NUM [TITLE] [PREFIX]
+            # Note: repo_spec can come from $2 or REPO_INFO env var
+            # This handles the common pattern: REPO_INFO="owner/repo" script claim "$REPO_INFO" ...
+            # where $REPO_INFO expands empty due to shell evaluation order
             local repo_spec="${2:-}"
             local issue_num="${3:-}"
             local title="${4:-}"
             local prefix="${5:-}"
 
+            # Fallback to REPO_INFO env var if repo_spec is empty
+            if [[ -z "$repo_spec" ]] && [[ -n "${REPO_INFO:-}" ]]; then
+                repo_spec="$REPO_INFO"
+            fi
+
             if [[ -z "$repo_spec" ]] || [[ -z "$issue_num" ]]; then
                 echo -e "${RED}Usage: session-register.sh claim OWNER/REPO ISSUE_NUM [TITLE] [PREFIX]${NC}" >&2
+                echo -e "${YELLOW}Hint: Set REPO_INFO env var or pass repo as first argument${NC}" >&2
                 exit 1
             fi
 
