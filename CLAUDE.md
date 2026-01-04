@@ -462,6 +462,13 @@ Prevent conflicts between concurrent Claude Code sessions.
 - No visibility into active work
 - Worktree cleanup conflicts
 
+### Prerequisites
+```bash
+# Install jq (JSON processor - required for session coordination)
+sudo apt install jq   # Debian/Ubuntu
+# or: brew install jq  # macOS
+```
+
 ### Setup
 ```bash
 # Symlink scripts
