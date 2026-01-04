@@ -1,71 +1,68 @@
 # Installation Issues Log
 
-Issues encountered during fresh installation of the claude-power-pack Second Opinion MCP Server.
+Issues encountered during installation of the claude-power-pack MCP servers.
 
-## Issue 1: Conda Not Found
+## uv Installation
 
-**Problem**: Fresh Linux systems may not have conda installed. The installation instructions assume conda is available.
+This project uses [uv](https://docs.astral.sh/uv/) for Python dependency management. Install it with:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+## Issue 1: Playwright Browsers Not Installed
+
+**Problem**: Playwright MCP server fails to start because Chromium browser is not installed.
 
 **Error**:
 ```
-/bin/bash: conda: command not found
+playwright._impl._errors.Error: Executable doesn't exist at /home/user/.cache/ms-playwright/chromium-xxx/chrome-linux/chrome
 ```
 
-**Solution**: Add instructions to install Miniconda first:
+**Solution**: Install Playwright browsers:
 ```bash
-curl -fsSL https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -o /tmp/miniconda.sh
-bash /tmp/miniconda.sh -b -p $HOME/miniconda3
-~/miniconda3/bin/conda init bash
-source ~/.bashrc
+cd mcp-playwright-persistent
+uv run playwright install chromium
 ```
-
-**Recommendation**: Add a prerequisites section to the README with conda installation instructions.
 
 ---
 
-## Issue 2: Conda Terms of Service Acceptance Required
+## Issue 2: API Keys Not Configured
 
-**Problem**: New conda installations require accepting Terms of Service before creating environments.
+**Problem**: MCP Second Opinion server fails because API keys are missing.
 
 **Error**:
 ```
-CondaToSNonInteractiveError: Terms of Service have not been accepted for the following channels.
+Missing API key: GEMINI_API_KEY or OPENAI_API_KEY
 ```
 
-**Solution**: Run these commands before creating the environment:
+**Solution**: Copy the .env.example and add your keys:
 ```bash
-conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main
-conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r
+cd mcp-second-opinion
+cp .env.example .env
+# Edit .env with your API keys
 ```
-
-**Recommendation**: Add this step to the installation instructions.
 
 ---
 
-## Issue 3: Deprecated google.generativeai Package
+## Issue 3: Redis Not Running (Coordination Server)
 
-**Problem**: Server shows deprecation warning for `google.generativeai` package.
+**Problem**: MCP Coordination server fails because Redis is not available.
 
-**Warning**:
+**Error**:
 ```
-FutureWarning: All support for the `google.generativeai` package has ended.
-Please switch to the `google.genai` package as soon as possible.
+redis.exceptions.ConnectionError: Error -2 connecting to localhost:6379
 ```
 
-**Impact**: Non-blocking - server still functions correctly.
-
-**Recommendation**: Consider migrating from `google-generativeai` to `google.genai` in a future update.
-
----
-
-## Summary of Required Changes
-
-1. ~~**README.md**: Add prerequisites section with conda installation~~ ✅ DONE
-2. ~~**README.md**: Add conda ToS acceptance step~~ ✅ DONE
-3. ~~**environment.yml**: Migrate to `google-genai` package~~ ✅ DONE
-4. **New file**: Created `start-server.sh` for easier server startup ✅ DONE
+**Solution**: Install and start Redis:
+```bash
+sudo apt install redis-server
+sudo systemctl enable redis-server
+sudo systemctl start redis-server
+redis-cli ping  # Should return PONG
+```
 
 ---
 
 *Generated: 2025-12-20*
-*Updated: 2025-12-20 - Issues 1, 2 & 3 addressed. All migration complete.*
+*Updated: 2026-01-04 - Migrated from conda to uv*

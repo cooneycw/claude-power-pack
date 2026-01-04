@@ -1,0 +1,26 @@
+[project]
+name = "mcp-second-opinion"
+version = "1.0.0"
+description = "Gemini-powered code review MCP server for Claude Code"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [
+    {name = "cooneycw"}
+]
+dependencies = [
+    "mcp[cli]>=1.2.0",
+    "fastmcp>=1.0",
+    "google-genai>=1.0.0",
+    "openai>=1.50.0",
+    "tenacity>=8.0.0",
+    "pydantic>=2.0.0",
+    "httpx>=0.24.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+dev-dependencies = []

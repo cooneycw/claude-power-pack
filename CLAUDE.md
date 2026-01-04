@@ -23,7 +23,7 @@ This repository contains five main components:
 ## Key Conventions
 
 - Python 3.11+
-- Use conda environments for MCP servers
+- Use uv for dependency management (pyproject.toml)
 - MCP Second Opinion: port 8080
 - MCP Playwright: port 8081
 - MCP Coordination: port 8082
@@ -34,7 +34,6 @@ This repository contains five main components:
 | Variable | Purpose | Example |
 |----------|---------|---------|
 | `CLAUDE_PROJECT` | Default project for `/project-next` when run from `~/Projects` | `claude-power-pack` |
-| `CONDA_ENV_NAME` | Override conda environment detection | `mcp-second-opinion` |
 
 **Setup (add to `~/.bashrc`):**
 ```bash
@@ -98,8 +97,6 @@ claude-power-pack/
 │   ├── session-heartbeat.sh                    # Heartbeat daemon
 │   ├── pytest-locked.sh                        # pytest wrapper
 │   ├── worktree-remove.sh                      # Safe worktree removal
-│   ├── conda-detect.sh                         # Conda env detection
-│   ├── conda-activate.sh                       # Conda activation
 │   ├── secrets-mask.sh                         # Output masking
 │   ├── hook-mask-output.sh                     # PostToolUse: mask secrets
 │   └── hook-validate-command.sh                # PreToolUse: block dangerous commands
@@ -136,7 +133,7 @@ claude-power-pack/
 │   │   ├── claude-md-config.md                 # → docs/skills/
 │   │   ├── code-quality.md                     # → docs/skills/
 │   │   └── secrets.md                          # Secrets skill
-│   └── hooks.json                              # Session/conda hooks
+│   └── hooks.json                              # Session hooks
 ├── .github/
 │   └── ISSUE_TEMPLATE/                         # Structured issue templates
 └── README.md                                    # Quick start guide
@@ -177,7 +174,7 @@ This guides you through a tiered installation:
 |------|------------------|
 | **Minimal** | Commands + Skills symlinks |
 | **Standard** | + Scripts, hooks, shell prompt |
-| **Full** | + MCP servers (conda, API keys) |
+| **Full** | + MCP servers (uv, API keys) |
 
 Run `/cpp:status` to check current installation, `/cpp:help` for all commands.
 
@@ -398,7 +395,7 @@ Commands for managing Claude Power Pack installation:
 |------|------|-----------------|
 | 1 | Minimal | Commands + Skills symlinks |
 | 2 | Standard | + Scripts, hooks, shell prompt, coordination |
-| 3 | Full | + MCP servers (conda envs, API keys, systemd) |
+| 3 | Full | + MCP servers (uv, API keys, systemd) |
 
 The wizard detects existing configuration and skips already-installed components (idempotent).
 
@@ -535,7 +532,7 @@ Hooks are configured in `.claude/hooks.json`:
 
 | Hook | Trigger | Purpose |
 |------|---------|---------|
-| SessionStart | Session begins | Register, detect conda |
+| SessionStart | Session begins | Register session |
 | UserPromptSubmit | Each prompt | Update heartbeat |
 | PreToolUse (Bash) | Before command | Block dangerous operations |
 | PostToolUse (Bash/Read) | After tool | Mask secrets in output |
@@ -566,12 +563,11 @@ redis-cli ping  # Should return PONG
 ### Setup
 
 ```bash
-# Create conda environment
-cd mcp-coordination
-conda env create -f environment.yml
-conda activate mcp-coordination
+# Install uv if not already installed
+curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# Start server
+# Start server (uv handles dependencies automatically)
+cd mcp-coordination
 ./start-server.sh
 ```
 
@@ -633,15 +629,14 @@ Persistent browser automation with session management for testing and web intera
 ### Setup
 
 ```bash
-# Create conda environment
-cd mcp-playwright-persistent
-conda env create -f environment.yml
-conda activate mcp-playwright
+# Install uv if not already installed
+curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # Install Playwright browsers
-playwright install chromium
+cd mcp-playwright-persistent
+uv run playwright install chromium
 
-# Start server
+# Start server (uv handles dependencies automatically)
 ./start-server.sh
 ```
 
@@ -730,7 +725,6 @@ python -m lib.creds validate --db
 |---------|---------|
 | `/secrets:get [id]` | Get credentials (masked output) |
 | `/secrets:validate` | Test credential configuration |
-| `/env:detect` | Show detected conda environment |
 
 ### Python Usage
 
@@ -749,39 +743,34 @@ conn = await asyncpg.connect(**creds.dsn)  # dsn has real password
 some_command | ~/.claude/scripts/secrets-mask.sh
 ```
 
-## Conda Environment Detection
+## Python Environment (uv)
 
-Automatic conda environment detection on session start.
+This project uses [uv](https://docs.astral.sh/uv/) for Python dependency management.
 
-### Detection Priority
-
-1. `CONDA_ENV_NAME` environment variable
-2. `.conda-env` file in project root
-3. `environment.yml` name field
-4. Directory name matching conda env
-
-### Commands
+### Quick Start
 
 ```bash
-# Show detection info
-~/.claude/scripts/conda-detect.sh --info
+# Install uv
+curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# Get activation command
-~/.claude/scripts/conda-detect.sh --activate
+# Run any MCP server (dependencies installed automatically)
+cd mcp-coordination
+./start-server.sh
 
-# Run command in detected env
-~/.claude/scripts/conda-detect.sh --run pytest tests/
+# Or run directly with uv
+uv run python src/server.py
 ```
 
-### Creating .conda-env
+### Project Structure
 
-For projects without `environment.yml`:
-
-```bash
-echo "my-project-env" > .conda-env
-```
+Each Python component has its own `pyproject.toml`:
+- `mcp-second-opinion/pyproject.toml`
+- `mcp-playwright-persistent/pyproject.toml`
+- `mcp-coordination/pyproject.toml`
+- `lib/creds/pyproject.toml`
+- `lib/spec_bridge/pyproject.toml`
 
 ## Version
 
-Current version: 2.8.0
-Previous: 2.7.0 (Full README documentation update)
+Current version: 3.0.0
+Previous: 2.8.0 (Before uv migration)

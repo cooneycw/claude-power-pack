@@ -1,6 +1,6 @@
 ---
 description: Check Claude Power Pack installation state
-allowed-tools: Bash(ls:*), Bash(test:*), Bash(readlink:*), Bash(conda env list:*), Bash(claude mcp list:*), Bash(systemctl:*), Bash(redis-cli:*)
+allowed-tools: Bash(ls:*), Bash(test:*), Bash(readlink:*), Bash(uv:*), Bash(claude mcp list:*), Bash(systemctl:*), Bash(redis-cli:*)
 ---
 
 # CPP Installation Status
@@ -61,7 +61,7 @@ Check scripts, hooks, and shell prompt:
 # Check scripts
 SCRIPTS_INSTALLED=0
 SCRIPTS_TOTAL=0
-for script in prompt-context.sh session-register.sh session-lock.sh session-heartbeat.sh pytest-locked.sh conda-detect.sh secrets-mask.sh hook-mask-output.sh hook-validate-command.sh worktree-remove.sh; do
+for script in prompt-context.sh session-register.sh session-lock.sh session-heartbeat.sh pytest-locked.sh secrets-mask.sh hook-mask-output.sh hook-validate-command.sh worktree-remove.sh; do
   SCRIPTS_TOTAL=$((SCRIPTS_TOTAL + 1))
   if [ -f ~/.claude/scripts/$script ] || [ -L ~/.claude/scripts/$script ]; then
     SCRIPTS_INSTALLED=$((SCRIPTS_INSTALLED + 1))
@@ -90,6 +90,14 @@ fi
 Check MCP servers and dependencies:
 
 ```bash
+# Check uv
+if command -v uv &>/dev/null; then
+  UV_VERSION=$(uv --version 2>/dev/null || echo "unknown")
+  echo "[x] uv: $UV_VERSION"
+else
+  echo "[ ] uv: not installed"
+fi
+
 # Check Redis
 if command -v redis-cli &>/dev/null && redis-cli ping 2>/dev/null | grep -q PONG; then
   echo "[x] Redis: running"
@@ -99,14 +107,14 @@ else
   echo "[ ] Redis: not installed"
 fi
 
-# Check conda environments
+# Check MCP server pyproject.toml files
 echo ""
-echo "Conda Environments:"
-for env in mcp-second-opinion mcp-coordination mcp-playwright; do
-  if conda env list 2>/dev/null | grep -q "^$env "; then
-    echo "  [x] $env"
+echo "MCP Server Projects:"
+for server in mcp-second-opinion mcp-coordination mcp-playwright-persistent; do
+  if [ -f "$CPP_DIR/$server/pyproject.toml" ]; then
+    echo "  [x] $server: pyproject.toml found"
   else
-    echo "  [ ] $env"
+    echo "  [ ] $server: pyproject.toml missing"
   fi
 done
 
@@ -159,15 +167,16 @@ Tier 1 (Minimal):
   Status: Complete
 
 Tier 2 (Standard):
-  [x] Scripts: 10/10 installed
+  [x] Scripts: 9/9 installed
   [x] Hooks: 5 hooks configured
   [ ] Shell prompt: not configured
   Status: Partial
 
 Tier 3 (Full):
+  [x] uv: 0.5.x
   [x] Redis: running
-  [x] mcp-second-opinion: env + registered
-  [ ] mcp-coordination: env missing
+  [x] mcp-second-opinion: pyproject.toml + registered
+  [ ] mcp-coordination: not registered
   [ ] mcp-playwright: not configured
   [ ] Systemd: not installed
   Status: Partial

@@ -11,9 +11,8 @@ ExecStart=/home/cooneycw/Projects/claude-power-pack/mcp-coordination/start-serve
 Restart=on-failure
 RestartSec=5
 
-# Environment
-Environment="CONDA_ENV=mcp-coordination"
-Environment="PATH=/home/cooneycw/miniconda3/bin:/usr/local/bin:/usr/bin:/bin"
+# Environment - uv should be in PATH
+Environment="PATH=/home/cooneycw/.local/bin:/usr/local/bin:/usr/bin:/bin"
 
 # Logging
 StandardOutput=journal
