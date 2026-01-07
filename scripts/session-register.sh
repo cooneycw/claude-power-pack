@@ -615,7 +615,7 @@ cleanup_sessions() {
             # Remove session files
             rm -f "$session_file" "$HEARTBEAT_DIR/${session_id}.heartbeat"
             echo -e "  ${RED}Removed stale session:${NC} $session_id"
-            ((cleaned++))
+            cleaned=$((cleaned + 1))
         fi
     done
 
