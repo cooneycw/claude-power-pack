@@ -96,12 +96,30 @@ get_repo_name() {
     basename "$git_dir"
 }
 
-# Check if session is alive (has recent heartbeat)
+# Check if a process is still running
+# Returns 0 if running, 1 if dead
+is_process_alive() {
+    local pid="$1"
+    [[ -n "$pid" ]] && [[ "$pid" != "null" ]] && kill -0 "$pid" 2>/dev/null
+}
+
+# Check if session is alive (process running OR recent heartbeat)
 # Uses IDLE_THRESHOLD to consider active/idle sessions as "alive"
 is_session_alive() {
     local session_id="$1"
+    local session_file="$SESSION_DIR/${session_id}.json"
     local heartbeat_file="$HEARTBEAT_DIR/${session_id}.heartbeat"
 
+    # First check: is the process still running?
+    if [[ -f "$session_file" ]]; then
+        local pid=$(jq -r '.pid // empty' "$session_file" 2>/dev/null)
+        if [[ -n "$pid" ]] && ! is_process_alive "$pid"; then
+            # Process is dead - session is definitely dead
+            return 1
+        fi
+    fi
+
+    # Second check: heartbeat freshness
     if [[ ! -f "$heartbeat_file" ]]; then
         return 1
     fi
@@ -110,7 +128,7 @@ is_session_alive() {
     local now=$(date +%s)
     local age=$((now - last_beat))
 
-    # Consider alive if active or idle (< 5 minutes)
+    # Consider alive if active or idle (< 1 hour)
     [[ $age -lt $IDLE_THRESHOLD ]]
 }
 
@@ -118,7 +136,17 @@ is_session_alive() {
 # Returns: "active", "idle", "stale", "abandoned", or "dead"
 get_session_status() {
     local session_id="$1"
+    local session_file="$SESSION_DIR/${session_id}.json"
     local heartbeat_file="$HEARTBEAT_DIR/${session_id}.heartbeat"
+
+    # First check: is the process still running?
+    if [[ -f "$session_file" ]]; then
+        local pid=$(jq -r '.pid // empty' "$session_file" 2>/dev/null)
+        if [[ -n "$pid" ]] && ! is_process_alive "$pid"; then
+            echo "dead"
+            return
+        fi
+    fi
 
     if [[ ! -f "$heartbeat_file" ]]; then
         echo "dead"
