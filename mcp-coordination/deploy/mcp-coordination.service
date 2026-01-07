@@ -1,18 +1,16 @@
 [Unit]
 Description=MCP Coordination Server (Redis-backed distributed locking)
-After=network.target redis-server.service
-Requires=redis-server.service
+After=network.target
 
 [Service]
 Type=simple
-User=cooneycw
-WorkingDirectory=/home/cooneycw/Projects/claude-power-pack/mcp-coordination
-ExecStart=/home/cooneycw/Projects/claude-power-pack/mcp-coordination/start-server.sh --daemon
+WorkingDirectory=%h/Projects/claude-power-pack/mcp-coordination
+ExecStart=%h/.local/bin/uv run python src/server.py
 Restart=on-failure
 RestartSec=5
 
-# Environment - uv should be in PATH
-Environment="PATH=/home/cooneycw/.local/bin:/usr/local/bin:/usr/bin:/bin"
+# Environment - uv and local bin in PATH
+Environment="PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin"
 
 # Logging
 StandardOutput=journal
@@ -20,4 +18,4 @@ StandardError=journal
 SyslogIdentifier=mcp-coordination
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=default.target
