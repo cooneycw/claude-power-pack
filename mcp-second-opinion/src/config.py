@@ -72,19 +72,20 @@ class _SecretStr:
         return bool(self._secret_value)
 
 
+# Load API keys at module level (before class definition)
+# This avoids the @classmethod @property pattern which is broken in Python 3.14
+_gemini_api_key_secret = _SecretStr(os.getenv("GEMINI_API_KEY"))
+_openai_api_key_secret = _SecretStr(os.getenv("OPENAI_API_KEY"))
+
+
 class Config:
     """Configuration settings for the MCP server."""
 
     # ==========================================================================
     # Gemini API Configuration
     # ==========================================================================
-    _GEMINI_API_KEY: _SecretStr = _SecretStr(os.getenv("GEMINI_API_KEY"))
-
-    @classmethod
-    @property
-    def GEMINI_API_KEY(cls) -> Optional[str]:
-        """Get the Gemini API key. Use this instead of accessing _GEMINI_API_KEY directly."""
-        return cls._GEMINI_API_KEY.get_secret_value()
+    # API key loaded at module level to avoid @classmethod @property issues in Python 3.14
+    GEMINI_API_KEY: Optional[str] = _gemini_api_key_secret.get_secret_value()
 
     # Model Selection Strategy
     # Primary: Gemini 3 Pro Preview (best quality)
@@ -106,13 +107,8 @@ class Config:
     # ==========================================================================
     # OpenAI API Configuration
     # ==========================================================================
-    _OPENAI_API_KEY: _SecretStr = _SecretStr(os.getenv("OPENAI_API_KEY"))
-
-    @classmethod
-    @property
-    def OPENAI_API_KEY(cls) -> Optional[str]:
-        """Get the OpenAI API key. Use this instead of accessing _OPENAI_API_KEY directly."""
-        return cls._OPENAI_API_KEY.get_secret_value()
+    # API key loaded at module level to avoid @classmethod @property issues in Python 3.14
+    OPENAI_API_KEY: Optional[str] = _openai_api_key_secret.get_secret_value()
 
     # OpenAI Models - Using currently available models
     # GPT-4o family (multimodal, fast)
