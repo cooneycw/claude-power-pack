@@ -510,6 +510,9 @@ end_session() {
 
 # Show status of all sessions
 show_status() {
+    # Auto-cleanup dead/abandoned sessions before showing status
+    cleanup_abandoned_sessions_quiet
+
     echo -e "${BLUE}Session Coordination Status${NC}"
     echo "============================"
     echo ""
@@ -628,7 +631,8 @@ cleanup_sessions() {
             continue
         fi
 
-        if ! is_session_alive "$session_id"; then
+        local status=$(get_session_status "$session_id")
+        if [[ "$status" == "dead" ]] || [[ "$status" == "abandoned" ]]; then
             # Release locks held by this session
             for lock_file in "$LOCK_DIR"/*.lock; do
                 [[ -f "$lock_file" ]] || continue
@@ -653,6 +657,31 @@ cleanup_sessions() {
         echo ""
         echo -e "${GREEN}Cleaned up $cleaned stale session(s)${NC}"
     fi
+}
+
+# Silently cleanup dead/abandoned sessions (called by status)
+# Unlike cleanup_sessions(), this produces no output
+cleanup_abandoned_sessions_quiet() {
+    for session_file in "$SESSION_DIR"/*.json; do
+        [[ -f "$session_file" ]] || continue
+
+        local session_id=$(jq -r '.session_id // ""' "$session_file")
+        [[ -z "$session_id" ]] && continue
+
+        local status=$(get_session_status "$session_id")
+        if [[ "$status" == "dead" ]] || [[ "$status" == "abandoned" ]]; then
+            # Release locks held by this session
+            for lock_file in "$LOCK_DIR"/*.lock; do
+                [[ -f "$lock_file" ]] || continue
+                local holder=$(jq -r '.session_id // ""' "$lock_file" 2>/dev/null)
+                if [[ "$holder" == "$session_id" ]]; then
+                    rm -f "$lock_file"
+                fi
+            done
+            # Remove session files
+            rm -f "$session_file" "$HEARTBEAT_DIR/${session_id}.heartbeat"
+        fi
+    done
 }
 
 # Print usage
