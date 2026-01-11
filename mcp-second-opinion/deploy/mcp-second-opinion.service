@@ -5,6 +5,8 @@ Documentation=https://github.com/cooneycw/claude-power-pack
 
 [Service]
 Type=simple
+User=cooneycw
+Group=cooneycw
 WorkingDirectory=/home/cooneycw/Projects/claude-power-pack/mcp-second-opinion
 
 # Load environment variables from .env file
