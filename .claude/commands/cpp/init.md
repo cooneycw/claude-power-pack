@@ -90,6 +90,109 @@ Default recommendation: **Standard** for most users, **Full** for multi-session 
 
 ---
 
+## Step 3b: Permission Profile (Tier 2+)
+
+**Only show this step if user selected Tier 2 or Tier 3.**
+
+Claude Code prompts "Allow?" before running tools. You can auto-approve safe operations to reduce interruptions while blocking dangerous commands.
+
+Ask the user which permission profile they want using AskUserQuestion:
+
+**Options:**
+
+| Profile | Description | Best For |
+|---------|-------------|----------|
+| **Cautious** | Minimal auto-approvals (Read only) | New users, shared machines |
+| **Standard** | Common dev tools auto-approved (Recommended) | Most developers |
+| **Trusted** | Broad auto-approvals, rely on hooks for safety | Solo developers, power users |
+| **Custom** | Choose individual permission categories | Fine-grained control |
+
+### Profile Definitions
+
+**Cautious Profile:**
+```json
+{
+  "permissions": {
+    "allow": ["Read", "Glob", "Grep"],
+    "deny": ["Bash(rm -rf:*)", "Bash(git push --force:*)"]
+  }
+}
+```
+
+**Standard Profile (Default):**
+```json
+{
+  "permissions": {
+    "allow": [
+      "Read", "Glob", "Grep",
+      "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)",
+      "Bash(git add:*)", "Bash(git commit:*)", "Bash(git branch:*)",
+      "Bash(git checkout:*)", "Bash(git stash:*)", "Bash(git fetch:*)",
+      "Bash(ls:*)", "Bash(pwd)", "Bash(cat:*)", "Bash(head:*)", "Bash(tail:*)",
+      "Bash(npm:*)", "Bash(npx:*)", "Bash(uv:*)", "Bash(pip:*)", "Bash(yarn:*)",
+      "Bash(python:*)", "Bash(node:*)",
+      "Bash(gh issue:*)", "Bash(gh pr list:*)", "Bash(gh pr view:*)",
+      "WebFetch(domain:github.com)", "WebFetch(domain:docs.python.org)",
+      "Skill(project-next)", "Skill(project-lite)"
+    ],
+    "deny": [
+      "Bash(rm -rf:*)", "Bash(git push --force:*)", "Bash(git reset --hard:*)",
+      "Bash(sudo:*)", "Bash(chmod -R:*)"
+    ]
+  }
+}
+```
+
+**Trusted Profile:**
+```json
+{
+  "permissions": {
+    "allow": [
+      "Read", "Glob", "Grep", "Write",
+      "Bash(git:*)", "Bash(gh:*)",
+      "Bash(npm:*)", "Bash(npx:*)", "Bash(uv:*)", "Bash(pip:*)", "Bash(yarn:*)",
+      "Bash(python:*)", "Bash(node:*)",
+      "Bash(ls:*)", "Bash(cat:*)", "Bash(mkdir:*)", "Bash(cp:*)", "Bash(mv:*)",
+      "Bash(curl:*)", "Bash(wget:*)",
+      "WebFetch", "WebSearch",
+      "Skill(*)",
+      "mcp__second-opinion__*", "mcp__coordination__*", "mcp__playwright-persistent__*"
+    ],
+    "deny": [
+      "Bash(rm -rf /:*)", "Bash(rm -rf ~:*)", "Bash(rm -rf /home:*)",
+      "Bash(git push --force origin main:*)", "Bash(git push --force origin master:*)",
+      "Bash(sudo rm:*)", "Bash(mkfs:*)", "Bash(dd if=:*)"
+    ]
+  }
+}
+```
+
+### Custom Mode Categories
+
+If user selects "Custom", ask which categories to enable using multi-select:
+
+| Category | Permissions | Default |
+|----------|-------------|---------|
+| **File Reading** | Read, Glob, Grep | ✓ Enabled |
+| **Git (safe)** | git status/diff/log/add/commit/branch/checkout/stash/fetch | ✓ Enabled |
+| **Git (all)** | git push/pull/merge/rebase | ○ Disabled |
+| **Package Managers** | npm, npx, uv, pip, yarn | ✓ Enabled |
+| **Runtimes** | python, node | ✓ Enabled |
+| **GitHub CLI (read)** | gh issue, gh pr list, gh pr view | ✓ Enabled |
+| **GitHub CLI (write)** | gh pr create, gh pr merge | ○ Disabled |
+| **File Writing** | Write tool | ○ Disabled |
+| **Web Access** | WebFetch, WebSearch | ○ Disabled |
+| **MCP Tools** | All installed MCP servers | ○ Disabled |
+| **Skills** | Auto-activate all skills | ✓ Enabled |
+
+### Security Notes
+
+- **Deny rules are always enforced** - Dangerous patterns blocked regardless of profile
+- **Hooks provide second layer** - PreToolUse hook validates commands even if auto-approved
+- **Trusted profile requires Tier 2** - Won't offer Trusted unless hooks are enabled
+
+---
+
 ## Step 4: Show Disclosure
 
 **CRITICAL**: Before making ANY changes, show the user exactly what will be modified.
@@ -263,6 +366,46 @@ else
   echo "  Note: You may want to merge with $CPP_DIR/.claude/hooks.json"
 fi
 ```
+
+**Permission Profile Configuration**
+
+Based on the profile selected in Step 3b, generate `.claude/settings.local.json`:
+
+```bash
+# Generate settings.local.json based on selected profile
+# (The profile JSON content is determined by user selection in Step 3b)
+
+if [ ! -f ".claude/settings.local.json" ]; then
+  # Write the selected profile to settings.local.json
+  cat > .claude/settings.local.json << 'SETTINGS_EOF'
+{PROFILE_JSON_CONTENT}
+SETTINGS_EOF
+  echo "✓ Permission profile configured: {PROFILE_NAME}"
+else
+  echo "→ settings.local.json exists (skipped)"
+  echo "  To reconfigure, delete .claude/settings.local.json and run /cpp:init"
+fi
+
+# Add settings.local.json to .gitignore if not already there
+if [ -f ".gitignore" ]; then
+  if ! grep -q "settings.local.json" .gitignore; then
+    echo "" >> .gitignore
+    echo "# Claude Code local settings (contains user-specific permissions)" >> .gitignore
+    echo ".claude/settings.local.json" >> .gitignore
+    echo "✓ Added settings.local.json to .gitignore"
+  fi
+fi
+```
+
+**Profile JSON Templates:**
+
+- **Cautious**: `{"permissions":{"allow":["Read","Glob","Grep"],"deny":["Bash(rm -rf:*)","Bash(git push --force:*)"]}}`
+
+- **Standard**: See Step 3b for full JSON
+
+- **Trusted**: See Step 3b for full JSON
+
+- **Custom**: Build JSON from selected categories
 
 **Shell Prompt Integration (Optional)**
 
@@ -510,6 +653,11 @@ Installed:
   ✓ Tier 2: Scripts, hooks, shell prompt
   ✓ Tier 3: Redis, MCP servers, API keys
 
+Permission Profile: {PROFILE_NAME}
+  Auto-approved: {AUTO_APPROVE_SUMMARY}
+  Blocked: rm -rf, git push --force, sudo (destructive)
+  Settings: .claude/settings.local.json
+
 MCP Servers:
   • second-opinion (port 8080) - Gemini code review
   • coordination (port 8082) - Distributed locking
@@ -531,6 +679,10 @@ Next Steps:
      /project-next    - See what to work on
      /spec:help       - Spec-driven development
      /github:help     - Issue management
+
+Change Permissions Later:
+  • Edit .claude/settings.local.json directly
+  • Or delete it and run /cpp:init to reconfigure
 
 Documentation:
   • CLAUDE.md - Full reference

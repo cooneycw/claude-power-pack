@@ -85,6 +85,46 @@ else
 fi
 ```
 
+## Step 3b: Check Permission Profile (Tier 2+)
+
+Check auto-approval settings in `.claude/settings.local.json`:
+
+```bash
+# Check permission profile
+if [ -f ".claude/settings.local.json" ]; then
+  # Try to detect profile type from allow rules
+  ALLOW_COUNT=$(grep -c '"allow"' .claude/settings.local.json 2>/dev/null || echo "0")
+
+  if grep -q '"Write"' .claude/settings.local.json 2>/dev/null; then
+    if grep -q '"Bash(git:\*)"' .claude/settings.local.json 2>/dev/null; then
+      PROFILE="Trusted"
+    else
+      PROFILE="Custom"
+    fi
+  elif grep -q '"Bash(git status:\*)"' .claude/settings.local.json 2>/dev/null; then
+    PROFILE="Standard"
+  elif grep -q '"Read"' .claude/settings.local.json 2>/dev/null; then
+    if grep -q '"Bash(' .claude/settings.local.json 2>/dev/null; then
+      PROFILE="Custom"
+    else
+      PROFILE="Cautious"
+    fi
+  else
+    PROFILE="Custom"
+  fi
+
+  echo "[x] Permission profile: $PROFILE (.claude/settings.local.json)"
+
+  # Count rules
+  ALLOW_RULES=$(grep -oE '"[^"]+"\s*,' .claude/settings.local.json 2>/dev/null | wc -l || echo "0")
+  DENY_RULES=$(grep -A100 '"deny"' .claude/settings.local.json 2>/dev/null | grep -c '"' || echo "0")
+  echo "    Auto-approve rules: ~$ALLOW_RULES"
+else
+  echo "[ ] Permission profile: not configured"
+  echo "    Run /cpp:init to set up auto-approvals"
+fi
+```
+
 ## Step 4: Check Tier 3 (Full)
 
 Check MCP servers and dependencies:
@@ -169,6 +209,8 @@ Tier 1 (Minimal):
 Tier 2 (Standard):
   [x] Scripts: 9/9 installed
   [x] Hooks: 5 hooks configured
+  [x] Permission profile: Standard
+      Auto-approve rules: ~22
   [ ] Shell prompt: not configured
   Status: Partial
 
