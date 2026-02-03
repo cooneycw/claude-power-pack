@@ -634,12 +634,13 @@ async def get_agentic_response(
 
     try:
         # Configure generation parameters
+        # Wrap FunctionDeclarations in a Tool object - required for Gemini 3 Pro
         config = types.GenerateContentConfig(
             max_output_tokens=Config.MAX_TOKENS,
             temperature=Config.TEMPERATURE,
             top_p=Config.TOP_P,
             top_k=Config.TOP_K,
-            tools=enabled_declarations,
+            tools=[types.Tool(function_declarations=enabled_declarations)],
         )
 
         logger.info(f"Starting agentic request to {model_name} with tools: {tools_enabled}")
