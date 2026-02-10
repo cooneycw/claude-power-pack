@@ -260,7 +260,22 @@ class Config:
     CHARS_PER_TOKEN: int = 4
 
     # Generation Parameters
-    MAX_TOKENS: int = 4096
+    MAX_TOKENS: int = 49152  # 48K base output tokens (detailed verbosity default)
+
+    # Verbosity-driven output token limits
+    VERBOSITY_MAX_TOKENS: Dict[str, int] = {
+        "brief": 4096,
+        "detailed": 49152,    # 48K
+        "in_depth": 65536,    # 64K
+    }
+
+    # Synonyms that map to canonical verbosity names
+    VERBOSITY_SYNONYMS: Dict[str, str] = {
+        "in-depth": "in_depth",
+        "comprehensive": "in_depth",
+        "thorough": "in_depth",
+        "exhaustive": "in_depth",
+    }
     TEMPERATURE: float = 0.7
     TOP_P: float = 0.95
     TOP_K: int = 40
@@ -272,7 +287,7 @@ class Config:
 
     # Server Configuration
     SERVER_NAME: str = "second-opinion-server"
-    SERVER_VERSION: str = "1.6.1"  # Fixed missing model constants
+    SERVER_VERSION: str = "1.7.0"  # In-depth analysis, code_files, verbosity-driven token limits
 
     # HTTP/SSE Transport Configuration (with safe parsing)
     SERVER_HOST: str = os.getenv("MCP_SERVER_HOST", "127.0.0.1")
@@ -391,6 +406,21 @@ class Config:
         else:
             # Default fallback pricing
             return {"input": 10.00, "output": 30.00}
+
+    @classmethod
+    def resolve_verbosity(cls, verbosity: str) -> tuple[str, int]:
+        """
+        Resolve a verbosity string to its canonical name and max_tokens.
+
+        Handles synonyms like "in-depth", "comprehensive", "thorough", "exhaustive"
+        which all map to "in_depth".
+
+        Returns:
+            Tuple of (canonical_verbosity_name, max_output_tokens)
+        """
+        canonical = cls.VERBOSITY_SYNONYMS.get(verbosity, verbosity)
+        max_tokens = cls.VERBOSITY_MAX_TOKENS.get(canonical, cls.MAX_TOKENS)
+        return canonical, max_tokens
 
     @classmethod
     def is_url_allowed(cls, url: str, approved_domains: List[str] = None) -> tuple[str, str, str]:
