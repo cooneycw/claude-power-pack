@@ -159,6 +159,7 @@ async def get_gemini_streaming_response(
     prompt: str,
     model_name: str,
     has_image: bool = False,
+    max_tokens: int = Config.MAX_TOKENS,
 ) -> tuple[str, str]:
     """
     Get streaming response from Gemini with retry logic and model fallback.
@@ -167,6 +168,7 @@ async def get_gemini_streaming_response(
         prompt: The prompt to send to Gemini
         model_name: The model to use
         has_image: Whether the request includes image data (uses image model)
+        max_tokens: Maximum output tokens
 
     Returns:
         Tuple of (response text, model used)
@@ -187,7 +189,7 @@ async def get_gemini_streaming_response(
 
     # Try primary model
     try:
-        return await _try_gemini_model(prompt, model_to_use)
+        return await _try_gemini_model(prompt, model_to_use, max_tokens=max_tokens)
     except Exception as e:
         logger.warning(f"Primary model {model_to_use} failed: {e}")
 
@@ -195,7 +197,7 @@ async def get_gemini_streaming_response(
         if fallback_model:
             logger.info(f"Trying fallback model {fallback_model}")
             try:
-                return await _try_gemini_model(prompt, fallback_model)
+                return await _try_gemini_model(prompt, fallback_model, max_tokens=max_tokens)
             except Exception as fallback_error:
                 logger.error(f"Fallback model {fallback_model} also failed: {fallback_error}")
                 raise
@@ -212,13 +214,14 @@ async def get_gemini_streaming_response(
     retry=retry_if_exception_type(Exception),
     reraise=True,
 )
-async def _try_gemini_model(prompt: str, model_name: str) -> tuple[str, str]:
+async def _try_gemini_model(prompt: str, model_name: str, max_tokens: int = Config.MAX_TOKENS) -> tuple[str, str]:
     """
     Attempt to get a response from a specific Gemini model.
 
     Args:
         prompt: The prompt to send
         model_name: The model to use
+        max_tokens: Maximum output tokens
 
     Returns:
         Tuple of (response text, model used)
@@ -232,7 +235,7 @@ async def _try_gemini_model(prompt: str, model_name: str) -> tuple[str, str]:
     try:
         # Configure generation parameters using new types
         config = types.GenerateContentConfig(
-            max_output_tokens=Config.MAX_TOKENS,
+            max_output_tokens=max_tokens,
             temperature=Config.TEMPERATURE,
             top_p=Config.TOP_P,
             top_k=Config.TOP_K,
@@ -270,6 +273,7 @@ async def _try_gemini_model(prompt: str, model_name: str) -> tuple[str, str]:
 async def get_openai_streaming_response(
     prompt: str,
     model_name: str,
+    max_tokens: int = Config.MAX_TOKENS,
 ) -> tuple[str, str]:
     """
     Get streaming response from OpenAI with retry logic and model fallback.
@@ -277,6 +281,7 @@ async def get_openai_streaming_response(
     Args:
         prompt: The prompt to send to OpenAI
         model_name: The model to use (e.g., gpt-5-codex, gpt-5.2)
+        max_tokens: Maximum output tokens
 
     Returns:
         Tuple of (response text, model used)
@@ -292,7 +297,7 @@ async def get_openai_streaming_response(
 
     # Try primary model
     try:
-        return await _try_openai_model(prompt, model_name)
+        return await _try_openai_model(prompt, model_name, max_tokens=max_tokens)
     except Exception as e:
         logger.warning(f"Primary OpenAI model {model_name} failed: {e}")
 
@@ -300,7 +305,7 @@ async def get_openai_streaming_response(
         if fallback_model and fallback_model != model_name:
             logger.info(f"Trying fallback model {fallback_model}")
             try:
-                return await _try_openai_model(prompt, fallback_model)
+                return await _try_openai_model(prompt, fallback_model, max_tokens=max_tokens)
             except Exception as fallback_error:
                 logger.error(f"Fallback model {fallback_model} also failed: {fallback_error}")
                 raise
@@ -317,7 +322,7 @@ async def get_openai_streaming_response(
     retry=retry_if_exception_type(Exception),
     reraise=True,
 )
-async def _try_openai_model(prompt: str, model_name: str) -> tuple[str, str]:
+async def _try_openai_model(prompt: str, model_name: str, max_tokens: int = Config.MAX_TOKENS) -> tuple[str, str]:
     """
     Attempt to get a response from a specific OpenAI model.
 
@@ -326,6 +331,7 @@ async def _try_openai_model(prompt: str, model_name: str) -> tuple[str, str]:
     Args:
         prompt: The prompt to send
         model_name: The model to use
+        max_tokens: Maximum output tokens
 
     Returns:
         Tuple of (response text, model used)
@@ -344,17 +350,17 @@ async def _try_openai_model(prompt: str, model_name: str) -> tuple[str, str]:
 
         if uses_responses_api:
             # Use Responses API for Codex models
-            return await _try_openai_responses_api(prompt, model_name)
+            return await _try_openai_responses_api(prompt, model_name, max_tokens=max_tokens)
         else:
             # Use Chat Completions API for other models
-            return await _try_openai_chat_api(prompt, model_name)
+            return await _try_openai_chat_api(prompt, model_name, max_tokens=max_tokens)
 
     except Exception as e:
         logger.error(f"Error getting OpenAI response from {model_name}: {e}")
         raise
 
 
-async def _try_openai_chat_api(prompt: str, model_name: str) -> tuple[str, str]:
+async def _try_openai_chat_api(prompt: str, model_name: str, max_tokens: int = Config.MAX_TOKENS) -> tuple[str, str]:
     """Use Chat Completions API for standard models."""
     # Newer models (gpt-5.x, o1, o3) use max_completion_tokens
     # Older models (gpt-4, gpt-4o, gpt-3.5) use max_tokens
@@ -371,9 +377,9 @@ async def _try_openai_chat_api(prompt: str, model_name: str) -> tuple[str, str]:
 
     # Use appropriate token parameter based on model
     if uses_new_tokens_param:
-        request_params["max_completion_tokens"] = Config.MAX_TOKENS
+        request_params["max_completion_tokens"] = max_tokens
     else:
-        request_params["max_tokens"] = Config.MAX_TOKENS
+        request_params["max_tokens"] = max_tokens
 
     # Generate content with streaming
     response = await _openai_client.chat.completions.create(**request_params)
@@ -391,7 +397,7 @@ async def _try_openai_chat_api(prompt: str, model_name: str) -> tuple[str, str]:
     return result, model_name
 
 
-async def _try_openai_responses_api(prompt: str, model_name: str) -> tuple[str, str]:
+async def _try_openai_responses_api(prompt: str, model_name: str, max_tokens: int = Config.MAX_TOKENS) -> tuple[str, str]:
     """Use Responses API for Codex models."""
     logger.info(f"Using Responses API for {model_name}")
 
@@ -400,6 +406,7 @@ async def _try_openai_responses_api(prompt: str, model_name: str) -> tuple[str, 
     response = await _openai_client.responses.create(
         model=model_name,
         input=prompt,
+        max_output_tokens=max_tokens,
     )
 
     # Extract the output text from the Responses API format
@@ -431,6 +438,7 @@ async def _try_openai_responses_api(prompt: str, model_name: str) -> tuple[str, 
 async def get_single_model_response(
     prompt: str,
     model_key: str,
+    max_tokens: int = Config.MAX_TOKENS,
 ) -> Dict[str, Any]:
     """
     Get response from a single model by its key.
@@ -438,6 +446,7 @@ async def get_single_model_response(
     Args:
         prompt: The prompt to send
         model_key: The model key from Config.AVAILABLE_MODELS
+        max_tokens: Maximum output tokens
 
     Returns:
         Dict with response, model info, tokens, cost, and success status
@@ -464,7 +473,7 @@ async def get_single_model_response(
                     "success": False,
                     "error": "Gemini API key not configured",
                 }
-            response, model_used = await get_gemini_streaming_response(prompt, model_id)
+            response, model_used = await get_gemini_streaming_response(prompt, model_id, max_tokens=max_tokens)
 
         elif provider == "openai":
             if not Config.OPENAI_API_KEY:
@@ -475,7 +484,7 @@ async def get_single_model_response(
                     "success": False,
                     "error": "OpenAI API key not configured",
                 }
-            response, model_used = await get_openai_streaming_response(prompt, model_id)
+            response, model_used = await get_openai_streaming_response(prompt, model_id, max_tokens=max_tokens)
 
         else:
             return {
@@ -521,6 +530,7 @@ async def get_single_model_response(
 async def get_multi_model_responses(
     prompt: str,
     model_keys: List[str],
+    max_tokens: int = Config.MAX_TOKENS,
 ) -> Dict[str, Any]:
     """
     Get responses from multiple models in parallel.
@@ -528,6 +538,7 @@ async def get_multi_model_responses(
     Args:
         prompt: The prompt to send to all models
         model_keys: List of model keys to consult
+        max_tokens: Maximum output tokens
 
     Returns:
         Dict with responses from all models, summary, and total cost
@@ -548,7 +559,7 @@ async def get_multi_model_responses(
         }
 
     # Run all model requests in parallel
-    tasks = [get_single_model_response(prompt, key) for key in valid_keys]
+    tasks = [get_single_model_response(prompt, key, max_tokens=max_tokens) for key in valid_keys]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
     # Process results
@@ -600,6 +611,7 @@ async def get_agentic_response(
     model_name: str,
     tools_enabled: list[str],
     max_tool_calls: int = 5,
+    max_tokens: int = Config.MAX_TOKENS,
 ) -> tuple[str, str, list[dict]]:
     """
     Get a response from Gemini with tool use (function calling) support.
@@ -612,6 +624,7 @@ async def get_agentic_response(
         model_name: The model to use
         tools_enabled: List of tool names Gemini can use
         max_tool_calls: Maximum number of tool calls in one turn (default: 5)
+        max_tokens: Maximum output tokens
 
     Returns:
         Tuple of (response text, model used, list of tool calls made)
@@ -629,14 +642,14 @@ async def get_agentic_response(
 
     if not enabled_declarations:
         # No tools enabled, fall back to regular response
-        response, model_used = await get_gemini_streaming_response(prompt, model_name)
+        response, model_used = await get_gemini_streaming_response(prompt, model_name, max_tokens=max_tokens)
         return response, model_used, []
 
     try:
         # Configure generation parameters
         # Wrap FunctionDeclarations in a Tool object - required for Gemini 3 Pro
         config = types.GenerateContentConfig(
-            max_output_tokens=Config.MAX_TOKENS,
+            max_output_tokens=max_tokens,
             temperature=Config.TEMPERATURE,
             top_p=Config.TOP_P,
             top_k=Config.TOP_K,
@@ -761,7 +774,7 @@ async def get_agentic_response(
         logger.error(f"Agentic response failed: {e}")
         # Fall back to non-tool response
         try:
-            response, model_used = await get_gemini_streaming_response(prompt, model_name)
+            response, model_used = await get_gemini_streaming_response(prompt, model_name, max_tokens=max_tokens)
             return response, model_used, []
         except Exception:
             raise e
@@ -776,6 +789,7 @@ async def get_code_second_opinion(
     error_messages: Optional[List[str]] = None,
     issue_description: str = "",
     verbosity: str = "detailed",
+    code_files: Optional[List[dict]] = None,
 ) -> dict:
     """
     Provides an LLM-powered second opinion on challenging coding issues.
@@ -796,7 +810,11 @@ async def get_code_second_opinion(
         context: Additional context about the code, such as what it's supposed to do
         error_messages: List of error messages you're encountering
         issue_description: Description of the specific issue or challenge you're facing
-        verbosity: "brief" for quick feedback, "detailed" for comprehensive analysis (default: "detailed")
+        verbosity: "brief" for quick feedback, "detailed" for comprehensive analysis,
+                   "in_depth" (or "comprehensive"/"thorough"/"exhaustive") for exhaustive 64K analysis
+                   (default: "detailed")
+        code_files: Optional list of additional code files for multi-file context.
+                    Each dict: {"filename": "foo.py", "content": "..."}
 
     Returns:
         dict with analysis, model_used, success status, token counts, cost estimate, and optional error
@@ -819,10 +837,18 @@ async def get_code_second_opinion(
         # Determine if we have image data
         has_image = bool(image_data)
 
-        logger.info(f"Received code review request for {language}, verbosity={verbosity}, has_image={has_image}")
+        # Resolve verbosity synonyms and get max_tokens
+        verbosity, max_tokens = Config.resolve_verbosity(verbosity)
+
+        logger.info(f"Received code review request for {language}, verbosity={verbosity}, max_tokens={max_tokens}, has_image={has_image}")
 
         # Scan for potential secrets before sending to API
         potential_secrets = scan_for_secrets(code)
+        if code_files:
+            for file_info in code_files:
+                file_content = file_info.get("content", "")
+                if file_content:
+                    potential_secrets.extend(scan_for_secrets(file_content))
         if potential_secrets:
             logger.warning(f"Potential secrets detected in code: {', '.join(potential_secrets)}")
             # Note: We still proceed but log the warning for security audit
@@ -835,6 +861,7 @@ async def get_code_second_opinion(
             error_messages=error_messages if error_messages else None,
             issue_description=issue_description if issue_description else None,
             verbosity=verbosity,
+            code_files=code_files,
         )
 
         # Estimate input tokens using configured chars-per-token ratio
@@ -845,6 +872,7 @@ async def get_code_second_opinion(
             prompt,
             model_name=Config.GEMINI_MODEL_PRIMARY,
             has_image=has_image,
+            max_tokens=max_tokens,
         )
 
         # Estimate output tokens and cost
@@ -1006,6 +1034,7 @@ async def get_multi_model_second_opinion(
     error_messages: Optional[List[str]] = None,
     issue_description: str = "",
     verbosity: str = "detailed",
+    code_files: Optional[List[dict]] = None,
 ) -> dict:
     """
     Get code review opinions from multiple LLM models in parallel.
@@ -1025,7 +1054,10 @@ async def get_multi_model_second_opinion(
         context: Additional context about the code
         error_messages: List of error messages you're encountering
         issue_description: Description of the specific issue
-        verbosity: "brief" for quick feedback, "detailed" for comprehensive analysis
+        verbosity: "brief" for quick feedback, "detailed" for comprehensive analysis,
+                   "in_depth" (or "comprehensive"/"thorough"/"exhaustive") for exhaustive 64K analysis
+        code_files: Optional list of additional code files for multi-file context.
+                    Each dict: {"filename": "foo.py", "content": "..."}
 
     Returns:
         dict with responses from each model, comparison summary, and total cost
@@ -1071,10 +1103,18 @@ async def get_multi_model_second_opinion(
         if error_messages is None:
             error_messages = []
 
-        logger.info(f"Multi-model code review for {language}, models={models}, verbosity={verbosity}")
+        # Resolve verbosity synonyms and get max_tokens
+        verbosity, max_tokens = Config.resolve_verbosity(verbosity)
+
+        logger.info(f"Multi-model code review for {language}, models={models}, verbosity={verbosity}, max_tokens={max_tokens}")
 
         # Scan for potential secrets before sending to API
         potential_secrets = scan_for_secrets(code)
+        if code_files:
+            for file_info in code_files:
+                file_content = file_info.get("content", "")
+                if file_content:
+                    potential_secrets.extend(scan_for_secrets(file_content))
         if potential_secrets:
             logger.warning(f"Potential secrets detected in code: {', '.join(potential_secrets)}")
 
@@ -1086,10 +1126,11 @@ async def get_multi_model_second_opinion(
             error_messages=error_messages if error_messages else None,
             issue_description=issue_description if issue_description else None,
             verbosity=verbosity,
+            code_files=code_files,
         )
 
         # Get responses from all models in parallel
-        result = await get_multi_model_responses(prompt, models)
+        result = await get_multi_model_responses(prompt, models, max_tokens=max_tokens)
 
         return result
 
@@ -1178,6 +1219,7 @@ async def consult(
     message: str,
     code: Optional[str] = None,
     language: Optional[str] = None,
+    verbosity: str = "detailed",
 ) -> dict:
     """
     Send a message to Gemini within an existing session.
@@ -1190,6 +1232,9 @@ async def consult(
         message: Your message or question to Gemini
         code: Optional code snippet to discuss (if any)
         language: Programming language of the code (if provided)
+        verbosity: "brief" for quick feedback, "detailed" for comprehensive analysis,
+                   "in_depth" (or "comprehensive"/"thorough"/"exhaustive") for exhaustive 64K analysis
+                   (default: "detailed")
 
     Returns:
         dict with response, tool_calls_made, turn info, and cost tracking
@@ -1226,6 +1271,9 @@ async def consult(
                 "remaining_turns": session.remaining_turns,
                 "remaining_budget": session.remaining_budget,
             }
+
+        # Resolve verbosity synonyms and get max_tokens
+        verbosity, max_tokens = Config.resolve_verbosity(verbosity)
 
         # Build the prompt with context
         history_context = ""
@@ -1266,11 +1314,13 @@ async def consult(
                 prompt,
                 model_name=Config.GEMINI_MODEL_PRIMARY,
                 tools_enabled=session.tools_enabled,
+                max_tokens=max_tokens,
             )
         else:
             analysis, model_used = await get_gemini_streaming_response(
                 prompt,
                 model_name=Config.GEMINI_MODEL_PRIMARY,
+                max_tokens=max_tokens,
             )
             tool_calls = []
 

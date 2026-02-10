@@ -37,6 +37,7 @@ def build_code_review_prompt(
     error_messages: Optional[List[str]] = None,
     issue_description: Optional[str] = None,
     verbosity: str = "detailed",
+    code_files: Optional[list] = None,
 ) -> str:
     """
     Build a structured prompt for code review using XML delimiters.
@@ -49,7 +50,9 @@ def build_code_review_prompt(
         context: Additional context about the code
         error_messages: List of error messages encountered
         issue_description: Description of the issue or challenge
-        verbosity: "brief" or "detailed" (controls output length)
+        verbosity: "brief", "detailed", or "in_depth" (controls output depth)
+        code_files: Optional list of additional files, each a dict with
+                    "filename" and "content" keys
 
     Returns:
         Formatted prompt string for the LLM
@@ -70,6 +73,16 @@ def build_code_review_prompt(
     # Wrap code in XML tags to prevent injection
     input_data_parts.append(f"<source_code>\n{code}\n</source_code>")
 
+    # Add additional code files if provided
+    if code_files:
+        for i, file_info in enumerate(code_files):
+            filename = file_info.get("filename", f"file_{i + 1}")
+            content = file_info.get("content", "")
+            if content:
+                input_data_parts.append(
+                    f'<additional_file name="{filename}">\n{content}\n</additional_file>'
+                )
+
     input_data_section = "\n".join(input_data_parts)
 
     # Build instructions based on verbosity
@@ -83,7 +96,37 @@ Provide your response with:
 
 Keep it concise and actionable.
 """
-    else:  # detailed
+    elif verbosity == "in_depth":
+        analysis_structure = """
+Provide an exhaustive, in-depth second opinion. You have extensive output space available,
+so be thorough and leave nothing unexamined. Cover ALL of the following:
+
+1. **Root Cause Analysis** - Deep dive into every core issue, including subtle ones.
+   Trace the logical flow and identify all failure modes.
+2. **Severity Assessment** (Critical | High | Medium | Low) - Per-issue severity with justification
+3. **Detailed Recommendations** - Comprehensive, actionable fixes with full code examples.
+   Show before/after comparisons where helpful.
+4. **Alternative Approaches** - 3-5 different solutions with detailed trade-off analysis
+   covering performance, maintainability, testability, and complexity
+5. **Architecture & Design Patterns** - Evaluate the overall design. Suggest applicable
+   design patterns, SOLID principles, and structural improvements.
+6. **Best Practices & Standards** - Relevant coding standards, language idioms,
+   community conventions, and linting rules
+7. **Security Audit** - Thorough security analysis: injection risks, auth issues,
+   data exposure, OWASP considerations, supply chain concerns
+8. **Performance Analysis** - Time/space complexity, bottlenecks, caching opportunities,
+   database query optimization, memory usage
+9. **Testing Strategy** - Recommended unit tests, integration tests, edge cases to cover,
+   mocking strategies, and test data considerations
+10. **Error Handling & Resilience** - Exception handling gaps, retry logic, graceful
+    degradation, logging, and observability improvements
+11. **Documentation & Readability** - Code clarity, naming conventions, comments,
+    docstring quality, and API documentation
+12. **Confidence Level** (0-100%) with detailed justification
+
+Be comprehensive. Provide code examples for every recommendation where applicable.
+"""
+    else:  # detailed (default)
         analysis_structure = """
 Provide a comprehensive second opinion with:
 
@@ -97,6 +140,13 @@ Provide a comprehensive second opinion with:
 """
 
     # Construct final prompt
+    has_additional_files = bool(code_files)
+    files_instruction = (
+        "\nAlso analyze the content within <additional_file> tags as supporting context. "
+        "Consider cross-file interactions, imports, and dependencies."
+        if has_additional_files else ""
+    )
+
     prompt = f"""You are a senior software engineer providing a second opinion on challenging coding issues.
 
 # Input Data
@@ -104,7 +154,7 @@ Provide a comprehensive second opinion with:
 
 # Instructions
 
-Analyze the content within <source_code> tags.
+Analyze the content within <source_code> tags.{files_instruction}
 Use the context provided in <context> or <issue_description> to guide your analysis.
 
 {analysis_structure}
