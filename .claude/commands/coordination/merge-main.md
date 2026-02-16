@@ -1,5 +1,7 @@
 # Coordinated Merge to Main
 
+> **Requires:** `extras/redis-coordination/scripts/` installed to `~/.claude/scripts/`. See `extras/redis-coordination/README.md`.
+
 Merge a PR branch to main with session locking to prevent merge race conditions.
 
 ## When to Use

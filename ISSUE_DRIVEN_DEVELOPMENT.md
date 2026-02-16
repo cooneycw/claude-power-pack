@@ -428,48 +428,17 @@ Main Repo (planning)          Worktree 1 (issue-42)       Worktree 2 (issue-57)
 3. **Use prompt context** - Visual confirmation of current worktree/issue
 4. **Don't share worktrees between sessions** - One session per worktree
 
-### Session Coordination
+### Session Coordination (Optional)
 
-With multiple sessions running on the same repository, conflicts can occur:
+> **Moved to `extras/redis-coordination/` in v4.0.0.** The default `/flow` workflow is stateless and handles most use cases without coordination.
 
-| Problem | Solution |
-|---------|----------|
-| Two sessions create PRs | Lock-based coordination |
-| pytest runs interfere | Test suite locking |
-| Sessions kill each other's work | Session registry + heartbeat |
-| No visibility into active work | `/project-next` shows sessions |
+For teams running multiple concurrent Claude Code sessions, optional coordination scripts and a Redis MCP server can prevent conflicts. See `extras/redis-coordination/README.md` for setup.
 
-**Coordination Scripts:**
-```bash
-# Check who's working on what
-~/.claude/scripts/session-register.sh status
-
-# View active locks
-~/.claude/scripts/session-lock.sh list
-
-# Run pytest with coordination
-~/.claude/scripts/pytest-locked.sh -m unit
-
-# Create PR with locking
-/coordination:pr-create
-
-# Merge to main with locking
-/coordination:merge-main issue-123-feature
-```
-
-**How It Works:**
-
-1. **Session Registration** - Each session registers at start, maintains heartbeat
-2. **Lock Acquisition** - Operations acquire locks before executing
-3. **Stale Detection** - Sessions without heartbeat for 60s are considered dead
-4. **Auto-Release** - Dead session locks are automatically released
-
-**Hooks Integration:**
-- `SessionStart` → Registers session
-- `UserPromptSubmit` → Updates heartbeat timestamp
-- `Stop` → Marks session as paused
-
-See `~/.claude/coordination/` for lock files and session registry.
+| Coordination Tier | Description |
+|-------------------|-------------|
+| **Local** (default) | Stateless. Context from git. No locking. |
+| **Git** (optional) | State in `.claude/state.json`, synced via git. |
+| **Redis** (teams) | MCP server with distributed locks. Requires `extras/` install. |
 
 ---
 

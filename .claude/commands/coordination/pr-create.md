@@ -1,5 +1,7 @@
 # Coordinated PR Creation
 
+> **Requires:** `extras/redis-coordination/scripts/` installed to `~/.claude/scripts/`. See `extras/redis-coordination/README.md`.
+
 Create a pull request with session locking to prevent duplicate PRs across concurrent sessions.
 
 ## Workflow

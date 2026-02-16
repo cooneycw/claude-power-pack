@@ -16,7 +16,7 @@ A comprehensive repository combining:
 - [Shell Prompt Context](#-shell-prompt-context) - Visual session management
 - [Issue-Driven Development](#-issue-driven-development) - Micro-issue methodology
 - [Spec-Driven Development](#-spec-driven-development) - Specification workflow
-- [Session Coordination](#-session-coordination) - Multi-session conflict prevention
+- [Session Coordination](#-session-coordination) - Multi-session conflict prevention (optional)
 - [Project Commands](#-project-commands) - `/project-lite` & `/project-next`
 - [GitHub Issue Management](#-github-issue-management) - Full CRUD for issues
 - [Secrets Management](#-secrets-management) - Secure credential access
@@ -25,7 +25,7 @@ A comprehensive repository combining:
 - [MCP Servers](#mcp-servers)
   - [MCP Second Opinion](#mcp-second-opinion-server) - Multi-model code review (port 8080)
   - [MCP Playwright Persistent](#mcp-playwright-persistent-server) - Browser automation (port 8081)
-  - [MCP Coordination](#mcp-coordination-server) - Redis-backed locking (port 8082)
+  - [MCP Coordination](#mcp-coordination-server-optional) - Redis-backed locking (optional, in `extras/`)
 - [Installation](#installation) - Get started quickly
 - [Disclosures & Legal](#-disclosures--legal) - Attribution & API terms
 
@@ -44,8 +44,8 @@ This guides you through a tiered installation:
 | Tier | Name | What's Installed |
 |------|------|------------------|
 | 1 | **Minimal** | Commands + Skills symlinks |
-| 2 | **Standard** | + Scripts, hooks, shell prompt, coordination |
-| 3 | **Full** | + MCP servers (uv, API keys, systemd) |
+| 2 | **Standard** | + Scripts, hooks, shell prompt |
+| 3 | **Full** | + MCP servers (uv, API keys, systemd), optional extras |
 
 ### CPP Commands
 
@@ -311,54 +311,21 @@ python -m lib.spec_bridge status
 python -m lib.spec_bridge sync user-auth
 ```
 
-## 🔒 Session Coordination
+## 🔒 Session Coordination (Optional)
 
-**New in v1.9.0:** Prevent conflicts between concurrent Claude Code sessions.
+> **Moved to `extras/redis-coordination/` in v4.0.0.** Most users don't need this — the default `/flow` workflow is stateless and conflict-free for solo development.
 
-### Problem Solved
+For teams running multiple concurrent Claude Code sessions, optional coordination scripts and a Redis MCP server prevent conflicts (duplicate PRs, pytest interference, etc.).
 
-When running multiple Claude Code sessions (e.g., in tmux with worktrees):
-- Sessions competing for PR creation
-- pytest runs killed by other sessions
-- No visibility into what other sessions are doing
-- Worktree cleanup conflicts
+### Coordination Tiers
 
-### Quick Setup
+| Tier | Mode | Description |
+|------|------|-------------|
+| **Local** (default) | `coordination: local` | Stateless. Context from git. No locking. |
+| **Git** (optional) | `coordination: git` | State in `.claude/state.json`, synced via git. |
+| **Redis** (teams) | `coordination: redis` | MCP server with distributed locks. |
 
-```bash
-# Symlink coordination scripts (adjust path to your clone location)
-ln -sf /path/to/claude-power-pack/scripts/session-*.sh ~/.claude/scripts/
-ln -sf /path/to/claude-power-pack/scripts/pytest-locked.sh ~/.claude/scripts/
-
-# Create coordination directory
-mkdir -p ~/.claude/coordination/{locks,sessions,heartbeat}
-```
-
-### Available Scripts
-
-| Script | Purpose |
-|--------|---------|
-| `session-lock.sh list` | Show active locks |
-| `session-lock.sh acquire NAME` | Acquire a named lock |
-| `session-lock.sh release NAME` | Release a lock |
-| `session-register.sh status` | Show active sessions |
-| `pytest-locked.sh [args]` | Run pytest with coordination |
-
-### Slash Commands
-
-| Command | Purpose |
-|---------|---------|
-| `/coordination:pr-create` | Create PR with locking to prevent conflicts |
-| `/coordination:merge-main BRANCH` | Merge to main with coordination |
-
-### Hook Integration
-
-Hooks automatically manage session lifecycle:
-- **SessionStart**: Register session
-- **UserPromptSubmit**: Update heartbeat
-- **Stop**: Mark session as paused
-
-See [ISSUE_DRIVEN_DEVELOPMENT.md](ISSUE_DRIVEN_DEVELOPMENT.md) for detailed documentation.
+See [`extras/redis-coordination/README.md`](extras/redis-coordination/README.md) for setup and usage.
 
 ## 📊 Project Commands
 
@@ -489,7 +456,7 @@ This project uses [uv](https://docs.astral.sh/uv/) for Python dependency managem
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # Run any MCP server (dependencies installed automatically)
-cd mcp-coordination
+cd mcp-second-opinion
 ./start-server.sh
 
 # Or run directly with uv
@@ -501,7 +468,7 @@ uv run python src/server.py
 Each Python component has its own `pyproject.toml`:
 - `mcp-second-opinion/pyproject.toml`
 - `mcp-playwright-persistent/pyproject.toml`
-- `mcp-coordination/pyproject.toml`
+- `extras/redis-coordination/mcp-server/pyproject.toml` (optional)
 - `lib/creds/pyproject.toml`
 - `lib/spec_bridge/pyproject.toml`
 
@@ -541,12 +508,8 @@ Hooks are configured in `.claude/hooks.json`:
 
 | Hook | Trigger | Purpose |
 |------|---------|---------|
-| SessionStart | Session begins | Register session |
-| UserPromptSubmit | Each prompt | Update heartbeat |
 | PreToolUse (Bash) | Before command | Block dangerous operations |
 | PostToolUse (Bash/Read) | After tool | Mask secrets in output |
-| Stop | Session paused | Mark session paused |
-| SessionEnd | Session ends | Release locks and claims |
 
 ## ⚡ Session Initialization
 
@@ -643,13 +606,13 @@ comments = scrape_post_comments("post_id_here", "ClaudeCode")
 
 # MCP Servers
 
-Claude Power Pack includes three MCP servers for enhanced AI capabilities:
+Claude Power Pack includes two core MCP servers and one optional extra:
 
-| Server | Port | Purpose |
-|--------|------|---------|
-| [Second Opinion](#mcp-second-opinion-server) | 8080 | Multi-model code review |
-| [Playwright Persistent](#mcp-playwright-persistent-server) | 8081 | Browser automation |
-| [Coordination](#mcp-coordination-server) | 8082 | Redis-backed distributed locking |
+| Server | Port | Purpose | Location |
+|--------|------|---------|----------|
+| [Second Opinion](#mcp-second-opinion-server) | 8080 | Multi-model code review | `mcp-second-opinion/` |
+| [Playwright Persistent](#mcp-playwright-persistent-server) | 8081 | Browser automation | `mcp-playwright-persistent/` |
+| [Coordination](#mcp-coordination-server-optional) | 8082 | Redis-backed distributed locking | `extras/redis-coordination/mcp-server/` (optional) |
 
 ---
 
@@ -914,81 +877,24 @@ See `mcp-playwright-persistent/README.md` for detailed documentation.
 
 ---
 
-## MCP Coordination Server
+## MCP Coordination Server (Optional)
 
-Redis-backed distributed locking for multi-session coordination.
+> **Moved to `extras/redis-coordination/mcp-server/` in v4.0.0.** Only needed for teams running multiple concurrent Claude Code sessions.
 
-### Key Features
+Redis-backed distributed locking and session coordination. Provides 8 MCP tools for lock management, session tracking, and health checks.
 
-- **Distributed Locks**: Prevent concurrent pytest runs, PR conflicts
-- **Wave/Issue Hierarchy**: Lock at issue, wave, or wave.issue level
-- **Auto-Detection**: Use "work" to lock based on current git branch
-- **Session Tracking**: See all active Claude Code sessions
-- **Auto-Expiry**: Locks and sessions expire automatically
-
-### Prerequisites
+### Quick Setup
 
 ```bash
-# Install Redis
-sudo apt install redis-server
-sudo systemctl enable redis-server
-redis-cli ping  # Should return PONG
-```
-
-### Setup
-
-```bash
-cd mcp-coordination
-
-# Install uv if not already installed
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# Start server
+cd extras/redis-coordination/mcp-server
+cp .env.example .env
 ./start-server.sh
-```
 
-### Add to Claude Code
-
-```bash
+# Add to Claude Code
 claude mcp add coordination --transport sse --url http://127.0.0.1:8082/sse
 ```
 
-### Available Tools (8 total)
-
-| Tool | Description |
-|------|-------------|
-| `acquire_lock(name, timeout)` | Acquire distributed lock |
-| `release_lock(name)` | Release held lock |
-| `check_lock(name)` | Check lock availability |
-| `list_locks(pattern)` | List locks matching pattern |
-| `register_session(metadata)` | Register session for tracking |
-| `heartbeat()` | Update session heartbeat |
-| `session_status()` | Show all sessions and states |
-| `health_check()` | Check Redis connection |
-
-### Lock Naming Conventions
-
-```bash
-# Auto-detect from branch
-acquire_lock("work")          # issue-42-auth → issue:42
-                              # wave-5c.1-feat → wave:5c.1
-
-# Explicit locks
-acquire_lock("issue:42")      # Issue-specific
-acquire_lock("wave:5c")       # Wave-level
-acquire_lock("pytest")        # Resource lock
-```
-
-### Session Status Tiers
-
-| Status | Heartbeat Age | Meaning |
-|--------|---------------|---------|
-| 🟢 **Active** | < 5 min | Actively using Claude Code |
-| 🟡 **Idle** | 5 min - 1 hour | Stepped away briefly |
-| 🟠 **Stale** | 1 - 4 hours | Gone for extended period |
-| ⚫ **Abandoned** | > 24 hours | Auto-released next day |
-
-See `mcp-coordination/README.md` for detailed documentation.
+**Requires:** Redis server. See [`extras/redis-coordination/README.md`](extras/redis-coordination/README.md) for full documentation.
 
 ---
 
@@ -1036,8 +942,8 @@ cd mcp-playwright-persistent
 uv run playwright install chromium  # First time only
 ./start-server.sh
 
-# MCP Coordination (port 8082)
-cd mcp-coordination
+# MCP Coordination (port 8082) — optional, for teams only
+cd extras/redis-coordination/mcp-server
 ./start-server.sh
 ```
 
@@ -1142,8 +1048,10 @@ claude-power-pack/
 │   └── src/server.py                           # 12 tools
 ├── mcp-playwright-persistent/                  # Port 8081 - Browser automation
 │   └── src/server.py                           # 29 tools
-├── mcp-coordination/                           # Port 8082 - Redis locking
-│   └── src/server.py                           # 8 tools
+├── extras/
+│   └── redis-coordination/                     # Optional: distributed locking
+│       ├── mcp-server/                         # Port 8082 - Redis locking (8 tools)
+│       └── scripts/                            # Session coordination scripts
 ├── lib/
 │   ├── secrets/                                # Secrets management
 │   │   ├── cli.py                              # get, validate commands
@@ -1153,9 +1061,9 @@ claude-power-pack/
 │       └── issue_sync.py                       # GitHub issue creation
 ├── scripts/
 │   ├── prompt-context.sh                       # Shell prompt context
-│   ├── session-*.sh                            # Session coordination
 │   ├── hook-mask-output.sh                     # Secret masking
 │   ├── hook-validate-command.sh                # Command validation
+│   ├── secrets-mask.sh                         # Secrets pipe filter
 │   └── worktree-remove.sh                      # Safe worktree removal
 ├── .claude/
 │   ├── commands/
@@ -1220,8 +1128,8 @@ Contributions are welcome! To contribute:
 - **Review domain approvals** - Only approve trusted domains
 - **Monitor costs** - Set appropriate limits
 
-### For Session Coordination Scripts
-- **Scripts have shell access** - Review `session-*.sh` before installing
+### For Session Coordination Scripts (Optional, in `extras/`)
+- **Scripts have shell access** - Review scripts in `extras/redis-coordination/scripts/` before installing
 - **Lock files in `~/.claude/coordination/`** - Contain session metadata
 - **Heartbeat data** - Tracks active sessions (local only, not transmitted)
 
@@ -1282,17 +1190,24 @@ MIT License - See LICENSE file for details
 
 ---
 
-**Repository Version**: 3.0.0 (uv Migration)
-**Last Updated**: January 2026
+**Repository Version**: 4.0.0 (Simplified Workflow)
+**Last Updated**: February 2026
 **Maintainer**: cooneycw
 
-## What's New in v3.0.0
+## What's New in v4.0.0
+
+- **Simplified Workflow** - `/flow` commands replace scattered coordination
+- **Redis demoted to extras** - `mcp-coordination/` moved to `extras/redis-coordination/`
+- **Coordination scripts moved** - Session scripts now in `extras/redis-coordination/scripts/`
+- **Three coordination tiers** - `local` (default), `git` (cross-machine), `redis` (teams)
+- **Streamlined hooks** - Removed session/heartbeat overhead from hooks.json
+- **Stateless by default** - All context detected from git, no locking needed for solo dev
+
+### Previous: v3.0.0
 
 - **Migrated to uv** - Replaced conda with uv for all Python dependency management
 - **pyproject.toml** - All MCP servers and libraries now use pyproject.toml
 - **Faster Setup** - Dependencies install automatically via `uv run`
-- **Smaller Footprint** - Virtual environments ~200MB vs ~1.5GB with conda
-- **Removed conda scripts** - No more conda-detect.sh, conda-activate.sh, or environment.yml
 
 ### Previous: v2.8.0
 
