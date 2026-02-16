@@ -12,6 +12,7 @@ Streamlined worktree-based development workflow. No locks, no Redis — just git
 | `/flow:merge` | Merge PR, clean up worktree and branch |
 | `/flow:deploy [target]` | Run Makefile deploy target |
 | `/flow:auto <issue>` | Full lifecycle: start → analyze → implement → finish → merge → deploy |
+| `/flow:cleanup` | Prune stale worktree references and delete merged branches |
 | `/flow:doctor` | Diagnose workflow environment and readiness |
 | `/flow:help` | This help page |
 
