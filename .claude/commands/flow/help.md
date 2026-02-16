@@ -11,12 +11,20 @@ Streamlined worktree-based development workflow. No locks, no Redis — just git
 | `/flow:finish` | Run quality gates, commit, push, and create PR |
 | `/flow:merge` | Merge PR, clean up worktree and branch |
 | `/flow:deploy [target]` | Run Makefile deploy target |
+| `/flow:auto` | Chain finish → merge → deploy in one shot |
 | `/flow:help` | This help page |
 
 ## The Golden Path
 
 ```
-/flow:start 42    →  work on code  →  /flow:finish  →  /flow:merge  →  /flow:deploy
+/flow:start 42    →  work on code  →  /flow:auto
+                                       ↓
+                              finish → merge → deploy
+```
+
+Or step by step:
+```
+/flow:start 42  →  work  →  /flow:finish  →  /flow:merge  →  /flow:deploy
 ```
 
 ## Conventions
@@ -50,4 +58,8 @@ Streamlined worktree-based development workflow. No locks, no Redis — just git
 # Deploy to production
 /flow:deploy
 # → Runs make deploy
+
+# Or do it all at once after coding:
+/flow:auto
+# → Runs finish → merge → deploy in sequence
 ```
