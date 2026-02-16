@@ -280,7 +280,7 @@ async def get_openai_streaming_response(
 
     Args:
         prompt: The prompt to send to OpenAI
-        model_name: The model to use (e.g., gpt-5-codex, gpt-5.2)
+        model_name: The model to use (e.g., gpt-5.2-codex, gpt-5.2)
         max_tokens: Maximum output tokens
 
     Returns:
