@@ -100,13 +100,18 @@ claude-power-pack/
 │   └── hook-validate-command.sh                # PreToolUse: block dangerous commands
 ├── .claude/
 │   ├── commands/
+│   │   ├── flow/                               # Flow workflow (stateless, git-native)
+│   │   │   ├── start.md                        # Create worktree for issue
+│   │   │   ├── status.md                       # Show active worktrees
+│   │   │   ├── finish.md                       # Commit, push, create PR
+│   │   │   ├── merge.md                        # Merge PR, clean up
+│   │   │   ├── deploy.md                       # Run make deploy
+│   │   │   ├── auto.md                         # Full lifecycle automation
+│   │   │   └── help.md                         # Flow command overview
 │   │   ├── cpp/                                # CPP initialization wizard
 │   │   │   ├── init.md                         # Interactive setup wizard
 │   │   │   ├── status.md                       # Check installation state
 │   │   │   └── help.md                         # Command overview
-│   │   ├── coordination/                       # Session coordination
-│   │   │   ├── pr-create.md                    # Coordinated PR creation
-│   │   │   └── merge-main.md                   # Coordinated merges
 │   │   ├── github/                             # GitHub issue management
 │   │   ├── spec/                               # Spec-Driven Development
 │   │   │   ├── help.md                         # SDD command overview

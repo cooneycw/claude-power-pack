@@ -15,6 +15,7 @@ A comprehensive repository combining:
 - [Token-Efficient Tool Organization](#-token-efficient-tool-organization) - Progressive disclosure
 - [Shell Prompt Context](#-shell-prompt-context) - Visual session management
 - [Issue-Driven Development](#-issue-driven-development) - Micro-issue methodology
+- [Flow Workflow](#-flow-workflow) - `/flow:start` → work → `/flow:finish` → `/flow:merge`
 - [Spec-Driven Development](#-spec-driven-development) - Specification workflow
 - [Session Coordination](#-session-coordination) - Multi-session conflict prevention (optional)
 - [Project Commands](#-project-commands) - `/project-lite` & `/project-next`
@@ -212,25 +213,21 @@ Issue-Driven Development (IDD) combines:
 
 ### Quick Start
 
-1. **Scan your project** - Run `/project-next` to analyze issues
-2. **Create a worktree** for the recommended issue:
-   ```bash
-   git worktree add -b issue-42-feature ../myrepo-issue-42
-   cd ../myrepo-issue-42
-   ```
-3. **Your shell prompt** now shows the context automatically:
+1. **Scan your project** — Run `/project-next` to analyze issues and get recommendations
+2. **Start work** — `/flow:start 42` creates a worktree and branch automatically
+3. **Your shell prompt** now shows the context:
    ```bash
    [CPP #42] ~/Projects/myrepo-issue-42 $
    ```
-4. **Implement and commit** with issue reference:
-   ```bash
-   git commit -m "feat: Add feature (Closes #42)"
-   ```
+4. **Implement** the feature, then ship: `/flow:finish` → `/flow:merge`
+
+Or use `/flow:auto 42` to automate the entire lifecycle in one shot.
 
 ### Documentation
 
 - **[ISSUE_DRIVEN_DEVELOPMENT.md](ISSUE_DRIVEN_DEVELOPMENT.md)** - Full methodology guide
-- **`/project-next`** command - Analyze issues and recommend next steps
+- **`/flow:help`** — All flow commands and conventions
+- **`/project-next`** — Analyze issues and recommend next steps
 
 ### Key Conventions
 
@@ -239,6 +236,42 @@ Issue-Driven Development (IDD) combines:
 | Branch | `issue-{N}-{description}` | `issue-123-auth-fix` |
 | Worktree | `{repo}-issue-{N}` | `my-app-issue-123` |
 | Commit | `type(scope): Desc (Closes #N)` | `fix(auth): Resolve bug (Closes #123)` |
+
+## 🔄 Flow Workflow
+
+**New in v4.0.0:** Stateless, git-native commands for the full issue lifecycle.
+
+### The Golden Path
+
+```
+/flow:auto 42
+  → creates worktree → analyzes issue → implements → commits → PR → merge → deploy
+```
+
+Or step-by-step:
+
+```
+/flow:start 42 → work → /flow:finish → /flow:merge → /flow:deploy
+```
+
+### Commands
+
+| Command | Purpose |
+|---------|---------|
+| `/flow:start <issue>` | Create worktree and branch for an issue |
+| `/flow:status` | Show active worktrees with issue and PR status |
+| `/flow:finish` | Run quality gates (`make lint/test`), commit, push, create PR |
+| `/flow:merge` | Squash-merge PR, clean up worktree and branch |
+| `/flow:deploy [target]` | Run `make deploy` (if Makefile target exists) |
+| `/flow:auto <issue>` | Full lifecycle in one shot |
+| `/flow:help` | Show all commands and conventions |
+
+### Design Principles
+
+- **Stateless** — All context from git (branches, worktrees, remotes) and GitHub (issues, PRs)
+- **Idempotent** — Running `/flow:start 42` twice detects the existing worktree
+- **Quality gates** — `/flow:finish` runs `make lint` and `make test` if targets exist
+- **Safe cleanup** — `/flow:merge` handles worktree removal safely (avoids cwd-in-worktree issues)
 
 ## 📋 Spec-Driven Development
 
@@ -1091,12 +1124,12 @@ claude-power-pack/
 │   └── worktree-remove.sh                      # Safe worktree removal
 ├── .claude/
 │   ├── commands/
+│   │   ├── flow/                               # Flow workflow (start, finish, merge, deploy, auto)
 │   │   ├── cpp/                                # CPP wizard (init, status, help)
 │   │   ├── spec/                               # Spec commands
 │   │   ├── github/                             # GitHub issue management
 │   │   ├── secrets/                            # Secrets commands
 │   │   ├── env/                                # Environment commands
-│   │   ├── coordination/                       # PR/merge coordination
 │   │   ├── project-next.md                     # Issue orchestrator
 │   │   └── project-lite.md                     # Quick reference
 │   ├── skills/                                 # Skill loaders
@@ -1220,12 +1253,11 @@ MIT License - See LICENSE file for details
 
 ## What's New in v4.0.0
 
-- **Simplified Workflow** - `/flow` commands replace scattered coordination
+- **Flow commands** - `/flow:start`, `/flow:finish`, `/flow:merge`, `/flow:deploy`, `/flow:auto` for the full issue lifecycle
+- **Stateless by default** - All context detected from git and GitHub, no locking needed for solo dev
 - **Redis demoted to extras** - `mcp-coordination/` moved to `extras/redis-coordination/`
-- **Coordination scripts moved** - Session scripts now in `extras/redis-coordination/scripts/`
-- **Three coordination tiers** - `local` (default), `git` (cross-machine), `redis` (teams)
 - **Streamlined hooks** - Removed session/heartbeat overhead from hooks.json
-- **Stateless by default** - All context detected from git, no locking needed for solo dev
+- **`/project-next` simplified** - Worktree-focused, recommends `/flow:start N` for next steps
 
 ### Previous: v3.0.0
 
