@@ -107,6 +107,7 @@ claude-power-pack/
 │   │   │   ├── merge.md                        # Merge PR, clean up
 │   │   │   ├── deploy.md                       # Run make deploy
 │   │   │   ├── auto.md                         # Full lifecycle automation
+│   │   │   ├── doctor.md                       # Diagnose workflow environment
 │   │   │   └── help.md                         # Flow command overview
 │   │   ├── cpp/                                # CPP initialization wizard
 │   │   │   ├── init.md                         # Interactive setup wizard
