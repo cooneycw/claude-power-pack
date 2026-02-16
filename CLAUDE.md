@@ -112,6 +112,8 @@ claude-power-pack/
 │   ├── issue_sync.py                           # GitHub issue creation
 │   ├── status.py                               # Alignment checking
 │   └── cli.py                                  # Command-line interface
+├── templates/
+│   └── Makefile.example                        # Starter Makefile for flow integration
 ├── scripts/
 │   ├── prompt-context.sh                       # Shell prompt context
 │   ├── worktree-remove.sh                      # Safe worktree removal
@@ -606,6 +608,71 @@ suppressions:
     path: tests/fixtures/.*
     reason: "Test fixtures with fake credentials"
 ```
+
+## Makefile Integration
+
+The `/flow` commands use Makefile targets as the canonical way to run tests, lint, and deploy. This keeps build logic in one place and lets flow commands orchestrate without hardcoding commands.
+
+### How Flow Commands Use Makefile
+
+| Command | Target | Behavior |
+|---------|--------|----------|
+| `/flow:finish` | `lint`, `test` | Auto-discovers and runs if targets exist; skips if no Makefile |
+| `/flow:deploy [target]` | `deploy` (default) | Runs specified target; lists available targets if not found |
+| `/flow:auto` | `deploy` | Runs after merge if target exists; skips otherwise |
+| `/flow:doctor` | all | Reports which standard targets are available |
+
+### Getting Started
+
+Copy the template Makefile to your project:
+
+```bash
+cp ~/Projects/claude-power-pack/templates/Makefile.example Makefile
+```
+
+Or create a minimal one:
+
+```makefile
+.PHONY: test lint deploy
+
+test:
+	uv run pytest
+
+lint:
+	uv run ruff check .
+
+deploy:
+	@echo "Define your deploy steps here"
+```
+
+### Optional Deploy Metadata
+
+Create `.claude/deploy.yaml` for per-target metadata:
+
+```yaml
+targets:
+  deploy:
+    description: Deploy to production
+    requires_confirmation: true
+  deploy-staging:
+    description: Deploy to staging
+```
+
+If `requires_confirmation: true`, `/flow:deploy` will ask for confirmation before running.
+
+### Deploy History
+
+All deployments are logged to `.claude/deploy.log`:
+
+```
+2026-02-16T14:30:00-05:00 | deploy | abc1234 | main | 0
+```
+
+Format: `timestamp | target | commit | branch | exit_code`
+
+### Template
+
+A starter Makefile is available at `templates/Makefile.example`.
 
 ## MCP Coordination Server (Optional)
 
