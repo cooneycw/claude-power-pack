@@ -168,7 +168,6 @@ claude-power-pack/
 │   │   │   ├── ui.md                           # Launch web UI
 │   │   │   ├── rotate.md                       # Rotate a secret
 │   │   │   └── help.md                         # Secrets command overview
-│   │   ├── env/                                # Environment commands
 │   │   ├── project-next.md                     # Next steps orchestrator
 │   │   ├── project-lite.md                     # Quick reference
 │   │   └── happy-check.md                      # Happy CLI version check (optional)
