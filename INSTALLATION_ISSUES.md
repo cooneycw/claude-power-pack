@@ -67,4 +67,4 @@ redis-cli ping  # Should return PONG
 ---
 
 *Generated: 2025-12-20*
-*Updated: 2026-01-04 - Migrated from conda to uv*
+*Updated: 2026-02-16 - Modernized for uv-first workflow*

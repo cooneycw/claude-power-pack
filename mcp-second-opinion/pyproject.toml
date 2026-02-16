@@ -14,8 +14,8 @@ dependencies = [
     "google-genai>=1.0.0",
     "openai>=1.50.0",
     "tenacity>=8.0.0",
-    "pydantic>=2.0.0",
-    "httpx>=0.24.0",
+    "pydantic>=2.6.0",
+    "httpx>=0.27.0",
 ]
 
 [build-system]
@@ -25,5 +25,5 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src"]
 
-[tool.uv]
-dev-dependencies = []
+[dependency-groups]
+dev = []

@@ -90,7 +90,7 @@ Generate this compact summary:
 ### Conventions
 {extracted from CLAUDE.md or inferred:}
 - **Language:** {Python 3.x / TypeScript / etc.}
-- **Package Manager:** {conda / pip / npm / etc.}
+- **Package Manager:** {uv / npm / etc.}
 - **Quality Checks:** {pre-commit hooks / CI / etc.}
 
 ### Worktrees
