@@ -1,6 +1,6 @@
 ---
 description: Check Claude Power Pack installation state
-allowed-tools: Bash(ls:*), Bash(test:*), Bash(readlink:*), Bash(uv:*), Bash(claude mcp list:*), Bash(systemctl:*), Bash(redis-cli:*)
+allowed-tools: Bash(ls:*), Bash(test:*), Bash(readlink:*), Bash(uv:*), Bash(claude mcp list:*), Bash(systemctl:*)
 ---
 
 # CPP Installation Status
@@ -61,7 +61,7 @@ Check scripts, hooks, and shell prompt:
 # Check scripts
 SCRIPTS_INSTALLED=0
 SCRIPTS_TOTAL=0
-for script in prompt-context.sh session-register.sh session-lock.sh session-heartbeat.sh pytest-locked.sh secrets-mask.sh hook-mask-output.sh hook-validate-command.sh worktree-remove.sh; do
+for script in prompt-context.sh worktree-remove.sh secrets-mask.sh hook-mask-output.sh hook-validate-command.sh; do
   SCRIPTS_TOTAL=$((SCRIPTS_TOTAL + 1))
   if [ -f ~/.claude/scripts/$script ] || [ -L ~/.claude/scripts/$script ]; then
     SCRIPTS_INSTALLED=$((SCRIPTS_INSTALLED + 1))
@@ -138,19 +138,10 @@ else
   echo "[ ] uv: not installed"
 fi
 
-# Check Redis
-if command -v redis-cli &>/dev/null && redis-cli ping 2>/dev/null | grep -q PONG; then
-  echo "[x] Redis: running"
-elif command -v redis-cli &>/dev/null; then
-  echo "[~] Redis: installed but not running"
-else
-  echo "[ ] Redis: not installed"
-fi
-
 # Check MCP server pyproject.toml files
 echo ""
 echo "MCP Server Projects:"
-for server in mcp-second-opinion mcp-coordination mcp-playwright-persistent; do
+for server in mcp-second-opinion mcp-playwright-persistent; do
   if [ -f "$CPP_DIR/$server/pyproject.toml" ]; then
     echo "  [x] $server: pyproject.toml found"
   else
@@ -162,7 +153,7 @@ done
 echo ""
 echo "MCP Servers (Claude Code):"
 MCP_LIST=$(claude mcp list 2>/dev/null || echo "")
-for server in second-opinion coordination playwright-persistent; do
+for server in second-opinion playwright-persistent; do
   if echo "$MCP_LIST" | grep -q "$server"; then
     echo "  [x] $server"
   else
@@ -173,7 +164,7 @@ done
 # Check systemd services
 echo ""
 echo "Systemd Services:"
-for service in mcp-second-opinion mcp-coordination mcp-playwright; do
+for service in mcp-second-opinion mcp-playwright-persistent; do
   if systemctl is-enabled $service &>/dev/null; then
     if systemctl is-active $service &>/dev/null; then
       echo "  [x] $service: enabled, running"
@@ -207,8 +198,8 @@ Tier 1 (Minimal):
   Status: Complete
 
 Tier 2 (Standard):
-  [x] Scripts: 9/9 installed
-  [x] Hooks: 5 hooks configured
+  [x] Scripts: 5/5 installed
+  [x] Hooks: 2 hooks configured
   [x] Permission profile: Standard
       Auto-approve rules: ~22
   [ ] Shell prompt: not configured
@@ -216,16 +207,14 @@ Tier 2 (Standard):
 
 Tier 3 (Full):
   [x] uv: 0.5.x
-  [x] Redis: running
   [x] mcp-second-opinion: pyproject.toml + registered
-  [ ] mcp-coordination: not registered
-  [ ] mcp-playwright: not configured
+  [ ] mcp-playwright-persistent: not configured
   [ ] Systemd: not installed
   Status: Partial
 
 ---------------------------------
 Current Level: Tier 2 (Standard)
-Missing: Shell prompt, mcp-coordination, mcp-playwright, systemd
+Missing: Shell prompt, mcp-playwright-persistent, systemd
 
 Run /cpp:init to complete setup
 =================================
