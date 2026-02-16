@@ -463,6 +463,33 @@ cd mcp-second-opinion
 uv run python src/server.py
 ```
 
+### Recommended Python Stack (uv-compatible)
+
+| Category | Recommended | Avoid |
+|----------|------------|-------|
+| Package mgmt | `uv` | pip, poetry, conda |
+| HTTP client | `httpx>=0.27` | requests (unless needed) |
+| Validation | `pydantic>=2.6` | marshmallow, attrs |
+| CLI | `typer>=0.12` or `click>=8.1` | argparse (for complex CLIs) |
+| Web (API) | `fastapi>=0.115` | Flask (for API-only) |
+| Web (full) | `django>=5.1` | Django <5.0 (uv conflicts) |
+| Linting | `ruff>=0.8` | flake8, pylint, isort, black |
+| Type checking | `mypy>=1.13` or `pyright` | — |
+| Testing | `pytest>=8.3` | unittest |
+| Build | `hatchling` or `setuptools>=75` | poetry-core |
+| Task runner | `make` + `uv run` prefix | invoke, nox |
+
+All commands should run through `uv run`:
+```makefile
+test:
+	uv run pytest
+
+lint:
+	uv run ruff check .
+```
+
+Always commit `uv.lock` for reproducibility. Use `uv lock` to generate/update.
+
 ### Project Structure
 
 Each Python component has its own `pyproject.toml`:
@@ -912,9 +939,6 @@ claude mcp add coordination --transport sse --url http://127.0.0.1:8082/sse
 ```bash
 # Linux/macOS
 curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# Or with pip
-pip install uv
 
 # Verify installation
 uv --version
