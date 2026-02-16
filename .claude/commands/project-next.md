@@ -1,6 +1,6 @@
 ---
 description: Scan GitHub issues and worktree to recommend prioritized next steps (generic)
-allowed-tools: Bash(gh issue list:*), Bash(gh issue view:*), Bash(gh repo view:*), Bash(git worktree:*), Bash(git worktree list:*), Bash(git status:*), Bash(git branch:*), Bash(git log:*), Bash(tree:*), Bash(ls:*), Bash(printf:*), Bash(grep:*), Bash(tmux rename-window:*), Bash(*session-register.sh:*), Bash(*claim-issue.sh:*)
+allowed-tools: Bash(gh:*), Bash(git:*), Bash(ls:*), Bash(PYTHONPATH=:*), Bash(for :*), Bash(~/.claude/:*), Bash(sort:*), Bash(printf:*), Read, Glob, Grep
 ---
 
 # Project Next Steps Recommendation

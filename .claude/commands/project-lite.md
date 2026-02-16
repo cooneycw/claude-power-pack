@@ -1,6 +1,6 @@
 ---
 description: Quick project reference with minimal context usage (context-efficient alternative to /project-next)
-allowed-tools: Bash(gh repo view:*), Bash(git worktree list:*), Bash(cat:*), Bash(head:*), Read
+allowed-tools: Bash(gh:*), Bash(git:*), Bash(ls:*), Bash(~/.claude/:*), Read, Glob
 ---
 
 # Project Lite - Quick Reference
