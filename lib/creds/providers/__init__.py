@@ -1,24 +1,29 @@
 """Secrets providers for different backends.
 
 Available providers:
-- EnvSecretsProvider: Environment variables and .env files
-- AWSSecretsProvider: AWS Secrets Manager
+- EnvSecretsProvider: Environment variables and .env files (legacy)
+- DotEnvSecretsProvider: Global config .env files with bundle support
+- AWSSecretsProvider: AWS Secrets Manager with bundle support
 
 Usage:
     from lib.creds.providers import EnvSecretsProvider, AWSSecretsProvider
+    from lib.creds.providers import DotEnvSecretsProvider
 
-    # Get credentials from environment
-    env_provider = EnvSecretsProvider()
-    if env_provider.is_available():
-        creds = env_provider.get_secret("DB")  # Looks for DB_* vars
+    # Global config provider (recommended for new code)
+    dotenv = DotEnvSecretsProvider()
+    bundle = dotenv.get_bundle("my-project")
 
-    # Get credentials from AWS
-    aws_provider = AWSSecretsProvider()
-    if aws_provider.is_available():
-        creds = aws_provider.get_secret("prod/database")
+    # Legacy environment provider
+    env = EnvSecretsProvider()
+    creds = env.get_secret("DB")
+
+    # AWS provider with bundle support
+    aws = AWSSecretsProvider()
+    bundle = aws.get_bundle("my-project")
 """
 
 from .env import EnvSecretsProvider
 from .aws import AWSSecretsProvider
+from .dotenv import DotEnvSecretsProvider
 
-__all__ = ["EnvSecretsProvider", "AWSSecretsProvider"]
+__all__ = ["EnvSecretsProvider", "AWSSecretsProvider", "DotEnvSecretsProvider"]

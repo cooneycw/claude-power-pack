@@ -1,7 +1,8 @@
 """AWS Secrets Manager provider.
 
 This provider fetches secrets from AWS Secrets Manager.
-Requires boto3 and valid AWS credentials.
+Requires boto3 and valid AWS credentials. Supports per-project
+IAM role assumption for isolation.
 
 Usage:
     from lib.creds.providers import AWSSecretsProvider
@@ -10,8 +11,10 @@ Usage:
     if provider.is_available():
         creds = provider.get_secret("prod/database")
 
-Pattern adapted from:
-    nhl-api/src/nhl_api/config/secrets.py
+    # With role assumption for project isolation
+    provider = AWSSecretsProvider(
+        role_arn="arn:aws:iam::123456789012:role/cpp-my-project-dev"
+    )
 """
 
 from __future__ import annotations
@@ -20,9 +23,13 @@ import json
 import logging
 import os
 import time
-from typing import Any, Dict, Optional, Tuple
+from datetime import datetime, timezone
+from typing import Any, Dict, Literal, Optional, Tuple
 
 from ..base import (
+    BundleProvider,
+    ProviderCaps,
+    SecretBundle,
     SecretsProvider,
     SecretsError,
     SecretNotFoundError,
@@ -44,13 +51,14 @@ except ImportError:
     NoCredentialsError = Exception  # type: ignore
 
 
-class AWSSecretsProvider(SecretsProvider):
+class AWSSecretsProvider(BundleProvider):
     """Secrets provider using AWS Secrets Manager.
 
     This provider:
     - Requires boto3 and valid AWS credentials
     - Caches secrets to minimize API calls (with TTL)
     - Supports both secret names and ARNs
+    - Supports per-project IAM role assumption for isolation
 
     AWS credentials can be provided via:
     - Environment variables (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
@@ -61,11 +69,15 @@ class AWSSecretsProvider(SecretsProvider):
     # Default cache TTL: 5 minutes (300 seconds)
     DEFAULT_CACHE_TTL = 300
 
+    # Secret naming convention for bundle storage
+    BUNDLE_PREFIX = "claude-power-pack"
+
     def __init__(
         self,
         region: Optional[str] = None,
         cache_enabled: bool = True,
         cache_ttl: int = DEFAULT_CACHE_TTL,
+        role_arn: Optional[str] = None,
     ) -> None:
         """Initialize the AWS provider.
 
@@ -73,10 +85,12 @@ class AWSSecretsProvider(SecretsProvider):
             region: AWS region (default: from AWS_DEFAULT_REGION or us-east-1)
             cache_enabled: If True, cache secrets to minimize API calls
             cache_ttl: Cache time-to-live in seconds (default: 300)
+            role_arn: Optional IAM role ARN to assume for project isolation.
         """
         self._region = region or os.getenv("AWS_DEFAULT_REGION", "us-east-1")
         self._cache_enabled = cache_enabled
         self._cache_ttl = cache_ttl
+        self._role_arn = role_arn
         self._client: Any = None
         self._available: Optional[bool] = None
         # Time-based cache: {secret_id: (value, timestamp)}
@@ -90,9 +104,36 @@ class AWSSecretsProvider(SecretsProvider):
             )
 
         if self._client is None:
-            self._client = boto3.client("secretsmanager", region_name=self._region)
+            if self._role_arn:
+                sts = boto3.client("sts", region_name=self._region)
+                assumed = sts.assume_role(
+                    RoleArn=self._role_arn,
+                    RoleSessionName="cpp-secrets",
+                )
+                creds = assumed["Credentials"]
+                self._client = boto3.client(
+                    "secretsmanager",
+                    region_name=self._region,
+                    aws_access_key_id=creds["AccessKeyId"],
+                    aws_secret_access_key=creds["SecretAccessKey"],
+                    aws_session_token=creds["SessionToken"],
+                )
+            else:
+                self._client = boto3.client(
+                    "secretsmanager", region_name=self._region
+                )
 
         return self._client
+
+    def caps(self) -> ProviderCaps:
+        return ProviderCaps(
+            can_read=True,
+            can_write=True,
+            can_delete=True,
+            can_list=True,
+            can_rotate=True,
+            supports_versions=True,
+        )
 
     @property
     def name(self) -> str:
@@ -291,4 +332,150 @@ class AWSSecretsProvider(SecretsProvider):
             "password": raw.get(
                 password_key, raw.get("POSTGRES_PASSWORD", raw.get("pass", ""))
             ),
+        }
+
+    # --- Bundle interface ---
+
+    def _bundle_secret_name(self, project_id: str) -> str:
+        """Get the AWS secret name for a project bundle."""
+        return f"{self.BUNDLE_PREFIX}/{project_id}"
+
+    def get_bundle(
+        self, project_id: str, version: str | None = None
+    ) -> SecretBundle:
+        """Get all secrets for a project as a bundle."""
+        secret_name = self._bundle_secret_name(project_id)
+
+        try:
+            kwargs: dict[str, Any] = {"SecretId": secret_name}
+            if version:
+                kwargs["VersionId"] = version
+
+            client = self._get_client()
+            response = client.get_secret_value(**kwargs)
+            secrets = json.loads(response.get("SecretString", "{}"))
+
+            return SecretBundle(
+                project_id=project_id,
+                secrets=secrets,
+                version=response.get("VersionId"),
+                updated_at=datetime.now(timezone.utc),
+                provider=self.name,
+            )
+
+        except ClientError as e:
+            error_code = e.response.get("Error", {}).get("Code", "")
+            if error_code == "ResourceNotFoundException":
+                return SecretBundle(
+                    project_id=project_id,
+                    secrets={},
+                    provider=self.name,
+                )
+            raise SecretsError(f"AWS error: {error_code}") from e
+
+    def put_bundle(
+        self,
+        bundle: SecretBundle,
+        mode: Literal["merge", "replace"] = "merge",
+    ) -> SecretBundle:
+        """Write secrets for a project to AWS Secrets Manager."""
+        secret_name = self._bundle_secret_name(bundle.project_id)
+        client = self._get_client()
+
+        if mode == "merge":
+            existing = self.get_bundle(bundle.project_id)
+            merged = dict(existing.secrets)
+            merged.update(bundle.secrets)
+        else:
+            merged = dict(bundle.secrets)
+
+        secret_string = json.dumps(merged)
+
+        try:
+            response = client.put_secret_value(
+                SecretId=secret_name,
+                SecretString=secret_string,
+            )
+        except ClientError as e:
+            error_code = e.response.get("Error", {}).get("Code", "")
+            if error_code == "ResourceNotFoundException":
+                # Secret doesn't exist yet — create it
+                response = client.create_secret(
+                    Name=secret_name,
+                    SecretString=secret_string,
+                )
+            else:
+                raise SecretsError(f"AWS error writing secrets: {error_code}") from e
+
+        # Clear cache for this secret
+        self._cache.pop(secret_name, None)
+
+        return SecretBundle(
+            project_id=bundle.project_id,
+            secrets=merged,
+            version=response.get("VersionId"),
+            updated_at=datetime.now(timezone.utc),
+            provider=self.name,
+        )
+
+    def delete_key(self, project_id: str, key: str) -> None:
+        """Delete a single key from the project bundle."""
+        bundle = self.get_bundle(project_id)
+        if key not in bundle.secrets:
+            raise SecretNotFoundError(
+                f"Key '{key}' not found in project '{project_id}'"
+            )
+
+        del bundle.secrets[key]
+        self.put_bundle(bundle, mode="replace")
+
+    def list_keys(self, project_id: str) -> list[str]:
+        """List all secret key names for a project."""
+        bundle = self.get_bundle(project_id)
+        return sorted(bundle.secrets.keys())
+
+    def bootstrap_iam(
+        self, project_id: str, account_id: str, region: str | None = None
+    ) -> dict[str, str]:
+        """Generate IAM policy for project isolation.
+
+        Returns a dict with policy_document and role_name that
+        can be used to create an IAM role.
+
+        Args:
+            project_id: The project identifier.
+            account_id: AWS account ID.
+            region: AWS region (defaults to provider region).
+
+        Returns:
+            Dict with 'role_name' and 'policy_document' (JSON string).
+        """
+        region = region or self._region
+        role_name = f"cpp-{project_id}-dev"
+        secret_arn_pattern = (
+            f"arn:aws:secretsmanager:{region}:{account_id}"
+            f":secret:{self.BUNDLE_PREFIX}/{project_id}*"
+        )
+
+        policy = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Effect": "Allow",
+                    "Action": [
+                        "secretsmanager:GetSecretValue",
+                        "secretsmanager:PutSecretValue",
+                        "secretsmanager:CreateSecret",
+                        "secretsmanager:DeleteSecret",
+                        "secretsmanager:DescribeSecret",
+                        "secretsmanager:ListSecretVersionIds",
+                    ],
+                    "Resource": secret_arn_pattern,
+                }
+            ],
+        }
+
+        return {
+            "role_name": role_name,
+            "policy_document": json.dumps(policy, indent=2),
         }

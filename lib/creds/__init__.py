@@ -2,9 +2,10 @@
 
 This package provides:
 - SecretValue: Wrapper that masks secrets in output
+- SecretBundle: Collection of key-value secrets for a project
 - DatabaseCredentials, APICredentials: Typed credential containers
-- SecretsProvider: Abstract interface for credential providers
-- EnvSecretsProvider, AWSSecretsProvider: Concrete implementations
+- SecretsProvider, BundleProvider: Abstract interfaces for credential providers
+- EnvSecretsProvider, AWSSecretsProvider, DotEnvSecretsProvider: Implementations
 - OutputMasker: Pattern-based output masking
 - PermissionConfig: Access control for database operations
 
@@ -18,20 +19,27 @@ Quick Start:
     # Use for actual connection
     dsn = creds.dsn  # Contains real password
 
+Bundle API (new):
+    from lib.creds import get_bundle_provider
+    from lib.creds.project import get_project_id
+
+    provider = get_bundle_provider()
+    bundle = provider.get_bundle(get_project_id())
+    print(bundle)  # Keys visible, values masked
+
 Provider Priority:
     1. Environment variables (DB_HOST, DB_USER, etc.)
     2. AWS Secrets Manager (if configured)
 
-Example with explicit provider:
-    from lib.creds.providers import AWSSecretsProvider, EnvSecretsProvider
-
-    aws = AWSSecretsProvider(region="us-east-1")
-    if aws.is_available():
-        raw = aws.get_secret("prod/database")
-        creds = DatabaseCredentials.from_dict(raw)
+Bundle Provider Priority:
+    1. AWS Secrets Manager (if configured)
+    2. DotEnv global config (~/.config/claude-power-pack/secrets/)
 """
 
 from .base import (
+    BundleProvider,
+    ProviderCaps,
+    SecretBundle,
     SecretValue,
     SecretsProvider,
     SecretsError,
@@ -39,14 +47,17 @@ from .base import (
     ProviderNotAvailableError,
 )
 from .credentials import DatabaseCredentials, APICredentials
-from .providers import EnvSecretsProvider, AWSSecretsProvider
+from .providers import EnvSecretsProvider, AWSSecretsProvider, DotEnvSecretsProvider
 from .masking import OutputMasker, mask_output, scan_for_secrets
 from .permissions import AccessLevel, OperationType, PermissionConfig
 
 __all__ = [
     # Base classes
     "SecretValue",
+    "SecretBundle",
     "SecretsProvider",
+    "BundleProvider",
+    "ProviderCaps",
     "SecretsError",
     "SecretNotFoundError",
     "ProviderNotAvailableError",
@@ -56,6 +67,7 @@ __all__ = [
     # Providers
     "EnvSecretsProvider",
     "AWSSecretsProvider",
+    "DotEnvSecretsProvider",
     # Masking
     "OutputMasker",
     "mask_output",
@@ -67,6 +79,7 @@ __all__ = [
     # Convenience functions
     "get_credentials",
     "get_provider",
+    "get_bundle_provider",
 ]
 
 
@@ -89,6 +102,23 @@ def get_provider() -> SecretsProvider:
         return aws
 
     return env
+
+
+def get_bundle_provider() -> BundleProvider:
+    """Get the first available bundle-capable provider.
+
+    Tries providers in order:
+    1. AWS Secrets Manager (if configured)
+    2. DotEnv global config (always available)
+
+    Returns:
+        The first available BundleProvider.
+    """
+    aws = AWSSecretsProvider()
+    if aws.is_available():
+        return aws
+
+    return DotEnvSecretsProvider()
 
 
 def get_credentials(

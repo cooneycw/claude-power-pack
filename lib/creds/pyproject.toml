@@ -1,7 +1,7 @@
 [project]
 name = "creds"
-version = "0.1.0"
-description = "Secrets management with provider abstraction and output masking"
+version = "0.2.0"
+description = "Secrets management with provider abstraction, output masking, and web UI"
 requires-python = ">=3.11"
 license = {text = "MIT"}
 authors = [
@@ -12,7 +12,17 @@ dependencies = []
 [project.optional-dependencies]
 dotenv = ["python-dotenv>=1.0.0"]
 aws = ["boto3>=1.26.0"]
-all = ["python-dotenv>=1.0.0", "boto3>=1.26.0"]
+ui = ["fastapi>=0.115", "uvicorn>=0.34"]
+crypto = ["cryptography>=44.0"]
+yaml = ["pyyaml>=6.0"]
+all = [
+    "python-dotenv>=1.0.0",
+    "boto3>=1.26.0",
+    "fastapi>=0.115",
+    "uvicorn>=0.34",
+    "cryptography>=44.0",
+    "pyyaml>=6.0",
+]
 
 [project.scripts]
 creds = "creds.cli:main"

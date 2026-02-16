@@ -78,14 +78,23 @@ claude-power-pack/
 │       ├── mcp-server/                         # MCP Coordination server (8 tools)
 │       └── scripts/                            # Session coordination scripts
 ├── lib/creds/                                  # Secrets management
-│   ├── __init__.py                             # Main exports
+│   ├── __init__.py                             # Main exports + get_bundle_provider()
 │   ├── __main__.py                             # python -m lib.creds entry
-│   ├── base.py                                 # SecretValue, SecretsProvider
-│   ├── cli.py                                  # CLI (get, validate commands)
+│   ├── base.py                                 # SecretValue, SecretBundle, BundleProvider
+│   ├── cli.py                                  # CLI (get, set, list, run, ui, rotate)
+│   ├── project.py                              # Project identity (git-based)
+│   ├── config.py                               # SecretsConfig from .claude/secrets.yml
+│   ├── audit.py                                # Audit logging (actions only, never values)
+│   ├── run.py                                  # Secret injection for subprocess exec
 │   ├── credentials.py                          # DatabaseCredentials with masking
 │   ├── masking.py                              # Output masking patterns
 │   ├── permissions.py                          # Access control model
-│   └── providers/                              # AWS, env providers
+│   ├── providers/                              # Secret providers
+│   │   ├── env.py                              # Legacy env var provider
+│   │   ├── dotenv.py                           # Global config .env provider
+│   │   └── aws.py                              # AWS SM with bundle + IAM
+│   └── ui/                                     # FastAPI web UI
+│       └── app.py                              # Local-only CRUD with auth
 ├── lib/security/                               # Security scanning
 │   ├── __init__.py                             # Main exports
 │   ├── __main__.py                             # python -m lib.security entry
@@ -150,7 +159,15 @@ claude-power-pack/
 │   │   │   ├── deep.md                         # Deep scan (+ git history)
 │   │   │   ├── explain.md                      # Explain a finding
 │   │   │   └── help.md                         # Security command overview
-│   │   ├── secrets/                            # Secrets commands
+│   │   ├── secrets/                            # Secrets management commands
+│   │   │   ├── get.md                          # Get credentials (masked)
+│   │   │   ├── set.md                          # Set a secret value
+│   │   │   ├── list.md                         # List secret keys
+│   │   │   ├── run.md                          # Run command with secrets
+│   │   │   ├── validate.md                     # Validate configuration
+│   │   │   ├── ui.md                           # Launch web UI
+│   │   │   ├── rotate.md                       # Rotate a secret
+│   │   │   └── help.md                         # Secrets command overview
 │   │   ├── env/                                # Environment commands
 │   │   ├── project-next.md                     # Next steps orchestrator
 │   │   ├── project-lite.md                     # Quick reference
@@ -745,14 +762,26 @@ See `mcp-playwright-persistent/README.md` for detailed documentation.
 
 ## Secrets Management
 
-Secure credential access with provider abstraction and output masking.
+Tiered secrets management scaling from `.env` files to AWS Secrets Manager, with a FastAPI web UI.
+
+### Tiered Architecture
+
+| Tier | Provider | Storage | Use Case |
+|------|----------|---------|----------|
+| **0** | `dotenv-global` | `~/.config/claude-power-pack/secrets/{project_id}/.env` | Local dev (default) |
+| **1** | `env-file` | Environment variables / `.env` in repo | Legacy compat |
+| **2** | `aws-secrets-manager` | AWS Secrets Manager | Production |
 
 ### Features
 
-- **Provider abstraction**: AWS Secrets Manager + environment variables
+- **Project identity**: Stable ID from git repo root, shared across worktrees
+- **Bundle API**: CRUD operations for project secrets (get, set, delete, list)
+- **Secret injection**: `creds run -- cmd` injects secrets as env vars (never in CLI args)
+- **FastAPI UI**: Local-only web interface with bearer token auth
+- **Audit logging**: Actions logged to `~/.config/claude-power-pack/audit.log` (never values)
+- **IAM isolation**: Per-project AWS roles with scoped policies
 - **Output masking**: Never exposes actual secret values
 - **Permission model**: Read-only by default, writes require explicit permission
-- **Cross-platform CLI**: Python CLI works on Windows/Mac/Linux
 
 ### Setup
 
@@ -767,22 +796,26 @@ ln -sf ~/Projects/claude-power-pack/scripts/secrets-mask.sh ~/.claude/scripts/
 ### CLI Usage
 
 ```bash
-# Get database credentials (auto-detect provider)
+# Set a secret
+python -m lib.creds set DB_PASSWORD my-secret-value
+
+# List all secrets (masked)
+python -m lib.creds list
+
+# Run command with secrets injected
+python -m lib.creds run -- make deploy
+
+# Launch web UI
+python -m lib.creds ui
+
+# Rotate a secret
+python -m lib.creds rotate DB_PASSWORD
+
+# Get database credentials (legacy)
 python -m lib.creds get
-
-# Get specific secret from AWS
-python -m lib.creds get --provider aws prod/database
-
-# Get credentials as JSON (masked)
-python -m lib.creds get --json
 
 # Validate all providers
 python -m lib.creds validate
-
-# Validate specific provider
-python -m lib.creds validate --env
-python -m lib.creds validate --aws
-python -m lib.creds validate --db
 ```
 
 ### Commands
@@ -790,16 +823,45 @@ python -m lib.creds validate --db
 | Command | Purpose |
 |---------|---------|
 | `/secrets:get [id]` | Get credentials (masked output) |
+| `/secrets:set KEY VALUE` | Set or update a secret |
+| `/secrets:list` | List all secret keys (masked) |
+| `/secrets:run -- CMD` | Run command with secrets injected |
 | `/secrets:validate` | Test credential configuration |
+| `/secrets:ui` | Launch web UI for management |
+| `/secrets:rotate KEY` | Rotate a secret value |
+| `/secrets:help` | Overview of all commands |
 
 ### Python Usage
 
 ```python
-from lib.creds import get_credentials
+# Bundle API (recommended)
+from lib.creds import get_bundle_provider
+from lib.creds.project import get_project_id
 
+provider = get_bundle_provider()
+bundle = provider.get_bundle(get_project_id())
+print(bundle)  # Keys visible, values masked
+
+# Legacy credentials API
+from lib.creds import get_credentials
 creds = get_credentials()  # Auto-detects provider
-print(creds)  # Password masked as ****
 conn = await asyncpg.connect(**creds.dsn)  # dsn has real password
+```
+
+### Configuration
+
+Create `.claude/secrets.yml` for project-level settings:
+
+```yaml
+default_provider: auto  # auto, dotenv, aws
+aws:
+  region: us-east-1
+  role_arn: ""  # Optional IAM role for isolation
+ui:
+  host: 127.0.0.1
+  port: 8090
+rotation:
+  warn_days: 90
 ```
 
 ### Masking Pipe Filter
