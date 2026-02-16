@@ -21,8 +21,8 @@ CPP uses a tiered installation model:
 | Tier | Name | What's Included |
 |------|------|-----------------|
 | 1 | **Minimal** | Commands + Skills symlinks |
-| 2 | **Standard** | + Scripts, hooks, shell prompt, coordination |
-| 3 | **Full** | + MCP servers (uv, Redis, API keys, systemd) |
+| 2 | **Standard** | + Scripts, hooks, shell prompt |
+| 3 | **Full** | + MCP servers (uv, API keys) |
 
 ## Quick Start
 
@@ -37,19 +37,21 @@ CPP uses a tiered installation model:
 ## Components
 
 ### Tier 1 - Minimal
-- **Commands**: `/project-next`, `/spec:*`, `/github:*`, `/coordination:*`
+- **Commands**: `/project-next`, `/flow:*`, `/spec:*`, `/github:*`
 - **Skills**: Best practices loaders, secrets management
 
 ### Tier 2 - Standard
-- **Scripts**: Session coordination, secret masking
-- **Hooks**: Session tracking, security
+- **Scripts**: Secret masking, worktree cleanup, shell prompt context
+- **Hooks**: Security (command validation, output masking)
 - **Shell prompt**: Worktree context display (`[CPP #42]`)
 
 ### Tier 3 - Full
 - **MCP Second Opinion** (port 8080): Gemini/OpenAI code review
 - **MCP Playwright** (port 8081): Persistent browser automation
-- **MCP Coordination** (port 8082): Redis-backed distributed locking
 - **Systemd services**: Auto-start on boot (optional)
+
+### Optional Add-on
+- **Redis Coordination** (`extras/`): Distributed locking for team/multi-session use
 
 ## Related Documentation
 
