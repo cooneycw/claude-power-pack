@@ -571,6 +571,63 @@ Hooks are configured in `.claude/hooks.json`:
 | PreToolUse (Bash) | Before command | Block dangerous operations |
 | PostToolUse (Bash/Read) | After tool | Mask secrets in output |
 
+## 🔍 Security Scanning
+
+Novice-friendly security vulnerability detection with `/flow` integration.
+
+### Commands
+
+| Command | Purpose |
+|---------|---------|
+| `/security:scan` | Full scan: native checks + available external tools |
+| `/security:quick` | Quick scan: native checks only (zero deps, ~1 sec) |
+| `/security:deep` | Deep scan: includes git history analysis |
+| `/security:explain <ID>` | Detailed explanation of a finding type |
+| `/security:help` | Overview of security commands |
+
+### What's Checked
+
+**Native (always available):**
+- `.gitignore` coverage for sensitive file patterns
+- File permissions on keys/secrets (chmod 600)
+- High-confidence secrets: AWS keys, GitHub tokens, OpenAI/Anthropic keys
+- `.env` files tracked by git
+- Debug flags in production configs
+
+**External (auto-detected, optional):**
+- [gitleaks](https://github.com/gitleaks/gitleaks) — secrets in code + git history
+- [pip-audit](https://pypi.org/project/pip-audit/) — Python dependency CVEs
+- npm audit — Node.js dependency CVEs
+
+### /flow Integration
+
+Security scanning runs automatically as a quality gate:
+- `/flow:finish` runs `/security:quick` before creating a PR
+- `/flow:deploy` runs `/security:quick` before deploying
+- CRITICAL findings block the gate; HIGH findings produce warnings
+
+### Configuration
+
+Customize gate behavior and suppress known findings via `.claude/security.yml`:
+
+```yaml
+gates:
+  flow_finish:
+    block_on: [critical]
+    warn_on: [high]
+suppressions:
+  - id: HARDCODED_SECRET
+    path: tests/fixtures/.*
+    reason: "Test fixtures with fake credentials"
+```
+
+### CLI Usage
+
+```bash
+PYTHONPATH="${HOME}/Projects/claude-power-pack/lib" python3 -m lib.security scan
+PYTHONPATH="${HOME}/Projects/claude-power-pack/lib" python3 -m lib.security explain HARDCODED_PASSWORD
+```
+
 ## ⚡ Session Initialization
 
 **New in v1.1.0:** Auto-check for repository updates at session start.

@@ -62,6 +62,18 @@ targets:
 - If `requires_confirmation: true`, ask the user to confirm before proceeding
 - If no deploy.yaml, proceed without extra confirmation
 
+### Step 4b: Run Security Check
+
+Run security scan before deploying:
+
+```bash
+PYTHONPATH="${HOME}/Projects/claude-power-pack/lib" python3 -m lib.security gate flow_deploy
+```
+
+- If the gate **fails** (critical or high findings): **stop and report**. Show findings.
+- If the gate produces **warnings** (medium findings): display them but proceed.
+- If `lib/security` is not available, skip this step.
+
 ### Step 5: Run Deploy
 
 ```bash

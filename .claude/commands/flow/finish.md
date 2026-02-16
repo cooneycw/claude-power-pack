@@ -43,6 +43,18 @@ fi
 - If tests or lint fail, **stop and report**. Do not proceed to PR creation.
 - If no Makefile exists, skip quality gates (warn the user).
 
+### Step 2b: Run Security Quick Scan
+
+Run the native security scanner as a quality gate:
+
+```bash
+PYTHONPATH="${HOME}/Projects/claude-power-pack/lib" python3 -m lib.security gate flow_finish
+```
+
+- If the gate **fails** (critical findings): **stop and report**. Show findings and remediation.
+- If the gate produces **warnings** (high findings): display them but proceed.
+- If `lib/security` is not available, skip this step (warn the user).
+
 ### Step 3: Check for Changes
 
 ```bash
@@ -97,6 +109,7 @@ Closes #ISSUE_NUM"
 Quality gates passed:
   ✅ make lint
   ✅ make test
+  ✅ security scan (quick)
 
 Branch pushed: issue-42-fix-login → origin
 

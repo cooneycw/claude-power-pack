@@ -86,6 +86,26 @@ claude-power-pack/
 │   ├── masking.py                              # Output masking patterns
 │   ├── permissions.py                          # Access control model
 │   └── providers/                              # AWS, env providers
+├── lib/security/                               # Security scanning
+│   ├── __init__.py                             # Main exports
+│   ├── __main__.py                             # python -m lib.security entry
+│   ├── cli.py                                  # CLI (scan, quick, deep, explain, gate)
+│   ├── config.py                               # SecurityConfig, gate policies
+│   ├── explain.py                              # Detailed finding explanations
+│   ├── models.py                               # Finding, Severity, ScanResult
+│   ├── orchestrator.py                         # Scan orchestration, suppression
+│   ├── modules/                                # Scanner modules
+│   │   ├── gitignore.py                        # .gitignore coverage check
+│   │   ├── permissions.py                      # File permission audit
+│   │   ├── secrets.py                          # Native secret detection
+│   │   ├── env_files.py                        # .env tracking detection
+│   │   ├── debug_flags.py                      # Debug flag detection
+│   │   ├── gitleaks.py                         # External: gitleaks adapter
+│   │   ├── pip_audit.py                        # External: pip-audit adapter
+│   │   └── npm_audit.py                        # External: npm audit adapter
+│   └── output/                                 # Output formatters
+│       ├── novice.py                           # Human-friendly output
+│       └── json_output.py                      # Machine-readable JSON
 ├── lib/spec_bridge/                            # Spec-to-Issue sync
 │   ├── __init__.py                             # Module exports
 │   ├── parser.py                               # Parse spec/tasks files
@@ -120,6 +140,12 @@ claude-power-pack/
 │   │   │   ├── create.md                       # Create feature spec
 │   │   │   ├── sync.md                         # Sync tasks to issues
 │   │   │   └── status.md                       # Show spec status
+│   │   ├── security/                            # Security scanning commands
+│   │   │   ├── scan.md                         # Full security scan
+│   │   │   ├── quick.md                        # Quick (native-only) scan
+│   │   │   ├── deep.md                         # Deep scan (+ git history)
+│   │   │   ├── explain.md                      # Explain a finding
+│   │   │   └── help.md                         # Security command overview
 │   │   ├── secrets/                            # Secrets commands
 │   │   ├── env/                                # Environment commands
 │   │   ├── project-next.md                     # Next steps orchestrator
@@ -518,6 +544,67 @@ Hooks are configured in `.claude/hooks.json`:
 | PreToolUse (Bash) | Before command | Block dangerous operations |
 | PostToolUse (Bash/Read) | After tool | Mask secrets in output |
 
+## Security Scanning
+
+Novice-friendly security scanning with `/flow` integration.
+
+### Commands
+
+| Command | Purpose |
+|---------|---------|
+| `/security:scan` | Full scan: native checks + available external tools |
+| `/security:quick` | Fast scan: native checks only (zero deps) |
+| `/security:deep` | Deep scan: includes git history analysis |
+| `/security:explain <ID>` | Detailed explanation of a finding type |
+| `/security:help` | Overview of security commands |
+
+### CLI Usage
+
+```bash
+# Add lib to PYTHONPATH
+export PYTHONPATH="$HOME/Projects/claude-power-pack/lib:$PYTHONPATH"
+
+# Run full scan
+python3 -m lib.security scan
+
+# Quick scan (native only)
+python3 -m lib.security quick
+
+# Deep scan (includes git history)
+python3 -m lib.security deep
+
+# Explain a finding
+python3 -m lib.security explain HARDCODED_PASSWORD
+
+# Check flow gate
+python3 -m lib.security gate flow_finish
+```
+
+### /flow Integration
+
+- `/flow:finish` runs security quick scan as a quality gate
+- `/flow:deploy` runs security quick scan before deploying
+- CRITICAL findings block the gate; HIGH findings produce warnings
+- Configure gating behavior in `.claude/security.yml`
+
+### Configuration
+
+Create `.claude/security.yml` to customize gate behavior and suppress known findings:
+
+```yaml
+gates:
+  flow_finish:
+    block_on: [critical]
+    warn_on: [high]
+  flow_deploy:
+    block_on: [critical, high]
+    warn_on: [medium]
+suppressions:
+  - id: HARDCODED_SECRET
+    path: tests/fixtures/.*
+    reason: "Test fixtures with fake credentials"
+```
+
 ## MCP Coordination Server (Optional)
 
 > **Moved to `extras/redis-coordination/mcp-server/` in v4.0.0.** Only needed for teams.
@@ -678,6 +765,7 @@ Each Python component has its own `pyproject.toml`:
 - `mcp-playwright-persistent/pyproject.toml`
 - `extras/redis-coordination/mcp-server/pyproject.toml`
 - `lib/creds/pyproject.toml`
+- `lib/security/pyproject.toml`
 - `lib/spec_bridge/pyproject.toml`
 
 ## Version
