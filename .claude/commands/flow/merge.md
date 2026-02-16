@@ -97,7 +97,28 @@ if [[ -n "$ISSUE_NUM" ]]; then
 fi
 ```
 
-### Step 7: Output
+### Step 7: Prune Stale Branches
+
+After merge cleanup, prune any other stale references:
+
+```bash
+# Prune stale worktree references (folders deleted but git still tracking)
+git -C "$MAIN_REPO" worktree prune
+
+# Delete local issue-* branches that are fully merged to main
+MERGED=$(git -C "$MAIN_REPO" branch --merged main | grep -v '^\*' | grep -v 'main$' | grep -v 'master$' | sed 's/^[ ]*//')
+# Protect branches with active worktrees
+WORKTREE_BRANCHES=$(git -C "$MAIN_REPO" worktree list --porcelain | grep "^branch " | sed 's|branch refs/heads/||')
+for b in $MERGED; do
+    echo "$WORKTREE_BRANCHES" | grep -q "^${b}$" && continue
+    git -C "$MAIN_REPO" branch -d "$b" 2>/dev/null && echo "Deleted merged branch: $b"
+done
+
+# Prune stale remote tracking branches
+git -C "$MAIN_REPO" fetch --prune
+```
+
+### Step 8: Output
 
 ```
 PR #78 merged (squash) ✅
@@ -107,6 +128,9 @@ Cleanup:
   ✅ Worktree removed: ../my-project-issue-42
   ✅ Local branch deleted: issue-42-fix-login
   ✅ Issue #42 closed
+  ✅ Pruned stale worktree references
+  ✅ Deleted 2 merged local branches
+  ✅ Pruned stale remote tracking branches
 
 Current directory: /home/user/Projects/my-project (main)
 ```
@@ -125,3 +149,5 @@ Current directory: /home/user/Projects/my-project (main)
 - The remote branch is deleted by `gh pr merge --delete-branch`
 - The worktree removal uses the safe `worktree-remove.sh` script when available
 - After merge, the user ends up in the main repo on the `main` branch
+- Automatically prunes stale worktree references, merged branches, and remote tracking branches
+- For a standalone cleanup (without merging), use `/flow:cleanup`

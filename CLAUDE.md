@@ -126,6 +126,7 @@ claude-power-pack/
 │   │   │   ├── finish.md                       # Commit, push, create PR
 │   │   │   ├── merge.md                        # Merge PR, clean up
 │   │   │   ├── deploy.md                       # Run make deploy
+│   │   │   ├── cleanup.md                      # Prune stale worktrees and branches
 │   │   │   ├── auto.md                         # Full lifecycle automation
 │   │   │   ├── doctor.md                       # Diagnose workflow environment
 │   │   │   └── help.md                         # Flow command overview

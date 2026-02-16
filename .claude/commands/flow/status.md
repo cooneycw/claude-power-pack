@@ -63,8 +63,36 @@ ISSUE_TITLE=$(gh issue view "$ISSUE_NUM" --json title --jq '.title' 2>/dev/null 
 - **#55**: PR is open — check for reviews, then `/flow:merge`
 ```
 
+### Step 6: Detect Stale Branches
+
+Check for local branches that may need cleanup:
+
+```bash
+# Count local issue-* branches with no active worktree
+WORKTREE_BRANCHES=$(git worktree list --porcelain | grep "^branch " | sed 's|branch refs/heads/||')
+STALE_COUNT=0
+for branch in $(git branch | grep 'issue-' | sed 's/^[ *]*//'); do
+    echo "$WORKTREE_BRANCHES" | grep -q "^${branch}$" && continue
+    STALE_COUNT=$((STALE_COUNT + 1))
+done
+
+# Check for prunable worktree references
+PRUNABLE=$(git worktree list --porcelain | grep -c "prunable" || echo "0")
+```
+
+If stale branches or prunable references exist, append to output:
+
+```markdown
+### Cleanup Available
+- {N} local issue branches with no active worktree
+- {M} stale worktree references
+
+Run `/flow:cleanup` to remove stale branches and references.
+```
+
 ## Notes
 
 - Worktrees on `main` or non-issue branches are listed but marked as "(not issue-linked)"
 - If no worktrees exist besides main, report "No active worktrees. Run `/flow:start <issue>` to begin."
 - Keep output concise — this is a quick status check
+- Stale branch detection helps identify cleanup opportunities
