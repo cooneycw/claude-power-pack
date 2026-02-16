@@ -118,13 +118,13 @@ class Config:
     # GPT-4 Turbo (best for complex reasoning)
     OPENAI_MODEL_GPT4_TURBO: str = "gpt-4-turbo"
 
-    # Codex models (use Responses API) - Updated Dec 2025
-    # gpt-5.1-codex-max: Most capable for complex coding
+    # Codex models (use Responses API) - Updated Feb 2026
+    # gpt-5.3-codex: Most capable agentic coding model (API access may be gated)
+    # gpt-5.2-codex: Current default Codex model
     # gpt-5.1-codex-mini: Cost-effective coding model
-    # gpt-5-codex: Base codex model
     # o3: Full Codex reasoning agent
-    OPENAI_MODEL_CODEX: str = "gpt-5-codex"
-    OPENAI_MODEL_CODEX_MAX: str = "gpt-5.1-codex-max"
+    OPENAI_MODEL_CODEX: str = "gpt-5.2-codex"
+    OPENAI_MODEL_CODEX_MAX: str = "gpt-5.3-codex"
     OPENAI_MODEL_CODEX_MINI: str = "gpt-5.1-codex-mini"
     OPENAI_MODEL_O3: str = "o3"
 
@@ -142,15 +142,15 @@ class Config:
     # Fallback
     OPENAI_MODEL_FALLBACK: str = "gpt-4o-mini"
 
-    # OpenAI API Pricing (per million tokens) - Updated 2025-12
+    # OpenAI API Pricing (per million tokens) - Updated 2026-02
     OPENAI_PRICING: Dict[str, Dict[str, float]] = {
         "gpt-4o": {"input": 2.50, "output": 10.00},
         "gpt-4o-mini": {"input": 0.15, "output": 0.60},
         "gpt-4-turbo": {"input": 10.00, "output": 30.00},
         # Codex models (use Responses API)
-        "gpt-5.1-codex-max": {"input": 5.00, "output": 20.00},
+        "gpt-5.3-codex": {"input": 5.00, "output": 20.00},
+        "gpt-5.2-codex": {"input": 3.50, "output": 14.00},
         "gpt-5.1-codex-mini": {"input": 1.50, "output": 6.00},
-        "gpt-5-codex": {"input": 3.00, "output": 12.00},
         "o3": {"input": 10.00, "output": 40.00},
         # Reasoning models
         "o1": {"input": 15.00, "output": 60.00},
@@ -199,11 +199,17 @@ class Config:
             "description": "Best for complex reasoning tasks",
         },
         # OpenAI Codex models (uses Responses API)
+        "codex": {
+            "provider": "openai",
+            "model_id": "gpt-5.2-codex",
+            "display_name": "GPT-5.2 Codex",
+            "description": "Default Codex model for coding tasks",
+        },
         "codex-max": {
             "provider": "openai",
-            "model_id": "gpt-5.1-codex-max",
-            "display_name": "Codex Max",
-            "description": "Most capable for complex, long-horizon coding",
+            "model_id": "gpt-5.3-codex",
+            "display_name": "GPT-5.3 Codex",
+            "description": "Most capable agentic coding model",
         },
         "codex-mini": {
             "provider": "openai",
@@ -229,13 +235,6 @@ class Config:
             "model_id": "o1-mini",
             "display_name": "o1 Mini",
             "description": "Faster reasoning model",
-        },
-        # Base Codex model
-        "codex": {
-            "provider": "openai",
-            "model_id": "gpt-5-codex",
-            "display_name": "Codex",
-            "description": "Base Codex model for coding tasks",
         },
         # GPT-5.2 models
         "gpt-5.2": {
@@ -287,7 +286,7 @@ class Config:
 
     # Server Configuration
     SERVER_NAME: str = "second-opinion-server"
-    SERVER_VERSION: str = "1.7.0"  # In-depth analysis, code_files, verbosity-driven token limits
+    SERVER_VERSION: str = "1.8.0"  # Add GPT-5.3-Codex and GPT-5.2-Codex, retire older models
 
     # HTTP/SSE Transport Configuration (with safe parsing)
     SERVER_HOST: str = os.getenv("MCP_SERVER_HOST", "127.0.0.1")

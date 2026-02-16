@@ -5,7 +5,7 @@ Gemini-powered code review MCP server for Claude Code.
 ## Features
 
 - **Code Review**: Get AI-powered second opinions on code issues
-- **Multi-Model Support**: Consult multiple LLMs (Gemini, OpenAI Codex, GPT-5.2)
+- **Multi-Model Support**: Consult multiple LLMs (Gemini, GPT-5.3 Codex, GPT-5.2)
 - **Session-Based**: Interactive multi-turn conversations for deeper analysis
 - **Visual Analysis**: Support for screenshot/image analysis (Playwright integration)
 
