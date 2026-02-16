@@ -410,6 +410,7 @@ Or automate the entire lifecycle in one shot:
 | `/flow:finish` | Run quality gates, commit, push, create PR |
 | `/flow:merge` | Squash-merge PR, clean up worktree and branch |
 | `/flow:deploy [target]` | Run `make deploy` (if Makefile target exists) |
+| `/flow:sync` | Push WIP branch to remote for cross-machine pickup |
 | `/flow:auto <issue>` | Full lifecycle: start → analyze → implement → finish → merge → deploy |
 | `/flow:help` | Show all flow commands and conventions |
 
@@ -418,6 +419,7 @@ Or automate the entire lifecycle in one shot:
 Flow commands are **stateless** — all context is derived from git (branches, worktrees, remotes) and GitHub (issues, PRs). No locking, no Redis, no coordination server needed.
 
 - `/flow:start` creates a worktree from `origin/main`, or picks up an existing remote branch
+- `/flow:sync` auto-commits WIP and pushes to remote for cross-machine pickup
 - `/flow:finish` runs `make lint` and `make test` (if targets exist) before committing
 - `/flow:merge` squash-merges the PR and safely removes the worktree
 - `/flow:deploy` logs deployments to `.claude/deploy.log`
@@ -440,6 +442,37 @@ deploy:
 ```
 
 If a Makefile exists with `lint`, `test`, or `deploy` targets, flow commands use them automatically.
+
+### Cross-Machine Workflow (Optional)
+
+For users who work across multiple machines (e.g., desktop and laptop), `/flow:sync` provides lightweight git-based state transfer with no infrastructure required.
+
+**How it works:**
+```
+Machine A: /flow:start 42  →  work  →  /flow:sync
+  ↓ (git push)
+Machine B: /flow:start 42  →  detects remote branch  →  continue working
+```
+
+**Detailed steps:**
+
+1. **Machine A** — Start work as normal:
+   ```bash
+   /flow:start 42        # Creates worktree and branch
+   # ... do some work ...
+   /flow:sync             # Auto-commits WIP, pushes to origin
+   ```
+
+2. **Machine B** — Pick up where you left off:
+   ```bash
+   /flow:start 42        # Detects remote branch, creates worktree tracking it
+   # ... continue working ...
+   /flow:finish           # When done: lint, test, commit, push, PR
+   ```
+
+**Why WIP commits are safe:** `/flow:merge` uses squash-merge, so all intermediate commits (including WIP auto-commits from `/flow:sync`) are collapsed into a single clean commit on main.
+
+**No configuration needed** — this works with any standard git remote. The sync is just `git push` and the pickup is just `git checkout --track`.
 
 ---
 
@@ -627,6 +660,7 @@ git pull
 /flow:finish                                       # Lint, test, commit, push, PR
 /flow:merge                                        # Squash-merge PR, clean up
 /flow:deploy                                       # Run make deploy
+/flow:sync                                         # Push WIP to remote (cross-machine)
 /flow:auto 42                                      # Full lifecycle in one shot
 /flow:help                                         # Show all flow commands
 
