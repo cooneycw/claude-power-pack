@@ -25,12 +25,12 @@ This guide documents the methodology as practiced in real-world projects with 10
 4. [Git Worktree Workflow](#git-worktree-workflow)
 5. [Shell Prompt Context](#shell-prompt-context)
 6. [Commit Conventions](#commit-conventions)
-7. [Multi-Agent Coordination](#multi-agent-coordination)
-   - [Session Coordination](#session-coordination)
-8. [Example Workflow](#example-workflow)
-9. [Best Practices](#best-practices)
-10. [Anti-Patterns](#anti-patterns)
-11. [Quick Reference](#quick-reference)
+7. [Flow Workflow](#flow-workflow)
+8. [Multi-Agent Coordination](#multi-agent-coordination)
+9. [Example Workflow](#example-workflow)
+10. [Best Practices](#best-practices)
+11. [Anti-Patterns](#anti-patterns)
+12. [Quick Reference](#quick-reference)
 
 ---
 
@@ -385,6 +385,64 @@ EOF
 
 ---
 
+## Flow Workflow
+
+### The Golden Path
+
+The `/flow` command set provides a stateless, git-native workflow for the full issue lifecycle:
+
+```
+/flow:start 42 → work → /flow:finish → /flow:merge → /flow:deploy
+```
+
+Or automate the entire lifecycle in one shot:
+
+```
+/flow:auto 42
+```
+
+### Flow Commands
+
+| Command | Purpose |
+|---------|---------|
+| `/flow:start <issue>` | Create worktree and branch for an issue |
+| `/flow:status` | Show active worktrees with issue and PR status |
+| `/flow:finish` | Run quality gates, commit, push, create PR |
+| `/flow:merge` | Squash-merge PR, clean up worktree and branch |
+| `/flow:deploy [target]` | Run `make deploy` (if Makefile target exists) |
+| `/flow:auto <issue>` | Full lifecycle: start → analyze → implement → finish → merge → deploy |
+| `/flow:help` | Show all flow commands and conventions |
+
+### How It Works
+
+Flow commands are **stateless** — all context is derived from git (branches, worktrees, remotes) and GitHub (issues, PRs). No locking, no Redis, no coordination server needed.
+
+- `/flow:start` creates a worktree from `origin/main`, or picks up an existing remote branch
+- `/flow:finish` runs `make lint` and `make test` (if targets exist) before committing
+- `/flow:merge` squash-merges the PR and safely removes the worktree
+- `/flow:deploy` logs deployments to `.claude/deploy.log`
+
+### Makefile Integration
+
+Flow commands integrate with `make` targets for quality gates and deployment:
+
+```makefile
+# Quality gates (used by /flow:finish)
+lint:
+	ruff check .
+
+test:
+	pytest
+
+# Deployment (used by /flow:deploy)
+deploy:
+	./scripts/deploy.sh
+```
+
+If a Makefile exists with `lint`, `test`, or `deploy` targets, flow commands use them automatically.
+
+---
+
 ## Multi-Agent Coordination
 
 ### How Issues Enable Parallel Work
@@ -425,20 +483,12 @@ Main Repo (planning)          Worktree 1 (issue-42)       Worktree 2 (issue-57)
 
 1. **Write issues before starting sessions** - All context upfront
 2. **Use `/project-next` to identify parallel work** - Find non-blocking issues
-3. **Use prompt context** - Visual confirmation of current worktree/issue
-4. **Don't share worktrees between sessions** - One session per worktree
+3. **Use `/flow:start N` to begin** - Creates isolated worktree per issue
+4. **Use prompt context** - Visual confirmation of current worktree/issue
+5. **Don't share worktrees between sessions** - One session per worktree
+6. **Use `/flow:finish` to ship** - Handles commit, push, and PR creation
 
-### Session Coordination (Optional)
-
-> **Moved to `extras/redis-coordination/` in v4.0.0.** The default `/flow` workflow is stateless and handles most use cases without coordination.
-
-For teams running multiple concurrent Claude Code sessions, optional coordination scripts and a Redis MCP server can prevent conflicts. See `extras/redis-coordination/README.md` for setup.
-
-| Coordination Tier | Description |
-|-------------------|-------------|
-| **Local** (default) | Stateless. Context from git. No locking. |
-| **Git** (optional) | State in `.claude/state.json`, synced via git. |
-| **Redis** (teams) | MCP server with distributed locks. Requires `extras/` install. |
+> **Note:** For teams needing distributed locking, optional Redis coordination is available in `extras/redis-coordination/`. See that directory's README for setup.
 
 ---
 
@@ -448,65 +498,77 @@ For teams running multiple concurrent Claude Code sessions, optional coordinatio
 
 **Issue:** Wave 7.2: Player Landing Downloader Persistence (#123)
 
-**Step 1: Create Worktree**
+#### Option A: Full Automation (Recommended)
+
 ```bash
-cd /home/user/Projects/my-api
-git worktree add -b issue-123-player-landing ../my-api-issue-123
-cd ../my-api-issue-123
+/flow:auto 123
 ```
 
+This runs the complete lifecycle: creates worktree → analyzes issue → implements → commits → creates PR → merges → cleans up.
+
+#### Option B: Step-by-Step
+
+**Step 1: Start**
+```bash
+/flow:start 123
+```
+Creates worktree at `../my-api-issue-123` with branch `issue-123-player-landing`.
+
 **Step 2: Verify Prompt Context**
-Your shell prompt should now show:
+Your shell prompt now shows:
 ```bash
 [MAP #123] ~/Projects/my-api-issue-123 $
 ```
 
-**Step 3: Start Claude Code Session**
-```bash
-# IMPORTANT: Start from main repo, not worktree!
-cd /home/user/Projects/my-api
-claude
-# Then navigate to worktree for implementation
-```
-
-**Step 4: Reference the Issue**
-Tell Claude: "I'm working on issue #123. Please read the acceptance criteria and implement the feature."
-
-**Step 5: Implement**
+**Step 3: Implement**
 - Follow acceptance criteria in issue
 - Write tests first (TDD encouraged)
 - Commit frequently with meaningful messages
 
-**Step 6: Final Commit**
+**Step 4: Finish (commit, push, PR)**
 ```bash
-git commit -m "$(cat <<'EOF'
-feat(downloader): Add player landing persistence (Closes #123)
-
-Implements database persistence for player landing data.
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
-
-Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>
-EOF
-)"
+/flow:finish
 ```
+Runs `make lint` and `make test` (if available), commits with conventional format, pushes, and creates PR.
 
-**Step 7: Create PR**
+**Step 5: Merge and Clean Up**
 ```bash
+/flow:merge
+```
+Squash-merges the PR, removes worktree and branch, pulls main.
+
+**Step 6: Deploy (optional)**
+```bash
+/flow:deploy
+```
+Runs `make deploy` if the target exists.
+
+#### Option C: Manual Git (if you prefer)
+
+<details>
+<summary>Click to expand manual workflow</summary>
+
+```bash
+# Create worktree
+cd /home/user/Projects/my-api
+git worktree add -b issue-123-player-landing ../my-api-issue-123
+cd ../my-api-issue-123
+
+# Implement and commit
+git commit -m "feat(downloader): Add player landing persistence (Closes #123)"
+
+# Push and create PR
 git push -u origin issue-123-player-landing
-gh pr create --title "feat(downloader): Player landing persistence" \
-  --body "Closes #123"
-```
+gh pr create --title "feat(downloader): Player landing persistence" --body "Closes #123"
 
-**Step 8: Cleanup (after merge)**
-```bash
-# CRITICAL: cd to main repo FIRST before removing worktree
-# If shell cwd is inside worktree, removing it breaks the shell
+# Cleanup (CRITICAL: cd to main repo FIRST)
 cd /home/user/Projects/my-api
 git worktree remove ../my-api-issue-123
 git branch -d issue-123-player-landing
 git pull
 ```
+
+</details>
 
 ---
 
@@ -530,10 +592,11 @@ git pull
 
 ### Workflow
 
-1. **Don't start Claude from worktrees** - Start from main repo
-2. **Close issues via commits** - Automatic tracking
-3. **Clean up worktrees promptly** - Avoid stale branches
+1. **Use `/flow:start N` to begin work** - Creates worktree automatically
+2. **Use `/flow:finish` to ship** - Handles commit, push, PR creation
+3. **Use `/flow:merge` to clean up** - Merges PR, removes worktree
 4. **Use `/project-next`** - Get prioritized recommendations
+5. **Don't start Claude from worktrees** - Start from main repo
 
 ---
 
@@ -558,7 +621,16 @@ git pull
 ### Commands Cheat Sheet
 
 ```bash
-# Worktree Management
+# Flow Workflow (Recommended)
+/flow:start 42                                     # Create worktree for issue
+/flow:status                                       # Show active worktrees
+/flow:finish                                       # Lint, test, commit, push, PR
+/flow:merge                                        # Squash-merge PR, clean up
+/flow:deploy                                       # Run make deploy
+/flow:auto 42                                      # Full lifecycle in one shot
+/flow:help                                         # Show all flow commands
+
+# Manual Worktree Management
 git worktree add -b issue-N-desc ../repo-issue-N   # Create
 git worktree list                                   # List all
 cd /path/to/main-repo && git worktree remove ../repo-issue-N  # Remove (cd first!)
