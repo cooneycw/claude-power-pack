@@ -238,6 +238,10 @@ This will make the following changes:
   [Tier 2 - Shell Prompt] (optional)
     • Add worktree context to PS1: [CPP #42] ~/project $
 
+  [Tier 2 - Makefile] (optional)
+    • Create starter Makefile with lint, test, deploy targets
+    • Used by /flow:finish and /flow:deploy
+
   Disk usage: ~50 KB
 
   To undo:
@@ -406,6 +410,37 @@ echo '' >> ~/.bashrc
 echo '# Claude Power Pack - worktree context in prompt' >> ~/.bashrc
 echo 'export PS1='\''$(~/.claude/scripts/prompt-context.sh)\w $ '\''' >> ~/.bashrc
 echo "✓ Shell prompt configured (restart shell or source ~/.bashrc)"
+```
+
+**Makefile Setup (Optional)**
+
+If no Makefile exists in the project root, offer to create one from the template:
+
+```
+=== Optional: Makefile ===
+
+The /flow commands use Makefile targets for quality gates and deployment:
+  /flow:finish  → runs `make lint` and `make test`
+  /flow:deploy  → runs `make deploy`
+
+Create a starter Makefile? [y/N]
+```
+
+If yes:
+```bash
+if [ ! -f "Makefile" ]; then
+  cp "$CPP_DIR/templates/Makefile.example" Makefile
+  echo "✓ Makefile created from template"
+  echo "  Edit targets to match your project's commands"
+else
+  echo "→ Makefile already exists (skipped)"
+fi
+```
+
+If no:
+```bash
+echo "→ Makefile creation skipped"
+echo "  You can copy it later: cp $CPP_DIR/templates/Makefile.example Makefile"
 ```
 
 **Happy CLI Installation (Optional)**

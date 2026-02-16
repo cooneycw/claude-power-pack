@@ -270,8 +270,18 @@ Or step-by-step:
 
 - **Stateless** — All context from git (branches, worktrees, remotes) and GitHub (issues, PRs)
 - **Idempotent** — Running `/flow:start 42` twice detects the existing worktree
-- **Quality gates** — `/flow:finish` runs `make lint` and `make test` if targets exist
+- **Makefile-driven** — Quality gates and deployment use Makefile targets as the single source of truth
 - **Safe cleanup** — `/flow:merge` handles worktree removal safely (avoids cwd-in-worktree issues)
+
+### Makefile Integration
+
+Flow commands auto-discover Makefile targets. Get started with the template:
+
+```bash
+cp ~/Projects/claude-power-pack/templates/Makefile.example Makefile
+```
+
+Or `/cpp:init` will offer to create one for you.
 
 ## 📋 Spec-Driven Development
 
@@ -1173,6 +1183,8 @@ claude-power-pack/
 │   └── spec_bridge/                            # Spec-to-Issue sync
 │       ├── parser.py                           # Parse spec/tasks files
 │       └── issue_sync.py                       # GitHub issue creation
+├── templates/
+│   └── Makefile.example                        # Starter Makefile for flow integration
 ├── scripts/
 │   ├── prompt-context.sh                       # Shell prompt context
 │   ├── hook-mask-output.sh                     # Secret masking

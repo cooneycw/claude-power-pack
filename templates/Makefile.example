@@ -1,0 +1,39 @@
+# Project Makefile — Claude Power Pack Integration
+#
+# The /flow commands auto-discover these targets:
+#   /flow:finish  → runs `make lint` and `make test` (if targets exist)
+#   /flow:deploy  → runs `make deploy` (or any target you specify)
+#   /flow:doctor  → reports which targets are available
+#
+# Copy this file to your project root as "Makefile" and customize.
+# All commands use `uv run` for dependency isolation.
+
+.PHONY: test lint format deploy deploy-staging clean
+
+## Quality gates (used by /flow:finish)
+
+lint:
+	uv run ruff check .
+
+format:
+	uv run ruff format .
+
+test:
+	uv run pytest
+
+## Deployment (used by /flow:deploy)
+
+deploy:
+	@echo "Define your deploy steps here"
+	@echo "Examples:"
+	@echo "  ansible-playbook deploy.yaml"
+	@echo "  ssh prod 'cd /app && git pull && systemctl restart app'"
+	@echo "  docker compose up -d --build"
+
+deploy-staging:
+	@echo "Define your staging deploy steps here"
+
+## Utilities
+
+clean:
+	rm -rf .pytest_cache __pycache__ .ruff_cache .mypy_cache dist build *.egg-info
