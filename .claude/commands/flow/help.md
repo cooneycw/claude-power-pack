@@ -11,6 +11,7 @@ Streamlined worktree-based development workflow. No locks, no Redis — just git
 | `/flow:finish` | Run quality gates, commit, push, and create PR |
 | `/flow:merge` | Merge PR, clean up worktree and branch |
 | `/flow:deploy [target]` | Run Makefile deploy target |
+| `/flow:sync` | Push WIP branch to remote for cross-machine pickup |
 | `/flow:auto <issue>` | Full lifecycle: start → analyze → implement → finish → merge → deploy |
 | `/flow:cleanup` | Prune stale worktree references and delete merged branches |
 | `/flow:doctor` | Diagnose workflow environment and readiness |
@@ -27,6 +28,12 @@ Streamlined worktree-based development workflow. No locks, no Redis — just git
 Or step by step:
 ```
 /flow:start 42  →  work  →  /flow:finish  →  /flow:merge  →  /flow:deploy
+```
+
+Cross-machine (optional):
+```
+Machine A: /flow:start 42  →  work  →  /flow:sync
+Machine B: /flow:start 42  →  picks up remote branch  →  continue working
 ```
 
 ## Conventions
@@ -60,6 +67,10 @@ Or step by step:
 # Deploy to production
 /flow:deploy
 # → Runs make deploy
+
+# Sync WIP to remote (for cross-machine work)
+/flow:sync
+# → Auto-commits WIP, pushes branch to origin
 
 # Or do it all in one shot (start to deploy):
 /flow:auto 42
