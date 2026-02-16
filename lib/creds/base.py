@@ -2,26 +2,32 @@
 
 This module provides:
 - SecretValue: A wrapper that masks secrets in __repr__ and __str__
+- SecretBundle: A collection of key-value secrets for a project
 - SecretsProvider: Abstract interface for credential providers (AWS, env, etc.)
+- BundleProvider: Extended interface with bundle CRUD operations
+- ProviderCaps: Capability flags for provider feature detection
 - SecretsError: Base exception for secrets-related errors
 
 Usage:
-    from lib.creds.base import SecretValue, SecretsProvider
+    from lib.creds.base import SecretValue, SecretsProvider, SecretBundle
 
     # Wrap a secret value
     api_key = SecretValue("sk-abc123...")
     print(api_key)  # Output: ****
     actual = api_key.get_secret_value()  # Returns real value
 
-Pattern adapted from:
-    mcp-second-opinion/src/config.py:50-72
+    # Work with bundles
+    bundle = SecretBundle(project_id="my-app", secrets={"DB_PASSWORD": "secret"})
+    print(bundle)  # Keys visible, values masked
 """
 
 from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from typing import Any, Dict, Literal, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +116,69 @@ class SecretValue:
         return len(self._secret_value) if self._secret_value else 0
 
 
+@dataclass
+class SecretBundle:
+    """A collection of key-value secrets for a project.
+
+    Stores secrets as a flat dict of key -> value pairs.
+    Values are always stored as plain strings internally but
+    displayed masked in repr/str output.
+    """
+
+    project_id: str
+    secrets: dict[str, str] = field(default_factory=dict)
+    version: str | None = None
+    updated_at: datetime | None = None
+    provider: str = ""
+
+    @property
+    def keys(self) -> list[str]:
+        """List all secret key names."""
+        return list(self.secrets.keys())
+
+    def get(self, key: str) -> str | None:
+        """Get a secret value by key."""
+        return self.secrets.get(key)
+
+    def set(self, key: str, value: str) -> None:
+        """Set a secret value."""
+        self.secrets[key] = value
+        self.updated_at = datetime.now(timezone.utc)
+
+    def delete(self, key: str) -> bool:
+        """Delete a secret key. Returns True if it existed."""
+        if key in self.secrets:
+            del self.secrets[key]
+            self.updated_at = datetime.now(timezone.utc)
+            return True
+        return False
+
+    def __len__(self) -> int:
+        return len(self.secrets)
+
+    def __repr__(self) -> str:
+        keys = ", ".join(self.keys)
+        return f"SecretBundle(project_id={self.project_id!r}, keys=[{keys}])"
+
+    def __str__(self) -> str:
+        lines = [f"Project: {self.project_id} ({len(self.secrets)} secrets)"]
+        for key in sorted(self.secrets):
+            lines.append(f"  {key} = ****")
+        return "\n".join(lines)
+
+
+@dataclass(frozen=True)
+class ProviderCaps:
+    """Capability flags for a secrets provider."""
+
+    can_read: bool = True
+    can_write: bool = False
+    can_delete: bool = False
+    can_list: bool = False
+    can_rotate: bool = False
+    supports_versions: bool = False
+
+
 class SecretsProvider(ABC):
     """Abstract interface for secrets providers.
 
@@ -192,3 +261,76 @@ class SecretsProvider(ABC):
         """
         secret = self.get_secret(secret_id)
         return secret.get(field)
+
+
+class BundleProvider(SecretsProvider):
+    """Extended provider interface with bundle CRUD operations.
+
+    Providers that support full secrets management (not just read)
+    should inherit from this class.
+    """
+
+    @abstractmethod
+    def caps(self) -> ProviderCaps:
+        """Return capability flags for this provider."""
+        pass
+
+    @abstractmethod
+    def get_bundle(
+        self, project_id: str, version: str | None = None
+    ) -> SecretBundle:
+        """Get all secrets for a project as a bundle.
+
+        Args:
+            project_id: The project identifier.
+            version: Optional version to retrieve (provider-specific).
+
+        Returns:
+            SecretBundle with all project secrets.
+
+        Raises:
+            SecretNotFoundError: If project has no secrets.
+        """
+        pass
+
+    @abstractmethod
+    def put_bundle(
+        self,
+        bundle: SecretBundle,
+        mode: Literal["merge", "replace"] = "merge",
+    ) -> SecretBundle:
+        """Write secrets for a project.
+
+        Args:
+            bundle: The secrets to write.
+            mode: "merge" updates only provided keys, "replace" overwrites all.
+
+        Returns:
+            Updated SecretBundle with new version/timestamp.
+        """
+        pass
+
+    @abstractmethod
+    def delete_key(self, project_id: str, key: str) -> None:
+        """Delete a single secret key from a project.
+
+        Args:
+            project_id: The project identifier.
+            key: The secret key to delete.
+
+        Raises:
+            SecretNotFoundError: If key doesn't exist.
+        """
+        pass
+
+    @abstractmethod
+    def list_keys(self, project_id: str) -> list[str]:
+        """List all secret key names for a project.
+
+        Args:
+            project_id: The project identifier.
+
+        Returns:
+            List of secret key names.
+        """
+        pass

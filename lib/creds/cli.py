@@ -2,25 +2,31 @@
 
 Usage:
     python -m lib.creds get [OPTIONS] [SECRET_ID]
+    python -m lib.creds set KEY VALUE [--project PROJECT]
+    python -m lib.creds list [--project PROJECT]
+    python -m lib.creds run -- COMMAND [ARGS...]
     python -m lib.creds validate [OPTIONS]
+    python -m lib.creds ui [--port PORT]
+    python -m lib.creds rotate KEY [--project PROJECT]
 
 Examples:
     # Get database credentials (auto-detect provider)
     python -m lib.creds get
 
-    # Get specific secret from AWS
-    python -m lib.creds get --provider aws prod/database
+    # Set a secret
+    python -m lib.creds set DB_PASSWORD my-secret-value
 
-    # Get credentials as JSON
-    python -m lib.creds get --json
+    # List all secrets for current project
+    python -m lib.creds list
 
-    # Validate all providers
+    # Run command with secrets injected
+    python -m lib.creds run -- make deploy
+
+    # Launch web UI
+    python -m lib.creds ui
+
+    # Validate providers
     python -m lib.creds validate
-
-    # Validate specific provider
-    python -m lib.creds validate --env
-    python -m lib.creds validate --aws
-    python -m lib.creds validate --db
 """
 
 from __future__ import annotations
@@ -89,6 +95,144 @@ def cmd_get(args: argparse.Namespace) -> int:
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
+
+
+def cmd_set(args: argparse.Namespace) -> int:
+    """Handle the 'set' subcommand."""
+    from .audit import log_action
+    from .base import SecretBundle
+    from .project import get_project_id
+    from .providers.dotenv import DotEnvSecretsProvider
+
+    project_id = args.project or get_project_id()
+    provider = DotEnvSecretsProvider()
+
+    bundle = SecretBundle(
+        project_id=project_id,
+        secrets={args.key: args.value},
+    )
+    provider.put_bundle(bundle, mode="merge")
+
+    log_action("set", project_id, f"key={args.key}")
+
+    print_status("ok", f"Set {args.key} for project '{project_id}'")
+    return 0
+
+
+def cmd_list(args: argparse.Namespace) -> int:
+    """Handle the 'list' subcommand."""
+    from .project import get_project_id
+    from .providers.dotenv import DotEnvSecretsProvider
+    from .providers.aws import AWSSecretsProvider
+
+    project_id = args.project or get_project_id()
+
+    # Try dotenv first
+    dotenv = DotEnvSecretsProvider()
+    bundle = dotenv.get_bundle(project_id)
+
+    if bundle.secrets:
+        print(f"Project: {project_id}")
+        print(f"Provider: {dotenv.name}")
+        print(f"Secrets: {len(bundle.secrets)}")
+        print()
+        for key in sorted(bundle.secrets):
+            value = bundle.secrets[key]
+            masked = value[:2] + "*" * max(0, len(value) - 4) + value[-2:] if len(value) > 4 else "****"
+            print(f"  {key} = {masked}")
+        return 0
+
+    # Try AWS
+    aws = AWSSecretsProvider()
+    if aws.is_available():
+        bundle = aws.get_bundle(project_id)
+        if bundle.secrets:
+            print(f"Project: {project_id}")
+            print(f"Provider: {aws.name}")
+            print(f"Secrets: {len(bundle.secrets)}")
+            print()
+            for key in sorted(bundle.secrets):
+                value = bundle.secrets[key]
+                masked = value[:2] + "*" * max(0, len(value) - 4) + value[-2:] if len(value) > 4 else "****"
+                print(f"  {key} = {masked}")
+            return 0
+
+    print(f"No secrets found for project '{project_id}'")
+    return 0
+
+
+def cmd_run(args: argparse.Namespace) -> int:
+    """Handle the 'run' subcommand."""
+    from .run import run_with_secrets
+
+    # Strip leading '--' from REMAINDER args
+    cmd = args.run_command
+    if cmd and cmd[0] == "--":
+        cmd = cmd[1:]
+
+    if not cmd:
+        print("Error: no command specified. Usage: creds run -- command [args]",
+              file=sys.stderr)
+        return 1
+
+    return run_with_secrets(
+        command=cmd,
+        project_id=args.project,
+        provider_name=args.provider,
+    )
+
+
+def cmd_ui(args: argparse.Namespace) -> int:
+    """Handle the 'ui' subcommand."""
+    from .ui import run_server
+
+    try:
+        run_server(
+            project_id=args.project,
+            host=args.host,
+            port=args.port,
+        )
+    except KeyboardInterrupt:
+        print("\nUI server stopped.")
+    return 0
+
+
+def cmd_rotate(args: argparse.Namespace) -> int:
+    """Handle the 'rotate' subcommand."""
+    from .audit import log_action
+    from .project import get_project_id
+    from .providers.dotenv import DotEnvSecretsProvider
+
+    project_id = args.project or get_project_id()
+    provider = DotEnvSecretsProvider()
+
+    bundle = provider.get_bundle(project_id)
+    if args.key not in bundle.secrets:
+        print(f"Error: key '{args.key}' not found in project '{project_id}'",
+              file=sys.stderr)
+        return 1
+
+    if not args.value:
+        # Prompt for new value
+        import getpass
+        new_value = getpass.getpass(f"New value for {args.key}: ")
+        if not new_value:
+            print("Error: value cannot be empty", file=sys.stderr)
+            return 1
+    else:
+        new_value = args.value
+
+    from .base import SecretBundle
+    update = SecretBundle(
+        project_id=project_id,
+        secrets={args.key: new_value},
+    )
+    provider.put_bundle(update, mode="merge")
+
+    log_action("rotate", project_id, f"key={args.key}")
+
+    print_status("ok", f"Rotated {args.key} for project '{project_id}'")
+    return 0
 
 
 def validate_env() -> bool:
@@ -226,6 +370,37 @@ def validate_db() -> bool:
     return True
 
 
+def validate_dotenv() -> bool:
+    """Validate DotEnv global config secrets."""
+    print("=== Global Config Secrets ===")
+    print()
+
+    try:
+        from .project import get_project_id
+        from .providers.dotenv import DotEnvSecretsProvider
+
+        project_id = get_project_id()
+        provider = DotEnvSecretsProvider()
+        bundle = provider.get_bundle(project_id)
+
+        print_status("ok", f"Project ID: {project_id}")
+
+        if bundle.secrets:
+            print_status("ok", f"Found {len(bundle.secrets)} secrets")
+            for key in sorted(bundle.secrets):
+                print_status("info", f"  {key}")
+        else:
+            print_status("warn", "No secrets stored yet")
+            print_status("info", "  Use 'creds set KEY VALUE' to add secrets")
+    except RuntimeError as e:
+        print_status("warn", f"Not in a git repository: {e}")
+    except Exception as e:
+        print_status("fail", f"Error: {e}")
+
+    print()
+    return True
+
+
 def cmd_validate(args: argparse.Namespace) -> int:
     """Handle the 'validate' subcommand."""
     if args.env:
@@ -234,13 +409,16 @@ def cmd_validate(args: argparse.Namespace) -> int:
         validate_aws()
     elif args.db:
         validate_db()
+    elif args.dotenv:
+        validate_dotenv()
     else:
         # Validate all
+        validate_dotenv()
         validate_env()
         validate_aws()
         validate_db()
         print("=== Summary ===")
-        print("Run with --db, --aws, or --env for specific validation")
+        print("Run with --dotenv, --db, --aws, or --env for specific validation")
 
     return 0
 
@@ -281,6 +459,53 @@ def create_parser() -> argparse.ArgumentParser:
         help="Output as JSON (masked)",
     )
 
+    # 'set' subcommand
+    set_parser = subparsers.add_parser(
+        "set",
+        help="Set a secret value",
+        description="Set or update a secret in the project's global config store.",
+    )
+    set_parser.add_argument("key", help="Secret key name (e.g., DB_PASSWORD)")
+    set_parser.add_argument("value", help="Secret value")
+    set_parser.add_argument(
+        "--project",
+        help="Override auto-detected project ID",
+    )
+
+    # 'list' subcommand
+    list_parser = subparsers.add_parser(
+        "list",
+        help="List secret keys (values masked)",
+        description="List all secrets for the current project.",
+    )
+    list_parser.add_argument(
+        "--project",
+        help="Override auto-detected project ID",
+    )
+
+    # 'run' subcommand
+    run_parser = subparsers.add_parser(
+        "run",
+        help="Run command with secrets injected",
+        description="Execute a command with project secrets as env vars. "
+        "Secrets never appear in CLI arguments.",
+    )
+    run_parser.add_argument(
+        "--project",
+        help="Override auto-detected project ID",
+    )
+    run_parser.add_argument(
+        "--provider",
+        choices=["aws", "dotenv", "auto"],
+        default=None,
+        help="Provider to use (default: auto)",
+    )
+    run_parser.add_argument(
+        "run_command",
+        nargs=argparse.REMAINDER,
+        help="Command to run (use -- before command)",
+    )
+
     # 'validate' subcommand
     validate_parser = subparsers.add_parser(
         "validate",
@@ -303,6 +528,52 @@ def create_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Test database connection only",
     )
+    validate_parser.add_argument(
+        "--dotenv",
+        action="store_true",
+        help="Validate global config secrets only",
+    )
+
+    # 'ui' subcommand
+    ui_parser = subparsers.add_parser(
+        "ui",
+        help="Launch web UI for secrets management",
+        description="Start a local web server for managing secrets. "
+        "Binds to localhost only with bearer token auth.",
+    )
+    ui_parser.add_argument(
+        "--project",
+        help="Override auto-detected project ID",
+    )
+    ui_parser.add_argument(
+        "--host",
+        default=None,
+        help="Bind host (default: 127.0.0.1)",
+    )
+    ui_parser.add_argument(
+        "--port",
+        type=int,
+        default=None,
+        help="Bind port (default: 8090)",
+    )
+
+    # 'rotate' subcommand
+    rotate_parser = subparsers.add_parser(
+        "rotate",
+        help="Rotate a secret value",
+        description="Update a secret with a new value.",
+    )
+    rotate_parser.add_argument("key", help="Secret key to rotate")
+    rotate_parser.add_argument(
+        "value",
+        nargs="?",
+        default=None,
+        help="New value (prompts if not provided)",
+    )
+    rotate_parser.add_argument(
+        "--project",
+        help="Override auto-detected project ID",
+    )
 
     return parser
 
@@ -316,13 +587,22 @@ def main(argv: list[str] | None = None) -> int:
         parser.print_help()
         return 0
 
-    if args.command == "get":
-        return cmd_get(args)
-    elif args.command == "validate":
-        return cmd_validate(args)
-    else:
-        parser.print_help()
-        return 1
+    commands = {
+        "get": cmd_get,
+        "set": cmd_set,
+        "list": cmd_list,
+        "run": cmd_run,
+        "validate": cmd_validate,
+        "ui": cmd_ui,
+        "rotate": cmd_rotate,
+    }
+
+    handler = commands.get(args.command)
+    if handler:
+        return handler(args)
+
+    parser.print_help()
+    return 1
 
 
 def run() -> NoReturn:
