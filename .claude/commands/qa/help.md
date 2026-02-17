@@ -7,50 +7,91 @@ Automated QA testing commands for web applications.
 | Command | Description |
 |---------|-------------|
 | `/qa:test <target> [area]` | Run QA tests, log bugs as GitHub issues |
+| `/qa:help` | This help page |
 
 ## Usage Examples
 
 ```bash
-# Test entire site
-/qa:test https://agentic-chess.ca
+# Test a URL directly
+/qa:test https://myapp.example.com
 
-# Test specific area
-/qa:test chess play
+# Test using a shortcut from qa.yml
+/qa:test myapp dashboard
 
 # Find multiple bugs before stopping
-/qa:test chess dashboard --find 5
+/qa:test myapp login --find 5
 
-# Test external URL
-/qa:test https://myapp.com/login
+# Test any external URL (no config needed)
+/qa:test https://other-site.com/page
 ```
 
-## Project Shortcuts
+## Configuration: `.claude/qa.yml`
 
-Currently configured shortcuts:
+Place a `qa.yml` file in your project's `.claude/` directory to configure shortcuts, test areas, and project metadata.
 
-| Shortcut | URL | Repository |
-|----------|-----|------------|
-| `chess` | https://agentic-chess.ca | cooneycw/chess-agent |
+**Setup:**
+```bash
+# Copy the template
+cp ~/Projects/claude-power-pack/templates/qa.yml.example .claude/qa.yml
 
-## Test Areas (for chess)
+# Edit for your project
+```
 
-| Area | Path | Tests |
-|------|------|-------|
-| `dashboard` | `/` | Stats, actions, health |
-| `play` | `/game/` | Board, moves, AI |
-| `training` | `/training/` | Controls, progress |
-| `analysis` | `/analysis/` | FEN input, MCTS |
-| `viewer` | `/viewer/` | Game list, replay |
-| `explainer` | `/explainer/` | Content, examples |
+**If no `.claude/qa.yml` exists**, `/qa:test` runs in interactive mode — it prompts for a URL and uses generic testing (clicking elements, checking forms, scanning console errors).
+
+### Config Schema
+
+```yaml
+# Project information
+project:
+  url: https://myapp.example.com        # Default URL
+  repository: owner/repo-name           # GitHub repo for bug issues
+
+# Shortcuts — short names that resolve to URLs
+shortcuts:
+  myapp: https://myapp.example.com
+  staging: https://staging.myapp.example.com
+
+# Test areas — named sections with paths and test checklists
+test_areas:
+  home:
+    path: /                              # URL path appended to project URL
+    description: "Homepage and landing"  # Shown in test reports
+    tests:                               # Checklist of things to verify
+      - "Page loads without errors"
+      - "Navigation links work"
+      - "Key content visible"
+
+  login:
+    path: /login
+    description: "Authentication flow"
+    tests:
+      - "Login form renders"
+      - "Form validation works"
+      - "Successful login redirects"
+```
+
+### Config Fields
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `project.url` | Yes | Default base URL for the application |
+| `project.repository` | No | GitHub `owner/repo` for issue creation (auto-detected if omitted) |
+| `shortcuts` | No | Map of short names to URLs |
+| `test_areas` | No | Named test areas with paths and test checklists |
+| `test_areas.<name>.path` | Yes | URL path relative to project URL |
+| `test_areas.<name>.description` | No | Human-readable area description |
+| `test_areas.<name>.tests` | No | List of specific checks to perform |
 
 ## How It Works
 
-1. Creates headless Playwright browser session
-2. Navigates to target URL
-3. Tests interactive elements (clicks, forms, navigation)
-4. Checks console for errors
-5. Logs bugs as GitHub issues
-6. Reports summary
+1. Loads `.claude/qa.yml` config (or prompts interactively)
+2. Creates headless Playwright browser session
+3. Navigates to target URL (resolving shortcuts and area paths)
+4. Runs test checklist from config (or generic element testing)
+5. Checks console for errors
+6. Logs bugs as GitHub issues
+7. Reports summary with test coverage
 
 ## Requirements
 
