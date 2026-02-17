@@ -1,0 +1,102 @@
+# .claude/qa.yml — QA Test Configuration
+#
+# Place this file in your project's .claude/ directory to configure /qa:test.
+# Copy from: ~/Projects/claude-power-pack/templates/qa.yml.example
+#
+# If this file doesn't exist, /qa:test will prompt you interactively.
+
+# Project information
+project:
+  url: https://myapp.example.com
+  repository: owner/repo-name    # GitHub repo for issue creation
+
+# Shortcuts map short names to URLs (used as: /qa:test myapp dashboard)
+shortcuts:
+  myapp: https://myapp.example.com
+
+# Test areas define named sections of your application
+# Each area has a path, description, and specific test checks
+test_areas:
+  home:
+    path: /
+    description: "Homepage and landing"
+    tests:
+      - "Page loads without errors"
+      - "Navigation links work"
+      - "Key content visible"
+
+  login:
+    path: /login
+    description: "Authentication flow"
+    tests:
+      - "Login form renders"
+      - "Form validation works"
+      - "Successful login redirects"
+      - "Invalid credentials show error"
+
+  dashboard:
+    path: /dashboard
+    description: "Main dashboard"
+    tests:
+      - "Data loads correctly"
+      - "Interactive elements respond"
+      - "Navigation within dashboard works"
+
+# --- Example: chess-agent project ---
+# project:
+#   url: https://agentic-chess.ca
+#   repository: cooneycw/chess-agent
+#
+# shortcuts:
+#   chess: https://agentic-chess.ca
+#
+# test_areas:
+#   dashboard:
+#     path: /
+#     description: "Dashboard and stats"
+#     tests:
+#       - "Stat card data loads"
+#       - "Quick action buttons work"
+#       - "Recent games list populates"
+#       - "System health indicators accurate"
+#   play:
+#     path: /game/
+#     description: "Game play functionality"
+#     tests:
+#       - "Board renders correctly"
+#       - "Square clicks register"
+#       - "Moves execute"
+#       - "AI responds"
+#       - "Game state updates"
+#       - "Resign/Reset work"
+#   training:
+#     path: /training/
+#     description: "Training controls"
+#     tests:
+#       - "Status indicators work"
+#       - "Start/Stop controls function"
+#       - "Progress updates live"
+#       - "Loss charts render"
+#   analysis:
+#     path: /analysis/
+#     description: "Position analysis"
+#     tests:
+#       - "FEN input works"
+#       - "Position loads"
+#       - "MCTS visualization renders"
+#       - "Move suggestions appear"
+#   viewer:
+#     path: /viewer/
+#     description: "Game replay viewer"
+#     tests:
+#       - "Game list loads"
+#       - "Game selection works"
+#       - "Move navigation functions"
+#       - "Board syncs with moves"
+#   explainer:
+#     path: /explainer/
+#     description: "Educational content"
+#     tests:
+#       - "Content loads"
+#       - "Interactive elements work"
+#       - "Examples render"
