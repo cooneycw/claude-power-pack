@@ -225,12 +225,14 @@ Display claimed issues with their tier status:
 
 ## Step 5: Cross-Reference Analysis
 
-Compare issues against worktree state:
+Compare issues against worktree state and build an **in-flight set** of issue numbers:
 
 1. **Issue-to-Branch Mapping**: Match issue numbers in branch names (`issue-{N}-*`)
 2. **Issue-to-Worktree Mapping**: Map worktree directories to issue numbers
 3. **Orphaned Work**: Branches without corresponding open issues
 4. **Blocked Issues**: Issues waiting on parent completion
+
+**Build the in-flight set:** Collect all issue numbers from (1), (2), and claimed issues from Step 4c into a single set called `IN_FLIGHT_ISSUES`. This set is used in Step 6 to exclude issues from "Ready to Start" recommendations. Any issue in this set should only appear under "Active Work (In Progress)".
 
 ### 5.1 Issue-to-Spec Mapping (if .specify/ exists)
 
@@ -259,13 +261,23 @@ Create a prioritized list of next steps:
 - Deployment blockers
 
 ### Priority 2: Active Work (In Progress)
-- Issues with existing worktrees
+- Issues with existing worktrees (include worktree path and branch status)
 - Issues with uncommitted changes
+- Issues claimed by other sessions (show session status)
+
+**IMPORTANT — Worktree/Session Exclusion:**
+When building Priority 3+ lists, **exclude** any issue that:
+1. Already has a worktree (mapped in Step 5 cross-reference)
+2. Already has a branch checked out anywhere (`git branch --list 'issue-{N}-*'`)
+3. Is claimed by an Active or Idle session (from Step 4c)
+
+These issues belong in Priority 2 only. Do NOT recommend them as "Ready to Start".
 
 ### Priority 3: Ready to Start
 - Child issues of completed parent waves
 - Issues with clear acceptance criteria
 - Issues with no blockers
+- **Must not have an existing worktree, branch, or active session claim**
 
 ### Priority 3b: Pending Spec Sync (if .specify/ exists)
 - Features with tasks.md containing unsynced waves
