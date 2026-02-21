@@ -8,6 +8,7 @@ These are **not required** for the default `/flow` workflow. Install only what y
 
 | Extra | Description | Requires |
 |-------|-------------|----------|
+| [`sequential-thinking/`](sequential-thinking/) | Structured step-by-step reasoning with revision and branching | Node.js 18+ |
 | [`redis-coordination/`](redis-coordination/) | Distributed locking and session tracking via Redis MCP server | Redis |
 
 ## Coordination Tiers
