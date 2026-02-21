@@ -7,7 +7,8 @@ This repository contains four core components and optional extras:
 2. **Spec-Driven Development** - GitHub Spec Kit integration for structured workflows
 3. **MCP Second Opinion Server** - Gemini-powered code review
 4. **MCP Playwright Server** - Browser automation for testing
-5. **Redis Coordination** (optional, in `extras/`) - Distributed locking for teams
+5. **Sequential Thinking** (optional, in `extras/`) - Structured step-by-step reasoning
+6. **Redis Coordination** (optional, in `extras/`) - Distributed locking for teams
 
 ## Quick References
 
@@ -18,6 +19,7 @@ This repository contains four core components and optional extras:
 - **MCP Token Audit:** `MCP_TOKEN_AUDIT_CHECKLIST.md`
 - **MCP Second Opinion:** `mcp-second-opinion/`
 - **MCP Playwright:** `mcp-playwright-persistent/`
+- **Sequential Thinking (optional):** `extras/sequential-thinking/`
 - **MCP Coordination (optional):** `extras/redis-coordination/`
 
 ## Key Conventions
@@ -74,6 +76,8 @@ claude-power-pack/
 │   ├── deploy/                                 # systemd, docker configs
 │   └── README.md                               # Full documentation
 ├── extras/                                      # Optional components
+│   ├── sequential-thinking/                    # Structured reasoning (stdio, npm)
+│   │   └── README.md                           # Setup & usage guide
 │   └── redis-coordination/                     # Distributed locking (teams only)
 │       ├── mcp-server/                         # MCP Coordination server (8 tools)
 │       └── scripts/                            # Session coordination scripts
@@ -168,6 +172,9 @@ claude-power-pack/
 │   │   │   ├── ui.md                           # Launch web UI
 │   │   │   ├── rotate.md                       # Rotate a secret
 │   │   │   └── help.md                         # Secrets command overview
+│   │   ├── self-improvement/                   # Retrospective analysis
+│   │   │   ├── deployment.md                   # Analyze errors, improve Makefile
+│   │   │   └── help.md                         # Self-improvement command overview
 │   │   ├── project-next.md                     # Next steps orchestrator
 │   │   ├── project-lite.md                     # Quick reference
 │   │   └── happy-check.md                      # Happy CLI version check (optional)
@@ -205,6 +212,7 @@ To preserve context, documentation is NOT auto-loaded. Use topic-specific skills
 | Issue-Driven Dev | "worktree", "IDD" |
 | CLAUDE.md Config | "CLAUDE.md", "configuration" |
 | Code Quality | "code review", "quality" |
+| Build & Deploy | "Makefile", "uv", "deploy patterns" |
 
 **Commands:**
 - `/load-best-practices` - Load full guide (25K tokens)
@@ -624,6 +632,27 @@ suppressions:
     path: tests/fixtures/.*
     reason: "Test fixtures with fake credentials"
 ```
+
+## Self-Improvement Commands
+
+Retrospective analysis commands that examine recent failures and suggest tooling improvements.
+
+### Commands
+
+| Command | Purpose |
+|---------|---------|
+| `/self-improvement:deployment` | Analyze recent errors and propose Makefile improvements |
+| `/self-improvement:help` | Overview of self-improvement commands |
+
+### When to Use
+
+Run after failed deployments or builds to close the feedback loop:
+
+```
+/flow:deploy -> fails -> /self-improvement:deployment -> fix Makefile -> /flow:deploy
+```
+
+Pair with `/flow:doctor` for forward-looking health checks.
 
 ## Makefile Integration
 
