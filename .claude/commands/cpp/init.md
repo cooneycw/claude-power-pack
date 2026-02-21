@@ -690,9 +690,50 @@ Continue? [Y/n]
 
 ---
 
-## Step 8: Optional — Redis Coordination (Teams Only)
+## Step 8: Optional Extras
 
-After the main installation completes, offer this add-on:
+After the main installation completes, offer optional extras.
+
+### 8a. Sequential Thinking
+
+```
+=== Optional: Sequential Thinking MCP ===
+
+Adds a `sequentialthinking` tool for structured, step-by-step reasoning
+with revision and branching. Useful for complex debugging and architecture decisions.
+
+Requires: Node.js 18+ (for npx)
+No API keys needed. Runs as stdio subprocess (no port).
+
+Install Sequential Thinking? [y/N]
+```
+
+If yes:
+
+```bash
+# Check if Node.js is available
+if ! command -v npx &>/dev/null; then
+  echo "⚠ npx not found. Sequential Thinking requires Node.js 18+."
+  echo "  Install Node.js: https://nodejs.org/"
+  echo "  Skipping Sequential Thinking."
+else
+  MCP_LIST=$(claude mcp list 2>/dev/null || echo "")
+  if echo "$MCP_LIST" | grep -q "sequential-thinking"; then
+    echo "→ sequential-thinking MCP already registered (skipped)"
+  else
+    claude mcp add --transport stdio --scope user sequential-thinking -- npx -y @modelcontextprotocol/server-sequential-thinking
+    echo "✓ Sequential Thinking MCP registered (stdio, user scope)"
+  fi
+fi
+```
+
+If no:
+```bash
+echo "→ Sequential Thinking skipped"
+echo "  Install later: claude mcp add --transport stdio --scope user sequential-thinking -- npx -y @modelcontextprotocol/server-sequential-thinking"
+```
+
+### 8b. Redis Coordination (Teams Only)
 
 ```
 === Optional: Redis Coordination ===

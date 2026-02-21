@@ -17,6 +17,7 @@ A comprehensive repository combining:
 - [Issue-Driven Development](#-issue-driven-development) - Micro-issue methodology
 - [Flow Workflow](#-flow-workflow) - `/flow:start` → work → `/flow:finish` → `/flow:merge`
 - [Spec-Driven Development](#-spec-driven-development) - Specification workflow
+- [Sequential Thinking](#sequential-thinking-optional) - Structured step-by-step reasoning (optional)
 - [Session Coordination](#-session-coordination) - Multi-session conflict prevention (optional)
 - [Project Commands](#-project-commands) - `/project-lite` & `/project-next`
 - [GitHub Issue Management](#-github-issue-management) - Full CRUD for issues
@@ -506,6 +507,23 @@ cd mcp-second-opinion
 uv run python src/server.py
 ```
 
+### pyproject.toml First (PEP 621 & PEP 723)
+
+**Always use `pyproject.toml`** for Python projects. Never `setup.py`, `setup.cfg`, or `requirements.txt` for new projects.
+
+- **PEP 621** — Standard `[project]` table in `pyproject.toml` for all project metadata and dependencies
+- **PEP 723** — Inline `# /// script` metadata for single-file scripts (`uv run` auto-installs deps)
+- **PEP 735** — `[dependency-groups]` for dev dependencies (replaces `requirements-dev.txt`)
+
+```bash
+uv init my-project           # Creates PEP 621 pyproject.toml
+uv add requests              # Adds to [project.dependencies]
+uv add --dev pytest          # Adds to [dependency-groups] dev
+uv add --script s.py rich    # Adds inline PEP 723 metadata
+```
+
+See `docs/skills/python-packaging.md` for full PEP 621/723 reference with examples.
+
 ### Recommended Python Stack (uv-compatible)
 
 | Category | Recommended | Avoid |
@@ -739,6 +757,7 @@ Claude Power Pack includes two core MCP servers and one optional extra:
 |--------|------|---------|----------|
 | [Second Opinion](#mcp-second-opinion-server) | 8080 | Multi-model code review | `mcp-second-opinion/` |
 | [Playwright Persistent](#mcp-playwright-persistent-server) | 8081 | Browser automation | `mcp-playwright-persistent/` |
+| [Sequential Thinking](#sequential-thinking-optional) | stdio | Structured step-by-step reasoning | `extras/sequential-thinking/` (optional) |
 | [Coordination](#mcp-coordination-server-optional) | 8082 | Redis-backed distributed locking | `extras/redis-coordination/mcp-server/` (optional) |
 
 ---
@@ -1004,6 +1023,26 @@ See `mcp-playwright-persistent/README.md` for detailed documentation.
 
 ---
 
+## Sequential Thinking (Optional)
+
+Structured step-by-step reasoning with revision and branching. Provides a `sequentialthinking` tool that Claude calls iteratively to break down complex problems into numbered thought steps.
+
+- **No API keys** - Purely local state tracking
+- **No port** - Runs as stdio subprocess via npx
+- **No Python** - Only requires Node.js 18+
+
+### Install
+
+```bash
+claude mcp add --transport stdio --scope user sequential-thinking -- npx -y @modelcontextprotocol/server-sequential-thinking
+```
+
+Or select it during `/cpp:init` when prompted for optional extras.
+
+See [`extras/sequential-thinking/README.md`](extras/sequential-thinking/README.md) for details.
+
+---
+
 ## MCP Coordination Server (Optional)
 
 > **Moved to `extras/redis-coordination/mcp-server/` in v4.0.0.** Only needed for teams running multiple concurrent Claude Code sessions.
@@ -1161,7 +1200,8 @@ claude-power-pack/
 │   │   ├── context-efficiency.md               # Token optimization
 │   │   ├── session-management.md               # Session & plan mode
 │   │   ├── mcp-optimization.md                 # MCP best practices
-│   │   └── ...                                 # 9 topic skills total
+│   │   ├── python-packaging.md                  # PEP 621/723, pyproject.toml
+│   │   └── ...                                 # 10 topic skills total
 │   └── reference/
 │       └── CLAUDE_CODE_BEST_PRACTICES_FULL.md  # Complete guide (25K tokens)
 ├── .specify/                                    # Spec-Driven Development
@@ -1173,6 +1213,8 @@ claude-power-pack/
 ├── mcp-playwright-persistent/                  # Port 8081 - Browser automation
 │   └── src/server.py                           # 29 tools
 ├── extras/
+│   ├── sequential-thinking/                    # Optional: structured reasoning
+│   │   └── README.md                           # Setup & usage
 │   └── redis-coordination/                     # Optional: distributed locking
 │       ├── mcp-server/                         # Port 8082 - Redis locking (8 tools)
 │       └── scripts/                            # Session coordination scripts

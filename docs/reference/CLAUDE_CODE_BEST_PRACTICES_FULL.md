@@ -23,8 +23,9 @@
 13. [Code Quality & Review](#code-quality--review)
 14. [Workflow Patterns](#workflow-patterns)
 15. [Build, Test & Deploy Patterns](#build-test--deploy-patterns)
-16. [Common Pitfalls](#common-pitfalls)
-17. [Tools & Resources](#tools--resources)
+16. [Python Packaging Standards](#python-packaging-standards)
+17. [Common Pitfalls](#common-pitfalls)
+18. [Tools & Resources](#tools--resources)
 
 ---
 
@@ -841,6 +842,122 @@ When deployments or builds fail repeatedly, use `/self-improvement:deployment` t
 ```
 
 See also: `templates/Makefile.example` for the CPP starter template.
+
+---
+
+## Python Packaging Standards
+
+### Always Use pyproject.toml (PEP 621)
+
+[PEP 621](https://peps.python.org/pep-0621/) is the official standard for declaring Python project metadata. **Every new Python project should use `pyproject.toml` with a `[project]` table.** Never create `setup.py`, `setup.cfg`, or `requirements.txt` for new projects.
+
+| Legacy Approach | Modern Standard |
+|----------------|-----------------|
+| `setup.py` | `pyproject.toml` `[project]` table |
+| `setup.cfg` | `pyproject.toml` `[project]` table |
+| `requirements.txt` | `[project.dependencies]` + `uv.lock` |
+| `requirements-dev.txt` | `[dependency-groups]` (PEP 735) |
+
+**Minimal pyproject.toml:**
+
+```toml
+[project]
+name = "my-project"
+version = "1.0.0"
+requires-python = ">=3.11"
+dependencies = [
+    "httpx>=0.27",
+    "pydantic>=2.6",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = ["pytest>=8.0", "ruff>=0.8"]
+```
+
+**Key rules:**
+1. **Always declare `requires-python`** — constrains dependency resolution
+2. **Use `>=` lower bounds, not `==` pins** — the lockfile handles exact pinning
+3. **Dev tools go in `[dependency-groups]`** (PEP 735), not `[project.optional-dependencies]`
+4. **`[project.optional-dependencies]`** is for end-user extras (e.g., `pip install lib[postgres]`)
+5. **Commit `uv.lock`** for applications — ensures reproducible installs
+6. **Use `hatchling`** as default build backend — lightweight, standards-compliant
+
+**uv commands:**
+```bash
+uv init my-project              # Creates PEP 621 pyproject.toml
+uv add requests                 # Adds to [project.dependencies]
+uv add --dev pytest ruff        # Adds to [dependency-groups] dev
+uv add --group lint ruff        # Named dependency group
+uv lock                         # Generate/update uv.lock
+```
+
+### Inline Script Metadata (PEP 723)
+
+[PEP 723](https://peps.python.org/pep-0723/) embeds dependencies directly in single-file Python scripts. When `uv run` encounters a script with a `# /// script` block, it auto-installs dependencies in an ephemeral environment — no `pyproject.toml`, no `venv`, no `pip install`.
+
+**Example:**
+
+```python
+# /// script
+# requires-python = ">=3.11"
+# dependencies = [
+#   "requests>=2.28",
+#   "rich>=13.0",
+# ]
+# ///
+
+import requests
+from rich.pretty import pprint
+
+resp = requests.get("https://api.example.com/data")
+pprint(resp.json())
+```
+
+**Run it:** `uv run script.py` — dependencies installed automatically.
+
+**Self-executing scripts (Unix):**
+```python
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["httpx"]
+# ///
+```
+
+Then: `chmod +x script.py && ./script.py`
+
+**Managing inline dependencies:**
+```bash
+uv init --script new.py         # Create script with metadata block
+uv add --script script.py rich  # Add dependency to existing script
+uv lock --script script.py      # Create script.py.lock for reproducibility
+```
+
+### When to Use Which
+
+| Scenario | Standard | Why |
+|----------|----------|-----|
+| Multi-file project | PEP 621 (`pyproject.toml`) | Full packaging, dev groups, entry points |
+| Library/package | PEP 621 (`pyproject.toml`) | Installable, extras, build system |
+| Single-file utility script | PEP 723 (inline `# /// script`) | Self-contained, copy-paste ready |
+| Gist or tutorial code | PEP 723 (inline) | No repo needed |
+| MCP servers, web apps | PEP 621 (`pyproject.toml`) | Multiple modules, services |
+
+**Rule of thumb:** If someone should be able to run it without cloning a repo, use PEP 723. Otherwise, use PEP 621.
+
+### Anti-Patterns
+
+| Anti-Pattern | Do This Instead |
+|-------------|-----------------|
+| `setup.py` for new projects | `pyproject.toml` `[project]` table |
+| `pip freeze > requirements.txt` | `uv lock` (captures only direct deps properly) |
+| `pip install -e .` | `uv sync` |
+| Manual `venv` activation | `uv run <command>` |
+| Deps in both `requirements.txt` and `pyproject.toml` | Single source of truth: `pyproject.toml` |
 
 ---
 

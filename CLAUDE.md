@@ -189,6 +189,7 @@ claude-power-pack/
 │   │   ├── idd-workflow.md                     # → docs/skills/
 │   │   ├── claude-md-config.md                 # → docs/skills/
 │   │   ├── code-quality.md                     # → docs/skills/
+│   │   ├── python-packaging.md                 # → docs/skills/
 │   │   └── secrets.md                          # Secrets skill
 │   └── hooks.json                              # Session hooks
 ├── .github/
@@ -212,6 +213,7 @@ To preserve context, documentation is NOT auto-loaded. Use topic-specific skills
 | Issue-Driven Dev | "worktree", "IDD" |
 | CLAUDE.md Config | "CLAUDE.md", "configuration" |
 | Code Quality | "code review", "quality" |
+| Python Packaging | "pyproject.toml", "PEP 621", "PEP 723", "setup.py" |
 | Build & Deploy | "Makefile", "uv", "deploy patterns" |
 
 **Commands:**
