@@ -1358,11 +1358,22 @@ MIT License - See LICENSE file for details
 
 ---
 
-**Repository Version**: 4.0.0 (Simplified Workflow)
+**Repository Version**: 4.1.0
 **Last Updated**: February 2026
 **Maintainer**: cooneycw
 
-## What's New in v4.0.0
+## What's New in v4.1.0
+
+- **Python packaging best practices** - PEP 621 (pyproject.toml) and PEP 723 (inline script metadata) guidance advocating modern standards
+- **Sequential Thinking MCP** - Optional extra for structured step-by-step reasoning with revision and branching
+- **Self-improvement commands** - `/self-improvement:deployment` for retrospective Makefile analysis
+- **Security scanning** - `/security:scan`, `/security:quick`, `/security:deep` with `/flow` gate integration
+- **Enhanced secrets management** - Tiered providers (dotenv, AWS), FastAPI web UI, audit logging
+- **Flow enhancements** - `/flow:sync` (cross-machine), `/flow:cleanup` (prune stale), `/flow:doctor` (diagnostics)
+- **QA generalization** - Config-driven testing for any project
+- **Makefile as first-class concept** - Build, test, lint, deploy targets used by `/flow` commands
+
+### Previous: v4.0.0
 
 - **Flow commands** - `/flow:start`, `/flow:finish`, `/flow:merge`, `/flow:deploy`, `/flow:auto` for the full issue lifecycle
 - **Stateless by default** - All context detected from git and GitHub, no locking needed for solo dev
