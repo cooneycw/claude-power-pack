@@ -22,8 +22,9 @@
 12. [Plan Mode](#plan-mode)
 13. [Code Quality & Review](#code-quality--review)
 14. [Workflow Patterns](#workflow-patterns)
-15. [Common Pitfalls](#common-pitfalls)
-16. [Tools & Resources](#tools--resources)
+15. [Build, Test & Deploy Patterns](#build-test--deploy-patterns)
+16. [Common Pitfalls](#common-pitfalls)
+17. [Tools & Resources](#tools--resources)
 
 ---
 
@@ -722,6 +723,124 @@ Use the `/project-next` command to analyze your repository's issues and get prio
 - Separate working directories
 - Different credential profiles
 - Process isolation
+
+---
+
+## Build, Test & Deploy Patterns
+
+### Makefile as the Canonical Interface
+
+The `/flow` workflow treats the Makefile as the single source of truth for build, test, lint, and deploy operations. This decouples Claude Code commands from project-specific tooling.
+
+**Why Makefile:**
+- Universal — works across all project types (Python, Node, Rust, mixed)
+- Declarative — targets and dependencies are explicit
+- Discoverable — `grep -E '^[a-zA-Z_-]+:' Makefile` lists all available operations
+- Composable — targets can depend on other targets, building dependency chains
+- `/flow:finish` auto-discovers `lint` and `test` targets
+- `/flow:deploy` runs any Makefile target by name
+- `/flow:doctor` reports which standard targets are present
+
+**Standard targets for flow integration:**
+
+| Target | Used By | Purpose |
+|--------|---------|---------|
+| `lint` | `/flow:finish` | Code linting (auto-discovered) |
+| `test` | `/flow:finish` | Test suite (auto-discovered) |
+| `format` | Manual | Code formatting |
+| `deploy` | `/flow:deploy` | Production deployment (default target) |
+| `deploy-staging` | `/flow:deploy staging` | Staging deployment |
+| `clean` | Manual | Remove build artifacts |
+
+**Example Makefile with dependency chain:**
+
+```makefile
+.PHONY: test lint format deploy deploy-staging clean check
+
+## Quality gates — used by /flow:finish
+lint:
+	uv run ruff check .
+
+format:
+	uv run ruff format .
+
+test:
+	uv run pytest
+
+## Pre-deploy validation
+check: lint test
+
+## Deployment — used by /flow:deploy
+deploy: check
+	@echo "Deploying to production..."
+	# Your deploy commands here
+
+deploy-staging:
+	@echo "Deploying to staging..."
+	# Your staging deploy commands here
+
+## Utilities
+clean:
+	rm -rf .pytest_cache __pycache__ .ruff_cache .mypy_cache dist build *.egg-info
+```
+
+**Key practices:**
+1. Always declare `.PHONY` for non-file targets
+2. Use dependency chains (`deploy: check`) to enforce quality gates
+3. Prefix informational output with `@` to reduce noise
+4. Keep deploy logic in the Makefile, not scattered across scripts
+5. Use the CPP template as a starting point: `cp ~/Projects/claude-power-pack/templates/Makefile.example Makefile`
+
+### uv as the Python Environment Manager
+
+[uv](https://docs.astral.sh/uv/) is the recommended Python dependency manager for Claude Code projects. It replaces pip, virtualenv, and pyenv with a single fast tool.
+
+**Why uv:**
+- 10-100x faster than pip for dependency resolution
+- Automatic virtual environment management (no manual `venv` activation)
+- Lock file support (`uv.lock`) for reproducible builds
+- Drop-in replacement: `uv run pytest` instead of `pytest`
+- Used by all CPP MCP servers internally
+
+**uv + Makefile integration:**
+
+All Makefile commands should use `uv run` to ensure correct environment:
+
+```makefile
+# Good — uses uv for isolation
+test:
+	uv run pytest
+
+# Bad — relies on system Python or manual venv activation
+test:
+	pytest
+```
+
+**Quick start:**
+```bash
+# Install uv
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Initialize a project (creates pyproject.toml)
+uv init
+
+# Add dependencies
+uv add pytest ruff
+
+# Run commands (auto-creates venv, installs deps)
+uv run pytest
+uv run ruff check .
+```
+
+### Retrospective Improvement
+
+When deployments or builds fail repeatedly, use `/self-improvement:deployment` to analyze error patterns and propose Makefile improvements. This closes the feedback loop:
+
+```
+/flow:deploy -> fails -> /self-improvement:deployment -> fix Makefile -> /flow:deploy -> succeeds
+```
+
+See also: `templates/Makefile.example` for the CPP starter template.
 
 ---
 
