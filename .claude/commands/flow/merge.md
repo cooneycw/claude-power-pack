@@ -65,21 +65,33 @@ git -C "$MAIN_REPO" pull origin main
 
 ### Step 5: Clean Up Worktree
 
-If we're in a worktree:
+**CRITICAL: You MUST `cd` to the main repo BEFORE removing the worktree. NEVER remove a worktree while your working directory is inside it — this destroys your CWD and kills all subsequent bash commands. Execute these as SEPARATE Bash calls.**
 
+If we're in a worktree (`IS_WORKTREE=true`):
+
+**Step 5a — Exit the worktree (separate Bash call):**
 ```bash
-# Use the safe worktree removal script
-if command -v worktree-remove.sh &>/dev/null || [[ -f ~/.claude/scripts/worktree-remove.sh ]]; then
+cd "$MAIN_REPO"
+pwd  # Verify you are in the main repo, NOT the worktree
+```
+
+**Step 5b — Remove the worktree (separate Bash call, AFTER confirming cd succeeded):**
+```bash
+if [[ -f ~/.claude/scripts/worktree-remove.sh ]]; then
     ~/.claude/scripts/worktree-remove.sh "$WORKTREE_PATH" --force --delete-branch
 else
-    # Manual cleanup (less safe but functional)
-    cd "$MAIN_REPO"
     git worktree remove "$WORKTREE_PATH" --force
     git branch -D "$BRANCH" 2>/dev/null || true
 fi
 ```
 
-If we're in the main repo:
+**Step 5c — Verify working directory is valid:**
+```bash
+pwd  # MUST show main repo path, NOT the deleted worktree
+git status  # MUST succeed — if this fails, your CWD was deleted
+```
+
+If we're in the main repo (not a worktree):
 ```bash
 # Just delete the local branch
 git branch -D "$BRANCH" 2>/dev/null || true
