@@ -29,7 +29,9 @@ Proceeding...
 
 ### Step 1: Start — Create Worktree
 
-Create a worktree and branch for the issue. If one already exists, use it.
+**CRITICAL: You MUST create or enter a worktree before proceeding. NEVER implement changes directly on main/master. This step is NOT optional — if worktree creation fails, STOP immediately.**
+
+Create a worktree and branch for the issue. If one already exists, `cd` into it.
 
 ```bash
 ISSUE_NUM="$1"
@@ -66,16 +68,37 @@ git fetch origin
 git branch -r | grep "issue-${ISSUE_NUM}-"
 ```
 
-- **Already on issue branch:** Skip creation, use current directory.
-- **Worktree exists:** Use it, skip creation.
-- **Remote branch exists:** Create worktree tracking the remote branch.
-- **Neither exists:** Create fresh from `origin/main`:
+- **Already on issue branch:** Verify you are NOT on main/master. Use current directory.
+- **Worktree exists:** `cd` into the existing worktree directory.
+- **Remote branch exists:** Create worktree tracking the remote branch, then `cd` into it:
+  ```bash
+  git worktree add -b "$LOCAL_BRANCH" "$WORKTREE_DIR" "$REMOTE_BRANCH"
+  cd "$WORKTREE_DIR"
+  ```
+- **Neither exists:** Create fresh from `origin/main`, then `cd` into it:
   ```bash
   git fetch origin main
   git worktree add -b "$BRANCH" "$WORKTREE_DIR" origin/main
+  cd "$WORKTREE_DIR"
   ```
 
-Report: `Step 1/6: Start complete — worktree at {path}`
+#### Verification Gate (MANDATORY — do NOT skip)
+
+Before proceeding to Step 2, verify you are in the correct working directory:
+
+```bash
+CURRENT_BRANCH=$(git branch --show-current)
+if [[ "$CURRENT_BRANCH" == "main" || "$CURRENT_BRANCH" == "master" ]]; then
+    echo "ERROR: Still on main/master after Step 1. Worktree creation failed or cd was skipped."
+    echo "STOP: Cannot proceed. You MUST be on an issue branch, not main."
+    exit 1
+fi
+echo "Verified: on branch '$CURRENT_BRANCH' in $(pwd)"
+```
+
+**If this verification fails, STOP immediately. Report the failure using the error template at the bottom of this file. Do NOT proceed to Step 2.**
+
+Report: `Step 1/6: Start complete — worktree at {path}, verified on branch {branch}`
 
 ---
 
@@ -195,19 +218,34 @@ Report: `Step 4/6: Finish complete — PR #XX created`
    ```
 
 3. **Clean up worktree and branch:**
+
+   **CRITICAL: You MUST `cd` to the main repo BEFORE removing the worktree. NEVER remove a worktree while your working directory is inside it — this kills all subsequent bash commands. Execute these as SEPARATE Bash calls, not in a single script.**
+
+   **Step 5a — Exit the worktree (separate Bash call):**
    ```bash
-   if [[ -f ".git" ]]; then
-       WORKTREE_PATH=$(pwd)
-       if [[ -f ~/.claude/scripts/worktree-remove.sh ]]; then
-           ~/.claude/scripts/worktree-remove.sh "$WORKTREE_PATH" --force --delete-branch
-       else
-           cd "$MAIN_REPO"
-           git worktree remove "$WORKTREE_PATH" --force
-           git branch -D "$BRANCH" 2>/dev/null || true
-       fi
+   cd "$MAIN_REPO"
+   pwd  # Verify you are in the main repo
+   ```
+
+   **Step 5b — Remove the worktree (separate Bash call, AFTER confirming cd succeeded):**
+   ```bash
+   if [[ -f ~/.claude/scripts/worktree-remove.sh ]]; then
+       ~/.claude/scripts/worktree-remove.sh "$WORKTREE_PATH" --force --delete-branch
    else
+       git worktree remove "$WORKTREE_PATH" --force
        git branch -D "$BRANCH" 2>/dev/null || true
    fi
+   ```
+
+   **Step 5c — Verify working directory is valid:**
+   ```bash
+   pwd  # MUST show main repo path, NOT the deleted worktree
+   git status  # MUST succeed — if this fails, your CWD was deleted
+   ```
+
+   If you are NOT in a worktree (just on a feature branch in main repo):
+   ```bash
+   git branch -D "$BRANCH" 2>/dev/null || true
    ```
 
 4. **Close issue** (if still open):

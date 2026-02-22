@@ -53,20 +53,33 @@ git fetch origin
 git branch -r | grep "issue-${ISSUE_NUM}-"
 ```
 
-- **If worktree exists:** Inform user of the path. Do not recreate.
-- **If remote branch exists (no local worktree):** Create worktree tracking the remote branch:
+- **If worktree exists:** Inform user of the path. Do not recreate. `cd` into the existing worktree.
+- **If remote branch exists (no local worktree):** Create worktree tracking the remote branch, then `cd` into it:
   ```bash
   REMOTE_BRANCH=$(git branch -r | grep "issue-${ISSUE_NUM}-" | head -1 | xargs)
   LOCAL_BRANCH="${REMOTE_BRANCH#origin/}"
   git worktree add -b "$LOCAL_BRANCH" "$WORKTREE_DIR" "$REMOTE_BRANCH"
+  cd "$WORKTREE_DIR"
   ```
-- **If neither exists:** Create fresh:
+- **If neither exists:** Create fresh, then `cd` into it:
   ```bash
   git fetch origin main
   git worktree add -b "$BRANCH" "$WORKTREE_DIR" origin/main
+  cd "$WORKTREE_DIR"
   ```
 
-### Step 5: Output
+### Step 5: Verify and Output
+
+**CRITICAL: Verify you are in the worktree, not on main/master.**
+
+```bash
+CURRENT_BRANCH=$(git branch --show-current)
+if [[ "$CURRENT_BRANCH" == "main" || "$CURRENT_BRANCH" == "master" ]]; then
+    echo "ERROR: Still on main/master. Worktree creation or cd failed."
+    exit 1
+fi
+echo "Verified: on branch '$CURRENT_BRANCH' in $(pwd)"
+```
 
 Report to the user:
 
@@ -75,8 +88,7 @@ Created worktree for issue #42: "Fix login bug"
 
   Directory: ../my-project-issue-42
   Branch:    issue-42-fix-login-bug
-
-  To start working:  cd ../my-project-issue-42
+  Verified:  Working directory is now the worktree (not main)
 ```
 
 ## Error Handling
