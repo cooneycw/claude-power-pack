@@ -1,0 +1,39 @@
+# Install as a user service: systemctl --user enable mcp-playwright
+# Copy to: ~/.config/systemd/user/mcp-playwright.service
+# %h expands to the user's home directory in user services.
+
+[Unit]
+Description=MCP Playwright Persistent Server (SSE Transport)
+After=network.target
+Documentation=https://github.com/cooneycw/claude-power-pack
+
+[Service]
+Type=simple
+WorkingDirectory=%h/Projects/claude-power-pack/mcp-playwright-persistent
+
+# Load environment variables from .env file (if exists)
+EnvironmentFile=-%h/Projects/claude-power-pack/mcp-playwright-persistent/.env
+
+# Explicit port configuration
+Environment="SERVER_PORT=8081"
+Environment="SERVER_HOST=127.0.0.1"
+
+# Use uv to run in the project environment
+ExecStart=%h/.local/bin/uv run --project %h/Projects/claude-power-pack/mcp-playwright-persistent python src/server.py
+
+# Restart policy
+Restart=on-failure
+RestartSec=10s
+StartLimitBurst=5
+StartLimitIntervalSec=300
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=mcp-playwright
+
+# Security hardening
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

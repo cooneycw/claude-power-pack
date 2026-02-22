@@ -1,10 +1,15 @@
+# Install as a user service: systemctl --user enable mcp-coordination
+# Copy to: ~/.config/systemd/user/mcp-coordination.service
+# %h expands to the user's home directory in user services.
+
 [Unit]
 Description=MCP Coordination Server (Redis-backed distributed locking)
-After=network.target
+After=network.target redis-server.service
 
 [Service]
 Type=simple
-WorkingDirectory=%h/Projects/claude-power-pack/mcp-coordination
+WorkingDirectory=%h/Projects/claude-power-pack/extras/redis-coordination/mcp-server
+EnvironmentFile=%h/Projects/claude-power-pack/extras/redis-coordination/mcp-server/.env
 ExecStart=%h/.local/bin/uv run python src/server.py
 Restart=on-failure
 RestartSec=5
@@ -16,6 +21,9 @@ Environment="PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin"
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=mcp-coordination
+
+# Security hardening
+NoNewPrivileges=true
 
 [Install]
 WantedBy=default.target
