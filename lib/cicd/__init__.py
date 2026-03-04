@@ -31,6 +31,7 @@ Quick Start:
 """
 
 from .config import CICDConfig
+from .container import generate_compose, generate_container_files, generate_dockerfile, generate_dockerignore
 from .detector import detect_framework
 from .health import check_endpoint, check_process, run_health_checks
 from .makefile import check_makefile, generate_makefile, parse_makefile
@@ -59,6 +60,11 @@ __all__ = [
     "check_process",
     # Smoke
     "run_smoke_tests",
+    # Container
+    "generate_container_files",
+    "generate_dockerfile",
+    "generate_compose",
+    "generate_dockerignore",
     # Makefile
     "check_makefile",
     "generate_makefile",

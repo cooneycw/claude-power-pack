@@ -27,6 +27,7 @@ import sys
 from typing import NoReturn
 
 from .config import CICDConfig
+from .container import generate_container_files
 from .detector import detect_framework
 from .health import run_health_checks
 from .makefile import check_makefile
@@ -257,6 +258,37 @@ def cmd_smoke(args: argparse.Namespace) -> int:
     return 0 if result.all_passed else 1
 
 
+def cmd_container(args: argparse.Namespace) -> int:
+    """Generate container files (Dockerfile, compose, dockerignore)."""
+    info = detect_framework(args.path)
+    config = CICDConfig.load(args.path)
+
+    if args.json:
+        files = generate_container_files(info, config)
+        print(json.dumps({"framework": info.framework.value, "files": files}, indent=2))
+        return 0
+
+    if args.write:
+        files = generate_container_files(info, config, output_dir=args.path)
+    else:
+        files = generate_container_files(info, config)
+
+    print(f"Framework: {info.framework.label} ({info.package_manager.label})")
+    print()
+
+    for filepath, content in files.items():
+        if args.write:
+            print(f"Wrote: {filepath}")
+        else:
+            print(f"--- {filepath} ---")
+            print(content)
+
+    if not args.write:
+        print("(dry run — use --write to create files)")
+
+    return 0
+
+
 def _add_common_args(parser: argparse.ArgumentParser) -> None:
     """Add common arguments to a parser."""
     parser.add_argument(
@@ -334,6 +366,19 @@ def create_parser() -> argparse.ArgumentParser:
         help="One-line summary for flow integration",
     )
 
+    # 'container' subcommand
+    container_parser = subparsers.add_parser(
+        "container",
+        help="Generate container files (Dockerfile, docker-compose, .dockerignore)",
+    )
+    _add_common_args(container_parser)
+    container_parser.add_argument(
+        "--write",
+        "-w",
+        action="store_true",
+        help="Write files to disk (default: dry run to stdout)",
+    )
+
     # 'pipeline' subcommand
     pipeline_parser = subparsers.add_parser(
         "pipeline",
@@ -370,6 +415,7 @@ def main(argv: list[str] | None = None) -> int:
         "check": cmd_check,
         "health": cmd_health,
         "smoke": cmd_smoke,
+        "container": cmd_container,
         "pipeline": cmd_pipeline,
     }
 
