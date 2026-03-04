@@ -24,6 +24,7 @@ CPP uses a tiered installation model:
 | 1 | **Minimal** | Commands + Skills symlinks |
 | 2 | **Standard** | + Scripts, hooks, shell prompt |
 | 3 | **Full** | + MCP servers (uv, API keys) |
+| 4 | **CI/CD** | + Build system, health checks, pipelines, containers |
 
 ## Quick Start
 
@@ -52,8 +53,27 @@ CPP uses a tiered installation model:
 - **MCP Playwright** (port 8081): Persistent browser automation
 - **Systemd services**: Auto-start on boot (optional)
 
+### Tier 4 - CI/CD
+- **Build System**: Framework detection, Makefile generation/validation (`/cicd:init`, `/cicd:check`)
+- **Health Checks**: Endpoint and process verification (`/cicd:health`)
+- **Smoke Tests**: Post-deploy command verification (`/cicd:smoke`)
+- **CI/CD Pipelines**: GitHub Actions workflow generation (`/cicd:pipeline`)
+- **Containers**: Dockerfile and docker-compose generation (`/cicd:container`)
+
 ### Optional Add-on
 - **Redis Coordination** (`extras/`): Distributed locking for team/multi-session use
+
+## CI/CD Commands (Tier 4)
+
+| Command | Purpose |
+|---------|---------|
+| `/cicd:init` | Detect framework, generate Makefile and cicd.yml |
+| `/cicd:check` | Validate Makefile against CPP standards |
+| `/cicd:health` | Run health checks (endpoints + processes) |
+| `/cicd:smoke` | Run smoke tests from cicd.yml |
+| `/cicd:pipeline` | Generate GitHub Actions CI/CD workflows |
+| `/cicd:container` | Generate Dockerfile and docker-compose.yml |
+| `/cicd:help` | CI/CD command overview |
 
 ## Related Documentation
 
