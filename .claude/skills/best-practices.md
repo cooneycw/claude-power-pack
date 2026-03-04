@@ -23,6 +23,7 @@ Instead of loading 25K+ tokens, load only the relevant topic (~3K tokens).
 | **CLAUDE.md** | `claude-md-config` | CLAUDE.md, configuration, project setup |
 | **Code Quality** | `code-quality` | code review, quality, testing, production |
 | **Python Packaging** | `python-packaging` | pyproject.toml, PEP 621, PEP 723, setup.py, requirements.txt |
+| **CI/CD & Verification** | `cicd-verification` | CI/CD, pipeline, health check, smoke test, Makefile, verification |
 
 ## Routing Logic
 

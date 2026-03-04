@@ -125,6 +125,18 @@ claude-power-pack/
 │   └── output/                                 # Output formatters
 │       ├── novice.py                           # Human-friendly output
 │       └── json_output.py                      # Machine-readable JSON
+├── lib/cicd/                                   # CI/CD & verification
+│   ├── __init__.py                             # Module exports
+│   ├── __main__.py                             # python -m lib.cicd entry
+│   ├── cli.py                                  # CLI (detect, check, health, smoke, pipeline)
+│   ├── config.py                               # CicdConfig from .claude/cicd.yml
+│   ├── detector.py                             # Framework + package manager detection
+│   ├── health.py                               # Health checks (endpoints + processes)
+│   ├── smoke.py                                # Smoke tests from cicd.yml
+│   ├── makefile.py                             # Makefile generation from templates
+│   ├── pipeline.py                             # CI pipeline generation (GitHub Actions)
+│   ├── container.py                            # Dockerfile + docker-compose generation
+│   └── models.py                               # Data models (Framework, Target, Result)
 ├── lib/spec_bridge/                            # Spec-to-Issue sync
 │   ├── __init__.py                             # Module exports
 │   ├── parser.py                               # Parse spec/tasks files
@@ -132,7 +144,10 @@ claude-power-pack/
 │   ├── status.py                               # Alignment checking
 │   └── cli.py                                  # Command-line interface
 ├── templates/
-│   └── Makefile.example                        # Starter Makefile for flow integration
+│   ├── Makefile.example                        # Starter Makefile for flow integration
+│   ├── makefiles/                              # Framework-specific Makefile templates
+│   ├── workflows/                              # GitHub Actions workflow templates
+│   └── containers/                             # Dockerfile + docker-compose templates
 ├── scripts/
 │   ├── prompt-context.sh                       # Shell prompt context
 │   ├── worktree-remove.sh                      # Safe worktree removal
@@ -164,6 +179,7 @@ claude-power-pack/
 │   │   │   ├── check.md                        # Validate Makefile targets
 │   │   │   ├── health.md                       # Run health checks (endpoints + processes)
 │   │   │   ├── smoke.md                        # Run smoke tests from cicd.yml
+│   │   │   ├── container.md                    # Generate Dockerfile + docker-compose
 │   │   │   └── help.md                         # CI/CD command overview
 │   │   ├── github/                             # GitHub issue management
 │   │   ├── spec/                               # Spec-Driven Development
@@ -208,6 +224,7 @@ claude-power-pack/
 │   │   ├── claude-md-config.md                 # → docs/skills/
 │   │   ├── code-quality.md                     # → docs/skills/
 │   │   ├── python-packaging.md                 # → docs/skills/
+│   │   ├── cicd-verification.md                # → docs/skills/
 │   │   └── secrets.md                          # Secrets skill
 │   └── hooks.json                              # Session hooks
 ├── .github/
@@ -232,6 +249,7 @@ To preserve context, documentation is NOT auto-loaded. Use topic-specific skills
 | CLAUDE.md Config | "CLAUDE.md", "configuration" |
 | Code Quality | "code review", "quality" |
 | Python Packaging | "pyproject.toml", "PEP 621", "PEP 723", "setup.py" |
+| CI/CD & Verification | "CI/CD", "pipeline", "health check", "smoke test", "verification" |
 | Build & Deploy | "Makefile", "uv", "deploy patterns" |
 
 **Commands:**
@@ -475,6 +493,7 @@ Commands for managing Claude Power Pack installation:
 | 1 | Minimal | Commands + Skills symlinks |
 | 2 | Standard | + Scripts, hooks, shell prompt |
 | 3 | Full | + MCP servers (uv, API keys, systemd), optional extras |
+| 4 | CI/CD | + Framework detection, Makefile generation, health/smoke, pipelines, containers |
 
 The wizard detects existing configuration and skips already-installed components (idempotent).
 
@@ -745,6 +764,44 @@ Run after failed deployments or builds to close the feedback loop:
 
 Pair with `/flow:doctor` for forward-looking health checks.
 
+## CI/CD & Verification (Tier 4)
+
+Framework-aware build system detection, verification, and deployment automation.
+
+### Commands
+
+| Command | Purpose |
+|---------|---------|
+| `/cicd:init` | Detect framework, generate Makefile and cicd.yml |
+| `/cicd:check` | Validate Makefile against CPP standards |
+| `/cicd:health` | Run health checks (endpoints + processes) |
+| `/cicd:smoke` | Run smoke tests from cicd.yml |
+| `/cicd:container` | Generate Dockerfile and docker-compose.yml |
+| `/cicd:help` | Overview of CI/CD commands |
+
+### The Verification Loop
+
+```
+code → lint/test → deploy → health check → smoke test → report
+```
+
+`/flow:deploy` runs post-deploy health checks and smoke tests when configured in `.claude/cicd.yml`.
+
+### Configuration
+
+Create `.claude/cicd.yml` for health checks, smoke tests, and deploy settings. See `/cicd:help` for full reference.
+
+### CLI Usage
+
+```bash
+PYTHONPATH="$HOME/Projects/claude-power-pack/lib:$PYTHONPATH"
+python3 -m lib.cicd detect     # Detect framework
+python3 -m lib.cicd check      # Validate Makefile
+python3 -m lib.cicd health     # Run health checks
+python3 -m lib.cicd smoke      # Run smoke tests
+python3 -m lib.cicd pipeline   # Generate CI pipeline
+```
+
 ## Makefile Integration
 
 The `/flow` commands use Makefile targets as the canonical way to run tests, lint, and deploy. This keeps build logic in one place and lets flow commands orchestrate without hardcoding commands.
@@ -754,7 +811,7 @@ The `/flow` commands use Makefile targets as the canonical way to run tests, lin
 | Command | Target | Behavior |
 |---------|--------|----------|
 | `/flow:finish` | `lint`, `test` | Auto-discovers and runs if targets exist; skips if no Makefile |
-| `/flow:deploy [target]` | `deploy` (default) | Runs specified target; lists available targets if not found |
+| `/flow:deploy [target]` | `deploy` (default) | Runs specified target + post-deploy health/smoke if configured |
 | `/flow:auto` | `deploy` | Runs after merge if target exists; skips otherwise |
 | `/flow:doctor` | all | Reports which standard targets are available |
 
@@ -1021,11 +1078,12 @@ Each Python component has its own `pyproject.toml`:
 - `mcp-second-opinion/pyproject.toml`
 - `mcp-playwright-persistent/pyproject.toml`
 - `extras/redis-coordination/mcp-server/pyproject.toml`
+- `lib/cicd/pyproject.toml`
 - `lib/creds/pyproject.toml`
 - `lib/security/pyproject.toml`
 - `lib/spec_bridge/pyproject.toml`
 
 ## Version
 
-Current version: 4.1.0
-Previous: 4.0.0 (Simplified Workflow)
+Current version: 4.2.0
+Previous: 4.1.0, 4.0.0 (Simplified Workflow)

@@ -48,6 +48,7 @@ This guides you through a tiered installation:
 | 1 | **Minimal** | Commands + Skills symlinks |
 | 2 | **Standard** | + Scripts, hooks, shell prompt |
 | 3 | **Full** | + MCP servers (uv, API keys, systemd), optional extras |
+| 4 | **CI/CD** | + Framework detection, Makefile generation, health/smoke, pipelines, containers |
 
 ### CPP Commands
 
@@ -654,6 +655,52 @@ suppressions:
 ```bash
 PYTHONPATH="${HOME}/Projects/claude-power-pack/lib" python3 -m lib.security scan
 PYTHONPATH="${HOME}/Projects/claude-power-pack/lib" python3 -m lib.security explain HARDCODED_PASSWORD
+```
+
+## 🔧 CI/CD & Verification (Tier 4)
+
+Framework-aware build system detection, verification, and deployment automation.
+
+### Commands
+
+| Command | Purpose |
+|---------|---------|
+| `/cicd:init` | Detect framework, generate Makefile and cicd.yml |
+| `/cicd:check` | Validate Makefile against CPP standards |
+| `/cicd:health` | Run health checks (endpoints + processes) |
+| `/cicd:smoke` | Run smoke tests from cicd.yml |
+| `/cicd:container` | Generate Dockerfile and docker-compose.yml |
+| `/cicd:help` | Overview of CI/CD commands |
+
+### The Verification Loop
+
+```
+code → lint/test → deploy → health check → smoke test → report
+```
+
+The CI/CD system auto-detects your project's framework (Python, Node.js, Go, Rust) and generates appropriate Makefiles, GitHub Actions workflows, and container configurations. Health checks and smoke tests verify deployments work end-to-end.
+
+### Configuration
+
+Configure health checks and smoke tests in `.claude/cicd.yml`:
+
+```yaml
+health:
+  endpoints:
+    - url: http://localhost:8000/health
+      name: API Server
+      expected_status: 200
+smoke_tests:
+  - name: API responds
+    command: "curl -sf http://localhost:8000/health"
+    expected_exit: 0
+```
+
+### CLI Usage
+
+```bash
+PYTHONPATH="${HOME}/Projects/claude-power-pack/lib" python3 -m lib.cicd detect
+PYTHONPATH="${HOME}/Projects/claude-power-pack/lib" python3 -m lib.cicd health
 ```
 
 ## ⚡ Session Initialization
