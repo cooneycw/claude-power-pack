@@ -7,6 +7,7 @@ Powered by Google Gemini, OpenAI (Codex + GPT-5.2), and Anthropic Claude.
 Supports multi-model consultation for comparing responses from different LLMs.
 """
 
+import argparse
 import asyncio
 import logging
 from datetime import datetime, timedelta
@@ -1852,8 +1853,21 @@ async def list_fetch_domains() -> dict:
 
 def main():
     """Main entry point for the MCP server."""
-    logger.info(f"Starting {Config.SERVER_NAME} v{Config.SERVER_VERSION}")
-    logger.info(f"Transport: SSE on {Config.SERVER_HOST}:{Config.SERVER_PORT}")
+    parser = argparse.ArgumentParser(description=Config.SERVER_NAME)
+    parser.add_argument(
+        "--stdio",
+        action="store_true",
+        help="Run with stdio transport (for Claude Code auto-start)",
+    )
+    args = parser.parse_args()
+
+    if args.stdio:
+        logger.info(f"Starting {Config.SERVER_NAME} v{Config.SERVER_VERSION}")
+        logger.info("Transport: stdio")
+    else:
+        logger.info(f"Starting {Config.SERVER_NAME} v{Config.SERVER_VERSION}")
+        logger.info(f"Transport: SSE on {Config.SERVER_HOST}:{Config.SERVER_PORT}")
+
     logger.info(f"Context caching: {'enabled' if Config.ENABLE_CONTEXT_CACHING else 'disabled'}")
 
     if not Config.GEMINI_API_KEY:
@@ -1863,13 +1877,14 @@ def main():
             "Get your API key from https://aistudio.google.com/apikey"
         )
 
-    # Run the MCP server with SSE transport
-    # This keeps the server running continuously, eliminating cold starts
-    mcp.run(
-        transport="sse",
-        host=Config.SERVER_HOST,
-        port=Config.SERVER_PORT,
-    )
+    if args.stdio:
+        mcp.run(transport="stdio")
+    else:
+        mcp.run(
+            transport="sse",
+            host=Config.SERVER_HOST,
+            port=Config.SERVER_PORT,
+        )
 
 
 if __name__ == "__main__":

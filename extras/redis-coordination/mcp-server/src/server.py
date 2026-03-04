@@ -13,6 +13,8 @@ Lock naming follows wave/issue pattern:
 - "wave:5c.1" - Lock for wave 5c issue 1
 - "pytest", "pr-create" - Resource locks
 """
+import argparse
+
 from fastmcp import FastMCP
 
 from config import config
@@ -257,15 +259,25 @@ logger = logging.getLogger(__name__)
 
 def main():
     """Main entry point for the MCP server."""
-    logger.info(f"Starting {config.SERVER_NAME}")
-    logger.info(f"Transport: SSE on 127.0.0.1:{config.SERVER_PORT}")
-
-    # Run the MCP server with SSE transport
-    mcp.run(
-        transport="sse",
-        host="127.0.0.1",
-        port=config.SERVER_PORT,
+    parser = argparse.ArgumentParser(description=config.SERVER_NAME)
+    parser.add_argument(
+        "--stdio",
+        action="store_true",
+        help="Run with stdio transport (for Claude Code auto-start)",
     )
+    args = parser.parse_args()
+
+    if args.stdio:
+        logger.info(f"Starting {config.SERVER_NAME} via stdio transport")
+        mcp.run(transport="stdio")
+    else:
+        logger.info(f"Starting {config.SERVER_NAME}")
+        logger.info(f"Transport: SSE on 127.0.0.1:{config.SERVER_PORT}")
+        mcp.run(
+            transport="sse",
+            host="127.0.0.1",
+            port=config.SERVER_PORT,
+        )
 
 
 if __name__ == "__main__":

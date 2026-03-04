@@ -8,6 +8,8 @@ Build, verify, and deploy automation for Claude Code projects.
 |---------|---------|
 | `/cicd:init` | Detect framework, generate Makefile and cicd.yml |
 | `/cicd:check` | Validate Makefile against CPP standards |
+| `/cicd:health` | Run health checks (endpoints + processes) |
+| `/cicd:smoke` | Run smoke tests from cicd.yml |
 | `/cicd:help` | This help page |
 
 ## How It Works
@@ -15,10 +17,13 @@ Build, verify, and deploy automation for Claude Code projects.
 ```
 /cicd:init  →  Detect framework  →  Generate Makefile  →  Generate .claude/cicd.yml
                                           ↓
-/cicd:check →  Validate targets  →  Report gaps  →  Suggest fixes
+/cicd:check  →  Validate targets  →  Report gaps  →  Suggest fixes
                                           ↓
-/flow:finish → make lint + make test      (quality gates)
-/flow:deploy → make deploy                (deployment)
+/flow:finish  → make lint + make test     (quality gates)
+/flow:deploy  → make deploy               (deployment)
+                                          ↓
+/cicd:health  →  Check endpoints  →  Check processes  →  Report status
+/cicd:smoke   →  Run smoke tests  →  Check results    →  Report pass/fail
 ```
 
 ## Supported Frameworks
@@ -60,6 +65,27 @@ deploy:
       requires_confirmation: true
 ```
 
+### Health & Smoke Configuration
+
+```yaml
+health:
+  endpoints:
+    - url: http://localhost:8000/health
+      name: API Server
+      expected_status: 200
+      timeout: 5
+  processes:
+    - name: uvicorn
+      port: 8000
+  smoke_tests:
+    - name: API responds
+      command: "curl -sf http://localhost:8000/health"
+      expected_exit: 0
+    - name: CLI version
+      command: "python -m myapp --version"
+      expected_output: "v\\d+\\.\\d+"
+```
+
 See `templates/cicd.yml.example` for full documentation.
 
 ## Quick Start
@@ -70,6 +96,12 @@ See `templates/cicd.yml.example` for full documentation.
 
 # Validate your Makefile
 /cicd:check
+
+# Run health checks (after services are running)
+/cicd:health
+
+# Run smoke tests
+/cicd:smoke
 
 # Use with /flow
 /flow:finish    # Runs make lint + make test

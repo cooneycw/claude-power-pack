@@ -13,6 +13,7 @@ Features:
 - Screenshot and PDF generation
 """
 
+import argparse
 import asyncio
 import base64
 import logging
@@ -999,14 +1000,24 @@ async def health_check() -> dict:
 
 def main():
     """Main entry point for the MCP server."""
-    logger.info(f"Starting MCP Playwright Persistent on {SERVER_HOST}:{SERVER_PORT}")
-
-    # Run the MCP server with SSE transport
-    mcp.run(
-        transport="sse",
-        host=SERVER_HOST,
-        port=SERVER_PORT,
+    parser = argparse.ArgumentParser(description="MCP Playwright Persistent")
+    parser.add_argument(
+        "--stdio",
+        action="store_true",
+        help="Run with stdio transport (for Claude Code auto-start)",
     )
+    args = parser.parse_args()
+
+    if args.stdio:
+        logger.info("Starting MCP Playwright Persistent via stdio transport")
+        mcp.run(transport="stdio")
+    else:
+        logger.info(f"Starting MCP Playwright Persistent on {SERVER_HOST}:{SERVER_PORT}")
+        mcp.run(
+            transport="sse",
+            host=SERVER_HOST,
+            port=SERVER_PORT,
+        )
 
 
 if __name__ == "__main__":

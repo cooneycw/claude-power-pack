@@ -26,10 +26,11 @@ This repository contains four core components and optional extras:
 
 - Python 3.11+
 - Use uv for dependency management (pyproject.toml)
-- MCP Second Opinion: port 8080
-- MCP Playwright: port 8081
-- MCP Coordination: port 8082
-- MCP Evaluate: port 8083
+- MCP servers support both stdio (recommended) and SSE transport
+- MCP Second Opinion: port 8080 (SSE) or `--stdio`
+- MCP Playwright: port 8081 (SSE) or `--stdio`
+- MCP Coordination: port 8082 (SSE) or `--stdio`
+- MCP Evaluate: port 8083 (SSE)
 - All documentation uses progressive disclosure principles
 
 ## Environment Variables
@@ -158,6 +159,12 @@ claude-power-pack/
 │   │   │   ├── init.md                         # Interactive setup wizard
 │   │   │   ├── status.md                       # Check installation state
 │   │   │   └── help.md                         # Command overview
+│   │   ├── cicd/                                # CI/CD & verification commands
+│   │   │   ├── init.md                         # Detect framework, generate Makefile
+│   │   │   ├── check.md                        # Validate Makefile targets
+│   │   │   ├── health.md                       # Run health checks (endpoints + processes)
+│   │   │   ├── smoke.md                        # Run smoke tests from cicd.yml
+│   │   │   └── help.md                         # CI/CD command overview
 │   │   ├── github/                             # GitHub issue management
 │   │   ├── spec/                               # Spec-Driven Development
 │   │   │   ├── help.md                         # SDD command overview
@@ -837,6 +844,12 @@ uv run playwright install chromium
 
 ### Add to Claude Code
 
+**stdio (recommended — auto-start, no manual server management):**
+```bash
+claude mcp add playwright-persistent --transport stdio -- uv run --directory /path/to/claude-power-pack/mcp-playwright-persistent python src/server.py --stdio
+```
+
+**SSE (for systemd/docker deployments):**
 ```bash
 claude mcp add playwright-persistent --transport sse --url http://127.0.0.1:8081/sse
 ```
@@ -993,12 +1006,12 @@ This project uses [uv](https://docs.astral.sh/uv/) for Python dependency managem
 # Install uv
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# Run any MCP server (dependencies installed automatically)
+# stdio mode (recommended — Claude Code auto-manages the server)
+claude mcp add second-opinion --transport stdio -- uv run --directory /path/to/mcp-second-opinion python src/server.py --stdio
+
+# Or SSE mode (manual start, for systemd/docker)
 cd mcp-second-opinion
 ./start-server.sh
-
-# Or run directly with uv
-uv run python src/server.py
 ```
 
 ### Project Structure
