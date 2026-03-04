@@ -3,6 +3,8 @@
 Provides:
 - Framework detection (Python/Node/Go/Rust/multi)
 - Makefile validation and generation
+- Health checks (HTTP endpoints, process ports)
+- Smoke tests (command execution with assertions)
 - Configuration from .claude/cicd.yml
 
 Quick Start:
@@ -16,25 +18,47 @@ Quick Start:
     result = check_makefile("/path/to/project")
     for gap in result.missing_required:
         print(f"Missing: {gap}")
+
+    # Run health checks
+    from lib.cicd import run_health_checks
+    result = run_health_checks(project_root="/path/to/project")
+    print(result.summary_line())
+
+    # Run smoke tests
+    from lib.cicd import run_smoke_tests
+    result = run_smoke_tests(project_root="/path/to/project")
+    print(result.summary_line())
 """
 
 from .config import CICDConfig
 from .detector import detect_framework
+from .health import check_endpoint, check_process, run_health_checks
 from .makefile import check_makefile, generate_makefile, parse_makefile
-from .pipeline import generate_github_actions, generate_pipeline, generate_woodpecker
 from .models import (
     Framework,
     FrameworkInfo,
+    HealthCheckEntry,
+    HealthCheckResult,
     MakefileCheckResult,
     MakefileTarget,
     PackageManager,
+    SmokeTestEntry,
+    SmokeTestResult,
 )
+from .pipeline import generate_github_actions, generate_pipeline, generate_woodpecker
+from .smoke import run_smoke_tests
 
 __all__ = [
     # Config
     "CICDConfig",
     # Detector
     "detect_framework",
+    # Health
+    "run_health_checks",
+    "check_endpoint",
+    "check_process",
+    # Smoke
+    "run_smoke_tests",
     # Makefile
     "check_makefile",
     "generate_makefile",
@@ -46,7 +70,11 @@ __all__ = [
     # Models
     "Framework",
     "FrameworkInfo",
+    "HealthCheckEntry",
+    "HealthCheckResult",
     "MakefileCheckResult",
     "MakefileTarget",
     "PackageManager",
+    "SmokeTestEntry",
+    "SmokeTestResult",
 ]

@@ -6,6 +6,8 @@ Provides:
 - FrameworkInfo: Detection results with recommendations
 - MakefileTarget: A parsed Makefile target
 - MakefileCheckResult: Validation results for a Makefile
+- HealthCheckResult: Results from health endpoint/process checks
+- SmokeTestResult: Results from smoke test execution
 """
 
 from __future__ import annotations
@@ -194,4 +196,126 @@ class MakefileCheckResult:
             "issues": self.issues,
             "is_healthy": self.is_healthy,
             "target_coverage": self.target_coverage,
+        }
+
+
+@dataclass
+class HealthCheckEntry:
+    """Result of a single health check (endpoint or process)."""
+
+    name: str
+    kind: str  # "endpoint" or "process"
+    passed: bool
+    detail: str = ""
+    elapsed_ms: float = 0.0
+
+    def to_dict(self) -> dict:
+        return {
+            "name": self.name,
+            "kind": self.kind,
+            "passed": self.passed,
+            "detail": self.detail,
+            "elapsed_ms": round(self.elapsed_ms, 1),
+        }
+
+
+@dataclass
+class HealthCheckResult:
+    """Aggregated results from all health checks."""
+
+    checks: list[HealthCheckEntry] = field(default_factory=list)
+
+    @property
+    def passed(self) -> int:
+        return sum(1 for c in self.checks if c.passed)
+
+    @property
+    def failed(self) -> int:
+        return sum(1 for c in self.checks if not c.passed)
+
+    @property
+    def total(self) -> int:
+        return len(self.checks)
+
+    @property
+    def all_passed(self) -> bool:
+        return self.total > 0 and self.failed == 0
+
+    def summary_line(self) -> str:
+        if not self.checks:
+            return "Health: no checks configured"
+        if self.all_passed:
+            return f"Health: {self.passed}/{self.total} checks passed"
+        return f"Health: {self.failed}/{self.total} checks FAILED"
+
+    def to_dict(self) -> dict:
+        return {
+            "checks": [c.to_dict() for c in self.checks],
+            "passed": self.passed,
+            "failed": self.failed,
+            "total": self.total,
+            "all_passed": self.all_passed,
+        }
+
+
+@dataclass
+class SmokeTestEntry:
+    """Result of a single smoke test."""
+
+    name: str
+    command: str
+    passed: bool
+    exit_code: int = 0
+    output: str = ""
+    detail: str = ""
+    elapsed_ms: float = 0.0
+
+    def to_dict(self) -> dict:
+        return {
+            "name": self.name,
+            "command": self.command,
+            "passed": self.passed,
+            "exit_code": self.exit_code,
+            "output": self.output,
+            "detail": self.detail,
+            "elapsed_ms": round(self.elapsed_ms, 1),
+        }
+
+
+@dataclass
+class SmokeTestResult:
+    """Aggregated results from all smoke tests."""
+
+    tests: list[SmokeTestEntry] = field(default_factory=list)
+
+    @property
+    def passed(self) -> int:
+        return sum(1 for t in self.tests if t.passed)
+
+    @property
+    def failed(self) -> int:
+        return sum(1 for t in self.tests if not t.passed)
+
+    @property
+    def total(self) -> int:
+        return len(self.tests)
+
+    @property
+    def all_passed(self) -> bool:
+        return self.total > 0 and self.failed == 0
+
+    def summary_line(self) -> str:
+        if not self.tests:
+            return "Smoke: no tests configured"
+        if self.all_passed:
+            return f"Smoke: {self.passed}/{self.total} tests passed"
+        return f"Smoke: {self.failed}/{self.total} tests FAILED"
+
+    def to_dict(self) -> dict:
+        return {
+            "tests": [t.to_dict() for t in self.tests],
+            "passed": self.passed,
+            "failed": self.failed,
+            "total": self.total,
+            "all_passed": self.all_passed,
         }
