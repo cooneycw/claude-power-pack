@@ -154,6 +154,12 @@ claude-power-pack/
 │   │   │   ├── init.md                         # Interactive setup wizard
 │   │   │   ├── status.md                       # Check installation state
 │   │   │   └── help.md                         # Command overview
+│   │   ├── cicd/                                # CI/CD & verification commands
+│   │   │   ├── init.md                         # Detect framework, generate Makefile
+│   │   │   ├── check.md                        # Validate Makefile targets
+│   │   │   ├── health.md                       # Run health checks (endpoints + processes)
+│   │   │   ├── smoke.md                        # Run smoke tests from cicd.yml
+│   │   │   └── help.md                         # CI/CD command overview
 │   │   ├── github/                             # GitHub issue management
 │   │   ├── spec/                               # Spec-Driven Development
 │   │   │   ├── help.md                         # SDD command overview
