@@ -10,6 +10,7 @@ Build, verify, and deploy automation for Claude Code projects.
 | `/cicd:check` | Validate Makefile against CPP standards |
 | `/cicd:health` | Run health checks (endpoints + processes) |
 | `/cicd:smoke` | Run smoke tests from cicd.yml |
+| `/cicd:container` | Generate Dockerfile and docker-compose.yml |
 | `/cicd:help` | This help page |
 
 ## How It Works

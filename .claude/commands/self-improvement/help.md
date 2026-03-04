@@ -44,6 +44,11 @@ The self-improvement category may grow to include:
 - **review** — Analyze PR review feedback patterns, suggest code quality improvements
 - **session** — Analyze session patterns, suggest CLAUDE.md improvements
 
+## See Also
+
+- `/cicd:check` — Forward-looking Makefile validation against CPP standards
+- `/cicd:init` — Auto-detect framework and generate Makefile from templates
+
 ## Related Commands
 
 | Command | Relationship |
