@@ -1,6 +1,6 @@
 ---
 description: Diagnose flow workflow setup and environment
-allowed-tools: Bash(git:*), Bash(gh:*), Bash(command:*), Bash(test:*), Bash(ls:*), Bash(readlink:*), Bash(grep:*), Bash(make:*), Read
+allowed-tools: Bash(git:*), Bash(gh:*), Bash(command:*), Bash(test:*), Bash(ls:*), Bash(readlink:*), Bash(grep:*), Bash(make:*), Bash(python3:*), Bash(PYTHONPATH=*), Read
 ---
 
 # Flow: Doctor — Diagnose Workflow Environment
@@ -112,6 +112,49 @@ gh issue list --limit 1 --json number 2>/dev/null && echo "PASS" || echo "FAIL"
 gh pr list --limit 1 --json number 2>/dev/null && echo "PASS" || echo "FAIL"
 ```
 
+### Step 7b: CI/CD Readiness
+
+Check CI/CD configuration and tooling. This section is **optional** — skip entirely if `lib/cicd` is not available.
+
+```bash
+# Locate CPP source for lib/cicd
+CPP_DIR=""
+for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-pack; do
+  if [ -d "$dir" ] && [ -f "$dir/CLAUDE.md" ]; then
+    CPP_DIR="$dir"
+    break
+  fi
+done
+```
+
+If `CPP_DIR` is found, run these checks:
+
+```bash
+# 1. cicd.yml config file
+[ -f ".claude/cicd.yml" ] && echo "PASS cicd.yml" || echo "MISSING cicd.yml"
+
+# 2. Framework detection
+PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -m lib.cicd detect --quiet 2>/dev/null
+
+# 3. Makefile completeness (uses lib/cicd check)
+PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -m lib.cicd check --summary 2>/dev/null
+
+# 4. Health check configuration
+grep -q "endpoints:" .claude/cicd.yml 2>/dev/null && echo "PASS health endpoints" || echo "MISSING health endpoints"
+grep -q "smoke_tests:" .claude/cicd.yml 2>/dev/null && echo "PASS smoke tests" || echo "MISSING smoke tests"
+
+# 5. CI pipeline files
+[ -f ".github/workflows/ci.yml" ] || [ -f ".woodpecker.yml" ] && echo "PASS CI pipeline" || echo "MISSING CI pipeline"
+
+# 6. Dockerfile (optional)
+[ -f "Dockerfile" ] && echo "PASS Dockerfile" || echo "OPTIONAL Dockerfile"
+```
+
+If `CPP_DIR` is not found, skip this entire section and note in the report:
+```
+CI/CD Readiness: skipped (lib/cicd not available)
+```
+
 ### Step 8: Generate Report
 
 Output a single diagnostic report in this format:
@@ -164,6 +207,20 @@ Output a single diagnostic report in this format:
 | List issues | ✅/❌ |
 | List PRs | ✅/❌ |
 
+### CI/CD & Verification
+
+*(Only shown when lib/cicd is available. If not available, show: "CI/CD Readiness: skipped (lib/cicd not available — install CPP for CI/CD features)")*
+
+| Check | Status | Details |
+|-------|--------|---------|
+| .claude/cicd.yml | ✅/❌ | Config file present / missing |
+| Framework detected | ✅ | Python (uv) / Node (npm) / etc. |
+| Makefile completeness | ✅/⚠️ | 6/7 targets (typecheck missing) |
+| Health endpoints | ✅/⚠️ | 2 configured / Not configured |
+| Smoke tests | ✅/⚠️ | 3 configured / Not configured |
+| CI pipeline | ✅/❌ | .github/workflows/ci.yml / Not found |
+| Dockerfile | ⚠️ | Not configured (optional) |
+
 ### Actions Needed
 
 (Only if there are failures or warnings)
@@ -171,6 +228,11 @@ Output a single diagnostic report in this format:
 1. ❌ **Makefile missing** — Create a Makefile with `lint`, `test`, and `deploy` targets for `/flow:finish` and `/flow:deploy`
 2. ❌ **worktree-remove.sh not found** — Run: `ln -sf ~/Projects/claude-power-pack/scripts/worktree-remove.sh ~/.claude/scripts/`
 3. ⚠️ **uv not installed** — Install: `curl -LsSf https://astral.sh/uv/install.sh | sh`
+4. ❌ **cicd.yml missing** — Run `/cicd:init` to auto-detect framework and generate configuration
+5. ⚠️ **Makefile gaps** — Run `/cicd:check` for details or `/cicd:init` to add missing targets
+6. ❌ **No CI pipeline** — Run `/cicd:pipeline` to generate GitHub Actions or Woodpecker CI config
+7. ⚠️ **No health endpoints** — Add `health.endpoints` to `.claude/cicd.yml` for post-deploy verification
+8. ⚠️ **No smoke tests** — Add `health.smoke_tests` to `.claude/cicd.yml` for post-deploy testing
 
 *All checks passed!* → "Environment is ready for `/flow` workflow."
 ```
