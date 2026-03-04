@@ -1,0 +1,36 @@
+[Unit]
+Description=MCP Evaluate Server (SSE Transport)
+After=network.target mcp-second-opinion.service
+Documentation=https://github.com/cooneycw/claude-power-pack
+
+[Service]
+Type=simple
+WorkingDirectory=%h/Projects/claude-power-pack/mcp-evaluate
+
+# Load environment variables from .env file
+EnvironmentFile=-%h/Projects/claude-power-pack/mcp-evaluate/.env
+
+# Explicit port configuration
+Environment="MCP_SERVER_PORT=8083"
+Environment="MCP_SERVER_HOST=127.0.0.1"
+Environment="SECOND_OPINION_URL=http://127.0.0.1:8080"
+
+# Use uv to run in the project environment
+ExecStart=%h/.local/bin/uv run --project %h/Projects/claude-power-pack/mcp-evaluate python src/server.py
+
+# Restart policy
+Restart=on-failure
+RestartSec=10s
+StartLimitBurst=5
+StartLimitIntervalSec=300
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=mcp-evaluate
+
+# Security hardening
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

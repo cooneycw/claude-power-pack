@@ -29,6 +29,7 @@ This repository contains four core components and optional extras:
 - MCP Second Opinion: port 8080
 - MCP Playwright: port 8081
 - MCP Coordination: port 8082
+- MCP Evaluate: port 8083
 - All documentation uses progressive disclosure principles
 
 ## Environment Variables
@@ -69,6 +70,10 @@ claude-power-pack/
 │   │   └── constitution.md                     # Project principles template
 │   ├── specs/                                  # Feature specifications
 │   └── templates/                              # Spec, plan, tasks templates
+├── mcp-evaluate/                                # MCP Evaluate server (composite)
+│   ├── src/server.py                           # 3 tools (domain-aware evaluation)
+│   ├── deploy/                                 # systemd service
+│   └── README.md                               # Full documentation
 ├── mcp-second-opinion/                         # MCP Second Opinion server
 │   └── src/server.py                           # 12 tools
 ├── mcp-playwright-persistent/                  # MCP Playwright server
@@ -698,6 +703,20 @@ Output lands in `.specify/specs/{feature}/` as spec.md, plan.md, and tasks.md.
 /evaluate:issue   # Interactive — prompts for all inputs
 ```
 
+### MCP Evaluate Server
+
+The evaluate flow optionally uses a dedicated MCP server (`mcp-evaluate`, port 8083) that provides domain-aware prompting and session state. It composes the second-opinion server — it does NOT call LLM APIs directly.
+
+**Tools:** `evaluate_start`, `evaluate_validate`, `evaluate_produce_spec`
+
+**Setup:**
+```bash
+cd mcp-evaluate && ./start-server.sh
+claude mcp add mcp-evaluate --transport sse --url http://127.0.0.1:8083/sse
+```
+
+The skill file auto-detects whether the MCP evaluate server is available and falls back to direct second-opinion calls if not.
+
 ## Self-Improvement Commands
 
 Retrospective analysis commands that examine recent failures and suggest tooling improvements.
@@ -985,6 +1004,7 @@ uv run python src/server.py
 ### Project Structure
 
 Each Python component has its own `pyproject.toml`:
+- `mcp-evaluate/pyproject.toml`
 - `mcp-second-opinion/pyproject.toml`
 - `mcp-playwright-persistent/pyproject.toml`
 - `extras/redis-coordination/mcp-server/pyproject.toml`
