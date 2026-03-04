@@ -116,6 +116,67 @@ Deployment failed ❌
 Review the output above for errors.
 ```
 
+### Step 8: Post-Deploy Verification (optional)
+
+After a successful deployment, automatically run health checks and smoke tests if configured.
+
+**Condition:** Only run if `.claude/cicd.yml` exists AND contains `health.post_deploy: true`.
+
+```bash
+# Locate CPP source for lib/cicd
+CPP_DIR=""
+for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-pack; do
+  if [ -d "$dir" ] && [ -f "$dir/CLAUDE.md" ]; then
+    CPP_DIR="$dir"
+    break
+  fi
+done
+```
+
+If `CPP_DIR` is found and `.claude/cicd.yml` exists:
+
+1. **Check if post-deploy verification is enabled:**
+   ```bash
+   if grep -q "post_deploy:" .claude/cicd.yml 2>/dev/null; then
+       # Verification enabled
+   else
+       # Skip — not configured
+   fi
+   ```
+
+2. **Run health checks:**
+   ```bash
+   echo "Running post-deploy health checks..."
+   PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -m lib.cicd health --summary
+   HEALTH_EXIT=$?
+   ```
+
+3. **Run smoke tests:**
+   ```bash
+   echo "Running post-deploy smoke tests..."
+   PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -m lib.cicd smoke --summary
+   SMOKE_EXIT=$?
+   ```
+
+4. **Report results:**
+   - If all pass: `"Deploy verified ✅ — health checks and smoke tests passed"`
+   - If any fail: Report failures and suggest `/self-improvement:deployment`
+
+5. **Log verification results** (extends deploy.log format):
+   ```bash
+   HEALTH_PASS=$( [ "$HEALTH_EXIT" -eq 0 ] && echo "pass" || echo "fail" )
+   SMOKE_PASS=$( [ "$SMOKE_EXIT" -eq 0 ] && echo "pass" || echo "fail" )
+   echo "$(date -Iseconds) | ${TARGET} | $(git rev-parse --short HEAD) | $(git branch --show-current) | $DEPLOY_EXIT | health:${HEALTH_PASS} | smoke:${SMOKE_PASS}" >> .claude/deploy.log
+   ```
+
+   Extended log format: `timestamp | target | commit | branch | deploy_exit | health:pass/fail | smoke:pass/fail`
+
+**Skip conditions:**
+- No `.claude/cicd.yml` → skip silently
+- No `post_deploy:` in config → skip silently
+- `lib/cicd` not available (no CPP_DIR) → skip with warning
+- Verification failures do NOT roll back the deployment — they only report
+
 ## Error Handling
 
 - **No Makefile:** Report error with guidance to create one

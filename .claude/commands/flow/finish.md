@@ -55,6 +55,39 @@ PYTHONPATH="${HOME}/Projects/claude-power-pack/lib" python3 -m lib.security gate
 - If the gate produces **warnings** (high findings): display them but proceed.
 - If `lib/security` is not available, skip this step (warn the user).
 
+### Step 2c: Makefile Completeness Check (optional, non-blocking)
+
+If `lib/cicd` is available, run a quick Makefile validation and report any gaps as warnings:
+
+```bash
+# Locate CPP source for lib/cicd
+CPP_DIR=""
+for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-pack; do
+  if [ -d "$dir" ] && [ -f "$dir/CLAUDE.md" ]; then
+    CPP_DIR="$dir"
+    break
+  fi
+done
+```
+
+If `CPP_DIR` is found and a Makefile exists:
+
+```bash
+PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -m lib.cicd check --summary
+CHECK_EXIT=$?
+```
+
+- If check reports **missing required targets**: display as a warning but **do NOT block**.
+  ```
+  ⚠️  Makefile check: 1 required target missing (typecheck)
+      Run /cicd:check for details or /cicd:init to fix
+  ```
+- If check passes: report briefly — `"Makefile check: OK (6/6 targets present)"`
+- If `lib/cicd` is not available: skip silently
+- If no Makefile exists: skip silently (Step 2 already handles this)
+
+**This step never blocks the flow** — it is purely informational.
+
 ### Step 3: Check for Changes
 
 ```bash
