@@ -42,9 +42,10 @@ CPP uses a tiered installation model:
 - **Skills**: Best practices loaders, secrets management
 
 ### Tier 2 - Standard
-- **Scripts**: Secret masking, worktree cleanup, shell prompt context
+- **Scripts**: Secret masking, worktree cleanup, shell prompt context, bash-prep
 - **Hooks**: Security (command validation, output masking)
 - **Shell prompt**: Worktree context display (`[CPP #42]`)
+- **Workstation tuning**: Optional swap, sysctl, inotify optimization
 
 ### Tier 3 - Full
 - **MCP Second Opinion** (port 8080): Gemini/OpenAI code review
