@@ -175,6 +175,9 @@ claude-power-pack/
 │   │   │   ├── ui.md                           # Launch web UI
 │   │   │   ├── rotate.md                       # Rotate a secret
 │   │   │   └── help.md                         # Secrets command overview
+│   │   ├── evaluate/                            # Multi-model evaluation flow
+│   │   │   ├── issue.md                        # 4-phase evaluation pipeline
+│   │   │   └── help.md                         # Evaluate command overview
 │   │   ├── self-improvement/                   # Retrospective analysis
 │   │   │   ├── deployment.md                   # Analyze errors, improve Makefile
 │   │   │   └── help.md                         # Self-improvement command overview
@@ -659,6 +662,40 @@ suppressions:
   - id: HARDCODED_SECRET
     path: tests/fixtures/.*
     reason: "Test fixtures with fake credentials"
+```
+
+## Evaluate Commands
+
+Multi-model evaluation flow for structured decision-making and spec generation.
+
+### Commands
+
+| Command | Purpose |
+|---------|---------|
+| `/evaluate:issue` | Full 4-phase evaluation: divergence scan, reasoning, validation, spec output |
+| `/evaluate:help` | Overview of evaluate commands |
+
+### How It Works
+
+```
+Input → Phase 1 (Multi-Model Divergence) → Checkpoint → Phase 2 (Sequential Reasoning)
+  → Checkpoint → Phase 3 (Multi-Model Validation) → Checkpoint → Phase 4 (Spec Output)
+```
+
+Supports 5 domain types: `architecture`, `concept`, `algorithm`, `ui-design`, `workflow`.
+
+Output lands in `.specify/specs/{feature}/` as spec.md, plan.md, and tasks.md.
+
+### Prerequisites
+
+- **Required:** MCP Second Opinion server
+- **Optional:** Sequential Thinking MCP (enhances Phase 2; falls back to inline reasoning)
+
+### Quick Example
+
+```bash
+/evaluate:issue "Should we use event sourcing or CRUD for orders?"
+/evaluate:issue   # Interactive — prompts for all inputs
 ```
 
 ## Self-Improvement Commands
