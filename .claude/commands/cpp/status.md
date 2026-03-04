@@ -125,6 +125,71 @@ else
 fi
 ```
 
+## Step 3c: Check Workstation Tuning (bash-prep)
+
+Check if Linux kernel and swap parameters are optimally configured:
+
+```bash
+# Only check on Linux
+if [ "$(uname)" = "Linux" ]; then
+  echo ""
+  echo "Workstation Tuning (bash-prep):"
+
+  TUNING_ISSUES=0
+
+  # Swap
+  SWAP_MB=$(awk '/SwapTotal/ { printf "%d", $2 / 1024 }' /proc/meminfo)
+  if (( SWAP_MB >= 2048 )); then
+    echo "  [x] Swap: ${SWAP_MB} MB"
+  else
+    echo "  [ ] Swap: ${SWAP_MB} MB (recommended: 2048+ MB)"
+    TUNING_ISSUES=$((TUNING_ISSUES + 1))
+  fi
+
+  # Swappiness
+  VAL=$(sysctl -n vm.swappiness 2>/dev/null || echo "unknown")
+  if [ "$VAL" = "10" ]; then
+    echo "  [x] vm.swappiness = $VAL"
+  else
+    echo "  [ ] vm.swappiness = $VAL (recommended: 10)"
+    TUNING_ISSUES=$((TUNING_ISSUES + 1))
+  fi
+
+  # VFS cache pressure
+  VAL=$(sysctl -n vm.vfs_cache_pressure 2>/dev/null || echo "unknown")
+  if [ "$VAL" = "50" ]; then
+    echo "  [x] vm.vfs_cache_pressure = $VAL"
+  else
+    echo "  [ ] vm.vfs_cache_pressure = $VAL (recommended: 50)"
+    TUNING_ISSUES=$((TUNING_ISSUES + 1))
+  fi
+
+  # Inotify watches
+  VAL=$(sysctl -n fs.inotify.max_user_watches 2>/dev/null || echo "0")
+  if (( VAL >= 524288 )); then
+    echo "  [x] fs.inotify.max_user_watches = $VAL"
+  else
+    echo "  [ ] fs.inotify.max_user_watches = $VAL (recommended: 524288)"
+    TUNING_ISSUES=$((TUNING_ISSUES + 1))
+  fi
+
+  # Inotify instances
+  VAL=$(sysctl -n fs.inotify.max_user_instances 2>/dev/null || echo "0")
+  if (( VAL >= 512 )); then
+    echo "  [x] fs.inotify.max_user_instances = $VAL"
+  else
+    echo "  [ ] fs.inotify.max_user_instances = $VAL (recommended: 512)"
+    TUNING_ISSUES=$((TUNING_ISSUES + 1))
+  fi
+
+  if (( TUNING_ISSUES > 0 )); then
+    echo "  Status: $TUNING_ISSUES issue(s) — run: bash ~/.claude/scripts/bash-prep.sh"
+  else
+    echo "  Status: Optimal"
+  fi
+fi
+```
+
 ## Step 4: Check Tier 3 (Full)
 
 Check MCP servers and dependencies:

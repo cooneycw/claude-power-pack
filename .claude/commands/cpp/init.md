@@ -733,7 +733,43 @@ echo "→ Sequential Thinking skipped"
 echo "  Install later: claude mcp add --transport stdio --scope user sequential-thinking -- npx -y @modelcontextprotocol/server-sequential-thinking"
 ```
 
-### 8b. Redis Coordination (Teams Only)
+### 8b. Workstation Tuning (bash-prep)
+
+```
+=== Optional: Workstation Tuning ===
+
+Linux workstation tuning for optimal Claude Code performance:
+  • Swap (min(RAM, 4GB)) — prevent OOM kills during heavy sessions
+  • vm.swappiness=10 — keep active data in RAM
+  • vm.vfs_cache_pressure=50 — cache filesystem metadata
+  • fs.inotify.max_user_watches=524288 — prevent watcher failures
+  • fs.inotify.max_user_instances=512 — headroom for multiple watchers
+
+Requires sudo. Safe to run multiple times (idempotent).
+Persists across reboots via /etc/sysctl.d/ and /etc/fstab.
+
+Apply workstation tuning? [y/N]
+```
+
+If yes:
+
+```bash
+# Run bash-prep script
+if [ -f "$CPP_DIR/scripts/bash-prep.sh" ]; then
+  bash "$CPP_DIR/scripts/bash-prep.sh" --apply
+else
+  echo "⚠ bash-prep.sh not found at $CPP_DIR/scripts/bash-prep.sh"
+fi
+```
+
+If no:
+```bash
+echo "→ Workstation tuning skipped"
+echo "  Run later: bash ~/.claude/scripts/bash-prep.sh"
+echo "  Or check current values: bash ~/.claude/scripts/bash-prep.sh --check"
+```
+
+### 8c. Redis Coordination (Teams Only)
 
 ```
 === Optional: Redis Coordination ===
