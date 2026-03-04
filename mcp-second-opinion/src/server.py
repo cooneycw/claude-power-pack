@@ -3,7 +3,7 @@
 Second Opinion MCP Server
 
 An MCP server that provides LLM-powered second opinions on challenging coding issues.
-Powered by Google Gemini and OpenAI (Codex + GPT-5.2) with streaming support.
+Powered by Google Gemini, OpenAI (Codex + GPT-5.2), and Anthropic Claude.
 Supports multi-model consultation for comparing responses from different LLMs.
 """
 
@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional
 
 from google import genai
 from google.genai import types
+import anthropic
 import openai
 from fastmcp import FastMCP
 from tenacity import (
@@ -74,6 +75,14 @@ if Config.OPENAI_API_KEY:
     logger.info("OpenAI API configured successfully")
 else:
     logger.warning("OPENAI_API_KEY not set - OpenAI/Codex models will be unavailable")
+
+# Configure Anthropic
+_anthropic_client: Optional[anthropic.AsyncAnthropic] = None
+if Config.ANTHROPIC_API_KEY:
+    _anthropic_client = anthropic.AsyncAnthropic(api_key=Config.ANTHROPIC_API_KEY)
+    logger.info("Anthropic API configured successfully")
+else:
+    logger.warning("ANTHROPIC_API_KEY not set - Claude models will be unavailable")
 
 # Lock for thread-safe operations
 _model_lock: asyncio.Lock = asyncio.Lock()
@@ -345,8 +354,8 @@ async def _try_openai_model(prompt: str, model_name: str, max_tokens: int = Conf
     try:
         logger.info(f"Sending request to OpenAI {model_name}")
 
-        # Codex and o3 models use the Responses API
-        uses_responses_api = any(x in model_name.lower() for x in ["codex", "o3"])
+        # Codex, o3, and o4-mini models use the Responses API
+        uses_responses_api = any(x in model_name.lower() for x in ["codex", "o3", "o4-mini"])
 
         if uses_responses_api:
             # Use Responses API for Codex models
@@ -362,9 +371,9 @@ async def _try_openai_model(prompt: str, model_name: str, max_tokens: int = Conf
 
 async def _try_openai_chat_api(prompt: str, model_name: str, max_tokens: int = Config.MAX_TOKENS) -> tuple[str, str]:
     """Use Chat Completions API for standard models."""
-    # Newer models (gpt-5.x, o1, o3) use max_completion_tokens
+    # Newer models (gpt-5.x, o1, o3, o4) use max_completion_tokens
     # Older models (gpt-4, gpt-4o, gpt-3.5) use max_tokens
-    uses_new_tokens_param = any(x in model_name.lower() for x in ["gpt-5", "o1", "o3"])
+    uses_new_tokens_param = any(x in model_name.lower() for x in ["gpt-5", "o1", "o3", "o4"])
 
     # Build request parameters
     request_params = {
@@ -431,6 +440,57 @@ async def _try_openai_responses_api(prompt: str, model_name: str, max_tokens: in
 
 
 # =============================================================================
+# Anthropic Claude API Functions
+# =============================================================================
+
+
+async def get_anthropic_response(
+    prompt: str,
+    model_name: str = Config.ANTHROPIC_MODEL_SONNET,
+    max_tokens: int = Config.MAX_TOKENS,
+) -> tuple[str, str]:
+    """
+    Get a response from the Anthropic Claude API.
+
+    Args:
+        prompt: The prompt to send
+        model_name: The Claude model to use
+        max_tokens: Maximum output tokens
+
+    Returns:
+        Tuple of (response_text, model_used)
+
+    Raises:
+        Exception: If the request fails
+    """
+    if not _anthropic_client:
+        raise ValueError("Anthropic API key not configured")
+
+    try:
+        logger.info(f"Sending request to Anthropic {model_name}")
+
+        message = await _anthropic_client.messages.create(
+            model=model_name,
+            max_tokens=max_tokens,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=Config.TEMPERATURE,
+        )
+
+        # Extract text from response
+        result = ""
+        for block in message.content:
+            if hasattr(block, "text"):
+                result += block.text
+
+        logger.info(f"Completed response from {model_name}: {len(result)} chars")
+        return result, model_name
+
+    except Exception as e:
+        logger.error(f"Error getting Anthropic response from {model_name}: {e}")
+        raise
+
+
+# =============================================================================
 # Multi-Model Consultation Functions
 # =============================================================================
 
@@ -485,6 +545,17 @@ async def get_single_model_response(
                     "error": "OpenAI API key not configured",
                 }
             response, model_used = await get_openai_streaming_response(prompt, model_id, max_tokens=max_tokens)
+
+        elif provider == "anthropic":
+            if not Config.ANTHROPIC_API_KEY:
+                return {
+                    "model_key": model_key,
+                    "model_id": model_id,
+                    "display_name": model_info["display_name"],
+                    "success": False,
+                    "error": "Anthropic API key not configured",
+                }
+            response, model_used = await get_anthropic_response(prompt, model_id, max_tokens=max_tokens)
 
         else:
             return {
@@ -924,12 +995,13 @@ async def health_check() -> dict:
     """
     has_gemini = bool(Config.GEMINI_API_KEY)
     has_openai = bool(Config.OPENAI_API_KEY)
+    has_anthropic = bool(Config.ANTHROPIC_API_KEY)
     available_models = Config.get_available_model_keys()
 
     status = {
         "server_name": Config.SERVER_NAME,
         "server_version": Config.SERVER_VERSION,
-        "status": "healthy" if (has_gemini or has_openai) else "no_api_keys",
+        "status": "healthy" if (has_gemini or has_openai or has_anthropic) else "no_api_keys",
         # Gemini
         "gemini_configured": has_gemini,
         "gemini_models": {
@@ -943,9 +1015,17 @@ async def health_check() -> dict:
             "codex": Config.OPENAI_MODEL_CODEX,
             "codex_max": Config.OPENAI_MODEL_CODEX_MAX,
             "codex_mini": Config.OPENAI_MODEL_CODEX_MINI,
+            "o4_mini": Config.OPENAI_MODEL_O4_MINI,
             "gpt52": Config.OPENAI_MODEL_GPT52,
             "gpt52_mini": Config.OPENAI_MODEL_GPT52_MINI,
         } if has_openai else None,
+        # Anthropic
+        "anthropic_configured": has_anthropic,
+        "anthropic_models": {
+            "sonnet": Config.ANTHROPIC_MODEL_SONNET,
+            "haiku": Config.ANTHROPIC_MODEL_HAIKU,
+            "opus": Config.ANTHROPIC_MODEL_OPUS,
+        } if has_anthropic else None,
         # Available models for multi-model consultation
         "available_models": available_models,
         "default_models": Config.DEFAULT_MODELS,
@@ -961,6 +1041,11 @@ async def health_check() -> dict:
         messages.append(
             "OPENAI_API_KEY not set - OpenAI/Codex models unavailable. "
             "Get key from https://platform.openai.com/api-keys"
+        )
+    if not has_anthropic:
+        messages.append(
+            "ANTHROPIC_API_KEY not set - Claude models unavailable. "
+            "Get key from https://console.anthropic.com/settings/keys"
         )
 
     if messages:

@@ -446,6 +446,7 @@ Commands for managing Claude Power Pack installation:
 | Command | Purpose |
 |---------|---------|
 | `/cpp:init` | Interactive setup wizard (tiered installation) |
+| `/cpp:update` | Pull latest version, sync deps, offer tier upgrades |
 | `/cpp:status` | Check current installation state |
 | `/cpp:help` | Overview of all CPP commands |
 

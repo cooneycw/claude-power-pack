@@ -13,6 +13,7 @@ dependencies = [
     "fastmcp>=1.0",
     "google-genai>=1.0.0",
     "openai>=1.50.0",
+    "anthropic>=0.40.0",
     "tenacity>=8.0.0",
     "pydantic>=2.6.0",
     "httpx>=0.27.0",

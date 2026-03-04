@@ -764,14 +764,14 @@ Claude Power Pack includes two core MCP servers and one optional extra:
 
 ## MCP Second Opinion Server
 
-An advanced MCP server that provides AI-powered "second opinions" on challenging coding issues. **Now with multi-model support** - consult Google Gemini, OpenAI Codex (GPT-5.1), and o3 simultaneously!
+An advanced MCP server that provides AI-powered "second opinions" on challenging coding issues. **Now with multi-model support** - consult Google Gemini, OpenAI Codex, Anthropic Claude, and more simultaneously!
 
 ## 🌟 Key Features
 
-- **Multi-Model Consultation**: Compare opinions from 10 different AI models in parallel
-- **OpenAI Codex Support** (NEW in v1.5.0): GPT-5.1 Codex Max/Mini via Responses API
-- **o3 Reasoning** (NEW in v1.5.0): Advanced reasoning model powering the Codex agent
-- **Google Gemini**: Gemini 3 Pro Preview with automatic fallback to 2.5 Pro
+- **Multi-Model Consultation**: Compare opinions from 15 different AI models in parallel
+- **Three Providers**: Google Gemini 3.1, OpenAI (Codex 5.3, GPT-5.2, o3/o4-mini), Anthropic Claude (Sonnet, Haiku, Opus)
+- **Interactive Commands**: `/second-opinion:start` for quick reviews, `/second-opinion:models` for full selection
+- **Google Gemini**: Gemini 3.1 Pro Preview with automatic fallback to 2.5 Pro
 - **Multi-Turn Sessions**: Maintain context across conversations
 - **Agentic Tool Use**: Models can autonomously search the web and fetch documentation
 - **Playwright Integration**: Excellent for debugging web UI issues with screenshots
@@ -782,25 +782,28 @@ An advanced MCP server that provides AI-powered "second opinions" on challenging
 
 | Model Key | Display Name | Provider | Best For |
 |-----------|-------------|----------|----------|
-| `gemini-3-pro` | Gemini 3 Pro | Google | Comprehensive analysis |
+| `gemini-3-pro` | Gemini 3.1 Pro | Google | Comprehensive analysis |
 | `gemini-2.5-pro` | Gemini 2.5 Pro | Google | Stable, proven |
-| `gpt-4o` | GPT-4o | OpenAI | Fast multimodal, great for code |
-| `gpt-4o-mini` | GPT-4o Mini | OpenAI | Fast, cost-effective |
-| `gpt-4-turbo` | GPT-4 Turbo | OpenAI | Complex reasoning tasks |
-| `codex-max` | Codex Max | OpenAI | Most capable for complex coding |
-| `codex-mini` | Codex Mini | OpenAI | Cost-effective coding model |
+| `claude-sonnet` | Claude Sonnet 4.6 | Anthropic | Fast, excellent for code review |
+| `claude-haiku` | Claude Haiku 4.5 | Anthropic | Fastest Claude, cost-effective |
+| `claude-opus` | Claude Opus 4.6 | Anthropic | Most capable Claude |
+| `codex` | GPT-5.3 Codex | OpenAI | Default coding model |
+| `codex-mini` | GPT-5.2 Codex | OpenAI | Cost-effective coding model |
+| `o4-mini` | o4-mini | OpenAI | Fast reasoning |
 | `o3` | o3 | OpenAI | Advanced reasoning (Codex agent) |
+| `gpt-5.2` | GPT-5.2 | OpenAI | Latest GPT |
+| `gpt-4o` | GPT-4o | OpenAI | Fast multimodal |
 | `o1` | o1 | OpenAI | Advanced reasoning |
-| `o1-mini` | o1 Mini | OpenAI | Faster reasoning model |
 
 ## 🚀 MCP Quick Start
 
 ### 1. Get API Keys
 
-You need **at least one** API key (both recommended for multi-model comparison):
+You need **at least one** API key (all three recommended for full multi-model comparison):
 
 - **Gemini**: [Google AI Studio](https://aistudio.google.com/apikey) (free tier available)
 - **OpenAI**: [OpenAI Platform](https://platform.openai.com/api-keys)
+- **Anthropic**: [Anthropic Console](https://console.anthropic.com/settings/keys)
 
 ### 2. Set Up Environment
 
@@ -947,7 +950,7 @@ response = get_code_second_opinion(
 result = get_multi_model_second_opinion(
     code="def fibonacci(n): ...",
     language="python",
-    models=["gemini-3-pro", "codex-max", "gpt-4o"],
+    models=["gemini-3-pro", "codex", "gpt-5.2"],
     issue_description="Is this implementation efficient?"
 )
 
@@ -1416,13 +1419,19 @@ MIT License - See LICENSE file for details
 
 - **Project Commands** - `/project-lite` and `/project-next` for orientation
 
+### Previous: v1.8.0
+
+- **Gemini 3.1 Pro** - Upgrade from deprecated Gemini 3 Pro Preview
+- **Codex 5.3 Default** - GPT-5.3 Codex as default, GPT-5.2 Codex as mini
+- **o4-mini** - Fast reasoning model added (successor to o3-mini)
+
 ### Previous: v1.6.0
 
 - **GitHub Issue Management** - Full CRUD via `/github:*` commands
 
 ### Previous: v1.5.0
 
-- **Multi-Model Consultation** - Compare responses from 10 AI models in parallel
-- **OpenAI Codex Support** - GPT-5.1 Codex Max/Mini
+- **Multi-Model Consultation** - Compare responses from 12 AI models in parallel
+- **OpenAI Codex Support** - GPT-5.3 Codex / GPT-5.2 Codex
 
 *Generated with [Claude Code](https://claude.ai/code)*
