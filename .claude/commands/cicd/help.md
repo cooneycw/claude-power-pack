@@ -10,21 +10,25 @@ Build, verify, and deploy automation for Claude Code projects.
 | `/cicd:check` | Validate Makefile against CPP standards |
 | `/cicd:health` | Run health checks (endpoints + processes) |
 | `/cicd:smoke` | Run smoke tests from cicd.yml |
+| `/cicd:pipeline` | Generate GitHub Actions CI/CD workflows |
 | `/cicd:container` | Generate Dockerfile and docker-compose.yml |
 | `/cicd:help` | This help page |
 
 ## How It Works
 
 ```
-/cicd:init  →  Detect framework  →  Generate Makefile  →  Generate .claude/cicd.yml
-                                          ↓
-/cicd:check  →  Validate targets  →  Report gaps  →  Suggest fixes
-                                          ↓
-/flow:finish  → make lint + make test     (quality gates)
-/flow:deploy  → make deploy               (deployment)
-                                          ↓
-/cicd:health  →  Check endpoints  →  Check processes  →  Report status
-/cicd:smoke   →  Run smoke tests  →  Check results    →  Report pass/fail
+/cicd:init      →  Detect framework  →  Generate Makefile  →  Generate .claude/cicd.yml
+                                              ↓
+/cicd:check     →  Validate targets  →  Report gaps  →  Suggest fixes
+                                              ↓
+/flow:finish    → make lint + make test       (quality gates)
+/flow:deploy    → make deploy                 (deployment)
+                                              ↓
+/cicd:health    →  Check endpoints  →  Check processes  →  Report status
+/cicd:smoke     →  Run smoke tests  →  Check results    →  Report pass/fail
+                                              ↓
+/cicd:pipeline  →  Read Makefile targets  →  Generate .github/workflows/ci.yml
+/cicd:container →  Detect framework       →  Generate Dockerfile + docker-compose.yml
 ```
 
 ## Supported Frameworks

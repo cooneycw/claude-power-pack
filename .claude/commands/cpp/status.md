@@ -1,6 +1,6 @@
 ---
 description: Check Claude Power Pack installation state
-allowed-tools: Bash(ls:*), Bash(test:*), Bash(readlink:*), Bash(uv:*), Bash(claude mcp list:*), Bash(systemctl:*)
+allowed-tools: Bash(ls:*), Bash(test:*), Bash(readlink:*), Bash(uv:*), Bash(python3:*), Bash(PYTHONPATH=*), Bash(claude mcp list:*), Bash(systemctl:*), Bash(grep:*)
 ---
 
 # CPP Installation Status
@@ -242,7 +242,63 @@ for service in mcp-second-opinion mcp-playwright-persistent; do
 done
 ```
 
-## Step 5: Summary
+## Step 5: Check Tier 4 (CI/CD)
+
+Check CI/CD build system, health checks, pipeline, and container configuration:
+
+```bash
+echo ""
+echo "Tier 4 (CI/CD):"
+
+# Check cicd.yml
+if [ -f ".claude/cicd.yml" ]; then
+  echo "  [x] cicd.yml: configured"
+else
+  echo "  [ ] cicd.yml: not found"
+fi
+
+# Check framework detection
+if [ -n "$CPP_DIR" ] && [ -f "$CPP_DIR/lib/cicd/__init__.py" ]; then
+  FRAMEWORK=$(PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -m lib.cicd detect --json 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(f\"{d.get('framework','unknown')} ({d.get('package_manager','unknown')})\")" 2>/dev/null || echo "detection unavailable")
+  echo "  [x] Framework detected: $FRAMEWORK"
+else
+  echo "  [ ] Framework detection: lib/cicd not available"
+fi
+
+# Check Makefile
+if [ -f "Makefile" ]; then
+  TARGET_COUNT=$(grep -cE '^[a-zA-Z_-]+:' Makefile 2>/dev/null || echo "0")
+  echo "  [x] Makefile: $TARGET_COUNT targets"
+else
+  echo "  [ ] Makefile: not found"
+fi
+
+# Check CI workflow
+if [ -f ".github/workflows/ci.yml" ] || [ -f ".github/workflows/ci.yaml" ]; then
+  echo "  [x] CI pipeline: .github/workflows/ci.yml"
+elif ls .github/workflows/*.yml 2>/dev/null | head -1 > /dev/null 2>&1; then
+  WF_COUNT=$(ls .github/workflows/*.yml 2>/dev/null | wc -l)
+  echo "  [~] CI pipeline: $WF_COUNT workflow(s) found (no ci.yml)"
+else
+  echo "  [ ] CI pipeline: no workflows found"
+fi
+
+# Check Dockerfile
+if [ -f "Dockerfile" ]; then
+  echo "  [x] Dockerfile: present"
+else
+  echo "  [ ] Dockerfile: not found"
+fi
+
+# Check docker-compose
+if [ -f "docker-compose.yml" ] || [ -f "docker-compose.yaml" ]; then
+  echo "  [x] docker-compose: present"
+else
+  echo "  [ ] docker-compose: not found"
+fi
+```
+
+## Step 6: Summary
 
 Based on the checks above, report:
 
@@ -277,9 +333,17 @@ Tier 3 (Full):
   [ ] Systemd: not installed
   Status: Partial
 
+Tier 4 (CI/CD):
+  [x] cicd.yml: configured
+  [x] Framework detected: python (uv)
+  [x] Makefile: 8 targets
+  [ ] CI pipeline: no workflows found
+  [ ] Dockerfile: not found
+  Status: Partial
+
 ---------------------------------
 Current Level: Tier 2 (Standard)
-Missing: Shell prompt, mcp-playwright-persistent, systemd
+Missing: Shell prompt, mcp-playwright-persistent, systemd, CI pipeline, Dockerfile
 
 Run /cpp:init to complete setup
 =================================

@@ -1,6 +1,6 @@
 ---
 description: Interactive setup wizard for Claude Power Pack
-allowed-tools: Bash(mkdir:*), Bash(ln:*), Bash(ls:*), Bash(test:*), Bash(readlink:*), Bash(cat:*), Bash(cp:*), Bash(uv:*), Bash(claude mcp list:*), Bash(claude mcp add:*), Bash(sudo systemctl:*), Bash(systemctl:*), Bash(command -v:*)
+allowed-tools: Bash(mkdir:*), Bash(ln:*), Bash(ls:*), Bash(test:*), Bash(readlink:*), Bash(cat:*), Bash(cp:*), Bash(uv:*), Bash(python3:*), Bash(PYTHONPATH=*), Bash(claude mcp list:*), Bash(claude mcp add:*), Bash(sudo systemctl:*), Bash(systemctl:*), Bash(command -v:*)
 ---
 
 # Claude Power Pack Setup Wizard
@@ -82,8 +82,9 @@ Ask the user which tier they want to install using the AskUserQuestion tool:
 | 1 | **Minimal** | Commands + Skills symlinks only |
 | 2 | **Standard** | + Scripts, hooks, shell prompt |
 | 3 | **Full** | + MCP servers (uv, API keys) |
+| 4 | **CI/CD** | + Build system, health checks, pipelines, containers |
 
-Default recommendation: **Standard** for most users, **Full** for MCP-powered workflows.
+Default recommendation: **Standard** for most users, **Full** for MCP-powered workflows, **CI/CD** for projects needing build automation.
 
 ---
 
@@ -290,6 +291,45 @@ This will make the following changes:
     rm -rf {CPP_DIR}/mcp-playwright-persistent/.venv
     claude mcp remove second-opinion
     claude mcp remove playwright-persistent
+
+Proceed? [y/N]
+```
+
+### Tier 4 Disclosure (CI/CD)
+
+```
+=== Tier 4: CI/CD Installation ===
+
+This will make the following changes:
+
+  [Tier 1 + 2 + 3 - All Full components]
+    (see above)
+
+  [Tier 4A - Build System]
+    • Detect project framework and package manager
+    • Generate/validate Makefile with standard targets
+    • Create .claude/cicd.yml configuration
+
+  [Tier 4B - Health Checks] (optional)
+    • Configure endpoint health checks in cicd.yml
+    • Configure process port checks
+
+  [Tier 4C - CI/CD Pipeline] (optional)
+    • Generate .github/workflows/ci.yml from Makefile targets
+    • Include caching, matrix builds, secrets references
+
+  [Tier 4D - Container] (optional)
+    • Generate Dockerfile (multi-stage, framework-specific)
+    • Generate docker-compose.yml
+    • Generate .dockerignore
+
+  Disk usage: ~0 MB (generated files only)
+
+  To undo:
+    # Tier 1+2+3 cleanup (see above)
+    rm .claude/cicd.yml
+    rm .github/workflows/ci.yml
+    rm Dockerfile docker-compose.yml .dockerignore
 
 Proceed? [y/N]
 ```
@@ -569,6 +609,144 @@ else
 fi
 ```
 
+### Tier 4 Execution (CI/CD)
+
+#### 4a. Framework Detection and Makefile
+
+```bash
+# Detect framework
+echo "Detecting project framework..."
+DETECT_JSON=$(PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -m lib.cicd detect --json 2>/dev/null || echo "{}")
+FRAMEWORK=$(echo "$DETECT_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('framework','unknown'))" 2>/dev/null || echo "unknown")
+PKG_MGR=$(echo "$DETECT_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('package_manager','unknown'))" 2>/dev/null || echo "unknown")
+echo "Detected: $FRAMEWORK ($PKG_MGR)"
+```
+
+If no Makefile exists, offer to generate one:
+
+```bash
+if [ ! -f "Makefile" ]; then
+  echo ""
+  echo "No Makefile found. Generate one from the detected framework template?"
+  # Use AskUserQuestion to confirm
+  # If yes:
+  PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -m lib.cicd detect --generate-makefile
+  echo "✓ Makefile generated"
+else
+  echo "→ Makefile already exists"
+  echo "  Run /cicd:check to validate targets"
+fi
+```
+
+If Makefile exists, run a quick check:
+
+```bash
+if [ -f "Makefile" ]; then
+  echo ""
+  echo "Validating Makefile..."
+  PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -m lib.cicd check --summary 2>/dev/null || echo "  (validation skipped)"
+fi
+```
+
+#### 4b. Generate cicd.yml
+
+```bash
+if [ ! -f ".claude/cicd.yml" ]; then
+  mkdir -p .claude
+  # Generate cicd.yml with detected defaults
+  if [ -f "$CPP_DIR/templates/cicd.yml.example" ]; then
+    cp "$CPP_DIR/templates/cicd.yml.example" .claude/cicd.yml
+    echo "✓ .claude/cicd.yml created from template"
+    echo "  Edit to configure health checks and smoke tests"
+  else
+    cat > .claude/cicd.yml << 'CICD_EOF'
+build:
+  framework: auto
+  package_manager: auto
+  required_targets: [lint, test]
+  recommended_targets: [format, typecheck, build, deploy, clean, verify]
+
+health:
+  endpoints: []
+  processes: []
+  smoke_tests: []
+  post_deploy: false
+CICD_EOF
+    echo "✓ .claude/cicd.yml created with defaults"
+  fi
+else
+  echo "→ .claude/cicd.yml already exists (skipped)"
+fi
+```
+
+#### 4c. Health Check Configuration (Optional)
+
+Ask the user if they want to configure health checks:
+
+```
+=== Optional: Health Checks ===
+
+Configure endpoint health checks for post-deploy verification?
+
+This lets /cicd:health and /flow:deploy verify your services are running.
+
+Example:
+  health:
+    endpoints:
+      - url: http://localhost:8000/health
+        name: API Server
+
+Configure health checks? [y/N]
+```
+
+If yes, use AskUserQuestion to get endpoint URLs, then update `.claude/cicd.yml`.
+
+#### 4d. CI Pipeline Generation (Optional)
+
+Ask the user if they want to generate a CI pipeline:
+
+```
+=== Optional: CI Pipeline ===
+
+Generate a GitHub Actions CI workflow from your Makefile targets?
+
+This creates .github/workflows/ci.yml using `make lint`, `make test`, etc.
+
+Generate CI pipeline? [y/N]
+```
+
+If yes:
+
+```bash
+PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -m lib.cicd pipeline --write 2>/dev/null
+if [ -f ".github/workflows/ci.yml" ]; then
+  echo "✓ .github/workflows/ci.yml generated"
+else
+  echo "⚠ Pipeline generation failed"
+fi
+```
+
+#### 4e. Container Generation (Optional)
+
+Ask the user if they want to generate container files:
+
+```
+=== Optional: Container Files ===
+
+Generate Dockerfile and docker-compose.yml for your project?
+
+Uses multi-stage builds with framework-specific optimization.
+
+Generate container files? [y/N]
+```
+
+If yes:
+
+```bash
+PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -m lib.cicd container --write 2>/dev/null
+echo "✓ Container files generated"
+```
+
 ---
 
 ## Step 6: Systemd Services (Optional)
@@ -622,6 +800,7 @@ Installed:
   ✓ Tier 1: Commands + Skills symlinked
   ✓ Tier 2: Scripts, hooks, shell prompt
   ✓ Tier 3: uv, MCP servers, API keys
+  ✓ Tier 4: CI/CD build system, health checks, pipeline, containers
 
 Permission Profile: {PROFILE_NAME}
   Auto-approved: {AUTO_APPROVE_SUMMARY}
@@ -647,6 +826,7 @@ Next Steps:
      /project-next    - See what to work on
      /spec:help       - Spec-driven development
      /github:help     - Issue management
+     /cicd:help       - CI/CD build & verification
 
 Change Permissions Later:
   • Edit .claude/settings.local.json directly
