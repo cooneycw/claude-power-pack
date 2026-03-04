@@ -21,6 +21,12 @@ uv run python src/server.py
 
 ## Add to Claude Code
 
+**stdio (recommended — auto-start, no manual server management):**
+```bash
+claude mcp add second-opinion --transport stdio -- uv run --directory /path/to/claude-power-pack/mcp-second-opinion python src/server.py --stdio
+```
+
+**SSE (for systemd/docker deployments):**
 ```bash
 claude mcp add second-opinion --transport sse --url http://127.0.0.1:8080/sse
 ```
