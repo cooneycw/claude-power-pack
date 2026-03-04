@@ -146,6 +146,9 @@ claude-power-pack/
 │   │   │   ├── auto.md                         # Full lifecycle automation
 │   │   │   ├── doctor.md                       # Diagnose workflow environment
 │   │   │   └── help.md                         # Flow command overview
+│   │   ├── project/                             # Project scaffolding
+│   │   │   ├── init.md                         # Full project setup orchestrator
+│   │   │   └── help.md                         # Project command overview
 │   │   ├── cpp/                                # CPP initialization wizard
 │   │   │   ├── init.md                         # Interactive setup wizard
 │   │   │   ├── status.md                       # Check installation state
@@ -462,12 +465,34 @@ The wizard detects existing configuration and skips already-installed components
 
 ## Project Commands
 
-Commands for project orientation and issue management:
+Commands for creating, orienting, and managing projects:
 
 | Command | Purpose | Token Cost |
 |---------|---------|------------|
+| `/project:init <name>` | Full project scaffolding — zero to GitHub repo | ~5-10K |
+| `/project:help` | Overview of project commands | ~500 |
 | `/project-lite` | Quick project reference | ~500-800 |
 | `/project-next` | Full issue analysis & prioritization | ~15-30K |
+
+### /project:init
+
+One-command project setup that orchestrates:
+1. Creates `~/Projects/<name>` with framework scaffold (Python/Node/Go/Rust)
+2. Initializes git and pushes to a new GitHub repo
+3. Generates Makefile from detected framework (`lib/cicd`)
+4. Installs CPP commands, skills, and hooks (symlinks)
+5. Initializes `.specify/` for spec-driven development
+6. Optionally creates an initial feature spec
+
+**Example:**
+```
+/project:init my-api
+```
+
+**Features:**
+- Idempotent — safe to re-run if interrupted (completed steps are skipped)
+- Framework-specific scaffolds (Python/uv, Node/npm, Go, Rust)
+- Integrates with `/flow`, `/spec`, `/security`, and all CPP commands
 
 ### /project-lite
 
