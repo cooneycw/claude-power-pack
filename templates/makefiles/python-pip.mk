@@ -9,7 +9,7 @@
 # or adjust commands to use `python -m` prefix.
 # Copy to your project root as "Makefile" and customize.
 
-.PHONY: lint test typecheck format build deploy clean verify venv
+.PHONY: lint test typecheck format build deploy clean verify venv ci-local
 
 ## Quality gates (used by /flow:finish)
 
@@ -47,6 +47,11 @@ deploy: verify
 	@echo "Examples:"
 	@echo "  ssh prod 'cd /app && git pull && systemctl restart app'"
 	@echo "  docker compose up -d --build"
+
+## Local CI (requires: woodpecker-cli — https://woodpecker-ci.org/)
+
+ci-local:
+	woodpecker exec
 
 ## Utilities
 

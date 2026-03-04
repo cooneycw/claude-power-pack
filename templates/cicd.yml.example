@@ -75,15 +75,15 @@ deploy:
 # Pipeline Configuration (used by /cicd:pipeline)
 # -------------------------------------------------------------------
 # pipeline:
-#   provider: github-actions   # github-actions | woodpecker
-#   triggers:
-#     - push: [main]
-#     - pull_request: [main]
-#   steps:
-#     - lint
-#     - test
-#     - build
-#     - deploy
+#   provider: github-actions   # github-actions | woodpecker | both
+#   branches:
+#     main: [lint, test, typecheck, build, deploy]
+#     pr: [lint, test, typecheck]
+#   matrix:
+#     python-version: ["3.11", "3.12"]
+#   secrets_needed: [DEPLOY_KEY]
+#   woodpecker:
+#     local: true              # Use 'woodpecker exec' for local runs
 
 # -------------------------------------------------------------------
 # Container Configuration (used by /cicd:container)

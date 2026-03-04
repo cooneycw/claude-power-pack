@@ -66,10 +66,17 @@ class HealthConfig:
 
 
 @dataclass
+class WoodpeckerConfig:
+    """Woodpecker CI-specific configuration."""
+
+    local: bool = True  # Use woodpecker exec for local runs
+
+
+@dataclass
 class PipelineConfig:
     """CI/CD pipeline configuration."""
 
-    provider: str = "github-actions"
+    provider: str = "github-actions"  # github-actions | woodpecker | both
     branches: dict[str, list[str]] = field(
         default_factory=lambda: {
             "main": ["lint", "test", "typecheck", "build"],
@@ -78,6 +85,7 @@ class PipelineConfig:
     )
     matrix: dict[str, list[str]] = field(default_factory=dict)
     secrets_needed: list[str] = field(default_factory=list)
+    woodpecker: WoodpeckerConfig = field(default_factory=WoodpeckerConfig)
 
 
 @dataclass
@@ -190,6 +198,9 @@ class CICDConfig:
                 config.pipeline.matrix = pipeline_data["matrix"]
             if "secrets_needed" in pipeline_data:
                 config.pipeline.secrets_needed = pipeline_data["secrets_needed"]
+            wp_data = pipeline_data.get("woodpecker", {})
+            if wp_data:
+                config.pipeline.woodpecker.local = wp_data.get("local", True)
 
         # Parse container section
         container_data = data.get("container", {})

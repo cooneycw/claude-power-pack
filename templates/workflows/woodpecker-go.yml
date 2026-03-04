@@ -1,0 +1,28 @@
+# Woodpecker CI — Go (Claude Power Pack)
+#
+# Uses Makefile targets as steps for consistency with local dev.
+# Run locally: woodpecker exec
+# Docs: https://woodpecker-ci.org/docs/usage/pipeline-syntax
+
+when:
+  branch: [main]
+  event: [push, pull_request]
+
+steps:
+  - name: lint
+    image: golang:1.23
+    commands:
+      - go mod download
+      - make lint
+
+  - name: test
+    image: golang:1.23
+    commands:
+      - go mod download
+      - make test
+
+  - name: vet
+    image: golang:1.23
+    commands:
+      - go mod download
+      - make vet

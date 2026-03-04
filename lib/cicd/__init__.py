@@ -21,6 +21,7 @@ Quick Start:
 from .config import CICDConfig
 from .detector import detect_framework
 from .makefile import check_makefile, generate_makefile, parse_makefile
+from .pipeline import generate_github_actions, generate_pipeline, generate_woodpecker
 from .models import (
     Framework,
     FrameworkInfo,
@@ -38,6 +39,10 @@ __all__ = [
     "check_makefile",
     "generate_makefile",
     "parse_makefile",
+    # Pipeline
+    "generate_pipeline",
+    "generate_github_actions",
+    "generate_woodpecker",
     # Models
     "Framework",
     "FrameworkInfo",

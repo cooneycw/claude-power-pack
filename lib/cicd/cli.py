@@ -23,6 +23,7 @@ from typing import NoReturn
 from .config import CICDConfig
 from .detector import detect_framework
 from .makefile import check_makefile
+from .pipeline import generate_pipeline
 
 
 def cmd_detect(args: argparse.Namespace) -> int:
@@ -128,6 +129,44 @@ def cmd_check(args: argparse.Namespace) -> int:
     return 0 if result.is_healthy else 1
 
 
+def cmd_pipeline(args: argparse.Namespace) -> int:
+    """Generate CI/CD pipeline files."""
+    info = detect_framework(args.path)
+    config = CICDConfig.load(args.path)
+
+    # Override provider if specified on CLI
+    if args.provider:
+        config.pipeline.provider = args.provider
+
+    if args.json:
+        files = generate_pipeline(info, config)
+        print(json.dumps({"provider": config.pipeline.provider, "files": files}, indent=2))
+        return 0
+
+    # Dry run by default, write with --write
+    if args.write:
+        files = generate_pipeline(info, config, output_dir=args.path)
+    else:
+        files = generate_pipeline(info, config)
+
+    provider = config.pipeline.provider
+    print(f"Pipeline provider: {provider}")
+    print(f"Framework: {info.framework.label} ({info.package_manager.label})")
+    print()
+
+    for filepath, content in files.items():
+        if args.write:
+            print(f"Wrote: {filepath}")
+        else:
+            print(f"--- {filepath} ---")
+            print(content)
+
+    if not args.write:
+        print("(dry run — use --write to create files)")
+
+    return 0
+
+
 def _add_common_args(parser: argparse.ArgumentParser) -> None:
     """Add common arguments to a parser."""
     parser.add_argument(
@@ -179,6 +218,25 @@ def create_parser() -> argparse.ArgumentParser:
         help="One-line summary for flow integration",
     )
 
+    # 'pipeline' subcommand
+    pipeline_parser = subparsers.add_parser(
+        "pipeline",
+        help="Generate CI/CD pipeline files (GitHub Actions, Woodpecker)",
+    )
+    _add_common_args(pipeline_parser)
+    pipeline_parser.add_argument(
+        "--provider",
+        choices=["github-actions", "woodpecker", "both"],
+        default=None,
+        help="Pipeline provider (overrides cicd.yml)",
+    )
+    pipeline_parser.add_argument(
+        "--write",
+        "-w",
+        action="store_true",
+        help="Write files to disk (default: dry run to stdout)",
+    )
+
     return parser
 
 
@@ -194,6 +252,7 @@ def main(argv: list[str] | None = None) -> int:
     commands = {
         "detect": cmd_detect,
         "check": cmd_check,
+        "pipeline": cmd_pipeline,
     }
 
     handler = commands.get(args.command)
