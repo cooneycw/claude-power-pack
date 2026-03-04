@@ -1,0 +1,94 @@
+# .claude/cicd.yml — CI/CD configuration for Claude Power Pack
+#
+# This file configures the /cicd commands and Makefile generation.
+# Place in your project's .claude/ directory.
+#
+# Detection is automatic — this file is optional and only needed
+# to override defaults or add custom configuration.
+
+# -------------------------------------------------------------------
+# Framework & Package Manager
+# -------------------------------------------------------------------
+# Auto-detected from project files (pyproject.toml, package.json, etc.)
+# Override here if detection is wrong.
+
+# framework: python          # python | node | go | rust | multi
+# package_manager: uv        # uv | pip | poetry | npm | yarn | pnpm | cargo | go
+
+# -------------------------------------------------------------------
+# Build Configuration
+# -------------------------------------------------------------------
+build:
+  # Targets that /flow:finish requires (fail the gate if missing)
+  required_targets:
+    - lint
+    - test
+
+  # Targets that /flow:doctor recommends (warn if missing)
+  recommended_targets:
+    - format
+    - typecheck
+    - build
+    - deploy
+    - clean
+    - verify
+
+# -------------------------------------------------------------------
+# Deployment
+# -------------------------------------------------------------------
+deploy:
+  # Default target for /flow:deploy (if not specified on CLI)
+  default_target: deploy
+
+  # Per-target metadata
+  targets:
+    deploy:
+      description: "Deploy to production"
+      requires_confirmation: true
+    deploy-staging:
+      description: "Deploy to staging"
+      requires_confirmation: false
+
+# -------------------------------------------------------------------
+# Health Checks (used by /cicd:health)
+# -------------------------------------------------------------------
+# health:
+#   url: https://your-app.com/health
+#   timeout: 30
+#   expected_status: 200
+#   expected_body: '"status":"ok"'
+
+# -------------------------------------------------------------------
+# Smoke Tests (used by /cicd:smoke)
+# -------------------------------------------------------------------
+# smoke:
+#   tests:
+#     - name: "Homepage loads"
+#       url: https://your-app.com/
+#       expected_status: 200
+#     - name: "API responds"
+#       url: https://your-app.com/api/health
+#       expected_status: 200
+#       expected_body: '"ok"'
+
+# -------------------------------------------------------------------
+# Pipeline Configuration (used by /cicd:pipeline)
+# -------------------------------------------------------------------
+# pipeline:
+#   provider: github-actions   # github-actions | woodpecker
+#   triggers:
+#     - push: [main]
+#     - pull_request: [main]
+#   steps:
+#     - lint
+#     - test
+#     - build
+#     - deploy
+
+# -------------------------------------------------------------------
+# Container Configuration (used by /cicd:container)
+# -------------------------------------------------------------------
+# container:
+#   base_image: python:3.12-slim
+#   port: 8000
+#   entrypoint: "uvicorn app:app --host 0.0.0.0 --port 8000"
