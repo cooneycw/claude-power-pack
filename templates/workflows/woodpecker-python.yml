@@ -1,0 +1,31 @@
+# Woodpecker CI — Python (Claude Power Pack)
+#
+# Uses Makefile targets as steps for consistency with local dev.
+# Run locally: woodpecker exec
+# Docs: https://woodpecker-ci.org/docs/usage/pipeline-syntax
+
+when:
+  branch: [main]
+  event: [push, pull_request]
+
+steps:
+  - name: lint
+    image: python:3.12
+    commands:
+      - pip install uv
+      - uv sync
+      - make lint
+
+  - name: test
+    image: python:3.12
+    commands:
+      - pip install uv
+      - uv sync
+      - make test
+
+  - name: typecheck
+    image: python:3.12
+    commands:
+      - pip install uv
+      - uv sync
+      - make typecheck

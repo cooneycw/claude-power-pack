@@ -11,7 +11,7 @@
 BINARY_NAME ?= $(shell basename $(CURDIR))
 BUILD_DIR   ?= bin
 
-.PHONY: lint test vet build deploy clean verify tidy
+.PHONY: lint test vet build deploy clean verify tidy ci-local
 
 ## Quality gates (used by /flow:finish)
 
@@ -43,6 +43,11 @@ deploy: verify build
 	@echo "Examples:"
 	@echo "  scp $(BUILD_DIR)/$(BINARY_NAME) prod:/usr/local/bin/"
 	@echo "  docker build -t $(BINARY_NAME) . && docker push $(BINARY_NAME)"
+
+## Local CI (requires: woodpecker-cli — https://woodpecker-ci.org/)
+
+ci-local:
+	woodpecker exec
 
 ## Utilities
 

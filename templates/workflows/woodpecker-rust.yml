@@ -1,0 +1,26 @@
+# Woodpecker CI — Rust (Claude Power Pack)
+#
+# Uses Makefile targets as steps for consistency with local dev.
+# Run locally: woodpecker exec
+# Docs: https://woodpecker-ci.org/docs/usage/pipeline-syntax
+
+when:
+  branch: [main]
+  event: [push, pull_request]
+
+steps:
+  - name: lint
+    image: rust:1.82
+    commands:
+      - rustup component add clippy
+      - make lint
+
+  - name: test
+    image: rust:1.82
+    commands:
+      - make test
+
+  - name: build
+    image: rust:1.82
+    commands:
+      - make build
