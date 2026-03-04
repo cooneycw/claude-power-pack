@@ -1,6 +1,6 @@
 ---
 description: Multi-model evaluation flow for issues, ideas, and architectural decisions
-allowed-tools: mcp__second-opinion__get_multi_model_second_opinion, mcp__second-opinion__list_available_models, mcp__second-opinion__get_code_second_opinion
+allowed-tools: mcp__second-opinion__get_multi_model_second_opinion, mcp__second-opinion__list_available_models, mcp__second-opinion__get_code_second_opinion, mcp__mcp-evaluate__evaluate_start, mcp__mcp-evaluate__evaluate_validate, mcp__mcp-evaluate__evaluate_produce_spec
 ---
 
 # Evaluate Issue
@@ -26,6 +26,15 @@ Phase 4: Spec Output
 ```
 
 Each phase builds on the previous. Human checkpoints let the user steer.
+
+### MCP Evaluate Server (Preferred)
+
+If the `mcp-evaluate` MCP server is available (tools: `evaluate_start`, `evaluate_validate`, `evaluate_produce_spec`), use it instead of calling `get_multi_model_second_opinion` directly. The MCP evaluate server provides:
+- Domain-aware prompt framing (no `language="markdown"` workaround needed)
+- Session state tracking across phases (Phase 3 is contextualized by Phase 1)
+- Automatic `.specify/` template generation
+
+**Detection:** Check if `evaluate_start` tool is available. If yes, use Steps 2a/6a/8a below. If not, fall back to the direct second-opinion calls in Steps 2/6/8.
 
 ---
 
@@ -112,6 +121,22 @@ Display a synthesis showing:
 4. **Risk Flags** — Concerns raised by any model
 
 Format as a clear summary, not raw model output. Pull out the interesting disagreements.
+
+### Step 2a: Phase 1 via MCP Evaluate Server (if available)
+
+If `evaluate_start` tool is available, call it instead of `get_multi_model_second_opinion`:
+
+| Parameter | Value |
+|-----------|-------|
+| `description` | User's description from Step 1 |
+| `domain` | Selected domain type |
+| `artifacts` | Any provided artifacts |
+| `models` | User's model preference or omit for auto-select |
+| `context` | Any additional context |
+
+The server handles domain-aware prompting automatically. Save the returned `session_id` for Phase 3.
+
+Present the same synthesis (agreement, divergence, tensions, risks) from the response.
 
 ---
 
@@ -221,6 +246,18 @@ Display:
 3. **Implementation Risks** — Practical concerns for executing the recommendation
 4. **Suggested Refinements** — Model-suggested improvements
 
+### Step 6a: Phase 3 via MCP Evaluate Server (if available)
+
+If `evaluate_validate` tool is available and you have a `session_id` from Step 2a, call it:
+
+| Parameter | Value |
+|-----------|-------|
+| `session_id` | From evaluate_start response |
+| `reasoning_chain` | Full Phase 2 reasoning output |
+| `proposed_approach` | The synthesized recommendation |
+
+The server injects the reasoning chain as context and uses domain-specific validation prompts. Present the same validation summary.
+
 ---
 
 ## Step 7: Human Checkpoint #3
@@ -265,7 +302,20 @@ fi
 mkdir -p .specify/specs/{feature-name}
 ```
 
-### Generate Output Files
+### Step 8a: Phase 4 via MCP Evaluate Server (if available)
+
+If `evaluate_produce_spec` tool is available, call it to generate spec artifacts:
+
+| Parameter | Value |
+|-----------|-------|
+| `session_id` | From evaluate_start response |
+| `evaluation_type` | `"full"`, `"spec"`, `"plan"`, or `"tasks"` (from Checkpoint #3) |
+| `feature_name` | Confirmed feature name |
+| `constitution_path` | `.specify/memory/constitution.md` (if exists) |
+
+The server returns file contents. Write them to `.specify/specs/{feature-name}/`. Then skip to the Report Output section.
+
+### Generate Output Files (fallback — when MCP evaluate server is not available)
 
 Based on the user's selection in Checkpoint #3, generate the appropriate files. Use the `.specify/templates/` templates as the structural base, but fill them with content from the evaluation:
 
