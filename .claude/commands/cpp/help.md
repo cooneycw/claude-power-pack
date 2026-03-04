@@ -11,6 +11,7 @@ CPP provides commands for setting up and managing Claude Code enhancements.
 | Command | Description |
 |---------|-------------|
 | `/cpp:init` | Interactive setup wizard - install CPP components |
+| `/cpp:update` | Pull latest version, sync deps, offer tier upgrades |
 | `/cpp:status` | Check current installation state |
 | `/cpp:help` | This help overview |
 

@@ -5,7 +5,7 @@ Gemini-powered code review MCP server for Claude Code.
 ## Features
 
 - **Code Review**: Get AI-powered second opinions on code issues
-- **Multi-Model Support**: Consult multiple LLMs (Gemini, GPT-5.3 Codex, GPT-5.2)
+- **Multi-Model Support**: Consult multiple LLMs (Gemini 3.1, Claude Sonnet/Haiku/Opus, GPT-5.3 Codex, o4-mini)
 - **Session-Based**: Interactive multi-turn conversations for deeper analysis
 - **Visual Analysis**: Support for screenshot/image analysis (Playwright integration)
 
@@ -31,8 +31,9 @@ Copy `.env.example` to `.env` and configure:
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `GOOGLE_API_KEY` | Yes | Gemini API key |
+| `GEMINI_API_KEY` | Yes | Gemini API key |
 | `OPENAI_API_KEY` | No | OpenAI API key (for multi-model) |
+| `ANTHROPIC_API_KEY` | No | Anthropic API key (for Claude models) |
 
 ## MCP Tools
 

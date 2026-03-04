@@ -76,6 +76,7 @@ class _SecretStr:
 # This avoids the @classmethod @property pattern which is broken in Python 3.14
 _gemini_api_key_secret = _SecretStr(os.getenv("GEMINI_API_KEY"))
 _openai_api_key_secret = _SecretStr(os.getenv("OPENAI_API_KEY"))
+_anthropic_api_key_secret = _SecretStr(os.getenv("ANTHROPIC_API_KEY"))
 
 
 class Config:
@@ -88,18 +89,18 @@ class Config:
     GEMINI_API_KEY: Optional[str] = _gemini_api_key_secret.get_secret_value()
 
     # Model Selection Strategy
-    # Primary: Gemini 3 Pro Preview (best quality)
+    # Primary: Gemini 3.1 Pro Preview (best quality, replaces deprecated 3 Pro)
     # Fallback: Gemini 2.5 Pro (stable, proven)
-    GEMINI_MODEL_PRIMARY: str = "gemini-3-pro-preview"
+    GEMINI_MODEL_PRIMARY: str = "gemini-3.1-pro-preview"
     GEMINI_MODEL_FALLBACK: str = "gemini-2.5-pro"
 
     # For image/visual analysis (e.g., Playwright screenshots)
     GEMINI_MODEL_IMAGE: str = "gemini-3-pro-image-preview"
 
-    # Gemini API Pricing (per million tokens) - Updated 2025-01
+    # Gemini API Pricing (per million tokens) - Updated 2026-03
     # Used for cost estimation in responses
     GEMINI_PRICING: Dict[str, Dict[str, float]] = {
-        "gemini-3-pro-preview": {"input": 2.50, "output": 10.00},
+        "gemini-3.1-pro-preview": {"input": 2.00, "output": 12.00},
         "gemini-2.5-pro": {"input": 1.25, "output": 5.00},
         "gemini-3-pro-image-preview": {"input": 2.50, "output": 10.00},
     }
@@ -118,15 +119,16 @@ class Config:
     # GPT-4 Turbo (best for complex reasoning)
     OPENAI_MODEL_GPT4_TURBO: str = "gpt-4-turbo"
 
-    # Codex models (use Responses API) - Updated Feb 2026
-    # gpt-5.3-codex: Most capable agentic coding model (API access may be gated)
-    # gpt-5.2-codex: Current default Codex model
-    # gpt-5.1-codex-mini: Cost-effective coding model
+    # Codex models (use Responses API) - Updated Mar 2026
+    # gpt-5.3-codex: Default and most capable agentic coding model
+    # gpt-5.2-codex: Cost-effective coding model (was default, now mini)
     # o3: Full Codex reasoning agent
-    OPENAI_MODEL_CODEX: str = "gpt-5.2-codex"
+    # o4-mini: Fast reasoning model (successor to o3-mini)
+    OPENAI_MODEL_CODEX: str = "gpt-5.3-codex"
     OPENAI_MODEL_CODEX_MAX: str = "gpt-5.3-codex"
-    OPENAI_MODEL_CODEX_MINI: str = "gpt-5.1-codex-mini"
+    OPENAI_MODEL_CODEX_MINI: str = "gpt-5.2-codex"
     OPENAI_MODEL_O3: str = "o3"
+    OPENAI_MODEL_O4_MINI: str = "o4-mini"
 
     # GPT-5.2 models
     OPENAI_MODEL_GPT52: str = "gpt-5.2"
@@ -142,22 +144,43 @@ class Config:
     # Fallback
     OPENAI_MODEL_FALLBACK: str = "gpt-4o-mini"
 
-    # OpenAI API Pricing (per million tokens) - Updated 2026-02
+    # OpenAI API Pricing (per million tokens) - Updated 2026-03
     OPENAI_PRICING: Dict[str, Dict[str, float]] = {
         "gpt-4o": {"input": 2.50, "output": 10.00},
         "gpt-4o-mini": {"input": 0.15, "output": 0.60},
         "gpt-4-turbo": {"input": 10.00, "output": 30.00},
         # Codex models (use Responses API)
-        "gpt-5.3-codex": {"input": 5.00, "output": 20.00},
-        "gpt-5.2-codex": {"input": 3.50, "output": 14.00},
-        "gpt-5.1-codex-mini": {"input": 1.50, "output": 6.00},
-        "o3": {"input": 10.00, "output": 40.00},
-        # Reasoning models
+        "gpt-5.3-codex": {"input": 1.75, "output": 14.00},
+        "gpt-5.2-codex": {"input": 1.75, "output": 14.00},
+        # Reasoning models (use Responses API)
+        "o3": {"input": 2.00, "output": 8.00},
+        "o4-mini": {"input": 1.10, "output": 4.40},
         "o1": {"input": 15.00, "output": 60.00},
         "o1-mini": {"input": 3.00, "output": 12.00},
         # GPT-5.2 models
-        "gpt-5.2": {"input": 5.00, "output": 15.00},
-        "gpt-5.2-mini": {"input": 1.00, "output": 4.00},
+        "gpt-5.2": {"input": 1.75, "output": 14.00},
+        "gpt-5.2-mini": {"input": 0.25, "output": 2.00},
+    }
+
+    # ==========================================================================
+    # Anthropic API Configuration
+    # ==========================================================================
+    # API key loaded at module level to avoid @classmethod @property issues in Python 3.14
+    ANTHROPIC_API_KEY: Optional[str] = _anthropic_api_key_secret.get_secret_value()
+
+    # Anthropic Claude Models - Updated Mar 2026
+    ANTHROPIC_MODEL_SONNET: str = "claude-sonnet-4-6"
+    ANTHROPIC_MODEL_HAIKU: str = "claude-haiku-4-5-20251001"
+    ANTHROPIC_MODEL_OPUS: str = "claude-opus-4-6"
+
+    # Fallback
+    ANTHROPIC_MODEL_FALLBACK: str = "claude-haiku-4-5-20251001"
+
+    # Anthropic API Pricing (per million tokens) - Updated 2026-03
+    ANTHROPIC_PRICING: Dict[str, Dict[str, float]] = {
+        "claude-opus-4-6": {"input": 5.00, "output": 25.00},
+        "claude-sonnet-4-6": {"input": 3.00, "output": 15.00},
+        "claude-haiku-4-5-20251001": {"input": 1.00, "output": 5.00},
     }
 
     # ==========================================================================
@@ -168,8 +191,8 @@ class Config:
         # Gemini models
         "gemini-3-pro": {
             "provider": "gemini",
-            "model_id": "gemini-3-pro-preview",
-            "display_name": "Gemini 3 Pro",
+            "model_id": "gemini-3.1-pro-preview",
+            "display_name": "Gemini 3.1 Pro",
             "description": "Google's latest, best for comprehensive analysis",
         },
         "gemini-2.5-pro": {
@@ -177,6 +200,25 @@ class Config:
             "model_id": "gemini-2.5-pro",
             "display_name": "Gemini 2.5 Pro",
             "description": "Stable, proven performance",
+        },
+        # Anthropic Claude models
+        "claude-sonnet": {
+            "provider": "anthropic",
+            "model_id": "claude-sonnet-4-6",
+            "display_name": "Claude Sonnet 4.6",
+            "description": "Fast, excellent for code review and analysis",
+        },
+        "claude-haiku": {
+            "provider": "anthropic",
+            "model_id": "claude-haiku-4-5-20251001",
+            "display_name": "Claude Haiku 4.5",
+            "description": "Fastest Claude, cost-effective for simpler tasks",
+        },
+        "claude-opus": {
+            "provider": "anthropic",
+            "model_id": "claude-opus-4-6",
+            "display_name": "Claude Opus 4.6",
+            "description": "Most capable Claude, best for complex reasoning",
         },
         # OpenAI GPT-4o family
         "gpt-4o": {
@@ -201,20 +243,20 @@ class Config:
         # OpenAI Codex models (uses Responses API)
         "codex": {
             "provider": "openai",
-            "model_id": "gpt-5.2-codex",
-            "display_name": "GPT-5.2 Codex",
+            "model_id": "gpt-5.3-codex",
+            "display_name": "GPT-5.3 Codex",
             "description": "Default Codex model for coding tasks",
         },
         "codex-max": {
             "provider": "openai",
             "model_id": "gpt-5.3-codex",
             "display_name": "GPT-5.3 Codex",
-            "description": "Most capable agentic coding model",
+            "description": "Most capable agentic coding model (same as codex)",
         },
         "codex-mini": {
             "provider": "openai",
-            "model_id": "gpt-5.1-codex-mini",
-            "display_name": "Codex Mini",
+            "model_id": "gpt-5.2-codex",
+            "display_name": "GPT-5.2 Codex",
             "description": "Cost-effective coding model",
         },
         "o3": {
@@ -222,6 +264,12 @@ class Config:
             "model_id": "o3",
             "display_name": "o3",
             "description": "Advanced reasoning, powers Codex agent",
+        },
+        "o4-mini": {
+            "provider": "openai",
+            "model_id": "o4-mini",
+            "display_name": "o4-mini",
+            "description": "Fast reasoning model, successor to o3-mini",
         },
         # OpenAI o1 reasoning models
         "o1": {
@@ -286,7 +334,7 @@ class Config:
 
     # Server Configuration
     SERVER_NAME: str = "second-opinion-server"
-    SERVER_VERSION: str = "1.8.0"  # Add GPT-5.3-Codex and GPT-5.2-Codex, retire older models
+    SERVER_VERSION: str = "1.9.0"  # Gemini 3.1 Pro, Codex 5.3 default, add o4-mini
 
     # HTTP/SSE Transport Configuration (with safe parsing)
     SERVER_HOST: str = os.getenv("MCP_SERVER_HOST", "127.0.0.1")
@@ -363,12 +411,14 @@ class Config:
         """Validate required configuration."""
         has_gemini = bool(cls.GEMINI_API_KEY)
         has_openai = bool(cls.OPENAI_API_KEY)
+        has_anthropic = bool(cls.ANTHROPIC_API_KEY)
 
-        if not has_gemini and not has_openai:
+        if not has_gemini and not has_openai and not has_anthropic:
             raise ValueError(
                 "At least one API key is required. Set either:\n"
                 "  - GEMINI_API_KEY: https://aistudio.google.com/apikey\n"
-                "  - OPENAI_API_KEY: https://platform.openai.com/api-keys"
+                "  - OPENAI_API_KEY: https://platform.openai.com/api-keys\n"
+                "  - ANTHROPIC_API_KEY: https://console.anthropic.com/settings/keys"
             )
 
         if not has_gemini:
@@ -383,6 +433,12 @@ class Config:
                 "Get your API key from https://platform.openai.com/api-keys"
             )
 
+        if not has_anthropic:
+            logger.warning(
+                "ANTHROPIC_API_KEY not set - Claude models will be unavailable. "
+                "Get your API key from https://console.anthropic.com/settings/keys"
+            )
+
     @classmethod
     def get_available_model_keys(cls) -> List[str]:
         """Get list of model keys that have valid API keys configured."""
@@ -393,6 +449,8 @@ class Config:
                 available.append(key)
             elif provider == "openai" and cls.OPENAI_API_KEY:
                 available.append(key)
+            elif provider == "anthropic" and cls.ANTHROPIC_API_KEY:
+                available.append(key)
         return available
 
     @classmethod
@@ -402,6 +460,8 @@ class Config:
             return cls.GEMINI_PRICING[model_id]
         elif model_id in cls.OPENAI_PRICING:
             return cls.OPENAI_PRICING[model_id]
+        elif model_id in cls.ANTHROPIC_PRICING:
+            return cls.ANTHROPIC_PRICING[model_id]
         else:
             # Default fallback pricing
             return {"input": 10.00, "output": 30.00}
