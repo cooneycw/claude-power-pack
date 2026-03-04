@@ -3,6 +3,8 @@
 Usage:
     python -m lib.cicd detect [OPTIONS]
     python -m lib.cicd check [OPTIONS]
+    python -m lib.cicd health [OPTIONS]
+    python -m lib.cicd smoke [OPTIONS]
 
 Examples:
     python -m lib.cicd detect
@@ -10,6 +12,10 @@ Examples:
     python -m lib.cicd check
     python -m lib.cicd check --summary
     python -m lib.cicd check --json
+    python -m lib.cicd health
+    python -m lib.cicd health --json
+    python -m lib.cicd smoke
+    python -m lib.cicd smoke --json
 """
 
 from __future__ import annotations
@@ -22,8 +28,10 @@ from typing import NoReturn
 
 from .config import CICDConfig
 from .detector import detect_framework
+from .health import run_health_checks
 from .makefile import check_makefile
 from .pipeline import generate_pipeline
+from .smoke import run_smoke_tests
 
 
 def cmd_detect(args: argparse.Namespace) -> int:
@@ -167,6 +175,88 @@ def cmd_pipeline(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_health(args: argparse.Namespace) -> int:
+    """Run health checks against configured endpoints and processes."""
+    config = CICDConfig.load(args.path)
+    result = run_health_checks(config=config, project_root=args.path)
+
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2))
+        return 0 if result.all_passed else 1
+
+    if args.summary:
+        print(result.summary_line())
+        return 0 if result.all_passed else 1
+
+    if not result.checks:
+        print("Health Check: no checks configured")
+        print()
+        print("  Configure endpoints and processes in .claude/cicd.yml:")
+        print("    health:")
+        print("      endpoints:")
+        print("        - url: http://localhost:8000/health")
+        print("          name: API Server")
+        print("      processes:")
+        print("        - name: uvicorn")
+        print("          port: 8000")
+        return 0
+
+    print("## Health Checks")
+    print()
+    print("| Check | Type | Status | Detail | Time |")
+    print("|-------|------|--------|--------|------|")
+
+    for check in result.checks:
+        status = "PASS" if check.passed else "FAIL"
+        elapsed = f"{check.elapsed_ms:.0f}ms"
+        print(f"| {check.name} | {check.kind} | {status} | {check.detail} | {elapsed} |")
+
+    print()
+    print(f"Result: {result.summary_line()}")
+
+    return 0 if result.all_passed else 1
+
+
+def cmd_smoke(args: argparse.Namespace) -> int:
+    """Run smoke tests from cicd.yml configuration."""
+    config = CICDConfig.load(args.path)
+    result = run_smoke_tests(config=config, project_root=args.path)
+
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2))
+        return 0 if result.all_passed else 1
+
+    if args.summary:
+        print(result.summary_line())
+        return 0 if result.all_passed else 1
+
+    if not result.tests:
+        print("Smoke Tests: no tests configured")
+        print()
+        print("  Configure smoke tests in .claude/cicd.yml:")
+        print("    health:")
+        print("      smoke_tests:")
+        print("        - name: API responds")
+        print('          command: "curl -sf http://localhost:8000/health"')
+        print("          expected_exit: 0")
+        return 0
+
+    print("## Smoke Tests")
+    print()
+    print("| Test | Status | Detail | Time |")
+    print("|------|--------|--------|------|")
+
+    for test in result.tests:
+        status = "PASS" if test.passed else "FAIL"
+        elapsed = f"{test.elapsed_ms:.0f}ms"
+        print(f"| {test.name} | {status} | {test.detail} | {elapsed} |")
+
+    print()
+    print(f"Result: {result.summary_line()}")
+
+    return 0 if result.all_passed else 1
+
+
 def _add_common_args(parser: argparse.ArgumentParser) -> None:
     """Add common arguments to a parser."""
     parser.add_argument(
@@ -218,6 +308,32 @@ def create_parser() -> argparse.ArgumentParser:
         help="One-line summary for flow integration",
     )
 
+    # 'health' subcommand
+    health_parser = subparsers.add_parser(
+        "health",
+        help="Run health checks against configured endpoints and processes",
+    )
+    _add_common_args(health_parser)
+    health_parser.add_argument(
+        "--summary",
+        "-s",
+        action="store_true",
+        help="One-line summary for flow integration",
+    )
+
+    # 'smoke' subcommand
+    smoke_parser = subparsers.add_parser(
+        "smoke",
+        help="Run smoke tests from cicd.yml configuration",
+    )
+    _add_common_args(smoke_parser)
+    smoke_parser.add_argument(
+        "--summary",
+        "-s",
+        action="store_true",
+        help="One-line summary for flow integration",
+    )
+
     # 'pipeline' subcommand
     pipeline_parser = subparsers.add_parser(
         "pipeline",
@@ -252,6 +368,8 @@ def main(argv: list[str] | None = None) -> int:
     commands = {
         "detect": cmd_detect,
         "check": cmd_check,
+        "health": cmd_health,
+        "smoke": cmd_smoke,
         "pipeline": cmd_pipeline,
     }
 
