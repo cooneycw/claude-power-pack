@@ -1,4 +1,4 @@
-# Second Opinion MCP Server - Dockerfile
+# Nano-Banana MCP Server - Dockerfile
 # Multi-stage build using uv for dependency management
 
 FROM python:3.11-slim AS builder
@@ -6,7 +6,6 @@ FROM python:3.11-slim AS builder
 # Install uv
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
-# Set working directory
 WORKDIR /app
 
 # Copy dependency files
@@ -34,8 +33,8 @@ WORKDIR /app
 COPY --from=builder /app/.venv /app/.venv
 
 # Copy application code
-COPY --chown=mcpuser:mcpuser src/config.py src/prompts.py src/sessions.py src/server.py ./
-COPY --chown=mcpuser:mcpuser src/tools/ ./tools/
+COPY --chown=mcpuser:mcpuser src/config.py src/pptx_builder.py src/server.py ./
+COPY --chown=mcpuser:mcpuser src/diagrams/ ./diagrams/
 
 # Switch to non-root user
 USER mcpuser
@@ -43,12 +42,12 @@ USER mcpuser
 # Use the virtual environment
 ENV PATH="/app/.venv/bin:$PATH"
 
+# Expose SSE port
+EXPOSE 8084
+
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import sys; from config import Config; sys.exit(0 if Config.GEMINI_API_KEY else 1)"
-
-# Expose SSE port
-EXPOSE 8080
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8084/health')" || exit 1
 
 # Run the MCP server
 ENTRYPOINT ["python", "server.py"]

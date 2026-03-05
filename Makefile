@@ -1,4 +1,5 @@
-.PHONY: test lint format typecheck verify update_docs clean
+.PHONY: test lint format typecheck verify update_docs clean \
+       docker-build docker-up docker-down docker-logs docker-ps
 
 ## Quality gates (used by /flow:finish)
 
@@ -23,6 +24,28 @@ verify: lint test typecheck
 update_docs:
 	@echo "Run /documentation:c4 to regenerate C4 architecture diagrams"
 	@echo "Review CLAUDE.md and README.md for accuracy"
+
+## Docker (MCP server containers)
+## Usage: make docker-up PROFILE=core
+##        make docker-up PROFILE="core browser"
+## Profiles: core (second-opinion + nano-banana), eval, browser, coord
+
+PROFILE ?= core
+
+docker-build:
+	$(foreach p,$(PROFILE),docker compose --profile $(p) build;)
+
+docker-up:
+	$(foreach p,$(PROFILE),docker compose --profile $(p) up -d;)
+
+docker-down:
+	docker compose --profile core --profile eval --profile browser --profile coord down
+
+docker-logs:
+	docker compose --profile core --profile eval --profile browser --profile coord logs -f
+
+docker-ps:
+	docker compose --profile core --profile eval --profile browser --profile coord ps
 
 ## Utilities
 

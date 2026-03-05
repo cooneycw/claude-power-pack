@@ -1,0 +1,144 @@
+# Claude Power Pack - MCP Server Orchestration
+# Usage:
+#   docker compose --profile core up -d              # Second Opinion + Nano-Banana
+#   docker compose --profile core --profile eval up -d  # + Evaluate
+#   docker compose --profile browser up -d           # Playwright only
+#   docker compose --profile coord up -d             # Coordination + Redis
+#   docker compose up -d                             # Nothing (must specify profile)
+#
+# Secrets: Create a root .env file with API keys (never commit this):
+#   GEMINI_API_KEY=...
+#   OPENAI_API_KEY=...
+#   ANTHROPIC_API_KEY=...
+
+services:
+  mcp-second-opinion:
+    build:
+      context: ./mcp-second-opinion
+      dockerfile: deploy/Dockerfile
+    image: mcp-second-opinion:latest
+    container_name: mcp-second-opinion
+    ports:
+      - "8080:8080"
+    env_file:
+      - path: .env
+        required: false
+    restart: unless-stopped
+    profiles: ["core"]
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+        reservations:
+          cpus: "0.5"
+          memory: 256M
+
+  mcp-nano-banana:
+    build:
+      context: ./mcp-nano-banana
+      dockerfile: deploy/Dockerfile
+    image: mcp-nano-banana:latest
+    container_name: mcp-nano-banana
+    ports:
+      - "8084:8084"
+    restart: unless-stopped
+    profiles: ["core"]
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+        reservations:
+          cpus: "0.25"
+          memory: 128M
+
+  mcp-evaluate:
+    build:
+      context: ./mcp-evaluate
+      dockerfile: deploy/Dockerfile
+    image: mcp-evaluate:latest
+    container_name: mcp-evaluate
+    ports:
+      - "8083:8083"
+    env_file:
+      - path: .env
+        required: false
+    depends_on:
+      mcp-second-opinion:
+        condition: service_healthy
+    restart: unless-stopped
+    profiles: ["eval"]
+    environment:
+      - SECOND_OPINION_URL=http://mcp-second-opinion:8080
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+        reservations:
+          cpus: "0.25"
+          memory: 128M
+
+  mcp-playwright-persistent:
+    build:
+      context: ./mcp-playwright-persistent
+      dockerfile: deploy/Dockerfile
+    image: mcp-playwright-persistent:latest
+    container_name: mcp-playwright-persistent
+    ports:
+      - "8081:8081"
+    shm_size: "2gb"
+    restart: unless-stopped
+    profiles: ["browser"]
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2G
+        reservations:
+          cpus: "0.5"
+          memory: 512M
+
+  redis:
+    image: redis:7-alpine
+    container_name: mcp-redis
+    restart: unless-stopped
+    profiles: ["coord"]
+    volumes:
+      - redis-data:/data
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 128M
+
+  mcp-coordination:
+    build:
+      context: ./extras/redis-coordination/mcp-server
+      dockerfile: deploy/Dockerfile
+    image: mcp-coordination:latest
+    container_name: mcp-coordination
+    ports:
+      - "8082:8082"
+    depends_on:
+      - redis
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    restart: unless-stopped
+    profiles: ["coord"]
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+        reservations:
+          cpus: "0.25"
+          memory: 128M
+
+volumes:
+  redis-data:
+
+networks:
+  default:
+    name: mcp-net
