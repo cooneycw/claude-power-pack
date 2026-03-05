@@ -1,0 +1,81 @@
+# Claude Power Pack - Woodpecker CI Pipeline
+# Runs quality gates and builds Docker containers for MCP servers
+
+steps:
+  lint:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim
+    commands:
+      - uv sync --extra dev --frozen
+      - uv run ruff check .
+
+  test:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim
+    commands:
+      - uv sync --extra dev --frozen
+      - uv run pytest
+
+  typecheck:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim
+    commands:
+      - uv sync --extra dev --frozen
+      - uv run mypy .
+
+  build-second-opinion:
+    image: plugins/docker
+    settings:
+      repo: mcp-second-opinion
+      dockerfile: mcp-second-opinion/deploy/Dockerfile
+      context: mcp-second-opinion
+      tags: latest
+      dry_run: true
+    when:
+      - event: [push, pull_request]
+        path: "mcp-second-opinion/**"
+
+  build-playwright:
+    image: plugins/docker
+    settings:
+      repo: mcp-playwright-persistent
+      dockerfile: mcp-playwright-persistent/deploy/Dockerfile
+      context: mcp-playwright-persistent
+      tags: latest
+      dry_run: true
+    when:
+      - event: [push, pull_request]
+        path: "mcp-playwright-persistent/**"
+
+  build-nano-banana:
+    image: plugins/docker
+    settings:
+      repo: mcp-nano-banana
+      dockerfile: mcp-nano-banana/deploy/Dockerfile
+      context: mcp-nano-banana
+      tags: latest
+      dry_run: true
+    when:
+      - event: [push, pull_request]
+        path: "mcp-nano-banana/**"
+
+  build-evaluate:
+    image: plugins/docker
+    settings:
+      repo: mcp-evaluate
+      dockerfile: mcp-evaluate/deploy/Dockerfile
+      context: mcp-evaluate
+      tags: latest
+      dry_run: true
+    when:
+      - event: [push, pull_request]
+        path: "mcp-evaluate/**"
+
+  build-coordination:
+    image: plugins/docker
+    settings:
+      repo: mcp-coordination
+      dockerfile: extras/redis-coordination/mcp-server/deploy/Dockerfile
+      context: extras/redis-coordination/mcp-server
+      tags: latest
+      dry_run: true
+    when:
+      - event: [push, pull_request]
+        path: "extras/redis-coordination/**"
