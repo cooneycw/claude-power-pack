@@ -50,6 +50,7 @@ Phase 4: Spec Output
 
 - **Required:** MCP Second Opinion server (provides multi-model consultation)
 - **Optional:** Sequential Thinking MCP (enhances Phase 2 reasoning; falls back to inline reasoning if not installed)
+- **Skill:** `evaluate` skill provides domain-specific prompts (loaded automatically)
 
 ## Quick Example
 

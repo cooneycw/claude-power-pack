@@ -585,7 +585,7 @@ Always commit `uv.lock` for reproducibility. Use `uv lock` to generate/update.
 Each Python component has its own `pyproject.toml`:
 - `mcp-second-opinion/pyproject.toml`
 - `mcp-playwright-persistent/pyproject.toml`
-- `mcp-evaluate/pyproject.toml`
+- `mcp-evaluate/pyproject.toml` (deprecated — kept for reference)
 - `mcp-nano-banana/pyproject.toml`
 - `extras/redis-coordination/mcp-server/pyproject.toml` (optional)
 - `lib/creds/pyproject.toml`
