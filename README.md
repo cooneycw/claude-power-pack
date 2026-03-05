@@ -241,7 +241,7 @@ Or use `/flow:auto 42` to automate the entire lifecycle in one shot.
 
 ## 🔄 Flow Workflow
 
-**New in v4.0.0:** Stateless, git-native commands for the full issue lifecycle.
+**Since v4.0.0:** Stateless, git-native commands for the full issue lifecycle.
 
 ### The Golden Path
 
@@ -1408,20 +1408,21 @@ MIT License - See LICENSE file for details
 
 ---
 
-**Repository Version**: 4.1.0
-**Last Updated**: February 2026
+**Repository Version**: 5.0.0
+**Last Updated**: March 2026
 **Maintainer**: cooneycw
 
-## What's New in v4.1.0
+## What's New in v5.0.0
 
-- **Python packaging best practices** - PEP 621 (pyproject.toml) and PEP 723 (inline script metadata) guidance advocating modern standards
-- **Sequential Thinking MCP** - Optional extra for structured step-by-step reasoning with revision and branching
-- **Self-improvement commands** - `/self-improvement:deployment` for retrospective Makefile analysis
-- **Security scanning** - `/security:scan`, `/security:quick`, `/security:deep` with `/flow` gate integration
-- **Enhanced secrets management** - Tiered providers (dotenv, AWS), FastAPI web UI, audit logging
-- **Flow enhancements** - `/flow:sync` (cross-machine), `/flow:cleanup` (prune stale), `/flow:doctor` (diagnostics)
-- **QA generalization** - Config-driven testing for any project
-- **Makefile as first-class concept** - Build, test, lint, deploy targets used by `/flow` commands
+- **MCP Nano-Banana** - Diagram generation (6 types) + PowerPoint creation via `/pptx:create`
+- **Tier 4: CI/CD & Verification** - `lib/cicd/` with framework detection, Makefile generation, health/smoke testing, pipeline generation
+- **Evaluate Flow** - `/evaluate:issue` for multi-model 4-phase evaluation with spec output
+- **`/project:init`** - Zero-to-GitHub-repo scaffolding in one command
+- **Django support** - Framework detection and `django-uv.mk` Makefile template
+- **`/secrets:delete`** - Delete secrets with audit trail
+- **211 unit tests** - Full test coverage for all Python libraries
+- **Security gate docs** - Documented `/flow:finish` and `/flow:deploy` gate behavior
+- **Stack-specific templates** - `/flow:doctor` suggests framework-appropriate Makefile templates
 
 ### Previous: v4.0.0
 
