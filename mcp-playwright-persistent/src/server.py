@@ -45,19 +45,17 @@ SESSION_TIMEOUT = int(os.getenv("SESSION_TIMEOUT", "3600"))  # 1 hour default
 # Initialize FastMCP
 mcp = FastMCP(
     "MCP Playwright Persistent",
-    instructions="""
-    Persistent browser automation with session management.
+    instructions="""Persistent browser automation with session management.
 
-    Create a session first with create_session(), then use the session_id
-    for all subsequent operations. Sessions persist across tool calls and
-    maintain browser state, cookies, and login sessions.
+    Create a session first with create_session(), then use session_id for all operations.
 
-    Key tools:
-    - create_session/close_session - Manage browser sessions
-    - browser_navigate - Navigate to URLs
-    - browser_click/browser_fill/browser_type - Interact with pages
-    - browser_screenshot - Capture screenshots
-    - browser_new_tab/browser_switch_tab - Multi-tab support
+    Core tools (always loaded):
+    - create_session / close_session — Session lifecycle
+    - browser_navigate — Go to URL
+    - browser_click / browser_fill — Interact with elements
+    - browser_screenshot — Capture page or element
+
+    Extended tools (search to discover): tabs, PDF, evaluate JS, wait, query selectors.
     """
 )
 
@@ -152,37 +150,17 @@ async def close_session_internal(session_id: str):
 
 
 # ============================================================================
-# Session Management Tools (5)
+# Session Management Tools — core: create_session, close_session
 # ============================================================================
 
-@mcp.tool()
+@mcp.tool(tags={"core"})
 async def create_session(
     headless: bool = True,
     viewport_width: int = 1280,
     viewport_height: int = 720,
     cdp_endpoint: Optional[str] = None
 ) -> dict:
-    """
-    Create a new persistent browser session.
-
-    Args:
-        headless: Run browser in headless mode (default True)
-        viewport_width: Browser viewport width (default 1280)
-        viewport_height: Browser viewport height (default 720)
-        cdp_endpoint: Optional CDP WebSocket URL to connect to existing Chrome
-                      (e.g., "ws://localhost:9222/devtools/browser/...")
-                      If provided, connects to existing browser instead of launching new one.
-
-    Returns:
-        Session information including session_id
-
-    Examples:
-        # Launch new browser
-        create_session(headless=True)
-
-        # Connect to existing Chrome (started with --remote-debugging-port=9222)
-        create_session(cdp_endpoint="ws://localhost:9222")
-    """
+    """Create a persistent browser session. Returns session_id for all subsequent operations."""
     global playwright_instance
 
     if cdp_endpoint:
@@ -229,31 +207,18 @@ async def create_session(
     return result
 
 
-@mcp.tool()
+@mcp.tool(tags={"core"})
 async def close_session(session_id: str) -> dict:
-    """
-    Close a browser session and release resources.
-
-    Args:
-        session_id: The session ID to close
-
-    Returns:
-        Confirmation of session closure
-    """
+    """Close a browser session and release all resources."""
     if session_id in sessions:
         await close_session_internal(session_id)
         return {"status": "closed", "session_id": session_id}
     return {"status": "not_found", "session_id": session_id}
 
 
-@mcp.tool()
+@mcp.tool(tags={"extended"})
 async def list_sessions() -> dict:
-    """
-    List all active browser sessions.
-
-    Returns:
-        List of active sessions with their details
-    """
+    """List all active browser sessions with their details."""
     active_sessions = []
     for sid, session in list(sessions.items()):
         if session.is_expired():
@@ -269,17 +234,9 @@ async def list_sessions() -> dict:
     return {"sessions": active_sessions, "count": len(active_sessions)}
 
 
-@mcp.tool()
+@mcp.tool(tags={"extended"})
 async def get_session_info(session_id: str) -> dict:
-    """
-    Get detailed information about a session.
-
-    Args:
-        session_id: The session ID
-
-    Returns:
-        Detailed session information
-    """
+    """Get detailed session info including pages, URLs, and activity timestamps."""
     session = await get_session(session_id)
     if not session:
         return {"error": "Session not found", "session_id": session_id}
@@ -305,17 +262,9 @@ async def get_session_info(session_id: str) -> dict:
     }
 
 
-@mcp.tool()
+@mcp.tool(tags={"extended"})
 async def cleanup_idle_sessions(max_idle_minutes: int = 30) -> dict:
-    """
-    Clean up sessions that have been idle for too long.
-
-    Args:
-        max_idle_minutes: Maximum idle time in minutes (default 30)
-
-    Returns:
-        Number of sessions cleaned up
-    """
+    """Clean up sessions idle longer than max_idle_minutes (default 30)."""
     cleaned = 0
     threshold = datetime.now() - timedelta(minutes=max_idle_minutes)
 
@@ -328,22 +277,12 @@ async def cleanup_idle_sessions(max_idle_minutes: int = 30) -> dict:
 
 
 # ============================================================================
-# Navigation Tools (6)
+# Navigation Tools — core: navigate, click, fill
 # ============================================================================
 
-@mcp.tool()
+@mcp.tool(tags={"core"})
 async def browser_navigate(session_id: str, url: str, wait_until: str = "load") -> dict:
-    """
-    Navigate to a URL.
-
-    Args:
-        session_id: The session ID
-        url: URL to navigate to
-        wait_until: When to consider navigation complete (load, domcontentloaded, networkidle)
-
-    Returns:
-        Navigation result with page title
-    """
+    """Navigate to a URL. wait_until: load, domcontentloaded, or networkidle."""
     session = await get_session(session_id)
     if not session:
         return {"error": "Session not found"}
@@ -360,20 +299,9 @@ async def browser_navigate(session_id: str, url: str, wait_until: str = "load") 
     }
 
 
-@mcp.tool()
+@mcp.tool(tags={"core"})
 async def browser_click(session_id: str, selector: str, button: str = "left", click_count: int = 1) -> dict:
-    """
-    Click an element on the page.
-
-    Args:
-        session_id: The session ID
-        selector: CSS selector or text selector
-        button: Mouse button (left, right, middle)
-        click_count: Number of clicks (1 for single, 2 for double)
-
-    Returns:
-        Click result
-    """
+    """Click an element. Supports CSS selectors and text selectors."""
     session = await get_session(session_id)
     if not session:
         return {"error": "Session not found"}
@@ -386,20 +314,9 @@ async def browser_click(session_id: str, selector: str, button: str = "left", cl
     return {"status": "clicked", "selector": selector}
 
 
-@mcp.tool()
+@mcp.tool(tags={"extended"})
 async def browser_type(session_id: str, selector: str, text: str, delay: int = 0) -> dict:
-    """
-    Type text into an element (simulates keystrokes).
-
-    Args:
-        session_id: The session ID
-        selector: CSS selector for input element
-        text: Text to type
-        delay: Delay between keystrokes in ms
-
-    Returns:
-        Type result
-    """
+    """Type text with simulated keystrokes. Use browser_fill for faster input."""
     session = await get_session(session_id)
     if not session:
         return {"error": "Session not found"}
@@ -412,19 +329,9 @@ async def browser_type(session_id: str, selector: str, text: str, delay: int = 0
     return {"status": "typed", "selector": selector, "length": len(text)}
 
 
-@mcp.tool()
+@mcp.tool(tags={"core"})
 async def browser_fill(session_id: str, selector: str, value: str) -> dict:
-    """
-    Fill an input element with text (faster than type, clears first).
-
-    Args:
-        session_id: The session ID
-        selector: CSS selector for input element
-        value: Value to fill
-
-    Returns:
-        Fill result
-    """
+    """Fill an input element with text. Clears existing value first. Faster than browser_type."""
     session = await get_session(session_id)
     if not session:
         return {"error": "Session not found"}
@@ -437,19 +344,9 @@ async def browser_fill(session_id: str, selector: str, value: str) -> dict:
     return {"status": "filled", "selector": selector}
 
 
-@mcp.tool()
+@mcp.tool(tags={"extended"})
 async def browser_select_option(session_id: str, selector: str, value: str) -> dict:
-    """
-    Select an option from a dropdown.
-
-    Args:
-        session_id: The session ID
-        selector: CSS selector for select element
-        value: Option value to select
-
-    Returns:
-        Select result
-    """
+    """Select an option from a dropdown element."""
     session = await get_session(session_id)
     if not session:
         return {"error": "Session not found"}
@@ -462,18 +359,9 @@ async def browser_select_option(session_id: str, selector: str, value: str) -> d
     return {"status": "selected", "selector": selector, "value": value}
 
 
-@mcp.tool()
+@mcp.tool(tags={"extended"})
 async def browser_hover(session_id: str, selector: str) -> dict:
-    """
-    Hover over an element.
-
-    Args:
-        session_id: The session ID
-        selector: CSS selector for element
-
-    Returns:
-        Hover result
-    """
+    """Hover over an element by CSS selector."""
     session = await get_session(session_id)
     if not session:
         return {"error": "Session not found"}
@@ -487,21 +375,12 @@ async def browser_hover(session_id: str, selector: str) -> dict:
 
 
 # ============================================================================
-# Tab Management Tools (6)
+# Tab Management Tools — all extended
 # ============================================================================
 
-@mcp.tool()
+@mcp.tool(tags={"extended"})
 async def browser_new_tab(session_id: str, url: Optional[str] = None) -> dict:
-    """
-    Open a new tab in the session.
-
-    Args:
-        session_id: The session ID
-        url: Optional URL to navigate to
-
-    Returns:
-        New tab information
-    """
+    """Open a new tab, optionally navigating to a URL."""
     session = await get_session(session_id)
     if not session:
         return {"error": "Session not found"}
@@ -518,18 +397,9 @@ async def browser_new_tab(session_id: str, url: Optional[str] = None) -> dict:
     }
 
 
-@mcp.tool()
+@mcp.tool(tags={"extended"})
 async def browser_switch_tab(session_id: str, page_id: str) -> dict:
-    """
-    Switch to a different tab.
-
-    Args:
-        session_id: The session ID
-        page_id: The page ID to switch to
-
-    Returns:
-        Switch result
-    """
+    """Switch active tab by page_id."""
     session = await get_session(session_id)
     if not session:
         return {"error": "Session not found"}
@@ -547,18 +417,9 @@ async def browser_switch_tab(session_id: str, page_id: str) -> dict:
     }
 
 
-@mcp.tool()
+@mcp.tool(tags={"extended"})
 async def browser_close_tab(session_id: str, page_id: str) -> dict:
-    """
-    Close a tab.
-
-    Args:
-        session_id: The session ID
-        page_id: The page ID to close
-
-    Returns:
-        Close result
-    """
+    """Close a tab by page_id. Switches to another tab if closing the active one."""
     session = await get_session(session_id)
     if not session:
         return {"error": "Session not found"}
@@ -579,17 +440,9 @@ async def browser_close_tab(session_id: str, page_id: str) -> dict:
     return {"status": "closed", "page_id": page_id}
 
 
-@mcp.tool()
+@mcp.tool(tags={"extended"})
 async def browser_go_back(session_id: str) -> dict:
-    """
-    Navigate back in browser history.
-
-    Args:
-        session_id: The session ID
-
-    Returns:
-        Navigation result
-    """
+    """Navigate back in browser history."""
     session = await get_session(session_id)
     if not session:
         return {"error": "Session not found"}
@@ -602,17 +455,9 @@ async def browser_go_back(session_id: str) -> dict:
     return {"url": page.url, "title": await page.title()}
 
 
-@mcp.tool()
+@mcp.tool(tags={"extended"})
 async def browser_go_forward(session_id: str) -> dict:
-    """
-    Navigate forward in browser history.
-
-    Args:
-        session_id: The session ID
-
-    Returns:
-        Navigation result
-    """
+    """Navigate forward in browser history."""
     session = await get_session(session_id)
     if not session:
         return {"error": "Session not found"}
@@ -625,17 +470,9 @@ async def browser_go_forward(session_id: str) -> dict:
     return {"url": page.url, "title": await page.title()}
 
 
-@mcp.tool()
+@mcp.tool(tags={"extended"})
 async def browser_reload(session_id: str) -> dict:
-    """
-    Reload the current page.
-
-    Args:
-        session_id: The session ID
-
-    Returns:
-        Reload result
-    """
+    """Reload the current page."""
     session = await get_session(session_id)
     if not session:
         return {"error": "Session not found"}
@@ -649,22 +486,12 @@ async def browser_reload(session_id: str) -> dict:
 
 
 # ============================================================================
-# Capture Tools (5)
+# Capture Tools — core: screenshot
 # ============================================================================
 
-@mcp.tool()
+@mcp.tool(tags={"core"})
 async def browser_screenshot(session_id: str, full_page: bool = False, selector: Optional[str] = None) -> dict:
-    """
-    Take a screenshot of the page.
-
-    Args:
-        session_id: The session ID
-        full_page: Capture full scrollable page
-        selector: Optional selector to screenshot specific element
-
-    Returns:
-        Base64 encoded screenshot
-    """
+    """Capture a PNG screenshot. Set full_page=True for full scroll, or pass selector for element screenshot."""
     session = await get_session(session_id)
     if not session:
         return {"error": "Session not found"}
@@ -688,17 +515,9 @@ async def browser_screenshot(session_id: str, full_page: bool = False, selector:
     }
 
 
-@mcp.tool()
+@mcp.tool(tags={"extended"})
 async def browser_snapshot(session_id: str) -> dict:
-    """
-    Get an accessibility snapshot of the page.
-
-    Args:
-        session_id: The session ID
-
-    Returns:
-        Accessibility tree snapshot
-    """
+    """Get accessibility tree snapshot of the page (YAML format)."""
     session = await get_session(session_id)
     if not session:
         return {"error": "Session not found"}
@@ -712,18 +531,9 @@ async def browser_snapshot(session_id: str) -> dict:
     return {"snapshot": snapshot, "format": "yaml"}
 
 
-@mcp.tool()
+@mcp.tool(tags={"extended"})
 async def browser_pdf(session_id: str, format: str = "A4") -> dict:
-    """
-    Generate PDF of the page (headless only).
-
-    Args:
-        session_id: The session ID
-        format: Paper format (A4, Letter, etc.)
-
-    Returns:
-        Base64 encoded PDF
-    """
+    """Generate PDF of the page (headless mode only). Format: A4, Letter, etc."""
     session = await get_session(session_id)
     if not session:
         return {"error": "Session not found"}
@@ -742,17 +552,9 @@ async def browser_pdf(session_id: str, format: str = "A4") -> dict:
     }
 
 
-@mcp.tool()
+@mcp.tool(tags={"extended"})
 async def browser_get_content(session_id: str) -> dict:
-    """
-    Get the HTML content of the page.
-
-    Args:
-        session_id: The session ID
-
-    Returns:
-        Page HTML content
-    """
+    """Get the full HTML content of the current page."""
     session = await get_session(session_id)
     if not session:
         return {"error": "Session not found"}
@@ -765,18 +567,9 @@ async def browser_get_content(session_id: str) -> dict:
     return {"html": content, "url": page.url}
 
 
-@mcp.tool()
+@mcp.tool(tags={"extended"})
 async def browser_get_text(session_id: str, selector: Optional[str] = None) -> dict:
-    """
-    Get text content from the page or an element.
-
-    Args:
-        session_id: The session ID
-        selector: Optional CSS selector (gets body text if not specified)
-
-    Returns:
-        Text content
-    """
+    """Get text content from page body or a specific element by selector."""
     session = await get_session(session_id)
     if not session:
         return {"error": "Session not found"}
@@ -797,21 +590,12 @@ async def browser_get_text(session_id: str, selector: Optional[str] = None) -> d
 
 
 # ============================================================================
-# Evaluation Tools (4)
+# Evaluation Tools — all extended
 # ============================================================================
 
-@mcp.tool()
+@mcp.tool(tags={"extended"})
 async def browser_evaluate(session_id: str, script: str) -> dict:
-    """
-    Execute JavaScript in the page context.
-
-    Args:
-        session_id: The session ID
-        script: JavaScript code to execute
-
-    Returns:
-        Script execution result
-    """
+    """Execute JavaScript in the page context and return the result."""
     session = await get_session(session_id)
     if not session:
         return {"error": "Session not found"}
@@ -824,20 +608,9 @@ async def browser_evaluate(session_id: str, script: str) -> dict:
     return {"result": result}
 
 
-@mcp.tool()
+@mcp.tool(tags={"extended"})
 async def browser_wait_for(session_id: str, selector: str, state: str = "visible", timeout: int = 30000) -> dict:
-    """
-    Wait for an element to reach a specific state.
-
-    Args:
-        session_id: The session ID
-        selector: CSS selector
-        state: State to wait for (attached, detached, visible, hidden)
-        timeout: Timeout in milliseconds
-
-    Returns:
-        Wait result
-    """
+    """Wait for element to reach state: attached, detached, visible, or hidden."""
     session = await get_session(session_id)
     if not session:
         return {"error": "Session not found"}
@@ -853,18 +626,9 @@ async def browser_wait_for(session_id: str, selector: str, state: str = "visible
         return {"status": "timeout", "selector": selector, "error": str(e)}
 
 
-@mcp.tool()
+@mcp.tool(tags={"extended"})
 async def browser_wait_for_navigation(session_id: str, timeout: int = 30000) -> dict:
-    """
-    Wait for navigation to complete.
-
-    Args:
-        session_id: The session ID
-        timeout: Timeout in milliseconds
-
-    Returns:
-        Navigation result
-    """
+    """Wait for page navigation to reach networkidle state."""
     session = await get_session(session_id)
     if not session:
         return {"error": "Session not found"}
@@ -880,18 +644,9 @@ async def browser_wait_for_navigation(session_id: str, timeout: int = 30000) -> 
         return {"status": "timeout", "error": str(e)}
 
 
-@mcp.tool()
+@mcp.tool(tags={"extended"})
 async def browser_console_messages(session_id: str, limit: int = 50) -> dict:
-    """
-    Get console messages from the page.
-
-    Args:
-        session_id: The session ID
-        limit: Maximum number of messages to return
-
-    Returns:
-        List of console messages
-    """
+    """Get captured console.log messages from the page."""
     session = await get_session(session_id)
     if not session:
         return {"error": "Session not found"}
@@ -901,22 +656,12 @@ async def browser_console_messages(session_id: str, limit: int = 50) -> dict:
 
 
 # ============================================================================
-# Query Tools (2)
+# Query Tools — all extended
 # ============================================================================
 
-@mcp.tool()
+@mcp.tool(tags={"extended"})
 async def browser_get_attribute(session_id: str, selector: str, attribute: str) -> dict:
-    """
-    Get an attribute value from an element.
-
-    Args:
-        session_id: The session ID
-        selector: CSS selector
-        attribute: Attribute name to get
-
-    Returns:
-        Attribute value
-    """
+    """Get an HTML attribute value from an element."""
     session = await get_session(session_id)
     if not session:
         return {"error": "Session not found"}
@@ -933,19 +678,9 @@ async def browser_get_attribute(session_id: str, selector: str, attribute: str) 
     return {"attribute": attribute, "value": value, "selector": selector}
 
 
-@mcp.tool()
+@mcp.tool(tags={"extended"})
 async def browser_query_selector_all(session_id: str, selector: str, limit: int = 100) -> dict:
-    """
-    Query all elements matching a selector.
-
-    Args:
-        session_id: The session ID
-        selector: CSS selector
-        limit: Maximum number of elements to return
-
-    Returns:
-        List of matching elements with their text content
-    """
+    """Query all elements matching a CSS selector. Returns tag, text for each."""
     session = await get_session(session_id)
     if not session:
         return {"error": "Session not found"}
@@ -973,17 +708,12 @@ async def browser_query_selector_all(session_id: str, selector: str, limit: int 
 
 
 # ============================================================================
-# Health Check Tool (1)
+# Health Check Tool — core
 # ============================================================================
 
-@mcp.tool()
+@mcp.tool(tags={"core"})
 async def health_check() -> dict:
-    """
-    Check the health of the MCP server.
-
-    Returns:
-        Server health status
-    """
+    """Check MCP server health and browser status."""
     return {
         "status": "healthy",
         "server": "MCP Playwright Persistent",
