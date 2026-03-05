@@ -17,6 +17,63 @@ from enum import Enum
 from typing import Optional
 
 
+class IaCProvider(Enum):
+    """Infrastructure as Code provider."""
+
+    TERRAFORM = "terraform"
+    PULUMI = "pulumi"
+    BICEP = "bicep"
+    CLOUDFORMATION = "cloudformation"
+    NONE = "none"
+
+    @property
+    def label(self) -> str:
+        labels = {
+            IaCProvider.TERRAFORM: "Terraform",
+            IaCProvider.PULUMI: "Pulumi",
+            IaCProvider.BICEP: "Bicep",
+            IaCProvider.CLOUDFORMATION: "CloudFormation",
+            IaCProvider.NONE: "None",
+        }
+        return labels[self]
+
+
+class CloudProvider(Enum):
+    """Cloud provider."""
+
+    AWS = "aws"
+    AZURE = "azure"
+    GCP = "gcp"
+    UNKNOWN = "unknown"
+
+    @property
+    def label(self) -> str:
+        labels = {
+            CloudProvider.AWS: "AWS",
+            CloudProvider.AZURE: "Azure",
+            CloudProvider.GCP: "GCP",
+            CloudProvider.UNKNOWN: "Unknown",
+        }
+        return labels[self]
+
+
+class InfraTier(Enum):
+    """Infrastructure tier."""
+
+    FOUNDATION = "foundation"
+    PLATFORM = "platform"
+    APP = "app"
+
+    @property
+    def label(self) -> str:
+        labels = {
+            InfraTier.FOUNDATION: "Foundation (run once, touch rarely)",
+            InfraTier.PLATFORM: "Platform (shared services)",
+            InfraTier.APP: "Application (app-specific)",
+        }
+        return labels[self]
+
+
 class Framework(Enum):
     """Detected project framework."""
 
@@ -307,6 +364,26 @@ class SmokeTestEntry:
             "output": self.output,
             "detail": self.detail,
             "elapsed_ms": round(self.elapsed_ms, 1),
+        }
+
+
+@dataclass
+class InfrastructureInfo:
+    """Results from IaC provider detection."""
+
+    iac_provider: IaCProvider = IaCProvider.NONE
+    cloud_provider: CloudProvider = CloudProvider.UNKNOWN
+    detected_files: list[str] = field(default_factory=list)
+    has_state_backend: bool = False
+    tiers_present: list[InfraTier] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        return {
+            "iac_provider": self.iac_provider.value,
+            "cloud_provider": self.cloud_provider.value,
+            "detected_files": self.detected_files,
+            "has_state_backend": self.has_state_backend,
+            "tiers_present": [t.value for t in self.tiers_present],
         }
 
 

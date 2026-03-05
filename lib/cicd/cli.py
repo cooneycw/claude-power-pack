@@ -28,8 +28,9 @@ from typing import NoReturn
 
 from .config import CICDConfig
 from .container import generate_container_files
-from .detector import detect_framework
+from .detector import detect_framework, detect_infrastructure
 from .health import run_health_checks
+from .infrastructure import generate_discovery_script, generate_infra_pipeline, scaffold_infrastructure
 from .makefile import check_makefile
 from .pipeline import generate_pipeline
 from .smoke import run_smoke_tests
@@ -289,6 +290,115 @@ def cmd_container(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_infra_init(args: argparse.Namespace) -> int:
+    """Scaffold IaC directory structure."""
+    config = CICDConfig.load(args.path)
+
+    # Check if infra already exists
+    infra_dir = os.path.join(args.path, "infra")
+    if os.path.isdir(infra_dir) and not args.force:
+        print(f"infra/ directory already exists at {infra_dir}")
+        print("Use --force to overwrite.")
+        return 1
+
+    if args.json:
+        files = scaffold_infrastructure(args.path, config.infrastructure)
+        print(json.dumps({"files": list(files.keys())}, indent=2))
+        return 0
+
+    if args.write:
+        files = scaffold_infrastructure(args.path, config.infrastructure, output_dir=args.path)
+        print(f"IaC Provider: {config.infrastructure.provider}")
+        print(f"Cloud: {config.infrastructure.cloud}")
+        print()
+        for filepath in sorted(files.keys()):
+            print(f"  Created: {filepath}")
+        print()
+        print("Next steps:")
+        print("  1. Edit infra/foundation/variables.tf with your values")
+        print("  2. Configure state backend in each tier's main.tf")
+        print("  3. Run: cd infra && make init-all")
+    else:
+        files = scaffold_infrastructure(args.path, config.infrastructure)
+        for filepath, content in sorted(files.items()):
+            print(f"--- {filepath} ---")
+            print(content)
+        print("(dry run — use --write to create files)")
+
+    return 0
+
+
+def cmd_infra_discover(args: argparse.Namespace) -> int:
+    """Generate cloud resource discovery script."""
+    config = CICDConfig.load(args.path)
+    cloud = args.cloud or config.infrastructure.cloud
+
+    # Also run detection
+    infra_info = detect_infrastructure(args.path)
+    if infra_info.iac_provider.value != "none":
+        print(f"Existing IaC detected: {infra_info.iac_provider.label}")
+        if infra_info.detected_files:
+            print(f"  Files: {', '.join(infra_info.detected_files)}")
+        print()
+
+    if args.json:
+        files = generate_discovery_script(cloud)
+        result = {
+            "cloud": cloud,
+            "detection": infra_info.to_dict(),
+            "files": list(files.keys()),
+        }
+        print(json.dumps(result, indent=2))
+        return 0
+
+    if args.write:
+        files = generate_discovery_script(cloud, output_dir=args.path)
+        for filepath in files:
+            print(f"  Created: {filepath}")
+        print()
+        print("Run the discovery script:")
+        print(f"  bash {list(files.keys())[0]}")
+    else:
+        files = generate_discovery_script(cloud)
+        for filepath, content in files.items():
+            print(f"--- {filepath} ---")
+            print(content)
+        print("(dry run — use --write to create files)")
+
+    return 0
+
+
+def cmd_infra_pipeline(args: argparse.Namespace) -> int:
+    """Generate CI/CD pipelines for infrastructure tiers."""
+    config = CICDConfig.load(args.path)
+    provider = args.provider or config.pipeline.provider
+
+    if args.json:
+        files = generate_infra_pipeline(config.infrastructure, provider)
+        print(json.dumps({"provider": provider, "files": list(files.keys())}, indent=2))
+        return 0
+
+    if args.write:
+        files = generate_infra_pipeline(config.infrastructure, provider, output_dir=args.path)
+        print(f"Pipeline provider: {provider}")
+        print(f"IaC: {config.infrastructure.provider}")
+        print()
+        for filepath in sorted(files.keys()):
+            print(f"  Created: {filepath}")
+        print()
+        for tier_name, tier_cfg in config.infrastructure.tiers.items():
+            approval = "manual approval required" if tier_cfg.approval_required else "auto-deploy"
+            print(f"  {tier_name}: {approval}")
+    else:
+        files = generate_infra_pipeline(config.infrastructure, provider)
+        for filepath, content in sorted(files.items()):
+            print(f"--- {filepath} ---")
+            print(content)
+        print("(dry run — use --write to create files)")
+
+    return 0
+
+
 def _add_common_args(parser: argparse.ArgumentParser) -> None:
     """Add common arguments to a parser."""
     parser.add_argument(
@@ -398,6 +508,52 @@ def create_parser() -> argparse.ArgumentParser:
         help="Write files to disk (default: dry run to stdout)",
     )
 
+    # 'infra-init' subcommand
+    infra_init_parser = subparsers.add_parser(
+        "infra-init",
+        help="Scaffold IaC directory with tiered structure (foundation/platform/app)",
+    )
+    _add_common_args(infra_init_parser)
+    infra_init_parser.add_argument(
+        "--write", "-w", action="store_true",
+        help="Write files to disk (default: dry run to stdout)",
+    )
+    infra_init_parser.add_argument(
+        "--force", "-f", action="store_true",
+        help="Overwrite existing infra/ directory",
+    )
+
+    # 'infra-discover' subcommand
+    infra_discover_parser = subparsers.add_parser(
+        "infra-discover",
+        help="Generate cloud resource discovery script for IaC import",
+    )
+    _add_common_args(infra_discover_parser)
+    infra_discover_parser.add_argument(
+        "--cloud", choices=["aws", "azure", "gcp"], default=None,
+        help="Cloud provider (overrides cicd.yml)",
+    )
+    infra_discover_parser.add_argument(
+        "--write", "-w", action="store_true",
+        help="Write script to disk (default: dry run to stdout)",
+    )
+
+    # 'infra-pipeline' subcommand
+    infra_pipeline_parser = subparsers.add_parser(
+        "infra-pipeline",
+        help="Generate CI/CD pipelines for infrastructure tiers with approval gates",
+    )
+    _add_common_args(infra_pipeline_parser)
+    infra_pipeline_parser.add_argument(
+        "--provider", choices=["github-actions", "woodpecker"],
+        default=None,
+        help="Pipeline provider (overrides cicd.yml)",
+    )
+    infra_pipeline_parser.add_argument(
+        "--write", "-w", action="store_true",
+        help="Write files to disk (default: dry run to stdout)",
+    )
+
     return parser
 
 
@@ -417,6 +573,9 @@ def main(argv: list[str] | None = None) -> int:
         "smoke": cmd_smoke,
         "container": cmd_container,
         "pipeline": cmd_pipeline,
+        "infra-init": cmd_infra_init,
+        "infra-discover": cmd_infra_discover,
+        "infra-pipeline": cmd_infra_pipeline,
     }
 
     handler = commands.get(args.command)

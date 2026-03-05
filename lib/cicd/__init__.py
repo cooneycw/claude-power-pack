@@ -32,14 +32,19 @@ Quick Start:
 
 from .config import CICDConfig
 from .container import generate_compose, generate_container_files, generate_dockerfile, generate_dockerignore
-from .detector import detect_framework
+from .detector import detect_framework, detect_infrastructure
 from .health import check_endpoint, check_process, run_health_checks
+from .infrastructure import generate_discovery_script, generate_infra_pipeline, scaffold_infrastructure
 from .makefile import check_makefile, generate_makefile, parse_makefile
 from .models import (
+    CloudProvider,
     Framework,
     FrameworkInfo,
     HealthCheckEntry,
     HealthCheckResult,
+    IaCProvider,
+    InfrastructureInfo,
+    InfraTier,
     MakefileCheckResult,
     MakefileTarget,
     PackageManager,
@@ -54,6 +59,7 @@ __all__ = [
     "CICDConfig",
     # Detector
     "detect_framework",
+    "detect_infrastructure",
     # Health
     "run_health_checks",
     "check_endpoint",
@@ -73,7 +79,15 @@ __all__ = [
     "generate_pipeline",
     "generate_github_actions",
     "generate_woodpecker",
+    # Infrastructure
+    "scaffold_infrastructure",
+    "generate_infra_pipeline",
+    "generate_discovery_script",
     # Models
+    "CloudProvider",
+    "IaCProvider",
+    "InfraTier",
+    "InfrastructureInfo",
     "Framework",
     "FrameworkInfo",
     "HealthCheckEntry",

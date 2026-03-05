@@ -98,6 +98,51 @@ class BranchProtection:
 
 
 @dataclass
+class InfraTaggingConfig:
+    """Tagging conventions for IaC resources."""
+
+    managed_by: str = "terraform"
+    repo: str = ""
+    owner: str = ""
+    extra_tags: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
+class InfraTierConfig:
+    """Configuration for a single infrastructure tier."""
+
+    approval_required: bool = False
+    separate_credentials: bool = False
+
+
+@dataclass
+class InfraStateBackend:
+    """Remote state backend configuration."""
+
+    type: str = ""  # s3, azure-storage, gcs
+    bucket: str = ""
+    lock: bool = True
+    region: str = ""
+
+
+@dataclass
+class InfrastructureConfig:
+    """Infrastructure as Code configuration."""
+
+    provider: str = "terraform"  # terraform, pulumi, bicep
+    cloud: str = "aws"  # aws, azure, gcp
+    state_backend: InfraStateBackend = field(default_factory=InfraStateBackend)
+    tagging: InfraTaggingConfig = field(default_factory=InfraTaggingConfig)
+    tiers: dict[str, InfraTierConfig] = field(
+        default_factory=lambda: {
+            "foundation": InfraTierConfig(approval_required=True, separate_credentials=True),
+            "platform": InfraTierConfig(approval_required=False),
+            "app": InfraTierConfig(approval_required=False),
+        }
+    )
+
+
+@dataclass
 class ContainerConfig:
     """Container configuration."""
 
@@ -115,6 +160,7 @@ class CICDConfig:
     health: HealthConfig = field(default_factory=HealthConfig)
     pipeline: PipelineConfig = field(default_factory=PipelineConfig)
     container: ContainerConfig = field(default_factory=ContainerConfig)
+    infrastructure: InfrastructureConfig = field(default_factory=InfrastructureConfig)
 
     @classmethod
     def load(cls, project_root: Optional[str] = None) -> CICDConfig:
@@ -211,5 +257,41 @@ class CICDConfig:
                 config.container.expose_ports = container_data["expose_ports"]
             if "compose_services" in container_data:
                 config.container.compose_services = container_data["compose_services"]
+
+        # Parse infrastructure section
+        infra_data = data.get("infrastructure", {})
+        if infra_data:
+            config.infrastructure.provider = infra_data.get("provider", "terraform")
+            config.infrastructure.cloud = infra_data.get("cloud", "aws")
+
+            state_data = infra_data.get("state_backend", {})
+            if state_data:
+                config.infrastructure.state_backend = InfraStateBackend(
+                    type=state_data.get("type", ""),
+                    bucket=state_data.get("bucket", ""),
+                    lock=state_data.get("lock", True),
+                    region=state_data.get("region", ""),
+                )
+
+            tagging_data = infra_data.get("tagging", {})
+            if tagging_data:
+                config.infrastructure.tagging = InfraTaggingConfig(
+                    managed_by=tagging_data.get("managed-by", "terraform"),
+                    repo=tagging_data.get("repo", ""),
+                    owner=tagging_data.get("owner", ""),
+                    extra_tags={
+                        k: v for k, v in tagging_data.items()
+                        if k not in ("managed-by", "repo", "owner")
+                    },
+                )
+
+            tiers_data = infra_data.get("tiers", {})
+            if tiers_data:
+                config.infrastructure.tiers = {}
+                for tier_name, tier_cfg in tiers_data.items():
+                    config.infrastructure.tiers[tier_name] = InfraTierConfig(
+                        approval_required=tier_cfg.get("approval_required", False),
+                        separate_credentials=tier_cfg.get("separate_credentials", False),
+                    )
 
         return config
