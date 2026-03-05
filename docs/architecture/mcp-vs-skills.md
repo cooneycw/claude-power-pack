@@ -31,7 +31,6 @@ Does the feature need real-time external access (APIs, browsers, databases)?
 - Calling external LLM APIs (Gemini, OpenAI, Anthropic)
 - Browser automation (Playwright sessions)
 - Diagram rendering (HTML generation, screenshot capture)
-- Distributed locking (Redis coordination)
 - Any operation requiring network I/O or persistent state
 
 ## When to Use Skills

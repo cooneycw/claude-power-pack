@@ -185,7 +185,7 @@ echo ""
 echo "MCP Server Connectivity:"
 
 MCP_ISSUES=0
-for entry in "8080:second-opinion" "8081:playwright-persistent" "8082:coordination"; do
+for entry in "8080:second-opinion" "8081:playwright-persistent"; do
   PORT="${entry%%:*}"
   NAME="${entry#*:}"
   if curl -sf --max-time 2 "http://127.0.0.1:${PORT}/health" >/dev/null 2>&1; then
@@ -247,7 +247,6 @@ Output a single diagnostic report in this format:
 |--------|------|--------|---------|
 | second-opinion | 8080 | ✅/⚠️/❌ | Reachable / Port open (no /health) / Not reachable |
 | playwright-persistent | 8081 | ✅/⚠️/❌ | Reachable / Port open (no /health) / Not reachable |
-| coordination | 8082 | ✅/⚠️/❌ | Reachable / Port open (no /health) / Not reachable |
 
 ### Active Worktrees
 

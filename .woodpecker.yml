@@ -68,14 +68,3 @@ steps:
       - event: [push, pull_request]
         path: "mcp-evaluate/**"
 
-  build-coordination:
-    image: plugins/docker
-    settings:
-      repo: mcp-coordination
-      dockerfile: extras/redis-coordination/mcp-server/deploy/Dockerfile
-      context: extras/redis-coordination/mcp-server
-      tags: latest
-      dry_run: true
-    when:
-      - event: [push, pull_request]
-        path: "extras/redis-coordination/**"

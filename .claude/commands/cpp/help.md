@@ -60,9 +60,6 @@ CPP uses a tiered installation model:
 - **CI/CD Pipelines**: GitHub Actions workflow generation (`/cicd:pipeline`)
 - **Containers**: Dockerfile and docker-compose generation (`/cicd:container`)
 
-### Optional Add-on
-- **Redis Coordination** (`extras/`): Distributed locking for team/multi-session use
-
 ## CI/CD Commands (Tier 4)
 
 | Command | Purpose |

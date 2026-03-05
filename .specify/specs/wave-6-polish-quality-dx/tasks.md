@@ -46,7 +46,7 @@
 
 - [x] **T016** [US4] Add MCP server connectivity check to `/flow:doctor` `flow/doctor.md`
 - [x] **T017** [US4] Add MCP status section to `/cpp:status` `cpp/status.md`
-- [x] **T018** [US4] Check ports 8080 (second-opinion), 8081 (playwright), 8082 (coordination)
+- [x] **T018** [US4] Check ports 8080 (second-opinion), 8081 (playwright)
 
 **Checkpoint:** `/flow:doctor` and `/cpp:status` report MCP server status correctly
 

@@ -638,7 +638,7 @@ pdf = browser_pdf(session["session_id"])  # Error!
 lsof -i :8081
 
 # Change port in .env
-echo "SERVER_PORT=8082" >> .env
+echo "SERVER_PORT=8083" >> .env
 ```
 
 ---
@@ -675,7 +675,6 @@ echo "SERVER_PORT=8082" >> .env
 ## Related
 
 - **MCP Second Opinion**: Port 8080 - Code review with Gemini
-- **MCP Coordination**: Port 8082 - Redis-backed distributed locking
 - **Playwright Documentation**: https://playwright.dev/python/
 
 ---

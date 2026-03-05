@@ -20,8 +20,8 @@ Wave 5 shipped 15 issues overhauling the `/flow` workflow, secrets management, a
 **So that** the project structure matches the documented v4.0 architecture.
 
 **Acceptance Criteria:**
-- [ ] Root `mcp-coordination/` directory deleted (moved to `extras/` in v4.0)
-- [ ] `.claude/commands/coordination/` deleted (replaced by `/flow:finish`, `/flow:merge`)
+- [x] Root `mcp-coordination/` directory deleted (moved to `extras/` in v4.0, fully removed in v5.1)
+- [x] `.claude/commands/coordination/` deleted (replaced by `/flow:finish`, `/flow:merge`)
 - [ ] No dangling references to removed paths in CLAUDE.md or README
 - [ ] File permissions normalized (`.claude/skills/project-deploy.md` → 644)
 
@@ -111,7 +111,7 @@ Wave 5 shipped 15 issues overhauling the `/flow` workflow, secrets management, a
 
 ## Out of Scope
 
-- Redis coordination removal (already in `extras/`, keep as-is)
+- Redis coordination fully removed in issue #212
 - New MCP server development
 - CI/CD pipeline setup
 - Cross-platform (Windows) testing
