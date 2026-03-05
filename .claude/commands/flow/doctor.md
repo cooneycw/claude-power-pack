@@ -60,6 +60,27 @@ fi
 
 Report which of these standard targets exist: `lint`, `test`, `format`, `deploy`.
 
+**If no Makefile found:** Detect the framework and suggest the matching template:
+
+```bash
+# Only if CPP lib is available
+CPP_DIR=""
+for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-pack; do
+  if [ -d "$dir/lib/cicd" ]; then CPP_DIR="$dir"; break; fi
+done
+
+if [ -n "$CPP_DIR" ] && [ ! -f "Makefile" ]; then
+  DETECTED=$(PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -c "
+from lib.cicd.detector import detect_framework
+info = detect_framework('.')
+print(f'{info.framework.value}:{info.package_manager.value}')
+" 2>/dev/null)
+  echo "Detected: $DETECTED"
+fi
+```
+
+Use the detection result to suggest the specific template file in the Actions Needed section (e.g., `django-uv.mk` for Django projects, `python-uv.mk` for Python+uv).
+
 ### Step 4: Hooks Configuration
 
 ```bash
@@ -262,7 +283,15 @@ Output a single diagnostic report in this format:
 
 (Only if there are failures or warnings)
 
-1. ❌ **Makefile missing** — Create a Makefile with `lint`, `test`, and `deploy` targets for `/flow:finish` and `/flow:deploy`
+1. ❌ **Makefile missing** — Create a Makefile with `lint`, `test`, and `deploy` targets for `/flow:finish` and `/flow:deploy`. Run `/cicd:init` to auto-generate from a stack-specific template, or copy one manually:
+   - Python (uv): `cp ~/Projects/claude-power-pack/templates/makefiles/python-uv.mk Makefile`
+   - Python (pip): `cp ~/Projects/claude-power-pack/templates/makefiles/python-pip.mk Makefile`
+   - Django (uv): `cp ~/Projects/claude-power-pack/templates/makefiles/django-uv.mk Makefile`
+   - Node (npm): `cp ~/Projects/claude-power-pack/templates/makefiles/node-npm.mk Makefile`
+   - Node (yarn): `cp ~/Projects/claude-power-pack/templates/makefiles/node-yarn.mk Makefile`
+   - Go: `cp ~/Projects/claude-power-pack/templates/makefiles/go.mk Makefile`
+   - Rust: `cp ~/Projects/claude-power-pack/templates/makefiles/rust.mk Makefile`
+   - Monorepo: `cp ~/Projects/claude-power-pack/templates/makefiles/multi.mk Makefile`
 2. ❌ **worktree-remove.sh not found** — Run: `ln -sf ~/Projects/claude-power-pack/scripts/worktree-remove.sh ~/.claude/scripts/`
 3. ⚠️ **uv not installed** — Install: `curl -LsSf https://astral.sh/uv/install.sh | sh`
 4. ❌ **cicd.yml missing** — Run `/cicd:init` to auto-detect framework and generate configuration
