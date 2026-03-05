@@ -24,6 +24,11 @@ A comprehensive repository combining:
 - [Secrets Management](#-secrets-management) - Secure credential access
 - [Python Environment (uv)](#-python-environment-uv) - Dependency management
 - [Security Hooks](#-security-hooks) - Secret masking & command validation
+- [Security Scanning](#-security-scanning) - Vulnerability detection with `/flow` integration
+- [CI/CD & Verification](#-cicd--verification-tier-4) - Framework-aware build & deploy
+- [QA Testing](#-qa-testing) - Config-driven web testing with Playwright
+- [PowerPoint & Diagrams](#-powerpoint--diagrams) - Nano-Banana MCP diagrams + PPTX
+- [Evaluate Commands](#-evaluate-commands) - Multi-model evaluation flow
 - [MCP Servers](#mcp-servers)
   - [MCP Second Opinion](#mcp-second-opinion-server) - Multi-model code review (port 8080)
   - [MCP Playwright Persistent](#mcp-playwright-persistent-server) - Browser automation (port 8081)
@@ -262,10 +267,14 @@ Or step-by-step:
 |---------|---------|
 | `/flow:start <issue>` | Create worktree and branch for an issue |
 | `/flow:status` | Show active worktrees with issue and PR status |
+| `/flow:check` | Run quality checks (lint, test, security) without committing |
 | `/flow:finish` | Run quality gates (`make lint/test`), commit, push, create PR |
 | `/flow:merge` | Squash-merge PR, clean up worktree and branch |
 | `/flow:deploy [target]` | Run `make deploy` (if Makefile target exists) |
+| `/flow:sync` | Push WIP branch to remote for cross-machine pickup |
 | `/flow:auto <issue>` | Full lifecycle in one shot |
+| `/flow:cleanup` | Prune stale worktree references and merged branches |
+| `/flow:doctor` | Diagnose workflow environment and MCP server connectivity |
 | `/flow:help` | Show all commands and conventions |
 
 ### Design Principles
@@ -451,21 +460,30 @@ gh auth login   # Authenticate if needed
 
 ## 🔐 Secrets Management
 
-Secure credential access with provider abstraction and output masking.
+Tiered secrets management scaling from `.env` files to AWS Secrets Manager, with audit logging and a FastAPI web UI.
 
 ### Features
 
-- **Provider Abstraction**: AWS Secrets Manager + environment variables
+- **Tiered Providers**: DotEnv global config (default) → AWS Secrets Manager (production)
+- **Full CRUD**: Get, set, delete, list, rotate secrets per project
 - **Output Masking**: Never exposes actual secret values
-- **Permission Model**: Read-only by default
-- **Cross-Platform CLI**: Python CLI works on Windows/Mac/Linux
+- **Audit Logging**: Actions logged to `~/.config/claude-power-pack/audit.log` (never values)
+- **Secret Injection**: `creds run -- cmd` injects secrets as env vars
+- **FastAPI Web UI**: Local-only management interface with bearer token auth
 
 ### Commands
 
 | Command | Purpose |
 |---------|---------|
 | `/secrets:get [id]` | Get credentials (masked output) |
+| `/secrets:set KEY VALUE` | Set or update a secret |
+| `/secrets:delete KEY` | Delete a secret key (with confirmation) |
+| `/secrets:list` | List all secret keys (values masked) |
+| `/secrets:run -- CMD` | Run command with secrets injected as env vars |
 | `/secrets:validate` | Test credential configuration |
+| `/secrets:ui` | Launch web UI for management |
+| `/secrets:rotate KEY` | Rotate a secret value |
+| `/secrets:help` | Overview of all commands |
 
 ### CLI Usage
 
@@ -473,8 +491,17 @@ Secure credential access with provider abstraction and output masking.
 # Add lib to PYTHONPATH
 export PYTHONPATH="$HOME/Projects/claude-power-pack/lib:$PYTHONPATH"
 
-# Get database credentials (auto-detect provider)
-python -m lib.creds get
+# Set a secret
+python -m lib.creds set DB_PASSWORD my-secret-value
+
+# Delete a secret
+python -m lib.creds delete DB_PASSWORD
+
+# List secrets (masked)
+python -m lib.creds list
+
+# Run command with secrets injected
+python -m lib.creds run -- make deploy
 
 # Validate all providers
 python -m lib.creds validate
@@ -483,11 +510,12 @@ python -m lib.creds validate
 ### Python Usage
 
 ```python
-from lib.creds import get_credentials
+from lib.creds import get_bundle_provider
+from lib.creds.project import get_project_id
 
-creds = get_credentials()  # Auto-detects provider
-print(creds)  # Password masked as ****
-conn = await asyncpg.connect(**creds.dsn)  # dsn has real password
+provider = get_bundle_provider()
+bundle = provider.get_bundle(get_project_id())
+print(bundle)  # Keys visible, values masked
 ```
 
 ## 🐍 Python Environment (uv)
@@ -557,8 +585,12 @@ Always commit `uv.lock` for reproducibility. Use `uv lock` to generate/update.
 Each Python component has its own `pyproject.toml`:
 - `mcp-second-opinion/pyproject.toml`
 - `mcp-playwright-persistent/pyproject.toml`
+- `mcp-evaluate/pyproject.toml`
+- `mcp-nano-banana/pyproject.toml`
 - `extras/redis-coordination/mcp-server/pyproject.toml` (optional)
 - `lib/creds/pyproject.toml`
+- `lib/security/pyproject.toml`
+- `lib/cicd/pyproject.toml`
 - `lib/spec_bridge/pyproject.toml`
 
 ## 🛡️ Security Hooks
@@ -669,6 +701,7 @@ Framework-aware build system detection, verification, and deployment automation.
 | `/cicd:check` | Validate Makefile against CPP standards |
 | `/cicd:health` | Run health checks (endpoints + processes) |
 | `/cicd:smoke` | Run smoke tests from cicd.yml |
+| `/cicd:pipeline` | Generate GitHub Actions CI/CD workflows |
 | `/cicd:container` | Generate Dockerfile and docker-compose.yml |
 | `/cicd:help` | Overview of CI/CD commands |
 
@@ -702,6 +735,83 @@ smoke_tests:
 PYTHONPATH="${HOME}/Projects/claude-power-pack/lib" python3 -m lib.cicd detect
 PYTHONPATH="${HOME}/Projects/claude-power-pack/lib" python3 -m lib.cicd health
 ```
+
+## 🧪 QA Testing
+
+Config-driven automated web testing using Playwright MCP.
+
+### Commands
+
+| Command | Purpose |
+|---------|---------|
+| `/qa:test <target> [area]` | Run QA tests, log bugs as GitHub issues |
+| `/qa:help` | Overview of QA commands |
+
+### Quick Start
+
+```bash
+# Test a URL directly (no config needed)
+/qa:test https://myapp.example.com
+
+# Test using a shortcut from qa.yml
+/qa:test myapp dashboard
+```
+
+### Configuration
+
+Place `.claude/qa.yml` in your project to configure shortcuts, test areas, and test checklists:
+
+```yaml
+project:
+  url: https://myapp.example.com
+shortcuts:
+  staging: https://staging.myapp.example.com
+test_areas:
+  login:
+    path: /login
+    description: "Authentication flow"
+    tests:
+      - "Login form renders"
+      - "Form validation works"
+```
+
+Without config, `/qa:test` runs in interactive mode with generic testing. Requires the Playwright MCP server.
+
+## 🎨 PowerPoint & Diagrams
+
+Generate professional diagrams and PowerPoint presentations using the Nano-Banana MCP server.
+
+### Commands
+
+| Command | Purpose |
+|---------|---------|
+| `/pptx:create [topic]` | Guided PowerPoint creation with optional diagrams |
+| `/pptx:help` | Overview of PowerPoint commands |
+
+### Diagram Types
+
+Architecture, flowchart, sequence, orgchart, timeline, and mindmap — all rendered as self-contained HTML at 1920x1080.
+
+### Setup
+
+```bash
+claude mcp add nano-banana --transport stdio -- uv run --directory ~/Projects/claude-power-pack/mcp-nano-banana python src/server.py --stdio
+```
+
+See `mcp-nano-banana/README.md` for full documentation.
+
+## 📊 Evaluate Commands
+
+Multi-model evaluation flow for structured decision-making.
+
+### Commands
+
+| Command | Purpose |
+|---------|---------|
+| `/evaluate:issue` | Full 4-phase evaluation: divergence, reasoning, validation, spec output |
+| `/evaluate:help` | Overview of evaluate commands |
+
+Uses the MCP Second Opinion server to consult multiple LLM models in parallel. Output lands in `.specify/specs/` as spec.md, plan.md, and tasks.md.
 
 ## ⚡ Session Initialization
 
@@ -1418,6 +1528,8 @@ MIT License - See LICENSE file for details
 - **Tier 4: CI/CD & Verification** - `lib/cicd/` with framework detection, Makefile generation, health/smoke testing, pipeline generation
 - **Evaluate Flow** - `/evaluate:issue` for multi-model 4-phase evaluation with spec output
 - **`/project:init`** - Zero-to-GitHub-repo scaffolding in one command
+- **`/flow:check`** - Pre-commit quality validation (lint + test + security) without committing
+- **QA testing** - Config-driven `/qa:test` with Playwright browser automation for any project
 - **Django support** - Framework detection and `django-uv.mk` Makefile template
 - **`/secrets:delete`** - Delete secrets with audit trail
 - **211 unit tests** - Full test coverage for all Python libraries

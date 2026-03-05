@@ -168,6 +168,7 @@ claude-power-pack/
 │   │   ├── flow/                               # Flow workflow (stateless, git-native)
 │   │   │   ├── start.md                        # Create worktree for issue
 │   │   │   ├── status.md                       # Show active worktrees
+│   │   │   ├── check.md                        # Run quality checks without committing
 │   │   │   ├── finish.md                       # Commit, push, create PR
 │   │   │   ├── merge.md                        # Merge PR, clean up
 │   │   │   ├── deploy.md                       # Run make deploy
@@ -188,6 +189,7 @@ claude-power-pack/
 │   │   │   ├── check.md                        # Validate Makefile targets
 │   │   │   ├── health.md                       # Run health checks (endpoints + processes)
 │   │   │   ├── smoke.md                        # Run smoke tests from cicd.yml
+│   │   │   ├── pipeline.md                     # Generate GitHub Actions workflows
 │   │   │   ├── container.md                    # Generate Dockerfile + docker-compose
 │   │   │   └── help.md                         # CI/CD command overview
 │   │   ├── github/                             # GitHub issue management
@@ -216,6 +218,9 @@ claude-power-pack/
 │   │   ├── pptx/                                # PowerPoint & diagram commands
 │   │   │   ├── create.md                       # Guided PPTX creation
 │   │   │   └── help.md                         # PowerPoint command overview
+│   │   ├── qa/                                  # QA testing commands
+│   │   │   ├── test.md                         # Automated web testing
+│   │   │   └── help.md                         # QA command overview
 │   │   ├── evaluate/                            # Multi-model evaluation flow
 │   │   │   ├── issue.md                        # 4-phase evaluation pipeline
 │   │   │   └── help.md                         # Evaluate command overview
@@ -879,6 +884,7 @@ The `/flow` commands use Makefile targets as the canonical way to run tests, lin
 
 | Command | Target | Behavior |
 |---------|--------|----------|
+| `/flow:check` | `lint`, `test` | Runs checks + security scan without committing |
 | `/flow:finish` | `lint`, `test` | Auto-discovers and runs if targets exist; skips if no Makefile |
 | `/flow:deploy [target]` | `deploy` (default) | Runs specified target + post-deploy health/smoke if configured |
 | `/flow:auto` | `deploy` | Runs after merge if target exists; skips otherwise |
