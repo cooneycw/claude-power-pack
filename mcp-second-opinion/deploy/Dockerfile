@@ -45,7 +45,7 @@ ENV PATH="/app/.venv/bin:$PATH"
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import sys; from config import Config; sys.exit(0 if Config.GEMINI_API_KEY else 1)"
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/')" || exit 1
 
 # Expose SSE port
 EXPOSE 8080

@@ -15,11 +15,14 @@ Lock naming follows wave/issue pattern:
 """
 import argparse
 import logging
+import os
 
 from config import config
 from coordination import CoordinationManager
 from fastmcp import FastMCP
 from redis_client import RedisClient
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 
 # Initialize FastMCP server
 mcp = FastMCP(
@@ -40,6 +43,15 @@ mcp = FastMCP(
     - Locks auto-expire based on timeout (default 5 minutes)
     """,
 )
+
+@mcp.custom_route("/", methods=["GET"])
+async def root_health_check(request: Request) -> JSONResponse:
+    """Health check endpoint."""
+    return JSONResponse({
+        "status": "healthy",
+        "server": config.SERVER_NAME,
+    })
+
 
 # Global coordinator instance
 coord = CoordinationManager()
@@ -270,10 +282,11 @@ def main():
         mcp.run(transport="stdio")
     else:
         logger.info(f"Starting {config.SERVER_NAME}")
-        logger.info(f"Transport: SSE on 127.0.0.1:{config.SERVER_PORT}")
+        host = os.getenv("MCP_SERVER_HOST", "127.0.0.1")
+        logger.info(f"Transport: SSE on {host}:{config.SERVER_PORT}")
         mcp.run(
             transport="sse",
-            host="127.0.0.1",
+            host=host,
             port=config.SERVER_PORT,
         )
 

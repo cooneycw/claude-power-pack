@@ -39,13 +39,13 @@ docker-up:
 	$(foreach p,$(PROFILE),docker compose --profile $(p) up -d;)
 
 docker-down:
-	docker compose --profile core --profile eval --profile browser --profile coord down
+	docker compose --profile core --profile browser --profile coord down
 
 docker-logs:
-	docker compose --profile core --profile eval --profile browser --profile coord logs -f
+	docker compose --profile core --profile browser --profile coord logs -f
 
 docker-ps:
-	docker compose --profile core --profile eval --profile browser --profile coord ps
+	docker compose --profile core --profile browser --profile coord ps
 
 ## Utilities
 
