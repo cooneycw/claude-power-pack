@@ -864,43 +864,17 @@ async def get_code_second_opinion(
     verbosity: str = "detailed",
     code_files: Optional[List[dict]] = None,
 ) -> dict:
-    """
-    Provides an LLM-powered second opinion on challenging coding issues.
-
-    This tool analyzes code, identifies issues, and suggests improvements using
-    Google Gemini. It provides comprehensive analysis including root cause,
-    severity assessment, specific recommendations, alternative approaches,
-    best practices, and security considerations.
-
-    Uses Gemini 3 Pro Preview by default, with automatic fallback to Gemini 2.5 Pro
-    if the primary model fails. For image/visual analysis (e.g., Playwright screenshots),
-    uses Gemini 3 Pro Image Preview.
+    """Analyze code and suggest improvements via Gemini. Supports image_data for visual analysis.
 
     Args:
-        code: The code to review (required)
-        language: Programming language of the code, e.g., "python", "javascript", "rust" (required)
-        image_data: Base64 encoded image data for visual analysis (e.g., Playwright screenshots)
-        context: Additional context about the code, such as what it's supposed to do
-        error_messages: List of error messages you're encountering
-        issue_description: Description of the specific issue or challenge you're facing
-        verbosity: "brief" for quick feedback, "detailed" for comprehensive analysis,
-                   "in_depth" (or "comprehensive"/"thorough"/"exhaustive") for exhaustive 64K analysis
-                   (default: "detailed")
-        code_files: Optional list of additional code files for multi-file context.
-                    Each dict: {"filename": "foo.py", "content": "..."}
-
-    Returns:
-        dict with analysis, model_used, success status, token counts, cost estimate, and optional error
-
-    Example:
-        {
-            "analysis": "# Root Cause Analysis\\n...",
-            "model_used": "gemini-3-pro-preview",
-            "success": true,
-            "tokens_used": {"input": 2100, "output": 2207, "total": 4307},
-            "cost_estimate": 0.027,
-            "error": null
-        }
+        code: Code to review
+        language: Programming language (e.g., "python", "javascript")
+        image_data: Base64 image for visual analysis (screenshots)
+        context: What the code should do
+        error_messages: Error messages encountered
+        issue_description: Specific issue or challenge
+        verbosity: "brief", "detailed" (default), or "in_depth"
+        code_files: Additional files as [{"filename": "...", "content": "..."}]
     """
     try:
         # Handle mutable default argument
@@ -992,12 +966,7 @@ async def get_code_second_opinion(
 
 @mcp.tool()
 async def health_check() -> dict:
-    """
-    Check if the MCP server and all LLM APIs are properly configured.
-
-    Returns:
-        dict with server status, configuration status, and version info
-    """
+    """Check server status and LLM API configuration."""
     has_gemini = bool(Config.GEMINI_API_KEY)
     has_openai = bool(Config.OPENAI_API_KEY)
     has_anthropic = bool(Config.ANTHROPIC_API_KEY)
@@ -1061,39 +1030,7 @@ async def health_check() -> dict:
 
 @mcp.tool()
 async def list_available_models() -> dict:
-    """
-    List all available models for second opinion consultation.
-
-    Returns a list of models with their keys, display names, descriptions,
-    and whether they're currently available (API key configured).
-
-    Use this to see which models you can select for get_multi_model_second_opinion.
-
-    Returns:
-        dict with available_models list and configuration status
-
-    Example:
-        {
-            "available_models": [
-                {
-                    "key": "gemini-3-pro",
-                    "display_name": "Gemini 3 Pro",
-                    "provider": "gemini",
-                    "description": "Google's latest, best for comprehensive analysis",
-                    "available": true
-                },
-                {
-                    "key": "codex",
-                    "display_name": "GPT-5 Codex",
-                    "provider": "openai",
-                    "description": "Optimized for code generation and review",
-                    "available": true
-                },
-                ...
-            ],
-            "default_models": ["gemini-3-pro", "codex"]
-        }
-    """
+    """List models available for multi-model consultation with availability status."""
     available_keys = Config.get_available_model_keys()
 
     models = []
@@ -1126,57 +1063,17 @@ async def get_multi_model_second_opinion(
     verbosity: str = "detailed",
     code_files: Optional[List[dict]] = None,
 ) -> dict:
-    """
-    Get code review opinions from multiple LLM models in parallel.
-
-    This tool allows you to consult multiple models simultaneously and compare
-    their analyses. Select 2 or more models to get diverse perspectives on your code.
-
-    Available models (use list_available_models to see current availability):
-    - Gemini: "gemini-3-pro", "gemini-2.5-pro"
-    - OpenAI Codex: "codex", "codex-max", "codex-mini"
-    - OpenAI GPT-5.2: "gpt-5.2", "gpt-5.2-mini"
+    """Review code with multiple LLM models in parallel and compare analyses.
 
     Args:
-        code: The code to review (required)
-        language: Programming language, e.g., "python", "javascript", "rust" (required)
-        models: List of model keys to consult, e.g., ["gemini-3-pro", "codex", "gpt-5.2"]
-        context: Additional context about the code
-        error_messages: List of error messages you're encountering
-        issue_description: Description of the specific issue
-        verbosity: "brief" for quick feedback, "detailed" for comprehensive analysis,
-                   "in_depth" (or "comprehensive"/"thorough"/"exhaustive") for exhaustive 64K analysis
-        code_files: Optional list of additional code files for multi-file context.
-                    Each dict: {"filename": "foo.py", "content": "..."}
-
-    Returns:
-        dict with responses from each model, comparison summary, and total cost
-
-    Example:
-        {
-            "success": true,
-            "responses": [
-                {
-                    "model_key": "gemini-3-pro",
-                    "display_name": "Gemini 3 Pro",
-                    "response": "# Analysis\\n...",
-                    "success": true,
-                    "tokens": {...},
-                    "cost": 0.012
-                },
-                {
-                    "model_key": "codex",
-                    "display_name": "GPT-5 Codex",
-                    "response": "# Analysis\\n...",
-                    "success": true,
-                    "tokens": {...},
-                    "cost": 0.025
-                }
-            ],
-            "models_consulted": 2,
-            "models_successful": 2,
-            "total_cost": 0.037
-        }
+        code: Code to review
+        language: Programming language (e.g., "python", "javascript")
+        models: Model keys to consult (e.g., ["gemini-3-pro", "codex"])
+        context: What the code should do
+        error_messages: Error messages encountered
+        issue_description: Specific issue or challenge
+        verbosity: "brief", "detailed" (default), or "in_depth"
+        code_files: Additional files as [{"filename": "...", "content": "..."}]
     """
     try:
         # Validate we have at least 1 model (preferably 2+)
@@ -1248,31 +1145,13 @@ async def create_session(
     cost_limit: float = 0.50,
     tools_enabled: Optional[List[str]] = None,
 ) -> dict:
-    """
-    Create a new consultation session with Gemini for multi-turn conversations.
-
-    Sessions allow you to have back-and-forth discussions with Gemini,
-    maintaining conversation history and tracking costs.
+    """Start a multi-turn Gemini consultation session with cost tracking.
 
     Args:
-        purpose: Session type - "code_review", "architecture", "debugging", or "brainstorm"
-        max_turns: Maximum conversation turns (default: 10)
-        cost_limit: Maximum spend for this session in dollars (default: $0.50)
-        tools_enabled: List of tools Gemini can use (default: ["web_search", "fetch_url"])
-
-    Returns:
-        dict with session_id, purpose, limits, tools_available, and status
-
-    Example:
-        {
-            "session_id": "uuid-xxx",
-            "purpose": "code_review",
-            "max_turns": 10,
-            "cost_limit": 0.50,
-            "tools_available": ["web_search", "fetch_url"],
-            "created_at": "2025-01-25T...",
-            "status": "active"
-        }
+        purpose: "code_review", "architecture", "debugging", or "brainstorm"
+        max_turns: Max conversation turns (default: 10)
+        cost_limit: Max spend in dollars (default: $0.50)
+        tools_enabled: Gemini tools (default: ["web_search", "fetch_url"])
     """
     try:
         manager = get_session_manager()
@@ -1314,35 +1193,14 @@ async def consult(
     language: Optional[str] = None,
     verbosity: str = "detailed",
 ) -> dict:
-    """
-    Send a message to Gemini within an existing session.
-
-    Maintains conversation history for context. Use this for follow-up questions,
-    clarifications, or iterative problem-solving.
+    """Send a follow-up message within an existing session. Maintains conversation history.
 
     Args:
         session_id: Session ID from create_session
-        message: Your message or question to Gemini
-        code: Optional code snippet to discuss (if any)
-        language: Programming language of the code (if provided)
-        verbosity: "brief" for quick feedback, "detailed" for comprehensive analysis,
-                   "in_depth" (or "comprehensive"/"thorough"/"exhaustive") for exhaustive 64K analysis
-                   (default: "detailed")
-
-    Returns:
-        dict with response, tool_calls_made, turn info, and cost tracking
-
-    Example:
-        {
-            "response": "Based on our discussion...",
-            "tool_calls_made": [],
-            "turn_number": 3,
-            "session_cost_so_far": 0.12,
-            "tokens_this_turn": {"input": 1500, "output": 800},
-            "remaining_turns": 7,
-            "remaining_budget": 0.38,
-            "warning": false
-        }
+        message: Your message or question
+        code: Optional code snippet to discuss
+        language: Programming language of the code
+        verbosity: "brief", "detailed" (default), or "in_depth"
     """
     try:
         manager = get_session_manager()
@@ -1475,17 +1333,11 @@ async def get_session_history(
     session_id: str,
     include_tool_calls: bool = True,
 ) -> dict:
-    """
-    Get the full conversation history for a session.
-
-    Useful for reviewing what was discussed or resuming a conversation.
+    """Retrieve full conversation history for a session.
 
     Args:
-        session_id: Session ID to retrieve history for
-        include_tool_calls: Whether to include tool call details (default: True)
-
-    Returns:
-        dict with session info and message history
+        session_id: Session ID to retrieve
+        include_tool_calls: Include tool call details (default: True)
     """
     try:
         manager = get_session_manager()
@@ -1523,28 +1375,11 @@ async def close_session(
     session_id: str,
     generate_summary: bool = True,
 ) -> dict:
-    """
-    Close a session and get a detailed cost breakdown.
-
-    Optionally generates a summary of the key findings from the conversation.
+    """Close a session and get cost breakdown. Optionally generates a findings summary.
 
     Args:
         session_id: Session ID to close
-        generate_summary: Whether to generate a summary of key findings (default: True)
-
-    Returns:
-        dict with session summary, token breakdown, and detailed cost analysis
-
-    Example:
-        {
-            "session_id": "uuid-xxx",
-            "total_turns": 5,
-            "duration_minutes": 12.5,
-            "status": "closed",
-            "tokens": {...},
-            "cost": {...},
-            "summary": "Key findings: ..."
-        }
+        generate_summary: Generate key findings summary (default: True)
     """
     try:
         manager = get_session_manager()
@@ -1685,15 +1520,11 @@ async def list_sessions(
     status: str = "all",
     limit: int = 10,
 ) -> dict:
-    """
-    List recent consultation sessions.
+    """List recent consultation sessions with daily usage stats.
 
     Args:
-        status: Filter by status - "active", "closed", or "all" (default: "all")
-        limit: Maximum number of sessions to return (default: 10)
-
-    Returns:
-        dict with list of sessions and daily usage stats
+        status: Filter: "active", "closed", or "all" (default: "all")
+        limit: Max sessions to return (default: 10)
     """
     try:
         manager = get_session_manager()
@@ -1735,29 +1566,10 @@ async def list_sessions(
 
 @mcp.tool()
 async def approve_fetch_domain(domain: str) -> dict:
-    """
-    Approve a domain for URL fetching within this server session.
-
-    When Gemini's fetch_url tool encounters an unknown domain (not in the
-    auto-approved list), it returns needs_approval=True. Use this tool to
-    approve the domain, then retry the fetch_url call.
-
-    The approval lasts for the duration of the server session (until restart).
-    Auto-approved domains (like github.com, docs.python.org) don't need approval.
+    """Approve a domain for Gemini's fetch_url tool. Lasts until server restart.
 
     Args:
-        domain: The domain to approve (e.g., "example.com", "api.service.io")
-
-    Returns:
-        dict with approval status, domain, and list of currently approved domains
-
-    Example:
-        {
-            "approved": true,
-            "domain": "mysite.com",
-            "message": "Domain 'mysite.com' approved for this session",
-            "session_approved_domains": ["mysite.com", "other.com"]
-        }
+        domain: Domain to approve (e.g., "example.com")
     """
     try:
         # Validate domain format (basic check)
@@ -1809,17 +1621,10 @@ async def approve_fetch_domain(domain: str) -> dict:
 
 @mcp.tool()
 async def revoke_fetch_domain(domain: str) -> dict:
-    """
-    Revoke approval for a previously approved domain.
-
-    This removes a domain from the session-approved list, meaning future
-    fetch_url calls to that domain will require re-approval.
+    """Revoke a previously approved fetch domain. Future fetches will need re-approval.
 
     Args:
-        domain: The domain to revoke (e.g., "example.com")
-
-    Returns:
-        dict with revocation status and updated domain list
+        domain: Domain to revoke (e.g., "example.com")
     """
     try:
         domain = domain.lower().strip()
@@ -1847,15 +1652,7 @@ async def revoke_fetch_domain(domain: str) -> dict:
 
 @mcp.tool()
 async def list_fetch_domains() -> dict:
-    """
-    List all approved domains for URL fetching.
-
-    Shows both the auto-approved domains (configured in the server) and
-    session-approved domains (approved by the user during this session).
-
-    Returns:
-        dict with auto_approved_domains, session_approved_domains, and total count
-    """
+    """List auto-approved and session-approved domains for URL fetching."""
     try:
         return {
             "auto_approved_domains": Config.FETCH_URL_AUTO_APPROVED_DOMAINS,
