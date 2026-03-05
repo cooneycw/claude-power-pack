@@ -1671,6 +1671,92 @@ async def list_fetch_domains() -> dict:
         }
 
 
+def _run_diagnose() -> int:
+    """Run pre-flight diagnostics and report server readiness.
+
+    Returns exit code: 0 = ready, 1 = warnings, 2 = errors.
+    """
+    import socket
+    from pathlib import Path
+
+    print(f"Second Opinion MCP Server v{Config.SERVER_VERSION}")
+    print("=" * 50)
+    errors = []
+    warnings = []
+
+    # Check API keys
+    has_gemini = bool(Config.GEMINI_API_KEY)
+    has_openai = bool(Config.OPENAI_API_KEY)
+    has_anthropic = bool(Config.ANTHROPIC_API_KEY)
+
+    if has_gemini:
+        print(f"  Gemini API key:    configured")
+    else:
+        warnings.append("GEMINI_API_KEY not set")
+        print(f"  Gemini API key:    NOT SET")
+
+    if has_openai:
+        print(f"  OpenAI API key:    configured")
+    else:
+        warnings.append("OPENAI_API_KEY not set")
+        print(f"  OpenAI API key:    NOT SET")
+
+    if has_anthropic:
+        print(f"  Anthropic API key: configured")
+    else:
+        warnings.append("ANTHROPIC_API_KEY not set")
+        print(f"  Anthropic API key: NOT SET")
+
+    if not (has_gemini or has_openai or has_anthropic):
+        errors.append("No API keys configured — server will start but all tool calls will fail")
+
+    # Check .env file
+    env_path = Path(__file__).parent.parent / ".env"
+    if env_path.exists():
+        print(f"  .env file:         {env_path}")
+    else:
+        print(f"  .env file:         not found (using environment variables)")
+
+    # Check port availability (SSE mode)
+    port = Config.SERVER_PORT
+    host = Config.SERVER_HOST
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(1)
+        result = sock.connect_ex((host, port))
+        sock.close()
+        if result == 0:
+            print(f"  Port {port}:           IN USE (another server already running?)")
+            warnings.append(f"Port {port} already in use — SSE mode may fail to bind")
+        else:
+            print(f"  Port {port}:           available")
+    except Exception:
+        print(f"  Port {port}:           unable to check")
+
+    # Check available models
+    available = Config.get_available_model_keys()
+    print(f"  Available models:  {len(available)} ({', '.join(available[:5])}{'...' if len(available) > 5 else ''})")
+
+    # Summary
+    print()
+    if errors:
+        for e in errors:
+            print(f"  ERROR: {e}")
+    if warnings:
+        for w in warnings:
+            print(f"  WARNING: {w}")
+
+    if not errors and not warnings:
+        print("  Status: READY")
+        return 0
+    elif errors:
+        print(f"\n  Status: NOT READY ({len(errors)} error(s), {len(warnings)} warning(s))")
+        return 2
+    else:
+        print(f"\n  Status: READY with warnings ({len(warnings)} warning(s))")
+        return 1
+
+
 def main():
     """Main entry point for the MCP server."""
     parser = argparse.ArgumentParser(description=Config.SERVER_NAME)
@@ -1679,7 +1765,17 @@ def main():
         action="store_true",
         help="Run with stdio transport (for Claude Code auto-start)",
     )
+    parser.add_argument(
+        "--diagnose",
+        action="store_true",
+        help="Run pre-flight diagnostics and exit (check config, ports, API keys)",
+    )
     args = parser.parse_args()
+
+    if args.diagnose:
+        logging.disable(logging.CRITICAL)  # Suppress log noise during diagnostics
+        exit_code = _run_diagnose()
+        raise SystemExit(exit_code)
 
     if args.stdio:
         logger.info(f"Starting {Config.SERVER_NAME} v{Config.SERVER_VERSION}")
