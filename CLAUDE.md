@@ -46,7 +46,7 @@ Docker containers read API keys from a root `.env` file (gitignored) via `env_fi
 - **Start:** `make docker-up PROFILE=core`
 - **All profiles:** `make docker-up PROFILE="core browser"`
 - **Status/logs/stop:** `make docker-ps`, `make docker-logs`, `make docker-down`
-- **SSE connections:** Defined in project `.mcp.json` pointing to `127.0.0.1:{port}/sse`
+- **MCP connections:** Defined in project `.mcp.json` pointing to `127.0.0.1:{port}/mcp` (streamable-http)
 - **Woodpecker CI** runs on push/PR: lint, test, typecheck, conditional Docker builds
 
 ## Commands Reference
