@@ -43,6 +43,7 @@ This repository contains five core components and optional extras:
 - If deploying, or testing deployment, use CI/CD protocols (Makefile targets like `make docker-build`, `make docker-up`, etc.)
 - If composing Docker, utilize CI/CD process (`make docker-*` targets, not raw `docker compose`)
 - If errors encountered, correct code, and correct CI/CD process (Makefile, Dockerfile, docker-compose.yml)
+- Use `/dockers` to check container status, health, and project linkages
 
 ## Environment Variables
 
@@ -238,6 +239,7 @@ claude-power-pack/
 │   │   │   └── help.md                         # Self-improvement command overview
 │   │   ├── project-next.md                     # Next steps orchestrator
 │   │   ├── project-lite.md                     # Quick reference
+│   │   ├── dockers.md                          # Docker container status & health
 │   │   └── happy-check.md                      # Happy CLI version check (optional)
 │   ├── skills/                                 # Skill loaders (lightweight)
 │   │   ├── best-practices.md                   # Dispatcher to topic skills
@@ -295,6 +297,15 @@ make docker-logs
 make docker-ps
 make docker-down
 ```
+
+### /dockers Command
+
+Run `/dockers` for a structured overview of all Docker containers:
+
+- Container status and health for all MCP servers
+- Port mappings and version info from health endpoints
+- Project linkage (which project instantiated each container via docker compose labels)
+- Suggested actions for unhealthy or missing containers
 
 ### Secrets Flow
 
