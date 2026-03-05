@@ -11,6 +11,7 @@ Secrets Management Commands
 
   /secrets:get [ID]        Get credentials (masked output)
   /secrets:set KEY VALUE   Set or update a secret value
+  /secrets:delete KEY      Delete a secret key (with confirmation)
   /secrets:list            List all secret keys (values masked)
   /secrets:run -- CMD      Run command with secrets injected as env vars
   /secrets:validate        Validate credential configuration

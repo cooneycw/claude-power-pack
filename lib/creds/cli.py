@@ -3,6 +3,7 @@
 Usage:
     python -m lib.creds get [OPTIONS] [SECRET_ID]
     python -m lib.creds set KEY VALUE [--project PROJECT]
+    python -m lib.creds delete KEY [--project PROJECT] [--force]
     python -m lib.creds list [--project PROJECT]
     python -m lib.creds run -- COMMAND [ARGS...]
     python -m lib.creds validate [OPTIONS]
@@ -15,6 +16,9 @@ Examples:
 
     # Set a secret
     python -m lib.creds set DB_PASSWORD my-secret-value
+
+    # Delete a secret
+    python -m lib.creds delete DB_PASSWORD
 
     # List all secrets for current project
     python -m lib.creds list
@@ -194,6 +198,41 @@ def cmd_ui(args: argparse.Namespace) -> int:
         )
     except KeyboardInterrupt:
         print("\nUI server stopped.")
+    return 0
+
+
+def cmd_delete(args: argparse.Namespace) -> int:
+    """Handle the 'delete' subcommand."""
+    from .audit import log_action
+    from .base import SecretNotFoundError
+    from .project import get_project_id
+    from .providers.dotenv import DotEnvSecretsProvider
+
+    project_id = args.project or get_project_id()
+    provider = DotEnvSecretsProvider()
+
+    # Check key exists first
+    bundle = provider.get_bundle(project_id)
+    if args.key not in bundle.secrets:
+        print_status("fail", f"Key '{args.key}' not found in project '{project_id}'")
+        return 1
+
+    # Confirm unless --force
+    if not args.force:
+        response = input(f"Delete '{args.key}' from project '{project_id}'? [y/N] ")
+        if response.lower() not in ("y", "yes"):
+            print("Cancelled.")
+            return 0
+
+    try:
+        provider.delete_key(project_id, args.key)
+    except SecretNotFoundError:
+        print_status("fail", f"Key '{args.key}' not found in project '{project_id}'")
+        return 1
+
+    log_action("delete", project_id, f"key={args.key}")
+
+    print_status("ok", f"Deleted {args.key} from project '{project_id}'")
     return 0
 
 
@@ -472,6 +511,25 @@ def create_parser() -> argparse.ArgumentParser:
         help="Override auto-detected project ID",
     )
 
+    # 'delete' subcommand
+    delete_parser = subparsers.add_parser(
+        "delete",
+        help="Delete a secret key",
+        description="Remove a secret from the project's store. "
+        "Requires confirmation unless --force is used.",
+    )
+    delete_parser.add_argument("key", help="Secret key name to delete (e.g., DB_PASSWORD)")
+    delete_parser.add_argument(
+        "--project",
+        help="Override auto-detected project ID",
+    )
+    delete_parser.add_argument(
+        "--force",
+        "-f",
+        action="store_true",
+        help="Skip confirmation prompt",
+    )
+
     # 'list' subcommand
     list_parser = subparsers.add_parser(
         "list",
@@ -590,6 +648,7 @@ def main(argv: list[str] | None = None) -> int:
     commands = {
         "get": cmd_get,
         "set": cmd_set,
+        "delete": cmd_delete,
         "list": cmd_list,
         "run": cmd_run,
         "validate": cmd_validate,

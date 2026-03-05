@@ -100,7 +100,7 @@ claude-power-pack/
 │   ├── __init__.py                             # Main exports + get_bundle_provider()
 │   ├── __main__.py                             # python -m lib.creds entry
 │   ├── base.py                                 # SecretValue, SecretBundle, BundleProvider
-│   ├── cli.py                                  # CLI (get, set, list, run, ui, rotate)
+│   ├── cli.py                                  # CLI (get, set, delete, list, run, ui, rotate)
 │   ├── project.py                              # Project identity (git-based)
 │   ├── config.py                               # SecretsConfig from .claude/secrets.yml
 │   ├── audit.py                                # Audit logging (actions only, never values)
@@ -206,6 +206,7 @@ claude-power-pack/
 │   │   ├── secrets/                            # Secrets management commands
 │   │   │   ├── get.md                          # Get credentials (masked)
 │   │   │   ├── set.md                          # Set a secret value
+│   │   │   ├── delete.md                       # Delete a secret key
 │   │   │   ├── list.md                         # List secret keys
 │   │   │   ├── run.md                          # Run command with secrets
 │   │   │   ├── validate.md                     # Validate configuration
@@ -1049,6 +1050,9 @@ ln -sf ~/Projects/claude-power-pack/scripts/secrets-mask.sh ~/.claude/scripts/
 # Set a secret
 python -m lib.creds set DB_PASSWORD my-secret-value
 
+# Delete a secret
+python -m lib.creds delete DB_PASSWORD
+
 # List all secrets (masked)
 python -m lib.creds list
 
@@ -1074,6 +1078,7 @@ python -m lib.creds validate
 |---------|---------|
 | `/secrets:get [id]` | Get credentials (masked output) |
 | `/secrets:set KEY VALUE` | Set or update a secret |
+| `/secrets:delete KEY` | Delete a secret key |
 | `/secrets:list` | List all secret keys (masked) |
 | `/secrets:run -- CMD` | Run command with secrets injected |
 | `/secrets:validate` | Test credential configuration |
