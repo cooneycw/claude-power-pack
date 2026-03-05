@@ -36,6 +36,39 @@ Machine A: /flow:start 42  →  work  →  /flow:sync
 Machine B: /flow:start 42  →  picks up remote branch  →  continue working
 ```
 
+## Security Gates
+
+`/flow:finish` and `/flow:deploy` run automatic security scans as quality gates. Gate behavior is controlled by `.claude/security.yml`:
+
+| Severity | `/flow:finish` (default) | `/flow:deploy` (default) |
+|----------|--------------------------|--------------------------|
+| CRITICAL | **Blocks** — must fix before PR | **Blocks** — must fix before deploy |
+| HIGH | **Warns** — shows findings, proceeds | **Blocks** — must fix before deploy |
+| MEDIUM | Passes | **Warns** — shows findings, proceeds |
+| LOW | Passes | Passes |
+
+**What happens when blocked:**
+- The flow stops and displays all blocking findings with remediation hints
+- You fix the issue, then re-run `/flow:finish` or `/flow:deploy`
+- To suppress known false positives, add entries to `.claude/security.yml` `suppressions:`
+
+**Configuration** (`.claude/security.yml`):
+```yaml
+gates:
+  flow_finish:
+    block_on: [critical]       # Severities that stop the flow
+    warn_on: [high]            # Severities shown as warnings
+  flow_deploy:
+    block_on: [critical, high]
+    warn_on: [medium]
+suppressions:
+  - id: HARDCODED_SECRET       # Finding type to suppress
+    path: tests/fixtures/.*    # Regex for file path (optional)
+    reason: "Test fixtures with fake credentials"
+```
+
+If no `.claude/security.yml` exists, the defaults above are used. If `lib/security` is not available, the gate is skipped with a warning.
+
 ## Conventions
 
 - **Worktree directory:** `../{repo}-issue-{N}` (sibling to main repo)

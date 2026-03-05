@@ -45,18 +45,52 @@ Novice-friendly security scanning for Claude Code projects.
 
 ## Configuration
 
-Create `.claude/security.yml` to customize:
+Create `.claude/security.yml` to customize gate behavior and suppress known findings.
+
+If this file does not exist, sensible defaults are used (see below).
+
+### Annotated Example
 
 ```yaml
+# .claude/security.yml — Security gate configuration
+# All sections are optional. Missing sections use defaults.
+
+# Gates control how /flow:finish and /flow:deploy respond to findings.
+# Each gate has two lists:
+#   block_on: severities that STOP the flow (must fix before proceeding)
+#   warn_on:  severities that DISPLAY a warning but allow the flow to continue
+# Severities not in either list pass silently.
 gates:
   flow_finish:
-    block_on: [critical]
-    warn_on: [high]
+    block_on: [critical]         # CRITICAL findings block PR creation
+    warn_on: [high]              # HIGH findings shown as warnings
+    # MEDIUM and LOW pass silently
   flow_deploy:
-    block_on: [critical, high]
-    warn_on: [medium]
+    block_on: [critical, high]   # Both CRITICAL and HIGH block deployment
+    warn_on: [medium]            # MEDIUM findings shown as warnings
+    # LOW passes silently
+
+# Suppressions hide known false positives from scan results.
+# Each entry must have an 'id' matching the finding type.
+# 'path' is an optional regex — if provided, only findings in matching
+# files are suppressed. 'reason' documents why the suppression exists.
 suppressions:
-  - id: HARDCODED_SECRET
-    path: tests/fixtures/.*
+  - id: HARDCODED_SECRET         # Finding type (from /security:explain)
+    path: tests/fixtures/.*      # Only suppress in test fixtures
     reason: "Test fixtures with fake credentials"
+
+  - id: DEBUG_FLAG_ENABLED
+    path: docs/examples/.*
+    reason: "Example code intentionally shows debug configuration"
 ```
+
+### Default Behavior (no security.yml)
+
+| Gate | Blocks on | Warns on |
+|------|-----------|----------|
+| `flow_finish` | CRITICAL | HIGH |
+| `flow_deploy` | CRITICAL, HIGH | MEDIUM |
+
+### Finding Types
+
+Use `/security:explain <ID>` to see details about any finding type (e.g., `HARDCODED_SECRET`, `ENV_FILE_TRACKED`, `DEBUG_FLAG_ENABLED`). The ID is shown in scan output next to each finding.
