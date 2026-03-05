@@ -53,6 +53,7 @@ Build, verify, and deploy automation for Claude Code projects.
 | `deploy` | No | `/flow:deploy` |
 | `clean` | No | Cleanup |
 | `verify` | No | Pre-deploy gate (lint + test + typecheck) |
+| `troubleshoot` | No | Diagnostic pass (clean + lint + test) |
 
 ## Configuration
 
@@ -115,6 +116,7 @@ See `templates/cicd.yml.example` for full documentation.
 
 ## Related
 
+- `/claude-md:lint` — Audit CLAUDE.md for CI/CD and troubleshooting directives
 - `/flow:doctor` — Reports Makefile target availability
 - `/flow:deploy` — Runs deploy target
 - `/self-improvement:deployment` — Analyze deploy failures and improve Makefile

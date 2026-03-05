@@ -12,7 +12,7 @@
 # List sub-projects (directories containing their own Makefile)
 PROJECTS := backend frontend
 
-.PHONY: lint test build deploy clean verify ci-local $(PROJECTS)
+.PHONY: lint test build deploy clean verify troubleshoot ci-local $(PROJECTS)
 
 ## Quality gates (used by /flow:finish)
 ## Runs target in each sub-project that defines it
@@ -54,6 +54,11 @@ deploy: verify build
 	@echo "Examples:"
 	@echo "  docker compose up -d --build"
 	@echo "  $(MAKE) -C backend deploy && $(MAKE) -C frontend deploy"
+
+## Troubleshooting (single-command diagnostic pass)
+
+troubleshoot: clean lint test
+	@echo "All checks passed — issue may be environmental"
 
 ## Local CI (requires: woodpecker-cli — https://woodpecker-ci.org/)
 

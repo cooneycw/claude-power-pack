@@ -13,6 +13,7 @@ Commands for creating and managing projects.
 | `/project:init <name>` | Full project scaffolding — zero to GitHub repo |
 | `/project-next` | Scan issues and worktrees to recommend next steps |
 | `/project-lite` | Quick project reference with minimal context |
+| `/claude-md:lint` | Audit CLAUDE.md for CI/CD and troubleshooting directives |
 
 ## /project:init
 

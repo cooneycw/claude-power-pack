@@ -403,7 +403,81 @@ if [ -n "$CPP_DIR" ]; then
 fi
 ```
 
-### 4c: Spec Init
+### 4c: Generate CLAUDE.md
+
+If no CLAUDE.md exists yet, generate one with CI/CD governance directives:
+
+```bash
+if [ ! -f "CLAUDE.md" ]; then
+    # Detect Docker presence
+    HAS_DOCKER="no"
+    [ -f "Dockerfile" ] || [ -f "docker-compose.yml" ] || [ -f "docker-compose.yaml" ] && HAS_DOCKER="yes"
+
+    cat > CLAUDE.md << 'CLAUDEEOF'
+# $PROJECT_NAME
+
+## Overview
+
+{Brief project description.}
+
+## Key Conventions
+
+- {Framework} project
+- {Package manager} for dependency management
+
+## CI/CD Protocol
+
+- Use Makefile targets for all build, test, and deploy operations
+- Never run raw build commands — use `make lint`, `make test`, `make build`, `make deploy`
+- The Makefile is the single source of truth for project commands
+- If a Makefile target is missing for your operation, ADD the target rather than running raw commands
+
+## Troubleshooting Protocol
+
+- Before debugging manually, run `make lint` and `make test` to surface known issues
+- When fixing errors, fix BOTH the application code AND the CI/CD process (Makefile, Dockerfile, docker-compose.yml)
+- After any fix, verify through the full pipeline: `make verify`
+- Never bypass quality gates — if `make lint` or `make test` fails, fix the root cause
+- Use `make troubleshoot` for a single-command diagnostic pass (clean + lint + test)
+
+## Quality Gates
+
+| Target | Purpose | When to Run |
+|--------|---------|-------------|
+| `make lint` | Run linter | Before every commit |
+| `make test` | Run tests | Before every commit |
+| `make verify` | Full check (lint + test + typecheck) | Before deployment |
+| `make troubleshoot` | Diagnostic pass (clean + lint + test) | When debugging issues |
+
+## Deployment
+
+- Deploy: `make deploy` (runs verify first)
+- Customize the deploy target in the Makefile for your environment
+- Post-deploy: run `/cicd:health` to verify endpoints
+CLAUDEEOF
+
+    # Append Docker section if Docker files detected
+    if [ "$HAS_DOCKER" = "yes" ]; then
+        cat >> CLAUDE.md << 'DOCKEREOF'
+
+## Docker Conventions
+
+- Build images: `make docker-build` (not raw `docker build`)
+- Start services: `make docker-up` (not raw `docker compose up`)
+- Stop services: `make docker-down`
+- View logs: `make docker-logs`
+- Check status: `make docker-ps`
+- If Docker errors occur, check Dockerfile and docker-compose.yml alongside application code
+DOCKEREOF
+    fi
+
+    echo "Generated CLAUDE.md with CI/CD governance directives"
+fi
+```
+
+Fill in the framework/package-manager placeholders based on what was detected in Step 2.
+
+### 4d: Spec Init
 
 ```bash
 if [ ! -d ".specify" ]; then

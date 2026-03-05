@@ -88,6 +88,7 @@ The report includes:
 | `deploy` | Deployment (`/flow:deploy`) |
 | `clean` | Remove build artifacts |
 | `verify` | Pre-deploy gate (lint + test + typecheck) |
+| `troubleshoot` | Diagnostic pass (clean + lint + test) |
 
 ---
 

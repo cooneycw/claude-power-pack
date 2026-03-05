@@ -8,7 +8,7 @@
 # Requires: cargo, clippy, rustfmt
 # Copy to your project root as "Makefile" and customize.
 
-.PHONY: lint test format build build-release deploy clean verify ci-local
+.PHONY: lint test format build build-release deploy clean verify troubleshoot ci-local
 
 ## Quality gates (used by /flow:finish)
 
@@ -40,6 +40,11 @@ deploy: verify build-release
 	@echo "Examples:"
 	@echo "  scp target/release/$(shell basename $(CURDIR)) prod:/usr/local/bin/"
 	@echo "  docker build -t $(shell basename $(CURDIR)) ."
+
+## Troubleshooting (single-command diagnostic pass)
+
+troubleshoot: clean lint test
+	@echo "All checks passed — issue may be environmental"
 
 ## Local CI (requires: woodpecker-cli — https://woodpecker-ci.org/)
 

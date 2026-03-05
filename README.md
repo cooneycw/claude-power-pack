@@ -757,6 +757,8 @@ Framework-aware build system detection, verification, and deployment automation.
 | `/cicd:pipeline` | Generate GitHub Actions CI/CD workflows |
 | `/cicd:container` | Generate Dockerfile and docker-compose.yml |
 | `/cicd:help` | Overview of CI/CD commands |
+| `/claude-md:lint` | Audit CLAUDE.md for CI/CD and troubleshooting directives |
+| `/claude-md:help` | Overview of CLAUDE.md governance commands |
 
 ### The Verification Loop
 
