@@ -38,6 +38,12 @@ This repository contains five core components and optional extras:
 - Woodpecker CI for pipeline automation (`.woodpecker.yml`)
 - All documentation uses progressive disclosure principles
 
+## Deployment Conventions
+
+- If deploying, or testing deployment, use CI/CD protocols (Makefile targets like `make docker-build`, `make docker-up`, etc.)
+- If composing Docker, utilize CI/CD process (`make docker-*` targets, not raw `docker compose`)
+- If errors encountered, correct code, and correct CI/CD process (Makefile, Dockerfile, docker-compose.yml)
+
 ## Environment Variables
 
 | Variable | Purpose | Example |
