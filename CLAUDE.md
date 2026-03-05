@@ -990,17 +990,30 @@ claude mcp add playwright-persistent --transport stdio -- uv run --directory /pa
 claude mcp add playwright-persistent --transport sse --url http://127.0.0.1:8081/sse
 ```
 
-### MCP Tools (29 total)
+### MCP Tools (29 total: 7 core + 22 extended)
+
+**Core tools** (always loaded, tagged `core`):
+
+| Tool | Purpose |
+|------|---------|
+| `create_session` | Create persistent browser session |
+| `close_session` | Close session and release resources |
+| `browser_navigate` | Navigate to URL |
+| `browser_click` | Click elements (CSS/text selector) |
+| `browser_fill` | Fill input fields |
+| `browser_screenshot` | Capture page or element screenshot |
+| `health_check` | Server health status |
+
+**Extended tools** (tagged `extended`, discover via ToolSearch):
 
 | Category | Tools |
 |----------|-------|
-| **Session** | `create_session`, `close_session`, `list_sessions`, `get_session_info`, `cleanup_idle_sessions` |
-| **Navigation** | `browser_navigate`, `browser_click`, `browser_type`, `browser_fill`, `browser_select_option`, `browser_hover` |
+| **Session** | `list_sessions`, `get_session_info`, `cleanup_idle_sessions` |
+| **Navigation** | `browser_type`, `browser_select_option`, `browser_hover` |
 | **Tabs** | `browser_new_tab`, `browser_switch_tab`, `browser_close_tab`, `browser_go_back`, `browser_go_forward`, `browser_reload` |
-| **Capture** | `browser_screenshot`, `browser_snapshot`, `browser_pdf`, `browser_get_content`, `browser_get_text` |
+| **Capture** | `browser_snapshot`, `browser_pdf`, `browser_get_content`, `browser_get_text` |
 | **Evaluation** | `browser_evaluate`, `browser_wait_for`, `browser_wait_for_navigation`, `browser_console_messages` |
 | **Query** | `browser_get_attribute`, `browser_query_selector_all` |
-| **Health** | `health_check` |
 
 ### Usage Example
 
