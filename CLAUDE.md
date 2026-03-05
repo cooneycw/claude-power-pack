@@ -1159,5 +1159,5 @@ Each Python component has its own `pyproject.toml`:
 
 ## Version
 
-Current version: 4.2.0
-Previous: 4.1.0, 4.0.0 (Simplified Workflow)
+Current version: 5.0.0
+Previous: 4.2.0, 4.0.0 (Simplified Workflow), 3.0.0
