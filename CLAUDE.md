@@ -2,13 +2,14 @@
 
 ## Project Overview
 
-This repository contains four core components and optional extras:
+This repository contains five core components and optional extras:
 1. **Claude Code Best Practices** - Community wisdom from r/ClaudeCode
 2. **Spec-Driven Development** - GitHub Spec Kit integration for structured workflows
 3. **MCP Second Opinion Server** - Gemini-powered code review
 4. **MCP Playwright Server** - Browser automation for testing
-5. **Sequential Thinking** (optional, in `extras/`) - Structured step-by-step reasoning
-6. **Redis Coordination** (optional, in `extras/`) - Distributed locking for teams
+5. **MCP Nano-Banana Server** - Diagram generation and PowerPoint creation
+6. **Sequential Thinking** (optional, in `extras/`) - Structured step-by-step reasoning
+7. **Redis Coordination** (optional, in `extras/`) - Distributed locking for teams
 
 ## Quick References
 
@@ -19,6 +20,7 @@ This repository contains four core components and optional extras:
 - **MCP Token Audit:** `MCP_TOKEN_AUDIT_CHECKLIST.md`
 - **MCP Second Opinion:** `mcp-second-opinion/`
 - **MCP Playwright:** `mcp-playwright-persistent/`
+- **MCP Nano-Banana:** `mcp-nano-banana/`
 - **Sequential Thinking (optional):** `extras/sequential-thinking/`
 - **MCP Coordination (optional):** `extras/redis-coordination/`
 
@@ -31,6 +33,7 @@ This repository contains four core components and optional extras:
 - MCP Playwright: port 8081 (SSE) or `--stdio`
 - MCP Coordination: port 8082 (SSE) or `--stdio`
 - MCP Evaluate: port 8083 (SSE)
+- MCP Nano-Banana: port 8084 (SSE) or `--stdio`
 - All documentation uses progressive disclosure principles
 
 ## Environment Variables
@@ -73,6 +76,12 @@ claude-power-pack/
 │   └── templates/                              # Spec, plan, tasks templates
 ├── mcp-evaluate/                                # MCP Evaluate server (composite)
 │   ├── src/server.py                           # 3 tools (domain-aware evaluation)
+│   ├── deploy/                                 # systemd service
+│   └── README.md                               # Full documentation
+├── mcp-nano-banana/                             # MCP Nano-Banana (diagrams + PPTX)
+│   ├── src/server.py                           # 4 tools (diagram generation, PPTX)
+│   ├── src/diagrams/                           # 6 diagram types (arch, flow, seq, org, timeline, mindmap)
+│   ├── src/pptx_builder.py                     # PowerPoint creation (python-pptx)
 │   ├── deploy/                                 # systemd service
 │   └── README.md                               # Full documentation
 ├── mcp-second-opinion/                         # MCP Second Opinion server
@@ -203,6 +212,9 @@ claude-power-pack/
 │   │   │   ├── ui.md                           # Launch web UI
 │   │   │   ├── rotate.md                       # Rotate a secret
 │   │   │   └── help.md                         # Secrets command overview
+│   │   ├── pptx/                                # PowerPoint & diagram commands
+│   │   │   ├── create.md                       # Guided PPTX creation
+│   │   │   └── help.md                         # PowerPoint command overview
 │   │   ├── evaluate/                            # Multi-model evaluation flow
 │   │   │   ├── issue.md                        # 4-phase evaluation pipeline
 │   │   │   └── help.md                         # Evaluate command overview
@@ -225,6 +237,7 @@ claude-power-pack/
 │   │   ├── code-quality.md                     # → docs/skills/
 │   │   ├── python-packaging.md                 # → docs/skills/
 │   │   ├── cicd-verification.md                # → docs/skills/
+│   │   ├── powerpoint.md                       # Diagrams & PPTX skill
 │   │   └── secrets.md                          # Secrets skill
 │   └── hooks.json                              # Session hooks
 ├── .github/
@@ -250,6 +263,7 @@ To preserve context, documentation is NOT auto-loaded. Use topic-specific skills
 | Code Quality | "code review", "quality" |
 | Python Packaging | "pyproject.toml", "PEP 621", "PEP 723", "setup.py" |
 | CI/CD & Verification | "CI/CD", "pipeline", "health check", "smoke test", "verification" |
+| PowerPoint & Diagrams | "powerpoint", "pptx", "diagram", "flowchart", "presentation" |
 | Build & Deploy | "Makefile", "uv", "deploy patterns" |
 
 **Commands:**
@@ -743,6 +757,60 @@ claude mcp add mcp-evaluate --transport sse --url http://127.0.0.1:8083/sse
 
 The skill file auto-detects whether the MCP evaluate server is available and falls back to direct second-opinion calls if not.
 
+## PowerPoint & Diagrams
+
+Generate professional diagrams and PowerPoint presentations using the Nano-Banana MCP server.
+
+### Commands
+
+| Command | Purpose |
+|---------|---------|
+| `/pptx:create [topic]` | Guided PowerPoint creation with optional diagrams |
+| `/pptx:help` | Overview of PowerPoint commands |
+
+### MCP Tools (nano-banana, port 8084)
+
+| Tool | Purpose |
+|------|---------|
+| `list_diagram_types` | See available diagram types |
+| `generate_diagram` | Create HTML diagram at 1920x1080 |
+| `create_pptx` | Build PowerPoint file from slide definitions |
+| `diagram_to_pptx` | One-step: diagram + PPTX creation |
+
+### Diagram Types
+
+| Type | Use Case |
+|------|----------|
+| `architecture` | System components, services, infrastructure |
+| `flowchart` | Sequential process steps, decision trees |
+| `sequence` | Message exchange between participants |
+| `orgchart` | Hierarchies, team structure, taxonomies |
+| `timeline` | Roadmaps, milestones, project phases |
+| `mindmap` | Brainstorming, concept maps, topic exploration |
+
+### Setup
+
+```bash
+# stdio (recommended)
+claude mcp add nano-banana --transport stdio -- uv run --directory ~/Projects/claude-power-pack/mcp-nano-banana python src/server.py --stdio
+
+# SSE
+cd ~/Projects/claude-power-pack/mcp-nano-banana && ./start-server.sh
+claude mcp add nano-banana --transport sse --url http://127.0.0.1:8084/sse
+```
+
+### End-to-End Workflow
+
+For highest quality diagram embedding:
+
+1. `generate_diagram` → save HTML
+2. Playwright screenshot at 1920x1080
+3. `create_pptx` with screenshot as `image_base64`
+
+Quick alternative: `diagram_to_pptx` for text-based PPTX.
+
+See `mcp-nano-banana/README.md` for full documentation.
+
 ## Self-Improvement Commands
 
 Retrospective analysis commands that examine recent failures and suggest tooling improvements.
@@ -1075,6 +1143,7 @@ cd mcp-second-opinion
 
 Each Python component has its own `pyproject.toml`:
 - `mcp-evaluate/pyproject.toml`
+- `mcp-nano-banana/pyproject.toml`
 - `mcp-second-opinion/pyproject.toml`
 - `mcp-playwright-persistent/pyproject.toml`
 - `extras/redis-coordination/mcp-server/pyproject.toml`

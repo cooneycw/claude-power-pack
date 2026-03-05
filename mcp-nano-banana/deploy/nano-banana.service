@@ -1,0 +1,16 @@
+[Unit]
+Description=MCP Nano-Banana Diagram Server
+After=network.target
+
+[Service]
+Type=simple
+User=%i
+WorkingDirectory=/home/%i/Projects/claude-power-pack/mcp-nano-banana
+ExecStart=/home/%i/.local/bin/uv run python src/server.py
+Restart=on-failure
+RestartSec=5
+Environment=MCP_SERVER_HOST=127.0.0.1
+Environment=MCP_SERVER_PORT=8084
+
+[Install]
+WantedBy=multi-user.target
