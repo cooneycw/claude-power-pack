@@ -8,7 +8,7 @@
 # All commands use `uv run` for dependency isolation.
 # Copy to your project root as "Makefile" and customize.
 
-.PHONY: lint test typecheck format build deploy clean verify ci-local
+.PHONY: lint test typecheck format build deploy clean verify troubleshoot ci-local
 
 ## Quality gates (used by /flow:finish)
 
@@ -40,6 +40,11 @@ deploy: verify
 	@echo "Examples:"
 	@echo "  ssh prod 'cd /app && git pull && systemctl restart app'"
 	@echo "  docker compose up -d --build"
+
+## Troubleshooting (single-command diagnostic pass)
+
+troubleshoot: clean lint test
+	@echo "All checks passed — issue may be environmental"
 
 ## Local CI (requires: woodpecker-cli — https://woodpecker-ci.org/)
 

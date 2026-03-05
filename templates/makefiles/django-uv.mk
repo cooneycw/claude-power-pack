@@ -10,7 +10,7 @@
 #
 # Django-specific targets: migrate, collectstatic, runserver, shell, createsuperuser
 
-.PHONY: lint test typecheck format build deploy clean verify ci-local
+.PHONY: lint test typecheck format build deploy clean verify troubleshoot ci-local
 .PHONY: migrate collectstatic runserver shell createsuperuser check showmigrations
 
 ## Quality gates (used by /flow:finish)
@@ -66,6 +66,11 @@ deploy: verify migrate collectstatic
 	@echo "Examples:"
 	@echo "  ssh prod 'cd /app && git pull && uv sync && python manage.py migrate && systemctl restart gunicorn'"
 	@echo "  docker compose up -d --build"
+
+## Troubleshooting (single-command diagnostic pass)
+
+troubleshoot: clean lint test check
+	@echo "All checks passed — issue may be environmental"
 
 ## Local CI (requires: woodpecker-cli — https://woodpecker-ci.org/)
 

@@ -44,6 +44,14 @@ This repository contains five core components and optional extras:
 - If composing Docker, utilize CI/CD process (`make docker-*` targets, not raw `docker compose`)
 - If errors encountered, correct code, and correct CI/CD process (Makefile, Dockerfile, docker-compose.yml)
 
+## Troubleshooting Protocol
+
+- Before debugging manually, run `make lint` and `make test` to surface known issues
+- When fixing errors, fix BOTH the application code AND the CI/CD process (Makefile, Dockerfile, docker-compose.yml)
+- After any fix, verify through the full pipeline: `make verify`
+- Never bypass quality gates — if `make lint` or `make test` fails, fix the root cause
+- If a Makefile target is missing for your operation, ADD the target rather than running raw commands
+
 ## Environment Variables
 
 | Variable | Purpose | Example |
