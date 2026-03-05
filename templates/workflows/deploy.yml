@@ -1,0 +1,27 @@
+# GitHub Actions Deploy — Generic (Claude Power Pack)
+#
+# Deploys on merge to main using Makefile targets.
+# Customize secrets and deployment steps as needed.
+
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy
+        run: make deploy
+        env:
+          DEPLOY_ENV: production
+          # Add secrets as needed:
+          # DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
+          # AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          # AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
