@@ -14,11 +14,11 @@ Lock naming follows wave/issue pattern:
 - "pytest", "pr-create" - Resource locks
 """
 import argparse
-
-from fastmcp import FastMCP
+import logging
 
 from config import config
 from coordination import CoordinationManager
+from fastmcp import FastMCP
 from redis_client import RedisClient
 
 # Initialize FastMCP server
@@ -247,8 +247,6 @@ async def health_check() -> dict:
 # -----------------------------------------------------------------------------
 # Entry Point
 # -----------------------------------------------------------------------------
-
-import logging
 
 logging.basicConfig(
     level=logging.INFO,

@@ -11,9 +11,8 @@ import re
 from typing import Any, Dict, List, Set
 
 import httpx
-from google.genai import types
-
 from config import Config
+from google.genai import types
 
 logger = logging.getLogger(__name__)
 

@@ -12,7 +12,6 @@ from typing import Optional
 from .config import CICDConfig
 from .models import Framework, FrameworkInfo, PackageManager
 
-
 # Docker images for Woodpecker CI steps
 _WOODPECKER_IMAGES: dict[Framework, str] = {
     Framework.PYTHON: "python:3.12",

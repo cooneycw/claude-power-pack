@@ -7,10 +7,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
 
-from .parser import parse_tasks, parse_spec, parse_plan, Wave, SpecDocument
-from .issue_sync import list_issues, IssueInfo
+from .issue_sync import IssueInfo, list_issues
+from .parser import Wave, parse_plan, parse_spec, parse_tasks
 
 
 @dataclass

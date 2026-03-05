@@ -17,6 +17,7 @@ from .detector import detect_framework
 from .models import (
     FRAMEWORK_TARGETS,
     Framework,
+    FrameworkInfo,
     MakefileCheckResult,
     MakefileTarget,
     PackageManager,
@@ -335,7 +336,10 @@ def _generate_inline(info: FrameworkInfo) -> str:
 def _get_clean_command(framework: Framework) -> str:
     """Get the clean command for a framework."""
     commands = {
-        Framework.PYTHON: "rm -rf .pytest_cache __pycache__ .ruff_cache .mypy_cache dist build *.egg-info .coverage htmlcov",
+        Framework.PYTHON: (
+            "rm -rf .pytest_cache __pycache__ .ruff_cache .mypy_cache "
+            "dist build *.egg-info .coverage htmlcov"
+        ),
         Framework.NODE: "rm -rf node_modules dist build .next .nuxt coverage",
         Framework.GO: "rm -rf bin/ coverage.out",
         Framework.RUST: "cargo clean",

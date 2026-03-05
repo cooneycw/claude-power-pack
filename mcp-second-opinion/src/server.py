@@ -13,31 +13,30 @@ import logging
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
-from google import genai
-from google.genai import types
 import anthropic
 import openai
+from config import Config
 from fastmcp import FastMCP
+from google import genai
+from google.genai import types
+from prompts import build_code_review_prompt, scan_for_secrets
+from sessions import get_session_manager
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 from tenacity import (
     retry,
     retry_if_exception_type,
     stop_after_attempt,
     wait_exponential,
 )
-from starlette.requests import Request
-from starlette.responses import JSONResponse
-
-from config import Config
-from prompts import build_code_review_prompt, scan_for_secrets
-from sessions import get_session_manager, Session
 from tools import (
-    web_search,
-    fetch_url,
-    WEB_SEARCH_DECLARATION,
     FETCH_URL_DECLARATION,
+    WEB_SEARCH_DECLARATION,
     approve_domain,
-    revoke_domain,
+    fetch_url,
     get_approved_domains,
+    revoke_domain,
+    web_search,
 )
 
 # Configure logging
@@ -407,7 +406,9 @@ async def _try_openai_chat_api(prompt: str, model_name: str, max_tokens: int = C
     return result, model_name
 
 
-async def _try_openai_responses_api(prompt: str, model_name: str, max_tokens: int = Config.MAX_TOKENS) -> tuple[str, str]:
+async def _try_openai_responses_api(
+    prompt: str, model_name: str, max_tokens: int = Config.MAX_TOKENS
+) -> tuple[str, str]:
     """Use Responses API for Codex models."""
     logger.info(f"Using Responses API for {model_name}")
 
@@ -912,7 +913,10 @@ async def get_code_second_opinion(
         # Resolve verbosity synonyms and get max_tokens
         verbosity, max_tokens = Config.resolve_verbosity(verbosity)
 
-        logger.info(f"Received code review request for {language}, verbosity={verbosity}, max_tokens={max_tokens}, has_image={has_image}")
+        logger.info(
+            f"Received code review request for {language}, "
+            f"verbosity={verbosity}, max_tokens={max_tokens}, has_image={has_image}"
+        )
 
         # Scan for potential secrets before sending to API
         potential_secrets = scan_for_secrets(code)
@@ -1192,7 +1196,10 @@ async def get_multi_model_second_opinion(
         # Resolve verbosity synonyms and get max_tokens
         verbosity, max_tokens = Config.resolve_verbosity(verbosity)
 
-        logger.info(f"Multi-model code review for {language}, models={models}, verbosity={verbosity}, max_tokens={max_tokens}")
+        logger.info(
+            f"Multi-model code review for {language}, models={models}, "
+            f"verbosity={verbosity}, max_tokens={max_tokens}"
+        )
 
         # Scan for potential secrets before sending to API
         potential_secrets = scan_for_secrets(code)
@@ -1365,7 +1372,10 @@ async def consult(
         history_context = ""
         for msg in session.messages:
             role_label = "You" if msg.role == "user" else "Gemini"
-            history_context += f"\n{role_label}: {msg.content[:500]}...\n" if len(msg.content) > 500 else f"\n{role_label}: {msg.content}\n"
+            if len(msg.content) > 500:
+                history_context += f"\n{role_label}: {msg.content[:500]}...\n"
+            else:
+                history_context += f"\n{role_label}: {msg.content}\n"
 
         prompt_parts = [
             f"This is turn {session.turn_count + 1} in a {session.purpose} session.",
@@ -1558,14 +1568,16 @@ async def close_session(
                 for m in session.messages
             ])
 
-            summary_prompt = f"""Summarize the key findings and conclusions from this {session.purpose} session in 2-3 bullet points:
-
-{conversation_text}
-
-Provide a concise summary focusing on:
-1. Main issues identified
-2. Recommended solutions
-3. Key decisions made"""
+            summary_prompt = (
+                f"Summarize the key findings and conclusions "
+                f"from this {session.purpose} session in "
+                f"2-3 bullet points:\n\n"
+                f"{conversation_text}\n\n"
+                f"Provide a concise summary focusing on:\n"
+                f"1. Main issues identified\n"
+                f"2. Recommended solutions\n"
+                f"3. Key decisions made"
+            )
 
             try:
                 summary_response, _ = await get_gemini_streaming_response(
@@ -1578,7 +1590,10 @@ Provide a concise summary focusing on:
                 summary_input = len(summary_prompt) // Config.CHARS_PER_TOKEN
                 summary_output = len(summary_response) // Config.CHARS_PER_TOKEN
                 pricing = Config.GEMINI_PRICING.get(Config.GEMINI_MODEL_PRIMARY)
-                summary_cost = (summary_input / 1_000_000) * pricing["input"] + (summary_output / 1_000_000) * pricing["output"]
+                summary_cost = (
+                    (summary_input / 1_000_000) * pricing["input"]
+                    + (summary_output / 1_000_000) * pricing["output"]
+                )
             except Exception as e:
                 logger.warning(f"Failed to generate summary: {e}")
                 summary = "Summary generation failed"
@@ -1775,7 +1790,11 @@ async def approve_fetch_domain(domain: str) -> dict:
             "approved": True,
             "domain": domain,
             "was_new": was_new,
-            "message": f"Domain '{domain}' approved for this session" if was_new else f"Domain '{domain}' was already approved",
+            "message": (
+                f"Domain '{domain}' approved for this session"
+                if was_new
+                else f"Domain '{domain}' was already approved"
+            ),
             "session_approved_domains": get_approved_domains(),
         }
 
@@ -1809,7 +1828,11 @@ async def revoke_fetch_domain(domain: str) -> dict:
         return {
             "revoked": was_approved,
             "domain": domain,
-            "message": f"Domain '{domain}' revoked" if was_approved else f"Domain '{domain}' was not in the approved list",
+            "message": (
+                f"Domain '{domain}' revoked"
+                if was_approved
+                else f"Domain '{domain}' was not in the approved list"
+            ),
             "session_approved_domains": get_approved_domains(),
         }
 

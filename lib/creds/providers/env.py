@@ -23,13 +23,13 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from ..base import SecretsProvider, SecretNotFoundError
+from ..base import SecretNotFoundError, SecretsProvider
 
 logger = logging.getLogger(__name__)
 
 # Try to import dotenv, but it's optional
 try:
-    from dotenv import load_dotenv, dotenv_values
+    from dotenv import dotenv_values, load_dotenv
 
     DOTENV_AVAILABLE = True
 except ImportError:

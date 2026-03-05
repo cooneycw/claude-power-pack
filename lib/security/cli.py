@@ -61,7 +61,7 @@ def cmd_explain(args: argparse.Namespace) -> int:
         return 0
 
     print(f"Unknown finding ID: {args.finding_id}", file=sys.stderr)
-    print(f"\nAvailable finding IDs:", file=sys.stderr)
+    print("\nAvailable finding IDs:", file=sys.stderr)
     for fid in list_finding_ids():
         print(f"  - {fid}", file=sys.stderr)
     return 1

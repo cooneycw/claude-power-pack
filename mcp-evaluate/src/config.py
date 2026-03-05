@@ -1,9 +1,9 @@
 """Configuration for the MCP Evaluate server."""
 
 import os
+from pathlib import Path
 
 from dotenv import load_dotenv
-from pathlib import Path
 
 _env_path = Path(__file__).parent.parent / ".env"
 if _env_path.exists():

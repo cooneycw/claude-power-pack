@@ -4,9 +4,11 @@ Fetch posts from r/ClaudeCode subreddit about Claude best practices.
 This script uses PRAW in read-only mode (no authentication required).
 """
 
-import praw
 import json
 from datetime import datetime
+
+import praw
+
 
 def fetch_claudecode_posts(limit=25):
     """

@@ -29,11 +29,10 @@ from typing import Any, Dict, Literal, Optional, Tuple
 from ..base import (
     BundleProvider,
     ProviderCaps,
-    SecretBundle,
-    SecretsProvider,
-    SecretsError,
-    SecretNotFoundError,
     ProviderNotAvailableError,
+    SecretBundle,
+    SecretNotFoundError,
+    SecretsError,
 )
 
 logger = logging.getLogger(__name__)

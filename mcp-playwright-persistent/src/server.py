@@ -14,7 +14,6 @@ Features:
 """
 
 import argparse
-import asyncio
 import base64
 import logging
 import os
@@ -24,7 +23,7 @@ from typing import Optional
 
 from dotenv import load_dotenv
 from fastmcp import FastMCP
-from playwright.async_api import async_playwright, Browser, BrowserContext, Page
+from playwright.async_api import Browser, BrowserContext, Page, async_playwright
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 

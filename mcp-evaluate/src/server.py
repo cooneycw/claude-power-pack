@@ -16,12 +16,11 @@ from pathlib import Path
 from typing import Optional
 
 import httpx
+from config import Config
+from domains import VALID_DOMAINS, get_domain_prompt, get_spec_focus
 from fastmcp import FastMCP
 from starlette.requests import Request
 from starlette.responses import JSONResponse
-
-from config import Config
-from domains import VALID_DOMAINS, get_domain_prompt, get_spec_focus
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)

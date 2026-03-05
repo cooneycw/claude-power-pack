@@ -122,8 +122,8 @@ def cmd_set(args: argparse.Namespace) -> int:
 def cmd_list(args: argparse.Namespace) -> int:
     """Handle the 'list' subcommand."""
     from .project import get_project_id
-    from .providers.dotenv import DotEnvSecretsProvider
     from .providers.aws import AWSSecretsProvider
+    from .providers.dotenv import DotEnvSecretsProvider
 
     project_id = args.project or get_project_id()
 
