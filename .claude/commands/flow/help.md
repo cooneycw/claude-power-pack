@@ -8,6 +8,7 @@ Streamlined worktree-based development workflow. No locks, no Redis — just git
 |---------|---------|
 | `/flow:start <issue>` | Create worktree and branch from a GitHub issue |
 | `/flow:status` | Show all active worktrees with issue/PR state |
+| `/flow:check` | Run quality checks (lint, test, security) without committing |
 | `/flow:finish` | Run quality gates, commit, push, and create PR |
 | `/flow:merge` | Merge PR, clean up worktree and branch |
 | `/flow:deploy [target]` | Run Makefile deploy target |
@@ -27,7 +28,7 @@ Streamlined worktree-based development workflow. No locks, no Redis — just git
 
 Or step by step:
 ```
-/flow:start 42  →  work  →  /flow:finish  →  /flow:merge  →  /flow:deploy
+/flow:start 42  →  work  →  /flow:check  →  /flow:finish  →  /flow:merge  →  /flow:deploy
 ```
 
 Cross-machine (optional):
@@ -87,6 +88,10 @@ If no `.claude/security.yml` exists, the defaults above are used. If `lib/securi
 # Check what's active
 /flow:status
 # → Shows worktrees, dirty state, PR status
+
+# Pre-flight check (lint + test + security, no commit)
+/flow:check
+# → Reports pass/fail per check
 
 # Done coding — push and create PR
 /flow:finish
