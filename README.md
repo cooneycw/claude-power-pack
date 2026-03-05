@@ -246,7 +246,7 @@ Or use `/flow:auto 42` to automate the entire lifecycle in one shot.
 
 ## 🔄 Flow Workflow
 
-**New in v4.0.0:** Stateless, git-native commands for the full issue lifecycle.
+**Since v4.0.0:** Stateless, git-native commands for the full issue lifecycle.
 
 ### The Golden Path
 
@@ -1518,32 +1518,23 @@ MIT License - See LICENSE file for details
 
 ---
 
-**Repository Version**: 4.2.0
+**Repository Version**: 5.0.0
 **Last Updated**: March 2026
 **Maintainer**: cooneycw
 
-## What's New in v4.2.0
+## What's New in v5.0.0
 
-- **PowerPoint & Diagrams** - MCP Nano-Banana server with 6 diagram types and PPTX generation (`/pptx:create`)
-- **MCP health checks** - `/flow:doctor` and `/cpp:status` verify MCP server connectivity
-- **`/secrets:delete`** - Complete the secret lifecycle with delete + audit logging
+- **MCP Nano-Banana** - Diagram generation (6 types) + PowerPoint creation via `/pptx:create`
+- **Tier 4: CI/CD & Verification** - `lib/cicd/` with framework detection, Makefile generation, health/smoke testing, pipeline generation
+- **Evaluate Flow** - `/evaluate:issue` for multi-model 4-phase evaluation with spec output
+- **`/project:init`** - Zero-to-GitHub-repo scaffolding in one command
 - **`/flow:check`** - Pre-commit quality validation (lint + test + security) without committing
-- **Stack-specific Makefiles** - Django, Flask, FastAPI, Node.js, Go templates for `/cicd:init`
-- **Security gate documentation** - Documented gate behavior in `/flow:help` and security.yml config
-- **MCP Evaluate server** - Composite server for multi-model evaluation workflows (port 8083)
-- **`/cicd:pipeline`** - Generate GitHub Actions CI/CD workflows
-- **Unit test infrastructure** - 211 pytest tests covering all Python libraries
-
-### Previous: v4.1.0
-
-- **Python packaging best practices** - PEP 621 (pyproject.toml) and PEP 723 (inline script metadata) guidance
-- **Sequential Thinking MCP** - Optional extra for structured step-by-step reasoning
-- **Self-improvement commands** - `/self-improvement:deployment` for retrospective Makefile analysis
-- **Security scanning** - `/security:scan`, `/security:quick`, `/security:deep` with `/flow` gate integration
-- **Enhanced secrets management** - Tiered providers (dotenv, AWS), FastAPI web UI, audit logging
-- **Flow enhancements** - `/flow:sync` (cross-machine), `/flow:cleanup` (prune stale), `/flow:doctor` (diagnostics)
-- **QA generalization** - Config-driven testing for any project
-- **Makefile as first-class concept** - Build, test, lint, deploy targets used by `/flow` commands
+- **QA testing** - Config-driven `/qa:test` with Playwright browser automation for any project
+- **Django support** - Framework detection and `django-uv.mk` Makefile template
+- **`/secrets:delete`** - Delete secrets with audit trail
+- **211 unit tests** - Full test coverage for all Python libraries
+- **Security gate docs** - Documented `/flow:finish` and `/flow:deploy` gate behavior
+- **Stack-specific templates** - `/flow:doctor` suggests framework-appropriate Makefile templates
 
 ### Previous: v4.0.0
 
