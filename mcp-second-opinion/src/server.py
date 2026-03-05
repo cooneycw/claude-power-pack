@@ -1690,34 +1690,34 @@ def _run_diagnose() -> int:
     has_anthropic = bool(Config.ANTHROPIC_API_KEY)
 
     if has_gemini:
-        print(f"  Gemini API key:    configured")
+        print("  Gemini API key:    configured")
     else:
         warnings.append("GEMINI_API_KEY not set")
-        print(f"  Gemini API key:    NOT SET")
+        print("  Gemini API key:    NOT SET")
 
     if has_openai:
-        print(f"  OpenAI API key:    configured")
+        print("  OpenAI API key:    configured")
     else:
         warnings.append("OPENAI_API_KEY not set")
-        print(f"  OpenAI API key:    NOT SET")
+        print("  OpenAI API key:    NOT SET")
 
     if has_anthropic:
-        print(f"  Anthropic API key: configured")
+        print("  Anthropic API key: configured")
     else:
         warnings.append("ANTHROPIC_API_KEY not set")
-        print(f"  Anthropic API key: NOT SET")
+        print("  Anthropic API key: NOT SET")
 
     if not (has_gemini or has_openai or has_anthropic):
-        errors.append("No API keys configured — server will start but all tool calls will fail")
+        errors.append("No API keys configured - server will start but all tool calls will fail")
 
     # Check .env file
     env_path = Path(__file__).parent.parent / ".env"
     if env_path.exists():
         print(f"  .env file:         {env_path}")
     else:
-        print(f"  .env file:         not found (using environment variables)")
+        print("  .env file:         not found (using environment variables)")
 
-    # Check port availability (SSE mode)
+    # Check port availability (streamable-http mode)
     port = Config.SERVER_PORT
     host = Config.SERVER_HOST
     try:
@@ -1727,7 +1727,7 @@ def _run_diagnose() -> int:
         sock.close()
         if result == 0:
             print(f"  Port {port}:           IN USE (another server already running?)")
-            warnings.append(f"Port {port} already in use — SSE mode may fail to bind")
+            warnings.append(f"Port {port} already in use - server may fail to bind")
         else:
             print(f"  Port {port}:           available")
     except Exception:
@@ -1782,7 +1782,7 @@ def main():
         logger.info("Transport: stdio")
     else:
         logger.info(f"Starting {Config.SERVER_NAME} v{Config.SERVER_VERSION}")
-        logger.info(f"Transport: SSE on {Config.SERVER_HOST}:{Config.SERVER_PORT}")
+        logger.info(f"Transport: streamable-http on {Config.SERVER_HOST}:{Config.SERVER_PORT}")
 
     logger.info(f"Context caching: {'enabled' if Config.ENABLE_CONTEXT_CACHING else 'disabled'}")
 
@@ -1797,7 +1797,7 @@ def main():
         mcp.run(transport="stdio")
     else:
         mcp.run(
-            transport="sse",
+            transport="streamable-http",
             host=Config.SERVER_HOST,
             port=Config.SERVER_PORT,
         )

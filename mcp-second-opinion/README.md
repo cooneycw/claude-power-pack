@@ -1,6 +1,6 @@
 # MCP Second Opinion
 
-Gemini-powered code review MCP server for Claude Code.
+Multi-model code review MCP server for Claude Code.
 
 ## Features
 
@@ -8,6 +8,7 @@ Gemini-powered code review MCP server for Claude Code.
 - **Multi-Model Support**: Consult multiple LLMs (Gemini 3.1, Claude Sonnet/Haiku/Opus, GPT-5.3 Codex, o4-mini)
 - **Session-Based**: Interactive multi-turn conversations for deeper analysis
 - **Visual Analysis**: Support for screenshot/image analysis (Playwright integration)
+- **Streamable HTTP**: Stateless transport - no persistent connection, resilient to disconnects
 
 ## Quick Start
 
@@ -21,14 +22,14 @@ uv run python src/server.py
 
 ## Add to Claude Code
 
-**stdio (recommended — auto-start, no manual server management):**
+**stdio (recommended - auto-start, no manual server management):**
 ```bash
 claude mcp add second-opinion --transport stdio -- uv run --directory /path/to/claude-power-pack/mcp-second-opinion python src/server.py --stdio
 ```
 
-**SSE (for systemd/docker deployments):**
+**Streamable HTTP (for systemd/docker deployments):**
 ```bash
-claude mcp add second-opinion --transport sse --url http://127.0.0.1:8080/sse
+claude mcp add second-opinion --transport streamable-http --url http://127.0.0.1:8080/mcp
 ```
 
 ## Environment Variables
@@ -62,19 +63,35 @@ Copy `.env.example` to `.env` and configure:
 
 ### Error: `-32602: Invalid request parameters`
 
-This usually means Claude Code cannot reach the server, not that your parameters are wrong.
+This usually means Claude Code cannot reach the server or the SSE session expired.
 
-**Fix: Switch to stdio transport (recommended)**
+**Fix 1: Upgrade to streamable-http transport (recommended)**
+
+The streamable-http transport is stateless - each request is independent, so there are no
+session timeouts or disconnection issues. Update your `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "second-opinion": {
+      "type": "streamable-http",
+      "url": "http://127.0.0.1:8080/mcp"
+    }
+  }
+}
+```
+
+**Fix 2: Switch to stdio transport**
 
 ```bash
-# Remove the SSE configuration
+# Remove the old configuration
 claude mcp remove second-opinion
 
 # Add with stdio (auto-starts, no manual server management)
 claude mcp add second-opinion --transport stdio -- uv run --directory /path/to/claude-power-pack/mcp-second-opinion python src/server.py --stdio
 ```
 
-**If using SSE:** Ensure the server is running before starting Claude Code:
+**If using HTTP transport:** Ensure the server is running before starting Claude Code:
 
 ```bash
 # Check if server is running

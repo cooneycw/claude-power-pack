@@ -334,7 +334,7 @@ class Config:
 
     # Server Configuration
     SERVER_NAME: str = "second-opinion-server"
-    SERVER_VERSION: str = "1.9.0"  # Gemini 3.1 Pro, Codex 5.3 default, add o4-mini
+    SERVER_VERSION: str = "2.0.0"  # FastMCP 3.x, streamable-http transport
 
     # HTTP/SSE Transport Configuration (with safe parsing)
     SERVER_HOST: str = os.getenv("MCP_SERVER_HOST", "127.0.0.1")
