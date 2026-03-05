@@ -206,7 +206,7 @@ fi
 # Check MCP server pyproject.toml files
 echo ""
 echo "MCP Server Projects:"
-for server in mcp-second-opinion mcp-playwright-persistent; do
+for server in mcp-second-opinion mcp-playwright-persistent extras/redis-coordination/mcp-server; do
   if [ -f "$CPP_DIR/$server/pyproject.toml" ]; then
     echo "  [x] $server: pyproject.toml found"
   else
@@ -218,11 +218,26 @@ done
 echo ""
 echo "MCP Servers (Claude Code):"
 MCP_LIST=$(claude mcp list 2>/dev/null || echo "")
-for server in second-opinion playwright-persistent; do
+for server in second-opinion playwright-persistent coordination; do
   if echo "$MCP_LIST" | grep -q "$server"; then
-    echo "  [x] $server"
+    echo "  [x] $server: registered"
   else
-    echo "  [ ] $server"
+    echo "  [ ] $server: not registered"
+  fi
+done
+
+# Check MCP server connectivity
+echo ""
+echo "MCP Server Connectivity:"
+for entry in "8080:second-opinion" "8081:playwright-persistent" "8082:coordination"; do
+  PORT="${entry%%:*}"
+  NAME="${entry#*:}"
+  if curl -sf --max-time 2 "http://127.0.0.1:${PORT}/health" >/dev/null 2>&1; then
+    echo "  [x] $NAME (port $PORT): reachable"
+  elif ss -tlnp 2>/dev/null | grep -q ":${PORT} " 2>/dev/null; then
+    echo "  [~] $NAME (port $PORT): port open (no /health endpoint)"
+  else
+    echo "  [ ] $NAME (port $PORT): not reachable"
   fi
 done
 
@@ -330,6 +345,10 @@ Tier 3 (Full):
   [x] uv: 0.5.x
   [x] mcp-second-opinion: pyproject.toml + registered
   [ ] mcp-playwright-persistent: not configured
+  MCP Connectivity:
+    [x] second-opinion (port 8080): reachable
+    [ ] playwright-persistent (port 8081): not reachable
+    [ ] coordination (port 8082): not reachable
   [ ] Systemd: not installed
   Status: Partial
 

@@ -155,6 +155,35 @@ If `CPP_DIR` is not found, skip this entire section and note in the report:
 CI/CD Readiness: skipped (lib/cicd not available)
 ```
 
+### Step 7c: MCP Server Connectivity
+
+Check whether MCP servers are reachable on their expected ports:
+
+```bash
+echo ""
+echo "MCP Server Connectivity:"
+
+MCP_ISSUES=0
+for entry in "8080:second-opinion" "8081:playwright-persistent" "8082:coordination"; do
+  PORT="${entry%%:*}"
+  NAME="${entry#*:}"
+  if curl -sf --max-time 2 "http://127.0.0.1:${PORT}/health" >/dev/null 2>&1; then
+    echo "  [x] $NAME (port $PORT): reachable"
+  elif ss -tlnp 2>/dev/null | grep -q ":${PORT} " 2>/dev/null; then
+    echo "  [~] $NAME (port $PORT): port open (no /health endpoint)"
+  else
+    echo "  [ ] $NAME (port $PORT): not reachable"
+    MCP_ISSUES=$((MCP_ISSUES + 1))
+  fi
+done
+
+if (( MCP_ISSUES > 0 )); then
+  echo "  Status: $MCP_ISSUES server(s) not reachable"
+else
+  echo "  Status: All MCP servers reachable"
+fi
+```
+
 ### Step 8: Generate Report
 
 Output a single diagnostic report in this format:
@@ -190,6 +219,14 @@ Output a single diagnostic report in this format:
 | prompt-context.sh | ✅/❌ | Shell prompt context |
 | worktree-remove.sh | ✅/❌ | Safe worktree removal |
 | secrets-mask.sh | ✅/❌ | Output masking filter |
+
+### MCP Server Connectivity
+
+| Server | Port | Status | Details |
+|--------|------|--------|---------|
+| second-opinion | 8080 | ✅/⚠️/❌ | Reachable / Port open (no /health) / Not reachable |
+| playwright-persistent | 8081 | ✅/⚠️/❌ | Reachable / Port open (no /health) / Not reachable |
+| coordination | 8082 | ✅/⚠️/❌ | Reachable / Port open (no /health) / Not reachable |
 
 ### Active Worktrees
 
@@ -233,6 +270,7 @@ Output a single diagnostic report in this format:
 6. ❌ **No CI pipeline** — Run `/cicd:pipeline` to generate GitHub Actions or Woodpecker CI config
 7. ⚠️ **No health endpoints** — Add `health.endpoints` to `.claude/cicd.yml` for post-deploy verification
 8. ⚠️ **No smoke tests** — Add `health.smoke_tests` to `.claude/cicd.yml` for post-deploy testing
+9. ⚠️ **MCP server(s) not reachable** — Start servers: `cd mcp-second-opinion && ./start-server.sh` (or use stdio transport)
 
 *All checks passed!* → "Environment is ready for `/flow` workflow."
 ```
