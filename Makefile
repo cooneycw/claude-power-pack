@@ -28,7 +28,7 @@ update_docs:
 ## Docker (MCP server containers)
 ## Usage: make docker-up PROFILE=core
 ##        make docker-up PROFILE="core browser"
-## Profiles: core (second-opinion + nano-banana), eval, browser, coord
+## Profiles: core (second-opinion + nano-banana), browser, coord
 
 PROFILE ?= core
 

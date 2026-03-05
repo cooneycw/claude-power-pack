@@ -32,7 +32,7 @@ This repository contains five core components and optional extras:
 - MCP Second Opinion: port 8080 (SSE) or `--stdio`
 - MCP Playwright: port 8081 (SSE) or `--stdio`
 - MCP Coordination: port 8082 (SSE) or `--stdio`
-- MCP Evaluate: port 8083 (SSE)
+- MCP Evaluate: DEPRECATED (absorbed into /evaluate:issue command + evaluate skill)
 - MCP Nano-Banana: port 8084 (SSE) or `--stdio`
 - All documentation uses progressive disclosure principles
 
@@ -74,9 +74,9 @@ claude-power-pack/
 │   │   └── constitution.md                     # Project principles template
 │   ├── specs/                                  # Feature specifications
 │   └── templates/                              # Spec, plan, tasks templates
-├── mcp-evaluate/                                # MCP Evaluate server (composite)
-│   ├── src/server.py                           # 3 tools (domain-aware evaluation)
-│   ├── deploy/                                 # systemd service
+├── mcp-evaluate/                                # DEPRECATED: absorbed into evaluate skill + command
+│   ├── src/server.py                           # 3 tools (kept for reference)
+│   ├── deploy/                                 # Docker/systemd (kept for reference)
 │   └── README.md                               # Full documentation
 ├── mcp-nano-banana/                             # MCP Nano-Banana (diagrams + PPTX)
 │   ├── src/server.py                           # 4 tools (diagram generation, PPTX)
@@ -245,6 +245,7 @@ claude-power-pack/
 │   │   ├── python-packaging.md                 # → docs/skills/
 │   │   ├── cicd-verification.md                # → docs/skills/
 │   │   ├── documentation.md                    # Documentation & diagrams skill
+│   │   ├── evaluate.md                         # Domain-aware evaluation prompts
 │   │   └── secrets.md                          # Secrets skill
 │   └── hooks.json                              # Session hooks
 ├── .github/
@@ -742,6 +743,7 @@ Output lands in `.specify/specs/{feature}/` as spec.md, plan.md, and tasks.md.
 
 - **Required:** MCP Second Opinion server
 - **Optional:** Sequential Thinking MCP (enhances Phase 2; falls back to inline reasoning)
+- **Skill:** `evaluate` skill provides domain-specific prompts (loaded automatically)
 
 ### Quick Example
 
@@ -750,19 +752,7 @@ Output lands in `.specify/specs/{feature}/` as spec.md, plan.md, and tasks.md.
 /evaluate:issue   # Interactive — prompts for all inputs
 ```
 
-### MCP Evaluate Server
-
-The evaluate flow optionally uses a dedicated MCP server (`mcp-evaluate`, port 8083) that provides domain-aware prompting and session state. It composes the second-opinion server — it does NOT call LLM APIs directly.
-
-**Tools:** `evaluate_start`, `evaluate_validate`, `evaluate_produce_spec`
-
-**Setup:**
-```bash
-cd mcp-evaluate && ./start-server.sh
-claude mcp add mcp-evaluate --transport sse --url http://127.0.0.1:8083/sse
-```
-
-The skill file auto-detects whether the MCP evaluate server is available and falls back to direct second-opinion calls if not.
+The evaluate flow calls the second-opinion MCP server directly using domain-aware prompts from the evaluate skill. No separate evaluate server is needed.
 
 ## Documentation & Diagrams
 
@@ -1170,7 +1160,7 @@ cd mcp-second-opinion
 ### Project Structure
 
 Each Python component has its own `pyproject.toml`:
-- `mcp-evaluate/pyproject.toml`
+- `mcp-evaluate/pyproject.toml` (deprecated — kept for reference)
 - `mcp-nano-banana/pyproject.toml`
 - `mcp-second-opinion/pyproject.toml`
 - `mcp-playwright-persistent/pyproject.toml`

@@ -53,32 +53,34 @@ services:
           cpus: "0.25"
           memory: 128M
 
-  mcp-evaluate:
-    build:
-      context: ./mcp-evaluate
-      dockerfile: deploy/Dockerfile
-    image: mcp-evaluate:latest
-    container_name: mcp-evaluate
-    ports:
-      - "8083:8083"
-    env_file:
-      - path: .env
-        required: false
-    depends_on:
-      mcp-second-opinion:
-        condition: service_healthy
-    restart: unless-stopped
-    profiles: ["eval"]
-    environment:
-      - SECOND_OPINION_URL=http://mcp-second-opinion:8080
-    deploy:
-      resources:
-        limits:
-          cpus: "0.5"
-          memory: 256M
-        reservations:
-          cpus: "0.25"
-          memory: 128M
+  # mcp-evaluate: DEPRECATED — evaluation logic absorbed into /evaluate:issue command + evaluate skill.
+  # Dockerfile kept in mcp-evaluate/deploy/ for reference. To re-enable, uncomment below.
+  # mcp-evaluate:
+  #   build:
+  #     context: ./mcp-evaluate
+  #     dockerfile: deploy/Dockerfile
+  #   image: mcp-evaluate:latest
+  #   container_name: mcp-evaluate
+  #   ports:
+  #     - "8083:8083"
+  #   env_file:
+  #     - path: .env
+  #       required: false
+  #   depends_on:
+  #     mcp-second-opinion:
+  #       condition: service_healthy
+  #   restart: unless-stopped
+  #   profiles: ["eval"]
+  #   environment:
+  #     - SECOND_OPINION_URL=http://mcp-second-opinion:8080
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         cpus: "0.5"
+  #         memory: 256M
+  #       reservations:
+  #         cpus: "0.25"
+  #         memory: 128M
 
   mcp-playwright-persistent:
     build:

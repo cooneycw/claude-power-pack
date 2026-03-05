@@ -1,6 +1,6 @@
 ---
 description: Multi-model evaluation flow for issues, ideas, and architectural decisions
-allowed-tools: mcp__second-opinion__get_multi_model_second_opinion, mcp__second-opinion__list_available_models, mcp__second-opinion__get_code_second_opinion, mcp__mcp-evaluate__evaluate_start, mcp__mcp-evaluate__evaluate_validate, mcp__mcp-evaluate__evaluate_produce_spec
+allowed-tools: mcp__second-opinion__get_multi_model_second_opinion, mcp__second-opinion__list_available_models, mcp__second-opinion__get_code_second_opinion
 ---
 
 # Evaluate Issue
@@ -17,24 +17,17 @@ This command runs a structured evaluation pipeline:
 
 ```
 Phase 1: Multi-Model Divergence Scan
-  → Human Checkpoint #1
+  -> Human Checkpoint #1
 Phase 2: Sequential Reasoning (12-15 steps)
-  → Human Checkpoint #2
+  -> Human Checkpoint #2
 Phase 3: Multi-Model Validation
-  → Human Checkpoint #3
+  -> Human Checkpoint #3
 Phase 4: Spec Output
 ```
 
 Each phase builds on the previous. Human checkpoints let the user steer.
 
-### MCP Evaluate Server (Preferred)
-
-If the `mcp-evaluate` MCP server is available (tools: `evaluate_start`, `evaluate_validate`, `evaluate_produce_spec`), use it instead of calling `get_multi_model_second_opinion` directly. The MCP evaluate server provides:
-- Domain-aware prompt framing (no `language="markdown"` workaround needed)
-- Session state tracking across phases (Phase 3 is contextualized by Phase 1)
-- Automatic `.specify/` template generation
-
-**Detection:** Check if `evaluate_start` tool is available. If yes, use Steps 2a/6a/8a below. If not, fall back to the direct second-opinion calls in Steps 2/6/8.
+Domain-specific prompts are provided by the `evaluate` skill, which embeds prompts for 5 domains: architecture, concept, algorithm, ui-design, workflow.
 
 ---
 
@@ -80,8 +73,8 @@ Ask:
 > "Do you have any supporting artifacts? (code snippets, existing specs, mockup descriptions, constraints)"
 
 Options:
-- **Yes** — User provides artifacts (paste or file paths)
-- **No** — Proceed without artifacts
+- **Yes** -- User provides artifacts (paste or file paths)
+- **No** -- Proceed without artifacts
 
 ### Assemble Context Block
 
@@ -98,7 +91,7 @@ Artifacts: {any provided artifacts, or "None"}
 
 ---
 
-## Step 2: Phase 1 — Multi-Model Divergence Scan
+## Step 2: Phase 1 -- Multi-Model Divergence Scan
 
 Call `get_multi_model_second_opinion` with:
 
@@ -108,35 +101,19 @@ Call `get_multi_model_second_opinion` with:
 | `language` | `markdown` |
 | `models` | Select 2-3 available models (prefer diverse providers, e.g., `["gemini-3-pro", "codex"]`) |
 | `verbosity` | `in_depth` |
-| `context` | `"Evaluate this {domain} proposal. Identify strengths, weaknesses, risks, alternatives, and key tensions. Focus on where reasonable people would disagree."` |
+| `context` | Use the Phase 1 prompt from the evaluate skill for the selected domain |
 | `issue_description` | `"Multi-model divergence scan for: {description}"` |
 
 ### Present Results
 
 Display a synthesis showing:
 
-1. **Areas of Agreement** — Where all models converge
-2. **Areas of Divergence** — Where models disagree or emphasize differently
-3. **Key Tensions** — The most important trade-offs or decision points identified
-4. **Risk Flags** — Concerns raised by any model
+1. **Areas of Agreement** -- Where all models converge
+2. **Areas of Divergence** -- Where models disagree or emphasize differently
+3. **Key Tensions** -- The most important trade-offs or decision points identified
+4. **Risk Flags** -- Concerns raised by any model
 
 Format as a clear summary, not raw model output. Pull out the interesting disagreements.
-
-### Step 2a: Phase 1 via MCP Evaluate Server (if available)
-
-If `evaluate_start` tool is available, call it instead of `get_multi_model_second_opinion`:
-
-| Parameter | Value |
-|-----------|-------|
-| `description` | User's description from Step 1 |
-| `domain` | Selected domain type |
-| `artifacts` | Any provided artifacts |
-| `models` | User's model preference or omit for auto-select |
-| `context` | Any additional context |
-
-The server handles domain-aware prompting automatically. Save the returned `session_id` for Phase 3.
-
-Present the same synthesis (agreement, divergence, tensions, risks) from the response.
 
 ---
 
@@ -155,12 +132,12 @@ Also ask:
 > "Any additional constraints or preferences to guide the deep analysis?"
 
 Options:
-- **No, proceed as-is** — Continue with identified tensions
-- **Yes** — User provides additional constraints
+- **No, proceed as-is** -- Continue with identified tensions
+- **Yes** -- User provides additional constraints
 
 ---
 
-## Step 4: Phase 2 — Sequential Reasoning
+## Step 4: Phase 2 -- Sequential Reasoning
 
 **If `sequentialthinking` MCP tool is available:**
 
@@ -168,11 +145,11 @@ Run sequential thinking iteratively, targeting 12-15 thoughts. Structure the rea
 
 | Thoughts | Focus |
 |----------|-------|
-| 1-3 | **Problem Space** — Define boundaries, stakeholders, constraints |
-| 4-6 | **Options Analysis** — Enumerate approaches, map to domain type |
-| 7-9 | **Trade-off Evaluation** — Apply focus areas from Checkpoint #1 |
-| 10-12 | **Convergence** — Synthesize toward recommendation |
-| 13+ | **Branch if needed** — Explore alternatives if convergence is weak |
+| 1-3 | **Problem Space** -- Define boundaries, stakeholders, constraints |
+| 4-6 | **Options Analysis** -- Enumerate approaches, map to domain type |
+| 7-9 | **Trade-off Evaluation** -- Apply focus areas from Checkpoint #1 |
+| 10-12 | **Convergence** -- Synthesize toward recommendation |
+| 13+ | **Branch if needed** -- Explore alternatives if convergence is weak |
 
 For each thought, call `sequentialthinking` with:
 - `thought`: The reasoning step content
@@ -196,16 +173,16 @@ Reasoning Step 2/12: Problem Space
 ...
 ```
 
-Use the same structure (problem space → options → trade-offs → convergence → branch).
+Use the same structure (problem space -> options -> trade-offs -> convergence -> branch).
 
 ### Present Results
 
 After completing the reasoning chain, present:
 
-1. **Reasoning Summary** — The key insights from each phase
-2. **Recommended Approach** — The convergent recommendation
-3. **Confidence Level** — How strongly the reasoning supports the recommendation
-4. **Open Questions** — Unresolved items that need human judgment
+1. **Reasoning Summary** -- The key insights from each phase
+2. **Recommended Approach** -- The convergent recommendation
+3. **Confidence Level** -- How strongly the reasoning supports the recommendation
+4. **Open Questions** -- Unresolved items that need human judgment
 
 ---
 
@@ -216,15 +193,15 @@ Use AskUserQuestion:
 > "Phase 2 reasoning produced this recommendation. How should we proceed?"
 
 Options:
-- **Accept and validate** (Recommended) — Proceed to Phase 3 multi-model validation
-- **Redirect** — Provide new constraints or change focus, then re-run Phase 2
-- **Skip validation** — Go directly to spec output (Phase 4)
+- **Accept and validate** (Recommended) -- Proceed to Phase 3 multi-model validation
+- **Redirect** -- Provide new constraints or change focus, then re-run Phase 2
+- **Skip validation** -- Go directly to spec output (Phase 4)
 
 If user provides additional constraints, re-run Phase 2 with the new context appended.
 
 ---
 
-## Step 6: Phase 3 — Multi-Model Validation
+## Step 6: Phase 3 -- Multi-Model Validation
 
 Call `get_multi_model_second_opinion` with:
 
@@ -234,29 +211,17 @@ Call `get_multi_model_second_opinion` with:
 | `language` | `markdown` |
 | `models` | Same models as Phase 1 (or user-adjusted) |
 | `verbosity` | `detailed` |
-| `context` | The full Phase 2 reasoning chain summary + recommended approach |
+| `context` | The Phase 3 validation prompt from the evaluate skill for the selected domain, plus the full Phase 2 reasoning chain summary and recommended approach |
 | `issue_description` | `"Validate this recommendation against the original proposal. Identify gaps, risks, and implementation concerns."` |
 
 ### Present Results
 
 Display:
 
-1. **Validation Summary** — Do the models agree with the Phase 2 recommendation?
-2. **Gaps Identified** — What did Phase 2 miss?
-3. **Implementation Risks** — Practical concerns for executing the recommendation
-4. **Suggested Refinements** — Model-suggested improvements
-
-### Step 6a: Phase 3 via MCP Evaluate Server (if available)
-
-If `evaluate_validate` tool is available and you have a `session_id` from Step 2a, call it:
-
-| Parameter | Value |
-|-----------|-------|
-| `session_id` | From evaluate_start response |
-| `reasoning_chain` | Full Phase 2 reasoning output |
-| `proposed_approach` | The synthesized recommendation |
-
-The server injects the reasoning chain as context and uses domain-specific validation prompts. Present the same validation summary.
+1. **Validation Summary** -- Do the models agree with the Phase 2 recommendation?
+2. **Gaps Identified** -- What did Phase 2 miss?
+3. **Implementation Risks** -- Practical concerns for executing the recommendation
+4. **Suggested Refinements** -- Model-suggested improvements
 
 ---
 
@@ -269,22 +234,22 @@ Use AskUserQuestion:
 **Question 1: Output Type**
 
 Options:
-- **Full spec** (Recommended) — Generate spec.md + plan.md + tasks.md
-- **Spec only** — Generate just spec.md (requirements and user stories)
-- **Plan only** — Generate just plan.md (technical approach)
-- **Tasks only** — Generate just tasks.md (actionable items)
+- **Full spec** (Recommended) -- Generate spec.md + plan.md + tasks.md
+- **Spec only** -- Generate just spec.md (requirements and user stories)
+- **Plan only** -- Generate just plan.md (technical approach)
+- **Tasks only** -- Generate just tasks.md (actionable items)
 
 **Question 2: Confirm Feature Name**
 
 > "Output will be written to `.specify/specs/{feature-name}/`. Confirm or change?"
 
 Options:
-- **Confirm: {feature-name}** — Use the original name
-- **Change** — User provides a new name
+- **Confirm: {feature-name}** -- Use the original name
+- **Change** -- User provides a new name
 
 ---
 
-## Step 8: Phase 4 — Spec Output
+## Step 8: Phase 4 -- Spec Output
 
 ### Check Prerequisites
 
@@ -295,35 +260,22 @@ if [ ! -d ".specify" ]; then
 fi
 
 if [ -d ".specify/specs/{feature-name}" ]; then
-    # Directory exists — warn user
+    # Directory exists -- warn user
     echo "Note: .specify/specs/{feature-name}/ already exists. Files will be overwritten."
 fi
 
 mkdir -p .specify/specs/{feature-name}
 ```
 
-### Step 8a: Phase 4 via MCP Evaluate Server (if available)
+### Generate Output Files
 
-If `evaluate_produce_spec` tool is available, call it to generate spec artifacts:
-
-| Parameter | Value |
-|-----------|-------|
-| `session_id` | From evaluate_start response |
-| `evaluation_type` | `"full"`, `"spec"`, `"plan"`, or `"tasks"` (from Checkpoint #3) |
-| `feature_name` | Confirmed feature name |
-| `constitution_path` | `.specify/memory/constitution.md` (if exists) |
-
-The server returns file contents. Write them to `.specify/specs/{feature-name}/`. Then skip to the Report Output section.
-
-### Generate Output Files (fallback — when MCP evaluate server is not available)
-
-Based on the user's selection in Checkpoint #3, generate the appropriate files. Use the `.specify/templates/` templates as the structural base, but fill them with content from the evaluation:
+Based on the user's selection in Checkpoint #3, generate the appropriate files. Use the `.specify/templates/` templates as the structural base, but fill them with content from the evaluation. Use the spec focus areas from the evaluate skill for the selected domain.
 
 #### spec.md
 
 Fill from the evaluation:
 - **Overview**: From Phase 1 synthesis + user description
-- **User Stories**: Derived from Phase 2 reasoning (stakeholders → stories)
+- **User Stories**: Derived from Phase 2 reasoning (stakeholders -> stories)
 - **Acceptance Criteria**: From Phase 3 validation (gaps become criteria)
 - **Edge Cases**: From Phase 1 divergence points
 - **Requirements**: Consolidated from all phases
@@ -355,9 +307,9 @@ Phase 4: Spec Output Complete
 
 Created:
   .specify/specs/{feature-name}/
-  ├── spec.md      ← Requirements from evaluation
-  ├── plan.md      ← Technical approach
-  └── tasks.md     ← Actionable items
+  -- spec.md      <- Requirements from evaluation
+  -- plan.md      <- Technical approach
+  -- tasks.md     <- Actionable items
 
 Evaluation Summary:
   Models consulted: {count} ({model names})
@@ -374,7 +326,7 @@ Next steps:
 
 ## Domain-Specific Guidance
 
-The domain type influences how each phase focuses its analysis:
+The domain type influences how each phase focuses its analysis. Refer to the evaluate skill for the full prompt text for each domain.
 
 ### architecture
 - Phase 1: Focus on scalability, reliability, cost, security trade-offs
@@ -411,8 +363,9 @@ The domain type influences how each phase focuses its analysis:
 ## Notes
 
 - Uses `language="markdown"` for non-code content in the second-opinion tools (acceptable workaround)
-- No new MCP server required — works entirely with existing `second-opinion` and optionally `sequential-thinking` tools
+- No separate MCP server required -- works entirely with existing `second-opinion` and optionally `sequential-thinking` tools
+- Domain prompts are provided by the evaluate skill (.claude/skills/evaluate.md)
 - Each phase takes 30-60 seconds; full evaluation is ~3-5 minutes
 - Cost depends on model selection and verbosity; typical run is $0.10-0.30
 - If only one model is available, falls back to `get_code_second_opinion` with single-model mode
-- The sequential thinking MCP is optional — if not installed, reasoning is done inline
+- The sequential thinking MCP is optional -- if not installed, reasoning is done inline
