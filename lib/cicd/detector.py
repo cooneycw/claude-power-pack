@@ -17,6 +17,9 @@ from .models import (
     PackageManager,
 )
 
+# Django markers checked separately (requires manage.py + Python)
+_DJANGO_MARKER = "manage.py"
+
 # Marker files → (Framework, PackageManager or None)
 # Order matters: more specific markers first
 _FRAMEWORK_MARKERS: list[tuple[str, Framework, Optional[PackageManager]]] = [
@@ -114,6 +117,11 @@ def detect_framework(project_root: str | Path) -> FrameworkInfo:
     else:
         primary = unique_frameworks[0]
         secondary = []
+
+    # Promote Python → Django if manage.py exists
+    if primary == Framework.PYTHON and (root / _DJANGO_MARKER).exists():
+        detected_files.append(_DJANGO_MARKER)
+        primary = Framework.DJANGO
 
     # Determine package manager
     if detected_pm is None:

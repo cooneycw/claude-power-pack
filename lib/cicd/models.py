@@ -21,6 +21,7 @@ class Framework(Enum):
     """Detected project framework."""
 
     PYTHON = "python"
+    DJANGO = "django"
     NODE = "node"
     GO = "go"
     RUST = "rust"
@@ -31,6 +32,7 @@ class Framework(Enum):
     def label(self) -> str:
         labels = {
             Framework.PYTHON: "Python",
+            Framework.DJANGO: "Django",
             Framework.NODE: "Node.js",
             Framework.GO: "Go",
             Framework.RUST: "Rust",
@@ -66,6 +68,10 @@ RECOMMENDED_TARGETS = ["format", "typecheck", "build", "deploy", "clean", "verif
 # Framework-specific recommended targets
 FRAMEWORK_TARGETS: dict[Framework, list[str]] = {
     Framework.PYTHON: ["lint", "test", "typecheck", "format", "build", "deploy", "clean", "verify"],
+    Framework.DJANGO: [
+        "lint", "test", "typecheck", "format", "build", "deploy", "clean", "verify",
+        "migrate", "collectstatic", "check", "runserver",
+    ],
     Framework.NODE: ["lint", "test", "typecheck", "build", "deploy", "clean", "dev", "verify"],
     Framework.GO: ["lint", "test", "vet", "build", "deploy", "clean", "verify"],
     Framework.RUST: ["lint", "test", "build", "build-release", "deploy", "clean", "verify"],
@@ -88,6 +94,28 @@ FRAMEWORK_RUNNERS: dict[tuple[Framework, PackageManager], dict[str, str]] = {
         "typecheck": "python -m mypy .",
         "format": "python -m ruff format .",
         "build": "python -m build",
+    },
+    (Framework.DJANGO, PackageManager.UV): {
+        "lint": "uv run ruff check .",
+        "test": "uv run python manage.py test --verbosity=2",
+        "typecheck": "uv run mypy .",
+        "format": "uv run ruff format .",
+        "build": "uv build",
+        "migrate": "uv run python manage.py migrate",
+        "collectstatic": "uv run python manage.py collectstatic --noinput",
+        "check": "uv run python manage.py check --deploy",
+        "runserver": "uv run python manage.py runserver",
+    },
+    (Framework.DJANGO, PackageManager.PIP): {
+        "lint": "python -m ruff check .",
+        "test": "python manage.py test --verbosity=2",
+        "typecheck": "python -m mypy .",
+        "format": "python -m ruff format .",
+        "build": "python -m build",
+        "migrate": "python manage.py migrate",
+        "collectstatic": "python manage.py collectstatic --noinput",
+        "check": "python manage.py check --deploy",
+        "runserver": "python manage.py runserver",
     },
     (Framework.NODE, PackageManager.NPM): {
         "lint": "npm run lint",

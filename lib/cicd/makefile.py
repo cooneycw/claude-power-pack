@@ -224,6 +224,9 @@ def _get_template_path(info: FrameworkInfo, template_dir: Path) -> Optional[Path
         (Framework.PYTHON, PackageManager.UV): "python-uv.mk",
         (Framework.PYTHON, PackageManager.PIP): "python-pip.mk",
         (Framework.PYTHON, PackageManager.POETRY): "python-pip.mk",
+        (Framework.DJANGO, PackageManager.UV): "django-uv.mk",
+        (Framework.DJANGO, PackageManager.PIP): "django-uv.mk",
+        (Framework.DJANGO, PackageManager.POETRY): "django-uv.mk",
         (Framework.NODE, PackageManager.NPM): "node-npm.mk",
         (Framework.NODE, PackageManager.YARN): "node-yarn.mk",
         (Framework.NODE, PackageManager.PNPM): "node-npm.mk",
@@ -239,6 +242,7 @@ def _get_template_path(info: FrameworkInfo, template_dir: Path) -> Optional[Path
     # Fallback: try just the framework
     fw_mapping = {
         Framework.PYTHON: "python-uv.mk",
+        Framework.DJANGO: "django-uv.mk",
         Framework.NODE: "node-npm.mk",
         Framework.GO: "go.mk",
         Framework.RUST: "rust.mk",
@@ -339,6 +343,10 @@ def _get_clean_command(framework: Framework) -> str:
         Framework.PYTHON: (
             "rm -rf .pytest_cache __pycache__ .ruff_cache .mypy_cache "
             "dist build *.egg-info .coverage htmlcov"
+        ),
+        Framework.DJANGO: (
+            "rm -rf .pytest_cache __pycache__ .ruff_cache .mypy_cache "
+            "dist build *.egg-info .venv staticfiles .coverage htmlcov"
         ),
         Framework.NODE: "rm -rf node_modules dist build .next .nuxt coverage",
         Framework.GO: "rm -rf bin/ coverage.out",
