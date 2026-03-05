@@ -6,9 +6,8 @@ from unittest.mock import MagicMock, patch
 
 from lib.cicd.config import CICDConfig, HealthEndpoint, ProcessCheck, SmokeTest
 from lib.cicd.health import check_endpoint, check_process, run_health_checks
-from lib.cicd.models import HealthCheckEntry, HealthCheckResult
+from lib.cicd.models import HealthCheckEntry, HealthCheckResult, SmokeTestEntry, SmokeTestResult
 from lib.cicd.smoke import run_single_test, run_smoke_tests
-from lib.cicd.models import SmokeTestEntry, SmokeTestResult
 
 
 class TestHealthCheckModels:

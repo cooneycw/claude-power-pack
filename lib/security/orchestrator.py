@@ -6,8 +6,6 @@ Provides quick, standard, and deep scan modes.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from .config import SecurityConfig
 from .models import ScanResult
 from .modules import debug_flags, env_files, gitignore, gitleaks, npm_audit, permissions, pip_audit, secrets

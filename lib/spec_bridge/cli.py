@@ -14,8 +14,8 @@ import argparse
 import sys
 from pathlib import Path
 
-from .status import get_feature_status, get_all_status, format_feature_status, format_project_status
-from .issue_sync import sync_feature, sync_all_features
+from .issue_sync import sync_all_features, sync_feature
+from .status import format_feature_status, format_project_status, get_all_status, get_feature_status
 
 
 def cmd_status(args: argparse.Namespace) -> int:
@@ -121,7 +121,7 @@ def cmd_init(args: argparse.Namespace) -> int:
     # Check for constitution
     constitution_path = base_dir / "memory" / "constitution.md"
     if not constitution_path.exists():
-        print(f"\nNote: Create your project constitution at:")
+        print("\nNote: Create your project constitution at:")
         print(f"  {constitution_path}")
 
     return 0
@@ -141,24 +141,56 @@ def cmd_create(args: argparse.Namespace) -> int:
     feature_path.mkdir(parents=True)
 
     # Create placeholder files
+    title = _title_case(feature_name)
     files = {
-        "spec.md": f"# Feature Specification: {_title_case(feature_name)}\n\n> **Status:** Draft\n\n## Overview\n\nTODO: Describe what this feature does.\n\n## User Stories\n\n### US1: TODO [P1]\n\n**As a** user,\n**I want** TODO,\n**So that** TODO.\n\n**Acceptance Criteria:**\n- [ ] TODO\n",
-        "plan.md": f"# Implementation Plan: {_title_case(feature_name)}\n\n> **Spec:** [spec.md](./spec.md)\n> **Status:** Draft\n\n## Summary\n\nTODO: Technical approach.\n\n## Architecture\n\nTODO: Component design.\n",
-        "tasks.md": f"# Tasks: {_title_case(feature_name)}\n\n> **Plan:** [plan.md](./plan.md)\n> **Status:** Draft\n\n## Wave 1: Core Implementation\n\n- [ ] **T001** [US1] TODO task description\n\n**Checkpoint:** Core functionality works\n\n## Issue Sync\n\n| Wave | Tasks | Issue | Status |\n|------|-------|-------|--------|\n| 1 | T001 | - | pending |\n",
+        "spec.md": (
+            f"# Feature Specification: {title}\n\n"
+            "> **Status:** Draft\n\n"
+            "## Overview\n\n"
+            "TODO: Describe what this feature does.\n\n"
+            "## User Stories\n\n"
+            "### US1: TODO [P1]\n\n"
+            "**As a** user,\n"
+            "**I want** TODO,\n"
+            "**So that** TODO.\n\n"
+            "**Acceptance Criteria:**\n"
+            "- [ ] TODO\n"
+        ),
+        "plan.md": (
+            f"# Implementation Plan: {title}\n\n"
+            "> **Spec:** [spec.md](./spec.md)\n"
+            "> **Status:** Draft\n\n"
+            "## Summary\n\n"
+            "TODO: Technical approach.\n\n"
+            "## Architecture\n\n"
+            "TODO: Component design.\n"
+        ),
+        "tasks.md": (
+            f"# Tasks: {title}\n\n"
+            "> **Plan:** [plan.md](./plan.md)\n"
+            "> **Status:** Draft\n\n"
+            "## Wave 1: Core Implementation\n\n"
+            "- [ ] **T001** [US1] TODO task description\n\n"
+            "**Checkpoint:** Core functionality works\n\n"
+            "## Issue Sync\n\n"
+            "| Wave | Tasks | Issue | Status |\n"
+            "|------|-------|-------|--------|\n"
+            "| 1 | T001 | - | pending |\n"
+        ),
     }
 
     for filename, content in files.items():
         (feature_path / filename).write_text(content)
 
     print(f"Created feature spec: {feature_name}")
-    print(f"\nFiles:")
+    print("\nFiles:")
     for filename in files:
         print(f"  {feature_path / filename}")
 
-    print(f"\nNext steps:")
-    print(f"  1. Edit spec.md with user stories")
-    print(f"  2. Edit plan.md with technical approach")
-    print(f"  3. Edit tasks.md with actionable items")
+    print("\nNext steps:")
+    print("  1. Edit spec.md with user stories")
+    print("  2. Edit plan.md with technical approach")
+    print("  3. Edit tasks.md with actionable items")
     print(f"  4. Run: python -m lib.spec_bridge sync {feature_name}")
 
     return 0

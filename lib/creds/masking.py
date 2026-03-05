@@ -23,9 +23,9 @@ Pattern sources:
 
 from __future__ import annotations
 
-import re
 import logging
-from typing import List, Set, Tuple, Optional
+import re
+from typing import List, Optional, Set, Tuple
 
 logger = logging.getLogger(__name__)
 

@@ -17,7 +17,6 @@ from .models import (
     PackageManager,
 )
 
-
 # Marker files → (Framework, PackageManager or None)
 # Order matters: more specific markers first
 _FRAMEWORK_MARKERS: list[tuple[str, Framework, Optional[PackageManager]]] = [

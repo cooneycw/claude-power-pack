@@ -9,7 +9,6 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
-from pathlib import Path
 
 from ..models import Finding, ScanResult, Severity
 
@@ -24,10 +23,17 @@ def scan(project_root: str, include_history: bool = False) -> ScanResult:
     result = ScanResult()
 
     if not is_available():
-        result.skipped.append("gitleaks not installed (run `brew install gitleaks` or see https://github.com/gitleaks/gitleaks)")
+        result.skipped.append(
+            "gitleaks not installed (run `brew install gitleaks` or "
+            "see https://github.com/gitleaks/gitleaks)"
+        )
         return result
 
-    cmd = ["gitleaks", "detect", "--source", project_root, "--report-format", "json", "--report-path", "/dev/stdout", "--no-banner"]
+    cmd = [
+        "gitleaks", "detect", "--source", project_root,
+        "--report-format", "json", "--report-path", "/dev/stdout",
+        "--no-banner",
+    ]
 
     if not include_history:
         cmd.append("--no-git")

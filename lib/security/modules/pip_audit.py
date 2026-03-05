@@ -37,7 +37,10 @@ def scan(project_root: str) -> ScanResult:
         return result
 
     if not is_available():
-        result.skipped.append("pip-audit not installed (run `uv pip install pip-audit` for Python dependency CVE scanning)")
+        result.skipped.append(
+            "pip-audit not installed (run `uv pip install pip-audit` "
+            "for Python dependency CVE scanning)"
+        )
         return result
 
     cmd = ["pip-audit", "--format", "json", "--progress-spinner", "off"]

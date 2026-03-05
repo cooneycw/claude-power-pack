@@ -27,23 +27,23 @@ Based on GitHub Spec Kit (MIT License):
 https://github.com/github/spec-kit
 """
 
-from .parser import (
-    Task,
-    Wave,
-    SpecDocument,
-    parse_tasks,
-    parse_spec,
-    parse_plan,
-)
 from .issue_sync import (
     SyncResult,
-    sync_feature,
     sync_all_features,
+    sync_feature,
+)
+from .parser import (
+    SpecDocument,
+    Task,
+    Wave,
+    parse_plan,
+    parse_spec,
+    parse_tasks,
 )
 from .status import (
     FeatureStatus,
-    get_feature_status,
     get_all_status,
+    get_feature_status,
 )
 
 __all__ = [

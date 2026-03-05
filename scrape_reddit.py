@@ -4,14 +4,19 @@ Simple web scraper for r/ClaudeCode subreddit.
 Fetches posts without requiring Reddit API credentials.
 """
 
-import requests
 import json
 from datetime import datetime
-from typing import List, Dict
-import time
+from typing import Dict, List
+
+import requests
 
 
-def scrape_subreddit(subreddit_name: str = "ClaudeCode", limit: int = 25, sort: str = "hot", time_filter: str = "all") -> List[Dict]:
+def scrape_subreddit(
+    subreddit_name: str = "ClaudeCode",
+    limit: int = 25,
+    sort: str = "hot",
+    time_filter: str = "all",
+) -> List[Dict]:
     """
     Scrape posts from a subreddit using Reddit's old.reddit.com interface.
 
@@ -34,7 +39,10 @@ def scrape_subreddit(subreddit_name: str = "ClaudeCode", limit: int = 25, sort: 
         url = f"https://old.reddit.com/r/{subreddit_name}/.json"
 
     headers = {
-        'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        'User-Agent': (
+            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 '
+            '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        )
     }
 
     params = {
@@ -102,7 +110,10 @@ def scrape_post_comments(post_id: str, subreddit_name: str = "ClaudeCode") -> Di
     url = f"https://old.reddit.com/r/{subreddit_name}/comments/{post_id}/.json"
 
     headers = {
-        'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        'User-Agent': (
+            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 '
+            '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        )
     }
 
     try:

@@ -16,8 +16,6 @@ Usage:
 from __future__ import annotations
 
 import logging
-import os
-import re
 import shlex
 from datetime import datetime, timezone
 from pathlib import Path
@@ -30,7 +28,7 @@ from ..base import (
     SecretNotFoundError,
     SecretsError,
 )
-from ..project import ensure_secrets_dir, get_project_id
+from ..project import ensure_secrets_dir
 
 logger = logging.getLogger(__name__)
 

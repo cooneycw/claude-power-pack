@@ -6,7 +6,6 @@ are not world-readable (chmod 600 or stricter).
 
 from __future__ import annotations
 
-import os
 import stat
 from pathlib import Path
 

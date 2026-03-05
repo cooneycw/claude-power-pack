@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import secrets
 import sys
-from typing import Optional
 
 from ..audit import log_action
 from ..base import BundleProvider, SecretBundle, SecretNotFoundError
@@ -49,8 +48,8 @@ def _get_provider(
     config: SecretsConfig,
 ) -> BundleProvider:
     """Get the configured bundle provider."""
-    from ..providers.dotenv import DotEnvSecretsProvider
     from ..providers.aws import AWSSecretsProvider
+    from ..providers.dotenv import DotEnvSecretsProvider
 
     if config.default_provider == "aws":
         return AWSSecretsProvider(
@@ -84,9 +83,9 @@ def create_app(
     """
     _import_deps()
 
-    from fastapi import FastAPI, HTTPException, Depends, Request
-    from fastapi.responses import HTMLResponse, JSONResponse
-    from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+    from fastapi import Depends, FastAPI, HTTPException, Request
+    from fastapi.responses import HTMLResponse
+    from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
     if project_id is None:
         project_id = get_project_id()
@@ -445,10 +444,10 @@ def run_server(
 
     app, token = create_app(project_id, config)
 
-    print(f"\nSecrets Manager UI starting...")
+    print("\nSecrets Manager UI starting...")
     print(f"  URL:   http://{host}:{port}/")
     print(f"  Token: {token}")
-    print(f"  (Copy the token — it's required for API access)")
+    print("  (Copy the token — it's required for API access)")
     print()
 
     log_action("ui_start", project_id or "", f"host={host}, port={port}")

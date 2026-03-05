@@ -22,10 +22,8 @@ import os
 import shlex
 import subprocess
 import sys
-from typing import Optional
 
 from .audit import log_action
-from .base import SecretsError
 from .project import get_project_id
 
 logger = logging.getLogger(__name__)
@@ -33,8 +31,8 @@ logger = logging.getLogger(__name__)
 
 def _get_bundle_provider(provider_name: str | None = None):
     """Get a bundle-capable provider."""
-    from .providers.dotenv import DotEnvSecretsProvider
     from .providers.aws import AWSSecretsProvider
+    from .providers.dotenv import DotEnvSecretsProvider
 
     if provider_name == "aws":
         return AWSSecretsProvider()

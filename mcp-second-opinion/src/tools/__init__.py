@@ -5,14 +5,14 @@ These tools can be invoked by Gemini during multi-turn sessions to
 gather additional information needed to answer questions.
 """
 
-from tools.web_search import web_search, WEB_SEARCH_DECLARATION
 from tools.fetch_url import (
-    fetch_url,
     FETCH_URL_DECLARATION,
     approve_domain,
-    revoke_domain,
+    fetch_url,
     get_approved_domains,
+    revoke_domain,
 )
+from tools.web_search import WEB_SEARCH_DECLARATION, web_search
 
 __all__ = [
     "web_search",

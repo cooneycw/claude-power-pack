@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
-from .parser import Wave, parse_tasks, parse_spec
+from .parser import Wave, parse_tasks
 
 
 @dataclass
@@ -97,7 +97,7 @@ def list_issues(
                 number=item["number"],
                 title=item["title"],
                 state=item["state"],
-                labels=[l["name"] for l in item.get("labels", [])],
+                labels=[lbl["name"] for lbl in item.get("labels", [])],
             )
             issues.append(issue)
 

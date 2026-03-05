@@ -22,8 +22,8 @@ Usage:
     bundle = aws.get_bundle("my-project")
 """
 
-from .env import EnvSecretsProvider
 from .aws import AWSSecretsProvider
 from .dotenv import DotEnvSecretsProvider
+from .env import EnvSecretsProvider
 
 __all__ = ["EnvSecretsProvider", "AWSSecretsProvider", "DotEnvSecretsProvider"]

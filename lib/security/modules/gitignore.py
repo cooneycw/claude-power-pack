@@ -37,7 +37,10 @@ def scan(project_root: str) -> ScanResult:
                 why="Without a .gitignore, `git add .` will stage all files "
                 "including secrets, keys, and environment files.",
                 fix="Create a .gitignore with standard exclusions.",
-                command='curl -sL https://www.toptal.com/developers/gitignore/api/python > .gitignore && echo ".env" >> .gitignore',
+                command=(
+                    'curl -sL https://www.toptal.com/developers/gitignore/api/python'
+                    ' > .gitignore && echo ".env" >> .gitignore'
+                ),
                 time_estimate="~2 minutes",
             )
         )

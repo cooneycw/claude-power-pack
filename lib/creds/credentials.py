@@ -278,7 +278,7 @@ class APICredentials:
 
     def __repr__(self) -> str:
         """Return masked representation."""
-        parts = [f"api_key=SecretValue('****')"]
+        parts = ["api_key=SecretValue('****')"]
         if self.base_url:
             parts.append(f"base_url='{self.base_url}'")
         if self.name:
