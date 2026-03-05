@@ -88,17 +88,23 @@ ln -s /path/to/claude-power-pack/.claude/skills ~/Projects/.claude/skills
 
 ## 🐳 Quick Start: Docker
 
+**Prerequisites:** Docker Engine + Docker Compose v2 installed, user in the `docker` group (`sudo usermod -aG docker $USER`, then re-login).
+
 Run MCP servers as Docker containers with profile-based selection:
 
 ```bash
 # Create .env with API keys (never commit this file)
 echo "GEMINI_API_KEY=your-key" > .env
 
-# Start core services (Second Opinion + Nano-Banana)
+# Build and start core services (Second Opinion + Nano-Banana)
+make docker-build PROFILE=core
 make docker-up PROFILE=core
 
 # Or start multiple profiles
 make docker-up PROFILE="core browser"
+
+# Verify all containers are healthy
+make docker-ps
 ```
 
 ### Docker Compose Profiles
@@ -125,6 +131,7 @@ make docker-up PROFILE="core browser"
 claude mcp add second-opinion --transport sse --url http://127.0.0.1:8080/sse
 claude mcp add nano-banana --transport sse --url http://127.0.0.1:8084/sse
 claude mcp add playwright-persistent --transport sse --url http://127.0.0.1:8081/sse
+claude mcp add coordination --transport sse --url http://127.0.0.1:8082/sse  # optional, teams only
 ```
 
 ### CI Pipeline (Woodpecker)

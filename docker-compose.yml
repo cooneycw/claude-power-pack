@@ -1,10 +1,11 @@
 # Claude Power Pack - MCP Server Orchestration
-# Usage:
-#   docker compose --profile core up -d              # Second Opinion + Nano-Banana
-#   docker compose --profile core --profile eval up -d  # + Evaluate
-#   docker compose --profile browser up -d           # Playwright only
-#   docker compose --profile coord up -d             # Coordination + Redis
-#   docker compose up -d                             # Nothing (must specify profile)
+# Usage (prefer Makefile targets — see Deployment Conventions in CLAUDE.md):
+#   make docker-up PROFILE=core                      # Second Opinion + Nano-Banana
+#   make docker-up PROFILE="core browser"            # + Playwright
+#   make docker-up PROFILE="core coord"              # + Coordination + Redis
+#   make docker-build PROFILE=core                   # Build images only
+#   make docker-down                                 # Stop all services
+#   make docker-ps                                   # Show container status
 #
 # Secrets: Create a root .env file with API keys (never commit this):
 #   GEMINI_API_KEY=...
