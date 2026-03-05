@@ -58,6 +58,54 @@ Copy `.env.example` to `.env` and configure:
 | `list_fetch_domains` | Show approved domains |
 | `health_check` | Server status |
 
+## Troubleshooting
+
+### Error: `-32602: Invalid request parameters`
+
+This usually means Claude Code cannot reach the server, not that your parameters are wrong.
+
+**Fix: Switch to stdio transport (recommended)**
+
+```bash
+# Remove the SSE configuration
+claude mcp remove second-opinion
+
+# Add with stdio (auto-starts, no manual server management)
+claude mcp add second-opinion --transport stdio -- uv run --directory /path/to/claude-power-pack/mcp-second-opinion python src/server.py --stdio
+```
+
+**If using SSE:** Ensure the server is running before starting Claude Code:
+
+```bash
+# Check if server is running
+curl -s http://127.0.0.1:8080/ | jq .
+
+# Start if not running
+cd /path/to/claude-power-pack/mcp-second-opinion
+./start-server.sh
+```
+
+### Diagnosing Configuration Issues
+
+```bash
+# Run pre-flight diagnostics
+./start-server.sh --diagnose
+
+# Or directly
+uv run python src/server.py --diagnose
+```
+
+This checks API keys, .env file, port availability, and available models.
+
+### No API keys configured
+
+The server starts but all LLM calls will fail. Add at least one key:
+
+```bash
+cp .env.example .env
+# Edit .env — add GEMINI_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY
+```
+
 ## License
 
 MIT

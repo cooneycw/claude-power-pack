@@ -51,6 +51,24 @@ You can also invoke the MCP tools directly without commands:
 
 ## Requirements
 
-- MCP Second Opinion server running on port 8080
+- MCP Second Opinion server configured (stdio recommended, or SSE on port 8080)
 - At least one API key configured (GEMINI_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY)
 - All three recommended for cross-provider comparison
+
+## Troubleshooting
+
+**Error `-32602: Invalid request parameters`** usually means the server isn't running, not that parameters are wrong.
+
+**Fix:** Switch from SSE to stdio transport (auto-starts the server):
+
+```bash
+claude mcp remove second-opinion
+claude mcp add second-opinion --transport stdio -- uv run --directory /path/to/claude-power-pack/mcp-second-opinion python src/server.py --stdio
+```
+
+**Diagnose configuration:**
+
+```bash
+cd /path/to/claude-power-pack/mcp-second-opinion
+./start-server.sh --diagnose
+```
