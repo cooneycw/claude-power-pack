@@ -18,6 +18,8 @@ This repository contains five core components and optional extras:
 - **Spec-Driven Development:** `.specify/` (GitHub Spec Kit integration)
 - **Progressive Disclosure:** `PROGRESSIVE_DISCLOSURE_GUIDE.md`
 - **MCP Token Audit:** `MCP_TOKEN_AUDIT_CHECKLIST.md`
+- **MCP vs Skills Decision Guide:** `docs/architecture/mcp-vs-skills.md`
+- **Docker Deployment:** See [Docker Deployment](#docker-deployment) section below
 - **MCP Second Opinion:** `mcp-second-opinion/`
 - **MCP Playwright:** `mcp-playwright-persistent/`
 - **MCP Nano-Banana:** `mcp-nano-banana/`
@@ -54,6 +56,8 @@ This allows running `/project-next` from `~/Projects` without being in a specifi
 ```
 claude-power-pack/
 ├── docs/
+│   ├── architecture/                           # Architecture decision records
+│   │   └── mcp-vs-skills.md                    # MCP vs Skills decision guide
 │   ├── skills/                                 # Topic-focused best practices (~3K each)
 │   │   ├── context-efficiency.md               # Token optimization
 │   │   ├── session-management.md               # Session & plan mode
@@ -85,7 +89,11 @@ claude-power-pack/
 │   ├── deploy/                                 # systemd service
 │   └── README.md                               # Full documentation
 ├── mcp-second-opinion/                         # MCP Second Opinion server
-│   └── src/server.py                           # 12 tools
+│   ├── src/server.py                           # 12 tools
+│   ├── deploy/                                 # Deployment configs
+│   │   ├── docker-compose.yml                  # Docker deployment
+│   │   └── Dockerfile                          # Container image
+│   └── README.md                               # Full documentation
 ├── mcp-playwright-persistent/                  # MCP Playwright server
 │   ├── src/server.py                           # 29 tools (browser automation)
 │   ├── deploy/                                 # systemd, docker configs
@@ -251,6 +259,179 @@ claude-power-pack/
 │   └── ISSUE_TEMPLATE/                         # Structured issue templates
 └── README.md                                    # Quick start guide
 ```
+
+
+## Docker Deployment
+
+MCP servers can be deployed using Docker for improved isolation, consistent environments, and easier cloud deployment. Docker is recommended for production deployments and team collaboration.
+
+### Deployment Options
+
+| Method | Use Case | Pros | Cons |
+|--------|----------|------|------|
+| **stdio** | Local development, simple servers | Fast iteration, minimal setup | No isolation, manual dependency management |
+| **systemd** | Single-user production | Auto-restart, logging | Host dependencies, no isolation |
+| **Docker** | Production, teams, cloud | Isolation, consistent env, portable | Slightly more complex setup |
+
+### Docker Compose Profiles
+
+Use profiles to manage optional MCP servers:
+
+```yaml
+services:
+  mcp-second-opinion:
+    profiles: ["core"]
+    # Always started with core profile
+  
+  mcp-playwright:
+    profiles: ["testing"]
+    # Only for testing workflows
+  
+  mcp-coordination:
+    profiles: ["team"]
+    # Only for team collaboration
+```
+
+**Start specific profiles:**
+```bash
+# Start only core services
+docker-compose --profile core up -d
+
+# Start core + testing
+docker-compose --profile core --profile testing up -d
+
+# Start all services
+docker-compose --profile core --profile testing --profile team up -d
+```
+
+### MCP Server Deployment Patterns
+
+#### stdio Mode (Recommended for Local)
+
+```bash
+# MCP Second Opinion
+cd mcp-second-opinion
+uv run python src/server.py
+
+# Configure in Claude
+claude mcp add second-opinion --transport stdio \
+  --command "uv" --args "run" --args "python" \
+  --args "src/server.py" \
+  --cwd "/path/to/mcp-second-opinion"
+```
+
+#### SSE Mode (HTTP Transport)
+
+```bash
+# Start server on specific port
+cd mcp-second-opinion
+uv run python src/server.py --port 8080
+
+# Configure in Claude
+claude mcp add second-opinion --transport sse \
+  --url http://127.0.0.1:8080/sse
+```
+
+#### Docker Mode (Production)
+
+```bash
+# Build and start with docker-compose
+cd mcp-second-opinion/deploy
+docker-compose up -d
+
+# Configure in Claude (stdio via docker exec)
+claude mcp add second-opinion --transport stdio \
+  --command "docker" --args "exec" --args "-i" \
+  --args "second-opinion-mcp" --args "python" \
+  --args "server.py"
+```
+
+### Secrets Management in Docker
+
+**Environment Variables (Recommended):**
+
+```yaml
+# docker-compose.yml
+services:
+  mcp-second-opinion:
+    environment:
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+```
+
+```bash
+# .env file (never commit!)
+GEMINI_API_KEY=your-key-here
+OPENAI_API_KEY=your-key-here
+```
+
+**Docker Secrets (Swarm/Kubernetes):**
+
+```yaml
+services:
+  mcp-second-opinion:
+    secrets:
+      - gemini_api_key
+      - openai_api_key
+
+secrets:
+  gemini_api_key:
+    external: true
+  openai_api_key:
+    external: true
+```
+
+### Make Targets for Docker
+
+Add to project Makefile:
+
+```makefile
+.PHONY: docker-build docker-up docker-down docker-logs
+
+docker-build:
+	docker-compose build
+
+docker-up:
+	docker-compose --profile core up -d
+
+docker-down:
+	docker-compose down
+
+docker-logs:
+	docker-compose logs -f
+
+docker-restart:
+	docker-compose restart
+```
+
+### MCP Server Port Assignments
+
+| Server | stdio | SSE Port | Docker Container |
+|--------|-------|----------|------------------|
+| Second Opinion | ✅ | 8080 | `second-opinion-mcp` |
+| Playwright | ✅ | 8081 | `playwright-mcp` |
+| Coordination | ✅ | 8082 | `coordination-mcp` |
+| Evaluate | ❌ | 8083 | `evaluate-mcp` |
+| Nano-Banana | ✅ | 8084 | `nano-banana-mcp` |
+
+**Note:** stdio mode is recommended for most use cases. SSE mode is useful for debugging or when stdio is not available.
+
+### Decision: When to Use Docker
+
+See [docs/architecture/mcp-vs-skills.md](docs/architecture/mcp-vs-skills.md) for detailed guidance.
+
+**Use Docker when:**
+- Deploying to cloud (AWS, Azure, GCP)
+- Team collaboration (consistent environments)
+- Multiple environment dependencies
+- Need complete isolation
+- Complex secret management
+
+**Use stdio/systemd when:**
+- Local development only
+- Simple Python/Node server
+- Minimal dependencies
+- Fast iteration needed
 
 ## On-Demand Documentation Loading
 

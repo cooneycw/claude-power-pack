@@ -85,6 +85,62 @@ ln -s /path/to/claude-power-pack/.claude/commands ~/Projects/.claude/commands
 ln -s /path/to/claude-power-pack/.claude/skills ~/Projects/.claude/skills
 ```
 
+
+### Quick Start: Docker
+
+For production deployments or team collaboration, use Docker:
+
+```bash
+# 1. Set up environment variables
+cd mcp-second-opinion
+cp .env.example .env
+# Edit .env with your API keys
+
+# 2. Start with docker-compose
+cd deploy
+docker-compose --profile core up -d
+
+# 3. Configure Claude (stdio via docker exec)
+claude mcp add second-opinion --transport stdio \
+  --command "docker" --args "exec" --args "-i" \
+  --args "second-opinion-mcp" --args "python" \
+  --args "server.py"
+```
+
+**Docker Compose Profiles:**
+
+| Profile | Services | Use Case |
+|---------|----------|----------|
+| `core` | Second Opinion, Evaluate, Nano-Banana | Essential MCP servers |
+| `testing` | Playwright | Browser automation for testing |
+| `team` | Coordination | Multi-session conflict prevention |
+
+**Start specific profiles:**
+```bash
+# Core services only
+docker-compose --profile core up -d
+
+# Core + testing
+docker-compose --profile core --profile testing up -d
+
+# All services
+docker-compose --profile core --profile testing --profile team up -d
+```
+
+**Manage services:**
+```bash
+# View logs
+docker-compose logs -f
+
+# Restart services
+docker-compose restart
+
+# Stop services
+docker-compose down
+```
+
+See [CLAUDE.md - Docker Deployment](CLAUDE.md#docker-deployment) for detailed configuration and [docs/architecture/mcp-vs-skills.md](docs/architecture/mcp-vs-skills.md) for deployment decision guidance.
+
 ---
 
 # Claude Best Practices
@@ -1012,15 +1068,58 @@ The install script auto-detects your installation paths and uv location. Options
 Check status: `systemctl --user status mcp-second-opinion`
 View logs: `journalctl --user -u mcp-second-opinion -f`
 
+**Option C: Docker (recommended for production/teams)**
+```bash
+cd mcp-second-opinion/deploy
+docker-compose up -d
+```
+
+Check status: `docker-compose ps`
+View logs: `docker-compose logs -f`
+Stop: `docker-compose down`
+
 ### 5. Configure Claude Code
 
-Add the MCP server using the Claude CLI:
+Choose the transport method based on your deployment:
 
+**Option A: stdio (recommended for local development)**
+```bash
+claude mcp add second-opinion --transport stdio \
+  --command "uv" --args "run" --args "python" \
+  --args "src/server.py" \
+  --cwd "/path/to/mcp-second-opinion"
+```
+
+**Option B: SSE (HTTP transport)**
 ```bash
 claude mcp add second-opinion --transport sse --url http://127.0.0.1:8080/sse
 ```
 
+**Option C: Docker (stdio via docker exec)**
+```bash
+claude mcp add second-opinion --transport stdio \
+  --command "docker" --args "exec" --args "-i" \
+  --args "second-opinion-mcp" --args "python" \
+  --args "server.py"
+```
+
 Or manually create `.mcp.json` in your working directory (e.g., `~/Projects/.mcp.json`):
+
+**stdio configuration:**
+```json
+{
+  "mcpServers": {
+    "second-opinion": {
+      "type": "stdio",
+      "command": "uv",
+      "args": ["run", "python", "src/server.py"],
+      "cwd": "/path/to/mcp-second-opinion"
+    }
+  }
+}
+```
+
+**SSE configuration:**
 ```json
 {
   "mcpServers": {
@@ -1032,7 +1131,20 @@ Or manually create `.mcp.json` in your working directory (e.g., `~/Projects/.mcp
 }
 ```
 
-> **Important:** The URL must include the `/sse` suffix. Without it, Claude Code's health check will fail.
+**Docker configuration:**
+```json
+{
+  "mcpServers": {
+    "second-opinion": {
+      "type": "stdio",
+      "command": "docker",
+      "args": ["exec", "-i", "second-opinion-mcp", "python", "server.py"]
+    }
+  }
+}
+```
+
+> **Important:** For SSE, the URL must include the `/sse` suffix. For stdio, ensure the command path and cwd are correct.
 
 Verify the server is configured:
 ```bash
