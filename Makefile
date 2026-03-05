@@ -1,4 +1,4 @@
-.PHONY: test lint format clean
+.PHONY: test lint format typecheck verify clean
 
 ## Quality gates (used by /flow:finish)
 
@@ -10,6 +10,13 @@ format:
 
 test:
 	uv run --extra dev pytest
+
+typecheck:
+	uv run --extra dev mypy .
+
+## Pre-deploy gate (runs all quality checks)
+
+verify: lint test typecheck
 
 ## Utilities
 
