@@ -777,20 +777,21 @@ test_areas:
 
 Without config, `/qa:test` runs in interactive mode with generic testing. Requires the Playwright MCP server.
 
-## 🎨 PowerPoint & Diagrams
+## 🎨 Documentation & Diagrams
 
-Generate professional diagrams and PowerPoint presentations using the Nano-Banana MCP server.
+Generate C4 architecture diagrams, professional visuals, and PowerPoint presentations using the Nano-Banana MCP server.
 
 ### Commands
 
 | Command | Purpose |
 |---------|---------|
-| `/pptx:create [topic]` | Guided PowerPoint creation with optional diagrams |
-| `/pptx:help` | Overview of PowerPoint commands |
+| `/documentation:c4` | Generate C4 architecture diagrams (all 4 levels) |
+| `/documentation:pptx [topic]` | Guided PowerPoint creation with optional diagrams |
+| `/documentation:help` | Overview of documentation commands |
 
 ### Diagram Types
 
-Architecture, flowchart, sequence, orgchart, timeline, and mindmap — all rendered as self-contained HTML at 1920x1080.
+Architecture, c4, flowchart, sequence, orgchart, timeline, and mindmap — all rendered as self-contained HTML at 1920x1080.
 
 ### Setup
 
@@ -1524,7 +1525,7 @@ MIT License - See LICENSE file for details
 
 ## What's New in v5.0.0
 
-- **MCP Nano-Banana** - Diagram generation (6 types) + PowerPoint creation via `/pptx:create`
+- **MCP Nano-Banana** - Diagram generation (7 types including C4) + PowerPoint creation via `/documentation:pptx`
 - **Tier 4: CI/CD & Verification** - `lib/cicd/` with framework detection, Makefile generation, health/smoke testing, pipeline generation
 - **Evaluate Flow** - `/evaluate:issue` for multi-model 4-phase evaluation with spec output
 - **`/project:init`** - Zero-to-GitHub-repo scaffolding in one command

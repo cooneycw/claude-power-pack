@@ -215,9 +215,10 @@ claude-power-pack/
 │   │   │   ├── ui.md                           # Launch web UI
 │   │   │   ├── rotate.md                       # Rotate a secret
 │   │   │   └── help.md                         # Secrets command overview
-│   │   ├── pptx/                                # PowerPoint & diagram commands
-│   │   │   ├── create.md                       # Guided PPTX creation
-│   │   │   └── help.md                         # PowerPoint command overview
+│   │   ├── documentation/                       # Documentation & diagram commands
+│   │   │   ├── pptx.md                         # Guided PPTX creation
+│   │   │   ├── c4.md                           # C4 architecture diagrams
+│   │   │   └── help.md                         # Documentation command overview
 │   │   ├── qa/                                  # QA testing commands
 │   │   │   ├── test.md                         # Automated web testing
 │   │   │   └── help.md                         # QA command overview
@@ -243,7 +244,7 @@ claude-power-pack/
 │   │   ├── code-quality.md                     # → docs/skills/
 │   │   ├── python-packaging.md                 # → docs/skills/
 │   │   ├── cicd-verification.md                # → docs/skills/
-│   │   ├── powerpoint.md                       # Diagrams & PPTX skill
+│   │   ├── documentation.md                    # Documentation & diagrams skill
 │   │   └── secrets.md                          # Secrets skill
 │   └── hooks.json                              # Session hooks
 ├── .github/
@@ -269,7 +270,7 @@ To preserve context, documentation is NOT auto-loaded. Use topic-specific skills
 | Code Quality | "code review", "quality" |
 | Python Packaging | "pyproject.toml", "PEP 621", "PEP 723", "setup.py" |
 | CI/CD & Verification | "CI/CD", "pipeline", "health check", "smoke test", "verification" |
-| PowerPoint & Diagrams | "powerpoint", "pptx", "diagram", "flowchart", "presentation" |
+| Documentation & Diagrams | "documentation", "c4", "powerpoint", "pptx", "diagram", "flowchart", "presentation" |
 | Build & Deploy | "Makefile", "uv", "deploy patterns" |
 
 **Commands:**
@@ -763,16 +764,17 @@ claude mcp add mcp-evaluate --transport sse --url http://127.0.0.1:8083/sse
 
 The skill file auto-detects whether the MCP evaluate server is available and falls back to direct second-opinion calls if not.
 
-## PowerPoint & Diagrams
+## Documentation & Diagrams
 
-Generate professional diagrams and PowerPoint presentations using the Nano-Banana MCP server.
+Generate professional diagrams, C4 architecture models, and PowerPoint presentations using the Nano-Banana MCP server.
 
 ### Commands
 
 | Command | Purpose |
 |---------|---------|
-| `/pptx:create [topic]` | Guided PowerPoint creation with optional diagrams |
-| `/pptx:help` | Overview of PowerPoint commands |
+| `/documentation:pptx [topic]` | Guided PowerPoint creation with optional diagrams |
+| `/documentation:c4` | Generate C4 architecture diagrams (all 4 levels) |
+| `/documentation:help` | Overview of documentation commands |
 
 ### MCP Tools (nano-banana, port 8084)
 
@@ -793,6 +795,7 @@ Generate professional diagrams and PowerPoint presentations using the Nano-Banan
 | `orgchart` | Hierarchies, team structure, taxonomies |
 | `timeline` | Roadmaps, milestones, project phases |
 | `mindmap` | Brainstorming, concept maps, topic exploration |
+| `c4` | C4 model — multi-level architecture with boundaries |
 
 ### Setup
 
@@ -888,6 +891,7 @@ The `/flow` commands use Makefile targets as the canonical way to run tests, lin
 | `/flow:finish` | `lint`, `test` | Auto-discovers and runs if targets exist; skips if no Makefile |
 | `/flow:deploy [target]` | `deploy` (default) | Runs specified target + post-deploy health/smoke if configured |
 | `/flow:auto` | `deploy` | Runs after merge if target exists; skips otherwise |
+| `/flow:auto` | `update_docs` | Runs after implement; regenerates C4, reviews CLAUDE.md/README.md |
 | `/flow:doctor` | all | Reports which standard targets are available |
 
 ### Getting Started

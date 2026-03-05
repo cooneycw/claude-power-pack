@@ -72,6 +72,29 @@ suppressions:
     reason: "Test fixtures with fake credentials"
 ```
 
+### Step 2d: Documentation Update Check (optional, non-blocking)
+
+If the Makefile has an `update_docs` target:
+
+```bash
+if [[ -f "Makefile" ]] && grep -q "^update_docs:" Makefile; then
+    echo "Running: make update_docs"
+    make update_docs
+fi
+```
+
+When this target exists, check documentation freshness:
+
+1. **C4 diagrams** — If `docs/architecture/` exists, check if C4 HTML files are older than recent code changes. If stale, warn:
+   ```
+   Docs may be stale — C4 diagrams last updated {date}, code changed since then.
+   Run /documentation:c4 to regenerate.
+   ```
+
+2. **CLAUDE.md / README.md** — Scan for obviously stale references (e.g., commands that no longer exist, file paths that don't match). Report as non-blocking warnings.
+
+**This step never blocks the flow** — it is purely informational.
+
 ### Step 2c: Makefile Completeness Check (optional, non-blocking)
 
 If `lib/cicd` is available, run a quick Makefile validation and report any gaps as warnings:

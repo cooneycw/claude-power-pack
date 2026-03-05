@@ -72,5 +72,5 @@ mcp-second-opinion/src/__pycache__/
 mcp-second-opinion/src/tools/__pycache__/
 
 # Generated diagram outputs
-diagrams/
+/diagrams/
 *.pptx

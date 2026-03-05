@@ -1,17 +1,18 @@
 ---
-description: Overview of PowerPoint and diagram commands
+description: Overview of documentation and diagram commands
 ---
 
-# PowerPoint & Diagram Commands
+# Documentation & Diagram Commands
 
-Create professional diagrams and PowerPoint presentations using the Nano-Banana MCP server.
+Generate architecture documentation and professional presentations using the Nano-Banana MCP server.
 
 ## Commands
 
 | Command | Purpose |
 |---------|---------|
-| `/pptx:create` | Guided PowerPoint creation with optional diagrams |
-| `/pptx:help` | This help overview |
+| `/documentation:c4` | Generate C4 architecture diagrams (all 4 levels) |
+| `/documentation:pptx` | Create PowerPoint presentations with optional diagrams |
+| `/documentation:help` | This help overview |
 
 ## MCP Server: Nano-Banana
 
@@ -40,17 +41,33 @@ claude mcp add nano-banana --transport sse --url http://127.0.0.1:8084/sse
 ### Diagram Types
 
 - **architecture** — System component grid layout
+- **c4** — C4 model with boundary groupings (Context, Container, Component, Code)
 - **flowchart** — Sequential process steps with arrows
 - **sequence** — Participant message exchange (UML-style)
 - **orgchart** — Tree hierarchy visualization
 - **timeline** — Milestone roadmap on horizontal track
 - **mindmap** — Central topic with radiating branches
 
+### C4 Node Types
+
+| Type | C4 Concept | Color |
+|------|-----------|-------|
+| `person` | Actor / User | Dark blue (pill shape) |
+| `system` | External System | Grey |
+| `system-focus` | System of Interest | Blue |
+| `container` | Container (app, DB, service) | Green |
+| `component` | Component within container | Purple |
+| `code` | Class / module / interface | Amber |
+
 ### End-to-End Best Quality
 
-1. `generate_diagram` → save HTML file
+1. `generate_diagram` -> save HTML file
 2. Playwright screenshot at 1920x1080
 3. `create_pptx` with image_base64 on "diagram" layout
+
+### Makefile Integration
+
+Add an `update_docs` target to your Makefile to run C4 diagram generation and doc review as part of `/flow:auto` and `/flow:finish`.
 
 ### Related
 

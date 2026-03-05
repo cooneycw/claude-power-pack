@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 
 DIAGRAM_TYPES = [
     "architecture",
+    "c4",
     "flowchart",
     "sequence",
     "orgchart",

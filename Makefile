@@ -1,4 +1,4 @@
-.PHONY: test lint format typecheck verify clean
+.PHONY: test lint format typecheck verify update_docs clean
 
 ## Quality gates (used by /flow:finish)
 
@@ -17,6 +17,12 @@ typecheck:
 ## Pre-deploy gate (runs all quality checks)
 
 verify: lint test typecheck
+
+## Documentation (used by /flow:auto and /flow:finish)
+
+update_docs:
+	@echo "Run /documentation:c4 to regenerate C4 architecture diagrams"
+	@echo "Review CLAUDE.md and README.md for accuracy"
 
 ## Utilities
 
