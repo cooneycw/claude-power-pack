@@ -89,6 +89,9 @@ Docker containers read API keys from a root `.env` file (gitignored) via `env_fi
 - `/cicd:smoke` — Run smoke tests from cicd.yml
 - `/cicd:pipeline` — Generate GitHub Actions workflows
 - `/cicd:container` — Generate Dockerfile and docker-compose.yml
+- `/cicd:infra-init` — Scaffold IaC directory (foundation/platform/app tiers)
+- `/cicd:infra-discover` — Generate cloud resource discovery script for IaC import
+- `/cicd:infra-pipeline` — Generate per-tier CI/CD pipelines with approval gates
 
 ### Security
 - `/security:scan` — Full scan: native + external tools

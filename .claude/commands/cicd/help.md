@@ -12,6 +12,9 @@ Build, verify, and deploy automation for Claude Code projects.
 | `/cicd:smoke` | Run smoke tests from cicd.yml |
 | `/cicd:pipeline` | Generate GitHub Actions CI/CD workflows |
 | `/cicd:container` | Generate Dockerfile and docker-compose.yml |
+| `/cicd:infra-init` | Scaffold IaC directory with tiered structure (foundation/platform/app) |
+| `/cicd:infra-discover` | Generate cloud resource discovery script for IaC import |
+| `/cicd:infra-pipeline` | Generate CI/CD pipelines for infrastructure tiers with approval gates |
 | `/cicd:help` | This help page |
 
 ## How It Works
@@ -112,6 +115,40 @@ See `templates/cicd.yml.example` for full documentation.
 # Use with /flow
 /flow:finish    # Runs make lint + make test
 /flow:deploy    # Runs make deploy
+```
+
+## Infrastructure as Code
+
+Three-tier IaC model with separate pipelines and approval gates:
+
+```
+/cicd:infra-init      →  Scaffold infra/ directory  →  foundation/ + platform/ + app/
+                                    ↓
+/cicd:infra-discover  →  Audit cloud resources  →  Generate terraform import commands
+                                    ↓
+/cicd:infra-pipeline  →  Generate per-tier workflows  →  Approval gates for foundation
+```
+
+Supported IaC providers: Terraform (default), Pulumi, Bicep
+Supported clouds: AWS, Azure, GCP
+
+Configuration in `.claude/cicd.yml`:
+
+```yaml
+infrastructure:
+  provider: terraform
+  cloud: aws
+  state_backend:
+    type: s3
+    bucket: my-tf-state
+    lock: true
+  tiers:
+    foundation:
+      approval_required: true
+    platform:
+      approval_required: false
+    app:
+      approval_required: false
 ```
 
 ## Related

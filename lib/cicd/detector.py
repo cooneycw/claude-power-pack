@@ -12,8 +12,12 @@ from typing import Optional
 from .models import (
     FRAMEWORK_RUNNERS,
     FRAMEWORK_TARGETS,
+    CloudProvider,
     Framework,
     FrameworkInfo,
+    IaCProvider,
+    InfrastructureInfo,
+    InfraTier,
     PackageManager,
 )
 
@@ -155,4 +159,116 @@ def detect_framework(project_root: str | Path) -> FrameworkInfo:
         recommended_targets=recommended,
         runner_commands=runners,
         secondary_frameworks=secondary,
+    )
+
+
+# IaC marker files -> IaCProvider
+_IAC_MARKERS: list[tuple[str, IaCProvider]] = [
+    ("main.tf", IaCProvider.TERRAFORM),
+    ("terraform.tf", IaCProvider.TERRAFORM),
+    ("providers.tf", IaCProvider.TERRAFORM),
+    ("Pulumi.yaml", IaCProvider.PULUMI),
+    ("Pulumi.yml", IaCProvider.PULUMI),
+    ("main.bicep", IaCProvider.BICEP),
+    ("template.json", IaCProvider.CLOUDFORMATION),
+    ("template.yaml", IaCProvider.CLOUDFORMATION),
+]
+
+# Cloud provider markers
+_CLOUD_MARKERS: list[tuple[str, CloudProvider]] = [
+    ("aws", CloudProvider.AWS),
+    ("azurerm", CloudProvider.AZURE),
+    ("azure", CloudProvider.AZURE),
+    ("google", CloudProvider.GCP),
+    ("gcp", CloudProvider.GCP),
+]
+
+# Tier directory names
+_TIER_DIRS: dict[str, InfraTier] = {
+    "foundation": InfraTier.FOUNDATION,
+    "platform": InfraTier.PLATFORM,
+    "app": InfraTier.APP,
+    "application": InfraTier.APP,
+}
+
+
+def detect_infrastructure(project_root: str | Path) -> InfrastructureInfo:
+    """Detect IaC provider, cloud provider, and tier structure.
+
+    Checks the project root and common subdirectories (infra/, infrastructure/)
+    for IaC marker files.
+
+    Args:
+        project_root: Path to project root directory.
+
+    Returns:
+        InfrastructureInfo with detection results.
+    """
+    root = Path(project_root)
+    detected_files: list[str] = []
+    iac_provider = IaCProvider.NONE
+    cloud_provider = CloudProvider.UNKNOWN
+    has_state_backend = False
+    tiers_present: list[InfraTier] = []
+
+    # Directories to scan for IaC files
+    scan_dirs = [root]
+    for subdir in ("infra", "infrastructure", "iac", "terraform", "pulumi"):
+        candidate = root / subdir
+        if candidate.is_dir():
+            scan_dirs.append(candidate)
+            # Check for tier subdirectories
+            for tier_name, tier_enum in _TIER_DIRS.items():
+                if (candidate / tier_name).is_dir() and tier_enum not in tiers_present:
+                    tiers_present.append(tier_enum)
+
+    for scan_dir in scan_dirs:
+        # Check IaC markers
+        for filename, provider in _IAC_MARKERS:
+            filepath = scan_dir / filename
+            if filepath.exists():
+                rel = str(filepath.relative_to(root))
+                detected_files.append(rel)
+                if iac_provider == IaCProvider.NONE:
+                    iac_provider = provider
+
+        # Check for Terraform files by extension
+        if iac_provider == IaCProvider.NONE:
+            tf_files = list(scan_dir.glob("*.tf"))
+            if tf_files:
+                iac_provider = IaCProvider.TERRAFORM
+                for tf in tf_files[:3]:  # Cap at 3 for brevity
+                    detected_files.append(str(tf.relative_to(root)))
+
+        # Check for state backend
+        if (scan_dir / "backend.tf").exists():
+            has_state_backend = True
+            detected_files.append(str((scan_dir / "backend.tf").relative_to(root)))
+        if (scan_dir / ".terraform.lock.hcl").exists():
+            has_state_backend = True
+        if (scan_dir / "Pulumi.yaml").exists():
+            # Pulumi uses its own state management
+            has_state_backend = True
+
+    # Detect cloud provider from file contents (check provider blocks)
+    if iac_provider == IaCProvider.TERRAFORM:
+        for scan_dir in scan_dirs:
+            for tf_file in scan_dir.glob("*.tf"):
+                try:
+                    content = tf_file.read_text(errors="ignore")
+                    for marker, cp in _CLOUD_MARKERS:
+                        if marker in content:
+                            cloud_provider = cp
+                            break
+                    if cloud_provider != CloudProvider.UNKNOWN:
+                        break
+                except OSError:
+                    continue
+
+    return InfrastructureInfo(
+        iac_provider=iac_provider,
+        cloud_provider=cloud_provider,
+        detected_files=detected_files,
+        has_state_backend=has_state_backend,
+        tiers_present=tiers_present,
     )
