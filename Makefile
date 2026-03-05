@@ -1,5 +1,5 @@
 .PHONY: test lint format typecheck verify update_docs clean \
-       docker-build docker-up docker-down docker-logs docker-ps
+       docker-build docker-check-env docker-up docker-down docker-logs docker-ps
 
 ## Quality gates (used by /flow:finish)
 
@@ -35,7 +35,26 @@ PROFILE ?= core
 docker-build:
 	$(foreach p,$(PROFILE),docker compose --profile $(p) build;)
 
-docker-up:
+docker-check-env:
+	@if [ ! -f .env ]; then \
+		echo ""; \
+		echo "WARNING: .env file not found in $$(pwd)"; \
+		echo "Docker containers will start WITHOUT API keys."; \
+		echo "MCP Second Opinion will report 'no_api_keys' status."; \
+		echo ""; \
+		echo "Create .env with at least one key:"; \
+		echo "  echo 'GEMINI_API_KEY=your-key' > .env"; \
+		echo ""; \
+		echo "Or run /cpp:init to configure interactively."; \
+		echo ""; \
+	elif ! grep -qE '^(GEMINI|OPENAI|ANTHROPIC)_API_KEY=.+' .env 2>/dev/null; then \
+		echo ""; \
+		echo "WARNING: .env exists but contains no API keys."; \
+		echo "Add at least one: GEMINI_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY"; \
+		echo ""; \
+	fi
+
+docker-up: docker-check-env
 	$(foreach p,$(PROFILE),docker compose --profile $(p) up -d;)
 
 docker-down:

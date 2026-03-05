@@ -561,32 +561,104 @@ echo "✓ Chromium browser installed"
 
 #### 3c. API Key Configuration
 
+**First, detect the deployment mode:**
+
+```bash
+# Detect deployment mode
+DEPLOY_MODE="native"
+if [ -f "$CPP_DIR/docker-compose.yml" ]; then
+  # Check if Docker containers are running for MCP servers
+  if docker ps --format '{{.Names}}' 2>/dev/null | grep -q "mcp-second-opinion"; then
+    DEPLOY_MODE="docker"
+  elif sg docker -c "docker ps --format '{{.Names}}'" 2>/dev/null | grep -q "mcp-second-opinion"; then
+    DEPLOY_MODE="docker"
+  fi
+  # Also check if .mcp.json points to SSE (Docker-hosted)
+  if [ -f "$CPP_DIR/../.mcp.json" ] || [ -f "$(git rev-parse --show-toplevel 2>/dev/null)/.mcp.json" ]; then
+    for mcp_json in "$CPP_DIR/../.mcp.json" "$(git rev-parse --show-toplevel 2>/dev/null)/.mcp.json"; do
+      if [ -f "$mcp_json" ] && grep -q '"type": "sse"' "$mcp_json" 2>/dev/null && grep -q '8080' "$mcp_json" 2>/dev/null; then
+        DEPLOY_MODE="docker"
+        break
+      fi
+    done
+  fi
+fi
+echo "Deployment mode detected: $DEPLOY_MODE"
+```
+
 Prompt the user for API keys:
 
 ```
 === API Key Configuration ===
 
-MCP Second Opinion requires a Gemini API key for code review functionality.
+MCP Second Opinion requires at least one LLM API key for code review.
 
-Get your API key from: https://aistudio.google.com/apikey
+Supported providers:
+  - GEMINI_API_KEY   (free from https://aistudio.google.com/apikey)
+  - OPENAI_API_KEY   (from https://platform.openai.com/api-keys)
+  - ANTHROPIC_API_KEY (from https://console.anthropic.com/settings/keys)
 
 Enter your GEMINI_API_KEY (or press Enter to skip):
 ```
 
-If provided, write to .env:
+**Write keys to the correct location based on deployment mode:**
+
 ```bash
-cd "$CPP_DIR/mcp-second-opinion"
-cat > .env << EOF
-GEMINI_API_KEY=$GEMINI_API_KEY
-MCP_SERVER_HOST=127.0.0.1
-MCP_SERVER_PORT=8080
-ENABLE_CONTEXT_CACHING=true
-CACHE_TTL_MINUTES=60
-EOF
-echo "✓ mcp-second-opinion/.env configured"
+# For Docker: write to root .env (docker-compose.yml reads env_file from here)
+# For native: write to mcp-second-opinion/.env (local server reads from here)
+if [ "$DEPLOY_MODE" = "docker" ]; then
+  ENV_FILE="$CPP_DIR/.env"
+  echo "Docker deployment detected — writing keys to $ENV_FILE"
+else
+  ENV_FILE="$CPP_DIR/mcp-second-opinion/.env"
+fi
+
+# Build .env content (only include keys that were provided)
+{
+  [ -n "$GEMINI_API_KEY" ] && echo "GEMINI_API_KEY=$GEMINI_API_KEY"
+  [ -n "$OPENAI_API_KEY" ] && echo "OPENAI_API_KEY=$OPENAI_API_KEY"
+  [ -n "$ANTHROPIC_API_KEY" ] && echo "ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY"
+  if [ "$DEPLOY_MODE" != "docker" ]; then
+    echo "MCP_SERVER_HOST=127.0.0.1"
+    echo "MCP_SERVER_PORT=8080"
+    echo "ENABLE_CONTEXT_CACHING=true"
+    echo "CACHE_TTL_MINUTES=60"
+  fi
+} > "$ENV_FILE"
+
+echo "✓ API keys written to $ENV_FILE"
+
+# For Docker: also write to mcp-second-opinion/.env for native fallback
+if [ "$DEPLOY_MODE" = "docker" ]; then
+  {
+    [ -n "$GEMINI_API_KEY" ] && echo "GEMINI_API_KEY=$GEMINI_API_KEY"
+    [ -n "$OPENAI_API_KEY" ] && echo "OPENAI_API_KEY=$OPENAI_API_KEY"
+    [ -n "$ANTHROPIC_API_KEY" ] && echo "ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY"
+    echo "MCP_SERVER_HOST=127.0.0.1"
+    echo "MCP_SERVER_PORT=8080"
+    echo "ENABLE_CONTEXT_CACHING=true"
+    echo "CACHE_TTL_MINUTES=60"
+  } > "$CPP_DIR/mcp-second-opinion/.env"
+  echo "✓ Also wrote to mcp-second-opinion/.env (native fallback)"
+fi
 ```
 
-Optional: Ask for OPENAI_API_KEY for multi-model comparison.
+**If Docker mode, offer to restart containers to pick up new keys:**
+
+```
+API keys configured. Docker containers need to be restarted to pick up the new keys.
+
+Restart MCP containers now? [Y/n]
+```
+
+If yes:
+```bash
+cd "$CPP_DIR"
+make docker-down && make docker-up PROFILE=core
+echo "✓ Docker containers restarted with new API keys"
+```
+
+Optional: Ask for OPENAI_API_KEY and ANTHROPIC_API_KEY for multi-model comparison.
 
 #### 3d. Register MCP Servers
 

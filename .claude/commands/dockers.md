@@ -59,7 +59,12 @@ for name in "${!MCP_PORTS[@]}"; do
     port="${MCP_PORTS[$name]}"
     response=$(curl -sf --max-time 3 "http://127.0.0.1:${port}/" 2>/dev/null)
     if [ $? -eq 0 ]; then
-        echo "$name|$port|healthy|$response"
+        # Check for no_api_keys status
+        if echo "$response" | grep -q '"no_api_keys"' 2>/dev/null; then
+            echo "$name|$port|NO API KEYS|$response"
+        else
+            echo "$name|$port|healthy|$response"
+        fi
     else
         echo "$name|$port|unreachable|"
     fi
@@ -122,6 +127,7 @@ Present a structured report:
 
 Based on findings, suggest relevant actions:
 
+- **No API keys:** Create `.env` in claude-power-pack root with `GEMINI_API_KEY=...`, then `make docker-down && make docker-up PROFILE=core`. Or run `/cpp:init` to configure interactively.
 - **Unhealthy containers:** `make docker-down && make docker-up PROFILE=core`
 - **Missing profiles:** `make docker-up PROFILE=browser` (if browser not running)
 - **No MCP containers:** `make docker-build PROFILE=core && make docker-up PROFILE=core`

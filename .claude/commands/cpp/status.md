@@ -226,20 +226,46 @@ for server in second-opinion playwright-persistent coordination; do
   fi
 done
 
-# Check MCP server connectivity
+# Check MCP server connectivity and API key status
 echo ""
 echo "MCP Server Connectivity:"
 for entry in "8080:second-opinion" "8081:playwright-persistent" "8082:coordination"; do
   PORT="${entry%%:*}"
   NAME="${entry#*:}"
-  if curl -sf --max-time 2 "http://127.0.0.1:${PORT}/health" >/dev/null 2>&1; then
-    echo "  [x] $NAME (port $PORT): reachable"
+  HEALTH_RESPONSE=$(curl -sf --max-time 2 "http://127.0.0.1:${PORT}/" 2>/dev/null)
+  if [ -n "$HEALTH_RESPONSE" ]; then
+    # Check for no_api_keys status in health response
+    if echo "$HEALTH_RESPONSE" | grep -q '"no_api_keys"' 2>/dev/null; then
+      echo "  [!] $NAME (port $PORT): reachable but NO API KEYS configured"
+      echo "      Create $CPP_DIR/.env with GEMINI_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY"
+      echo "      Then restart: cd $CPP_DIR && make docker-down && make docker-up PROFILE=core"
+    else
+      echo "  [x] $NAME (port $PORT): reachable"
+    fi
   elif ss -tlnp 2>/dev/null | grep -q ":${PORT} " 2>/dev/null; then
-    echo "  [~] $NAME (port $PORT): port open (no /health endpoint)"
+    echo "  [~] $NAME (port $PORT): port open (no health endpoint)"
   else
     echo "  [ ] $NAME (port $PORT): not reachable"
   fi
 done
+
+# Check .env file for Docker deployments
+echo ""
+echo "Docker API Keys (.env):"
+if [ -f "$CPP_DIR/.env" ]; then
+  KEY_COUNT=$(grep -cE '^(GEMINI|OPENAI|ANTHROPIC)_API_KEY=.+' "$CPP_DIR/.env" 2>/dev/null || echo "0")
+  if [ "$KEY_COUNT" -gt 0 ]; then
+    echo "  [x] $CPP_DIR/.env: $KEY_COUNT API key(s) configured"
+    grep -oE '^(GEMINI|OPENAI|ANTHROPIC)_API_KEY=' "$CPP_DIR/.env" 2>/dev/null | while read key; do
+      echo "      - ${key%=}"
+    done
+  else
+    echo "  [!] $CPP_DIR/.env exists but contains no API keys"
+  fi
+else
+  echo "  [ ] $CPP_DIR/.env: not found (Docker containers have no API keys)"
+  echo "      Run /cpp:init or create manually"
+fi
 
 # Check systemd services
 echo ""
