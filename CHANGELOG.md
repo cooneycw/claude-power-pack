@@ -16,7 +16,7 @@
   - 6 diagram types: architecture, flowchart, sequence, orgchart, timeline, mindmap
   - 1920x1080 HTML diagrams with professional CSS themes
   - python-pptx integration for `.pptx` file creation
-  - `/pptx:create` and `/pptx:help` skill commands
+  - `/documentation:pptx` and `/documentation:c4` commands (replaces `/pptx:*`)
 
 ### Changed
 

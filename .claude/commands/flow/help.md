@@ -13,7 +13,7 @@ Streamlined worktree-based development workflow. No locks, no Redis — just git
 | `/flow:merge` | Merge PR, clean up worktree and branch |
 | `/flow:deploy [target]` | Run Makefile deploy target |
 | `/flow:sync` | Push WIP branch to remote for cross-machine pickup |
-| `/flow:auto <issue>` | Full lifecycle: start → analyze → implement → finish → merge → deploy |
+| `/flow:auto <issue>` | Full lifecycle: start → analyze → implement → update docs → finish → merge → deploy |
 | `/flow:cleanup` | Prune stale worktree references and delete merged branches |
 | `/flow:doctor` | Diagnose workflow environment and readiness |
 | `/flow:help` | This help page |
@@ -23,7 +23,7 @@ Streamlined worktree-based development workflow. No locks, no Redis — just git
 ```
 /flow:auto 42
   ↓
-  start → analyze → implement → finish → merge → deploy
+  start → analyze → implement → update docs → finish → merge → deploy
 ```
 
 Or step by step:

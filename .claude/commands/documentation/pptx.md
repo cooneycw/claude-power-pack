@@ -11,7 +11,7 @@ allowed-tools: mcp__nano-banana__list_diagram_types, mcp__nano-banana__generate_
 
 ## Instructions
 
-When the user invokes `/pptx:create [TOPIC]`, guide them through creating a professional presentation.
+When the user invokes `/documentation:pptx [TOPIC]`, guide them through creating a professional presentation.
 
 ### Step 1: Gather Requirements
 
@@ -24,7 +24,7 @@ What would you like to create a presentation about?
 Then ask for preferences:
 
 1. **Slide count** — How many slides? (default: 5-8)
-2. **Diagrams** — Include diagrams? Which types? (architecture, flowchart, sequence, orgchart, timeline, mindmap)
+2. **Diagrams** — Include diagrams? Which types? (architecture, c4, flowchart, sequence, orgchart, timeline, mindmap)
 3. **Output path** — Where to save the .pptx file? (default: current directory)
 
 ### Step 2: Plan the Presentation

@@ -15,12 +15,13 @@ Report at the start:
 ```
 Flow Auto: Issue #42 — Full Lifecycle
 
-Step 1/6: Start (create worktree and branch)
-Step 2/6: Analyze (understand issue and codebase)
-Step 3/6: Implement (write the code)
-Step 4/6: Finish (lint, test, commit, push, create PR)
-Step 5/6: Merge (squash-merge PR, clean up worktree)
-Step 6/6: Deploy (make deploy, if target exists)
+Step 1/7: Start (create worktree and branch)
+Step 2/7: Analyze (understand issue and codebase)
+Step 3/7: Implement (write the code)
+Step 4/7: Update Docs (regenerate C4 diagrams, review CLAUDE.md/README.md)
+Step 5/7: Finish (lint, test, commit, push, create PR)
+Step 6/7: Merge (squash-merge PR, clean up worktree)
+Step 7/7: Deploy (make deploy, if target exists)
 
 Proceeding...
 ```
@@ -98,7 +99,7 @@ echo "Verified: on branch '$CURRENT_BRANCH' in $(pwd)"
 
 **If this verification fails, STOP immediately. Report the failure using the error template at the bottom of this file. Do NOT proceed to Step 2.**
 
-Report: `Step 1/6: Start complete — worktree at {path}, verified on branch {branch}`
+Report: `Step 1/7: Start complete — worktree at {path}, verified on branch {branch}`
 
 ---
 
@@ -123,7 +124,7 @@ Working from the worktree, analyze the issue and codebase to form an implementat
 4. **Report the plan to the user:**
 
 ```
-Step 2/6: Analysis Complete
+Step 2/7: Analysis Complete
 
 Issue #42: "Fix login redirect loop"
 
@@ -143,7 +144,7 @@ Estimated scope: Small
 Proceeding to implementation...
 ```
 
-Report: `Step 2/6: Analyze complete — {N} files to modify`
+Report: `Step 2/7: Analyze complete — {N} files to modify`
 
 ---
 
@@ -160,11 +161,41 @@ If implementation hits a blocker that cannot be resolved:
 - **STOP** and report the blocker.
 - Suggest manual intervention.
 
-Report: `Step 3/6: Implement complete — {summary of changes}`
+Report: `Step 3/7: Implement complete — {summary of changes}`
 
 ---
 
-### Step 4: Finish — Quality Gates, Commit, Push, PR
+### Step 4: Update Docs — Regenerate C4 Diagrams and Review Docs
+
+If the Makefile has an `update_docs` target:
+
+```bash
+if [[ -f "Makefile" ]] && grep -q "^update_docs:" Makefile; then
+    echo "Running: make update_docs"
+    make update_docs
+fi
+```
+
+Then perform these documentation tasks:
+
+1. **Regenerate C4 diagrams** — If `docs/architecture/` exists or significant code changes were made, run the `/documentation:c4` workflow:
+   - Analyze the project architecture
+   - Generate L1-L4 C4 diagrams to `docs/architecture/`
+   - Screenshot via Playwright if available
+
+2. **Review CLAUDE.md** — Check that repository structure, command references, and component descriptions match the current state. Fix any stale references.
+
+3. **Review README.md** — Check that the project description, setup instructions, and feature list reflect the changes just implemented. Fix any inaccuracies.
+
+4. **Stage doc changes** — `git add` any modified documentation files.
+
+If no `update_docs` target exists in the Makefile, skip this step.
+
+Report: `Step 4/7: Update Docs complete — {N} files updated` or `Step 4/7: Update Docs skipped (no Makefile target)`
+
+---
+
+### Step 5: Finish — Quality Gates, Commit, Push, PR
 
 ```bash
 BRANCH=$(git branch --show-current)
@@ -193,7 +224,7 @@ ISSUE_NUM=$(echo "$BRANCH" | grep -oP 'issue-\K[0-9]+' || echo "")
    - PR body: Summary of changes + test plan + `Closes #N`
    - Analyze all commits on the branch to draft the summary.
 
-Report: `Step 4/6: Finish complete — PR #XX created`
+Report: `Step 5/7: Finish complete — PR #XX created`
 
 ---
 
@@ -258,7 +289,7 @@ Report: `Step 4/6: Finish complete — PR #XX created`
    fi
    ```
 
-Report: `Step 5/6: Merge complete — worktree cleaned up`
+Report: `Step 6/7: Merge complete — worktree cleaned up`
 
 ---
 
@@ -279,7 +310,7 @@ else
 fi
 ```
 
-Report: `Step 6/6: Deploy complete` or `Step 6/6: Deploy skipped (no Makefile target)`
+Report: `Step 7/7: Deploy complete` or `Step 7/7: Deploy skipped (no Makefile target)`
 
 ---
 
@@ -304,7 +335,7 @@ Flow Auto Complete
 At each step, if something fails:
 
 ```
-Flow Auto stopped at Step N/6: {Step Name}
+Flow Auto stopped at Step N/7: {Step Name}
 
   Failed: [description of what failed]
   Fix:    [actionable suggestion]
@@ -313,9 +344,10 @@ Flow Auto stopped at Step N/6: {Step Name}
     /flow:start N    (if step 1 failed)
     [investigate]    (if step 2 failed)
     [implement]      (if step 3 failed)
-    /flow:finish     (if step 4 failed)
-    /flow:merge      (if step 5 failed)
-    /flow:deploy     (if step 6 failed)
+    /documentation:c4 (if step 4 failed)
+    /flow:finish     (if step 5 failed)
+    /flow:merge      (if step 6 failed)
+    /flow:deploy     (if step 7 failed)
 ```
 
 Key failure scenarios:
@@ -323,9 +355,10 @@ Key failure scenarios:
 - **Issue closed:** Warn at step 1, ask to proceed
 - **Analysis unclear:** Stop at step 2, ask user for clarification
 - **Implementation blocker:** Stop at step 3, report what's blocking
-- **Lint/test fails:** Stop at step 4, show test output
-- **Push fails:** Stop at step 4, suggest `git pull --rebase`
-- **PR merge conflicts:** Stop at step 5, suggest manual resolution
+- **Doc update fails:** Non-blocking at step 4, warn and continue
+- **Lint/test fails:** Stop at step 5, show test output
+- **Push fails:** Stop at step 5, suggest `git pull --rebase`
+- **PR merge conflicts:** Stop at step 6, suggest manual resolution
 - **Deploy fails:** Report but don't roll back (deploy is best-effort)
 - **Inside worktree being removed:** `worktree-remove.sh` handles this safely
 

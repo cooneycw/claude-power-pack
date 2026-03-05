@@ -24,6 +24,7 @@ from diagrams import (
     DiagramNode,
     DiagramEdge,
     generate_architecture_diagram,
+    generate_c4_diagram,
     generate_flowchart_diagram,
     generate_sequence_diagram,
     generate_orgchart_diagram,
@@ -43,6 +44,7 @@ mcp = FastMCP(Config.SERVER_NAME)
 # Map diagram type to generator function
 _GENERATORS = {
     "architecture": generate_architecture_diagram,
+    "c4": generate_c4_diagram,
     "flowchart": generate_flowchart_diagram,
     "sequence": generate_sequence_diagram,
     "orgchart": generate_orgchart_diagram,
@@ -72,6 +74,7 @@ async def list_diagram_types() -> dict:
     return {
         "diagram_types": {
             "architecture": "Layered system architecture — boxes in a grid layout showing components and services",
+            "c4": "C4 model — multi-level architecture (Context, Container, Component, Code) with boundary groupings",
             "flowchart": "Process flow — sequential steps connected by arrows, with decision points",
             "sequence": "Interaction sequence — participants (columns) exchanging messages (arrows between lifelines)",
             "orgchart": "Hierarchy / org chart — tree structure with parent-child relationships",
@@ -103,7 +106,7 @@ async def generate_diagram(
     The output can be viewed in any browser or captured as a screenshot for PowerPoint embedding.
 
     Args:
-        diagram_type: Type of diagram. One of: architecture, flowchart, sequence, orgchart, timeline, mindmap.
+        diagram_type: Type of diagram. One of: architecture, c4, flowchart, sequence, orgchart, timeline, mindmap.
         title: Diagram title displayed at the top.
         nodes: List of node dicts. Each node has:
             - id (str): Unique identifier
@@ -264,7 +267,7 @@ async def diagram_to_pptx(
     with a "diagram" layout slide.
 
     Args:
-        diagram_type: Type of diagram (architecture, flowchart, sequence, orgchart, timeline, mindmap).
+        diagram_type: Type of diagram (architecture, c4, flowchart, sequence, orgchart, timeline, mindmap).
         title: Presentation and diagram title.
         nodes: Node definitions (see generate_diagram for format).
         edges: Edge definitions (see generate_diagram for format).
