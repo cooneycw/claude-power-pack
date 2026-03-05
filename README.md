@@ -19,7 +19,6 @@ A comprehensive repository combining:
 - [Flow Workflow](#-flow-workflow) - `/flow:start` → work → `/flow:finish` → `/flow:merge`
 - [Spec-Driven Development](#-spec-driven-development) - Specification workflow
 - [Sequential Thinking](#sequential-thinking-optional) - Structured step-by-step reasoning (optional)
-- [Session Coordination](#-session-coordination) - Multi-session conflict prevention (optional)
 - [Project Commands](#-project-commands) - `/project-lite` & `/project-next`
 - [GitHub Issue Management](#-github-issue-management) - Full CRUD for issues
 - [Secrets Management](#-secrets-management) - Secure credential access
@@ -33,7 +32,6 @@ A comprehensive repository combining:
 - [MCP Servers](#mcp-servers)
   - [MCP Second Opinion](#mcp-second-opinion-server) - Multi-model code review (port 8080)
   - [MCP Playwright Persistent](#mcp-playwright-persistent-server) - Browser automation (port 8081)
-  - [MCP Coordination](#mcp-coordination-server-optional) - Redis-backed locking (optional, in `extras/`)
 - [Installation](#installation) - Get started quickly
 - [Disclosures & Legal](#-disclosures--legal) - Attribution & API terms
 
@@ -113,7 +111,6 @@ make docker-ps
 |---------|----------|-------|
 | `core` | second-opinion, nano-banana | 8080, 8084 |
 | `browser` | playwright-persistent | 8081 |
-| `coord` | coordination + redis | 8082 |
 
 ### Makefile Targets
 
@@ -131,7 +128,6 @@ make docker-ps
 claude mcp add second-opinion --transport sse --url http://127.0.0.1:8080/sse
 claude mcp add nano-banana --transport sse --url http://127.0.0.1:8084/sse
 claude mcp add playwright-persistent --transport sse --url http://127.0.0.1:8081/sse
-claude mcp add coordination --transport sse --url http://127.0.0.1:8082/sse  # optional, teams only
 ```
 
 ### CI Pipeline (Woodpecker)
@@ -418,22 +414,6 @@ python -m lib.spec_bridge status
 python -m lib.spec_bridge sync user-auth
 ```
 
-## 🔒 Session Coordination (Optional)
-
-> **Moved to `extras/redis-coordination/` in v4.0.0.** Most users don't need this — the default `/flow` workflow is stateless and conflict-free for solo development.
-
-For teams running multiple concurrent Claude Code sessions, optional coordination scripts and a Redis MCP server prevent conflicts (duplicate PRs, pytest interference, etc.).
-
-### Coordination Tiers
-
-| Tier | Mode | Description |
-|------|------|-------------|
-| **Local** (default) | `coordination: local` | Stateless. Context from git. No locking. |
-| **Git** (optional) | `coordination: git` | State in `.claude/state.json`, synced via git. |
-| **Redis** (teams) | `coordination: redis` | MCP server with distributed locks. |
-
-See [`extras/redis-coordination/README.md`](extras/redis-coordination/README.md) for setup and usage.
-
 ## 📊 Project Commands
 
 **New in v1.8.0:** Commands for project orientation and issue prioritization.
@@ -640,7 +620,6 @@ Each Python component has its own `pyproject.toml`:
 - `mcp-playwright-persistent/pyproject.toml`
 - `mcp-evaluate/pyproject.toml` (deprecated — kept for reference)
 - `mcp-nano-banana/pyproject.toml`
-- `extras/redis-coordination/mcp-server/pyproject.toml` (optional)
 - `lib/creds/pyproject.toml`
 - `lib/security/pyproject.toml`
 - `lib/cicd/pyproject.toml`
@@ -971,7 +950,6 @@ Claude Power Pack includes two core MCP servers and one optional extra:
 | [Second Opinion](#mcp-second-opinion-server) | 8080 | Multi-model code review | `mcp-second-opinion/` |
 | [Playwright Persistent](#mcp-playwright-persistent-server) | 8081 | Browser automation | `mcp-playwright-persistent/` |
 | [Sequential Thinking](#sequential-thinking-optional) | stdio | Structured step-by-step reasoning | `extras/sequential-thinking/` (optional) |
-| [Coordination](#mcp-coordination-server-optional) | 8082 | Redis-backed distributed locking | `extras/redis-coordination/mcp-server/` (optional) |
 
 ---
 
@@ -1259,27 +1237,6 @@ See [`extras/sequential-thinking/README.md`](extras/sequential-thinking/README.m
 
 ---
 
-## MCP Coordination Server (Optional)
-
-> **Moved to `extras/redis-coordination/mcp-server/` in v4.0.0.** Only needed for teams running multiple concurrent Claude Code sessions.
-
-Redis-backed distributed locking and session coordination. Provides 8 MCP tools for lock management, session tracking, and health checks.
-
-### Quick Setup
-
-```bash
-cd extras/redis-coordination/mcp-server
-cp .env.example .env
-./start-server.sh
-
-# Add to Claude Code
-claude mcp add coordination --transport sse --url http://127.0.0.1:8082/sse
-```
-
-**Requires:** Redis server. See [`extras/redis-coordination/README.md`](extras/redis-coordination/README.md) for full documentation.
-
----
-
 # Installation
 
 ## Complete Setup
@@ -1321,9 +1278,6 @@ cd mcp-playwright-persistent
 uv run playwright install chromium  # First time only
 ./start-server.sh
 
-# MCP Coordination (port 8082) — optional, for teams only
-cd extras/redis-coordination/mcp-server
-./start-server.sh
 ```
 
 ### Step 3: Configure API Keys
@@ -1429,11 +1383,8 @@ claude-power-pack/
 ├── mcp-playwright-persistent/                  # Port 8081 - Browser automation
 │   └── src/server.py                           # 29 tools
 ├── extras/
-│   ├── sequential-thinking/                    # Optional: structured reasoning
-│   │   └── README.md                           # Setup & usage
-│   └── redis-coordination/                     # Optional: distributed locking
-│       ├── mcp-server/                         # Port 8082 - Redis locking (8 tools)
-│       └── scripts/                            # Session coordination scripts
+│   └── sequential-thinking/                    # Optional: structured reasoning
+│       └── README.md                           # Setup & usage
 ├── lib/
 │   ├── secrets/                                # Secrets management
 │   │   ├── cli.py                              # get, validate commands
@@ -1511,11 +1462,6 @@ Contributions are welcome! To contribute:
 - **Protect your API key** - Never commit .env files
 - **Review domain approvals** - Only approve trusted domains
 - **Monitor costs** - Set appropriate limits
-
-### For Session Coordination Scripts (Optional, in `extras/`)
-- **Scripts have shell access** - Review scripts in `extras/redis-coordination/scripts/` before installing
-- **Lock files in `~/.claude/coordination/`** - Contain session metadata
-- **Heartbeat data** - Tracks active sessions (local only, not transmitted)
 
 ## 📋 Disclosures & Legal
 
@@ -1596,7 +1542,6 @@ MIT License - See LICENSE file for details
 
 - **Flow commands** - `/flow:start`, `/flow:finish`, `/flow:merge`, `/flow:deploy`, `/flow:auto` for the full issue lifecycle
 - **Stateless by default** - All context detected from git and GitHub, no locking needed for solo dev
-- **Redis demoted to extras** - `mcp-coordination/` moved to `extras/redis-coordination/`
 - **Streamlined hooks** - Removed session/heartbeat overhead from hooks.json
 - **`/project-next` simplified** - Worktree-focused, recommends `/flow:start N` for next steps
 
@@ -1611,15 +1556,10 @@ MIT License - See LICENSE file for details
 - **CPP Initialization Wizard** - `/cpp:init` with tiered installation (Minimal/Standard/Full)
 - **Spec-Driven Development** - `.specify/` structure with `/spec:*` commands
 - **MCP Playwright Persistent** - 29 tools for browser automation (port 8081)
-- **MCP Coordination Server** - Redis-backed distributed locking (port 8082)
 - **Secrets Management** - `/secrets:*` commands with `lib/creds/` Python module
 - **Security Hooks** - Secret masking and dangerous command blocking
 
 ### Previous: v2.2.0
-
-- **MCP Coordination Server** - 8 Redis-backed tools for distributed locking
-- **Wave/Issue Hierarchy** - Lock at issue, wave, or wave.issue level
-- **Session Status Tiers** - Active/Idle/Stale/Abandoned with auto-expiry
 
 ### Previous: v2.1.0
 
@@ -1627,9 +1567,6 @@ MIT License - See LICENSE file for details
 - **Wave Branch Support** - `[CPP W5c.1]` for wave branches
 
 ### Previous: v1.9.0
-
-- **Session Coordination** - Prevent conflicts between concurrent Claude Code sessions
-- **Lock System** - `session-lock.sh` for PR creation, pytest, and merge coordination
 
 ### Previous: v1.8.0
 

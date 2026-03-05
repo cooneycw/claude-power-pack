@@ -82,7 +82,7 @@
 **Setup:**
 - Multiple Claude Code sessions in tmux
 - Each pane handles different concern
-- Cross-session coordination
+- Cross-session worktree isolation
 
 **Benefits:**
 - Separate contexts for separate tasks

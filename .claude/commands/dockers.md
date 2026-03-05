@@ -39,7 +39,7 @@ If no containers are running, report:
 No Docker containers found.
 
 Start MCP servers with: make docker-up PROFILE=core
-Available profiles: core (second-opinion + nano-banana), browser (playwright), coord (coordination + redis)
+Available profiles: core (second-opinion + nano-banana), browser (playwright)
 ```
 
 ### Step 3: Health Check Each MCP Container
@@ -52,7 +52,6 @@ declare -A MCP_PORTS=(
     ["mcp-second-opinion"]="8080"
     ["mcp-nano-banana"]="8084"
     ["mcp-playwright-persistent"]="8081"
-    ["mcp-coordination"]="8082"
 )
 
 for name in "${!MCP_PORTS[@]}"; do
@@ -108,8 +107,6 @@ Present a structured report:
 | mcp-second-opinion | 8080 | healthy | v1.9.0 | claude-power-pack | core |
 | mcp-nano-banana | 8084 | healthy | v1.0.0 | claude-power-pack | core |
 | mcp-playwright-persistent | 8081 | healthy | — | claude-power-pack | browser |
-| mcp-coordination | 8082 | healthy | — | claude-power-pack | coord |
-| mcp-redis | 6379 | running | — | claude-power-pack | coord |
 
 ### Other Containers
 
@@ -118,9 +115,9 @@ Present a structured report:
 | my-app-db | postgres:16 | Up 2 hours | 5432 |
 
 ### Summary
-- **Total containers:** 6 (5 healthy, 1 running)
-- **MCP servers:** 4/4 reachable
-- **Profiles active:** core, browser, coord
+- **Total containers:** 4 (3 healthy, 1 running)
+- **MCP servers:** 3/3 reachable
+- **Profiles active:** core, browser
 ```
 
 ### Step 6: Suggest Actions

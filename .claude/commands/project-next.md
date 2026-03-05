@@ -161,68 +161,6 @@ Look for:
 
 ---
 
-## Step 4b: Check Session Coordination State
-
-If coordination scripts are installed, check for active sessions and locks:
-
-```bash
-# Check active locks
-~/.claude/scripts/session-lock.sh list 2>/dev/null
-
-# Check active sessions
-~/.claude/scripts/session-register.sh status 2>/dev/null
-```
-
-### Session Coordination Analysis
-
-For each worktree, check if another session is working on it using tiered staleness:
-
-| Status | Heartbeat Age | Meaning |
-|--------|---------------|---------|
-| 🟢 **Active** | < 5 min | Actively using Claude Code |
-| 🟡 **Idle** | 5 min - 1 hour | Stepped away briefly |
-| 🟠 **Stale** | 1 - 4 hours | Gone for extended period |
-| ⚫ **Abandoned** | > 24 hours | Auto-released next day |
-
-**Conflict Prevention:**
-- **Active/Idle**: Block claim, suggest alternative issues
-- **Stale**: Allow override with warning
-- **Abandoned**: Auto-released, freely available
-
-**Include in recommendations:**
-- Mark issues with active/idle sessions as claimed with status indicator
-- Show time since last heartbeat for context
-- Highlight locks that may block operations
-
----
-
-## Step 4c: Get Claimed Issues
-
-Check which issues are already claimed by other active Claude Code sessions:
-
-```bash
-# Get the repo info
-REPO_INFO=$(gh repo view --json owner,name --jq '"\(.owner.login)/\(.name)"')
-
-# List all active claims for this repository
-~/.claude/scripts/session-register.sh list-claims "$REPO_INFO" 2>/dev/null
-```
-
-### Claim Filtering
-
-When presenting issues, the `list-claims` output now includes a `status` field with tiered values:
-
-1. **Parse claim list**: Each claim includes `status: "active"|"idle"` and `heartbeat_age`
-2. **Current session's claim is OK**: Don't filter the current session's own claim
-3. **Active/Idle sessions block**: Claims from sessions with status "active" or "idle" are blocked
-4. **Stale sessions allow override**: Show warning but don't block
-
-Display claimed issues with their tier status:
-- 🟢 `[CLAIMED - Active (2m)]` - definitely in use
-- 🟡 `[CLAIMED - Idle (15m)]` - probably still in use, warn before taking
-
----
-
 ## Step 5: Cross-Reference Analysis
 
 Compare issues against worktree state and build an **in-flight set** of issue numbers:
@@ -362,25 +300,6 @@ Present findings as:
 
 *Spec Feature column shows the linked feature from `.specify/specs/` if the issue was created via `/spec:sync`*
 
-### Active Coordination
-
-**Locks:**
-- `pytest-{repo}` held by session-xyz (120s remaining)
-- ...
-
-**Sessions:**
-- session-abc: working on #{N} in {worktree} (last heartbeat: 5s ago)
-- ...
-
-### Claimed by Other Sessions
-
-| Issue | Title | Session | Status | Last Heartbeat |
-|-------|-------|---------|--------|----------------|
-| #{N} | {Title} | tmux-%2 | 🟢 Active | 2m ago |
-| #{M} | {Title} | pid-1234 | 🟡 Idle | 25m ago |
-
-*Active/Idle claims are blocked. Stale claims (>4h) can be overridden with warning.*
-
 ### Recommendations
 - **Cleanup:** {worktrees with merged branches}
 - **Stale:** {worktrees with no recent commits}
@@ -406,26 +325,7 @@ After presenting recommendations, offer:
 
 When the user selects an issue to work on, follow this sequence:
 
-### 9.1 Check Availability
-
-```bash
-# Verify issue is still available (may have been claimed since analysis)
-~/.claude/scripts/claim-issue.sh --check {NUMBER}
-```
-
-If claimed, inform user and suggest alternatives.
-
-### 9.2 Claim the Issue
-
-```bash
-# Get repo info for claim
-REPO_INFO=$(gh repo view --json owner,name --jq '"\(.owner.login)/\(.name)"')
-
-# Claim the issue (registers in session coordination)
-~/.claude/scripts/session-register.sh claim "$REPO_INFO" {NUMBER} "{Title}"
-```
-
-### 9.3 Create Worktree (if needed)
+### 9.1 Create Worktree (if needed)
 
 If the issue doesn't have an existing worktree:
 

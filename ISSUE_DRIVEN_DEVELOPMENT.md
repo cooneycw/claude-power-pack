@@ -26,7 +26,7 @@ This guide documents the methodology as practiced in real-world projects with 10
 5. [Shell Prompt Context](#shell-prompt-context)
 6. [Commit Conventions](#commit-conventions)
 7. [Flow Workflow](#flow-workflow)
-8. [Multi-Agent Coordination](#multi-agent-coordination)
+8. [Parallel Work with Worktrees](#parallel-work-with-worktrees)
 9. [Example Workflow](#example-workflow)
 10. [Best Practices](#best-practices)
 11. [Anti-Patterns](#anti-patterns)
@@ -416,7 +416,7 @@ Or automate the entire lifecycle in one shot:
 
 ### How It Works
 
-Flow commands are **stateless** — all context is derived from git (branches, worktrees, remotes) and GitHub (issues, PRs). No locking, no Redis, no coordination server needed.
+Flow commands are **stateless** — all context is derived from git (branches, worktrees, remotes) and GitHub (issues, PRs). No locking needed.
 
 - `/flow:start` creates a worktree from `origin/main`, or picks up an existing remote branch
 - `/flow:sync` auto-commits WIP and pushes to remote for cross-machine pickup
@@ -476,7 +476,7 @@ Machine B: /flow:start 42  →  detects remote branch  →  continue working
 
 ---
 
-## Multi-Agent Coordination
+## Parallel Work with Worktrees
 
 ### How Issues Enable Parallel Work
 
@@ -487,7 +487,7 @@ Each micro-issue serves as a **knowledge transfer document** for different Claud
 3. **Dependencies are explicit** - Know what to wait for
 4. **Code stubs provided** - Expected interfaces are defined
 
-### Coordination Pattern
+### Worktree Isolation Pattern
 
 ```
 Main Repo (planning)          Worktree 1 (issue-42)       Worktree 2 (issue-57)
@@ -520,8 +520,6 @@ Main Repo (planning)          Worktree 1 (issue-42)       Worktree 2 (issue-57)
 4. **Use prompt context** - Visual confirmation of current worktree/issue
 5. **Don't share worktrees between sessions** - One session per worktree
 6. **Use `/flow:finish` to ship** - Handles commit, push, and PR creation
-
-> **Note:** For teams needing distributed locking, optional Redis coordination is available in `extras/redis-coordination/`. See that directory's README for setup.
 
 ---
 

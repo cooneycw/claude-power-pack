@@ -37,19 +37,6 @@
 
 ## Example: Session Start Hook
 
-```json
-{
-  "hooks": {
-    "SessionStart": [
-      {
-        "type": "command",
-        "command": "~/.claude/scripts/session-register.sh start"
-      }
-    ]
-  }
-}
-```
-
 ## Example: Prompt Validation Hook
 
 ```json
@@ -101,8 +88,6 @@ SessionEnd hooks fire
    - Initialize development tools
 
 2. **Session Tracking**
-   - Register session for coordination
-   - Update heartbeat
    - Log activity
 
 3. **Prompt Enhancement**

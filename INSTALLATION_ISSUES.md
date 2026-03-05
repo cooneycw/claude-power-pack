@@ -45,26 +45,5 @@ cp .env.example .env
 
 ---
 
-## Issue 3: Redis Not Running (Coordination Server — Optional)
-
-> **Note**: The MCP Coordination server is optional and has been moved to `extras/redis-coordination/mcp-server/`. Most users don't need it.
-
-**Problem**: MCP Coordination server fails because Redis is not available.
-
-**Error**:
-```
-redis.exceptions.ConnectionError: Error -2 connecting to localhost:6379
-```
-
-**Solution**: Install and start Redis:
-```bash
-sudo apt install redis-server
-sudo systemctl enable redis-server
-sudo systemctl start redis-server
-redis-cli ping  # Should return PONG
-```
-
----
-
 *Generated: 2025-12-20*
 *Updated: 2026-02-16 - Modernized for uv-first workflow*

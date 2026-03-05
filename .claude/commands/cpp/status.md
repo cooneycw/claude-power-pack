@@ -206,7 +206,7 @@ fi
 # Check MCP server pyproject.toml files
 echo ""
 echo "MCP Server Projects:"
-for server in mcp-second-opinion mcp-playwright-persistent extras/redis-coordination/mcp-server; do
+for server in mcp-second-opinion mcp-playwright-persistent; do
   if [ -f "$CPP_DIR/$server/pyproject.toml" ]; then
     echo "  [x] $server: pyproject.toml found"
   else
@@ -218,7 +218,7 @@ done
 echo ""
 echo "MCP Servers (Claude Code):"
 MCP_LIST=$(claude mcp list 2>/dev/null || echo "")
-for server in second-opinion playwright-persistent coordination; do
+for server in second-opinion playwright-persistent; do
   if echo "$MCP_LIST" | grep -q "$server"; then
     echo "  [x] $server: registered"
   else
@@ -229,7 +229,7 @@ done
 # Check MCP server connectivity and API key status
 echo ""
 echo "MCP Server Connectivity:"
-for entry in "8080:second-opinion" "8081:playwright-persistent" "8082:coordination"; do
+for entry in "8080:second-opinion" "8081:playwright-persistent"; do
   PORT="${entry%%:*}"
   NAME="${entry#*:}"
   HEALTH_RESPONSE=$(curl -sf --max-time 2 "http://127.0.0.1:${PORT}/" 2>/dev/null)
@@ -374,7 +374,6 @@ Tier 3 (Full):
   MCP Connectivity:
     [x] second-opinion (port 8080): reachable
     [ ] playwright-persistent (port 8081): not reachable
-    [ ] coordination (port 8082): not reachable
   [ ] Systemd: not installed
   Status: Partial
 

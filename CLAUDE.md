@@ -25,14 +25,13 @@ Core components and their locations:
 - `mcp-playwright-persistent/` — Browser automation MCP server (port 8081, 29 tools)
 - `mcp-nano-banana/` — Diagram generation + PowerPoint MCP server (port 8084)
 - `extras/sequential-thinking/` — Optional: structured reasoning (stdio, npm)
-- `extras/redis-coordination/` — Optional: distributed locking for teams (port 8082)
 - `lib/creds/` — Secrets management (dotenv/AWS SM, FastAPI UI, audit logging)
 - `lib/security/` — Security scanning (native + external tools)
 - `lib/cicd/` — CI/CD framework detection, Makefile generation, health/smoke checks
 - `lib/spec_bridge/` — Spec-to-GitHub-issue sync
 - `scripts/` — Shell utilities (prompt-context, worktree-remove, hooks)
 - `templates/` — Makefile, workflow, container templates
-- `docker-compose.yml` — MCP server orchestration (profiles: `core`, `browser`, `coord`)
+- `docker-compose.yml` — MCP server orchestration (profiles: `core`, `browser`)
 - `.woodpecker.yml` — Woodpecker CI pipeline (lint, test, typecheck, Docker builds)
 
 ## Environment Variables
@@ -43,9 +42,9 @@ Core components and their locations:
 
 Docker containers read API keys from a root `.env` file (gitignored) via `env_file` in docker-compose.yml. For production, use AWS Secrets Manager via `lib/creds`.
 
-- **Profiles:** `core` (second-opinion + nano-banana), `browser` (playwright), `coord` (coordination + redis)
+- **Profiles:** `core` (second-opinion + nano-banana), `browser` (playwright)
 - **Start:** `make docker-up PROFILE=core`
-- **All profiles:** `make docker-up PROFILE="core browser coord"`
+- **All profiles:** `make docker-up PROFILE="core browser"`
 - **Status/logs/stop:** `make docker-ps`, `make docker-logs`, `make docker-down`
 - **SSE connections:** Defined in project `.mcp.json` pointing to `127.0.0.1:{port}/sse`
 - **Woodpecker CI** runs on push/PR: lint, test, typecheck, conditional Docker builds
@@ -156,10 +155,6 @@ Load topic-specific skills instead of the full guide (88-92% token savings):
 ## Secrets Management
 
 Tiered: dotenv-global (`~/.config/claude-power-pack/secrets/`) -> env-file -> AWS Secrets Manager. Features: project identity (git-based), bundle API, secret injection (`creds run`), FastAPI web UI, audit logging, IAM isolation, output masking. Configure in `.claude/secrets.yml`.
-
-## Session Coordination (Optional)
-
-For teams only. Default `/flow` workflow is stateless and conflict-free for solo development. Three tiers: Local (default, stateless), Git (state in `.claude/state.json`), Redis (MCP server with distributed locks). See `extras/redis-coordination/README.md`.
 
 ## Version
 
