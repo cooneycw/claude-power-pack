@@ -55,6 +55,23 @@ PYTHONPATH="${HOME}/Projects/claude-power-pack/lib" python3 -m lib.security gate
 - If the gate produces **warnings** (high findings): display them but proceed.
 - If `lib/security` is not available, skip this step (warn the user).
 
+**Gate behavior by severity (defaults — configurable in `.claude/security.yml`):**
+
+| Severity | Effect on `/flow:finish` | What to do |
+|----------|--------------------------|------------|
+| CRITICAL | **BLOCKS** — flow stops, no PR created | Fix the finding, then re-run `/flow:finish` |
+| HIGH | **WARNS** — displayed, flow continues | Review finding; fix if real, suppress if false positive |
+| MEDIUM | Passes silently | No action needed |
+| LOW | Passes silently | No action needed |
+
+To suppress a known false positive, add it to `.claude/security.yml`:
+```yaml
+suppressions:
+  - id: HARDCODED_SECRET
+    path: tests/fixtures/.*
+    reason: "Test fixtures with fake credentials"
+```
+
 ### Step 2c: Makefile Completeness Check (optional, non-blocking)
 
 If `lib/cicd` is available, run a quick Makefile validation and report any gaps as warnings:
