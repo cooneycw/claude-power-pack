@@ -11,6 +11,7 @@ A comprehensive repository combining:
 ## 🎯 Quick Navigation
 
 - [Quick Start: /cpp:init](#-quick-start-cppinit) - **START HERE** - Interactive setup wizard
+- [Quick Start: Docker](#-quick-start-docker) - Run MCP servers as containers
 - [Claude Best Practices](#claude-best-practices) - Community insights & tips
 - [Token-Efficient Tool Organization](#-token-efficient-tool-organization) - Progressive disclosure
 - [Shell Prompt Context](#-shell-prompt-context) - Visual session management
@@ -84,6 +85,51 @@ mkdir -p ~/Projects/.claude
 ln -s /path/to/claude-power-pack/.claude/commands ~/Projects/.claude/commands
 ln -s /path/to/claude-power-pack/.claude/skills ~/Projects/.claude/skills
 ```
+
+## 🐳 Quick Start: Docker
+
+Run MCP servers as Docker containers with profile-based selection:
+
+```bash
+# Create .env with API keys (never commit this file)
+echo "GEMINI_API_KEY=your-key" > .env
+
+# Start core services (Second Opinion + Nano-Banana)
+make docker-up PROFILE=core
+
+# Or start multiple profiles
+make docker-up PROFILE="core browser"
+```
+
+### Docker Compose Profiles
+
+| Profile | Services | Ports |
+|---------|----------|-------|
+| `core` | second-opinion, nano-banana | 8080, 8084 |
+| `browser` | playwright-persistent | 8081 |
+| `coord` | coordination + redis | 8082 |
+
+### Makefile Targets
+
+| Target | Description |
+|--------|-------------|
+| `make docker-up PROFILE=core` | Start services |
+| `make docker-down` | Stop all services |
+| `make docker-build PROFILE=core` | Build images |
+| `make docker-logs` | Tail logs |
+| `make docker-ps` | Show running containers |
+
+### Connect Claude Code to Docker MCP Servers
+
+```bash
+claude mcp add second-opinion --transport sse --url http://127.0.0.1:8080/sse
+claude mcp add nano-banana --transport sse --url http://127.0.0.1:8084/sse
+claude mcp add playwright-persistent --transport sse --url http://127.0.0.1:8081/sse
+```
+
+### CI Pipeline (Woodpecker)
+
+The `.woodpecker.yml` pipeline runs lint, test, typecheck, and conditional Docker builds per server on push/PR.
 
 ---
 

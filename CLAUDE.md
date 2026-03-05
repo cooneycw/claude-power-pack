@@ -28,12 +28,14 @@ This repository contains five core components and optional extras:
 
 - Python 3.11+
 - Use uv for dependency management (pyproject.toml)
-- MCP servers support both stdio (recommended) and SSE transport
-- MCP Second Opinion: port 8080 (SSE) or `--stdio`
-- MCP Playwright: port 8081 (SSE) or `--stdio`
-- MCP Coordination: port 8082 (SSE) or `--stdio`
+- MCP servers support three deployment modes: stdio (recommended), SSE, or Docker
+- MCP Second Opinion: port 8080 (SSE/Docker) or `--stdio`
+- MCP Playwright: port 8081 (SSE/Docker) or `--stdio`
+- MCP Coordination: port 8082 (SSE/Docker) or `--stdio`
 - MCP Evaluate: DEPRECATED (absorbed into /evaluate:issue command + evaluate skill)
-- MCP Nano-Banana: port 8084 (SSE) or `--stdio`
+- MCP Nano-Banana: port 8084 (SSE/Docker) or `--stdio`
+- Docker Compose profiles: `core`, `browser`, `coord` (see Docker Deployment section)
+- Woodpecker CI for pipeline automation (`.woodpecker.yml`)
 - All documentation uses progressive disclosure principles
 
 ## Environment Variables
@@ -250,8 +252,64 @@ claude-power-pack/
 │   └── hooks.json                              # Session hooks
 ├── .github/
 │   └── ISSUE_TEMPLATE/                         # Structured issue templates
+├── docker-compose.yml                           # MCP server orchestration (profiles)
+├── .woodpecker.yml                              # Woodpecker CI pipeline
+├── docs/architecture/
+│   └── mcp-vs-skills.md                        # MCP vs Skills decision boundary
 └── README.md                                    # Quick start guide
 ```
+
+## Docker Deployment
+
+MCP servers can be run via Docker Compose with profile-based selection.
+
+### Profiles
+
+| Profile | Services | Use Case |
+|---------|----------|----------|
+| `core` | second-opinion, nano-banana | Default: code review + diagrams |
+| `browser` | playwright-persistent | Browser automation (2GB shm) |
+| `coord` | coordination + redis | Multi-session locking (teams) |
+
+### Quick Start
+
+```bash
+# Create .env with API keys (never commit)
+echo "GEMINI_API_KEY=..." > .env
+echo "OPENAI_API_KEY=..." >> .env
+
+# Start core services
+make docker-up PROFILE=core
+
+# Start all profiles
+make docker-up PROFILE="core browser coord"
+
+# View logs / status / stop
+make docker-logs
+make docker-ps
+make docker-down
+```
+
+### Secrets Flow
+
+Docker containers read API keys from a root `.env` file via `env_file` in docker-compose.yml. The `.env` file is gitignored. For production, use AWS Secrets Manager via `lib/creds`.
+
+### Connecting Claude Code to Docker MCP Servers
+
+```bash
+# SSE transport (containers expose ports)
+claude mcp add second-opinion --transport sse --url http://127.0.0.1:8080/sse
+claude mcp add nano-banana --transport sse --url http://127.0.0.1:8084/sse
+claude mcp add playwright-persistent --transport sse --url http://127.0.0.1:8081/sse
+```
+
+### Woodpecker CI
+
+The `.woodpecker.yml` pipeline runs on push/PR:
+1. **lint** — `uv run ruff check .`
+2. **test** — `uv run pytest`
+3. **typecheck** — `uv run mypy .`
+4. **Docker builds** — conditional per-server builds (only when server files change)
 
 ## On-Demand Documentation Loading
 
