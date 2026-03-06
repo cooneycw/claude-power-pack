@@ -161,18 +161,95 @@ Look for:
 
 ---
 
-## Step 5: Cross-Reference Analysis
+## Step 5: State Materialization (MANDATORY)
 
-Compare issues against worktree state and build an **in-flight set** of issue numbers:
+You MUST build three explicit lists and write them out before generating any recommendations.
+Failure to materialize these lists causes downstream filtering failures. This is a strict gate.
 
-1. **Issue-to-Branch Mapping**: Match issue numbers in branch names (`issue-{N}-*`)
-2. **Issue-to-Worktree Mapping**: Map worktree directories to issue numbers
-3. **Orphaned Work**: Branches without corresponding open issues
-4. **Blocked Issues**: Issues waiting on parent completion
+### 5.1 Build IN_FLIGHT_ISSUES
 
-**Build the in-flight set:** Collect all issue numbers from (1), (2), and claimed issues from Step 4c into a single set called `IN_FLIGHT_ISSUES`. This set is used in Step 6 to exclude issues from "Ready to Start" recommendations. Any issue in this set should only appear under "Active Work (In Progress)".
+Collect every issue number that meets ANY of these criteria into `IN_FLIGHT_ISSUES`:
+- Has a matching branch anywhere (`git branch --list 'issue-{N}-*'`)
+- Has a mapped worktree directory (from Step 4)
+- Is claimed by an Active or Idle session
 
-### 5.1 Issue-to-Spec Mapping (if .specify/ exists)
+### 5.2 Build DEPENDENCY_MAP
+
+Parse all open issues for dependency relationships. For each issue, record its upstream dependencies:
+
+| Detection Pattern | Example | Extraction |
+|-------------------|---------|------------|
+| "Depends on #N" | `Depends on #100` | upstream = #100 |
+| "Blocked by #N" | `Blocked by #100` | upstream = #100 |
+| "After #N" | `After #100` | upstream = #100 |
+| "Requires #N" | `Requires #100` | upstream = #100 |
+| Parent wave incomplete | Child of Wave 5, Wave 5 still open | upstream = Wave 5 issue |
+| Checklist reference | `- [ ] #100` in parent body | upstream = parent for #100 |
+
+### 5.3 Build BLOCKED_ISSUES
+
+Use the following graph traversal to compute transitive blocking. Do NOT use a single-pass check -
+multi-hop dependencies (A blocks B blocks C) MUST be caught.
+
+```pseudocode
+function compute_blocked(dependency_map, in_flight_issues, all_open_issues):
+    blocked = set()
+    visited = set()
+
+    function dfs(issue):
+        if issue in visited:
+            return                          # cycle detected - already handled
+        visited.add(issue)
+
+        for upstream in dependency_map.get(issue, []):
+            if upstream in in_flight_issues:
+                blocked.add(issue)          # upstream is active work, not done
+            elif upstream in all_open_issues:
+                dfs(upstream)               # recurse to check upstream's deps
+                if upstream in blocked:
+                    blocked.add(issue)      # transitively blocked
+            # if upstream is closed/merged, it is satisfied - no block
+
+    for issue in all_open_issues:
+        dfs(issue)
+
+    # Handle cycles: any issue still in visited but with unresolved
+    # circular refs gets marked blocked
+    return blocked
+```
+
+An issue is blocked if ANY of these are true:
+- It has an explicit dependency (Depends on/Blocked by/Requires/After) on an in-flight issue
+- It has an explicit dependency on an open issue that is itself blocked (transitive)
+- It is a child of a parent wave that still has incomplete tasks
+- It participates in a circular dependency chain
+
+**Important:** Only block on explicit dependency keywords from section 5.2. Do NOT treat every
+open issue reference (e.g. "Related to #N" or "See also #N") as a blocking dependency.
+
+### 5.4 Write Out All Three Lists
+
+You MUST explicitly output these three lists in your thinking before proceeding to Step 6.
+If you skip this step, your recommendations WILL contain errors.
+
+```
+IN_FLIGHT_ISSUES: [#N, #M, ...]
+BLOCKED_ISSUES: [#X (blocked by #N), #Y (blocked by #M), ...]
+AVAILABLE_ISSUES: [all open issues NOT in either list above]
+```
+
+**Worked example** (5 issues, 2 worktrees):
+```
+Open issues: #10, #11, #12, #13, #14
+Worktrees: issue-10-auth, issue-11-api
+Dependencies: #12 "Depends on #10", #13 "Requires #12", #14 has no deps
+
+IN_FLIGHT_ISSUES: [#10, #11]           -- have worktrees
+BLOCKED_ISSUES:   [#12 (by #10), #13 (by #12, transitive)]
+AVAILABLE_ISSUES: [#14]                -- only this is "Ready to Start"
+```
+
+### 5.5 Issue-to-Spec Mapping (if .specify/ exists)
 
 For each issue, check if it was created by spec sync:
 
@@ -185,37 +262,91 @@ For each worktree, determine if it links to a spec feature:
 - Look up issue labels
 - Match label to feature directory in `.specify/specs/`
 
-This enables the output table to show spec feature associations
+### 5.6 Orphaned Work
+
+Identify branches/worktrees without corresponding open issues (merged or closed).
 
 ---
 
-## Step 6: Generate Recommendations
+## Step 6: Verification Gate (MANDATORY)
 
-Create a prioritized list of next steps:
+You MUST execute the following pseudocode logic against EVERY open issue to determine its placement.
+Do NOT skip this step. Do NOT assign issues without running them through this gate.
+
+```pseudocode
+for issue in all_open_issues:
+    if issue.number in IN_FLIGHT_ISSUES:
+        assign_to(PRIORITY_2_ACTIVE_WORK)
+        continue                              # STOP - do not consider further
+
+    if issue.number in BLOCKED_ISSUES:
+        assign_to(BLOCKED_SECTION)
+        continue                              # STOP - do not recommend
+
+    if is_critical_or_security_blocker(issue):
+        assign_to(PRIORITY_1_CRITICAL)
+        continue
+
+    if is_quick_win(issue):
+        assign_to(PRIORITY_4_QUICK_WINS)
+        continue
+
+    if is_planning_or_discussion(issue):
+        assign_to(PRIORITY_5_PLANNING)
+        continue
+
+    assign_to(PRIORITY_3_READY_TO_START)
+```
+
+### Post-Gate Validation (MANDATORY)
+
+After running the gate, execute this validation. Do NOT skip it.
+
+```pseudocode
+# Validation 1: No in-flight or blocked issues leaked into recommendable tiers
+for tier in [PRIORITY_3, PRIORITY_4, PRIORITY_5]:
+    for issue in tier:
+        assert issue not in IN_FLIGHT_ISSUES    # FAIL = move to Priority 2
+        assert issue not in BLOCKED_ISSUES      # FAIL = move to Blocked section
+        for upstream in DEPENDENCY_MAP.get(issue, []):
+            if upstream in all_open_issues:
+                assert upstream not in IN_FLIGHT_ISSUES  # FAIL = move issue to Blocked
+                assert upstream not in BLOCKED_ISSUES    # FAIL = move issue to Blocked
+
+# Validation 2: Coverage - every open issue accounted for exactly once
+assigned = P1 + P2 + BLOCKED + P3 + P3b + P4 + P5
+assert len(assigned) == len(all_open_issues)    # FAIL = find and classify missing issues
+```
+
+If any assertion fails, fix the assignment before generating output. If you cannot resolve
+a classification, report it as an error to the user rather than silently misclassifying.
+
+**STRICTLY FORBIDDEN:** An issue in `IN_FLIGHT_ISSUES` MUST NOT appear in Priority 3, 4, or 5.
+An issue in `BLOCKED_ISSUES` MUST NOT appear in Priority 3, 4, or 5. No exceptions.
+
+---
+
+## Step 7: Generate Recommendations
+
+Output the prioritized list based EXACTLY on the Step 6 verification gate results.
 
 ### Priority 1: Critical/Blocking
-- Security issues
-- Breaking bugs
-- Deployment blockers
+- Security issues, breaking bugs, deployment blockers
+- These bypass the in-flight/blocked filter (critical issues are always surfaced)
 
 ### Priority 2: Active Work (In Progress)
-- Issues with existing worktrees (include worktree path and branch status)
-- Issues with uncommitted changes
-- Issues claimed by other sessions (show session status)
+- ONLY issues from `IN_FLIGHT_ISSUES`
+- Include worktree path, branch status, uncommitted changes, session claim
 
-**IMPORTANT - Worktree/Session Exclusion:**
-When building Priority 3+ lists, **exclude** any issue that:
-1. Already has a worktree (mapped in Step 5 cross-reference)
-2. Already has a branch checked out anywhere (`git branch --list 'issue-{N}-*'`)
-3. Is claimed by an Active or Idle session (from Step 4c)
-
-These issues belong in Priority 2 only. Do NOT recommend them as "Ready to Start".
+### Blocked (Not Actionable)
+- Issues from `BLOCKED_ISSUES`
+- For each, show WHY it is blocked: "Blocked by #N (in-flight)" or "Blocked by #N (not started)"
+- Do NOT assign effort estimates or suggest starting these
 
 ### Priority 3: Ready to Start
-- Child issues of completed parent waves
+- Issues that passed the Step 6 gate with no blockers
+- Child issues of COMPLETED parent waves only
 - Issues with clear acceptance criteria
-- Issues with no blockers
-- **Must not have an existing worktree, branch, or active session claim**
 
 ### Priority 3b: Pending Spec Sync (if .specify/ exists)
 - Features with tasks.md containing unsynced waves
@@ -223,18 +354,16 @@ These issues belong in Priority 2 only. Do NOT recommend them as "Ready to Start
 - **Action:** `/spec:sync {feature-name}`
 
 ### Priority 4: Quick Wins
-- Low effort issues
-- Documentation updates
-- Simple fixes
+- Low effort issues, documentation updates, simple fixes
+- MUST have passed the Step 6 gate
 
 ### Priority 5: Planning/Discussion
-- Wave/Phase planning issues
-- Feature discussions
-- Architecture decisions
+- Wave/Phase planning issues, feature discussions, architecture decisions
+- MUST have passed the Step 6 gate
 
 ---
 
-## Step 7: Output Format
+## Step 8: Output Format
 
 Present findings as:
 
@@ -279,16 +408,21 @@ Present findings as:
 1. **[CRITICAL]** Issue #{N}: {Title}
    - **Why:** {reasoning}
    - **Effort:** Small/Medium/Large
-   - **Status:** {In worktree | Branch exists | Ready to start}
    - **Command:** `git worktree add -b issue-{N}-desc ../{repo}-issue-{N}`
 
-2. **[HIGH]** Issue #{N}: {Title}
-   - **Parent:** #{parent_N} ({status})
+2. **[READY]** Issue #{N}: {Title}
    - **Why:** {reasoning}
    - **Effort:** {estimate}
 
-3. **[MEDIUM]** Issue #{N}: {Title}
+3. **[QUICK WIN]** Issue #{N}: {Title}
    - **Why:** {reasoning}
+
+### Blocked Issues (Not Actionable)
+
+| Issue | Title | Blocked By | Reason |
+|-------|-------|------------|--------|
+| #{X} | {Title} | #{N} | In-flight (active worktree) |
+| #{Y} | {Title} | #{M} | Not started (open dependency) |
 
 ### Worktree Status
 
@@ -307,7 +441,7 @@ Present findings as:
 
 ---
 
-## Step 8: Present Follow-up Options
+## Step 9: Present Follow-up Options
 
 After presenting recommendations, offer:
 
@@ -321,7 +455,7 @@ After presenting recommendations, offer:
 
 ---
 
-## Step 9: Handle User Selection
+## Step 10: Handle User Selection
 
 When the user selects an issue to work on, follow this sequence:
 
