@@ -182,10 +182,22 @@ async def generate_diagram(
     # Save or return HTML
     if save_path:
         path = Path(save_path)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(html, encoding="utf-8")
-        result["file_path"] = str(path.resolve())
-        result["html_preview"] = html[:500] + "..." if len(html) > 500 else html
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(html, encoding="utf-8")
+            result["file_path"] = str(path.resolve())
+            result["html_preview"] = html[:500] + "..." if len(html) > 500 else html
+        except PermissionError:
+            logger.warning(
+                f"Cannot write to '{save_path}' (permission denied - likely a host path "
+                f"outside the container). Returning HTML content instead."
+            )
+            result["html"] = html
+            result["save_path_error"] = (
+                f"Permission denied writing to '{save_path}'. "
+                f"When running in Docker, save_path must be within the container filesystem "
+                f"or a mounted volume. Use the returned HTML content and save it with the Write tool."
+            )
     else:
         result["html"] = html
 

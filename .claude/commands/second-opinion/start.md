@@ -80,8 +80,9 @@ Ask the user what they want reviewed (file path or paste code).
 2. If file path given, read the file
 3. If no code found, ask user
 4. Auto-detect language from file extension or content
-5. If single model: use `get_code_second_opinion` with verbosity parameter
-6. If multiple models: use `get_multi_model_second_opinion` with verbosity parameter
+5. If single model AND model is `gemini-3-pro` (default): use `get_code_second_opinion` with verbosity parameter
+6. If single model AND model is NOT `gemini-3-pro`: use `get_multi_model_second_opinion` with `models: ["<model_key>"]` and verbosity parameter
+7. If multiple models: use `get_multi_model_second_opinion` with verbosity parameter
 7. Display results with cost
 
 ---
