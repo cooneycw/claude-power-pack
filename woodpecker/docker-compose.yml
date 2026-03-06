@@ -1,0 +1,36 @@
+# Woodpecker CI - Server + Agent
+# Secrets pulled from AWS Secrets Manager via bootstrap-secrets.py -> docker.env
+# Start: docker compose up -d
+
+services:
+  woodpecker-server:
+    image: woodpeckerci/woodpecker-server:v3.13.0
+    container_name: woodpecker-server
+    ports:
+      - "9000:8000"
+      - "9001:9000"
+    volumes:
+      - woodpecker-server-data:/var/lib/woodpecker/
+    env_file: docker.env
+    environment:
+      - WOODPECKER_OPEN=true
+      - WOODPECKER_HOST=${WOODPECKER_HOST:?Set WOODPECKER_HOST in docker.env}
+      - WOODPECKER_GITHUB=true
+      - WOODPECKER_ADMIN=cooneycw
+    restart: unless-stopped
+
+  woodpecker-agent:
+    image: woodpeckerci/woodpecker-agent:v3.13.0
+    container_name: woodpecker-agent
+    depends_on:
+      - woodpecker-server
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    env_file: docker.env
+    environment:
+      - WOODPECKER_SERVER=woodpecker-server:9000
+      - WOODPECKER_MAX_WORKFLOWS=2
+    restart: unless-stopped
+
+volumes:
+  woodpecker-server-data:
