@@ -1,4 +1,4 @@
-"""Flowchart diagram generator — process flow visualization."""
+"""Flowchart diagram generator - process flow visualization."""
 
 from __future__ import annotations
 

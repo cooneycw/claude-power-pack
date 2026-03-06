@@ -5,7 +5,7 @@ allowed-tools: mcp__second-opinion__get_code_second_opinion, mcp__second-opinion
 
 # Second Opinion: Quick Start
 
-Get a fast second opinion with sensible defaults. No menus — just review.
+Get a fast second opinion with sensible defaults. No menus - just review.
 
 ARGUMENTS: $ARGUMENTS
 
@@ -112,5 +112,5 @@ Ask the user what they want reviewed (file path or paste code).
 
 ## Related Commands
 
-- `/second-opinion:models` — Full interactive model/depth selection with menus
-- `/second-opinion:help` — Overview of all commands
+- `/second-opinion:models` - Full interactive model/depth selection with menus
+- `/second-opinion:help` - Overview of all commands

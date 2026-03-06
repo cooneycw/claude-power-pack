@@ -51,16 +51,16 @@ ISSUE_TITLE=$(gh issue view "$ISSUE_NUM" --json title --jq '.title' 2>/dev/null 
 ### Step 5: Output
 
 ```markdown
-## Flow Status — {repo}
+## Flow Status - {repo}
 
 | Worktree | Issue | Branch | Status | PR |
 |----------|-------|--------|--------|----|
-| ../{repo}-issue-42 | #42 Fix login bug | issue-42-fix-login | 3 dirty files, 2 unpushed | — |
+| ../{repo}-issue-42 | #42 Fix login bug | issue-42-fix-login | 3 dirty files, 2 unpushed | - |
 | ../{repo}-issue-55 | #55 Add tests | issue-55-add-tests | Clean | PR #78 (OPEN) |
 
 ### Suggestions
-- **#42**: Has uncommitted work — commit or stash before switching
-- **#55**: PR is open — check for reviews, then `/flow:merge`
+- **#42**: Has uncommitted work - commit or stash before switching
+- **#55**: PR is open - check for reviews, then `/flow:merge`
 ```
 
 ### Step 6: Detect Stale Branches
@@ -94,5 +94,5 @@ Run `/flow:cleanup` to remove stale branches and references.
 
 - Worktrees on `main` or non-issue branches are listed but marked as "(not issue-linked)"
 - If no worktrees exist besides main, report "No active worktrees. Run `/flow:start <issue>` to begin."
-- Keep output concise — this is a quick status check
+- Keep output concise - this is a quick status check
 - Stale branch detection helps identify cleanup opportunities

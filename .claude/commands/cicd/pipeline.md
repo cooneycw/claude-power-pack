@@ -40,7 +40,7 @@ PYTHONPATH="$PWD/lib:$HOME/Projects/claude-power-pack/lib:$PYTHONPATH" python3 -
 Framework: {framework} ({package_manager})
 
 Files created:
-  .github/workflows/ci.yml — CI pipeline with lint, test, build
+  .github/workflows/ci.yml - CI pipeline with lint, test, build
 
 Triggers: push to main, pull requests
 Targets:  make lint, make test, make typecheck (if available)

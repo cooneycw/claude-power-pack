@@ -1,4 +1,4 @@
-# Self-Improvement: Deployment — Retrospective Makefile Analysis
+# Self-Improvement: Deployment - Retrospective Makefile Analysis
 
 Examine recent errors from the current session and deploy history, then propose concrete Makefile improvements to prevent recurrence.
 
@@ -10,7 +10,7 @@ None. This command operates on conversation context and project state.
 
 When the user invokes `/self-improvement:deployment`, perform these steps:
 
-### Step 1: Gather Context — Recent Errors
+### Step 1: Gather Context - Recent Errors
 
 Review the current conversation for:
 - Failed `make` commands (any target) and their stderr output
@@ -35,7 +35,7 @@ To use this command effectively:
   2. Or describe what went wrong: "The deploy failed because..."
 ```
 
-### Step 2: Gather Context — Deploy History
+### Step 2: Gather Context - Deploy History
 
 ```bash
 if [ -f ".claude/deploy.log" ]; then
@@ -52,7 +52,7 @@ Analyze the deploy log for:
 - Time gaps suggesting abandoned deploy attempts
 - Whether failures cluster on certain branches
 
-### Step 3: Gather Context — Current Makefile
+### Step 3: Gather Context - Current Makefile
 
 ```bash
 if [ -f "Makefile" ]; then
@@ -72,9 +72,9 @@ No Makefile found. Create one from the CPP template:
 Then customize targets for your project.
 ```
 
-Stop here — no further analysis is possible without a Makefile.
+Stop here - no further analysis is possible without a Makefile.
 
-### Step 4: Analyze — Pattern Detection
+### Step 4: Analyze - Pattern Detection
 
 Cross-reference the errors (Step 1) with the Makefile contents (Step 3) to identify:
 
@@ -189,7 +189,7 @@ Apply changes? [y/N]
 
 ## Notes
 
-- This is a **retrospective** command — it looks backward at what happened, not forward
+- This is a **retrospective** command - it looks backward at what happened, not forward
 - It never modifies the Makefile without explicit user approval
 - The deploy.log at `.claude/deploy.log` provides historical context beyond the current session
 - Pair with `/flow:doctor` for a forward-looking health check of your workflow environment

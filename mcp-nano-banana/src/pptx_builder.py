@@ -1,10 +1,11 @@
-"""PowerPoint slide builder — creates PPTX files with embedded diagrams and content."""
+"""PowerPoint slide builder - creates PPTX files with embedded diagrams and content."""
 
 from __future__ import annotations
 
 import base64
 import io
 import logging
+import re
 
 from pptx import Presentation
 from pptx.util import Inches, Pt
@@ -12,6 +13,20 @@ from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN
 
 logger = logging.getLogger(__name__)
+
+# Terms that should not appear in generated output unless explicitly requested
+_FRAMEWORK_NAMES = [
+    "mckinsey", "bcg", "boston consulting", "bain", "deloitte", "accenture",
+    "game framework", "pyramid principle", "minto pyramid",
+    "scqa framework", "star framework", "monroe's motivated sequence",
+]
+
+_PLACEHOLDER_PATTERNS = [
+    r"\[.*?insert.*?\]",
+    r"\[.*?placeholder.*?\]",
+    r"\[.*?todo.*?\]",
+    r"lorem ipsum",
+]
 
 # Standard 16:9 widescreen dimensions
 SLIDE_WIDTH = Inches(13.333)
@@ -253,3 +268,110 @@ def _add_notes(slide, slide_def: dict) -> None:
     if notes:
         notes_slide = slide.notes_slide
         notes_slide.notes_text_frame.text = notes
+
+
+def validate_slides(
+    slides: list[dict],
+    prohibited_terms: list[str] | None = None,
+) -> dict:
+    """Validate slide definitions before PPTX creation.
+
+    Checks for framework name leaks, placeholder text, structural issues,
+    and content quality. Returns pass/fail with specific issues.
+
+    Args:
+        slides: List of slide dicts (same format as create_presentation).
+        prohibited_terms: Additional terms to flag (case-insensitive).
+
+    Returns:
+        dict with passed (bool), issues (list), and summary.
+    """
+    issues: list[dict] = []
+    terms = _FRAMEWORK_NAMES + (prohibited_terms or [])
+
+    for i, slide_def in enumerate(slides, 1):
+        layout = slide_def.get("layout", "content")
+
+        # Collect all text from this slide
+        text_fields = []
+        for key in ("title", "subtitle", "content", "left_content", "right_content", "notes"):
+            val = slide_def.get(key, "")
+            if val:
+                text_fields.append((key, val))
+
+        # Check: framework/corporate name leaks
+        for field, text in text_fields:
+            text_lower = text.lower()
+            for term in terms:
+                if term.lower() in text_lower:
+                    issues.append({
+                        "slide": i,
+                        "field": field,
+                        "severity": "high",
+                        "check": "framework_attribution",
+                        "message": f"Found '{term}' in {field}. Remove framework/corporate name attribution.",
+                    })
+
+        # Check: placeholder text
+        for field, text in text_fields:
+            for pattern in _PLACEHOLDER_PATTERNS:
+                matches = re.findall(pattern, text, re.IGNORECASE)
+                for match in matches:
+                    issues.append({
+                        "slide": i,
+                        "field": field,
+                        "severity": "high",
+                        "check": "placeholder_text",
+                        "message": f"Found placeholder text '{match}' in {field}.",
+                    })
+
+        # Check: diagram slide must have image
+        if layout == "diagram" and not slide_def.get("image_base64"):
+            issues.append({
+                "slide": i,
+                "field": "image_base64",
+                "severity": "medium",
+                "check": "missing_image",
+                "message": "Diagram slide has no image_base64. Will render as empty slide.",
+            })
+
+        # Check: content slide should have content
+        if layout == "content" and not slide_def.get("content"):
+            issues.append({
+                "slide": i,
+                "field": "content",
+                "severity": "low",
+                "check": "empty_content",
+                "message": "Content slide has no body text.",
+            })
+
+        # Check: two-column should have both columns
+        if layout == "two-column":
+            if not slide_def.get("left_content") and not slide_def.get("content"):
+                issues.append({
+                    "slide": i,
+                    "field": "left_content",
+                    "severity": "low",
+                    "check": "empty_column",
+                    "message": "Two-column slide missing left column content.",
+                })
+            if not slide_def.get("right_content"):
+                issues.append({
+                    "slide": i,
+                    "field": "right_content",
+                    "severity": "low",
+                    "check": "empty_column",
+                    "message": "Two-column slide missing right column content.",
+                })
+
+    high_count = sum(1 for i in issues if i["severity"] == "high")
+    passed = high_count == 0
+
+    return {
+        "passed": passed,
+        "slide_count": len(slides),
+        "issue_count": len(issues),
+        "high_severity": high_count,
+        "issues": issues,
+        "summary": "All checks passed." if passed else f"{high_count} high-severity issue(s) must be fixed.",
+    }

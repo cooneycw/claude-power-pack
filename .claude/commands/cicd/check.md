@@ -3,7 +3,7 @@ description: Validate Makefile against CPP standards
 allowed-tools: Bash(python3:*), Bash(PYTHONPATH=*), Bash(ls:*), Bash(test:*), Bash(cat:*), Bash(grep:*), Read
 ---
 
-# /cicd:check — Makefile Validation
+# /cicd:check - Makefile Validation
 
 Validate your project's Makefile against Claude Power Pack standards.
 
@@ -35,8 +35,8 @@ if [ ! -f "Makefile" ]; then
   echo "No Makefile found in $(pwd)"
   echo ""
   echo "Create one with:"
-  echo "  /cicd:init    — Auto-detect framework and generate"
-  echo "  cp $CPP_DIR/templates/Makefile.example Makefile  — Copy starter template"
+  echo "  /cicd:init    - Auto-detect framework and generate"
+  echo "  cp $CPP_DIR/templates/Makefile.example Makefile  - Copy starter template"
   exit 1
 fi
 ```
@@ -68,15 +68,15 @@ The report includes:
 | Status | Meaning |
 |--------|---------|
 | `present` | Target exists in Makefile |
-| `MISSING` | Required target missing — `/flow` commands need this |
-| `missing` | Recommended target missing — nice to have |
+| `MISSING` | Required target missing - `/flow` commands need this |
+| `missing` | Recommended target missing - nice to have |
 
 ### Required Targets (used by /flow)
 
 | Target | Used By |
 |--------|---------|
-| `lint` | `/flow:finish` — runs before commit |
-| `test` | `/flow:finish` — runs before commit |
+| `lint` | `/flow:finish` - runs before commit |
+| `test` | `/flow:finish` - runs before commit |
 
 ### Recommended Targets
 
@@ -98,7 +98,7 @@ If there are missing required targets:
 
 ```
 To fix missing targets, run:
-  /cicd:init    — Auto-detect and offer to append missing targets
+  /cicd:init    - Auto-detect and offer to append missing targets
 
 Or add them manually to your Makefile:
 

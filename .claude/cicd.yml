@@ -1,4 +1,4 @@
-# .claude/cicd.yml — CI/CD configuration for Claude Power Pack
+# .claude/cicd.yml - CI/CD configuration for Claude Power Pack
 #
 # Framework and package manager are auto-detected (Python + uv).
 # This file configures quality gates and recommendations.

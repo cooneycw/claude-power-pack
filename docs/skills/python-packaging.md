@@ -89,12 +89,12 @@ package = false  # Set for applications (not installable libraries)
 
 ### PEP 621 Rules
 
-1. **Always declare `requires-python`** — constrains resolution and prevents incompatible installs
-2. **Use `>=` lower bounds, not `==` pins** — the lockfile handles pinning
+1. **Always declare `requires-python`** - constrains resolution and prevents incompatible installs
+2. **Use `>=` lower bounds, not `==` pins** - the lockfile handles pinning
 3. **Dev tools go in `[dependency-groups]`** (PEP 735), not `[project.optional-dependencies]`
-4. **Extras are for end-users** — `pip install my-lib[postgres]`; dev groups are for contributors
-5. **Commit `uv.lock`** for applications — ensures reproducible installs
-6. **Use `hatchling`** as default build backend — lightweight, standards-compliant
+4. **Extras are for end-users** - `pip install my-lib[postgres]`; dev groups are for contributors
+5. **Commit `uv.lock`** for applications - ensures reproducible installs
+6. **Use `hatchling`** as default build backend - lightweight, standards-compliant
 
 ### uv Commands for PEP 621
 
@@ -179,11 +179,11 @@ Then: `chmod +x script.py && ./script.py`
 
 ### PEP 723 Best Practices
 
-1. **Always include `requires-python`** — even if `">=3.10"`, be explicit
-2. **Include `dependencies = []`** even when empty — signals intent
-3. **Use `uv add --script`** to manage deps — handles TOML formatting correctly
-4. **Pin to ranges, not exact versions** — use `uv lock --script` for reproducibility
-5. **Use the shebang** — `#!/usr/bin/env -S uv run --script` makes scripts self-executing
+1. **Always include `requires-python`** - even if `">=3.10"`, be explicit
+2. **Include `dependencies = []`** even when empty - signals intent
+3. **Use `uv add --script`** to manage deps - handles TOML formatting correctly
+4. **Pin to ranges, not exact versions** - use `uv lock --script` for reproducibility
+5. **Use the shebang** - `#!/usr/bin/env -S uv run --script` makes scripts self-executing
 
 ---
 
@@ -220,7 +220,7 @@ build-backend = "hatchling.build"
 dev = [...]
 ```
 
-Each component has its own `pyproject.toml` — modular, independent, standard.
+Each component has its own `pyproject.toml` - modular, independent, standard.
 
 ---
 

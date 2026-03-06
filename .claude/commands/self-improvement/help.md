@@ -40,14 +40,14 @@ Run `/self-improvement:deployment` after:
 ## Future Commands
 
 The self-improvement category may grow to include:
-- **test** — Analyze test failure patterns, suggest test infrastructure improvements
-- **review** — Analyze PR review feedback patterns, suggest code quality improvements
-- **session** — Analyze session patterns, suggest CLAUDE.md improvements
+- **test** - Analyze test failure patterns, suggest test infrastructure improvements
+- **review** - Analyze PR review feedback patterns, suggest code quality improvements
+- **session** - Analyze session patterns, suggest CLAUDE.md improvements
 
 ## See Also
 
-- `/cicd:check` — Forward-looking Makefile validation against CPP standards
-- `/cicd:init` — Auto-detect framework and generate Makefile from templates
+- `/cicd:check` - Forward-looking Makefile validation against CPP standards
+- `/cicd:init` - Auto-detect framework and generate Makefile from templates
 
 ## Related Commands
 

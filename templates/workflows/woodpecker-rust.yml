@@ -1,4 +1,4 @@
-# Woodpecker CI — Rust (Claude Power Pack)
+# Woodpecker CI - Rust (Claude Power Pack)
 #
 # Uses Makefile targets as steps for consistency with local dev.
 # Run locally: woodpecker exec

@@ -37,7 +37,7 @@ cp ~/Projects/claude-power-pack/templates/qa.yml.example .claude/qa.yml
 # Edit for your project
 ```
 
-**If no `.claude/qa.yml` exists**, `/qa:test` runs in interactive mode — it prompts for a URL and uses generic testing (clicking elements, checking forms, scanning console errors).
+**If no `.claude/qa.yml` exists**, `/qa:test` runs in interactive mode - it prompts for a URL and uses generic testing (clicking elements, checking forms, scanning console errors).
 
 ### Config Schema
 
@@ -47,12 +47,12 @@ project:
   url: https://myapp.example.com        # Default URL
   repository: owner/repo-name           # GitHub repo for bug issues
 
-# Shortcuts — short names that resolve to URLs
+# Shortcuts - short names that resolve to URLs
 shortcuts:
   myapp: https://myapp.example.com
   staging: https://staging.myapp.example.com
 
-# Test areas — named sections with paths and test checklists
+# Test areas - named sections with paths and test checklists
 test_areas:
   home:
     path: /                              # URL path appended to project URL

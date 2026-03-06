@@ -1,4 +1,4 @@
-"""Sequence diagram generator — interaction/message sequence visualization."""
+"""Sequence diagram generator - interaction/message sequence visualization."""
 
 from __future__ import annotations
 

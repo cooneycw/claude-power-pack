@@ -151,7 +151,7 @@ def _scaffold_terraform(config: InfrastructureConfig, cloud: CloudProvider) -> d
 
     # Foundation tier
     files["infra/foundation/main.tf"] = f"""\
-# Foundation Layer — run once, touch rarely
+# Foundation Layer - run once, touch rarely
 # Resources: subscriptions, resource groups, DNS zones, networking, identity
 #
 # Deploy with approval: terraform plan -> review -> terraform apply
@@ -186,7 +186,7 @@ variable "region" {
 """
 
     files["infra/foundation/outputs.tf"] = """\
-# Foundation outputs — consumed by platform and app tiers
+# Foundation outputs - consumed by platform and app tiers
 # Use terraform_remote_state to reference these from other tiers
 """
 
@@ -194,7 +194,7 @@ variable "region" {
 
     # Platform tier
     files["infra/platform/main.tf"] = f"""\
-# Platform Layer — shared services
+# Platform Layer - shared services
 # Resources: container registries, key vaults, log analytics, shared DBs
 {provider_block}
 {backend_block}
@@ -224,7 +224,7 @@ variable "environment" {
 
     # App tier
     files["infra/app/main.tf"] = f"""\
-# Application Layer — app-specific infrastructure
+# Application Layer - app-specific infrastructure
 # Resources: app services, functions, storage, app databases
 {provider_block}
 {backend_block}
@@ -324,9 +324,9 @@ Three-tier infrastructure managed by {config.provider.capitalize()}.
 
 ## Tiers
 
-- **foundation/** — Run once, touch rarely. DNS, networking, identity. Manual approval required.
-- **platform/** — Shared services. Container registries, key vaults, shared DBs.
-- **app/** — Application-specific infrastructure. Deployed with application CI/CD.
+- **foundation/** - Run once, touch rarely. DNS, networking, identity. Manual approval required.
+- **platform/** - Shared services. Container registries, key vaults, shared DBs.
+- **app/** - Application-specific infrastructure. Deployed with application CI/CD.
 
 ## Quick Start
 
@@ -469,9 +469,9 @@ Three-tier infrastructure managed by Pulumi ({runtime}).
 
 ## Tiers
 
-- **foundation/** — DNS, networking, identity. Manual approval required.
-- **platform/** — Shared services.
-- **app/** — Application-specific infrastructure.
+- **foundation/** - DNS, networking, identity. Manual approval required.
+- **platform/** - Shared services.
+- **app/** - Application-specific infrastructure.
 
 ## Quick Start
 
@@ -531,9 +531,9 @@ Three-tier infrastructure managed by Azure Bicep.
 
 ## Tiers
 
-- **foundation/** — Resource groups, DNS, VNets. Manual approval required.
-- **platform/** — Key Vault, ACR, Log Analytics.
-- **app/** — App Service, Functions, Storage.
+- **foundation/** - Resource groups, DNS, VNets. Manual approval required.
+- **platform/** - Key Vault, ACR, Log Analytics.
+- **app/** - App Service, Functions, Storage.
 
 ## Quick Start
 

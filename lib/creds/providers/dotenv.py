@@ -1,4 +1,4 @@
-"""DotEnv secrets provider — global config location.
+"""DotEnv secrets provider - global config location.
 
 Stores secrets in ~/.config/claude-power-pack/secrets/{project_id}.env,
 keeping them outside the repo to prevent accidental commits.

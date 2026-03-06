@@ -1,5 +1,5 @@
 """
-MCP Evaluate Server — Domain-aware multi-model evaluation.
+MCP Evaluate Server - Domain-aware multi-model evaluation.
 
 Composite MCP server that orchestrates the second-opinion server to provide
 domain-appropriate evaluation across phases: divergence scan, validation,
@@ -131,7 +131,7 @@ async def evaluate_start(
 
     Args:
         description: The issue, idea, or decision to evaluate.
-        domain: Domain type — one of: architecture, concept, algorithm, ui-design, workflow.
+        domain: Domain type - one of: architecture, concept, algorithm, ui-design, workflow.
         artifacts: Optional supporting materials (code snippets, specs, mockup descriptions).
         models: Model keys to use (default: auto-select 2-3 diverse models).
         context: Additional context or constraints.
@@ -301,7 +301,7 @@ async def evaluate_produce_spec(
 
     Args:
         session_id: Session ID from evaluate_start.
-        evaluation_type: Output type — "full" (all 3), "spec", "plan", or "tasks".
+        evaluation_type: Output type - "full" (all 3), "spec", "plan", or "tasks".
         feature_name: Kebab-case feature name for the output directory.
         constitution_path: Optional path to .specify/memory/constitution.md.
 

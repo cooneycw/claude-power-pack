@@ -9,7 +9,7 @@ Get a detailed explanation of a specific security finding type.
 
 ## Arguments
 
-- `FINDING_ID` (required) — The finding identifier (e.g., `HARDCODED_PASSWORD`)
+- `FINDING_ID` (required) - The finding identifier (e.g., `HARDCODED_PASSWORD`)
 
 ## Available Finding IDs
 

@@ -1,4 +1,4 @@
-# Feature Specification: Wave 6 — Polish, Quality & DX
+# Feature Specification: Wave 6 - Polish, Quality & DX
 
 > **Created:** 2026-02-16
 > **Status:** Approved

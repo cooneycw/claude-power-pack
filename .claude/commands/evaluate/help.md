@@ -61,7 +61,7 @@ Phase 4: Spec Output
 # Evaluate a feature concept
 /evaluate:issue "Add real-time collaboration to the document editor"
 
-# No arguments — interactive prompts guide you
+# No arguments - interactive prompts guide you
 /evaluate:issue
 ```
 
@@ -84,7 +84,7 @@ Typical evaluation costs $0.10-0.30 depending on model selection and depth. Phas
 
 ## Related Commands
 
-- `/second-opinion:start` — Quick single-file code review
-- `/second-opinion:models` — Interactive model selection for reviews
-- `/spec:create` — Create blank spec templates (no evaluation)
-- `/spec:sync` — Sync generated tasks to GitHub issues
+- `/second-opinion:start` - Quick single-file code review
+- `/second-opinion:models` - Interactive model selection for reviews
+- `/spec:create` - Create blank spec templates (no evaluation)
+- `/spec:sync` - Sync generated tasks to GitHub issues

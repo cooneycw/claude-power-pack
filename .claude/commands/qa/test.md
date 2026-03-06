@@ -21,10 +21,10 @@ cat .claude/qa.yml 2>/dev/null
 ```
 
 **If `.claude/qa.yml` exists**, parse it to extract:
-- `project.url` — default project URL
-- `project.repository` — GitHub repo for issue creation
-- `shortcuts` — map of shortcut names to URLs
-- `test_areas` — named areas with paths, descriptions, and test checks
+- `project.url` - default project URL
+- `project.repository` - GitHub repo for issue creation
+- `shortcuts` - map of shortcut names to URLs
+- `test_areas` - named areas with paths, descriptions, and test checks
 
 **If `.claude/qa.yml` does NOT exist**, use interactive fallback (see Step 1b).
 
@@ -44,7 +44,7 @@ If no `.claude/qa.yml` is found and no URL was provided in arguments:
 
 3. **Ask for the repository** (for GitHub issue creation) or detect from `gh repo view`.
 
-4. **Proceed with generic test areas** — test the entire page without area-specific plans:
+4. **Proceed with generic test areas** - test the entire page without area-specific plans:
    - Click all interactive elements
    - Fill and submit forms
    - Check console for errors

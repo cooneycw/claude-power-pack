@@ -1,4 +1,4 @@
-# Implementation Plan: Wave 6 — Polish, Quality & DX
+# Implementation Plan: Wave 6 - Polish, Quality & DX
 
 > **Spec:** [spec.md](./spec.md)
 > **Created:** 2026-02-16

@@ -1,4 +1,4 @@
-"""Tests for lib/cicd/pipeline.py — pipeline generation."""
+"""Tests for lib/cicd/pipeline.py - pipeline generation."""
 
 from __future__ import annotations
 
@@ -38,7 +38,7 @@ def _make_config(**overrides: object) -> CICDConfig:
 
 
 # ---------------------------------------------------------------------------
-# generate_pipeline — orchestrator
+# generate_pipeline - orchestrator
 # ---------------------------------------------------------------------------
 
 
@@ -78,7 +78,7 @@ class TestGeneratePipeline:
 
 
 # ---------------------------------------------------------------------------
-# generate_github_actions — Python
+# generate_github_actions - Python
 # ---------------------------------------------------------------------------
 
 
@@ -151,7 +151,7 @@ class TestGitHubActionsPython:
 
 
 # ---------------------------------------------------------------------------
-# generate_github_actions — Node
+# generate_github_actions - Node
 # ---------------------------------------------------------------------------
 
 
@@ -201,7 +201,7 @@ class TestGitHubActionsNode:
 
 
 # ---------------------------------------------------------------------------
-# generate_github_actions — Go
+# generate_github_actions - Go
 # ---------------------------------------------------------------------------
 
 
@@ -237,7 +237,7 @@ class TestGitHubActionsGo:
 
 
 # ---------------------------------------------------------------------------
-# generate_github_actions — Rust
+# generate_github_actions - Rust
 # ---------------------------------------------------------------------------
 
 
@@ -319,7 +319,7 @@ class TestTriggers:
 
 
 # ---------------------------------------------------------------------------
-# generate_woodpecker — various frameworks
+# generate_woodpecker - various frameworks
 # ---------------------------------------------------------------------------
 
 
@@ -424,7 +424,7 @@ class TestInstallCommands:
 
 
 # ---------------------------------------------------------------------------
-# Template validation — static workflow templates
+# Template validation - static workflow templates
 # ---------------------------------------------------------------------------
 
 

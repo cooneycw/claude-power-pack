@@ -1,6 +1,6 @@
 # Flow Commands
 
-Streamlined worktree-based development workflow. No locks, no Redis — just git.
+Streamlined worktree-based development workflow. No locks, no Redis - just git.
 
 ## Commands
 
@@ -43,9 +43,9 @@ Machine B: /flow:start 42  →  picks up remote branch  →  continue working
 
 | Severity | `/flow:finish` (default) | `/flow:deploy` (default) |
 |----------|--------------------------|--------------------------|
-| CRITICAL | **Blocks** — must fix before PR | **Blocks** — must fix before deploy |
-| HIGH | **Warns** — shows findings, proceeds | **Blocks** — must fix before deploy |
-| MEDIUM | Passes | **Warns** — shows findings, proceeds |
+| CRITICAL | **Blocks** - must fix before PR | **Blocks** - must fix before deploy |
+| HIGH | **Warns** - shows findings, proceeds | **Blocks** - must fix before deploy |
+| MEDIUM | Passes | **Warns** - shows findings, proceeds |
 | LOW | Passes | Passes |
 
 **What happens when blocked:**
@@ -75,7 +75,7 @@ If no `.claude/security.yml` exists, the defaults above are used. If `lib/securi
 - **Worktree directory:** `../{repo}-issue-{N}` (sibling to main repo)
 - **Branch name:** `issue-{N}-{slug}` (derived from issue title)
 - **Commit style:** `type(scope): Description (Closes #N)`
-- **All context is derived from git** — no external state tracking
+- **All context is derived from git** - no external state tracking
 
 ## Quick Examples
 
@@ -93,12 +93,12 @@ If no `.claude/security.yml` exists, the defaults above are used. If `lib/securi
 /flow:check
 # → Reports pass/fail per check
 
-# Done coding — push and create PR
+# Done coding - push and create PR
 /flow:finish
 # → Runs make test/lint if available
 # → Commits, pushes, creates PR
 
-# PR approved — merge and clean up
+# PR approved - merge and clean up
 /flow:merge
 # → Merges PR, deletes branch, removes worktree
 

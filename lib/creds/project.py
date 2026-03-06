@@ -50,7 +50,7 @@ def get_project_root() -> Path:
         if git_common_dir.is_absolute():
             return git_common_dir.parent
         else:
-            # Relative path — resolve from cwd
+            # Relative path - resolve from cwd
             toplevel = subprocess.run(
                 ["git", "rev-parse", "--show-toplevel"],
                 capture_output=True,

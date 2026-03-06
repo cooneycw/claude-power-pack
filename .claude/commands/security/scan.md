@@ -23,9 +23,9 @@ Run a full security scan using native checks plus any available external tools.
 - Debug flags in production configs
 
 ### External (auto-detected)
-- **gitleaks** — secret detection in working tree
-- **pip-audit** — Python dependency CVEs
-- **npm audit** — Node.js dependency CVEs
+- **gitleaks** - secret detection in working tree
+- **pip-audit** - Python dependency CVEs
+- **npm audit** - Node.js dependency CVEs
 
 ## Process
 

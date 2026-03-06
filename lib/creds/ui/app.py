@@ -97,7 +97,7 @@ def create_app(
     provider = _get_provider(config)
 
     app = FastAPI(
-        title="Claude Power Pack — Secrets",
+        title="Claude Power Pack - Secrets",
         description="Local secrets management UI",
         docs_url=None,
         redoc_url=None,
@@ -261,7 +261,7 @@ def _render_html(project_id: str, token: str) -> str:
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Secrets — {project_id}</title>
+<title>Secrets - {project_id}</title>
 <style>
   * {{ box-sizing: border-box; margin: 0; padding: 0; }}
   body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -447,7 +447,7 @@ def run_server(
     print("\nSecrets Manager UI starting...")
     print(f"  URL:   http://{host}:{port}/")
     print(f"  Token: {token}")
-    print("  (Copy the token — it's required for API access)")
+    print("  (Copy the token - it's required for API access)")
     print()
 
     log_action("ui_start", project_id or "", f"host={host}, port={port}")

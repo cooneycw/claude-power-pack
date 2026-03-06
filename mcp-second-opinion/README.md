@@ -120,7 +120,7 @@ The server starts but all LLM calls will fail. Add at least one key:
 
 ```bash
 cp .env.example .env
-# Edit .env — add GEMINI_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY
+# Edit .env - add GEMINI_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY
 ```
 
 ## License

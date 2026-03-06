@@ -1,4 +1,4 @@
-# GitHub Actions Deploy — Generic (Claude Power Pack)
+# GitHub Actions Deploy - Generic (Claude Power Pack)
 #
 # Deploys on merge to main using Makefile targets.
 # Customize secrets and deployment steps as needed.

@@ -178,7 +178,7 @@ def _check_antipatterns(
                 if re.match(r"^(python|python3|pytest|ruff|mypy)\s", clean_cmd):
                     result.issues.append(
                         f"Target '{target.name}': uses bare '{clean_cmd.split()[0]}' "
-                        f"instead of 'uv run {clean_cmd.split()[0]}' — "
+                        f"instead of 'uv run {clean_cmd.split()[0]}' - "
                         f"may fail outside the virtual environment"
                     )
 
@@ -188,7 +188,7 @@ def _check_antipatterns(
         has_quality_deps = any(d in ("test", "lint", "verify") for d in dt.dependencies)
         if not has_quality_deps and dt.commands:
             result.issues.append(
-                f"Target '{dt.name}': runs without test/lint dependencies — "
+                f"Target '{dt.name}': runs without test/lint dependencies - "
                 f"consider adding 'test lint' as prerequisites"
             )
 
@@ -260,7 +260,7 @@ def _generate_inline(info: FrameworkInfo) -> str:
     targets = info.recommended_targets
 
     lines = [
-        "# Project Makefile — Claude Power Pack Integration",
+        "# Project Makefile - Claude Power Pack Integration",
         "#",
         "# The /flow commands auto-discover these targets:",
         "#   /flow:finish  → runs `make lint` and `make test` (if targets exist)",

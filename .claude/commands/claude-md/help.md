@@ -51,6 +51,6 @@ CLAUDE.md is the primary mechanism for directing Claude Code agent behavior. Wit
 
 ## Related
 
-- `/cicd:check` — Validate Makefile targets
-- `/cicd:init` — Generate Makefile from detected framework
-- `/project:init` — Full project scaffolding (generates CLAUDE.md with directives)
+- `/cicd:check` - Validate Makefile targets
+- `/cicd:init` - Generate Makefile from detected framework
+- `/project:init` - Full project scaffolding (generates CLAUDE.md with directives)

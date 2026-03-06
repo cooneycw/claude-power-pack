@@ -1,4 +1,4 @@
-# Woodpecker CI — Go (Claude Power Pack)
+# Woodpecker CI - Go (Claude Power Pack)
 #
 # Uses Makefile targets as steps for consistency with local dev.
 # Run locally: woodpecker exec

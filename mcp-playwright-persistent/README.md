@@ -26,10 +26,10 @@ uv run playwright install chromium
 # 3. Start server (uv handles dependencies automatically)
 ./start-server.sh
 
-# 4. Add to Claude Code (stdio — recommended, auto-start)
+# 4. Add to Claude Code (stdio - recommended, auto-start)
 claude mcp add playwright-persistent --transport stdio -- uv run --directory /path/to/claude-power-pack/mcp-playwright-persistent python src/server.py --stdio
 
-# Or add via SSE (for systemd/docker deployments — requires manual start)
+# Or add via SSE (for systemd/docker deployments - requires manual start)
 # claude mcp add playwright-persistent --transport sse --url http://127.0.0.1:8081/sse
 ```
 

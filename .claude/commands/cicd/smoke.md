@@ -3,7 +3,7 @@ description: Run smoke tests from cicd.yml configuration
 allowed-tools: Bash(python3:*), Bash(PYTHONPATH=*), Bash(curl:*), Bash(ls:*), Bash(test:*), Bash(cat:*), Read
 ---
 
-# /cicd:smoke — Smoke Tests
+# /cicd:smoke - Smoke Tests
 
 Run smoke tests from `.claude/cicd.yml` configuration.
 
@@ -35,7 +35,7 @@ if [ ! -f ".claude/cicd.yml" ]; then
   echo "No .claude/cicd.yml found in $(pwd)"
   echo ""
   echo "Create one with:"
-  echo "  /cicd:init    — Auto-detect framework and generate"
+  echo "  /cicd:init    - Auto-detect framework and generate"
   echo ""
   echo "Or add smoke tests manually to .claude/cicd.yml:"
   echo ""
@@ -76,7 +76,7 @@ The report includes:
 | Status | Meaning |
 |--------|---------|
 | `PASS` | Command exited with expected code and output matched (if configured) |
-| `FAIL` | Command failed — wrong exit code, output mismatch, or timeout |
+| `FAIL` | Command failed - wrong exit code, output mismatch, or timeout |
 
 ### Test Configuration
 
@@ -146,7 +146,7 @@ Test "API responds" FAILED:
 - Smoke tests verify that a deployed/running system works end-to-end
 - Run after `make deploy` or service startup to validate
 - Commands run in the project root directory
-- Each test is independent — failures don't stop subsequent tests
+- Each test is independent - failures don't stop subsequent tests
 - Use `--json` flag for machine-readable output
 - Use `--summary` flag for one-line pass/fail (useful in scripts)
 - Configure tests in `.claude/cicd.yml` under `health.smoke_tests`

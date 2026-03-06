@@ -1,10 +1,10 @@
-"""C4 model diagram generator — multi-level architecture visualization.
+"""C4 model diagram generator - multi-level architecture visualization.
 
 Supports all four C4 levels:
-  L1 System Context — actors, external systems, system of interest
-  L2 Container — applications, databases, services within a system boundary
-  L3 Component — components within a container boundary
-  L4 Code — classes, modules, interfaces within a component
+  L1 System Context - actors, external systems, system of interest
+  L2 Container - applications, databases, services within a system boundary
+  L3 Component - components within a container boundary
+  L4 Code - classes, modules, interfaces within a component
 
 Node types map to C4 concepts:
   person       → Actor / User (rounded pill with icon)
@@ -25,8 +25,8 @@ from diagrams.base import DiagramSpec, _css_reset
 # C4-specific color palette
 _C4_COLORS = {
     "person":       ("#1e40af", "#3b82f6", "#ffffff"),  # dark blue
-    "system":       ("#374151", "#6b7280", "#f3f4f6"),  # grey — external
-    "system-focus": ("#1d4ed8", "#60a5fa", "#ffffff"),  # blue — focus
+    "system":       ("#374151", "#6b7280", "#f3f4f6"),  # grey - external
+    "system-focus": ("#1d4ed8", "#60a5fa", "#ffffff"),  # blue - focus
     "container":    ("#15803d", "#22c55e", "#ffffff"),  # green
     "component":    ("#7e22ce", "#a855f7", "#ffffff"),  # purple
     "code":         ("#b45309", "#f59e0b", "#1e293b"),  # amber
@@ -62,7 +62,7 @@ def generate_c4_diagram(
 
     Nodes are rendered as styled cards with technology labels.
     Edges are shown as labelled arrows between nodes.
-    Boundary groupings are inferred from node types — nodes of the same
+    Boundary groupings are inferred from node types - nodes of the same
     ``type`` are visually grouped inside a dashed boundary box.
     """
     css = _css_reset(width, height)

@@ -1,5 +1,5 @@
 """
-MCP Nano-Banana — Diagram generation and PowerPoint creation server.
+MCP Nano-Banana - Diagram generation and PowerPoint creation server.
 
 Generates best-in-class HTML/SVG diagrams at 1920x1080 for professional
 presentations. Includes PowerPoint builder for embedding diagrams into slides.
@@ -31,7 +31,7 @@ from diagrams import (
     generate_timeline_diagram,
     generate_mindmap_diagram,
 )
-from pptx_builder import create_presentation
+from pptx_builder import create_presentation, validate_slides
 
 logging.basicConfig(
     level=logging.INFO,
@@ -73,13 +73,13 @@ async def list_diagram_types() -> dict:
     """
     return {
         "diagram_types": {
-            "architecture": "Layered system architecture — boxes in a grid layout showing components and services",
-            "c4": "C4 model — multi-level architecture (Context, Container, Component, Code) with boundary groupings",
-            "flowchart": "Process flow — sequential steps connected by arrows, with decision points",
-            "sequence": "Interaction sequence — participants (columns) exchanging messages (arrows between lifelines)",
-            "orgchart": "Hierarchy / org chart — tree structure with parent-child relationships",
-            "timeline": "Timeline / roadmap — milestones along a horizontal timeline, alternating top/bottom",
-            "mindmap": "Mind map / concept map — central topic with radiating branch nodes",
+            "architecture": "Layered system architecture - boxes in a grid layout showing components and services",
+            "c4": "C4 model - multi-level architecture (Context, Container, Component, Code) with boundary groupings",
+            "flowchart": "Process flow - sequential steps connected by arrows, with decision points",
+            "sequence": "Interaction sequence - participants (columns) exchanging messages (arrows between lifelines)",
+            "orgchart": "Hierarchy / org chart - tree structure with parent-child relationships",
+            "timeline": "Timeline / roadmap - milestones along a horizontal timeline, alternating top/bottom",
+            "mindmap": "Mind map / concept map - central topic with radiating branch nodes",
         },
         "default_dimensions": {
             "width": Config.DIAGRAM_WIDTH,
@@ -111,14 +111,14 @@ async def generate_diagram(
         nodes: List of node dicts. Each node has:
             - id (str): Unique identifier
             - label (str): Display text
-            - type (str, optional): Color theme — primary, secondary, accent, warning, success, default
+            - type (str, optional): Color theme - primary, secondary, accent, warning, success, default
             - description (str, optional): Additional text below label
             - icon (str, optional): Emoji or text icon
         edges: List of edge dicts connecting nodes. Each edge has:
             - source (str): Source node id
             - target (str): Target node id
             - label (str, optional): Edge label text
-            - style (str, optional): Line style — solid, dashed, dotted
+            - style (str, optional): Line style - solid, dashed, dotted
         description: Subtitle text below the title.
         width: Diagram width in pixels (default: 1920).
         height: Diagram height in pixels (default: 1080).
@@ -221,6 +221,15 @@ async def create_pptx(
     Returns:
         dict with file path, slide count, and file size.
     """
+    # Run QC validation before building
+    qc = validate_slides(slides)
+    if not qc["passed"]:
+        return {
+            "success": False,
+            "error": f"QC validation failed: {qc['summary']}",
+            "qc": qc,
+        }
+
     try:
         pptx_bytes = create_presentation(title, slides, author)
 
@@ -234,6 +243,7 @@ async def create_pptx(
             "slide_count": len(slides),
             "file_size_bytes": len(pptx_bytes),
             "file_size_kb": round(len(pptx_bytes) / 1024, 1),
+            "qc": qc,
         }
     except Exception as e:
         logger.error(f"Failed to create PPTX: {e}")
@@ -241,6 +251,32 @@ async def create_pptx(
             "success": False,
             "error": str(e),
         }
+
+
+@mcp.tool()
+async def validate_pptx_slides(
+    slides: list[dict],
+    prohibited_terms: Optional[list[str]] = None,
+) -> dict:
+    """Validate slide definitions before creating a PPTX.
+
+    Runs quality control checks on slide content:
+    - Framework/corporate name attribution (McKinsey, BCG, GAME Framework, etc.)
+    - Placeholder text ([insert...], [TODO], lorem ipsum)
+    - Missing images on diagram slides
+    - Empty content on content/two-column slides
+
+    Use this before create_pptx to catch issues early. create_pptx also runs
+    validation automatically and blocks on high-severity issues.
+
+    Args:
+        slides: List of slide definitions (same format as create_pptx).
+        prohibited_terms: Additional terms to flag (case-insensitive).
+
+    Returns:
+        dict with passed (bool), issues list, and summary.
+    """
+    return validate_slides(slides, prohibited_terms)
 
 
 @mcp.tool()
@@ -301,7 +337,7 @@ async def diagram_to_pptx(
         },
         {
             "layout": "content",
-            "title": f"{diagram_type.title()} — {title}",
+            "title": f"{diagram_type.title()} - {title}",
             "content": _html_to_text_summary(html, nodes, edges),
             "notes": f"Full HTML diagram available. Use Playwright screenshot for image embedding.\nDiagram type: {diagram_type}",
         },

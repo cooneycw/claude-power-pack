@@ -50,10 +50,10 @@ mcp = FastMCP(
     Create a session first with create_session(), then use session_id for all operations.
 
     Core tools (always loaded):
-    - create_session / close_session — Session lifecycle
-    - browser_navigate — Go to URL
-    - browser_click / browser_fill — Interact with elements
-    - browser_screenshot — Capture page or element
+    - create_session / close_session - Session lifecycle
+    - browser_navigate - Go to URL
+    - browser_click / browser_fill - Interact with elements
+    - browser_screenshot - Capture page or element
 
     Extended tools (search to discover): tabs, PDF, evaluate JS, wait, query selectors.
     """
@@ -150,7 +150,7 @@ async def close_session_internal(session_id: str):
 
 
 # ============================================================================
-# Session Management Tools — core: create_session, close_session
+# Session Management Tools - core: create_session, close_session
 # ============================================================================
 
 @mcp.tool(tags={"core"})
@@ -277,7 +277,7 @@ async def cleanup_idle_sessions(max_idle_minutes: int = 30) -> dict:
 
 
 # ============================================================================
-# Navigation Tools — core: navigate, click, fill
+# Navigation Tools - core: navigate, click, fill
 # ============================================================================
 
 @mcp.tool(tags={"core"})
@@ -375,7 +375,7 @@ async def browser_hover(session_id: str, selector: str) -> dict:
 
 
 # ============================================================================
-# Tab Management Tools — all extended
+# Tab Management Tools - all extended
 # ============================================================================
 
 @mcp.tool(tags={"extended"})
@@ -486,7 +486,7 @@ async def browser_reload(session_id: str) -> dict:
 
 
 # ============================================================================
-# Capture Tools — core: screenshot
+# Capture Tools - core: screenshot
 # ============================================================================
 
 @mcp.tool(tags={"core"})
@@ -590,7 +590,7 @@ async def browser_get_text(session_id: str, selector: Optional[str] = None) -> d
 
 
 # ============================================================================
-# Evaluation Tools — all extended
+# Evaluation Tools - all extended
 # ============================================================================
 
 @mcp.tool(tags={"extended"})
@@ -656,7 +656,7 @@ async def browser_console_messages(session_id: str, limit: int = 50) -> dict:
 
 
 # ============================================================================
-# Query Tools — all extended
+# Query Tools - all extended
 # ============================================================================
 
 @mcp.tool(tags={"extended"})
@@ -708,7 +708,7 @@ async def browser_query_selector_all(session_id: str, selector: str, limit: int 
 
 
 # ============================================================================
-# Health Check Tool — core
+# Health Check Tool - core
 # ============================================================================
 
 @mcp.tool(tags={"core"})

@@ -1,9 +1,9 @@
 ---
-description: Full project scaffolding orchestrator — zero to GitHub repo in one command
+description: Full project scaffolding orchestrator - zero to GitHub repo in one command
 allowed-tools: Bash(mkdir:*), Bash(cd:*), Bash(ls:*), Bash(git:*), Bash(gh:*), Bash(uv:*), Bash(npm:*), Bash(cat:*), Bash(test:*), Bash(echo:*), Bash(cp:*), Bash(ln:*), Bash(touch:*), Bash(PYTHONPATH=:*), Read, Write, Glob, Grep, AskUserQuestion, Skill
 ---
 
-# /project:init — Full Project Scaffolding
+# /project:init - Full Project Scaffolding
 
 Create a new project from zero to pushed GitHub repo in one command.
 
@@ -321,8 +321,8 @@ Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
 Ask the user about repository visibility using `AskUserQuestion`:
 
 **Options:**
-- **Private (Recommended)** — Only you and collaborators can see the repo
-- **Public** — Anyone can see the repo
+- **Private (Recommended)** - Only you and collaborators can see the repo
+- **Public** - Anyone can see the repo
 
 ```bash
 VISIBILITY="--private"  # or "--public" based on user choice
@@ -339,7 +339,7 @@ Report: `Step 3/6: Git initialized, pushed to github.com/{user}/{PROJECT_NAME}`
 
 ## Step 4: CPP Setup (Orchestrate Sub-Commands)
 
-Run each sub-command in sequence. These are orchestrated directly — NOT by invoking `/skill` (which would require user interaction for each one). Instead, execute the same logic as each command but non-interactively with sensible defaults.
+Run each sub-command in sequence. These are orchestrated directly - NOT by invoking `/skill` (which would require user interaction for each one). Instead, execute the same logic as each command but non-interactively with sensible defaults.
 
 ### 4a: Makefile Generation (from lib/cicd)
 
@@ -428,7 +428,7 @@ if [ ! -f "CLAUDE.md" ]; then
 ## CI/CD Protocol
 
 - Use Makefile targets for all build, test, and deploy operations
-- Never run raw build commands — use `make lint`, `make test`, `make build`, `make deploy`
+- Never run raw build commands - use `make lint`, `make test`, `make build`, `make deploy`
 - The Makefile is the single source of truth for project commands
 - If a Makefile target is missing for your operation, ADD the target rather than running raw commands
 
@@ -437,7 +437,7 @@ if [ ! -f "CLAUDE.md" ]; then
 - Before debugging manually, run `make lint` and `make test` to surface known issues
 - When fixing errors, fix BOTH the application code AND the CI/CD process (Makefile, Dockerfile, docker-compose.yml)
 - After any fix, verify through the full pipeline: `make verify`
-- Never bypass quality gates — if `make lint` or `make test` fails, fix the root cause
+- Never bypass quality gates - if `make lint` or `make test` fails, fix the root cause
 - Use `make troubleshoot` for a single-command diagnostic pass (clean + lint + test)
 
 ## Quality Gates
@@ -528,7 +528,7 @@ CONSTEOF
 fi
 ```
 
-Report: `Step 4/6: CPP setup complete — Makefile, commands, skills, hooks, .specify/`
+Report: `Step 4/6: CPP setup complete - Makefile, commands, skills, hooks, .specify/`
 
 ---
 
@@ -539,8 +539,8 @@ Ask the user with `AskUserQuestion`:
 **Question:** "Create an initial feature specification for this project?"
 
 **Options:**
-- **Yes** — Create a feature spec with the project name
-- **Skip** — Set up specs later with `/spec:create`
+- **Yes** - Create a feature spec with the project name
+- **Skip** - Set up specs later with `/spec:create`
 
 If yes:
 
@@ -666,7 +666,7 @@ At each step, if something fails:
   Fix:    [suggestion]
 
   To resume: /project:init {PROJECT_NAME}
-  (Idempotent — completed steps will be skipped)
+  (Idempotent - completed steps will be skipped)
 ```
 
 Key failure scenarios:
@@ -679,8 +679,8 @@ Key failure scenarios:
 
 ## Notes
 
-- This command is **idempotent** — safe to run again if interrupted
+- This command is **idempotent** - safe to run again if interrupted
 - Each step checks for prior completion before executing
-- The scaffold is minimal — just enough to start coding
+- The scaffold is minimal - just enough to start coding
 - Framework detection from `lib/cicd` is reused for Makefile generation
 - Sub-commands (cicd:init, cpp:init, spec:init) are executed inline, not via `/skill`

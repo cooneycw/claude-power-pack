@@ -65,7 +65,7 @@ def spec_dir(tmp_path: Path) -> Path:
         """)
     )
 
-    # tasks.md — issue sync table must immediately follow header (no blank line)
+    # tasks.md - issue sync table must immediately follow header (no blank line)
     (feature / "tasks.md").write_text(
         "# Tasks: My Feature\n\n"
         "## Wave 1: Setup\n\n"

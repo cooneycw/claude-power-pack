@@ -608,7 +608,7 @@ Enter your GEMINI_API_KEY (or press Enter to skip):
 # For native: write to mcp-second-opinion/.env (local server reads from here)
 if [ "$DEPLOY_MODE" = "docker" ]; then
   ENV_FILE="$CPP_DIR/.env"
-  echo "Docker deployment detected — writing keys to $ENV_FILE"
+  echo "Docker deployment detected - writing keys to $ENV_FILE"
 else
   ENV_FILE="$CPP_DIR/mcp-second-opinion/.env"
 fi
@@ -991,11 +991,11 @@ echo "  Install later: claude mcp add --transport stdio --scope user sequential-
 === Optional: Workstation Tuning ===
 
 Linux workstation tuning for optimal Claude Code performance:
-  • Swap (min(RAM, 4GB)) — prevent OOM kills during heavy sessions
-  • vm.swappiness=10 — keep active data in RAM
-  • vm.vfs_cache_pressure=50 — cache filesystem metadata
-  • fs.inotify.max_user_watches=524288 — prevent watcher failures
-  • fs.inotify.max_user_instances=512 — headroom for multiple watchers
+  • Swap (min(RAM, 4GB)) - prevent OOM kills during heavy sessions
+  • vm.swappiness=10 - keep active data in RAM
+  • vm.vfs_cache_pressure=50 - cache filesystem metadata
+  • fs.inotify.max_user_watches=524288 - prevent watcher failures
+  • fs.inotify.max_user_instances=512 - headroom for multiple watchers
 
 Requires sudo. Safe to run multiple times (idempotent).
 Persists across reboots via /etc/sysctl.d/ and /etc/fstab.

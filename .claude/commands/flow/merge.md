@@ -38,7 +38,7 @@ PR_JSON=$(gh pr list --head "$BRANCH" --json number,state,mergeable,reviewDecisi
 ```bash
 PR_NUMBER=$(echo "$PR_JSON" | jq -r '.number')
 
-# Squash merge (default) — keeps history clean
+# Squash merge (default) - keeps history clean
 gh pr merge "$PR_NUMBER" --squash --delete-branch
 ```
 
@@ -65,17 +65,17 @@ git -C "$MAIN_REPO" pull origin main
 
 ### Step 5: Clean Up Worktree
 
-**CRITICAL: You MUST `cd` to the main repo BEFORE removing the worktree. NEVER remove a worktree while your working directory is inside it — this destroys your CWD and kills all subsequent bash commands. Execute these as SEPARATE Bash calls.**
+**CRITICAL: You MUST `cd` to the main repo BEFORE removing the worktree. NEVER remove a worktree while your working directory is inside it - this destroys your CWD and kills all subsequent bash commands. Execute these as SEPARATE Bash calls.**
 
 If we're in a worktree (`IS_WORKTREE=true`):
 
-**Step 5a — Exit the worktree (separate Bash call):**
+**Step 5a - Exit the worktree (separate Bash call):**
 ```bash
 cd "$MAIN_REPO"
 pwd  # Verify you are in the main repo, NOT the worktree
 ```
 
-**Step 5b — Remove the worktree (separate Bash call, AFTER confirming cd succeeded):**
+**Step 5b - Remove the worktree (separate Bash call, AFTER confirming cd succeeded):**
 ```bash
 if [[ -f ~/.claude/scripts/worktree-remove.sh ]]; then
     ~/.claude/scripts/worktree-remove.sh "$WORKTREE_PATH" --force --delete-branch
@@ -85,10 +85,10 @@ else
 fi
 ```
 
-**Step 5c — Verify working directory is valid:**
+**Step 5c - Verify working directory is valid:**
 ```bash
 pwd  # MUST show main repo path, NOT the deleted worktree
-git status  # MUST succeed — if this fails, your CWD was deleted
+git status  # MUST succeed - if this fails, your CWD was deleted
 ```
 
 If we're in the main repo (not a worktree):
@@ -104,7 +104,7 @@ if [[ -n "$ISSUE_NUM" ]]; then
     # Check if issue is still open (gh pr merge with Closes # may have closed it)
     ISSUE_STATE=$(gh issue view "$ISSUE_NUM" --json state --jq '.state' 2>/dev/null)
     if [[ "$ISSUE_STATE" == "OPEN" ]]; then
-        gh issue close "$ISSUE_NUM" --comment "Closed via /flow:merge — PR #${PR_NUMBER} merged."
+        gh issue close "$ISSUE_NUM" --comment "Closed via /flow:merge - PR #${PR_NUMBER} merged."
     fi
 fi
 ```
@@ -157,7 +157,7 @@ Current directory: /home/user/Projects/my-project (main)
 
 ## Notes
 
-- Squash merge is the default — produces clean single-commit history
+- Squash merge is the default - produces clean single-commit history
 - The remote branch is deleted by `gh pr merge --delete-branch`
 - The worktree removal uses the safe `worktree-remove.sh` script when available
 - After merge, the user ends up in the main repo on the `main` branch

@@ -10,7 +10,7 @@ Commands for creating and managing projects.
 
 | Command | Description |
 |---------|-------------|
-| `/project:init <name>` | Full project scaffolding — zero to GitHub repo |
+| `/project:init <name>` | Full project scaffolding - zero to GitHub repo |
 | `/project-next` | Scan issues and worktrees to recommend next steps |
 | `/project-lite` | Quick project reference with minimal context |
 | `/claude-md:lint` | Audit CLAUDE.md for CI/CD and troubleshooting directives |
@@ -32,7 +32,7 @@ One-command project setup that orchestrates:
 ```
 
 **Features:**
-- Idempotent — safe to re-run if interrupted (completed steps are skipped)
+- Idempotent - safe to re-run if interrupted (completed steps are skipped)
 - Framework-specific scaffolds with best-practice project structure
 - Integrates with `/flow`, `/spec`, `/security`, and all CPP commands
 

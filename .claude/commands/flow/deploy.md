@@ -140,7 +140,7 @@ If `CPP_DIR` is found and `.claude/cicd.yml` exists:
    if grep -q "post_deploy:" .claude/cicd.yml 2>/dev/null; then
        # Verification enabled
    else
-       # Skip — not configured
+       # Skip - not configured
    fi
    ```
 
@@ -159,7 +159,7 @@ If `CPP_DIR` is found and `.claude/cicd.yml` exists:
    ```
 
 4. **Report results:**
-   - If all pass: `"Deploy verified ✅ — health checks and smoke tests passed"`
+   - If all pass: `"Deploy verified ✅ - health checks and smoke tests passed"`
    - If any fail: Report failures and suggest `/self-improvement:deployment`
 
 5. **Log verification results** (extends deploy.log format):
@@ -175,7 +175,7 @@ If `CPP_DIR` is found and `.claude/cicd.yml` exists:
 - No `.claude/cicd.yml` → skip silently
 - No `post_deploy:` in config → skip silently
 - `lib/cicd` not available (no CPP_DIR) → skip with warning
-- Verification failures do NOT roll back the deployment — they only report
+- Verification failures do NOT roll back the deployment - they only report
 
 ## Error Handling
 
@@ -186,7 +186,7 @@ If `CPP_DIR` is found and `.claude/cicd.yml` exists:
 
 ## Notes
 
-- Deployment always goes through `make` — the Makefile is the single source of truth
+- Deployment always goes through `make` - the Makefile is the single source of truth
 - The `.claude/deploy.log` provides an audit trail of all deployments
 - The optional `.claude/deploy.yaml` adds metadata without changing the Makefile
 - This command works from any directory that has a Makefile

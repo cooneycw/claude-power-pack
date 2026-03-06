@@ -75,7 +75,7 @@ def cmd_check(args: argparse.Namespace) -> int:
         print(result.summary_line())
         return 0 if result.is_healthy else 1
 
-    # No Makefile — early exit
+    # No Makefile - early exit
     if not result.targets_found and "No Makefile found" in result.issues:
         print("Makefile Check: No Makefile found")
         print()
@@ -172,7 +172,7 @@ def cmd_pipeline(args: argparse.Namespace) -> int:
             print(content)
 
     if not args.write:
-        print("(dry run — use --write to create files)")
+        print("(dry run - use --write to create files)")
 
     return 0
 
@@ -285,7 +285,7 @@ def cmd_container(args: argparse.Namespace) -> int:
             print(content)
 
     if not args.write:
-        print("(dry run — use --write to create files)")
+        print("(dry run - use --write to create files)")
 
     return 0
 
@@ -323,7 +323,7 @@ def cmd_infra_init(args: argparse.Namespace) -> int:
         for filepath, content in sorted(files.items()):
             print(f"--- {filepath} ---")
             print(content)
-        print("(dry run — use --write to create files)")
+        print("(dry run - use --write to create files)")
 
     return 0
 
@@ -363,7 +363,7 @@ def cmd_infra_discover(args: argparse.Namespace) -> int:
         for filepath, content in files.items():
             print(f"--- {filepath} ---")
             print(content)
-        print("(dry run — use --write to create files)")
+        print("(dry run - use --write to create files)")
 
     return 0
 
@@ -394,7 +394,7 @@ def cmd_infra_pipeline(args: argparse.Namespace) -> int:
         for filepath, content in sorted(files.items()):
             print(f"--- {filepath} ---")
             print(content)
-        print("(dry run — use --write to create files)")
+        print("(dry run - use --write to create files)")
 
     return 0
 
