@@ -1,4 +1,4 @@
-"""Architecture diagram generator — layered system architecture visualization."""
+"""Architecture diagram generator - layered system architecture visualization."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-# GitHub Actions CI — Python (Claude Power Pack)
+# GitHub Actions CI - Python (Claude Power Pack)
 #
 # Uses Makefile targets as steps for consistency with local dev.
 # Customize matrix, caching, and deploy steps as needed.

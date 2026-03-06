@@ -249,7 +249,7 @@ git worktree remove ../repo-issue-{N}
 git branch -d issue-{N}-{description}
 ```
 
-> ⚠️ **Shell CWD Warning:** Always `cd` to the main repo before removing a worktree. If your shell's current working directory is inside the worktree being removed, the shell will break and no further commands will work. Using `git -C /path/to/main-repo worktree remove` does NOT protect against this—only changing the shell's cwd does.
+> ⚠️ **Shell CWD Warning:** Always `cd` to the main repo before removing a worktree. If your shell's current working directory is inside the worktree being removed, the shell will break and no further commands will work. Using `git -C /path/to/main-repo worktree remove` does NOT protect against this-only changing the shell's cwd does.
 
 **Prune stale worktrees:**
 ```bash
@@ -416,7 +416,7 @@ Or automate the entire lifecycle in one shot:
 
 ### How It Works
 
-Flow commands are **stateless** — all context is derived from git (branches, worktrees, remotes) and GitHub (issues, PRs). No locking needed.
+Flow commands are **stateless** - all context is derived from git (branches, worktrees, remotes) and GitHub (issues, PRs). No locking needed.
 
 - `/flow:start` creates a worktree from `origin/main`, or picks up an existing remote branch
 - `/flow:sync` auto-commits WIP and pushes to remote for cross-machine pickup
@@ -456,14 +456,14 @@ Machine B: /flow:start 42  →  detects remote branch  →  continue working
 
 **Detailed steps:**
 
-1. **Machine A** — Start work as normal:
+1. **Machine A** - Start work as normal:
    ```bash
    /flow:start 42        # Creates worktree and branch
    # ... do some work ...
    /flow:sync             # Auto-commits WIP, pushes to origin
    ```
 
-2. **Machine B** — Pick up where you left off:
+2. **Machine B** - Pick up where you left off:
    ```bash
    /flow:start 42        # Detects remote branch, creates worktree tracking it
    # ... continue working ...
@@ -472,7 +472,7 @@ Machine B: /flow:start 42  →  detects remote branch  →  continue working
 
 **Why WIP commits are safe:** `/flow:merge` uses squash-merge, so all intermediate commits (including WIP auto-commits from `/flow:sync`) are collapsed into a single clean commit on main.
 
-**No configuration needed** — this works with any standard git remote. The sync is just `git push` and the pickup is just `git checkout --track`.
+**No configuration needed** - this works with any standard git remote. The sync is just `git push` and the pickup is just `git checkout --track`.
 
 ---
 

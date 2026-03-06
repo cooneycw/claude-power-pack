@@ -3,7 +3,7 @@ description: Lint CLAUDE.md for missing CI/CD, Docker, and troubleshooting direc
 allowed-tools: Bash(cat:*), Bash(grep:*), Bash(test:*), Bash(ls:*), Bash(PYTHONPATH=*), Bash(python3:*), Read, Glob, Grep
 ---
 
-# /claude-md:lint — CLAUDE.md Health Check
+# /claude-md:lint - CLAUDE.md Health Check
 
 Audit a project's CLAUDE.md to ensure it includes essential directives for CI/CD protocols, Docker conventions, and troubleshooting workflows.
 
@@ -155,7 +155,7 @@ For each FAIL or WARN, provide the exact text block to add to CLAUDE.md.
 ## CI/CD Protocol
 
 - Use Makefile targets for all build, test, and deploy operations
-- Never run raw build commands — use `make lint`, `make test`, `make build`, `make deploy`
+- Never run raw build commands - use `make lint`, `make test`, `make build`, `make deploy`
 - The Makefile is the single source of truth for project commands
 - If a Makefile target is missing for your operation, ADD the target rather than running raw commands
 ```
@@ -170,7 +170,7 @@ For each FAIL or WARN, provide the exact text block to add to CLAUDE.md.
 - Before debugging manually, run `make lint` and `make test` to surface known issues
 - When fixing errors, fix BOTH the application code AND the CI/CD process (Makefile, Dockerfile, docker-compose.yml)
 - After any fix, verify through the full pipeline: `make verify`
-- Never bypass quality gates — if `make lint` or `make test` fails, fix the root cause
+- Never bypass quality gates - if `make lint` or `make test` fails, fix the root cause
 - Use `make troubleshoot` for a single-command diagnostic pass (clean + lint + test)
 ```
 
@@ -241,9 +241,9 @@ Run `make help` or see the Makefile for all targets. Key targets:
 
 After presenting the report, ask:
 
-1. **Apply all fixes** — Add all missing sections to CLAUDE.md
-2. **Apply selectively** — Choose which sections to add
-3. **View only** — Just see the report, make changes manually
+1. **Apply all fixes** - Add all missing sections to CLAUDE.md
+2. **Apply selectively** - Choose which sections to add
+3. **View only** - Just see the report, make changes manually
 
 If the user chooses to apply:
 - Read the current CLAUDE.md
@@ -254,8 +254,8 @@ If the user chooses to apply:
 
 ## Notes
 
-- This command is read-only by default — it only modifies CLAUDE.md if the user opts in
-- Patterns are intentionally flexible — projects can phrase directives differently
+- This command is read-only by default - it only modifies CLAUDE.md if the user opts in
+- Patterns are intentionally flexible - projects can phrase directives differently
 - Docker section is only checked if Dockerfile or docker-compose.yml exists
 - Run this after `/project:init` or `/cicd:init` to verify completeness
 - Pair with `/cicd:check` for full project health: `/cicd:check` validates the Makefile, `/claude-md:lint` validates the CLAUDE.md

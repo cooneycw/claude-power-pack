@@ -43,9 +43,9 @@ Run `/cicd:init` to detect and generate a Makefile from templates.
 
 1. **Always use `uv run`** for Python commands (environment isolation)
 2. **Declare `.PHONY`** for all non-file targets
-3. **Add dependencies** — `deploy` should depend on `test` and `lint`
+3. **Add dependencies** - `deploy` should depend on `test` and `lint`
 4. **Use `@` prefix** on informational `echo` commands to reduce noise
-5. **Keep targets idempotent** — safe to run multiple times
+5. **Keep targets idempotent** - safe to run multiple times
 
 ### Example Makefile
 
@@ -153,12 +153,12 @@ jobs:
 ### Template Selection
 
 Templates match detected framework:
-- `python-uv.yml` — Python with uv
-- `python-pip.yml` — Python with pip
-- `node-npm.yml` — Node.js with npm
-- `node-yarn.yml` — Node.js with yarn
-- `go.yml` — Go
-- `rust.yml` — Rust
+- `python-uv.yml` - Python with uv
+- `python-pip.yml` - Python with pip
+- `node-npm.yml` - Node.js with npm
+- `node-yarn.yml` - Node.js with yarn
+- `go.yml` - Go
+- `rust.yml` - Rust
 
 ## Container Best Practices
 
@@ -166,18 +166,18 @@ Generated via `/cicd:container` using templates in `templates/containers/`:
 
 ### Dockerfile Patterns
 
-1. **Multi-stage builds** — separate build and runtime stages
-2. **Non-root user** — always run as non-root in production
-3. **Layer caching** — copy dependency files first, then source
-4. **Health checks** — include `HEALTHCHECK` instruction
-5. **Minimal base** — use slim/alpine variants
+1. **Multi-stage builds** - separate build and runtime stages
+2. **Non-root user** - always run as non-root in production
+3. **Layer caching** - copy dependency files first, then source
+4. **Health checks** - include `HEALTHCHECK` instruction
+5. **Minimal base** - use slim/alpine variants
 
 ### docker-compose Patterns
 
 1. **Named volumes** for persistent data
 2. **Health checks** with retries and intervals
 3. **Dependency ordering** with `depends_on` + `condition: service_healthy`
-4. **Environment files** — use `.env` files, never hardcode secrets
+4. **Environment files** - use `.env` files, never hardcode secrets
 
 ## Commands Reference
 
@@ -201,6 +201,6 @@ Generated via `/cicd:container` using templates in `templates/containers/`:
 
 ## Related
 
-- `/self-improvement:deployment` — Analyze deploy failures, improve Makefile
-- `/flow:doctor` — Forward-looking health check of workflow environment
-- `/security:scan` — Security-focused analysis (complementary)
+- `/self-improvement:deployment` - Analyze deploy failures, improve Makefile
+- `/flow:doctor` - Forward-looking health check of workflow environment
+- `/security:scan` - Security-focused analysis (complementary)

@@ -3,7 +3,7 @@ description: Generate CI/CD pipelines for infrastructure tiers with approval gat
 allowed-tools: Bash(PYTHONPATH=*), Bash(python3:*), Bash(ls:*), Read, AskUserQuestion
 ---
 
-# /cicd:infra-pipeline — Infrastructure CI/CD Pipelines
+# /cicd:infra-pipeline - Infrastructure CI/CD Pipelines
 
 Generate separate CI/CD pipelines for each infrastructure tier with appropriate approval gates.
 
@@ -26,9 +26,9 @@ PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -m lib.cicd infra-pipeline --path 
 
 Each tier gets its own workflow file, triggered only by changes to that tier's directory:
 
-- `.github/workflows/infra-foundation.yml` — Manual approval required
-- `.github/workflows/infra-platform.yml` — Auto-deploy (configurable)
-- `.github/workflows/infra-app.yml` — Auto-deploy
+- `.github/workflows/infra-foundation.yml` - Manual approval required
+- `.github/workflows/infra-platform.yml` - Auto-deploy (configurable)
+- `.github/workflows/infra-app.yml` - Auto-deploy
 
 ### Approval Gates
 
@@ -39,6 +39,6 @@ Foundation tier uses GitHub Environments with required reviewers. Set up:
 
 ## Related
 
-- `/cicd:infra-init` — Scaffold IaC directory structure
-- `/cicd:infra-discover` — Audit existing cloud resources
-- `/cicd:pipeline` — Application-layer pipeline generation
+- `/cicd:infra-init` - Scaffold IaC directory structure
+- `/cicd:infra-discover` - Audit existing cloud resources
+- `/cicd:pipeline` - Application-layer pipeline generation

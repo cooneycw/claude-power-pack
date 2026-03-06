@@ -59,7 +59,7 @@ def scan_full(project_root: str, config: SecurityConfig | None = None) -> ScanRe
 def scan_deep(project_root: str, config: SecurityConfig | None = None) -> ScanResult:
     """Deep scan: everything + git history scanning.
 
-    For /security:deep — includes git history analysis.
+    For /security:deep - includes git history analysis.
     """
     if config is None:
         config = SecurityConfig.load(project_root)

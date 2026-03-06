@@ -398,7 +398,7 @@ class AWSSecretsProvider(BundleProvider):
         except ClientError as e:
             error_code = e.response.get("Error", {}).get("Code", "")
             if error_code == "ResourceNotFoundException":
-                # Secret doesn't exist yet — create it
+                # Secret doesn't exist yet - create it
                 response = client.create_secret(
                     Name=secret_name,
                     SecretString=secret_string,

@@ -3,7 +3,7 @@ description: Clean up stale worktree references and merged branches
 allowed-tools: Bash(git:*), Bash(grep:*), Bash(wc:*), Bash(echo:*), Read
 ---
 
-# Flow: Cleanup — Prune Stale Worktrees and Branches
+# Flow: Cleanup - Prune Stale Worktrees and Branches
 
 Remove orphaned worktree references, delete local branches already merged to main, and prune stale remote tracking branches.
 
@@ -75,7 +75,7 @@ for branch in $(git -C "$MAIN_REPO" branch | grep 'issue-' | sed 's/^[ *]*//' );
     if [[ -n "$REMOTE" && -n "$MERGE_REF" ]]; then
         REMOTE_REF="refs/remotes/${REMOTE}/$(echo "$MERGE_REF" | sed 's|refs/heads/||')"
         if ! git -C "$MAIN_REPO" show-ref --verify --quiet "$REMOTE_REF" 2>/dev/null; then
-            # Remote branch is gone — safe to delete locally
+            # Remote branch is gone - safe to delete locally
             # (The PR was merged and remote branch deleted)
             echo "Remote deleted: $branch"
         fi
@@ -100,14 +100,14 @@ Report how many remote tracking branches were pruned.
 ### Step 5: Summary Output
 
 ```markdown
-## Flow Cleanup — {repo}
+## Flow Cleanup - {repo}
 
 ### Worktree References
   {N} stale references pruned (or "None found")
 
 ### Local Branches Deleted
   {branch-1} (merged to main)
-  {branch-2} (remote branch deleted — squash-merged PR)
+  {branch-2} (remote branch deleted - squash-merged PR)
   ... or "No stale branches found"
 
 ### Remote Tracking Branches
@@ -121,7 +121,7 @@ Report how many remote tracking branches were pruned.
 ## Error Handling
 
 - **Not a git repo:** Report error and exit
-- **Uncommitted changes on a branch:** Never delete — skip and warn
+- **Uncommitted changes on a branch:** Never delete - skip and warn
 - **Protected branches:** Never delete `main` or `master`
 - **Active worktree branches:** Never delete branches with active worktrees
 

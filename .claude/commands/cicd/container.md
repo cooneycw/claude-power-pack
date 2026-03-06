@@ -41,9 +41,9 @@ PYTHONPATH="$PWD/lib:$HOME/Projects/claude-power-pack/lib:$PYTHONPATH" python3 -
 Framework: {framework} ({package_manager})
 
 Files created:
-  Dockerfile — Multi-stage build (builder -> runtime)
-  docker-compose.yml — (if compose_services configured)
-  .dockerignore — Standard patterns
+  Dockerfile - Multi-stage build (builder -> runtime)
+  docker-compose.yml - (if compose_services configured)
+  .dockerignore - Standard patterns
 
 To build: docker build -t myapp .
 To run:    docker compose up -d

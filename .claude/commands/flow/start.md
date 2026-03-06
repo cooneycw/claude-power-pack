@@ -1,6 +1,6 @@
 # Flow: Start Working on an Issue
 
-Create a worktree and branch for a GitHub issue. Stateless — all context from git and GitHub.
+Create a worktree and branch for a GitHub issue. Stateless - all context from git and GitHub.
 
 ## Arguments
 

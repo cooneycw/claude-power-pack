@@ -38,12 +38,12 @@
 
 ### US4: PowerPoint + Diagram Integration
 
-- [x] **T008** [US4] Playwright integration — HTML to PNG renderer `src/renderer.py` (depends on T006)
+- [x] **T008** [US4] Playwright integration - HTML to PNG renderer `src/renderer.py` (depends on T006)
 - [x] **T009** [US2] Add `render_to_png` MCP tool `src/server.py` (depends on T008)
 - [x] **T010** [US1] Create `/pptx` skill + `/pptx:help` command `.claude/commands/pptx/create.md`, `.claude/commands/pptx/help.md` (depends on T009)
 - [x] **T011** [US4] python-pptx builder: embed PNG diagrams into slides `src/pptx_builder.py` (depends on T009)
 
-**Checkpoint:** End-to-end works — prompt -> diagram HTML -> PNG -> embedded in .pptx
+**Checkpoint:** End-to-end works - prompt -> diagram HTML -> PNG -> embedded in .pptx
 
 ---
 

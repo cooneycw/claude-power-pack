@@ -44,10 +44,10 @@ Commands for AI-powered code review using multiple LLM models.
 
 You can also invoke the MCP tools directly without commands:
 
-- `get_code_second_opinion` — Single-model review (Gemini default)
-- `get_multi_model_second_opinion` — Multi-model parallel review
-- `list_available_models` — Check which models are configured
-- `create_session` / `consult` — Multi-turn conversations
+- `get_code_second_opinion` - Single-model review (Gemini default)
+- `get_multi_model_second_opinion` - Multi-model parallel review
+- `list_available_models` - Check which models are configured
+- `create_session` / `consult` - Multi-turn conversations
 
 ## Requirements
 

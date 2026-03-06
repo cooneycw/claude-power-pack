@@ -3,7 +3,7 @@ description: Run health checks against configured endpoints and processes
 allowed-tools: Bash(python3:*), Bash(PYTHONPATH=*), Bash(curl:*), Bash(ss:*), Bash(lsof:*), Bash(ls:*), Bash(test:*), Bash(cat:*), Read
 ---
 
-# /cicd:health — Health Checks
+# /cicd:health - Health Checks
 
 Run health checks against configured endpoints and processes.
 
@@ -35,7 +35,7 @@ if [ ! -f ".claude/cicd.yml" ]; then
   echo "No .claude/cicd.yml found in $(pwd)"
   echo ""
   echo "Create one with:"
-  echo "  /cicd:init    — Auto-detect framework and generate"
+  echo "  /cicd:init    - Auto-detect framework and generate"
   echo ""
   echo "Or add health checks manually to .claude/cicd.yml:"
   echo ""
@@ -50,7 +50,7 @@ if [ ! -f ".claude/cicd.yml" ]; then
 fi
 ```
 
-If `.claude/cicd.yml` exists but has no `health:` section, the CLI will report "no checks configured" and show configuration guidance. This is handled gracefully — no error.
+If `.claude/cicd.yml` exists but has no `health:` section, the CLI will report "no checks configured" and show configuration guidance. This is handled gracefully - no error.
 
 ---
 
@@ -74,15 +74,15 @@ The report includes:
 
 | Status | Meaning |
 |--------|---------|
-| `PASS` | Check succeeded — endpoint reachable or process running |
-| `FAIL` | Check failed — endpoint unreachable, wrong status, or process not found |
+| `PASS` | Check succeeded - endpoint reachable or process running |
+| `FAIL` | Check failed - endpoint unreachable, wrong status, or process not found |
 
 ### Check Types
 
 | Type | What It Checks |
 |------|---------------|
-| `endpoint` | HTTP request to URL — checks status code and optional response body |
-| `process` | Port listening — uses `ss` or `lsof` to verify process is bound to port |
+| `endpoint` | HTTP request to URL - checks status code and optional response body |
+| `process` | Port listening - uses `ss` or `lsof` to verify process is bound to port |
 
 ### No Checks Configured
 

@@ -1,6 +1,6 @@
-# Flow: Sync — Push WIP to Remote for Cross-Machine Pickup
+# Flow: Sync - Push WIP to Remote for Cross-Machine Pickup
 
-Push the current branch to the remote so you can continue work on another machine. Optional feature — most users won't need this.
+Push the current branch to the remote so you can continue work on another machine. Optional feature - most users won't need this.
 
 ## Arguments
 
@@ -37,7 +37,7 @@ git status --short
   git commit -m "wip: sync work in progress
 
   Auto-committed by /flow:sync for cross-machine pickup.
-  This commit will be squash-merged — no need to clean up."
+  This commit will be squash-merged - no need to clean up."
   ```
   Report: "Auto-committed WIP changes."
 
@@ -71,7 +71,7 @@ Synced branch to remote.
 
 ## Notes
 
-- This command is intentionally simple — just commit WIP + push.
+- This command is intentionally simple - just commit WIP + push.
 - `/flow:start` already handles the receiving end (detects remote branches and creates worktrees tracking them).
 - WIP commits are harmless because `/flow:merge` uses squash-merge, collapsing all commits into one clean commit.
-- No configuration required — works with any git remote.
+- No configuration required - works with any git remote.

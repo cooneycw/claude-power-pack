@@ -60,18 +60,18 @@ Use `diagram_to_pptx` for a text-based PPTX without screenshots.
 | Type | Best For |
 |------|----------|
 | `architecture` | System components, services, infrastructure |
-| `c4` | C4 model — multi-level architecture with boundaries |
+| `c4` | C4 model - multi-level architecture with boundaries |
 | `flowchart` | Processes, decision trees, workflows |
 | `sequence` | API calls, message passing, interactions |
 | `orgchart` | Hierarchies, taxonomies, team structure |
 | `timeline` | Roadmaps, milestones, project phases |
 | `mindmap` | Brainstorming, concept maps, topic exploration |
 
-### Node Types (Colors — non-C4 diagrams)
+### Node Types (Colors - non-C4 diagrams)
 
-- `primary` (blue) — Main components
-- `secondary` (purple) — Supporting
-- `accent` (amber) — Highlights
-- `warning` (red) — Critical items
-- `success` (green) — Completed/healthy
-- `default` (slate) — Standard
+- `primary` (blue) - Main components
+- `secondary` (purple) - Supporting
+- `accent` (amber) - Highlights
+- `warning` (red) - Critical items
+- `success` (green) - Completed/healthy
+- `default` (slate) - Standard

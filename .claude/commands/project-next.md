@@ -203,7 +203,7 @@ Create a prioritized list of next steps:
 - Issues with uncommitted changes
 - Issues claimed by other sessions (show session status)
 
-**IMPORTANT — Worktree/Session Exclusion:**
+**IMPORTANT - Worktree/Session Exclusion:**
 When building Priority 3+ lists, **exclude** any issue that:
 1. Already has a worktree (mapped in Step 5 cross-reference)
 2. Already has a branch checked out anywhere (`git branch --list 'issue-{N}-*'`)

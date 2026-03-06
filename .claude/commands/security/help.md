@@ -52,7 +52,7 @@ If this file does not exist, sensible defaults are used (see below).
 ### Annotated Example
 
 ```yaml
-# .claude/security.yml — Security gate configuration
+# .claude/security.yml - Security gate configuration
 # All sections are optional. Missing sections use defaults.
 
 # Gates control how /flow:finish and /flow:deploy respond to findings.
@@ -72,7 +72,7 @@ gates:
 
 # Suppressions hide known false positives from scan results.
 # Each entry must have an 'id' matching the finding type.
-# 'path' is an optional regex — if provided, only findings in matching
+# 'path' is an optional regex - if provided, only findings in matching
 # files are suppressed. 'reason' documents why the suppression exists.
 suppressions:
   - id: HARDCODED_SECRET         # Finding type (from /security:explain)

@@ -47,7 +47,7 @@ def scan(project_root: str) -> ScanResult:
 
     # Check for package-lock.json (required for npm audit)
     if not (Path(project_root) / "package-lock.json").exists():
-        result.skipped.append("npm audit (no package-lock.json — run `npm install` first)")
+        result.skipped.append("npm audit (no package-lock.json - run `npm install` first)")
         return result
 
     try:

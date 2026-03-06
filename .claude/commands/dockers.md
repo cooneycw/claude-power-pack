@@ -3,7 +3,7 @@ description: Show Docker container status, health, and project linkages
 allowed-tools: Bash(docker:*), Bash(sg:*), Bash(curl:*), Bash(cat:*), Bash(ls:*), Bash(grep:*), Bash(find:*), Read
 ---
 
-# /dockers — Docker Container Status
+# /dockers - Docker Container Status
 
 Show a structured overview of running Docker containers, their health, ports, and which projects instantiated them.
 
@@ -106,7 +106,7 @@ Present a structured report:
 |-----------|------|--------|---------|---------|---------|
 | mcp-second-opinion | 8080 | healthy | v1.9.0 | claude-power-pack | core |
 | mcp-nano-banana | 8084 | healthy | v1.0.0 | claude-power-pack | core |
-| mcp-playwright-persistent | 8081 | healthy | — | claude-power-pack | browser |
+| mcp-playwright-persistent | 8081 | healthy | - | claude-power-pack | browser |
 
 ### Other Containers
 
@@ -132,7 +132,7 @@ Based on findings, suggest relevant actions:
 
 ## Notes
 
-- This command works across all projects — it scans the entire Docker daemon
+- This command works across all projects - it scans the entire Docker daemon
 - Project linkage uses `com.docker.compose.project` labels (set automatically by docker compose)
 - Health checks use the root `/` endpoint convention established for all CPP MCP servers
 - Version info is extracted from the health endpoint JSON response when available

@@ -734,10 +734,10 @@ Use the `/project-next` command to analyze your repository's issues and get prio
 The `/flow` workflow treats the Makefile as the single source of truth for build, test, lint, and deploy operations. This decouples Claude Code commands from project-specific tooling.
 
 **Why Makefile:**
-- Universal — works across all project types (Python, Node, Rust, mixed)
-- Declarative — targets and dependencies are explicit
-- Discoverable — `grep -E '^[a-zA-Z_-]+:' Makefile` lists all available operations
-- Composable — targets can depend on other targets, building dependency chains
+- Universal - works across all project types (Python, Node, Rust, mixed)
+- Declarative - targets and dependencies are explicit
+- Discoverable - `grep -E '^[a-zA-Z_-]+:' Makefile` lists all available operations
+- Composable - targets can depend on other targets, building dependency chains
 - `/flow:finish` auto-discovers `lint` and `test` targets
 - `/flow:deploy` runs any Makefile target by name
 - `/flow:doctor` reports which standard targets are present
@@ -758,7 +758,7 @@ The `/flow` workflow treats the Makefile as the single source of truth for build
 ```makefile
 .PHONY: test lint format deploy deploy-staging clean check
 
-## Quality gates — used by /flow:finish
+## Quality gates - used by /flow:finish
 lint:
 	uv run ruff check .
 
@@ -771,7 +771,7 @@ test:
 ## Pre-deploy validation
 check: lint test
 
-## Deployment — used by /flow:deploy
+## Deployment - used by /flow:deploy
 deploy: check
 	@echo "Deploying to production..."
 	# Your deploy commands here
@@ -808,11 +808,11 @@ clean:
 All Makefile commands should use `uv run` to ensure correct environment:
 
 ```makefile
-# Good — uses uv for isolation
+# Good - uses uv for isolation
 test:
 	uv run pytest
 
-# Bad — relies on system Python or manual venv activation
+# Bad - relies on system Python or manual venv activation
 test:
 	pytest
 ```
@@ -879,12 +879,12 @@ dev = ["pytest>=8.0", "ruff>=0.8"]
 ```
 
 **Key rules:**
-1. **Always declare `requires-python`** — constrains dependency resolution
-2. **Use `>=` lower bounds, not `==` pins** — the lockfile handles exact pinning
+1. **Always declare `requires-python`** - constrains dependency resolution
+2. **Use `>=` lower bounds, not `==` pins** - the lockfile handles exact pinning
 3. **Dev tools go in `[dependency-groups]`** (PEP 735), not `[project.optional-dependencies]`
 4. **`[project.optional-dependencies]`** is for end-user extras (e.g., `pip install lib[postgres]`)
-5. **Commit `uv.lock`** for applications — ensures reproducible installs
-6. **Use `hatchling`** as default build backend — lightweight, standards-compliant
+5. **Commit `uv.lock`** for applications - ensures reproducible installs
+6. **Use `hatchling`** as default build backend - lightweight, standards-compliant
 
 **uv commands:**
 ```bash
@@ -897,7 +897,7 @@ uv lock                         # Generate/update uv.lock
 
 ### Inline Script Metadata (PEP 723)
 
-[PEP 723](https://peps.python.org/pep-0723/) embeds dependencies directly in single-file Python scripts. When `uv run` encounters a script with a `# /// script` block, it auto-installs dependencies in an ephemeral environment — no `pyproject.toml`, no `venv`, no `pip install`.
+[PEP 723](https://peps.python.org/pep-0723/) embeds dependencies directly in single-file Python scripts. When `uv run` encounters a script with a `# /// script` block, it auto-installs dependencies in an ephemeral environment - no `pyproject.toml`, no `venv`, no `pip install`.
 
 **Example:**
 
@@ -917,7 +917,7 @@ resp = requests.get("https://api.example.com/data")
 pprint(resp.json())
 ```
 
-**Run it:** `uv run script.py` — dependencies installed automatically.
+**Run it:** `uv run script.py` - dependencies installed automatically.
 
 **Self-executing scripts (Unix):**
 ```python

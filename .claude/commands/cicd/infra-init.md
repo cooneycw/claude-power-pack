@@ -3,7 +3,7 @@ description: Scaffold IaC directory with tiered structure (foundation/platform/a
 allowed-tools: Bash(PYTHONPATH=*), Bash(python3:*), Bash(ls:*), Bash(cat:*), Read, AskUserQuestion
 ---
 
-# /cicd:infra-init — Scaffold Infrastructure as Code
+# /cicd:infra-init - Scaffold Infrastructure as Code
 
 Generate a tiered IaC directory structure for your project.
 
@@ -33,9 +33,9 @@ PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -m lib.cicd infra-init --path "$(p
 
 ## Three-Tier Model
 
-- **foundation/** — Run once, touch rarely. DNS zones, resource groups, networking, identity. Manual approval gates.
-- **platform/** — Shared services. Container registries, key vaults, shared databases. Less frequent deploys.
-- **app/** — Application-specific infrastructure. Deployed with application CI/CD.
+- **foundation/** - Run once, touch rarely. DNS zones, resource groups, networking, identity. Manual approval gates.
+- **platform/** - Shared services. Container registries, key vaults, shared databases. Less frequent deploys.
+- **app/** - Application-specific infrastructure. Deployed with application CI/CD.
 
 ## Configuration
 
@@ -65,5 +65,5 @@ infrastructure:
 
 ## Related
 
-- `/cicd:infra-discover` — Audit existing cloud resources
-- `/cicd:infra-pipeline` — Generate CI/CD pipelines with approval gates
+- `/cicd:infra-discover` - Audit existing cloud resources
+- `/cicd:infra-pipeline` - Generate CI/CD pipelines with approval gates

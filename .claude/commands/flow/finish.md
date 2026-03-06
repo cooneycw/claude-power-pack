@@ -1,4 +1,4 @@
-# Flow: Finish — Quality Gates, Commit, Push, and Create PR
+# Flow: Finish - Quality Gates, Commit, Push, and Create PR
 
 Run quality checks, commit changes, push the branch, and create a pull request.
 
@@ -55,12 +55,12 @@ PYTHONPATH="${HOME}/Projects/claude-power-pack/lib" python3 -m lib.security gate
 - If the gate produces **warnings** (high findings): display them but proceed.
 - If `lib/security` is not available, skip this step (warn the user).
 
-**Gate behavior by severity (defaults — configurable in `.claude/security.yml`):**
+**Gate behavior by severity (defaults - configurable in `.claude/security.yml`):**
 
 | Severity | Effect on `/flow:finish` | What to do |
 |----------|--------------------------|------------|
-| CRITICAL | **BLOCKS** — flow stops, no PR created | Fix the finding, then re-run `/flow:finish` |
-| HIGH | **WARNS** — displayed, flow continues | Review finding; fix if real, suppress if false positive |
+| CRITICAL | **BLOCKS** - flow stops, no PR created | Fix the finding, then re-run `/flow:finish` |
+| HIGH | **WARNS** - displayed, flow continues | Review finding; fix if real, suppress if false positive |
 | MEDIUM | Passes silently | No action needed |
 | LOW | Passes silently | No action needed |
 
@@ -85,15 +85,15 @@ fi
 
 When this target exists, check documentation freshness:
 
-1. **C4 diagrams** — If `docs/architecture/` exists, check if C4 HTML files are older than recent code changes. If stale, warn:
+1. **C4 diagrams** - If `docs/architecture/` exists, check if C4 HTML files are older than recent code changes. If stale, warn:
    ```
-   Docs may be stale — C4 diagrams last updated {date}, code changed since then.
+   Docs may be stale - C4 diagrams last updated {date}, code changed since then.
    Run /documentation:c4 to regenerate.
    ```
 
-2. **CLAUDE.md / README.md** — Scan for obviously stale references (e.g., commands that no longer exist, file paths that don't match). Report as non-blocking warnings.
+2. **CLAUDE.md / README.md** - Scan for obviously stale references (e.g., commands that no longer exist, file paths that don't match). Report as non-blocking warnings.
 
-**This step never blocks the flow** — it is purely informational.
+**This step never blocks the flow** - it is purely informational.
 
 ### Step 2c: Makefile Completeness Check (optional, non-blocking)
 
@@ -122,11 +122,11 @@ CHECK_EXIT=$?
   ⚠️  Makefile check: 1 required target missing (typecheck)
       Run /cicd:check for details or /cicd:init to fix
   ```
-- If check passes: report briefly — `"Makefile check: OK (6/6 targets present)"`
+- If check passes: report briefly - `"Makefile check: OK (6/6 targets present)"`
 - If `lib/cicd` is not available: skip silently
 - If no Makefile exists: skip silently (Step 2 already handles this)
 
-**This step never blocks the flow** — it is purely informational.
+**This step never blocks the flow** - it is purely informational.
 
 ### Step 3: Check for Changes
 
@@ -200,6 +200,6 @@ PR created: https://github.com/owner/repo/pull/78
 
 ## Notes
 
-- Quality gates are optional — if no Makefile exists, the flow still works
+- Quality gates are optional - if no Makefile exists, the flow still works
 - The commit step follows standard git commit conventions (the user controls the message)
 - This command works from any worktree directory

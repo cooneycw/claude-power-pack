@@ -33,19 +33,19 @@ Use AskUserQuestion to present **two questions simultaneously**:
 Present available models grouped by provider. Only show models that are available (API key configured).
 
 Options (show up to 4 most relevant, user can type Others):
-- `gemini-3-pro + claude-sonnet` — Gemini 3.1 + Claude Sonnet (Recommended, best cross-provider coverage)
-- `gemini-3-pro + codex` — Gemini 3.1 + GPT-5.3 Codex (Google + OpenAI)
-- `claude-sonnet` — Claude Sonnet 4.6 only (fast, excellent for code)
-- `codex + o4-mini` — GPT-5.3 Codex + o4-mini (OpenAI coding + reasoning)
+- `gemini-3-pro + claude-sonnet` - Gemini 3.1 + Claude Sonnet (Recommended, best cross-provider coverage)
+- `gemini-3-pro + codex` - Gemini 3.1 + GPT-5.3 Codex (Google + OpenAI)
+- `claude-sonnet` - Claude Sonnet 4.6 only (fast, excellent for code)
+- `codex + o4-mini` - GPT-5.3 Codex + o4-mini (OpenAI coding + reasoning)
 
 If user types Other, they can specify any model keys: `gemini-2.5-pro`, `claude-haiku`, `claude-opus`, `codex-mini`, `o3`, `o1`, `gpt-5.2`, `gpt-4o`, etc.
 
 ### Question 2: Analysis Depth
 
 Options:
-- `brief` — Quick feedback, key issues only (~4K tokens output)
-- `detailed` — Comprehensive analysis with recommendations (Recommended, ~48K tokens output)
-- `in_depth` — Exhaustive 64K analysis, covers edge cases, security, architecture
+- `brief` - Quick feedback, key issues only (~4K tokens output)
+- `detailed` - Comprehensive analysis with recommendations (Recommended, ~48K tokens output)
+- `in_depth` - Exhaustive 64K analysis, covers edge cases, security, architecture
 
 ---
 
@@ -55,9 +55,9 @@ If the user provided code or a file path in the ARGUMENTS, use that.
 
 Otherwise, ask the user using AskUserQuestion:
 
-- **Paste code** — Provide code directly
-- **File path** — Specify a file to read
-- **Recent context** — Use code from current conversation
+- **Paste code** - Provide code directly
+- **File path** - Specify a file to read
+- **Recent context** - Use code from current conversation
 
 If a file path is given, read it.
 

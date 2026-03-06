@@ -40,13 +40,13 @@ claude mcp add nano-banana --transport sse --url http://127.0.0.1:8084/sse
 
 ### Diagram Types
 
-- **architecture** — System component grid layout
-- **c4** — C4 model with boundary groupings (Context, Container, Component, Code)
-- **flowchart** — Sequential process steps with arrows
-- **sequence** — Participant message exchange (UML-style)
-- **orgchart** — Tree hierarchy visualization
-- **timeline** — Milestone roadmap on horizontal track
-- **mindmap** — Central topic with radiating branches
+- **architecture** - System component grid layout
+- **c4** - C4 model with boundary groupings (Context, Container, Component, Code)
+- **flowchart** - Sequential process steps with arrows
+- **sequence** - Participant message exchange (UML-style)
+- **orgchart** - Tree hierarchy visualization
+- **timeline** - Milestone roadmap on horizontal track
+- **mindmap** - Central topic with radiating branches
 
 ### C4 Node Types
 
@@ -71,5 +71,5 @@ Add an `update_docs` target to your Makefile to run C4 diagram generation and do
 
 ### Related
 
-- `/load-mcp-docs` — Load all MCP server documentation
-- MCP Playwright — Browser automation for screenshots
+- `/load-mcp-docs` - Load all MCP server documentation
+- MCP Playwright - Browser automation for screenshots

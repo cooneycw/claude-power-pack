@@ -1,4 +1,4 @@
-# MCP Nano-Banana — Diagram & PowerPoint Server
+# MCP Nano-Banana - Diagram & PowerPoint Server
 
 Best-in-class diagram generation MCP server for Claude Code. Generates professional 1920x1080 HTML diagrams and PowerPoint presentations.
 
@@ -13,7 +13,7 @@ Best-in-class diagram generation MCP server for Claude Code. Generates professio
 ## Quick Start
 
 ```bash
-# stdio mode (recommended — Claude Code auto-manages)
+# stdio mode (recommended - Claude Code auto-manages)
 claude mcp add nano-banana --transport stdio -- uv run --directory /path/to/mcp-nano-banana python src/server.py --stdio
 
 # SSE mode (manual start)

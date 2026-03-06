@@ -3,7 +3,7 @@ description: Run quality checks (lint + security) without committing
 allowed-tools: Bash(make:*), Bash(grep:*), Bash(test:*), Bash(python3:*), Bash(PYTHONPATH=*), Bash(git:*), Read
 ---
 
-# Flow: Check — Run Quality Gates Without Committing
+# Flow: Check - Run Quality Gates Without Committing
 
 Run lint and security checks to verify code quality. Does not commit, push, or create a PR.
 
@@ -131,10 +131,10 @@ Present a summary report:
 ```
 
 Status symbols:
-- **PASS** — Check succeeded
-- **WARN** — Non-blocking issue found (proceed with caution)
-- **FAIL** — Blocking issue found (fix before `/flow:finish`)
-- **SKIP** — Check not available (no Makefile, lib not installed)
+- **PASS** - Check succeeded
+- **WARN** - Non-blocking issue found (proceed with caution)
+- **FAIL** - Blocking issue found (fix before `/flow:finish`)
+- **SKIP** - Check not available (no Makefile, lib not installed)
 
 ### Final Message
 
@@ -145,7 +145,7 @@ Based on results:
 
 ## Notes
 
-- This command is **read-only** — it never commits, pushes, or modifies files
+- This command is **read-only** - it never commits, pushes, or modifies files
 - It runs the same checks as `/flow:finish` Step 2, extracted for standalone use
 - Use it to validate changes before committing or as a pre-flight check
 - The security gate uses the same `.claude/security.yml` configuration as `/flow:finish`

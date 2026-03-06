@@ -24,7 +24,7 @@ If secrets are found in git history:
 - The secret is **compromised** regardless of current file state
 - **Rotate the credential immediately**
 - Consider using `git filter-repo` to clean history (advanced)
-- Never auto-fix git history — too dangerous for novices
+- Never auto-fix git history - too dangerous for novices
 
 ## Run Command
 

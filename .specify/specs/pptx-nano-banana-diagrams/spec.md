@@ -10,7 +10,7 @@
 
 Integrate Anthropic's built-in PowerPoint skill into Claude Power Pack as a CPP skill, and build a lightweight MCP server ("nano-banana") that generates best-in-class 1920x1080 HTML diagrams for embedding in PowerPoint presentations and standalone browser viewing.
 
-**Key insight:** Anthropic already ships a native PPTX skill (python-pptx based, beta). CPP's role is to wrap it with diagram generation superpowers — the nano-banana MCP provides professional diagram content that the PowerPoint skill can embed as images.
+**Key insight:** Anthropic already ships a native PPTX skill (python-pptx based, beta). CPP's role is to wrap it with diagram generation superpowers - the nano-banana MCP provides professional diagram content that the PowerPoint skill can embed as images.
 
 ---
 
@@ -106,11 +106,11 @@ Integrate Anthropic's built-in PowerPoint skill into Claude Power Pack as a CPP 
 
 ## Out of Scope
 
-- **Excel/Word skills** — separate future issue
-- **Interactive diagrams** — HTML output is static (no JS interactivity needed in PPTX)
-- **Real-time collaboration** — single-user generation only
-- **Mermaid integration** — nano-banana uses HTML/CSS/SVG natively (no Mermaid dependency)
-- **Video/animation in slides** — static content only
+- **Excel/Word skills** - separate future issue
+- **Interactive diagrams** - HTML output is static (no JS interactivity needed in PPTX)
+- **Real-time collaboration** - single-user generation only
+- **Mermaid integration** - nano-banana uses HTML/CSS/SVG natively (no Mermaid dependency)
+- **Video/animation in slides** - static content only
 
 ---
 
@@ -160,7 +160,7 @@ Integrate Anthropic's built-in PowerPoint skill into Claude Power Pack as a CPP 
 - [ ] Should diagram templates be user-extensible (custom HTML templates)?
 - [ ] What's the best port number? (8083 proposed, check for conflicts)
 - [ ] Should we vendor Anthropic's PPTX skill or just reference the native one?
-- [ ] Community skill `tfriedel/claude-office-skills` — worth evaluating as prior art?
+- [ ] Community skill `tfriedel/claude-office-skills` - worth evaluating as prior art?
 
 ---
 

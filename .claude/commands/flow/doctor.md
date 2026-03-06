@@ -3,7 +3,7 @@ description: Diagnose flow workflow setup and environment
 allowed-tools: Bash(git:*), Bash(gh:*), Bash(command:*), Bash(test:*), Bash(ls:*), Bash(readlink:*), Bash(grep:*), Bash(make:*), Bash(python3:*), Bash(PYTHONPATH=*), Read
 ---
 
-# Flow: Doctor — Diagnose Workflow Environment
+# Flow: Doctor - Diagnose Workflow Environment
 
 Check that the environment is properly configured for the `/flow` workflow.
 
@@ -135,7 +135,7 @@ gh pr list --limit 1 --json number 2>/dev/null && echo "PASS" || echo "FAIL"
 
 ### Step 7b: CI/CD Readiness
 
-Check CI/CD configuration and tooling. This section is **optional** — skip entirely if `lib/cicd` is not available.
+Check CI/CD configuration and tooling. This section is **optional** - skip entirely if `lib/cicd` is not available.
 
 ```bash
 # Locate CPP source for lib/cicd
@@ -210,7 +210,7 @@ fi
 Output a single diagnostic report in this format:
 
 ```markdown
-## Flow Doctor — {repo}
+## Flow Doctor - {repo}
 
 ### Environment
 
@@ -266,7 +266,7 @@ Output a single diagnostic report in this format:
 
 ### CI/CD & Verification
 
-*(Only shown when lib/cicd is available. If not available, show: "CI/CD Readiness: skipped (lib/cicd not available — install CPP for CI/CD features)")*
+*(Only shown when lib/cicd is available. If not available, show: "CI/CD Readiness: skipped (lib/cicd not available - install CPP for CI/CD features)")*
 
 | Check | Status | Details |
 |-------|--------|---------|
@@ -282,7 +282,7 @@ Output a single diagnostic report in this format:
 
 (Only if there are failures or warnings)
 
-1. ❌ **Makefile missing** — Create a Makefile with `lint`, `test`, and `deploy` targets for `/flow:finish` and `/flow:deploy`. Run `/cicd:init` to auto-generate from a stack-specific template, or copy one manually:
+1. ❌ **Makefile missing** - Create a Makefile with `lint`, `test`, and `deploy` targets for `/flow:finish` and `/flow:deploy`. Run `/cicd:init` to auto-generate from a stack-specific template, or copy one manually:
    - Python (uv): `cp ~/Projects/claude-power-pack/templates/makefiles/python-uv.mk Makefile`
    - Python (pip): `cp ~/Projects/claude-power-pack/templates/makefiles/python-pip.mk Makefile`
    - Django (uv): `cp ~/Projects/claude-power-pack/templates/makefiles/django-uv.mk Makefile`
@@ -291,14 +291,14 @@ Output a single diagnostic report in this format:
    - Go: `cp ~/Projects/claude-power-pack/templates/makefiles/go.mk Makefile`
    - Rust: `cp ~/Projects/claude-power-pack/templates/makefiles/rust.mk Makefile`
    - Monorepo: `cp ~/Projects/claude-power-pack/templates/makefiles/multi.mk Makefile`
-2. ❌ **worktree-remove.sh not found** — Run: `ln -sf ~/Projects/claude-power-pack/scripts/worktree-remove.sh ~/.claude/scripts/`
-3. ⚠️ **uv not installed** — Install: `curl -LsSf https://astral.sh/uv/install.sh | sh`
-4. ❌ **cicd.yml missing** — Run `/cicd:init` to auto-detect framework and generate configuration
-5. ⚠️ **Makefile gaps** — Run `/cicd:check` for details or `/cicd:init` to add missing targets
-6. ❌ **No CI pipeline** — Run `/cicd:pipeline` to generate GitHub Actions or Woodpecker CI config
-7. ⚠️ **No health endpoints** — Add `health.endpoints` to `.claude/cicd.yml` for post-deploy verification
-8. ⚠️ **No smoke tests** — Add `health.smoke_tests` to `.claude/cicd.yml` for post-deploy testing
-9. ⚠️ **MCP server(s) not reachable** — Start servers: `cd mcp-second-opinion && ./start-server.sh` (or use stdio transport)
+2. ❌ **worktree-remove.sh not found** - Run: `ln -sf ~/Projects/claude-power-pack/scripts/worktree-remove.sh ~/.claude/scripts/`
+3. ⚠️ **uv not installed** - Install: `curl -LsSf https://astral.sh/uv/install.sh | sh`
+4. ❌ **cicd.yml missing** - Run `/cicd:init` to auto-detect framework and generate configuration
+5. ⚠️ **Makefile gaps** - Run `/cicd:check` for details or `/cicd:init` to add missing targets
+6. ❌ **No CI pipeline** - Run `/cicd:pipeline` to generate GitHub Actions or Woodpecker CI config
+7. ⚠️ **No health endpoints** - Add `health.endpoints` to `.claude/cicd.yml` for post-deploy verification
+8. ⚠️ **No smoke tests** - Add `health.smoke_tests` to `.claude/cicd.yml` for post-deploy testing
+9. ⚠️ **MCP server(s) not reachable** - Start servers: `cd mcp-second-opinion && ./start-server.sh` (or use stdio transport)
 
 *All checks passed!* → "Environment is ready for `/flow` workflow."
 ```
@@ -307,12 +307,12 @@ Output a single diagnostic report in this format:
 
 - ✅ = Check passed
 - ⚠️ = Optional/non-critical issue
-- ❌ = Required check failed — action needed
+- ❌ = Required check failed - action needed
 
 ## Notes
 
-- This is a read-only diagnostic — it never modifies anything
+- This is a read-only diagnostic - it never modifies anything
 - `uv` is recommended but not required (⚠️ if missing, not ❌)
 - Makefile is recommended but not required (⚠️ if missing)
 - Scripts and hooks are ❌ if missing since they provide security protection
-- Keep the report concise — one table per section, actions at the end
+- Keep the report concise - one table per section, actions at the end

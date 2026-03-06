@@ -1,5 +1,5 @@
 # Claude Power Pack - MCP Server Orchestration
-# Usage (prefer Makefile targets — see Deployment Conventions in CLAUDE.md):
+# Usage (prefer Makefile targets - see Deployment Conventions in CLAUDE.md):
 #   make docker-up PROFILE=core                      # Second Opinion + Nano-Banana
 #   make docker-up PROFILE="core browser"            # + Playwright
 #   make docker-build PROFILE=core                   # Build images only
@@ -69,7 +69,7 @@ services:
           cpus: "0.25"
           memory: 128M
 
-  # mcp-evaluate: DEPRECATED — evaluation logic absorbed into /evaluate:issue command + evaluate skill.
+  # mcp-evaluate: DEPRECATED - evaluation logic absorbed into /evaluate:issue command + evaluate skill.
   # Dockerfile kept in mcp-evaluate/deploy/ for reference. To re-enable, uncomment below.
   # mcp-evaluate:
   #   build:

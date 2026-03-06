@@ -87,36 +87,35 @@ def get_provider() -> SecretsProvider:
     """Get the first available secrets provider.
 
     Tries providers in order:
-    1. Environment variables (always available)
-    2. AWS Secrets Manager (if credentials configured)
+    1. AWS Secrets Manager (if boto3 installed and credentials configured)
+    2. Environment variables (always available)
 
     Returns:
         The first available SecretsProvider.
     """
-    # Try environment first (always available)
-    env = EnvSecretsProvider()
+    # If AWS provider is available and configured, prefer it
+    if AWSSecretsProvider is not None:
+        aws = AWSSecretsProvider()
+        if aws.is_available():
+            return aws
 
-    # If AWS is available and configured, prefer it for production secrets
-    aws = AWSSecretsProvider()
-    if aws.is_available():
-        return aws
-
-    return env
+    return EnvSecretsProvider()
 
 
 def get_bundle_provider() -> BundleProvider:
     """Get the first available bundle-capable provider.
 
     Tries providers in order:
-    1. AWS Secrets Manager (if configured)
+    1. AWS Secrets Manager (if boto3 installed and credentials configured)
     2. DotEnv global config (always available)
 
     Returns:
         The first available BundleProvider.
     """
-    aws = AWSSecretsProvider()
-    if aws.is_available():
-        return aws
+    if AWSSecretsProvider is not None:
+        aws = AWSSecretsProvider()
+        if aws.is_available():
+            return aws
 
     return DotEnvSecretsProvider()
 

@@ -1,4 +1,4 @@
-# Flow: Auto — Full Issue Lifecycle in One Shot
+# Flow: Auto - Full Issue Lifecycle in One Shot
 
 Complete end-to-end workflow: start worktree → analyze issue → implement → finish (PR) → merge → deploy.
 
@@ -13,7 +13,7 @@ When the user invokes `/flow:auto <ISSUE>`, perform these steps sequentially. St
 Report at the start:
 
 ```
-Flow Auto: Issue #42 — Full Lifecycle
+Flow Auto: Issue #42 - Full Lifecycle
 
 Step 1/7: Start (create worktree and branch)
 Step 2/7: Analyze (understand issue and codebase)
@@ -28,9 +28,9 @@ Proceeding...
 
 ---
 
-### Step 1: Start — Create Worktree
+### Step 1: Start - Create Worktree
 
-**CRITICAL: You MUST create or enter a worktree before proceeding. NEVER implement changes directly on main/master. This step is NOT optional — if worktree creation fails, STOP immediately.**
+**CRITICAL: You MUST create or enter a worktree before proceeding. NEVER implement changes directly on main/master. This step is NOT optional - if worktree creation fails, STOP immediately.**
 
 Create a worktree and branch for the issue. If one already exists, `cd` into it.
 
@@ -58,7 +58,7 @@ WORKTREE_DIR="../${REPO}-issue-${ISSUE_NUM}"
 # Check if already on the issue's branch
 CURRENT_BRANCH=$(git branch --show-current)
 if [[ "$CURRENT_BRANCH" =~ issue-${ISSUE_NUM}- ]]; then
-    # Already in the right worktree — skip creation
+    # Already in the right worktree - skip creation
 fi
 
 # Check if worktree already exists
@@ -83,7 +83,7 @@ git branch -r | grep "issue-${ISSUE_NUM}-"
   cd "$WORKTREE_DIR"
   ```
 
-#### Verification Gate (MANDATORY — do NOT skip)
+#### Verification Gate (MANDATORY - do NOT skip)
 
 Before proceeding to Step 2, verify you are in the correct working directory:
 
@@ -99,11 +99,11 @@ echo "Verified: on branch '$CURRENT_BRANCH' in $(pwd)"
 
 **If this verification fails, STOP immediately. Report the failure using the error template at the bottom of this file. Do NOT proceed to Step 2.**
 
-Report: `Step 1/7: Start complete — worktree at {path}, verified on branch {branch}`
+Report: `Step 1/7: Start complete - worktree at {path}, verified on branch {branch}`
 
 ---
 
-### Step 2: Analyze — Understand the Issue
+### Step 2: Analyze - Understand the Issue
 
 Working from the worktree, analyze the issue and codebase to form an implementation plan.
 
@@ -134,9 +134,9 @@ Acceptance Criteria:
   - [ ] Tests pass
 
 Implementation Plan:
-  1. Modify src/auth/login.py — fix redirect logic in handle_login()
-  2. Update tests/test_auth.py — add redirect test cases
-  3. Update config/routes.py — add dashboard route
+  1. Modify src/auth/login.py - fix redirect logic in handle_login()
+  2. Update tests/test_auth.py - add redirect test cases
+  3. Update config/routes.py - add dashboard route
 
 Files to modify: 3
 Estimated scope: Small
@@ -144,16 +144,16 @@ Estimated scope: Small
 Proceeding to implementation...
 ```
 
-Report: `Step 2/7: Analyze complete — {N} files to modify`
+Report: `Step 2/7: Analyze complete - {N} files to modify`
 
 ---
 
-### Step 3: Implement — Write the Code
+### Step 3: Implement - Write the Code
 
 Execute the implementation plan from Step 2:
 
 1. **Make all code changes** in the worktree.
-2. **Follow existing conventions** — match the code style, patterns, and structure of the project.
+2. **Follow existing conventions** - match the code style, patterns, and structure of the project.
 3. **Run tests locally** if a quick feedback loop is available (e.g., `make test` or the project's test command).
 4. **Verify the changes** address all acceptance criteria from the issue.
 
@@ -161,11 +161,11 @@ If implementation hits a blocker that cannot be resolved:
 - **STOP** and report the blocker.
 - Suggest manual intervention.
 
-Report: `Step 3/7: Implement complete — {summary of changes}`
+Report: `Step 3/7: Implement complete - {summary of changes}`
 
 ---
 
-### Step 4: Update Docs — Regenerate C4 Diagrams and Review Docs
+### Step 4: Update Docs - Regenerate C4 Diagrams and Review Docs
 
 If the Makefile has an `update_docs` target:
 
@@ -178,36 +178,36 @@ fi
 
 Then perform these documentation tasks:
 
-1. **Regenerate C4 diagrams** — If `docs/architecture/` exists or significant code changes were made, run the `/documentation:c4` workflow:
+1. **Regenerate C4 diagrams** - If `docs/architecture/` exists or significant code changes were made, run the `/documentation:c4` workflow:
    - Analyze the project architecture
    - Generate L1-L4 C4 diagrams to `docs/architecture/`
    - Screenshot via Playwright if available
 
-2. **Review CLAUDE.md** — Check that repository structure, command references, and component descriptions match the current state. Fix any stale references.
+2. **Review CLAUDE.md** - Check that repository structure, command references, and component descriptions match the current state. Fix any stale references.
 
-3. **Review README.md** — Check that the project description, setup instructions, and feature list reflect the changes just implemented. Fix any inaccuracies.
+3. **Review README.md** - Check that the project description, setup instructions, and feature list reflect the changes just implemented. Fix any inaccuracies.
 
-4. **Stage doc changes** — `git add` any modified documentation files.
+4. **Stage doc changes** - `git add` any modified documentation files.
 
 If no `update_docs` target exists in the Makefile, skip this step.
 
-Report: `Step 4/7: Update Docs complete — {N} files updated` or `Step 4/7: Update Docs skipped (no Makefile target)`
+Report: `Step 4/7: Update Docs complete - {N} files updated` or `Step 4/7: Update Docs skipped (no Makefile target)`
 
 ---
 
-### Step 5: Finish — Quality Gates, Commit, Push, PR
+### Step 5: Finish - Quality Gates, Commit, Push, PR
 
 ```bash
 BRANCH=$(git branch --show-current)
 ISSUE_NUM=$(echo "$BRANCH" | grep -oP 'issue-\K[0-9]+' || echo "")
 ```
 
-1. **Quality gates** — if Makefile exists:
+1. **Quality gates** - if Makefile exists:
    - Run `make lint` (if target exists)
    - Run `make test` (if target exists)
    - If either fails: **STOP**. Report the failure and exit.
 
-2. **Commit** — if there are uncommitted changes:
+2. **Commit** - if there are uncommitted changes:
    - Use conventional commit format: `type(scope): Description (Closes #N)`
    - Include `Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>`
 
@@ -216,7 +216,7 @@ ISSUE_NUM=$(echo "$BRANCH" | grep -oP 'issue-\K[0-9]+' || echo "")
    git push -u origin "$BRANCH"
    ```
 
-4. **Create PR** — if no PR exists:
+4. **Create PR** - if no PR exists:
    ```bash
    gh pr create --title "type(scope): Description (Closes #ISSUE_NUM)" --body "..."
    ```
@@ -224,11 +224,11 @@ ISSUE_NUM=$(echo "$BRANCH" | grep -oP 'issue-\K[0-9]+' || echo "")
    - PR body: Summary of changes + test plan + `Closes #N`
    - Analyze all commits on the branch to draft the summary.
 
-Report: `Step 5/7: Finish complete — PR #XX created`
+Report: `Step 5/7: Finish complete - PR #XX created`
 
 ---
 
-### Step 5: Merge — Squash-Merge and Clean Up
+### Step 5: Merge - Squash-Merge and Clean Up
 
 1. **Merge the PR:**
    ```bash
@@ -250,15 +250,15 @@ Report: `Step 5/7: Finish complete — PR #XX created`
 
 3. **Clean up worktree and branch:**
 
-   **CRITICAL: You MUST `cd` to the main repo BEFORE removing the worktree. NEVER remove a worktree while your working directory is inside it — this kills all subsequent bash commands. Execute these as SEPARATE Bash calls, not in a single script.**
+   **CRITICAL: You MUST `cd` to the main repo BEFORE removing the worktree. NEVER remove a worktree while your working directory is inside it - this kills all subsequent bash commands. Execute these as SEPARATE Bash calls, not in a single script.**
 
-   **Step 5a — Exit the worktree (separate Bash call):**
+   **Step 5a - Exit the worktree (separate Bash call):**
    ```bash
    cd "$MAIN_REPO"
    pwd  # Verify you are in the main repo
    ```
 
-   **Step 5b — Remove the worktree (separate Bash call, AFTER confirming cd succeeded):**
+   **Step 5b - Remove the worktree (separate Bash call, AFTER confirming cd succeeded):**
    ```bash
    if [[ -f ~/.claude/scripts/worktree-remove.sh ]]; then
        ~/.claude/scripts/worktree-remove.sh "$WORKTREE_PATH" --force --delete-branch
@@ -268,10 +268,10 @@ Report: `Step 5/7: Finish complete — PR #XX created`
    fi
    ```
 
-   **Step 5c — Verify working directory is valid:**
+   **Step 5c - Verify working directory is valid:**
    ```bash
    pwd  # MUST show main repo path, NOT the deleted worktree
-   git status  # MUST succeed — if this fails, your CWD was deleted
+   git status  # MUST succeed - if this fails, your CWD was deleted
    ```
 
    If you are NOT in a worktree (just on a feature branch in main repo):
@@ -284,12 +284,12 @@ Report: `Step 5/7: Finish complete — PR #XX created`
    if [[ -n "$ISSUE_NUM" ]]; then
        ISSUE_STATE=$(gh issue view "$ISSUE_NUM" --json state --jq '.state' 2>/dev/null)
        if [[ "$ISSUE_STATE" == "OPEN" ]]; then
-           gh issue close "$ISSUE_NUM" --comment "Closed via /flow:auto — PR #${PR_NUMBER} merged."
+           gh issue close "$ISSUE_NUM" --comment "Closed via /flow:auto - PR #${PR_NUMBER} merged."
        fi
    fi
    ```
 
-Report: `Step 6/7: Merge complete — worktree cleaned up`
+Report: `Step 6/7: Merge complete - worktree cleaned up`
 
 ---
 
@@ -306,7 +306,7 @@ if [[ -f "Makefile" ]] && grep -q "^deploy:" Makefile; then
     mkdir -p .claude
     echo "$(date -Iseconds) | deploy | $(git rev-parse --short HEAD) | main | $?" >> .claude/deploy.log
 else
-    echo "No deploy target in Makefile — skipping deployment."
+    echo "No deploy target in Makefile - skipping deployment."
 fi
 ```
 
@@ -319,7 +319,7 @@ Report: `Step 7/7: Deploy complete` or `Step 7/7: Deploy skipped (no Makefile ta
 ```
 Flow Auto Complete
 
-  Issue:    #42 — Fix login bug
+  Issue:    #42 - Fix login bug
   Changes:  Modified 3 files (src/auth/login.py, tests/test_auth.py, config/routes.py)
   PR:       #78 (squash-merged)
   Branch:   issue-42-fix-login (deleted)
@@ -364,9 +364,9 @@ Key failure scenarios:
 
 ## Notes
 
-- This is the "one command to ship" — takes an issue number and delivers it end-to-end
+- This is the "one command to ship" - takes an issue number and delivers it end-to-end
 - The analyze step ensures Claude understands the issue before writing code
 - Each step builds on the previous one; there's no skipping
-- The deploy step is always optional — it only runs if a deploy target exists
+- The deploy step is always optional - it only runs if a deploy target exists
 - After completion, the user is in the main repo on the main branch
 - For step-by-step control, use individual commands: `/flow:start`, `/flow:finish`, `/flow:merge`, `/flow:deploy`

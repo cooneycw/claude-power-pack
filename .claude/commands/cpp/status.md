@@ -183,7 +183,7 @@ if [ "$(uname)" = "Linux" ]; then
   fi
 
   if (( TUNING_ISSUES > 0 )); then
-    echo "  Status: $TUNING_ISSUES issue(s) — run: bash ~/.claude/scripts/bash-prep.sh"
+    echo "  Status: $TUNING_ISSUES issue(s) - run: bash ~/.claude/scripts/bash-prep.sh"
   else
     echo "  Status: Optimal"
   fi

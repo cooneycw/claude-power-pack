@@ -9,7 +9,7 @@
 
 ## Summary
 
-Build two interconnected components: (1) a `/pptx` CPP skill that wraps Anthropic's native PowerPoint capability with diagram awareness, and (2) the nano-banana MCP server — a lightweight Python/FastAPI service that generates professional 1920x1080 HTML diagrams using pure HTML/CSS/SVG (no JS frameworks). The Playwright MCP handles PNG rendering, and python-pptx embeds the results into slide decks.
+Build two interconnected components: (1) a `/pptx` CPP skill that wraps Anthropic's native PowerPoint capability with diagram awareness, and (2) the nano-banana MCP server - a lightweight Python/FastAPI service that generates professional 1920x1080 HTML diagrams using pure HTML/CSS/SVG (no JS frameworks). The Playwright MCP handles PNG rendering, and python-pptx embeds the results into slide decks.
 
 ---
 
@@ -69,10 +69,10 @@ output.pptx
 | Tool | Purpose | Inputs | Output |
 |------|---------|--------|--------|
 | `generate_diagram` | Create diagram from description | type, data, theme | HTML string |
-| `list_diagram_types` | Show available types | — | type list |
+| `list_diagram_types` | Show available types | - | type list |
 | `render_to_png` | Convert HTML to PNG via Playwright | html, width, height | base64 PNG |
 | `get_diagram_template` | Get blank template for a type | type | HTML template |
-| `health_check` | Server health | — | status |
+| `health_check` | Server health | - | status |
 
 ### Key Design Decisions
 

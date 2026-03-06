@@ -298,7 +298,7 @@ def _extract_text_from_html(html: str, max_length: int) -> str:
         "&quot;": '"',
         "&#39;": "'",
         "&apos;": "'",
-        "&mdash;": "—",
+        "&mdash;": "-",
         "&ndash;": "–",
         "&hellip;": "...",
         "&copy;": "(c)",

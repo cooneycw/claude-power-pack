@@ -3,7 +3,7 @@ description: Detect framework and generate/validate Makefile for CI/CD integrati
 allowed-tools: Bash(python3:*), Bash(PYTHONPATH=*), Bash(ls:*), Bash(test:*), Bash(cat:*), Bash(grep:*), Bash(cp:*), Read, Write
 ---
 
-# /cicd:init — Framework Detection & Makefile Setup
+# /cicd:init - Framework Detection & Makefile Setup
 
 Detect your project's framework and package manager, then generate or validate a Makefile for CPP `/flow` integration.
 
@@ -51,10 +51,10 @@ If framework is "Unknown", ask the user which framework to use via AskUserQuesti
 
 ```bash
 if [ -f "Makefile" ]; then
-  echo "Existing Makefile found — running validation..."
+  echo "Existing Makefile found - running validation..."
   PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -m lib.cicd check
 else
-  echo "No Makefile found — will generate one."
+  echo "No Makefile found - will generate one."
 fi
 ```
 
@@ -100,7 +100,7 @@ fi
 ```
 
 Generate `.claude/cicd.yml` with:
-- Detected framework and package manager (commented out — auto-detection is preferred)
+- Detected framework and package manager (commented out - auto-detection is preferred)
 - Build section with required and recommended targets
 - Deploy section with placeholder target metadata
 
@@ -132,7 +132,7 @@ Next Steps:
 
 ## Notes
 
-- This command is idempotent — safe to run multiple times
+- This command is idempotent - safe to run multiple times
 - Existing files are never overwritten without user confirmation
 - Templates are copied, not symlinked (so you can customize freely)
 - Run `/cicd:check` anytime to re-validate your Makefile

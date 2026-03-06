@@ -1,7 +1,7 @@
 """Health check runner for CI/CD & Verification.
 
 Checks HTTP endpoints and running processes to verify deployment health.
-Uses curl for HTTP checks and ss/lsof for process checks — no Python deps.
+Uses curl for HTTP checks and ss/lsof for process checks - no Python deps.
 """
 
 from __future__ import annotations

@@ -11,7 +11,7 @@ The Sequential Thinking MCP server provides a `sequentialthinking` tool that Cla
 - **Branching** - Explore alternative reasoning paths
 - **Dynamic adjustment** - Expand or reduce total steps as understanding deepens
 
-**Important:** This server does NOT use an external LLM. Claude itself does all the thinking — the server provides structure and state tracking for the reasoning process.
+**Important:** This server does NOT use an external LLM. Claude itself does all the thinking - the server provides structure and state tracking for the reasoning process.
 
 ## When It Helps
 

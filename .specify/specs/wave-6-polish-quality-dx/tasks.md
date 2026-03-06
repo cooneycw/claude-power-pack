@@ -1,4 +1,4 @@
-# Tasks: Wave 6 — Polish, Quality & DX
+# Tasks: Wave 6 - Polish, Quality & DX
 
 > **Plan:** [plan.md](./plan.md)
 > **Created:** 2026-02-16
@@ -111,7 +111,7 @@
 - [x] **T038** [US1,US4] Update README.md with Wave 6 features (QA, /flow:check, /secrets:delete)
 - [x] **T039** [US1,US4] Update CLAUDE.md repository structure section
 - [x] **T040** [US1,US4] Verify all `/help` commands reference new additions
-- [x] **T041** [US1,US4] Final QA pass — all commands documented, no broken references
+- [x] **T041** [US1,US4] Final QA pass - all commands documented, no broken references
 
 **Checkpoint:** All documentation reflects current state; no stale references
 

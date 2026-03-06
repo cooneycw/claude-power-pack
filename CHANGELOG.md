@@ -2,16 +2,16 @@
 
 ## [5.0.0] - 2026-03-05
 
-### Added — Wave 6: Polish, Quality & DX
+### Added - Wave 6: Polish, Quality & DX
 
-- **`/secrets:delete` command** — Delete secrets from dotenv and AWS providers with audit logging (#121)
-- **Stack-specific Makefile templates** — Django template (`django-uv.mk`) with manage.py targets; `/flow:doctor` now suggests framework-appropriate templates when no Makefile found (#122)
-- **Django framework detection** — `lib/cicd/detector.py` promotes Python→Django when `manage.py` is present
-- **Security gate documentation** — Expanded `/flow:help` and `/security:help` with gate behavior details (#123)
+- **`/secrets:delete` command** - Delete secrets from dotenv and AWS providers with audit logging (#121)
+- **Stack-specific Makefile templates** - Django template (`django-uv.mk`) with manage.py targets; `/flow:doctor` now suggests framework-appropriate templates when no Makefile found (#122)
+- **Django framework detection** - `lib/cicd/detector.py` promotes Python→Django when `manage.py` is present
+- **Security gate documentation** - Expanded `/flow:help` and `/security:help` with gate behavior details (#123)
 
-### Added — MCP Nano-Banana Server
+### Added - MCP Nano-Banana Server
 
-- **MCP Nano-Banana** (`mcp-nano-banana/`, port 8084) — Diagram generation + PowerPoint creation (#161):
+- **MCP Nano-Banana** (`mcp-nano-banana/`, port 8084) - Diagram generation + PowerPoint creation (#161):
   - 4 MCP tools: `list_diagram_types`, `generate_diagram`, `create_pptx`, `diagram_to_pptx`
   - 6 diagram types: architecture, flowchart, sequence, orgchart, timeline, mindmap
   - 1920x1080 HTML diagrams with professional CSS themes
@@ -32,46 +32,46 @@
 
 ## [4.2.0] - 2026-03-04
 
-### Added — Tier 4: CI/CD & Verification
+### Added - Tier 4: CI/CD & Verification
 
-- **`lib/cicd/` package** — Framework detection, Makefile generation, health checks, smoke tests (#141-#156):
-  - `detector.py` — Auto-detect Python/Node/Go/Rust/Multi frameworks + package managers
-  - `makefile.py` — Parse, validate, and generate Makefiles from templates
-  - `health.py` — HTTP endpoint and process port health checks
-  - `smoke.py` — Shell command smoke tests with exit code/output assertions
-  - `pipeline.py` — GitHub Actions and Woodpecker CI pipeline generation
-  - `container.py` — Dockerfile and docker-compose.yml generation
-  - `config.py` — `.claude/cicd.yml` configuration schema
-  - `models.py` — Framework, PackageManager, MakefileTarget, HealthCheckResult data models
+- **`lib/cicd/` package** - Framework detection, Makefile generation, health checks, smoke tests (#141-#156):
+  - `detector.py` - Auto-detect Python/Node/Go/Rust/Multi frameworks + package managers
+  - `makefile.py` - Parse, validate, and generate Makefiles from templates
+  - `health.py` - HTTP endpoint and process port health checks
+  - `smoke.py` - Shell command smoke tests with exit code/output assertions
+  - `pipeline.py` - GitHub Actions and Woodpecker CI pipeline generation
+  - `container.py` - Dockerfile and docker-compose.yml generation
+  - `config.py` - `.claude/cicd.yml` configuration schema
+  - `models.py` - Framework, PackageManager, MakefileTarget, HealthCheckResult data models
 - **7 Makefile templates** in `templates/makefiles/`: python-uv, python-pip, node-npm, node-yarn, go, rust, multi
 - **CI/CD commands**: `/cicd:init`, `/cicd:check`, `/cicd:health`, `/cicd:smoke`, `/cicd:pipeline`, `/cicd:container`, `/cicd:help`
-- **Tier 4 in `/cpp:init`** wizard — CI/CD tier added to installation flow (#152)
-- **Post-deploy verification** — `/flow:deploy` and `/flow:finish` run health/smoke checks when configured (#147)
+- **Tier 4 in `/cpp:init`** wizard - CI/CD tier added to installation flow (#152)
+- **Post-deploy verification** - `/flow:deploy` and `/flow:finish` run health/smoke checks when configured (#147)
 - **CI/CD diagnostics** in `/flow:doctor` (#153)
 - **Woodpecker CI** local pipeline support alongside GitHub Actions (#155)
 - **`/cicd-verification` skill** and updated CLAUDE.md (#154)
 - **GitHub Actions workflow templates** in `templates/workflows/`
 - **Container templates** in `templates/containers/`
 
-### Added — Wave 7: Evaluate Flow
+### Added - Wave 7: Evaluate Flow
 
-- **`/evaluate:issue` command** — 4-phase multi-model evaluation pipeline (#133-#135):
+- **`/evaluate:issue` command** - 4-phase multi-model evaluation pipeline (#133-#135):
   - Phase 1: Multi-model divergence scan
   - Phase 2: Sequential reasoning (uses Sequential Thinking MCP if available)
   - Phase 3: Multi-model validation
   - Phase 4: Spec output to `.specify/specs/`
-- **MCP Evaluate server** (`mcp-evaluate/`, port 8083) — Composite server with domain-aware prompting (#135)
+- **MCP Evaluate server** (`mcp-evaluate/`, port 8083) - Composite server with domain-aware prompting (#135)
   - 3 tools: `evaluate_start`, `evaluate_validate`, `evaluate_produce_spec`
   - Supports 5 domains: architecture, concept, algorithm, ui-design, workflow
 
-### Added — Project Scaffolding
+### Added - Project Scaffolding
 
-- **`/project:init` command** — Zero-to-GitHub-repo in one command (#156):
+- **`/project:init` command** - Zero-to-GitHub-repo in one command (#156):
   - Framework-specific scaffolds (Python/uv, Node/npm, Go, Rust)
   - Auto-generates Makefile from detected framework
   - Installs CPP commands, skills, and hooks
   - Initializes `.specify/` for spec-driven development
-  - Idempotent — safe to re-run if interrupted
+  - Idempotent - safe to re-run if interrupted
 
 ### Changed
 
@@ -82,20 +82,20 @@
 
 ## [4.0.0] - 2026-02-16
 
-### Added — Wave 5: Simplified Workflow
+### Added - Wave 5: Simplified Workflow
 
-- **`/flow` command set** — Stateless, git-native workflow (#87-#102):
-  - `/flow:start` — Create worktree for issue
-  - `/flow:status` — Show active worktrees
-  - `/flow:finish` — Lint, test, commit, push, create PR
-  - `/flow:merge` — Squash-merge PR, clean up worktree
-  - `/flow:deploy` — Run `make deploy` with deploy logging
-  - `/flow:sync` — Push WIP to remote for cross-machine pickup
-  - `/flow:cleanup` — Prune stale worktrees and branches
-  - `/flow:auto` — Full lifecycle in one command
-  - `/flow:doctor` — Diagnose workflow environment
+- **`/flow` command set** - Stateless, git-native workflow (#87-#102):
+  - `/flow:start` - Create worktree for issue
+  - `/flow:status` - Show active worktrees
+  - `/flow:finish` - Lint, test, commit, push, create PR
+  - `/flow:merge` - Squash-merge PR, clean up worktree
+  - `/flow:deploy` - Run `make deploy` with deploy logging
+  - `/flow:sync` - Push WIP to remote for cross-machine pickup
+  - `/flow:cleanup` - Prune stale worktrees and branches
+  - `/flow:auto` - Full lifecycle in one command
+  - `/flow:doctor` - Diagnose workflow environment
 - **Makefile integration** as first-class deployment concept (#89)
-- **`/security:*` commands** — Novice-friendly security scanning (#99):
+- **`/security:*` commands** - Novice-friendly security scanning (#99):
   - `/security:scan`, `/security:quick`, `/security:deep`, `/security:explain`
   - `lib/security/` package with native scanners (gitignore, permissions, secrets, debug flags, env files)
   - External tool adapters (gitleaks, pip-audit, npm audit)
@@ -109,8 +109,8 @@
 
 ### Changed
 
-- **Simplified hooks.json** — Removed session/heartbeat overhead (#90)
-- **Redis coordination demoted to `extras/`** — No longer required for solo dev (#91)
+- **Simplified hooks.json** - Removed session/heartbeat overhead (#90)
+- **Redis coordination demoted to `extras/`** - No longer required for solo dev (#91)
 - **`/project-next` simplified** to be worktree-focused (#92)
 - **`/cpp:init` tiers updated** for simplified architecture (#95)
 - **Package recommendations modernized** for uv compatibility (#97)
@@ -134,7 +134,7 @@
 - MCP Coordination: Module import error (#70)
 - `session-register.sh` cleanup command fails after first session (#69)
 - Dead sessions not auto-cleaned from coordination registry (#81)
-- `lib/secrets` renamed to `lib/creds` — no longer shadows Python stdlib `secrets` module (#59)
+- `lib/secrets` renamed to `lib/creds` - no longer shadows Python stdlib `secrets` module (#59)
 - Hardcoded absolute paths in `/load-best-practices` command (#49)
 
 ### Added
