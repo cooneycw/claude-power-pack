@@ -1782,7 +1782,7 @@ def main():
         logger.info("Transport: stdio")
     else:
         logger.info(f"Starting {Config.SERVER_NAME} v{Config.SERVER_VERSION}")
-        logger.info(f"Transport: streamable-http on {Config.SERVER_HOST}:{Config.SERVER_PORT}")
+        logger.info(f"Transport: sse on {Config.SERVER_HOST}:{Config.SERVER_PORT}")
 
     logger.info(f"Context caching: {'enabled' if Config.ENABLE_CONTEXT_CACHING else 'disabled'}")
 
@@ -1797,7 +1797,7 @@ def main():
         mcp.run(transport="stdio")
     else:
         mcp.run(
-            transport="streamable-http",
+            transport="sse",
             host=Config.SERVER_HOST,
             port=Config.SERVER_PORT,
         )

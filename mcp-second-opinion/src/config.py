@@ -334,7 +334,7 @@ class Config:
 
     # Server Configuration
     SERVER_NAME: str = "second-opinion-server"
-    SERVER_VERSION: str = "2.0.0"  # FastMCP 3.x, streamable-http transport
+    SERVER_VERSION: str = "2.1.0"  # FastMCP 3.x, SSE transport
 
     # HTTP/SSE Transport Configuration (with safe parsing)
     SERVER_HOST: str = os.getenv("MCP_SERVER_HOST", "127.0.0.1")

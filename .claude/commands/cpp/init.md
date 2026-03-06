@@ -667,14 +667,14 @@ Optional: Ask for OPENAI_API_KEY and ANTHROPIC_API_KEY for multi-model compariso
 MCP_LIST=$(claude mcp list 2>/dev/null || echo "")
 
 if ! echo "$MCP_LIST" | grep -q "second-opinion"; then
-  claude mcp add second-opinion --transport sse --url http://127.0.0.1:8080/sse
+  claude mcp add second-opinion --transport sse --url http://127.0.0.1:8080/sse --scope user
   echo "✓ second-opinion MCP registered"
 else
   echo "→ second-opinion MCP already registered (skipped)"
 fi
 
 if ! echo "$MCP_LIST" | grep -q "playwright-persistent"; then
-  claude mcp add playwright-persistent --transport sse --url http://127.0.0.1:8081/sse
+  claude mcp add playwright-persistent --transport sse --url http://127.0.0.1:8081/sse --scope user
   echo "✓ playwright-persistent MCP registered"
 else
   echo "→ playwright-persistent MCP already registered (skipped)"
