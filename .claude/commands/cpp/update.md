@@ -1,11 +1,11 @@
 ---
 description: Update Claude Power Pack to the latest version
-allowed-tools: Bash(git:*), Bash(ls:*), Bash(test:*), Bash(readlink:*), Bash(cat:*), Bash(uv:*), Bash(claude mcp list:*), Bash(sudo systemctl:*), Bash(systemctl:*), Bash(command -v:*), Bash(ln:*), Bash(mkdir:*), Bash(cp:*)
+allowed-tools: Bash(git:*), Bash(ls:*), Bash(test:*), Bash(readlink:*), Bash(cat:*), Bash(uv:*), Bash(claude mcp list:*), Bash(sudo systemctl:*), Bash(systemctl:*), Bash(command -v:*), Bash(ln:*), Bash(mkdir:*), Bash(cp:*), Bash(diff:*), Bash(find:*), Bash(grep:*), Bash(curl:*), Bash(ss:*), Bash(docker:*), AskUserQuestion
 ---
 
 # Claude Power Pack Update
 
-Update CPP to the latest version and optionally upgrade installation tier.
+Update CPP to the latest version, detect MCP server drift, and offer guided remediation.
 
 ---
 
@@ -37,12 +37,12 @@ echo "Found claude-power-pack at: $CPP_DIR"
 ```bash
 cd "$CPP_DIR"
 
-# Get current state
+# Get current version from CHANGELOG.md
+CURRENT_VERSION=$(grep -oP '^\#\# \[\K[0-9]+\.[0-9]+\.[0-9]+' CHANGELOG.md | head -1 || echo "unknown")
 CURRENT_COMMIT=$(git rev-parse --short HEAD)
-CURRENT_TAG=$(git describe --tags --always 2>/dev/null)
 CURRENT_BRANCH=$(git branch --show-current)
 
-echo "Current: $CURRENT_TAG ($CURRENT_COMMIT) on $CURRENT_BRANCH"
+echo "Current: v$CURRENT_VERSION ($CURRENT_COMMIT) on $CURRENT_BRANCH"
 
 # Check for uncommitted changes
 if ! git diff --quiet || ! git diff --cached --quiet; then
@@ -97,9 +97,9 @@ fi
 git pull origin $CURRENT_BRANCH
 
 NEW_COMMIT=$(git rev-parse --short HEAD)
-NEW_TAG=$(git describe --tags --always 2>/dev/null)
+NEW_VERSION=$(grep -oP '^\#\# \[\K[0-9]+\.[0-9]+\.[0-9]+' CHANGELOG.md | head -1 || echo "unknown")
 echo ""
-echo "Updated: $CURRENT_TAG → $NEW_TAG ($NEW_COMMIT)"
+echo "Updated: v$CURRENT_VERSION -> v$NEW_VERSION ($NEW_COMMIT)"
 ```
 
 ---
@@ -111,13 +111,13 @@ If MCP server venvs exist, sync dependencies to pick up any new packages:
 ```bash
 cd "$CPP_DIR"
 
-for server in mcp-second-opinion mcp-playwright-persistent; do
-  if [ -d "$server/.venv" ]; then
+for server_dir in mcp-second-opinion mcp-playwright-persistent mcp-nano-banana; do
+  if [ -d "$server_dir/.venv" ]; then
     echo ""
-    echo "Syncing dependencies for $server..."
-    cd "$CPP_DIR/$server"
+    echo "Syncing dependencies for $server_dir..."
+    cd "$CPP_DIR/$server_dir"
     uv sync
-    echo "✓ $server dependencies updated"
+    echo "Done: $server_dir dependencies updated"
   fi
 done
 ```
@@ -127,12 +127,12 @@ done
 ## Step 5: Restart MCP Servers (if running via systemd)
 
 ```bash
-for service in mcp-second-opinion mcp-playwright-persistent; do
+for service in mcp-second-opinion mcp-playwright nano-banana; do
   if systemctl is-active $service &>/dev/null; then
     echo ""
     echo "Restarting $service..."
     sudo systemctl restart $service
-    echo "✓ $service restarted"
+    echo "Done: $service restarted"
   fi
 done
 ```
@@ -141,11 +141,211 @@ If servers are not running via systemd, remind the user to restart manually.
 
 ---
 
-## Step 6: Detect Current Installation Tier
+## Step 6: MCP Server Drift Detection
+
+**This is the key new step.** After pulling and restarting, scan for drift between what the repo ships and what is actually installed/running.
+
+### 6a: Build Inventory
+
+Build two lists - what the repo ships vs what is installed - then compare.
+
+**Repo inventory** - scan for active MCP servers the repo provides:
+
+```bash
+cd "$CPP_DIR"
+
+echo "=== Repo MCP Server Inventory ==="
+
+# Active servers from docker-compose.yml (uncommented services with ports)
+echo "Docker-compose services:"
+grep -E '^\s{2}[a-z].*:$' docker-compose.yml | grep -v '^\s*#' | sed 's/://;s/^ */  /'
+
+echo ""
+echo "Service files:"
+find . -path '*/deploy/*.service' -type f | sort | while read f; do
+  echo "  $f"
+done
+
+echo ""
+echo "Dockerfiles:"
+find . -path '*/deploy/Dockerfile' -type f | sort | while read f; do
+  echo "  $f"
+done
+```
+
+**Installed inventory** - scan what is currently running/registered:
+
+```bash
+echo ""
+echo "=== Installed MCP Inventory ==="
+
+echo "Systemd services (mcp-* and nano-*):"
+systemctl list-units --type=service --all 2>/dev/null | grep -E '(mcp-|nano-|coordination)' || echo "  (none)"
+
+echo ""
+echo "Claude MCP registrations:"
+claude mcp list 2>/dev/null || echo "  (unavailable)"
+
+echo ""
+echo "Listening ports (8080-8089):"
+ss -tlnp 2>/dev/null | grep -E ':(808[0-9]|8084)' || echo "  (none)"
+```
+
+### 6b: Detect Drift
+
+Compare the inventories and classify each finding. Use the following logic:
+
+**Known repo servers** (from docker-compose.yml, not commented out):
+- `mcp-second-opinion` (port 8080, profile: core)
+- `mcp-nano-banana` (port 8084, profile: core)
+- `mcp-playwright-persistent` (port 8081, profile: browser)
+
+**Deprecated servers** (commented out in docker-compose.yml):
+- `mcp-evaluate` (deprecated - absorbed into /evaluate:issue skill)
+
+**For each known repo server**, check:
+1. Is there a systemd service installed? (`systemctl is-enabled <name>`)
+2. Is it registered in `claude mcp list`?
+3. Is the port listening?
+4. If systemd service exists, does it match the repo version? (diff the files)
+
+**For each installed systemd service matching mcp-* or coordination**, check:
+1. Does a corresponding deploy/*.service file exist in the repo?
+2. If not, it is **orphaned** - repo no longer ships it.
+
+Build a drift report table:
+
+```
+MCP Server Drift Report
+========================
+
+Server                    Repo    Systemd   MCP Reg   Port    Status
+---------------------------------------------------------------------
+mcp-second-opinion        yes     active    yes       8080    OK / STALE SERVICE
+mcp-nano-banana           yes     none      no        --      NEW - NOT INSTALLED
+mcp-playwright-persistent yes     active    yes       8081    OK / STALE SERVICE
+mcp-coordination          no      active    yes       8082    ORPHANED
+mcp-evaluate              depr.   none      no        --      OK (deprecated)
+```
+
+Status classifications:
+- **OK** - repo server is installed, registered, and running
+- **STALE SERVICE** - installed but systemd unit differs from repo version
+- **NEW - NOT INSTALLED** - repo ships it but it is not installed
+- **ORPHANED** - installed/running but repo no longer ships it
+- **NOT RUNNING** - installed but service is not active
+- **NOT REGISTERED** - running but not in `claude mcp list`
+
+Present the drift report table to the user.
+
+### 6c: Check for Docker Availability
+
+```bash
+if command -v docker &>/dev/null; then
+  echo ""
+  echo "Docker: available ($(docker --version 2>/dev/null | head -1))"
+  if docker compose version &>/dev/null 2>&1; then
+    echo "Docker Compose: available"
+  fi
+  DOCKER_AVAILABLE=true
+else
+  DOCKER_AVAILABLE=false
+fi
+```
+
+---
+
+## Step 7: Guided Remediation
+
+For each drift finding, offer the user actionable options using AskUserQuestion.
+
+**Only show this if drift was detected.** If everything is clean, skip to Step 8.
+
+### For NEW servers (in repo, not installed):
+
+Ask the user per server:
+
+```
+mcp-nano-banana is available in the repo but not installed.
+  - Port: 8084
+  - Docker profile: core
+  - Purpose: Diagram generation + PowerPoint creation
+```
+
+Options:
+- **Install via systemd** - Copy service file, enable, start, register with claude mcp
+- **Install via Docker** - Will be included in `make docker-up PROFILE=core` (if Docker available)
+- **Skip** - Do not install now
+
+If they choose systemd:
+1. Copy the service file: `sudo cp $CPP_DIR/<server>/deploy/<name>.service /etc/systemd/system/`
+2. Adjust paths if needed (replace `%h` with actual home dir for system services)
+3. `sudo systemctl daemon-reload`
+4. `sudo systemctl enable --now <name>`
+5. Register: `claude mcp add --scope user --transport sse <name> http://127.0.0.1:<port>/sse`
+6. Sync venv if needed: `cd $CPP_DIR/<server> && uv sync`
+
+### For ORPHANED services (installed but removed from repo):
+
+Ask the user per service:
+
+```
+mcp-coordination is running but has been removed from the repo.
+```
+
+Options:
+- **Remove** - Stop service, disable, remove service file, unregister from claude mcp
+- **Keep** - Leave it running (user may have a custom setup)
+
+If they choose remove:
+1. `sudo systemctl stop <name>`
+2. `sudo systemctl disable <name>`
+3. `sudo rm /etc/systemd/system/<name>.service`
+4. `sudo systemctl daemon-reload`
+5. `claude mcp remove <name>` (if registered)
+
+### For STALE service files:
+
+Show the meaningful differences (ignore comment-only changes). Ask:
+
+```
+mcp-second-opinion service file differs from repo version.
+Key differences:
+  - Installed uses hardcoded paths, repo uses %h placeholders
+  - Installed has ProtectHome/ProtectSystem sandboxing, repo does not
+  - [other diffs]
+```
+
+Options:
+- **Update** - Replace service file with repo version (adjusting %h to actual paths for system services), reload, restart
+- **Keep current** - Leave installed version as-is
+
+If they choose update:
+1. Back up: `sudo cp /etc/systemd/system/<name>.service /etc/systemd/system/<name>.service.bak`
+2. Copy new version: `sudo cp $CPP_DIR/<server>/deploy/<name>.service /etc/systemd/system/`
+3. Adjust `%h` to actual home directory path (for system-level services)
+4. `sudo systemctl daemon-reload`
+5. `sudo systemctl restart <name>`
+
+### For NOT REGISTERED servers (running but not in claude mcp list):
+
+```
+mcp-nano-banana is running on port 8084 but not registered with Claude Code.
+```
+
+Options:
+- **Register** - `claude mcp add --scope user --transport sse <name> http://127.0.0.1:<port>/sse`
+- **Skip** - Leave unregistered
+
+---
+
+## Step 8: Detect Current Installation Tier
 
 Determine the user's current tier level so we can offer upgrades:
 
 ```bash
+cd "$CPP_DIR"
+
 # Tier 1 checks
 TIER=0
 
@@ -172,7 +372,7 @@ fi
 
 ---
 
-## Step 7: Offer Tier Upgrade
+## Step 9: Offer Tier Upgrade
 
 If the user is not at the highest tier, ask if they want to upgrade using AskUserQuestion:
 
@@ -198,25 +398,30 @@ If upgrading, follow the same installation steps as `/cpp:init` for the new tier
 
 ---
 
-## Step 8: Update Summary
+## Step 10: Update Summary
 
 ```
 =================================
 CPP Update Complete
 =================================
 
-Version: {OLD_TAG} → {NEW_TAG}
+Version: v{OLD_VERSION} -> v{NEW_VERSION}
+Commit:  {OLD_COMMIT} -> {NEW_COMMIT}
 Branch:  {BRANCH}
 Tier:    {TIER} {(upgraded from X if applicable)}
 
 Changes pulled:
-  {list of new commits}
+  {list of new commits, or "Already up to date"}
 
 Dependencies:
   {synced servers or "No MCP venvs to update"}
 
 MCP Servers:
   {restarted services or "Not running via systemd"}
+
+MCP Drift:
+  {drift summary - e.g. "1 new server installed, 1 orphan removed, 2 service files updated"
+   or "No drift detected - all servers in sync"}
 
 Run /cpp:status for full installation details.
 =================================
@@ -231,4 +436,9 @@ Run /cpp:status for full installation details.
 - Symlinked commands/skills are automatically updated by the git pull
 - MCP server dependencies are synced if venvs exist
 - Running systemd services are automatically restarted
+- MCP drift detection compares repo state against installed systemd services, claude mcp registrations, and listening ports
+- Orphaned services (removed from repo) are flagged for cleanup
+- New servers are offered for installation via systemd or Docker
+- Stale service files are diffed and can be updated with backup
+- mcp-evaluate is recognized as deprecated and not flagged as missing
 - Use `/cpp:init` instead if you need the full interactive setup wizard
