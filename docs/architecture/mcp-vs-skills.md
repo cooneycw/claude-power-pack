@@ -72,3 +72,40 @@ Moving functionality from MCP to Skill (or vice versa):
 | Best practices loading | Skill | Loads reference docs on demand |
 | Security scanning | Skill + lib | Runs local Python modules |
 | `/flow:auto` lifecycle | Skill | Composes git + gh + make commands |
+
+## Docker Deployment Patterns
+
+CPP uses Docker Compose profiles to manage MCP servers:
+
+| Profile | Services | Use Case |
+|---------|----------|----------|
+| `core` | Second Opinion, Nano-Banana | Essential MCP servers |
+| `browser` | Playwright | Browser automation for testing |
+
+**Secrets:** Use env_file with a root `.env` (gitignored), never hardcode keys in Dockerfiles. For production, use Docker secrets or AWS Secrets Manager.
+
+**Start profiles:**
+```bash
+make docker-up PROFILE=core
+make docker-up PROFILE="core browser"
+```
+
+## Decision Checklist
+
+Before implementing new functionality:
+
+- [ ] Does it need external APIs? - MCP
+- [ ] Does it need state management? - MCP
+- [ ] Is it pure documentation? - Skill
+- [ ] Will it be used <10% of sessions? - Skill
+- [ ] Does it need 5+ related tools? - MCP
+- [ ] Is it project-specific? - Skill
+- [ ] Does it need security isolation? - MCP (Docker)
+- [ ] Is token budget tight? - Skill
+- [ ] Will it be reused across projects? - MCP
+- [ ] Is it a simple utility? - Skill
+
+## Revision History
+
+- 2026-03-06: Added Docker patterns and decision checklist from PR #199 (dagangtj)
+- 2026-02-16: Initial version (PR #204)
