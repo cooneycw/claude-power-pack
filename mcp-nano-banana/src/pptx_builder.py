@@ -6,6 +6,7 @@ import base64
 import io
 import logging
 import re
+from dataclasses import dataclass, field
 
 from pptx import Presentation
 from pptx.util import Inches, Pt
@@ -13,6 +14,43 @@ from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class SlideDefinition:
+    """Typed slide definition with validation at construction time."""
+
+    layout: str = "content"
+    title: str = ""
+    subtitle: str = ""
+    content: str = ""
+    left_content: str = ""
+    right_content: str = ""
+    image_base64: str = ""
+    notes: str = ""
+
+    _VALID_LAYOUTS: tuple[str, ...] = field(
+        default=("title", "content", "diagram", "two-column", "blank"),
+        init=False,
+        repr=False,
+    )
+
+    def __post_init__(self) -> None:
+        if self.layout not in self._VALID_LAYOUTS:
+            logger.warning(
+                f"Unknown layout '{self.layout}', defaulting to 'content'. "
+                f"Valid layouts: {', '.join(self._VALID_LAYOUTS)}"
+            )
+            self.layout = "content"
+
+    @classmethod
+    def from_dict(cls, d: dict) -> SlideDefinition:
+        """Create from a dict, ignoring unknown keys."""
+        known = {f.name for f in cls.__dataclass_fields__.values() if f.init}
+        return cls(**{k: v for k, v in d.items() if k in known})
+
+# Maximum base64-encoded image size (10 MB decoded ~ 13.3 MB encoded)
+MAX_IMAGE_BASE64_LENGTH = 14_000_000
 
 # Terms that should not appear in generated output unless explicitly requested
 _FRAMEWORK_NAMES = [
@@ -22,9 +60,9 @@ _FRAMEWORK_NAMES = [
 ]
 
 _PLACEHOLDER_PATTERNS = [
-    r"\[.*?insert.*?\]",
-    r"\[.*?placeholder.*?\]",
-    r"\[.*?todo.*?\]",
+    r"\[\s*insert\b[^\]]*\]",
+    r"\[\s*placeholder\b[^\]]*\]",
+    r"\[\s*todo\b[^\]]*\]",
     r"lorem ipsum",
 ]
 
@@ -32,17 +70,27 @@ _PLACEHOLDER_PATTERNS = [
 SLIDE_WIDTH = Inches(13.333)
 SLIDE_HEIGHT = Inches(7.5)
 
+# Blank layout index in the default python-pptx template
+_BLANK_LAYOUT = 6
+
+
+def _to_slide_def(item: dict | SlideDefinition) -> SlideDefinition:
+    """Convert dict to SlideDefinition if needed."""
+    if isinstance(item, SlideDefinition):
+        return item
+    return SlideDefinition.from_dict(item)
+
 
 def create_presentation(
     title: str,
-    slides: list[dict],
+    slides: list[dict | SlideDefinition],
     author: str = "Nano-Banana",
 ) -> bytes:
     """Create a PowerPoint presentation from slide definitions.
 
     Args:
         title: Presentation title (used for title slide).
-        slides: List of slide dicts, each with:
+        slides: List of SlideDefinition or dicts with:
             - layout: "title", "content", "diagram", "two-column", "blank"
             - title: Slide title
             - subtitle: Optional subtitle
@@ -62,18 +110,18 @@ def create_presentation(
     prs.core_properties.author = author
     prs.core_properties.title = title
 
-    for slide_def in slides:
-        layout = slide_def.get("layout", "content")
-        if layout == "title":
-            _add_title_slide(prs, slide_def)
-        elif layout == "diagram":
-            _add_diagram_slide(prs, slide_def)
-        elif layout == "two-column":
-            _add_two_column_slide(prs, slide_def)
-        elif layout == "blank":
-            _add_blank_slide(prs, slide_def)
+    for item in slides:
+        sd = _to_slide_def(item)
+        if sd.layout == "title":
+            _add_title_slide(prs, sd)
+        elif sd.layout == "diagram":
+            _add_diagram_slide(prs, sd)
+        elif sd.layout == "two-column":
+            _add_two_column_slide(prs, sd)
+        elif sd.layout == "blank":
+            _add_blank_slide(prs, sd)
         else:
-            _add_content_slide(prs, slide_def)
+            _add_content_slide(prs, sd)
 
     # Save to bytes
     buf = io.BytesIO()
@@ -81,117 +129,137 @@ def create_presentation(
     return buf.getvalue()
 
 
-def _add_title_slide(prs: Presentation, slide_def: dict) -> None:
+def _add_title_slide(prs: Presentation, sd: SlideDefinition) -> None:
     """Add a title slide with dark background."""
-    slide = prs.slides.add_slide(prs.slide_layouts[6])  # Blank layout
+    slide = prs.slides.add_slide(prs.slide_layouts[_BLANK_LAYOUT])
     _set_slide_bg(slide, RGBColor(0x0F, 0x17, 0x2A))
 
     # Title
     _add_textbox(
         slide,
-        slide_def.get("title", ""),
+        sd.title,
         left=Inches(1), top=Inches(2.5), width=Inches(11.333), height=Inches(1.5),
         font_size=Pt(44), font_color=RGBColor(0xF8, 0xFA, 0xFC),
         bold=True, alignment=PP_ALIGN.CENTER,
     )
 
     # Subtitle
-    if slide_def.get("subtitle"):
+    if sd.subtitle:
         _add_textbox(
             slide,
-            slide_def["subtitle"],
+            sd.subtitle,
             left=Inches(1), top=Inches(4.2), width=Inches(11.333), height=Inches(1),
             font_size=Pt(20), font_color=RGBColor(0x94, 0xA3, 0xB8),
             alignment=PP_ALIGN.CENTER,
         )
 
-    _add_notes(slide, slide_def)
+    _add_notes(slide, sd)
 
 
-def _add_content_slide(prs: Presentation, slide_def: dict) -> None:
+def _add_content_slide(prs: Presentation, sd: SlideDefinition) -> None:
     """Add a content slide with title and bullet points."""
-    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    slide = prs.slides.add_slide(prs.slide_layouts[_BLANK_LAYOUT])
     _set_slide_bg(slide, RGBColor(0x1E, 0x29, 0x3B))
 
     # Title bar
     _add_textbox(
         slide,
-        slide_def.get("title", ""),
+        sd.title,
         left=Inches(0.8), top=Inches(0.5), width=Inches(11.733), height=Inches(0.9),
         font_size=Pt(32), font_color=RGBColor(0xF8, 0xFA, 0xFC),
         bold=True,
     )
 
     # Content
-    content = slide_def.get("content", "")
-    if content:
+    if sd.content:
         _add_textbox(
             slide,
-            content,
+            sd.content,
             left=Inches(1), top=Inches(1.8), width=Inches(11.333), height=Inches(5),
             font_size=Pt(18), font_color=RGBColor(0xE2, 0xE8, 0xF0),
         )
 
-    _add_notes(slide, slide_def)
+    _add_notes(slide, sd)
 
 
-def _add_diagram_slide(prs: Presentation, slide_def: dict) -> None:
+def _add_diagram_slide(prs: Presentation, sd: SlideDefinition) -> None:
     """Add a slide with an embedded diagram image."""
-    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    slide = prs.slides.add_slide(prs.slide_layouts[_BLANK_LAYOUT])
     _set_slide_bg(slide, RGBColor(0x0F, 0x17, 0x2A))
 
     # Title (smaller for diagram slides)
-    if slide_def.get("title"):
+    if sd.title:
         _add_textbox(
             slide,
-            slide_def["title"],
+            sd.title,
             left=Inches(0.5), top=Inches(0.3), width=Inches(12.333), height=Inches(0.7),
             font_size=Pt(24), font_color=RGBColor(0xF8, 0xFA, 0xFC),
             bold=True,
         )
 
     # Embed image
-    image_b64 = slide_def.get("image_base64", "")
+    image_b64 = sd.image_base64
     if image_b64:
-        try:
-            img_bytes = base64.b64decode(image_b64)
-            img_stream = io.BytesIO(img_bytes)
-            # Full-width diagram below title
-            slide.shapes.add_picture(
-                img_stream,
-                left=Inches(0.3),
-                top=Inches(1.2),
-                width=Inches(12.733),
-                height=Inches(5.8),
+        if len(image_b64) > MAX_IMAGE_BASE64_LENGTH:
+            error_msg = (
+                f"Image too large ({len(image_b64):,} chars, "
+                f"max {MAX_IMAGE_BASE64_LENGTH:,}). Reduce image size."
             )
-        except Exception as e:
-            logger.warning(f"Failed to embed diagram image: {e}")
+            logger.warning(f"Skipping oversized image on diagram slide: {error_msg}")
             _add_textbox(
                 slide,
-                f"[Diagram image could not be embedded: {e}]",
+                f"[{error_msg}]",
                 left=Inches(1), top=Inches(3), width=Inches(11.333), height=Inches(1),
                 font_size=Pt(16), font_color=RGBColor(0xEF, 0x44, 0x44),
             )
+        else:
+            try:
+                img_bytes = base64.b64decode(image_b64)
+                img_stream = io.BytesIO(img_bytes)
+                # Full-width diagram below title
+                slide.shapes.add_picture(
+                    img_stream,
+                    left=Inches(0.3),
+                    top=Inches(1.2),
+                    width=Inches(12.733),
+                    height=Inches(5.8),
+                )
+            except (base64.binascii.Error, ValueError) as e:
+                logger.warning(f"Failed to decode diagram image: {e}")
+                _add_textbox(
+                    slide,
+                    f"[Diagram image could not be decoded: {e}]",
+                    left=Inches(1), top=Inches(3), width=Inches(11.333), height=Inches(1),
+                    font_size=Pt(16), font_color=RGBColor(0xEF, 0x44, 0x44),
+                )
+            except Exception as e:
+                logger.warning(f"Failed to embed diagram image: {e}")
+                _add_textbox(
+                    slide,
+                    f"[Diagram image could not be embedded: {e}]",
+                    left=Inches(1), top=Inches(3), width=Inches(11.333), height=Inches(1),
+                    font_size=Pt(16), font_color=RGBColor(0xEF, 0x44, 0x44),
+                )
 
-    _add_notes(slide, slide_def)
+    _add_notes(slide, sd)
 
 
-def _add_two_column_slide(prs: Presentation, slide_def: dict) -> None:
+def _add_two_column_slide(prs: Presentation, sd: SlideDefinition) -> None:
     """Add a two-column layout slide."""
-    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    slide = prs.slides.add_slide(prs.slide_layouts[_BLANK_LAYOUT])
     _set_slide_bg(slide, RGBColor(0x1E, 0x29, 0x3B))
 
     # Title
     _add_textbox(
         slide,
-        slide_def.get("title", ""),
+        sd.title,
         left=Inches(0.8), top=Inches(0.5), width=Inches(11.733), height=Inches(0.9),
         font_size=Pt(32), font_color=RGBColor(0xF8, 0xFA, 0xFC),
         bold=True,
     )
 
     # Left column
-    left_content = slide_def.get("left_content", slide_def.get("content", ""))
+    left_content = sd.left_content or sd.content
     _add_textbox(
         slide,
         left_content,
@@ -200,23 +268,22 @@ def _add_two_column_slide(prs: Presentation, slide_def: dict) -> None:
     )
 
     # Right column
-    right_content = slide_def.get("right_content", "")
-    if right_content:
+    if sd.right_content:
         _add_textbox(
             slide,
-            right_content,
+            sd.right_content,
             left=Inches(7), top=Inches(1.8), width=Inches(5.5), height=Inches(5),
             font_size=Pt(16), font_color=RGBColor(0xE2, 0xE8, 0xF0),
         )
 
-    _add_notes(slide, slide_def)
+    _add_notes(slide, sd)
 
 
-def _add_blank_slide(prs: Presentation, slide_def: dict) -> None:
+def _add_blank_slide(prs: Presentation, sd: SlideDefinition) -> None:
     """Add a blank slide (dark background only)."""
-    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    slide = prs.slides.add_slide(prs.slide_layouts[_BLANK_LAYOUT])
     _set_slide_bg(slide, RGBColor(0x0F, 0x17, 0x2A))
-    _add_notes(slide, slide_def)
+    _add_notes(slide, sd)
 
 
 def _set_slide_bg(slide, color: RGBColor) -> None:
@@ -262,16 +329,15 @@ def _add_textbox(
             p.level = 0
 
 
-def _add_notes(slide, slide_def: dict) -> None:
+def _add_notes(slide, sd: SlideDefinition) -> None:
     """Add speaker notes to a slide."""
-    notes = slide_def.get("notes", "")
-    if notes:
+    if sd.notes:
         notes_slide = slide.notes_slide
-        notes_slide.notes_text_frame.text = notes
+        notes_slide.notes_text_frame.text = sd.notes
 
 
 def validate_slides(
-    slides: list[dict],
+    slides: list[dict | SlideDefinition],
     prohibited_terms: list[str] | None = None,
 ) -> dict:
     """Validate slide definitions before PPTX creation.
@@ -280,7 +346,7 @@ def validate_slides(
     and content quality. Returns pass/fail with specific issues.
 
     Args:
-        slides: List of slide dicts (same format as create_presentation).
+        slides: List of SlideDefinition or dicts (same format as create_presentation).
         prohibited_terms: Additional terms to flag (case-insensitive).
 
     Returns:
@@ -289,44 +355,47 @@ def validate_slides(
     issues: list[dict] = []
     terms = _FRAMEWORK_NAMES + (prohibited_terms or [])
 
-    for i, slide_def in enumerate(slides, 1):
-        layout = slide_def.get("layout", "content")
+    _TEXT_FIELDS = ("title", "subtitle", "content", "left_content", "right_content", "notes")
+
+    for i, item in enumerate(slides, 1):
+        sd = _to_slide_def(item)
 
         # Collect all text from this slide
-        text_fields = []
-        for key in ("title", "subtitle", "content", "left_content", "right_content", "notes"):
-            val = slide_def.get(key, "")
-            if val:
-                text_fields.append((key, val))
+        text_fields = [
+            (key, getattr(sd, key))
+            for key in _TEXT_FIELDS
+            if getattr(sd, key)
+        ]
 
-        # Check: framework/corporate name leaks
-        for field, text in text_fields:
+        # Check: framework/corporate name leaks (word-boundary match)
+        for field_name, text in text_fields:
             text_lower = text.lower()
             for term in terms:
-                if term.lower() in text_lower:
+                pattern = r"\b" + re.escape(term.lower()) + r"\b"
+                if re.search(pattern, text_lower):
                     issues.append({
                         "slide": i,
-                        "field": field,
+                        "field": field_name,
                         "severity": "high",
                         "check": "framework_attribution",
-                        "message": f"Found '{term}' in {field}. Remove framework/corporate name attribution.",
+                        "message": f"Found '{term}' in {field_name}. Remove framework/corporate name attribution.",
                     })
 
         # Check: placeholder text
-        for field, text in text_fields:
-            for pattern in _PLACEHOLDER_PATTERNS:
-                matches = re.findall(pattern, text, re.IGNORECASE)
+        for field_name, text in text_fields:
+            for pat in _PLACEHOLDER_PATTERNS:
+                matches = re.findall(pat, text, re.IGNORECASE)
                 for match in matches:
                     issues.append({
                         "slide": i,
-                        "field": field,
+                        "field": field_name,
                         "severity": "high",
                         "check": "placeholder_text",
-                        "message": f"Found placeholder text '{match}' in {field}.",
+                        "message": f"Found placeholder text '{match}' in {field_name}.",
                     })
 
         # Check: diagram slide must have image
-        if layout == "diagram" and not slide_def.get("image_base64"):
+        if sd.layout == "diagram" and not sd.image_base64:
             issues.append({
                 "slide": i,
                 "field": "image_base64",
@@ -336,7 +405,7 @@ def validate_slides(
             })
 
         # Check: content slide should have content
-        if layout == "content" and not slide_def.get("content"):
+        if sd.layout == "content" and not sd.content:
             issues.append({
                 "slide": i,
                 "field": "content",
@@ -346,8 +415,8 @@ def validate_slides(
             })
 
         # Check: two-column should have both columns
-        if layout == "two-column":
-            if not slide_def.get("left_content") and not slide_def.get("content"):
+        if sd.layout == "two-column":
+            if not sd.left_content and not sd.content:
                 issues.append({
                     "slide": i,
                     "field": "left_content",
@@ -355,7 +424,7 @@ def validate_slides(
                     "check": "empty_column",
                     "message": "Two-column slide missing left column content.",
                 })
-            if not slide_def.get("right_content"):
+            if not sd.right_content:
                 issues.append({
                     "slide": i,
                     "field": "right_content",
@@ -364,7 +433,7 @@ def validate_slides(
                     "message": "Two-column slide missing right column content.",
                 })
 
-    high_count = sum(1 for i in issues if i["severity"] == "high")
+    high_count = sum(1 for iss in issues if iss["severity"] == "high")
     passed = high_count == 0
 
     return {
