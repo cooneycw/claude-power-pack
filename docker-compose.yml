@@ -25,6 +25,12 @@ services:
         required: false
     environment:
       - MCP_SERVER_HOST=0.0.0.0
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/')"]
+      interval: 10s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
     restart: unless-stopped
     profiles: ["core"]
     deploy:
@@ -46,6 +52,12 @@ services:
       - "8084:8084"
     environment:
       - MCP_SERVER_HOST=0.0.0.0
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8084/')"]
+      interval: 10s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
     restart: unless-stopped
     profiles: ["core"]
     deploy:
@@ -97,6 +109,12 @@ services:
     shm_size: "2gb"
     environment:
       - SERVER_HOST=0.0.0.0
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8081/')"]
+      interval: 10s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
     restart: unless-stopped
     profiles: ["browser"]
     deploy:
