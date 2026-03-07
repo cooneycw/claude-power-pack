@@ -49,6 +49,7 @@ Docker containers read API keys from a root `.env` file (gitignored) via `env_fi
 - **Status/logs/stop:** `make docker-ps`, `make docker-logs`, `make docker-down`
 - **MCP connections:** Defined in project `.mcp.json` pointing to `127.0.0.1:{port}/sse` (SSE transport)
 - **Woodpecker CI** runs on push/PR: lint, test, typecheck, conditional Docker builds
+- **Auto-deploy:** On push to main, if `mcp-*/` or `docker-compose.yml` changed, Woodpecker rebuilds and restarts MCP containers via the local agent
 
 ## Commands Reference
 

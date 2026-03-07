@@ -1,5 +1,5 @@
 .PHONY: test lint format typecheck verify update_docs clean \
-       docker-build docker-check-env docker-up docker-down docker-logs docker-ps
+       docker-build docker-check-env docker-up docker-down docker-logs docker-ps deploy
 
 ## Quality gates (used by /flow:finish)
 
@@ -65,6 +65,12 @@ docker-logs:
 
 docker-ps:
 	docker compose --profile core --profile browser --profile coord ps
+
+## Deploy (used by Woodpecker CI and /flow:deploy)
+
+deploy: docker-build docker-up
+	@sleep 5
+	@$(MAKE) docker-ps
 
 ## Utilities
 

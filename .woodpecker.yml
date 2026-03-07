@@ -1,5 +1,9 @@
 # Claude Power Pack - Woodpecker CI Pipeline
-# Runs quality gates and builds Docker containers for MCP servers
+# Runs quality gates, builds Docker containers, and deploys MCP servers
+#
+# Pipeline:
+#   PR/push   -> lint, test, typecheck, dry-run builds
+#   main push -> above + deploy-mcp (rebuild + restart containers)
 
 steps:
   lint:
@@ -67,4 +71,26 @@ steps:
     when:
       - event: [push, pull_request]
         path: "mcp-evaluate/**"
+
+  deploy-mcp:
+    image: docker:cli
+    commands:
+      - apk add --no-cache docker-compose
+      - echo "Deploying MCP containers..."
+      - cd /cpp && docker compose --profile core --profile browser build
+      - docker compose --profile core --profile browser up -d
+      - sleep 5
+      - docker compose --profile core --profile browser ps
+      - echo "Deploy complete."
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /home/cooneycw/Projects/claude-power-pack:/cpp
+    when:
+      - event: push
+        branch: main
+        path:
+          - "mcp-second-opinion/**"
+          - "mcp-playwright-persistent/**"
+          - "mcp-nano-banana/**"
+          - "docker-compose.yml"
 
