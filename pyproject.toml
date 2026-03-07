@@ -5,11 +5,19 @@ requires-python = ">=3.11"
 dependencies = []
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "pyyaml>=6.0", "ruff>=0.4"]
+dev = ["mypy>=1.10", "pytest>=8.0", "pyyaml>=6.0", "ruff>=0.4", "types-PyYAML>=6.0", "types-requests>=2.31"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+
+[tool.mypy]
+python_version = "3.11"
+exclude = ["mcp-second-opinion", "mcp-playwright-persistent", "mcp-nano-banana", "mcp-evaluate", "mcp-coordination"]
+ignore_missing_imports = true
+explicit_package_bases = true
+mypy_path = "."
+disable_error_code = ["var-annotated", "assignment", "arg-type", "attr-defined"]
 
 [tool.ruff]
 target-version = "py311"
