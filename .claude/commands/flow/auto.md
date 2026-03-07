@@ -314,40 +314,51 @@ if [[ -n "$WOODPECKER_API_TOKEN" ]]; then
     WOODPECKER_SERVER="${WOODPECKER_SERVER:-https://woodpecker.essent-ai.com}"
     echo "Polling Woodpecker CI for commit $SHORT_SHA..."
 
-    # Poll up to 5 minutes (30 attempts, 10s apart)
-    for i in $(seq 1 30); do
-        PIPELINE_JSON=$(curl -sf -H "Authorization: Bearer $WOODPECKER_API_TOKEN" \
-            "$WOODPECKER_SERVER/api/repos/$REPO_FULL/pipelines?per_page=5" | \
-            jq --arg sha "$COMMIT_SHA" '[.[] | select(.commit == $sha)] | .[0]' 2>/dev/null)
+    # Woodpecker v3 API requires numeric repo ID, not owner/name
+    # First resolve repo ID via lookup endpoint
+    REPO_ID=$(curl -s -H "Authorization: Bearer $WOODPECKER_API_TOKEN" \
+        -H "Accept: application/json" \
+        "$WOODPECKER_SERVER/api/repos/lookup/$REPO_FULL" | jq -r '.id' 2>/dev/null)
 
-        if [[ -n "$PIPELINE_JSON" && "$PIPELINE_JSON" != "null" ]]; then
-            STATUS=$(echo "$PIPELINE_JSON" | jq -r '.status')
-            PIPELINE_NUM=$(echo "$PIPELINE_JSON" | jq -r '.number')
+    if [[ -z "$REPO_ID" || "$REPO_ID" == "null" ]]; then
+        echo "WARNING: Could not resolve Woodpecker repo ID for $REPO_FULL. Skipping CI verification."
+    else
+        # Poll up to 5 minutes (30 attempts, 10s apart)
+        for i in $(seq 1 30); do
+            PIPELINE_JSON=$(curl -s -H "Authorization: Bearer $WOODPECKER_API_TOKEN" \
+                -H "Accept: application/json" \
+                "$WOODPECKER_SERVER/api/repos/$REPO_ID/pipelines?per_page=5" | \
+                jq --arg sha "$COMMIT_SHA" '[.[] | select(.commit == $sha)] | .[0]' 2>/dev/null)
 
-            case "$STATUS" in
-                success)
-                    echo "Woodpecker pipeline #$PIPELINE_NUM passed."
+            if [[ -n "$PIPELINE_JSON" && "$PIPELINE_JSON" != "null" ]]; then
+                STATUS=$(echo "$PIPELINE_JSON" | jq -r '.status')
+                PIPELINE_NUM=$(echo "$PIPELINE_JSON" | jq -r '.number')
+
+                case "$STATUS" in
+                    success)
+                        echo "Woodpecker pipeline #$PIPELINE_NUM passed."
+                        break
+                        ;;
+                    failure|error|killed)
+                        echo "Woodpecker pipeline #$PIPELINE_NUM FAILED (status: $STATUS)."
+                        echo "View: $WOODPECKER_SERVER/repos/$REPO_FULL/pipeline/$PIPELINE_NUM"
+                        # STOP - do not deploy
+                        exit 1
+                        ;;
+                    *)
+                        echo "Pipeline #$PIPELINE_NUM status: $STATUS (attempt $i/30)..."
+                        sleep 10
+                        ;;
+                esac
+            else
+                if [[ $i -ge 30 ]]; then
+                    echo "WARNING: No Woodpecker pipeline found for $SHORT_SHA after 5 minutes."
                     break
-                    ;;
-                failure|error|killed)
-                    echo "Woodpecker pipeline #$PIPELINE_NUM FAILED (status: $STATUS)."
-                    echo "View: $WOODPECKER_SERVER/repos/$REPO_FULL/pipeline/$PIPELINE_NUM"
-                    # STOP - do not deploy
-                    exit 1
-                    ;;
-                *)
-                    echo "Pipeline #$PIPELINE_NUM status: $STATUS (attempt $i/30)..."
-                    sleep 10
-                    ;;
-            esac
-        else
-            if [[ $i -ge 30 ]]; then
-                echo "WARNING: No Woodpecker pipeline found for $SHORT_SHA after 5 minutes."
-                break
+                fi
+                sleep 10
             fi
-            sleep 10
-        fi
-    done
+        done
+    fi
 fi
 ```
 
