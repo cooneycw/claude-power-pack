@@ -132,7 +132,7 @@ Flow commands use Makefile targets as the canonical build interface:
 
 - `/flow:check` and `/flow:finish` run `make lint` and `make test`
 - `/flow:deploy` runs `make deploy` (or specified target) + post-deploy health/smoke
-- `/flow:auto` runs `make deploy` after merge, `make update_docs` after implement
+- `/flow:auto` runs `make update_docs` after implement, verifies CI after merge, then `make deploy`
 - `/flow:doctor` reports which standard targets are available
 - Deploy metadata in `.claude/deploy.yaml` (optional `requires_confirmation: true`)
 - Deploy history logged to `.claude/deploy.log`
