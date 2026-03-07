@@ -2,29 +2,19 @@
 # Runs quality gates, builds Docker containers, and deploys MCP servers
 #
 # Pipeline:
-#   PR/push   -> lint, test, typecheck, dry-run builds
+#   PR/push   -> validate (lint+test+typecheck), dry-run builds
 #   main push -> above + deploy-mcp (rebuild + restart containers)
 
 when:
   - event: [push, pull_request]
 
 steps:
-  lint:
+  validate:
     image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim
     commands:
       - uv sync --extra dev --frozen
       - uv run ruff check .
-
-  test:
-    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim
-    commands:
-      - uv sync --extra dev --frozen
       - uv run pytest
-
-  typecheck:
-    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim
-    commands:
-      - uv sync --extra dev --frozen
       - uv run mypy .
 
   build-second-opinion:
@@ -70,10 +60,9 @@ steps:
     commands:
       - apk add --no-cache docker-compose
       - echo "Deploying MCP containers..."
-      - docker compose --profile core --profile browser build
-      - docker compose --profile core --profile browser up -d
-      - sleep 5
+      - docker compose --profile core --profile browser up -d --build --wait
       - docker compose --profile core --profile browser ps
+      - docker image prune -f
       - echo "Deploy complete."
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
