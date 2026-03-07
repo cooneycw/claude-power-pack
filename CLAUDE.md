@@ -163,4 +163,4 @@ Tiered: dotenv-global (`~/.config/claude-power-pack/secrets/`) -> env-file -> AW
 
 ## Version
 
-Current version: 5.0.2
+Current version: 5.1.0

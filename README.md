@@ -1,17 +1,18 @@
 # Claude Power Pack
 
-A productivity toolkit for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) that adds workflow automation, MCP servers, security scanning, secrets management, and CI/CD integration.
+**v5.1.0** - A productivity toolkit for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) that adds workflow automation, MCP servers, security scanning, secrets management, and CI/CD integration.
 
 ## What It Does
 
-- **Workflow commands** (`/flow:auto`, `/flow:start`, `/flow:finish`) - Issue-driven development with worktrees, quality gates, and automated PR lifecycle
+- **Workflow commands** (`/flow:auto`, `/flow:start`, `/flow:finish`) - Issue-driven development with worktrees, quality gates, automated PR lifecycle, and CI verification
 - **MCP servers** - Three containerized servers extending Claude Code's capabilities:
-  - **Second Opinion** (port 8080) - Code review via external LLMs (Gemini, OpenAI, etc.)
+  - **Second Opinion** (port 8080) - Multi-model code review via external LLMs (Gemini, OpenAI, Anthropic)
   - **Playwright Persistent** (port 8081) - Browser automation with 29 tools
   - **Nano Banana** (port 8084) - Diagram generation and PowerPoint creation
 - **Security scanning** (`/security:scan`) - Native vulnerability detection with git history analysis
 - **Secrets management** (`/secrets:*`) - Tiered credential storage (dotenv, env-file, AWS Secrets Manager) with audit logging and a web UI
 - **CI/CD integration** (`/cicd:*`) - Framework detection, Makefile generation, health checks, and IaC scaffolding
+- **Woodpecker CI** - Self-hosted pipeline with automated MCP server deployment, health-based verification, and programmatic status polling
 - **Project scaffolding** (`/project:init`) - Zero-to-GitHub-repo setup with Makefile, CI pipeline, and Docker config
 - **Safety hooks** - PreToolUse blocks dangerous commands; PostToolUse masks secrets in output
 
@@ -97,10 +98,38 @@ API keys are read from a root `.env` file (gitignored). For production, use AWS 
 
 ## CI/CD
 
-Woodpecker CI runs on push/PR:
-- **Quality gates:** lint (ruff), test (pytest), typecheck (mypy)
-- **Docker builds:** Conditional per-server image builds when `mcp-*/` files change
-- **Auto-deploy:** On push to main, changed MCP servers are rebuilt and restarted via the local agent
+Woodpecker CI runs on every push and PR via a self-hosted agent:
+
+- **Validate:** lint (ruff) + test (pytest, 211 tests) + typecheck (mypy) in a single consolidated step
+- **Docker builds:** Conditional per-server dry-run builds when `mcp-*/` files change
+- **Auto-deploy:** On push to main, changed MCP servers are rebuilt and health-checked via `docker compose --wait`
+- **Disk cleanup:** Dangling images pruned after every deploy
+- **CI verification:** `flow:auto` polls the Woodpecker API after merge to confirm the pipeline passes before deploying
+
+Architecture: Woodpecker server on a dedicated VM, agent on the dev workstation, connected via gRPC over Tailscale. Web UI at `woodpecker.essent-ai.com` via Cloudflare tunnel.
+
+## Changelog
+
+### v5.1.0 (2026-03-07)
+
+- **Woodpecker CI pipeline** - Self-hosted CI with automated MCP server deployment
+- **CI verification in flow:auto** - New Step 7/8 polls Woodpecker or GitHub Actions after merge, blocks deploy on failure
+- **Consolidated pipeline** - Merged lint/test/typecheck into single validate step (eliminates 2x `uv sync`)
+- **Health-based deploys** - `docker compose --wait` replaces `sleep 5`, uses container healthchecks
+- **Disk cleanup** - `docker image prune -f` after every deploy
+- **Extended CI polling** - flow:auto timeout increased from 5 to 10 minutes
+- **Woodpecker v3 API fix** - Repo ID lookup for correct API path
+
+### v5.0.2 (2026-02-27)
+
+- Nano Banana: Base64 OOM guard, Docker path fallback, validation tightening
+- SlideDefinition dataclass for PowerPoint generation
+- MCP server drift detection in `/cpp:update`
+
+### v5.0.1 (2026-02-26)
+
+- PPTX QC validation, multi-framework support, AWS gating
+- Em dash cleanup across all markdown and documentation
 
 ## License
 
