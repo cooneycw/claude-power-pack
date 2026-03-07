@@ -15,13 +15,14 @@ Report at the start:
 ```
 Flow Auto: Issue #42 - Full Lifecycle
 
-Step 1/7: Start (create worktree and branch)
-Step 2/7: Analyze (understand issue and codebase)
-Step 3/7: Implement (write the code)
-Step 4/7: Update Docs (regenerate C4 diagrams, review CLAUDE.md/README.md)
-Step 5/7: Finish (lint, test, commit, push, create PR)
-Step 6/7: Merge (squash-merge PR, clean up worktree)
-Step 7/7: Deploy (make deploy, if target exists)
+Step 1/8: Start (create worktree and branch)
+Step 2/8: Analyze (understand issue and codebase)
+Step 3/8: Implement (write the code)
+Step 4/8: Update Docs (regenerate C4 diagrams, review CLAUDE.md/README.md)
+Step 5/8: Finish (lint, test, commit, push, create PR)
+Step 6/8: Merge (squash-merge PR, clean up worktree)
+Step 7/8: Verify CI (confirm pipeline passes on main)
+Step 8/8: Deploy (make deploy, if target exists)
 
 Proceeding...
 ```
@@ -99,7 +100,7 @@ echo "Verified: on branch '$CURRENT_BRANCH' in $(pwd)"
 
 **If this verification fails, STOP immediately. Report the failure using the error template at the bottom of this file. Do NOT proceed to Step 2.**
 
-Report: `Step 1/7: Start complete - worktree at {path}, verified on branch {branch}`
+Report: `Step 1/8: Start complete - worktree at {path}, verified on branch {branch}`
 
 ---
 
@@ -124,7 +125,7 @@ Working from the worktree, analyze the issue and codebase to form an implementat
 4. **Report the plan to the user:**
 
 ```
-Step 2/7: Analysis Complete
+Step 2/8: Analysis Complete
 
 Issue #42: "Fix login redirect loop"
 
@@ -144,7 +145,7 @@ Estimated scope: Small
 Proceeding to implementation...
 ```
 
-Report: `Step 2/7: Analyze complete - {N} files to modify`
+Report: `Step 2/8: Analyze complete - {N} files to modify`
 
 ---
 
@@ -161,7 +162,7 @@ If implementation hits a blocker that cannot be resolved:
 - **STOP** and report the blocker.
 - Suggest manual intervention.
 
-Report: `Step 3/7: Implement complete - {summary of changes}`
+Report: `Step 3/8: Implement complete - {summary of changes}`
 
 ---
 
@@ -191,7 +192,7 @@ Then perform these documentation tasks:
 
 If no `update_docs` target exists in the Makefile, skip this step.
 
-Report: `Step 4/7: Update Docs complete - {N} files updated` or `Step 4/7: Update Docs skipped (no Makefile target)`
+Report: `Step 4/8: Update Docs complete - {N} files updated` or `Step 4/8: Update Docs skipped (no Makefile target)`
 
 ---
 
@@ -224,11 +225,11 @@ ISSUE_NUM=$(echo "$BRANCH" | grep -oP 'issue-\K[0-9]+' || echo "")
    - PR body: Summary of changes + test plan + `Closes #N`
    - Analyze all commits on the branch to draft the summary.
 
-Report: `Step 5/7: Finish complete - PR #XX created`
+Report: `Step 5/8: Finish complete - PR #XX created`
 
 ---
 
-### Step 5: Merge - Squash-Merge and Clean Up
+### Step 6: Merge - Squash-Merge and Clean Up
 
 1. **Merge the PR:**
    ```bash
@@ -252,13 +253,13 @@ Report: `Step 5/7: Finish complete - PR #XX created`
 
    **CRITICAL: You MUST `cd` to the main repo BEFORE removing the worktree. NEVER remove a worktree while your working directory is inside it - this kills all subsequent bash commands. Execute these as SEPARATE Bash calls, not in a single script.**
 
-   **Step 5a - Exit the worktree (separate Bash call):**
+   **Step 6a - Exit the worktree (separate Bash call):**
    ```bash
    cd "$MAIN_REPO"
    pwd  # Verify you are in the main repo
    ```
 
-   **Step 5b - Remove the worktree (separate Bash call, AFTER confirming cd succeeded):**
+   **Step 6b - Remove the worktree (separate Bash call, AFTER confirming cd succeeded):**
    ```bash
    if [[ -f ~/.claude/scripts/worktree-remove.sh ]]; then
        ~/.claude/scripts/worktree-remove.sh "$WORKTREE_PATH" --force --delete-branch
@@ -268,7 +269,7 @@ Report: `Step 5/7: Finish complete - PR #XX created`
    fi
    ```
 
-   **Step 5c - Verify working directory is valid:**
+   **Step 6c - Verify working directory is valid:**
    ```bash
    pwd  # MUST show main repo path, NOT the deleted worktree
    git status  # MUST succeed - if this fails, your CWD was deleted
@@ -289,11 +290,122 @@ Report: `Step 5/7: Finish complete - PR #XX created`
    fi
    ```
 
-Report: `Step 6/7: Merge complete - worktree cleaned up`
+Report: `Step 6/8: Merge complete - worktree cleaned up`
 
 ---
 
-### Step 6: Deploy (optional)
+### Step 7: Verify CI (after merge)
+
+After merging to main, verify that the CI pipeline passes before deploying.
+
+1. **Detect CI system and poll for results:**
+
+```bash
+cd "$MAIN_REPO"
+COMMIT_SHA=$(git rev-parse HEAD)
+SHORT_SHA=$(git rev-parse --short HEAD)
+REPO_FULL=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
+```
+
+2. **Check Woodpecker CI** (if `WOODPECKER_API_TOKEN` is set):
+
+```bash
+if [[ -n "$WOODPECKER_API_TOKEN" ]]; then
+    WOODPECKER_SERVER="${WOODPECKER_SERVER:-https://woodpecker.essent-ai.com}"
+    echo "Polling Woodpecker CI for commit $SHORT_SHA..."
+
+    # Poll up to 5 minutes (30 attempts, 10s apart)
+    for i in $(seq 1 30); do
+        PIPELINE_JSON=$(curl -sf -H "Authorization: Bearer $WOODPECKER_API_TOKEN" \
+            "$WOODPECKER_SERVER/api/repos/$REPO_FULL/pipelines?per_page=5" | \
+            jq --arg sha "$COMMIT_SHA" '[.[] | select(.commit == $sha)] | .[0]' 2>/dev/null)
+
+        if [[ -n "$PIPELINE_JSON" && "$PIPELINE_JSON" != "null" ]]; then
+            STATUS=$(echo "$PIPELINE_JSON" | jq -r '.status')
+            PIPELINE_NUM=$(echo "$PIPELINE_JSON" | jq -r '.number')
+
+            case "$STATUS" in
+                success)
+                    echo "Woodpecker pipeline #$PIPELINE_NUM passed."
+                    break
+                    ;;
+                failure|error|killed)
+                    echo "Woodpecker pipeline #$PIPELINE_NUM FAILED (status: $STATUS)."
+                    echo "View: $WOODPECKER_SERVER/repos/$REPO_FULL/pipeline/$PIPELINE_NUM"
+                    # STOP - do not deploy
+                    exit 1
+                    ;;
+                *)
+                    echo "Pipeline #$PIPELINE_NUM status: $STATUS (attempt $i/30)..."
+                    sleep 10
+                    ;;
+            esac
+        else
+            if [[ $i -ge 30 ]]; then
+                echo "WARNING: No Woodpecker pipeline found for $SHORT_SHA after 5 minutes."
+                break
+            fi
+            sleep 10
+        fi
+    done
+fi
+```
+
+3. **Check GitHub Actions** (fallback if no Woodpecker token):
+
+```bash
+if [[ -z "$WOODPECKER_API_TOKEN" ]]; then
+    echo "Polling GitHub Actions for commit $SHORT_SHA..."
+
+    for i in $(seq 1 30); do
+        RUN_JSON=$(gh run list --commit "$COMMIT_SHA" --json status,conclusion,databaseId,name --jq '.[0]' 2>/dev/null)
+
+        if [[ -n "$RUN_JSON" && "$RUN_JSON" != "null" ]]; then
+            GH_STATUS=$(echo "$RUN_JSON" | jq -r '.status')
+            GH_CONCLUSION=$(echo "$RUN_JSON" | jq -r '.conclusion')
+            RUN_ID=$(echo "$RUN_JSON" | jq -r '.databaseId')
+
+            if [[ "$GH_STATUS" == "completed" ]]; then
+                if [[ "$GH_CONCLUSION" == "success" ]]; then
+                    echo "GitHub Actions run #$RUN_ID passed."
+                    break
+                else
+                    echo "GitHub Actions run #$RUN_ID FAILED (conclusion: $GH_CONCLUSION)."
+                    echo "View: gh run view $RUN_ID"
+                    exit 1
+                fi
+            else
+                echo "Run #$RUN_ID status: $GH_STATUS (attempt $i/30)..."
+                sleep 10
+            fi
+        else
+            if [[ $i -ge 30 ]]; then
+                echo "WARNING: No GitHub Actions run found for $SHORT_SHA after 5 minutes."
+                break
+            fi
+            sleep 10
+        fi
+    done
+fi
+```
+
+4. **No CI detected:**
+
+If neither `WOODPECKER_API_TOKEN` is set nor GitHub Actions runs are found, skip with a warning:
+
+```
+WARNING: No CI system detected. Skipping verification.
+```
+
+- If CI **passes**: proceed to Step 8.
+- If CI **fails**: **STOP**. Report the failure and exit. Do not deploy broken code.
+- If CI **not found** after timeout: warn and proceed (non-blocking).
+
+Report: `Step 7/8: Verify CI complete - pipeline #{N} passed` or `Step 7/8: Verify CI skipped (no CI detected)`
+
+---
+
+### Step 8: Deploy (optional)
 
 Only if a Makefile with a `deploy` target exists in the main repo:
 
@@ -310,7 +422,7 @@ else
 fi
 ```
 
-Report: `Step 7/7: Deploy complete` or `Step 7/7: Deploy skipped (no Makefile target)`
+Report: `Step 8/8: Deploy complete` or `Step 8/8: Deploy skipped (no Makefile target)`
 
 ---
 
@@ -324,6 +436,7 @@ Flow Auto Complete
   PR:       #78 (squash-merged)
   Branch:   issue-42-fix-login (deleted)
   Worktree: ../my-project-issue-42 (removed)
+  CI:       Woodpecker pipeline #5 passed | GitHub Actions run #123 passed | skipped
   Deploy:   make deploy (success) | skipped
   Location: /home/user/Projects/my-project (main)
 ```
@@ -335,7 +448,7 @@ Flow Auto Complete
 At each step, if something fails:
 
 ```
-Flow Auto stopped at Step N/7: {Step Name}
+Flow Auto stopped at Step N/8: {Step Name}
 
   Failed: [description of what failed]
   Fix:    [actionable suggestion]
@@ -347,7 +460,8 @@ Flow Auto stopped at Step N/7: {Step Name}
     /documentation:c4 (if step 4 failed)
     /flow:finish     (if step 5 failed)
     /flow:merge      (if step 6 failed)
-    /flow:deploy     (if step 7 failed)
+    [check CI dashboard] (if step 7 failed)
+    /flow:deploy     (if step 8 failed)
 ```
 
 Key failure scenarios:
@@ -359,6 +473,8 @@ Key failure scenarios:
 - **Lint/test fails:** Stop at step 5, show test output
 - **Push fails:** Stop at step 5, suggest `git pull --rebase`
 - **PR merge conflicts:** Stop at step 6, suggest manual resolution
+- **CI pipeline fails:** Stop at step 7, link to pipeline/run for investigation
+- **CI not detected:** Non-blocking at step 7, warn and continue to deploy
 - **Deploy fails:** Report but don't roll back (deploy is best-effort)
 - **Inside worktree being removed:** `worktree-remove.sh` handles this safely
 
