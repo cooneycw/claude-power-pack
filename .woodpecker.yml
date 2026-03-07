@@ -75,7 +75,8 @@ steps:
       - sleep 5
       - docker compose --profile core --profile browser ps
       - echo "Deploy complete."
-    privileged: true
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
     when:
       - event: push
         branch: main
