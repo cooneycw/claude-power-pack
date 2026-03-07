@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Woodpecker CI - Deployment Architecture</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --accent: #58a6ff;
+    --green: #3fb950;
+    --orange: #d29922;
+    --purple: #bc8cff;
+    --red: #f85149;
+    --cyan: #39d2c0;
+    --yellow: #e3b341;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 2rem;
+    min-height: 100vh;
+  }
+
+  h1 {
+    text-align: center;
+    font-size: 1.6rem;
+    margin-bottom: 0.4rem;
+    color: var(--accent);
+  }
+
+  .subtitle {
+    text-align: center;
+    color: var(--muted);
+    font-size: 0.9rem;
+    margin-bottom: 2.5rem;
+  }
+
+  .diagram {
+    max-width: 1100px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+  }
+
+  /* --- Swim lanes --- */
+  .lane {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.2rem 1.4rem;
+    background: var(--surface);
+    position: relative;
+  }
+
+  .lane-label {
+    position: absolute;
+    top: -0.7rem;
+    left: 1.2rem;
+    background: var(--surface);
+    padding: 0 0.5rem;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+  }
+
+  .lane-content {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  /* --- Boxes --- */
+  .box {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.8rem 1.1rem;
+    min-width: 140px;
+    text-align: center;
+    position: relative;
+  }
+
+  .box .icon { font-size: 1.5rem; margin-bottom: 0.3rem; }
+  .box .label { font-weight: 600; font-size: 0.85rem; }
+  .box .detail { color: var(--muted); font-size: 0.72rem; margin-top: 0.2rem; }
+
+  .box.github   { border-color: var(--accent); }
+  .box.cf       { border-color: var(--orange); }
+  .box.aws      { border-color: var(--orange); }
+  .box.wp       { border-color: var(--green); }
+  .box.docker   { border-color: var(--cyan); }
+  .box.systemd  { border-color: var(--purple); }
+  .box.agent    { border-color: var(--green); }
+  .box.vm       { border-color: var(--yellow); }
+
+  /* --- Arrows --- */
+  .arrow {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    color: var(--muted);
+    font-size: 0.72rem;
+  }
+
+  .arrow svg {
+    width: 24px;
+    height: 28px;
+    stroke: var(--muted);
+    fill: none;
+    stroke-width: 2;
+  }
+
+  .arrow-label {
+    background: var(--bg);
+    padding: 0.1rem 0.5rem;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    white-space: nowrap;
+  }
+
+  /* --- Boot sequence table --- */
+  .boot-seq {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.82rem;
+    margin-top: 0.5rem;
+  }
+
+  .boot-seq th {
+    text-align: left;
+    color: var(--muted);
+    font-weight: 600;
+    padding: 0.4rem 0.6rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .boot-seq td {
+    padding: 0.4rem 0.6rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .boot-seq tr:last-child td { border-bottom: none; }
+
+  .step-num {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: var(--bg);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.7rem;
+    font-weight: 700;
+  }
+
+  .badge {
+    display: inline-block;
+    padding: 0.1rem 0.5rem;
+    border-radius: 10px;
+    font-size: 0.7rem;
+    font-weight: 600;
+  }
+
+  .badge.auto   { background: #1a3a1a; color: var(--green); }
+  .badge.secret { background: #3a2a0a; color: var(--orange); }
+
+  /* --- Agent grid --- */
+  .agent-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 0.8rem;
+    margin-top: 0.5rem;
+  }
+
+  .agent-card {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.8rem;
+    background: var(--bg);
+  }
+
+  .agent-card .card-title {
+    font-weight: 600;
+    font-size: 0.82rem;
+    margin-bottom: 0.4rem;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+
+  .agent-card .card-detail {
+    font-size: 0.72rem;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+
+  .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+  }
+
+  .status-dot.active { background: var(--green); }
+  .status-dot.ready  { background: var(--yellow); }
+
+  /* --- Pipeline steps --- */
+  .pipeline-steps {
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+    justify-content: center;
+    padding: 0.5rem 0;
+    flex-wrap: wrap;
+  }
+
+  .pipeline-step {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.6rem 0.8rem;
+    text-align: center;
+    min-width: 100px;
+    position: relative;
+  }
+
+  .pipeline-step .step-label { font-weight: 600; font-size: 0.78rem; }
+  .pipeline-step .step-detail { color: var(--muted); font-size: 0.68rem; margin-top: 0.2rem; }
+
+  .pipeline-connector {
+    display: flex;
+    align-items: center;
+    color: var(--muted);
+    font-size: 0.9rem;
+    padding: 0 0.2rem;
+  }
+
+  /* --- Legend --- */
+  .legend {
+    display: flex;
+    gap: 1.5rem;
+    flex-wrap: wrap;
+    justify-content: center;
+    margin-top: 1.5rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border);
+  }
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.75rem;
+    color: var(--muted);
+  }
+
+  .legend-swatch {
+    width: 12px;
+    height: 12px;
+    border-radius: 3px;
+    border: 2px solid;
+  }
+
+  @media (max-width: 700px) {
+    body { padding: 1rem; }
+    .lane-content { flex-direction: column; }
+    .agent-grid { grid-template-columns: 1fr; }
+    .pipeline-steps { flex-direction: column; align-items: center; }
+    .pipeline-connector { transform: rotate(90deg); }
+  }
+</style>
+</head>
+<body>
+
+<h1>Woodpecker CI - Deployment Architecture</h1>
+<p class="subtitle">Centralized server on dedicated VM - distributed agents across the network</p>
+
+<div class="diagram">
+
+  <!-- External Services -->
+  <div class="lane">
+    <span class="lane-label">External Services</span>
+    <div class="lane-content">
+      <div class="box github">
+        <div class="icon">&#128025;</div>
+        <div class="label">GitHub</div>
+        <div class="detail">OAuth + Webhooks + Code</div>
+      </div>
+      <div class="arrow">
+        <div class="arrow-label">webhook POST</div>
+        <svg viewBox="0 0 24 28"><path d="M12 2 L12 22 M6 16 L12 22 L18 16"/></svg>
+      </div>
+      <div class="box cf">
+        <div class="icon">&#9729;&#65039;</div>
+        <div class="label">Cloudflare Tunnel</div>
+        <div class="detail">woodpecker.&lt;domain&gt;</div>
+      </div>
+      <div class="arrow">
+        <div class="arrow-label">tunnel &#8594; :9000</div>
+        <svg viewBox="0 0 24 28"><path d="M12 2 L12 22 M6 16 L12 22 L18 16"/></svg>
+      </div>
+      <div class="box aws">
+        <div class="icon">&#128274;</div>
+        <div class="label">AWS Secrets Manager</div>
+        <div class="detail">project secret</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Server VM -->
+  <div class="lane">
+    <span class="lane-label">proxVMwoodpecker20 - Server Only</span>
+    <div class="lane-content" style="gap: 2rem;">
+
+      <!-- systemd side -->
+      <div style="display: flex; flex-direction: column; gap: 0.8rem; align-items: center;">
+        <div class="box systemd">
+          <div class="icon">&#9881;&#65039;</div>
+          <div class="label">systemd</div>
+          <div class="detail">Boot orchestration</div>
+        </div>
+        <div style="display: flex; gap: 0.8rem;">
+          <div class="box systemd" style="min-width: 120px;">
+            <div class="label" style="font-size: 0.78rem;">cloudflared.service</div>
+            <div class="detail">Tunnel daemon</div>
+          </div>
+          <div class="box systemd" style="min-width: 120px;">
+            <div class="label" style="font-size: 0.78rem;">woodpecker-bootstrap</div>
+            <div class="detail">Pulls secrets &#8594; docker.env</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Server container -->
+      <div style="display: flex; flex-direction: column; gap: 0.8rem; align-items: center;">
+        <div class="box docker">
+          <div class="icon">&#128051;</div>
+          <div class="label">Docker Compose</div>
+          <div class="detail">Server only</div>
+        </div>
+        <div class="box wp">
+          <div class="icon" style="font-size: 1.2rem;">&#9654;</div>
+          <div class="label">Woodpecker Server</div>
+          <div class="detail">v3.13.0<br>UI :9000 | gRPC :9001</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Agents Lane -->
+  <div class="lane">
+    <span class="lane-label">Distributed Agents - Connect via Tailscale to :9001</span>
+    <div style="text-align: center; font-size: 0.78rem; color: var(--muted); margin-bottom: 0.6rem;">
+      Each VM runs a standalone agent container. Agents pull jobs from the server, clone code from GitHub, and run pipeline steps in ephemeral Docker containers.
+    </div>
+    <div class="agent-grid">
+      <div class="agent-card">
+        <div class="card-title">
+          <span class="status-dot active"></span>
+          Dev Workstation
+        </div>
+        <div class="card-detail">
+          <code>docker-compose.agent.yml</code><br>
+          Primary build agent<br>
+          Runs lint, test, Docker builds
+        </div>
+      </div>
+      <div class="agent-card">
+        <div class="card-title">
+          <span class="status-dot ready"></span>
+          proxVMnewpricing37
+        </div>
+        <div class="card-detail">
+          <code>docker-compose.agent.yml</code><br>
+          IPS web tier agent<br>
+          Deploy + smoke tests
+        </div>
+      </div>
+      <div class="agent-card">
+        <div class="card-title">
+          <span class="status-dot ready"></span>
+          AWS EC2 instances
+        </div>
+        <div class="card-detail">
+          <code>docker-compose.agent.yml</code><br>
+          Cloud agents<br>
+          Production deploy pipelines
+        </div>
+      </div>
+    </div>
+    <div style="margin-top: 0.8rem; padding: 0.6rem; border: 1px dashed var(--border); border-radius: 6px; font-size: 0.75rem; color: var(--muted);">
+      <strong style="color: var(--text);">Agent setup (any machine):</strong>
+      <code>agent.env</code> with WOODPECKER_AGENT_SECRET + WOODPECKER_SERVER &#8594; <code>docker compose up -d</code>
+    </div>
+  </div>
+
+  <!-- Pipeline Execution -->
+  <div class="lane">
+    <span class="lane-label">Pipeline Execution - What Happens on git push</span>
+    <div class="pipeline-steps">
+      <div class="pipeline-step" style="border-color: var(--accent);">
+        <div class="step-label">1. Push</div>
+        <div class="step-detail">Developer pushes<br>to GitHub</div>
+      </div>
+      <div class="pipeline-connector">&#8594;</div>
+      <div class="pipeline-step" style="border-color: var(--orange);">
+        <div class="step-label">2. Webhook</div>
+        <div class="step-detail">GitHub POSTs via<br>Cloudflare Tunnel</div>
+      </div>
+      <div class="pipeline-connector">&#8594;</div>
+      <div class="pipeline-step" style="border-color: var(--green);">
+        <div class="step-label">3. Schedule</div>
+        <div class="step-detail">Server parses<br>.woodpecker.yml</div>
+      </div>
+      <div class="pipeline-connector">&#8594;</div>
+      <div class="pipeline-step" style="border-color: var(--green);">
+        <div class="step-label">4. Assign</div>
+        <div class="step-detail">Server sends job<br>to available agent</div>
+      </div>
+      <div class="pipeline-connector">&#8594;</div>
+      <div class="pipeline-step" style="border-color: var(--cyan);">
+        <div class="step-label">5. Clone</div>
+        <div class="step-detail">Agent clones repo<br>from GitHub</div>
+      </div>
+      <div class="pipeline-connector">&#8594;</div>
+      <div class="pipeline-step" style="border-color: var(--cyan);">
+        <div class="step-label">6. Execute</div>
+        <div class="step-detail">Steps run in<br>Docker containers</div>
+      </div>
+      <div class="pipeline-connector">&#8594;</div>
+      <div class="pipeline-step" style="border-color: var(--green);">
+        <div class="step-label">7. Report</div>
+        <div class="step-detail">Results back to<br>server + GitHub</div>
+      </div>
+    </div>
+    <div style="margin-top: 0.6rem; text-align: center; font-size: 0.75rem; color: var(--muted);">
+      Code is never pre-installed on agents - it's cloned fresh into ephemeral containers for each pipeline run
+    </div>
+  </div>
+
+  <!-- Boot Sequence -->
+  <div class="lane">
+    <span class="lane-label">Server Boot Sequence (VM20)</span>
+    <table class="boot-seq">
+      <thead>
+        <tr>
+          <th>Order</th>
+          <th>Service</th>
+          <th>Action</th>
+          <th>Type</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><span class="step-num">1</span></td>
+          <td><code>cloudflared.service</code></td>
+          <td>Establishes Cloudflare tunnel to expose port 9000</td>
+          <td><span class="badge auto">auto</span></td>
+        </tr>
+        <tr>
+          <td><span class="step-num">2</span></td>
+          <td><code>woodpecker-bootstrap.service</code></td>
+          <td>Reads <code>~/.env</code> (AWS creds) &#8594; calls Secrets Manager &#8594; writes <code>docker.env</code></td>
+          <td><span class="badge secret">secrets</span></td>
+        </tr>
+        <tr>
+          <td><span class="step-num">3</span></td>
+          <td><code>docker compose up -d</code></td>
+          <td>Starts Woodpecker Server container with <code>docker.env</code></td>
+          <td><span class="badge auto">auto</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Secrets Flow -->
+  <div class="lane">
+    <span class="lane-label">Secrets Flow - Zero Secrets in Git</span>
+    <div style="display: flex; align-items: center; justify-content: center; gap: 0.6rem; flex-wrap: wrap; padding: 0.5rem 0;">
+      <div class="box aws" style="min-width: 110px;">
+        <div class="label" style="font-size: 0.78rem;">AWS Secrets Manager</div>
+        <div class="detail">project secret</div>
+      </div>
+      <span style="color: var(--muted);">&#8594;</span>
+      <div class="box systemd" style="min-width: 110px;">
+        <div class="label" style="font-size: 0.78rem;">bootstrap-secrets.py</div>
+        <div class="detail">boto3 + env vars</div>
+      </div>
+      <span style="color: var(--muted);">&#8594;</span>
+      <div class="box docker" style="min-width: 110px;">
+        <div class="label" style="font-size: 0.78rem;">docker.env / agent.env</div>
+        <div class="detail">gitignored, ephemeral</div>
+      </div>
+      <span style="color: var(--muted);">&#8594;</span>
+      <div class="box wp" style="min-width: 110px;">
+        <div class="label" style="font-size: 0.78rem;">Containers</div>
+        <div class="detail">env_file mount</div>
+      </div>
+    </div>
+
+    <div style="margin-top: 1rem; padding: 0.7rem; border: 1px dashed var(--border); border-radius: 6px;">
+      <table style="width: 100%; font-size: 0.78rem; border-collapse: collapse;">
+        <thead>
+          <tr>
+            <th style="text-align:left; color:var(--muted); padding:0.3rem 0.5rem; border-bottom:1px solid var(--border); font-size:0.7rem; text-transform:uppercase;">File</th>
+            <th style="text-align:left; color:var(--muted); padding:0.3rem 0.5rem; border-bottom:1px solid var(--border); font-size:0.7rem; text-transform:uppercase;">Contains</th>
+            <th style="text-align:left; color:var(--muted); padding:0.3rem 0.5rem; border-bottom:1px solid var(--border); font-size:0.7rem; text-transform:uppercase;">In Git?</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style="padding:0.3rem 0.5rem;"><code>~/.env</code></td>
+            <td style="padding:0.3rem 0.5rem;">AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_DEFAULT_REGION</td>
+            <td style="padding:0.3rem 0.5rem; color:var(--red);">&#10005; Never</td>
+          </tr>
+          <tr>
+            <td style="padding:0.3rem 0.5rem;"><code>docker.env</code></td>
+            <td style="padding:0.3rem 0.5rem;">WOODPECKER_GITHUB_CLIENT/SECRET, AGENT_SECRET, HOST</td>
+            <td style="padding:0.3rem 0.5rem; color:var(--red);">&#10005; gitignored</td>
+          </tr>
+          <tr>
+            <td style="padding:0.3rem 0.5rem;"><code>agent.env</code></td>
+            <td style="padding:0.3rem 0.5rem;">WOODPECKER_AGENT_SECRET, WOODPECKER_SERVER</td>
+            <td style="padding:0.3rem 0.5rem; color:var(--red);">&#10005; gitignored</td>
+          </tr>
+          <tr>
+            <td style="padding:0.3rem 0.5rem;"><code>docker-compose.yml</code></td>
+            <td style="padding:0.3rem 0.5rem;">Server definition, ports, env_file reference</td>
+            <td style="padding:0.3rem 0.5rem; color:var(--green);">&#10003; Template</td>
+          </tr>
+          <tr>
+            <td style="padding:0.3rem 0.5rem;"><code>docker-compose.agent.yml</code></td>
+            <td style="padding:0.3rem 0.5rem;">Agent definition, docker.sock mount</td>
+            <td style="padding:0.3rem 0.5rem; color:var(--green);">&#10003; Template</td>
+          </tr>
+          <tr>
+            <td style="padding:0.3rem 0.5rem;"><code>bootstrap-secrets.py</code></td>
+            <td style="padding:0.3rem 0.5rem;">Secret ID name, key list (no values)</td>
+            <td style="padding:0.3rem 0.5rem; color:var(--green);">&#10003; Template</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<!-- Legend -->
+<div class="legend">
+  <div class="legend-item">
+    <div class="legend-swatch" style="border-color: var(--accent);"></div>
+    GitHub
+  </div>
+  <div class="legend-item">
+    <div class="legend-swatch" style="border-color: var(--orange);"></div>
+    Cloudflare / AWS
+  </div>
+  <div class="legend-item">
+    <div class="legend-swatch" style="border-color: var(--purple);"></div>
+    systemd
+  </div>
+  <div class="legend-item">
+    <div class="legend-swatch" style="border-color: var(--cyan);"></div>
+    Docker
+  </div>
+  <div class="legend-item">
+    <div class="legend-swatch" style="border-color: var(--green);"></div>
+    Woodpecker
+  </div>
+  <div class="legend-item">
+    <div class="legend-swatch" style="border-color: var(--yellow);"></div>
+    Agent VMs
+  </div>
+  <div class="legend-item">
+    <span class="status-dot active" style="width:10px;height:10px;"></span>
+    Active
+  </div>
+  <div class="legend-item">
+    <span class="status-dot ready" style="width:10px;height:10px;"></span>
+    Available
+  </div>
+</div>
+
+</body>
+</html>
