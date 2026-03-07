@@ -5,6 +5,9 @@
 #   PR/push   -> lint, test, typecheck, dry-run builds
 #   main push -> above + deploy-mcp (rebuild + restart containers)
 
+when:
+  - event: [push, pull_request]
+
 steps:
   lint:
     image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim
@@ -25,7 +28,7 @@ steps:
       - uv run mypy .
 
   build-second-opinion:
-    image: plugins/docker
+    image: woodpeckerci/plugin-docker-buildx
     settings:
       repo: mcp-second-opinion
       dockerfile: mcp-second-opinion/deploy/Dockerfile
@@ -37,7 +40,7 @@ steps:
         path: "mcp-second-opinion/**"
 
   build-playwright:
-    image: plugins/docker
+    image: woodpeckerci/plugin-docker-buildx
     settings:
       repo: mcp-playwright-persistent
       dockerfile: mcp-playwright-persistent/deploy/Dockerfile
@@ -49,7 +52,7 @@ steps:
         path: "mcp-playwright-persistent/**"
 
   build-nano-banana:
-    image: plugins/docker
+    image: woodpeckerci/plugin-docker-buildx
     settings:
       repo: mcp-nano-banana
       dockerfile: mcp-nano-banana/deploy/Dockerfile
@@ -60,31 +63,19 @@ steps:
       - event: [push, pull_request]
         path: "mcp-nano-banana/**"
 
-  build-evaluate:
-    image: plugins/docker
-    settings:
-      repo: mcp-evaluate
-      dockerfile: mcp-evaluate/deploy/Dockerfile
-      context: mcp-evaluate
-      tags: latest
-      dry_run: true
-    when:
-      - event: [push, pull_request]
-        path: "mcp-evaluate/**"
+  # mcp-evaluate removed - deprecated, absorbed into /evaluate:issue skill
 
   deploy-mcp:
     image: docker:cli
     commands:
       - apk add --no-cache docker-compose
       - echo "Deploying MCP containers..."
-      - cd /cpp && docker compose --profile core --profile browser build
+      - docker compose --profile core --profile browser build
       - docker compose --profile core --profile browser up -d
       - sleep 5
       - docker compose --profile core --profile browser ps
       - echo "Deploy complete."
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - /home/cooneycw/Projects/claude-power-pack:/cpp
+    privileged: true
     when:
       - event: push
         branch: main
@@ -93,4 +84,3 @@ steps:
           - "mcp-playwright-persistent/**"
           - "mcp-nano-banana/**"
           - "docker-compose.yml"
-
