@@ -323,8 +323,8 @@ if [[ -n "$WOODPECKER_API_TOKEN" ]]; then
     if [[ -z "$REPO_ID" || "$REPO_ID" == "null" ]]; then
         echo "WARNING: Could not resolve Woodpecker repo ID for $REPO_FULL. Skipping CI verification."
     else
-        # Poll up to 5 minutes (30 attempts, 10s apart)
-        for i in $(seq 1 30); do
+        # Poll up to 10 minutes (60 attempts, 10s apart)
+        for i in $(seq 1 60); do
             PIPELINE_JSON=$(curl -s -H "Authorization: Bearer $WOODPECKER_API_TOKEN" \
                 -H "Accept: application/json" \
                 "$WOODPECKER_SERVER/api/repos/$REPO_ID/pipelines?per_page=5" | \
@@ -346,13 +346,13 @@ if [[ -n "$WOODPECKER_API_TOKEN" ]]; then
                         exit 1
                         ;;
                     *)
-                        echo "Pipeline #$PIPELINE_NUM status: $STATUS (attempt $i/30)..."
+                        echo "Pipeline #$PIPELINE_NUM status: $STATUS (attempt $i/60)..."
                         sleep 10
                         ;;
                 esac
             else
-                if [[ $i -ge 30 ]]; then
-                    echo "WARNING: No Woodpecker pipeline found for $SHORT_SHA after 5 minutes."
+                if [[ $i -ge 60 ]]; then
+                    echo "WARNING: No Woodpecker pipeline found for $SHORT_SHA after 10 minutes."
                     break
                 fi
                 sleep 10
@@ -368,7 +368,7 @@ fi
 if [[ -z "$WOODPECKER_API_TOKEN" ]]; then
     echo "Polling GitHub Actions for commit $SHORT_SHA..."
 
-    for i in $(seq 1 30); do
+    for i in $(seq 1 60); do
         RUN_JSON=$(gh run list --commit "$COMMIT_SHA" --json status,conclusion,databaseId,name --jq '.[0]' 2>/dev/null)
 
         if [[ -n "$RUN_JSON" && "$RUN_JSON" != "null" ]]; then
@@ -386,12 +386,12 @@ if [[ -z "$WOODPECKER_API_TOKEN" ]]; then
                     exit 1
                 fi
             else
-                echo "Run #$RUN_ID status: $GH_STATUS (attempt $i/30)..."
+                echo "Run #$RUN_ID status: $GH_STATUS (attempt $i/60)..."
                 sleep 10
             fi
         else
-            if [[ $i -ge 30 ]]; then
-                echo "WARNING: No GitHub Actions run found for $SHORT_SHA after 5 minutes."
+            if [[ $i -ge 60 ]]; then
+                echo "WARNING: No GitHub Actions run found for $SHORT_SHA after 10 minutes."
                 break
             fi
             sleep 10
