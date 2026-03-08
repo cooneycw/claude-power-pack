@@ -30,6 +30,7 @@ from diagrams import (
     generate_orgchart_diagram,
     generate_timeline_diagram,
     generate_mindmap_diagram,
+    validate_diagram as _validate_diagram_impl,
 )
 from pptx_builder import create_presentation, validate_slides
 
@@ -171,6 +172,18 @@ async def generate_diagram(
     generator = _GENERATORS[diagram_type]
     html = generator(spec, width=w, height=h)
 
+    # Run validation and include warnings
+    validation = _validate_diagram_impl(
+        nodes=nodes,
+        edges=edges,
+        width=w,
+        height=h,
+        diagram_type=diagram_type,
+    )
+    warnings = [
+        iss for iss in validation.get("issues", [])
+    ]
+
     result = {
         "success": True,
         "diagram_type": diagram_type,
@@ -178,6 +191,9 @@ async def generate_diagram(
         "node_count": len(parsed_nodes),
         "edge_count": len(parsed_edges),
     }
+    if warnings:
+        result["warnings"] = warnings
+        result["validation_summary"] = validation["summary"]
 
     # Save or return HTML
     if save_path:
@@ -289,6 +305,48 @@ async def validate_pptx_slides(
         dict with passed (bool), issues list, and summary.
     """
     return validate_slides(slides, prohibited_terms)
+
+
+@mcp.tool()
+async def validate_diagram(
+    nodes: list[dict],
+    edges: Optional[list[dict]] = None,
+    width: int = 1920,
+    height: int = 1080,
+    diagram_type: str = "c4",
+) -> dict:
+    """Validate a diagram spec for quality issues before or after generation.
+
+    Runs quality checks on nodes and edges:
+    - Duplicate node IDs (HIGH)
+    - Invalid edge references (HIGH)
+    - Viewport overflow / density estimation (HIGH)
+    - Readability warnings for dense diagrams (MEDIUM)
+    - Orphan nodes with no connections (MEDIUM)
+    - WCAG AA color contrast validation (MEDIUM)
+    - Long labels that may overflow node cards (LOW)
+
+    Use this before generate_diagram to catch issues early. generate_diagram
+    also runs validation automatically and includes warnings in its response.
+
+    Args:
+        nodes: List of node dicts (same format as generate_diagram).
+        edges: List of edge dicts (same format as generate_diagram).
+        width: Viewport width in pixels (default: 1920).
+        height: Viewport height in pixels (default: 1080).
+        diagram_type: Diagram type for palette-specific checks (default: c4).
+
+    Returns:
+        dict with passed (bool), issue_count, high_severity, issues list,
+        suggestions list, and summary string.
+    """
+    return _validate_diagram_impl(
+        nodes=nodes,
+        edges=edges,
+        width=width,
+        height=height,
+        diagram_type=diagram_type,
+    )
 
 
 @mcp.tool()
