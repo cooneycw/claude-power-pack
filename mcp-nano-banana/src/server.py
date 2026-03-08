@@ -191,6 +191,11 @@ async def generate_diagram(
         "node_count": len(parsed_nodes),
         "edge_count": len(parsed_edges),
     }
+
+    # Include density scoring metadata
+    if "density" in validation:
+        result["density"] = validation["density"]
+
     if warnings:
         result["warnings"] = warnings
         result["validation_summary"] = validation["summary"]

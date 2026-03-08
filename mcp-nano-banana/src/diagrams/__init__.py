@@ -8,7 +8,7 @@ from diagrams.orgchart import generate_orgchart_diagram
 from diagrams.timeline import generate_timeline_diagram
 from diagrams.mindmap import generate_mindmap_diagram
 from diagrams.base import DIAGRAM_TYPES, DiagramSpec, DiagramNode, DiagramEdge
-from diagrams.validate import validate_diagram
+from diagrams.validate import validate_diagram, score_diagram_density
 
 __all__ = [
     "generate_architecture_diagram",
@@ -19,6 +19,7 @@ __all__ = [
     "generate_timeline_diagram",
     "generate_mindmap_diagram",
     "validate_diagram",
+    "score_diagram_density",
     "DIAGRAM_TYPES",
     "DiagramSpec",
     "DiagramNode",
