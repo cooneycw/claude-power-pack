@@ -8,8 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from diagrams.base import _node_color
-from diagrams.c4 import _C4_COLORS, _DEFAULT_COLOR
+from diagrams.base import ThemeTokens, _DEFAULT_THEME, _node_color, get_theme
 
 
 @dataclass
@@ -60,11 +59,21 @@ def _contrast_ratio(fg_hex: str, bg_hex: str) -> float:
 def _get_palette_colors(
     diagram_type: str,
     node_type: str,
+    theme: ThemeTokens | None = None,
 ) -> tuple[str, str, str]:
     """Get (bg, border, text) colors for a given diagram/node type combo."""
+    t = theme or _DEFAULT_THEME
     if diagram_type == "c4":
-        return _C4_COLORS.get(node_type, _DEFAULT_COLOR)
-    return _node_color(node_type)
+        c4_colors = {
+            "person": t.c4_person,
+            "system": t.c4_system,
+            "system-focus": t.c4_system_focus,
+            "container": t.c4_container,
+            "component": t.c4_component,
+            "code": t.c4_code,
+        }
+        return c4_colors.get(node_type, t.c4_default)
+    return _node_color(node_type, t)
 
 
 def score_diagram_density(
@@ -120,6 +129,7 @@ def validate_diagram(
     width: int = 1920,
     height: int = 1080,
     diagram_type: str = "c4",
+    theme_id: str = "c4-default-dark-v1",
 ) -> dict:
     """Validate a diagram spec for quality issues.
 
@@ -128,6 +138,14 @@ def validate_diagram(
         MEDIUM: readability, orphan_nodes, contrast
         LOW: long_labels
 
+    Args:
+        nodes: List of node dicts with id, label, type, etc.
+        edges: List of edge dicts with source, target, label, style.
+        width: Viewport width in pixels.
+        height: Viewport height in pixels.
+        diagram_type: Diagram type for palette-specific checks.
+        theme_id: Named theme for palette-specific contrast checks.
+
     Returns:
         dict with passed (bool), issue_count, high_severity,
         issues (list of dicts), suggestions (list of str),
@@ -135,6 +153,7 @@ def validate_diagram(
     """
     edges = edges or []
     issues: list[_ValidationIssue] = []
+    theme = get_theme(theme_id)
 
     node_ids = [n.get("id", f"n{i}") for i, n in enumerate(nodes)]
     node_id_set = set(node_ids)
@@ -229,7 +248,7 @@ def validate_diagram(
         if ntype in checked_types:
             continue
         checked_types.add(ntype)
-        bg, _border, text = _get_palette_colors(diagram_type, ntype)
+        bg, _border, text = _get_palette_colors(diagram_type, ntype, theme)
         ratio = _contrast_ratio(text, bg)
         if ratio < 4.5:
             issues.append(_ValidationIssue(

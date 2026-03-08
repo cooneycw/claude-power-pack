@@ -4,19 +4,22 @@ from __future__ import annotations
 
 import math
 
-from diagrams.base import DiagramSpec, _css_reset, _esc, _node_color
+from diagrams.base import DiagramSpec, ThemeTokens, _css_reset, _esc, _node_color
 
 
 def generate_mindmap_diagram(
     spec: DiagramSpec,
     width: int = 1920,
     height: int = 1080,
+    theme: ThemeTokens | None = None,
 ) -> str:
     """Generate an HTML mind map with a central topic and radiating branches.
 
     First node is the central topic; remaining nodes radiate outward.
     """
-    css = _css_reset(width, height)
+    from diagrams.base import _DEFAULT_THEME
+    t = theme or _DEFAULT_THEME
+    css = _css_reset(width, height, t)
 
     if not spec.nodes:
         return _empty_diagram(spec.title, width, height, css)
@@ -29,7 +32,7 @@ def generate_mindmap_diagram(
     radius = min(cx, cy) - 100
 
     # Central node
-    bg, border, text = _node_color(center.type if center.type != "default" else "primary")
+    bg, border, text = _node_color(center.type if center.type != "default" else "primary", t)
     center_html = f"""
     <div class="mm-center" style="
         left: {cx - 80}px; top: {cy - 40}px;
@@ -46,7 +49,7 @@ def generate_mindmap_diagram(
         angle = (2 * math.pi * i / num_branches) - math.pi / 2
         nx = int(cx + radius * math.cos(angle))
         ny = int(cy + radius * math.sin(angle))
-        bg, border, text = _node_color(node.type)
+        bg, border, text = _node_color(node.type, t)
         desc_html = f'<div class="mm-desc">{_esc(node.description)}</div>' if node.description else ""
 
         branch_html.append(f"""
@@ -85,7 +88,7 @@ def generate_mindmap_diagram(
     border-radius: 50%;
     border: 3px solid;
     text-align: center;
-    box-shadow: 0 0 24px rgba(59, 130, 246, 0.4);
+    box-shadow: 0 0 24px {t.glow_color};
     z-index: 3;
     min-width: 160px;
 }}

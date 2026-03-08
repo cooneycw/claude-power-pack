@@ -4,7 +4,8 @@ Best-in-class diagram generation MCP server for Claude Code. Generates professio
 
 ## Features
 
-- **6 diagram types**: Architecture, Flowchart, Sequence, Org Chart, Timeline, Mind Map
+- **7 diagram types**: C4, Architecture, Flowchart, Sequence, Org Chart, Timeline, Mind Map
+- **Shared theme tokens**: Consistent color palette across all diagram types via `ThemeTokens`
 - **Presentation-quality**: All diagrams render at 1920x1080 (16:9 widescreen)
 - **PowerPoint builder**: Create PPTX files with embedded diagrams, dark theme
 - **Self-contained HTML**: No external dependencies, works offline
@@ -25,15 +26,18 @@ claude mcp add nano-banana --transport sse --url http://127.0.0.1:8084/sse
 
 | Tool | Purpose |
 |------|---------|
-| `list_diagram_types` | List available diagram types and their descriptions |
-| `generate_diagram` | Generate an HTML diagram (architecture, flowchart, sequence, etc.) |
+| `list_diagram_types` | List available diagram types, themes, and descriptions |
+| `generate_diagram` | Generate an HTML diagram with theme support |
+| `validate_diagram` | Validate diagram spec for quality issues (contrast, density, etc.) |
 | `create_pptx` | Create a PowerPoint file with slides and embedded images |
+| `validate_pptx_slides` | Validate slide definitions before creating a PPTX |
 | `diagram_to_pptx` | One-step: generate diagram + create PPTX |
 
 ## Diagram Types
 
 | Type | Use Case |
 |------|----------|
+| `c4` | C4 model - multi-level architecture (Context, Container, Component, Code) |
 | `architecture` | System components in a grid layout |
 | `flowchart` | Sequential process steps with arrows |
 | `sequence` | Message exchange between participants |
@@ -61,7 +65,25 @@ Or use `diagram_to_pptx` for a quick text-based PPTX.
 | `DIAGRAM_WIDTH` | `1920` | Default diagram width |
 | `DIAGRAM_HEIGHT` | `1080` | Default diagram height |
 
+## Theme System
+
+All diagrams use a shared `ThemeTokens` contract for consistent colors. Pass `theme_id` to
+`generate_diagram` and `validate_diagram` to select a named theme. Use `theme_tokens` to
+override individual tokens.
+
+**Available themes:** `c4-default-dark-v1` (default)
+
+**Key parameters:**
+
+| Parameter | Purpose |
+|-----------|---------|
+| `theme_id` | Named theme (e.g. `c4-default-dark-v1`) |
+| `theme_tokens` | Dict of token overrides (e.g. `{"background_primary": "#000"}`) |
+| `diagram_set_id` | Groups related diagrams for tracking |
+
 ## Node Types (Color Themes)
+
+### Generic (architecture, flowchart, sequence, orgchart, timeline, mindmap)
 
 | Type | Color | Use |
 |------|-------|-----|
@@ -71,6 +93,17 @@ Or use `diagram_to_pptx` for a quick text-based PPTX.
 | `warning` | Red | Alerts, critical items |
 | `success` | Green | Completed, healthy |
 | `default` | Slate | Standard elements |
+
+### C4-specific
+
+| Type | Color | Use |
+|------|-------|-----|
+| `person` | Dark blue | Actors / Users |
+| `system` | Grey | External systems |
+| `system-focus` | Blue | System of interest |
+| `container` | Green | Containers |
+| `component` | Purple | Components |
+| `code` | Amber | Code elements |
 
 ## Requirements
 

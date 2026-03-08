@@ -2,24 +2,27 @@
 
 from __future__ import annotations
 
-from diagrams.base import DiagramSpec, _css_reset, _esc, _node_color
+from diagrams.base import DiagramSpec, ThemeTokens, _css_reset, _esc, _node_color
 
 
 def generate_timeline_diagram(
     spec: DiagramSpec,
     width: int = 1920,
     height: int = 1080,
+    theme: ThemeTokens | None = None,
 ) -> str:
     """Generate an HTML timeline/roadmap visualization.
 
     Nodes are milestones arranged along a horizontal timeline.
     """
-    css = _css_reset(width, height)
+    from diagrams.base import _DEFAULT_THEME
+    t = theme or _DEFAULT_THEME
+    css = _css_reset(width, height, t)
     milestones = spec.nodes
 
     items_html = []
     for i, node in enumerate(milestones):
-        bg, border, text = _node_color(node.type)
+        bg, border, text = _node_color(node.type, t)
         desc_html = f'<div class="tl-desc">{_esc(node.description)}</div>' if node.description else ""
         side = "top" if i % 2 == 0 else "bottom"
         items_html.append(f"""
@@ -57,7 +60,7 @@ def generate_timeline_diagram(
     left: 40px;
     right: 40px;
     height: 4px;
-    background: linear-gradient(90deg, #3b82f6, #8b5cf6, #f59e0b);
+    background: linear-gradient(90deg, {t.gradient_start}, {t.gradient_mid}, {t.gradient_end});
     border-radius: 2px;
     transform: translateY(-50%);
 }}
@@ -81,7 +84,7 @@ def generate_timeline_diagram(
     height: 18px;
     border-radius: 50%;
     border: 3px solid;
-    box-shadow: 0 0 12px rgba(59, 130, 246, 0.4);
+    box-shadow: 0 0 12px {t.glow_color};
 }}
 .tl-card {{
     padding: 14px 18px;

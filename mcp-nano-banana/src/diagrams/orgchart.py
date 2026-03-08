@@ -2,20 +2,23 @@
 
 from __future__ import annotations
 
-from diagrams.base import DiagramSpec, _css_reset, _esc, _node_color
+from diagrams.base import DiagramSpec, ThemeTokens, _css_reset, _esc, _node_color
 
 
 def generate_orgchart_diagram(
     spec: DiagramSpec,
     width: int = 1920,
     height: int = 1080,
+    theme: ThemeTokens | None = None,
 ) -> str:
     """Generate an HTML org chart / hierarchy diagram.
 
     Nodes are arranged in a tree layout using CSS flexbox nesting.
     Edges define parent-child relationships.
     """
-    css = _css_reset(width, height)
+    from diagrams.base import _DEFAULT_THEME
+    t = theme or _DEFAULT_THEME
+    css = _css_reset(width, height, t)
 
     # Build tree from edges
     children_map: dict[str, list[str]] = {}
@@ -35,7 +38,7 @@ def generate_orgchart_diagram(
         node = node_map.get(node_id)
         if not node:
             return ""
-        bg, border, text = _node_color(node.type)
+        bg, border, text = _node_color(node.type, t)
         desc_html = f'<div class="org-desc">{_esc(node.description)}</div>' if node.description else ""
 
         kids = children_map.get(node_id, [])
@@ -98,7 +101,7 @@ def generate_orgchart_diagram(
     gap: 24px;
     margin-top: 20px;
     padding-top: 20px;
-    border-top: 2px solid #475569;
+    border-top: 2px solid {t.connection_color};
     position: relative;
 }}
 .org-children::before {{
@@ -108,7 +111,7 @@ def generate_orgchart_diagram(
     left: 50%;
     width: 0;
     height: 20px;
-    border-left: 2px solid #475569;
+    border-left: 2px solid {t.connection_color};
     transform: translateX(-50%);
     top: -20px;
 }}
