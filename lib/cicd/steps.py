@@ -244,6 +244,68 @@ BUILTIN_PLANS: dict[str, list[StepDef]] = {
 }
 
 
+class DeployStep:
+    """Execute a deployment with readiness gate and automatic rollback.
+
+    Wraps a DeploymentStrategy to provide:
+    1. Deploy via the configured strategy
+    2. Poll readiness URL until success threshold or timeout
+    3. Automatic rollback if readiness check fails
+
+    Usage:
+        config = DeployConfig(strategy="docker_compose", ...)
+        step = DeployStep(config)
+        result = step.execute(context)
+    """
+
+    def __init__(self, config: Optional[Any] = None):
+        from .deploy.strategy import DeployConfig, get_strategy
+
+        if config is None:
+            config = DeployConfig()
+        elif isinstance(config, dict):
+            config = DeployConfig.from_dict(config)
+
+        self.config: DeployConfig = config
+        self.id = "deploy"
+        self.timeout_seconds = config.timeout_seconds
+        self.max_attempts = 1
+        self.idempotent = False
+
+        self.strategy = get_strategy(config.strategy)
+
+    def execute(self, context: dict[str, Any]) -> StepResult:
+        """Execute deploy, check readiness, rollback on failure."""
+        from .deploy.strategy import poll_readiness
+
+        # Step 1: Deploy
+        deploy_result = self.strategy.deploy(context, self.config)
+        if not deploy_result.success:
+            return deploy_result
+
+        # Step 2: Readiness gate (if configured)
+        if self.config.readiness:
+            readiness = poll_readiness(self.config.readiness)
+            if not readiness.ready:
+                # Step 3: Auto-rollback on readiness failure
+                rollback_result = self.strategy.rollback(context, self.config)
+                rollback_info = (
+                    "rollback succeeded" if rollback_result.success
+                    else f"rollback also failed: {rollback_result.error}"
+                )
+                return StepResult(
+                    status=StepStatus.FAILED,
+                    exit_code=1,
+                    output=deploy_result.output,
+                    error=(
+                        f"Readiness check failed: {readiness.summary}. "
+                        f"Rollback: {rollback_info}"
+                    ),
+                )
+
+        return deploy_result
+
+
 def get_plan_steps(plan_name: str, project_root: Optional[str] = None) -> list[StepDef]:
     """Get step definitions for a plan.
 
