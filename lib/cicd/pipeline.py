@@ -18,6 +18,7 @@ _WOODPECKER_IMAGES: dict[Framework, str] = {
     Framework.NODE: "node:22",
     Framework.GO: "golang:1.23",
     Framework.RUST: "rust:1.82",
+    Framework.POWERSHELL: "mcr.microsoft.com/powershell:7.4-ubuntu-24.04",
     Framework.MULTI: "ubuntu:24.04",
     Framework.UNKNOWN: "ubuntu:24.04",
 }
@@ -28,6 +29,7 @@ _DEFAULT_MATRIX: dict[Framework, dict[str, list[str]]] = {
     Framework.NODE: {"node-version": ["20", "22"]},
     Framework.GO: {"go-version": ["1.22", "1.23"]},
     Framework.RUST: {"rust-version": ["stable"]},
+    Framework.POWERSHELL: {"os": ["ubuntu-latest", "windows-latest"]},
 }
 
 # Setup actions for GitHub Actions
@@ -48,6 +50,10 @@ _CACHE_PATHS: dict[tuple[Framework, PackageManager], dict[str, str]] = {
     (Framework.NODE, PackageManager.PNPM): {"path": "~/.local/share/pnpm", "key_file": "pnpm-lock.yaml"},
     (Framework.GO, PackageManager.GO): {"path": "~/go/pkg/mod", "key_file": "go.sum"},
     (Framework.RUST, PackageManager.CARGO): {"path": "~/.cargo", "key_file": "Cargo.lock"},
+    (Framework.POWERSHELL, PackageManager.PSRESOURCEGET): {
+        "path": "~/.local/share/powershell/Modules",
+        "key_file": "*.psd1",
+    },
 }
 
 # Install commands for Woodpecker CI
@@ -60,6 +66,10 @@ _WOODPECKER_INSTALL: dict[tuple[Framework, PackageManager], list[str]] = {
     (Framework.NODE, PackageManager.PNPM): ["corepack enable", "pnpm install --frozen-lockfile"],
     (Framework.GO, PackageManager.GO): ["go mod download"],
     (Framework.RUST, PackageManager.CARGO): [],  # cargo fetches deps on build
+    (Framework.POWERSHELL, PackageManager.PSRESOURCEGET): [
+        "pwsh -Command \"Install-Module -Name Pester -Force -SkipPublisherCheck\"",
+        "pwsh -Command \"Install-Module -Name PSScriptAnalyzer -Force\"",
+    ],
 }
 
 
@@ -302,5 +312,9 @@ def _get_install_commands(fw: Framework, pm: PackageManager) -> list[str]:
         ],
         (Framework.GO, PackageManager.GO): ["go mod download"],
         (Framework.RUST, PackageManager.CARGO): [],
+        (Framework.POWERSHELL, PackageManager.PSRESOURCEGET): [
+            "pwsh -Command \"Install-Module -Name Pester -Force -SkipPublisherCheck\"",
+            "pwsh -Command \"Install-Module -Name PSScriptAnalyzer -Force\"",
+        ],
     }
     return mapping.get((fw, pm), [])

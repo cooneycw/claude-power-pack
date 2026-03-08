@@ -82,6 +82,7 @@ class Framework(Enum):
     NODE = "node"
     GO = "go"
     RUST = "rust"
+    POWERSHELL = "powershell"
     MULTI = "multi"
     UNKNOWN = "unknown"
 
@@ -93,6 +94,7 @@ class Framework(Enum):
             Framework.NODE: "Node.js",
             Framework.GO: "Go",
             Framework.RUST: "Rust",
+            Framework.POWERSHELL: "PowerShell",
             Framework.MULTI: "Multi-language",
             Framework.UNKNOWN: "Unknown",
         }
@@ -110,6 +112,7 @@ class PackageManager(Enum):
     PNPM = "pnpm"
     CARGO = "cargo"
     GO = "go"
+    PSRESOURCEGET = "psresourceget"
     UNKNOWN = "unknown"
 
     @property
@@ -132,6 +135,7 @@ FRAMEWORK_TARGETS: dict[Framework, list[str]] = {
     Framework.NODE: ["lint", "test", "typecheck", "build", "deploy", "clean", "dev", "verify"],
     Framework.GO: ["lint", "test", "vet", "build", "deploy", "clean", "verify"],
     Framework.RUST: ["lint", "test", "build", "build-release", "deploy", "clean", "verify"],
+    Framework.POWERSHELL: ["lint", "test", "build", "deploy", "clean", "verify"],
     Framework.MULTI: ["lint", "test", "build", "deploy", "clean", "verify"],
     Framework.UNKNOWN: ["lint", "test", "build", "deploy", "clean"],
 }
@@ -199,6 +203,11 @@ FRAMEWORK_RUNNERS: dict[tuple[Framework, PackageManager], dict[str, str]] = {
         "test": "cargo test",
         "build": "cargo build",
         "build-release": "cargo build --release",
+    },
+    (Framework.POWERSHELL, PackageManager.PSRESOURCEGET): {
+        "lint": "pwsh -Command \"Invoke-ScriptAnalyzer -Path . -Recurse -EnableExit\"",
+        "test": "pwsh -Command \"Invoke-Pester -CI\"",
+        "build": "pwsh -Command \"Build-Module\"",
     },
 }
 

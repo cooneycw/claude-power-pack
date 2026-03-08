@@ -232,6 +232,7 @@ def _get_template_path(info: FrameworkInfo, template_dir: Path) -> Optional[Path
         (Framework.NODE, PackageManager.PNPM): "node-npm.mk",
         (Framework.GO, PackageManager.GO): "go.mk",
         (Framework.RUST, PackageManager.CARGO): "rust.mk",
+        (Framework.POWERSHELL, PackageManager.PSRESOURCEGET): "powershell.mk",
         (Framework.MULTI, PackageManager.UNKNOWN): "multi.mk",
     }
 
@@ -246,6 +247,7 @@ def _get_template_path(info: FrameworkInfo, template_dir: Path) -> Optional[Path
         Framework.NODE: "node-npm.mk",
         Framework.GO: "go.mk",
         Framework.RUST: "rust.mk",
+        Framework.POWERSHELL: "powershell.mk",
     }
     filename = fw_mapping.get(info.framework)
     if filename:
@@ -351,6 +353,7 @@ def _get_clean_command(framework: Framework) -> str:
         Framework.NODE: "rm -rf node_modules dist build .next .nuxt coverage",
         Framework.GO: "rm -rf bin/ coverage.out",
         Framework.RUST: "cargo clean",
+        Framework.POWERSHELL: "rm -rf TestResults Output",
         Framework.MULTI: "rm -rf dist build coverage",
     }
     return commands.get(framework, "rm -rf dist build")

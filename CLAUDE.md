@@ -121,6 +121,12 @@ Docker containers read API keys from a root `.env` file (gitignored) via `env_fi
 - `/second-opinion:start [file] [model] [depth]` - Quick code review via external LLMs
 - `/second-opinion:models` - Interactive model/depth selection
 
+### QA
+- `/qa:test` - Automated web testing via Playwright
+
+### CLAUDE.md Management
+- `/claude-md:lint` - Lint CLAUDE.md for missing CI/CD, Docker, and troubleshooting directives
+
 ### Other
 - `/dockers` - Docker container status, health, project linkages
 - `/cpp:init` - Interactive setup wizard (Tiers: Minimal, Standard, Full, CI/CD)
@@ -137,7 +143,7 @@ Flow commands use Makefile targets as the canonical build interface:
 - `/flow:deploy` uses `python -m lib.cicd run --plan deploy` (deterministic runner) with fallback to `make deploy` + post-deploy health/smoke
 - `/flow:auto` runs `make update_docs` after implement, verifies CI after merge, then `make deploy`
 - `/flow:doctor` reports which standard targets are available
-- Deploy metadata in `.claude/deploy.yaml` (optional `requires_confirmation: true`)
+- Deploy metadata in `.claude/deploy.yaml` (optional, created manually when needed)
 - Deploy history logged to `.claude/deploy.log`
 - Starter template at `templates/Makefile.example`
 
@@ -148,7 +154,7 @@ Flow commands use Makefile targets as the canonical build interface:
 - **Hooks configured in** `.claude/hooks.json`
 - `/flow:finish` and `/flow:deploy` run security quick scan as quality gates
 - CRITICAL findings block gates; HIGH findings produce warnings
-- Configure gating in `.claude/security.yml`
+- Configure gating in `.claude/security.yml` (optional, created by `/security:scan` when needed)
 
 ## On-Demand Documentation
 
@@ -162,7 +168,7 @@ Load topic-specific skills instead of the full guide (88-92% token savings):
 
 ## Secrets Management
 
-Tiered: dotenv-global (`~/.config/claude-power-pack/secrets/`) -> env-file -> AWS Secrets Manager. Features: project identity (git-based), bundle API, secret injection (`creds run`), FastAPI web UI, audit logging, IAM isolation, output masking. Configure in `.claude/secrets.yml`.
+Tiered: dotenv-global (`~/.config/claude-power-pack/secrets/`) -> env-file -> AWS Secrets Manager. Features: project identity (git-based), bundle API, secret injection (`creds run`), FastAPI web UI, audit logging, IAM isolation, output masking. Configure in `.claude/secrets.yml` (optional, created manually when needed).
 
 ## Version
 

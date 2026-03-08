@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1920">
+<title>Claude Power Pack - Config & Runner Code (C4 L4)</title>
+<style>
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+        width: 1920px;
+        height: 1080px;
+        font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+        background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+        color: #e2e8f0;
+        overflow: hidden;
+    }
+    .diagram-container {
+        width: 1920px;
+        height: 1080px;
+        padding: 40px;
+        display: flex;
+        flex-direction: column;
+    }
+    .diagram-title {
+        font-size: 36px;
+        font-weight: 700;
+        color: #f8fafc;
+        margin-bottom: 8px;
+        letter-spacing: -0.5px;
+    }
+    .diagram-subtitle {
+        font-size: 16px;
+        color: #94a3b8;
+        margin-bottom: 30px;
+    }
+    .diagram-body {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        position: relative;
+    }
+    
+.c4-layout {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    width: 100%;
+    max-width: 1840px;
+    flex: 1;
+}
+.c4-sections {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 24px;
+    justify-content: center;
+    align-items: flex-start;
+    flex: 1;
+}
+.c4-section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 16px;
+    border-radius: 12px;
+    min-width: 200px;
+    flex: 1;
+    max-width: 50%;
+}
+.c4-section-bounded {
+    border: 2px dashed;
+    background: rgba(255,255,255,0.03);
+}
+.c4-section-open {
+    border: none;
+}
+.c4-section-label {
+    font-size: 13px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    margin-bottom: 4px;
+}
+.c4-section-nodes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    justify-content: center;
+}
+.c4-node {
+    padding: 16px 20px;
+    border-radius: 10px;
+    border: 2px solid;
+    text-align: center;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    min-width: 160px;
+    max-width: 240px;
+    flex: 0 1 auto;
+}
+.c4-person {
+    border-radius: 50px;
+    padding: 20px 24px;
+}
+.c4-label {
+    font-size: 16px;
+    font-weight: 700;
+    margin: 4px 0;
+}
+.c4-tech {
+    font-size: 12px;
+    opacity: 0.8;
+    margin-top: 4px;
+    font-style: italic;
+}
+.c4-edges-panel {
+    background: rgba(255,255,255,0.04);
+    border-radius: 8px;
+    padding: 12px 20px;
+    margin-top: 8px;
+}
+.c4-edges-title {
+    font-size: 13px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: #64748b;
+    margin-bottom: 8px;
+}
+.c4-edge {
+    font-size: 13px;
+    color: #94a3b8;
+    padding: 3px 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.c4-edge-from, .c4-edge-to {
+    font-weight: 600;
+    color: #cbd5e1;
+}
+.c4-edge-arrow {
+    color: #64748b;
+    font-size: 16px;
+}
+.c4-edge-label {
+    color: #60a5fa;
+    font-style: italic;
+}
+</style>
+</head>
+<body>
+<div class="diagram-container">
+    <div class="diagram-title">Claude Power Pack - Config & Runner Code (C4 L4)</div>
+    <div class="diagram-subtitle">Level 4: Key classes in lib/cicd - Pydantic config models and deterministic runner</div>
+    <div class="diagram-body">
+        <div class="c4-layout">
+            <div class="c4-sections">
+                
+            <div class="c4-section c4-section-bounded" style="border-color:#f59e0b40">
+                <div class="c4-section-label" style="color:#f59e0b">Code</div>
+                <div class="c4-section-nodes">
+        <div class="c4-node c4-box" id="node-cicd_config"
+             data-type="code"
+             style="background:#b45309; border-color:#f59e0b; color:#1e293b;">
+            
+            <div class="c4-label">CICDConfig</div>
+            <div class="c4-tech">[BaseModel - root config: project, version, plans]</div>
+        </div>
+        
+
+        <div class="c4-node c4-box" id="node-build_config"
+             data-type="code"
+             style="background:#b45309; border-color:#f59e0b; color:#1e293b;">
+            
+            <div class="c4-label">BuildConfig</div>
+            <div class="c4-tech">[BaseModel - build steps, image, registry]</div>
+        </div>
+        
+
+        <div class="c4-node c4-box" id="node-health_config"
+             data-type="code"
+             style="background:#b45309; border-color:#f59e0b; color:#1e293b;">
+            
+            <div class="c4-label">HealthConfig</div>
+            <div class="c4-tech">[BaseModel - endpoints, ports, timeouts]</div>
+        </div>
+        
+
+        <div class="c4-node c4-box" id="node-pipeline_config"
+             data-type="code"
+             style="background:#b45309; border-color:#f59e0b; color:#1e293b;">
+            
+            <div class="c4-label">PipelineConfig</div>
+            <div class="c4-tech">[BaseModel - CI provider, triggers, matrix]</div>
+        </div>
+        
+
+        <div class="c4-node c4-box" id="node-deterministic_runner"
+             data-type="code"
+             style="background:#b45309; border-color:#f59e0b; color:#1e293b;">
+            
+            <div class="c4-label">DeterministicRunner</div>
+            <div class="c4-tech">[class - run(), resume(), status()]</div>
+        </div>
+        
+
+        <div class="c4-node c4-box" id="node-run_state"
+             data-type="code"
+             style="background:#b45309; border-color:#f59e0b; color:#1e293b;">
+            
+            <div class="c4-label">RunState</div>
+            <div class="c4-tech">[class - step results, timestamps, JSON]</div>
+        </div>
+        
+
+        <div class="c4-node c4-box" id="node-shell_step"
+             data-type="code"
+             style="background:#b45309; border-color:#f59e0b; color:#1e293b;">
+            
+            <div class="c4-label">ShellStep</div>
+            <div class="c4-tech">[class - execute with retry, timeout, env]</div>
+        </div>
+        
+
+        <div class="c4-node c4-box" id="node-step_def"
+             data-type="code"
+             style="background:#b45309; border-color:#f59e0b; color:#1e293b;">
+            
+            <div class="c4-label">StepDef</div>
+            <div class="c4-tech">[dataclass - name, command, retry, timeout]</div>
+        </div>
+        
+
+        <div class="c4-node c4-box" id="node-run_result"
+             data-type="code"
+             style="background:#b45309; border-color:#f59e0b; color:#1e293b;">
+            
+            <div class="c4-label">RunResult</div>
+            <div class="c4-tech">[dataclass - exit_code, stdout, stderr, duration]</div>
+        </div>
+        </div>
+            </div>
+            
+            </div>
+            
+        <div class="c4-edges-panel">
+            <div class="c4-edges-title">Relationships</div>
+            
+        <div class="c4-edge" data-from="cicd_config" data-to="build_config"
+             data-dash="">
+            <span class="c4-edge-from">cicd_config</span>
+            <span class="c4-edge-arrow">&#x2192;</span>
+            <span class="c4-edge-label">build: field</span>
+            <span class="c4-edge-to">build_config</span>
+        </div>
+        
+        <div class="c4-edge" data-from="cicd_config" data-to="health_config"
+             data-dash="">
+            <span class="c4-edge-from">cicd_config</span>
+            <span class="c4-edge-arrow">&#x2192;</span>
+            <span class="c4-edge-label">health: field</span>
+            <span class="c4-edge-to">health_config</span>
+        </div>
+        
+        <div class="c4-edge" data-from="cicd_config" data-to="pipeline_config"
+             data-dash="">
+            <span class="c4-edge-from">cicd_config</span>
+            <span class="c4-edge-arrow">&#x2192;</span>
+            <span class="c4-edge-label">pipeline: field</span>
+            <span class="c4-edge-to">pipeline_config</span>
+        </div>
+        
+        <div class="c4-edge" data-from="deterministic_runner" data-to="cicd_config"
+             data-dash="">
+            <span class="c4-edge-from">deterministic_runner</span>
+            <span class="c4-edge-arrow">&#x2192;</span>
+            <span class="c4-edge-label">Reads config</span>
+            <span class="c4-edge-to">cicd_config</span>
+        </div>
+        
+        <div class="c4-edge" data-from="deterministic_runner" data-to="run_state"
+             data-dash="">
+            <span class="c4-edge-from">deterministic_runner</span>
+            <span class="c4-edge-arrow">&#x2192;</span>
+            <span class="c4-edge-label">Tracks progress</span>
+            <span class="c4-edge-to">run_state</span>
+        </div>
+        
+        <div class="c4-edge" data-from="deterministic_runner" data-to="shell_step"
+             data-dash="">
+            <span class="c4-edge-from">deterministic_runner</span>
+            <span class="c4-edge-arrow">&#x2192;</span>
+            <span class="c4-edge-label">Executes steps</span>
+            <span class="c4-edge-to">shell_step</span>
+        </div>
+        
+        <div class="c4-edge" data-from="deterministic_runner" data-to="step_def"
+             data-dash="">
+            <span class="c4-edge-from">deterministic_runner</span>
+            <span class="c4-edge-arrow">&#x2192;</span>
+            <span class="c4-edge-label">Iterates plan</span>
+            <span class="c4-edge-to">step_def</span>
+        </div>
+        
+        <div class="c4-edge" data-from="shell_step" data-to="run_result"
+             data-dash="">
+            <span class="c4-edge-from">shell_step</span>
+            <span class="c4-edge-arrow">&#x2192;</span>
+            <span class="c4-edge-label">Returns result</span>
+            <span class="c4-edge-to">run_result</span>
+        </div>
+        
+        <div class="c4-edge" data-from="run_state" data-to="run_result"
+             data-dash="">
+            <span class="c4-edge-from">run_state</span>
+            <span class="c4-edge-arrow">&#x2192;</span>
+            <span class="c4-edge-label">Stores results</span>
+            <span class="c4-edge-to">run_result</span>
+        </div>
+        
+        </div>
+        
+        </div>
+    </div>
+</div>
+</body>
+</html>

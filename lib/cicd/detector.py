@@ -40,6 +40,10 @@ _FRAMEWORK_MARKERS: list[tuple[str, Framework, Optional[PackageManager]]] = [
     ("Cargo.toml", Framework.RUST, PackageManager.CARGO),
 ]
 
+# PowerShell module manifest marker (checked via glob, not exact filename)
+_POWERSHELL_MODULE_MARKER = "*.psd1"
+_POWERSHELL_SCRIPT_MARKER = "*.ps1"
+
 # Lock files → PackageManager
 _LOCK_FILES: list[tuple[str, PackageManager]] = [
     ("uv.lock", PackageManager.UV),
@@ -102,6 +106,20 @@ def detect_framework(project_root: str | Path) -> FrameworkInfo:
                         if detected_pm is None:
                             detected_pm = pm
                         break
+
+    # Check for PowerShell project markers (module manifests or script files)
+    psd1_files = list(root.glob(_POWERSHELL_MODULE_MARKER))
+    psm1_files = list(root.glob("*.psm1"))
+    ps1_files = list(root.glob(_POWERSHELL_SCRIPT_MARKER))
+    if psd1_files or psm1_files:
+        for f in (psd1_files + psm1_files)[:3]:
+            detected_files.append(f.name)
+        frameworks_found.append((Framework.POWERSHELL, PackageManager.PSRESOURCEGET))
+    elif ps1_files and not frameworks_found:
+        # Only treat bare .ps1 files as a PS project if no other framework detected
+        for f in ps1_files[:3]:
+            detected_files.append(f.name)
+        frameworks_found.append((Framework.POWERSHELL, PackageManager.PSRESOURCEGET))
 
     if not frameworks_found:
         return FrameworkInfo(

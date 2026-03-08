@@ -1,0 +1,22 @@
+# Woodpecker CI - PowerShell (Claude Power Pack)
+#
+# Uses Makefile targets as steps for consistency with local dev.
+# Run locally: woodpecker exec
+# Docs: https://woodpecker-ci.org/docs/usage/pipeline-syntax
+
+when:
+  branch: [main]
+  event: [push, pull_request]
+
+steps:
+  - name: lint
+    image: mcr.microsoft.com/powershell:7.4-ubuntu-24.04
+    commands:
+      - pwsh -Command "Install-Module -Name PSScriptAnalyzer -Force"
+      - make lint
+
+  - name: test
+    image: mcr.microsoft.com/powershell:7.4-ubuntu-24.04
+    commands:
+      - pwsh -Command "Install-Module -Name Pester -Force -SkipPublisherCheck"
+      - make test

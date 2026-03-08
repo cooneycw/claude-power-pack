@@ -1,0 +1,41 @@
+# GitHub Actions CI - PowerShell (Claude Power Pack)
+#
+# Uses Makefile targets as steps for consistency with local dev.
+# Tests on both Linux and Windows to validate cross-platform support.
+# Requires: Pester (test), PSScriptAnalyzer (lint)
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  ci:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install PowerShell modules
+        shell: pwsh
+        run: |
+          Set-PSRepository PSGallery -InstallationPolicy Trusted
+          Install-Module -Name Pester -Force -SkipPublisherCheck
+          Install-Module -Name PSScriptAnalyzer -Force
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.local/share/powershell/Modules
+          key: ${{ runner.os }}-pwsh-${{ hashFiles('*.psd1') }}
+
+      - name: Lint
+        run: make lint
+
+      - name: Test
+        run: make test
