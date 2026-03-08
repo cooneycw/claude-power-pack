@@ -17,6 +17,7 @@ from diagrams.base import (
     get_theme,
 )
 from diagrams.validate import validate_diagram, score_diagram_density
+from diagrams.split import auto_split_diagram, split_save_paths, cluster_nodes
 
 __all__ = [
     "generate_architecture_diagram",
@@ -28,6 +29,9 @@ __all__ = [
     "generate_mindmap_diagram",
     "validate_diagram",
     "score_diagram_density",
+    "auto_split_diagram",
+    "split_save_paths",
+    "cluster_nodes",
     "DIAGRAM_TYPES",
     "DiagramSpec",
     "DiagramNode",

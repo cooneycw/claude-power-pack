@@ -33,6 +33,8 @@ from diagrams import (
     generate_timeline_diagram,
     generate_mindmap_diagram,
     validate_diagram as _validate_diagram_impl,
+    auto_split_diagram as _auto_split_impl,
+    split_save_paths as _split_save_paths_impl,
 )
 from pptx_builder import create_presentation, validate_slides
 
@@ -381,6 +383,155 @@ async def validate_diagram(
         diagram_type=diagram_type,
         theme_id=theme_id,
     )
+
+
+@mcp.tool()
+async def split_diagram(
+    diagram_type: str,
+    title: str,
+    nodes: list[dict],
+    edges: Optional[list[dict]] = None,
+    description: str = "",
+    max_nodes_per_page: int = 15,
+    strategy: str = "c4_boundary",
+    width: Optional[int] = None,
+    height: Optional[int] = None,
+    save_path: Optional[str] = None,
+) -> dict:
+    """Split a large diagram into summary + detail sub-diagrams.
+
+    When a diagram exceeds the node threshold, this tool clusters nodes and
+    produces a summary diagram (one node per cluster) plus detail diagrams
+    (one per cluster with full node detail).
+
+    If the diagram is small enough, it generates a single diagram as usual.
+
+    Use this instead of generate_diagram when you have (or may have) more than
+    ~15 nodes and want automatic splitting for readability.
+
+    Args:
+        diagram_type: Type of diagram (architecture, c4, flowchart, etc.).
+        title: Diagram title.
+        nodes: List of node dicts (same format as generate_diagram).
+        edges: List of edge dicts (same format as generate_diagram).
+        description: Subtitle text.
+        max_nodes_per_page: Maximum nodes before triggering a split (default: 15).
+        strategy: Clustering strategy - 'c4_boundary', 'connectivity', or 'type_group'.
+        width: Diagram width in pixels (default: 1920).
+        height: Diagram height in pixels (default: 1080).
+        save_path: Base file path. If splitting occurs, generates summary at this
+            path and details at '{stem}-detail-N{suffix}'.
+
+    Returns:
+        dict with split results: diagram count, file paths, density info.
+    """
+    if diagram_type not in _GENERATORS:
+        return {
+            "success": False,
+            "error": f"Unknown diagram type '{diagram_type}'. Use list_diagram_types to see options.",
+        }
+
+    w = width or Config.DIAGRAM_WIDTH
+    h = height or Config.DIAGRAM_HEIGHT
+
+    # Parse nodes and edges into a DiagramSpec
+    parsed_nodes = [
+        DiagramNode(
+            id=n.get("id", f"n{i}"),
+            label=n.get("label", f"Node {i}"),
+            type=n.get("type", "default"),
+            description=n.get("description", ""),
+            icon=n.get("icon", ""),
+        )
+        for i, n in enumerate(nodes)
+    ]
+
+    parsed_edges = []
+    if edges:
+        parsed_edges = [
+            DiagramEdge(
+                source=e.get("source", ""),
+                target=e.get("target", ""),
+                label=e.get("label", ""),
+                style=e.get("style", "solid"),
+            )
+            for e in edges
+        ]
+
+    spec = DiagramSpec(
+        title=title,
+        nodes=parsed_nodes,
+        edges=parsed_edges,
+        description=description,
+    )
+
+    # Run validation for density info
+    validation = _validate_diagram_impl(
+        nodes=nodes,
+        edges=edges,
+        width=w,
+        height=h,
+        diagram_type=diagram_type,
+    )
+
+    # Auto-split
+    try:
+        sub_specs = _auto_split_impl(spec, max_nodes_per_page, strategy)
+    except ValueError as exc:
+        return {"success": False, "error": str(exc)}
+
+    was_split = len(sub_specs) > 1
+
+    # Generate save paths
+    save_paths: list[str | None] = [None] * len(sub_specs)
+    if save_path:
+        save_paths = _split_save_paths_impl(save_path, len(sub_specs))
+
+    # Generate HTML for each sub-spec
+    generator = _GENERATORS[diagram_type]
+    diagrams: list[dict] = []
+    for idx, (sub_spec, sp) in enumerate(zip(sub_specs, save_paths)):
+        html = generator(sub_spec, width=w, height=h)
+        entry: dict = {
+            "index": idx,
+            "title": sub_spec.title,
+            "role": "summary" if (was_split and idx == 0) else ("detail" if was_split else "single"),
+            "node_count": len(sub_spec.nodes),
+            "edge_count": len(sub_spec.edges),
+        }
+
+        if sp:
+            path = Path(sp)
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(html, encoding="utf-8")
+                entry["file_path"] = str(path.resolve())
+            except PermissionError:
+                entry["html"] = html
+                entry["save_path_error"] = (
+                    f"Permission denied writing to '{sp}'. "
+                    f"Use the returned HTML content and save it with the Write tool."
+                )
+        else:
+            entry["html"] = html
+
+        diagrams.append(entry)
+
+    result = {
+        "success": True,
+        "was_split": was_split,
+        "strategy": strategy if was_split else None,
+        "diagram_count": len(sub_specs),
+        "diagrams": diagrams,
+        "original_node_count": len(parsed_nodes),
+        "original_edge_count": len(parsed_edges),
+        "max_nodes_per_page": max_nodes_per_page,
+    }
+
+    if "density" in validation:
+        result["density"] = validation["density"]
+
+    return result
 
 
 @mcp.tool()
