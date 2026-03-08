@@ -2,24 +2,27 @@
 
 from __future__ import annotations
 
-from diagrams.base import DiagramSpec, _css_reset, _esc, _node_color
+from diagrams.base import DiagramSpec, ThemeTokens, _css_reset, _esc, _node_color
 
 
 def generate_flowchart_diagram(
     spec: DiagramSpec,
     width: int = 1920,
     height: int = 1080,
+    theme: ThemeTokens | None = None,
 ) -> str:
     """Generate an HTML flowchart with connected process steps.
 
     Renders nodes as rounded rectangles connected by arrows,
     arranged in a top-down or left-right flow.
     """
-    css = _css_reset(width, height)
+    from diagrams.base import _DEFAULT_THEME
+    t = theme or _DEFAULT_THEME
+    css = _css_reset(width, height, t)
 
     nodes_html = []
     for i, node in enumerate(spec.nodes):
-        bg, border, text = _node_color(node.type)
+        bg, border, text = _node_color(node.type, t)
         shape_class = "flow-diamond" if node.type == "warning" else "flow-rect"
         desc_html = f'<div class="flow-desc">{_esc(node.description)}</div>' if node.description else ""
         nodes_html.append(f"""
@@ -88,7 +91,7 @@ def generate_flowchart_diagram(
 }}
 .flow-arrow {{
     font-size: 28px;
-    color: #64748b;
+    color: {t.arrow_color};
     line-height: 1;
     padding: 4px 0;
 }}

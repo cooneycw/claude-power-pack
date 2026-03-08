@@ -7,46 +7,36 @@ Supports all four C4 levels:
   L4 Code - classes, modules, interfaces within a component
 
 Node types map to C4 concepts:
-  person       → Actor / User (rounded pill with icon)
-  system       → External System (grey)
-  system-focus → System of Interest (blue)
-  container    → Container (green)
-  component    → Component (purple)
-  code         → Code element (amber)
+  person       -> Actor / User (rounded pill with icon)
+  system       -> External System (grey)
+  system-focus -> System of Interest (blue)
+  container    -> Container (green)
+  component    -> Component (purple)
+  code         -> Code element (amber)
 
 Use the ``description`` field for technology labels (e.g., "Python / FastAPI").
 """
 
 from __future__ import annotations
 
-from diagrams.base import DiagramSpec, _css_reset, _esc
+from diagrams.base import DiagramSpec, ThemeTokens, _css_reset, _esc, _DEFAULT_THEME
 
 
-# C4-specific color palette - all combos meet WCAG AA >= 4.5:1
-#
-# | Type         | BG      | Text    | Ratio |
-# |--------------|---------|---------|-------|
-# | person       | #1e40af | #ffffff | 8.72  |
-# | system       | #374151 | #f3f4f6 | 9.37  |
-# | system-focus | #1d4ed8 | #ffffff | 6.70  |
-# | container    | #15803d | #ffffff | 5.02  |
-# | component    | #7e22ce | #ffffff | 6.98  |
-# | code         | #92400e | #ffffff | 7.09  |
-_C4_COLORS = {
-    "person":       ("#1e40af", "#3b82f6", "#ffffff"),  # dark blue
-    "system":       ("#374151", "#6b7280", "#f3f4f6"),  # grey - external
-    "system-focus": ("#1d4ed8", "#60a5fa", "#ffffff"),  # blue - focus
-    "container":    ("#15803d", "#22c55e", "#ffffff"),  # green
-    "component":    ("#7e22ce", "#a855f7", "#ffffff"),  # purple
-    "code":         ("#92400e", "#f59e0b", "#ffffff"),  # amber - darkened bg, white text
-}
-
-_DEFAULT_COLOR = ("#334155", "#475569", "#e2e8f0")
-
-
-def _c4_color(node_type: str) -> tuple[str, str, str]:
+def _c4_color(
+    node_type: str,
+    theme: ThemeTokens | None = None,
+) -> tuple[str, str, str]:
     """Return (bg, border, text) for a C4 node type."""
-    return _C4_COLORS.get(node_type, _DEFAULT_COLOR)
+    t = theme or _DEFAULT_THEME
+    colors = {
+        "person": t.c4_person,
+        "system": t.c4_system,
+        "system-focus": t.c4_system_focus,
+        "container": t.c4_container,
+        "component": t.c4_component,
+        "code": t.c4_code,
+    }
+    return colors.get(node_type, t.c4_default)
 
 
 def _person_svg(fill: str = "#ffffff") -> str:
@@ -66,6 +56,7 @@ def generate_c4_diagram(
     spec: DiagramSpec,
     width: int = 1920,
     height: int = 1080,
+    theme: ThemeTokens | None = None,
 ) -> str:
     """Generate an HTML C4 model diagram.
 
@@ -74,21 +65,22 @@ def generate_c4_diagram(
     Boundary groupings are inferred from node types - nodes of the same
     ``type`` are visually grouped inside a dashed boundary box.
     """
-    css = _css_reset(width, height)
+    t = theme or _DEFAULT_THEME
+    css = _css_reset(width, height, t)
 
-    # ── group nodes by type for boundary rendering ──────────────────
+    # -- group nodes by type for boundary rendering --
     type_order = ["person", "system-focus", "container", "component", "code", "system"]
     groups: dict[str, list] = {}
     for node in spec.nodes:
         groups.setdefault(node.type, []).append(node)
 
-    # ── build node HTML ─────────────────────────────────────────────
+    # -- build node HTML --
     nodes_by_id: dict[str, int] = {}
     all_nodes_html = []
 
     for idx, node in enumerate(spec.nodes):
         nodes_by_id[node.id] = idx
-        bg, border, text = _c4_color(node.type)
+        bg, border, text = _c4_color(node.type, t)
         is_person = node.type == "person"
 
         icon_html = _person_svg(text) if is_person else ""
@@ -109,8 +101,7 @@ def generate_c4_diagram(
         </div>
         """)
 
-    # ── build boundary wrappers ─────────────────────────────────────
-    # Group nodes into boundary sections for visual clarity
+    # -- build boundary wrappers --
     boundary_labels = {
         "person": "Actors",
         "system": "External Systems",
@@ -123,10 +114,10 @@ def generate_c4_diagram(
     sections_html = []
     rendered_ids: set[str] = set()
 
-    for t in type_order:
-        if t not in groups:
+    for tp in type_order:
+        if tp not in groups:
             continue
-        g_nodes = groups[t]
+        g_nodes = groups[tp]
         if not g_nodes:
             continue
 
@@ -138,11 +129,10 @@ def generate_c4_diagram(
             if node.id in node_ids
         )
 
-        _, border, _ = _c4_color(t)
-        label = boundary_labels.get(t, t.title())
+        _, border, _ = _c4_color(tp, t)
+        label = boundary_labels.get(tp, tp.title())
 
-        if t in ("person", "system"):
-            # No boundary box for external actors/systems
+        if tp in ("person", "system"):
             sections_html.append(f"""
             <div class="c4-section c4-section-open">
                 <div class="c4-section-label" style="color:{border}">{label}</div>
@@ -169,7 +159,7 @@ def generate_c4_diagram(
         </div>
         """)
 
-    # ── build edge labels overlay ───────────────────────────────────
+    # -- build edge labels overlay --
     edge_labels_html = []
     for edge in spec.edges:
         dash = ""
@@ -238,7 +228,7 @@ def generate_c4_diagram(
 }}
 .c4-section-bounded {{
     border: 2px dashed;
-    background: rgba(255,255,255,0.03);
+    background: {t.boundary_bg};
 }}
 .c4-section-open {{
     border: none;
@@ -282,7 +272,7 @@ def generate_c4_diagram(
     font-style: italic;
 }}
 .c4-edges-panel {{
-    background: rgba(255,255,255,0.04);
+    background: {t.panel_bg};
     border-radius: 8px;
     padding: 12px 20px;
     margin-top: 8px;
@@ -292,12 +282,12 @@ def generate_c4_diagram(
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 1.5px;
-    color: #64748b;
+    color: {t.text_tertiary};
     margin-bottom: 8px;
 }}
 .c4-edge {{
     font-size: 13px;
-    color: #94a3b8;
+    color: {t.text_secondary};
     padding: 3px 0;
     display: flex;
     align-items: center;
@@ -305,14 +295,14 @@ def generate_c4_diagram(
 }}
 .c4-edge-from, .c4-edge-to {{
     font-weight: 600;
-    color: #cbd5e1;
+    color: {t.edge_from_to_color};
 }}
 .c4-edge-arrow {{
-    color: #64748b;
+    color: {t.arrow_color};
     font-size: 16px;
 }}
 .c4-edge-label {{
-    color: #60a5fa;
+    color: {t.highlight_color};
     font-style: italic;
 }}
 </style>

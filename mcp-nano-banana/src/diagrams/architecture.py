@@ -2,25 +2,28 @@
 
 from __future__ import annotations
 
-from diagrams.base import DiagramSpec, _css_reset, _esc, _node_color
+from diagrams.base import DiagramSpec, ThemeTokens, _css_reset, _esc, _node_color
 
 
 def generate_architecture_diagram(
     spec: DiagramSpec,
     width: int = 1920,
     height: int = 1080,
+    theme: ThemeTokens | None = None,
 ) -> str:
     """Generate an HTML architecture diagram with layered components.
 
     Renders nodes as boxes arranged in a responsive grid layout with
     connection lines between related components.
     """
-    css = _css_reset(width, height)
+    from diagrams.base import _DEFAULT_THEME
+    t = theme or _DEFAULT_THEME
+    css = _css_reset(width, height, t)
 
     # Build node HTML
     nodes_html = []
     for i, node in enumerate(spec.nodes):
-        bg, border, text = _node_color(node.type)
+        bg, border, text = _node_color(node.type, t)
         icon_html = f'<div class="node-icon">{_esc(node.icon)}</div>' if node.icon else ""
         desc_html = f'<div class="node-desc">{_esc(node.description)}</div>' if node.description else ""
         nodes_html.append(f"""
@@ -39,7 +42,7 @@ def generate_architecture_diagram(
     edges_svg = ""
     if spec.edges:
         edges_svg = '<svg class="edges-layer" width="100%" height="100%">'
-        edges_svg += '<defs><marker id="arrowhead" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#64748b"/></marker></defs>'
+        edges_svg += f'<defs><marker id="arrowhead" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="{t.arrow_color}"/></marker></defs>'
         edges_svg += "</svg>"
 
     subtitle = _esc(spec.description) if spec.description else "System Architecture"

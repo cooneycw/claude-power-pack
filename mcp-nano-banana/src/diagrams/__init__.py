@@ -7,7 +7,15 @@ from diagrams.sequence import generate_sequence_diagram
 from diagrams.orgchart import generate_orgchart_diagram
 from diagrams.timeline import generate_timeline_diagram
 from diagrams.mindmap import generate_mindmap_diagram
-from diagrams.base import DIAGRAM_TYPES, DiagramSpec, DiagramNode, DiagramEdge
+from diagrams.base import (
+    DIAGRAM_TYPES,
+    DiagramSpec,
+    DiagramNode,
+    DiagramEdge,
+    ThemeTokens,
+    THEMES,
+    get_theme,
+)
 from diagrams.validate import validate_diagram, score_diagram_density
 
 __all__ = [
@@ -24,4 +32,7 @@ __all__ = [
     "DiagramSpec",
     "DiagramNode",
     "DiagramEdge",
+    "ThemeTokens",
+    "THEMES",
+    "get_theme",
 ]

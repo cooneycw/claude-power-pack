@@ -2,19 +2,22 @@
 
 from __future__ import annotations
 
-from diagrams.base import DiagramSpec, _css_reset, _esc, _node_color
+from diagrams.base import DiagramSpec, ThemeTokens, _css_reset, _esc, _node_color
 
 
 def generate_sequence_diagram(
     spec: DiagramSpec,
     width: int = 1920,
     height: int = 1080,
+    theme: ThemeTokens | None = None,
 ) -> str:
     """Generate an HTML sequence diagram showing interactions between participants.
 
     Nodes are participants (columns), edges are messages (rows).
     """
-    css = _css_reset(width, height)
+    from diagrams.base import _DEFAULT_THEME
+    t = theme or _DEFAULT_THEME
+    css = _css_reset(width, height, t)
 
     participants = spec.nodes
     messages = spec.edges
@@ -28,7 +31,7 @@ def generate_sequence_diagram(
     # Build participant headers
     headers_html = []
     for i, p in enumerate(participants):
-        bg, border, text = _node_color(p.type)
+        bg, border, text = _node_color(p.type, t)
         headers_html.append(f"""
         <div class="seq-participant" style="
             width: {col_width}px;
@@ -48,7 +51,7 @@ def generate_sequence_diagram(
     lifelines_svg = ""
     for i in range(num_participants):
         x = 60 + i * lifeline_gap + lifeline_gap // 2
-        lifelines_svg += f'<line x1="{x}" y1="{lifeline_start_y}" x2="{x}" y2="{lifeline_end_y}" stroke="#475569" stroke-width="2" stroke-dasharray="6,4"/>'
+        lifelines_svg += f'<line x1="{x}" y1="{lifeline_start_y}" x2="{x}" y2="{lifeline_end_y}" stroke="{t.lifeline_color}" stroke-width="2" stroke-dasharray="6,4"/>'
 
     # Build messages
     messages_svg = ""
@@ -66,15 +69,15 @@ def generate_sequence_diagram(
 
         # Arrow
         if x1 != x2:
-            messages_svg += f'<line x1="{x1}" y1="{msg_y}" x2="{x2}" y2="{msg_y}" stroke="#60a5fa" stroke-width="2" marker-end="url(#seq-arrow)"/>'
+            messages_svg += f'<line x1="{x1}" y1="{msg_y}" x2="{x2}" y2="{msg_y}" stroke="{t.highlight_color}" stroke-width="2" marker-end="url(#seq-arrow)"/>'
         else:
             # Self-message (loop)
-            messages_svg += f'<path d="M {x1} {msg_y} C {x1 + 60} {msg_y - 15}, {x1 + 60} {msg_y + 15}, {x1} {msg_y + 20}" stroke="#60a5fa" stroke-width="2" fill="none" marker-end="url(#seq-arrow)"/>'
+            messages_svg += f'<path d="M {x1} {msg_y} C {x1 + 60} {msg_y - 15}, {x1 + 60} {msg_y + 15}, {x1} {msg_y + 20}" stroke="{t.highlight_color}" stroke-width="2" fill="none" marker-end="url(#seq-arrow)"/>'
 
         # Label
         label_x = (x1 + x2) // 2
         label_y = msg_y - 8
-        messages_svg += f'<text x="{label_x}" y="{label_y}" text-anchor="middle" fill="#e2e8f0" font-size="13" font-family="Segoe UI, system-ui, sans-serif">{_esc(edge.label)}</text>'
+        messages_svg += f'<text x="{label_x}" y="{label_y}" text-anchor="middle" fill="{t.text_body}" font-size="13" font-family="Segoe UI, system-ui, sans-serif">{_esc(edge.label)}</text>'
 
         msg_y += msg_step
 
@@ -133,7 +136,7 @@ def generate_sequence_diagram(
             <svg width="100%" height="100%" viewBox="0 0 {width - 80} {height - 200}">
                 <defs>
                     <marker id="seq-arrow" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
-                        <polygon points="0 0, 10 3.5, 0 7" fill="#60a5fa"/>
+                        <polygon points="0 0, 10 3.5, 0 7" fill="{t.highlight_color}"/>
                     </marker>
                 </defs>
                 {lifelines_svg}

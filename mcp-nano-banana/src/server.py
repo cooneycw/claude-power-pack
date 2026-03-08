@@ -23,6 +23,8 @@ from diagrams import (
     DiagramSpec,
     DiagramNode,
     DiagramEdge,
+    THEMES,
+    get_theme,
     generate_architecture_diagram,
     generate_c4_diagram,
     generate_flowchart_diagram,
@@ -87,6 +89,7 @@ async def list_diagram_types() -> dict:
             "height": Config.DIAGRAM_HEIGHT,
         },
         "output_formats": ["html", "pptx"],
+        "available_themes": list(THEMES.keys()),
     }
 
 
@@ -100,6 +103,9 @@ async def generate_diagram(
     width: Optional[int] = None,
     height: Optional[int] = None,
     save_path: Optional[str] = None,
+    theme_id: str = "c4-default-dark-v1",
+    theme_tokens: Optional[dict] = None,
+    diagram_set_id: Optional[str] = None,
 ) -> dict:
     """Generate an HTML diagram at presentation quality (1920x1080).
 
@@ -124,6 +130,12 @@ async def generate_diagram(
         width: Diagram width in pixels (default: 1920).
         height: Diagram height in pixels (default: 1080).
         save_path: Optional file path to save the HTML. If not provided, returns HTML as string.
+        theme_id: Named theme for consistent colors across diagrams. Default: "c4-default-dark-v1".
+        theme_tokens: Optional dict of token overrides to customize the named theme.
+            Keys match ThemeTokens fields (e.g. background_primary, node_primary, c4_person).
+            Node color fields accept [bg, border, text] lists.
+        diagram_set_id: Optional identifier to group related diagrams (e.g. all L1-L4 C4 diagrams).
+            Returned in metadata for tracking; ensures grouped diagrams share the same theme.
 
     Returns:
         dict with html content, file path (if saved), and metadata.
@@ -132,6 +144,15 @@ async def generate_diagram(
         return {
             "success": False,
             "error": f"Unknown diagram type '{diagram_type}'. Use list_diagram_types to see options.",
+        }
+
+    # Resolve theme
+    try:
+        theme = get_theme(theme_id, overrides=theme_tokens)
+    except ValueError as exc:
+        return {
+            "success": False,
+            "error": str(exc),
         }
 
     w = width or Config.DIAGRAM_WIDTH
@@ -170,7 +191,7 @@ async def generate_diagram(
 
     # Generate HTML
     generator = _GENERATORS[diagram_type]
-    html = generator(spec, width=w, height=h)
+    html = generator(spec, width=w, height=h, theme=theme)
 
     # Run validation and include warnings
     validation = _validate_diagram_impl(
@@ -179,6 +200,7 @@ async def generate_diagram(
         width=w,
         height=h,
         diagram_type=diagram_type,
+        theme_id=theme_id,
     )
     warnings = [
         iss for iss in validation.get("issues", [])
@@ -190,7 +212,11 @@ async def generate_diagram(
         "dimensions": {"width": w, "height": h},
         "node_count": len(parsed_nodes),
         "edge_count": len(parsed_edges),
+        "theme_id": theme_id,
     }
+
+    if diagram_set_id:
+        result["diagram_set_id"] = diagram_set_id
 
     # Include density scoring metadata
     if "density" in validation:
@@ -319,6 +345,7 @@ async def validate_diagram(
     width: int = 1920,
     height: int = 1080,
     diagram_type: str = "c4",
+    theme_id: str = "c4-default-dark-v1",
 ) -> dict:
     """Validate a diagram spec for quality issues before or after generation.
 
@@ -340,6 +367,7 @@ async def validate_diagram(
         width: Viewport width in pixels (default: 1920).
         height: Viewport height in pixels (default: 1080).
         diagram_type: Diagram type for palette-specific checks (default: c4).
+        theme_id: Named theme for palette-specific contrast checks (default: c4-default-dark-v1).
 
     Returns:
         dict with passed (bool), issue_count, high_severity, issues list,
@@ -351,6 +379,7 @@ async def validate_diagram(
         width=width,
         height=height,
         diagram_type=diagram_type,
+        theme_id=theme_id,
     )
 
 
