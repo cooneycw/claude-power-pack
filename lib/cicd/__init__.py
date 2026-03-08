@@ -52,7 +52,10 @@ from .models import (
     SmokeTestResult,
 )
 from .pipeline import generate_github_actions, generate_pipeline, generate_woodpecker
+from .runner import DeterministicRunner, RunResult, run_plan, resume_run
 from .smoke import run_smoke_tests
+from .state import RunState, StepRecord, StepStatus
+from .steps import ShellStep, StepDef, StepResult
 
 __all__ = [
     # Config
@@ -97,4 +100,15 @@ __all__ = [
     "PackageManager",
     "SmokeTestEntry",
     "SmokeTestResult",
+    # Runner
+    "DeterministicRunner",
+    "RunResult",
+    "run_plan",
+    "resume_run",
+    "RunState",
+    "StepRecord",
+    "StepStatus",
+    "ShellStep",
+    "StepDef",
+    "StepResult",
 ]

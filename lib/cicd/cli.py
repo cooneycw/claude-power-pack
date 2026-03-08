@@ -33,6 +33,7 @@ from .health import run_health_checks
 from .infrastructure import generate_discovery_script, generate_infra_pipeline, scaffold_infrastructure
 from .makefile import check_makefile
 from .pipeline import generate_pipeline
+from .runner import resume_run, run_plan, show_status
 from .smoke import run_smoke_tests
 
 
@@ -399,6 +400,32 @@ def cmd_infra_pipeline(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_run(args: argparse.Namespace) -> int:
+    """Execute a CI/CD plan deterministically."""
+    return run_plan(
+        plan_name=args.plan,
+        project_root=args.path,
+        json_output=not args.no_json,
+    )
+
+
+def cmd_resume(args: argparse.Namespace) -> int:
+    """Resume a failed CI/CD run."""
+    return resume_run(
+        run_id=args.run_id,
+        project_root=args.path,
+        json_output=not args.no_json,
+    )
+
+
+def cmd_status(args: argparse.Namespace) -> int:
+    """Show status of a CI/CD run."""
+    return show_status(
+        run_id=args.run_id,
+        project_root=args.path,
+    )
+
+
 def _add_common_args(parser: argparse.ArgumentParser) -> None:
     """Add common arguments to a parser."""
     parser.add_argument(
@@ -423,6 +450,50 @@ def create_parser() -> argparse.ArgumentParser:
     )
 
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
+
+    # 'run' subcommand
+    run_parser = subparsers.add_parser(
+        "run",
+        help="Execute a CI/CD plan deterministically",
+    )
+    _add_common_args(run_parser)
+    run_parser.add_argument(
+        "--plan",
+        required=True,
+        help="Plan name to execute (e.g., finish, check, deploy)",
+    )
+    run_parser.add_argument(
+        "--no-json",
+        action="store_true",
+        help="Disable JSON output (human-readable only)",
+    )
+
+    # 'resume' subcommand
+    resume_parser = subparsers.add_parser(
+        "resume",
+        help="Resume a failed CI/CD run from the last successful step",
+    )
+    _add_common_args(resume_parser)
+    resume_parser.add_argument(
+        "run_id",
+        help="Run ID to resume (from previous run output)",
+    )
+    resume_parser.add_argument(
+        "--no-json",
+        action="store_true",
+        help="Disable JSON output",
+    )
+
+    # 'status' subcommand
+    status_parser = subparsers.add_parser(
+        "status",
+        help="Show status of a CI/CD run",
+    )
+    _add_common_args(status_parser)
+    status_parser.add_argument(
+        "run_id",
+        help="Run ID to check",
+    )
 
     # 'detect' subcommand
     detect_parser = subparsers.add_parser(
@@ -567,6 +638,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     commands = {
+        "run": cmd_run,
+        "resume": cmd_resume,
+        "status": cmd_status,
         "detect": cmd_detect,
         "check": cmd_check,
         "health": cmd_health,
