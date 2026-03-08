@@ -1,0 +1,78 @@
+# .claude/cicd_tasks.yml - Task manifest for CI/CD runner
+#
+# Defines steps (what to run) and plans (which steps to run together).
+# The runner loads this manifest when present; falls back to built-in defaults otherwise.
+#
+# Reference:
+#   steps.<name>.command     - Shell command to execute
+#   steps.<name>.timeout     - Max seconds (default: 600)
+#   steps.<name>.max_attempts - Retry count (default: 1)
+#   steps.<name>.idempotent  - Safe to retry? (default: true)
+#   steps.<name>.skip_if     - Shell expression; skip if exits 0
+#   steps.<name>.artifacts   - Output files to preserve
+#   steps.<name>.rollback    - Command to run on failure
+#   plans.<name>.steps       - Ordered list of step names
+#
+
+version: "1"
+
+steps:
+  lint:
+    command: make lint
+    description: Run ruff linter
+    timeout: 300
+    skip_if: '! grep -q "^lint:" Makefile 2>/dev/null'
+
+  test:
+    command: make test
+    description: Run pytest suite
+    timeout: 600
+    skip_if: '! grep -q "^test:" Makefile 2>/dev/null'
+
+  typecheck:
+    command: make typecheck
+    description: Run mypy type checker
+    timeout: 300
+    skip_if: '! grep -q "^typecheck:" Makefile 2>/dev/null'
+
+  security_scan:
+    command: >-
+      PYTHONPATH="${HOME}/Projects/claude-power-pack/lib"
+      python3 -m lib.security gate flow_finish
+    description: Run security quick scan
+    timeout: 120
+    skip_if: "! python3 -c 'import lib.security' 2>/dev/null"
+
+  deploy_security_scan:
+    command: >-
+      PYTHONPATH="${HOME}/Projects/claude-power-pack/lib"
+      python3 -m lib.security gate flow_deploy
+    description: Run security scan before deploy
+    timeout: 120
+    skip_if: "! python3 -c 'import lib.security' 2>/dev/null"
+
+  deploy:
+    command: make deploy
+    description: Run deployment
+    timeout: 1800
+    idempotent: false
+
+plans:
+  finish:
+    description: Quality gates for /flow:finish
+    steps:
+      - lint
+      - test
+      - security_scan
+
+  check:
+    description: Quick quality check for /flow:check
+    steps:
+      - lint
+      - test
+
+  deploy:
+    description: Deployment pipeline for /flow:deploy
+    steps:
+      - deploy_security_scan
+      - deploy

@@ -85,7 +85,7 @@ class DeterministicRunner:
 
         # Load step definitions
         if step_defs is None:
-            step_defs = get_plan_steps(plan_name)
+            step_defs = get_plan_steps(plan_name, project_root=str(self.project_root))
 
         # Create new run state
         step_ids = [s.id for s in step_defs]
@@ -118,7 +118,7 @@ class DeterministicRunner:
         state.status = "running"
 
         # Load step definitions for the plan
-        step_defs = get_plan_steps(state.plan_name)
+        step_defs = get_plan_steps(state.plan_name, project_root=str(self.project_root))
 
         return self._execute(state, step_defs)
 
@@ -130,7 +130,7 @@ class DeterministicRunner:
     def _execute(self, state: RunState, step_defs: Optional[list[StepDef]] = None) -> RunResult:
         """Execute steps from the current state index."""
         if step_defs is None:
-            step_defs = get_plan_steps(state.plan_name)
+            step_defs = get_plan_steps(state.plan_name, project_root=str(self.project_root))
 
         context = {
             "project_root": str(self.project_root),
