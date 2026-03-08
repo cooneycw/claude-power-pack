@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from diagrams.base import DiagramSpec, _css_reset, _node_color
+from diagrams.base import DiagramSpec, _css_reset, _esc, _node_color
 
 
 def generate_orgchart_diagram(
@@ -36,7 +36,7 @@ def generate_orgchart_diagram(
         if not node:
             return ""
         bg, border, text = _node_color(node.type)
-        desc_html = f'<div class="org-desc">{node.description}</div>' if node.description else ""
+        desc_html = f'<div class="org-desc">{_esc(node.description)}</div>' if node.description else ""
 
         kids = children_map.get(node_id, [])
         kids_html = ""
@@ -47,7 +47,7 @@ def generate_orgchart_diagram(
         return f"""
         <div class="org-branch">
             <div class="org-card" style="background: {bg}; border-color: {border}; color: {text};">
-                <div class="org-name">{node.label}</div>
+                <div class="org-name">{_esc(node.label)}</div>
                 {desc_html}
             </div>
             {kids_html}
@@ -55,14 +55,14 @@ def generate_orgchart_diagram(
         """
 
     tree_html = "".join(render_node(r) for r in roots)
-    subtitle = spec.description or "Organization Chart"
+    subtitle = _esc(spec.description) if spec.description else "Organization Chart"
 
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width={width}">
-<title>{spec.title}</title>
+<title>{_esc(spec.title)}</title>
 <style>
 {css}
 .org-tree {{
@@ -116,7 +116,7 @@ def generate_orgchart_diagram(
 </head>
 <body>
 <div class="diagram-container">
-    <div class="diagram-title">{spec.title}</div>
+    <div class="diagram-title">{_esc(spec.title)}</div>
     <div class="diagram-subtitle">{subtitle}</div>
     <div class="diagram-body">
         <div class="org-tree">

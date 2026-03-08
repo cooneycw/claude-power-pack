@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from diagrams.base import DiagramSpec, _css_reset, _node_color
+from diagrams.base import DiagramSpec, _css_reset, _esc, _node_color
 
 
 def generate_architecture_diagram(
@@ -21,16 +21,16 @@ def generate_architecture_diagram(
     nodes_html = []
     for i, node in enumerate(spec.nodes):
         bg, border, text = _node_color(node.type)
-        icon_html = f'<div class="node-icon">{node.icon}</div>' if node.icon else ""
-        desc_html = f'<div class="node-desc">{node.description}</div>' if node.description else ""
+        icon_html = f'<div class="node-icon">{_esc(node.icon)}</div>' if node.icon else ""
+        desc_html = f'<div class="node-desc">{_esc(node.description)}</div>' if node.description else ""
         nodes_html.append(f"""
-        <div class="arch-node" id="node-{node.id}" style="
+        <div class="arch-node" id="node-{_esc(node.id)}" style="
             background: {bg};
             border: 2px solid {border};
             color: {text};
         ">
             {icon_html}
-            <div class="node-label">{node.label}</div>
+            <div class="node-label">{_esc(node.label)}</div>
             {desc_html}
         </div>
         """)
@@ -42,14 +42,14 @@ def generate_architecture_diagram(
         edges_svg += '<defs><marker id="arrowhead" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#64748b"/></marker></defs>'
         edges_svg += "</svg>"
 
-    subtitle = spec.description or "System Architecture"
+    subtitle = _esc(spec.description) if spec.description else "System Architecture"
 
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width={width}">
-<title>{spec.title}</title>
+<title>{_esc(spec.title)}</title>
 <style>
 {css}
 .arch-grid {{
@@ -97,7 +97,7 @@ def generate_architecture_diagram(
 </head>
 <body>
 <div class="diagram-container">
-    <div class="diagram-title">{spec.title}</div>
+    <div class="diagram-title">{_esc(spec.title)}</div>
     <div class="diagram-subtitle">{subtitle}</div>
     <div class="diagram-body">
         {edges_svg}

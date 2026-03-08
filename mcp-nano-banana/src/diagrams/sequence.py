@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from diagrams.base import DiagramSpec, _css_reset, _node_color
+from diagrams.base import DiagramSpec, _css_reset, _esc, _node_color
 
 
 def generate_sequence_diagram(
@@ -36,7 +36,7 @@ def generate_sequence_diagram(
             border-color: {border};
             color: {text};
         ">
-            <div class="seq-name">{p.label}</div>
+            <div class="seq-name">{_esc(p.label)}</div>
         </div>
         """)
 
@@ -74,18 +74,18 @@ def generate_sequence_diagram(
         # Label
         label_x = (x1 + x2) // 2
         label_y = msg_y - 8
-        messages_svg += f'<text x="{label_x}" y="{label_y}" text-anchor="middle" fill="#e2e8f0" font-size="13" font-family="Segoe UI, system-ui, sans-serif">{edge.label}</text>'
+        messages_svg += f'<text x="{label_x}" y="{label_y}" text-anchor="middle" fill="#e2e8f0" font-size="13" font-family="Segoe UI, system-ui, sans-serif">{_esc(edge.label)}</text>'
 
         msg_y += msg_step
 
-    subtitle = spec.description or "Sequence Diagram"
+    subtitle = _esc(spec.description) if spec.description else "Sequence Diagram"
 
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width={width}">
-<title>{spec.title}</title>
+<title>{_esc(spec.title)}</title>
 <style>
 {css}
 .seq-header {{
@@ -123,7 +123,7 @@ def generate_sequence_diagram(
 </head>
 <body>
 <div class="diagram-container">
-    <div class="diagram-title">{spec.title}</div>
+    <div class="diagram-title">{_esc(spec.title)}</div>
     <div class="diagram-subtitle">{subtitle}</div>
     <div class="diagram-body" style="flex-direction: column; align-items: stretch;">
         <div class="seq-header">

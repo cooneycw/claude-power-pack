@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 
-from diagrams.base import DiagramSpec, _css_reset, _node_color
+from diagrams.base import DiagramSpec, _css_reset, _esc, _node_color
 
 
 def generate_mindmap_diagram(
@@ -35,7 +35,7 @@ def generate_mindmap_diagram(
         left: {cx - 80}px; top: {cy - 40}px;
         background: {bg}; border-color: {border}; color: {text};
     ">
-        <div class="mm-label">{center.label}</div>
+        <div class="mm-label">{_esc(center.label)}</div>
     </div>
     """
 
@@ -47,14 +47,14 @@ def generate_mindmap_diagram(
         nx = int(cx + radius * math.cos(angle))
         ny = int(cy + radius * math.sin(angle))
         bg, border, text = _node_color(node.type)
-        desc_html = f'<div class="mm-desc">{node.description}</div>' if node.description else ""
+        desc_html = f'<div class="mm-desc">{_esc(node.description)}</div>' if node.description else ""
 
         branch_html.append(f"""
         <div class="mm-branch" style="
             left: {nx - 70}px; top: {ny - 30}px;
             background: {bg}; border-color: {border}; color: {text};
         ">
-            <div class="mm-label">{node.label}</div>
+            <div class="mm-label">{_esc(node.label)}</div>
             {desc_html}
         </div>
         """)
@@ -64,14 +64,14 @@ def generate_mindmap_diagram(
             f'stroke="{border}" stroke-width="2" opacity="0.6"/>'
         )
 
-    subtitle = spec.description or "Concept Map"
+    subtitle = _esc(spec.description) if spec.description else "Concept Map"
 
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width={width}">
-<title>{spec.title}</title>
+<title>{_esc(spec.title)}</title>
 <style>
 {css}
 .mm-canvas {{
@@ -120,7 +120,7 @@ def generate_mindmap_diagram(
 </head>
 <body>
 <div class="diagram-container">
-    <div class="diagram-title">{spec.title}</div>
+    <div class="diagram-title">{_esc(spec.title)}</div>
     <div class="diagram-subtitle">{subtitle}</div>
     <div class="diagram-body">
         <div class="mm-canvas">
@@ -138,10 +138,10 @@ def generate_mindmap_diagram(
 
 def _empty_diagram(title: str, width: int, height: int, css: str) -> str:
     return f"""<!DOCTYPE html>
-<html lang="en"><head><meta charset="UTF-8"><title>{title}</title>
+<html lang="en"><head><meta charset="UTF-8"><title>{_esc(title)}</title>
 <style>{css}</style></head>
 <body><div class="diagram-container">
-<div class="diagram-title">{title}</div>
+<div class="diagram-title">{_esc(title)}</div>
 <div class="diagram-subtitle">No nodes provided</div>
 <div class="diagram-body"><p style="color:#94a3b8;">Add nodes to generate a mind map.</p></div>
 </div></body></html>"""

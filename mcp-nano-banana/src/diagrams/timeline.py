@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from diagrams.base import DiagramSpec, _css_reset, _node_color
+from diagrams.base import DiagramSpec, _css_reset, _esc, _node_color
 
 
 def generate_timeline_diagram(
@@ -20,26 +20,26 @@ def generate_timeline_diagram(
     items_html = []
     for i, node in enumerate(milestones):
         bg, border, text = _node_color(node.type)
-        desc_html = f'<div class="tl-desc">{node.description}</div>' if node.description else ""
+        desc_html = f'<div class="tl-desc">{_esc(node.description)}</div>' if node.description else ""
         side = "top" if i % 2 == 0 else "bottom"
         items_html.append(f"""
         <div class="tl-item tl-{side}">
             <div class="tl-dot" style="background: {bg}; border-color: {border};"></div>
             <div class="tl-card" style="background: {bg}; border-color: {border}; color: {text};">
-                <div class="tl-label">{node.label}</div>
+                <div class="tl-label">{_esc(node.label)}</div>
                 {desc_html}
             </div>
         </div>
         """)
 
-    subtitle = spec.description or "Project Timeline"
+    subtitle = _esc(spec.description) if spec.description else "Project Timeline"
 
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width={width}">
-<title>{spec.title}</title>
+<title>{_esc(spec.title)}</title>
 <style>
 {css}
 .tl-track {{
@@ -105,7 +105,7 @@ def generate_timeline_diagram(
 </head>
 <body>
 <div class="diagram-container">
-    <div class="diagram-title">{spec.title}</div>
+    <div class="diagram-title">{_esc(spec.title)}</div>
     <div class="diagram-subtitle">{subtitle}</div>
     <div class="diagram-body">
         <div class="tl-track">
