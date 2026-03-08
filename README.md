@@ -1,6 +1,6 @@
 # Claude Power Pack
 
-**v5.1.0** - A productivity toolkit for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) that adds workflow automation, MCP servers, security scanning, secrets management, and CI/CD integration.
+**v5.2.0** - A productivity toolkit for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) that adds workflow automation, MCP servers, security scanning, secrets management, and CI/CD integration.
 
 ## What It Does
 
@@ -63,7 +63,7 @@ claude-power-pack/
   woodpecker/           Woodpecker CI server + agent deployment configs
   templates/            Makefile, workflow, and container templates
   scripts/              Shell utilities
-  tests/                211 unit tests
+  tests/                496 unit tests
   docker-compose.yml    MCP server orchestration
   .woodpecker.yml       CI pipeline (lint, test, typecheck, deploy)
   Makefile              Build interface for all operations
@@ -100,7 +100,7 @@ API keys are read from a root `.env` file (gitignored). For production, use AWS 
 
 Woodpecker CI runs on every push and PR via a self-hosted agent:
 
-- **Validate:** lint (ruff) + test (pytest, 211 tests) + typecheck (mypy) in a single consolidated step
+- **Validate:** lint (ruff) + test (pytest, 496 tests) + typecheck (mypy) in a single consolidated step
 - **Docker builds:** Conditional per-server dry-run builds when `mcp-*/` files change
 - **Auto-deploy:** On push to main, changed MCP servers are rebuilt and health-checked via `docker compose --wait`
 - **Disk cleanup:** Dangling images pruned after every deploy
@@ -109,6 +109,19 @@ Woodpecker CI runs on every push and PR via a self-hosted agent:
 Architecture: Woodpecker server on a dedicated VM, agent on the dev workstation, connected via gRPC over Tailscale. Web UI at `woodpecker.essent-ai.com` via Cloudflare tunnel.
 
 ## Changelog
+
+### v5.2.0 (2026-03-08)
+
+- **C4 diagram QA framework** - `validate_diagram` MCP tool with density scoring, XSS sanitization, WCAG AA contrast checks
+- **Multi-diagram C4 generation** - L3 for all containers, L4 for top 3 components per container
+- **Density-aware splitting** - `split_diagram` MCP tool auto-splits large diagrams into summary + detail views
+- **QA gating in skills** - c4 and pptx skills check warnings after every `generate_diagram`, retry on edge errors, split on overflow
+- **Shared theme tokens** - `ThemeTokens` contract for consistent colors across all diagram types
+- **c4-manifest.json** - Tracks all generated diagrams with parent-child relationships
+- **index.html** - Hierarchical navigation page for all C4 diagrams
+- **XSS fix** - HTML-escape all node labels in diagram output
+- **WCAG AA fix** - All color palettes meet 4.5:1 minimum contrast ratio
+- **496 tests** - Comprehensive test coverage for validation, density, splitting, contrast, and C4 integration
 
 ### v5.1.0 (2026-03-07)
 

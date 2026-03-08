@@ -9,7 +9,9 @@ Best-in-class diagram generation MCP server for Claude Code. Generates professio
 - **Presentation-quality**: All diagrams render at 1920x1080 (16:9 widescreen)
 - **PowerPoint builder**: Create PPTX files with embedded diagrams, dark theme
 - **Self-contained HTML**: No external dependencies, works offline
-- **MCP integration**: 4 tools for diagram generation and PPTX creation
+- **QA validation**: `validate_diagram` checks density, edges, orphans, contrast, labels
+- **Auto-splitting**: `split_diagram` produces summary + detail views for large diagrams
+- **MCP integration**: 7 tools for diagram generation, validation, splitting, and PPTX creation
 
 ## Quick Start
 
@@ -27,8 +29,9 @@ claude mcp add nano-banana --transport sse --url http://127.0.0.1:8084/sse
 | Tool | Purpose |
 |------|---------|
 | `list_diagram_types` | List available diagram types, themes, and descriptions |
-| `generate_diagram` | Generate an HTML diagram with theme support |
-| `validate_diagram` | Validate diagram spec for quality issues (contrast, density, etc.) |
+| `generate_diagram` | Generate an HTML diagram with theme support (includes inline validation + density scoring) |
+| `validate_diagram` | Standalone QA checks: duplicate IDs, edge validity, viewport fit, orphan nodes, WCAG contrast, long labels |
+| `split_diagram` | Auto-split large diagrams into summary + detail sub-diagrams (3 strategies: `c4_boundary`, `connectivity`, `type_group`) |
 | `create_pptx` | Create a PowerPoint file with slides and embedded images |
 | `validate_pptx_slides` | Validate slide definitions before creating a PPTX |
 | `diagram_to_pptx` | One-step: generate diagram + create PPTX |
@@ -104,6 +107,29 @@ override individual tokens.
 | `container` | Green | Containers |
 | `component` | Purple | Components |
 | `code` | Amber | Code elements |
+
+## QA Checks Reference
+
+`validate_diagram` and `generate_diagram` (inline) run these checks:
+
+| Check | Severity | Condition |
+|-------|----------|-----------|
+| `duplicate_ids` | HIGH | Two or more nodes share the same ID |
+| `edge_validity` | HIGH | Edge references a node ID that does not exist |
+| `viewport_fit` | HIGH | Node density > 1.0 (overflow/critical) |
+| `readability` | MEDIUM | Node density 0.8-1.0 (near capacity) |
+| `orphan_nodes` | MEDIUM | Node has no edges (except person/system types) |
+| `contrast` | MEDIUM | Color contrast < 4.5:1 (WCAG AA failure) |
+| `long_labels` | LOW | Label > 40 chars or description > 80 chars |
+
+### Density Thresholds (at 1920x1080)
+
+| Density | Status | Action |
+|---------|--------|--------|
+| <= 0.8 | ok | No action needed |
+| 0.8-1.0 | warning | Consider tighter layout |
+| 1.0-1.5 | overflow | Use `split_diagram` for summary + detail views |
+| > 1.5 | critical | Must split - diagram will be unreadable |
 
 ## Requirements
 

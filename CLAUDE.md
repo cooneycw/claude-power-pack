@@ -24,7 +24,7 @@ Core components and their locations:
 - `.specify/` - Spec-Driven Development (specs, plans, tasks, templates)
 - `mcp-second-opinion/` - Code review MCP server (port 8080)
 - `mcp-playwright-persistent/` - Browser automation MCP server (port 8081, 29 tools)
-- `mcp-nano-banana/` - Diagram generation + PowerPoint MCP server (port 8084)
+- `mcp-nano-banana/` - Diagram generation + PowerPoint MCP server (port 8084, 7 tools: `list_diagram_types`, `generate_diagram`, `validate_diagram`, `split_diagram`, `create_pptx`, `validate_pptx_slides`, `diagram_to_pptx`)
 - `extras/sequential-thinking/` - Optional: structured reasoning (stdio, npm)
 - `lib/creds/` - Secrets management (dotenv/AWS SM, FastAPI UI, audit logging)
 - `lib/security/` - Security scanning (native + external tools)
@@ -111,8 +111,8 @@ Docker containers read API keys from a root `.env` file (gitignored) via `env_fi
 - `/secrets:rotate KEY` - Rotate a secret
 
 ### Documentation
-- `/documentation:pptx [topic]` - Guided PowerPoint creation with diagrams
-- `/documentation:c4` - Generate C4 architecture diagrams (all 4 levels)
+- `/documentation:pptx [topic]` - Guided PowerPoint creation with diagrams (QA gating, Playwright session optimization)
+- `/documentation:c4` - Generate C4 architecture diagrams (all 4 levels, per-container L3, per-component L4, density-aware splitting, QA gating with retry, manifest + index)
 
 ### Evaluation
 - `/evaluate:issue` - 4-phase multi-model evaluation (divergence, reasoning, validation, spec output)
@@ -172,4 +172,4 @@ Tiered: dotenv-global (`~/.config/claude-power-pack/secrets/`) -> env-file -> AW
 
 ## Version
 
-Current version: 5.1.0
+Current version: 5.2.0
