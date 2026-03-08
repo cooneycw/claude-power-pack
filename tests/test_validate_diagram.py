@@ -150,19 +150,21 @@ class TestViewportFit:
 
 class TestReadability:
     def test_dense_warning(self):
-        nodes = _make_nodes(20)
-        edges = _make_chain_edges(20)
+        # Density ~0.86 (38/44 capacity) triggers warning
+        nodes = _make_nodes(38)
+        edges = _make_chain_edges(38)
         result = validate_diagram(nodes=nodes, edges=edges)
         read_issues = [iss for iss in result["issues"] if iss["check"] == "readability"]
         assert len(read_issues) >= 1
         assert read_issues[0]["severity"] == "medium"
 
     def test_overflow_warning(self):
-        nodes = _make_nodes(30)
-        edges = _make_chain_edges(30)
+        # Density ~1.14 (50/44 capacity) triggers viewport_fit overflow
+        nodes = _make_nodes(50)
+        edges = _make_chain_edges(50)
         result = validate_diagram(nodes=nodes, edges=edges)
-        read_issues = [iss for iss in result["issues"] if iss["check"] == "readability"]
-        assert len(read_issues) >= 1
+        fit_issues = [iss for iss in result["issues"] if iss["check"] == "viewport_fit"]
+        assert len(fit_issues) >= 1
 
     def test_small_diagram_no_warning(self):
         nodes = _make_nodes(10)

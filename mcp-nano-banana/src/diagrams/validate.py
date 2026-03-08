@@ -67,6 +67,53 @@ def _get_palette_colors(
     return _node_color(node_type)
 
 
+def score_diagram_density(
+    node_count: int,
+    edge_count: int,
+    width: int = 1920,
+    height: int = 1080,
+    avg_node_width: int = 200,
+    avg_node_height: int = 100,
+) -> dict:
+    """Score diagram density and suggest actions.
+
+    Returns a dict with density ratio, capacity, status, and suggestion.
+
+    Thresholds:
+        <= 0.8: ok - no action needed
+        0.8-1.0: warning - near capacity, suggest tighter layout
+        1.0-1.5: overflow - recommend splitting into sub-diagrams
+        > 1.5: critical - must split, diagram will be unreadable
+    """
+    usable_area = width * height * 0.65  # 35% reserved for headers, padding, edges panel
+    node_area = avg_node_width * avg_node_height * 1.5  # 1.5x for margins between nodes
+    capacity = int(usable_area / node_area) if node_area > 0 else 1
+
+    density = node_count / max(capacity, 1)
+
+    if density <= 0.8:
+        status = "ok"
+        suggestion = None
+    elif density <= 1.0:
+        status = "warning"
+        suggestion = "Near capacity - consider tighter layout or reducing labels"
+    elif density <= 1.5:
+        status = "overflow"
+        suggestion = "Consider splitting into summary + detail sub-diagrams"
+    else:
+        status = "critical"
+        suggestion = "Must split - diagram will be unreadable at this density"
+
+    return {
+        "density": round(density, 2),
+        "capacity": capacity,
+        "node_count": node_count,
+        "edge_count": edge_count,
+        "status": status,
+        "suggestion": suggestion,
+    }
+
+
 def validate_diagram(
     nodes: list[dict],
     edges: list[dict] | None = None,
@@ -83,13 +130,22 @@ def validate_diagram(
 
     Returns:
         dict with passed (bool), issue_count, high_severity,
-        issues (list of dicts), and suggestions (list of str).
+        issues (list of dicts), suggestions (list of str),
+        and density (dict with scoring metadata).
     """
     edges = edges or []
     issues: list[_ValidationIssue] = []
 
     node_ids = [n.get("id", f"n{i}") for i, n in enumerate(nodes)]
     node_id_set = set(node_ids)
+
+    # Compute density score up front for use in checks
+    density = score_diagram_density(
+        node_count=len(nodes),
+        edge_count=len(edges),
+        width=width,
+        height=height,
+    )
 
     # --- HIGH: duplicate_ids ---
     seen: set[str] = set()
@@ -122,35 +178,30 @@ def validate_diagram(
                 edge_index=i,
             ))
 
-    # --- HIGH: viewport_fit ---
-    avg_node_width = 200
-    avg_node_height = 100
+    # --- HIGH: viewport_fit (uses density scoring) ---
     node_count = len(nodes)
-    usable_area = width * height * 0.7
-    total_node_area = node_count * avg_node_width * avg_node_height
-    if total_node_area > usable_area:
+    if density["status"] in ("overflow", "critical"):
+        severity = "high"
         issues.append(_ValidationIssue(
             check="viewport_fit",
-            severity="high",
+            severity=severity,
             message=(
-                f"Estimated node area ({total_node_area:,}px^2) exceeds "
-                f"viewport capacity ({int(usable_area):,}px^2 at {width}x{height}). "
-                f"{node_count} nodes likely overflow the viewport."
+                f"Density {density['density']:.2f} ({density['status']}): "
+                f"{node_count} nodes exceed viewport capacity of ~{density['capacity']} "
+                f"at {width}x{height}. {density['suggestion']}"
             ),
         ))
 
-    # --- MEDIUM: readability ---
-    if node_count > 25:
+    # --- MEDIUM: readability (uses density scoring) ---
+    if density["status"] == "warning":
         issues.append(_ValidationIssue(
             check="readability",
             severity="medium",
-            message=f"Very high node count ({node_count}). Overflow risk - consider splitting.",
-        ))
-    elif node_count > 15:
-        issues.append(_ValidationIssue(
-            check="readability",
-            severity="medium",
-            message=f"Dense diagram ({node_count} nodes). May be hard to read.",
+            message=(
+                f"Density {density['density']:.2f} (warning): "
+                f"{node_count} nodes near capacity of ~{density['capacity']}. "
+                f"{density['suggestion']}"
+            ),
         ))
 
     # --- MEDIUM: orphan_nodes ---
@@ -263,4 +314,5 @@ def validate_diagram(
         "issues": issue_dicts,
         "suggestions": suggestions,
         "summary": summary,
+        "density": density,
     }
