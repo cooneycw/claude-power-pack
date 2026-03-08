@@ -3,53 +3,57 @@
 from diagrams.base import _contrast_ratio as base_contrast_ratio
 from diagrams.base import _node_color
 from diagrams.base import _relative_luminance as base_luminance
-from diagrams.c4 import _C4_COLORS, _DEFAULT_COLOR
+from diagrams.c4 import _c4_color
 from diagrams.validate import _contrast_ratio, _relative_luminance, validate_diagram
 
 WCAG_AA_MINIMUM = 4.5
+
+# C4 node types to test
+_C4_NODE_TYPES = ["person", "system", "system-focus", "container", "component", "code"]
 
 
 class TestC4PaletteContrast:
     """Verify all C4 palette color combinations meet WCAG AA 4.5:1 minimum."""
 
     def test_person_contrast(self):
-        bg, _border, text = _C4_COLORS["person"]
+        bg, _border, text = _c4_color("person")
         ratio = _contrast_ratio(text, bg)
         assert ratio >= WCAG_AA_MINIMUM, f"person: {ratio:.2f}:1 (need >= {WCAG_AA_MINIMUM})"
 
     def test_system_contrast(self):
-        bg, _border, text = _C4_COLORS["system"]
+        bg, _border, text = _c4_color("system")
         ratio = _contrast_ratio(text, bg)
         assert ratio >= WCAG_AA_MINIMUM, f"system: {ratio:.2f}:1"
 
     def test_system_focus_contrast(self):
-        bg, _border, text = _C4_COLORS["system-focus"]
+        bg, _border, text = _c4_color("system-focus")
         ratio = _contrast_ratio(text, bg)
         assert ratio >= WCAG_AA_MINIMUM, f"system-focus: {ratio:.2f}:1"
 
     def test_container_contrast(self):
-        bg, _border, text = _C4_COLORS["container"]
+        bg, _border, text = _c4_color("container")
         ratio = _contrast_ratio(text, bg)
         assert ratio >= WCAG_AA_MINIMUM, f"container: {ratio:.2f}:1"
 
     def test_component_contrast(self):
-        bg, _border, text = _C4_COLORS["component"]
+        bg, _border, text = _c4_color("component")
         ratio = _contrast_ratio(text, bg)
         assert ratio >= WCAG_AA_MINIMUM, f"component: {ratio:.2f}:1"
 
     def test_code_contrast(self):
-        bg, _border, text = _C4_COLORS["code"]
+        bg, _border, text = _c4_color("code")
         ratio = _contrast_ratio(text, bg)
         assert ratio >= WCAG_AA_MINIMUM, f"code: {ratio:.2f}:1"
 
     def test_default_color_contrast(self):
-        bg, _border, text = _DEFAULT_COLOR
+        bg, _border, text = _c4_color("nonexistent_type")
         ratio = _contrast_ratio(text, bg)
         assert ratio >= WCAG_AA_MINIMUM, f"default: {ratio:.2f}:1"
 
     def test_all_c4_colors_at_once(self):
         """Parametric check of every C4 color type."""
-        for node_type, (bg, _border, text) in _C4_COLORS.items():
+        for node_type in _C4_NODE_TYPES:
+            bg, _border, text = _c4_color(node_type)
             ratio = _contrast_ratio(text, bg)
             assert ratio >= WCAG_AA_MINIMUM, (
                 f"C4 type '{node_type}': contrast {ratio:.2f}:1 < {WCAG_AA_MINIMUM}:1 "
