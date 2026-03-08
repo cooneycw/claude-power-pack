@@ -52,7 +52,7 @@ from .models import (
     SmokeTestResult,
 )
 from .pipeline import generate_github_actions, generate_pipeline, generate_woodpecker
-from .runner import DeterministicRunner, RunResult, run_plan, resume_run
+from .runner import DeterministicRunner, RunResult, resume_run, run_plan
 from .smoke import run_smoke_tests
 from .state import RunState, StepRecord, StepStatus
 from .steps import ShellStep, StepDef, StepResult

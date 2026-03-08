@@ -1,6 +1,5 @@
 """Tests for CI/CD runner state persistence."""
 
-import json
 from pathlib import Path
 
 import pytest
