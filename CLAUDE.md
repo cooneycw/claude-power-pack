@@ -28,7 +28,7 @@ Core components and their locations:
 - `extras/sequential-thinking/` - Optional: structured reasoning (stdio, npm)
 - `lib/creds/` - Secrets management (dotenv/AWS SM, FastAPI UI, audit logging)
 - `lib/security/` - Security scanning (native + external tools)
-- `lib/cicd/` - CI/CD framework detection, Makefile generation, health/smoke checks
+- `lib/cicd/` - CI/CD framework detection, Makefile generation, health/smoke checks, deployment strategies
 - `lib/spec_bridge/` - Spec-to-GitHub-issue sync
 - `scripts/` - Shell utilities (prompt-context, worktree-remove, hooks)
 - `templates/` - Makefile, workflow, container templates

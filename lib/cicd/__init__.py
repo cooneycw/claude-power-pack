@@ -32,6 +32,16 @@ Quick Start:
 
 from .config import CICDConfig
 from .container import generate_compose, generate_container_files, generate_dockerfile, generate_dockerignore
+from .deploy import (
+    DeployConfig,
+    DeploymentStrategy,
+    DockerComposeStrategy,
+    ReadinessPolicy,
+    ReadinessResult,
+    get_strategy,
+    poll_readiness,
+    register_strategy,
+)
 from .detector import detect_framework, detect_infrastructure
 from .health import check_endpoint, check_process, run_health_checks
 from .infrastructure import generate_discovery_script, generate_infra_pipeline, scaffold_infrastructure
@@ -63,7 +73,7 @@ from .pipeline import generate_github_actions, generate_pipeline, generate_woodp
 from .runner import DeterministicRunner, RunResult, resume_run, run_plan
 from .smoke import run_smoke_tests
 from .state import RunState, StepRecord, StepStatus
-from .steps import ShellStep, StepDef, StepResult
+from .steps import DeployStep, ShellStep, StepDef, StepResult
 
 __all__ = [
     # Config
@@ -108,6 +118,16 @@ __all__ = [
     "PackageManager",
     "SmokeTestEntry",
     "SmokeTestResult",
+    # Deploy
+    "DeployConfig",
+    "DeploymentStrategy",
+    "DeployStep",
+    "DockerComposeStrategy",
+    "ReadinessPolicy",
+    "ReadinessResult",
+    "get_strategy",
+    "poll_readiness",
+    "register_strategy",
     # Manifest
     "TaskManifest",
     "StepModel",
