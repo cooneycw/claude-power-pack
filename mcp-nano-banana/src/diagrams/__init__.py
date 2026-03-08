@@ -9,6 +9,7 @@ from diagrams.timeline import generate_timeline_diagram
 from diagrams.mindmap import generate_mindmap_diagram
 from diagrams.base import DIAGRAM_TYPES, DiagramSpec, DiagramNode, DiagramEdge
 from diagrams.validate import validate_diagram, score_diagram_density
+from diagrams.split import auto_split_diagram, split_save_paths, cluster_nodes
 
 __all__ = [
     "generate_architecture_diagram",
@@ -20,6 +21,9 @@ __all__ = [
     "generate_mindmap_diagram",
     "validate_diagram",
     "score_diagram_density",
+    "auto_split_diagram",
+    "split_save_paths",
+    "cluster_nodes",
     "DIAGRAM_TYPES",
     "DiagramSpec",
     "DiagramNode",
