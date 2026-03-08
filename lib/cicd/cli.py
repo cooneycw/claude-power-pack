@@ -32,6 +32,7 @@ from .detector import detect_framework, detect_infrastructure
 from .health import run_health_checks
 from .infrastructure import generate_discovery_script, generate_infra_pipeline, scaffold_infrastructure
 from .makefile import check_makefile
+from .manifest import generate_manifest, load_manifest, write_manifest
 from .pipeline import generate_pipeline
 from .runner import resume_run, run_plan, show_status
 from .smoke import run_smoke_tests
@@ -400,6 +401,85 @@ def cmd_infra_pipeline(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_init_manifest(args: argparse.Namespace) -> int:
+    """Generate a default cicd_tasks.yml manifest."""
+    import os
+
+    manifest_path = os.path.join(args.path, ".claude", "cicd_tasks.yml")
+
+    if os.path.exists(manifest_path) and not args.force:
+        print(f"Manifest already exists: {manifest_path}")
+        print("Use --force to overwrite.")
+        return 1
+
+    manifest = generate_manifest(args.path)
+
+    if args.json:
+        print(json.dumps({"steps": list(manifest.steps.keys()), "plans": list(manifest.plans.keys())}, indent=2))
+        if not args.write:
+            return 0
+
+    if args.write:
+        path = write_manifest(manifest, args.path)
+        print(f"Wrote manifest: {path}")
+        print()
+        print(f"Steps: {', '.join(sorted(manifest.steps.keys()))}")
+        print(f"Plans: {', '.join(sorted(manifest.plans.keys()))}")
+        print()
+        print("The runner will now load plans from this manifest.")
+        print("Edit .claude/cicd_tasks.yml to customize steps and plans.")
+    else:
+        print("# .claude/cicd_tasks.yml (dry run)")
+        print()
+        print(manifest.to_yaml())
+        print("(dry run - use --write to create file)")
+
+    return 0
+
+
+def cmd_validate_manifest(args: argparse.Namespace) -> int:
+    """Validate an existing cicd_tasks.yml manifest."""
+    try:
+        manifest = load_manifest(args.path)
+    except ValueError as e:
+        if args.json:
+            print(json.dumps({"valid": False, "errors": [str(e)]}, indent=2))
+        else:
+            print(f"INVALID: {e}")
+        return 1
+
+    if manifest is None:
+        if args.json:
+            print(json.dumps({"valid": False, "errors": ["No manifest found"]}, indent=2))
+        else:
+            print("No manifest found at .claude/cicd_tasks.yml")
+            print("Generate one with: python -m lib.cicd init-manifest --write")
+        return 1
+
+    ref_errors = manifest.validate_plan_references()
+    if ref_errors:
+        if args.json:
+            print(json.dumps({"valid": False, "errors": ref_errors}, indent=2))
+        else:
+            print("INVALID manifest:")
+            for err in ref_errors:
+                print(f"  - {err}")
+        return 1
+
+    if args.json:
+        print(json.dumps({
+            "valid": True,
+            "steps": list(manifest.steps.keys()),
+            "plans": list(manifest.plans.keys()),
+        }, indent=2))
+    else:
+        print("Manifest OK")
+        print(f"  Steps: {', '.join(sorted(manifest.steps.keys()))}")
+        print(f"  Plans: {', '.join(sorted(manifest.plans.keys()))}")
+
+    return 0
+
+
 def cmd_run(args: argparse.Namespace) -> int:
     """Execute a CI/CD plan deterministically."""
     return run_plan(
@@ -450,6 +530,28 @@ def create_parser() -> argparse.ArgumentParser:
     )
 
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
+
+    # 'init-manifest' subcommand
+    init_manifest_parser = subparsers.add_parser(
+        "init-manifest",
+        help="Generate a default cicd_tasks.yml manifest from detected framework",
+    )
+    _add_common_args(init_manifest_parser)
+    init_manifest_parser.add_argument(
+        "--write", "-w", action="store_true",
+        help="Write manifest to disk (default: dry run to stdout)",
+    )
+    init_manifest_parser.add_argument(
+        "--force", "-f", action="store_true",
+        help="Overwrite existing manifest",
+    )
+
+    # 'validate-manifest' subcommand
+    validate_manifest_parser = subparsers.add_parser(
+        "validate-manifest",
+        help="Validate an existing cicd_tasks.yml manifest",
+    )
+    _add_common_args(validate_manifest_parser)
 
     # 'run' subcommand
     run_parser = subparsers.add_parser(
@@ -638,6 +740,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     commands = {
+        "init-manifest": cmd_init_manifest,
+        "validate-manifest": cmd_validate_manifest,
         "run": cmd_run,
         "resume": cmd_resume,
         "status": cmd_status,

@@ -36,6 +36,14 @@ from .detector import detect_framework, detect_infrastructure
 from .health import check_endpoint, check_process, run_health_checks
 from .infrastructure import generate_discovery_script, generate_infra_pipeline, scaffold_infrastructure
 from .makefile import check_makefile, generate_makefile, parse_makefile
+from .manifest import (
+    PlanModel,
+    StepModel,
+    TaskManifest,
+    generate_manifest,
+    load_manifest,
+    write_manifest,
+)
 from .models import (
     CloudProvider,
     Framework,
@@ -100,6 +108,13 @@ __all__ = [
     "PackageManager",
     "SmokeTestEntry",
     "SmokeTestResult",
+    # Manifest
+    "TaskManifest",
+    "StepModel",
+    "PlanModel",
+    "load_manifest",
+    "generate_manifest",
+    "write_manifest",
     # Runner
     "DeterministicRunner",
     "RunResult",

@@ -244,12 +244,28 @@ BUILTIN_PLANS: dict[str, list[StepDef]] = {
 }
 
 
-def get_plan_steps(plan_name: str) -> list[StepDef]:
-    """Get step definitions for a built-in plan.
+def get_plan_steps(plan_name: str, project_root: Optional[str] = None) -> list[StepDef]:
+    """Get step definitions for a plan.
 
-    Returns built-in plan steps. In future, this will also load
-    from cicd_tasks.yml manifest.
+    Loads from `.claude/cicd_tasks.yml` manifest if present,
+    otherwise falls back to built-in plan definitions.
     """
+    from pathlib import Path
+
+    root = Path(project_root) if project_root else Path(".")
+
+    # Try loading from manifest first
+    try:
+        from .manifest import get_manifest_plan_steps, load_manifest
+
+        manifest = load_manifest(root)
+        if manifest is not None and plan_name in manifest.plans:
+            return get_manifest_plan_steps(manifest, plan_name)
+    except (ImportError, ValueError):
+        # Pydantic not installed or manifest invalid - fall back to built-in
+        pass
+
+    # Fall back to built-in plans
     if plan_name not in BUILTIN_PLANS:
         available = ", ".join(sorted(BUILTIN_PLANS.keys()))
         raise ValueError(f"Unknown plan: {plan_name}. Available: {available}")
