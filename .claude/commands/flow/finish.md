@@ -20,9 +20,31 @@ fi
 ISSUE_NUM=$(echo "$BRANCH" | grep -oP 'issue-\K[0-9]+' || echo "")
 ```
 
-### Step 2: Run Quality Gates (if Makefile targets exist)
+### Step 2: Run Quality Gates via Deterministic Runner (primary path)
 
-Check for standard Makefile targets and run them:
+**Primary path:** Use the deterministic CI/CD runner for reproducible quality gates:
+
+```bash
+# Locate CPP source for lib/cicd
+CPP_DIR=""
+for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-pack; do
+  if [ -d "$dir" ] && [ -f "$dir/CLAUDE.md" ]; then
+    CPP_DIR="$dir"
+    break
+  fi
+done
+
+if [ -n "$CPP_DIR" ]; then
+    PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -m lib.cicd run --plan finish
+    RUNNER_EXIT=$?
+fi
+```
+
+- If runner **succeeds** (exit 0): quality gates passed, skip to Step 2d.
+- If runner **fails** (exit non-zero): parse the JSON output for the failed step, report it, and **stop**.
+- If runner is **not available** (no CPP_DIR or import error): fall back to manual execution below.
+
+**Fallback path** (only if runner unavailable):
 
 ```bash
 if [[ -f "Makefile" ]]; then
@@ -43,9 +65,11 @@ fi
 - If tests or lint fail, **stop and report**. Do not proceed to PR creation.
 - If no Makefile exists, skip quality gates (warn the user).
 
-### Step 2b: Run Security Quick Scan
+### Step 2b: Run Security Quick Scan (fallback only - runner includes this)
 
-Run the native security scanner as a quality gate:
+**Skip this step if the deterministic runner was used above** (it already includes security_scan).
+
+Only run manually if the runner was unavailable:
 
 ```bash
 PYTHONPATH="${HOME}/Projects/claude-power-pack/lib" python3 -m lib.security gate flow_finish

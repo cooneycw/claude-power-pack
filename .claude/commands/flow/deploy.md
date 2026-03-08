@@ -62,7 +62,31 @@ targets:
 - If `requires_confirmation: true`, ask the user to confirm before proceeding
 - If no deploy.yaml, proceed without extra confirmation
 
-### Step 4b: Run Security Check
+### Step 4b: Run Deploy via Deterministic Runner (primary path)
+
+**Primary path:** Use the deterministic CI/CD runner for reproducible deploy with security gate:
+
+```bash
+# Locate CPP source for lib/cicd
+CPP_DIR=""
+for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-pack; do
+  if [ -d "$dir" ] && [ -f "$dir/CLAUDE.md" ]; then
+    CPP_DIR="$dir"
+    break
+  fi
+done
+
+if [ -n "$CPP_DIR" ]; then
+    PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -m lib.cicd run --plan deploy
+    RUNNER_EXIT=$?
+fi
+```
+
+- If runner **succeeds** (exit 0): deploy completed (includes security scan + make deploy), skip to Step 6.
+- If runner **fails** (exit non-zero): parse JSON output, report the failed step, and **stop**.
+- If runner is **not available**: fall back to manual execution below.
+
+**Fallback path** (only if runner unavailable):
 
 Run security scan before deploying:
 
@@ -74,7 +98,11 @@ PYTHONPATH="${HOME}/Projects/claude-power-pack/lib" python3 -m lib.security gate
 - If the gate produces **warnings** (medium findings): display them but proceed.
 - If `lib/security` is not available, skip this step.
 
-### Step 5: Run Deploy
+### Step 5: Run Deploy (fallback only - runner includes this)
+
+**Skip this step if the deterministic runner was used above** (it already runs make deploy).
+
+Only run manually if the runner was unavailable:
 
 ```bash
 echo "Running: make $TARGET"

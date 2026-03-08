@@ -28,7 +28,7 @@ Core components and their locations:
 - `extras/sequential-thinking/` - Optional: structured reasoning (stdio, npm)
 - `lib/creds/` - Secrets management (dotenv/AWS SM, FastAPI UI, audit logging)
 - `lib/security/` - Security scanning (native + external tools)
-- `lib/cicd/` - CI/CD framework detection, Makefile generation, health/smoke checks, deployment strategies
+- `lib/cicd/` - CI/CD framework detection, Makefile generation, health/smoke checks, deterministic runner, deployment strategies, Pydantic v2 config validation
 - `lib/spec_bridge/` - Spec-to-GitHub-issue sync
 - `scripts/` - Shell utilities (prompt-context, worktree-remove, hooks)
 - `templates/` - Makefile, workflow, container templates
@@ -88,11 +88,14 @@ Docker containers read API keys from a root `.env` file (gitignored) via `env_fi
 - `/cicd:check` - Validate Makefile against CPP standards
 - `/cicd:health` - Run health checks (endpoints + processes)
 - `/cicd:smoke` - Run smoke tests from cicd.yml
-- `/cicd:pipeline` - Generate GitHub Actions workflows
+- `/cicd:pipeline` - Generate GitHub Actions workflows (consults cicd_tasks.yml manifest if present)
 - `/cicd:container` - Generate Dockerfile and docker-compose.yml
 - `/cicd:infra-init` - Scaffold IaC directory (foundation/platform/app tiers)
 - `/cicd:infra-discover` - Generate cloud resource discovery script for IaC import
 - `/cicd:infra-pipeline` - Generate per-tier CI/CD pipelines with approval gates
+- `python -m lib.cicd validate` - Validate .claude/cicd.yml with fix suggestions (Pydantic v2)
+- `python -m lib.cicd validate --schema` - Generate JSON Schema for IDE autocompletion
+- `python -m lib.cicd run --plan <name>` - Execute CI/CD plan deterministically (finish, check, deploy)
 
 ### Security
 - `/security:scan` - Full scan: native + external tools
@@ -130,8 +133,8 @@ Docker containers read API keys from a root `.env` file (gitignored) via `env_fi
 
 Flow commands use Makefile targets as the canonical build interface:
 
-- `/flow:check` and `/flow:finish` run `make lint` and `make test`
-- `/flow:deploy` runs `make deploy` (or specified target) + post-deploy health/smoke
+- `/flow:check` and `/flow:finish` use `python -m lib.cicd run --plan finish` (deterministic runner) with fallback to `make lint` / `make test`
+- `/flow:deploy` uses `python -m lib.cicd run --plan deploy` (deterministic runner) with fallback to `make deploy` + post-deploy health/smoke
 - `/flow:auto` runs `make update_docs` after implement, verifies CI after merge, then `make deploy`
 - `/flow:doctor` reports which standard targets are available
 - Deploy metadata in `.claude/deploy.yaml` (optional `requires_confirmation: true`)
