@@ -22,14 +22,23 @@ from __future__ import annotations
 from diagrams.base import DiagramSpec, _css_reset, _esc
 
 
-# C4-specific color palette
+# C4-specific color palette - all combos meet WCAG AA >= 4.5:1
+#
+# | Type         | BG      | Text    | Ratio |
+# |--------------|---------|---------|-------|
+# | person       | #1e40af | #ffffff | 8.72  |
+# | system       | #374151 | #f3f4f6 | 9.37  |
+# | system-focus | #1d4ed8 | #ffffff | 6.70  |
+# | container    | #15803d | #ffffff | 5.02  |
+# | component    | #7e22ce | #ffffff | 6.98  |
+# | code         | #92400e | #ffffff | 7.09  |
 _C4_COLORS = {
     "person":       ("#1e40af", "#3b82f6", "#ffffff"),  # dark blue
     "system":       ("#374151", "#6b7280", "#f3f4f6"),  # grey - external
     "system-focus": ("#1d4ed8", "#60a5fa", "#ffffff"),  # blue - focus
     "container":    ("#15803d", "#22c55e", "#ffffff"),  # green
     "component":    ("#7e22ce", "#a855f7", "#ffffff"),  # purple
-    "code":         ("#b45309", "#f59e0b", "#1e293b"),  # amber
+    "code":         ("#92400e", "#f59e0b", "#ffffff"),  # amber - darkened bg, white text
 }
 
 _DEFAULT_COLOR = ("#334155", "#475569", "#e2e8f0")

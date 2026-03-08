@@ -15,6 +15,28 @@ def _esc(text: str) -> str:
     return _html_mod.escape(str(text), quote=True)
 
 
+def _relative_luminance(hex_color: str) -> float:
+    """Calculate relative luminance per WCAG 2.1 definition."""
+    h = hex_color.lstrip("#")
+    r, g, b = int(h[0:2], 16) / 255, int(h[2:4], 16) / 255, int(h[4:6], 16) / 255
+
+    def _linearize(c: float) -> float:
+        return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+
+    return 0.2126 * _linearize(r) + 0.7152 * _linearize(g) + 0.0722 * _linearize(b)
+
+
+def _contrast_ratio(fg: str, bg: str) -> float:
+    """Calculate WCAG 2.1 contrast ratio between two hex colors.
+
+    Returns a value >= 1.0 where 4.5:1 is the WCAG AA minimum for normal text
+    and 3.0:1 is the minimum for large text (>= 18px bold).
+    """
+    l1, l2 = _relative_luminance(fg), _relative_luminance(bg)
+    lighter, darker = max(l1, l2), min(l1, l2)
+    return (lighter + 0.05) / (darker + 0.05)
+
+
 DIAGRAM_TYPES = [
     "architecture",
     "c4",
@@ -96,13 +118,25 @@ def _css_reset(width: int, height: int) -> str:
 
 
 def _node_color(node_type: str) -> tuple[str, str, str]:
-    """Return (bg, border, text) colors for a node type."""
+    """Return (bg, border, text) colors for a node type.
+
+    All combinations meet WCAG AA contrast ratio >= 4.5:1 for normal text.
+
+    | Type      | BG      | Text    | Ratio |
+    |-----------|---------|---------|-------|
+    | primary   | #2563eb | #ffffff | 5.17  |
+    | secondary | #7c3aed | #ffffff | 5.70  |
+    | accent    | #f59e0b | #1e293b | 6.81  |
+    | warning   | #dc2626 | #ffffff | 4.83  |
+    | success   | #047857 | #ffffff | 5.48  |
+    | default   | #334155 | #e2e8f0 | 8.40  |
+    """
     colors = {
-        "primary": ("#3b82f6", "#60a5fa", "#ffffff"),
-        "secondary": ("#8b5cf6", "#a78bfa", "#ffffff"),
+        "primary": ("#2563eb", "#3b82f6", "#ffffff"),
+        "secondary": ("#7c3aed", "#a78bfa", "#ffffff"),
         "accent": ("#f59e0b", "#fbbf24", "#1e293b"),
-        "warning": ("#ef4444", "#f87171", "#ffffff"),
-        "success": ("#10b981", "#34d399", "#ffffff"),
+        "warning": ("#dc2626", "#f87171", "#ffffff"),
+        "success": ("#047857", "#34d399", "#ffffff"),
         "default": ("#334155", "#475569", "#e2e8f0"),
     }
     return colors.get(node_type, colors["default"])
