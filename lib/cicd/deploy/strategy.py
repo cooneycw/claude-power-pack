@@ -184,18 +184,20 @@ def poll_readiness(
     if sleep_fn is None:
         sleep_fn = time.sleep
 
-    curl_path = shutil.which("curl")
-    if not curl_path:
-        return ReadinessResult(
-            ready=False,
-            last_error="curl not found in PATH",
-        )
-
+    # Validate policy first (before checking for curl) so invalid configs
+    # are caught regardless of the host environment.
     errors = policy.validate()
     if errors:
         return ReadinessResult(
             ready=False,
             last_error=f"Invalid policy: {'; '.join(errors)}",
+        )
+
+    curl_path = shutil.which("curl")
+    if not curl_path:
+        return ReadinessResult(
+            ready=False,
+            last_error="curl not found in PATH",
         )
 
     start = time.monotonic()
