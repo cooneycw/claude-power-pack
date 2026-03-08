@@ -203,9 +203,28 @@ BRANCH=$(git branch --show-current)
 ISSUE_NUM=$(echo "$BRANCH" | grep -oP 'issue-\K[0-9]+' || echo "")
 ```
 
-1. **Quality gates** - if Makefile exists:
-   - Run `make lint` (if target exists)
-   - Run `make test` (if target exists)
+1. **Quality gates** - use the deterministic runner as primary path:
+
+   **Primary path:** Call the CI/CD runner for reproducible quality gates:
+   ```bash
+   CPP_DIR=""
+   for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-pack; do
+     if [ -d "$dir" ] && [ -f "$dir/CLAUDE.md" ]; then
+       CPP_DIR="$dir"
+       break
+     fi
+   done
+
+   if [ -n "$CPP_DIR" ]; then
+       PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -m lib.cicd run --plan finish
+       RUNNER_EXIT=$?
+   fi
+   ```
+
+   - If runner succeeds (exit 0): quality gates passed, proceed to commit.
+   - If runner fails: parse JSON output, report the failed step, **STOP**.
+
+   **Fallback** (only if runner unavailable): Run `make lint` and `make test` directly.
    - If either fails: **STOP**. Report the failure and exit.
 
 2. **Commit** - if there are uncommitted changes:

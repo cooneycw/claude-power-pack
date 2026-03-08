@@ -24,6 +24,7 @@ import argparse
 import json
 import os
 import sys
+from pathlib import Path
 from typing import NoReturn
 
 from .config import CICDConfig
@@ -480,6 +481,52 @@ def cmd_validate_manifest(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_validate(args: argparse.Namespace) -> int:
+    """Validate CI/CD configuration file."""
+    config_path = Path(args.path) / ".claude" / "cicd.yml"
+
+    if args.schema:
+        # Output JSON Schema for IDE autocompletion
+        print(CICDConfig.json_schema())
+        return 0
+
+    if not config_path.exists():
+        if args.json:
+            print(json.dumps({"valid": False, "issues": ["No .claude/cicd.yml found"], "path": str(config_path)}))
+        else:
+            print(f"No config file found at {config_path}")
+            print()
+            print("  Create one with /cicd:init or copy a template:")
+            print("    cp ~/Projects/claude-power-pack/templates/cicd.yml.example .claude/cicd.yml")
+        return 1
+
+    issues = CICDConfig.validate_file(config_path)
+
+    if args.json:
+        print(json.dumps({"valid": len(issues) == 0, "issues": issues, "path": str(config_path)}, indent=2))
+        return 0 if not issues else 1
+
+    if not issues:
+        print(f"Config valid: {config_path}")
+        # Also show loaded config summary
+        config = CICDConfig.load(args.path)
+        print(f"  Build: framework={config.build.framework}, pm={config.build.package_manager}")
+        print(f"  Pipeline: provider={config.pipeline.provider}")
+        if config.health.endpoints:
+            print(f"  Health: {len(config.health.endpoints)} endpoint(s)")
+        if config.health.smoke_tests:
+            print(f"  Smoke: {len(config.health.smoke_tests)} test(s)")
+        return 0
+
+    print(f"Config issues in {config_path}:")
+    print()
+    for i, issue in enumerate(issues, 1):
+        print(f"  {i}. {issue}")
+    print()
+    print(f"Found {len(issues)} issue(s). Fix them and re-run: python -m lib.cicd validate")
+    return 1
+
+
 def cmd_run(args: argparse.Namespace) -> int:
     """Execute a CI/CD plan deterministically."""
     return run_plan(
@@ -552,6 +599,18 @@ def create_parser() -> argparse.ArgumentParser:
         help="Validate an existing cicd_tasks.yml manifest",
     )
     _add_common_args(validate_manifest_parser)
+
+    # 'validate' subcommand
+    validate_parser = subparsers.add_parser(
+        "validate",
+        help="Validate .claude/cicd.yml configuration with fix suggestions",
+    )
+    _add_common_args(validate_parser)
+    validate_parser.add_argument(
+        "--schema",
+        action="store_true",
+        help="Output JSON Schema for IDE autocompletion instead of validating",
+    )
 
     # 'run' subcommand
     run_parser = subparsers.add_parser(
@@ -742,6 +801,7 @@ def main(argv: list[str] | None = None) -> int:
     commands = {
         "init-manifest": cmd_init_manifest,
         "validate-manifest": cmd_validate_manifest,
+        "validate": cmd_validate,
         "run": cmd_run,
         "resume": cmd_resume,
         "status": cmd_status,

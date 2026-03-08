@@ -19,7 +19,7 @@ Create a new project from zero to pushed GitHub repo in one command.
   Step 2: Select framework, generate scaffold
   Step 3: Initialize git, push to GitHub
   Step 4: Run /cicd:init, /cpp:init, /spec:init
-  Step 5: Optional initial spec + sync
+  Step 5: Initial spec (mandatory) + sync
   Step 6: Summary
 ```
 
@@ -532,17 +532,17 @@ Report: `Step 4/6: CPP setup complete - Makefile, commands, skills, hooks, .spec
 
 ---
 
-## Step 5: Optional Initial Spec
+## Step 5: Initial Spec (Mandatory)
+
+Create an initial feature specification for the project. This step is mandatory to
+ensure every project starts with a spec-driven foundation. The spec can be minimal
+and refined later.
 
 Ask the user with `AskUserQuestion`:
 
-**Question:** "Create an initial feature specification for this project?"
+**Question:** "What is the first feature or MVP for this project? (Enter a name or press enter to use the project name)"
 
-**Options:**
-- **Yes** - Create a feature spec with the project name
-- **Skip** - Set up specs later with `/spec:create`
-
-If yes:
+Use the project name as the default feature name if the user doesn't provide one.
 
 ```bash
 FEATURE_NAME="$PROJECT_NAME"

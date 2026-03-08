@@ -2,31 +2,39 @@
 
 Loads configuration from .claude/cicd.yml if present,
 otherwise uses sensible defaults.
+
+Uses Pydantic v2 for validation with extra="ignore" for backwards
+compatibility - existing configs load without errors even if they
+contain unknown keys.
 """
 
 from __future__ import annotations
 
+import json
 import os
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
+from pydantic import BaseModel, ConfigDict, Field
 
-@dataclass
-class BuildConfig:
+
+class BuildConfig(BaseModel):
     """Build system configuration."""
+
+    model_config = ConfigDict(extra="ignore")
 
     framework: str = "auto"
     package_manager: str = "auto"
-    required_targets: list[str] = field(default_factory=lambda: ["lint", "test"])
-    recommended_targets: list[str] = field(
+    required_targets: list[str] = Field(default_factory=lambda: ["lint", "test"])
+    recommended_targets: list[str] = Field(
         default_factory=lambda: ["format", "typecheck", "build", "deploy", "clean", "verify"]
     )
 
 
-@dataclass
-class HealthEndpoint:
+class HealthEndpoint(BaseModel):
     """A single health check endpoint."""
+
+    model_config = ConfigDict(extra="ignore")
 
     url: str
     name: str = ""
@@ -35,17 +43,19 @@ class HealthEndpoint:
     timeout: int = 5
 
 
-@dataclass
-class ProcessCheck:
+class ProcessCheck(BaseModel):
     """A process health check."""
+
+    model_config = ConfigDict(extra="ignore")
 
     name: str
     port: int
 
 
-@dataclass
-class SmokeTest:
+class SmokeTest(BaseModel):
     """A smoke test definition."""
+
+    model_config = ConfigDict(extra="ignore")
 
     name: str
     command: str
@@ -54,70 +64,77 @@ class SmokeTest:
     timeout: int = 10
 
 
-@dataclass
-class HealthConfig:
+class HealthConfig(BaseModel):
     """Health check and smoke test configuration."""
 
-    endpoints: list[HealthEndpoint] = field(default_factory=list)
-    processes: list[ProcessCheck] = field(default_factory=list)
-    smoke_tests: list[SmokeTest] = field(default_factory=list)
+    model_config = ConfigDict(extra="ignore")
+
+    endpoints: list[HealthEndpoint] = Field(default_factory=list)
+    processes: list[ProcessCheck] = Field(default_factory=list)
+    smoke_tests: list[SmokeTest] = Field(default_factory=list)
     post_deploy: bool = False
     startup_delay: int = 0
 
 
-@dataclass
-class WoodpeckerConfig:
+class WoodpeckerConfig(BaseModel):
     """Woodpecker CI-specific configuration."""
+
+    model_config = ConfigDict(extra="ignore")
 
     local: bool = True  # Use woodpecker exec for local runs
 
 
-@dataclass
-class PipelineConfig:
+class PipelineConfig(BaseModel):
     """CI/CD pipeline configuration."""
 
+    model_config = ConfigDict(extra="ignore")
+
     provider: str = "github-actions"  # github-actions | woodpecker | both
-    branches: dict[str, list[str]] = field(
+    branches: dict[str, list[str]] = Field(
         default_factory=lambda: {
             "main": ["lint", "test", "typecheck", "build"],
             "pr": ["lint", "test", "typecheck"],
         }
     )
-    matrix: dict[str, list[str]] = field(default_factory=dict)
-    secrets_needed: list[str] = field(default_factory=list)
-    woodpecker: WoodpeckerConfig = field(default_factory=WoodpeckerConfig)
+    matrix: dict[str, list[str]] = Field(default_factory=dict)
+    secrets_needed: list[str] = Field(default_factory=list)
+    woodpecker: WoodpeckerConfig = Field(default_factory=WoodpeckerConfig)
 
 
-@dataclass
-class BranchProtection:
+class BranchProtection(BaseModel):
     """Branch protection rule suggestions."""
 
+    model_config = ConfigDict(extra="ignore")
+
     require_pr_review: bool = True
-    require_status_checks: list[str] = field(default_factory=lambda: ["lint", "test"])
+    require_status_checks: list[str] = Field(default_factory=lambda: ["lint", "test"])
     require_up_to_date: bool = True
 
 
-@dataclass
-class InfraTaggingConfig:
+class InfraTaggingConfig(BaseModel):
     """Tagging conventions for IaC resources."""
+
+    model_config = ConfigDict(extra="ignore")
 
     managed_by: str = "terraform"
     repo: str = ""
     owner: str = ""
-    extra_tags: dict[str, str] = field(default_factory=dict)
+    extra_tags: dict[str, str] = Field(default_factory=dict)
 
 
-@dataclass
-class InfraTierConfig:
+class InfraTierConfig(BaseModel):
     """Configuration for a single infrastructure tier."""
+
+    model_config = ConfigDict(extra="ignore")
 
     approval_required: bool = False
     separate_credentials: bool = False
 
 
-@dataclass
-class InfraStateBackend:
+class InfraStateBackend(BaseModel):
     """Remote state backend configuration."""
+
+    model_config = ConfigDict(extra="ignore")
 
     type: str = ""  # s3, azure-storage, gcs
     bucket: str = ""
@@ -125,15 +142,16 @@ class InfraStateBackend:
     region: str = ""
 
 
-@dataclass
-class InfrastructureConfig:
+class InfrastructureConfig(BaseModel):
     """Infrastructure as Code configuration."""
+
+    model_config = ConfigDict(extra="ignore")
 
     provider: str = "terraform"  # terraform, pulumi, bicep
     cloud: str = "aws"  # aws, azure, gcp
-    state_backend: InfraStateBackend = field(default_factory=InfraStateBackend)
-    tagging: InfraTaggingConfig = field(default_factory=InfraTaggingConfig)
-    tiers: dict[str, InfraTierConfig] = field(
+    state_backend: InfraStateBackend = Field(default_factory=InfraStateBackend)
+    tagging: InfraTaggingConfig = Field(default_factory=InfraTaggingConfig)
+    tiers: dict[str, InfraTierConfig] = Field(
         default_factory=lambda: {
             "foundation": InfraTierConfig(approval_required=True, separate_credentials=True),
             "platform": InfraTierConfig(approval_required=False),
@@ -142,25 +160,27 @@ class InfrastructureConfig:
     )
 
 
-@dataclass
-class ContainerConfig:
+class ContainerConfig(BaseModel):
     """Container configuration."""
+
+    model_config = ConfigDict(extra="ignore")
 
     enabled: bool = False
     base_image: str = "auto"
-    expose_ports: list[int] = field(default_factory=list)
-    compose_services: list[dict[str, Any]] = field(default_factory=list)
+    expose_ports: list[int] = Field(default_factory=list)
+    compose_services: list[dict[str, Any]] = Field(default_factory=list)
 
 
-@dataclass
-class CICDConfig:
+class CICDConfig(BaseModel):
     """Full CI/CD configuration."""
 
-    build: BuildConfig = field(default_factory=BuildConfig)
-    health: HealthConfig = field(default_factory=HealthConfig)
-    pipeline: PipelineConfig = field(default_factory=PipelineConfig)
-    container: ContainerConfig = field(default_factory=ContainerConfig)
-    infrastructure: InfrastructureConfig = field(default_factory=InfrastructureConfig)
+    model_config = ConfigDict(extra="ignore")
+
+    build: BuildConfig = Field(default_factory=BuildConfig)
+    health: HealthConfig = Field(default_factory=HealthConfig)
+    pipeline: PipelineConfig = Field(default_factory=PipelineConfig)
+    container: ContainerConfig = Field(default_factory=ContainerConfig)
+    infrastructure: InfrastructureConfig = Field(default_factory=InfrastructureConfig)
 
     @classmethod
     def load(cls, project_root: Optional[str] = None) -> CICDConfig:
@@ -180,7 +200,11 @@ class CICDConfig:
 
     @classmethod
     def _from_yaml(cls, path: Path) -> CICDConfig:
-        """Parse YAML config file."""
+        """Parse YAML config file using Pydantic model_validate.
+
+        With extra="ignore" on all models, unknown keys are silently
+        dropped - ensuring backwards compatibility with older configs.
+        """
         try:
             import yaml
         except ImportError:
@@ -189,109 +213,143 @@ class CICDConfig:
         with open(path) as f:
             data = yaml.safe_load(f) or {}
 
-        config = cls._defaults()
-
-        # Parse build section
-        build_data = data.get("build", {})
-        if build_data:
-            config.build.framework = build_data.get("framework", "auto")
-            config.build.package_manager = build_data.get("package_manager", "auto")
-            if "required_targets" in build_data:
-                config.build.required_targets = build_data["required_targets"]
-            if "recommended_targets" in build_data:
-                config.build.recommended_targets = build_data["recommended_targets"]
-
-        # Parse health section
-        health_data = data.get("health", {})
-        if health_data:
-            config.health.post_deploy = health_data.get("post_deploy", False)
-            config.health.startup_delay = health_data.get("startup_delay", 0)
-
-            for ep in health_data.get("endpoints", []):
-                config.health.endpoints.append(
-                    HealthEndpoint(
-                        url=ep["url"],
-                        name=ep.get("name", ""),
-                        expected_status=ep.get("expected_status", 200),
-                        expected_body=ep.get("expected_body", ""),
-                        timeout=ep.get("timeout", 5),
-                    )
-                )
-
-            for proc in health_data.get("processes", []):
-                config.health.processes.append(
-                    ProcessCheck(name=proc["name"], port=proc["port"])
-                )
-
-            for st in health_data.get("smoke_tests", []):
-                config.health.smoke_tests.append(
-                    SmokeTest(
-                        name=st["name"],
-                        command=st["command"],
-                        expected_exit=st.get("expected_exit", 0),
-                        expected_output=st.get("expected_output", ""),
-                        timeout=st.get("timeout", 10),
-                    )
-                )
-
-        # Parse pipeline section
-        pipeline_data = data.get("pipeline", {})
-        if pipeline_data:
-            config.pipeline.provider = pipeline_data.get("provider", "github-actions")
-            if "branches" in pipeline_data:
-                config.pipeline.branches = pipeline_data["branches"]
-            if "matrix" in pipeline_data:
-                config.pipeline.matrix = pipeline_data["matrix"]
-            if "secrets_needed" in pipeline_data:
-                config.pipeline.secrets_needed = pipeline_data["secrets_needed"]
-            wp_data = pipeline_data.get("woodpecker", {})
-            if wp_data:
-                config.pipeline.woodpecker.local = wp_data.get("local", True)
-
-        # Parse container section
-        container_data = data.get("container", {})
-        if container_data:
-            config.container.enabled = container_data.get("enabled", False)
-            config.container.base_image = container_data.get("base_image", "auto")
-            if "expose_ports" in container_data:
-                config.container.expose_ports = container_data["expose_ports"]
-            if "compose_services" in container_data:
-                config.container.compose_services = container_data["compose_services"]
-
-        # Parse infrastructure section
+        # Handle tagging key mapping (managed-by -> managed_by)
         infra_data = data.get("infrastructure", {})
         if infra_data:
-            config.infrastructure.provider = infra_data.get("provider", "terraform")
-            config.infrastructure.cloud = infra_data.get("cloud", "aws")
-
-            state_data = infra_data.get("state_backend", {})
-            if state_data:
-                config.infrastructure.state_backend = InfraStateBackend(
-                    type=state_data.get("type", ""),
-                    bucket=state_data.get("bucket", ""),
-                    lock=state_data.get("lock", True),
-                    region=state_data.get("region", ""),
-                )
-
             tagging_data = infra_data.get("tagging", {})
-            if tagging_data:
-                config.infrastructure.tagging = InfraTaggingConfig(
-                    managed_by=tagging_data.get("managed-by", "terraform"),
-                    repo=tagging_data.get("repo", ""),
-                    owner=tagging_data.get("owner", ""),
-                    extra_tags={
-                        k: v for k, v in tagging_data.items()
-                        if k not in ("managed-by", "repo", "owner")
-                    },
+            if tagging_data and "managed-by" in tagging_data:
+                tagging_data["managed_by"] = tagging_data.pop("managed-by")
+                # Collect extra tags (non-standard keys)
+                known_keys = {"managed_by", "repo", "owner", "extra_tags"}
+                extra = {k: v for k, v in tagging_data.items() if k not in known_keys}
+                if extra:
+                    tagging_data["extra_tags"] = extra
+                    for k in extra:
+                        del tagging_data[k]
+
+        return cls.model_validate(data)
+
+    @classmethod
+    def validate_file(cls, path: Path) -> list[str]:
+        """Validate a config file and return a list of issues with fix suggestions.
+
+        Returns an empty list if the config is valid.
+        """
+        try:
+            import yaml
+        except ImportError:
+            return ["PyYAML not installed - run: uv pip install pyyaml"]
+
+        if not path.exists():
+            return [f"Config file not found: {path}"]
+
+        with open(path) as f:
+            raw = f.read()
+
+        # Check YAML syntax
+        try:
+            data = yaml.safe_load(raw)
+        except yaml.YAMLError as e:
+            return [f"YAML syntax error: {e}"]
+
+        if not isinstance(data, dict):
+            return ["Config must be a YAML mapping (dict), not a scalar or list"]
+
+        issues: list[str] = []
+
+        # Validate known sections
+        known_sections = {"build", "health", "pipeline", "container", "infrastructure"}
+        unknown = set(data.keys()) - known_sections
+        if unknown:
+            issues.append(
+                f"Unknown top-level keys: {', '.join(sorted(unknown))}. "
+                f"Valid keys: {', '.join(sorted(known_sections))}"
+            )
+
+        # Validate build section
+        build_data = data.get("build", {})
+        if build_data and isinstance(build_data, dict):
+            if "provider" in build_data:
+                issues.append(
+                    "build.provider is not valid here. "
+                    "Did you mean pipeline.provider? Move it to the 'pipeline' section."
                 )
 
-            tiers_data = infra_data.get("tiers", {})
-            if tiers_data:
-                config.infrastructure.tiers = {}
-                for tier_name, tier_cfg in tiers_data.items():
-                    config.infrastructure.tiers[tier_name] = InfraTierConfig(
-                        approval_required=tier_cfg.get("approval_required", False),
-                        separate_credentials=tier_cfg.get("separate_credentials", False),
-                    )
+        # Validate pipeline section
+        pipeline_data = data.get("pipeline", {})
+        if pipeline_data and isinstance(pipeline_data, dict):
+            provider = pipeline_data.get("provider", "")
+            valid_providers = {"github-actions", "woodpecker", "both"}
+            if provider and provider not in valid_providers:
+                issues.append(
+                    f"pipeline.provider '{provider}' is invalid. "
+                    f"Valid values: {', '.join(sorted(valid_providers))}"
+                )
 
-        return config
+        # Validate health section
+        health_data = data.get("health", {})
+        if health_data and isinstance(health_data, dict):
+            for i, ep in enumerate(health_data.get("endpoints", [])):
+                if isinstance(ep, dict) and "url" not in ep:
+                    issues.append(f"health.endpoints[{i}] is missing required field 'url'")
+
+            for i, proc in enumerate(health_data.get("processes", [])):
+                if isinstance(proc, dict):
+                    if "name" not in proc:
+                        issues.append(f"health.processes[{i}] is missing required field 'name'")
+                    if "port" not in proc:
+                        issues.append(f"health.processes[{i}] is missing required field 'port'")
+
+            for i, st in enumerate(health_data.get("smoke_tests", [])):
+                if isinstance(st, dict):
+                    if "name" not in st:
+                        issues.append(f"health.smoke_tests[{i}] is missing required field 'name'")
+                    if "command" not in st:
+                        issues.append(f"health.smoke_tests[{i}] is missing required field 'command'")
+
+        # Validate infrastructure section
+        infra_data = data.get("infrastructure", {})
+        if infra_data and isinstance(infra_data, dict):
+            provider = infra_data.get("provider", "")
+            valid_iac = {"terraform", "pulumi", "bicep"}
+            if provider and provider not in valid_iac:
+                issues.append(
+                    f"infrastructure.provider '{provider}' is invalid. "
+                    f"Valid values: {', '.join(sorted(valid_iac))}"
+                )
+
+            cloud = infra_data.get("cloud", "")
+            valid_clouds = {"aws", "azure", "gcp"}
+            if cloud and cloud not in valid_clouds:
+                issues.append(
+                    f"infrastructure.cloud '{cloud}' is invalid. "
+                    f"Valid values: {', '.join(sorted(valid_clouds))}"
+                )
+
+        # Try Pydantic validation for type errors
+        try:
+            # Handle tagging mapping
+            if infra_data:
+                tagging_data = infra_data.get("tagging", {})
+                if tagging_data and "managed-by" in tagging_data:
+                    tagging_data = dict(tagging_data)
+                    tagging_data["managed_by"] = tagging_data.pop("managed-by")
+                    known_keys = {"managed_by", "repo", "owner", "extra_tags"}
+                    extra = {k: v for k, v in tagging_data.items() if k not in known_keys}
+                    if extra:
+                        tagging_data["extra_tags"] = extra
+                        for k in extra:
+                            del tagging_data[k]
+                    data = dict(data)
+                    data["infrastructure"] = dict(data["infrastructure"])
+                    data["infrastructure"]["tagging"] = tagging_data
+            cls.model_validate(data)
+        except Exception as e:
+            issues.append(f"Validation error: {e}")
+
+        return issues
+
+    @classmethod
+    def json_schema(cls) -> str:
+        """Generate JSON Schema for IDE autocompletion."""
+        return json.dumps(cls.model_json_schema(), indent=2)
