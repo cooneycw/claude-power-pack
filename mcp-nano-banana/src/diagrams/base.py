@@ -2,7 +2,17 @@
 
 from __future__ import annotations
 
+import html as _html_mod
 from dataclasses import dataclass, field
+
+
+def _esc(text: str) -> str:
+    """HTML-escape user-provided text to prevent XSS injection.
+
+    Must be applied to all node labels, descriptions, icons, edge labels,
+    spec titles, and spec descriptions before embedding in HTML output.
+    """
+    return _html_mod.escape(str(text), quote=True)
 
 
 DIAGRAM_TYPES = [

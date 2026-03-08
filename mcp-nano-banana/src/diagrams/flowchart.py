@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from diagrams.base import DiagramSpec, _css_reset, _node_color
+from diagrams.base import DiagramSpec, _css_reset, _esc, _node_color
 
 
 def generate_flowchart_diagram(
@@ -21,25 +21,25 @@ def generate_flowchart_diagram(
     for i, node in enumerate(spec.nodes):
         bg, border, text = _node_color(node.type)
         shape_class = "flow-diamond" if node.type == "warning" else "flow-rect"
-        desc_html = f'<div class="flow-desc">{node.description}</div>' if node.description else ""
+        desc_html = f'<div class="flow-desc">{_esc(node.description)}</div>' if node.description else ""
         nodes_html.append(f"""
         <div class="flow-step">
             <div class="{shape_class}" style="background: {bg}; border-color: {border}; color: {text};">
-                <div class="flow-label">{node.label}</div>
+                <div class="flow-label">{_esc(node.label)}</div>
                 {desc_html}
             </div>
             {"<div class='flow-arrow'>&#x2193;</div>" if i < len(spec.nodes) - 1 else ""}
         </div>
         """)
 
-    subtitle = spec.description or "Process Flow"
+    subtitle = _esc(spec.description) if spec.description else "Process Flow"
 
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width={width}">
-<title>{spec.title}</title>
+<title>{_esc(spec.title)}</title>
 <style>
 {css}
 .flow-container {{
@@ -96,7 +96,7 @@ def generate_flowchart_diagram(
 </head>
 <body>
 <div class="diagram-container">
-    <div class="diagram-title">{spec.title}</div>
+    <div class="diagram-title">{_esc(spec.title)}</div>
     <div class="diagram-subtitle">{subtitle}</div>
     <div class="diagram-body">
         <div class="flow-container">

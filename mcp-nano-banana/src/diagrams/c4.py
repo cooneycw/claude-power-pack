@@ -19,7 +19,7 @@ Use the ``description`` field for technology labels (e.g., "Python / FastAPI").
 
 from __future__ import annotations
 
-from diagrams.base import DiagramSpec, _css_reset
+from diagrams.base import DiagramSpec, _css_reset, _esc
 
 
 # C4-specific color palette
@@ -84,18 +84,18 @@ def generate_c4_diagram(
 
         icon_html = _person_svg(text) if is_person else ""
         tech_html = (
-            f'<div class="c4-tech">[{node.description}]</div>'
+            f'<div class="c4-tech">[{_esc(node.description)}]</div>'
             if node.description else ""
         )
 
         shape_class = "c4-person" if is_person else "c4-box"
 
         all_nodes_html.append(f"""
-        <div class="c4-node {shape_class}" id="node-{node.id}"
-             data-type="{node.type}"
+        <div class="c4-node {shape_class}" id="node-{_esc(node.id)}"
+             data-type="{_esc(node.type)}"
              style="background:{bg}; border-color:{border}; color:{text};">
             {icon_html}
-            <div class="c4-label">{node.label}</div>
+            <div class="c4-label">{_esc(node.label)}</div>
             {tech_html}
         </div>
         """)
@@ -170,20 +170,20 @@ def generate_c4_diagram(
             dash = "stroke-dasharray: 2 4;"
 
         label_html = (
-            f'<span class="c4-edge-label">{edge.label}</span>'
+            f'<span class="c4-edge-label">{_esc(edge.label)}</span>'
             if edge.label else ""
         )
         edge_labels_html.append(f"""
-        <div class="c4-edge" data-from="{edge.source}" data-to="{edge.target}"
+        <div class="c4-edge" data-from="{_esc(edge.source)}" data-to="{_esc(edge.target)}"
              data-dash="{dash}">
-            <span class="c4-edge-from">{edge.source}</span>
+            <span class="c4-edge-from">{_esc(edge.source)}</span>
             <span class="c4-edge-arrow">&#x2192;</span>
             {label_html}
-            <span class="c4-edge-to">{edge.target}</span>
+            <span class="c4-edge-to">{_esc(edge.target)}</span>
         </div>
         """)
 
-    subtitle = spec.description or "C4 Architecture Diagram"
+    subtitle = _esc(spec.description) if spec.description else "C4 Architecture Diagram"
     edges_section = ""
     if edge_labels_html:
         edges_section = f"""
@@ -198,7 +198,7 @@ def generate_c4_diagram(
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width={width}">
-<title>{spec.title}</title>
+<title>{_esc(spec.title)}</title>
 <style>
 {css}
 .c4-layout {{
@@ -310,7 +310,7 @@ def generate_c4_diagram(
 </head>
 <body>
 <div class="diagram-container">
-    <div class="diagram-title">{spec.title}</div>
+    <div class="diagram-title">{_esc(spec.title)}</div>
     <div class="diagram-subtitle">{subtitle}</div>
     <div class="diagram-body">
         <div class="c4-layout">
