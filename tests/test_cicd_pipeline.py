@@ -267,6 +267,50 @@ class TestGitHubActionsRust:
 
 
 # ---------------------------------------------------------------------------
+# generate_github_actions - PowerShell
+# ---------------------------------------------------------------------------
+
+
+class TestGitHubActionsPowerShell:
+    """Test GitHub Actions workflow generation for PowerShell projects."""
+
+    def test_basic_structure(self) -> None:
+        info = _make_info(Framework.POWERSHELL, PackageManager.PSRESOURCEGET)
+        config = _make_config()
+        output = generate_github_actions(info, config)
+        assert "name: CI" in output
+        assert "actions/checkout@v4" in output
+
+    def test_powershell_caching(self) -> None:
+        info = _make_info(Framework.POWERSHELL, PackageManager.PSRESOURCEGET)
+        config = _make_config()
+        output = generate_github_actions(info, config)
+        assert "~/.local/share/powershell/Modules" in output
+        assert "*.psd1" in output
+
+    def test_os_matrix(self) -> None:
+        info = _make_info(Framework.POWERSHELL, PackageManager.PSRESOURCEGET)
+        config = _make_config()
+        output = generate_github_actions(info, config)
+        assert '"ubuntu-latest"' in output
+        assert '"windows-latest"' in output
+
+    def test_install_commands(self) -> None:
+        info = _make_info(Framework.POWERSHELL, PackageManager.PSRESOURCEGET)
+        config = _make_config()
+        output = generate_github_actions(info, config)
+        assert "Pester" in output
+        assert "PSScriptAnalyzer" in output
+
+    def test_uses_makefile_targets(self) -> None:
+        info = _make_info(Framework.POWERSHELL, PackageManager.PSRESOURCEGET)
+        config = _make_config(branches={"pr": ["lint", "test"]})
+        output = generate_github_actions(info, config)
+        assert "make lint" in output
+        assert "make test" in output
+
+
+# ---------------------------------------------------------------------------
 # Deploy job generation
 # ---------------------------------------------------------------------------
 
@@ -356,6 +400,15 @@ class TestWoodpecker:
         output = generate_woodpecker(info, config)
         assert "image: rust:1.82" in output
 
+    def test_powershell_woodpecker(self) -> None:
+        info = _make_info(Framework.POWERSHELL, PackageManager.PSRESOURCEGET)
+        config = _make_config()
+        output = generate_woodpecker(info, config)
+        assert "mcr.microsoft.com/powershell" in output
+        assert "Pester" in output
+        assert "PSScriptAnalyzer" in output
+        assert "make lint" in output
+
     def test_woodpecker_deploy_with_secrets(self) -> None:
         info = _make_info(Framework.PYTHON, PackageManager.UV)
         config = _make_config(
@@ -418,6 +471,12 @@ class TestInstallCommands:
         cmds = _get_install_commands(Framework.RUST, PackageManager.CARGO)
         assert cmds == []
 
+    def test_powershell(self) -> None:
+        cmds = _get_install_commands(Framework.POWERSHELL, PackageManager.PSRESOURCEGET)
+        assert len(cmds) == 2
+        assert any("Pester" in c for c in cmds)
+        assert any("PSScriptAnalyzer" in c for c in cmds)
+
     def test_unknown_combo(self) -> None:
         cmds = _get_install_commands(Framework.UNKNOWN, PackageManager.UNKNOWN)
         assert cmds == []
@@ -439,6 +498,7 @@ class TestWorkflowTemplates:
             "ci-node.yml",
             "ci-go.yml",
             "ci-rust.yml",
+            "ci-powershell.yml",
             "deploy.yml",
         ]
         for name in expected:
@@ -457,7 +517,7 @@ class TestWorkflowTemplates:
     def test_ci_templates_have_required_fields(self) -> None:
         import yaml
 
-        for name in ["ci-python.yml", "ci-node.yml", "ci-go.yml", "ci-rust.yml"]:
+        for name in ["ci-python.yml", "ci-node.yml", "ci-go.yml", "ci-rust.yml", "ci-powershell.yml"]:
             path = self.TEMPLATE_DIR / name
             parsed = yaml.safe_load(path.read_text())
             assert "name" in parsed, f"{name} missing 'name'"
@@ -467,18 +527,18 @@ class TestWorkflowTemplates:
             assert "ci" in parsed["jobs"], f"{name} missing 'ci' job"
 
     def test_ci_templates_use_checkout_v4(self) -> None:
-        for name in ["ci-python.yml", "ci-node.yml", "ci-go.yml", "ci-rust.yml"]:
+        for name in ["ci-python.yml", "ci-node.yml", "ci-go.yml", "ci-rust.yml", "ci-powershell.yml"]:
             content = (self.TEMPLATE_DIR / name).read_text()
             assert "actions/checkout@v4" in content, f"{name} missing checkout@v4"
 
     def test_ci_templates_use_makefile_targets(self) -> None:
-        for name in ["ci-python.yml", "ci-node.yml", "ci-go.yml", "ci-rust.yml"]:
+        for name in ["ci-python.yml", "ci-node.yml", "ci-go.yml", "ci-rust.yml", "ci-powershell.yml"]:
             content = (self.TEMPLATE_DIR / name).read_text()
             assert "make lint" in content, f"{name} missing 'make lint'"
             assert "make test" in content, f"{name} missing 'make test'"
 
     def test_ci_templates_have_caching(self) -> None:
-        for name in ["ci-python.yml", "ci-node.yml", "ci-go.yml", "ci-rust.yml"]:
+        for name in ["ci-python.yml", "ci-node.yml", "ci-go.yml", "ci-rust.yml", "ci-powershell.yml"]:
             content = (self.TEMPLATE_DIR / name).read_text()
             assert "actions/cache@v4" in content, f"{name} missing cache action"
 
@@ -501,6 +561,7 @@ class TestWorkflowTemplates:
             "woodpecker-node.yml",
             "woodpecker-go.yml",
             "woodpecker-rust.yml",
+            "woodpecker-powershell.yml",
         ]
         for name in expected:
             path = self.TEMPLATE_DIR / name
