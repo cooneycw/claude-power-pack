@@ -1,6 +1,6 @@
 [project]
 name = "mcp-nano-banana"
-version = "1.0.0"
+version = "1.1.0"
 description = "Diagram generation MCP server — best-in-class HTML/SVG diagrams for presentations"
 readme = "README.md"
 requires-python = ">=3.11,<3.13"
