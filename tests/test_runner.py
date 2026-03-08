@@ -12,25 +12,15 @@ from lib.cicd.steps import StepDef
 
 @pytest.fixture
 def tmp_project(tmp_path: Path) -> Path:
-    """Create a temporary project directory with a Makefile."""
-    makefile = tmp_path / "Makefile"
-    makefile.write_text(
-        ".PHONY: lint test deploy\n"
-        "lint:\n"
-        "\t@echo 'lint ok'\n"
-        "test:\n"
-        "\t@echo 'test ok'\n"
-        "deploy:\n"
-        "\t@echo 'deployed'\n"
-    )
+    """Create a temporary project directory for runner tests."""
     return tmp_path
 
 
 class TestDeterministicRunner:
     def test_successful_run(self, tmp_project: Path):
         steps = [
-            StepDef(id="lint", command="make lint", timeout_seconds=30),
-            StepDef(id="test", command="make test", timeout_seconds=30),
+            StepDef(id="lint", command="echo 'lint ok'", timeout_seconds=30),
+            StepDef(id="test", command="echo 'test ok'", timeout_seconds=30),
         ]
         runner = DeterministicRunner(project_root=tmp_project, output=StringIO())
         result = runner.run("check", step_defs=steps)
@@ -47,9 +37,9 @@ class TestDeterministicRunner:
 
     def test_failed_step_halts(self, tmp_project: Path):
         steps = [
-            StepDef(id="lint", command="make lint", timeout_seconds=30),
+            StepDef(id="lint", command="echo 'lint ok'", timeout_seconds=30),
             StepDef(id="bad_step", command="exit 1", timeout_seconds=30),
-            StepDef(id="test", command="make test", timeout_seconds=30),
+            StepDef(id="test", command="echo 'test ok'", timeout_seconds=30),
         ]
         runner = DeterministicRunner(project_root=tmp_project, output=StringIO())
         result = runner.run("check", step_defs=steps)
@@ -67,7 +57,7 @@ class TestDeterministicRunner:
     def test_resume_from_failed(self, tmp_project: Path):
         # First run: fail at step 2
         steps = [
-            StepDef(id="lint", command="make lint", timeout_seconds=30),
+            StepDef(id="lint", command="echo 'lint ok'", timeout_seconds=30),
             StepDef(id="bad_step", command="exit 1", timeout_seconds=30),
         ]
         runner = DeterministicRunner(project_root=tmp_project, output=StringIO())
@@ -77,7 +67,7 @@ class TestDeterministicRunner:
 
         # Fix the step and resume
         fixed_steps = [
-            StepDef(id="lint", command="make lint", timeout_seconds=30),
+            StepDef(id="lint", command="echo 'lint ok'", timeout_seconds=30),
             StepDef(id="bad_step", command="echo 'fixed'", timeout_seconds=30),
         ]
 
