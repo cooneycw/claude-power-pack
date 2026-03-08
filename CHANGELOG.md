@@ -1,5 +1,34 @@
 # Changelog
 
+## [5.2.0] - 2026-03-08
+
+### Added - C4 Diagram QA Framework
+
+- **`validate_diagram` MCP tool** - Diagram quality checks: duplicate IDs, edge validity, viewport fit, readability, orphan nodes, WCAG AA contrast, long labels (#255)
+- **Node density scoring** - Automatic overflow detection based on viewport capacity heuristics; status levels: ok, warning, overflow, critical (#262)
+- **`split_diagram` MCP tool** - Auto-splits large diagrams (>15 nodes) into summary + detail sub-diagrams with three clustering strategies: `c4_boundary`, `connectivity`, `type_group` (#263)
+- **Multi-diagram L3/L4 generation** - `/documentation:c4` generates L3 for all containers and L4 for top 3 components per container (#258)
+- **`c4-manifest.json`** - Tracks all generated diagrams with parent-child relationships, node/edge counts, and split roles (#259)
+- **`index.html` navigation page** - Hierarchical browser for all C4 diagrams with level badges and metadata (#260)
+- **Shared theme token system** - `ThemeTokens` dataclass provides consistent color palette across all diagram types via `theme_id` and `theme_tokens` parameters (#261)
+- **QA gating in c4 and pptx skills** - Post-generation warning inspection: EDGE_INVALID triggers retry (max 2), OVERFLOW triggers split, ORPHAN/LABELS logged as warnings; QA summary in final reports (#264)
+- **Playwright session optimization** - PPTX skill uses ONE browser session for all diagram screenshots (#264)
+- **Comprehensive test suite** - 285 new tests: validation, density scoring, split strategy, XSS sanitization, WCAG contrast, C4 integration (#265)
+
+### Fixed
+
+- **XSS vulnerability** - HTML-escape all node labels and descriptions in diagram HTML output (#256)
+- **WCAG AA color contrast** - All C4 and generic palettes updated to meet 4.5:1 minimum contrast ratio (#257)
+- **test_wcag_contrast.py import** - Updated to use `_c4_color()` after theme token refactor (#264)
+
+### Changed
+
+- Version bump: 5.1.0 -> 5.2.0
+- Nano-banana MCP tools: 4 -> 7 (added `validate_diagram`, `split_diagram`, `validate_pptx_slides`)
+- Test count: 211 -> 496
+
+---
+
 ## [5.0.0] - 2026-03-05
 
 ### Added - Wave 6: Polish, Quality & DX
