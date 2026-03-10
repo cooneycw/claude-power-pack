@@ -48,14 +48,10 @@ For each container with an exposed port, hit the health endpoint:
 
 ```bash
 # Known MCP server ports and their health endpoints
-declare -A MCP_PORTS=(
-    ["mcp-second-opinion"]="8080"
-    ["mcp-nano-banana"]="8084"
-    ["mcp-playwright-persistent"]="8081"
-)
-
-for name in "${!MCP_PORTS[@]}"; do
-    port="${MCP_PORTS[$name]}"
+# Uses portable for-loop pattern (POSIX-compatible, no bash 4+ associative arrays)
+for pair in "mcp-second-opinion:8080" "mcp-nano-banana:8084" "mcp-playwright-persistent:8081"; do
+    name="${pair%%:*}"
+    port="${pair##*:}"
     response=$(curl -sf --max-time 3 "http://127.0.0.1:${port}/" 2>/dev/null)
     if [ $? -eq 0 ]; then
         # Check for no_api_keys status
