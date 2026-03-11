@@ -58,13 +58,13 @@ docker-up: docker-check-env
 	$(foreach p,$(PROFILE),docker compose --profile $(p) up -d;)
 
 docker-down:
-	docker compose --profile core --profile browser --profile coord down
+	docker compose --profile core --profile browser --profile cicd --profile coord down
 
 docker-logs:
-	docker compose --profile core --profile browser --profile coord logs -f
+	docker compose --profile core --profile browser --profile cicd --profile coord logs -f
 
 docker-ps:
-	docker compose --profile core --profile browser --profile coord ps
+	docker compose --profile core --profile browser --profile cicd --profile coord ps
 
 ## Deploy (used by Woodpecker CI and /flow:deploy)
 

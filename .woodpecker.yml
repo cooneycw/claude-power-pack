@@ -53,6 +53,18 @@ steps:
       - event: [push, pull_request]
         path: "mcp-nano-banana/**"
 
+  build-woodpecker-ci:
+    image: woodpeckerci/plugin-docker-buildx
+    settings:
+      repo: mcp-woodpecker-ci
+      dockerfile: mcp-woodpecker-ci/deploy/Dockerfile
+      context: mcp-woodpecker-ci
+      tags: latest
+      dry_run: true
+    when:
+      - event: [push, pull_request]
+        path: "mcp-woodpecker-ci/**"
+
   # mcp-evaluate removed - deprecated, absorbed into /evaluate:issue skill
 
   deploy-mcp:
@@ -60,8 +72,8 @@ steps:
     commands:
       - apk add --no-cache docker-compose
       - echo "Deploying MCP containers..."
-      - docker compose --profile core --profile browser up -d --build --wait
-      - docker compose --profile core --profile browser ps
+      - docker compose --profile core --profile browser --profile cicd up -d --build --wait
+      - docker compose --profile core --profile browser --profile cicd ps
       - docker image prune -f
       - echo "Deploy complete."
     volumes:
@@ -73,4 +85,5 @@ steps:
           - "mcp-second-opinion/**"
           - "mcp-playwright-persistent/**"
           - "mcp-nano-banana/**"
+          - "mcp-woodpecker-ci/**"
           - "docker-compose.yml"

@@ -2,6 +2,7 @@
 # Usage (prefer Makefile targets - see Deployment Conventions in CLAUDE.md):
 #   make docker-up PROFILE=core                      # Second Opinion + Nano-Banana
 #   make docker-up PROFILE="core browser"            # + Playwright
+#   make docker-up PROFILE="core cicd"               # + Woodpecker CI
 #   make docker-build PROFILE=core                   # Build images only
 #   make docker-down                                 # Stop all services
 #   make docker-ps                                   # Show container status
@@ -10,6 +11,8 @@
 #   GEMINI_API_KEY=...
 #   OPENAI_API_KEY=...
 #   ANTHROPIC_API_KEY=...
+#   WOODPECKER_URL=...          (or auto-fetched from AWS via AWS_SECRET_NAME)
+#   WOODPECKER_API_TOKEN=...    (or auto-fetched from AWS via AWS_SECRET_NAME)
 
 services:
   mcp-second-opinion:
@@ -97,6 +100,36 @@ services:
   #       reservations:
   #         cpus: "0.25"
   #         memory: 128M
+
+  mcp-woodpecker-ci:
+    build:
+      context: ./mcp-woodpecker-ci
+      dockerfile: deploy/Dockerfile
+    image: mcp-woodpecker-ci:latest
+    container_name: mcp-woodpecker-ci
+    ports:
+      - "8085:8085"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - MCP_SERVER_HOST=0.0.0.0
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8085/')"]
+      interval: 10s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    restart: unless-stopped
+    profiles: ["cicd"]
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+        reservations:
+          cpus: "0.25"
+          memory: 128M
 
   mcp-playwright-persistent:
     build:
