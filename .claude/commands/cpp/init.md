@@ -323,6 +323,11 @@ This will make the following changes:
     • Generate docker-compose.yml
     • Generate .dockerignore
 
+  [Tier 4E - Woodpecker CI MCP] (optional)
+    • Install woodpecker-mcp Go binary
+    • Configure from AWS Secrets Manager or manual URL/token
+    • Register as MCP server (stdio transport)
+
   Disk usage: ~0 MB (generated files only)
 
   To undo:
@@ -330,6 +335,7 @@ This will make the following changes:
     rm .claude/cicd.yml
     rm .github/workflows/ci.yml
     rm Dockerfile docker-compose.yml .dockerignore
+    claude mcp remove woodpecker-ci
 
 Proceed? [y/N]
 ```
@@ -819,6 +825,72 @@ PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -m lib.cicd container --write 2>/d
 echo "✓ Container files generated"
 ```
 
+#### 4e. Woodpecker CI MCP (Optional)
+
+Ask the user if they want to install the Woodpecker CI MCP server:
+
+```
+=== Optional: Woodpecker CI MCP Server ===
+
+Install the Woodpecker CI MCP server for pipeline management?
+
+This gives Claude Code native access to:
+  - List and monitor pipelines
+  - Trigger, cancel, and approve builds
+  - View build logs
+
+Requires:
+  - Go 1.24+ (or will be installed)
+  - Woodpecker CI server URL and API token
+    (auto-detected from AWS Secrets Manager if configured)
+
+Install Woodpecker CI MCP? [y/N]
+```
+
+If yes:
+
+```bash
+# Check/install Go
+if ! command -v go &>/dev/null; then
+  if [ -x /usr/local/go/bin/go ]; then
+    export PATH="/usr/local/go/bin:$PATH"
+  else
+    echo "Go not found. Install from https://go.dev/dl/ and re-run."
+    exit 1
+  fi
+fi
+
+# Install binary
+export PATH="$HOME/go/bin:$PATH"
+go install github.com/denysvitali/woodpecker-ci-mcp/cmd/woodpecker-mcp@latest
+BINARY="$HOME/go/bin/woodpecker-mcp"
+
+# Configure credentials
+if [ -f "$CPP_DIR/mcp-woodpecker-ci/scripts/setup-go-binary.sh" ]; then
+  bash "$CPP_DIR/mcp-woodpecker-ci/scripts/setup-go-binary.sh"
+else
+  # Manual: prompt for URL and token
+  echo "Enter Woodpecker CI URL (e.g. https://woodpecker.example.com):"
+  read -r WP_URL
+  echo "Enter Woodpecker API token:"
+  read -rs WP_TOKEN
+  mkdir -p ~/.config/woodpecker-mcp
+  cat > ~/.config/woodpecker-mcp/config.yaml << EOF
+woodpecker:
+  url: $WP_URL
+  token: $WP_TOKEN
+EOF
+  chmod 600 ~/.config/woodpecker-mcp/config.yaml
+fi
+
+# Test connection
+"$BINARY" test
+
+# Register with Claude Code
+claude mcp add --transport stdio -s user woodpecker-ci -- "$BINARY" serve
+echo "✓ Woodpecker CI MCP server installed and registered"
+```
+
 ---
 
 ## Step 6: Systemd Services (Optional)
@@ -882,6 +954,7 @@ Permission Profile: {PROFILE_NAME}
 MCP Servers:
   • second-opinion (port 8080) - Gemini/OpenAI code review
   • playwright-persistent (port 8081) - Browser automation
+  • woodpecker-ci (stdio) - Woodpecker CI pipeline management
 
 Next Steps:
   1. Start MCP servers (if not using systemd):

@@ -25,6 +25,7 @@ Core components and their locations:
 - `mcp-second-opinion/` - Code review MCP server (port 8080)
 - `mcp-playwright-persistent/` - Browser automation MCP server (port 8081, 29 tools)
 - `mcp-nano-banana/` - Diagram generation + PowerPoint MCP server (port 8084, 7 tools: `list_diagram_types`, `generate_diagram`, `validate_diagram`, `split_diagram`, `create_pptx`, `validate_pptx_slides`, `diagram_to_pptx`)
+- `mcp-woodpecker-ci/` - Woodpecker CI pipeline management MCP server (port 8085/SSE or stdio via Go binary; 9 tools: `health_check`, `list_repos`, `lookup_repo`, `list_pipelines`, `get_pipeline`, `create_pipeline`, `cancel_pipeline`, `approve_pipeline`, `get_pipeline_logs`)
 - `extras/sequential-thinking/` - Optional: structured reasoning (stdio, npm)
 - `lib/creds/` - Secrets management (dotenv/AWS SM, FastAPI UI, audit logging)
 - `lib/security/` - Security scanning (native + external tools)
@@ -32,7 +33,7 @@ Core components and their locations:
 - `lib/spec_bridge/` - Spec-to-GitHub-issue sync
 - `scripts/` - Shell utilities (prompt-context, worktree-remove, hooks)
 - `templates/` - Makefile, workflow, container templates
-- `docker-compose.yml` - MCP server orchestration (profiles: `core`, `browser`)
+- `docker-compose.yml` - MCP server orchestration (profiles: `core`, `browser`, `cicd`)
 - `.woodpecker.yml` - Woodpecker CI pipeline (lint, test, typecheck, Docker builds)
 
 ## Environment Variables
@@ -43,9 +44,9 @@ Core components and their locations:
 
 Docker containers read API keys from a root `.env` file (gitignored) via `env_file` in docker-compose.yml. For production, use AWS Secrets Manager via `lib/creds`.
 
-- **Profiles:** `core` (second-opinion + nano-banana), `browser` (playwright)
+- **Profiles:** `core` (second-opinion + nano-banana), `browser` (playwright), `cicd` (woodpecker-ci)
 - **Start:** `make docker-up PROFILE=core`
-- **All profiles:** `make docker-up PROFILE="core browser"`
+- **All profiles:** `make docker-up PROFILE="core browser cicd"`
 - **Status/logs/stop:** `make docker-ps`, `make docker-logs`, `make docker-down`
 - **MCP connections:** Defined in project `.mcp.json` pointing to `127.0.0.1:{port}/sse` (SSE transport)
 - **Woodpecker CI** runs on push/PR: lint, test, typecheck, conditional Docker builds

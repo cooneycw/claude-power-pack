@@ -206,7 +206,7 @@ fi
 # Check MCP server pyproject.toml files
 echo ""
 echo "MCP Server Projects:"
-for server in mcp-second-opinion mcp-playwright-persistent; do
+for server in mcp-second-opinion mcp-playwright-persistent mcp-woodpecker-ci; do
   if [ -f "$CPP_DIR/$server/pyproject.toml" ]; then
     echo "  [x] $server: pyproject.toml found"
   else
@@ -218,7 +218,7 @@ done
 echo ""
 echo "MCP Servers (Claude Code):"
 MCP_LIST=$(claude mcp list 2>/dev/null || echo "")
-for server in second-opinion playwright-persistent; do
+for server in second-opinion playwright-persistent woodpecker-ci; do
   if echo "$MCP_LIST" | grep -q "$server"; then
     echo "  [x] $server: registered"
   else
@@ -229,7 +229,7 @@ done
 # Check MCP server connectivity and API key status
 echo ""
 echo "MCP Server Connectivity:"
-for entry in "8080:second-opinion" "8081:playwright-persistent"; do
+for entry in "8080:second-opinion" "8081:playwright-persistent" "8085:woodpecker-ci"; do
   PORT="${entry%%:*}"
   NAME="${entry#*:}"
   HEALTH_RESPONSE=$(curl -sf --max-time 2 "http://127.0.0.1:${PORT}/" 2>/dev/null)
@@ -270,7 +270,7 @@ fi
 # Check systemd services
 echo ""
 echo "Systemd Services:"
-for service in mcp-second-opinion mcp-playwright-persistent; do
+for service in mcp-second-opinion mcp-playwright-persistent mcp-woodpecker-ci; do
   if systemctl is-enabled $service &>/dev/null; then
     if systemctl is-active $service &>/dev/null; then
       echo "  [x] $service: enabled, running"
