@@ -81,7 +81,22 @@ deploy:
 #     pr: [lint, test, typecheck]
 #   matrix:
 #     python-version: ["3.11", "3.12"]
-#   secrets_needed: [DEPLOY_KEY]
+#
+#   # --- Secrets ---
+#   # Use AWS Secrets Manager for deploy-time and shared runtime secrets.
+#   # This is the required path for centralized secret management.
+#   secrets_source: aws-secrets-manager   # platform | aws-secrets-manager
+#   aws_region: us-east-1                 # AWS region for Secrets Manager
+#   aws_secret_name: my-project/deploy    # Secret name in AWS SM
+#
+#   # For GitHub Actions: store AWS_ROLE_ARN as a GitHub secret (OIDC).
+#   # For Woodpecker: store aws_access_key_id and aws_secret_access_key
+#   #   as Woodpecker secrets (bootstrap credentials only).
+#   # All other deploy/runtime secrets are fetched from AWS SM at deploy time.
+#
+#   # Legacy: platform-injected secrets (not recommended for deploy).
+#   # secrets_needed: [DEPLOY_KEY]
+#
 #   woodpecker:
 #     local: true              # Use 'woodpecker exec' for local runs
 

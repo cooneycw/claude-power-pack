@@ -142,6 +142,30 @@ def cmd_check(args: argparse.Namespace) -> int:
     return 0 if result.is_healthy else 1
 
 
+def _check_secrets_source(config: CICDConfig) -> list[str]:
+    """Check secrets configuration and return warnings."""
+    warnings: list[str] = []
+    pipeline = config.pipeline
+    has_deploy = "deploy" in pipeline.branches.get("main", [])
+
+    if pipeline.secrets_source == "aws-secrets-manager":
+        if not pipeline.aws_secret_name:
+            warnings.append(
+                "WARNING: secrets_source is 'aws-secrets-manager' but "
+                "aws_secret_name is not set. Set pipeline.aws_secret_name "
+                "in .claude/cicd.yml."
+            )
+    elif has_deploy and pipeline.secrets_needed:
+        warnings.append(
+            "WARNING: Deploy pipeline uses platform-injected secrets. "
+            "Consider switching to AWS Secrets Manager for centralized "
+            "secret management. Set pipeline.secrets_source: aws-secrets-manager "
+            "in .claude/cicd.yml."
+        )
+
+    return warnings
+
+
 def cmd_pipeline(args: argparse.Namespace) -> int:
     """Generate CI/CD pipeline files."""
     info = detect_framework(args.path)
@@ -151,10 +175,22 @@ def cmd_pipeline(args: argparse.Namespace) -> int:
     if args.provider:
         config.pipeline.provider = args.provider
 
+    # Check secrets configuration
+    warnings = _check_secrets_source(config)
+
     if args.json:
         files = generate_pipeline(info, config)
-        print(json.dumps({"provider": config.pipeline.provider, "files": files}, indent=2))
+        result = {"provider": config.pipeline.provider, "files": files}
+        if warnings:
+            result["warnings"] = warnings
+        print(json.dumps(result, indent=2))
         return 0
+
+    # Print warnings
+    for warning in warnings:
+        print(warning)
+    if warnings:
+        print()
 
     # Dry run by default, write with --write
     if args.write:
@@ -163,7 +199,9 @@ def cmd_pipeline(args: argparse.Namespace) -> int:
         files = generate_pipeline(info, config)
 
     provider = config.pipeline.provider
+    secrets_source = config.pipeline.secrets_source
     print(f"Pipeline provider: {provider}")
+    print(f"Secrets source: {secrets_source}")
     print(f"Framework: {info.framework.label} ({info.package_manager.label})")
     print()
 

@@ -130,6 +130,52 @@ smoke_tests:
 | When | Continuous / post-deploy | Post-deploy only |
 | Failure | Service down | Feature broken |
 
+## Secrets Management in CI/CD
+
+AWS Secrets Manager is the required path for deploy-time and shared runtime secrets. Instead of injecting each secret individually via platform secrets (GitHub Actions secrets, Woodpecker secrets), store only bootstrap AWS credentials in the platform and fetch all other secrets from AWS Secrets Manager at deploy time.
+
+### Configuration
+
+```yaml
+# .claude/cicd.yml
+pipeline:
+  secrets_source: aws-secrets-manager
+  aws_region: us-east-1
+  aws_secret_name: my-project/deploy
+```
+
+### Secret Naming Convention
+
+Secrets are stored under the `claude-power-pack/{project_id}` naming convention in AWS Secrets Manager. Each secret is a JSON object containing all key-value pairs needed at deploy time.
+
+### Platform Bootstrap Credentials
+
+| Platform | Required Platform Secrets | Purpose |
+|----------|--------------------------|---------|
+| GitHub Actions | `AWS_ROLE_ARN` | OIDC role for `aws-actions/configure-aws-credentials@v4` |
+| Woodpecker | `aws_access_key_id`, `aws_secret_access_key` | IAM user for boto3 access |
+
+All other secrets (database credentials, API keys, deploy tokens) are fetched from AWS SM at deploy time - not stored as platform secrets.
+
+### IAM Setup
+
+Use the `bootstrap_iam()` method from `lib/creds/providers/aws.py` to generate a per-project IAM policy:
+
+```python
+from lib.creds.providers.aws import AWSSecretsProvider
+provider = AWSSecretsProvider(region="us-east-1")
+iam = provider.bootstrap_iam("my-project", "123456789012")
+# Returns: {"role_name": "cpp-my-project-dev", "policy_document": "..."}
+```
+
+### Validation
+
+The pipeline generator warns when:
+- `secrets_source` is `platform` but `secrets_needed` is set with a deploy step
+- `secrets_source` is `aws-secrets-manager` but `aws_secret_name` is missing
+
+Run `python -m lib.cicd validate` to check your configuration.
+
 ## CI/CD Pipeline Patterns
 
 ### GitHub Actions
