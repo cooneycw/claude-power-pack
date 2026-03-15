@@ -98,6 +98,9 @@ class PipelineConfig(BaseModel):
     )
     matrix: dict[str, list[str]] = Field(default_factory=dict)
     secrets_needed: list[str] = Field(default_factory=list)
+    secrets_source: str = "platform"  # platform | aws-secrets-manager
+    aws_region: str = "us-east-1"
+    aws_secret_name: str = ""  # AWS Secrets Manager secret name for deploy secrets
     woodpecker: WoodpeckerConfig = Field(default_factory=WoodpeckerConfig)
 
 
@@ -284,6 +287,34 @@ class CICDConfig(BaseModel):
                 issues.append(
                     f"pipeline.provider '{provider}' is invalid. "
                     f"Valid values: {', '.join(sorted(valid_providers))}"
+                )
+
+            secrets_source = pipeline_data.get("secrets_source", "platform")
+            valid_sources = {"platform", "aws-secrets-manager"}
+            if secrets_source not in valid_sources:
+                issues.append(
+                    f"pipeline.secrets_source '{secrets_source}' is invalid. "
+                    f"Valid values: {', '.join(sorted(valid_sources))}"
+                )
+
+            if secrets_source == "aws-secrets-manager":
+                if not pipeline_data.get("aws_secret_name"):
+                    issues.append(
+                        "pipeline.aws_secret_name is required when "
+                        "secrets_source is 'aws-secrets-manager'. "
+                        "Set it to your AWS Secrets Manager secret name "
+                        "(e.g., 'my-project/deploy')."
+                    )
+
+            secrets_needed = pipeline_data.get("secrets_needed", [])
+            branches = pipeline_data.get("branches", {})
+            has_deploy = "deploy" in branches.get("main", [])
+            if secrets_needed and has_deploy and secrets_source == "platform":
+                issues.append(
+                    "pipeline.secrets_source is 'platform' but secrets_needed "
+                    "is set with a deploy step. Consider using "
+                    "'aws-secrets-manager' for centralized secret management. "
+                    "Set pipeline.secrets_source: aws-secrets-manager"
                 )
 
         # Validate health section

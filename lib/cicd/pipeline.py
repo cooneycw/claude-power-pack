@@ -205,6 +205,13 @@ def generate_github_actions(info: FrameworkInfo, config: CICDConfig) -> str:
         lines.append("    needs: ci")
         lines.append("    runs-on: ubuntu-latest")
         lines.append("    if: github.ref == 'refs/heads/main' && github.event_name == 'push'")
+
+        use_aws = config.pipeline.secrets_source == "aws-secrets-manager"
+        if use_aws:
+            lines.append("    permissions:")
+            lines.append("      id-token: write")
+            lines.append("      contents: read")
+
         lines.append("    steps:")
         lines.append("      - uses: actions/checkout@v4")
         if setup:
@@ -212,14 +219,35 @@ def generate_github_actions(info: FrameworkInfo, config: CICDConfig) -> str:
             if fw == Framework.PYTHON:
                 lines.append("        with:")
                 lines.append('          python-version: "3.12"')
-        lines.append("      - name: Deploy")
-        lines.append("        run: make deploy")
 
-        # Secrets
-        if config.pipeline.secrets_needed:
-            lines.append("        env:")
-            for secret in config.pipeline.secrets_needed:
-                lines.append(f"          {secret}: ${{{{ secrets.{secret} }}}}")
+        if use_aws:
+            # AWS credentials via OIDC
+            aws_region = config.pipeline.aws_region or "us-east-1"
+            lines.append("      - name: Configure AWS credentials")
+            lines.append("        uses: aws-actions/configure-aws-credentials@v4")
+            lines.append("        with:")
+            lines.append("          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}")
+            lines.append(f"          aws-region: {aws_region}")
+            # Fetch secrets from AWS SM
+            aws_secret = config.pipeline.aws_secret_name
+            if aws_secret:
+                lines.append("      - name: Fetch deploy secrets")
+                lines.append("        uses: aws-actions/aws-secretsmanager-get-secrets@v2")
+                lines.append("        with:")
+                lines.append("          secret-ids: |")
+                lines.append(f"            {aws_secret}")
+                lines.append("          parse-json-secrets: true")
+            lines.append("      - name: Deploy")
+            lines.append("        run: make deploy")
+        else:
+            lines.append("      - name: Deploy")
+            lines.append("        run: make deploy")
+
+            # Platform secrets (legacy)
+            if config.pipeline.secrets_needed:
+                lines.append("        env:")
+                for secret in config.pipeline.secrets_needed:
+                    lines.append(f"          {secret}: ${{{{ secrets.{secret} }}}}")
         lines.append("")
 
     return "\n".join(lines)
@@ -270,21 +298,51 @@ def generate_woodpecker(info: FrameworkInfo, config: CICDConfig) -> str:
     # Deploy step (only on main push)
     main_steps = branches.get("main", [])
     if "deploy" in main_steps:
+        use_aws = config.pipeline.secrets_source == "aws-secrets-manager"
+
         lines.append("  - name: deploy")
         lines.append(f"    image: {image}")
-        lines.append("    commands:")
-        for cmd in install_cmds:
-            lines.append(f"      - {cmd}")
-        lines.append("      - make deploy")
+
+        if use_aws:
+            aws_region = config.pipeline.aws_region or "us-east-1"
+            aws_secret = config.pipeline.aws_secret_name or ""
+            lines.append("    environment:")
+            lines.append(f"      AWS_DEFAULT_REGION: {aws_region}")
+            if aws_secret:
+                lines.append(f"      AWS_SECRET_NAME: {aws_secret}")
+            lines.append("    secrets:")
+            lines.append("      - aws_access_key_id")
+            lines.append("      - aws_secret_access_key")
+            lines.append("    commands:")
+            for cmd in install_cmds:
+                lines.append(f"      - {cmd}")
+            lines.append("      - pip install boto3")
+            lines.append("      - |")
+            lines.append("        python3 -c \"")
+            lines.append("        import boto3, json, os")
+            lines.append("        client = boto3.client('secretsmanager')")
+            lines.append("        secret = json.loads(client.get_secret_value(")
+            lines.append("            SecretId=os.environ['AWS_SECRET_NAME'])['SecretString'])")
+            lines.append("        with open('.env.deploy', 'w') as f:")
+            lines.append("            for k, v in secret.items():")
+            lines.append("                f.write(f'{k}={v}\\n')\"")
+            lines.append("      - set -a && . .env.deploy && set +a && make deploy")
+            lines.append("      - rm -f .env.deploy")
+        else:
+            lines.append("    commands:")
+            for cmd in install_cmds:
+                lines.append(f"      - {cmd}")
+            lines.append("      - make deploy")
+
+            # Platform secrets (legacy)
+            if config.pipeline.secrets_needed:
+                lines.append("    secrets:")
+                for secret in config.pipeline.secrets_needed:
+                    lines.append(f"      - {secret.lower()}")
+
         lines.append("    when:")
         lines.append("      branch: main")
         lines.append("      event: push")
-
-        # Secrets
-        if config.pipeline.secrets_needed:
-            lines.append("    secrets:")
-            for secret in config.pipeline.secrets_needed:
-                lines.append(f"      - {secret.lower()}")
         lines.append("")
 
     return "\n".join(lines)
