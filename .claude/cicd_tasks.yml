@@ -51,6 +51,12 @@ steps:
     timeout: 120
     skip_if: "! python3 -c 'import lib.security' 2>/dev/null"
 
+  drift_check:
+    command: make drift-check
+    description: Detect drift between repo templates and host-installed artifacts
+    timeout: 60
+    skip_if: '! [ -x scripts/drift-detect.sh ]'
+
   deploy:
     command: make deploy
     description: Run deployment
@@ -75,4 +81,5 @@ plans:
     description: Deployment pipeline for /flow:deploy
     steps:
       - deploy_security_scan
+      - drift_check
       - deploy

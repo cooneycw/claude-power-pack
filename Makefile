@@ -1,5 +1,6 @@
 .PHONY: test lint format typecheck verify update_docs clean \
-       docker-build docker-check-env docker-up docker-down docker-logs docker-ps deploy
+       docker-build docker-check-env docker-up docker-down docker-logs docker-ps deploy \
+       drift-check
 
 ## Quality gates (used by /flow:finish)
 
@@ -65,6 +66,11 @@ docker-logs:
 
 docker-ps:
 	docker compose --profile core --profile browser --profile cicd --profile coord ps
+
+## Drift detection (compare host-installed artifacts against repo templates)
+
+drift-check:
+	@scripts/drift-detect.sh --fix
 
 ## Deploy (used by Woodpecker CI and /flow:deploy)
 

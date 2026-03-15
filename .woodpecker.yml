@@ -67,6 +67,19 @@ steps:
 
   # mcp-evaluate removed - deprecated, absorbed into /evaluate:issue skill
 
+  drift-check:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim
+    commands:
+      - scripts/drift-detect.sh || echo "WARN - drift detected (non-blocking on CI agent)"
+    when:
+      - event: push
+        branch: main
+        path:
+          - "mcp-second-opinion/deploy/**"
+          - "mcp-playwright-persistent/deploy/**"
+          - "scripts/bash-prep.sh"
+          - "scripts/drift-detect.sh"
+
   deploy-mcp:
     image: docker:cli
     commands:
