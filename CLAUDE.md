@@ -31,7 +31,7 @@ Core components and their locations:
 - `lib/security/` - Security scanning (native + external tools)
 - `lib/cicd/` - CI/CD framework detection, Makefile generation, health/smoke checks, deterministic runner, deployment strategies, Pydantic v2 config validation
 - `lib/spec_bridge/` - Spec-to-GitHub-issue sync
-- `scripts/` - Shell utilities (prompt-context, worktree-remove, hooks)
+- `scripts/` - Shell utilities (prompt-context, worktree-remove, hooks, drift-detect)
 - `templates/` - Makefile, workflow, container templates
 - `docker-compose.yml` - MCP server orchestration (profiles: `core`, `browser`, `cicd`)
 - `.woodpecker.yml` - Woodpecker CI pipeline (lint, test, typecheck, Docker builds)
@@ -51,6 +51,7 @@ Docker containers read API keys from a root `.env` file (gitignored) via `env_fi
 - **MCP connections:** Defined in project `.mcp.json` pointing to `127.0.0.1:{port}/sse` (SSE transport)
 - **Woodpecker CI** runs on push/PR: lint, test, typecheck, conditional Docker builds
 - **Auto-deploy:** On push to main, if `mcp-*/` or `docker-compose.yml` changed, Woodpecker rebuilds and restarts MCP containers via the local agent
+- **Drift detection:** `make drift-check` compares host-installed artifacts (systemd units, sysctl, Go binaries) against repo templates. Runs as a pre-deploy gate in the CI pipeline. See `docs/HOST_MANAGED_ARTIFACTS.md` for full inventory.
 
 ## Commands Reference
 
