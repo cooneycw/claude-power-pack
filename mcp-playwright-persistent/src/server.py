@@ -24,11 +24,34 @@ from typing import Optional
 from dotenv import load_dotenv
 from fastmcp import FastMCP
 from playwright.async_api import Browser, BrowserContext, Page, async_playwright
+from sse_starlette import EventSourceResponse
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 # Load environment
 load_dotenv()
+
+# ---------------------------------------------------------------------------
+# SSE keepalive patch
+# ---------------------------------------------------------------------------
+# The MCP SDK creates EventSourceResponse without a ping interval, which lets
+# idle SSE connections drop silently (proxy timeout, TCP idle, etc.).  When
+# the connection drops, the SDK still accepts POST /messages/ with 202 but
+# can never deliver the response - Claude Code then reports -32602.
+#
+# Patching the default to send a keepalive comment every 15 s keeps the
+# connection alive through proxies and idle periods.
+# ---------------------------------------------------------------------------
+_original_esr_init = EventSourceResponse.__init__
+
+
+def _esr_init_with_keepalive(self, *args, **kwargs):
+    if "ping" not in kwargs:
+        kwargs["ping"] = 15
+    _original_esr_init(self, *args, **kwargs)
+
+
+EventSourceResponse.__init__ = _esr_init_with_keepalive
 
 # Configure logging
 logging.basicConfig(
@@ -742,6 +765,7 @@ def main():
         mcp.run(transport="stdio")
     else:
         logger.info(f"Starting MCP Playwright Persistent on {SERVER_HOST}:{SERVER_PORT}")
+        logger.info("SSE keepalive ping enabled (15s interval)")
         mcp.run(
             transport="sse",
             host=SERVER_HOST,
