@@ -1,6 +1,6 @@
 .PHONY: test lint format typecheck verify update_docs clean \
        docker-build docker-check-env docker-up docker-down docker-logs docker-ps deploy \
-       drift-check
+       drift-check setup-woodpecker-cli
 
 ## Quality gates (used by /flow:finish)
 
@@ -77,6 +77,11 @@ drift-check:
 deploy: docker-build docker-up
 	@sleep 5
 	@$(MAKE) docker-ps
+
+## Woodpecker CLI setup
+
+setup-woodpecker-cli:
+	@scripts/setup-woodpecker-cli.sh
 
 ## Utilities
 
