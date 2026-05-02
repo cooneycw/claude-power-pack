@@ -1,0 +1,6 @@
+log_level = "INFO"
+http_port = 2773
+region = "us-east-1"
+ttl_seconds = 300
+cache_size = 1000
+ssrf_env_variables = ["AWS_TOKEN"]
