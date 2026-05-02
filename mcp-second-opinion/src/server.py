@@ -1762,10 +1762,12 @@ def _build_dual_transport_app():
 
     SSE at /sse (Claude Code) and streamable-http at /mcp (Codex).
     """
-    sse_app = mcp.http_app(transport="sse")
-    streamable_app = mcp.http_app(transport="streamable-http")
+    from contextlib import asynccontextmanager
 
     from starlette.applications import Starlette
+
+    sse_app = mcp.http_app(transport="sse")
+    streamable_app = mcp.http_app(transport="streamable-http")
 
     routes = list(sse_app.routes)
     for r in streamable_app.routes:
@@ -1773,7 +1775,12 @@ def _build_dual_transport_app():
             routes.append(r)
             break
 
-    app = Starlette(routes=routes)
+    @asynccontextmanager
+    async def _combined_lifespan(app):
+        async with sse_app.router.lifespan_context(app), streamable_app.router.lifespan_context(app):
+            yield
+
+    app = Starlette(routes=routes, lifespan=_combined_lifespan)
     return app
 
 
