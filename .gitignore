@@ -74,3 +74,6 @@ mcp-second-opinion/src/tools/__pycache__/
 # Generated diagram outputs
 /diagrams/
 *.pptx
+
+# Generated Codex skill wrappers (created by scripts/codex-skill-gen.py)
+.agents/
