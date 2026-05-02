@@ -19,6 +19,7 @@ slugify = codex_skill_gen.slugify
 generate_codex_skill = codex_skill_gen.generate_codex_skill
 has_mcp_content = codex_skill_gen.has_mcp_content
 rewrite_paths = codex_skill_gen.rewrite_paths
+link_workspace_skills = codex_skill_gen.link_workspace_skills
 FALLBACK_METADATA = codex_skill_gen.FALLBACK_METADATA
 
 
@@ -116,6 +117,23 @@ class TestRewritePaths:
         body = "Run `scripts/drift-detect.sh`"
         result = rewrite_paths(body, "/repo")
         assert "`/repo/scripts/drift-detect.sh`" in result
+
+    def test_rewrites_bare_path(self) -> None:
+        body = "Read docs/skills/cicd-verification.md"
+        result = rewrite_paths(body, "/opt/cpp")
+        assert "/opt/cpp/docs/skills/cicd-verification.md" in result
+
+    def test_rewrites_bare_scripts_path(self) -> None:
+        body = "Run scripts/setup.sh to start"
+        result = rewrite_paths(body, "/opt/cpp")
+        assert "/opt/cpp/scripts/setup.sh" in result
+
+    def test_bare_path_not_double_rewritten(self) -> None:
+        body = "See `docs/skills/foo.md` and docs/skills/bar.md"
+        result = rewrite_paths(body, "/opt/cpp")
+        assert "`/opt/cpp/docs/skills/foo.md`" in result
+        assert "/opt/cpp/docs/skills/bar.md" in result
+        assert result.count("/opt/cpp/docs/skills/foo.md") == 1
 
 
 class TestGenerateCodexSkill:
@@ -266,3 +284,119 @@ class TestEndToEnd:
             assert "name" in meta
             assert "description" in meta
             assert "trigger" in meta
+
+
+def _make_skill_dirs(base: Path, names: list[str]) -> None:
+    for name in names:
+        d = base / name
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "SKILL.md").write_text(f"# {name}\n")
+
+
+class TestLinkWorkspaceSkills:
+    def test_creates_symlinks(self, tmp_path: Path) -> None:
+        cpp_skills = tmp_path / "cpp" / ".agents" / "skills"
+        ws_root = tmp_path / "workspace"
+        ws_root.mkdir()
+        _make_skill_dirs(cpp_skills, ["claude-power-pack-foo", "claude-power-pack-bar"])
+
+        linked, ok, skipped, stale = link_workspace_skills(cpp_skills, ws_root)
+        assert linked == 2
+        assert ok == 0
+        assert skipped == 0
+        assert stale == 0
+
+        link_bar = ws_root / ".agents" / "skills" / "claude-power-pack-bar"
+        assert link_bar.is_symlink()
+        assert (link_bar / "SKILL.md").read_text() == "# claude-power-pack-bar\n"
+
+    def test_idempotent_rerun(self, tmp_path: Path) -> None:
+        cpp_skills = tmp_path / "cpp" / ".agents" / "skills"
+        ws_root = tmp_path / "workspace"
+        ws_root.mkdir()
+        _make_skill_dirs(cpp_skills, ["claude-power-pack-foo"])
+
+        link_workspace_skills(cpp_skills, ws_root)
+        linked, ok, skipped, stale = link_workspace_skills(cpp_skills, ws_root)
+        assert linked == 0
+        assert ok == 1
+
+    def test_refuses_to_overwrite_non_symlink(self, tmp_path: Path) -> None:
+        cpp_skills = tmp_path / "cpp" / ".agents" / "skills"
+        ws_root = tmp_path / "workspace"
+        _make_skill_dirs(cpp_skills, ["claude-power-pack-foo"])
+        existing = ws_root / ".agents" / "skills" / "claude-power-pack-foo"
+        existing.mkdir(parents=True)
+        (existing / "SKILL.md").write_text("user content")
+
+        linked, ok, skipped, stale = link_workspace_skills(cpp_skills, ws_root)
+        assert linked == 0
+        assert skipped == 1
+        assert (existing / "SKILL.md").read_text() == "user content"
+
+    def test_detects_stale_symlinks(self, tmp_path: Path) -> None:
+        cpp_skills = tmp_path / "cpp" / ".agents" / "skills"
+        ws_root = tmp_path / "workspace"
+        _make_skill_dirs(cpp_skills, ["claude-power-pack-foo"])
+
+        link_path = ws_root / ".agents" / "skills" / "claude-power-pack-foo"
+        link_path.parent.mkdir(parents=True)
+        stale_target = tmp_path / "old-cpp" / "skills" / "claude-power-pack-foo"
+        stale_target.mkdir(parents=True)
+        link_path.symlink_to(stale_target)
+
+        linked, ok, skipped, stale = link_workspace_skills(cpp_skills, ws_root)
+        assert stale == 1
+        assert linked == 0
+
+    def test_refresh_replaces_stale(self, tmp_path: Path) -> None:
+        cpp_skills = tmp_path / "cpp" / ".agents" / "skills"
+        ws_root = tmp_path / "workspace"
+        _make_skill_dirs(cpp_skills, ["claude-power-pack-foo"])
+
+        link_path = ws_root / ".agents" / "skills" / "claude-power-pack-foo"
+        link_path.parent.mkdir(parents=True)
+        stale_target = tmp_path / "old-cpp" / "skills" / "claude-power-pack-foo"
+        stale_target.mkdir(parents=True)
+        link_path.symlink_to(stale_target)
+
+        linked, ok, skipped, stale = link_workspace_skills(
+            cpp_skills, ws_root, refresh=True,
+        )
+        assert linked == 1
+        assert stale == 0
+        assert link_path.resolve() == (cpp_skills / "claude-power-pack-foo").resolve()
+
+    def test_ignores_non_cpp_dirs(self, tmp_path: Path) -> None:
+        cpp_skills = tmp_path / "cpp" / ".agents" / "skills"
+        ws_root = tmp_path / "workspace"
+        ws_root.mkdir()
+        _make_skill_dirs(cpp_skills, ["claude-power-pack-foo", "other-skill"])
+
+        linked, ok, skipped, stale = link_workspace_skills(cpp_skills, ws_root)
+        assert linked == 1
+        ws_skills = ws_root / ".agents" / "skills"
+        assert (ws_skills / "claude-power-pack-foo").is_symlink()
+        assert not (ws_skills / "other-skill").exists()
+
+    def test_no_generated_skills_warns(self, tmp_path: Path) -> None:
+        cpp_skills = tmp_path / "empty"
+        cpp_skills.mkdir()
+        ws_root = tmp_path / "workspace"
+        ws_root.mkdir()
+
+        linked, ok, skipped, stale = link_workspace_skills(cpp_skills, ws_root)
+        assert linked == 0
+        assert ok == 0
+
+    def test_dry_run_no_side_effects(self, tmp_path: Path) -> None:
+        cpp_skills = tmp_path / "cpp" / ".agents" / "skills"
+        ws_root = tmp_path / "workspace"
+        ws_root.mkdir()
+        _make_skill_dirs(cpp_skills, ["claude-power-pack-foo"])
+
+        linked, ok, skipped, stale = link_workspace_skills(
+            cpp_skills, ws_root, dry_run=True,
+        )
+        assert linked == 1
+        assert not (ws_root / ".agents" / "skills" / "claude-power-pack-foo").exists()
