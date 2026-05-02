@@ -235,7 +235,7 @@ def _scan_deploy_log(project_root: Path) -> list[FailureInstance]:
     try:
         lines = deploy_log.read_text().splitlines()
     except OSError:
-        return lines
+        return instances
 
     for line in lines:
         parts = line.split("|")
