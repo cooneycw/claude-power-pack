@@ -274,6 +274,75 @@ class TestLongLabels:
         assert len(label_issues) == 0
 
 
+# ── label_resolution (MEDIUM) ───────────────────────────────────────────
+
+
+class TestLabelResolution:
+    def test_empty_label_flagged(self):
+        nodes = [
+            {"id": "a", "label": "Node A"},
+            {"id": "b", "label": ""},
+        ]
+        edges = [{"source": "a", "target": "b"}]
+        result = validate_diagram(nodes=nodes, edges=edges)
+        lr_issues = [iss for iss in result["issues"] if iss["check"] == "label_resolution"]
+        assert len(lr_issues) == 1
+        assert "empty label" in lr_issues[0]["message"]
+
+    def test_whitespace_only_label_flagged(self):
+        nodes = [
+            {"id": "a", "label": "Node A"},
+            {"id": "b", "label": "   "},
+        ]
+        edges = [{"source": "a", "target": "b"}]
+        result = validate_diagram(nodes=nodes, edges=edges)
+        lr_issues = [iss for iss in result["issues"] if iss["check"] == "label_resolution"]
+        assert len(lr_issues) == 1
+
+    def test_valid_labels_pass(self):
+        nodes = [
+            {"id": "a", "label": "Node A"},
+            {"id": "b", "label": "Node B"},
+        ]
+        edges = [{"source": "a", "target": "b"}]
+        result = validate_diagram(nodes=nodes, edges=edges)
+        lr_issues = [iss for iss in result["issues"] if iss["check"] == "label_resolution"]
+        assert len(lr_issues) == 0
+
+    def test_dangling_edge_not_double_flagged(self):
+        nodes = [{"id": "a", "label": "Node A"}]
+        edges = [{"source": "a", "target": "missing"}]
+        result = validate_diagram(nodes=nodes, edges=edges)
+        lr_issues = [iss for iss in result["issues"] if iss["check"] == "label_resolution"]
+        assert len(lr_issues) == 0
+
+
+# ── relationships_overflow (MEDIUM) ────────────────────────────────────
+
+
+class TestRelationshipsOverflow:
+    def test_many_edges_flagged(self):
+        nodes = [{"id": f"n{i}", "label": f"Node {i}"} for i in range(15)]
+        edges = [{"source": f"n{i}", "target": f"n{i+1}"} for i in range(14)]
+        result = validate_diagram(nodes=nodes, edges=edges)
+        ro_issues = [iss for iss in result["issues"] if iss["check"] == "relationships_overflow"]
+        assert len(ro_issues) == 1
+        assert "scroll" in ro_issues[0]["message"]
+
+    def test_few_edges_pass(self):
+        nodes = [{"id": f"n{i}", "label": f"Node {i}"} for i in range(4)]
+        edges = [{"source": f"n{i}", "target": f"n{i+1}"} for i in range(3)]
+        result = validate_diagram(nodes=nodes, edges=edges)
+        ro_issues = [iss for iss in result["issues"] if iss["check"] == "relationships_overflow"]
+        assert len(ro_issues) == 0
+
+    def test_no_edges_no_overflow(self):
+        nodes = [{"id": "a", "label": "A"}]
+        result = validate_diagram(nodes=nodes, edges=[])
+        ro_issues = [iss for iss in result["issues"] if iss["check"] == "relationships_overflow"]
+        assert len(ro_issues) == 0
+
+
 # ── Result structure ────────────────────────────────────────────────────
 
 

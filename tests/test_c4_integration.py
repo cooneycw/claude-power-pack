@@ -245,6 +245,39 @@ class TestC4EdgeRendering:
         html = generate_c4_diagram(spec)
         assert "stroke-dasharray" in html
 
+    def test_edges_show_node_labels_not_ids(self):
+        spec = DiagramSpec(
+            title="Test",
+            nodes=[
+                DiagramNode(id="web-app", label="Web Application", type="container"),
+                DiagramNode(id="db-001", label="PostgreSQL Database", type="container"),
+            ],
+            edges=[DiagramEdge(source="web-app", target="db-001", label="SQL queries")],
+        )
+        html = generate_c4_diagram(spec)
+        assert "Web Application" in html
+        assert "PostgreSQL Database" in html
+        assert 'class="c4-edge-from">Web Application</span>' in html
+        assert 'class="c4-edge-to">PostgreSQL Database</span>' in html
+
+    def test_edges_fallback_to_id_for_unknown_source(self):
+        spec = DiagramSpec(
+            title="Test",
+            nodes=[
+                DiagramNode(id="a", label="Node A", type="container"),
+            ],
+            edges=[DiagramEdge(source="unknown", target="a", label="test")],
+        )
+        html = generate_c4_diagram(spec)
+        assert 'class="c4-edge-from">unknown</span>' in html
+        assert 'class="c4-edge-to">Node A</span>' in html
+
+    def test_edges_panel_has_overflow_css(self):
+        spec = _sample_l1_spec()
+        html = generate_c4_diagram(spec)
+        assert "max-height: 200px" in html
+        assert "overflow-y: auto" in html
+
 
 class TestC4CustomViewport:
     """Test custom width/height parameters."""

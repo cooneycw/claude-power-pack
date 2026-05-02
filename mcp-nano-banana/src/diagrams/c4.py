@@ -160,6 +160,7 @@ def generate_c4_diagram(
         """)
 
     # -- build edge labels overlay --
+    id_to_label = {node.id: node.label for node in spec.nodes}
     edge_labels_html = []
     for edge in spec.edges:
         dash = ""
@@ -172,13 +173,15 @@ def generate_c4_diagram(
             f'<span class="c4-edge-label">{_esc(edge.label)}</span>'
             if edge.label else ""
         )
+        from_label = id_to_label.get(edge.source, edge.source)
+        to_label = id_to_label.get(edge.target, edge.target)
         edge_labels_html.append(f"""
         <div class="c4-edge" data-from="{_esc(edge.source)}" data-to="{_esc(edge.target)}"
              data-dash="{dash}">
-            <span class="c4-edge-from">{_esc(edge.source)}</span>
+            <span class="c4-edge-from">{_esc(from_label)}</span>
             <span class="c4-edge-arrow">&#x2192;</span>
             {label_html}
-            <span class="c4-edge-to">{_esc(edge.target)}</span>
+            <span class="c4-edge-to">{_esc(to_label)}</span>
         </div>
         """)
 
@@ -276,6 +279,9 @@ def generate_c4_diagram(
     border-radius: 8px;
     padding: 12px 20px;
     margin-top: 8px;
+    max-height: 200px;
+    overflow-y: auto;
+    flex-shrink: 0;
 }}
 .c4-edges-title {{
     font-size: 13px;
