@@ -1,6 +1,6 @@
 .PHONY: test lint format typecheck verify update_docs clean \
        docker-build docker-check-env docker-secrets-check docker-up docker-down docker-logs docker-ps deploy \
-       drift-check setup-woodpecker-cli
+       drift-check setup-woodpecker-cli codex-init
 
 ## Quality gates (used by /flow:finish)
 
@@ -111,6 +111,14 @@ deploy: docker-build docker-up
 
 setup-woodpecker-cli:
 	@scripts/setup-woodpecker-cli.sh
+
+## Codex skill wrapper generation
+
+codex-init:
+	@python3 scripts/codex-skill-gen.py
+
+codex-init-force:
+	@python3 scripts/codex-skill-gen.py --force
 
 ## Utilities
 
