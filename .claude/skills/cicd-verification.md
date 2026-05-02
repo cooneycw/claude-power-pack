@@ -12,6 +12,12 @@ When the user asks about CI/CD, build systems, health checks, smoke tests, pipel
 Read docs/skills/cicd-verification.md
 ```
 
+When repeated infrastructure or pipeline failures are detected (same root cause 2+ times), also load:
+
+```
+Read docs/skills/infrastructure-hardening.md
+```
+
 ## Quick Reference
 
 ### Commands
