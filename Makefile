@@ -1,4 +1,4 @@
-.PHONY: test lint format typecheck verify update_docs clean \
+.PHONY: test lint format typecheck verify secret-scan update_docs clean \
        docker-build docker-check-env docker-secrets-check docker-up docker-down docker-logs docker-ps deploy \
        drift-check setup-woodpecker-cli codex-init
 
@@ -15,6 +15,17 @@ test:
 
 typecheck:
 	uv run --extra dev mypy .
+
+secret-scan:
+	@if command -v gitleaks > /dev/null 2>&1; then \
+		gitleaks detect --source . --config .gitleaks.toml --no-git --verbose; \
+	elif command -v docker > /dev/null 2>&1; then \
+		docker run --rm -v "$$(pwd):/repo" zricethezav/gitleaks:latest detect --source /repo --config /repo/.gitleaks.toml --no-git --verbose; \
+	else \
+		echo "ERROR: gitleaks not found. Install via: brew install gitleaks / go install github.com/gitleaks/gitleaks/v8@latest"; \
+		echo "       Or use Docker: docker run --rm -v \$$(pwd):/repo zricethezav/gitleaks:latest detect --source /repo"; \
+		exit 1; \
+	fi
 
 ## Pre-deploy gate (runs all quality checks)
 

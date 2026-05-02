@@ -55,7 +55,8 @@ MCP containers fetch API keys at startup from AWS Secrets Manager via an `aws-se
 - **All profiles:** `make docker-up PROFILE="core browser cicd"`
 - **Status/logs/stop:** `make docker-ps`, `make docker-logs`, `make docker-down`
 - **MCP connections:** Defined in project `.mcp.json` pointing to `127.0.0.1:{port}/sse` (SSE transport)
-- **Woodpecker CI** runs on push/PR: lint, test, typecheck, conditional Docker builds
+- **Woodpecker CI** runs on push/PR: secret-scan (gitleaks), lint, test, typecheck, conditional Docker builds
+- **Secret scanning:** `make secret-scan` runs gitleaks locally (native binary or Docker fallback). Config in `.gitleaks.toml` with allowlists for doc/test false positives
 - **Auto-deploy:** On push to main, if `mcp-*/` or `docker-compose.yml` changed, Woodpecker rebuilds and restarts MCP containers via the local agent
 - **Drift detection:** `make drift-check` compares host-installed artifacts (systemd units, sysctl, Go binaries) against repo templates. Runs as a pre-deploy gate in the CI pipeline. See `docs/HOST_MANAGED_ARTIFACTS.md` for full inventory.
 

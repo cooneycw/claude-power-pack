@@ -1,0 +1,36 @@
+# Gitleaks configuration for claude-power-pack
+# https://github.com/gitleaks/gitleaks
+#
+# Local usage:  make secret-scan
+# CI usage:     runs automatically in Woodpecker pipeline before validate step
+
+[extend]
+useDefault = true
+
+# Global allowlist - paths and patterns that are known false positives
+[allowlist]
+  paths = [
+    # Virtual environments and caches
+    '''\.venv/''',
+    '''__pycache__/''',
+    '''\.mypy_cache/''',
+    '''node_modules/''',
+    # Lock files
+    '''uv\.lock$''',
+    # Documentation with example/placeholder credentials
+    '''docs/AWS_SECRETS_SIDECAR\.md$''',
+    '''\.claude/commands/secrets/validate\.md$''',
+    '''\.claude/commands/security/explain\.md$''',
+    '''\.claude/commands/cpp/init\.md$''',
+    '''\.claude/commands/second-opinion/help\.md$''',
+    '''INSTALLATION_ISSUES\.md$''',
+    # Security scanner/masking code references key patterns for detection
+    '''lib/security/explain\.py$''',
+    '''lib/creds/masking\.py$''',
+    # Secret masking scripts contain test patterns
+    '''scripts/secrets-mask\.sh$''',
+    # Test fixtures with dummy/example credentials
+    '''tests/test_security_scanners\.py$''',
+    '''tests/test_security_models\.py$''',
+    '''tests/test_creds_masking\.py$''',
+  ]
