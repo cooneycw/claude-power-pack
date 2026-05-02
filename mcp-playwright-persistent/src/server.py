@@ -750,6 +750,26 @@ async def health_check() -> dict:
 # Server Entry Point
 # ============================================================================
 
+def _build_dual_transport_app():
+    """Build a Starlette app serving both SSE and streamable-http transports.
+
+    SSE at /sse (Claude Code) and streamable-http at /mcp (Codex).
+    """
+    sse_app = mcp.http_app(transport="sse")
+    streamable_app = mcp.http_app(transport="streamable-http")
+
+    from starlette.applications import Starlette
+
+    routes = list(sse_app.routes)
+    for r in streamable_app.routes:
+        if getattr(r, "path", "") == "/mcp":
+            routes.append(r)
+            break
+
+    app = Starlette(routes=routes)
+    return app
+
+
 def main():
     """Main entry point for the MCP server."""
     parser = argparse.ArgumentParser(description="MCP Playwright Persistent")
@@ -766,11 +786,13 @@ def main():
     else:
         logger.info(f"Starting MCP Playwright Persistent on {SERVER_HOST}:{SERVER_PORT}")
         logger.info("SSE keepalive ping enabled (15s interval)")
-        mcp.run(
-            transport="sse",
-            host=SERVER_HOST,
-            port=SERVER_PORT,
-        )
+        logger.info("  /sse -> SSE transport (Claude Code)")
+        logger.info("  /mcp -> Streamable HTTP transport (Codex)")
+
+        import uvicorn
+
+        app = _build_dual_transport_app()
+        uvicorn.run(app, host=SERVER_HOST, port=SERVER_PORT)
 
 
 if __name__ == "__main__":

@@ -1757,6 +1757,26 @@ def _run_diagnose() -> int:
         return 1
 
 
+def _build_dual_transport_app():
+    """Build a Starlette app serving both SSE and streamable-http transports.
+
+    SSE at /sse (Claude Code) and streamable-http at /mcp (Codex).
+    """
+    sse_app = mcp.http_app(transport="sse")
+    streamable_app = mcp.http_app(transport="streamable-http")
+
+    from starlette.applications import Starlette
+
+    routes = list(sse_app.routes)
+    for r in streamable_app.routes:
+        if getattr(r, "path", "") == "/mcp":
+            routes.append(r)
+            break
+
+    app = Starlette(routes=routes)
+    return app
+
+
 def main():
     """Main entry point for the MCP server."""
     parser = argparse.ArgumentParser(description=Config.SERVER_NAME)
@@ -1782,7 +1802,9 @@ def main():
         logger.info("Transport: stdio")
     else:
         logger.info(f"Starting {Config.SERVER_NAME} v{Config.SERVER_VERSION}")
-        logger.info(f"Transport: sse on {Config.SERVER_HOST}:{Config.SERVER_PORT}")
+        logger.info(f"Transport: sse+streamable-http on {Config.SERVER_HOST}:{Config.SERVER_PORT}")
+        logger.info("  /sse -> SSE transport (Claude Code)")
+        logger.info("  /mcp -> Streamable HTTP transport (Codex)")
 
     logger.info(f"Context caching: {'enabled' if Config.ENABLE_CONTEXT_CACHING else 'disabled'}")
 
@@ -1796,11 +1818,10 @@ def main():
     if args.stdio:
         mcp.run(transport="stdio")
     else:
-        mcp.run(
-            transport="sse",
-            host=Config.SERVER_HOST,
-            port=Config.SERVER_PORT,
-        )
+        import uvicorn
+
+        app = _build_dual_transport_app()
+        uvicorn.run(app, host=Config.SERVER_HOST, port=Config.SERVER_PORT)
 
 
 if __name__ == "__main__":

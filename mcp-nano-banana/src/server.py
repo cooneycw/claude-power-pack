@@ -653,6 +653,26 @@ def _html_to_text_summary(html: str, nodes: list[dict], edges: list | None) -> s
     return "\n".join(lines)
 
 
+def _build_dual_transport_app():
+    """Build a Starlette app serving both SSE and streamable-http transports.
+
+    SSE at /sse (Claude Code) and streamable-http at /mcp (Codex).
+    """
+    sse_app = mcp.http_app(transport="sse")
+    streamable_app = mcp.http_app(transport="streamable-http")
+
+    from starlette.applications import Starlette
+
+    routes = list(sse_app.routes)
+    for r in streamable_app.routes:
+        if getattr(r, "path", "") == "/mcp":
+            routes.append(r)
+            break
+
+    app = Starlette(routes=routes)
+    return app
+
+
 def main():
     """Main entry point for the MCP server."""
     parser = argparse.ArgumentParser(description="MCP Nano-Banana Diagram Server")
@@ -665,12 +685,14 @@ def main():
         logger.info("Transport: stdio")
         mcp.run(transport="stdio")
     else:
-        logger.info(f"Transport: SSE on {Config.SERVER_HOST}:{Config.SERVER_PORT}")
-        mcp.run(
-            transport="sse",
-            host=Config.SERVER_HOST,
-            port=Config.SERVER_PORT,
-        )
+        logger.info(f"Transport: sse+streamable-http on {Config.SERVER_HOST}:{Config.SERVER_PORT}")
+        logger.info("  /sse -> SSE transport (Claude Code)")
+        logger.info("  /mcp -> Streamable HTTP transport (Codex)")
+
+        import uvicorn
+
+        app = _build_dual_transport_app()
+        uvicorn.run(app, host=Config.SERVER_HOST, port=Config.SERVER_PORT)
 
 
 if __name__ == "__main__":
