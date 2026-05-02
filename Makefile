@@ -1,6 +1,6 @@
 .PHONY: test lint format typecheck verify secret-scan update_docs clean \
        docker-build docker-check-env docker-secrets-check docker-up docker-down docker-logs docker-ps deploy \
-       drift-check setup-woodpecker-cli codex-init codex-init-workspace
+       bootstrap-check drift-check setup-woodpecker-cli codex-init codex-init-workspace
 
 ## Quality gates (used by /flow:finish)
 
@@ -106,6 +106,11 @@ docker-logs:
 
 docker-ps:
 	docker compose --profile core --profile browser --profile cicd --profile coord ps
+
+## Bootstrap dependency check (admin-only prerequisites)
+
+bootstrap-check:
+	@scripts/bootstrap-check.sh
 
 ## Drift detection (compare host-installed artifacts against repo templates)
 

@@ -58,6 +58,7 @@ MCP containers fetch API keys at startup from AWS Secrets Manager via an `aws-se
 - **Woodpecker CI** runs on push/PR: secret-scan (gitleaks), lint, test, typecheck, conditional Docker builds
 - **Secret scanning:** `make secret-scan` runs gitleaks locally (native binary or Docker fallback). Config in `.gitleaks.toml` with allowlists for doc/test false positives
 - **Auto-deploy:** On push to main, if `mcp-*/` or `docker-compose.yml` changed, Woodpecker rebuilds and restarts MCP containers via the local agent
+- **Bootstrap checks:** `make bootstrap-check` verifies admin-only prerequisites (IAM roles, secrets provisioning) before deploy. Configure in `.claude/bootstrap.yaml`. Runs as the first step in the deploy pipeline - blocks with remediation if unsatisfied.
 - **Drift detection:** `make drift-check` compares host-installed artifacts (systemd units, sysctl, Go binaries) against repo templates. Runs as a pre-deploy gate in the CI pipeline. See `docs/HOST_MANAGED_ARTIFACTS.md` for full inventory.
 
 ## Commands Reference
@@ -105,6 +106,7 @@ MCP containers fetch API keys at startup from AWS Secrets Manager via an `aws-se
 - `python -m lib.cicd validate` - Validate .claude/cicd.yml with fix suggestions (Pydantic v2)
 - `python -m lib.cicd validate --schema` - Generate JSON Schema for IDE autocompletion
 - `python -m lib.cicd run --plan <name>` - Execute CI/CD plan deterministically (finish, check, deploy)
+- `python -m lib.cicd.bootstrap check` - Check admin-only bootstrap dependencies (config: `.claude/bootstrap.yaml`)
 
 ### Security
 - `/security:scan` - Full scan: native + external tools

@@ -51,6 +51,14 @@ steps:
     timeout: 120
     skip_if: "! python3 -c 'import lib.security' 2>/dev/null"
 
+  bootstrap_check:
+    command: >-
+      PYTHONPATH="${HOME}/Projects/claude-power-pack/lib"
+      python3 -m lib.cicd.bootstrap check
+    description: Check admin-only bootstrap dependencies are satisfied
+    timeout: 30
+    skip_if: '! [ -f .claude/bootstrap.yaml ]'
+
   drift_check:
     command: make drift-check
     description: Detect drift between repo templates and host-installed artifacts
@@ -80,6 +88,7 @@ plans:
   deploy:
     description: Deployment pipeline for /flow:deploy
     steps:
+      - bootstrap_check
       - deploy_security_scan
       - drift_check
       - deploy
