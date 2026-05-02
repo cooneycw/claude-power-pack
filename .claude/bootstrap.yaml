@@ -1,0 +1,12 @@
+version: "1"
+
+dependencies:
+  jq:
+    description: "JSON processor - required by flow commands (merge, finish, auto, status) and project commands"
+    check_command: "command -v jq > /dev/null 2>&1"
+    remediation: |
+      Install jq:
+        Ubuntu/Debian: sudo apt-get install -y jq
+        macOS:         brew install jq
+        Alpine:        apk add --no-cache jq
+        Arch:          sudo pacman -S jq
