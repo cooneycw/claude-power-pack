@@ -8,6 +8,8 @@ import re
 import sys
 from pathlib import Path
 
+import yaml
+
 FALLBACK_METADATA: dict[str, dict[str, str]] = {
     "browser-tiered.md": {
         "name": "Browser Automation (Tiered)",
@@ -51,6 +53,26 @@ BARE_PATH_PATTERN = re.compile(
     r"\S+\.(?:md|py|sh|yml|yaml|json|toml))"
     r"(?!`)"
 )
+
+
+def serialize_frontmatter(fm: dict) -> str:
+    return yaml.safe_dump(fm, default_flow_style=False, sort_keys=False).rstrip("\n")
+
+
+def validate_frontmatter(content: str) -> None:
+    if not content.startswith("---"):
+        raise ValueError("Missing opening ---")
+    end = content.find("---", 3)
+    if end == -1:
+        raise ValueError("Missing closing ---")
+    fm_text = content[3:end]
+    parsed = yaml.safe_load(fm_text)
+    if not isinstance(parsed, dict):
+        raise ValueError("Frontmatter is not a mapping")
+    if not parsed.get("name"):
+        raise ValueError("name is empty")
+    if not parsed.get("description"):
+        raise ValueError("description is empty")
 
 
 def slugify(name: str) -> str:
@@ -148,15 +170,15 @@ def generate_codex_skill(
             "> or inspect the implementation directly. MCP tools are not available in Codex.\n\n"
         )
 
-    skill_content = f"""---
-name: {slug}
-description: {description}
-metadata:
-  source: claude-power-pack/.claude/skills/{filename}
----
-{mcp_notice}
-{body}
-"""
+    fm = {
+        "name": slug,
+        "description": description,
+        "metadata": {"source": f"claude-power-pack/.claude/skills/{filename}"},
+    }
+    fm_block = serialize_frontmatter(fm)
+
+    skill_content = f"---\n{fm_block}\n---\n{mcp_notice}\n{body}\n"
+    validate_frontmatter(skill_content)
     return slug, skill_content, filename
 
 
