@@ -46,6 +46,12 @@ RELATIVE_PATH_PATTERN = re.compile(
     r"(`(?:docs/|scripts/|templates/|lib/|\.claude/|\.specify/)[^`]+`)"
 )
 
+BARE_PATH_PATTERN = re.compile(
+    r"(?<!`)(?<!/)((?:docs/|scripts/|templates/|lib/|\.claude/|\.specify/)"
+    r"\S+\.(?:md|py|sh|yml|yaml|json|toml))"
+    r"(?!`)"
+)
+
 
 def slugify(name: str) -> str:
     slug = name.lower()
@@ -93,12 +99,18 @@ def has_mcp_content(body: str) -> bool:
 
 
 def rewrite_paths(body: str, cpp_dir: str) -> str:
-    def replacer(match: re.Match[str]) -> str:
+    def backtick_replacer(match: re.Match[str]) -> str:
         path = match.group(1)
         inner = path.strip("`")
         return f"`{cpp_dir}/{inner}`"
 
-    return RELATIVE_PATH_PATTERN.sub(replacer, body)
+    def bare_replacer(match: re.Match[str]) -> str:
+        path = match.group(1)
+        return f"{cpp_dir}/{path}"
+
+    result = RELATIVE_PATH_PATTERN.sub(backtick_replacer, body)
+    result = BARE_PATH_PATTERN.sub(bare_replacer, result)
+    return result
 
 
 def generate_codex_skill(
@@ -148,6 +160,71 @@ metadata:
     return slug, skill_content, filename
 
 
+def link_workspace_skills(
+    cpp_skills_dir: Path,
+    workspace_root: Path,
+    *,
+    refresh: bool = False,
+    dry_run: bool = False,
+) -> tuple[int, int, int, int]:
+    """Create symlinks from workspace root .agents/skills to generated Codex skills.
+
+    Returns (linked, already_ok, skipped, stale) counts.
+    """
+    ws_skills_dir = workspace_root / ".agents" / "skills"
+    skill_dirs = sorted(
+        d for d in cpp_skills_dir.iterdir()
+        if d.is_dir() and d.name.startswith("claude-power-pack-")
+    )
+
+    if not skill_dirs:
+        print("  No generated skills found. Run codex-init first.", file=sys.stderr)
+        return 0, 0, 0, 0
+
+    if not dry_run:
+        ws_skills_dir.mkdir(parents=True, exist_ok=True)
+
+    linked = 0
+    already_ok = 0
+    skipped = 0
+    stale = 0
+
+    for skill_dir in skill_dirs:
+        link_path = ws_skills_dir / skill_dir.name
+        target = skill_dir.resolve()
+
+        if link_path.is_symlink():
+            existing_target = link_path.resolve()
+            if existing_target == target:
+                print(f"  OK: {link_path.name} (already linked)")
+                already_ok += 1
+                continue
+            if refresh:
+                if not dry_run:
+                    link_path.unlink()
+                    link_path.symlink_to(target)
+                print(f"  REFRESHED: {link_path.name} (was -> {existing_target})")
+                linked += 1
+            else:
+                print(f"  STALE: {link_path.name} -> {existing_target} (use --refresh to update)")
+                stale += 1
+            continue
+
+        if link_path.exists():
+            print(f"  SKIP: {link_path.name} (exists as non-symlink, will not overwrite)")
+            skipped += 1
+            continue
+
+        if dry_run:
+            print(f"  WOULD LINK: {link_path.name} -> {target}")
+        else:
+            link_path.symlink_to(target)
+            print(f"  LINKED: {link_path.name} -> {target}")
+        linked += 1
+
+    return linked, already_ok, skipped, stale
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Generate Codex skill wrappers from Claude Power Pack skills")
     parser.add_argument("--source", default=".claude/skills", help="Source skills directory")
@@ -155,6 +232,12 @@ def main() -> int:
     parser.add_argument("--cpp-dir", default=None, help="Claude Power Pack repo root (auto-detected if omitted)")
     parser.add_argument("--force", action="store_true", help="Overwrite existing generated skills")
     parser.add_argument("--dry-run", action="store_true", help="Show what would be generated without writing")
+    parser.add_argument(
+        "--workspace-root",
+        default=None,
+        help="Link generated skills into workspace root .agents/skills (default: parent of repo root)",
+    )
+    parser.add_argument("--refresh", action="store_true", help="Replace stale symlinks in workspace root")
     args = parser.parse_args()
 
     repo_root = Path(__file__).resolve().parent.parent
@@ -208,6 +291,23 @@ def main() -> int:
         generated += 1
 
     print(f"\nDone: {generated} generated, {skipped} skipped, {errors} errors")
+
+    if args.workspace_root is not None:
+        ws_root = Path(args.workspace_root).resolve()
+        print(f"\nLinking skills into workspace root: {ws_root}")
+        linked, already_ok, ws_skipped, ws_stale = link_workspace_skills(
+            output_dir.resolve(),
+            ws_root,
+            refresh=args.refresh,
+            dry_run=args.dry_run,
+        )
+        print(
+            f"\nWorkspace links: {linked} linked, {already_ok} already OK,"
+            f" {ws_skipped} skipped, {ws_stale} stale"
+        )
+        if ws_stale > 0:
+            errors += 1
+
     return 0 if errors == 0 else 1
 
 
