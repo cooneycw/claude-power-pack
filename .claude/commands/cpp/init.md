@@ -271,16 +271,24 @@ This will make the following changes:
   [Tier 3 - Playwright Browsers]
     • Chromium (~150 MB, installed via `uv run playwright install chromium`)
 
-  [Tier 3 - API Keys Required]
-    • GEMINI_API_KEY - For mcp-second-opinion (get from https://aistudio.google.com/apikey)
-    • OPENAI_API_KEY - Optional, for multi-model comparison
+  [Tier 3 - API Keys] (choose one method)
+    Option 1 - AWS Secrets Manager (Recommended for Docker):
+      • Keys stored in AWS SM, injected at startup via aws-secrets-agent sidecar
+      • Only AWS credentials in .env - no application secrets on disk
+      • Requires: AWS IAM permissions (secretsmanager:GetSecretValue)
+      • See: docs/AWS_SECRETS_SIDECAR.md
+    Option 2 - Direct .env file:
+      • GEMINI_API_KEY - For mcp-second-opinion (get from https://aistudio.google.com/apikey)
+      • OPENAI_API_KEY - Optional, for multi-model comparison
 
   [Tier 3 - MCP Servers] (added to Claude Code)
     • second-opinion        - port 8080
     • playwright-persistent - port 8081
+    • aws-secrets-agent     - port 2773 (if using AWS SM)
 
   [Tier 3 - Configuration Files]
-    • mcp-second-opinion/.env
+    • .env (AWS credentials only, if using sidecar)
+    • mcp-second-opinion/.env (API keys, if using direct method)
 
   Disk usage: ~150 MB (venvs) + 150 MB (Chromium)
   Ports used: 8080, 8081
@@ -592,10 +600,115 @@ fi
 echo "Deployment mode detected: $DEPLOY_MODE"
 ```
 
-Prompt the user for API keys:
+**Next, detect AWS Secrets Manager sidecar availability (Docker mode only):**
+
+```bash
+AWS_SIDECAR_AVAILABLE=false
+if [ "$DEPLOY_MODE" = "docker" ]; then
+  # Check if .env has AWS credentials
+  if [ -f "$CPP_DIR/.env" ] && grep -qE '^AWS_ACCESS_KEY_ID=.+' "$CPP_DIR/.env" 2>/dev/null; then
+    AWS_SIDECAR_AVAILABLE=true
+  fi
+fi
+```
+
+**If Docker mode with AWS credentials, offer the sidecar path (recommended):**
+
+Ask the user which secret injection method they want using AskUserQuestion:
 
 ```
 === API Key Configuration ===
+
+Docker deployment detected. Choose how MCP servers get their API keys:
+
+  1. AWS Secrets Manager (Recommended)
+     Keys stored in AWS Secrets Manager, injected at container startup
+     via the aws-secrets-agent sidecar. No plaintext secrets on disk.
+     Requires: AWS credentials in .env, secrets pre-created in AWS SM.
+     See: docs/AWS_SECRETS_SIDECAR.md
+
+  2. Direct .env file
+     Keys written to .env and passed to containers via env_file.
+     Simpler setup, but secrets are stored in plaintext on disk.
+
+Which method? [1/2]
+```
+
+Only show this choice if `AWS_SIDECAR_AVAILABLE=true`. If `AWS_SIDECAR_AVAILABLE=false`, skip
+straight to the direct .env path below.
+
+**Path 1: AWS Secrets Manager sidecar**
+
+```bash
+if [ "$SECRET_METHOD" = "1" ]; then
+  echo ""
+  echo "=== AWS Secrets Manager Sidecar Setup ==="
+  echo ""
+  echo "The sidecar fetches secrets from AWS Secrets Manager at container startup."
+  echo "See docs/AWS_SECRETS_SIDECAR.md for full architecture details."
+  echo ""
+
+  # Validate AWS connectivity
+  echo "Validating AWS credentials and secrets..."
+  cd "$CPP_DIR"
+  make docker-secrets-check
+  SECRETS_CHECK_RC=$?
+
+  if [ "$SECRETS_CHECK_RC" -ne 0 ]; then
+    echo ""
+    echo "WARNING: AWS secrets check failed."
+    echo "You can fix this later and re-run /cpp:init, or switch to direct .env."
+    echo ""
+    # Ask: continue with sidecar anyway, or fall back to direct .env?
+    # If fall back, jump to Path 2.
+  fi
+
+  # Ensure AWS_TOKEN (SSRF protection) is set
+  if ! grep -qE '^AWS_TOKEN=.+' "$CPP_DIR/.env" 2>/dev/null; then
+    echo ""
+    echo "AWS_TOKEN is used for SSRF protection on the sidecar."
+    echo "Enter an arbitrary token string (or press Enter for a random one):"
+    # If empty, generate: AWS_TOKEN=$(openssl rand -hex 16)
+    echo "AWS_TOKEN=$AWS_TOKEN" >> "$CPP_DIR/.env"
+    echo "Added AWS_TOKEN to .env"
+  fi
+
+  echo ""
+  echo "MCP server secret mappings (from docker-compose.yml):"
+  echo "  mcp-second-opinion  -> AWS_SECRET_NAME=claude-power-pack/mcp-keys"
+  echo "  mcp-woodpecker-ci   -> AWS_SECRET_NAME=essent-ai"
+  echo ""
+  echo "To change these mappings, edit the environment section in docker-compose.yml."
+  echo ""
+
+  # Start containers with sidecar
+  echo "Starting MCP containers with AWS sidecar..."
+  make docker-down 2>/dev/null
+  make docker-up PROFILE=core
+  echo ""
+
+  # Verify secrets were loaded
+  sleep 5
+  if docker logs mcp-second-opinion 2>&1 | head -10 | grep -q "Loaded secrets from AWS"; then
+    echo "Secrets loaded from AWS Secrets Manager"
+  elif docker logs mcp-second-opinion 2>&1 | head -10 | grep -q "Falling back to env_file"; then
+    echo "WARNING: Sidecar unreachable, fell back to env_file variables."
+    echo "Check: docker logs aws-secrets-agent"
+  fi
+
+  echo ""
+  echo "Sidecar setup complete. Run 'make docker-secrets-check' anytime to validate."
+fi
+```
+
+**Path 2: Direct .env file (fallback or non-Docker)**
+
+This path runs when: `DEPLOY_MODE=native`, OR `AWS_SIDECAR_AVAILABLE=false`, OR the user chose option 2.
+
+Prompt the user for API keys:
+
+```
+=== API Key Configuration (Direct .env) ===
 
 MCP Second Opinion requires at least one LLM API key for code review.
 
@@ -632,7 +745,7 @@ fi
   fi
 } > "$ENV_FILE"
 
-echo "✓ API keys written to $ENV_FILE"
+echo "API keys written to $ENV_FILE"
 
 # For Docker: also write to mcp-second-opinion/.env for native fallback
 if [ "$DEPLOY_MODE" = "docker" ]; then
@@ -645,11 +758,14 @@ if [ "$DEPLOY_MODE" = "docker" ]; then
     echo "ENABLE_CONTEXT_CACHING=true"
     echo "CACHE_TTL_MINUTES=60"
   } > "$CPP_DIR/mcp-second-opinion/.env"
-  echo "✓ Also wrote to mcp-second-opinion/.env (native fallback)"
+  echo "Also wrote to mcp-second-opinion/.env (native fallback)"
+  echo ""
+  echo "NOTE: For production use, consider migrating to AWS Secrets Manager."
+  echo "See docs/AWS_SECRETS_SIDECAR.md for setup instructions."
 fi
 ```
 
-**If Docker mode, offer to restart containers to pick up new keys:**
+**If Docker mode (Path 2 only), offer to restart containers to pick up new keys:**
 
 ```
 API keys configured. Docker containers need to be restarted to pick up the new keys.
@@ -661,7 +777,7 @@ If yes:
 ```bash
 cd "$CPP_DIR"
 make docker-down && make docker-up PROFILE=core
-echo "✓ Docker containers restarted with new API keys"
+echo "Docker containers restarted with new API keys"
 ```
 
 Optional: Ask for OPENAI_API_KEY and ANTHROPIC_API_KEY for multi-model comparison.
@@ -951,15 +1067,21 @@ Permission Profile: {PROFILE_NAME}
   Blocked: rm -rf, git push --force, sudo (destructive)
   Settings: .claude/settings.local.json
 
+Secrets:
+  Method: {AWS Secrets Manager sidecar | Direct .env}
+  Validate: make docker-secrets-check
+
 MCP Servers:
   • second-opinion (port 8080) - Gemini/OpenAI code review
   • playwright-persistent (port 8081) - Browser automation
   • woodpecker-ci (stdio) - Woodpecker CI pipeline management
+  • aws-secrets-agent (port 2773) - Secret injection sidecar (if AWS SM)
 
 Next Steps:
-  1. Start MCP servers (if not using systemd):
+  1. Start MCP servers (if not using systemd or Docker):
      cd {CPP_DIR}/mcp-second-opinion && ./start-server.sh &
      cd {CPP_DIR}/mcp-playwright-persistent && ./start-server.sh &
+     Or for Docker: make docker-up PROFILE=core
 
   2. Restart your shell to apply prompt changes:
      source ~/.bashrc

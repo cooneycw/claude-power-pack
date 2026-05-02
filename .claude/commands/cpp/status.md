@@ -1,6 +1,6 @@
 ---
 description: Check Claude Power Pack installation state
-allowed-tools: Bash(ls:*), Bash(test:*), Bash(readlink:*), Bash(uv:*), Bash(python3:*), Bash(PYTHONPATH=*), Bash(claude mcp list:*), Bash(systemctl:*), Bash(grep:*)
+allowed-tools: Bash(ls:*), Bash(test:*), Bash(readlink:*), Bash(uv:*), Bash(python3:*), Bash(PYTHONPATH=*), Bash(claude mcp list:*), Bash(systemctl:*), Bash(grep:*), Bash(docker ps:*), Bash(docker inspect:*)
 ---
 
 # CPP Installation Status
@@ -249,18 +249,56 @@ for entry in "8080:second-opinion" "8081:playwright-persistent" "8085:woodpecker
   fi
 done
 
+# Check AWS Secrets Manager sidecar
+echo ""
+echo "AWS Secrets Sidecar:"
+SIDECAR_CONTAINER=$(docker ps --format '{{.Names}}' 2>/dev/null | grep "aws-secrets-agent" || true)
+if [ -n "$SIDECAR_CONTAINER" ]; then
+  SIDECAR_HEALTH=$(docker inspect --format='{{.State.Health.Status}}' aws-secrets-agent 2>/dev/null || echo "unknown")
+  if [ "$SIDECAR_HEALTH" = "healthy" ]; then
+    echo "  [x] aws-secrets-agent: running, healthy (port 2773)"
+  else
+    echo "  [~] aws-secrets-agent: running, status=$SIDECAR_HEALTH"
+  fi
+  # Show which MCP containers use the sidecar
+  for container in mcp-second-opinion mcp-woodpecker-ci; do
+    SECRET_NAME=$(docker inspect --format='{{range .Config.Env}}{{println .}}{{end}}' "$container" 2>/dev/null | grep "^AWS_SECRET_NAME=" | cut -d= -f2)
+    if [ -n "$SECRET_NAME" ]; then
+      echo "    $container -> $SECRET_NAME"
+    fi
+  done
+  # Check AWS credential validity
+  if [ -f "$CPP_DIR/.env" ] && grep -qE '^AWS_ACCESS_KEY_ID=.+' "$CPP_DIR/.env" 2>/dev/null; then
+    echo "  [x] AWS credentials: present in .env"
+  else
+    echo "  [!] AWS credentials: missing from .env"
+  fi
+  echo "  Secret method: AWS Secrets Manager"
+else
+  if [ -f "$CPP_DIR/aws-secrets-agent/Dockerfile" ]; then
+    echo "  [ ] aws-secrets-agent: not running (image available)"
+    echo "      Start with: make docker-up PROFILE=core"
+  else
+    echo "  [ ] aws-secrets-agent: not installed"
+  fi
+  echo "  Secret method: Direct .env"
+fi
+
 # Check .env file for Docker deployments
 echo ""
 echo "Docker API Keys (.env):"
 if [ -f "$CPP_DIR/.env" ]; then
   KEY_COUNT=$(grep -cE '^(GEMINI|OPENAI|ANTHROPIC)_API_KEY=.+' "$CPP_DIR/.env" 2>/dev/null || echo "0")
+  AWS_KEY_SET=$(grep -cE '^AWS_ACCESS_KEY_ID=.+' "$CPP_DIR/.env" 2>/dev/null || echo "0")
   if [ "$KEY_COUNT" -gt 0 ]; then
-    echo "  [x] $CPP_DIR/.env: $KEY_COUNT API key(s) configured"
+    echo "  [x] $CPP_DIR/.env: $KEY_COUNT API key(s) configured (direct)"
     grep -oE '^(GEMINI|OPENAI|ANTHROPIC)_API_KEY=' "$CPP_DIR/.env" 2>/dev/null | while read key; do
       echo "      - ${key%=}"
     done
+  elif [ "$AWS_KEY_SET" -gt 0 ]; then
+    echo "  [x] $CPP_DIR/.env: AWS credentials only (keys via sidecar)"
   else
-    echo "  [!] $CPP_DIR/.env exists but contains no API keys"
+    echo "  [!] $CPP_DIR/.env exists but contains no API or AWS keys"
   fi
 else
   echo "  [ ] $CPP_DIR/.env: not found (Docker containers have no API keys)"
@@ -374,6 +412,12 @@ Tier 3 (Full):
   MCP Connectivity:
     [x] second-opinion (port 8080): reachable
     [ ] playwright-persistent (port 8081): not reachable
+  AWS Secrets Sidecar:
+    [x] aws-secrets-agent: running, healthy (port 2773)
+        mcp-second-opinion -> claude-power-pack/mcp-keys
+        mcp-woodpecker-ci -> essent-ai
+    [x] AWS credentials: present in .env
+    Secret method: AWS Secrets Manager
   [ ] Systemd: not installed
   Status: Partial
 
