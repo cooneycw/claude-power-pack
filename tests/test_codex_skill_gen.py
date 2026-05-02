@@ -7,6 +7,8 @@ from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 from textwrap import dedent
 
+import yaml
+
 _script_path = Path(__file__).resolve().parent.parent / "scripts" / "codex-skill-gen.py"
 _spec = spec_from_file_location("codex_skill_gen", _script_path)
 codex_skill_gen = module_from_spec(_spec)  # type: ignore[arg-type]
@@ -20,6 +22,8 @@ generate_codex_skill = codex_skill_gen.generate_codex_skill
 has_mcp_content = codex_skill_gen.has_mcp_content
 rewrite_paths = codex_skill_gen.rewrite_paths
 link_workspace_skills = codex_skill_gen.link_workspace_skills
+serialize_frontmatter = codex_skill_gen.serialize_frontmatter
+validate_frontmatter = codex_skill_gen.validate_frontmatter
 FALLBACK_METADATA = codex_skill_gen.FALLBACK_METADATA
 
 
@@ -51,6 +55,60 @@ class TestParseFrontmatter:
         metadata, body = parse_frontmatter(content)
         assert metadata["name"] == "Quoted Name"
         assert metadata["description"] == "Single quoted"
+
+
+class TestSerializeFrontmatter:
+    def test_simple_values(self) -> None:
+        fm = {"name": "test-skill", "description": "A simple skill"}
+        result = serialize_frontmatter(fm)
+        parsed = yaml.safe_load(result)
+        assert parsed["name"] == "test-skill"
+        assert parsed["description"] == "A simple skill"
+
+    def test_colon_in_description(self) -> None:
+        fm = {"name": "test", "description": "Patterns. Use for: production ready"}
+        result = serialize_frontmatter(fm)
+        parsed = yaml.safe_load(result)
+        assert parsed["description"] == "Patterns. Use for: production ready"
+
+    def test_nested_metadata(self) -> None:
+        fm = {"name": "x", "description": "y", "metadata": {"source": "a/b.md"}}
+        result = serialize_frontmatter(fm)
+        parsed = yaml.safe_load(result)
+        assert parsed["metadata"]["source"] == "a/b.md"
+
+    def test_quotes_in_description(self) -> None:
+        fm = {"name": "x", "description": 'Uses "quoted" terms and it\'s fine'}
+        result = serialize_frontmatter(fm)
+        parsed = yaml.safe_load(result)
+        assert parsed["description"] == 'Uses "quoted" terms and it\'s fine'
+
+    def test_special_chars(self) -> None:
+        fm = {"name": "x", "description": "Handles (parens), slashes/paths & ampersands"}
+        result = serialize_frontmatter(fm)
+        parsed = yaml.safe_load(result)
+        assert parsed["description"] == "Handles (parens), slashes/paths & ampersands"
+
+
+class TestValidateFrontmatter:
+    def test_valid(self) -> None:
+        content = "---\nname: test\ndescription: a skill\n---\nBody"
+        validate_frontmatter(content)
+
+    def test_missing_opening(self) -> None:
+        import pytest
+        with pytest.raises(ValueError, match="Missing opening"):
+            validate_frontmatter("name: test\n---\nBody")
+
+    def test_missing_name(self) -> None:
+        import pytest
+        with pytest.raises(ValueError, match="name is empty"):
+            validate_frontmatter("---\ndescription: test\n---\nBody")
+
+    def test_missing_description(self) -> None:
+        import pytest
+        with pytest.raises(ValueError, match="description is empty"):
+            validate_frontmatter("---\nname: test\n---\nBody")
 
 
 class TestSlugify:
@@ -207,6 +265,54 @@ class TestGenerateCodexSkill:
         _, content, _ = generate_codex_skill(skill, "/opt/cpp")
         assert "MCP tools are not available in Codex" not in content
 
+    def test_description_with_colon_produces_valid_yaml(self, tmp_path: Path) -> None:
+        skill = tmp_path / "colon-test.md"
+        skill.write_text(dedent("""\
+            ---
+            name: Code Quality
+            description: Code review patterns, testing, and quality best practices
+            trigger: code review, quality, testing, production ready, best practices
+            ---
+
+            # Code Quality
+        """))
+        slug, content, _ = generate_codex_skill(skill, "/opt/cpp")
+        end = content.find("---", 3)
+        fm_text = content[4:end]
+        parsed = yaml.safe_load(fm_text)
+        assert "Use for:" in parsed["description"]
+        assert parsed["name"] == slug
+
+    def test_description_with_quotes_and_parens(self, tmp_path: Path) -> None:
+        skill = tmp_path / "special.md"
+        skill.write_text(dedent("""\
+            ---
+            name: Special Chars
+            description: Handles "quoted" terms (with parens) & slashes/commas
+            ---
+
+            Body.
+        """))
+        _, content, _ = generate_codex_skill(skill, "/opt/cpp")
+        end = content.find("---", 3)
+        fm_text = content[4:end]
+        parsed = yaml.safe_load(fm_text)
+        assert '"quoted"' in parsed["description"]
+        assert "(with parens)" in parsed["description"]
+
+    def test_all_real_source_skills_produce_valid_yaml(self) -> None:
+        source_dir = Path(__file__).resolve().parent.parent / ".claude" / "skills"
+        if not source_dir.is_dir():
+            return
+        for skill_file in sorted(source_dir.glob("*.md")):
+            slug, content, _ = generate_codex_skill(skill_file, "/opt/cpp")
+            end = content.find("---", 3)
+            fm_text = content[4:end]
+            parsed = yaml.safe_load(fm_text)
+            assert isinstance(parsed, dict), f"{skill_file.name}: frontmatter is not a mapping"
+            assert parsed.get("name"), f"{skill_file.name}: name is empty"
+            assert parsed.get("description"), f"{skill_file.name}: description is empty"
+
     def test_codex_frontmatter_format(self, tmp_path: Path) -> None:
         skill = tmp_path / "test.md"
         skill.write_text(dedent("""\
@@ -220,10 +326,11 @@ class TestGenerateCodexSkill:
         """))
         slug, content, _ = generate_codex_skill(skill, "/opt/cpp")
         assert content.startswith("---\n")
-        assert "name: claude-power-pack-test-skill" in content
-        assert "description: Testing frontmatter output. Use for: verify" in content
-        assert "metadata:" in content
-        assert "  source: claude-power-pack/.claude/skills/test.md" in content
+        end = content.find("---", 3)
+        parsed = yaml.safe_load(content[4:end])
+        assert parsed["name"] == "claude-power-pack-test-skill"
+        assert parsed["description"] == "Testing frontmatter output. Use for: verify"
+        assert parsed["metadata"]["source"] == "claude-power-pack/.claude/skills/test.md"
 
 
 class TestEndToEnd:
