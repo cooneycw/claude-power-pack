@@ -43,6 +43,7 @@ from .deploy import (
     register_strategy,
 )
 from .detector import detect_framework, detect_infrastructure
+from .failure_patterns import FailurePattern, PatternReport, analyze_failure_patterns, classify_error
 from .health import check_endpoint, check_process, run_health_checks
 from .infrastructure import generate_discovery_script, generate_infra_pipeline, scaffold_infrastructure
 from .makefile import check_makefile, generate_makefile, parse_makefile
@@ -135,6 +136,11 @@ __all__ = [
     "load_manifest",
     "generate_manifest",
     "write_manifest",
+    # Failure Patterns
+    "analyze_failure_patterns",
+    "classify_error",
+    "FailurePattern",
+    "PatternReport",
     # Runner
     "DeterministicRunner",
     "RunResult",

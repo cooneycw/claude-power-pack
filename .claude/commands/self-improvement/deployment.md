@@ -76,6 +76,34 @@ Stop here - no further analysis is possible without a Makefile.
 
 ### Step 4: Analyze - Pattern Detection
 
+**4a: Failure Pattern Analysis (proactive)**
+
+Before analyzing the current session, check historical failure patterns:
+
+```bash
+cd "$(git rev-parse --show-toplevel 2>/dev/null || echo .)"
+PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}$HOME/Projects/claude-power-pack/lib"
+python3 -c "
+from pathlib import Path
+from lib.cicd.failure_patterns import analyze_failure_patterns
+report = analyze_failure_patterns(Path('.'))
+print(report.summary())
+"
+```
+
+If the report detects repeated patterns, load the infrastructure hardening playbook:
+
+```
+Read docs/skills/infrastructure-hardening.md
+```
+
+For each detected pattern, include the recommended validation gates in Step 5's output. Frame recommendations as systemic hardening, not one-off fixes:
+- "This is the Nth time we've seen [category]. Consider adding a validation gate:"
+- Include the specific gate pattern from the hardening playbook
+- Ask: "Should we add a [contract script / sentinel file / canary check] to prevent this class of failure?"
+
+**4b: Current Session Analysis**
+
 Cross-reference the errors (Step 1) with the Makefile contents (Step 3) to identify:
 
 **Missing targets:**

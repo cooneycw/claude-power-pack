@@ -52,6 +52,15 @@ Use Python for all scripting that needs to work across platforms.
 - Use uv for dependency management (pyproject.toml)
 - Follow existing `lib/` module patterns
 
+### P6: Infrastructure Resilience
+
+After two or more failures from the same root cause, propose systemic hardening - not just symptom fixes.
+
+- Recognize repeated failure patterns as systemic problems
+- Propose explicit contracts and validation gates over implicit detection
+- Suggest canary validation before fleet-wide rollout
+- Prevent classes of failures, not just instances
+
 ---
 
 ## Development Workflow
