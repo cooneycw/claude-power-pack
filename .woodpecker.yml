@@ -2,15 +2,21 @@
 # Runs quality gates, builds Docker containers, and deploys MCP servers
 #
 # Pipeline:
-#   PR/push   -> validate (lint+test+typecheck), dry-run builds
+#   PR/push   -> secret-scan -> validate (lint+test+typecheck) -> dry-run builds
 #   main push -> above + deploy-mcp (rebuild + restart containers)
 
 when:
   - event: [push, pull_request]
 
 steps:
+  secret-scan:
+    image: zricethezav/gitleaks:latest
+    commands:
+      - gitleaks detect --source . --config .gitleaks.toml --verbose
+
   validate:
     image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim
+    depends_on: [secret-scan]
     commands:
       - uv sync --extra dev --frozen
       - uv run ruff check .
@@ -19,6 +25,7 @@ steps:
 
   build-second-opinion:
     image: woodpeckerci/plugin-docker-buildx
+    depends_on: [validate]
     settings:
       repo: mcp-second-opinion
       dockerfile: mcp-second-opinion/deploy/Dockerfile
@@ -31,6 +38,7 @@ steps:
 
   build-playwright:
     image: woodpeckerci/plugin-docker-buildx
+    depends_on: [validate]
     settings:
       repo: mcp-playwright-persistent
       dockerfile: mcp-playwright-persistent/deploy/Dockerfile
@@ -43,6 +51,7 @@ steps:
 
   build-nano-banana:
     image: woodpeckerci/plugin-docker-buildx
+    depends_on: [validate]
     settings:
       repo: mcp-nano-banana
       dockerfile: mcp-nano-banana/deploy/Dockerfile
@@ -55,6 +64,7 @@ steps:
 
   build-woodpecker-ci:
     image: woodpeckerci/plugin-docker-buildx
+    depends_on: [validate]
     settings:
       repo: mcp-woodpecker-ci
       dockerfile: mcp-woodpecker-ci/deploy/Dockerfile
@@ -65,10 +75,9 @@ steps:
       - event: [push, pull_request]
         path: "mcp-woodpecker-ci/**"
 
-  # mcp-evaluate removed - deprecated, absorbed into /evaluate:issue skill
-
   drift-check:
     image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim
+    depends_on: [validate]
     commands:
       - scripts/drift-detect.sh || echo "WARN - drift detected (non-blocking on CI agent)"
     when:
@@ -82,6 +91,7 @@ steps:
 
   deploy-mcp:
     image: docker:cli
+    depends_on: [validate]
     commands:
       - apk add --no-cache docker-compose
       - echo "Deploying MCP containers..."
