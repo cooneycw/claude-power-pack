@@ -22,6 +22,7 @@ Core components and their locations:
 - `PROGRESSIVE_DISCLOSURE_GUIDE.md` - Context optimization patterns
 - `MCP_TOKEN_AUDIT_CHECKLIST.md` - Token efficiency checklist
 - `.specify/` - Spec-Driven Development (specs, plans, tasks, templates)
+- `aws-secrets-agent/` - AWS Secrets Manager sidecar (Rust, port 2773). See `docs/AWS_SECRETS_SIDECAR.md`.
 - `mcp-second-opinion/` - Code review MCP server (port 8080)
 - `mcp-playwright-persistent/` - Browser automation MCP server (port 8081, 29 tools)
 - `mcp-nano-banana/` - Diagram generation + PowerPoint MCP server (port 8084, 7 tools: `list_diagram_types`, `generate_diagram`, `validate_diagram`, `split_diagram`, `create_pptx`, `validate_pptx_slides`, `diagram_to_pptx`)
@@ -42,9 +43,14 @@ Core components and their locations:
 
 ## Docker Deployment
 
-Docker containers read API keys from a root `.env` file (gitignored) via `env_file` in docker-compose.yml. For production, use AWS Secrets Manager via `lib/creds`.
+MCP containers fetch API keys at startup from AWS Secrets Manager via an `aws-secrets-agent` sidecar. Only AWS credentials are stored in the root `.env` file (gitignored) - no application secrets on disk. If the sidecar is unreachable or `AWS_SECRET_NAME` is not set, containers fall back to `env_file` variables for local development.
 
-- **Profiles:** `core` (second-opinion + nano-banana), `browser` (playwright), `cicd` (woodpecker-ci)
+- **Secrets architecture:** `aws-secrets-agent` (Rust binary, port 2773) caches secrets in-memory (300s TTL) with SSRF token protection. MCP containers use `fetch-secrets.sh` entrypoint to resolve keys before starting.
+- **Required `.env` variables:** `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_TOKEN` (SSRF token)
+- **AWS secrets used:** `claude-power-pack/mcp-keys` (second-opinion LLM keys), `essent-ai` (woodpecker-ci keys)
+- **Required IAM permissions:** `secretsmanager:GetSecretValue`, `secretsmanager:DescribeSecret` on the named secrets
+- **Validate setup:** `make docker-secrets-check` (checks AWS creds, verifies secrets exist)
+- **Profiles:** `core` (second-opinion + nano-banana + secrets-agent), `browser` (playwright), `cicd` (woodpecker-ci + secrets-agent)
 - **Start:** `make docker-up PROFILE=core`
 - **All profiles:** `make docker-up PROFILE="core browser cicd"`
 - **Status/logs/stop:** `make docker-ps`, `make docker-logs`, `make docker-down`

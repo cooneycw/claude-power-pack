@@ -7,14 +7,40 @@
 #   make docker-down                                 # Stop all services
 #   make docker-ps                                   # Show container status
 #
-# Secrets: Create a root .env file with API keys (never commit this):
-#   GEMINI_API_KEY=...
-#   OPENAI_API_KEY=...
-#   ANTHROPIC_API_KEY=...
-#   WOODPECKER_URL=...          (or auto-fetched from AWS via AWS_SECRET_NAME)
-#   WOODPECKER_API_TOKEN=...    (or auto-fetched from AWS via AWS_SECRET_NAME)
+# Secrets: Only AWS credentials needed in .env (never commit this):
+#   AWS_ACCESS_KEY_ID=...
+#   AWS_SECRET_ACCESS_KEY=...
+#   AWS_TOKEN=...               (SSRF token for secrets agent)
+#
+# The aws-secrets-agent sidecar fetches LLM keys and other secrets
+# from AWS Secrets Manager at runtime. No application secrets on disk.
 
 services:
+  aws-secrets-agent:
+    build:
+      context: ./aws-secrets-agent
+    image: aws-secrets-agent:latest
+    container_name: aws-secrets-agent
+    env_file:
+      - path: .env
+        required: true
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "-H", "X-Aws-Parameters-Secrets-Token: ${AWS_TOKEN}", "http://localhost:2773/ping"]
+      interval: 10s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+    restart: unless-stopped
+    profiles: ["core", "cicd"]
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 64M
+        reservations:
+          cpus: "0.1"
+          memory: 32M
+
   mcp-second-opinion:
     build:
       context: ./mcp-second-opinion
@@ -28,11 +54,20 @@ services:
         required: false
     environment:
       - MCP_SERVER_HOST=0.0.0.0
+      - AWS_SECRET_NAME=claude-power-pack/mcp-keys
+      - SECRETS_AGENT_URL=http://aws-secrets-agent:2773
+    volumes:
+      - ./aws-secrets-agent/fetch-secrets.sh:/app/fetch-secrets.sh:ro
+    entrypoint: ["/app/fetch-secrets.sh"]
+    command: ["python", "server.py"]
+    depends_on:
+      aws-secrets-agent:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/')"]
       interval: 10s
       timeout: 5s
-      start_period: 10s
+      start_period: 15s
       retries: 3
     restart: unless-stopped
     profiles: ["core"]
@@ -114,11 +149,20 @@ services:
         required: false
     environment:
       - MCP_SERVER_HOST=0.0.0.0
+      - AWS_SECRET_NAME=essent-ai
+      - SECRETS_AGENT_URL=http://aws-secrets-agent:2773
+    volumes:
+      - ./aws-secrets-agent/fetch-secrets.sh:/app/fetch-secrets.sh:ro
+    entrypoint: ["/app/fetch-secrets.sh"]
+    command: ["python", "server.py"]
+    depends_on:
+      aws-secrets-agent:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8085/')"]
       interval: 10s
       timeout: 5s
-      start_period: 10s
+      start_period: 15s
       retries: 3
     restart: unless-stopped
     profiles: ["cicd"]

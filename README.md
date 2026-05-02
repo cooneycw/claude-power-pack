@@ -37,7 +37,9 @@ uv sync --extra dev
 # Run quality checks
 make verify
 
-# Start MCP servers (requires .env with API keys)
+# Start MCP servers (requires .env with AWS credentials)
+# .env needs: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_TOKEN
+make docker-secrets-check              # Validate AWS connectivity
 make docker-up PROFILE=core            # Second Opinion + Nano Banana
 make docker-up PROFILE="core browser"  # + Playwright
 
@@ -52,6 +54,7 @@ cd ~/Projects/my-project
 claude-power-pack/
   .claude/commands/     Slash commands (/flow:*, /cicd:*, /security:*, etc.)
   .claude/hooks.json    Safety hooks (pre/post tool use)
+  aws-secrets-agent/    AWS Secrets Manager sidecar (Rust, port 2773)
   mcp-second-opinion/   Code review MCP server
   mcp-playwright-persistent/  Browser automation MCP server
   mcp-nano-banana/      Diagram + PowerPoint MCP server
@@ -94,7 +97,19 @@ make docker-ps                    # container status
 make docker-down                  # stop all
 ```
 
-API keys are read from a root `.env` file (gitignored). For production, use AWS Secrets Manager via `lib/creds`.
+MCP containers fetch API keys at startup from AWS Secrets Manager via an `aws-secrets-agent` sidecar (Rust binary, port 2773). Only AWS credentials are stored in the root `.env` file (gitignored) - no application secrets on disk.
+
+```bash
+# Minimal .env (no application secrets):
+AWS_ACCESS_KEY_ID=...
+AWS_SECRET_ACCESS_KEY=...
+AWS_TOKEN=my-ssrf-token
+
+# Validate before first start:
+make docker-secrets-check
+```
+
+If the sidecar is unreachable or `AWS_SECRET_NAME` is not set on a container, it falls back to `env_file` variables for local development. See `aws-secrets-agent/` and `docs/AWS_SECRETS_SIDECAR.md` for details.
 
 ## CI/CD
 
