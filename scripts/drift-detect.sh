@@ -55,6 +55,8 @@ Categories checked:
   1. Systemd units    - installed .service files vs repo templates
   2. Sysctl config    - /etc/sysctl.d/99-claude-code.conf vs bash-prep.sh targets
   3. Go binary        - ~/go/bin/woodpecker-mcp version currency
+  4. Docker containers - running container health status
+  5. Shared scripts   - cross-container script consistency (fetch-secrets.sh, bash-prep.sh)
 
 Exit codes:
   0 - No drift (or no artifacts installed to check)
@@ -248,6 +250,75 @@ check_docker_compose() {
     fi
 }
 
+# --- Shared script contract drift ---
+# Detects when scripts used by multiple containers have diverged.
+# Each MCP container that copies a shared script should use the same version.
+check_shared_scripts() {
+    # fetch-secrets.sh is the primary shared script across MCP containers
+    local canonical="$REPO_ROOT/scripts/fetch-secrets.sh"
+    if [[ ! -f "$canonical" ]]; then
+        # Look for a canonical copy in any MCP container's deploy dir
+        for dir in "$REPO_ROOT"/mcp-*/deploy; do
+            if [[ -f "$dir/fetch-secrets.sh" ]]; then
+                canonical="$dir/fetch-secrets.sh"
+                break
+            fi
+        done
+    fi
+
+    if [[ ! -f "$canonical" ]]; then
+        skip "shared scripts - no fetch-secrets.sh found in any deploy dir"
+        return
+    fi
+
+    local canonical_hash
+    canonical_hash=$(sha256sum "$canonical" | cut -d' ' -f1)
+    local canonical_rel="${canonical#$REPO_ROOT/}"
+    local has_drift=false
+
+    for dir in "$REPO_ROOT"/mcp-*/deploy; do
+        local script="$dir/fetch-secrets.sh"
+        [[ -f "$script" ]] || continue
+        [[ "$script" = "$canonical" ]] && continue
+
+        local script_hash
+        script_hash=$(sha256sum "$script" | cut -d' ' -f1)
+        local script_rel="${script#$REPO_ROOT/}"
+
+        if [[ "$canonical_hash" != "$script_hash" ]]; then
+            drift "shared script divergence: $script_rel differs from $canonical_rel"
+            has_drift=true
+        fi
+    done
+
+    # Also check bash-prep.sh if it exists in multiple locations
+    local bash_preps=()
+    while IFS= read -r -d '' f; do
+        bash_preps+=("$f")
+    done < <(find "$REPO_ROOT" -maxdepth 3 -name "bash-prep.sh" -print0 2>/dev/null)
+
+    if (( ${#bash_preps[@]} > 1 )); then
+        local ref_hash
+        ref_hash=$(sha256sum "${bash_preps[0]}" | cut -d' ' -f1)
+        for ((i=1; i<${#bash_preps[@]}; i++)); do
+            local other_hash
+            other_hash=$(sha256sum "${bash_preps[$i]}" | cut -d' ' -f1)
+            if [[ "$ref_hash" != "$other_hash" ]]; then
+                local ref_rel="${bash_preps[0]#$REPO_ROOT/}"
+                local other_rel="${bash_preps[$i]#$REPO_ROOT/}"
+                drift "shared script divergence: $other_rel differs from $ref_rel"
+                has_drift=true
+            fi
+        done
+    fi
+
+    if ! $has_drift; then
+        ok "shared scripts - all copies consistent"
+    else
+        fix "Sync shared scripts from canonical source, then rebuild containers"
+    fi
+}
+
 # --- Main ---
 main() {
     local mode="check"
@@ -291,6 +362,12 @@ main() {
     echo -e "${BOLD}Docker Containers${NC}"
     echo "------------------------------------------------"
     check_docker_compose
+    echo ""
+
+    # Category 5: Shared script contracts
+    echo -e "${BOLD}Shared Script Contracts${NC}"
+    echo "------------------------------------------------"
+    check_shared_scripts
     echo ""
 
     # Summary

@@ -10,3 +10,29 @@ dependencies:
         macOS:         brew install jq
         Alpine:        apk add --no-cache jq
         Arch:          sudo pacman -S jq
+
+  aws-credentials:
+    description: "AWS credentials for secrets-agent sidecar (deploy-time secret fetching)"
+    check_command: "test -f .env && grep -q '^AWS_ACCESS_KEY_ID=.' .env"
+    remediation: |
+      Create .env with AWS credentials:
+        AWS_ACCESS_KEY_ID=<your-key>
+        AWS_SECRET_ACCESS_KEY=<your-secret>
+        AWS_TOKEN=<ssrf-protection-token>
+      Or run: make docker-secrets-check
+
+  docker-socket:
+    description: "Docker socket access for container deployment"
+    check_command: "test -S /var/run/docker.sock && test -w /var/run/docker.sock"
+    remediation: |
+      Ensure the current user has Docker socket access:
+        sudo usermod -aG docker $USER
+      Then log out and back in, or run: newgrp docker
+
+  docker-compose:
+    description: "Docker Compose v2 for MCP container orchestration"
+    check_command: "docker compose version > /dev/null 2>&1"
+    remediation: |
+      Install Docker Compose v2:
+        Ubuntu/Debian: sudo apt-get install -y docker-compose-plugin
+        Or: https://docs.docker.com/compose/install/

@@ -3,16 +3,23 @@
 Handles deploy, rollback, and readiness checking for services
 managed by docker compose. This is the primary deployment strategy
 for Claude Power Pack MCP servers.
+
+Guardrails integration:
+- Optional deploy lock prevents concurrent deploys on shared Docker hosts
+- Safe prune uses time-filtered cleanup under lock to avoid cache races
 """
 
 from __future__ import annotations
 
+import logging
 import subprocess
 from typing import Any
 
 from ..state import StepStatus
 from ..steps import StepResult
 from .strategy import DeployConfig, register_strategy
+
+logger = logging.getLogger(__name__)
 
 
 class DockerComposeStrategy:
@@ -32,7 +39,50 @@ class DockerComposeStrategy:
 
         Uses `docker compose up -d` with optional profiles and services.
         If a custom deploy_command is set in config, uses that instead.
+
+        When use_deploy_lock is True, the entire deploy operation is wrapped
+        in a flock to prevent concurrent deploys on shared Docker hosts.
+        When safe_prune is True, image cleanup uses a time filter under lock
+        to avoid cache races with other builds.
         """
+        if config.use_deploy_lock:
+            from .guardrails import deploy_lock
+
+            try:
+                with deploy_lock():
+                    result = self._deploy_inner(context, config)
+                    if result.success and config.safe_prune:
+                        from .guardrails import safe_docker_prune
+
+                        prune_result = safe_docker_prune(
+                            project_root=context.get("project_root"),
+                        )
+                        if not prune_result.success:
+                            logger.warning(
+                                "Post-deploy prune failed: %s",
+                                prune_result.error,
+                            )
+                    return result
+            except TimeoutError as e:
+                return StepResult(
+                    status=StepStatus.FAILED,
+                    exit_code=1,
+                    error=str(e),
+                )
+
+        result = self._deploy_inner(context, config)
+        if result.success and config.safe_prune:
+            from .guardrails import safe_docker_prune
+
+            prune_result = safe_docker_prune(
+                project_root=context.get("project_root"),
+            )
+            if not prune_result.success:
+                logger.warning("Post-deploy prune failed: %s", prune_result.error)
+        return result
+
+    def _deploy_inner(self, context: dict[str, Any], config: DeployConfig) -> StepResult:
+        """Core deploy logic: pull + up."""
         cwd = context.get("project_root")
         env = context.get("env")
 
@@ -41,7 +91,6 @@ class DockerComposeStrategy:
                                    timeout=config.timeout_seconds)
 
         base = self._compose_base_cmd(config)
-        # Pull first, then up
         pull_cmd = base + ["pull"]
         if config.services:
             pull_cmd.extend(config.services)

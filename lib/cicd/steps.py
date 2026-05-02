@@ -233,6 +233,20 @@ BUILTIN_PLANS: dict[str, list[StepDef]] = {
             skip_if="! [ -f .claude/bootstrap.yaml ]",
         ),
         StepDef(
+            id="stale_commit_check",
+            command=(
+                'LOCAL=$(git rev-parse HEAD) && '
+                'git fetch origin main --quiet && '
+                'REMOTE=$(git rev-parse origin/main) && '
+                '[ "$LOCAL" = "$REMOTE" ] || '
+                '{ echo "STALE: local=$LOCAL remote=$REMOTE"; exit 1; }'
+            ),
+            description="Verify HEAD matches origin/main (stale commit guard)",
+            timeout_seconds=30,
+            max_attempts=1,
+            skip_if='[ "$(git branch --show-current)" != "main" ]',
+        ),
+        StepDef(
             id="security_scan",
             command=(
                 'PYTHONPATH="${HOME}/Projects/claude-power-pack/lib" '

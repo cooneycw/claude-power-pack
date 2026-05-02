@@ -89,16 +89,79 @@ steps:
           - "scripts/bash-prep.sh"
           - "scripts/drift-detect.sh"
 
-  deploy-mcp:
+  pre-deploy-guardrails:
     image: docker:cli
     depends_on: [validate]
     commands:
-      - apk add --no-cache docker-compose
+      - apk add --no-cache git curl
+      # Stale commit guard - verify we are deploying the latest
+      - |
+        LOCAL=$(git rev-parse HEAD)
+        git fetch origin main --quiet 2>/dev/null || true
+        REMOTE=$(git rev-parse origin/main 2>/dev/null || echo "$LOCAL")
+        if [ "$LOCAL" != "$REMOTE" ]; then
+          echo "BLOCKED: Stale commit detected"
+          echo "  local=$LOCAL"
+          echo "  remote=$REMOTE"
+          echo "  Run 'git pull origin main' before deploying."
+          exit 1
+        fi
+        echo "OK: HEAD matches origin/main at ${LOCAL:0:12}"
+      # Docker socket access check
+      - |
+        if [ ! -S /var/run/docker.sock ]; then
+          echo "BLOCKED: docker.sock not mounted"
+          exit 1
+        fi
+        echo "OK: docker.sock accessible"
+        echo "AUDIT: docker.sock access by $(whoami) at $(date -Iseconds)"
+      # Deploy lock - prevent concurrent deploys
+      - |
+        LOCKFILE="/tmp/cpp-deploy.lock"
+        exec 9>"$LOCKFILE"
+        if ! flock -n -w 60 9; then
+          echo "BLOCKED: Another deploy is in progress (lock held)"
+          exit 1
+        fi
+        echo "OK: Deploy lock acquired"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    when:
+      - event: push
+        branch: main
+        path:
+          - "mcp-second-opinion/**"
+          - "mcp-playwright-persistent/**"
+          - "mcp-nano-banana/**"
+          - "mcp-woodpecker-ci/**"
+          - "docker-compose.yml"
+
+  deploy-mcp:
+    image: docker:cli
+    depends_on: [validate, pre-deploy-guardrails]
+    commands:
+      - apk add --no-cache docker-compose curl
       - echo "Deploying MCP containers..."
       - docker compose --profile core --profile browser --profile cicd up -d --build --wait
       - docker compose --profile core --profile browser --profile cicd ps
-      - docker image prune -f
+      # Safe prune with time filter to avoid cache races with concurrent builds
+      - docker image prune -f --filter "until=1h"
       - echo "Deploy complete."
+      # Capability check - verify services can actually serve, not just respond
+      - |
+        FAILED=0
+        for port in 8080 8081 8084; do
+          STATUS=$(curl -sf -o /dev/null -w "%{http_code}" --max-time 5 "http://127.0.0.1:${port}/" 2>/dev/null || echo "000")
+          if [ "$STATUS" = "200" ]; then
+            echo "OK: port $port health check passed (HTTP $STATUS)"
+          else
+            echo "WARN: port $port returned HTTP $STATUS"
+            FAILED=$((FAILED + 1))
+          fi
+        done
+        if [ "$FAILED" -gt 0 ]; then
+          echo "WARNING: $FAILED service(s) not healthy after deploy"
+        fi
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     when:
