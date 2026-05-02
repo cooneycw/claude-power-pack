@@ -260,6 +260,44 @@ def validate_diagram(
                 ),
             ))
 
+    # --- MEDIUM: label_resolution ---
+    node_labels = {n.get("id", f"n{i}"): n.get("label", "") for i, n in enumerate(nodes)}
+    for i, edge in enumerate(edges):
+        src = edge.get("source", "")
+        tgt = edge.get("target", "")
+        if src in node_id_set and not node_labels.get(src, "").strip():
+            issues.append(_ValidationIssue(
+                check="label_resolution",
+                severity="medium",
+                message=f"Edge {i} source node '{src}' has an empty label - relationship will show raw ID",
+                edge_index=i,
+            ))
+        if tgt in node_id_set and not node_labels.get(tgt, "").strip():
+            issues.append(_ValidationIssue(
+                check="label_resolution",
+                severity="medium",
+                message=f"Edge {i} target node '{tgt}' has an empty label - relationship will show raw ID",
+                edge_index=i,
+            ))
+
+    # --- MEDIUM: relationships_overflow ---
+    if edges:
+        edge_row_height = 20
+        panel_header_height = 30
+        panel_padding = 24
+        panel_max_height = 200
+        estimated_panel_height = len(edges) * edge_row_height + panel_header_height + panel_padding
+        if estimated_panel_height > panel_max_height:
+            issues.append(_ValidationIssue(
+                check="relationships_overflow",
+                severity="medium",
+                message=(
+                    f"Relationships panel has {len(edges)} edges "
+                    f"(estimated {estimated_panel_height}px) exceeding "
+                    f"{panel_max_height}px max-height - panel will scroll"
+                ),
+            ))
+
     # --- LOW: long_labels ---
     for i, n in enumerate(nodes):
         nid = n.get("id", f"n{i}")
@@ -300,6 +338,16 @@ def validate_diagram(
     if any(iss.check == "contrast" for iss in issues):
         suggestions.append(
             "Adjust text or background colors to meet WCAG AA 4.5:1 contrast ratio."
+        )
+    if any(iss.check == "label_resolution" for iss in issues):
+        suggestions.append(
+            "Add a non-empty label to every node so relationship endpoints "
+            "display human-readable names instead of raw IDs."
+        )
+    if any(iss.check == "relationships_overflow" for iss in issues):
+        suggestions.append(
+            "The relationships panel will scroll. Consider splitting the diagram "
+            "to reduce edge count, or accept the scrollable panel."
         )
 
     issue_dicts = [
