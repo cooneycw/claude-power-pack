@@ -222,6 +222,17 @@ BUILTIN_PLANS: dict[str, list[StepDef]] = {
     ],
     "deploy": [
         StepDef(
+            id="bootstrap_check",
+            command=(
+                'PYTHONPATH="${HOME}/Projects/claude-power-pack/lib" '
+                "python3 -m lib.cicd.bootstrap check"
+            ),
+            description="Check admin-only bootstrap dependencies",
+            timeout_seconds=30,
+            max_attempts=1,
+            skip_if="! [ -f .claude/bootstrap.yaml ]",
+        ),
+        StepDef(
             id="security_scan",
             command=(
                 'PYTHONPATH="${HOME}/Projects/claude-power-pack/lib" '
