@@ -1180,7 +1180,67 @@ echo "→ Sequential Thinking skipped"
 echo "  Install later: claude mcp add --transport stdio --scope user sequential-thinking -- npx -y @modelcontextprotocol/server-sequential-thinking"
 ```
 
-### 8b. Workstation Tuning (bash-prep)
+### 8b. Codex MCP Registration (optional)
+
+```
+=== Optional: Codex MCP Registration ===
+
+Register Claude Power Pack MCP servers with Codex?
+This will run `codex mcp add ...` and update Codex configuration.
+
+MCP servers expose streamable HTTP at /mcp for Codex compatibility.
+Claude Code continues to use /sse (unchanged).
+
+Register with Codex? [y/N]
+```
+
+If yes:
+
+```bash
+# Check if Codex CLI is available
+if ! command -v codex &>/dev/null; then
+  echo "⚠ Codex CLI not found. Skipping registration."
+  echo "  Install Codex first, then run the commands in .agents/CODEX_SETUP.md"
+else
+  CODEX_LIST=$(codex mcp list 2>/dev/null || echo "")
+
+  for entry in "second-opinion:8080" "playwright-persistent:8081" "nano-banana:8084"; do
+    NAME="${entry%%:*}"
+    PORT="${entry#*:}"
+    if echo "$CODEX_LIST" | grep -q "$NAME"; then
+      echo "-> $NAME already registered with Codex (skipped)"
+    else
+      # Verify container is reachable before registering
+      if curl -sf --max-time 2 "http://127.0.0.1:${PORT}/" >/dev/null 2>&1; then
+        codex mcp add "$NAME" --url "http://127.0.0.1:${PORT}/mcp"
+        echo "✓ $NAME registered with Codex (http://127.0.0.1:${PORT}/mcp)"
+      else
+        echo "⚠ $NAME not reachable on port $PORT - skipping Codex registration"
+        echo "  Start containers first: make docker-up PROFILE=core"
+      fi
+    fi
+  done
+
+  echo ""
+  echo "Restart Codex for tools to become available."
+fi
+```
+
+If no:
+
+```bash
+echo "-> Codex registration skipped"
+# Write setup artifact for manual registration later
+mkdir -p .agents
+if [ -f "$CPP_DIR/.agents/CODEX_SETUP.md" ]; then
+  cp "$CPP_DIR/.agents/CODEX_SETUP.md" .agents/CODEX_SETUP.md
+  echo "  Setup commands saved to .agents/CODEX_SETUP.md"
+else
+  echo "  Register later with: codex mcp add <name> --url http://127.0.0.1:<port>/mcp"
+fi
+```
+
+### 8c. Workstation Tuning (bash-prep)
 
 ```
 === Optional: Workstation Tuning ===

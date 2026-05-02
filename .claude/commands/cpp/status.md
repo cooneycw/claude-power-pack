@@ -226,6 +226,39 @@ for server in second-opinion playwright-persistent woodpecker-ci; do
   fi
 done
 
+# Check Codex MCP registrations
+echo ""
+echo "MCP Servers (Codex):"
+if command -v codex &>/dev/null; then
+  CODEX_LIST=$(codex mcp list 2>/dev/null || echo "")
+  for server in second-opinion playwright-persistent nano-banana; do
+    if echo "$CODEX_LIST" | grep -q "$server"; then
+      echo "  [x] $server: registered"
+    else
+      echo "  [ ] $server: not registered"
+    fi
+  done
+else
+  echo "  [ ] Codex CLI: not installed"
+fi
+
+# Check MCP transport endpoints
+echo ""
+echo "MCP Transport Endpoints:"
+for entry in "8080:second-opinion" "8081:playwright-persistent" "8084:nano-banana"; do
+  PORT="${entry%%:*}"
+  NAME="${entry#*:}"
+  SSE_OK=$(curl -sf --max-time 2 -o /dev/null -w '%{http_code}' "http://127.0.0.1:${PORT}/sse" 2>/dev/null || echo "000")
+  MCP_OK=$(curl -sf --max-time 2 -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' "http://127.0.0.1:${PORT}/mcp" 2>/dev/null || echo "000")
+  if [ "$SSE_OK" != "000" ] && [ "$MCP_OK" != "000" ]; then
+    echo "  [x] $NAME: /sse ($SSE_OK) + /mcp ($MCP_OK)"
+  elif [ "$SSE_OK" != "000" ]; then
+    echo "  [~] $NAME: /sse ($SSE_OK) only - /mcp not available (upgrade containers)"
+  else
+    echo "  [ ] $NAME: not reachable on port $PORT"
+  fi
+done
+
 # Check MCP server connectivity and API key status
 echo ""
 echo "MCP Server Connectivity:"

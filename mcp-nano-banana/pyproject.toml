@@ -12,6 +12,8 @@ dependencies = [
     "pydantic>=2.6.0",
     "python-pptx>=1.0.0",
     "Pillow>=10.0.0",
+    "starlette>=0.38.0",
+    "uvicorn>=0.30.0",
 ]
 
 [build-system]
