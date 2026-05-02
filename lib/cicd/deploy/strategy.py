@@ -68,6 +68,10 @@ class ReadinessPolicy:
 
     Polls a URL until N consecutive successful responses or timeout.
     Uses exponential backoff between attempts.
+
+    Optional capability_checks run after HTTP readiness passes, validating
+    that the service can actually perform its function (has secrets loaded,
+    can reach dependencies, responds to domain-specific probes).
     """
 
     url: str
@@ -76,6 +80,7 @@ class ReadinessPolicy:
     consecutive_successes: int = 3
     backoff_multiplier: float = 1.5
     expected_status: int = 200
+    capability_checks: list[dict[str, Any]] = field(default_factory=list)
 
     def validate(self) -> list[str]:
         """Return validation errors, if any."""
@@ -108,6 +113,9 @@ class DeployConfig:
     rollback_command: Optional[str] = None
     deploy_command: Optional[str] = None
     timeout_seconds: int = 900
+    use_deploy_lock: bool = False
+    stale_commit_check: bool = False
+    safe_prune: bool = False
     extra: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
@@ -121,6 +129,7 @@ class DeployConfig:
         known_keys = {
             "strategy", "compose_file", "readiness", "rollback_command",
             "deploy_command", "timeout_seconds", "profiles", "services",
+            "use_deploy_lock", "stale_commit_check", "safe_prune",
         }
         for k, v in list(data.items()):
             if k not in known_keys:
@@ -136,6 +145,9 @@ class DeployConfig:
             rollback_command=data.get("rollback_command"),
             deploy_command=data.get("deploy_command"),
             timeout_seconds=data.get("timeout_seconds", 900),
+            use_deploy_lock=data.get("use_deploy_lock", False),
+            stale_commit_check=data.get("stale_commit_check", False),
+            safe_prune=data.get("safe_prune", False),
             extra=extra,
         )
 
@@ -248,6 +260,31 @@ def poll_readiness(
             if status_code == policy.expected_status:
                 consecutive_ok += 1
                 if consecutive_ok >= policy.consecutive_successes:
+                    # HTTP is ready - run capability checks if configured
+                    if policy.capability_checks:
+                        from .guardrails import CapabilityCheck, run_capability_checks
+
+                        checks = [
+                            CapabilityCheck(
+                                name=c.get("name", f"check-{i}"),
+                                command=c["command"],
+                                timeout_seconds=c.get("timeout_seconds", 10),
+                            )
+                            for i, c in enumerate(policy.capability_checks)
+                        ]
+                        cap_ok, cap_results = run_capability_checks(checks)
+                        if not cap_ok:
+                            failed = [r for r in cap_results if not r.passed]
+                            names = ", ".join(r.name for r in failed)
+                            errors_str = "; ".join(
+                                f"{r.name}: {r.error}" for r in failed
+                            )
+                            consecutive_ok = 0
+                            last_error = (
+                                f"Capability checks failed ({names}): {errors_str}"
+                            )
+                            continue
+
                     return ReadinessResult(
                         ready=True,
                         attempts=attempts,
