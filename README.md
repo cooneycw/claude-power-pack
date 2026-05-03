@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/cooneycw-claude-power-pack-badge.png)](https://mseep.ai/app/cooneycw-claude-power-pack)
+
 # Claude Power Pack
 
 **v5.2.0** - A productivity toolkit for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) that adds workflow automation, MCP servers, security scanning, secrets management, and CI/CD integration.
