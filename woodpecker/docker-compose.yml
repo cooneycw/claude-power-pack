@@ -16,7 +16,7 @@ services:
       - WOODPECKER_OPEN=true
       - WOODPECKER_GITHUB=true
       - WOODPECKER_ADMIN=cooneycw
-      - WOODPECKER_PLUGINS_PRIVILEGED=plugins/docker
+      - WOODPECKER_PLUGINS_PRIVILEGED=woodpeckerci/plugin-docker-buildx,plugins/docker
     restart: unless-stopped
 
 volumes:
