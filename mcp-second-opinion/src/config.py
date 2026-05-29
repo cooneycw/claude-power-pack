@@ -93,19 +93,18 @@ class Config:
     GEMINI_API_KEY: Optional[str] = _gemini_api_key_secret.get_secret_value()
 
     # Model Selection Strategy
-    # Primary: Gemini 3.1 Pro Preview (best quality, replaces deprecated 3 Pro)
-    # Fallback: Gemini 2.5 Pro (stable, proven)
-    GEMINI_MODEL_PRIMARY: str = "gemini-3.1-pro-preview"
-    GEMINI_MODEL_FALLBACK: str = "gemini-2.5-pro"
+    # Primary: Gemini 3.5 Flash (fastest, beats 3.1 Pro on coding/agent benchmarks)
+    # Fallback: Gemini 3.1 Pro Preview (stable, proven)
+    GEMINI_MODEL_PRIMARY: str = "gemini-3.5-flash"
+    GEMINI_MODEL_FALLBACK: str = "gemini-3.1-pro-preview"
 
     # For image/visual analysis (e.g., Playwright screenshots)
     GEMINI_MODEL_IMAGE: str = "gemini-3-pro-image-preview"
 
-    # Gemini API Pricing (per million tokens) - Updated 2026-03
-    # Used for cost estimation in responses
+    # Gemini API Pricing (per million tokens) - Updated 2026-05
     GEMINI_PRICING: Dict[str, Dict[str, float]] = {
+        "gemini-3.5-flash": {"input": 0.15, "output": 0.60},
         "gemini-3.1-pro-preview": {"input": 2.00, "output": 12.00},
-        "gemini-2.5-pro": {"input": 1.25, "output": 5.00},
         "gemini-3-pro-image-preview": {"input": 2.50, "output": 10.00},
     }
 
@@ -115,19 +114,16 @@ class Config:
     # API key loaded at module level to avoid @classmethod @property issues in Python 3.14
     OPENAI_API_KEY: Optional[str] = _openai_api_key_secret.get_secret_value()
 
-    # OpenAI Models - Using currently available models
+    # OpenAI Models - Updated May 2026
+    # GPT-5.5 family (latest, replaces GPT-5.3 as default)
+    OPENAI_MODEL_GPT55: str = "gpt-5.5"
+    OPENAI_MODEL_GPT55_PRO: str = "gpt-5.5-pro"
+
     # GPT-4o family (multimodal, fast)
     OPENAI_MODEL_GPT4O: str = "gpt-4o"
     OPENAI_MODEL_GPT4O_MINI: str = "gpt-4o-mini"
 
-    # GPT-4 Turbo (best for complex reasoning)
-    OPENAI_MODEL_GPT4_TURBO: str = "gpt-4-turbo"
-
-    # Codex models (use Responses API) - Updated Mar 2026
-    # gpt-5.3-codex: Default and most capable agentic coding model
-    # gpt-5.2-codex: Cost-effective coding model (was default, now mini)
-    # o3: Full Codex reasoning agent
-    # o4-mini: Fast reasoning model (successor to o3-mini)
+    # Codex models (use Responses API)
     OPENAI_MODEL_CODEX: str = "gpt-5.3-codex"
     OPENAI_MODEL_CODEX_MAX: str = "gpt-5.3-codex"
     OPENAI_MODEL_CODEX_MINI: str = "gpt-5.2-codex"
@@ -138,29 +134,26 @@ class Config:
     OPENAI_MODEL_GPT52: str = "gpt-5.2"
     OPENAI_MODEL_GPT52_MINI: str = "gpt-5.2-mini"
 
-    # o1 models (reasoning-focused)
-    OPENAI_MODEL_O1: str = "o1"
-    OPENAI_MODEL_O1_MINI: str = "o1-mini"
-
     # For image/visual analysis
     OPENAI_MODEL_IMAGE: str = "gpt-4o"
 
     # Fallback
     OPENAI_MODEL_FALLBACK: str = "gpt-4o-mini"
 
-    # OpenAI API Pricing (per million tokens) - Updated 2026-03
+    # OpenAI API Pricing (per million tokens) - Updated 2026-05
     OPENAI_PRICING: Dict[str, Dict[str, float]] = {
+        # GPT-5.5 family
+        "gpt-5.5": {"input": 2.00, "output": 10.00},
+        "gpt-5.5-pro": {"input": 5.00, "output": 20.00},
+        # GPT-4o family
         "gpt-4o": {"input": 2.50, "output": 10.00},
         "gpt-4o-mini": {"input": 0.15, "output": 0.60},
-        "gpt-4-turbo": {"input": 10.00, "output": 30.00},
         # Codex models (use Responses API)
         "gpt-5.3-codex": {"input": 1.75, "output": 14.00},
         "gpt-5.2-codex": {"input": 1.75, "output": 14.00},
         # Reasoning models (use Responses API)
         "o3": {"input": 2.00, "output": 8.00},
         "o4-mini": {"input": 1.10, "output": 4.40},
-        "o1": {"input": 15.00, "output": 60.00},
-        "o1-mini": {"input": 3.00, "output": 12.00},
         # GPT-5.2 models
         "gpt-5.2": {"input": 1.75, "output": 14.00},
         "gpt-5.2-mini": {"input": 0.25, "output": 2.00},
@@ -172,17 +165,17 @@ class Config:
     # API key loaded at module level to avoid @classmethod @property issues in Python 3.14
     ANTHROPIC_API_KEY: Optional[str] = _anthropic_api_key_secret.get_secret_value()
 
-    # Anthropic Claude Models - Updated Mar 2026
+    # Anthropic Claude Models - Updated May 2026
     ANTHROPIC_MODEL_SONNET: str = "claude-sonnet-4-6"
     ANTHROPIC_MODEL_HAIKU: str = "claude-haiku-4-5-20251001"
-    ANTHROPIC_MODEL_OPUS: str = "claude-opus-4-6"
+    ANTHROPIC_MODEL_OPUS: str = "claude-opus-4-8"
 
     # Fallback
     ANTHROPIC_MODEL_FALLBACK: str = "claude-haiku-4-5-20251001"
 
-    # Anthropic API Pricing (per million tokens) - Updated 2026-03
+    # Anthropic API Pricing (per million tokens) - Updated 2026-05
     ANTHROPIC_PRICING: Dict[str, Dict[str, float]] = {
-        "claude-opus-4-6": {"input": 5.00, "output": 25.00},
+        "claude-opus-4-8": {"input": 5.00, "output": 25.00},
         "claude-sonnet-4-6": {"input": 3.00, "output": 15.00},
         "claude-haiku-4-5-20251001": {"input": 1.00, "output": 5.00},
     }
@@ -195,6 +188,8 @@ class Config:
 
     MISTRAL_PRICING: Dict[str, Dict[str, float]] = {
         "mistral-large-latest": {"input": 2.00, "output": 6.00},
+        "mistral-medium-latest": {"input": 0.40, "output": 2.00},
+        "mistral-small-latest": {"input": 0.15, "output": 0.60},
         "devstral-small-latest": {"input": 0.10, "output": 0.30},
         "codestral-latest": {"input": 0.30, "output": 0.90},
     }
@@ -207,6 +202,9 @@ class Config:
 
     GROQ_PRICING: Dict[str, Dict[str, float]] = {
         "llama-3.3-70b-versatile": {"input": 0.59, "output": 0.79},
+        "meta-llama/llama-4-scout-17b-16e-instruct": {"input": 0.11, "output": 0.34},
+        "meta-llama/llama-4-maverick-17b-128e-instruct": {"input": 0.20, "output": 0.60},
+        "deepseek-r1-distill-llama-70b": {"input": 0.75, "output": 0.99},
         "qwen-qwq-32b": {"input": 0.29, "output": 0.39},
     }
 
@@ -219,6 +217,10 @@ class Config:
     OPENROUTER_PRICING: Dict[str, Dict[str, float]] = {
         "qwen/qwen3-coder": {"input": 0.00, "output": 0.00},
         "deepseek/deepseek-chat-v4-0324:free": {"input": 0.00, "output": 0.00},
+        "openai/gpt-oss-20b:free": {"input": 0.00, "output": 0.00},
+        "openai/gpt-oss-120b:free": {"input": 0.00, "output": 0.00},
+        "google/gemma-4-31b-it:free": {"input": 0.00, "output": 0.00},
+        "minimax/minimax-m2-5:free": {"input": 0.00, "output": 0.00},
     }
 
     # ==========================================================================
@@ -228,8 +230,8 @@ class Config:
     DEEPSEEK_BASE_URL: str = "https://api.deepseek.com"
 
     DEEPSEEK_PRICING: Dict[str, Dict[str, float]] = {
-        "deepseek-chat": {"input": 0.14, "output": 0.28},
-        "deepseek-reasoner": {"input": 0.55, "output": 2.19},
+        "deepseek-v4-flash": {"input": 0.14, "output": 0.28},
+        "deepseek-v4-pro": {"input": 0.55, "output": 2.19},
     }
 
     # ==========================================================================
@@ -238,18 +240,18 @@ class Config:
     # All models available for second opinion consultation
     AVAILABLE_MODELS: Dict[str, Dict[str, str]] = {
         # Gemini models
+        "gemini-3.5-flash": {
+            "provider": "gemini",
+            "model_id": "gemini-3.5-flash",
+            "display_name": "Gemini 3.5 Flash",
+            "description": "Google's fastest, 4x output speed, beats 3.1 Pro on coding/agent",
+            "free": False,
+        },
         "gemini-3-pro": {
             "provider": "gemini",
             "model_id": "gemini-3.1-pro-preview",
             "display_name": "Gemini 3.1 Pro",
-            "description": "Google's latest, best for comprehensive analysis",
-            "free": False,
-        },
-        "gemini-2.5-pro": {
-            "provider": "gemini",
-            "model_id": "gemini-2.5-pro",
-            "display_name": "Gemini 2.5 Pro",
-            "description": "Stable, proven performance",
+            "description": "Stable fallback until Gemini 3.5 Pro launches",
             "free": False,
         },
         # Anthropic Claude models
@@ -269,9 +271,24 @@ class Config:
         },
         "claude-opus": {
             "provider": "anthropic",
-            "model_id": "claude-opus-4-6",
-            "display_name": "Claude Opus 4.6",
-            "description": "Most capable Claude, best for complex reasoning",
+            "model_id": "claude-opus-4-8",
+            "display_name": "Claude Opus 4.8",
+            "description": "Most capable Claude, 1M context, improved agentic coding",
+            "free": False,
+        },
+        # OpenAI GPT-5.5 family
+        "gpt-5.5": {
+            "provider": "openai",
+            "model_id": "gpt-5.5",
+            "display_name": "GPT-5.5",
+            "description": "Latest GPT model, replaces GPT-5.3 as default",
+            "free": False,
+        },
+        "gpt-5.5-pro": {
+            "provider": "openai",
+            "model_id": "gpt-5.5-pro",
+            "display_name": "GPT-5.5 Pro",
+            "description": "Most capable OpenAI model, best for complex tasks",
             "free": False,
         },
         # OpenAI GPT-4o family
@@ -289,27 +306,12 @@ class Config:
             "description": "Fast, cost-effective for simpler tasks",
             "free": False,
         },
-        # OpenAI GPT-4 Turbo
-        "gpt-4-turbo": {
-            "provider": "openai",
-            "model_id": "gpt-4-turbo",
-            "display_name": "GPT-4 Turbo",
-            "description": "Best for complex reasoning tasks",
-            "free": False,
-        },
         # OpenAI Codex models (uses Responses API)
         "codex": {
             "provider": "openai",
             "model_id": "gpt-5.3-codex",
             "display_name": "GPT-5.3 Codex",
             "description": "Default Codex model for coding tasks",
-            "free": False,
-        },
-        "codex-max": {
-            "provider": "openai",
-            "model_id": "gpt-5.3-codex",
-            "display_name": "GPT-5.3 Codex",
-            "description": "Most capable agentic coding model (same as codex)",
             "free": False,
         },
         "codex-mini": {
@@ -319,6 +321,7 @@ class Config:
             "description": "Cost-effective coding model",
             "free": False,
         },
+        # OpenAI reasoning models
         "o3": {
             "provider": "openai",
             "model_id": "o3",
@@ -333,27 +336,12 @@ class Config:
             "description": "Fast reasoning model, successor to o3-mini",
             "free": False,
         },
-        # OpenAI o1 reasoning models
-        "o1": {
-            "provider": "openai",
-            "model_id": "o1",
-            "display_name": "o1",
-            "description": "Advanced reasoning, best for hard problems",
-            "free": False,
-        },
-        "o1-mini": {
-            "provider": "openai",
-            "model_id": "o1-mini",
-            "display_name": "o1 Mini",
-            "description": "Faster reasoning model",
-            "free": False,
-        },
         # GPT-5.2 models
         "gpt-5.2": {
             "provider": "openai",
             "model_id": "gpt-5.2",
             "display_name": "GPT-5.2",
-            "description": "Latest GPT model, excellent reasoning",
+            "description": "Strong GPT model, excellent reasoning",
             "free": False,
         },
         "gpt-5.2-mini": {
@@ -371,6 +359,20 @@ class Config:
             "description": "Best for comprehensive analysis (128K context)",
             "free": True,
         },
+        "mistral-medium": {
+            "provider": "mistral",
+            "model_id": "mistral-medium-latest",
+            "display_name": "Mistral Medium 3.5",
+            "description": "Frontier-class, optimized for agentic/coding",
+            "free": True,
+        },
+        "mistral-small": {
+            "provider": "mistral",
+            "model_id": "mistral-small-latest",
+            "display_name": "Mistral Small 4",
+            "description": "Unified model (Magistral + Pixtral + Devstral)",
+            "free": True,
+        },
         "devstral": {
             "provider": "mistral",
             "model_id": "devstral-small-latest",
@@ -386,6 +388,27 @@ class Config:
             "free": True,
         },
         # Groq models (free tier - 30 RPM, ultra-fast inference)
+        "groq-llama4-scout": {
+            "provider": "groq",
+            "model_id": "meta-llama/llama-4-scout-17b-16e-instruct",
+            "display_name": "Llama 4 Scout (Groq)",
+            "description": "Day-zero Llama 4, fast inference (128K context)",
+            "free": True,
+        },
+        "groq-llama4-maverick": {
+            "provider": "groq",
+            "model_id": "meta-llama/llama-4-maverick-17b-128e-instruct",
+            "display_name": "Llama 4 Maverick (Groq)",
+            "description": "Llama 4 128-expert MoE, strong reasoning (128K context)",
+            "free": True,
+        },
+        "groq-deepseek-r1": {
+            "provider": "groq",
+            "model_id": "deepseek-r1-distill-llama-70b",
+            "display_name": "DeepSeek R1 Distill (Groq)",
+            "description": "R1-distilled reasoning on Groq's fast infra",
+            "free": True,
+        },
         "groq-llama-70b": {
             "provider": "groq",
             "model_id": "llama-3.3-70b-versatile",
@@ -400,22 +423,22 @@ class Config:
             "description": "Strong reasoning on Groq's fast infra (128K context)",
             "free": True,
         },
-        # DeepSeek models (near-free - $0.14-$0.28/MTok)
-        "deepseek-v3": {
+        # DeepSeek models (near-free, V4 model IDs)
+        "deepseek-v4-flash": {
             "provider": "deepseek",
-            "model_id": "deepseek-chat",
-            "display_name": "DeepSeek V3",
+            "model_id": "deepseek-v4-flash",
+            "display_name": "DeepSeek V4 Flash",
             "description": "Top-tier code analysis, near-free pricing",
             "free": False,
         },
-        "deepseek-r1": {
+        "deepseek-v4-pro": {
             "provider": "deepseek",
-            "model_id": "deepseek-reasoner",
-            "display_name": "DeepSeek R1",
+            "model_id": "deepseek-v4-pro",
+            "display_name": "DeepSeek V4 Pro",
             "description": "Advanced reasoning, chain-of-thought coding",
             "free": False,
         },
-        # OpenRouter models (aggregator - free tier, 27+ models)
+        # OpenRouter models (aggregator - free tier)
         "openrouter-qwen-coder": {
             "provider": "openrouter",
             "model_id": "qwen/qwen3-coder",
@@ -430,11 +453,47 @@ class Config:
             "description": "Free DeepSeek via OpenRouter (1M context)",
             "free": True,
         },
+        "openrouter-gpt-oss-20b": {
+            "provider": "openrouter",
+            "model_id": "openai/gpt-oss-20b:free",
+            "display_name": "GPT-OSS 20B (OpenRouter)",
+            "description": "Strongest free coding model, matches o3-mini on code",
+            "free": True,
+        },
+        "openrouter-gpt-oss-120b": {
+            "provider": "openrouter",
+            "model_id": "openai/gpt-oss-120b:free",
+            "display_name": "GPT-OSS 120B (OpenRouter)",
+            "description": "General purpose free model, broad coverage",
+            "free": True,
+        },
+        "openrouter-gemma4-31b": {
+            "provider": "openrouter",
+            "model_id": "google/gemma-4-31b-it:free",
+            "display_name": "Gemma-4 31B (OpenRouter)",
+            "description": "Vision + tools, 262K context, free",
+            "free": True,
+        },
+        "openrouter-minimax-m2.5": {
+            "provider": "openrouter",
+            "model_id": "minimax/minimax-m2-5:free",
+            "display_name": "Minimax M2.5 (OpenRouter)",
+            "description": "Quality score 70, 262K context, free",
+            "free": True,
+        },
     }
 
     # Default models to use when none specified
-    # Mix of free and paid for broad coverage
-    DEFAULT_MODELS: List[str] = ["gemini-3-pro", "devstral", "groq-llama-70b"]
+    # Top paid model per major provider + best free alternatives
+    DEFAULT_MODELS: List[str] = [
+        "gemini-3-pro",
+        "gpt-5.5-pro",
+        "claude-opus",
+        "devstral",
+        "groq-llama4-maverick",
+        "openrouter-gpt-oss-20b",
+        "openrouter-qwen-coder",
+    ]
 
     # Token estimation (characters per token approximation)
     # English text averages ~4 characters per token
