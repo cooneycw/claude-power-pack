@@ -3,7 +3,8 @@
 Second Opinion MCP Server
 
 An MCP server that provides LLM-powered second opinions on challenging coding issues.
-Powered by Google Gemini, OpenAI (Codex + GPT-5.2), and Anthropic Claude.
+Powered by Google Gemini, OpenAI (Codex + GPT-5.2), Anthropic Claude,
+Mistral, Groq, OpenRouter, and DeepSeek.
 Supports multi-model consultation for comparing responses from different LLMs.
 """
 
@@ -83,6 +84,29 @@ if Config.ANTHROPIC_API_KEY:
     logger.info("Anthropic API configured successfully")
 else:
     logger.warning("ANTHROPIC_API_KEY not set - Claude models will be unavailable")
+
+# Configure OpenAI-compatible providers (Mistral, Groq, OpenRouter, DeepSeek)
+_openai_compatible_clients: Dict[str, openai.AsyncOpenAI] = {}
+
+_compat_providers = {
+    "mistral": (Config.MISTRAL_API_KEY, Config.MISTRAL_BASE_URL),
+    "groq": (Config.GROQ_API_KEY, Config.GROQ_BASE_URL),
+    "openrouter": (Config.OPENROUTER_API_KEY, Config.OPENROUTER_BASE_URL),
+    "deepseek": (Config.DEEPSEEK_API_KEY, Config.DEEPSEEK_BASE_URL),
+}
+
+for _provider_name, (_api_key, _base_url) in _compat_providers.items():
+    if _api_key:
+        _openai_compatible_clients[_provider_name] = openai.AsyncOpenAI(
+            api_key=_api_key,
+            base_url=_base_url,
+        )
+        logger.info(f"{_provider_name.title()} API configured successfully")
+    else:
+        logger.warning(
+            f"{_provider_name.upper()}_API_KEY not set - "
+            f"{_provider_name.title()} models will be unavailable"
+        )
 
 # Lock for thread-safe operations
 _model_lock: asyncio.Lock = asyncio.Lock()
@@ -493,6 +517,86 @@ async def get_anthropic_response(
 
 
 # =============================================================================
+# OpenAI-Compatible Provider Functions (Mistral, Groq, OpenRouter, DeepSeek)
+# =============================================================================
+
+
+async def get_openai_compatible_response(
+    prompt: str,
+    model_name: str,
+    provider: str,
+    max_tokens: int = Config.MAX_TOKENS,
+) -> tuple[str, str]:
+    """
+    Get streaming response from an OpenAI-compatible provider.
+
+    Args:
+        prompt: The prompt to send
+        model_name: The model to use
+        provider: Provider name (mistral, groq, openrouter, deepseek)
+        max_tokens: Maximum output tokens
+
+    Returns:
+        Tuple of (response text, model used)
+    """
+    client = _openai_compatible_clients.get(provider)
+    if not client:
+        raise ValueError(f"{provider.title()} API key not configured")
+
+    try:
+        return await _try_openai_compatible_model(client, prompt, model_name, provider, max_tokens=max_tokens)
+    except Exception as e:
+        logger.error(f"{provider.title()} model {model_name} failed: {e}")
+        raise
+
+
+@retry(
+    stop=stop_after_attempt(Config.MAX_RETRIES),
+    wait=wait_exponential(
+        min=Config.RETRY_MIN_WAIT,
+        max=Config.RETRY_MAX_WAIT,
+    ),
+    retry=retry_if_exception_type(Exception),
+    reraise=True,
+)
+async def _try_openai_compatible_model(
+    client: openai.AsyncOpenAI,
+    prompt: str,
+    model_name: str,
+    provider: str,
+    max_tokens: int = Config.MAX_TOKENS,
+) -> tuple[str, str]:
+    """Attempt to get a response from an OpenAI-compatible provider."""
+    try:
+        logger.info(f"Sending request to {provider}/{model_name}")
+
+        request_params = {
+            "model": model_name,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": Config.TEMPERATURE,
+            "stream": True,
+            "max_tokens": max_tokens,
+        }
+
+        response = await client.chat.completions.create(**request_params)
+
+        full_response = []
+        async for chunk in response:
+            if chunk.choices and chunk.choices[0].delta.content:
+                content = chunk.choices[0].delta.content
+                full_response.append(content)
+                logger.debug(f"Received chunk: {len(content)} chars")
+
+        result = "".join(full_response)
+        logger.info(f"Completed streaming response from {provider}/{model_name}: {len(result)} chars")
+        return result, model_name
+
+    except Exception as e:
+        logger.error(f"Error getting response from {provider}/{model_name}: {e}")
+        raise
+
+
+# =============================================================================
 # Multi-Model Consultation Functions
 # =============================================================================
 
@@ -526,39 +630,26 @@ async def get_single_model_response(
 
     try:
         # Route to appropriate provider
+        api_key_attr = Config._PROVIDER_API_KEY_MAP.get(provider)
+        if api_key_attr and not getattr(Config, api_key_attr, None):
+            return {
+                "model_key": model_key,
+                "model_id": model_id,
+                "display_name": model_info["display_name"],
+                "success": False,
+                "error": f"{provider.title()} API key not configured",
+            }
+
         if provider == "gemini":
-            if not Config.GEMINI_API_KEY:
-                return {
-                    "model_key": model_key,
-                    "model_id": model_id,
-                    "display_name": model_info["display_name"],
-                    "success": False,
-                    "error": "Gemini API key not configured",
-                }
             response, model_used = await get_gemini_streaming_response(prompt, model_id, max_tokens=max_tokens)
-
         elif provider == "openai":
-            if not Config.OPENAI_API_KEY:
-                return {
-                    "model_key": model_key,
-                    "model_id": model_id,
-                    "display_name": model_info["display_name"],
-                    "success": False,
-                    "error": "OpenAI API key not configured",
-                }
             response, model_used = await get_openai_streaming_response(prompt, model_id, max_tokens=max_tokens)
-
         elif provider == "anthropic":
-            if not Config.ANTHROPIC_API_KEY:
-                return {
-                    "model_key": model_key,
-                    "model_id": model_id,
-                    "display_name": model_info["display_name"],
-                    "success": False,
-                    "error": "Anthropic API key not configured",
-                }
             response, model_used = await get_anthropic_response(prompt, model_id, max_tokens=max_tokens)
-
+        elif provider in _openai_compatible_clients:
+            response, model_used = await get_openai_compatible_response(
+                prompt, model_id, provider, max_tokens=max_tokens,
+            )
         else:
             return {
                 "model_key": model_key,
@@ -970,12 +1061,18 @@ async def health_check() -> dict:
     has_gemini = bool(Config.GEMINI_API_KEY)
     has_openai = bool(Config.OPENAI_API_KEY)
     has_anthropic = bool(Config.ANTHROPIC_API_KEY)
+    has_mistral = bool(Config.MISTRAL_API_KEY)
+    has_groq = bool(Config.GROQ_API_KEY)
+    has_openrouter = bool(Config.OPENROUTER_API_KEY)
+    has_deepseek = bool(Config.DEEPSEEK_API_KEY)
     available_models = Config.get_available_model_keys()
+
+    has_any = has_gemini or has_openai or has_anthropic or has_mistral or has_groq or has_openrouter or has_deepseek
 
     status = {
         "server_name": Config.SERVER_NAME,
         "server_version": Config.SERVER_VERSION,
-        "status": "healthy" if (has_gemini or has_openai or has_anthropic) else "no_api_keys",
+        "status": "healthy" if has_any else "no_api_keys",
         # Gemini
         "gemini_configured": has_gemini,
         "gemini_models": {
@@ -1000,27 +1097,29 @@ async def health_check() -> dict:
             "haiku": Config.ANTHROPIC_MODEL_HAIKU,
             "opus": Config.ANTHROPIC_MODEL_OPUS,
         } if has_anthropic else None,
+        # Free-tier providers
+        "mistral_configured": has_mistral,
+        "groq_configured": has_groq,
+        "openrouter_configured": has_openrouter,
+        "deepseek_configured": has_deepseek,
         # Available models for multi-model consultation
         "available_models": available_models,
         "default_models": Config.DEFAULT_MODELS,
     }
 
+    _key_info = {
+        "GEMINI_API_KEY": ("Gemini", "https://aistudio.google.com/apikey"),
+        "OPENAI_API_KEY": ("OpenAI/Codex", "https://platform.openai.com/api-keys"),
+        "ANTHROPIC_API_KEY": ("Claude", "https://console.anthropic.com/settings/keys"),
+        "MISTRAL_API_KEY": ("Mistral (free tier)", "https://console.mistral.ai/api-keys"),
+        "GROQ_API_KEY": ("Groq (free tier)", "https://console.groq.com/keys"),
+        "OPENROUTER_API_KEY": ("OpenRouter (free tier)", "https://openrouter.ai/settings/keys"),
+        "DEEPSEEK_API_KEY": ("DeepSeek (near-free)", "https://platform.deepseek.com/api_keys"),
+    }
     messages = []
-    if not has_gemini:
-        messages.append(
-            "GEMINI_API_KEY not set - Gemini models unavailable. "
-            "Get key from https://aistudio.google.com/apikey"
-        )
-    if not has_openai:
-        messages.append(
-            "OPENAI_API_KEY not set - OpenAI/Codex models unavailable. "
-            "Get key from https://platform.openai.com/api-keys"
-        )
-    if not has_anthropic:
-        messages.append(
-            "ANTHROPIC_API_KEY not set - Claude models unavailable. "
-            "Get key from https://console.anthropic.com/settings/keys"
-        )
+    for env_var, (name, url) in _key_info.items():
+        if not getattr(Config, env_var, None):
+            messages.append(f"{env_var} not set - {name} models unavailable. Get key from {url}")
 
     if messages:
         status["messages"] = messages
@@ -1030,7 +1129,7 @@ async def health_check() -> dict:
 
 @mcp.tool()
 async def list_available_models() -> dict:
-    """List models available for multi-model consultation with availability status."""
+    """List models available for multi-model consultation with availability and free-tier status."""
     available_keys = Config.get_available_model_keys()
 
     models = []
@@ -1042,6 +1141,7 @@ async def list_available_models() -> dict:
             "model_id": info["model_id"],
             "description": info["description"],
             "available": key in available_keys,
+            "free": info.get("free", False),
         })
 
     return {
@@ -1049,6 +1149,11 @@ async def list_available_models() -> dict:
         "default_models": Config.DEFAULT_MODELS,
         "gemini_configured": bool(Config.GEMINI_API_KEY),
         "openai_configured": bool(Config.OPENAI_API_KEY),
+        "anthropic_configured": bool(Config.ANTHROPIC_API_KEY),
+        "mistral_configured": bool(Config.MISTRAL_API_KEY),
+        "groq_configured": bool(Config.GROQ_API_KEY),
+        "openrouter_configured": bool(Config.OPENROUTER_API_KEY),
+        "deepseek_configured": bool(Config.DEEPSEEK_API_KEY),
     }
 
 
@@ -1685,29 +1790,25 @@ def _run_diagnose() -> int:
     warnings = []
 
     # Check API keys
-    has_gemini = bool(Config.GEMINI_API_KEY)
-    has_openai = bool(Config.OPENAI_API_KEY)
-    has_anthropic = bool(Config.ANTHROPIC_API_KEY)
+    _keys = {
+        "Gemini":     ("GEMINI_API_KEY",     Config.GEMINI_API_KEY),
+        "OpenAI":     ("OPENAI_API_KEY",     Config.OPENAI_API_KEY),
+        "Anthropic":  ("ANTHROPIC_API_KEY",  Config.ANTHROPIC_API_KEY),
+        "Mistral":    ("MISTRAL_API_KEY",    Config.MISTRAL_API_KEY),
+        "Groq":       ("GROQ_API_KEY",       Config.GROQ_API_KEY),
+        "OpenRouter": ("OPENROUTER_API_KEY", Config.OPENROUTER_API_KEY),
+        "DeepSeek":   ("DEEPSEEK_API_KEY",   Config.DEEPSEEK_API_KEY),
+    }
+    has_any = False
+    for label, (env_var, value) in _keys.items():
+        if value:
+            print(f"  {label + ' API key:':<21s}configured")
+            has_any = True
+        else:
+            warnings.append(f"{env_var} not set")
+            print(f"  {label + ' API key:':<21s}NOT SET")
 
-    if has_gemini:
-        print("  Gemini API key:    configured")
-    else:
-        warnings.append("GEMINI_API_KEY not set")
-        print("  Gemini API key:    NOT SET")
-
-    if has_openai:
-        print("  OpenAI API key:    configured")
-    else:
-        warnings.append("OPENAI_API_KEY not set")
-        print("  OpenAI API key:    NOT SET")
-
-    if has_anthropic:
-        print("  Anthropic API key: configured")
-    else:
-        warnings.append("ANTHROPIC_API_KEY not set")
-        print("  Anthropic API key: NOT SET")
-
-    if not (has_gemini or has_openai or has_anthropic):
+    if not has_any:
         errors.append("No API keys configured - server will start but all tool calls will fail")
 
     # Check .env file
