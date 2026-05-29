@@ -1,4 +1,4 @@
-"""Configuration management for the Second Opinion MCP Server."""
+"""Configuration management for the Second Opinion MCP Server v2.2.0."""
 
 import logging
 import os
