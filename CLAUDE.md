@@ -47,7 +47,7 @@ MCP containers fetch API keys at startup from AWS Secrets Manager via an `aws-se
 
 - **Secrets architecture:** `aws-secrets-agent` (Rust binary, port 2773) caches secrets in-memory (300s TTL) with SSRF token protection. MCP containers use `fetch-secrets.sh` entrypoint to resolve keys before starting.
 - **Required `.env` variables:** `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_TOKEN` (SSRF token)
-- **AWS secrets used:** `claude-power-pack/mcp-keys` (second-opinion LLM keys), `essent-ai` (woodpecker-ci keys)
+- **AWS secrets used:** `codex_llm_apikeys` (second-opinion LLM keys), `essent-ai` (woodpecker-ci keys)
 - **Required IAM permissions:** `secretsmanager:GetSecretValue`, `secretsmanager:DescribeSecret` on the named secrets
 - **Validate setup:** `make docker-secrets-check` (checks AWS creds, verifies secrets exist)
 - **Profiles:** `core` (second-opinion + nano-banana + secrets-agent), `browser` (playwright), `cicd` (woodpecker-ci + secrets-agent)

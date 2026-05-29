@@ -54,7 +54,7 @@ services:
         required: false
     environment:
       - MCP_SERVER_HOST=0.0.0.0
-      - AWS_SECRET_NAME=claude-power-pack/mcp-keys
+      - AWS_SECRET_NAME=codex_llm_apikeys
       - SECRETS_AGENT_URL=http://aws-secrets-agent:2773
     volumes:
       - ./aws-secrets-agent/fetch-secrets.sh:/app/fetch-secrets.sh:ro
