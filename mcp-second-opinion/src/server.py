@@ -378,8 +378,8 @@ async def _try_openai_model(prompt: str, model_name: str, max_tokens: int = Conf
     try:
         logger.info(f"Sending request to OpenAI {model_name}")
 
-        # Codex, o3, and o4-mini models use the Responses API
-        uses_responses_api = any(x in model_name.lower() for x in ["codex", "o3", "o4-mini"])
+        # Codex, GPT-5.5, o3, and o4-mini models use the Responses API
+        uses_responses_api = any(x in model_name.lower() for x in ["codex", "gpt-5.5", "o3", "o4-mini"])
 
         if uses_responses_api:
             # Use Responses API for Codex models
@@ -433,7 +433,7 @@ async def _try_openai_chat_api(prompt: str, model_name: str, max_tokens: int = C
 async def _try_openai_responses_api(
     prompt: str, model_name: str, max_tokens: int = Config.MAX_TOKENS
 ) -> tuple[str, str]:
-    """Use Responses API for Codex models."""
+    """Use Responses API for Codex, GPT-5.5, and reasoning models."""
     logger.info(f"Using Responses API for {model_name}")
 
     # Responses API uses a different endpoint and format

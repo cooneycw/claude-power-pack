@@ -527,7 +527,7 @@ class Config:
 
     # Server Configuration
     SERVER_NAME: str = "second-opinion-server"
-    SERVER_VERSION: str = "2.1.0"  # FastMCP 3.x, SSE transport
+    SERVER_VERSION: str = "2.2.0"  # Model catalog update May 2026
 
     # HTTP/SSE Transport Configuration (with safe parsing)
     SERVER_HOST: str = os.getenv("MCP_SERVER_HOST", "127.0.0.1")
