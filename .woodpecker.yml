@@ -95,22 +95,42 @@ steps:
     commands:
       - apk add --no-cache git curl
       # Stale commit guard - verify we are deploying the latest
+      # git fetch may fail in CI if credentials are unavailable; retry once
+      # and treat fetch failure as non-blocking (deploy the checked-out commit)
       - |
         LOCAL=$(git rev-parse HEAD)
-        git fetch origin main --quiet 2>/dev/null || true
-        REMOTE=$(git rev-parse origin/main 2>/dev/null || echo "$LOCAL")
-        if [ "$LOCAL" != "$REMOTE" ]; then
-          echo "BLOCKED: Stale commit detected"
-          echo "  local=$LOCAL"
-          echo "  remote=$REMOTE"
-          echo "  Run 'git pull origin main' before deploying."
-          exit 1
+        FETCH_OK=false
+        for attempt in 1 2; do
+          if git fetch origin main --quiet 2>/dev/null; then
+            FETCH_OK=true
+            break
+          fi
+          echo "WARN: git fetch attempt $attempt failed, retrying..."
+          sleep 2
+        done
+        if [ "$FETCH_OK" = "true" ]; then
+          REMOTE=$(git rev-parse origin/main 2>/dev/null || echo "$LOCAL")
+          if [ "$LOCAL" != "$REMOTE" ]; then
+            echo "BLOCKED: Stale commit detected"
+            echo "  local=$LOCAL"
+            echo "  remote=$REMOTE"
+            echo "  Run 'git pull origin main' before deploying."
+            exit 1
+          fi
+          echo "OK: HEAD matches origin/main at ${LOCAL:0:12}"
+        else
+          echo "WARN: Could not fetch origin/main (no credentials?). Deploying checked-out commit ${LOCAL:0:12}."
         fi
-        echo "OK: HEAD matches origin/main at ${LOCAL:0:12}"
       # Docker socket access check
       - |
         if [ ! -S /var/run/docker.sock ]; then
           echo "BLOCKED: docker.sock not mounted"
+          ls -la /var/run/docker* 2>/dev/null || echo "  No docker files in /var/run/"
+          exit 1
+        fi
+        if ! docker info >/dev/null 2>&1; then
+          echo "BLOCKED: docker.sock exists but docker daemon unreachable"
+          ls -la /var/run/docker.sock
           exit 1
         fi
         echo "OK: docker.sock accessible"
