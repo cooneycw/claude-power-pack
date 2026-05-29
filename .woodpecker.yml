@@ -136,10 +136,11 @@ steps:
         echo "OK: docker.sock accessible"
         echo "AUDIT: docker.sock access by $(whoami) at $(date -Iseconds)"
       # Deploy lock - prevent concurrent deploys
+      # BusyBox flock doesn't support -w (timeout), use -n (non-blocking) only
       - |
         LOCKFILE="/tmp/cpp-deploy.lock"
         exec 9>"$LOCKFILE"
-        if ! flock -n -w 60 9; then
+        if ! flock -n 9; then
           echo "BLOCKED: Another deploy is in progress (lock held)"
           exit 1
         fi
