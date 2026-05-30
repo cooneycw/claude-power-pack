@@ -52,12 +52,12 @@ docker-check-env:
 		echo ""; \
 		echo "WARNING: .env file not found in $$(pwd)"; \
 		echo ""; \
-		echo "The aws-secrets-agent sidecar requires AWS credentials in .env:"; \
+		echo "For local runs, the aws-secrets-agent sidecar expects AWS credentials in .env:"; \
 		echo "  AWS_ACCESS_KEY_ID=..."; \
 		echo "  AWS_SECRET_ACCESS_KEY=..."; \
 		echo "  AWS_TOKEN=<ssrf-protection-token>"; \
 		echo ""; \
-		echo "Without .env, containers fall back to local env_file mode (no secrets fetched)."; \
+		echo "Without .env or equivalent environment variables, containers fall back to local env_file mode (no secrets fetched)."; \
 		echo "Run /cpp:init to configure interactively."; \
 		echo ""; \
 	elif ! grep -qE '^AWS_ACCESS_KEY_ID=.+' .env 2>/dev/null; then \
@@ -86,7 +86,7 @@ docker-secrets-check:
 		exit 1; \
 	fi
 	@. .env 2>/dev/null; \
-	for secret in claude-power-pack/mcp-keys essent-ai; do \
+	for secret in codex_llm_apikeys essent-ai; do \
 		if aws secretsmanager describe-secret --secret-id "$$secret" > /dev/null 2>&1; then \
 			echo "OK: Secret '$$secret' exists"; \
 		else \

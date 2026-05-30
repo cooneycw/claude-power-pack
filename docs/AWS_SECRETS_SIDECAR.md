@@ -5,7 +5,7 @@ The `aws-secrets-agent` is a Rust-based sidecar container that injects API keys 
 ## Architecture
 
 ```
-.env (AWS creds only)
+.env or CI environment (AWS creds only)
   |
   v
 aws-secrets-agent (port 2773)        <-- fetches from AWS Secrets Manager
@@ -20,7 +20,7 @@ MCP server (python server.py)        <-- secrets exported as env vars
 
 ## How It Works
 
-1. The `aws-secrets-agent` container starts and connects to AWS Secrets Manager using credentials from `.env`
+1. The `aws-secrets-agent` container starts and connects to AWS Secrets Manager using credentials from `.env` or the deploy environment
 2. It runs as a local HTTP daemon on port 2773, serving secrets to other containers on the Docker network
 3. Each MCP container uses `fetch-secrets.sh` as its entrypoint, which:
    - Checks if `AWS_SECRET_NAME` is set (skips fetch if not - local dev mode)
@@ -29,15 +29,17 @@ MCP server (python server.py)        <-- secrets exported as env vars
    - Falls back to existing `env_file` variables if the agent is unreachable
    - Execs the original command (e.g., `python server.py`)
 
-## Required `.env` File
+## Required Credentials
 
-Only AWS credentials are stored on disk:
+Local development can store only AWS credentials on disk:
 
 ```
 AWS_ACCESS_KEY_ID=AKIA...
 AWS_SECRET_ACCESS_KEY=...
 AWS_TOKEN=my-ssrf-protection-token
 ```
+
+CI and deploy jobs can provide the same variables through the job environment. The root `.env` file is optional so a clean checkout can still run `docker compose` when credentials are injected by the platform.
 
 `AWS_TOKEN` is an arbitrary string used for SSRF protection - the sidecar validates it on every request. Choose any value and keep it consistent.
 
@@ -47,7 +49,7 @@ AWS_TOKEN=my-ssrf-protection-token
 
 | Secret Name | Used By | Expected Keys |
 |-------------|---------|---------------|
-| `claude-power-pack/mcp-keys` | mcp-second-opinion | `GEMINI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` |
+| `codex_llm_apikeys` | mcp-second-opinion | `GEMINI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `MISTRAL_API_KEY`, `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `DEEPSEEK_API_KEY` |
 | `essent-ai` | mcp-woodpecker-ci | `WOODPECKER_URL`, `WOODPECKER_API_TOKEN` |
 
 ### Required IAM Permissions
@@ -65,7 +67,7 @@ The AWS credentials in `.env` need:
         "secretsmanager:DescribeSecret"
       ],
       "Resource": [
-        "arn:aws:secretsmanager:us-east-1:ACCOUNT:secret:claude-power-pack/mcp-keys-*",
+        "arn:aws:secretsmanager:us-east-1:ACCOUNT:secret:codex_llm_apikeys-*",
         "arn:aws:secretsmanager:us-east-1:ACCOUNT:secret:essent-ai-*"
       ]
     }
@@ -77,8 +79,8 @@ The AWS credentials in `.env` need:
 
 ```bash
 aws secretsmanager create-secret \
-  --name claude-power-pack/mcp-keys \
-  --secret-string '{"GEMINI_API_KEY":"...","OPENAI_API_KEY":"...","ANTHROPIC_API_KEY":"..."}'
+  --name codex_llm_apikeys \
+  --secret-string '{"GEMINI_API_KEY":"...","OPENAI_API_KEY":"...","ANTHROPIC_API_KEY":"...","MISTRAL_API_KEY":"...","GROQ_API_KEY":"...","OPENROUTER_API_KEY":"...","DEEPSEEK_API_KEY":"..."}'
 
 aws secretsmanager create-secret \
   --name essent-ai \
@@ -93,7 +95,7 @@ make docker-secrets-check
 
 # Check running container secret source
 docker logs mcp-second-opinion 2>&1 | head -5
-# Should show: INFO: Loaded secrets from AWS Secrets Manager (claude-power-pack/mcp-keys)
+# Should show: INFO: Loaded secrets from AWS Secrets Manager (codex_llm_apikeys)
 ```
 
 ## Local Development (Without AWS)
