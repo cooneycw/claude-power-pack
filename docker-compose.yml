@@ -23,6 +23,9 @@ services:
     build:
       context: ./aws-secrets-agent
     image: aws-secrets-agent:latest
+    # Stable name by default (workstation deploys + cpp:update model detection);
+    # CI smoke sets CPP_CONTAINER_PREFIX to keep parallel projects isolated.
+    container_name: ${CPP_CONTAINER_PREFIX:-}aws-secrets-agent
     ports:
       - "${AWS_SECRETS_AGENT_PORT_MAPPING:-2773:2773}"
     env_file:
@@ -61,6 +64,7 @@ services:
       context: ./mcp-second-opinion
       dockerfile: deploy/Dockerfile
     image: mcp-second-opinion:latest
+    container_name: ${CPP_CONTAINER_PREFIX:-}mcp-second-opinion
     ports:
       - "${MCP_SECOND_OPINION_PORT_MAPPING:-8080:8080}"
     env_file:
@@ -98,6 +102,7 @@ services:
       context: ./mcp-nano-banana
       dockerfile: deploy/Dockerfile
     image: mcp-nano-banana:latest
+    container_name: ${CPP_CONTAINER_PREFIX:-}mcp-nano-banana
     ports:
       - "${MCP_NANO_BANANA_PORT_MAPPING:-8084:8084}"
     environment:
@@ -152,6 +157,7 @@ services:
       context: ./mcp-woodpecker-ci
       dockerfile: deploy/Dockerfile
     image: mcp-woodpecker-ci:latest
+    container_name: ${CPP_CONTAINER_PREFIX:-}mcp-woodpecker-ci
     ports:
       - "${MCP_WOODPECKER_CI_PORT_MAPPING:-8085:8085}"
     env_file:
@@ -189,6 +195,7 @@ services:
       context: ./mcp-playwright-persistent
       dockerfile: deploy/Dockerfile
     image: mcp-playwright-persistent:latest
+    container_name: ${CPP_CONTAINER_PREFIX:-}mcp-playwright-persistent
     ports:
       - "${MCP_PLAYWRIGHT_PORT_MAPPING:-8081:8081}"
     shm_size: "2gb"

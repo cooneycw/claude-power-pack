@@ -120,6 +120,9 @@ steps:
         PROJECT="cpp-smoke-${CI_PIPELINE_NUMBER:-local}"
 
         # Keep smoke runs independent from real developer stacks and real AWS secrets.
+        # The prefix gives every container a project-unique name so a smoke run never
+        # collides with a real stack (which uses the empty-prefix default names).
+        export CPP_CONTAINER_PREFIX="${PROJECT}-"
         export AWS_ACCESS_KEY_ID=cpp-smoke-access-key
         export AWS_SECRET_ACCESS_KEY=cpp-smoke-secret-key
         export AWS_SESSION_TOKEN=cpp-smoke-session-token
@@ -159,11 +162,18 @@ steps:
             exit 1
           fi
 
-          url="http://127.0.0.1:$published$check_path"
-          if [ -n "$header" ]; then
-            curl -sf -H "$header" --max-time 10 "$url" >/dev/null
+          # Woodpecker runs this step inside a Docker job container, so host
+          # published ports are not reachable via 127.0.0.1 from here. Assert
+          # the service HTTP endpoint from inside the service container, then
+          # report the published host port to confirm the CI-only random port
+          # mapping exists and cannot collide with a workstation stack.
+          url="http://127.0.0.1:$container_port$check_path"
+          if [ "$service" = "aws-secrets-agent" ]; then
+            docker compose -p "$PROJECT" exec -T "$service" \
+              curl -sf -H "$header" --max-time 10 "$url" >/dev/null
           else
-            curl -sf --max-time 10 "$url" >/dev/null
+            docker compose -p "$PROJECT" exec -T "$service" \
+              python -c "import urllib.request; urllib.request.urlopen('$url', timeout=10)" >/dev/null
           fi
           echo "OK: $service:$container_port$check_path via host port $published"
         }

@@ -133,8 +133,11 @@ def test_compose_stack_is_project_isolated() -> None:
     compose = yaml.safe_load(compose_path.read_text())
     services = compose["services"]
 
-    for service in services.values():
-        assert "container_name" not in service
+    # Container names default to the stable service name (empty prefix) so
+    # workstation deploys and cpp:update model detection can address them, while
+    # CI smoke runs set CPP_CONTAINER_PREFIX to keep parallel projects isolated.
+    for name, service in services.items():
+        assert service.get("container_name") == "${CPP_CONTAINER_PREFIX:-}" + name
     assert "networks" not in compose
     assert "volumes" not in services["mcp-second-opinion"]
     assert "volumes" not in services["mcp-woodpecker-ci"]
@@ -252,7 +255,9 @@ def test_woodpecker_runtime_smoke_is_ephemeral_and_tears_down() -> None:
     assert "export MCP_PLAYWRIGHT_PORT_MAPPING=8081" in commands
     assert "export MCP_NANO_BANANA_PORT_MAPPING=8084" in commands
     assert "docker compose -p \"$PROJECT\" port \"$service\" \"$container_port\"" in commands
-    assert "url=\"http://127.0.0.1:$published$check_path\"" in commands
+    assert "url=\"http://127.0.0.1:$container_port$check_path\"" in commands
+    assert 'docker compose -p "$PROJECT" exec -T "$service"' in commands
+    assert "urllib.request.urlopen('$url', timeout=10)" in commands
     assert "X-Aws-Parameters-Secrets-Token: $AWS_TOKEN" in commands
 
     assert "check_http aws-secrets-agent 2773 /ping" in commands
