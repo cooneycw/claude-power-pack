@@ -12,6 +12,8 @@
 #   AWS_SECRET_ACCESS_KEY=...
 #   AWS_TOKEN=...               (SSRF token for secrets agent)
 #
+# CI/deploy can provide these as environment variables instead of a root .env.
+#
 # The aws-secrets-agent sidecar fetches LLM keys and other secrets
 # from AWS Secrets Manager at runtime. No application secrets on disk.
 
@@ -23,9 +25,16 @@ services:
     container_name: aws-secrets-agent
     env_file:
       - path: .env
-        required: true
+        required: false
+    environment:
+      - AWS_ACCESS_KEY_ID
+      - AWS_SECRET_ACCESS_KEY
+      - AWS_SESSION_TOKEN
+      - AWS_DEFAULT_REGION=us-east-1
+      - AWS_REGION=us-east-1
+      - AWS_TOKEN=${AWS_TOKEN:-default-token}
     healthcheck:
-      test: ["CMD", "curl", "-sf", "-H", "X-Aws-Parameters-Secrets-Token: ${AWS_TOKEN}", "http://localhost:2773/ping"]
+      test: ["CMD", "curl", "-sf", "-H", "X-Aws-Parameters-Secrets-Token: ${AWS_TOKEN:-default-token}", "http://localhost:2773/ping"]
       interval: 10s
       timeout: 3s
       start_period: 10s
@@ -56,6 +65,7 @@ services:
       - MCP_SERVER_HOST=0.0.0.0
       - AWS_SECRET_NAME=codex_llm_apikeys
       - SECRETS_AGENT_URL=http://aws-secrets-agent:2773
+      - AWS_TOKEN=${AWS_TOKEN:-default-token}
     volumes:
       - ./aws-secrets-agent/fetch-secrets.sh:/app/fetch-secrets.sh:ro
     entrypoint: ["/app/fetch-secrets.sh"]
@@ -151,6 +161,7 @@ services:
       - MCP_SERVER_HOST=0.0.0.0
       - AWS_SECRET_NAME=essent-ai
       - SECRETS_AGENT_URL=http://aws-secrets-agent:2773
+      - AWS_TOKEN=${AWS_TOKEN:-default-token}
     volumes:
       - ./aws-secrets-agent/fetch-secrets.sh:/app/fetch-secrets.sh:ro
     entrypoint: ["/app/fetch-secrets.sh"]

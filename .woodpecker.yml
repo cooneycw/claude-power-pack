@@ -160,6 +160,13 @@ steps:
   deploy-mcp:
     image: docker:cli
     depends_on: [validate, pre-deploy-guardrails]
+    environment:
+      AWS_DEFAULT_REGION: us-east-1
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID:
+        from_secret: aws_access_key_id
+      AWS_SECRET_ACCESS_KEY:
+        from_secret: aws_secret_access_key
     commands:
       - apk add --no-cache docker-compose curl
       - echo "Deploying MCP containers..."

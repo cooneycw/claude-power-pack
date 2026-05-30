@@ -37,8 +37,8 @@ uv sync --extra dev
 # Run quality checks
 make verify
 
-# Start MCP servers (requires .env with AWS credentials)
-# .env needs: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_TOKEN
+# Start MCP servers (local .env or CI env provides AWS credentials)
+# local .env needs: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_TOKEN
 make docker-secrets-check              # Validate AWS connectivity
 make docker-up PROFILE=core            # Second Opinion + Nano Banana
 make docker-up PROFILE="core browser"  # + Playwright
@@ -66,7 +66,7 @@ claude-power-pack/
   woodpecker/           Woodpecker CI server + agent deployment configs
   templates/            Makefile, workflow, and container templates
   scripts/              Shell utilities
-  tests/                496 unit tests
+  tests/                637 unit tests
   docker-compose.yml    MCP server orchestration
   .woodpecker.yml       CI pipeline (lint, test, typecheck, deploy)
   Makefile              Build interface for all operations
@@ -97,7 +97,7 @@ make docker-ps                    # container status
 make docker-down                  # stop all
 ```
 
-MCP containers fetch API keys at startup from AWS Secrets Manager via an `aws-secrets-agent` sidecar (Rust binary, port 2773). Only AWS credentials are stored in the root `.env` file (gitignored) - no application secrets on disk.
+MCP containers fetch API keys at startup from AWS Secrets Manager via an `aws-secrets-agent` sidecar (Rust binary, port 2773). Local development can store only AWS credentials in the root `.env` file (gitignored), while CI/deploy can inject the same variables through the job environment. Application secrets are not stored on disk.
 
 ```bash
 # Minimal .env (no application secrets):
