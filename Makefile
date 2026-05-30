@@ -44,7 +44,7 @@ update_docs:
 ## Usage: make docker-up PROFILE=core
 ##        make docker-up PROFILE="core browser"
 ##        make docker-refresh PROFILE="core browser cicd"
-## Profiles: core (second-opinion + nano-banana), browser, coord
+## Profiles: core (second-opinion + nano-banana), browser, cicd
 
 PROFILE ?= core
 DOCKER_UP_FLAGS ?= -d
@@ -109,13 +109,13 @@ docker-health:
 	@python3 scripts/docker-health-check.py --profiles "$(PROFILE)"
 
 docker-down:
-	docker compose --profile core --profile browser --profile cicd --profile coord down
+	docker compose --profile core --profile browser --profile cicd down
 
 docker-logs:
-	docker compose --profile core --profile browser --profile cicd --profile coord logs -f
+	docker compose --profile core --profile browser --profile cicd logs -f
 
 docker-ps:
-	docker compose --profile core --profile browser --profile cicd --profile coord ps
+	docker compose --profile core --profile browser --profile cicd ps
 
 ## Bootstrap dependency check (admin-only prerequisites)
 
