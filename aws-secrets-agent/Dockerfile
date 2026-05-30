@@ -22,6 +22,8 @@ WORKDIR /app
 
 COPY --from=builder /build/target/release/aws_secretsmanager_agent ./aws-secrets-agent
 COPY config.toml ./config.toml
+COPY entrypoint.sh ./entrypoint.sh
+RUN chmod +x ./entrypoint.sh
 
 USER agent
 
@@ -32,4 +34,4 @@ EXPOSE 2773
 HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=5 \
     CMD curl -sf -H "X-Aws-Parameters-Secrets-Token: ${AWS_TOKEN}" http://localhost:2773/ping || exit 1
 
-ENTRYPOINT ["./aws-secrets-agent", "--config", "config.toml"]
+ENTRYPOINT ["./entrypoint.sh"]

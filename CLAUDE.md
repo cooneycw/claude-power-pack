@@ -55,6 +55,7 @@ MCP containers fetch API keys at startup from AWS Secrets Manager via an `aws-se
 - **All profiles:** `make docker-up PROFILE="core browser cicd"`
 - **Rebuild/restart/wait for health:** `make docker-refresh PROFILE="core browser cicd"`
 - **Status/logs/stop:** `make docker-ps`, `make docker-logs`, `make docker-down`
+- **Empty AWS credential guard:** `make docker-up` refuses to create `aws-secrets-agent` when `AWS_ACCESS_KEY_ID` or `AWS_SECRET_ACCESS_KEY` resolves empty. If a stale sidecar was already created with empty creds, fix env and force-recreate `aws-secrets-agent` plus secret-dependent MCP containers.
 - **MCP connections:** Defined in project `.mcp.json` pointing to `127.0.0.1:{port}/sse` (SSE transport)
 - **Woodpecker CI** runs on push/PR: secret-scan (gitleaks), lint, test, typecheck, conditional Docker builds
 - **Secret scanning:** `make secret-scan` runs gitleaks locally (native binary or Docker fallback). Config in `.gitleaks.toml` with allowlists for doc/test false positives

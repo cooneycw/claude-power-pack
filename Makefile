@@ -54,25 +54,7 @@ docker-build:
 	docker compose $(DOCKER_PROFILES) build
 
 docker-check-env:
-	@if [ ! -f .env ]; then \
-		echo ""; \
-		echo "WARNING: .env file not found in $$(pwd)"; \
-		echo ""; \
-		echo "For local runs, the aws-secrets-agent sidecar expects AWS credentials in .env:"; \
-		echo "  AWS_ACCESS_KEY_ID=..."; \
-		echo "  AWS_SECRET_ACCESS_KEY=..."; \
-		echo "  AWS_TOKEN=<ssrf-protection-token>"; \
-		echo ""; \
-		echo "Without .env or equivalent environment variables, containers fall back to local env_file mode (no secrets fetched)."; \
-		echo "Run /cpp:init to configure interactively."; \
-		echo ""; \
-	elif ! grep -qE '^AWS_ACCESS_KEY_ID=.+' .env 2>/dev/null; then \
-		echo ""; \
-		echo "WARNING: .env exists but is missing AWS_ACCESS_KEY_ID."; \
-		echo "The aws-secrets-agent needs AWS credentials to fetch secrets."; \
-		echo "Containers will fall back to env_file variables if present."; \
-		echo ""; \
-	fi
+	@python3 scripts/check-docker-aws-env.py --profiles "$(PROFILE)"
 
 docker-secrets-check:
 	@echo "Checking AWS Secrets Manager connectivity..."

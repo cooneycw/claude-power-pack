@@ -8,6 +8,11 @@ import subprocess
 import sys
 from typing import Any
 
+SECRET_DEPENDENTS_BY_PROFILE = {
+    "core": ["mcp-second-opinion"],
+    "cicd": ["mcp-woodpecker-ci"],
+}
+
 
 def _decode_compose_ps(raw: str) -> list[dict[str, Any]]:
     text = raw.strip()
@@ -68,6 +73,47 @@ def _is_healthy(row: dict[str, Any]) -> bool:
     return True
 
 
+def _secret_dependents_for_profiles(profiles: list[str]) -> list[str]:
+    dependents: list[str] = []
+    for profile in profiles:
+        for service in SECRET_DEPENDENTS_BY_PROFILE.get(profile, []):
+            if service not in dependents:
+                dependents.append(service)
+    return dependents
+
+
+def _is_created_or_waiting(row: dict[str, Any]) -> bool:
+    state = _state(row)
+    return "created" in state or "waiting" in state
+
+
+def _sidecar_dependency_warning(rows: list[dict[str, Any]], profiles: list[str]) -> str | None:
+    rows_by_service = {_service_name(row): row for row in rows}
+    agent = rows_by_service.get("aws-secrets-agent")
+    if agent is None or _is_healthy(agent):
+        return None
+
+    requested_dependents = _secret_dependents_for_profiles(profiles)
+    stranded = [
+        service
+        for service in requested_dependents
+        if service in rows_by_service and _is_created_or_waiting(rows_by_service[service])
+    ]
+    if not stranded:
+        return None
+
+    profile_flags = " ".join(f"--profile {profile}" for profile in profiles)
+    services = " ".join(["aws-secrets-agent", *stranded])
+    return (
+        "Detected aws-secrets-agent dependency strand: "
+        + ", ".join(stranded)
+        + " are waiting for a sidecar that is not healthy.\n"
+        + "Docker Compose captures environment at container create time; restart will not reload fixed creds.\n"
+        + "Fix .env or shell AWS credentials, then run:\n"
+        + f"  docker compose {profile_flags} up -d --force-recreate {services}"
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -103,6 +149,10 @@ def main() -> int:
 
     if failed:
         print("")
+        warning = _sidecar_dependency_warning(rows, profiles)
+        if warning:
+            print(warning, file=sys.stderr)
+            print("", file=sys.stderr)
         print("ERROR: unhealthy Docker services: " + ", ".join(failed), file=sys.stderr)
         return 1
     return 0

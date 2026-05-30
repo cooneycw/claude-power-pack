@@ -84,6 +84,18 @@ def test_aws_secrets_agent_healthcheck_allows_loaded_starts() -> None:
     assert resources["reservations"] == {"cpus": "0.25", "memory": "64M"}
 
 
+def test_aws_secrets_agent_entrypoint_fails_loud_on_empty_credentials() -> None:
+    root = Path(__file__).resolve().parents[1]
+    dockerfile = (root / "aws-secrets-agent" / "Dockerfile").read_text()
+    entrypoint = (root / "aws-secrets-agent" / "entrypoint.sh").read_text()
+
+    assert "COPY entrypoint.sh ./entrypoint.sh" in dockerfile
+    assert 'ENTRYPOINT ["./entrypoint.sh"]' in dockerfile
+    assert "AWS_ACCESS_KEY_ID" in entrypoint
+    assert "AWS_SECRET_ACCESS_KEY" in entrypoint
+    assert "force-recreate aws-secrets-agent" in entrypoint
+
+
 def test_second_opinion_uses_secret_with_free_tier_provider_keys() -> None:
     services = _compose_services()
     env = _env_list_to_map(services["mcp-second-opinion"]["environment"])
@@ -137,6 +149,16 @@ def test_makefile_has_first_class_docker_refresh_target() -> None:
     assert 'DOCKER_UP_FLAGS="-d --build --wait"' in makefile
     assert "docker-health:" in makefile
     assert "scripts/docker-health-check.py" in makefile
+    assert "scripts/check-docker-aws-env.py" in makefile
+
+
+def test_cpp_status_surfaces_stale_sidecar_env_bake() -> None:
+    root = Path(__file__).resolve().parents[1]
+    command = (root / ".claude" / "commands" / "cpp" / "status.md").read_text()
+
+    assert "Detected sidecar dependency strand" in command
+    assert "Created with no logs" in command
+    assert "--force-recreate aws-secrets-agent" in command
 
 
 def test_cpp_update_refreshes_detected_docker_runtime() -> None:
