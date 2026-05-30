@@ -36,6 +36,8 @@ COPY --from=builder /app/.venv /app/.venv
 # Copy application code
 COPY --chown=mcpuser:mcpuser src/config.py src/prompts.py src/sessions.py src/server.py ./
 COPY --chown=mcpuser:mcpuser src/tools/ ./tools/
+COPY --chown=mcpuser:mcpuser deploy/fetch-secrets.sh ./fetch-secrets.sh
+RUN chmod 755 /app/fetch-secrets.sh
 
 # Switch to non-root user
 USER mcpuser

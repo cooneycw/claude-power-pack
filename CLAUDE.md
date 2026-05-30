@@ -56,18 +56,11 @@ MCP containers fetch API keys at startup from AWS Secrets Manager via an `aws-se
 - **Rebuild/restart/wait for health:** `make docker-refresh PROFILE="core browser cicd"`
 - **Status/logs/stop:** `make docker-ps`, `make docker-logs`, `make docker-down`
 - **MCP connections:** Defined in project `.mcp.json` pointing to `127.0.0.1:{port}/sse` (SSE transport)
-- **Woodpecker CI** runs on push/PR: secret-scan (gitleaks), lint, test, typecheck, conditional Docker builds
+- **Woodpecker CI** runs on push/PR: secret-scan (gitleaks), lint, test, typecheck, conditional Docker builds, and isolated runtime smoke tests for MCP stack changes
 - **Secret scanning:** `make secret-scan` runs gitleaks locally (native binary or Docker fallback). Config in `.gitleaks.toml` with allowlists for doc/test false positives
-- **Auto-deploy:** On push to main, if `mcp-*/` or `docker-compose.yml` changed, Woodpecker rebuilds and restarts MCP containers via the local agent
+- **Runtime smoke:** CI uses a `cpp-smoke-$CI_PIPELINE_NUMBER` compose project with random host ports, validates service health, and runs `docker compose down -v` before exiting. CI must not deploy persistent containers or prune host images.
 - **Bootstrap checks:** `make bootstrap-check` verifies admin-only prerequisites (IAM roles, secrets provisioning) before deploy. Configure in `.claude/bootstrap.yaml`. Runs as the first step in the deploy pipeline - blocks with remediation if unsatisfied.
-- **Drift detection:** `make drift-check` compares host-installed artifacts (systemd units, sysctl, Go binaries, shared scripts) against repo templates. Runs as a pre-deploy gate in the CI pipeline. See `docs/HOST_MANAGED_ARTIFACTS.md` for full inventory.
-- **Deploy guardrails:** Pre-deploy validation gates in the Woodpecker pipeline and `lib/cicd/deploy/guardrails.py`:
-  - Stale commit protection (HEAD must match origin/main before deploy)
-  - Deploy lock (flock-based, prevents concurrent deploys on shared Docker hosts)
-  - Capability-based readiness checks (validate services can serve, not just respond to health pings)
-  - Safe Docker prune (time-filtered cleanup under lock to avoid cache races)
-  - docker.sock access audit logging
-  - Shared script contract drift detection (fetch-secrets.sh, bash-prep.sh consistency across containers)
+- **Drift detection:** `make drift-check` compares host-installed artifacts (systemd units, sysctl, Go binaries, shared scripts) against repo templates. Run it manually when reconciling workstation-managed artifacts. See `docs/HOST_MANAGED_ARTIFACTS.md` for full inventory.
 
 ## Commands Reference
 

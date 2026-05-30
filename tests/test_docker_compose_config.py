@@ -31,6 +31,10 @@ def _woodpecker_steps() -> dict[str, Any]:
     return pipeline["steps"]
 
 
+def _step_commands(step: dict[str, Any]) -> str:
+    return "\n".join(step.get("commands", []))
+
+
 def test_aws_secrets_agent_does_not_require_root_env_file() -> None:
     services = _compose_services()
     env_file = services["aws-secrets-agent"]["env_file"][0]
@@ -55,6 +59,7 @@ def test_secret_consumers_share_sidecar_token_default() -> None:
     agent_healthcheck = services["aws-secrets-agent"]["healthcheck"]["test"]
 
     assert "X-Aws-Parameters-Secrets-Token: ${AWS_TOKEN:-default-token}" in agent_healthcheck
+    assert services["aws-secrets-agent"]["healthcheck"]["start_period"] == "30s"
     for service_name in ("mcp-second-opinion", "mcp-woodpecker-ci"):
         env = _env_list_to_map(services[service_name]["environment"])
         assert env["AWS_TOKEN"] == "${AWS_TOKEN:-default-token}"
@@ -66,6 +71,7 @@ def test_aws_secrets_agent_healthcheck_allows_loaded_starts() -> None:
     agent = services["aws-secrets-agent"]
     healthcheck = agent["healthcheck"]
     dockerfile = (root / "aws-secrets-agent" / "Dockerfile").read_text()
+    config = (root / "aws-secrets-agent" / "config.toml").read_text()
 
     assert healthcheck["test"][-1] == "http://localhost:2773/ping"
     assert healthcheck["interval"] == "10s"
@@ -78,6 +84,7 @@ def test_aws_secrets_agent_healthcheck_allows_loaded_starts() -> None:
     assert "--start-period=30s" in dockerfile
     assert "--retries=5" in dockerfile
     assert "does not call AWS" in dockerfile
+    assert "validate_credentials = false" in config
 
     resources = agent["deploy"]["resources"]
     assert resources["limits"] == {"cpus": "0.5", "memory": "128M"}
@@ -88,7 +95,7 @@ def test_second_opinion_uses_secret_with_free_tier_provider_keys() -> None:
     services = _compose_services()
     env = _env_list_to_map(services["mcp-second-opinion"]["environment"])
 
-    assert env["AWS_SECRET_NAME"] == "codex_llm_apikeys"
+    assert env["AWS_SECRET_NAME"] == "${SECOND_OPINION_AWS_SECRET_NAME-codex_llm_apikeys}"
 
     expected_keys = [
         "GEMINI_API_KEY",
@@ -121,12 +128,49 @@ def test_legacy_second_opinion_secret_name_is_not_documented() -> None:
         assert "claude-power-pack/mcp-keys" not in path.read_text()
 
 
-def test_deploy_pipeline_does_not_require_repo_aws_secrets() -> None:
-    steps = _woodpecker_steps()
-    deploy_step = steps["deploy-mcp"]
+def test_compose_stack_is_project_isolated() -> None:
+    compose_path = Path(__file__).resolve().parents[1] / "docker-compose.yml"
+    compose = yaml.safe_load(compose_path.read_text())
+    services = compose["services"]
 
-    assert "environment" not in deploy_step
-    assert "secrets" not in deploy_step
+    for service in services.values():
+        assert "container_name" not in service
+    assert "networks" not in compose
+    assert "volumes" not in services["mcp-second-opinion"]
+    assert "volumes" not in services["mcp-woodpecker-ci"]
+
+
+def test_secret_bootstrap_script_is_baked_into_secret_consuming_images() -> None:
+    root = Path(__file__).resolve().parents[1]
+    canonical = (root / "aws-secrets-agent" / "fetch-secrets.sh").read_text()
+
+    for service in ("mcp-second-opinion", "mcp-woodpecker-ci"):
+        dockerfile = (root / service / "deploy" / "Dockerfile").read_text()
+        fetch_script = (root / service / "deploy" / "fetch-secrets.sh").read_text()
+
+        assert fetch_script == canonical
+        assert "deploy/fetch-secrets.sh ./fetch-secrets.sh" in dockerfile
+        assert "chmod 755 /app/fetch-secrets.sh" in dockerfile
+
+
+def test_compose_uses_fixed_local_ports_with_ci_overrides() -> None:
+    services = _compose_services()
+
+    assert services["aws-secrets-agent"]["ports"] == [
+        "${AWS_SECRETS_AGENT_PORT_MAPPING:-2773:2773}"
+    ]
+    assert services["mcp-second-opinion"]["ports"] == [
+        "${MCP_SECOND_OPINION_PORT_MAPPING:-8080:8080}"
+    ]
+    assert services["mcp-playwright-persistent"]["ports"] == [
+        "${MCP_PLAYWRIGHT_PORT_MAPPING:-8081:8081}"
+    ]
+    assert services["mcp-nano-banana"]["ports"] == [
+        "${MCP_NANO_BANANA_PORT_MAPPING:-8084:8084}"
+    ]
+    assert services["mcp-woodpecker-ci"]["ports"] == [
+        "${MCP_WOODPECKER_CI_PORT_MAPPING:-8085:8085}"
+    ]
 
 
 def test_makefile_has_first_class_docker_refresh_target() -> None:
@@ -159,3 +203,73 @@ def test_cpp_init_prefers_docker_and_runs_health_gated_refresh() -> None:
     assert 'make docker-refresh PROFILE="core browser cicd"' in command
     assert "Docker containers rebuilt, restarted, and healthy" in command
     assert "skipping systemd service setup" in command
+
+
+def test_woodpecker_has_no_persistent_deploy_or_prune() -> None:
+    steps = _woodpecker_steps()
+    pipeline_text = (Path(__file__).resolve().parents[1] / ".woodpecker.yml").read_text()
+
+    assert "deploy-mcp" not in steps
+    assert "pre-deploy-guardrails" not in steps
+    assert "drift-check" not in steps
+    assert "docker image prune" not in pipeline_text
+
+
+def test_woodpecker_builds_aws_secrets_agent() -> None:
+    steps = _woodpecker_steps()
+    step = steps["build-aws-secrets-agent"]
+
+    assert step["settings"]["context"] == "aws-secrets-agent"
+    assert step["settings"]["dockerfile"] == "aws-secrets-agent/Dockerfile"
+    assert step["settings"]["dry_run"] is True
+    assert "aws-secrets-agent/**" in step["when"][0]["path"]
+
+
+def test_woodpecker_runtime_smoke_is_ephemeral_and_tears_down() -> None:
+    steps = _woodpecker_steps()
+    smoke = steps["runtime-smoke"]
+    commands = _step_commands(smoke)
+
+    assert smoke["depends_on"] == ["validate"]
+    assert "/var/run/docker.sock:/var/run/docker.sock" in smoke["volumes"]
+    assert 'PROJECT="cpp-smoke-${CI_PIPELINE_NUMBER:-local}"' in commands
+    assert "trap cleanup EXIT INT TERM" in commands
+    assert (
+        'if ! docker compose -p "$PROJECT" --profile core --profile browser '
+        "--profile cicd up --build --wait; then"
+    ) in commands
+    assert 'docker compose -p "$PROJECT" --profile core --profile browser --profile cicd down -v || true' in commands
+    assert 'docker compose -p "$PROJECT" logs aws-secrets-agent || true' in commands
+
+    assert "export AWS_ACCESS_KEY_ID=cpp-smoke-access-key" in commands
+    assert "export AWS_SECRET_ACCESS_KEY=cpp-smoke-secret-key" in commands
+    assert "export AWS_SESSION_TOKEN=cpp-smoke-session-token" in commands
+    assert "export AWS_TOKEN=cpp-smoke-token" in commands
+    assert "export SECOND_OPINION_AWS_SECRET_NAME=" in commands
+    assert "export WOODPECKER_CI_AWS_SECRET_NAME=" in commands
+    assert "export AWS_SECRETS_AGENT_PORT_MAPPING=2773" in commands
+    assert "export MCP_SECOND_OPINION_PORT_MAPPING=8080" in commands
+    assert "export MCP_PLAYWRIGHT_PORT_MAPPING=8081" in commands
+    assert "export MCP_NANO_BANANA_PORT_MAPPING=8084" in commands
+    assert "docker compose -p \"$PROJECT\" port \"$service\" \"$container_port\"" in commands
+    assert "url=\"http://127.0.0.1:$published$check_path\"" in commands
+    assert "X-Aws-Parameters-Secrets-Token: $AWS_TOKEN" in commands
+
+    assert "check_http aws-secrets-agent 2773 /ping" in commands
+    assert "check_http mcp-second-opinion 8080 /" in commands
+    assert "check_http mcp-playwright-persistent 8081 /" in commands
+    assert "check_http mcp-nano-banana 8084 /" in commands
+
+
+def test_woodpecker_smoke_path_gates_cover_shared_runtime_inputs() -> None:
+    steps = _woodpecker_steps()
+    smoke_paths = set(steps["runtime-smoke"]["when"][0]["path"])
+
+    assert ".woodpecker.yml" in smoke_paths
+    assert "docker-compose.yml" in smoke_paths
+    assert "aws-secrets-agent/**" in smoke_paths
+    assert "lib/**" in smoke_paths
+    assert "mcp-second-opinion/**" in smoke_paths
+    assert "mcp-playwright-persistent/**" in smoke_paths
+    assert "mcp-nano-banana/**" in smoke_paths
+    assert "mcp-woodpecker-ci/**" in smoke_paths

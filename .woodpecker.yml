@@ -1,9 +1,9 @@
 # Claude Power Pack - Woodpecker CI Pipeline
-# Runs quality gates, builds Docker containers, and deploys MCP servers
+# Runs quality gates, dry-run Docker builds, and ephemeral MCP runtime smoke tests.
 #
 # Pipeline:
-#   PR/push   -> secret-scan -> validate (lint+test+typecheck) -> dry-run builds
-#   main push -> above + deploy-mcp (rebuild + restart containers)
+#   PR/push -> secret-scan -> validate (lint+test+typecheck) -> conditional Docker builds
+#   MCP/compose/shared changes -> runtime-smoke (isolated compose up, health checks, teardown)
 
 when:
   - event: [push, pull_request]
@@ -23,6 +23,22 @@ steps:
       - uv run pytest
       - uv run mypy .
 
+  build-aws-secrets-agent:
+    image: woodpeckerci/plugin-docker-buildx
+    depends_on: [validate]
+    settings:
+      repo: aws-secrets-agent
+      dockerfile: aws-secrets-agent/Dockerfile
+      context: aws-secrets-agent
+      tags: latest
+      dry_run: true
+    when:
+      - event: [push, pull_request]
+        path:
+          - ".woodpecker.yml"
+          - "docker-compose.yml"
+          - "aws-secrets-agent/**"
+
   build-second-opinion:
     image: woodpeckerci/plugin-docker-buildx
     depends_on: [validate]
@@ -34,7 +50,12 @@ steps:
       dry_run: true
     when:
       - event: [push, pull_request]
-        path: "mcp-second-opinion/**"
+        path:
+          - ".woodpecker.yml"
+          - "docker-compose.yml"
+          - "aws-secrets-agent/**"
+          - "lib/**"
+          - "mcp-second-opinion/**"
 
   build-playwright:
     image: woodpeckerci/plugin-docker-buildx
@@ -47,7 +68,11 @@ steps:
       dry_run: true
     when:
       - event: [push, pull_request]
-        path: "mcp-playwright-persistent/**"
+        path:
+          - ".woodpecker.yml"
+          - "docker-compose.yml"
+          - "lib/**"
+          - "mcp-playwright-persistent/**"
 
   build-nano-banana:
     image: woodpeckerci/plugin-docker-buildx
@@ -60,7 +85,11 @@ steps:
       dry_run: true
     when:
       - event: [push, pull_request]
-        path: "mcp-nano-banana/**"
+        path:
+          - ".woodpecker.yml"
+          - "docker-compose.yml"
+          - "lib/**"
+          - "mcp-nano-banana/**"
 
   build-woodpecker-ci:
     image: woodpeckerci/plugin-docker-buildx
@@ -73,124 +102,87 @@ steps:
       dry_run: true
     when:
       - event: [push, pull_request]
-        path: "mcp-woodpecker-ci/**"
-
-  drift-check:
-    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim
-    depends_on: [validate]
-    commands:
-      - scripts/drift-detect.sh || echo "WARN - drift detected (non-blocking on CI agent)"
-    when:
-      - event: push
-        branch: main
         path:
-          - "mcp-second-opinion/deploy/**"
-          - "mcp-playwright-persistent/deploy/**"
-          - "scripts/bash-prep.sh"
-          - "scripts/drift-detect.sh"
+          - ".woodpecker.yml"
+          - "docker-compose.yml"
+          - "aws-secrets-agent/**"
+          - "lib/**"
+          - "mcp-woodpecker-ci/**"
 
-  pre-deploy-guardrails:
+  runtime-smoke:
     image: docker:cli
     depends_on: [validate]
     commands:
-      - apk add --no-cache git curl
-      # Stale commit guard - verify we are deploying the latest
-      # git fetch may fail in CI if credentials are unavailable; retry once
-      # and treat fetch failure as non-blocking (deploy the checked-out commit)
+      - apk add --no-cache curl docker-compose
       - |
-        LOCAL=$(git rev-parse HEAD)
-        FETCH_OK=false
-        for attempt in 1 2; do
-          if git fetch origin main --quiet 2>/dev/null; then
-            FETCH_OK=true
-            break
+        set -eu
+
+        PROJECT="cpp-smoke-${CI_PIPELINE_NUMBER:-local}"
+
+        # Keep smoke runs independent from real developer stacks and real AWS secrets.
+        export AWS_ACCESS_KEY_ID=cpp-smoke-access-key
+        export AWS_SECRET_ACCESS_KEY=cpp-smoke-secret-key
+        export AWS_SESSION_TOKEN=cpp-smoke-session-token
+        export AWS_TOKEN=cpp-smoke-token
+        export AWS_SECRETS_AGENT_PORT_MAPPING=2773
+        export MCP_SECOND_OPINION_PORT_MAPPING=8080
+        export MCP_PLAYWRIGHT_PORT_MAPPING=8081
+        export MCP_NANO_BANANA_PORT_MAPPING=8084
+        export MCP_WOODPECKER_CI_PORT_MAPPING=8085
+        export SECOND_OPINION_AWS_SECRET_NAME=
+        export WOODPECKER_CI_AWS_SECRET_NAME=
+
+        cleanup() {
+          docker compose -p "$PROJECT" --profile core --profile browser --profile cicd down -v || true
+        }
+        trap cleanup EXIT INT TERM
+
+        if ! docker compose -p "$PROJECT" --profile core --profile browser --profile cicd up --build --wait; then
+          docker compose -p "$PROJECT" --profile core --profile browser --profile cicd ps || true
+          docker compose -p "$PROJECT" logs aws-secrets-agent || true
+          exit 1
+        fi
+        docker compose -p "$PROJECT" --profile core --profile browser --profile cicd ps
+
+        check_http() {
+          service="$1"
+          container_port="$2"
+          check_path="$3"
+          header=""
+          if [ "$#" -ge 4 ]; then
+            header="$4"
           fi
-          echo "WARN: git fetch attempt $attempt failed, retrying..."
-          sleep 2
-        done
-        if [ "$FETCH_OK" = "true" ]; then
-          REMOTE=$(git rev-parse origin/main 2>/dev/null || echo "$LOCAL")
-          if [ "$LOCAL" != "$REMOTE" ]; then
-            echo "BLOCKED: Stale commit detected"
-            echo "  local=$LOCAL"
-            echo "  remote=$REMOTE"
-            echo "  Run 'git pull origin main' before deploying."
+
+          published="$(docker compose -p "$PROJECT" port "$service" "$container_port" | awk -F: 'END {print $NF}')"
+          if [ -z "$published" ]; then
+            echo "ERROR: no published port for $service:$container_port"
             exit 1
           fi
-          echo "OK: HEAD matches origin/main at ${LOCAL:0:12}"
-        else
-          echo "WARN: Could not fetch origin/main (no credentials?). Deploying checked-out commit ${LOCAL:0:12}."
-        fi
-      # Docker socket access check
-      - |
-        if [ ! -S /var/run/docker.sock ]; then
-          echo "BLOCKED: docker.sock not mounted"
-          ls -la /var/run/docker* 2>/dev/null || echo "  No docker files in /var/run/"
-          exit 1
-        fi
-        if ! docker info >/dev/null 2>&1; then
-          echo "BLOCKED: docker.sock exists but docker daemon unreachable"
-          ls -la /var/run/docker.sock
-          exit 1
-        fi
-        echo "OK: docker.sock accessible"
-        echo "AUDIT: docker.sock access by $(whoami) at $(date -Iseconds)"
-      # Deploy lock - prevent concurrent deploys
-      # BusyBox flock doesn't support -w (timeout), use -n (non-blocking) only
-      - |
-        LOCKFILE="/tmp/cpp-deploy.lock"
-        exec 9>"$LOCKFILE"
-        if ! flock -n 9; then
-          echo "BLOCKED: Another deploy is in progress (lock held)"
-          exit 1
-        fi
-        echo "OK: Deploy lock acquired"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    when:
-      - event: push
-        branch: main
-        path:
-          - "mcp-second-opinion/**"
-          - "mcp-playwright-persistent/**"
-          - "mcp-nano-banana/**"
-          - "mcp-woodpecker-ci/**"
-          - "docker-compose.yml"
 
-  deploy-mcp:
-    image: docker:cli
-    depends_on: [validate, pre-deploy-guardrails]
-    commands:
-      - apk add --no-cache docker-compose curl
-      - echo "Deploying MCP containers..."
-      - docker compose --profile core --profile browser --profile cicd up -d --build --wait
-      - docker compose --profile core --profile browser --profile cicd ps
-      # Safe prune with time filter to avoid cache races with concurrent builds
-      - docker image prune -f --filter "until=1h"
-      - echo "Deploy complete."
-      # Capability check - verify services can actually serve, not just respond
-      - |
-        FAILED=0
-        for port in 8080 8081 8084; do
-          STATUS=$(curl -sf -o /dev/null -w "%{http_code}" --max-time 5 "http://127.0.0.1:${port}/" 2>/dev/null || echo "000")
-          if [ "$STATUS" = "200" ]; then
-            echo "OK: port $port health check passed (HTTP $STATUS)"
+          url="http://127.0.0.1:$published$check_path"
+          if [ -n "$header" ]; then
+            curl -sf -H "$header" --max-time 10 "$url" >/dev/null
           else
-            echo "WARN: port $port returned HTTP $STATUS"
-            FAILED=$((FAILED + 1))
+            curl -sf --max-time 10 "$url" >/dev/null
           fi
-        done
-        if [ "$FAILED" -gt 0 ]; then
-          echo "WARNING: $FAILED service(s) not healthy after deploy"
-        fi
+          echo "OK: $service:$container_port$check_path via host port $published"
+        }
+
+        check_http aws-secrets-agent 2773 /ping "X-Aws-Parameters-Secrets-Token: $AWS_TOKEN"
+        check_http mcp-second-opinion 8080 /
+        check_http mcp-playwright-persistent 8081 /
+        check_http mcp-nano-banana 8084 /
+        check_http mcp-woodpecker-ci 8085 /
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     when:
-      - event: push
-        branch: main
+      - event: [push, pull_request]
         path:
+          - ".woodpecker.yml"
+          - "docker-compose.yml"
+          - "aws-secrets-agent/**"
+          - "lib/**"
           - "mcp-second-opinion/**"
           - "mcp-playwright-persistent/**"
           - "mcp-nano-banana/**"
           - "mcp-woodpecker-ci/**"
-          - "docker-compose.yml"

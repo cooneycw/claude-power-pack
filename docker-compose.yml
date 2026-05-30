@@ -23,7 +23,8 @@ services:
     build:
       context: ./aws-secrets-agent
     image: aws-secrets-agent:latest
-    container_name: aws-secrets-agent
+    ports:
+      - "${AWS_SECRETS_AGENT_PORT_MAPPING:-2773:2773}"
     env_file:
       - path: .env
         required: false
@@ -60,19 +61,16 @@ services:
       context: ./mcp-second-opinion
       dockerfile: deploy/Dockerfile
     image: mcp-second-opinion:latest
-    container_name: mcp-second-opinion
     ports:
-      - "8080:8080"
+      - "${MCP_SECOND_OPINION_PORT_MAPPING:-8080:8080}"
     env_file:
       - path: .env
         required: false
     environment:
       - MCP_SERVER_HOST=0.0.0.0
-      - AWS_SECRET_NAME=codex_llm_apikeys
+      - AWS_SECRET_NAME=${SECOND_OPINION_AWS_SECRET_NAME-codex_llm_apikeys}
       - SECRETS_AGENT_URL=http://aws-secrets-agent:2773
       - AWS_TOKEN=${AWS_TOKEN:-default-token}
-    volumes:
-      - ./aws-secrets-agent/fetch-secrets.sh:/app/fetch-secrets.sh:ro
     entrypoint: ["/app/fetch-secrets.sh"]
     command: ["python", "server.py"]
     depends_on:
@@ -100,9 +98,8 @@ services:
       context: ./mcp-nano-banana
       dockerfile: deploy/Dockerfile
     image: mcp-nano-banana:latest
-    container_name: mcp-nano-banana
     ports:
-      - "8084:8084"
+      - "${MCP_NANO_BANANA_PORT_MAPPING:-8084:8084}"
     environment:
       - MCP_SERVER_HOST=0.0.0.0
     healthcheck:
@@ -129,7 +126,6 @@ services:
   #     context: ./mcp-evaluate
   #     dockerfile: deploy/Dockerfile
   #   image: mcp-evaluate:latest
-  #   container_name: mcp-evaluate
   #   ports:
   #     - "8083:8083"
   #   env_file:
@@ -156,19 +152,16 @@ services:
       context: ./mcp-woodpecker-ci
       dockerfile: deploy/Dockerfile
     image: mcp-woodpecker-ci:latest
-    container_name: mcp-woodpecker-ci
     ports:
-      - "8085:8085"
+      - "${MCP_WOODPECKER_CI_PORT_MAPPING:-8085:8085}"
     env_file:
       - path: .env
         required: false
     environment:
       - MCP_SERVER_HOST=0.0.0.0
-      - AWS_SECRET_NAME=essent-ai
+      - AWS_SECRET_NAME=${WOODPECKER_CI_AWS_SECRET_NAME-essent-ai}
       - SECRETS_AGENT_URL=http://aws-secrets-agent:2773
       - AWS_TOKEN=${AWS_TOKEN:-default-token}
-    volumes:
-      - ./aws-secrets-agent/fetch-secrets.sh:/app/fetch-secrets.sh:ro
     entrypoint: ["/app/fetch-secrets.sh"]
     command: ["python", "server.py"]
     depends_on:
@@ -196,9 +189,8 @@ services:
       context: ./mcp-playwright-persistent
       dockerfile: deploy/Dockerfile
     image: mcp-playwright-persistent:latest
-    container_name: mcp-playwright-persistent
     ports:
-      - "8081:8081"
+      - "${MCP_PLAYWRIGHT_PORT_MAPPING:-8081:8081}"
     shm_size: "2gb"
     environment:
       - SERVER_HOST=0.0.0.0
@@ -218,7 +210,3 @@ services:
         reservations:
           cpus: "0.5"
           memory: 512M
-
-networks:
-  default:
-    name: mcp-net

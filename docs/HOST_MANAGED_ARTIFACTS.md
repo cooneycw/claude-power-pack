@@ -84,7 +84,7 @@ setup. The file is gitignored. Credential rotation requires re-running the boots
 These artifacts are fully managed by the repo and rebuilt on every deploy:
 
 - **Docker images** - Built from `mcp-*/deploy/Dockerfile` on every `make deploy`
-- **Docker Compose config** - `docker-compose.yml` read fresh on every `docker compose up`
+- **Docker Compose config** - `docker-compose.yml` read fresh by local `make docker-up`, `make deploy`, and CI runtime smoke tests
 - **CI pipeline** - `.woodpecker.yml` read fresh on every pipeline run
 - **CI task manifest** - `.claude/cicd_tasks.yml` read fresh by the deterministic runner
 - **Makefile targets** - Executed from repo checkout
@@ -97,12 +97,12 @@ These artifacts are fully managed by the repo and rebuilt on every deploy:
 | `install-service.sh` (both) | Service setup | Once | No - should be re-run when templates change |
 | `setup-go-binary.sh` | MCP server setup | Once | No (manual upgrade) |
 | `bootstrap-secrets.py` | Woodpecker setup | Once | No (manual credential rotation) |
-| `make deploy` | Every deploy | Every push to main | Yes - rebuilds containers from repo |
-| `.woodpecker.yml` deploy-mcp | Every main push | Automatic | Yes - runs from fresh checkout |
+| `make deploy` | Manual local deploy or `/flow:deploy` | Operator-controlled | Yes - rebuilds containers from repo |
+| `.woodpecker.yml` runtime-smoke | MCP stack CI validation | Relevant push/PR paths | No - validates an isolated stack, then tears it down |
 
 ## Drift Detection
 
-Run drift detection manually or as a CI gate:
+Run drift detection manually when reconciling workstation-managed artifacts:
 
 ```bash
 # Check for drift
@@ -112,9 +112,6 @@ make drift-check
 scripts/drift-detect.sh --fix
 ```
 
-The `drift-check` step is included in the Woodpecker pipeline as a pre-deploy gate
-and in the CI task manifest's deploy plan.
-
 The drift report includes deployment-model checks for MCP servers:
 
 - Docker/systemd conflicts for the same server
@@ -123,3 +120,7 @@ The drift report includes deployment-model checks for MCP servers:
 - port binding conflicts on MCP ports 8080-8089
 
 The script only reports and suggests remediation. Cleanup remains opt-in.
+
+The `drift_check` task remains available in the CI task manifest's deploy plan for
+operator-driven deploy workflows, but the Woodpecker CI pipeline does not run it as
+a pre-deploy gate.
