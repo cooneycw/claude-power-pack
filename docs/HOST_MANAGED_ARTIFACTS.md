@@ -25,13 +25,19 @@ The `install-service.sh` scripts generate units from templates using `sed` subst
 (`${SERVICE_USER}`, `${MCP_SERVER_DIR}`, `${UV_BIN}`). Once installed, the unit is static.
 
 **Detection:** `scripts/drift-detect.sh` regenerates the expected unit from the template
-and compares it against the installed version.
+and compares it against the installed version. It also inventories MCP systemd units
+that no longer have a repo template, such as legacy `mcp-coordination.service` or
+old alias units, and reports them as orphaned.
 
 **Reconciliation:** Re-run the appropriate install script:
 ```bash
 mcp-second-opinion/scripts/install-service.sh
 mcp-playwright-persistent/deploy/install-service.sh
 ```
+
+When Docker containers are active for the same MCP server, the default convergence
+model is Docker. Use `scripts/drift-detect.sh --fix` to print opt-in cleanup
+commands for the losing systemd units before removing them.
 
 ### 2. System Tuning (sysctl)
 
@@ -108,3 +114,12 @@ scripts/drift-detect.sh --fix
 
 The `drift-check` step is included in the Woodpecker pipeline as a pre-deploy gate
 and in the CI task manifest's deploy plan.
+
+The drift report includes deployment-model checks for MCP servers:
+
+- Docker/systemd conflicts for the same server
+- failed or stuck MCP systemd units
+- orphaned MCP systemd units that the repo no longer ships
+- port binding conflicts on MCP ports 8080-8089
+
+The script only reports and suggests remediation. Cleanup remains opt-in.

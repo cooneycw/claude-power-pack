@@ -127,10 +127,19 @@ done
 ## Step 5: Detect Deployment Model and Refresh Runtime
 
 Choose exactly one runtime model for this machine. Do not run Docker and
-systemd restarts in the same update.
+systemd restarts in the same update. Before refreshing anything, run the drift
+check so failed/orphaned systemd units are surfaced instead of revived when
+Docker is the active serving model.
+
+Only restart systemd services when the selected model is systemd, and never
+restart failed units without user approval from the remediation step.
 
 ```bash
 cd "$CPP_DIR"
+
+if [ -x "$CPP_DIR/scripts/drift-detect.sh" ]; then
+  "$CPP_DIR/scripts/drift-detect.sh" --fix || DRIFT_FOUND=true
+fi
 
 DEPLOY_MODEL="venv-only"
 DOCKER_READY=false
@@ -198,6 +207,8 @@ if [ "$DEPLOY_MODEL" = "systemd" ]; then
       echo "Restarting $service..."
       sudo systemctl restart "$service"
       echo "Done: $service restarted"
+    elif systemctl is-failed "$service" &>/dev/null; then
+      echo "WARNING: $service is failed. Resolve via the drift remediation prompts instead of restarting blindly."
     fi
   done
 fi
@@ -327,12 +338,22 @@ mcp-evaluate              depr.   none      none      no        --      OK (depr
 
 Status classifications:
 - **OK** - repo server is installed, registered, and running
+- **CONFLICT** - Docker and systemd both provide the same server
+- **FAILED SYSTEMD** - systemd unit is failed or stuck activating
+- **PORT CONFLICT** - multiple listener processes are bound to the same MCP port
 - **STALE SERVICE** - installed but systemd unit differs from repo version
 - **NEW - NOT INSTALLED** - repo ships it but it is not installed
 - **ORPHANED** - installed/running but repo no longer ships it
 - **NOT RUNNING** - installed but service/container is not active
 - **UNHEALTHY** - Docker container is running but healthcheck is failing
 - **NOT REGISTERED** - running but not in `claude mcp list`
+
+Use `scripts/drift-detect.sh --fix` as the authoritative report for:
+
+- Docker/systemd deployment-model conflicts
+- orphaned MCP systemd units such as `mcp-coordination`
+- failed MCP systemd units
+- port double-binding on MCP ports 8080-8089
 
 Present the drift report table to the user.
 
@@ -358,6 +379,38 @@ fi
 For each drift finding, offer the user actionable options using AskUserQuestion.
 
 **Only show this if drift was detected.** If everything is clean, skip to Step 8.
+
+### For CONFLICT findings (Docker + systemd for one server)
+
+Default recommendation: converge on Docker. Ask once per server:
+
+```
+{server} is served by Docker and also has systemd unit(s): {units}.
+Keeping both models can cause failed units, stale restarts, or port conflicts.
+```
+
+Options:
+- **Use Docker** - Stop, disable, and remove the listed systemd unit files; keep Docker running
+- **Keep systemd** - Stop/remove the Docker container for this server manually
+- **Skip** - Leave both models in place for now
+
+If they choose Docker:
+1. Stop and disable each losing unit (`systemctl --user ...` for user units, `sudo systemctl ...` for system units)
+2. Remove the unit file
+3. Reload the matching systemd manager
+4. Remove stale Claude MCP registrations if they point to the losing model
+5. Re-run `scripts/drift-detect.sh --fix` and verify no conflict remains
+
+### For FAILED SYSTEMD findings
+
+If Docker is active for the same server, recommend the same Docker convergence
+cleanup. If Docker is not active, offer to inspect logs before restart:
+
+```
+journalctl --user -u {unit} -n 80 --no-pager
+```
+
+Do not silently restart failed units.
 
 ### For NEW servers (in repo, not installed):
 

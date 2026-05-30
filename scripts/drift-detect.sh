@@ -34,12 +34,196 @@ SKIP_COUNT=0
 CHECK_COUNT=0
 FIX_MODE=false
 
+# MCP deployment model inventory. Keep this explicit so legacy unit aliases can
+# be handled as deployment remnants instead of being mistaken for new servers.
+MCP_SERVERS=(
+    "mcp-second-opinion"
+    "mcp-nano-banana"
+    "mcp-playwright-persistent"
+    "mcp-woodpecker-ci"
+)
+declare -A MCP_DOCKER_CONTAINERS=(
+    ["mcp-second-opinion"]="mcp-second-opinion"
+    ["mcp-nano-banana"]="mcp-nano-banana"
+    ["mcp-playwright-persistent"]="mcp-playwright-persistent"
+    ["mcp-woodpecker-ci"]="mcp-woodpecker-ci"
+)
+declare -A MCP_SYSTEMD_UNITS=(
+    ["mcp-second-opinion"]="mcp-second-opinion"
+    ["mcp-nano-banana"]="nano-banana mcp-nano-banana"
+    ["mcp-playwright-persistent"]="mcp-playwright mcp-playwright-persistent"
+    ["mcp-woodpecker-ci"]=""
+)
+declare -A MCP_PORTS=(
+    ["mcp-second-opinion"]="8080"
+    ["mcp-nano-banana"]="8084"
+    ["mcp-playwright-persistent"]="8081"
+    ["mcp-woodpecker-ci"]="8085"
+)
+declare -A MCP_REGISTRATIONS=(
+    ["mcp-second-opinion"]="second-opinion mcp-second-opinion"
+    ["mcp-nano-banana"]="nano-banana mcp-nano-banana"
+    ["mcp-playwright-persistent"]="playwright-persistent mcp-playwright mcp-playwright-persistent"
+    ["mcp-woodpecker-ci"]="woodpecker-ci mcp-woodpecker-ci"
+)
+declare -A DOCKER_STATUS=()
+
 # --- Helpers ---
 info()  { echo -e "${BLUE}info${NC}  $*"; }
 ok()    { echo -e "${GREEN}ok${NC}    $*"; CHECK_COUNT=$((CHECK_COUNT + 1)); }
 drift() { echo -e "${RED}DRIFT${NC} $*"; DRIFT_COUNT=$((DRIFT_COUNT + 1)); CHECK_COUNT=$((CHECK_COUNT + 1)); }
 skip()  { echo -e "${YELLOW}skip${NC}  $*"; SKIP_COUNT=$((SKIP_COUNT + 1)); }
 fix()   { if $FIX_MODE; then echo -e "       ${YELLOW}fix:${NC} $*"; fi; }
+
+systemd_unit_path() {
+    local unit="$1"
+    local user_path="$HOME/.config/systemd/user/${unit}.service"
+    local system_path="/etc/systemd/system/${unit}.service"
+
+    if [[ -f "$user_path" ]]; then
+        echo "$user_path"
+    elif [[ -f "$system_path" ]]; then
+        echo "$system_path"
+    fi
+}
+
+systemd_unit_state() {
+    local unit="$1"
+    local state=""
+
+    if command -v systemctl &>/dev/null; then
+        state=$(systemctl --user is-active "$unit" 2>/dev/null || true)
+        case "$state" in
+            active|activating|deactivating|failed|inactive)
+                echo "$state"
+                return
+                ;;
+        esac
+
+        state=$(systemctl is-active "$unit" 2>/dev/null || true)
+        case "$state" in
+            active|activating|deactivating|failed|inactive)
+                echo "$state"
+                return
+                ;;
+        esac
+    fi
+
+    if [[ -n "$(systemd_unit_path "$unit")" ]]; then
+        echo "installed"
+    else
+        echo "not-found"
+    fi
+}
+
+is_systemd_unit_present() {
+    local unit="$1"
+    local state
+    state=$(systemd_unit_state "$unit")
+    [[ "$state" != "not-found" ]]
+}
+
+repo_ships_systemd_unit() {
+    local unit="$1"
+    find "$REPO_ROOT" -path "*/deploy/${unit}.service" -o -path "*/deploy/${unit}.service.template" 2>/dev/null | grep -q .
+}
+
+canonical_server_for_unit() {
+    local unit="$1"
+    case "$unit" in
+        mcp-second-opinion) echo "mcp-second-opinion" ;;
+        nano-banana|mcp-nano-banana) echo "mcp-nano-banana" ;;
+        mcp-playwright|mcp-playwright-persistent) echo "mcp-playwright-persistent" ;;
+        mcp-woodpecker-ci) echo "mcp-woodpecker-ci" ;;
+        *) echo "" ;;
+    esac
+}
+
+primary_registration_for_unit() {
+    local unit="$1"
+    local server
+    server=$(canonical_server_for_unit "$unit")
+
+    if [[ -n "$server" ]]; then
+        echo "${MCP_REGISTRATIONS[$server]%% *}"
+    else
+        echo "$unit"
+    fi
+}
+
+fix_remove_systemd_unit() {
+    local unit="$1"
+    local path="$2"
+    local registration
+    registration=$(primary_registration_for_unit "$unit")
+
+    fix "Opt-in Docker convergence for $unit:"
+    if [[ "$path" == "$HOME/.config/systemd/user/"* ]]; then
+        fix "systemctl --user stop $unit || true"
+        fix "systemctl --user disable $unit || true"
+        fix "rm -f $path"
+        fix "systemctl --user daemon-reload"
+    elif [[ -n "$path" ]]; then
+        fix "sudo systemctl stop $unit || true"
+        fix "sudo systemctl disable $unit || true"
+        fix "sudo rm -f $path"
+        fix "sudo systemctl daemon-reload"
+    else
+        fix "systemctl --user stop $unit || sudo systemctl stop $unit || true"
+        fix "systemctl --user disable $unit || sudo systemctl disable $unit || true"
+        fix "Remove the installed ${unit}.service file, then reload systemd"
+    fi
+    fix "claude mcp remove $registration || true"
+}
+
+collect_docker_status() {
+    DOCKER_STATUS=()
+    command -v docker &>/dev/null || return
+
+    local line name status
+    local compose_file="$REPO_ROOT/docker-compose.yml"
+    if [[ -f "$compose_file" ]]; then
+        while IFS= read -r line; do
+            [[ -n "$line" ]] || continue
+            name="${line%%:*}"
+            status="${line#*:}"
+            [[ -n "$name" && "$name" != "$status" ]] || continue
+            DOCKER_STATUS["$name"]="$status"
+        done < <(docker compose -f "$compose_file" \
+            --profile core --profile browser --profile cicd \
+            ps --format '{{.Name}}:{{.Status}}' 2>/dev/null || true)
+    fi
+
+    while IFS= read -r line; do
+        [[ -n "$line" ]] || continue
+        name="${line%%:*}"
+        status="${line#*:}"
+        [[ -n "$name" && "$name" != "$status" ]] || continue
+        DOCKER_STATUS["$name"]="${DOCKER_STATUS[$name]:-$status}"
+    done < <(docker ps --format '{{.Names}}:{{.Status}}' 2>/dev/null || true)
+}
+
+is_docker_container_running() {
+    local container="$1"
+    local status="${DOCKER_STATUS[$container]:-}"
+    [[ -n "$status" && "$status" != *"Exited"* && "$status" != *"Created"* && "$status" != *"Dead"* ]]
+}
+
+list_installed_mcp_units() {
+    {
+        find "$HOME/.config/systemd/user" /etc/systemd/system \
+            -maxdepth 1 -type f \
+            \( -name 'mcp-*.service' -o -name 'nano-*.service' -o -name '*coordination*.service' \) \
+            -printf '%f\n' 2>/dev/null || true
+
+        if command -v systemctl &>/dev/null; then
+            systemctl --user list-units --type=service --all --no-legend --no-pager 2>/dev/null | awk '{print $1}' || true
+            systemctl list-units --type=service --all --no-legend --no-pager 2>/dev/null | awk '{print $1}' || true
+            systemctl --user list-unit-files --type=service --no-legend --no-pager 2>/dev/null | awk '{print $1}' || true
+            systemctl list-unit-files --type=service --no-legend --no-pager 2>/dev/null | awk '{print $1}' || true
+        fi
+    } | sed 's/\.service$//' | grep -E '^(mcp-|nano-|.*coordination)' | sort -u
+}
 
 usage() {
     cat <<'EOF'
@@ -57,6 +241,7 @@ Categories checked:
   3. Go binary        - ~/go/bin/woodpecker-mcp version currency
   4. Docker containers - running container health status
   5. Shared scripts   - cross-container script consistency (fetch-secrets.sh, bash-prep.sh)
+  6. MCP deployment models - Docker/systemd conflicts, failed/orphaned units, port bindings
 
 Exit codes:
   0 - No drift (or no artifacts installed to check)
@@ -113,6 +298,16 @@ check_systemd_unit() {
     if [[ ! -f "$installed_path" ]]; then
         skip "$service_name - not installed (no systemd unit found)"
         return
+    fi
+
+    local state
+    state=$(systemd_unit_state "$service_name")
+    if [[ "$state" == "failed" ]]; then
+        drift "systemd - unit $service_name is failed"
+        fix_remove_systemd_unit "$service_name" "$installed_path"
+    elif [[ "$state" == "activating" ]]; then
+        drift "systemd - unit $service_name is stuck activating"
+        fix_remove_systemd_unit "$service_name" "$installed_path"
     fi
 
     local installed
@@ -223,30 +418,141 @@ check_docker_compose() {
         return
     fi
 
-    # Check for stale containers (running but image differs from what compose would build)
-    local running_containers
-    running_containers=$(docker compose -f "$compose_file" \
-        --profile core --profile browser --profile cicd \
-        ps --format '{{.Name}}:{{.Status}}' 2>/dev/null || true)
+    collect_docker_status
 
-    if [[ -z "$running_containers" ]]; then
+    if (( ${#DOCKER_STATUS[@]} == 0 )); then
         skip "docker - no containers running"
         return
     fi
 
     # Check each running container's image ID vs what compose config expects
     local has_drift=false
-    while IFS=: read -r name status; do
+    local name status
+    for name in "${!DOCKER_STATUS[@]}"; do
+        status="${DOCKER_STATUS[$name]}"
         if [[ "$status" == *"unhealthy"* ]]; then
             drift "docker - container $name is unhealthy"
             has_drift=true
         fi
-    done <<< "$running_containers"
+    done
 
     if ! $has_drift; then
         ok "docker - all running containers healthy"
     else
         fix "Re-run: make deploy PROFILE=\"core browser cicd\""
+    fi
+}
+
+# --- MCP deployment model conflicts ---
+check_mcp_deployment_models() {
+    collect_docker_status
+
+    local has_issue=false
+    local server container docker_running units unit present_units state path
+
+    for server in "${MCP_SERVERS[@]}"; do
+        container="${MCP_DOCKER_CONTAINERS[$server]:-}"
+        docker_running=false
+        if [[ -n "$container" ]] && is_docker_container_running "$container"; then
+            docker_running=true
+        fi
+
+        present_units=()
+        units="${MCP_SYSTEMD_UNITS[$server]:-}"
+        for unit in $units; do
+            if is_systemd_unit_present "$unit"; then
+                present_units+=("$unit")
+                state=$(systemd_unit_state "$unit")
+                path=$(systemd_unit_path "$unit")
+                if [[ "$state" == "failed" ]]; then
+                    drift "systemd - unit $unit is failed ($server)"
+                    fix_remove_systemd_unit "$unit" "$path"
+                    has_issue=true
+                elif [[ "$state" == "activating" ]]; then
+                    drift "systemd - unit $unit is stuck activating ($server)"
+                    fix_remove_systemd_unit "$unit" "$path"
+                    has_issue=true
+                fi
+            fi
+        done
+
+        if $docker_running && (( ${#present_units[@]} > 0 )); then
+            drift "deployment model conflict - $server has Docker container $container and systemd unit(s): ${present_units[*]}"
+            fix "Default convergence is Docker for $server. Stop, disable, and remove the systemd unit(s) below, then re-run this check."
+            for unit in "${present_units[@]}"; do
+                fix_remove_systemd_unit "$unit" "$(systemd_unit_path "$unit")"
+            done
+            has_issue=true
+        fi
+    done
+
+    if ! $has_issue; then
+        ok "mcp deployment models - no Docker/systemd conflicts or failed units"
+    fi
+}
+
+check_orphaned_systemd_units() {
+    local has_orphan=false
+    local unit path state
+
+    while IFS= read -r unit; do
+        [[ -n "$unit" ]] || continue
+        if repo_ships_systemd_unit "$unit"; then
+            continue
+        fi
+
+        path=$(systemd_unit_path "$unit")
+        state=$(systemd_unit_state "$unit")
+        drift "orphaned systemd unit $unit - repo no longer ships it (state: $state)"
+        fix_remove_systemd_unit "$unit" "$path"
+        has_orphan=true
+    done < <(list_installed_mcp_units)
+
+    if ! $has_orphan; then
+        ok "orphaned systemd units - none detected"
+    fi
+}
+
+check_mcp_port_bindings() {
+    if ! command -v ss &>/dev/null; then
+        skip "ports - ss not available"
+        return
+    fi
+
+    local output
+    output=$(ss -tlnp 2>/dev/null | grep -E ':(808[0-9])\b' || true)
+    if [[ -z "$output" ]]; then
+        skip "ports - no MCP listeners on 8080-8089"
+        return
+    fi
+
+    local has_conflict=false
+    local port proc
+    local tmp_dir
+    tmp_dir=$(mktemp -d)
+    while IFS= read -r line; do
+        port=$(echo "$line" | grep -oE ':(808[0-9])\b' | head -1 | tr -d ':' || true)
+        [[ -n "$port" ]] || continue
+        proc=$(echo "$line" | sed -n 's/.*users:((\"\([^\"]*\)\".*/\1/p')
+        [[ -n "$proc" ]] || proc="unknown"
+        echo "$proc" >> "$tmp_dir/$port"
+    done <<< "$output"
+
+    for file in "$tmp_dir"/*; do
+        [[ -f "$file" ]] || continue
+        port="$(basename "$file")"
+        local proc_count
+        proc_count=$(sort -u "$file" | wc -l | tr -d ' ')
+        if (( proc_count > 1 )); then
+            drift "port binding conflict - port $port has multiple listener processes: $(sort -u "$file" | paste -sd ', ' -)"
+            fix "Stop the losing provider for port $port, then re-run scripts/drift-detect.sh --fix"
+            has_conflict=true
+        fi
+    done
+    rm -rf "$tmp_dir"
+
+    if ! $has_conflict; then
+        ok "ports - no double-binding detected on 8080-8089"
     fi
 }
 
@@ -368,6 +674,14 @@ main() {
     echo -e "${BOLD}Shared Script Contracts${NC}"
     echo "------------------------------------------------"
     check_shared_scripts
+    echo ""
+
+    # Category 6: MCP deployment model consistency
+    echo -e "${BOLD}MCP Deployment Models${NC}"
+    echo "------------------------------------------------"
+    check_mcp_deployment_models
+    check_orphaned_systemd_units
+    check_mcp_port_bindings
     echo ""
 
     # Summary
