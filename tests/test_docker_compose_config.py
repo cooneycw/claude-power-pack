@@ -103,3 +103,35 @@ def test_deploy_pipeline_does_not_require_repo_aws_secrets() -> None:
 
     assert "environment" not in deploy_step
     assert "secrets" not in deploy_step
+
+
+def test_makefile_has_first_class_docker_refresh_target() -> None:
+    root = Path(__file__).resolve().parents[1]
+    makefile = (root / "Makefile").read_text()
+
+    assert "docker-refresh:" in makefile
+    assert 'DOCKER_UP_FLAGS="-d --build --wait"' in makefile
+    assert "docker-health:" in makefile
+    assert "scripts/docker-health-check.py" in makefile
+
+
+def test_cpp_update_refreshes_detected_docker_runtime() -> None:
+    root = Path(__file__).resolve().parents[1]
+    command = (root / ".claude" / "commands" / "cpp" / "update.md").read_text()
+
+    assert 'DEPLOY_MODEL="docker"' in command
+    assert 'DEPLOY_MODEL="systemd"' in command
+    assert 'make docker-refresh PROFILE="core browser cicd"' in command
+    assert "Docker refresh failed" in command
+    assert "Do not run Docker and\nsystemd restarts in the same update" in command
+
+
+def test_cpp_init_prefers_docker_and_runs_health_gated_refresh() -> None:
+    root = Path(__file__).resolve().parents[1]
+    command = (root / ".claude" / "commands" / "cpp" / "init.md").read_text()
+
+    assert "# Fresh installs prefer Docker when available." in command
+    assert 'DEPLOY_MODE="systemd"' in command
+    assert 'make docker-refresh PROFILE="core browser cicd"' in command
+    assert "Docker containers rebuilt, restarted, and healthy" in command
+    assert "skipping systemd service setup" in command

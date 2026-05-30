@@ -4,6 +4,7 @@
 #   make docker-up PROFILE="core browser"            # + Playwright
 #   make docker-up PROFILE="core cicd"               # + Woodpecker CI
 #   make docker-build PROFILE=core                   # Build images only
+#   make docker-refresh PROFILE="core browser cicd"  # Rebuild, restart, wait healthy
 #   make docker-down                                 # Stop all services
 #   make docker-ps                                   # Show container status
 #

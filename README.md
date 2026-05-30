@@ -42,6 +42,7 @@ make verify
 make docker-secrets-check              # Validate AWS connectivity
 make docker-up PROFILE=core            # Second Opinion + Nano Banana
 make docker-up PROFILE="core browser"  # + Playwright
+make docker-refresh PROFILE="core browser cicd"  # Rebuild, restart, wait for health
 
 # Initialize in a target project
 cd ~/Projects/my-project
@@ -93,6 +94,7 @@ MCP servers run as Docker containers organized by profile:
 ```bash
 make docker-up PROFILE=core       # second-opinion + nano-banana
 make docker-up PROFILE="core browser"  # + playwright
+make docker-refresh PROFILE="core browser cicd"  # rebuild/restart with health gate
 make docker-ps                    # container status
 make docker-down                  # stop all
 ```
@@ -122,6 +124,7 @@ Woodpecker CI runs on every push and PR via a self-hosted agent:
 - **Auto-deploy:** On push to main, changed MCP servers are rebuilt and health-checked via `docker compose --wait`
 - **Disk cleanup:** Dangling images pruned after every deploy
 - **CI verification:** `flow:auto` polls the Woodpecker API after merge to confirm the pipeline passes before deploying
+- **First-class Docker updates:** `cpp:update` detects Docker installs, runs `make docker-refresh PROFILE="core browser cicd"`, and fails if containers are unhealthy
 
 Architecture: Woodpecker server on a dedicated VM, agent on the dev workstation, connected via gRPC over Tailscale. Web UI at `woodpecker.essent-ai.com` via Cloudflare tunnel.
 
