@@ -27,7 +27,9 @@ USER agent
 
 EXPOSE 2773
 
-HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=3 \
+# Keep these timings in sync with docker-compose.yml. /ping is a local
+# liveness probe only; it does not call AWS or fetch cached secrets.
+HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=5 \
     CMD curl -sf -H "X-Aws-Parameters-Secrets-Token: ${AWS_TOKEN}" http://localhost:2773/ping || exit 1
 
 ENTRYPOINT ["./aws-secrets-agent", "--config", "config.toml"]

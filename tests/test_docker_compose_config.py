@@ -60,6 +60,30 @@ def test_secret_consumers_share_sidecar_token_default() -> None:
         assert env["AWS_TOKEN"] == "${AWS_TOKEN:-default-token}"
 
 
+def test_aws_secrets_agent_healthcheck_allows_loaded_starts() -> None:
+    root = Path(__file__).resolve().parents[1]
+    services = _compose_services()
+    agent = services["aws-secrets-agent"]
+    healthcheck = agent["healthcheck"]
+    dockerfile = (root / "aws-secrets-agent" / "Dockerfile").read_text()
+
+    assert healthcheck["test"][-1] == "http://localhost:2773/ping"
+    assert healthcheck["interval"] == "10s"
+    assert healthcheck["timeout"] == "5s"
+    assert healthcheck["start_period"] == "30s"
+    assert healthcheck["retries"] == 5
+
+    assert "--interval=10s" in dockerfile
+    assert "--timeout=5s" in dockerfile
+    assert "--start-period=30s" in dockerfile
+    assert "--retries=5" in dockerfile
+    assert "does not call AWS" in dockerfile
+
+    resources = agent["deploy"]["resources"]
+    assert resources["limits"] == {"cpus": "0.5", "memory": "128M"}
+    assert resources["reservations"] == {"cpus": "0.25", "memory": "64M"}
+
+
 def test_second_opinion_uses_secret_with_free_tier_provider_keys() -> None:
     services = _compose_services()
     env = _env_list_to_map(services["mcp-second-opinion"]["environment"])

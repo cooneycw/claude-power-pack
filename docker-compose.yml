@@ -35,21 +35,25 @@ services:
       - AWS_REGION=us-east-1
       - AWS_TOKEN=${AWS_TOKEN:-default-token}
     healthcheck:
+      # /ping is a local liveness probe in the AWS agent: it verifies the
+      # daemon is listening and does not call AWS or fetch cached secrets.
+      # The longer grace period and modestly larger budget avoid false
+      # unhealthy states during cold starts while CI builds images in parallel.
       test: ["CMD", "curl", "-sf", "-H", "X-Aws-Parameters-Secrets-Token: ${AWS_TOKEN:-default-token}", "http://localhost:2773/ping"]
       interval: 10s
-      timeout: 3s
-      start_period: 10s
-      retries: 3
+      timeout: 5s
+      start_period: 30s
+      retries: 5
     restart: unless-stopped
     profiles: ["core", "cicd"]
     deploy:
       resources:
         limits:
+          cpus: "0.5"
+          memory: 128M
+        reservations:
           cpus: "0.25"
           memory: 64M
-        reservations:
-          cpus: "0.1"
-          memory: 32M
 
   mcp-second-opinion:
     build:
