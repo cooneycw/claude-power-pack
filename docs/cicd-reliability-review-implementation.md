@@ -894,7 +894,7 @@ Here is the exhaustive analysis and concrete implementation plan.
 | Issue | Severity | Justification |
 | :--- | :--- | :--- |
 | **1. Deterministic Runner** | **CRITICAL** | Solves the core reliability issue of flow commands failing midway. |
-| **2. Deployment Patterns** | **CRITICAL** | Prevents production downtime during failed auto-deployments. |
+| **2. Deployment Patterns** | **CRITICAL** | Prevents production downtime during failed deployment attempts. |
 | **3. Schema Validation** | **HIGH** | Eliminates silent configuration failures and standardizes the contract. |
 | **4. Typed Task Manifest** | **HIGH** | Bridges the gap between shell scripts and reliable CI/CD orchestration. |
 | **6. Woodpecker Tweaks** | **MEDIUM** | Low-hanging fruit for security and reporting. |
@@ -1101,12 +1101,12 @@ steps:
       - pip install pytest pytest-cov
       - pytest --junitxml=reports/junit.xml # 2. Standardized reporting
   
-  deploy-mcp:
+  runtime-smoke:
     image: docker:24.0.5-dind
-    concurrency: 1 # 3. Woodpecker built-in concurrency lock
     commands:
-      # 4. Fallback file lock for host-level concurrency
-      - flock -n /tmp/deploy.lock -c "make deploy" 
+      # Isolated runtime check with no long-lived runtime side effects
+      - docker compose -p "cpp-smoke-${CI_PIPELINE_NUMBER}" --profile core up --build --wait
+      - docker compose -p "cpp-smoke-${CI_PIPELINE_NUMBER}" --profile core down -v
 ```
 **Tailscale ACL**: Document and enforce that the Woodpecker runner's Tailscale IP is tagged (e.g., `tag:ci-runner`) and the ACL restricts it to only access destination servers on port 22 (SSH) or 2376 (Docker).
 **Effort**: 1 day.
@@ -1571,4 +1571,3 @@ If you want, I can provide a **drop-in starter implementation skeleton** for:
 - updated `.woodpecker.yml` snippet ready to paste.
 
 ---
-

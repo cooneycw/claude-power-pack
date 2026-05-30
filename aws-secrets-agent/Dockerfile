@@ -3,7 +3,11 @@ FROM rust:slim AS builder
 RUN apt-get update && apt-get install -y git pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
-RUN git clone https://github.com/aws/aws-secretsmanager-agent.git .
+# Pin to a released tag. Upstream `main` is ahead of the latest release and has
+# regressed startup credential handling (the agent exits with CredentialsNotLoaded
+# even when placeholder creds are present), which breaks credential-less CI smoke
+# runs. v2.1.0 starts cleanly and serves /ping as a pure liveness probe.
+RUN git clone --depth 1 --branch v2.1.0 https://github.com/aws/aws-secretsmanager-agent.git .
 
 # Patch: bind to 0.0.0.0 instead of 127.0.0.1 for Docker networking
 RUN sed -i 's/\[127, 0, 0, 1\]/[0, 0, 0, 0]/' aws_secretsmanager_agent/src/main.rs

@@ -109,7 +109,7 @@ bootstrap-check:
 drift-check:
 	@scripts/drift-detect.sh --fix
 
-## Deploy (used by Woodpecker CI and /flow:deploy)
+## Deploy (used by /flow:deploy and manual local deployments)
 
 deploy: docker-refresh
 

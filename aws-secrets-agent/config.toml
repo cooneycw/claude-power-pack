@@ -4,3 +4,8 @@ region = "us-east-1"
 ttl_seconds = 300
 cache_size = 1000
 ssrf_env_variables = ["AWS_TOKEN"]
+# Skip the startup STS get_caller_identity check so the agent boots as a pure
+# liveness service (serving /ping) without valid AWS credentials. Real secret
+# fetches still require valid creds; this only affects startup validation and
+# lets credential-less CI smoke runs verify the stack wires up and comes healthy.
+validate_credentials = false

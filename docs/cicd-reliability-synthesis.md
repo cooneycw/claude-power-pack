@@ -274,11 +274,11 @@ image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:<digest>
 
 Automate refresh via `cpp sync` or scheduled CI job using `crane digest`.
 
-### 2. Deploy concurrency lock
+### 2. Runtime smoke isolation
 
 ```bash
-# Simple flock approach in deploy-mcp step
-flock --timeout 300 /tmp/cpp-deploy.lock docker compose --profile core --profile browser up -d --build --wait
+# Isolated smoke project with no long-lived runtime side effects
+docker compose -p "cpp-smoke-${CI_PIPELINE_NUMBER:-local}" --profile core --profile browser up --build --wait
 ```
 
 ### 3. JUnit XML test reports
