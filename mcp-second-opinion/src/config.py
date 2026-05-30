@@ -203,9 +203,8 @@ class Config:
     GROQ_PRICING: Dict[str, Dict[str, float]] = {
         "llama-3.3-70b-versatile": {"input": 0.59, "output": 0.79},
         "meta-llama/llama-4-scout-17b-16e-instruct": {"input": 0.11, "output": 0.34},
-        "meta-llama/llama-4-maverick-17b-128e-instruct": {"input": 0.20, "output": 0.60},
-        "deepseek-r1-distill-llama-70b": {"input": 0.75, "output": 0.99},
-        "qwen-qwq-32b": {"input": 0.29, "output": 0.39},
+        "openai/gpt-oss-120b": {"input": 0.15, "output": 0.75},
+        "qwen/qwen3-32b": {"input": 0.29, "output": 0.59},
     }
 
     # ==========================================================================
@@ -215,12 +214,12 @@ class Config:
     OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
 
     OPENROUTER_PRICING: Dict[str, Dict[str, float]] = {
-        "qwen/qwen3-coder": {"input": 0.00, "output": 0.00},
-        "deepseek/deepseek-chat-v4-0324:free": {"input": 0.00, "output": 0.00},
+        "qwen/qwen3-coder:free": {"input": 0.00, "output": 0.00},
+        "deepseek/deepseek-v4-flash:free": {"input": 0.00, "output": 0.00},
         "openai/gpt-oss-20b:free": {"input": 0.00, "output": 0.00},
         "openai/gpt-oss-120b:free": {"input": 0.00, "output": 0.00},
         "google/gemma-4-31b-it:free": {"input": 0.00, "output": 0.00},
-        "minimax/minimax-m2-5:free": {"input": 0.00, "output": 0.00},
+        "minimax/minimax-m2.5:free": {"input": 0.00, "output": 0.00},
     }
 
     # ==========================================================================
@@ -396,19 +395,11 @@ class Config:
             "free": True,
             "max_output_tokens": 32768,
         },
-        "groq-llama4-maverick": {
+        "groq-gpt-oss-120b": {
             "provider": "groq",
-            "model_id": "meta-llama/llama-4-maverick-17b-128e-instruct",
-            "display_name": "Llama 4 Maverick (Groq)",
-            "description": "Llama 4 128-expert MoE, strong reasoning (128K context)",
-            "free": True,
-            "max_output_tokens": 32768,
-        },
-        "groq-deepseek-r1": {
-            "provider": "groq",
-            "model_id": "deepseek-r1-distill-llama-70b",
-            "display_name": "DeepSeek R1 Distill (Groq)",
-            "description": "R1-distilled reasoning on Groq's fast infra",
+            "model_id": "openai/gpt-oss-120b",
+            "display_name": "GPT-OSS 120B (Groq)",
+            "description": "Strong reasoning replacement for deprecated Maverick/R1 Groq IDs",
             "free": True,
             "max_output_tokens": 32768,
         },
@@ -422,7 +413,7 @@ class Config:
         },
         "groq-qwen-32b": {
             "provider": "groq",
-            "model_id": "qwen-qwq-32b",
+            "model_id": "qwen/qwen3-32b",
             "display_name": "Qwen3 32B (Groq)",
             "description": "Strong reasoning on Groq's fast infra (128K context)",
             "free": True,
@@ -446,14 +437,14 @@ class Config:
         # OpenRouter models (aggregator - free tier)
         "openrouter-qwen-coder": {
             "provider": "openrouter",
-            "model_id": "qwen/qwen3-coder",
+            "model_id": "qwen/qwen3-coder:free",
             "display_name": "Qwen3 Coder (OpenRouter)",
             "description": "Top-tier free coding model (1M context)",
             "free": True,
         },
         "openrouter-deepseek-flash": {
             "provider": "openrouter",
-            "model_id": "deepseek/deepseek-chat-v4-0324:free",
+            "model_id": "deepseek/deepseek-v4-flash:free",
             "display_name": "DeepSeek V4 Flash (OpenRouter)",
             "description": "Free DeepSeek via OpenRouter (1M context)",
             "free": True,
@@ -481,7 +472,7 @@ class Config:
         },
         "openrouter-minimax-m2.5": {
             "provider": "openrouter",
-            "model_id": "minimax/minimax-m2-5:free",
+            "model_id": "minimax/minimax-m2.5:free",
             "display_name": "Minimax M2.5 (OpenRouter)",
             "description": "Quality score 70, 262K context, free",
             "free": True,
@@ -495,7 +486,7 @@ class Config:
         "gpt-5.5-pro",
         "claude-opus",
         "devstral",
-        "groq-llama4-maverick",
+        "groq-gpt-oss-120b",
         "openrouter-gpt-oss-20b",
         "openrouter-qwen-coder",
     ]
