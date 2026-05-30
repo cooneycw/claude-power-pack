@@ -23,6 +23,10 @@ ENV/
 .env.local
 *.env
 !.env.example
+*.pem
+*.key
+*.p12
+secrets.*
 
 # Secrets and private keys
 *.pem
@@ -54,6 +58,7 @@ desktop.ini
 node_modules/
 .claude/settings*.json
 .claude/plans/
+.claude/security.yml
 
 # Logs
 *.log

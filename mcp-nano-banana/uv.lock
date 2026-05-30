@@ -587,13 +587,15 @@ wheels = [
 
 [[package]]
 name = "mcp-nano-banana"
-version = "1.0.0"
+version = "1.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "fastmcp" },
     { name = "pillow" },
     { name = "pydantic" },
     { name = "python-pptx" },
+    { name = "starlette" },
+    { name = "uvicorn" },
 ]
 
 [package.dev-dependencies]
@@ -608,6 +610,8 @@ requires-dist = [
     { name = "pillow", specifier = ">=10.0.0" },
     { name = "pydantic", specifier = ">=2.6.0" },
     { name = "python-pptx", specifier = ">=1.0.0" },
+    { name = "starlette", specifier = ">=0.38.0" },
+    { name = "uvicorn", specifier = ">=0.30.0" },
 ]
 
 [package.metadata.requires-dev]
