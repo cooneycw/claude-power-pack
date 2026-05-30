@@ -60,13 +60,9 @@ def test_secret_consumers_share_sidecar_token_default() -> None:
         assert env["AWS_TOKEN"] == "${AWS_TOKEN:-default-token}"
 
 
-def test_deploy_pipeline_injects_aws_credentials_for_compose() -> None:
+def test_deploy_pipeline_does_not_require_repo_aws_secrets() -> None:
     steps = _woodpecker_steps()
-    deploy_env = steps["deploy-mcp"]["environment"]
+    deploy_step = steps["deploy-mcp"]
 
-    assert deploy_env["AWS_DEFAULT_REGION"] == "us-east-1"
-    assert deploy_env["AWS_REGION"] == "us-east-1"
-    assert deploy_env["AWS_ACCESS_KEY_ID"] == {"from_secret": "aws_access_key_id"}
-    assert deploy_env["AWS_SECRET_ACCESS_KEY"] == {
-        "from_secret": "aws_secret_access_key"
-    }
+    assert "environment" not in deploy_step
+    assert "secrets" not in deploy_step
