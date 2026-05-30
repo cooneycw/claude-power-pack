@@ -114,6 +114,9 @@ cd /path/to/claude-power-pack/mcp-second-opinion
 
 # Or directly
 uv run python src/server.py --diagnose
+
+# From the repo root, smoke-test configured OpenAI-compatible model IDs
+make second-opinion-model-smoke
 ```
 
 This checks API keys, .env file, port availability, and available models.

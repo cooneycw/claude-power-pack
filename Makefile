@@ -1,6 +1,6 @@
 .PHONY: test lint format typecheck verify secret-scan update_docs clean \
        docker-build docker-check-env docker-secrets-check docker-up docker-down docker-logs docker-ps deploy \
-       bootstrap-check drift-check setup-woodpecker-cli codex-init codex-init-workspace
+       bootstrap-check drift-check setup-woodpecker-cli second-opinion-model-smoke codex-init codex-init-workspace
 
 ## Quality gates (used by /flow:finish)
 
@@ -30,6 +30,9 @@ secret-scan:
 ## Pre-deploy gate (runs all quality checks)
 
 verify: lint test typecheck
+
+second-opinion-model-smoke:
+	env UV_CACHE_DIR=$${UV_CACHE_DIR:-/tmp/uv-cache} uv run --directory mcp-second-opinion python scripts/smoke-model-catalog.py
 
 ## Documentation (used by /flow:auto and /flow:finish)
 
