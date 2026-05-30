@@ -1,6 +1,6 @@
 ---
 description: Update Claude Power Pack to the latest version
-allowed-tools: Bash(git:*), Bash(ls:*), Bash(test:*), Bash(readlink:*), Bash(cat:*), Bash(uv:*), Bash(claude mcp list:*), Bash(sudo systemctl:*), Bash(systemctl:*), Bash(command -v:*), Bash(ln:*), Bash(mkdir:*), Bash(cp:*), Bash(diff:*), Bash(find:*), Bash(grep:*), Bash(curl:*), Bash(ss:*), Bash(docker:*), AskUserQuestion
+allowed-tools: Bash(git:*), Bash(ls:*), Bash(test:*), Bash(readlink:*), Bash(cat:*), Bash(uv:*), Bash(claude mcp list:*), Bash(sudo systemctl:*), Bash(systemctl:*), Bash(command -v:*), Bash(ln:*), Bash(mkdir:*), Bash(cp:*), Bash(diff:*), Bash(find:*), Bash(grep:*), Bash(curl:*), Bash(ss:*), Bash(docker:*), Bash(make:*), Bash(python3:*), AskUserQuestion
 ---
 
 # Claude Power Pack Update
@@ -124,26 +124,112 @@ done
 
 ---
 
-## Step 5: Restart MCP Servers (if running via systemd)
+## Step 5: Detect Deployment Model and Refresh Runtime
+
+Choose exactly one runtime model for this machine. Do not run Docker and
+systemd restarts in the same update.
 
 ```bash
+cd "$CPP_DIR"
+
+DEPLOY_MODEL="venv-only"
+DOCKER_READY=false
+DOCKER_STACK_PRESENT=false
+DOCKER_STACK_CONFIGURED=false
+SYSTEMD_ACTIVE=false
+
+if command -v docker &>/dev/null && [ -f "$CPP_DIR/docker-compose.yml" ] && docker compose version &>/dev/null; then
+  DOCKER_READY=true
+
+  if docker compose --profile core --profile browser --profile cicd ps --format json 2>/dev/null | grep -q '"Service"'; then
+    DOCKER_STACK_PRESENT=true
+  elif docker ps -a --format '{{.Names}}' 2>/dev/null | grep -Eq '^(aws-secrets-agent|mcp-second-opinion|mcp-nano-banana|mcp-playwright-persistent|mcp-woodpecker-ci)$'; then
+    DOCKER_STACK_PRESENT=true
+  fi
+
+  if [ -f "$CPP_DIR/.env" ]; then
+    DOCKER_STACK_CONFIGURED=true
+  fi
+fi
+
 for service in mcp-second-opinion mcp-playwright nano-banana; do
-  if systemctl is-active $service &>/dev/null; then
-    echo ""
-    echo "Restarting $service..."
-    sudo systemctl restart $service
-    echo "Done: $service restarted"
+  if systemctl is-active "$service" &>/dev/null || systemctl is-enabled "$service" &>/dev/null; then
+    SYSTEMD_ACTIVE=true
+    break
   fi
 done
+
+if [ "$DOCKER_READY" = "true" ] && { [ "$DOCKER_STACK_PRESENT" = "true" ] || [ "$DOCKER_STACK_CONFIGURED" = "true" ]; }; then
+  DEPLOY_MODEL="docker"
+elif [ "$SYSTEMD_ACTIVE" = "true" ]; then
+  DEPLOY_MODEL="systemd"
+fi
+
+echo "Deployment model detected: $DEPLOY_MODEL"
 ```
 
-If servers are not running via systemd, remind the user to restart manually.
+### Docker Model
+
+For Docker workstations, rebuild changed images, restart the full MCP stack,
+wait for healthchecks, and print the post-update health summary.
+
+```bash
+if [ "$DEPLOY_MODEL" = "docker" ]; then
+  echo ""
+  echo "Refreshing Docker MCP stack..."
+  make docker-refresh PROFILE="core browser cicd"
+  DOCKER_REFRESH_RC=$?
+  if [ "$DOCKER_REFRESH_RC" -ne 0 ]; then
+    echo "ERROR: Docker refresh failed or one or more containers are unhealthy."
+    exit "$DOCKER_REFRESH_RC"
+  fi
+fi
+```
+
+### Systemd Model
+
+Keep the native systemd path for systemd workstations.
+
+```bash
+if [ "$DEPLOY_MODEL" = "systemd" ]; then
+  for service in mcp-second-opinion mcp-playwright nano-banana; do
+    if systemctl is-active "$service" &>/dev/null; then
+      echo ""
+      echo "Restarting $service..."
+      sudo systemctl restart "$service"
+      echo "Done: $service restarted"
+    fi
+  done
+fi
+```
+
+### Venv-Only Model
+
+```bash
+if [ "$DEPLOY_MODEL" = "venv-only" ]; then
+  echo ""
+  echo "No Docker containers or systemd services detected."
+  echo "Dependencies were synced; start MCP servers manually if needed."
+fi
+```
+
+Report the chosen model and the health/restart result to the user:
+
+```
+Runtime Refresh:
+  Model: {docker|systemd|venv-only}
+  Docker: rebuilt/restarted/healthy, or skipped
+  Systemd: restarted services, or skipped
+```
+
+If servers are not managed by Docker or systemd, remind the user to start them manually.
 
 ---
 
 ## Step 6: MCP Server Drift Detection
 
-**This is the key new step.** After pulling and restarting, scan for drift between what the repo ships and what is actually installed/running.
+After pulling and refreshing the selected runtime, scan for drift between what
+the repo ships and what is actually installed/running.
 
 ### 6a: Build Inventory
 
@@ -179,6 +265,14 @@ done
 echo ""
 echo "=== Installed MCP Inventory ==="
 
+echo "Docker containers:"
+if [ "$DOCKER_READY" = "true" ]; then
+  docker compose --profile core --profile browser --profile cicd ps 2>/dev/null || echo "  (unavailable)"
+else
+  echo "  (docker unavailable)"
+fi
+
+echo ""
 echo "Systemd services (mcp-* and nano-*):"
 systemctl list-units --type=service --all 2>/dev/null | grep -E '(mcp-|nano-|coordination)' || echo "  (none)"
 
@@ -199,15 +293,17 @@ Compare the inventories and classify each finding. Use the following logic:
 - `mcp-second-opinion` (port 8080, profile: core)
 - `mcp-nano-banana` (port 8084, profile: core)
 - `mcp-playwright-persistent` (port 8081, profile: browser)
+- `mcp-woodpecker-ci` (port 8085, profile: cicd)
 
 **Deprecated servers** (commented out in docker-compose.yml):
 - `mcp-evaluate` (deprecated - absorbed into /evaluate:issue skill)
 
 **For each known repo server**, check:
-1. Is there a systemd service installed? (`systemctl is-enabled <name>`)
-2. Is it registered in `claude mcp list`?
-3. Is the port listening?
-4. If systemd service exists, does it match the repo version? (diff the files)
+1. Is there a Docker container running/healthy?
+2. Is there a systemd service installed? (`systemctl is-enabled <name>`)
+3. Is it registered in `claude mcp list`?
+4. Is the port listening?
+5. If systemd service exists, does it match the repo version? (diff the files)
 
 **For each installed systemd service matching mcp-* or coordination**, check:
 1. Does a corresponding deploy/*.service file exist in the repo?
@@ -219,13 +315,14 @@ Build a drift report table:
 MCP Server Drift Report
 ========================
 
-Server                    Repo    Systemd   MCP Reg   Port    Status
----------------------------------------------------------------------
-mcp-second-opinion        yes     active    yes       8080    OK / STALE SERVICE
-mcp-nano-banana           yes     none      no        --      NEW - NOT INSTALLED
-mcp-playwright-persistent yes     active    yes       8081    OK / STALE SERVICE
-mcp-coordination          no      active    yes       8082    ORPHANED
-mcp-evaluate              depr.   none      no        --      OK (deprecated)
+Server                    Repo    Docker    Systemd   MCP Reg   Port    Status
+----------------------------------------------------------------------------
+mcp-second-opinion        yes     healthy   active    yes       8080    OK / STALE SERVICE
+mcp-nano-banana           yes     healthy   none      no        8084    NOT REGISTERED
+mcp-playwright-persistent yes     healthy   active    yes       8081    OK / STALE SERVICE
+mcp-woodpecker-ci         yes     healthy   none      yes       8085    OK
+mcp-coordination          no      none      active    yes       8082    ORPHANED
+mcp-evaluate              depr.   none      none      no        --      OK (deprecated)
 ```
 
 Status classifications:
@@ -233,7 +330,8 @@ Status classifications:
 - **STALE SERVICE** - installed but systemd unit differs from repo version
 - **NEW - NOT INSTALLED** - repo ships it but it is not installed
 - **ORPHANED** - installed/running but repo no longer ships it
-- **NOT RUNNING** - installed but service is not active
+- **NOT RUNNING** - installed but service/container is not active
+- **UNHEALTHY** - Docker container is running but healthcheck is failing
 - **NOT REGISTERED** - running but not in `claude mcp list`
 
 Present the drift report table to the user.
@@ -274,7 +372,7 @@ mcp-nano-banana is available in the repo but not installed.
 
 Options:
 - **Install via systemd** - Copy service file, enable, start, register with claude mcp
-- **Install via Docker** - Will be included in `make docker-up PROFILE=core` (if Docker available)
+- **Install via Docker** - Will be included in `make docker-refresh PROFILE="core browser cicd"` (if Docker model is active)
 - **Skip** - Do not install now
 
 If they choose systemd:
@@ -384,7 +482,7 @@ Your current installation: Tier {TIER}
 Available upgrades:
   Tier 1 (Minimal): Commands + Skills symlinks
   Tier 2 (Standard): + Scripts, hooks, shell prompt, permission profiles
-  Tier 3 (Full): + MCP servers (uv, API keys, systemd)
+  Tier 3 (Full): + MCP servers (Docker or systemd, uv, API keys)
 
 Would you like to upgrade to a higher tier?
 ```
@@ -416,8 +514,9 @@ Changes pulled:
 Dependencies:
   {synced servers or "No MCP venvs to update"}
 
-MCP Servers:
-  {restarted services or "Not running via systemd"}
+Runtime:
+  Model: {docker|systemd|venv-only}
+  {Docker containers rebuilt/restarted/healthy, systemd services restarted, or venv-only no restart}
 
 MCP Drift:
   {drift summary - e.g. "1 new server installed, 1 orphan removed, 2 service files updated"
@@ -435,8 +534,9 @@ Run /cpp:status for full installation details.
 - Uncommitted changes in CPP are auto-stashed before pull
 - Symlinked commands/skills are automatically updated by the git pull
 - MCP server dependencies are synced if venvs exist
-- Running systemd services are automatically restarted
-- MCP drift detection compares repo state against installed systemd services, claude mcp registrations, and listening ports
+- Docker workstations rebuild and restart containers with `make docker-refresh PROFILE="core browser cicd"` and fail if healthchecks fail
+- Running systemd services are automatically restarted on systemd-model machines
+- MCP drift detection compares repo state against Docker containers, installed systemd services, claude mcp registrations, and listening ports
 - Orphaned services (removed from repo) are flagged for cleanup
 - New servers are offered for installation via systemd or Docker
 - Stale service files are diffed and can be updated with backup

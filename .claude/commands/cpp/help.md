@@ -11,7 +11,7 @@ CPP provides commands for setting up and managing Claude Code enhancements.
 | Command | Description |
 |---------|-------------|
 | `/cpp:init` | Interactive setup wizard - install CPP components |
-| `/cpp:update` | Pull latest version, sync deps, offer tier upgrades |
+| `/cpp:update` | Pull latest version, sync deps, refresh Docker/systemd runtime, offer tier upgrades |
 | `/cpp:status` | Check current installation state |
 | `/cpp:help` | This help overview |
 
@@ -51,7 +51,8 @@ CPP uses a tiered installation model:
 ### Tier 3 - Full
 - **MCP Second Opinion** (port 8080): Gemini/OpenAI code review
 - **MCP Playwright** (port 8081): Persistent browser automation
-- **Systemd services**: Auto-start on boot (optional)
+- **Docker runtime**: First-class MCP container deployment via `make docker-refresh PROFILE="core browser cicd"`
+- **Systemd services**: Auto-start on boot (optional for native installs)
 
 ### Tier 4 - CI/CD
 - **Build System**: Framework detection, Makefile generation/validation (`/cicd:init`, `/cicd:check`)

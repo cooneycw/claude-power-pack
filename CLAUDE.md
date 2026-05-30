@@ -53,6 +53,7 @@ MCP containers fetch API keys at startup from AWS Secrets Manager via an `aws-se
 - **Profiles:** `core` (second-opinion + nano-banana + secrets-agent), `browser` (playwright), `cicd` (woodpecker-ci + secrets-agent)
 - **Start:** `make docker-up PROFILE=core`
 - **All profiles:** `make docker-up PROFILE="core browser cicd"`
+- **Rebuild/restart/wait for health:** `make docker-refresh PROFILE="core browser cicd"`
 - **Status/logs/stop:** `make docker-ps`, `make docker-logs`, `make docker-down`
 - **MCP connections:** Defined in project `.mcp.json` pointing to `127.0.0.1:{port}/sse` (SSE transport)
 - **Woodpecker CI** runs on push/PR: secret-scan (gitleaks), lint, test, typecheck, conditional Docker builds
@@ -149,7 +150,7 @@ MCP containers fetch API keys at startup from AWS Secrets Manager via an `aws-se
 - `/dockers` - Docker container status, health, project linkages
 - `/cpp:init` - Interactive setup wizard (Tiers: Minimal, Standard, Full, CI/CD)
 - `/cpp:status` - Check installation state
-- `/cpp:update` - Pull latest, sync deps
+- `/cpp:update` - Pull latest, sync deps, then refresh the detected runtime model (Docker rebuild/restart/health, systemd restart, or venv-only)
 - `/self-improvement:deployment` - Retrospective analysis after failed deploys
 - `/happy-check` - Check happy-cli version (optional)
 

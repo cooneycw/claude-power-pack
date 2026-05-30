@@ -1,6 +1,6 @@
 ---
 description: Interactive setup wizard for Claude Power Pack
-allowed-tools: Bash(mkdir:*), Bash(ln:*), Bash(ls:*), Bash(test:*), Bash(readlink:*), Bash(cat:*), Bash(cp:*), Bash(uv:*), Bash(python3:*), Bash(PYTHONPATH=*), Bash(claude mcp list:*), Bash(claude mcp add:*), Bash(sudo systemctl:*), Bash(systemctl:*), Bash(command -v:*)
+allowed-tools: Bash(mkdir:*), Bash(ln:*), Bash(ls:*), Bash(test:*), Bash(readlink:*), Bash(cat:*), Bash(cp:*), Bash(uv:*), Bash(python3:*), Bash(PYTHONPATH=*), Bash(claude mcp list:*), Bash(claude mcp add:*), Bash(sudo systemctl:*), Bash(systemctl:*), Bash(command -v:*), Bash(git:*), Bash(docker:*), Bash(make:*), Bash(sleep:*)
 ---
 
 # Claude Power Pack Setup Wizard
@@ -578,25 +578,40 @@ echo "✓ Chromium browser installed"
 **First, detect the deployment mode:**
 
 ```bash
-# Detect deployment mode
-DEPLOY_MODE="native"
-if [ -f "$CPP_DIR/docker-compose.yml" ]; then
-  # Check if Docker containers are running for MCP servers
-  if docker ps --format '{{.Names}}' 2>/dev/null | grep -q "mcp-second-opinion"; then
-    DEPLOY_MODE="docker"
-  elif sg docker -c "docker ps --format '{{.Names}}'" 2>/dev/null | grep -q "mcp-second-opinion"; then
-    DEPLOY_MODE="docker"
-  fi
-  # Also check if .mcp.json points to SSE (Docker-hosted)
-  if [ -f "$CPP_DIR/../.mcp.json" ] || [ -f "$(git rev-parse --show-toplevel 2>/dev/null)/.mcp.json" ]; then
-    for mcp_json in "$CPP_DIR/../.mcp.json" "$(git rev-parse --show-toplevel 2>/dev/null)/.mcp.json"; do
-      if [ -f "$mcp_json" ] && grep -q '"type": "sse"' "$mcp_json" 2>/dev/null && grep -q '8080' "$mcp_json" 2>/dev/null; then
-        DEPLOY_MODE="docker"
-        break
-      fi
-    done
+# Detect deployment mode. Choose exactly one model:
+#   docker     - Docker Compose stack present, or new install with Docker available
+#   systemd    - existing systemd MCP services
+#   venv-only  - local venvs without managed restart
+DEPLOY_MODE="venv-only"
+DOCKER_READY=false
+DOCKER_STACK_PRESENT=false
+SYSTEMD_ACTIVE=false
+
+if command -v docker &>/dev/null && [ -f "$CPP_DIR/docker-compose.yml" ] && docker compose version &>/dev/null; then
+  DOCKER_READY=true
+  if docker compose --profile core --profile browser --profile cicd ps --format json 2>/dev/null | grep -q '"Service"'; then
+    DOCKER_STACK_PRESENT=true
+  elif docker ps -a --format '{{.Names}}' 2>/dev/null | grep -Eq '^(aws-secrets-agent|mcp-second-opinion|mcp-nano-banana|mcp-playwright-persistent|mcp-woodpecker-ci)$'; then
+    DOCKER_STACK_PRESENT=true
   fi
 fi
+
+for service in mcp-second-opinion mcp-playwright nano-banana; do
+  if systemctl is-active "$service" &>/dev/null || systemctl is-enabled "$service" &>/dev/null; then
+    SYSTEMD_ACTIVE=true
+    break
+  fi
+done
+
+if [ "$DOCKER_STACK_PRESENT" = "true" ]; then
+  DEPLOY_MODE="docker"
+elif [ "$SYSTEMD_ACTIVE" = "true" ]; then
+  DEPLOY_MODE="systemd"
+elif [ "$DOCKER_READY" = "true" ]; then
+  # Fresh installs prefer Docker when available.
+  DEPLOY_MODE="docker"
+fi
+
 echo "Deployment mode detected: $DEPLOY_MODE"
 ```
 
@@ -684,10 +699,14 @@ if [ "$SECRET_METHOD" = "1" ]; then
   echo "To change these mappings, edit the environment section in docker-compose.yml."
   echo ""
 
-  # Start containers with sidecar
-  echo "Starting MCP containers with AWS sidecar..."
-  make docker-down 2>/dev/null
-  make docker-up PROFILE=core
+  # Rebuild and restart containers with sidecar
+  echo "Refreshing MCP containers with AWS sidecar..."
+  make docker-refresh PROFILE="core browser cicd"
+  DOCKER_REFRESH_RC=$?
+  if [ "$DOCKER_REFRESH_RC" -ne 0 ]; then
+    echo "ERROR: Docker refresh failed or one or more containers are unhealthy."
+    exit "$DOCKER_REFRESH_RC"
+  fi
   echo ""
 
   # Verify secrets were loaded
@@ -706,7 +725,8 @@ fi
 
 **Path 2: Direct .env file (fallback or non-Docker)**
 
-This path runs when: `DEPLOY_MODE=native`, OR `AWS_SIDECAR_AVAILABLE=false`, OR the user chose option 2.
+This path runs when: `DEPLOY_MODE=venv-only`, OR `DEPLOY_MODE=systemd`, OR
+`AWS_SIDECAR_AVAILABLE=false`, OR the user chose option 2.
 
 Prompt the user for API keys:
 
@@ -768,19 +788,23 @@ if [ "$DEPLOY_MODE" = "docker" ]; then
 fi
 ```
 
-**If Docker mode (Path 2 only), offer to restart containers to pick up new keys:**
+**If Docker mode (Path 2 only), rebuild and restart containers to pick up new keys:**
 
 ```
-API keys configured. Docker containers need to be restarted to pick up the new keys.
-
-Restart MCP containers now? [Y/n]
+API keys configured. Docker containers will be rebuilt and restarted to pick up the new keys.
 ```
 
-If yes:
 ```bash
-cd "$CPP_DIR"
-make docker-down && make docker-up PROFILE=core
-echo "Docker containers restarted with new API keys"
+if [ "$DEPLOY_MODE" = "docker" ]; then
+  cd "$CPP_DIR"
+  make docker-refresh PROFILE="core browser cicd"
+  DOCKER_REFRESH_RC=$?
+  if [ "$DOCKER_REFRESH_RC" -ne 0 ]; then
+    echo "ERROR: Docker refresh failed or one or more containers are unhealthy."
+    exit "$DOCKER_REFRESH_RC"
+  fi
+  echo "Docker containers rebuilt, restarted, and healthy"
+fi
 ```
 
 Optional: Ask for OPENAI_API_KEY and ANTHROPIC_API_KEY for multi-model comparison.
@@ -1014,7 +1038,17 @@ echo "✓ Woodpecker CI MCP server installed and registered"
 
 ## Step 6: Systemd Services (Optional)
 
-After Tier 3 completes, offer systemd setup:
+After Tier 3 completes, offer systemd setup only when the selected deployment
+model is not Docker. Docker-model installs already rebuilt, restarted, and
+health-checked containers with `make docker-refresh PROFILE="core browser cicd"`.
+
+```bash
+if [ "$DEPLOY_MODE" = "docker" ]; then
+  echo "Docker deployment model selected - skipping systemd service setup."
+else
+  echo "Systemd service setup is available for native installs."
+fi
+```
 
 ```
 === Optional: Systemd Services ===
@@ -1074,6 +1108,10 @@ Secrets:
   Method: {AWS Secrets Manager sidecar | Direct .env}
   Validate: make docker-secrets-check
 
+Deployment:
+  Model: {docker|systemd|venv-only}
+  Docker refresh: make docker-refresh PROFILE="core browser cicd" (Docker model only)
+
 MCP Servers:
   • second-opinion (port 8080) - Gemini/OpenAI code review
   • playwright-persistent (port 8081) - Browser automation
@@ -1084,7 +1122,7 @@ Next Steps:
   1. Start MCP servers (if not using systemd or Docker):
      cd {CPP_DIR}/mcp-second-opinion && ./start-server.sh &
      cd {CPP_DIR}/mcp-playwright-persistent && ./start-server.sh &
-     Or for Docker: make docker-up PROFILE=core
+     Or for Docker: make docker-refresh PROFILE="core browser cicd"
 
   2. Restart your shell to apply prompt changes:
      source ~/.bashrc
@@ -1219,7 +1257,7 @@ else
         echo "✓ $NAME registered with Codex (http://127.0.0.1:${PORT}/mcp)"
       else
         echo "⚠ $NAME not reachable on port $PORT - skipping Codex registration"
-        echo "  Start containers first: make docker-up PROFILE=core"
+        echo "  Start containers first: make docker-refresh PROFILE=\"core browser cicd\""
       fi
     fi
   done

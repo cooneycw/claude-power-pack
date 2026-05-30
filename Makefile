@@ -1,5 +1,5 @@
 .PHONY: test lint format typecheck verify secret-scan update_docs clean \
-       docker-build docker-check-env docker-secrets-check docker-up docker-down docker-logs docker-ps deploy \
+       docker-build docker-check-env docker-secrets-check docker-up docker-refresh docker-health docker-down docker-logs docker-ps deploy \
        bootstrap-check drift-check setup-woodpecker-cli second-opinion-model-smoke codex-init codex-init-workspace
 
 ## Quality gates (used by /flow:finish)
@@ -43,12 +43,15 @@ update_docs:
 ## Docker (MCP server containers)
 ## Usage: make docker-up PROFILE=core
 ##        make docker-up PROFILE="core browser"
+##        make docker-refresh PROFILE="core browser cicd"
 ## Profiles: core (second-opinion + nano-banana), browser, coord
 
 PROFILE ?= core
+DOCKER_UP_FLAGS ?= -d
+DOCKER_PROFILES = $(foreach p,$(PROFILE),--profile $(p))
 
 docker-build:
-	$(foreach p,$(PROFILE),docker compose --profile $(p) build;)
+	docker compose $(DOCKER_PROFILES) build
 
 docker-check-env:
 	@if [ ! -f .env ]; then \
@@ -95,7 +98,15 @@ docker-secrets-check:
 	@echo "Done."
 
 docker-up: docker-check-env
-	$(foreach p,$(PROFILE),docker compose --profile $(p) up -d;)
+	docker compose $(DOCKER_PROFILES) up $(DOCKER_UP_FLAGS)
+
+docker-refresh:
+	@$(MAKE) docker-up PROFILE="$(PROFILE)" DOCKER_UP_FLAGS="-d --build --wait"
+	@$(MAKE) docker-health PROFILE="$(PROFILE)"
+
+docker-health:
+	docker compose $(DOCKER_PROFILES) ps
+	@python3 scripts/docker-health-check.py --profiles "$(PROFILE)"
 
 docker-down:
 	docker compose --profile core --profile browser --profile cicd --profile coord down
@@ -118,9 +129,7 @@ drift-check:
 
 ## Deploy (used by Woodpecker CI and /flow:deploy)
 
-deploy: docker-build docker-up
-	@sleep 5
-	@$(MAKE) docker-ps
+deploy: docker-refresh
 
 ## Woodpecker CLI setup
 
