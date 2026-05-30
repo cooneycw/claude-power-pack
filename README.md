@@ -113,7 +113,7 @@ AWS_TOKEN=my-ssrf-token
 make docker-secrets-check
 ```
 
-If the sidecar is unreachable or `AWS_SECRET_NAME` is not set on a container, it falls back to `env_file` variables for local development. See `aws-secrets-agent/` and `docs/AWS_SECRETS_SIDECAR.md` for details.
+If the sidecar is unreachable or `AWS_SECRET_NAME` is not set on a container, it falls back to `env_file` variables for local development. `make docker-up` refuses to create the sidecar when required AWS credential variables resolve empty, because Docker Compose bakes env at container create time. See `aws-secrets-agent/` and `docs/AWS_SECRETS_SIDECAR.md` for details.
 
 ## CI/CD
 

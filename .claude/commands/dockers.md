@@ -121,6 +121,7 @@ Present a structured report:
 Based on findings, suggest relevant actions:
 
 - **No API keys:** Create `.env` in claude-power-pack root with `GEMINI_API_KEY=...`, then `make docker-down && make docker-up PROFILE=core`. Or run `/cpp:init` to configure interactively.
+- **Sidecar dependency strand:** If `aws-secrets-agent` is restarting/unhealthy and secret-dependent containers such as `mcp-second-opinion` or `mcp-woodpecker-ci` are `Created` with no logs, fix `.env` or shell AWS credentials and run `docker compose --profile core --profile cicd up -d --force-recreate aws-secrets-agent mcp-second-opinion mcp-woodpecker-ci`.
 - **Unhealthy containers:** `make docker-down && make docker-up PROFILE=core`
 - **Missing profiles:** `make docker-up PROFILE=browser` (if browser not running)
 - **No MCP containers:** `make docker-build PROFILE=core && make docker-up PROFILE=core`

@@ -285,21 +285,40 @@ done
 # Check AWS Secrets Manager sidecar
 echo ""
 echo "AWS Secrets Sidecar:"
-SIDECAR_CONTAINER=$(docker ps --format '{{.Names}}' 2>/dev/null | grep "aws-secrets-agent" || true)
+SIDECAR_CONTAINER=$(docker ps -a --format '{{.Names}}' 2>/dev/null | grep "aws-secrets-agent" || true)
 if [ -n "$SIDECAR_CONTAINER" ]; then
+  SIDECAR_STATE=$(docker inspect --format='{{.State.Status}}' aws-secrets-agent 2>/dev/null || echo "unknown")
   SIDECAR_HEALTH=$(docker inspect --format='{{.State.Health.Status}}' aws-secrets-agent 2>/dev/null || echo "unknown")
+  SIDECAR_RESTARTS=$(docker inspect --format='{{.RestartCount}}' aws-secrets-agent 2>/dev/null || echo "unknown")
   if [ "$SIDECAR_HEALTH" = "healthy" ]; then
-    echo "  [x] aws-secrets-agent: running, healthy (port 2773)"
+    echo "  [x] aws-secrets-agent: $SIDECAR_STATE, healthy (port 2773)"
   else
-    echo "  [~] aws-secrets-agent: running, status=$SIDECAR_HEALTH"
+    echo "  [~] aws-secrets-agent: state=$SIDECAR_STATE, health=$SIDECAR_HEALTH, restarts=$SIDECAR_RESTARTS"
+  fi
+  BAKED_AWS_KEY=$(docker inspect --format='{{range .Config.Env}}{{println .}}{{end}}' aws-secrets-agent 2>/dev/null | grep '^AWS_ACCESS_KEY_ID=' | cut -d= -f2-)
+  BAKED_AWS_SECRET=$(docker inspect --format='{{range .Config.Env}}{{println .}}{{end}}' aws-secrets-agent 2>/dev/null | grep '^AWS_SECRET_ACCESS_KEY=' | cut -d= -f2-)
+  if [ -z "$BAKED_AWS_KEY" ] || [ -z "$BAKED_AWS_SECRET" ]; then
+    echo "  [!] aws-secrets-agent baked AWS credentials are empty/missing"
   fi
   # Show which MCP containers use the sidecar
+  CREATED_SECRET_CONTAINERS=""
   for container in mcp-second-opinion mcp-woodpecker-ci; do
     SECRET_NAME=$(docker inspect --format='{{range .Config.Env}}{{println .}}{{end}}' "$container" 2>/dev/null | grep "^AWS_SECRET_NAME=" | cut -d= -f2)
+    CONTAINER_STATE=$(docker inspect --format='{{.State.Status}}' "$container" 2>/dev/null || echo "missing")
     if [ -n "$SECRET_NAME" ]; then
-      echo "    $container -> $SECRET_NAME"
+      echo "    $container -> $SECRET_NAME (state=$CONTAINER_STATE)"
+      if [ "$CONTAINER_STATE" = "created" ]; then
+        CREATED_SECRET_CONTAINERS="$CREATED_SECRET_CONTAINERS $container"
+      fi
     fi
   done
+  if [ -n "$CREATED_SECRET_CONTAINERS" ] && [ "$SIDECAR_HEALTH" != "healthy" ]; then
+    echo "  [!] Detected sidecar dependency strand: $CREATED_SECRET_CONTAINERS"
+    echo "      Secret-dependent containers are Created with no logs while aws-secrets-agent is not healthy."
+    echo "      Docker Compose captured sidecar env at container create time; restart will not reload fixed creds."
+    echo "      If .env or shell AWS creds are now valid, run:"
+    echo "      cd $CPP_DIR && docker compose --profile core --profile cicd up -d --force-recreate aws-secrets-agent mcp-second-opinion mcp-woodpecker-ci"
+  fi
   # Check AWS credential validity
   if [ -f "$CPP_DIR/.env" ] && grep -qE '^AWS_ACCESS_KEY_ID=.+' "$CPP_DIR/.env" 2>/dev/null; then
     echo "  [x] AWS credentials: present in .env"

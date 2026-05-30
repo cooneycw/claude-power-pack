@@ -147,6 +147,8 @@ The sidecar builds the [upstream AWS agent](https://github.com/aws/aws-secretsma
 |---------|-------|-----|
 | `no_api_keys` in health_check | Secrets not loaded | Check `docker logs aws-secrets-agent` for AWS auth errors |
 | `Failed to fetch secrets after 30 retries` | Agent not healthy | Run `make docker-secrets-check`, verify AWS creds |
+| `aws-secrets-agent cannot start: AWS credentials empty/missing` | Sidecar was created with empty `AWS_ACCESS_KEY_ID` or `AWS_SECRET_ACCESS_KEY` | Fix `.env` or shell AWS env, then run `docker compose --profile core --profile cicd up -d --force-recreate aws-secrets-agent mcp-second-opinion mcp-woodpecker-ci` |
+| Secret-dependent MCP containers stay `Created` with no logs | `aws-secrets-agent` is unhealthy before dependents can start | Run `make docker-health PROFILE="core cicd"` for the force-recreate remedy |
 | Container starts but keys are stale | Secret cache TTL | Wait 300s or restart `aws-secrets-agent` |
 | `FAIL: AWS credentials invalid` | Expired or wrong creds | Refresh `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` in `.env` |
 | `WARNING: skipping invalid key` | Secret JSON key has invalid chars | Fix the key name in AWS Secrets Manager |
