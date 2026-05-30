@@ -248,6 +248,7 @@ def test_woodpecker_runtime_smoke_is_ephemeral_and_tears_down() -> None:
     assert "export AWS_SECRET_ACCESS_KEY=cpp-smoke-secret-key" in commands
     assert "export AWS_SESSION_TOKEN=cpp-smoke-session-token" in commands
     assert "export AWS_TOKEN=cpp-smoke-token" in commands
+    assert 'export CPP_CONTAINER_PREFIX="cpp-smoke-${CI_PIPELINE_NUMBER:-local}-"' in commands
     assert "export SECOND_OPINION_AWS_SECRET_NAME=" in commands
     assert "export WOODPECKER_CI_AWS_SECRET_NAME=" in commands
     assert "export AWS_SECRETS_AGENT_PORT_MAPPING=2773" in commands

@@ -122,7 +122,7 @@ steps:
         # Keep smoke runs independent from real developer stacks and real AWS secrets.
         # The prefix gives every container a project-unique name so a smoke run never
         # collides with a real stack (which uses the empty-prefix default names).
-        export CPP_CONTAINER_PREFIX="${PROJECT}-"
+        export CPP_CONTAINER_PREFIX="cpp-smoke-${CI_PIPELINE_NUMBER:-local}-"
         export AWS_ACCESS_KEY_ID=cpp-smoke-access-key
         export AWS_SECRET_ACCESS_KEY=cpp-smoke-secret-key
         export AWS_SESSION_TOKEN=cpp-smoke-session-token
