@@ -3,7 +3,7 @@
 import logging
 import os
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
 
@@ -238,7 +238,7 @@ class Config:
     # Available Models for Multi-Model Selection
     # ==========================================================================
     # All models available for second opinion consultation
-    AVAILABLE_MODELS: Dict[str, Dict[str, str]] = {
+    AVAILABLE_MODELS: Dict[str, Dict[str, Any]] = {
         # Gemini models
         "gemini-3.5-flash": {
             "provider": "gemini",
@@ -394,6 +394,7 @@ class Config:
             "display_name": "Llama 4 Scout (Groq)",
             "description": "Day-zero Llama 4, fast inference (128K context)",
             "free": True,
+            "max_output_tokens": 32768,
         },
         "groq-llama4-maverick": {
             "provider": "groq",
@@ -401,6 +402,7 @@ class Config:
             "display_name": "Llama 4 Maverick (Groq)",
             "description": "Llama 4 128-expert MoE, strong reasoning (128K context)",
             "free": True,
+            "max_output_tokens": 32768,
         },
         "groq-deepseek-r1": {
             "provider": "groq",
@@ -408,6 +410,7 @@ class Config:
             "display_name": "DeepSeek R1 Distill (Groq)",
             "description": "R1-distilled reasoning on Groq's fast infra",
             "free": True,
+            "max_output_tokens": 32768,
         },
         "groq-llama-70b": {
             "provider": "groq",
@@ -415,6 +418,7 @@ class Config:
             "display_name": "Llama 3.3 70B (Groq)",
             "description": "Fast inference, solid code review (128K context)",
             "free": True,
+            "max_output_tokens": 32768,
         },
         "groq-qwen-32b": {
             "provider": "groq",
@@ -422,6 +426,7 @@ class Config:
             "display_name": "Qwen3 32B (Groq)",
             "description": "Strong reasoning on Groq's fast infra (128K context)",
             "free": True,
+            "max_output_tokens": 32768,
         },
         # DeepSeek models (near-free, V4 model IDs)
         "deepseek-v4-flash": {
@@ -501,6 +506,11 @@ class Config:
 
     # Generation Parameters
     MAX_TOKENS: int = 49152  # 48K base output tokens (detailed verbosity default)
+
+    # Provider-level output ceilings used when a model does not specify its own.
+    PROVIDER_MAX_OUTPUT_TOKENS: Dict[str, int] = {
+        "groq": 32768,
+    }
 
     # Verbosity-driven output token limits
     VERBOSITY_MAX_TOKENS: Dict[str, int] = {
@@ -691,6 +701,36 @@ class Config:
         canonical = cls.VERBOSITY_SYNONYMS.get(verbosity, verbosity)
         max_tokens = cls.VERBOSITY_MAX_TOKENS.get(canonical, cls.MAX_TOKENS)
         return canonical, max_tokens
+
+    @classmethod
+    def get_model_max_output_tokens(cls, model_key: str) -> Optional[int]:
+        """Return the configured output-token ceiling for a model, if one exists."""
+        model_info = cls.AVAILABLE_MODELS.get(model_key)
+        if not model_info:
+            return None
+
+        ceiling = model_info.get("max_output_tokens")
+        if isinstance(ceiling, int):
+            return ceiling
+
+        provider = model_info.get("provider")
+        if isinstance(provider, str):
+            return cls.PROVIDER_MAX_OUTPUT_TOKENS.get(provider)
+
+        return None
+
+    @classmethod
+    def clamp_max_tokens_for_model(cls, model_key: str, requested_max_tokens: int) -> tuple[int, Optional[int]]:
+        """
+        Clamp requested output tokens to the provider/model ceiling.
+
+        Returns:
+            Tuple of (effective_max_tokens, configured_ceiling).
+        """
+        ceiling = cls.get_model_max_output_tokens(model_key)
+        if ceiling is None:
+            return requested_max_tokens, None
+        return min(requested_max_tokens, ceiling), ceiling
 
     @classmethod
     def is_url_allowed(cls, url: str, approved_domains: List[str] = None) -> tuple[str, str, str]:

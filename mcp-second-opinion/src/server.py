@@ -627,6 +627,16 @@ async def get_single_model_response(
 
     provider = model_info["provider"]
     model_id = model_info["model_id"]
+    effective_max_tokens, token_ceiling = Config.clamp_max_tokens_for_model(model_key, max_tokens)
+    if effective_max_tokens != max_tokens:
+        logger.info(
+            "Clamped max_tokens for %s/%s from %s to %s (ceiling=%s)",
+            provider,
+            model_id,
+            max_tokens,
+            effective_max_tokens,
+            token_ceiling,
+        )
 
     try:
         # Route to appropriate provider
@@ -641,14 +651,20 @@ async def get_single_model_response(
             }
 
         if provider == "gemini":
-            response, model_used = await get_gemini_streaming_response(prompt, model_id, max_tokens=max_tokens)
+            response, model_used = await get_gemini_streaming_response(
+                prompt, model_id, max_tokens=effective_max_tokens,
+            )
         elif provider == "openai":
-            response, model_used = await get_openai_streaming_response(prompt, model_id, max_tokens=max_tokens)
+            response, model_used = await get_openai_streaming_response(
+                prompt, model_id, max_tokens=effective_max_tokens,
+            )
         elif provider == "anthropic":
-            response, model_used = await get_anthropic_response(prompt, model_id, max_tokens=max_tokens)
+            response, model_used = await get_anthropic_response(
+                prompt, model_id, max_tokens=effective_max_tokens,
+            )
         elif provider in _openai_compatible_clients:
             response, model_used = await get_openai_compatible_response(
-                prompt, model_id, provider, max_tokens=max_tokens,
+                prompt, model_id, provider, max_tokens=effective_max_tokens,
             )
         else:
             return {
