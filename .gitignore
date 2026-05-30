@@ -19,9 +19,14 @@ ENV/
 
 # Environment Variables
 .env
+.env.*
 .env.local
 *.env
 !.env.example
+*.pem
+*.key
+*.p12
+secrets.*
 
 # IDE
 .vscode/
@@ -46,6 +51,7 @@ desktop.ini
 node_modules/
 .claude/settings*.json
 .claude/plans/
+.claude/security.yml
 
 # Logs
 *.log
