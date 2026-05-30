@@ -28,6 +28,13 @@ ENV/
 *.p12
 secrets.*
 
+# Secrets and private keys
+*.pem
+*.key
+secrets.*
+*.p12
+.claude/security.yml
+
 # IDE
 .vscode/
 .idea/

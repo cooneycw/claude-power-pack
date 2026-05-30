@@ -21,9 +21,11 @@ def fetch_claudecode_posts(limit=25):
     client_id = os.getenv("REDDIT_CLIENT_ID")
     client_secret = os.getenv("REDDIT_CLIENT_SECRET")
     if not client_id or not client_secret:
-        raise RuntimeError("Set REDDIT_CLIENT_ID and REDDIT_CLIENT_SECRET before fetching Reddit posts")
+        raise RuntimeError(
+            "Set REDDIT_CLIENT_ID and REDDIT_CLIENT_SECRET before fetching Reddit posts."
+        )
 
-    # Create a read-only Reddit instance (no authentication needed)
+    # Create a read-only Reddit instance.
     reddit = praw.Reddit(
         client_id=client_id,
         client_secret=client_secret,

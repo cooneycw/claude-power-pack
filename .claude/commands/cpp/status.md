@@ -447,7 +447,7 @@ Tier 3 (Full):
     [ ] playwright-persistent (port 8081): not reachable
   AWS Secrets Sidecar:
     [x] aws-secrets-agent: running, healthy (port 2773)
-        mcp-second-opinion -> claude-power-pack/mcp-keys
+        mcp-second-opinion -> codex_llm_apikeys
         mcp-woodpecker-ci -> essent-ai
     [x] AWS credentials: present in .env
     Secret method: AWS Secrets Manager

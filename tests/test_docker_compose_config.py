@@ -60,6 +60,43 @@ def test_secret_consumers_share_sidecar_token_default() -> None:
         assert env["AWS_TOKEN"] == "${AWS_TOKEN:-default-token}"
 
 
+def test_second_opinion_uses_secret_with_free_tier_provider_keys() -> None:
+    services = _compose_services()
+    env = _env_list_to_map(services["mcp-second-opinion"]["environment"])
+
+    assert env["AWS_SECRET_NAME"] == "codex_llm_apikeys"
+
+    expected_keys = [
+        "GEMINI_API_KEY",
+        "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "MISTRAL_API_KEY",
+        "GROQ_API_KEY",
+        "OPENROUTER_API_KEY",
+        "DEEPSEEK_API_KEY",
+    ]
+    docs = (
+        Path(__file__).resolve().parents[1] / "docs" / "AWS_SECRETS_SIDECAR.md"
+    ).read_text()
+    for key in expected_keys:
+        assert key in docs
+
+
+def test_legacy_second_opinion_secret_name_is_not_documented() -> None:
+    root = Path(__file__).resolve().parents[1]
+    checked_paths = [
+        root / "docker-compose.yml",
+        root / "CLAUDE.md",
+        root / "README.md",
+        root / "docs" / "AWS_SECRETS_SIDECAR.md",
+        root / ".claude" / "commands" / "cpp" / "init.md",
+        root / ".claude" / "commands" / "cpp" / "status.md",
+    ]
+
+    for path in checked_paths:
+        assert "claude-power-pack/mcp-keys" not in path.read_text()
+
+
 def test_deploy_pipeline_does_not_require_repo_aws_secrets() -> None:
     steps = _woodpecker_steps()
     deploy_step = steps["deploy-mcp"]
