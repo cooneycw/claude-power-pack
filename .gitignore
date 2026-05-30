@@ -19,9 +19,17 @@ ENV/
 
 # Environment Variables
 .env
+.env.*
 .env.local
 *.env
 !.env.example
+
+# Secrets and private keys
+*.pem
+*.key
+secrets.*
+*.p12
+.claude/security.yml
 
 # IDE
 .vscode/

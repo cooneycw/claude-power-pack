@@ -99,6 +99,8 @@ make docker-down                  # stop all
 
 MCP containers fetch API keys at startup from AWS Secrets Manager via an `aws-secrets-agent` sidecar (Rust binary, port 2773). Local development can store only AWS credentials in the root `.env` file (gitignored), while CI/deploy can inject the same variables through the job environment. Application secrets are not stored on disk.
 
+`mcp-second-opinion` uses `AWS_SECRET_NAME=codex_llm_apikeys`. That secret must include `GEMINI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `MISTRAL_API_KEY`, `GROQ_API_KEY`, `OPENROUTER_API_KEY`, and `DEEPSEEK_API_KEY` so the free-tier model catalog is available in the deployed container.
+
 ```bash
 # Minimal .env (no application secrets):
 AWS_ACCESS_KEY_ID=...

@@ -86,13 +86,9 @@ docker-secrets-check:
 		exit 1; \
 	fi
 	@. .env 2>/dev/null; \
-	for secret in codex_llm_apikeys essent-ai; do \
-		if aws secretsmanager describe-secret --secret-id "$$secret" > /dev/null 2>&1; then \
-			echo "OK: Secret '$$secret' exists"; \
-		else \
-			echo "WARN: Secret '$$secret' not found (services using it will fall back to env_file)"; \
-		fi; \
-	done
+	python3 scripts/check-aws-secret-keys.py \
+		--required codex_llm_apikeys:GEMINI_API_KEY,OPENAI_API_KEY,ANTHROPIC_API_KEY,MISTRAL_API_KEY,GROQ_API_KEY,OPENROUTER_API_KEY,DEEPSEEK_API_KEY \
+		--optional essent-ai:WOODPECKER_URL,WOODPECKER_API_TOKEN
 	@echo "Done."
 
 docker-up: docker-check-env

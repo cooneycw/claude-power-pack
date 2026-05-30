@@ -111,6 +111,7 @@ SKIP_FILES = {"package-lock.json", "yarn.lock", "uv.lock", "poetry.lock"}
 SKIP_PATTERN_FILES = {
     "secrets-mask.sh", "hook-mask-output.sh", "masking.py",
     "explain.py", "secrets.py",  # the scanner itself and explanation docs
+    "test_creds_masking.py", "test_security_models.py", "test_security_scanners.py",
 }
 
 

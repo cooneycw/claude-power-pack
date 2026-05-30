@@ -5,6 +5,7 @@ This script uses PRAW in read-only mode (no authentication required).
 """
 
 import json
+import os
 from datetime import datetime
 
 import praw
@@ -17,10 +18,17 @@ def fetch_claudecode_posts(limit=25):
     Args:
         limit: Number of posts to fetch (default: 25)
     """
-    # Create a read-only Reddit instance (no authentication needed)
+    client_id = os.getenv("REDDIT_CLIENT_ID")
+    client_secret = os.getenv("REDDIT_CLIENT_SECRET")
+    if not client_id or not client_secret:
+        raise RuntimeError(
+            "Set REDDIT_CLIENT_ID and REDDIT_CLIENT_SECRET before fetching Reddit posts."
+        )
+
+    # Create a read-only Reddit instance.
     reddit = praw.Reddit(
-        client_id="your_client_id_here",  # You'll need to add this
-        client_secret="your_client_secret_here",  # You'll need to add this
+        client_id=client_id,
+        client_secret=client_secret,
         user_agent="claude-power-pack-fetcher/1.0"
     )
 
