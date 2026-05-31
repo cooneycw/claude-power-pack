@@ -1,9 +1,8 @@
 #!/bin/sh
-# Authenticate Docker Hub for the runtime-smoke step so compose base-image pulls
-# are not subject to the anonymous pull rate limit (issue #370). Kept in a script
-# file rather than inline because Woodpecker mangles nested quotes in inline
-# commands. Non-fatal when the secret is absent (e.g. forked PRs): the build
-# simply pulls unauthenticated, preserving prior behaviour.
+# Authenticate Docker Hub pulls in CI so base-image pulls do not use the
+# anonymous rate limit. Kept in a script file because Woodpecker mangles nested
+# quotes in inline commands. Non-fatal when secrets are absent, preserving
+# fork/PR behaviour where repository secrets may not be exposed.
 set -eu
 
 if [ -n "${DOCKERHUB_TOKEN:-}" ] && [ -n "${DOCKERHUB_USERNAME:-}" ]; then

@@ -1,9 +1,9 @@
 # Claude Power Pack - Woodpecker CI Pipeline
-# Runs quality gates, dry-run Docker builds, and ephemeral MCP runtime smoke tests.
+# Runs quality gates, image security checks, and ephemeral MCP runtime smoke tests.
 #
 # Pipeline:
-#   PR/push -> secret-scan -> validate (lint+test+typecheck) -> conditional Docker builds
-#   MCP/compose/shared changes -> runtime-smoke (isolated compose up, health checks, teardown)
+#   PR/push -> secret-scan -> validate (lint+test+typecheck) -> Dockerfile lint + compose policy
+#   MCP/compose/shared changes -> image build/CVE/SBOM gate -> runtime-smoke
 
 when:
   - event: [push, pull_request]
@@ -23,128 +23,123 @@ steps:
       - uv run pytest
       - uv run mypy .
 
-  build-aws-secrets-agent:
-    image: woodpeckerci/plugin-docker-buildx
+  dockerfile-lint:
+    image: ghcr.io/hadolint/hadolint:v2.14.0-debian
+    pull: true
     depends_on: [validate]
-    settings:
-      repo: aws-secrets-agent
-      dockerfile: aws-secrets-agent/Dockerfile
-      context: aws-secrets-agent
-      tags: latest
-      dry_run: true
-      # Authenticate base-image pulls to avoid Docker Hub anonymous 429s (#370).
-      username:
-        from_secret: dockerhub_username
-      password:
-        from_secret: dockerhub_token
-    when:
-      - event: [push, pull_request]
-        path:
-          - ".woodpecker.yml"
-          - "docker-compose.yml"
-          - "aws-secrets-agent/**"
+    commands:
+      - find . -path ./.git -prune -o -name Dockerfile -print0 | xargs -0 hadolint --failure-threshold error
 
-  build-second-opinion:
-    image: woodpeckerci/plugin-docker-buildx
+  compose-policy:
+    image: codeberg.org/woodpecker-plugins/docker-buildx:6.1.0@sha256:33263f74a593ddef5d4faeb39ae9f87db14d64d8aae8186284ae6e90d89298a4
     depends_on: [validate]
-    settings:
-      repo: mcp-second-opinion
-      dockerfile: mcp-second-opinion/deploy/Dockerfile
-      context: mcp-second-opinion
-      tags: latest
-      dry_run: true
-      # Authenticate base-image pulls to avoid Docker Hub anonymous 429s (#370).
-      username:
-        from_secret: dockerhub_username
-      password:
-        from_secret: dockerhub_token
-    when:
-      - event: [push, pull_request]
-        path:
-          - ".woodpecker.yml"
-          - "docker-compose.yml"
-          - "aws-secrets-agent/**"
-          - "lib/**"
-          - "mcp-second-opinion/**"
+    commands:
+      - apk add --no-cache docker-cli-compose
+      - |
+        set -eu
 
-  build-playwright:
-    image: woodpeckerci/plugin-docker-buildx
-    depends_on: [validate]
-    settings:
-      repo: mcp-playwright-persistent
-      dockerfile: mcp-playwright-persistent/deploy/Dockerfile
-      context: mcp-playwright-persistent
-      tags: latest
-      dry_run: true
-      # Authenticate base-image pulls to avoid Docker Hub anonymous 429s (#370).
-      username:
-        from_secret: dockerhub_username
-      password:
-        from_secret: dockerhub_token
-    when:
-      - event: [push, pull_request]
-        path:
-          - ".woodpecker.yml"
-          - "docker-compose.yml"
-          - "lib/**"
-          - "mcp-playwright-persistent/**"
+        export AWS_TOKEN=ci-policy-token
+        export AWS_SECRETS_AGENT_PORT_MAPPING=2773
+        export MCP_SECOND_OPINION_PORT_MAPPING=8080
+        export MCP_PLAYWRIGHT_PORT_MAPPING=8081
+        export MCP_NANO_BANANA_PORT_MAPPING=8084
+        export MCP_WOODPECKER_CI_PORT_MAPPING=8085
 
-  build-nano-banana:
-    image: woodpeckerci/plugin-docker-buildx
-    depends_on: [validate]
-    settings:
-      repo: mcp-nano-banana
-      dockerfile: mcp-nano-banana/deploy/Dockerfile
-      context: mcp-nano-banana
-      tags: latest
-      dry_run: true
-      # Authenticate base-image pulls to avoid Docker Hub anonymous 429s (#370).
-      username:
-        from_secret: dockerhub_username
-      password:
-        from_secret: dockerhub_token
-    when:
-      - event: [push, pull_request]
-        path:
-          - ".woodpecker.yml"
-          - "docker-compose.yml"
-          - "lib/**"
-          - "mcp-nano-banana/**"
+        rendered="$(mktemp)"
+        docker compose --profile core --profile browser --profile cicd config --quiet
+        docker compose --profile core --profile browser --profile cicd config > "$rendered"
 
-  build-woodpecker-ci:
-    image: woodpeckerci/plugin-docker-buildx
-    depends_on: [validate]
-    settings:
-      repo: mcp-woodpecker-ci
-      dockerfile: mcp-woodpecker-ci/deploy/Dockerfile
-      context: mcp-woodpecker-ci
-      tags: latest
-      dry_run: true
-      # Authenticate base-image pulls to avoid Docker Hub anonymous 429s (#370).
-      username:
-        from_secret: dockerhub_username
-      password:
-        from_secret: dockerhub_token
-    when:
-      - event: [push, pull_request]
-        path:
-          - ".woodpecker.yml"
-          - "docker-compose.yml"
-          - "aws-secrets-agent/**"
-          - "lib/**"
-          - "mcp-woodpecker-ci/**"
+        if grep -nE 'image: [^[:space:]]+:latest([[:space:]]|$)' "$rendered"; then
+          echo "ERROR: rendered compose config must not use :latest images"
+          exit 1
+        fi
 
-  runtime-smoke:
-    image: docker:cli
-    depends_on: [validate]
+        if grep -n 'default-token' "$rendered"; then
+          echo "ERROR: rendered compose config must not contain the default sidecar token"
+          exit 1
+        fi
+
+        if grep -nE 'published: "?2773"?' "$rendered"; then
+          echo "ERROR: aws-secrets-agent must not publish host port 2773 in CI config"
+          exit 1
+        fi
+
+  image-security:
+    image: codeberg.org/woodpecker-plugins/docker-buildx:6.1.0@sha256:33263f74a593ddef5d4faeb39ae9f87db14d64d8aae8186284ae6e90d89298a4
+    depends_on: [dockerfile-lint, compose-policy]
     environment:
       DOCKERHUB_USERNAME:
         from_secret: dockerhub_username
       DOCKERHUB_TOKEN:
         from_secret: dockerhub_token
     commands:
-      - apk add --no-cache curl docker-compose
-      # Authenticate Docker Hub before compose pulls base images (#370).
+      - apk add --no-cache docker-cli-compose
+      - sh scripts/ci-docker-login.sh
+      - |
+        set -eu
+
+        export CPP_IMAGE_TAG="ci-${CI_COMMIT_SHA:-local}"
+        docker compose --profile core --profile browser --profile cicd build
+
+        mkdir -p artifacts/sbom
+        docker pull ghcr.io/aquasecurity/trivy:0.67.2
+        docker pull ghcr.io/anchore/syft:v1.44.0
+
+        images="
+        aws-secrets-agent:$CPP_IMAGE_TAG
+        mcp-second-opinion:$CPP_IMAGE_TAG
+        mcp-playwright-persistent:$CPP_IMAGE_TAG
+        mcp-nano-banana:$CPP_IMAGE_TAG
+        mcp-woodpecker-ci:$CPP_IMAGE_TAG
+        "
+
+        for image in $images; do
+          slug="$(printf '%s' "$image" | cut -d: -f1)"
+          echo "Scanning $image for fixed HIGH/CRITICAL CVEs"
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            ghcr.io/aquasecurity/trivy:0.67.2 image \
+            --scanners vuln \
+            --exit-code 1 \
+            --severity HIGH,CRITICAL \
+            --ignore-unfixed \
+            "$image"
+
+          echo "Generating SBOMs for $image"
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            ghcr.io/anchore/syft:v1.44.0 "$image" -o spdx-json > "artifacts/sbom/$slug.spdx.json"
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            ghcr.io/anchore/syft:v1.44.0 "$image" -o cyclonedx-json > "artifacts/sbom/$slug.cyclonedx.json"
+        done
+
+        for sbom in artifacts/sbom/*.json; do
+          test -s "$sbom"
+        done
+        ls -lh artifacts/sbom
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    when:
+      - event: [push, pull_request]
+        path:
+          - ".woodpecker.yml"
+          - "docker-compose.yml"
+          - "scripts/ci-docker-login.sh"
+          - "aws-secrets-agent/**"
+          - "lib/**"
+          - "mcp-second-opinion/**"
+          - "mcp-playwright-persistent/**"
+          - "mcp-nano-banana/**"
+          - "mcp-woodpecker-ci/**"
+
+  runtime-smoke:
+    image: codeberg.org/woodpecker-plugins/docker-buildx:6.1.0@sha256:33263f74a593ddef5d4faeb39ae9f87db14d64d8aae8186284ae6e90d89298a4
+    depends_on: [image-security]
+    environment:
+      DOCKERHUB_USERNAME:
+        from_secret: dockerhub_username
+      DOCKERHUB_TOKEN:
+        from_secret: dockerhub_token
+    commands:
+      - apk add --no-cache curl docker-cli-compose
       - sh scripts/ci-docker-login.sh
       - |
         set -eu
@@ -234,6 +229,7 @@ steps:
         path:
           - ".woodpecker.yml"
           - "docker-compose.yml"
+          - "scripts/ci-docker-login.sh"
           - "aws-secrets-agent/**"
           - "lib/**"
           - "mcp-second-opinion/**"

@@ -49,6 +49,12 @@ ENV PATH="/app/.venv/bin:$PATH"
 USER mcpuser
 RUN playwright install chromium
 
+# Drop system package-management tooling from the runtime layer; app
+# dependencies are prebuilt into /app/.venv.
+USER root
+RUN /usr/local/bin/python -m pip uninstall -y pip setuptools wheel
+USER mcpuser
+
 # Copy application code
 COPY --chown=mcpuser:mcpuser src/server.py ./
 

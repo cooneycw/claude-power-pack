@@ -48,12 +48,12 @@ def test_core_profile_requires_nonempty_aws_credentials(tmp_path: Path) -> None:
 
 
 def test_env_file_credentials_pass_without_printing_values(tmp_path: Path) -> None:
-    secret = "super-secret-value"
+    redacted_value = "super-redacted-value"
     (tmp_path / ".env").write_text(
         "\n".join(
             [
-                "AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE",
-                f"AWS_SECRET_ACCESS_KEY={secret}",
+                "AWS_ACCESS_KEY_ID=fake-access-key-id",
+                f"AWS_SECRET_ACCESS_KEY={redacted_value}",
             ]
         )
     )
@@ -62,14 +62,14 @@ def test_env_file_credentials_pass_without_printing_values(tmp_path: Path) -> No
 
     assert result.returncode == 0
     assert "OK: AWS credentials available" in result.stdout
-    assert secret not in result.stdout
+    assert redacted_value not in result.stdout
 
 
 def test_empty_shell_env_overrides_valid_env_file_and_fails(tmp_path: Path) -> None:
     (tmp_path / ".env").write_text(
         "\n".join(
             [
-                "AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE",
+                "AWS_ACCESS_KEY_ID=fake-access-key-id",
                 "AWS_SECRET_ACCESS_KEY=valid-but-redacted",
             ]
         )

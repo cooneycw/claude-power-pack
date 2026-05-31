@@ -36,6 +36,10 @@ COPY --from=builder /app/.venv /app/.venv
 COPY --chown=mcpuser:mcpuser src/config.py src/pptx_builder.py src/server.py ./
 COPY --chown=mcpuser:mcpuser src/diagrams/ ./diagrams/
 
+# Drop system package-management tooling from the runtime layer; app
+# dependencies are prebuilt into /app/.venv.
+RUN /usr/local/bin/python -m pip uninstall -y pip setuptools wheel
+
 # Switch to non-root user
 USER mcpuser
 

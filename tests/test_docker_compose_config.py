@@ -7,6 +7,11 @@ from typing import Any
 
 import yaml
 
+WOODPECKER_DOCKER_BUILDX_IMAGE = (
+    "codeberg.org/woodpecker-plugins/docker-buildx:6.1.0"
+    "@sha256:33263f74a593ddef5d4faeb39ae9f87db14d64d8aae8186284ae6e90d89298a4"
+)
+
 
 def _env_list_to_map(values: list[str]) -> dict[str, str | None]:
     env: dict[str, str | None] = {}
@@ -247,14 +252,98 @@ def test_woodpecker_has_no_persistent_deploy_or_prune() -> None:
     assert "docker image prune" not in pipeline_text
 
 
-def test_woodpecker_builds_aws_secrets_agent() -> None:
+def test_woodpecker_uses_image_security_instead_of_parallel_dry_run_builds() -> None:
     steps = _woodpecker_steps()
-    step = steps["build-aws-secrets-agent"]
 
-    assert step["settings"]["context"] == "aws-secrets-agent"
-    assert step["settings"]["dockerfile"] == "aws-secrets-agent/Dockerfile"
-    assert step["settings"]["dry_run"] is True
-    assert "aws-secrets-agent/**" in step["when"][0]["path"]
+    for step_name in (
+        "build-aws-secrets-agent",
+        "build-second-opinion",
+        "build-playwright",
+        "build-nano-banana",
+        "build-woodpecker-ci",
+    ):
+        assert step_name not in steps
+
+
+def test_woodpecker_lints_every_dockerfile_with_hadolint() -> None:
+    steps = _woodpecker_steps()
+    lint = steps["dockerfile-lint"]
+    commands = _step_commands(lint)
+
+    assert lint["depends_on"] == ["validate"]
+    assert lint["image"] == "ghcr.io/hadolint/hadolint:v2.14.0-debian"
+    assert lint["pull"] is True
+    assert "find . -path ./.git -prune -o -name Dockerfile -print0" in commands
+    assert "xargs -0 hadolint --failure-threshold error" in commands
+
+
+def test_woodpecker_validates_compose_config_and_policy() -> None:
+    steps = _woodpecker_steps()
+    policy = steps["compose-policy"]
+    commands = _step_commands(policy)
+
+    assert policy["depends_on"] == ["validate"]
+    assert policy["image"] == WOODPECKER_DOCKER_BUILDX_IMAGE
+    assert "apk add --no-cache docker-cli-compose" in commands
+    assert "docker compose --profile core --profile browser --profile cicd config --quiet" in commands
+    assert "docker compose --profile core --profile browser --profile cicd config > \"$rendered\"" in commands
+    assert "AWS_TOKEN=ci-policy-token" in commands
+    assert "AWS_SECRETS_AGENT_PORT_MAPPING=2773" in commands
+    assert "image: [^[:space:]]+:latest" in commands
+    assert "default-token" in commands
+    assert "published: \"?2773\"?" in commands
+
+
+def test_woodpecker_builds_scans_images_and_generates_sboms() -> None:
+    steps = _woodpecker_steps()
+    security = steps["image-security"]
+    commands = _step_commands(security)
+
+    assert security["depends_on"] == ["dockerfile-lint", "compose-policy"]
+    assert security["image"] == WOODPECKER_DOCKER_BUILDX_IMAGE
+    assert "/var/run/docker.sock:/var/run/docker.sock" in security["volumes"]
+    assert "apk add --no-cache docker-cli-compose" in commands
+    assert "CPP_IMAGE_TAG=\"ci-${CI_COMMIT_SHA:-local}\"" in commands
+    assert "docker compose --profile core --profile browser --profile cicd build" in commands
+    assert "docker pull ghcr.io/aquasecurity/trivy:0.67.2" in commands
+    assert "docker pull ghcr.io/anchore/syft:v1.44.0" in commands
+    assert "aws-secrets-agent:$CPP_IMAGE_TAG" in commands
+    assert "slug=\"$(printf '%s' \"$image\" | cut -d: -f1)\"" in commands
+    assert "ghcr.io/aquasecurity/trivy:0.67.2 image" in commands
+    assert "--scanners vuln" in commands
+    assert "--exit-code 1" in commands
+    assert "--severity HIGH,CRITICAL" in commands
+    assert "--ignore-unfixed" in commands
+    assert "ghcr.io/anchore/syft:v1.44.0" in commands
+    assert "-o spdx-json" in commands
+    assert "-o cyclonedx-json" in commands
+    assert "artifacts/sbom/$slug.spdx.json" in commands
+    assert "artifacts/sbom/$slug.cyclonedx.json" in commands
+
+    image_paths = set(security["when"][0]["path"])
+    assert ".woodpecker.yml" in image_paths
+    assert "docker-compose.yml" in image_paths
+    assert "aws-secrets-agent/**" in image_paths
+    assert "lib/**" in image_paths
+    assert "mcp-second-opinion/**" in image_paths
+    assert "mcp-playwright-persistent/**" in image_paths
+    assert "mcp-nano-banana/**" in image_paths
+    assert "mcp-woodpecker-ci/**" in image_paths
+
+
+def test_python_runtime_images_remove_system_packaging_tools() -> None:
+    root = Path(__file__).resolve().parents[1]
+    dockerfiles = [
+        "mcp-second-opinion/deploy/Dockerfile",
+        "mcp-playwright-persistent/deploy/Dockerfile",
+        "mcp-nano-banana/deploy/Dockerfile",
+        "mcp-woodpecker-ci/deploy/Dockerfile",
+        "mcp-evaluate/deploy/Dockerfile",
+    ]
+
+    for dockerfile in dockerfiles:
+        body = (root / dockerfile).read_text()
+        assert "/usr/local/bin/python -m pip uninstall -y pip setuptools wheel" in body
 
 
 def test_woodpecker_runtime_smoke_is_ephemeral_and_tears_down() -> None:
@@ -262,8 +351,10 @@ def test_woodpecker_runtime_smoke_is_ephemeral_and_tears_down() -> None:
     smoke = steps["runtime-smoke"]
     commands = _step_commands(smoke)
 
-    assert smoke["depends_on"] == ["validate"]
+    assert smoke["depends_on"] == ["image-security"]
+    assert smoke["image"] == WOODPECKER_DOCKER_BUILDX_IMAGE
     assert "/var/run/docker.sock:/var/run/docker.sock" in smoke["volumes"]
+    assert "apk add --no-cache curl docker-cli-compose" in commands
     assert 'PROJECT="cpp-smoke-${CI_PIPELINE_NUMBER:-local}"' in commands
     assert "trap cleanup EXIT INT TERM" in commands
     assert (

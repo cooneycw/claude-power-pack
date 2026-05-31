@@ -35,7 +35,7 @@ Core components and their locations:
 - `scripts/` - Shell utilities (prompt-context, worktree-remove, hooks, drift-detect)
 - `templates/` - Makefile, workflow, container templates
 - `docker-compose.yml` - MCP server orchestration (profiles: `core`, `browser`, `cicd`)
-- `.woodpecker.yml` - Woodpecker CI pipeline (lint, test, typecheck, Docker builds)
+- `.woodpecker.yml` - Woodpecker CI pipeline (lint, test, typecheck, image security gates, runtime smoke)
 
 ## Environment Variables
 
@@ -58,9 +58,10 @@ MCP containers fetch API keys at startup from AWS Secrets Manager via an `aws-se
 - **Liveness vs readiness:** each MCP server serves `/` (liveness: process is up) and `/readyz` (readiness: required secrets/config actually loaded). Compose healthchecks - the `docker compose up --wait` release gate - probe `/readyz`, so a live-but-keyless container (e.g. a failed secret fetch) is reported unhealthy and `--wait` fails instead of greenlighting it. Secret-bearing servers (`mcp-second-opinion`, `mcp-woodpecker-ci`) report ready only once their provider keys load; `mcp-nano-banana` and `mcp-playwright-persistent` have no required secrets, so readiness equals liveness. CI/deploy without a live secrets-agent can inject keys via the LLM/Woodpecker env passthroughs in `docker-compose.yml`; the agent overrides them at runtime.
 - **Empty AWS credential guard:** `make docker-up` refuses to create `aws-secrets-agent` when `AWS_ACCESS_KEY_ID` or `AWS_SECRET_ACCESS_KEY` resolves empty. If a stale sidecar was already created with empty creds, fix env and force-recreate `aws-secrets-agent` plus secret-dependent MCP containers.
 - **MCP connections:** Defined in project `.mcp.json` pointing to `127.0.0.1:{port}/sse` (SSE transport)
-- **Woodpecker CI** runs on push/PR: secret-scan (gitleaks), lint, test, typecheck, conditional Docker builds, and isolated runtime smoke tests for MCP stack changes
+- **Woodpecker CI** runs on push/PR: secret-scan (gitleaks), lint, test, typecheck, Dockerfile lint, compose policy checks, image builds, image CVE scans, SBOM generation, and isolated runtime smoke tests for MCP stack changes
 - **Secret scanning:** `make secret-scan` runs gitleaks locally (native binary or Docker fallback). Config in `.gitleaks.toml` with allowlists for doc/test false positives
 - **Runtime smoke:** CI uses a `cpp-smoke-$CI_PIPELINE_NUMBER` compose project with random host ports, validates service health, and runs `docker compose down -v` before exiting. CI must not deploy persistent containers or prune host images.
+- **Image security gates:** CI runs hadolint over every Dockerfile, validates `docker compose config --quiet`, blocks rendered `:latest`, `default-token`, and host-published agent port regressions, then scans built images for fixed HIGH/CRITICAL CVEs and writes SPDX/CycloneDX SBOMs to `artifacts/sbom/`.
 - **Bootstrap checks:** `make bootstrap-check` verifies admin-only prerequisites (IAM roles, secrets provisioning) before deploy. Configure in `.claude/bootstrap.yaml`. Runs as the first step in the deploy pipeline - blocks with remediation if unsatisfied.
 - **Drift detection:** `make drift-check` compares host-installed artifacts (systemd units, sysctl, Go binaries, shared scripts) against repo templates. Run it manually when reconciling workstation-managed artifacts. See `docs/HOST_MANAGED_ARTIFACTS.md` for full inventory.
 - **Reproducible builds:** Every base image and build tool (python, rust, debian, `uv`, gitleaks, woodpecker server/agent) is pinned by version tag plus `@sha256:` digest in the Dockerfiles, `.woodpecker.yml`, and infra compose files - never `:latest`. Deployable images are tagged with `CPP_IMAGE_TAG` (the short git SHA, set by the Makefile) instead of `:latest`, so each image traces to a commit and rollbacks have provenance. `renovate.json` rotates the pinned digests on a weekly schedule so pinning never freezes security updates.
