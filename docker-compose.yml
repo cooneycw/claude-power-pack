@@ -75,13 +75,25 @@ services:
       - AWS_SECRET_NAME=${SECOND_OPINION_AWS_SECRET_NAME-codex_llm_apikeys}
       - SECRETS_AGENT_URL=http://aws-secrets-agent:2773
       - AWS_TOKEN=${AWS_TOKEN:-default-token}
+      # LLM key injection point for CI/deploy with no live secrets-agent (e.g.
+      # the CI runtime-smoke). Unset on the host = not passed through. On a real
+      # workstation deploy fetch-secrets.sh exports the agent's values and execs
+      # the server, so the agent always wins over anything injected here. The
+      # /readyz gate needs at least one of these to be present.
+      - GEMINI_API_KEY
+      - OPENAI_API_KEY
+      - ANTHROPIC_API_KEY
+      - MISTRAL_API_KEY
+      - GROQ_API_KEY
+      - OPENROUTER_API_KEY
+      - DEEPSEEK_API_KEY
     entrypoint: ["/app/fetch-secrets.sh"]
     command: ["python", "server.py"]
     depends_on:
       aws-secrets-agent:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/readyz')"]
       interval: 10s
       timeout: 5s
       start_period: 15s
@@ -108,7 +120,7 @@ services:
     environment:
       - MCP_SERVER_HOST=0.0.0.0
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8084/')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8084/readyz')"]
       interval: 10s
       timeout: 5s
       start_period: 10s
@@ -168,13 +180,18 @@ services:
       - AWS_SECRET_NAME=${WOODPECKER_CI_AWS_SECRET_NAME-essent-ai}
       - SECRETS_AGENT_URL=http://aws-secrets-agent:2773
       - AWS_TOKEN=${AWS_TOKEN:-default-token}
+      # Woodpecker credential injection point for CI/deploy with no live
+      # secrets-agent. Unset on the host = not passed through; the agent's values
+      # win at runtime via fetch-secrets.sh. /readyz needs both to report ready.
+      - WOODPECKER_URL
+      - WOODPECKER_API_TOKEN
     entrypoint: ["/app/fetch-secrets.sh"]
     command: ["python", "server.py"]
     depends_on:
       aws-secrets-agent:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8085/')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8085/readyz')"]
       interval: 10s
       timeout: 5s
       start_period: 15s
@@ -202,7 +219,7 @@ services:
     environment:
       - SERVER_HOST=0.0.0.0
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8081/')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8081/readyz')"]
       interval: 10s
       timeout: 5s
       start_period: 15s

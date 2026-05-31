@@ -60,12 +60,28 @@ _GENERATORS = {
 
 @mcp.custom_route("/", methods=["GET"])
 async def root_health_check(request: Request) -> JSONResponse:
-    """Health check endpoint."""
+    """Liveness probe: the process is up and serving HTTP."""
     return JSONResponse({
         "status": "healthy",
         "server": Config.SERVER_NAME,
         "version": Config.SERVER_VERSION,
         "diagram_types": DIAGRAM_TYPES,
+    })
+
+
+@mcp.custom_route("/readyz", methods=["GET"])
+async def readiness_check(request: Request) -> JSONResponse:
+    """Readiness probe.
+
+    This is a local diagram/PowerPoint renderer - it fetches no secrets and
+    needs no provider keys, so readiness reduces to liveness. The endpoint
+    exists so the compose `--wait` gate is uniform across all MCP servers and so
+    callers have one readiness contract to depend on.
+    """
+    return JSONResponse({
+        "status": "ready",
+        "server": Config.SERVER_NAME,
+        "version": Config.SERVER_VERSION,
     })
 
 
