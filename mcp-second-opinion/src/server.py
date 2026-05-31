@@ -12,6 +12,7 @@ import argparse
 import asyncio
 import logging
 from datetime import datetime, timedelta
+from time import perf_counter
 from typing import Any, Dict, List, Optional, Tuple
 
 import anthropic
@@ -689,13 +690,19 @@ async def get_single_model_response(
     Returns:
         Dict with response, model info, tokens, cost, and success status
     """
+    started_at = perf_counter()
+
+    def _with_elapsed(result: Dict[str, Any]) -> Dict[str, Any]:
+        result["elapsed_seconds"] = round(perf_counter() - started_at, 3)
+        return result
+
     model_info = Config.AVAILABLE_MODELS.get(model_key)
     if not model_info:
-        return {
+        return _with_elapsed({
             "model_key": model_key,
             "success": False,
             "error": f"Unknown model key: {model_key}",
-        }
+        })
 
     provider = model_info["provider"]
     model_id = model_info["model_id"]
@@ -714,13 +721,13 @@ async def get_single_model_response(
         # Route to appropriate provider
         api_key_attr = Config._PROVIDER_API_KEY_MAP.get(provider)
         if api_key_attr and not getattr(Config, api_key_attr, None):
-            return {
+            return _with_elapsed({
                 "model_key": model_key,
                 "model_id": model_id,
                 "display_name": model_info["display_name"],
                 "success": False,
                 "error": f"{provider.title()} API key not configured",
-            }
+            })
 
         async def _dispatch() -> Tuple[str, str]:
             if provider == "gemini":
@@ -748,24 +755,24 @@ async def get_single_model_response(
                 _dispatch(), timeout=Config.MODEL_RESPONSE_TIMEOUT,
             )
         except _UnknownProviderError:
-            return {
+            return _with_elapsed({
                 "model_key": model_key,
                 "success": False,
                 "error": f"Unknown provider: {provider}",
-            }
+            })
         except asyncio.TimeoutError:
             logger.error(
                 "Timed out after %ss waiting on %s/%s",
                 Config.MODEL_RESPONSE_TIMEOUT, provider, model_id,
             )
-            return {
+            return _with_elapsed({
                 "model_key": model_key,
                 "model_id": model_id,
                 "display_name": model_info["display_name"],
                 "provider": provider,
                 "success": False,
                 "error": f"Timed out after {Config.MODEL_RESPONSE_TIMEOUT}s",
-            }
+            })
 
         # Calculate tokens and cost
         input_tokens = len(prompt) // Config.CHARS_PER_TOKEN
@@ -774,7 +781,7 @@ async def get_single_model_response(
         cost = (input_tokens / 1_000_000) * pricing["input"] + \
                (output_tokens / 1_000_000) * pricing["output"]
 
-        return {
+        return _with_elapsed({
             "model_key": model_key,
             "model_id": model_used,
             "display_name": model_info["display_name"],
@@ -787,18 +794,18 @@ async def get_single_model_response(
                 "total": input_tokens + output_tokens,
             },
             "cost": round(cost, 5),
-        }
+        })
 
     except Exception as e:
         logger.error(f"Error getting response from {model_key}: {e}")
-        return {
+        return _with_elapsed({
             "model_key": model_key,
             "model_id": model_id,
             "display_name": model_info["display_name"],
             "provider": provider,
             "success": False,
             "error": str(e),
-        }
+        })
 
 
 async def get_multi_model_responses(
@@ -832,34 +839,53 @@ async def get_multi_model_responses(
             "invalid_models": invalid_keys,
         }
 
-    # Run all model requests in parallel
-    tasks = [get_single_model_response(prompt, key, max_tokens=max_tokens) for key in valid_keys]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
+    # Run all model requests in parallel and drain them in completion order.
+    batch_started_at = perf_counter()
+
+    async def _run_model_request(model_key: str) -> Dict[str, Any]:
+        started_at = perf_counter()
+        try:
+            result = await get_single_model_response(prompt, model_key, max_tokens=max_tokens)
+        except Exception as e:
+            logger.error(f"Unhandled error getting response from {model_key}: {e}")
+            result = {
+                "model_key": model_key,
+                "success": False,
+                "error": str(e),
+            }
+
+        result.setdefault("model_key", model_key)
+        result.setdefault("elapsed_seconds", round(perf_counter() - started_at, 3))
+        result["completed_at_seconds"] = round(perf_counter() - batch_started_at, 3)
+        return result
+
+    tasks = [
+        asyncio.create_task(_run_model_request(key), name=f"second-opinion:{key}")
+        for key in valid_keys
+    ]
 
     # Process results
     responses = []
     total_cost = 0.0
     successful_count = 0
 
-    for result in results:
-        if isinstance(result, Exception):
-            responses.append({
-                "success": False,
-                "error": str(result),
-            })
-        else:
-            responses.append(result)
-            if result.get("success"):
-                successful_count += 1
-                total_cost += result.get("cost", 0)
+    for completed_task in asyncio.as_completed(tasks):
+        result = await completed_task
+        result["completion_order"] = len(responses) + 1
+        responses.append(result)
+        if result.get("success"):
+            successful_count += 1
+            total_cost += result.get("cost", 0)
 
     return {
         "success": successful_count > 0,
         "responses": responses,
+        "response_order": "completion",
         "models_consulted": len(valid_keys),
         "models_successful": successful_count,
         "invalid_models": invalid_keys if invalid_keys else None,
         "total_cost": round(total_cost, 5),
+        "total_elapsed_seconds": round(perf_counter() - batch_started_at, 3),
     }
 
 
