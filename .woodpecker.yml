@@ -182,6 +182,34 @@ steps:
         fi
         docker compose -p "$PROJECT" --profile core --profile browser --profile cicd ps
 
+        # Run an in-container probe with bounded retries. A service can pass the
+        # compose `--wait` readiness gate yet briefly refuse a fresh connection
+        # (restart backoff, keep-alive churn) - a hard fail on the first refusal
+        # made this smoke flaky. Retry a few times, and on giving up dump
+        # diagnostics (status, recent logs, one stderr-visible attempt) so a
+        # genuine failure is debuggable instead of a bare non-zero exit.
+        probe_until_ok() {
+          probe_service="$1"
+          shift
+          attempt=1
+          max_attempts=10
+          while :; do
+            if docker compose -p "$PROJECT" exec -T "$probe_service" "$@" >/dev/null 2>&1; then
+              return 0
+            fi
+            if [ "$attempt" -ge "$max_attempts" ]; then
+              echo "ERROR: $probe_service probe failed after $max_attempts attempts; diagnostics:"
+              docker compose -p "$PROJECT" ps || true
+              docker compose -p "$PROJECT" logs --tail 50 "$probe_service" || true
+              echo "--- final probe attempt (stderr shown) ---"
+              docker compose -p "$PROJECT" exec -T "$probe_service" "$@" || true
+              exit 1
+            fi
+            attempt=$((attempt + 1))
+            sleep 3
+          done
+        }
+
         check_http() {
           service="$1"
           container_port="$2"
@@ -199,8 +227,8 @@ steps:
           # report the published host port to confirm the CI-only random port
           # mapping exists and cannot collide with a workstation stack.
           url="http://127.0.0.1:$container_port$check_path"
-          docker compose -p "$PROJECT" exec -T "$service" \
-            python -c "import urllib.request; urllib.request.urlopen('$url', timeout=10)" >/dev/null
+          probe_until_ok "$service" \
+            python -c "import urllib.request; urllib.request.urlopen('$url', timeout=10)"
           echo "OK: $service:$container_port$check_path via host port $published"
         }
 
@@ -222,8 +250,8 @@ steps:
           fi
 
           url="http://127.0.0.1:$container_port$check_path"
-          docker compose -p "$PROJECT" exec -T "$service" \
-            curl -sf -H "$header" --max-time 10 "$url" >/dev/null
+          probe_until_ok "$service" \
+            curl -sf -H "$header" --max-time 10 "$url"
           echo "OK (internal only): $service:$container_port$check_path"
         }
 
