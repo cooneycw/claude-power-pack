@@ -46,6 +46,15 @@ compose() {
   docker compose "${profile_args[@]}" "$@"
 }
 
+target_services=()
+declare -A target_service_set=()
+if mapfile -t target_services < <(compose config --services 2>/dev/null); then
+  for service_name in "${target_services[@]}"; do
+    [[ -n "$service_name" ]] || continue
+    target_service_set["$service_name"]=1
+  done
+fi
+
 image_repo_from_ref() {
   local image_ref="$1"
   local tail
@@ -82,9 +91,16 @@ for container_id in "${current_containers[@]}"; do
     exit 1
   fi
 
+  if [[ ${#target_service_set[@]} -gt 0 && -z "${target_service_set[$service_name]+x}" ]]; then
+    continue
+  fi
+
   previous_ref="$(image_repo_from_ref "$image_ref"):previous"
   echo "Snapshotting $service_name image $image_id as $previous_ref"
-  docker image tag "$image_id" "$previous_ref"
+  if ! docker image tag "$image_id" "$previous_ref"; then
+    echo "WARNING: image $image_id is not taggable; committing $service_name container as $previous_ref" >&2
+    docker commit --pause=false "$container_id" "$previous_ref" >/dev/null
+  fi
   rollback_services+=("$service_name")
 done
 

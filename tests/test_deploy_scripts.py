@@ -134,9 +134,15 @@ def _write_fake_docker(tmp_path: Path) -> tuple[Path, Path]:
                 )
 
             if args[:1] == ["compose"]:
+                if args[-2:] == ["config", "--services"]:
+                    print("aws-secrets-agent")
+                    print("mcp-second-opinion")
+                    print("mcp-nano-banana")
+                    raise SystemExit(0)
                 if args[-2:] == ["ps", "-q"]:
                     print("cid-agent")
                     print("cid-opinion")
+                    print("cid-browser")
                     raise SystemExit(0)
                 if "up" in args and "--build" in args:
                     raise SystemExit(int(os.environ.get("FAKE_REFRESH_EXIT", "0")))
@@ -152,14 +158,17 @@ def _write_fake_docker(tmp_path: Path) -> tuple[Path, Path]:
                 services = {{
                     "cid-agent": "aws-secrets-agent",
                     "cid-opinion": "mcp-second-opinion",
+                    "cid-browser": "mcp-playwright-persistent",
                 }}
                 images = {{
                     "cid-agent": "aws-secrets-agent:old-good",
                     "cid-opinion": "mcp-second-opinion:old-good",
+                    "cid-browser": "mcp-playwright-persistent:old-good",
                 }}
                 image_ids = {{
                     "cid-agent": "sha256:agentold",
                     "cid-opinion": "sha256:opinionold",
+                    "cid-browser": "sha256:browserold",
                 }}
                 if "com.docker.compose.service" in fmt:
                     print(services[cid])
@@ -170,6 +179,11 @@ def _write_fake_docker(tmp_path: Path) -> tuple[Path, Path]:
                 raise SystemExit(0)
 
             if args[:2] == ["image", "tag"]:
+                if args[2] == os.environ.get("FAKE_TAG_FAIL_FOR"):
+                    raise SystemExit(1)
+                raise SystemExit(0)
+
+            if args[:1] == ["commit"]:
                 raise SystemExit(0)
 
             raise SystemExit(0)
@@ -183,6 +197,7 @@ def _write_fake_docker(tmp_path: Path) -> tuple[Path, Path]:
 def _run_transactional_refresh(
     tmp_path: Path,
     refresh_exit: int,
+    env_updates: dict[str, str] | None = None,
 ) -> tuple[subprocess.CompletedProcess[str], str]:
     bin_dir, log_path = _write_fake_docker(tmp_path)
     env = _clean_env()
@@ -194,6 +209,8 @@ def _run_transactional_refresh(
             "FAKE_ROLLBACK_EXIT": "0",
         }
     )
+    if env_updates:
+        env.update(env_updates)
     result = subprocess.run(
         [str(TRANSACTIONAL_REFRESH), "--profiles", "core"],
         check=False,
@@ -214,6 +231,7 @@ def test_transactional_refresh_rolls_back_to_previous_images_on_wait_failure(
     assert result.returncode == 17
     assert "args=image tag sha256:agentold aws-secrets-agent:previous" in log
     assert "args=image tag sha256:opinionold mcp-second-opinion:previous" in log
+    assert "mcp-playwright-persistent:previous" not in log
     assert (
         "CPP_IMAGE_TAG=previous args=compose --profile core up -d --wait "
         "--no-build --remove-orphans aws-secrets-agent mcp-second-opinion"
@@ -227,3 +245,19 @@ def test_transactional_refresh_success_does_not_run_rollback(tmp_path: Path) -> 
     assert result.returncode == 0
     assert "--no-build" not in log
     assert "Docker refresh complete" in result.stdout
+
+
+def test_transactional_refresh_commits_container_when_image_tag_is_missing(
+    tmp_path: Path,
+) -> None:
+    result, log = _run_transactional_refresh(
+        tmp_path,
+        refresh_exit=17,
+        env_updates={"FAKE_TAG_FAIL_FOR": "sha256:opinionold"},
+    )
+
+    assert result.returncode == 17
+    assert (
+        "args=commit --pause=false cid-opinion mcp-second-opinion:previous"
+    ) in log
+    assert "Rollback complete" in result.stderr
