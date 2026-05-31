@@ -291,9 +291,71 @@ def test_woodpecker_runtime_smoke_is_ephemeral_and_tears_down() -> None:
     assert "X-Aws-Parameters-Secrets-Token: $AWS_TOKEN" in commands
 
     assert "check_http aws-secrets-agent 2773 /ping" in commands
-    assert "check_http mcp-second-opinion 8080 /" in commands
-    assert "check_http mcp-playwright-persistent 8081 /" in commands
-    assert "check_http mcp-nano-banana 8084 /" in commands
+    assert "check_http mcp-second-opinion 8080 /readyz" in commands
+    assert "check_http mcp-playwright-persistent 8081 /readyz" in commands
+    assert "check_http mcp-nano-banana 8084 /readyz" in commands
+    assert "check_http mcp-woodpecker-ci 8085 /readyz" in commands
+
+    # Keyless servers must be made ready before the readiness `--wait` gate;
+    # the smoke runs with fake AWS creds (keyless fallback), so it injects dummy
+    # keys through the compose env passthrough purely to satisfy /readyz.
+    assert "export GEMINI_API_KEY=cpp-smoke-gemini-key" in commands
+    assert "export WOODPECKER_URL=http://woodpecker.invalid" in commands
+    assert "export WOODPECKER_API_TOKEN=cpp-smoke-woodpecker-token" in commands
+
+
+def test_mcp_healthchecks_gate_on_readiness_not_liveness() -> None:
+    services = _compose_services()
+
+    # The compose healthcheck is the `docker compose up --wait` release gate.
+    # Each MCP server must be probed on /readyz so a live-but-unready (e.g.
+    # keyless) container is reported unhealthy instead of being greenlit.
+    expected = {
+        "mcp-second-opinion": "8080",
+        "mcp-nano-banana": "8084",
+        "mcp-woodpecker-ci": "8085",
+        "mcp-playwright-persistent": "8081",
+    }
+    for service, port in expected.items():
+        probe = " ".join(services[service]["healthcheck"]["test"])
+        assert f"http://127.0.0.1:{port}/readyz" in probe, service
+        assert f"http://127.0.0.1:{port}/'" not in probe, service
+
+
+def test_secret_consuming_services_accept_injected_keys() -> None:
+    services = _compose_services()
+
+    # CI/deploy without a live secrets-agent inject keys via these passthrough
+    # entries so /readyz can report ready. Shorthand (no `=`) means the var is
+    # only set when present on the host; the agent overrides at runtime.
+    so_env = services["mcp-second-opinion"]["environment"]
+    for key in (
+        "GEMINI_API_KEY",
+        "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "MISTRAL_API_KEY",
+        "GROQ_API_KEY",
+        "OPENROUTER_API_KEY",
+        "DEEPSEEK_API_KEY",
+    ):
+        assert key in so_env
+
+    wp_env = services["mcp-woodpecker-ci"]["environment"]
+    assert "WOODPECKER_URL" in wp_env
+    assert "WOODPECKER_API_TOKEN" in wp_env
+
+
+def test_each_mcp_server_exposes_a_readiness_route() -> None:
+    root = Path(__file__).resolve().parents[1]
+    servers = {
+        "mcp-second-opinion": "src/server.py",
+        "mcp-nano-banana": "src/server.py",
+        "mcp-woodpecker-ci": "src/server.py",
+        "mcp-playwright-persistent": "src/server.py",
+    }
+    for component, rel in servers.items():
+        source = (root / component / rel).read_text()
+        assert '@mcp.custom_route("/readyz", methods=["GET"])' in source, component
 
 
 def test_woodpecker_smoke_path_gates_cover_shared_runtime_inputs() -> None:
