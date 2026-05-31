@@ -17,10 +17,16 @@
 #      http://aws-secrets-agent:2773. The internal /ping curls localhost and
 #      would pass even if the 0.0.0.0 bind regressed, so this is the only check
 #      that proves another container can actually reach it. (issue #350)
-#   3. Secret-fetch path: stands up a hermetic fake agent and runs the REAL
-#      fetch-secrets.sh (in the real mcp-second-opinion image) against it with a
-#      NON-EMPTY AWS_SECRET_NAME, proving fetch -> parse -> export end-to-end
-#      without production AWS credentials. (issue #350)
+#   3. Client secret-fetch path: stands up a hermetic fake agent and runs the
+#      REAL fetch-secrets.sh (in the real mcp-second-opinion image) against it
+#      with a NON-EMPTY AWS_SECRET_NAME, proving the CLIENT's fetch -> parse ->
+#      export works end-to-end without production AWS credentials. (issue #350)
+#   4. REAL-agent secret fetch: seeds a secret into a LocalStack Secrets Manager,
+#      points the REAL aws-secrets-agent binary at LocalStack (AWS_ENDPOINT_URL),
+#      and runs the REAL fetch-secrets.sh THROUGH that agent. This closes the
+#      gap left by (3): the real binary actually performs an AWS SDK
+#      GetSecretValue and a consumer receives the result - still no production
+#      AWS credentials. (issue #377)
 set -eu
 
 PROJECT="cpp-smoke-${CI_PIPELINE_NUMBER:-local}"
@@ -187,6 +193,42 @@ case "$PROBE_OUT" in
   *)
     echo "ERROR: secret-fetch path did not export the expected secret." >&2
     echo "ERROR: fetch-secrets.sh fell back to local-dev mode or failed to parse." >&2
+    exit 1 ;;
+esac
+
+# --- (4) REAL agent serving a real Secrets Manager fetch (issue #377) --------
+# Stage (3) proves the CLIENT, but against a fake server. This drives a secret
+# through the REAL agent binary: seed it into LocalStack, point the real agent
+# at LocalStack, then fetch THROUGH the real agent with the real fetch-secrets.sh.
+REAL_SECRET_ID="cpp/smoke/real"
+REAL_SENTINEL="loaded-via-real-agent"
+
+echo "Real-agent check: starting LocalStack Secrets Manager ..."
+docker compose -p "$PROJECT" $SMOKE_FILES up -d --wait localstack
+
+echo "Real-agent check: seeding secret '${REAL_SECRET_ID}' into LocalStack ..."
+# awslocal ships in the LocalStack image and targets the in-container endpoint.
+# The sentinel differs from stage (3) so this assertion cannot pass on the fake.
+docker compose -p "$PROJECT" $SMOKE_FILES exec -T localstack \
+  awslocal secretsmanager create-secret \
+    --name "$REAL_SECRET_ID" \
+    --secret-string '{"CPP_SMOKE_SENTINEL":"loaded-via-real-agent","OPENAI_API_KEY":"sk-cpp-smoke-real","ANTHROPIC_API_KEY":"sk-ant-cpp-smoke-real"}' \
+    --region us-east-1 >/dev/null
+
+echo "Real-agent check: starting the REAL aws-secrets-agent against LocalStack ..."
+# No --build: reuse the agent image already built by the stage-1 `up --build`.
+docker compose -p "$PROJECT" $SMOKE_FILES up -d --wait real-secrets-agent
+
+echo "Real-agent check: fetching '${REAL_SECRET_ID}' THROUGH the real agent ..."
+REAL_PROBE_OUT="$(docker compose -p "$PROJECT" $SMOKE_FILES run --rm --no-deps real-fetch-probe)"
+echo "real-fetch-probe output: $REAL_PROBE_OUT"
+case "$REAL_PROBE_OUT" in
+  *FETCHED:${REAL_SENTINEL}*)
+    echo "OK: REAL agent served a real Secrets Manager fetch and a consumer received it" ;;
+  *)
+    echo "ERROR: real-agent fetch path did not export the expected secret." >&2
+    echo "ERROR: the real agent failed to fetch from LocalStack, or fetch-secrets.sh failed to parse/export." >&2
+    docker compose -p "$PROJECT" $SMOKE_FILES logs real-secrets-agent localstack || true
     exit 1 ;;
 esac
 
