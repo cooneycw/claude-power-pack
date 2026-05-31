@@ -59,7 +59,11 @@ RUN apt-get update && apt-get install -y ca-certificates curl && rm -rf /var/lib
 RUN useradd -m -u 1000 agent && mkdir -p /app && chown agent:agent /app
 WORKDIR /app
 
-COPY --from=builder /build/aws_secretsmanager_agent ./aws-secrets-agent
+# --chmod=0755 is required: the binary is copied out of a BuildKit cache mount
+# in the builder stage, which does not preserve the executable bit, so set it
+# explicitly here (otherwise the entrypoint's `exec ./aws-secrets-agent` fails
+# with "Permission denied" / exit 126 and the container crash-loops).
+COPY --chmod=0755 --from=builder /build/aws_secretsmanager_agent ./aws-secrets-agent
 COPY config.toml ./config.toml
 COPY entrypoint.sh ./entrypoint.sh
 RUN chmod +x ./entrypoint.sh
