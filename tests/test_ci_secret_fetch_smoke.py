@@ -90,6 +90,65 @@ def test_runtime_smoke_script_checks_cross_container_and_fetch_path() -> None:
     assert "FETCHED:loaded-via-agent" in body
 
 
+# --------------------------------------------------------------------------- #
+# Structural assertions for the REAL-agent fetch path (issue #377)             #
+# --------------------------------------------------------------------------- #
+
+
+def test_smoke_compose_defines_real_agent_path() -> None:
+    services = yaml.safe_load(SMOKE_COMPOSE.read_text())["services"]
+    for name in ("localstack", "real-secrets-agent", "real-fetch-probe"):
+        assert name in services, f"smoke override must define {name}"
+        # All stay behind the "smoke" profile so normal docker-up is unaffected.
+        assert services[name]["profiles"] == ["smoke"]
+
+
+def test_localstack_is_pinned_and_secretsmanager_only() -> None:
+    localstack = yaml.safe_load(SMOKE_COMPOSE.read_text())["services"]["localstack"]
+    image = localstack["image"]
+    # Reproducible-builds directive: pin by digest, never :latest.
+    assert "@sha256:" in image, "localstack image must be digest-pinned"
+    assert ":latest" not in image
+    env = _env_list_to_map(localstack["environment"])
+    assert env.get("SERVICES") == "secretsmanager"
+    # Internal-only: LocalStack must not publish a host port in CI.
+    assert "ports" not in localstack
+
+
+def test_real_secrets_agent_is_real_binary_pointed_at_localstack() -> None:
+    agent = yaml.safe_load(SMOKE_COMPOSE.read_text())["services"]["real-secrets-agent"]
+    # The SAME image as the deployed sidecar - this exercises the real binary.
+    assert agent["image"] == "aws-secrets-agent:${CPP_IMAGE_TAG:-dev}"
+    # Internal-only, like the deployed sidecar: never host-published.
+    assert "ports" not in agent
+    assert agent["expose"] == ["2773"]
+
+    env = _env_list_to_map(agent["environment"])
+    # Redirect the AWS SDK at LocalStack so it performs a real GetSecretValue.
+    assert env["AWS_ENDPOINT_URL"] == "http://localstack:4566"
+
+
+def test_real_fetch_probe_fetches_through_real_agent() -> None:
+    probe = yaml.safe_load(SMOKE_COMPOSE.read_text())["services"]["real-fetch-probe"]
+    assert probe["image"] == "mcp-second-opinion:${CPP_IMAGE_TAG:-dev}"
+    assert probe["entrypoint"] == ["/app/fetch-secrets.sh"]
+
+    env = _env_list_to_map(probe["environment"])
+    assert env.get("AWS_SECRET_NAME"), "real-fetch-probe must set a non-empty AWS_SECRET_NAME"
+    # Fetches THROUGH the real agent, not the fake one.
+    assert env["SECRETS_AGENT_URL"] == "http://real-secrets-agent:2773"
+
+
+def test_runtime_smoke_script_drives_secret_through_real_agent() -> None:
+    body = SMOKE_SCRIPT.read_text()
+    # Seeds a real secret into LocalStack and drives it through the real agent.
+    assert "awslocal secretsmanager create-secret" in body
+    assert "real-secrets-agent" in body
+    assert "real-fetch-probe" in body
+    # Distinct sentinel from the fake path so the assertion can't pass on the fake.
+    assert "FETCHED:${REAL_SENTINEL}" in body or "loaded-via-real-agent" in body
+
+
 def test_woodpecker_runtime_smoke_delegates_to_script() -> None:
     pipeline = yaml.safe_load((REPO / ".woodpecker.yml").read_text())
     step = pipeline["steps"]["runtime-smoke"]
