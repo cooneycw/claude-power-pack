@@ -17,12 +17,17 @@
 #
 # The aws-secrets-agent sidecar fetches LLM keys and other secrets
 # from AWS Secrets Manager at runtime. No application secrets on disk.
+#
+# Image tags: deployable images are tagged with CPP_IMAGE_TAG (set by the
+# Makefile to the short git SHA) so every build is traceable to a commit and
+# rollbacks have provenance. Never use :latest here. It defaults to "dev" for
+# ad-hoc local/CI builds where no commit tag is exported.
 
 services:
   aws-secrets-agent:
     build:
       context: ./aws-secrets-agent
-    image: aws-secrets-agent:latest
+    image: aws-secrets-agent:${CPP_IMAGE_TAG:-dev}
     # Stable name by default (workstation deploys + cpp:update model detection);
     # CI smoke sets CPP_CONTAINER_PREFIX to keep parallel projects isolated.
     container_name: ${CPP_CONTAINER_PREFIX:-}aws-secrets-agent
@@ -63,7 +68,7 @@ services:
     build:
       context: ./mcp-second-opinion
       dockerfile: deploy/Dockerfile
-    image: mcp-second-opinion:latest
+    image: mcp-second-opinion:${CPP_IMAGE_TAG:-dev}
     container_name: ${CPP_CONTAINER_PREFIX:-}mcp-second-opinion
     ports:
       - "${MCP_SECOND_OPINION_PORT_MAPPING:-8080:8080}"
@@ -101,7 +106,7 @@ services:
     build:
       context: ./mcp-nano-banana
       dockerfile: deploy/Dockerfile
-    image: mcp-nano-banana:latest
+    image: mcp-nano-banana:${CPP_IMAGE_TAG:-dev}
     container_name: ${CPP_CONTAINER_PREFIX:-}mcp-nano-banana
     ports:
       - "${MCP_NANO_BANANA_PORT_MAPPING:-8084:8084}"
@@ -130,7 +135,7 @@ services:
   #   build:
   #     context: ./mcp-evaluate
   #     dockerfile: deploy/Dockerfile
-  #   image: mcp-evaluate:latest
+  #   image: mcp-evaluate:${CPP_IMAGE_TAG:-dev}
   #   ports:
   #     - "8083:8083"
   #   env_file:
@@ -156,7 +161,7 @@ services:
     build:
       context: ./mcp-woodpecker-ci
       dockerfile: deploy/Dockerfile
-    image: mcp-woodpecker-ci:latest
+    image: mcp-woodpecker-ci:${CPP_IMAGE_TAG:-dev}
     container_name: ${CPP_CONTAINER_PREFIX:-}mcp-woodpecker-ci
     ports:
       - "${MCP_WOODPECKER_CI_PORT_MAPPING:-8085:8085}"
@@ -194,7 +199,7 @@ services:
     build:
       context: ./mcp-playwright-persistent
       dockerfile: deploy/Dockerfile
-    image: mcp-playwright-persistent:latest
+    image: mcp-playwright-persistent:${CPP_IMAGE_TAG:-dev}
     container_name: ${CPP_CONTAINER_PREFIX:-}mcp-playwright-persistent
     ports:
       - "${MCP_PLAYWRIGHT_PORT_MAPPING:-8081:8081}"

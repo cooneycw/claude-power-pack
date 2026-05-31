@@ -1,4 +1,4 @@
-FROM rust:slim AS builder
+FROM rust:1.96.0-slim@sha256:26abcef3d79b8d890c4ceb17093154573e1f6479cf6dd7c1450043b8458350f6 AS builder
 
 RUN apt-get update && apt-get install -y git pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
 
@@ -15,9 +15,9 @@ RUN sed -i 's/\[127, 0, 0, 1\]/[0, 0, 0, 0]/' aws_secretsmanager_agent/src/main.
 # Patch: remove TTL=1 restriction that blocks cross-container traffic
 RUN sed -i '/set_ttl/d' aws_secretsmanager_agent/src/server.rs
 
-RUN cargo build --release
+RUN cargo build --release --locked
 
-FROM debian:trixie-slim
+FROM debian:trixie-slim@sha256:b6e2a152f22a40ff69d92cb397223c906017e1391a73c952b588e51af8883bf8
 
 RUN apt-get update && apt-get install -y ca-certificates curl && rm -rf /var/lib/apt/lists/*
 

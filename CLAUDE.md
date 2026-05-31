@@ -62,6 +62,7 @@ MCP containers fetch API keys at startup from AWS Secrets Manager via an `aws-se
 - **Runtime smoke:** CI uses a `cpp-smoke-$CI_PIPELINE_NUMBER` compose project with random host ports, validates service health, and runs `docker compose down -v` before exiting. CI must not deploy persistent containers or prune host images.
 - **Bootstrap checks:** `make bootstrap-check` verifies admin-only prerequisites (IAM roles, secrets provisioning) before deploy. Configure in `.claude/bootstrap.yaml`. Runs as the first step in the deploy pipeline - blocks with remediation if unsatisfied.
 - **Drift detection:** `make drift-check` compares host-installed artifacts (systemd units, sysctl, Go binaries, shared scripts) against repo templates. Run it manually when reconciling workstation-managed artifacts. See `docs/HOST_MANAGED_ARTIFACTS.md` for full inventory.
+- **Reproducible builds:** Every base image and build tool (python, rust, debian, `uv`, gitleaks, woodpecker server/agent) is pinned by version tag plus `@sha256:` digest in the Dockerfiles, `.woodpecker.yml`, and infra compose files - never `:latest`. Deployable images are tagged with `CPP_IMAGE_TAG` (the short git SHA, set by the Makefile) instead of `:latest`, so each image traces to a commit and rollbacks have provenance. `renovate.json` rotates the pinned digests on a weekly schedule so pinning never freezes security updates.
 
 ## Commands Reference
 

@@ -4,7 +4,7 @@
 
 services:
   woodpecker-agent:
-    image: woodpeckerci/woodpecker-agent:v3.13.0
+    image: woodpeckerci/woodpecker-agent:v3.13.0@sha256:a983b1016217ad94cdab48d732ec97b5b1f72718725d651183d7ec885f7caf35
     container_name: woodpecker-agent
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
