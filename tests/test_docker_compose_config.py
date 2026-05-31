@@ -313,15 +313,20 @@ def test_cpp_status_surfaces_stale_sidecar_env_bake() -> None:
     assert "--force-recreate aws-secrets-agent" in command
 
 
-def test_cpp_update_refreshes_detected_docker_runtime() -> None:
+def test_cpp_update_uses_docker_only_runtime_with_legacy_teardown() -> None:
     root = Path(__file__).resolve().parents[1]
     command = (root / ".claude" / "commands" / "cpp" / "update.md").read_text()
 
+    assert "## Step 4.5: Legacy Systemd Teardown" in command
     assert 'DEPLOY_MODEL="docker"' in command
-    assert 'DEPLOY_MODEL="systemd"' in command
     assert 'make docker-refresh PROFILE="core browser cicd"' in command
+    assert 'make docker-health PROFILE="core browser cicd"' in command
     assert "Docker refresh failed" in command
-    assert "Do not run Docker and\nsystemd restarts in the same update" in command
+    assert "Docker is the only valid deployment\ntarget" in command
+    assert "Do not offer systemd installation" in command
+    assert 'DEPLOY_MODEL="systemd"' not in command
+    assert "### Systemd Model" not in command
+    assert "### Venv-Only Model" not in command
 
 
 def test_cpp_init_prefers_docker_and_runs_health_gated_refresh() -> None:
