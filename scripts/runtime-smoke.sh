@@ -66,6 +66,40 @@ if ! docker compose -p "$PROJECT" --profile core --profile browser --profile cic
 fi
 docker compose -p "$PROJECT" --profile core --profile browser --profile cicd ps
 
+# Retry an in-container readiness probe up to PROBE_RETRIES times (PROBE_INTERVAL
+# seconds apart) before giving up. A service can pass the compose `--wait`
+# readiness gate yet briefly refuse a fresh in-container connection (restart
+# backoff, keep-alive churn), so a single refused connection is a transient race,
+# not a real failure. Bounded retries absorb that race instead of hard-failing
+# the build on the first refusal. On exhaustion, dump actionable diagnostics
+# (compose ps + the failing service's recent logs + one stderr-visible probe
+# attempt) instead of an opaque exit code, then exit 1. (issue #375)
+PROBE_RETRIES=10
+PROBE_INTERVAL=3
+probe_until_ok() {
+  service="$1"
+  shift
+
+  attempt=1
+  while [ "$attempt" -le "$PROBE_RETRIES" ]; do
+    if "$@" >/dev/null 2>&1; then
+      return 0
+    fi
+    if [ "$attempt" -lt "$PROBE_RETRIES" ]; then
+      echo "  probe $service: attempt $attempt/$PROBE_RETRIES refused, retrying in ${PROBE_INTERVAL}s ..."
+      sleep "$PROBE_INTERVAL"
+    fi
+    attempt=$((attempt + 1))
+  done
+
+  echo "ERROR: $service probe still failing after $PROBE_RETRIES attempts; diagnostics follow:" >&2
+  docker compose -p "$PROJECT" ps || true
+  docker compose -p "$PROJECT" logs --tail 50 "$service" || true
+  echo "--- final probe attempt (stderr visible) ---" >&2
+  "$@" || true
+  exit 1
+}
+
 check_http() {
   service="$1"
   container_port="$2"
@@ -81,10 +115,12 @@ check_http() {
   # ports are not reachable via 127.0.0.1 from here. Assert the service HTTP
   # endpoint from inside the service container, then report the published host
   # port to confirm the CI-only random port mapping exists and cannot collide
-  # with a workstation stack.
+  # with a workstation stack. The probe is retried (see probe_until_ok) to
+  # tolerate a transient post-`--wait` connection refusal.
   url="http://127.0.0.1:$container_port$check_path"
-  docker compose -p "$PROJECT" exec -T "$service" \
-    python -c "import urllib.request; urllib.request.urlopen('$url', timeout=10)" >/dev/null
+  py="import urllib.request; urllib.request.urlopen('$url', timeout=10)"
+  probe_until_ok "$service" \
+    docker compose -p "$PROJECT" exec -T "$service" python -c "$py"
   echo "OK: $service:$container_port$check_path via host port $published"
 }
 
@@ -105,9 +141,12 @@ check_internal_http() {
     exit 1
   fi
 
+  # Probe is retried (see probe_until_ok) to tolerate a transient
+  # post-`--wait` connection refusal from inside the container.
   url="http://127.0.0.1:$container_port$check_path"
-  docker compose -p "$PROJECT" exec -T "$service" \
-    curl -sf -H "$header" --max-time 10 "$url" >/dev/null
+  probe_until_ok "$service" \
+    docker compose -p "$PROJECT" exec -T "$service" \
+    curl -sf -H "$header" --max-time 10 "$url"
   echo "OK (internal only): $service:$container_port$check_path"
 }
 

@@ -498,6 +498,41 @@ def test_woodpecker_runtime_smoke_is_ephemeral_and_tears_down() -> None:
     assert "check_http mcp-woodpecker-ci 8085 /readyz" in script
 
 
+def test_runtime_smoke_retries_in_container_probes_with_diagnostics() -> None:
+    # Issue #375: a service can pass the compose `--wait` gate yet briefly refuse
+    # a fresh in-container connection. The smoke step must retry the probe with
+    # bounded backoff so a transient race no longer fails the build, and dump
+    # actionable diagnostics (status + logs) on a genuine failure.
+    script = (
+        Path(__file__).resolve().parents[1] / "scripts" / "runtime-smoke.sh"
+    ).read_text()
+
+    # A shared retry helper is defined: up to 10 attempts, 3s apart.
+    assert "probe_until_ok()" in script
+    assert "PROBE_RETRIES=10" in script
+    assert "PROBE_INTERVAL=3" in script
+    assert 'sleep "$PROBE_INTERVAL"' in script
+
+    # Both readiness checks route their in-container probe through the helper.
+    assert (
+        'probe_until_ok "$service" \\\n'
+        '    docker compose -p "$PROJECT" exec -T "$service" python -c "$py"'
+    ) in script
+    assert (
+        'probe_until_ok "$service" \\\n'
+        '    docker compose -p "$PROJECT" exec -T "$service" \\\n'
+        '    curl -sf -H "$header" --max-time 10 "$url"'
+    ) in script
+
+    # On exhaustion the helper prints actionable diagnostics instead of an
+    # opaque exit code: compose status, the failing service's recent logs, and
+    # one stderr-visible probe attempt.
+    assert 'docker compose -p "$PROJECT" ps || true' in script
+    assert 'docker compose -p "$PROJECT" logs --tail 50 "$service" || true' in script
+    assert "final probe attempt (stderr visible)" in script
+    assert 'still failing after $PROBE_RETRIES attempts' in script
+
+
 def test_mcp_healthchecks_gate_on_readiness_not_liveness() -> None:
     services = _compose_services()
 
