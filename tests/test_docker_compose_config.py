@@ -329,15 +329,21 @@ def test_cpp_update_uses_docker_only_runtime_with_legacy_teardown() -> None:
     assert "### Venv-Only Model" not in command
 
 
-def test_cpp_init_prefers_docker_and_runs_health_gated_refresh() -> None:
+def test_cpp_init_uses_docker_only_tier3_and_runs_health_gated_refresh() -> None:
     root = Path(__file__).resolve().parents[1]
     command = (root / ".claude" / "commands" / "cpp" / "init.md").read_text()
 
-    assert "# Fresh installs prefer Docker when available." in command
-    assert 'DEPLOY_MODE="systemd"' in command
+    assert "Tier 3 is Docker-only" in command
+    assert "Tier 3 requires Docker Engine or Docker Desktop" in command
+    assert "Tier 3 requires Docker Compose v2" in command
+    assert "Run /cpp:update first to migrate or remove legacy systemd units" in command
     assert 'make docker-refresh PROFILE="core browser cicd"' in command
+    assert 'make docker-health PROFILE="core browser cicd"' in command
     assert "Docker containers rebuilt, restarted, and healthy" in command
-    assert "skipping systemd service setup" in command
+    assert "systemctl" not in command
+    assert "DEPLOY_MODE" not in command
+    assert "## Step 6: Systemd Services" not in command
+    assert "venv-only" not in command
 
 
 def test_woodpecker_has_no_persistent_deploy_or_prune() -> None:

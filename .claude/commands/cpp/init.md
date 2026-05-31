@@ -1,6 +1,6 @@
 ---
 description: Interactive setup wizard for Claude Power Pack
-allowed-tools: Bash(mkdir:*), Bash(ln:*), Bash(ls:*), Bash(test:*), Bash(readlink:*), Bash(cat:*), Bash(cp:*), Bash(uv:*), Bash(python3:*), Bash(PYTHONPATH=*), Bash(claude mcp list:*), Bash(claude mcp add:*), Bash(sudo systemctl:*), Bash(systemctl:*), Bash(command -v:*), Bash(git:*), Bash(docker:*), Bash(make:*), Bash(sleep:*)
+allowed-tools: Bash(mkdir:*), Bash(ln:*), Bash(ls:*), Bash(test:*), Bash(readlink:*), Bash(cat:*), Bash(cp:*), Bash(python3:*), Bash(PYTHONPATH=*), Bash(claude mcp list:*), Bash(claude mcp add:*), Bash(command -v:*), Bash(git:*), Bash(docker:*), Bash(make:*), Bash(sleep:*), Bash(grep:*), Bash(head:*), Bash(touch:*)
 ---
 
 # Claude Power Pack Setup Wizard
@@ -51,18 +51,30 @@ HOOKS_EXIST=false
 [ -f ".claude/hooks.json" ] && HOOKS_EXIST=true
 
 # Tier 3 checks
-UV_INSTALLED=false
-command -v uv &>/dev/null && UV_INSTALLED=true
+DOCKER_INSTALLED=false
+DOCKER_COMPOSE_INSTALLED=false
+DOCKER_COMPOSE_FILE=false
+DOCKER_CONTAINERS=""
+LEGACY_SYSTEMD_UNITS=""
 
-# Check for pyproject.toml in each MCP server
-MCP_PROJECTS=""
-for server in mcp-second-opinion mcp-playwright-persistent; do
-  [ -f "$CPP_DIR/$server/pyproject.toml" ] && MCP_PROJECTS="$MCP_PROJECTS $server"
+command -v docker &>/dev/null && DOCKER_INSTALLED=true
+if [ "$DOCKER_INSTALLED" = "true" ] && docker compose version &>/dev/null; then
+  DOCKER_COMPOSE_INSTALLED=true
+fi
+[ -f "$CPP_DIR/docker-compose.yml" ] && DOCKER_COMPOSE_FILE=true
+
+if [ "$DOCKER_INSTALLED" = "true" ]; then
+  DOCKER_CONTAINERS=$(docker ps -a --format '{{.Names}}' 2>/dev/null | grep -E '^(aws-secrets-agent|mcp-second-opinion|mcp-nano-banana|mcp-playwright-persistent|mcp-woodpecker-ci)$' || true)
+fi
+
+for unit in mcp-second-opinion second-opinion mcp-playwright mcp-playwright-persistent playwright-persistent nano-banana mcp-nano-banana mcp-woodpecker-ci woodpecker-ci mcp-evaluate evaluate mcp-coordination coordination; do
+  [ -f "/etc/systemd/system/${unit}.service" ] && LEGACY_SYSTEMD_UNITS="$LEGACY_SYSTEMD_UNITS system:${unit}"
+  [ -f "$HOME/.config/systemd/user/${unit}.service" ] && LEGACY_SYSTEMD_UNITS="$LEGACY_SYSTEMD_UNITS user:${unit}"
 done
 
 MCP_SERVERS=""
 MCP_LIST=$(claude mcp list 2>/dev/null || echo "")
-for server in second-opinion playwright-persistent; do
+for server in second-opinion playwright-persistent nano-banana; do
   echo "$MCP_LIST" | grep -q "$server" && MCP_SERVERS="$MCP_SERVERS $server"
 done
 ```
@@ -81,7 +93,7 @@ Ask the user which tier they want to install using the AskUserQuestion tool:
 |------|------|-------------|
 | 1 | **Minimal** | Commands + Skills symlinks only |
 | 2 | **Standard** | + Scripts, hooks, shell prompt |
-| 3 | **Full** | + MCP servers (uv, API keys) |
+| 3 | **Full** | + MCP servers (Docker local builds, API keys) |
 | 4 | **CI/CD** | + Build system, health checks, pipelines, containers |
 
 Default recommendation: **Standard** for most users, **Full** for MCP-powered workflows, **CI/CD** for projects needing build automation.
@@ -264,15 +276,14 @@ This will make the following changes:
   [Tier 1 + 2 - All Standard components]
     (see above)
 
-  [Tier 3 - Python Virtual Environments (uv)] (~150 MB total)
-    • mcp-second-opinion/.venv  - Gemini/OpenAI code review (~80 MB)
-    • mcp-playwright-persistent/.venv - Browser automation (~70 MB)
-
-  [Tier 3 - Playwright Browsers]
-    • Chromium (~150 MB, installed via `uv run playwright install chromium`)
+  [Tier 3 - Docker Runtime]
+    • Requires Docker Engine or Docker Desktop
+    • Requires Docker Compose v2 (`docker compose`)
+    • Builds local images with `make docker-refresh PROFILE="core browser cicd"`
+    • Verifies container health with `make docker-health PROFILE="core browser cicd"`
 
   [Tier 3 - API Keys] (choose one method)
-    Option 1 - AWS Secrets Manager (Recommended for Docker):
+    Option 1 - AWS Secrets Manager (Recommended):
       • Keys stored in AWS SM, injected at startup via aws-secrets-agent sidecar
       • Only AWS credentials in .env - no application secrets on disk
       • Requires: AWS IAM permissions (secretsmanager:GetSecretValue)
@@ -281,24 +292,26 @@ This will make the following changes:
       • GEMINI_API_KEY - For mcp-second-opinion (get from https://aistudio.google.com/apikey)
       • OPENAI_API_KEY - Optional, for multi-model comparison
 
-  [Tier 3 - MCP Servers] (added to Claude Code)
-    • second-opinion        - port 8080
-    • playwright-persistent - port 8081
-    • aws-secrets-agent     - port 2773 (if using AWS SM)
+  [Tier 3 - Docker Containers]
+    • aws-secrets-agent          - internal port 2773 (AWS SM sidecar)
+    • mcp-second-opinion         - host port 8080
+    • mcp-playwright-persistent  - host port 8081
+    • mcp-nano-banana            - host port 8084
+    • mcp-woodpecker-ci          - host port 8085
 
   [Tier 3 - Configuration Files]
-    • .env (AWS credentials only, if using sidecar)
-    • mcp-second-opinion/.env (API keys, if using direct method)
+    • .env (AWS credentials + AWS_TOKEN for sidecar, or direct API keys)
 
-  Disk usage: ~150 MB (venvs) + 150 MB (Chromium)
-  Ports used: 8080, 8081
+  Disk usage: approximately 2-4 GB for local Docker images, browser dependencies,
+  and Docker build cache (varies by host and cache state)
+  Ports used: 8080, 8081, 8084, 8085; 2773 is compose-network internal only
 
   To undo:
     # Tier 1+2 cleanup (see above)
-    rm -rf {CPP_DIR}/mcp-second-opinion/.venv
-    rm -rf {CPP_DIR}/mcp-playwright-persistent/.venv
+    cd {CPP_DIR} && make docker-down
     claude mcp remove second-opinion
     claude mcp remove playwright-persistent
+    claude mcp remove nano-banana
 
 Proceed? [y/N]
 ```
@@ -537,104 +550,79 @@ echo "→ Happy CLI installation skipped"
 
 ### Tier 3 Execution
 
-#### 3a. Install uv and Sync Dependencies
+#### 3a. Docker Prerequisites and Legacy Systemd Warning
+
+Tier 3 is Docker-only. Do not install host runtime dependencies or offer systemd
+or native server startup as a fallback. Block Tier 3 if Docker or Docker Compose
+is unavailable.
 
 ```bash
-# Check if uv is installed
-if ! command -v uv &>/dev/null; then
-  echo "Installing uv..."
-  curl -LsSf https://astral.sh/uv/install.sh | sh
-  export PATH="$HOME/.local/bin:$PATH"
-  echo "✓ uv installed"
-else
-  echo "→ uv already installed ($(uv --version))"
+cd "$CPP_DIR"
+
+if ! command -v docker &>/dev/null; then
+  echo "ERROR: Tier 3 requires Docker Engine or Docker Desktop."
+  echo "Install Docker, verify 'docker ps' works for your user, then rerun /cpp:init."
+  echo "Docker install guide: https://docs.docker.com/get-docker/"
+  echo "You can still install Tier 1 or Tier 2 without Docker."
+  exit 1
 fi
 
-# Sync dependencies for each MCP server
-for server in mcp-second-opinion mcp-playwright-persistent; do
-  if [ ! -d "$CPP_DIR/$server/.venv" ]; then
-    echo "Creating virtual environment for $server..."
-    cd "$CPP_DIR/$server"
-    uv sync
-    echo "✓ $server venv created"
-  else
-    echo "→ $server venv exists (skipped)"
-  fi
-done
-```
-
-#### 3b. Playwright Browser
-
-```bash
-# Install Chromium for Playwright
-echo "Installing Playwright Chromium browser..."
-cd "$CPP_DIR/mcp-playwright-persistent"
-uv run playwright install chromium
-echo "✓ Chromium browser installed"
-```
-
-#### 3c. API Key Configuration
-
-**First, detect the deployment mode:**
-
-```bash
-# Detect deployment mode. Choose exactly one model:
-#   docker     - Docker Compose stack present, or new install with Docker available
-#   systemd    - existing systemd MCP services
-#   venv-only  - local venvs without managed restart
-DEPLOY_MODE="venv-only"
-DOCKER_READY=false
-DOCKER_STACK_PRESENT=false
-SYSTEMD_ACTIVE=false
-
-if command -v docker &>/dev/null && [ -f "$CPP_DIR/docker-compose.yml" ] && docker compose version &>/dev/null; then
-  DOCKER_READY=true
-  if docker compose --profile core --profile browser --profile cicd ps --format json 2>/dev/null | grep -q '"Service"'; then
-    DOCKER_STACK_PRESENT=true
-  elif docker ps -a --format '{{.Names}}' 2>/dev/null | grep -Eq '^(aws-secrets-agent|mcp-second-opinion|mcp-nano-banana|mcp-playwright-persistent|mcp-woodpecker-ci)$'; then
-    DOCKER_STACK_PRESENT=true
-  fi
+if ! docker compose version &>/dev/null; then
+  echo "ERROR: Tier 3 requires Docker Compose v2 ('docker compose')."
+  echo "Install the Docker Compose plugin or Docker Desktop, then rerun /cpp:init."
+  echo "Compose install guide: https://docs.docker.com/compose/install/"
+  echo "You can still install Tier 1 or Tier 2 without Docker Compose."
+  exit 1
 fi
 
-for service in mcp-second-opinion mcp-playwright nano-banana; do
-  if systemctl is-active "$service" &>/dev/null || systemctl is-enabled "$service" &>/dev/null; then
-    SYSTEMD_ACTIVE=true
-    break
-  fi
+if [ ! -f "$CPP_DIR/docker-compose.yml" ]; then
+  echo "ERROR: docker-compose.yml not found in $CPP_DIR."
+  echo "Update claude-power-pack or reclone it, then rerun /cpp:init."
+  exit 1
+fi
+
+LEGACY_SYSTEMD_UNITS=""
+for unit in mcp-second-opinion second-opinion mcp-playwright mcp-playwright-persistent playwright-persistent nano-banana mcp-nano-banana mcp-woodpecker-ci woodpecker-ci mcp-evaluate evaluate mcp-coordination coordination; do
+  [ -f "/etc/systemd/system/${unit}.service" ] && LEGACY_SYSTEMD_UNITS="$LEGACY_SYSTEMD_UNITS system:${unit}"
+  [ -f "$HOME/.config/systemd/user/${unit}.service" ] && LEGACY_SYSTEMD_UNITS="$LEGACY_SYSTEMD_UNITS user:${unit}"
 done
 
-if [ "$DOCKER_STACK_PRESENT" = "true" ]; then
-  DEPLOY_MODE="docker"
-elif [ "$SYSTEMD_ACTIVE" = "true" ]; then
-  DEPLOY_MODE="systemd"
-elif [ "$DOCKER_READY" = "true" ]; then
-  # Fresh installs prefer Docker when available.
-  DEPLOY_MODE="docker"
+if [ -n "$LEGACY_SYSTEMD_UNITS" ]; then
+  echo "WARNING: legacy systemd MCP unit files were detected:"
+  for item in $LEGACY_SYSTEMD_UNITS; do
+    echo "  - $item"
+  done
+  echo ""
+  echo "Run /cpp:update first to migrate or remove legacy systemd units."
+  echo "/cpp:init no longer installs, starts, or manages systemd services."
 fi
 
-echo "Deployment mode detected: $DEPLOY_MODE"
+echo "Docker prerequisites satisfied."
 ```
 
-**Next, detect AWS Secrets Manager sidecar availability (Docker mode only):**
+#### 3b. API Key Configuration
+
+Tier 3 always uses the Docker Compose stack. Do not set or branch on deployment
+mode variables; the only API-key choice is AWS Secrets Manager sidecar versus
+direct `.env`.
+
+**First, detect AWS Secrets Manager sidecar availability:**
 
 ```bash
 AWS_SIDECAR_AVAILABLE=false
-if [ "$DEPLOY_MODE" = "docker" ]; then
-  # Check if .env has AWS credentials
-  if [ -f "$CPP_DIR/.env" ] && grep -qE '^AWS_ACCESS_KEY_ID=.+' "$CPP_DIR/.env" 2>/dev/null; then
-    AWS_SIDECAR_AVAILABLE=true
-  fi
+if [ -f "$CPP_DIR/.env" ] && grep -qE '^AWS_ACCESS_KEY_ID=.+' "$CPP_DIR/.env" 2>/dev/null; then
+  AWS_SIDECAR_AVAILABLE=true
 fi
 ```
 
-**If Docker mode with AWS credentials, offer the sidecar path (recommended):**
+**If AWS credentials exist, offer the sidecar path (recommended):**
 
 Ask the user which secret injection method they want using AskUserQuestion:
 
 ```
 === API Key Configuration ===
 
-Docker deployment detected. Choose how MCP servers get their API keys:
+Docker deployment uses containers. Choose how MCP servers get their API keys:
 
   1. AWS Secrets Manager (Recommended)
      Keys stored in AWS Secrets Manager, injected at container startup
@@ -649,8 +637,8 @@ Docker deployment detected. Choose how MCP servers get their API keys:
 Which method? [1/2]
 ```
 
-Only show this choice if `AWS_SIDECAR_AVAILABLE=true`. If `AWS_SIDECAR_AVAILABLE=false`, skip
-straight to the direct .env path below.
+Only show this choice if `AWS_SIDECAR_AVAILABLE=true`. If
+`AWS_SIDECAR_AVAILABLE=false`, skip straight to the direct `.env` path below.
 
 **Path 1: AWS Secrets Manager sidecar**
 
@@ -699,34 +687,15 @@ if [ "$SECRET_METHOD" = "1" ]; then
   echo "To change these mappings, edit the environment section in docker-compose.yml."
   echo ""
 
-  # Rebuild and restart containers with sidecar
-  echo "Refreshing MCP containers with AWS sidecar..."
-  make docker-refresh PROFILE="core browser cicd"
-  DOCKER_REFRESH_RC=$?
-  if [ "$DOCKER_REFRESH_RC" -ne 0 ]; then
-    echo "ERROR: Docker refresh failed or one or more containers are unhealthy."
-    exit "$DOCKER_REFRESH_RC"
-  fi
   echo ""
-
-  # Verify secrets were loaded
-  sleep 5
-  if docker logs mcp-second-opinion 2>&1 | head -10 | grep -q "Loaded secrets from AWS"; then
-    echo "Secrets loaded from AWS Secrets Manager"
-  elif docker logs mcp-second-opinion 2>&1 | head -10 | grep -q "Falling back to env_file"; then
-    echo "WARNING: Sidecar unreachable, fell back to env_file variables."
-    echo "Check: docker logs aws-secrets-agent"
-  fi
-
-  echo ""
-  echo "Sidecar setup complete. Run 'make docker-secrets-check' anytime to validate."
+  echo "Sidecar configuration complete. Containers will be refreshed after API key setup."
 fi
 ```
 
-**Path 2: Direct .env file (fallback or non-Docker)**
+**Path 2: Direct .env file**
 
-This path runs when: `DEPLOY_MODE=venv-only`, OR `DEPLOY_MODE=systemd`, OR
-`AWS_SIDECAR_AVAILABLE=false`, OR the user chose option 2.
+This path runs when `AWS_SIDECAR_AVAILABLE=false` or the user chose option 2.
+It still uses Docker. Do not offer native server startup as a fallback.
 
 Prompt the user for API keys:
 
@@ -743,71 +712,79 @@ Supported providers:
 Enter your GEMINI_API_KEY (or press Enter to skip):
 ```
 
-**Write keys to the correct location based on deployment mode:**
+**Write keys to the Docker `.env` file without removing existing AWS entries:**
 
 ```bash
-# For Docker: write to root .env (docker-compose.yml reads env_file from here)
-# For native: write to mcp-second-opinion/.env (local server reads from here)
-if [ "$DEPLOY_MODE" = "docker" ]; then
-  ENV_FILE="$CPP_DIR/.env"
-  echo "Docker deployment detected - writing keys to $ENV_FILE"
+ENV_FILE="$CPP_DIR/.env"
+touch "$ENV_FILE"
+
+if [ -n "$GEMINI_API_KEY$OPENAI_API_KEY$ANTHROPIC_API_KEY" ]; then
+  python3 - "$ENV_FILE" <<'PY'
+import os
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+keys = ("GEMINI_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY")
+updates = {key: os.environ.get(key, "").strip() for key in keys}
+updates = {key: value for key, value in updates.items() if value}
+
+lines = path.read_text().splitlines() if path.exists() else []
+seen = set()
+new_lines = []
+for line in lines:
+    key = line.split("=", 1)[0].strip() if "=" in line else ""
+    if key in updates:
+        new_lines.append(f"{key}={updates[key]}")
+        seen.add(key)
+    else:
+        new_lines.append(line)
+
+for key, value in updates.items():
+    if key not in seen:
+        new_lines.append(f"{key}={value}")
+
+path.write_text("\n".join(new_lines).rstrip() + "\n")
+PY
+
+  echo "API keys written to $ENV_FILE"
 else
-  ENV_FILE="$CPP_DIR/mcp-second-opinion/.env"
+  echo "No API keys provided; $ENV_FILE unchanged."
 fi
-
-# Build .env content (only include keys that were provided)
-{
-  [ -n "$GEMINI_API_KEY" ] && echo "GEMINI_API_KEY=$GEMINI_API_KEY"
-  [ -n "$OPENAI_API_KEY" ] && echo "OPENAI_API_KEY=$OPENAI_API_KEY"
-  [ -n "$ANTHROPIC_API_KEY" ] && echo "ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY"
-  if [ "$DEPLOY_MODE" != "docker" ]; then
-    echo "MCP_SERVER_HOST=127.0.0.1"
-    echo "MCP_SERVER_PORT=8080"
-    echo "ENABLE_CONTEXT_CACHING=true"
-    echo "CACHE_TTL_MINUTES=60"
-  fi
-} > "$ENV_FILE"
-
-echo "API keys written to $ENV_FILE"
-
-# For Docker: also write to mcp-second-opinion/.env for native fallback
-if [ "$DEPLOY_MODE" = "docker" ]; then
-  {
-    [ -n "$GEMINI_API_KEY" ] && echo "GEMINI_API_KEY=$GEMINI_API_KEY"
-    [ -n "$OPENAI_API_KEY" ] && echo "OPENAI_API_KEY=$OPENAI_API_KEY"
-    [ -n "$ANTHROPIC_API_KEY" ] && echo "ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY"
-    echo "MCP_SERVER_HOST=127.0.0.1"
-    echo "MCP_SERVER_PORT=8080"
-    echo "ENABLE_CONTEXT_CACHING=true"
-    echo "CACHE_TTL_MINUTES=60"
-  } > "$CPP_DIR/mcp-second-opinion/.env"
-  echo "Also wrote to mcp-second-opinion/.env (native fallback)"
-  echo ""
-  echo "NOTE: For production use, consider migrating to AWS Secrets Manager."
-  echo "See docs/AWS_SECRETS_SIDECAR.md for setup instructions."
-fi
-```
-
-**If Docker mode (Path 2 only), rebuild and restart containers to pick up new keys:**
-
-```
-API keys configured. Docker containers will be rebuilt and restarted to pick up the new keys.
-```
-
-```bash
-if [ "$DEPLOY_MODE" = "docker" ]; then
-  cd "$CPP_DIR"
-  make docker-refresh PROFILE="core browser cicd"
-  DOCKER_REFRESH_RC=$?
-  if [ "$DOCKER_REFRESH_RC" -ne 0 ]; then
-    echo "ERROR: Docker refresh failed or one or more containers are unhealthy."
-    exit "$DOCKER_REFRESH_RC"
-  fi
-  echo "Docker containers rebuilt, restarted, and healthy"
-fi
+echo "NOTE: AWS Secrets Manager remains the recommended Docker production path."
+echo "See docs/AWS_SECRETS_SIDECAR.md for setup instructions."
 ```
 
 Optional: Ask for OPENAI_API_KEY and ANTHROPIC_API_KEY for multi-model comparison.
+
+#### 3c. Build, Restart, and Verify Docker Containers
+
+Refresh the Docker stack after either API-key path. This is the only Tier 3
+runtime path.
+
+```bash
+cd "$CPP_DIR"
+make docker-refresh PROFILE="core browser cicd"
+DOCKER_REFRESH_RC=$?
+if [ "$DOCKER_REFRESH_RC" -ne 0 ]; then
+  echo "ERROR: Docker refresh failed or one or more containers are unhealthy."
+  exit "$DOCKER_REFRESH_RC"
+fi
+
+make docker-health PROFILE="core browser cicd"
+DOCKER_HEALTH_RC=$?
+if [ "$DOCKER_HEALTH_RC" -ne 0 ]; then
+  echo "ERROR: Docker health verification failed."
+  exit "$DOCKER_HEALTH_RC"
+fi
+
+sleep 5
+if docker logs mcp-second-opinion 2>&1 | head -10 | grep -q "Loaded secrets from AWS"; then
+  echo "Secrets loaded from AWS Secrets Manager"
+fi
+
+echo "Docker containers rebuilt, restarted, and healthy"
+```
 
 #### 3d. Register MCP Servers
 
@@ -827,6 +804,13 @@ if ! echo "$MCP_LIST" | grep -q "playwright-persistent"; then
   echo "✓ playwright-persistent MCP registered"
 else
   echo "→ playwright-persistent MCP already registered (skipped)"
+fi
+
+if ! echo "$MCP_LIST" | grep -q "nano-banana"; then
+  claude mcp add nano-banana --transport sse --url http://127.0.0.1:8084/sse --scope user
+  echo "✓ nano-banana MCP registered"
+else
+  echo "→ nano-banana MCP already registered (skipped)"
 fi
 ```
 
@@ -1036,57 +1020,7 @@ echo "✓ Woodpecker CI MCP server installed and registered"
 
 ---
 
-## Step 6: Systemd Services (Optional)
-
-After Tier 3 completes, offer systemd setup only when the selected deployment
-model is not Docker. Docker-model installs already rebuilt, restarted, and
-health-checked containers with `make docker-refresh PROFILE="core browser cicd"`.
-
-```bash
-if [ "$DEPLOY_MODE" = "docker" ]; then
-  echo "Docker deployment model selected - skipping systemd service setup."
-else
-  echo "Systemd service setup is available for native installs."
-fi
-```
-
-```
-=== Optional: Systemd Services ===
-
-Would you like to install systemd services for auto-start on boot?
-
-This will:
-  • Create /etc/systemd/system/mcp-second-opinion.service
-  • Enable service to start automatically on boot
-
-Note: You'll need to manually start MCP servers until reboot,
-or run: sudo systemctl start mcp-second-opinion
-
-Install systemd services? [y/N]
-```
-
-If yes:
-```bash
-# Copy service files
-sudo cp "$CPP_DIR/mcp-second-opinion/deploy/mcp-second-opinion.service" /etc/systemd/system/
-
-# Update paths in service files (replace placeholder user)
-CURRENT_USER=$(whoami)
-sudo sed -i "s/cooneycw/$CURRENT_USER/g" /etc/systemd/system/mcp-second-opinion.service
-
-# Reload and enable
-sudo systemctl daemon-reload
-sudo systemctl enable mcp-second-opinion
-
-echo "✓ Systemd services installed and enabled"
-echo ""
-echo "To start now: sudo systemctl start mcp-second-opinion"
-echo "To check status: systemctl status mcp-second-opinion"
-```
-
----
-
-## Step 7: Installation Summary
+## Step 6: Installation Summary
 
 ```
 =================================
@@ -1096,7 +1030,7 @@ CPP Installation Complete!
 Installed:
   ✓ Tier 1: Commands + Skills symlinked
   ✓ Tier 2: Scripts, hooks, shell prompt
-  ✓ Tier 3: uv, MCP servers, API keys
+  ✓ Tier 3: Docker MCP stack, API keys
   ✓ Tier 4: CI/CD build system, health checks, pipeline, containers
 
 Permission Profile: {PROFILE_NAME}
@@ -1109,20 +1043,21 @@ Secrets:
   Validate: make docker-secrets-check
 
 Deployment:
-  Model: {docker|systemd|venv-only}
-  Docker refresh: make docker-refresh PROFILE="core browser cicd" (Docker model only)
+  Model: Docker (local build)
+  Refresh: make docker-refresh PROFILE="core browser cicd"
+  Health: make docker-health PROFILE="core browser cicd"
+  Update pathway: /cpp:update migrates legacy systemd and refreshes Docker
 
 MCP Servers:
   • second-opinion (port 8080) - Gemini/OpenAI code review
   • playwright-persistent (port 8081) - Browser automation
+  • nano-banana (port 8084) - Diagram and PowerPoint generation
   • woodpecker-ci (stdio) - Woodpecker CI pipeline management
-  • aws-secrets-agent (port 2773) - Secret injection sidecar (if AWS SM)
+  • aws-secrets-agent (internal port 2773) - Secret injection sidecar (if AWS SM)
 
 Next Steps:
-  1. Start MCP servers (if not using systemd or Docker):
-     cd {CPP_DIR}/mcp-second-opinion && ./start-server.sh &
-     cd {CPP_DIR}/mcp-playwright-persistent && ./start-server.sh &
-     Or for Docker: make docker-refresh PROFILE="core browser cicd"
+  1. Verify Docker containers:
+     cd {CPP_DIR} && make docker-health PROFILE="core browser cicd"
 
   2. Restart your shell to apply prompt changes:
      source ~/.bashrc
@@ -1152,15 +1087,16 @@ Documentation:
 
 ## Error Handling
 
-### uv Not Installed
+### Docker Not Available
 ```
-⚠ uv not found. Tier 3 requires uv for MCP server environments.
+ERROR: Tier 3 requires Docker Engine or Docker Desktop.
 
-Installing uv automatically...
-  curl -LsSf https://astral.sh/uv/install.sh | sh
+Install Docker and verify:
+  docker ps
+  docker compose version
 
-If automatic installation fails:
-  1. Install manually: https://docs.astral.sh/uv/
+If Docker is not available:
+  1. Install manually: https://docs.docker.com/get-docker/
   2. Or skip Tier 3 and use Standard tier only
 
 Skip Tier 3 components? [Y/n]
@@ -1171,14 +1107,14 @@ Skip Tier 3 components? [Y/n]
 ⚠ No GEMINI_API_KEY provided.
 
 MCP Second Opinion will not work without an API key.
-You can configure it later by editing: {CPP_DIR}/mcp-second-opinion/.env
+You can configure it later by editing: {CPP_DIR}/.env
 
 Continue? [Y/n]
 ```
 
 ---
 
-## Step 8: Optional Extras
+## Step 7: Optional Extras
 
 After the main installation completes, offer optional extras.
 
