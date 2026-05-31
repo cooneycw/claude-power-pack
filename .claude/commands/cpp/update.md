@@ -1,6 +1,6 @@
 ---
 description: Update Claude Power Pack to the latest version
-allowed-tools: Bash(git:*), Bash(ls:*), Bash(test:*), Bash(readlink:*), Bash(cat:*), Bash(uv:*), Bash(claude mcp list:*), Bash(sudo systemctl:*), Bash(systemctl:*), Bash(command -v:*), Bash(ln:*), Bash(mkdir:*), Bash(cp:*), Bash(diff:*), Bash(find:*), Bash(grep:*), Bash(curl:*), Bash(ss:*), Bash(docker:*), Bash(make:*), Bash(python3:*), AskUserQuestion
+allowed-tools: Bash(git:*), Bash(ls:*), Bash(test:*), Bash(readlink:*), Bash(cat:*), Bash(uv:*), Bash(claude mcp list:*), Bash(claude mcp add:*), Bash(claude mcp remove:*), Bash(sudo systemctl:*), Bash(systemctl:*), Bash(command -v:*), Bash(ln:*), Bash(mkdir:*), Bash(cp:*), Bash(diff:*), Bash(find:*), Bash(grep:*), Bash(sed:*), Bash(awk:*), Bash(sort:*), Bash(mktemp:*), Bash(rm:*), Bash(sudo rm:*), Bash(curl:*), Bash(ss:*), Bash(docker:*), Bash(make:*), Bash(python3:*), AskUserQuestion
 ---
 
 # Claude Power Pack Update
@@ -124,127 +124,254 @@ done
 
 ---
 
-## Step 5: Detect Deployment Model and Refresh Runtime
+## Step 4.5: Legacy Systemd Teardown
 
-Choose exactly one runtime model for this machine. Do not run Docker and
-systemd restarts in the same update. Before refreshing anything, run the drift
-check so failed/orphaned systemd units are surfaced instead of revived when
-Docker is the active serving model.
+Before refreshing Docker, detect legacy MCP systemd units in both system and
+user scopes. This is a migration step only: systemd is no longer a supported
+runtime model. Do not stop, disable, or remove anything until the user confirms.
 
-Only restart systemd services when the selected model is systemd, and never
-restart failed units without user approval from the remediation step.
+Known legacy unit names to scan:
+
+- `mcp-second-opinion`
+- `second-opinion`
+- `mcp-playwright`
+- `mcp-playwright-persistent`
+- `playwright-persistent`
+- `nano-banana`
+- `mcp-nano-banana`
+- `mcp-woodpecker-ci`
+- `woodpecker-ci`
+- `mcp-evaluate`
+- `evaluate`
+- `mcp-coordination`
+- `coordination`
+
+Also include discovered units matching `mcp-*`, `nano-*`, or `*coordination*`
+from `/etc/systemd/system/`, `~/.config/systemd/user/`, and systemd's unit
+indexes.
 
 ```bash
 cd "$CPP_DIR"
 
-if [ -x "$CPP_DIR/scripts/drift-detect.sh" ]; then
-  "$CPP_DIR/scripts/drift-detect.sh" --fix || DRIFT_FOUND=true
-fi
+LEGACY_SYSTEMD_REPORT="$(mktemp)"
+LEGACY_SYSTEMD_FOUND=false
+SYSTEMD_TEARDOWN_STATUS="none"
+: > "$LEGACY_SYSTEMD_REPORT"
 
-DEPLOY_MODEL="venv-only"
-DOCKER_READY=false
-DOCKER_STACK_PRESENT=false
-DOCKER_STACK_CONFIGURED=false
-SYSTEMD_ACTIVE=false
+collect_systemd_units() {
+  scope="$1"
 
-if command -v docker &>/dev/null && [ -f "$CPP_DIR/docker-compose.yml" ] && docker compose version &>/dev/null; then
-  DOCKER_READY=true
+  if [ "$scope" = "user" ]; then
+    {
+      find "$HOME/.config/systemd/user" -maxdepth 1 -type f \
+        \( -name 'mcp-*.service' -o -name 'nano-*.service' -o -name '*coordination*.service' \) \
+        -printf '%f\n' 2>/dev/null || true
+      systemctl --user list-units --type=service --all --no-legend --no-pager 2>/dev/null | awk '{print $1}' || true
+      systemctl --user list-unit-files --type=service --no-legend --no-pager 2>/dev/null | awk '{print $1}' || true
+    } | sed 's/\.service$//' | grep -E '^(mcp-|nano-|.*coordination|second-opinion|playwright-persistent|woodpecker-ci|evaluate|coordination)$' | sort -u || true
+  else
+    {
+      find /etc/systemd/system -maxdepth 1 -type f \
+        \( -name 'mcp-*.service' -o -name 'nano-*.service' -o -name '*coordination*.service' \) \
+        -printf '%f\n' 2>/dev/null || true
+      systemctl list-units --type=service --all --no-legend --no-pager 2>/dev/null | awk '{print $1}' || true
+      systemctl list-unit-files --type=service --no-legend --no-pager 2>/dev/null | awk '{print $1}' || true
+    } | sed 's/\.service$//' | grep -E '^(mcp-|nano-|.*coordination|second-opinion|playwright-persistent|woodpecker-ci|evaluate|coordination)$' | sort -u || true
+  fi
+}
 
-  if docker compose --profile core --profile browser --profile cicd ps --format json 2>/dev/null | grep -q '"Service"'; then
-    DOCKER_STACK_PRESENT=true
-  elif docker ps -a --format '{{.Names}}' 2>/dev/null | grep -Eq '^(aws-secrets-agent|mcp-second-opinion|mcp-nano-banana|mcp-playwright-persistent|mcp-woodpecker-ci)$'; then
-    DOCKER_STACK_PRESENT=true
+KNOWN_LEGACY_SYSTEMD_UNITS=$(cat <<'EOF'
+mcp-second-opinion
+second-opinion
+mcp-playwright
+mcp-playwright-persistent
+playwright-persistent
+nano-banana
+mcp-nano-banana
+mcp-woodpecker-ci
+woodpecker-ci
+mcp-evaluate
+evaluate
+mcp-coordination
+coordination
+EOF
+)
+
+USER_LEGACY_SYSTEMD_UNITS="$(collect_systemd_units user)"
+SYSTEM_LEGACY_SYSTEMD_UNITS="$(collect_systemd_units system)"
+ALL_LEGACY_SYSTEMD_UNITS="$(
+  {
+    printf '%s\n' "$KNOWN_LEGACY_SYSTEMD_UNITS"
+    printf '%s\n' "$USER_LEGACY_SYSTEMD_UNITS"
+    printf '%s\n' "$SYSTEM_LEGACY_SYSTEMD_UNITS"
+  } | sed '/^$/d' | sort -u
+)"
+
+for unit in $ALL_LEGACY_SYSTEMD_UNITS; do
+  user_path="$HOME/.config/systemd/user/${unit}.service"
+  system_path="/etc/systemd/system/${unit}.service"
+
+  if printf '%s\n' "$USER_LEGACY_SYSTEMD_UNITS" | grep -qx "$unit"; then
+    active="$(systemctl --user is-active "$unit" 2>/dev/null || true)"
+    enabled="$(systemctl --user is-enabled "$unit" 2>/dev/null || true)"
+    failed="$(systemctl --user is-failed "$unit" 2>/dev/null || true)"
+    [ -f "$user_path" ] || user_path="-"
+    printf 'user\t%s\t%s\t%s\t%s\t%s\n' "$unit" "${active:-unknown}" "${enabled:-unknown}" "${failed:-unknown}" "$user_path" >> "$LEGACY_SYSTEMD_REPORT"
+    LEGACY_SYSTEMD_FOUND=true
   fi
 
-  if [ -f "$CPP_DIR/.env" ]; then
-    DOCKER_STACK_CONFIGURED=true
-  fi
-fi
-
-for service in mcp-second-opinion mcp-playwright nano-banana; do
-  if systemctl is-active "$service" &>/dev/null || systemctl is-enabled "$service" &>/dev/null; then
-    SYSTEMD_ACTIVE=true
-    break
+  if printf '%s\n' "$SYSTEM_LEGACY_SYSTEMD_UNITS" | grep -qx "$unit"; then
+    active="$(systemctl is-active "$unit" 2>/dev/null || true)"
+    enabled="$(systemctl is-enabled "$unit" 2>/dev/null || true)"
+    failed="$(systemctl is-failed "$unit" 2>/dev/null || true)"
+    [ -f "$system_path" ] || system_path="-"
+    printf 'system\t%s\t%s\t%s\t%s\t%s\n' "$unit" "${active:-unknown}" "${enabled:-unknown}" "${failed:-unknown}" "$system_path" >> "$LEGACY_SYSTEMD_REPORT"
+    LEGACY_SYSTEMD_FOUND=true
   fi
 done
 
-if [ "$DOCKER_READY" = "true" ] && { [ "$DOCKER_STACK_PRESENT" = "true" ] || [ "$DOCKER_STACK_CONFIGURED" = "true" ]; }; then
-  DEPLOY_MODEL="docker"
-elif [ "$SYSTEMD_ACTIVE" = "true" ]; then
-  DEPLOY_MODEL="systemd"
-fi
-
-echo "Deployment model detected: $DEPLOY_MODEL"
-```
-
-### Docker Model
-
-For Docker workstations, rebuild changed images, restart the full MCP stack,
-wait for healthchecks, and print the post-update health summary.
-
-```bash
-if [ "$DEPLOY_MODEL" = "docker" ]; then
+if [ "$LEGACY_SYSTEMD_FOUND" = "true" ]; then
   echo ""
-  echo "Refreshing Docker MCP stack..."
-  make docker-refresh PROFILE="core browser cicd"
-  DOCKER_REFRESH_RC=$?
-  if [ "$DOCKER_REFRESH_RC" -ne 0 ]; then
-    echo "ERROR: Docker refresh failed or one or more containers are unhealthy."
-    exit "$DOCKER_REFRESH_RC"
-  fi
+  echo "Legacy systemd MCP units detected:"
+  printf '%-8s %-32s %-12s %-12s %-12s %s\n' "Scope" "Unit" "Active" "Enabled" "Failed" "Path"
+  printf '%-8s %-32s %-12s %-12s %-12s %s\n' "-----" "----" "------" "-------" "------" "----"
+  awk -F '\t' '{printf "%-8s %-32s %-12s %-12s %-12s %s\n", $1, $2, $3, $4, $5, $6}' "$LEGACY_SYSTEMD_REPORT"
+else
+  echo ""
+  echo "No legacy systemd MCP units detected."
 fi
 ```
 
-### Systemd Model
+If legacy units were found, ask the user before teardown:
 
-Keep the native systemd path for systemd workstations.
+```
+Legacy systemd MCP units can conflict with the Docker MCP stack by binding the
+same ports or reviving stale server versions. Remove the listed systemd units
+before refreshing Docker?
+```
+
+Options:
+- **Tear down legacy systemd** - Stop, disable, remove unit files, reload systemd, then continue Docker refresh
+- **Skip teardown** - Leave systemd units in place and continue with a port-conflict warning
+
+If the user confirms teardown, run:
 
 ```bash
-if [ "$DEPLOY_MODEL" = "systemd" ]; then
-  for service in mcp-second-opinion mcp-playwright nano-banana; do
-    if systemctl is-active "$service" &>/dev/null; then
-      echo ""
-      echo "Restarting $service..."
-      sudo systemctl restart "$service"
-      echo "Done: $service restarted"
-    elif systemctl is-failed "$service" &>/dev/null; then
-      echo "WARNING: $service is failed. Resolve via the drift remediation prompts instead of restarting blindly."
+if [ "$LEGACY_SYSTEMD_FOUND" = "true" ]; then
+  REMOVED_SYSTEMD_UNITS=0
+
+  while IFS=$'\t' read -r scope unit active enabled failed path; do
+    echo ""
+    echo "Removing legacy $scope systemd unit: $unit"
+
+    if [ "$scope" = "user" ]; then
+      systemctl --user stop "$unit" 2>/dev/null || true
+      systemctl --user disable "$unit" 2>/dev/null || true
+      if [ "$path" != "-" ] && [ -f "$path" ]; then
+        rm -f "$path"
+      fi
+      systemctl --user daemon-reload
+    else
+      sudo systemctl stop "$unit" 2>/dev/null || true
+      sudo systemctl disable "$unit" 2>/dev/null || true
+      if [ "$path" != "-" ] && [ -f "$path" ]; then
+        sudo rm -f "$path"
+      fi
+      sudo systemctl daemon-reload
     fi
-  done
+
+    REMOVED_SYSTEMD_UNITS=$((REMOVED_SYSTEMD_UNITS + 1))
+  done < "$LEGACY_SYSTEMD_REPORT"
+
+  SYSTEMD_TEARDOWN_STATUS="removed ${REMOVED_SYSTEMD_UNITS} unit scope(s)"
+  echo ""
+  echo "Legacy systemd teardown complete: $SYSTEMD_TEARDOWN_STATUS"
 fi
 ```
 
-### Venv-Only Model
+If the user skips teardown, set `SYSTEMD_TEARDOWN_STATUS="skipped"` and warn:
+
+```
+WARNING: Legacy systemd units were left installed. Docker refresh will continue,
+but stale units may still bind MCP ports or restart old server versions.
+Run /cpp:update again and choose teardown if Docker health fails due to port use.
+```
+
+---
+
+## Step 5: Docker Refresh Runtime
+
+CPP now uses Docker with local builds as the only supported MCP runtime. Before
+refreshing, verify Docker and Docker Compose are available. Do not restart
+systemd units and do not offer a venv-only runtime branch.
 
 ```bash
-if [ "$DEPLOY_MODEL" = "venv-only" ]; then
-  echo ""
-  echo "No Docker containers or systemd services detected."
-  echo "Dependencies were synced; start MCP servers manually if needed."
+cd "$CPP_DIR"
+
+DEPLOY_MODEL="docker"
+DOCKER_READY=false
+
+if ! command -v docker &>/dev/null; then
+  echo "ERROR: Docker is required for CPP Tier 3 runtime refresh."
+  echo "Install Docker Engine or Docker Desktop, then rerun /cpp:update."
+  exit 1
+fi
+
+if ! docker compose version &>/dev/null; then
+  echo "ERROR: Docker Compose v2 is required for CPP Tier 3 runtime refresh."
+  echo "Install the Docker Compose plugin, then rerun /cpp:update."
+  exit 1
+fi
+
+if [ ! -f "$CPP_DIR/docker-compose.yml" ]; then
+  echo "ERROR: docker-compose.yml not found in $CPP_DIR"
+  exit 1
+fi
+
+DOCKER_READY=true
+
+echo ""
+echo "Refreshing Docker MCP stack..."
+make docker-refresh PROFILE="core browser cicd"
+DOCKER_REFRESH_RC=$?
+if [ "$DOCKER_REFRESH_RC" -ne 0 ]; then
+  echo "ERROR: Docker refresh failed or one or more containers are unhealthy."
+  exit "$DOCKER_REFRESH_RC"
+fi
+
+echo ""
+echo "Verifying Docker MCP health..."
+make docker-health PROFILE="core browser cicd"
+DOCKER_HEALTH_RC=$?
+if [ "$DOCKER_HEALTH_RC" -ne 0 ]; then
+  echo "ERROR: Docker health verification failed."
+  exit "$DOCKER_HEALTH_RC"
 fi
 ```
 
-Report the chosen model and the health/restart result to the user:
+Report the Docker refresh and health result to the user:
 
 ```
 Runtime Refresh:
-  Model: {docker|systemd|venv-only}
-  Docker: rebuilt/restarted/healthy, or skipped
-  Systemd: restarted services, or skipped
+  Model: Docker (local build)
+  Docker: rebuilt/restarted/healthy
+  Health: make docker-health passed
+  Legacy systemd: {none|removed N unit scope(s)|skipped with warning}
 ```
-
-If servers are not managed by Docker or systemd, remind the user to start them manually.
 
 ---
 
 ## Step 6: MCP Server Drift Detection
 
-After pulling and refreshing the selected runtime, scan for drift between what
-the repo ships and what is actually installed/running.
+After pulling and refreshing Docker, scan for drift between what the repo ships
+and what is actually installed/running. Docker is the only valid deployment
+target. Any remaining systemd unit is a legacy migration finding, not a runtime
+option to repair or restart.
 
 ### 6a: Build Inventory
 
-Build two lists - what the repo ships vs what is installed - then compare.
+Build two lists - what the repo ships for Docker vs what is installed/running -
+then compare.
 
 **Repo inventory** - scan for active MCP servers the repo provides:
 
@@ -258,7 +385,7 @@ echo "Docker-compose services:"
 grep -E '^\s{2}[a-z].*:$' docker-compose.yml | grep -v '^\s*#' | sed 's/://;s/^ */  /'
 
 echo ""
-echo "Service files:"
+echo "Historical systemd service files (legacy reference only):"
 find . -path '*/deploy/*.service' -type f | sort | while read f; do
   echo "  $f"
 done
@@ -284,16 +411,31 @@ else
 fi
 
 echo ""
-echo "Systemd services (mcp-* and nano-*):"
-systemctl list-units --type=service --all 2>/dev/null | grep -E '(mcp-|nano-|coordination)' || echo "  (none)"
+echo "Legacy systemd units (migration required if present):"
+LEGACY_SYSTEMD_INVENTORY="$(
+  {
+    find "$HOME/.config/systemd/user" /etc/systemd/system -maxdepth 1 -type f \
+      \( -name 'mcp-*.service' -o -name 'nano-*.service' -o -name '*coordination*.service' \) \
+      -printf '%f\n' 2>/dev/null || true
+    systemctl --user list-units --type=service --all --no-legend --no-pager 2>/dev/null | awk '{print $1}' || true
+    systemctl list-units --type=service --all --no-legend --no-pager 2>/dev/null | awk '{print $1}' || true
+    systemctl --user list-unit-files --type=service --no-legend --no-pager 2>/dev/null | awk '{print $1}' || true
+    systemctl list-unit-files --type=service --no-legend --no-pager 2>/dev/null | awk '{print $1}' || true
+  } | sed 's/\.service$//' | grep -E '^(mcp-|nano-|.*coordination|second-opinion|playwright-persistent|woodpecker-ci|evaluate|coordination)$' | sort -u || true
+)"
+if [ -n "$LEGACY_SYSTEMD_INVENTORY" ]; then
+  printf '%s\n' "$LEGACY_SYSTEMD_INVENTORY"
+else
+  echo "  (none)"
+fi
+```
 
-echo ""
-echo "Claude MCP registrations:"
-claude mcp list 2>/dev/null || echo "  (unavailable)"
+Run the drift helper for its raw inventory if available:
 
-echo ""
-echo "Listening ports (8080-8089):"
-ss -tlnp 2>/dev/null | grep -E ':(808[0-9]|8084)' || echo "  (none)"
+```bash
+if [ -x "$CPP_DIR/scripts/drift-detect.sh" ]; then
+  "$CPP_DIR/scripts/drift-detect.sh" --fix || DRIFT_FOUND=true
+fi
 ```
 
 ### 6b: Detect Drift
@@ -311,14 +453,16 @@ Compare the inventories and classify each finding. Use the following logic:
 
 **For each known repo server**, check:
 1. Is there a Docker container running/healthy?
-2. Is there a systemd service installed? (`systemctl is-enabled <name>`)
-3. Is it registered in `claude mcp list`?
-4. Is the port listening?
-5. If systemd service exists, does it match the repo version? (diff the files)
+2. Is it registered in `claude mcp list`?
+3. Is the port listening?
+4. Is any legacy systemd unit still installed for that server?
 
-**For each installed systemd service matching mcp-* or coordination**, check:
-1. Does a corresponding deploy/*.service file exist in the repo?
-2. If not, it is **orphaned** - repo no longer ships it.
+**For each installed legacy systemd service matching mcp-*, nano-*, or
+coordination**, classify it as:
+
+1. **LEGACY SYSTEMD** if it maps to a current Docker server
+2. **ORPHANED LEGACY** if the repo no longer ships it as a Docker server
+3. **LEGACY DEPRECATED** for `mcp-evaluate`/`evaluate`
 
 Build a drift report table:
 
@@ -326,51 +470,35 @@ Build a drift report table:
 MCP Server Drift Report
 ========================
 
-Server                    Repo    Docker    Systemd   MCP Reg   Port    Status
-----------------------------------------------------------------------------
-mcp-second-opinion        yes     healthy   active    yes       8080    OK / STALE SERVICE
-mcp-nano-banana           yes     healthy   none      no        8084    NOT REGISTERED
-mcp-playwright-persistent yes     healthy   active    yes       8081    OK / STALE SERVICE
-mcp-woodpecker-ci         yes     healthy   none      yes       8085    OK
-mcp-coordination          no      none      active    yes       8082    ORPHANED
-mcp-evaluate              depr.   none      none      no        --      OK (deprecated)
+Server                    Repo    Docker    MCP Reg   Port    Legacy Units              Status
+-----------------------------------------------------------------------------------------------
+mcp-second-opinion        yes     healthy   yes       8080    user:mcp-second-opinion   LEGACY SYSTEMD
+mcp-nano-banana           yes     healthy   no        8084    none                      NOT REGISTERED
+mcp-playwright-persistent yes     healthy   yes       8081    system:mcp-playwright     LEGACY SYSTEMD
+mcp-woodpecker-ci         yes     healthy   yes       8085    none                      OK
+mcp-coordination          no      none      yes       8082    system:mcp-coordination   ORPHANED LEGACY
+mcp-evaluate              depr.   none      no        --      user:mcp-evaluate         LEGACY DEPRECATED
 ```
 
 Status classifications:
 - **OK** - repo server is installed, registered, and running
-- **CONFLICT** - Docker and systemd both provide the same server
-- **FAILED SYSTEMD** - systemd unit is failed or stuck activating
+- **LEGACY SYSTEMD** - systemd unit remains for a current Docker server; teardown only
+- **LEGACY DEPRECATED** - deprecated server has a systemd unit; teardown only
+- **ORPHANED LEGACY** - installed/running legacy unit is no longer a repo Docker server
 - **PORT CONFLICT** - multiple listener processes are bound to the same MCP port
-- **STALE SERVICE** - installed but systemd unit differs from repo version
 - **NEW - NOT INSTALLED** - repo ships it but it is not installed
-- **ORPHANED** - installed/running but repo no longer ships it
 - **NOT RUNNING** - installed but service/container is not active
 - **UNHEALTHY** - Docker container is running but healthcheck is failing
 - **NOT REGISTERED** - running but not in `claude mcp list`
 
-Use `scripts/drift-detect.sh --fix` as the authoritative report for:
+Use `scripts/drift-detect.sh --fix` as raw inventory for:
 
-- Docker/systemd deployment-model conflicts
-- orphaned MCP systemd units such as `mcp-coordination`
-- failed MCP systemd units
+- legacy MCP systemd units such as `mcp-coordination`
 - port double-binding on MCP ports 8080-8089
 
-Present the drift report table to the user.
-
-### 6c: Check for Docker Availability
-
-```bash
-if command -v docker &>/dev/null; then
-  echo ""
-  echo "Docker: available ($(docker --version 2>/dev/null | head -1))"
-  if docker compose version &>/dev/null 2>&1; then
-    echo "Docker Compose: available"
-  fi
-  DOCKER_AVAILABLE=true
-else
-  DOCKER_AVAILABLE=false
-fi
-```
+When presenting the final drift table, reclassify any systemd finding from that
+script as `LEGACY SYSTEMD`, `LEGACY DEPRECATED`, or `ORPHANED LEGACY`. Do not
+report systemd as `CONFLICT`, `FAILED SYSTEMD`, or `STALE SERVICE`.
 
 ---
 
@@ -380,37 +508,23 @@ For each drift finding, offer the user actionable options using AskUserQuestion.
 
 **Only show this if drift was detected.** If everything is clean, skip to Step 8.
 
-### For CONFLICT findings (Docker + systemd for one server)
+### For LEGACY SYSTEMD or LEGACY DEPRECATED findings
 
-Default recommendation: converge on Docker. Ask once per server:
+Default recommendation: tear down legacy systemd and keep Docker as the only
+runtime. Ask once for all remaining legacy units if possible:
 
 ```
-{server} is served by Docker and also has systemd unit(s): {units}.
-Keeping both models can cause failed units, stale restarts, or port conflicts.
+Legacy systemd MCP units remain installed: {units}.
+Docker is the only supported CPP runtime. Leaving these units installed can
+cause port conflicts or stale server restarts.
 ```
 
 Options:
-- **Use Docker** - Stop, disable, and remove the listed systemd unit files; keep Docker running
-- **Keep systemd** - Stop/remove the Docker container for this server manually
-- **Skip** - Leave both models in place for now
+- **Tear down legacy systemd** - Stop, disable, remove unit files, reload systemd
+- **Skip** - Leave units in place and keep the port-conflict warning visible
 
-If they choose Docker:
-1. Stop and disable each losing unit (`systemctl --user ...` for user units, `sudo systemctl ...` for system units)
-2. Remove the unit file
-3. Reload the matching systemd manager
-4. Remove stale Claude MCP registrations if they point to the losing model
-5. Re-run `scripts/drift-detect.sh --fix` and verify no conflict remains
-
-### For FAILED SYSTEMD findings
-
-If Docker is active for the same server, recommend the same Docker convergence
-cleanup. If Docker is not active, offer to inspect logs before restart:
-
-```
-journalctl --user -u {unit} -n 80 --no-pager
-```
-
-Do not silently restart failed units.
+If they choose teardown, use the same scope-aware removal commands from Step
+4.5 and re-run drift detection to verify no legacy units remain.
 
 ### For NEW servers (in repo, not installed):
 
@@ -424,24 +538,18 @@ mcp-nano-banana is available in the repo but not installed.
 ```
 
 Options:
-- **Install via systemd** - Copy service file, enable, start, register with claude mcp
-- **Install via Docker** - Will be included in `make docker-refresh PROFILE="core browser cicd"` (if Docker model is active)
+- **Refresh Docker stack** - Re-run `make docker-refresh PROFILE="core browser cicd"` and `make docker-health PROFILE="core browser cicd"`
 - **Skip** - Do not install now
 
-If they choose systemd:
-1. Copy the service file: `sudo cp $CPP_DIR/<server>/deploy/<name>.service /etc/systemd/system/`
-2. Adjust paths if needed (replace `%h` with actual home dir for system services)
-3. `sudo systemctl daemon-reload`
-4. `sudo systemctl enable --now <name>`
-5. Register: `claude mcp add --scope user --transport sse <name> http://127.0.0.1:<port>/sse`
-6. Sync venv if needed: `cd $CPP_DIR/<server> && uv sync`
+Do not offer systemd installation. New servers are installed only by the Docker
+refresh path.
 
-### For ORPHANED services (installed but removed from repo):
+### For ORPHANED LEGACY services
 
 Ask the user per service:
 
 ```
-mcp-coordination is running but has been removed from the repo.
+mcp-coordination is a legacy systemd unit and is no longer a CPP Docker server.
 ```
 
 Options:
@@ -455,28 +563,16 @@ If they choose remove:
 4. `sudo systemctl daemon-reload`
 5. `claude mcp remove <name>` (if registered)
 
-### For STALE service files:
+For user-scope orphaned units, use `systemctl --user ...`, remove the file from
+`~/.config/systemd/user/`, and run `systemctl --user daemon-reload`.
 
-Show the meaningful differences (ignore comment-only changes). Ask:
+### For UNHEALTHY or NOT RUNNING Docker servers
 
-```
-mcp-second-opinion service file differs from repo version.
-Key differences:
-  - Installed uses hardcoded paths, repo uses %h placeholders
-  - Installed has ProtectHome/ProtectSystem sandboxing, repo does not
-  - [other diffs]
-```
+Ask whether to rerun the Docker refresh:
 
 Options:
-- **Update** - Replace service file with repo version (adjusting %h to actual paths for system services), reload, restart
-- **Keep current** - Leave installed version as-is
-
-If they choose update:
-1. Back up: `sudo cp /etc/systemd/system/<name>.service /etc/systemd/system/<name>.service.bak`
-2. Copy new version: `sudo cp $CPP_DIR/<server>/deploy/<name>.service /etc/systemd/system/`
-3. Adjust `%h` to actual home directory path (for system-level services)
-4. `sudo systemctl daemon-reload`
-5. `sudo systemctl restart <name>`
+- **Refresh Docker** - `make docker-refresh PROFILE="core browser cicd"` then `make docker-health PROFILE="core browser cicd"`
+- **Skip** - Leave current container state unchanged
 
 ### For NOT REGISTERED servers (running but not in claude mcp list):
 
@@ -535,7 +631,7 @@ Your current installation: Tier {TIER}
 Available upgrades:
   Tier 1 (Minimal): Commands + Skills symlinks
   Tier 2 (Standard): + Scripts, hooks, shell prompt, permission profiles
-  Tier 3 (Full): + MCP servers (Docker or systemd, uv, API keys)
+  Tier 3 (Full): + MCP servers (Docker, local builds, API keys)
 
 Would you like to upgrade to a higher tier?
 ```
@@ -568,11 +664,13 @@ Dependencies:
   {synced servers or "No MCP venvs to update"}
 
 Runtime:
-  Model: {docker|systemd|venv-only}
-  {Docker containers rebuilt/restarted/healthy, systemd services restarted, or venv-only no restart}
+  Model: Docker (local build)
+  Docker: {containers rebuilt/restarted/healthy, or failed with error}
+  Health: {make docker-health result}
+  Legacy systemd: {none, removed N unit scope(s), or skipped with warning}
 
 MCP Drift:
-  {drift summary - e.g. "1 new server installed, 1 orphan removed, 2 service files updated"
+  {drift summary - e.g. "1 new server refreshed via Docker, 1 legacy unit removed"
    or "No drift detected - all servers in sync"}
 
 Run /cpp:status for full installation details.
@@ -587,11 +685,10 @@ Run /cpp:status for full installation details.
 - Uncommitted changes in CPP are auto-stashed before pull
 - Symlinked commands/skills are automatically updated by the git pull
 - MCP server dependencies are synced if venvs exist
-- Docker workstations rebuild and restart containers with `make docker-refresh PROFILE="core browser cicd"` and fail if healthchecks fail
-- Running systemd services are automatically restarted on systemd-model machines
-- MCP drift detection compares repo state against Docker containers, installed systemd services, claude mcp registrations, and listening ports
-- Orphaned services (removed from repo) are flagged for cleanup
-- New servers are offered for installation via systemd or Docker
-- Stale service files are diffed and can be updated with backup
-- mcp-evaluate is recognized as deprecated and not flagged as missing
+- Docker refresh always uses `make docker-refresh PROFILE="core browser cicd"` followed by `make docker-health PROFILE="core browser cicd"`
+- Legacy systemd units are detected before Docker refresh and are removed only after user confirmation
+- MCP drift detection compares repo state against Docker containers, legacy systemd remnants, claude mcp registrations, and listening ports
+- Orphaned legacy systemd units such as `mcp-coordination` are flagged for teardown
+- New servers are offered only through the Docker refresh path
+- mcp-evaluate is recognized as deprecated and flagged for legacy teardown if installed
 - Use `/cpp:init` instead if you need the full interactive setup wizard
