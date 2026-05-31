@@ -483,7 +483,7 @@ class Config:
     # Top paid model per major provider + best free alternatives
     DEFAULT_MODELS: List[str] = [
         "gemini-3-pro",
-        "gpt-5.5-pro",
+        "gpt-5.2",
         "claude-opus",
         "devstral",
         "groq-gpt-oss-120b",
