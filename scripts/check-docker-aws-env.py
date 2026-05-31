@@ -10,6 +10,7 @@ from typing import Mapping
 
 AWS_SIDECAR_PROFILES = {"core", "cicd"}
 REQUIRED_AWS_ENV = ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY")
+INSECURE_DEFAULT_TOKEN = "default-token"
 
 
 def _parse_env_file(path: Path) -> dict[str, str]:
@@ -62,6 +63,47 @@ def _validate_credentials(
     return errors
 
 
+def _resolve_token(
+    env_file_values: Mapping[str, str],
+    environ: Mapping[str, str],
+) -> str:
+    # Shell environment wins because Docker Compose bakes it over .env at create time.
+    if "AWS_TOKEN" in environ:
+        return environ["AWS_TOKEN"].strip()
+    return env_file_values.get("AWS_TOKEN", "").strip()
+
+
+def _is_truthy(value: str | None) -> bool:
+    if value is None:
+        return False
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _validate_token(
+    env_file_values: Mapping[str, str],
+    environ: Mapping[str, str],
+) -> list[str]:
+    # Escape hatch for fully offline local dev that intentionally runs with the
+    # known default token. CI and deploy must never set this.
+    if _is_truthy(environ.get("CPP_ALLOW_DEFAULT_TOKEN")):
+        return []
+
+    token = _resolve_token(env_file_values, environ)
+    if not token:
+        return [
+            "AWS_TOKEN is missing or empty. The secrets agent uses it as an SSRF "
+            "guard; set a non-default value in .env or the shell."
+        ]
+    if token == INSECURE_DEFAULT_TOKEN:
+        return [
+            "AWS_TOKEN is set to the insecure default 'default-token'. A published "
+            "or shared default token lets any reachable process pull allowed "
+            "secrets; set a unique AWS_TOKEN (or export CPP_ALLOW_DEFAULT_TOKEN=1 "
+            "for offline local dev only)."
+        ]
+    return []
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -84,13 +126,20 @@ def main() -> int:
 
     env_file_values = _parse_env_file(args.env_file)
     errors = _validate_credentials(env_file_values, os.environ)
+    errors.extend(_validate_token(env_file_values, os.environ))
 
     if errors:
-        print("ERROR: aws-secrets-agent requires non-empty AWS credentials before Docker Compose starts.")
+        print(
+            "ERROR: aws-secrets-agent requires non-empty AWS credentials and a "
+            "non-default AWS_TOKEN before Docker Compose starts."
+        )
         for error in errors:
             print(f"  - {error}")
         print("")
-        print("Fix: set non-empty AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in .env or the shell.")
+        print(
+            "Fix: set non-empty AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and a "
+            "unique AWS_TOKEN in .env or the shell."
+        )
         print("If a stale sidecar was already created with empty creds, force-recreate it after fixing env:")
         print(
             "  docker compose --profile core --profile cicd up -d --force-recreate "
@@ -98,7 +147,7 @@ def main() -> int:
         )
         return 1
 
-    print("OK: AWS credentials available for aws-secrets-agent")
+    print("OK: AWS credentials and non-default AWS_TOKEN available for aws-secrets-agent")
     return 0
 
 

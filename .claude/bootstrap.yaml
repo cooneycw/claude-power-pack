@@ -18,7 +18,7 @@ dependencies:
       Create .env with AWS credentials:
         AWS_ACCESS_KEY_ID=<your-key>
         AWS_SECRET_ACCESS_KEY=<your-secret>
-        AWS_TOKEN=<ssrf-protection-token>
+        AWS_TOKEN=<unique-ssrf-token>   # not "default-token"; preflight rejects it
       Or run: make docker-secrets-check
 
   docker-socket:

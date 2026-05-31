@@ -9,14 +9,44 @@ The `aws-secrets-agent` is a Rust-based sidecar container that injects API keys 
   |
   v
 aws-secrets-agent (port 2773)        <-- fetches from AWS Secrets Manager
-  |                                      caches in-memory (300s TTL)
-  |                                      SSRF token protection
+  | (compose network only, expose       caches in-memory (300s TTL)
+  |  not ports - never on the host)      SSRF token protection
   v
-fetch-secrets.sh (entrypoint wrapper)
-  |
+fetch-secrets.sh (entrypoint wrapper)   <-- app container, NO AWS creds,
+  |                                          only SSRF token + secret name
   v
 MCP server (python server.py)        <-- secrets exported as env vars
 ```
+
+### Exposure model
+
+- The agent is published only on the internal compose network
+  (`http://aws-secrets-agent:2773`) via `expose:`, never to the host. A
+  host-published port combined with a shared default token would let any local
+  process pull allowed secrets.
+- App containers (`mcp-second-opinion`, `mcp-woodpecker-ci`) do not receive the
+  root `.env` and therefore carry no AWS credentials. They reach the agent with
+  only the SSRF token (`AWS_TOKEN`) plus their non-secret `AWS_SECRET_NAME` /
+  `SECRETS_AGENT_URL` config.
+- `AWS_TOKEN` must be a unique, non-default value. `make docker-up` preflight
+  (`scripts/check-docker-aws-env.py`) refuses to start when it resolves to empty
+  or the insecure `default-token` (set `CPP_ALLOW_DEFAULT_TOKEN=1` for offline
+  local dev only).
+- The agent and app containers run with `no-new-privileges:true`, and the agent
+  image runs as the non-root `agent` user. (`cap_drop: ALL` is intentionally not
+  applied to the agent: the upstream binary fails to exec under an empty
+  capability set.)
+
+For host-side debugging or offline local dev, opt into `docker-compose.dev.yml`
+(loopback only, never CI/prod):
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml --profile core up
+```
+
+It binds the agent to `127.0.0.1:2773`, restores the `.env` env_file for app
+containers, and sets `ALLOW_ENV_FALLBACK=true` so a fully offline stack (no AWS)
+can read API keys from `.env` instead of failing closed.
 
 ## How It Works
 
@@ -64,7 +94,7 @@ AWS_TOKEN=my-ssrf-protection-token
 
 CI and deploy jobs can provide the same variables through the job environment. The root `.env` file is optional so a clean checkout can still run `docker compose` when credentials are injected by the platform.
 
-`AWS_TOKEN` is an arbitrary string used for SSRF protection - the sidecar validates it on every request. Choose any value and keep it consistent.
+`AWS_TOKEN` is an arbitrary string used for SSRF protection - the sidecar validates it on every request. Choose a unique, non-guessable value and keep it consistent across the agent and its consumers. The `make docker-up` preflight rejects an empty or `default-token` value.
 
 ## AWS Secrets Manager Setup
 
@@ -77,13 +107,17 @@ CI and deploy jobs can provide the same variables through the job environment. T
 
 ### Required IAM Permissions
 
-The AWS credentials in `.env` need:
+The AWS credentials in `.env` need read access scoped to exactly the two named
+secrets, plus `kms:Decrypt` for the CMK that encrypts them (scoped via
+`kms:ViaService` so the key is only usable through Secrets Manager). Omit the KMS
+statement if the secrets use the AWS-managed `aws/secretsmanager` key.
 
 ```json
 {
   "Version": "2012-10-17",
   "Statement": [
     {
+      "Sid": "ReadNamedSecrets",
       "Effect": "Allow",
       "Action": [
         "secretsmanager:GetSecretValue",
@@ -93,6 +127,17 @@ The AWS credentials in `.env` need:
         "arn:aws:secretsmanager:us-east-1:ACCOUNT:secret:codex_llm_apikeys-*",
         "arn:aws:secretsmanager:us-east-1:ACCOUNT:secret:essent-ai-*"
       ]
+    },
+    {
+      "Sid": "DecryptViaSecretsManager",
+      "Effect": "Allow",
+      "Action": "kms:Decrypt",
+      "Resource": "arn:aws:kms:us-east-1:ACCOUNT:key/CMK-KEY-ID",
+      "Condition": {
+        "StringEquals": {
+          "kms:ViaService": "secretsmanager.us-east-1.amazonaws.com"
+        }
+      }
     }
   ]
 }
@@ -133,8 +178,13 @@ If you don't have AWS credentials or prefer local development:
    ANTHROPIC_API_KEY=...
    ```
 3. The `fetch-secrets.sh` entrypoint will skip the fetch and pass through to the server
+4. Start with the dev override so the app containers actually receive `.env` (the
+   base compose no longer mounts `.env` into app containers):
+   ```bash
+   docker compose -f docker-compose.yml -f docker-compose.dev.yml --profile core up
+   ```
 
-Alternatively, if `AWS_SECRET_NAME` is set but the agent is unreachable, the entrypoint **fails closed** by default (exits non-zero, never starts keyless). For local development, set `ALLOW_ENV_FALLBACK=true` - either in your shell or via `docker-compose.dev.yml` - to start with `env_file` variables instead.
+Alternatively, if `AWS_SECRET_NAME` is set but the agent is unreachable, the entrypoint **fails closed** by default (exits non-zero, never starts keyless). For local development, use `docker-compose.dev.yml` (or set `ALLOW_ENV_FALLBACK=true` in your shell) to start with `env_file` variables instead. The base compose deliberately keeps AWS creds and `.env` out of app containers.
 
 ## Sidecar Configuration
 

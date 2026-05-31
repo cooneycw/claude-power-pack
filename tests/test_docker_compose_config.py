@@ -48,6 +48,64 @@ def test_aws_secrets_agent_does_not_require_root_env_file() -> None:
     assert env_file["required"] is False
 
 
+def test_aws_secrets_agent_is_internal_only_not_host_published() -> None:
+    services = _compose_services()
+    agent = services["aws-secrets-agent"]
+
+    # Internal-only exposure: reachable on the compose network, never on the host.
+    assert "ports" not in agent
+    assert agent["expose"] == ["2773"]
+
+
+def test_aws_secrets_agent_drops_privileges() -> None:
+    services = _compose_services()
+    agent = services["aws-secrets-agent"]
+
+    # no-new-privileges plus the non-root `agent` user in the Dockerfile.
+    # cap_drop: ALL is intentionally NOT set - the upstream agent binary fails
+    # to exec (exit 126) under an empty capability set.
+    assert "no-new-privileges:true" in agent["security_opt"]
+    assert "cap_drop" not in agent
+
+    dockerfile = (
+        Path(__file__).resolve().parents[1] / "aws-secrets-agent" / "Dockerfile"
+    ).read_text()
+    assert "USER agent" in dockerfile
+
+
+def test_app_containers_do_not_carry_aws_credentials() -> None:
+    services = _compose_services()
+
+    for service_name in ("mcp-second-opinion", "mcp-woodpecker-ci"):
+        service = services[service_name]
+        # App containers must not receive the root .env (which holds AWS creds).
+        assert "env_file" not in service
+        env = _env_list_to_map(service["environment"])
+        assert "AWS_ACCESS_KEY_ID" not in env
+        assert "AWS_SECRET_ACCESS_KEY" not in env
+        # They reach the sidecar with only the SSRF token + non-secret config.
+        assert env["SECRETS_AGENT_URL"] == "http://aws-secrets-agent:2773"
+        assert "no-new-privileges:true" in service["security_opt"]
+
+
+def test_dev_override_publishes_agent_on_loopback_and_restores_env_fallback() -> None:
+    compose_path = Path(__file__).resolve().parents[1] / "docker-compose.dev.yml"
+    compose = yaml.safe_load(compose_path.read_text())
+    services = compose["services"]
+
+    # Host-side debugging: agent published on loopback only, never 0.0.0.0.
+    assert services["aws-secrets-agent"]["ports"] == ["127.0.0.1:2773:2773"]
+
+    # Offline local-dev fallback for app containers lives only in this override:
+    # the env_file (restored) plus ALLOW_ENV_FALLBACK so fetch-secrets.sh starts
+    # with those vars instead of failing closed.
+    for service_name in ("mcp-second-opinion", "mcp-woodpecker-ci"):
+        env_file = services[service_name]["env_file"][0]
+        assert env_file["path"] == ".env"
+        assert env_file["required"] is False
+        assert "ALLOW_ENV_FALLBACK=true" in services[service_name]["environment"]
+
+
 def test_aws_secrets_agent_accepts_ci_environment_credentials() -> None:
     services = _compose_services()
     env = _env_list_to_map(services["aws-secrets-agent"]["environment"])
@@ -183,9 +241,8 @@ def test_secret_bootstrap_script_is_baked_into_secret_consuming_images() -> None
 def test_compose_uses_fixed_local_ports_with_ci_overrides() -> None:
     services = _compose_services()
 
-    assert services["aws-secrets-agent"]["ports"] == [
-        "${AWS_SECRETS_AGENT_PORT_MAPPING:-2773:2773}"
-    ]
+    # The secrets agent is intentionally NOT host-published (internal-only).
+    assert "ports" not in services["aws-secrets-agent"]
     assert services["mcp-second-opinion"]["ports"] == [
         "${MCP_SECOND_OPINION_PORT_MAPPING:-8080:8080}"
     ]
@@ -371,7 +428,8 @@ def test_woodpecker_runtime_smoke_is_ephemeral_and_tears_down() -> None:
     assert 'export CPP_CONTAINER_PREFIX="cpp-smoke-${CI_PIPELINE_NUMBER:-local}-"' in commands
     assert "export SECOND_OPINION_AWS_SECRET_NAME=" in commands
     assert "export WOODPECKER_CI_AWS_SECRET_NAME=" in commands
-    assert "export AWS_SECRETS_AGENT_PORT_MAPPING=2773" in commands
+    # The agent is internal-only now, so the smoke run no longer publishes it.
+    assert "AWS_SECRETS_AGENT_PORT_MAPPING" not in commands
     assert "export MCP_SECOND_OPINION_PORT_MAPPING=8080" in commands
     assert "export MCP_PLAYWRIGHT_PORT_MAPPING=8081" in commands
     assert "export MCP_NANO_BANANA_PORT_MAPPING=8084" in commands
@@ -381,7 +439,13 @@ def test_woodpecker_runtime_smoke_is_ephemeral_and_tears_down() -> None:
     assert "urllib.request.urlopen('$url', timeout=10)" in commands
     assert "X-Aws-Parameters-Secrets-Token: $AWS_TOKEN" in commands
 
-    assert "check_http aws-secrets-agent 2773 /ping" in commands
+    # The agent is internal-only: verified inside the container and asserted to
+    # have NO host port. `docker compose port` reports an unpublished mapping as
+    # 0, so the guard must treat empty or 0 as "not published". The app servers
+    # are probed on /readyz (the compose `--wait` gate endpoint).
+    assert "check_internal_http aws-secrets-agent 2773 /ping" in commands
+    assert "must not be published to the host" in commands
+    assert '[ "$published" != "0" ]' in commands
     assert "check_http mcp-second-opinion 8080 /readyz" in commands
     assert "check_http mcp-playwright-persistent 8081 /readyz" in commands
     assert "check_http mcp-nano-banana 8084 /readyz" in commands

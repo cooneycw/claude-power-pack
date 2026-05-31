@@ -31,11 +31,25 @@ services:
     # Stable name by default (workstation deploys + cpp:update model detection);
     # CI smoke sets CPP_CONTAINER_PREFIX to keep parallel projects isolated.
     container_name: ${CPP_CONTAINER_PREFIX:-}aws-secrets-agent
-    ports:
-      - "${AWS_SECRETS_AGENT_PORT_MAPPING:-2773:2773}"
+    # Internal-only: reachable on the compose network (http://aws-secrets-agent:2773)
+    # but NOT published to the host. A published port plus the default SSRF token
+    # would let any local process pull allowed secrets. For host-side debugging,
+    # opt into docker-compose.dev.yml (binds 127.0.0.1 only).
+    expose:
+      - "2773"
     env_file:
       - path: .env
         required: false
+    # The agent is the ONLY service that receives AWS credentials. App containers
+    # reach it over the compose network with just the SSRF token; they never carry
+    # AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY, keeping the blast radius minimal.
+    # Hardened with no-new-privileges; the image already runs as the non-root
+    # `agent` user (see aws-secrets-agent/Dockerfile). cap_drop: ALL is
+    # intentionally omitted - the upstream agent binary fails to exec under an
+    # empty capability set (exit 126), so non-root + no-new-privileges is the
+    # hardening we can apply without breaking the sidecar.
+    security_opt:
+      - no-new-privileges:true
     environment:
       - AWS_ACCESS_KEY_ID
       - AWS_SECRET_ACCESS_KEY
@@ -72,9 +86,11 @@ services:
     container_name: ${CPP_CONTAINER_PREFIX:-}mcp-second-opinion
     ports:
       - "${MCP_SECOND_OPINION_PORT_MAPPING:-8080:8080}"
-    env_file:
-      - path: .env
-        required: false
+    # No env_file here: app containers must not carry AWS credentials. They fetch
+    # their API keys from the sidecar over the compose network using the SSRF
+    # token below. Offline local-dev .env fallback lives in docker-compose.dev.yml.
+    security_opt:
+      - no-new-privileges:true
     environment:
       - MCP_SERVER_HOST=0.0.0.0
       - AWS_SECRET_NAME=${SECOND_OPINION_AWS_SECRET_NAME-codex_llm_apikeys}
@@ -177,9 +193,11 @@ services:
     container_name: ${CPP_CONTAINER_PREFIX:-}mcp-woodpecker-ci
     ports:
       - "${MCP_WOODPECKER_CI_PORT_MAPPING:-8085:8085}"
-    env_file:
-      - path: .env
-        required: false
+    # No env_file here: app containers must not carry AWS credentials. They fetch
+    # their API keys from the sidecar over the compose network using the SSRF
+    # token below. Offline local-dev .env fallback lives in docker-compose.dev.yml.
+    security_opt:
+      - no-new-privileges:true
     environment:
       - MCP_SERVER_HOST=0.0.0.0
       - AWS_SECRET_NAME=${WOODPECKER_CI_AWS_SECRET_NAME-essent-ai}
