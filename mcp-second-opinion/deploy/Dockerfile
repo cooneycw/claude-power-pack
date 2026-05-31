@@ -39,6 +39,10 @@ COPY --chown=mcpuser:mcpuser src/tools/ ./tools/
 COPY --chown=mcpuser:mcpuser deploy/fetch-secrets.sh ./fetch-secrets.sh
 RUN chmod 755 /app/fetch-secrets.sh
 
+# Drop system package-management tooling from the runtime layer; app
+# dependencies are prebuilt into /app/.venv.
+RUN /usr/local/bin/python -m pip uninstall -y pip setuptools wheel
+
 # Switch to non-root user
 USER mcpuser
 

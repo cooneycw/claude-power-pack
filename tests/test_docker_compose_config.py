@@ -331,6 +331,21 @@ def test_woodpecker_builds_scans_images_and_generates_sboms() -> None:
     assert "mcp-woodpecker-ci/**" in image_paths
 
 
+def test_python_runtime_images_remove_system_packaging_tools() -> None:
+    root = Path(__file__).resolve().parents[1]
+    dockerfiles = [
+        "mcp-second-opinion/deploy/Dockerfile",
+        "mcp-playwright-persistent/deploy/Dockerfile",
+        "mcp-nano-banana/deploy/Dockerfile",
+        "mcp-woodpecker-ci/deploy/Dockerfile",
+        "mcp-evaluate/deploy/Dockerfile",
+    ]
+
+    for dockerfile in dockerfiles:
+        body = (root / dockerfile).read_text()
+        assert "/usr/local/bin/python -m pip uninstall -y pip setuptools wheel" in body
+
+
 def test_woodpecker_runtime_smoke_is_ephemeral_and_tears_down() -> None:
     steps = _woodpecker_steps()
     smoke = steps["runtime-smoke"]
