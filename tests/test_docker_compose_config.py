@@ -166,6 +166,41 @@ def test_aws_secrets_agent_entrypoint_fails_loud_on_empty_credentials() -> None:
     assert "force-recreate aws-secrets-agent" in entrypoint
 
 
+def test_aws_secrets_agent_uses_pinned_sha_and_tracked_patches() -> None:
+    """The agent build must pin upstream by SHA and apply tracked patches with
+    build-time assertions, never brittle in-Dockerfile sed (Issue #351)."""
+    root = Path(__file__).resolve().parents[1]
+    agent_dir = root / "aws-secrets-agent"
+    dockerfile = (agent_dir / "Dockerfile").read_text()
+    patches_dir = agent_dir / "patches"
+
+    # No silent sed patching of upstream Rust source.
+    assert "sed -i" not in dockerfile
+
+    # Pin upstream by an immutable 40-char commit SHA and verify HEAD matches.
+    assert "AGENT_SHA=" in dockerfile
+    assert 'test "$(git rev-parse HEAD)" = "${AGENT_SHA}"' in dockerfile
+
+    # Patches are tracked and applied with a loud --check gate.
+    assert "git apply --check" in dockerfile
+    assert "COPY patches/ /build/patches/" in dockerfile
+    patch_files = sorted(patches_dir.glob("*.patch"))
+    assert [p.name for p in patch_files] == [
+        "0001-bind-all-interfaces.patch",
+        "0002-remove-ttl-hop-limit.patch",
+    ]
+    for patch in patch_files:
+        text = patch.read_text()
+        assert text.startswith("diff --git")
+        assert "@@" in text  # has hunk context, so --check can detect drift
+
+    # Build-time assertions prove each patch took effect (the grep patterns
+    # escape the brackets, so match on the unescaped fragments).
+    assert "0, 0, 0, 0" in dockerfile
+    assert "config.http_port()" in dockerfile
+    assert "set_ttl" in dockerfile  # referenced in the negative assertion
+
+
 def test_second_opinion_uses_secret_with_free_tier_provider_keys() -> None:
     services = _compose_services()
     env = _env_list_to_map(services["mcp-second-opinion"]["environment"])
