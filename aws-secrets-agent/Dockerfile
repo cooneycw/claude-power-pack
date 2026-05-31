@@ -44,13 +44,13 @@ RUN if grep -q 'set_ttl' aws_secretsmanager_agent/src/server.rs; then \
         echo "ERROR: set_ttl hop limit still present (blocks cross-container traffic)"; exit 1; \
     fi
 
-# Cache the cargo registry and target dir across builds to offset rebuild cost.
-# The release binary is copied out of the cache mount so the next stage can
-# COPY it (cache mounts are not present in the final image layers).
+# Cache the cargo registry across builds to offset crate-download cost. The
+# target dir is left as a normal directory (not a cache mount) so the release
+# binary persists in the builder layer and can be COPY'd directly into the
+# final image - copying it out of a cache mount produced a binary the runtime
+# refused to exec ("Permission denied" / exit 126).
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/build/target \
-    cargo build --release --locked \
-    && cp target/release/aws_secretsmanager_agent /build/aws_secretsmanager_agent
+    cargo build --release --locked
 
 FROM debian:trixie-slim@sha256:b6e2a152f22a40ff69d92cb397223c906017e1391a73c952b588e51af8883bf8
 
@@ -59,11 +59,7 @@ RUN apt-get update && apt-get install -y ca-certificates curl && rm -rf /var/lib
 RUN useradd -m -u 1000 agent && mkdir -p /app && chown agent:agent /app
 WORKDIR /app
 
-# --chmod=0755 is required: the binary is copied out of a BuildKit cache mount
-# in the builder stage, which does not preserve the executable bit, so set it
-# explicitly here (otherwise the entrypoint's `exec ./aws-secrets-agent` fails
-# with "Permission denied" / exit 126 and the container crash-loops).
-COPY --chmod=0755 --from=builder /build/aws_secretsmanager_agent ./aws-secrets-agent
+COPY --from=builder /build/target/release/aws_secretsmanager_agent ./aws-secrets-agent
 COPY config.toml ./config.toml
 COPY entrypoint.sh ./entrypoint.sh
 RUN chmod +x ./entrypoint.sh
