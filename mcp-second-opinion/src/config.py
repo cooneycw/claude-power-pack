@@ -168,14 +168,14 @@ class Config:
     # Anthropic Claude Models - Updated May 2026
     ANTHROPIC_MODEL_SONNET: str = "claude-sonnet-4-6"
     ANTHROPIC_MODEL_HAIKU: str = "claude-haiku-4-5-20251001"
-    ANTHROPIC_MODEL_OPUS: str = "claude-opus-4-8"
+    ANTHROPIC_MODEL_OPUS: str = "claude-opus-4-6"
 
     # Fallback
     ANTHROPIC_MODEL_FALLBACK: str = "claude-haiku-4-5-20251001"
 
     # Anthropic API Pricing (per million tokens) - Updated 2026-05
     ANTHROPIC_PRICING: Dict[str, Dict[str, float]] = {
-        "claude-opus-4-8": {"input": 5.00, "output": 25.00},
+        "claude-opus-4-6": {"input": 5.00, "output": 25.00},
         "claude-sonnet-4-6": {"input": 3.00, "output": 15.00},
         "claude-haiku-4-5-20251001": {"input": 1.00, "output": 5.00},
     }
@@ -270,8 +270,8 @@ class Config:
         },
         "claude-opus": {
             "provider": "anthropic",
-            "model_id": "claude-opus-4-8",
-            "display_name": "Claude Opus 4.8",
+            "model_id": "claude-opus-4-6",
+            "display_name": "Claude Opus 4.6",
             "description": "Most capable Claude, 1M context, improved agentic coding",
             "free": False,
         },
