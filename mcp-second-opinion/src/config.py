@@ -498,6 +498,12 @@ class Config:
     # Generation Parameters
     MAX_TOKENS: int = 49152  # 48K base output tokens (detailed verbosity default)
 
+    # Per-model response timeout (seconds) for the multi-model fan-out. Bounds a
+    # single hung/slow provider stream so it cannot stall the whole batch. Kept
+    # generous by default: a legitimate detailed/in_depth response finishes in
+    # ~1-4 min, so 600s never truncates real output and only trips genuine hangs.
+    MODEL_RESPONSE_TIMEOUT: int = _get_int_env("MODEL_RESPONSE_TIMEOUT", 600)
+
     # Provider-level output ceilings used when a model does not specify its own.
     PROVIDER_MAX_OUTPUT_TOKENS: Dict[str, int] = {
         "groq": 32768,
