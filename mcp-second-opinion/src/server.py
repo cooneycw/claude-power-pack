@@ -476,7 +476,7 @@ async def get_anthropic_response(
     max_tokens: int = Config.MAX_TOKENS,
 ) -> tuple[str, str]:
     """
-    Get a response from the Anthropic Claude API.
+    Get a streaming response from the Anthropic Claude API.
 
     Args:
         prompt: The prompt to send
@@ -493,22 +493,48 @@ async def get_anthropic_response(
         raise ValueError("Anthropic API key not configured")
 
     try:
+        return await _try_anthropic_model(prompt, model_name, max_tokens=max_tokens)
+    except Exception as e:
+        logger.error(f"Anthropic model {model_name} failed: {e}")
+        raise
+
+
+@retry(
+    stop=stop_after_attempt(Config.MAX_RETRIES),
+    wait=wait_exponential(
+        min=Config.RETRY_MIN_WAIT,
+        max=Config.RETRY_MAX_WAIT,
+    ),
+    retry=retry_if_exception_type(Exception),
+    reraise=True,
+)
+async def _try_anthropic_model(
+    prompt: str,
+    model_name: str,
+    max_tokens: int = Config.MAX_TOKENS,
+) -> tuple[str, str]:
+    """
+    Attempt to get a streaming response from a specific Claude model.
+
+    Streaming is required: the Anthropic SDK refuses non-streaming requests
+    whose worst-case generation time (estimated from max_tokens) could exceed
+    10 minutes, which trips on every detailed/in_depth review.
+    """
+    try:
         logger.info(f"Sending request to Anthropic {model_name}")
 
-        message = await _anthropic_client.messages.create(
+        result = ""
+        async with _anthropic_client.messages.stream(
             model=model_name,
             max_tokens=max_tokens,
             messages=[{"role": "user", "content": prompt}],
             temperature=Config.TEMPERATURE,
-        )
+        ) as stream:
+            async for text in stream.text_stream:
+                result += text
+                logger.debug(f"Received chunk: {len(text)} chars")
 
-        # Extract text from response
-        result = ""
-        for block in message.content:
-            if hasattr(block, "text"):
-                result += block.text
-
-        logger.info(f"Completed response from {model_name}: {len(result)} chars")
+        logger.info(f"Completed streaming response from {model_name}: {len(result)} chars")
         return result, model_name
 
     except Exception as e:
