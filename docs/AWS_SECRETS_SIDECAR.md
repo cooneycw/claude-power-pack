@@ -136,10 +136,12 @@ The sidecar is included in both `core` and `cicd` profiles and starts automatica
 
 ## Dockerfile Patches
 
-The sidecar builds the [upstream AWS agent](https://github.com/aws/aws-secretsmanager-agent) from source with two patches:
+The sidecar builds the [upstream AWS agent](https://github.com/aws/aws-secretsmanager-agent) from source, pinned by **commit SHA** (`AGENT_SHA` in the Dockerfile, not a mutable tag), with two tracked patches in `aws-secrets-agent/patches/`:
 
-1. **Bind 0.0.0.0** - upstream hardcodes `127.0.0.1`, blocking cross-container traffic
-2. **Remove TTL=1 restriction** - upstream `set_ttl` call blocks DNS resolution across Docker networks
+1. **Bind 0.0.0.0** (`0001-bind-all-interfaces.patch`) - upstream hardcodes `127.0.0.1`, blocking cross-container traffic
+2. **Remove TTL=1 restriction** (`0002-remove-ttl-hop-limit.patch`) - upstream `set_ttl` call blocks DNS resolution across Docker networks
+
+Patches are applied with `git apply --check && git apply`, followed by build-time `grep` assertions that each patch took effect. If an upstream reformat breaks a patch, the **build fails loudly** rather than silently shipping an agent still bound to `127.0.0.1` (the old `sed`-based approach exited 0 on a no-op match). See `aws-secrets-agent/patches/README.md` for how to regenerate patches after a SHA bump.
 
 ## Troubleshooting
 
