@@ -50,6 +50,13 @@ PROFILE ?= core
 DOCKER_UP_FLAGS ?= -d
 DOCKER_PROFILES = $(foreach p,$(PROFILE),--profile $(p))
 
+# Immutable, traceable tag for deployable images (consumed by docker-compose.yml
+# as ${CPP_IMAGE_TAG}). Defaults to the short git SHA so every built image maps
+# to a commit; falls back to "dev" outside a git checkout. Override with
+# `make docker-refresh CPP_IMAGE_TAG=<tag>`.
+CPP_IMAGE_TAG ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo dev)
+export CPP_IMAGE_TAG
+
 docker-build:
 	docker compose $(DOCKER_PROFILES) build
 

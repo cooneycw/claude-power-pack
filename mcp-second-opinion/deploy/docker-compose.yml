@@ -5,7 +5,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: second-opinion-mcp:latest
+    image: second-opinion-mcp:${CPP_IMAGE_TAG:-dev}
     container_name: second-opinion-mcp
     environment:
       # Pass GEMINI_API_KEY from host environment or .env file

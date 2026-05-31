@@ -55,6 +55,7 @@ desktop.ini
 !package.json
 !tsconfig.json
 !.claude/hooks.json
+!renovate.json
 node_modules/
 .claude/settings*.json
 .claude/plans/
