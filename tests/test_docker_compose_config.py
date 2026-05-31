@@ -599,3 +599,19 @@ def test_woodpecker_smoke_path_gates_cover_shared_runtime_inputs() -> None:
     assert "mcp-playwright-persistent/**" in smoke_paths
     assert "mcp-nano-banana/**" in smoke_paths
     assert "mcp-woodpecker-ci/**" in smoke_paths
+
+
+def test_image_security_path_filter_supersets_runtime_smoke() -> None:
+    # Issue #384: runtime-smoke depends_on image-security. If a change triggers
+    # runtime-smoke's path filter but not image-security's, Woodpecker errors
+    # the whole pipeline with "depends on unknown step 'image-security'". The
+    # dependency's path filter must therefore be a superset of the dependent's.
+    steps = _woodpecker_steps()
+    image_paths = set(steps["image-security"]["when"][0]["path"])
+    smoke_paths = set(steps["runtime-smoke"]["when"][0]["path"])
+
+    missing = smoke_paths - image_paths
+    assert not missing, (
+        "image-security.when.path must superset runtime-smoke.when.path "
+        f"(runtime-smoke depends_on image-security); missing: {sorted(missing)}"
+    )

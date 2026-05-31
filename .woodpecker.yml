@@ -118,11 +118,18 @@ steps:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     when:
+      # MUST stay a superset of runtime-smoke's paths: runtime-smoke
+      # depends_on image-security, so any change that triggers the smoke step
+      # must also trigger this one, or Woodpecker errors the whole pipeline
+      # with "depends on unknown step 'image-security'" (issue #384).
       - event: [push, pull_request]
         path:
           - ".woodpecker.yml"
           - "docker-compose.yml"
+          - "docker-compose.smoke.yml"
           - "scripts/ci-docker-login.sh"
+          - "scripts/runtime-smoke.sh"
+          - "scripts/fake-secrets-agent.py"
           - "aws-secrets-agent/**"
           - "lib/**"
           - "mcp-second-opinion/**"
