@@ -32,6 +32,11 @@ steps:
       context: aws-secrets-agent
       tags: latest
       dry_run: true
+      # Authenticate base-image pulls to avoid Docker Hub anonymous 429s (#370).
+      username:
+        from_secret: dockerhub_username
+      password:
+        from_secret: dockerhub_token
     when:
       - event: [push, pull_request]
         path:
@@ -48,6 +53,11 @@ steps:
       context: mcp-second-opinion
       tags: latest
       dry_run: true
+      # Authenticate base-image pulls to avoid Docker Hub anonymous 429s (#370).
+      username:
+        from_secret: dockerhub_username
+      password:
+        from_secret: dockerhub_token
     when:
       - event: [push, pull_request]
         path:
@@ -66,6 +76,11 @@ steps:
       context: mcp-playwright-persistent
       tags: latest
       dry_run: true
+      # Authenticate base-image pulls to avoid Docker Hub anonymous 429s (#370).
+      username:
+        from_secret: dockerhub_username
+      password:
+        from_secret: dockerhub_token
     when:
       - event: [push, pull_request]
         path:
@@ -83,6 +98,11 @@ steps:
       context: mcp-nano-banana
       tags: latest
       dry_run: true
+      # Authenticate base-image pulls to avoid Docker Hub anonymous 429s (#370).
+      username:
+        from_secret: dockerhub_username
+      password:
+        from_secret: dockerhub_token
     when:
       - event: [push, pull_request]
         path:
@@ -100,6 +120,11 @@ steps:
       context: mcp-woodpecker-ci
       tags: latest
       dry_run: true
+      # Authenticate base-image pulls to avoid Docker Hub anonymous 429s (#370).
+      username:
+        from_secret: dockerhub_username
+      password:
+        from_secret: dockerhub_token
     when:
       - event: [push, pull_request]
         path:
@@ -112,8 +137,15 @@ steps:
   runtime-smoke:
     image: docker:cli
     depends_on: [validate]
+    environment:
+      DOCKERHUB_USERNAME:
+        from_secret: dockerhub_username
+      DOCKERHUB_TOKEN:
+        from_secret: dockerhub_token
     commands:
       - apk add --no-cache curl docker-compose
+      # Authenticate Docker Hub before compose pulls base images (#370).
+      - sh scripts/ci-docker-login.sh
       - |
         set -eu
 
@@ -134,6 +166,15 @@ steps:
         export MCP_WOODPECKER_CI_PORT_MAPPING=8085
         export SECOND_OPINION_AWS_SECRET_NAME=
         export WOODPECKER_CI_AWS_SECRET_NAME=
+
+        # The fake AWS creds above mean the real secrets-agent cannot fetch, so
+        # the secret-consuming servers start in local-dev (keyless) mode. Inject
+        # dummy keys through the compose env passthrough so /readyz reports ready
+        # and the `--wait` readiness gate can succeed. These are never used to
+        # call a provider - /readyz only checks that config is present.
+        export GEMINI_API_KEY=cpp-smoke-gemini-key
+        export WOODPECKER_URL=http://woodpecker.invalid
+        export WOODPECKER_API_TOKEN=cpp-smoke-woodpecker-token
 
         cleanup() {
           docker compose -p "$PROJECT" --profile core --profile browser --profile cicd down -v || true
@@ -178,11 +219,14 @@ steps:
           echo "OK: $service:$container_port$check_path via host port $published"
         }
 
+        # aws-secrets-agent exposes only liveness (/ping). Every MCP server is
+        # probed on /readyz - the same endpoint the compose `--wait` gate uses -
+        # so the smoke fails if a server comes up live-but-not-ready.
         check_http aws-secrets-agent 2773 /ping "X-Aws-Parameters-Secrets-Token: $AWS_TOKEN"
-        check_http mcp-second-opinion 8080 /
-        check_http mcp-playwright-persistent 8081 /
-        check_http mcp-nano-banana 8084 /
-        check_http mcp-woodpecker-ci 8085 /
+        check_http mcp-second-opinion 8080 /readyz
+        check_http mcp-playwright-persistent 8081 /readyz
+        check_http mcp-nano-banana 8084 /readyz
+        check_http mcp-woodpecker-ci 8085 /readyz
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     when:

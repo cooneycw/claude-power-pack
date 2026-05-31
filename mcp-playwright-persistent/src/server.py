@@ -90,9 +90,26 @@ browser_instance: Optional[Browser] = None
 
 @mcp.custom_route("/", methods=["GET"])
 async def root_health_check(request: Request) -> JSONResponse:
-    """Health check endpoint for Claude Code MCP connection verification."""
+    """Liveness probe for Claude Code MCP connection verification."""
     return JSONResponse({
         "status": "healthy",
+        "server": "MCP Playwright Persistent",
+        "port": SERVER_PORT,
+        "sessions": len(sessions),
+    })
+
+
+@mcp.custom_route("/readyz", methods=["GET"])
+async def readiness_check(request: Request) -> JSONResponse:
+    """Readiness probe.
+
+    The browser is launched lazily on first use (see get_browser), so readiness
+    reduces to liveness here - there are no secrets or provider keys to load. The
+    endpoint exists so the compose `--wait` gate is uniform across all MCP
+    servers and callers have one readiness contract to depend on.
+    """
+    return JSONResponse({
+        "status": "ready",
         "server": "MCP Playwright Persistent",
         "port": SERVER_PORT,
         "sessions": len(sessions),

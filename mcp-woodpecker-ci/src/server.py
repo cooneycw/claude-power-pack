@@ -41,7 +41,11 @@ def _get_client() -> WoodpeckerClient:
 
 @mcp.custom_route("/", methods=["GET"])
 async def root_health_check(request: Request) -> JSONResponse:
-    """Health check endpoint."""
+    """Liveness probe: the process is up and serving HTTP.
+
+    Reports credential status for humans but always returns 200 - use /readyz
+    for the machine-readable release gate.
+    """
     configured = bool(Config.WOODPECKER_URL and Config.WOODPECKER_API_TOKEN)
     status = "healthy" if configured else "no_credentials"
     return JSONResponse({
@@ -50,6 +54,28 @@ async def root_health_check(request: Request) -> JSONResponse:
         "version": Config.SERVER_VERSION,
         "woodpecker_url": Config.WOODPECKER_URL or "(not configured)",
     })
+
+
+@mcp.custom_route("/readyz", methods=["GET"])
+async def readiness_check(request: Request) -> JSONResponse:
+    """Readiness probe: returns 503 until Woodpecker credentials are loaded.
+
+    fetch-secrets.sh execs the server, so the resolved URL/token live in this
+    process and are read into Config at import - we check that in-process state
+    here rather than re-reading env in the healthcheck subprocess. A start with
+    no usable credentials reports 503 so `docker compose up --wait` fails instead
+    of greenlighting a server that cannot reach Woodpecker.
+    """
+    configured = bool(Config.WOODPECKER_URL and Config.WOODPECKER_API_TOKEN)
+    return JSONResponse(
+        {
+            "status": "ready" if configured else "not_ready",
+            "server": Config.SERVER_NAME,
+            "version": Config.SERVER_VERSION,
+            "reason": None if configured else "WOODPECKER_URL or WOODPECKER_API_TOKEN not loaded",
+        },
+        status_code=200 if configured else 503,
+    )
 
 
 @mcp.tool()
