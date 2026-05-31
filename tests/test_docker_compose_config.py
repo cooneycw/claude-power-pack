@@ -307,15 +307,18 @@ def test_woodpecker_builds_scans_images_and_generates_sboms() -> None:
     assert "docker compose --profile core --profile browser --profile cicd build" in commands
     assert "docker pull ghcr.io/aquasecurity/trivy:0.67.2" in commands
     assert "docker pull ghcr.io/anchore/syft:v1.44.0" in commands
+    assert "aws-secrets-agent:$CPP_IMAGE_TAG" in commands
+    assert "slug=\"$(printf '%s' \"$image\" | cut -d: -f1)\"" in commands
     assert "ghcr.io/aquasecurity/trivy:0.67.2 image" in commands
+    assert "--scanners vuln" in commands
     assert "--exit-code 1" in commands
     assert "--severity HIGH,CRITICAL" in commands
     assert "--ignore-unfixed" in commands
     assert "ghcr.io/anchore/syft:v1.44.0" in commands
     assert "-o spdx-json" in commands
     assert "-o cyclonedx-json" in commands
-    assert "artifacts/sbom/${slug}.spdx.json" in commands
-    assert "artifacts/sbom/${slug}.cyclonedx.json" in commands
+    assert "artifacts/sbom/$slug.spdx.json" in commands
+    assert "artifacts/sbom/$slug.cyclonedx.json" in commands
 
     image_paths = set(security["when"][0]["path"])
     assert ".woodpecker.yml" in image_paths

@@ -80,18 +80,19 @@ steps:
         docker pull ghcr.io/anchore/syft:v1.44.0
 
         images="
-        aws-secrets-agent:${CPP_IMAGE_TAG}
-        mcp-second-opinion:${CPP_IMAGE_TAG}
-        mcp-playwright-persistent:${CPP_IMAGE_TAG}
-        mcp-nano-banana:${CPP_IMAGE_TAG}
-        mcp-woodpecker-ci:${CPP_IMAGE_TAG}
+        aws-secrets-agent:$CPP_IMAGE_TAG
+        mcp-second-opinion:$CPP_IMAGE_TAG
+        mcp-playwright-persistent:$CPP_IMAGE_TAG
+        mcp-nano-banana:$CPP_IMAGE_TAG
+        mcp-woodpecker-ci:$CPP_IMAGE_TAG
         "
 
         for image in $images; do
-          slug="${image%%:*}"
+          slug="$(printf '%s' "$image" | cut -d: -f1)"
           echo "Scanning $image for fixed HIGH/CRITICAL CVEs"
           docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
             ghcr.io/aquasecurity/trivy:0.67.2 image \
+            --scanners vuln \
             --exit-code 1 \
             --severity HIGH,CRITICAL \
             --ignore-unfixed \
@@ -99,9 +100,9 @@ steps:
 
           echo "Generating SBOMs for $image"
           docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
-            ghcr.io/anchore/syft:v1.44.0 "$image" -o spdx-json > "artifacts/sbom/${slug}.spdx.json"
+            ghcr.io/anchore/syft:v1.44.0 "$image" -o spdx-json > "artifacts/sbom/$slug.spdx.json"
           docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
-            ghcr.io/anchore/syft:v1.44.0 "$image" -o cyclonedx-json > "artifacts/sbom/${slug}.cyclonedx.json"
+            ghcr.io/anchore/syft:v1.44.0 "$image" -o cyclonedx-json > "artifacts/sbom/$slug.cyclonedx.json"
         done
 
         for sbom in artifacts/sbom/*.json; do
