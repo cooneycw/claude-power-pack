@@ -273,6 +273,7 @@ def test_woodpecker_build_steps_do_not_publish_latest_tags() -> None:
         assert step["image"] == "woodpeckerci/plugin-docker-buildx"
         assert step["settings"]["tags"] == "ci-${CI_COMMIT_SHA}"
         assert step["settings"]["tags"] != "latest"
+        assert step["settings"]["pull_image"] is False
 
 
 def test_woodpecker_lints_every_dockerfile_with_hadolint() -> None:

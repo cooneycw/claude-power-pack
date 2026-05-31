@@ -72,6 +72,7 @@ steps:
       context: aws-secrets-agent
       tags: ci-${CI_COMMIT_SHA}
       dry_run: true
+      pull_image: false
     when:
       - event: [push, pull_request]
         path:
@@ -88,6 +89,7 @@ steps:
       context: mcp-second-opinion
       tags: ci-${CI_COMMIT_SHA}
       dry_run: true
+      pull_image: false
     when:
       - event: [push, pull_request]
         path:
@@ -106,6 +108,7 @@ steps:
       context: mcp-playwright-persistent
       tags: ci-${CI_COMMIT_SHA}
       dry_run: true
+      pull_image: false
     when:
       - event: [push, pull_request]
         path:
@@ -123,6 +126,7 @@ steps:
       context: mcp-nano-banana
       tags: ci-${CI_COMMIT_SHA}
       dry_run: true
+      pull_image: false
     when:
       - event: [push, pull_request]
         path:
@@ -140,6 +144,7 @@ steps:
       context: mcp-woodpecker-ci
       tags: ci-${CI_COMMIT_SHA}
       dry_run: true
+      pull_image: false
     when:
       - event: [push, pull_request]
         path:
