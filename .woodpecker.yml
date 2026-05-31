@@ -32,6 +32,11 @@ steps:
       context: aws-secrets-agent
       tags: latest
       dry_run: true
+      # Authenticate base-image pulls to avoid Docker Hub anonymous 429s (#370).
+      username:
+        from_secret: dockerhub_username
+      password:
+        from_secret: dockerhub_token
     when:
       - event: [push, pull_request]
         path:
@@ -48,6 +53,11 @@ steps:
       context: mcp-second-opinion
       tags: latest
       dry_run: true
+      # Authenticate base-image pulls to avoid Docker Hub anonymous 429s (#370).
+      username:
+        from_secret: dockerhub_username
+      password:
+        from_secret: dockerhub_token
     when:
       - event: [push, pull_request]
         path:
@@ -66,6 +76,11 @@ steps:
       context: mcp-playwright-persistent
       tags: latest
       dry_run: true
+      # Authenticate base-image pulls to avoid Docker Hub anonymous 429s (#370).
+      username:
+        from_secret: dockerhub_username
+      password:
+        from_secret: dockerhub_token
     when:
       - event: [push, pull_request]
         path:
@@ -83,6 +98,11 @@ steps:
       context: mcp-nano-banana
       tags: latest
       dry_run: true
+      # Authenticate base-image pulls to avoid Docker Hub anonymous 429s (#370).
+      username:
+        from_secret: dockerhub_username
+      password:
+        from_secret: dockerhub_token
     when:
       - event: [push, pull_request]
         path:
@@ -100,6 +120,11 @@ steps:
       context: mcp-woodpecker-ci
       tags: latest
       dry_run: true
+      # Authenticate base-image pulls to avoid Docker Hub anonymous 429s (#370).
+      username:
+        from_secret: dockerhub_username
+      password:
+        from_secret: dockerhub_token
     when:
       - event: [push, pull_request]
         path:
@@ -112,8 +137,15 @@ steps:
   runtime-smoke:
     image: docker:cli
     depends_on: [validate]
+    environment:
+      DOCKERHUB_USERNAME:
+        from_secret: dockerhub_username
+      DOCKERHUB_TOKEN:
+        from_secret: dockerhub_token
     commands:
       - apk add --no-cache curl docker-compose
+      # Authenticate Docker Hub before compose pulls base images (#370).
+      - sh scripts/ci-docker-login.sh
       - |
         set -eu
 
