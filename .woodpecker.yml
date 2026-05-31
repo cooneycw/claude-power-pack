@@ -67,8 +67,14 @@ steps:
   image-security:
     image: codeberg.org/woodpecker-plugins/docker-buildx:6.1.0@sha256:33263f74a593ddef5d4faeb39ae9f87db14d64d8aae8186284ae6e90d89298a4
     depends_on: [dockerfile-lint, compose-policy]
+    environment:
+      DOCKERHUB_USERNAME:
+        from_secret: dockerhub_username
+      DOCKERHUB_TOKEN:
+        from_secret: dockerhub_token
     commands:
       - apk add --no-cache docker-cli-compose
+      - sh scripts/ci-docker-login.sh
       - |
         set -eu
 
@@ -116,6 +122,7 @@ steps:
         path:
           - ".woodpecker.yml"
           - "docker-compose.yml"
+          - "scripts/ci-docker-login.sh"
           - "aws-secrets-agent/**"
           - "lib/**"
           - "mcp-second-opinion/**"
@@ -126,8 +133,14 @@ steps:
   runtime-smoke:
     image: codeberg.org/woodpecker-plugins/docker-buildx:6.1.0@sha256:33263f74a593ddef5d4faeb39ae9f87db14d64d8aae8186284ae6e90d89298a4
     depends_on: [image-security]
+    environment:
+      DOCKERHUB_USERNAME:
+        from_secret: dockerhub_username
+      DOCKERHUB_TOKEN:
+        from_secret: dockerhub_token
     commands:
       - apk add --no-cache curl docker-cli-compose
+      - sh scripts/ci-docker-login.sh
       - |
         set -eu
 
@@ -204,6 +217,7 @@ steps:
         path:
           - ".woodpecker.yml"
           - "docker-compose.yml"
+          - "scripts/ci-docker-login.sh"
           - "aws-secrets-agent/**"
           - "lib/**"
           - "mcp-second-opinion/**"
