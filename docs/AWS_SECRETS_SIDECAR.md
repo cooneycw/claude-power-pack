@@ -31,7 +31,8 @@ MCP server (python server.py)        <-- secrets exported as env vars
 - `AWS_TOKEN` must be a unique, non-default value. `make docker-up` preflight
   (`scripts/check-docker-aws-env.py`) refuses to start when it resolves to empty
   or the insecure `default-token` (set `CPP_ALLOW_DEFAULT_TOKEN=1` for offline
-  local dev only).
+  local dev only). `make deploy` always rejects `default-token` and requires
+  explicit secret-name variables for secret-consuming profiles.
 - The agent and app containers run with `no-new-privileges:true`, and the agent
   image runs as the non-root `agent` user. (`cap_drop: ALL` is intentionally not
   applied to the agent: the upstream binary fails to exec under an empty
@@ -94,7 +95,9 @@ AWS_TOKEN=my-ssrf-protection-token
 
 CI and deploy jobs can provide the same variables through the job environment. The root `.env` file is optional so a clean checkout can still run `docker compose` when credentials are injected by the platform.
 
-`AWS_TOKEN` is an arbitrary string used for SSRF protection - the sidecar validates it on every request. Choose a unique, non-guessable value and keep it consistent across the agent and its consumers. The `make docker-up` preflight rejects an empty or `default-token` value.
+`AWS_TOKEN` is an arbitrary string used for SSRF protection - the sidecar validates it on every request. Choose a unique, non-guessable value and keep it consistent across the agent and its consumers. The `make docker-up` preflight rejects an empty or `default-token` value, while `make deploy` additionally requires `SECOND_OPINION_AWS_SECRET_NAME` for the `core` profile and `WOODPECKER_CI_AWS_SECRET_NAME` for the `cicd` profile.
+
+`make docker-refresh` is transactional for workstation deploys. Before a rebuild, it tags each currently running compose service image as `:previous`. If the candidate stack fails `docker compose --wait`, the failed stack is stopped and the previously running services are restarted with `CPP_IMAGE_TAG=previous`; the target still exits non-zero so `/flow:deploy` and CI treat the deploy as failed.
 
 ## AWS Secrets Manager Setup
 
