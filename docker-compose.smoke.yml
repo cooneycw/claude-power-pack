@@ -1,0 +1,66 @@
+# Claude Power Pack - CI-only smoke override (issue #350).
+#
+# Layered on top of docker-compose.yml during runtime smoke to exercise the
+# REAL secret-fetch/parse/export path without production AWS credentials:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.smoke.yml ...
+#
+# It adds two services under the "smoke" profile so normal `docker-up` is
+# unaffected:
+#   fake-secrets-agent  a hermetic stub (scripts/fake-secrets-agent.py) that
+#                       returns a canned SecretString, mimicking the AWS agent.
+#   fetch-probe         the REAL mcp-second-opinion image running the REAL
+#                       fetch-secrets.sh against the fake agent with a NON-EMPTY
+#                       AWS_SECRET_NAME, so it takes the production fetch branch
+#                       (not the local-dev fallback). It echoes a sentinel that
+#                       only exists if fetch -> parse -> export all succeeded.
+
+services:
+  fake-secrets-agent:
+    # Built (not bind-mounted) so it works under Woodpecker's docker-in-docker:
+    # the smoke step talks to the host daemon over the mounted socket, where a
+    # relative host bind-mount path does not exist, but a build context is
+    # streamed to the daemon. dockerfile_inline keeps it to one COPY.
+    image: cpp-fake-secrets-agent:${CPP_IMAGE_TAG:-dev}
+    build:
+      context: ./scripts
+      dockerfile_inline: |
+        FROM python:3.11-slim
+        COPY fake-secrets-agent.py /app/fake-secrets-agent.py
+    container_name: ${CPP_CONTAINER_PREFIX:-}fake-secrets-agent
+    command: ["python", "/app/fake-secrets-agent.py"]
+    environment:
+      - AWS_TOKEN=${AWS_TOKEN:-default-token}
+      - FAKE_SECRET_ID=cpp/smoke/fake
+    healthcheck:
+      test:
+        - "CMD"
+        - "python"
+        - "-c"
+        - "import os,urllib.request; r=urllib.request.Request('http://127.0.0.1:2773/ping', headers={'X-Aws-Parameters-Secrets-Token': os.environ.get('AWS_TOKEN','default-token')}); urllib.request.urlopen(r, timeout=5)"
+      interval: 5s
+      timeout: 3s
+      start_period: 5s
+      retries: 5
+    profiles: ["smoke"]
+
+  fetch-probe:
+    # Same tag the stack builds (issue #348 dropped :latest for deployables);
+    # runtime-smoke.sh leaves CPP_IMAGE_TAG unset, so this resolves to :dev,
+    # matching the image `docker compose up --build` produces.
+    image: mcp-second-opinion:${CPP_IMAGE_TAG:-dev}
+    container_name: ${CPP_CONTAINER_PREFIX:-}fetch-probe
+    # Run the real fetch-secrets.sh entrypoint, then echo the sentinel the fake
+    # agent supplies. $$ escapes compose interpolation so the variable is
+    # expanded inside the container, AFTER fetch-secrets.sh exports it.
+    entrypoint: ["/app/fetch-secrets.sh"]
+    command: ["sh", "-c", "echo FETCHED:$$CPP_SMOKE_SENTINEL"]
+    environment:
+      # Non-empty secret name => production fetch branch, not local-dev fallback.
+      - AWS_SECRET_NAME=cpp/smoke/fake
+      - SECRETS_AGENT_URL=http://fake-secrets-agent:2773
+      - AWS_TOKEN=${AWS_TOKEN:-default-token}
+    depends_on:
+      fake-secrets-agent:
+        condition: service_healthy
+    profiles: ["smoke"]

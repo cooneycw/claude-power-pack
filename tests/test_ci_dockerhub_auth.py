@@ -45,8 +45,11 @@ def test_runtime_smoke_logs_in_before_compose_up_build() -> None:
 
     commands = _commands(smoke)
     login_idx = _command_index(commands, "ci-docker-login.sh")
-    up_idx = _command_index(commands, "up --build --wait")
-    assert login_idx < up_idx
+    # The smoke logic (incl. `compose up --build --wait`) moved into the script
+    # (#350); login must still run before the script that triggers the pulls.
+    smoke_idx = _command_index(commands, "runtime-smoke.sh")
+    assert login_idx < smoke_idx
+    assert "up --build --wait" in (REPO / "scripts" / "runtime-smoke.sh").read_text()
     assert "scripts/ci-docker-login.sh" in smoke["when"][0]["path"]
 
 

@@ -447,51 +447,54 @@ def test_woodpecker_runtime_smoke_is_ephemeral_and_tears_down() -> None:
     assert smoke["image"] == WOODPECKER_DOCKER_BUILDX_IMAGE
     assert "/var/run/docker.sock:/var/run/docker.sock" in smoke["volumes"]
     assert "apk add --no-cache curl docker-cli-compose" in commands
-    assert 'PROJECT="cpp-smoke-${CI_PIPELINE_NUMBER:-local}"' in commands
-    assert "trap cleanup EXIT INT TERM" in commands
-    assert (
-        'if ! docker compose -p "$PROJECT" --profile core --profile browser '
-        "--profile cicd up --build --wait; then"
-    ) in commands
-    assert 'docker compose -p "$PROJECT" --profile core --profile browser --profile cicd down -v || true' in commands
-    assert 'docker compose -p "$PROJECT" logs aws-secrets-agent || true' in commands
+    # The smoke logic lives in a script file (Woodpecker mangles nested quotes
+    # in inline commands); the step just installs deps and runs it.
+    assert "sh scripts/runtime-smoke.sh" in commands
 
-    assert "export AWS_ACCESS_KEY_ID=cpp-smoke-access-key" in commands
-    assert "export AWS_SECRET_ACCESS_KEY=cpp-smoke-secret-key" in commands
-    assert "export AWS_SESSION_TOKEN=cpp-smoke-session-token" in commands
-    assert "export AWS_TOKEN=cpp-smoke-token" in commands
-    assert 'export CPP_CONTAINER_PREFIX="cpp-smoke-${CI_PIPELINE_NUMBER:-local}-"' in commands
-    assert "export SECOND_OPINION_AWS_SECRET_NAME=" in commands
-    assert "export WOODPECKER_CI_AWS_SECRET_NAME=" in commands
-    # The agent is internal-only now, so the smoke run no longer publishes it.
-    assert "AWS_SECRETS_AGENT_PORT_MAPPING" not in commands
-    assert "export MCP_SECOND_OPINION_PORT_MAPPING=8080" in commands
-    assert "export MCP_PLAYWRIGHT_PORT_MAPPING=8081" in commands
-    assert "export MCP_NANO_BANANA_PORT_MAPPING=8084" in commands
-    assert "docker compose -p \"$PROJECT\" port \"$service\" \"$container_port\"" in commands
-    assert "url=\"http://127.0.0.1:$container_port$check_path\"" in commands
-    assert 'docker compose -p "$PROJECT" exec -T "$service"' in commands
-    assert "urllib.request.urlopen('$url', timeout=10)" in commands
-    assert "X-Aws-Parameters-Secrets-Token: $AWS_TOKEN" in commands
+    script = (
+        Path(__file__).resolve().parents[1] / "scripts" / "runtime-smoke.sh"
+    ).read_text()
 
-    # The agent is internal-only: verified inside the container and asserted to
-    # have NO host port. `docker compose port` reports an unpublished mapping as
-    # 0, so the guard must treat empty or 0 as "not published". The app servers
-    # are probed on /readyz (the compose `--wait` gate endpoint).
-    assert "check_internal_http aws-secrets-agent 2773 /ping" in commands
-    assert "must not be published to the host" in commands
-    assert '[ "$published" != "0" ]' in commands
-    assert "check_http mcp-second-opinion 8080 /readyz" in commands
-    assert "check_http mcp-playwright-persistent 8081 /readyz" in commands
-    assert "check_http mcp-nano-banana 8084 /readyz" in commands
-    assert "check_http mcp-woodpecker-ci 8085 /readyz" in commands
+    assert 'PROJECT="cpp-smoke-${CI_PIPELINE_NUMBER:-local}"' in script
+    assert "trap cleanup EXIT INT TERM" in script
+    assert "up --build --wait" in script
+    # Ephemeral: the stack is always torn down with volumes removed.
+    assert "down -v" in script and "|| true" in script
+    assert 'docker compose -p "$PROJECT" logs aws-secrets-agent || true' in script
 
-    # Keyless servers must be made ready before the readiness `--wait` gate;
-    # the smoke runs with fake AWS creds (keyless fallback), so it injects dummy
-    # keys through the compose env passthrough purely to satisfy /readyz.
-    assert "export GEMINI_API_KEY=cpp-smoke-gemini-key" in commands
-    assert "export WOODPECKER_URL=http://woodpecker.invalid" in commands
-    assert "export WOODPECKER_API_TOKEN=cpp-smoke-woodpecker-token" in commands
+    assert "export AWS_ACCESS_KEY_ID=cpp-smoke-access-key" in script
+    assert "export AWS_SECRET_ACCESS_KEY=cpp-smoke-secret-key" in script
+    assert "export AWS_SESSION_TOKEN=cpp-smoke-session-token" in script
+    assert "export AWS_TOKEN=cpp-smoke-token" in script
+    assert 'export CPP_CONTAINER_PREFIX="cpp-smoke-${CI_PIPELINE_NUMBER:-local}-"' in script
+    assert "export SECOND_OPINION_AWS_SECRET_NAME=" in script
+    assert "export WOODPECKER_CI_AWS_SECRET_NAME=" in script
+    # The agent is internal-only now, so the smoke no longer publishes it.
+    assert "AWS_SECRETS_AGENT_PORT_MAPPING" not in script
+    assert "export MCP_SECOND_OPINION_PORT_MAPPING=8080" in script
+    assert "export MCP_PLAYWRIGHT_PORT_MAPPING=8081" in script
+    assert "export MCP_NANO_BANANA_PORT_MAPPING=8084" in script
+    assert "docker compose -p \"$PROJECT\" port \"$service\" \"$container_port\"" in script
+    assert "url=\"http://127.0.0.1:$container_port$check_path\"" in script
+    assert 'docker compose -p "$PROJECT" exec -T "$service"' in script
+    assert "urllib.request.urlopen('$url', timeout=10)" in script
+    assert "X-Aws-Parameters-Secrets-Token: $AWS_TOKEN" in script
+
+    # Keyless servers are made ready before the readiness `--wait` gate by
+    # injecting dummy keys through the compose env passthrough (#349).
+    assert "export GEMINI_API_KEY=cpp-smoke-gemini-key" in script
+    assert "export WOODPECKER_URL=http://woodpecker.invalid" in script
+    assert "export WOODPECKER_API_TOKEN=cpp-smoke-woodpecker-token" in script
+
+    # Agent is internal-only: probed inside its container and asserted to have
+    # NO host port (#354). App servers are probed on /readyz (#349).
+    assert "check_internal_http aws-secrets-agent 2773 /ping" in script
+    assert "must not be published to the host" in script
+    assert '[ "$published" != "0" ]' in script
+    assert "check_http mcp-second-opinion 8080 /readyz" in script
+    assert "check_http mcp-playwright-persistent 8081 /readyz" in script
+    assert "check_http mcp-nano-banana 8084 /readyz" in script
+    assert "check_http mcp-woodpecker-ci 8085 /readyz" in script
 
 
 def test_mcp_healthchecks_gate_on_readiness_not_liveness() -> None:
