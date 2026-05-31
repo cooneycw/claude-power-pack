@@ -251,7 +251,7 @@ def test_woodpecker_builds_aws_secrets_agent() -> None:
     steps = _woodpecker_steps()
     step = steps["build-aws-secrets-agent"]
 
-    assert step["image"] == "woodpeckerci/plugin-docker-buildx:v6.0.4"
+    assert step["image"] == "woodpeckerci/plugin-docker-buildx:6.0.4"
     assert step["settings"]["context"] == "aws-secrets-agent"
     assert step["settings"]["dockerfile"] == "aws-secrets-agent/Dockerfile"
     assert step["settings"]["tags"] == "ci-${CI_COMMIT_SHA}"
@@ -270,7 +270,7 @@ def test_woodpecker_build_steps_do_not_publish_latest_tags() -> None:
         "build-woodpecker-ci",
     ):
         step = steps[step_name]
-        assert step["image"] == "woodpeckerci/plugin-docker-buildx:v6.0.4"
+        assert step["image"] == "woodpeckerci/plugin-docker-buildx:6.0.4"
         assert step["settings"]["tags"] == "ci-${CI_COMMIT_SHA}"
         assert step["settings"]["tags"] != "latest"
 

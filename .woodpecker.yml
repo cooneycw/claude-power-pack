@@ -63,7 +63,7 @@ steps:
         fi
 
   build-aws-secrets-agent:
-    image: woodpeckerci/plugin-docker-buildx:v6.0.4
+    image: woodpeckerci/plugin-docker-buildx:6.0.4
     depends_on: [validate]
     settings:
       repo: aws-secrets-agent
@@ -79,7 +79,7 @@ steps:
           - "aws-secrets-agent/**"
 
   build-second-opinion:
-    image: woodpeckerci/plugin-docker-buildx:v6.0.4
+    image: woodpeckerci/plugin-docker-buildx:6.0.4
     depends_on: [validate]
     settings:
       repo: mcp-second-opinion
@@ -97,7 +97,7 @@ steps:
           - "mcp-second-opinion/**"
 
   build-playwright:
-    image: woodpeckerci/plugin-docker-buildx:v6.0.4
+    image: woodpeckerci/plugin-docker-buildx:6.0.4
     depends_on: [validate]
     settings:
       repo: mcp-playwright-persistent
@@ -114,7 +114,7 @@ steps:
           - "mcp-playwright-persistent/**"
 
   build-nano-banana:
-    image: woodpeckerci/plugin-docker-buildx:v6.0.4
+    image: woodpeckerci/plugin-docker-buildx:6.0.4
     depends_on: [validate]
     settings:
       repo: mcp-nano-banana
@@ -131,7 +131,7 @@ steps:
           - "mcp-nano-banana/**"
 
   build-woodpecker-ci:
-    image: woodpeckerci/plugin-docker-buildx:v6.0.4
+    image: woodpeckerci/plugin-docker-buildx:6.0.4
     depends_on: [validate]
     settings:
       repo: mcp-woodpecker-ci
