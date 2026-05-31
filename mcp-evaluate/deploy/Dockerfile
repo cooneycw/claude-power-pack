@@ -1,10 +1,10 @@
 # Evaluate MCP Server - Dockerfile
 # Multi-stage build using uv for dependency management
 
-FROM python:3.11-slim AS builder
+FROM python:3.11.15-slim@sha256:a3ab0b966bc4e91546a033e22093cb840908979487a9fc0e6e38295747e49ac0 AS builder
 
 # Install uv
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.11.17@sha256:03bdc89bb9798628846e60c3a9ad19006c8c3c724ccd2985a33145c039a0577b /uv /usr/local/bin/uv
 
 WORKDIR /app
 
@@ -16,7 +16,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-install-project
 
 # Final stage
-FROM python:3.11-slim
+FROM python:3.11.15-slim@sha256:a3ab0b966bc4e91546a033e22093cb840908979487a9fc0e6e38295747e49ac0
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \

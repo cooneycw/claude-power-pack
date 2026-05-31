@@ -1,0 +1,17 @@
+# Local development override (issue #347).
+#
+# Opts the secret-consuming MCP servers into env_file fallback so they still
+# start when the aws-secrets-agent is unreachable or AWS credentials are absent.
+# This re-enables the fail-open behaviour that the base config closes - NEVER use
+# it in CI or on a workstation deploy.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+services:
+  mcp-second-opinion:
+    environment:
+      - ALLOW_ENV_FALLBACK=true
+
+  mcp-woodpecker-ci:
+    environment:
+      - ALLOW_ENV_FALLBACK=true

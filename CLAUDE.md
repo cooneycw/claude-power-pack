@@ -43,7 +43,7 @@ Core components and their locations:
 
 ## Docker Deployment
 
-MCP containers fetch API keys at startup from AWS Secrets Manager via an `aws-secrets-agent` sidecar. Local development can store only AWS credentials in the root `.env` file (gitignored), while CI/deploy can inject the same variables through the job environment. No application secrets are stored on disk. If the sidecar is unreachable or `AWS_SECRET_NAME` is not set, containers fall back to `env_file` variables for local development.
+MCP containers fetch API keys at startup from AWS Secrets Manager via an `aws-secrets-agent` sidecar. Local development can store only AWS credentials in the root `.env` file (gitignored), while CI/deploy can inject the same variables through the job environment. No application secrets are stored on disk. If `AWS_SECRET_NAME` is not set, containers use `env_file` variables (local dev mode). If `AWS_SECRET_NAME` is set but the fetch or parse fails, containers **fail closed** - they exit non-zero and never start keyless (issue #347). Set `ALLOW_ENV_FALLBACK=true` (e.g. via `docker-compose.dev.yml`) to opt into env-file fallback for local development.
 
 - **Secrets architecture:** `aws-secrets-agent` (Rust binary, port 2773) caches secrets in-memory (300s TTL) with SSRF token protection. MCP containers use `fetch-secrets.sh` entrypoint to resolve keys before starting.
 - **Required AWS credential variables:** `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_TOKEN` (SSRF token), supplied by local `.env` or CI/deploy environment
@@ -62,6 +62,7 @@ MCP containers fetch API keys at startup from AWS Secrets Manager via an `aws-se
 - **Runtime smoke:** CI uses a `cpp-smoke-$CI_PIPELINE_NUMBER` compose project with random host ports, validates service health, and runs `docker compose down -v` before exiting. CI must not deploy persistent containers or prune host images.
 - **Bootstrap checks:** `make bootstrap-check` verifies admin-only prerequisites (IAM roles, secrets provisioning) before deploy. Configure in `.claude/bootstrap.yaml`. Runs as the first step in the deploy pipeline - blocks with remediation if unsatisfied.
 - **Drift detection:** `make drift-check` compares host-installed artifacts (systemd units, sysctl, Go binaries, shared scripts) against repo templates. Run it manually when reconciling workstation-managed artifacts. See `docs/HOST_MANAGED_ARTIFACTS.md` for full inventory.
+- **Reproducible builds:** Every base image and build tool (python, rust, debian, `uv`, gitleaks, woodpecker server/agent) is pinned by version tag plus `@sha256:` digest in the Dockerfiles, `.woodpecker.yml`, and infra compose files - never `:latest`. Deployable images are tagged with `CPP_IMAGE_TAG` (the short git SHA, set by the Makefile) instead of `:latest`, so each image traces to a commit and rollbacks have provenance. `renovate.json` rotates the pinned digests on a weekly schedule so pinning never freezes security updates.
 
 ## Commands Reference
 

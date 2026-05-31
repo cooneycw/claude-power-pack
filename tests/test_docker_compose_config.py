@@ -194,6 +194,13 @@ def test_secret_bootstrap_script_is_baked_into_secret_consuming_images() -> None
     root = Path(__file__).resolve().parents[1]
     canonical = (root / "aws-secrets-agent" / "fetch-secrets.sh").read_text()
 
+    # Fail-closed posture (issue #347): a required-secret fetch failure must
+    # exit non-zero rather than exec a keyless server, and the env_file fallback
+    # must be gated behind an explicit opt-in.
+    assert "ALLOW_ENV_FALLBACK" in canonical
+    assert "refusing to start without required secret" in canonical
+    assert "exit 1" in canonical
+
     for service in ("mcp-second-opinion", "mcp-woodpecker-ci"):
         dockerfile = (root / service / "deploy" / "Dockerfile").read_text()
         fetch_script = (root / service / "deploy" / "fetch-secrets.sh").read_text()
