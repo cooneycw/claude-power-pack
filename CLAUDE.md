@@ -43,7 +43,7 @@ Core components and their locations:
 
 ## Docker Deployment
 
-MCP containers fetch API keys at startup from AWS Secrets Manager via an `aws-secrets-agent` sidecar. Local development can store only AWS credentials in the root `.env` file (gitignored), while CI/deploy can inject the same variables through the job environment. No application secrets are stored on disk. If the sidecar is unreachable or `AWS_SECRET_NAME` is not set, containers fall back to `env_file` variables for local development.
+MCP containers fetch API keys at startup from AWS Secrets Manager via an `aws-secrets-agent` sidecar. Local development can store only AWS credentials in the root `.env` file (gitignored), while CI/deploy can inject the same variables through the job environment. No application secrets are stored on disk. If `AWS_SECRET_NAME` is not set, containers use `env_file` variables (local dev mode). If `AWS_SECRET_NAME` is set but the fetch or parse fails, containers **fail closed** - they exit non-zero and never start keyless (issue #347). Set `ALLOW_ENV_FALLBACK=true` (e.g. via `docker-compose.dev.yml`) to opt into env-file fallback for local development.
 
 - **Secrets architecture:** `aws-secrets-agent` (Rust binary, port 2773) caches secrets in-memory (300s TTL) with SSRF token protection. MCP containers use `fetch-secrets.sh` entrypoint to resolve keys before starting.
 - **Required AWS credential variables:** `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_TOKEN` (SSRF token), supplied by local `.env` or CI/deploy environment

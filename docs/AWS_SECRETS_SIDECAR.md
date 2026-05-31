@@ -26,8 +26,31 @@ MCP server (python server.py)        <-- secrets exported as env vars
    - Checks if `AWS_SECRET_NAME` is set (skips fetch if not - local dev mode)
    - Queries the sidecar for the named secret
    - Parses the JSON secret value and exports each key-value pair as an environment variable
-   - Falls back to existing `env_file` variables if the agent is unreachable
+   - **Fails closed** if a required secret cannot be fetched or parsed: it exits non-zero instead of starting a keyless server (unless `ALLOW_ENV_FALLBACK=true`)
    - Execs the original command (e.g., `python server.py`)
+
+### Fail-closed behaviour (issue #347)
+
+When `AWS_SECRET_NAME` is set, a failed fetch or parse is treated as fatal: the
+entrypoint exits non-zero and the container never starts. This prevents the
+"killer chain" (#346) where a keyless server passes the liveness (`/`)
+healthcheck and `docker compose up --wait` tears down the known-good container.
+
+The entrypoint honours these optional tunables:
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `ALLOW_ENV_FALLBACK` | `false` | `true` re-enables the old fail-open behaviour (start with `env_file` variables on fetch/parse failure). **Local dev only.** |
+| `REQUIRED_SECRET_KEYS` | _(empty)_ | Space-separated keys that must be present and non-empty after the fetch, or the entrypoint fails closed. |
+| `SECRETS_FETCH_MAX_RETRIES` | `30` | Fetch attempts before giving up. |
+| `SECRETS_FETCH_RETRY_INTERVAL` | `2` | Seconds between attempts. |
+
+For convenience, `docker-compose.dev.yml` sets `ALLOW_ENV_FALLBACK=true` for the
+secret-consuming services:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+```
 
 ## Required Credentials
 
@@ -111,7 +134,7 @@ If you don't have AWS credentials or prefer local development:
    ```
 3. The `fetch-secrets.sh` entrypoint will skip the fetch and pass through to the server
 
-Alternatively, if `AWS_SECRET_NAME` is set but the agent is unreachable, the entrypoint warns and falls back to `env_file` variables.
+Alternatively, if `AWS_SECRET_NAME` is set but the agent is unreachable, the entrypoint **fails closed** by default (exits non-zero, never starts keyless). For local development, set `ALLOW_ENV_FALLBACK=true` - either in your shell or via `docker-compose.dev.yml` - to start with `env_file` variables instead.
 
 ## Sidecar Configuration
 
@@ -147,6 +170,7 @@ The sidecar builds the [upstream AWS agent](https://github.com/aws/aws-secretsma
 |---------|-------|-----|
 | `no_api_keys` in health_check | Secrets not loaded | Check `docker logs aws-secrets-agent` for AWS auth errors |
 | `Failed to fetch secrets after 30 retries` | Agent not healthy | Run `make docker-secrets-check`, verify AWS creds |
+| `FATAL: refusing to start without required secret` | Required secret fetch/parse failed (fail-closed) | Fix the sidecar/AWS creds; for local dev set `ALLOW_ENV_FALLBACK=true` |
 | `aws-secrets-agent cannot start: AWS credentials empty/missing` | Sidecar was created with empty `AWS_ACCESS_KEY_ID` or `AWS_SECRET_ACCESS_KEY` | Fix `.env` or shell AWS env, then run `docker compose --profile core --profile cicd up -d --force-recreate aws-secrets-agent mcp-second-opinion mcp-woodpecker-ci` |
 | Secret-dependent MCP containers stay `Created` with no logs | `aws-secrets-agent` is unhealthy before dependents can start | Run `make docker-health PROFILE="core cicd"` for the force-recreate remedy |
 | Container starts but keys are stale | Secret cache TTL | Wait 300s or restart `aws-secrets-agent` |
