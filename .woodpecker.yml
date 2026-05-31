@@ -25,12 +25,14 @@ steps:
 
   dockerfile-lint:
     image: hadolint/hadolint:v2.14.0-debian
+    pull: true
     depends_on: [validate]
     commands:
       - find . -path ./.git -prune -o -name Dockerfile -print0 | xargs -0 hadolint --failure-threshold error
 
   compose-policy:
     image: docker:29.5.2-cli
+    pull: true
     depends_on: [validate]
     commands:
       - |
@@ -64,6 +66,7 @@ steps:
 
   build-aws-secrets-agent:
     image: woodpeckerci/plugin-docker-buildx:6.0.4
+    pull: true
     depends_on: [validate]
     settings:
       repo: aws-secrets-agent
@@ -80,6 +83,7 @@ steps:
 
   build-second-opinion:
     image: woodpeckerci/plugin-docker-buildx:6.0.4
+    pull: true
     depends_on: [validate]
     settings:
       repo: mcp-second-opinion
@@ -98,6 +102,7 @@ steps:
 
   build-playwright:
     image: woodpeckerci/plugin-docker-buildx:6.0.4
+    pull: true
     depends_on: [validate]
     settings:
       repo: mcp-playwright-persistent
@@ -115,6 +120,7 @@ steps:
 
   build-nano-banana:
     image: woodpeckerci/plugin-docker-buildx:6.0.4
+    pull: true
     depends_on: [validate]
     settings:
       repo: mcp-nano-banana
@@ -132,6 +138,7 @@ steps:
 
   build-woodpecker-ci:
     image: woodpeckerci/plugin-docker-buildx:6.0.4
+    pull: true
     depends_on: [validate]
     settings:
       repo: mcp-woodpecker-ci
@@ -150,6 +157,7 @@ steps:
 
   image-security:
     image: docker:29.5.2-cli
+    pull: true
     depends_on: [dockerfile-lint, compose-policy]
     commands:
       - |
@@ -204,6 +212,7 @@ steps:
 
   runtime-smoke:
     image: docker:29.5.2-cli
+    pull: true
     depends_on: [image-security]
     commands:
       - apk add --no-cache curl docker-compose
