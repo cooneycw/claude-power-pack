@@ -7,6 +7,11 @@ from typing import Any
 
 import yaml
 
+WOODPECKER_DOCKER_BUILDX_IMAGE = (
+    "codeberg.org/woodpecker-plugins/docker-buildx:6.1.0"
+    "@sha256:33263f74a593ddef5d4faeb39ae9f87db14d64d8aae8186284ae6e90d89298a4"
+)
+
 
 def _env_list_to_map(values: list[str]) -> dict[str, str | None]:
     env: dict[str, str | None] = {}
@@ -251,7 +256,7 @@ def test_woodpecker_builds_aws_secrets_agent() -> None:
     steps = _woodpecker_steps()
     step = steps["build-aws-secrets-agent"]
 
-    assert step["image"] == "woodpeckerci/plugin-docker-buildx"
+    assert step["image"] == WOODPECKER_DOCKER_BUILDX_IMAGE
     assert step["settings"]["context"] == "aws-secrets-agent"
     assert step["settings"]["dockerfile"] == "aws-secrets-agent/Dockerfile"
     assert step["settings"]["tags"] == "ci-${CI_COMMIT_SHA}"
@@ -270,7 +275,7 @@ def test_woodpecker_build_steps_do_not_publish_latest_tags() -> None:
         "build-woodpecker-ci",
     ):
         step = steps[step_name]
-        assert step["image"] == "woodpeckerci/plugin-docker-buildx"
+        assert step["image"] == WOODPECKER_DOCKER_BUILDX_IMAGE
         assert step["settings"]["tags"] == "ci-${CI_COMMIT_SHA}"
         assert step["settings"]["tags"] != "latest"
         assert step["settings"]["pull_image"] is False
@@ -294,7 +299,8 @@ def test_woodpecker_validates_compose_config_and_policy() -> None:
     commands = _step_commands(policy)
 
     assert policy["depends_on"] == ["validate"]
-    assert policy["image"] == "docker:29.5.2-cli"
+    assert policy["image"] == WOODPECKER_DOCKER_BUILDX_IMAGE
+    assert "apk add --no-cache docker-cli-compose" in commands
     assert "docker compose --profile core --profile browser --profile cicd config --quiet" in commands
     assert "docker compose --profile core --profile browser --profile cicd config > \"$rendered\"" in commands
     assert "AWS_TOKEN=ci-policy-token" in commands
@@ -310,8 +316,9 @@ def test_woodpecker_builds_scans_images_and_generates_sboms() -> None:
     commands = _step_commands(security)
 
     assert security["depends_on"] == ["dockerfile-lint", "compose-policy"]
-    assert security["image"] == "docker:29.5.2-cli"
+    assert security["image"] == WOODPECKER_DOCKER_BUILDX_IMAGE
     assert "/var/run/docker.sock:/var/run/docker.sock" in security["volumes"]
+    assert "apk add --no-cache docker-cli-compose" in commands
     assert "CPP_IMAGE_TAG=\"ci-${CI_COMMIT_SHA:-local}\"" in commands
     assert "docker compose --profile core --profile browser --profile cicd build" in commands
     assert "docker pull ghcr.io/aquasecurity/trivy:0.67.2" in commands
@@ -343,8 +350,9 @@ def test_woodpecker_runtime_smoke_is_ephemeral_and_tears_down() -> None:
     commands = _step_commands(smoke)
 
     assert smoke["depends_on"] == ["image-security"]
-    assert smoke["image"] == "docker:29.5.2-cli"
+    assert smoke["image"] == WOODPECKER_DOCKER_BUILDX_IMAGE
     assert "/var/run/docker.sock:/var/run/docker.sock" in smoke["volumes"]
+    assert "apk add --no-cache curl docker-cli-compose" in commands
     assert 'PROJECT="cpp-smoke-${CI_PIPELINE_NUMBER:-local}"' in commands
     assert "trap cleanup EXIT INT TERM" in commands
     assert (

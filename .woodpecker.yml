@@ -31,9 +31,10 @@ steps:
       - find . -path ./.git -prune -o -name Dockerfile -print0 | xargs -0 hadolint --failure-threshold error
 
   compose-policy:
-    image: docker:29.5.2-cli
+    image: codeberg.org/woodpecker-plugins/docker-buildx:6.1.0@sha256:33263f74a593ddef5d4faeb39ae9f87db14d64d8aae8186284ae6e90d89298a4
     depends_on: [validate]
     commands:
+      - apk add --no-cache docker-cli-compose
       - |
         set -eu
 
@@ -64,7 +65,7 @@ steps:
         fi
 
   build-aws-secrets-agent:
-    image: woodpeckerci/plugin-docker-buildx
+    image: codeberg.org/woodpecker-plugins/docker-buildx:6.1.0@sha256:33263f74a593ddef5d4faeb39ae9f87db14d64d8aae8186284ae6e90d89298a4
     depends_on: [validate]
     settings:
       repo: aws-secrets-agent
@@ -81,7 +82,7 @@ steps:
           - "aws-secrets-agent/**"
 
   build-second-opinion:
-    image: woodpeckerci/plugin-docker-buildx
+    image: codeberg.org/woodpecker-plugins/docker-buildx:6.1.0@sha256:33263f74a593ddef5d4faeb39ae9f87db14d64d8aae8186284ae6e90d89298a4
     depends_on: [validate]
     settings:
       repo: mcp-second-opinion
@@ -100,7 +101,7 @@ steps:
           - "mcp-second-opinion/**"
 
   build-playwright:
-    image: woodpeckerci/plugin-docker-buildx
+    image: codeberg.org/woodpecker-plugins/docker-buildx:6.1.0@sha256:33263f74a593ddef5d4faeb39ae9f87db14d64d8aae8186284ae6e90d89298a4
     depends_on: [validate]
     settings:
       repo: mcp-playwright-persistent
@@ -118,7 +119,7 @@ steps:
           - "mcp-playwright-persistent/**"
 
   build-nano-banana:
-    image: woodpeckerci/plugin-docker-buildx
+    image: codeberg.org/woodpecker-plugins/docker-buildx:6.1.0@sha256:33263f74a593ddef5d4faeb39ae9f87db14d64d8aae8186284ae6e90d89298a4
     depends_on: [validate]
     settings:
       repo: mcp-nano-banana
@@ -136,7 +137,7 @@ steps:
           - "mcp-nano-banana/**"
 
   build-woodpecker-ci:
-    image: woodpeckerci/plugin-docker-buildx
+    image: codeberg.org/woodpecker-plugins/docker-buildx:6.1.0@sha256:33263f74a593ddef5d4faeb39ae9f87db14d64d8aae8186284ae6e90d89298a4
     depends_on: [validate]
     settings:
       repo: mcp-woodpecker-ci
@@ -155,9 +156,10 @@ steps:
           - "mcp-woodpecker-ci/**"
 
   image-security:
-    image: docker:29.5.2-cli
+    image: codeberg.org/woodpecker-plugins/docker-buildx:6.1.0@sha256:33263f74a593ddef5d4faeb39ae9f87db14d64d8aae8186284ae6e90d89298a4
     depends_on: [dockerfile-lint, compose-policy]
     commands:
+      - apk add --no-cache docker-cli-compose
       - |
         set -eu
 
@@ -212,10 +214,10 @@ steps:
           - "mcp-woodpecker-ci/**"
 
   runtime-smoke:
-    image: docker:29.5.2-cli
+    image: codeberg.org/woodpecker-plugins/docker-buildx:6.1.0@sha256:33263f74a593ddef5d4faeb39ae9f87db14d64d8aae8186284ae6e90d89298a4
     depends_on: [image-security]
     commands:
-      - apk add --no-cache curl docker-compose
+      - apk add --no-cache curl docker-cli-compose
       - |
         set -eu
 
