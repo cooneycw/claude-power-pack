@@ -252,19 +252,7 @@ def test_woodpecker_has_no_persistent_deploy_or_prune() -> None:
     assert "docker image prune" not in pipeline_text
 
 
-def test_woodpecker_builds_aws_secrets_agent() -> None:
-    steps = _woodpecker_steps()
-    step = steps["build-aws-secrets-agent"]
-
-    assert step["image"] == WOODPECKER_DOCKER_BUILDX_IMAGE
-    assert step["settings"]["context"] == "aws-secrets-agent"
-    assert step["settings"]["dockerfile"] == "aws-secrets-agent/Dockerfile"
-    assert step["settings"]["tags"] == "ci-${CI_COMMIT_SHA}"
-    assert step["settings"]["dry_run"] is True
-    assert "aws-secrets-agent/**" in step["when"][0]["path"]
-
-
-def test_woodpecker_build_steps_do_not_publish_latest_tags() -> None:
+def test_woodpecker_uses_image_security_instead_of_parallel_dry_run_builds() -> None:
     steps = _woodpecker_steps()
 
     for step_name in (
@@ -274,11 +262,7 @@ def test_woodpecker_build_steps_do_not_publish_latest_tags() -> None:
         "build-nano-banana",
         "build-woodpecker-ci",
     ):
-        step = steps[step_name]
-        assert step["image"] == WOODPECKER_DOCKER_BUILDX_IMAGE
-        assert step["settings"]["tags"] == "ci-${CI_COMMIT_SHA}"
-        assert step["settings"]["tags"] != "latest"
-        assert step["settings"]["pull_image"] is False
+        assert step_name not in steps
 
 
 def test_woodpecker_lints_every_dockerfile_with_hadolint() -> None:

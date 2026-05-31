@@ -12,7 +12,7 @@
 - **Security scanning** (`/security:scan`) - Native vulnerability detection with git history analysis
 - **Secrets management** (`/secrets:*`) - Tiered credential storage (dotenv, env-file, AWS Secrets Manager) with audit logging and a web UI
 - **CI/CD integration** (`/cicd:*`) - Framework detection, Makefile generation, health checks, and IaC scaffolding
-- **Woodpecker CI** - Self-hosted pipeline with Docker build checks, image security gates, isolated MCP runtime smoke tests, and programmatic status polling
+- **Woodpecker CI** - Self-hosted pipeline with image security gates, isolated MCP runtime smoke tests, and programmatic status polling
 - **Project scaffolding** (`/project:init`) - Zero-to-GitHub-repo setup with Makefile, CI pipeline, and Docker config
 - **Safety hooks** - PreToolUse blocks dangerous commands; PostToolUse masks secrets in output
 
@@ -119,9 +119,8 @@ If the sidecar is unreachable or `AWS_SECRET_NAME` is not set on a container, it
 
 Woodpecker CI runs on every push and PR via a self-hosted agent:
 
-- **Validate:** lint (ruff) + test (pytest, 496 tests) + typecheck (mypy) in a single consolidated step
-- **Docker builds:** Conditional per-server dry-run builds when MCP, sidecar, compose, or shared runtime files change
-- **Image security:** hadolint covers every Dockerfile, rendered compose config is policy-checked, built images fail on fixed HIGH/CRITICAL CVEs, and SPDX/CycloneDX SBOMs are written under `artifacts/sbom/`
+- **Validate:** lint (ruff) + test (pytest) + typecheck (mypy) in a single consolidated step
+- **Image security:** MCP image changes build the compose stack, run hadolint over every Dockerfile, policy-check rendered compose config, fail on fixed HIGH/CRITICAL CVEs, and write SPDX/CycloneDX SBOMs under `artifacts/sbom/`
 - **Runtime smoke:** MCP stack changes run an isolated `docker compose` project with random host ports, verify HTTP health, then tear down containers and volumes
 - **CI verification:** `flow:auto` polls the Woodpecker API after merge to confirm the pipeline passes before deploying
 - **First-class Docker updates:** `cpp:update` detects Docker installs, runs `make docker-refresh PROFILE="core browser cicd"`, and fails if containers are unhealthy
@@ -145,7 +144,7 @@ Architecture: Woodpecker server on a dedicated VM, agent on the dev workstation,
 
 ### v5.1.0 (2026-03-07)
 
-- **Woodpecker CI pipeline** - Self-hosted CI with MCP server Docker build checks
+- **Woodpecker CI pipeline** - Self-hosted CI with MCP image security gates
 - **Runtime smoke tests** - CI brings the MCP stack up in an isolated compose project, checks service health, then tears it down
 - **CI verification in flow:auto** - New Step 7/8 polls Woodpecker or GitHub Actions after merge, blocks deploy on failure
 - **Consolidated pipeline** - Merged lint/test/typecheck into single validate step (eliminates 2x `uv sync`)

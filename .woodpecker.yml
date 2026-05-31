@@ -1,9 +1,9 @@
 # Claude Power Pack - Woodpecker CI Pipeline
-# Runs quality gates, dry-run Docker builds, and ephemeral MCP runtime smoke tests.
+# Runs quality gates, image security checks, and ephemeral MCP runtime smoke tests.
 #
 # Pipeline:
-#   PR/push -> secret-scan -> validate (lint+test+typecheck) -> conditional Docker builds
-#   MCP/compose/shared changes -> runtime-smoke (isolated compose up, health checks, teardown)
+#   PR/push -> secret-scan -> validate (lint+test+typecheck) -> Dockerfile lint + compose policy
+#   MCP/compose/shared changes -> image build/CVE/SBOM gate -> runtime-smoke
 
 when:
   - event: [push, pull_request]
@@ -63,97 +63,6 @@ steps:
           echo "ERROR: aws-secrets-agent must not publish host port 2773 in CI config"
           exit 1
         fi
-
-  build-aws-secrets-agent:
-    image: codeberg.org/woodpecker-plugins/docker-buildx:6.1.0@sha256:33263f74a593ddef5d4faeb39ae9f87db14d64d8aae8186284ae6e90d89298a4
-    depends_on: [validate]
-    settings:
-      repo: aws-secrets-agent
-      dockerfile: aws-secrets-agent/Dockerfile
-      context: aws-secrets-agent
-      tags: ci-${CI_COMMIT_SHA}
-      dry_run: true
-      pull_image: false
-    when:
-      - event: [push, pull_request]
-        path:
-          - ".woodpecker.yml"
-          - "docker-compose.yml"
-          - "aws-secrets-agent/**"
-
-  build-second-opinion:
-    image: codeberg.org/woodpecker-plugins/docker-buildx:6.1.0@sha256:33263f74a593ddef5d4faeb39ae9f87db14d64d8aae8186284ae6e90d89298a4
-    depends_on: [validate]
-    settings:
-      repo: mcp-second-opinion
-      dockerfile: mcp-second-opinion/deploy/Dockerfile
-      context: mcp-second-opinion
-      tags: ci-${CI_COMMIT_SHA}
-      dry_run: true
-      pull_image: false
-    when:
-      - event: [push, pull_request]
-        path:
-          - ".woodpecker.yml"
-          - "docker-compose.yml"
-          - "aws-secrets-agent/**"
-          - "lib/**"
-          - "mcp-second-opinion/**"
-
-  build-playwright:
-    image: codeberg.org/woodpecker-plugins/docker-buildx:6.1.0@sha256:33263f74a593ddef5d4faeb39ae9f87db14d64d8aae8186284ae6e90d89298a4
-    depends_on: [validate]
-    settings:
-      repo: mcp-playwright-persistent
-      dockerfile: mcp-playwright-persistent/deploy/Dockerfile
-      context: mcp-playwright-persistent
-      tags: ci-${CI_COMMIT_SHA}
-      dry_run: true
-      pull_image: false
-    when:
-      - event: [push, pull_request]
-        path:
-          - ".woodpecker.yml"
-          - "docker-compose.yml"
-          - "lib/**"
-          - "mcp-playwright-persistent/**"
-
-  build-nano-banana:
-    image: codeberg.org/woodpecker-plugins/docker-buildx:6.1.0@sha256:33263f74a593ddef5d4faeb39ae9f87db14d64d8aae8186284ae6e90d89298a4
-    depends_on: [validate]
-    settings:
-      repo: mcp-nano-banana
-      dockerfile: mcp-nano-banana/deploy/Dockerfile
-      context: mcp-nano-banana
-      tags: ci-${CI_COMMIT_SHA}
-      dry_run: true
-      pull_image: false
-    when:
-      - event: [push, pull_request]
-        path:
-          - ".woodpecker.yml"
-          - "docker-compose.yml"
-          - "lib/**"
-          - "mcp-nano-banana/**"
-
-  build-woodpecker-ci:
-    image: codeberg.org/woodpecker-plugins/docker-buildx:6.1.0@sha256:33263f74a593ddef5d4faeb39ae9f87db14d64d8aae8186284ae6e90d89298a4
-    depends_on: [validate]
-    settings:
-      repo: mcp-woodpecker-ci
-      dockerfile: mcp-woodpecker-ci/deploy/Dockerfile
-      context: mcp-woodpecker-ci
-      tags: ci-${CI_COMMIT_SHA}
-      dry_run: true
-      pull_image: false
-    when:
-      - event: [push, pull_request]
-        path:
-          - ".woodpecker.yml"
-          - "docker-compose.yml"
-          - "aws-secrets-agent/**"
-          - "lib/**"
-          - "mcp-woodpecker-ci/**"
 
   image-security:
     image: codeberg.org/woodpecker-plugins/docker-buildx:6.1.0@sha256:33263f74a593ddef5d4faeb39ae9f87db14d64d8aae8186284ae6e90d89298a4
