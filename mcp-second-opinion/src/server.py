@@ -53,12 +53,50 @@ mcp = FastMCP(Config.SERVER_NAME)
 
 @mcp.custom_route("/", methods=["GET"])
 async def root_health_check(request: Request) -> JSONResponse:
-    """Health check endpoint for Claude Code MCP connection verification."""
+    """Liveness probe: the process is up and serving HTTP.
+
+    Says nothing about whether secrets/API keys actually loaded - use /readyz
+    for that. Kept at 200 so Claude Code can verify the MCP connection.
+    """
     return JSONResponse({
         "status": "healthy",
         "server": Config.SERVER_NAME,
         "version": Config.SERVER_VERSION,
     })
+
+
+@mcp.custom_route("/readyz", methods=["GET"])
+async def readiness_check(request: Request) -> JSONResponse:
+    """Readiness probe: returns 503 until the server can actually do work.
+
+    This server is the keyless-chain release gate. fetch-secrets.sh execs the
+    server, so the loaded keys live in this process's env and are read into
+    Config at import - we check that in-process state here rather than re-reading
+    env in the healthcheck subprocess (which may not see PID 1's exports).
+
+    Ready iff at least one LLM provider key is configured. A keyless start
+    (secret fetch failed or fell back empty) reports 503, so `docker compose up
+    --wait` fails instead of greenlighting a server that cannot serve a single
+    consultation.
+    """
+    has_any_key = any((
+        Config.GEMINI_API_KEY,
+        Config.OPENAI_API_KEY,
+        Config.ANTHROPIC_API_KEY,
+        Config.MISTRAL_API_KEY,
+        Config.GROQ_API_KEY,
+        Config.OPENROUTER_API_KEY,
+        Config.DEEPSEEK_API_KEY,
+    ))
+    return JSONResponse(
+        {
+            "status": "ready" if has_any_key else "not_ready",
+            "server": Config.SERVER_NAME,
+            "version": Config.SERVER_VERSION,
+            "reason": None if has_any_key else "no LLM provider API keys loaded",
+        },
+        status_code=200 if has_any_key else 503,
+    )
 
 
 # Configure Gemini client (new google-genai SDK)

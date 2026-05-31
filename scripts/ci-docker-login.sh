@@ -1,7 +1,8 @@
 #!/bin/sh
 # Authenticate Docker Hub pulls in CI so base-image pulls do not use the
-# anonymous rate limit. Non-fatal when secrets are absent, preserving fork/PR
-# behaviour where repository secrets may not be exposed.
+# anonymous rate limit. Kept in a script file because Woodpecker mangles nested
+# quotes in inline commands. Non-fatal when secrets are absent, preserving
+# fork/PR behaviour where repository secrets may not be exposed.
 set -eu
 
 if [ -n "${DOCKERHUB_TOKEN:-}" ] && [ -n "${DOCKERHUB_USERNAME:-}" ]; then

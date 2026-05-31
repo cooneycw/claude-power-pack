@@ -1,4 +1,4 @@
-"""Tests for Docker Hub pull authentication in CI."""
+"""Tests for Docker Hub pull authentication in CI (issue #370)."""
 
 from __future__ import annotations
 
