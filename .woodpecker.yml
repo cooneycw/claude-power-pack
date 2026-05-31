@@ -24,7 +24,7 @@ steps:
       - uv run mypy .
 
   dockerfile-lint:
-    image: hadolint/hadolint:v2.14.0-debian
+    image: ghcr.io/hadolint/hadolint:v2.14.0-debian
     pull: true
     depends_on: [validate]
     commands:
@@ -32,7 +32,6 @@ steps:
 
   compose-policy:
     image: docker:29.5.2-cli
-    pull: true
     depends_on: [validate]
     commands:
       - |
@@ -65,8 +64,7 @@ steps:
         fi
 
   build-aws-secrets-agent:
-    image: woodpeckerci/plugin-docker-buildx:6.0.4
-    pull: true
+    image: woodpeckerci/plugin-docker-buildx
     depends_on: [validate]
     settings:
       repo: aws-secrets-agent
@@ -82,8 +80,7 @@ steps:
           - "aws-secrets-agent/**"
 
   build-second-opinion:
-    image: woodpeckerci/plugin-docker-buildx:6.0.4
-    pull: true
+    image: woodpeckerci/plugin-docker-buildx
     depends_on: [validate]
     settings:
       repo: mcp-second-opinion
@@ -101,8 +98,7 @@ steps:
           - "mcp-second-opinion/**"
 
   build-playwright:
-    image: woodpeckerci/plugin-docker-buildx:6.0.4
-    pull: true
+    image: woodpeckerci/plugin-docker-buildx
     depends_on: [validate]
     settings:
       repo: mcp-playwright-persistent
@@ -119,8 +115,7 @@ steps:
           - "mcp-playwright-persistent/**"
 
   build-nano-banana:
-    image: woodpeckerci/plugin-docker-buildx:6.0.4
-    pull: true
+    image: woodpeckerci/plugin-docker-buildx
     depends_on: [validate]
     settings:
       repo: mcp-nano-banana
@@ -137,8 +132,7 @@ steps:
           - "mcp-nano-banana/**"
 
   build-woodpecker-ci:
-    image: woodpeckerci/plugin-docker-buildx:6.0.4
-    pull: true
+    image: woodpeckerci/plugin-docker-buildx
     depends_on: [validate]
     settings:
       repo: mcp-woodpecker-ci
@@ -157,7 +151,6 @@ steps:
 
   image-security:
     image: docker:29.5.2-cli
-    pull: true
     depends_on: [dockerfile-lint, compose-policy]
     commands:
       - |
@@ -167,6 +160,9 @@ steps:
         docker compose --profile core --profile browser --profile cicd build
 
         mkdir -p artifacts/sbom
+        docker pull ghcr.io/aquasecurity/trivy:0.67.2
+        docker pull ghcr.io/anchore/syft:v1.44.0
+
         images="
         aws-secrets-agent:${CPP_IMAGE_TAG}
         mcp-second-opinion:${CPP_IMAGE_TAG}
@@ -179,7 +175,7 @@ steps:
           slug="${image%%:*}"
           echo "Scanning $image for fixed HIGH/CRITICAL CVEs"
           docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
-            aquasec/trivy:0.67.2 image \
+            ghcr.io/aquasecurity/trivy:0.67.2 image \
             --exit-code 1 \
             --severity HIGH,CRITICAL \
             --ignore-unfixed \
@@ -187,9 +183,9 @@ steps:
 
           echo "Generating SBOMs for $image"
           docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
-            anchore/syft:v1.44.0 "$image" -o spdx-json > "artifacts/sbom/${slug}.spdx.json"
+            ghcr.io/anchore/syft:v1.44.0 "$image" -o spdx-json > "artifacts/sbom/${slug}.spdx.json"
           docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
-            anchore/syft:v1.44.0 "$image" -o cyclonedx-json > "artifacts/sbom/${slug}.cyclonedx.json"
+            ghcr.io/anchore/syft:v1.44.0 "$image" -o cyclonedx-json > "artifacts/sbom/${slug}.cyclonedx.json"
         done
 
         for sbom in artifacts/sbom/*.json; do
@@ -212,7 +208,6 @@ steps:
 
   runtime-smoke:
     image: docker:29.5.2-cli
-    pull: true
     depends_on: [image-security]
     commands:
       - apk add --no-cache curl docker-compose

@@ -251,8 +251,7 @@ def test_woodpecker_builds_aws_secrets_agent() -> None:
     steps = _woodpecker_steps()
     step = steps["build-aws-secrets-agent"]
 
-    assert step["image"] == "woodpeckerci/plugin-docker-buildx:6.0.4"
-    assert step["pull"] is True
+    assert step["image"] == "woodpeckerci/plugin-docker-buildx"
     assert step["settings"]["context"] == "aws-secrets-agent"
     assert step["settings"]["dockerfile"] == "aws-secrets-agent/Dockerfile"
     assert step["settings"]["tags"] == "ci-${CI_COMMIT_SHA}"
@@ -271,8 +270,7 @@ def test_woodpecker_build_steps_do_not_publish_latest_tags() -> None:
         "build-woodpecker-ci",
     ):
         step = steps[step_name]
-        assert step["image"] == "woodpeckerci/plugin-docker-buildx:6.0.4"
-        assert step["pull"] is True
+        assert step["image"] == "woodpeckerci/plugin-docker-buildx"
         assert step["settings"]["tags"] == "ci-${CI_COMMIT_SHA}"
         assert step["settings"]["tags"] != "latest"
 
@@ -283,7 +281,7 @@ def test_woodpecker_lints_every_dockerfile_with_hadolint() -> None:
     commands = _step_commands(lint)
 
     assert lint["depends_on"] == ["validate"]
-    assert lint["image"] == "hadolint/hadolint:v2.14.0-debian"
+    assert lint["image"] == "ghcr.io/hadolint/hadolint:v2.14.0-debian"
     assert lint["pull"] is True
     assert "find . -path ./.git -prune -o -name Dockerfile -print0" in commands
     assert "xargs -0 hadolint --failure-threshold error" in commands
@@ -296,7 +294,6 @@ def test_woodpecker_validates_compose_config_and_policy() -> None:
 
     assert policy["depends_on"] == ["validate"]
     assert policy["image"] == "docker:29.5.2-cli"
-    assert policy["pull"] is True
     assert "docker compose --profile core --profile browser --profile cicd config --quiet" in commands
     assert "docker compose --profile core --profile browser --profile cicd config > \"$rendered\"" in commands
     assert "AWS_TOKEN=ci-policy-token" in commands
@@ -313,15 +310,16 @@ def test_woodpecker_builds_scans_images_and_generates_sboms() -> None:
 
     assert security["depends_on"] == ["dockerfile-lint", "compose-policy"]
     assert security["image"] == "docker:29.5.2-cli"
-    assert security["pull"] is True
     assert "/var/run/docker.sock:/var/run/docker.sock" in security["volumes"]
     assert "CPP_IMAGE_TAG=\"ci-${CI_COMMIT_SHA:-local}\"" in commands
     assert "docker compose --profile core --profile browser --profile cicd build" in commands
-    assert "aquasec/trivy:0.67.2 image" in commands
+    assert "docker pull ghcr.io/aquasecurity/trivy:0.67.2" in commands
+    assert "docker pull ghcr.io/anchore/syft:v1.44.0" in commands
+    assert "ghcr.io/aquasecurity/trivy:0.67.2 image" in commands
     assert "--exit-code 1" in commands
     assert "--severity HIGH,CRITICAL" in commands
     assert "--ignore-unfixed" in commands
-    assert "anchore/syft:v1.44.0" in commands
+    assert "ghcr.io/anchore/syft:v1.44.0" in commands
     assert "-o spdx-json" in commands
     assert "-o cyclonedx-json" in commands
     assert "artifacts/sbom/${slug}.spdx.json" in commands
@@ -345,7 +343,6 @@ def test_woodpecker_runtime_smoke_is_ephemeral_and_tears_down() -> None:
 
     assert smoke["depends_on"] == ["image-security"]
     assert smoke["image"] == "docker:29.5.2-cli"
-    assert smoke["pull"] is True
     assert "/var/run/docker.sock:/var/run/docker.sock" in smoke["volumes"]
     assert 'PROJECT="cpp-smoke-${CI_PIPELINE_NUMBER:-local}"' in commands
     assert "trap cleanup EXIT INT TERM" in commands
