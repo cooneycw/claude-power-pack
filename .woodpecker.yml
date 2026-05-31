@@ -154,7 +154,6 @@ steps:
         export AWS_SECRET_ACCESS_KEY=cpp-smoke-secret-key
         export AWS_SESSION_TOKEN=cpp-smoke-session-token
         export AWS_TOKEN=cpp-smoke-token
-        export AWS_SECRETS_AGENT_PORT_MAPPING=2773
         export MCP_SECOND_OPINION_PORT_MAPPING=8080
         export MCP_PLAYWRIGHT_PORT_MAPPING=8081
         export MCP_NANO_BANANA_PORT_MAPPING=8084
@@ -187,10 +186,6 @@ steps:
           service="$1"
           container_port="$2"
           check_path="$3"
-          header=""
-          if [ "$#" -ge 4 ]; then
-            header="$4"
-          fi
 
           published="$(docker compose -p "$PROJECT" port "$service" "$container_port" | awk -F: 'END {print $NF}')"
           if [ -z "$published" ]; then
@@ -204,20 +199,39 @@ steps:
           # report the published host port to confirm the CI-only random port
           # mapping exists and cannot collide with a workstation stack.
           url="http://127.0.0.1:$container_port$check_path"
-          if [ "$service" = "aws-secrets-agent" ]; then
-            docker compose -p "$PROJECT" exec -T "$service" \
-              curl -sf -H "$header" --max-time 10 "$url" >/dev/null
-          else
-            docker compose -p "$PROJECT" exec -T "$service" \
-              python -c "import urllib.request; urllib.request.urlopen('$url', timeout=10)" >/dev/null
-          fi
+          docker compose -p "$PROJECT" exec -T "$service" \
+            python -c "import urllib.request; urllib.request.urlopen('$url', timeout=10)" >/dev/null
           echo "OK: $service:$container_port$check_path via host port $published"
         }
 
-        # aws-secrets-agent exposes only liveness (/ping). Every MCP server is
-        # probed on /readyz - the same endpoint the compose `--wait` gate uses -
-        # so the smoke fails if a server comes up live-but-not-ready.
-        check_http aws-secrets-agent 2773 /ping "X-Aws-Parameters-Secrets-Token: $AWS_TOKEN"
+        # The secrets agent is internal-only (expose, not ports). Confirm it has
+        # NO published host port, then probe /ping from inside the container.
+        check_internal_http() {
+          service="$1"
+          container_port="$2"
+          check_path="$3"
+          header="$4"
+
+          # `docker compose port` prints port 0 (e.g. ":0") for an unpublished
+          # mapping rather than empty output, so treat empty or 0 as "not
+          # published" and anything else as a real host binding.
+          published="$(docker compose -p "$PROJECT" port "$service" "$container_port" 2>/dev/null | awk -F: 'END {print $NF}')"
+          if [ -n "$published" ] && [ "$published" != "0" ]; then
+            echo "ERROR: $service:$container_port must not be published to the host (found $published)"
+            exit 1
+          fi
+
+          url="http://127.0.0.1:$container_port$check_path"
+          docker compose -p "$PROJECT" exec -T "$service" \
+            curl -sf -H "$header" --max-time 10 "$url" >/dev/null
+          echo "OK (internal only): $service:$container_port$check_path"
+        }
+
+        # aws-secrets-agent is internal-only and exposes only liveness (/ping).
+        # Every MCP server is probed on /readyz - the same endpoint the compose
+        # `--wait` gate uses - so the smoke fails if a server comes up
+        # live-but-not-ready.
+        check_internal_http aws-secrets-agent 2773 /ping "X-Aws-Parameters-Secrets-Token: $AWS_TOKEN"
         check_http mcp-second-opinion 8080 /readyz
         check_http mcp-playwright-persistent 8081 /readyz
         check_http mcp-nano-banana 8084 /readyz

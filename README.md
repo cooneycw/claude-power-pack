@@ -99,7 +99,7 @@ make docker-ps                    # container status
 make docker-down                  # stop all
 ```
 
-MCP containers fetch API keys at startup from AWS Secrets Manager via an `aws-secrets-agent` sidecar (Rust binary, port 2773). Local development can store only AWS credentials in the root `.env` file (gitignored), while CI/deploy can inject the same variables through the job environment. Application secrets are not stored on disk.
+MCP containers fetch API keys at startup from AWS Secrets Manager via an `aws-secrets-agent` sidecar (Rust binary, port 2773). The sidecar is internal-only (compose network via `expose:`, never published to the host) and is the only container that receives AWS credentials. Local development can store only AWS credentials in the root `.env` file (gitignored), while CI/deploy can inject the same variables through the job environment. Application secrets are not stored on disk.
 
 `mcp-second-opinion` uses `AWS_SECRET_NAME=codex_llm_apikeys`. That secret must include `GEMINI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `MISTRAL_API_KEY`, `GROQ_API_KEY`, `OPENROUTER_API_KEY`, and `DEEPSEEK_API_KEY` so the free-tier model catalog is available in the deployed container.
 
@@ -107,13 +107,13 @@ MCP containers fetch API keys at startup from AWS Secrets Manager via an `aws-se
 # Minimal .env (no application secrets):
 AWS_ACCESS_KEY_ID=...
 AWS_SECRET_ACCESS_KEY=...
-AWS_TOKEN=my-ssrf-token
+AWS_TOKEN=my-ssrf-token   # must be unique; the preflight rejects empty or "default-token"
 
 # Validate before first start:
 make docker-secrets-check
 ```
 
-If the sidecar is unreachable or `AWS_SECRET_NAME` is not set on a container, it falls back to `env_file` variables for local development. `make docker-up` refuses to create the sidecar when required AWS credential variables resolve empty, because Docker Compose bakes env at container create time. See `aws-secrets-agent/` and `docs/AWS_SECRETS_SIDECAR.md` for details.
+App containers carry no AWS credentials; they reach the sidecar over the compose network with only the SSRF token. `make docker-up` refuses to create the sidecar when required AWS credential variables resolve empty or `AWS_TOKEN` is the insecure default (set `CPP_ALLOW_DEFAULT_TOKEN=1` for offline local dev only). For host-side debugging or a fully offline `.env` fallback, layer in `docker-compose.dev.yml` (binds the agent to `127.0.0.1`, restores `.env` for app containers, and sets `ALLOW_ENV_FALLBACK=true`). See `aws-secrets-agent/` and `docs/AWS_SECRETS_SIDECAR.md` for details.
 
 ## CI/CD
 
