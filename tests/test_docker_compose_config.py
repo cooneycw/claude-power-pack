@@ -297,7 +297,8 @@ def test_makefile_has_first_class_docker_refresh_target() -> None:
     makefile = (root / "Makefile").read_text()
 
     assert "docker-refresh:" in makefile
-    assert 'DOCKER_UP_FLAGS="-d --build --wait"' in makefile
+    assert "scripts/docker-refresh-transactional.sh" in makefile
+    assert "scripts/assert-prod-env.sh" in makefile
     assert "docker-health:" in makefile
     assert "scripts/docker-health-check.py" in makefile
     assert "scripts/check-docker-aws-env.py" in makefile

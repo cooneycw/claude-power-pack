@@ -89,8 +89,8 @@ docker-secrets-check:
 docker-up: docker-check-env
 	docker compose $(DOCKER_PROFILES) up $(DOCKER_UP_FLAGS)
 
-docker-refresh:
-	@$(MAKE) docker-up PROFILE="$(PROFILE)" DOCKER_UP_FLAGS="-d --build --wait"
+docker-refresh: docker-check-env
+	@scripts/docker-refresh-transactional.sh --profiles "$(PROFILE)"
 	@$(MAKE) docker-health PROFILE="$(PROFILE)"
 
 docker-health:
@@ -118,7 +118,9 @@ drift-check:
 
 ## Deploy (used by /flow:deploy and manual local deployments)
 
-deploy: docker-refresh
+deploy:
+	@scripts/assert-prod-env.sh --profiles "$(PROFILE)"
+	@$(MAKE) docker-refresh PROFILE="$(PROFILE)"
 
 ## Woodpecker CLI setup
 

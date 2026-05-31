@@ -94,7 +94,7 @@ MCP servers run as Docker containers organized by profile:
 ```bash
 make docker-up PROFILE=core       # second-opinion + nano-banana
 make docker-up PROFILE="core browser"  # + playwright
-make docker-refresh PROFILE="core browser cicd"  # rebuild/restart with health gate
+make docker-refresh PROFILE="core browser cicd"  # transactional rebuild/restart with health gate
 make docker-ps                    # container status
 make docker-down                  # stop all
 ```
@@ -108,12 +108,13 @@ MCP containers fetch API keys at startup from AWS Secrets Manager via an `aws-se
 AWS_ACCESS_KEY_ID=...
 AWS_SECRET_ACCESS_KEY=...
 AWS_TOKEN=my-ssrf-token   # must be unique; the preflight rejects empty or "default-token"
+SECOND_OPINION_AWS_SECRET_NAME=codex_llm_apikeys
 
 # Validate before first start:
 make docker-secrets-check
 ```
 
-App containers carry no AWS credentials; they reach the sidecar over the compose network with only the SSRF token. `make docker-up` refuses to create the sidecar when required AWS credential variables resolve empty or `AWS_TOKEN` is the insecure default (set `CPP_ALLOW_DEFAULT_TOKEN=1` for offline local dev only). For host-side debugging or a fully offline `.env` fallback, layer in `docker-compose.dev.yml` (binds the agent to `127.0.0.1`, restores `.env` for app containers, and sets `ALLOW_ENV_FALLBACK=true`). See `aws-secrets-agent/` and `docs/AWS_SECRETS_SIDECAR.md` for details.
+App containers carry no AWS credentials; they reach the sidecar over the compose network with only the SSRF token. `make docker-up` refuses to create the sidecar when required AWS credential variables resolve empty or `AWS_TOKEN` is the insecure default (set `CPP_ALLOW_DEFAULT_TOKEN=1` for offline local dev only). `make deploy` is stricter: it always rejects `default-token`, requires explicit secret-name variables for secret-consuming profiles, snapshots the current image IDs as `:previous`, and restores them if the candidate stack fails `docker compose --wait`. For host-side debugging or a fully offline `.env` fallback, layer in `docker-compose.dev.yml` (binds the agent to `127.0.0.1`, restores `.env` for app containers, and sets `ALLOW_ENV_FALLBACK=true`). See `aws-secrets-agent/` and `docs/AWS_SECRETS_SIDECAR.md` for details.
 
 ## CI/CD
 

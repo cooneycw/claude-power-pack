@@ -53,10 +53,11 @@ MCP containers fetch API keys at startup from AWS Secrets Manager via an `aws-se
 - **Profiles:** `core` (second-opinion + nano-banana + secrets-agent), `browser` (playwright), `cicd` (woodpecker-ci + secrets-agent)
 - **Start:** `make docker-up PROFILE=core`
 - **All profiles:** `make docker-up PROFILE="core browser cicd"`
-- **Rebuild/restart/wait for health:** `make docker-refresh PROFILE="core browser cicd"`
+- **Rebuild/restart/wait for health:** `make docker-refresh PROFILE="core browser cicd"` snapshots current image IDs as `:previous` and restores them if the candidate stack fails `--wait`
 - **Status/logs/stop:** `make docker-ps`, `make docker-logs`, `make docker-down`
 - **Liveness vs readiness:** each MCP server serves `/` (liveness: process is up) and `/readyz` (readiness: required secrets/config actually loaded). Compose healthchecks - the `docker compose up --wait` release gate - probe `/readyz`, so a live-but-keyless container (e.g. a failed secret fetch) is reported unhealthy and `--wait` fails instead of greenlighting it. Secret-bearing servers (`mcp-second-opinion`, `mcp-woodpecker-ci`) report ready only once their provider keys load; `mcp-nano-banana` and `mcp-playwright-persistent` have no required secrets, so readiness equals liveness. CI/deploy without a live secrets-agent can inject keys via the LLM/Woodpecker env passthroughs in `docker-compose.yml`; the agent overrides them at runtime.
 - **Empty AWS credential guard:** `make docker-up` refuses to create `aws-secrets-agent` when `AWS_ACCESS_KEY_ID` or `AWS_SECRET_ACCESS_KEY` resolves empty. If a stale sidecar was already created with empty creds, fix env and force-recreate `aws-secrets-agent` plus secret-dependent MCP containers.
+- **Deploy preflight:** `make deploy` runs `scripts/assert-prod-env.sh`; production deploys reject `default-token` even if local-dev opt-out is set, and require `SECOND_OPINION_AWS_SECRET_NAME` for `core` plus `WOODPECKER_CI_AWS_SECRET_NAME` for `cicd`.
 - **MCP connections:** Defined in project `.mcp.json` pointing to `127.0.0.1:{port}/sse` (SSE transport)
 - **Woodpecker CI** runs on push/PR: secret-scan (gitleaks), lint, test, typecheck, Dockerfile lint, compose policy checks, image builds, image CVE scans, SBOM generation, and isolated runtime smoke tests for MCP stack changes
 - **Secret scanning:** `make secret-scan` runs gitleaks locally (native binary or Docker fallback). Config in `.gitleaks.toml` with allowlists for doc/test false positives
