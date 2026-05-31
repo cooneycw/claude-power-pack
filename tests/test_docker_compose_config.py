@@ -251,10 +251,86 @@ def test_woodpecker_builds_aws_secrets_agent() -> None:
     steps = _woodpecker_steps()
     step = steps["build-aws-secrets-agent"]
 
+    assert step["image"] == "woodpeckerci/plugin-docker-buildx:v6.0.4"
     assert step["settings"]["context"] == "aws-secrets-agent"
     assert step["settings"]["dockerfile"] == "aws-secrets-agent/Dockerfile"
+    assert step["settings"]["tags"] == "ci-${CI_COMMIT_SHA}"
     assert step["settings"]["dry_run"] is True
     assert "aws-secrets-agent/**" in step["when"][0]["path"]
+
+
+def test_woodpecker_build_steps_do_not_publish_latest_tags() -> None:
+    steps = _woodpecker_steps()
+
+    for step_name in (
+        "build-aws-secrets-agent",
+        "build-second-opinion",
+        "build-playwright",
+        "build-nano-banana",
+        "build-woodpecker-ci",
+    ):
+        step = steps[step_name]
+        assert step["image"] == "woodpeckerci/plugin-docker-buildx:v6.0.4"
+        assert step["settings"]["tags"] == "ci-${CI_COMMIT_SHA}"
+        assert step["settings"]["tags"] != "latest"
+
+
+def test_woodpecker_lints_every_dockerfile_with_hadolint() -> None:
+    steps = _woodpecker_steps()
+    lint = steps["dockerfile-lint"]
+    commands = _step_commands(lint)
+
+    assert lint["depends_on"] == ["validate"]
+    assert lint["image"] == "hadolint/hadolint:v2.14.0-debian"
+    assert "find . -path ./.git -prune -o -name Dockerfile -print0" in commands
+    assert "xargs -0 hadolint --failure-threshold error" in commands
+
+
+def test_woodpecker_validates_compose_config_and_policy() -> None:
+    steps = _woodpecker_steps()
+    policy = steps["compose-policy"]
+    commands = _step_commands(policy)
+
+    assert policy["depends_on"] == ["validate"]
+    assert policy["image"] == "docker:29.5.2-cli"
+    assert "docker compose --profile core --profile browser --profile cicd config --quiet" in commands
+    assert "docker compose --profile core --profile browser --profile cicd config > \"$rendered\"" in commands
+    assert "AWS_TOKEN=ci-policy-token" in commands
+    assert "AWS_SECRETS_AGENT_PORT_MAPPING=2773" in commands
+    assert "image: [^[:space:]]+:latest" in commands
+    assert "default-token" in commands
+    assert "published: \"?2773\"?" in commands
+
+
+def test_woodpecker_builds_scans_images_and_generates_sboms() -> None:
+    steps = _woodpecker_steps()
+    security = steps["image-security"]
+    commands = _step_commands(security)
+
+    assert security["depends_on"] == ["dockerfile-lint", "compose-policy"]
+    assert security["image"] == "docker:29.5.2-cli"
+    assert "/var/run/docker.sock:/var/run/docker.sock" in security["volumes"]
+    assert "CPP_IMAGE_TAG=\"ci-${CI_COMMIT_SHA:-local}\"" in commands
+    assert "docker compose --profile core --profile browser --profile cicd build" in commands
+    assert "aquasec/trivy:0.67.2 image" in commands
+    assert "--exit-code 1" in commands
+    assert "--severity HIGH,CRITICAL" in commands
+    assert "--ignore-unfixed" in commands
+    assert "anchore/syft:v1.44.0" in commands
+    assert "-o spdx-json" in commands
+    assert "-o cyclonedx-json" in commands
+    assert "artifacts/sbom/${slug}.spdx.json" in commands
+    assert "artifacts/sbom/${slug}.cyclonedx.json" in commands
+
+    image_paths = set(security["when"][0]["path"])
+    assert ".woodpecker.yml" in image_paths
+    assert "docker-compose.yml" in image_paths
+    assert "aws-secrets-agent/**" in image_paths
+    assert "lib/**" in image_paths
+    assert "mcp-second-opinion/**" in image_paths
+    assert "mcp-playwright-persistent/**" in image_paths
+    assert "mcp-nano-banana/**" in image_paths
+    assert "mcp-woodpecker-ci/**" in image_paths
 
 
 def test_woodpecker_runtime_smoke_is_ephemeral_and_tears_down() -> None:
@@ -262,7 +338,8 @@ def test_woodpecker_runtime_smoke_is_ephemeral_and_tears_down() -> None:
     smoke = steps["runtime-smoke"]
     commands = _step_commands(smoke)
 
-    assert smoke["depends_on"] == ["validate"]
+    assert smoke["depends_on"] == ["image-security"]
+    assert smoke["image"] == "docker:29.5.2-cli"
     assert "/var/run/docker.sock:/var/run/docker.sock" in smoke["volumes"]
     assert 'PROJECT="cpp-smoke-${CI_PIPELINE_NUMBER:-local}"' in commands
     assert "trap cleanup EXIT INT TERM" in commands

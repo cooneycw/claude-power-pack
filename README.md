@@ -12,7 +12,7 @@
 - **Security scanning** (`/security:scan`) - Native vulnerability detection with git history analysis
 - **Secrets management** (`/secrets:*`) - Tiered credential storage (dotenv, env-file, AWS Secrets Manager) with audit logging and a web UI
 - **CI/CD integration** (`/cicd:*`) - Framework detection, Makefile generation, health checks, and IaC scaffolding
-- **Woodpecker CI** - Self-hosted pipeline with Docker build checks, isolated MCP runtime smoke tests, and programmatic status polling
+- **Woodpecker CI** - Self-hosted pipeline with Docker build checks, image security gates, isolated MCP runtime smoke tests, and programmatic status polling
 - **Project scaffolding** (`/project:init`) - Zero-to-GitHub-repo setup with Makefile, CI pipeline, and Docker config
 - **Safety hooks** - PreToolUse blocks dangerous commands; PostToolUse masks secrets in output
 
@@ -69,7 +69,7 @@ claude-power-pack/
   scripts/              Shell utilities
   tests/                637 unit tests
   docker-compose.yml    MCP server orchestration
-  .woodpecker.yml       CI pipeline (lint, test, typecheck, Docker builds, runtime smoke)
+  .woodpecker.yml       CI pipeline (lint, test, typecheck, image security gates, runtime smoke)
   Makefile              Build interface for all operations
 ```
 
@@ -121,6 +121,7 @@ Woodpecker CI runs on every push and PR via a self-hosted agent:
 
 - **Validate:** lint (ruff) + test (pytest, 496 tests) + typecheck (mypy) in a single consolidated step
 - **Docker builds:** Conditional per-server dry-run builds when MCP, sidecar, compose, or shared runtime files change
+- **Image security:** hadolint covers every Dockerfile, rendered compose config is policy-checked, built images fail on fixed HIGH/CRITICAL CVEs, and SPDX/CycloneDX SBOMs are written under `artifacts/sbom/`
 - **Runtime smoke:** MCP stack changes run an isolated `docker compose` project with random host ports, verify HTTP health, then tear down containers and volumes
 - **CI verification:** `flow:auto` polls the Woodpecker API after merge to confirm the pipeline passes before deploying
 - **First-class Docker updates:** `cpp:update` detects Docker installs, runs `make docker-refresh PROFILE="core browser cicd"`, and fails if containers are unhealthy

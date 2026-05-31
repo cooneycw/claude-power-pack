@@ -23,14 +23,53 @@ steps:
       - uv run pytest
       - uv run mypy .
 
+  dockerfile-lint:
+    image: hadolint/hadolint:v2.14.0-debian
+    depends_on: [validate]
+    commands:
+      - find . -path ./.git -prune -o -name Dockerfile -print0 | xargs -0 hadolint --failure-threshold error
+
+  compose-policy:
+    image: docker:29.5.2-cli
+    depends_on: [validate]
+    commands:
+      - |
+        set -eu
+
+        export AWS_TOKEN=ci-policy-token
+        export AWS_SECRETS_AGENT_PORT_MAPPING=2773
+        export MCP_SECOND_OPINION_PORT_MAPPING=8080
+        export MCP_PLAYWRIGHT_PORT_MAPPING=8081
+        export MCP_NANO_BANANA_PORT_MAPPING=8084
+        export MCP_WOODPECKER_CI_PORT_MAPPING=8085
+
+        rendered="$(mktemp)"
+        docker compose --profile core --profile browser --profile cicd config --quiet
+        docker compose --profile core --profile browser --profile cicd config > "$rendered"
+
+        if grep -nE 'image: [^[:space:]]+:latest([[:space:]]|$)' "$rendered"; then
+          echo "ERROR: rendered compose config must not use :latest images"
+          exit 1
+        fi
+
+        if grep -n 'default-token' "$rendered"; then
+          echo "ERROR: rendered compose config must not contain the default sidecar token"
+          exit 1
+        fi
+
+        if grep -nE 'published: "?2773"?' "$rendered"; then
+          echo "ERROR: aws-secrets-agent must not publish host port 2773 in CI config"
+          exit 1
+        fi
+
   build-aws-secrets-agent:
-    image: woodpeckerci/plugin-docker-buildx
+    image: woodpeckerci/plugin-docker-buildx:v6.0.4
     depends_on: [validate]
     settings:
       repo: aws-secrets-agent
       dockerfile: aws-secrets-agent/Dockerfile
       context: aws-secrets-agent
-      tags: latest
+      tags: ci-${CI_COMMIT_SHA}
       dry_run: true
     when:
       - event: [push, pull_request]
@@ -40,13 +79,13 @@ steps:
           - "aws-secrets-agent/**"
 
   build-second-opinion:
-    image: woodpeckerci/plugin-docker-buildx
+    image: woodpeckerci/plugin-docker-buildx:v6.0.4
     depends_on: [validate]
     settings:
       repo: mcp-second-opinion
       dockerfile: mcp-second-opinion/deploy/Dockerfile
       context: mcp-second-opinion
-      tags: latest
+      tags: ci-${CI_COMMIT_SHA}
       dry_run: true
     when:
       - event: [push, pull_request]
@@ -58,13 +97,13 @@ steps:
           - "mcp-second-opinion/**"
 
   build-playwright:
-    image: woodpeckerci/plugin-docker-buildx
+    image: woodpeckerci/plugin-docker-buildx:v6.0.4
     depends_on: [validate]
     settings:
       repo: mcp-playwright-persistent
       dockerfile: mcp-playwright-persistent/deploy/Dockerfile
       context: mcp-playwright-persistent
-      tags: latest
+      tags: ci-${CI_COMMIT_SHA}
       dry_run: true
     when:
       - event: [push, pull_request]
@@ -75,13 +114,13 @@ steps:
           - "mcp-playwright-persistent/**"
 
   build-nano-banana:
-    image: woodpeckerci/plugin-docker-buildx
+    image: woodpeckerci/plugin-docker-buildx:v6.0.4
     depends_on: [validate]
     settings:
       repo: mcp-nano-banana
       dockerfile: mcp-nano-banana/deploy/Dockerfile
       context: mcp-nano-banana
-      tags: latest
+      tags: ci-${CI_COMMIT_SHA}
       dry_run: true
     when:
       - event: [push, pull_request]
@@ -92,13 +131,13 @@ steps:
           - "mcp-nano-banana/**"
 
   build-woodpecker-ci:
-    image: woodpeckerci/plugin-docker-buildx
+    image: woodpeckerci/plugin-docker-buildx:v6.0.4
     depends_on: [validate]
     settings:
       repo: mcp-woodpecker-ci
       dockerfile: mcp-woodpecker-ci/deploy/Dockerfile
       context: mcp-woodpecker-ci
-      tags: latest
+      tags: ci-${CI_COMMIT_SHA}
       dry_run: true
     when:
       - event: [push, pull_request]
@@ -109,9 +148,63 @@ steps:
           - "lib/**"
           - "mcp-woodpecker-ci/**"
 
+  image-security:
+    image: docker:29.5.2-cli
+    depends_on: [dockerfile-lint, compose-policy]
+    commands:
+      - |
+        set -eu
+
+        export CPP_IMAGE_TAG="ci-${CI_COMMIT_SHA:-local}"
+        docker compose --profile core --profile browser --profile cicd build
+
+        mkdir -p artifacts/sbom
+        images="
+        aws-secrets-agent:${CPP_IMAGE_TAG}
+        mcp-second-opinion:${CPP_IMAGE_TAG}
+        mcp-playwright-persistent:${CPP_IMAGE_TAG}
+        mcp-nano-banana:${CPP_IMAGE_TAG}
+        mcp-woodpecker-ci:${CPP_IMAGE_TAG}
+        "
+
+        for image in $images; do
+          slug="${image%%:*}"
+          echo "Scanning $image for fixed HIGH/CRITICAL CVEs"
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            aquasec/trivy:0.67.2 image \
+            --exit-code 1 \
+            --severity HIGH,CRITICAL \
+            --ignore-unfixed \
+            "$image"
+
+          echo "Generating SBOMs for $image"
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            anchore/syft:v1.44.0 "$image" -o spdx-json > "artifacts/sbom/${slug}.spdx.json"
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            anchore/syft:v1.44.0 "$image" -o cyclonedx-json > "artifacts/sbom/${slug}.cyclonedx.json"
+        done
+
+        for sbom in artifacts/sbom/*.json; do
+          test -s "$sbom"
+        done
+        ls -lh artifacts/sbom
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    when:
+      - event: [push, pull_request]
+        path:
+          - ".woodpecker.yml"
+          - "docker-compose.yml"
+          - "aws-secrets-agent/**"
+          - "lib/**"
+          - "mcp-second-opinion/**"
+          - "mcp-playwright-persistent/**"
+          - "mcp-nano-banana/**"
+          - "mcp-woodpecker-ci/**"
+
   runtime-smoke:
-    image: docker:cli
-    depends_on: [validate]
+    image: docker:29.5.2-cli
+    depends_on: [image-security]
     commands:
       - apk add --no-cache curl docker-compose
       - |
