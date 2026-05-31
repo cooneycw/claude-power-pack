@@ -46,6 +46,12 @@ Copy `.env.example` to `.env` and configure:
 | `OPENROUTER_API_KEY` | Any one | OpenRouter API key (free tier - 27+ models) |
 | `DEEPSEEK_API_KEY` | Any one | DeepSeek API key (near-free - $0.14/MTok) |
 
+Optional tunables:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MODEL_RESPONSE_TIMEOUT` | `600` | Per-model response timeout (seconds) for the multi-model fan-out. Bounds a single hung/slow provider so it cannot stall the batch; the timed-out model returns an error entry while the others still succeed. Generous by default so a legitimate detailed/in_depth response is never truncated. |
+
 ## MCP Tools
 
 | Tool | Description |

@@ -12,7 +12,7 @@ import argparse
 import asyncio
 import logging
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import anthropic
 import openai
@@ -665,6 +665,14 @@ async def _try_openai_compatible_model(
 # =============================================================================
 
 
+class _UnknownProviderError(Exception):
+    """Raised inside the dispatch coroutine for an unroutable provider.
+
+    Lets the unknown-provider case surface through asyncio.wait_for as a normal
+    error rather than being conflated with a timeout.
+    """
+
+
 async def get_single_model_response(
     prompt: str,
     model_key: str,
@@ -714,27 +722,49 @@ async def get_single_model_response(
                 "error": f"{provider.title()} API key not configured",
             }
 
-        if provider == "gemini":
-            response, model_used = await get_gemini_streaming_response(
-                prompt, model_id, max_tokens=effective_max_tokens,
+        async def _dispatch() -> Tuple[str, str]:
+            if provider == "gemini":
+                return await get_gemini_streaming_response(
+                    prompt, model_id, max_tokens=effective_max_tokens,
+                )
+            elif provider == "openai":
+                return await get_openai_streaming_response(
+                    prompt, model_id, max_tokens=effective_max_tokens,
+                )
+            elif provider == "anthropic":
+                return await get_anthropic_response(
+                    prompt, model_id, max_tokens=effective_max_tokens,
+                )
+            elif provider in _openai_compatible_clients:
+                return await get_openai_compatible_response(
+                    prompt, model_id, provider, max_tokens=effective_max_tokens,
+                )
+            raise _UnknownProviderError(provider)
+
+        # Bound each model on its own timeout so one hung/slow provider stream
+        # cannot stall the whole multi-model batch (issue #356).
+        try:
+            response, model_used = await asyncio.wait_for(
+                _dispatch(), timeout=Config.MODEL_RESPONSE_TIMEOUT,
             )
-        elif provider == "openai":
-            response, model_used = await get_openai_streaming_response(
-                prompt, model_id, max_tokens=effective_max_tokens,
-            )
-        elif provider == "anthropic":
-            response, model_used = await get_anthropic_response(
-                prompt, model_id, max_tokens=effective_max_tokens,
-            )
-        elif provider in _openai_compatible_clients:
-            response, model_used = await get_openai_compatible_response(
-                prompt, model_id, provider, max_tokens=effective_max_tokens,
-            )
-        else:
+        except _UnknownProviderError:
             return {
                 "model_key": model_key,
                 "success": False,
                 "error": f"Unknown provider: {provider}",
+            }
+        except asyncio.TimeoutError:
+            logger.error(
+                "Timed out after %ss waiting on %s/%s",
+                Config.MODEL_RESPONSE_TIMEOUT, provider, model_id,
+            )
+            return {
+                "model_key": model_key,
+                "model_id": model_id,
+                "display_name": model_info["display_name"],
+                "provider": provider,
+                "success": False,
+                "error": f"Timed out after {Config.MODEL_RESPONSE_TIMEOUT}s",
             }
 
         # Calculate tokens and cost
