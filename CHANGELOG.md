@@ -1,5 +1,18 @@
 # Changelog
 
+## [6.0.0] - 2026-05-31
+
+### Breaking
+
+- Docker with local builds is now the only supported MCP deployment model.
+- Legacy systemd and venv-only MCP runtimes are removed as supported paths.
+
+### Changed
+
+- `/cpp:status` reports the deployment model as `Docker (local build)`.
+- `/cpp:status` relabels systemd checks as `Legacy Systemd (migration required)`, reports `none (ok)` when clean, and points active legacy services to `/cpp:update`.
+- `/cpp:update` is the migration path for tearing down legacy systemd units before Docker refresh.
+
 ## [5.2.0] - 2026-03-08
 
 ### Added - C4 Diagram QA Framework
