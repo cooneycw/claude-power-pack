@@ -357,20 +357,71 @@ else
   echo "      Run /cpp:init or create manually"
 fi
 
-# Check systemd services
+# Report supported deployment model
 echo ""
-echo "Systemd Services:"
-for service in mcp-second-opinion mcp-playwright-persistent mcp-woodpecker-ci; do
-  if systemctl is-enabled $service &>/dev/null; then
-    if systemctl is-active $service &>/dev/null; then
-      echo "  [x] $service: enabled, running"
+echo "Deployment Model:"
+echo "  [x] Docker (local build)"
+echo "      Refresh with: /cpp:update"
+
+# Check legacy systemd services
+echo ""
+echo "Legacy Systemd (migration required):"
+KNOWN_LEGACY_SYSTEMD_UNITS=$(cat <<'EOF'
+mcp-second-opinion
+second-opinion
+mcp-playwright
+mcp-playwright-persistent
+playwright-persistent
+nano-banana
+mcp-nano-banana
+mcp-woodpecker-ci
+woodpecker-ci
+mcp-evaluate
+evaluate
+mcp-coordination
+coordination
+EOF
+)
+DISCOVERED_LEGACY_SYSTEMD_UNITS="$(
+  {
+    printf '%s\n' "$KNOWN_LEGACY_SYSTEMD_UNITS"
+    find "$HOME/.config/systemd/user" /etc/systemd/system -maxdepth 1 -type f \
+      \( -name 'mcp-*.service' -o -name 'nano-*.service' -o -name '*coordination*.service' \) \
+      -printf '%f\n' 2>/dev/null || true
+    systemctl --user list-units --type=service --all --no-legend --no-pager 2>/dev/null | awk '{print $1}' || true
+    systemctl list-units --type=service --all --no-legend --no-pager 2>/dev/null | awk '{print $1}' || true
+  } | sed 's/\.service$//' | grep -E '^(mcp-|nano-|.*coordination|second-opinion|playwright-persistent|woodpecker-ci|evaluate|coordination)$' | sort -u
+)"
+LEGACY_SYSTEMD_FOUND=0
+for unit in $DISCOVERED_LEGACY_SYSTEMD_UNITS; do
+  USER_PATH="$HOME/.config/systemd/user/${unit}.service"
+  SYSTEM_PATH="/etc/systemd/system/${unit}.service"
+
+  USER_ACTIVE=$(systemctl --user is-active "$unit" 2>/dev/null || true)
+  USER_ENABLED=$(systemctl --user is-enabled "$unit" 2>/dev/null || true)
+  if [ -f "$USER_PATH" ] || [ "$USER_ACTIVE" = "active" ] || [ "$USER_ENABLED" = "enabled" ]; then
+    LEGACY_SYSTEMD_FOUND=1
+    if [ "$USER_ACTIVE" = "active" ]; then
+      echo "  [!] user:$unit active, enabled=${USER_ENABLED:-unknown} - run /cpp:update to migrate to Docker"
     else
-      echo "  [~] $service: enabled, stopped"
+      echo "  [~] user:$unit active=${USER_ACTIVE:-inactive}, enabled=${USER_ENABLED:-unknown} - run /cpp:update to remove legacy unit"
     fi
-  else
-    echo "  [ ] $service: not installed"
+  fi
+
+  SYSTEM_ACTIVE=$(systemctl is-active "$unit" 2>/dev/null || true)
+  SYSTEM_ENABLED=$(systemctl is-enabled "$unit" 2>/dev/null || true)
+  if [ -f "$SYSTEM_PATH" ] || [ "$SYSTEM_ACTIVE" = "active" ] || [ "$SYSTEM_ENABLED" = "enabled" ]; then
+    LEGACY_SYSTEMD_FOUND=1
+    if [ "$SYSTEM_ACTIVE" = "active" ]; then
+      echo "  [!] system:$unit active, enabled=${SYSTEM_ENABLED:-unknown} - run /cpp:update to migrate to Docker"
+    else
+      echo "  [~] system:$unit active=${SYSTEM_ACTIVE:-inactive}, enabled=${SYSTEM_ENABLED:-unknown} - run /cpp:update to remove legacy unit"
+    fi
   fi
 done
+if [ "$LEGACY_SYSTEMD_FOUND" -eq 0 ]; then
+  echo "  none (ok)"
+fi
 ```
 
 ## Step 5: Check Tier 4 (CI/CD)
@@ -434,8 +485,9 @@ fi
 Based on the checks above, report:
 
 1. **Current tier level** - Which tier is fully installed
-2. **Missing components** - What needs to be installed
-3. **Recommendation** - Suggest running `/cpp:init` if incomplete
+2. **Deployment model** - Always report `Docker (local build)` for Tier 3 runtime
+3. **Missing components** - What needs to be installed
+4. **Recommendation** - Suggest running `/cpp:init` if incomplete, or `/cpp:update` if legacy systemd units remain
 
 Example output format:
 
@@ -470,7 +522,10 @@ Tier 3 (Full):
         mcp-woodpecker-ci -> essent-ai
     [x] AWS credentials: present in .env
     Secret method: AWS Secrets Manager
-  [ ] Systemd: not installed
+  Deployment Model:
+    [x] Docker (local build)
+  Legacy Systemd (migration required):
+    none (ok)
   Status: Partial
 
 Tier 4 (CI/CD):
@@ -483,7 +538,8 @@ Tier 4 (CI/CD):
 
 ---------------------------------
 Current Level: Tier 2 (Standard)
-Missing: Shell prompt, mcp-playwright-persistent, systemd, CI pipeline, Dockerfile
+Deployment Model: Docker (local build)
+Missing: Shell prompt, mcp-playwright-persistent, CI pipeline, Dockerfile
 
 Run /cpp:init to complete setup
 =================================

@@ -1,6 +1,6 @@
 # Claude Power Pack
 
-**v5.2.0** - A productivity toolkit for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) that adds workflow automation, MCP servers, security scanning, secrets management, and CI/CD integration.
+**v6.0.0** - A productivity toolkit for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) that adds workflow automation, MCP servers, security scanning, secrets management, and CI/CD integration.
 
 ## What It Does
 
@@ -129,6 +129,12 @@ Woodpecker CI runs on every push and PR via a self-hosted agent:
 Architecture: Woodpecker server on a dedicated VM, agent on the dev workstation, connected via gRPC over Tailscale. Web UI at `woodpecker.essent-ai.com` via Cloudflare tunnel.
 
 ## Changelog
+
+### v6.0.0 (2026-05-31)
+
+- **Breaking change: Docker-only MCP deployment** - Docker with local builds is now the only supported Tier 3 runtime
+- **Legacy systemd migration** - `cpp:update` detects legacy MCP systemd units and guides teardown before Docker refresh
+- **Status clarity** - `cpp:status` reports `Docker (local build)` and labels remaining systemd units as migration-required legacy state
 
 ### v5.2.0 (2026-03-08)
 

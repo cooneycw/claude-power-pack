@@ -43,6 +43,8 @@ Core components and their locations:
 
 ## Docker Deployment
 
+Docker with local builds is the only supported MCP runtime in 6.0.0. Legacy systemd and venv-only runtime paths are removed; run `/cpp:update` to migrate any existing systemd units before refreshing containers.
+
 MCP containers fetch API keys at startup from AWS Secrets Manager via an `aws-secrets-agent` sidecar. Local development can store only AWS credentials in the root `.env` file (gitignored), while CI/deploy can inject the same variables through the job environment. No application secrets are stored on disk. If `AWS_SECRET_NAME` is not set, containers use `env_file` variables (local dev mode). If `AWS_SECRET_NAME` is set but the fetch or parse fails, containers **fail closed** - they exit non-zero and never start keyless (issue #347). Set `ALLOW_ENV_FALLBACK=true` (e.g. via `docker-compose.dev.yml`) to opt into env-file fallback for local development.
 
 - **Secrets architecture:** `aws-secrets-agent` (Rust binary, port 2773) caches secrets in-memory (300s TTL) with SSRF token protection. The agent is internal-only (`expose:`, never host-published) and is the only container that receives AWS credentials; MCP containers use `fetch-secrets.sh` entrypoint to resolve keys with just the SSRF token. Use `docker-compose.dev.yml` (loopback publish + `.env` fallback + `ALLOW_ENV_FALLBACK`) for host-side debugging / offline local dev only.
@@ -64,7 +66,7 @@ MCP containers fetch API keys at startup from AWS Secrets Manager via an `aws-se
 - **Runtime smoke:** CI uses a `cpp-smoke-$CI_PIPELINE_NUMBER` compose project with random host ports (driven by `scripts/runtime-smoke.sh`), validates service health, asserts the agent is reachable cross-container at `http://aws-secrets-agent:2773` (proving the `0.0.0.0` bind), exercises the client's real fetch/parse/export path via a hermetic fake agent (`scripts/fake-secrets-agent.py` + `docker-compose.smoke.yml`) with a non-empty `AWS_SECRET_NAME`, and drives a secret through the **REAL** `aws-secrets-agent` binary against a LocalStack Secrets Manager (real AWS SDK `GetSecretValue` via `AWS_ENDPOINT_URL`, no production credentials) so a consumer actually receives a genuinely-fetched secret (issue #377). In-container readiness probes are retried (up to 10x, 3s apart) so a transient post-`--wait` connection refusal does not fail the build; on genuine exhaustion the step dumps `docker compose ps` and the failing service's recent logs (issue #375). It runs `docker compose down -v` before exiting. CI must not deploy persistent containers or prune host images.
 - **Image security gates:** CI runs hadolint over every Dockerfile, validates `docker compose config --quiet`, blocks rendered `:latest`, `default-token`, and host-published agent port regressions, then scans built images for fixed HIGH/CRITICAL CVEs and writes SPDX/CycloneDX SBOMs to `artifacts/sbom/`.
 - **Bootstrap checks:** `make bootstrap-check` verifies admin-only prerequisites (IAM roles, secrets provisioning) before deploy. Configure in `.claude/bootstrap.yaml`. Runs as the first step in the deploy pipeline - blocks with remediation if unsatisfied.
-- **Drift detection:** `make drift-check` compares host-installed artifacts (systemd units, sysctl, Go binaries, shared scripts) against repo templates. Run it manually when reconciling workstation-managed artifacts. See `docs/HOST_MANAGED_ARTIFACTS.md` for full inventory.
+- **Drift detection:** `make drift-check` compares host-installed artifacts against repo templates and treats remaining systemd MCP units as legacy migration findings. Run it manually when reconciling workstation-managed artifacts. See `docs/HOST_MANAGED_ARTIFACTS.md` for full inventory.
 - **Reproducible builds:** Every base image and build tool (python, rust, debian, `uv`, gitleaks, woodpecker server/agent) is pinned by version tag plus `@sha256:` digest in the Dockerfiles, `.woodpecker.yml`, and infra compose files - never `:latest`. Deployable images are tagged with `CPP_IMAGE_TAG` (the short git SHA, set by the Makefile) instead of `:latest`, so each image traces to a commit and rollbacks have provenance. `renovate.json` rotates the pinned digests on a weekly schedule so pinning never freezes security updates.
 
 ## Commands Reference
@@ -148,7 +150,7 @@ MCP containers fetch API keys at startup from AWS Secrets Manager via an `aws-se
 - `/dockers` - Docker container status, health, project linkages
 - `/cpp:init` - Interactive setup wizard (Tiers: Minimal, Standard, Full, CI/CD)
 - `/cpp:status` - Check installation state
-- `/cpp:update` - Pull latest, sync deps, then refresh the detected runtime model (Docker rebuild/restart/health, systemd restart, or venv-only)
+- `/cpp:update` - Pull latest, sync deps, migrate legacy systemd units if present, then refresh Docker local-build runtime
 - `/self-improvement:deployment` - Retrospective analysis after failed deploys
 - `/happy-check` - Check happy-cli version (optional)
 
@@ -189,4 +191,4 @@ Tiered: dotenv-global (`~/.config/claude-power-pack/secrets/`) -> env-file -> AW
 
 ## Version
 
-Current version: 5.2.0
+Current version: 6.0.0
