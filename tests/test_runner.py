@@ -1,11 +1,13 @@
 """Tests for the deterministic CI/CD runner."""
 
+import os
 from io import StringIO
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
-from lib.cicd.runner import DeterministicRunner, RunResult
+from lib.cicd.runner import DeterministicRunner, RunResult, _build_step_env
 from lib.cicd.state import RunState
 from lib.cicd.steps import StepDef
 
@@ -189,3 +191,75 @@ class TestDeterministicRunner:
         log = output.getvalue()
         assert "echo" in log
         assert "SUCCESS" in log
+
+    def test_env_sanitized_in_child(self, tmp_project: Path):
+        """Runner strips PYTHONPATH so child steps don't inherit runner imports."""
+        env_file = tmp_project / "captured_env.txt"
+        steps = [
+            StepDef(
+                id="capture_env",
+                command=f'echo "PYTHONPATH=${{PYTHONPATH:-UNSET}}" > {env_file}',
+                timeout_seconds=30,
+            ),
+        ]
+        with patch.dict(os.environ, {"PYTHONPATH": "/fake/runner/lib"}):
+            runner = DeterministicRunner(project_root=tmp_project, output=StringIO())
+            result = runner.run("check", step_defs=steps)
+
+        assert result.success
+        content = env_file.read_text()
+        assert "PYTHONPATH=UNSET" in content
+
+    def test_uv_cache_dir_defaulted(self, tmp_project: Path):
+        """Runner defaults UV_CACHE_DIR when not already set."""
+        env_file = tmp_project / "uv_cache.txt"
+        steps = [
+            StepDef(
+                id="capture_uv",
+                command=f'echo "$UV_CACHE_DIR" > {env_file}',
+                timeout_seconds=30,
+            ),
+        ]
+        env_without_uv = {k: v for k, v in os.environ.items() if k != "UV_CACHE_DIR"}
+        with patch.dict(os.environ, env_without_uv, clear=True):
+            runner = DeterministicRunner(project_root=tmp_project, output=StringIO())
+            result = runner.run("check", step_defs=steps)
+
+        assert result.success
+        assert env_file.read_text().strip() == "/tmp/uv-cache"
+
+    def test_step_level_env_override(self, tmp_project: Path):
+        """Step-level env vars merge on top of context env."""
+        env_file = tmp_project / "step_env.txt"
+        steps = [
+            StepDef(
+                id="with_env",
+                command=f'echo "$MY_STEP_VAR" > {env_file}',
+                timeout_seconds=30,
+                env={"MY_STEP_VAR": "from_step"},
+            ),
+        ]
+        runner = DeterministicRunner(project_root=tmp_project, output=StringIO())
+        result = runner.run("check", step_defs=steps)
+
+        assert result.success
+        assert env_file.read_text().strip() == "from_step"
+
+
+class TestBuildStepEnv:
+    def test_strips_pythonpath(self):
+        with patch.dict(os.environ, {"PYTHONPATH": "/runner/lib", "HOME": "/home/test"}):
+            env = _build_step_env()
+            assert "PYTHONPATH" not in env
+            assert env["HOME"] == "/home/test"
+
+    def test_defaults_uv_cache_dir(self):
+        env_without_uv = {k: v for k, v in os.environ.items() if k != "UV_CACHE_DIR"}
+        with patch.dict(os.environ, env_without_uv, clear=True):
+            env = _build_step_env()
+            assert env["UV_CACHE_DIR"] == "/tmp/uv-cache"
+
+    def test_preserves_explicit_uv_cache_dir(self):
+        with patch.dict(os.environ, {"UV_CACHE_DIR": "/custom/cache"}):
+            env = _build_step_env()
+            assert env["UV_CACHE_DIR"] == "/custom/cache"

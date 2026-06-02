@@ -52,13 +52,19 @@ class TestStepModel:
             idempotent=True,
             skip_if='! grep -q "^test:" Makefile 2>/dev/null',
             depends_on=["lint"],
+            env={"DJANGO_SETTINGS_MODULE": "config.settings.test"},
             artifacts=["coverage.xml", "htmlcov/"],
             rollback="make clean",
         )
         assert step.timeout == 300
         assert step.max_attempts == 3
+        assert step.env == {"DJANGO_SETTINGS_MODULE": "config.settings.test"}
         assert step.artifacts == ["coverage.xml", "htmlcov/"]
         assert step.rollback == "make clean"
+
+    def test_env_default_empty(self):
+        step = StepModel(command="make lint")
+        assert step.env == {}
 
     def test_timeout_bounds(self):
         with pytest.raises(Exception):
@@ -220,6 +226,19 @@ class TestStepModelToStepDef:
         assert step_def.skip_if == '! grep -q "^test:" Makefile 2>/dev/null'
         assert step_def.depends_on == ["lint"]
 
+    def test_env_field_conversion(self):
+        model = StepModel(
+            command="make test",
+            env={"UV_CACHE_DIR": "/tmp/uv-cache", "DJANGO_SETTINGS_MODULE": "config.settings.test"},
+        )
+        step_def = step_model_to_step_def("test", model)
+        assert step_def.env == {"UV_CACHE_DIR": "/tmp/uv-cache", "DJANGO_SETTINGS_MODULE": "config.settings.test"}
+
+    def test_env_field_default_empty(self):
+        model = StepModel(command="make lint")
+        step_def = step_model_to_step_def("lint", model)
+        assert step_def.env == {}
+
 
 # -- load_manifest tests --
 
@@ -291,6 +310,30 @@ class TestLoadManifest:
 
         with pytest.raises(ValueError, match="nonexistent"):
             load_manifest(tmp_path)
+
+    def test_manifest_with_env(self, tmp_path):
+        manifest_dir = tmp_path / ".claude"
+        manifest_dir.mkdir()
+        manifest_file = manifest_dir / "cicd_tasks.yml"
+        manifest_file.write_text(textwrap.dedent("""\
+            version: "1"
+            steps:
+              test:
+                command: make test
+                env:
+                  UV_CACHE_DIR: /tmp/uv-cache
+                  DJANGO_SETTINGS_MODULE: config.settings.test
+            plans:
+              check:
+                steps: [test]
+        """))
+
+        manifest = load_manifest(tmp_path)
+        assert manifest is not None
+        assert manifest.steps["test"].env == {
+            "UV_CACHE_DIR": "/tmp/uv-cache",
+            "DJANGO_SETTINGS_MODULE": "config.settings.test",
+        }
 
     def test_empty_file_returns_none(self, tmp_path):
         manifest_dir = tmp_path / ".claude"

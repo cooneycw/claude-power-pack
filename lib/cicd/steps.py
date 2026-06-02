@@ -6,6 +6,7 @@ Each step type knows how to execute a specific kind of operation
 
 from __future__ import annotations
 
+import os
 import subprocess
 import time
 from dataclasses import dataclass, field
@@ -55,9 +56,10 @@ class StepDef:
     idempotent: bool = True
     skip_if: Optional[str] = None  # shell expression; step skipped if exits 0
     depends_on: list[str] = field(default_factory=list)
+    env: dict[str, str] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        d: dict[str, Any] = {
             "id": self.id,
             "command": self.command,
             "description": self.description,
@@ -65,6 +67,9 @@ class StepDef:
             "max_attempts": self.max_attempts,
             "idempotent": self.idempotent,
         }
+        if self.env:
+            d["env"] = self.env
+        return d
 
 
 class ShellStep:
@@ -83,6 +88,7 @@ class ShellStep:
         self.idempotent = step_def.idempotent
         self.skip_if = step_def.skip_if
         self.description = step_def.description
+        self.env = step_def.env
 
     def should_skip(self, context: dict[str, Any]) -> bool:
         """Check if this step should be skipped."""
@@ -104,6 +110,13 @@ class ShellStep:
         """Execute the shell command with timeout."""
         cwd = context.get("project_root")
         env = context.get("env")
+
+        if self.env:
+            if env is None:
+                env = dict(os.environ)
+            else:
+                env = dict(env)
+            env.update(self.env)
 
         try:
             proc = subprocess.run(
