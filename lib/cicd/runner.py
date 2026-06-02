@@ -17,6 +17,7 @@ Usage:
 from __future__ import annotations
 
 import json
+import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -24,6 +25,20 @@ from typing import Any, Optional, TextIO
 
 from .state import RunState
 from .steps import ShellStep, StepDef, get_plan_steps
+
+RUNNER_STRIP_VARS = frozenset({"PYTHONPATH"})
+
+
+def _build_step_env() -> dict[str, str]:
+    """Build a sanitized copy of os.environ for child step processes.
+
+    Strips variables injected by the runner launcher (e.g. PYTHONPATH added
+    so ``python -m lib.cicd`` can import itself) and sets defaults required
+    by common build tools (UV_CACHE_DIR).
+    """
+    env = {k: v for k, v in os.environ.items() if k not in RUNNER_STRIP_VARS}
+    env.setdefault("UV_CACHE_DIR", "/tmp/uv-cache")
+    return env
 
 
 @dataclass
@@ -136,6 +151,7 @@ class DeterministicRunner:
             "project_root": str(self.project_root),
             "run_id": state.run_id,
             "plan": state.plan_name,
+            "env": _build_step_env(),
         }
 
         completed = state.current_index

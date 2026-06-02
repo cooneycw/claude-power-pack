@@ -58,6 +58,7 @@ class StepModel(BaseModel):
     idempotent: bool = True
     skip_if: Optional[str] = None
     depends_on: list[str] = Field(default_factory=list)
+    env: dict[str, str] = Field(default_factory=dict)
     artifacts: list[str] = Field(default_factory=list)
     rollback: Optional[str] = None
 
@@ -221,6 +222,7 @@ def step_model_to_step_def(step_id: str, model: StepModel) -> Any:
         idempotent=model.idempotent,
         skip_if=model.skip_if,
         depends_on=list(model.depends_on),
+        env=dict(model.env),
     )
 
 
@@ -379,6 +381,7 @@ def write_manifest(manifest: TaskManifest, project_root: str | Path) -> Path:
         "#   steps.<name>.max_attempts - Retry count (default: 1)\n"
         "#   steps.<name>.idempotent  - Safe to retry? (default: true)\n"
         "#   steps.<name>.skip_if     - Shell expression; skip if exits 0\n"
+        "#   steps.<name>.env         - Extra env vars (merged on top of sanitized base)\n"
         "#   steps.<name>.artifacts   - Output files to preserve\n"
         "#   steps.<name>.rollback    - Command to run on failure\n"
         "#   plans.<name>.steps       - Ordered list of step names\n"
