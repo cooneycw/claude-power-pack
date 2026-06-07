@@ -1,5 +1,18 @@
 # Changelog
 
+## [7.1.0] - 2026-06-07
+
+### Added
+
+- **Skills ecosystem integration** - New `/skills:*` command family for discovering, installing, and managing agent skills from the [skills.sh](https://skills.sh/) ecosystem
+- `/skills:find [QUERY]` - Search for skills by keyword or domain with quality vetting (install count, source reputation, GitHub stars)
+- `/skills:add PACKAGE` - Install skills from GitHub or skills.sh with trust verification for third-party sources
+- `/skills:list` - Show installed skills at project and global level
+- `/skills:update` - Update all installed skills to latest versions
+- `/skills:check` - Check for available updates without installing
+- `/skills:help` - Skills commands overview
+- Skills commands registered in `CLAUDE.md`, `cpp/help.md`
+
 ## [6.0.0] - 2026-05-31
 
 ### Breaking

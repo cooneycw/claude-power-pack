@@ -152,6 +152,14 @@ MCP containers fetch API keys at startup from AWS Secrets Manager via an `aws-se
 ### CLAUDE.md Management
 - `/claude-md:lint` - Lint CLAUDE.md for missing CI/CD, Docker, and troubleshooting directives
 
+### Skills
+- `/skills:find [QUERY]` - Search for skills from the skills.sh ecosystem
+- `/skills:add PACKAGE` - Install a skill from GitHub or skills.sh
+- `/skills:list` - List installed skills in this project
+- `/skills:update` - Update all installed skills
+- `/skills:check` - Check for available skill updates
+- `/skills:help` - Skills commands overview
+
 ### Other
 - `/dockers` - Docker container status, health, project linkages
 - `/cpp:init` - Interactive setup wizard (Tiers: Minimal, Standard, Full, CI/CD, Codex)
@@ -197,4 +205,4 @@ Tiered: dotenv-global (`~/.config/claude-power-pack/secrets/`) -> env-file -> AW
 
 ## Version
 
-Current version: 7.0.0
+Current version: 7.1.0
