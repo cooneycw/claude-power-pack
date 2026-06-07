@@ -25,6 +25,7 @@ CPP uses a tiered installation model:
 | 2 | **Standard** | + Scripts, hooks, shell prompt |
 | 3 | **Full** | + MCP servers (uv, API keys) |
 | 4 | **CI/CD** | + Build system, health checks, pipelines, containers |
+| 5 | **Codex** | + Codex CLI orchestration (cross-model implementation and review) |
 
 ## Quick Start
 
@@ -61,6 +62,12 @@ CPP uses a tiered installation model:
 - **CI/CD Pipelines**: GitHub Actions workflow generation (`/cicd:pipeline`)
 - **Containers**: Dockerfile and docker-compose generation (`/cicd:container`)
 
+### Tier 5 - Codex
+- **Codex Auto** (`/codex:auto`): Full issue lifecycle delegated to Codex CLI
+- **Codex Exec** (`/codex:exec`): One-shot Codex execution with JSONL monitoring
+- **Cross-model review**: Claude reviews Codex's implementation
+- **Fix loop**: Automatic re-prompt on quality gate failure (max 2 retries)
+
 ## CI/CD Commands (Tier 4)
 
 | Command | Purpose |
@@ -72,6 +79,15 @@ CPP uses a tiered installation model:
 | `/cicd:pipeline` | Generate GitHub Actions CI/CD workflows |
 | `/cicd:container` | Generate Dockerfile and docker-compose.yml |
 | `/cicd:help` | CI/CD command overview |
+
+## Codex Orchestration Commands (Tier 5)
+
+| Command | Purpose |
+|---------|---------|
+| `/codex:auto <ISSUE>` | Full issue lifecycle delegated to Codex CLI |
+| `/codex:exec <PROMPT>` | One-shot Codex execution with JSONL monitoring |
+| `/codex:status` | Check Codex CLI installation and readiness |
+| `/codex:help` | Codex commands overview |
 
 ## Related Documentation
 
