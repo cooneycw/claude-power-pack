@@ -95,8 +95,9 @@ Ask the user which tier they want to install using the AskUserQuestion tool:
 | 2 | **Standard** | + Scripts, hooks, shell prompt |
 | 3 | **Full** | + MCP servers (Docker local builds, API keys) |
 | 4 | **CI/CD** | + Build system, health checks, pipelines, containers |
+| 5 | **Codex** | + Codex CLI orchestration (cross-model implementation and review) |
 
-Default recommendation: **Standard** for most users, **Full** for MCP-powered workflows, **CI/CD** for projects needing build automation.
+Default recommendation: **Standard** for most users, **Full** for MCP-powered workflows, **CI/CD** for projects needing build automation, **Codex** for cross-model implementation workflows.
 
 ---
 
@@ -357,6 +358,31 @@ This will make the following changes:
     rm .github/workflows/ci.yml
     rm Dockerfile docker-compose.yml .dockerignore
     claude mcp remove woodpecker-ci
+
+Proceed? [y/N]
+```
+
+### Tier 5 Disclosure (Codex)
+
+```
+=== Tier 5: Codex Orchestration ===
+
+This will make the following changes:
+
+  [Tier 1 + 2 + 3 + 4 - All CI/CD components]
+    (see above)
+
+  [Tier 5 - Codex CLI]
+    - Requires: Codex CLI (npm install -g @openai/codex)
+    - Requires: OpenAI API key (codex login)
+    - Installs: /codex:auto, /codex:exec, /codex:status, /codex:help commands
+    - Optional: Register CPP MCP servers with Codex
+
+  Disk usage: ~0 MB (commands via symlink)
+
+  To undo:
+    # Tier 1+2+3+4 cleanup (see above)
+    npm uninstall -g @openai/codex
 
 Proceed? [y/N]
 ```
@@ -1018,6 +1044,114 @@ claude mcp add --transport stdio -s user woodpecker-ci -- "$BINARY" serve
 echo "✓ Woodpecker CI MCP server installed and registered"
 ```
 
+### Tier 5 Execution (Codex Orchestration)
+
+#### 5a. Check Codex CLI
+
+```bash
+echo ""
+echo "=== Tier 5: Codex Orchestration ==="
+echo ""
+
+if command -v codex &>/dev/null; then
+  CODEX_VERSION=$(codex --version 2>/dev/null || echo "unknown")
+  echo "[x] Codex CLI: $CODEX_VERSION"
+else
+  echo "[ ] Codex CLI: not installed"
+  echo ""
+  echo "Install Codex CLI?"
+  echo "  npm install -g @openai/codex"
+  echo ""
+  # Ask user if they want to install
+  # If yes:
+  npm install -g @openai/codex
+  if command -v codex &>/dev/null; then
+    echo "Codex CLI installed"
+  else
+    echo "WARNING: Codex CLI installation failed"
+    echo "  Try: sudo npm install -g @openai/codex"
+    echo "  Codex commands will not work until installed"
+  fi
+fi
+```
+
+#### 5b. Run Codex Doctor
+
+```bash
+if command -v codex &>/dev/null; then
+  echo ""
+  echo "Running codex doctor..."
+  DOCTOR_OUTPUT=$(codex doctor 2>&1 || true)
+  echo "$DOCTOR_OUTPUT"
+
+  if echo "$DOCTOR_OUTPUT" | grep -qi "error\|fail\|missing"; then
+    echo ""
+    echo "WARNING: codex doctor reported issues. Resolve before using /codex:auto."
+  else
+    echo "[x] codex doctor: all checks passed"
+  fi
+fi
+```
+
+#### 5c. Verify OpenAI API Key
+
+```bash
+if command -v codex &>/dev/null; then
+  echo ""
+  echo "=== OpenAI API Key ==="
+
+  CODEX_CONFIG="$HOME/.codex/config.toml"
+  if [ -f "$CODEX_CONFIG" ] || [ -n "$OPENAI_API_KEY" ]; then
+    echo "[x] OpenAI API key: configured"
+  else
+    echo "[ ] OpenAI API key: not configured"
+    echo ""
+    echo "Configure with one of:"
+    echo "  codex login                    (interactive)"
+    echo "  export OPENAI_API_KEY=sk-...   (environment variable)"
+    echo ""
+    echo "Codex commands require an OpenAI API key to function."
+  fi
+fi
+```
+
+#### 5d. Register MCP Servers with Codex (Optional)
+
+This reuses the logic from Step 7 (Optional Extras) section 8b, but is now part of the Tier 5 flow:
+
+```bash
+if command -v codex &>/dev/null; then
+  echo ""
+  echo "=== Codex MCP Registration ==="
+  echo ""
+  echo "Register Claude Power Pack MCP servers with Codex?"
+  echo "MCP servers expose streamable HTTP at /mcp for Codex compatibility."
+  echo ""
+  # Ask user if they want to register - use AskUserQuestion
+  # If yes:
+  CODEX_LIST=$(codex mcp list 2>/dev/null || echo "")
+
+  for entry in "second-opinion:8080" "playwright-persistent:8081" "nano-banana:8084"; do
+    NAME="${entry%%:*}"
+    PORT="${entry#*:}"
+    if echo "$CODEX_LIST" | grep -q "$NAME"; then
+      echo "-> $NAME already registered with Codex (skipped)"
+    else
+      if curl -sf --max-time 2 "http://127.0.0.1:${PORT}/" >/dev/null 2>&1; then
+        codex mcp add "$NAME" --url "http://127.0.0.1:${PORT}/mcp"
+        echo "Registered $NAME with Codex (http://127.0.0.1:${PORT}/mcp)"
+      else
+        echo "WARNING: $NAME not reachable on port $PORT - skipping Codex registration"
+        echo "  Start containers first: make docker-refresh PROFILE=\"core browser cicd\""
+      fi
+    fi
+  done
+
+  echo ""
+  echo "Restart Codex for tools to become available."
+fi
+```
+
 ---
 
 ## Step 6: Installation Summary
@@ -1032,6 +1166,7 @@ Installed:
   ✓ Tier 2: Scripts, hooks, shell prompt
   ✓ Tier 3: Docker MCP stack, API keys
   ✓ Tier 4: CI/CD build system, health checks, pipeline, containers
+  ✓ Tier 5: Codex CLI orchestration
 
 Permission Profile: {PROFILE_NAME}
   Auto-approved: {AUTO_APPROVE_SUMMARY}

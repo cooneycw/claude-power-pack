@@ -116,6 +116,12 @@ MCP containers fetch API keys at startup from AWS Secrets Manager via an `aws-se
 - `python -m lib.cicd run --plan <name>` - Execute CI/CD plan deterministically (finish, check, deploy)
 - `python -m lib.cicd.bootstrap check` - Check admin-only bootstrap dependencies (config: `.claude/bootstrap.yaml`)
 
+### Codex Orchestration
+- `/codex:auto <ISSUE>` - Full issue lifecycle delegated to Codex CLI (worktree, implement, review, quality gates, PR)
+- `/codex:exec <PROMPT>` - One-shot Codex execution in current directory with JSONL monitoring
+- `/codex:status` - Check Codex CLI installation, config, and readiness
+- `/codex:help` - Codex commands overview
+
 ### Security
 - `/security:scan` - Full scan: native + external tools
 - `/security:quick` - Fast scan: native only (zero deps)
@@ -148,7 +154,7 @@ MCP containers fetch API keys at startup from AWS Secrets Manager via an `aws-se
 
 ### Other
 - `/dockers` - Docker container status, health, project linkages
-- `/cpp:init` - Interactive setup wizard (Tiers: Minimal, Standard, Full, CI/CD)
+- `/cpp:init` - Interactive setup wizard (Tiers: Minimal, Standard, Full, CI/CD, Codex)
 - `/cpp:status` - Check installation state
 - `/cpp:update` - Pull latest, sync deps, migrate legacy systemd units if present, then refresh Docker local-build runtime
 - `/self-improvement:deployment` - Retrospective analysis after failed deploys
@@ -191,4 +197,4 @@ Tiered: dotenv-global (`~/.config/claude-power-pack/secrets/`) -> env-file -> AW
 
 ## Version
 
-Current version: 6.0.0
+Current version: 7.0.0

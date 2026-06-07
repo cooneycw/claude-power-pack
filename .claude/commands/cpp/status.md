@@ -480,7 +480,69 @@ else
 fi
 ```
 
-## Step 6: Summary
+## Step 6: Check Tier 5 (Codex Orchestration)
+
+Check Codex CLI installation, configuration, and MCP registrations:
+
+```bash
+echo ""
+echo "Tier 5 (Codex):"
+
+# Check Codex CLI
+if command -v codex &>/dev/null; then
+  CODEX_VERSION=$(codex --version 2>/dev/null || echo "unknown")
+  echo "  [x] Codex CLI: $CODEX_VERSION"
+else
+  echo "  [ ] Codex CLI: not installed"
+fi
+
+# Check codex doctor
+if command -v codex &>/dev/null; then
+  DOCTOR_OUTPUT=$(codex doctor 2>&1 || true)
+  if echo "$DOCTOR_OUTPUT" | grep -qi "error\|fail\|missing"; then
+    echo "  [!] codex doctor: issues detected"
+  else
+    echo "  [x] codex doctor: passed"
+  fi
+fi
+
+# Check OpenAI API key
+CODEX_CONFIG="$HOME/.codex/config.toml"
+if [ -n "$OPENAI_API_KEY" ]; then
+  echo "  [x] OpenAI API key: set in environment"
+elif [ -f "$CODEX_CONFIG" ]; then
+  echo "  [x] OpenAI API key: configured in $CODEX_CONFIG"
+else
+  echo "  [ ] OpenAI API key: not configured"
+fi
+
+# Check Codex MCP registrations
+if command -v codex &>/dev/null; then
+  CODEX_MCP=$(codex mcp list 2>/dev/null || echo "")
+  for server in second-opinion playwright-persistent nano-banana; do
+    if echo "$CODEX_MCP" | grep -q "$server"; then
+      echo "  [x] Codex MCP: $server registered"
+    else
+      echo "  [ ] Codex MCP: $server not registered"
+    fi
+  done
+fi
+
+# Check Codex commands available
+if [ -d ".claude/commands/codex" ] || [ -L ".claude/commands" ]; then
+  CODEX_CMDS=0
+  for cmd in auto exec status help; do
+    if [ -f ".claude/commands/codex/${cmd}.md" ]; then
+      CODEX_CMDS=$((CODEX_CMDS + 1))
+    fi
+  done
+  echo "  [x] Codex commands: $CODEX_CMDS/4 available"
+else
+  echo "  [ ] Codex commands: not installed"
+fi
+```
+
+## Step 8: Summary
 
 Based on the checks above, report:
 
@@ -535,6 +597,16 @@ Tier 4 (CI/CD):
   [ ] CI pipeline: no workflows found
   [ ] Dockerfile: not found
   Status: Partial
+
+Tier 5 (Codex):
+  [x] Codex CLI: 0.137.0
+  [x] codex doctor: passed
+  [x] OpenAI API key: set in environment
+  [x] Codex MCP: second-opinion registered
+  [x] Codex MCP: playwright-persistent registered
+  [x] Codex MCP: nano-banana registered
+  [x] Codex commands: 4/4 available
+  Status: Complete
 
 ---------------------------------
 Current Level: Tier 2 (Standard)
