@@ -1,6 +1,6 @@
 # Claude Power Pack
 
-**v6.0.0** - A productivity toolkit for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) that adds workflow automation, MCP servers, security scanning, secrets management, and CI/CD integration.
+**v7.1.0** - A productivity toolkit for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) that adds workflow automation, MCP servers, security scanning, secrets management, and CI/CD integration.
 
 ## What It Does
 
@@ -14,6 +14,7 @@
 - **CI/CD integration** (`/cicd:*`) - Framework detection, Makefile generation, health checks, and IaC scaffolding
 - **Woodpecker CI** - Self-hosted pipeline with image security gates, isolated MCP runtime smoke tests, and programmatic status polling
 - **Project scaffolding** (`/project:init`) - Zero-to-GitHub-repo setup with Makefile, CI pipeline, and Docker config
+- **Skills ecosystem** (`/skills:*`) - Discover, install, and manage agent skills from [skills.sh](https://skills.sh/) with quality vetting
 - **Safety hooks** - PreToolUse blocks dangerous commands; PostToolUse masks secrets in output
 
 ## Requirements
@@ -129,6 +130,11 @@ Woodpecker CI runs on every push and PR via a self-hosted agent:
 Architecture: Woodpecker server on a dedicated VM, agent on the dev workstation, connected via gRPC over Tailscale. Web UI at `woodpecker.essent-ai.com` via Cloudflare tunnel.
 
 ## Changelog
+
+### v7.1.0 (2026-06-07)
+
+- **Skills ecosystem integration** - New `/skills:*` command family wrapping the `npx skills` CLI for discovering, installing, and managing agent skills from [skills.sh](https://skills.sh/)
+- Quality vetting in `/skills:find` checks install counts, source reputation, and GitHub stars before recommending
 
 ### v6.0.0 (2026-05-31)
 

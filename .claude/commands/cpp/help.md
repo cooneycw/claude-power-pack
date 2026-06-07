@@ -89,6 +89,17 @@ CPP uses a tiered installation model:
 | `/codex:status` | Check Codex CLI installation and readiness |
 | `/codex:help` | Codex commands overview |
 
+## Skills Ecosystem
+
+| Command | Purpose |
+|---------|---------|
+| `/skills:find [QUERY]` | Search for skills from skills.sh by keyword |
+| `/skills:add PACKAGE` | Install a skill from GitHub or skills.sh |
+| `/skills:list` | List installed skills in this project |
+| `/skills:update` | Update all installed skills |
+| `/skills:check` | Check for available skill updates |
+| `/skills:help` | Skills commands overview |
+
 ## Related Documentation
 
 - `CLAUDE.md` - Full project documentation
