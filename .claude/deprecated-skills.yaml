@@ -15,11 +15,28 @@
 # Schema: version + a list of deprecated families. Each family lists the exact
 # generated skill directory names so the prune can match them under
 # ~/.claude/skills/ without a fragile repo diff.
+#
+# Per-family fields:
+#   family         (required) - the metadata.family value carried by the
+#                               generated SKILL.md frontmatter.
+#   reason         (required) - why the family was retired.
+#   replacement    (optional) - the supported successor, if any.
+#   skills         (required) - exact generated-skill directory names to remove.
+#                               These are classified DEPRECATED.
+#   entire_family  (optional, default false) - set true ONLY when the WHOLE
+#                               family is retired. When true, any installed
+#                               generated skill whose metadata.family matches but
+#                               is not in `skills` above is classified ORPHANED
+#                               (a stray member of a fully-retired family).
+#                               When false/absent, unlisted family members are
+#                               left OK - this prevents flagging live skills when
+#                               only part of a family is deprecated.
 
 version: 1
 
 deprecated:
   - family: wiki
+    entire_family: true
     reason: >-
       Wiki.js scaffolding and integration is out of scope for CPP. GitHub Issues
       (via the flow-auto skillset) is the only supported scaffolding backend.

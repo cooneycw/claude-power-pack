@@ -1,5 +1,23 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- **Skill drift/orphan detection in `/cpp:update`** (issue #395) - new Step 7.5
+  detects retired and orphaned generated skills in `~/.claude/skills/` and offers
+  guided, per-family, user-confirmed removal, mirroring the existing MCP/systemd
+  drift handling.
+- `scripts/skill-drift.py` - classifies generated skills against the curated
+  `.claude/deprecated-skills.yaml` (DEPRECATED / ORPHANED / OK / IGNORED), with
+  `--check`, `--json`, and a guarded `--prune` that moves skills to a timestamped
+  backup (never `rm -rf`), refuses to touch OK/hand-authored skills, and blocks
+  path traversal. Classification is curated-list driven, not a repo diff - a
+  blanket diff would delete live skills since every generated skill references a
+  retired `manifests/` source.
+- `entire_family` flag in `.claude/deprecated-skills.yaml` - gates ORPHANED
+  detection so a partially-deprecated family never flags its live members.
+
 ## [7.1.0] - 2026-06-07
 
 ### Added

@@ -32,7 +32,7 @@ Core components and their locations:
 - `lib/security/` - Security scanning (native + external tools)
 - `lib/cicd/` - CI/CD framework detection, Makefile generation, health/smoke checks, deterministic runner, deployment strategies, Pydantic v2 config validation
 - `lib/spec_bridge/` - Spec-to-GitHub-issue sync
-- `scripts/` - Shell utilities (prompt-context, worktree-remove, hooks, drift-detect)
+- `scripts/` - Shell utilities (prompt-context, worktree-remove, hooks, drift-detect, skill-drift)
 - `templates/` - Makefile, workflow, container templates
 - `docker-compose.yml` - MCP server orchestration (profiles: `core`, `browser`, `cicd`)
 - `.woodpecker.yml` - Woodpecker CI pipeline (lint, test, typecheck, image security gates, runtime smoke)
@@ -166,7 +166,7 @@ MCP containers fetch API keys at startup from AWS Secrets Manager via an `aws-se
 - `/dockers` - Docker container status, health, project linkages
 - `/cpp:init` - Interactive setup wizard (Tiers: Minimal, Standard, Full, CI/CD, Codex)
 - `/cpp:status` - Check installation state
-- `/cpp:update` - Pull latest, sync deps, migrate legacy systemd units if present, then refresh Docker local-build runtime
+- `/cpp:update` - Pull latest, sync deps, migrate legacy systemd units if present, refresh Docker local-build runtime, then prune retired/orphaned generated skills via the curated `.claude/deprecated-skills.yaml` (Step 7.5, user-confirmed)
 - `/self-improvement:deployment` - Retrospective analysis after failed deploys
 - `/happy-check` - Check happy-cli version (optional)
 
