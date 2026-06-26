@@ -1,0 +1,40 @@
+# Deprecated skill families retired from Claude Power Pack.
+#
+# Scaffolding in CPP is GitHub Issues only, driven by the flow-auto skillset.
+# Wiki.js and Plane were never part of the supported workflow. The wiki-* skills
+# below were produced by an older, manifest-driven generation architecture
+# (source: manifests/wiki/*.yaml) that no longer exists in this repo, so they
+# linger as unmanaged orphans in ~/.claude/skills/ on machines that installed
+# an earlier CPP.
+#
+# This file is the deprecation list of record. The /cpp:update skill-orphan
+# prune (issue #395) consumes it to offer guarded removal of matching generated
+# skills. Adding a family here does NOT auto-delete anything: removal is always
+# user-confirmed.
+#
+# Schema: version + a list of deprecated families. Each family lists the exact
+# generated skill directory names so the prune can match them under
+# ~/.claude/skills/ without a fragile repo diff.
+
+version: 1
+
+deprecated:
+  - family: wiki
+    reason: >-
+      Wiki.js scaffolding and integration is out of scope for CPP. GitHub Issues
+      (via the flow-auto skillset) is the only supported scaffolding backend.
+    replacement: GitHub Issues via /flow:auto
+    skills:
+      - wiki-search
+      - wiki-create-page
+      - wiki-update-page
+    # One-time manual cleanup until the #395 prune lands. Safe: these are
+    # generated artifacts, not user content.
+    cleanup: |
+      rm -rf ~/.claude/skills/wiki-search \
+             ~/.claude/skills/wiki-create-page \
+             ~/.claude/skills/wiki-update-page
+
+# Plane has no entry: it was never integrated as a CPP skill or command, so
+# there is nothing installed to remove. It is recorded here only to make the
+# "GitHub Issues is the sole scaffolding backend" decision explicit.

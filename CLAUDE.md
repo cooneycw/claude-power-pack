@@ -101,6 +101,8 @@ MCP containers fetch API keys at startup from AWS Secrets Manager via an `aws-se
 - `/github:issue-update` - Update existing issue
 - `/github:issue-close` - Close issue with optional comment
 
+**Scaffolding backend:** GitHub Issues (driven by the `flow-auto` skillset) is the only supported scaffolding/issue backend. Wiki.js and Plane are out of scope and are not part of CPP. Retired skill families are recorded in `.claude/deprecated-skills.yaml`; the legacy `wiki-*` skills installed by older CPP versions are pruned via `/cpp:update` (see issue #395).
+
 ### CI/CD
 - `/cicd:init` - Detect framework, generate Makefile and cicd.yml
 - `/cicd:check` - Validate Makefile against CPP standards
