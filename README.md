@@ -4,7 +4,7 @@
 
 ## What It Does
 
-- **Workflow commands** (`/flow:auto`, `/flow:start`, `/flow:finish`) - Issue-driven development with worktrees, quality gates, automated PR lifecycle, and CI verification
+- **Workflow commands** (`/flow:auto`, `/flow:start`, `/flow:eli5`, `/flow:finish`) - Issue-driven development with worktrees, a pre-implementation ELI5 plan/necessity approval gate, quality gates, automated PR lifecycle, and CI verification
 - **MCP servers** - Three containerized servers extending Claude Code's capabilities:
   - **Second Opinion** (port 8080) - Multi-model code review via external LLMs (Gemini, OpenAI, Anthropic)
   - **Playwright Persistent** (port 8081) - Browser automation with 29 tools
@@ -80,6 +80,7 @@ claude-power-pack/
 |----------|---------|-------------|
 | Workflow | `/flow:auto 42` | Full issue lifecycle in one shot |
 | Workflow | `/flow:start 42` | Create worktree for an issue |
+| Workflow | `/flow:eli5 42` | Plain-language intent + necessity verdict + plan approval gate |
 | Workflow | `/flow:finish` | Lint, test, commit, push, create PR |
 | Project | `/project:init myapp` | Scaffold a new project |
 | Security | `/security:scan` | Full vulnerability scan |

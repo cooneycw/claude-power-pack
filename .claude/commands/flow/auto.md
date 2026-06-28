@@ -1,6 +1,6 @@
 # Flow: Auto - Full Issue Lifecycle in One Shot
 
-Complete end-to-end workflow: start worktree → analyze issue → implement → finish (PR) → merge → deploy.
+Complete end-to-end workflow: start worktree → analyze issue → ELI5 plan + necessity gate → implement → finish (PR) → merge → deploy.
 
 ## Arguments
 
@@ -15,14 +15,15 @@ Report at the start:
 ```
 Flow Auto: Issue #42 - Full Lifecycle
 
-Step 1/8: Start (create worktree and branch)
-Step 2/8: Analyze (understand issue and codebase)
-Step 3/8: Implement (write the code)
-Step 4/8: Update Docs (regenerate C4 diagrams, review CLAUDE.md/README.md)
-Step 5/8: Finish (lint, test, commit, push, create PR)
-Step 6/8: Merge (squash-merge PR, clean up worktree)
-Step 7/8: Verify CI (confirm pipeline passes on main)
-Step 8/8: Deploy (make deploy, if target exists)
+Step 1/9: Start (create worktree and branch)
+Step 2/9: Analyze (understand issue and codebase)
+Step 3/9: ELI5 (plain-language intent + necessity verdict + plan approval gate)
+Step 4/9: Implement (write the code)
+Step 5/9: Update Docs (regenerate C4 diagrams, review CLAUDE.md/README.md)
+Step 6/9: Finish (lint, test, commit, push, create PR)
+Step 7/9: Merge (squash-merge PR, clean up worktree)
+Step 8/9: Verify CI (confirm pipeline passes on main)
+Step 9/9: Deploy (make deploy, if target exists)
 
 Proceeding...
 ```
@@ -100,7 +101,7 @@ echo "Verified: on branch '$CURRENT_BRANCH' in $(pwd)"
 
 **If this verification fails, STOP immediately. Report the failure using the error template at the bottom of this file. Do NOT proceed to Step 2.**
 
-Report: `Step 1/8: Start complete - worktree at {path}, verified on branch {branch}`
+Report: `Step 1/9: Start complete - worktree at {path}, verified on branch {branch}`
 
 ---
 
@@ -125,7 +126,7 @@ Working from the worktree, analyze the issue and codebase to form an implementat
 4. **Report the plan to the user:**
 
 ```
-Step 2/8: Analysis Complete
+Step 2/9: Analysis Complete
 
 Issue #42: "Fix login redirect loop"
 
@@ -142,16 +143,45 @@ Implementation Plan:
 Files to modify: 3
 Estimated scope: Small
 
-Proceeding to implementation...
+Proceeding to ELI5 review...
 ```
 
-Report: `Step 2/8: Analyze complete - {N} files to modify`
+Report: `Step 2/9: Analyze complete - {N} files to modify`
 
 ---
 
-### Step 3: Implement - Write the Code
+### Step 3: ELI5 - Plan + Necessity Gate (Approval Checkpoint)
 
-Execute the implementation plan from Step 2:
+Before writing any code, run the `/flow:eli5` review (see `.claude/commands/flow/eli5.md`) using the issue and the Step 2 analysis. This is the post-analysis, pre-implementation communication and approval gate. Produce the three-section reviewer report:
+
+1. **ELI5 overview of intent** - what the issue is really trying to accomplish, in plain language a reviewer can sanity-check for a misread.
+2. **Necessity / staleness analysis** - whether the issue is still worth doing given anything merged since it was filed. Anchor the check to the issue's creation date:
+   ```bash
+   ISSUE_DATE=$(gh issue view "$ISSUE_NUM" --json createdAt --jq '.createdAt')
+   git log --since="$ISSUE_DATE" --oneline -- <relevant/paths>
+   gh pr list --state merged --search "merged:>=${ISSUE_DATE%%T*}" --json number,title,mergedAt
+   gh issue list --state all --search "<key terms>" --json number,title,state
+   ```
+   Output one verdict with evidence: **Still needed / Partially addressed / No longer needed / Needs reframing**.
+3. **Proposed changes (pending approval)** - the files and edits that will close the issue, framed as a plan awaiting reviewer approval.
+
+**This is a gate:**
+
+- **Verdict `No longer needed`** -> do NOT implement. Recommend closing the issue with an evidence-based comment and **STOP**:
+  ```bash
+  gh issue close "$ISSUE_NUM" --comment "Closed via /flow:auto ELI5 review - <reason; cite superseding PR/issue>."
+  ```
+  Run the close only with reviewer assent; surface the recommendation either way.
+- **Verdict `Partially addressed` or `Needs reframing`** -> the plan to approve is the adjusted one (remaining work / corrected approach), not the original issue body.
+- **Approval:** By default, **pause and wait for reviewer approval** of the plan before continuing to Step 4. For unattended runs, accept `--yes` (alias `--auto-approve`) on `/flow:auto`, or an `eli5: auto-approve` trailer in the issue body or HEAD commit message, to proceed without pausing. Auto-approve never overrides a `No longer needed` verdict.
+
+Report: `Step 3/9: ELI5 complete - verdict: {Still needed|Partially addressed|No longer needed|Needs reframing}; approval: {granted|auto-granted|close recommended}`
+
+---
+
+### Step 4: Implement - Write the Code
+
+Execute the approved plan from the Step 3 ELI5 gate:
 
 1. **Make all code changes** in the worktree.
 2. **Follow existing conventions** - match the code style, patterns, and structure of the project.
@@ -162,11 +192,11 @@ If implementation hits a blocker that cannot be resolved:
 - **STOP** and report the blocker.
 - Suggest manual intervention.
 
-Report: `Step 3/8: Implement complete - {summary of changes}`
+Report: `Step 4/9: Implement complete - {summary of changes}`
 
 ---
 
-### Step 4: Update Docs - Regenerate C4 Diagrams and Review Docs
+### Step 5: Update Docs - Regenerate C4 Diagrams and Review Docs
 
 If the Makefile has an `update_docs` target:
 
@@ -192,11 +222,11 @@ Then perform these documentation tasks:
 
 If no `update_docs` target exists in the Makefile, skip this step.
 
-Report: `Step 4/8: Update Docs complete - {N} files updated` or `Step 4/8: Update Docs skipped (no Makefile target)`
+Report: `Step 5/9: Update Docs complete - {N} files updated` or `Step 5/9: Update Docs skipped (no Makefile target)`
 
 ---
 
-### Step 5: Finish - Quality Gates, Commit, Push, PR
+### Step 6: Finish - Quality Gates, Commit, Push, PR
 
 ```bash
 BRANCH=$(git branch --show-current)
@@ -244,11 +274,11 @@ ISSUE_NUM=$(echo "$BRANCH" | grep -oP 'issue-\K[0-9]+' || echo "")
    - PR body: Summary of changes + test plan + `Closes #N`
    - Analyze all commits on the branch to draft the summary.
 
-Report: `Step 5/8: Finish complete - PR #XX created`
+Report: `Step 6/9: Finish complete - PR #XX created`
 
 ---
 
-### Step 6: Merge - Squash-Merge and Clean Up
+### Step 7: Merge - Squash-Merge and Clean Up
 
 1. **Merge the PR:**
    ```bash
@@ -272,13 +302,13 @@ Report: `Step 5/8: Finish complete - PR #XX created`
 
    **CRITICAL: You MUST `cd` to the main repo BEFORE removing the worktree. NEVER remove a worktree while your working directory is inside it - this kills all subsequent bash commands. Execute these as SEPARATE Bash calls, not in a single script.**
 
-   **Step 6a - Exit the worktree (separate Bash call):**
+   **Step 7a - Exit the worktree (separate Bash call):**
    ```bash
    cd "$MAIN_REPO"
    pwd  # Verify you are in the main repo
    ```
 
-   **Step 6b - Remove the worktree (separate Bash call, AFTER confirming cd succeeded):**
+   **Step 7b - Remove the worktree (separate Bash call, AFTER confirming cd succeeded):**
    ```bash
    if [[ -f ~/.claude/scripts/worktree-remove.sh ]]; then
        ~/.claude/scripts/worktree-remove.sh "$WORKTREE_PATH" --force --delete-branch
@@ -288,7 +318,7 @@ Report: `Step 5/8: Finish complete - PR #XX created`
    fi
    ```
 
-   **Step 6c - Verify working directory is valid:**
+   **Step 7c - Verify working directory is valid:**
    ```bash
    pwd  # MUST show main repo path, NOT the deleted worktree
    git status  # MUST succeed - if this fails, your CWD was deleted
@@ -309,11 +339,11 @@ Report: `Step 5/8: Finish complete - PR #XX created`
    fi
    ```
 
-Report: `Step 6/8: Merge complete - worktree cleaned up`
+Report: `Step 7/9: Merge complete - worktree cleaned up`
 
 ---
 
-### Step 7: Verify CI (after merge)
+### Step 8: Verify CI (after merge)
 
 After merging to main, verify that the CI pipeline passes before deploying.
 
@@ -427,15 +457,15 @@ If neither `WOODPECKER_API_TOKEN` is set nor GitHub Actions runs are found, skip
 WARNING: No CI system detected. Skipping verification.
 ```
 
-- If CI **passes**: proceed to Step 8.
+- If CI **passes**: proceed to Step 9.
 - If CI **fails**: **STOP**. Report the failure and exit. Do not deploy broken code.
 - If CI **not found** after timeout: warn and proceed (non-blocking).
 
-Report: `Step 7/8: Verify CI complete - pipeline #{N} passed` or `Step 7/8: Verify CI skipped (no CI detected)`
+Report: `Step 8/9: Verify CI complete - pipeline #{N} passed` or `Step 8/9: Verify CI skipped (no CI detected)`
 
 ---
 
-### Step 8: Deploy (optional)
+### Step 9: Deploy (optional)
 
 Only if a Makefile with a `deploy` target exists in the main repo:
 
@@ -452,7 +482,7 @@ else
 fi
 ```
 
-Report: `Step 8/8: Deploy complete` or `Step 8/8: Deploy skipped (no Makefile target)`
+Report: `Step 9/9: Deploy complete` or `Step 9/9: Deploy skipped (no Makefile target)`
 
 ---
 
@@ -462,6 +492,7 @@ Report: `Step 8/8: Deploy complete` or `Step 8/8: Deploy skipped (no Makefile ta
 Flow Auto Complete
 
   Issue:    #42 - Fix login bug
+  ELI5:     Still needed (plan approved)
   Changes:  Modified 3 files (src/auth/login.py, tests/test_auth.py, config/routes.py)
   PR:       #78 (squash-merged)
   Branch:   issue-42-fix-login (deleted)
@@ -478,7 +509,7 @@ Flow Auto Complete
 At each step, if something fails:
 
 ```
-Flow Auto stopped at Step N/8: {Step Name}
+Flow Auto stopped at Step N/9: {Step Name}
 
   Failed: [description of what failed]
   Fix:    [actionable suggestion]
@@ -486,25 +517,28 @@ Flow Auto stopped at Step N/8: {Step Name}
   To resume manually:
     /flow:start N    (if step 1 failed)
     [investigate]    (if step 2 failed)
-    [implement]      (if step 3 failed)
-    /documentation:c4 (if step 4 failed)
-    /flow:finish     (if step 5 failed)
-    /flow:merge      (if step 6 failed)
-    [check CI dashboard] (if step 7 failed)
-    /flow:deploy     (if step 8 failed)
+    /flow:eli5 N     (if step 3 failed)
+    [implement]      (if step 4 failed)
+    /documentation:c4 (if step 5 failed)
+    /flow:finish     (if step 6 failed)
+    /flow:merge      (if step 7 failed)
+    [check CI dashboard] (if step 8 failed)
+    /flow:deploy     (if step 9 failed)
 ```
 
 Key failure scenarios:
 - **Issue not found:** Stop at step 1
 - **Issue closed:** Warn at step 1, ask to proceed
 - **Analysis unclear:** Stop at step 2, ask user for clarification
-- **Implementation blocker:** Stop at step 3, report what's blocking
-- **Doc update fails:** Non-blocking at step 4, warn and continue
-- **Lint/test fails:** Stop at step 5, show test output
-- **Push fails:** Stop at step 5, suggest `git pull --rebase`
-- **PR merge conflicts:** Stop at step 6, suggest manual resolution
-- **CI pipeline fails:** Stop at step 7, link to pipeline/run for investigation
-- **CI not detected:** Non-blocking at step 7, warn and continue to deploy
+- **ELI5 verdict `No longer needed`:** Stop at step 3, recommend closing the issue instead of implementing
+- **Plan rejected at ELI5 gate:** Stop at step 3, revise the plan (or close) before proceeding
+- **Implementation blocker:** Stop at step 4, report what's blocking
+- **Doc update fails:** Non-blocking at step 5, warn and continue
+- **Lint/test fails:** Stop at step 6, show test output
+- **Push fails:** Stop at step 6, suggest `git pull --rebase`
+- **PR merge conflicts:** Stop at step 7, suggest manual resolution
+- **CI pipeline fails:** Stop at step 8, link to pipeline/run for investigation
+- **CI not detected:** Non-blocking at step 8, warn and continue to deploy
 - **Deploy fails:** Report but don't roll back (deploy is best-effort)
 - **Inside worktree being removed:** `worktree-remove.sh` handles this safely
 
@@ -512,7 +546,8 @@ Key failure scenarios:
 
 - This is the "one command to ship" - takes an issue number and delivers it end-to-end
 - The analyze step ensures Claude understands the issue before writing code
+- The ELI5 step (Step 3) is a human checkpoint: it restates intent in plain language, verifies the issue is still worth doing, and gates implementation on plan approval. Use `--yes` (or an `eli5: auto-approve` trailer) for fully unattended runs; a `No longer needed` verdict never auto-implements
 - Each step builds on the previous one; there's no skipping
 - The deploy step is always optional - it only runs if a deploy target exists
 - After completion, the user is in the main repo on the main branch
-- For step-by-step control, use individual commands: `/flow:start`, `/flow:finish`, `/flow:merge`, `/flow:deploy`
+- For step-by-step control, use individual commands: `/flow:start`, `/flow:eli5`, `/flow:finish`, `/flow:merge`, `/flow:deploy`

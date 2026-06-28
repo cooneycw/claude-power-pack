@@ -4,6 +4,18 @@
 
 ### Added
 
+- **`/flow:eli5` command + `/flow:auto` approval gate** (issue #398) - new
+  `.claude/commands/flow/eli5.md` runs after Analyze and before Implement and
+  emits a reviewer-facing report: a plain-language (ELI5) restatement of the
+  issue's intent, a necessity/staleness verdict (Still needed / Partially
+  addressed / No longer needed / Needs reframing) backed by evidence from
+  commits and PRs landed since the issue was filed, and the proposed changes
+  pending approval. `/flow:auto` inserts it as Step 3 (lifecycle renumbered
+  8 -> 9) and treats it as a gate: it pauses for plan approval by default
+  (`--yes` / `--auto-approve`, or an `eli5: auto-approve` trailer, for
+  unattended runs), and a `No longer needed` verdict routes to a close-issue
+  recommendation instead of implementing. Registered in `flow/help.md`,
+  `CLAUDE.md`, and `README.md`.
 - **Skill drift/orphan detection in `/cpp:update`** (issue #395) - new Step 7.5
   detects retired and orphaned generated skills in `~/.claude/skills/` and offers
   guided, per-family, user-confirmed removal, mirroring the existing MCP/systemd
