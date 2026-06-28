@@ -87,6 +87,29 @@ systemd_unit_path() {
     fi
 }
 
+# Authoritative presence check. `systemctl is-active` reports "inactive" with a
+# zero exit even for units that were never installed, so presence must come from
+# systemd's LoadState (or an on-disk unit file) - never from is-active. Checks
+# the user manager first, then the system manager.
+systemd_unit_exists() {
+    local unit="$1"
+    local load_state
+
+    if command -v systemctl &>/dev/null; then
+        load_state=$(systemctl --user show -p LoadState --value "$unit" 2>/dev/null || true)
+        case "$load_state" in
+            loaded|masked) return 0 ;;
+        esac
+
+        load_state=$(systemctl show -p LoadState --value "$unit" 2>/dev/null || true)
+        case "$load_state" in
+            loaded|masked) return 0 ;;
+        esac
+    fi
+
+    [[ -n "$(systemd_unit_path "$unit")" ]]
+}
+
 systemd_unit_state() {
     local unit="$1"
     local state=""
@@ -94,7 +117,7 @@ systemd_unit_state() {
     if command -v systemctl &>/dev/null; then
         state=$(systemctl --user is-active "$unit" 2>/dev/null || true)
         case "$state" in
-            active|activating|deactivating|failed|inactive)
+            active|activating|deactivating|failed)
                 echo "$state"
                 return
                 ;;
@@ -102,25 +125,24 @@ systemd_unit_state() {
 
         state=$(systemctl is-active "$unit" 2>/dev/null || true)
         case "$state" in
-            active|activating|deactivating|failed|inactive)
+            active|activating|deactivating|failed)
                 echo "$state"
                 return
                 ;;
         esac
     fi
 
-    if [[ -n "$(systemd_unit_path "$unit")" ]]; then
-        echo "installed"
+    # is-active returns "inactive" (exit 0) even for never-installed units, so it
+    # cannot prove presence. Confirm via LoadState / on-disk unit file instead.
+    if systemd_unit_exists "$unit"; then
+        echo "inactive"
     else
         echo "not-found"
     fi
 }
 
 is_systemd_unit_present() {
-    local unit="$1"
-    local state
-    state=$(systemd_unit_state "$unit")
-    [[ "$state" != "not-found" ]]
+    systemd_unit_exists "$1"
 }
 
 repo_ships_systemd_unit() {

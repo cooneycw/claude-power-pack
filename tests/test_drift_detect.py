@@ -147,3 +147,92 @@ def test_drift_detect_flags_docker_systemd_conflicts_and_orphans(tmp_path: Path)
     assert "port binding conflict - port 8081" in output
     assert "Default convergence is Docker" in output
     assert "claude mcp remove second-opinion" in output
+
+
+def test_drift_detect_no_false_conflict_when_units_absent(tmp_path: Path) -> None:
+    """`systemctl is-active <unit>` returns "inactive" (exit 0) even for units that
+    were never installed. Presence must be derived from LoadState / on-disk unit
+    files, not is-active - otherwise every Docker-only MCP server is wrongly flagged
+    as a Docker/systemd deployment-model conflict."""
+    home = tmp_path / "home"
+    (home / ".config" / "systemd" / "user").mkdir(parents=True)  # deliberately empty
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    _write_executable(bin_dir / "uv", "#!/usr/bin/env bash\nexit 0\n")
+    _write_executable(
+        bin_dir / "docker",
+        """
+        #!/usr/bin/env bash
+        if [[ "$1" == "--version" ]]; then
+          echo "Docker version 26.0.0"; exit 0
+        fi
+        if [[ "$1" == "compose" && "$2" == "version" ]]; then
+          echo "Docker Compose version v2.27.0"; exit 0
+        fi
+        if [[ "$1" == "compose" && "$*" == *" ps "* ]]; then
+          echo "mcp-second-opinion:Up (healthy)"
+          echo "mcp-playwright-persistent:Up (healthy)"
+          exit 0
+        fi
+        if [[ "$1" == "ps" ]]; then
+          echo "mcp-second-opinion:Up 2 hours (healthy)"
+          echo "mcp-playwright-persistent:Up 2 hours (healthy)"
+          exit 0
+        fi
+        exit 0
+        """,
+    )
+    # No unit files on disk and systemd knows nothing about these units:
+    # is-active answers "inactive" (the real-world trap), LoadState answers "not-found".
+    _write_executable(
+        bin_dir / "systemctl",
+        """
+        #!/usr/bin/env bash
+        args="$*"
+        if [[ "$args" == *"show -p LoadState"* ]]; then
+          echo "not-found"; exit 0
+        fi
+        if [[ "$args" == *"is-active"* ]]; then
+          echo "inactive"; exit 0
+        fi
+        if [[ "$args" == *"list-unit"* ]]; then
+          exit 0
+        fi
+        exit 0
+        """,
+    )
+    _write_executable(
+        bin_dir / "ss",
+        "#!/usr/bin/env bash\necho 'State Recv-Q Send-Q Local Address:Port Peer Address:Port Process'\n",
+    )
+    _write_executable(
+        bin_dir / "sysctl",
+        """
+        #!/usr/bin/env bash
+        case "$2" in
+          vm.swappiness) echo 10 ;;
+          vm.vfs_cache_pressure) echo 50 ;;
+          fs.inotify.max_user_watches) echo 524288 ;;
+          fs.inotify.max_user_instances) echo 512 ;;
+          *) echo unknown ;;
+        esac
+        """,
+    )
+
+    env = os.environ.copy()
+    env.update({"HOME": str(home), "PATH": f"{bin_dir}:{env['PATH']}", "USER": "tester"})
+
+    result = subprocess.run(
+        ["bash", str(DRIFT_SCRIPT), "--fix"],
+        cwd=ROOT,
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        check=False,
+    )
+
+    output = result.stdout
+    assert "deployment model conflict" not in output
+    assert "no Docker/systemd conflicts or failed units" in output
