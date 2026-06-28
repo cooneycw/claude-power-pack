@@ -7,13 +7,14 @@ Streamlined worktree-based development workflow. No locks, no Redis - just git.
 | Command | Purpose |
 |---------|---------|
 | `/flow:start <issue>` | Create worktree and branch from a GitHub issue |
+| `/flow:eli5 <issue>` | Plain-language intent + necessity/staleness verdict + plan approval gate (pre-implementation) |
 | `/flow:status` | Show all active worktrees with issue/PR state |
 | `/flow:check` | Run quality checks (lint, test, security) without committing |
 | `/flow:finish` | Run quality gates, commit, push, and create PR |
 | `/flow:merge` | Merge PR, clean up worktree and branch |
 | `/flow:deploy [target]` | Run Makefile deploy target |
 | `/flow:sync` | Push WIP branch to remote for cross-machine pickup |
-| `/flow:auto <issue>` | Full lifecycle: start → analyze → implement → update docs → finish → merge → deploy |
+| `/flow:auto <issue>` | Full lifecycle: start → analyze → ELI5 (plan + necessity gate) → implement → update docs → finish → merge → deploy |
 | `/flow:cleanup` | Prune stale worktree references and delete merged branches |
 | `/flow:doctor` | Diagnose workflow environment and readiness |
 | `/flow:help` | This help page |
@@ -23,8 +24,10 @@ Streamlined worktree-based development workflow. No locks, no Redis - just git.
 ```
 /flow:auto 42
   ↓
-  start → analyze → implement → update docs → finish → merge → deploy
+  start → analyze → ELI5 (plan + necessity gate) → implement → update docs → finish → merge → deploy
 ```
+
+The ELI5 step is an approval checkpoint: it restates the issue's intent in plain language, gives a necessity verdict (Still needed / Partially addressed / No longer needed / Needs reframing) with evidence from code merged since the issue was filed, and waits for plan approval before any code is written. Run `/flow:auto <issue> --yes` (or add an `eli5: auto-approve` trailer) for unattended runs; a `No longer needed` verdict always stops for a human decision.
 
 Or step by step:
 ```

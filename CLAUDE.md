@@ -73,10 +73,11 @@ MCP containers fetch API keys at startup from AWS Secrets Manager via an `aws-se
 
 ### Workflow
 - `/flow:start` - Create worktree for an issue
+- `/flow:eli5 <issue>` - Plain-language intent + necessity/staleness verdict + plan approval gate (runs after analyze, before implement)
 - `/flow:check` - Run lint + test + security scan (no commit)
 - `/flow:finish` - Quality gates, commit, push, create PR
 - `/flow:deploy [target]` - Run make deploy + health/smoke checks
-- `/flow:auto` - Full issue lifecycle in one shot
+- `/flow:auto` - Full issue lifecycle in one shot (ELI5 plan/necessity approval gate between analyze and implement; `--yes` to skip the pause)
 - `/flow:merge` - Merge PR, clean up worktree
 - `/flow:sync` - Push WIP to remote for cross-machine pickup
 - `/flow:cleanup` - Prune stale worktrees and branches
