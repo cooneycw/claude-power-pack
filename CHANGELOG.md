@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [7.2.0] - 2026-06-28
+
 ### Added
 
 - **`/flow:eli5` command + `/flow:auto` approval gate** (issue #398) - new
@@ -29,6 +31,16 @@
   retired `manifests/` source.
 - `entire_family` flag in `.claude/deprecated-skills.yaml` - gates ORPHANED
   detection so a partially-deprecated family never flags its live members.
+
+### Fixed
+
+- **`drift-detect.sh` false "deployment model conflict"** (PR #400) - systemd
+  unit presence is now derived from `systemctl show -p LoadState` (with an
+  on-disk unit-file fallback) via a new `systemd_unit_exists` helper, instead of
+  `systemctl is-active`, which returns `inactive` (exit 0) even for units that
+  were never installed. On Docker-only hosts with no MCP systemd units, every
+  running MCP server was wrongly flagged as a Docker/systemd deployment-model
+  conflict and `make drift-check` exited non-zero. Adds a regression test.
 
 ## [7.1.0] - 2026-06-07
 

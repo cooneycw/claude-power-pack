@@ -1,6 +1,6 @@
 # Claude Power Pack
 
-**v7.1.0** - A productivity toolkit for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) that adds workflow automation, MCP servers, security scanning, secrets management, and CI/CD integration.
+**v7.2.0** - A productivity toolkit for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) that adds workflow automation, MCP servers, security scanning, secrets management, and CI/CD integration.
 
 ## What It Does
 
@@ -131,6 +131,12 @@ Woodpecker CI runs on every push and PR via a self-hosted agent:
 Architecture: Woodpecker server on a dedicated VM, agent on the dev workstation, connected via gRPC over Tailscale. Web UI at `woodpecker.essent-ai.com` via Cloudflare tunnel.
 
 ## Changelog
+
+### v7.2.0 (2026-06-28)
+
+- **`/flow:eli5` + `/flow:auto` approval gate** (#398) - plain-language intent, necessity/staleness verdict, and a plan-approval pause between Analyze and Implement
+- **Skill drift/orphan detection in `/cpp:update`** (#395) - curated-list-driven detection and guarded prune of retired/orphaned generated skills
+- **Fix:** `drift-detect.sh` no longer reports false Docker/systemd "deployment model conflict" on Docker-only hosts - systemd unit presence now derives from `LoadState`, not `is-active` (#400)
 
 ### v7.1.0 (2026-06-07)
 
