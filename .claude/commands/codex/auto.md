@@ -419,3 +419,4 @@ Key failure scenarios:
 - Cross-model review catches issues that same-model review might miss
 - Fix loop re-prompts Codex with error context, max 2 retries before stopping
 - Worktree cleanup follows the same safe pattern as flow:auto (cd out before removing)
+- To ask Codex a read-only question instead of delegating an implementation, use `/codex:ask`

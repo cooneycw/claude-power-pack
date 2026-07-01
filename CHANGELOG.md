@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+### Added
+
+- **`/codex:ask` command** (issue #393) - new `.claude/commands/codex/ask.md`
+  delegates a **read-only** question to Codex (`gpt-5.5`) via `codex exec
+  --sandbox read-only` and relays the answer attributed to Codex - the
+  question / second-opinion counterpart to the code-mutating `/codex:exec`
+  and `/codex:auto`. Documents network opt-in (`--sandbox workspace-write -c
+  sandbox_workspace_write.network_access=true`, scoped to a scratch dir, with
+  prompt-injection / exfiltration caveats; only on explicit request) and
+  background / long-running guidance. Promotes the personal `delegate`
+  prototype skill into a first-class, shipped command listed in `/codex:help`,
+  `/cpp:help`, `/cpp:init` (Tier 5), and the CLAUDE.md Codex Orchestration
+  section.
+
 ## [7.2.0] - 2026-06-28
 
 ### Added

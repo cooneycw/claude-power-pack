@@ -375,7 +375,7 @@ This will make the following changes:
   [Tier 5 - Codex CLI]
     - Requires: Codex CLI (npm install -g @openai/codex)
     - Requires: OpenAI API key (codex login)
-    - Installs: /codex:auto, /codex:exec, /codex:status, /codex:help commands
+    - Installs: /codex:auto, /codex:exec, /codex:ask, /codex:status, /codex:help commands
     - Optional: Register CPP MCP servers with Codex
 
   Disk usage: ~0 MB (commands via symlink)

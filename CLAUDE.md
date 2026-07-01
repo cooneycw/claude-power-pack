@@ -122,6 +122,7 @@ MCP containers fetch API keys at startup from AWS Secrets Manager via an `aws-se
 ### Codex Orchestration
 - `/codex:auto <ISSUE>` - Full issue lifecycle delegated to Codex CLI (worktree, implement, review, quality gates, PR)
 - `/codex:exec <PROMPT>` - One-shot Codex execution in current directory with JSONL monitoring
+- `/codex:ask <QUESTION>` - Delegate a read-only question to Codex and relay its answer (read-only by default; network opt-in on explicit request)
 - `/codex:status` - Check Codex CLI installation, config, and readiness
 - `/codex:help` - Codex commands overview
 
