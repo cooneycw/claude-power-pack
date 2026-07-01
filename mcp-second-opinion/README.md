@@ -5,7 +5,7 @@ Multi-model code review MCP server for Claude Code.
 ## Features
 
 - **Code Review**: Get AI-powered second opinions on code issues
-- **Multi-Model Support**: Consult multiple LLMs (Gemini, Claude, GPT/Codex, Mistral, Groq, OpenRouter, DeepSeek)
+- **Multi-Model Support**: Consult multiple LLMs (Gemini, Claude, GPT/Codex)
 - **Session-Based**: Interactive multi-turn conversations for deeper analysis
 - **Visual Analysis**: Support for screenshot/image analysis (Playwright integration)
 - **Streamable HTTP**: Stateless transport - no persistent connection, resilient to disconnects
@@ -41,10 +41,6 @@ Copy `.env.example` to `.env` and configure:
 | `GEMINI_API_KEY` | Any one | Google Gemini API key |
 | `OPENAI_API_KEY` | Any one | OpenAI API key (GPT, Codex, o-series) |
 | `ANTHROPIC_API_KEY` | Any one | Anthropic API key (Claude models) |
-| `MISTRAL_API_KEY` | Any one | Mistral API key (free tier - 1B tokens/month) |
-| `GROQ_API_KEY` | Any one | Groq API key (free tier - ultra-fast inference) |
-| `OPENROUTER_API_KEY` | Any one | OpenRouter API key (free tier - 27+ models) |
-| `DEEPSEEK_API_KEY` | Any one | DeepSeek API key (near-free - $0.14/MTok) |
 
 Optional tunables:
 
@@ -120,9 +116,6 @@ cd /path/to/claude-power-pack/mcp-second-opinion
 
 # Or directly
 uv run python src/server.py --diagnose
-
-# From the repo root, smoke-test configured OpenAI-compatible model IDs
-make second-opinion-model-smoke
 ```
 
 This checks API keys, .env file, port availability, and available models.
@@ -133,7 +126,7 @@ The server starts but all LLM calls will fail. Add at least one key:
 
 ```bash
 cp .env.example .env
-# Edit .env - add at least one API key (free-tier keys: MISTRAL, GROQ, OPENROUTER)
+# Edit .env - add at least one API key (GEMINI, OPENAI, or ANTHROPIC)
 ```
 
 ## License

@@ -1,6 +1,6 @@
 .PHONY: test lint format typecheck verify secret-scan update_docs clean \
        docker-build docker-check-env docker-secrets-check docker-up docker-refresh docker-health docker-down docker-logs docker-ps deploy \
-       bootstrap-check drift-check setup-woodpecker-cli second-opinion-model-smoke codex-init codex-init-workspace
+       bootstrap-check drift-check setup-woodpecker-cli codex-init codex-init-workspace
 
 ## Quality gates (used by /flow:finish)
 
@@ -30,9 +30,6 @@ secret-scan:
 ## Pre-deploy gate (runs all quality checks)
 
 verify: lint test typecheck
-
-second-opinion-model-smoke:
-	env UV_CACHE_DIR=$${UV_CACHE_DIR:-/tmp/uv-cache} uv run --directory mcp-second-opinion python scripts/smoke-model-catalog.py
 
 ## Documentation (used by /flow:auto and /flow:finish)
 
@@ -82,7 +79,7 @@ docker-secrets-check:
 	fi
 	@. .env 2>/dev/null; \
 	python3 scripts/check-aws-secret-keys.py \
-		--required codex_llm_apikeys:GEMINI_API_KEY,OPENAI_API_KEY,ANTHROPIC_API_KEY,MISTRAL_API_KEY,GROQ_API_KEY,OPENROUTER_API_KEY,DEEPSEEK_API_KEY \
+		--required codex_llm_apikeys:GEMINI_API_KEY,OPENAI_API_KEY,ANTHROPIC_API_KEY \
 		--optional essent-ai:WOODPECKER_URL,WOODPECKER_API_TOKEN
 	@echo "Done."
 

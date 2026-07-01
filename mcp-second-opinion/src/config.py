@@ -77,10 +77,6 @@ class _SecretStr:
 _gemini_api_key_secret = _SecretStr(os.getenv("GEMINI_API_KEY"))
 _openai_api_key_secret = _SecretStr(os.getenv("OPENAI_API_KEY"))
 _anthropic_api_key_secret = _SecretStr(os.getenv("ANTHROPIC_API_KEY"))
-_mistral_api_key_secret = _SecretStr(os.getenv("MISTRAL_API_KEY"))
-_groq_api_key_secret = _SecretStr(os.getenv("GROQ_API_KEY"))
-_openrouter_api_key_secret = _SecretStr(os.getenv("OPENROUTER_API_KEY"))
-_deepseek_api_key_secret = _SecretStr(os.getenv("DEEPSEEK_API_KEY"))
 
 
 class Config:
@@ -178,59 +174,6 @@ class Config:
         "claude-opus-4-6": {"input": 5.00, "output": 25.00},
         "claude-sonnet-4-6": {"input": 3.00, "output": 15.00},
         "claude-haiku-4-5-20251001": {"input": 1.00, "output": 5.00},
-    }
-
-    # ==========================================================================
-    # Mistral API Configuration (free tier - 1B tokens/month)
-    # ==========================================================================
-    MISTRAL_API_KEY: Optional[str] = _mistral_api_key_secret.get_secret_value()
-    MISTRAL_BASE_URL: str = "https://api.mistral.ai/v1"
-
-    MISTRAL_PRICING: Dict[str, Dict[str, float]] = {
-        "mistral-large-latest": {"input": 2.00, "output": 6.00},
-        "mistral-medium-latest": {"input": 0.40, "output": 2.00},
-        "mistral-small-latest": {"input": 0.15, "output": 0.60},
-        "devstral-small-latest": {"input": 0.10, "output": 0.30},
-        "codestral-latest": {"input": 0.30, "output": 0.90},
-    }
-
-    # ==========================================================================
-    # Groq API Configuration (free tier - 30 RPM, ultra-fast inference)
-    # ==========================================================================
-    GROQ_API_KEY: Optional[str] = _groq_api_key_secret.get_secret_value()
-    GROQ_BASE_URL: str = "https://api.groq.com/openai/v1"
-
-    GROQ_PRICING: Dict[str, Dict[str, float]] = {
-        "llama-3.3-70b-versatile": {"input": 0.59, "output": 0.79},
-        "meta-llama/llama-4-scout-17b-16e-instruct": {"input": 0.11, "output": 0.34},
-        "openai/gpt-oss-120b": {"input": 0.15, "output": 0.75},
-        "qwen/qwen3-32b": {"input": 0.29, "output": 0.59},
-    }
-
-    # ==========================================================================
-    # OpenRouter API Configuration (aggregator - 27+ free models)
-    # ==========================================================================
-    OPENROUTER_API_KEY: Optional[str] = _openrouter_api_key_secret.get_secret_value()
-    OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
-
-    OPENROUTER_PRICING: Dict[str, Dict[str, float]] = {
-        "qwen/qwen3-coder:free": {"input": 0.00, "output": 0.00},
-        "deepseek/deepseek-v4-flash:free": {"input": 0.00, "output": 0.00},
-        "openai/gpt-oss-20b:free": {"input": 0.00, "output": 0.00},
-        "openai/gpt-oss-120b:free": {"input": 0.00, "output": 0.00},
-        "google/gemma-4-31b-it:free": {"input": 0.00, "output": 0.00},
-        "minimax/minimax-m2.5:free": {"input": 0.00, "output": 0.00},
-    }
-
-    # ==========================================================================
-    # DeepSeek API Configuration (near-free - $0.14-$0.28/MTok)
-    # ==========================================================================
-    DEEPSEEK_API_KEY: Optional[str] = _deepseek_api_key_secret.get_secret_value()
-    DEEPSEEK_BASE_URL: str = "https://api.deepseek.com"
-
-    DEEPSEEK_PRICING: Dict[str, Dict[str, float]] = {
-        "deepseek-v4-flash": {"input": 0.14, "output": 0.28},
-        "deepseek-v4-pro": {"input": 0.55, "output": 2.19},
     }
 
     # ==========================================================================
@@ -350,145 +293,15 @@ class Config:
             "description": "Cost-effective GPT-5.2 variant",
             "free": False,
         },
-        # Mistral models (free tier - 1B tokens/month, no credit card)
-        "mistral-large": {
-            "provider": "mistral",
-            "model_id": "mistral-large-latest",
-            "display_name": "Mistral Large 3",
-            "description": "Best for comprehensive analysis (128K context)",
-            "free": True,
-        },
-        "mistral-medium": {
-            "provider": "mistral",
-            "model_id": "mistral-medium-latest",
-            "display_name": "Mistral Medium 3.5",
-            "description": "Frontier-class, optimized for agentic/coding",
-            "free": True,
-        },
-        "mistral-small": {
-            "provider": "mistral",
-            "model_id": "mistral-small-latest",
-            "display_name": "Mistral Small 4",
-            "description": "Unified model (Magistral + Pixtral + Devstral)",
-            "free": True,
-        },
-        "devstral": {
-            "provider": "mistral",
-            "model_id": "devstral-small-latest",
-            "display_name": "Devstral 2",
-            "description": "Purpose-built coding model (256K context)",
-            "free": True,
-        },
-        "codestral": {
-            "provider": "mistral",
-            "model_id": "codestral-latest",
-            "display_name": "Codestral",
-            "description": "Mistral's code generation specialist (256K context)",
-            "free": True,
-        },
-        # Groq models (free tier - 30 RPM, ultra-fast inference)
-        "groq-llama4-scout": {
-            "provider": "groq",
-            "model_id": "meta-llama/llama-4-scout-17b-16e-instruct",
-            "display_name": "Llama 4 Scout (Groq)",
-            "description": "Day-zero Llama 4, fast inference (128K context)",
-            "free": True,
-            "max_output_tokens": 32768,
-        },
-        "groq-gpt-oss-120b": {
-            "provider": "groq",
-            "model_id": "openai/gpt-oss-120b",
-            "display_name": "GPT-OSS 120B (Groq)",
-            "description": "Strong reasoning replacement for deprecated Maverick/R1 Groq IDs",
-            "free": True,
-            "max_output_tokens": 32768,
-        },
-        "groq-llama-70b": {
-            "provider": "groq",
-            "model_id": "llama-3.3-70b-versatile",
-            "display_name": "Llama 3.3 70B (Groq)",
-            "description": "Fast inference, solid code review (128K context)",
-            "free": True,
-            "max_output_tokens": 32768,
-        },
-        "groq-qwen-32b": {
-            "provider": "groq",
-            "model_id": "qwen/qwen3-32b",
-            "display_name": "Qwen3 32B (Groq)",
-            "description": "Strong reasoning on Groq's fast infra (128K context)",
-            "free": True,
-            "max_output_tokens": 32768,
-        },
-        # DeepSeek models (near-free, V4 model IDs)
-        "deepseek-v4-flash": {
-            "provider": "deepseek",
-            "model_id": "deepseek-v4-flash",
-            "display_name": "DeepSeek V4 Flash",
-            "description": "Top-tier code analysis, near-free pricing",
-            "free": False,
-        },
-        "deepseek-v4-pro": {
-            "provider": "deepseek",
-            "model_id": "deepseek-v4-pro",
-            "display_name": "DeepSeek V4 Pro",
-            "description": "Advanced reasoning, chain-of-thought coding",
-            "free": False,
-        },
-        # OpenRouter models (aggregator - free tier)
-        "openrouter-qwen-coder": {
-            "provider": "openrouter",
-            "model_id": "qwen/qwen3-coder:free",
-            "display_name": "Qwen3 Coder (OpenRouter)",
-            "description": "Top-tier free coding model (1M context)",
-            "free": True,
-        },
-        "openrouter-deepseek-flash": {
-            "provider": "openrouter",
-            "model_id": "deepseek/deepseek-v4-flash:free",
-            "display_name": "DeepSeek V4 Flash (OpenRouter)",
-            "description": "Free DeepSeek via OpenRouter (1M context)",
-            "free": True,
-        },
-        "openrouter-gpt-oss-20b": {
-            "provider": "openrouter",
-            "model_id": "openai/gpt-oss-20b:free",
-            "display_name": "GPT-OSS 20B (OpenRouter)",
-            "description": "Strongest free coding model, matches o3-mini on code",
-            "free": True,
-        },
-        "openrouter-gpt-oss-120b": {
-            "provider": "openrouter",
-            "model_id": "openai/gpt-oss-120b:free",
-            "display_name": "GPT-OSS 120B (OpenRouter)",
-            "description": "General purpose free model, broad coverage",
-            "free": True,
-        },
-        "openrouter-gemma4-31b": {
-            "provider": "openrouter",
-            "model_id": "google/gemma-4-31b-it:free",
-            "display_name": "Gemma-4 31B (OpenRouter)",
-            "description": "Vision + tools, 262K context, free",
-            "free": True,
-        },
-        "openrouter-minimax-m2.5": {
-            "provider": "openrouter",
-            "model_id": "minimax/minimax-m2.5:free",
-            "display_name": "Minimax M2.5 (OpenRouter)",
-            "description": "Quality score 70, 262K context, free",
-            "free": True,
-        },
     }
 
     # Default models to use when none specified
-    # Top paid model per major provider + best free alternatives
+    # Strong cross-provider fan-out across the reliable providers (Gemini/OpenAI)
     DEFAULT_MODELS: List[str] = [
         "gemini-3-pro",
         "gpt-5.2",
-        "claude-opus",
-        "devstral",
-        "groq-gpt-oss-120b",
-        "openrouter-gpt-oss-20b",
-        "openrouter-qwen-coder",
+        "codex",
+        "o4-mini",
     ]
 
     # Token estimation (characters per token approximation)
@@ -505,9 +318,8 @@ class Config:
     MODEL_RESPONSE_TIMEOUT: int = _get_int_env("MODEL_RESPONSE_TIMEOUT", 600)
 
     # Provider-level output ceilings used when a model does not specify its own.
-    PROVIDER_MAX_OUTPUT_TOKENS: Dict[str, int] = {
-        "groq": 32768,
-    }
+    # Empty by default; the kept providers rely on their own per-request limits.
+    PROVIDER_MAX_OUTPUT_TOKENS: Dict[str, int] = {}
 
     # Verbosity-driven output token limits
     VERBOSITY_MAX_TOKENS: Dict[str, int] = {
@@ -611,10 +423,6 @@ class Config:
         "gemini": "GEMINI_API_KEY",
         "openai": "OPENAI_API_KEY",
         "anthropic": "ANTHROPIC_API_KEY",
-        "mistral": "MISTRAL_API_KEY",
-        "groq": "GROQ_API_KEY",
-        "openrouter": "OPENROUTER_API_KEY",
-        "deepseek": "DEEPSEEK_API_KEY",
     }
 
     @classmethod
@@ -624,8 +432,6 @@ class Config:
             bool(getattr(cls, attr, None))
             for attr in [
                 "GEMINI_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
-                "MISTRAL_API_KEY", "GROQ_API_KEY", "OPENROUTER_API_KEY",
-                "DEEPSEEK_API_KEY",
             ]
         )
 
@@ -634,21 +440,13 @@ class Config:
                 "At least one API key is required. Set any of:\n"
                 "  - GEMINI_API_KEY: https://aistudio.google.com/apikey\n"
                 "  - OPENAI_API_KEY: https://platform.openai.com/api-keys\n"
-                "  - ANTHROPIC_API_KEY: https://console.anthropic.com/settings/keys\n"
-                "  - MISTRAL_API_KEY: https://console.mistral.ai/api-keys\n"
-                "  - GROQ_API_KEY: https://console.groq.com/keys\n"
-                "  - OPENROUTER_API_KEY: https://openrouter.ai/settings/keys\n"
-                "  - DEEPSEEK_API_KEY: https://platform.deepseek.com/api_keys"
+                "  - ANTHROPIC_API_KEY: https://console.anthropic.com/settings/keys"
             )
 
         _key_info = {
             "GEMINI_API_KEY": ("Gemini", "https://aistudio.google.com/apikey"),
             "OPENAI_API_KEY": ("OpenAI/Codex", "https://platform.openai.com/api-keys"),
             "ANTHROPIC_API_KEY": ("Claude", "https://console.anthropic.com/settings/keys"),
-            "MISTRAL_API_KEY": ("Mistral", "https://console.mistral.ai/api-keys"),
-            "GROQ_API_KEY": ("Groq", "https://console.groq.com/keys"),
-            "OPENROUTER_API_KEY": ("OpenRouter", "https://openrouter.ai/settings/keys"),
-            "DEEPSEEK_API_KEY": ("DeepSeek", "https://platform.deepseek.com/api_keys"),
         }
         for env_var, (name, url) in _key_info.items():
             if not getattr(cls, env_var, None):
@@ -675,10 +473,6 @@ class Config:
             cls.GEMINI_PRICING,
             cls.OPENAI_PRICING,
             cls.ANTHROPIC_PRICING,
-            cls.MISTRAL_PRICING,
-            cls.GROQ_PRICING,
-            cls.OPENROUTER_PRICING,
-            cls.DEEPSEEK_PRICING,
         ]:
             if model_id in pricing_table:
                 return pricing_table[model_id]

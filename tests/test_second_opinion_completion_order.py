@@ -17,10 +17,6 @@ def _load_second_opinion_server(monkeypatch):
         "GEMINI_API_KEY",
         "OPENAI_API_KEY",
         "ANTHROPIC_API_KEY",
-        "MISTRAL_API_KEY",
-        "GROQ_API_KEY",
-        "OPENROUTER_API_KEY",
-        "DEEPSEEK_API_KEY",
     ):
         monkeypatch.delenv(env_var, raising=False)
 

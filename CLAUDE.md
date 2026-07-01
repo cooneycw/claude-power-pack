@@ -49,7 +49,7 @@ MCP containers fetch API keys at startup from AWS Secrets Manager via an `aws-se
 
 - **Secrets architecture:** `aws-secrets-agent` (Rust binary, port 2773) caches secrets in-memory (300s TTL) with SSRF token protection. The agent is internal-only (`expose:`, never host-published) and is the only container that receives AWS credentials; MCP containers use `fetch-secrets.sh` entrypoint to resolve keys with just the SSRF token. Use `docker-compose.dev.yml` (loopback publish + `.env` fallback + `ALLOW_ENV_FALLBACK`) for host-side debugging / offline local dev only.
 - **Required AWS credential variables:** `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_TOKEN` (SSRF token; must be unique - preflight rejects empty/`default-token`, override with `CPP_ALLOW_DEFAULT_TOKEN=1` for offline dev), supplied by local `.env` or CI/deploy environment
-- **AWS secrets used:** `codex_llm_apikeys` (second-opinion LLM keys, including `MISTRAL_API_KEY`, `GROQ_API_KEY`, `OPENROUTER_API_KEY`, and `DEEPSEEK_API_KEY` for free-tier models), `essent-ai` (woodpecker-ci keys)
+- **AWS secrets used:** `codex_llm_apikeys` (second-opinion LLM keys: `GEMINI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`), `essent-ai` (woodpecker-ci keys)
 - **Required IAM permissions:** `secretsmanager:GetSecretValue`, `secretsmanager:DescribeSecret` scoped to the named secret ARNs, plus `kms:Decrypt` (scoped via `kms:ViaService`) when the secrets use a customer-managed CMK
 - **Validate setup:** `make docker-secrets-check` (checks AWS creds, verifies secrets exist)
 - **Profiles:** `core` (second-opinion + nano-banana + secrets-agent), `browser` (playwright), `cicd` (woodpecker-ci + secrets-agent)

@@ -105,7 +105,7 @@ CI and deploy jobs can provide the same variables through the job environment. T
 
 | Secret Name | Used By | Expected Keys |
 |-------------|---------|---------------|
-| `codex_llm_apikeys` | mcp-second-opinion | `GEMINI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `MISTRAL_API_KEY`, `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `DEEPSEEK_API_KEY` |
+| `codex_llm_apikeys` | mcp-second-opinion | `GEMINI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` |
 | `essent-ai` | mcp-woodpecker-ci | `WOODPECKER_URL`, `WOODPECKER_API_TOKEN` |
 
 ### Required IAM Permissions
@@ -151,7 +151,7 @@ statement if the secrets use the AWS-managed `aws/secretsmanager` key.
 ```bash
 aws secretsmanager create-secret \
   --name codex_llm_apikeys \
-  --secret-string '{"GEMINI_API_KEY":"...","OPENAI_API_KEY":"...","ANTHROPIC_API_KEY":"...","MISTRAL_API_KEY":"...","GROQ_API_KEY":"...","OPENROUTER_API_KEY":"...","DEEPSEEK_API_KEY":"..."}'
+  --secret-string '{"GEMINI_API_KEY":"...","OPENAI_API_KEY":"...","ANTHROPIC_API_KEY":"..."}'
 
 aws secretsmanager create-secret \
   --name essent-ai \
