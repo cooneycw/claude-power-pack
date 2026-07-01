@@ -159,7 +159,7 @@ codex exec \
     --json \
     -C "$WORKTREE_PATH" \
     --sandbox danger-full-access \
-    "$CODEX_PROMPT" 2>&1 | tee /tmp/codex-output-${ISSUE_NUM}.jsonl
+    "$CODEX_PROMPT" < /dev/null 2>&1 | tee /tmp/codex-output-${ISSUE_NUM}.jsonl   # </dev/null: non-TTY EOF so codex never blocks reading stdin
 ```
 
 **Monitor the JSONL stream** - parse and report:
@@ -276,7 +276,7 @@ If quality gates fail:
        --json \
        -C "$WORKTREE_PATH" \
        --sandbox danger-full-access \
-       "$FIX_PROMPT" 2>&1 | tee /tmp/codex-fix-${ISSUE_NUM}-${RETRY}.jsonl
+       "$FIX_PROMPT" < /dev/null 2>&1 | tee /tmp/codex-fix-${ISSUE_NUM}-${RETRY}.jsonl   # </dev/null: non-TTY EOF so codex never blocks reading stdin
    ```
 4. **Re-run quality gates.**
 5. If still failing after 2 retries, STOP and report.

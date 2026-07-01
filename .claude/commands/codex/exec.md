@@ -42,7 +42,7 @@ OUTPUT_FILE="/tmp/codex-exec-${TIMESTAMP}.jsonl"
 codex exec \
     --json \
     --sandbox danger-full-access \
-    "$PROMPT" 2>&1 | tee "$OUTPUT_FILE"
+    "$PROMPT" < /dev/null 2>&1 | tee "$OUTPUT_FILE"   # </dev/null: non-TTY EOF so codex never blocks reading stdin
 
 CODEX_EXIT=$?
 ```

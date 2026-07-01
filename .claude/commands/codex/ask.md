@@ -53,7 +53,7 @@ codex exec \
     --color never \
     --skip-git-repo-check \
     --output-last-message "$ANSWER" \
-    "$QUESTION"
+    "$QUESTION" < /dev/null   # non-TTY: EOF stdin so codex answers instead of blocking on `Reading additional input from stdin...`
 
 CODEX_EXIT=$?
 ```
@@ -100,7 +100,7 @@ Adjust the Step 2 command when the user asks for any of these:
 - **Attach repo context inline:** include the relevant snippet / path in the QUESTION text;
   the read-only sandbox also lets Codex open files itself.
 - **Follow-up on the same thread:** continue the previous session with
-  `codex exec resume --last --sandbox read-only --color never -o "$ANSWER" "<follow-up>"`.
+  `codex exec resume --last --sandbox read-only --color never -o "$ANSWER" "<follow-up>" < /dev/null`.
 - **Let Codex reach the network (fetch repos, browse, curl):** read-only blocks network for
   the commands Codex runs. To allow it, escalate the sandbox - network access is bundled with
   write access in Codex, so there are two opt-in levels. **Only do this when the user explicitly
@@ -131,7 +131,7 @@ foreground command timeout. For anything non-trivial:
   ANSWER=$(mktemp /tmp/codex-ask.XXXXXX.txt)
   LOG=$(mktemp /tmp/codex-ask.XXXXXX.log)
   codex exec --sandbox read-only --color never --skip-git-repo-check \
-      --output-last-message "$ANSWER" "$QUESTION" > "$LOG" 2>&1   # launch in background
+      --output-last-message "$ANSWER" "$QUESTION" < /dev/null > "$LOG" 2>&1   # launch in background (stdin EOF'd so it never blocks on stdin read)
   ```
   Poll `tail -n 20 "$LOG"` for progress; read `$ANSWER` once it exits.
 - To keep latency tractable instead, lower effort with `-c model_reasoning_effort=high` (or
