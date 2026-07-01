@@ -24,37 +24,16 @@ def _load_second_opinion_config(monkeypatch):
     return module.Config
 
 
-def test_groq_models_have_32768_output_token_ceiling(monkeypatch):
+def test_no_provider_output_ceilings_configured(monkeypatch):
+    """The reliable providers (Gemini/OpenAI/Anthropic) rely on their own
+    per-request limits, so no provider-level output ceiling is configured."""
     config = _load_second_opinion_config(monkeypatch)
 
-    groq_model_keys = [
-        key for key, model_info in config.AVAILABLE_MODELS.items()
-        if model_info["provider"] == "groq"
-    ]
-
-    assert groq_model_keys
+    assert config.PROVIDER_MAX_OUTPUT_TOKENS == {}
     assert all(
-        config.get_model_max_output_tokens(model_key) == 32768
-        for model_key in groq_model_keys
+        "max_output_tokens" not in model_info
+        for model_info in config.AVAILABLE_MODELS.values()
     )
-
-
-def test_groq_high_verbosity_tokens_are_clamped(monkeypatch):
-    config = _load_second_opinion_config(monkeypatch)
-
-    detailed_tokens = config.VERBOSITY_MAX_TOKENS["detailed"]
-    in_depth_tokens = config.VERBOSITY_MAX_TOKENS["in_depth"]
-
-    assert config.clamp_max_tokens_for_model("groq-llama-70b", detailed_tokens) == (32768, 32768)
-    assert config.clamp_max_tokens_for_model("groq-llama-70b", in_depth_tokens) == (32768, 32768)
-
-
-def test_groq_brief_tokens_are_not_clamped(monkeypatch):
-    config = _load_second_opinion_config(monkeypatch)
-
-    brief_tokens = config.VERBOSITY_MAX_TOKENS["brief"]
-
-    assert config.clamp_max_tokens_for_model("groq-llama-70b", brief_tokens) == (brief_tokens, 32768)
 
 
 def test_models_without_ceiling_keep_requested_tokens(monkeypatch):

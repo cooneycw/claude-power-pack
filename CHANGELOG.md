@@ -16,6 +16,24 @@
   `/cpp:help`, `/cpp:init` (Tier 5), and the CLAUDE.md Codex Orchestration
   section.
 
+### Changed
+
+- **Trim `second-opinion` to OpenAI/Anthropic/Google** (issue #402) - the
+  multi-provider experiment is retired. The second-opinion MCP server now
+  exposes only the three reliable providers (Gemini, OpenAI, Anthropic) and no
+  longer ships Mistral, Groq, OpenRouter (`:free` models), or DeepSeek. Removed
+  their secret loaders, model/pricing catalog blocks, provider routing, and the
+  now-unused OpenAI-compatible client machinery from `mcp-second-opinion/src/`;
+  trimmed `DEFAULT_MODELS` to `gemini-3-pro, gpt-5.2, codex, o4-mini`. Dropped
+  `MISTRAL_API_KEY`/`GROQ_API_KEY`/`OPENROUTER_API_KEY`/`DEEPSEEK_API_KEY` from
+  the `docker-compose.yml` passthrough, the Makefile `codex_llm_apikeys`
+  required-key set, `.env.example`, and the AWS secrets docs (the four keys can
+  be deprovisioned from the `codex_llm_apikeys` secret separately). Deleted the
+  `scripts/smoke-model-catalog.py` smoke test and its `second-opinion-model-smoke`
+  Makefile target (they existed solely to exercise the removed OpenAI-compatible
+  providers). Updated README/CLAUDE.md provider lists and the catalog/token-limit
+  tests accordingly.
+
 ## [7.2.0] - 2026-06-28
 
 ### Added

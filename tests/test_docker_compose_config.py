@@ -201,7 +201,7 @@ def test_aws_secrets_agent_uses_pinned_sha_and_tracked_patches() -> None:
     assert "set_ttl" in dockerfile  # referenced in the negative assertion
 
 
-def test_second_opinion_uses_secret_with_free_tier_provider_keys() -> None:
+def test_second_opinion_uses_secret_with_provider_keys() -> None:
     services = _compose_services()
     env = _env_list_to_map(services["mcp-second-opinion"]["environment"])
 
@@ -211,10 +211,6 @@ def test_second_opinion_uses_secret_with_free_tier_provider_keys() -> None:
         "GEMINI_API_KEY",
         "OPENAI_API_KEY",
         "ANTHROPIC_API_KEY",
-        "MISTRAL_API_KEY",
-        "GROQ_API_KEY",
-        "OPENROUTER_API_KEY",
-        "DEEPSEEK_API_KEY",
     ]
     docs = (
         Path(__file__).resolve().parents[1] / "docs" / "AWS_SECRETS_SIDECAR.md"
@@ -573,10 +569,6 @@ def test_secret_consuming_services_accept_injected_keys() -> None:
         "GEMINI_API_KEY",
         "OPENAI_API_KEY",
         "ANTHROPIC_API_KEY",
-        "MISTRAL_API_KEY",
-        "GROQ_API_KEY",
-        "OPENROUTER_API_KEY",
-        "DEEPSEEK_API_KEY",
     ):
         assert key in so_env
 
