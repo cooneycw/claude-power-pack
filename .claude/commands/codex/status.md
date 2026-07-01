@@ -120,6 +120,7 @@ if [ "$READY" = "true" ]; then
     echo "Commands available:"
     echo "  /codex:auto <ISSUE>  - Full issue lifecycle via Codex"
     echo "  /codex:exec <PROMPT> - One-shot Codex execution"
+    echo "  /codex:ask <QUESTION> - Read-only question, relayed answer"
 else
     echo "Status: NOT READY"
     echo ""

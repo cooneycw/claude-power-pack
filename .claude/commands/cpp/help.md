@@ -65,6 +65,7 @@ CPP uses a tiered installation model:
 ### Tier 5 - Codex
 - **Codex Auto** (`/codex:auto`): Full issue lifecycle delegated to Codex CLI
 - **Codex Exec** (`/codex:exec`): One-shot Codex execution with JSONL monitoring
+- **Codex Ask** (`/codex:ask`): Delegate a read-only question to Codex and relay its answer
 - **Cross-model review**: Claude reviews Codex's implementation
 - **Fix loop**: Automatic re-prompt on quality gate failure (max 2 retries)
 
@@ -86,6 +87,7 @@ CPP uses a tiered installation model:
 |---------|---------|
 | `/codex:auto <ISSUE>` | Full issue lifecycle delegated to Codex CLI |
 | `/codex:exec <PROMPT>` | One-shot Codex execution with JSONL monitoring |
+| `/codex:ask <QUESTION>` | Delegate a read-only question to Codex and relay its answer |
 | `/codex:status` | Check Codex CLI installation and readiness |
 | `/codex:help` | Codex commands overview |
 

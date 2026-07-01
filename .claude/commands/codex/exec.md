@@ -98,3 +98,4 @@ or git checkout -- . to discard.
 - JSONL output is saved to /tmp for later inspection
 - No automatic commit - user reviews and commits manually
 - For full issue lifecycle with review and quality gates, use `/codex:auto`
+- For a read-only question (no file changes), use `/codex:ask`
