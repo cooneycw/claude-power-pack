@@ -15,10 +15,11 @@ itself (python-pptx based). CPP no longer ships its own PowerPoint engine - the
 > (runs `npx skills add anthropics/skills@pptx`; requires Node/npx). If it cannot be
 > installed, tell the user and stop rather than falling back to a removed MCP tool.
 
-> **Diagrams are descoped.** Automated diagram generation was provided by the retired
-> `nano-banana` MCP server. Choosing a replacement rendering engine is tracked in
-> **issue #411**. Until then this command embeds only diagram images the user supplies
-> (PNG/JPG paths); it does not auto-render diagrams.
+> **Diagrams: bring pre-rendered images.** This command embeds diagram images you
+> supply (PNG/JPG paths); it does not render diagrams itself. For C4 architecture
+> diagrams, run `/documentation:c4` (renders GitHub-friendly Mermaid via
+> `scripts/c4-mermaid.py`) and export an image from its `.mmd` / `index.md` output;
+> otherwise supply any other pre-rendered image.
 
 ## Arguments
 
@@ -109,10 +110,11 @@ Report the plan and ask for confirmation.
 
 ### Step 3: Diagram Images (optional)
 
-Automated diagram generation is descoped (the `nano-banana` engine was removed in #401;
-replacement tracked in #411). If the user wants diagrams on slides:
+This command does not render diagrams itself. If the user wants diagrams on slides:
 
 - Ask for paths to **pre-rendered** image files (PNG/JPG) and note which slide each belongs on.
+- For C4 architecture diagrams, run `/documentation:c4` and export an image from its
+  Mermaid `.mmd` / `index.md` output (e.g. via mermaid.live).
 - If the user has no images, proceed without diagrams (do not attempt to generate them).
 
 ### Step 4: Build the Deck via the native pptx skill

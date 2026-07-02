@@ -612,10 +612,10 @@ curated list - so a user's own custom MCP registration is never removed.
 Ask the user per server:
 
 ```
-mcp-woodpecker-ci is available in the repo but not installed.
-  - Port: 8085
-  - Docker profile: cicd
-  - Purpose: Woodpecker CI pipeline management
+mcp-<name> is available in the repo but not installed.
+  - Port: <8080-8089>
+  - Docker profile: <profile>
+  - Purpose: <what the server does>
 ```
 
 Options:

@@ -248,10 +248,9 @@ Usage:
 Categories checked:
   1. Systemd units    - installed .service files vs repo templates
   2. Sysctl config    - /etc/sysctl.d/99-claude-code.conf vs bash-prep.sh targets
-  3. Go binary        - ~/go/bin/woodpecker-mcp version currency
-  4. Docker containers - running container health status
-  5. Shared scripts   - cross-container script consistency (fetch-secrets.sh, bash-prep.sh)
-  6. MCP deployment models - Docker/systemd conflicts, failed/orphaned units,
+  3. Docker containers - running container health status
+  4. Shared scripts   - cross-container script consistency (fetch-secrets.sh, bash-prep.sh)
+  5. MCP deployment models - Docker/systemd conflicts, failed/orphaned units,
                              orphaned Docker MCP servers (via mcp-drift.py), port bindings
 
 Exit codes:
@@ -378,38 +377,6 @@ check_sysctl() {
         ok "sysctl - all parameters match bash-prep.sh targets"
     else
         fix "Re-run: $REPO_ROOT/scripts/bash-prep.sh --apply"
-    fi
-}
-
-# --- Go binary drift ---
-check_go_binary() {
-    local binary="$HOME/go/bin/woodpecker-mcp"
-
-    if [[ ! -x "$binary" ]]; then
-        skip "woodpecker-mcp - Go binary not installed"
-        return
-    fi
-
-    # Check if binary exists and can execute
-    if "$binary" --version &>/dev/null 2>&1 || "$binary" version &>/dev/null 2>&1; then
-        ok "woodpecker-mcp - binary present and executable"
-    else
-        # Binary exists but might be stale - just verify it runs
-        if "$binary" --help &>/dev/null 2>&1; then
-            ok "woodpecker-mcp - binary present and executable"
-        else
-            drift "woodpecker-mcp - binary exists but fails to execute"
-        fi
-    fi
-
-    # Check config exists
-    local config="$HOME/.config/woodpecker-mcp/config.yaml"
-    if [[ -f "$config" ]]; then
-        ok "woodpecker-mcp - config present at $config"
-    else
-        if [[ -x "$binary" ]]; then
-            drift "woodpecker-mcp - binary installed but config missing"
-        fi
     fi
 }
 
@@ -706,25 +673,19 @@ main() {
     check_sysctl
     echo ""
 
-    # Category 3: Go binary
-    echo -e "${BOLD}Go Binaries${NC}"
-    echo "------------------------------------------------"
-    check_go_binary
-    echo ""
-
-    # Category 4: Docker containers
+    # Category 3: Docker containers
     echo -e "${BOLD}Docker Containers${NC}"
     echo "------------------------------------------------"
     check_docker_compose
     echo ""
 
-    # Category 5: Shared script contracts
+    # Category 4: Shared script contracts
     echo -e "${BOLD}Shared Script Contracts${NC}"
     echo "------------------------------------------------"
     check_shared_scripts
     echo ""
 
-    # Category 6: MCP deployment model consistency
+    # Category 5: MCP deployment model consistency
     echo -e "${BOLD}MCP Deployment Models${NC}"
     echo "------------------------------------------------"
     check_mcp_deployment_models
