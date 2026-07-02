@@ -121,6 +121,25 @@
   mypy `exclude` (its directory was already removed). Follow-up orphan-teardown
   automation for machines that still have the old container/image is tracked in **#405**.
 
+### Fixed
+
+- **Prune dangling references to removed MCP servers** - follow-up cleanup of
+  stragglers left after #401 (`nano-banana`) and #404 (`mcp-woodpecker-ci`) that still
+  described removed tooling as current:
+  - `scripts/drift-detect.sh`: removed the `check_go_binary` category that probed the
+    deleted `~/go/bin/woodpecker-mcp` binary (it printed a phantom skip/drift line on
+    every `make drift-check`); renumbered the remaining categories and the `--help`
+    list. `tests/test_drift_detect.py`: dropped the removed `cicd` profile and
+    `mcp-woodpecker-ci` service from the mocked `docker compose` output.
+  - `docs/HOST_MANAGED_ARTIFACTS.md`: dropped the "Go Binary (Woodpecker MCP)" section
+    and its `setup-go-binary.sh` timing-table row (the script was deleted with the
+    server).
+  - `.claude/commands/documentation/pptx.md`: replaced the "diagrams descoped,
+    replacement tracked in #411" note (now shipped, PR #415) with guidance to render C4
+    diagrams via `/documentation:c4` and embed the exported image.
+  - `.claude/commands/cpp/update.md`: genericized the "new server in repo" example that
+    named the removed `mcp-woodpecker-ci`.
+
 ## [7.2.0] - 2026-06-28
 
 ### Added

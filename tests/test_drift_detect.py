@@ -256,12 +256,12 @@ def test_drift_detect_flags_orphaned_docker_mcp(tmp_path: Path) -> None:
         if [[ "$1" == "--version" ]]; then echo "Docker version 26.0.0"; exit 0; fi
         if [[ "$1" == "compose" && "$2" == "version" ]]; then echo "Docker Compose version v2.27.0"; exit 0; fi
         if [[ "$1" == "compose" && "$*" == *"config --profiles"* ]]; then
-          echo core; echo browser; echo cicd; exit 0
+          echo core; echo browser; exit 0
         fi
         if [[ "$1" == "compose" && "$*" == *"config --services"* ]]; then
           # nano-banana deliberately ABSENT from the current service set
           echo mcp-second-opinion; echo mcp-playwright-persistent
-          echo mcp-woodpecker-ci; echo aws-secrets-agent; exit 0
+          echo aws-secrets-agent; exit 0
         fi
         if [[ "$1" == "compose" && "$*" == *" ps "* ]]; then
           echo "mcp-nano-banana:Up (healthy)"; exit 0

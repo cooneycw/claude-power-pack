@@ -53,22 +53,7 @@ rarely change and are not deploy-critical. `bash-prep.sh` is idempotent and safe
 
 **Reconciliation:** `scripts/bash-prep.sh --apply`
 
-### 3. Go Binary (Woodpecker MCP)
-
-| Artifact | Source Script | Installed Location | Category |
-|----------|-------------|--------------------|----------|
-| `woodpecker-mcp` binary | `mcp-woodpecker-ci/scripts/setup-go-binary.sh` | `~/go/bin/woodpecker-mcp` | Provisioning-only |
-| Woodpecker config | `mcp-woodpecker-ci/scripts/setup-go-binary.sh` | `~/.config/woodpecker-mcp/config.yaml` | Provisioning-only |
-
-**Risk:** Binary installed via `go install` from upstream repo. Version drift is between
-upstream releases, not between our repo and host. Config contains credentials fetched
-from AWS Secrets Manager.
-
-**Detection:** `scripts/drift-detect.sh` verifies binary is executable and config exists.
-
-**Reconciliation:** `mcp-woodpecker-ci/scripts/setup-go-binary.sh`
-
-### 4. Woodpecker Secrets
+### 3. Woodpecker Secrets
 
 | Artifact | Source Script | Installed Location | Category |
 |----------|-------------|--------------------|----------|
@@ -95,7 +80,6 @@ These artifacts are fully managed by the repo and rebuilt on every deploy:
 |--------|---------|-----------|-------------|
 | `bash-prep.sh` | Workstation setup | Once | No (idempotent, re-runnable) |
 | `install-service.sh` (both) | Service setup | Once | No - should be re-run when templates change |
-| `setup-go-binary.sh` | MCP server setup | Once | No (manual upgrade) |
 | `bootstrap-secrets.py` | Woodpecker setup | Once | No (manual credential rotation) |
 | `make deploy` | Manual local deploy or `/flow:deploy` | Operator-controlled | Yes - rebuilds containers from repo |
 | `.woodpecker.yml` runtime-smoke | MCP stack CI validation | Relevant push/PR paths | No - validates an isolated stack, then tears it down |
