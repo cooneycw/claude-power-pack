@@ -26,7 +26,7 @@ npx skills add anthropics/skills@pptx
 
 ## C4 Diagram Rendering
 
-Diagram rendering is descoped pending a replacement engine (tracked in issue #411). `/documentation:c4` still analyzes the project and produces C4 model definitions (Context, Container, Component, Code), but rendered diagram images are unavailable until a new engine lands.
+`/documentation:c4` renders C4 diagrams as GitHub-renderable Mermaid via a zero-dependency Python engine (`scripts/c4-mermaid.py`, issue #411). It analyzes the project, builds a C4 model (`docs/architecture/c4-model.json`), then emits L1-L3 as Mermaid `flowchart` (with `subgraph` boundaries and C4 `classDef` colors) and L4 as `classDiagram`. Output is one `.mmd` per level plus an `index.md` that renders inline on GitHub, and a `c4-manifest.json`. The engine enforces an edge-validity QA gate (every edge/relation endpoint must be a defined node) and flags dense diagrams for splitting.
 
 ### C4 Node Types
 

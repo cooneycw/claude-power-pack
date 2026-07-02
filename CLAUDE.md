@@ -139,7 +139,7 @@ MCP containers fetch API keys at startup from AWS Secrets Manager via an `aws-se
 
 ### Documentation
 - `/documentation:pptx [topic]` - Guided PowerPoint creation with diagrams (QA gating, Playwright session optimization)
-- `/documentation:c4` - Generate C4 architecture diagrams (all 4 levels, per-container L3, per-component L4, density-aware splitting, QA gating with retry, manifest + index)
+- `/documentation:c4` - Generate C4 architecture diagrams as GitHub-renderable Mermaid via `scripts/c4-mermaid.py` (all 4 levels, per-container L3, per-component L4; flowchart L1-L3 + classDiagram L4; edge-validity QA gate, density-split hints, `index.md` + manifest)
 
 ### Evaluation
 - `/evaluate:issue` - 4-phase multi-model evaluation (divergence, reasoning, validation, spec output)

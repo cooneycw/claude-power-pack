@@ -4,6 +4,23 @@
 
 ### Added
 
+- **C4 diagram rendering engine** (issue #411) - new zero-dependency Python
+  renderer `scripts/c4-mermaid.py` replaces the removed `nano-banana` MCP server
+  (#401) as the engine behind `/documentation:c4`. It consumes a JSON C4 model
+  and emits **GitHub-renderable Mermaid**: L1-L3 as `flowchart` (with `subgraph`
+  boundaries and C4 `classDef` colors) and L4 as `classDiagram` - deliberately
+  avoiding the Mermaid C4 extension, which GitHub does not bundle and renders as
+  raw text. Output is one `.mmd` per level plus an `index.md` (embeds every
+  diagram in a ```mermaid fence, so the model renders inline on GitHub) and a
+  `c4-manifest.json`. Restores an edge-validity QA gate (every edge/relation
+  endpoint must reference a defined node; the command exits non-zero on invalid
+  references) and flags dense diagrams (>20 nodes) for splitting. Rewires
+  `.claude/commands/documentation/c4.md` and updates the `/documentation:c4`
+  capability text in `.claude/skills/documentation.md` and
+  `.claude/commands/documentation/help.md` (removing the interim "descoped"
+  notes). Covered by `tests/test_c4_mermaid.py` (render output, QA validation,
+  index/manifest, CLI exit codes, and a command-doc contract check). No new
+  runtime dependency.
 - **`/codex:ask` command** (issue #393) - new `.claude/commands/codex/ask.md`
   delegates a **read-only** question to Codex (`gpt-5.5`) via `codex exec
   --sandbox read-only` and relays the answer attributed to Codex - the
