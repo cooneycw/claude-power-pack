@@ -263,7 +263,8 @@ Categories checked:
   3. Go binary        - ~/go/bin/woodpecker-mcp version currency
   4. Docker containers - running container health status
   5. Shared scripts   - cross-container script consistency (fetch-secrets.sh, bash-prep.sh)
-  6. MCP deployment models - Docker/systemd conflicts, failed/orphaned units, port bindings
+  6. MCP deployment models - Docker/systemd conflicts, failed/orphaned units,
+                             orphaned Docker MCP servers (via mcp-drift.py), port bindings
 
 Exit codes:
   0 - No drift (or no artifacts installed to check)
@@ -535,6 +536,45 @@ check_orphaned_systemd_units() {
     fi
 }
 
+# --- Orphaned Docker MCP servers ---
+# Delegates to scripts/mcp-drift.py, which derives the current service set
+# dynamically from `docker compose config --services` (across every profile) and
+# flags a server that is on the curated `.claude/deprecated-mcps.yaml` list but no
+# longer in compose while still present locally (container / image / registration).
+# This is what makes a *removed* Docker MCP get torn down instead of silently
+# forgotten - the hardcoded MCP_* arrays above only ever describe current servers.
+check_orphaned_docker_mcps() {
+    local helper="$SCRIPT_DIR/mcp-drift.py"
+
+    if ! command -v docker &>/dev/null; then
+        skip "orphaned Docker MCPs - docker not installed"
+        return
+    fi
+    if [[ ! -f "$helper" ]] || ! command -v python3 &>/dev/null; then
+        skip "orphaned Docker MCPs - mcp-drift.py or python3 unavailable"
+        return
+    fi
+
+    local orphans
+    orphans=$(python3 "$helper" --list-orphans 2>/dev/null || true)
+    if [[ -z "$orphans" ]]; then
+        ok "orphaned Docker MCPs - none detected"
+        return
+    fi
+
+    local name cmd
+    while IFS= read -r name; do
+        [[ -n "$name" ]] || continue
+        drift "orphaned Docker MCP $name - removed from docker-compose.yml but still present locally"
+        if $FIX_MODE; then
+            while IFS= read -r cmd; do
+                [[ -n "$cmd" ]] && fix "$cmd"
+            done < <(python3 "$helper" --plan "$name" 2>/dev/null || true)
+        fi
+    done <<< "$orphans"
+    fix "Guided teardown: run /cpp:update (Step 7), or: python3 scripts/mcp-drift.py --teardown <name>"
+}
+
 check_mcp_port_bindings() {
     if ! command -v ss &>/dev/null; then
         skip "ports - ss not available"
@@ -703,6 +743,7 @@ main() {
     echo "------------------------------------------------"
     check_mcp_deployment_models
     check_orphaned_systemd_units
+    check_orphaned_docker_mcps
     check_mcp_port_bindings
     echo ""
 

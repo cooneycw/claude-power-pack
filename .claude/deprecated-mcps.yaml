@@ -1,0 +1,88 @@
+# Deprecated Docker MCP servers retired from Claude Power Pack.
+#
+# Companion to .claude/deprecated-skills.yaml (which does the same job for
+# generated skills). This file is the deprecation list of record for MCP
+# *servers*. scripts/mcp-drift.py consumes it to detect ORPHANED DOCKER MCP
+# infrastructure - a container, an mcp-<name>:* image, or a claude/codex mcp
+# registration that is still present on a machine after the server was removed
+# from docker-compose.yml - and to offer a guided, user-confirmed teardown via
+# /cpp:update (Step 7).
+#
+# SAFETY - two conditions must BOTH hold before anything is classified
+# ORPHANED DOCKER MCP (and therefore offered for teardown):
+#
+#   1. the server is listed here, AND
+#   2. it is no longer a service in docker-compose.yml
+#      (docker compose config --services, across all profiles).
+#
+# So a name can be seeded here ahead of its removal PR with zero risk: while the
+# service is still in compose it is classified OK and never touched. Only once
+# the removal lands (and a stale copy lingers on a host) does it become an
+# orphan. Equally important: a registration CPP never shipped (a user's own
+# custom MCP server) is simply not in this file, so it is never flagged and
+# never removed. Adding an entry here does NOT delete anything on its own -
+# teardown is always per-server and user-confirmed.
+#
+# Per-entry fields:
+#   name         (required) - canonical server / compose service name.
+#   reason       (required) - why it was retired (keep it colon-free).
+#   replacement  (optional) - the supported successor, if any.
+#   port         (optional) - the CPP port it used (8080-8089), for reporting.
+#   image_prefix (optional, default = name) - docker image repository; matching
+#                             images are `<image_prefix>:*`.
+#   containers   (optional, default = [name]) - container names to stop/remove
+#                             (matched against the docker-compose container_name,
+#                             with or without CPP_CONTAINER_PREFIX).
+#   claude_registrations (optional) - names as they appear in `claude mcp list`.
+#   codex_registrations  (optional) - names as they appear in `codex mcp list`.
+
+version: 1
+
+deprecated:
+  - name: mcp-nano-banana
+    reason: >-
+      The nano-banana diagram and PPTX MCP server is retired; PowerPoint
+      generation moves to the native Anthropic pptx skill (issue #401).
+    replacement: /documentation:pptx (native pptx skill)
+    port: 8084
+    image_prefix: mcp-nano-banana
+    containers:
+      - mcp-nano-banana
+    claude_registrations:
+      - nano-banana
+      - mcp-nano-banana
+    codex_registrations:
+      - nano-banana
+
+  - name: mcp-woodpecker-ci
+    reason: >-
+      The woodpecker-ci MCP server is unused; /flow:auto talks to the Woodpecker
+      API directly (issue #404).
+    replacement: Woodpecker API via /flow:auto
+    port: 8085
+    image_prefix: mcp-woodpecker-ci
+    containers:
+      - mcp-woodpecker-ci
+    claude_registrations:
+      - woodpecker-ci
+      - mcp-woodpecker-ci
+
+  - name: mcp-coordination
+    reason: >-
+      The Redis-backed coordination MCP server was retired when solo-dev
+      worktrees replaced distributed session locking; it was demoted to extras
+      and then removed (issues #91 and #405).
+    replacement: git worktrees via /flow:start and /flow:auto
+    port: 8082
+    image_prefix: mcp-coordination
+    containers:
+      - mcp-coordination
+      - mcp-coordinator
+    claude_registrations:
+      - coordination
+      - mcp-coordination
+      - coordinator
+      - mcp-coordinator
+    codex_registrations:
+      - coordination
+      - mcp-coordination
