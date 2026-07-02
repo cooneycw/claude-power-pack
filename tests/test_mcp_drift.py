@@ -143,7 +143,7 @@ def test_no_deprecation_file_finds_nothing(tmp_path: Path) -> None:
 # --------------------------------------------------------------------------- #
 # Teardown guardrails
 # --------------------------------------------------------------------------- #
-def _findings(tmp_path: Path, host: md.HostState) -> list[dict]:
+def _findings(tmp_path: Path, host) -> list[dict]:
     return md.classify(_dep(tmp_path), host)
 
 
