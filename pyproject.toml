@@ -9,11 +9,11 @@ dev = ["mypy>=1.10", "pydantic>=2.0", "pytest>=8.0", "pyyaml>=6.0", "ruff>=0.4",
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = [".", "mcp-nano-banana/src"]
+pythonpath = ["."]
 
 [tool.mypy]
 python_version = "3.11"
-exclude = ["mcp-second-opinion", "mcp-playwright-persistent", "mcp-nano-banana", "mcp-evaluate", "mcp-coordination"]
+exclude = ["mcp-second-opinion", "mcp-playwright-persistent", "mcp-evaluate"]
 ignore_missing_imports = true
 explicit_package_bases = true
 mypy_path = "."

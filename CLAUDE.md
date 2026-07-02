@@ -25,7 +25,6 @@ Core components and their locations:
 - `aws-secrets-agent/` - AWS Secrets Manager sidecar (Rust, port 2773). See `docs/AWS_SECRETS_SIDECAR.md`.
 - `mcp-second-opinion/` - Code review MCP server (port 8080)
 - `mcp-playwright-persistent/` - Browser automation MCP server (port 8081, 29 tools)
-- `mcp-nano-banana/` - Diagram generation + PowerPoint MCP server (port 8084, 7 tools: `list_diagram_types`, `generate_diagram`, `validate_diagram`, `split_diagram`, `create_pptx`, `validate_pptx_slides`, `diagram_to_pptx`)
 - `extras/sequential-thinking/` - Optional: structured reasoning (stdio, npm)
 - `lib/creds/` - Secrets management (dotenv/AWS SM, FastAPI UI, audit logging)
 - `lib/security/` - Security scanning (native + external tools)
@@ -51,12 +50,12 @@ MCP containers fetch API keys at startup from AWS Secrets Manager via an `aws-se
 - **AWS secrets used:** `codex_llm_apikeys` (second-opinion LLM keys: `GEMINI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`), `essent-ai` (Woodpecker CI keys: `WOODPECKER_URL`, `WOODPECKER_API_TOKEN` - consumed by `/flow:auto`, `woodpecker/bootstrap-secrets.py`, and `scripts/setup-woodpecker-cli.sh`)
 - **Required IAM permissions:** `secretsmanager:GetSecretValue`, `secretsmanager:DescribeSecret` scoped to the named secret ARNs, plus `kms:Decrypt` (scoped via `kms:ViaService`) when the secrets use a customer-managed CMK
 - **Validate setup:** `make docker-secrets-check` (checks AWS creds, verifies secrets exist)
-- **Profiles:** `core` (second-opinion + nano-banana + secrets-agent), `browser` (playwright)
+- **Profiles:** `core` (second-opinion + secrets-agent), `browser` (playwright)
 - **Start:** `make docker-up PROFILE=core`
 - **All profiles:** `make docker-up PROFILE="core browser"`
 - **Rebuild/restart/wait for health:** `make docker-refresh PROFILE="core browser"` snapshots current image IDs as `:previous` and restores them if the candidate stack fails `--wait`
 - **Status/logs/stop:** `make docker-ps`, `make docker-logs`, `make docker-down`
-- **Liveness vs readiness:** each MCP server serves `/` (liveness: process is up) and `/readyz` (readiness: required secrets/config actually loaded). Compose healthchecks - the `docker compose up --wait` release gate - probe `/readyz`, so a live-but-keyless container (e.g. a failed secret fetch) is reported unhealthy and `--wait` fails instead of greenlighting it. The secret-bearing server (`mcp-second-opinion`) reports ready only once its provider keys load; `mcp-nano-banana` and `mcp-playwright-persistent` have no required secrets, so readiness equals liveness. CI/deploy without a live secrets-agent can inject keys via the LLM env passthroughs in `docker-compose.yml`; the agent overrides them at runtime.
+- **Liveness vs readiness:** each MCP server serves `/` (liveness: process is up) and `/readyz` (readiness: required secrets/config actually loaded). Compose healthchecks - the `docker compose up --wait` release gate - probe `/readyz`, so a live-but-keyless container (e.g. a failed secret fetch) is reported unhealthy and `--wait` fails instead of greenlighting it. The secret-bearing server (`mcp-second-opinion`) reports ready only once its provider keys load; `mcp-playwright-persistent` has no required secrets, so readiness equals liveness. CI/deploy without a live secrets-agent can inject keys via the LLM env passthroughs in `docker-compose.yml`; the agent overrides them at runtime.
 - **Empty AWS credential guard:** `make docker-up` refuses to create `aws-secrets-agent` when `AWS_ACCESS_KEY_ID` or `AWS_SECRET_ACCESS_KEY` resolves empty. If a stale sidecar was already created with empty creds, fix env and force-recreate `aws-secrets-agent` plus secret-dependent MCP containers.
 - **Deploy preflight:** `make deploy` runs `scripts/assert-prod-env.sh`; production deploys reject `default-token` even if local-dev opt-out is set, and require `SECOND_OPINION_AWS_SECRET_NAME` for `core` plus `WOODPECKER_CI_AWS_SECRET_NAME` for `cicd`.
 - **MCP connections:** Defined in project `.mcp.json` pointing to `127.0.0.1:{port}/sse` (SSE transport)

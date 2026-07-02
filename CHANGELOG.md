@@ -82,6 +82,27 @@
   `WOODPECKER_API_TOKEN`, consumed by `/flow:auto`,
   `woodpecker/bootstrap-secrets.py`, and `scripts/setup-woodpecker-cli.sh`) are
   all retained.
+- **Remove `nano-banana` MCP server; PPTX moves to the native Anthropic pptx skill**
+  (issue #401) - the non-Anthropic (Gemini-backed) diagram + PowerPoint MCP experiment
+  is retired. Deleted the `mcp-nano-banana/` server and its 7 tools
+  (`list_diagram_types`, `generate_diagram`, `validate_diagram`, `split_diagram`,
+  `create_pptx`, `validate_pptx_slides`, `diagram_to_pptx`), the `mcp-nano-banana`
+  service from `docker-compose.yml` (port 8084, `core` profile), and every reference
+  across `.woodpecker.yml` (image build/CVE/SBOM + smoke path filters), `pyproject.toml`,
+  `Makefile`, `renovate.json`, `scripts/runtime-smoke.sh`, `scripts/drift-detect.sh`,
+  and the docs/inventory commands. `/documentation:pptx` now delegates PowerPoint
+  authoring to the native **`anthropics/skills@pptx`** skill (install via
+  `/skills:add anthropics/skills@pptx`) and embeds only user-supplied diagram images.
+  **C4 diagram image rendering is descoped**: `/documentation:c4` now writes a text C4
+  model (`docs/architecture/c4-model.md`) and no longer renders HTML/PNG or runs density
+  QA gating/splitting - choosing a replacement rendering engine is tracked in **#411**.
+  Deleted the seven nano-banana-specific test modules (`test_dual_transport`,
+  `test_c4_integration`, `test_split_diagram`, `test_density`, `test_wcag_contrast`,
+  `test_validate_diagram`, `test_sanitize`) and pruned incidental nano-banana assertions
+  from `test_docker_compose_config.py`, `test_docker_health_check.py`, and
+  `test_deploy_scripts.py`. Drive-by: dropped the dead `mcp-coordination` entry from the
+  mypy `exclude` (its directory was already removed). Follow-up orphan-teardown
+  automation for machines that still have the old container/image is tracked in **#405**.
 
 ## [7.2.0] - 2026-06-28
 

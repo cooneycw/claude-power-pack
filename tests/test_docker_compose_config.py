@@ -279,9 +279,6 @@ def test_compose_uses_fixed_local_ports_with_ci_overrides() -> None:
     assert services["mcp-playwright-persistent"]["ports"] == [
         "${MCP_PLAYWRIGHT_PORT_MAPPING:-8081:8081}"
     ]
-    assert services["mcp-nano-banana"]["ports"] == [
-        "${MCP_NANO_BANANA_PORT_MAPPING:-8084:8084}"
-    ]
 
 
 def test_makefile_has_first_class_docker_refresh_target() -> None:
@@ -355,7 +352,6 @@ def test_woodpecker_uses_image_security_instead_of_parallel_dry_run_builds() -> 
         "build-aws-secrets-agent",
         "build-second-opinion",
         "build-playwright",
-        "build-nano-banana",
     ):
         assert step_name not in steps
 
@@ -422,7 +418,6 @@ def test_woodpecker_builds_scans_images_and_generates_sboms() -> None:
     assert "lib/**" in image_paths
     assert "mcp-second-opinion/**" in image_paths
     assert "mcp-playwright-persistent/**" in image_paths
-    assert "mcp-nano-banana/**" in image_paths
 
 
 def test_python_runtime_images_remove_system_packaging_tools() -> None:
@@ -430,7 +425,6 @@ def test_python_runtime_images_remove_system_packaging_tools() -> None:
     dockerfiles = [
         "mcp-second-opinion/deploy/Dockerfile",
         "mcp-playwright-persistent/deploy/Dockerfile",
-        "mcp-nano-banana/deploy/Dockerfile",
         "mcp-evaluate/deploy/Dockerfile",
     ]
 
@@ -473,7 +467,6 @@ def test_woodpecker_runtime_smoke_is_ephemeral_and_tears_down() -> None:
     assert "AWS_SECRETS_AGENT_PORT_MAPPING" not in script
     assert "export MCP_SECOND_OPINION_PORT_MAPPING=8080" in script
     assert "export MCP_PLAYWRIGHT_PORT_MAPPING=8081" in script
-    assert "export MCP_NANO_BANANA_PORT_MAPPING=8084" in script
     assert "docker compose -p \"$PROJECT\" port \"$service\" \"$container_port\"" in script
     assert "url=\"http://127.0.0.1:$container_port$check_path\"" in script
     assert 'docker compose -p "$PROJECT" exec -T "$service"' in script
@@ -491,7 +484,6 @@ def test_woodpecker_runtime_smoke_is_ephemeral_and_tears_down() -> None:
     assert '[ "$published" != "0" ]' in script
     assert "check_http mcp-second-opinion 8080 /readyz" in script
     assert "check_http mcp-playwright-persistent 8081 /readyz" in script
-    assert "check_http mcp-nano-banana 8084 /readyz" in script
 
 
 def test_runtime_smoke_retries_in_container_probes_with_diagnostics() -> None:
@@ -537,7 +529,6 @@ def test_mcp_healthchecks_gate_on_readiness_not_liveness() -> None:
     # keyless) container is reported unhealthy instead of being greenlit.
     expected = {
         "mcp-second-opinion": "8080",
-        "mcp-nano-banana": "8084",
         "mcp-playwright-persistent": "8081",
     }
     for service, port in expected.items():
@@ -565,7 +556,6 @@ def test_each_mcp_server_exposes_a_readiness_route() -> None:
     root = Path(__file__).resolve().parents[1]
     servers = {
         "mcp-second-opinion": "src/server.py",
-        "mcp-nano-banana": "src/server.py",
         "mcp-playwright-persistent": "src/server.py",
     }
     for component, rel in servers.items():
@@ -583,7 +573,6 @@ def test_woodpecker_smoke_path_gates_cover_shared_runtime_inputs() -> None:
     assert "lib/**" in smoke_paths
     assert "mcp-second-opinion/**" in smoke_paths
     assert "mcp-playwright-persistent/**" in smoke_paths
-    assert "mcp-nano-banana/**" in smoke_paths
 
 
 def test_image_security_path_filter_supersets_runtime_smoke() -> None:

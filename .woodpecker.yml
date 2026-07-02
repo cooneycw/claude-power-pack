@@ -42,7 +42,6 @@ steps:
         export AWS_SECRETS_AGENT_PORT_MAPPING=2773
         export MCP_SECOND_OPINION_PORT_MAPPING=8080
         export MCP_PLAYWRIGHT_PORT_MAPPING=8081
-        export MCP_NANO_BANANA_PORT_MAPPING=8084
 
         rendered="$(mktemp)"
         docker compose --profile core --profile browser --profile cicd config --quiet
@@ -88,7 +87,6 @@ steps:
         aws-secrets-agent:$CPP_IMAGE_TAG
         mcp-second-opinion:$CPP_IMAGE_TAG
         mcp-playwright-persistent:$CPP_IMAGE_TAG
-        mcp-nano-banana:$CPP_IMAGE_TAG
         "
 
         for image in $images; do
@@ -132,7 +130,6 @@ steps:
           - "lib/**"
           - "mcp-second-opinion/**"
           - "mcp-playwright-persistent/**"
-          - "mcp-nano-banana/**"
 
   runtime-smoke:
     image: codeberg.org/woodpecker-plugins/docker-buildx:6.1.0@sha256:33263f74a593ddef5d4faeb39ae9f87db14d64d8aae8186284ae6e90d89298a4
@@ -163,4 +160,3 @@ steps:
           - "lib/**"
           - "mcp-second-opinion/**"
           - "mcp-playwright-persistent/**"
-          - "mcp-nano-banana/**"

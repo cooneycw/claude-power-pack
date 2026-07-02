@@ -4,7 +4,7 @@ description: Overview of documentation and diagram commands
 
 # Documentation & Diagram Commands
 
-Generate architecture documentation and professional presentations using the Nano-Banana MCP server.
+Generate architecture documentation and professional presentations.
 
 ## Commands
 
@@ -14,39 +14,19 @@ Generate architecture documentation and professional presentations using the Nan
 | `/documentation:pptx` | Create PowerPoint presentations with optional diagrams |
 | `/documentation:help` | This help overview |
 
-## MCP Server: Nano-Banana
+## PowerPoint Generation
 
-The Nano-Banana MCP server (`mcp-nano-banana/`, port 8084) provides diagram generation and PPTX creation tools.
-
-### Setup
+PowerPoint/PPTX generation is provided by the native Anthropic `pptx` skill (not an MCP server). Install it into a project with:
 
 ```bash
-# stdio (recommended)
-claude mcp add nano-banana --transport stdio -- uv run --directory ~/Projects/claude-power-pack/mcp-nano-banana python src/server.py --stdio
-
-# SSE
-cd ~/Projects/claude-power-pack/mcp-nano-banana && ./start-server.sh
-claude mcp add nano-banana --transport sse --url http://127.0.0.1:8084/sse
+npx skills add anthropics/skills@pptx
 ```
 
-### Available MCP Tools
+`/documentation:pptx` drives the skill to build slide decks.
 
-| Tool | Purpose |
-|------|---------|
-| `list_diagram_types` | List supported diagram types |
-| `generate_diagram` | Generate HTML diagram at 1920x1080 |
-| `create_pptx` | Create PowerPoint from slide definitions |
-| `diagram_to_pptx` | Combined: diagram + PPTX in one step |
+## C4 Diagram Rendering
 
-### Diagram Types
-
-- **architecture** - System component grid layout
-- **c4** - C4 model with boundary groupings (Context, Container, Component, Code)
-- **flowchart** - Sequential process steps with arrows
-- **sequence** - Participant message exchange (UML-style)
-- **orgchart** - Tree hierarchy visualization
-- **timeline** - Milestone roadmap on horizontal track
-- **mindmap** - Central topic with radiating branches
+Diagram rendering is descoped pending a replacement engine (tracked in issue #411). `/documentation:c4` still analyzes the project and produces C4 model definitions (Context, Container, Component, Code), but rendered diagram images are unavailable until a new engine lands.
 
 ### C4 Node Types
 
@@ -58,12 +38,6 @@ claude mcp add nano-banana --transport sse --url http://127.0.0.1:8084/sse
 | `container` | Container (app, DB, service) | Green |
 | `component` | Component within container | Purple |
 | `code` | Class / module / interface | Amber |
-
-### End-to-End Best Quality
-
-1. `generate_diagram` -> save HTML file
-2. Playwright screenshot at 1920x1080
-3. `create_pptx` with image_base64 on "diagram" layout
 
 ### Makefile Integration
 

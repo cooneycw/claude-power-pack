@@ -64,17 +64,17 @@ fi
 [ -f "$CPP_DIR/docker-compose.yml" ] && DOCKER_COMPOSE_FILE=true
 
 if [ "$DOCKER_INSTALLED" = "true" ]; then
-  DOCKER_CONTAINERS=$(docker ps -a --format '{{.Names}}' 2>/dev/null | grep -E '^(aws-secrets-agent|mcp-second-opinion|mcp-nano-banana|mcp-playwright-persistent)$' || true)
+  DOCKER_CONTAINERS=$(docker ps -a --format '{{.Names}}' 2>/dev/null | grep -E '^(aws-secrets-agent|mcp-second-opinion|mcp-playwright-persistent)$' || true)
 fi
 
-for unit in mcp-second-opinion second-opinion mcp-playwright mcp-playwright-persistent playwright-persistent nano-banana mcp-nano-banana mcp-evaluate evaluate mcp-coordination coordination; do
+for unit in mcp-second-opinion second-opinion mcp-playwright mcp-playwright-persistent playwright-persistent mcp-evaluate evaluate mcp-coordination coordination; do
   [ -f "/etc/systemd/system/${unit}.service" ] && LEGACY_SYSTEMD_UNITS="$LEGACY_SYSTEMD_UNITS system:${unit}"
   [ -f "$HOME/.config/systemd/user/${unit}.service" ] && LEGACY_SYSTEMD_UNITS="$LEGACY_SYSTEMD_UNITS user:${unit}"
 done
 
 MCP_SERVERS=""
 MCP_LIST=$(claude mcp list 2>/dev/null || echo "")
-for server in second-opinion playwright-persistent nano-banana; do
+for server in second-opinion playwright-persistent; do
   echo "$MCP_LIST" | grep -q "$server" && MCP_SERVERS="$MCP_SERVERS $server"
 done
 ```
@@ -297,21 +297,19 @@ This will make the following changes:
     • aws-secrets-agent          - internal port 2773 (AWS SM sidecar)
     • mcp-second-opinion         - host port 8080
     • mcp-playwright-persistent  - host port 8081
-    • mcp-nano-banana            - host port 8084
 
   [Tier 3 - Configuration Files]
     • .env (AWS credentials + AWS_TOKEN for sidecar, or direct API keys)
 
   Disk usage: approximately 2-4 GB for local Docker images, browser dependencies,
   and Docker build cache (varies by host and cache state)
-  Ports used: 8080, 8081, 8084; 2773 is compose-network internal only
+  Ports used: 8080, 8081; 2773 is compose-network internal only
 
   To undo:
     # Tier 1+2 cleanup (see above)
     cd {CPP_DIR} && make docker-down
     claude mcp remove second-opinion
     claude mcp remove playwright-persistent
-    claude mcp remove nano-banana
 
 Proceed? [y/N]
 ```
@@ -601,7 +599,7 @@ if [ ! -f "$CPP_DIR/docker-compose.yml" ]; then
 fi
 
 LEGACY_SYSTEMD_UNITS=""
-for unit in mcp-second-opinion second-opinion mcp-playwright mcp-playwright-persistent playwright-persistent nano-banana mcp-nano-banana mcp-evaluate evaluate mcp-coordination coordination; do
+for unit in mcp-second-opinion second-opinion mcp-playwright mcp-playwright-persistent playwright-persistent mcp-evaluate evaluate mcp-coordination coordination; do
   [ -f "/etc/systemd/system/${unit}.service" ] && LEGACY_SYSTEMD_UNITS="$LEGACY_SYSTEMD_UNITS system:${unit}"
   [ -f "$HOME/.config/systemd/user/${unit}.service" ] && LEGACY_SYSTEMD_UNITS="$LEGACY_SYSTEMD_UNITS user:${unit}"
 done
@@ -820,13 +818,6 @@ if ! echo "$MCP_LIST" | grep -q "playwright-persistent"; then
   echo "✓ playwright-persistent MCP registered"
 else
   echo "→ playwright-persistent MCP already registered (skipped)"
-fi
-
-if ! echo "$MCP_LIST" | grep -q "nano-banana"; then
-  claude mcp add nano-banana --transport sse --url http://127.0.0.1:8084/sse --scope user
-  echo "✓ nano-banana MCP registered"
-else
-  echo "→ nano-banana MCP already registered (skipped)"
 fi
 ```
 
@@ -1055,7 +1046,7 @@ if command -v codex &>/dev/null; then
   # If yes:
   CODEX_LIST=$(codex mcp list 2>/dev/null || echo "")
 
-  for entry in "second-opinion:8080" "playwright-persistent:8081" "nano-banana:8084"; do
+  for entry in "second-opinion:8080" "playwright-persistent:8081"; do
     NAME="${entry%%:*}"
     PORT="${entry#*:}"
     if echo "$CODEX_LIST" | grep -q "$NAME"; then
@@ -1110,7 +1101,6 @@ Deployment:
 MCP Servers:
   • second-opinion (port 8080) - Gemini/OpenAI code review
   • playwright-persistent (port 8081) - Browser automation
-  • nano-banana (port 8084) - Diagram and PowerPoint generation
   • aws-secrets-agent (internal port 2773) - Secret injection sidecar (if AWS SM)
 
 Next Steps:
@@ -1240,7 +1230,7 @@ if ! command -v codex &>/dev/null; then
 else
   CODEX_LIST=$(codex mcp list 2>/dev/null || echo "")
 
-  for entry in "second-opinion:8080" "playwright-persistent:8081" "nano-banana:8084"; do
+  for entry in "second-opinion:8080" "playwright-persistent:8081"; do
     NAME="${entry%%:*}"
     PORT="${entry#*:}"
     if echo "$CODEX_LIST" | grep -q "$NAME"; then

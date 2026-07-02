@@ -1,6 +1,6 @@
 # Claude Power Pack - MCP Server Orchestration
 # Usage (prefer Makefile targets - see Deployment Conventions in CLAUDE.md):
-#   make docker-up PROFILE=core                      # Second Opinion + Nano-Banana
+#   make docker-up PROFILE=core                      # Second Opinion
 #   make docker-up PROFILE="core browser"            # + Playwright
 #   make docker-build PROFILE=core                   # Build images only
 #   make docker-refresh PROFILE="core browser"       # Rebuild, restart, wait healthy
@@ -124,33 +124,6 @@ services:
         reservations:
           cpus: "0.5"
           memory: 256M
-
-  mcp-nano-banana:
-    build:
-      context: ./mcp-nano-banana
-      dockerfile: deploy/Dockerfile
-    image: mcp-nano-banana:${CPP_IMAGE_TAG:-dev}
-    container_name: ${CPP_CONTAINER_PREFIX:-}mcp-nano-banana
-    ports:
-      - "${MCP_NANO_BANANA_PORT_MAPPING:-8084:8084}"
-    environment:
-      - MCP_SERVER_HOST=0.0.0.0
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8084/readyz')"]
-      interval: 10s
-      timeout: 5s
-      start_period: 10s
-      retries: 3
-    restart: unless-stopped
-    profiles: ["core"]
-    deploy:
-      resources:
-        limits:
-          cpus: "0.5"
-          memory: 256M
-        reservations:
-          cpus: "0.25"
-          memory: 128M
 
   # mcp-evaluate: DEPRECATED - evaluation logic absorbed into /evaluate:issue command + evaluate skill.
   # Dockerfile kept in mcp-evaluate/deploy/ for reference. To re-enable, uncomment below.

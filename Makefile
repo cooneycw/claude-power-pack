@@ -41,7 +41,7 @@ update_docs:
 ## Usage: make docker-up PROFILE=core
 ##        make docker-up PROFILE="core browser"
 ##        make docker-refresh PROFILE="core browser"
-## Profiles: core (second-opinion + nano-banana), browser
+## Profiles: core (second-opinion), browser
 
 PROFILE ?= core
 DOCKER_UP_FLAGS ?= -d

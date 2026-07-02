@@ -29,7 +29,6 @@
       "matchPackageNames": [
         "aws-secrets-agent",
         "mcp-second-opinion",
-        "mcp-nano-banana",
         "mcp-playwright-persistent",
         "second-opinion-mcp"
       ],

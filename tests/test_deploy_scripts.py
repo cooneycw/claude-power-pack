@@ -137,7 +137,6 @@ def _write_fake_docker(tmp_path: Path) -> tuple[Path, Path]:
                 if args[-2:] == ["config", "--services"]:
                     print("aws-secrets-agent")
                     print("mcp-second-opinion")
-                    print("mcp-nano-banana")
                     raise SystemExit(0)
                 if args[-2:] == ["ps", "-q"]:
                     print("cid-agent")

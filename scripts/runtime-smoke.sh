@@ -41,7 +41,6 @@ export AWS_SESSION_TOKEN=cpp-smoke-session-token
 export AWS_TOKEN=cpp-smoke-token
 export MCP_SECOND_OPINION_PORT_MAPPING=8080
 export MCP_PLAYWRIGHT_PORT_MAPPING=8081
-export MCP_NANO_BANANA_PORT_MAPPING=8084
 export SECOND_OPINION_AWS_SECRET_NAME=
 
 # The fake AWS creds above mean the real secrets-agent cannot fetch, so the
@@ -158,7 +157,6 @@ check_internal_http() {
 check_internal_http aws-secrets-agent 2773 /ping "X-Aws-Parameters-Secrets-Token: $AWS_TOKEN"
 check_http mcp-second-opinion 8080 /readyz
 check_http mcp-playwright-persistent 8081 /readyz
-check_http mcp-nano-banana 8084 /readyz
 
 # --- (2) Cross-container reachability of the REAL agent ---------------------
 # Reach the agent by its compose network name from a different container. The

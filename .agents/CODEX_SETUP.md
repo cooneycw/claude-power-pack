@@ -25,7 +25,6 @@ Run each command to register the corresponding MCP server:
 ```bash
 codex mcp add second-opinion --url http://127.0.0.1:8080/mcp
 codex mcp add playwright-persistent --url http://127.0.0.1:8081/mcp
-codex mcp add nano-banana --url http://127.0.0.1:8084/mcp
 ```
 
 ## Verify Registration
@@ -34,7 +33,6 @@ codex mcp add nano-banana --url http://127.0.0.1:8084/mcp
 codex mcp list
 codex mcp get second-opinion
 codex mcp get playwright-persistent
-codex mcp get nano-banana
 ```
 
 Restart Codex after registration for tools to become available.
@@ -44,7 +42,6 @@ Restart Codex after registration for tools to become available.
 ```bash
 codex mcp remove second-opinion
 codex mcp remove playwright-persistent
-codex mcp remove nano-banana
 ```
 
 ## Transport Reference
@@ -53,7 +50,6 @@ codex mcp remove nano-banana
 |----------------------|------|--------------------------------------------|----------------------------------------|
 | second-opinion       | 8080 | `http://127.0.0.1:8080/sse`               | `http://127.0.0.1:8080/mcp`          |
 | playwright-persistent| 8081 | `http://127.0.0.1:8081/sse`               | `http://127.0.0.1:8081/mcp`          |
-| nano-banana          | 8084 | `http://127.0.0.1:8084/sse`               | `http://127.0.0.1:8084/mcp`          |
 
 ## Notes
 
