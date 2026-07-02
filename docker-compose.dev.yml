@@ -27,10 +27,3 @@ services:
         required: false
     environment:
       - ALLOW_ENV_FALLBACK=true
-
-  mcp-woodpecker-ci:
-    env_file:
-      - path: .env
-        required: false
-    environment:
-      - ALLOW_ENV_FALLBACK=true

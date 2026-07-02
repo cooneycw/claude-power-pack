@@ -40,8 +40,8 @@ update_docs:
 ## Docker (MCP server containers)
 ## Usage: make docker-up PROFILE=core
 ##        make docker-up PROFILE="core browser"
-##        make docker-refresh PROFILE="core browser cicd"
-## Profiles: core (second-opinion + nano-banana), browser, cicd
+##        make docker-refresh PROFILE="core browser"
+## Profiles: core (second-opinion + nano-banana), browser
 
 PROFILE ?= core
 DOCKER_UP_FLAGS ?= -d
@@ -79,8 +79,7 @@ docker-secrets-check:
 	fi
 	@. .env 2>/dev/null; \
 	python3 scripts/check-aws-secret-keys.py \
-		--required codex_llm_apikeys:GEMINI_API_KEY,OPENAI_API_KEY,ANTHROPIC_API_KEY \
-		--optional essent-ai:WOODPECKER_URL,WOODPECKER_API_TOKEN
+		--required codex_llm_apikeys:GEMINI_API_KEY,OPENAI_API_KEY,ANTHROPIC_API_KEY
 	@echo "Done."
 
 docker-up: docker-check-env
@@ -95,13 +94,13 @@ docker-health:
 	@python3 scripts/docker-health-check.py --profiles "$(PROFILE)"
 
 docker-down:
-	docker compose --profile core --profile browser --profile cicd down
+	docker compose --profile core --profile browser down
 
 docker-logs:
-	docker compose --profile core --profile browser --profile cicd logs -f
+	docker compose --profile core --profile browser logs -f
 
 docker-ps:
-	docker compose --profile core --profile browser --profile cicd ps
+	docker compose --profile core --profile browser ps
 
 ## Bootstrap dependency check (admin-only prerequisites)
 

@@ -30,7 +30,6 @@
         "aws-secrets-agent",
         "mcp-second-opinion",
         "mcp-nano-banana",
-        "mcp-woodpecker-ci",
         "mcp-playwright-persistent",
         "second-opinion-mcp"
       ],

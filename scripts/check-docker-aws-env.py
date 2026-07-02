@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 from typing import Mapping
 
-AWS_SIDECAR_PROFILES = {"core", "cicd"}
+AWS_SIDECAR_PROFILES = {"core"}
 REQUIRED_AWS_ENV = ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY")
 INSECURE_DEFAULT_TOKEN = "default-token"
 
@@ -142,8 +142,8 @@ def main() -> int:
         )
         print("If a stale sidecar was already created with empty creds, force-recreate it after fixing env:")
         print(
-            "  docker compose --profile core --profile cicd up -d --force-recreate "
-            "aws-secrets-agent mcp-second-opinion mcp-woodpecker-ci"
+            "  docker compose --profile core up -d --force-recreate "
+            "aws-secrets-agent mcp-second-opinion"
         )
         return 1
 

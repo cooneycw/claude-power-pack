@@ -42,9 +42,7 @@ export AWS_TOKEN=cpp-smoke-token
 export MCP_SECOND_OPINION_PORT_MAPPING=8080
 export MCP_PLAYWRIGHT_PORT_MAPPING=8081
 export MCP_NANO_BANANA_PORT_MAPPING=8084
-export MCP_WOODPECKER_CI_PORT_MAPPING=8085
 export SECOND_OPINION_AWS_SECRET_NAME=
-export WOODPECKER_CI_AWS_SECRET_NAME=
 
 # The fake AWS creds above mean the real secrets-agent cannot fetch, so the
 # secret-consuming servers start in local-dev (keyless) mode. Inject dummy keys
@@ -52,8 +50,6 @@ export WOODPECKER_CI_AWS_SECRET_NAME=
 # readiness gate can succeed. These are never used to call a provider - /readyz
 # only checks that config is present.
 export GEMINI_API_KEY=cpp-smoke-gemini-key
-export WOODPECKER_URL=http://woodpecker.invalid
-export WOODPECKER_API_TOKEN=cpp-smoke-woodpecker-token
 
 # Compose invocation that includes the CI-only smoke override (fake agent +
 # fetch-probe, both under the "smoke" profile).
@@ -163,7 +159,6 @@ check_internal_http aws-secrets-agent 2773 /ping "X-Aws-Parameters-Secrets-Token
 check_http mcp-second-opinion 8080 /readyz
 check_http mcp-playwright-persistent 8081 /readyz
 check_http mcp-nano-banana 8084 /readyz
-check_http mcp-woodpecker-ci 8085 /readyz
 
 # --- (2) Cross-container reachability of the REAL agent ---------------------
 # Reach the agent by its compose network name from a different container. The
