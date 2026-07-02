@@ -15,6 +15,30 @@
   prototype skill into a first-class, shipped command listed in `/codex:help`,
   `/cpp:help`, `/cpp:init` (Tier 5), and the CLAUDE.md Codex Orchestration
   section.
+- **Orphaned Docker MCP teardown in `/cpp:update`** (issue #405) - `/cpp:update`
+  now detects and offers guided teardown of stale Docker MCP infrastructure left
+  behind when a server is removed from `docker-compose.yml`: the old container,
+  its `mcp-<name>:*` images, and any `claude`/`codex mcp` registration. Step 6c
+  detects, Step 7 tears down per-server with confirmation (keeping the newest
+  image tag as a restore point unless prune-all is chosen), mirroring the skill
+  drift design (#395). `/cpp:status` surfaces orphaned Docker MCPs too, closing
+  the blind spot where a removed server kept running unreported.
+- `scripts/mcp-drift.py` - classifies deprecated MCP servers against the curated
+  `.claude/deprecated-mcps.yaml` as ORPHANED DOCKER MCP / OK / ABSENT / UNKNOWN,
+  with `--check`, `--json`, `--list-orphans`, `--plan`, and a guarded
+  `--teardown` (`--prune-all-images` to drop the restore point). A server is
+  orphaned only when it is on the list **and** gone from
+  `docker compose config --services` (all profiles) **and** still present locally;
+  teardown hard-refuses anything still shipped, absent, or not on the list - so a
+  user's own custom MCP registration is never removed. Detection is curated-list
+  driven, not a blanket "not in compose" sweep.
+- `.claude/deprecated-mcps.yaml` - curated retired-MCP list of record (companion
+  to `.claude/deprecated-skills.yaml`), seeded with `mcp-nano-banana` (#401),
+  `mcp-woodpecker-ci` (#404), and the retired `mcp-coordination` server.
+- `scripts/drift-detect.sh` - derives the current service set dynamically from
+  `docker compose config --services` and flags orphaned Docker MCPs via
+  `mcp-drift.py`, so a removed server is torn down instead of silently forgotten
+  by the hardcoded server arrays.
 
 ### Changed
 

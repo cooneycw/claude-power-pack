@@ -420,6 +420,25 @@ done
 if [ "$LEGACY_SYSTEMD_FOUND" -eq 0 ]; then
   echo "  none (ok)"
 fi
+
+# Check orphaned Docker MCP servers (removed from compose but still present as a
+# container, mcp-<name>:* image, or claude/codex registration). Driven by the
+# curated .claude/deprecated-mcps.yaml list of record (issue #405). This closes
+# the blind spot where a removed Docker server kept running unreported.
+echo ""
+echo "Orphaned Docker MCP (teardown available via /cpp:update):"
+if command -v docker &>/dev/null && [ -f "$CPP_DIR/scripts/mcp-drift.py" ]; then
+  ORPHAN_MCPS="$(python3 "$CPP_DIR/scripts/mcp-drift.py" --list-orphans 2>/dev/null || true)"
+  if [ -n "$ORPHAN_MCPS" ]; then
+    while IFS= read -r m; do
+      [ -n "$m" ] && echo "  [!] $m: removed from docker-compose.yml but still present - run /cpp:update to tear down"
+    done <<< "$ORPHAN_MCPS"
+  else
+    echo "  none (ok)"
+  fi
+else
+  echo "  skipped (docker or mcp-drift.py unavailable)"
+fi
 ```
 
 ## Step 5: Check Tier 4 (CI/CD)

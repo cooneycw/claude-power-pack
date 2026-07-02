@@ -236,3 +236,91 @@ def test_drift_detect_no_false_conflict_when_units_absent(tmp_path: Path) -> Non
     output = result.stdout
     assert "deployment model conflict" not in output
     assert "no Docker/systemd conflicts or failed units" in output
+
+
+def test_drift_detect_flags_orphaned_docker_mcp(tmp_path: Path) -> None:
+    """A curated server (nano-banana) that is gone from `docker compose config
+    --services` but still present as a container must be surfaced as an orphaned
+    Docker MCP, with a teardown plan under --fix. Exercises the mcp-drift.py
+    delegation added for issue #405."""
+    home = tmp_path / "home"
+    (home / ".config" / "systemd" / "user").mkdir(parents=True)  # no systemd units
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    _write_executable(bin_dir / "uv", "#!/usr/bin/env bash\nexit 0\n")
+    _write_executable(
+        bin_dir / "docker",
+        """
+        #!/usr/bin/env bash
+        if [[ "$1" == "--version" ]]; then echo "Docker version 26.0.0"; exit 0; fi
+        if [[ "$1" == "compose" && "$2" == "version" ]]; then echo "Docker Compose version v2.27.0"; exit 0; fi
+        if [[ "$1" == "compose" && "$*" == *"config --profiles"* ]]; then
+          echo core; echo browser; echo cicd; exit 0
+        fi
+        if [[ "$1" == "compose" && "$*" == *"config --services"* ]]; then
+          # nano-banana deliberately ABSENT from the current service set
+          echo mcp-second-opinion; echo mcp-playwright-persistent
+          echo mcp-woodpecker-ci; echo aws-secrets-agent; exit 0
+        fi
+        if [[ "$1" == "compose" && "$*" == *" ps "* ]]; then
+          echo "mcp-nano-banana:Up (healthy)"; exit 0
+        fi
+        if [[ "$1" == "ps" && "$2" == "-a" ]]; then
+          printf 'mcp-nano-banana\\trunning\\n'; exit 0   # still present locally
+        fi
+        if [[ "$1" == "ps" ]]; then echo "mcp-nano-banana:Up 2 hours (healthy)"; exit 0; fi
+        if [[ "$1" == "images" ]]; then exit 0; fi
+        exit 0
+        """,
+    )
+    _write_executable(
+        bin_dir / "systemctl",
+        """
+        #!/usr/bin/env bash
+        args="$*"
+        if [[ "$args" == *"show -p LoadState"* ]]; then echo "not-found"; exit 0; fi
+        if [[ "$args" == *"is-active"* ]]; then echo "inactive"; exit 0; fi
+        exit 0
+        """,
+    )
+    _write_executable(
+        bin_dir / "claude",
+        """
+        #!/usr/bin/env bash
+        if [[ "$1" == "mcp" && "$2" == "list" ]]; then echo "nano-banana"; exit 0; fi
+        if [[ "$1" == "mcp" && "$2" == "get" ]]; then echo "Scope: local"; exit 0; fi
+        exit 0
+        """,
+    )
+    _write_executable(bin_dir / "codex", "#!/usr/bin/env bash\nexit 0\n")
+    _write_executable(bin_dir / "ss",
+        "#!/usr/bin/env bash\necho 'State Recv-Q Send-Q Local Address:Port Peer Address:Port Process'\n")
+    _write_executable(
+        bin_dir / "sysctl",
+        """
+        #!/usr/bin/env bash
+        case "$2" in
+          vm.swappiness) echo 10 ;;
+          vm.vfs_cache_pressure) echo 50 ;;
+          fs.inotify.max_user_watches) echo 524288 ;;
+          fs.inotify.max_user_instances) echo 512 ;;
+          *) echo unknown ;;
+        esac
+        """,
+    )
+
+    env = os.environ.copy()
+    env.update({"HOME": str(home), "PATH": f"{bin_dir}:{env['PATH']}", "USER": "tester"})
+
+    result = subprocess.run(
+        ["bash", str(DRIFT_SCRIPT), "--fix"],
+        cwd=ROOT, env=env, text=True,
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False,
+    )
+
+    output = result.stdout
+    assert result.returncode == 1
+    assert "orphaned Docker MCP mcp-nano-banana" in output
+    assert "docker rm -f mcp-nano-banana" in output          # teardown plan under --fix
+    assert "claude mcp remove nano-banana" in output

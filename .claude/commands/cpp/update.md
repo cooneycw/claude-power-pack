@@ -479,6 +479,9 @@ Status classifications:
 - **LEGACY SYSTEMD** - systemd unit remains for a current Docker server; teardown only
 - **LEGACY DEPRECATED** - deprecated server has a systemd unit; teardown only
 - **ORPHANED LEGACY** - installed/running legacy unit is no longer a repo Docker server
+- **ORPHANED DOCKER MCP** - a curated retired server (`.claude/deprecated-mcps.yaml`)
+  that is no longer in `docker-compose.yml` but is still present locally as a
+  container, an `mcp-<name>:*` image, or a `claude`/`codex mcp` registration
 - **PORT CONFLICT** - multiple listener processes are bound to the same MCP port
 - **NEW - NOT INSTALLED** - repo ships it but it is not installed
 - **NOT RUNNING** - installed but service/container is not active
@@ -493,6 +496,37 @@ Use `scripts/drift-detect.sh --fix` as raw inventory for:
 When presenting the final drift table, reclassify any systemd finding from that
 script as `LEGACY SYSTEMD`, `LEGACY DEPRECATED`, or `ORPHANED LEGACY`. Do not
 report systemd as `CONFLICT`, `FAILED SYSTEMD`, or `STALE SERVICE`.
+
+### 6c: Detect Orphaned Docker MCP Servers
+
+Systemd orphans are only half the picture: when a server is removed from
+`docker-compose.yml`, a machine that ran it keeps the old container, the old
+`mcp-<name>:*` images, and a live `claude`/`codex mcp` registration on a
+now-unmanaged port. `scripts/mcp-drift.py` detects those, driven by the curated
+`.claude/deprecated-mcps.yaml` list of record (never a blanket "every
+registration not in compose" sweep, which would tear down a user's own custom
+MCP servers).
+
+```bash
+cd "$CPP_DIR"
+
+MCP_DOCKER_DRIFT_STATUS="clean"
+python3 scripts/mcp-drift.py --check
+MCP_DOCKER_DRIFT_RC=$?
+```
+
+A server is classified **ORPHANED DOCKER MCP** only when it is listed in
+`deprecated-mcps.yaml` **and** no longer a service in
+`docker compose config --services` (across every profile) **and** still present
+locally. A server that is still a compose service is `OK`; a listed server with
+nothing present is `ABSENT`; if the current service set cannot be read the
+server is `UNKNOWN` (never torn down). Registrations CPP never shipped are never
+listed, so they are never flagged.
+
+Limitation to surface if asked: like skill drift, detection is curated-list
+driven. A server removed from compose without a `deprecated-mcps.yaml` entry
+reads as `ABSENT`/untracked; the fix is to add it to that file, not to broaden
+the teardown.
 
 ---
 
@@ -519,6 +553,65 @@ Options:
 
 If they choose teardown, use the same scope-aware removal commands from Step
 4.5 and re-run drift detection to verify no legacy units remain.
+
+### For ORPHANED DOCKER MCP findings
+
+**Only if `MCP_DOCKER_DRIFT_RC` is 1** (Step 6c found orphans). Pull the
+structured findings and drive a per-server, user-confirmed teardown. Teardown is
+reversible-where-possible: images keep a newest-tag restore point unless the user
+chooses prune-all, and `mcp-drift.py` hard-refuses to touch anything not
+classified `ORPHANED DOCKER MCP`.
+
+```bash
+cd "$CPP_DIR"
+python3 scripts/mcp-drift.py --json > /tmp/mcp-drift.json
+```
+
+For each orphaned server, show the user what is present (container, image tags,
+`claude`/`codex` registrations) plus its `reason` and `replacement`, and ask once
+per server with AskUserQuestion:
+
+```
+mcp-nano-banana was removed from docker-compose.yml but is still on this machine
+({reason}).
+Replacement: {replacement}
+Present: {container} container, {N} image tag(s), claude:{regs}, codex:{regs}
+Port to reclaim: {port}
+```
+
+Options:
+- **Tear down (keep a restore image)** - stop + remove the container, prune old
+  `mcp-<name>:*` image tags but keep the newest as a restore point, unregister
+  from `claude`/`codex mcp`. Runs:
+  ```bash
+  python3 scripts/mcp-drift.py --teardown <name>
+  ```
+- **Tear down (prune all images)** - same, but remove every `mcp-<name>:*` image:
+  ```bash
+  python3 scripts/mcp-drift.py --teardown <name> --prune-all-images
+  ```
+- **Keep** - leave it in place (re-runs of /cpp:update will keep flagging it).
+
+The teardown stops and removes the container (`docker stop` / `docker rm -f`),
+prunes images, removes the `claude mcp` registration at its detected scope
+(`claude mcp remove <name> -s <scope>`), removes any `codex mcp` registration,
+and reports the freed port and image tags. After all confirmed teardowns, re-scan
+and record the outcome for the summary:
+
+```bash
+cd "$CPP_DIR"
+python3 scripts/mcp-drift.py --check
+if [ $? -eq 0 ]; then
+  MCP_DOCKER_DRIFT_STATUS="torn down (newest image kept as restore point unless prune-all)"
+else
+  MCP_DOCKER_DRIFT_STATUS="drift remaining (user kept some servers)"
+fi
+```
+
+Never tear down a server the user chose to keep, and never tear down without an
+explicit per-server confirmation. `mcp-drift.py` refuses any server still in
+compose (`OK`), any with nothing present (`ABSENT`), and any name not on the
+curated list - so a user's own custom MCP registration is never removed.
 
 ### For NEW servers (in repo, not installed):
 
@@ -763,6 +856,10 @@ MCP Drift:
   {drift summary - e.g. "1 new server refreshed via Docker, 1 legacy unit removed"
    or "No drift detected - all servers in sync"}
 
+Docker MCP Drift:
+  {MCP_DOCKER_DRIFT_STATUS - e.g. "clean", "torn down (newest image kept as restore
+   point unless prune-all)", or "drift remaining (user kept some servers)"}
+
 Skill Drift:
   {SKILL_DRIFT_STATUS - e.g. "clean", "pruned (backup under ~/.claude/.backup/skills/)",
    or "drift remaining (user kept some skills)"}
@@ -783,6 +880,12 @@ Run /cpp:status for full installation details.
 - Legacy systemd units are detected before Docker refresh and are removed only after user confirmation
 - MCP drift detection compares repo state against Docker containers, legacy systemd remnants, claude mcp registrations, and listening ports
 - Orphaned legacy systemd units such as `mcp-coordination` are flagged for teardown
+- Orphaned Docker MCP infra (Step 6c/7) - a container, `mcp-<name>:*` image, or
+  `claude`/`codex mcp` registration left behind after a server is removed from
+  `docker-compose.yml` - is detected via the curated `.claude/deprecated-mcps.yaml`
+  list and torn down per-server with confirmation, keeping a newest-image restore
+  point unless prune-all is chosen. Driven by `scripts/mcp-drift.py`; a user's own
+  custom MCP registration is never flagged or removed
 - New servers are offered only through the Docker refresh path
 - mcp-evaluate is recognized as deprecated and flagged for legacy teardown if installed
 - Skill drift (Step 7.5) prunes retired generated skills using the curated

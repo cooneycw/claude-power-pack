@@ -31,7 +31,7 @@ Core components and their locations:
 - `lib/security/` - Security scanning (native + external tools)
 - `lib/cicd/` - CI/CD framework detection, Makefile generation, health/smoke checks, deterministic runner, deployment strategies, Pydantic v2 config validation
 - `lib/spec_bridge/` - Spec-to-GitHub-issue sync
-- `scripts/` - Shell utilities (prompt-context, worktree-remove, hooks, drift-detect, skill-drift)
+- `scripts/` - Shell utilities (prompt-context, worktree-remove, hooks, drift-detect, skill-drift, mcp-drift)
 - `templates/` - Makefile, workflow, container templates
 - `docker-compose.yml` - MCP server orchestration (profiles: `core`, `browser`)
 - `.woodpecker.yml` - Woodpecker CI pipeline (lint, test, typecheck, image security gates, runtime smoke)
@@ -65,7 +65,7 @@ MCP containers fetch API keys at startup from AWS Secrets Manager via an `aws-se
 - **Runtime smoke:** CI uses a `cpp-smoke-$CI_PIPELINE_NUMBER` compose project with random host ports (driven by `scripts/runtime-smoke.sh`), validates service health, asserts the agent is reachable cross-container at `http://aws-secrets-agent:2773` (proving the `0.0.0.0` bind), exercises the client's real fetch/parse/export path via a hermetic fake agent (`scripts/fake-secrets-agent.py` + `docker-compose.smoke.yml`) with a non-empty `AWS_SECRET_NAME`, and drives a secret through the **REAL** `aws-secrets-agent` binary against a LocalStack Secrets Manager (real AWS SDK `GetSecretValue` via `AWS_ENDPOINT_URL`, no production credentials) so a consumer actually receives a genuinely-fetched secret (issue #377). In-container readiness probes are retried (up to 10x, 3s apart) so a transient post-`--wait` connection refusal does not fail the build; on genuine exhaustion the step dumps `docker compose ps` and the failing service's recent logs (issue #375). It runs `docker compose down -v` before exiting. CI must not deploy persistent containers or prune host images.
 - **Image security gates:** CI runs hadolint over every Dockerfile, validates `docker compose config --quiet`, blocks rendered `:latest`, `default-token`, and host-published agent port regressions, then scans built images for fixed HIGH/CRITICAL CVEs and writes SPDX/CycloneDX SBOMs to `artifacts/sbom/`.
 - **Bootstrap checks:** `make bootstrap-check` verifies admin-only prerequisites (IAM roles, secrets provisioning) before deploy. Configure in `.claude/bootstrap.yaml`. Runs as the first step in the deploy pipeline - blocks with remediation if unsatisfied.
-- **Drift detection:** `make drift-check` compares host-installed artifacts against repo templates and treats remaining systemd MCP units as legacy migration findings. Run it manually when reconciling workstation-managed artifacts. See `docs/HOST_MANAGED_ARTIFACTS.md` for full inventory.
+- **Drift detection:** `make drift-check` compares host-installed artifacts against repo templates and treats remaining systemd MCP units as legacy migration findings. It also flags **orphaned Docker MCP servers** - a container, `mcp-<name>:*` image, or `claude`/`codex mcp` registration left behind after a server is removed from `docker-compose.yml` - by deriving the current service set from `docker compose config --services` and matching against the curated `.claude/deprecated-mcps.yaml` list of record (via `scripts/mcp-drift.py`). Detection is curated-list driven so a user's own custom MCP registration is never flagged; teardown is offered per-server, user-confirmed, and keeps a newest-image restore point unless prune-all is chosen (run `/cpp:update`, or `python3 scripts/mcp-drift.py --teardown <name>`). Run it manually when reconciling workstation-managed artifacts. See `docs/HOST_MANAGED_ARTIFACTS.md` for full inventory.
 - **Reproducible builds:** Every base image and build tool (python, rust, debian, `uv`, gitleaks, woodpecker server/agent) is pinned by version tag plus `@sha256:` digest in the Dockerfiles, `.woodpecker.yml`, and infra compose files - never `:latest`. Deployable images are tagged with `CPP_IMAGE_TAG` (the short git SHA, set by the Makefile) instead of `:latest`, so each image traces to a commit and rollbacks have provenance. `renovate.json` rotates the pinned digests on a weekly schedule so pinning never freezes security updates.
 
 ## Commands Reference
@@ -167,7 +167,7 @@ MCP containers fetch API keys at startup from AWS Secrets Manager via an `aws-se
 - `/dockers` - Docker container status, health, project linkages
 - `/cpp:init` - Interactive setup wizard (Tiers: Minimal, Standard, Full, CI/CD, Codex)
 - `/cpp:status` - Check installation state
-- `/cpp:update` - Pull latest, sync deps, migrate legacy systemd units if present, refresh Docker local-build runtime, then prune retired/orphaned generated skills via the curated `.claude/deprecated-skills.yaml` (Step 7.5, user-confirmed)
+- `/cpp:update` - Pull latest, sync deps, migrate legacy systemd units if present, refresh Docker local-build runtime, tear down orphaned Docker MCP infra via the curated `.claude/deprecated-mcps.yaml` (Step 6c/7, user-confirmed), then prune retired/orphaned generated skills via the curated `.claude/deprecated-skills.yaml` (Step 7.5, user-confirmed)
 - `/self-improvement:deployment` - Retrospective analysis after failed deploys
 - `/happy-check` - Check happy-cli version (optional)
 
