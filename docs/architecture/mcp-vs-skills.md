@@ -67,7 +67,7 @@ Moving functionality from MCP to Skill (or vice versa):
 |---------|------|-----|
 | Code review via Gemini | MCP | Calls external Gemini API |
 | Browser screenshots | MCP | Controls Chromium process |
-| Diagram generation | MCP | Renders HTML, captures images |
+| PowerPoint generation | Skill | Native `pptx` skill (`anthropics/skills@pptx`), no server process |
 | `/evaluate:issue` workflow | Skill | Orchestrates existing MCP tools |
 | Best practices loading | Skill | Loads reference docs on demand |
 | Security scanning | Skill + lib | Runs local Python modules |
@@ -79,7 +79,7 @@ CPP uses Docker Compose profiles to manage MCP servers:
 
 | Profile | Services | Use Case |
 |---------|----------|----------|
-| `core` | Second Opinion, Nano-Banana | Essential MCP servers |
+| `core` | Second Opinion | Essential MCP servers |
 | `browser` | Playwright | Browser automation for testing |
 
 **Secrets:** Use env_file with a root `.env` (gitignored), never hardcode keys in Dockerfiles. For production, use Docker secrets or AWS Secrets Manager.

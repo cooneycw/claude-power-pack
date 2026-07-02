@@ -39,7 +39,7 @@ If no containers are running, report:
 No Docker containers found.
 
 Start MCP servers with: make docker-up PROFILE=core
-Available profiles: core (second-opinion + nano-banana), browser (playwright)
+Available profiles: core (second-opinion), browser (playwright)
 ```
 
 ### Step 3: Health Check Each MCP Container
@@ -49,7 +49,7 @@ For each container with an exposed port, hit the health endpoint:
 ```bash
 # Known MCP server ports and their health endpoints
 # Uses portable for-loop pattern (POSIX-compatible, no bash 4+ associative arrays)
-for pair in "mcp-second-opinion:8080" "mcp-nano-banana:8084" "mcp-playwright-persistent:8081"; do
+for pair in "mcp-second-opinion:8080" "mcp-playwright-persistent:8081"; do
     name="${pair%%:*}"
     port="${pair##*:}"
     response=$(curl -sf --max-time 3 "http://127.0.0.1:${port}/" 2>/dev/null)
@@ -101,7 +101,6 @@ Present a structured report:
 | Container | Port | Health | Version | Project | Profile |
 |-----------|------|--------|---------|---------|---------|
 | mcp-second-opinion | 8080 | healthy | v1.9.0 | claude-power-pack | core |
-| mcp-nano-banana | 8084 | healthy | v1.0.0 | claude-power-pack | core |
 | mcp-playwright-persistent | 8081 | healthy | - | claude-power-pack | browser |
 
 ### Other Containers

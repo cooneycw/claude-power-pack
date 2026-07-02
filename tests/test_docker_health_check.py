@@ -23,7 +23,6 @@ def test_sidecar_dependency_warning_recommends_force_recreate() -> None:
     rows = [
         {"Service": "aws-secrets-agent", "State": "restarting", "Health": "unhealthy"},
         {"Service": "mcp-second-opinion", "State": "created", "Health": ""},
-        {"Service": "mcp-nano-banana", "State": "running", "Health": "healthy"},
     ]
 
     warning = module._sidecar_dependency_warning(rows, ["core"])

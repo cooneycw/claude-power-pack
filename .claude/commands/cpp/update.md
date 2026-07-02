@@ -111,7 +111,7 @@ If MCP server venvs exist, sync dependencies to pick up any new packages:
 ```bash
 cd "$CPP_DIR"
 
-for server_dir in mcp-second-opinion mcp-playwright-persistent mcp-nano-banana; do
+for server_dir in mcp-second-opinion mcp-playwright-persistent; do
   if [ -d "$server_dir/.venv" ]; then
     echo ""
     echo "Syncing dependencies for $server_dir..."
@@ -137,8 +137,6 @@ Known legacy unit names to scan:
 - `mcp-playwright`
 - `mcp-playwright-persistent`
 - `playwright-persistent`
-- `nano-banana`
-- `mcp-nano-banana`
 - `mcp-evaluate`
 - `evaluate`
 - `mcp-coordination`
@@ -184,8 +182,6 @@ second-opinion
 mcp-playwright
 mcp-playwright-persistent
 playwright-persistent
-nano-banana
-mcp-nano-banana
 mcp-evaluate
 evaluate
 mcp-coordination
@@ -440,7 +436,6 @@ Compare the inventories and classify each finding. Use the following logic:
 
 **Known repo servers** (from docker-compose.yml, not commented out):
 - `mcp-second-opinion` (port 8080, profile: core)
-- `mcp-nano-banana` (port 8084, profile: core)
 - `mcp-playwright-persistent` (port 8081, profile: browser)
 
 **Deprecated servers** (commented out in docker-compose.yml):
@@ -468,7 +463,6 @@ MCP Server Drift Report
 Server                    Repo    Docker    MCP Reg   Port    Legacy Units              Status
 -----------------------------------------------------------------------------------------------
 mcp-second-opinion        yes     healthy   yes       8080    user:mcp-second-opinion   LEGACY SYSTEMD
-mcp-nano-banana           yes     healthy   no        8084    none                      NOT REGISTERED
 mcp-playwright-persistent yes     healthy   yes       8081    system:mcp-playwright     LEGACY SYSTEMD
 mcp-coordination          no      none      yes       8082    system:mcp-coordination   ORPHANED LEGACY
 mcp-evaluate              depr.   none      no        --      user:mcp-evaluate         LEGACY DEPRECATED
@@ -525,10 +519,10 @@ If they choose teardown, use the same scope-aware removal commands from Step
 Ask the user per server:
 
 ```
-mcp-nano-banana is available in the repo but not installed.
-  - Port: 8084
-  - Docker profile: core
-  - Purpose: Diagram generation + PowerPoint creation
+mcp-woodpecker-ci is available in the repo but not installed.
+  - Port: 8085
+  - Docker profile: cicd
+  - Purpose: Woodpecker CI pipeline management
 ```
 
 Options:
@@ -571,7 +565,7 @@ Options:
 ### For NOT REGISTERED servers (running but not in claude mcp list):
 
 ```
-mcp-nano-banana is running on port 8084 but not registered with Claude Code.
+mcp-second-opinion is running on port 8080 but not registered with Claude Code.
 ```
 
 Options:

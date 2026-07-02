@@ -231,7 +231,7 @@ echo ""
 echo "MCP Servers (Codex):"
 if command -v codex &>/dev/null; then
   CODEX_LIST=$(codex mcp list 2>/dev/null || echo "")
-  for server in second-opinion playwright-persistent nano-banana; do
+  for server in second-opinion playwright-persistent; do
     if echo "$CODEX_LIST" | grep -q "$server"; then
       echo "  [x] $server: registered"
     else
@@ -245,7 +245,7 @@ fi
 # Check MCP transport endpoints
 echo ""
 echo "MCP Transport Endpoints:"
-for entry in "8080:second-opinion" "8081:playwright-persistent" "8084:nano-banana"; do
+for entry in "8080:second-opinion" "8081:playwright-persistent"; do
   PORT="${entry%%:*}"
   NAME="${entry#*:}"
   SSE_OK=$(curl -sf --max-time 2 -o /dev/null -w '%{http_code}' "http://127.0.0.1:${PORT}/sse" 2>/dev/null || echo "000")
@@ -372,8 +372,6 @@ second-opinion
 mcp-playwright
 mcp-playwright-persistent
 playwright-persistent
-nano-banana
-mcp-nano-banana
 mcp-evaluate
 evaluate
 mcp-coordination
@@ -517,7 +515,7 @@ fi
 # Check Codex MCP registrations
 if command -v codex &>/dev/null; then
   CODEX_MCP=$(codex mcp list 2>/dev/null || echo "")
-  for server in second-opinion playwright-persistent nano-banana; do
+  for server in second-opinion playwright-persistent; do
     if echo "$CODEX_MCP" | grep -q "$server"; then
       echo "  [x] Codex MCP: $server registered"
     else
@@ -601,7 +599,6 @@ Tier 5 (Codex):
   [x] OpenAI API key: set in environment
   [x] Codex MCP: second-opinion registered
   [x] Codex MCP: playwright-persistent registered
-  [x] Codex MCP: nano-banana registered
   [x] Codex commands: 4/4 available
   Status: Complete
 

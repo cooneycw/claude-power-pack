@@ -291,7 +291,7 @@ docker compose -p "cpp-smoke-${CI_PIPELINE_NUMBER:-local}" --profile core --prof
 ### 4. Tailscale ACL restrictions
 
 - Dedicated CI tag (`tag:ci-agent`)
-- ACL: allow CI agent only to MCP host ports (8080, 8081, 8084) and SSH
+- ACL: allow CI agent only to MCP host ports (8080, 8081) and SSH
 - Block lateral movement
 
 ### 5. Document/script Woodpecker server setup

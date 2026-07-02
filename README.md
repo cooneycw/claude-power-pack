@@ -5,10 +5,10 @@
 ## What It Does
 
 - **Workflow commands** (`/flow:auto`, `/flow:start`, `/flow:eli5`, `/flow:finish`) - Issue-driven development with worktrees, a pre-implementation ELI5 plan/necessity approval gate, quality gates, automated PR lifecycle, and CI verification
-- **MCP servers** - Three containerized servers extending Claude Code's capabilities:
+- **MCP servers** - Two containerized servers extending Claude Code's capabilities:
   - **Second Opinion** (port 8080) - Multi-model code review via external LLMs (Gemini, OpenAI, Anthropic)
   - **Playwright Persistent** (port 8081) - Browser automation with 29 tools
-  - **Nano Banana** (port 8084) - Diagram generation and PowerPoint creation
+- **PowerPoint generation** - Slide decks via the native Anthropic `pptx` skill (`npx skills add anthropics/skills@pptx`)
 - **Security scanning** (`/security:scan`) - Native vulnerability detection with git history analysis
 - **Secrets management** (`/secrets:*`) - Tiered credential storage (dotenv, env-file, AWS Secrets Manager) with audit logging and a web UI
 - **CI/CD integration** (`/cicd:*`) - Framework detection, Makefile generation, health checks, and IaC scaffolding
@@ -41,7 +41,7 @@ make verify
 # Start MCP servers (local .env or CI env provides AWS credentials)
 # local .env needs: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_TOKEN
 make docker-secrets-check              # Validate AWS connectivity
-make docker-up PROFILE=core            # Second Opinion + Nano Banana
+make docker-up PROFILE=core            # Second Opinion
 make docker-up PROFILE="core browser"  # + Playwright
 make docker-refresh PROFILE="core browser"  # Rebuild, restart, wait for health
 
@@ -59,7 +59,6 @@ claude-power-pack/
   aws-secrets-agent/    AWS Secrets Manager sidecar (Rust, port 2773)
   mcp-second-opinion/   Code review MCP server
   mcp-playwright-persistent/  Browser automation MCP server
-  mcp-nano-banana/      Diagram + PowerPoint MCP server
   lib/creds/            Secrets management library
   lib/security/         Security scanning library
   lib/cicd/             CI/CD framework detection and generation
@@ -94,7 +93,7 @@ claude-power-pack/
 MCP servers run as Docker containers organized by profile:
 
 ```bash
-make docker-up PROFILE=core       # second-opinion + nano-banana
+make docker-up PROFILE=core       # second-opinion
 make docker-up PROFILE="core browser"  # + playwright
 make docker-refresh PROFILE="core browser"  # transactional rebuild/restart with health gate
 make docker-ps                    # container status

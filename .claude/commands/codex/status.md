@@ -88,7 +88,7 @@ echo ""
 if command -v codex &>/dev/null; then
     CODEX_MCP=$(codex mcp list 2>/dev/null || echo "")
     if [ -n "$CODEX_MCP" ]; then
-        for server in second-opinion playwright-persistent nano-banana; do
+        for server in second-opinion playwright-persistent; do
             if echo "$CODEX_MCP" | grep -q "$server"; then
                 echo "[x] $server: registered with Codex"
             else

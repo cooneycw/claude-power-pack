@@ -1,3 +1,5 @@
+> **Status: superseded.** nano-banana removed in #401; PPTX now via the native Anthropic pptx skill; C4 diagram rendering descoped pending #411.
+
 # Implementation Plan: PowerPoint Skill + Nano-Banana Diagram MCP
 
 > **Issue:** #161

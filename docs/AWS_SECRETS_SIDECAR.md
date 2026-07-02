@@ -206,7 +206,7 @@ The sidecar is configured via `aws-secrets-agent/config.toml`:
 
 The sidecar is included in the `core` profile and starts automatically when dependent services are activated:
 
-- `make docker-up PROFILE=core` - starts sidecar + second-opinion + nano-banana
+- `make docker-up PROFILE=core` - starts sidecar + second-opinion
 
 ## Dockerfile Patches
 

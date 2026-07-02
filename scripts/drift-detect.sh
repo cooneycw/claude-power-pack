@@ -38,27 +38,22 @@ FIX_MODE=false
 # be handled as deployment remnants instead of being mistaken for new servers.
 MCP_SERVERS=(
     "mcp-second-opinion"
-    "mcp-nano-banana"
     "mcp-playwright-persistent"
 )
 declare -A MCP_DOCKER_CONTAINERS=(
     ["mcp-second-opinion"]="mcp-second-opinion"
-    ["mcp-nano-banana"]="mcp-nano-banana"
     ["mcp-playwright-persistent"]="mcp-playwright-persistent"
 )
 declare -A MCP_SYSTEMD_UNITS=(
     ["mcp-second-opinion"]="mcp-second-opinion"
-    ["mcp-nano-banana"]="nano-banana mcp-nano-banana"
     ["mcp-playwright-persistent"]="mcp-playwright mcp-playwright-persistent"
 )
 declare -A MCP_PORTS=(
     ["mcp-second-opinion"]="8080"
-    ["mcp-nano-banana"]="8084"
     ["mcp-playwright-persistent"]="8081"
 )
 declare -A MCP_REGISTRATIONS=(
     ["mcp-second-opinion"]="second-opinion mcp-second-opinion"
-    ["mcp-nano-banana"]="nano-banana mcp-nano-banana"
     ["mcp-playwright-persistent"]="playwright-persistent mcp-playwright mcp-playwright-persistent"
 )
 declare -A DOCKER_STATUS=()
@@ -149,7 +144,6 @@ canonical_server_for_unit() {
     local unit="$1"
     case "$unit" in
         mcp-second-opinion) echo "mcp-second-opinion" ;;
-        nano-banana|mcp-nano-banana) echo "mcp-nano-banana" ;;
         mcp-playwright|mcp-playwright-persistent) echo "mcp-playwright-persistent" ;;
         *) echo "" ;;
     esac
