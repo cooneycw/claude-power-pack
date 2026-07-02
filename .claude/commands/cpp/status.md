@@ -206,7 +206,7 @@ fi
 # Check MCP server pyproject.toml files
 echo ""
 echo "MCP Server Projects:"
-for server in mcp-second-opinion mcp-playwright-persistent mcp-woodpecker-ci; do
+for server in mcp-second-opinion mcp-playwright-persistent; do
   if [ -f "$CPP_DIR/$server/pyproject.toml" ]; then
     echo "  [x] $server: pyproject.toml found"
   else
@@ -218,7 +218,7 @@ done
 echo ""
 echo "MCP Servers (Claude Code):"
 MCP_LIST=$(claude mcp list 2>/dev/null || echo "")
-for server in second-opinion playwright-persistent woodpecker-ci; do
+for server in second-opinion playwright-persistent; do
   if echo "$MCP_LIST" | grep -q "$server"; then
     echo "  [x] $server: registered"
   else
@@ -262,7 +262,7 @@ done
 # Check MCP server connectivity and API key status
 echo ""
 echo "MCP Server Connectivity:"
-for entry in "8080:second-opinion" "8081:playwright-persistent" "8085:woodpecker-ci"; do
+for entry in "8080:second-opinion" "8081:playwright-persistent"; do
   PORT="${entry%%:*}"
   NAME="${entry#*:}"
   HEALTH_RESPONSE=$(curl -sf --max-time 2 "http://127.0.0.1:${PORT}/" 2>/dev/null)
@@ -302,7 +302,7 @@ if [ -n "$SIDECAR_CONTAINER" ]; then
   fi
   # Show which MCP containers use the sidecar
   CREATED_SECRET_CONTAINERS=""
-  for container in mcp-second-opinion mcp-woodpecker-ci; do
+  for container in mcp-second-opinion; do
     SECRET_NAME=$(docker inspect --format='{{range .Config.Env}}{{println .}}{{end}}' "$container" 2>/dev/null | grep "^AWS_SECRET_NAME=" | cut -d= -f2)
     CONTAINER_STATE=$(docker inspect --format='{{.State.Status}}' "$container" 2>/dev/null || echo "missing")
     if [ -n "$SECRET_NAME" ]; then
@@ -317,7 +317,7 @@ if [ -n "$SIDECAR_CONTAINER" ]; then
     echo "      Secret-dependent containers are Created with no logs while aws-secrets-agent is not healthy."
     echo "      Docker Compose captured sidecar env at container create time; restart will not reload fixed creds."
     echo "      If .env or shell AWS creds are now valid, run:"
-    echo "      cd $CPP_DIR && docker compose --profile core --profile cicd up -d --force-recreate aws-secrets-agent mcp-second-opinion mcp-woodpecker-ci"
+    echo "      cd $CPP_DIR && docker compose --profile core up -d --force-recreate aws-secrets-agent mcp-second-opinion"
   fi
   # Check AWS credential validity
   if [ -f "$CPP_DIR/.env" ] && grep -qE '^AWS_ACCESS_KEY_ID=.+' "$CPP_DIR/.env" 2>/dev/null; then
@@ -374,8 +374,6 @@ mcp-playwright-persistent
 playwright-persistent
 nano-banana
 mcp-nano-banana
-mcp-woodpecker-ci
-woodpecker-ci
 mcp-evaluate
 evaluate
 mcp-coordination
@@ -390,7 +388,7 @@ DISCOVERED_LEGACY_SYSTEMD_UNITS="$(
       -printf '%f\n' 2>/dev/null || true
     systemctl --user list-units --type=service --all --no-legend --no-pager 2>/dev/null | awk '{print $1}' || true
     systemctl list-units --type=service --all --no-legend --no-pager 2>/dev/null | awk '{print $1}' || true
-  } | sed 's/\.service$//' | grep -E '^(mcp-|nano-|.*coordination|second-opinion|playwright-persistent|woodpecker-ci|evaluate|coordination)$' | sort -u
+  } | sed 's/\.service$//' | grep -E '^(mcp-|nano-|.*coordination|second-opinion|playwright-persistent|evaluate|coordination)$' | sort -u
 )"
 LEGACY_SYSTEMD_FOUND=0
 for unit in $DISCOVERED_LEGACY_SYSTEMD_UNITS; do
@@ -581,7 +579,6 @@ Tier 3 (Full):
   AWS Secrets Sidecar:
     [x] aws-secrets-agent: running, healthy (port 2773)
         mcp-second-opinion -> codex_llm_apikeys
-        mcp-woodpecker-ci -> essent-ai
     [x] AWS credentials: present in .env
     Secret method: AWS Secrets Manager
   Deployment Model:

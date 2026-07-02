@@ -40,31 +40,26 @@ MCP_SERVERS=(
     "mcp-second-opinion"
     "mcp-nano-banana"
     "mcp-playwright-persistent"
-    "mcp-woodpecker-ci"
 )
 declare -A MCP_DOCKER_CONTAINERS=(
     ["mcp-second-opinion"]="mcp-second-opinion"
     ["mcp-nano-banana"]="mcp-nano-banana"
     ["mcp-playwright-persistent"]="mcp-playwright-persistent"
-    ["mcp-woodpecker-ci"]="mcp-woodpecker-ci"
 )
 declare -A MCP_SYSTEMD_UNITS=(
     ["mcp-second-opinion"]="mcp-second-opinion"
     ["mcp-nano-banana"]="nano-banana mcp-nano-banana"
     ["mcp-playwright-persistent"]="mcp-playwright mcp-playwright-persistent"
-    ["mcp-woodpecker-ci"]=""
 )
 declare -A MCP_PORTS=(
     ["mcp-second-opinion"]="8080"
     ["mcp-nano-banana"]="8084"
     ["mcp-playwright-persistent"]="8081"
-    ["mcp-woodpecker-ci"]="8085"
 )
 declare -A MCP_REGISTRATIONS=(
     ["mcp-second-opinion"]="second-opinion mcp-second-opinion"
     ["mcp-nano-banana"]="nano-banana mcp-nano-banana"
     ["mcp-playwright-persistent"]="playwright-persistent mcp-playwright mcp-playwright-persistent"
-    ["mcp-woodpecker-ci"]="woodpecker-ci mcp-woodpecker-ci"
 )
 declare -A DOCKER_STATUS=()
 
@@ -156,7 +151,6 @@ canonical_server_for_unit() {
         mcp-second-opinion) echo "mcp-second-opinion" ;;
         nano-banana|mcp-nano-banana) echo "mcp-nano-banana" ;;
         mcp-playwright|mcp-playwright-persistent) echo "mcp-playwright-persistent" ;;
-        mcp-woodpecker-ci) echo "mcp-woodpecker-ci" ;;
         *) echo "" ;;
     esac
 }
@@ -410,7 +404,6 @@ check_go_binary() {
             ok "woodpecker-mcp - binary present and executable"
         else
             drift "woodpecker-mcp - binary exists but fails to execute"
-            fix "Re-run: $REPO_ROOT/mcp-woodpecker-ci/scripts/setup-go-binary.sh"
         fi
     fi
 
@@ -421,7 +414,6 @@ check_go_binary() {
     else
         if [[ -x "$binary" ]]; then
             drift "woodpecker-mcp - binary installed but config missing"
-            fix "Re-run: $REPO_ROOT/mcp-woodpecker-ci/scripts/setup-go-binary.sh"
         fi
     fi
 }

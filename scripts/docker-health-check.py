@@ -10,7 +10,6 @@ from typing import Any
 
 SECRET_DEPENDENTS_BY_PROFILE = {
     "core": ["mcp-second-opinion"],
-    "cicd": ["mcp-woodpecker-ci"],
 }
 
 

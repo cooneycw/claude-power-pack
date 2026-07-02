@@ -2,9 +2,8 @@
 # Usage (prefer Makefile targets - see Deployment Conventions in CLAUDE.md):
 #   make docker-up PROFILE=core                      # Second Opinion + Nano-Banana
 #   make docker-up PROFILE="core browser"            # + Playwright
-#   make docker-up PROFILE="core cicd"               # + Woodpecker CI
 #   make docker-build PROFILE=core                   # Build images only
-#   make docker-refresh PROFILE="core browser cicd"  # Rebuild, restart, wait healthy
+#   make docker-refresh PROFILE="core browser"       # Rebuild, restart, wait healthy
 #   make docker-down                                 # Stop all services
 #   make docker-ps                                   # Show container status
 #
@@ -68,7 +67,7 @@ services:
       start_period: 30s
       retries: 5
     restart: unless-stopped
-    profiles: ["core", "cicd"]
+    profiles: ["core"]
     deploy:
       resources:
         limits:
@@ -180,51 +179,6 @@ services:
   #       reservations:
   #         cpus: "0.25"
   #         memory: 128M
-
-  mcp-woodpecker-ci:
-    build:
-      context: ./mcp-woodpecker-ci
-      dockerfile: deploy/Dockerfile
-    image: mcp-woodpecker-ci:${CPP_IMAGE_TAG:-dev}
-    container_name: ${CPP_CONTAINER_PREFIX:-}mcp-woodpecker-ci
-    ports:
-      - "${MCP_WOODPECKER_CI_PORT_MAPPING:-8085:8085}"
-    # No env_file here: app containers must not carry AWS credentials. They fetch
-    # their API keys from the sidecar over the compose network using the SSRF
-    # token below. Offline local-dev .env fallback lives in docker-compose.dev.yml.
-    security_opt:
-      - no-new-privileges:true
-    environment:
-      - MCP_SERVER_HOST=0.0.0.0
-      - AWS_SECRET_NAME=${WOODPECKER_CI_AWS_SECRET_NAME-essent-ai}
-      - SECRETS_AGENT_URL=http://aws-secrets-agent:2773
-      - AWS_TOKEN=${AWS_TOKEN:-default-token}
-      # Woodpecker credential injection point for CI/deploy with no live
-      # secrets-agent. Unset on the host = not passed through; the agent's values
-      # win at runtime via fetch-secrets.sh. /readyz needs both to report ready.
-      - WOODPECKER_URL
-      - WOODPECKER_API_TOKEN
-    entrypoint: ["/app/fetch-secrets.sh"]
-    command: ["python", "server.py"]
-    depends_on:
-      aws-secrets-agent:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8085/readyz')"]
-      interval: 10s
-      timeout: 5s
-      start_period: 15s
-      retries: 3
-    restart: unless-stopped
-    profiles: ["cicd"]
-    deploy:
-      resources:
-        limits:
-          cpus: "0.5"
-          memory: 256M
-        reservations:
-          cpus: "0.25"
-          memory: 128M
 
   mcp-playwright-persistent:
     build:

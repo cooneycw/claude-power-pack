@@ -76,7 +76,7 @@ def test_aws_secrets_agent_drops_privileges() -> None:
 def test_app_containers_do_not_carry_aws_credentials() -> None:
     services = _compose_services()
 
-    for service_name in ("mcp-second-opinion", "mcp-woodpecker-ci"):
+    for service_name in ("mcp-second-opinion",):
         service = services[service_name]
         # App containers must not receive the root .env (which holds AWS creds).
         assert "env_file" not in service
@@ -99,7 +99,7 @@ def test_dev_override_publishes_agent_on_loopback_and_restores_env_fallback() ->
     # Offline local-dev fallback for app containers lives only in this override:
     # the env_file (restored) plus ALLOW_ENV_FALLBACK so fetch-secrets.sh starts
     # with those vars instead of failing closed.
-    for service_name in ("mcp-second-opinion", "mcp-woodpecker-ci"):
+    for service_name in ("mcp-second-opinion",):
         env_file = services[service_name]["env_file"][0]
         assert env_file["path"] == ".env"
         assert env_file["required"] is False
@@ -123,7 +123,7 @@ def test_secret_consumers_share_sidecar_token_default() -> None:
 
     assert "X-Aws-Parameters-Secrets-Token: ${AWS_TOKEN:-default-token}" in agent_healthcheck
     assert services["aws-secrets-agent"]["healthcheck"]["start_period"] == "30s"
-    for service_name in ("mcp-second-opinion", "mcp-woodpecker-ci"):
+    for service_name in ("mcp-second-opinion",):
         env = _env_list_to_map(services[service_name]["environment"])
         assert env["AWS_TOKEN"] == "${AWS_TOKEN:-default-token}"
 
@@ -246,7 +246,6 @@ def test_compose_stack_is_project_isolated() -> None:
         assert service.get("container_name") == "${CPP_CONTAINER_PREFIX:-}" + name
     assert "networks" not in compose
     assert "volumes" not in services["mcp-second-opinion"]
-    assert "volumes" not in services["mcp-woodpecker-ci"]
 
 
 def test_secret_bootstrap_script_is_baked_into_secret_consuming_images() -> None:
@@ -260,7 +259,7 @@ def test_secret_bootstrap_script_is_baked_into_secret_consuming_images() -> None
     assert "refusing to start without required secret" in canonical
     assert "exit 1" in canonical
 
-    for service in ("mcp-second-opinion", "mcp-woodpecker-ci"):
+    for service in ("mcp-second-opinion",):
         dockerfile = (root / service / "deploy" / "Dockerfile").read_text()
         fetch_script = (root / service / "deploy" / "fetch-secrets.sh").read_text()
 
@@ -282,9 +281,6 @@ def test_compose_uses_fixed_local_ports_with_ci_overrides() -> None:
     ]
     assert services["mcp-nano-banana"]["ports"] == [
         "${MCP_NANO_BANANA_PORT_MAPPING:-8084:8084}"
-    ]
-    assert services["mcp-woodpecker-ci"]["ports"] == [
-        "${MCP_WOODPECKER_CI_PORT_MAPPING:-8085:8085}"
     ]
 
 
@@ -315,8 +311,8 @@ def test_cpp_update_uses_docker_only_runtime_with_legacy_teardown() -> None:
 
     assert "## Step 4.5: Legacy Systemd Teardown" in command
     assert 'DEPLOY_MODEL="docker"' in command
-    assert 'make docker-refresh PROFILE="core browser cicd"' in command
-    assert 'make docker-health PROFILE="core browser cicd"' in command
+    assert 'make docker-refresh PROFILE="core browser"' in command
+    assert 'make docker-health PROFILE="core browser"' in command
     assert "Docker refresh failed" in command
     assert "Docker is the only valid deployment\ntarget" in command
     assert "Do not offer systemd installation" in command
@@ -333,8 +329,8 @@ def test_cpp_init_uses_docker_only_tier3_and_runs_health_gated_refresh() -> None
     assert "Tier 3 requires Docker Engine or Docker Desktop" in command
     assert "Tier 3 requires Docker Compose v2" in command
     assert "Run /cpp:update first to migrate or remove legacy systemd units" in command
-    assert 'make docker-refresh PROFILE="core browser cicd"' in command
-    assert 'make docker-health PROFILE="core browser cicd"' in command
+    assert 'make docker-refresh PROFILE="core browser"' in command
+    assert 'make docker-health PROFILE="core browser"' in command
     assert "Docker containers rebuilt, restarted, and healthy" in command
     assert "systemctl" not in command
     assert "DEPLOY_MODE" not in command
@@ -360,7 +356,6 @@ def test_woodpecker_uses_image_security_instead_of_parallel_dry_run_builds() -> 
         "build-second-opinion",
         "build-playwright",
         "build-nano-banana",
-        "build-woodpecker-ci",
     ):
         assert step_name not in steps
 
@@ -428,7 +423,6 @@ def test_woodpecker_builds_scans_images_and_generates_sboms() -> None:
     assert "mcp-second-opinion/**" in image_paths
     assert "mcp-playwright-persistent/**" in image_paths
     assert "mcp-nano-banana/**" in image_paths
-    assert "mcp-woodpecker-ci/**" in image_paths
 
 
 def test_python_runtime_images_remove_system_packaging_tools() -> None:
@@ -437,7 +431,6 @@ def test_python_runtime_images_remove_system_packaging_tools() -> None:
         "mcp-second-opinion/deploy/Dockerfile",
         "mcp-playwright-persistent/deploy/Dockerfile",
         "mcp-nano-banana/deploy/Dockerfile",
-        "mcp-woodpecker-ci/deploy/Dockerfile",
         "mcp-evaluate/deploy/Dockerfile",
     ]
 
@@ -476,7 +469,6 @@ def test_woodpecker_runtime_smoke_is_ephemeral_and_tears_down() -> None:
     assert "export AWS_TOKEN=cpp-smoke-token" in script
     assert 'export CPP_CONTAINER_PREFIX="cpp-smoke-${CI_PIPELINE_NUMBER:-local}-"' in script
     assert "export SECOND_OPINION_AWS_SECRET_NAME=" in script
-    assert "export WOODPECKER_CI_AWS_SECRET_NAME=" in script
     # The agent is internal-only now, so the smoke no longer publishes it.
     assert "AWS_SECRETS_AGENT_PORT_MAPPING" not in script
     assert "export MCP_SECOND_OPINION_PORT_MAPPING=8080" in script
@@ -491,8 +483,6 @@ def test_woodpecker_runtime_smoke_is_ephemeral_and_tears_down() -> None:
     # Keyless servers are made ready before the readiness `--wait` gate by
     # injecting dummy keys through the compose env passthrough (#349).
     assert "export GEMINI_API_KEY=cpp-smoke-gemini-key" in script
-    assert "export WOODPECKER_URL=http://woodpecker.invalid" in script
-    assert "export WOODPECKER_API_TOKEN=cpp-smoke-woodpecker-token" in script
 
     # Agent is internal-only: probed inside its container and asserted to have
     # NO host port (#354). App servers are probed on /readyz (#349).
@@ -502,7 +492,6 @@ def test_woodpecker_runtime_smoke_is_ephemeral_and_tears_down() -> None:
     assert "check_http mcp-second-opinion 8080 /readyz" in script
     assert "check_http mcp-playwright-persistent 8081 /readyz" in script
     assert "check_http mcp-nano-banana 8084 /readyz" in script
-    assert "check_http mcp-woodpecker-ci 8085 /readyz" in script
 
 
 def test_runtime_smoke_retries_in_container_probes_with_diagnostics() -> None:
@@ -549,7 +538,6 @@ def test_mcp_healthchecks_gate_on_readiness_not_liveness() -> None:
     expected = {
         "mcp-second-opinion": "8080",
         "mcp-nano-banana": "8084",
-        "mcp-woodpecker-ci": "8085",
         "mcp-playwright-persistent": "8081",
     }
     for service, port in expected.items():
@@ -572,17 +560,12 @@ def test_secret_consuming_services_accept_injected_keys() -> None:
     ):
         assert key in so_env
 
-    wp_env = services["mcp-woodpecker-ci"]["environment"]
-    assert "WOODPECKER_URL" in wp_env
-    assert "WOODPECKER_API_TOKEN" in wp_env
-
 
 def test_each_mcp_server_exposes_a_readiness_route() -> None:
     root = Path(__file__).resolve().parents[1]
     servers = {
         "mcp-second-opinion": "src/server.py",
         "mcp-nano-banana": "src/server.py",
-        "mcp-woodpecker-ci": "src/server.py",
         "mcp-playwright-persistent": "src/server.py",
     }
     for component, rel in servers.items():
@@ -601,7 +584,6 @@ def test_woodpecker_smoke_path_gates_cover_shared_runtime_inputs() -> None:
     assert "mcp-second-opinion/**" in smoke_paths
     assert "mcp-playwright-persistent/**" in smoke_paths
     assert "mcp-nano-banana/**" in smoke_paths
-    assert "mcp-woodpecker-ci/**" in smoke_paths
 
 
 def test_image_security_path_filter_supersets_runtime_smoke() -> None:

@@ -64,10 +64,10 @@ fi
 [ -f "$CPP_DIR/docker-compose.yml" ] && DOCKER_COMPOSE_FILE=true
 
 if [ "$DOCKER_INSTALLED" = "true" ]; then
-  DOCKER_CONTAINERS=$(docker ps -a --format '{{.Names}}' 2>/dev/null | grep -E '^(aws-secrets-agent|mcp-second-opinion|mcp-nano-banana|mcp-playwright-persistent|mcp-woodpecker-ci)$' || true)
+  DOCKER_CONTAINERS=$(docker ps -a --format '{{.Names}}' 2>/dev/null | grep -E '^(aws-secrets-agent|mcp-second-opinion|mcp-nano-banana|mcp-playwright-persistent)$' || true)
 fi
 
-for unit in mcp-second-opinion second-opinion mcp-playwright mcp-playwright-persistent playwright-persistent nano-banana mcp-nano-banana mcp-woodpecker-ci woodpecker-ci mcp-evaluate evaluate mcp-coordination coordination; do
+for unit in mcp-second-opinion second-opinion mcp-playwright mcp-playwright-persistent playwright-persistent nano-banana mcp-nano-banana mcp-evaluate evaluate mcp-coordination coordination; do
   [ -f "/etc/systemd/system/${unit}.service" ] && LEGACY_SYSTEMD_UNITS="$LEGACY_SYSTEMD_UNITS system:${unit}"
   [ -f "$HOME/.config/systemd/user/${unit}.service" ] && LEGACY_SYSTEMD_UNITS="$LEGACY_SYSTEMD_UNITS user:${unit}"
 done
@@ -280,8 +280,8 @@ This will make the following changes:
   [Tier 3 - Docker Runtime]
     • Requires Docker Engine or Docker Desktop
     • Requires Docker Compose v2 (`docker compose`)
-    • Builds local images with `make docker-refresh PROFILE="core browser cicd"`
-    • Verifies container health with `make docker-health PROFILE="core browser cicd"`
+    • Builds local images with `make docker-refresh PROFILE="core browser"`
+    • Verifies container health with `make docker-health PROFILE="core browser"`
 
   [Tier 3 - API Keys] (choose one method)
     Option 1 - AWS Secrets Manager (Recommended):
@@ -298,14 +298,13 @@ This will make the following changes:
     • mcp-second-opinion         - host port 8080
     • mcp-playwright-persistent  - host port 8081
     • mcp-nano-banana            - host port 8084
-    • mcp-woodpecker-ci          - host port 8085
 
   [Tier 3 - Configuration Files]
     • .env (AWS credentials + AWS_TOKEN for sidecar, or direct API keys)
 
   Disk usage: approximately 2-4 GB for local Docker images, browser dependencies,
   and Docker build cache (varies by host and cache state)
-  Ports used: 8080, 8081, 8084, 8085; 2773 is compose-network internal only
+  Ports used: 8080, 8081, 8084; 2773 is compose-network internal only
 
   To undo:
     # Tier 1+2 cleanup (see above)
@@ -345,11 +344,6 @@ This will make the following changes:
     • Generate docker-compose.yml
     • Generate .dockerignore
 
-  [Tier 4E - Woodpecker CI MCP] (optional)
-    • Install woodpecker-mcp Go binary
-    • Configure from AWS Secrets Manager or manual URL/token
-    • Register as MCP server (stdio transport)
-
   Disk usage: ~0 MB (generated files only)
 
   To undo:
@@ -357,7 +351,6 @@ This will make the following changes:
     rm .claude/cicd.yml
     rm .github/workflows/ci.yml
     rm Dockerfile docker-compose.yml .dockerignore
-    claude mcp remove woodpecker-ci
 
 Proceed? [y/N]
 ```
@@ -608,7 +601,7 @@ if [ ! -f "$CPP_DIR/docker-compose.yml" ]; then
 fi
 
 LEGACY_SYSTEMD_UNITS=""
-for unit in mcp-second-opinion second-opinion mcp-playwright mcp-playwright-persistent playwright-persistent nano-banana mcp-nano-banana mcp-woodpecker-ci woodpecker-ci mcp-evaluate evaluate mcp-coordination coordination; do
+for unit in mcp-second-opinion second-opinion mcp-playwright mcp-playwright-persistent playwright-persistent nano-banana mcp-nano-banana mcp-evaluate evaluate mcp-coordination coordination; do
   [ -f "/etc/systemd/system/${unit}.service" ] && LEGACY_SYSTEMD_UNITS="$LEGACY_SYSTEMD_UNITS system:${unit}"
   [ -f "$HOME/.config/systemd/user/${unit}.service" ] && LEGACY_SYSTEMD_UNITS="$LEGACY_SYSTEMD_UNITS user:${unit}"
 done
@@ -706,7 +699,6 @@ if [ "$SECRET_METHOD" = "1" ]; then
   echo "MCP server secret mappings (from docker-compose.yml):"
   echo "  mcp-second-opinion  -> AWS_SECRET_NAME=codex_llm_apikeys"
   echo "      Expected keys: GEMINI_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY"
-  echo "  mcp-woodpecker-ci   -> AWS_SECRET_NAME=essent-ai"
   echo ""
   echo "To change these mappings, edit the environment section in docker-compose.yml."
   echo ""
@@ -788,14 +780,14 @@ runtime path.
 
 ```bash
 cd "$CPP_DIR"
-make docker-refresh PROFILE="core browser cicd"
+make docker-refresh PROFILE="core browser"
 DOCKER_REFRESH_RC=$?
 if [ "$DOCKER_REFRESH_RC" -ne 0 ]; then
   echo "ERROR: Docker refresh failed or one or more containers are unhealthy."
   exit "$DOCKER_REFRESH_RC"
 fi
 
-make docker-health PROFILE="core browser cicd"
+make docker-health PROFILE="core browser"
 DOCKER_HEALTH_RC=$?
 if [ "$DOCKER_HEALTH_RC" -ne 0 ]; then
   echo "ERROR: Docker health verification failed."
@@ -976,72 +968,6 @@ PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -m lib.cicd container --write 2>/d
 echo "✓ Container files generated"
 ```
 
-#### 4e. Woodpecker CI MCP (Optional)
-
-Ask the user if they want to install the Woodpecker CI MCP server:
-
-```
-=== Optional: Woodpecker CI MCP Server ===
-
-Install the Woodpecker CI MCP server for pipeline management?
-
-This gives Claude Code native access to:
-  - List and monitor pipelines
-  - Trigger, cancel, and approve builds
-  - View build logs
-
-Requires:
-  - Go 1.24+ (or will be installed)
-  - Woodpecker CI server URL and API token
-    (auto-detected from AWS Secrets Manager if configured)
-
-Install Woodpecker CI MCP? [y/N]
-```
-
-If yes:
-
-```bash
-# Check/install Go
-if ! command -v go &>/dev/null; then
-  if [ -x /usr/local/go/bin/go ]; then
-    export PATH="/usr/local/go/bin:$PATH"
-  else
-    echo "Go not found. Install from https://go.dev/dl/ and re-run."
-    exit 1
-  fi
-fi
-
-# Install binary
-export PATH="$HOME/go/bin:$PATH"
-go install github.com/denysvitali/woodpecker-ci-mcp/cmd/woodpecker-mcp@latest
-BINARY="$HOME/go/bin/woodpecker-mcp"
-
-# Configure credentials
-if [ -f "$CPP_DIR/mcp-woodpecker-ci/scripts/setup-go-binary.sh" ]; then
-  bash "$CPP_DIR/mcp-woodpecker-ci/scripts/setup-go-binary.sh"
-else
-  # Manual: prompt for URL and token
-  echo "Enter Woodpecker CI URL (e.g. https://woodpecker.example.com):"
-  read -r WP_URL
-  echo "Enter Woodpecker API token:"
-  read -rs WP_TOKEN
-  mkdir -p ~/.config/woodpecker-mcp
-  cat > ~/.config/woodpecker-mcp/config.yaml << EOF
-woodpecker:
-  url: $WP_URL
-  token: $WP_TOKEN
-EOF
-  chmod 600 ~/.config/woodpecker-mcp/config.yaml
-fi
-
-# Test connection
-"$BINARY" test
-
-# Register with Claude Code
-claude mcp add --transport stdio -s user woodpecker-ci -- "$BINARY" serve
-echo "✓ Woodpecker CI MCP server installed and registered"
-```
-
 ### Tier 5 Execution (Codex Orchestration)
 
 #### 5a. Check Codex CLI
@@ -1140,7 +1066,7 @@ if command -v codex &>/dev/null; then
         echo "Registered $NAME with Codex (http://127.0.0.1:${PORT}/mcp)"
       else
         echo "WARNING: $NAME not reachable on port $PORT - skipping Codex registration"
-        echo "  Start containers first: make docker-refresh PROFILE=\"core browser cicd\""
+        echo "  Start containers first: make docker-refresh PROFILE=\"core browser\""
       fi
     fi
   done
@@ -1177,20 +1103,19 @@ Secrets:
 
 Deployment:
   Model: Docker (local build)
-  Refresh: make docker-refresh PROFILE="core browser cicd"
-  Health: make docker-health PROFILE="core browser cicd"
+  Refresh: make docker-refresh PROFILE="core browser"
+  Health: make docker-health PROFILE="core browser"
   Update pathway: /cpp:update migrates legacy systemd and refreshes Docker
 
 MCP Servers:
   • second-opinion (port 8080) - Gemini/OpenAI code review
   • playwright-persistent (port 8081) - Browser automation
   • nano-banana (port 8084) - Diagram and PowerPoint generation
-  • woodpecker-ci (stdio) - Woodpecker CI pipeline management
   • aws-secrets-agent (internal port 2773) - Secret injection sidecar (if AWS SM)
 
 Next Steps:
   1. Verify Docker containers:
-     cd {CPP_DIR} && make docker-health PROFILE="core browser cicd"
+     cd {CPP_DIR} && make docker-health PROFILE="core browser"
 
   2. Restart your shell to apply prompt changes:
      source ~/.bashrc
@@ -1327,7 +1252,7 @@ else
         echo "✓ $NAME registered with Codex (http://127.0.0.1:${PORT}/mcp)"
       else
         echo "⚠ $NAME not reachable on port $PORT - skipping Codex registration"
-        echo "  Start containers first: make docker-refresh PROFILE=\"core browser cicd\""
+        echo "  Start containers first: make docker-refresh PROFILE=\"core browser\""
       fi
     fi
   done

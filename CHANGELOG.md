@@ -34,6 +34,31 @@
   providers). Updated README/CLAUDE.md provider lists and the catalog/token-limit
   tests accordingly.
 
+### Removed
+
+- **Retire the `mcp-woodpecker-ci` MCP server** (issue #404) - the optional
+  Woodpecker CI pipeline-management MCP (`cicd` profile, port 8085) was never
+  adopted: not registered in any Claude/Codex client, no skill referenced its
+  tools, and the one Woodpecker-touching workflow (`/flow:auto`) already calls
+  the Woodpecker API directly via `curl`. Deleted `mcp-woodpecker-ci/` and
+  removed the server from `docker-compose.yml` / `docker-compose.dev.yml`, the
+  now-empty `cicd` compose profile membership (`aws-secrets-agent` is `core`-only
+  again), the `.woodpecker.yml` MCP port export / build target / path filters,
+  `renovate.json`, and the drift-detect / docker-health / runtime-smoke /
+  check-docker-aws-env / codex-skill-gen scripts. Dropped the `cicd` profile
+  from the user-facing Makefile targets and docs (`CLAUDE.md`, `README.md`,
+  `.claude/commands/cpp/{init,status,update,help}.md`,
+  `.claude/commands/dockers.md`, `docs/AWS_SECRETS_SIDECAR.md`) and pruned the
+  matching `mcp-woodpecker-ci` assertions from
+  `tests/test_docker_compose_config.py`. **Woodpecker CI as the deploy platform
+  is unchanged** - the `.woodpecker.yml` pipeline logic (it still passes the now
+  harmlessly-empty `--profile cicd`), `woodpecker/` server/agent configs,
+  `lib/cicd/*`, the pipeline templates, `scripts/setup-woodpecker-cli.sh` /
+  `scripts/assert-prod-env.sh`, and the `essent-ai` secret (`WOODPECKER_URL` /
+  `WOODPECKER_API_TOKEN`, consumed by `/flow:auto`,
+  `woodpecker/bootstrap-secrets.py`, and `scripts/setup-woodpecker-cli.sh`) are
+  all retained.
+
 ## [7.2.0] - 2026-06-28
 
 ### Added

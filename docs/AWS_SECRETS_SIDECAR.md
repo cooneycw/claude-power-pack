@@ -24,7 +24,7 @@ MCP server (python server.py)        <-- secrets exported as env vars
   (`http://aws-secrets-agent:2773`) via `expose:`, never to the host. A
   host-published port combined with a shared default token would let any local
   process pull allowed secrets.
-- App containers (`mcp-second-opinion`, `mcp-woodpecker-ci`) do not receive the
+- App containers (`mcp-second-opinion`) do not receive the
   root `.env` and therefore carry no AWS credentials. They reach the agent with
   only the SSRF token (`AWS_TOKEN`) plus their non-secret `AWS_SECRET_NAME` /
   `SECRETS_AGENT_URL` config.
@@ -106,7 +106,7 @@ CI and deploy jobs can provide the same variables through the job environment. T
 | Secret Name | Used By | Expected Keys |
 |-------------|---------|---------------|
 | `codex_llm_apikeys` | mcp-second-opinion | `GEMINI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` |
-| `essent-ai` | mcp-woodpecker-ci | `WOODPECKER_URL`, `WOODPECKER_API_TOKEN` |
+| `essent-ai` | `/flow:auto`, `woodpecker/bootstrap-secrets.py`, `scripts/setup-woodpecker-cli.sh` | `WOODPECKER_URL`, `WOODPECKER_API_TOKEN` |
 
 ### Required IAM Permissions
 
@@ -204,11 +204,9 @@ The sidecar is configured via `aws-secrets-agent/config.toml`:
 
 ## Docker Compose Profiles
 
-The sidecar is included in both `core` and `cicd` profiles and starts automatically when dependent services are activated:
+The sidecar is included in the `core` profile and starts automatically when dependent services are activated:
 
 - `make docker-up PROFILE=core` - starts sidecar + second-opinion + nano-banana
-- `make docker-up PROFILE=cicd` - starts sidecar + woodpecker-ci
-- `make docker-up PROFILE="core cicd"` - starts sidecar + all secret-dependent services
 
 ## Dockerfile Patches
 
@@ -226,8 +224,8 @@ Patches are applied with `git apply --check && git apply`, followed by build-tim
 | `no_api_keys` in health_check | Secrets not loaded | Check `docker logs aws-secrets-agent` for AWS auth errors |
 | `Failed to fetch secrets after 30 retries` | Agent not healthy | Run `make docker-secrets-check`, verify AWS creds |
 | `FATAL: refusing to start without required secret` | Required secret fetch/parse failed (fail-closed) | Fix the sidecar/AWS creds; for local dev set `ALLOW_ENV_FALLBACK=true` |
-| `aws-secrets-agent cannot start: AWS credentials empty/missing` | Sidecar was created with empty `AWS_ACCESS_KEY_ID` or `AWS_SECRET_ACCESS_KEY` | Fix `.env` or shell AWS env, then run `docker compose --profile core --profile cicd up -d --force-recreate aws-secrets-agent mcp-second-opinion mcp-woodpecker-ci` |
-| Secret-dependent MCP containers stay `Created` with no logs | `aws-secrets-agent` is unhealthy before dependents can start | Run `make docker-health PROFILE="core cicd"` for the force-recreate remedy |
+| `aws-secrets-agent cannot start: AWS credentials empty/missing` | Sidecar was created with empty `AWS_ACCESS_KEY_ID` or `AWS_SECRET_ACCESS_KEY` | Fix `.env` or shell AWS env, then run `docker compose --profile core up -d --force-recreate aws-secrets-agent mcp-second-opinion` |
+| Secret-dependent MCP containers stay `Created` with no logs | `aws-secrets-agent` is unhealthy before dependents can start | Run `make docker-health PROFILE=core` for the force-recreate remedy |
 | Container starts but keys are stale | Secret cache TTL | Wait 300s or restart `aws-secrets-agent` |
 | `FAIL: AWS credentials invalid` | Expired or wrong creds | Refresh `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` in `.env` |
 | `WARNING: skipping invalid key` | Secret JSON key has invalid chars | Fix the key name in AWS Secrets Manager |

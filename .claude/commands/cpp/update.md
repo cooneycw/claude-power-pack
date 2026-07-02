@@ -139,8 +139,6 @@ Known legacy unit names to scan:
 - `playwright-persistent`
 - `nano-banana`
 - `mcp-nano-banana`
-- `mcp-woodpecker-ci`
-- `woodpecker-ci`
 - `mcp-evaluate`
 - `evaluate`
 - `mcp-coordination`
@@ -168,7 +166,7 @@ collect_systemd_units() {
         -printf '%f\n' 2>/dev/null || true
       systemctl --user list-units --type=service --all --no-legend --no-pager 2>/dev/null | awk '{print $1}' || true
       systemctl --user list-unit-files --type=service --no-legend --no-pager 2>/dev/null | awk '{print $1}' || true
-    } | sed 's/\.service$//' | grep -E '^(mcp-|nano-|.*coordination|second-opinion|playwright-persistent|woodpecker-ci|evaluate|coordination)$' | sort -u || true
+    } | sed 's/\.service$//' | grep -E '^(mcp-|nano-|.*coordination|second-opinion|playwright-persistent|evaluate|coordination)$' | sort -u || true
   else
     {
       find /etc/systemd/system -maxdepth 1 -type f \
@@ -176,7 +174,7 @@ collect_systemd_units() {
         -printf '%f\n' 2>/dev/null || true
       systemctl list-units --type=service --all --no-legend --no-pager 2>/dev/null | awk '{print $1}' || true
       systemctl list-unit-files --type=service --no-legend --no-pager 2>/dev/null | awk '{print $1}' || true
-    } | sed 's/\.service$//' | grep -E '^(mcp-|nano-|.*coordination|second-opinion|playwright-persistent|woodpecker-ci|evaluate|coordination)$' | sort -u || true
+    } | sed 's/\.service$//' | grep -E '^(mcp-|nano-|.*coordination|second-opinion|playwright-persistent|evaluate|coordination)$' | sort -u || true
   fi
 }
 
@@ -188,8 +186,6 @@ mcp-playwright-persistent
 playwright-persistent
 nano-banana
 mcp-nano-banana
-mcp-woodpecker-ci
-woodpecker-ci
 mcp-evaluate
 evaluate
 mcp-coordination
@@ -332,7 +328,7 @@ DOCKER_READY=true
 
 echo ""
 echo "Refreshing Docker MCP stack..."
-make docker-refresh PROFILE="core browser cicd"
+make docker-refresh PROFILE="core browser"
 DOCKER_REFRESH_RC=$?
 if [ "$DOCKER_REFRESH_RC" -ne 0 ]; then
   echo "ERROR: Docker refresh failed or one or more containers are unhealthy."
@@ -341,7 +337,7 @@ fi
 
 echo ""
 echo "Verifying Docker MCP health..."
-make docker-health PROFILE="core browser cicd"
+make docker-health PROFILE="core browser"
 DOCKER_HEALTH_RC=$?
 if [ "$DOCKER_HEALTH_RC" -ne 0 ]; then
   echo "ERROR: Docker health verification failed."
@@ -405,7 +401,7 @@ echo "=== Installed MCP Inventory ==="
 
 echo "Docker containers:"
 if [ "$DOCKER_READY" = "true" ]; then
-  docker compose --profile core --profile browser --profile cicd ps 2>/dev/null || echo "  (unavailable)"
+  docker compose --profile core --profile browser ps 2>/dev/null || echo "  (unavailable)"
 else
   echo "  (docker unavailable)"
 fi
@@ -421,7 +417,7 @@ LEGACY_SYSTEMD_INVENTORY="$(
     systemctl list-units --type=service --all --no-legend --no-pager 2>/dev/null | awk '{print $1}' || true
     systemctl --user list-unit-files --type=service --no-legend --no-pager 2>/dev/null | awk '{print $1}' || true
     systemctl list-unit-files --type=service --no-legend --no-pager 2>/dev/null | awk '{print $1}' || true
-  } | sed 's/\.service$//' | grep -E '^(mcp-|nano-|.*coordination|second-opinion|playwright-persistent|woodpecker-ci|evaluate|coordination)$' | sort -u || true
+  } | sed 's/\.service$//' | grep -E '^(mcp-|nano-|.*coordination|second-opinion|playwright-persistent|evaluate|coordination)$' | sort -u || true
 )"
 if [ -n "$LEGACY_SYSTEMD_INVENTORY" ]; then
   printf '%s\n' "$LEGACY_SYSTEMD_INVENTORY"
@@ -446,7 +442,6 @@ Compare the inventories and classify each finding. Use the following logic:
 - `mcp-second-opinion` (port 8080, profile: core)
 - `mcp-nano-banana` (port 8084, profile: core)
 - `mcp-playwright-persistent` (port 8081, profile: browser)
-- `mcp-woodpecker-ci` (port 8085, profile: cicd)
 
 **Deprecated servers** (commented out in docker-compose.yml):
 - `mcp-evaluate` (deprecated - absorbed into /evaluate:issue skill)
@@ -475,7 +470,6 @@ Server                    Repo    Docker    MCP Reg   Port    Legacy Units      
 mcp-second-opinion        yes     healthy   yes       8080    user:mcp-second-opinion   LEGACY SYSTEMD
 mcp-nano-banana           yes     healthy   no        8084    none                      NOT REGISTERED
 mcp-playwright-persistent yes     healthy   yes       8081    system:mcp-playwright     LEGACY SYSTEMD
-mcp-woodpecker-ci         yes     healthy   yes       8085    none                      OK
 mcp-coordination          no      none      yes       8082    system:mcp-coordination   ORPHANED LEGACY
 mcp-evaluate              depr.   none      no        --      user:mcp-evaluate         LEGACY DEPRECATED
 ```
@@ -538,7 +532,7 @@ mcp-nano-banana is available in the repo but not installed.
 ```
 
 Options:
-- **Refresh Docker stack** - Re-run `make docker-refresh PROFILE="core browser cicd"` and `make docker-health PROFILE="core browser cicd"`
+- **Refresh Docker stack** - Re-run `make docker-refresh PROFILE="core browser"` and `make docker-health PROFILE="core browser"`
 - **Skip** - Do not install now
 
 Do not offer systemd installation. New servers are installed only by the Docker
@@ -571,7 +565,7 @@ For user-scope orphaned units, use `systemctl --user ...`, remove the file from
 Ask whether to rerun the Docker refresh:
 
 Options:
-- **Refresh Docker** - `make docker-refresh PROFILE="core browser cicd"` then `make docker-health PROFILE="core browser cicd"`
+- **Refresh Docker** - `make docker-refresh PROFILE="core browser"` then `make docker-health PROFILE="core browser"`
 - **Skip** - Leave current container state unchanged
 
 ### For NOT REGISTERED servers (running but not in claude mcp list):
@@ -785,7 +779,7 @@ Run /cpp:status for full installation details.
 - Uncommitted changes in CPP are auto-stashed before pull
 - Symlinked commands/skills are automatically updated by the git pull
 - MCP server dependencies are synced if venvs exist
-- Docker refresh always uses `make docker-refresh PROFILE="core browser cicd"` followed by `make docker-health PROFILE="core browser cicd"`
+- Docker refresh always uses `make docker-refresh PROFILE="core browser"` followed by `make docker-health PROFILE="core browser"`
 - Legacy systemd units are detected before Docker refresh and are removed only after user confirmation
 - MCP drift detection compares repo state against Docker containers, legacy systemd remnants, claude mcp registrations, and listening ports
 - Orphaned legacy systemd units such as `mcp-coordination` are flagged for teardown

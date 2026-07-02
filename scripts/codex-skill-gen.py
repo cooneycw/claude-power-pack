@@ -41,7 +41,7 @@ MCP_INDICATORS = [
     "mcp", "MCP", "slash command", "/flow", "/project", "/spec", "/cicd",
     "/security", "/secrets", "/evaluate", "/documentation", "/qa",
     "browser_screenshot", "browser_navigate", "browser_click", "browser_fill",
-    "second-opinion", "nano-banana", "playwright-persistent", "woodpecker-ci",
+    "second-opinion", "nano-banana", "playwright-persistent",
 ]
 
 RELATIVE_PATH_PATTERN = re.compile(
