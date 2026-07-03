@@ -69,8 +69,11 @@ for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-p
   if [ -d "$dir/lib/cicd" ]; then CPP_DIR="$dir"; break; fi
 done
 
-if [ -n "$CPP_DIR" ] && [ ! -f "Makefile" ]; then
-  DETECTED=$(PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -c "
+# Invoke lib.cicd via uv so its deps (pydantic) resolve under a pinned >= 3.11
+# interpreter; PYTHONPATH points at CPP_DIR (parent of lib/) so `-m lib.cicd`
+# resolves from any project cwd. Bare python3 crashes in a venv-less tree (#430).
+if [ -n "$CPP_DIR" ] && [ ! -f "Makefile" ] && command -v uv >/dev/null 2>&1; then
+  DETECTED=$(PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -c "
 from lib.cicd.detector import detect_framework
 info = detect_framework('.')
 print(f'{info.framework.value}:{info.package_manager.value}')
@@ -87,21 +90,23 @@ Use the detection result to suggest the specific template file in the Actions Ne
 # hooks.json exists?
 if [ -f ".claude/hooks.json" ]; then
   # Check for expected hooks
-  grep -l "SessionStart\|PreToolUse\|PostToolUse" .claude/hooks.json
+  grep -l "SessionStart\|PostToolUse" .claude/hooks.json
 fi
 ```
 
-Check for the three expected hook types:
+Check for the two expected hook types:
 - **SessionStart**: Upstream change detection
-- **PreToolUse (Bash)**: Dangerous command blocking via `hook-validate-command.sh`
 - **PostToolUse (Bash/Read)**: Secret masking via `hook-mask-output.sh`
+
+The PreToolUse dangerous-command hook was retired (issue #439); native
+destructive-git blocking + OS sandboxing cover it.
 
 ### Step 5: Scripts Availability
 
 Check that core scripts exist in `~/.claude/scripts/`:
 
 ```bash
-for script in prompt-context.sh worktree-remove.sh hook-mask-output.sh hook-validate-command.sh secrets-mask.sh; do
+for script in prompt-context.sh hook-mask-output.sh secrets-mask.sh; do
   if [ -x "$HOME/.claude/scripts/$script" ]; then
     echo "PASS $script"
   elif [ -f "$HOME/.claude/scripts/$script" ]; then
@@ -110,6 +115,18 @@ for script in prompt-context.sh worktree-remove.sh hook-mask-output.sh hook-vali
     echo "FAIL $script"
   fi
 done
+
+# worktree-remove.sh is now a FALLBACK, not a hard requirement: `/flow` creates
+# and removes worktrees with the native EnterWorktree/ExitWorktree tools; the
+# script is only used for cross-session / cross-machine worktree cleanup. Missing
+# is a WARN, not a FAIL.
+if [ -x "$HOME/.claude/scripts/worktree-remove.sh" ]; then
+  echo "PASS worktree-remove.sh (optional fallback)"
+elif [ -f "$HOME/.claude/scripts/worktree-remove.sh" ]; then
+  echo "WARN worktree-remove.sh (not executable)"
+else
+  echo "WARN worktree-remove.sh (optional fallback not installed; native ExitWorktree covers same-session cleanup)"
+fi
 ```
 
 ### Step 5b: User-Level Flow Allowlist
@@ -180,11 +197,11 @@ If `CPP_DIR` is found, run these checks:
 # 1. cicd.yml config file
 [ -f ".claude/cicd.yml" ] && echo "PASS cicd.yml" || echo "MISSING cicd.yml"
 
-# 2. Framework detection
-PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -m lib.cicd detect --quiet 2>/dev/null
+# 2. Framework detection (via uv so deps resolve; PYTHONPATH=CPP_DIR, see #430)
+PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd detect --quiet 2>/dev/null
 
 # 3. Makefile completeness (uses lib/cicd check)
-PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -m lib.cicd check --summary 2>/dev/null
+PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd check --summary 2>/dev/null
 
 # 4. Health check configuration
 grep -q "endpoints:" .claude/cicd.yml 2>/dev/null && echo "PASS health endpoints" || echo "MISSING health endpoints"
@@ -211,7 +228,8 @@ echo ""
 echo "MCP Server Connectivity:"
 
 MCP_ISSUES=0
-for entry in "8080:second-opinion" "8081:playwright-persistent"; do
+# Browser automation is upstream @playwright/mcp over npx/stdio - no port to probe.
+for entry in "8080:second-opinion"; do
   PORT="${entry%%:*}"
   NAME="${entry#*:}"
   if curl -sf --max-time 2 "http://127.0.0.1:${PORT}/health" >/dev/null 2>&1; then
@@ -260,11 +278,10 @@ Output a single diagnostic report in this format:
 | Check | Status | Details |
 |-------|--------|---------|
 | Makefile | ✅/⚠️/❌ | Targets: lint, test, deploy / Not found |
-| hooks.json | ✅/❌ | 3 hooks configured / Not found |
-| validate-command hook | ✅/❌ | ~/.claude/scripts/hook-validate-command.sh |
+| hooks.json | ✅/❌ | 2 hooks configured / Not found |
 | mask-output hook | ✅/❌ | ~/.claude/scripts/hook-mask-output.sh |
 | prompt-context.sh | ✅/❌ | Shell prompt context |
-| worktree-remove.sh | ✅/❌ | Safe worktree removal |
+| worktree-remove.sh | ✅/⚠️ | Optional fallback (native ExitWorktree is primary) |
 | secrets-mask.sh | ✅/❌ | Output masking filter |
 | Flow allowlist | ✅/⚠️/❌ | 32/32 rules in ~/.claude/settings.json / N missing / settings.json missing |
 
@@ -273,7 +290,7 @@ Output a single diagnostic report in this format:
 | Server | Port | Status | Details |
 |--------|------|--------|---------|
 | second-opinion | 8080 | ✅/⚠️/❌ | Reachable / Port open (no /health) / Not reachable |
-| playwright-persistent | 8081 | ✅/⚠️/❌ | Reachable / Port open (no /health) / Not reachable |
+| playwright | stdio | - | Upstream @playwright/mcp over npx/stdio (no port) |
 
 ### Active Worktrees
 
@@ -318,7 +335,7 @@ Output a single diagnostic report in this format:
    - Go: `cp ~/Projects/claude-power-pack/templates/makefiles/go.mk Makefile`
    - Rust: `cp ~/Projects/claude-power-pack/templates/makefiles/rust.mk Makefile`
    - Monorepo: `cp ~/Projects/claude-power-pack/templates/makefiles/multi.mk Makefile`
-2. ❌ **worktree-remove.sh not found** - Run: `ln -sf ~/Projects/claude-power-pack/scripts/worktree-remove.sh ~/.claude/scripts/`
+2. ⚠️ **worktree-remove.sh not found (optional)** - `/flow` uses the native `EnterWorktree`/`ExitWorktree` tools for same-session worktrees; the script is only a fallback for cross-session / cross-machine cleanup. Install if you want it: `ln -sf ~/Projects/claude-power-pack/scripts/worktree-remove.sh ~/.claude/scripts/`
 2b. ⚠️ **Flow allowlist missing/incomplete** - `/flow:*` will prompt for read-only git/gh plumbing on every run. Merge via `/cpp:update` (Step 7.6) or `/cpp:init`; rationale and caveats in `templates/claude-settings-permissions.md`
 3. ⚠️ **uv not installed** - Install: `curl -LsSf https://astral.sh/uv/install.sh | sh`
 4. ❌ **cicd.yml missing** - Run `/cicd:init` to auto-detect framework and generate configuration

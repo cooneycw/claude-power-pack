@@ -5,17 +5,17 @@
 ## What It Does
 
 - **Workflow commands** (`/flow:auto`, `/flow:start`, `/flow:eli5`, `/flow:finish`) - Issue-driven development with worktrees, a pre-implementation ELI5 plan/necessity approval gate, quality gates, automated PR lifecycle, and CI verification
-- **MCP servers** - Two containerized servers extending Claude Code's capabilities:
-  - **Second Opinion** (port 8080) - Multi-model code review via external LLMs (Gemini, OpenAI, Anthropic)
-  - **Playwright Persistent** (port 8081) - Browser automation with 29 tools
+- **MCP servers** extending Claude Code's capabilities:
+  - **Second Opinion** (port 8080, containerized) - Multi-model code review via external LLMs (Gemini, OpenAI, Anthropic)
+  - **Browser automation** - upstream `@playwright/mcp` server (npx/stdio, no container), registered by `/cpp:init`
 - **PowerPoint generation** - Slide decks via the native Anthropic `pptx` skill (`npx skills add anthropics/skills@pptx`)
 - **Security scanning** (`/security:scan`) - Native vulnerability detection with git history analysis
 - **Secrets management** (`/secrets:*`) - Tiered credential storage (dotenv, env-file, AWS Secrets Manager) with audit logging and a web UI
 - **CI/CD integration** (`/cicd:*`) - Framework detection, Makefile generation, health checks, and IaC scaffolding
 - **Woodpecker CI** - Self-hosted pipeline with image security gates, isolated MCP runtime smoke tests, and programmatic status polling
 - **Project scaffolding** (`/project:init`) - Zero-to-GitHub-repo setup with Makefile, CI pipeline, and Docker config
-- **Skills ecosystem** (`/skills:*`) - Discover, install, and manage agent skills from [skills.sh](https://skills.sh/) with quality vetting
-- **Safety hooks** - PreToolUse blocks dangerous commands; PostToolUse masks secrets in output
+- **Skills ecosystem** - Discover, install, and manage agent skills from [skills.sh](https://skills.sh/) via native `npx skills` and the `/plugin` marketplace (the CPP `/skills:*` wrapper was retired in issue #437)
+- **Secret-masking hook** - a PostToolUse hook masks secrets (connection strings, API keys, env vars) in Bash/Read output; destructive commands are handled by Claude Code's native git auto-blocking + OS sandbox
 
 ## Requirements
 
@@ -42,8 +42,7 @@ make verify
 # local .env needs: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_TOKEN
 make docker-secrets-check              # Validate AWS connectivity
 make docker-up PROFILE=core            # Second Opinion
-make docker-up PROFILE="core browser"  # + Playwright
-make docker-refresh PROFILE="core browser"  # Rebuild, restart, wait for health
+make docker-refresh PROFILE=core       # Rebuild, restart, wait for health
 
 # Initialize in a target project
 cd ~/Projects/my-project
@@ -58,16 +57,14 @@ claude-power-pack/
   .claude/hooks.json    Safety hooks (pre/post tool use)
   aws-secrets-agent/    AWS Secrets Manager sidecar (Rust, port 2773)
   mcp-second-opinion/   Code review MCP server
-  mcp-playwright-persistent/  Browser automation MCP server
   lib/creds/            Secrets management library
   lib/security/         Security scanning library
   lib/cicd/             CI/CD framework detection and generation
-  lib/spec_bridge/      Spec-to-GitHub-issue sync
   docs/skills/          Topic-focused best practices (~3K tokens each)
   woodpecker/           Woodpecker CI server + agent deployment configs
   templates/            Makefile, workflow, and container templates
   scripts/              Shell utilities
-  tests/                637 unit tests
+  tests/                595 unit tests
   docker-compose.yml    MCP server orchestration
   .woodpecker.yml       CI pipeline (lint, test, typecheck, image security gates, runtime smoke)
   Makefile              Build interface for all operations
@@ -81,11 +78,13 @@ claude-power-pack/
 | Workflow | `/flow:start 42` | Create worktree for an issue |
 | Workflow | `/flow:eli5 42` | Plain-language intent + necessity verdict + plan approval gate |
 | Workflow | `/flow:finish` | Lint, test, commit, push, create PR |
+| Improve | `/self-improvement:retro` | Post-run friction retro: capture -> codify durable fixes (the grill-me cycle) |
 | Project | `/project:init myapp` | Scaffold a new project |
 | Security | `/security:scan` | Full vulnerability scan |
 | Secrets | `/secrets:list` | List managed credentials |
 | CI/CD | `/cicd:init` | Detect framework, generate Makefile |
 | Docs | `/documentation:c4` | Generate C4 architecture diagrams |
+| Browser | `/browser:session create gmail` | Named concurrent browser sessions (lease-desk pool) |
 | Review | `/second-opinion:start` | Get code review from external LLMs |
 
 ## Docker Deployment
@@ -94,8 +93,7 @@ MCP servers run as Docker containers organized by profile:
 
 ```bash
 make docker-up PROFILE=core       # second-opinion
-make docker-up PROFILE="core browser"  # + playwright
-make docker-refresh PROFILE="core browser"  # transactional rebuild/restart with health gate
+make docker-refresh PROFILE=core  # transactional rebuild/restart with health gate
 make docker-ps                    # container status
 make docker-down                  # stop all
 ```
@@ -125,7 +123,7 @@ Woodpecker CI runs on every push and PR via a self-hosted agent:
 - **Image security:** MCP image changes build the compose stack, run hadolint over every Dockerfile, policy-check rendered compose config, fail on fixed HIGH/CRITICAL CVEs, and write SPDX/CycloneDX SBOMs under `artifacts/sbom/`
 - **Runtime smoke:** MCP stack changes run an isolated `docker compose` project with random host ports, verify HTTP health, then tear down containers and volumes
 - **CI verification:** `flow:auto` polls the Woodpecker API after merge to confirm the pipeline passes before deploying
-- **First-class Docker updates:** `cpp:update` detects Docker installs, runs `make docker-refresh PROFILE="core browser"`, and fails if containers are unhealthy
+- **First-class Docker updates:** `cpp:update` detects Docker installs, runs `make docker-refresh PROFILE=core`, and fails if containers are unhealthy
 
 Architecture: Woodpecker server on a dedicated VM, agent on the dev workstation, connected via gRPC over Tailscale. Web UI at `woodpecker.essent-ai.com` via Cloudflare tunnel.
 

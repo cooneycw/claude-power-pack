@@ -9,7 +9,6 @@ Read and summarize the key points from:
 - `context-efficiency` - Token optimization
 - `session-management` - Session & plan mode
 - `mcp-optimization` - MCP best practices
-- `skills-patterns` - Skill design
 - `hooks-automation` - Hook system
 - `spec-driven-dev` - SDD workflow
 - `idd-workflow` - Issue-driven dev

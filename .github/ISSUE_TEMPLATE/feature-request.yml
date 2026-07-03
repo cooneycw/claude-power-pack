@@ -27,7 +27,7 @@ body:
     attributes:
       label: Feature name
       description: A short name for this feature
-      placeholder: "e.g., /spec:sync command"
+      placeholder: "e.g., /spec:adopt command"
     validations:
       required: true
 

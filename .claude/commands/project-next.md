@@ -72,31 +72,26 @@ If only one worktree (the main repo), note that worktrees are not in use.
 
 ### 2.4 Spec-Driven Development Detection
 
-Check if the project uses spec-driven development:
+Check if the project uses spec-driven development (via the official spec-kit; CPP's
+home-grown `lib/spec_bridge` pipeline was retired - see epic #417 Phase A):
 
 ```bash
-# Check for .specify directory with feature specs
-ls -d .specify/specs/*/ 2>/dev/null | head -10
-```
-
-If `.specify/specs/` exists with feature directories, get spec status:
-
-```bash
-# Get spec status using Python module (requires lib/spec_bridge)
-PYTHONPATH="$PWD/lib:$PYTHONPATH" python -c "
-from lib.spec_bridge import get_all_status
-status = get_all_status()
-for f in status.features:
-    indicator = lambda fs: '✓' if fs.exists and fs.complete else ('○' if fs.exists else '✗')
-    print(f'{f.name}|{indicator(f.spec)}|{indicator(f.plan)}|{indicator(f.tasks)}|{f.synced_count}|{f.pending_count}')
-" 2>/dev/null || echo "spec_bridge not available"
+# Check for .specify feature specs and which have a tasks.md ready for issue sync
+for d in .specify/specs/*/; do
+    [ -d "$d" ] || continue
+    feat=$(basename "$d")
+    have_spec=$([ -s "${d}spec.md" ] && echo "✓" || echo "✗")
+    have_plan=$([ -s "${d}plan.md" ] && echo "✓" || echo "✗")
+    have_tasks=$([ -s "${d}tasks.md" ] && echo "✓" || echo "✗")
+    echo "${feat}|${have_spec}|${have_plan}|${have_tasks}"
+done 2>/dev/null || echo "no .specify/specs"
 ```
 
 Note for output:
-- Feature names and their spec/plan/tasks status
-- Which features have pending sync (waves without GitHub issues)
-- Which features are complete (all waves synced)
-- Action needed for features ready to sync
+- Feature names and their spec/plan/tasks presence
+- Which features have a `tasks.md` ready to turn into GitHub issues
+- Action needed: run `scripts/speckit-tasks-to-issues.sh` for features with tasks, then
+  `/flow:auto <issue>` per created issue
 
 ---
 
@@ -349,9 +344,9 @@ Output the prioritized list based EXACTLY on the Step 6 verification gate result
 - Issues with clear acceptance criteria
 
 ### Priority 3b: Pending Spec Sync (if .specify/ exists)
-- Features with tasks.md containing unsynced waves
+- Features with a `tasks.md` not yet turned into GitHub issues
 - **Why:** Spec work is defined but not yet tracked in GitHub issues
-- **Action:** `/spec:sync {feature-name}`
+- **Action:** `./scripts/speckit-tasks-to-issues.sh` (then `/flow:auto <issue>` per issue)
 
 ### Priority 4: Quick Wins
 - Low effort issues, documentation updates, simple fixes
@@ -381,23 +376,21 @@ Present findings as:
 
 📋 **Spec-Driven Development:**
 
-| Feature | Spec | Plan | Tasks | Synced | Pending | Action |
-|---------|------|------|-------|--------|---------|--------|
-| {name} | ✓/○/✗ | ✓/○/✗ | ✓/○/✗ | {N} | {M} | {action} |
+| Feature | Spec | Plan | Tasks | Action |
+|---------|------|------|-------|--------|
+| {name} | ✓/○/✗ | ✓/○/✗ | ✓/○/✗ | {action} |
 
 **Legend:**
 - ✓ = File exists and has content
 - ○ = File exists but empty/incomplete
 - ✗ = File missing
-- **Synced** = Waves with GitHub issues created
-- **Pending** = Waves needing `/spec:sync`
 
 **Example:**
-| Feature | Spec | Plan | Tasks | Synced | Pending | Action |
-|---------|------|------|-------|--------|---------|--------|
-| user-auth | ✓ | ✓ | ✓ | 3 | 2 | `/spec:sync user-auth` |
-| api-refactor | ✓ | ✓ | ○ | 0 | 0 | Add tasks to tasks.md |
-| dashboard | ✓ | ✓ | ✓ | 5 | 0 | Complete |
+| Feature | Spec | Plan | Tasks | Action |
+|---------|------|------|-------|--------|
+| user-auth | ✓ | ✓ | ✓ | `./scripts/speckit-tasks-to-issues.sh` |
+| api-refactor | ✓ | ✓ | ○ | Add tasks to tasks.md |
+| dashboard | ✓ | ✓ | ✗ | Run `/speckit-tasks` |
 
 ### Issue Hierarchy
 - **Waves/Phases in Progress:** {list with status}
@@ -432,7 +425,7 @@ Present findings as:
 | {path} | issue-{M}-desc | #{M} | api-refactor | Clean | - |
 | {path} | issue-{K}-desc | #{K} | - | Clean | - |
 
-*Spec Feature column shows the linked feature from `.specify/specs/` if the issue was created via `/spec:sync`*
+*Spec Feature column shows the linked feature from `.specify/specs/` if the issue was created via `scripts/speckit-tasks-to-issues.sh`*
 
 ### Recommendations
 - **Cleanup:** {worktrees with merged branches}
@@ -450,8 +443,7 @@ After presenting recommendations, offer:
 3. **Create New Issue** - Document discovered work
 4. **Clean Up** - Remove stale worktrees/branches
 5. **Refresh** - Re-scan for updates
-6. **Sync Pending Specs** - Run `/spec:sync {feature}` for features with pending waves (if .specify/ exists)
-7. **View Spec Status** - Run `/spec:status` for detailed spec alignment (if .specify/ exists)
+6. **Sync Pending Specs** - Run `./scripts/speckit-tasks-to-issues.sh` to turn a feature's `tasks.md` into GitHub issues (if .specify/ exists)
 
 ---
 

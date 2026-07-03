@@ -2,8 +2,67 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **Browser automation migrated to upstream `@playwright/mcp`** (issue #423) -
+  `/qa:test` and the `browser-tiered` skill now drive the official Microsoft
+  `@playwright/mcp` server instead of CPP's fork. The server is registered by
+  `/cpp:init` as an npx/stdio MCP (no container, no `browser` compose profile);
+  it exposes one implicit browser context per connection, so the old
+  `create_session`/`session_id`/`close_session` calls are gone. Named concurrent
+  sessions - a feature no CPP consumer used - move to the separate
+  `browser:session` wrapper skill (#421). Version bumped to 7.3.0.
+
+### Removed
+
+- **Retired the `mcp-playwright-persistent` server** (issue #423) - deleted the
+  823-line server, its Dockerfile, deploy scripts, the `browser` compose
+  service/profile, its Woodpecker image-security + hadolint gate scope (dropping
+  one of the two recurring Trivy CVE drift taxes), and its `renovate.json` /
+  `pyproject.toml` / `drift-detect.sh` entries. Added it to
+  `.claude/deprecated-mcps.yaml` so `/cpp:update` offers a user-confirmed
+  teardown of any leftover container, image, or registration on existing hosts.
+
 ### Added
 
+- **Browser session wrapper - named concurrent sessions (lease-desk)** (issue #421) -
+  new `/browser:session` + `/browser:help` commands recover named **concurrent**
+  browser sessions over upstream `@playwright/mcp` (the one feature upstream lacks,
+  microsoft/playwright-mcp#1530) as a thin wrapper - no fork, no custom image. A fixed
+  pool of pre-registered upstream instances ("desks", `playwright-desk-1..N`, run via
+  `npx --isolated`) is leased by user-named sessions; each session's identity lives in a
+  portable storage-state file (`.claude/playwright-state/<name>.json`), so sessions
+  outlive desks - N desks multiplex unlimited named sessions, surviving restarts.
+  The deterministic ledger `scripts/playwright-desk.py` (zero-dep stdlib) owns lease /
+  release / idle-cleanup (`create`/`resume`/`save`/`close`/`list`/`cleanup`/`pool`,
+  `--json` contract, 14 tests); the model drives each desk's `browser_*` MCP tools and
+  the state files. `/cpp:init` gains an **opt-in** "browser pool" step (Full tier) that
+  seeds `.claude/playwright-pool.json` from `templates/playwright-pool.example.json` and
+  registers the desks. Design A (static pool) per the #419 spike - mid-session MCP
+  registration is infeasible in Claude Code, so desks are pre-registered at startup;
+  ratified by the #422 closure (owner chose the local wrapper over waiting on upstream).
+  Guide: `docs/skills/browser-session-wrapper.md`.
+
+- **Grill-me cycle: post-run friction retro (issue #426)** - the capture + local
+  codify half of the compound-engineering loop (plan -> work -> assess -> codify).
+  New always-on **capture** helper `scripts/friction-log.sh` (fail-open JSONL
+  append to `.claude/friction.jsonl`) is woven into `/flow:auto` and `/flow:merge`
+  so friction is recorded on every step of every run - success OR failure - because
+  the richest friction (permission prompts, gate retries, red output) clusters on
+  runs that fail partway, where a terminal retro would be blind. New **retro**
+  command `/self-improvement:retro` grills the captured buffer + session, classifies
+  the four friction classes, dedups against a persistent local ledger
+  (`.claude/learnings.md`, seed `templates/learnings.md.example`) so applied/rejected
+  fixes are never re-proposed, then proposes and (user-confirmed) applies codified
+  fixes. Acceptance case demonstrated: run against the recorded pre-2026-07-03
+  `/flow:auto` transcript (`tests/fixtures/retro/flow-auto-pre-eli5.md`) it emits
+  exactly the 32-rule allowlist of `templates/claude-settings-permissions.json`
+  (#427) unaided, excluding shipping/secret actions. Scope is bounded by trust
+  boundary: per-machine `permissions.allow` fixes stay local and are never pushed to
+  a shared store; portable knowledge/infra traps delegate to `/self-improvement:memory`
+  (issue #433, common-memory substrate) when installed and degrade gracefully when
+  not. Generalizes `/self-improvement:deployment` beyond deploys; standalone-
+  extraction candidate (Phase C, alongside `flow-eli5`).
 - **Flow read-only permission allowlist template** (issue #427) - new
   `templates/claude-settings-permissions.json` (+ rationale doc
   `templates/claude-settings-permissions.md`) codifies the 32 user-level
@@ -92,6 +151,38 @@
 
 ### Removed
 
+- **Retire the `/skills:*` command family** (issue #437, epic #417 Phase A) - the
+  six-command wrapper (`/skills:find|add|list|update|check|help`) around the
+  `npx skills` CLI is fully absorbed by the native ecosystem: `npx skills`
+  directly, the `/plugin` marketplace, auto-loaded `.claude/skills`, and
+  `/reload-skills`. Deleted `.claude/commands/skills/` (all six command files)
+  and the `skills-patterns` knowledge skill (`.claude/skills/skills-patterns.md`
+  + `docs/skills/skills-patterns.md`). Docs repointed to the native path
+  (`CLAUDE.md`, `README.md`, `/cpp:help`, `/cpp:init`, `/documentation:pptx`,
+  `load-best-practices`, `best-practices`); the retirement is recorded in
+  `.claude/deprecated-skills.yaml` for `/cpp:update` user-confirmed teardown.
+  Note: no generated `skills-<verb>` skill mirrors ever existed - the family was
+  hand-authored command files, so there was nothing extra to prune.
+- **Retire the PreToolUse dangerous-command hook; keep PostToolUse secret-masking**
+  (issue #439, epic #417 Phase A) - Claude Code's native destructive-git
+  auto-blocking (v2.1.154) plus OS sandboxing now cover the cases the custom
+  `hook-validate-command.sh` guarded (force-push to main, `git reset --hard`,
+  `rm -rf /`, recursive `chmod`/`chown` on system dirs, `mkfs`/`fdisk`,
+  kill-all), so the hook is redundant. Deleted `scripts/hook-validate-command.sh`
+  and the `PreToolUse` block from `.claude/hooks.json` (leaving `SessionStart` +
+  `PostToolUse`), and swept every reference in `.claude/commands/cpp/{init,status,update}.md`,
+  `.claude/commands/flow/doctor.md`, `CLAUDE.md`, and `README.md`. The
+  **PostToolUse secret-masking hook (`hook-mask-output.sh`) is retained** for
+  both Bash and Read output: native tooling blocks credential *reads* but does
+  not *mask* secrets that surface in output, so it stays additive. `/cpp:update`
+  gains a guarded, user-confirmed cleanup step (Step 4.7) that removes a
+  now-dangling `~/.claude/scripts/hook-validate-command.sh` symlink and strips
+  the stale `PreToolUse` block from an already-copied project `hooks.json` - a
+  dangling hook command exits non-zero and would otherwise block every Bash
+  command. **Deliberate tradeoff:** the retired hook also carried best-effort SQL
+  heuristics (`DROP TABLE`/`TRUNCATE`/`DELETE`-without-`WHERE`); these were regex
+  warnings, not a real guardrail, and are **not** replaced by native
+  blocking/sandbox - the #417 ecosystem review accepted this when it voted RETIRE.
 - **Retire the `mcp-woodpecker-ci` MCP server** (issue #404) - the optional
   Woodpecker CI pipeline-management MCP (`cicd` profile, port 8085) was never
   adopted: not registered in any Claude/Codex client, no skill referenced its
@@ -124,7 +215,7 @@
   `Makefile`, `renovate.json`, `scripts/runtime-smoke.sh`, `scripts/drift-detect.sh`,
   and the docs/inventory commands. `/documentation:pptx` now delegates PowerPoint
   authoring to the native **`anthropics/skills@pptx`** skill (install via
-  `/skills:add anthropics/skills@pptx`) and embeds only user-supplied diagram images.
+  `npx skills add anthropics/skills@pptx`) and embeds only user-supplied diagram images.
   **C4 diagram image rendering is descoped**: `/documentation:c4` now writes a text C4
   model (`docs/architecture/c4-model.md`) and no longer renders HTML/PNG or runs density
   QA gating/splitting - choosing a replacement rendering engine is tracked in **#411**.
@@ -154,6 +245,26 @@
     diagrams via `/documentation:c4` and embed the exported image.
   - `.claude/commands/cpp/update.md`: genericized the "new server in repo" example that
     named the removed `mcp-woodpecker-ci`.
+
+### Removed
+
+- **Retired CPP's home-grown spec pipeline** (issue #420, epic #417 Phase A) - deleted
+  `lib/spec_bridge/` (~1.4K LOC: parser, issue_sync, status, CLI) plus its tests
+  (`tests/test_spec_bridge_parser.py`, `tests/test_spec_bridge_status.py`), and the four
+  legacy command files `.claude/commands/spec/{create,sync,init,status}.md`. Spec-driven
+  development is now **the official GitHub spec-kit** (installed via `/spec:adopt`) for
+  authoring plus `scripts/speckit-tasks-to-issues.sh` (gh-CLI issue sync) and `/flow:auto`
+  for shipping - spec-kit's prompts are community-iterated and ship verification stages
+  CPP lacked (`/speckit-clarify`, `/speckit-analyze`, `/speckit-checklist`). The spike
+  (#418) confirmed no label adapter was needed and cut `/spec:status` (its bidirectional
+  drift view queried `lib/spec_bridge`'s label scheme and had no upstream equivalent).
+  The generated `spec-*` skills (`spec-create`, `spec-init`, `spec-status`, `spec-sync`,
+  from the defunct `manifests/spec/` architecture; `spec-status`/`spec-sync` still
+  targeted the retired Plane/Wiki.js backend) are recorded in
+  `.claude/deprecated-skills.yaml` as a `spec` family so `/cpp:update` prunes them on
+  installed machines. `/spec:adopt` and `/spec:help` survive; all consumers
+  (`CLAUDE.md`, `README.md`, `/project-next`, `/project:init`, `/evaluate:*`,
+  `mcp-evaluate`) were repointed to the spec-kit path.
 
 ## [7.2.0] - 2026-06-28
 

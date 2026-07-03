@@ -15,7 +15,7 @@ FALLBACK_METADATA: dict[str, dict[str, str]] = {
         "name": "Browser Automation (Tiered)",
         "description": (
             "Tiered browser automation: lightweight bdg CLI for simple tasks,"
-            " Playwright MCP for complex workflows"
+            " upstream @playwright/mcp for complex workflows"
         ),
         "trigger": "browser, automation, playwright, bdg, DOM, screenshot, form fill",
     },
@@ -40,8 +40,8 @@ FALLBACK_METADATA: dict[str, dict[str, str]] = {
 MCP_INDICATORS = [
     "mcp", "MCP", "slash command", "/flow", "/project", "/spec", "/cicd",
     "/security", "/secrets", "/evaluate", "/documentation", "/qa",
-    "browser_screenshot", "browser_navigate", "browser_click", "browser_fill",
-    "second-opinion", "playwright-persistent",
+    "browser_take_screenshot", "browser_navigate", "browser_click", "browser_fill_form",
+    "second-opinion", "playwright",
 ]
 
 RELATIVE_PATH_PATTERN = re.compile(

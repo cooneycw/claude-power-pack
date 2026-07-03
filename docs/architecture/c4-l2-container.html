@@ -196,13 +196,6 @@
         </div>
         
 
-        <div class="c4-node c4-box" id="node-spec_bridge"
-             data-type="container"
-             style="background:#15803d; border-color:#22c55e; color:#ffffff;">
-            
-            <div class="c4-label">Spec Bridge</div>
-            <div class="c4-tech">[Python lib/spec_bridge - Spec-to-issue sync]</div>
-        </div>
         </div>
             </div>
             
@@ -215,15 +208,6 @@
             
             <div class="c4-label">Second Opinion MCP</div>
             <div class="c4-tech">[FastMCP SSE port 8080 - Multi-model review]</div>
-        </div>
-        
-
-        <div class="c4-node c4-box" id="node-playwright_mcp"
-             data-type="component"
-             style="background:#7e22ce; border-color:#a855f7; color:#ffffff;">
-            
-            <div class="c4-label">Playwright MCP</div>
-            <div class="c4-tech">[FastMCP SSE port 8081 - Browser automation]</div>
         </div>
         
 
@@ -288,28 +272,12 @@
             <span class="c4-edge-to">creds_lib</span>
         </div>
         
-        <div class="c4-edge" data-from="cli_skills" data-to="spec_bridge"
-             data-dash="">
-            <span class="c4-edge-from">cli_skills</span>
-            <span class="c4-edge-arrow">&#x2192;</span>
-            <span class="c4-edge-label">/spec:sync</span>
-            <span class="c4-edge-to">spec_bridge</span>
-        </div>
-        
         <div class="c4-edge" data-from="cli_skills" data-to="second_opinion"
              data-dash="">
             <span class="c4-edge-from">cli_skills</span>
             <span class="c4-edge-arrow">&#x2192;</span>
             <span class="c4-edge-label">SSE /sse</span>
             <span class="c4-edge-to">second_opinion</span>
-        </div>
-        
-        <div class="c4-edge" data-from="cli_skills" data-to="playwright_mcp"
-             data-dash="">
-            <span class="c4-edge-from">cli_skills</span>
-            <span class="c4-edge-arrow">&#x2192;</span>
-            <span class="c4-edge-label">SSE /sse</span>
-            <span class="c4-edge-to">playwright_mcp</span>
         </div>
         
         <div class="c4-edge" data-from="cli_skills" data-to="nano_banana"
@@ -334,14 +302,6 @@
             <span class="c4-edge-arrow">&#x2192;</span>
             <span class="c4-edge-label">Profile: core</span>
             <span class="c4-edge-to">nano_banana</span>
-        </div>
-        
-        <div class="c4-edge" data-from="docker_compose" data-to="playwright_mcp"
-             data-dash="">
-            <span class="c4-edge-from">docker_compose</span>
-            <span class="c4-edge-arrow">&#x2192;</span>
-            <span class="c4-edge-label">Profile: browser</span>
-            <span class="c4-edge-to">playwright_mcp</span>
         </div>
         
         <div class="c4-edge" data-from="woodpecker_pipeline" data-to="docker_compose"

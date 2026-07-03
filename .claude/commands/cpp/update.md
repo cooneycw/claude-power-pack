@@ -111,7 +111,7 @@ If MCP server venvs exist, sync dependencies to pick up any new packages:
 ```bash
 cd "$CPP_DIR"
 
-for server_dir in mcp-second-opinion mcp-playwright-persistent; do
+for server_dir in mcp-second-opinion; do
   if [ -d "$server_dir/.venv" ]; then
     echo ""
     echo "Syncing dependencies for $server_dir..."
@@ -120,6 +120,75 @@ for server_dir in mcp-second-opinion mcp-playwright-persistent; do
     echo "Done: $server_dir dependencies updated"
   fi
 done
+```
+
+---
+
+## Step 4.6: Refresh Spec-Kit CLI (Optional)
+
+If the official spec-kit CLI (`specify`) is installed, upgrade it so `/spec:adopt`
+delegates to the current upstream. If it is absent, offer to install it (never forced -
+`/spec:adopt` also installs it on first use). This only touches the CLI; it does not
+scaffold `.specify/` into any project.
+
+```bash
+if command -v specify &>/dev/null; then
+  echo ""
+  echo "Upgrading spec-kit CLI..."
+  uv tool upgrade specify-cli 2>/dev/null && echo "Done: spec-kit CLI up to date" \
+    || echo "Note: could not upgrade specify-cli (not a uv tool install?) - skipping"
+else
+  echo ""
+  echo "spec-kit CLI (specify) is not installed."
+  echo "  Install now with: uv tool install specify-cli --from git+https://github.com/github/spec-kit.git"
+  echo "  (or just run /spec:adopt in a project - it installs the CLI on first use)"
+  # If the user agrees, run:
+  #   uv tool install specify-cli --from git+https://github.com/github/spec-kit.git
+fi
+```
+
+---
+
+## Step 4.7: Retired PreToolUse Hook Cleanup
+
+The PreToolUse dangerous-command hook (`hook-validate-command.sh`) was retired
+(issue #439) - native destructive-git blocking + OS sandboxing now cover it, and
+the PostToolUse secret-masking hook is retained. Because scripts are symlinked
+into `~/.claude/scripts/` and `hooks.json` is **copied** into each project, an
+older install can be left with a dangling `hook-validate-command.sh` symlink and
+a stale `PreToolUse` block that points at it. A dangling hook command exits
+non-zero and would **block every Bash command**, so sweep both. This is a
+migration step only - do not change anything until the user confirms.
+
+```bash
+# 1. Dangling/retired symlink in ~/.claude/scripts/
+HOOK_LINK="$HOME/.claude/scripts/hook-validate-command.sh"
+if [ -L "$HOOK_LINK" ] || [ -f "$HOOK_LINK" ]; then
+  echo "Found retired hook script: $HOOK_LINK"
+  echo "  (safe to remove - the PreToolUse dangerous-command hook was retired in #439)"
+  # On user confirm:  rm -f "$HOOK_LINK" && echo "Removed $HOOK_LINK"
+fi
+
+# 2. Stale PreToolUse block in this project's copied hooks.json
+if [ -f ".claude/hooks.json" ] && \
+   grep -q "hook-validate-command.sh" .claude/hooks.json 2>/dev/null; then
+  echo "This project's .claude/hooks.json still references the retired PreToolUse hook."
+  echo "  Native git-blocking + sandbox cover it; the PostToolUse masking hook is kept."
+  echo "  Offer to strip only the validate-command PreToolUse block (masking untouched)."
+  # On user confirm, strip the retired hook while preserving everything else:
+  #   python3 - <<'PY'
+  #   import json, pathlib
+  #   p = pathlib.Path(".claude/hooks.json"); d = json.loads(p.read_text())
+  #   pre = d.get("hooks", {}).get("PreToolUse", [])
+  #   kept = [m for m in pre
+  #           if not any("hook-validate-command.sh" in h.get("command", "")
+  #                      for h in m.get("hooks", []))]
+  #   if kept: d["hooks"]["PreToolUse"] = kept
+  #   else: d["hooks"].pop("PreToolUse", None)
+  #   p.write_text(json.dumps(d, indent=2) + "\n")
+  #   print("Stripped retired PreToolUse hook from .claude/hooks.json")
+  #   PY
+fi
 ```
 
 ---
@@ -324,7 +393,7 @@ DOCKER_READY=true
 
 echo ""
 echo "Refreshing Docker MCP stack..."
-make docker-refresh PROFILE="core browser"
+make docker-refresh PROFILE="core"
 DOCKER_REFRESH_RC=$?
 if [ "$DOCKER_REFRESH_RC" -ne 0 ]; then
   echo "ERROR: Docker refresh failed or one or more containers are unhealthy."
@@ -333,7 +402,7 @@ fi
 
 echo ""
 echo "Verifying Docker MCP health..."
-make docker-health PROFILE="core browser"
+make docker-health PROFILE="core"
 DOCKER_HEALTH_RC=$?
 if [ "$DOCKER_HEALTH_RC" -ne 0 ]; then
   echo "ERROR: Docker health verification failed."
@@ -436,7 +505,11 @@ Compare the inventories and classify each finding. Use the following logic:
 
 **Known repo servers** (from docker-compose.yml, not commented out):
 - `mcp-second-opinion` (port 8080, profile: core)
-- `mcp-playwright-persistent` (port 8081, profile: browser)
+
+**Retired servers** (removed; listed in `.claude/deprecated-mcps.yaml`, torn down as
+orphans by Step 6c/7 + `scripts/mcp-drift.py`):
+- `mcp-playwright-persistent` (retired #423 - browser automation moved to the
+  upstream `@playwright/mcp` npx/stdio server)
 
 **Deprecated servers** (commented out in docker-compose.yml):
 - `mcp-evaluate` (deprecated - absorbed into /evaluate:issue skill)
@@ -463,7 +536,7 @@ MCP Server Drift Report
 Server                    Repo    Docker    MCP Reg   Port    Legacy Units              Status
 -----------------------------------------------------------------------------------------------
 mcp-second-opinion        yes     healthy   yes       8080    user:mcp-second-opinion   LEGACY SYSTEMD
-mcp-playwright-persistent yes     healthy   yes       8081    system:mcp-playwright     LEGACY SYSTEMD
+mcp-playwright-persistent no      none      no        --      system:mcp-playwright     ORPHANED LEGACY
 mcp-coordination          no      none      yes       8082    system:mcp-coordination   ORPHANED LEGACY
 mcp-evaluate              depr.   none      no        --      user:mcp-evaluate         LEGACY DEPRECATED
 ```
@@ -619,7 +692,7 @@ mcp-<name> is available in the repo but not installed.
 ```
 
 Options:
-- **Refresh Docker stack** - Re-run `make docker-refresh PROFILE="core browser"` and `make docker-health PROFILE="core browser"`
+- **Refresh Docker stack** - Re-run `make docker-refresh PROFILE="core"` and `make docker-health PROFILE="core"`
 - **Skip** - Do not install now
 
 Do not offer systemd installation. New servers are installed only by the Docker
@@ -652,7 +725,7 @@ For user-scope orphaned units, use `systemctl --user ...`, remove the file from
 Ask whether to rerun the Docker refresh:
 
 Options:
-- **Refresh Docker** - `make docker-refresh PROFILE="core browser"` then `make docker-health PROFILE="core browser"`
+- **Refresh Docker** - `make docker-refresh PROFILE="core"` then `make docker-health PROFILE="core"`
 - **Skip** - Leave current container state unchanged
 
 ### For NOT REGISTERED servers (running but not in claude mcp list):
@@ -834,7 +907,7 @@ fi
 
 # Tier 2: scripts + hooks
 SCRIPTS_COUNT=0
-for script in prompt-context.sh worktree-remove.sh secrets-mask.sh hook-mask-output.sh hook-validate-command.sh; do
+for script in prompt-context.sh worktree-remove.sh secrets-mask.sh hook-mask-output.sh; do
   [ -f ~/.claude/scripts/$script ] || [ -L ~/.claude/scripts/$script ] && SCRIPTS_COUNT=$((SCRIPTS_COUNT + 1))
 done
 [ -f ".claude/hooks.json" ] && [ "$SCRIPTS_COUNT" -ge 3 ] && TIER=2
@@ -922,7 +995,7 @@ Run /cpp:status for full installation details.
 - Uncommitted changes in CPP are auto-stashed before pull
 - Symlinked commands/skills are automatically updated by the git pull
 - MCP server dependencies are synced if venvs exist
-- Docker refresh always uses `make docker-refresh PROFILE="core browser"` followed by `make docker-health PROFILE="core browser"`
+- Docker refresh always uses `make docker-refresh PROFILE="core"` followed by `make docker-health PROFILE="core"`
 - Legacy systemd units are detected before Docker refresh and are removed only after user confirmation
 - MCP drift detection compares repo state against Docker containers, legacy systemd remnants, claude mcp registrations, and listening ports
 - Orphaned legacy systemd units such as `mcp-coordination` are flagged for teardown

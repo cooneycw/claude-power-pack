@@ -24,16 +24,15 @@ Core components and their locations:
 - `.specify/` - Spec-Driven Development (specs, plans, tasks, templates)
 - `aws-secrets-agent/` - AWS Secrets Manager sidecar (Rust, port 2773). See `docs/AWS_SECRETS_SIDECAR.md`.
 - `mcp-second-opinion/` - Code review MCP server (port 8080)
-- `mcp-playwright-persistent/` - Browser automation MCP server (port 8081, 29 tools)
+- Browser automation - upstream `@playwright/mcp` registered via npx/stdio by `/cpp:init` (no container; the CPP `mcp-playwright-persistent` fork was retired in #423)
 - `extras/sequential-thinking/` - Optional: structured reasoning (stdio, npm)
 - `lib/creds/` - Secrets management (dotenv/AWS SM, FastAPI UI, audit logging)
 - `lib/security/` - Security scanning (native + external tools)
 - `lib/cicd/` - CI/CD framework detection, Makefile generation, health/smoke checks, deterministic runner, deployment strategies, Pydantic v2 config validation
-- `lib/spec_bridge/` - Spec-to-GitHub-issue sync (legacy, pending retirement; superseded by official spec-kit via `/spec:adopt` + `scripts/speckit-tasks-to-issues.sh`)
 - `lib/cpp_memory/` - Common-memory client: fail-open Postgres ledger of *portable* CPP learnings/infra traps shared across the VM fleet (bucket-2-plus), plus a dedup/rejection ledger. Store provisioned by `scripts/memories-db-setup.sh`. Consult-not-push; see `/self-improvement:memory`.
-- `scripts/` - Shell utilities (prompt-context, worktree-remove, hooks, drift-detect, skill-drift, mcp-drift)
+- `scripts/` - Shell utilities (prompt-context, worktree-remove, hooks, drift-detect, skill-drift, mcp-drift, speckit-tasks-to-issues, playwright-desk lease-desk ledger, check-ignored-additions)
 - `templates/` - Makefile, workflow, container templates
-- `docker-compose.yml` - MCP server orchestration (profiles: `core`, `browser`)
+- `docker-compose.yml` - MCP server orchestration (profile: `core`)
 - `.woodpecker.yml` - Woodpecker CI pipeline (lint, test, typecheck, image security gates, runtime smoke)
 
 ## Environment Variables
@@ -51,12 +50,11 @@ MCP containers fetch API keys at startup from AWS Secrets Manager via an `aws-se
 - **AWS secrets used:** `codex_llm_apikeys` (second-opinion LLM keys: `GEMINI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`), `essent-ai` (Woodpecker CI keys: `WOODPECKER_URL`, `WOODPECKER_API_TOKEN` - consumed by `/flow:auto`, `woodpecker/bootstrap-secrets.py`, and `scripts/setup-woodpecker-cli.sh`; also holds `CPP_MEMORIES_DSN`, the common-memory Postgres DSN used by `lib/cpp_memory` for fleet-wide federation - reference the store host by its Tailscale address)
 - **Required IAM permissions:** `secretsmanager:GetSecretValue`, `secretsmanager:DescribeSecret` scoped to the named secret ARNs, plus `kms:Decrypt` (scoped via `kms:ViaService`) when the secrets use a customer-managed CMK
 - **Validate setup:** `make docker-secrets-check` (checks AWS creds, verifies secrets exist)
-- **Profiles:** `core` (second-opinion + secrets-agent), `browser` (playwright)
+- **Profiles:** `core` (second-opinion + secrets-agent). Browser automation is the upstream `@playwright/mcp` npx/stdio server (no container, no compose profile; see `/cpp:init`).
 - **Start:** `make docker-up PROFILE=core`
-- **All profiles:** `make docker-up PROFILE="core browser"`
-- **Rebuild/restart/wait for health:** `make docker-refresh PROFILE="core browser"` snapshots current image IDs as `:previous` and restores them if the candidate stack fails `--wait`
+- **Rebuild/restart/wait for health:** `make docker-refresh PROFILE=core` snapshots current image IDs as `:previous` and restores them if the candidate stack fails `--wait`
 - **Status/logs/stop:** `make docker-ps`, `make docker-logs`, `make docker-down`
-- **Liveness vs readiness:** each MCP server serves `/` (liveness: process is up) and `/readyz` (readiness: required secrets/config actually loaded). Compose healthchecks - the `docker compose up --wait` release gate - probe `/readyz`, so a live-but-keyless container (e.g. a failed secret fetch) is reported unhealthy and `--wait` fails instead of greenlighting it. The secret-bearing server (`mcp-second-opinion`) reports ready only once its provider keys load; `mcp-playwright-persistent` has no required secrets, so readiness equals liveness. CI/deploy without a live secrets-agent can inject keys via the LLM env passthroughs in `docker-compose.yml`; the agent overrides them at runtime.
+- **Liveness vs readiness:** each MCP server serves `/` (liveness: process is up) and `/readyz` (readiness: required secrets/config actually loaded). Compose healthchecks - the `docker compose up --wait` release gate - probe `/readyz`, so a live-but-keyless container (e.g. a failed secret fetch) is reported unhealthy and `--wait` fails instead of greenlighting it. The secret-bearing server (`mcp-second-opinion`) reports ready only once its provider keys load. CI/deploy without a live secrets-agent can inject keys via the LLM env passthroughs in `docker-compose.yml`; the agent overrides them at runtime.
 - **Empty AWS credential guard:** `make docker-up` refuses to create `aws-secrets-agent` when `AWS_ACCESS_KEY_ID` or `AWS_SECRET_ACCESS_KEY` resolves empty. If a stale sidecar was already created with empty creds, fix env and force-recreate `aws-secrets-agent` plus secret-dependent MCP containers.
 - **Deploy preflight:** `make deploy` runs `scripts/assert-prod-env.sh`; production deploys reject `default-token` even if local-dev opt-out is set, and require `SECOND_OPINION_AWS_SECRET_NAME` for `core` plus `WOODPECKER_CI_AWS_SECRET_NAME` for `cicd`.
 - **MCP connections:** Defined in project `.mcp.json` pointing to `127.0.0.1:{port}/sse` (SSE transport)
@@ -83,19 +81,29 @@ MCP containers fetch API keys at startup from AWS Secrets Manager via an `aws-se
 - `/flow:status` - Show active worktrees
 - `/flow:doctor` - Diagnose workflow environment
 
+**Native worktrees (issue #440):** `/flow` rides Claude Code's built-in
+worktrees. `/flow:start` and `/flow:auto` create and enter a worktree with the
+`EnterWorktree` tool (checkout under `.claude/worktrees/<name>`, branched from
+`origin/<default-branch>` under the default `worktree.baseRef: fresh`) instead of
+shelling out to `git worktree add`; same-session cleanup uses `ExitWorktree`.
+`.claude/worktrees/` is gitignored. CPP layers its issue-anchored gate policy on
+top of these mechanics and does not delegate it: the `issue-<N>-<slug>` branch
+name (enforced after `EnterWorktree`), the `/flow:eli5` necessity gate, the
+quality gates, and merge/cleanup discipline are unchanged. Because native
+`ExitWorktree` only removes worktrees created in the current session, cross-session
+and cross-machine cleanup (`/flow:merge`, `/flow:cleanup`) keep `git worktree
+remove` / `scripts/worktree-remove.sh` as the fallback.
+
 ### Project
 - `/project:init <name>` - Full project scaffolding (zero to GitHub repo)
 - `/project-next` - Full issue analysis and prioritization (~15-30K tokens)
 - `/project-lite` - Quick project reference (~500-800 tokens)
 
 ### Spec-Driven Development
-- `/spec:adopt` - **(supported)** Install the official GitHub spec-kit CLI and scaffold it into the project (`specify init --here --ai claude`); then author with the `/speckit-*` skills and ship with `/flow:auto`. Turn `tasks.md` into GitHub issues with `scripts/speckit-tasks-to-issues.sh` (gh-CLI, no github-mcp-server). Per-project, always latest upstream.
-- `/spec:init` - *(legacy, pending retirement)* Initialize CPP's own `.specify/` structure
-- `/spec:create NAME` - *(legacy, pending retirement)* Create new feature specification
-- `/spec:sync [NAME]` - *(legacy, pending retirement)* Sync tasks.md to GitHub issues
-- `/spec:status` - *(legacy, pending retirement)* Show spec/issue alignment
+- `/spec:adopt` - **(supported)** Install the official GitHub spec-kit CLI and scaffold it into the project (`specify init --here --ai claude`); then author with the `/speckit-*` skills and ship with `/flow:auto`. Turn `tasks.md` into GitHub issues with `scripts/speckit-tasks-to-issues.sh` (gh-CLI, no github-mcp-server). Per-project, always latest upstream. The `specify` CLI installs on first `/spec:adopt` use, or up front via `/cpp:init` / `/cpp:update`.
+- `/spec:help` - Overview of the spec-kit authoring path
 
-The `/spec:*` family and `lib/spec_bridge` are being retired in favor of the official spec-kit (see epic #417 Phase A, decision on #418). `/spec:adopt` is the supported path today; retirement of the legacy commands is a tracked follow-up.
+**Spec-driven dev = official spec-kit plugin + `/flow:auto`.** CPP's home-grown pipeline (`/spec:create`, `/spec:sync`, `/spec:status`, `/spec:init`, backed by `lib/spec_bridge`) was **retired** in favor of upstream spec-kit (epic #417 Phase A, decision on #418). Legacy generated `spec-*` skills are recorded in `.claude/deprecated-skills.yaml` and pruned by `/cpp:update`.
 
 ### GitHub Issues
 - `/github:issue-list` - List and search issues
@@ -142,7 +150,7 @@ The `/spec:*` family and `lib/spec_bridge` are being retired in favor of the off
 - `/secrets:rotate KEY` - Rotate a secret
 
 ### Documentation
-- `/documentation:pptx [topic]` - Guided PowerPoint creation with diagrams (QA gating, Playwright session optimization)
+- `/documentation:pptx [topic]` - Guided PowerPoint creation with diagrams (QA gating; screenshots via the upstream `@playwright/mcp` server)
 - `/documentation:c4` - Generate C4 architecture diagrams as GitHub-renderable Mermaid via `scripts/c4-mermaid.py` (all 4 levels, per-container L3, per-component L4; flowchart L1-L3 + classDiagram L4; edge-validity QA gate, density-split hints, `index.md` + manifest)
 
 ### Evaluation
@@ -153,24 +161,28 @@ The `/spec:*` family and `lib/spec_bridge` are being retired in favor of the off
 - `/second-opinion:models` - Interactive model/depth selection
 
 ### QA
-- `/qa:test` - Automated web testing via Playwright
+- `/qa:test` - Automated web testing via the upstream `@playwright/mcp` server (single session)
+
+### Browser Sessions
+- `/browser:session <verb> [name]` - Named **concurrent** browser sessions over upstream `@playwright/mcp` via a static "lease-desk" pool (create/resume/save/close/list/cleanup/pool). Recovers the one feature upstream lacks (microsoft/playwright-mcp#1530) with no fork. Opt-in pool registered via `/cpp:init` (Full tier -> browser pool); ledger in `scripts/playwright-desk.py`. See `docs/skills/browser-session-wrapper.md`.
+- `/browser:help` - Browser session commands overview
 
 ### CLAUDE.md Management
 - `/claude-md:lint` - Lint CLAUDE.md for missing CI/CD, Docker, and troubleshooting directives
 
 ### Skills
-- `/skills:find [QUERY]` - Search for skills from the skills.sh ecosystem
-- `/skills:add PACKAGE` - Install a skill from GitHub or skills.sh
-- `/skills:list` - List installed skills in this project
-- `/skills:update` - Update all installed skills
-- `/skills:check` - Check for available skill updates
-- `/skills:help` - Skills commands overview
+The `/skills:*` wrapper was retired (issue #437) - it is fully absorbed
+by the native Claude Code ecosystem. Use these instead:
+- `npx skills find|add|list|update <...>` - Discover/install/manage skills from [skills.sh](https://skills.sh/)
+- `/plugin` - Browse and install from the plugin marketplace
+- Auto-loading `.claude/skills` + `/reload-skills` - Project-local skills, no wrapper needed
 
 ### Other
 - `/dockers` - Docker container status, health, project linkages
-- `/cpp:init` - Interactive setup wizard (Tiers: Minimal, Standard, Full, CI/CD, Codex)
+- `/cpp:init` - Interactive setup wizard (Tiers: Minimal, Standard, Full, CI/CD, Codex); optionally installs the spec-kit CLI (`specify`, the engine behind `/spec:adopt`)
 - `/cpp:status` - Check installation state
-- `/cpp:update` - Pull latest, sync deps, migrate legacy systemd units if present, refresh Docker local-build runtime, tear down orphaned Docker MCP infra via the curated `.claude/deprecated-mcps.yaml` (Step 6c/7, user-confirmed), prune retired/orphaned generated skills via the curated `.claude/deprecated-skills.yaml` (Step 7.5, user-confirmed), then offer to merge new flow allowlist rules from `templates/claude-settings-permissions.json` into `~/.claude/settings.json` (Step 7.6, user-confirmed)
+- `/cpp:update` - Pull latest, sync deps, migrate legacy systemd units if present, refresh Docker local-build runtime, tear down orphaned Docker MCP infra via the curated `.claude/deprecated-mcps.yaml` (Step 6c/7, user-confirmed), prune retired/orphaned generated skills via the curated `.claude/deprecated-skills.yaml` (Step 7.5, user-confirmed), then offer to merge new flow allowlist rules from `templates/claude-settings-permissions.json` into `~/.claude/settings.json` (Step 7.6, user-confirmed); also refreshes the optional spec-kit CLI (`specify`) if installed (Step 4.6)
+- `/self-improvement:retro` - Post-run friction retro (the grill-me cycle): always-on capture (`scripts/friction-log.sh` -> `.claude/friction.jsonl`, woven into `/flow:auto` + `/flow:merge`) then classify -> dedup -> propose -> confirm -> codify durable fixes; local ledger `.claude/learnings.md`, portable knowledge delegates to `/self-improvement:memory` (#433)
 - `/self-improvement:deployment` - Retrospective analysis after failed deploys
 - `/self-improvement:memory` - Populate the shared common-memory ledger with portable friction-knowledge (bucket-2-plus); consult-not-push, fail-open
 - `/happy-check` - Check happy-cli version (optional)
@@ -189,12 +201,21 @@ Flow commands use Makefile targets as the canonical build interface:
 
 ## Security
 
-- **PreToolUse hook** blocks dangerous commands (force push to main, `rm -rf /`, `DROP TABLE`, etc.)
-- **PostToolUse hook** masks secrets in Bash/Read output (connection strings, API keys, env vars)
-- **Hooks configured in** `.claude/hooks.json`
-- `/flow:finish` and `/flow:deploy` run security quick scan as quality gates
+Security is split into two complementary halves. **Semantic** code-vulnerability
+review - SQL injection, XSS, broken authorization, insecure credential handling -
+is handled by Claude Code's native **`/security-review`** command and its GitHub
+Action; CPP defers to it and does not duplicate it. CPP's `/security:*` commands
+and `lib/security` own the **deterministic** complement: secret scanning
+(gitleaks + native patterns), git-history secret scanning, dependency CVE audits
+(`pip-audit`, `npm audit`), and the blocking gate. See `lib/security/README.md`.
+
+- **Destructive commands** (force push to main, `rm -rf /`, disk formatting, etc.) are blocked by Claude Code's native destructive-git auto-blocking and OS sandbox - the custom PreToolUse dangerous-command hook was retired (issue #439) as redundant.
+- **PostToolUse hook** masks secrets in Bash/Read output (connection strings, API keys, env vars). Retained because native tooling blocks credential *reads* but does not *mask* secrets that surface in output.
+- **Hooks configured in** `.claude/hooks.json` (SessionStart + PostToolUse)
+- `/flow:finish` and `/flow:deploy` run the deterministic security scan (`lib/security`) as a quality gate
 - CRITICAL findings block gates; HIGH findings produce warnings
 - Configure gating in `.claude/security.yml` (optional, created by `/security:scan` when needed)
+- For **semantic** code review (SQLi/XSS/authz/insecure handling), run native `/security-review` - not a CPP command
 - **User-level flow allowlist** (`templates/claude-settings-permissions.json`) auto-approves the read-only git/gh plumbing that `/flow:*` runs; shipping actions (`git push`, `gh pr create`) and `cat` are deliberately excluded so gates and secret-read prompts stay intact. Merged via `/cpp:init` or `/cpp:update` Step 7.6; checked by `/flow:doctor`. Rationale: `templates/claude-settings-permissions.md`
 
 ## On-Demand Documentation
@@ -213,4 +234,4 @@ Tiered: dotenv-global (`~/.config/claude-power-pack/secrets/`) -> env-file -> AW
 
 ## Version
 
-Current version: 7.2.0
+Current version: 7.3.0

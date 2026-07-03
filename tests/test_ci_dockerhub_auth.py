@@ -31,7 +31,7 @@ def test_image_security_logs_in_before_compose_build() -> None:
     commands = _commands(security)
     login_idx = _command_index(commands, "ci-docker-login.sh")
     build_idx = _command_index(
-        commands, "docker compose --profile core --profile browser --profile cicd build"
+        commands, "docker compose --profile core --profile cicd build"
     )
     assert login_idx < build_idx
     assert "scripts/ci-docker-login.sh" in security["when"][0]["path"]

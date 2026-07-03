@@ -52,6 +52,56 @@ deprecated:
              ~/.claude/skills/wiki-create-page \
              ~/.claude/skills/wiki-update-page
 
+  - family: spec
+    entire_family: true
+    reason: >-
+      CPP's home-grown spec pipeline (/spec:init, /spec:create, /spec:sync,
+      /spec:status backed by lib/spec_bridge) is retired in favor of the official
+      GitHub spec-kit via /spec:adopt (epic #417 Phase A, decision on #418). The
+      generated spec-* skills came from the defunct manifests/spec/*.yaml
+      architecture; spec-status and spec-sync still target the retired Plane/Wiki.js
+      backend, so they are stale orphans on machines that installed an earlier CPP.
+    replacement: /spec:adopt (official spec-kit) + /flow:auto
+    skills:
+      - spec-create
+      - spec-init
+      - spec-status
+      - spec-sync
+    # Manual fallback; the #395 skill-orphan prune in /cpp:update consumes this
+    # file and offers guarded, user-confirmed removal. Safe: generated artifacts,
+    # not user content.
+    cleanup: |
+      rm -rf ~/.claude/skills/spec-create \
+             ~/.claude/skills/spec-init \
+             ~/.claude/skills/spec-status \
+             ~/.claude/skills/spec-sync
+
+  - family: skills
+    entire_family: false
+    reason: >-
+      The /skills:* command family (find/add/list/update/check/help) and the
+      skills-patterns knowledge skill are fully absorbed by the native Claude
+      Code ecosystem: `npx skills`, the /plugin marketplace, auto-loaded
+      .claude/skills, and /reload-skills. Retired in issue #437 (epic #417
+      ecosystem-review, Phase A).
+    replacement: "npx skills OR /plugin marketplace"
+    # The six /skills:* entries were hand-authored COMMAND files under
+    # .claude/commands/skills/ (delivered via the .claude/commands symlink), not
+    # generated skills, so they carry no metadata.family and are removed from the
+    # repo directly - symlinked installs pick that up on update. Copied
+    # (non-symlink) installs should also remove the project-local command dir by
+    # hand: `rm -rf .claude/commands/skills` (run from the repo root only). It is
+    # deliberately NOT in the cleanup block below, which only touches ~/.claude so
+    # it is safe to run from any cwd.
+    # The only generated SKILL retired here is skills-patterns (a knowledge
+    # skill under .claude/skills/), listed below for the #395 prune.
+    skills:
+      - skills-patterns
+    # One-time manual cleanup until the #395 prune lands. Safe: generated
+    # artifacts, not user content.
+    cleanup: |
+      rm -rf ~/.claude/skills/skills-patterns ~/.claude/skills/skills-patterns.md
+
 # Plane has no entry: it was never integrated as a CPP skill or command, so
 # there is nothing installed to remove. It is recorded here only to make the
 # "GitHub Issues is the sole scaffolding backend" decision explicit.

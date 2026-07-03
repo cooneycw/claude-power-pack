@@ -1,9 +1,8 @@
 # Claude Power Pack - MCP Server Orchestration
 # Usage (prefer Makefile targets - see Deployment Conventions in CLAUDE.md):
 #   make docker-up PROFILE=core                      # Second Opinion
-#   make docker-up PROFILE="core browser"            # + Playwright
 #   make docker-build PROFILE=core                   # Build images only
-#   make docker-refresh PROFILE="core browser"       # Rebuild, restart, wait healthy
+#   make docker-refresh PROFILE=core                 # Rebuild, restart, wait healthy
 #   make docker-down                                 # Stop all services
 #   make docker-ps                                   # Show container status
 #
@@ -153,30 +152,6 @@ services:
   #         cpus: "0.25"
   #         memory: 128M
 
-  mcp-playwright-persistent:
-    build:
-      context: ./mcp-playwright-persistent
-      dockerfile: deploy/Dockerfile
-    image: mcp-playwright-persistent:${CPP_IMAGE_TAG:-dev}
-    container_name: ${CPP_CONTAINER_PREFIX:-}mcp-playwright-persistent
-    ports:
-      - "${MCP_PLAYWRIGHT_PORT_MAPPING:-8081:8081}"
-    shm_size: "2gb"
-    environment:
-      - SERVER_HOST=0.0.0.0
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8081/readyz')"]
-      interval: 10s
-      timeout: 5s
-      start_period: 15s
-      retries: 3
-    restart: unless-stopped
-    profiles: ["browser"]
-    deploy:
-      resources:
-        limits:
-          cpus: "2.0"
-          memory: 2G
-        reservations:
-          cpus: "0.5"
-          memory: 512M
+  # Browser automation (formerly mcp-playwright-persistent) is now the upstream
+  # `@playwright/mcp` server, registered by `/cpp:init` as an npx/stdio MCP
+  # (no container, no `browser` compose profile). See issue #423.

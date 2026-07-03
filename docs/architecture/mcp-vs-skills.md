@@ -29,13 +29,13 @@ Does the feature need real-time external access (APIs, browsers, databases)?
 ## When to Use MCP
 
 - Calling external LLM APIs (Gemini, OpenAI, Anthropic)
-- Browser automation (Playwright sessions)
+- Browser automation (upstream `@playwright/mcp`)
 - Diagram rendering (HTML generation, screenshot capture)
 - Any operation requiring network I/O or persistent state
 
 ## When to Use Skills
 
-- Teaching Claude a workflow (e.g., `/flow:auto`, `/spec:sync`)
+- Teaching Claude a workflow (e.g., `/flow:auto`, `/spec:adopt`)
 - Loading reference documentation on demand
 - Domain-specific prompting (e.g., evaluation domain types)
 - Procedures that compose existing tools
@@ -80,14 +80,14 @@ CPP uses Docker Compose profiles to manage MCP servers:
 | Profile | Services | Use Case |
 |---------|----------|----------|
 | `core` | Second Opinion | Essential MCP servers |
-| `browser` | Playwright | Browser automation for testing |
+
+Browser automation is the upstream `@playwright/mcp` server, registered by `/cpp:init` as an npx/stdio MCP (no container, no compose profile).
 
 **Secrets:** Use env_file with a root `.env` (gitignored), never hardcode keys in Dockerfiles. For production, use Docker secrets or AWS Secrets Manager.
 
 **Start profiles:**
 ```bash
 make docker-up PROFILE=core
-make docker-up PROFILE="core browser"
 ```
 
 ## Decision Checklist

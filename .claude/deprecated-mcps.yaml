@@ -86,3 +86,21 @@ deprecated:
     codex_registrations:
       - coordination
       - mcp-coordination
+
+  - name: mcp-playwright-persistent
+    reason: >-
+      CPP's 823-line browser-automation server is retired; browser automation
+      moves to the upstream @playwright/mcp server registered as an npx/stdio MCP
+      by /cpp:init (no container, no Dockerfile, no Trivy gate). See issue #423.
+    replacement: upstream @playwright/mcp (npx/stdio, via /cpp:init)
+    port: 8081
+    image_prefix: mcp-playwright-persistent
+    containers:
+      - mcp-playwright-persistent
+    claude_registrations:
+      - playwright-persistent
+      - mcp-playwright
+      - mcp-playwright-persistent
+    codex_registrations:
+      - playwright-persistent
+      - mcp-playwright-persistent

@@ -18,8 +18,8 @@ Create a new project from zero to pushed GitHub repo in one command.
   Step 1: Validate & create ~/Projects/my-awesome-app
   Step 2: Select framework, generate scaffold
   Step 3: Initialize git, push to GitHub
-  Step 4: Run /cicd:init, /cpp:init, /spec:init
-  Step 5: Initial spec (mandatory) + sync
+  Step 4: Run /cicd:init, /cpp:init
+  Step 5: Initial spec (optional) + issue sync
   Step 6: Summary
 ```
 
@@ -50,7 +50,7 @@ If the directory already exists, check what steps have been completed and resume
 - Has `.git/`? → Step 3 partially done. Check if GitHub remote exists.
 - Has `Makefile` + `.claude/cicd.yml`? → cicd:init done.
 - Has `.claude/commands` symlink? → cpp:init done.
-- Has `.specify/`? → spec:init done.
+- Has `.specify/`? → spec structure already present.
 
 If the directory doesn't exist:
 
@@ -611,7 +611,7 @@ echo "Created spec: .specify/specs/$FEATURE_NAME/"
 ```
 
 Then ask: "Sync tasks to GitHub issues now?"
-- **Yes** → invoke `/spec:sync $FEATURE_NAME`
+- **Yes** → run `./scripts/speckit-tasks-to-issues.sh`
 - **Skip** → sync later
 
 Report: `Step 5/6: Initial spec created` or `Step 5/6: Skipped`
@@ -649,7 +649,7 @@ Project created: {PROJECT_NAME}
 Next steps:
   cd ~/Projects/{PROJECT_NAME}
   /project-next              # See recommended actions
-  /spec:create {feature}     # Add a feature spec
+  /spec:adopt                # Adopt official spec-kit for feature specs (optional)
   /flow:start {N}            # Start working on an issue
 ```
 
@@ -683,4 +683,4 @@ Key failure scenarios:
 - Each step checks for prior completion before executing
 - The scaffold is minimal - just enough to start coding
 - Framework detection from `lib/cicd` is reused for Makefile generation
-- Sub-commands (cicd:init, cpp:init, spec:init) are executed inline, not via `/skill`
+- Sub-commands (cicd:init, cpp:init) are executed inline, not via `/skill`

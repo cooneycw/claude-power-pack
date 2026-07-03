@@ -51,8 +51,8 @@ CPP uses a tiered installation model:
 
 ### Tier 3 - Full
 - **MCP Second Opinion** (port 8080): Gemini/OpenAI code review
-- **MCP Playwright** (port 8081): Persistent browser automation
-- **Docker runtime**: First-class MCP container deployment via `make docker-refresh PROFILE="core browser"`
+- **Browser automation**: upstream `@playwright/mcp` registered via npx/stdio (no container; needs Node.js 18+)
+- **Docker runtime**: First-class MCP container deployment via `make docker-refresh PROFILE="core"`
 - **Systemd services**: Auto-start on boot (optional for native installs)
 
 ### Tier 4 - CI/CD
@@ -93,14 +93,14 @@ CPP uses a tiered installation model:
 
 ## Skills Ecosystem
 
-| Command | Purpose |
-|---------|---------|
-| `/skills:find [QUERY]` | Search for skills from skills.sh by keyword |
-| `/skills:add PACKAGE` | Install a skill from GitHub or skills.sh |
-| `/skills:list` | List installed skills in this project |
-| `/skills:update` | Update all installed skills |
-| `/skills:check` | Check for available skill updates |
-| `/skills:help` | Skills commands overview |
+The `/skills:*` wrapper was retired (issue #437), absorbed by the native
+Claude Code ecosystem. Manage skills directly:
+
+| Task | Native path |
+|------|-------------|
+| Discover / install / manage skills | `npx skills find|add|list|update <...>` (from [skills.sh](https://skills.sh/)) |
+| Browse a marketplace | `/plugin` |
+| Project-local skills | Auto-loaded from `.claude/skills`; `/reload-skills` to refresh |
 
 ## Related Documentation
 

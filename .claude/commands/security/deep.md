@@ -7,6 +7,12 @@ allowed-tools: Bash(python3:*), Bash(PYTHONPATH=*), Read(*.py), Read(*.yml)
 
 Thorough security scan including git history analysis. Runs all native and external scanners.
 
+> **Semantic code review?** For code-logic vulnerabilities (SQL injection, XSS,
+> authorization, insecure credential handling), use Claude Code's native
+> **`/security-review`**. This command is the *deterministic* complement - its
+> distinctive value is **git-history secret scanning**, which native review
+> does not perform.
+
 ## Arguments
 
 - `--json` - Output as JSON

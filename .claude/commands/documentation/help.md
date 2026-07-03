@@ -46,4 +46,4 @@ Add an `update_docs` target to your Makefile to run C4 diagram generation and do
 ### Related
 
 - `/load-mcp-docs` - Load all MCP server documentation
-- MCP Playwright - Browser automation for screenshots
+- Upstream `@playwright/mcp` - Browser automation for screenshots

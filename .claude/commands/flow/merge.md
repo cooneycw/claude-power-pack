@@ -2,6 +2,15 @@
 
 Merge the current branch's PR, then clean up the worktree and branch.
 
+Worktrees are Claude Code's **native worktrees** (checkouts under
+`.claude/worktrees/<name>`). `/flow:merge` is usually invoked standalone, in a
+fresh session from inside the worktree - so the worktree was NOT created by
+`EnterWorktree` in this session and `ExitWorktree` would be a no-op. The safe
+cross-session cleanup therefore stays on `git worktree remove` /
+`worktree-remove.sh`. If (and only if) you created this worktree earlier in the
+same session with `EnterWorktree(name=...)`, prefer the native
+`ExitWorktree(action="remove", discard_changes=true)` instead of Steps 5a-5c.
+
 ## Instructions
 
 When the user invokes `/flow:merge`, perform these steps:
@@ -137,7 +146,7 @@ PR #78 merged (squash) ✅
 
 Cleanup:
   ✅ Remote branch deleted: issue-42-fix-login
-  ✅ Worktree removed: ../my-project-issue-42
+  ✅ Worktree removed: .claude/worktrees/issue-42-fix-login
   ✅ Local branch deleted: issue-42-fix-login
   ✅ Issue #42 closed
   ✅ Pruned stale worktree references
@@ -145,6 +154,25 @@ Cleanup:
   ✅ Pruned stale remote tracking branches
 
 Current directory: /home/user/Projects/my-project (main)
+```
+
+### Step 9: Post-run Friction Retro (optional, non-blocking)
+
+Capture is always-on during a flow: whenever a step in this merge triggers a
+permission prompt, a gate failure/retry, red output you worked around, or a manual
+correction, record it immediately via the fail-open helper (it never blocks):
+
+```bash
+scripts/friction-log.sh --class <permission-prompt|gate-failure|red-output|manual-intervention> \
+  --signal "<what happened>" --run "flow:merge" --step "<N/9 Name>" --outcome "<...>"
+```
+
+Then, if `.claude/friction.jsonl` recorded any signals, offer the codify step (do
+not auto-run):
+
+```
+Friction retro: this run recorded N friction signal(s). Run /self-improvement:retro
+to codify fixes? [y/N]
 ```
 
 ## Error Handling
@@ -159,7 +187,8 @@ Current directory: /home/user/Projects/my-project (main)
 
 - Squash merge is the default - produces clean single-commit history
 - The remote branch is deleted by `gh pr merge --delete-branch`
-- The worktree removal uses the safe `worktree-remove.sh` script when available
+- Worktrees are native (`.claude/worktrees/`); cross-session cleanup uses `git worktree remove` / the safe `worktree-remove.sh` script (native `ExitWorktree` only removes worktrees created by `EnterWorktree` in the current session)
 - After merge, the user ends up in the main repo on the `main` branch
 - Automatically prunes stale worktree references, merged branches, and remote tracking branches
 - For a standalone cleanup (without merging), use `/flow:cleanup`
+- Friction capture is always-on and this command offers `/self-improvement:retro` at the end to codify fixes (the grill-me cycle, issue #426)

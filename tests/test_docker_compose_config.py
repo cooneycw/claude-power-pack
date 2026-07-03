@@ -276,9 +276,9 @@ def test_compose_uses_fixed_local_ports_with_ci_overrides() -> None:
     assert services["mcp-second-opinion"]["ports"] == [
         "${MCP_SECOND_OPINION_PORT_MAPPING:-8080:8080}"
     ]
-    assert services["mcp-playwright-persistent"]["ports"] == [
-        "${MCP_PLAYWRIGHT_PORT_MAPPING:-8081:8081}"
-    ]
+    # mcp-playwright-persistent was retired in #423 (browser automation moved to
+    # the upstream @playwright/mcp npx server); it is no longer a compose service.
+    assert "mcp-playwright-persistent" not in services
 
 
 def test_makefile_has_first_class_docker_refresh_target() -> None:
@@ -308,8 +308,8 @@ def test_cpp_update_uses_docker_only_runtime_with_legacy_teardown() -> None:
 
     assert "## Step 4.5: Legacy Systemd Teardown" in command
     assert 'DEPLOY_MODEL="docker"' in command
-    assert 'make docker-refresh PROFILE="core browser"' in command
-    assert 'make docker-health PROFILE="core browser"' in command
+    assert 'make docker-refresh PROFILE="core"' in command
+    assert 'make docker-health PROFILE="core"' in command
     assert "Docker refresh failed" in command
     assert "Docker is the only valid deployment\ntarget" in command
     assert "Do not offer systemd installation" in command
@@ -326,8 +326,8 @@ def test_cpp_init_uses_docker_only_tier3_and_runs_health_gated_refresh() -> None
     assert "Tier 3 requires Docker Engine or Docker Desktop" in command
     assert "Tier 3 requires Docker Compose v2" in command
     assert "Run /cpp:update first to migrate or remove legacy systemd units" in command
-    assert 'make docker-refresh PROFILE="core browser"' in command
-    assert 'make docker-health PROFILE="core browser"' in command
+    assert 'make docker-refresh PROFILE="core"' in command
+    assert 'make docker-health PROFILE="core"' in command
     assert "Docker containers rebuilt, restarted, and healthy" in command
     assert "systemctl" not in command
     assert "DEPLOY_MODE" not in command
@@ -376,8 +376,8 @@ def test_woodpecker_validates_compose_config_and_policy() -> None:
     assert policy["depends_on"] == ["validate"]
     assert policy["image"] == WOODPECKER_DOCKER_BUILDX_IMAGE
     assert "apk add --no-cache docker-cli-compose" in commands
-    assert "docker compose --profile core --profile browser --profile cicd config --quiet" in commands
-    assert "docker compose --profile core --profile browser --profile cicd config > \"$rendered\"" in commands
+    assert "docker compose --profile core --profile cicd config --quiet" in commands
+    assert "docker compose --profile core --profile cicd config > \"$rendered\"" in commands
     assert "AWS_TOKEN=ci-policy-token" in commands
     assert "AWS_SECRETS_AGENT_PORT_MAPPING=2773" in commands
     assert "image: [^[:space:]]+:latest" in commands
@@ -395,7 +395,7 @@ def test_woodpecker_builds_scans_images_and_generates_sboms() -> None:
     assert "/var/run/docker.sock:/var/run/docker.sock" in security["volumes"]
     assert "apk add --no-cache docker-cli-compose" in commands
     assert "CPP_IMAGE_TAG=\"ci-${CI_COMMIT_SHA:-local}\"" in commands
-    assert "docker compose --profile core --profile browser --profile cicd build" in commands
+    assert "docker compose --profile core --profile cicd build" in commands
     assert "docker pull ghcr.io/aquasecurity/trivy:0.67.2" in commands
     assert "docker pull ghcr.io/anchore/syft:v1.44.0" in commands
     assert "aws-secrets-agent:$CPP_IMAGE_TAG" in commands
@@ -417,14 +417,13 @@ def test_woodpecker_builds_scans_images_and_generates_sboms() -> None:
     assert "aws-secrets-agent/**" in image_paths
     assert "lib/**" in image_paths
     assert "mcp-second-opinion/**" in image_paths
-    assert "mcp-playwright-persistent/**" in image_paths
+    assert "mcp-playwright-persistent/**" not in image_paths
 
 
 def test_python_runtime_images_remove_system_packaging_tools() -> None:
     root = Path(__file__).resolve().parents[1]
     dockerfiles = [
         "mcp-second-opinion/deploy/Dockerfile",
-        "mcp-playwright-persistent/deploy/Dockerfile",
         "mcp-evaluate/deploy/Dockerfile",
     ]
 
@@ -466,7 +465,8 @@ def test_woodpecker_runtime_smoke_is_ephemeral_and_tears_down() -> None:
     # The agent is internal-only now, so the smoke no longer publishes it.
     assert "AWS_SECRETS_AGENT_PORT_MAPPING" not in script
     assert "export MCP_SECOND_OPINION_PORT_MAPPING=8080" in script
-    assert "export MCP_PLAYWRIGHT_PORT_MAPPING=8081" in script
+    # Browser server retired in #423 - no playwright port export remains.
+    assert "MCP_PLAYWRIGHT_PORT_MAPPING" not in script
     assert "docker compose -p \"$PROJECT\" port \"$service\" \"$container_port\"" in script
     assert "url=\"http://127.0.0.1:$container_port$check_path\"" in script
     assert 'docker compose -p "$PROJECT" exec -T "$service"' in script
@@ -483,7 +483,7 @@ def test_woodpecker_runtime_smoke_is_ephemeral_and_tears_down() -> None:
     assert "must not be published to the host" in script
     assert '[ "$published" != "0" ]' in script
     assert "check_http mcp-second-opinion 8080 /readyz" in script
-    assert "check_http mcp-playwright-persistent 8081 /readyz" in script
+    assert "check_http mcp-playwright-persistent 8081 /readyz" not in script
 
 
 def test_runtime_smoke_retries_in_container_probes_with_diagnostics() -> None:
@@ -529,7 +529,6 @@ def test_mcp_healthchecks_gate_on_readiness_not_liveness() -> None:
     # keyless) container is reported unhealthy instead of being greenlit.
     expected = {
         "mcp-second-opinion": "8080",
-        "mcp-playwright-persistent": "8081",
     }
     for service, port in expected.items():
         probe = " ".join(services[service]["healthcheck"]["test"])
@@ -556,7 +555,6 @@ def test_each_mcp_server_exposes_a_readiness_route() -> None:
     root = Path(__file__).resolve().parents[1]
     servers = {
         "mcp-second-opinion": "src/server.py",
-        "mcp-playwright-persistent": "src/server.py",
     }
     for component, rel in servers.items():
         source = (root / component / rel).read_text()
@@ -572,7 +570,7 @@ def test_woodpecker_smoke_path_gates_cover_shared_runtime_inputs() -> None:
     assert "aws-secrets-agent/**" in smoke_paths
     assert "lib/**" in smoke_paths
     assert "mcp-second-opinion/**" in smoke_paths
-    assert "mcp-playwright-persistent/**" in smoke_paths
+    assert "mcp-playwright-persistent/**" not in smoke_paths
 
 
 def test_image_security_path_filter_supersets_runtime_smoke() -> None:
