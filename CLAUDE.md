@@ -30,7 +30,7 @@ Core components and their locations:
 - `lib/security/` - Security scanning (native + external tools)
 - `lib/cicd/` - CI/CD framework detection, Makefile generation, health/smoke checks, deterministic runner, deployment strategies, Pydantic v2 config validation
 - `lib/cpp_memory/` - Common-memory client: fail-open Postgres ledger of *portable* CPP learnings/infra traps shared across the VM fleet (bucket-2-plus), plus a dedup/rejection ledger and a learnings->GitHub-issue bridge (`--emit-issue-candidate` / `link-issue`, #463). Store provisioned by `scripts/memories-db-setup.sh`. Consult-not-push; see `/self-improvement:memory`.
-- `scripts/` - Shell utilities (prompt-context, worktree-remove, hooks, drift-detect, skill-drift, mcp-drift, speckit-tasks-to-issues, playwright-desk lease-desk ledger, check-ignored-additions)
+- `scripts/` - Shell utilities (prompt-context, worktree-remove, hooks, drift-detect, skill-drift, mcp-drift, flow-skill-sync, speckit-tasks-to-issues, playwright-desk lease-desk ledger, check-ignored-additions)
 - `templates/` - Makefile, workflow, container templates
 - `docker-compose.yml` - MCP server orchestration (profile: `core`)
 - `.woodpecker.yml` - Woodpecker CI pipeline (lint, test, typecheck, image security gates, runtime smoke)
@@ -92,7 +92,11 @@ name (enforced after `EnterWorktree`), the `/flow:eli5` necessity gate, the
 quality gates, and merge/cleanup discipline are unchanged. Because native
 `ExitWorktree` only removes worktrees created in the current session, cross-session
 and cross-machine cleanup (`/flow:merge`, `/flow:cleanup`) keep `git worktree
-remove` / `scripts/worktree-remove.sh` as the fallback.
+remove` / `scripts/worktree-remove.sh` as the fallback. The `/flow:*` commands
+execute from a global mirror (`~/.claude/skills/flow-*`) regenerated from the
+`.claude/commands/flow/*` source of truth by `scripts/flow-skill-sync.py`
+(`--write` to sync, `--check` to detect drift); `/flow:doctor` warns when the
+mirror falls behind (issue #457).
 
 ### Project
 - `/project:init <name>` - Full project scaffolding (zero to GitHub repo)
