@@ -72,6 +72,23 @@ deploy:
 #       expected_body: '"ok"'
 
 # -------------------------------------------------------------------
+# Deploy Verification (used by /cicd:verify, /flow:deploy, /flow:auto)
+# -------------------------------------------------------------------
+# Capture the health.endpoints / health.smoke_tests above as a baseline
+# BEFORE a deploy, re-run them AFTER, diff the two, and emit an actionable
+# verdict: proceed / review / rollback. Catches a deploy that made things
+# worse than before - which raw health/smoke checks cannot.
+#
+# health:
+#   deploy_verification:
+#     enabled: true                     # let /flow:deploy + /flow:auto auto-capture/verify
+#     baseline_file: .claude/deploy-baseline.json
+#     latency_regression_pct: 50        # flag a probe > 50% slower than baseline...
+#     latency_floor_ms: 100             # ...but only if it is also over 100ms (noise floor)
+#     on_latency_regression: review     # review | rollback | ignore
+#     require_baseline: false           # true => no baseline downgrades PROCEED to REVIEW
+
+# -------------------------------------------------------------------
 # Pipeline Configuration (used by /cicd:pipeline)
 # -------------------------------------------------------------------
 # pipeline:

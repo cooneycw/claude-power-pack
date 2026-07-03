@@ -81,6 +81,11 @@ node_modules/
 # must never be committed to the parent repo.
 .claude/worktrees/
 
+# Deploy-verification baseline (issue #444) - a per-workstation snapshot of
+# health + smoke probes captured before a deploy, compared against after.
+# Runtime state, like .claude/runs/; never tracked.
+.claude/deploy-baseline.json
+
 # Logs
 *.log
 logs/

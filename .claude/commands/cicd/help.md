@@ -10,6 +10,7 @@ Build, verify, and deploy automation for Claude Code projects.
 | `/cicd:check` | Validate Makefile against CPP standards |
 | `/cicd:health` | Run health checks (endpoints + processes) |
 | `/cicd:smoke` | Run smoke tests from cicd.yml |
+| `/cicd:verify` | Verify a deployment against a pre-deploy baseline (proceed/rollback) |
 | `/cicd:pipeline` | Generate CI/CD workflows (GitHub Actions, or Woodpecker via provider) |
 | `/cicd:woodpecker` | Generate a hardened self-hosted Woodpecker pipeline + scaffold server/agent |
 | `/cicd:container` | Generate Dockerfile and docker-compose.yml |
@@ -30,6 +31,7 @@ Build, verify, and deploy automation for Claude Code projects.
                                               ↓
 /cicd:health    →  Check endpoints  →  Check processes  →  Report status
 /cicd:smoke     →  Run smoke tests  →  Check results    →  Report pass/fail
+/cicd:verify    →  Baseline (pre)   →  Re-run (post)    →  Verdict: proceed/rollback
                                               ↓
 /cicd:pipeline  →  Read Makefile targets  →  Generate .github/workflows/ci.yml (or .woodpecker.yml)
 /cicd:woodpecker→  Framework + gates      →  Generate hardened .woodpecker.yml + server/agent scaffold
@@ -103,6 +105,12 @@ health:
     - name: CLI version
       command: "python -m myapp --version"
       expected_output: "v\\d+\\.\\d+"
+  # Deploy verification (used by /cicd:verify, /flow:deploy, /flow:auto):
+  # capture the endpoints/smoke_tests above as a baseline before deploy,
+  # re-run them after, and emit a proceed/rollback verdict.
+  deploy_verification:
+    enabled: true
+    on_latency_regression: review   # review | rollback | ignore
 ```
 
 See `templates/cicd.yml.example` for full documentation.
@@ -122,9 +130,13 @@ See `templates/cicd.yml.example` for full documentation.
 # Run smoke tests
 /cicd:smoke
 
+# Capture a pre-deploy baseline, deploy, then verify (proceed/rollback)
+/cicd:verify --baseline
+/cicd:verify
+
 # Use with /flow
 /flow:finish    # Runs make lint + make test
-/flow:deploy    # Runs make deploy
+/flow:deploy    # Runs make deploy, then verifies against the baseline
 ```
 
 ## Infrastructure as Code

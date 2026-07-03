@@ -62,6 +62,32 @@ targets:
 - If `requires_confirmation: true`, ask the user to confirm before proceeding
 - If no deploy.yaml, proceed without extra confirmation
 
+### Step 4c: Capture Deploy-Verification Baseline (pre-deploy)
+
+Before deploying, snapshot the currently-running system so the post-deploy run
+(Step 8) can detect regressions. Only runs when
+`health.deploy_verification.enabled` is set in `.claude/cicd.yml`.
+
+```bash
+# Locate CPP source for lib/cicd
+CPP_DIR=""
+for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-pack; do
+  if [ -d "$dir" ] && [ -f "$dir/CLAUDE.md" ]; then
+    CPP_DIR="$dir"
+    break
+  fi
+done
+
+if [ -n "$CPP_DIR" ] && grep -q "deploy_verification:" .claude/cicd.yml 2>/dev/null; then
+    echo "Capturing pre-deploy baseline..."
+    PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -m lib.cicd verify --baseline --summary
+fi
+```
+
+- Captures health + smoke probes into `.claude/deploy-baseline.json`.
+- Fail-open: if `lib/cicd` is unavailable or no probes are configured, skip -
+  the deploy is never blocked by baseline capture.
+
 ### Step 4b: Run Deploy via Deterministic Runner (primary path)
 
 **Primary path:** Use the deterministic CI/CD runner for reproducible deploy with security gate:
@@ -186,18 +212,43 @@ If `CPP_DIR` is found and `.claude/cicd.yml` exists:
    SMOKE_EXIT=$?
    ```
 
+3b. **Run deploy verification (baseline comparison + verdict):**
+
+   When a baseline was captured in Step 4c, diff the post-deploy probes against
+   it and emit an actionable verdict. This is the deploy-confidence gate - it
+   catches a deploy that made things *worse* than before, which raw health/smoke
+   cannot.
+
+   ```bash
+   echo "Running deploy verification..."
+   PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -m lib.cicd verify
+   VERIFY_EXIT=$?
+   ```
+
+   - `VERIFY_EXIT == 0` (PROCEED or REVIEW): keep the deployment. On REVIEW,
+     surface the flagged probes to the user.
+   - `VERIFY_EXIT == 1` (ROLLBACK): a probe that passed in the baseline fails
+     now. **Report the regression prominently** and recommend rolling back
+     (redeploy the previous commit or run the rollback target) or investigating
+     with `/cicd:health` + `/cicd:smoke`. Verification does not roll back
+     automatically - the human decides.
+
 4. **Report results:**
-   - If all pass: `"Deploy verified ✅ - health checks and smoke tests passed"`
-   - If any fail: Report failures and suggest `/self-improvement:deployment`
+   - If verification PROCEEDs (or health + smoke pass with no baseline):
+     `"Deploy verified ✅ - no regression vs baseline"`
+   - If verification returns ROLLBACK: Report the regression and recommend
+     rollback + `/self-improvement:deployment`
+   - If any raw check fails: Report failures and suggest `/self-improvement:deployment`
 
 5. **Log verification results** (extends deploy.log format):
    ```bash
    HEALTH_PASS=$( [ "$HEALTH_EXIT" -eq 0 ] && echo "pass" || echo "fail" )
    SMOKE_PASS=$( [ "$SMOKE_EXIT" -eq 0 ] && echo "pass" || echo "fail" )
-   echo "$(date -Iseconds) | ${TARGET} | $(git rev-parse --short HEAD) | $(git branch --show-current) | $DEPLOY_EXIT | health:${HEALTH_PASS} | smoke:${SMOKE_PASS}" >> .claude/deploy.log
+   VERDICT=$( PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -m lib.cicd verify --summary 2>/dev/null | grep -oiE 'proceed|review|rollback' | head -1 | tr 'A-Z' 'a-z' )
+   echo "$(date -Iseconds) | ${TARGET} | $(git rev-parse --short HEAD) | $(git branch --show-current) | $DEPLOY_EXIT | health:${HEALTH_PASS} | smoke:${SMOKE_PASS} | verify:${VERDICT:-none}" >> .claude/deploy.log
    ```
 
-   Extended log format: `timestamp | target | commit | branch | deploy_exit | health:pass/fail | smoke:pass/fail`
+   Extended log format: `timestamp | target | commit | branch | deploy_exit | health:pass/fail | smoke:pass/fail | verify:proceed/review/rollback/none`
 
 **Skip conditions:**
 - No `.claude/cicd.yml` → skip silently

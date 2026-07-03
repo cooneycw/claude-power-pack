@@ -69,6 +69,31 @@ class SmokeTest(BaseModel):
     timeout: int = 10
 
 
+class DeployVerificationConfig(BaseModel):
+    """Post-deploy verification (deploy-confidence) configuration.
+
+    Controls the /cicd:verify baseline comparison: capture health + smoke
+    probes before a deploy, re-run them after, diff the two, and emit an
+    actionable verdict (proceed / review / rollback). Inert unless enabled
+    (or a baseline file already exists).
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    enabled: bool = False
+    baseline_file: str = ".claude/deploy-baseline.json"
+    # A probe slower than baseline_ms * (1 + latency_regression_pct/100) is
+    # flagged, but only when the current time also exceeds latency_floor_ms
+    # (avoids noise on fast probes where a few ms is a large percentage).
+    latency_regression_pct: float = 50.0
+    latency_floor_ms: float = 100.0
+    # What a latency regression means for the verdict: review | rollback | ignore
+    on_latency_regression: str = "review"
+    # When true and no baseline exists, downgrade PROCEED to REVIEW (we deployed
+    # blind - nothing to compare against).
+    require_baseline: bool = False
+
+
 class HealthConfig(BaseModel):
     """Health check and smoke test configuration."""
 
@@ -79,6 +104,7 @@ class HealthConfig(BaseModel):
     smoke_tests: list[SmokeTest] = Field(default_factory=list)
     post_deploy: bool = False
     startup_delay: int = 0
+    deploy_verification: DeployVerificationConfig = Field(default_factory=DeployVerificationConfig)
 
 
 class WoodpeckerConfig(BaseModel):
