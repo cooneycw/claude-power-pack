@@ -30,6 +30,7 @@ Core components and their locations:
 - `lib/security/` - Security scanning (native + external tools)
 - `lib/cicd/` - CI/CD framework detection, Makefile generation, health/smoke checks, deterministic runner, deployment strategies, Pydantic v2 config validation
 - `lib/spec_bridge/` - Spec-to-GitHub-issue sync (legacy, pending retirement; superseded by official spec-kit via `/spec:adopt` + `scripts/speckit-tasks-to-issues.sh`)
+- `lib/cpp_memory/` - Common-memory client: fail-open Postgres ledger of *portable* CPP learnings/infra traps shared across the VM fleet (bucket-2-plus), plus a dedup/rejection ledger. Store provisioned by `scripts/memories-db-setup.sh`. Consult-not-push; see `/self-improvement:memory`.
 - `scripts/` - Shell utilities (prompt-context, worktree-remove, hooks, drift-detect, skill-drift, mcp-drift)
 - `templates/` - Makefile, workflow, container templates
 - `docker-compose.yml` - MCP server orchestration (profiles: `core`, `browser`)
@@ -47,7 +48,7 @@ MCP containers fetch API keys at startup from AWS Secrets Manager via an `aws-se
 
 - **Secrets architecture:** `aws-secrets-agent` (Rust binary, port 2773) caches secrets in-memory (300s TTL) with SSRF token protection. The agent is internal-only (`expose:`, never host-published) and is the only container that receives AWS credentials; MCP containers use `fetch-secrets.sh` entrypoint to resolve keys with just the SSRF token. Use `docker-compose.dev.yml` (loopback publish + `.env` fallback + `ALLOW_ENV_FALLBACK`) for host-side debugging / offline local dev only.
 - **Required AWS credential variables:** `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_TOKEN` (SSRF token; must be unique - preflight rejects empty/`default-token`, override with `CPP_ALLOW_DEFAULT_TOKEN=1` for offline dev), supplied by local `.env` or CI/deploy environment
-- **AWS secrets used:** `codex_llm_apikeys` (second-opinion LLM keys: `GEMINI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`), `essent-ai` (Woodpecker CI keys: `WOODPECKER_URL`, `WOODPECKER_API_TOKEN` - consumed by `/flow:auto`, `woodpecker/bootstrap-secrets.py`, and `scripts/setup-woodpecker-cli.sh`)
+- **AWS secrets used:** `codex_llm_apikeys` (second-opinion LLM keys: `GEMINI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`), `essent-ai` (Woodpecker CI keys: `WOODPECKER_URL`, `WOODPECKER_API_TOKEN` - consumed by `/flow:auto`, `woodpecker/bootstrap-secrets.py`, and `scripts/setup-woodpecker-cli.sh`; also holds `CPP_MEMORIES_DSN`, the common-memory Postgres DSN used by `lib/cpp_memory` for fleet-wide federation - reference the store host by its Tailscale address)
 - **Required IAM permissions:** `secretsmanager:GetSecretValue`, `secretsmanager:DescribeSecret` scoped to the named secret ARNs, plus `kms:Decrypt` (scoped via `kms:ViaService`) when the secrets use a customer-managed CMK
 - **Validate setup:** `make docker-secrets-check` (checks AWS creds, verifies secrets exist)
 - **Profiles:** `core` (second-opinion + secrets-agent), `browser` (playwright)
@@ -171,6 +172,7 @@ The `/spec:*` family and `lib/spec_bridge` are being retired in favor of the off
 - `/cpp:status` - Check installation state
 - `/cpp:update` - Pull latest, sync deps, migrate legacy systemd units if present, refresh Docker local-build runtime, tear down orphaned Docker MCP infra via the curated `.claude/deprecated-mcps.yaml` (Step 6c/7, user-confirmed), prune retired/orphaned generated skills via the curated `.claude/deprecated-skills.yaml` (Step 7.5, user-confirmed), then offer to merge new flow allowlist rules from `templates/claude-settings-permissions.json` into `~/.claude/settings.json` (Step 7.6, user-confirmed)
 - `/self-improvement:deployment` - Retrospective analysis after failed deploys
+- `/self-improvement:memory` - Populate the shared common-memory ledger with portable friction-knowledge (bucket-2-plus); consult-not-push, fail-open
 - `/happy-check` - Check happy-cli version (optional)
 
 ## Makefile Integration
