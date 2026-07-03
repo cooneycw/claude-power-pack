@@ -11,9 +11,9 @@ itself (python-pptx based). CPP no longer ships its own PowerPoint engine - the
 `nano-banana` MCP server that used to build decks was removed in issue #401.
 
 > **Prerequisite - install the pptx skill:** verify it is installed with
-> `/skills:list`. If not present, install it with `/skills:add anthropics/skills@pptx`
-> (runs `npx skills add anthropics/skills@pptx`; requires Node/npx). If it cannot be
-> installed, tell the user and stop rather than falling back to a removed MCP tool.
+> `npx skills list`. If not present, install it with `npx skills add anthropics/skills@pptx`
+> (requires Node/npx). If it cannot be installed, tell the user and stop rather than
+> falling back to a removed MCP tool.
 
 > **Diagrams: bring pre-rendered images.** This command embeds diagram images you
 > supply (PNG/JPG paths); it does not render diagrams itself. For C4 architecture
@@ -121,7 +121,7 @@ This command does not render diagrams itself. If the user wants diagrams on slid
 
 Hand the deck definition to the installed `anthropics/skills@pptx` skill to author the `.pptx`:
 
-1. Confirm the skill is installed (`/skills:list`); if not, stop and ask the user to run `/skills:add anthropics/skills@pptx`.
+1. Confirm the skill is installed (`npx skills list`); if not, stop and ask the user to run `npx skills add anthropics/skills@pptx`.
 2. Compose the slide-by-slide content - titles, bullets, speaker notes - structured per the selected framework and obeying the Content Rules below.
 3. Follow the skill's `SKILL.md` workflow to generate the file at the requested output path, passing along any supplied diagram image paths to embed.
 4. Review the generated deck for the Content Rules (no framework names, anonymized) before reporting done.

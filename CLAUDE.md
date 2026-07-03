@@ -158,12 +158,11 @@ MCP containers fetch API keys at startup from AWS Secrets Manager via an `aws-se
 - `/claude-md:lint` - Lint CLAUDE.md for missing CI/CD, Docker, and troubleshooting directives
 
 ### Skills
-- `/skills:find [QUERY]` - Search for skills from the skills.sh ecosystem
-- `/skills:add PACKAGE` - Install a skill from GitHub or skills.sh
-- `/skills:list` - List installed skills in this project
-- `/skills:update` - Update all installed skills
-- `/skills:check` - Check for available skill updates
-- `/skills:help` - Skills commands overview
+The `/skills:*` wrapper was retired (issue #437) - it is fully absorbed
+by the native Claude Code ecosystem. Use these instead:
+- `npx skills find|add|list|update <...>` - Discover/install/manage skills from [skills.sh](https://skills.sh/)
+- `/plugin` - Browse and install from the plugin marketplace
+- Auto-loading `.claude/skills` + `/reload-skills` - Project-local skills, no wrapper needed
 
 ### Other
 - `/dockers` - Docker container status, health, project linkages
