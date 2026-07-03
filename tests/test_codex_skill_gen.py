@@ -149,7 +149,7 @@ class TestHasMcpContent:
     def test_detects_mcp(self) -> None:
         assert has_mcp_content("Use the MCP server for this")
         assert has_mcp_content("Run /flow:start to begin")
-        assert has_mcp_content("Call browser_screenshot")
+        assert has_mcp_content("Call browser_take_screenshot")
 
     def test_no_mcp(self) -> None:
         assert not has_mcp_content("Just regular Python code here")
@@ -246,7 +246,7 @@ class TestGenerateCodexSkill:
             description: Tests MCP integration
             ---
 
-            Use browser_screenshot to capture the page.
+            Use browser_take_screenshot to capture the page.
             Run /flow:start to begin work.
         """))
         _, content, _ = generate_codex_skill(skill, "/opt/cpp")

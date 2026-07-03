@@ -11,7 +11,7 @@ ENV_FILE="${ENV_FILE:-$REPO_ROOT/.env}"
 
 usage() {
   cat <<'USAGE'
-Usage: scripts/assert-prod-env.sh [--profiles "core browser cicd"] [--env-file .env]
+Usage: scripts/assert-prod-env.sh [--profiles "core cicd"] [--env-file .env]
 
 Checks:
   - AWS credentials and AWS_TOKEN are present for sidecar profiles

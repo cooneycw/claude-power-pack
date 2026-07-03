@@ -74,7 +74,7 @@ done
 
 MCP_SERVERS=""
 MCP_LIST=$(claude mcp list 2>/dev/null || echo "")
-for server in second-opinion playwright-persistent; do
+for server in second-opinion playwright; do
   echo "$MCP_LIST" | grep -q "$server" && MCP_SERVERS="$MCP_SERVERS $server"
 done
 ```
@@ -167,7 +167,7 @@ Ask the user which permission profile they want using AskUserQuestion:
       "Bash(curl:*)", "Bash(wget:*)",
       "WebFetch", "WebSearch",
       "Skill(*)",
-      "mcp__second-opinion__*", "mcp__playwright-persistent__*"
+      "mcp__second-opinion__*", "mcp__playwright__*"
     ],
     "deny": [
       "Bash(rm -rf /:*)", "Bash(rm -rf ~:*)", "Bash(rm -rf /home:*)",
@@ -280,8 +280,13 @@ This will make the following changes:
   [Tier 3 - Docker Runtime]
     • Requires Docker Engine or Docker Desktop
     • Requires Docker Compose v2 (`docker compose`)
-    • Builds local images with `make docker-refresh PROFILE="core browser"`
-    • Verifies container health with `make docker-health PROFILE="core browser"`
+    • Builds local images with `make docker-refresh PROFILE="core"`
+    • Verifies container health with `make docker-health PROFILE="core"`
+
+  [Tier 3 - Browser Automation] (upstream @playwright/mcp, no container)
+    • Registers the upstream `@playwright/mcp` server via npx/stdio
+    • Requires Node.js 18+ (for npx); Chromium downloads to ~/.cache/ms-playwright
+      on first use. No Docker container, no `browser` compose profile.
 
   [Tier 3 - API Keys] (choose one method)
     Option 1 - AWS Secrets Manager (Recommended):
@@ -296,7 +301,6 @@ This will make the following changes:
   [Tier 3 - Docker Containers]
     • aws-secrets-agent          - internal port 2773 (AWS SM sidecar)
     • mcp-second-opinion         - host port 8080
-    • mcp-playwright-persistent  - host port 8081
 
   [Tier 3 - Browser desk pool] (optional, off by default)
     • /browser:session named concurrent sessions over upstream @playwright/mcp
@@ -306,15 +310,15 @@ This will make the following changes:
   [Tier 3 - Configuration Files]
     • .env (AWS credentials + AWS_TOKEN for sidecar, or direct API keys)
 
-  Disk usage: approximately 2-4 GB for local Docker images, browser dependencies,
-  and Docker build cache (varies by host and cache state)
-  Ports used: 8080, 8081; 2773 is compose-network internal only
+  Disk usage: approximately 1-2 GB for local Docker images and build cache, plus
+  ~1.3 GB for the Chromium browser cache (varies by host and cache state)
+  Ports used: 8080; 2773 is compose-network internal only
 
   To undo:
     # Tier 1+2 cleanup (see above)
     cd {CPP_DIR} && make docker-down
     claude mcp remove second-opinion
-    claude mcp remove playwright-persistent
+    claude mcp remove playwright
     # If the browser desk pool was enabled:
     for d in $(python3 -c "import json;print(' '.join(json.load(open('.claude/playwright-pool.json'))['desks']))" 2>/dev/null); do claude mcp remove "$d"; done
 
@@ -872,14 +876,14 @@ runtime path.
 
 ```bash
 cd "$CPP_DIR"
-make docker-refresh PROFILE="core browser"
+make docker-refresh PROFILE="core"
 DOCKER_REFRESH_RC=$?
 if [ "$DOCKER_REFRESH_RC" -ne 0 ]; then
   echo "ERROR: Docker refresh failed or one or more containers are unhealthy."
   exit "$DOCKER_REFRESH_RC"
 fi
 
-make docker-health PROFILE="core browser"
+make docker-health PROFILE="core"
 DOCKER_HEALTH_RC=$?
 if [ "$DOCKER_HEALTH_RC" -ne 0 ]; then
   echo "ERROR: Docker health verification failed."
@@ -907,11 +911,22 @@ else
   echo "→ second-opinion MCP already registered (skipped)"
 fi
 
-if ! echo "$MCP_LIST" | grep -q "playwright-persistent"; then
-  claude mcp add playwright-persistent --transport sse --url http://127.0.0.1:8081/sse --scope user
-  echo "✓ playwright-persistent MCP registered"
+# Browser automation is the upstream @playwright/mcp server, registered via
+# npx/stdio (no container). Requires Node.js 18+ for npx.
+if echo "$MCP_LIST" | grep -q "playwright-persistent"; then
+  echo "→ Legacy playwright-persistent registration detected."
+  echo "  Run /cpp:update to tear down the retired container/registration (issue #423)."
+fi
+if ! echo "$MCP_LIST" | grep -qw "playwright"; then
+  if command -v npx &>/dev/null; then
+    claude mcp add --transport stdio --scope user playwright -- npx -y @playwright/mcp@latest --headless
+    echo "✓ playwright MCP (upstream @playwright/mcp) registered"
+  else
+    echo "⚠ npx not found. Browser automation needs Node.js 18+."
+    echo "  Install later: claude mcp add --transport stdio --scope user playwright -- npx -y @playwright/mcp@latest --headless"
+  fi
 else
-  echo "→ playwright-persistent MCP already registered (skipped)"
+  echo "→ playwright MCP already registered (skipped)"
 fi
 ```
 
@@ -1183,7 +1198,7 @@ if command -v codex &>/dev/null; then
   # If yes:
   CODEX_LIST=$(codex mcp list 2>/dev/null || echo "")
 
-  for entry in "second-opinion:8080" "playwright-persistent:8081"; do
+  for entry in "second-opinion:8080"; do
     NAME="${entry%%:*}"
     PORT="${entry#*:}"
     if echo "$CODEX_LIST" | grep -q "$NAME"; then
@@ -1194,10 +1209,20 @@ if command -v codex &>/dev/null; then
         echo "Registered $NAME with Codex (http://127.0.0.1:${PORT}/mcp)"
       else
         echo "WARNING: $NAME not reachable on port $PORT - skipping Codex registration"
-        echo "  Start containers first: make docker-refresh PROFILE=\"core browser\""
+        echo "  Start containers first: make docker-refresh PROFILE=\"core\""
       fi
     fi
   done
+
+  # Browser automation (upstream @playwright/mcp) is stdio/npx, not HTTP.
+  if echo "$CODEX_LIST" | grep -qw "playwright"; then
+    echo "-> playwright already registered with Codex (skipped)"
+  elif command -v npx &>/dev/null; then
+    codex mcp add playwright -- npx -y @playwright/mcp@latest --headless
+    echo "Registered playwright (upstream @playwright/mcp) with Codex"
+  else
+    echo "WARNING: npx not found - skipping Codex playwright registration (needs Node.js 18+)"
+  fi
 
   echo ""
   echo "Restart Codex for tools to become available."
@@ -1231,18 +1256,18 @@ Secrets:
 
 Deployment:
   Model: Docker (local build)
-  Refresh: make docker-refresh PROFILE="core browser"
-  Health: make docker-health PROFILE="core browser"
+  Refresh: make docker-refresh PROFILE="core"
+  Health: make docker-health PROFILE="core"
   Update pathway: /cpp:update migrates legacy systemd and refreshes Docker
 
 MCP Servers:
   • second-opinion (port 8080) - Gemini/OpenAI code review
-  • playwright-persistent (port 8081) - Browser automation
+  • playwright (upstream @playwright/mcp, npx/stdio) - Browser automation
   • aws-secrets-agent (internal port 2773) - Secret injection sidecar (if AWS SM)
 
 Next Steps:
   1. Verify Docker containers:
-     cd {CPP_DIR} && make docker-health PROFILE="core browser"
+     cd {CPP_DIR} && make docker-health PROFILE="core"
 
   2. Restart your shell to apply prompt changes:
      source ~/.bashrc
@@ -1367,7 +1392,7 @@ if ! command -v codex &>/dev/null; then
 else
   CODEX_LIST=$(codex mcp list 2>/dev/null || echo "")
 
-  for entry in "second-opinion:8080" "playwright-persistent:8081"; do
+  for entry in "second-opinion:8080"; do
     NAME="${entry%%:*}"
     PORT="${entry#*:}"
     if echo "$CODEX_LIST" | grep -q "$NAME"; then
@@ -1379,10 +1404,20 @@ else
         echo "✓ $NAME registered with Codex (http://127.0.0.1:${PORT}/mcp)"
       else
         echo "⚠ $NAME not reachable on port $PORT - skipping Codex registration"
-        echo "  Start containers first: make docker-refresh PROFILE=\"core browser\""
+        echo "  Start containers first: make docker-refresh PROFILE=\"core\""
       fi
     fi
   done
+
+  # Browser automation (upstream @playwright/mcp) is stdio/npx, not HTTP.
+  if echo "$CODEX_LIST" | grep -qw "playwright"; then
+    echo "-> playwright already registered with Codex (skipped)"
+  elif command -v npx &>/dev/null; then
+    codex mcp add playwright -- npx -y @playwright/mcp@latest --headless
+    echo "✓ playwright (upstream @playwright/mcp) registered with Codex"
+  else
+    echo "⚠ npx not found - skipping Codex playwright registration (needs Node.js 18+)"
+  fi
 
   echo ""
   echo "Restart Codex for tools to become available."

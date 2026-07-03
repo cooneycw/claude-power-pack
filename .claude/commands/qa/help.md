@@ -86,7 +86,7 @@ test_areas:
 ## How It Works
 
 1. Loads `.claude/qa.yml` config (or prompts interactively)
-2. Creates headless Playwright browser session
+2. Drives a headless browser via the upstream `@playwright/mcp` server
 3. Navigates to target URL (resolving shortcuts and area paths)
 4. Runs test checklist from config (or generic element testing)
 5. Checks console for errors
@@ -95,6 +95,6 @@ test_areas:
 
 ## Requirements
 
-- Playwright MCP server running (`mcp-playwright-persistent`)
+- Upstream `@playwright/mcp` registered (via `/cpp:init`; requires Node.js/npx)
 - GitHub CLI authenticated (`gh auth status`)
 - Repository access for issue creation

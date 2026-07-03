@@ -206,7 +206,7 @@ fi
 # Check MCP server pyproject.toml files
 echo ""
 echo "MCP Server Projects:"
-for server in mcp-second-opinion mcp-playwright-persistent; do
+for server in mcp-second-opinion; do
   if [ -f "$CPP_DIR/$server/pyproject.toml" ]; then
     echo "  [x] $server: pyproject.toml found"
   else
@@ -218,20 +218,23 @@ done
 echo ""
 echo "MCP Servers (Claude Code):"
 MCP_LIST=$(claude mcp list 2>/dev/null || echo "")
-for server in second-opinion playwright-persistent; do
+for server in second-opinion playwright; do
   if echo "$MCP_LIST" | grep -q "$server"; then
     echo "  [x] $server: registered"
   else
     echo "  [ ] $server: not registered"
   fi
 done
+if echo "$MCP_LIST" | grep -q "playwright-persistent"; then
+  echo "  [!] playwright-persistent: legacy registration (retired #423) - run /cpp:update to tear down"
+fi
 
 # Check Codex MCP registrations
 echo ""
 echo "MCP Servers (Codex):"
 if command -v codex &>/dev/null; then
   CODEX_LIST=$(codex mcp list 2>/dev/null || echo "")
-  for server in second-opinion playwright-persistent; do
+  for server in second-opinion playwright; do
     if echo "$CODEX_LIST" | grep -q "$server"; then
       echo "  [x] $server: registered"
     else
@@ -242,10 +245,11 @@ else
   echo "  [ ] Codex CLI: not installed"
 fi
 
-# Check MCP transport endpoints
+# Check MCP transport endpoints (containerized HTTP servers only; the browser
+# server is upstream @playwright/mcp over npx/stdio - no port to probe).
 echo ""
 echo "MCP Transport Endpoints:"
-for entry in "8080:second-opinion" "8081:playwright-persistent"; do
+for entry in "8080:second-opinion"; do
   PORT="${entry%%:*}"
   NAME="${entry#*:}"
   SSE_OK=$(curl -sf --max-time 2 -o /dev/null -w '%{http_code}' "http://127.0.0.1:${PORT}/sse" 2>/dev/null || echo "000")
@@ -262,7 +266,7 @@ done
 # Check MCP server connectivity and API key status
 echo ""
 echo "MCP Server Connectivity:"
-for entry in "8080:second-opinion" "8081:playwright-persistent"; do
+for entry in "8080:second-opinion"; do
   PORT="${entry%%:*}"
   NAME="${entry#*:}"
   HEALTH_RESPONSE=$(curl -sf --max-time 2 "http://127.0.0.1:${PORT}/" 2>/dev/null)
@@ -534,7 +538,7 @@ fi
 # Check Codex MCP registrations
 if command -v codex &>/dev/null; then
   CODEX_MCP=$(codex mcp list 2>/dev/null || echo "")
-  for server in second-opinion playwright-persistent; do
+  for server in second-opinion playwright; do
     if echo "$CODEX_MCP" | grep -q "$server"; then
       echo "  [x] Codex MCP: $server registered"
     else
@@ -589,10 +593,10 @@ Tier 2 (Standard):
 Tier 3 (Full):
   [x] uv: 0.5.x
   [x] mcp-second-opinion: pyproject.toml + registered
-  [ ] mcp-playwright-persistent: not configured
+  [x] playwright: registered (upstream @playwright/mcp, npx/stdio)
   MCP Connectivity:
     [x] second-opinion (port 8080): reachable
-    [ ] playwright-persistent (port 8081): not reachable
+    [x] playwright: stdio (npx) - no port to probe
   AWS Secrets Sidecar:
     [x] aws-secrets-agent: running, healthy (port 2773)
         mcp-second-opinion -> codex_llm_apikeys
@@ -617,14 +621,14 @@ Tier 5 (Codex):
   [x] codex doctor: passed
   [x] OpenAI API key: set in environment
   [x] Codex MCP: second-opinion registered
-  [x] Codex MCP: playwright-persistent registered
+  [x] Codex MCP: playwright registered
   [x] Codex commands: 4/4 available
   Status: Complete
 
 ---------------------------------
 Current Level: Tier 2 (Standard)
 Deployment Model: Docker (local build)
-Missing: Shell prompt, mcp-playwright-persistent, CI pipeline, Dockerfile
+Missing: Shell prompt, CI pipeline, Dockerfile
 
 Run /cpp:init to complete setup
 =================================

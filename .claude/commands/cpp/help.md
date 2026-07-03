@@ -51,8 +51,8 @@ CPP uses a tiered installation model:
 
 ### Tier 3 - Full
 - **MCP Second Opinion** (port 8080): Gemini/OpenAI code review
-- **MCP Playwright** (port 8081): Persistent browser automation
-- **Docker runtime**: First-class MCP container deployment via `make docker-refresh PROFILE="core browser"`
+- **Browser automation**: upstream `@playwright/mcp` registered via npx/stdio (no container; needs Node.js 18+)
+- **Docker runtime**: First-class MCP container deployment via `make docker-refresh PROFILE="core"`
 - **Systemd services**: Auto-start on boot (optional for native installs)
 
 ### Tier 4 - CI/CD

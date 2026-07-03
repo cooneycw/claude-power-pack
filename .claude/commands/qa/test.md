@@ -1,6 +1,8 @@
 # QA Test - Automated Web Testing
 
-Perform automated QA testing on a web application using Playwright MCP.
+Perform automated QA testing on a web application using the upstream
+`@playwright/mcp` server (registered by `/cpp:init`). It exposes one implicit
+browser context per connection - there is no session handle to pass around.
 
 **Arguments:** `$ARGUMENTS`
 - Format: `<url-or-shortcut> [area] [--find N]`
@@ -65,15 +67,13 @@ If an area is specified but not found in config, report available areas.
 
 ---
 
-## Step 3: Create Browser Session
+## Step 3: Start the Browser
 
-Use Playwright MCP to create a headless browser session:
-
-```
-create_session(headless=true, viewport_width=1280, viewport_height=720)
-```
-
-Store the `session_id` for subsequent operations.
+Upstream `@playwright/mcp` provides one implicit browser context per
+connection - there is no session to create or `session_id` to track. Headless
+mode and viewport are fixed by the server's launch flags (CPP registers it with
+`--headless`; adjust via `/cpp:init`). The browser starts automatically on the
+first navigation in Step 4.
 
 ---
 
@@ -84,8 +84,11 @@ Navigate to the target URL:
 - If area specified, append the area's `path` from config
 
 ```
-browser_navigate(session_id, url, wait_until="networkidle")
+browser_navigate(url)
 ```
+
+`browser_navigate` auto-waits for load; there is no `session_id` or
+`wait_until` argument.
 
 ---
 
@@ -97,7 +100,7 @@ Use the `tests` list from the area's config as the test checklist. For each test
 1. Identify the relevant elements on the page
 2. Perform the interaction (click, fill, navigate)
 3. Verify the expected behavior
-4. Check console for errors: `browser_console_messages(session_id)`
+4. Check console for errors: `browser_console_messages()`
 5. Note any failures
 
 ### If no area specified (full site test):
@@ -110,9 +113,12 @@ Test all areas defined in config sequentially:
 ### Generic testing (no config or no test plans):
 
 #### Click Response Testing
-1. **Identify interactive elements**:
+1. **Identify interactive elements** from the accessibility snapshot, or via
+   `browser_evaluate` for a precise CSS match:
    ```
-   browser_query_selector_all(session_id, "button, [onclick], a[href], input[type=submit], [role=button]")
+   browser_snapshot()
+   # or, to count/collect specific matches:
+   browser_evaluate("() => Array.from(document.querySelectorAll('button, [onclick], a[href], input[type=submit], [role=button]')).map(e => e.outerHTML)")
    ```
 2. **Click and verify** each element:
    - Check console for errors
@@ -192,7 +198,7 @@ Run `/qa:test <shortcut> <area>` to continue testing.
 
 ## Step 9: Cleanup
 
-Close the browser session:
+Release the browser when finished:
 ```
-close_session(session_id)
+browser_close()
 ```

@@ -41,11 +41,10 @@ steps:
         export AWS_TOKEN=ci-policy-token
         export AWS_SECRETS_AGENT_PORT_MAPPING=2773
         export MCP_SECOND_OPINION_PORT_MAPPING=8080
-        export MCP_PLAYWRIGHT_PORT_MAPPING=8081
 
         rendered="$(mktemp)"
-        docker compose --profile core --profile browser --profile cicd config --quiet
-        docker compose --profile core --profile browser --profile cicd config > "$rendered"
+        docker compose --profile core --profile cicd config --quiet
+        docker compose --profile core --profile cicd config > "$rendered"
 
         if grep -nE 'image: [^[:space:]]+:latest([[:space:]]|$)' "$rendered"; then
           echo "ERROR: rendered compose config must not use :latest images"
@@ -77,7 +76,7 @@ steps:
         set -eu
 
         export CPP_IMAGE_TAG="ci-${CI_COMMIT_SHA:-local}"
-        docker compose --profile core --profile browser --profile cicd build
+        docker compose --profile core --profile cicd build
 
         mkdir -p artifacts/sbom
         docker pull ghcr.io/aquasecurity/trivy:0.67.2
@@ -86,7 +85,6 @@ steps:
         images="
         aws-secrets-agent:$CPP_IMAGE_TAG
         mcp-second-opinion:$CPP_IMAGE_TAG
-        mcp-playwright-persistent:$CPP_IMAGE_TAG
         "
 
         for image in $images; do
@@ -129,7 +127,6 @@ steps:
           - "aws-secrets-agent/**"
           - "lib/**"
           - "mcp-second-opinion/**"
-          - "mcp-playwright-persistent/**"
 
   runtime-smoke:
     image: codeberg.org/woodpecker-plugins/docker-buildx:6.1.0@sha256:33263f74a593ddef5d4faeb39ae9f87db14d64d8aae8186284ae6e90d89298a4
@@ -159,4 +156,3 @@ steps:
           - "aws-secrets-agent/**"
           - "lib/**"
           - "mcp-second-opinion/**"
-          - "mcp-playwright-persistent/**"

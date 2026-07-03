@@ -10,24 +10,7 @@ This project uses [uv](https://docs.astral.sh/uv/) for Python dependency managem
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-## Issue 1: Playwright Browsers Not Installed
-
-**Problem**: Playwright MCP server fails to start because Chromium browser is not installed.
-
-**Error**:
-```
-playwright._impl._errors.Error: Executable doesn't exist at /home/user/.cache/ms-playwright/chromium-xxx/chrome-linux/chrome
-```
-
-**Solution**: Install Playwright browsers:
-```bash
-cd mcp-playwright-persistent
-uv run playwright install chromium
-```
-
----
-
-## Issue 2: API Keys Not Configured
+## Issue 1: API Keys Not Configured
 
 **Problem**: MCP Second Opinion server fails because API keys are missing.
 
@@ -47,3 +30,4 @@ cp .env.example .env
 
 *Generated: 2025-12-20*
 *Updated: 2026-02-16 - Modernized for uv-first workflow*
+*Updated: 2026-07-03 - Removed the Playwright browser-install item; browser automation migrated to the upstream `@playwright/mcp` npx/stdio server in #423 (no CPP-owned server directory)*

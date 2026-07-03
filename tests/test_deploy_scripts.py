@@ -141,7 +141,6 @@ def _write_fake_docker(tmp_path: Path) -> tuple[Path, Path]:
                 if args[-2:] == ["ps", "-q"]:
                     print("cid-agent")
                     print("cid-opinion")
-                    print("cid-browser")
                     raise SystemExit(0)
                 if "up" in args and "--build" in args:
                     raise SystemExit(int(os.environ.get("FAKE_REFRESH_EXIT", "0")))
@@ -157,17 +156,14 @@ def _write_fake_docker(tmp_path: Path) -> tuple[Path, Path]:
                 services = {{
                     "cid-agent": "aws-secrets-agent",
                     "cid-opinion": "mcp-second-opinion",
-                    "cid-browser": "mcp-playwright-persistent",
                 }}
                 images = {{
                     "cid-agent": "aws-secrets-agent:old-good",
                     "cid-opinion": "mcp-second-opinion:old-good",
-                    "cid-browser": "mcp-playwright-persistent:old-good",
                 }}
                 image_ids = {{
                     "cid-agent": "sha256:agentold",
                     "cid-opinion": "sha256:opinionold",
-                    "cid-browser": "sha256:browserold",
                 }}
                 if "com.docker.compose.service" in fmt:
                     print(services[cid])
@@ -230,6 +226,7 @@ def test_transactional_refresh_rolls_back_to_previous_images_on_wait_failure(
     assert result.returncode == 17
     assert "args=image tag sha256:agentold aws-secrets-agent:previous" in log
     assert "args=image tag sha256:opinionold mcp-second-opinion:previous" in log
+    # Browser server retired in #423: no playwright image is ever snapshotted.
     assert "mcp-playwright-persistent:previous" not in log
     assert (
         "CPP_IMAGE_TAG=previous args=compose --profile core up -d --wait "

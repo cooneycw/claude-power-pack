@@ -39,7 +39,8 @@ If no containers are running, report:
 No Docker containers found.
 
 Start MCP servers with: make docker-up PROFILE=core
-Available profiles: core (second-opinion), browser (playwright)
+Available profiles: core (second-opinion). Browser automation is the upstream
+@playwright/mcp npx/stdio server (no container; see /cpp:init).
 ```
 
 ### Step 3: Health Check Each MCP Container
@@ -49,7 +50,7 @@ For each container with an exposed port, hit the health endpoint:
 ```bash
 # Known MCP server ports and their health endpoints
 # Uses portable for-loop pattern (POSIX-compatible, no bash 4+ associative arrays)
-for pair in "mcp-second-opinion:8080" "mcp-playwright-persistent:8081"; do
+for pair in "mcp-second-opinion:8080"; do
     name="${pair%%:*}"
     port="${pair##*:}"
     response=$(curl -sf --max-time 3 "http://127.0.0.1:${port}/" 2>/dev/null)
@@ -101,7 +102,9 @@ Present a structured report:
 | Container | Port | Health | Version | Project | Profile |
 |-----------|------|--------|---------|---------|---------|
 | mcp-second-opinion | 8080 | healthy | v1.9.0 | claude-power-pack | core |
-| mcp-playwright-persistent | 8081 | healthy | - | claude-power-pack | browser |
+
+Browser automation is the upstream `@playwright/mcp` server (npx/stdio, not a
+container), so it does not appear in the Docker table.
 
 ### Other Containers
 
@@ -110,9 +113,9 @@ Present a structured report:
 | my-app-db | postgres:16 | Up 2 hours | 5432 |
 
 ### Summary
-- **Total containers:** 4 (3 healthy, 1 running)
-- **MCP servers:** 3/3 reachable
-- **Profiles active:** core, browser
+- **Total containers:** 3 (2 healthy, 1 running)
+- **MCP servers:** 1/1 containerized reachable (+ playwright via npx/stdio)
+- **Profiles active:** core
 ```
 
 ### Step 6: Suggest Actions
@@ -122,7 +125,7 @@ Based on findings, suggest relevant actions:
 - **No API keys:** Create `.env` in claude-power-pack root with `GEMINI_API_KEY=...`, then `make docker-down && make docker-up PROFILE=core`. Or run `/cpp:init` to configure interactively.
 - **Sidecar dependency strand:** If `aws-secrets-agent` is restarting/unhealthy and secret-dependent containers such as `mcp-second-opinion` are `Created` with no logs, fix `.env` or shell AWS credentials and run `docker compose --profile core up -d --force-recreate aws-secrets-agent mcp-second-opinion`.
 - **Unhealthy containers:** `make docker-down && make docker-up PROFILE=core`
-- **Missing profiles:** `make docker-up PROFILE=browser` (if browser not running)
+- **Browser automation missing:** register the upstream server with `/cpp:init`, or `claude mcp add --transport stdio --scope user playwright -- npx -y @playwright/mcp@latest --headless`
 - **No MCP containers:** `make docker-build PROFILE=core && make docker-up PROFILE=core`
 - **Stale containers:** `docker rm <name>` for stopped containers from old projects
 
