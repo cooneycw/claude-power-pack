@@ -62,12 +62,11 @@ claude-power-pack/
   lib/creds/            Secrets management library
   lib/security/         Security scanning library
   lib/cicd/             CI/CD framework detection and generation
-  lib/spec_bridge/      Spec-to-GitHub-issue sync
   docs/skills/          Topic-focused best practices (~3K tokens each)
   woodpecker/           Woodpecker CI server + agent deployment configs
   templates/            Makefile, workflow, and container templates
   scripts/              Shell utilities
-  tests/                637 unit tests
+  tests/                595 unit tests
   docker-compose.yml    MCP server orchestration
   .woodpecker.yml       CI pipeline (lint, test, typecheck, image security gates, runtime smoke)
   Makefile              Build interface for all operations

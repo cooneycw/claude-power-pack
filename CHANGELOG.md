@@ -173,6 +173,26 @@
   - `.claude/commands/cpp/update.md`: genericized the "new server in repo" example that
     named the removed `mcp-woodpecker-ci`.
 
+### Removed
+
+- **Retired CPP's home-grown spec pipeline** (issue #420, epic #417 Phase A) - deleted
+  `lib/spec_bridge/` (~1.4K LOC: parser, issue_sync, status, CLI) plus its tests
+  (`tests/test_spec_bridge_parser.py`, `tests/test_spec_bridge_status.py`), and the four
+  legacy command files `.claude/commands/spec/{create,sync,init,status}.md`. Spec-driven
+  development is now **the official GitHub spec-kit** (installed via `/spec:adopt`) for
+  authoring plus `scripts/speckit-tasks-to-issues.sh` (gh-CLI issue sync) and `/flow:auto`
+  for shipping - spec-kit's prompts are community-iterated and ship verification stages
+  CPP lacked (`/speckit-clarify`, `/speckit-analyze`, `/speckit-checklist`). The spike
+  (#418) confirmed no label adapter was needed and cut `/spec:status` (its bidirectional
+  drift view queried `lib/spec_bridge`'s label scheme and had no upstream equivalent).
+  The generated `spec-*` skills (`spec-create`, `spec-init`, `spec-status`, `spec-sync`,
+  from the defunct `manifests/spec/` architecture; `spec-status`/`spec-sync` still
+  targeted the retired Plane/Wiki.js backend) are recorded in
+  `.claude/deprecated-skills.yaml` as a `spec` family so `/cpp:update` prunes them on
+  installed machines. `/spec:adopt` and `/spec:help` survive; all consumers
+  (`CLAUDE.md`, `README.md`, `/project-next`, `/project:init`, `/evaluate:*`,
+  `mcp-evaluate`) were repointed to the spec-kit path.
+
 ## [7.2.0] - 2026-06-28
 
 ### Added

@@ -527,7 +527,7 @@ Review and adjust before syncing to GitHub issues.*
 
 ## Issue Sync
 
-Use `/spec:sync {feature}` to create GitHub issues from these tasks.
+Use `scripts/speckit-tasks-to-issues.sh` to create GitHub issues from these tasks.
 
 | Wave | Tasks | Issue | Status |
 |------|-------|-------|--------|
