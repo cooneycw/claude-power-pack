@@ -7,6 +7,12 @@ allowed-tools: Bash(python3:*), Bash(PYTHONPATH=*), Read(*.py), Read(*.yml)
 
 Run a full security scan using native checks plus any available external tools.
 
+> **Semantic code review?** For code-logic vulnerabilities - SQL injection, XSS,
+> broken authorization, insecure credential handling - use Claude Code's native
+> **`/security-review`** (and its GitHub Action). This command is the
+> *deterministic* complement: secret scanning (gitleaks + patterns) and
+> dependency CVE audits (`pip-audit`, `npm audit`). Run both for full coverage.
+
 ## Arguments
 
 - `--json` - Output as JSON (machine-readable)

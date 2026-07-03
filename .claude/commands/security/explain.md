@@ -38,3 +38,8 @@ Get a detailed explanation of a specific security finding type.
 ```bash
 PYTHONPATH="${HOME}/Projects/claude-power-pack/lib" python3 -m lib.security explain "$@"
 ```
+
+> These finding IDs cover CPP's *deterministic* checks (secrets, dependencies,
+> config). For semantic code-vulnerability review - SQL injection, XSS,
+> authorization, insecure credential handling - use Claude Code's native
+> **`/security-review`**.

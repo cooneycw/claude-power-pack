@@ -7,6 +7,11 @@ allowed-tools: Bash(python3:*), Bash(PYTHONPATH=*), Read(*.py), Read(*.yml)
 
 Fast security scan using only built-in native scanners. No external tools required.
 
+> **Semantic code review?** For SQL injection, XSS, authorization, and insecure
+> credential handling, use Claude Code's native **`/security-review`**. This
+> command covers the *deterministic* complement - fast secret and config checks
+> with zero dependencies.
+
 ## Arguments
 
 - `--json` - Output as JSON
