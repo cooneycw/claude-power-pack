@@ -22,6 +22,26 @@
   ratified by the #422 closure (owner chose the local wrapper over waiting on upstream).
   Guide: `docs/skills/browser-session-wrapper.md`.
 
+- **Grill-me cycle: post-run friction retro (issue #426)** - the capture + local
+  codify half of the compound-engineering loop (plan -> work -> assess -> codify).
+  New always-on **capture** helper `scripts/friction-log.sh` (fail-open JSONL
+  append to `.claude/friction.jsonl`) is woven into `/flow:auto` and `/flow:merge`
+  so friction is recorded on every step of every run - success OR failure - because
+  the richest friction (permission prompts, gate retries, red output) clusters on
+  runs that fail partway, where a terminal retro would be blind. New **retro**
+  command `/self-improvement:retro` grills the captured buffer + session, classifies
+  the four friction classes, dedups against a persistent local ledger
+  (`.claude/learnings.md`, seed `templates/learnings.md.example`) so applied/rejected
+  fixes are never re-proposed, then proposes and (user-confirmed) applies codified
+  fixes. Acceptance case demonstrated: run against the recorded pre-2026-07-03
+  `/flow:auto` transcript (`tests/fixtures/retro/flow-auto-pre-eli5.md`) it emits
+  exactly the 32-rule allowlist of `templates/claude-settings-permissions.json`
+  (#427) unaided, excluding shipping/secret actions. Scope is bounded by trust
+  boundary: per-machine `permissions.allow` fixes stay local and are never pushed to
+  a shared store; portable knowledge/infra traps delegate to `/self-improvement:memory`
+  (issue #433, common-memory substrate) when installed and degrade gracefully when
+  not. Generalizes `/self-improvement:deployment` beyond deploys; standalone-
+  extraction candidate (Phase C, alongside `flow-eli5`).
 - **Flow read-only permission allowlist template** (issue #427) - new
   `templates/claude-settings-permissions.json` (+ rationale doc
   `templates/claude-settings-permissions.md`) codifies the 32 user-level

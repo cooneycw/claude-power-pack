@@ -10,6 +10,7 @@ Retrospective analysis commands that examine recent failures and suggest improve
 
 | Command | Purpose |
 |---------|---------|
+| `/self-improvement:retro` | Post-run friction retro (the grill-me cycle): capture -> classify -> dedup -> propose -> confirm -> codify durable fixes |
 | `/self-improvement:deployment` | Analyze deployment errors and propose Makefile improvements |
 | `/self-improvement:help` | This help page |
 
@@ -25,6 +26,13 @@ Self-improvement commands:
 
 ## When to Use
 
+Run `/self-improvement:retro` after (or during) any flow run:
+- After a `/flow:auto` or `/flow:merge` run - both offer it automatically once
+  friction was captured
+- After a session with repeated permission prompts, gate retries, red output, or
+  manual course-corrections
+- On demand against a recorded transcript: `/self-improvement:retro <transcript>`
+
 Run `/self-improvement:deployment` after:
 - A failed `make deploy` or `make test`
 - Repeated build failures in a session
@@ -34,15 +42,20 @@ Run `/self-improvement:deployment` after:
 ## Feedback Loop
 
 ```
+/flow:auto -> friction captured -> /self-improvement:retro -> codify fixes (settings/Make/hooks/CLAUDE.md/learnings) -> next run is smoother
 /flow:deploy -> fails -> /self-improvement:deployment -> fix Makefile -> /flow:deploy -> succeeds
 ```
+
+Capture (thin, always-on, woven into the flow) and codify (the retro) are
+decoupled, so friction on runs that fail partway is not lost.
 
 ## Future Commands
 
 The self-improvement category may grow to include:
-- **test** - Analyze test failure patterns, suggest test infrastructure improvements
+- **memory** - Codify portable knowledge / infra traps to the cross-VM common
+  memory store (issue #433); `/self-improvement:retro` delegates its portable
+  findings here when installed
 - **review** - Analyze PR review feedback patterns, suggest code quality improvements
-- **session** - Analyze session patterns, suggest CLAUDE.md improvements
 
 ## See Also
 

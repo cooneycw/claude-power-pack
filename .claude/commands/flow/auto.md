@@ -30,6 +30,29 @@ Proceeding...
 
 ---
 
+### Friction Capture (always-on)
+
+Throughout this run, record friction the moment it happens - do NOT wait for the
+end. The richest friction is on runs that fail partway, so capture must fire on
+every step, success OR failure, and before any STOP. Whenever you hit one of these,
+append a record via the fail-open capture helper (it never blocks the flow):
+
+- a **permission prompt** the user had to approve for a Bash/tool call
+- a **quality-gate failure or retry** (lint/test/build/deploy)
+- **red output** you narrated past or worked around instead of resolving
+- a **manual intervention / correction** the user had to make
+
+```bash
+scripts/friction-log.sh --class <permission-prompt|gate-failure|red-output|manual-intervention> \
+  --signal "<what happened>" --fix "<proposed fix, if obvious>" \
+  --scope <local|portable> --run "flow:auto #$ISSUE_NUM" --step "<N/9 Name>" --outcome "<approved|retried|worked-around|corrected>"
+```
+
+Records go to `.claude/friction.jsonl` (a queue drained by `/self-improvement:retro`).
+This is capture only - proposing and applying fixes happens in the retro, not here.
+
+---
+
 ### Step 1: Start - Create Worktree
 
 **CRITICAL: You MUST create or enter a worktree before proceeding. NEVER implement changes directly on main/master. This step is NOT optional - if worktree creation fails, STOP immediately.**
@@ -499,8 +522,25 @@ Flow Auto Complete
   Worktree: ../my-project-issue-42 (removed)
   CI:       Woodpecker pipeline #5 passed | GitHub Actions run #123 passed | skipped
   Deploy:   make deploy (success) | skipped
+  Friction: 4 signals captured (.claude/friction.jsonl)
   Location: /home/user/Projects/my-project (main)
 ```
+
+---
+
+### Post-run: Friction Retro (optional, non-blocking)
+
+After the summary, if `.claude/friction.jsonl` recorded any signals this run, offer
+the codify step - do not block or auto-run it:
+
+```
+Friction retro: this run recorded N friction signal(s). Run /self-improvement:retro
+to turn them into confirmed fixes (permission allowlist, Make targets, hooks,
+CLAUDE.md, portable learnings)? [y/N]
+```
+
+Declining is free - capture already persisted the signals for a later retro. This
+offer also appears at the end of `/flow:merge`.
 
 ---
 
@@ -551,3 +591,4 @@ Key failure scenarios:
 - The deploy step is always optional - it only runs if a deploy target exists
 - After completion, the user is in the main repo on the main branch
 - For step-by-step control, use individual commands: `/flow:start`, `/flow:eli5`, `/flow:finish`, `/flow:merge`, `/flow:deploy`
+- Friction capture runs throughout (always-on, fail-open, `scripts/friction-log.sh` -> `.claude/friction.jsonl`) and the run offers `/self-improvement:retro` at the end to codify fixes - the grill-me cycle (issue #426)

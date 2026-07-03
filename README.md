@@ -80,6 +80,7 @@ claude-power-pack/
 | Workflow | `/flow:start 42` | Create worktree for an issue |
 | Workflow | `/flow:eli5 42` | Plain-language intent + necessity verdict + plan approval gate |
 | Workflow | `/flow:finish` | Lint, test, commit, push, create PR |
+| Improve | `/self-improvement:retro` | Post-run friction retro: capture -> codify durable fixes (the grill-me cycle) |
 | Project | `/project:init myapp` | Scaffold a new project |
 | Security | `/security:scan` | Full vulnerability scan |
 | Secrets | `/secrets:list` | List managed credentials |
