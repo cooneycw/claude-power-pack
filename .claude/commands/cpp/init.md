@@ -199,7 +199,8 @@ If user selects "Custom", ask which categories to enable using multi-select:
 ### Security Notes
 
 - **Deny rules are always enforced** - Dangerous patterns blocked regardless of profile
-- **Hooks provide second layer** - PreToolUse hook validates commands even if auto-approved
+- **Native blocking + sandbox are the first layer** - Claude Code natively auto-blocks destructive git commands and OS-sandboxes filesystem/system operations, even if auto-approved
+- **Hooks provide the secret-masking layer** - the PostToolUse hook masks secrets in output (which native tooling does not do)
 - **Trusted profile requires Tier 2** - Won't offer Trusted unless hooks are enabled
 
 ---
@@ -243,10 +244,9 @@ This will make the following changes:
     • worktree-remove.sh      - Safe worktree cleanup
     • secrets-mask.sh         - Output masking filter
     • hook-mask-output.sh     - PostToolUse secret masking
-    • hook-validate-command.sh - PreToolUse safety checks
 
   [Tier 2 - Hooks] (.claude/hooks.json)
-    • PreToolUse: block dangerous commands
+    • SessionStart: upstream change detection
     • PostToolUse: mask secrets in output
 
   [Tier 2 - Shell Prompt] (optional)

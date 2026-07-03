@@ -61,7 +61,7 @@ Check scripts, hooks, and shell prompt:
 # Check scripts
 SCRIPTS_INSTALLED=0
 SCRIPTS_TOTAL=0
-for script in prompt-context.sh worktree-remove.sh secrets-mask.sh hook-mask-output.sh hook-validate-command.sh; do
+for script in prompt-context.sh worktree-remove.sh secrets-mask.sh hook-mask-output.sh; do
   SCRIPTS_TOTAL=$((SCRIPTS_TOTAL + 1))
   if [ -f ~/.claude/scripts/$script ] || [ -L ~/.claude/scripts/$script ]; then
     SCRIPTS_INSTALLED=$((SCRIPTS_INSTALLED + 1))

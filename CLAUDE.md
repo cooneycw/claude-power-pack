@@ -188,9 +188,9 @@ Flow commands use Makefile targets as the canonical build interface:
 
 ## Security
 
-- **PreToolUse hook** blocks dangerous commands (force push to main, `rm -rf /`, `DROP TABLE`, etc.)
-- **PostToolUse hook** masks secrets in Bash/Read output (connection strings, API keys, env vars)
-- **Hooks configured in** `.claude/hooks.json`
+- **Destructive commands** (force push to main, `rm -rf /`, disk formatting, etc.) are blocked by Claude Code's native destructive-git auto-blocking and OS sandbox - the custom PreToolUse dangerous-command hook was retired (issue #439) as redundant.
+- **PostToolUse hook** masks secrets in Bash/Read output (connection strings, API keys, env vars). Retained because native tooling blocks credential *reads* but does not *mask* secrets that surface in output.
+- **Hooks configured in** `.claude/hooks.json` (SessionStart + PostToolUse)
 - `/flow:finish` and `/flow:deploy` run security quick scan as quality gates
 - CRITICAL findings block gates; HIGH findings produce warnings
 - Configure gating in `.claude/security.yml` (optional, created by `/security:scan` when needed)

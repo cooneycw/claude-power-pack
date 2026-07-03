@@ -130,6 +130,26 @@
 
 ### Removed
 
+- **Retire the PreToolUse dangerous-command hook; keep PostToolUse secret-masking**
+  (issue #439, epic #417 Phase A) - Claude Code's native destructive-git
+  auto-blocking (v2.1.154) plus OS sandboxing now cover the cases the custom
+  `hook-validate-command.sh` guarded (force-push to main, `git reset --hard`,
+  `rm -rf /`, recursive `chmod`/`chown` on system dirs, `mkfs`/`fdisk`,
+  kill-all), so the hook is redundant. Deleted `scripts/hook-validate-command.sh`
+  and the `PreToolUse` block from `.claude/hooks.json` (leaving `SessionStart` +
+  `PostToolUse`), and swept every reference in `.claude/commands/cpp/{init,status,update}.md`,
+  `.claude/commands/flow/doctor.md`, `CLAUDE.md`, and `README.md`. The
+  **PostToolUse secret-masking hook (`hook-mask-output.sh`) is retained** for
+  both Bash and Read output: native tooling blocks credential *reads* but does
+  not *mask* secrets that surface in output, so it stays additive. `/cpp:update`
+  gains a guarded, user-confirmed cleanup step (Step 4.7) that removes a
+  now-dangling `~/.claude/scripts/hook-validate-command.sh` symlink and strips
+  the stale `PreToolUse` block from an already-copied project `hooks.json` - a
+  dangling hook command exits non-zero and would otherwise block every Bash
+  command. **Deliberate tradeoff:** the retired hook also carried best-effort SQL
+  heuristics (`DROP TABLE`/`TRUNCATE`/`DELETE`-without-`WHERE`); these were regex
+  warnings, not a real guardrail, and are **not** replaced by native
+  blocking/sandbox - the #417 ecosystem review accepted this when it voted RETIRE.
 - **Retire the `mcp-woodpecker-ci` MCP server** (issue #404) - the optional
   Woodpecker CI pipeline-management MCP (`cicd` profile, port 8085) was never
   adopted: not registered in any Claude/Codex client, no skill referenced its
