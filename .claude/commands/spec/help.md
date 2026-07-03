@@ -18,11 +18,18 @@ Constitution (principles) → Spec (what) → Plan (how) → Tasks (work) → Is
 
 | Command | Description |
 |---------|-------------|
-| `/spec:init` | Initialize .specify/ structure in project |
-| `/spec:create` | Create a new feature specification |
-| `/spec:sync` | Sync tasks.md to GitHub issues |
-| `/spec:status` | Show spec/issue alignment status |
+| `/spec:adopt` | **(supported)** Install official spec-kit + scaffold it into the project |
+| `/spec:init` | *(legacy, pending retirement)* Initialize CPP's own `.specify/` structure |
+| `/spec:create` | *(legacy, pending retirement)* Create a new feature specification |
+| `/spec:sync` | *(legacy, pending retirement)* Sync tasks.md to GitHub issues |
+| `/spec:status` | *(legacy, pending retirement)* Show spec/issue alignment status |
 | `/spec:help` | This help overview |
+
+**Supported path:** author with the official spec-kit (`/spec:adopt`, then the
+`/speckit-*` skills), turn `tasks.md` into GitHub issues with
+`scripts/speckit-tasks-to-issues.sh` (gh-CLI, no github-mcp-server needed), and ship
+each issue with `/flow:auto`. The legacy `/spec:*` commands (backed by
+`lib/spec_bridge`) still work but are being retired.
 
 ## Directory Structure
 
