@@ -30,7 +30,7 @@ Core components and their locations:
 - `lib/security/` - Security scanning (native + external tools)
 - `lib/cicd/` - CI/CD framework detection, Makefile generation, health/smoke checks, deterministic runner, deployment strategies, Pydantic v2 config validation
 - `lib/spec_bridge/` - Spec-to-GitHub-issue sync (legacy, pending retirement; superseded by official spec-kit via `/spec:adopt` + `scripts/speckit-tasks-to-issues.sh`)
-- `scripts/` - Shell utilities (prompt-context, worktree-remove, hooks, drift-detect, skill-drift, mcp-drift)
+- `scripts/` - Shell utilities (prompt-context, worktree-remove, hooks, drift-detect, skill-drift, mcp-drift, playwright-desk lease-desk ledger)
 - `templates/` - Makefile, workflow, container templates
 - `docker-compose.yml` - MCP server orchestration (profiles: `core`, `browser`)
 - `.woodpecker.yml` - Woodpecker CI pipeline (lint, test, typecheck, image security gates, runtime smoke)
@@ -152,7 +152,11 @@ The `/spec:*` family and `lib/spec_bridge` are being retired in favor of the off
 - `/second-opinion:models` - Interactive model/depth selection
 
 ### QA
-- `/qa:test` - Automated web testing via Playwright
+- `/qa:test` - Automated web testing via Playwright (single upstream session)
+
+### Browser Sessions
+- `/browser:session <verb> [name]` - Named **concurrent** browser sessions over upstream `@playwright/mcp` via a static "lease-desk" pool (create/resume/save/close/list/cleanup/pool). Recovers the one feature upstream lacks (microsoft/playwright-mcp#1530) with no fork. Opt-in pool registered via `/cpp:init` (Full tier -> browser pool); ledger in `scripts/playwright-desk.py`. See `docs/skills/browser-session-wrapper.md`.
+- `/browser:help` - Browser session commands overview
 
 ### CLAUDE.md Management
 - `/claude-md:lint` - Lint CLAUDE.md for missing CI/CD, Docker, and troubleshooting directives

@@ -298,6 +298,11 @@ This will make the following changes:
     • mcp-second-opinion         - host port 8080
     • mcp-playwright-persistent  - host port 8081
 
+  [Tier 3 - Browser desk pool] (optional, off by default)
+    • /browser:session named concurrent sessions over upstream @playwright/mcp
+    • Registers playwright-desk-1..N (npx, no custom image) - requires a restart
+    • Skip unless you need several logged-in browser sessions at once
+
   [Tier 3 - Configuration Files]
     • .env (AWS credentials + AWS_TOKEN for sidecar, or direct API keys)
 
@@ -310,6 +315,8 @@ This will make the following changes:
     cd {CPP_DIR} && make docker-down
     claude mcp remove second-opinion
     claude mcp remove playwright-persistent
+    # If the browser desk pool was enabled:
+    for d in $(python3 -c "import json;print(' '.join(json.load(open('.claude/playwright-pool.json'))['desks']))" 2>/dev/null); do claude mcp remove "$d"; done
 
 Proceed? [y/N]
 ```
@@ -906,6 +913,49 @@ if ! echo "$MCP_LIST" | grep -q "playwright-persistent"; then
 else
   echo "→ playwright-persistent MCP already registered (skipped)"
 fi
+```
+
+#### 3e. Register the browser desk pool (optional, off by default)
+
+The **lease-desk pool** powers `/browser:session` - named **concurrent** browser
+sessions over upstream `@playwright/mcp` (issue #421). It is opt-in: it registers
+N always-present upstream instances ("desks"), each adding a `browser_*` tool
+surface to every session's startup context. Single-session work (`/qa:test`, a
+one-off screenshot) does **not** need it.
+
+Ask the user with AskUserQuestion: **"Enable the browser desk pool (named concurrent
+sessions)? Adds N upstream playwright-mcp instances via npx."** Default: **No**.
+
+If the user opts in, seed the pool config into the project and register the desks as
+stdio MCP servers (upstream via `npx`, no custom image, pinned version):
+
+```bash
+# Seed the project's pool config (edit desk count / idle timeout there later).
+mkdir -p .claude
+if [ ! -f .claude/playwright-pool.json ]; then
+  cp "$CPP_DIR/templates/playwright-pool.example.json" .claude/playwright-pool.json
+  echo "✓ Seeded .claude/playwright-pool.json"
+fi
+
+# Register one MCP server per desk listed in the pool config. Each runs upstream
+# @playwright/mcp with --isolated (blank context per lease; session identity lives
+# in the portable state file, not the desk).
+PW_MCP_VERSION="0.0.77"
+DESKS=$(python3 -c "import json; print('\n'.join(json.load(open('.claude/playwright-pool.json'))['desks']))")
+MCP_LIST=$(claude mcp list 2>/dev/null || echo "")
+for desk in $DESKS; do
+  if echo "$MCP_LIST" | grep -q "$desk"; then
+    echo "→ $desk already registered (skipped)"
+  else
+    claude mcp add "$desk" --scope user -- npx -y "@playwright/mcp@${PW_MCP_VERSION}" --isolated
+    echo "✓ $desk registered (npx @playwright/mcp@${PW_MCP_VERSION} --isolated)"
+  fi
+done
+
+echo ""
+echo "IMPORTANT: restart Claude Code so the playwright-desk-* servers load at startup"
+echo "(MCP config is read only at startup; mid-session registration does not take effect)."
+echo "Then verify with: /browser:session pool"
 ```
 
 ### Tier 4 Execution (CI/CD)

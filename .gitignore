@@ -57,10 +57,18 @@ desktop.ini
 !.claude/hooks.json
 !renovate.json
 !templates/claude-settings-permissions.json
+!templates/playwright-pool.example.json
 node_modules/
 .claude/settings*.json
 .claude/plans/
 .claude/security.yml
+
+# Lease-desk browser sessions (issue #421) - live ledger, pool config, and
+# per-session storage-state files are per-workstation state, never tracked.
+# (Already covered by *.json above; listed explicitly for intent.)
+.claude/playwright-sessions.json
+.claude/playwright-pool.json
+.claude/playwright-state/
 
 # Logs
 *.log

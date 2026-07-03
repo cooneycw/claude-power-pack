@@ -86,6 +86,7 @@ claude-power-pack/
 | Secrets | `/secrets:list` | List managed credentials |
 | CI/CD | `/cicd:init` | Detect framework, generate Makefile |
 | Docs | `/documentation:c4` | Generate C4 architecture diagrams |
+| Browser | `/browser:session create gmail` | Named concurrent browser sessions (lease-desk pool) |
 | Review | `/second-opinion:start` | Get code review from external LLMs |
 
 ## Docker Deployment
