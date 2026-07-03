@@ -16,7 +16,6 @@ Instead of loading 25K+ tokens, load only the relevant topic (~3K tokens).
 | **Context & Tokens** | `context-efficiency` | context, tokens, optimization, progressive disclosure |
 | **Session Management** | `session-management` | session, reset, plan mode, context degradation |
 | **MCP Optimization** | `mcp-optimization` | MCP, token consumption, code-mode |
-| **Skills Design** | `skills-patterns` | skill activation, skill design, prompt injection |
 | **Hooks** | `hooks-automation` | hooks, automation, SessionStart |
 | **Spec-Driven Dev** | `spec-driven-dev` | spec driven, specification, SDD, planning |
 | **Issue-Driven Dev** | `idd-workflow` | issue driven, worktree, IDD |

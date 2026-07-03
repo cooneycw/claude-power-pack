@@ -1255,7 +1255,7 @@ Next Steps:
      /spec:help       - Spec-driven development
      /github:help     - Issue management
      /cicd:help       - CI/CD build & verification
-     /skills:find     - Discover skills from skills.sh
+     npx skills find  - Discover skills from skills.sh (or /plugin for the marketplace)
 
 Change Permissions Later:
   • Edit .claude/settings.local.json directly

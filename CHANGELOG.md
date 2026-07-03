@@ -130,6 +130,18 @@
 
 ### Removed
 
+- **Retire the `/skills:*` command family** (issue #437, epic #417 Phase A) - the
+  six-command wrapper (`/skills:find|add|list|update|check|help`) around the
+  `npx skills` CLI is fully absorbed by the native ecosystem: `npx skills`
+  directly, the `/plugin` marketplace, auto-loaded `.claude/skills`, and
+  `/reload-skills`. Deleted `.claude/commands/skills/` (all six command files)
+  and the `skills-patterns` knowledge skill (`.claude/skills/skills-patterns.md`
+  + `docs/skills/skills-patterns.md`). Docs repointed to the native path
+  (`CLAUDE.md`, `README.md`, `/cpp:help`, `/cpp:init`, `/documentation:pptx`,
+  `load-best-practices`, `best-practices`); the retirement is recorded in
+  `.claude/deprecated-skills.yaml` for `/cpp:update` user-confirmed teardown.
+  Note: no generated `skills-<verb>` skill mirrors ever existed - the family was
+  hand-authored command files, so there was nothing extra to prune.
 - **Retire the PreToolUse dangerous-command hook; keep PostToolUse secret-masking**
   (issue #439, epic #417 Phase A) - Claude Code's native destructive-git
   auto-blocking (v2.1.154) plus OS sandboxing now cover the cases the custom
@@ -182,7 +194,7 @@
   `Makefile`, `renovate.json`, `scripts/runtime-smoke.sh`, `scripts/drift-detect.sh`,
   and the docs/inventory commands. `/documentation:pptx` now delegates PowerPoint
   authoring to the native **`anthropics/skills@pptx`** skill (install via
-  `/skills:add anthropics/skills@pptx`) and embeds only user-supplied diagram images.
+  `npx skills add anthropics/skills@pptx`) and embeds only user-supplied diagram images.
   **C4 diagram image rendering is descoped**: `/documentation:c4` now writes a text C4
   model (`docs/architecture/c4-model.md`) and no longer renders HTML/PNG or runs density
   QA gating/splitting - choosing a replacement rendering engine is tracked in **#411**.
