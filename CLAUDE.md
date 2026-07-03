@@ -99,6 +99,14 @@ remove` / `scripts/worktree-remove.sh` as the fallback.
 - `/project-next` - Full issue analysis and prioritization (~15-30K tokens)
 - `/project-lite` - Quick project reference (~500-800 tokens)
 
+`/project:init` delegates config scaffolding (CLAUDE.md, skills, hooks) to Claude
+Code's native `/init` interview rather than hand-rolling a fixed template, then
+runs `/claude-md:lint` to overlay CPP's CI/CD governance directives. CPP keeps the
+zero-to-GitHub-repo orchestration native `/init` does not provide: directory +
+framework scaffold, `git init` and repo create/push, Makefile/CI wiring
+(`lib/cicd`), CPP toolkit install, and `.specify/` structure (epic #417 Phase A,
+mirrors the `/security` #438 and hooks #439 defer-the-commodity-half moves).
+
 ### Spec-Driven Development
 - `/spec:adopt` - **(supported)** Install the official GitHub spec-kit CLI and scaffold it into the project (`specify init --here --ai claude`); then author with the `/speckit-*` skills and ship with `/flow:auto`. Turn `tasks.md` into GitHub issues with `scripts/speckit-tasks-to-issues.sh` (gh-CLI, no github-mcp-server). Per-project, always latest upstream. The `specify` CLI installs on first `/spec:adopt` use, or up front via `/cpp:init` / `/cpp:update`.
 - `/spec:help` - Overview of the spec-kit authoring path

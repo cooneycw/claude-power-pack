@@ -7,6 +7,15 @@ allowed-tools: Bash(mkdir:*), Bash(cd:*), Bash(ls:*), Bash(git:*), Bash(gh:*), B
 
 Create a new project from zero to pushed GitHub repo in one command.
 
+> **Config scaffolding (CLAUDE.md, skills, hooks)?** Claude Code's native
+> **`/init`** (upgraded to an interview-style scaffolder) generates a
+> codebase-aware CLAUDE.md and scaffolds skills/hooks - so `/project:init`
+> delegates that half to `/init` rather than hand-rolling it. This command is
+> the *zero-to-GitHub-repo orchestrator* native `/init` does not provide: repo
+> creation and push, framework scaffold, Makefile/CI wiring, CPP toolkit
+> install, and spec structure. Run both for a complete bootstrap - this command
+> invokes `/init` for you in Step 4.
+
 ## Arguments
 
 - `PROJECT_NAME` (required): Name of the project (e.g., `my-awesome-app`)
@@ -18,7 +27,7 @@ Create a new project from zero to pushed GitHub repo in one command.
   Step 1: Validate & create ~/Projects/my-awesome-app
   Step 2: Select framework, generate scaffold
   Step 3: Initialize git, push to GitHub
-  Step 4: Run /cicd:init, /cpp:init
+  Step 4: Makefile/CI (lib/cicd) + CPP toolkit install; delegate CLAUDE.md/skills/hooks to native /init
   Step 5: Initial spec (optional) + issue sync
   Step 6: Summary
 ```
@@ -403,79 +412,40 @@ if [ -n "$CPP_DIR" ]; then
 fi
 ```
 
-### 4c: Generate CLAUDE.md
+### 4c: Config Scaffold (delegate to native /init)
 
-If no CLAUDE.md exists yet, generate one with CI/CD governance directives:
+Do NOT hand-roll CLAUDE.md, skills, or hooks. Delegate this half to Claude Code's
+native `/init`, which interviews the project and generates a codebase-aware
+CLAUDE.md (and scaffolds skills/hooks) far better than a fixed template. CPP then
+layers its CI/CD governance directives on top so nothing is lost.
 
-```bash
-if [ ! -f "CLAUDE.md" ]; then
-    # Detect Docker presence
-    HAS_DOCKER="no"
-    [ -f "Dockerfile" ] || [ -f "docker-compose.yml" ] || [ -f "docker-compose.yaml" ] && HAS_DOCKER="yes"
+1. **Run native `/init`** to scaffold the config files. Invoke it with the `Skill`
+   tool (`skill: "init"`). It reads the framework scaffold from Step 2 and the
+   Makefile from Step 4a to produce a project-aware CLAUDE.md.
 
-    cat > CLAUDE.md << 'CLAUDEEOF'
-# $PROJECT_NAME
+   - If a CLAUDE.md already exists (resumed run), skip `/init` - it is only for the
+     initial scaffold.
+   - In a fully non-interactive context where `/init` cannot run, write a minimal
+     CLAUDE.md stub (project name + one-line overview) so Step 4d and later steps
+     have something to build on; `/claude-md:lint` below fills in the governance
+     directives regardless.
 
-## Overview
+2. **Ensure CPP CI/CD governance directives.** Native `/init` does not know CPP's
+   Makefile-first protocol, quality-gates table, or troubleshooting workflow. Run
+   the `/claude-md:lint` command against the freshly generated CLAUDE.md and apply
+   its recommendations so the file includes:
 
-{Brief project description.}
+   - **CI/CD Protocol** - Makefile targets are the single source of truth; never
+     run raw build/test/deploy commands.
+   - **Troubleshooting Protocol** - run `make lint`/`make test` before manual
+     debugging; fix app code AND the CI/CD process; verify via `make verify`.
+   - **Quality Gates** table - `make lint`, `make test`, `make verify`,
+     `make troubleshoot`.
+   - **Docker Conventions** (only if a Dockerfile / docker-compose is present) -
+     `make docker-*` targets over raw `docker` commands.
 
-## Key Conventions
-
-- {Framework} project
-- {Package manager} for dependency management
-
-## CI/CD Protocol
-
-- Use Makefile targets for all build, test, and deploy operations
-- Never run raw build commands - use `make lint`, `make test`, `make build`, `make deploy`
-- The Makefile is the single source of truth for project commands
-- If a Makefile target is missing for your operation, ADD the target rather than running raw commands
-
-## Troubleshooting Protocol
-
-- Before debugging manually, run `make lint` and `make test` to surface known issues
-- When fixing errors, fix BOTH the application code AND the CI/CD process (Makefile, Dockerfile, docker-compose.yml)
-- After any fix, verify through the full pipeline: `make verify`
-- Never bypass quality gates - if `make lint` or `make test` fails, fix the root cause
-- Use `make troubleshoot` for a single-command diagnostic pass (clean + lint + test)
-
-## Quality Gates
-
-| Target | Purpose | When to Run |
-|--------|---------|-------------|
-| `make lint` | Run linter | Before every commit |
-| `make test` | Run tests | Before every commit |
-| `make verify` | Full check (lint + test + typecheck) | Before deployment |
-| `make troubleshoot` | Diagnostic pass (clean + lint + test) | When debugging issues |
-
-## Deployment
-
-- Deploy: `make deploy` (runs verify first)
-- Customize the deploy target in the Makefile for your environment
-- Post-deploy: run `/cicd:health` to verify endpoints
-CLAUDEEOF
-
-    # Append Docker section if Docker files detected
-    if [ "$HAS_DOCKER" = "yes" ]; then
-        cat >> CLAUDE.md << 'DOCKEREOF'
-
-## Docker Conventions
-
-- Build images: `make docker-build` (not raw `docker build`)
-- Start services: `make docker-up` (not raw `docker compose up`)
-- Stop services: `make docker-down`
-- View logs: `make docker-logs`
-- Check status: `make docker-ps`
-- If Docker errors occur, check Dockerfile and docker-compose.yml alongside application code
-DOCKEREOF
-    fi
-
-    echo "Generated CLAUDE.md with CI/CD governance directives"
-fi
-```
-
-Fill in the framework/package-manager placeholders based on what was detected in Step 2.
+The net effect: `/init` owns the config-scaffold generation (its native job), and
+CPP owns the governance overlay - no duplicated CLAUDE.md template to maintain.
 
 ### 4d: Spec Init
 
@@ -528,7 +498,7 @@ CONSTEOF
 fi
 ```
 
-Report: `Step 4/6: CPP setup complete - Makefile, commands, skills, hooks, .specify/`
+Report: `Step 4/6: CPP setup complete - Makefile, CPP toolkit, CLAUDE.md (via native /init) + governance, .specify/`
 
 ---
 
@@ -683,4 +653,9 @@ Key failure scenarios:
 - Each step checks for prior completion before executing
 - The scaffold is minimal - just enough to start coding
 - Framework detection from `lib/cicd` is reused for Makefile generation
-- Sub-commands (cicd:init, cpp:init) are executed inline, not via `/skill`
+- Config scaffolding (CLAUDE.md, skills, hooks) is **delegated to native `/init`**
+  (Step 4c); CPP keeps only the governance overlay via `/claude-md:lint`. CPP does
+  not maintain its own CLAUDE.md template
+- The repo-bootstrap steps (cicd:init Makefile, cpp:init toolkit install) are
+  executed inline with sensible defaults, not via interactive `/skill`; native
+  `/init` is the one exception, invoked so it can run its interview
