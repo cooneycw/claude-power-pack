@@ -199,12 +199,21 @@ Flow commands use Makefile targets as the canonical build interface:
 
 ## Security
 
+Security is split into two complementary halves. **Semantic** code-vulnerability
+review - SQL injection, XSS, broken authorization, insecure credential handling -
+is handled by Claude Code's native **`/security-review`** command and its GitHub
+Action; CPP defers to it and does not duplicate it. CPP's `/security:*` commands
+and `lib/security` own the **deterministic** complement: secret scanning
+(gitleaks + native patterns), git-history secret scanning, dependency CVE audits
+(`pip-audit`, `npm audit`), and the blocking gate. See `lib/security/README.md`.
+
 - **Destructive commands** (force push to main, `rm -rf /`, disk formatting, etc.) are blocked by Claude Code's native destructive-git auto-blocking and OS sandbox - the custom PreToolUse dangerous-command hook was retired (issue #439) as redundant.
 - **PostToolUse hook** masks secrets in Bash/Read output (connection strings, API keys, env vars). Retained because native tooling blocks credential *reads* but does not *mask* secrets that surface in output.
 - **Hooks configured in** `.claude/hooks.json` (SessionStart + PostToolUse)
-- `/flow:finish` and `/flow:deploy` run security quick scan as quality gates
+- `/flow:finish` and `/flow:deploy` run the deterministic security scan (`lib/security`) as a quality gate
 - CRITICAL findings block gates; HIGH findings produce warnings
 - Configure gating in `.claude/security.yml` (optional, created by `/security:scan` when needed)
+- For **semantic** code review (SQLi/XSS/authz/insecure handling), run native `/security-review` - not a CPP command
 - **User-level flow allowlist** (`templates/claude-settings-permissions.json`) auto-approves the read-only git/gh plumbing that `/flow:*` runs; shipping actions (`git push`, `gh pr create`) and `cat` are deliberately excluded so gates and secret-read prompts stay intact. Merged via `/cpp:init` or `/cpp:update` Step 7.6; checked by `/flow:doctor`. Rationale: `templates/claude-settings-permissions.md`
 
 ## On-Demand Documentation

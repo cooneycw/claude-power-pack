@@ -2,6 +2,25 @@
 
 Novice-friendly security scanning for Claude Code projects.
 
+## Scope: the deterministic half
+
+Claude Code ships a native **`/security-review`** command (plus an official
+GitHub Action) that performs **semantic** code-vulnerability review - reasoning
+about SQL injection, XSS, broken authorization, and insecure credential
+handling by reading your code. For that class of review, use `/security-review`.
+
+CPP's `/security:*` commands own the **deterministic** complement that native
+review does not provide:
+
+- **Secret scanning** - gitleaks plus zero-dependency native patterns
+- **Git-history scanning** - secrets committed and later removed (`/security:deep`)
+- **Dependency CVE audits** - `pip-audit`, `npm audit`
+- **The blocking gate** - CRITICAL findings block `/flow:finish` and `/flow:deploy`
+  (see [Severity Levels](#severity-levels))
+
+The two halves are complementary: run `/security-review` for code-logic flaws,
+and `/security:*` for secrets, dependencies, and the flow gate.
+
 ## Commands
 
 | Command | Purpose |
