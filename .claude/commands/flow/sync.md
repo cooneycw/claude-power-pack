@@ -72,6 +72,7 @@ Synced branch to remote.
 ## Notes
 
 - This command is intentionally simple - just commit WIP + push.
-- `/flow:start` already handles the receiving end (detects remote branches and creates worktrees tracking them).
+- Cross-machine sync operates on the `issue-<N>-<slug>` **branch**, not on worktree paths, so the native `.claude/worktrees/` location (which is per-workstation and gitignored) does not affect it.
+- `/flow:start` already handles the receiving end: it detects the remote branch and, because the native `EnterWorktree` tool cannot check out an existing remote branch, adds a worktree tracking it with `git worktree add` and then switches in with `EnterWorktree(path=...)`.
 - WIP commits are harmless because `/flow:merge` uses squash-merge, collapsing all commits into one clean commit.
 - No configuration required - works with any git remote.

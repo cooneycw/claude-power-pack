@@ -76,6 +76,11 @@ node_modules/
 .claude/friction/
 .claude/learnings.md
 
+# Native Claude Code worktrees (issue #440) - the EnterWorktree tool creates
+# full checkouts under .claude/worktrees/<name>; these are per-workstation and
+# must never be committed to the parent repo.
+.claude/worktrees/
+
 # Logs
 *.log
 logs/

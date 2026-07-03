@@ -2,6 +2,15 @@
 
 Merge the current branch's PR, then clean up the worktree and branch.
 
+Worktrees are Claude Code's **native worktrees** (checkouts under
+`.claude/worktrees/<name>`). `/flow:merge` is usually invoked standalone, in a
+fresh session from inside the worktree - so the worktree was NOT created by
+`EnterWorktree` in this session and `ExitWorktree` would be a no-op. The safe
+cross-session cleanup therefore stays on `git worktree remove` /
+`worktree-remove.sh`. If (and only if) you created this worktree earlier in the
+same session with `EnterWorktree(name=...)`, prefer the native
+`ExitWorktree(action="remove", discard_changes=true)` instead of Steps 5a-5c.
+
 ## Instructions
 
 When the user invokes `/flow:merge`, perform these steps:
@@ -137,7 +146,7 @@ PR #78 merged (squash) ✅
 
 Cleanup:
   ✅ Remote branch deleted: issue-42-fix-login
-  ✅ Worktree removed: ../my-project-issue-42
+  ✅ Worktree removed: .claude/worktrees/issue-42-fix-login
   ✅ Local branch deleted: issue-42-fix-login
   ✅ Issue #42 closed
   ✅ Pruned stale worktree references
@@ -178,7 +187,7 @@ to codify fixes? [y/N]
 
 - Squash merge is the default - produces clean single-commit history
 - The remote branch is deleted by `gh pr merge --delete-branch`
-- The worktree removal uses the safe `worktree-remove.sh` script when available
+- Worktrees are native (`.claude/worktrees/`); cross-session cleanup uses `git worktree remove` / the safe `worktree-remove.sh` script (native `ExitWorktree` only removes worktrees created by `EnterWorktree` in the current session)
 - After merge, the user ends up in the main repo on the `main` branch
 - Automatically prunes stale worktree references, merged branches, and remote tracking branches
 - For a standalone cleanup (without merging), use `/flow:cleanup`
