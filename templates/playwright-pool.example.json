@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "desks": [
+    "playwright-desk-1",
+    "playwright-desk-2",
+    "playwright-desk-3"
+  ],
+  "idle_timeout_seconds": 1800,
+  "state_dir": ".claude/playwright-state"
+}

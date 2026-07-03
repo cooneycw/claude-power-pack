@@ -4,6 +4,24 @@
 
 ### Added
 
+- **Browser session wrapper - named concurrent sessions (lease-desk)** (issue #421) -
+  new `/browser:session` + `/browser:help` commands recover named **concurrent**
+  browser sessions over upstream `@playwright/mcp` (the one feature upstream lacks,
+  microsoft/playwright-mcp#1530) as a thin wrapper - no fork, no custom image. A fixed
+  pool of pre-registered upstream instances ("desks", `playwright-desk-1..N`, run via
+  `npx --isolated`) is leased by user-named sessions; each session's identity lives in a
+  portable storage-state file (`.claude/playwright-state/<name>.json`), so sessions
+  outlive desks - N desks multiplex unlimited named sessions, surviving restarts.
+  The deterministic ledger `scripts/playwright-desk.py` (zero-dep stdlib) owns lease /
+  release / idle-cleanup (`create`/`resume`/`save`/`close`/`list`/`cleanup`/`pool`,
+  `--json` contract, 14 tests); the model drives each desk's `browser_*` MCP tools and
+  the state files. `/cpp:init` gains an **opt-in** "browser pool" step (Full tier) that
+  seeds `.claude/playwright-pool.json` from `templates/playwright-pool.example.json` and
+  registers the desks. Design A (static pool) per the #419 spike - mid-session MCP
+  registration is infeasible in Claude Code, so desks are pre-registered at startup;
+  ratified by the #422 closure (owner chose the local wrapper over waiting on upstream).
+  Guide: `docs/skills/browser-session-wrapper.md`.
+
 - **Flow read-only permission allowlist template** (issue #427) - new
   `templates/claude-settings-permissions.json` (+ rationale doc
   `templates/claude-settings-permissions.md`) codifies the 32 user-level
