@@ -22,9 +22,11 @@ One-command project setup that orchestrates:
 1. Creates `~/Projects/<name>` with framework scaffold (Python/Node/Go/Rust)
 2. Initializes git and pushes to a new GitHub repo
 3. Generates Makefile from detected framework (`lib/cicd`)
-4. Installs CPP commands, skills, and hooks (symlinks)
-5. Initializes `.specify/` for spec-driven development
-6. Optionally creates an initial feature spec
+4. Installs the CPP toolkit (commands + skills symlinks, secret-masking hook)
+5. Delegates CLAUDE.md/skills/hooks scaffolding to native `/init`, then applies CPP
+   CI/CD governance via `/claude-md:lint`
+6. Initializes `.specify/` for spec-driven development
+7. Optionally creates an initial feature spec
 
 **Example:**
 ```
@@ -34,6 +36,8 @@ One-command project setup that orchestrates:
 **Features:**
 - Idempotent - safe to re-run if interrupted (completed steps are skipped)
 - Framework-specific scaffolds with best-practice project structure
+- Config scaffolding (CLAUDE.md, skills, hooks) delegated to native `/init`; CPP
+  owns only the zero-to-GitHub-repo orchestration and the governance overlay
 - Integrates with `/flow`, `/spec`, `/security`, and all CPP commands
 
 ## /project-next
