@@ -609,6 +609,49 @@ If no:
 echo "→ Happy CLI installation skipped"
 ```
 
+**Spec-Kit CLI Installation (Optional)**
+
+Ask the user if they want to install the official spec-kit CLI (`specify`). This is the
+authoring engine behind `/spec:adopt`; installing it now means `/spec:adopt` and the
+`/speckit-*` skills work in any project without a first-run install step. This installs
+only the CLI - it does NOT scaffold `.specify/` into any project (that stays on-demand
+via `/spec:adopt`).
+
+```
+=== Optional: Spec-Kit CLI ===
+
+Spec-Kit is GitHub's spec-driven-development toolkit. CPP's /spec:adopt delegates to
+its `specify` CLI (constitution -> specify -> clarify -> plan -> tasks).
+https://github.com/github/spec-kit
+
+Install the spec-kit CLI? [y/N]
+```
+
+If yes:
+```bash
+# Check if already installed
+if command -v specify &>/dev/null; then
+  echo "→ spec-kit CLI already installed (skipped)"
+  specify version 2>/dev/null | head -1 || true
+else
+  echo "Installing spec-kit CLI (uv tool)..."
+  uv tool install specify-cli --from git+https://github.com/github/spec-kit.git
+  if command -v specify &>/dev/null; then
+    echo "✓ spec-kit CLI installed"
+    echo "  Run /spec:adopt in a project to scaffold spec-kit into it"
+  else
+    echo "⚠ Installation failed - ensure 'uv' is installed and ~/.local/bin is on PATH"
+    echo "  Try: uv tool install specify-cli --from git+https://github.com/github/spec-kit.git"
+  fi
+fi
+echo "✓ /spec:adopt command available (per-project spec-kit scaffold)"
+```
+
+If no:
+```bash
+echo "→ Spec-Kit CLI installation skipped (/spec:adopt installs it on first use)"
+```
+
 ### Tier 3 Execution
 
 #### 3a. Docker Prerequisites and Legacy Systemd Warning
