@@ -29,7 +29,7 @@ Core components and their locations:
 - `lib/creds/` - Secrets management (dotenv/AWS SM, FastAPI UI, audit logging)
 - `lib/security/` - Security scanning (native + external tools)
 - `lib/cicd/` - CI/CD framework detection, Makefile generation, health/smoke checks, deterministic runner, deployment strategies, Pydantic v2 config validation
-- `lib/spec_bridge/` - Spec-to-GitHub-issue sync
+- `lib/spec_bridge/` - Spec-to-GitHub-issue sync (legacy, pending retirement; superseded by official spec-kit via `/spec:adopt` + `scripts/speckit-tasks-to-issues.sh`)
 - `scripts/` - Shell utilities (prompt-context, worktree-remove, hooks, drift-detect, skill-drift, mcp-drift)
 - `templates/` - Makefile, workflow, container templates
 - `docker-compose.yml` - MCP server orchestration (profiles: `core`, `browser`)
@@ -88,10 +88,13 @@ MCP containers fetch API keys at startup from AWS Secrets Manager via an `aws-se
 - `/project-lite` - Quick project reference (~500-800 tokens)
 
 ### Spec-Driven Development
-- `/spec:init` - Initialize `.specify/` structure
-- `/spec:create NAME` - Create new feature specification
-- `/spec:sync [NAME]` - Sync tasks.md to GitHub issues
-- `/spec:status` - Show spec/issue alignment
+- `/spec:adopt` - **(supported)** Install the official GitHub spec-kit CLI and scaffold it into the project (`specify init --here --ai claude`); then author with the `/speckit-*` skills and ship with `/flow:auto`. Turn `tasks.md` into GitHub issues with `scripts/speckit-tasks-to-issues.sh` (gh-CLI, no github-mcp-server). Per-project, always latest upstream.
+- `/spec:init` - *(legacy, pending retirement)* Initialize CPP's own `.specify/` structure
+- `/spec:create NAME` - *(legacy, pending retirement)* Create new feature specification
+- `/spec:sync [NAME]` - *(legacy, pending retirement)* Sync tasks.md to GitHub issues
+- `/spec:status` - *(legacy, pending retirement)* Show spec/issue alignment
+
+The `/spec:*` family and `lib/spec_bridge` are being retired in favor of the official spec-kit (see epic #417 Phase A, decision on #418). `/spec:adopt` is the supported path today; retirement of the legacy commands is a tracked follow-up.
 
 ### GitHub Issues
 - `/github:issue-list` - List and search issues
