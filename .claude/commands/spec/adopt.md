@@ -9,10 +9,10 @@ scaffold it into the current project. This is the **supported** spec-driven-deve
 authoring path for CPP: use spec-kit's `/speckit-*` skills to author, then `/flow:auto`
 to ship.
 
-Unlike the legacy `/spec:init` (which scaffolds CPP's own `.specify/` bridge, pending
-retirement), `/spec:adopt` delegates to the upstream `specify` CLI so you always get the
-current, community-iterated templates and the verification stages CPP lacks
-(`/speckit-clarify`, `/speckit-analyze`, `/speckit-checklist`).
+`/spec:adopt` delegates to the upstream `specify` CLI so you always get the current,
+community-iterated templates and the verification stages CPP lacks (`/speckit-clarify`,
+`/speckit-analyze`, `/speckit-checklist`). It replaces CPP's retired home-grown pipeline
+(`/spec:init`, `/spec:create`, `/spec:sync`, `/spec:status`; see epic #417 Phase A).
 
 ## What This Does
 
@@ -92,8 +92,9 @@ not run). Use the bundled gh-CLI sync instead:
 
 - **Per-project, not global.** spec-kit scaffolds `.specify/` into a repo; there is no
   global-skills equivalent. Run `/spec:adopt` once per project that uses SDD.
-- **Legacy `/spec:*` are pending retirement.** `/spec:create`, `/spec:sync`, and
-  `/spec:status` (backed by `lib/spec_bridge`) still work but are being retired in favor
-  of this path. Do not mix the two `.specify/` layouts in one project.
+- **Legacy `/spec:*` were retired.** `/spec:create`, `/spec:sync`, `/spec:status`, and
+  `/spec:init` (backed by `lib/spec_bridge`) have been removed in favor of this path
+  (epic #417 Phase A). Their generated `spec-*` skills are pruned by `/cpp:update` via
+  `.claude/deprecated-skills.yaml`.
 - **Freshness.** Because this delegates to the CLI, you always get the latest upstream
   templates - CPP no longer vendors a (stale) copy of the spec-kit skills.

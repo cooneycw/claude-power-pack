@@ -35,7 +35,7 @@ Does the feature need real-time external access (APIs, browsers, databases)?
 
 ## When to Use Skills
 
-- Teaching Claude a workflow (e.g., `/flow:auto`, `/spec:sync`)
+- Teaching Claude a workflow (e.g., `/flow:auto`, `/spec:adopt`)
 - Loading reference documentation on demand
 - Domain-specific prompting (e.g., evaluation domain types)
 - Procedures that compose existing tools

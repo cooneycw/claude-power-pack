@@ -52,6 +52,30 @@ deprecated:
              ~/.claude/skills/wiki-create-page \
              ~/.claude/skills/wiki-update-page
 
+  - family: spec
+    entire_family: true
+    reason: >-
+      CPP's home-grown spec pipeline (/spec:init, /spec:create, /spec:sync,
+      /spec:status backed by lib/spec_bridge) is retired in favor of the official
+      GitHub spec-kit via /spec:adopt (epic #417 Phase A, decision on #418). The
+      generated spec-* skills came from the defunct manifests/spec/*.yaml
+      architecture; spec-status and spec-sync still target the retired Plane/Wiki.js
+      backend, so they are stale orphans on machines that installed an earlier CPP.
+    replacement: /spec:adopt (official spec-kit) + /flow:auto
+    skills:
+      - spec-create
+      - spec-init
+      - spec-status
+      - spec-sync
+    # Manual fallback; the #395 skill-orphan prune in /cpp:update consumes this
+    # file and offers guarded, user-confirmed removal. Safe: generated artifacts,
+    # not user content.
+    cleanup: |
+      rm -rf ~/.claude/skills/spec-create \
+             ~/.claude/skills/spec-init \
+             ~/.claude/skills/spec-status \
+             ~/.claude/skills/spec-sync
+
 # Plane has no entry: it was never integrated as a CPP skill or command, so
 # there is nothing installed to remove. It is recorded here only to make the
 # "GitHub Issues is the sole scaffolding backend" decision explicit.
