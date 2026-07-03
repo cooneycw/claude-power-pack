@@ -1,28 +1,53 @@
+<!-- VENDORED CORE (issue #443): the section between the eli5-core markers below
+     is vendored verbatim from https://github.com/cooneycw/eli5-gate
+     (commands/eli5.md), the canonical standalone home of the necessity gate.
+     Edit the core UPSTREAM first, then re-vendor here; scripts/eli5-core-drift.sh
+     warns on drift. CPP-specific /flow wiring lives outside the markers. -->
 # Flow: ELI5 - Post-Analysis Plan + Necessity Gate
 
 The post-analysis, pre-implementation communication and approval gate. Restates an issue's intent in plain language, checks whether the issue is still worth doing given code merged since it was filed, and presents the proposed changes for reviewer approval before any code is written.
+
+This gate also ships standalone as **eli5-gate**
+(https://github.com/cooneycw/eli5-gate): installable by any Claude Code user via
+`/plugin marketplace add cooneycw/eli5-gate` then `/plugin install
+eli5-gate@eli5-gate`, or into ~40 other harnesses via `npx skills add
+cooneycw/eli5-gate`. That repo is canonical for the gate's core; improvement
+issues for the gate itself belong there, not in CPP.
 
 ## Arguments
 
 - `ISSUE` (required): GitHub issue number (e.g., `42`)
 - `--yes` (optional, alias `--auto-approve`): skip the interactive approval pause for unattended runs. The ELI5 report is still produced and recorded. A `No longer needed` verdict is NEVER auto-approved - it always stops for a human decision.
 
+<!-- eli5-core:begin (canonical: https://github.com/cooneycw/eli5-gate commands/eli5.md) -->
 ## What this is for
 
-`/flow:auto` jumps from analysis straight to implementation with only a terse implementer-facing plan in between. That gives a human reviewer no clear, plain-language checkpoint to approve, redirect, or reject before effort is spent. Two gaps in particular:
+Automated implement-from-issue pipelines jump from analysis straight to
+implementation with only a terse implementer-facing plan in between. That gives a
+human reviewer no clear, plain-language checkpoint to approve, redirect, or reject
+before effort is spent. Two gaps in particular:
 
-1. **No staleness / necessity check.** An issue filed weeks ago may already be solved (or made obsolete) by code merged since. The default flow assumes the issue is still valid and just implements it.
-2. **No reviewer-friendly intent summary.** The implementer-term plan is not the fastest way for a reviewer to catch a misread of intent.
+1. **No staleness / necessity check.** An issue filed weeks ago may already be
+   solved (or made obsolete) by code merged since. The default flow assumes the
+   issue is still valid and just implements it.
+2. **No reviewer-friendly intent summary.** The implementer-term plan is not the
+   fastest way for a reviewer to catch a misread of intent.
 
-`/flow:eli5` closes both gaps: it tells the reviewer, in their language, what the issue means, whether it is still worth doing, and what will change - then waits for approval.
+This gate closes both gaps: it tells the reviewer, in their language, what the
+issue means, whether it is still worth doing, and what will change - then waits
+for approval.
 
 ## Instructions
 
-When the user invokes `/flow:eli5 <ISSUE>`, perform the following. This command is read-only with respect to the codebase: it inspects and reports, it does not write implementation code.
+When the gate is invoked with an issue number, perform the following. This command
+is read-only with respect to the codebase: it inspects and reports, it does not
+write implementation code.
 
 ### Step 1: Gather context
 
-If this command is being run as a step inside `/flow:auto`, reuse the analysis already produced by the Analyze step and skip re-reading the codebase. When run standalone, gather context first:
+If this gate is being run as a step inside a larger pipeline that has already
+analyzed the issue, reuse that analysis and skip re-reading the codebase. When run
+standalone, gather context first:
 
 ```bash
 ISSUE_NUM="$1"
@@ -31,16 +56,22 @@ gh issue view "$ISSUE_NUM" --json number,title,state,body,createdAt,labels,close
 ISSUE_DATE=$(gh issue view "$ISSUE_NUM" --json createdAt --jq '.createdAt')
 ```
 
-- Parse acceptance criteria (`- [ ]` items), referenced files/components, and any task IDs or dependencies.
-- Read the files the issue references and the surrounding patterns so the proposed-changes section is concrete.
+- Parse acceptance criteria (`- [ ]` items), referenced files/components, and any
+  task IDs or dependencies.
+- Read the files the issue references and the surrounding patterns so the
+  proposed-changes section is concrete.
 
 ### Step 2: Produce the three-section report
 
 Emit all three sections every time. Do not skip a section even if it is short.
 
-**Section A - ELI5 overview of intent.** A plain-language restatement of what the issue is trying to accomplish and why, free of implementation jargon. Two to four sentences a non-author reviewer can sanity-check for a misread of intent.
+**Section A - ELI5 overview of intent.** A plain-language restatement of what the
+issue is trying to accomplish and why, free of implementation jargon. Two to four
+sentences a non-author reviewer can sanity-check for a misread of intent.
 
-**Section B - Necessity / staleness analysis.** Assess whether the issue is still necessary given the current code and anything merged *after* it was filed. Inspect post-filing history explicitly:
+**Section B - Necessity / staleness analysis.** Assess whether the issue is still
+necessary given the current code and anything merged *after* it was filed. Inspect
+post-filing history explicitly:
 
 ```bash
 # Commits landed since the issue was filed (global, then scoped to the files
@@ -57,7 +88,10 @@ gh issue list --state all --search "<key terms from the issue>" \
     --json number,title,state,closedAt
 ```
 
-Explicitly check for: (a) work already merged that closes or partially closes the issue, (b) design changes that make the original ask obsolete or misframed, (c) duplicate or superseding issues. Then output one verdict, with the evidence (commits, PRs, files, issue numbers) behind it:
+Explicitly check for: (a) work already merged that closes or partially closes the
+issue, (b) design changes that make the original ask obsolete or misframed, (c)
+duplicate or superseding issues. Then output one verdict, with the evidence
+(commits, PRs, files, issue numbers) behind it:
 
 | Verdict | Meaning |
 |---------|---------|
@@ -66,25 +100,35 @@ Explicitly check for: (a) work already merged that closes or partially closes th
 | **No longer needed** | Already solved or made obsolete; recommend closing instead of implementing |
 | **Needs reframing** | The surrounding design changed enough that the plan is wrong; restate the corrected approach |
 
-**Section C - Proposed changes (pending approval).** An overview of the changes proposed to close the issue, framed as a plan awaiting reviewer approval: files to create or modify, the gist of each change, scope estimate, and notable risks or edge cases. No code is written until this plan is approved.
+**Section C - Proposed changes (pending approval).** An overview of the changes
+proposed to close the issue, framed as a plan awaiting reviewer approval: files to
+create or modify, the gist of each change, scope estimate, and notable risks or
+edge cases. No code is written until this plan is approved.
 
 ### Step 3: The approval gate
 
 The verdict drives what happens next:
 
-- **No longer needed** -> do NOT implement, even with `--yes`. Recommend closing the issue and provide a ready-to-paste closing comment citing the evidence:
+- **No longer needed** -> do NOT implement, even with `--yes`. Recommend closing
+  the issue and provide a ready-to-paste closing comment citing the evidence:
   ```bash
   gh issue close "$ISSUE_NUM" --comment "<evidence-based reason; reference the superseding PR/issue>"
   ```
   Surface the recommendation and STOP. Closing is the reviewer's call.
-- **Still needed**, **Partially addressed**, or **Needs reframing** -> present Section C and gate on approval:
-  - **Default (interactive):** pause and ask the reviewer to approve, redirect, or reject the plan. Only proceed once approved. For `Partially addressed` / `Needs reframing`, the approved plan is the adjusted one, not the original issue body.
-  - **`--yes` / `--auto-approve`, or an `eli5: auto-approve` trailer in the issue body or HEAD commit message:** proceed without pausing, but still print the full report for the record and note that approval was auto-granted.
+- **Still needed**, **Partially addressed**, or **Needs reframing** -> present
+  Section C and gate on approval:
+  - **Default (interactive):** pause and ask the reviewer to approve, redirect,
+    or reject the plan. Only proceed once approved. For `Partially addressed` /
+    `Needs reframing`, the approved plan is the adjusted one, not the original
+    issue body.
+  - **`--yes` / `--auto-approve`, or an `eli5: auto-approve` trailer in the issue
+    body or HEAD commit message:** proceed without pausing, but still print the
+    full report for the record and note that approval was auto-granted.
 
 ## Output format
 
 ```
-Flow ELI5: Issue #398
+ELI5 Gate: Issue #398
 
 == A. What this issue actually wants (ELI5) ==
 {plain-language intent, 2-4 sentences}
@@ -106,6 +150,7 @@ Risks: {edge cases / unknowns}
 
 Approval: REQUIRED (interactive) | AUTO-GRANTED (--yes) | N/A (No longer needed -> close recommended)
 ```
+<!-- eli5-core:end -->
 
 ## When run inside /flow:auto
 
@@ -120,3 +165,4 @@ Approval: REQUIRED (interactive) | AUTO-GRANTED (--yes) | N/A (No longer needed 
 - It never writes implementation code; the only mutating action it suggests is `gh issue close` on a `No longer needed` verdict, and that is a recommendation for the reviewer to run.
 - The staleness check is only meaningful when it inspects history *after* the issue's `createdAt`; always anchor `git log --since` and the PR/issue searches to that timestamp.
 - For step-by-step control outside the full lifecycle, run `/flow:eli5 <ISSUE>` on its own before deciding whether to `/flow:start`.
+- The vendored core between the markers must stay byte-identical to the canonical https://github.com/cooneycw/eli5-gate copy; `scripts/eli5-core-drift.sh` checks this (advisory, fail-open).

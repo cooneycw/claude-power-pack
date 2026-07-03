@@ -98,6 +98,19 @@ execute from a global mirror (`~/.claude/skills/flow-*`) regenerated from the
 (`--write` to sync, `--check` to detect drift); `/flow:doctor` warns when the
 mirror falls behind (issue #457).
 
+**Standalone skill extractions (issue #443):** skills with standalone value are
+extracted to their own public plugin repos so users never have to clone CPP -
+they install via `/plugin marketplace add cooneycw/<repo>` or `npx skills add
+cooneycw/<repo>`, and improvement issues for an extracted skill are filed in
+THAT repo, not here (the learnings->issue bridge, #463, routes there too). CPP
+stays a consumer: it vendors the extracted skill's canonical core between
+marker comments and layers its /flow wiring outside them; an advisory drift
+script warns when the vendored copy falls behind. First extraction: the
+`/flow:eli5` necessity gate -> https://github.com/cooneycw/eli5-gate
+(core markers `eli5-core:begin`/`end` in `.claude/commands/flow/eli5.md`,
+checked by `scripts/eli5-core-drift.sh`; reconcile drift by editing the
+canonical repo first, then re-vendoring).
+
 ### Project
 - `/project:init <name>` - Full project scaffolding (zero to GitHub repo)
 - `/project-next` - Full issue analysis and prioritization (~15-30K tokens)

@@ -25,6 +25,22 @@
 
 ### Added
 
+- **`/flow:eli5` extracted to the standalone `eli5-gate` plugin** (issue #443,
+  epic #417 Phase C) - the necessity gate (plain-language intent ELI5 +
+  staleness/necessity verdict + plan-approval pause) now lives in its own public
+  canonical repo, https://github.com/cooneycw/eli5-gate, packaged both as a
+  self-hosting Claude Code plugin marketplace (`/plugin marketplace add
+  cooneycw/eli5-gate`) and as an open-standard Agent Skill (`npx skills add
+  cooneycw/eli5-gate`), so any user can install the gate without cloning CPP.
+  CPP now VENDORS the gate's core: `.claude/commands/flow/eli5.md` carries the
+  canonical section between `eli5-core:begin`/`end` markers with CPP's
+  /flow:auto wiring outside them, and the new advisory
+  `scripts/eli5-core-drift.sh` (fail-open, network-tolerant) warns when the
+  vendored copy drifts from canonical. This is the first application of the
+  standalone-extraction pattern (documented in CLAUDE.md): extracted skills are
+  improved in their own repos - issues route there, incl. via the #463
+  learnings->issue bridge - and CPP consumes them.
+
 - **Learnings->issue bridge** (issue #463, epic #417 Phase C) - actionable
   portable learnings can now be promoted from the retro/common-memory loop into
   tracked GitHub issues, so a learning that names a concrete fix becomes work
