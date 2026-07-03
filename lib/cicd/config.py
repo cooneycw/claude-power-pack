@@ -12,10 +12,15 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 from typing import Any, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+# Safe path/target chars for values that are interpolated into generated CI
+# shell commands (defense-in-depth against a malicious .claude/cicd.yml).
+_SAFE_SHELL_TOKEN = re.compile(r"^[A-Za-z0-9_./-]+$")
 
 
 class BuildConfig(BaseModel):
@@ -82,6 +87,29 @@ class WoodpeckerConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     local: bool = True  # Use woodpecker exec for local runs
+    # Self-hosted CI hardening stages (opt-in, default off). When all are unset
+    # the generated .woodpecker.yml is the byte-identical base lint/test/deploy
+    # pipeline. See docs/skills/woodpecker-ci.md for the patterns these emit -
+    # self-hosted CI has no native secret scanning or image gates the way the
+    # GitHub Actions Marketplace does, so they are wired explicitly.
+    secret_scan: bool = False  # Prepend a gitleaks secret-scan stage
+    image_security: bool = False  # Add a Trivy config + filesystem CVE scan stage
+    runtime_smoke: bool = False  # Add a post-build `make <smoke_target>` stage
+    secret_scan_config: str = ".gitleaks.toml"  # gitleaks config path
+    smoke_target: str = "smoke"  # make target invoked by the runtime-smoke stage
+
+    @field_validator("secret_scan_config", "smoke_target")
+    @classmethod
+    def _reject_shell_metacharacters(cls, v: str) -> str:
+        """These values are interpolated into generated CI shell commands, so
+        constrain them to safe path/target characters (no spaces, quotes, or
+        shell metacharacters) to prevent command injection via cicd.yml."""
+        if not _SAFE_SHELL_TOKEN.match(v):
+            raise ValueError(
+                "must contain only letters, digits, '_', '.', '/', or '-' "
+                f"(got {v!r})"
+            )
+        return v
 
 
 class PipelineConfig(BaseModel):

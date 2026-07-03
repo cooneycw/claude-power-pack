@@ -10,7 +10,8 @@ Build, verify, and deploy automation for Claude Code projects.
 | `/cicd:check` | Validate Makefile against CPP standards |
 | `/cicd:health` | Run health checks (endpoints + processes) |
 | `/cicd:smoke` | Run smoke tests from cicd.yml |
-| `/cicd:pipeline` | Generate GitHub Actions CI/CD workflows |
+| `/cicd:pipeline` | Generate CI/CD workflows (GitHub Actions, or Woodpecker via provider) |
+| `/cicd:woodpecker` | Generate a hardened self-hosted Woodpecker pipeline + scaffold server/agent |
 | `/cicd:container` | Generate Dockerfile and docker-compose.yml |
 | `/cicd:infra-init` | Scaffold IaC directory with tiered structure (foundation/platform/app) |
 | `/cicd:infra-discover` | Generate cloud resource discovery script for IaC import |
@@ -30,9 +31,18 @@ Build, verify, and deploy automation for Claude Code projects.
 /cicd:health    →  Check endpoints  →  Check processes  →  Report status
 /cicd:smoke     →  Run smoke tests  →  Check results    →  Report pass/fail
                                               ↓
-/cicd:pipeline  →  Read Makefile targets  →  Generate .github/workflows/ci.yml
+/cicd:pipeline  →  Read Makefile targets  →  Generate .github/workflows/ci.yml (or .woodpecker.yml)
+/cicd:woodpecker→  Framework + gates      →  Generate hardened .woodpecker.yml + server/agent scaffold
 /cicd:container →  Detect framework       →  Generate Dockerfile + docker-compose.yml
 ```
+
+## Self-Hosted Woodpecker CI
+
+Most CI tooling assumes GitHub Actions. `/cicd:woodpecker` covers the uncovered
+ground: it generates a hardened `.woodpecker.yml` (opt-in secret-scan +
+image-security + runtime-smoke stages) and scaffolds the Woodpecker server/agent
+from `templates/woodpecker/`. See `docs/skills/woodpecker-ci.md` for the full
+patterns and hard-won gotchas (Trivy DB drift, gitleaks-first, gRPC port hygiene).
 
 ## Supported Frameworks
 
