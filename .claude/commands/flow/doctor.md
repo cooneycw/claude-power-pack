@@ -228,7 +228,8 @@ echo ""
 echo "MCP Server Connectivity:"
 
 MCP_ISSUES=0
-for entry in "8080:second-opinion" "8081:playwright-persistent"; do
+# Browser automation is upstream @playwright/mcp over npx/stdio - no port to probe.
+for entry in "8080:second-opinion"; do
   PORT="${entry%%:*}"
   NAME="${entry#*:}"
   if curl -sf --max-time 2 "http://127.0.0.1:${PORT}/health" >/dev/null 2>&1; then
@@ -289,7 +290,7 @@ Output a single diagnostic report in this format:
 | Server | Port | Status | Details |
 |--------|------|--------|---------|
 | second-opinion | 8080 | ✅/⚠️/❌ | Reachable / Port open (no /health) / Not reachable |
-| playwright-persistent | 8081 | ✅/⚠️/❌ | Reachable / Port open (no /health) / Not reachable |
+| playwright | stdio | - | Upstream @playwright/mcp over npx/stdio (no port) |
 
 ### Active Worktrees
 

@@ -11,7 +11,7 @@ PROFILE_VALUE="${PROFILE:-core}"
 
 usage() {
   cat <<'USAGE'
-Usage: scripts/docker-refresh-transactional.sh [--profiles "core browser cicd"]
+Usage: scripts/docker-refresh-transactional.sh [--profiles "core cicd"]
 
 Environment:
   PROFILE        Space-separated Docker Compose profiles (default: core)

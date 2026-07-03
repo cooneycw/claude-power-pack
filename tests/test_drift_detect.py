@@ -142,7 +142,9 @@ def test_drift_detect_flags_docker_systemd_conflicts_and_orphans(tmp_path: Path)
     assert result.returncode == 1
     output = result.stdout
     assert "deployment model conflict - mcp-second-opinion" in output
-    assert "systemd - unit mcp-playwright-persistent is failed" in output
+    # mcp-playwright-persistent was retired in #423, so a leftover unit is now an
+    # orphan (repo no longer ships it), not an active-server failure.
+    assert "orphaned systemd unit mcp-playwright-persistent" in output
     assert "orphaned systemd unit mcp-coordination" in output
     assert "port binding conflict - port 8081" in output
     assert "Default convergence is Docker" in output
@@ -260,8 +262,7 @@ def test_drift_detect_flags_orphaned_docker_mcp(tmp_path: Path) -> None:
         fi
         if [[ "$1" == "compose" && "$*" == *"config --services"* ]]; then
           # nano-banana deliberately ABSENT from the current service set
-          echo mcp-second-opinion; echo mcp-playwright-persistent
-          echo aws-secrets-agent; exit 0
+          echo mcp-second-opinion; echo aws-secrets-agent; exit 0
         fi
         if [[ "$1" == "compose" && "$*" == *" ps "* ]]; then
           echo "mcp-nano-banana:Up (healthy)"; exit 0

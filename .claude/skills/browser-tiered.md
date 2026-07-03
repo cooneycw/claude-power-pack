@@ -2,6 +2,15 @@
 
 Use bdg CLI for lightweight operations, escalate to Playwright MCP for complex workflows.
 
+> **Playwright MCP = upstream `@playwright/mcp`** (registered by `/cpp:init`). It
+> provides ONE implicit browser context per connection, so there is no
+> `create_session`/`session_id`/`close_session` - call the `browser_*` tools
+> directly and use `browser_close` to release the browser. Text is read via
+> `browser_evaluate`, screenshots via `browser_take_screenshot`, PDFs via
+> `browser_pdf_save` (server started with `--caps pdf`). Connect to an existing
+> Chrome by launching the server with `--cdp-endpoint ws://...` rather than a
+> per-call argument.
+
 ## Quick Decision Matrix
 
 | Task | Tool | Command Example |
@@ -12,8 +21,8 @@ Use bdg CLI for lightweight operations, escalate to Playwright MCP for complex w
 | Console logs | bdg | `bdg console --list` |
 | Simple fill | bdg | `bdg dom fill 0 "value"` |
 | Simple click | bdg | `bdg dom click 5` |
-| Multi-tab | Playwright | `browser_new_tab`, `browser_switch_tab` |
-| Screenshots | Playwright | `browser_screenshot` |
+| Multi-tab | Playwright | `browser_tabs` (new/select/close) |
+| Screenshots | Playwright | `browser_take_screenshot` |
 | Complex waits | Playwright | `browser_wait_for` |
 | Login flows | Playwright | Persistent session + cookies |
 | React/SPA | Playwright | Better JS handling |
@@ -94,10 +103,11 @@ bdg --chrome-flags="--user-agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) Appl
 ```
 
 **Option 3: Escalate to Playwright (best for persistent sessions)**
-```python
-# Playwright with headed mode
-session = create_session(headless=False)
-# Complete CAPTCHA manually if needed, session persists
+```
+# Register the upstream server in headed mode (drop --headless), then navigate:
+#   claude mcp add --transport stdio --scope user playwright -- npx -y @playwright/mcp@latest
+browser_navigate("https://protected-site.com")
+# Complete CAPTCHA manually if needed; the browser context persists across calls
 ```
 
 **Option 4: Use existing browser session**
@@ -135,13 +145,12 @@ bdg --chrome-ws-url ws://localhost:9222/devtools/page/...
 ```
 
 **Playwright MCP connection:**
-```python
-# Use cdp_endpoint parameter to connect to existing Chrome
-session = create_session(cdp_endpoint="ws://localhost:9222")
-sid = session["session_id"]
-
-# Now operates on the same browser as bdg
-browser_navigate(sid, "https://example.com")
+```
+# Register the upstream server against the existing Chrome (server launch flag):
+#   claude mcp add --transport stdio --scope user playwright -- \
+#     npx -y @playwright/mcp@latest --cdp-endpoint ws://localhost:9222
+# Then operate on the same browser as bdg - no session handle:
+browser_navigate("https://example.com")
 ```
 
 **Use case:** Login manually in headed Chrome, then automate with cookies preserved.
@@ -212,30 +221,25 @@ bdg stop
 
 When login requires persistent cookies or complex validation:
 
-```python
-# Playwright MCP - maintains session state
-session = create_session(headless=True)
-sid = session["session_id"]
-
-# Navigate to login
-browser_navigate(sid, "https://example.com/login")
+```
+# Upstream @playwright/mcp - one implicit context, cookies persist across calls
+browser_navigate("https://example.com/login")
 
 # Fill credentials
-browser_fill(sid, "#username", "user@example.com")
-browser_fill(sid, "#password", "secret123")
+browser_type("#username", "user@example.com")
+browser_type("#password", "secret123")
 
-# Click login and wait for navigation
-browser_click(sid, "button[type=submit]")
-browser_wait_for_navigation(sid)
+# Click login and wait for the result to render
+browser_click("button[type=submit]")
+browser_wait_for(".user-profile")
 
 # Verify logged in
-text = browser_get_text(sid, ".user-profile")
+browser_evaluate("() => document.querySelector('.user-profile').textContent")
 
-# Continue with authenticated session...
-# Session persists cookies across calls
+# Continue with the authenticated context...
 
-# Cleanup when done
-close_session(sid)
+# Release the browser when done
+browser_close()
 ```
 
 ### 4. Debug Console Monitoring (bdg only)
@@ -259,25 +263,20 @@ bdg network list --status 4xx,5xx
 
 ### 5. Screenshot Comparison (Playwright)
 
-```python
-# Playwright for high-quality screenshots
-session = create_session(headless=True)
-sid = session["session_id"]
-
-# Navigate
-browser_navigate(sid, "https://example.com")
+```
+# Upstream @playwright/mcp for high-quality screenshots
+browser_navigate("https://example.com")
 
 # Full page screenshot
-screenshot = browser_screenshot(sid, full_page=True)
-# Returns base64 encoded image
+browser_take_screenshot(fullPage=True)
 
-# Element-specific screenshot
-element_shot = browser_screenshot(sid, selector=".hero-section")
+# Element-specific screenshot (target via the accessibility snapshot ref)
+browser_take_screenshot(element=".hero-section")
 
-# Generate PDF
-pdf = browser_pdf(sid, format="A4")
+# Generate PDF (server started with --caps pdf)
+browser_pdf_save()
 
-close_session(sid)
+browser_close()
 ```
 
 ### 6. Hybrid: Inspect with bdg, Act with Playwright
@@ -291,23 +290,20 @@ bdg network getCookies # See existing cookies
 bdg stop
 ```
 
-```python
-# Step 2: Complex interaction with Playwright
-session = create_session(headless=True)
-sid = session["session_id"]
-
-browser_navigate(sid, "https://complex-app.com")
+```
+# Step 2: Complex interaction with upstream @playwright/mcp (no session handle)
+browser_navigate("https://complex-app.com")
 
 # Multi-step flow based on bdg inspection
-browser_fill(sid, "#search", "query")
-browser_click(sid, ".search-btn")
-browser_wait_for(sid, ".results", state="visible")
+browser_type("#search", "query")
+browser_click(".search-btn")
+browser_wait_for(".results")
 
 # Handle dynamic content
-browser_evaluate(sid, "window.scrollTo(0, document.body.scrollHeight)")
-browser_wait_for(sid, ".load-more", state="visible")
+browser_evaluate("() => window.scrollTo(0, document.body.scrollHeight)")
+browser_wait_for(".load-more")
 
-close_session(sid)
+browser_close()
 ```
 
 ### 7. API Response Inspection (bdg only)

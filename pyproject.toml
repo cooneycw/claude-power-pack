@@ -1,6 +1,6 @@
 [project]
 name = "claude-power-pack"
-version = "7.2.0"
+version = "7.3.0"
 requires-python = ">=3.11"
 dependencies = []
 
@@ -13,7 +13,7 @@ pythonpath = ["."]
 
 [tool.mypy]
 python_version = "3.11"
-exclude = ["mcp-second-opinion", "mcp-playwright-persistent", "mcp-evaluate"]
+exclude = ["mcp-second-opinion", "mcp-evaluate"]
 ignore_missing_imports = true
 explicit_package_bases = true
 mypy_path = "."

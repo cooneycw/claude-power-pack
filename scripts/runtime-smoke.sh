@@ -40,7 +40,6 @@ export AWS_SECRET_ACCESS_KEY=cpp-smoke-secret-key
 export AWS_SESSION_TOKEN=cpp-smoke-session-token
 export AWS_TOKEN=cpp-smoke-token
 export MCP_SECOND_OPINION_PORT_MAPPING=8080
-export MCP_PLAYWRIGHT_PORT_MAPPING=8081
 export SECOND_OPINION_AWS_SECRET_NAME=
 
 # The fake AWS creds above mean the real secrets-agent cannot fetch, so the
@@ -56,16 +55,16 @@ SMOKE_FILES="-f docker-compose.yml -f docker-compose.smoke.yml"
 
 cleanup() {
   docker compose -p "$PROJECT" $SMOKE_FILES \
-    --profile core --profile browser --profile cicd --profile smoke down -v || true
+    --profile core --profile cicd --profile smoke down -v || true
 }
 trap cleanup EXIT INT TERM
 
-if ! docker compose -p "$PROJECT" --profile core --profile browser --profile cicd up --build --wait; then
-  docker compose -p "$PROJECT" --profile core --profile browser --profile cicd ps || true
+if ! docker compose -p "$PROJECT" --profile core --profile cicd up --build --wait; then
+  docker compose -p "$PROJECT" --profile core --profile cicd ps || true
   docker compose -p "$PROJECT" logs aws-secrets-agent || true
   exit 1
 fi
-docker compose -p "$PROJECT" --profile core --profile browser --profile cicd ps
+docker compose -p "$PROJECT" --profile core --profile cicd ps
 
 # Retry an in-container readiness probe up to PROBE_RETRIES times (PROBE_INTERVAL
 # seconds apart) before giving up. A service can pass the compose `--wait`
@@ -156,7 +155,6 @@ check_internal_http() {
 # uses - so the smoke fails if a server comes up live-but-not-ready.
 check_internal_http aws-secrets-agent 2773 /ping "X-Aws-Parameters-Secrets-Token: $AWS_TOKEN"
 check_http mcp-second-opinion 8080 /readyz
-check_http mcp-playwright-persistent 8081 /readyz
 
 # --- (2) Cross-container reachability of the REAL agent ---------------------
 # Reach the agent by its compose network name from a different container. The

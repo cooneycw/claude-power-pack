@@ -2,6 +2,27 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **Browser automation migrated to upstream `@playwright/mcp`** (issue #423) -
+  `/qa:test` and the `browser-tiered` skill now drive the official Microsoft
+  `@playwright/mcp` server instead of CPP's fork. The server is registered by
+  `/cpp:init` as an npx/stdio MCP (no container, no `browser` compose profile);
+  it exposes one implicit browser context per connection, so the old
+  `create_session`/`session_id`/`close_session` calls are gone. Named concurrent
+  sessions - a feature no CPP consumer used - move to the separate
+  `browser:session` wrapper skill (#421). Version bumped to 7.3.0.
+
+### Removed
+
+- **Retired the `mcp-playwright-persistent` server** (issue #423) - deleted the
+  823-line server, its Dockerfile, deploy scripts, the `browser` compose
+  service/profile, its Woodpecker image-security + hadolint gate scope (dropping
+  one of the two recurring Trivy CVE drift taxes), and its `renovate.json` /
+  `pyproject.toml` / `drift-detect.sh` entries. Added it to
+  `.claude/deprecated-mcps.yaml` so `/cpp:update` offers a user-confirmed
+  teardown of any leftover container, image, or registration on existing hosts.
+
 ### Added
 
 - **Browser session wrapper - named concurrent sessions (lease-desk)** (issue #421) -

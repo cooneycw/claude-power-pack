@@ -36,25 +36,25 @@ FIX_MODE=false
 
 # MCP deployment model inventory. Keep this explicit so legacy unit aliases can
 # be handled as deployment remnants instead of being mistaken for new servers.
+# mcp-playwright-persistent was retired in #423 (browser automation moved to the
+# upstream @playwright/mcp npx server). Any leftover playwright container, image,
+# or systemd unit on a host is now handled as an orphan: Docker remnants via
+# scripts/mcp-drift.py + .claude/deprecated-mcps.yaml, and systemd remnants via
+# check_orphaned_systemd_units below.
 MCP_SERVERS=(
     "mcp-second-opinion"
-    "mcp-playwright-persistent"
 )
 declare -A MCP_DOCKER_CONTAINERS=(
     ["mcp-second-opinion"]="mcp-second-opinion"
-    ["mcp-playwright-persistent"]="mcp-playwright-persistent"
 )
 declare -A MCP_SYSTEMD_UNITS=(
     ["mcp-second-opinion"]="mcp-second-opinion"
-    ["mcp-playwright-persistent"]="mcp-playwright mcp-playwright-persistent"
 )
 declare -A MCP_PORTS=(
     ["mcp-second-opinion"]="8080"
-    ["mcp-playwright-persistent"]="8081"
 )
 declare -A MCP_REGISTRATIONS=(
     ["mcp-second-opinion"]="second-opinion mcp-second-opinion"
-    ["mcp-playwright-persistent"]="playwright-persistent mcp-playwright mcp-playwright-persistent"
 )
 declare -A DOCKER_STATUS=()
 
@@ -144,7 +144,6 @@ canonical_server_for_unit() {
     local unit="$1"
     case "$unit" in
         mcp-second-opinion) echo "mcp-second-opinion" ;;
-        mcp-playwright|mcp-playwright-persistent) echo "mcp-playwright-persistent" ;;
         *) echo "" ;;
     esac
 }
@@ -415,7 +414,7 @@ check_docker_compose() {
     if ! $has_drift; then
         ok "docker - all running containers healthy"
     else
-        fix "Re-run: make deploy PROFILE=\"core browser cicd\""
+        fix "Re-run: make deploy PROFILE=\"core cicd\""
     fi
 }
 
@@ -662,9 +661,6 @@ main() {
     check_systemd_unit "mcp-second-opinion" \
         "$REPO_ROOT/mcp-second-opinion/deploy/mcp-second-opinion.service.template" \
         "$REPO_ROOT/mcp-second-opinion"
-    check_systemd_unit "mcp-playwright" \
-        "$REPO_ROOT/mcp-playwright-persistent/deploy/mcp-playwright.service.template" \
-        "$REPO_ROOT/mcp-playwright-persistent"
     echo ""
 
     # Category 2: Sysctl

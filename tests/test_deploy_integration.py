@@ -196,8 +196,8 @@ class TestDeployReadinessRollbackFlow:
         mock_run.side_effect = route_cmd
 
         config = DeployConfig(
-            profiles=["core", "browser"],
-            services=["second-opinion", "playwright"],
+            profiles=["core", "cicd"],
+            services=["second-opinion", "aws-secrets-agent"],
         )
         step = DeployStep(config)
         result = step.execute(self._make_context(tmp_path))
@@ -207,7 +207,7 @@ class TestDeployReadinessRollbackFlow:
         pull_cmd = call_log[0]
         assert "--profile" in pull_cmd
         assert "core" in pull_cmd
-        assert "browser" in pull_cmd
+        assert "cicd" in pull_cmd
         assert "second-opinion" in pull_cmd
 
     @patch("subprocess.run")

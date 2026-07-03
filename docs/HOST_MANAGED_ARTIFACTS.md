@@ -18,7 +18,16 @@ classifies them by lifecycle, and describes how drift is detected and reconciled
 | Artifact | Template Source | Installed Location | Category |
 |----------|---------------|--------------------|----------|
 | `mcp-second-opinion.service` | `mcp-second-opinion/deploy/mcp-second-opinion.service.template` | `~/.config/systemd/user/` or `/etc/systemd/system/` | Reconcilable |
-| `mcp-playwright.service` | `mcp-playwright-persistent/deploy/mcp-playwright.service.template` | `~/.config/systemd/user/` or `/etc/systemd/system/` | Reconcilable |
+| `mcp-playwright.service` | Retired in #423 - no repo template | `~/.config/systemd/user/` or `/etc/systemd/system/` (only on hosts that ran a pre-#423 install) | Orphan - torn down, not reconciled |
+
+**Retired (#423):** `mcp-playwright.service` no longer maps to a repo template. The CPP
+`mcp-playwright-persistent` fork was retired and browser automation moved to the upstream
+`@playwright/mcp` server (registered by `/cpp:init` via npx/stdio - no systemd unit and no
+container). A leftover `mcp-playwright.service` on a host is now an **orphan**:
+`scripts/drift-detect.sh` reports it as a systemd orphan, and `/cpp:update` (via
+`.claude/deprecated-mcps.yaml` + `scripts/mcp-drift.py`) tears down the retired Docker
+container, `mcp-playwright-persistent:*` image, and MCP registration. It is never
+reconciled back from a template.
 
 **Risk:** Templates change in repo but installed units are never auto-updated.
 The `install-service.sh` scripts generate units from templates using `sed` substitution
@@ -26,13 +35,12 @@ The `install-service.sh` scripts generate units from templates using `sed` subst
 
 **Detection:** `scripts/drift-detect.sh` regenerates the expected unit from the template
 and compares it against the installed version. It also inventories MCP systemd units
-that no longer have a repo template, such as legacy `mcp-coordination.service` or
-old alias units, and reports them as orphaned.
+that no longer have a repo template, such as the retired `mcp-playwright.service` (#423),
+legacy `mcp-coordination.service`, or old alias units, and reports them as orphaned.
 
 **Reconciliation:** Re-run the appropriate install script:
 ```bash
 mcp-second-opinion/scripts/install-service.sh
-mcp-playwright-persistent/deploy/install-service.sh
 ```
 
 When Docker containers are active for the same MCP server, the default convergence
@@ -79,7 +87,7 @@ These artifacts are fully managed by the repo and rebuilt on every deploy:
 | Script | Runs At | Frequency | Reconciles? |
 |--------|---------|-----------|-------------|
 | `bash-prep.sh` | Workstation setup | Once | No (idempotent, re-runnable) |
-| `install-service.sh` (both) | Service setup | Once | No - should be re-run when templates change |
+| `install-service.sh` (mcp-second-opinion) | Service setup | Once | No - should be re-run when templates change |
 | `bootstrap-secrets.py` | Woodpecker setup | Once | No (manual credential rotation) |
 | `make deploy` | Manual local deploy or `/flow:deploy` | Operator-controlled | Yes - rebuilds containers from repo |
 | `.woodpecker.yml` runtime-smoke | MCP stack CI validation | Relevant push/PR paths | No - validates an isolated stack, then tears it down |
