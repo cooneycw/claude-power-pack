@@ -71,3 +71,23 @@ def test_worktree_remove_script_retained_as_fallback() -> None:
     assert (ROOT / "scripts" / "worktree-remove.sh").exists(), (
         "worktree-remove.sh must remain as the cross-session cleanup fallback"
     )
+
+
+def test_stale_branch_guard_before_squash_merge() -> None:
+    """Issue #462: bring a stale branch current + re-gate before the squash-merge.
+
+    Both the /flow:auto Step 7 merge and the standalone /flow:merge Step 3 must,
+    before ``gh pr merge --squash``, fetch ``origin/main``, merge it into a branch
+    that is behind, and re-run the quality gate on the POST-MERGE tree - so the
+    squash is deterministic and the gate reflects exactly what lands on ``main``.
+    """
+    for rel in (".claude/commands/flow/auto.md", ".claude/commands/flow/merge.md"):
+        text = _read(rel)
+        assert "git fetch origin main" in text, f"{rel} does not fetch origin/main before merge"
+        # Behind-check + merge main in (not rebase) so the squash is conflict-free.
+        assert "HEAD..origin/main" in text, f"{rel} does not test whether the branch is behind main"
+        assert "git merge --no-edit origin/main" in text, f"{rel} does not merge main in before squash"
+        # Conflicts are surfaced and stopped-on, never silently auto-resolved.
+        assert "--diff-filter=U" in text, f"{rel} does not surface merge conflicts on STOP"
+        # The re-gate runs on the merged tree via the deterministic runner.
+        assert "lib.cicd run --plan finish" in text, f"{rel} does not re-gate the post-merge tree"
