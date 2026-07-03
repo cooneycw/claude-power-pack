@@ -109,8 +109,12 @@ def main(argv=None) -> int:
         if args.fingerprint:
             row = store.is_known(args.fingerprint)
             rejected = store.rejected_here(args.fingerprint, _vm()) if row else False
+            seen = store.sightings(args.fingerprint) if row else []
             print(json.dumps(
-                {"known": row is not None, "learning": row, "rejected_here": rejected},
+                {
+                    "known": row is not None, "learning": row,
+                    "rejected_here": rejected, "sightings": len(seen),
+                },
                 default=str,
             ))
             return 0

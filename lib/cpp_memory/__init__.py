@@ -13,9 +13,9 @@ Design invariants (see issue #433):
     Repo-file fixes belong in git; permission fixes stay per-machine.
 """
 
-from .models import Learning, FRICTION_CLASSES, FIX_SCOPES, is_portable
 from .client import MemoryStore, append_local_learning
 from .config import resolve_dsn
+from .models import FIX_SCOPES, FRICTION_CLASSES, Learning, is_portable
 
 __all__ = [
     "Learning",

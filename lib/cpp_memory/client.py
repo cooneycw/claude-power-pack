@@ -197,6 +197,24 @@ class MemoryStore:
             log.warning("cpp_memory list_learnings failed: %s", e)
             return []
 
+    def sightings(self, fingerprint: str, limit: int = 100) -> list[dict]:
+        """Sightings for a learning (the 'N machines hit this' signal). Fail-open []."""
+        if not self.available():
+            return []
+        cols = ("id", "source_vm", "source_repo", "seen_at")
+        try:
+            with self._conn() as c:
+                rows = c.execute(
+                    "SELECT s.id, s.source_vm, s.source_repo, s.seen_at"
+                    " FROM sightings s JOIN learnings l ON l.id = s.learning_id"
+                    " WHERE l.fingerprint = %s ORDER BY s.seen_at DESC LIMIT %s",
+                    (fingerprint, limit),
+                ).fetchall()
+            return [dict(zip(cols, r)) for r in rows]
+        except Exception as e:  # noqa: BLE001
+            log.warning("cpp_memory sightings failed: %s", e)
+            return []
+
     def init_db(self, schema_path: str | None = None) -> bool:
         """Apply the schema (idempotent)."""
         if not self.available():
