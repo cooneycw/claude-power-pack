@@ -391,9 +391,36 @@ Report: `Step 6/9: Finish complete - PR #XX created`
 2. **Merge the PR:**
    ```bash
    PR_NUMBER=$(gh pr list --head "$BRANCH" --json number --jq '.[0].number')
-   gh pr merge "$PR_NUMBER" --squash --delete-branch
+
+   # Merge robustly across worktree layouts. Run from inside a linked worktree,
+   # `gh pr merge --delete-branch` fails AFTER the remote squash succeeds - gh
+   # tries to switch this worktree off the merged branch onto the default branch,
+   # which is checked out in the primary worktree ("fatal: 'main' is already
+   # checked out"), and exits non-zero. The merge still landed; treating that exit
+   # as a failure is a false STOP (issue #461). The helper drops --delete-branch in
+   # a linked worktree, deletes the remote branch itself, and verifies the PR
+   # reached MERGED before reporting failure. Local worktree/branch cleanup is left
+   # to step 4 below, so the native ExitWorktree path is unaffected.
+   if [[ -x ~/.claude/scripts/gh-pr-merge.sh ]]; then
+       ~/.claude/scripts/gh-pr-merge.sh "$PR_NUMBER" "$BRANCH"
+       MERGE_RC=$?
+   else
+       # Inline fallback (helper not installed): same linked-worktree guard.
+       if [[ -f ".git" ]]; then
+           gh pr merge "$PR_NUMBER" --squash
+           git push origin --delete "$BRANCH" >/dev/null 2>&1 || true
+       else
+           gh pr merge "$PR_NUMBER" --squash --delete-branch
+       fi
+       # Trust PR state over the local exit code.
+       [[ "$(gh pr view "$PR_NUMBER" --json state --jq '.state' 2>/dev/null)" == "MERGED" ]]
+       MERGE_RC=$?
+   fi
    ```
-   - If merge fails (conflicts, checks): **STOP**. Report and exit.
+   - If the merge genuinely failed (`MERGE_RC` non-zero - conflicts, failing
+     checks, PR not `MERGED`): **STOP**. Report and exit. A non-zero `gh` exit
+     whose PR is nonetheless `MERGED` is NOT a failure - the helper already treats
+     it as success and continues to cleanup.
 
 3. **Capture the worktree and main repo paths (before leaving the worktree):**
    ```bash

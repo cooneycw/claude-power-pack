@@ -91,13 +91,36 @@ Then merge the PR:
 ```bash
 PR_NUMBER=$(echo "$PR_JSON" | jq -r '.number')
 
-# Squash merge (default) - keeps history clean
-gh pr merge "$PR_NUMBER" --squash --delete-branch
+# Squash merge (default) - keeps history clean. Run from inside a linked worktree,
+# `gh pr merge --delete-branch` fails AFTER the remote squash succeeds: gh tries to
+# switch this worktree off the merged branch onto the default branch, which is
+# checked out in the primary worktree ("fatal: 'main' is already checked out"), and
+# exits non-zero even though the merge landed (issue #461). The helper drops
+# --delete-branch in a linked worktree, deletes the remote branch itself, and
+# verifies the PR reached MERGED before reporting failure. Local worktree/branch
+# cleanup stays in Step 5 below.
+if [[ -x ~/.claude/scripts/gh-pr-merge.sh ]]; then
+    ~/.claude/scripts/gh-pr-merge.sh "$PR_NUMBER" "$BRANCH"
+    MERGE_RC=$?
+else
+    # Inline fallback (helper not installed): same linked-worktree guard.
+    if [[ -f ".git" ]]; then
+        gh pr merge "$PR_NUMBER" --squash
+        git push origin --delete "$BRANCH" >/dev/null 2>&1 || true
+    else
+        gh pr merge "$PR_NUMBER" --squash --delete-branch
+    fi
+    [[ "$(gh pr view "$PR_NUMBER" --json state --jq '.state' 2>/dev/null)" == "MERGED" ]]
+    MERGE_RC=$?
+fi
 ```
 
 - Use `--squash` by default (clean history)
-- `--delete-branch` removes the remote branch automatically
-- If merge fails (conflicts, checks failing), report and stop
+- The remote branch is deleted by `--delete-branch` (primary repo) or by the
+  helper's explicit `git push origin --delete` (linked worktree)
+- If the merge genuinely failed (`MERGE_RC` non-zero - conflicts, checks failing,
+  PR not `MERGED`), report and stop. A non-zero `gh` exit whose PR is nonetheless
+  `MERGED` is not a failure - the helper treats it as success and cleanup proceeds
 
 ### Step 4: Update Local Main
 
