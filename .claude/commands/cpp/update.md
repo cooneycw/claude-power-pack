@@ -763,6 +763,58 @@ per-family confirmation.
 
 ---
 
+## Step 7.6: User-Level Flow Allowlist Refresh
+
+The git pull may have updated `templates/claude-settings-permissions.json`
+(the user-level read-only allowlist that keeps `/flow:*` from prompting for
+its git/gh plumbing - see `templates/claude-settings-permissions.md`). Check
+whether `~/.claude/settings.json` is missing any template rules and offer to
+merge the difference.
+
+```bash
+cd "$CPP_DIR"
+TEMPLATE="$CPP_DIR/templates/claude-settings-permissions.json"
+TARGET="$HOME/.claude/settings.json"
+
+if [ -f "$TEMPLATE" ]; then
+  if [ -f "$TARGET" ]; then
+    MISSING=$(jq -s '(.[1].permissions.allow - (.[0].permissions.allow // [])) | length' "$TARGET" "$TEMPLATE")
+    jq -rs '(.[1].permissions.allow - (.[0].permissions.allow // []))[] | "  + \(.)"' "$TARGET" "$TEMPLATE"
+  else
+    MISSING=$(jq '.permissions.allow | length' "$TEMPLATE")
+    jq -r '.permissions.allow[] | "  + \(.)"' "$TEMPLATE"
+  fi
+
+  if [ "$MISSING" -eq 0 ]; then
+    echo "✓ Flow allowlist up to date"
+  else
+    echo "Flow allowlist: $MISSING rule(s) from the template are not in ~/.claude/settings.json"
+  fi
+fi
+```
+
+If rules are missing, ask the user:
+
+```
+Merge the missing flow allowlist rules into ~/.claude/settings.json?
+(Additive and idempotent - existing settings and rules are preserved.
+Rationale and caveats: templates/claude-settings-permissions.md)  [y/N]
+```
+
+If yes, run the same merge as `/cpp:init`:
+
+```bash
+mkdir -p "$HOME/.claude"
+[ -f "$TARGET" ] || echo '{}' > "$TARGET"
+jq -s '.[0].permissions.allow = (((.[0].permissions.allow // []) + .[1].permissions.allow) | unique) | .[0]' \
+  "$TARGET" "$TEMPLATE" > "$TARGET.tmp" && mv "$TARGET.tmp" "$TARGET"
+echo "✓ Flow allowlist merged ($(jq '.permissions.allow | length' "$TARGET") total allow rules)"
+```
+
+If no: report `→ Flow allowlist refresh skipped` and continue.
+
+---
+
 ## Step 8: Detect Current Installation Tier
 
 Determine the user's current tier level so we can offer upgrades:
