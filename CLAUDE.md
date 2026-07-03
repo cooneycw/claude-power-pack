@@ -127,6 +127,7 @@ mirrors the `/security` #438 and hooks #439 defer-the-commodity-half moves).
 - `/cicd:check` - Validate Makefile against CPP standards
 - `/cicd:health` - Run health checks (endpoints + processes)
 - `/cicd:smoke` - Run smoke tests from cicd.yml
+- `/cicd:verify` - Verify a deployment against a pre-deploy baseline (proceed/review/rollback)
 - `/cicd:pipeline` - Generate CI/CD workflows: GitHub Actions, or self-hosted Woodpecker via `pipeline.provider` (consults cicd_tasks.yml manifest if present)
 - `/cicd:woodpecker` - Generate a hardened self-hosted Woodpecker pipeline (opt-in secret-scan + image-security + runtime-smoke stages) and scaffold the server/agent from `templates/woodpecker/`; see `docs/skills/woodpecker-ci.md`
 - `/cicd:container` - Generate Dockerfile and docker-compose.yml
@@ -136,6 +137,8 @@ mirrors the `/security` #438 and hooks #439 defer-the-commodity-half moves).
 - `python -m lib.cicd validate` - Validate .claude/cicd.yml with fix suggestions (Pydantic v2)
 - `python -m lib.cicd validate --schema` - Generate JSON Schema for IDE autocompletion
 - `python -m lib.cicd run --plan <name>` - Execute CI/CD plan deterministically (finish, check, deploy)
+- `python -m lib.cicd verify --baseline` - Capture pre-deploy health/smoke baseline
+- `python -m lib.cicd verify` - Verify post-deploy against baseline (exit 1 = ROLLBACK)
 - `python -m lib.cicd.bootstrap check` - Check admin-only bootstrap dependencies (config: `.claude/bootstrap.yaml`)
 
 ### Codex Orchestration

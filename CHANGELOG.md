@@ -25,6 +25,23 @@
 
 ### Added
 
+- **Deploy verification / `/cicd:verify`** (issue #444, epic #417 Phase C) - a
+  deploy-confidence skill that validates the *deployment*, not just the code.
+  Captures a baseline of `health.endpoints` / `health.smoke_tests` before a
+  deploy, re-runs them after, diffs the two, and emits one actionable verdict:
+  **PROCEED**, **REVIEW**, or **ROLLBACK** (a probe that passed pre-deploy
+  failing now). New `lib/cicd/verify.py` (baseline capture, persistence,
+  regression diff, verdict logic - zero new deps, reuses the existing
+  health/smoke runners), a `verify` CLI subcommand (`python -m lib.cicd verify
+  [--baseline] [--summary] [--json]`), and a `health.deploy_verification` config
+  block (latency-regression thresholds, `on_latency_regression`,
+  `require_baseline`). Wired into `/flow:deploy` (Step 8) and `/flow:auto`
+  (Step 9, which deploys inline and would otherwise skip verification): baseline
+  captured before `make deploy`, verdict emitted after. Fail-open and inert
+  unless `deploy_verification.enabled` is set; the baseline
+  (`.claude/deploy-baseline.json`) is per-workstation state and git-ignored.
+  A ROLLBACK verdict is surfaced but never rolls back automatically.
+
 - **Woodpecker self-hosted CI skill** (issue #445, epic #417 Phase C) - packages
   CPP's self-hosted Woodpecker CI knowledge as a distinct, reusable skill. The
   ecosystem assumes GitHub Actions; this is the uncovered ground. New

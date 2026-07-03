@@ -5,6 +5,7 @@ Provides:
 - Makefile validation and generation
 - Health checks (HTTP endpoints, process ports)
 - Smoke tests (command execution with assertions)
+- Deploy verification (baseline comparison, proceed/review/rollback verdict)
 - Configuration from .claude/cicd.yml
 
 Quick Start:
@@ -75,6 +76,17 @@ from .runner import DeterministicRunner, RunResult, resume_run, run_plan
 from .smoke import run_smoke_tests
 from .state import RunState, StepRecord, StepStatus
 from .steps import DeployStep, ShellStep, StepDef, StepResult
+from .verify import (
+    DeployVerifyResult,
+    ProbeDiff,
+    ProbeResult,
+    Verdict,
+    VerificationSnapshot,
+    capture_snapshot,
+    load_baseline,
+    save_baseline,
+    verify_deployment,
+)
 
 __all__ = [
     # Config
@@ -88,6 +100,16 @@ __all__ = [
     "check_process",
     # Smoke
     "run_smoke_tests",
+    # Deploy verification
+    "verify_deployment",
+    "capture_snapshot",
+    "save_baseline",
+    "load_baseline",
+    "Verdict",
+    "VerificationSnapshot",
+    "DeployVerifyResult",
+    "ProbeResult",
+    "ProbeDiff",
     # Container
     "generate_container_files",
     "generate_dockerfile",

@@ -5,6 +5,7 @@ Usage:
     python -m lib.cicd check [OPTIONS]
     python -m lib.cicd health [OPTIONS]
     python -m lib.cicd smoke [OPTIONS]
+    python -m lib.cicd verify [OPTIONS]
 
 Examples:
     python -m lib.cicd detect
@@ -16,6 +17,9 @@ Examples:
     python -m lib.cicd health --json
     python -m lib.cicd smoke
     python -m lib.cicd smoke --json
+    python -m lib.cicd verify --baseline    # capture pre-deploy baseline
+    python -m lib.cicd verify               # verify post-deploy (proceed/rollback)
+    python -m lib.cicd verify --summary
 """
 
 from __future__ import annotations
@@ -37,6 +41,12 @@ from .manifest import generate_manifest, load_manifest, write_manifest
 from .pipeline import generate_pipeline
 from .runner import resume_run, run_plan, show_status
 from .smoke import run_smoke_tests
+from .verify import (
+    Verdict,
+    capture_snapshot,
+    save_baseline,
+    verify_deployment,
+)
 
 
 def cmd_detect(args: argparse.Namespace) -> int:
@@ -298,6 +308,100 @@ def cmd_smoke(args: argparse.Namespace) -> int:
     print(f"Result: {result.summary_line()}")
 
     return 0 if result.all_passed else 1
+
+
+def _print_snapshot_table(snapshot, title: str) -> None:
+    """Print a health+smoke snapshot as a markdown table."""
+    print(f"## {title}")
+    print()
+    if not snapshot.probes:
+        print("No health or smoke probes configured.")
+        print()
+        print("  Add health.endpoints / health.smoke_tests to .claude/cicd.yml.")
+        return
+    print("| Probe | Kind | Status | Detail | Time |")
+    print("|-------|------|--------|--------|------|")
+    for probe in snapshot.probes:
+        status = "PASS" if probe.passed else "FAIL"
+        print(f"| {probe.name} | {probe.kind} | {status} | {probe.detail} | {probe.elapsed_ms:.0f}ms |")
+    print()
+    commit_suffix = f" @ {snapshot.commit}" if snapshot.commit else ""
+    print(f"Captured: {snapshot.passed}/{snapshot.total} probes passed{commit_suffix}")
+
+
+def cmd_verify(args: argparse.Namespace) -> int:
+    """Capture a baseline, or verify a deployment against one (proceed/rollback)."""
+    config = CICDConfig.load(args.path)
+
+    # --baseline: capture the pre-deploy snapshot and persist it.
+    if args.baseline:
+        snapshot = capture_snapshot(config=config, project_root=args.path)
+        path = save_baseline(snapshot, config=config, project_root=args.path)
+
+        if args.json:
+            print(json.dumps({"action": "baseline", "path": str(path), "snapshot": snapshot.to_dict()}, indent=2))
+            return 0
+        if args.summary:
+            print(f"Baseline captured: {snapshot.passed}/{snapshot.total} probes passed -> {path}")
+            return 0
+
+        _print_snapshot_table(snapshot, "Pre-Deploy Baseline")
+        print()
+        print(f"Saved baseline: {path}")
+        if snapshot.total == 0:
+            print("(no probes configured - post-deploy verify will report REVIEW)")
+        return 0
+
+    # Default: verify post-deploy against the baseline.
+    result = verify_deployment(config=config, project_root=args.path)
+
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2))
+        return result.exit_code
+    if args.summary:
+        print(result.summary_line())
+        return result.exit_code
+
+    print("## Deploy Verification")
+    print()
+    if not result.snapshot.probes:
+        print("No health or smoke probes configured - cannot verify the deployment.")
+        print()
+        print("  Add health.endpoints / health.smoke_tests to .claude/cicd.yml,")
+        print("  then capture a baseline before deploy: python -m lib.cicd verify --baseline")
+        print()
+        print(f"Verdict: {result.verdict.value.upper()}")
+        return result.exit_code
+
+    if not result.has_baseline:
+        print("No baseline found - reporting absolute pass/fail only.")
+        print("  Capture one before the next deploy: python -m lib.cicd verify --baseline")
+        print()
+
+    print("| Probe | Kind | Baseline | Now | Change | Detail |")
+    print("|-------|------|----------|-----|--------|--------|")
+    for diff in result.diffs:
+        base = "-" if diff.baseline_passed is None else ("PASS" if diff.baseline_passed else "FAIL")
+        now = "PASS" if diff.current_passed else "FAIL"
+        print(f"| {diff.name} | {diff.kind} | {base} | {now} | {diff.classification} | {diff.detail} |")
+
+    print()
+    verdict_marker = {
+        Verdict.PROCEED: "PROCEED",
+        Verdict.REVIEW: "REVIEW",
+        Verdict.ROLLBACK: "ROLLBACK",
+    }[result.verdict]
+    print(f"Verdict: {verdict_marker}")
+    for reason in result.reasons:
+        print(f"  - {reason}")
+    if result.verdict is Verdict.ROLLBACK:
+        print()
+        print("  Action: roll back this deployment or investigate before proceeding.")
+    elif result.verdict is Verdict.REVIEW:
+        print()
+        print("  Action: review the flagged probes; deployment is not clearly broken.")
+
+    return result.exit_code
 
 
 def cmd_container(args: argparse.Namespace) -> int:
@@ -746,6 +850,25 @@ def create_parser() -> argparse.ArgumentParser:
         help="One-line summary for flow integration",
     )
 
+    # 'verify' subcommand
+    verify_parser = subparsers.add_parser(
+        "verify",
+        help="Verify a deployment against a pre-deploy baseline (proceed/review/rollback)",
+    )
+    _add_common_args(verify_parser)
+    verify_parser.add_argument(
+        "--baseline",
+        "-b",
+        action="store_true",
+        help="Capture and save the pre-deploy baseline instead of verifying",
+    )
+    verify_parser.add_argument(
+        "--summary",
+        "-s",
+        action="store_true",
+        help="One-line verdict for flow integration",
+    )
+
     # 'container' subcommand
     container_parser = subparsers.add_parser(
         "container",
@@ -847,6 +970,7 @@ def main(argv: list[str] | None = None) -> int:
         "check": cmd_check,
         "health": cmd_health,
         "smoke": cmd_smoke,
+        "verify": cmd_verify,
         "container": cmd_container,
         "pipeline": cmd_pipeline,
         "infra-init": cmd_infra_init,

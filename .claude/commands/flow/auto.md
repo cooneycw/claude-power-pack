@@ -552,22 +552,65 @@ Report: `Step 8/9: Verify CI complete - pipeline #{N} passed` or `Step 8/9: Veri
 
 ### Step 9: Deploy (optional)
 
-Only if a Makefile with a `deploy` target exists in the main repo:
+Only if a Makefile with a `deploy` target exists in the main repo. Because
+`/flow:auto` runs `make deploy` inline (it does NOT call `/flow:deploy`), the
+deploy-verification gate is wired in here too - otherwise the flagship
+"one command to ship" path would deploy without validating the deployment.
 
 ```bash
 cd "$MAIN_REPO"
+
+# Locate CPP source for lib/cicd (deploy verification)
+CPP_DIR=""
+for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-pack; do
+  if [ -d "$dir" ] && [ -f "$dir/CLAUDE.md" ]; then
+    CPP_DIR="$dir"
+    break
+  fi
+done
+VERIFY_ENABLED=0
+if [ -n "$CPP_DIR" ] && grep -q "deploy_verification:" .claude/cicd.yml 2>/dev/null; then
+    VERIFY_ENABLED=1
+fi
+
 if [[ -f "Makefile" ]] && grep -q "^deploy:" Makefile; then
+    # Pre-deploy: capture the baseline (before make deploy) so the post-deploy
+    # verify can detect regressions.
+    if [ "$VERIFY_ENABLED" -eq 1 ]; then
+        echo "Capturing pre-deploy baseline..."
+        PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -m lib.cicd verify --baseline --summary
+    fi
+
     echo "Running: make deploy"
     make deploy
+    DEPLOY_EXIT=$?
+
+    # Post-deploy: verify against the baseline and emit a proceed/rollback verdict.
+    VERDICT="none"
+    if [ "$VERIFY_ENABLED" -eq 1 ]; then
+        echo "Running deploy verification..."
+        PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -m lib.cicd verify
+        VERIFY_EXIT=$?
+        VERDICT=$( [ "$VERIFY_EXIT" -eq 1 ] && echo "rollback" || echo "proceed/review" )
+        if [ "$VERIFY_EXIT" -eq 1 ]; then
+            echo "DEPLOY VERIFICATION: ROLLBACK - a probe that passed pre-deploy fails now."
+            echo "Recommend rolling back (redeploy previous commit) or investigating with /cicd:health + /cicd:smoke."
+        fi
+    fi
 
     mkdir -p .claude
-    echo "$(date -Iseconds) | deploy | $(git rev-parse --short HEAD) | main | $?" >> .claude/deploy.log
+    echo "$(date -Iseconds) | deploy | $(git rev-parse --short HEAD) | main | ${DEPLOY_EXIT} | verify:${VERDICT}" >> .claude/deploy.log
 else
     echo "No deploy target in Makefile - skipping deployment."
 fi
 ```
 
-Report: `Step 9/9: Deploy complete` or `Step 9/9: Deploy skipped (no Makefile target)`
+- Verification is fail-open and inert unless `health.deploy_verification.enabled`
+  is set in `.claude/cicd.yml`. A ROLLBACK verdict is surfaced to the user but
+  never rolls back automatically - it is an actionable signal, not an action.
+
+Report: `Step 9/9: Deploy complete (verify: {proceed|review|rollback|none})` or
+`Step 9/9: Deploy skipped (no Makefile target)`
 
 ---
 
@@ -584,6 +627,7 @@ Flow Auto Complete
   Worktree: .claude/worktrees/issue-42-fix-login (removed)
   CI:       Woodpecker pipeline #5 passed | GitHub Actions run #123 passed | skipped
   Deploy:   make deploy (success) | skipped
+  Verify:   PROCEED | REVIEW | ROLLBACK | not configured
   Friction: 4 signals captured (.claude/friction.jsonl)
   Location: /home/user/Projects/my-project (main)
 ```
