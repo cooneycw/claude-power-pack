@@ -1,0 +1,58 @@
+# Learnings Ledger (local, fail-open)
+
+Persistent record of friction fixes proposed by the grill-me cycle
+(`/self-improvement:retro`). Its purpose is dedup: the retro reads this file first
+and never re-proposes a fix already `applied` or `rejected` here.
+
+- **Scope of this file:** LOCAL, per-machine fixes only - `permissions.allow`
+  changes, repo-specific Makefile/hook/CLAUDE.md edits. Per-machine permission
+  fixes deliberately stay here and are never pushed to a shared store (wrong trust
+  boundary across workstation / executor-host / hardened VMs).
+- **Portable knowledge** (reusable infra traps) is codified to the cross-VM common
+  memory via `/self-improvement:memory` (issue #433), not here. When #433 is not
+  installed, portable items are parked here tagged "pending shared codify (#433)".
+- This file is the local fail-open tier that #433's client degrades to when the
+  shared store is unreachable. #433 owns the canonical schema; keep entries in the
+  simple block form below until then.
+
+This file is git-ignored in consuming projects (runtime state). Copy this template
+to `.claude/learnings.md`; the retro also creates it on first run.
+
+## Entry format
+
+    ## <short title>
+    - Fingerprint: <short-hash of  class + "|" + normalized-fix-text>
+    - Date: <YYYY-MM-DD>
+    - Source: <run label, e.g. flow:auto #426>
+    - Class: <permission-prompt | gate-failure | red-output | manual-intervention>
+    - Scope: <local | portable>
+    - Status: <proposed | applied | rejected | superseded>
+    - Fix: <the concrete change or rule>
+    - Rationale: <why it was applied or rejected>
+
+---
+
+## Pre-ELI5 read-only flow allowlist
+- Fingerprint: perm-flow-readonly-allowlist
+- Date: 2026-07-03
+- Source: flow:auto (pre-2026-07-03 runs, recurring)
+- Class: permission-prompt
+- Scope: local
+- Status: applied
+- Fix: union-merged templates/claude-settings-permissions.json (32 read-only git/gh
+  + shell-plumbing rules) into ~/.claude/settings.json via /cpp:update Step 7.6.
+- Rationale: /flow:* re-prompted for the same read-only issue reads, worktree
+  creation, and branch-slug pipeline on every run in every repo. Shipping actions
+  (git push, gh pr create) and cat stay excluded so gates and secret-read prompts
+  remain intact. This is the artifact #426's cycle should emit unaided (see #427).
+
+## Example rejected fix (do not re-propose)
+- Fingerprint: allow-git-push-blanket
+- Date: 2026-07-03
+- Source: flow:auto (example)
+- Class: permission-prompt
+- Scope: local
+- Status: rejected
+- Fix: Bash(git push:*) added to permissions.allow
+- Rationale: shipping/mutating actions are intentionally gated; auto-approving push
+  would defeat the review/PR boundary. Rejected permanently; never re-propose.

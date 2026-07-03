@@ -70,6 +70,12 @@ node_modules/
 .claude/playwright-pool.json
 .claude/playwright-state/
 
+# Grill-me cycle runtime state (issue #426): capture buffer + local learnings
+# ledger. Templates/fixtures are tracked; the live per-project files are not.
+.claude/friction.jsonl
+.claude/friction/
+.claude/learnings.md
+
 # Logs
 *.log
 logs/

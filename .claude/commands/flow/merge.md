@@ -147,6 +147,25 @@ Cleanup:
 Current directory: /home/user/Projects/my-project (main)
 ```
 
+### Step 9: Post-run Friction Retro (optional, non-blocking)
+
+Capture is always-on during a flow: whenever a step in this merge triggers a
+permission prompt, a gate failure/retry, red output you worked around, or a manual
+correction, record it immediately via the fail-open helper (it never blocks):
+
+```bash
+scripts/friction-log.sh --class <permission-prompt|gate-failure|red-output|manual-intervention> \
+  --signal "<what happened>" --run "flow:merge" --step "<N/9 Name>" --outcome "<...>"
+```
+
+Then, if `.claude/friction.jsonl` recorded any signals, offer the codify step (do
+not auto-run):
+
+```
+Friction retro: this run recorded N friction signal(s). Run /self-improvement:retro
+to codify fixes? [y/N]
+```
+
 ## Error Handling
 
 - **PR not found:** Direct user to `/flow:finish`
@@ -163,3 +182,4 @@ Current directory: /home/user/Projects/my-project (main)
 - After merge, the user ends up in the main repo on the `main` branch
 - Automatically prunes stale worktree references, merged branches, and remote tracking branches
 - For a standalone cleanup (without merging), use `/flow:cleanup`
+- Friction capture is always-on and this command offers `/self-improvement:retro` at the end to codify fixes (the grill-me cycle, issue #426)
