@@ -15,7 +15,7 @@
 - **Woodpecker CI** - Self-hosted pipeline with image security gates, isolated MCP runtime smoke tests, and programmatic status polling
 - **Project scaffolding** (`/project:init`) - Zero-to-GitHub-repo setup with Makefile, CI pipeline, and Docker config
 - **Skills ecosystem** (`/skills:*`) - Discover, install, and manage agent skills from [skills.sh](https://skills.sh/) with quality vetting
-- **Safety hooks** - PreToolUse blocks dangerous commands; PostToolUse masks secrets in output
+- **Secret-masking hook** - a PostToolUse hook masks secrets (connection strings, API keys, env vars) in Bash/Read output; destructive commands are handled by Claude Code's native git auto-blocking + OS sandbox
 
 ## Requirements
 

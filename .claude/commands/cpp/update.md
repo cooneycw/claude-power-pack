@@ -149,6 +149,50 @@ fi
 
 ---
 
+## Step 4.7: Retired PreToolUse Hook Cleanup
+
+The PreToolUse dangerous-command hook (`hook-validate-command.sh`) was retired
+(issue #439) - native destructive-git blocking + OS sandboxing now cover it, and
+the PostToolUse secret-masking hook is retained. Because scripts are symlinked
+into `~/.claude/scripts/` and `hooks.json` is **copied** into each project, an
+older install can be left with a dangling `hook-validate-command.sh` symlink and
+a stale `PreToolUse` block that points at it. A dangling hook command exits
+non-zero and would **block every Bash command**, so sweep both. This is a
+migration step only - do not change anything until the user confirms.
+
+```bash
+# 1. Dangling/retired symlink in ~/.claude/scripts/
+HOOK_LINK="$HOME/.claude/scripts/hook-validate-command.sh"
+if [ -L "$HOOK_LINK" ] || [ -f "$HOOK_LINK" ]; then
+  echo "Found retired hook script: $HOOK_LINK"
+  echo "  (safe to remove - the PreToolUse dangerous-command hook was retired in #439)"
+  # On user confirm:  rm -f "$HOOK_LINK" && echo "Removed $HOOK_LINK"
+fi
+
+# 2. Stale PreToolUse block in this project's copied hooks.json
+if [ -f ".claude/hooks.json" ] && \
+   grep -q "hook-validate-command.sh" .claude/hooks.json 2>/dev/null; then
+  echo "This project's .claude/hooks.json still references the retired PreToolUse hook."
+  echo "  Native git-blocking + sandbox cover it; the PostToolUse masking hook is kept."
+  echo "  Offer to strip only the validate-command PreToolUse block (masking untouched)."
+  # On user confirm, strip the retired hook while preserving everything else:
+  #   python3 - <<'PY'
+  #   import json, pathlib
+  #   p = pathlib.Path(".claude/hooks.json"); d = json.loads(p.read_text())
+  #   pre = d.get("hooks", {}).get("PreToolUse", [])
+  #   kept = [m for m in pre
+  #           if not any("hook-validate-command.sh" in h.get("command", "")
+  #                      for h in m.get("hooks", []))]
+  #   if kept: d["hooks"]["PreToolUse"] = kept
+  #   else: d["hooks"].pop("PreToolUse", None)
+  #   p.write_text(json.dumps(d, indent=2) + "\n")
+  #   print("Stripped retired PreToolUse hook from .claude/hooks.json")
+  #   PY
+fi
+```
+
+---
+
 ## Step 4.5: Legacy Systemd Teardown
 
 Before refreshing Docker, detect legacy MCP systemd units in both system and
@@ -859,7 +903,7 @@ fi
 
 # Tier 2: scripts + hooks
 SCRIPTS_COUNT=0
-for script in prompt-context.sh worktree-remove.sh secrets-mask.sh hook-mask-output.sh hook-validate-command.sh; do
+for script in prompt-context.sh worktree-remove.sh secrets-mask.sh hook-mask-output.sh; do
   [ -f ~/.claude/scripts/$script ] || [ -L ~/.claude/scripts/$script ] && SCRIPTS_COUNT=$((SCRIPTS_COUNT + 1))
 done
 [ -f ".claude/hooks.json" ] && [ "$SCRIPTS_COUNT" -ge 3 ] && TIER=2

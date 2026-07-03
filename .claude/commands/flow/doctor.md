@@ -87,21 +87,23 @@ Use the detection result to suggest the specific template file in the Actions Ne
 # hooks.json exists?
 if [ -f ".claude/hooks.json" ]; then
   # Check for expected hooks
-  grep -l "SessionStart\|PreToolUse\|PostToolUse" .claude/hooks.json
+  grep -l "SessionStart\|PostToolUse" .claude/hooks.json
 fi
 ```
 
-Check for the three expected hook types:
+Check for the two expected hook types:
 - **SessionStart**: Upstream change detection
-- **PreToolUse (Bash)**: Dangerous command blocking via `hook-validate-command.sh`
 - **PostToolUse (Bash/Read)**: Secret masking via `hook-mask-output.sh`
+
+The PreToolUse dangerous-command hook was retired (issue #439); native
+destructive-git blocking + OS sandboxing cover it.
 
 ### Step 5: Scripts Availability
 
 Check that core scripts exist in `~/.claude/scripts/`:
 
 ```bash
-for script in prompt-context.sh worktree-remove.sh hook-mask-output.sh hook-validate-command.sh secrets-mask.sh; do
+for script in prompt-context.sh worktree-remove.sh hook-mask-output.sh secrets-mask.sh; do
   if [ -x "$HOME/.claude/scripts/$script" ]; then
     echo "PASS $script"
   elif [ -f "$HOME/.claude/scripts/$script" ]; then
@@ -260,8 +262,7 @@ Output a single diagnostic report in this format:
 | Check | Status | Details |
 |-------|--------|---------|
 | Makefile | ✅/⚠️/❌ | Targets: lint, test, deploy / Not found |
-| hooks.json | ✅/❌ | 3 hooks configured / Not found |
-| validate-command hook | ✅/❌ | ~/.claude/scripts/hook-validate-command.sh |
+| hooks.json | ✅/❌ | 2 hooks configured / Not found |
 | mask-output hook | ✅/❌ | ~/.claude/scripts/hook-mask-output.sh |
 | prompt-context.sh | ✅/❌ | Shell prompt context |
 | worktree-remove.sh | ✅/❌ | Safe worktree removal |
