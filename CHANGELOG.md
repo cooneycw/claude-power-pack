@@ -285,6 +285,21 @@
 
 ### Fixed
 
+- **`/flow:auto` + `/flow:merge` no longer false-fail merging from a worktree**
+  (issue #461) - run from inside a linked worktree (native `.claude/worktrees/`
+  or a legacy sibling dir), `gh pr merge <N> --squash --delete-branch` errored
+  with `fatal: 'main' is already checked out` AFTER the remote squash had already
+  succeeded: gh tried to switch the worktree off the merged branch onto the
+  default branch, which is checked out in the primary worktree. The non-zero exit
+  read as a failed merge and stopped the flow (it cost a full re-diagnosis on
+  flow:auto #433). New `scripts/gh-pr-merge.sh` makes the merge layout-aware -
+  in a linked worktree it drops `--delete-branch` and deletes the remote branch
+  itself, in the primary repo it keeps `--delete-branch`, and either way it
+  verifies the PR reached `MERGED` before reporting failure. Both flow surfaces
+  (`/flow:auto` Step 7, `/flow:merge` Step 3) call the helper with an inline
+  fallback; local worktree/branch cleanup is unchanged, so the native
+  `ExitWorktree` path is unaffected. Complements the #462 stale-branch re-gate
+  guard (same Step 7). Covered by `tests/test_gh_pr_merge.py`.
 - **Prune dangling references to removed MCP servers** - follow-up cleanup of
   stragglers left after #401 (`nano-banana`) and #404 (`mcp-woodpecker-ci`) that still
   described removed tooling as current:
