@@ -64,6 +64,8 @@ routine never blocks.
    when `issue_candidate.should_file` is true, confirm with the user, `gh issue
    create` in the candidate's repo using `issue_candidate.body` (it embeds a
    `<!-- cpp-learning: <fp> -->` marker), then `cpp-memory link-issue` the URL back.
+   Route by where the FIX lands, not where the friction surfaced: a fix to a skill
+   that lives in its own standalone repo (an extracted plugin) files there.
    Only portable + actionable learnings become issues; dedup is the `issue_url`
    column (first-write-wins) plus the marker; fail-open if `gh` is unavailable.
 

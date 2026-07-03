@@ -25,6 +25,23 @@
 
 ### Added
 
+- **Learnings->issue bridge** (issue #463, epic #417 Phase C) - actionable
+  portable learnings can now be promoted from the retro/common-memory loop into
+  tracked GitHub issues, so a learning that names a concrete fix becomes work
+  instead of sitting inert in the store. `lib/cpp_memory` gains an `issue_url`
+  column (with an in-place `ALTER TABLE IF NOT EXISTS` upgrade for existing
+  stores), an `is_actionable`/`should_file_issue` decision pair (portable AND
+  non-empty `proposed_fix`; permission/local notes never qualify), an issue-body
+  renderer that embeds a `<!-- cpp-learning: <fp> -->` marker for marker-based
+  dedup, a first-write-wins `link-issue` CLI command, and
+  `record --emit-issue-candidate`. Filing is human-confirmed per learning
+  (never automatic) and routes to the repo the FIX targets - including skills
+  extracted to standalone plugin repos (#443) - not the repo where the friction
+  surfaced. Dedup is belt-and-suspenders (`issue_url` column + marker search);
+  everything fails open without `gh`, network, or the store. Wired into
+  `/self-improvement:retro` (Step 5b), `/self-improvement:memory`,
+  `docs/skills/common-memory.md`, and the Codex `/cpp-memory` prompt.
+
 - **Deploy verification / `/cicd:verify`** (issue #444, epic #417 Phase C) - a
   deploy-confidence skill that validates the *deployment*, not just the code.
   Captures a baseline of `health.endpoints` / `health.smoke_tests` before a

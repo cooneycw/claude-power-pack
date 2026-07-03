@@ -174,7 +174,10 @@ portable AND carries a fix - and has no `issue_url` yet), offer to file it:
 
 1. **Confirm** with the user (per-learning y/N; never auto-file).
 2. **Route** to the target repo (`issue_candidate.repo`, derived from the learning's
-   source repo; confirm/override at file time; default to the current repo).
+   source repo; confirm/override at file time; default to the current repo). Route
+   by where the FIX lands, not where the friction surfaced: a fix to a CPP skill
+   goes to claude-power-pack; a fix to a skill that lives in its own standalone
+   repo (an extracted plugin, e.g. eli5-gate per #443) goes to that skill's repo.
 3. **Create** the issue with the candidate body (it embeds a
    `<!-- cpp-learning: <fp> -->` marker for marker-based dedup):
    ```bash
