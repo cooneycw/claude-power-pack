@@ -24,8 +24,10 @@ cp /path/to/templates/woodpecker/docker-compose.server.yml.example docker-compos
 cp /path/to/templates/woodpecker/docker-compose.agent.yml.example  docker-compose.agent.yml
 cp /path/to/templates/woodpecker/bootstrap-secrets.py.example      bootstrap-secrets.py
 
-# 2. Bootstrap server secrets from AWS Secrets Manager (writes gitignored docker.env)
+# 2. Provide server secrets in a gitignored docker.env. Either:
+#    (a) bootstrap from AWS Secrets Manager (reference provider):
 python3 bootstrap-secrets.py --secret-name my-woodpecker-secret --region us-east-1
+#    (b) or, with no AWS, hand-write docker.env with the four WOODPECKER_* keys.
 
 # 3. Set WOODPECKER_ADMIN in docker-compose.server.yml to your forge username, then:
 docker compose -f docker-compose.server.yml up -d
@@ -37,9 +39,14 @@ docker compose -f docker-compose.agent.yml up -d
 ## Notes
 
 - `docker.env` and `agent.env` hold secrets - add them to `.gitignore`.
-- Keep the agent gRPC port (`:9001`) private: Tailscale or LAN only, never public.
+- Keep the agent gRPC port (`:9001`) private: reach it over a private network
+  (Tailscale/WireGuard overlay, VPN, or trusted LAN), never the public internet.
+- AWS Secrets Manager is the reference secrets provider, not a requirement - see
+  step 2(b) for the no-AWS path.
+- Woodpecker is forge-agnostic; the server template defaults to GitHub. Swap the
+  `WOODPECKER_<FORGE>` block for Gitea/Forgejo/GitLab/Bitbucket if needed.
 - Pin image digests (`tag@sha256:...`) and rotate them with Renovate. The
   examples ship tag-only for readability; add digests before production use.
-- The forge OAuth app (GitHub client id + secret) and the shared
+- The forge OAuth app (client id + secret) and the shared
   `WOODPECKER_AGENT_SECRET` are the credentials `bootstrap-secrets.py` expects in
-  the AWS secret JSON.
+  the secret JSON.

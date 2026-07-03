@@ -42,9 +42,15 @@ Woodpecker splits into two long-running services:
                                    docker.sock           docker.sock
 ```
 
-Keep the gRPC port private. In a home lab, expose it over Tailscale only, never
-on the public internet. The server needs a forge OAuth app (GitHub client id +
-secret) and a shared agent secret; agents authenticate with that same secret.
+Keep the gRPC port private: reach it over a private network (a Tailscale/WireGuard
+overlay, a VPN, or a trusted LAN), never the public internet. The overlay choice
+is yours - the pipeline only needs the agent to resolve `WOODPECKER_SERVER` to a
+reachable gRPC address. The server needs a forge OAuth app (client id + secret)
+and a shared agent secret; agents authenticate with that same secret.
+
+Woodpecker is forge-agnostic (GitHub, Gitea, Forgejo, GitLab, Bitbucket). The
+templates default to GitHub (`WOODPECKER_GITHUB=true`); switch the
+`WOODPECKER_<FORGE>` block for another forge per the server-config docs.
 
 See `templates/woodpecker/docker-compose.server.yml.example` and
 `docker-compose.agent.yml.example`.
@@ -68,6 +74,11 @@ See `templates/woodpecker/docker-compose.server.yml.example` and
 
    (Copy `templates/woodpecker/bootstrap-secrets.py.example`.) The generated
    `docker.env` is referenced by the compose `env_file:` and is never committed.
+
+   **No AWS?** The bootstrap is optional. AWS Secrets Manager is the reference
+   provider, not a requirement: hand-write a gitignored `docker.env` with the
+   same four keys and skip the script entirely. The compose file only cares that
+   `docker.env` exists.
 
 3. **Agent** - on each executor host, copy `docker-compose.agent.yml.example`,
    set `WOODPECKER_SERVER` (the gRPC address) and `WOODPECKER_AGENT_SECRET`, then:
@@ -234,9 +245,15 @@ doc exists.
   automatically a required GitHub check. If you want it to gate merges, wire the
   commit status back to the forge and mark it required in branch protection -
   otherwise a red build is advisory only.
-- **Keep `image-security` and `runtime-smoke` path filters in sync.** If both are
-  gated on the same file globs, editing one and forgetting the other silently
-  skips a gate on the exact change that needed it.
+- **Keep dependent steps' path filters in sync.** If `image-security` and
+  `runtime-smoke` are gated on the same file globs, editing one glob and
+  forgetting the other silently skips a gate on the exact change that needed it
+  (CPP issue #384). When one step `depends_on` another, their `when: path:`
+  filters must match or the dependent step is skipped unexpectedly.
+- **Privileged plugins are an allowlist, not a default.** Building images needs
+  the `docker-buildx` plugin, which only runs if the server's
+  `WOODPECKER_PLUGINS_PRIVILEGED` names it. Keep that list minimal - every
+  privileged plugin can reach the host Docker socket. Add only what you use.
 
 ## Local runs
 
@@ -279,6 +296,21 @@ pipeline:
 
 All hardening flags default to `false`, so an unconfigured project gets the plain
 lint/test/deploy pipeline and opts into each gate deliberately.
+
+## Where this is going (positioning)
+
+This skill is built in three layers:
+
+1. **Bring-up** - zero-to-running server + agent (the templates above).
+2. **Pipeline generation** - per-stack `.woodpecker.yml` with production gates
+   (gitleaks, Trivy, and - when you build images - hadolint/SBOM/runtime-smoke).
+3. **Agentic CI integration (roadmap)** - the differentiator. GitHub Actions
+   users get `/flow`-style post-run verification and failure triage from the
+   hosted ecosystem; self-hosted Woodpecker users get it nowhere. Closing that
+   gap (pull a failed pipeline's step logs over the API, classify real vs
+   environmental, propose the fix) is the distinctive value and the next layer.
+   `/flow:auto` already reads Woodpecker pipeline/step logs via the server API to
+   verify CI after merge; generalizing that into the skill is the direction.
 
 ## Related
 

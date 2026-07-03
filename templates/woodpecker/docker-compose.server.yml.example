@@ -24,9 +24,12 @@ services:
     env_file: docker.env   # WOODPECKER_GITHUB_CLIENT/SECRET, WOODPECKER_AGENT_SECRET, WOODPECKER_HOST
     environment:
       - WOODPECKER_OPEN=true
+      # Forge: Woodpecker also supports Gitea/Forgejo/GitLab/Bitbucket - swap this
+      # WOODPECKER_<FORGE> block per https://woodpecker-ci.org/docs/administration/forges
       - WOODPECKER_GITHUB=true
       - WOODPECKER_ADMIN=CHANGE_ME   # <- your forge username
-      # Only allow the privileged plugins you actually use (buildx for image builds).
+      # Privileged plugins are an allowlist - list ONLY what you use. buildx is
+      # needed only if you build/scan container images in CI.
       - WOODPECKER_PLUGINS_PRIVILEGED=woodpeckerci/plugin-docker-buildx,plugins/docker
     restart: unless-stopped
 
