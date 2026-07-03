@@ -8,11 +8,23 @@ in a tracked source dir, stay silent on the usual venv/cache noise.
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 GUARD = ROOT / "scripts" / "check-ignored-additions.sh"
+
+# These tests drive real `git` and `bash` subprocesses. The Woodpecker
+# `validate` step runs in `uv:python3.11-bookworm-slim`, which ships bash but
+# NOT git, so without this guard the module errors (FileNotFoundError) and
+# fails CI. Skip cleanly where git/bash are unavailable (issue #430).
+pytestmark = pytest.mark.skipif(
+    shutil.which("git") is None or shutil.which("bash") is None,
+    reason="requires git and bash on PATH",
+)
 
 
 def _git(repo: Path, *args: str) -> None:
