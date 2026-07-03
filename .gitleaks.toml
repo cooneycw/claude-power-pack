@@ -24,6 +24,9 @@ useDefault = true
     '''\.claude/commands/cpp/init\.md$''',
     '''\.claude/commands/second-opinion/help\.md$''',
     '''INSTALLATION_ISSUES\.md$''',
+    # Grill-yourself transcripts quote commands/tool-output (image names, secret
+    # handling) that trip generic-api-key heuristics; they are provenance docs.
+    '''\.specify/grills/''',
     # Security scanner/masking code references key patterns for detection
     '''lib/security/explain\.py$''',
     '''lib/creds/masking\.py$''',
