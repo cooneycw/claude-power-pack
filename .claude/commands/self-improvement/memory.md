@@ -30,6 +30,8 @@ cpp-memory record --class knowledge --scope knowledge \
     --title "<stable title>" --body "<reusable knowledge>" \
     --fix "<optional>" --confidence 0.8 --repo "$(basename "$(git rev-parse --show-toplevel)")"
 cpp-memory record --local-only --class permission --scope permission ...  # stays local
+cpp-memory record ... --emit-issue-candidate                             # + issue candidate (#463)
+cpp-memory link-issue --fingerprint <fp> --url <github-issue-url>        # record the filed issue
 cpp-memory reject --fingerprint <fp> --actor <user> --note "<why>"        # stops re-proposal
 ```
 
@@ -47,6 +49,9 @@ run `python -m lib.cpp_memory ...` from the repo root.
 5. Confirm with the user, then `cpp-memory record ...` (portable) or
    `--local-only` + propose the real fix in git/settings (non-portable).
 6. Record `apply`/`reject` when a stored learning is acted on here.
+7. If a portable learning is **actionable** (names a fix), `record ... --emit-issue-candidate`;
+   when `should_file` is true, confirm, `gh issue create` (body carries the fingerprint
+   marker), then `cpp-memory link-issue` the URL back (learnings->issue bridge, #463).
 
 ## Output Format
 

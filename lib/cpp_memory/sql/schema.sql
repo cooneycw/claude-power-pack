@@ -21,6 +21,11 @@ CREATE TABLE IF NOT EXISTS learnings (
     updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- #463 learnings->issue bridge: URL of the GitHub issue an actionable learning
+-- was promoted to (NULL until filed). ADD COLUMN IF NOT EXISTS upgrades an
+-- existing store too (CREATE TABLE IF NOT EXISTS won't add columns in place).
+ALTER TABLE learnings ADD COLUMN IF NOT EXISTS issue_url TEXT;
+
 CREATE INDEX IF NOT EXISTS learnings_class_idx  ON learnings (friction_class);
 CREATE INDEX IF NOT EXISTS learnings_status_idx ON learnings (status);
 

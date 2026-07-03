@@ -15,13 +15,26 @@ Design invariants (see issue #433):
 
 from .client import MemoryStore, append_local_learning
 from .config import resolve_dsn
-from .models import FIX_SCOPES, FRICTION_CLASSES, Learning, is_portable
+from .models import (
+    FIX_SCOPES,
+    FRICTION_CLASSES,
+    Learning,
+    is_actionable,
+    is_portable,
+    issue_body,
+    issue_marker,
+    should_file_issue,
+)
 
 __all__ = [
     "Learning",
     "FRICTION_CLASSES",
     "FIX_SCOPES",
     "is_portable",
+    "is_actionable",
+    "should_file_issue",
+    "issue_body",
+    "issue_marker",
     "MemoryStore",
     "append_local_learning",
     "resolve_dsn",
