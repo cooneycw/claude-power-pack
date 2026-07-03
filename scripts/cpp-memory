@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# Portable, harness-neutral entry point to the CPP common-memory ledger.
+#
+# Callable identically from Claude Code, Codex, or a plain shell, from ANY cwd:
+#   cpp-memory ping
+#   cpp-memory record --class knowledge --scope knowledge --title "..." --body "..."
+#   cpp-memory query  --fingerprint <fp>
+#
+# It resolves its own location (following symlinks) to find the CPP repo, then
+# runs `lib.cpp_memory` with the best available Python. Fail-open by design: a
+# missing psycopg driver degrades to a local .claude/learnings.md, never a crash.
+set -euo pipefail
+
+# Resolve the real path of this script (follow symlinks) -> repo root.
+SRC="${BASH_SOURCE[0]}"
+while [ -h "$SRC" ]; do
+  DIR="$(cd -P "$(dirname "$SRC")" && pwd)"
+  SRC="$(readlink "$SRC")"
+  [[ "$SRC" != /* ]] && SRC="$DIR/$SRC"
+done
+SCRIPTS_DIR="$(cd -P "$(dirname "$SRC")" && pwd)"
+REPO_ROOT="$(dirname "$SCRIPTS_DIR")"
+export PYTHONPATH="${REPO_ROOT}${PYTHONPATH:+:$PYTHONPATH}"
+
+# Python selection order:
+#   1. $CPP_MEMORY_PYTHON  - explicit interpreter (must have psycopg)
+#   2. uv                  - fetches psycopg on demand, no persistent install
+#   3. system python3      - fail-open (local fallback if psycopg absent)
+if [ -n "${CPP_MEMORY_PYTHON:-}" ]; then
+  exec "$CPP_MEMORY_PYTHON" -m lib.cpp_memory "$@"
+elif command -v uv >/dev/null 2>&1; then
+  exec uv run --no-project --python 3.11 --with 'psycopg[binary]>=3.1' -- \
+    python -m lib.cpp_memory "$@"
+else
+  exec python3 -m lib.cpp_memory "$@"
+fi
