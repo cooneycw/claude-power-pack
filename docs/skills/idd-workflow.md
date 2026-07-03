@@ -59,15 +59,21 @@ export PS1='$(~/.claude/scripts/prompt-context.sh)\w $ '
 
 ## Worktree Commands
 
+`/flow` rides Claude Code's native worktrees. Recommended: create/enter with the
+`EnterWorktree` tool (`name=issue-42-auth`, checkout under `.claude/worktrees/`,
+branched from `origin/<default-branch>`) and remove same-session worktrees with
+`ExitWorktree(action="remove")`. The raw git commands below are the manual
+equivalent and the cross-session fallback.
+
 ```bash
-# Create worktree for issue
-git worktree add -b issue-42-auth ../project-issue-42
+# Create worktree for issue (manual / cross-machine fallback)
+git worktree add -b issue-42-auth .claude/worktrees/issue-42-auth
 
 # List worktrees
 git worktree list
 
-# Remove worktree (use script for safety)
-~/.claude/scripts/worktree-remove.sh ../project-issue-42 --delete-branch
+# Remove worktree cross-session (use script for safety)
+~/.claude/scripts/worktree-remove.sh .claude/worktrees/issue-42-auth --delete-branch
 ```
 
 ## Getting Started

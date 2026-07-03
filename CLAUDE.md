@@ -81,6 +81,19 @@ MCP containers fetch API keys at startup from AWS Secrets Manager via an `aws-se
 - `/flow:status` - Show active worktrees
 - `/flow:doctor` - Diagnose workflow environment
 
+**Native worktrees (issue #440):** `/flow` rides Claude Code's built-in
+worktrees. `/flow:start` and `/flow:auto` create and enter a worktree with the
+`EnterWorktree` tool (checkout under `.claude/worktrees/<name>`, branched from
+`origin/<default-branch>` under the default `worktree.baseRef: fresh`) instead of
+shelling out to `git worktree add`; same-session cleanup uses `ExitWorktree`.
+`.claude/worktrees/` is gitignored. CPP layers its issue-anchored gate policy on
+top of these mechanics and does not delegate it: the `issue-<N>-<slug>` branch
+name (enforced after `EnterWorktree`), the `/flow:eli5` necessity gate, the
+quality gates, and merge/cleanup discipline are unchanged. Because native
+`ExitWorktree` only removes worktrees created in the current session, cross-session
+and cross-machine cleanup (`/flow:merge`, `/flow:cleanup`) keep `git worktree
+remove` / `scripts/worktree-remove.sh` as the fallback.
+
 ### Project
 - `/project:init <name>` - Full project scaffolding (zero to GitHub repo)
 - `/project-next` - Full issue analysis and prioritization (~15-30K tokens)

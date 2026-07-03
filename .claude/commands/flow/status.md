@@ -55,8 +55,8 @@ ISSUE_TITLE=$(gh issue view "$ISSUE_NUM" --json title --jq '.title' 2>/dev/null 
 
 | Worktree | Issue | Branch | Status | PR |
 |----------|-------|--------|--------|----|
-| ../{repo}-issue-42 | #42 Fix login bug | issue-42-fix-login | 3 dirty files, 2 unpushed | - |
-| ../{repo}-issue-55 | #55 Add tests | issue-55-add-tests | Clean | PR #78 (OPEN) |
+| .claude/worktrees/issue-42-fix-login | #42 Fix login bug | issue-42-fix-login | 3 dirty files, 2 unpushed | - |
+| .claude/worktrees/issue-55-add-tests | #55 Add tests | issue-55-add-tests | Clean | PR #78 (OPEN) |
 
 ### Suggestions
 - **#42**: Has uncommitted work - commit or stash before switching

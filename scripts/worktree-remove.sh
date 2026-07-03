@@ -98,15 +98,35 @@ if [[ ! -d "$WORKTREE_PATH" ]]; then
     echo -e "${YELLOW}Warning: Worktree directory does not exist: ${WORKTREE_PATH}${NC}"
     echo "It may have already been removed. Running 'git worktree prune'..."
 
-    # Find the main repo by looking for a non-worktree .git directory
-    # Try common parent patterns
+    # Find the main repo (a directory whose .git is a real directory, not a
+    # worktree's .git file). Two layouts to cover:
+    #   1. Legacy sibling worktrees:  ../repo-issue-N  (main repo is a sibling)
+    #   2. Native worktrees:          .claude/worktrees/<name>  (main repo is an ancestor)
+    PRUNE_REPO=""
+    # (1) Scan siblings of the worktree path.
     for parent in "$(dirname "$WORKTREE_PATH")"/*; do
-        if [[ -d "$parent/.git" && ! -f "$parent/.git" ]]; then
-            git -C "$parent" worktree prune
-            echo -e "${GREEN}Pruned stale worktree references.${NC}"
+        if [[ -d "$parent/.git" ]]; then
+            PRUNE_REPO="$parent"
             break
         fi
     done
+    # (2) Walk up ancestors (covers .claude/worktrees/<name> nested under the repo).
+    if [[ -z "$PRUNE_REPO" ]]; then
+        ancestor="$(dirname "$WORKTREE_PATH")"
+        while [[ "$ancestor" != "/" && -n "$ancestor" ]]; do
+            if [[ -d "$ancestor/.git" ]]; then
+                PRUNE_REPO="$ancestor"
+                break
+            fi
+            ancestor="$(dirname "$ancestor")"
+        done
+    fi
+    if [[ -n "$PRUNE_REPO" ]]; then
+        git -C "$PRUNE_REPO" worktree prune
+        echo -e "${GREEN}Pruned stale worktree references.${NC}"
+    else
+        echo -e "${YELLOW}Could not locate the main repository to prune; run 'git worktree prune' from it manually.${NC}"
+    fi
     exit 0
 fi
 

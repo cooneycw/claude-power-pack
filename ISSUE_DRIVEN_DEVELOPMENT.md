@@ -225,15 +225,26 @@ Git worktrees allow multiple branches to be checked out simultaneously in differ
 | Entity | Pattern | Example |
 |--------|---------|---------|
 | Branch | `issue-{number}-{short-description}` | `issue-123-player-landing` |
-| Worktree | `{repo}-issue-{number}` | `nhl-api-issue-123` |
+| Worktree | `.claude/worktrees/issue-{number}-{short-description}` | `.claude/worktrees/issue-123-player-landing` |
 
 ### Worktree Commands
 
-**Create worktree for an issue:**
+The `/flow` commands ride Claude Code's **native worktrees**. Prefer the tools
+below; the raw `git worktree` commands are the underlying mechanic and remain
+available for manual use.
+
+**Create worktree for an issue (recommended):** call the `EnterWorktree` tool with
+`name=issue-{N}-{description}`. It creates a checkout under
+`.claude/worktrees/issue-{N}-{description}`, branches from
+`origin/<default-branch>` (default `worktree.baseRef: fresh`), and switches your
+session into it. Enforce the `issue-{N}-{description}` branch name afterward
+(`git branch -m` if native derived a different name).
+
+**Create worktree manually (fallback / cross-machine remote branch):**
 ```bash
 cd /path/to/main-repo
-git worktree add -b issue-{N}-{description} ../repo-issue-{N}
-cd ../repo-issue-{N}
+git worktree add -b issue-{N}-{description} .claude/worktrees/issue-{N}-{description}
+# then switch in with EnterWorktree(path=".claude/worktrees/issue-{N}-{description}")
 ```
 
 **List all worktrees:**
@@ -241,15 +252,20 @@ cd ../repo-issue-{N}
 git worktree list
 ```
 
-**Remove after merge:**
+**Remove after merge (recommended, same session):** call `ExitWorktree` with
+`action="remove"` (add `discard_changes=true` after a squash-merge). This deletes
+the worktree and branch and restores your session to the main repo. Native
+`ExitWorktree` only removes worktrees it created in the current session.
+
+**Remove manually (cross-session / cross-machine fallback):**
 ```bash
 # IMPORTANT: cd to main repo FIRST to avoid breaking the shell
 cd /path/to/main-repo
-git worktree remove ../repo-issue-{N}
+git worktree remove .claude/worktrees/issue-{N}-{description}
 git branch -d issue-{N}-{description}
 ```
 
-> ⚠️ **Shell CWD Warning:** Always `cd` to the main repo before removing a worktree. If your shell's current working directory is inside the worktree being removed, the shell will break and no further commands will work. Using `git -C /path/to/main-repo worktree remove` does NOT protect against this-only changing the shell's cwd does.
+> ⚠️ **Shell CWD Warning:** Always `cd` to the main repo before manually removing a worktree. If your shell's current working directory is inside the worktree being removed, the shell will break and no further commands will work. Using `git -C /path/to/main-repo worktree remove` does NOT protect against this-only changing the shell's cwd does. (The native `ExitWorktree` tool restores your cwd for you.)
 
 **Prune stale worktrees:**
 ```bash
@@ -579,11 +595,15 @@ Runs `make deploy` if the target exists.
 <details>
 <summary>Click to expand manual workflow</summary>
 
+The `/flow` commands use the native `EnterWorktree`/`ExitWorktree` tools; the raw
+git commands below are the equivalent manual path (worktrees now live under
+`.claude/worktrees/`).
+
 ```bash
 # Create worktree
 cd /home/user/Projects/my-api
-git worktree add -b issue-123-player-landing ../my-api-issue-123
-cd ../my-api-issue-123
+git worktree add -b issue-123-player-landing .claude/worktrees/issue-123-player-landing
+cd .claude/worktrees/issue-123-player-landing
 
 # Implement and commit
 git commit -m "feat(downloader): Add player landing persistence (Closes #123)"
@@ -594,7 +614,7 @@ gh pr create --title "feat(downloader): Player landing persistence" --body "Clos
 
 # Cleanup (CRITICAL: cd to main repo FIRST)
 cd /home/user/Projects/my-api
-git worktree remove ../my-api-issue-123
+git worktree remove .claude/worktrees/issue-123-player-landing
 git branch -d issue-123-player-landing
 git pull
 ```
@@ -662,10 +682,10 @@ git pull
 /flow:auto 42                                      # Full lifecycle in one shot
 /flow:help                                         # Show all flow commands
 
-# Manual Worktree Management
-git worktree add -b issue-N-desc ../repo-issue-N   # Create
+# Manual Worktree Management (native path: EnterWorktree / ExitWorktree tools)
+git worktree add -b issue-N-desc .claude/worktrees/issue-N-desc   # Create
 git worktree list                                   # List all
-cd /path/to/main-repo && git worktree remove ../repo-issue-N  # Remove (cd first!)
+cd /path/to/main-repo && git worktree remove .claude/worktrees/issue-N-desc  # Remove (cd first!)
 git worktree prune                                 # Clean stale
 
 # Shell Prompt Context (automatic - no commands needed)
