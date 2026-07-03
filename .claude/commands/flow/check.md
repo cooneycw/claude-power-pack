@@ -100,9 +100,12 @@ fi
 
 ### Step 5: Run Makefile Completeness Check (optional)
 
+Invoke via `uv run` so `lib/cicd`'s deps resolve under a pinned >= 3.11
+interpreter; bare `python3` crashes in a fresh worktree (#430).
+
 ```bash
-if [[ "$HAS_CICD" == "true" ]] && [[ -f "Makefile" ]]; then
-    PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -m lib.cicd check --summary
+if [[ "$HAS_CICD" == "true" ]] && [[ -f "Makefile" ]] && command -v uv >/dev/null 2>&1; then
+    PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd check --summary
     CICD_EXIT=$?
     CHECKS_RUN=$((CHECKS_RUN + 1))
     if [[ $CICD_EXIT -eq 0 ]]; then
@@ -110,6 +113,22 @@ if [[ "$HAS_CICD" == "true" ]] && [[ -f "Makefile" ]]; then
     else
         CHECKS_WARN=$((CHECKS_WARN + 1))  # Non-blocking
     fi
+fi
+```
+
+### Step 5b: Guard Against Silently-Ignored New Files (advisory)
+
+A blanket `.gitignore` rule (e.g. `*.json`) can swallow a file you meant to
+commit - `git add` no-ops with no error (issue #430, Finding 1). Surface it:
+
+```bash
+if [ -n "$CPP_DIR" ] && [ -x "$CPP_DIR/scripts/check-ignored-additions.sh" ]; then
+    "$CPP_DIR/scripts/check-ignored-additions.sh"
+    IGN_EXIT=$?
+    CHECKS_RUN=$((CHECKS_RUN + 1))
+    # Advisory only: the script exits 0 even when it warns, so this never fails
+    # the check. Any warning it prints is surfaced to the user for review.
+    CHECKS_PASS=$((CHECKS_PASS + 1))
 fi
 ```
 
