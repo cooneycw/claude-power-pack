@@ -344,14 +344,58 @@ Report: `Step 6/9: Finish complete - PR #XX created`
 
 ### Step 7: Merge - Squash-Merge and Clean Up
 
-1. **Merge the PR:**
+1. **Sync with `origin/main` and re-gate (stale-branch guard, issue #462):**
+   A branch cut earlier - common on resumed or cross-machine worktrees - can have
+   fallen behind `main` while the PR was open. Squash-merging it then fails at the
+   last step on a content conflict (the flow:auto #433 run hit a CLAUDE.md
+   collision), forcing a manual `git merge origin/main` + resolve + re-gate
+   mid-flow. Bring the branch current and re-run the gate on the **post-merge
+   tree** first, so the squash is deterministic and the gate reflects exactly what
+   lands on `main`:
+
+   ```bash
+   BRANCH=$(git branch --show-current)
+   git fetch origin main
+   if [[ "$(git rev-list --count HEAD..origin/main)" -gt 0 ]]; then
+       echo "Branch is behind origin/main - merging main in before the squash."
+       if ! git merge --no-edit origin/main; then
+           echo "STOP: merging origin/main hit conflicts:"
+           git diff --name-only --diff-filter=U
+           echo "Resolve them, 'git add' + 'git commit', then re-run /flow:merge."
+           echo "(Do NOT 'git merge --abort' - that discards the resolution.)"
+           exit 1
+       fi
+       # Re-run the FULL quality gate on the MERGED tree (not the pre-merge branch)
+       # - same deterministic runner as Step 6, with the same Makefile fallback.
+       CPP_DIR=""
+       for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-pack; do
+         [ -d "$dir" ] && [ -f "$dir/CLAUDE.md" ] && { CPP_DIR="$dir"; break; }
+       done
+       if [ -n "$CPP_DIR" ] && command -v uv >/dev/null 2>&1; then
+           PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd run --plan finish
+           REGATE_EXIT=$?
+       else
+           echo "NOTE: deterministic runner unavailable; re-gating via Makefile fallback." >&2
+           make lint && make test
+           REGATE_EXIT=$?
+       fi
+       if [ "$REGATE_EXIT" -ne 0 ]; then
+           echo "STOP: quality gate failed on the post-merge tree. Fix, commit, then re-run /flow:merge."
+           exit 1
+       fi
+       # Push the merge so the PR reflects the post-merge tree before squashing.
+       git push origin "$BRANCH"
+   fi
+   ```
+
+2. **Merge the PR:**
    ```bash
    PR_NUMBER=$(gh pr list --head "$BRANCH" --json number --jq '.[0].number')
    gh pr merge "$PR_NUMBER" --squash --delete-branch
    ```
    - If merge fails (conflicts, checks): **STOP**. Report and exit.
 
-2. **Capture the worktree and main repo paths (before leaving the worktree):**
+3. **Capture the worktree and main repo paths (before leaving the worktree):**
    ```bash
    if [[ -f ".git" ]]; then
        WORKTREE_PATH=$(pwd)
@@ -362,7 +406,7 @@ Report: `Step 6/9: Finish complete - PR #XX created`
    fi
    ```
 
-3. **Clean up worktree and branch:**
+4. **Clean up worktree and branch:**
 
    **If Step 1 created the worktree this session via `EnterWorktree(name=...)`**
    (the fresh-start path), remove it natively - a single tool call that deletes the
@@ -402,7 +446,7 @@ Report: `Step 6/9: Finish complete - PR #XX created`
    fi
    ```
 
-4. **Update local main:**
+5. **Update local main:**
    ```bash
    git -C "$MAIN_REPO" checkout main 2>/dev/null || true
    git -C "$MAIN_REPO" pull origin main
@@ -414,7 +458,7 @@ Report: `Step 6/9: Finish complete - PR #XX created`
    git status  # MUST succeed - if this fails, your CWD was deleted
    ```
 
-5. **Close issue** (if still open):
+6. **Close issue** (if still open):
    ```bash
    if [[ -n "$ISSUE_NUM" ]]; then
        ISSUE_STATE=$(gh issue view "$ISSUE_NUM" --json state --jq '.state' 2>/dev/null)

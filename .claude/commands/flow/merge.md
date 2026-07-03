@@ -42,7 +42,51 @@ PR_JSON=$(gh pr list --head "$BRANCH" --json number,state,mergeable,reviewDecisi
 - If PR is already merged: "PR is already merged. Run cleanup only? [y/N]"
 - Report PR state: checks passing, review status, mergeable
 
-### Step 3: Merge the PR
+### Step 3: Sync with main, re-gate, then merge
+
+**Stale-branch guard (issue #462):** a branch cut earlier can have fallen behind
+`main` while the PR was open; squash-merging it then fails at the last step on a
+content conflict. Bring the branch current and re-run the quality gate on the
+**post-merge tree** before merging, so the squash is deterministic and the gate
+reflects exactly what lands on `main`. (`/flow:auto` Step 7 runs the same guard;
+this covers the standalone/resume path.)
+
+```bash
+BRANCH=$(git branch --show-current)
+git fetch origin main
+if [[ "$(git rev-list --count HEAD..origin/main)" -gt 0 ]]; then
+    echo "Branch is behind origin/main - merging main in before the squash."
+    if ! git merge --no-edit origin/main; then
+        echo "STOP: merging origin/main hit conflicts:"
+        git diff --name-only --diff-filter=U
+        echo "Resolve them, 'git add' + 'git commit', then re-run /flow:merge."
+        echo "(Do NOT 'git merge --abort' - that discards the resolution.)"
+        exit 1
+    fi
+    # Re-run the FULL quality gate on the MERGED tree (deterministic runner,
+    # Makefile fallback - same gate /flow:finish uses).
+    CPP_DIR=""
+    for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-pack; do
+      [ -d "$dir" ] && [ -f "$dir/CLAUDE.md" ] && { CPP_DIR="$dir"; break; }
+    done
+    if [ -n "$CPP_DIR" ] && command -v uv >/dev/null 2>&1; then
+        PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd run --plan finish
+        REGATE_EXIT=$?
+    else
+        echo "NOTE: deterministic runner unavailable; re-gating via Makefile fallback." >&2
+        make lint && make test
+        REGATE_EXIT=$?
+    fi
+    if [ "$REGATE_EXIT" -ne 0 ]; then
+        echo "STOP: quality gate failed on the post-merge tree. Fix, commit, then re-run /flow:merge."
+        exit 1
+    fi
+    # Push the merge so the PR reflects the post-merge tree before squashing.
+    git push origin "$BRANCH"
+fi
+```
+
+Then merge the PR:
 
 ```bash
 PR_NUMBER=$(echo "$PR_JSON" | jq -r '.number')
