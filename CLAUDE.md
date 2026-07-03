@@ -88,7 +88,7 @@ MCP containers fetch API keys at startup from AWS Secrets Manager via an `aws-se
 - `/project-lite` - Quick project reference (~500-800 tokens)
 
 ### Spec-Driven Development
-- `/spec:adopt` - **(supported)** Install the official GitHub spec-kit CLI and scaffold it into the project (`specify init --here --ai claude`); then author with the `/speckit-*` skills and ship with `/flow:auto`. Turn `tasks.md` into GitHub issues with `scripts/speckit-tasks-to-issues.sh` (gh-CLI, no github-mcp-server). Per-project, always latest upstream.
+- `/spec:adopt` - **(supported)** Install the official GitHub spec-kit CLI and scaffold it into the project (`specify init --here --ai claude`); then author with the `/speckit-*` skills and ship with `/flow:auto`. Turn `tasks.md` into GitHub issues with `scripts/speckit-tasks-to-issues.sh` (gh-CLI, no github-mcp-server). Per-project, always latest upstream. The `specify` CLI installs on first `/spec:adopt` use, or up front via `/cpp:init` / `/cpp:update`.
 - `/spec:init` - *(legacy, pending retirement)* Initialize CPP's own `.specify/` structure
 - `/spec:create NAME` - *(legacy, pending retirement)* Create new feature specification
 - `/spec:sync [NAME]` - *(legacy, pending retirement)* Sync tasks.md to GitHub issues
@@ -167,9 +167,9 @@ The `/spec:*` family and `lib/spec_bridge` are being retired in favor of the off
 
 ### Other
 - `/dockers` - Docker container status, health, project linkages
-- `/cpp:init` - Interactive setup wizard (Tiers: Minimal, Standard, Full, CI/CD, Codex)
+- `/cpp:init` - Interactive setup wizard (Tiers: Minimal, Standard, Full, CI/CD, Codex); optionally installs the spec-kit CLI (`specify`, the engine behind `/spec:adopt`)
 - `/cpp:status` - Check installation state
-- `/cpp:update` - Pull latest, sync deps, migrate legacy systemd units if present, refresh Docker local-build runtime, tear down orphaned Docker MCP infra via the curated `.claude/deprecated-mcps.yaml` (Step 6c/7, user-confirmed), prune retired/orphaned generated skills via the curated `.claude/deprecated-skills.yaml` (Step 7.5, user-confirmed), then offer to merge new flow allowlist rules from `templates/claude-settings-permissions.json` into `~/.claude/settings.json` (Step 7.6, user-confirmed)
+- `/cpp:update` - Pull latest, sync deps, migrate legacy systemd units if present, refresh Docker local-build runtime, tear down orphaned Docker MCP infra via the curated `.claude/deprecated-mcps.yaml` (Step 6c/7, user-confirmed), prune retired/orphaned generated skills via the curated `.claude/deprecated-skills.yaml` (Step 7.5, user-confirmed), then offer to merge new flow allowlist rules from `templates/claude-settings-permissions.json` into `~/.claude/settings.json` (Step 7.6, user-confirmed); also refreshes the optional spec-kit CLI (`specify`) if installed (Step 4.6)
 - `/self-improvement:deployment` - Retrospective analysis after failed deploys
 - `/happy-check` - Check happy-cli version (optional)
 

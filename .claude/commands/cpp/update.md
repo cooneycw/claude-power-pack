@@ -124,6 +124,31 @@ done
 
 ---
 
+## Step 4.6: Refresh Spec-Kit CLI (Optional)
+
+If the official spec-kit CLI (`specify`) is installed, upgrade it so `/spec:adopt`
+delegates to the current upstream. If it is absent, offer to install it (never forced -
+`/spec:adopt` also installs it on first use). This only touches the CLI; it does not
+scaffold `.specify/` into any project.
+
+```bash
+if command -v specify &>/dev/null; then
+  echo ""
+  echo "Upgrading spec-kit CLI..."
+  uv tool upgrade specify-cli 2>/dev/null && echo "Done: spec-kit CLI up to date" \
+    || echo "Note: could not upgrade specify-cli (not a uv tool install?) - skipping"
+else
+  echo ""
+  echo "spec-kit CLI (specify) is not installed."
+  echo "  Install now with: uv tool install specify-cli --from git+https://github.com/github/spec-kit.git"
+  echo "  (or just run /spec:adopt in a project - it installs the CLI on first use)"
+  # If the user agrees, run:
+  #   uv tool install specify-cli --from git+https://github.com/github/spec-kit.git
+fi
+```
+
+---
+
 ## Step 4.5: Legacy Systemd Teardown
 
 Before refreshing Docker, detect legacy MCP systemd units in both system and
