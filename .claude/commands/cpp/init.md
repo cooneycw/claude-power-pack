@@ -474,6 +474,50 @@ fi
 
 - **Custom**: Build JSON from selected categories
 
+**User-Level Flow Allowlist (Optional)**
+
+The project profiles above govern ONE repo. The `/flow:*` commands also run
+read-only git/gh plumbing (issue reads, worktree creation, the branch-slug
+text pipeline) in EVERY repo, which prompts on every run unless the rules
+exist at user level. Offer to merge the CPP allowlist template into
+`~/.claude/settings.json`:
+
+```
+=== Optional: User-Level Flow Allowlist ===
+
+/flow commands run read-only git/gh plumbing (gh issue view, git fetch,
+git worktree, slug pipelines) that triggers a permission prompt on every
+run, in every repo, unless allowed at user level.
+
+Merge the CPP read-only allowlist into ~/.claude/settings.json?
+(Additive and idempotent - existing settings and rules are preserved.
+Rationale and caveats: templates/claude-settings-permissions.md)  [y/N]
+```
+
+If yes:
+
+```bash
+TEMPLATE="$CPP_DIR/templates/claude-settings-permissions.json"
+TARGET="$HOME/.claude/settings.json"
+mkdir -p "$HOME/.claude"
+[ -f "$TARGET" ] || echo '{}' > "$TARGET"
+
+BEFORE=$(jq '(.permissions.allow // []) | length' "$TARGET")
+jq -s '.[0].permissions.allow = (((.[0].permissions.allow // []) + .[1].permissions.allow) | unique) | .[0]' \
+  "$TARGET" "$TEMPLATE" > "$TARGET.tmp" && mv "$TARGET.tmp" "$TARGET"
+AFTER=$(jq '.permissions.allow | length' "$TARGET")
+
+echo "✓ Flow allowlist merged into ~/.claude/settings.json ($((AFTER - BEFORE)) new rules, $AFTER total)"
+echo "  Note: sed is allowed for the flow slug pipeline; see the template doc for the sed -i caveat."
+```
+
+If no:
+
+```bash
+echo "→ Flow allowlist skipped"
+echo "  Merge later via /cpp:update, or read templates/claude-settings-permissions.md"
+```
+
 **Shell Prompt Integration (Optional)**
 
 Ask the user if they want shell prompt integration:

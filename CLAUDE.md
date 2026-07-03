@@ -166,7 +166,7 @@ MCP containers fetch API keys at startup from AWS Secrets Manager via an `aws-se
 - `/dockers` - Docker container status, health, project linkages
 - `/cpp:init` - Interactive setup wizard (Tiers: Minimal, Standard, Full, CI/CD, Codex)
 - `/cpp:status` - Check installation state
-- `/cpp:update` - Pull latest, sync deps, migrate legacy systemd units if present, refresh Docker local-build runtime, tear down orphaned Docker MCP infra via the curated `.claude/deprecated-mcps.yaml` (Step 6c/7, user-confirmed), then prune retired/orphaned generated skills via the curated `.claude/deprecated-skills.yaml` (Step 7.5, user-confirmed)
+- `/cpp:update` - Pull latest, sync deps, migrate legacy systemd units if present, refresh Docker local-build runtime, tear down orphaned Docker MCP infra via the curated `.claude/deprecated-mcps.yaml` (Step 6c/7, user-confirmed), prune retired/orphaned generated skills via the curated `.claude/deprecated-skills.yaml` (Step 7.5, user-confirmed), then offer to merge new flow allowlist rules from `templates/claude-settings-permissions.json` into `~/.claude/settings.json` (Step 7.6, user-confirmed)
 - `/self-improvement:deployment` - Retrospective analysis after failed deploys
 - `/happy-check` - Check happy-cli version (optional)
 
@@ -190,6 +190,7 @@ Flow commands use Makefile targets as the canonical build interface:
 - `/flow:finish` and `/flow:deploy` run security quick scan as quality gates
 - CRITICAL findings block gates; HIGH findings produce warnings
 - Configure gating in `.claude/security.yml` (optional, created by `/security:scan` when needed)
+- **User-level flow allowlist** (`templates/claude-settings-permissions.json`) auto-approves the read-only git/gh plumbing that `/flow:*` runs; shipping actions (`git push`, `gh pr create`) and `cat` are deliberately excluded so gates and secret-read prompts stay intact. Merged via `/cpp:init` or `/cpp:update` Step 7.6; checked by `/flow:doctor`. Rationale: `templates/claude-settings-permissions.md`
 
 ## On-Demand Documentation
 

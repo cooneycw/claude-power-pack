@@ -4,6 +4,21 @@
 
 ### Added
 
+- **Flow read-only permission allowlist template** (issue #427) - new
+  `templates/claude-settings-permissions.json` (+ rationale doc
+  `templates/claude-settings-permissions.md`) codifies the 32 user-level
+  permission rules that stop `/flow:*` from prompting for its read-only
+  git/gh plumbing (issue reads, worktree creation, the branch-slug pipeline)
+  on every run in every repo. `/cpp:init` gains an optional user-confirmed
+  step that jq union-merges the template into `~/.claude/settings.json`
+  (additive, idempotent - existing settings and rules preserved);
+  `/cpp:update` Step 7.6 detects and offers to merge rules the template
+  gained since the last update; `/flow:doctor` reports installed/missing
+  rule counts with remediation. Shipping actions (`git push`, `gh pr
+  create`) and `cat` stay deliberately excluded so the gate policy and
+  secret-read prompts remain intact; the `sed -i` caveat is documented with
+  a one-line opt-out. First codified-learning artifact for the grill-me
+  cycle (#426).
 - **C4 diagram rendering engine** (issue #411) - new zero-dependency Python
   renderer `scripts/c4-mermaid.py` replaces the removed `nano-banana` MCP server
   (#401) as the engine behind `/documentation:c4`. It consumes a JSON C4 model

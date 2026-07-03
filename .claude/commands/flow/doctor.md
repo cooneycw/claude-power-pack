@@ -112,6 +112,32 @@ for script in prompt-context.sh worktree-remove.sh hook-mask-output.sh hook-vali
 done
 ```
 
+### Step 5b: User-Level Flow Allowlist
+
+Check whether the flow read-only permission allowlist
+(`templates/claude-settings-permissions.json`) is merged into
+`~/.claude/settings.json`. Without it, every `/flow:*` run prompts for its
+read-only git/gh plumbing (issue reads, worktree creation, slug pipeline).
+
+```bash
+TEMPLATE="$CPP_DIR/templates/claude-settings-permissions.json"
+TARGET="$HOME/.claude/settings.json"
+
+if [ ! -f "$TEMPLATE" ]; then
+  echo "SKIP flow allowlist (template not found - CPP checkout incomplete?)"
+elif [ ! -f "$TARGET" ]; then
+  echo "FAIL flow allowlist (~/.claude/settings.json missing - all $(jq '.permissions.allow | length' "$TEMPLATE") rules absent)"
+else
+  TOTAL=$(jq '.permissions.allow | length' "$TEMPLATE")
+  MISSING=$(jq -s '(.[1].permissions.allow - (.[0].permissions.allow // [])) | length' "$TARGET" "$TEMPLATE")
+  if [ "$MISSING" -eq 0 ]; then
+    echo "PASS flow allowlist ($TOTAL/$TOTAL rules present)"
+  else
+    echo "WARN flow allowlist ($((TOTAL - MISSING))/$TOTAL rules present, $MISSING missing)"
+  fi
+fi
+```
+
 ### Step 6: Active Worktrees
 
 ```bash
@@ -240,6 +266,7 @@ Output a single diagnostic report in this format:
 | prompt-context.sh | ✅/❌ | Shell prompt context |
 | worktree-remove.sh | ✅/❌ | Safe worktree removal |
 | secrets-mask.sh | ✅/❌ | Output masking filter |
+| Flow allowlist | ✅/⚠️/❌ | 32/32 rules in ~/.claude/settings.json / N missing / settings.json missing |
 
 ### MCP Server Connectivity
 
@@ -292,6 +319,7 @@ Output a single diagnostic report in this format:
    - Rust: `cp ~/Projects/claude-power-pack/templates/makefiles/rust.mk Makefile`
    - Monorepo: `cp ~/Projects/claude-power-pack/templates/makefiles/multi.mk Makefile`
 2. ❌ **worktree-remove.sh not found** - Run: `ln -sf ~/Projects/claude-power-pack/scripts/worktree-remove.sh ~/.claude/scripts/`
+2b. ⚠️ **Flow allowlist missing/incomplete** - `/flow:*` will prompt for read-only git/gh plumbing on every run. Merge via `/cpp:update` (Step 7.6) or `/cpp:init`; rationale and caveats in `templates/claude-settings-permissions.md`
 3. ⚠️ **uv not installed** - Install: `curl -LsSf https://astral.sh/uv/install.sh | sh`
 4. ❌ **cicd.yml missing** - Run `/cicd:init` to auto-detect framework and generate configuration
 5. ⚠️ **Makefile gaps** - Run `/cicd:check` for details or `/cicd:init` to add missing targets
