@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from lib.cicd.cli import _check_secrets_source
-from lib.cicd.config import CICDConfig
+from lib.cicd.config import CICDConfig, WoodpeckerConfig
 from lib.cicd.models import Framework, FrameworkInfo, PackageManager
 from lib.cicd.pipeline import (
     _get_install_commands,
@@ -427,6 +427,112 @@ class TestWoodpecker:
         output = generate_woodpecker(info, config)
         assert "branch: [main]" in output
         assert "event: [push, pull_request]" in output
+
+
+# ---------------------------------------------------------------------------
+# Woodpecker self-hosted-CI hardening stages (issue #445, opt-in / default off)
+# ---------------------------------------------------------------------------
+
+
+class TestWoodpeckerHardening:
+    """Test the opt-in self-hosted-CI hardening stages."""
+
+    def _hardened_config(self, **flags: object) -> CICDConfig:
+        config = _make_config()
+        config.pipeline.woodpecker = WoodpeckerConfig(**flags)
+        return config
+
+    def test_defaults_emit_no_hardening_stages(self) -> None:
+        """Backward-compat: default config must not emit any hardening stage."""
+        info = _make_info(Framework.PYTHON, PackageManager.UV)
+        output = generate_woodpecker(info, _make_config())
+        assert "secret-scan" not in output
+        assert "image-security" not in output
+        assert "runtime-smoke" not in output
+
+    def test_default_output_is_byte_identical(self) -> None:
+        """The naive path (no flags) must be byte-identical to a fresh config."""
+        info = _make_info(Framework.PYTHON, PackageManager.UV)
+        a = generate_woodpecker(info, _make_config())
+        b = generate_woodpecker(info, self._hardened_config())  # all flags default
+        assert a == b
+
+    def test_secret_scan_stage(self) -> None:
+        info = _make_info(Framework.PYTHON, PackageManager.UV)
+        output = generate_woodpecker(info, self._hardened_config(secret_scan=True))
+        assert "- name: secret-scan" in output
+        assert "zricethezav/gitleaks" in output
+        assert 'gitleaks detect --source . --config ".gitleaks.toml"' in output
+
+    def test_secret_scan_falls_back_when_config_absent(self) -> None:
+        """Missing .gitleaks.toml must not break the build (use default rules)."""
+        info = _make_info(Framework.PYTHON, PackageManager.UV)
+        output = generate_woodpecker(info, self._hardened_config(secret_scan=True))
+        assert 'if [ -f ".gitleaks.toml" ]' in output
+        assert "else gitleaks detect --source . --verbose; fi" in output
+
+    def test_secret_scan_custom_config_path(self) -> None:
+        info = _make_info(Framework.PYTHON, PackageManager.UV)
+        config = self._hardened_config(secret_scan=True, secret_scan_config="ci/gitleaks.toml")
+        output = generate_woodpecker(info, config)
+        assert '--config "ci/gitleaks.toml"' in output
+
+    def test_unsafe_shell_values_rejected(self) -> None:
+        """cicd.yml values interpolated into shell commands must be constrained."""
+        import pytest
+
+        with pytest.raises(ValueError):
+            WoodpeckerConfig(smoke_target="smoke; rm -rf /")
+        with pytest.raises(ValueError):
+            WoodpeckerConfig(secret_scan_config="$(curl evil)")
+
+    def test_image_security_stage(self) -> None:
+        info = _make_info(Framework.PYTHON, PackageManager.UV)
+        output = generate_woodpecker(info, self._hardened_config(image_security=True))
+        assert "- name: image-security" in output
+        assert "aquasec/trivy" in output
+        assert "trivy config --exit-code 1 --severity HIGH,CRITICAL ." in output
+        assert "trivy fs --exit-code 1 --severity HIGH,CRITICAL --ignore-unfixed ." in output
+
+    def test_runtime_smoke_stage(self) -> None:
+        info = _make_info(Framework.PYTHON, PackageManager.UV)
+        output = generate_woodpecker(info, self._hardened_config(runtime_smoke=True))
+        assert "- name: runtime-smoke" in output
+        assert "make smoke" in output
+
+    def test_runtime_smoke_custom_target(self) -> None:
+        info = _make_info(Framework.PYTHON, PackageManager.UV)
+        config = self._hardened_config(runtime_smoke=True, smoke_target="smoke-e2e")
+        output = generate_woodpecker(info, config)
+        assert "make smoke-e2e" in output
+
+    def test_secret_scan_precedes_build_steps(self) -> None:
+        """secret-scan must be emitted before the lint/test build steps."""
+        info = _make_info(Framework.PYTHON, PackageManager.UV)
+        output = generate_woodpecker(info, self._hardened_config(secret_scan=True))
+        assert output.index("- name: secret-scan") < output.index("- name: lint")
+
+    def test_smoke_follows_build_and_precedes_deploy(self) -> None:
+        """Sequential order: build -> image-security -> runtime-smoke -> deploy."""
+        info = _make_info(Framework.PYTHON, PackageManager.UV)
+        config = self._hardened_config(image_security=True, runtime_smoke=True)
+        config.pipeline.branches = {"main": ["lint", "test", "deploy"], "pr": ["lint", "test"]}
+        output = generate_woodpecker(info, config)
+        assert (
+            output.index("- name: test")
+            < output.index("- name: image-security")
+            < output.index("- name: runtime-smoke")
+            < output.index("- name: deploy")
+        )
+
+    def test_all_stages_together(self) -> None:
+        info = _make_info(Framework.PYTHON, PackageManager.UV)
+        config = self._hardened_config(
+            secret_scan=True, image_security=True, runtime_smoke=True
+        )
+        output = generate_woodpecker(info, config)
+        for stage in ("secret-scan", "image-security", "runtime-smoke"):
+            assert f"- name: {stage}" in output
 
 
 # ---------------------------------------------------------------------------

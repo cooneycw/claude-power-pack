@@ -1,0 +1,25 @@
+# Woodpecker CI - Agent (Claude Power Pack /cicd:woodpecker template)
+#
+# Run one on each executor host that can reach the server's gRPC port.
+# Requires WOODPECKER_SERVER (gRPC address) and WOODPECKER_AGENT_SECRET
+# (the same shared secret the server was given), supplied via agent.env.
+#
+# Setup:
+#   1. Create agent.env with:
+#        WOODPECKER_SERVER=your-server-host:9001
+#        WOODPECKER_AGENT_SECRET=<same secret as the server>
+#   2. docker compose -f docker-compose.agent.yml up -d
+#
+# The Docker socket mount lets the agent run pipeline steps as containers.
+# Docs: https://woodpecker-ci.org/docs/administration/agent-config
+
+services:
+  woodpecker-agent:
+    image: woodpeckerci/woodpecker-agent:v3.13.0
+    container_name: woodpecker-agent
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    env_file: agent.env   # WOODPECKER_SERVER, WOODPECKER_AGENT_SECRET
+    environment:
+      - WOODPECKER_MAX_WORKFLOWS=2   # concurrent workflows per agent
+    restart: unless-stopped

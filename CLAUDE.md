@@ -127,7 +127,8 @@ mirrors the `/security` #438 and hooks #439 defer-the-commodity-half moves).
 - `/cicd:check` - Validate Makefile against CPP standards
 - `/cicd:health` - Run health checks (endpoints + processes)
 - `/cicd:smoke` - Run smoke tests from cicd.yml
-- `/cicd:pipeline` - Generate GitHub Actions workflows (consults cicd_tasks.yml manifest if present)
+- `/cicd:pipeline` - Generate CI/CD workflows: GitHub Actions, or self-hosted Woodpecker via `pipeline.provider` (consults cicd_tasks.yml manifest if present)
+- `/cicd:woodpecker` - Generate a hardened self-hosted Woodpecker pipeline (opt-in secret-scan + image-security + runtime-smoke stages) and scaffold the server/agent from `templates/woodpecker/`; see `docs/skills/woodpecker-ci.md`
 - `/cicd:container` - Generate Dockerfile and docker-compose.yml
 - `/cicd:infra-init` - Scaffold IaC directory (foundation/platform/app tiers)
 - `/cicd:infra-discover` - Generate cloud resource discovery script for IaC import

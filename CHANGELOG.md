@@ -25,6 +25,28 @@
 
 ### Added
 
+- **Woodpecker self-hosted CI skill** (issue #445, epic #417 Phase C) - packages
+  CPP's self-hosted Woodpecker CI knowledge as a distinct, reusable skill. The
+  ecosystem assumes GitHub Actions; this is the uncovered ground. New
+  `/cicd:woodpecker` command generates a **hardened** `.woodpecker.yml` with
+  opt-in stages that self-hosted CI has no Marketplace for: `secret-scan`
+  (gitleaks), `image-security` (Trivy `config` + `fs` CVE scan, self-contained -
+  no image build), and `runtime-smoke` (a `make <smoke_target>` stage). Stages
+  are wired via new **opt-in, default-off** `WoodpeckerConfig` flags
+  (`secret_scan` / `image_security` / `runtime_smoke` / `smoke_target` /
+  `secret_scan_config`), so an unconfigured project still gets the byte-identical
+  plain lint/test/deploy pipeline (`generate_woodpecker()` relies on emission
+  order, no `depends_on`, to stay out of DAG mode). New knowledge doc
+  `docs/skills/woodpecker-ci.md` documents the server+agent architecture, AWS-SM
+  secrets bootstrap, and the hard-won gotchas (two-layer Trivy DB drift, the
+  git-less `validate` container, gitleaks-first, gRPC port hygiene, digest
+  pinning). New install templates in `templates/woodpecker/` (parametrized
+  `bootstrap-secrets.py.example`, server + agent compose examples, README).
+  `/cicd:pipeline` and `/cicd:help` descriptions corrected from "GitHub Actions
+  only" to note the Woodpecker provider. 11 new codegen tests (backward-compat
+  byte-identity + each hardening stage + ordering). Ships as a CPP-native skill;
+  folds into the cicd plugin when the marketplace packaging (#442) lands.
+
 - **Browser session wrapper - named concurrent sessions (lease-desk)** (issue #421) -
   new `/browser:session` + `/browser:help` commands recover named **concurrent**
   browser sessions over upstream `@playwright/mcp` (the one feature upstream lacks,

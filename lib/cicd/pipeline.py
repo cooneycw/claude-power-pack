@@ -283,6 +283,16 @@ def generate_woodpecker(info: FrameworkInfo, config: CICDConfig) -> str:
     # Steps
     lines.append("steps:")
 
+    # Self-hosted CI hardening stages are opt-in (default off). Woodpecker runs
+    # steps sequentially in listed order when no step declares depends_on, so
+    # the correct order (secret-scan -> build -> image-security -> smoke ->
+    # deploy) falls out of emission order without switching to DAG mode.
+    wp = config.pipeline.woodpecker
+
+    # Secret-scan stage: self-hosted CI has no native secret scanning.
+    if wp.secret_scan:
+        lines.extend(_woodpecker_secret_scan_step(wp.secret_scan_config))
+
     # Use PR steps (superset for CI), fall back to main
     steps = branches.get("pr", branches.get("main", ["lint", "test"]))
 
@@ -294,6 +304,15 @@ def generate_woodpecker(info: FrameworkInfo, config: CICDConfig) -> str:
             lines.append(f"      - {cmd}")
         lines.append(f"      - make {step}")
         lines.append("")
+
+    # Image-security stage: Trivy config (Dockerfile/compose misconfig) +
+    # filesystem CVE scan. Self-contained (no image build required).
+    if wp.image_security:
+        lines.extend(_woodpecker_image_security_step())
+
+    # Runtime-smoke stage: post-build validation via a project make target.
+    if wp.runtime_smoke:
+        lines.extend(_woodpecker_runtime_smoke_step(image, install_cmds, wp.smoke_target))
 
     # Deploy step (only on main push)
     main_steps = branches.get("main", [])
@@ -346,6 +365,62 @@ def generate_woodpecker(info: FrameworkInfo, config: CICDConfig) -> str:
         lines.append("")
 
     return "\n".join(lines)
+
+
+def _woodpecker_secret_scan_step(gitleaks_config: str) -> list[str]:
+    """Emit a gitleaks secret-scan stage (self-hosted CI has none natively).
+
+    Falls back to gitleaks' built-in ruleset when the config file is absent, so
+    enabling the stage never breaks the build over a missing .gitleaks.toml.
+    (gitleaks_config is validated to safe path chars by WoodpeckerConfig.)
+    """
+    detect = (
+        f'if [ -f "{gitleaks_config}" ]; then '
+        f'gitleaks detect --source . --config "{gitleaks_config}" --verbose; '
+        f"else gitleaks detect --source . --verbose; fi"
+    )
+    return [
+        "  - name: secret-scan",
+        "    image: zricethezav/gitleaks:v8.30.1",
+        "    commands:",
+        f"      - {detect}",
+        "",
+    ]
+
+
+def _woodpecker_image_security_step() -> list[str]:
+    """Emit a Trivy config + filesystem CVE scan stage.
+
+    Self-contained: no image build (and therefore no privileged docker socket)
+    is required. Full built-image CVE scanning uses the docker-buildx plugin
+    pattern documented in docs/skills/woodpecker-ci.md.
+    """
+    return [
+        "  - name: image-security",
+        "    image: aquasec/trivy:0.66.0",
+        "    commands:",
+        "      # Dockerfile / compose misconfiguration scan + dependency CVE scan.",
+        "      # Fail only on fixed HIGH/CRITICAL findings (matches CPP policy).",
+        "      - trivy config --exit-code 1 --severity HIGH,CRITICAL .",
+        "      - trivy fs --exit-code 1 --severity HIGH,CRITICAL --ignore-unfixed .",
+        "",
+    ]
+
+
+def _woodpecker_runtime_smoke_step(
+    image: str, install_cmds: list[str], smoke_target: str
+) -> list[str]:
+    """Emit a post-build runtime-smoke stage wired to a project make target."""
+    out = [
+        "  - name: runtime-smoke",
+        f"    image: {image}",
+        "    commands:",
+    ]
+    for cmd in install_cmds:
+        out.append(f"      - {cmd}")
+    out.append(f"      - make {smoke_target}")
+    out.append("")
+    return out
 
 
 def _get_install_commands(fw: Framework, pm: PackageManager) -> list[str]:
