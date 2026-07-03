@@ -26,7 +26,7 @@ except Exception:  # pragma: no cover - driver is an optional runtime dep
 
 _LEARNING_COLS = (
     "id", "fingerprint", "friction_class", "fix_scope",
-    "title", "status", "confidence",
+    "title", "status", "confidence", "issue_url",
 )
 
 
@@ -68,7 +68,7 @@ class MemoryStore:
             with self._conn() as c:
                 row = c.execute(
                     "SELECT id, fingerprint, friction_class, fix_scope, title,"
-                    " status, confidence FROM learnings WHERE fingerprint = %s",
+                    " status, confidence, issue_url FROM learnings WHERE fingerprint = %s",
                     (fingerprint,),
                 ).fetchone()
         except Exception as e:  # noqa: BLE001
@@ -181,14 +181,14 @@ class MemoryStore:
                 if friction_class:
                     rows = c.execute(
                         "SELECT id,fingerprint,friction_class,fix_scope,title,status,"
-                        "confidence,created_at FROM learnings WHERE friction_class = %s"
+                        "confidence,issue_url,created_at FROM learnings WHERE friction_class = %s"
                         " ORDER BY created_at DESC LIMIT %s",
                         (friction_class, limit),
                     ).fetchall()
                 else:
                     rows = c.execute(
                         "SELECT id,fingerprint,friction_class,fix_scope,title,status,"
-                        "confidence,created_at FROM learnings"
+                        "confidence,issue_url,created_at FROM learnings"
                         " ORDER BY created_at DESC LIMIT %s",
                         (limit,),
                     ).fetchall()
@@ -214,6 +214,28 @@ class MemoryStore:
         except Exception as e:  # noqa: BLE001
             log.warning("cpp_memory sightings failed: %s", e)
             return []
+
+    def link_issue(self, fingerprint: str, issue_url: str) -> bool:
+        """Record the GitHub issue a learning was promoted to (#463).
+
+        First write wins (``WHERE issue_url IS NULL``) so re-running the retro on
+        an already-filed learning never overwrites or duplicates. Returns True
+        only when it set the URL; False if already set, learning missing, or the
+        store is unreachable (fail-open).
+        """
+        if not self.available():
+            return False
+        try:
+            with self._conn() as c:
+                cur = c.execute(
+                    "UPDATE learnings SET issue_url = %s, updated_at = now()"
+                    " WHERE fingerprint = %s AND issue_url IS NULL",
+                    (issue_url, fingerprint),
+                )
+                return cur.rowcount > 0
+        except Exception as e:  # noqa: BLE001
+            log.warning("cpp_memory link_issue failed: %s", e)
+            return False
 
     def init_db(self, schema_path: str | None = None) -> bool:
         """Apply the schema (idempotent)."""

@@ -32,6 +32,16 @@ Steps:
    fix in its proper home. Never send permission/repo_file learnings to the store.
 5. When I act on a stored learning here, record the outcome:
    `cpp-memory apply|reject --fingerprint <fp> --actor <me> --note "<why>"`.
+6. Promote to work (learnings->issue bridge, #463). If a portable learning is
+   actionable (names a concrete fix), record it with `--emit-issue-candidate`;
+   when `issue_candidate.should_file` is true, ask me to confirm, then
+   `gh issue create` in the repo the fix targets using `issue_candidate.body`
+   (it embeds a `<!-- cpp-learning: <fp> -->` marker), then
+   `cpp-memory link-issue --fingerprint <fp> --url <issue-url>`. A fix for a
+   skill that lives in its own standalone repo (an extracted plugin) files
+   there, not where the friction surfaced. Only portable + actionable learnings
+   become issues; never local/permission notes. Fail-open: no `gh` or no
+   network -> skip filing, keep the codify.
 
 Full routine: docs/skills/common-memory.md in the claude-power-pack repo.
 End with a short summary: signals found, recorded-to-shared, skipped-as-dup,
