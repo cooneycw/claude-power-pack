@@ -149,11 +149,48 @@ user approves:
   (additive, idempotent - never drop existing rules). Prefer `/cpp:update` /
   `/fewer-permission-prompts` when the rules match the shipped template.
 - **Makefile / hook / CLAUDE.md / gate** edits: apply with the Edit tool.
-- **portable knowledge**: hand to `/self-improvement:memory` (#433) when available.
+- **portable knowledge**: hand to `/self-improvement:memory` (#433) when available;
+  if it is **actionable** (portable AND names a concrete fix), also offer to file a
+  tracked GitHub issue (Step 5b).
 
 Never auto-apply without confirmation. `permissions.allow` changes in particular
 are always human-confirmed on the machine they affect (trust boundary). `--dry-run`
 stops after the report.
+
+### Step 5b: Promote actionable learnings to GitHub issues (learnings->issue bridge, #463)
+
+A portable learning that names a concrete fix should not just sit in the store - it
+should become tracked work. After such a learning is confirmed and recorded, ask the
+shared-store CLI for an issue candidate:
+
+```bash
+cpp-memory record --class <infra_trap|knowledge> --scope knowledge \
+    --title "<stable title>" --body "<reusable knowledge>" \
+    --fix "<the concrete fix>" --repo "<repo-name>" --emit-issue-candidate
+```
+
+If the JSON `issue_candidate.should_file` is true (the learning is **actionable** -
+portable AND carries a fix - and has no `issue_url` yet), offer to file it:
+
+1. **Confirm** with the user (per-learning y/N; never auto-file).
+2. **Route** to the target repo (`issue_candidate.repo`, derived from the learning's
+   source repo; confirm/override at file time; default to the current repo).
+3. **Create** the issue with the candidate body (it embeds a
+   `<!-- cpp-learning: <fp> -->` marker for marker-based dedup):
+   ```bash
+   gh issue create --repo <repo> --title "<issue_candidate.title>" --body "<issue_candidate.body>"
+   ```
+4. **Link** the URL back onto the learning so it is never re-filed:
+   ```bash
+   cpp-memory link-issue --fingerprint <fp> --url <issue-url>
+   ```
+
+**Guards (hard rules):** only portable + actionable learnings become issues - never
+local/permission notes, never a pure "watch out for X" note with no fix. Dedup is
+belt-and-suspenders: the `issue_url` column (first-write-wins) AND the fingerprint
+marker (search open issues for the marker before creating). Fail-open: no `gh`, no
+network, or store unreachable -> skip issue creation, keep the local + shared codify,
+never block.
 
 ### Step 6: Codify to the ledger (persist the decision)
 
@@ -170,6 +207,7 @@ outcomes so nothing is re-proposed next run:
 - Scope: <local | portable>
 - Status: <applied | rejected | superseded>
 - Fix: <the concrete change or rule>
+- Issue: <github issue url filed via the bridge, or n/a>
 - Rationale: <why applied/rejected>
 ```
 

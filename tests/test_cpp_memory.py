@@ -16,8 +16,12 @@ from lib.cpp_memory import (
     Learning,
     MemoryStore,
     append_local_learning,
+    is_actionable,
     is_portable,
+    issue_body,
+    issue_marker,
     resolve_dsn,
+    should_file_issue,
 )
 from lib.cpp_memory import cli as cli_mod
 from lib.cpp_memory import client as client_mod
@@ -279,3 +283,108 @@ class TestCli:
         out = json.loads(capsys.readouterr().out)
         assert rc == 1
         assert out["reject"] is False
+
+
+# --------------------------------------------------------------------------- #
+# learnings -> GitHub issue bridge (#463)
+# --------------------------------------------------------------------------- #
+class TestActionable:
+    def test_portable_with_fix_is_actionable(self):
+        learning = Learning("knowledge", "knowledge", "t", "b", proposed_fix="do X")
+        assert is_actionable(learning) is True
+        assert learning.actionable is True
+
+    def test_portable_without_fix_is_not_actionable(self):
+        # A "watch out for X" note with no concrete fix is knowledge, not work.
+        assert is_actionable(Learning("knowledge", "knowledge", "t", "b")) is False
+        assert is_actionable(Learning("infra_trap", "knowledge", "t", "b", proposed_fix="   ")) is False
+
+    def test_non_portable_is_never_actionable(self):
+        # Even with a fix, a permission learning must never become a shared issue.
+        assert is_actionable(Learning("permission", "permission", "t", "b", proposed_fix="do X")) is False
+
+
+class TestShouldFileIssue:
+    def test_actionable_and_unfiled_files(self):
+        assert should_file_issue(True, None) is True
+        assert should_file_issue(True, "") is True
+        assert should_file_issue(True, "   ") is True
+
+    def test_already_filed_does_not_refile(self):
+        assert should_file_issue(True, "https://github.com/o/r/issues/1") is False
+
+    def test_non_actionable_never_files(self):
+        assert should_file_issue(False, None) is False
+        assert should_file_issue(False, "https://github.com/o/r/issues/1") is False
+
+
+class TestIssueBody:
+    def test_marker_is_html_comment_with_fingerprint(self):
+        marker = issue_marker("abc123")
+        assert marker == "<!-- cpp-learning: abc123 -->"
+
+    def test_body_carries_marker_fix_and_provenance(self):
+        learning = Learning(
+            "infra_trap", "knowledge", "gRPC :9001 is Tailscale-only",
+            "the woodpecker gRPC port is not on the LAN", proposed_fix="use the tailnet addr",
+        )
+        body = issue_body(learning, source_repo="agentic-asst")
+        assert issue_marker(learning.fingerprint) in body      # dedup marker
+        assert "use the tailnet addr" in body                  # the fix
+        assert "the woodpecker gRPC port is not on the LAN" in body
+        assert learning.fingerprint in body                    # provenance
+        assert "agentic-asst" in body                          # source repo
+
+
+class TestLinkIssueFailOpen:
+    def test_link_issue_benign_when_down(self, down_store):
+        assert down_store.link_issue("deadbeef", "https://github.com/o/r/issues/1") is False
+
+
+class TestCliBridge:
+    def test_record_emits_issue_candidate_for_actionable(self, cli_offline, capsys, tmp_path):
+        rc = cli_mod.main([
+            "record", "--class", "infra_trap", "--scope", "knowledge",
+            "--title", "gh merge from worktree fails", "--body", "main already checked out",
+            "--fix", "run from the main repo", "--repo", str(tmp_path),
+            "--emit-issue-candidate",
+        ])
+        out = json.loads(capsys.readouterr().out)
+        assert rc == 0
+        cand = out["issue_candidate"]
+        assert cand["actionable"] is True
+        assert cand["should_file"] is True          # store down -> no existing url -> file (fail-open)
+        assert cand["marker"] in cand["body"]
+        assert cand["repo"] == str(tmp_path)
+
+    def test_record_no_candidate_flag_omits_block(self, cli_offline, capsys, tmp_path):
+        rc = cli_mod.main([
+            "record", "--class", "knowledge", "--scope", "knowledge",
+            "--title", "t", "--body", "b", "--fix", "do X", "--repo", str(tmp_path),
+        ])
+        out = json.loads(capsys.readouterr().out)
+        assert rc == 0
+        assert "issue_candidate" not in out
+
+    def test_record_candidate_not_fileable_without_fix(self, cli_offline, capsys, tmp_path):
+        rc = cli_mod.main([
+            "record", "--class", "knowledge", "--scope", "knowledge",
+            "--title", "just a note", "--body", "b", "--repo", str(tmp_path),
+            "--emit-issue-candidate",
+        ])
+        out = json.loads(capsys.readouterr().out)
+        assert rc == 0
+        assert out["issue_candidate"]["actionable"] is False
+        assert out["issue_candidate"]["should_file"] is False
+
+    def test_link_issue_benign_when_down(self, cli_offline, capsys):
+        rc = cli_mod.main(["link-issue", "--fingerprint", "deadbeef", "--url", "https://github.com/o/r/issues/1"])
+        out = json.loads(capsys.readouterr().out)
+        assert rc == 1
+        assert out["linked"] is False
+
+    def test_query_reports_has_issue_false_when_down(self, cli_offline, capsys):
+        rc = cli_mod.main(["query", "--fingerprint", "deadbeef"])
+        out = json.loads(capsys.readouterr().out)
+        assert rc == 0
+        assert out["has_issue"] is False

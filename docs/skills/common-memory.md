@@ -31,6 +31,8 @@ cpp-memory record --class knowledge --scope knowledge \
     --title "<stable title>" --body "<reusable knowledge>" \
     --fix "<optional remediation>" --confidence 0.8 --repo "<repo-name>"
 cpp-memory record --local-only --class permission --scope permission ...  # stays local
+cpp-memory record ... --emit-issue-candidate                              # + issue_candidate block (#463)
+cpp-memory link-issue --fingerprint <fp> --url <github-issue-url>         # record the filed issue
 cpp-memory apply  --fingerprint <fp> --actor <user> --note "<what changed>"
 cpp-memory reject --fingerprint <fp> --actor <user> --note "<why not>"     # stops re-proposal
 ```
@@ -57,6 +59,13 @@ routine never blocks.
    fix in its proper home (git edit / per-machine `settings.json`); never share.
 6. **Bookkeeping.** When a stored learning is acted on here, `cpp-memory apply` or
    `reject` so other runs and VMs see the outcome.
+7. **Promote to work (learnings->issue bridge, #463).** If a portable learning is
+   **actionable** (names a concrete fix), record it with `--emit-issue-candidate`;
+   when `issue_candidate.should_file` is true, confirm with the user, `gh issue
+   create` in the candidate's repo using `issue_candidate.body` (it embeds a
+   `<!-- cpp-learning: <fp> -->` marker), then `cpp-memory link-issue` the URL back.
+   Only portable + actionable learnings become issues; dedup is the `issue_url`
+   column (first-write-wins) plus the marker; fail-open if `gh` is unavailable.
 
 ## DSN / federation
 
