@@ -69,8 +69,11 @@ for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-p
   if [ -d "$dir/lib/cicd" ]; then CPP_DIR="$dir"; break; fi
 done
 
-if [ -n "$CPP_DIR" ] && [ ! -f "Makefile" ]; then
-  DETECTED=$(PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -c "
+# Invoke lib.cicd via uv so its deps (pydantic) resolve under a pinned >= 3.11
+# interpreter; PYTHONPATH points at CPP_DIR (parent of lib/) so `-m lib.cicd`
+# resolves from any project cwd. Bare python3 crashes in a venv-less tree (#430).
+if [ -n "$CPP_DIR" ] && [ ! -f "Makefile" ] && command -v uv >/dev/null 2>&1; then
+  DETECTED=$(PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -c "
 from lib.cicd.detector import detect_framework
 info = detect_framework('.')
 print(f'{info.framework.value}:{info.package_manager.value}')
@@ -180,11 +183,11 @@ If `CPP_DIR` is found, run these checks:
 # 1. cicd.yml config file
 [ -f ".claude/cicd.yml" ] && echo "PASS cicd.yml" || echo "MISSING cicd.yml"
 
-# 2. Framework detection
-PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -m lib.cicd detect --quiet 2>/dev/null
+# 2. Framework detection (via uv so deps resolve; PYTHONPATH=CPP_DIR, see #430)
+PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd detect --quiet 2>/dev/null
 
 # 3. Makefile completeness (uses lib/cicd check)
-PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -m lib.cicd check --summary 2>/dev/null
+PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd check --summary 2>/dev/null
 
 # 4. Health check configuration
 grep -q "endpoints:" .claude/cicd.yml 2>/dev/null && echo "PASS health endpoints" || echo "MISSING health endpoints"

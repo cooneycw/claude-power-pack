@@ -245,17 +245,41 @@ ISSUE_NUM=$(echo "$BRANCH" | grep -oP 'issue-\K[0-9]+' || echo "")
      fi
    done
 
-   if [ -n "$CPP_DIR" ]; then
-       PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -m lib.cicd run --plan finish
+   RUNNER_RAN=0
+   if [ -n "$CPP_DIR" ] && command -v uv >/dev/null 2>&1; then
+       # Invoke through uv so lib/cicd's deps (pydantic) resolve and the
+       # interpreter is pinned >= 3.11. Bare `python3 -m lib.cicd` uses the
+       # system interpreter (often 3.10, no venv) inside a fresh worktree and
+       # dies on ModuleNotFoundError - silently degrading to the fallback in
+       # exactly the environment /flow:auto always creates (issue #430).
+       # PYTHONPATH must point at CPP_DIR (the PARENT of lib/) so `-m lib.cicd`
+       # resolves for external projects too, not just when dogfooding CPP.
+       PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd run --plan finish
        RUNNER_EXIT=$?
+       RUNNER_RAN=1
+   fi
+
+   if [ "$RUNNER_RAN" -eq 0 ]; then
+       REASON=$([ -z "$CPP_DIR" ] && echo "CPP checkout not found" || echo "uv not installed")
+       echo "NOTE: deterministic runner unavailable ($REASON); using Makefile fallback." >&2
    fi
    ```
 
-   - If runner succeeds (exit 0): quality gates passed, proceed to commit.
-   - If runner fails: parse JSON output, report the failed step, **STOP**.
+   - If runner ran and **succeeds** (exit 0): quality gates passed, proceed to commit.
+   - If runner ran and **fails**: parse JSON output, report the failed step, **STOP**.
 
-   **Fallback** (only if runner unavailable): Run `make lint` and `make test` directly.
+   **Fallback** (only when the runner did not run, `RUNNER_RAN=0`): Run `make lint` and `make test` directly (these bootstrap the venv via `uv run`).
    - If either fails: **STOP**. Report the failure and exit.
+
+   **Ignored-additions guard** (issue #430, Finding 1): before committing, warn
+   if a blanket `.gitignore` rule silently swallowed a new file you meant to
+   track (`git add` no-ops with no error):
+   ```bash
+   if [ -n "$CPP_DIR" ] && [ -x "$CPP_DIR/scripts/check-ignored-additions.sh" ]; then
+       "$CPP_DIR/scripts/check-ignored-additions.sh"   # advisory: warns, never blocks
+   fi
+   ```
+   If it warns, add a `!negation` to `.gitignore` for any intended file and re-stage.
 
 2. **Commit** - if there are uncommitted changes:
    - Use conventional commit format: `type(scope): Description (Closes #N)`

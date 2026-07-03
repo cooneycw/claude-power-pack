@@ -29,7 +29,7 @@ Core components and their locations:
 - `lib/creds/` - Secrets management (dotenv/AWS SM, FastAPI UI, audit logging)
 - `lib/security/` - Security scanning (native + external tools)
 - `lib/cicd/` - CI/CD framework detection, Makefile generation, health/smoke checks, deterministic runner, deployment strategies, Pydantic v2 config validation
-- `scripts/` - Shell utilities (prompt-context, worktree-remove, hooks, drift-detect, skill-drift, mcp-drift, speckit-tasks-to-issues, playwright-desk lease-desk ledger)
+- `scripts/` - Shell utilities (prompt-context, worktree-remove, hooks, drift-detect, skill-drift, mcp-drift, speckit-tasks-to-issues, playwright-desk lease-desk ledger, check-ignored-additions)
 - `templates/` - Makefile, workflow, container templates
 - `docker-compose.yml` - MCP server orchestration (profiles: `core`, `browser`)
 - `.woodpecker.yml` - Woodpecker CI pipeline (lint, test, typecheck, image security gates, runtime smoke)

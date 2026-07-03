@@ -34,15 +34,28 @@ for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-p
   fi
 done
 
-if [ -n "$CPP_DIR" ]; then
-    PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -m lib.cicd run --plan finish
+RUNNER_RAN=0
+if [ -n "$CPP_DIR" ] && command -v uv >/dev/null 2>&1; then
+    # Invoke through uv so lib/cicd's deps (pydantic) resolve and the
+    # interpreter is pinned >= 3.11. Bare `python3 -m lib.cicd` uses the
+    # system interpreter (often 3.10, no venv) inside a fresh worktree and
+    # dies on ModuleNotFoundError, silently degrading to the fallback (#430).
+    # PYTHONPATH must point at CPP_DIR (the PARENT of lib/) so `-m lib.cicd`
+    # resolves for external projects too, not just when dogfooding CPP.
+    PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd run --plan finish
     RUNNER_EXIT=$?
+    RUNNER_RAN=1
+fi
+
+if [ "$RUNNER_RAN" -eq 0 ]; then
+    REASON=$([ -z "$CPP_DIR" ] && echo "CPP checkout not found" || echo "uv not installed")
+    echo "NOTE: deterministic runner unavailable ($REASON); using Makefile fallback." >&2
 fi
 ```
 
-- If runner **succeeds** (exit 0): quality gates passed, skip to Step 2d.
-- If runner **fails** (exit non-zero): parse the JSON output for the failed step, report it, and **stop**.
-- If runner is **not available** (no CPP_DIR or import error): fall back to manual execution below.
+- If runner ran and **succeeds** (exit 0): quality gates passed, skip to Step 2d.
+- If runner ran and **fails** (exit non-zero): parse the JSON output for the failed step, report it, and **stop**.
+- If the runner **did not run** (`RUNNER_RAN=0` - no CPP_DIR or no uv): fall back to manual execution below.
 
 **Fallback path** (only if runner unavailable):
 
@@ -134,11 +147,15 @@ for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-p
 done
 ```
 
-If `CPP_DIR` is found and a Makefile exists:
+If `CPP_DIR` is found, `uv` is available, and a Makefile exists (invoke via
+`uv run` so `lib/cicd`'s deps resolve under a pinned >= 3.11 interpreter - bare
+`python3` crashes in a fresh worktree, see #430):
 
 ```bash
-PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -m lib.cicd check --summary
-CHECK_EXIT=$?
+if command -v uv >/dev/null 2>&1; then
+    PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd check --summary
+    CHECK_EXIT=$?
+fi
 ```
 
 - If check reports **missing required targets**: display as a warning but **do NOT block**.
@@ -158,6 +175,20 @@ CHECK_EXIT=$?
 # Check for uncommitted changes
 git status --porcelain
 ```
+
+**Guard against silently-ignored new files** (issue #430, Finding 1). A
+blanket `.gitignore` rule (e.g. `*.json`) can swallow a file you meant to
+commit - `git add` no-ops with no error. Surface it before committing:
+
+```bash
+if [ -n "$CPP_DIR" ] && [ -x "$CPP_DIR/scripts/check-ignored-additions.sh" ]; then
+    "$CPP_DIR/scripts/check-ignored-additions.sh"   # advisory: warns, never blocks
+fi
+```
+
+- If it warns, confirm each listed file is genuinely scratch. If any is an
+  intended addition, add a `!negation` to `.gitignore` (or narrow the blanket
+  rule) and re-stage before committing.
 
 - If there are uncommitted changes, help the user commit them using standard git commit workflow.
 - Use conventional commit format: `type(scope): Description (Closes #N)`
