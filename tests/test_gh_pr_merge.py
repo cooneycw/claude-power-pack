@@ -28,20 +28,47 @@ def _write_stub(path: Path, body: str) -> None:
     path.chmod(0o755)
 
 
-def _make_stubs(tmp_path: Path, *, merge_exit: int = 0, pr_state: str = "MERGED") -> dict:
-    """Create fake gh/git that log their args and honour a scripted outcome."""
+def _make_stubs(
+    tmp_path: Path,
+    *,
+    merge_exit: int = 0,
+    pr_state: str = "MERGED",
+    mergeable: str | list[str] = "MERGEABLE",
+) -> dict:
+    """Create fake gh/git that log their args and honour a scripted outcome.
+
+    ``mergeable`` scripts the ``gh pr view --json mergeable`` poll (issue #485):
+    pass a single value, or a sequence consumed one value per poll (staying on
+    the last once exhausted) to model a transient UNKNOWN that resolves.
+    """
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     call_log = tmp_path / "calls.log"
 
-    # gh: log argv; `pr merge` exits merge_exit; `pr view ... state` echoes pr_state.
+    # Persist the mergeability sequence + a counter the gh stub advances per poll.
+    seq_file = tmp_path / "mergeable_seq"
+    ctr_file = tmp_path / "mergeable_ctr"
+    vals = [mergeable] if isinstance(mergeable, str) else list(mergeable)
+    seq_file.write_text("\n".join(vals) + "\n")
+
+    # gh: log argv; `pr merge` exits merge_exit; `pr view --json mergeable` echoes
+    # the next scripted mergeable value; any other `pr view` echoes pr_state.
     _write_stub(
         bin_dir / "gh",
         f'echo "gh $*" >> "{call_log}"\n'
         'if [[ "$1 $2" == "pr merge" ]]; then\n'
         f"  exit {merge_exit}\n"
         'elif [[ "$1 $2" == "pr view" ]]; then\n'
-        f'  echo "{pr_state}"\n'
+        '  if [[ "$*" == *mergeable* ]]; then\n'
+        f'    ctr=$(cat "{ctr_file}" 2>/dev/null || echo 0)\n'
+        f'    mapfile -t vals < "{seq_file}"\n'
+        "    idx=$ctr\n"
+        "    if (( idx >= ${#vals[@]} )); then idx=$(( ${#vals[@]} - 1 )); fi\n"
+        '    echo "${vals[$idx]}"\n'
+        f'    echo $(( ctr + 1 )) > "{ctr_file}"\n'
+        "  else\n"
+        f'    echo "{pr_state}"\n'
+        "  fi\n"
         "  exit 0\n"
         "fi\n"
         "exit 0\n",
@@ -60,6 +87,7 @@ def _run(cwd: Path, stubs: dict, *args: str) -> subprocess.CompletedProcess[str]
     env = os.environ.copy()
     env["GH_PR_MERGE_GH"] = stubs["GH_PR_MERGE_GH"]
     env["GH_PR_MERGE_GIT"] = stubs["GH_PR_MERGE_GIT"]
+    env["GH_PR_MERGE_POLL_DELAY"] = "0"  # keep the mergeability poll instant in tests
     return subprocess.run(
         ["bash", str(SCRIPT), *args],
         check=False,
@@ -148,6 +176,52 @@ def test_primary_repo_nonzero_but_merged_is_success(tmp_path: Path):
     result = _run(_primary_repo(tmp_path), stubs, "42", "issue-461-fix")
     assert result.returncode == 0, result.stderr
     assert "merged" in result.stdout
+
+
+def test_transient_unknown_then_mergeable_proceeds(tmp_path: Path):
+    # Issue #485: right after a push, mergeable is UNKNOWN for a beat, then
+    # resolves to MERGEABLE. The poll must wait it out and still merge.
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        mergeable=["UNKNOWN", "UNKNOWN", "MERGEABLE"],
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-485-fix")
+    assert result.returncode == 0, result.stderr
+    assert "merged" in result.stdout
+    calls = _calls(stubs)
+    # Polled mergeability more than once (waited out the transient) ...
+    poll_calls = [c for c in calls if c.startswith("gh pr view") and "mergeable" in c]
+    assert len(poll_calls) >= 2, calls
+    # ... and did go on to attempt the squash-merge.
+    assert any(c.startswith("gh pr merge") for c in calls), calls
+
+
+def test_conflicting_stops_before_merge(tmp_path: Path):
+    # A genuinely CONFLICTING PR must stop with a clear message and never attempt
+    # the merge.
+    stubs = _make_stubs(tmp_path, mergeable="CONFLICTING")
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-485-fix")
+    assert result.returncode == 1
+    assert "CONFLICTING" in result.stderr
+    calls = _calls(stubs)
+    assert not any(c.startswith("gh pr merge") for c in calls), "must not merge a CONFLICTING PR"
+
+
+def test_persistent_unknown_fails_open_and_merges(tmp_path: Path):
+    # If mergeability never resolves (stays UNKNOWN through every attempt), fail
+    # open: attempt the merge anyway and let the post-merge MERGED check decide.
+    stubs = _make_stubs(tmp_path, merge_exit=0, pr_state="MERGED", mergeable="UNKNOWN")
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-485-fix")
+    assert result.returncode == 0, result.stderr
+    assert "merged" in result.stdout
+    assert "UNKNOWN" in result.stderr  # surfaced the fail-open note
+    calls = _calls(stubs)
+    # Exhausted the default 5 attempts, then merged anyway.
+    poll_calls = [c for c in calls if c.startswith("gh pr view") and "mergeable" in c]
+    assert len(poll_calls) == 5, poll_calls
+    assert any(c.startswith("gh pr merge") for c in calls), calls
 
 
 def test_flow_commands_wire_the_helper():

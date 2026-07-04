@@ -16,6 +16,16 @@
 #   merge and stop - a false negative that cost a full re-diagnosis on flow:auto
 #   #433.
 #
+# Transient un-mergeability (issue #485):
+#   Right after a `git push`, GitHub is still asynchronously computing the PR's
+#   mergeability, so `gh pr view --json mergeable` returns UNKNOWN for a beat and a
+#   raw `gh pr merge` fails with "Pull Request is not mergeable". That is a purely
+#   transient blip - a re-check moments later returns MERGEABLE and the squash
+#   succeeds. To stop that from being a false STOP, poll mergeability before the
+#   merge: proceed only on MERGEABLE, hard-stop on a genuine CONFLICTING, and
+#   fail-open (attempt the merge anyway) if it never resolves - the post-merge
+#   MERGED-state check below stays the final backstop.
+#
 # This wrapper makes the merge layout-aware:
 #   * Linked worktree (cwd's `.git` is a FILE): run `gh pr merge --squash` WITHOUT
 #     --delete-branch so gh never attempts the local branch switch, then delete the
@@ -31,8 +41,10 @@
 # Exit:   0 if the PR is merged on the remote; 1 only if it genuinely did not merge.
 #
 # Env (test hooks - unset in normal use):
-#   GH_PR_MERGE_GH   override the `gh` binary (default: gh)
-#   GH_PR_MERGE_GIT  override the `git` binary (default: git)
+#   GH_PR_MERGE_GH             override the `gh` binary (default: gh)
+#   GH_PR_MERGE_GIT            override the `git` binary (default: git)
+#   GH_PR_MERGE_POLL_ATTEMPTS  mergeability poll attempts (default: 5)
+#   GH_PR_MERGE_POLL_DELAY     seconds between poll attempts (default: 2)
 
 set -uo pipefail
 
@@ -50,6 +62,46 @@ GIT_BIN="${GH_PR_MERGE_GIT:-git}"
 # A linked worktree has a `.git` FILE (a gitdir pointer); the primary repo has a
 # `.git` DIRECTORY. This is the exact condition under which --delete-branch trips.
 in_linked_worktree() { [[ -f .git ]]; }
+
+# Wait out a transient `mergeable=UNKNOWN` before attempting the squash (issue
+# #485). Returns 0 to proceed (MERGEABLE, or fail-open after the poll never
+# resolved), 1 to stop (genuine CONFLICTING).
+poll_mergeable() {
+    local attempts="${GH_PR_MERGE_POLL_ATTEMPTS:-5}"
+    local delay="${GH_PR_MERGE_POLL_DELAY:-2}"
+    local i mergeable
+    for ((i = 1; i <= attempts; i++)); do
+        mergeable=$("$GH_BIN" pr view "$PR_NUMBER" --json mergeable --jq '.mergeable' 2>/dev/null)
+        case "$mergeable" in
+            MERGEABLE)
+                return 0
+                ;;
+            CONFLICTING)
+                echo "error: PR #$PR_NUMBER is not mergeable (mergeable: CONFLICTING) -" \
+                     "resolve the conflicts, then re-run." >&2
+                return 1
+                ;;
+            *)
+                # UNKNOWN or empty: GitHub is still computing mergeability. Wait and
+                # retry, unless this was the last attempt (then fall through to
+                # fail-open below).
+                if [[ $i -lt $attempts ]]; then
+                    sleep "$delay"
+                fi
+                ;;
+        esac
+    done
+    # Never resolved - fail open: attempt the merge and let the post-merge
+    # MERGED-state verification be the arbiter, rather than STOP on a transient.
+    echo "note: mergeability still UNKNOWN for PR #$PR_NUMBER after $attempts" \
+         "check(s); attempting the merge anyway (post-merge state check is the" \
+         "backstop)." >&2
+    return 0
+}
+
+if ! poll_mergeable; then
+    exit 1
+fi
 
 if in_linked_worktree; then
     "$GH_BIN" pr merge "$PR_NUMBER" --squash
