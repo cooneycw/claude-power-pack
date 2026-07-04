@@ -1,0 +1,13 @@
+{
+  "name": "second-opinion",
+  "description": "Cross-vendor second-opinion code review client: /second-opinion:start quick reviews with sensible defaults, /second-opinion:models model/depth selection. Pairs with the external mcp-second-opinion server (github.com/cooneycw/mcp-second-opinion).",
+  "version": "1.0.0",
+  "author": {
+    "name": "cooneycw",
+    "url": "https://github.com/cooneycw"
+  },
+  "homepage": "https://github.com/cooneycw/claude-power-pack",
+  "repository": "https://github.com/cooneycw/claude-power-pack",
+  "license": "MIT",
+  "keywords": ["code-review", "second-opinion", "cross-vendor", "mcp"]
+}

@@ -6,13 +6,13 @@
 
 - **Workflow commands** (`/flow:auto`, `/flow:start`, `/flow:eli5`, `/flow:finish`) - Issue-driven development with worktrees, a pre-implementation ELI5 plan/necessity approval gate, quality gates, automated PR lifecycle, and CI verification. The necessity gate also ships standalone as [eli5-gate](https://github.com/cooneycw/eli5-gate) - installable without CPP via `/plugin marketplace add cooneycw/eli5-gate` or `npx skills add cooneycw/eli5-gate`; CPP vendors its canonical core (file gate improvements there)
 - **MCP servers** extending Claude Code's capabilities:
-  - **Second Opinion** (port 8080, containerized) - Multi-model code review via external LLMs (Gemini, OpenAI, Anthropic)
+  - **Second Opinion** - Multi-model code review via external LLMs (Gemini, OpenAI, Anthropic), served by the external `cooneycw/mcp-second-opinion` repo and wired in through the root `.mcp.json` (streamable-http)
   - **Browser automation** - upstream `@playwright/mcp` server (npx/stdio, no container), registered by `/cpp:init`
 - **PowerPoint generation** - Slide decks via the native Anthropic `pptx` skill (`npx skills add anthropics/skills@pptx`)
 - **Security scanning** (`/security:scan`) - Native vulnerability detection with git history analysis
 - **Secrets management** (`/secrets:*`) - Tiered credential storage (dotenv, env-file, AWS Secrets Manager) with audit logging and a web UI
 - **CI/CD integration** (`/cicd:*`) - Framework detection, Makefile generation, health checks, and IaC scaffolding
-- **Woodpecker CI** - Self-hosted pipeline with image security gates, isolated MCP runtime smoke tests, and programmatic status polling
+- **Woodpecker CI** - Self-hosted pipeline (secret-scan, lint, test, typecheck, Dockerfile lint) with programmatic status polling
 - **Project scaffolding** (`/project:init`) - Zero-to-GitHub-repo setup with Makefile, CI pipeline, and Docker config
 - **Skills ecosystem** - Discover, install, and manage agent skills from [skills.sh](https://skills.sh/) via native `npx skills` and the `/plugin` marketplace (the CPP `/skills:*` wrapper was retired in issue #437)
 - **Secret-masking hook** - a PostToolUse hook masks secrets (connection strings, API keys, env vars) in Bash/Read output; destructive commands are handled by Claude Code's native git auto-blocking + OS sandbox
@@ -21,7 +21,7 @@
 
 - Python 3.11+
 - [uv](https://docs.astral.sh/uv/) package manager
-- Docker (for MCP servers)
+- Docker (optional - only to run the external second-opinion server locally, or as the gitleaks fallback for `make secret-scan`)
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI
 - GitHub CLI (`gh`) for issue/PR workflows
 
@@ -56,7 +56,7 @@ claude-power-pack/
   .claude/hooks.json    Safety hooks (pre/post tool use)
   .mcp.json             Client pointer for the external second-opinion server
   .claude-plugin/       Plugin-marketplace manifest (marketplace name: cpp)
-  plugins/flow/         POC flow plugin: /plugin install flow@cpp (#477, ADR 0001)
+  plugins/              Per-family plugins (15): /plugin install <family>@cpp (#477/#478, ADR 0001)
   lib/creds/            Secrets management library
   lib/security/         Security scanning library
   lib/cicd/             CI/CD framework detection and generation

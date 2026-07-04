@@ -1,0 +1,13 @@
+{
+  "name": "cpp",
+  "description": "Claude Power Pack cross-cutting help/meta: /cpp:help maps every CPP command family and the native features CPP defers to. The legacy /cpp:init|update|status symlink installer stays repo-local (it retires in Phase B4) and is not part of this plugin.",
+  "version": "1.0.0",
+  "author": {
+    "name": "cooneycw",
+    "url": "https://github.com/cooneycw"
+  },
+  "homepage": "https://github.com/cooneycw/claude-power-pack",
+  "repository": "https://github.com/cooneycw/claude-power-pack",
+  "license": "MIT",
+  "keywords": ["help", "meta", "claude-power-pack"]
+}

@@ -1,0 +1,13 @@
+{
+  "name": "codex",
+  "description": "Codex CLI orchestration from Claude Code: /codex:ask read-only delegation, /codex:exec one-shot runs with JSONL monitoring, /codex:auto full issue lifecycle delegation, /codex:status readiness checks.",
+  "version": "1.0.0",
+  "author": {
+    "name": "cooneycw",
+    "url": "https://github.com/cooneycw"
+  },
+  "homepage": "https://github.com/cooneycw/claude-power-pack",
+  "repository": "https://github.com/cooneycw/claude-power-pack",
+  "license": "MIT",
+  "keywords": ["codex", "delegation", "cross-vendor", "orchestration"]
+}

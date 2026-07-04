@@ -7,9 +7,79 @@
   },
   "plugins": [
     {
+      "name": "browser",
+      "source": "./plugins/browser",
+      "description": "Named concurrent browser sessions over the upstream @playwright/mcp server via a lease-desk pool: /browser:session and /browser:help."
+    },
+    {
+      "name": "cicd",
+      "source": "./plugins/cicd",
+      "description": "CI/CD automation: Makefile init/check, pipeline codegen (GitHub Actions or self-hosted Woodpecker), container generation, health checks, smoke tests, deploy verification, and tiered IaC scaffolding."
+    },
+    {
+      "name": "claude-md",
+      "source": "./plugins/claude-md",
+      "description": "CLAUDE.md management: lint for missing CI/CD, Docker, and troubleshooting directives."
+    },
+    {
+      "name": "codex",
+      "source": "./plugins/codex",
+      "description": "Codex CLI orchestration: read-only delegation (/codex:ask), one-shot exec with JSONL monitoring, full issue lifecycle delegation (/codex:auto), and readiness checks."
+    },
+    {
+      "name": "cpp",
+      "source": "./plugins/cpp",
+      "description": "Claude Power Pack cross-cutting help/meta: /cpp:help maps every CPP command family. Help-only by design (ADR 0001); the legacy symlink installer is not distributed as a plugin."
+    },
+    {
+      "name": "documentation",
+      "source": "./plugins/documentation",
+      "description": "Documentation and diagrams: C4 architecture diagrams as GitHub-renderable Mermaid (/documentation:c4) and PowerPoint generation (/documentation:pptx)."
+    },
+    {
+      "name": "evaluate",
+      "source": "./plugins/evaluate",
+      "description": "Multi-model evaluation flow for issues, ideas, and architectural decisions (/evaluate:issue)."
+    },
+    {
       "name": "flow",
       "source": "./plugins/flow",
       "description": "Worktree-based GitHub issue lifecycle: start, eli5 necessity gate, check, finish, merge, deploy, auto, sync, cleanup, status, and doctor. Issue-anchored branch naming and quality gates, no locks or Redis - just git."
+    },
+    {
+      "name": "github",
+      "source": "./plugins/github",
+      "description": "GitHub issue management: create, list, view, update, and close issues from Claude Code (/github:issue-*)."
+    },
+    {
+      "name": "project",
+      "source": "./plugins/project",
+      "description": "Project scaffolding: /project:init zero-to-GitHub-repo orchestration (repo creation, CLAUDE.md via native /init, CI/CD wiring)."
+    },
+    {
+      "name": "qa",
+      "source": "./plugins/qa",
+      "description": "Automated web QA: /qa:test drives browser-based test runs against a running application."
+    },
+    {
+      "name": "second-opinion",
+      "source": "./plugins/second-opinion",
+      "description": "Cross-vendor second-opinion code review client commands (/second-opinion:start, /second-opinion:models); pairs with the external mcp-second-opinion server."
+    },
+    {
+      "name": "secrets",
+      "source": "./plugins/secrets",
+      "description": "Secrets lifecycle with masking: set, get, list, rotate, delete, validate, run-with-secrets, and a web UI (/secrets:*)."
+    },
+    {
+      "name": "security",
+      "source": "./plugins/security",
+      "description": "Security scanning: quick/full/deep scans (gitleaks, git history, pip-audit), finding explanations, and risk-graded permission audits (/security:*)."
+    },
+    {
+      "name": "self-improvement",
+      "source": "./plugins/self-improvement",
+      "description": "Self-improvement loops: post-run friction retro + codify, deployment retrospectives, and the fleet-wide friction-knowledge ledger (/self-improvement:*)."
     }
   ]
 }

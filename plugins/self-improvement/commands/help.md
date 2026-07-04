@@ -1,0 +1,72 @@
+---
+description: Overview of self-improvement commands
+---
+
+# Self-Improvement Commands
+
+Retrospective analysis commands that examine recent failures and suggest improvements to project tooling.
+
+## Commands
+
+| Command | Purpose |
+|---------|---------|
+| `/self-improvement:retro` | Post-run friction retro (the grill-me cycle): capture -> classify -> dedup -> propose -> confirm -> codify durable fixes |
+| `/self-improvement:deployment` | Analyze deployment errors and propose Makefile improvements |
+| `/self-improvement:help` | This help page |
+
+## Philosophy
+
+The `/flow` workflow is forward-focused: start, implement, finish, merge, deploy. But when things go wrong, there is value in looking backward to improve the tooling itself.
+
+Self-improvement commands:
+- Examine errors from the current session and project history
+- Identify patterns of recurring failure
+- Propose concrete changes to build/deploy infrastructure
+- Optionally apply approved changes
+
+## When to Use
+
+Run `/self-improvement:retro` after (or during) any flow run:
+- After a `/flow:auto` or `/flow:merge` run - both offer it automatically once
+  friction was captured
+- After a session with repeated permission prompts, gate retries, red output, or
+  manual course-corrections
+- On demand against a recorded transcript: `/self-improvement:retro <transcript>`
+
+Run `/self-improvement:deployment` after:
+- A failed `make deploy` or `make test`
+- Repeated build failures in a session
+- Setting up a new project's Makefile
+- Periodically to audit Makefile quality against CPP standards
+
+## Feedback Loop
+
+```
+/flow:auto -> friction captured -> /self-improvement:retro -> codify fixes (settings/Make/hooks/CLAUDE.md/learnings) -> next run is smoother
+/flow:deploy -> fails -> /self-improvement:deployment -> fix Makefile -> /flow:deploy -> succeeds
+```
+
+Capture (thin, always-on, woven into the flow) and codify (the retro) are
+decoupled, so friction on runs that fail partway is not lost.
+
+## Future Commands
+
+The self-improvement category may grow to include:
+- **memory** - Codify portable knowledge / infra traps to the cross-VM common
+  memory store (issue #433); `/self-improvement:retro` delegates its portable
+  findings here when installed
+- **review** - Analyze PR review feedback patterns, suggest code quality improvements
+
+## See Also
+
+- `/cicd:check` - Forward-looking Makefile validation against CPP standards
+- `/cicd:init` - Auto-detect framework and generate Makefile from templates
+
+## Related Commands
+
+| Command | Relationship |
+|---------|-------------|
+| `/flow:doctor` | Forward-looking health check (complements retrospective) |
+| `/flow:deploy` | The deploy command whose failures this analyzes |
+| `/flow:finish` | Quality gates that depend on Makefile targets |
+| `/security:scan` | Security-focused analysis (complementary) |
