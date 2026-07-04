@@ -3,13 +3,28 @@
 from __future__ import annotations
 
 import os
+import shutil
 import stat
+import subprocess
 from pathlib import Path
+
+import pytest
 
 from lib.security.config import SecurityConfig
 from lib.security.models import Finding, ScanResult, Severity, Suppression
 from lib.security.modules import debug_flags, gitignore, permissions, secrets
 from lib.security.orchestrator import _apply_suppressions, check_gate
+
+# CPP's Woodpecker `validate` step runs in a container without git, so tests
+# that drive a real git repo must skip there (issue #430 pattern).
+requires_git = pytest.mark.skipif(
+    shutil.which("git") is None, reason="git not available in this environment"
+)
+
+
+def _git(cwd: Path, *args: str) -> None:
+    """Run a git command in cwd (test helper for building fixture repos)."""
+    subprocess.run(["git", "-C", str(cwd), *args], check=True, capture_output=True)
 
 
 class TestGitignoreScanner:
@@ -108,6 +123,43 @@ class TestSecretsScanner:
     def test_no_source_files(self, tmp_path: Path) -> None:
         result = secrets.scan(str(tmp_path))
         assert len(result.skipped) > 0
+
+    @requires_git
+    def test_skip_gitignored_file(self, tmp_path: Path) -> None:
+        # A secret in a gitignored, untracked file must NOT be flagged: it is
+        # never committable, so flagging it is a false positive on the gate
+        # (issue #470 - recurred on /flow:auto #441 and #461).
+        _git(tmp_path, "init")
+        (tmp_path / ".gitignore").write_text(".claude/settings.local.json\n")
+        settings = tmp_path / ".claude" / "settings.local.json"
+        settings.parent.mkdir(parents=True)
+        settings.write_text('{"key": "AKIAIOSFODNN7EXAMPLE"}\n')
+        result = secrets.scan(str(tmp_path))
+        assert len(result.findings) == 0
+
+    @requires_git
+    def test_tracked_secret_still_detected(self, tmp_path: Path) -> None:
+        # Regression guard: a secret in a git-tracked file still fails the gate,
+        # even when that file also matches a .gitignore pattern (check-ignore is
+        # index-aware, so tracked paths are never treated as ignored).
+        _git(tmp_path, "init")
+        (tmp_path / ".gitignore").write_text("*.local.json\n")
+        tracked = tmp_path / "config.local.json"
+        tracked.write_text('{"key": "AKIAIOSFODNN7EXAMPLE"}\n')
+        _git(tmp_path, "add", "-f", "config.local.json")
+        result = secrets.scan(str(tmp_path))
+        aws_findings = [f for f in result.findings if f.id == "AWS_ACCESS_KEY"]
+        assert len(aws_findings) == 1
+
+    def test_outside_git_repo_unchanged(self, tmp_path: Path) -> None:
+        # Fail-open: with no git repo, a gitignore file has no effect and the
+        # scanner behaves exactly as before (the secret is still flagged).
+        (tmp_path / ".gitignore").write_text("*.local.json\n")
+        src = tmp_path / "config.local.json"
+        src.write_text('{"key": "AKIAIOSFODNN7EXAMPLE"}\n')
+        result = secrets.scan(str(tmp_path))
+        aws_findings = [f for f in result.findings if f.id == "AWS_ACCESS_KEY"]
+        assert len(aws_findings) == 1
 
 
 class TestDebugFlagsScanner:
