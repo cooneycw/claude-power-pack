@@ -113,7 +113,7 @@ canonical repo first, then re-vendoring).
 
 ### Project
 - `/project:init <name>` - Full project scaffolding (zero to GitHub repo)
-- `/project-next` - Full issue analysis and prioritization (~15-30K tokens)
+- `/project-next` - Prioritized next-step report (compact default ~2-4K tokens; `--full` deep 5-tier analysis ~15-30K, `--brief` single pick)
 - `/project-lite` - Quick project reference (~500-800 tokens)
 
 `/project:init` delegates config scaffolding (CLAUDE.md, skills, hooks) to Claude
