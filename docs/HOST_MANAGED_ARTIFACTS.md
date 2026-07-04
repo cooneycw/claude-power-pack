@@ -3,6 +3,24 @@
 This document inventories deploy-critical artifacts that live outside the repo checkout,
 classifies them by lifecycle, and describes how drift is detected and reconciled.
 
+## Install path: `/plugin` first, this document is the fallback
+
+CPP's command/skill/hook surface installs through Claude Code's `/plugin`
+(`/plugin marketplace add cooneycw/claude-power-pack` then `/plugin install
+<family>@cpp`; ADR [0001](decisions/0001-plugin-marketplace-packaging.md), epic
+#417 Phase B). Those surfaces - commands, skills, the bundled PostToolUse masking
+hook, and the `second-opinion` `.mcp.json` client pointer - are versioned and
+updated by `/plugin` and are **not** host-managed artifacts: a plugin user does
+not symlink them, and the retired dual-surface machinery (the `~/.claude/skills`
+global mirror, `flow-skill-sync.py`, `skill-drift.py`) no longer exists (#480).
+
+The artifacts below are the **non-plugin infra** a plugin install cannot deliver -
+the documented fallback `/cpp:init` / `/cpp:update` still own: host scripts +
+user-level hook registration, the external Second Opinion MCP server pointer and
+`@playwright/mcp` registration, AWS Secrets Manager access, Woodpecker bootstrap,
+and workstation tuning. This document is the inventory of that fallback; it does
+not cover the plugin-delivered surfaces above.
+
 ## Classification
 
 | Category | Description |
