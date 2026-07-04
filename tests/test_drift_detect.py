@@ -328,3 +328,83 @@ def test_drift_detect_flags_orphaned_docker_mcp(tmp_path: Path) -> None:
     assert "orphaned Docker MCP mcp-nano-banana" in output
     assert "docker rm -f mcp-nano-banana" in output          # teardown plan under --fix
     assert "claude mcp remove nano-banana" in output
+
+
+def test_orphan_detection_ignores_sibling_worktree_templates(tmp_path: Path) -> None:
+    """A deploy template inside .claude/worktrees/<sibling>/ (another session's
+    checkout) must not make repo_ships_systemd_unit() treat the unit as shipped -
+    otherwise orphan detection flakes on multi-session boxes depending on what
+    sibling worktrees hold on disk (issue #518)."""
+    repo = tmp_path / "repo"
+    (repo / "scripts").mkdir(parents=True)
+    script = repo / "scripts" / "drift-detect.sh"
+    script.write_text(DRIFT_SCRIPT.read_text(encoding="utf-8"), encoding="utf-8")
+
+    # Sibling worktree still carrying a pre-retirement deploy template.
+    sibling_deploy = repo / ".claude" / "worktrees" / "issue-999-sibling" / "mcp-second-opinion" / "deploy"
+    sibling_deploy.mkdir(parents=True)
+    (sibling_deploy / "mcp-second-opinion.service.template").write_text(
+        "[Service]\nExecStart=stale\n", encoding="utf-8"
+    )
+
+    home = tmp_path / "home"
+    user_units = home / ".config" / "systemd" / "user"
+    user_units.mkdir(parents=True)
+    (user_units / "mcp-second-opinion.service").write_text("[Service]\nExecStart=fake\n", encoding="utf-8")
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    _write_executable(bin_dir / "uv", "#!/usr/bin/env bash\nexit 0\n")
+    _write_executable(
+        bin_dir / "docker",
+        """
+        #!/usr/bin/env bash
+        if [[ "$1" == "--version" ]]; then echo "Docker version 26.0.0"; exit 0; fi
+        exit 0
+        """,
+    )
+    _write_executable(
+        bin_dir / "systemctl",
+        """
+        #!/usr/bin/env bash
+        args="$*"
+        if [[ "$args" == *"show -p LoadState"* ]]; then echo "not-found"; exit 0; fi
+        if [[ "$args" == *"is-active"* ]]; then echo "inactive"; exit 0; fi
+        exit 0
+        """,
+    )
+    _write_executable(
+        bin_dir / "ss",
+        "#!/usr/bin/env bash\necho 'State Recv-Q Send-Q Local Address:Port Peer Address:Port Process'\n",
+    )
+    _write_executable(
+        bin_dir / "sysctl",
+        """
+        #!/usr/bin/env bash
+        case "$2" in
+          vm.swappiness) echo 10 ;;
+          vm.vfs_cache_pressure) echo 50 ;;
+          fs.inotify.max_user_watches) echo 524288 ;;
+          fs.inotify.max_user_instances) echo 512 ;;
+          *) echo unknown ;;
+        esac
+        """,
+    )
+
+    env = os.environ.copy()
+    env.update({"HOME": str(home), "PATH": f"{bin_dir}:{env['PATH']}", "USER": "tester"})
+
+    result = subprocess.run(
+        ["bash", str(script), "--fix"],
+        cwd=repo,
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        check=False,
+    )
+
+    output = result.stdout
+    assert result.returncode == 1
+    # The sibling worktree's template must NOT suppress orphan detection.
+    assert "orphaned systemd unit mcp-second-opinion" in output
