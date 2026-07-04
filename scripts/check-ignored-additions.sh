@@ -14,9 +14,12 @@
 # default mode does, so a file in a brand-new all-ignored directory is still
 # seen). We then drop the usual scratch/build noise by scanning each path
 # component against a known set of cache/venv/build dir names, plus a few
-# scratch file patterns. What remains is an ignored file sitting in a tracked
-# source area - the trap - which we warn about. Near-zero false positives
-# against normal venv/cache noise.
+# scratch file patterns. We also drop a short allow-list of files that are
+# git-ignored BY DESIGN (env-only, per-machine runtime state that can never be
+# an intended source addition) so the guard stops crying wolf on them every run
+# (issue #504). What remains is an ignored file sitting in a tracked source
+# area - the trap - which we warn about. Near-zero false positives against
+# normal venv/cache noise.
 #
 # Usage:
 #   check-ignored-additions.sh [--strict]
@@ -64,6 +67,21 @@ is_scratch() {
   return 1
 }
 
+# Files git-ignored BY DESIGN: env-only, per-machine runtime state that can
+# never be an intended source addition. Matched as exact repo-root-relative
+# paths (git porcelain output is root-relative regardless of cwd), so the guard
+# stays silent on them without over-excluding a similarly named file elsewhere.
+# All are documented never-committed in .gitignore (issue #504). Keep this list
+# short - each entry is a path the guard will NEVER warn about again.
+_INTENTIONAL_IGNORES=".claude/settings.local.json .claude/friction.jsonl \
+.claude/learnings.md .claude/learnings.rejected.jsonl .claude/deploy.log \
+.claude/deploy-baseline.json"
+
+is_intentional_ignore() {
+  case " $_INTENTIONAL_IGNORES " in *" $1 "*) return 0 ;; esac
+  return 1
+}
+
 suspicious=()
 while IFS= read -r -d '' entry; do
   # porcelain -z format: 2-char status, a space, then the path.
@@ -72,6 +90,7 @@ while IFS= read -r -d '' entry; do
   [ "$status" = "!!" ] || continue
   case "$path" in */) continue ;; esac   # defensive: skip any dir entry
   is_scratch "$path" && continue
+  is_intentional_ignore "$path" && continue
   suspicious+=("$path")
 done < <(git status --ignored=matching --porcelain -z 2>/dev/null)
 
