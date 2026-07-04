@@ -35,10 +35,16 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def _run(tmp_path: Path, payload: dict | str) -> tuple[subprocess.CompletedProcess[str], Path]:
+def _run(
+    tmp_path: Path, payload: dict | str, allow: list[str] | None = None
+) -> tuple[subprocess.CompletedProcess[str], Path]:
     log = tmp_path / ".claude" / "friction.jsonl"
     env = os.environ.copy()
     env["CPP_FRICTION_LOG"] = str(log)
+    # Hermetic allow-list for the #519 segment-walk: default empty so a test's
+    # output never depends on the developer's real ~/.claude/settings.json. Pass
+    # `allow` to exercise the "already-allowed leading segment is skipped" path.
+    env["CENSUS_ALLOWLIST_JSON"] = json.dumps(allow or [])
     stdin = payload if isinstance(payload, str) else json.dumps(payload)
     proc = subprocess.run(
         ["bash", str(CENSUS)],
@@ -59,8 +65,8 @@ def _records(log: Path) -> list[dict]:
     return [json.loads(line) for line in log.read_text().splitlines() if line.strip()]
 
 
-def _one(tmp_path: Path, payload: dict) -> dict:
-    proc, log = _run(tmp_path, payload)
+def _one(tmp_path: Path, payload: dict, allow: list[str] | None = None) -> dict:
+    proc, log = _run(tmp_path, payload, allow=allow)
     assert proc.returncode == 0, proc.stderr
     recs = _records(log)
     assert len(recs) == 1, recs
@@ -150,6 +156,82 @@ def test_dual_use_net_not_allowlisted(tmp_path: Path):
     rec = _one(tmp_path, {"tool_name": "Bash", "tool_input": {"command": "curl https://example.com"}})
     assert rec["risk"] == "DUAL-USE-NET"
     assert rec["fix"] == ""
+
+
+# --- Compound commands: candidate from the real driver (issue #519) ----------
+
+def test_cd_prefix_is_stepped_over_to_the_real_command(tmp_path: Path):
+    # The dominant flow shape: `cd $(...) && <real command>`. The candidate must
+    # be the real command, NOT the already-allowed leading cd (that was 106 of
+    # 109 useless Bash(cd:*) records in one retro).
+    rec = _one(tmp_path, {"tool_name": "Bash", "tool_input": {
+        "command": 'cd "$(git rev-parse --show-toplevel)" && git commit -m wip'}})
+    assert rec["fix"] == "Bash(git commit:*)"  # not Bash(cd:*)
+    assert rec["risk"] == "WRITE-LOCAL"
+    assert "cd " in rec["signal"]  # the signal still keeps the FULL command
+
+
+def test_cd_prefix_then_outward_action_gets_no_candidate(tmp_path: Path):
+    rec = _one(tmp_path, {"tool_name": "Bash", "tool_input": {
+        "command": "cd /repo && gh pr create --fill"}})
+    assert rec["risk"] == "WRITE-OUTWARD"
+    assert rec["fix"] == ""  # cd stepped over; the real driver is not allowlistable
+
+
+def test_worst_risk_across_segments_wins(tmp_path: Path):
+    # A safe leading segment must NOT mask a destructive later one, and any risky
+    # segment blanks the candidate.
+    rec = _one(tmp_path, {"tool_name": "Bash", "tool_input": {
+        "command": "git commit -m wip && rm -rf build/"}})
+    assert rec["risk"] == "DESTRUCTIVE"
+    assert rec["fix"] == ""
+
+
+def test_already_allowed_leading_segment_is_skipped(tmp_path: Path):
+    # echo is already in the allow-list -> the candidate is the first NOT-allowed
+    # driver, not the noise-header echo.
+    rec = _one(tmp_path, {"tool_name": "Bash", "tool_input": {
+        "command": 'echo "=== status ===" && git commit -m wip'}},
+        allow=["Bash(echo:*)"])
+    assert rec["fix"] == "Bash(git commit:*)"
+    assert rec["risk"] == "WRITE-LOCAL"
+
+
+def test_all_segments_allowed_falls_back_to_first(tmp_path: Path):
+    # Degenerate case: every segment already allowed -> emit the first
+    # substantive segment's own rule (pre-#519 behaviour), never crash.
+    rec = _one(tmp_path, {"tool_name": "Bash", "tool_input": {
+        "command": "git status && git diff"}},
+        allow=["Bash(git status:*)", "Bash(git diff:*)"])
+    assert rec["fix"] == "Bash(git status)"  # argless -> bare form; :* allow covers it
+    assert rec["risk"] == "READONLY-AUTO"
+
+
+def test_bare_cd_still_yields_its_own_candidate(tmp_path: Path):
+    # A lone `cd DIR` prompt (no real driver behind it) should still suggest
+    # Bash(cd:*) - the walk only steps OVER cd when a real command follows.
+    rec = _one(tmp_path, {"tool_name": "Bash", "tool_input": {"command": "cd /some/dir"}})
+    assert rec["fix"] == "Bash(cd:*)"
+    assert rec["risk"] == "READONLY-ADDABLE"
+
+
+def test_cd_then_allowed_command_does_not_resurrect_cd(tmp_path: Path):
+    # cd + an already-allowed command: the fallback must NOT re-suggest the noise
+    # cd; it surfaces the (allowed) real segment instead.
+    rec = _one(tmp_path, {"tool_name": "Bash", "tool_input": {
+        "command": "cd /repo && git status"}},
+        allow=["Bash(git status:*)"])
+    assert rec["fix"] == "Bash(git status)"
+    assert rec["risk"] == "READONLY-AUTO"
+
+
+def test_pipeline_is_a_segment_boundary(tmp_path: Path):
+    # A pipe splits segments too: `grep ... | wc -l` with grep allowed surfaces wc.
+    rec = _one(tmp_path, {"tool_name": "Bash", "tool_input": {
+        "command": "grep -c foo file | wc -l"}},
+        allow=["Bash(grep:*)"])
+    assert rec["fix"] == "Bash(wc:*)"
+    assert rec["risk"] == "READONLY-ADDABLE"
 
 
 # --- Non-Bash tools ----------------------------------------------------------
