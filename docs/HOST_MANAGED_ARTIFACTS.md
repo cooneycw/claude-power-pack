@@ -44,8 +44,11 @@ retired CPP's entire Docker MCP runtime) and the `mcp-playwright-persistent` for
 retired for the upstream `@playwright/mcp` npx server (#423). A leftover unit for either
 on a host is now an **orphan**: `scripts/drift-detect.sh` reports it as a systemd orphan,
 and `/cpp:update` (via `.claude/deprecated-mcps.yaml` + `scripts/mcp-drift.py`) tears down
-the retired container, `mcp-<name>:*` image, and any MCP registration. Neither is ever
-reconciled back from a template.
+the retired container, `mcp-<name>:*` image, and any MCP registration. A **running**
+container that merely shares a deprecated name but belongs to an external compose project
+(or runs a non-CPP image) is auto-protected by provenance and never torn down (issue #520) -
+so the live external `second-opinion` / `aws-secrets-agent` server survives an update.
+Neither unit is ever reconciled back from a template.
 
 **Detection:** `scripts/drift-detect.sh` inventories installed `mcp-*` systemd units that
 no longer have a repo template - such as the retired `mcp-second-opinion.service` (#469),

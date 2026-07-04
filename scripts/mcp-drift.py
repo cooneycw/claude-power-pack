@@ -20,6 +20,13 @@ when BOTH hold:
      (docker compose config --services, across every profile), AND
   3. it is still locally present (container, mcp-<name>:* image, or registration).
 
+A RUNNING container that merely shares a deprecated name but belongs to an
+external compose project (or runs a non-CPP image) is treated as a LIVE FOREIGN
+container: it is protected, never counted as a present CPP artifact, and never
+torn down (issue #520). The external second-opinion server runs its own
+`mcp-second-opinion` / `aws-secrets-agent` containers, so the bare name match
+otherwise flagged a live external server as an orphan.
+
 Statuses:
   ORPHANED DOCKER MCP - listed, gone from compose, still present  -> offer teardown
   OK                  - listed but still a compose service        -> never touched
@@ -225,10 +232,17 @@ class HostState:
         images: dict[str, list[dict]] | None = None,
         claude_regs: set[str] | None = None,
         codex_regs: set[str] | None = None,
+        container_meta: dict[str, dict] | None = None,
     ) -> None:
         self.current_services = current_services or set()
         self.services_known = services_known
         self.containers = containers or {}  # container name -> state (running/exited/...)
+        # container name -> {"image": <ref>, "project": <compose-project label>}.
+        # Provenance used to protect a live external container that reuses a
+        # deprecated name from being torn down (issue #520). Empty when unknown
+        # (old docker, or a hermetic test): callers must treat missing provenance
+        # as "no positive foreign evidence", i.e. classify exactly as before.
+        self.container_meta = container_meta or {}
         self.images = images or {}          # image repository -> [{tag,id,size,created}]
         self.claude_regs = claude_regs or set()
         self.codex_regs = codex_regs or set()
@@ -282,19 +296,38 @@ def collect_current_services(compose_file: Path) -> tuple[set[str], bool]:
     return services, True
 
 
-def collect_containers() -> dict[str, str]:
+def collect_containers_full() -> dict[str, dict]:
+    """Present containers keyed by name -> {"state", "image", "project"}.
+
+    `project` is the `com.docker.compose.project` label (empty for containers not
+    managed by compose); `image` is the image ref the container runs. Both feed
+    the live-external-container guard in classification (issue #520). Older docker
+    that does not support the label prints an empty final column, which the guard
+    treats as unknown provenance."""
     if not _has("docker"):
         return {}
-    rc, out = _run(["docker", "ps", "-a", "--format", "{{.Names}}\t{{.State}}"])
+    rc, out = _run([
+        "docker", "ps", "-a", "--format",
+        '{{.Names}}\t{{.State}}\t{{.Image}}\t{{.Label "com.docker.compose.project"}}',
+    ])
     if rc != 0:
         return {}
-    result: dict[str, str] = {}
+    result: dict[str, dict] = {}
     for line in out.splitlines():
         parts = line.split("\t")
         if not parts or not parts[0].strip():
             continue
-        result[parts[0].strip()] = (parts[1].strip() if len(parts) > 1 else "").lower()
+        result[parts[0].strip()] = {
+            "state": (parts[1].strip() if len(parts) > 1 else "").lower(),
+            "image": parts[2].strip() if len(parts) > 2 else "",
+            "project": parts[3].strip() if len(parts) > 3 else "",
+        }
     return result
+
+
+def collect_containers() -> dict[str, str]:
+    """Back-compat name -> state view over collect_containers_full()."""
+    return {name: meta["state"] for name, meta in collect_containers_full().items()}
 
 
 def collect_images() -> dict[str, list[dict]]:
@@ -349,10 +382,17 @@ def _collect_registrations(cmd: str) -> set[str]:
 
 def collect_host_state(compose_file: Path) -> HostState:
     services, known = collect_current_services(compose_file)
+    full = collect_containers_full()
+    containers = {name: meta["state"] for name, meta in full.items()}
+    container_meta = {
+        name: {"image": meta["image"], "project": meta["project"]}
+        for name, meta in full.items()
+    }
     return HostState(
         current_services=services,
         services_known=known,
-        containers=collect_containers(),
+        containers=containers,
+        container_meta=container_meta,
         images=collect_images(),
         claude_regs=_collect_registrations("claude"),
         codex_regs=_collect_registrations("codex"),
@@ -362,14 +402,76 @@ def collect_host_state(compose_file: Path) -> HostState:
 # --------------------------------------------------------------------------- #
 # Classification
 # --------------------------------------------------------------------------- #
-def _matching_containers(entry: dict, host: HostState) -> list[dict]:
-    """Present containers for this entry, respecting an optional CPP_CONTAINER_PREFIX."""
-    found: list[dict] = []
+_NON_RUNNING_STATES = ("exited", "created", "dead", "")
+
+
+def _is_running(state: str) -> bool:
+    """True when a container is live (not exited/created/dead/unknown)."""
+    return state not in _NON_RUNNING_STATES
+
+
+def _image_repo(image: str) -> str:
+    """Repository portion of a docker image ref, dropping a trailing ``:tag``.
+
+    A registry ``host:port/repo`` ref is preserved because the tag, when present,
+    never contains ``/`` - so only a trailing ``:<tag>`` with no slash is stripped.
+    ``mcp-second-opinion:latest`` -> ``mcp-second-opinion``; ``ghcr.io/acme/x`` ->
+    ``ghcr.io/acme/x``."""
+    image = image.strip()
+    if not image:
+        return ""
+    head, sep, tail = image.rpartition(":")
+    if sep and "/" not in tail:
+        return head
+    return image
+
+
+def _container_is_foreign_live(name: str, state: str, entry: dict, host: HostState) -> bool:
+    """A RUNNING matched container that provenance shows is NOT a CPP-built orphan.
+
+    The false-positive this guards (issue #520): the external second-opinion
+    server runs its own containers named `mcp-second-opinion` / `aws-secrets-agent`
+    - the exact names this deprecation entry lists - so the bare name match flagged
+    a LIVE external server for teardown. A running container is treated as foreign
+    (and must never be torn down) when it carries a compose-project label (CPP
+    ships no compose since #469, so any active compose project is external) or runs
+    a non-CPP image (repo != image_prefix).
+
+    Scope is deliberately RUNNING-only, per the issue: an exited/created container
+    is not live and is the ordinary stale-orphan case, and - lacking a reliable CPP
+    compose-project name - cannot be told apart from a CPP leftover by label. When
+    provenance is unknown (container_meta empty), there is no positive foreign
+    evidence, so the container is classified exactly as before."""
+    if not _is_running(state):
+        return False
+    meta = host.container_meta.get(name, {})
+    if str(meta.get("project") or "").strip():
+        return True
+    image_repo = _image_repo(str(meta.get("image") or ""))
+    return bool(image_repo) and image_repo != entry["image_prefix"]
+
+
+def _matching_containers(entry: dict, host: HostState) -> tuple[list[dict], list[dict]]:
+    """(owned, foreign) present containers for this entry, respecting an optional
+    CPP_CONTAINER_PREFIX. `owned` are CPP orphan candidates a teardown may
+    stop/remove; `foreign` are live external containers that merely share the name
+    and must be left running (issue #520)."""
+    owned: list[dict] = []
+    foreign: list[dict] = []
     for want in entry["containers"]:
         for name, state in host.containers.items():
             if name == want or name.endswith(want):
-                found.append({"name": name, "state": state})
-    return found
+                if _container_is_foreign_live(name, state, entry, host):
+                    meta = host.container_meta.get(name, {})
+                    foreign.append({
+                        "name": name,
+                        "state": state,
+                        "image": str(meta.get("image") or ""),
+                        "project": str(meta.get("project") or ""),
+                    })
+                else:
+                    owned.append({"name": name, "state": state})
+    return owned, foreign
 
 
 def classify(deprecated: list[dict], host: HostState) -> list[dict]:
@@ -378,10 +480,12 @@ def classify(deprecated: list[dict], host: HostState) -> list[dict]:
         name = entry["name"]
         in_compose = name in host.current_services
 
-        containers = _matching_containers(entry, host)
+        containers, foreign_containers = _matching_containers(entry, host)
         images = host.images.get(entry["image_prefix"], [])
         claude = [r for r in entry["claude_registrations"] if r in host.claude_regs]
         codex = [r for r in entry["codex_registrations"] if r in host.codex_regs]
+        # A live external container that only shares the name is NOT a present CPP
+        # artifact, so it must not make the entry look orphaned (issue #520).
         present = bool(containers or images or claude or codex)
 
         if not host.services_known:
@@ -403,6 +507,7 @@ def classify(deprecated: list[dict], host: HostState) -> list[dict]:
                 "image_prefix": entry["image_prefix"],
                 "in_compose": in_compose,
                 "containers": containers,
+                "foreign_containers": foreign_containers,
                 "images": images,
                 "claude_registrations": claude,
                 "codex_registrations": codex,
@@ -434,7 +539,7 @@ def plan_teardown(finding: dict, prune_all_images: bool) -> list[str]:
     """Return the ordered shell commands a teardown WOULD run. Pure - no side effects."""
     cmds: list[str] = []
     for c in finding["containers"]:
-        if c["state"] not in ("exited", "created", "dead", ""):
+        if _is_running(c["state"]):
             cmds.append(f"docker stop {c['name']}")
         cmds.append(f"docker rm -f {c['name']}")
 
@@ -564,6 +669,20 @@ def render_table(findings: list[dict], verbose: bool) -> str:
         lines.append(f"  {f['server']} - present: {', '.join(present) or 'unknown'}")
         if f["replacement"]:
             lines.append(f"    replacement: {f['replacement']}")
+
+    protected = [f for f in findings if f.get("foreign_containers")]
+    if protected:
+        lines.append(
+            "Protected (live external container(s) sharing a deprecated name - "
+            "left running, never torn down):"
+        )
+        for f in protected:
+            for c in f["foreign_containers"]:
+                origin = (
+                    f"compose project '{c['project']}'" if c["project"]
+                    else f"image '{c['image']}'"
+                )
+                lines.append(f"  {f['server']}: {c['name']} ({c['state']}, {origin})")
 
     if any(f["status"] == UNKNOWN for f in findings):
         lines.append(

@@ -72,7 +72,7 @@ CPP ships **no container runtime** as of #469. The Docker MCP runtime (the `mcp-
 - **Secret scanning:** `make secret-scan` runs gitleaks locally (native binary or Docker fallback). Config in `.gitleaks.toml` with allowlists for doc/test false positives.
 - **Bootstrap checks:** `make bootstrap-check` verifies admin-only prerequisites in `.claude/bootstrap.yaml` (now just `jq`, since the Docker runtime prerequisites were retired).
 - **Woodpecker CI** runs on push/PR: secret-scan (gitleaks), lint, test, typecheck, and Dockerfile lint. The image-build / CVE-scan / SBOM / compose-policy / runtime-smoke stages were retired with the container runtime in #469.
-- **Drift detection:** `make drift-check` compares host-installed artifacts against repo templates and flags **orphaned Docker MCP servers** - a leftover container, `mcp-<name>:*` image, or `claude`/`codex mcp` registration from a retired server (e.g. a lingering `mcp-second-opinion` or `aws-secrets-agent`) - against the curated `.claude/deprecated-mcps.yaml` list of record (via `scripts/mcp-drift.py`). Since CPP now ships no compose file, the current service set is empty by absence, so a listed server still present on the host is treated as an orphan. Detection is curated-list driven so a user's own custom MCP registration is never flagged (the valid external `second-opinion` registration is intentionally not listed); teardown is per-server, user-confirmed, and keeps a newest-image restore point unless prune-all is chosen (run `/cpp:update`, or `python3 scripts/mcp-drift.py --teardown <name>`). See `docs/HOST_MANAGED_ARTIFACTS.md` for full inventory.
+- **Drift detection:** `make drift-check` compares host-installed artifacts against repo templates and flags **orphaned Docker MCP servers** - a leftover container, `mcp-<name>:*` image, or `claude`/`codex mcp` registration from a retired server (e.g. a lingering `mcp-second-opinion` or `aws-secrets-agent`) - against the curated `.claude/deprecated-mcps.yaml` list of record (via `scripts/mcp-drift.py`). Since CPP now ships no compose file, the current service set is empty by absence, so a listed server still present on the host is treated as an orphan. Detection is curated-list driven so a user's own custom MCP registration is never flagged (the valid external `second-opinion` registration is intentionally not listed); a **running** container that shares a deprecated name but belongs to an external compose project (or runs a non-CPP image) is also auto-protected by provenance and never torn down (issue #520), so the live external `second-opinion` / `aws-secrets-agent` containers survive `/cpp:update`. Teardown is per-server, user-confirmed, and keeps a newest-image restore point unless prune-all is chosen (run `/cpp:update`, or `python3 scripts/mcp-drift.py --teardown <name>`). See `docs/HOST_MANAGED_ARTIFACTS.md` for full inventory.
 - **Reproducible builds:** the remaining container image references (the `mcp-evaluate` Dockerfile and the tool images in `.woodpecker.yml`) are pinned by version tag plus `@sha256:` digest, never `:latest`. `renovate.json` rotates the pinned digests on a weekly schedule so pinning never freezes security updates.
 
 ## Commands Reference
@@ -118,6 +118,18 @@ working tree instead of the worktree (flow:auto #442 x2, #471). `/flow:auto`
 Steps 4/6 run `scripts/flow-worktree-guard.sh` - an advisory, fail-open guard
 that warns (never blocks) when the main tree has tracked modifications, the
 signature of a leaked edit - so the trap is caught before commit.
+
+**Bash cwd + permission-prompt hygiene (retro #480):** the Bash tool's working
+directory persists across calls, and the harness prompts on a `cd` inside a
+compound command. Do NOT prefix Bash calls with `cd "$(git rev-parse
+--show-toplevel)" && ...` - it forces a permission prompt on nearly every call
+AND prevents the shipped read-only allowlist
+(`templates/claude-settings-permissions.json`) from matching the real
+sub-command (`cd X && git fetch` prompts on the `cd`, so `Bash(git fetch:*)`
+never fires). Rely on cwd persistence, use absolute paths, or `git -C <dir>`; add
+an explicit `cd` only when the cwd must actually change. This is the behavioral
+counterpart to the census classifier fix (#519), which stopped mis-deriving
+`Bash(cd:*)` allow candidates.
 
 **Standalone skill extractions (issue #443):** skills with standalone value are
 extracted to their own public plugin repos so users never have to clone CPP -
