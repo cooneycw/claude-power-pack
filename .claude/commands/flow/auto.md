@@ -221,6 +221,30 @@ Report: `Step 3/9: ELI5 complete - verdict: {Still needed|Partially addressed|No
 
 ### Step 4: Implement - Write the Code
 
+**Early stale-base check (issue #473) - run BEFORE editing.** A sibling PR that
+merges during implementation moves `origin/main` under you; discovering it only
+at the Step-7 #462 guard means your edits were already made against stale copies
+of the very files the sibling changed. Surface it now:
+
+```bash
+CPP_DIR=""
+for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-pack; do
+  [ -d "$dir" ] && [ -f "$dir/CLAUDE.md" ] && { CPP_DIR="$dir"; break; }
+done
+if [ -n "$CPP_DIR" ] && [ -x "$CPP_DIR/scripts/flow-stale-check.sh" ]; then
+    "$CPP_DIR/scripts/flow-stale-check.sh" origin/main   # advisory: warns, never blocks
+fi
+```
+
+- If it reports `FLOW_STALE_BASE: collision` - or names a file you are about to
+  touch under "Changed upstream" - bring the base in now, before piling edits on
+  a stale tree: `git merge --no-edit origin/main`, resolve any conflict in the
+  named file(s), then implement. If the note says flow command files changed
+  upstream, re-run `python3 "$CPP_DIR/scripts/flow-skill-sync.py" --write` after
+  merging so the global `flow-*` mirror does not drift.
+- If it reports `current` or `moved-clean` with no overlap, proceed - the Step-7
+  #462 guard remains the final backstop.
+
 Execute the approved plan from the Step 3 ELI5 gate:
 
 1. **Make all code changes** in the worktree.
@@ -271,6 +295,35 @@ Report: `Step 5/9: Update Docs complete - {N} files updated` or `Step 5/9: Updat
 ```bash
 BRANCH=$(git branch --show-current)
 ISSUE_NUM=$(echo "$BRANCH" | grep -oP 'issue-\K[0-9]+' || echo "")
+```
+
+**Stale-base pre-check (issue #473) - run BEFORE the quality gates and commit**,
+so the commit lands on a current tree and the gate reflects what will merge (the
+#462 Step-7 guard stays the final backstop):
+
+```bash
+CPP_DIR=""
+for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-pack; do
+  [ -d "$dir" ] && [ -f "$dir/CLAUDE.md" ] && { CPP_DIR="$dir"; break; }
+done
+if [ -n "$CPP_DIR" ] && [ -x "$CPP_DIR/scripts/flow-stale-check.sh" ]; then
+    "$CPP_DIR/scripts/flow-stale-check.sh" origin/main
+fi
+
+# If the base moved, merge it in now so the gate + commit ride the current tree.
+git fetch origin main --quiet
+if [ "$(git rev-list --count HEAD..origin/main)" -gt 0 ]; then
+    if ! git merge --no-edit origin/main; then
+        echo "STOP: resolve the listed conflicts, 'git add' + 'git commit', then re-run Step 6."
+        git diff --name-only --diff-filter=U
+        exit 1
+    fi
+    # Keep the global flow-* mirror from drifting when the merge pulled flow
+    # command changes - the mirror is what EXECUTES (issues #457/#461/#473).
+    if [ -n "$CPP_DIR" ] && git diff --name-only ORIG_HEAD..HEAD | grep -q '^\.claude/commands/flow/.*\.md$'; then
+        python3 "$CPP_DIR/scripts/flow-skill-sync.py" --write || true
+    fi
+fi
 ```
 
 1. **Quality gates** - use the deterministic runner as primary path:
@@ -371,6 +424,11 @@ Report: `Step 6/9: Finish complete - PR #XX created`
        for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-pack; do
          [ -d "$dir" ] && [ -f "$dir/CLAUDE.md" ] && { CPP_DIR="$dir"; break; }
        done
+       # If the merge pulled flow command changes, re-sync the global flow-*
+       # mirror so it does not drift - the mirror is what EXECUTES (issue #473).
+       if [ -n "$CPP_DIR" ] && git diff --name-only ORIG_HEAD..HEAD | grep -q '^\.claude/commands/flow/.*\.md$'; then
+           python3 "$CPP_DIR/scripts/flow-skill-sync.py" --write || true
+       fi
        if [ -n "$CPP_DIR" ] && command -v uv >/dev/null 2>&1; then
            PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd run --plan finish
            REGATE_EXIT=$?
