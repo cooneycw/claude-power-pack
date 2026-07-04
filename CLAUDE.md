@@ -29,8 +29,8 @@ Core components and their locations:
 - `lib/creds/` - Secrets management (dotenv/AWS SM, FastAPI UI, audit logging)
 - `lib/security/` - Security scanning (native + external tools)
 - `lib/cicd/` - CI/CD framework detection, Makefile generation, health/smoke checks, deterministic runner, deployment strategies, Pydantic v2 config validation
-- `lib/cpp_memory/` - Common-memory client: fail-open Postgres ledger of *portable* CPP learnings/infra traps shared across the VM fleet (bucket-2-plus), plus a dedup/rejection ledger and a learnings->GitHub-issue bridge (`--emit-issue-candidate` / `link-issue`, #463). Store provisioned by `scripts/memories-db-setup.sh`. Consult-not-push; see `/self-improvement:memory`.
-- `scripts/` - Shell utilities (prompt-context, worktree-remove, gh-pr-merge (layout-aware PR squash-merge used by `/flow:auto` + `/flow:merge`), hooks, drift-detect, skill-drift, mcp-drift, flow-skill-sync, speckit-tasks-to-issues, playwright-desk lease-desk ledger, check-ignored-additions)
+- `lib/cpp_memory/` - Common-memory client: a **pluggable** fail-open friction-knowledge ledger (issue #472) with three `/cpp:init`-selectable backends behind one `StoreBackend` interface - `md` (best-effort local, no federation; subsumes `.claude/learnings.md`), `local-pg` (full SQL dedup, single box, `lib/cpp_memory/docker-compose.yml`), and `remote-pg` (full dedup, fleet-federated Postgres, `scripts/memories-db-setup.sh`). Backend chosen via `CPP_MEMORIES_BACKEND` / step 8d; **federation is a surfaced per-tier property** (only remote-pg shares across VMs). Holds *portable* CPP learnings/infra traps (bucket-2-plus) plus a dedup/rejection ledger and a learnings->GitHub-issue bridge (`--emit-issue-candidate` / `link-issue`, #463). Consult-not-push; see `/self-improvement:memory`.
+- `scripts/` - Shell utilities (prompt-context, worktree-remove, gh-pr-merge (layout-aware PR squash-merge used by `/flow:auto` + `/flow:merge`), flow-stale-check (advisory early stale-base detector for `/flow:auto` Step 4/6 + `/flow:finish`, #473), hooks, drift-detect, skill-drift, mcp-drift, flow-skill-sync, speckit-tasks-to-issues, playwright-desk lease-desk ledger, check-ignored-additions)
 - `templates/` - Makefile, workflow, container templates
 - `docker-compose.yml` - MCP server orchestration (profile: `core`)
 - `.woodpecker.yml` - Woodpecker CI pipeline (lint, test, typecheck, image security gates, runtime smoke)
@@ -113,7 +113,7 @@ canonical repo first, then re-vendoring).
 
 ### Project
 - `/project:init <name>` - Full project scaffolding (zero to GitHub repo)
-- `/project-next` - Full issue analysis and prioritization (~15-30K tokens)
+- `/project-next` - Prioritized next-step report (compact default ~2-4K tokens; `--full` deep 5-tier analysis ~15-30K, `--brief` single pick)
 - `/project-lite` - Quick project reference (~500-800 tokens)
 
 `/project:init` delegates config scaffolding (CLAUDE.md, skills, hooks) to Claude

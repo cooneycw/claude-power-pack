@@ -17,8 +17,11 @@ terminal "final step retro" would be blind to exactly those. So:
 
 - **Capture** is thin, always-on instrumentation woven into `/flow:auto` and
   `/flow:merge` that records every friction signal on every step, success OR
-  failure, via `scripts/friction-log.sh` -> `.claude/friction.jsonl`. It survives
-  failed runs. (This command consumes that buffer; it does not replace it.)
+  failure, via `scripts/friction-log.sh` -> the main repo's `.claude/friction.jsonl`.
+  It survives failed runs AND worktree removal - the helper resolves the durable
+  main-repo buffer via `git-common-dir`, so signals captured inside a `/flow:auto`
+  worktree reach this command (run from the main repo) without manual re-logging
+  (issue #471). (This command consumes that buffer; it does not replace it.)
   The `permission-prompt` class is captured by the harness, not the model: the
   `PermissionRequest` hook (`scripts/hook-permission-census.sh`, registered in
   `~/.claude/settings.json` by `/cpp:init` / `/cpp:update`) fires when a dialog is

@@ -1523,6 +1523,86 @@ echo "  Run later: bash ~/.claude/scripts/bash-prep.sh"
 echo "  Or check current values: bash ~/.claude/scripts/bash-prep.sh --check"
 ```
 
+### 8d. Common-Memory Store Backend (mini-tier)
+
+Only offer this when the common-memory feature is in use (Tier 2+ installed the
+`cpp-memory` harness). It selects the storage backend for the friction-knowledge
+ledger (`lib/cpp_memory`, issue #472). **Federation is the key column** - only
+tier iii shares learnings/rejections across VMs; on i and ii the `is_known` /
+`rejected_here` check is this-box-only.
+
+```
+=== Optional: Common-Memory Store Backend ===
+
+The friction-knowledge ledger can run on one of three backends. Federation
+(does a learning recorded here reach OTHER machines?) differs per tier - pick
+with that in mind:
+
+  Tier  Backend     Dedup fidelity              Federation (cross-VM sharing?)
+  ----  ----------  --------------------------  ------------------------------
+  i     md          best-effort (grep/parse)    NO  - local box only
+  ii    local-pg    full (SQL fingerprint)      NO  - single box (docker pg)
+  iii   remote-pg   full (SQL fingerprint)      YES - shared across the fleet
+
+  i    = zero dependencies; promotes .claude/learnings.md to a real store.
+  ii   = full-fidelity dedup on this box; needs Docker (stock postgres:17).
+  iii  = the fleet store over Tailscale; DSN from CPP_MEMORIES_DSN / the local
+         dsn file / AWS SM (essent-ai). This is today's default on fleet VMs.
+
+Select backend [i/ii/iii, Enter to skip]:
+```
+
+Persist the choice to the backend file the client reads
+(`resolve_backend()` in `lib/cpp_memory/config.py`):
+
+```bash
+BACKEND_FILE="$HOME/.config/claude-power-pack/secrets/cpp-memories.backend"
+mkdir -p "$(dirname "$BACKEND_FILE")"
+
+case "$MEM_BACKEND_CHOICE" in
+  i|md)
+    echo "md" > "$BACKEND_FILE"
+    echo "✓ common-memory backend: md (tier i) - local-only, no federation"
+    echo "  Ledger: <repo>/.claude/learnings.md  (+ .claude/learnings.rejected.jsonl)"
+    ;;
+  ii|local-pg)
+    echo "local-pg" > "$BACKEND_FILE"
+    echo "✓ common-memory backend: local-pg (tier ii) - full dedup, no federation"
+    if command -v docker >/dev/null 2>&1; then
+      read -r -p "Start the local postgres:17 store now (docker compose up -d)? [y/N] " START_PG
+      if [[ "$START_PG" =~ ^[Yy]$ ]]; then
+        docker compose -f "$CPP_DIR/lib/cpp_memory/docker-compose.yml" up -d
+        echo "  Store on 127.0.0.1:5433 (schema auto-applied on first boot)."
+      else
+        echo "  Start later: docker compose -f \"$CPP_DIR/lib/cpp_memory/docker-compose.yml\" up -d"
+      fi
+    else
+      echo "⚠ Docker not found - install it, then: docker compose -f \"$CPP_DIR/lib/cpp_memory/docker-compose.yml\" up -d"
+    fi
+    echo "  Default DSN: postgresql://cpp_memory:cpp_memory@127.0.0.1:5433/cpp_memory"
+    ;;
+  iii|remote-pg)
+    echo "remote-pg" > "$BACKEND_FILE"
+    echo "✓ common-memory backend: remote-pg (tier iii) - full dedup, FLEET federation"
+    echo "  DSN resolves fail-open: CPP_MEMORIES_DSN -> ~/.config/claude-power-pack/secrets/cpp-memories.dsn -> AWS SM (essent-ai)."
+    echo "  Provision a new remote store with scripts/memories-db-setup.sh (idempotent)."
+    if bash "$CPP_DIR/scripts/cpp-memory" ping 2>/dev/null | grep -q '"reachable": true'; then
+      echo "  Reachability: OK (store answered ping)."
+    else
+      echo "  Reachability: not reachable yet - set the DSN, then: cpp-memory ping"
+    fi
+    ;;
+  ""|skip|n|N)
+    echo "→ Backend selection skipped - the client infers one (DSN present -> remote-pg, else md)."
+    ;;
+  *)
+    echo "⚠ Unrecognized choice '$MEM_BACKEND_CHOICE' - skipped. Re-run /cpp:init to choose."
+    ;;
+esac
+```
+
+Verify with `cpp-memory ping` (its JSON now reports `backend` and `federation`).
+
 ---
 
 ## Notes

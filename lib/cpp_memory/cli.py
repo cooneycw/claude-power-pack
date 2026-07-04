@@ -5,7 +5,8 @@ import argparse
 import json
 import socket
 
-from .client import MemoryStore, append_local_learning
+from .backend import StoreBackend
+from .client import append_local_learning
 from .models import (
     Learning,
     is_actionable,
@@ -13,13 +14,14 @@ from .models import (
     issue_marker,
     should_file_issue,
 )
+from .store import select_backend
 
 
 def _vm() -> str:
     return socket.gethostname()
 
 
-def _issue_candidate(store: MemoryStore, learning: Learning, repo: str | None) -> dict:
+def _issue_candidate(store: StoreBackend, learning: Learning, repo: str | None) -> dict:
     """Everything the retro routine needs to (maybe) file a GitHub issue (#463).
 
     ``should_file`` is the dedup-aware verdict: actionable AND not already filed.
@@ -90,14 +92,20 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def main(argv=None) -> int:
     args = _build_parser().parse_args(argv)
-    store = MemoryStore()
+    # The md backend's ledger lives under <repo_root>/.claude/; honor --repo so
+    # md reads/writes the same file the fail-open fallback would (default: cwd).
+    # pg backends ignore repo_root (--repo is the source_repo provenance label).
+    repo_root = getattr(args, "repo", None) or "."
+    store = select_backend(repo_root=repo_root)
 
     if args.cmd == "ping":
         ok = store.ping()
         print(json.dumps({
+            "backend": store.name,
+            "federation": store.federation,
             "available": store.available(),
             "reachable": ok,
-            "dsn_present": bool(store.dsn),
+            "dsn_present": bool(getattr(store, "dsn", None)),
         }))
         return 0 if ok else 1
 
@@ -129,10 +137,18 @@ def main(argv=None) -> int:
             return 0
 
         lid = store.record_learning(learning, _vm(), args.repo)
-        out: dict = {"fingerprint": learning.fingerprint}
+        out: dict = {
+            "fingerprint": learning.fingerprint,
+            "backend": store.name,
+            "federation": store.federation,
+        }
         if lid is None:
+            # A pg tier is unreachable - fail-open to the local md ledger.
             path = append_local_learning(learning, args.repo or ".")
             out.update(stored="local-fallback", reason="store unavailable", path=str(path))
+        elif store.name == "md":
+            # Tier i: the md ledger IS the store (first-class), not a fallback.
+            out.update(stored="md", path=str(lid))
         else:
             out.update(stored="shared", id=lid)
         if args.emit_issue_candidate:
