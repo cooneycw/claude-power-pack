@@ -51,24 +51,16 @@ You can also invoke the MCP tools directly without commands:
 
 ## Requirements
 
-- MCP Second Opinion server configured (stdio recommended, or SSE on port 8080)
-- At least one API key configured (GEMINI_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY)
-- All three recommended for cross-provider comparison
+- The external Second Opinion server running: clone and start `cooneycw/mcp-second-opinion`.
+- This project's root `.mcp.json` pointing at it: the `second-opinion` entry is a streamable-http server at `http://127.0.0.1:8080/mcp` (localhost) or a Tailscale URL (remote host).
+- At least one API key configured on the server side (GEMINI_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY). All three recommended for cross-provider comparison.
 
 ## Troubleshooting
 
-**Error `-32602: Invalid request parameters`** usually means the server isn't running, not that parameters are wrong.
+**Error `-32602: Invalid request parameters`** usually means the server isn't running or the root `.mcp.json` is not pointing at it, not that parameters are wrong.
 
-**Fix:** Switch from SSE to stdio transport (auto-starts the server):
+**Fix:** Make sure the external server is up and `.mcp.json` targets it:
 
-```bash
-claude mcp remove second-opinion
-claude mcp add second-opinion --transport stdio -- uv run --directory /path/to/claude-power-pack/mcp-second-opinion python src/server.py --stdio
-```
-
-**Diagnose configuration:**
-
-```bash
-cd /path/to/claude-power-pack/mcp-second-opinion
-./start-server.sh --diagnose
-```
+1. Start the external server from the `cooneycw/mcp-second-opinion` checkout (see that repo's README).
+2. Confirm this project's root `.mcp.json` registers `second-opinion` as a streamable-http server at the right URL (`http://127.0.0.1:8080/mcp` for localhost, or your Tailscale URL for a remote host).
+3. Reload MCP servers in Claude Code (or restart the session) so the updated `.mcp.json` is picked up.

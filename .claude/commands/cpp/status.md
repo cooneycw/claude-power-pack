@@ -203,16 +203,12 @@ else
   echo "[ ] uv: not installed"
 fi
 
-# Check MCP server pyproject.toml files
+# CPP ships no local MCP server projects. The second-opinion server is external
+# (the cooneycw/mcp-second-opinion repo), connected via the root .mcp.json
+# streamable-http pointer. Browser automation is upstream @playwright/mcp (npx/stdio).
 echo ""
 echo "MCP Server Projects:"
-for server in mcp-second-opinion; do
-  if [ -f "$CPP_DIR/$server/pyproject.toml" ]; then
-    echo "  [x] $server: pyproject.toml found"
-  else
-    echo "  [ ] $server: pyproject.toml missing"
-  fi
-done
+echo "  [-] none bundled (second-opinion is external via .mcp.json; playwright via npx/stdio)"
 
 # Check MCP servers registered
 echo ""
@@ -245,131 +241,30 @@ else
   echo "  [ ] Codex CLI: not installed"
 fi
 
-# Check MCP transport endpoints (containerized HTTP servers only; the browser
-# server is upstream @playwright/mcp over npx/stdio - no port to probe).
+# MCP server wiring. CPP no longer runs any MCP server as a local container.
+# The second-opinion server is external (cooneycw/mcp-second-opinion) and is reached
+# over the root .mcp.json streamable-http pointer (localhost http://127.0.0.1:8080/mcp
+# or a Tailscale URL). Report how it is wired rather than probing a CPP-owned port.
 echo ""
-echo "MCP Transport Endpoints:"
-for entry in "8080:second-opinion"; do
-  PORT="${entry%%:*}"
-  NAME="${entry#*:}"
-  SSE_OK=$(curl -sf --max-time 2 -o /dev/null -w '%{http_code}' "http://127.0.0.1:${PORT}/sse" 2>/dev/null || echo "000")
-  MCP_OK=$(curl -sf --max-time 2 -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' "http://127.0.0.1:${PORT}/mcp" 2>/dev/null || echo "000")
-  if [ "$SSE_OK" != "000" ] && [ "$MCP_OK" != "000" ]; then
-    echo "  [x] $NAME: /sse ($SSE_OK) + /mcp ($MCP_OK)"
-  elif [ "$SSE_OK" != "000" ]; then
-    echo "  [~] $NAME: /sse ($SSE_OK) only - /mcp not available (upgrade containers)"
+echo "MCP Server Wiring (.mcp.json):"
+if [ -f ".mcp.json" ] && grep -q "second-opinion" .mcp.json 2>/dev/null; then
+  SO_URL=$(grep -oE 'https?://[^"[:space:]]+' .mcp.json 2>/dev/null | head -1)
+  echo "  [x] second-opinion: registered in .mcp.json (${SO_URL:-external mcp-second-opinion server})"
+  if [ -n "$SO_URL" ] && curl -sf --max-time 2 -o /dev/null "$SO_URL" 2>/dev/null; then
+    echo "      reachable"
   else
-    echo "  [ ] $NAME: not reachable on port $PORT"
-  fi
-done
-
-# Check MCP server connectivity and API key status
-echo ""
-echo "MCP Server Connectivity:"
-for entry in "8080:second-opinion"; do
-  PORT="${entry%%:*}"
-  NAME="${entry#*:}"
-  HEALTH_RESPONSE=$(curl -sf --max-time 2 "http://127.0.0.1:${PORT}/" 2>/dev/null)
-  if [ -n "$HEALTH_RESPONSE" ]; then
-    # Check for no_api_keys status in health response
-    if echo "$HEALTH_RESPONSE" | grep -q '"no_api_keys"' 2>/dev/null; then
-      echo "  [!] $NAME (port $PORT): reachable but NO API KEYS configured"
-      echo "      Create $CPP_DIR/.env with GEMINI_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY"
-      echo "      Then restart: cd $CPP_DIR && make docker-down && make docker-up PROFILE=core"
-    else
-      echo "  [x] $NAME (port $PORT): reachable"
-    fi
-  elif ss -tlnp 2>/dev/null | grep -q ":${PORT} " 2>/dev/null; then
-    echo "  [~] $NAME (port $PORT): port open (no health endpoint)"
-  else
-    echo "  [ ] $NAME (port $PORT): not reachable"
-  fi
-done
-
-# Check AWS Secrets Manager sidecar
-echo ""
-echo "AWS Secrets Sidecar:"
-SIDECAR_CONTAINER=$(docker ps -a --format '{{.Names}}' 2>/dev/null | grep "aws-secrets-agent" || true)
-if [ -n "$SIDECAR_CONTAINER" ]; then
-  SIDECAR_STATE=$(docker inspect --format='{{.State.Status}}' aws-secrets-agent 2>/dev/null || echo "unknown")
-  SIDECAR_HEALTH=$(docker inspect --format='{{.State.Health.Status}}' aws-secrets-agent 2>/dev/null || echo "unknown")
-  SIDECAR_RESTARTS=$(docker inspect --format='{{.RestartCount}}' aws-secrets-agent 2>/dev/null || echo "unknown")
-  if [ "$SIDECAR_HEALTH" = "healthy" ]; then
-    echo "  [x] aws-secrets-agent: $SIDECAR_STATE, healthy (port 2773)"
-  else
-    echo "  [~] aws-secrets-agent: state=$SIDECAR_STATE, health=$SIDECAR_HEALTH, restarts=$SIDECAR_RESTARTS"
-  fi
-  BAKED_AWS_KEY=$(docker inspect --format='{{range .Config.Env}}{{println .}}{{end}}' aws-secrets-agent 2>/dev/null | grep '^AWS_ACCESS_KEY_ID=' | cut -d= -f2-)
-  BAKED_AWS_SECRET=$(docker inspect --format='{{range .Config.Env}}{{println .}}{{end}}' aws-secrets-agent 2>/dev/null | grep '^AWS_SECRET_ACCESS_KEY=' | cut -d= -f2-)
-  if [ -z "$BAKED_AWS_KEY" ] || [ -z "$BAKED_AWS_SECRET" ]; then
-    echo "  [!] aws-secrets-agent baked AWS credentials are empty/missing"
-  fi
-  # Show which MCP containers use the sidecar
-  CREATED_SECRET_CONTAINERS=""
-  for container in mcp-second-opinion; do
-    SECRET_NAME=$(docker inspect --format='{{range .Config.Env}}{{println .}}{{end}}' "$container" 2>/dev/null | grep "^AWS_SECRET_NAME=" | cut -d= -f2)
-    CONTAINER_STATE=$(docker inspect --format='{{.State.Status}}' "$container" 2>/dev/null || echo "missing")
-    if [ -n "$SECRET_NAME" ]; then
-      echo "    $container -> $SECRET_NAME (state=$CONTAINER_STATE)"
-      if [ "$CONTAINER_STATE" = "created" ]; then
-        CREATED_SECRET_CONTAINERS="$CREATED_SECRET_CONTAINERS $container"
-      fi
-    fi
-  done
-  if [ -n "$CREATED_SECRET_CONTAINERS" ] && [ "$SIDECAR_HEALTH" != "healthy" ]; then
-    echo "  [!] Detected sidecar dependency strand: $CREATED_SECRET_CONTAINERS"
-    echo "      Secret-dependent containers are Created with no logs while aws-secrets-agent is not healthy."
-    echo "      Docker Compose captured sidecar env at container create time; restart will not reload fixed creds."
-    echo "      If .env or shell AWS creds are now valid, run:"
-    echo "      cd $CPP_DIR && docker compose --profile core up -d --force-recreate aws-secrets-agent mcp-second-opinion"
-  fi
-  # Check AWS credential validity
-  if [ -f "$CPP_DIR/.env" ] && grep -qE '^AWS_ACCESS_KEY_ID=.+' "$CPP_DIR/.env" 2>/dev/null; then
-    echo "  [x] AWS credentials: present in .env"
-  else
-    echo "  [!] AWS credentials: missing from .env"
-  fi
-  echo "  Secret method: AWS Secrets Manager"
-else
-  if [ -f "$CPP_DIR/aws-secrets-agent/Dockerfile" ]; then
-    echo "  [ ] aws-secrets-agent: not running (image available)"
-    echo "      Start with: make docker-up PROFILE=core"
-  else
-    echo "  [ ] aws-secrets-agent: not installed"
-  fi
-  echo "  Secret method: Direct .env"
-fi
-
-# Check .env file for Docker deployments
-echo ""
-echo "Docker API Keys (.env):"
-if [ -f "$CPP_DIR/.env" ]; then
-  KEY_COUNT=$(grep -cE '^(GEMINI|OPENAI|ANTHROPIC)_API_KEY=.+' "$CPP_DIR/.env" 2>/dev/null || echo "0")
-  AWS_KEY_SET=$(grep -cE '^AWS_ACCESS_KEY_ID=.+' "$CPP_DIR/.env" 2>/dev/null || echo "0")
-  if [ "$KEY_COUNT" -gt 0 ]; then
-    echo "  [x] $CPP_DIR/.env: $KEY_COUNT API key(s) configured (direct)"
-    grep -oE '^(GEMINI|OPENAI|ANTHROPIC)_API_KEY=' "$CPP_DIR/.env" 2>/dev/null | while read key; do
-      echo "      - ${key%=}"
-    done
-  elif [ "$AWS_KEY_SET" -gt 0 ]; then
-    echo "  [x] $CPP_DIR/.env: AWS credentials only (keys via sidecar)"
-  else
-    echo "  [!] $CPP_DIR/.env exists but contains no API or AWS keys"
+    echo "      [~] not verified reachable - run the external mcp-second-opinion server (localhost or Tailscale)"
   fi
 else
-  echo "  [ ] $CPP_DIR/.env: not found (Docker containers have no API keys)"
-  echo "      Run /cpp:init or create manually"
+  echo "  [ ] second-opinion: not registered in .mcp.json"
+  echo "      Run the external cooneycw/mcp-second-opinion server, then point .mcp.json"
+  echo "      at it (http://127.0.0.1:8080/mcp for localhost, or a Tailscale URL)."
 fi
-
-# Report supported deployment model
-echo ""
-echo "Deployment Model:"
-echo "  [x] Docker (local build)"
-echo "      Refresh with: /cpp:update"
+echo "  [-] playwright: upstream @playwright/mcp over npx/stdio (no port to probe)"
 
 # Check legacy systemd services
 echo ""
-echo "Legacy Systemd (migration required):"
+echo "Legacy Systemd:"
 KNOWN_LEGACY_SYSTEMD_UNITS=$(cat <<'EOF'
 mcp-second-opinion
 second-opinion
@@ -402,7 +297,7 @@ for unit in $DISCOVERED_LEGACY_SYSTEMD_UNITS; do
   if [ -f "$USER_PATH" ] || [ "$USER_ACTIVE" = "active" ] || [ "$USER_ENABLED" = "enabled" ]; then
     LEGACY_SYSTEMD_FOUND=1
     if [ "$USER_ACTIVE" = "active" ]; then
-      echo "  [!] user:$unit active, enabled=${USER_ENABLED:-unknown} - run /cpp:update to migrate to Docker"
+      echo "  [!] user:$unit active, enabled=${USER_ENABLED:-unknown} - run /cpp:update to remove the legacy unit"
     else
       echo "  [~] user:$unit active=${USER_ACTIVE:-inactive}, enabled=${USER_ENABLED:-unknown} - run /cpp:update to remove legacy unit"
     fi
@@ -413,7 +308,7 @@ for unit in $DISCOVERED_LEGACY_SYSTEMD_UNITS; do
   if [ -f "$SYSTEM_PATH" ] || [ "$SYSTEM_ACTIVE" = "active" ] || [ "$SYSTEM_ENABLED" = "enabled" ]; then
     LEGACY_SYSTEMD_FOUND=1
     if [ "$SYSTEM_ACTIVE" = "active" ]; then
-      echo "  [!] system:$unit active, enabled=${SYSTEM_ENABLED:-unknown} - run /cpp:update to migrate to Docker"
+      echo "  [!] system:$unit active, enabled=${SYSTEM_ENABLED:-unknown} - run /cpp:update to remove the legacy unit"
     else
       echo "  [~] system:$unit active=${SYSTEM_ACTIVE:-inactive}, enabled=${SYSTEM_ENABLED:-unknown} - run /cpp:update to remove legacy unit"
     fi
@@ -566,7 +461,7 @@ fi
 Based on the checks above, report:
 
 1. **Current tier level** - Which tier is fully installed
-2. **Deployment model** - Always report `Docker (local build)` for Tier 3 runtime
+2. **MCP wiring** - second-opinion is external (cooneycw/mcp-second-opinion) via `.mcp.json`; there is no CPP-managed container runtime
 3. **Missing components** - What needs to be installed
 4. **Recommendation** - Suggest running `/cpp:init` if incomplete, or `/cpp:update` if legacy systemd units remain
 
@@ -592,19 +487,12 @@ Tier 2 (Standard):
 
 Tier 3 (Full):
   [x] uv: 0.5.x
-  [x] mcp-second-opinion: pyproject.toml + registered
+  [x] second-opinion: registered (external cooneycw/mcp-second-opinion via .mcp.json)
   [x] playwright: registered (upstream @playwright/mcp, npx/stdio)
-  MCP Connectivity:
-    [x] second-opinion (port 8080): reachable
-    [x] playwright: stdio (npx) - no port to probe
-  AWS Secrets Sidecar:
-    [x] aws-secrets-agent: running, healthy (port 2773)
-        mcp-second-opinion -> codex_llm_apikeys
-    [x] AWS credentials: present in .env
-    Secret method: AWS Secrets Manager
-  Deployment Model:
-    [x] Docker (local build)
-  Legacy Systemd (migration required):
+  MCP Server Wiring (.mcp.json):
+    [x] second-opinion: registered in .mcp.json (http://127.0.0.1:8080/mcp)
+    [-] playwright: npx/stdio - no port to probe
+  Legacy Systemd:
     none (ok)
   Status: Partial
 
@@ -627,7 +515,7 @@ Tier 5 (Codex):
 
 ---------------------------------
 Current Level: Tier 2 (Standard)
-Deployment Model: Docker (local build)
+MCP wiring: second-opinion external via .mcp.json (no CPP container runtime)
 Missing: Shell prompt, CI pipeline, Dockerfile
 
 Run /cpp:init to complete setup

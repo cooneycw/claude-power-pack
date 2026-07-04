@@ -73,22 +73,18 @@ Moving functionality from MCP to Skill (or vice versa):
 | Security scanning | Skill + lib | Runs local Python modules |
 | `/flow:auto` lifecycle | Skill | Composes git + gh + make commands |
 
-## Docker Deployment Patterns
+## MCP Server Deployment
 
-CPP uses Docker Compose profiles to manage MCP servers:
+CPP itself ships no container runtime. MCP servers are external or upstream, wired into a project through the root `.mcp.json`:
 
-| Profile | Services | Use Case |
-|---------|----------|----------|
-| `core` | Second Opinion | Essential MCP servers |
+| Server | How it runs | Wiring |
+|--------|-------------|--------|
+| Second Opinion | External `cooneycw/mcp-second-opinion` server (run it yourself) | `.mcp.json` streamable-http entry at `http://127.0.0.1:8080/mcp` (localhost) or a Tailscale URL |
+| Browser automation | Upstream `@playwright/mcp` (npx/stdio) | Registered by `/cpp:init` (no container) |
 
-Browser automation is the upstream `@playwright/mcp` server, registered by `/cpp:init` as an npx/stdio MCP (no container, no compose profile).
+**Secrets:** the external Second Opinion server manages its own API keys - keep them on the server side, never in this repo.
 
-**Secrets:** Use env_file with a root `.env` (gitignored), never hardcode keys in Dockerfiles. For production, use Docker secrets or AWS Secrets Manager.
-
-**Start profiles:**
-```bash
-make docker-up PROFILE=core
-```
+**Connect:** run the external server, then point the `second-opinion` entry in the root `.mcp.json` at its URL (localhost or Tailscale).
 
 ## Decision Checklist
 
@@ -100,12 +96,13 @@ Before implementing new functionality:
 - [ ] Will it be used <10% of sessions? - Skill
 - [ ] Does it need 5+ related tools? - MCP
 - [ ] Is it project-specific? - Skill
-- [ ] Does it need security isolation? - MCP (Docker)
+- [ ] Does it need security isolation? - MCP
 - [ ] Is token budget tight? - Skill
 - [ ] Will it be reused across projects? - MCP
 - [ ] Is it a simple utility? - Skill
 
 ## Revision History
 
+- 2026-07-04: Retired the Docker Compose deployment section; MCP servers are external/upstream, wired via `.mcp.json` (issue #469)
 - 2026-03-06: Added Docker patterns and decision checklist from PR #199 (dagangtj)
 - 2026-02-16: Initial version (PR #204)

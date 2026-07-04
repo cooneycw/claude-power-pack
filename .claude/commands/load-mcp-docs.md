@@ -2,10 +2,16 @@
 description: Load MCP Second Opinion server documentation
 ---
 
-Read the MCP Second Opinion documentation and summarize the available tools and usage patterns:
+The MCP Second Opinion server is external: it lives in the `cooneycw/mcp-second-opinion`
+repo and is connected to this project through the root `.mcp.json` streamable-http pointer
+(localhost `http://127.0.0.1:8080/mcp` or a Tailscale URL). Summarize the available tools
+and usage patterns from what is reachable here:
 
-1. Read: `README.md` (MCP Second Opinion section)
-2. Read: `mcp-second-opinion/src/server.py` (tool definitions)
+1. Read: `README.md` (MCP Second Opinion section) for the setup and connection model.
+2. Inspect the live `mcp__second-opinion__*` tool definitions exposed by the connected
+   server (e.g. `list_available_models`, `get_code_second_opinion`,
+   `get_multi_model_second_opinion`, `create_session`, `consult`). For full server
+   internals, see the external `cooneycw/mcp-second-opinion` repository.
 
 Provide an overview of:
 - The 10 available tools and their purposes
