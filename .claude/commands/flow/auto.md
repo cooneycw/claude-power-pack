@@ -248,6 +248,28 @@ fi
 - If it reports `current` or `moved-clean` with no overlap, proceed - the Step-7
   #462 guard remains the final backstop.
 
+**Worktree path-resolution rule (issue #486) - a native `EnterWorktree` session
+edits the worktree, but the worktree lives *inside* the main repo at
+`.claude/worktrees/<name>/`.** A `Write`/`Edit` given a hand-built ABSOLUTE
+`.claude/worktrees/<name>/...` path has been observed to land in the MAIN repo
+working tree instead of the worktree (flow:auto #442 x2, #471) - work looks done
+but is written to the wrong tree. So, for every edit in this step:
+
+- Resolve edit paths from the active worktree root - `git rev-parse
+  --show-toplevel` - never a hand-built `.claude/worktrees/<name>/...` absolute
+  path. A path under `$(git rev-parse --show-toplevel)/...`, or a plain relative
+  path from the session cwd, targets the worktree correctly.
+- After writing, confirm the change landed in the worktree (`git status` shows it)
+  and did NOT leak into main. The guard makes the leak check verifiable:
+  ```bash
+  if [ -n "$CPP_DIR" ] && [ -x "$CPP_DIR/scripts/flow-worktree-guard.sh" ]; then
+      "$CPP_DIR/scripts/flow-worktree-guard.sh"   # advisory: warns on a leak, never blocks
+  fi
+  ```
+  If it warns that main has tracked modifications mirroring files you edited, the
+  edit leaked: move the change into the worktree, then `git -C <main> checkout --
+  <path>` to revert main before continuing.
+
 Execute the approved plan from the Step 3 ELI5 gate:
 
 1. **Make all code changes** in the worktree.
@@ -376,6 +398,17 @@ fi
    fi
    ```
    If it warns, add a `!negation` to `.gitignore` for any intended file and re-stage.
+
+   **Worktree-leak guard** (issue #486): in a native-worktree session, confirm no
+   edit leaked into the MAIN repo working tree before committing (a stray dirty
+   file on main is otherwise committed later by whoever works there next):
+   ```bash
+   if [ -n "$CPP_DIR" ] && [ -x "$CPP_DIR/scripts/flow-worktree-guard.sh" ]; then
+       "$CPP_DIR/scripts/flow-worktree-guard.sh"   # advisory: warns on a leak, never blocks
+   fi
+   ```
+   If it warns, an edit landed in main instead of the worktree: move it into the
+   worktree and revert main (`git -C <main> checkout -- <path>`), then re-gate.
 
 2. **Commit** - if there are uncommitted changes:
    - Use conventional commit format: `type(scope): Description (Closes #N)`
