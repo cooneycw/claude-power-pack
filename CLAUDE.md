@@ -119,6 +119,18 @@ Steps 4/6 run `scripts/flow-worktree-guard.sh` - an advisory, fail-open guard
 that warns (never blocks) when the main tree has tracked modifications, the
 signature of a leaked edit - so the trap is caught before commit.
 
+**Bash cwd + permission-prompt hygiene (retro #480):** the Bash tool's working
+directory persists across calls, and the harness prompts on a `cd` inside a
+compound command. Do NOT prefix Bash calls with `cd "$(git rev-parse
+--show-toplevel)" && ...` - it forces a permission prompt on nearly every call
+AND prevents the shipped read-only allowlist
+(`templates/claude-settings-permissions.json`) from matching the real
+sub-command (`cd X && git fetch` prompts on the `cd`, so `Bash(git fetch:*)`
+never fires). Rely on cwd persistence, use absolute paths, or `git -C <dir>`; add
+an explicit `cd` only when the cwd must actually change. This is the behavioral
+counterpart to the census classifier fix (#519), which stopped mis-deriving
+`Bash(cd:*)` allow candidates.
+
 **Standalone skill extractions (issue #443):** skills with standalone value are
 extracted to their own public plugin repos so users never have to clone CPP -
 they install via `/plugin marketplace add cooneycw/<repo>` or `npx skills add
