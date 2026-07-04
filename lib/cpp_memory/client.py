@@ -12,6 +12,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .backend import FEDERATION_FLEET, StoreBackend
 from .config import resolve_dsn
 from .models import Learning
 
@@ -30,10 +31,34 @@ _LEARNING_COLS = (
 )
 
 
-class MemoryStore:
-    def __init__(self, dsn: str | None = None, connect_timeout: int = 3):
+class MemoryStore(StoreBackend):
+    """Postgres backend (:class:`~lib.cpp_memory.backend.StoreBackend`).
+
+    Serves BOTH pluggable Postgres tiers - they share this code and differ only
+    in DSN target and surfaced federation scope:
+
+    - **local-pg** (tier ii): a docker ``postgres:17`` on this box;
+      ``federation="none"`` (single box, no cross-VM sharing).
+    - **remote-pg** (tier iii): the fleet store over Tailscale;
+      ``federation="fleet"`` (the historical default, hence the defaults below).
+
+    Every read/write is fail-open; the sole non-fail-open path is the bucket-2
+    share guard in :meth:`record_learning`, which refuses non-portable learnings
+    because this is a shared/federated store.
+    """
+
+    def __init__(
+        self,
+        dsn: str | None = None,
+        connect_timeout: int = 3,
+        *,
+        name: str = "remote-pg",
+        federation: str = FEDERATION_FLEET,
+    ):
         self.dsn = dsn if dsn is not None else resolve_dsn()
         self.connect_timeout = connect_timeout
+        self.name = name
+        self.federation = federation
 
     def available(self) -> bool:
         return bool(self.dsn) and _HAVE_PSYCOPG
