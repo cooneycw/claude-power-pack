@@ -22,6 +22,12 @@ terminal "final step retro" would be blind to exactly those. So:
   main-repo buffer via `git-common-dir`, so signals captured inside a `/flow:auto`
   worktree reach this command (run from the main repo) without manual re-logging
   (issue #471). (This command consumes that buffer; it does not replace it.)
+  The `permission-prompt` class is captured by the harness, not the model: the
+  `PermissionRequest` hook (`scripts/hook-permission-census.sh`, registered in
+  `~/.claude/settings.json` by `/cpp:init` / `/cpp:update`) fires when a dialog is
+  shown and records a risk-rated record with a derived allow-rule candidate. This
+  is why the class finally fires - the model cannot tell an approved call from an
+  auto-allowed one (issue #482). The other three classes stay model-observed.
 - **Codify (local)** is THIS command: classify -> dedup -> propose -> confirm ->
   apply -> log, for fixes that stay on this machine (settings, Makefile, hooks,
   CLAUDE.md, quality gates). Local learnings persist in `.claude/learnings.md`.
@@ -51,14 +57,17 @@ When the user invokes `/self-improvement:retro`, perform these steps.
 Collect signals from all available sources (union, then de-duplicate):
 
 1. **Capture buffer** - if `.claude/friction.jsonl` exists, read it. Each line is a
-   JSON record: `{ts, run, step, class, signal, fix, scope, outcome}`.
+   JSON record: `{ts, run, step, class, signal, fix, scope, outcome, risk}`. The
+   `risk` field is set on `permission-prompt` records by the census hook (empty on
+   other classes); Step 4 uses it to allowlist only the safe tiers.
    ```bash
    [ -f .claude/friction.jsonl ] && cat .claude/friction.jsonl || echo "NO_BUFFER"
    ```
 2. **This conversation** - scan the session for friction the buffer may have
    missed, across four classes:
-   - **permission-prompt** - each Bash/tool approval the user had to click
-     (`gh issue view`, `git fetch`, `git worktree`, shell pipelines, etc.).
+   - **permission-prompt** - normally already in the buffer from the census hook
+     (with a `risk` tier); scan the conversation only for prompts the hook missed
+     (e.g. a session where it was not registered).
    - **gate-failure** - lint/test/build/deploy failures and the retries that
      followed.
    - **red-output** - error/red output that was narrated past or worked around
@@ -122,15 +131,30 @@ For each surviving signal, map its class to a concrete, durable fix and a scope:
 This is the motivating case and the primary acceptance path. When
 permission-prompt signals are present:
 
-1. For each distinct prompted command, derive the narrowest safe allow rule of the
-   form `Bash(<command prefix>:*)` (e.g. `gh issue view` -> `Bash(gh issue view:*)`,
-   `git fetch` -> `Bash(git fetch:*)`, `git worktree add ...` -> `Bash(git worktree:*)`,
-   the branch-slug pipeline `tr` / `sed` / `cut` -> `Bash(tr:*)`, `Bash(sed:*)`,
-   `Bash(cut:*)`). Bare commands with no subcommand use the exact form CPP ships
-   (e.g. `pwd` -> `Bash(pwd)`, `git remote -v` -> `Bash(git remote -v)`).
+0. **Route by risk tier first (census records carry `risk`).** The census hook
+   already rated each prompt and put the derived rule in `fix` ONLY for the safe
+   tiers (`READONLY-AUTO`, `READONLY-ADDABLE`, `WRITE-LOCAL`); a risky prompt has
+   an empty `fix` and a tier of `WRITE-OUTWARD` / `DUAL-USE-NET` / `CODE-EXEC` /
+   `SCRIPT-EXEC` / `DESTRUCTIVE`. Honour that split:
+   - **safe tiers** -> allowlist candidates (the `fix` field), proposed below.
+   - **`DESTRUCTIVE`** (`rm -rf`, `git reset --hard`, force push) -> propose a
+     `permissions.ask` guard (prompt even under auto-accept), never an allow rule.
+   - **secret file edits** (`.env`, `*.pem`, `*.key`, `id_rsa*`) -> `permissions.deny`.
+   - **`CODE-EXEC` / `DUAL-USE-NET` / `WRITE-OUTWARD` / `SCRIPT-EXEC`** -> leave
+     prompting (do not allowlist); surface as informational.
+   For a full graded allow/ask/deny policy derived across a whole transcript (not
+   just this run's prompts), `/security:permissions` is the batch complement.
+1. For each distinct SAFE-tier prompted command, derive the narrowest safe allow
+   rule of the form `Bash(<command prefix>:*)` (e.g. `gh issue view` ->
+   `Bash(gh issue view:*)`, `git fetch` -> `Bash(git fetch:*)`, `git worktree add
+   ...` -> `Bash(git worktree:*)`, the branch-slug pipeline `tr` / `sed` / `cut` ->
+   `Bash(tr:*)`, `Bash(sed:*)`, `Bash(cut:*)`). Bare commands with no subcommand use
+   the exact form CPP ships (e.g. `pwd` -> `Bash(pwd)`, `git remote -v` ->
+   `Bash(git remote -v)`). The census hook already emits this candidate in `fix`.
 2. **Deliberately EXCLUDE shipping/mutating actions** so gates and secret-read
    prompts stay intact: never propose allow rules for `git push`, `gh pr create`,
-   `gh pr merge`, or `cat` (which would defeat output masking).
+   `gh pr merge`, or `cat` (which would defeat output masking). The census hook
+   already withholds a `fix` for these (non-safe tiers), so honour that.
 3. Recognize that CPP already ships this exact set as
    `templates/claude-settings-permissions.json`. If your derived rules are a subset
    of that template, recommend the supported merge path instead of hand-editing:
