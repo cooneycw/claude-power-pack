@@ -64,6 +64,13 @@ run, so the module has no hard external dependency.
 | `pip_audit.py` | external | Python dependency CVEs |
 | `npm_audit.py` | external | Node dependency CVEs |
 
+`secrets.py` honors `.gitignore` inside a git work tree (via a batched
+`git check-ignore`), so gitignored, never-committed local files (e.g.
+`.claude/settings.local.json`) are not scanned - the gate flags only
+*committable* risk. It fails open: outside a git repo, or on any git error, the
+full tree is scanned as before. Tracked files are always scanned even if they
+match an ignore pattern (`check-ignore` is index-aware).
+
 ## The gate
 
 `python -m lib.security gate <gate_name>` runs the **quick native** scan, then

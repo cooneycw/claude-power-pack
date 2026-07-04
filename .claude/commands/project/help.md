@@ -42,7 +42,7 @@ One-command project setup that orchestrates:
 
 ## /project-next
 
-Full GitHub issue analysis with prioritized recommendations. Scans open issues, maps worktrees, detects hierarchy (Waves/Phases), and suggests what to work on next.
+Prioritized next-step report. Scans open issues in one batched call, maps worktrees, applies a blocked/in-flight verification gate, and recommends what to work on next. Compact by default; `--full` for the deep 5-tier analysis, `--brief` for a single top pick.
 
 **Use when:** Unsure what to work on, need issue triage, or want cleanup suggestions.
 

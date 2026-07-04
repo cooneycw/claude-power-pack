@@ -25,6 +25,19 @@
 
 ### Added
 
+- **Early stale-base detection in the flow** (issue #473) - a new advisory,
+  fail-open `scripts/flow-stale-check.sh` surfaces a base that moved on
+  `origin/main` at **Step 4 (start of implement)** and **Step 6 (before the
+  commit)** of `/flow:auto` (and in `/flow:finish`), instead of first discovering
+  it at the Step-7 #462 guard. It NAMES the file(s) you have already edited that
+  also changed upstream (committed or dirty in the work tree), so you can
+  `git merge --no-edit origin/main` before more edits pile onto a stale base -
+  the rework tax seen on flow:auto #444/#463/#461. The Step-7 #462 guard remains
+  the final backstop. When a merge (early or at Step 7) pulls in
+  `.claude/commands/flow/*.md` changes, the guards now re-run
+  `scripts/flow-skill-sync.py --write` so the global `flow-*` mirror does not
+  drift (#457/#461). Covered by `tests/test_flow_stale_check.py`.
+
 - **`/flow:eli5` extracted to the standalone `eli5-gate` plugin** (issue #443,
   epic #417 Phase C) - the necessity gate (plain-language intent ELI5 +
   staleness/necessity verdict + plan-approval pause) now lives in its own public
