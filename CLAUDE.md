@@ -12,6 +12,7 @@
 - After any fix, verify through the full pipeline: `make verify`.
 - Use `/dockers` to check container status, health, and project linkages.
 - **Use single dashes (-) not em dashes (-)** in all markdown, comments, and documentation. Never generate Unicode em dashes (U+2014) or en dashes (U+2013).
+- **One inventory item per line in CLAUDE.md.** When adding to an inventory entry (the `scripts/` list, component feature lists, CI behavior lists), add a new sub-bullet - never append to an existing line. Git merges at line granularity, so packed single-line lists make every concurrent PR that touches them a manual merge conflict (#501).
 
 ## Project Map
 
@@ -30,8 +31,28 @@ Core components and their locations:
 - `lib/creds/` - Secrets management (dotenv/AWS SM, FastAPI UI, audit logging)
 - `lib/security/` - Security scanning (native + external tools)
 - `lib/cicd/` - CI/CD framework detection, Makefile generation, health/smoke checks, deterministic runner, deployment strategies, Pydantic v2 config validation
-- `lib/cpp_memory/` - Common-memory client: a **pluggable** fail-open friction-knowledge ledger (issue #472) with three `/cpp:init`-selectable backends behind one `StoreBackend` interface - `md` (best-effort local, no federation; subsumes `.claude/learnings.md`), `local-pg` (full SQL dedup, single box, `lib/cpp_memory/docker-compose.yml`), and `remote-pg` (full dedup, fleet-federated Postgres, `scripts/memories-db-setup.sh`). Backend chosen via `CPP_MEMORIES_BACKEND` / step 8d; **federation is a surfaced per-tier property** (only remote-pg shares across VMs). Holds *portable* CPP learnings/infra traps (bucket-2-plus) plus a dedup/rejection ledger and a learnings->GitHub-issue bridge (`--emit-issue-candidate` / `link-issue`, #463). Consult-not-push; see `/self-improvement:memory`.
-- `scripts/` - Shell utilities (prompt-context, worktree-remove, gh-pr-merge (layout-aware PR squash-merge used by `/flow:auto` + `/flow:merge`; polls mergeability to wait out a transient `UNKNOWN` right after push, #485), flow-stale-check (advisory early stale-base detector for `/flow:auto` Step 4/6 + `/flow:finish`, #473), flow-worktree-guard (advisory leaked-edit detector: warns when a `/flow:auto` edit landed in the MAIN tree instead of the worktree, #486), hooks, drift-detect, skill-drift, mcp-drift, flow-skill-sync, plugin-sync (byte-identical drift guard keeping every packaged family plugin in sync with its command source, #477/#478; plugin-flow-sync survives as a flow-scoped shim until B4), speckit-tasks-to-issues, playwright-desk lease-desk ledger, check-ignored-additions)
+- `lib/cpp_memory/` - Common-memory client: a **pluggable** fail-open friction-knowledge ledger (issue #472) with three `/cpp:init`-selectable backends behind one `StoreBackend` interface:
+  - `md` - best-effort local, no federation; subsumes `.claude/learnings.md`
+  - `local-pg` - full SQL dedup, single box, `lib/cpp_memory/docker-compose.yml`
+  - `remote-pg` - full dedup, fleet-federated Postgres, `scripts/memories-db-setup.sh`
+  - Backend chosen via `CPP_MEMORIES_BACKEND` / step 8d; **federation is a surfaced per-tier property** (only remote-pg shares across VMs)
+  - Holds *portable* CPP learnings/infra traps (bucket-2-plus) plus a dedup/rejection ledger and a learnings->GitHub-issue bridge (`--emit-issue-candidate` / `link-issue`, #463)
+  - Consult-not-push; see `/self-improvement:memory`
+- `scripts/` - Shell utilities, one per sub-bullet (add new scripts as their own line, #501):
+  - prompt-context
+  - worktree-remove
+  - gh-pr-merge - layout-aware PR squash-merge used by `/flow:auto` + `/flow:merge`; polls mergeability to wait out a transient `UNKNOWN` right after push (#485)
+  - flow-stale-check - advisory early stale-base detector for `/flow:auto` Step 4/6 + `/flow:finish` (#473)
+  - flow-worktree-guard - advisory leaked-edit detector: warns when a `/flow:auto` edit landed in the MAIN tree instead of the worktree (#486)
+  - hooks
+  - drift-detect
+  - skill-drift
+  - mcp-drift
+  - flow-skill-sync
+  - plugin-sync - byte-identical drift guard keeping every packaged family plugin in sync with its command source (#477/#478); plugin-flow-sync survives as a flow-scoped shim until B4
+  - speckit-tasks-to-issues
+  - playwright-desk - lease-desk ledger
+  - check-ignored-additions
 - `templates/` - Makefile, workflow, container templates
 - `.claude-plugin/marketplace.json` - Plugin-marketplace manifest (marketplace name `cpp`) listing CPP's per-family plugins. Install path: `/plugin marketplace add cooneycw/claude-power-pack` then `/plugin install <family>@cpp` (ADR 0001, epic #417 Phase B).
 - `plugins/` - Per-family Claude Code plugins. Phase B2 (#478) packages every surviving family (15 plugins, `browser` through `self-improvement`): byte-identical copies of `.claude/commands/<family>/*.md` (the single source of truth, ADR 0001 section 5), kept honest by `scripts/plugin-sync.sh --check` and regenerated with `--write` after any command edit. The `cpp` plugin is help/meta-only (the init/update/status installer stays repo-local). The legacy symlink installer runs in parallel; nothing is retired until parity is proven in Phase B4.
@@ -63,10 +84,21 @@ MCP containers fetch API keys at startup from AWS Secrets Manager via an `aws-se
 - **MCP connections:** Defined in project `.mcp.json` pointing to `127.0.0.1:{port}/sse` (SSE transport)
 - **Woodpecker CI** runs on push/PR: secret-scan (gitleaks), lint, test, typecheck, Dockerfile lint, compose policy checks, image builds, image CVE scans, SBOM generation, and isolated runtime smoke tests for MCP stack changes
 - **Secret scanning:** `make secret-scan` runs gitleaks locally (native binary or Docker fallback). Config in `.gitleaks.toml` with allowlists for doc/test false positives
-- **Runtime smoke:** CI uses a `cpp-smoke-$CI_PIPELINE_NUMBER` compose project with random host ports (driven by `scripts/runtime-smoke.sh`), validates service health, asserts the agent is reachable cross-container at `http://aws-secrets-agent:2773` (proving the `0.0.0.0` bind), exercises the client's real fetch/parse/export path via a hermetic fake agent (`scripts/fake-secrets-agent.py` + `docker-compose.smoke.yml`) with a non-empty `AWS_SECRET_NAME`, and drives a secret through the **REAL** `aws-secrets-agent` binary against a LocalStack Secrets Manager (real AWS SDK `GetSecretValue` via `AWS_ENDPOINT_URL`, no production credentials) so a consumer actually receives a genuinely-fetched secret (issue #377). In-container readiness probes are retried (up to 10x, 3s apart) so a transient post-`--wait` connection refusal does not fail the build; on genuine exhaustion the step dumps `docker compose ps` and the failing service's recent logs (issue #375). It runs `docker compose down -v` before exiting. CI must not deploy persistent containers or prune host images.
+- **Runtime smoke:** CI validation of the MCP stack, driven by `scripts/runtime-smoke.sh`:
+  - Uses a `cpp-smoke-$CI_PIPELINE_NUMBER` compose project with random host ports and validates service health
+  - Asserts the agent is reachable cross-container at `http://aws-secrets-agent:2773` (proving the `0.0.0.0` bind)
+  - Exercises the client's real fetch/parse/export path via a hermetic fake agent (`scripts/fake-secrets-agent.py` + `docker-compose.smoke.yml`) with a non-empty `AWS_SECRET_NAME`
+  - Drives a secret through the **REAL** `aws-secrets-agent` binary against a LocalStack Secrets Manager (real AWS SDK `GetSecretValue` via `AWS_ENDPOINT_URL`, no production credentials) so a consumer actually receives a genuinely-fetched secret (issue #377)
+  - Retries in-container readiness probes (up to 10x, 3s apart) so a transient post-`--wait` connection refusal does not fail the build; on genuine exhaustion the step dumps `docker compose ps` and the failing service's recent logs (issue #375)
+  - Runs `docker compose down -v` before exiting; CI must not deploy persistent containers or prune host images
 - **Image security gates:** CI runs hadolint over every Dockerfile, validates `docker compose config --quiet`, blocks rendered `:latest`, `default-token`, and host-published agent port regressions, then scans built images for fixed HIGH/CRITICAL CVEs and writes SPDX/CycloneDX SBOMs to `artifacts/sbom/`.
 - **Bootstrap checks:** `make bootstrap-check` verifies admin-only prerequisites (IAM roles, secrets provisioning) before deploy. Configure in `.claude/bootstrap.yaml`. Runs as the first step in the deploy pipeline - blocks with remediation if unsatisfied.
-- **Drift detection:** `make drift-check` compares host-installed artifacts against repo templates and treats remaining systemd MCP units as legacy migration findings. It also flags **orphaned Docker MCP servers** - a container, `mcp-<name>:*` image, or `claude`/`codex mcp` registration left behind after a server is removed from `docker-compose.yml` - by deriving the current service set from `docker compose config --services` and matching against the curated `.claude/deprecated-mcps.yaml` list of record (via `scripts/mcp-drift.py`). Detection is curated-list driven so a user's own custom MCP registration is never flagged; teardown is offered per-server, user-confirmed, and keeps a newest-image restore point unless prune-all is chosen (run `/cpp:update`, or `python3 scripts/mcp-drift.py --teardown <name>`). Run it manually when reconciling workstation-managed artifacts. See `docs/HOST_MANAGED_ARTIFACTS.md` for full inventory.
+- **Drift detection:** `make drift-check`:
+  - Compares host-installed artifacts against repo templates and treats remaining systemd MCP units as legacy migration findings
+  - Flags **orphaned Docker MCP servers** - a container, `mcp-<name>:*` image, or `claude`/`codex mcp` registration left behind after a server is removed from `docker-compose.yml` - by deriving the current service set from `docker compose config --services` and matching against the curated `.claude/deprecated-mcps.yaml` list of record (via `scripts/mcp-drift.py`)
+  - Detection is curated-list driven so a user's own custom MCP registration is never flagged
+  - Teardown is offered per-server, user-confirmed, and keeps a newest-image restore point unless prune-all is chosen (run `/cpp:update`, or `python3 scripts/mcp-drift.py --teardown <name>`)
+  - Run it manually when reconciling workstation-managed artifacts; see `docs/HOST_MANAGED_ARTIFACTS.md` for full inventory
 - **Reproducible builds:** Every base image and build tool (python, rust, debian, `uv`, gitleaks, woodpecker server/agent) is pinned by version tag plus `@sha256:` digest in the Dockerfiles, `.woodpecker.yml`, and infra compose files - never `:latest`. Deployable images are tagged with `CPP_IMAGE_TAG` (the short git SHA, set by the Makefile) instead of `:latest`, so each image traces to a commit and rollbacks have provenance. `renovate.json` rotates the pinned digests on a weekly schedule so pinning never freezes security updates.
 
 ## Commands Reference
