@@ -4,20 +4,20 @@ Phase B1 of the plugin-marketplace migration (ADR docs/decisions/
 0001-plugin-marketplace-packaging.md, issue #477) stood up
 `.claude-plugin/marketplace.json` and packaged the `flow` command family as an
 installable plugin under `plugins/flow/`. Phase B2 (issue #478) extends that to
-every surviving family. During the B1->B4 parallel window the source of truth
-stays `.claude/commands/<family>/*.md` and each plugin holds byte-identical
-copies kept honest by `scripts/plugin-sync.sh` (the B1 `plugin-flow-sync.sh` is
-now a shim onto it).
+every surviving family; Phase B4 (issue #480) retired the legacy global-skill
+mirror, so `.claude/commands/<family>/*.md` is the single permanent source of
+truth and each plugin holds byte-identical copies kept honest by
+`scripts/plugin-sync.sh`.
 
 The hazards these pin:
   * the manifests must stay schema-valid (name/source/required fields), because
     `/plugin install <family>@cpp` resolves the marketplace by its `name` field
     and the plugin by its `source` path;
-  * the packaged commands must stay byte-identical to their source, or the two
-    surfaces silently diverge before B4 collapses them;
+  * the packaged commands must stay byte-identical to their source, or the
+    packaged copies silently diverge from the source of truth;
   * the `cpp` plugin must stay help/meta-only (ADR 0001): packaging the legacy
     /cpp:init|update|status symlink installer into the surface that replaces it
-    would ship the thing B4 retires;
+    would ship the legacy installer B4 retired;
   * the Phase B3 (#479) bundled artifacts must stay coherent: the secrets
     plugin's masking-hook script is a byte-identical copy resolved via
     ${CLAUDE_PLUGIN_ROOT} (never a host path), and the second-opinion plugin's
@@ -43,7 +43,6 @@ MARKETPLACE = ROOT / ".claude-plugin" / "marketplace.json"
 PLUGINS_DIR = ROOT / "plugins"
 SOURCE_COMMANDS = ROOT / ".claude" / "commands"
 SYNC_SCRIPT = ROOT / "scripts" / "plugin-sync.sh"
-SHIM_SCRIPT = ROOT / "scripts" / "plugin-flow-sync.sh"
 
 # Every packaged family (ADR 0001 target design). `spec` and the loose
 # top-level commands are deliberately NOT packaged - see the ADR B2 resolution.
@@ -231,7 +230,7 @@ def test_second_opinion_plugin_mcp_pointer_matches_root():
 # --------------------------------------------------------------------------- #
 # Drift guard
 # --------------------------------------------------------------------------- #
-@pytest.mark.parametrize("script", [SYNC_SCRIPT, SHIM_SCRIPT], ids=["sync", "flow-shim"])
+@pytest.mark.parametrize("script", [SYNC_SCRIPT], ids=["sync"])
 def test_sync_script_check_passes(script: Path):
     if shutil.which("bash") is None:  # pragma: no cover - bash present in CI
         pytest.skip("bash unavailable")
@@ -257,24 +256,53 @@ def test_sync_script_rejects_unknown_family():
 
 
 # --------------------------------------------------------------------------- #
+# B4 retirement (#480): the dual surface + skill-drift + symlink installer gone
+# --------------------------------------------------------------------------- #
+RETIRED_ARTIFACTS = [
+    "scripts/flow-skill-sync.py",       # global flow-* mirror generator
+    "scripts/skill-drift.py",           # dual-surface drift reconciler
+    "scripts/plugin-flow-sync.sh",      # B1 shim, superseded by plugin-sync.sh
+    ".claude/deprecated-skills.yaml",   # skill deprecation list of record
+]
+
+
+@pytest.mark.parametrize("rel", RETIRED_ARTIFACTS)
+def test_dual_surface_artifact_retired(rel: str):
+    # ADR 0001 B4 exit: these files exist only to keep the retired global-skill
+    # mirror in sync. Plugins are the single delivered surface now.
+    assert not (ROOT / rel).exists(), (
+        f"{rel} was retired by B4 (#480); it must not come back"
+    )
+
+
+@pytest.mark.parametrize("cmd", ["init", "update", "status"])
+def test_installer_no_skills_mirror_symlink(cmd: str):
+    # The /cpp installer must no longer install or reconcile the global-skill
+    # mirror (~/.claude/skills). Commands stay symlinked; skills ship via /plugin.
+    text = (SOURCE_COMMANDS / "cpp" / f"{cmd}.md").read_text(encoding="utf-8")
+    assert ".claude/skills" not in text, (
+        f"/cpp:{cmd} still references the retired global-skill mirror (.claude/skills)"
+    )
+
+
+# --------------------------------------------------------------------------- #
 # Post-merge re-sync wiring (issue #506)
 # --------------------------------------------------------------------------- #
 # When a sibling PR that edits any `.claude/commands/<family>/*.md` merges to
 # main, whoever merges main next inherits stale in-repo copies generated from
 # that source and the parity gates fail. Two such surfaces exist: the packaged
 # plugin copies (`plugin-sync.sh`) and the Codex CLI prompts
-# (`codex-prompt-sync.py`, #446/#511). The /flow merge paths already re-run
-# `flow-skill-sync.py --write` for the out-of-repo skill mirror; they must ALSO
-# re-run BOTH in-repo generators (all 15 families, not just flow). These guard
-# that the triggers are present and correctly shaped, so they are not silently
-# dropped in a future edit - the gate that would have caught the original gap.
+# (`codex-prompt-sync.py`, #446/#511). The /flow merge paths re-run BOTH in-repo
+# generators (all 15 families, not just flow) - the out-of-repo flow-* skill
+# mirror they once also re-synced was retired in B4 (#480). These guard that the
+# triggers are present and correctly shaped, so they are not silently dropped in
+# a future edit - the gate that would have caught the original gap.
 AUTO_CMD = SOURCE_COMMANDS / "flow" / "auto.md"
 FINISH_CMD = SOURCE_COMMANDS / "flow" / "finish.md"
 
-# The broad match must cover every family, NOT the flow-only pattern the skill
-# mirror uses - a flow-only grep would reproduce the exact #506 bug.
+# The broad match must cover every family, NOT the flow-only pattern the retired
+# skill mirror used - a flow-only grep would reproduce the exact #506 bug.
 ALL_FAMILIES_PATTERN = r"grep -q '^\.claude/commands/.*\.md$'"
-FLOW_ONLY_PATTERN = r"grep -q '^\.claude/commands/flow/.*\.md$'"
 
 # Every in-repo generator that must be re-run in the post-merge re-sync path.
 INREPO_GENERATORS = ["scripts/plugin-sync.sh --write", "scripts/codex-prompt-sync.py --write"]

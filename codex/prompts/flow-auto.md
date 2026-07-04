@@ -291,14 +291,11 @@ fi
 - If it reports `FLOW_STALE_BASE: collision` - or names a file you are about to
   touch under "Changed upstream" - bring the base in now, before piling edits on
   a stale tree: `git merge --no-edit origin/main`, resolve any conflict in the
-  named file(s), then implement. If the note says flow command files changed
-  upstream, re-run `python3 "$CPP_DIR/scripts/flow-skill-sync.py" --write` after
-  merging so the global `flow-*` mirror does not drift. If the merge touched any
-  `.claude/commands/**/*.md` (not just flow), also re-run the LOCAL
-  `scripts/plugin-sync.sh --write` and `python3 scripts/codex-prompt-sync.py
-  --write`, then stage `plugins/` and `codex/prompts/`, so the in-repo generated
-  surfaces do not drift - the parity gates check all 15 families, not only flow
-  (issue #506; codex prompts #446/#511).
+  named file(s), then implement. If the merge touched any
+  `.claude/commands/**/*.md`, re-run the LOCAL `scripts/plugin-sync.sh --write`
+  and `python3 scripts/codex-prompt-sync.py --write`, then stage `plugins/` and
+  `codex/prompts/`, so the in-repo generated surfaces do not drift - the parity
+  gates check all 15 families (issue #506; codex prompts #446/#511).
 - If it reports `current` or `moved-clean` with no overlap, proceed - the Step-7
   #462 guard remains the final backstop.
 
@@ -396,11 +393,6 @@ if [ "$(git rev-list --count HEAD..origin/main)" -gt 0 ]; then
         echo "STOP: resolve the listed conflicts, 'git add' + 'git commit', then re-run Step 6."
         git diff --name-only --diff-filter=U
         exit 1
-    fi
-    # Keep the global flow-* mirror from drifting when the merge pulled flow
-    # command changes - the mirror is what EXECUTES (issues #457/#461/#473).
-    if [ -n "$CPP_DIR" ] && git diff --name-only ORIG_HEAD..HEAD | grep -q '^\.claude/commands/flow/.*\.md$'; then
-        python3 "$CPP_DIR/scripts/flow-skill-sync.py" --write || true
     fi
     # Keep the in-repo generated surfaces from drifting when the merge pulled ANY
     # command-family source: the packaged plugin copies AND the Codex CLI prompts
@@ -528,11 +520,6 @@ Report: `Step 6/9: Finish complete - PR #XX created`
        for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-pack; do
          [ -d "$dir" ] && [ -f "$dir/CLAUDE.md" ] && { CPP_DIR="$dir"; break; }
        done
-       # If the merge pulled flow command changes, re-sync the global flow-*
-       # mirror so it does not drift - the mirror is what EXECUTES (issue #473).
-       if [ -n "$CPP_DIR" ] && git diff --name-only ORIG_HEAD..HEAD | grep -q '^\.claude/commands/flow/.*\.md$'; then
-           python3 "$CPP_DIR/scripts/flow-skill-sync.py" --write || true
-       fi
        # If the merge pulled ANY command-family source, re-sync the in-repo
        # generated surfaces - the packaged plugin copies AND the Codex CLI prompts
        # (all families, not just flow - issue #506; codex prompts #446/#511) - then

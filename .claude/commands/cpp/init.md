@@ -41,9 +41,7 @@ Check what's already installed (same logic as `/cpp:status`):
 ```bash
 # Tier 1 checks
 COMMANDS_INSTALLED=false
-SKILLS_INSTALLED=false
 [ -L ".claude/commands" ] || [ -d ".claude/commands" ] && COMMANDS_INSTALLED=true
-[ -L ".claude/skills" ] || [ -d ".claude/skills" ] && SKILLS_INSTALLED=true
 
 # Tier 2 checks
 SCRIPTS_COUNT=$(ls ~/.claude/scripts/*.sh 2>/dev/null | wc -l)
@@ -88,7 +86,7 @@ Ask the user which tier they want to install using the AskUserQuestion tool:
 
 | Tier | Name | Description |
 |------|------|-------------|
-| 1 | **Minimal** | Commands + Skills symlinks only |
+| 1 | **Minimal** | Commands symlink only |
 | 2 | **Standard** | + Scripts, hooks, shell prompt |
 | 3 | **Full** | + MCP servers (external second-opinion + playwright) |
 | 4 | **CI/CD** | + Build system, health checks, pipelines, containers |
@@ -215,12 +213,11 @@ This will create the following symlinks in your project:
 
   Symlinks:
     • .claude/commands → {CPP_DIR}/.claude/commands
-    • .claude/skills → {CPP_DIR}/.claude/skills
 
   Disk usage: ~0 MB (symlinks only)
 
   To undo:
-    rm .claude/commands .claude/skills
+    rm .claude/commands
 
 Proceed? [y/N]
 ```
@@ -234,7 +231,6 @@ This will make the following changes:
 
   [Tier 1 - Symlinks]
     • .claude/commands → {CPP_DIR}/.claude/commands
-    • .claude/skills → {CPP_DIR}/.claude/skills
 
   [Tier 2 - Scripts] (~/.claude/scripts/)
     • prompt-context.sh       - Shell prompt worktree context
@@ -256,7 +252,7 @@ This will make the following changes:
   Disk usage: ~50 KB
 
   To undo:
-    rm .claude/commands .claude/skills
+    rm .claude/commands
     rm ~/.claude/scripts/*.sh
     rm .claude/hooks.json
     # Remove PS1 line from ~/.bashrc or ~/.zshrc
@@ -391,14 +387,6 @@ if [ ! -L ".claude/commands" ] && [ ! -d ".claude/commands" ]; then
   echo "✓ Commands symlinked"
 else
   echo "→ Commands already installed (skipped)"
-fi
-
-# Symlink skills (skip if exists)
-if [ ! -L ".claude/skills" ] && [ ! -d ".claude/skills" ]; then
-  ln -sf "$CPP_DIR/.claude/skills" .claude/skills
-  echo "✓ Skills symlinked"
-else
-  echo "→ Skills already installed (skipped)"
 fi
 ```
 
@@ -1084,7 +1072,7 @@ CPP Installation Complete!
 =================================
 
 Installed:
-  ✓ Tier 1: Commands + Skills symlinked
+  ✓ Tier 1: Commands symlinked
   ✓ Tier 2: Scripts, hooks, shell prompt
   ✓ Tier 3: MCP servers (external second-opinion + playwright)
   ✓ Tier 4: CI/CD build system, health checks, pipeline, containers

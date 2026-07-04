@@ -78,11 +78,6 @@ if [[ "$(git rev-list --count HEAD..origin/main)" -gt 0 ]]; then
     for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-pack; do
       [ -d "$dir" ] && [ -f "$dir/CLAUDE.md" ] && { CPP_DIR="$dir"; break; }
     done
-    # If the merge pulled flow command changes, re-sync the global flow-* mirror
-    # so it does not drift - the mirror is what EXECUTES (issue #473).
-    if [ -n "$CPP_DIR" ] && git diff --name-only ORIG_HEAD..HEAD | grep -q '^\.claude/commands/flow/.*\.md$'; then
-        python3 "$CPP_DIR/scripts/flow-skill-sync.py" --write || true
-    fi
     if [ -n "$CPP_DIR" ] && command -v uv >/dev/null 2>&1; then
         PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd run --plan finish
         REGATE_EXIT=$?
