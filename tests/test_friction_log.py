@@ -12,11 +12,21 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 FRICTION_LOG = ROOT / "scripts" / "friction-log.sh"
+
+# Some tests drive a real `git` subprocess to build a worktree. The Woodpecker
+# `validate` container (uv:python3.11-bookworm-slim) has no git, so guard those
+# tests rather than error the whole suite on collection/run (cf. #451).
+requires_git = pytest.mark.skipif(
+    shutil.which("git") is None, reason="git not available (e.g. Woodpecker validate container)"
+)
 
 
 def _run(
@@ -180,6 +190,7 @@ def _run_no_env(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
+@requires_git
 def test_default_targets_main_repo_from_worktree(tmp_path: Path):
     """Issue #471: a signal captured inside a linked worktree must land in the
     MAIN repo's buffer, so it survives the worktree being removed at cleanup."""
@@ -203,6 +214,7 @@ def test_default_targets_main_repo_from_worktree(tmp_path: Path):
     assert not worktree_buffer.exists(), "signal must NOT land in the worktree buffer"
 
 
+@requires_git
 def test_default_targets_repo_root_from_subdir(tmp_path: Path):
     """From a subdirectory of the main repo, the default resolves to the repo
     root's .claude/friction.jsonl (not a cwd-relative buffer in the subdir)."""
