@@ -1,6 +1,6 @@
 .PHONY: test lint format typecheck verify secret-scan update_docs clean \
        docker-build docker-check-env docker-secrets-check docker-up docker-refresh docker-health docker-down docker-logs docker-ps deploy \
-       bootstrap-check drift-check setup-woodpecker-cli codex-init codex-init-workspace
+       bootstrap-check drift-check setup-woodpecker-cli codex-init codex-prompts codex-prompts-check
 
 ## Quality gates (used by /flow:finish)
 
@@ -123,16 +123,16 @@ deploy:
 setup-woodpecker-cli:
 	@scripts/setup-woodpecker-cli.sh
 
-## Codex skill wrapper generation
+## Codex prompt generation (single-source -> per-harness, issue #446)
+
+codex-prompts-check:
+	@python3 scripts/codex-prompt-sync.py --check
+
+codex-prompts:
+	@python3 scripts/codex-prompt-sync.py --write
 
 codex-init:
-	@python3 scripts/codex-skill-gen.py
-
-codex-init-force:
-	@python3 scripts/codex-skill-gen.py --force
-
-codex-init-workspace:
-	@python3 scripts/codex-skill-gen.py --force --workspace-root ..
+	@python3 scripts/codex-prompt-sync.py --write --install
 
 ## Utilities
 

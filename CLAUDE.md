@@ -50,12 +50,14 @@ Core components and their locations:
   - mcp-drift
   - flow-skill-sync
   - plugin-sync - byte-identical drift guard keeping every packaged family plugin in sync with its command source (#477/#478); plugin-flow-sync survives as a flow-scoped shim until B4
+  - codex-prompt-sync - single-source -> per-harness generator (#446): emits checked-in Codex CLI prompts under `codex/prompts/` from `.claude/commands/<family>/`; `--check` drift gate, `--write` regen, `--install` copies to `~/.codex/prompts/` (replaces retired codex-skill-gen)
   - speckit-tasks-to-issues
   - playwright-desk - lease-desk ledger
   - check-ignored-additions
 - `templates/` - Makefile, workflow, container templates
 - `.claude-plugin/marketplace.json` - Plugin-marketplace manifest (marketplace name `cpp`) listing CPP's per-family plugins. Install path: `/plugin marketplace add cooneycw/claude-power-pack` then `/plugin install <family>@cpp` (ADR 0001, epic #417 Phase B).
 - `plugins/` - Per-family Claude Code plugins. Phase B2 (#478) packages every surviving family (15 plugins, `browser` through `self-improvement`): byte-identical copies of `.claude/commands/<family>/*.md` (the single source of truth, ADR 0001 section 5), kept honest by `scripts/plugin-sync.sh --check` and regenerated with `--write` after any command edit. The `cpp` plugin is help/meta-only (the init/update/status installer stays repo-local). The legacy symlink installer runs in parallel; nothing is retired until parity is proven in Phase B4.
+- `codex/prompts/` - Codex CLI custom prompts, the second harness surface (issue #446): generated `<family>-<command>.md` files (Codex `/<family>-<command>`) emitted from the same `.claude/commands/<family>/` single source by `scripts/codex-prompt-sync.py`, plus the hand-curated `cpp-memory.md` (#433, never overwritten). Regenerate with `make codex-prompts` after any command edit; `make codex-init` installs to `~/.codex/prompts/`.
 - `docker-compose.yml` - MCP server orchestration (profile: `core`)
 - `.woodpecker.yml` - Woodpecker CI pipeline (lint, test, typecheck, image security gates, runtime smoke)
 

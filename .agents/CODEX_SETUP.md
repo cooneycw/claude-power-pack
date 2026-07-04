@@ -3,6 +3,18 @@
 Claude Power Pack MCP servers expose both SSE (`/sse`) and streamable HTTP (`/mcp`) transports.
 Codex uses the streamable HTTP endpoint at `/mcp`.
 
+## Custom Prompts (CPP commands in Codex)
+
+CPP's command families are generated as Codex custom prompts from the same
+single source Claude Code uses (issue #446). Install or refresh them with:
+
+```bash
+make codex-init   # regenerates codex/prompts/ and copies to ~/.codex/prompts/
+```
+
+After install, commands are available in Codex as `/<family>-<command>`
+(e.g. `/flow-finish`, `/security-quick`, `/cpp-memory`).
+
 ## Prerequisites
 
 1. Docker MCP containers are running and healthy:
