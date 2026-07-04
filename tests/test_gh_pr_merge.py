@@ -38,6 +38,7 @@ def _make_stubs(
     pr_state: str = "MERGED",
     mergeable: str | list[str] = "MERGEABLE",
     merge_outcomes: list[tuple[int, str]] | None = None,
+    viewer_permission: str = "ADMIN",
 ) -> dict:
     """Create fake gh/git that log their args and honour a scripted outcome.
 
@@ -48,6 +49,9 @@ def _make_stubs(
     ``merge_outcomes`` scripts successive ``gh pr merge`` calls (issue #502) as
     ``(exit_code, stderr_message)`` pairs consumed one per call, staying on the
     last once exhausted. Defaults to ``[(merge_exit, "")]``.
+
+    ``viewer_permission`` scripts ``gh repo view --json viewerPermission`` - the
+    repo-admin check that gates the branch-protection --admin retry (issue #517).
     """
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -91,6 +95,9 @@ def _make_stubs(
         "  else\n"
         f'    echo "{pr_state}"\n'
         "  fi\n"
+        "  exit 0\n"
+        'elif [[ "$1 $2" == "repo view" ]]; then\n'
+        f'  echo "{viewer_permission}"\n'
         "  exit 0\n"
         "fi\n"
         "exit 0\n",
@@ -314,3 +321,89 @@ def test_flow_commands_wire_the_helper():
         # The inline fallback keeps the linked-worktree guard even without the helper.
         assert "git push origin --delete" in text, f"{rel} missing remote-branch delete fallback"
         assert "MERGED" in text, f"{rel} must verify PR state, not just the exit code"
+
+
+# The stderr GitHub returns when branch protection blocks a merge (issue #517):
+# the sole-owner case is a required review that cannot be satisfied.
+PROTECTION_BLOCKED = (
+    "failed to merge pull request: GraphQL: At least 1 approving review is "
+    "required by reviewers with write access. (mergePullRequest)"
+)
+
+
+def test_admin_flag_passthrough_primary_repo(tmp_path: Path):
+    # Issue #517: --admin opt-in forces the override from the first attempt; the
+    # primary repo still keeps --delete-branch. One merge call, no auto-retry.
+    stubs = _make_stubs(tmp_path, merge_exit=0, pr_state="MERGED")
+    result = _run(_primary_repo(tmp_path), stubs, "--admin", "42", "issue-517-fix")
+    assert result.returncode == 0, result.stderr
+    merge_calls = [c for c in _calls(stubs) if c.startswith("gh pr merge")]
+    assert len(merge_calls) == 1, merge_calls
+    assert "--admin" in merge_calls[0]
+    assert "--delete-branch" in merge_calls[0]
+
+
+def test_admin_flag_passthrough_linked_worktree(tmp_path: Path):
+    # --admin in a linked worktree carries --admin but NOT --delete-branch (the
+    # #461 guard still applies); the remote branch is deleted by us.
+    stubs = _make_stubs(tmp_path, merge_exit=0, pr_state="MERGED")
+    result = _run(_linked_worktree(tmp_path), stubs, "--admin", "42", "issue-517-fix")
+    assert result.returncode == 0, result.stderr
+    calls = _calls(stubs)
+    merge_calls = [c for c in calls if c.startswith("gh pr merge")]
+    assert len(merge_calls) == 1, merge_calls
+    assert "--admin" in merge_calls[0]
+    assert "--delete-branch" not in merge_calls[0]
+    assert any(c == "git push origin --delete issue-517-fix" for c in calls), calls
+
+
+def test_protection_block_admin_retries_with_admin(tmp_path: Path):
+    # The #517 trap: a repo admin's squash is rejected by branch protection; the
+    # helper retries once with --admin and it lands. The first attempt must NOT
+    # force --admin (only the retry does).
+    stubs = _make_stubs(
+        tmp_path,
+        pr_state="MERGED",
+        viewer_permission="ADMIN",
+        merge_outcomes=[(1, PROTECTION_BLOCKED), (0, "")],
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-517-fix")
+    assert result.returncode == 0, result.stderr
+    assert "merged" in result.stdout
+    merge_calls = [c for c in _calls(stubs) if c.startswith("gh pr merge")]
+    assert len(merge_calls) == 2, merge_calls
+    assert "--admin" not in merge_calls[0], "first attempt must not force --admin"
+    assert "--admin" in merge_calls[1], "protection-block retry must add --admin"
+
+
+def test_protection_block_non_admin_does_not_retry(tmp_path: Path):
+    # A non-admin actor cannot use --admin, so the protection block is left to the
+    # MERGED-state check (genuine failure). No --admin retry is attempted.
+    stubs = _make_stubs(
+        tmp_path,
+        pr_state="OPEN",
+        viewer_permission="WRITE",
+        merge_outcomes=[(1, PROTECTION_BLOCKED)],
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-517-fix")
+    assert result.returncode == 1
+    assert "did not merge" in result.stderr
+    merge_calls = [c for c in _calls(stubs) if c.startswith("gh pr merge")]
+    assert len(merge_calls) == 1, merge_calls
+    assert not any("--admin" in c for c in merge_calls)
+
+
+def test_non_protection_failure_no_admin_retry(tmp_path: Path):
+    # Only a branch-protection block triggers the --admin override. A different
+    # merge failure must not, even when the actor is a repo admin.
+    stubs = _make_stubs(
+        tmp_path,
+        pr_state="OPEN",
+        viewer_permission="ADMIN",
+        merge_outcomes=[(1, "GraphQL: Pull Request is not mergeable (mergePullRequest)")],
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-517-fix")
+    assert result.returncode == 1
+    merge_calls = [c for c in _calls(stubs) if c.startswith("gh pr merge")]
+    assert len(merge_calls) == 1, merge_calls
+    assert not any("--admin" in c for c in merge_calls)
