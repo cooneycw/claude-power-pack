@@ -48,6 +48,21 @@
 
 ### Added
 
+- **Multi-harness skill generation** (issue #446, epic #417 Phase C) - surviving
+  CPP command families are now consumable from Codex CLI off the same single
+  source Claude Code uses (`.claude/commands/<family>/*.md`, ADR 0001 section 5).
+  `scripts/codex-prompt-sync.py` emits checked-in Codex custom prompts under
+  `codex/prompts/<family>-<command>.md` (Codex `/<family>-<command>`): YAML
+  frontmatter stripped, `/family:cmd` cross-references rewritten to their Codex
+  names, and a harness note prepended when a command references Claude-only
+  surfaces. `--check` is the drift gate (pinned by
+  `tests/test_codex_prompt_sync.py`), `--write` regenerates, `--install` copies
+  to `~/.codex/prompts/`. New Make targets: `codex-prompts`,
+  `codex-prompts-check`; `codex-init` now generates + installs. The generator
+  only manages marker-bearing files - the hand-curated `cpp-memory.md` (#433)
+  is never overwritten or orphan-deleted. Replaces `scripts/codex-skill-gen.py`
+  (deleted) and its `.agents/skills` wrapper/symlink approach.
+
 - **Plugin-marketplace scaffold + `flow` proof-of-concept plugin** (issue #477,
   epic #417 Phase B1, ADR `docs/decisions/0001-plugin-marketplace-packaging.md`) -
   first implementation phase of the migration off the legacy symlink installer to
