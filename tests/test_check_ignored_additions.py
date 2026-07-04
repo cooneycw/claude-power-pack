@@ -103,3 +103,34 @@ def test_negated_file_is_not_flagged(tmp_path: Path) -> None:
     result = _run(repo)
     assert result.returncode == 0
     assert result.stderr == ""
+
+
+def test_intentional_ignore_is_silent(tmp_path: Path) -> None:
+    # Files git-ignored BY DESIGN (env-only per-machine .claude/ runtime state)
+    # must not trip the guard - they are never intended additions (issue #504).
+    repo = tmp_path / "repo"
+    _init_repo(repo, ".claude/settings*.json\n.claude/friction.jsonl\n")
+    claude = repo / ".claude"
+    claude.mkdir()
+    (claude / "settings.local.json").write_text("{}", encoding="utf-8")
+    (claude / "friction.jsonl").write_text("{}\n", encoding="utf-8")
+
+    result = _run(repo)
+    assert result.returncode == 0
+    assert result.stderr == ""
+
+
+def test_unlisted_claude_file_still_warns(tmp_path: Path) -> None:
+    # The allow-list is a specific set of paths, NOT a blanket .claude/ exemption:
+    # an ignored .claude/ file that is not on the list is still the trap and must
+    # still warn, or the guard would silently swallow real mistakes (issue #504).
+    repo = tmp_path / "repo"
+    _init_repo(repo, ".claude/*.json\n")
+    claude = repo / ".claude"
+    claude.mkdir()
+    (claude / "mystery-config.json").write_text("{}", encoding="utf-8")
+
+    result = _run(repo)
+    assert result.returncode == 0  # advisory by default
+    assert "WARNING" in result.stderr
+    assert ".claude/mystery-config.json" in result.stderr
