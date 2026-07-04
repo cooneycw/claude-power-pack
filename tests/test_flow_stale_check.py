@@ -8,7 +8,7 @@ Contract:
 - When the base moved AND a file this branch edited also changed upstream, the
   verdict is ``collision`` and the colliding file(s) are NAMED in the output.
 - When a ``.claude/commands/flow/*.md`` file changed upstream, the output reminds
-  the user to re-run ``flow-skill-sync.py --write`` so the mirror does not drift.
+  the user to regenerate the packaged copies (``plugin-sync.sh``) so they do not drift.
 - The check is advisory (exit 0) by default; ``--exit-code`` returns 1 on a
   collision so a caller can gate on it.
 
@@ -187,8 +187,8 @@ def test_flow_command_change_reminds_to_resync(tmp_path: Path):
     repo = _make_repo(tmp_path)
     _advance_main(repo, FLOW_CMD, "flow-upstream\n")
     result = _run(repo, "main")
-    assert "flow-skill-sync.py --write" in result.stdout, (
-        "a flow command change upstream must remind to re-sync the mirror"
+    assert "plugin-sync.sh" in result.stdout, (
+        "a flow command change upstream must remind to regenerate the packaged copies"
     )
     assert FLOW_CMD in result.stdout
 
@@ -230,15 +230,6 @@ def test_auto_wires_early_check_at_step4_and_step6():
 def test_finish_wires_early_check():
     text = _read(".claude/commands/flow/finish.md")
     assert "flow-stale-check.sh" in text, "finish.md must run the early stale-base check"
-
-
-def test_guards_resync_flow_mirror_on_flow_command_merge():
-    # When the Step-7 guard merges main in and it pulled flow command changes, the
-    # global mirror must be re-synced (issue #473 secondary ask).
-    for rel in (".claude/commands/flow/auto.md", ".claude/commands/flow/merge.md"):
-        text = _read(rel)
-        assert "flow-skill-sync.py" in text, f"{rel} must re-sync the flow mirror after a merge"
-        assert "ORIG_HEAD..HEAD" in text, f"{rel} must scope the re-sync to what the merge pulled"
 
 
 @pytest.mark.parametrize(

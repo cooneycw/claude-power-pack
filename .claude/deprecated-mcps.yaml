@@ -1,7 +1,6 @@
 # Deprecated Docker MCP servers retired from Claude Power Pack.
 #
-# Companion to .claude/deprecated-skills.yaml (which does the same job for
-# generated skills). This file is the deprecation list of record for MCP
+# This file is the deprecation list of record for MCP
 # *servers*. scripts/mcp-drift.py consumes it to detect ORPHANED DOCKER MCP
 # infrastructure - a container, an mcp-<name>:* image, or a claude/codex mcp
 # registration that is still present on a machine after the server was removed

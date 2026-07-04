@@ -16,8 +16,38 @@
   extra-artifact sync so the bundled script copy is drift-guarded like the
   command bodies.
 
+### Removed
+
+- **Retired the dual command/skill surface (issue #480, Phase B4 of ADR 0001)** -
+  now that all 15 families install via `/plugin` (parity guarded by
+  `scripts/plugin-sync.sh` and `tests/test_plugin_marketplace.py`), the legacy
+  global-skill mirror machinery is gone. Deleted `scripts/flow-skill-sync.py`
+  (the `~/.claude/skills/flow-*` mirror generator), `scripts/skill-drift.py` and
+  `.claude/deprecated-skills.yaml` (the mirror drift/prune tooling), and the B1
+  `scripts/plugin-flow-sync.sh` shim (superseded by `plugin-sync.sh`). Removed
+  the `.claude/skills` symlink paths from `/cpp:init|update|status` and the
+  `/cpp:update` skill-drift prune step (renumbering the later Step 7.x steps),
+  and dropped the flow-mirror re-sync blocks from `/flow:auto|finish|merge` plus
+  the mirror-drift check from `/flow:doctor`. `.claude/commands/<family>/*.md`
+  stays the permanent single source of truth. KEPT (not packaging drift, per ADR
+  resolution 2): `scripts/mcp-drift.py`, the Docker/host portions of
+  `scripts/drift-detect.sh`, and `.claude/bootstrap.yaml`. The live host
+  `~/.claude/skills` mirror is left in place (a B5 / `/cpp:update` concern);
+  follow-up #506 rewires the post-merge re-sync onto `plugin-sync.sh`.
+
 ### Changed
 
+- **`gh-pr-merge.sh` handles branch-protection blocks on owner merges**
+  (issue #517) - on branch-protected `main` (the #449 posture: PR + review + CI
+  required), a repo owner's squash was rejected by GitHub until it was re-run
+  manually with `gh pr merge --squash --admin`. The helper now accepts an opt-in
+  `--admin` flag (forces the override from the first attempt) and, when a squash
+  fails with a branch-protection message, the caller did not pass `--admin`, and
+  the actor is a repo admin (`gh repo view --json viewerPermission`), retries the
+  squash once with `--admin`. The override is bounded to a single retry, never
+  fires for a non-admin or a non-protection failure, and the post-merge
+  MERGED-state check stays authoritative. No caller change is needed - the
+  `/flow` merge paths pick up the auto-retry transparently.
 - **eli5 gate report depth floor + /flow:auto full-spec load** (issue #509) -
   the vendored eli5 core (re-vendored from canonical cooneycw/eli5-gate
   `f2a0b2e`) now sets an explicit depth floor: Section B must enumerate the

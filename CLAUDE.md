@@ -40,15 +40,13 @@ Core components and their locations:
 - `scripts/` - Shell utilities, one per sub-bullet (add new scripts as their own line, #501):
   - prompt-context
   - worktree-remove
-  - gh-pr-merge - layout-aware PR squash-merge used by `/flow:auto` + `/flow:merge`; polls mergeability to wait out a transient `UNKNOWN` right after push (#485); bounded refetch+retry when the squash fails on `Base branch was modified` (sibling merge race, #502)
+  - gh-pr-merge - layout-aware PR squash-merge used by `/flow:auto` + `/flow:merge`; polls mergeability to wait out a transient `UNKNOWN` right after push (#485); bounded refetch+retry when the squash fails on `Base branch was modified` (sibling merge race, #502); opt-in `--admin` flag plus a single admin-gated auto-retry when a squash is rejected by branch protection on an owner merge (#517)
   - flow-stale-check - advisory early stale-base detector for `/flow:auto` Step 4/6 + `/flow:finish` (#473)
   - flow-worktree-guard - advisory leaked-edit detector: warns when a `/flow:auto` edit landed in the MAIN tree instead of the worktree (#486)
   - hooks
   - drift-detect
-  - skill-drift
   - mcp-drift
-  - flow-skill-sync
-  - plugin-sync - byte-identical drift guard keeping every packaged family plugin in sync with its command source (#477/#478) plus per-family extra artifacts such as the secrets masking-hook script (#479); plugin-flow-sync survives as a flow-scoped shim until B4
+  - plugin-sync - byte-identical drift guard keeping every packaged family plugin in sync with its command source (#477/#478) plus per-family extra artifacts such as the secrets masking-hook script (#479); the B1 plugin-flow-sync shim was retired in B4 (#480)
   - codex-prompt-sync - single-source -> per-harness generator (#446): emits checked-in Codex CLI prompts under `codex/prompts/` from `.claude/commands/<family>/`; `--check` drift gate, `--write` regen, `--install` copies to `~/.codex/prompts/` (replaces retired codex-skill-gen)
   - speckit-tasks-to-issues
   - playwright-desk - lease-desk ledger
@@ -104,10 +102,11 @@ quality gates, and merge/cleanup discipline are unchanged. Because native
 `ExitWorktree` only removes worktrees created in the current session, cross-session
 and cross-machine cleanup (`/flow:merge`, `/flow:cleanup`) keep `git worktree
 remove` / `scripts/worktree-remove.sh` as the fallback. The `/flow:*` commands
-execute from a global mirror (`~/.claude/skills/flow-*`) regenerated from the
-`.claude/commands/flow/*` source of truth by `scripts/flow-skill-sync.py`
-(`--write` to sync, `--check` to detect drift); `/flow:doctor` warns when the
-mirror falls behind (issue #457).
+ship as the `flow` plugin (`/plugin install flow@cpp`): `.claude/commands/flow/*`
+is the permanent source of truth and `plugins/flow/commands/*` holds
+byte-identical copies kept in sync by `scripts/plugin-sync.sh`. The legacy
+global-skill mirror (`~/.claude/skills/flow-*`) and its `flow-skill-sync.py`
+generator were retired in B4 (#480).
 
 **Worktree path-resolution rule (issue #486):** a native `EnterWorktree` session
 edits the worktree, but the worktree lives *inside* the main repo at
@@ -150,7 +149,7 @@ mirrors the `/security` #438 and hooks #439 defer-the-commodity-half moves).
 - `/spec:adopt` - **(supported)** Install the official GitHub spec-kit CLI and scaffold it into the project (`specify init --here --ai claude`); then author with the `/speckit-*` skills and ship with `/flow:auto`. Turn `tasks.md` into GitHub issues with `scripts/speckit-tasks-to-issues.sh` (gh-CLI, no github-mcp-server). Per-project, always latest upstream. The `specify` CLI installs on first `/spec:adopt` use, or up front via `/cpp:init` / `/cpp:update`.
 - `/spec:help` - Overview of the spec-kit authoring path
 
-**Spec-driven dev = official spec-kit plugin + `/flow:auto`.** CPP's home-grown pipeline (`/spec:create`, `/spec:sync`, `/spec:status`, `/spec:init`, backed by `lib/spec_bridge`) was **retired** in favor of upstream spec-kit (epic #417 Phase A, decision on #418). Legacy generated `spec-*` skills are recorded in `.claude/deprecated-skills.yaml` and pruned by `/cpp:update`.
+**Spec-driven dev = official spec-kit plugin + `/flow:auto`.** CPP's home-grown pipeline (`/spec:create`, `/spec:sync`, `/spec:status`, `/spec:init`, backed by `lib/spec_bridge`) was **retired** in favor of upstream spec-kit (epic #417 Phase A, decision on #418).
 
 ### GitHub Issues
 - `/github:issue-list` - List and search issues
@@ -159,7 +158,7 @@ mirrors the `/security` #438 and hooks #439 defer-the-commodity-half moves).
 - `/github:issue-update` - Update existing issue
 - `/github:issue-close` - Close issue with optional comment
 
-**Scaffolding backend:** GitHub Issues (driven by the `flow-auto` skillset) is the only supported scaffolding/issue backend. Wiki.js and Plane are out of scope and are not part of CPP. Retired skill families are recorded in `.claude/deprecated-skills.yaml`; the legacy `wiki-*` skills installed by older CPP versions are pruned via `/cpp:update` (see issue #395).
+**Scaffolding backend:** GitHub Issues (driven by the `flow-auto` skillset) is the only supported scaffolding/issue backend. Wiki.js and Plane are out of scope and are not part of CPP.
 
 ### CI/CD
 - `/cicd:init` - Detect framework, generate Makefile and cicd.yml
@@ -232,7 +231,7 @@ by the native Claude Code ecosystem. Use these instead:
 - `/dockers` - Docker container status, health, project linkages
 - `/cpp:init` - Interactive setup wizard (Tiers: Minimal, Standard, Full, CI/CD, Codex); optionally installs the spec-kit CLI (`specify`, the engine behind `/spec:adopt`)
 - `/cpp:status` - Check installation state
-- `/cpp:update` - Pull latest, sync deps, migrate legacy systemd units if present, refresh Docker local-build runtime, tear down orphaned Docker MCP infra via the curated `.claude/deprecated-mcps.yaml` (Step 6c/7, user-confirmed), prune retired/orphaned generated skills via the curated `.claude/deprecated-skills.yaml` (Step 7.5, user-confirmed), then offer to merge new flow allowlist rules from `templates/claude-settings-permissions.json` into `~/.claude/settings.json` (Step 7.6, user-confirmed) and to register the observe-only PermissionRequest census hook there (Step 7.7, user-confirmed); also refreshes the optional spec-kit CLI (`specify`) if installed (Step 4.6)
+- `/cpp:update` - Pull latest, sync deps, migrate legacy systemd units if present, refresh Docker local-build runtime, tear down orphaned Docker MCP infra via the curated `.claude/deprecated-mcps.yaml` (Step 6c/7, user-confirmed), then offer to merge new flow allowlist rules from `templates/claude-settings-permissions.json` into `~/.claude/settings.json` (Step 7.5, user-confirmed) and to register the observe-only PermissionRequest census hook there (Step 7.6, user-confirmed); also refreshes the optional spec-kit CLI (`specify`) if installed (Step 4.6)
 - `/self-improvement:retro` - Post-run friction retro (the grill-me cycle): always-on capture (`scripts/friction-log.sh` -> `.claude/friction.jsonl`, woven into `/flow:auto` + `/flow:merge`) then classify -> dedup -> propose -> confirm -> codify durable fixes; local ledger `.claude/learnings.md`, portable knowledge delegates to `/self-improvement:memory` (#433)
 - `/self-improvement:deployment` - Retrospective analysis after failed deploys
 - `/self-improvement:memory` - Populate the shared common-memory ledger with portable friction-knowledge (bucket-2-plus); consult-not-push, fail-open
