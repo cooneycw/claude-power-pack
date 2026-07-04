@@ -174,6 +174,7 @@ Plugins can bundle hooks, but the masking hook references a host-installed
 script path. Phase B3 decides whether the script ships inside the plugin
 (`${CLAUDE_PLUGIN_ROOT}/...`) or stays host-installed. The SessionStart
 staleness hook is largely obsoleted by `/plugin` update handling.
+(Resolved in Phase B3 - see section 6.)
 
 ### 4. Interplay with #443 and #446
 
@@ -217,6 +218,38 @@ Phase B2 settles the source-of-truth question deferred above:
 - What B4 retires is the host-side dual surface (the `~/.claude/skills` global
   mirror, `flow-skill-sync.py`, `skill-drift.py`, the symlink installer paths),
   not the in-repo `plugins/` artifacts - those ARE the distribution.
+
+### 6. Hooks + MCP client pointers (resolved in Phase B3, #479)
+
+Phase B3 settles the packaging questions deferred in sections 1 and 3:
+
+- **The masking hook ships inside the secrets plugin.**
+  `plugins/secrets/hooks/hooks.json` registers the PostToolUse hook with a
+  `${CLAUDE_PLUGIN_ROOT}/scripts/hook-mask-output.sh` command, and the plugin
+  carries a byte-identical copy of `scripts/hook-mask-output.sh` (the source of
+  truth is unchanged; `plugin-sync.sh --check/--write` now guards per-family
+  extra artifacts exactly like the command bodies). A plugin hook that pointed
+  at the host-installed `~/.claude/scripts/` symlink would keep the plugin
+  dependent on the very installer B4 retires. The legacy `.claude/hooks.json` +
+  symlink path continues in parallel until B4.
+- **The SessionStart staleness hook is NOT bundled.** Its job is warning when a
+  git-clone install is behind `origin/main`; plugin installs are updated by
+  `/plugin`, so the hook is meaningless there (anticipated in section 3:
+  "largely obsoleted"). It stays a repo-local `.claude/hooks.json` concern and
+  retires with the legacy surface in B4.
+- **The second-opinion plugin ships its `.mcp.json` client pointer.**
+  `plugins/second-opinion/.mcp.json` declares the same streamable-http stanza
+  as the repo-root `.mcp.json` introduced by #469 (default
+  `http://127.0.0.1:8080/mcp`), so a plugin-only install reaches a locally
+  running server with zero extra wiring. Users whose server lives elsewhere
+  re-register the URL at user scope (`claude mcp add second-opinion --transport
+  http --url <url> --scope user`), as `/cpp:init` Tier 3 documents. A parity
+  test pins the plugin pointer to the root pointer so the two never diverge.
+  (#469 merged mid-B3 and retired the compose stack entirely, so the pointer
+  is the plugin's ONLY MCP responsibility - there is no server-side packaging
+  left to decide.) The browser family deliberately ships no `.mcp.json`:
+  `/browser:session`'s lease-desk pool manages its own upstream
+  `@playwright/mcp` registrations, and a static plugin entry would fight it.
 
 ## What extracts, what stays in CPP
 
@@ -267,9 +300,13 @@ No parity is assumed until proven. Each phase is its own `/flow` issue.
   other families as plugins, settling the single-source `commands/` + `skills/`
   layout shared with #446 (resolution recorded in "Hard questions" section 5).
   Installer still present in parallel.
-- **B3 - Hooks + MCP client pointers.** Bundle hooks into the relevant plugins;
-  decide MCP `.mcp.json` client-pointer packaging (compose/secrets stay
-  `make docker-*`). Resolve the masking-script path.
+- **B3 - Hooks + MCP client pointers. [SHIPPED 2026-07-04, #479]** The secrets
+  plugin bundles the PostToolUse masking hook (plugin-local script resolved via
+  `${CLAUDE_PLUGIN_ROOT}`, guarded by `plugin-sync.sh` extra-artifact sync);
+  the second-opinion plugin ships its `.mcp.json` client pointer matching the
+  repo-root one (#469); the SessionStart staleness hook is deliberately NOT
+  bundled (obsoleted by `/plugin` updates; retires with the legacy surface in
+  B4). Resolutions recorded in "Hard questions" section 6.
 - **B4 - Prove parity, then retire the dual surface.** Once every family
   installs via `/plugin`, retire the global-skill mirror, `flow-skill-sync.py`,
   `skill-drift.py`, `.claude/deprecated-skills.yaml`, and the symlink paths in

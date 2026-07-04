@@ -15,7 +15,7 @@
 - **Woodpecker CI** - Self-hosted pipeline (secret-scan, lint, test, typecheck, Dockerfile lint) with programmatic status polling
 - **Project scaffolding** (`/project:init`) - Zero-to-GitHub-repo setup with Makefile, CI pipeline, and Docker config
 - **Skills ecosystem** - Discover, install, and manage agent skills from [skills.sh](https://skills.sh/) via native `npx skills` and the `/plugin` marketplace (the CPP `/skills:*` wrapper was retired in issue #437)
-- **Secret-masking hook** - a PostToolUse hook masks secrets (connection strings, API keys, env vars) in Bash/Read output; destructive commands are handled by Claude Code's native git auto-blocking + OS sandbox
+- **Secret-masking hook** - a PostToolUse hook masks secrets (connection strings, API keys, env vars) in Bash/Read output; bundled inside the `secrets` plugin (#479), so plugin installs get masking with no host script setup; destructive commands are handled by Claude Code's native git auto-blocking + OS sandbox
 
 ## Requirements
 

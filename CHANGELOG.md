@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Plugins now bundle the masking hook and the second-opinion MCP pointer**
+  (issue #479, Phase B3 of ADR 0001) - the `secrets` plugin ships the
+  PostToolUse output-masking hook (`hooks/hooks.json` plus a plugin-local copy
+  of `hook-mask-output.sh` resolved via `${CLAUDE_PLUGIN_ROOT}`), so a plugin
+  install masks credentials with no host script setup, and the
+  `second-opinion` plugin ships the `.mcp.json` streamable-http client pointer
+  matching the repo-root one (#469). The SessionStart staleness hook is
+  deliberately NOT bundled (obsoleted by `/plugin` update handling; retires
+  with the legacy surface in B4). `scripts/plugin-sync.sh` gains per-family
+  extra-artifact sync so the bundled script copy is drift-guarded like the
+  command bodies.
+
 ### Changed
 
 - **Browser automation migrated to upstream `@playwright/mcp`** (issue #423) -
