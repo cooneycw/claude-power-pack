@@ -48,7 +48,10 @@ scripts/friction-log.sh --class <permission-prompt|gate-failure|red-output|manua
   --scope <local|portable> --run "flow:auto #$ISSUE_NUM" --step "<N/9 Name>" --outcome "<approved|retried|worked-around|corrected>"
 ```
 
-Records go to `.claude/friction.jsonl` (a queue drained by `/self-improvement:retro`).
+Records go to the main repo's `.claude/friction.jsonl` (a queue drained by
+`/self-improvement:retro`). The helper resolves that durable buffer automatically
+via `git-common-dir`, so signals captured inside this run's worktree survive its
+removal at Step 7 (issue #471) - no env var or per-call path needed.
 This is capture only - proposing and applying fixes happens in the retro, not here.
 
 ---
