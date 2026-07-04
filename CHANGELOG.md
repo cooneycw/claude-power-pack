@@ -4,6 +4,19 @@
 
 ### Changed
 
+- **eli5 gate report depth floor + /flow:auto full-spec load** (issue #509) -
+  the vendored eli5 core (re-vendored from canonical cooneycw/eli5-gate
+  `f2a0b2e`) now sets an explicit depth floor: Section B must enumerate the
+  actual commit SHAs / PR numbers / issue numbers inspected (or an explicit
+  "none"), Section C must list every file on its own numbered line with a scope
+  estimate and a named risk, and the output template is a floor, not a ceiling,
+  regardless of the model's verbosity profile. `/flow:auto` Step 3 no longer
+  points only at the repo-relative `.claude/commands/flow/eli5.md` (absent in
+  non-CPP projects, which silently degraded runs to the condensed inline
+  summary); it now loads the full gate spec from whichever installed surface
+  exists (global `flow-eli5` skill, `flow` plugin command, or the repo file)
+  and mirrors the depth floor in its orientation bullets. Global skill and
+  plugin mirrors regenerated.
 - **Browser automation migrated to upstream `@playwright/mcp`** (issue #423) -
   `/qa:test` and the `browser-tiered` skill now drive the official Microsoft
   `@playwright/mcp` server instead of CPP's fork. The server is registered by

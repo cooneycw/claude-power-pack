@@ -100,10 +100,21 @@ duplicate or superseding issues. Then output one verdict, with the evidence
 | **No longer needed** | Already solved or made obsolete; recommend closing instead of implementing |
 | **Needs reframing** | The surrounding design changed enough that the plan is wrong; restate the corrected approach |
 
+**Section B depth floor (applies regardless of how concise the model is tuned to
+be):** the evidence must enumerate what was actually inspected - the commit SHAs
+(or an explicit `none touching <paths>`), the merged PR numbers, and the
+duplicate/superseding issue numbers considered. A bare verdict, or evidence
+summarized as "reviewed recent history", does not satisfy the gate.
+
 **Section C - Proposed changes (pending approval).** An overview of the changes
 proposed to close the issue, framed as a plan awaiting reviewer approval: files to
 create or modify, the gist of each change, scope estimate, and notable risks or
 edge cases. No code is written until this plan is approved.
+
+**Section C depth floor:** every file to create or modify gets its own numbered
+line with the gist of its change - never "various files" or a rolled-up
+description - plus a scope estimate (files, approximate lines) and at least one
+named risk, or an explicit "no notable risks".
 
 ### Step 3: The approval gate
 
@@ -150,6 +161,10 @@ Risks: {edge cases / unknowns}
 
 Approval: REQUIRED (interactive) | AUTO-GRANTED (--yes) | N/A (No longer needed -> close recommended)
 ```
+
+The template above is a floor, not a ceiling: fill every `{...}` slot with the
+actual evidence, files, and reasoning - never elide or compress a slot away,
+however terse the surrounding style. Reports below this density fail the gate.
 <!-- eli5-core:end -->
 
 ## When run inside /flow:auto
