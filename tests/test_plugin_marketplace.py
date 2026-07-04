@@ -4,20 +4,20 @@ Phase B1 of the plugin-marketplace migration (ADR docs/decisions/
 0001-plugin-marketplace-packaging.md, issue #477) stood up
 `.claude-plugin/marketplace.json` and packaged the `flow` command family as an
 installable plugin under `plugins/flow/`. Phase B2 (issue #478) extends that to
-every surviving family. During the B1->B4 parallel window the source of truth
-stays `.claude/commands/<family>/*.md` and each plugin holds byte-identical
-copies kept honest by `scripts/plugin-sync.sh` (the B1 `plugin-flow-sync.sh` is
-now a shim onto it).
+every surviving family; Phase B4 (issue #480) retired the legacy global-skill
+mirror, so `.claude/commands/<family>/*.md` is the single permanent source of
+truth and each plugin holds byte-identical copies kept honest by
+`scripts/plugin-sync.sh`.
 
 The hazards these pin:
   * the manifests must stay schema-valid (name/source/required fields), because
     `/plugin install <family>@cpp` resolves the marketplace by its `name` field
     and the plugin by its `source` path;
-  * the packaged commands must stay byte-identical to their source, or the two
-    surfaces silently diverge before B4 collapses them;
+  * the packaged commands must stay byte-identical to their source, or the
+    packaged copies silently diverge from the source of truth;
   * the `cpp` plugin must stay help/meta-only (ADR 0001): packaging the legacy
     /cpp:init|update|status symlink installer into the surface that replaces it
-    would ship the thing B4 retires;
+    would ship the legacy installer B4 retired;
   * the Phase B3 (#479) bundled artifacts must stay coherent: the secrets
     plugin's masking-hook script is a byte-identical copy resolved via
     ${CLAUDE_PLUGIN_ROOT} (never a host path), and the second-opinion plugin's
@@ -43,7 +43,6 @@ MARKETPLACE = ROOT / ".claude-plugin" / "marketplace.json"
 PLUGINS_DIR = ROOT / "plugins"
 SOURCE_COMMANDS = ROOT / ".claude" / "commands"
 SYNC_SCRIPT = ROOT / "scripts" / "plugin-sync.sh"
-SHIM_SCRIPT = ROOT / "scripts" / "plugin-flow-sync.sh"
 
 # Every packaged family (ADR 0001 target design). `spec` and the loose
 # top-level commands are deliberately NOT packaged - see the ADR B2 resolution.
@@ -231,7 +230,7 @@ def test_second_opinion_plugin_mcp_pointer_matches_root():
 # --------------------------------------------------------------------------- #
 # Drift guard
 # --------------------------------------------------------------------------- #
-@pytest.mark.parametrize("script", [SYNC_SCRIPT, SHIM_SCRIPT], ids=["sync", "flow-shim"])
+@pytest.mark.parametrize("script", [SYNC_SCRIPT], ids=["sync"])
 def test_sync_script_check_passes(script: Path):
     if shutil.which("bash") is None:  # pragma: no cover - bash present in CI
         pytest.skip("bash unavailable")
@@ -254,3 +253,33 @@ def test_sync_script_rejects_unknown_family():
         text=True,
     )
     assert result.returncode == 2, "unknown family must be a usage error (exit 2)"
+
+
+# --------------------------------------------------------------------------- #
+# B4 retirement (#480): the dual surface + skill-drift + symlink installer gone
+# --------------------------------------------------------------------------- #
+RETIRED_ARTIFACTS = [
+    "scripts/flow-skill-sync.py",       # global flow-* mirror generator
+    "scripts/skill-drift.py",           # dual-surface drift reconciler
+    "scripts/plugin-flow-sync.sh",      # B1 shim, superseded by plugin-sync.sh
+    ".claude/deprecated-skills.yaml",   # skill deprecation list of record
+]
+
+
+@pytest.mark.parametrize("rel", RETIRED_ARTIFACTS)
+def test_dual_surface_artifact_retired(rel: str):
+    # ADR 0001 B4 exit: these files exist only to keep the retired global-skill
+    # mirror in sync. Plugins are the single delivered surface now.
+    assert not (ROOT / rel).exists(), (
+        f"{rel} was retired by B4 (#480); it must not come back"
+    )
+
+
+@pytest.mark.parametrize("cmd", ["init", "update", "status"])
+def test_installer_no_skills_mirror_symlink(cmd: str):
+    # The /cpp installer must no longer install or reconcile the global-skill
+    # mirror (~/.claude/skills). Commands stay symlinked; skills ship via /plugin.
+    text = (SOURCE_COMMANDS / "cpp" / f"{cmd}.md").read_text(encoding="utf-8")
+    assert ".claude/skills" not in text, (
+        f"/cpp:{cmd} still references the retired global-skill mirror (.claude/skills)"
+    )

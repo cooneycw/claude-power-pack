@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """mcp-drift.py - Detect and tear down orphaned Docker MCP infrastructure.
 
-Part of Claude Power Pack (CPP). Companion to scripts/skill-drift.py (which does
-the same job for generated skills) and scripts/drift-detect.sh (systemd/host
-drift). This script owns *Docker MCP server* drift.
+Part of Claude Power Pack (CPP). Companion to scripts/drift-detect.sh
+(systemd/host drift). This script owns *Docker MCP server* drift.
 
 The hazard: when a server is removed from docker-compose.yml, a machine that ran
 it keeps the old container, the old `mcp-<name>:*` images, and a live
@@ -71,7 +70,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 # --------------------------------------------------------------------------- #
-# Deprecation-list parsing (mirrors skill-drift.py; fallback drops folded text)
+# Deprecation-list parsing (fallback drops folded text)
 # --------------------------------------------------------------------------- #
 def _load_yaml(text: str) -> dict:
     """Load YAML, preferring PyYAML; fall back to a minimal parser if absent."""
@@ -118,9 +117,9 @@ def _fallback_parse(text: str) -> dict:
 
     Handles a top-level `version` scalar and a `deprecated:` block list of
     mappings, each with scalar fields plus the block-list fields in _LIST_FIELDS.
-    Folded scalars (reason/replacement `>-` blocks) are intentionally dropped -
-    exactly like skill-drift.py - so the parity test compares structured fields
-    only. Keep folded reason text colon-free so a continuation line is never
+    Folded scalars (reason/replacement `>-` blocks) are intentionally dropped
+    so the parity test compares structured fields only. Keep folded reason text
+    colon-free so a continuation line is never
     mistaken for a field.
     """
     result: dict = {}

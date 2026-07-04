@@ -291,9 +291,7 @@ fi
 - If it reports `FLOW_STALE_BASE: collision` - or names a file you are about to
   touch under "Changed upstream" - bring the base in now, before piling edits on
   a stale tree: `git merge --no-edit origin/main`, resolve any conflict in the
-  named file(s), then implement. If the note says flow command files changed
-  upstream, re-run `python3 "$CPP_DIR/scripts/flow-skill-sync.py" --write` after
-  merging so the global `flow-*` mirror does not drift.
+  named file(s), then implement.
 - If it reports `current` or `moved-clean` with no overlap, proceed - the Step-7
   #462 guard remains the final backstop.
 
@@ -391,11 +389,6 @@ if [ "$(git rev-list --count HEAD..origin/main)" -gt 0 ]; then
         echo "STOP: resolve the listed conflicts, 'git add' + 'git commit', then re-run Step 6."
         git diff --name-only --diff-filter=U
         exit 1
-    fi
-    # Keep the global flow-* mirror from drifting when the merge pulled flow
-    # command changes - the mirror is what EXECUTES (issues #457/#461/#473).
-    if [ -n "$CPP_DIR" ] && git diff --name-only ORIG_HEAD..HEAD | grep -q '^\.claude/commands/flow/.*\.md$'; then
-        python3 "$CPP_DIR/scripts/flow-skill-sync.py" --write || true
     fi
 fi
 ```
@@ -509,11 +502,6 @@ Report: `Step 6/9: Finish complete - PR #XX created`
        for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-pack; do
          [ -d "$dir" ] && [ -f "$dir/CLAUDE.md" ] && { CPP_DIR="$dir"; break; }
        done
-       # If the merge pulled flow command changes, re-sync the global flow-*
-       # mirror so it does not drift - the mirror is what EXECUTES (issue #473).
-       if [ -n "$CPP_DIR" ] && git diff --name-only ORIG_HEAD..HEAD | grep -q '^\.claude/commands/flow/.*\.md$'; then
-           python3 "$CPP_DIR/scripts/flow-skill-sync.py" --write || true
-       fi
        if [ -n "$CPP_DIR" ] && command -v uv >/dev/null 2>&1; then
            PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd run --plan finish
            REGATE_EXIT=$?

@@ -159,37 +159,6 @@ else
 fi
 ```
 
-### Step 5c: Flow Skill Mirror Sync
-
-CPP's `/flow:*` commands execute from the global mirror at
-`~/.claude/skills/flow-*`, regenerated from the `.claude/commands/flow/*` source
-of truth by `scripts/flow-skill-sync.py`. When the mirror drifts from the source
-(as it did when #453 rebased the commands onto native worktrees but left the
-mirror on the old manual `git worktree add` path - issue #457), the surface that
-actually runs is stale. Detect that drift:
-
-```bash
-# Locate CPP source for the sync script
-CPP_DIR=""
-for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-pack; do
-  if [ -d "$dir" ] && [ -f "$dir/scripts/flow-skill-sync.py" ]; then
-    CPP_DIR="$dir"
-    break
-  fi
-done
-
-if [ -z "$CPP_DIR" ]; then
-  echo "SKIP flow skill mirror (CPP checkout not found)"
-elif python3 "$CPP_DIR/scripts/flow-skill-sync.py" --check >/dev/null 2>&1; then
-  echo "PASS flow skill mirror (global ~/.claude/skills/flow-* matches repo commands)"
-else
-  echo "WARN flow skill mirror (out of sync with .claude/commands/flow/; run: python3 $CPP_DIR/scripts/flow-skill-sync.py --write)"
-fi
-```
-
-This is a WARN, not a FAIL: the skills still run, they are just behind the repo.
-Regenerate with `--write` to reconcile.
-
 ### Step 6: Active Worktrees
 
 ```bash
@@ -311,7 +280,6 @@ Output a single diagnostic report in this format:
 | worktree-remove.sh | ✅/⚠️ | Optional fallback (native ExitWorktree is primary) |
 | secrets-mask.sh | ✅/❌ | Output masking filter |
 | Flow allowlist | ✅/⚠️/❌ | 32/32 rules in ~/.claude/settings.json / N missing / settings.json missing |
-| Flow skill mirror | ✅/⚠️ | Global flow-* matches repo commands / out of sync (run flow-skill-sync.py --write) |
 
 ### MCP Server Wiring
 
@@ -364,8 +332,7 @@ Output a single diagnostic report in this format:
    - Rust: `cp ~/Projects/claude-power-pack/templates/makefiles/rust.mk Makefile`
    - Monorepo: `cp ~/Projects/claude-power-pack/templates/makefiles/multi.mk Makefile`
 2. ⚠️ **worktree-remove.sh not found (optional)** - `/flow` uses the native `EnterWorktree`/`ExitWorktree` tools for same-session worktrees; the script is only a fallback for cross-session / cross-machine cleanup. Install if you want it: `ln -sf ~/Projects/claude-power-pack/scripts/worktree-remove.sh ~/.claude/scripts/`
-2b. ⚠️ **Flow allowlist missing/incomplete** - `/flow:*` will prompt for read-only git/gh plumbing on every run. Merge via `/cpp:update` (Step 7.6) or `/cpp:init`; rationale and caveats in `templates/claude-settings-permissions.md`
-2c. ⚠️ **Flow skill mirror drift** - the global `~/.claude/skills/flow-*` skills (the surface that actually runs) are out of sync with `.claude/commands/flow/`. Regenerate: `python3 ~/Projects/claude-power-pack/scripts/flow-skill-sync.py --write`
+2b. ⚠️ **Flow allowlist missing/incomplete** - `/flow:*` will prompt for read-only git/gh plumbing on every run. Merge via `/cpp:update` or `/cpp:init`; rationale and caveats in `templates/claude-settings-permissions.md`
 3. ⚠️ **uv not installed** - Install: `curl -LsSf https://astral.sh/uv/install.sh | sh`
 4. ❌ **cicd.yml missing** - Run `/cicd-init` to auto-detect framework and generate configuration
 5. ⚠️ **Makefile gaps** - Run `/cicd-check` for details or `/cicd-init` to add missing targets

@@ -41,16 +41,6 @@ elif [ -d ".claude/commands" ]; then
 else
   echo "[ ] Commands: not installed"
 fi
-
-# Check skills symlink
-if [ -L ".claude/skills" ]; then
-  SKILLS_TARGET=$(readlink -f .claude/skills)
-  echo "[x] Skills symlinked → $SKILLS_TARGET"
-elif [ -d ".claude/skills" ]; then
-  echo "[~] Skills directory exists (not symlinked)"
-else
-  echo "[ ] Skills: not installed"
-fi
 ```
 
 ## Step 3: Check Tier 2 (Standard)
@@ -474,7 +464,6 @@ CPP Installation Status
 
 Tier 1 (Minimal):
   [x] Commands symlinked
-  [x] Skills symlinked
   Status: Complete
 
 Tier 2 (Standard):

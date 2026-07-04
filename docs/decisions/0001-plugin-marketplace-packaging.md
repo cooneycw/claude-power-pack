@@ -307,11 +307,18 @@ No parity is assumed until proven. Each phase is its own `/flow` issue.
   repo-root one (#469); the SessionStart staleness hook is deliberately NOT
   bundled (obsoleted by `/plugin` updates; retires with the legacy surface in
   B4). Resolutions recorded in "Hard questions" section 6.
-- **B4 - Prove parity, then retire the dual surface.** Once every family
-  installs via `/plugin`, retire the global-skill mirror, `flow-skill-sync.py`,
-  `skill-drift.py`, `.claude/deprecated-skills.yaml`, and the symlink paths in
-  `/cpp:init|update|status`. Keep `mcp-drift.py`, the Docker/host portions of
-  `drift-detect.sh`, and `bootstrap.yaml`.
+- **B4 - Prove parity, then retire the dual surface. [SHIPPED 2026-07-04, #480]**
+  Parity proven (all 15 families in `marketplace.json` with a `plugin.json`,
+  guarded by `plugin-sync.sh` + `test_plugin_marketplace.py`), so the retirement
+  landed: deleted `flow-skill-sync.py`, `skill-drift.py`, the B1
+  `plugin-flow-sync.sh` shim, and `.claude/deprecated-skills.yaml`; removed the
+  `~/.claude/skills` symlink paths from `/cpp:init|update|status` (and the
+  `/cpp:update` skill-drift prune step); dropped the flow-mirror re-sync from the
+  `/flow` command bodies and the mirror check from `/flow:doctor`. Kept
+  `mcp-drift.py`, the Docker/host portions of `drift-detect.sh`, and
+  `bootstrap.yaml`. The live host `~/.claude/skills` mirror is not torn down by
+  this change (a B5 / `/cpp:update` concern). Follow-up #506 rewires the
+  post-merge re-sync onto `plugin-sync.sh`.
 - **B5 - Docs + install-path cutover.** Update CLAUDE.md, README, and
   `docs/HOST_MANAGED_ARTIFACTS.md` to the `/plugin` install path; keep a
   documented fallback for the Docker/secrets/bootstrap steps plugins do not

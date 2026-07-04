@@ -18,8 +18,8 @@
 # the legacy surface this migration replaces (it retires in Phase B4), so it is
 # not distributed through the new one.
 #
-# Generalizes the B1 scripts/plugin-flow-sync.sh (issue #477), which now shims
-# here. Mirrors the flow-skill-sync.py and eli5-core-drift.sh idioms.
+# Supersedes the B1 scripts/plugin-flow-sync.sh (issue #477), retired in B4
+# (#480). Mirrors the eli5-core-drift.sh deterministic-generator idiom.
 # Deterministic and git-free (byte-for-byte local diff, no network) so it runs
 # in the git-less CI validate container. Reconcile drift by editing the SOURCE
 # (.claude/commands/<family>/*.md) then re-running with --write.

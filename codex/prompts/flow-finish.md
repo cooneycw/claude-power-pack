@@ -45,10 +45,6 @@ if [ "$(git rev-list --count HEAD..origin/main)" -gt 0 ]; then
         git diff --name-only --diff-filter=U
         exit 1
     fi
-    # Re-sync the global flow-* mirror if the merge pulled flow command changes.
-    if [ -n "$CPP_DIR" ] && git diff --name-only ORIG_HEAD..HEAD | grep -q '^\.claude/commands/flow/.*\.md$'; then
-        python3 "$CPP_DIR/scripts/flow-skill-sync.py" --write || true
-    fi
 fi
 ```
 

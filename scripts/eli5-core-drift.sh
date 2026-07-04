@@ -51,5 +51,5 @@ echo "WARNING: the vendored eli5 core has drifted from the canonical copy at" >&
 echo "  $CANON_URL" >&2
 echo "Reconcile by updating the canonical cooneycw/eli5-gate repo first, then" >&2
 echo "re-vendoring the marker section into .claude/commands/flow/eli5.md" >&2
-echo "(and run scripts/flow-skill-sync.py --write to refresh the global mirror)." >&2
+echo "(then run scripts/plugin-sync.sh --write flow to refresh the packaged copies)." >&2
 exit 1

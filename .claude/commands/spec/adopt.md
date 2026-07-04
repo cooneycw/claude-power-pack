@@ -94,7 +94,6 @@ not run). Use the bundled gh-CLI sync instead:
   global-skills equivalent. Run `/spec:adopt` once per project that uses SDD.
 - **Legacy `/spec:*` were retired.** `/spec:create`, `/spec:sync`, `/spec:status`, and
   `/spec:init` (backed by `lib/spec_bridge`) have been removed in favor of this path
-  (epic #417 Phase A). Their generated `spec-*` skills are pruned by `/cpp:update` via
-  `.claude/deprecated-skills.yaml`.
+  (epic #417 Phase A).
 - **Freshness.** Because this delegates to the CLI, you always get the latest upstream
   templates - CPP no longer vendors a (stale) copy of the spec-kit skills.
