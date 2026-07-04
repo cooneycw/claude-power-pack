@@ -254,3 +254,58 @@ def test_sync_script_rejects_unknown_family():
         text=True,
     )
     assert result.returncode == 2, "unknown family must be a usage error (exit 2)"
+
+
+# --------------------------------------------------------------------------- #
+# Post-merge re-sync wiring (issue #506)
+# --------------------------------------------------------------------------- #
+# When a sibling PR that edits any `.claude/commands/<family>/*.md` merges to
+# main, whoever merges main next inherits stale in-repo copies generated from
+# that source and the parity gates fail. Two such surfaces exist: the packaged
+# plugin copies (`plugin-sync.sh`) and the Codex CLI prompts
+# (`codex-prompt-sync.py`, #446/#511). The /flow merge paths already re-run
+# `flow-skill-sync.py --write` for the out-of-repo skill mirror; they must ALSO
+# re-run BOTH in-repo generators (all 15 families, not just flow). These guard
+# that the triggers are present and correctly shaped, so they are not silently
+# dropped in a future edit - the gate that would have caught the original gap.
+AUTO_CMD = SOURCE_COMMANDS / "flow" / "auto.md"
+FINISH_CMD = SOURCE_COMMANDS / "flow" / "finish.md"
+
+# The broad match must cover every family, NOT the flow-only pattern the skill
+# mirror uses - a flow-only grep would reproduce the exact #506 bug.
+ALL_FAMILIES_PATTERN = r"grep -q '^\.claude/commands/.*\.md$'"
+FLOW_ONLY_PATTERN = r"grep -q '^\.claude/commands/flow/.*\.md$'"
+
+# Every in-repo generator that must be re-run in the post-merge re-sync path.
+INREPO_GENERATORS = ["scripts/plugin-sync.sh --write", "scripts/codex-prompt-sync.py --write"]
+
+
+@pytest.mark.parametrize("cmd", [AUTO_CMD, FINISH_CMD], ids=["auto", "finish"])
+def test_flow_merge_path_reruns_inrepo_generators(cmd: Path):
+    text = cmd.read_text()
+    for gen in INREPO_GENERATORS:
+        assert gen in text, (
+            f"{cmd.name} post-merge re-sync must re-run `{gen}` so the in-repo "
+            f"generated copies do not drift (issue #506)"
+        )
+    # The re-sync must be gated on ALL families, not just flow.
+    assert ALL_FAMILIES_PATTERN in text, (
+        f"{cmd.name} re-sync must match all `.claude/commands/**/*.md`, not only "
+        f"the flow-only pattern (that flow-only scope is the #506 bug)"
+    )
+
+
+def test_auto_step7_commits_generated_before_push():
+    # Step 7 squashes straight after `git push` with no further commit step, so
+    # the regenerated plugins/ + codex/prompts/ MUST be committed there or the
+    # squash carries stale copies onto main (the exact race #506 guards).
+    text = AUTO_CMD.read_text()
+    assert "git add plugins/ codex/prompts/" in text, (
+        "auto.md Step 7 must commit the re-synced plugins/ + codex/prompts/ "
+        "before `git push` - otherwise the squash lands stale copies (issue #506)"
+    )
+    push_idx = text.rfind('git push origin "$BRANCH"')
+    add_idx = text.find("git add plugins/ codex/prompts/")
+    assert 0 <= add_idx < push_idx, (
+        "the generated-surface commit must precede the Step-7 `git push`"
+    )
