@@ -75,6 +75,9 @@ node_modules/
 .claude/friction.jsonl
 .claude/friction/
 .claude/learnings.md
+# md-backend sidecar: per-VM apply/reject ledger (issue #472). Local like
+# learnings.md - never shared, never committed.
+.claude/learnings.rejected.jsonl
 
 # Native Claude Code worktrees (issue #440) - the EnterWorktree tool creates
 # full checkouts under .claude/worktrees/<name>; these are per-workstation and
