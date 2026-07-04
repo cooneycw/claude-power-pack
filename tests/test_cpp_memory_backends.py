@@ -208,6 +208,8 @@ class TestCliBackendSurface:
         assert out["backend"] == "md"
         assert out["federation"] == "none"
         assert out["reachable"] is True
+        # md has no driver dependency: driver_error is always null (#497).
+        assert out["driver_error"] is None
 
     def test_record_md_is_first_class_not_fallback(self, monkeypatch, capsys, tmp_path):
         monkeypatch.setattr(cli_mod, "select_backend", lambda *a, **k: MarkdownStore(repo_root=tmp_path))

@@ -295,6 +295,73 @@ class TestCli:
 
 
 # --------------------------------------------------------------------------- #
+# Driver-load failure vs store-unreachable (#497): a psycopg without libpq
+# ("no pq wrapper available") must NOT read as the store being down.
+# --------------------------------------------------------------------------- #
+@pytest.fixture
+def driver_gap(monkeypatch):
+    """Simulate psycopg installed without libpq: import failed, DSN present."""
+    monkeypatch.setattr(client_mod, "_HAVE_PSYCOPG", False)
+    monkeypatch.setattr(client_mod, "_DRIVER_ERROR", "no pq wrapper available")
+    monkeypatch.setattr(
+        cli_mod, "select_backend",
+        lambda *a, **k: MemoryStore(
+            dsn="postgres://u:p@127.0.0.1:5432/db", name="remote-pg", federation="fleet",
+        ),
+    )
+
+
+class TestDriverErrorDisambiguation:
+    def test_store_driver_error_surfaced(self, driver_gap):
+        store = MemoryStore(dsn="postgres://u:p@127.0.0.1:5432/db")
+        assert store.ping() is False
+        assert store.driver_error() == "no pq wrapper available"
+
+    def test_store_driver_error_none_when_driver_loaded(self, monkeypatch):
+        monkeypatch.setattr(client_mod, "_DRIVER_ERROR", None)
+        assert MemoryStore(dsn="").driver_error() is None
+
+    def test_ping_names_the_driver_gap(self, driver_gap, capsys):
+        rc = cli_mod.main(["ping"])
+        out = json.loads(capsys.readouterr().out)
+        assert rc == 1
+        assert out["reachable"] is False
+        assert out["driver_error"] == "no pq wrapper available"
+        assert out["dsn_present"] is True
+
+    def test_ping_driver_error_null_when_store_down(self, cli_offline, capsys, monkeypatch):
+        # Driver fine, store down: driver_error must stay null so the two
+        # failure layers cannot be conflated in either direction.
+        monkeypatch.setattr(client_mod, "_DRIVER_ERROR", None)
+        rc = cli_mod.main(["ping"])
+        out = json.loads(capsys.readouterr().out)
+        assert rc == 1
+        assert out["driver_error"] is None
+
+    def test_record_fallback_names_driver_layer(self, driver_gap, capsys, tmp_path):
+        rc = cli_mod.main([
+            "record", "--class", "knowledge", "--scope", "knowledge",
+            "--title", "t", "--body", "b", "--repo", str(tmp_path),
+        ])
+        out = json.loads(capsys.readouterr().out)
+        assert rc == 0
+        assert out["stored"] == "local-fallback"
+        assert out["reason"] == "driver unavailable"
+        assert out["driver_error"] == "no pq wrapper available"
+
+    def test_record_fallback_store_down_keeps_old_reason(self, cli_offline, capsys, tmp_path, monkeypatch):
+        monkeypatch.setattr(client_mod, "_DRIVER_ERROR", None)
+        rc = cli_mod.main([
+            "record", "--class", "knowledge", "--scope", "knowledge",
+            "--title", "t", "--body", "b", "--repo", str(tmp_path),
+        ])
+        out = json.loads(capsys.readouterr().out)
+        assert rc == 0
+        assert out["reason"] == "store unavailable"
+        assert out["driver_error"] is None
+
+
+# --------------------------------------------------------------------------- #
 # learnings -> GitHub issue bridge (#463)
 # --------------------------------------------------------------------------- #
 class TestActionable:
