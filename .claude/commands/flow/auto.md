@@ -37,16 +37,23 @@ end. The richest friction is on runs that fail partway, so capture must fire on
 every step, success OR failure, and before any STOP. Whenever you hit one of these,
 append a record via the fail-open capture helper (it never blocks the flow):
 
-- a **permission prompt** the user had to approve for a Bash/tool call
 - a **quality-gate failure or retry** (lint/test/build/deploy)
 - **red output** you narrated past or worked around instead of resolving
 - a **manual intervention / correction** the user had to make
 
 ```bash
-scripts/friction-log.sh --class <permission-prompt|gate-failure|red-output|manual-intervention> \
+scripts/friction-log.sh --class <gate-failure|red-output|manual-intervention> \
   --signal "<what happened>" --fix "<proposed fix, if obvious>" \
-  --scope <local|portable> --run "flow:auto #$ISSUE_NUM" --step "<N/9 Name>" --outcome "<approved|retried|worked-around|corrected>"
+  --scope <local|portable> --run "flow:auto #$ISSUE_NUM" --step "<N/9 Name>" --outcome "<retried|worked-around|corrected>"
 ```
+
+The fourth class, **permission-prompt**, is NOT model-captured here: the model
+cannot tell an approved tool call from an auto-allowed one. It is captured by the
+harness `PermissionRequest` hook (`scripts/hook-permission-census.sh`, registered
+in `~/.claude/settings.json` by `/cpp:init` / `/cpp:update`), which records a
+risk-rated record with a derived allow-rule candidate on every prompt shown -
+across every session, not just flow runs (issue #482). Do not log this class by
+hand.
 
 Records go to `.claude/friction.jsonl` (a queue drained by `/self-improvement:retro`).
 This is capture only - proposing and applying fixes happens in the retro, not here.

@@ -94,6 +94,31 @@ def test_scope_defaults_to_local(tmp_path: Path):
     assert _read_lines(log)[0]["scope"] == "local"
 
 
+def test_risk_defaults_to_empty(tmp_path: Path):
+    # The risk tier is optional: callers that do not set it (all pre-census
+    # call sites) still produce a valid record with an empty risk field.
+    log = tmp_path / "friction.jsonl"
+    _run(tmp_path, "--class", "gate-failure", "--signal", "make test failed", log_path=log)
+    assert _read_lines(log)[0]["risk"] == ""
+
+
+def test_risk_tier_is_recorded(tmp_path: Path):
+    # The permission-prompt census hook passes a risk tier so retro can
+    # allowlist only the safe tiers.
+    log = tmp_path / "friction.jsonl"
+    _run(
+        tmp_path,
+        "--class",
+        "permission-prompt",
+        "--signal",
+        "Bash: rm -rf build",
+        "--risk",
+        "DESTRUCTIVE",
+        log_path=log,
+    )
+    assert _read_lines(log)[0]["risk"] == "DESTRUCTIVE"
+
+
 def test_multiple_invocations_accumulate(tmp_path: Path):
     log = tmp_path / "friction.jsonl"
     _run(tmp_path, "--class", "other", "--signal", "one", log_path=log)

@@ -529,6 +529,55 @@ echo "→ Flow allowlist skipped"
 echo "  Merge later via /cpp:update, or read templates/claude-settings-permissions.md"
 ```
 
+**Permission-Prompt Census Hook (Optional)**
+
+The retro loop's `permission-prompt` friction class (issue #426) can only be
+captured by the harness: a manually approved tool call and an auto-allowed one
+are indistinguishable to the model. `scripts/hook-permission-census.sh` (a
+`PermissionRequest` hook, installed as a Tier 2 script above) fires when a
+permission dialog is shown and appends one risk-rated record to the project's
+`.claude/friction.jsonl`, so `/self-improvement:retro` Step 4 gets real input
+(issue #482). It is observe-only (never influences the decision) and fail-open.
+Registering it edits `~/.claude/settings.json` - the same user-level trust
+boundary as the flow allowlist above - so it is offered, not applied silently:
+
+```
+=== Optional: Permission-Prompt Census Hook ===
+
+Register the observe-only PermissionRequest census hook in
+~/.claude/settings.json? It records each permission prompt (with a derived
+allow-rule candidate and a risk tier) to the project's friction ledger so
+/self-improvement:retro can propose an allowlist from real data. Never blocks
+or alters a permission decision.  [y/N]
+```
+
+If yes:
+
+```bash
+TARGET="$HOME/.claude/settings.json"
+CENSUS_CMD="~/.claude/scripts/hook-permission-census.sh"
+mkdir -p "$HOME/.claude"
+[ -f "$TARGET" ] || echo '{}' > "$TARGET"
+
+# Idempotent: add the hook only if this exact command is not already registered.
+jq --arg cmd "$CENSUS_CMD" '
+  .hooks = (.hooks // {})
+  | .hooks.PermissionRequest = (.hooks.PermissionRequest // [])
+  | if any(.hooks.PermissionRequest[]?; (.hooks // [])[]?.command == $cmd)
+    then .
+    else .hooks.PermissionRequest += [{"hooks":[{"type":"command","command":$cmd}]}]
+    end
+' "$TARGET" > "$TARGET.tmp" && mv "$TARGET.tmp" "$TARGET"
+echo "✓ PermissionRequest census hook registered in ~/.claude/settings.json"
+```
+
+If no:
+
+```bash
+echo "→ Permission-prompt census hook skipped"
+echo "  Register later via /cpp:update, or read docs/HOST_MANAGED_ARTIFACTS.md"
+```
+
 **Shell Prompt Integration (Optional)**
 
 Ask the user if they want shell prompt integration:
