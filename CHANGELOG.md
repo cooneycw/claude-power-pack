@@ -37,6 +37,17 @@
 
 ### Changed
 
+- **`gh-pr-merge.sh` handles branch-protection blocks on owner merges**
+  (issue #517) - on branch-protected `main` (the #449 posture: PR + review + CI
+  required), a repo owner's squash was rejected by GitHub until it was re-run
+  manually with `gh pr merge --squash --admin`. The helper now accepts an opt-in
+  `--admin` flag (forces the override from the first attempt) and, when a squash
+  fails with a branch-protection message, the caller did not pass `--admin`, and
+  the actor is a repo admin (`gh repo view --json viewerPermission`), retries the
+  squash once with `--admin`. The override is bounded to a single retry, never
+  fires for a non-admin or a non-protection failure, and the post-merge
+  MERGED-state check stays authoritative. No caller change is needed - the
+  `/flow` merge paths pick up the auto-retry transparently.
 - **eli5 gate report depth floor + /flow:auto full-spec load** (issue #509) -
   the vendored eli5 core (re-vendored from canonical cooneycw/eli5-gate
   `f2a0b2e`) now sets an explicit depth floor: Section B must enumerate the

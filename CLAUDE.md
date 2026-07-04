@@ -40,7 +40,7 @@ Core components and their locations:
 - `scripts/` - Shell utilities, one per sub-bullet (add new scripts as their own line, #501):
   - prompt-context
   - worktree-remove
-  - gh-pr-merge - layout-aware PR squash-merge used by `/flow:auto` + `/flow:merge`; polls mergeability to wait out a transient `UNKNOWN` right after push (#485); bounded refetch+retry when the squash fails on `Base branch was modified` (sibling merge race, #502)
+  - gh-pr-merge - layout-aware PR squash-merge used by `/flow:auto` + `/flow:merge`; polls mergeability to wait out a transient `UNKNOWN` right after push (#485); bounded refetch+retry when the squash fails on `Base branch was modified` (sibling merge race, #502); opt-in `--admin` flag plus a single admin-gated auto-retry when a squash is rejected by branch protection on an owner merge (#517)
   - flow-stale-check - advisory early stale-base detector for `/flow:auto` Step 4/6 + `/flow:finish` (#473)
   - flow-worktree-guard - advisory leaked-edit detector: warns when a `/flow:auto` edit landed in the MAIN tree instead of the worktree (#486)
   - hooks
