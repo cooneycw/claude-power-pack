@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # friction-log.sh - Always-on friction capture for the grill-me cycle (issue #426).
 #
-# Appends one JSON object per friction event to a local, append-only buffer
-# (default: .claude/friction.jsonl). This is the "capture" half of the grill-me
+# Appends one JSON object per friction event to a durable, append-only buffer
+# (default: the MAIN repo's .claude/friction.jsonl, so signals survive a
+# /flow:auto worktree being removed at cleanup - issue #471). This is the
+# "capture" half of the grill-me
 # cycle: thin instrumentation the flow commands call on every step of every run,
 # success OR failure, so the richest friction (the runs that fail partway) is not
 # lost. The buffer is drained later by /self-improvement:retro (local codify) and,
@@ -28,7 +30,9 @@
 #   --step    <st>   step label (e.g. "1/9 Start")
 #
 # Environment:
-#   CPP_FRICTION_LOG  override the buffer path (default: .claude/friction.jsonl)
+#   CPP_FRICTION_LOG  override the buffer path (default: the main repo's
+#                     .claude/friction.jsonl, resolved via git-common-dir so a
+#                     run inside a worktree still writes to the durable buffer)
 #
 # Example:
 #   friction-log.sh --class permission-prompt \
@@ -86,7 +90,29 @@ json_escape() {
   printf '%s' "$s"
 }
 
-LOG="${CPP_FRICTION_LOG:-.claude/friction.jsonl}"
+# Resolve the buffer path. Precedence:
+#   1. CPP_FRICTION_LOG, if set (explicit override wins).
+#   2. The MAIN repo's .claude/friction.jsonl - NOT the cwd's. During /flow:auto
+#      the cwd is a native worktree (.claude/worktrees/<name>/) that Step 7
+#      deletes; a cwd-relative buffer would be destroyed with it, losing every
+#      signal the run captured (issue #471). `git rev-parse --git-common-dir`
+#      points at the SHARED .git dir (the main worktree's) from a linked worktree
+#      OR the main repo, so its parent is the durable main-repo checkout. Writing
+#      there means signals survive worktree cleanup and /self-improvement:retro
+#      (run from the main repo) sees them without manual re-logging.
+#   3. Cwd-relative .claude/friction.jsonl, when git is unavailable (fail-open).
+LOG="${CPP_FRICTION_LOG:-}"
+if [ -z "$LOG" ]; then
+  COMMON_DIR="$(git rev-parse --git-common-dir 2>/dev/null || printf '')"
+  if [ -n "$COMMON_DIR" ] && [ -d "$COMMON_DIR" ]; then
+    # `cd $COMMON_DIR/.. && pwd` normalizes to an absolute main-repo path whether
+    # git returned a relative (".git" in the main repo) or absolute (worktree) dir.
+    MAIN_REPO="$(cd "$COMMON_DIR/.." 2>/dev/null && pwd)"
+    LOG="${MAIN_REPO:+$MAIN_REPO/}.claude/friction.jsonl"
+  else
+    LOG=".claude/friction.jsonl"
+  fi
+fi
 DIR="$(dirname "$LOG")"
 
 if ! mkdir -p "$DIR" 2>/dev/null; then

@@ -234,8 +234,10 @@ scripts/friction-log.sh --class <permission-prompt|gate-failure|red-output|manua
   --signal "<what happened>" --run "flow:merge" --step "<N/9 Name>" --outcome "<...>"
 ```
 
-Then, if `.claude/friction.jsonl` recorded any signals, offer the codify step (do
-not auto-run):
+The helper writes to the main repo's `.claude/friction.jsonl` (resolved via
+`git-common-dir`), so signals captured inside a worktree survive its removal
+during cleanup (issue #471). Then, if that buffer recorded any signals, offer the
+codify step (do not auto-run):
 
 ```
 Friction retro: this run recorded N friction signal(s). Run /self-improvement:retro
