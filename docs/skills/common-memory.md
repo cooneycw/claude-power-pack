@@ -38,9 +38,19 @@ cpp-memory reject --fingerprint <fp> --actor <user> --note "<why not>"     # sto
 ```
 
 `cpp-memory` is a thin wrapper: it self-locates the CPP repo, sets `PYTHONPATH`,
-and runs via `uv` (fetching psycopg on demand) or system python3. If neither the
-store nor a driver is available, every write falls back to a local note - the
-routine never blocks.
+and runs via `uv` (fetching `psycopg[binary]` on demand - the `binary` extra
+bundles libpq) or system python3. If neither the store nor a driver is
+available, every write falls back to a local note - the routine never blocks.
+
+Invoking the module by hand instead? Use
+
+```bash
+uv run --no-project --python 3.11 --with 'psycopg[binary]>=3.1' -- python -m lib.cpp_memory ping
+```
+
+Bare `--with psycopg` installs a driver with **no libpq backend**: it fails to
+load ("no pq wrapper available") and `ping` then reads as the store being down
+when only the local driver is broken (#497).
 
 ## Backends (the mini-tier: md | local-pg | remote-pg)
 
@@ -75,8 +85,12 @@ guard below keeps them local regardless of backend.
 
 ## Routine (run after a session / flow run)
 
-1. **Reachability.** `cpp-memory ping`. If `reachable:false`, continue in degraded
-   mode (writes land in `.claude/learnings.md`); note it in the report.
+1. **Reachability.** `cpp-memory ping`. If `reachable:false`, check
+   `driver_error` FIRST: non-null means the psycopg driver failed to load
+   locally and the store was never contacted - fix the invocation
+   (`psycopg[binary]`), do not report the store down (#497). Only a null
+   `driver_error` is a real store outage; either way continue in degraded mode
+   (writes land in `.claude/learnings.md`) and note which layer failed.
 2. **Gather friction signals** from the session: permission prompts, quality-gate
    failures/retries, red output narrated-past, manual interventions/corrections,
    infra traps discovered, and portable knowledge learned.
