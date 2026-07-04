@@ -1,7 +1,7 @@
 {
   "name": "second-opinion",
-  "description": "Cross-vendor second-opinion code review client: /second-opinion:start quick reviews with sensible defaults, /second-opinion:models model/depth selection. Pairs with the external mcp-second-opinion server (github.com/cooneycw/mcp-second-opinion).",
-  "version": "1.0.0",
+  "description": "Cross-vendor second-opinion code review client: /second-opinion:start quick reviews with sensible defaults, /second-opinion:models model/depth selection. Ships the .mcp.json streamable-http client pointer (default http://127.0.0.1:8080/mcp) to the external mcp-second-opinion server (github.com/cooneycw/mcp-second-opinion); run the server from that repo and re-register the URL at user scope if it lives elsewhere.",
+  "version": "1.1.0",
   "author": {
     "name": "cooneycw",
     "url": "https://github.com/cooneycw"
@@ -9,5 +9,6 @@
   "homepage": "https://github.com/cooneycw/claude-power-pack",
   "repository": "https://github.com/cooneycw/claude-power-pack",
   "license": "MIT",
-  "keywords": ["code-review", "second-opinion", "cross-vendor", "mcp"]
+  "keywords": ["code-review", "second-opinion", "cross-vendor", "mcp"],
+  "mcpServers": "./.mcp.json"
 }

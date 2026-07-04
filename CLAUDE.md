@@ -48,14 +48,14 @@ Core components and their locations:
   - skill-drift
   - mcp-drift
   - flow-skill-sync
-  - plugin-sync - byte-identical drift guard keeping every packaged family plugin in sync with its command source (#477/#478); plugin-flow-sync survives as a flow-scoped shim until B4
+  - plugin-sync - byte-identical drift guard keeping every packaged family plugin in sync with its command source (#477/#478) plus per-family extra artifacts such as the secrets masking-hook script (#479); plugin-flow-sync survives as a flow-scoped shim until B4
   - codex-prompt-sync - single-source -> per-harness generator (#446): emits checked-in Codex CLI prompts under `codex/prompts/` from `.claude/commands/<family>/`; `--check` drift gate, `--write` regen, `--install` copies to `~/.codex/prompts/` (replaces retired codex-skill-gen)
   - speckit-tasks-to-issues
   - playwright-desk - lease-desk ledger
   - check-ignored-additions
 - `templates/` - Makefile, workflow, container templates
 - `.claude-plugin/marketplace.json` - Plugin-marketplace manifest (marketplace name `cpp`) listing CPP's per-family plugins. Install path: `/plugin marketplace add cooneycw/claude-power-pack` then `/plugin install <family>@cpp` (ADR 0001, epic #417 Phase B).
-- `plugins/` - Per-family Claude Code plugins. Phase B2 (#478) packages every surviving family (15 plugins, `browser` through `self-improvement`): byte-identical copies of `.claude/commands/<family>/*.md` (the single source of truth, ADR 0001 section 5), kept honest by `scripts/plugin-sync.sh --check` and regenerated with `--write` after any command edit. The `cpp` plugin is help/meta-only (the init/update/status installer stays repo-local). The legacy symlink installer runs in parallel; nothing is retired until parity is proven in Phase B4.
+- `plugins/` - Per-family Claude Code plugins. Phase B2 (#478) packages every surviving family (15 plugins, `browser` through `self-improvement`): byte-identical copies of `.claude/commands/<family>/*.md` (the single source of truth, ADR 0001 section 5), kept honest by `scripts/plugin-sync.sh --check` and regenerated with `--write` after any command edit. Phase B3 (#479) adds bundled hooks + MCP pointers: `secrets` ships the PostToolUse masking hook (plugin-local script via `${CLAUDE_PLUGIN_ROOT}`) and `second-opinion` ships its `.mcp.json` client pointer (matches the repo-root one). The `cpp` plugin is help/meta-only (the init/update/status installer stays repo-local). The legacy symlink installer runs in parallel; nothing is retired until parity is proven in Phase B4.
 - `codex/prompts/` - Codex CLI custom prompts, the second harness surface (issue #446): generated `<family>-<command>.md` files (Codex `/<family>-<command>`) emitted from the same `.claude/commands/<family>/` single source by `scripts/codex-prompt-sync.py`, plus the hand-curated `cpp-memory.md` (#433, never overwritten). Regenerate with `make codex-prompts` after any command edit; `make codex-init` installs to `~/.codex/prompts/`.
 - `.woodpecker.yml` - Woodpecker CI pipeline (secret-scan, lint, test, typecheck, Dockerfile lint)
 
@@ -263,7 +263,7 @@ and `lib/security` own the **deterministic** complement: secret scanning
 - **Destructive commands** (force push to main, `rm -rf /`, disk formatting, etc.) are blocked by Claude Code's native destructive-git auto-blocking and OS sandbox - the custom PreToolUse dangerous-command hook was retired (issue #439) as redundant.
 - **PostToolUse hook** masks secrets in Bash/Read output (connection strings, API keys, env vars). Retained because native tooling blocks credential *reads* but does not *mask* secrets that surface in output.
 - **PermissionRequest hook** (`scripts/hook-permission-census.sh`) is an observe-only, fail-open permission-prompt census: it fires when a permission dialog is shown, derives a narrowest allow-rule candidate plus a risk tier (`READONLY-*`/`WRITE-LOCAL` -> allow candidate; `DESTRUCTIVE`/`CODE-EXEC`/net -> recorded but no candidate), and appends a `permission-prompt` record to the project's `.claude/friction.jsonl` for `/self-improvement:retro`. It captures the one friction class the model cannot observe (issue #482). Registered user-level in `~/.claude/settings.json` (user-confirmed) by `/cpp:init` and `/cpp:update` Step 7.7 - never emits a permission decision.
-- **Hooks configured in** `.claude/hooks.json` (SessionStart + PostToolUse project-level) and `~/.claude/settings.json` (PermissionRequest census, user-level)
+- **Hooks configured in** `.claude/hooks.json` (SessionStart + PostToolUse project-level) and `~/.claude/settings.json` (PermissionRequest census, user-level); the `secrets` plugin bundles the same PostToolUse masking hook for plugin installs (#479, ADR 0001 section 6)
 - `/flow:finish` and `/flow:deploy` run the deterministic security scan (`lib/security`) as a quality gate
 - CRITICAL findings block gates; HIGH findings produce warnings
 - Configure gating in `.claude/security.yml` (optional, created by `/security:scan` when needed)

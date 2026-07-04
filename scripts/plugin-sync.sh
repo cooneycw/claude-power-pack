@@ -40,6 +40,16 @@ declare -A EXCLUDE=(
     [cpp]="init.md status.md update.md"
 )
 
+# Per-family extra packaged artifacts beyond commands/*.md (space-separated
+# repo-root-relative source paths), replicated byte-identically to
+# plugins/<family>/<same relative path>. Phase B3 (#479): the secrets plugin
+# bundles the PostToolUse masking-hook script so a plugin install masks
+# credentials without the host symlink install (its hooks/hooks.json resolves
+# the copy via ${CLAUDE_PLUGIN_ROOT}).
+declare -A EXTRA_FILES=(
+    [secrets]="scripts/hook-mask-output.sh"
+)
+
 MODE="check"
 SELECTED=()
 for arg in "$@"; do
@@ -109,6 +119,17 @@ for family in "${SELECTED[@]}"; do
             count=$((count + 1))
         done
         echo "plugin-sync: $family: wrote $count command(s) to plugins/$family/commands/"
+        for rel in ${EXTRA_FILES[$family]:-}; do
+            src="$REPO_ROOT/$rel"
+            dest="$REPO_ROOT/plugins/$family/$rel"
+            if [[ ! -f "$src" ]]; then
+                echo "plugin-sync: $family: extra source not found: $rel" >&2
+                exit 2
+            fi
+            mkdir -p "$(dirname "$dest")"
+            cp -p "$src" "$dest"
+            echo "plugin-sync: $family: wrote extra $rel"
+        done
         continue
     fi
 
@@ -136,6 +157,21 @@ for family in "${SELECTED[@]}"; do
         base="$(basename "$f")"
         if [[ ! -f "$src_dir/$base" ]] || is_excluded "$family" "$base"; then
             echo "ORPHAN in plugin: $family/$base (no matching source command)"
+            family_drift=1
+        fi
+    done
+    for rel in ${EXTRA_FILES[$family]:-}; do
+        src="$REPO_ROOT/$rel"
+        dest="$REPO_ROOT/plugins/$family/$rel"
+        count=$((count + 1))
+        if [[ ! -f "$src" ]]; then
+            echo "plugin-sync: $family: extra source not found: $rel" >&2
+            family_drift=1
+        elif [[ ! -f "$dest" ]]; then
+            echo "MISSING in plugin: $family/$rel"
+            family_drift=1
+        elif ! diff -q "$src" "$dest" >/dev/null 2>&1; then
+            echo "DRIFT: $family/$rel differs from source"
             family_drift=1
         fi
     done

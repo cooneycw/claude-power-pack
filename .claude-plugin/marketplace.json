@@ -64,12 +64,12 @@
     {
       "name": "second-opinion",
       "source": "./plugins/second-opinion",
-      "description": "Cross-vendor second-opinion code review client commands (/second-opinion:start, /second-opinion:models); pairs with the external mcp-second-opinion server."
+      "description": "Cross-vendor second-opinion code review client commands (/second-opinion:start, /second-opinion:models); ships the .mcp.json client pointer (default http://127.0.0.1:8080/mcp) to the external mcp-second-opinion server."
     },
     {
       "name": "secrets",
       "source": "./plugins/secrets",
-      "description": "Secrets lifecycle with masking: set, get, list, rotate, delete, validate, run-with-secrets, and a web UI (/secrets:*)."
+      "description": "Secrets lifecycle with masking: set, get, list, rotate, delete, validate, run-with-secrets, and a web UI (/secrets:*). Bundles the PostToolUse output-masking hook so plugin installs mask credentials with no host script setup."
     },
     {
       "name": "security",
