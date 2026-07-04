@@ -1,0 +1,13 @@
+{
+  "name": "claude-md",
+  "description": "CLAUDE.md management for Claude Code projects: /claude-md:lint checks for missing CI/CD, Docker, and troubleshooting directives.",
+  "version": "1.0.0",
+  "author": {
+    "name": "cooneycw",
+    "url": "https://github.com/cooneycw"
+  },
+  "homepage": "https://github.com/cooneycw/claude-power-pack",
+  "repository": "https://github.com/cooneycw/claude-power-pack",
+  "license": "MIT",
+  "keywords": ["claude-md", "lint", "documentation"]
+}
