@@ -12,6 +12,7 @@ Detects well-known secret patterns with low false-positive rates:
 from __future__ import annotations
 
 import re
+import subprocess
 from pathlib import Path
 
 from ..models import Finding, ScanResult, Severity
@@ -177,7 +178,7 @@ def scan(project_root: str) -> ScanResult:
 
 
 def _find_source_files(root: Path) -> list[Path]:
-    """Find source files to scan, respecting skip lists."""
+    """Find source files to scan, respecting skip lists and .gitignore."""
     files = []
     for path in root.rglob("*"):
         if path.is_file():
@@ -189,4 +190,51 @@ def _find_source_files(root: Path) -> list[Path]:
                 continue
             if path.suffix in SCAN_EXTENSIONS or path.name in (".env.example", ".env.sample"):
                 files.append(path)
-    return files
+    return _filter_gitignored(root, files)
+
+
+def _filter_gitignored(root: Path, files: list[Path]) -> list[Path]:
+    """Drop candidate paths that git would ignore.
+
+    Gitignored, never-committed local files (e.g. `.claude/settings.local.json`)
+    hold real credentials by design but are excluded from the repo, so flagging
+    them is a false positive on a security gate. This filters them out while
+    keeping the scanner honest about *committable* risk: `git check-ignore` is
+    index-aware by default, so a *tracked* file that also matches an ignore
+    pattern is NOT reported as ignored and still gets scanned.
+
+    Fail-open: outside a git work tree, or on any git error/timeout, the input
+    list is returned unchanged so scanning never silently narrows.
+    """
+    if not files:
+        return files
+
+    try:
+        inside = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--is-inside-work-tree"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return files
+    if inside.returncode != 0 or inside.stdout.strip() != "true":
+        return files
+
+    # Batch every candidate through a single check-ignore call over stdin.
+    # Exit status: 0 = at least one path ignored, 1 = none ignored, >1 = error.
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(root), "check-ignore", "--stdin"],
+            input="\n".join(str(f) for f in files),
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return files
+    if proc.returncode not in (0, 1):
+        return files
+
+    ignored = {line for line in proc.stdout.splitlines() if line}
+    return [f for f in files if str(f) not in ignored]
