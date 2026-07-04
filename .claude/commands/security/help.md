@@ -29,7 +29,15 @@ and `/security:*` for secrets, dependencies, and the flow gate.
 | `/security:quick` | Fast scan: native checks only (zero deps) |
 | `/security:deep` | Deep scan: includes git history analysis |
 | `/security:explain <ID>` | Detailed explanation of a finding type |
+| `/security:permissions` | Risk-graded permission audit (see below) |
 | `/security:help` | This help page |
+
+> **Harness permissions (not a code scanner):** `/security:permissions` is a
+> risk-graded wrapper around Claude Code's native `/fewer-permission-prompts`. It
+> audits which tool calls run without prompting and proposes an **allow / ask /
+> deny** policy (backed by `scripts/classify-tool-risk.py`), sorting every
+> observed command into tiers - read-only vs safe-local-write vs arbitrary
+> code-execution vs destructive. Distinct from the code/secret scans above.
 
 ## Scan Modes
 

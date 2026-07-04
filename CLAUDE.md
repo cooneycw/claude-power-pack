@@ -31,7 +31,7 @@ Core components and their locations:
 - `lib/security/` - Security scanning (native + external tools)
 - `lib/cicd/` - CI/CD framework detection, Makefile generation, health/smoke checks, deterministic runner, deployment strategies, Pydantic v2 config validation
 - `lib/cpp_memory/` - Common-memory client: a **pluggable** fail-open friction-knowledge ledger (issue #472) with three `/cpp:init`-selectable backends behind one `StoreBackend` interface - `md` (best-effort local, no federation; subsumes `.claude/learnings.md`), `local-pg` (full SQL dedup, single box, `lib/cpp_memory/docker-compose.yml`), and `remote-pg` (full dedup, fleet-federated Postgres, `scripts/memories-db-setup.sh`). Backend chosen via `CPP_MEMORIES_BACKEND` / step 8d; **federation is a surfaced per-tier property** (only remote-pg shares across VMs). Holds *portable* CPP learnings/infra traps (bucket-2-plus) plus a dedup/rejection ledger and a learnings->GitHub-issue bridge (`--emit-issue-candidate` / `link-issue`, #463). Consult-not-push; see `/self-improvement:memory`.
-- `scripts/` - Shell utilities (prompt-context, worktree-remove, gh-pr-merge (layout-aware PR squash-merge used by `/flow:auto` + `/flow:merge`), flow-stale-check (advisory early stale-base detector for `/flow:auto` Step 4/6 + `/flow:finish`, #473), hooks, drift-detect, skill-drift, mcp-drift, flow-skill-sync, plugin-flow-sync (byte-identical drift guard keeping the `flow` POC plugin in sync with its command source, #477), speckit-tasks-to-issues, playwright-desk lease-desk ledger, check-ignored-additions)
+- `scripts/` - Shell utilities (prompt-context, worktree-remove, gh-pr-merge (layout-aware PR squash-merge used by `/flow:auto` + `/flow:merge`), flow-stale-check (advisory early stale-base detector for `/flow:auto` Step 4/6 + `/flow:finish`, #473), flow-worktree-guard (advisory leaked-edit detector: warns when a `/flow:auto` edit landed in the MAIN tree instead of the worktree, #486), hooks, drift-detect, skill-drift, mcp-drift, flow-skill-sync, plugin-flow-sync (byte-identical drift guard keeping the `flow` POC plugin in sync with its command source, #477), speckit-tasks-to-issues, playwright-desk lease-desk ledger, check-ignored-additions)
 - `templates/` - Makefile, workflow, container templates
 - `.claude-plugin/marketplace.json` - Plugin-marketplace manifest (marketplace name `cpp`) listing CPP's per-family plugins. Install path: `/plugin marketplace add cooneycw/claude-power-pack` then `/plugin install <family>@cpp` (ADR 0001, epic #417 Phase B).
 - `plugins/` - Per-family Claude Code plugins. Phase B1 (#477) ships `plugins/flow/` as a proof-of-concept: byte-identical copies of `.claude/commands/flow/*.md` (source of truth), kept honest by `scripts/plugin-flow-sync.sh`. The legacy symlink installer runs in parallel; nothing is retired until parity is proven in Phase B4.
@@ -100,6 +100,17 @@ execute from a global mirror (`~/.claude/skills/flow-*`) regenerated from the
 `.claude/commands/flow/*` source of truth by `scripts/flow-skill-sync.py`
 (`--write` to sync, `--check` to detect drift); `/flow:doctor` warns when the
 mirror falls behind (issue #457).
+
+**Worktree path-resolution rule (issue #486):** a native `EnterWorktree` session
+edits the worktree, but the worktree lives *inside* the main repo at
+`.claude/worktrees/<name>/`. Resolve every `Write`/`Edit` path from the active
+worktree root - `git rev-parse --show-toplevel` - or use a plain relative path
+from the session cwd; **never hand-build a `.claude/worktrees/<name>/...`
+absolute path**, which has been observed to land the edit in the MAIN repo
+working tree instead of the worktree (flow:auto #442 x2, #471). `/flow:auto`
+Steps 4/6 run `scripts/flow-worktree-guard.sh` - an advisory, fail-open guard
+that warns (never blocks) when the main tree has tracked modifications, the
+signature of a leaked edit - so the trap is caught before commit.
 
 **Standalone skill extractions (issue #443):** skills with standalone value are
 extracted to their own public plugin repos so users never have to clone CPP -
