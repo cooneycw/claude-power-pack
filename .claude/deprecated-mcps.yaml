@@ -124,8 +124,11 @@ deprecated:
     # NOTE: intentionally NO claude_registrations / codex_registrations. The new
     # external server keeps the SAME registration name ("second-opinion", now
     # pointed at :8080/mcp by the root .mcp.json), so listing it here would make
-    # /cpp:update offer to tear down the user's valid new wiring. Only the stale
-    # container and mcp-second-opinion:* images are orphans worth removing.
+    # /cpp:update offer to tear down the user's valid new wiring. Only a stale
+    # (exited) container or leftover mcp-second-opinion:* image is an orphan worth
+    # removing. The external server ALSO reuses the container name, so mcp-drift.py
+    # protects a RUNNING container that carries a compose-project label or a
+    # non-CPP image (provenance guard, issue #520) - it is never torn down.
 
   - name: aws-secrets-agent
     reason: >-

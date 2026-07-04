@@ -128,6 +128,120 @@ def test_container_prefix_is_matched(tmp_path: Path) -> None:
     assert nano["containers"] == [{"name": "ci-mcp-nano-banana", "state": "exited"}]
 
 
+# --------------------------------------------------------------------------- #
+# Live external container protection (issue #520): a RUNNING container that
+# merely shares a deprecated name but belongs to an external compose project (the
+# external second-opinion server reuses `mcp-second-opinion`/`aws-secrets-agent`)
+# must never be classified orphaned nor torn down.
+# --------------------------------------------------------------------------- #
+def _nano(findings: list[dict]) -> dict:
+    return next(f for f in findings if f["server"] == "mcp-nano-banana")
+
+
+def test_running_external_container_protected_by_compose_project(tmp_path: Path) -> None:
+    """A RUNNING container sharing a deprecated name but carrying a
+    com.docker.compose.project label belongs to an external compose project (CPP
+    ships none since #469). It is protected: not counted as present -> the entry is
+    ABSENT (not orphaned), and teardown is refused."""
+    host = md.HostState(
+        current_services={"mcp-woodpecker-ci"},
+        services_known=True,
+        containers={"mcp-nano-banana": "running"},
+        container_meta={"mcp-nano-banana": {"image": "mcp-nano-banana:latest",
+                                             "project": "second-opinion"}},
+    )
+    findings = md.classify(_dep(tmp_path), host)
+    nano = _nano(findings)
+    assert nano["status"] == md.ABSENT
+    assert nano["containers"] == []
+    assert [c["name"] for c in nano["foreign_containers"]] == ["mcp-nano-banana"]
+    assert md.removable(findings) == []
+    assert md.teardown(["mcp-nano-banana"], findings, execute=True) == 1  # refused (ABSENT)
+
+
+def test_running_external_container_protected_by_foreign_image(tmp_path: Path) -> None:
+    """With no compose-project label, a RUNNING container on a non-CPP image
+    (repo != image_prefix) is still foreign and protected."""
+    host = md.HostState(
+        current_services={"mcp-woodpecker-ci"},
+        services_known=True,
+        containers={"mcp-nano-banana": "running"},
+        container_meta={"mcp-nano-banana": {"image": "ghcr.io/acme/nano:v2", "project": ""}},
+    )
+    nano = _nano(md.classify(_dep(tmp_path), host))
+    assert nano["status"] == md.ABSENT
+    assert [c["name"] for c in nano["foreign_containers"]] == ["mcp-nano-banana"]
+
+
+def test_running_cpp_orphan_on_cpp_image_still_reaped(tmp_path: Path) -> None:
+    """A RUNNING leftover on the CPP-built image (repo == image_prefix) with no
+    compose-project label is a genuine CPP orphan - still reaped, not protected."""
+    host = md.HostState(
+        current_services={"mcp-woodpecker-ci"},
+        services_known=True,
+        containers={"mcp-nano-banana": "running"},
+        container_meta={"mcp-nano-banana": {"image": "mcp-nano-banana:abc", "project": ""}},
+    )
+    nano = _nano(md.classify(_dep(tmp_path), host))
+    assert nano["status"] == md.ORPHANED
+    assert nano["containers"] == [{"name": "mcp-nano-banana", "state": "running"}]
+    assert nano["foreign_containers"] == []
+
+
+def test_exited_external_container_still_reaped(tmp_path: Path) -> None:
+    """Protection is RUNNING-only (per the issue): an exited container is not live
+    and is the ordinary stale-orphan case, so it is reaped even under an external
+    compose-project label - a CPP leftover cannot be told apart from that label."""
+    host = md.HostState(
+        current_services={"mcp-woodpecker-ci"},
+        services_known=True,
+        containers={"mcp-nano-banana": "exited"},
+        container_meta={"mcp-nano-banana": {"image": "ghcr.io/acme/nano:v2",
+                                             "project": "second-opinion"}},
+    )
+    nano = _nano(md.classify(_dep(tmp_path), host))
+    assert nano["status"] == md.ORPHANED
+    assert nano["containers"] == [{"name": "mcp-nano-banana", "state": "exited"}]
+    assert nano["foreign_containers"] == []
+
+
+def test_unknown_provenance_running_container_still_orphan(tmp_path: Path) -> None:
+    """Back-compat: with no provenance (container_meta empty, e.g. old docker) a
+    running container has no positive foreign evidence and is classified exactly as
+    before - ORPHANED."""
+    host = md.HostState(
+        current_services={"mcp-woodpecker-ci"},
+        services_known=True,
+        containers={"mcp-nano-banana": "running"},
+    )
+    nano = _nano(md.classify(_dep(tmp_path), host))
+    assert nano["status"] == md.ORPHANED
+    assert nano["foreign_containers"] == []
+
+
+def test_teardown_plan_excludes_live_external_but_prunes_stale_image(tmp_path: Path) -> None:
+    """When a live external container AND a stale CPP image share the name, the
+    entry is ORPHANED for the image, but the teardown plan must NOT stop/remove the
+    live container - only prune the dangling image tag."""
+    host = md.HostState(
+        current_services={"mcp-woodpecker-ci"},
+        services_known=True,
+        containers={"mcp-nano-banana": "running"},
+        container_meta={"mcp-nano-banana": {"image": "ghcr.io/acme/nano:v2",
+                                             "project": "second-opinion"}},
+        images={"mcp-nano-banana": [
+            {"tag": "keep", "id": "1", "size": "1GB", "created": "2026-06-30"},
+            {"tag": "drop", "id": "2", "size": "1GB", "created": "2026-06-10"},
+        ]},
+    )
+    nano = _nano(md.classify(_dep(tmp_path), host))
+    assert nano["status"] == md.ORPHANED  # the stale image is a real orphan artifact
+    assert [c["name"] for c in nano["foreign_containers"]] == ["mcp-nano-banana"]
+    plan = md.plan_teardown(nano, prune_all_images=False)
+    assert not any(c.startswith(("docker stop", "docker rm -f")) for c in plan)  # live one untouched
+    assert "docker rmi mcp-nano-banana:drop" in plan  # stale tag still pruned
+
+
 def test_user_custom_registration_never_flagged(tmp_path: Path) -> None:
     """A registration CPP never shipped is not in the list -> never a finding,
     never removable, and teardown of it is refused."""
@@ -357,6 +471,27 @@ def test_cli_teardown_executes_and_refuses(tmp_path: Path) -> None:
     assert refused.returncode == 1
     assert "REFUSED" in refused.stderr
     assert not log.exists()
+
+
+def test_cli_running_external_container_protected(tmp_path: Path) -> None:
+    """End-to-end (issue #520): a RUNNING container under an external compose
+    project (a 4-field `docker ps` line: name/state/image/project) sharing a
+    deprecated name is protected - not listed as an orphan, and surfaced under the
+    report's Protected section."""
+    dep = _depfile(tmp_path)
+    bin_dir, _ = _fake_bin(
+        tmp_path,
+        services="mcp-second-opinion\nmcp-woodpecker-ci",
+        containers="mcp-nano-banana\trunning\tghcr.io/acme/nano\text-second-opinion\n",
+    )
+    check = _run_cli(bin_dir, dep, "--check")
+    assert check.returncode == 0, check.stdout   # nothing to reap
+    assert "Protected" in check.stdout
+    assert "mcp-nano-banana" in check.stdout
+
+    orphans = _run_cli(bin_dir, dep, "--list-orphans")
+    assert orphans.returncode == 0
+    assert orphans.stdout.strip() == ""
 
 
 def test_script_is_executable() -> None:
