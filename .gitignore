@@ -63,6 +63,8 @@ desktop.ini
 # above. The `**` glob keeps future per-family plugins (Phase B2) covered.
 !.claude-plugin/marketplace.json
 !plugins/**/.claude-plugin/plugin.json
+# Plugin-bundled hook configs (issue #479, Phase B3) - tracked despite *.json.
+!plugins/**/hooks/hooks.json
 node_modules/
 .claude/settings*.json
 .claude/plans/

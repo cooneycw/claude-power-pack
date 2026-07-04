@@ -17,7 +17,12 @@ The hazards these pin:
     surfaces silently diverge before B4 collapses them;
   * the `cpp` plugin must stay help/meta-only (ADR 0001): packaging the legacy
     /cpp:init|update|status symlink installer into the surface that replaces it
-    would ship the thing B4 retires.
+    would ship the thing B4 retires;
+  * the Phase B3 (#479) bundled artifacts must stay coherent: the secrets
+    plugin's masking-hook script is a byte-identical copy resolved via
+    ${CLAUDE_PLUGIN_ROOT} (never a host path), and the second-opinion plugin's
+    .mcp.json client pointer must match the repo-root one (#469) or a plugin
+    install and a repo checkout would talk to different servers.
 
 Hermetic and git-free: reads the REAL repo manifests + command sources and shells
 only to the git-free sync guard, so it runs in CI's git-less validate container
@@ -168,6 +173,59 @@ def test_cpp_plugin_is_help_only():
     # not ship through the plugin marketplace.
     packaged = {p.name for p in (PLUGINS_DIR / "cpp" / "commands").glob("*.md")}
     assert packaged == {"help.md"}, f"cpp plugin must ship help.md only, got {packaged}"
+
+
+# --------------------------------------------------------------------------- #
+# Phase B3 (#479): bundled hooks + MCP client pointers
+# --------------------------------------------------------------------------- #
+SECRETS_HOOKS = PLUGINS_DIR / "secrets" / "hooks" / "hooks.json"
+SECRETS_HOOK_SCRIPT = PLUGINS_DIR / "secrets" / "scripts" / "hook-mask-output.sh"
+HOOK_SCRIPT_SOURCE = ROOT / "scripts" / "hook-mask-output.sh"
+SO_PLUGIN_MCP = PLUGINS_DIR / "second-opinion" / ".mcp.json"
+ROOT_MCP = ROOT / ".mcp.json"
+
+
+def test_secrets_plugin_bundles_posttooluse_masking_hook():
+    assert SECRETS_HOOKS.is_file(), f"missing {SECRETS_HOOKS}"
+    data = json.loads(SECRETS_HOOKS.read_text())
+    matchers = data["hooks"]["PostToolUse"]
+    commands = [h["command"] for m in matchers for h in m["hooks"]]
+    assert commands, "secrets hooks.json declares no PostToolUse commands"
+    for cmd in commands:
+        # A host path (~/.claude/scripts/...) would keep the plugin dependent
+        # on the symlink installer B4 retires (ADR 0001 section 6).
+        assert cmd.startswith("${CLAUDE_PLUGIN_ROOT}/"), (
+            f"hook command must resolve inside the plugin, got: {cmd}"
+        )
+        rel = cmd.removeprefix("${CLAUDE_PLUGIN_ROOT}/")
+        bundled = PLUGINS_DIR / "secrets" / rel
+        assert bundled.is_file(), f"hook references {rel} but the plugin does not ship it"
+
+
+def test_secrets_hook_script_is_byte_identical_to_source():
+    assert SECRETS_HOOK_SCRIPT.is_file(), f"missing {SECRETS_HOOK_SCRIPT}"
+    assert SECRETS_HOOK_SCRIPT.read_bytes() == HOOK_SCRIPT_SOURCE.read_bytes(), (
+        "plugins/secrets/scripts/hook-mask-output.sh differs from "
+        "scripts/hook-mask-output.sh (run scripts/plugin-sync.sh --write)"
+    )
+
+
+def test_secrets_hook_script_is_executable():
+    assert SECRETS_HOOK_SCRIPT.stat().st_mode & 0o111, (
+        "bundled hook script lost its executable bit (hooks silently no-op)"
+    )
+
+
+def test_second_opinion_plugin_mcp_pointer_matches_root():
+    assert SO_PLUGIN_MCP.is_file(), f"missing {SO_PLUGIN_MCP}"
+    plugin_ptr = json.loads(SO_PLUGIN_MCP.read_text())["mcpServers"]["second-opinion"]
+    assert plugin_ptr.get("type") == "http", "pointer must be the streamable-http client stanza"
+    assert plugin_ptr.get("url"), "pointer needs a url"
+    # The plugin pointer and the repo-root pointer (#469) must never diverge.
+    root_ptr = json.loads(ROOT_MCP.read_text())["mcpServers"]["second-opinion"]
+    assert plugin_ptr == root_ptr, (
+        f"plugin pointer {plugin_ptr} != repo-root .mcp.json pointer {root_ptr}"
+    )
 
 
 # --------------------------------------------------------------------------- #
