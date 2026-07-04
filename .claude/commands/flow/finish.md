@@ -43,6 +43,18 @@ if [ "$(git rev-list --count HEAD..origin/main)" -gt 0 ]; then
         git diff --name-only --diff-filter=U
         exit 1
     fi
+    # Re-sync the in-repo generated surfaces if the merge pulled ANY command-family
+    # source - the packaged plugin copies AND the Codex CLI prompts are both
+    # regenerated from .claude/commands/ and the parity gates cover all 15
+    # families, not just flow (issue #506; codex prompts #446/#511). LOCAL scripts
+    # re-sync THIS tree; [ -x ... ] keeps each CPP-only. The commit step below
+    # stages plugins/ and codex/prompts/.
+    if [ -x scripts/plugin-sync.sh ] && git diff --name-only ORIG_HEAD..HEAD | grep -q '^\.claude/commands/.*\.md$'; then
+        scripts/plugin-sync.sh --write || true
+    fi
+    if [ -x scripts/codex-prompt-sync.py ] && git diff --name-only ORIG_HEAD..HEAD | grep -q '^\.claude/commands/.*\.md$'; then
+        python3 scripts/codex-prompt-sync.py --write || true
+    fi
 fi
 ```
 
