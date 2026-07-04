@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Plugin-marketplace scaffold + `flow` proof-of-concept plugin** (issue #477,
+  epic #417 Phase B1, ADR `docs/decisions/0001-plugin-marketplace-packaging.md`) -
+  first implementation phase of the migration off the legacy symlink installer to
+  the Claude Code plugin-marketplace distribution model. Adds
+  `.claude-plugin/marketplace.json` (marketplace name `cpp`) and packages the
+  `flow` command family as an installable plugin under `plugins/flow/`, so the
+  install path is `/plugin marketplace add cooneycw/claude-power-pack` then
+  `/plugin install flow@cpp`. During the parallel B1->B4 window the source of
+  truth stays `.claude/commands/flow/*.md`; `plugins/flow/commands/` holds
+  byte-identical copies kept honest by `scripts/plugin-flow-sync.sh`
+  (`--check` guard / `--write` regen), covered by `tests/test_plugin_marketplace.py`.
+  Both manifests pass `claude plugin validate`, and `/plugin install flow@cpp` was
+  verified end to end against a local marketplace. **Nothing is retired** - the
+  installer runs untouched until parity is proven in Phase B4.
+
 ### Changed
 
 - **Browser automation migrated to upstream `@playwright/mcp`** (issue #423) -

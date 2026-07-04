@@ -1,0 +1,15 @@
+{
+  "name": "cpp",
+  "description": "Claude Power Pack - per-family Claude Code plugins (phased migration off the legacy symlink installer; see ADR 0001, epic #417 Phase B).",
+  "owner": {
+    "name": "cooneycw",
+    "url": "https://github.com/cooneycw"
+  },
+  "plugins": [
+    {
+      "name": "flow",
+      "source": "./plugins/flow",
+      "description": "Worktree-based GitHub issue lifecycle: start, eli5 necessity gate, check, finish, merge, deploy, auto, sync, cleanup, status, and doctor. Issue-anchored branch naming and quality gates, no locks or Redis - just git."
+    }
+  ]
+}

@@ -1,0 +1,136 @@
+# Flow: Start Working on an Issue
+
+Create a worktree and branch for a GitHub issue. Stateless - all context from git and GitHub.
+
+Worktree mechanics ride Claude Code's **native worktrees**: the `EnterWorktree`
+tool creates a checkout under `.claude/worktrees/<name>` on a new branch (base
+governed by the `worktree.baseRef` setting - `fresh`, the default, branches from
+`origin/<default-branch>`, matching the old `origin/main` behavior) and switches
+the session into it. The issue-anchored `issue-<N>-<slug>` branch name is the
+policy CPP keeps and enforces; it is not absorbed by the native tool.
+
+## Arguments
+
+- `ISSUE` (required): GitHub issue number (e.g., `42`)
+
+## Instructions
+
+When the user invokes `/flow:start <ISSUE>`, perform these steps:
+
+### Step 1: Validate Prerequisites
+
+```bash
+# Ensure gh is authenticated
+gh auth status
+
+# Ensure we're in a git repo
+git rev-parse --show-toplevel
+```
+
+### Step 2: Fetch Issue Details
+
+```bash
+ISSUE_NUM="$1"
+gh issue view "$ISSUE_NUM" --json number,title,state,body
+```
+
+- If issue is not OPEN, warn the user and ask whether to proceed
+- Extract the title for branch naming
+
+### Step 3: Derive Branch and Worktree Names
+
+```bash
+# Sanitize title: lowercase, replace non-alphanum with hyphens, truncate.
+# The cut -c1-64 keeps the name within the EnterWorktree 64-char limit.
+SLUG=$(echo "$TITLE" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//' | cut -c1-50)
+
+BRANCH="issue-${ISSUE_NUM}-${SLUG}"
+```
+
+The native worktree lives under `.claude/worktrees/${BRANCH}` - you do not choose
+a sibling directory; pass `${BRANCH}` as the worktree `name` and the tool places
+and names it.
+
+### Step 4: Check for Existing Work
+
+```bash
+# Check if already on the issue's branch (do NOT re-create in that case)
+CURRENT_BRANCH=$(git branch --show-current)
+
+# Check if a worktree already exists for this issue
+git worktree list | grep "issue-${ISSUE_NUM}"
+
+# Check if a remote branch exists (cross-machine pickup)
+git fetch origin
+git branch -r | grep "issue-${ISSUE_NUM}-"
+```
+
+Pick exactly one path:
+
+- **Already on the issue branch** (`$CURRENT_BRANCH` matches `issue-${ISSUE_NUM}-`):
+  verify you are NOT on main/master and use the current directory. Do nothing else.
+- **Worktree already exists** (from a prior session): enter it with the
+  `EnterWorktree` tool using its existing path (do NOT create a new one):
+  `EnterWorktree(path="<path from git worktree list>")`.
+- **Remote branch exists, no local worktree** (cross-machine pickup): the native
+  tool cannot check out an existing remote branch, so add the worktree with git,
+  then switch into it with `EnterWorktree`:
+  ```bash
+  REMOTE_BRANCH=$(git branch -r | grep "issue-${ISSUE_NUM}-" | head -1 | xargs)
+  LOCAL_BRANCH="${REMOTE_BRANCH#origin/}"
+  git worktree add -b "$LOCAL_BRANCH" ".claude/worktrees/${LOCAL_BRANCH}" "$REMOTE_BRANCH"
+  ```
+  then call `EnterWorktree(path=".claude/worktrees/${LOCAL_BRANCH}")`.
+- **Neither exists** (fresh start): create and enter the worktree natively by
+  calling the `EnterWorktree` tool with `name="${BRANCH}"`. This branches from
+  `origin/<default-branch>` (under the default `worktree.baseRef: fresh`) and
+  switches the session into `.claude/worktrees/${BRANCH}`. Do NOT shell out to
+  `git worktree add` for the fresh path. If your `worktree.baseRef` is set to
+  `head`, sync `main` first so the branch does not start from a stale local HEAD.
+
+### Step 5: Verify, Normalize Branch, Output
+
+**CRITICAL: Verify you are in the worktree, not on main/master.**
+
+```bash
+CURRENT_BRANCH=$(git branch --show-current)
+if [[ "$CURRENT_BRANCH" == "main" || "$CURRENT_BRANCH" == "master" ]]; then
+    echo "ERROR: Still on main/master. EnterWorktree did not switch the session."
+    exit 1
+fi
+```
+
+**Enforce the issue-anchored branch name (the moat).** Native worktree creation
+derives the branch from the worktree name; if the resulting branch is not exactly
+`issue-${ISSUE_NUM}-${SLUG}`, rename it so every downstream step (`/flow:merge`,
+`/flow:status`, `/flow:cleanup`) can extract the issue number from the branch:
+
+```bash
+if [[ "$CURRENT_BRANCH" != "$BRANCH" ]]; then
+    git branch -m "$BRANCH"
+    CURRENT_BRANCH="$BRANCH"
+fi
+echo "Verified: on branch '$CURRENT_BRANCH' in $(pwd)"
+```
+
+Report to the user:
+
+```
+Created worktree for issue #42: "Fix login bug"
+
+  Directory: .claude/worktrees/issue-42-fix-login-bug
+  Branch:    issue-42-fix-login-bug
+  Verified:  Working directory is now the worktree (not main)
+```
+
+## Error Handling
+
+- **Issue not found:** `gh issue view` fails → report "Issue #N not found"
+- **Issue closed:** Warn but allow user to proceed (they may want to reopen)
+- **Worktree exists:** Report existing path, do not error
+- **Branch name collision:** Append short hash if needed
+- **Not in a git repo:** Report error clearly
+
+## Idempotency
+
+Running `/flow:start 42` when the worktree already exists should detect it and report the path, not error or create a duplicate.
