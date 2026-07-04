@@ -115,7 +115,27 @@ git branch -r | grep "issue-${ISSUE_NUM}-"
   verify you are NOT on main/master and use the current directory. This is a
   resumed run - remember it so Step 7 uses the git cleanup fallback, not
   `ExitWorktree`.
-- **Worktree exists** (prior session): switch into it with
+- **Worktree exists** (prior session): before entering, guard against a
+  CONCURRENT live driver (issue #503). On a box running several Claude sessions,
+  another session may be mid-implementation in this very worktree; entering it
+  lets two drivers fight over one checkout, and THIS run's Step-7 cleanup can
+  delete the other driver's cwd. Run BOTH resume checks first:
+  ```bash
+  WT_PATH="<path from git worktree list>"
+  CPP_DIR=""
+  for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-pack; do
+    [ -d "$dir" ] && [ -f "$dir/CLAUDE.md" ] && { CPP_DIR="$dir"; break; }
+  done
+  # 1. Fresh dirty-file mtimes => a live driver is SUSPECTED (advisory, fail-open).
+  [ -x "$CPP_DIR/scripts/flow-live-driver-guard.sh" ] && \
+    "$CPP_DIR/scripts/flow-live-driver-guard.sh" "$WT_PATH"
+  # 2. An already-shipped branch is the other resume hazard (concurrent-sessions discipline).
+  gh pr list --head "$BRANCH" --json number,state,url --jq '.[]'
+  ```
+  If the guard prints `FLOW_LIVE_DRIVER: suspected` (a dirty file touched within
+  ~30m) OR `gh pr list --head` shows an open/merged PR, STOP and require EXPLICIT
+  user confirmation that no other live session owns this worktree before calling
+  `EnterWorktree(path="$WT_PATH")`. If both are clear, switch in with
   `EnterWorktree(path="<path from git worktree list>")`. Resumed run - Step 7 uses
   the git cleanup fallback.
 - **Remote branch exists, no local worktree** (cross-machine pickup): the native

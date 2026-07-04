@@ -75,6 +75,19 @@
 
 ### Added
 
+- **Concurrent live-driver guard on the /flow:auto resume path** (issue #503) -
+  `scripts/flow-live-driver-guard.sh` inspects the dirty-file mtimes in a
+  worktree that `/flow:auto` is about to resume into and reports
+  `FLOW_LIVE_DRIVER: suspected` when any file was modified within a freshness
+  window (default 30m, `--threshold-minutes N`), the signature of ANOTHER live
+  session mid-implementation in that checkout. On a box running several Claude
+  sessions this stops a second driver from entering a worktree the first still
+  owns, whose Step-7 cleanup could then delete the first driver's cwd. The guard
+  is advisory and fail-open (exit 0 unless `--exit-code`); Step 1's "Worktree
+  exists" branch now runs it plus `gh pr list --head "$BRANCH"` and requires
+  explicit confirmation before entering when either flags a hazard. Pinned by
+  `tests/test_flow_live_driver_guard.py`.
+
 - **Multi-harness skill generation** (issue #446, epic #417 Phase C) - surviving
   CPP command families are now consumable from Codex CLI off the same single
   source Claude Code uses (`.claude/commands/<family>/*.md`, ADR 0001 section 5).
