@@ -211,7 +211,20 @@ Report: `Step 2/9: Analyze complete - {N} files to modify`
 
 ### Step 3: ELI5 - Plan + Necessity Gate (Approval Checkpoint)
 
-Before writing any code, run the `/flow-eli5` review (see `.claude/commands/flow/eli5.md`) using the issue and the Step 2 analysis. This is the post-analysis, pre-implementation communication and approval gate. Produce the three-section reviewer report:
+Before writing any code, run the `/flow-eli5` review using the issue and the Step 2 analysis. This is the post-analysis, pre-implementation communication and approval gate.
+
+**Load the FULL gate spec first (issue #509) - the bullets below are orientation,
+not the spec.** Read it from whichever surface this installation has (first match
+wins), then produce the report against THAT spec, including its report template
+and depth floor:
+
+1. the installed global skill: `~/.claude/skills/flow-eli5/SKILL.md`
+2. the installed `flow` plugin's `eli5.md` command (`plugins/flow/commands/eli5.md` in a marketplace checkout)
+3. inside the CPP repo itself: `.claude/commands/flow/eli5.md`
+
+Do NOT produce the report from the summary below alone - outside the CPP repo the
+repo-relative path does not exist, and the summary omits the template and floor.
+The three sections, for orientation:
 
 1. **ELI5 overview of intent** - what the issue is really trying to accomplish, in plain language a reviewer can sanity-check for a misread.
 2. **Necessity / staleness analysis** - whether the issue is still worth doing given anything merged since it was filed. Anchor the check to the issue's creation date:
@@ -221,8 +234,8 @@ Before writing any code, run the `/flow-eli5` review (see `.claude/commands/flow
    gh pr list --state merged --search "merged:>=${ISSUE_DATE%%T*}" --json number,title,mergedAt
    gh issue list --state all --search "<key terms>" --json number,title,state
    ```
-   Output one verdict with evidence: **Still needed / Partially addressed / No longer needed / Needs reframing**.
-3. **Proposed changes (pending approval)** - the files and edits that will close the issue, framed as a plan awaiting reviewer approval.
+   Output one verdict with evidence: **Still needed / Partially addressed / No longer needed / Needs reframing**. Depth floor: the evidence must enumerate the actual commit SHAs, merged PR numbers, and duplicate/superseding issue numbers inspected (or an explicit "none") - a bare verdict does not satisfy the gate.
+3. **Proposed changes (pending approval)** - the files and edits that will close the issue, framed as a plan awaiting reviewer approval. Depth floor: one numbered line per file with its change gist - never "various files" - plus a scope estimate and at least one named risk (or an explicit "no notable risks").
 
 **This is a gate:**
 
