@@ -1,0 +1,268 @@
+# Flow: Merge PR and Clean Up
+
+Merge the current branch's PR, then clean up the worktree and branch.
+
+Worktrees are Claude Code's **native worktrees** (checkouts under
+`.claude/worktrees/<name>`). `/flow:merge` is usually invoked standalone, in a
+fresh session from inside the worktree - so the worktree was NOT created by
+`EnterWorktree` in this session and `ExitWorktree` would be a no-op. The safe
+cross-session cleanup therefore stays on `git worktree remove` /
+`worktree-remove.sh`. If (and only if) you created this worktree earlier in the
+same session with `EnterWorktree(name=...)`, prefer the native
+`ExitWorktree(action="remove", discard_changes=true)` instead of Steps 5a-5c.
+
+## Instructions
+
+When the user invokes `/flow:merge`, perform these steps:
+
+### Step 1: Detect Context
+
+```bash
+BRANCH=$(git branch --show-current)
+REPO=$(basename "$(git rev-parse --show-toplevel)")
+
+# Extract issue number
+ISSUE_NUM=$(echo "$BRANCH" | grep -oP 'issue-\K[0-9]+' || echo "")
+
+# Detect if we're in a worktree
+WORKTREE_PATH=$(pwd)
+IS_WORKTREE=false
+if [[ -f ".git" ]]; then
+    IS_WORKTREE=true
+fi
+```
+
+### Step 2: Find and Verify PR
+
+```bash
+PR_JSON=$(gh pr list --head "$BRANCH" --json number,state,mergeable,reviewDecision,statusCheckRollup --jq '.[0]')
+```
+
+- If no PR found: "No PR found for branch `$BRANCH`. Run `/flow:finish` first."
+- If PR is already merged: "PR is already merged. Run cleanup only? [y/N]"
+- Report PR state: checks passing, review status, mergeable
+
+### Step 3: Sync with main, re-gate, then merge
+
+**Stale-branch guard (issue #462):** a branch cut earlier can have fallen behind
+`main` while the PR was open; squash-merging it then fails at the last step on a
+content conflict. Bring the branch current and re-run the quality gate on the
+**post-merge tree** before merging, so the squash is deterministic and the gate
+reflects exactly what lands on `main`. (`/flow:auto` Step 7 runs the same guard;
+this covers the standalone/resume path.)
+
+```bash
+BRANCH=$(git branch --show-current)
+git fetch origin main
+if [[ "$(git rev-list --count HEAD..origin/main)" -gt 0 ]]; then
+    echo "Branch is behind origin/main - merging main in before the squash."
+    if ! git merge --no-edit origin/main; then
+        echo "STOP: merging origin/main hit conflicts:"
+        git diff --name-only --diff-filter=U
+        echo "Resolve them, 'git add' + 'git commit', then re-run /flow:merge."
+        echo "(Do NOT 'git merge --abort' - that discards the resolution.)"
+        exit 1
+    fi
+    # Re-run the FULL quality gate on the MERGED tree (deterministic runner,
+    # Makefile fallback - same gate /flow:finish uses).
+    CPP_DIR=""
+    for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-pack; do
+      [ -d "$dir" ] && [ -f "$dir/CLAUDE.md" ] && { CPP_DIR="$dir"; break; }
+    done
+    # If the merge pulled flow command changes, re-sync the global flow-* mirror
+    # so it does not drift - the mirror is what EXECUTES (issue #473).
+    if [ -n "$CPP_DIR" ] && git diff --name-only ORIG_HEAD..HEAD | grep -q '^\.claude/commands/flow/.*\.md$'; then
+        python3 "$CPP_DIR/scripts/flow-skill-sync.py" --write || true
+    fi
+    if [ -n "$CPP_DIR" ] && command -v uv >/dev/null 2>&1; then
+        PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd run --plan finish
+        REGATE_EXIT=$?
+    else
+        echo "NOTE: deterministic runner unavailable; re-gating via Makefile fallback." >&2
+        make lint && make test
+        REGATE_EXIT=$?
+    fi
+    if [ "$REGATE_EXIT" -ne 0 ]; then
+        echo "STOP: quality gate failed on the post-merge tree. Fix, commit, then re-run /flow:merge."
+        exit 1
+    fi
+    # Push the merge so the PR reflects the post-merge tree before squashing.
+    git push origin "$BRANCH"
+fi
+```
+
+Then merge the PR:
+
+```bash
+PR_NUMBER=$(echo "$PR_JSON" | jq -r '.number')
+
+# Squash merge (default) - keeps history clean. Run from inside a linked worktree,
+# `gh pr merge --delete-branch` fails AFTER the remote squash succeeds: gh tries to
+# switch this worktree off the merged branch onto the default branch, which is
+# checked out in the primary worktree ("fatal: 'main' is already checked out"), and
+# exits non-zero even though the merge landed (issue #461). The helper drops
+# --delete-branch in a linked worktree, deletes the remote branch itself, and
+# verifies the PR reached MERGED before reporting failure. Local worktree/branch
+# cleanup stays in Step 5 below.
+if [[ -x ~/.claude/scripts/gh-pr-merge.sh ]]; then
+    ~/.claude/scripts/gh-pr-merge.sh "$PR_NUMBER" "$BRANCH"
+    MERGE_RC=$?
+else
+    # Inline fallback (helper not installed): same linked-worktree guard.
+    if [[ -f ".git" ]]; then
+        gh pr merge "$PR_NUMBER" --squash
+        git push origin --delete "$BRANCH" >/dev/null 2>&1 || true
+    else
+        gh pr merge "$PR_NUMBER" --squash --delete-branch
+    fi
+    [[ "$(gh pr view "$PR_NUMBER" --json state --jq '.state' 2>/dev/null)" == "MERGED" ]]
+    MERGE_RC=$?
+fi
+```
+
+- Use `--squash` by default (clean history)
+- The remote branch is deleted by `--delete-branch` (primary repo) or by the
+  helper's explicit `git push origin --delete` (linked worktree)
+- If the merge genuinely failed (`MERGE_RC` non-zero - conflicts, checks failing,
+  PR not `MERGED`), report and stop. A non-zero `gh` exit whose PR is nonetheless
+  `MERGED` is not a failure - the helper treats it as success and cleanup proceeds
+
+### Step 4: Update Local Main
+
+Determine the main repo path:
+
+```bash
+if [[ "$IS_WORKTREE" == true ]]; then
+    # Get main repo path from worktree .git file
+    MAIN_REPO=$(cat .git | sed 's/gitdir: //' | sed 's|/.git/worktrees/.*||')
+else
+    MAIN_REPO=$(pwd)
+fi
+
+# Pull latest main
+git -C "$MAIN_REPO" checkout main
+git -C "$MAIN_REPO" pull origin main
+```
+
+### Step 5: Clean Up Worktree
+
+**CRITICAL: You MUST `cd` to the main repo BEFORE removing the worktree. NEVER remove a worktree while your working directory is inside it - this destroys your CWD and kills all subsequent bash commands. Execute these as SEPARATE Bash calls.**
+
+If we're in a worktree (`IS_WORKTREE=true`):
+
+**Step 5a - Exit the worktree (separate Bash call):**
+```bash
+cd "$MAIN_REPO"
+pwd  # Verify you are in the main repo, NOT the worktree
+```
+
+**Step 5b - Remove the worktree (separate Bash call, AFTER confirming cd succeeded):**
+```bash
+if [[ -f ~/.claude/scripts/worktree-remove.sh ]]; then
+    ~/.claude/scripts/worktree-remove.sh "$WORKTREE_PATH" --force --delete-branch
+else
+    git worktree remove "$WORKTREE_PATH" --force
+    git branch -D "$BRANCH" 2>/dev/null || true
+fi
+```
+
+**Step 5c - Verify working directory is valid:**
+```bash
+pwd  # MUST show main repo path, NOT the deleted worktree
+git status  # MUST succeed - if this fails, your CWD was deleted
+```
+
+If we're in the main repo (not a worktree):
+```bash
+# Just delete the local branch
+git branch -D "$BRANCH" 2>/dev/null || true
+```
+
+### Step 6: Close Issue (if linked)
+
+```bash
+if [[ -n "$ISSUE_NUM" ]]; then
+    # Check if issue is still open (gh pr merge with Closes # may have closed it)
+    ISSUE_STATE=$(gh issue view "$ISSUE_NUM" --json state --jq '.state' 2>/dev/null)
+    if [[ "$ISSUE_STATE" == "OPEN" ]]; then
+        gh issue close "$ISSUE_NUM" --comment "Closed via /flow:merge - PR #${PR_NUMBER} merged."
+    fi
+fi
+```
+
+### Step 7: Prune Stale Branches
+
+After merge cleanup, prune any other stale references:
+
+```bash
+# Prune stale worktree references (folders deleted but git still tracking)
+git -C "$MAIN_REPO" worktree prune
+
+# Delete local issue-* branches that are fully merged to main
+MERGED=$(git -C "$MAIN_REPO" branch --merged main | grep -v '^\*' | grep -v 'main$' | grep -v 'master$' | sed 's/^[ ]*//')
+# Protect branches with active worktrees
+WORKTREE_BRANCHES=$(git -C "$MAIN_REPO" worktree list --porcelain | grep "^branch " | sed 's|branch refs/heads/||')
+for b in $MERGED; do
+    echo "$WORKTREE_BRANCHES" | grep -q "^${b}$" && continue
+    git -C "$MAIN_REPO" branch -d "$b" 2>/dev/null && echo "Deleted merged branch: $b"
+done
+
+# Prune stale remote tracking branches
+git -C "$MAIN_REPO" fetch --prune
+```
+
+### Step 8: Output
+
+```
+PR #78 merged (squash) ✅
+
+Cleanup:
+  ✅ Remote branch deleted: issue-42-fix-login
+  ✅ Worktree removed: .claude/worktrees/issue-42-fix-login
+  ✅ Local branch deleted: issue-42-fix-login
+  ✅ Issue #42 closed
+  ✅ Pruned stale worktree references
+  ✅ Deleted 2 merged local branches
+  ✅ Pruned stale remote tracking branches
+
+Current directory: /home/user/Projects/my-project (main)
+```
+
+### Step 9: Post-run Friction Retro (optional, non-blocking)
+
+Capture is always-on during a flow: whenever a step in this merge triggers a
+permission prompt, a gate failure/retry, red output you worked around, or a manual
+correction, record it immediately via the fail-open helper (it never blocks):
+
+```bash
+scripts/friction-log.sh --class <permission-prompt|gate-failure|red-output|manual-intervention> \
+  --signal "<what happened>" --run "flow:merge" --step "<N/9 Name>" --outcome "<...>"
+```
+
+The helper writes to the main repo's `.claude/friction.jsonl` (resolved via
+`git-common-dir`), so signals captured inside a worktree survive its removal
+during cleanup (issue #471). Then, if that buffer recorded any signals, offer the
+codify step (do not auto-run):
+
+```
+Friction retro: this run recorded N friction signal(s). Run /self-improvement:retro
+to codify fixes? [y/N]
+```
+
+## Error Handling
+
+- **PR not found:** Direct user to `/flow:finish`
+- **Merge conflicts:** Report conflict, suggest manual resolution
+- **Checks failing:** Report which checks failed, ask if user wants to wait or force
+- **Inside worktree being removed:** `worktree-remove.sh` handles this safely
+- **Issue already closed:** Skip close step silently
+
+## Notes
+
+- Squash merge is the default - produces clean single-commit history
+- The remote branch is deleted by `gh pr merge --delete-branch`
+- Worktrees are native (`.claude/worktrees/`); cross-session cleanup uses `git worktree remove` / the safe `worktree-remove.sh` script (native `ExitWorktree` only removes worktrees created by `EnterWorktree` in the current session)
+- After merge, the user ends up in the main repo on the `main` branch
+- Automatically prunes stale worktree references, merged branches, and remote tracking branches
+- For a standalone cleanup (without merging), use `/flow:cleanup`
+- Friction capture is always-on and this command offers `/self-improvement:retro` at the end to codify fixes (the grill-me cycle, issue #426)

@@ -58,6 +58,10 @@ desktop.ini
 !renovate.json
 !templates/claude-settings-permissions.json
 !templates/playwright-pool.example.json
+# Plugin marketplace manifests (issue #477, ADR 0001) - tracked despite *.json
+# above. The `**` glob keeps future per-family plugins (Phase B2) covered.
+!.claude-plugin/marketplace.json
+!plugins/**/.claude-plugin/plugin.json
 node_modules/
 .claude/settings*.json
 .claude/plans/
