@@ -1,0 +1,13 @@
+{
+  "name": "cicd",
+  "description": "CI/CD automation for Claude Code projects: /cicd:init Makefile detection, /cicd:pipeline codegen (GitHub Actions or self-hosted Woodpecker), /cicd:woodpecker hardened pipelines, container generation, health checks, smoke tests, deploy verification, and tiered IaC scaffolding.",
+  "version": "1.0.0",
+  "author": {
+    "name": "cooneycw",
+    "url": "https://github.com/cooneycw"
+  },
+  "homepage": "https://github.com/cooneycw/claude-power-pack",
+  "repository": "https://github.com/cooneycw/claude-power-pack",
+  "license": "MIT",
+  "keywords": ["ci-cd", "pipelines", "woodpecker", "github-actions", "iac", "deploy"]
+}

@@ -1,0 +1,13 @@
+{
+  "name": "documentation",
+  "description": "Documentation and diagrams for Claude Code projects: /documentation:c4 renders C4 architecture diagrams (L1-L4) as GitHub-renderable Mermaid, /documentation:pptx builds PowerPoint decks with optional diagrams.",
+  "version": "1.0.0",
+  "author": {
+    "name": "cooneycw",
+    "url": "https://github.com/cooneycw"
+  },
+  "homepage": "https://github.com/cooneycw/claude-power-pack",
+  "repository": "https://github.com/cooneycw/claude-power-pack",
+  "license": "MIT",
+  "keywords": ["documentation", "c4", "mermaid", "diagrams", "pptx"]
+}

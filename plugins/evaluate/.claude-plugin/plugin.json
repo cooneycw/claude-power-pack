@@ -1,0 +1,13 @@
+{
+  "name": "evaluate",
+  "description": "Multi-model evaluation: /evaluate:issue runs issues, ideas, and architectural decisions past multiple models for independent opinions before you commit to a direction.",
+  "version": "1.0.0",
+  "author": {
+    "name": "cooneycw",
+    "url": "https://github.com/cooneycw"
+  },
+  "homepage": "https://github.com/cooneycw/claude-power-pack",
+  "repository": "https://github.com/cooneycw/claude-power-pack",
+  "license": "MIT",
+  "keywords": ["evaluation", "multi-model", "second-opinion", "decisions"]
+}

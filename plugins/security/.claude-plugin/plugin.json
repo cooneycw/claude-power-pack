@@ -1,0 +1,13 @@
+{
+  "name": "security",
+  "description": "Security scanning for Claude Code projects: /security:quick and /security:scan (gitleaks + pip-audit orchestration around the native scanner), /security:deep git-history scans, /security:explain finding explanations, /security:permissions risk-graded permission audits.",
+  "version": "1.0.0",
+  "author": {
+    "name": "cooneycw",
+    "url": "https://github.com/cooneycw"
+  },
+  "homepage": "https://github.com/cooneycw/claude-power-pack",
+  "repository": "https://github.com/cooneycw/claude-power-pack",
+  "license": "MIT",
+  "keywords": ["security", "gitleaks", "pip-audit", "scanning", "permissions"]
+}

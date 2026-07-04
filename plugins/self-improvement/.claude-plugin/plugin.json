@@ -1,0 +1,13 @@
+{
+  "name": "self-improvement",
+  "description": "Self-improvement loops for Claude Code workflows: /self-improvement:retro post-run friction retro + codify, /self-improvement:deployment Makefile retrospectives, /self-improvement:memory fleet-wide friction-knowledge ledger.",
+  "version": "1.0.0",
+  "author": {
+    "name": "cooneycw",
+    "url": "https://github.com/cooneycw"
+  },
+  "homepage": "https://github.com/cooneycw/claude-power-pack",
+  "repository": "https://github.com/cooneycw/claude-power-pack",
+  "license": "MIT",
+  "keywords": ["retro", "friction", "self-improvement", "learning"]
+}

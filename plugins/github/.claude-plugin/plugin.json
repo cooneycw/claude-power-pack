@@ -1,0 +1,13 @@
+{
+  "name": "github",
+  "description": "GitHub issue management from Claude Code: create, list, view, update, and close issues (/github:issue-create, issue-list, issue-view, issue-update, issue-close).",
+  "version": "1.0.0",
+  "author": {
+    "name": "cooneycw",
+    "url": "https://github.com/cooneycw"
+  },
+  "homepage": "https://github.com/cooneycw/claude-power-pack",
+  "repository": "https://github.com/cooneycw/claude-power-pack",
+  "license": "MIT",
+  "keywords": ["github", "issues", "project-management"]
+}

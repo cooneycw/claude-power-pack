@@ -1,0 +1,175 @@
+---
+description: Verify a deployment against a pre-deploy baseline (proceed/rollback)
+allowed-tools: Bash(python3:*), Bash(PYTHONPATH=*), Bash(curl:*), Bash(ls:*), Bash(test:*), Bash(cat:*), Read
+---
+
+# /cicd:verify - Deploy Verification
+
+Validate the *deployment*, not just the code. Capture a baseline of health
+checks and smoke tests **before** a deploy, re-run them **after**, diff the two,
+and emit one actionable verdict: **PROCEED**, **REVIEW**, or **ROLLBACK**.
+
+This is the piece `/cicd:health` and `/cicd:smoke` do not cover: they report the
+current state in isolation. `/cicd:verify` answers the deploy-confidence
+question - *did this deploy make things worse than they were 60 seconds ago?*
+
+---
+
+## Step 1: Locate CPP Source
+
+```bash
+CPP_DIR=""
+for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-pack; do
+  if [ -d "$dir" ] && [ -f "$dir/CLAUDE.md" ]; then
+    CPP_DIR="$dir"
+    break
+  fi
+done
+
+if [ -z "$CPP_DIR" ]; then
+  echo "ERROR: claude-power-pack not found"
+  exit 1
+fi
+```
+
+---
+
+## Step 2: Check for Configuration
+
+`/cicd:verify` reuses the same `health.endpoints`, `health.processes`, and
+`health.smoke_tests` that `/cicd:health` and `/cicd:smoke` use. If none are
+configured, verification returns **REVIEW** with "no probes configured" - it
+cannot honestly claim a deploy is healthy with nothing to probe.
+
+```bash
+if [ ! -f ".claude/cicd.yml" ]; then
+  echo "No .claude/cicd.yml found in $(pwd)"
+  echo ""
+  echo "Configure the probes /cicd:verify compares, e.g.:"
+  echo ""
+  echo "  health:"
+  echo "    endpoints:"
+  echo "      - url: http://localhost:8000/health"
+  echo "        name: API Server"
+  echo "    smoke_tests:"
+  echo "      - name: API responds"
+  echo "        command: \"curl -sf http://localhost:8000/health\""
+  echo "    deploy_verification:"
+  echo "      enabled: true"
+  exit 1
+fi
+```
+
+---
+
+## Step 3: Capture the Pre-Deploy Baseline
+
+**Before deploying**, snapshot the currently-running system:
+
+```bash
+PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -m lib.cicd verify --baseline
+```
+
+This runs every health check and smoke test once and writes the result to
+`.claude/deploy-baseline.json` (per-workstation runtime state, git-ignored). The
+baseline is the "before" picture the post-deploy run is compared against.
+
+`/flow:deploy` and `/flow:auto` capture this automatically when
+`health.deploy_verification.enabled` is set - see "Integration" below.
+
+---
+
+## Step 4: Verify After Deploy
+
+**After `make deploy`**, re-run the probes and diff against the baseline:
+
+```bash
+PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -m lib.cicd verify
+```
+
+Add `--summary` for a one-line verdict, or `--json` for machine-readable output.
+
+---
+
+## Step 5: Present the Verdict
+
+The CLI prints a diff table and a verdict. Present it to the user as-is and act
+on the verdict.
+
+### Verdict meanings
+
+| Verdict | Exit | Meaning | Action |
+|---------|------|---------|--------|
+| `PROCEED` | 0 | All probes pass; no regression vs baseline | Keep the deployment |
+| `REVIEW` | 0 | Soft signal only (latency regression, or a probe that was already failing before deploy) | Look, but not clearly broken |
+| `ROLLBACK` | 1 | A probe that passed in the baseline fails now (regression), or a probe is failing with no known-good baseline | Roll back or investigate |
+
+### Probe classifications (the `Change` column)
+
+| Classification | Meaning |
+|----------------|---------|
+| `regression` | Passed in baseline, fails now (deploy made it worse) |
+| `new_failure` | Failing now, no baseline entry to compare |
+| `latency_regression` | Still passing but markedly slower than baseline |
+| `preexisting_failure` | Failing before and after (not caused by this deploy) |
+| `recovered` | Was failing in baseline, passes now |
+| `new_probe` / `ok` | Passing; no concern |
+
+---
+
+## Step 6: Handle ROLLBACK
+
+On `ROLLBACK`, do not silently proceed. Report the failing probes and recommend
+a concrete next step:
+
+```
+Deploy verification: ROLLBACK
+
+  regression: health:API Server (HTTP 500, expected 200)
+
+  Options:
+    1. Roll back: make deploy-rollback  (or redeploy the previous commit)
+    2. Investigate: /cicd:health  and  /cicd:smoke  for detail
+    3. Retrospective: /self-improvement:deployment
+```
+
+Verification never rolls back automatically - it reports an actionable verdict.
+The human (or the calling flow) decides.
+
+---
+
+## Configuration
+
+Under `health.deploy_verification` in `.claude/cicd.yml`:
+
+```yaml
+health:
+  deploy_verification:
+    enabled: true                     # let /flow:deploy + /flow:auto auto-capture/verify
+    baseline_file: .claude/deploy-baseline.json
+    latency_regression_pct: 50        # flag a probe > 50% slower than baseline
+    latency_floor_ms: 100             # ...but only if it is also over 100ms (noise floor)
+    on_latency_regression: review     # review | rollback | ignore
+    require_baseline: false           # true => no baseline downgrades PROCEED to REVIEW
+```
+
+---
+
+## Integration
+
+- **`/flow:deploy`** captures a baseline before `make deploy` and runs
+  verification after when `deploy_verification.enabled` is set (Step 8).
+- **`/flow:auto`** does the same in its Deploy step (Step 9), so the flagship
+  "one command to ship" path validates the deployment, not just the code.
+- Fail-open: if the baseline is missing or `lib/cicd` is unavailable,
+  verification degrades to an absolute pass/fail (or is skipped) and never
+  blocks the deploy pipeline.
+
+---
+
+## Notes
+
+- Zero new dependencies: reuses `curl` + `subprocess` (same as `/cicd:health`).
+- The baseline is per-workstation state, like `.claude/runs/` - never committed.
+- Pair with `/cicd:health` and `/cicd:smoke` for probe-level detail, and
+  `/self-improvement:deployment` for a post-failure Makefile retrospective.
