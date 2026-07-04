@@ -113,6 +113,14 @@ fi
 echo "Verified: on branch '$CURRENT_BRANCH' in $(pwd)"
 ```
 
+**Worktree path-resolution rule (issue #486).** A native `EnterWorktree` session
+edits the worktree, but the worktree lives *inside* the main repo at
+`.claude/worktrees/<name>/`. When you edit files from here, resolve paths from the
+worktree root - `git rev-parse --show-toplevel` - or use plain relative paths from
+the session cwd; never hand-build a `.claude/worktrees/<name>/...` absolute path,
+which has been observed to land the edit in the MAIN repo working tree instead.
+`/flow:auto` verifies this with `scripts/flow-worktree-guard.sh` before commit.
+
 Report to the user:
 
 ```

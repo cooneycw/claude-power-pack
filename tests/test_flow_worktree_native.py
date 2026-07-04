@@ -9,7 +9,12 @@ discipline, and the cross-session ``git worktree`` cleanup fallback.
 
 from __future__ import annotations
 
+import os
+import shutil
+import subprocess
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -91,3 +96,143 @@ def test_stale_branch_guard_before_squash_merge() -> None:
         assert "--diff-filter=U" in text, f"{rel} does not surface merge conflicts on STOP"
         # The re-gate runs on the merged tree via the deterministic runner.
         assert "lib.cicd run --plan finish" in text, f"{rel} does not re-gate the post-merge tree"
+
+
+# ---------------------------------------------------------------------------
+# Issue #486: native EnterWorktree + hand-built absolute `.claude/worktrees/...`
+# path lands the edit in the MAIN repo, not the worktree. The fix is a directive
+# (resolve paths from `git rev-parse --show-toplevel`) plus an advisory,
+# fail-open guard (scripts/flow-worktree-guard.sh) that makes the leak
+# VERIFIABLE: run from a linked worktree, it warns when the main working tree has
+# tracked modifications - the leaked-edit signature.
+# ---------------------------------------------------------------------------
+
+GUARD = ROOT / "scripts" / "flow-worktree-guard.sh"
+
+# The behaviour tests drive real `git` and `bash` subprocesses. The Woodpecker
+# `validate` step runs in `uv:python3.11-bookworm-slim`, which ships bash but NOT
+# git, so those tests skip there (issue #430). The wiring tests need neither.
+requires_git = pytest.mark.skipif(
+    shutil.which("git") is None or shutil.which("bash") is None,
+    reason="requires git and bash on PATH (absent in the CI validate container)",
+)
+
+
+def test_path_rule_directive_in_docs() -> None:
+    """AC #2: a directive documents the show-toplevel path-resolution rule."""
+    for rel in ("CLAUDE.md", ".claude/commands/flow/auto.md", ".claude/commands/flow/start.md"):
+        text = _read(rel)
+        assert "git rev-parse --show-toplevel" in text, f"{rel} lacks the show-toplevel rule"
+        assert "#486" in text or "486" in text, f"{rel} does not reference issue #486"
+
+
+def test_auto_wires_worktree_guard_at_step4_and_step6() -> None:
+    """AC #1: /flow:auto runs the leak guard both at implement and before commit."""
+    text = _read(".claude/commands/flow/auto.md")
+    assert text.count("scripts/flow-worktree-guard.sh") >= 2, (
+        "auto.md must invoke the worktree guard in Step 4 (implement) and Step 6 (pre-commit)"
+    )
+
+
+def test_guard_script_exists_and_executable() -> None:
+    assert GUARD.exists(), "scripts/flow-worktree-guard.sh must exist"
+    assert os.access(GUARD, os.X_OK), "flow-worktree-guard.sh must be executable"
+
+
+def _git(repo: Path, *args: str) -> str:
+    env = os.environ.copy()
+    env.update(
+        {
+            "GIT_AUTHOR_NAME": "t",
+            "GIT_AUTHOR_EMAIL": "t@example.com",
+            "GIT_COMMITTER_NAME": "t",
+            "GIT_COMMITTER_EMAIL": "t@example.com",
+        }
+    )
+    return subprocess.run(
+        ["git", *args],
+        cwd=repo,
+        env=env,
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    ).stdout
+
+
+def _run(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["bash", str(GUARD), *args],
+        cwd=cwd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+
+def _make_repo_with_worktree(tmp_path: Path) -> tuple[Path, Path]:
+    """A main repo on ``main`` with a tracked file, plus a linked worktree."""
+    main = tmp_path / "main"
+    main.mkdir()
+    _git(main, "init", "-q", "-b", "main")
+    (main / "tracked.txt").write_text("v0\n")
+    _git(main, "add", "-A")
+    _git(main, "commit", "-qm", "base")
+    wt = main / ".claude" / "worktrees" / "wt"
+    _git(main, "worktree", "add", "-q", str(wt), "-b", "feature")
+    return main, wt
+
+
+@requires_git
+def test_guard_silent_when_main_clean(tmp_path: Path) -> None:
+    _main, wt = _make_repo_with_worktree(tmp_path)
+    res = _run(wt)
+    assert res.returncode == 0
+    assert res.stdout == "" and res.stderr == ""
+
+
+@requires_git
+def test_guard_warns_on_leaked_edit_from_worktree(tmp_path: Path) -> None:
+    main, wt = _make_repo_with_worktree(tmp_path)
+    # Simulate the trap: a tracked file in MAIN gets modified while working the wt.
+    (main / "tracked.txt").write_text("LEAKED\n")
+    res = _run(wt)
+    assert res.returncode == 0  # advisory: never blocks
+    assert "WARNING" in res.stderr
+    assert "tracked.txt" in res.stderr
+    assert "#486" in res.stderr
+
+
+@requires_git
+def test_guard_strict_exits_nonzero_on_leak(tmp_path: Path) -> None:
+    main, wt = _make_repo_with_worktree(tmp_path)
+    (main / "tracked.txt").write_text("LEAKED\n")
+    res = _run(wt, "--strict")
+    assert res.returncode == 3
+    assert "tracked.txt" in res.stderr
+
+
+@requires_git
+def test_guard_noop_in_main_checkout_even_when_dirty(tmp_path: Path) -> None:
+    """In the main checkout there is no separate tree to leak into - never warn."""
+    main, _wt = _make_repo_with_worktree(tmp_path)
+    (main / "tracked.txt").write_text("dirty-but-intentional\n")
+    res = _run(main, "--strict")
+    assert res.returncode == 0
+    assert res.stderr == ""
+
+
+@requires_git
+def test_guard_fail_open_outside_git_repo(tmp_path: Path) -> None:
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    res = _run(plain, "--strict")
+    assert res.returncode == 0
+    assert res.stderr == ""
+
+
+@requires_git
+def test_guard_rejects_unknown_option(tmp_path: Path) -> None:
+    _main, wt = _make_repo_with_worktree(tmp_path)
+    res = _run(wt, "--bogus")
+    assert res.returncode == 2
