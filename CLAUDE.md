@@ -40,7 +40,7 @@ Core components and their locations:
 - `scripts/` - Shell utilities, one per sub-bullet (add new scripts as their own line, #501):
   - prompt-context
   - worktree-remove
-  - gh-pr-merge - layout-aware PR squash-merge used by `/flow:auto` + `/flow:merge`; polls mergeability to wait out a transient `UNKNOWN` right after push (#485)
+  - gh-pr-merge - layout-aware PR squash-merge used by `/flow:auto` + `/flow:merge`; polls mergeability to wait out a transient `UNKNOWN` right after push (#485); bounded refetch+retry when the squash fails on `Base branch was modified` (sibling merge race, #502)
   - flow-stale-check - advisory early stale-base detector for `/flow:auto` Step 4/6 + `/flow:finish` (#473)
   - flow-worktree-guard - advisory leaked-edit detector: warns when a `/flow:auto` edit landed in the MAIN tree instead of the worktree (#486)
   - hooks
@@ -49,12 +49,14 @@ Core components and their locations:
   - mcp-drift
   - flow-skill-sync
   - plugin-sync - byte-identical drift guard keeping every packaged family plugin in sync with its command source (#477/#478) plus per-family extra artifacts such as the secrets masking-hook script (#479); plugin-flow-sync survives as a flow-scoped shim until B4
+  - codex-prompt-sync - single-source -> per-harness generator (#446): emits checked-in Codex CLI prompts under `codex/prompts/` from `.claude/commands/<family>/`; `--check` drift gate, `--write` regen, `--install` copies to `~/.codex/prompts/` (replaces retired codex-skill-gen)
   - speckit-tasks-to-issues
   - playwright-desk - lease-desk ledger
   - check-ignored-additions
 - `templates/` - Makefile, workflow, container templates
 - `.claude-plugin/marketplace.json` - Plugin-marketplace manifest (marketplace name `cpp`) listing CPP's per-family plugins. Install path: `/plugin marketplace add cooneycw/claude-power-pack` then `/plugin install <family>@cpp` (ADR 0001, epic #417 Phase B).
 - `plugins/` - Per-family Claude Code plugins. Phase B2 (#478) packages every surviving family (15 plugins, `browser` through `self-improvement`): byte-identical copies of `.claude/commands/<family>/*.md` (the single source of truth, ADR 0001 section 5), kept honest by `scripts/plugin-sync.sh --check` and regenerated with `--write` after any command edit. Phase B3 (#479) adds bundled hooks + MCP pointers: `secrets` ships the PostToolUse masking hook (plugin-local script via `${CLAUDE_PLUGIN_ROOT}`) and `second-opinion` ships its `.mcp.json` client pointer (matches the repo-root one). The `cpp` plugin is help/meta-only (the init/update/status installer stays repo-local). The legacy symlink installer runs in parallel; nothing is retired until parity is proven in Phase B4.
+- `codex/prompts/` - Codex CLI custom prompts, the second harness surface (issue #446): generated `<family>-<command>.md` files (Codex `/<family>-<command>`) emitted from the same `.claude/commands/<family>/` single source by `scripts/codex-prompt-sync.py`, plus the hand-curated `cpp-memory.md` (#433, never overwritten). Regenerate with `make codex-prompts` after any command edit; `make codex-init` installs to `~/.codex/prompts/`.
 - `.woodpecker.yml` - Woodpecker CI pipeline (secret-scan, lint, test, typecheck, Dockerfile lint)
 
 ## Environment Variables
