@@ -824,6 +824,66 @@ If no: report `→ Flow allowlist refresh skipped` and continue.
 
 ---
 
+## Step 7.7: Permission-Prompt Census Hook Registration
+
+The git pull may have added `scripts/hook-permission-census.sh` (the observe-only
+`PermissionRequest` hook that records each permission prompt - with a derived
+allow-rule candidate and a risk tier - to the project's `.claude/friction.jsonl`,
+so `/self-improvement:retro` Step 4 finally has real input; issue #482). The
+script itself is re-linked into `~/.claude/scripts/` by the Tier 2 refresh; this
+step registers it in `~/.claude/settings.json` if it is not already there. Same
+user-level trust boundary as Step 7.6, so it is user-confirmed.
+
+```bash
+TARGET="$HOME/.claude/settings.json"
+CENSUS_CMD="~/.claude/scripts/hook-permission-census.sh"
+CENSUS_SCRIPT="$HOME/.claude/scripts/hook-permission-census.sh"
+
+# Only offer if the script is installed and not already registered.
+if [ -e "$CENSUS_SCRIPT" ]; then
+  ALREADY=0
+  if [ -f "$TARGET" ]; then
+    ALREADY=$(jq --arg cmd "$CENSUS_CMD" \
+      '[.hooks.PermissionRequest[]? | (.hooks // [])[]? | select(.command == $cmd)] | length' \
+      "$TARGET" 2>/dev/null || echo 0)
+  fi
+  if [ "${ALREADY:-0}" -gt 0 ]; then
+    echo "✓ Permission-prompt census hook already registered"
+  else
+    echo "Permission-prompt census hook is not registered in ~/.claude/settings.json"
+  fi
+fi
+```
+
+If not registered, ask the user:
+
+```
+Register the observe-only PermissionRequest census hook in ~/.claude/settings.json?
+It records each permission prompt (derived allow-rule candidate + risk tier) to the
+project friction ledger so /self-improvement:retro can propose an allowlist from real
+data. Never blocks or alters a permission decision.  [y/N]
+```
+
+If yes, run the same idempotent merge as `/cpp:init`:
+
+```bash
+mkdir -p "$HOME/.claude"
+[ -f "$TARGET" ] || echo '{}' > "$TARGET"
+jq --arg cmd "$CENSUS_CMD" '
+  .hooks = (.hooks // {})
+  | .hooks.PermissionRequest = (.hooks.PermissionRequest // [])
+  | if any(.hooks.PermissionRequest[]?; (.hooks // [])[]?.command == $cmd)
+    then .
+    else .hooks.PermissionRequest += [{"hooks":[{"type":"command","command":$cmd}]}]
+    end
+' "$TARGET" > "$TARGET.tmp" && mv "$TARGET.tmp" "$TARGET"
+echo "✓ PermissionRequest census hook registered in ~/.claude/settings.json"
+```
+
+If no: report `→ Permission-prompt census hook registration skipped` and continue.
+
+---
+
 ## Step 8: Detect Current Installation Tier
 
 Determine the user's current tier level so we can offer upgrades:

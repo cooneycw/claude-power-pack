@@ -21,9 +21,14 @@ log = logging.getLogger("cpp_memory")
 try:
     import psycopg
     _HAVE_PSYCOPG = True
-except Exception:  # pragma: no cover - driver is an optional runtime dep
+    _DRIVER_ERROR: str | None = None
+except Exception as _e:  # pragma: no cover - driver is an optional runtime dep
+    # Keep the load failure (e.g. psycopg's "no pq wrapper available" when
+    # installed without libpq) so ping can distinguish a local driver gap from
+    # the store being down (issue #497).
     psycopg = None
     _HAVE_PSYCOPG = False
+    _DRIVER_ERROR = str(_e) or _e.__class__.__name__
 
 _LEARNING_COLS = (
     "id", "fingerprint", "friction_class", "fix_scope",
@@ -62,6 +67,14 @@ class MemoryStore(StoreBackend):
 
     def available(self) -> bool:
         return bool(self.dsn) and _HAVE_PSYCOPG
+
+    def driver_error(self) -> str | None:
+        """The psycopg load failure, or None when the driver imported fine.
+
+        Non-null means the store was never contacted - ``reachable: false`` is
+        a LOCAL driver gap (fix: ``psycopg[binary]``), not a store outage (#497).
+        """
+        return _DRIVER_ERROR
 
     @contextmanager
     def _conn(self):

@@ -8,6 +8,7 @@
 - **Python 3.11+, uv for dependencies.** Each component has its own `pyproject.toml`.
 - **When fixing errors, fix BOTH the application code AND the CI/CD process** (Makefile, Dockerfile, `.woodpecker.yml`). Never bypass quality gates.
 - Before debugging manually, run `make lint` and `make test` to surface known issues.
+- **A test that shells out to a real binary (`git`, `docker`, `gitleaks`) MUST guard with `@pytest.mark.skipif(shutil.which("<tool>") is None, ...)`.** The Woodpecker `validate` container (uv:python3.11-slim) ships none of them, so an unguarded test errors the suite and turns CI red even though it passes locally (recurred #451, #489).
 - After any fix, verify through the full pipeline: `make verify`.
 - Use `/dockers` to check container status, health, and project linkages.
 - **Use single dashes (-) not em dashes (-)** in all markdown, comments, and documentation. Never generate Unicode em dashes (U+2014) or en dashes (U+2013).
@@ -29,8 +30,10 @@ Core components and their locations:
 - `lib/security/` - Security scanning (native + external tools)
 - `lib/cicd/` - CI/CD framework detection, Makefile generation, health/smoke checks, deterministic runner, deployment strategies, Pydantic v2 config validation
 - `lib/cpp_memory/` - Common-memory client: a **pluggable** fail-open friction-knowledge ledger (issue #472) with three `/cpp:init`-selectable backends behind one `StoreBackend` interface - `md` (best-effort local, no federation; subsumes `.claude/learnings.md`), `local-pg` (full SQL dedup, single box, `lib/cpp_memory/docker-compose.yml`), and `remote-pg` (full dedup, fleet-federated Postgres, `scripts/memories-db-setup.sh`). Backend chosen via `CPP_MEMORIES_BACKEND` / step 8d; **federation is a surfaced per-tier property** (only remote-pg shares across VMs). Holds *portable* CPP learnings/infra traps (bucket-2-plus) plus a dedup/rejection ledger and a learnings->GitHub-issue bridge (`--emit-issue-candidate` / `link-issue`, #463). Consult-not-push; see `/self-improvement:memory`.
-- `scripts/` - Shell utilities (prompt-context, worktree-remove, gh-pr-merge (layout-aware PR squash-merge used by `/flow:auto` + `/flow:merge`), flow-stale-check (advisory early stale-base detector for `/flow:auto` Step 4/6 + `/flow:finish`, #473), hooks, drift-detect, skill-drift, mcp-drift, flow-skill-sync, speckit-tasks-to-issues, playwright-desk lease-desk ledger, check-ignored-additions)
+- `scripts/` - Shell utilities (prompt-context, worktree-remove, gh-pr-merge (layout-aware PR squash-merge used by `/flow:auto` + `/flow:merge`; polls mergeability to wait out a transient `UNKNOWN` right after push, #485), flow-stale-check (advisory early stale-base detector for `/flow:auto` Step 4/6 + `/flow:finish`, #473), flow-worktree-guard (advisory leaked-edit detector: warns when a `/flow:auto` edit landed in the MAIN tree instead of the worktree, #486), hooks, drift-detect, skill-drift, mcp-drift, flow-skill-sync, plugin-flow-sync (byte-identical drift guard keeping the `flow` POC plugin in sync with its command source, #477), speckit-tasks-to-issues, playwright-desk lease-desk ledger, check-ignored-additions)
 - `templates/` - Makefile, workflow, container templates
+- `.claude-plugin/marketplace.json` - Plugin-marketplace manifest (marketplace name `cpp`) listing CPP's per-family plugins. Install path: `/plugin marketplace add cooneycw/claude-power-pack` then `/plugin install <family>@cpp` (ADR 0001, epic #417 Phase B).
+- `plugins/` - Per-family Claude Code plugins. Phase B1 (#477) ships `plugins/flow/` as a proof-of-concept: byte-identical copies of `.claude/commands/flow/*.md` (source of truth), kept honest by `scripts/plugin-flow-sync.sh`. The legacy symlink installer runs in parallel; nothing is retired until parity is proven in Phase B4.
 - `.woodpecker.yml` - Woodpecker CI pipeline (secret-scan, lint, test, typecheck, Dockerfile lint)
 
 ## Environment Variables
@@ -82,6 +85,17 @@ execute from a global mirror (`~/.claude/skills/flow-*`) regenerated from the
 `.claude/commands/flow/*` source of truth by `scripts/flow-skill-sync.py`
 (`--write` to sync, `--check` to detect drift); `/flow:doctor` warns when the
 mirror falls behind (issue #457).
+
+**Worktree path-resolution rule (issue #486):** a native `EnterWorktree` session
+edits the worktree, but the worktree lives *inside* the main repo at
+`.claude/worktrees/<name>/`. Resolve every `Write`/`Edit` path from the active
+worktree root - `git rev-parse --show-toplevel` - or use a plain relative path
+from the session cwd; **never hand-build a `.claude/worktrees/<name>/...`
+absolute path**, which has been observed to land the edit in the MAIN repo
+working tree instead of the worktree (flow:auto #442 x2, #471). `/flow:auto`
+Steps 4/6 run `scripts/flow-worktree-guard.sh` - an advisory, fail-open guard
+that warns (never blocks) when the main tree has tracked modifications, the
+signature of a leaked edit - so the trap is caught before commit.
 
 **Standalone skill extractions (issue #443):** skills with standalone value are
 extracted to their own public plugin repos so users never have to clone CPP -
@@ -195,7 +209,7 @@ by the native Claude Code ecosystem. Use these instead:
 - `/dockers` - Docker container status, health, project linkages
 - `/cpp:init` - Interactive setup wizard (Tiers: Minimal, Standard, Full, CI/CD, Codex); optionally installs the spec-kit CLI (`specify`, the engine behind `/spec:adopt`)
 - `/cpp:status` - Check installation state
-- `/cpp:update` - Pull latest, sync deps, migrate legacy systemd units if present, refresh Docker local-build runtime, tear down orphaned Docker MCP infra via the curated `.claude/deprecated-mcps.yaml` (Step 6c/7, user-confirmed), prune retired/orphaned generated skills via the curated `.claude/deprecated-skills.yaml` (Step 7.5, user-confirmed), then offer to merge new flow allowlist rules from `templates/claude-settings-permissions.json` into `~/.claude/settings.json` (Step 7.6, user-confirmed); also refreshes the optional spec-kit CLI (`specify`) if installed (Step 4.6)
+- `/cpp:update` - Pull latest, sync deps, migrate legacy systemd units if present, refresh Docker local-build runtime, tear down orphaned Docker MCP infra via the curated `.claude/deprecated-mcps.yaml` (Step 6c/7, user-confirmed), prune retired/orphaned generated skills via the curated `.claude/deprecated-skills.yaml` (Step 7.5, user-confirmed), then offer to merge new flow allowlist rules from `templates/claude-settings-permissions.json` into `~/.claude/settings.json` (Step 7.6, user-confirmed) and to register the observe-only PermissionRequest census hook there (Step 7.7, user-confirmed); also refreshes the optional spec-kit CLI (`specify`) if installed (Step 4.6)
 - `/self-improvement:retro` - Post-run friction retro (the grill-me cycle): always-on capture (`scripts/friction-log.sh` -> `.claude/friction.jsonl`, woven into `/flow:auto` + `/flow:merge`) then classify -> dedup -> propose -> confirm -> codify durable fixes; local ledger `.claude/learnings.md`, portable knowledge delegates to `/self-improvement:memory` (#433)
 - `/self-improvement:deployment` - Retrospective analysis after failed deploys
 - `/self-improvement:memory` - Populate the shared common-memory ledger with portable friction-knowledge (bucket-2-plus); consult-not-push, fail-open
@@ -225,7 +239,8 @@ and `lib/security` own the **deterministic** complement: secret scanning
 
 - **Destructive commands** (force push to main, `rm -rf /`, disk formatting, etc.) are blocked by Claude Code's native destructive-git auto-blocking and OS sandbox - the custom PreToolUse dangerous-command hook was retired (issue #439) as redundant.
 - **PostToolUse hook** masks secrets in Bash/Read output (connection strings, API keys, env vars). Retained because native tooling blocks credential *reads* but does not *mask* secrets that surface in output.
-- **Hooks configured in** `.claude/hooks.json` (SessionStart + PostToolUse)
+- **PermissionRequest hook** (`scripts/hook-permission-census.sh`) is an observe-only, fail-open permission-prompt census: it fires when a permission dialog is shown, derives a narrowest allow-rule candidate plus a risk tier (`READONLY-*`/`WRITE-LOCAL` -> allow candidate; `DESTRUCTIVE`/`CODE-EXEC`/net -> recorded but no candidate), and appends a `permission-prompt` record to the project's `.claude/friction.jsonl` for `/self-improvement:retro`. It captures the one friction class the model cannot observe (issue #482). Registered user-level in `~/.claude/settings.json` (user-confirmed) by `/cpp:init` and `/cpp:update` Step 7.7 - never emits a permission decision.
+- **Hooks configured in** `.claude/hooks.json` (SessionStart + PostToolUse project-level) and `~/.claude/settings.json` (PermissionRequest census, user-level)
 - `/flow:finish` and `/flow:deploy` run the deterministic security scan (`lib/security`) as a quality gate
 - CRITICAL findings block gates; HIGH findings produce warnings
 - Configure gating in `.claude/security.yml` (optional, created by `/security:scan` when needed)

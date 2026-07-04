@@ -77,6 +77,16 @@ class StoreBackend(ABC):
     def ping(self) -> bool:
         """Round-trip reachability check (benign False on any failure)."""
 
+    def driver_error(self) -> str | None:
+        """Why the backend's driver failed to LOAD, or None (issue #497).
+
+        Disambiguates ``ping() -> False``: non-null means the failure is local
+        (e.g. psycopg installed without libpq - "no pq wrapper available") and
+        the store was never contacted; null means the store itself did not
+        answer. Backends with no driver dependency (md) always return None.
+        """
+        return None
+
     # --- consult / dedup ---------------------------------------------------- #
     @abstractmethod
     def is_known(self, fingerprint: str) -> dict | None:

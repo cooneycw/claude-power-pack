@@ -60,6 +60,33 @@ setup. The file is gitignored. Credential rotation requires re-running the boots
 
 **Reconciliation:** `python3 woodpecker/bootstrap-secrets.py`
 
+### 4. User-Level Hook Registration + Scripts
+
+| Artifact | Template Source | Installed Location | Category |
+|----------|---------------|--------------------|----------|
+| `~/.claude/scripts/*.sh` | `scripts/*.sh` (symlinks) | `~/.claude/scripts/` | Reconcilable |
+| PermissionRequest census hook | `scripts/hook-permission-census.sh` | `~/.claude/settings.json` (`hooks.PermissionRequest`) | Reconcilable |
+
+**What:** Tier 2 install symlinks every `scripts/*.sh` (including
+`hook-permission-census.sh`) into `~/.claude/scripts/`, and `/cpp:init` /
+`/cpp:update` Step 7.7 register the observe-only permission-prompt census hook in
+the user-level `~/.claude/settings.json` (issue #482). The hook fires on every
+permission dialog across every project and appends a risk-rated `permission-prompt`
+record to that project's `.claude/friction.jsonl` for `/self-improvement:retro`.
+
+**Risk:** Low. The hook is observe-only (never emits a permission decision) and
+fail-open (never exits non-zero, swallows an unwritable buffer), so a stale or
+missing registration degrades capture but never blocks a session or a permission
+prompt. The symlinks are re-pointed on every `/cpp:update`.
+
+**Detection:** `/cpp:update` Step 7.7 reports whether the hook is registered;
+`/cpp:status` counts installed `~/.claude/scripts/` entries.
+
+**Reconciliation:** Re-run `/cpp:update` (re-links scripts, re-offers the
+user-confirmed hook registration). The registration merge is idempotent - it adds
+the hook only if that exact command is not already present, preserving all other
+`settings.json` keys and entries.
+
 ## Repo-Controlled (No Drift Risk)
 
 These artifacts are fully managed by the repo:

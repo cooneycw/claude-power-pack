@@ -36,11 +36,17 @@ cpp-memory reject --fingerprint <fp> --actor <user> --note "<why>"        # stop
 ```
 
 If `cpp-memory` is not yet on PATH: `bash scripts/install-memory-harness.sh`, or
-run `python -m lib.cpp_memory ...` from the repo root.
+from the repo root run
+`uv run --no-project --python 3.11 --with 'psycopg[binary]>=3.1' -- python -m lib.cpp_memory ...`
+(bare `--with psycopg` has no libpq, fails to load, and misreads as
+store-down, #497).
 
 ## Routine
 
-1. `cpp-memory ping` - if unreachable, continue in degraded mode and note it.
+1. `cpp-memory ping` - if unreachable, check `driver_error` first: non-null =
+   local driver gap (store never contacted; fix with `psycopg[binary]`, #497),
+   null = real store outage. Either way continue in degraded mode and note
+   which layer failed.
 2. Gather friction signals: permission prompts, gate failures/retries, red output
    narrated-past, manual interventions, infra traps, portable knowledge.
 3. Classify each `(friction_class, fix_scope)` per the bucket rules.

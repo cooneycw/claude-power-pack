@@ -105,6 +105,10 @@ def main(argv=None) -> int:
             "federation": store.federation,
             "available": store.available(),
             "reachable": ok,
+            # Non-null = the driver failed to LOAD and the store was never
+            # contacted (local gap, fix psycopg[binary]) - do NOT read
+            # reachable:false as the store being down (issue #497).
+            "driver_error": store.driver_error(),
             "dsn_present": bool(getattr(store, "dsn", None)),
         }))
         return 0 if ok else 1
@@ -144,8 +148,16 @@ def main(argv=None) -> int:
         }
         if lid is None:
             # A pg tier is unreachable - fail-open to the local md ledger.
+            # Name the actual failure layer: a driver-load error means the
+            # store was never contacted (issue #497).
             path = append_local_learning(learning, args.repo or ".")
-            out.update(stored="local-fallback", reason="store unavailable", path=str(path))
+            driver_err = store.driver_error()
+            out.update(
+                stored="local-fallback",
+                reason="driver unavailable" if driver_err else "store unavailable",
+                driver_error=driver_err,
+                path=str(path),
+            )
         elif store.name == "md":
             # Tier i: the md ledger IS the store (first-class), not a fallback.
             out.update(stored="md", path=str(lid))

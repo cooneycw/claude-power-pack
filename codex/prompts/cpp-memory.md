@@ -6,8 +6,10 @@ re-proposed.
 This is consult-not-push, fail-open, and human-confirmed. It never distributes
 config and never auto-applies permission fixes. The whole interface is the
 `cpp-memory` command (install once with `bash scripts/install-memory-harness.sh`
-from the claude-power-pack repo; falls back to `python -m lib.cpp_memory` from
-that repo root).
+from the claude-power-pack repo; falls back to
+`uv run --no-project --python 3.11 --with 'psycopg[binary]>=3.1' -- python -m lib.cpp_memory`
+from that repo root - bare `--with psycopg` has no libpq and misreads as
+store-down, #497).
 
 Bucket rules - what may enter the SHARED store:
 - Portable knowledge / infra trap (reusable across VMs and repos) -> SHARED
@@ -16,8 +18,11 @@ Bucket rules - what may enter the SHARED store:
 - Per-machine permission fix -> this machine only (`--local-only`); never shared.
 
 Steps:
-1. `cpp-memory ping` - if not reachable, continue in degraded mode (writes land
-   in a local `.claude/learnings.md`); say so in your summary.
+1. `cpp-memory ping` - if not reachable, check `driver_error` first: non-null
+   means the psycopg driver failed to load locally (store never contacted; fix
+   with `psycopg[binary]`, #497), null means a real store outage. Either way
+   continue in degraded mode (writes land in a local `.claude/learnings.md`);
+   say which layer failed in your summary.
 2. Scan this session for friction signals: permission prompts you needed, gate
    failures/retries, errors narrated-past, manual corrections, infra traps, and
    portable knowledge learned.

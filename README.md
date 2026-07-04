@@ -55,6 +55,8 @@ claude-power-pack/
   .claude/commands/     Slash commands (/flow:*, /cicd:*, /security:*, etc.)
   .claude/hooks.json    Safety hooks (pre/post tool use)
   .mcp.json             Client pointer for the external second-opinion server
+  .claude-plugin/       Plugin-marketplace manifest (marketplace name: cpp)
+  plugins/flow/         POC flow plugin: /plugin install flow@cpp (#477, ADR 0001)
   lib/creds/            Secrets management library
   lib/security/         Security scanning library
   lib/cicd/             CI/CD framework detection and generation
