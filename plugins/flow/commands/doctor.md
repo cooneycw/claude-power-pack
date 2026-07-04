@@ -1,0 +1,396 @@
+---
+description: Diagnose flow workflow setup and environment
+allowed-tools: Bash(git:*), Bash(gh:*), Bash(command:*), Bash(test:*), Bash(ls:*), Bash(readlink:*), Bash(grep:*), Bash(make:*), Bash(python3:*), Bash(PYTHONPATH=*), Read
+---
+
+# Flow: Doctor - Diagnose Workflow Environment
+
+Check that the environment is properly configured for the `/flow` workflow.
+
+## Instructions
+
+When the user invokes `/flow:doctor`, run all diagnostic checks and present a single report.
+
+### Step 1: Environment Prerequisites
+
+Check required tools:
+
+```bash
+# git
+git --version 2>/dev/null && echo "PASS" || echo "FAIL"
+
+# gh CLI
+gh --version 2>/dev/null && echo "PASS" || echo "FAIL"
+
+# gh authentication
+gh auth status 2>/dev/null && echo "PASS" || echo "FAIL"
+
+# uv (optional but recommended)
+uv --version 2>/dev/null || echo "NOT_FOUND"
+```
+
+### Step 2: Git Repository State
+
+```bash
+# In a git repository?
+git rev-parse --show-toplevel 2>/dev/null || echo "NOT_A_REPO"
+
+# Remote origin configured?
+git remote get-url origin 2>/dev/null || echo "NO_REMOTE"
+
+# Default branch
+git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||'
+
+# User identity
+git config user.name 2>/dev/null || echo "NOT_SET"
+git config user.email 2>/dev/null || echo "NOT_SET"
+```
+
+### Step 3: Makefile Targets
+
+```bash
+# Makefile exists?
+if [ -f "Makefile" ]; then
+  # List standard targets (lint, test, deploy, format, etc.)
+  grep -E '^[a-zA-Z_-]+:' Makefile | sed 's/:.*//' | sort
+else
+  echo "NO_MAKEFILE"
+fi
+```
+
+Report which of these standard targets exist: `lint`, `test`, `format`, `deploy`.
+
+**If no Makefile found:** Detect the framework and suggest the matching template:
+
+```bash
+# Only if CPP lib is available
+CPP_DIR=""
+for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-pack; do
+  if [ -d "$dir/lib/cicd" ]; then CPP_DIR="$dir"; break; fi
+done
+
+# Invoke lib.cicd via uv so its deps (pydantic) resolve under a pinned >= 3.11
+# interpreter; PYTHONPATH points at CPP_DIR (parent of lib/) so `-m lib.cicd`
+# resolves from any project cwd. Bare python3 crashes in a venv-less tree (#430).
+if [ -n "$CPP_DIR" ] && [ ! -f "Makefile" ] && command -v uv >/dev/null 2>&1; then
+  DETECTED=$(PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -c "
+from lib.cicd.detector import detect_framework
+info = detect_framework('.')
+print(f'{info.framework.value}:{info.package_manager.value}')
+" 2>/dev/null)
+  echo "Detected: $DETECTED"
+fi
+```
+
+Use the detection result to suggest the specific template file in the Actions Needed section (e.g., `django-uv.mk` for Django projects, `python-uv.mk` for Python+uv).
+
+### Step 4: Hooks Configuration
+
+```bash
+# hooks.json exists?
+if [ -f ".claude/hooks.json" ]; then
+  # Check for expected hooks
+  grep -l "SessionStart\|PostToolUse" .claude/hooks.json
+fi
+```
+
+Check for the two expected hook types:
+- **SessionStart**: Upstream change detection
+- **PostToolUse (Bash/Read)**: Secret masking via `hook-mask-output.sh`
+
+The PreToolUse dangerous-command hook was retired (issue #439); native
+destructive-git blocking + OS sandboxing cover it.
+
+### Step 5: Scripts Availability
+
+Check that core scripts exist in `~/.claude/scripts/`:
+
+```bash
+for script in prompt-context.sh hook-mask-output.sh secrets-mask.sh; do
+  if [ -x "$HOME/.claude/scripts/$script" ]; then
+    echo "PASS $script"
+  elif [ -f "$HOME/.claude/scripts/$script" ]; then
+    echo "WARN $script (not executable)"
+  else
+    echo "FAIL $script"
+  fi
+done
+
+# worktree-remove.sh is now a FALLBACK, not a hard requirement: `/flow` creates
+# and removes worktrees with the native EnterWorktree/ExitWorktree tools; the
+# script is only used for cross-session / cross-machine worktree cleanup. Missing
+# is a WARN, not a FAIL.
+if [ -x "$HOME/.claude/scripts/worktree-remove.sh" ]; then
+  echo "PASS worktree-remove.sh (optional fallback)"
+elif [ -f "$HOME/.claude/scripts/worktree-remove.sh" ]; then
+  echo "WARN worktree-remove.sh (not executable)"
+else
+  echo "WARN worktree-remove.sh (optional fallback not installed; native ExitWorktree covers same-session cleanup)"
+fi
+```
+
+### Step 5b: User-Level Flow Allowlist
+
+Check whether the flow read-only permission allowlist
+(`templates/claude-settings-permissions.json`) is merged into
+`~/.claude/settings.json`. Without it, every `/flow:*` run prompts for its
+read-only git/gh plumbing (issue reads, worktree creation, slug pipeline).
+
+```bash
+TEMPLATE="$CPP_DIR/templates/claude-settings-permissions.json"
+TARGET="$HOME/.claude/settings.json"
+
+if [ ! -f "$TEMPLATE" ]; then
+  echo "SKIP flow allowlist (template not found - CPP checkout incomplete?)"
+elif [ ! -f "$TARGET" ]; then
+  echo "FAIL flow allowlist (~/.claude/settings.json missing - all $(jq '.permissions.allow | length' "$TEMPLATE") rules absent)"
+else
+  TOTAL=$(jq '.permissions.allow | length' "$TEMPLATE")
+  MISSING=$(jq -s '(.[1].permissions.allow - (.[0].permissions.allow // [])) | length' "$TARGET" "$TEMPLATE")
+  if [ "$MISSING" -eq 0 ]; then
+    echo "PASS flow allowlist ($TOTAL/$TOTAL rules present)"
+  else
+    echo "WARN flow allowlist ($((TOTAL - MISSING))/$TOTAL rules present, $MISSING missing)"
+  fi
+fi
+```
+
+### Step 5c: Flow Skill Mirror Sync
+
+CPP's `/flow:*` commands execute from the global mirror at
+`~/.claude/skills/flow-*`, regenerated from the `.claude/commands/flow/*` source
+of truth by `scripts/flow-skill-sync.py`. When the mirror drifts from the source
+(as it did when #453 rebased the commands onto native worktrees but left the
+mirror on the old manual `git worktree add` path - issue #457), the surface that
+actually runs is stale. Detect that drift:
+
+```bash
+# Locate CPP source for the sync script
+CPP_DIR=""
+for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-pack; do
+  if [ -d "$dir" ] && [ -f "$dir/scripts/flow-skill-sync.py" ]; then
+    CPP_DIR="$dir"
+    break
+  fi
+done
+
+if [ -z "$CPP_DIR" ]; then
+  echo "SKIP flow skill mirror (CPP checkout not found)"
+elif python3 "$CPP_DIR/scripts/flow-skill-sync.py" --check >/dev/null 2>&1; then
+  echo "PASS flow skill mirror (global ~/.claude/skills/flow-* matches repo commands)"
+else
+  echo "WARN flow skill mirror (out of sync with .claude/commands/flow/; run: python3 $CPP_DIR/scripts/flow-skill-sync.py --write)"
+fi
+```
+
+This is a WARN, not a FAIL: the skills still run, they are just behind the repo.
+Regenerate with `--write` to reconcile.
+
+### Step 6: Active Worktrees
+
+```bash
+git worktree list
+```
+
+For each worktree (skip main), check:
+- Branch name and linked issue number
+- Uncommitted changes (`git -C <path> status --porcelain | wc -l`)
+- Unpushed commits (`git -C <path> rev-list --count origin/main..HEAD 2>/dev/null`)
+
+### Step 7: GitHub Integration
+
+```bash
+# Can list issues?
+gh issue list --limit 1 --json number 2>/dev/null && echo "PASS" || echo "FAIL"
+
+# Can list PRs?
+gh pr list --limit 1 --json number 2>/dev/null && echo "PASS" || echo "FAIL"
+```
+
+### Step 7b: CI/CD Readiness
+
+Check CI/CD configuration and tooling. This section is **optional** - skip entirely if `lib/cicd` is not available.
+
+```bash
+# Locate CPP source for lib/cicd
+CPP_DIR=""
+for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-pack; do
+  if [ -d "$dir" ] && [ -f "$dir/CLAUDE.md" ]; then
+    CPP_DIR="$dir"
+    break
+  fi
+done
+```
+
+If `CPP_DIR` is found, run these checks:
+
+```bash
+# 1. cicd.yml config file
+[ -f ".claude/cicd.yml" ] && echo "PASS cicd.yml" || echo "MISSING cicd.yml"
+
+# 2. Framework detection (via uv so deps resolve; PYTHONPATH=CPP_DIR, see #430)
+PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd detect --quiet 2>/dev/null
+
+# 3. Makefile completeness (uses lib/cicd check)
+PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd check --summary 2>/dev/null
+
+# 4. Health check configuration
+grep -q "endpoints:" .claude/cicd.yml 2>/dev/null && echo "PASS health endpoints" || echo "MISSING health endpoints"
+grep -q "smoke_tests:" .claude/cicd.yml 2>/dev/null && echo "PASS smoke tests" || echo "MISSING smoke tests"
+
+# 5. CI pipeline files
+[ -f ".github/workflows/ci.yml" ] || [ -f ".woodpecker.yml" ] && echo "PASS CI pipeline" || echo "MISSING CI pipeline"
+
+# 6. Dockerfile (optional)
+[ -f "Dockerfile" ] && echo "PASS Dockerfile" || echo "OPTIONAL Dockerfile"
+```
+
+If `CPP_DIR` is not found, skip this entire section and note in the report:
+```
+CI/CD Readiness: skipped (lib/cicd not available)
+```
+
+### Step 7c: MCP Server Connectivity
+
+Check whether MCP servers are reachable on their expected ports:
+
+```bash
+echo ""
+echo "MCP Server Connectivity:"
+
+MCP_ISSUES=0
+# Browser automation is upstream @playwright/mcp over npx/stdio - no port to probe.
+for entry in "8080:second-opinion"; do
+  PORT="${entry%%:*}"
+  NAME="${entry#*:}"
+  if curl -sf --max-time 2 "http://127.0.0.1:${PORT}/health" >/dev/null 2>&1; then
+    echo "  [x] $NAME (port $PORT): reachable"
+  elif ss -tlnp 2>/dev/null | grep -q ":${PORT} " 2>/dev/null; then
+    echo "  [~] $NAME (port $PORT): port open (no /health endpoint)"
+  else
+    echo "  [ ] $NAME (port $PORT): not reachable"
+    MCP_ISSUES=$((MCP_ISSUES + 1))
+  fi
+done
+
+if (( MCP_ISSUES > 0 )); then
+  echo "  Status: $MCP_ISSUES server(s) not reachable"
+else
+  echo "  Status: All MCP servers reachable"
+fi
+```
+
+### Step 8: Generate Report
+
+Output a single diagnostic report in this format:
+
+```markdown
+## Flow Doctor - {repo}
+
+### Environment
+
+| Check | Status | Details |
+|-------|--------|---------|
+| git | ✅ | v2.43.0 |
+| gh CLI | ✅ | v2.62.0 |
+| gh auth | ✅ | Logged in as {user} |
+| uv | ✅ | v0.5.14 |
+
+### Repository
+
+| Check | Status | Details |
+|-------|--------|---------|
+| Git repo | ✅ | claude-power-pack |
+| Remote | ✅ | github.com/cooneycw/claude-power-pack |
+| User identity | ✅ | {name} <{email}> |
+
+### Workflow Readiness
+
+| Check | Status | Details |
+|-------|--------|---------|
+| Makefile | ✅/⚠️/❌ | Targets: lint, test, deploy / Not found |
+| hooks.json | ✅/❌ | 2 hooks configured / Not found |
+| mask-output hook | ✅/❌ | ~/.claude/scripts/hook-mask-output.sh |
+| prompt-context.sh | ✅/❌ | Shell prompt context |
+| worktree-remove.sh | ✅/⚠️ | Optional fallback (native ExitWorktree is primary) |
+| secrets-mask.sh | ✅/❌ | Output masking filter |
+| Flow allowlist | ✅/⚠️/❌ | 32/32 rules in ~/.claude/settings.json / N missing / settings.json missing |
+| Flow skill mirror | ✅/⚠️ | Global flow-* matches repo commands / out of sync (run flow-skill-sync.py --write) |
+
+### MCP Server Connectivity
+
+| Server | Port | Status | Details |
+|--------|------|--------|---------|
+| second-opinion | 8080 | ✅/⚠️/❌ | Reachable / Port open (no /health) / Not reachable |
+| playwright | stdio | - | Upstream @playwright/mcp over npx/stdio (no port) |
+
+### Active Worktrees
+
+| Worktree | Issue | Branch | Status |
+|----------|-------|--------|--------|
+| ../{repo}-issue-42 | #42 | issue-42-fix-auth | 3 dirty, 1 unpushed |
+| ../{repo}-issue-55 | #55 | issue-55-add-tests | Clean |
+
+*No worktrees* → "No active worktrees. Run `/flow:start <issue>` to begin."
+
+### GitHub Integration
+
+| Check | Status |
+|-------|--------|
+| List issues | ✅/❌ |
+| List PRs | ✅/❌ |
+
+### CI/CD & Verification
+
+*(Only shown when lib/cicd is available. If not available, show: "CI/CD Readiness: skipped (lib/cicd not available - install CPP for CI/CD features)")*
+
+| Check | Status | Details |
+|-------|--------|---------|
+| .claude/cicd.yml | ✅/❌ | Config file present / missing |
+| Framework detected | ✅ | Python (uv) / Node (npm) / etc. |
+| Makefile completeness | ✅/⚠️ | 6/7 targets (typecheck missing) |
+| Health endpoints | ✅/⚠️ | 2 configured / Not configured |
+| Smoke tests | ✅/⚠️ | 3 configured / Not configured |
+| CI pipeline | ✅/❌ | .github/workflows/ci.yml / Not found |
+| Dockerfile | ⚠️ | Not configured (optional) |
+
+### Actions Needed
+
+(Only if there are failures or warnings)
+
+1. ❌ **Makefile missing** - Create a Makefile with `lint`, `test`, and `deploy` targets for `/flow:finish` and `/flow:deploy`. Run `/cicd:init` to auto-generate from a stack-specific template, or copy one manually:
+   - Python (uv): `cp ~/Projects/claude-power-pack/templates/makefiles/python-uv.mk Makefile`
+   - Python (pip): `cp ~/Projects/claude-power-pack/templates/makefiles/python-pip.mk Makefile`
+   - Django (uv): `cp ~/Projects/claude-power-pack/templates/makefiles/django-uv.mk Makefile`
+   - Node (npm): `cp ~/Projects/claude-power-pack/templates/makefiles/node-npm.mk Makefile`
+   - Node (yarn): `cp ~/Projects/claude-power-pack/templates/makefiles/node-yarn.mk Makefile`
+   - Go: `cp ~/Projects/claude-power-pack/templates/makefiles/go.mk Makefile`
+   - Rust: `cp ~/Projects/claude-power-pack/templates/makefiles/rust.mk Makefile`
+   - Monorepo: `cp ~/Projects/claude-power-pack/templates/makefiles/multi.mk Makefile`
+2. ⚠️ **worktree-remove.sh not found (optional)** - `/flow` uses the native `EnterWorktree`/`ExitWorktree` tools for same-session worktrees; the script is only a fallback for cross-session / cross-machine cleanup. Install if you want it: `ln -sf ~/Projects/claude-power-pack/scripts/worktree-remove.sh ~/.claude/scripts/`
+2b. ⚠️ **Flow allowlist missing/incomplete** - `/flow:*` will prompt for read-only git/gh plumbing on every run. Merge via `/cpp:update` (Step 7.6) or `/cpp:init`; rationale and caveats in `templates/claude-settings-permissions.md`
+2c. ⚠️ **Flow skill mirror drift** - the global `~/.claude/skills/flow-*` skills (the surface that actually runs) are out of sync with `.claude/commands/flow/`. Regenerate: `python3 ~/Projects/claude-power-pack/scripts/flow-skill-sync.py --write`
+3. ⚠️ **uv not installed** - Install: `curl -LsSf https://astral.sh/uv/install.sh | sh`
+4. ❌ **cicd.yml missing** - Run `/cicd:init` to auto-detect framework and generate configuration
+5. ⚠️ **Makefile gaps** - Run `/cicd:check` for details or `/cicd:init` to add missing targets
+6. ❌ **No CI pipeline** - Run `/cicd:pipeline` to generate GitHub Actions or Woodpecker CI config
+7. ⚠️ **No health endpoints** - Add `health.endpoints` to `.claude/cicd.yml` for post-deploy verification
+8. ⚠️ **No smoke tests** - Add `health.smoke_tests` to `.claude/cicd.yml` for post-deploy testing
+9. ⚠️ **MCP server(s) not reachable** - Start servers: `cd mcp-second-opinion && ./start-server.sh` (or use stdio transport)
+
+*All checks passed!* → "Environment is ready for `/flow` workflow."
+```
+
+## Status Symbols
+
+- ✅ = Check passed
+- ⚠️ = Optional/non-critical issue
+- ❌ = Required check failed - action needed
+
+## Notes
+
+- This is a read-only diagnostic - it never modifies anything
+- `uv` is recommended but not required (⚠️ if missing, not ❌)
+- Makefile is recommended but not required (⚠️ if missing)
+- Scripts and hooks are ❌ if missing since they provide security protection
+- Keep the report concise - one table per section, actions at the end

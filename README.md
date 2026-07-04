@@ -55,6 +55,8 @@ cd ~/Projects/my-project
 claude-power-pack/
   .claude/commands/     Slash commands (/flow:*, /cicd:*, /security:*, etc.)
   .claude/hooks.json    Safety hooks (pre/post tool use)
+  .claude-plugin/       Plugin-marketplace manifest (marketplace name: cpp)
+  plugins/flow/         POC flow plugin: /plugin install flow@cpp (#477, ADR 0001)
   aws-secrets-agent/    AWS Secrets Manager sidecar (Rust, port 2773)
   mcp-second-opinion/   Code review MCP server
   lib/creds/            Secrets management library
