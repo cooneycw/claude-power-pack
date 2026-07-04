@@ -212,8 +212,17 @@ class TestResolveDsn:
 # --------------------------------------------------------------------------- #
 @pytest.fixture
 def cli_offline(monkeypatch):
-    """Make the CLI construct a guaranteed-unavailable store regardless of env."""
-    monkeypatch.setattr(cli_mod, "MemoryStore", lambda *a, **k: MemoryStore(dsn=""))
+    """Make the CLI resolve a guaranteed-unavailable remote-pg store.
+
+    Repointed to the backend factory (issue #472): the CLI now selects its store
+    via ``select_backend()``. Forcing a DOWN remote-pg keeps every existing
+    fail-open assertion (local-fallback on record, benign reads) intact - the
+    dedicated md-backend behaviour lives in test_cpp_memory_backends.py.
+    """
+    monkeypatch.setattr(
+        cli_mod, "select_backend",
+        lambda *a, **k: MemoryStore(dsn="", name="remote-pg", federation="fleet"),
+    )
 
 
 class TestCli:

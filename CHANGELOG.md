@@ -25,6 +25,21 @@
 
 ### Added
 
+- **Pluggable common-memory store backend + `/cpp:init` mini-tier** (issue #472)
+  - `lib/cpp_memory` now sits behind one `StoreBackend` interface with three
+  `/cpp:init`-selectable tiers: **i `md`** (best-effort local dedup, no
+  federation; promotes `.claude/learnings.md` from a fallback to a first-class
+  backend, with a `.claude/learnings.rejected.jsonl` reject sidecar), **ii
+  `local-pg`** (full SQL dedup on a stock `postgres:17`,
+  `lib/cpp_memory/docker-compose.yml`, no federation), and **iii `remote-pg`**
+  (today's fleet-federated Postgres). Backend resolves from
+  `CPP_MEMORIES_BACKEND` / a backend file / DSN inference; **federation is a
+  surfaced per-tier property** (`cpp-memory ping` reports `backend` +
+  `federation`; the `/cpp:init` step-8d selector shows the federation column) so
+  no one picks md/local-pg expecting cross-VM sharing. Existing fleet VMs are
+  unchanged (a resolvable DSN still infers `remote-pg`). Adds `lib/cpp_memory/
+  NOTICE.md` attributing the stock `postgres:17` image (tiers ii/iii only).
+
 - **`/flow:eli5` extracted to the standalone `eli5-gate` plugin** (issue #443,
   epic #417 Phase C) - the necessity gate (plain-language intent ELI5 +
   staleness/necessity verdict + plan-approval pause) now lives in its own public

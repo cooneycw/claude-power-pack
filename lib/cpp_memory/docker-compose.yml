@@ -1,0 +1,43 @@
+# Tier-ii (local-pg) common-memory store for CPP (issue #472).
+#
+# A stock PostgreSQL on THIS box: full-fidelity SQL dedup (same schema as the
+# fleet store), but NO cross-VM federation - that is tier iii (remote-pg). See
+# NOTICE.md in this directory for image attribution.
+#
+# Start:            docker compose -f lib/cpp_memory/docker-compose.yml up -d
+# Point CPP at it:  export CPP_MEMORIES_BACKEND=local-pg
+#   The default DSN (lib/cpp_memory/config.py: DEFAULT_LOCAL_PG_DSN) matches the
+#   credentials + host port below:
+#   postgresql://cpp_memory:cpp_memory@127.0.0.1:5433/cpp_memory
+# Stop:             docker compose -f lib/cpp_memory/docker-compose.yml down
+#   (add -v to also drop the data volume)
+#
+# Image is digest-pinned per CPP's reproducible-builds policy (CLAUDE.md).
+services:
+  cpp-memory-db:
+    image: postgres:17@sha256:9c1534cbf839ec70409508a874f4c02bf4739de2f32f77efe080eef1cfd34bf4
+    container_name: cpp-memory-db
+    environment:
+      POSTGRES_USER: cpp_memory
+      # Low-entropy local default; overridable. Bound to loopback only (below),
+      # and the ledger holds bucket-2 knowledge, never secrets - blast radius is
+      # low. Override BOTH this and CPP_MEMORIES_DSN if you change it.
+      POSTGRES_PASSWORD: ${CPP_MEMORIES_LOCAL_PG_PASSWORD:-cpp_memory}
+      POSTGRES_DB: cpp_memory
+    ports:
+      # Loopback only + host port 5433 so it never clashes with a system Postgres.
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - cpp_memory_data:/var/lib/postgresql/data
+      # Runs ONCE on an empty data dir (postgres initdb hook) - same schema the
+      # remote store uses. Re-runs need `down -v` first (fresh data dir).
+      - ./sql/schema.sql:/docker-entrypoint-initdb.d/10-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cpp_memory -d cpp_memory"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  cpp_memory_data:
