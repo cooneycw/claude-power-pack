@@ -2,23 +2,6 @@
 
 ## [Unreleased]
 
-### Added
-
-- **Plugin-marketplace scaffold + `flow` proof-of-concept plugin** (issue #477,
-  epic #417 Phase B1, ADR `docs/decisions/0001-plugin-marketplace-packaging.md`) -
-  first implementation phase of the migration off the legacy symlink installer to
-  the Claude Code plugin-marketplace distribution model. Adds
-  `.claude-plugin/marketplace.json` (marketplace name `cpp`) and packages the
-  `flow` command family as an installable plugin under `plugins/flow/`, so the
-  install path is `/plugin marketplace add cooneycw/claude-power-pack` then
-  `/plugin install flow@cpp`. During the parallel B1->B4 window the source of
-  truth stays `.claude/commands/flow/*.md`; `plugins/flow/commands/` holds
-  byte-identical copies kept honest by `scripts/plugin-flow-sync.sh`
-  (`--check` guard / `--write` regen), covered by `tests/test_plugin_marketplace.py`.
-  Both manifests pass `claude plugin validate`, and `/plugin install flow@cpp` was
-  verified end to end against a local marketplace. **Nothing is retired** - the
-  installer runs untouched until parity is proven in Phase B4.
-
 ### Changed
 
 - **Browser automation migrated to upstream `@playwright/mcp`** (issue #423) -
@@ -41,6 +24,49 @@
   teardown of any leftover container, image, or registration on existing hosts.
 
 ### Added
+
+- **Plugin-marketplace scaffold + `flow` proof-of-concept plugin** (issue #477,
+  epic #417 Phase B1, ADR `docs/decisions/0001-plugin-marketplace-packaging.md`) -
+  first implementation phase of the migration off the legacy symlink installer to
+  the Claude Code plugin-marketplace distribution model. Adds
+  `.claude-plugin/marketplace.json` (marketplace name `cpp`) and packages the
+  `flow` command family as an installable plugin under `plugins/flow/`, so the
+  install path is `/plugin marketplace add cooneycw/claude-power-pack` then
+  `/plugin install flow@cpp`. During the parallel B1->B4 window the source of
+  truth stays `.claude/commands/flow/*.md`; `plugins/flow/commands/` holds
+  byte-identical copies kept honest by `scripts/plugin-flow-sync.sh`
+  (`--check` guard / `--write` regen), covered by `tests/test_plugin_marketplace.py`.
+  Both manifests pass `claude plugin validate`, and `/plugin install flow@cpp` was
+  verified end to end against a local marketplace. **Nothing is retired** - the
+  installer runs untouched until parity is proven in Phase B4.
+
+- **Pluggable common-memory store backend + `/cpp:init` mini-tier** (issue #472)
+  - `lib/cpp_memory` now sits behind one `StoreBackend` interface with three
+  `/cpp:init`-selectable tiers: **i `md`** (best-effort local dedup, no
+  federation; promotes `.claude/learnings.md` from a fallback to a first-class
+  backend, with a `.claude/learnings.rejected.jsonl` reject sidecar), **ii
+  `local-pg`** (full SQL dedup on a stock `postgres:17`,
+  `lib/cpp_memory/docker-compose.yml`, no federation), and **iii `remote-pg`**
+  (today's fleet-federated Postgres). Backend resolves from
+  `CPP_MEMORIES_BACKEND` / a backend file / DSN inference; **federation is a
+  surfaced per-tier property** (`cpp-memory ping` reports `backend` +
+  `federation`; the `/cpp:init` step-8d selector shows the federation column) so
+  no one picks md/local-pg expecting cross-VM sharing. Existing fleet VMs are
+  unchanged (a resolvable DSN still infers `remote-pg`). Adds `lib/cpp_memory/
+  NOTICE.md` attributing the stock `postgres:17` image (tiers ii/iii only).
+
+- **Early stale-base detection in the flow** (issue #473) - a new advisory,
+  fail-open `scripts/flow-stale-check.sh` surfaces a base that moved on
+  `origin/main` at **Step 4 (start of implement)** and **Step 6 (before the
+  commit)** of `/flow:auto` (and in `/flow:finish`), instead of first discovering
+  it at the Step-7 #462 guard. It NAMES the file(s) you have already edited that
+  also changed upstream (committed or dirty in the work tree), so you can
+  `git merge --no-edit origin/main` before more edits pile onto a stale base -
+  the rework tax seen on flow:auto #444/#463/#461. The Step-7 #462 guard remains
+  the final backstop. When a merge (early or at Step 7) pulls in
+  `.claude/commands/flow/*.md` changes, the guards now re-run
+  `scripts/flow-skill-sync.py --write` so the global `flow-*` mirror does not
+  drift (#457/#461). Covered by `tests/test_flow_stale_check.py`.
 
 - **`/flow:eli5` extracted to the standalone `eli5-gate` plugin** (issue #443,
   epic #417 Phase C) - the necessity gate (plain-language intent ELI5 +

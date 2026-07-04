@@ -42,6 +42,37 @@ and runs via `uv` (fetching psycopg on demand) or system python3. If neither the
 store nor a driver is available, every write falls back to a local note - the
 routine never blocks.
 
+## Backends (the mini-tier: md | local-pg | remote-pg)
+
+The store is a **pluggable backend** (issue #472), chosen at `/cpp:init` time
+(step 8d) or via `CPP_MEMORIES_BACKEND`. It is **md = best-effort local,
+pg = full-fidelity** - not the same feature three ways.
+
+| Tier | Backend | Dedup fidelity | Federation (cross-VM?) | Needs |
+|------|---------|----------------|------------------------|-------|
+| i | `md` | best-effort (parse `learnings.md`) | **none** - local box only | nothing |
+| ii | `local-pg` | full (SQL fingerprint) | **none** - single box | Docker (`postgres:17`) |
+| iii | `remote-pg` | full (SQL fingerprint) | **fleet** - shared across VMs | Tailscale DSN |
+
+**Federation is the property that differs** and it is surfaced everywhere
+(`cpp-memory ping` reports `backend` + `federation`). Pick a pg tier only if you
+need the specific fidelity; pick **iii** if you want fleet sharing. Tiers i and
+ii collapse the "global" `is_known` / `rejected_here` to this box.
+
+Per-tier semantics of the four operations:
+
+| Operation | md (i) | local-pg (ii) | remote-pg (iii) |
+|-----------|--------|---------------|-----------------|
+| **consult** (`is_known`) | parse `learnings.md` for the fingerprint; local only | SQL lookup; local only | SQL lookup; **fleet-wide** |
+| **dedup** (`record`) | best-effort: an already-present fingerprint is a no-op (no fork); no sighting ledger | full: upsert on unique fingerprint + a sighting row | full: upsert + sighting (the "N machines hit this" signal) |
+| **reject** (`reject`/`rejected_here`) | appended to `.claude/learnings.rejected.jsonl` sidecar, keyed by `(fingerprint, vm)`; local only | `applications` row; per-VM | `applications` row; **per-VM** (reject is per-VM even here; `is_known` is global) |
+| **issue bridge** (`link_issue`, #463) | **not tracked** (best-effort: `is_known` reports `issue_url=None`, so the retro re-proposes, human-confirmed) | full `issue_url` first-write-wins | full `issue_url` first-write-wins |
+
+The md backend also accepts **non-portable** notes (permission / repo_file) - it
+is the local ledger, so that is where they belong. The bucket-2 **share guard**
+(refuse non-portable) applies only to the federated pg store, and the routine's
+guard below keeps them local regardless of backend.
+
 ## Routine (run after a session / flow run)
 
 1. **Reachability.** `cpp-memory ping`. If `reachable:false`, continue in degraded
@@ -69,15 +100,29 @@ routine never blocks.
    Only portable + actionable learnings become issues; dedup is the `issue_url`
    column (first-write-wins) plus the marker; fail-open if `gh` is unavailable.
 
-## DSN / federation
+## Backend selection & DSN / federation
 
-The DSN resolves fail-open in this order: `CPP_MEMORIES_DSN` env ->
+**Backend** resolves in this order: `CPP_MEMORIES_BACKEND` env ->
+`~/.config/claude-power-pack/secrets/cpp-memories.backend` -> inferred (a
+resolvable DSN implies `remote-pg`, today's fleet default; no DSN implies `md`).
+`/cpp:init` step 8d writes the backend file for you.
+
+**DSN** (pg tiers only) resolves fail-open: `CPP_MEMORIES_DSN` env ->
 `~/.config/claude-power-pack/secrets/cpp-memories.dsn` ->
 AWS SM `essent-ai` key `CPP_MEMORIES_DSN`. The AWS tier is the fleet-federation
-mechanism - any VM with `essent-ai` access self-configures with no local file.
-Reference the store host by its **Tailscale** address so Tailscale-only VMs reach
-it. Provision / re-provision with `scripts/memories-db-setup.sh` (idempotent;
-`CPP_MEM_PG_MAJOR` selects the Postgres major, default 17).
+mechanism for **remote-pg** - any VM with `essent-ai` access self-configures with
+no local file. Reference the store host by its **Tailscale** address so
+Tailscale-only VMs reach it.
+
+- **remote-pg (iii):** provision / re-provision the fleet store with
+  `scripts/memories-db-setup.sh` (idempotent; `CPP_MEM_PG_MAJOR` selects the
+  Postgres major, default 17).
+- **local-pg (ii):** `docker compose -f lib/cpp_memory/docker-compose.yml up -d`
+  (stock `postgres:17`, host port 5433; default DSN
+  `postgresql://cpp_memory:cpp_memory@127.0.0.1:5433/cpp_memory`). See
+  `lib/cpp_memory/NOTICE.md` for image attribution.
+- **md (i):** no DSN, no container - the ledger is `<repo>/.claude/learnings.md`
+  plus the `.claude/learnings.rejected.jsonl` reject sidecar.
 
 ## Install (both harnesses)
 

@@ -17,8 +17,11 @@ terminal "final step retro" would be blind to exactly those. So:
 
 - **Capture** is thin, always-on instrumentation woven into `/flow:auto` and
   `/flow:merge` that records every friction signal on every step, success OR
-  failure, via `scripts/friction-log.sh` -> `.claude/friction.jsonl`. It survives
-  failed runs. (This command consumes that buffer; it does not replace it.)
+  failure, via `scripts/friction-log.sh` -> the main repo's `.claude/friction.jsonl`.
+  It survives failed runs AND worktree removal - the helper resolves the durable
+  main-repo buffer via `git-common-dir`, so signals captured inside a `/flow:auto`
+  worktree reach this command (run from the main repo) without manual re-logging
+  (issue #471). (This command consumes that buffer; it does not replace it.)
 - **Codify (local)** is THIS command: classify -> dedup -> propose -> confirm ->
   apply -> log, for fixes that stay on this machine (settings, Makefile, hooks,
   CLAUDE.md, quality gates). Local learnings persist in `.claude/learnings.md`.

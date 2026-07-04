@@ -12,11 +12,21 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 FRICTION_LOG = ROOT / "scripts" / "friction-log.sh"
+
+# Some tests drive a real `git` subprocess to build a worktree. The Woodpecker
+# `validate` container (uv:python3.11-bookworm-slim) has no git, so guard those
+# tests rather than error the whole suite on collection/run (cf. #451).
+requires_git = pytest.mark.skipif(
+    shutil.which("git") is None, reason="git not available (e.g. Woodpecker validate container)"
+)
 
 
 def _run(
@@ -152,3 +162,81 @@ def test_cpp_friction_log_env_override(tmp_path: Path):
     assert custom.exists()
     default = tmp_path / ".claude" / "friction.jsonl"
     assert not default.exists()
+
+
+def _git(cwd: Path, *args: str) -> None:
+    subprocess.run(
+        ["git", *args],
+        check=True,
+        cwd=cwd,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+
+def _run_no_env(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    """Run the helper with CPP_FRICTION_LOG unset, so default resolution kicks in."""
+    env = os.environ.copy()
+    env.pop("CPP_FRICTION_LOG", None)
+    return subprocess.run(
+        [str(FRICTION_LOG), *args],
+        check=False,
+        cwd=cwd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=env,
+    )
+
+
+@requires_git
+def test_default_targets_main_repo_from_worktree(tmp_path: Path):
+    """Issue #471: a signal captured inside a linked worktree must land in the
+    MAIN repo's buffer, so it survives the worktree being removed at cleanup."""
+    main = tmp_path / "main"
+    main.mkdir()
+    _git(main, "init", "-q")
+    _git(main, "config", "user.email", "t@t.t")
+    _git(main, "config", "user.name", "t")
+    _git(main, "commit", "-q", "--allow-empty", "-m", "root")
+
+    worktree = tmp_path / "wt"
+    _git(main, "worktree", "add", "-q", str(worktree), "-b", "feature")
+
+    result = _run_no_env(worktree, "--class", "other", "--signal", "from-worktree")
+    assert result.returncode == 0, result.stderr
+
+    main_buffer = main / ".claude" / "friction.jsonl"
+    worktree_buffer = worktree / ".claude" / "friction.jsonl"
+    assert main_buffer.exists(), "signal must land in the durable main-repo buffer"
+    assert _read_lines(main_buffer)[0]["signal"] == "from-worktree"
+    assert not worktree_buffer.exists(), "signal must NOT land in the worktree buffer"
+
+
+@requires_git
+def test_default_targets_repo_root_from_subdir(tmp_path: Path):
+    """From a subdirectory of the main repo, the default resolves to the repo
+    root's .claude/friction.jsonl (not a cwd-relative buffer in the subdir)."""
+    main = tmp_path / "main"
+    (main / "src" / "deep").mkdir(parents=True)
+    _git(main, "init", "-q")
+
+    result = _run_no_env(main / "src" / "deep", "--class", "other", "--signal", "deep")
+    assert result.returncode == 0, result.stderr
+
+    root_buffer = main / ".claude" / "friction.jsonl"
+    subdir_buffer = main / "src" / "deep" / ".claude" / "friction.jsonl"
+    assert root_buffer.exists()
+    assert _read_lines(root_buffer)[0]["signal"] == "deep"
+    assert not subdir_buffer.exists()
+
+
+def test_default_falls_back_to_cwd_outside_git(tmp_path: Path):
+    """Fail-open: with no git repo around, the default is still the cwd-relative
+    buffer (git resolution is best-effort, never a hard dependency)."""
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    result = _run_no_env(plain, "--class", "other", "--signal", "no-git")
+    assert result.returncode == 0, result.stderr
+    assert (plain / ".claude" / "friction.jsonl").exists()

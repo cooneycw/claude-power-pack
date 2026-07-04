@@ -20,6 +20,39 @@ fi
 ISSUE_NUM=$(echo "$BRANCH" | grep -oP 'issue-\K[0-9]+' || echo "")
 ```
 
+### Step 1b: Stale-base Pre-check (issue #473)
+
+A sibling PR that merged while you were working moves `origin/main` under you; if
+you commit onto a stale base, you rediscover the collision only at merge time (the
+#462 guard). Surface it now, before the quality gate runs, and if the base moved,
+bring it in so the gate below rides the current tree:
+
+```bash
+CPP_DIR=""
+for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-pack; do
+  [ -d "$dir" ] && [ -f "$dir/CLAUDE.md" ] && { CPP_DIR="$dir"; break; }
+done
+if [ -n "$CPP_DIR" ] && [ -x "$CPP_DIR/scripts/flow-stale-check.sh" ]; then
+    "$CPP_DIR/scripts/flow-stale-check.sh" origin/main   # advisory: names colliding files
+fi
+
+git fetch origin main --quiet
+if [ "$(git rev-list --count HEAD..origin/main)" -gt 0 ]; then
+    if ! git merge --no-edit origin/main; then
+        echo "STOP: resolve the listed conflicts, 'git add' + 'git commit', then re-run /flow:finish."
+        git diff --name-only --diff-filter=U
+        exit 1
+    fi
+    # Re-sync the global flow-* mirror if the merge pulled flow command changes.
+    if [ -n "$CPP_DIR" ] && git diff --name-only ORIG_HEAD..HEAD | grep -q '^\.claude/commands/flow/.*\.md$'; then
+        python3 "$CPP_DIR/scripts/flow-skill-sync.py" --write || true
+    fi
+fi
+```
+
+This is the early half of the #462 stale-branch guard; the Step-7 `/flow:merge`
+guard remains the final backstop.
+
 ### Step 2: Run Quality Gates via Deterministic Runner (primary path)
 
 **Primary path:** Use the deterministic CI/CD runner for reproducible quality gates:

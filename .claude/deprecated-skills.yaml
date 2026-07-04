@@ -102,6 +102,30 @@ deprecated:
     cleanup: |
       rm -rf ~/.claude/skills/skills-patterns ~/.claude/skills/skills-patterns.md
 
+  - family: project
+    entire_family: true
+    reason: >-
+      The generated project-* skills came from the defunct manifests/project/*.yaml
+      architecture and diverged badly from the live .claude/commands sources:
+      project-next is a "single best issue" picker that silently shadows the full
+      /project-next analysis command (issue #475); project-lite is a bootstrap
+      scaffolder, not the quick status report; project-init still offers the
+      retired Plane + Wiki.js wizard and predates the thin /project:init (#441).
+      The live commands under .claude/commands/ (project-next.md, project-lite.md,
+      project/init.md) are the sole source of truth.
+    replacement: /project-next, /project-lite, /project:init (live commands)
+    skills:
+      - project-next
+      - project-lite
+      - project-init
+    # Manual fallback; the #395 skill-orphan prune in /cpp:update consumes this
+    # file and offers guarded, user-confirmed removal. Safe: generated artifacts,
+    # not user content.
+    cleanup: |
+      rm -rf ~/.claude/skills/project-next \
+             ~/.claude/skills/project-lite \
+             ~/.claude/skills/project-init
+
 # Plane has no entry: it was never integrated as a CPP skill or command, so
 # there is nothing installed to remove. It is recorded here only to make the
 # "GitHub Issues is the sole scaffolding backend" decision explicit.
