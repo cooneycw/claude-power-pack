@@ -38,31 +38,26 @@ If no containers are running, report:
 ```
 No Docker containers found.
 
-Start MCP servers with: make docker-up PROFILE=core
-Available profiles: core (second-opinion). Browser automation is the upstream
-@playwright/mcp npx/stdio server (no container; see /cpp:init).
+CPP itself ships no containers. The second-opinion MCP server now runs from the
+external cooneycw/mcp-second-opinion repo and is reached over the root .mcp.json
+streamable-http pointer (localhost or Tailscale). Browser automation is the
+upstream @playwright/mcp npx/stdio server (no container; see /cpp:init).
 ```
 
-### Step 3: Health Check Each MCP Container
+### Step 3: Health Check Containers with Exposed Ports
 
-For each container with an exposed port, hit the health endpoint:
+CPP itself ships no containers, so there is no fixed list of MCP ports to probe.
+For any running container that publishes a host port, hit its root endpoint
+generically to see whether it answers:
 
 ```bash
-# Known MCP server ports and their health endpoints
-# Uses portable for-loop pattern (POSIX-compatible, no bash 4+ associative arrays)
-for pair in "mcp-second-opinion:8080"; do
-    name="${pair%%:*}"
-    port="${pair##*:}"
+# Probe each published host port from `docker ps` (POSIX-compatible, no bash 4+ maps)
+for port in $(docker ps --format '{{.Ports}}' 2>/dev/null | grep -oE '127.0.0.1:[0-9]+|0.0.0.0:[0-9]+' | cut -d: -f2 | sort -u); do
     response=$(curl -sf --max-time 3 "http://127.0.0.1:${port}/" 2>/dev/null)
     if [ $? -eq 0 ]; then
-        # Check for no_api_keys status
-        if echo "$response" | grep -q '"no_api_keys"' 2>/dev/null; then
-            echo "$name|$port|NO API KEYS|$response"
-        else
-            echo "$name|$port|healthy|$response"
-        fi
+        echo "port ${port}|reachable|$response"
     else
-        echo "$name|$port|unreachable|"
+        echo "port ${port}|no HTTP response|"
     fi
 done
 ```
@@ -97,42 +92,34 @@ Present a structured report:
 ```markdown
 ## Docker Container Status
 
-### MCP Servers
+CPP itself ships no containers. The second-opinion MCP server runs from the
+external `cooneycw/mcp-second-opinion` repo (reached over the root `.mcp.json`
+streamable-http pointer), and browser automation is the upstream
+`@playwright/mcp` npx/stdio server, so neither appears in the Docker table below.
 
-| Container | Port | Health | Version | Project | Profile |
-|-----------|------|--------|---------|---------|---------|
-| mcp-second-opinion | 8080 | healthy | v1.9.0 | claude-power-pack | core |
-
-Browser automation is the upstream `@playwright/mcp` server (npx/stdio, not a
-container), so it does not appear in the Docker table.
-
-### Other Containers
+### Containers
 
 | Container | Image | Status | Ports |
 |-----------|-------|--------|-------|
 | my-app-db | postgres:16 | Up 2 hours | 5432 |
 
 ### Summary
-- **Total containers:** 3 (2 healthy, 1 running)
-- **MCP servers:** 1/1 containerized reachable (+ playwright via npx/stdio)
-- **Profiles active:** core
+- **Total containers:** 1 (1 running)
+- **CPP-managed containers:** none (second-opinion is external via .mcp.json; playwright via npx/stdio)
 ```
 
 ### Step 6: Suggest Actions
 
 Based on findings, suggest relevant actions:
 
-- **No API keys:** Create `.env` in claude-power-pack root with `GEMINI_API_KEY=...`, then `make docker-down && make docker-up PROFILE=core`. Or run `/cpp:init` to configure interactively.
-- **Sidecar dependency strand:** If `aws-secrets-agent` is restarting/unhealthy and secret-dependent containers such as `mcp-second-opinion` are `Created` with no logs, fix `.env` or shell AWS credentials and run `docker compose --profile core up -d --force-recreate aws-secrets-agent mcp-second-opinion`.
-- **Unhealthy containers:** `make docker-down && make docker-up PROFILE=core`
+- **second-opinion not reachable:** it is no longer a CPP container. Run the external `cooneycw/mcp-second-opinion` server, then point the root `.mcp.json` `second-opinion` entry at it (`http://127.0.0.1:8080/mcp` for localhost, or a Tailscale URL for a remote host).
 - **Browser automation missing:** register the upstream server with `/cpp:init`, or `claude mcp add --transport stdio --scope user playwright -- npx -y @playwright/mcp@latest --headless`
-- **No MCP containers:** `make docker-build PROFILE=core && make docker-up PROFILE=core`
 - **Stale containers:** `docker rm <name>` for stopped containers from old projects
 
 ## Notes
 
 - This command works across all projects - it scans the entire Docker daemon
 - Project linkage uses `com.docker.compose.project` labels (set automatically by docker compose)
-- Health checks use the root `/` endpoint convention established for all CPP MCP servers
+- Health checks probe the root `/` endpoint of any container that publishes a host port
 - Version info is extracted from the health endpoint JSON response when available
 - If `sg docker` is needed (docker group not active in shell), the command handles this transparently

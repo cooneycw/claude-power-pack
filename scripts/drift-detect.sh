@@ -41,21 +41,17 @@ FIX_MODE=false
 # or systemd unit on a host is now handled as an orphan: Docker remnants via
 # scripts/mcp-drift.py + .claude/deprecated-mcps.yaml, and systemd remnants via
 # check_orphaned_systemd_units below.
-MCP_SERVERS=(
-    "mcp-second-opinion"
-)
-declare -A MCP_DOCKER_CONTAINERS=(
-    ["mcp-second-opinion"]="mcp-second-opinion"
-)
-declare -A MCP_SYSTEMD_UNITS=(
-    ["mcp-second-opinion"]="mcp-second-opinion"
-)
-declare -A MCP_PORTS=(
-    ["mcp-second-opinion"]="8080"
-)
-declare -A MCP_REGISTRATIONS=(
-    ["mcp-second-opinion"]="second-opinion mcp-second-opinion"
-)
+# No CPP-shipped Docker MCP servers remain: mcp-second-opinion was retired to its
+# own external repo (#469, which also removed CPP's entire Docker MCP runtime) and
+# mcp-playwright-persistent moved to the upstream @playwright/mcp npx server (#423).
+# Any leftover container, image, or systemd unit on a host is now handled purely as
+# an orphan: Docker remnants via scripts/mcp-drift.py + .claude/deprecated-mcps.yaml,
+# systemd remnants via check_orphaned_systemd_units below.
+MCP_SERVERS=()
+declare -A MCP_DOCKER_CONTAINERS=()
+declare -A MCP_SYSTEMD_UNITS=()
+declare -A MCP_PORTS=()
+declare -A MCP_REGISTRATIONS=()
 declare -A DOCKER_STATUS=()
 
 # --- Helpers ---
@@ -141,11 +137,10 @@ repo_ships_systemd_unit() {
 }
 
 canonical_server_for_unit() {
-    local unit="$1"
-    case "$unit" in
-        mcp-second-opinion) echo "mcp-second-opinion" ;;
-        *) echo "" ;;
-    esac
+    # No CPP-shipped Docker MCP servers remain (#469, #423), so there is no
+    # canonical current-server for any installed mcp-* unit; every such unit is an
+    # orphan whose registration name falls back to the unit name itself.
+    echo ""
 }
 
 primary_registration_for_unit() {
@@ -425,7 +420,7 @@ check_mcp_deployment_models() {
     local has_issue=false
     local server container docker_running units unit present_units state path
 
-    for server in "${MCP_SERVERS[@]}"; do
+    for server in ${MCP_SERVERS[@]+"${MCP_SERVERS[@]}"}; do
         container="${MCP_DOCKER_CONTAINERS[$server]:-}"
         docker_running=false
         if [[ -n "$container" ]] && is_docker_container_running "$container"; then
@@ -658,9 +653,7 @@ main() {
     # Category 1: Systemd units
     echo -e "${BOLD}Systemd Units${NC}"
     echo "------------------------------------------------"
-    check_systemd_unit "mcp-second-opinion" \
-        "$REPO_ROOT/mcp-second-opinion/deploy/mcp-second-opinion.service.template" \
-        "$REPO_ROOT/mcp-second-opinion"
+    info "systemd - CPP ships no first-party MCP systemd units (Docker MCP runtime retired in #469); any leftover mcp-* units are reported as orphans below"
     echo ""
 
     # Category 2: Sysctl

@@ -105,6 +105,16 @@ def test_unknown_when_services_undeterminable(tmp_path: Path) -> None:
     assert md.removable(findings) == []
 
 
+def test_absent_compose_file_is_known_empty(tmp_path: Path) -> None:
+    """As of #469 CPP ships no docker-compose file. A MISSING compose file is a
+    KNOWN-empty service set (known=True), NOT 'unknown' - so a deprecated server
+    still present on the host is a genuine orphan. Otherwise post-removal teardown
+    would silently never fire once the compose file is gone."""
+    services, known = md.collect_current_services(tmp_path / "no-such-compose.yml")
+    assert services == set()
+    assert known is True
+
+
 def test_container_prefix_is_matched(tmp_path: Path) -> None:
     """A CPP_CONTAINER_PREFIX'd container (e.g. `ci-mcp-nano-banana`) still matches."""
     host = md.HostState(
@@ -283,9 +293,16 @@ def _fake_bin(tmp_path: Path, *, services: str, containers: str = "",
 def _run_cli(bin_dir: Path, depfile: Path, *args: str) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     env["PATH"] = f"{bin_dir}:{env['PATH']}"
+    # CPP no longer ships a repo docker-compose.yml (#469). These CLI tests still
+    # need the "compose file present" path, so the fake docker's `config --services`
+    # is consulted and a still-listed server stays OK. Point --compose-file at a stub
+    # beside the deprecation file; the fake docker ignores its contents.
+    compose = depfile.parent / "docker-compose.yml"
+    if not compose.exists():
+        compose.write_text("services: {}\n", encoding="utf-8")
     return subprocess.run(
         [sys.executable, str(SCRIPT), "--deprecated-file", str(depfile),
-         "--compose-file", str(ROOT / "docker-compose.yml"), *args],
+         "--compose-file", str(compose), *args],
         text=True, capture_output=True, check=False, env=env,
     )
 

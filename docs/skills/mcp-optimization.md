@@ -106,7 +106,7 @@ claude mcp add playwright -- npx -y @playwright/mcp@latest
 ## Related Resources
 
 - `MCP_TOKEN_AUDIT_CHECKLIST.md` - Token audit checklist
-- `mcp-second-opinion/` - Gemini-powered code review MCP
+- Second Opinion - Gemini-powered code review MCP; external `cooneycw/mcp-second-opinion` server, wired via the root `.mcp.json` streamable-http pointer (no repo directory)
 - Browser automation - upstream `@playwright/mcp` server, registered by `/cpp:init` via npx/stdio (`claude mcp add playwright -- npx -y @playwright/mcp@latest`); no container, no repo directory
 
 ---

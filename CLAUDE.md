@@ -3,10 +3,10 @@
 ## Core Directives
 
 - **NEVER output API keys, passwords, connection strings, or `.env` file contents in responses.** The PostToolUse hook masks terminal output, but your response text is logged before masking applies.
-- **Use `make` targets for all build/deploy/Docker operations.** Never run raw `docker compose`, `uv run ruff`, or `uv run pytest` directly. If a target is missing, add it to the Makefile.
+- **Use `make` targets for build/test/deploy operations.** Never run raw `uv run ruff` or `uv run pytest` directly. If a target is missing, add it to the Makefile.
 - **Progressive disclosure:** Do NOT auto-load documentation. Read topic-specific files from `docs/skills/` only when the task requires it.
 - **Python 3.11+, uv for dependencies.** Each component has its own `pyproject.toml`.
-- **When fixing errors, fix BOTH the application code AND the CI/CD process** (Makefile, Dockerfile, docker-compose.yml). Never bypass quality gates.
+- **When fixing errors, fix BOTH the application code AND the CI/CD process** (Makefile, Dockerfile, `.woodpecker.yml`). Never bypass quality gates.
 - Before debugging manually, run `make lint` and `make test` to surface known issues.
 - **A test that shells out to a real binary (`git`, `docker`, `gitleaks`) MUST guard with `@pytest.mark.skipif(shutil.which("<tool>") is None, ...)`.** The Woodpecker `validate` container (uv:python3.11-slim) ships none of them, so an unguarded test errors the suite and turns CI red even though it passes locally (recurred #451, #489).
 - After any fix, verify through the full pipeline: `make verify`.
@@ -24,8 +24,7 @@ Core components and their locations:
 - `PROGRESSIVE_DISCLOSURE_GUIDE.md` - Context optimization patterns
 - `MCP_TOKEN_AUDIT_CHECKLIST.md` - Token efficiency checklist
 - `.specify/` - Spec-Driven Development (specs, plans, tasks, templates)
-- `aws-secrets-agent/` - AWS Secrets Manager sidecar (Rust, port 2773). See `docs/AWS_SECRETS_SIDECAR.md`.
-- `mcp-second-opinion/` - Code review MCP server (port 8080)
+- `.mcp.json` - Client pointer for the external `second-opinion` MCP server (streamable-http `127.0.0.1:8080/mcp`). Run the server from its own repo (https://github.com/cooneycw/mcp-second-opinion); CPP's `mcp-second-opinion` container + `aws-secrets-agent` sidecar (and the whole Docker MCP runtime) were retired in #469.
 - Browser automation - upstream `@playwright/mcp` registered via npx/stdio by `/cpp:init` (no container; the CPP `mcp-playwright-persistent` fork was retired in #423)
 - `extras/sequential-thinking/` - Optional: structured reasoning (stdio, npm)
 - `lib/creds/` - Secrets management (dotenv/AWS SM, FastAPI UI, audit logging)
@@ -56,50 +55,25 @@ Core components and their locations:
 - `templates/` - Makefile, workflow, container templates
 - `.claude-plugin/marketplace.json` - Plugin-marketplace manifest (marketplace name `cpp`) listing CPP's per-family plugins. Install path: `/plugin marketplace add cooneycw/claude-power-pack` then `/plugin install <family>@cpp` (ADR 0001, epic #417 Phase B).
 - `plugins/` - Per-family Claude Code plugins. Phase B2 (#478) packages every surviving family (15 plugins, `browser` through `self-improvement`): byte-identical copies of `.claude/commands/<family>/*.md` (the single source of truth, ADR 0001 section 5), kept honest by `scripts/plugin-sync.sh --check` and regenerated with `--write` after any command edit. The `cpp` plugin is help/meta-only (the init/update/status installer stays repo-local). The legacy symlink installer runs in parallel; nothing is retired until parity is proven in Phase B4.
-- `docker-compose.yml` - MCP server orchestration (profile: `core`)
-- `.woodpecker.yml` - Woodpecker CI pipeline (lint, test, typecheck, image security gates, runtime smoke)
+- `.woodpecker.yml` - Woodpecker CI pipeline (secret-scan, lint, test, typecheck, Dockerfile lint)
 
 ## Environment Variables
 
 - `CLAUDE_PROJECT` - Default project for `/project-next` from `~/Projects`. Set in `~/.bashrc`.
 
-## Docker Deployment
+## MCP Servers and Secrets
 
-Docker with local builds is the only supported MCP runtime in 6.0.0. Legacy systemd and venv-only runtime paths are removed; run `/cpp:update` to migrate any existing systemd units before refreshing containers.
+CPP ships **no container runtime** as of #469. The Docker MCP runtime (the `mcp-second-opinion` server, the `aws-secrets-agent` sidecar, all `docker-compose*.yml` files, every `make docker-*` target, and the compose-based deploy path) was retired when `mcp-second-opinion` moved to its own external repo (https://github.com/cooneycw/mcp-second-opinion). The remaining MCP servers are stdio/http and need no CPP-built image.
 
-MCP containers fetch API keys at startup from AWS Secrets Manager via an `aws-secrets-agent` sidecar. Local development can store only AWS credentials in the root `.env` file (gitignored), while CI/deploy can inject the same variables through the job environment. No application secrets are stored on disk. If `AWS_SECRET_NAME` is not set, containers use `env_file` variables (local dev mode). If `AWS_SECRET_NAME` is set but the fetch or parse fails, containers **fail closed** - they exit non-zero and never start keyless (issue #347). Set `ALLOW_ENV_FALLBACK=true` (e.g. via `docker-compose.dev.yml`) to opt into env-file fallback for local development.
-
-- **Secrets architecture:** `aws-secrets-agent` (Rust binary, port 2773) caches secrets in-memory (300s TTL) with SSRF token protection. The agent is internal-only (`expose:`, never host-published) and is the only container that receives AWS credentials; MCP containers use `fetch-secrets.sh` entrypoint to resolve keys with just the SSRF token. Use `docker-compose.dev.yml` (loopback publish + `.env` fallback + `ALLOW_ENV_FALLBACK`) for host-side debugging / offline local dev only.
-- **Required AWS credential variables:** `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_TOKEN` (SSRF token; must be unique - preflight rejects empty/`default-token`, override with `CPP_ALLOW_DEFAULT_TOKEN=1` for offline dev), supplied by local `.env` or CI/deploy environment
-- **AWS secrets used:** `codex_llm_apikeys` (second-opinion LLM keys: `GEMINI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`), `essent-ai` (Woodpecker CI keys: `WOODPECKER_URL`, `WOODPECKER_API_TOKEN` - consumed by `/flow:auto`, `woodpecker/bootstrap-secrets.py`, and `scripts/setup-woodpecker-cli.sh`; also holds `CPP_MEMORIES_DSN`, the common-memory Postgres DSN used by `lib/cpp_memory` for fleet-wide federation - reference the store host by its Tailscale address)
-- **Required IAM permissions:** `secretsmanager:GetSecretValue`, `secretsmanager:DescribeSecret` scoped to the named secret ARNs, plus `kms:Decrypt` (scoped via `kms:ViaService`) when the secrets use a customer-managed CMK
-- **Validate setup:** `make docker-secrets-check` (checks AWS creds, verifies secrets exist)
-- **Profiles:** `core` (second-opinion + secrets-agent). Browser automation is the upstream `@playwright/mcp` npx/stdio server (no container, no compose profile; see `/cpp:init`).
-- **Start:** `make docker-up PROFILE=core`
-- **Rebuild/restart/wait for health:** `make docker-refresh PROFILE=core` snapshots current image IDs as `:previous` and restores them if the candidate stack fails `--wait`
-- **Status/logs/stop:** `make docker-ps`, `make docker-logs`, `make docker-down`
-- **Liveness vs readiness:** each MCP server serves `/` (liveness: process is up) and `/readyz` (readiness: required secrets/config actually loaded). Compose healthchecks - the `docker compose up --wait` release gate - probe `/readyz`, so a live-but-keyless container (e.g. a failed secret fetch) is reported unhealthy and `--wait` fails instead of greenlighting it. The secret-bearing server (`mcp-second-opinion`) reports ready only once its provider keys load. CI/deploy without a live secrets-agent can inject keys via the LLM env passthroughs in `docker-compose.yml`; the agent overrides them at runtime.
-- **Empty AWS credential guard:** `make docker-up` refuses to create `aws-secrets-agent` when `AWS_ACCESS_KEY_ID` or `AWS_SECRET_ACCESS_KEY` resolves empty. If a stale sidecar was already created with empty creds, fix env and force-recreate `aws-secrets-agent` plus secret-dependent MCP containers.
-- **Deploy preflight:** `make deploy` runs `scripts/assert-prod-env.sh`; production deploys reject `default-token` even if local-dev opt-out is set, and require `SECOND_OPINION_AWS_SECRET_NAME` for `core` plus `WOODPECKER_CI_AWS_SECRET_NAME` for `cicd`.
-- **MCP connections:** Defined in project `.mcp.json` pointing to `127.0.0.1:{port}/sse` (SSE transport)
-- **Woodpecker CI** runs on push/PR: secret-scan (gitleaks), lint, test, typecheck, Dockerfile lint, compose policy checks, image builds, image CVE scans, SBOM generation, and isolated runtime smoke tests for MCP stack changes
-- **Secret scanning:** `make secret-scan` runs gitleaks locally (native binary or Docker fallback). Config in `.gitleaks.toml` with allowlists for doc/test false positives
-- **Runtime smoke:** CI validation of the MCP stack, driven by `scripts/runtime-smoke.sh`:
-  - Uses a `cpp-smoke-$CI_PIPELINE_NUMBER` compose project with random host ports and validates service health
-  - Asserts the agent is reachable cross-container at `http://aws-secrets-agent:2773` (proving the `0.0.0.0` bind)
-  - Exercises the client's real fetch/parse/export path via a hermetic fake agent (`scripts/fake-secrets-agent.py` + `docker-compose.smoke.yml`) with a non-empty `AWS_SECRET_NAME`
-  - Drives a secret through the **REAL** `aws-secrets-agent` binary against a LocalStack Secrets Manager (real AWS SDK `GetSecretValue` via `AWS_ENDPOINT_URL`, no production credentials) so a consumer actually receives a genuinely-fetched secret (issue #377)
-  - Retries in-container readiness probes (up to 10x, 3s apart) so a transient post-`--wait` connection refusal does not fail the build; on genuine exhaustion the step dumps `docker compose ps` and the failing service's recent logs (issue #375)
-  - Runs `docker compose down -v` before exiting; CI must not deploy persistent containers or prune host images
-- **Image security gates:** CI runs hadolint over every Dockerfile, validates `docker compose config --quiet`, blocks rendered `:latest`, `default-token`, and host-published agent port regressions, then scans built images for fixed HIGH/CRITICAL CVEs and writes SPDX/CycloneDX SBOMs to `artifacts/sbom/`.
-- **Bootstrap checks:** `make bootstrap-check` verifies admin-only prerequisites (IAM roles, secrets provisioning) before deploy. Configure in `.claude/bootstrap.yaml`. Runs as the first step in the deploy pipeline - blocks with remediation if unsatisfied.
-- **Drift detection:** `make drift-check`:
-  - Compares host-installed artifacts against repo templates and treats remaining systemd MCP units as legacy migration findings
-  - Flags **orphaned Docker MCP servers** - a container, `mcp-<name>:*` image, or `claude`/`codex mcp` registration left behind after a server is removed from `docker-compose.yml` - by deriving the current service set from `docker compose config --services` and matching against the curated `.claude/deprecated-mcps.yaml` list of record (via `scripts/mcp-drift.py`)
-  - Detection is curated-list driven so a user's own custom MCP registration is never flagged
-  - Teardown is offered per-server, user-confirmed, and keeps a newest-image restore point unless prune-all is chosen (run `/cpp:update`, or `python3 scripts/mcp-drift.py --teardown <name>`)
-  - Run it manually when reconciling workstation-managed artifacts; see `docs/HOST_MANAGED_ARTIFACTS.md` for full inventory
-- **Reproducible builds:** Every base image and build tool (python, rust, debian, `uv`, gitleaks, woodpecker server/agent) is pinned by version tag plus `@sha256:` digest in the Dockerfiles, `.woodpecker.yml`, and infra compose files - never `:latest`. Deployable images are tagged with `CPP_IMAGE_TAG` (the short git SHA, set by the Makefile) instead of `:latest`, so each image traces to a commit and rollbacks have provenance. `renovate.json` rotates the pinned digests on a weekly schedule so pinning never freezes security updates.
+- **Second opinion (`/second-opinion:*`, `/evaluate:*`):** the server runs from its own external repo (localhost, or a Tailscale host). CPP consumes it as a client - the repo ships a root `.mcp.json` registering `second-opinion` as a streamable-http server at `http://127.0.0.1:8080/mcp`. Point that URL (or a user-scope `claude mcp add second-opinion --transport http --url <url> --scope user`) at wherever your server runs. Start the external server first; see `/cpp:init`.
+- **Browser automation:** upstream `@playwright/mcp` registered via npx/stdio by `/cpp:init` (no container; the CPP `mcp-playwright-persistent` fork was retired in #423).
+- **Secrets:** CPP stores no application secrets on disk and runs no secrets sidecar. The remaining AWS Secrets Manager consumers fetch **directly** via the AWS SDK/CLI: `essent-ai` (Woodpecker CI keys `WOODPECKER_URL` / `WOODPECKER_API_TOKEN`, consumed by `/flow:auto`, `woodpecker/bootstrap-secrets.py`, and `scripts/setup-woodpecker-cli.sh`; also holds `CPP_MEMORIES_DSN`, the common-memory Postgres DSN used by `lib/cpp_memory` for fleet-wide federation - reference the store host by its Tailscale address). Second-opinion LLM keys (`codex_llm_apikeys`) now live with the external server, not CPP. See `/secrets:*` and `lib/creds/`.
+- **Deploy:** `make deploy` is an informative no-op - CPP ships no deployable services.
+- **Secret scanning:** `make secret-scan` runs gitleaks locally (native binary or Docker fallback). Config in `.gitleaks.toml` with allowlists for doc/test false positives.
+- **Bootstrap checks:** `make bootstrap-check` verifies admin-only prerequisites in `.claude/bootstrap.yaml` (now just `jq`, since the Docker runtime prerequisites were retired).
+- **Woodpecker CI** runs on push/PR: secret-scan (gitleaks), lint, test, typecheck, and Dockerfile lint. The image-build / CVE-scan / SBOM / compose-policy / runtime-smoke stages were retired with the container runtime in #469.
+- **Drift detection:** `make drift-check` compares host-installed artifacts against repo templates and flags **orphaned Docker MCP servers** - a leftover container, `mcp-<name>:*` image, or `claude`/`codex mcp` registration from a retired server (e.g. a lingering `mcp-second-opinion` or `aws-secrets-agent`) - against the curated `.claude/deprecated-mcps.yaml` list of record (via `scripts/mcp-drift.py`). Since CPP now ships no compose file, the current service set is empty by absence, so a listed server still present on the host is treated as an orphan. Detection is curated-list driven so a user's own custom MCP registration is never flagged (the valid external `second-opinion` registration is intentionally not listed); teardown is per-server, user-confirmed, and keeps a newest-image restore point unless prune-all is chosen (run `/cpp:update`, or `python3 scripts/mcp-drift.py --teardown <name>`). See `docs/HOST_MANAGED_ARTIFACTS.md` for full inventory.
+- **Reproducible builds:** the remaining container image references (the `mcp-evaluate` Dockerfile and the tool images in `.woodpecker.yml`) are pinned by version tag plus `@sha256:` digest, never `:latest`. `renovate.json` rotates the pinned digests on a weekly schedule so pinning never freezes security updates.
 
 ## Commands Reference
 
