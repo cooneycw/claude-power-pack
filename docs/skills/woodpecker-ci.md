@@ -189,12 +189,11 @@ thin stage wired to a project `make` target:
       - make smoke
 ```
 
-The `make smoke` target owns the real work. CPP's `scripts/runtime-smoke.sh` is a
-worked example: it brings the stack up with `docker compose up --wait`, proves
-cross-container reachability, and drives a real secret through a LocalStack
-Secrets Manager - no production credentials. Retry readiness probes (transient
-connection-refused right after `--wait` is normal) and always `docker compose
-down -v` on exit.
+The `make smoke` target owns the real work. A solid smoke script brings the stack
+up with `docker compose up --wait`, proves cross-container reachability, and
+drives a real secret through a LocalStack Secrets Manager - no production
+credentials. Retry readiness probes (transient connection-refused right after
+`--wait` is normal) and always `docker compose down -v` on exit.
 
 ### 4. Secrets bootstrap
 

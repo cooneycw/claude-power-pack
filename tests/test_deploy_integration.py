@@ -197,7 +197,7 @@ class TestDeployReadinessRollbackFlow:
 
         config = DeployConfig(
             profiles=["core", "cicd"],
-            services=["second-opinion", "aws-secrets-agent"],
+            services=["web", "worker"],
         )
         step = DeployStep(config)
         result = step.execute(self._make_context(tmp_path))
@@ -208,7 +208,7 @@ class TestDeployReadinessRollbackFlow:
         assert "--profile" in pull_cmd
         assert "core" in pull_cmd
         assert "cicd" in pull_cmd
-        assert "second-opinion" in pull_cmd
+        assert "web" in pull_cmd
 
     @patch("subprocess.run")
     def test_deploy_with_custom_commands(

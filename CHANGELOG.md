@@ -15,6 +15,29 @@
 
 ### Removed
 
+- **Retired `mcp-second-opinion` + `aws-secrets-agent` and CPP's entire Docker MCP
+  runtime** (issue #469) - the multi-model code-review server moved to its own
+  external repo (https://github.com/cooneycw/mcp-second-opinion), so CPP now consumes
+  it as a client via a root `.mcp.json` (streamable-http `127.0.0.1:8080/mcp`)
+  instead of building it. Because second-opinion was the last containerized MCP
+  server, this removed the whole Docker runtime: the `mcp-second-opinion/` and
+  `aws-secrets-agent/` directories, all three `docker-compose*.yml` files, every
+  `make docker-*` target + `docker-secrets-check` + the compose-based
+  `deploy`/`docker-refresh` chain (`make deploy` is now an informative no-op), the
+  `.woodpecker.yml` compose-policy / image-security / runtime-smoke stages (dropping
+  the second recurring Trivy CVE drift tax), the `renovate.json` image pins, and the
+  Docker smoke/guard scripts (`runtime-smoke.sh`, `fake-secrets-agent.py`,
+  `check-docker-aws-env.py`, `docker-health-check.py`,
+  `docker-refresh-transactional.sh`, `assert-prod-env.sh`, `check-aws-secret-keys.py`,
+  `ci-docker-login.sh`) plus their tests and `docs/AWS_SECRETS_SIDECAR.md`.
+  `mcp-evaluate` stays (it reaches second-opinion over HTTP). Added both components to
+  `.claude/deprecated-mcps.yaml` - deliberately with NO registration entries for
+  `mcp-second-opinion`, since the new external server reuses that registration name -
+  so `/cpp:update` offers a user-confirmed teardown of any leftover container or
+  image; `scripts/mcp-drift.py` now treats a missing compose file as a known-empty
+  service set so that teardown still fires post-removal. `.claude/bootstrap.yaml`
+  drops the Docker/AWS prerequisites (only `jq` remains).
+
 - **Retired the `mcp-playwright-persistent` server** (issue #423) - deleted the
   823-line server, its Dockerfile, deploy scripts, the `browser` compose
   service/profile, its Woodpecker image-security + hadolint gate scope (dropping

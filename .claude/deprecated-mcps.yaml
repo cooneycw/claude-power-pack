@@ -15,6 +15,12 @@
 #   2. it is no longer a service in docker-compose.yml
 #      (docker compose config --services, across all profiles).
 #
+# As of issue #469 CPP ships NO docker-compose file at all (the Docker MCP
+# runtime was retired), so condition 2 is satisfied by absence: mcp-drift.py
+# treats a missing compose file as a known-empty service set, so a listed server
+# that still lingers on a host is a genuine orphan. If a compose file is later
+# reintroduced, a listed name that is still a service is classified OK.
+#
 # So a name can be seeded here ahead of its removal PR with zero risk: while the
 # service is still in compose it is classified OK and never touched. Only once
 # the removal lands (and a stale copy lingers on a host) does it become an
@@ -104,3 +110,32 @@ deprecated:
     codex_registrations:
       - playwright-persistent
       - mcp-playwright-persistent
+
+  - name: mcp-second-opinion
+    reason: >-
+      CPP's containerized multi-model code-review server is retired; it now runs
+      from its own external repo (github.com/cooneycw/mcp-second-opinion) and CPP
+      consumes it via a .mcp.json pointer. Retiring it removed CPP's entire Docker
+      MCP runtime (issue #469).
+    replacement: external second-opinion server via .mcp.json
+    port: 8080
+    image_prefix: mcp-second-opinion
+    containers:
+      - mcp-second-opinion
+    # NOTE: intentionally NO claude_registrations / codex_registrations. The new
+    # external server keeps the SAME registration name ("second-opinion", now
+    # pointed at :8080/mcp by the root .mcp.json), so listing it here would make
+    # /cpp:update offer to tear down the user's valid new wiring. Only the stale
+    # container and mcp-second-opinion:* images are orphans worth removing.
+
+  - name: aws-secrets-agent
+    reason: >-
+      The AWS Secrets Manager sidecar container fed API keys to the retired
+      mcp-second-opinion server and had no other consumer; it is removed with it.
+      Remaining AWS secret access (cpp_memory federation, Woodpecker CI) uses the
+      AWS SDK/CLI directly, not this sidecar (issue #469).
+    replacement: direct AWS SDK/CLI access (no sidecar)
+    port: 2773
+    image_prefix: aws-secrets-agent
+    containers:
+      - aws-secrets-agent

@@ -10,28 +10,15 @@
   "dockerfile": {
     "enabled": true
   },
-  "docker-compose": {
-    "enabled": true
-  },
   "woodpecker": {
     "enabled": true
   },
   "packageRules": [
     {
       "description": "Rotate all pinned base-image and tool digests together so reproducible pins stay current without freezing security updates.",
-      "matchManagers": ["dockerfile", "docker-compose", "woodpecker"],
+      "matchManagers": ["dockerfile", "woodpecker"],
       "matchUpdateTypes": ["digest", "pin", "pinDigest"],
       "groupName": "container image digests"
-    },
-    {
-      "description": "Locally-built deployable images are tagged from the git SHA (CPP_IMAGE_TAG), not pulled from a registry. Renovate cannot and must not try to update them.",
-      "matchManagers": ["docker-compose"],
-      "matchPackageNames": [
-        "aws-secrets-agent",
-        "mcp-second-opinion",
-        "second-opinion-mcp"
-      ],
-      "enabled": false
     }
   ]
 }

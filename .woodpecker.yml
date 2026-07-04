@@ -1,9 +1,13 @@
 # Claude Power Pack - Woodpecker CI Pipeline
-# Runs quality gates, image security checks, and ephemeral MCP runtime smoke tests.
+# Runs quality gates and Dockerfile lint.
 #
 # Pipeline:
-#   PR/push -> secret-scan -> validate (lint+test+typecheck) -> Dockerfile lint + compose policy
-#   MCP/compose/shared changes -> image build/CVE/SBOM gate -> runtime-smoke
+#   PR/push -> secret-scan -> validate (lint+test+typecheck) -> Dockerfile lint
+#
+# The Docker MCP runtime (second-opinion + aws-secrets-agent images, compose
+# policy checks, image CVE/SBOM scans, and the runtime smoke stage) was retired
+# in issue #469 when mcp-second-opinion moved to its own external repo. CPP no
+# longer builds or ships container images.
 
 when:
   - event: [push, pull_request]
@@ -28,131 +32,4 @@ steps:
     pull: true
     depends_on: [validate]
     commands:
-      - find . -path ./.git -prune -o -name Dockerfile -print0 | xargs -0 hadolint --failure-threshold error
-
-  compose-policy:
-    image: codeberg.org/woodpecker-plugins/docker-buildx:6.1.0@sha256:33263f74a593ddef5d4faeb39ae9f87db14d64d8aae8186284ae6e90d89298a4
-    depends_on: [validate]
-    commands:
-      - apk add --no-cache docker-cli-compose
-      - |
-        set -eu
-
-        export AWS_TOKEN=ci-policy-token
-        export AWS_SECRETS_AGENT_PORT_MAPPING=2773
-        export MCP_SECOND_OPINION_PORT_MAPPING=8080
-
-        rendered="$(mktemp)"
-        docker compose --profile core --profile cicd config --quiet
-        docker compose --profile core --profile cicd config > "$rendered"
-
-        if grep -nE 'image: [^[:space:]]+:latest([[:space:]]|$)' "$rendered"; then
-          echo "ERROR: rendered compose config must not use :latest images"
-          exit 1
-        fi
-
-        if grep -n 'default-token' "$rendered"; then
-          echo "ERROR: rendered compose config must not contain the default sidecar token"
-          exit 1
-        fi
-
-        if grep -nE 'published: "?2773"?' "$rendered"; then
-          echo "ERROR: aws-secrets-agent must not publish host port 2773 in CI config"
-          exit 1
-        fi
-
-  image-security:
-    image: codeberg.org/woodpecker-plugins/docker-buildx:6.1.0@sha256:33263f74a593ddef5d4faeb39ae9f87db14d64d8aae8186284ae6e90d89298a4
-    depends_on: [dockerfile-lint, compose-policy]
-    environment:
-      DOCKERHUB_USERNAME:
-        from_secret: dockerhub_username
-      DOCKERHUB_TOKEN:
-        from_secret: dockerhub_token
-    commands:
-      - apk add --no-cache docker-cli-compose
-      - sh scripts/ci-docker-login.sh
-      - |
-        set -eu
-
-        export CPP_IMAGE_TAG="ci-${CI_COMMIT_SHA:-local}"
-        docker compose --profile core --profile cicd build
-
-        mkdir -p artifacts/sbom
-        docker pull ghcr.io/aquasecurity/trivy:0.67.2
-        docker pull ghcr.io/anchore/syft:v1.44.0
-
-        images="
-        aws-secrets-agent:$CPP_IMAGE_TAG
-        mcp-second-opinion:$CPP_IMAGE_TAG
-        "
-
-        for image in $images; do
-          slug="$(printf '%s' "$image" | cut -d: -f1)"
-          echo "Scanning $image for fixed HIGH/CRITICAL CVEs"
-          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
-            ghcr.io/aquasecurity/trivy:0.67.2 image \
-            --scanners vuln \
-            --exit-code 1 \
-            --severity HIGH,CRITICAL \
-            --ignore-unfixed \
-            "$image"
-
-          echo "Generating SBOMs for $image"
-          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
-            ghcr.io/anchore/syft:v1.44.0 "$image" -o spdx-json > "artifacts/sbom/$slug.spdx.json"
-          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
-            ghcr.io/anchore/syft:v1.44.0 "$image" -o cyclonedx-json > "artifacts/sbom/$slug.cyclonedx.json"
-        done
-
-        for sbom in artifacts/sbom/*.json; do
-          test -s "$sbom"
-        done
-        ls -lh artifacts/sbom
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    when:
-      # MUST stay a superset of runtime-smoke's paths: runtime-smoke
-      # depends_on image-security, so any change that triggers the smoke step
-      # must also trigger this one, or Woodpecker errors the whole pipeline
-      # with "depends on unknown step 'image-security'" (issue #384).
-      - event: [push, pull_request]
-        path:
-          - ".woodpecker.yml"
-          - "docker-compose.yml"
-          - "docker-compose.smoke.yml"
-          - "scripts/ci-docker-login.sh"
-          - "scripts/runtime-smoke.sh"
-          - "scripts/fake-secrets-agent.py"
-          - "aws-secrets-agent/**"
-          - "lib/**"
-          - "mcp-second-opinion/**"
-
-  runtime-smoke:
-    image: codeberg.org/woodpecker-plugins/docker-buildx:6.1.0@sha256:33263f74a593ddef5d4faeb39ae9f87db14d64d8aae8186284ae6e90d89298a4
-    depends_on: [image-security]
-    environment:
-      DOCKERHUB_USERNAME:
-        from_secret: dockerhub_username
-      DOCKERHUB_TOKEN:
-        from_secret: dockerhub_token
-    commands:
-      - apk add --no-cache curl docker-cli-compose
-      # Authenticate Docker Hub before compose pulls base images (#370).
-      - sh scripts/ci-docker-login.sh
-      # Smoke logic lives in a script file - Woodpecker mangles nested quotes inline (#350).
-      - sh scripts/runtime-smoke.sh
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    when:
-      - event: [push, pull_request]
-        path:
-          - ".woodpecker.yml"
-          - "docker-compose.yml"
-          - "docker-compose.smoke.yml"
-          - "scripts/ci-docker-login.sh"
-          - "scripts/runtime-smoke.sh"
-          - "scripts/fake-secrets-agent.py"
-          - "aws-secrets-agent/**"
-          - "lib/**"
-          - "mcp-second-opinion/**"
+      - find . -path ./.git -prune -o -name Dockerfile -print0 | xargs -0 -r hadolint --failure-threshold error

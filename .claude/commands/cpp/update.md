@@ -104,22 +104,15 @@ echo "Updated: v$CURRENT_VERSION -> v$NEW_VERSION ($NEW_COMMIT)"
 
 ---
 
-## Step 4: Update Dependencies (Tier 3)
+## Step 4: Update Dependencies
 
-If MCP server venvs exist, sync dependencies to pick up any new packages:
+CPP no longer ships in-repo MCP server venvs. The second-opinion server is an
+external project (https://github.com/cooneycw/mcp-second-opinion) with its own
+dependencies, and playwright runs via npx. There are no CPP-managed server venvs
+to sync here.
 
 ```bash
-cd "$CPP_DIR"
-
-for server_dir in mcp-second-opinion; do
-  if [ -d "$server_dir/.venv" ]; then
-    echo ""
-    echo "Syncing dependencies for $server_dir..."
-    cd "$CPP_DIR/$server_dir"
-    uv sync
-    echo "Done: $server_dir dependencies updated"
-  fi
-done
+echo "No in-repo MCP server venvs to update (second-opinion is external, playwright is npx)."
 ```
 
 ---
@@ -195,9 +188,9 @@ fi
 
 ## Step 4.5: Legacy Systemd Teardown
 
-Before refreshing Docker, detect legacy MCP systemd units in both system and
-user scopes. This is a migration step only: systemd is no longer a supported
-runtime model. Do not stop, disable, or remove anything until the user confirms.
+Detect legacy MCP systemd units in both system and user scopes. This is a
+migration step only: systemd is no longer a supported runtime model. Do not
+stop, disable, or remove anything until the user confirms.
 
 Known legacy unit names to scan:
 
@@ -306,13 +299,13 @@ fi
 If legacy units were found, ask the user before teardown:
 
 ```
-Legacy systemd MCP units can conflict with the Docker MCP stack by binding the
-same ports or reviving stale server versions. Remove the listed systemd units
-before refreshing Docker?
+Legacy systemd MCP units can revive stale server versions or bind ports that
+conflict with your MCP servers (the external second-opinion server, playwright).
+Remove the listed systemd units?
 ```
 
 Options:
-- **Tear down legacy systemd** - Stop, disable, remove unit files, reload systemd, then continue Docker refresh
+- **Tear down legacy systemd** - Stop, disable, remove unit files, reload systemd
 - **Skip teardown** - Leave systemd units in place and continue with a port-conflict warning
 
 If the user confirms teardown, run:
@@ -353,109 +346,60 @@ fi
 If the user skips teardown, set `SYSTEMD_TEARDOWN_STATUS="skipped"` and warn:
 
 ```
-WARNING: Legacy systemd units were left installed. Docker refresh will continue,
-but stale units may still bind MCP ports or restart old server versions.
-Run /cpp:update again and choose teardown if Docker health fails due to port use.
+WARNING: Legacy systemd units were left installed. Stale units may still bind
+MCP ports or restart old server versions. Run /cpp:update again and choose
+teardown if you hit a port conflict with your MCP servers.
 ```
 
 ---
 
-## Step 5: Docker Refresh Runtime
+## Step 5: Runtime Refresh (no Docker stack)
 
-CPP now uses Docker with local builds as the only supported MCP runtime. Before
-refreshing, verify Docker and Docker Compose are available. Do not restart
-systemd units and do not offer a venv-only runtime branch.
+CPP no longer builds or runs a Docker MCP stack. The second-opinion server is an
+external project (https://github.com/cooneycw/mcp-second-opinion) that you run
+yourself, and playwright runs via npx - so there is nothing for /cpp:update to
+rebuild here. The git pull already refreshed the symlinked commands and skills.
+
+Retired MCP containers left on this host (mcp-second-opinion, aws-secrets-agent,
+mcp-playwright-persistent, ...) are handled by the orphaned-Docker-MCP teardown
+in Step 6c/7, not by a rebuild.
 
 ```bash
-cd "$CPP_DIR"
-
-DEPLOY_MODEL="docker"
-DOCKER_READY=false
-
-if ! command -v docker &>/dev/null; then
-  echo "ERROR: Docker is required for CPP Tier 3 runtime refresh."
-  echo "Install Docker Engine or Docker Desktop, then rerun /cpp:update."
-  exit 1
-fi
-
-if ! docker compose version &>/dev/null; then
-  echo "ERROR: Docker Compose v2 is required for CPP Tier 3 runtime refresh."
-  echo "Install the Docker Compose plugin, then rerun /cpp:update."
-  exit 1
-fi
-
-if [ ! -f "$CPP_DIR/docker-compose.yml" ]; then
-  echo "ERROR: docker-compose.yml not found in $CPP_DIR"
-  exit 1
-fi
-
-DOCKER_READY=true
-
-echo ""
-echo "Refreshing Docker MCP stack..."
-make docker-refresh PROFILE="core"
-DOCKER_REFRESH_RC=$?
-if [ "$DOCKER_REFRESH_RC" -ne 0 ]; then
-  echo "ERROR: Docker refresh failed or one or more containers are unhealthy."
-  exit "$DOCKER_REFRESH_RC"
-fi
-
-echo ""
-echo "Verifying Docker MCP health..."
-make docker-health PROFILE="core"
-DOCKER_HEALTH_RC=$?
-if [ "$DOCKER_HEALTH_RC" -ne 0 ]; then
-  echo "ERROR: Docker health verification failed."
-  exit "$DOCKER_HEALTH_RC"
-fi
-```
-
-Report the Docker refresh and health result to the user:
-
-```
-Runtime Refresh:
-  Model: Docker (local build)
-  Docker: rebuilt/restarted/healthy
-  Health: make docker-health passed
-  Legacy systemd: {none|removed N unit scope(s)|skipped with warning}
+RUNTIME_STATUS="no Docker MCP stack (second-opinion external, playwright via npx)"
+echo "$RUNTIME_STATUS"
 ```
 
 ---
 
 ## Step 6: MCP Server Drift Detection
 
-After pulling and refreshing Docker, scan for drift between what the repo ships
-and what is actually installed/running. Docker is the only valid deployment
-target. Any remaining systemd unit is a legacy migration finding, not a runtime
-option to repair or restart.
+After pulling, scan for drift between what CPP expects and what is actually
+installed/running on this host. CPP no longer runs a Docker MCP stack, so the
+findings that matter now are: retired MCP containers/images/registrations left
+behind (torn down via Step 6c/7), legacy systemd units, and stale MCP
+registrations. Any remaining systemd unit is a legacy migration finding, not a
+runtime option to repair or restart.
 
 ### 6a: Build Inventory
 
-Build two lists - what the repo ships for Docker vs what is installed/running -
+Build two lists - what CPP expects vs what is installed/running on this host -
 then compare.
 
-**Repo inventory** - scan for active MCP servers the repo provides:
+**Repo inventory** - what CPP expects for MCP servers now:
 
 ```bash
 cd "$CPP_DIR"
 
 echo "=== Repo MCP Server Inventory ==="
 
-# Active servers from docker-compose.yml (uncommented services with ports)
-echo "Docker-compose services:"
-grep -E '^\s{2}[a-z].*:$' docker-compose.yml | grep -v '^\s*#' | sed 's/://;s/^ */  /'
+# CPP no longer ships a Docker MCP stack. It expects:
+echo "  second-opinion - external streamable-http server (root .mcp.json -> :8080/mcp)"
+echo "  playwright      - upstream @playwright/mcp via npx/stdio"
 
 echo ""
-echo "Historical systemd service files (legacy reference only):"
-find . -path '*/deploy/*.service' -type f | sort | while read f; do
-  echo "  $f"
-done
-
-echo ""
-echo "Dockerfiles:"
-find . -path '*/deploy/Dockerfile' -type f | sort | while read f; do
-  echo "  $f"
-done
+echo "Retired servers (curated in .claude/deprecated-mcps.yaml, torn down as"
+echo "orphans by Step 6c/7):"
+grep -E '^\s{2}- name:' .claude/deprecated-mcps.yaml | sed 's/- name:/  -/'
 ```
 
 **Installed inventory** - scan what is currently running/registered:
@@ -464,9 +408,15 @@ done
 echo ""
 echo "=== Installed MCP Inventory ==="
 
-echo "Docker containers:"
-if [ "$DOCKER_READY" = "true" ]; then
-  docker compose --profile core --profile browser ps 2>/dev/null || echo "  (unavailable)"
+echo "MCP registrations (claude mcp list):"
+claude mcp list 2>/dev/null | sed 's/^/  /' || echo "  (none)"
+
+echo ""
+echo "Leftover MCP containers (retired; torn down by Step 6c/7):"
+if command -v docker &>/dev/null; then
+  docker ps -a --format '{{.Names}}' 2>/dev/null \
+    | grep -E '^(mcp-second-opinion|aws-secrets-agent|mcp-playwright-persistent|mcp-nano-banana|mcp-woodpecker-ci|mcp-coordination)$' \
+    | sed 's/^/  /' || echo "  (none)"
 else
   echo "  (docker unavailable)"
 fi
@@ -503,28 +453,35 @@ fi
 
 Compare the inventories and classify each finding. Use the following logic:
 
-**Known repo servers** (from docker-compose.yml, not commented out):
-- `mcp-second-opinion` (port 8080, profile: core)
+**Expected servers** (what CPP wires now, registration-only - no containers):
+- `second-opinion` - external streamable-http server; the root `.mcp.json` points
+  Claude Code at `http://127.0.0.1:8080/mcp` (project scope), optionally also
+  registered at user scope. CPP does not build or run it.
+- `playwright` - upstream `@playwright/mcp` via npx/stdio.
 
 **Retired servers** (removed; listed in `.claude/deprecated-mcps.yaml`, torn down as
 orphans by Step 6c/7 + `scripts/mcp-drift.py`):
+- `mcp-second-opinion` (retired #469 - the containerized server moved to its own
+  external repo; only the stale container/images are orphans - the `second-opinion`
+  registration is the user's valid new wiring and is intentionally NOT flagged)
+- `aws-secrets-agent` (retired #469 - the AWS SM sidecar fed the old container and
+  has no other consumer)
 - `mcp-playwright-persistent` (retired #423 - browser automation moved to the
   upstream `@playwright/mcp` npx/stdio server)
+- `mcp-nano-banana`, `mcp-woodpecker-ci`, `mcp-coordination` (retired earlier)
 
-**Deprecated servers** (commented out in docker-compose.yml):
+**Deprecated servers**:
 - `mcp-evaluate` (deprecated - absorbed into /evaluate:issue skill)
 
-**For each known repo server**, check:
-1. Is there a Docker container running/healthy?
-2. Is it registered in `claude mcp list`?
-3. Is the port listening?
-4. Is any legacy systemd unit still installed for that server?
+**For each expected server**, check:
+1. Is it registered in `claude mcp list`?
+2. For second-opinion, is `http://127.0.0.1:8080/mcp` reachable (external server up)?
 
 **For each installed legacy systemd service matching mcp-*, nano-*, or
 coordination**, classify it as:
 
-1. **LEGACY SYSTEMD** if it maps to a current Docker server
-2. **ORPHANED LEGACY** if the repo no longer ships it as a Docker server
+1. **LEGACY SYSTEMD** if it maps to a retired server
+2. **ORPHANED LEGACY** if CPP no longer ships it
 3. **LEGACY DEPRECATED** for `mcp-evaluate`/`evaluate`
 
 Build a drift report table:
@@ -533,27 +490,27 @@ Build a drift report table:
 MCP Server Drift Report
 ========================
 
-Server                    Repo    Docker    MCP Reg   Port    Legacy Units              Status
------------------------------------------------------------------------------------------------
-mcp-second-opinion        yes     healthy   yes       8080    user:mcp-second-opinion   LEGACY SYSTEMD
-mcp-playwright-persistent no      none      no        --      system:mcp-playwright     ORPHANED LEGACY
-mcp-coordination          no      none      yes       8082    system:mcp-coordination   ORPHANED LEGACY
-mcp-evaluate              depr.   none      no        --      user:mcp-evaluate         LEGACY DEPRECATED
+Server                    Expected  MCP Reg   Container   Legacy Units              Status
+------------------------------------------------------------------------------------------
+second-opinion            yes       yes       --          --                        OK
+playwright                yes       yes       --          --                        OK
+mcp-second-opinion        retired   --        present     --                        ORPHANED DOCKER MCP
+aws-secrets-agent         retired   --        present     --                        ORPHANED DOCKER MCP
+mcp-coordination          retired   yes       none        system:mcp-coordination   ORPHANED LEGACY
+mcp-evaluate              depr.     no        none        user:mcp-evaluate         LEGACY DEPRECATED
 ```
 
 Status classifications:
-- **OK** - repo server is installed, registered, and running
-- **LEGACY SYSTEMD** - systemd unit remains for a current Docker server; teardown only
-- **LEGACY DEPRECATED** - deprecated server has a systemd unit; teardown only
-- **ORPHANED LEGACY** - installed/running legacy unit is no longer a repo Docker server
+- **OK** - expected server is registered (and, for second-opinion, reachable)
+- **LEGACY SYSTEMD** - a systemd unit remains for a retired server; teardown only
+- **LEGACY DEPRECATED** - a deprecated server has a systemd unit; teardown only
+- **ORPHANED LEGACY** - an installed/running legacy systemd unit CPP no longer ships
 - **ORPHANED DOCKER MCP** - a curated retired server (`.claude/deprecated-mcps.yaml`)
-  that is no longer in `docker-compose.yml` but is still present locally as a
-  container, an `mcp-<name>:*` image, or a `claude`/`codex mcp` registration
+  still present locally as a container, an `mcp-<name>:*` image, or a
+  `claude`/`codex mcp` registration after CPP retired it (CPP ships no compose
+  file, so any listed server still present locally is an orphan)
 - **PORT CONFLICT** - multiple listener processes are bound to the same MCP port
-- **NEW - NOT INSTALLED** - repo ships it but it is not installed
-- **NOT RUNNING** - installed but service/container is not active
-- **UNHEALTHY** - Docker container is running but healthcheck is failing
-- **NOT REGISTERED** - running but not in `claude mcp list`
+- **NOT REGISTERED** - a server is reachable but not in `claude mcp list`
 
 Use `scripts/drift-detect.sh --fix` as raw inventory for:
 
@@ -566,10 +523,12 @@ report systemd as `CONFLICT`, `FAILED SYSTEMD`, or `STALE SERVICE`.
 
 ### 6c: Detect Orphaned Docker MCP Servers
 
-Systemd orphans are only half the picture: when a server is removed from
-`docker-compose.yml`, a machine that ran it keeps the old container, the old
-`mcp-<name>:*` images, and a live `claude`/`codex mcp` registration on a
-now-unmanaged port. `scripts/mcp-drift.py` detects those, driven by the curated
+Systemd orphans are only half the picture: when a server is retired from CPP, a
+machine that ran it keeps the old container, the old `mcp-<name>:*` images, and a
+live `claude`/`codex mcp` registration on a now-unmanaged port. This now includes
+the Docker MCP runtime CPP retired wholesale in #469 - a lingering
+`mcp-second-opinion` or `aws-secrets-agent` container is exactly this kind of
+orphan. `scripts/mcp-drift.py` detects those, driven by the curated
 `.claude/deprecated-mcps.yaml` list of record (never a blanket "every
 registration not in compose" sweep, which would tear down a user's own custom
 MCP servers).
@@ -583,17 +542,19 @@ MCP_DOCKER_DRIFT_RC=$?
 ```
 
 A server is classified **ORPHANED DOCKER MCP** only when it is listed in
-`deprecated-mcps.yaml` **and** no longer a service in
-`docker compose config --services` (across every profile) **and** still present
-locally. A server that is still a compose service is `OK`; a listed server with
-nothing present is `ABSENT`; if the current service set cannot be read the
-server is `UNKNOWN` (never torn down). Registrations CPP never shipped are never
-listed, so they are never flagged.
+`deprecated-mcps.yaml` **and** no longer a compose service **and** still present
+locally. CPP now ships NO `docker-compose.yml`, so `mcp-drift.py` treats the
+service set as empty by absence - any listed server still lingering on the host is
+a genuine orphan. (If a compose file is ever reintroduced, a listed name that is
+still a service is `OK`.) A listed server with nothing present is `ABSENT`; if the
+service set cannot be read the server is `UNKNOWN` (never torn down). Registrations
+CPP never shipped are never listed, so they are never flagged - and the valid new
+`second-opinion` registration is deliberately left off the retired entry's
+registration list, so the user's new wiring is never torn down.
 
 Limitation to surface if asked: like skill drift, detection is curated-list
-driven. A server removed from compose without a `deprecated-mcps.yaml` entry
-reads as `ABSENT`/untracked; the fix is to add it to that file, not to broaden
-the teardown.
+driven. A retired server without a `deprecated-mcps.yaml` entry reads as
+untracked; the fix is to add it to that file, not to broaden the teardown.
 
 ---
 
@@ -605,12 +566,12 @@ For each drift finding, offer the user actionable options using AskUserQuestion.
 
 ### For LEGACY SYSTEMD or LEGACY DEPRECATED findings
 
-Default recommendation: tear down legacy systemd and keep Docker as the only
-runtime. Ask once for all remaining legacy units if possible:
+Default recommendation: tear down legacy systemd (systemd is no longer a
+supported runtime). Ask once for all remaining legacy units if possible:
 
 ```
 Legacy systemd MCP units remain installed: {units}.
-Docker is the only supported CPP runtime. Leaving these units installed can
+Systemd is no longer a supported CPP runtime. Leaving these units installed can
 cause port conflicts or stale server restarts.
 ```
 
@@ -639,7 +600,7 @@ For each orphaned server, show the user what is present (container, image tags,
 per server with AskUserQuestion:
 
 ```
-mcp-nano-banana was removed from docker-compose.yml but is still on this machine
+mcp-second-opinion was retired from CPP but is still on this machine
 ({reason}).
 Replacement: {replacement}
 Present: {container} container, {N} image tag(s), claude:{regs}, codex:{regs}
@@ -680,24 +641,6 @@ explicit per-server confirmation. `mcp-drift.py` refuses any server still in
 compose (`OK`), any with nothing present (`ABSENT`), and any name not on the
 curated list - so a user's own custom MCP registration is never removed.
 
-### For NEW servers (in repo, not installed):
-
-Ask the user per server:
-
-```
-mcp-<name> is available in the repo but not installed.
-  - Port: <8080-8089>
-  - Docker profile: <profile>
-  - Purpose: <what the server does>
-```
-
-Options:
-- **Refresh Docker stack** - Re-run `make docker-refresh PROFILE="core"` and `make docker-health PROFILE="core"`
-- **Skip** - Do not install now
-
-Do not offer systemd installation. New servers are installed only by the Docker
-refresh path.
-
 ### For ORPHANED LEGACY services
 
 Ask the user per service:
@@ -720,22 +663,15 @@ If they choose remove:
 For user-scope orphaned units, use `systemctl --user ...`, remove the file from
 `~/.config/systemd/user/`, and run `systemctl --user daemon-reload`.
 
-### For UNHEALTHY or NOT RUNNING Docker servers
-
-Ask whether to rerun the Docker refresh:
-
-Options:
-- **Refresh Docker** - `make docker-refresh PROFILE="core"` then `make docker-health PROFILE="core"`
-- **Skip** - Leave current container state unchanged
-
-### For NOT REGISTERED servers (running but not in claude mcp list):
+### For NOT REGISTERED servers (reachable but not in claude mcp list):
 
 ```
-mcp-second-opinion is running on port 8080 but not registered with Claude Code.
+The external second-opinion server answers on http://127.0.0.1:8080/mcp but is
+not registered with Claude Code (the root .mcp.json only applies inside CPP).
 ```
 
 Options:
-- **Register** - `claude mcp add --scope user --transport sse <name> http://127.0.0.1:<port>/sse`
+- **Register** - `claude mcp add second-opinion --transport http --url http://127.0.0.1:8080/mcp --scope user` (edit the URL for a Tailscale host)
 - **Skip** - Leave unregistered
 
 ---
@@ -933,7 +869,7 @@ Your current installation: Tier {TIER}
 Available upgrades:
   Tier 1 (Minimal): Commands + Skills symlinks
   Tier 2 (Standard): + Scripts, hooks, shell prompt, permission profiles
-  Tier 3 (Full): + MCP servers (Docker, local builds, API keys)
+  Tier 3 (Full): + MCP servers (external second-opinion + playwright)
 
 Would you like to upgrade to a higher tier?
 ```
@@ -966,9 +902,7 @@ Dependencies:
   {synced servers or "No MCP venvs to update"}
 
 Runtime:
-  Model: Docker (local build)
-  Docker: {containers rebuilt/restarted/healthy, or failed with error}
-  Health: {make docker-health result}
+  Model: no Docker MCP stack (second-opinion external, playwright via npx)
   Legacy systemd: {none, removed N unit scope(s), or skipped with warning}
 
 MCP Drift:
@@ -994,18 +928,19 @@ Run /cpp:status for full installation details.
 - This command is safe to run repeatedly (idempotent)
 - Uncommitted changes in CPP are auto-stashed before pull
 - Symlinked commands/skills are automatically updated by the git pull
-- MCP server dependencies are synced if venvs exist
-- Docker refresh always uses `make docker-refresh PROFILE="core"` followed by `make docker-health PROFILE="core"`
-- Legacy systemd units are detected before Docker refresh and are removed only after user confirmation
-- MCP drift detection compares repo state against Docker containers, legacy systemd remnants, claude mcp registrations, and listening ports
+- CPP ships no in-repo MCP server venvs; second-opinion is external, playwright is npx
+- CPP no longer builds or runs a Docker MCP stack, so there is no Docker refresh step
+- Legacy systemd units are detected and removed only after user confirmation
+- MCP drift detection compares CPP's expected servers against leftover retired
+  containers, legacy systemd remnants, claude mcp registrations, and listening ports
 - Orphaned legacy systemd units such as `mcp-coordination` are flagged for teardown
 - Orphaned Docker MCP infra (Step 6c/7) - a container, `mcp-<name>:*` image, or
-  `claude`/`codex mcp` registration left behind after a server is removed from
-  `docker-compose.yml` - is detected via the curated `.claude/deprecated-mcps.yaml`
-  list and torn down per-server with confirmation, keeping a newest-image restore
-  point unless prune-all is chosen. Driven by `scripts/mcp-drift.py`; a user's own
-  custom MCP registration is never flagged or removed
-- New servers are offered only through the Docker refresh path
+  `claude`/`codex mcp` registration left behind after a server is retired from CPP
+  (including the `mcp-second-opinion`/`aws-secrets-agent` containers retired in #469)
+  - is detected via the curated `.claude/deprecated-mcps.yaml` list and torn down
+  per-server with confirmation, keeping a newest-image restore point unless prune-all
+  is chosen. Driven by `scripts/mcp-drift.py`; a user's own custom MCP registration
+  (and the valid new `second-opinion` registration) is never flagged or removed
 - mcp-evaluate is recognized as deprecated and flagged for legacy teardown if installed
 - Skill drift (Step 7.5) prunes retired generated skills using the curated
   `.claude/deprecated-skills.yaml` list (never a blanket repo diff, which would

@@ -38,11 +38,10 @@ uv sync --extra dev
 # Run quality checks
 make verify
 
-# Start MCP servers (local .env or CI env provides AWS credentials)
-# local .env needs: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_TOKEN
-make docker-secrets-check              # Validate AWS connectivity
-make docker-up PROFILE=core            # Second Opinion
-make docker-refresh PROFILE=core       # Rebuild, restart, wait for health
+# Second opinion runs from its own external repo:
+#   https://github.com/cooneycw/mcp-second-opinion
+# The root .mcp.json points at http://127.0.0.1:8080/mcp - start that server, or
+# edit the URL to point at a Tailscale host.
 
 # Initialize in a target project
 cd ~/Projects/my-project
@@ -55,8 +54,7 @@ cd ~/Projects/my-project
 claude-power-pack/
   .claude/commands/     Slash commands (/flow:*, /cicd:*, /security:*, etc.)
   .claude/hooks.json    Safety hooks (pre/post tool use)
-  aws-secrets-agent/    AWS Secrets Manager sidecar (Rust, port 2773)
-  mcp-second-opinion/   Code review MCP server
+  .mcp.json             Client pointer for the external second-opinion server
   lib/creds/            Secrets management library
   lib/security/         Security scanning library
   lib/cicd/             CI/CD framework detection and generation
@@ -64,9 +62,8 @@ claude-power-pack/
   woodpecker/           Woodpecker CI server + agent deployment configs
   templates/            Makefile, workflow, and container templates
   scripts/              Shell utilities
-  tests/                595 unit tests
-  docker-compose.yml    MCP server orchestration
-  .woodpecker.yml       CI pipeline (lint, test, typecheck, image security gates, runtime smoke)
+  tests/                Unit tests
+  .woodpecker.yml       CI pipeline (secret-scan, lint, test, typecheck, Dockerfile lint)
   Makefile              Build interface for all operations
 ```
 
@@ -87,43 +84,29 @@ claude-power-pack/
 | Browser | `/browser:session create gmail` | Named concurrent browser sessions (lease-desk pool) |
 | Review | `/second-opinion:start` | Get code review from external LLMs |
 
-## Docker Deployment
+## MCP Servers
 
-MCP servers run as Docker containers organized by profile:
+CPP ships no container runtime (retired in #469). The `/second-opinion:*` and `/evaluate:*` commands consume an **external** second-opinion server that runs from its own repo:
 
-```bash
-make docker-up PROFILE=core       # second-opinion
-make docker-refresh PROFILE=core  # transactional rebuild/restart with health gate
-make docker-ps                    # container status
-make docker-down                  # stop all
-```
-
-MCP containers fetch API keys at startup from AWS Secrets Manager via an `aws-secrets-agent` sidecar (Rust binary, port 2773). The sidecar is internal-only (compose network via `expose:`, never published to the host) and is the only container that receives AWS credentials. Local development can store only AWS credentials in the root `.env` file (gitignored), while CI/deploy can inject the same variables through the job environment. Application secrets are not stored on disk.
-
-`mcp-second-opinion` uses `AWS_SECRET_NAME=codex_llm_apikeys`. That secret must include `GEMINI_API_KEY`, `OPENAI_API_KEY`, and `ANTHROPIC_API_KEY` so the model catalog is available in the deployed container.
+- Server repo: https://github.com/cooneycw/mcp-second-opinion (server + the AWS Secrets Manager Agent sidecar build recipe + a standalone docker-compose)
+- CPP ships a root `.mcp.json` registering `second-opinion` as a streamable-http client at `http://127.0.0.1:8080/mcp`. Start the external server, then edit that URL (or register it at user scope) to point at wherever it runs - localhost or a Tailscale host:
 
 ```bash
-# Minimal .env (no application secrets):
-AWS_ACCESS_KEY_ID=...
-AWS_SECRET_ACCESS_KEY=...
-AWS_TOKEN=my-ssrf-token   # must be unique; the preflight rejects empty or "default-token"
-SECOND_OPINION_AWS_SECRET_NAME=codex_llm_apikeys
-
-# Validate before first start:
-make docker-secrets-check
+claude mcp add second-opinion --transport http --url http://127.0.0.1:8080/mcp --scope user
 ```
 
-App containers carry no AWS credentials; they reach the sidecar over the compose network with only the SSRF token. `make docker-up` refuses to create the sidecar when required AWS credential variables resolve empty or `AWS_TOKEN` is the insecure default (set `CPP_ALLOW_DEFAULT_TOKEN=1` for offline local dev only). `make deploy` is stricter: it always rejects `default-token`, requires explicit secret-name variables for secret-consuming profiles, snapshots the current image IDs as `:previous`, and restores them if the candidate stack fails `docker compose --wait`. For host-side debugging or a fully offline `.env` fallback, layer in `docker-compose.dev.yml` (binds the agent to `127.0.0.1`, restores `.env` for app containers, and sets `ALLOW_ENV_FALLBACK=true`). See `aws-secrets-agent/` and `docs/AWS_SECRETS_SIDECAR.md` for details.
+Browser automation uses the upstream `@playwright/mcp` npx/stdio server (registered by `/cpp:init`). CPP stores no application secrets on disk and runs no secrets sidecar; the remaining AWS Secrets Manager consumers (`essent-ai` for Woodpecker CI keys and the `CPP_MEMORIES_DSN` common-memory DSN) fetch directly via the AWS SDK/CLI.
 
 ## CI/CD
 
 Woodpecker CI runs on every push and PR via a self-hosted agent:
 
+- **Secret scan:** gitleaks over the tree before anything else runs
 - **Validate:** lint (ruff) + test (pytest) + typecheck (mypy) in a single consolidated step
-- **Image security:** MCP image changes build the compose stack, run hadolint over every Dockerfile, policy-check rendered compose config, fail on fixed HIGH/CRITICAL CVEs, and write SPDX/CycloneDX SBOMs under `artifacts/sbom/`
-- **Runtime smoke:** MCP stack changes run an isolated `docker compose` project with random host ports, verify HTTP health, then tear down containers and volumes
-- **CI verification:** `flow:auto` polls the Woodpecker API after merge to confirm the pipeline passes before deploying
-- **First-class Docker updates:** `cpp:update` detects Docker installs, runs `make docker-refresh PROFILE=core`, and fails if containers are unhealthy
+- **Dockerfile lint:** hadolint over any remaining Dockerfile
+- **CI verification:** `flow:auto` polls the Woodpecker API after merge to confirm the pipeline passes
+
+The image-build, CVE-scan, SBOM, compose-policy, and runtime-smoke stages were retired with CPP's Docker MCP runtime in #469.
 
 Architecture: Woodpecker server on a dedicated VM, agent on the dev workstation, connected via gRPC over Tailscale. Web UI at `woodpecker.essent-ai.com` via Cloudflare tunnel.
 

@@ -17,35 +17,23 @@ classifies them by lifecycle, and describes how drift is detected and reconciled
 
 | Artifact | Template Source | Installed Location | Category |
 |----------|---------------|--------------------|----------|
-| `mcp-second-opinion.service` | `mcp-second-opinion/deploy/mcp-second-opinion.service.template` | `~/.config/systemd/user/` or `/etc/systemd/system/` | Reconcilable |
+| `mcp-second-opinion.service` | Retired in #469 - no repo template | `~/.config/systemd/user/` or `/etc/systemd/system/` (only on hosts that ran a pre-#469 install) | Orphan - torn down, not reconciled |
 | `mcp-playwright.service` | Retired in #423 - no repo template | `~/.config/systemd/user/` or `/etc/systemd/system/` (only on hosts that ran a pre-#423 install) | Orphan - torn down, not reconciled |
 
-**Retired (#423):** `mcp-playwright.service` no longer maps to a repo template. The CPP
-`mcp-playwright-persistent` fork was retired and browser automation moved to the upstream
-`@playwright/mcp` server (registered by `/cpp:init` via npx/stdio - no systemd unit and no
-container). A leftover `mcp-playwright.service` on a host is now an **orphan**:
-`scripts/drift-detect.sh` reports it as a systemd orphan, and `/cpp:update` (via
-`.claude/deprecated-mcps.yaml` + `scripts/mcp-drift.py`) tears down the retired Docker
-container, `mcp-playwright-persistent:*` image, and MCP registration. It is never
+**CPP ships no first-party MCP systemd units.** Neither unit above maps to a repo
+template any more: `mcp-second-opinion` moved to its own external repo (#469, which also
+retired CPP's entire Docker MCP runtime) and the `mcp-playwright-persistent` fork was
+retired for the upstream `@playwright/mcp` npx server (#423). A leftover unit for either
+on a host is now an **orphan**: `scripts/drift-detect.sh` reports it as a systemd orphan,
+and `/cpp:update` (via `.claude/deprecated-mcps.yaml` + `scripts/mcp-drift.py`) tears down
+the retired container, `mcp-<name>:*` image, and any MCP registration. Neither is ever
 reconciled back from a template.
 
-**Risk:** Templates change in repo but installed units are never auto-updated.
-The `install-service.sh` scripts generate units from templates using `sed` substitution
-(`${SERVICE_USER}`, `${MCP_SERVER_DIR}`, `${UV_BIN}`). Once installed, the unit is static.
-
-**Detection:** `scripts/drift-detect.sh` regenerates the expected unit from the template
-and compares it against the installed version. It also inventories MCP systemd units
-that no longer have a repo template, such as the retired `mcp-playwright.service` (#423),
-legacy `mcp-coordination.service`, or old alias units, and reports them as orphaned.
-
-**Reconciliation:** Re-run the appropriate install script:
-```bash
-mcp-second-opinion/scripts/install-service.sh
-```
-
-When Docker containers are active for the same MCP server, the default convergence
-model is Docker. Use `scripts/drift-detect.sh --fix` to print opt-in cleanup
-commands for the losing systemd units before removing them.
+**Detection:** `scripts/drift-detect.sh` inventories installed `mcp-*` systemd units that
+no longer have a repo template - such as the retired `mcp-second-opinion.service` (#469),
+`mcp-playwright.service` (#423), or legacy `mcp-coordination.service` - and reports them as
+orphaned for opt-in teardown. Use `scripts/drift-detect.sh --fix` to print the cleanup
+commands.
 
 ### 2. System Tuning (sysctl)
 
@@ -74,10 +62,8 @@ setup. The file is gitignored. Credential rotation requires re-running the boots
 
 ## Repo-Controlled (No Drift Risk)
 
-These artifacts are fully managed by the repo and rebuilt on every deploy:
+These artifacts are fully managed by the repo:
 
-- **Docker images** - Built from `mcp-*/deploy/Dockerfile` on every `make deploy`
-- **Docker Compose config** - `docker-compose.yml` read fresh by local `make docker-up`, `make deploy`, and CI runtime smoke tests
 - **CI pipeline** - `.woodpecker.yml` read fresh on every pipeline run
 - **CI task manifest** - `.claude/cicd_tasks.yml` read fresh by the deterministic runner
 - **Makefile targets** - Executed from repo checkout
@@ -87,10 +73,8 @@ These artifacts are fully managed by the repo and rebuilt on every deploy:
 | Script | Runs At | Frequency | Reconciles? |
 |--------|---------|-----------|-------------|
 | `bash-prep.sh` | Workstation setup | Once | No (idempotent, re-runnable) |
-| `install-service.sh` (mcp-second-opinion) | Service setup | Once | No - should be re-run when templates change |
 | `bootstrap-secrets.py` | Woodpecker setup | Once | No (manual credential rotation) |
-| `make deploy` | Manual local deploy or `/flow:deploy` | Operator-controlled | Yes - rebuilds containers from repo |
-| `.woodpecker.yml` runtime-smoke | MCP stack CI validation | Relevant push/PR paths | No - validates an isolated stack, then tears it down |
+| `make deploy` | Manual local deploy or `/flow:deploy` | Operator-controlled | No-op - CPP ships no deployable services since #469 |
 
 ## Drift Detection
 
