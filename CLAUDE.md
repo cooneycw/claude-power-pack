@@ -12,6 +12,7 @@
 - After any fix, verify through the full pipeline: `make verify`.
 - Use `/dockers` to check container status, health, and project linkages.
 - **Use single dashes (-) not em dashes (-)** in all markdown, comments, and documentation. Never generate Unicode em dashes (U+2014) or en dashes (U+2013).
+- **One inventory item per line in CLAUDE.md.** When adding to an inventory entry (the `scripts/` list, component feature lists, CI behavior lists), add a new sub-bullet - never append to an existing line. Git merges at line granularity, so packed single-line lists make every concurrent PR that touches them a manual merge conflict (#501).
 
 ## Project Map
 
@@ -29,8 +30,28 @@ Core components and their locations:
 - `lib/creds/` - Secrets management (dotenv/AWS SM, FastAPI UI, audit logging)
 - `lib/security/` - Security scanning (native + external tools)
 - `lib/cicd/` - CI/CD framework detection, Makefile generation, health/smoke checks, deterministic runner, deployment strategies, Pydantic v2 config validation
-- `lib/cpp_memory/` - Common-memory client: a **pluggable** fail-open friction-knowledge ledger (issue #472) with three `/cpp:init`-selectable backends behind one `StoreBackend` interface - `md` (best-effort local, no federation; subsumes `.claude/learnings.md`), `local-pg` (full SQL dedup, single box, `lib/cpp_memory/docker-compose.yml`), and `remote-pg` (full dedup, fleet-federated Postgres, `scripts/memories-db-setup.sh`). Backend chosen via `CPP_MEMORIES_BACKEND` / step 8d; **federation is a surfaced per-tier property** (only remote-pg shares across VMs). Holds *portable* CPP learnings/infra traps (bucket-2-plus) plus a dedup/rejection ledger and a learnings->GitHub-issue bridge (`--emit-issue-candidate` / `link-issue`, #463). Consult-not-push; see `/self-improvement:memory`.
-- `scripts/` - Shell utilities (prompt-context, worktree-remove, gh-pr-merge (layout-aware PR squash-merge used by `/flow:auto` + `/flow:merge`; polls mergeability to wait out a transient `UNKNOWN` right after push, #485), flow-stale-check (advisory early stale-base detector for `/flow:auto` Step 4/6 + `/flow:finish`, #473), flow-worktree-guard (advisory leaked-edit detector: warns when a `/flow:auto` edit landed in the MAIN tree instead of the worktree, #486), hooks, drift-detect, skill-drift, mcp-drift, flow-skill-sync, plugin-sync (byte-identical drift guard keeping every packaged family plugin in sync with its command source, #477/#478; plugin-flow-sync survives as a flow-scoped shim until B4), speckit-tasks-to-issues, playwright-desk lease-desk ledger, check-ignored-additions)
+- `lib/cpp_memory/` - Common-memory client: a **pluggable** fail-open friction-knowledge ledger (issue #472) with three `/cpp:init`-selectable backends behind one `StoreBackend` interface:
+  - `md` - best-effort local, no federation; subsumes `.claude/learnings.md`
+  - `local-pg` - full SQL dedup, single box, `lib/cpp_memory/docker-compose.yml`
+  - `remote-pg` - full dedup, fleet-federated Postgres, `scripts/memories-db-setup.sh`
+  - Backend chosen via `CPP_MEMORIES_BACKEND` / step 8d; **federation is a surfaced per-tier property** (only remote-pg shares across VMs)
+  - Holds *portable* CPP learnings/infra traps (bucket-2-plus) plus a dedup/rejection ledger and a learnings->GitHub-issue bridge (`--emit-issue-candidate` / `link-issue`, #463)
+  - Consult-not-push; see `/self-improvement:memory`
+- `scripts/` - Shell utilities, one per sub-bullet (add new scripts as their own line, #501):
+  - prompt-context
+  - worktree-remove
+  - gh-pr-merge - layout-aware PR squash-merge used by `/flow:auto` + `/flow:merge`; polls mergeability to wait out a transient `UNKNOWN` right after push (#485)
+  - flow-stale-check - advisory early stale-base detector for `/flow:auto` Step 4/6 + `/flow:finish` (#473)
+  - flow-worktree-guard - advisory leaked-edit detector: warns when a `/flow:auto` edit landed in the MAIN tree instead of the worktree (#486)
+  - hooks
+  - drift-detect
+  - skill-drift
+  - mcp-drift
+  - flow-skill-sync
+  - plugin-sync - byte-identical drift guard keeping every packaged family plugin in sync with its command source (#477/#478); plugin-flow-sync survives as a flow-scoped shim until B4
+  - speckit-tasks-to-issues
+  - playwright-desk - lease-desk ledger
+  - check-ignored-additions
 - `templates/` - Makefile, workflow, container templates
 - `.claude-plugin/marketplace.json` - Plugin-marketplace manifest (marketplace name `cpp`) listing CPP's per-family plugins. Install path: `/plugin marketplace add cooneycw/claude-power-pack` then `/plugin install <family>@cpp` (ADR 0001, epic #417 Phase B).
 - `plugins/` - Per-family Claude Code plugins. Phase B2 (#478) packages every surviving family (15 plugins, `browser` through `self-improvement`): byte-identical copies of `.claude/commands/<family>/*.md` (the single source of truth, ADR 0001 section 5), kept honest by `scripts/plugin-sync.sh --check` and regenerated with `--write` after any command edit. The `cpp` plugin is help/meta-only (the init/update/status installer stays repo-local). The legacy symlink installer runs in parallel; nothing is retired until parity is proven in Phase B4.
