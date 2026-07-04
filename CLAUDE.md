@@ -8,6 +8,7 @@
 - **Python 3.11+, uv for dependencies.** Each component has its own `pyproject.toml`.
 - **When fixing errors, fix BOTH the application code AND the CI/CD process** (Makefile, Dockerfile, docker-compose.yml). Never bypass quality gates.
 - Before debugging manually, run `make lint` and `make test` to surface known issues.
+- **A test that shells out to a real binary (`git`, `docker`, `gitleaks`) MUST guard with `@pytest.mark.skipif(shutil.which("<tool>") is None, ...)`.** The Woodpecker `validate` container (uv:python3.11-slim) ships none of them, so an unguarded test errors the suite and turns CI red even though it passes locally (recurred #451, #489).
 - After any fix, verify through the full pipeline: `make verify`.
 - Use `/dockers` to check container status, health, and project linkages.
 - **Use single dashes (-) not em dashes (-)** in all markdown, comments, and documentation. Never generate Unicode em dashes (U+2014) or en dashes (U+2013).
