@@ -26,6 +26,14 @@
 #   fail-open (attempt the merge anyway) if it never resolves - the post-merge
 #   MERGED-state check below stays the final backstop.
 #
+# Base moved at squash time (issue #502):
+#   The pre-merge poll structurally cannot catch a sibling PR that merges in the
+#   poll->merge race window: the squash then fails with "Base branch was
+#   modified. Review and try the merge again." even though a refetch + re-attempt
+#   succeeds moments later (observed live on the flow:auto #485 run itself). On
+#   that specific error - and no other - refetch, re-poll mergeability, and
+#   re-attempt the squash a bounded number of times before reporting failure.
+#
 # This wrapper makes the merge layout-aware:
 #   * Linked worktree (cwd's `.git` is a FILE): run `gh pr merge --squash` WITHOUT
 #     --delete-branch so gh never attempts the local branch switch, then delete the
@@ -45,6 +53,8 @@
 #   GH_PR_MERGE_GIT            override the `git` binary (default: git)
 #   GH_PR_MERGE_POLL_ATTEMPTS  mergeability poll attempts (default: 5)
 #   GH_PR_MERGE_POLL_DELAY     seconds between poll attempts (default: 2)
+#   GH_PR_MERGE_BASE_RETRY_ATTEMPTS  squash retries on "Base branch was modified" (default: 2)
+#   GH_PR_MERGE_BASE_RETRY_DELAY     seconds before each such retry (default: 2)
 
 set -uo pipefail
 
@@ -103,17 +113,50 @@ if ! poll_mergeable; then
     exit 1
 fi
 
+# Attempt the squash, retrying (bounded) only when the base moved under us at
+# squash time (issue #502). Sets the global merge_exit; any error other than
+# "Base branch was modified" is NOT retried, and the post-merge MERGED-state
+# verification below remains the final arbiter either way.
+run_squash() {
+    # $@: extra gh flags (--delete-branch in the primary repo)
+    local retries="${GH_PR_MERGE_BASE_RETRY_ATTEMPTS:-2}"
+    local delay="${GH_PR_MERGE_BASE_RETRY_DELAY:-2}"
+    local errfile attempt
+    errfile=$(mktemp)
+    for ((attempt = 0; attempt <= retries; attempt++)); do
+        if (( attempt > 0 )); then
+            echo "note: base branch moved under PR #$PR_NUMBER at squash time" \
+                 "(sibling merge race, issue #502) - refetching and retrying" \
+                 "(${attempt}/${retries})." >&2
+            "$GIT_BIN" fetch origin >/dev/null 2>&1 || true
+            sleep "$delay"
+            # The sibling merge may have made the PR genuinely CONFLICTING -
+            # re-poll so that stops us with the clear conflict message instead
+            # of a retry that can never succeed.
+            if ! poll_mergeable; then
+                merge_exit=1
+                break
+            fi
+        fi
+        "$GH_BIN" pr merge "$PR_NUMBER" --squash "$@" 2>"$errfile"
+        merge_exit=$?
+        cat "$errfile" >&2
+        if [[ $merge_exit -eq 0 ]] || ! grep -q "Base branch was modified" "$errfile"; then
+            break
+        fi
+    done
+    rm -f "$errfile"
+}
+
 if in_linked_worktree; then
-    "$GH_BIN" pr merge "$PR_NUMBER" --squash
-    merge_exit=$?
+    run_squash
     # Delete the remote branch ourselves - this is what --delete-branch would have
     # done, minus the local branch switch that fails in a linked worktree.
     if [[ $merge_exit -eq 0 ]]; then
         "$GIT_BIN" push origin --delete "$BRANCH" >/dev/null 2>&1 || true
     fi
 else
-    "$GH_BIN" pr merge "$PR_NUMBER" --squash --delete-branch
-    merge_exit=$?
+    run_squash --delete-branch
 fi
 
 # Trust the PR state over the exit code: a non-zero from a local post-merge step
