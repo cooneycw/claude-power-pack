@@ -252,7 +252,15 @@ def _has(cmd: str) -> bool:
 def collect_current_services(compose_file: Path) -> tuple[set[str], bool]:
     """Return (services, known). `known` is False when the current service set
     could not be determined - in which case NOTHING is classified orphaned."""
-    if not _has("docker") or not compose_file.is_file():
+    # No compose file at all is a KNOWN-empty state, not an unknown one: as of
+    # issue #469 CPP ships no docker-compose file (the Docker MCP runtime was
+    # retired), so nothing is a CPP-managed compose service. A deprecated server
+    # that still lingers on the host is therefore a genuine orphan worth offering
+    # for teardown. (Contrast: a compose file that is PRESENT but unparseable is
+    # still treated as UNKNOWN below.)
+    if not compose_file.is_file():
+        return set(), True
+    if not _has("docker"):
         return set(), False
 
     base = ["docker", "compose", "-f", str(compose_file)]

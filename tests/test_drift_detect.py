@@ -141,14 +141,17 @@ def test_drift_detect_flags_docker_systemd_conflicts_and_orphans(tmp_path: Path)
 
     assert result.returncode == 1
     output = result.stdout
-    assert "deployment model conflict - mcp-second-opinion" in output
-    # mcp-playwright-persistent was retired in #423, so a leftover unit is now an
-    # orphan (repo no longer ships it), not an active-server failure.
+    # mcp-second-opinion was retired in #469 (moved to its own external repo, which
+    # also removed CPP's entire Docker MCP runtime) and mcp-playwright-persistent in
+    # #423, so a leftover unit for either is now an orphan (repo no longer ships it),
+    # not an active-server deployment-model conflict.
+    assert "orphaned systemd unit mcp-second-opinion" in output
     assert "orphaned systemd unit mcp-playwright-persistent" in output
     assert "orphaned systemd unit mcp-coordination" in output
     assert "port binding conflict - port 8081" in output
-    assert "Default convergence is Docker" in output
-    assert "claude mcp remove second-opinion" in output
+    # The orphan teardown targets the unit-named registration, never the reused
+    # "second-opinion" name that now points at the external server via .mcp.json.
+    assert "claude mcp remove mcp-second-opinion" in output
 
 
 def test_drift_detect_no_false_conflict_when_units_absent(tmp_path: Path) -> None:

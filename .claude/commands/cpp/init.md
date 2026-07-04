@@ -51,20 +51,17 @@ HOOKS_EXIST=false
 [ -f ".claude/hooks.json" ] && HOOKS_EXIST=true
 
 # Tier 3 checks
+# CPP no longer runs a Docker MCP stack. Second Opinion is an external
+# streamable-http server (its own repo) and playwright runs via npx. The only
+# Docker interest here is spotting retired containers that /cpp:update tears down.
 DOCKER_INSTALLED=false
-DOCKER_COMPOSE_INSTALLED=false
-DOCKER_COMPOSE_FILE=false
-DOCKER_CONTAINERS=""
+LEFTOVER_CONTAINERS=""
 LEGACY_SYSTEMD_UNITS=""
 
 command -v docker &>/dev/null && DOCKER_INSTALLED=true
-if [ "$DOCKER_INSTALLED" = "true" ] && docker compose version &>/dev/null; then
-  DOCKER_COMPOSE_INSTALLED=true
-fi
-[ -f "$CPP_DIR/docker-compose.yml" ] && DOCKER_COMPOSE_FILE=true
 
 if [ "$DOCKER_INSTALLED" = "true" ]; then
-  DOCKER_CONTAINERS=$(docker ps -a --format '{{.Names}}' 2>/dev/null | grep -E '^(aws-secrets-agent|mcp-second-opinion|mcp-playwright-persistent)$' || true)
+  LEFTOVER_CONTAINERS=$(docker ps -a --format '{{.Names}}' 2>/dev/null | grep -E '^(aws-secrets-agent|mcp-second-opinion|mcp-playwright-persistent)$' || true)
 fi
 
 for unit in mcp-second-opinion second-opinion mcp-playwright mcp-playwright-persistent playwright-persistent mcp-evaluate evaluate mcp-coordination coordination; do
@@ -93,7 +90,7 @@ Ask the user which tier they want to install using the AskUserQuestion tool:
 |------|------|-------------|
 | 1 | **Minimal** | Commands + Skills symlinks only |
 | 2 | **Standard** | + Scripts, hooks, shell prompt |
-| 3 | **Full** | + MCP servers (Docker local builds, API keys) |
+| 3 | **Full** | + MCP servers (external second-opinion + playwright) |
 | 4 | **CI/CD** | + Build system, health checks, pipelines, containers |
 | 5 | **Codex** | + Codex CLI orchestration (cross-model implementation and review) |
 
@@ -277,46 +274,33 @@ This will make the following changes:
   [Tier 1 + 2 - All Standard components]
     (see above)
 
-  [Tier 3 - Docker Runtime]
-    • Requires Docker Engine or Docker Desktop
-    • Requires Docker Compose v2 (`docker compose`)
-    • Builds local images with `make docker-refresh PROFILE="core"`
-    • Verifies container health with `make docker-health PROFILE="core"`
+  [Tier 3 - Second Opinion MCP (external server)]
+    • The second-opinion server is a SEPARATE project run from its own repo:
+      https://github.com/cooneycw/mcp-second-opinion
+    • Start it there (localhost or a Tailscale host). It listens on
+      http://127.0.0.1:8080/mcp (streamable-http). CPP does not build or run it.
+    • API keys (Gemini/OpenAI/Anthropic) are configured in that repo, not here.
+    • Inside CPP the shipped root .mcp.json already points Claude Code at that URL
+      (project scope). This tier also registers it at USER scope for global use:
+        claude mcp add second-opinion --transport http --url http://127.0.0.1:8080/mcp --scope user
+      Edit the URL to wherever your server runs (e.g. a Tailscale address).
 
   [Tier 3 - Browser Automation] (upstream @playwright/mcp, no container)
     • Registers the upstream `@playwright/mcp` server via npx/stdio
     • Requires Node.js 18+ (for npx); Chromium downloads to ~/.cache/ms-playwright
-      on first use. No Docker container, no `browser` compose profile.
-
-  [Tier 3 - API Keys] (choose one method)
-    Option 1 - AWS Secrets Manager (Recommended):
-      • Keys stored in AWS SM, injected at startup via aws-secrets-agent sidecar
-      • Only AWS credentials in .env - no application secrets on disk
-      • Requires: AWS IAM permissions (secretsmanager:GetSecretValue)
-      • See: docs/AWS_SECRETS_SIDECAR.md
-    Option 2 - Direct .env file:
-      • GEMINI_API_KEY - For mcp-second-opinion (get from https://aistudio.google.com/apikey)
-      • OPENAI_API_KEY - Optional, for multi-model comparison
-
-  [Tier 3 - Docker Containers]
-    • aws-secrets-agent          - internal port 2773 (AWS SM sidecar)
-    • mcp-second-opinion         - host port 8080
+      on first use. No Docker container.
 
   [Tier 3 - Browser desk pool] (optional, off by default)
     • /browser:session named concurrent sessions over upstream @playwright/mcp
     • Registers playwright-desk-1..N (npx, no custom image) - requires a restart
     • Skip unless you need several logged-in browser sessions at once
 
-  [Tier 3 - Configuration Files]
-    • .env (AWS credentials + AWS_TOKEN for sidecar, or direct API keys)
-
-  Disk usage: approximately 1-2 GB for local Docker images and build cache, plus
-  ~1.3 GB for the Chromium browser cache (varies by host and cache state)
-  Ports used: 8080; 2773 is compose-network internal only
+  Disk usage: ~1.3 GB for the Chromium browser cache (varies by host and cache
+  state). The second-opinion server's own footprint lives in its own repo.
+  Ports used: 8080 is the external second-opinion server (not started by CPP)
 
   To undo:
     # Tier 1+2 cleanup (see above)
-    cd {CPP_DIR} && make docker-down
     claude mcp remove second-opinion
     claude mcp remove playwright
     # If the browser desk pool was enabled:
@@ -714,37 +698,16 @@ echo "→ Spec-Kit CLI installation skipped (/spec:adopt installs it on first us
 
 ### Tier 3 Execution
 
-#### 3a. Docker Prerequisites and Legacy Systemd Warning
+#### 3a. Legacy Runtime Note (informational)
 
-Tier 3 is Docker-only. Do not install host runtime dependencies or offer systemd
-or native server startup as a fallback. Block Tier 3 if Docker or Docker Compose
-is unavailable.
+CPP no longer builds or runs a Docker MCP stack, and it no longer manages systemd
+MCP units. Tier 3 registers an external second-opinion server plus the upstream
+playwright npx server; no containers are built here. If an older install left
+legacy systemd MCP units or retired MCP containers (mcp-second-opinion,
+aws-secrets-agent, mcp-playwright-persistent) behind, run /cpp:update to tear
+them down.
 
 ```bash
-cd "$CPP_DIR"
-
-if ! command -v docker &>/dev/null; then
-  echo "ERROR: Tier 3 requires Docker Engine or Docker Desktop."
-  echo "Install Docker, verify 'docker ps' works for your user, then rerun /cpp:init."
-  echo "Docker install guide: https://docs.docker.com/get-docker/"
-  echo "You can still install Tier 1 or Tier 2 without Docker."
-  exit 1
-fi
-
-if ! docker compose version &>/dev/null; then
-  echo "ERROR: Tier 3 requires Docker Compose v2 ('docker compose')."
-  echo "Install the Docker Compose plugin or Docker Desktop, then rerun /cpp:init."
-  echo "Compose install guide: https://docs.docker.com/compose/install/"
-  echo "You can still install Tier 1 or Tier 2 without Docker Compose."
-  exit 1
-fi
-
-if [ ! -f "$CPP_DIR/docker-compose.yml" ]; then
-  echo "ERROR: docker-compose.yml not found in $CPP_DIR."
-  echo "Update claude-power-pack or reclone it, then rerun /cpp:init."
-  exit 1
-fi
-
 LEGACY_SYSTEMD_UNITS=""
 for unit in mcp-second-opinion second-opinion mcp-playwright mcp-playwright-persistent playwright-persistent mcp-evaluate evaluate mcp-coordination coordination; do
   [ -f "/etc/systemd/system/${unit}.service" ] && LEGACY_SYSTEMD_UNITS="$LEGACY_SYSTEMD_UNITS system:${unit}"
@@ -757,205 +720,38 @@ if [ -n "$LEGACY_SYSTEMD_UNITS" ]; then
     echo "  - $item"
   done
   echo ""
-  echo "Run /cpp:update first to migrate or remove legacy systemd units."
+  echo "Run /cpp:update to migrate or remove legacy systemd units and leftover containers."
   echo "/cpp:init no longer installs, starts, or manages systemd services."
 fi
-
-echo "Docker prerequisites satisfied."
 ```
 
-#### 3b. API Key Configuration
+#### 3b. Second Opinion Server (external)
 
-Tier 3 always uses the Docker Compose stack. Do not set or branch on deployment
-mode variables; the only API-key choice is AWS Secrets Manager sidecar versus
-direct `.env`.
+The second-opinion MCP server is a SEPARATE project. Run it from its own repo -
+it is not built or started by CPP:
 
-**First, detect AWS Secrets Manager sidecar availability:**
+  https://github.com/cooneycw/mcp-second-opinion
 
-```bash
-AWS_SIDECAR_AVAILABLE=false
-if [ -f "$CPP_DIR/.env" ] && grep -qE '^AWS_ACCESS_KEY_ID=.+' "$CPP_DIR/.env" 2>/dev/null; then
-  AWS_SIDECAR_AVAILABLE=true
-fi
-```
+Start the server there (on localhost or a Tailscale host). It listens on
+http://127.0.0.1:8080/mcp (streamable-http). API keys (Gemini/OpenAI/Anthropic)
+are configured in that repo, not here.
 
-**If AWS credentials exist, offer the sidecar path (recommended):**
+Inside CPP the shipped root `.mcp.json` already points Claude Code at that URL at
+project scope. The next step also registers it at user scope for global use.
 
-Ask the user which secret injection method they want using AskUserQuestion:
-
-```
-=== API Key Configuration ===
-
-Docker deployment uses containers. Choose how MCP servers get their API keys:
-
-  1. AWS Secrets Manager (Recommended)
-     Keys stored in AWS Secrets Manager, injected at container startup
-     via the aws-secrets-agent sidecar. No plaintext secrets on disk.
-     Requires: AWS credentials in .env, secrets pre-created in AWS SM.
-     See: docs/AWS_SECRETS_SIDECAR.md
-
-  2. Direct .env file
-     Keys written to .env and passed to containers via env_file.
-     Simpler setup, but secrets are stored in plaintext on disk.
-
-Which method? [1/2]
-```
-
-Only show this choice if `AWS_SIDECAR_AVAILABLE=true`. If
-`AWS_SIDECAR_AVAILABLE=false`, skip straight to the direct `.env` path below.
-
-**Path 1: AWS Secrets Manager sidecar**
-
-```bash
-if [ "$SECRET_METHOD" = "1" ]; then
-  echo ""
-  echo "=== AWS Secrets Manager Sidecar Setup ==="
-  echo ""
-  echo "The sidecar fetches secrets from AWS Secrets Manager at container startup."
-  echo "See docs/AWS_SECRETS_SIDECAR.md for full architecture details."
-  echo ""
-
-  # Validate AWS connectivity
-  echo "Validating AWS credentials and secrets..."
-  cd "$CPP_DIR"
-  make docker-secrets-check
-  SECRETS_CHECK_RC=$?
-
-  if [ "$SECRETS_CHECK_RC" -ne 0 ]; then
-    echo ""
-    echo "WARNING: AWS secrets check failed."
-    echo "You can fix this later and re-run /cpp:init, or switch to direct .env."
-    echo ""
-    # Ask: continue with sidecar anyway, or fall back to direct .env?
-    # If fall back, jump to Path 2.
-  fi
-
-  # Ensure AWS_TOKEN (SSRF protection) is set
-  if ! grep -qE '^AWS_TOKEN=.+' "$CPP_DIR/.env" 2>/dev/null; then
-    echo ""
-    echo "AWS_TOKEN is used for SSRF protection on the sidecar."
-    echo "Enter an arbitrary token string (or press Enter for a random one):"
-    # If empty, generate: AWS_TOKEN=$(openssl rand -hex 16)
-    echo "AWS_TOKEN=$AWS_TOKEN" >> "$CPP_DIR/.env"
-    echo "Added AWS_TOKEN to .env"
-  fi
-
-  echo ""
-  echo "MCP server secret mappings (from docker-compose.yml):"
-  echo "  mcp-second-opinion  -> AWS_SECRET_NAME=codex_llm_apikeys"
-  echo "      Expected keys: GEMINI_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY"
-  echo ""
-  echo "To change these mappings, edit the environment section in docker-compose.yml."
-  echo ""
-
-  echo ""
-  echo "Sidecar configuration complete. Containers will be refreshed after API key setup."
-fi
-```
-
-**Path 2: Direct .env file**
-
-This path runs when `AWS_SIDECAR_AVAILABLE=false` or the user chose option 2.
-It still uses Docker. Do not offer native server startup as a fallback.
-
-Prompt the user for API keys:
-
-```
-=== API Key Configuration (Direct .env) ===
-
-MCP Second Opinion requires at least one LLM API key for code review.
-
-Supported providers:
-  - GEMINI_API_KEY   (free from https://aistudio.google.com/apikey)
-  - OPENAI_API_KEY   (from https://platform.openai.com/api-keys)
-  - ANTHROPIC_API_KEY (from https://console.anthropic.com/settings/keys)
-
-Enter your GEMINI_API_KEY (or press Enter to skip):
-```
-
-**Write keys to the Docker `.env` file without removing existing AWS entries:**
-
-```bash
-ENV_FILE="$CPP_DIR/.env"
-touch "$ENV_FILE"
-
-if [ -n "$GEMINI_API_KEY$OPENAI_API_KEY$ANTHROPIC_API_KEY" ]; then
-  python3 - "$ENV_FILE" <<'PY'
-import os
-import sys
-from pathlib import Path
-
-path = Path(sys.argv[1])
-keys = ("GEMINI_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY")
-updates = {key: os.environ.get(key, "").strip() for key in keys}
-updates = {key: value for key, value in updates.items() if value}
-
-lines = path.read_text().splitlines() if path.exists() else []
-seen = set()
-new_lines = []
-for line in lines:
-    key = line.split("=", 1)[0].strip() if "=" in line else ""
-    if key in updates:
-        new_lines.append(f"{key}={updates[key]}")
-        seen.add(key)
-    else:
-        new_lines.append(line)
-
-for key, value in updates.items():
-    if key not in seen:
-        new_lines.append(f"{key}={value}")
-
-path.write_text("\n".join(new_lines).rstrip() + "\n")
-PY
-
-  echo "API keys written to $ENV_FILE"
-else
-  echo "No API keys provided; $ENV_FILE unchanged."
-fi
-echo "NOTE: AWS Secrets Manager remains the recommended Docker production path."
-echo "See docs/AWS_SECRETS_SIDECAR.md for setup instructions."
-```
-
-Optional: Ask for OPENAI_API_KEY and ANTHROPIC_API_KEY for multi-model comparison.
-
-#### 3c. Build, Restart, and Verify Docker Containers
-
-Refresh the Docker stack after either API-key path. This is the only Tier 3
-runtime path.
-
-```bash
-cd "$CPP_DIR"
-make docker-refresh PROFILE="core"
-DOCKER_REFRESH_RC=$?
-if [ "$DOCKER_REFRESH_RC" -ne 0 ]; then
-  echo "ERROR: Docker refresh failed or one or more containers are unhealthy."
-  exit "$DOCKER_REFRESH_RC"
-fi
-
-make docker-health PROFILE="core"
-DOCKER_HEALTH_RC=$?
-if [ "$DOCKER_HEALTH_RC" -ne 0 ]; then
-  echo "ERROR: Docker health verification failed."
-  exit "$DOCKER_HEALTH_RC"
-fi
-
-sleep 5
-if docker logs mcp-second-opinion 2>&1 | head -10 | grep -q "Loaded secrets from AWS"; then
-  echo "Secrets loaded from AWS Secrets Manager"
-fi
-
-echo "Docker containers rebuilt, restarted, and healthy"
-```
-
-#### 3d. Register MCP Servers
+#### 3c. Register MCP Servers
 
 ```bash
 # Add MCP servers to Claude Code
 MCP_LIST=$(claude mcp list 2>/dev/null || echo "")
 
+# Second Opinion is an external streamable-http server. The repo's root .mcp.json
+# already points at it (project scope); this adds a USER-scope registration for
+# global / cross-project use. Edit the URL to wherever your server runs (e.g. a
+# Tailscale host) if it is not on localhost.
 if ! echo "$MCP_LIST" | grep -q "second-opinion"; then
-  claude mcp add second-opinion --transport sse --url http://127.0.0.1:8080/sse --scope user
-  echo "✓ second-opinion MCP registered"
+  claude mcp add second-opinion --transport http --url http://127.0.0.1:8080/mcp --scope user
+  echo "✓ second-opinion MCP registered (streamable-http, user scope)"
 else
   echo "→ second-opinion MCP already registered (skipped)"
 fi
@@ -979,7 +775,7 @@ else
 fi
 ```
 
-#### 3e. Register the browser desk pool (optional, off by default)
+#### 3d. Register the browser desk pool (optional, off by default)
 
 The **lease-desk pool** powers `/browser:session` - named **concurrent** browser
 sessions over upstream `@playwright/mcp` (issue #421). It is opt-in: it registers
@@ -1258,7 +1054,7 @@ if command -v codex &>/dev/null; then
         echo "Registered $NAME with Codex (http://127.0.0.1:${PORT}/mcp)"
       else
         echo "WARNING: $NAME not reachable on port $PORT - skipping Codex registration"
-        echo "  Start containers first: make docker-refresh PROFILE=\"core\""
+        echo "  Start the external second-opinion server first (see https://github.com/cooneycw/mcp-second-opinion)"
       fi
     fi
   done
@@ -1290,7 +1086,7 @@ CPP Installation Complete!
 Installed:
   ✓ Tier 1: Commands + Skills symlinked
   ✓ Tier 2: Scripts, hooks, shell prompt
-  ✓ Tier 3: Docker MCP stack, API keys
+  ✓ Tier 3: MCP servers (external second-opinion + playwright)
   ✓ Tier 4: CI/CD build system, health checks, pipeline, containers
   ✓ Tier 5: Codex CLI orchestration
 
@@ -1299,24 +1095,19 @@ Permission Profile: {PROFILE_NAME}
   Blocked: rm -rf, git push --force, sudo (destructive)
   Settings: .claude/settings.local.json
 
-Secrets:
-  Method: {AWS Secrets Manager sidecar | Direct .env}
-  Validate: make docker-secrets-check
-
-Deployment:
-  Model: Docker (local build)
-  Refresh: make docker-refresh PROFILE="core"
-  Health: make docker-health PROFILE="core"
-  Update pathway: /cpp:update migrates legacy systemd and refreshes Docker
-
 MCP Servers:
-  • second-opinion (port 8080) - Gemini/OpenAI code review
+  • second-opinion (external server, http://127.0.0.1:8080/mcp) - Gemini/OpenAI
+    code review. Run it from https://github.com/cooneycw/mcp-second-opinion;
+    edit the URL for a Tailscale host. Root .mcp.json points at it (project scope).
   • playwright (upstream @playwright/mcp, npx/stdio) - Browser automation
-  • aws-secrets-agent (internal port 2773) - Secret injection sidecar (if AWS SM)
+
+Update pathway:
+  /cpp:update pulls CPP and tears down any legacy systemd units or retired MCP
+  containers (mcp-second-opinion, aws-secrets-agent, ...) left on this host.
 
 Next Steps:
-  1. Verify Docker containers:
-     cd {CPP_DIR} && make docker-health PROFILE="core"
+  1. Verify the second-opinion server is running (from the mcp-second-opinion
+     repo) and reachable at http://127.0.0.1:8080/mcp
 
   2. Restart your shell to apply prompt changes:
      source ~/.bashrc
@@ -1347,29 +1138,24 @@ Documentation:
 
 ## Error Handling
 
-### Docker Not Available
+### Second Opinion Server Not Reachable
 ```
-ERROR: Tier 3 requires Docker Engine or Docker Desktop.
+⚠ The second-opinion server did not answer on http://127.0.0.1:8080/mcp.
 
-Install Docker and verify:
-  docker ps
-  docker compose version
+It is an EXTERNAL server - start it from its own repo first:
+  https://github.com/cooneycw/mcp-second-opinion
 
-If Docker is not available:
-  1. Install manually: https://docs.docker.com/get-docker/
-  2. Or skip Tier 3 and use Standard tier only
-
-Skip Tier 3 components? [Y/n]
+If your server runs on a different host (e.g. a Tailscale address), re-register
+with the correct URL:
+  claude mcp add second-opinion --transport http --url <url> --scope user
 ```
 
-### API Key Not Provided
+### npx Not Available (playwright)
 ```
-⚠ No GEMINI_API_KEY provided.
+⚠ npx not found. Browser automation (upstream @playwright/mcp) needs Node.js 18+.
 
-MCP Second Opinion will not work without an API key.
-You can configure it later by editing: {CPP_DIR}/.env
-
-Continue? [Y/n]
+Install Node.js (https://nodejs.org/), then:
+  claude mcp add --transport stdio --scope user playwright -- npx -y @playwright/mcp@latest --headless
 ```
 
 ---
@@ -1425,8 +1211,8 @@ echo "  Install later: claude mcp add --transport stdio --scope user sequential-
 Register Claude Power Pack MCP servers with Codex?
 This will run `codex mcp add ...` and update Codex configuration.
 
-MCP servers expose streamable HTTP at /mcp for Codex compatibility.
-Claude Code continues to use /sse (unchanged).
+MCP servers expose streamable HTTP at /mcp. Claude Code and Codex both use
+the /mcp streamable-http endpoint.
 
 Register with Codex? [y/N]
 ```
@@ -1447,13 +1233,13 @@ else
     if echo "$CODEX_LIST" | grep -q "$NAME"; then
       echo "-> $NAME already registered with Codex (skipped)"
     else
-      # Verify container is reachable before registering
+      # Verify the external server is reachable before registering
       if curl -sf --max-time 2 "http://127.0.0.1:${PORT}/" >/dev/null 2>&1; then
         codex mcp add "$NAME" --url "http://127.0.0.1:${PORT}/mcp"
         echo "✓ $NAME registered with Codex (http://127.0.0.1:${PORT}/mcp)"
       else
         echo "⚠ $NAME not reachable on port $PORT - skipping Codex registration"
-        echo "  Start containers first: make docker-refresh PROFILE=\"core\""
+        echo "  Start the external second-opinion server first (see https://github.com/cooneycw/mcp-second-opinion)"
       fi
     fi
   done

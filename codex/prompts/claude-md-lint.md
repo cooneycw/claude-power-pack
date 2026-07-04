@@ -7,7 +7,7 @@ Audit a project's CLAUDE.md to ensure it includes essential directives for CI/CD
 ## Why This Matters
 
 CLAUDE.md governs agent behavior. Without explicit CI/CD directives, Claude Code agents will:
-- Run raw `docker compose` instead of `make docker-*` targets
+- Run container commands ad-hoc instead of following the project's documented Docker workflow
 - Debug ad-hoc without following Makefile pipelines
 - Skip lint/test gates when troubleshooting
 - Make manual fixes that break CI/CD alignment
@@ -57,7 +57,7 @@ Check for these directive categories (case-insensitive, flexible matching):
 | **CI/CD Protocol** | Mentions Makefile targets for build/test/deploy | REQUIRED |
 | **Troubleshooting Protocol** | Mentions running lint/test before debugging, fixing CI/CD alongside code | REQUIRED |
 | **Quality Gates** | Mentions `make lint`, `make test`, `make verify`, or equivalent | REQUIRED |
-| **Docker Conventions** | Mentions `make docker-*` targets (only if Docker files exist) | CONDITIONAL |
+| **Docker Conventions** | Documents the project's Docker workflow (only if Docker files exist) | CONDITIONAL |
 | **Deployment Protocol** | Mentions `make deploy` or deployment workflow | RECOMMENDED |
 | **Available Commands** | Lists Makefile targets or build commands | RECOMMENDED |
 
@@ -86,9 +86,9 @@ For each category, search CLAUDE.md for these patterns:
 - `/flow-finish`
 
 **Docker Conventions** (any of, only checked if Docker files exist):
-- `make docker`
-- `docker-build`, `docker-up`, `docker-down`
-- `not raw.*docker`
+- A documented build/run workflow for the container (Makefile target, script, or compose command)
+- `docker compose` or `docker build` usage guidance
+- Any note on how contributors should start and stop the containers
 
 **Deployment Protocol** (any of):
 - `make deploy`
@@ -193,12 +193,10 @@ For each FAIL or WARN, provide the exact text block to add to CLAUDE.md.
 
 ## Docker Conventions
 
-- Build images: `make docker-build` (not raw `docker build`)
-- Start services: `make docker-up` (not raw `docker compose up`)
-- Stop services: `make docker-down`
-- View logs: `make docker-logs`
-- Check status: `make docker-ps`
-- If Docker errors occur, check Dockerfile and docker-compose.yml alongside application code
+- Document how contributors build the image (a Makefile target, a script, or the exact `docker build` / `docker compose build` command)
+- Document how to start and stop the services (for example a `make` wrapper, or the `docker compose up -d` / `docker compose down` commands)
+- Note where logs and status are checked
+- If Docker errors occur, check the Dockerfile and compose file alongside application code
 ```
 
 ### If Deployment Protocol is WARN:

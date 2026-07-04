@@ -2,6 +2,50 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **Browser automation migrated to upstream `@playwright/mcp`** (issue #423) -
+  `/qa:test` and the `browser-tiered` skill now drive the official Microsoft
+  `@playwright/mcp` server instead of CPP's fork. The server is registered by
+  `/cpp:init` as an npx/stdio MCP (no container, no `browser` compose profile);
+  it exposes one implicit browser context per connection, so the old
+  `create_session`/`session_id`/`close_session` calls are gone. Named concurrent
+  sessions - a feature no CPP consumer used - move to the separate
+  `browser:session` wrapper skill (#421). Version bumped to 7.3.0.
+
+### Removed
+
+- **Retired `mcp-second-opinion` + `aws-secrets-agent` and CPP's entire Docker MCP
+  runtime** (issue #469) - the multi-model code-review server moved to its own
+  external repo (https://github.com/cooneycw/mcp-second-opinion), so CPP now consumes
+  it as a client via a root `.mcp.json` (streamable-http `127.0.0.1:8080/mcp`)
+  instead of building it. Because second-opinion was the last containerized MCP
+  server, this removed the whole Docker runtime: the `mcp-second-opinion/` and
+  `aws-secrets-agent/` directories, all three `docker-compose*.yml` files, every
+  `make docker-*` target + `docker-secrets-check` + the compose-based
+  `deploy`/`docker-refresh` chain (`make deploy` is now an informative no-op), the
+  `.woodpecker.yml` compose-policy / image-security / runtime-smoke stages (dropping
+  the second recurring Trivy CVE drift tax), the `renovate.json` image pins, and the
+  Docker smoke/guard scripts (`runtime-smoke.sh`, `fake-secrets-agent.py`,
+  `check-docker-aws-env.py`, `docker-health-check.py`,
+  `docker-refresh-transactional.sh`, `assert-prod-env.sh`, `check-aws-secret-keys.py`,
+  `ci-docker-login.sh`) plus their tests and `docs/AWS_SECRETS_SIDECAR.md`.
+  `mcp-evaluate` stays (it reaches second-opinion over HTTP). Added both components to
+  `.claude/deprecated-mcps.yaml` - deliberately with NO registration entries for
+  `mcp-second-opinion`, since the new external server reuses that registration name -
+  so `/cpp:update` offers a user-confirmed teardown of any leftover container or
+  image; `scripts/mcp-drift.py` now treats a missing compose file as a known-empty
+  service set so that teardown still fires post-removal. `.claude/bootstrap.yaml`
+  drops the Docker/AWS prerequisites (only `jq` remains).
+
+- **Retired the `mcp-playwright-persistent` server** (issue #423) - deleted the
+  823-line server, its Dockerfile, deploy scripts, the `browser` compose
+  service/profile, its Woodpecker image-security + hadolint gate scope (dropping
+  one of the two recurring Trivy CVE drift taxes), and its `renovate.json` /
+  `pyproject.toml` / `drift-detect.sh` entries. Added it to
+  `.claude/deprecated-mcps.yaml` so `/cpp:update` offers a user-confirmed
+  teardown of any leftover container, image, or registration on existing hosts.
+
 ### Added
 
 - **Multi-harness skill generation** (issue #446, epic #417 Phase C) - surviving
@@ -18,29 +62,6 @@
   only manages marker-bearing files - the hand-curated `cpp-memory.md` (#433)
   is never overwritten or orphan-deleted. Replaces `scripts/codex-skill-gen.py`
   (deleted) and its `.agents/skills` wrapper/symlink approach.
-
-### Changed
-
-- **Browser automation migrated to upstream `@playwright/mcp`** (issue #423) -
-  `/qa:test` and the `browser-tiered` skill now drive the official Microsoft
-  `@playwright/mcp` server instead of CPP's fork. The server is registered by
-  `/cpp:init` as an npx/stdio MCP (no container, no `browser` compose profile);
-  it exposes one implicit browser context per connection, so the old
-  `create_session`/`session_id`/`close_session` calls are gone. Named concurrent
-  sessions - a feature no CPP consumer used - move to the separate
-  `browser:session` wrapper skill (#421). Version bumped to 7.3.0.
-
-### Removed
-
-- **Retired the `mcp-playwright-persistent` server** (issue #423) - deleted the
-  823-line server, its Dockerfile, deploy scripts, the `browser` compose
-  service/profile, its Woodpecker image-security + hadolint gate scope (dropping
-  one of the two recurring Trivy CVE drift taxes), and its `renovate.json` /
-  `pyproject.toml` / `drift-detect.sh` entries. Added it to
-  `.claude/deprecated-mcps.yaml` so `/cpp:update` offers a user-confirmed
-  teardown of any leftover container, image, or registration on existing hosts.
-
-### Added
 
 - **Plugin-marketplace scaffold + `flow` proof-of-concept plugin** (issue #477,
   epic #417 Phase B1, ADR `docs/decisions/0001-plugin-marketplace-packaging.md`) -

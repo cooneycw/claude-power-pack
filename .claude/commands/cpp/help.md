@@ -50,9 +50,9 @@ CPP uses a tiered installation model:
 - **Workstation tuning**: Optional swap, sysctl, inotify optimization
 
 ### Tier 3 - Full
-- **MCP Second Opinion** (port 8080): Gemini/OpenAI code review
+- **MCP Second Opinion**: Gemini/OpenAI code review from the external `cooneycw/mcp-second-opinion` server, connected via the root `.mcp.json` streamable-http pointer (`http://127.0.0.1:8080/mcp` or a Tailscale URL)
 - **Browser automation**: upstream `@playwright/mcp` registered via npx/stdio (no container; needs Node.js 18+)
-- **Docker runtime**: First-class MCP container deployment via `make docker-refresh PROFILE="core"`
+- **MCP wiring**: the root `.mcp.json` registers external/remote MCP servers (CPP ships no container runtime)
 - **Systemd services**: Auto-start on boot (optional for native installs)
 
 ### Tier 4 - CI/CD

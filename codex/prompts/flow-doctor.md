@@ -254,34 +254,26 @@ If `CPP_DIR` is not found, skip this entire section and note in the report:
 CI/CD Readiness: skipped (lib/cicd not available)
 ```
 
-### Step 7c: MCP Server Connectivity
+### Step 7c: MCP Server Wiring
 
-Check whether MCP servers are reachable on their expected ports:
+CPP itself no longer runs any MCP server on a fixed local port. The second-opinion
+server is external (the `cooneycw/mcp-second-opinion` repo) and is reached over the
+root `.mcp.json` streamable-http pointer (localhost `http://127.0.0.1:8080/mcp` or a
+Tailscale URL); browser automation is the upstream `@playwright/mcp` npx/stdio server.
+Report how second-opinion is wired rather than probing a hardcoded port:
 
 ```bash
 echo ""
-echo "MCP Server Connectivity:"
+echo "MCP Server Wiring:"
 
-MCP_ISSUES=0
-# Browser automation is upstream @playwright/mcp over npx/stdio - no port to probe.
-for entry in "8080:second-opinion"; do
-  PORT="${entry%%:*}"
-  NAME="${entry#*:}"
-  if curl -sf --max-time 2 "http://127.0.0.1:${PORT}/health" >/dev/null 2>&1; then
-    echo "  [x] $NAME (port $PORT): reachable"
-  elif ss -tlnp 2>/dev/null | grep -q ":${PORT} " 2>/dev/null; then
-    echo "  [~] $NAME (port $PORT): port open (no /health endpoint)"
-  else
-    echo "  [ ] $NAME (port $PORT): not reachable"
-    MCP_ISSUES=$((MCP_ISSUES + 1))
-  fi
-done
-
-if (( MCP_ISSUES > 0 )); then
-  echo "  Status: $MCP_ISSUES server(s) not reachable"
+if [ -f ".mcp.json" ] && grep -q "second-opinion" .mcp.json 2>/dev/null; then
+  echo "  [x] second-opinion: registered in .mcp.json (external mcp-second-opinion server)"
 else
-  echo "  Status: All MCP servers reachable"
+  echo "  [ ] second-opinion: not registered in .mcp.json"
+  echo "      Run the external cooneycw/mcp-second-opinion server, then point .mcp.json"
+  echo "      at it (http://127.0.0.1:8080/mcp for localhost, or a Tailscale URL)."
 fi
+echo "  [-] playwright: upstream @playwright/mcp over npx/stdio (no port to probe)"
 ```
 
 ### Step 8: Generate Report
@@ -321,12 +313,12 @@ Output a single diagnostic report in this format:
 | Flow allowlist | ✅/⚠️/❌ | 32/32 rules in ~/.claude/settings.json / N missing / settings.json missing |
 | Flow skill mirror | ✅/⚠️ | Global flow-* matches repo commands / out of sync (run flow-skill-sync.py --write) |
 
-### MCP Server Connectivity
+### MCP Server Wiring
 
-| Server | Port | Status | Details |
-|--------|------|--------|---------|
-| second-opinion | 8080 | ✅/⚠️/❌ | Reachable / Port open (no /health) / Not reachable |
-| playwright | stdio | - | Upstream @playwright/mcp over npx/stdio (no port) |
+| Server | Transport | Status | Details |
+|--------|-----------|--------|---------|
+| second-opinion | .mcp.json (streamable-http) | ✅/❌ | Registered in .mcp.json (external server) / Not registered |
+| playwright | npx/stdio | - | Upstream @playwright/mcp (no port) |
 
 ### Active Worktrees
 
@@ -380,7 +372,7 @@ Output a single diagnostic report in this format:
 6. ❌ **No CI pipeline** - Run `/cicd-pipeline` to generate GitHub Actions or Woodpecker CI config
 7. ⚠️ **No health endpoints** - Add `health.endpoints` to `.claude/cicd.yml` for post-deploy verification
 8. ⚠️ **No smoke tests** - Add `health.smoke_tests` to `.claude/cicd.yml` for post-deploy testing
-9. ⚠️ **MCP server(s) not reachable** - Start servers: `cd mcp-second-opinion && ./start-server.sh` (or use stdio transport)
+9. ⚠️ **second-opinion not registered** - It is an external server now. Run the `cooneycw/mcp-second-opinion` repo's server, then point the root `.mcp.json` `second-opinion` entry at it (`http://127.0.0.1:8080/mcp` for localhost, or a Tailscale URL).
 
 *All checks passed!* → "Environment is ready for `/flow` workflow."
 ```

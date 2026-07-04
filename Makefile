@@ -1,6 +1,6 @@
 .PHONY: test lint format typecheck verify secret-scan update_docs clean \
-       docker-build docker-check-env docker-secrets-check docker-up docker-refresh docker-health docker-down docker-logs docker-ps deploy \
-       bootstrap-check drift-check setup-woodpecker-cli codex-init codex-prompts codex-prompts-check
+       bootstrap-check drift-check deploy setup-woodpecker-cli \
+       codex-init codex-prompts codex-prompts-check
 
 ## Quality gates (used by /flow:finish)
 
@@ -37,71 +37,6 @@ update_docs:
 	@echo "Run /documentation:c4 to regenerate C4 architecture diagrams"
 	@echo "Review CLAUDE.md and README.md for accuracy"
 
-## Docker (MCP server containers)
-## Usage: make docker-up PROFILE=core
-##        make docker-up PROFILE="core browser"
-##        make docker-refresh PROFILE="core browser"
-## Profiles: core (second-opinion), browser
-
-PROFILE ?= core
-DOCKER_UP_FLAGS ?= -d
-DOCKER_PROFILES = $(foreach p,$(PROFILE),--profile $(p))
-
-# Immutable, traceable tag for deployable images (consumed by docker-compose.yml
-# as ${CPP_IMAGE_TAG}). Defaults to the short git SHA so every built image maps
-# to a commit; falls back to "dev" outside a git checkout. Override with
-# `make docker-refresh CPP_IMAGE_TAG=<tag>`.
-CPP_IMAGE_TAG ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo dev)
-export CPP_IMAGE_TAG
-
-docker-build:
-	docker compose $(DOCKER_PROFILES) build
-
-docker-check-env:
-	@python3 scripts/check-docker-aws-env.py --profiles "$(PROFILE)"
-
-docker-secrets-check:
-	@echo "Checking AWS Secrets Manager connectivity..."
-	@if [ ! -f .env ]; then \
-		echo "FAIL: .env not found - AWS credentials required"; \
-		exit 1; \
-	fi
-	@if ! grep -qE '^AWS_ACCESS_KEY_ID=.+' .env 2>/dev/null; then \
-		echo "FAIL: AWS_ACCESS_KEY_ID not set in .env"; \
-		exit 1; \
-	fi
-	@. .env 2>/dev/null; \
-	if aws sts get-caller-identity > /dev/null 2>&1; then \
-		echo "OK: AWS credentials valid ($$(aws sts get-caller-identity --query 'Account' --output text 2>/dev/null))"; \
-	else \
-		echo "FAIL: AWS credentials invalid or expired"; \
-		exit 1; \
-	fi
-	@. .env 2>/dev/null; \
-	python3 scripts/check-aws-secret-keys.py \
-		--required codex_llm_apikeys:GEMINI_API_KEY,OPENAI_API_KEY,ANTHROPIC_API_KEY
-	@echo "Done."
-
-docker-up: docker-check-env
-	docker compose $(DOCKER_PROFILES) up $(DOCKER_UP_FLAGS)
-
-docker-refresh: docker-check-env
-	@scripts/docker-refresh-transactional.sh --profiles "$(PROFILE)"
-	@$(MAKE) docker-health PROFILE="$(PROFILE)"
-
-docker-health:
-	docker compose $(DOCKER_PROFILES) ps
-	@python3 scripts/docker-health-check.py --profiles "$(PROFILE)"
-
-docker-down:
-	docker compose --profile core --profile browser down
-
-docker-logs:
-	docker compose --profile core --profile browser logs -f
-
-docker-ps:
-	docker compose --profile core --profile browser ps
-
 ## Bootstrap dependency check (admin-only prerequisites)
 
 bootstrap-check:
@@ -112,11 +47,17 @@ bootstrap-check:
 drift-check:
 	@scripts/drift-detect.sh --fix
 
-## Deploy (used by /flow:deploy and manual local deployments)
+## Deploy (used by /flow:deploy and /flow:auto Step 9)
+## CPP ships no deployable services as of #469 - the second-opinion MCP server
+## runs from its own external repo (github.com/cooneycw/mcp-second-opinion) and
+## CPP consumes it via .mcp.json. This target is an informative no-op so the
+## flow deploy path stays intact without a container runtime.
 
 deploy:
-	@scripts/assert-prod-env.sh --profiles "$(PROFILE)"
-	@$(MAKE) docker-refresh PROFILE="$(PROFILE)"
+	@echo "Nothing to deploy: CPP no longer ships container services (issue #469)."
+	@echo "The second-opinion MCP server runs from its own repo:"
+	@echo "  https://github.com/cooneycw/mcp-second-opinion"
+	@echo "Run that server, then point .mcp.json at it (localhost or Tailscale). See /cpp:init."
 
 ## Woodpecker CLI setup
 
