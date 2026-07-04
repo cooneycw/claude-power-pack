@@ -38,8 +38,22 @@ fi
 
 git fetch origin main --quiet
 if [ "$(git rev-list --count HEAD..origin/main)" -gt 0 ]; then
+    # The implementation is still UNCOMMITTED here, and git refuses to merge into a
+    # dirty tree ("Please commit your changes or stash them before you merge") - so
+    # STASH the work FIRST, merge, then restore it, inverting the merge-then-commit
+    # order the prose implies (issue #521). A clean tree skips the stash.
+    STASHED=0
+    if [ -n "$(git status --porcelain)" ]; then
+        git stash push -u -m "flow-finish-pre-stale-merge" && STASHED=1
+    fi
     if ! git merge --no-edit origin/main; then
-        echo "STOP: resolve the listed conflicts, 'git add' + 'git commit', then re-run /flow:finish."
+        echo "STOP: 'git merge origin/main' hit CONFLICTS. Resolve them, 'git add' + 'git commit', then re-run /flow:finish."
+        git diff --name-only --diff-filter=U
+        [ "$STASHED" -eq 1 ] && echo "NOTE: your work is stashed ('git stash list') - pop it after resolving."
+        exit 1
+    fi
+    if [ "$STASHED" -eq 1 ] && ! git stash pop; then
+        echo "STOP: restoring your stashed work onto the merged base hit conflicts. Resolve them and 'git add' (do NOT 'git merge --abort'), then re-run /flow:finish."
         git diff --name-only --diff-filter=U
         exit 1
     fi

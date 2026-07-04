@@ -239,3 +239,37 @@ def test_guards_resync_flow_mirror_on_flow_command_merge():
         text = _read(rel)
         assert "flow-skill-sync.py" in text, f"{rel} must re-sync the flow mirror after a merge"
         assert "ORIG_HEAD..HEAD" in text, f"{rel} must scope the re-sync to what the merge pulled"
+
+
+@pytest.mark.parametrize(
+    "rel",
+    [".claude/commands/flow/auto.md", ".claude/commands/flow/finish.md"],
+    ids=["auto", "finish"],
+)
+def test_stale_base_precheck_stashes_dirty_tree_before_merge(rel: str):
+    # Issue #521: at the Step-6 (auto) / early (finish) stale-base pre-check the
+    # implementation is still UNCOMMITTED, so `git merge origin/main` refuses on a
+    # dirty tree ("commit your changes or stash them before you merge"). The block
+    # must stash BEFORE the merge and restore after, and must not mislabel that
+    # dirty-tree refusal as a merge conflict. Hit on flow:auto #502 and #509.
+    text = _read(rel)
+    assert "git stash push" in text, (
+        f"{rel} must stash uncommitted work before the stale-base "
+        f"`git merge origin/main` (issue #521)"
+    )
+    assert "git stash pop" in text, (
+        f"{rel} must restore the stashed work after the merge (issue #521)"
+    )
+    # The stash must precede a merge in source order (commit/stash-first).
+    stash_idx = text.find("git stash push")
+    merge_after = text.find("git merge --no-edit origin/main", stash_idx)
+    assert merge_after != -1, (
+        f"{rel}: a `git merge origin/main` must follow the stash in the "
+        f"stale-base pre-check (issue #521)"
+    )
+    # The old STOP text mislabeled a dirty-tree refusal (no merge started) as a
+    # set of conflicts to resolve - that wording must be gone.
+    assert "resolve the listed conflicts" not in text, (
+        f"{rel}: the pre-check STOP must not mislabel a dirty-tree refusal as "
+        f"conflicts (issue #521)"
+    )

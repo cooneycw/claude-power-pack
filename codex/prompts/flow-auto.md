@@ -390,10 +390,27 @@ if [ -n "$CPP_DIR" ] && [ -x "$CPP_DIR/scripts/flow-stale-check.sh" ]; then
 fi
 
 # If the base moved, merge it in now so the gate + commit ride the current tree.
+# The Step-4 implementation is still UNCOMMITTED here, and git refuses to merge
+# into a dirty tree ("Please commit your changes or stash them before you merge")
+# - so STASH the work FIRST, merge, then restore it. This inverts the
+# merge-then-commit order the surrounding prose implies (issue #521; hit on
+# flow:auto #502 and #509). A clean tree (e.g. a resumed run already committed)
+# skips the stash.
 git fetch origin main --quiet
 if [ "$(git rev-list --count HEAD..origin/main)" -gt 0 ]; then
+    STASHED=0
+    if [ -n "$(git status --porcelain)" ]; then
+        git stash push -u -m "flow-auto-pre-stale-merge" && STASHED=1
+    fi
     if ! git merge --no-edit origin/main; then
-        echo "STOP: resolve the listed conflicts, 'git add' + 'git commit', then re-run Step 6."
+        echo "STOP: 'git merge origin/main' hit CONFLICTS. Resolve them, 'git add' + 'git commit', then re-run Step 6."
+        git diff --name-only --diff-filter=U
+        [ "$STASHED" -eq 1 ] && echo "NOTE: your Step-4 work is stashed ('git stash list') - pop it after resolving."
+        exit 1
+    fi
+    # Restore the Step-4 work on top of the freshly-merged base.
+    if [ "$STASHED" -eq 1 ] && ! git stash pop; then
+        echo "STOP: restoring your stashed Step-4 work onto the merged base hit conflicts. Resolve them and 'git add' (do NOT 'git merge --abort'), then re-run Step 6."
         git diff --name-only --diff-filter=U
         exit 1
     fi
