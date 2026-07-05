@@ -206,13 +206,13 @@ BUILTIN_PLANS: dict[str, list[StepDef]] = {
         StepDef(
             id="security_scan",
             command=(
-                'PYTHONPATH="${HOME}/Projects/claude-power-pack/lib" '
+                'PYTHONPATH="${HOME}/Projects/claude-power-pack" '
                 "python3 -m lib.security gate flow_finish"
             ),
             description="Run security quick scan",
             timeout_seconds=120,
             max_attempts=1,
-            skip_if="! python3 -c 'import lib.security' 2>/dev/null",
+            skip_if='! PYTHONPATH="${HOME}/Projects/claude-power-pack" python3 -c \'import lib.security\' 2>/dev/null',
         ),
     ],
     "check": [
@@ -262,13 +262,13 @@ BUILTIN_PLANS: dict[str, list[StepDef]] = {
         StepDef(
             id="security_scan",
             command=(
-                'PYTHONPATH="${HOME}/Projects/claude-power-pack/lib" '
+                'PYTHONPATH="${HOME}/Projects/claude-power-pack" '
                 "python3 -m lib.security gate flow_deploy"
             ),
             description="Run security scan before deploy",
             timeout_seconds=120,
             max_attempts=1,
-            skip_if="! python3 -c 'import lib.security' 2>/dev/null",
+            skip_if='! PYTHONPATH="${HOME}/Projects/claude-power-pack" python3 -c \'import lib.security\' 2>/dev/null',
         ),
         StepDef(
             id="deploy",

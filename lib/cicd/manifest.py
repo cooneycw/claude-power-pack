@@ -305,12 +305,12 @@ def generate_manifest(
     # Add security_scan step if lib.security is available
     steps["security_scan"] = StepModel(
         command=(
-            'PYTHONPATH="${HOME}/Projects/claude-power-pack/lib" '
+            'PYTHONPATH="${HOME}/Projects/claude-power-pack" '
             "python3 -m lib.security gate flow_finish"
         ),
         description="Run security quick scan",
         timeout=120,
-        skip_if="! python3 -c 'import lib.security' 2>/dev/null",
+        skip_if='! PYTHONPATH="${HOME}/Projects/claude-power-pack" python3 -c \'import lib.security\' 2>/dev/null',
     )
 
     # Add any extra Makefile targets not already covered
