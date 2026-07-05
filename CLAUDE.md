@@ -116,8 +116,10 @@ from the session cwd; **never hand-build a `.claude/worktrees/<name>/...`
 absolute path**, which has been observed to land the edit in the MAIN repo
 working tree instead of the worktree (flow:auto #442 x2, #471). `/flow:auto`
 Steps 4/6 run `scripts/flow-worktree-guard.sh` - an advisory, fail-open guard
-that warns (never blocks) when the main tree has tracked modifications, the
-signature of a leaked edit - so the trap is caught before commit.
+that warns (never blocks) when a path this run edited is ALSO modified in the
+main tree, the signature of a leaked edit - so the trap is caught before commit.
+Pre-existing main dirt that does not overlap this run's edits is downgraded to a
+quiet info note rather than a false leak warning (#536).
 
 **Standalone skill extractions (issue #443):** skills with standalone value are
 extracted to their own public plugin repos so users never have to clone CPP -

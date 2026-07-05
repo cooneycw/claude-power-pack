@@ -66,6 +66,17 @@ GIT_BIN="${FLOW_STALE_GIT:-git}"
 git_() { "$GIT_BIN" "$@"; }
 verdict() { echo "FLOW_STALE_BASE: $1"; }
 
+# True when FETCH_HEAD was written recently (within the last 5 minutes), i.e. a
+# fetch already succeeded this run. Used to suppress the alarming "fetch failed"
+# line when the on-disk ref is in fact fresh - the common sandbox-DNS case where
+# an earlier fetch worked and only a redundant one failed (issue #536).
+fetch_head_is_fresh() {
+    local fh
+    fh="$(git_ rev-parse --git-path FETCH_HEAD 2>/dev/null)" || return 1
+    [[ -s "$fh" ]] || return 1
+    [[ -n "$(find "$fh" -mmin -5 2>/dev/null)" ]]
+}
+
 # Cap noisy lists so a large upstream diff does not scroll the whole flow away.
 print_list() {
     local max=20 n=0 f
@@ -87,12 +98,24 @@ fi
 
 # Best-effort refresh of the base's remote-tracking ref. A network hiccup must
 # never break the flow - the check just runs against whatever ref is on disk.
+# On failure, cry wolf only when it matters: if a fetch already succeeded this
+# run (fresh FETCH_HEAD) the on-disk ref is current, so stay silent; otherwise
+# surface the ACTUAL git error instead of a generic line, so a blocked-DNS
+# sandbox is distinguishable from a real fetch problem (issue #536).
 if [[ "$DO_FETCH" -eq 1 ]]; then
     if [[ "$BASE_REF" == */* ]]; then
         remote="${BASE_REF%%/*}"
         rbranch="${BASE_REF#*/}"
-        git_ fetch "$remote" "$rbranch" --quiet 2>/dev/null \
-            || echo "flow-stale-check: 'git fetch $remote $rbranch' failed - using on-disk ref." >&2
+        # Record freshness BEFORE the attempt: a failing fetch can itself clobber
+        # FETCH_HEAD, which would otherwise erase the evidence that an earlier
+        # fetch this run already succeeded.
+        was_fresh=0; fetch_head_is_fresh && was_fresh=1
+        if ! fetch_err="$(git_ fetch "$remote" "$rbranch" --quiet 2>&1)"; then
+            if [[ "$was_fresh" -eq 0 ]] && ! fetch_head_is_fresh; then
+                echo "flow-stale-check: 'git fetch $remote $rbranch' failed - using on-disk ref." >&2
+                [[ -n "$fetch_err" ]] && printf '%s\n' "$fetch_err" | sed 's/^/  git: /' >&2
+            fi
+        fi
     else
         git_ fetch --quiet 2>/dev/null || true
     fi
