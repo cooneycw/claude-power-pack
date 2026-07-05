@@ -302,15 +302,18 @@ def generate_manifest(
             skip_if=skip_if,
         )
 
-    # Add security_scan step if lib.security is available
+    # Add security_scan step if lib.security is available. PYTHONPATH is set via
+    # the step env (derived from the CPP checkout location, not a hardcoded
+    # "${HOME}/Projects/..." that breaks under a sandbox / alternate checkout) so
+    # ``python3 -m lib.security`` resolves wherever CPP lives (issue #534).
+    from .steps import _CPP_ROOT
+
     steps["security_scan"] = StepModel(
-        command=(
-            'PYTHONPATH="${HOME}/Projects/claude-power-pack" '
-            "python3 -m lib.security gate flow_finish"
-        ),
+        command="python3 -m lib.security gate flow_finish",
         description="Run security quick scan",
         timeout=120,
-        skip_if='! PYTHONPATH="${HOME}/Projects/claude-power-pack" python3 -c \'import lib.security\' 2>/dev/null',
+        skip_if="! python3 -c 'import lib.security' 2>/dev/null",
+        env={"PYTHONPATH": _CPP_ROOT},
     )
 
     # Add any extra Makefile targets not already covered
