@@ -133,7 +133,11 @@ is_systemd_unit_present() {
 
 repo_ships_systemd_unit() {
     local unit="$1"
-    find "$REPO_ROOT" -path "*/deploy/${unit}.service" -o -path "*/deploy/${unit}.service.template" 2>/dev/null | grep -q .
+    # Prune .claude/worktrees: sibling flow:auto checkouts live there, and a
+    # pre-retirement deploy template inside one must not count as "repo ships
+    # it" for THIS checkout (issue #518 - flaky orphan detection).
+    find "$REPO_ROOT" -path '*/.claude/worktrees' -prune -o \
+        \( -path "*/deploy/${unit}.service" -o -path "*/deploy/${unit}.service.template" \) -print 2>/dev/null | grep -q .
 }
 
 canonical_server_for_unit() {
@@ -606,11 +610,13 @@ check_shared_scripts() {
         fi
     done
 
-    # Also check bash-prep.sh if it exists in multiple locations
+    # Also check bash-prep.sh if it exists in multiple locations. Prune
+    # .claude/worktrees so sibling checkouts never enter the comparison
+    # (issue #518); -maxdepth 3 alone only excludes them incidentally.
     local bash_preps=()
     while IFS= read -r -d '' f; do
         bash_preps+=("$f")
-    done < <(find "$REPO_ROOT" -maxdepth 3 -name "bash-prep.sh" -print0 2>/dev/null)
+    done < <(find "$REPO_ROOT" -maxdepth 3 -path '*/.claude/worktrees' -prune -o -name "bash-prep.sh" -print0 2>/dev/null)
 
     if (( ${#bash_preps[@]} > 1 )); then
         local ref_hash
