@@ -7,9 +7,15 @@ from unittest.mock import patch
 
 import pytest
 
-from lib.cicd.runner import DeterministicRunner, RunResult, _build_step_env
+from lib.cicd.runner import (
+    DeterministicRunner,
+    RunResult,
+    _build_step_env,
+    _is_offline,
+    _project_python_floor,
+)
 from lib.cicd.state import RunState
-from lib.cicd.steps import ShellStep, StepDef
+from lib.cicd.steps import _CPP_ROOT, BUILTIN_PLANS, ShellStep, StepDef
 
 
 @pytest.fixture
@@ -311,3 +317,98 @@ class TestBuildStepEnv:
         with patch.dict(os.environ, {"UV_CACHE_DIR": "/custom/cache"}):
             env = _build_step_env()
             assert env["UV_CACHE_DIR"] == "/custom/cache"
+
+    def test_strips_parent_venv_leakage(self):
+        """Inherited VIRTUAL_ENV / PYTHONHOME must not reach child steps (#534)."""
+        with patch.dict(
+            os.environ,
+            {"VIRTUAL_ENV": "/parent/.venv", "PYTHONHOME": "/parent/home"},
+        ):
+            env = _build_step_env()
+            assert "VIRTUAL_ENV" not in env
+            assert "PYTHONHOME" not in env
+
+    def test_pins_uv_python_to_project_floor(self, tmp_path: Path):
+        """UV_PYTHON defaults to the target project's requires-python floor (#534)."""
+        (tmp_path / "pyproject.toml").write_text(
+            '[project]\nname = "x"\nrequires-python = ">=3.12"\n'
+        )
+        env_without = {k: v for k, v in os.environ.items() if k != "UV_PYTHON"}
+        with patch.dict(os.environ, env_without, clear=True):
+            env = _build_step_env(tmp_path)
+            assert env["UV_PYTHON"] == "3.12"
+
+    def test_uv_python_explicit_wins(self, tmp_path: Path):
+        """An explicit UV_PYTHON is never overridden by the derived floor."""
+        (tmp_path / "pyproject.toml").write_text('requires-python = ">=3.11"\n')
+        with patch.dict(os.environ, {"UV_PYTHON": "3.13"}):
+            env = _build_step_env(tmp_path)
+            assert env["UV_PYTHON"] == "3.13"
+
+    def test_no_uv_python_when_floor_unknown(self, tmp_path: Path):
+        """No pyproject / no requires-python -> UV_PYTHON left unset, not guessed."""
+        env_without = {k: v for k, v in os.environ.items() if k != "UV_PYTHON"}
+        with patch.dict(os.environ, env_without, clear=True):
+            env = _build_step_env(tmp_path)  # empty dir
+            assert "UV_PYTHON" not in env
+
+    def test_build_step_env_is_pure_no_offline_probe(self):
+        """_build_step_env must not materialize CPP_OFFLINE (stays network-free)."""
+        env_without = {k: v for k, v in os.environ.items() if k != "CPP_OFFLINE"}
+        with patch.dict(os.environ, env_without, clear=True):
+            env = _build_step_env()
+            assert "CPP_OFFLINE" not in env
+
+
+class TestSandboxHelpers:
+    def test_project_python_floor_parses_requires_python(self, tmp_path: Path):
+        (tmp_path / "pyproject.toml").write_text('requires-python = ">=3.11,<3.14"\n')
+        assert _project_python_floor(tmp_path) == "3.11"
+
+    def test_project_python_floor_missing_pyproject(self, tmp_path: Path):
+        assert _project_python_floor(tmp_path) is None
+
+    def test_project_python_floor_none_root(self):
+        assert _project_python_floor(None) is None
+
+    def test_is_offline_honors_env_override(self):
+        with patch.dict(os.environ, {"CPP_OFFLINE": "1"}):
+            assert _is_offline() is True
+        with patch.dict(os.environ, {"CPP_OFFLINE": "0"}):
+            assert _is_offline() is False
+
+    def test_offline_flag_skips_network_step(self, tmp_project: Path):
+        """With CPP_OFFLINE=1 the deploy stale-commit (git fetch) step skips (#534)."""
+        stale = {s.id: s for s in BUILTIN_PLANS["deploy"]}["stale_commit_check"]
+        step = ShellStep(stale)
+        ctx_offline = {"project_root": str(tmp_project), "env": {"CPP_OFFLINE": "1"}}
+        assert step.should_skip(ctx_offline) is True
+
+
+class TestStepDefinitionsSandboxAware:
+    """The security/import steps derive PYTHONPATH from the CPP checkout, not a
+    hardcoded ${HOME} path that breaks under a sandbox / alternate checkout (#534)."""
+
+    def test_finish_security_scan_dehardcoded(self):
+        step = {s.id: s for s in BUILTIN_PLANS["finish"]}["security_scan"]
+        assert "Projects/claude-power-pack" not in step.command
+        assert "Projects/claude-power-pack" not in (step.skip_if or "")
+        assert step.env.get("PYTHONPATH") == _CPP_ROOT
+
+    def test_deploy_bootstrap_check_path_fixed(self):
+        """bootstrap_check previously pointed PYTHONPATH at .../lib (wrong for
+        -m lib.cicd.bootstrap); it now derives the parent-of-lib root."""
+        step = {s.id: s for s in BUILTIN_PLANS["deploy"]}["bootstrap_check"]
+        assert step.command == "python3 -m lib.cicd.bootstrap check"
+        assert step.env.get("PYTHONPATH") == _CPP_ROOT
+
+    def test_deploy_security_scan_dehardcoded(self):
+        step = {s.id: s for s in BUILTIN_PLANS["deploy"]}["security_scan"]
+        assert "Projects/claude-power-pack" not in step.command
+        assert step.env.get("PYTHONPATH") == _CPP_ROOT
+
+    def test_cpp_root_is_parent_of_lib(self):
+        """_CPP_ROOT must be the parent of lib/ so `-m lib.security` resolves."""
+        assert (Path(_CPP_ROOT) / "lib" / "security").exists() or (
+            Path(_CPP_ROOT) / "lib"
+        ).is_dir()
