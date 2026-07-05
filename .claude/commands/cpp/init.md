@@ -550,6 +550,55 @@ echo "→ Permission-prompt census hook skipped"
 echo "  Register later via /cpp:update, or read docs/HOST_MANAGED_ARTIFACTS.md"
 ```
 
+**Pending-Retro Reminder (Optional, opt-in)**
+
+`scripts/hook-pending-retro.sh` (a `SessionStart` hook, installed as a Tier 2
+script above) prints ONE advisory line at session open when retro material is
+waiting - pending `.claude/friction.jsonl` signals (actionable vs the bulk
+permission-prompt census, counted separately) plus any uncodified
+`Status: proposed` learnings - and points at `/self-improvement:retro`. It only
+SURFACES; it never codifies, and it is silent when nothing is pending (issue
+#530). It is deliberately NOT shipped in `.claude/hooks.json`, so it never turns
+itself on; registering it edits `~/.claude/settings.json` (the user-level trust
+boundary), so it is offered, not applied - default N:
+
+```
+=== Optional: Pending-Retro Reminder (opt-in) ===
+
+Register the session-open retro reminder in ~/.claude/settings.json? It prints
+one advisory line when pending friction signals or uncodified learnings exist,
+so you can choose to run /self-improvement:retro. Surfaces only - never codifies,
+never blocks. Silent when nothing is pending.  [y/N default N]
+```
+
+If yes:
+
+```bash
+TARGET="$HOME/.claude/settings.json"
+RETRO_CMD="~/.claude/scripts/hook-pending-retro.sh"
+mkdir -p "$HOME/.claude"
+[ -f "$TARGET" ] || echo '{}' > "$TARGET"
+
+# Idempotent: add the hook only if this exact command is not already registered
+# (tolerant of both the {hooks:[...]} group shape and a bare {command} entry).
+jq --arg cmd "$RETRO_CMD" '
+  .hooks = (.hooks // {})
+  | .hooks.SessionStart = (.hooks.SessionStart // [])
+  | if any(.hooks.SessionStart[]?; (.command == $cmd) or ((.hooks // [])[]?.command == $cmd))
+    then .
+    else .hooks.SessionStart += [{"hooks":[{"type":"command","command":$cmd}]}]
+    end
+' "$TARGET" > "$TARGET.tmp" && mv "$TARGET.tmp" "$TARGET"
+echo "✓ Session-open retro reminder registered in ~/.claude/settings.json"
+```
+
+If no:
+
+```bash
+echo "→ Pending-retro reminder skipped (default)"
+echo "  Enable later via /cpp:update"
+```
+
 **Shell Prompt Integration (Optional)**
 
 Ask the user if they want shell prompt integration:
