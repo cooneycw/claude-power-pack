@@ -14,9 +14,19 @@
 # `git rev-parse --show-toplevel` (the active worktree root), never a hand-built
 # `.claude/worktrees/...` absolute path. This guard is the VERIFIABLE backstop for
 # that directive: run from inside a linked worktree, it inspects the MAIN repo's
-# TRACKED working tree and warns loudly if anything there is modified - the
-# signature of a leaked edit - so the trap is caught before commit rather than
-# discovered later.
+# TRACKED working tree for the leaked-edit signature - so the trap is caught
+# before commit rather than discovered later.
+#
+# To avoid crying wolf (issue #536), it does NOT warn about every dirty file in
+# main: the main checkout often carries PRE-EXISTING local modifications
+# unrelated to this run (deploy configs, etc.), and flagging those as a leak
+# buries the real signal. A dirty main file is treated as a leak only when it
+# ALSO appears among the paths THIS run edited (branch commits vs the base, plus
+# worktree dirt) - i.e. the run tried to touch that path yet it shows up modified
+# in main. Overlapping dirt -> a loud WARNING (and a --strict failure);
+# non-overlapping dirt -> a quiet info note, never a failure. Trade-off: a pure
+# leak of a file the worktree never also edited is downgraded to info - the
+# accepted cost of killing the recurring false positives.
 #
 # Scope: only meaningful in a linked-worktree session (`.git` is a file). In the
 # main checkout itself (`.git` is a directory) there is no "other tree" to leak
@@ -28,13 +38,17 @@
 #   flow-worktree-guard.sh [--strict]
 #
 # Options:
-#   --strict   Exit non-zero (3) when the main working tree has tracked
-#              modifications. Default is advisory: always exit 0, just warn.
+#   --strict   Exit non-zero (3) ONLY when a main modification OVERLAPS a path
+#              this run edited (the leak signature). Non-overlapping pre-existing
+#              dirt never fails, even under --strict. Default is advisory:
+#              always exit 0, just warn/note.
 #
 # Output:
-#   Prints a "[flow] WARNING" block naming the modified main-repo paths with a
-#   remediation hint. Prints nothing (exit 0) when main is clean or when not in
-#   a linked worktree.
+#   - Overlap (leak): a "[flow] WARNING" block naming the overlapping paths with
+#     a remediation hint (and, under --strict, exit 3).
+#   - Non-overlap only: a quiet "[flow] note" listing the pre-existing main
+#     modifications, exit 0.
+#   - Nothing (exit 0) when main is clean or when not in a linked worktree.
 #
 # Env (test hook - unset in normal use):
 #   FLOW_WORKTREE_GIT   override the `git` binary (default: git)
@@ -86,25 +100,73 @@ fi
 # --untracked-files=no keeps normal scratch/untracked noise out; the worktree's
 # own files live under main's gitignored `.claude/worktrees/` and never appear
 # here, so they cannot false-positive.
-leaked=()
+main_dirty=()
 while IFS= read -r -d '' entry; do
   # porcelain -z: 2-char status, a space, then the path.
   path="${entry:3}"
   [ -n "$path" ] || continue
-  leaked+=("$path")
+  main_dirty+=("$path")
 done < <("$GIT" -C "$MAIN_REPO" status --porcelain --untracked-files=no -z 2>/dev/null)
 
-if [ "${#leaked[@]}" -eq 0 ]; then
+if [ "${#main_dirty[@]}" -eq 0 ]; then
   exit 0
 fi
 
-echo "[flow] WARNING: the MAIN repo working tree has ${#leaked[@]} modified tracked file(s):" >&2
+# Not every dirty file in main is a leak: the main checkout often carries
+# PRE-EXISTING local modifications unrelated to this run (e.g. deploy configs),
+# and screaming "LEAKED" about them buries the real signal (issue #536). A dirty
+# main file is a leak only when it ALSO appears among the paths THIS run edited -
+# the run tried to touch that path, yet it shows up modified in main. So compute
+# this run's edited set (branch commits vs the base + anything dirty in the
+# worktree) and partition main-dirty into overlap (leak) vs unrelated (info).
+run_edited=""
+base_ref=""
+for cand in origin/main main; do
+  if "$GIT" rev-parse --verify --quiet "${cand}^{commit}" >/dev/null 2>&1; then
+    base_ref="$cand"; break
+  fi
+done
+if [ -n "$base_ref" ]; then
+  mb="$("$GIT" merge-base HEAD "$base_ref" 2>/dev/null || true)"
+  [ -n "$mb" ] && run_edited="$("$GIT" diff --name-only "$mb"..HEAD 2>/dev/null)"
+fi
+# Worktree dirt (staged/unstaged/new): strip status, keep the rename destination.
+wt_dirty="$("$GIT" status --porcelain 2>/dev/null | sed 's/^...//' | sed 's/.* -> //')"
+run_edited="$(printf '%s\n%s\n' "$run_edited" "$wt_dirty" | sed '/^$/d' | sort -u)"
+
+overlap=()
+unrelated=()
+for p in "${main_dirty[@]}"; do
+  if [ -n "$run_edited" ] && printf '%s\n' "$run_edited" | grep -qxF -- "$p"; then
+    overlap+=("$p")
+  else
+    unrelated+=("$p")
+  fi
+done
+
+# No overlap -> pre-existing/unrelated dirt in main. Downgrade to an info note
+# (never a WARNING, never a --strict failure) so it stops drowning real signals.
+if [ "${#overlap[@]}" -eq 0 ]; then
+  echo "[flow] note: main has ${#unrelated[@]} modified tracked file(s) unrelated to this run's edits (pre-existing, not a leak; issue #536):" >&2
+  for p in "${unrelated[@]}"; do
+    echo "  - $p" >&2
+  done
+  echo "         main: $MAIN_REPO" >&2
+  exit 0
+fi
+
+# Overlap -> a file this run edited is ALSO dirty in main: the leaked-edit
+# signature (issue #486). Warn loudly (and fail under --strict).
+echo "[flow] WARNING: ${#overlap[@]} file(s) this run edited are ALSO modified in the MAIN working tree:" >&2
 echo "         main: $MAIN_REPO" >&2
-for p in "${leaked[@]}"; do
+for p in "${overlap[@]}"; do
   echo "  - $p" >&2
 done
+if [ "${#unrelated[@]}" -gt 0 ]; then
+  echo "  (${#unrelated[@]} further pre-existing main modification(s) unrelated to this run - ignored.)" >&2
+fi
 echo "" >&2
-echo "  If you meant to edit these in the worktree, an edit LEAKED into main (issue #486)." >&2
+echo "  An edit likely LEAKED into main instead of the worktree (issue #486)." >&2
 echo "  Fix: resolve edit paths from 'git rev-parse --show-toplevel' (the worktree root)," >&2
 echo "  never a hand-built '.claude/worktrees/<name>/...' absolute path. Move the change" >&2
 echo "  into the worktree, then revert main:  git -C \"$MAIN_REPO\" checkout -- <path>" >&2

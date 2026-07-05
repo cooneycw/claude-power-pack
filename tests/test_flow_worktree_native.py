@@ -193,8 +193,11 @@ def test_guard_silent_when_main_clean(tmp_path: Path) -> None:
 
 @requires_git
 def test_guard_warns_on_leaked_edit_from_worktree(tmp_path: Path) -> None:
+    # The leak signature (issue #486/#536): a path this run edited in the worktree
+    # ALSO shows up modified in MAIN. The overlap is what makes it a leak rather
+    # than unrelated pre-existing dirt.
     main, wt = _make_repo_with_worktree(tmp_path)
-    # Simulate the trap: a tracked file in MAIN gets modified while working the wt.
+    (wt / "tracked.txt").write_text("intended-in-worktree\n")
     (main / "tracked.txt").write_text("LEAKED\n")
     res = _run(wt)
     assert res.returncode == 0  # advisory: never blocks
@@ -206,9 +209,42 @@ def test_guard_warns_on_leaked_edit_from_worktree(tmp_path: Path) -> None:
 @requires_git
 def test_guard_strict_exits_nonzero_on_leak(tmp_path: Path) -> None:
     main, wt = _make_repo_with_worktree(tmp_path)
+    (wt / "tracked.txt").write_text("intended-in-worktree\n")
     (main / "tracked.txt").write_text("LEAKED\n")
     res = _run(wt, "--strict")
     assert res.returncode == 3
+    assert "tracked.txt" in res.stderr
+
+
+@requires_git
+def test_guard_downgrades_nonoverlapping_main_dirt_to_info(tmp_path: Path) -> None:
+    """Issue #536: pre-existing main dirt on a file THIS run did not touch is not a
+    leak - downgrade to a quiet info note, never a WARNING or a --strict failure."""
+    main, wt = _make_repo_with_worktree(tmp_path)
+    # Main carries a pre-existing modification unrelated to this run...
+    (main / "tracked.txt").write_text("pre-existing-unrelated\n")
+    # ...while the run edits a DIFFERENT file in the worktree.
+    (wt / "other.txt").write_text("mine\n")
+    res = _run(wt, "--strict")
+    assert res.returncode == 0, "non-overlapping main dirt must not fail, even --strict"
+    assert "WARNING" not in res.stderr
+    assert "note" in res.stderr and "tracked.txt" in res.stderr
+    assert "#536" in res.stderr
+
+
+@requires_git
+def test_guard_warns_on_overlap_even_with_unrelated_dirt(tmp_path: Path) -> None:
+    """A real overlap still warns even when other unrelated main dirt is present."""
+    main, wt = _make_repo_with_worktree(tmp_path)
+    (main / "tracked.txt").write_text("also-in-main\n")  # overlaps the wt edit
+    (wt / "tracked.txt").write_text("edited-here\n")
+    (main / "other.txt").write_text("unrelated\n")  # pre-existing, no overlap
+    _git(main, "add", "other.txt")  # make it a tracked pre-existing mod
+    _git(main, "commit", "-qm", "add other")
+    (main / "other.txt").write_text("unrelated-dirty\n")
+    res = _run(wt, "--strict")
+    assert res.returncode == 3
+    assert "WARNING" in res.stderr
     assert "tracked.txt" in res.stderr
 
 

@@ -210,6 +210,64 @@ def test_fail_open_when_base_ref_missing(tmp_path: Path):
     assert _verdict(result.stdout) == "unknown"
 
 
+# --- Fetch-failure messaging (issue #536) -----------------------------------
+# These run WITHOUT --no-fetch so the fetch path is exercised. The "remote" is an
+# empty bare repo, so `git fetch origin main` deterministically fails ("couldn't
+# find remote ref main") without contacting the network.
+
+
+def _run_online(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["bash", str(SCRIPT), *args],
+        cwd=repo,
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+
+def _wire_failing_remote(repo: Path, tmp_path: Path) -> str:
+    """Point origin at an empty bare repo (fetch of `main` fails) and seed an
+    on-disk origin/main == HEAD so the base ref exists. Returns HEAD sha."""
+    remote = tmp_path / "remote.git"
+    _git(repo, "init", "-q", "--bare", str(remote))
+    _git(repo, "remote", "add", "origin", str(remote))
+    sha = _git(repo, "rev-parse", "HEAD").strip()
+    _git(repo, "update-ref", "refs/remotes/origin/main", sha)
+    return sha
+
+
+@requires_git
+def test_fetch_failure_suppressed_when_fetch_head_fresh(tmp_path: Path):
+    repo = _make_repo(tmp_path)
+    sha = _wire_failing_remote(repo, tmp_path)
+    # A fresh FETCH_HEAD stands in for "a fetch already succeeded this run".
+    (repo / ".git" / "FETCH_HEAD").write_text(f"{sha}\t\tbranch 'main'\n")
+    result = _run_online(repo, "origin/main")
+    assert result.returncode == 0
+    assert "failed - using on-disk ref" not in result.stderr, (
+        "a fresh FETCH_HEAD must suppress the alarming generic failure line (#536)"
+    )
+    assert _verdict(result.stdout) == "current"
+
+
+@requires_git
+def test_fetch_failure_surfaces_real_git_error(tmp_path: Path):
+    repo = _make_repo(tmp_path)
+    _wire_failing_remote(repo, tmp_path)
+    fh = repo / ".git" / "FETCH_HEAD"
+    if fh.exists():
+        fh.unlink()  # not fresh -> the real failure must be surfaced
+    result = _run_online(repo, "origin/main")
+    assert result.returncode == 0, "still fail-open (advisory) on a fetch failure"
+    assert "failed - using on-disk ref" in result.stderr
+    assert "git:" in result.stderr, (
+        "the ACTUAL git error must be surfaced, not just the generic line (#536)"
+    )
+    assert _verdict(result.stdout) == "current"
+
+
 # --- Wiring: the flow surfaces must call the early check / re-sync ----------
 
 
