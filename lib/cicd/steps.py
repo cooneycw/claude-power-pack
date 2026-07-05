@@ -7,7 +7,9 @@ Each step type knows how to execute a specific kind of operation
 from __future__ import annotations
 
 import os
+import signal
 import subprocess
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any, Optional, Protocol
@@ -107,9 +109,19 @@ class ShellStep:
             return False
 
     def execute(self, context: dict[str, Any]) -> StepResult:
-        """Execute the shell command with timeout."""
+        """Execute the shell command, streaming output live while capturing it.
+
+        Output is teed line-by-line to ``context['output_stream']`` (when
+        present) as the child produces it, so a slow-but-progressing command
+        (e.g. a large ``pytest`` suite) shows live progress instead of going
+        silent until it exits - a slow run is then distinguishable from a real
+        hang. Both stdout and stderr are still captured in the StepResult, and
+        partial output is preserved on a timeout so the wall-clock kill shows
+        *where* the command was rather than discarding everything (issue #537).
+        """
         cwd = context.get("project_root")
         env = context.get("env")
+        stream = context.get("output_stream")
 
         if self.env:
             if env is None:
@@ -119,36 +131,16 @@ class ShellStep:
             env.update(self.env)
 
         try:
-            proc = subprocess.run(
+            proc = subprocess.Popen(
                 self.command,
                 shell=True,
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
-                timeout=self.timeout_seconds,
+                bufsize=1,  # line-buffered so tee'd progress appears promptly
                 cwd=cwd,
                 env=env,
-            )
-
-            if proc.returncode == 0:
-                return StepResult(
-                    status=StepStatus.SUCCESS,
-                    exit_code=0,
-                    output=proc.stdout,
-                )
-            else:
-                return StepResult(
-                    status=StepStatus.FAILED,
-                    exit_code=proc.returncode,
-                    output=proc.stdout,
-                    error=proc.stderr,
-                )
-
-        except subprocess.TimeoutExpired as e:
-            return StepResult(
-                status=StepStatus.FAILED,
-                exit_code=124,  # standard timeout exit code
-                output=e.stdout or "" if isinstance(e.stdout, str) else "",
-                error=f"Step timed out after {self.timeout_seconds}s",
+                start_new_session=True,  # own process group -> whole tree killable on timeout
             )
         except OSError as e:
             return StepResult(
@@ -156,6 +148,83 @@ class ShellStep:
                 exit_code=1,
                 error=str(e),
             )
+
+        out_chunks: list[str] = []
+        err_chunks: list[str] = []
+        tee_lock = threading.Lock()
+
+        def _pump(pipe: Any, sink: list[str]) -> None:
+            try:
+                for line in pipe:
+                    sink.append(line)
+                    if stream is not None:
+                        with tee_lock:
+                            stream.write(line)
+                            stream.flush()
+            finally:
+                pipe.close()
+
+        readers = [
+            threading.Thread(target=_pump, args=(proc.stdout, out_chunks), daemon=True),
+            threading.Thread(target=_pump, args=(proc.stderr, err_chunks), daemon=True),
+        ]
+        for reader in readers:
+            reader.start()
+
+        timed_out = False
+        try:
+            proc.wait(timeout=self.timeout_seconds)
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            self._kill_process_tree(proc)
+
+        # Let the reader threads drain buffered output before assembling the
+        # result; capped so a child that leaked a pipe to a survivor can't hang.
+        for reader in readers:
+            reader.join(timeout=5)
+
+        output = "".join(out_chunks)
+        error = "".join(err_chunks)
+
+        if timed_out:
+            timeout_msg = f"Step timed out after {self.timeout_seconds}s"
+            return StepResult(
+                status=StepStatus.FAILED,
+                exit_code=124,  # standard timeout exit code
+                output=output,
+                error=f"{error}\n{timeout_msg}".strip() if error else timeout_msg,
+            )
+
+        if proc.returncode == 0:
+            return StepResult(
+                status=StepStatus.SUCCESS,
+                exit_code=0,
+                output=output,
+            )
+        return StepResult(
+            status=StepStatus.FAILED,
+            exit_code=proc.returncode if proc.returncode is not None else 1,
+            output=output,
+            error=error,
+        )
+
+    @staticmethod
+    def _kill_process_tree(proc: subprocess.Popen[str]) -> None:
+        """Kill a timed-out child and its process group.
+
+        The step runs ``shell=True`` and often spawns children (``make`` ->
+        ``pytest``). Killing only the shell leaves those children holding the
+        output pipes open, so the reader threads never reach EOF. Signalling the
+        whole process group tears the tree down and lets the readers drain.
+        """
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        except (ProcessLookupError, PermissionError, OSError):
+            proc.kill()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            pass
 
     def execute_with_retry(self, context: dict[str, Any]) -> StepResult:
         """Execute with retry policy (exponential backoff)."""

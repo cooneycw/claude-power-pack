@@ -9,7 +9,7 @@ import pytest
 
 from lib.cicd.runner import DeterministicRunner, RunResult, _build_step_env
 from lib.cicd.state import RunState
-from lib.cicd.steps import StepDef
+from lib.cicd.steps import ShellStep, StepDef
 
 
 @pytest.fixture
@@ -244,6 +244,54 @@ class TestDeterministicRunner:
 
         assert result.success
         assert env_file.read_text().strip() == "from_step"
+
+
+class TestShellStepStreaming:
+    """Live-streaming + partial-output-on-timeout behavior (issue #537)."""
+
+    def test_output_teed_live_to_stream(self, tmp_project: Path):
+        """Child stdout is teed to the runner stream, not only captured at exit."""
+        stream = StringIO()
+        step = ShellStep(StepDef(id="emit", command="echo hello-stream", timeout_seconds=30))
+        result = step.execute({"project_root": str(tmp_project), "output_stream": stream})
+
+        assert result.success
+        assert "hello-stream" in result.output        # captured in the result
+        assert "hello-stream" in stream.getvalue()     # AND streamed live
+
+    def test_no_stream_is_backwards_compatible(self, tmp_project: Path):
+        """Without an output_stream the step still captures output (pure capture)."""
+        step = ShellStep(StepDef(id="emit", command="echo captured-only", timeout_seconds=30))
+        result = step.execute({"project_root": str(tmp_project)})
+
+        assert result.success
+        assert "captured-only" in result.output
+
+    def test_timeout_preserves_partial_output(self, tmp_project: Path):
+        """A wall-clock timeout keeps output produced before the hang."""
+        stream = StringIO()
+        step = ShellStep(
+            StepDef(id="slow", command="echo partial-line; sleep 30", timeout_seconds=1)
+        )
+        result = step.execute({"project_root": str(tmp_project), "output_stream": stream})
+
+        assert not result.success
+        assert result.exit_code == 124
+        assert "timed out" in result.error
+        # The line printed before the sleep is NOT discarded - it shows where it hung.
+        assert "partial-line" in result.output
+        assert "partial-line" in stream.getvalue()
+
+    def test_stderr_still_captured(self, tmp_project: Path):
+        """stderr remains captured separately in the error field on failure."""
+        step = ShellStep(
+            StepDef(id="fail", command="echo oops 1>&2; exit 3", timeout_seconds=30)
+        )
+        result = step.execute({"project_root": str(tmp_project)})
+
+        assert not result.success
+        assert result.exit_code == 3
+        assert "oops" in result.error
 
 
 class TestBuildStepEnv:

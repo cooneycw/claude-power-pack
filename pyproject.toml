@@ -8,11 +8,15 @@ requires-python = ">=3.11"
 dependencies = ["pydantic>=2.0", "pyyaml>=6.0"]
 
 [project.optional-dependencies]
-dev = ["mypy>=1.10", "pytest>=8.0", "ruff>=0.4", "types-PyYAML>=6.0", "types-requests>=2.31"]
+dev = ["mypy>=1.10", "pytest>=8.0", "pytest-timeout>=2.3", "ruff>=0.4", "types-PyYAML>=6.0", "types-requests>=2.31"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+# Per-test wall-clock cap: a single wedged test aborts with a traceback instead
+# of silently eating the runner's whole-suite budget (issue #537). Dogfoods the
+# per-test-timeout the finish runner recommends to every project.
+timeout = 120
 
 [tool.mypy]
 python_version = "3.11"
