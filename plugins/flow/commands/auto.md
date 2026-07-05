@@ -819,7 +819,39 @@ if [ -n "$CPP_DIR" ] && grep -q "deploy_verification:" .claude/cicd.yml 2>/dev/n
     VERIFY_ENABLED=1
 fi
 
-if [[ -f "Makefile" ]] && grep -q "^deploy:" Makefile; then
+# Out-of-band deploy opt-out (issue #535): a repo whose real deploy path is a host
+# timer / CI on origin/main - not `make deploy` from a dev box - declares
+# `mode: external` in .claude/deploy.yaml. flow:auto then SKIPS the inline deploy
+# rather than staging a throwaway per-worktree compose stack that collides with
+# fixed prod container_name values and leaks orphaned volumes/networks.
+DEPLOY_MODE=$(grep -oP '^\s*mode:\s*\K\S+' .claude/deploy.yaml 2>/dev/null | head -1)
+
+if [ "$DEPLOY_MODE" = "external" ]; then
+    echo "Deploy mode 'external' (.claude/deploy.yaml) - deploy runs out of band (host timer / CI on origin/main). Skipping inline 'make deploy'."
+elif [[ -f "Makefile" ]] && grep -q "^deploy:" Makefile; then
+    # Compose-project safety (issue #535): when COMPOSE_PROJECT_NAME is unset,
+    # docker compose derives it from the current directory basename. Run from a
+    # worktree or /tmp recovery clone, that basename diverges from the prod project
+    # (agentic-asst-issue-516 vs agentic-asst), collides with compose files that pin
+    # prod container_name values, and the failed rollback leaks orphaned
+    # <basename>_* volumes/networks. Pin it to a STABLE name: an explicit
+    # .claude/deploy.yaml override, else the CANONICAL primary-checkout name from
+    # git's common dir (never the worktree/tmp basename).
+    if [ -z "$COMPOSE_PROJECT_NAME" ]; then
+        DEPLOY_PROJECT=$(grep -oP '^\s*compose_project_name:\s*\K\S+' .claude/deploy.yaml 2>/dev/null | head -1)
+        if [ -z "$DEPLOY_PROJECT" ]; then
+            GCD=$(git rev-parse --git-common-dir 2>/dev/null)
+            if [ -n "$GCD" ]; then
+                COMMON_GIT_DIR=$(cd "$GCD" 2>/dev/null && pwd)
+                [ -n "$COMMON_GIT_DIR" ] && DEPLOY_PROJECT=$(basename "$(dirname "$COMMON_GIT_DIR")" | tr 'A-Z' 'a-z')
+            fi
+        fi
+        if [ -n "$DEPLOY_PROJECT" ]; then
+            export COMPOSE_PROJECT_NAME="$DEPLOY_PROJECT"
+            echo "Pinned COMPOSE_PROJECT_NAME=$COMPOSE_PROJECT_NAME (issue #535: canonical prod project, not the worktree basename)."
+        fi
+    fi
+
     # Pre-deploy: capture the baseline (before make deploy) so the post-deploy
     # verify can detect regressions.
     if [ "$VERIFY_ENABLED" -eq 1 ]; then

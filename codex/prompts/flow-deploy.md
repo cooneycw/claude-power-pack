@@ -47,6 +47,48 @@ if ! grep -q "^${TARGET}:" Makefile; then
 fi
 ```
 
+### Step 3b: Deploy Compose-Project Safety + Out-of-Band Opt-Out (issue #535)
+
+`make deploy` (both the deterministic runner in Step 4b and the fallback in Step 5)
+shells out to `docker compose`, which derives `COMPOSE_PROJECT_NAME` from the
+current directory basename when it is unset. Run from a worktree or a `/tmp`
+recovery clone, that basename diverges from the prod project
+(`agentic-asst-issue-516` vs `agentic-asst`), collides with compose files that pin
+prod `container_name` values, and the failed rollback leaks orphaned
+`<basename>_*` volumes/networks. Handle both escapes before any deploy runs:
+
+```bash
+DEPLOY_MODE=$(grep -oP '^\s*mode:\s*\K\S+' .claude/deploy.yaml 2>/dev/null | head -1)
+
+# 1. Out-of-band deploy: a repo whose real deploy path is a host timer / CI on
+#    origin/main declares `mode: external` in .claude/deploy.yaml. Do NOT stage a
+#    throwaway per-worktree compose stack from a dev box.
+if [ "$DEPLOY_MODE" = "external" ]; then
+    echo "Deploy mode 'external' (.claude/deploy.yaml) - deploy runs out of band (host timer / CI on origin/main)."
+    echo "Nothing to do here; skipping /flow-deploy."
+    exit 0
+fi
+
+# 2. Otherwise pin COMPOSE_PROJECT_NAME (when unset) to a STABLE name so compose
+#    never uses the worktree/tmp basename: an explicit .claude/deploy.yaml override,
+#    else the CANONICAL primary-checkout name from git's common dir. Exported here
+#    so BOTH the runner (Step 4b) and the fallback (Step 5) inherit it.
+if [ -z "$COMPOSE_PROJECT_NAME" ]; then
+    DEPLOY_PROJECT=$(grep -oP '^\s*compose_project_name:\s*\K\S+' .claude/deploy.yaml 2>/dev/null | head -1)
+    if [ -z "$DEPLOY_PROJECT" ]; then
+        GCD=$(git rev-parse --git-common-dir 2>/dev/null)
+        if [ -n "$GCD" ]; then
+            COMMON_GIT_DIR=$(cd "$GCD" 2>/dev/null && pwd)
+            [ -n "$COMMON_GIT_DIR" ] && DEPLOY_PROJECT=$(basename "$(dirname "$COMMON_GIT_DIR")" | tr 'A-Z' 'a-z')
+        fi
+    fi
+    if [ -n "$DEPLOY_PROJECT" ]; then
+        export COMPOSE_PROJECT_NAME="$DEPLOY_PROJECT"
+        echo "Pinned COMPOSE_PROJECT_NAME=$COMPOSE_PROJECT_NAME (issue #535: canonical prod project, not the worktree basename)."
+    fi
+fi
+```
+
 ### Step 4: Check Deploy Metadata (optional)
 
 If `.claude/deploy.yaml` exists, read it for confirmation requirements:
