@@ -788,6 +788,68 @@ If no: report `→ Permission-prompt census hook registration skipped` and conti
 
 ---
 
+## Step 7.7: Pending-Retro Reminder Registration (opt-in)
+
+The git pull may have added `scripts/hook-pending-retro.sh` (a `SessionStart`
+hook that prints ONE advisory line at session open when retro material is waiting
+- pending `.claude/friction.jsonl` signals plus uncodified `Status: proposed`
+learnings - pointing at `/self-improvement:retro`; issue #530). It only surfaces,
+never codifies, and is silent when nothing is pending. The script is re-linked
+into `~/.claude/scripts/` by the Tier 2 refresh; this step registers it in
+`~/.claude/settings.json` if not already there. Opt-in and user-confirmed
+(default N) - it is deliberately NOT shipped in `.claude/hooks.json`, so it never
+turns itself on.
+
+```bash
+TARGET="$HOME/.claude/settings.json"
+RETRO_CMD="~/.claude/scripts/hook-pending-retro.sh"
+RETRO_SCRIPT="$HOME/.claude/scripts/hook-pending-retro.sh"
+
+# Only offer if the script is installed and not already registered.
+if [ -e "$RETRO_SCRIPT" ]; then
+  ALREADY=0
+  if [ -f "$TARGET" ]; then
+    ALREADY=$(jq --arg cmd "$RETRO_CMD" \
+      '[.hooks.SessionStart[]? | (.hooks // [])[]? | select(.command == $cmd)] | length' \
+      "$TARGET" 2>/dev/null || echo 0)
+  fi
+  if [ "${ALREADY:-0}" -gt 0 ]; then
+    echo "✓ Pending-retro reminder already registered"
+  else
+    echo "Pending-retro reminder is not registered in ~/.claude/settings.json"
+  fi
+fi
+```
+
+If not registered, ask the user:
+
+```
+Register the session-open pending-retro reminder in ~/.claude/settings.json?
+It prints one advisory line when pending friction signals or uncodified learnings
+exist, so you can choose to run /self-improvement:retro. Surfaces only - never
+codifies, never blocks. Silent when nothing is pending.  [y/N default N]
+```
+
+If yes, run the same idempotent merge as `/cpp:init`:
+
+```bash
+mkdir -p "$HOME/.claude"
+[ -f "$TARGET" ] || echo '{}' > "$TARGET"
+jq --arg cmd "$RETRO_CMD" '
+  .hooks = (.hooks // {})
+  | .hooks.SessionStart = (.hooks.SessionStart // [])
+  | if any(.hooks.SessionStart[]?; (.command == $cmd) or ((.hooks // [])[]?.command == $cmd))
+    then .
+    else .hooks.SessionStart += [{"hooks":[{"type":"command","command":$cmd}]}]
+    end
+' "$TARGET" > "$TARGET.tmp" && mv "$TARGET.tmp" "$TARGET"
+echo "✓ Session-open pending-retro reminder registered in ~/.claude/settings.json"
+```
+
+If no: report `→ Pending-retro reminder registration skipped (default)` and continue.
+
+---
+
 ## Step 8: Detect Current Installation Tier
 
 Determine the user's current tier level so we can offer upgrades:

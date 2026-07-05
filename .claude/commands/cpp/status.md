@@ -73,6 +73,14 @@ if grep -q "prompt-context.sh" ~/.bashrc 2>/dev/null || grep -q "prompt-context.
 else
   echo "[ ] Shell prompt: not configured"
 fi
+
+# Check the opt-in session-open pending-retro reminder (issue #530)
+if [ -f ~/.claude/settings.json ] && command -v jq >/dev/null 2>&1 && \
+   [ "$(jq -r '[.hooks.SessionStart[]? | (.hooks // [])[]? | select(.command | test("hook-pending-retro"))] | length' ~/.claude/settings.json 2>/dev/null || echo 0)" -gt 0 ]; then
+  echo "[x] Pending-retro reminder: enabled (SessionStart hook in ~/.claude/settings.json)"
+else
+  echo "[ ] Pending-retro reminder: off (opt-in; enable via /cpp:update Step 7.7)"
+fi
 ```
 
 ## Step 3b: Check Permission Profile (Tier 2+)
