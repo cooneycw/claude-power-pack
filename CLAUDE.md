@@ -250,6 +250,8 @@ Flow commands use Makefile targets as the canonical build interface:
 - `/flow:auto` runs `make update_docs` after implement, verifies CI after merge, then `make deploy`
 - `/flow:doctor` reports which standard targets are available
 - Deploy metadata in `.claude/deploy.yaml` (optional, created manually when needed)
+  - `mode: external` - deploy runs out of band (host timer / CI on origin/main); `/flow:auto` Step 9 and `/flow:deploy` skip the inline `make deploy` rather than staging a throwaway per-worktree compose stack (#535)
+  - `compose_project_name: <name>` - pins `COMPOSE_PROJECT_NAME` for `make deploy` so docker compose never derives it from a worktree/tmp directory basename and collides with fixed prod `container_name` values; defaults to the canonical primary-checkout name when unset (#535)
 - Deploy history logged to `.claude/deploy.log`
 - Starter template at `templates/Makefile.example`
 
