@@ -221,6 +221,9 @@ class DeterministicRunner:
             "run_id": state.run_id,
             "plan": state.plan_name,
             "env": step_env,
+            # Steps tee live output here; self.output is stderr by default, so
+            # stdout stays clean for the machine-readable JSON result (issue #537).
+            "output_stream": self.output,
         }
 
         completed = state.current_index
