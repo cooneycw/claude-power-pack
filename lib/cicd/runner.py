@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import socket
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,18 +28,79 @@ from typing import Any, Optional, TextIO
 from .state import RunState
 from .steps import ShellStep, StepDef, get_plan_steps
 
-RUNNER_STRIP_VARS = frozenset({"PYTHONPATH"})
+# Variables the runner launcher injects (or a parent venv leaks) that must NOT
+# reach child step processes: PYTHONPATH is added so ``python -m lib.cicd`` can
+# import itself but would shadow the target project's imports; VIRTUAL_ENV /
+# PYTHONHOME inherited from the CPP venv pin child ``uv run`` to the wrong
+# interpreter and hide the project's own dev deps (e.g. pytest-cov), so the
+# child must re-resolve the project venv from scratch (issue #534).
+RUNNER_STRIP_VARS = frozenset({"PYTHONPATH", "VIRTUAL_ENV", "PYTHONHOME"})
 
 
-def _build_step_env() -> dict[str, str]:
+def _project_python_floor(project_root: Optional[Path]) -> Optional[str]:
+    """Return the target project's minimum Python version (e.g. "3.12").
+
+    Parsed from the project's ``pyproject.toml`` ``requires-python`` floor so
+    child ``uv run`` steps pin the interpreter the project actually needs,
+    rather than whatever system Python the sandbox defaults to (issue #534,
+    part #2). Returns None when it cannot be determined - the caller then
+    leaves UV_PYTHON unset rather than guessing.
+    """
+    if project_root is None:
+        return None
+    pyproject = Path(project_root) / "pyproject.toml"
+    try:
+        text = pyproject.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    match = re.search(r'requires-python\s*=\s*["\']([^"\']+)["\']', text)
+    if not match:
+        return None
+    # Take the first "3.N" that appears in the specifier (the floor for the
+    # common ">=3.N" / ">=3.N,<3.M" forms).
+    ver = re.search(r"(\d+\.\d+)", match.group(1))
+    return ver.group(1) if ver else None
+
+
+def _is_offline() -> bool:
+    """Best-effort detection that the runner has no outbound network.
+
+    A restricted sandbox (Codex) blocks DNS/outbound sockets, so network
+    steps (git fetch, secret managers) fail loudly. Steps can consult this to
+    skip-with-a-message instead of hard-failing (issue #534, part #5). An
+    explicit ``CPP_OFFLINE`` env value short-circuits the probe - for tests and
+    for sandboxes that also block the probe itself.
+    """
+    flag = os.environ.get("CPP_OFFLINE", "").strip().lower()
+    if flag in {"1", "true", "yes"}:
+        return True
+    if flag in {"0", "false", "no"}:
+        return False
+    try:
+        with socket.create_connection(("github.com", 443), timeout=2.0):
+            return False
+    except OSError:
+        return True
+
+
+def _build_step_env(project_root: Optional[Path] = None) -> dict[str, str]:
     """Build a sanitized copy of os.environ for child step processes.
 
-    Strips variables injected by the runner launcher (e.g. PYTHONPATH added
-    so ``python -m lib.cicd`` can import itself) and sets defaults required
-    by common build tools (UV_CACHE_DIR).
+    Makes the child environment sandbox-aware (issue #534):
+    - strips launcher/parent-venv leakage (see RUNNER_STRIP_VARS),
+    - defaults UV_CACHE_DIR to a writable path (sandbox ~/.cache is read-only),
+    - pins UV_PYTHON to the target project's required floor so child ``uv run``
+      steps do not fall back to a stale system interpreter.
+    All defaults use ``setdefault`` so an explicit caller env always wins.
+
+    Kept pure (no network) so it stays cheap and hermetic; the offline probe
+    that materializes CPP_OFFLINE runs once in the runner's execute loop.
     """
     env = {k: v for k, v in os.environ.items() if k not in RUNNER_STRIP_VARS}
     env.setdefault("UV_CACHE_DIR", "/tmp/uv-cache")
+    floor = _project_python_floor(project_root)
+    if floor:
+        env.setdefault("UV_PYTHON", floor)
     return env
 
 
@@ -147,11 +210,17 @@ class DeterministicRunner:
         if step_defs is None:
             step_defs = get_plan_steps(state.plan_name, project_root=str(self.project_root))
 
+        # Materialize CPP_OFFLINE once per run (the probe is the only network
+        # touch) so shell ``skip_if`` expressions can skip network steps in a
+        # sandbox instead of hard-failing (issue #534, part #5).
+        step_env = _build_step_env(self.project_root)
+        step_env.setdefault("CPP_OFFLINE", "1" if _is_offline() else "0")
+
         context = {
             "project_root": str(self.project_root),
             "run_id": state.run_id,
             "plan": state.plan_name,
-            "env": _build_step_env(),
+            "env": step_env,
         }
 
         completed = state.current_index

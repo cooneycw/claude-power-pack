@@ -10,9 +10,17 @@ import os
 import subprocess
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Optional, Protocol
 
 from .state import StepStatus
+
+# Root of the CPP checkout (the parent of ``lib/``), derived from this file's
+# own location so ``python3 -m lib.security`` / ``-m lib.cicd.bootstrap`` resolve
+# regardless of where CPP is checked out - the hardcoded "${HOME}/Projects/
+# claude-power-pack" prefix broke under a sandbox or an alternate checkout
+# (/opt, ~/.claude-power-pack), the very fallbacks flow:auto searches (#534).
+_CPP_ROOT = str(Path(__file__).resolve().parents[2])
 
 
 class StepExecutor(Protocol):
@@ -90,6 +98,19 @@ class ShellStep:
         self.description = step_def.description
         self.env = step_def.env
 
+    def _resolve_env(self, context: dict[str, Any]) -> Optional[dict[str, str]]:
+        """Merge the sanitized runner env with this step's env overrides.
+
+        Both ``skip_if`` and the command run in the same environment so a
+        ``skip_if`` probe (e.g. ``import lib.security``) and the command it
+        guards see the same PYTHONPATH / CPP_OFFLINE the runner set (#534).
+        """
+        env = context.get("env")
+        if self.env:
+            env = dict(env) if env is not None else dict(os.environ)
+            env.update(self.env)
+        return env
+
     def should_skip(self, context: dict[str, Any]) -> bool:
         """Check if this step should be skipped."""
         if not self.skip_if:
@@ -101,6 +122,7 @@ class ShellStep:
                 capture_output=True,
                 timeout=10,
                 cwd=context.get("project_root"),
+                env=self._resolve_env(context),
             )
             return result.returncode == 0
         except (subprocess.TimeoutExpired, OSError):
@@ -109,14 +131,7 @@ class ShellStep:
     def execute(self, context: dict[str, Any]) -> StepResult:
         """Execute the shell command with timeout."""
         cwd = context.get("project_root")
-        env = context.get("env")
-
-        if self.env:
-            if env is None:
-                env = dict(os.environ)
-            else:
-                env = dict(env)
-            env.update(self.env)
+        env = self._resolve_env(context)
 
         try:
             proc = subprocess.run(
@@ -205,14 +220,12 @@ BUILTIN_PLANS: dict[str, list[StepDef]] = {
         ),
         StepDef(
             id="security_scan",
-            command=(
-                'PYTHONPATH="${HOME}/Projects/claude-power-pack" '
-                "python3 -m lib.security gate flow_finish"
-            ),
+            command="python3 -m lib.security gate flow_finish",
             description="Run security quick scan",
             timeout_seconds=120,
             max_attempts=1,
-            skip_if='! PYTHONPATH="${HOME}/Projects/claude-power-pack" python3 -c \'import lib.security\' 2>/dev/null',
+            skip_if="! python3 -c 'import lib.security' 2>/dev/null",
+            env={"PYTHONPATH": _CPP_ROOT},
         ),
     ],
     "check": [
@@ -236,14 +249,12 @@ BUILTIN_PLANS: dict[str, list[StepDef]] = {
     "deploy": [
         StepDef(
             id="bootstrap_check",
-            command=(
-                'PYTHONPATH="${HOME}/Projects/claude-power-pack/lib" '
-                "python3 -m lib.cicd.bootstrap check"
-            ),
+            command="python3 -m lib.cicd.bootstrap check",
             description="Check admin-only bootstrap dependencies",
             timeout_seconds=30,
             max_attempts=1,
             skip_if="! [ -f .claude/bootstrap.yaml ]",
+            env={"PYTHONPATH": _CPP_ROOT},
         ),
         StepDef(
             id="stale_commit_check",
@@ -257,18 +268,18 @@ BUILTIN_PLANS: dict[str, list[StepDef]] = {
             description="Verify HEAD matches origin/main (stale commit guard)",
             timeout_seconds=30,
             max_attempts=1,
-            skip_if='[ "$(git branch --show-current)" != "main" ]',
+            # Skip off main, or when offline: the git fetch cannot reach the
+            # remote in a sandbox, so skip-with-a-message beats a hard fail (#534).
+            skip_if='[ "$(git branch --show-current)" != "main" ] || [ "${CPP_OFFLINE:-0}" = "1" ]',
         ),
         StepDef(
             id="security_scan",
-            command=(
-                'PYTHONPATH="${HOME}/Projects/claude-power-pack" '
-                "python3 -m lib.security gate flow_deploy"
-            ),
+            command="python3 -m lib.security gate flow_deploy",
             description="Run security scan before deploy",
             timeout_seconds=120,
             max_attempts=1,
-            skip_if='! PYTHONPATH="${HOME}/Projects/claude-power-pack" python3 -c \'import lib.security\' 2>/dev/null',
+            skip_if="! python3 -c 'import lib.security' 2>/dev/null",
+            env={"PYTHONPATH": _CPP_ROOT},
         ),
         StepDef(
             id="deploy",

@@ -389,6 +389,17 @@ class TestGenerateManifest:
         # Should still have security_scan at minimum
         assert "security_scan" in manifest.steps
 
+    def test_generated_security_scan_dehardcoded(self, tmp_path):
+        """Generated security_scan derives PYTHONPATH via step env, not a
+        hardcoded ${HOME}/Projects/claude-power-pack prefix (#534)."""
+        from lib.cicd.steps import _CPP_ROOT
+
+        manifest = generate_manifest(tmp_path)
+        step = manifest.steps["security_scan"]
+        assert "Projects/claude-power-pack" not in step.command
+        assert "Projects/claude-power-pack" not in (step.skip_if or "")
+        assert dict(step.env).get("PYTHONPATH") == _CPP_ROOT
+
 
 # -- write_manifest tests --
 
