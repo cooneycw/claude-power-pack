@@ -79,6 +79,14 @@ tool = str(data.get("tool_name") or "").strip()
 if not tool:
     sys.exit(0)
 
+# Inherently-interactive tools raise a PermissionRequest but are user-interaction
+# dialogs, not permission friction: they can never be allowlisted, so they'd land
+# in the OTHER tier with no fix candidate and only inflate the friction buffer and
+# the SessionStart 'N signals pending' nag. Record nothing for them (issue #542).
+INTERACTIVE_TOOLS = {"AskUserQuestion", "Skill", "EnterPlanMode", "ExitPlanMode"}
+if tool in INTERACTIVE_TOOLS:
+    sys.exit(0)
+
 # --- Risk taxonomy (compact; vocabulary matches CPP's permission risk tiers) ---
 # Only READONLY-* and the safe WRITE-LOCAL tier yield an allow candidate; every
 # riskier tier is recorded but never allowlisted by the census.

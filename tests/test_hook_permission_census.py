@@ -243,6 +243,22 @@ def test_readonly_tool_rule_is_the_tool_name(tmp_path: Path):
     assert "Read" in rec["signal"]
 
 
+# --- Inherently-interactive tools are NOT permission friction (issue #542) ----
+
+@pytest.mark.parametrize(
+    "tool", ["AskUserQuestion", "Skill", "EnterPlanMode", "ExitPlanMode"]
+)
+def test_interactive_tools_record_nothing(tmp_path: Path, tool: str):
+    # AskUserQuestion/Skill/EnterPlanMode/ExitPlanMode raise a PermissionRequest
+    # but are user-interaction dialogs, not permission friction: they can never be
+    # allowlisted and only inflate the friction buffer + the SessionStart nag. The
+    # census must skip them entirely (fail-open, no record).
+    proc, log = _run(tmp_path, {"tool_name": tool, "tool_input": {}})
+    assert proc.returncode == 0
+    assert proc.stdout == ""  # observe-only contract still holds
+    assert _records(log) == []
+
+
 # --- Observe-only + fail-open contracts --------------------------------------
 
 def test_observe_only_emits_no_stdout(tmp_path: Path):
