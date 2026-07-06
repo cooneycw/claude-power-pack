@@ -1,6 +1,6 @@
 # ADR 0002: Sandbox-backed prompt elimination - Phase 0 threat model and guard design
 
-- Status: Proposed (Phase 0 exit-bar artifact; gates Phase 1+)
+- Status: Accepted (Phase 0 design validated by the Phase 1 trial, issue #548; see "Phase 1 results")
 - Date: 2026-07-06
 - Deciders: cooneycw (owner)
 - Issue: #541 (Phase 0 of a 5-phase enhancement)
@@ -228,6 +228,60 @@ redundant.
   untouched; the census hook is untouched; `make deploy` is unaffected.
 - If the docs' key names prove wrong at E6, Phase 1 corrects them before rollout;
   nothing downstream has hard-coded them yet.
+
+## Phase 1 results (issue #548, 2026-07-06)
+
+The scoped trial ran on this box (Claude Code `2.1.175`, `bwrap` + `socat`
+present, `apparmor_restrict_unprivileged_userns=0`) via
+`scripts/sandbox-phase1-trial.sh`. The write-containment checks were exercised with
+nested headless `claude -p` runs against throwaway, project-scoped settings; the
+kernel-activation check was a direct `bwrap` ro-bind primitive. `~/.claude/settings.json`
+was never touched. Fidelity caveat: headless `-p` cannot show or answer an
+interactive permission prompt, so checks that assert prompt behaviour (E4) or the
+live `/sandbox` panel (E6 visual) are marked interactive-only, not failed.
+
+| Check | Verdict | Evidence |
+|-------|---------|----------|
+| E1a native auto-allow contains a write | PASS | `autoAllowBashIfSandboxed:true`; a write to `$HOME` was blocked (`home_rc=1`) while the cwd write succeeded (`cwd_rc=0`) - auto-allow ran the command AND kept it inside the sandbox. |
+| E1b hook `allow` contains a write (hard gate, T1) | PASS | `autoAllow:false` + a Ten0-style PreToolUse hook returning `allow`; the `$HOME` write was still blocked and the cwd write succeeded. A hook `allow` does NOT bypass the sandbox - the T1 hole does not exist on this binary. |
+| E2 deny outranks allow (T4) | PASS | `permissions.deny: ["Bash(mkdir:*)"]` with auto-allow on; the denied `mkdir` was blocked and the dir was not created. |
+| E3 census interaction (T6, D2) | SILENT (headless) | A simple auto-allowed `touch ./x` ran (`command_ran=yes`) and raised NO PermissionRequest hook -> auto-allowed commands are not recorded (D2 case a). Headless-observed; confirm interactively before rewriting the census contract. |
+| E4 escape-hatch still prompts (T3) | BLOCKED (interactive-only) | `-p` cannot exercise a prompt. Repro documented in the harness: strict mode + a sandbox-failing command; confirm the `dangerouslyDisableSandbox` retry still prompts and, with `allowUnsandboxedCommands:false`, the parameter is ignored. |
+| E5 prereq + kernel activation | PASS | `bwrap` + `socat` present; a `bwrap --ro-bind / /` write to `$HOME` was denied ("Read-only file system") on this kernel. The "socat absent -> hard fail" half was not exercised (the harness will not remove a system package). |
+| E6 key names vs binary | PASS (partial) | `enabled`, `autoAllowBashIfSandboxed`, `allowUnsandboxedCommands`, `excludedCommands`, `failIfUnavailable`, `network.allowedDomains` confirmed against the official 2.x example config on 2.1.175. The live `/sandbox` panel visual check remains interactive-only. |
+
+### R1 - residual #43713 replay (the Phase 2 justification evidence)
+
+With `autoAllowBashIfSandboxed:true`, the dominant CPP compound shapes were replayed
+to see whether the native setting alone still leaves them prompting:
+
+- Self-contained command substitution `touch "./x_$(echo z)"` was **auto-allowed and
+  ran** - this shape has largely **closed** on 2.1.175 (the #43713 partial fix in
+  2.1.139 applies).
+- Variable expansion `X=./x; touch "$X"` was **blocked** - the sandbox could not
+  confirm `$X`'s target was in-bounds and denied the write conservatively (a
+  write-policy block, distinct from an auto-allow refusal).
+- Control flow `for i in 1 2; do echo "$i"; done` was **refused by the auto-allow
+  analyzer** with the literal message `Contains simple_expansion`.
+
+So the residual gap is **live but materially narrower** than this ADR assumed when
+#541 was filed: command-substitution is mostly handled, while variable-expansion and
+control-flow shapes still do not run under native auto-allow. Note that at least one
+residual shape (variable expansion) is blocked at the OS sandbox write-policy layer,
+which a PreToolUse allow hook (Phase 2) may not be able to fix.
+
+### Go / No-Go for Phase 2 (#549)
+
+The two hard gates are cleared: **E1 passes** (both native auto-allow and a hook
+`allow` keep writes sandboxed) and **E2 passes** (deny outranks allow). Phase 2 is
+therefore NOT abandoned on T1 grounds. However, the third exit-bar condition -
+"enough residual #43713 prompts to matter after the native setting is on" - is now
+in question: R1 shows the residual class has narrowed, and part of it is a
+write-policy block a hook cannot address. **Recommendation: provisional GO to keep
+#549 open, but measure the real residual-prompt volume with an interactive census
+replay of the recorded Step-1 command shapes (and run E4 interactively) before
+committing to build the gate hook.** Enabling native `autoAllowBashIfSandboxed` in a
+scoped project is the low-risk win to bank first (D4).
 
 ## References
 
