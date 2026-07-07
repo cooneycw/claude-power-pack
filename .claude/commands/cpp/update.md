@@ -125,6 +125,51 @@ fi
 
 ---
 
+## Step 3.5: Re-read Self (the pull may have changed this command)
+
+`/cpp:update` is **self-modifying**: the Step 3 pull can change *this very file*
+(`.claude/commands/cpp/update.md`). The copy of these instructions loaded into
+context is the **pre-pull** version, so every step below may now be stale - a
+removed step could run against a deleted script, or a renamed step could act on a
+changed tree (issue #545: a `/cpp:update` run pulled #522, which deleted
+`scripts/skill-drift.py` and stripped a whole step from this command; the pre-pull
+context still contained that step and would have executed it against a now-deleted
+script).
+
+**First, surface any change to this command.** `git pull` set `ORIG_HEAD` to the
+pre-pull commit, so no variable needs to survive between bash blocks:
+
+```bash
+cd "$CPP_DIR"
+SELF=".claude/commands/cpp/update.md"
+SELF_CHANGED=unknown
+if git rev-parse -q --verify ORIG_HEAD >/dev/null 2>&1; then
+  if git diff --quiet ORIG_HEAD..HEAD -- "$SELF"; then
+    SELF_CHANGED=no
+    echo "No change to /cpp:update in this pull - the steps in context are current."
+  else
+    SELF_CHANGED=yes
+    echo ""
+    echo "NOTE: this pull modified /cpp:update itself. Diff since the pre-pull copy:"
+    git --no-pager diff ORIG_HEAD..HEAD -- "$SELF"
+    echo ""
+    echo "The /cpp:update steps loaded in context are now STALE."
+  fi
+else
+  echo "Could not determine ORIG_HEAD - treat the in-context steps as possibly stale."
+fi
+```
+
+**Then, unless `SELF_CHANGED` is `no`, STOP following the in-context steps and
+RE-READ the on-disk command before continuing.** Open
+`$CPP_DIR/.claude/commands/cpp/update.md` (resolve `$CPP_DIR` from Step 1) and
+follow **its** Step 4 onward - the freshly-pulled file on disk is authoritative
+now, not the copy this run started with. Only when `SELF_CHANGED` is `no` may you
+continue with the in-context steps as-is. This is the one point where re-reading is
+mandatory; everything below is what you execute *after* confirming it is current.
+
+---
+
 ## Step 4: Update Dependencies
 
 CPP no longer ships in-repo MCP server venvs. The second-opinion server is an
