@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **`/cpp:update` no longer reports a stale version** (issue #544) - Steps 2/3
+  derive the version from CLAUDE.md's `Current version:` line (the maintained
+  source of truth), falling back to the newest bracketed CHANGELOG release,
+  instead of grepping the CHANGELOG head - where a digit-less `[Unreleased]`
+  block made the grep fall through to the previous release and print a
+  misleading no-op like "Updated: v7.2.0 -> v7.2.0" for a real 19-commit
+  upgrade. A same-version pull now reports the commit movement and points at
+  the `[Unreleased]` delta explicitly. Also promoted the accumulated
+  `[Unreleased]` block below to `[7.3.0]` so CHANGELOG and CLAUDE.md agree.
+
+## [7.3.0] - 2026-07-04
+
 ### Added
 
 - **Plugins now bundle the masking hook and the second-opinion MCP pointer**

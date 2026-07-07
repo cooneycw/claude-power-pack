@@ -37,8 +37,16 @@ echo "Found claude-power-pack at: $CPP_DIR"
 ```bash
 cd "$CPP_DIR"
 
-# Get current version from CHANGELOG.md
-CURRENT_VERSION=$(grep -oP '^\#\# \[\K[0-9]+\.[0-9]+\.[0-9]+' CHANGELOG.md | head -1 || echo "unknown")
+# Get current version from CLAUDE.md - the maintained source of truth (issue
+# #544: the CHANGELOG head can be a digit-less "[Unreleased]" block, so a grep
+# for the first bracketed version silently falls through to the PREVIOUS
+# release and reports a stale no-op update). Fall back to the newest bracketed
+# CHANGELOG release only if the CLAUDE.md line is missing.
+CURRENT_VERSION=$(grep -oPm1 '^Current version: \K[0-9]+\.[0-9]+\.[0-9]+' CLAUDE.md 2>/dev/null)
+if [ -z "$CURRENT_VERSION" ]; then
+  CURRENT_VERSION=$(grep -oPm1 '^\#\# \[\K[0-9]+\.[0-9]+\.[0-9]+' CHANGELOG.md 2>/dev/null)
+fi
+CURRENT_VERSION="${CURRENT_VERSION:-unknown}"
 CURRENT_COMMIT=$(git rev-parse --short HEAD)
 CURRENT_BRANCH=$(git branch --show-current)
 
@@ -97,9 +105,22 @@ fi
 git pull origin $CURRENT_BRANCH
 
 NEW_COMMIT=$(git rev-parse --short HEAD)
-NEW_VERSION=$(grep -oP '^\#\# \[\K[0-9]+\.[0-9]+\.[0-9]+' CHANGELOG.md | head -1 || echo "unknown")
+# Same source-of-truth derivation as Step 2 (issue #544).
+NEW_VERSION=$(grep -oPm1 '^Current version: \K[0-9]+\.[0-9]+\.[0-9]+' CLAUDE.md 2>/dev/null)
+if [ -z "$NEW_VERSION" ]; then
+  NEW_VERSION=$(grep -oPm1 '^\#\# \[\K[0-9]+\.[0-9]+\.[0-9]+' CHANGELOG.md 2>/dev/null)
+fi
+NEW_VERSION="${NEW_VERSION:-unknown}"
 echo ""
-echo "Updated: v$CURRENT_VERSION -> v$NEW_VERSION ($NEW_COMMIT)"
+# Never report a same-version pull as a no-op: when the release number did not
+# move but the commit did, say so and point at the unreleased delta instead of
+# printing a misleading "vX -> vX" (issue #544).
+if [ "$CURRENT_VERSION" = "$NEW_VERSION" ] && [ "$CURRENT_COMMIT" != "$NEW_COMMIT" ]; then
+  echo "Updated: v$NEW_VERSION unchanged, code moved $CURRENT_COMMIT -> $NEW_COMMIT"
+  echo "(unreleased changes - see the [Unreleased] section of CHANGELOG.md)"
+else
+  echo "Updated: v$CURRENT_VERSION ($CURRENT_COMMIT) -> v$NEW_VERSION ($NEW_COMMIT)"
+fi
 ```
 
 ---
