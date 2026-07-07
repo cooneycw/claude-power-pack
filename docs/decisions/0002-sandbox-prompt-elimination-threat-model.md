@@ -1,10 +1,40 @@
 # ADR 0002: Sandbox-backed prompt elimination - Phase 0 threat model and guard design
 
-- Status: Accepted (Phase 0 design validated by the Phase 1 trial, issue #548; see "Phase 1 results")
+- Status: Rejected / Superseded (issue #553, 2026-07-07; see "Status note: epic abandoned")
 - Date: 2026-07-06
 - Deciders: cooneycw (owner)
 - Issue: #541 (Phase 0 of a 5-phase enhancement)
 - Supersedes: nothing
+
+## Status note: epic abandoned (issue #553, 2026-07-07)
+
+The owner abandoned the #541 epic before Phase 2-4 started. The scoped headless
+trial below passed, but LIVE enablement on this box - `sandbox.enabled: true` +
+`autoAllowBashIfSandboxed: true` in `~/Projects/.claude/settings.local.json` -
+broke bash entirely, reproduced 3x: every sandboxed command, including a bare
+`pwd`, died at jail construction with
+
+```
+bwrap: Can't create file at /home/cooneycw/Projects/.claude/skills: No such file or directory
+```
+
+Root cause: Claude Code auto-adds `.claude/skills` to the sandbox
+`denyWithinAllow` policy, but on this box that path is a symlink (a stale CPP
+dual-surface artifact, retired in #480) and bubblewrap 0.6.1 cannot overlay a
+deny-mount onto a symlink. Net effect: auto-allow was auto-FAIL - the E6/E1
+live checks could never run. The two viable fixes (replace the symlink with a
+real directory on every live host; upgrade bubblewrap to >=0.8 per-host via
+apt) both add per-host environmental maintenance for a payoff the residual
+anthropics/claude-code#43713 analyzer gap already undercuts, so the owner
+judged the epic not worth it (recorded on #553).
+
+Disposition: the sandbox block was removed from `settings.local.json` (with an
+explicit `"sandbox": {"enabled": false}` guard against default-on sandboxing);
+#541 and phases #548-#551 are closed as abandoned; the Phase 1 trial harness
+(`scripts/sandbox-phase1-trial.sh`, PR #552) stays in-repo as historical
+record. Accepted trade-off: the residual compound-command prompts that
+motivated #541 remain unaddressed; the permission census + retro (#482/#519)
+stay as the residual-prompt telemetry.
 - Related: #482 / PR #490 (PermissionRequest census hook - the telemetry this feeds and must not corrupt), #519 (compound-command severity walk in the census), #534 / PR #540 (Codex restricted-sandbox awareness in the quality-gate runner - a DIFFERENT sandbox; see "Scope boundary"), anthropics/claude-code#43713 (the auto-allow static-analyzer bug this works around), https://code.claude.com/docs/en/sandboxing
 
 ## TL;DR
