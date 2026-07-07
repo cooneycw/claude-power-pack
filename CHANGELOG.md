@@ -4,6 +4,17 @@
 
 ### Fixed
 
+- **`/cpp:update` re-reads itself after the pull** (issue #545) - the command is
+  self-modifying: Step 3 pulls the CPP repo, and that same pull can change
+  `.claude/commands/cpp/update.md` itself, leaving the model executing the
+  **pre-pull** steps it loaded into context against a repo the pull already
+  changed (a removed step run against a deleted script, a renamed step acting on a
+  changed tree). A new **Step 3.5 (Re-read Self)** diffs the command across
+  `ORIG_HEAD..HEAD`, prints the self-diff when the pull touched it, and directs the
+  model to STOP following the in-context copy and re-read the on-disk command
+  before continuing with Step 4 onward. Uses `ORIG_HEAD` (set by `git pull`) so no
+  variable needs to survive between bash blocks; relies only on already-allowed
+  `Bash(git:*)`.
 - **`/cpp:update` no longer reports a stale version** (issue #544) - Steps 2/3
   derive the version from CLAUDE.md's `Current version:` line (the maintained
   source of truth), falling back to the newest bracketed CHANGELOG release,
