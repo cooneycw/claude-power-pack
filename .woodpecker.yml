@@ -2,7 +2,7 @@
 # Runs quality gates and Dockerfile lint.
 #
 # Pipeline:
-#   PR/push -> secret-scan -> validate (lint+test+typecheck) -> Dockerfile lint
+#   PR/push -> secret-scan -> validate (lint+test+typecheck) + codex-skills-check -> Dockerfile lint
 #
 # The Docker MCP runtime (second-opinion + aws-secrets-agent images, compose
 # policy checks, image CVE/SBOM scans, and the runtime smoke stage) was retired
@@ -26,6 +26,17 @@ steps:
       - uv run ruff check .
       - uv run pytest
       - uv run mypy .
+
+  # Explicit Codex-skill drift gate (issue #556): the pytest suite already checks
+  # currency via test_codex_skill_sync.py, but a dedicated step makes an out-of-sync
+  # codex/skills/ fail CI loudly on its own line. The generator is stdlib-only and
+  # git-free, so it runs directly under the slim image (no `make`, matching the
+  # uv-direct style of the steps above). Same command `make codex-skills-check` wraps.
+  codex-skills-check:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
+    depends_on: [secret-scan]
+    commands:
+      - python3 scripts/codex-skill-sync.py --check
 
   dockerfile-lint:
     image: ghcr.io/hadolint/hadolint:v2.14.0-debian

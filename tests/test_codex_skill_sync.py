@@ -3,9 +3,9 @@
 Hybrid single-SoT bridge (codex-power-pack epic cooneycw/codex-power-pack#64,
 story B1): `.claude/commands/<family>/*.md` is the single source of truth and
 `scripts/codex-skill-sync.py` emits checked-in per-command Codex skill
-directories under `codex/skills/<family>-<command>/`. This surface supersedes
-the flat custom prompts from `scripts/codex-prompt-sync.py` (issue #446),
-which stay generated but deprecated until the issue #556 cutover.
+directories under `codex/skills/<family>-<command>/`. This surface superseded
+the flat custom prompts from `scripts/codex-prompt-sync.py` (issue #446), which
+were retired at the issue #556 cutover.
 
 The hazards these pin:
   * the checked-in skills must stay in sync with their command source
@@ -88,20 +88,9 @@ def test_real_repo_excluded_commands_not_generated():
     assert not (skills / "cpp-init").exists()
     assert not (skills / "cpp-status").exists()
     assert not (skills / "cpp-update").exists()
-    # self-improvement/memory.md ships as the curated prompt cpp-memory.md.
+    # self-improvement/memory.md ships as the curated prompt codex/cpp-memory.md
+    # (relocated out of the retired codex/prompts/ flat surface at the #556 cutover).
     assert not (skills / "self-improvement-memory").exists()
-
-
-def test_real_repo_families_match_prompt_sync():
-    """The skill surface must cover exactly the deprecated prompt surface's
-    families and exclusions until the #556 cutover retires the latter."""
-    prompt_spec = spec_from_file_location(
-        "codex_prompt_sync_for_parity", ROOT / "scripts" / "codex-prompt-sync.py"
-    )
-    prompt_sync = module_from_spec(prompt_spec)  # type: ignore[arg-type]
-    prompt_spec.loader.exec_module(prompt_sync)  # type: ignore[union-attr]
-    assert codex_skill_sync.FAMILIES == prompt_sync.FAMILIES
-    assert codex_skill_sync.EXCLUDE == prompt_sync.EXCLUDE
 
 
 def test_real_repo_bundled_scripts_byte_identical():

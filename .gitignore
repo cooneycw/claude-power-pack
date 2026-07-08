@@ -126,6 +126,7 @@ mcp-second-opinion/src/tools/__pycache__/
 *.pptx
 
 # Legacy Codex skill wrappers (retired codex-skill-gen.py, issue #446; Codex
-# prompts are now checked in under codex/prompts/ via codex-prompt-sync.py)
+# skills are now checked in under codex/skills/ via codex-skill-sync.py, #555 -
+# the flat codex/prompts/ surface was retired at the #556 cutover)
 .agents/
 !.agents/CODEX_SETUP.md
