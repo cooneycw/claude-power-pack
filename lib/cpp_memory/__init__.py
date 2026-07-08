@@ -21,6 +21,7 @@ from .backend import (
 )
 from .client import MemoryStore, append_local_learning
 from .config import DEFAULT_LOCAL_PG_DSN, resolve_backend, resolve_dsn
+from .harness import KNOWN_HARNESSES, resolve_harness
 from .markdown import MarkdownStore
 from .models import (
     FIX_SCOPES,
@@ -55,4 +56,7 @@ __all__ = [
     "resolve_dsn",
     "resolve_backend",
     "DEFAULT_LOCAL_PG_DSN",
+    # multi-harness feathering (issue #557)
+    "resolve_harness",
+    "KNOWN_HARNESSES",
 ]

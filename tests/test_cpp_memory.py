@@ -123,6 +123,12 @@ class TestFailOpen:
         learning = Learning("knowledge", "knowledge", "codex tty hang", "append </dev/null")
         assert down_store.record_learning(learning, "vm-a") is None
 
+    def test_record_accepts_harness_kwarg_when_down(self, down_store):
+        # The #557 harness tag threads through the signature without disturbing
+        # the fail-open contract (down store still returns None, never raises).
+        learning = Learning("knowledge", "knowledge", "codex tty hang", "b")
+        assert down_store.record_learning(learning, "vm-a", harness="codex") is None
+
     def test_record_non_portable_raises_even_when_down(self, down_store):
         # The bucket-2 guard fires before the availability check: a permission
         # fix must never enter the shared store, from any code path.
@@ -292,6 +298,56 @@ class TestCli:
         out = json.loads(capsys.readouterr().out)
         assert rc == 1
         assert out["reject"] is False
+
+
+# --------------------------------------------------------------------------- #
+# Multi-harness tag on record (issue #557): the CLI resolves + echoes the tag.
+# --------------------------------------------------------------------------- #
+class TestCliHarness:
+    @pytest.fixture(autouse=True)
+    def _clean_harness_env(self, monkeypatch):
+        # Deterministic resolution: strip any harness-declaring env (pytest may
+        # itself run under Claude Code, which exports CLAUDECODE).
+        monkeypatch.delenv("CPP_HARNESS", raising=False)
+        monkeypatch.delenv("CLAUDECODE", raising=False)
+
+    def test_explicit_harness_is_echoed(self, cli_offline, capsys, tmp_path):
+        rc = cli_mod.main([
+            "record", "--class", "knowledge", "--scope", "knowledge",
+            "--title", "codex exec tty hang", "--body", "append </dev/null",
+            "--harness", "codex", "--repo", str(tmp_path),
+        ])
+        out = json.loads(capsys.readouterr().out)
+        assert rc == 0
+        assert out["harness"] == "codex"          # resolved + surfaced (#557)
+        assert out["stored"] == "local-fallback"  # store down -> fail-open intact
+
+    def test_harness_defaults_from_env(self, cli_offline, capsys, tmp_path, monkeypatch):
+        monkeypatch.setenv("CPP_HARNESS", "codex")
+        rc = cli_mod.main([
+            "record", "--class", "knowledge", "--scope", "knowledge",
+            "--title", "t", "--body", "b", "--repo", str(tmp_path),
+        ])
+        out = json.loads(capsys.readouterr().out)
+        assert rc == 0
+        assert out["harness"] == "codex"
+
+    def test_harness_null_when_unattributed(self, cli_offline, capsys, tmp_path):
+        rc = cli_mod.main([
+            "record", "--class", "knowledge", "--scope", "knowledge",
+            "--title", "t", "--body", "b", "--repo", str(tmp_path),
+        ])
+        out = json.loads(capsys.readouterr().out)
+        assert rc == 0
+        assert out["harness"] is None  # backward-compatible pre-#557 shape
+
+    def test_query_reports_harness_split_key(self, cli_offline, capsys):
+        # Down store -> empty sightings, but the split key is always present so a
+        # consumer can rely on it (sums to `sightings`).
+        rc = cli_mod.main(["query", "--fingerprint", "deadbeef"])
+        out = json.loads(capsys.readouterr().out)
+        assert rc == 0
+        assert out["sightings_by_harness"] == {}
 
 
 # --------------------------------------------------------------------------- #

@@ -36,6 +36,7 @@ Core components and their locations:
   - `remote-pg` - full dedup, fleet-federated Postgres, `scripts/memories-db-setup.sh`
   - Backend chosen via `CPP_MEMORIES_BACKEND` / step 8d; **federation is a surfaced per-tier property** (only remote-pg shares across VMs)
   - Holds *portable* CPP learnings/infra traps (bucket-2-plus) plus a dedup/rejection ledger and a learnings->GitHub-issue bridge (`--emit-issue-candidate` / `link-issue`, #463)
+  - Sightings carry a `harness` tag (`claude`|`codex`) for multi-harness attribution and a `sightings_by_harness` query split (#557); the write/read contract codex-power-pack targets is `docs/contracts/friction-ledger-shared-store.md`
   - Consult-not-push; see `/self-improvement:memory`
 - `scripts/` - Shell utilities, one per sub-bullet (add new scripts as their own line, #501):
   - prompt-context

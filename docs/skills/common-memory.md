@@ -29,13 +29,21 @@ cpp-memory query  --fingerprint <fp>              # dedup + rejected-here check
 cpp-memory query  --class knowledge --limit 20    # browse
 cpp-memory record --class knowledge --scope knowledge \
     --title "<stable title>" --body "<reusable knowledge>" \
-    --fix "<optional remediation>" --confidence 0.8 --repo "<repo-name>"
+    --fix "<optional remediation>" --confidence 0.8 --repo "<repo-name>" \
+    --harness <claude|codex|shell>                                        # tag the sighting (#557)
 cpp-memory record --local-only --class permission --scope permission ...  # stays local
 cpp-memory record ... --emit-issue-candidate                              # + issue_candidate block (#463)
 cpp-memory link-issue --fingerprint <fp> --url <github-issue-url>         # record the filed issue
 cpp-memory apply  --fingerprint <fp> --actor <user> --note "<what changed>"
 cpp-memory reject --fingerprint <fp> --actor <user> --note "<why not>"     # stops re-proposal
 ```
+
+**Multi-harness (#557).** `--harness` tags each *sighting* with the producing
+harness (`claude` | `codex` | `shell`; defaults to `$CPP_HARNESS`, then
+auto-detected Claude Code, else NULL). `query --fingerprint` reports a
+`sightings_by_harness` split so friction can be attributed per harness. The
+machine write/read contract the codex-power-pack telemetry writer targets is
+`docs/contracts/friction-ledger-shared-store.md`.
 
 `cpp-memory` is a thin wrapper: it self-locates the CPP repo, sets `PYTHONPATH`,
 and runs via `uv` (fetching `psycopg[binary]` on demand - the `binary` extra

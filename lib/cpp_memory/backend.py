@@ -107,10 +107,16 @@ class StoreBackend(ABC):
     # --- record / decide ---------------------------------------------------- #
     @abstractmethod
     def record_learning(
-        self, learning: Learning, source_vm: str, source_repo: str | None = None
+        self,
+        learning: Learning,
+        source_vm: str,
+        source_repo: str | None = None,
+        harness: str | None = None,
     ) -> int | str | None:
         """Record a learning. Returns a backend id/path, or None when unavailable.
 
+        ``harness`` (issue #557) tags the sighting with the agent harness that
+        produced it (``claude`` | ``codex`` | ``shell``; None = unattributed).
         Federated backends refuse non-portable learnings (raise ValueError).
         """
 

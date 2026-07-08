@@ -154,6 +154,23 @@ class TestMarkdownBackend:
         md.record_learning(learning, "vm-a")
         assert len(md.sightings(learning.fingerprint)) == 1
 
+    def test_record_accepts_harness_kwarg(self, md, tmp_path):
+        # Signature parity with the pg backends (#557): md accepts the harness tag
+        # (it has no sighting ledger to persist it, so it is a benign no-op).
+        learning = Learning("knowledge", "knowledge", "MD harness", "b")
+        path = md.record_learning(learning, "vm-a", harness="codex")
+        assert path is not None
+        assert md.is_known(learning.fingerprint) is not None
+
+    def test_sightings_row_carries_harness_key(self, md):
+        # Row-shape parity: the harness key is present (None on tier i) so a
+        # consumer can read it uniformly across backends.
+        learning = Learning("knowledge", "knowledge", "Shaped", "b")
+        md.record_learning(learning, "vm-a")
+        row = md.sightings(learning.fingerprint)[0]
+        assert "harness" in row
+        assert row["harness"] is None
+
     def test_link_issue_is_best_effort_false(self, md):
         # md does not maintain an issue_url column (#463 bridge relies on pg).
         learning = Learning("knowledge", "knowledge", "Bridgeable", "b", proposed_fix="x")
