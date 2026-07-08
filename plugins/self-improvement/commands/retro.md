@@ -57,9 +57,12 @@ When the user invokes `/self-improvement:retro`, perform these steps.
 Collect signals from all available sources (union, then de-duplicate):
 
 1. **Capture buffer** - if `.claude/friction.jsonl` exists, read it. Each line is a
-   JSON record: `{ts, run, step, class, signal, fix, scope, outcome, risk}`. The
-   `risk` field is set on `permission-prompt` records by the census hook (empty on
-   other classes); Step 4 uses it to allowlist only the safe tiers.
+   JSON record: `{ts, run, step, class, signal, fix, scope, outcome, risk, harness}`.
+   The `risk` field is set on `permission-prompt` records by the census hook (empty
+   on other classes); Step 4 uses it to allowlist only the safe tiers. The
+   `harness` field (issue #557) names the producing harness (`claude` | `codex`;
+   empty = unattributed); attribute the signal counts by it in the report so a
+   mixed-harness buffer distinguishes Claude from Codex friction.
    ```bash
    [ -f .claude/friction.jsonl ] && cat .claude/friction.jsonl || echo "NO_BUFFER"
    ```
@@ -273,6 +276,7 @@ Self-Improvement: Friction Retro
 
 Session:          <run label>
 Signals captured: N  (permission-prompt: a, gate-failure: b, red-output: c, manual: d)
+By harness:       claude: p, codex: q, unattributed: r   (#557; omit if all one harness)
 Ledger:           local .claude/learnings.md (M entries) | shared #433: available|absent
 Skipped (known):  K  (already applied/rejected)
 

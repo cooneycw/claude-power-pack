@@ -31,8 +31,12 @@
 #   --risk    <rk>   risk tier of the underlying command (e.g. READONLY-ADDABLE,
 #                    WRITE-LOCAL, DESTRUCTIVE). Set by the permission-prompt census
 #                    hook so retro can allowlist only safe tiers; empty otherwise.
+#   --harness <h>    producing agent harness (claude | codex | shell) so a mixed
+#                    buffer can be attributed per harness (#557); defaults to
+#                    $CPP_HARNESS, else empty.
 #
 # Environment:
+#   CPP_HARNESS       default --harness value (a non-Claude harness declares itself)
 #   CPP_FRICTION_LOG  override the buffer path (default: the main repo's
 #                     .claude/friction.jsonl, resolved via git-common-dir so a
 #                     run inside a worktree still writes to the durable buffer)
@@ -54,6 +58,9 @@ OUTCOME=""
 RUN=""
 STEP=""
 RISK=""
+# Default the harness from $CPP_HARNESS so a non-Claude harness that exports it
+# tags every capture without repeating --harness on each call (#557).
+HARNESS="${CPP_HARNESS:-}"
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -65,8 +72,9 @@ while [ $# -gt 0 ]; do
     --run)     RUN="${2:-}"; shift 2 || shift ;;
     --step)    STEP="${2:-}"; shift 2 || shift ;;
     --risk)    RISK="${2:-}"; shift 2 || shift ;;
+    --harness) HARNESS="${2:-}"; shift 2 || shift ;;
     -h|--help)
-      sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '2,48p' "$0" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     *)
@@ -127,7 +135,7 @@ fi
 
 TS="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || printf '')"
 
-LINE="$(printf '{"ts":"%s","run":"%s","step":"%s","class":"%s","signal":"%s","fix":"%s","scope":"%s","outcome":"%s","risk":"%s"}' \
+LINE="$(printf '{"ts":"%s","run":"%s","step":"%s","class":"%s","signal":"%s","fix":"%s","scope":"%s","outcome":"%s","risk":"%s","harness":"%s"}' \
   "$(json_escape "$TS")" \
   "$(json_escape "$RUN")" \
   "$(json_escape "$STEP")" \
@@ -136,7 +144,8 @@ LINE="$(printf '{"ts":"%s","run":"%s","step":"%s","class":"%s","signal":"%s","fi
   "$(json_escape "$FIX")" \
   "$(json_escape "$SCOPE")" \
   "$(json_escape "$OUTCOME")" \
-  "$(json_escape "$RISK")")"
+  "$(json_escape "$RISK")" \
+  "$(json_escape "$HARNESS")")"
 
 if ! printf '%s\n' "$LINE" >>"$LOG" 2>/dev/null; then
   echo "friction-log: cannot write '$LOG' (skipping)" >&2

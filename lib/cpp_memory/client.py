@@ -133,9 +133,17 @@ class MemoryStore(StoreBackend):
             return False
 
     def record_learning(
-        self, learning: Learning, source_vm: str, source_repo: str | None = None
+        self,
+        learning: Learning,
+        source_vm: str,
+        source_repo: str | None = None,
+        harness: str | None = None,
     ) -> int | None:
         """Upsert a portable learning + add a sighting. Returns id or None.
+
+        ``harness`` (issue #557) tags the sighting with the producing agent
+        harness (``claude`` | ``codex`` | ``shell``; None stays NULL, matching a
+        pre-#557 row) so consumers can split friction by harness.
 
         Refuses non-portable learnings: permission / repo_file fixes must never
         enter the shared store (they stay per-machine / in git).
@@ -166,9 +174,9 @@ class MemoryStore(StoreBackend):
                     ),
                 ).fetchone()[0]
                 c.execute(
-                    "INSERT INTO sightings (learning_id, source_vm, source_repo)"
-                    " VALUES (%s,%s,%s)",
-                    (lid, source_vm, source_repo),
+                    "INSERT INTO sightings (learning_id, source_vm, source_repo, harness)"
+                    " VALUES (%s,%s,%s,%s)",
+                    (lid, source_vm, source_repo, harness),
                 )
             return lid
         except Exception as e:  # noqa: BLE001
@@ -236,14 +244,18 @@ class MemoryStore(StoreBackend):
             return []
 
     def sightings(self, fingerprint: str, limit: int = 100) -> list[dict]:
-        """Sightings for a learning (the 'N machines hit this' signal). Fail-open []."""
+        """Sightings for a learning (the 'N machines hit this' signal). Fail-open [].
+
+        Each row carries its ``harness`` tag (issue #557) so a caller can split
+        the occurrences by producing harness (claude vs codex).
+        """
         if not self.available():
             return []
-        cols = ("id", "source_vm", "source_repo", "seen_at")
+        cols = ("id", "source_vm", "source_repo", "harness", "seen_at")
         try:
             with self._conn() as c:
                 rows = c.execute(
-                    "SELECT s.id, s.source_vm, s.source_repo, s.seen_at"
+                    "SELECT s.id, s.source_vm, s.source_repo, s.harness, s.seen_at"
                     " FROM sightings s JOIN learnings l ON l.id = s.learning_id"
                     " WHERE l.fingerprint = %s ORDER BY s.seen_at DESC LIMIT %s",
                     (fingerprint, limit),

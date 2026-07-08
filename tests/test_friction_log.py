@@ -129,6 +129,34 @@ def test_risk_tier_is_recorded(tmp_path: Path):
     assert _read_lines(log)[0]["risk"] == "DESTRUCTIVE"
 
 
+def test_harness_defaults_to_empty(tmp_path: Path, monkeypatch):
+    # #557: callers that do not set --harness (or $CPP_HARNESS) still produce a
+    # valid record with an empty harness field (unattributed / pre-#557 shape).
+    monkeypatch.delenv("CPP_HARNESS", raising=False)
+    log = tmp_path / "friction.jsonl"
+    _run(tmp_path, "--class", "gate-failure", "--signal", "make test failed", log_path=log)
+    assert _read_lines(log)[0]["harness"] == ""
+
+
+def test_harness_flag_is_recorded(tmp_path: Path):
+    # A harness passes --harness so a mixed buffer can be split (#557).
+    log = tmp_path / "friction.jsonl"
+    _run(
+        tmp_path,
+        "--class", "gate-failure", "--signal", "codex gate flake",
+        "--harness", "codex", log_path=log,
+    )
+    assert _read_lines(log)[0]["harness"] == "codex"
+
+
+def test_harness_defaults_from_env(tmp_path: Path, monkeypatch):
+    # $CPP_HARNESS tags every capture without repeating --harness (#557).
+    monkeypatch.setenv("CPP_HARNESS", "codex")
+    log = tmp_path / "friction.jsonl"
+    _run(tmp_path, "--class", "other", "--signal", "x", log_path=log)
+    assert _read_lines(log)[0]["harness"] == "codex"
+
+
 def test_multiple_invocations_accumulate(tmp_path: Path):
     log = tmp_path / "friction.jsonl"
     _run(tmp_path, "--class", "other", "--signal", "one", log_path=log)

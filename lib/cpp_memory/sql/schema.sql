@@ -38,7 +38,18 @@ CREATE TABLE IF NOT EXISTS sightings (
     source_repo  TEXT,
     seen_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- #557 multi-harness feathering: which agent harness produced this sighting
+-- ('claude' | 'codex' | 'shell'; NULL on pre-#557 rows and when unresolved).
+-- A convention field, deliberately NOT a CHECK constraint, so a new harness (or
+-- the "plain shell" path this store already serves) is never rejected at write
+-- time. See docs/contracts/friction-ledger-shared-store.md for the canonical set.
+-- ADD COLUMN IF NOT EXISTS upgrades an existing store in place, same as issue_url.
+ALTER TABLE sightings ADD COLUMN IF NOT EXISTS harness TEXT;
+
 CREATE INDEX IF NOT EXISTS sightings_learning_idx ON sightings (learning_id);
+-- Attribute occurrences by harness (the "claude vs codex" friction split, #557).
+CREATE INDEX IF NOT EXISTS sightings_harness_idx  ON sightings (harness);
 
 -- Per-VM apply/reject audit. This IS the "do not re-propose rejected fixes"
 -- ledger: a human confirms application on that machine, never a cross-VM push.

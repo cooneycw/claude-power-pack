@@ -141,18 +141,32 @@ class MarkdownStore(StoreBackend):
         # No cross-VM sighting ledger on tier i. A known learning is reported as a
         # single local sighting ("this one box hit it"); unknown -> [].
         if self.is_known(fingerprint):
-            return [{"id": None, "source_vm": _vm_local(), "source_repo": None, "seen_at": None}]
+            # harness=None: tier i does not persist per-sighting harness (#557);
+            # the key is present for row-shape parity with the pg backend.
+            return [{
+                "id": None, "source_vm": _vm_local(), "source_repo": None,
+                "harness": None, "seen_at": None,
+            }]
         return []
 
     # --- record / decide ---------------------------------------------------- #
     def record_learning(
-        self, learning: Learning, source_vm: str, source_repo: str | None = None
+        self,
+        learning: Learning,
+        source_vm: str,
+        source_repo: str | None = None,
+        harness: str | None = None,
     ) -> str | None:
         """Append a learning to learnings.md (best-effort dedup). Returns the path.
 
         No share guard: this is the LOCAL ledger, so it accepts non-portable notes
         (permission / repo_file) - that is exactly what learnings.md is for. A
         federated backend (tier iii) is the one that refuses them.
+
+        ``harness`` (issue #557) is accepted for signature parity with the pg
+        backends but not persisted: tier i has no per-occurrence sighting ledger,
+        so there is nowhere box-local to hang the tag. Cross-harness attribution
+        is a fleet-store (remote-pg) property.
         """
         learning.validate()
         try:

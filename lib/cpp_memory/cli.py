@@ -7,6 +7,7 @@ import socket
 
 from .backend import StoreBackend
 from .client import append_local_learning
+from .harness import resolve_harness
 from .models import (
     Learning,
     is_actionable,
@@ -19,6 +20,19 @@ from .store import select_backend
 
 def _vm() -> str:
     return socket.gethostname()
+
+
+def _harness_counts(sightings: list[dict]) -> dict:
+    """Tally sightings by harness for the 'claude vs codex' split (#557).
+
+    Unattributed sightings (harness NULL, e.g. pre-#557 rows) bucket under
+    ``"unknown"`` so the counts always sum to the total.
+    """
+    counts: dict[str, int] = {}
+    for s in sightings:
+        key = s.get("harness") or "unknown"
+        counts[key] = counts.get(key, 0) + 1
+    return counts
 
 
 def _issue_candidate(store: StoreBackend, learning: Learning, repo: str | None) -> dict:
@@ -63,6 +77,11 @@ def _build_parser() -> argparse.ArgumentParser:
     rc.add_argument("--fix", dest="proposed_fix")
     rc.add_argument("--confidence", type=float, default=0.5)
     rc.add_argument("--repo")
+    rc.add_argument(
+        "--harness",
+        help="producing agent harness (claude|codex|shell) tagged on the sighting"
+             " (#557); defaults to CPP_HARNESS / auto-detected Claude Code",
+    )
     rc.add_argument(
         "--local-only", action="store_true",
         help="append to .claude/learnings.md, skip the shared store",
@@ -140,11 +159,13 @@ def main(argv=None) -> int:
             }))
             return 0
 
-        lid = store.record_learning(learning, _vm(), args.repo)
+        harness = resolve_harness(args.harness)
+        lid = store.record_learning(learning, _vm(), args.repo, harness=harness)
         out: dict = {
             "fingerprint": learning.fingerprint,
             "backend": store.name,
             "federation": store.federation,
+            "harness": harness,
         }
         if lid is None:
             # A pg tier is unreachable - fail-open to the local md ledger.
@@ -177,6 +198,9 @@ def main(argv=None) -> int:
                 {
                     "known": row is not None, "learning": row,
                     "rejected_here": rejected, "sightings": len(seen),
+                    # Split the occurrences by producing harness (#557), e.g.
+                    # {"claude": 3, "codex": 1}. Unattributed rows -> "unknown".
+                    "sightings_by_harness": _harness_counts(seen),
                     "has_issue": bool(row.get("issue_url")) if row else False,
                 },
                 default=str,
