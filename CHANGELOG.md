@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Codex SKILL.md skill generation** (issue #555, companion to codex-power-pack
+  epic cooneycw/codex-power-pack#64 story B1) - `scripts/codex-skill-sync.py`
+  evolves the flat custom-prompt surface into per-command Codex skills under
+  `codex/skills/<family>-<cmd>/`: SKILL.md frontmatter with JSON-escaped
+  name/description (trigger words front-loaded for Codex's truncated skill
+  lists), a generated harness-adaptations block translating detected
+  Claude-only constructs (native worktrees, AskUserQuestion, MCP tools,
+  `/plugin` refs, CLAUDE.md paths), progressive disclosure (long bodies split
+  to `reference.md`), and referenced helper scripts bundled byte-identical.
+  Same ownership rules as the sibling generators: GENERATED markers only,
+  hand-curated skill dirs untouched, git-free `--check` pinned in CI by
+  `tests/test_codex_skill_sync.py`. `make codex-skills`/`codex-skills-check`
+  added; `make codex-init` now installs both surfaces. The `codex/prompts/`
+  flat surface is deprecated pending the #556 cross-repo cutover.
+
 ### Fixed
 
 - **`/cpp:update` no longer reports a stale version** (issue #544) - Steps 2/3

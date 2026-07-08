@@ -20,7 +20,9 @@ timeout = 120
 
 [tool.mypy]
 python_version = "3.11"
-exclude = ["mcp-second-opinion", "mcp-evaluate"]
+# codex/skills holds byte-identical bundled copies of scripts/*.py (issue
+# #555); checking them re-checks the originals and collides on module names.
+exclude = ["mcp-second-opinion", "mcp-evaluate", "codex/skills"]
 ignore_missing_imports = true
 explicit_package_bases = true
 mypy_path = "."
