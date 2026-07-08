@@ -43,6 +43,18 @@
 
 ### Fixed
 
+- **Friction ledger attributes Claude captures as `harness=claude`** (issue #563,
+  completing #557) - #557 added the `harness` dimension end to end, but the Claude
+  capture side never set it, so every flow-captured and permission-census row
+  landed `unattributed` and the retro "By harness" split was empty in practice (a
+  drain of an 855-row buffer reported `{unattributed: 855}`).
+  `scripts/friction-log.sh` now defaults an unset harness to `claude` when
+  `$CLAUDECODE` is set, mirroring `resolve_harness()`'s precedence (flag ->
+  `$CPP_HARNESS` -> `$CLAUDECODE` => `claude` -> empty), and
+  `scripts/hook-permission-census.sh` passes `--harness claude` explicitly (the
+  census is a Claude Code PermissionRequest hook by construction). A plain-shell
+  caller with none of the three signals still records an empty harness, so the
+  change is backward compatible.
 - **`/cpp:update` re-reads itself after the pull** (issue #545) - the command is
   self-modifying: Step 3 pulls the CPP repo, and that same pull can change
   `.claude/commands/cpp/update.md` itself, leaving the model executing the
