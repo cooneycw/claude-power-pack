@@ -286,9 +286,9 @@ fi
   a stale tree: `git merge --no-edit origin/main`, resolve any conflict in the
   named file(s), then implement. If the merge touched any
   `.claude/commands/**/*.md`, re-run the LOCAL `scripts/plugin-sync.sh --write`
-  and `python3 scripts/codex-prompt-sync.py --write`, then stage `plugins/` and
-  `codex/prompts/`, so the in-repo generated surfaces do not drift - the parity
-  gates check all 15 families (issue #506; codex prompts #446/#511).
+  and `python3 scripts/codex-skill-sync.py --write`, then stage `plugins/` and
+  `codex/skills/`, so the in-repo generated surfaces do not drift - the parity
+  gates check all 15 families (issue #506; Codex skills #555, cutover #556).
 - If it reports `current` or `moved-clean` with no overlap, proceed - the Step-7
   #462 guard remains the final backstop.
 
@@ -405,18 +405,19 @@ if [ "$(git rev-list --count HEAD..origin/main)" -gt 0 ]; then
         exit 1
     fi
     # Keep the in-repo generated surfaces from drifting when the merge pulled ANY
-    # command-family source: the packaged plugin copies AND the Codex CLI prompts
-    # are both regenerated from .claude/commands/ and share the exact sibling-merge
+    # command-family source: the packaged plugin copies AND the Codex skills are
+    # both regenerated from .claude/commands/ and share the exact sibling-merge
     # drift race the flow-* skill mirror had - the parity gates cover all 15
-    # families, not just flow (issue #506; codex prompts landed in #446/#511). Use
-    # the LOCAL scripts (they derive repo-root from their own path, so they re-sync
-    # THIS worktree, not $CPP_DIR); [ -x ... ] keeps each CPP-only, a no-op
-    # elsewhere. The Step-6 commit below stages the regenerated files.
+    # families, not just flow (issue #506; Codex skills #555, flat codex/prompts/
+    # retired at the #556 cutover). Use the LOCAL scripts (they derive repo-root
+    # from their own path, so they re-sync THIS worktree, not $CPP_DIR); [ -x ... ]
+    # keeps each CPP-only, a no-op elsewhere. The Step-6 commit below stages the
+    # regenerated files.
     if [ -x scripts/plugin-sync.sh ] && git diff --name-only ORIG_HEAD..HEAD | grep -q '^\.claude/commands/.*\.md$'; then
         scripts/plugin-sync.sh --write || true
     fi
-    if [ -x scripts/codex-prompt-sync.py ] && git diff --name-only ORIG_HEAD..HEAD | grep -q '^\.claude/commands/.*\.md$'; then
-        python3 scripts/codex-prompt-sync.py --write || true
+    if [ -x scripts/codex-skill-sync.py ] && git diff --name-only ORIG_HEAD..HEAD | grep -q '^\.claude/commands/.*\.md$'; then
+        python3 scripts/codex-skill-sync.py --write || true
     fi
 fi
 ```
@@ -531,22 +532,23 @@ Report: `Step 6/9: Finish complete - PR #XX created`
          [ -d "$dir" ] && [ -f "$dir/CLAUDE.md" ] && { CPP_DIR="$dir"; break; }
        done
        # If the merge pulled ANY command-family source, re-sync the in-repo
-       # generated surfaces - the packaged plugin copies AND the Codex CLI prompts
-       # (all families, not just flow - issue #506; codex prompts #446/#511) - then
-       # COMMIT them: this branch is squashed straight after `git push` below with
-       # no further commit step, so uncommitted plugins/ or codex/prompts/ would
-       # leave the squash carrying stale copies and fail the parity gates on main -
-       # the exact race this guards. LOCAL scripts re-sync THIS worktree; [ -x ... ]
-       # keeps each CPP-only.
+       # generated surfaces - the packaged plugin copies AND the Codex skills
+       # (all families, not just flow - issue #506; Codex skills #555, flat
+       # codex/prompts/ retired at the #556 cutover) - then COMMIT them: this
+       # branch is squashed straight after `git push` below with no further commit
+       # step, so uncommitted plugins/ or codex/skills/ would leave the squash
+       # carrying stale copies and fail the parity gates on main - the exact race
+       # this guards. LOCAL scripts re-sync THIS worktree; [ -x ... ] keeps each
+       # CPP-only.
        if [ -x scripts/plugin-sync.sh ] && git diff --name-only ORIG_HEAD..HEAD | grep -q '^\.claude/commands/.*\.md$'; then
            scripts/plugin-sync.sh --write || true
        fi
-       if [ -x scripts/codex-prompt-sync.py ] && git diff --name-only ORIG_HEAD..HEAD | grep -q '^\.claude/commands/.*\.md$'; then
-           python3 scripts/codex-prompt-sync.py --write || true
+       if [ -x scripts/codex-skill-sync.py ] && git diff --name-only ORIG_HEAD..HEAD | grep -q '^\.claude/commands/.*\.md$'; then
+           python3 scripts/codex-skill-sync.py --write || true
        fi
-       if ! git diff --quiet -- plugins/ codex/prompts/; then
-           git add plugins/ codex/prompts/
-           git commit -m "chore(generated): re-sync plugin + codex prompt copies after merging origin/main (#506)"
+       if ! git diff --quiet -- plugins/ codex/skills/; then
+           git add plugins/ codex/skills/
+           git commit -m "chore(generated): re-sync plugin + codex skill copies after merging origin/main (#506)"
        fi
        if [ -n "$CPP_DIR" ] && command -v uv >/dev/null 2>&1; then
            PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd run --plan finish
