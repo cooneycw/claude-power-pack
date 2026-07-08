@@ -1,7 +1,6 @@
 .PHONY: test lint format typecheck verify secret-scan update_docs clean \
        bootstrap-check drift-check deploy setup-woodpecker-cli \
-       codex-init codex-prompts codex-prompts-check \
-       codex-skills codex-skills-check
+       codex-init codex-skills codex-skills-check
 
 ## Quality gates (used by /flow:finish)
 
@@ -65,7 +64,9 @@ deploy:
 setup-woodpecker-cli:
 	@scripts/setup-woodpecker-cli.sh
 
-## Codex skill generation (single-source -> per-harness, issue #555)
+## Codex skill generation (single-source -> per-harness, issue #555). The
+## deprecated flat codex/prompts/ surface (issue #446) and its codex-prompts /
+## codex-prompts-check targets were retired at the #556 cutover.
 
 codex-skills-check:
 	@python3 scripts/codex-skill-sync.py --check
@@ -73,17 +74,7 @@ codex-skills-check:
 codex-skills:
 	@python3 scripts/codex-skill-sync.py --write
 
-## Codex prompt generation (issue #446) - DEPRECATED flat surface (issue #555):
-## superseded by codex-skills above; retired at the #556 cutover.
-
-codex-prompts-check:
-	@python3 scripts/codex-prompt-sync.py --check
-
-codex-prompts:
-	@python3 scripts/codex-prompt-sync.py --write
-
 codex-init:
-	@python3 scripts/codex-prompt-sync.py --write --install
 	@python3 scripts/codex-skill-sync.py --write --install
 
 ## Utilities

@@ -4,6 +4,16 @@
 
 ### Added
 
+- **Explicit Codex-skill drift gate** (issue #556, CPP side of the pull-model
+  cutover) - `.woodpecker.yml` gains a dedicated `codex-skills-check` step
+  (`python3 scripts/codex-skill-sync.py --check`) so a `codex/skills/` tree left
+  out of sync with its `.claude/commands/` source fails CI loudly on its own
+  line, not just via the pytest suite. ADR 0001 section 5 now records the
+  reconcile rule (edit the SoT in `.claude/commands/`, never a generated copy)
+  and the PULL consumption model: codex-power-pack vendors `.claude/commands/` +
+  `scripts/codex-skill-sync.py` (codex-power-pack#75), so the harness transform
+  is versioned with the generator; CPP never pushes into codex-power-pack.
+
 - **Codex SKILL.md skill generation** (issue #555, companion to codex-power-pack
   epic cooneycw/codex-power-pack#64 story B1) - `scripts/codex-skill-sync.py`
   evolves the flat custom-prompt surface into per-command Codex skills under
@@ -16,8 +26,20 @@
   Same ownership rules as the sibling generators: GENERATED markers only,
   hand-curated skill dirs untouched, git-free `--check` pinned in CI by
   `tests/test_codex_skill_sync.py`. `make codex-skills`/`codex-skills-check`
-  added; `make codex-init` now installs both surfaces. The `codex/prompts/`
-  flat surface is deprecated pending the #556 cross-repo cutover.
+  added; `make codex-init` installs the skill surface to `~/.codex/skills/`.
+
+### Changed
+
+- **Retired the deprecated flat `codex/prompts/` Codex surface** (issue #556) -
+  the generated flat prompts, `scripts/codex-prompt-sync.py`, the
+  `codex-prompts`/`codex-prompts-check` Make targets, and
+  `tests/test_codex_prompt_sync.py` are removed; the `codex/skills/` surface
+  (#555) is the only Codex output. The hand-curated `/cpp-memory` prompt moved
+  to `codex/cpp-memory.md` (out of the retired dir; `install-memory-harness.sh`
+  repointed). The `/flow:auto` + `/flow:finish` post-merge re-sync (#506) and the
+  `flow-stale-check.sh` hint now regenerate `codex/skills/` via
+  `codex-skill-sync.py` instead of the retired prompt generator, extending the
+  sibling-merge drift guard to the surviving surface.
 
 ### Fixed
 

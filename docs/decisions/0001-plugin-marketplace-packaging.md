@@ -219,6 +219,26 @@ Phase B2 settles the source-of-truth question deferred above:
   mirror, `flow-skill-sync.py`, `skill-drift.py`, the symlink installer paths),
   not the in-repo `plugins/` artifacts - those ARE the distribution.
 
+**Reconcile rule for every generated harness surface (issue #556).** The
+single-source discipline is the same in every direction: **edit the source of
+truth in `.claude/commands/<family>/*.md`, never a generated copy.** Generated
+copies (`plugins/<family>/commands/`, `codex/skills/<family>-<cmd>/`) are
+byte-identical artifacts; reconcile any drift by re-running the generator
+(`scripts/plugin-sync.sh --write`, `scripts/codex-skill-sync.py --write`), never
+by hand-editing the output. The Codex harness surface is `codex/skills/`
+(#555); the older flat `codex/prompts/` surface (#446) was **retired at the #556
+cutover** along with `scripts/codex-prompt-sync.py`.
+
+**Cross-repo consumption is PULL, not push (issue #556).** codex-power-pack does
+not receive PRs from CPP; it **vendors** the Codex surface from CPP and runs its
+own local drift check (codex-power-pack#75), the same consumer-vendors-the-core
+model eli5-gate (#443) established. What codex-power-pack pins is the **source
+plus the generator** - `.claude/commands/<family>/*.md` and
+`scripts/codex-skill-sync.py` - not the pre-generated `codex/skills/` output, so
+the harness transform is versioned with the generator and CxPP can regenerate
+against its own harness. CPP's own currency is guarded by the explicit
+`codex-skills-check` step in `.woodpecker.yml` (issue #556).
+
 ### 6. Hooks + MCP client pointers (resolved in Phase B3, #479)
 
 Phase B3 settles the packaging questions deferred in sections 1 and 3:
