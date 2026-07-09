@@ -130,12 +130,26 @@ def test_risk_tier_is_recorded(tmp_path: Path):
 
 
 def test_harness_defaults_to_empty(tmp_path: Path, monkeypatch):
-    # #557: callers that do not set --harness (or $CPP_HARNESS) still produce a
-    # valid record with an empty harness field (unattributed / pre-#557 shape).
+    # #557/#563: a record is unattributed (empty harness) ONLY when none of
+    # --harness, $CPP_HARNESS, or $CLAUDECODE is set - a plain-shell caller with
+    # no signal to attribute from. $CLAUDECODE must be cleared too, else the #563
+    # Claude Code auto-detect would default it to "claude".
     monkeypatch.delenv("CPP_HARNESS", raising=False)
+    monkeypatch.delenv("CLAUDECODE", raising=False)
     log = tmp_path / "friction.jsonl"
     _run(tmp_path, "--class", "gate-failure", "--signal", "make test failed", log_path=log)
     assert _read_lines(log)[0]["harness"] == ""
+
+
+def test_harness_defaults_to_claude_from_claudecode(tmp_path: Path, monkeypatch):
+    # #563: inside a Claude Code session ($CLAUDECODE set) a capture that passes
+    # neither --harness nor $CPP_HARNESS self-attributes to "claude" - mirroring
+    # resolve_harness()'s $CLAUDECODE fallback - instead of landing unattributed.
+    monkeypatch.delenv("CPP_HARNESS", raising=False)
+    monkeypatch.setenv("CLAUDECODE", "1")
+    log = tmp_path / "friction.jsonl"
+    _run(tmp_path, "--class", "gate-failure", "--signal", "make test failed", log_path=log)
+    assert _read_lines(log)[0]["harness"] == "claude"
 
 
 def test_harness_flag_is_recorded(tmp_path: Path):
@@ -154,6 +168,30 @@ def test_harness_defaults_from_env(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("CPP_HARNESS", "codex")
     log = tmp_path / "friction.jsonl"
     _run(tmp_path, "--class", "other", "--signal", "x", log_path=log)
+    assert _read_lines(log)[0]["harness"] == "codex"
+
+
+def test_harness_env_precedence_over_claudecode(tmp_path: Path, monkeypatch):
+    # #563: $CPP_HARNESS outranks the $CLAUDECODE auto-detect, so a non-Claude
+    # harness that declares itself is never mislabelled "claude" just because it
+    # ran inside a Claude Code shell.
+    monkeypatch.setenv("CPP_HARNESS", "codex")
+    monkeypatch.setenv("CLAUDECODE", "1")
+    log = tmp_path / "friction.jsonl"
+    _run(tmp_path, "--class", "other", "--signal", "x", log_path=log)
+    assert _read_lines(log)[0]["harness"] == "codex"
+
+
+def test_harness_flag_precedence_over_claudecode(tmp_path: Path, monkeypatch):
+    # #563: an explicit --harness wins over the $CLAUDECODE auto-detect too.
+    monkeypatch.delenv("CPP_HARNESS", raising=False)
+    monkeypatch.setenv("CLAUDECODE", "1")
+    log = tmp_path / "friction.jsonl"
+    _run(
+        tmp_path,
+        "--class", "other", "--signal", "x",
+        "--harness", "codex", log_path=log,
+    )
     assert _read_lines(log)[0]["harness"] == "codex"
 
 

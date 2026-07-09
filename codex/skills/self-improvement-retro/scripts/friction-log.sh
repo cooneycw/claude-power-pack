@@ -32,11 +32,16 @@
 #                    WRITE-LOCAL, DESTRUCTIVE). Set by the permission-prompt census
 #                    hook so retro can allowlist only safe tiers; empty otherwise.
 #   --harness <h>    producing agent harness (claude | codex | shell) so a mixed
-#                    buffer can be attributed per harness (#557); defaults to
-#                    $CPP_HARNESS, else empty.
+#                    buffer can be attributed per harness (#557). Precedence
+#                    mirrors resolve_harness() in lib/cpp_memory/harness.py:
+#                    this flag -> $CPP_HARNESS -> $CLAUDECODE (=> claude) ->
+#                    empty (#563).
 #
 # Environment:
 #   CPP_HARNESS       default --harness value (a non-Claude harness declares itself)
+#   CLAUDECODE        set by Claude Code; when --harness and $CPP_HARNESS are both
+#                     unset, the harness defaults to `claude` so a Claude capture
+#                     self-attributes instead of landing unattributed (#563)
 #   CPP_FRICTION_LOG  override the buffer path (default: the main repo's
 #                     .claude/friction.jsonl, resolved via git-common-dir so a
 #                     run inside a worktree still writes to the durable buffer)
@@ -58,9 +63,16 @@ OUTCOME=""
 RUN=""
 STEP=""
 RISK=""
-# Default the harness from $CPP_HARNESS so a non-Claude harness that exports it
-# tags every capture without repeating --harness on each call (#557).
+# Default the harness so a capture is attributed even when neither --harness nor
+# $CPP_HARNESS is set. Precedence mirrors resolve_harness() in
+# lib/cpp_memory/harness.py: --harness arg (parsed below) -> $CPP_HARNESS ->
+# Claude Code auto-detect ($CLAUDECODE => claude) -> empty. Without the
+# $CLAUDECODE step every flow-captured signal in a Claude Code session lands
+# unattributed even though it is always Claude here (#563 completing #557).
 HARNESS="${CPP_HARNESS:-}"
+if [ -z "$HARNESS" ] && [ -n "${CLAUDECODE:-}" ]; then
+  HARNESS="claude"
+fi
 
 while [ $# -gt 0 ]; do
   case "$1" in

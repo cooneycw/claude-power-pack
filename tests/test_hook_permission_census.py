@@ -87,6 +87,17 @@ def test_records_permission_prompt_with_shown_outcome(tmp_path: Path):
     assert rec["ts"].endswith("Z")
 
 
+def test_census_attributes_harness_claude(tmp_path: Path, monkeypatch):
+    # #563: the census is a Claude Code PermissionRequest hook, so it stamps
+    # harness=claude EXPLICITLY. Clear both env signals first to prove the tag
+    # comes from the hook's own --harness claude, not friction-log.sh's
+    # $CLAUDECODE default - so census rows attribute even outside a Claude shell.
+    monkeypatch.delenv("CLAUDECODE", raising=False)
+    monkeypatch.delenv("CPP_HARNESS", raising=False)
+    rec = _one(tmp_path, {"tool_name": "Bash", "tool_input": {"command": "git fetch origin"}})
+    assert rec["harness"] == "claude"
+
+
 # --- Rule derivation matches /self-improvement:retro Step 4 -------------------
 
 def test_gh_rule_is_three_deep(tmp_path: Path):
