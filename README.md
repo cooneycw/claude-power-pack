@@ -42,13 +42,13 @@ CPP ships as a **plugin marketplace** (ADR [0001](docs/decisions/0001-plugin-mar
 #     help-only cpp plugin.
 ```
 
-`/plugin` handles versioning and updates for the installed surfaces. The `secrets` plugin bundles the PostToolUse secret-masking hook and the `second-opinion` plugin bundles its `.mcp.json` client pointer, so a plugin-only install gets masking and MCP wiring with no host setup.
+`/plugin` handles versioning and updates for the installed surfaces. The `secrets` plugin bundles the PostToolUse secret-masking hook, so a plugin-only install gets masking with no host setup. The `second-opinion` plugin ships the review *commands* only and deliberately does NOT auto-register an MCP server (the external server is opt-in and not running on a fresh box, so auto-registration would surface as "1 error during load"); register it yourself once the server is up (see below).
 
 ### Non-plugin setup (the fallback `/plugin` cannot cover)
 
-A plugin install delivers commands, skills, hooks, and the MCP *client pointer* - but not the out-of-band infrastructure some families reach. Run `/cpp:init` in a target project for those steps (it is now the non-plugin infra installer, not the primary way to get commands):
+A plugin install delivers commands, skills, and hooks - but not the out-of-band infrastructure some families reach, and not an auto-registered MCP server. Run `/cpp:init` in a target project for those steps (it is now the non-plugin infra installer, not the primary way to get commands):
 
-- **External Second Opinion server** - the multi-model review server lives in its own repo ([cooneycw/mcp-second-opinion](https://github.com/cooneycw/mcp-second-opinion)). The `second-opinion` plugin ships a `.mcp.json` pointer at `http://127.0.0.1:8080/mcp`; start that server, or re-point the URL at a Tailscale host with `claude mcp add second-opinion --transport http --url <url> --scope user`.
+- **External Second Opinion server** - the multi-model review server lives in its own repo ([cooneycw/mcp-second-opinion](https://github.com/cooneycw/mcp-second-opinion)). The `second-opinion` plugin ships the review commands only and does NOT auto-register the server; start the external server, then register it with `claude mcp add second-opinion --transport http --url http://127.0.0.1:8080/mcp --scope user` (use your Tailscale URL for a remote host).
 - **Browser automation** - registers the upstream `@playwright/mcp` npx/stdio server (no container).
 - **Secrets provisioning** - AWS Secrets Manager access for Woodpecker CI keys (`essent-ai`) and the `CPP_MEMORIES_DSN` common-memory DSN; fetched directly via the AWS SDK/CLI.
 - **Bootstrap prerequisites** - `jq`, and the optional spec-kit CLI (`specify`, the engine behind `/spec:adopt`).

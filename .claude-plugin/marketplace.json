@@ -64,7 +64,7 @@
     {
       "name": "second-opinion",
       "source": "./plugins/second-opinion",
-      "description": "Cross-vendor second-opinion code review client commands (/second-opinion:start, /second-opinion:models); ships the .mcp.json client pointer (default http://127.0.0.1:8080/mcp) to the external mcp-second-opinion server."
+      "description": "Cross-vendor second-opinion code review client commands (/second-opinion:start, /second-opinion:models). Does not auto-register an MCP server on install; the external mcp-second-opinion server is opt-in - register it with `claude mcp add second-opinion --transport http --url http://127.0.0.1:8080/mcp` once it is running."
     },
     {
       "name": "secrets",

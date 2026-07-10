@@ -20,9 +20,10 @@ The hazards these pin:
     would ship the legacy installer B4 retired;
   * the Phase B3 (#479) bundled artifacts must stay coherent: the secrets
     plugin's masking-hook script is a byte-identical copy resolved via
-    ${CLAUDE_PLUGIN_ROOT} (never a host path), and the second-opinion plugin's
-    .mcp.json client pointer must match the repo-root one (#469) or a plugin
-    install and a repo checkout would talk to different servers.
+    ${CLAUDE_PLUGIN_ROOT} (never a host path), and the second-opinion plugin
+    must NOT auto-register an MCP server on install (#569): the external
+    mcp-second-opinion server is opt-in and not running on a fresh box, so a
+    bundled/auto-registered pointer surfaces as "1 error during load".
 
 Hermetic and git-free: reads the REAL repo manifests + command sources and shells
 only to the git-free sync guard, so it runs in CI's git-less validate container
@@ -180,8 +181,8 @@ def test_cpp_plugin_is_help_only():
 SECRETS_HOOKS = PLUGINS_DIR / "secrets" / "hooks" / "hooks.json"
 SECRETS_HOOK_SCRIPT = PLUGINS_DIR / "secrets" / "scripts" / "hook-mask-output.sh"
 HOOK_SCRIPT_SOURCE = ROOT / "scripts" / "hook-mask-output.sh"
-SO_PLUGIN_MCP = PLUGINS_DIR / "second-opinion" / ".mcp.json"
-ROOT_MCP = ROOT / ".mcp.json"
+SO_PLUGIN_DIR = PLUGINS_DIR / "second-opinion"
+SO_PLUGIN_MANIFEST = SO_PLUGIN_DIR / ".claude-plugin" / "plugin.json"
 
 
 def test_secrets_plugin_bundles_posttooluse_masking_hook():
@@ -215,15 +216,22 @@ def test_secrets_hook_script_is_executable():
     )
 
 
-def test_second_opinion_plugin_mcp_pointer_matches_root():
-    assert SO_PLUGIN_MCP.is_file(), f"missing {SO_PLUGIN_MCP}"
-    plugin_ptr = json.loads(SO_PLUGIN_MCP.read_text())["mcpServers"]["second-opinion"]
-    assert plugin_ptr.get("type") == "http", "pointer must be the streamable-http client stanza"
-    assert plugin_ptr.get("url"), "pointer needs a url"
-    # The plugin pointer and the repo-root pointer (#469) must never diverge.
-    root_ptr = json.loads(ROOT_MCP.read_text())["mcpServers"]["second-opinion"]
-    assert plugin_ptr == root_ptr, (
-        f"plugin pointer {plugin_ptr} != repo-root .mcp.json pointer {root_ptr}"
+def test_second_opinion_plugin_does_not_autoregister_mcp_server():
+    # #569: the external mcp-second-opinion server is opt-in and not running on a
+    # fresh box. A plugin that auto-registers an http MCP pointer on install makes
+    # Claude Code try to connect on every fresh install, fail, and surface a scary
+    # "1 error during load". The plugin must ship the review COMMANDS only and let
+    # the user register the server (claude mcp add ...) when they opt in.
+    manifest = json.loads(SO_PLUGIN_MANIFEST.read_text())
+    assert "mcpServers" not in manifest, (
+        "second-opinion plugin.json must NOT declare mcpServers - that auto-registers "
+        "the external server on install and fails to connect on a fresh box (#569). "
+        "The server is opt-in via `claude mcp add second-opinion ...`."
+    )
+    assert not (SO_PLUGIN_DIR / ".mcp.json").exists(), (
+        "second-opinion plugin must not bundle a .mcp.json client pointer (#569); "
+        "with mcpServers removed it is dead weight, and any bundled pointer risks "
+        "reintroducing an active-on-install registration."
     )
 
 
