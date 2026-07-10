@@ -51,6 +51,7 @@ while [[ $# -gt 0 ]]; do
             echo "Options:"
             echo "  --force          Remove even if worktree has uncommitted changes"
             echo "  --delete-branch  Also delete the associated branch after removal"
+            echo "                   (force-deletes a squash-merged branch non-interactively)"
             echo ""
             echo "Examples:"
             echo "  worktree-remove.sh /home/user/Projects/nhl-api-issue-42"
@@ -177,24 +178,35 @@ git -C "$MAIN_REPO" worktree remove "$WORKTREE_PATH" $FORCE
 
 echo -e "${GREEN}Worktree removed successfully.${NC}"
 
-# Optionally delete the branch
+# Optionally delete the branch.
+#
+# --delete-branch is an explicit deletion request, and by this point the worktree
+# has already been removed. Try the safe `git branch -d` first so a genuinely
+# fully-merged branch is reported as such. When it refuses with "not fully
+# merged", that is the EXPECTED squash-merge case: a squash rewrites the branch's
+# commits into one new commit on main, so the branch tip is no longer an ancestor
+# of main even though the PR is MERGED and the work is safely on main. Fall back
+# to `git branch -D` non-interactively rather than prompting.
+#
+# The old interactive `read -p` confirmation broke every non-interactive caller
+# (/flow:auto, /flow:merge): with stdin not a TTY, `read` hit EOF and returned
+# non-zero, tripping `set -e` so the whole script exited non-zero AND left the
+# branch undeleted - a false "cleanup failed" even though the worktree removal
+# succeeded (issue #566). Branch-delete outcome never fails the script now: the
+# worktree removal (above) is the only step whose failure surfaces non-zero.
 if [[ "$DELETE_BRANCH" == true && -n "$BRANCH_NAME" && "$BRANCH_NAME" != "main" && "$BRANCH_NAME" != "master" ]]; then
     echo -e "${BLUE}Deleting branch: ${BRANCH_NAME}${NC}"
 
-    # Check if branch was merged (use -d) or force delete (-D)
     if git -C "$MAIN_REPO" branch -d "$BRANCH_NAME" 2>/dev/null; then
         echo -e "${GREEN}Branch deleted (was fully merged).${NC}"
+    elif git -C "$MAIN_REPO" branch -D "$BRANCH_NAME" 2>/dev/null; then
+        # Expected for squash-merged PRs: the branch is not an ancestor of main,
+        # so -d refuses; --delete-branch already authorized the deletion.
+        echo -e "${GREEN}Branch force-deleted (squash-merged; not an ancestor of main).${NC}"
     else
-        # Branch wasn't merged - for squash-merged PRs, this is expected
-        echo -e "${YELLOW}Branch not fully merged (normal for squash-merged PRs).${NC}"
-        read -p "Force delete branch '$BRANCH_NAME'? [y/N] " -n 1 -r
-        echo
-        if [[ $REPLY =~ ^[Yy]$ ]]; then
-            git -C "$MAIN_REPO" branch -D "$BRANCH_NAME"
-            echo -e "${GREEN}Branch force-deleted.${NC}"
-        else
-            echo "Branch kept."
-        fi
+        # Branch removal genuinely failed (e.g. already gone) - warn, do NOT fail
+        # the run: the worktree was removed, which is this script's job.
+        echo -e "${YELLOW}Could not delete branch '${BRANCH_NAME}' (may already be gone). Worktree removal still succeeded.${NC}"
     fi
 fi
 
