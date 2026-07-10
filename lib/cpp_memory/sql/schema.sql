@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS sightings (
 );
 
 -- #557 multi-harness feathering: which agent harness produced this sighting
--- ('claude' | 'codex' | 'shell'; NULL on pre-#557 rows and when unresolved).
+-- ('claude' | 'codex' | 'shell', NULL on pre-#557 rows and when unresolved).
 -- A convention field, deliberately NOT a CHECK constraint, so a new harness (or
 -- the "plain shell" path this store already serves) is never rejected at write
 -- time. See docs/contracts/friction-ledger-shared-store.md for the canonical set.

@@ -36,6 +36,54 @@ _LEARNING_COLS = (
 )
 
 
+def _split_sql_statements(sql: str) -> list[str]:
+    """Split a SQL script into executable statements.
+
+    Strips ``--`` line comments and splits on top-level ``;``, ignoring both
+    inside single-quoted string literals. A ``;`` living inside a ``--`` comment
+    (issue #565) therefore never chops the statement it documents, and a ``;``
+    inside a quoted default value never splits a statement - unlike the naive
+    ``sql.split(";")`` this replaced. Lightweight splitter for our own controlled
+    ``schema.sql``, NOT a general SQL parser: it does not handle dollar-quoting or
+    C-style ``/* */`` comments, which the schema deliberately does not use.
+    """
+    statements: list[str] = []
+    buf: list[str] = []
+    in_string = False
+    i, n = 0, len(sql)
+    while i < n:
+        ch = sql[i]
+        if in_string:
+            buf.append(ch)
+            if ch == "'":
+                if i + 1 < n and sql[i + 1] == "'":  # escaped '' inside a string
+                    buf.append("'")
+                    i += 2
+                    continue
+                in_string = False
+            i += 1
+        elif ch == "'":
+            in_string = True
+            buf.append(ch)
+            i += 1
+        elif ch == "-" and i + 1 < n and sql[i + 1] == "-":
+            nl = sql.find("\n", i)  # drop the comment, keep the newline
+            i = n if nl == -1 else nl
+        elif ch == ";":
+            stmt = "".join(buf).strip()
+            if stmt:
+                statements.append(stmt)
+            buf = []
+            i += 1
+        else:
+            buf.append(ch)
+            i += 1
+    tail = "".join(buf).strip()
+    if tail:
+        statements.append(tail)
+    return statements
+
+
 class MemoryStore(StoreBackend):
     """Postgres backend (:class:`~lib.cpp_memory.backend.StoreBackend`).
 
@@ -295,7 +343,7 @@ class MemoryStore(StoreBackend):
             schema_path = str(Path(__file__).parent / "sql" / "schema.sql")
         try:
             sql = Path(schema_path).read_text(encoding="utf-8")
-            statements = [s.strip() for s in sql.split(";") if s.strip()]
+            statements = _split_sql_statements(sql)
             with self._conn() as c:
                 for st in statements:
                     c.execute(st)
