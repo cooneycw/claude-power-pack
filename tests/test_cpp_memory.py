@@ -520,3 +520,57 @@ class TestCliBridge:
         out = json.loads(capsys.readouterr().out)
         assert rc == 0
         assert out["has_issue"] is False
+
+
+# --------------------------------------------------------------------------- #
+# SQL statement splitter (issue #565): a ';' inside a '--' comment (or a quoted
+# string) must NOT chop the statement it documents. These run DB-free - the
+# splitter is the exact unit that broke init_db, and CI has no Postgres.
+# --------------------------------------------------------------------------- #
+from pathlib import Path  # noqa: E402 - grouped with the splitter tests it supports
+
+_SCHEMA_PATH = Path(client_mod.__file__).parent / "sql" / "schema.sql"
+
+
+class TestSqlStatementSplitter:
+    def test_semicolon_in_line_comment_does_not_split(self):
+        # The exact #557 comment shape that broke the naive `sql.split(";")`.
+        sql = (
+            "ALTER TABLE sightings ADD COLUMN IF NOT EXISTS harness TEXT;\n"
+            "-- ('claude' | 'codex' | 'shell'; NULL on pre-#557 rows).\n"
+            "CREATE INDEX IF NOT EXISTS sightings_harness_idx ON sightings (harness);\n"
+        )
+        stmts = client_mod._split_sql_statements(sql)
+        assert stmts == [
+            "ALTER TABLE sightings ADD COLUMN IF NOT EXISTS harness TEXT",
+            "CREATE INDEX IF NOT EXISTS sightings_harness_idx ON sightings (harness)",
+        ]
+
+    def test_semicolon_in_string_literal_does_not_split(self):
+        stmts = client_mod._split_sql_statements(
+            "INSERT INTO t (v) VALUES ('a;b');\nSELECT 1;\n"
+        )
+        assert stmts == ["INSERT INTO t (v) VALUES ('a;b')", "SELECT 1"]
+
+    def test_no_bare_comment_or_stray_fragment_statements(self):
+        # No resulting statement may be a leftover comment or a fragment of one
+        # (the `NULL on pre-#557 rows...` tail the old splitter produced).
+        stmts = client_mod._split_sql_statements(_SCHEMA_PATH.read_text(encoding="utf-8"))
+        assert stmts, "schema.sql yielded no statements"
+        for st in stmts:
+            assert not st.lstrip().startswith("--"), f"bare-comment statement: {st!r}"
+            assert st.split()[0].upper() in {"CREATE", "ALTER", "DROP"}, \
+                f"not a DDL statement: {st!r}"
+
+    def test_harness_alter_statement_survives_intact(self):
+        # The specific statement whose trailing comment carried the rogue ';'.
+        stmts = client_mod._split_sql_statements(_SCHEMA_PATH.read_text(encoding="utf-8"))
+        assert "ALTER TABLE sightings ADD COLUMN IF NOT EXISTS harness TEXT" in stmts
+
+    def test_schema_comments_carry_no_semicolon(self):
+        # Lint-style guard: keep raw schema.sql lint-clean so even a splitter that
+        # ever regressed to naive `;`-splitting would not re-break (issue #565).
+        for lineno, line in enumerate(_SCHEMA_PATH.read_text(encoding="utf-8").splitlines(), 1):
+            stripped = line.lstrip()
+            if stripped.startswith("--"):
+                assert ";" not in stripped, f"schema.sql:{lineno} comment contains ';': {line!r}"
