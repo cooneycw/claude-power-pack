@@ -28,6 +28,10 @@ services:
       # WOODPECKER_<FORGE> block per https://woodpecker-ci.org/docs/administration/forges
       - WOODPECKER_GITHUB=true
       - WOODPECKER_ADMIN=CHANGE_ME   # <- your forge username
+      # Give multi-workflow repositories enough time to fetch configuration
+      # during transient forge latency before pipeline creation fails.
+      - WOODPECKER_FORGE_TIMEOUT=15s
+      - WOODPECKER_FORGE_RETRY=5
       # Privileged plugins are an allowlist - list ONLY what you use. buildx is
       # needed only if you build/scan container images in CI.
       - WOODPECKER_PLUGINS_PRIVILEGED=woodpeckerci/plugin-docker-buildx,plugins/docker
