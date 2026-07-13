@@ -16,6 +16,8 @@ services:
       - WOODPECKER_OPEN=true
       - WOODPECKER_GITHUB=true
       - WOODPECKER_ADMIN=cooneycw
+      - WOODPECKER_FORGE_TIMEOUT=15s
+      - WOODPECKER_FORGE_RETRY=5
       - WOODPECKER_PLUGINS_PRIVILEGED=woodpeckerci/plugin-docker-buildx,plugins/docker
     restart: unless-stopped
 
