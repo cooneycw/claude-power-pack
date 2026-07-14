@@ -24,9 +24,16 @@
 # ALSO appears among the paths THIS run edited (branch commits vs the base, plus
 # worktree dirt) - i.e. the run tried to touch that path yet it shows up modified
 # in main. Overlapping dirt -> a loud WARNING (and a --strict failure);
-# non-overlapping dirt -> a quiet info note, never a failure. Trade-off: a pure
-# leak of a file the worktree never also edited is downgraded to info - the
-# accepted cost of killing the recurring false positives.
+# non-overlapping dirt -> a quiet info note, never a failure.
+#
+# The one leak the overlap check cannot see is a TOTAL leak (issue #573): when
+# EVERY edit lands in main, the worktree stays pristine, so "paths this run
+# edited" is empty and nothing can overlap. That case is caught separately: if
+# the run produced NO worktree activity at all (no branch commits, no worktree
+# dirt) yet main carries tracked modifications edited within FRESH_MIN minutes,
+# it is flagged as a total leak. Freshness (mtime) is what keeps this from
+# re-crying-wolf on genuinely pre-existing main dirt (issue #536) - stale dirt
+# with an idle worktree stays a quiet note.
 #
 # Scope: only meaningful in a linked-worktree session (`.git` is a file). In the
 # main checkout itself (`.git` is a directory) there is no "other tree" to leak
@@ -38,24 +45,31 @@
 #   flow-worktree-guard.sh [--strict]
 #
 # Options:
-#   --strict   Exit non-zero (3) ONLY when a main modification OVERLAPS a path
-#              this run edited (the leak signature). Non-overlapping pre-existing
-#              dirt never fails, even under --strict. Default is advisory:
-#              always exit 0, just warn/note.
+#   --strict   Exit non-zero (3) on a leak signature: a main modification that
+#              OVERLAPS a path this run edited, OR a total leak (idle worktree +
+#              fresh main edits, issue #573). Stale/pre-existing non-overlapping
+#              dirt never fails, even under --strict. Default is advisory: always
+#              exit 0, just warn/note.
 #
 # Output:
 #   - Overlap (leak): a "[flow] WARNING" block naming the overlapping paths with
 #     a remediation hint (and, under --strict, exit 3).
-#   - Non-overlap only: a quiet "[flow] note" listing the pre-existing main
-#     modifications, exit 0.
+#   - Total leak (idle worktree + fresh main edits): a "[flow] WARNING" block
+#     naming the fresh main paths (and, under --strict, exit 3) (issue #573).
+#   - Non-overlap / stale only: a quiet "[flow] note" listing the pre-existing
+#     main modifications, exit 0.
 #   - Nothing (exit 0) when main is clean or when not in a linked worktree.
 #
 # Env (test hook - unset in normal use):
-#   FLOW_WORKTREE_GIT   override the `git` binary (default: git)
+#   FLOW_WORKTREE_GIT     override the `git` binary (default: git)
+#   FLOW_LEAK_FRESH_MIN   freshness window in minutes for the total-leak check
+#                         (issue #573; default 30). A main modification is a
+#                         total-leak suspect only if edited within this window.
 
 set -uo pipefail
 
 GIT="${FLOW_WORKTREE_GIT:-git}"
+FRESH_MIN="${FLOW_LEAK_FRESH_MIN:-30}"
 
 STRICT=0
 for arg in "$@"; do
@@ -144,14 +158,65 @@ for p in "${main_dirty[@]}"; do
   fi
 done
 
-# No overlap -> pre-existing/unrelated dirt in main. Downgrade to an info note
-# (never a WARNING, never a --strict failure) so it stops drowning real signals.
+# No overlap -> no main file matches a path this run edited. Two very different
+# situations hide here, split on whether this run produced ANY worktree activity:
+#
+#  (a) run_edited NON-empty: the run IS producing work in the worktree, so main's
+#      dirt is genuinely unrelated pre-existing modification (issue #536) -> quiet
+#      note, never a failure. Unchanged behaviour.
+#
+#  (b) run_edited EMPTY: the run produced NOTHING in the worktree (no branch
+#      commits, no worktree dirt) yet main has tracked modifications. That is the
+#      TOTAL-LEAK signature (issue #573): a hand-built absolute path sent EVERY
+#      edit to main, leaving the worktree pristine, so there is nothing for the
+#      overlap check to match. Distinguish a fresh leak from merely pre-existing
+#      main dirt by mtime - a leaked edit happened DURING this run (within
+#      FRESH_MIN), pre-existing deploy-config dirt did not. Fresh + idle worktree
+#      -> warn (and fail --strict); all-stale -> keep the quiet note.
 if [ "${#overlap[@]}" -eq 0 ]; then
-  echo "[flow] note: main has ${#unrelated[@]} modified tracked file(s) unrelated to this run's edits (pre-existing, not a leak; issue #536):" >&2
+  if [ -n "$run_edited" ]; then
+    # (a) classic #536: unrelated pre-existing dirt while the run works elsewhere.
+    echo "[flow] note: main has ${#unrelated[@]} modified tracked file(s) unrelated to this run's edits (pre-existing, not a leak; issue #536):" >&2
+    for p in "${unrelated[@]}"; do
+      echo "  - $p" >&2
+    done
+    echo "         main: $MAIN_REPO" >&2
+    exit 0
+  fi
+
+  # (b) total-leak suspect: worktree idle, main dirty. Keep only FRESH main edits.
+  fresh=()
   for p in "${unrelated[@]}"; do
+    if [ -n "$(find "$MAIN_REPO/$p" -mmin "-${FRESH_MIN}" 2>/dev/null)" ]; then
+      fresh+=("$p")
+    fi
+  done
+
+  if [ "${#fresh[@]}" -eq 0 ]; then
+    # All main dirt predates this run's window -> genuinely pre-existing, stay quiet.
+    echo "[flow] note: main has ${#unrelated[@]} modified tracked file(s), none edited within the last ${FRESH_MIN}m (pre-existing, not a leak; issue #536/#573):" >&2
+    for p in "${unrelated[@]}"; do
+      echo "  - $p" >&2
+    done
+    echo "         main: $MAIN_REPO" >&2
+    exit 0
+  fi
+
+  # Fresh main edits with a completely idle worktree -> the total-leak signature.
+  echo "[flow] WARNING: this run produced NO worktree changes, yet ${#fresh[@]} tracked file(s) were edited in MAIN within the last ${FRESH_MIN}m:" >&2
+  echo "         main: $MAIN_REPO" >&2
+  for p in "${fresh[@]}"; do
     echo "  - $p" >&2
   done
-  echo "         main: $MAIN_REPO" >&2
+  echo "" >&2
+  echo "  A TOTAL leak likely wrote EVERY edit into main instead of the worktree (issue #573/#486)." >&2
+  echo "  Fix: resolve edit paths from 'git rev-parse --show-toplevel' (the worktree root)," >&2
+  echo "  never a hand-built '.claude/worktrees/<name>/...' absolute path. Move the changes" >&2
+  echo "  into the worktree, then revert main:  git -C \"$MAIN_REPO\" checkout -- <path>" >&2
+  echo "  (If main was intentionally edited outside this run, ignore this warning.)" >&2
+  if [ "$STRICT" -eq 1 ]; then
+    exit 3
+  fi
   exit 0
 fi
 

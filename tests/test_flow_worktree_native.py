@@ -12,6 +12,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -230,6 +231,49 @@ def test_guard_downgrades_nonoverlapping_main_dirt_to_info(tmp_path: Path) -> No
     assert "WARNING" not in res.stderr
     assert "note" in res.stderr and "tracked.txt" in res.stderr
     assert "#536" in res.stderr
+
+
+@requires_git
+def test_guard_warns_on_total_leak_idle_worktree(tmp_path: Path) -> None:
+    """Issue #573: a TOTAL leak leaves the worktree pristine, so nothing overlaps.
+    When the run produced NO worktree activity yet main has a FRESHLY edited tracked
+    file, that is the total-leak signature - warn (advisory: still exit 0)."""
+    main, wt = _make_repo_with_worktree(tmp_path)
+    # Every edit "leaked" to main; the worktree is untouched (no commits, no dirt).
+    (main / "tracked.txt").write_text("LEAKED-ALL-OF-IT\n")
+    res = _run(wt)
+    assert res.returncode == 0  # advisory: never blocks
+    assert "WARNING" in res.stderr
+    assert "tracked.txt" in res.stderr
+    assert "#573" in res.stderr
+    assert "NO worktree changes" in res.stderr
+
+
+@requires_git
+def test_guard_strict_fails_on_total_leak(tmp_path: Path) -> None:
+    """Under --strict the total-leak signature fails (exit 3), like an overlap leak."""
+    main, wt = _make_repo_with_worktree(tmp_path)
+    (main / "tracked.txt").write_text("LEAKED-ALL-OF-IT\n")
+    res = _run(wt, "--strict")
+    assert res.returncode == 3
+    assert "WARNING" in res.stderr
+    assert "tracked.txt" in res.stderr
+
+
+@requires_git
+def test_guard_total_leak_stale_main_stays_quiet(tmp_path: Path) -> None:
+    """The freshness filter keeps #573 from re-crying-wolf on genuinely pre-existing
+    main dirt: an idle worktree + STALE main edit (older than FRESH_MIN) is a quiet
+    note, never a WARNING or --strict failure (preserves the issue #536 intent)."""
+    main, wt = _make_repo_with_worktree(tmp_path)
+    (main / "tracked.txt").write_text("pre-existing-unrelated\n")
+    # Backdate the main edit two hours so it falls outside the freshness window.
+    stale = time.time() - 7200
+    os.utime(main / "tracked.txt", (stale, stale))
+    res = _run(wt, "--strict")
+    assert res.returncode == 0, "stale main dirt with an idle worktree must not fail"
+    assert "WARNING" not in res.stderr
+    assert "note" in res.stderr and "tracked.txt" in res.stderr
 
 
 @requires_git
