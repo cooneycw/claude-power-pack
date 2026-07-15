@@ -29,6 +29,12 @@ gh auth status
 git rev-parse --show-toplevel
 ```
 
+`/flow-start` operates on the SESSION cwd's repo - `EnterWorktree` cannot create
+a worktree in any other checkout, so invoke it from within the target repo. To
+drive an issue in a repo the session did not start in, use
+`/flow-auto <ISSUE> <PROJECT>`, whose Step 1 resolves the target checkout and
+rides the deterministic git-worktree lane instead (issue #578).
+
 ### Step 2: Fetch Issue Details
 
 ```bash

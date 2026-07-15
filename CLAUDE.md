@@ -87,6 +87,7 @@ CPP ships **no container runtime** as of #469. The Docker MCP runtime (the `mcp-
 - `/flow:finish` - Quality gates, commit, push, create PR
 - `/flow:deploy [target]` - Run make deploy + health/smoke checks
 - `/flow:auto` - Full issue lifecycle in one shot (ELI5 plan/necessity approval gate between analyze and implement; `--yes` to skip the pause)
+  - Optional second arg `PROJECT` targets a repo other than the session cwd (resolved as a path, else `~/Projects/<name>`); such cross-repo runs ride the deterministic git-worktree lane end-to-end instead of `EnterWorktree`, which cannot leave the session repo (#578)
 - `/flow:merge` - Merge PR, clean up worktree
 - `/flow:sync` - Push WIP to remote for cross-machine pickup
 - `/flow:cleanup` - Prune stale worktrees and branches

@@ -5,10 +5,18 @@ Complete end-to-end workflow: start worktree → analyze issue → ELI5 plan + n
 ## Arguments
 
 - `ISSUE` (required): GitHub issue number (e.g., `42`)
+- `PROJECT` (optional): target repo when the session cwd is not the repo the
+  issue belongs to (issue #578). Resolved like `/project-next`: an existing
+  directory path first, else `~/Projects/<PROJECT>`; must be a git checkout.
+  When the resolved target differs from the session repo (or the session cwd is
+  not in a git repo at all), Step 1 commits the run to the deterministic
+  `git worktree` lane end-to-end and Step 7 to the git cleanup fallback -
+  `EnterWorktree` operates on the session cwd's repo and cannot create the
+  worktree in another one.
 
 ## Instructions
 
-When the user invokes `/flow:auto <ISSUE>`, perform these steps sequentially. Stop immediately if any step fails.
+When the user invokes `/flow:auto <ISSUE> [PROJECT]`, perform these steps sequentially. Stop immediately if any step fails.
 
 Report at the start:
 
@@ -72,10 +80,59 @@ tool creates a checkout under `.claude/worktrees/<name>` on a new branch and
 switches the session into it. CPP keeps and enforces the issue-anchored
 `issue-<N>-<slug>` branch name (the gate policy the native tool does not absorb).
 
+**Target-repo resolution (issue #578) - run BEFORE anything else.**
+`EnterWorktree` operates on the SESSION cwd's git repo. When the session cwd is
+not the target repo - a `PROJECT` arg was passed, or the cwd is not inside a git
+repo at all (e.g. invoked from a projects parent directory) - the native lane
+cannot create the worktree in the target: attempting it either fails or worktrees
+the WRONG repo. Detect this deterministically instead of discovering it mid-run:
+
 ```bash
 ISSUE_NUM="$1"
+PROJECT="$2"   # optional target repo: a path, or a name under ~/Projects
 
-# Fetch issue details
+# Resolve the target repo checkout.
+TARGET_REPO=""
+if [ -n "$PROJECT" ]; then
+    for cand in "$PROJECT" "$HOME/Projects/$PROJECT"; do
+        if [ -d "$cand" ] && git -C "$cand" rev-parse --show-toplevel >/dev/null 2>&1; then
+            TARGET_REPO=$(git -C "$cand" rev-parse --show-toplevel)
+            break
+        fi
+    done
+    if [ -z "$TARGET_REPO" ]; then
+        echo "STOP: PROJECT '$PROJECT' is not a git checkout (tried '$PROJECT' and '$HOME/Projects/$PROJECT')."
+        exit 1
+    fi
+else
+    TARGET_REPO=$(git rev-parse --show-toplevel 2>/dev/null) || {
+        echo "STOP: session cwd is not inside a git repo and no PROJECT arg was given."
+        echo "Re-run as /flow:auto <ISSUE> <PROJECT>, or invoke from within the target repo."
+        exit 1
+    }
+fi
+
+# Cross-repo when the session repo is absent or differs from the target.
+SESSION_REPO=$(git rev-parse --show-toplevel 2>/dev/null || true)
+CROSS_REPO=0
+[ "$TARGET_REPO" != "$SESSION_REPO" ] && CROSS_REPO=1
+[ "$CROSS_REPO" -eq 1 ] && cd "$TARGET_REPO"
+echo "Target repo: $TARGET_REPO (cross-repo: $CROSS_REPO)"
+```
+
+- **`CROSS_REPO=1` commits this run to the git lane end-to-end.** Do NOT call
+  `EnterWorktree` on ANY Step-1 path, fresh included - create with
+  `git -C "$TARGET_REPO" worktree add` and `cd` into the worktree (each lane
+  below states its cross-repo form). Step 7 uses the git cleanup fallback. The
+  worktree still lives under the TARGET repo's `.claude/worktrees/`, so the
+  #473/#486 guards and the friction-log durable buffer resolve exactly as in a
+  native run; resolve `Write`/`Edit` paths from `git rev-parse --show-toplevel`
+  run inside the worktree (the #486 rule, which already covers this lane).
+- **`CROSS_REPO=0`:** proceed with the lanes below unchanged - native
+  `EnterWorktree` for the fresh path.
+
+```bash
+# Fetch issue details (all remaining git/gh commands run from $TARGET_REPO)
 gh issue view "$ISSUE_NUM" --json number,title,state,body
 ```
 
@@ -127,7 +184,8 @@ git branch -r | grep "issue-${ISSUE_NUM}-"
   ~30m) OR `gh pr list --head` shows an open/merged PR, STOP and require EXPLICIT
   user confirmation that no other live session owns this worktree before calling
   `EnterWorktree(path="$WT_PATH")`. If both are clear, switch in with
-  `EnterWorktree(path="<path from git worktree list>")`. Resumed run - Step 7 uses
+  `EnterWorktree(path="<path from git worktree list>")` - or, when
+  `CROSS_REPO=1`, `cd "$WT_PATH"` instead (issue #578). Resumed run - Step 7 uses
   the git cleanup fallback.
 - **Remote branch exists, no local worktree** (cross-machine pickup): the native
   tool cannot check out an existing remote branch, so add it with git, then switch
@@ -137,15 +195,29 @@ git branch -r | grep "issue-${ISSUE_NUM}-"
   LOCAL_BRANCH="${REMOTE_BRANCH#origin/}"
   git worktree add -b "$LOCAL_BRANCH" ".claude/worktrees/${LOCAL_BRANCH}" "$REMOTE_BRANCH"
   ```
-  then call `EnterWorktree(path=".claude/worktrees/${LOCAL_BRANCH}")`. Step 7 uses
-  the git cleanup fallback (a `path`-entered worktree is not removed by
-  `ExitWorktree`).
+  then call `EnterWorktree(path=".claude/worktrees/${LOCAL_BRANCH}")` - or, when
+  `CROSS_REPO=1`, `cd ".claude/worktrees/${LOCAL_BRANCH}"` instead (issue #578).
+  Step 7 uses the git cleanup fallback (a `path`-entered worktree is not removed
+  by `ExitWorktree`).
 - **Neither exists** (fresh start): create and enter natively by calling the
   `EnterWorktree` tool with `name="${BRANCH}"`. This branches from
   `origin/<default-branch>` (default `worktree.baseRef: fresh`) and switches the
   session into `.claude/worktrees/${BRANCH}`. Do NOT shell out to `git worktree
   add` for the fresh path. This is a session-created worktree - Step 7 removes it
   with `ExitWorktree`.
+
+  **Cross-repo exception (issue #578):** when `CROSS_REPO=1`, `EnterWorktree`
+  cannot reach the target repo, so the fresh path is the git lane instead:
+  ```bash
+  git -C "$TARGET_REPO" fetch origin --quiet
+  DEFAULT_BRANCH=$(git -C "$TARGET_REPO" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null)
+  DEFAULT_BRANCH=${DEFAULT_BRANCH#origin/}
+  DEFAULT_BRANCH=${DEFAULT_BRANCH:-main}
+  git -C "$TARGET_REPO" worktree add -b "$BRANCH" "$TARGET_REPO/.claude/worktrees/${BRANCH}" "origin/${DEFAULT_BRANCH}"
+  cd "$TARGET_REPO/.claude/worktrees/${BRANCH}"
+  ```
+  This is NOT a session-created native worktree - Step 7 uses the git cleanup
+  fallback, same as a resumed run.
 
 #### Verification Gate (MANDATORY - do NOT skip)
 
@@ -155,7 +227,7 @@ issue-anchored branch name (the moat every later step relies on):
 ```bash
 CURRENT_BRANCH=$(git branch --show-current)
 if [[ "$CURRENT_BRANCH" == "main" || "$CURRENT_BRANCH" == "master" ]]; then
-    echo "ERROR: Still on main/master after Step 1. EnterWorktree did not switch the session."
+    echo "ERROR: Still on main/master after Step 1. The worktree switch (EnterWorktree, or cd on the cross-repo lane) did not happen."
     echo "STOP: Cannot proceed. You MUST be on an issue branch, not main."
     exit 1
 fi
@@ -624,7 +696,8 @@ Report: `Step 6/9: Finish complete - PR #XX created`
    correct. After this the session cwd is back in the main repo.
 
    **Otherwise** (Step 1 resumed an existing worktree, entered via
-   `EnterWorktree(path=...)`, or you are on a feature branch in the main repo)
+   `EnterWorktree(path=...)`, ran the cross-repo git lane (`CROSS_REPO=1`,
+   issue #578), or you are on a feature branch in the main repo)
    `ExitWorktree` will not remove it, so use the git fallback. **CRITICAL: `cd` to
    the main repo BEFORE removing the worktree - never remove a worktree while your
    cwd is inside it. Execute as SEPARATE Bash calls.**
@@ -975,6 +1048,7 @@ Key failure scenarios:
 - The ELI5 step (Step 3) is a human checkpoint: it restates intent in plain language, verifies the issue is still worth doing, and gates implementation on plan approval. Use `--yes` (or an `eli5: auto-approve` trailer) for fully unattended runs; a `No longer needed` verdict never auto-implements
 - Each step builds on the previous one; there's no skipping
 - Worktrees are native: Step 1 uses the `EnterWorktree` tool (checkout under `.claude/worktrees/`, branched from `origin/<default-branch>`) and Step 7 uses `ExitWorktree` for session-created worktrees, with a `git worktree` fallback for resumed or cross-machine worktrees. The issue-anchored `issue-<N>-<slug>` branch name, the ELI5 gate, and quality gates are CPP policy layered on top of the native mechanics
+- Cross-repo invocations (`/flow:auto <ISSUE> <PROJECT>`, or a session cwd outside any git repo) are first-class (issue #578): Step 1 resolves the target checkout (path, else `~/Projects/<PROJECT>`), detects the mismatch, and rides the deterministic git lane end-to-end - `git -C` worktree create, `cd` instead of `EnterWorktree`, git cleanup at Step 7 - with the worktree still under the target repo's `.claude/worktrees/` so every guard resolves unchanged
 - The deploy step is always optional - it only runs if a deploy target exists
 - After completion, the user is in the main repo on the main branch
 - For step-by-step control, use individual commands: `/flow:start`, `/flow:eli5`, `/flow:finish`, `/flow:merge`, `/flow:deploy`
