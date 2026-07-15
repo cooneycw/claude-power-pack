@@ -40,11 +40,32 @@ def test_auto_uses_native_enter_and_exit_worktree() -> None:
 def test_fresh_path_drops_sibling_worktree_dir() -> None:
     # The old plumbing created ../<repo>-issue-<N> and branched it with git; the
     # native fresh path must not reintroduce that create mechanic. The
-    # cross-machine path (which git-adds "$LOCAL_BRANCH") is intentionally kept.
+    # cross-machine path (which git-adds "$LOCAL_BRANCH") and the cross-repo lane
+    # (which git-adds via `git -C "$TARGET_REPO"`, issue #578) are intentionally
+    # kept - only the bare same-repo fresh path must stay native.
     for rel in (".claude/commands/flow/start.md", ".claude/commands/flow/auto.md"):
         text = _read(rel)
         assert 'WORKTREE_DIR="../' not in text, f"{rel} still creates a sibling worktree dir"
         assert 'git worktree add -b "$BRANCH"' not in text, f"{rel} still git-adds the fresh path"
+
+
+def test_auto_cross_repo_lane() -> None:
+    # Issue #578: /flow:auto invoked with a PROJECT arg, or from a session cwd
+    # outside any git repo, must resolve the target checkout and deterministically
+    # ride the git-worktree lane instead of attempting EnterWorktree (which is
+    # bound to the session cwd's repo).
+    text = _read(".claude/commands/flow/auto.md")
+    assert "/flow:auto <ISSUE> [PROJECT]" in text  # documented invocation form
+    assert "TARGET_REPO" in text  # explicit target-repo resolution
+    assert "CROSS_REPO" in text  # deterministic lane selection
+    assert '"$HOME/Projects/$PROJECT"' in text  # /project-next resolution convention
+    assert 'git -C "$TARGET_REPO" worktree add -b "$BRANCH"' in text  # git-lane fresh path
+    # The cross-repo lane keeps the worktree under the TARGET repo so the
+    # #473/#486 guards and friction buffer resolve unchanged.
+    assert '"$TARGET_REPO/.claude/worktrees/${BRANCH}"' in text
+    # start.md points cross-repo users at /flow:auto rather than half-supporting it.
+    start = _read(".claude/commands/flow/start.md")
+    assert "#578" in start
 
 
 def test_native_worktrees_are_gitignored() -> None:
