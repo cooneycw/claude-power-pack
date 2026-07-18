@@ -80,166 +80,90 @@ tool creates a checkout under `.claude/worktrees/<name>` on a new branch and
 switches the session into it. CPP keeps and enforces the issue-anchored
 `issue-<N>-<slug>` branch name (the gate policy the native tool does not absorb).
 
-**Target-repo resolution (issue #578) - run BEFORE anything else.**
-`EnterWorktree` operates on the SESSION cwd's git repo. When the session cwd is
-not the target repo - a `PROJECT` arg was passed, or the cwd is not inside a git
-repo at all (e.g. invoked from a projects parent directory) - the native lane
-cannot create the worktree in the target: attempting it either fails or worktrees
-the WRONG repo. Detect this deterministically instead of discovering it mid-run:
+Step 1's plumbing - target-repo resolution (#578), issue fetch + state check,
+slug/branch derivation, existing-work triage, the #503 live-driver guard, and
+git-lane worktree creation - lives in ONE audited helper,
+`scripts/flow-start-resolve.sh` (issue #581). Do NOT re-implement any of it as
+inline bash: a multi-line block with variable assignments or control flow can
+never match a permission allowlist rule, so it prompts on every run - the exact
+friction the helper removes.
+
+**Invocation discipline (issue #581):** call flow helpers BARE, with literal
+argument values - never wrapped in `if [ -x ... ]`, never chained with `&&` or
+`;`, never followed by `echo $?`. A compound invocation defeats the allowlist
+prefix rule. Helpers print their own status markers and exit codes carry the
+result. This rule applies to every flow helper in this file (see also Steps 4,
+6, 7).
+
+**1a. Resolve.** Run exactly one of these, substituting the literal issue
+number (and project, when `/flow:auto` was given a PROJECT arg):
 
 ```bash
-ISSUE_NUM="$1"
-PROJECT="$2"   # optional target repo: a path, or a name under ~/Projects
-
-# Resolve the target repo checkout.
-TARGET_REPO=""
-if [ -n "$PROJECT" ]; then
-    for cand in "$PROJECT" "$HOME/Projects/$PROJECT"; do
-        if [ -d "$cand" ] && git -C "$cand" rev-parse --show-toplevel >/dev/null 2>&1; then
-            TARGET_REPO=$(git -C "$cand" rev-parse --show-toplevel)
-            break
-        fi
-    done
-    if [ -z "$TARGET_REPO" ]; then
-        echo "STOP: PROJECT '$PROJECT' is not a git checkout (tried '$PROJECT' and '$HOME/Projects/$PROJECT')."
-        exit 1
-    fi
-else
-    TARGET_REPO=$(git rev-parse --show-toplevel 2>/dev/null) || {
-        echo "STOP: session cwd is not inside a git repo and no PROJECT arg was given."
-        echo "Re-run as /flow:auto <ISSUE> <PROJECT>, or invoke from within the target repo."
-        exit 1
-    }
-fi
-
-# Cross-repo when the session repo is absent or differs from the target.
-SESSION_REPO=$(git rev-parse --show-toplevel 2>/dev/null || true)
-CROSS_REPO=0
-[ "$TARGET_REPO" != "$SESSION_REPO" ] && CROSS_REPO=1
-[ "$CROSS_REPO" -eq 1 ] && cd "$TARGET_REPO"
-echo "Target repo: $TARGET_REPO (cross-repo: $CROSS_REPO)"
+~/.claude/scripts/flow-start-resolve.sh 42
+~/.claude/scripts/flow-start-resolve.sh 42 my-project
 ```
 
-- **`CROSS_REPO=1` commits this run to the git lane end-to-end.** Do NOT call
-  `EnterWorktree` on ANY Step-1 path, fresh included - create with
-  `git -C "$TARGET_REPO" worktree add` and `cd` into the worktree (each lane
-  below states its cross-repo form). Step 7 uses the git cleanup fallback. The
-  worktree still lives under the TARGET repo's `.claude/worktrees/`, so the
-  #473/#486 guards and the friction-log durable buffer resolve exactly as in a
-  native run; resolve `Write`/`Edit` paths from `git rev-parse --show-toplevel`
-  run inside the worktree (the #486 rule, which already covers this lane).
-- **`CROSS_REPO=0`:** proceed with the lanes below unchanged - native
-  `EnterWorktree` for the fresh path.
+If the stable path is missing (exit 127 - the helper family installs via
+`/cpp:init` / `/cpp:update`), fall back to `scripts/flow-start-resolve.sh` from
+the CPP checkout; that path may prompt once.
 
-```bash
-# Fetch issue details (all remaining git/gh commands run from $TARGET_REPO)
-gh issue view "$ISSUE_NUM" --json number,title,state,body
-```
+The helper prints a `key=value` contract ending in `FLOW_START_RESOLVE: ok`.
+On `FLOW_START_RESOLVE: error` (with an `ERROR=` line): **STOP** and report it.
+Contract keys: `LANE` (`current-branch|fresh|resume|remote-pickup|cross-repo`),
+`CROSS_REPO` (1 = `EnterWorktree` cannot reach the target repo - enter with
+`cd`, clean up via the git fallback, issue #578), `TARGET_REPO`, `ISSUE_STATE`,
+`ISSUE_TITLE`, `BRANCH` (the enforced issue-anchored name), `WT_PATH`,
+`DEFAULT_BRANCH`, `REMOTE_BRANCH` (pickup lane), `WT_CREATED` (1 = the helper
+already ran `git worktree add`), `LIVE_DRIVER` / `PR_HEAD` (the #503 resume
+hazards), `CONFIRM_REQUIRED`.
 
-- If issue is not OPEN, warn the user and ask whether to proceed.
-- Extract the title for branch naming.
+**1b. Act on the contract** - the only decision left to you:
 
-```bash
-# Sanitize title for branch name (cut keeps within EnterWorktree's 64-char limit)
-SLUG=$(echo "$TITLE" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//' | cut -c1-50)
-BRANCH="issue-${ISSUE_NUM}-${SLUG}"
-```
-
-**Check for existing work, then pick exactly one path:**
-
-```bash
-# Check if already on the issue's branch
-CURRENT_BRANCH=$(git branch --show-current)
-
-# Check if a worktree already exists for this issue
-git worktree list | grep "issue-${ISSUE_NUM}"
-
-# Check if a remote branch exists (cross-machine pickup)
-git fetch origin
-git branch -r | grep "issue-${ISSUE_NUM}-"
-```
-
-- **Already on issue branch** (`$CURRENT_BRANCH` matches `issue-${ISSUE_NUM}-`):
-  verify you are NOT on main/master and use the current directory. This is a
-  resumed run - remember it so Step 7 uses the git cleanup fallback, not
-  `ExitWorktree`.
-- **Worktree exists** (prior session): before entering, guard against a
-  CONCURRENT live driver (issue #503). On a box running several Claude sessions,
-  another session may be mid-implementation in this very worktree; entering it
-  lets two drivers fight over one checkout, and THIS run's Step-7 cleanup can
-  delete the other driver's cwd. Run BOTH resume checks first:
-  ```bash
-  WT_PATH="<path from git worktree list>"
-  CPP_DIR=""
-  for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-pack; do
-    [ -d "$dir" ] && [ -f "$dir/CLAUDE.md" ] && { CPP_DIR="$dir"; break; }
-  done
-  # 1. Fresh dirty-file mtimes => a live driver is SUSPECTED (advisory, fail-open).
-  [ -x "$CPP_DIR/scripts/flow-live-driver-guard.sh" ] && \
-    "$CPP_DIR/scripts/flow-live-driver-guard.sh" "$WT_PATH"
-  # 2. An already-shipped branch is the other resume hazard (concurrent-sessions discipline).
-  gh pr list --head "$BRANCH" --json number,state,url --jq '.[]'
-  ```
-  If the guard prints `FLOW_LIVE_DRIVER: suspected` (a dirty file touched within
-  ~30m) OR `gh pr list --head` shows an open/merged PR, STOP and require EXPLICIT
-  user confirmation that no other live session owns this worktree before calling
-  `EnterWorktree(path="$WT_PATH")`. If both are clear, switch in with
-  `EnterWorktree(path="<path from git worktree list>")` - or, when
-  `CROSS_REPO=1`, `cd "$WT_PATH"` instead (issue #578). Resumed run - Step 7 uses
-  the git cleanup fallback.
-- **Remote branch exists, no local worktree** (cross-machine pickup): the native
-  tool cannot check out an existing remote branch, so add it with git, then switch
-  in:
-  ```bash
-  REMOTE_BRANCH=$(git branch -r | grep "issue-${ISSUE_NUM}-" | head -1 | xargs)
-  LOCAL_BRANCH="${REMOTE_BRANCH#origin/}"
-  git worktree add -b "$LOCAL_BRANCH" ".claude/worktrees/${LOCAL_BRANCH}" "$REMOTE_BRANCH"
-  ```
-  then call `EnterWorktree(path=".claude/worktrees/${LOCAL_BRANCH}")` - or, when
-  `CROSS_REPO=1`, `cd ".claude/worktrees/${LOCAL_BRANCH}"` instead (issue #578).
-  Step 7 uses the git cleanup fallback (a `path`-entered worktree is not removed
-  by `ExitWorktree`).
-- **Neither exists** (fresh start): create and enter natively by calling the
-  `EnterWorktree` tool with `name="${BRANCH}"`. This branches from
-  `origin/<default-branch>` (default `worktree.baseRef: fresh`) and switches the
-  session into `.claude/worktrees/${BRANCH}`. Do NOT shell out to `git worktree
-  add` for the fresh path. This is a session-created worktree - Step 7 removes it
-  with `ExitWorktree`.
-
-  **Cross-repo exception (issue #578):** when `CROSS_REPO=1`, `EnterWorktree`
-  cannot reach the target repo, so the fresh path is the git lane instead:
-  ```bash
-  git -C "$TARGET_REPO" fetch origin --quiet
-  DEFAULT_BRANCH=$(git -C "$TARGET_REPO" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null)
-  DEFAULT_BRANCH=${DEFAULT_BRANCH#origin/}
-  DEFAULT_BRANCH=${DEFAULT_BRANCH:-main}
-  git -C "$TARGET_REPO" worktree add -b "$BRANCH" "$TARGET_REPO/.claude/worktrees/${BRANCH}" "origin/${DEFAULT_BRANCH}"
-  cd "$TARGET_REPO/.claude/worktrees/${BRANCH}"
-  ```
-  This is NOT a session-created native worktree - Step 7 uses the git cleanup
-  fallback, same as a resumed run.
+- `ISSUE_STATE` not `OPEN` (`CONFIRM_REQUIRED=1`): warn the user and ask
+  whether to proceed. On yes, re-run the same resolve command with
+  `--allow-closed` appended (the helper is idempotent) and continue with its
+  new contract.
+- `LANE=current-branch`: already on the issue's branch in the session cwd -
+  use the current directory. Resumed run: Step 7 uses the git cleanup
+  fallback, not `ExitWorktree`.
+- `LANE=fresh` (`CROSS_REPO=0` only): call `EnterWorktree(name="<BRANCH>")` -
+  native creation branches from `origin/<default-branch>` and switches the
+  session in. Do NOT shell out to `git worktree add` here. Session-created:
+  Step 7 removes it with `ExitWorktree`.
+- `LANE=resume`: a prior session's worktree exists. If `CONFIRM_REQUIRED=1`
+  (`LIVE_DRIVER=suspected` - a dirty file touched within ~30m, another live
+  session may own this checkout (issue #503) - and/or `PR_HEAD` shows an
+  open/merged PR, the already-shipped hazard), **STOP** and require EXPLICIT
+  user confirmation before entering. Then `EnterWorktree(path="<WT_PATH>")` -
+  or, when `CROSS_REPO=1`, `cd <WT_PATH>` instead (issue #578). Resumed run:
+  Step 7 uses the git cleanup fallback.
+- `LANE=remote-pickup`: the helper already added the worktree from the remote
+  branch (`WT_CREATED=1`). `EnterWorktree(path="<WT_PATH>")` - or `cd
+  <WT_PATH>` when `CROSS_REPO=1`. Step 7 uses the git cleanup fallback (a
+  `path`-entered worktree is not removed by `ExitWorktree`).
+- `LANE=cross-repo`: fresh start in a repo `EnterWorktree` cannot reach - the
+  helper already created the worktree from `origin/<DEFAULT_BRANCH>`
+  (`WT_CREATED=1`). `cd <WT_PATH>`. The run rides the git lane end-to-end:
+  Step 7 uses the git cleanup fallback. The worktree still lives under the
+  TARGET repo's `.claude/worktrees/`, so the #473/#486 guards and the
+  friction-log durable buffer resolve exactly as in a native run; resolve
+  `Write`/`Edit` paths from `git rev-parse --show-toplevel` run inside the
+  worktree (the #486 rule, which already covers this lane).
 
 #### Verification Gate (MANDATORY - do NOT skip)
 
-Before proceeding to Step 2, verify you are in the worktree and enforce the
-issue-anchored branch name (the moat every later step relies on):
+Before proceeding to Step 2, from INSIDE the worktree, run bare (literal
+values from the 1a contract):
 
 ```bash
-CURRENT_BRANCH=$(git branch --show-current)
-if [[ "$CURRENT_BRANCH" == "main" || "$CURRENT_BRANCH" == "master" ]]; then
-    echo "ERROR: Still on main/master after Step 1. The worktree switch (EnterWorktree, or cd on the cross-repo lane) did not happen."
-    echo "STOP: Cannot proceed. You MUST be on an issue branch, not main."
-    exit 1
-fi
-
-# Native worktree creation derives the branch from the worktree name; normalize
-# to the issue-anchored convention so downstream steps can parse the issue number.
-if [[ "$CURRENT_BRANCH" != "$BRANCH" && ! "$CURRENT_BRANCH" =~ ^issue-${ISSUE_NUM}- ]]; then
-    git branch -m "$BRANCH"
-    CURRENT_BRANCH="$BRANCH"
-fi
-echo "Verified: on branch '$CURRENT_BRANCH' in $(pwd)"
+~/.claude/scripts/flow-start-resolve.sh --verify 42 issue-42-fix-login
 ```
+
+This enforces the moat every later step relies on: it fails
+(`FLOW_START_VERIFY: fail`, exit 1) when the checkout is still on main/master,
+and renames a non-conforming branch to the issue-anchored `issue-<N>-<slug>`
+name so downstream steps can parse the issue number. On success it prints the
+final `BRANCH=` and `WT_ROOT=`.
 
 **If this verification fails, STOP immediately. Report the failure using the error template at the bottom of this file. Do NOT proceed to Step 2.**
 
@@ -339,17 +263,17 @@ Report: `Step 3/9: ELI5 complete - verdict: {Still needed|Partially addressed|No
 **Early stale-base check (issue #473) - run BEFORE editing.** A sibling PR that
 merges during implementation moves `origin/main` under you; discovering it only
 at the Step-7 #462 guard means your edits were already made against stale copies
-of the very files the sibling changed. Surface it now:
+of the very files the sibling changed. Surface it now - a bare invocation
+(advisory: warns, never blocks; the #581 invocation discipline from Step 1
+applies to every helper call below):
 
 ```bash
-CPP_DIR=""
-for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-pack; do
-  [ -d "$dir" ] && [ -f "$dir/CLAUDE.md" ] && { CPP_DIR="$dir"; break; }
-done
-if [ -n "$CPP_DIR" ] && [ -x "$CPP_DIR/scripts/flow-stale-check.sh" ]; then
-    "$CPP_DIR/scripts/flow-stale-check.sh" origin/main   # advisory: warns, never blocks
-fi
+~/.claude/scripts/flow-stale-check.sh origin/main
 ```
+
+(Exit 127 - helper family not installed: fall back to
+`$CPP_DIR/scripts/flow-stale-check.sh` after locating the CPP checkout; that
+path may prompt.)
 
 - If it reports `FLOW_STALE_BASE: collision` - or names a file you are about to
   touch under "Changed upstream" - bring the base in now, before piling edits on
@@ -374,11 +298,10 @@ but is written to the wrong tree. So, for every edit in this step:
   path. A path under `$(git rev-parse --show-toplevel)/...`, or a plain relative
   path from the session cwd, targets the worktree correctly.
 - After writing, confirm the change landed in the worktree (`git status` shows it)
-  and did NOT leak into main. The guard makes the leak check verifiable:
+  and did NOT leak into main. The guard makes the leak check verifiable - bare
+  invocation (advisory: warns on a leak, never blocks):
   ```bash
-  if [ -n "$CPP_DIR" ] && [ -x "$CPP_DIR/scripts/flow-worktree-guard.sh" ]; then
-      "$CPP_DIR/scripts/flow-worktree-guard.sh"   # advisory: warns on a leak, never blocks
-  fi
+  ~/.claude/scripts/flow-worktree-guard.sh
   ```
   If it warns that main has tracked modifications mirroring files you edited, the
   edit leaked: move the change into the worktree, then `git -C <main> checkout --
@@ -438,17 +361,14 @@ ISSUE_NUM=$(echo "$BRANCH" | grep -oP 'issue-\K[0-9]+' || echo "")
 
 **Stale-base pre-check (issue #473) - run BEFORE the quality gates and commit**,
 so the commit lands on a current tree and the gate reflects what will merge (the
-#462 Step-7 guard stays the final backstop):
+#462 Step-7 guard stays the final backstop). Bare invocation first (#581
+discipline; on exit 127 fall back to the CPP-checkout copy):
 
 ```bash
-CPP_DIR=""
-for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-pack; do
-  [ -d "$dir" ] && [ -f "$dir/CLAUDE.md" ] && { CPP_DIR="$dir"; break; }
-done
-if [ -n "$CPP_DIR" ] && [ -x "$CPP_DIR/scripts/flow-stale-check.sh" ]; then
-    "$CPP_DIR/scripts/flow-stale-check.sh" origin/main
-fi
+~/.claude/scripts/flow-stale-check.sh origin/main
+```
 
+```bash
 # If the base moved, merge it in now so the gate + commit ride the current tree.
 # The Step-4 implementation is still UNCOMMITTED here, and git refuses to merge
 # into a dirty tree ("Please commit your changes or stash them before you merge")
