@@ -110,12 +110,18 @@ the CPP checkout; that path may prompt once.
 The helper prints a `key=value` contract ending in `FLOW_START_RESOLVE: ok`.
 On `FLOW_START_RESOLVE: error` (with an `ERROR=` line): **STOP** and report it.
 Contract keys: `LANE` (`current-branch|fresh|resume|remote-pickup|cross-repo`),
-`CROSS_REPO` (1 = `EnterWorktree` cannot reach the target repo - enter with
-`cd`, clean up via the git fallback, issue #578), `TARGET_REPO`, `ISSUE_STATE`,
-`ISSUE_TITLE`, `BRANCH` (the enforced issue-anchored name), `WT_PATH`,
-`DEFAULT_BRANCH`, `REMOTE_BRANCH` (pickup lane), `WT_CREATED` (1 = the helper
-already ran `git worktree add`), `LIVE_DRIVER` / `PR_HEAD` (the #503 resume
-hazards), `CONFIRM_REQUIRED`.
+`CROSS_REPO` (1 = the target repo is not the session repo, issue #578),
+`GIT_LANE` (1 = ride the git lane end-to-end: enter with `cd`, never
+`EnterWorktree`, git cleanup at Step 7 - set for cross-repo runs, when
+`FLOW_WORKTREE_BASE` relocates worktrees out of the repo (issue #584, ADR 0003:
+the native tool's base dir is not configurable, and out-of-repo
+`EnterWorktree(path=...)` triggers an unsuppressable approval prompt), and when
+a resumed worktree lies outside the target repo), `TARGET_REPO`, `ISSUE_STATE`,
+`ISSUE_TITLE`, `BRANCH` (the enforced issue-anchored name), `WT_PATH` (honors
+`FLOW_WORKTREE_BASE`: `$FLOW_WORKTREE_BASE/<repo>-<branch>` when set, else
+in-repo `.claude/worktrees/<branch>`), `DEFAULT_BRANCH`, `REMOTE_BRANCH`
+(pickup lane), `WT_CREATED` (1 = the helper already ran `git worktree add`),
+`LIVE_DRIVER` / `PR_HEAD` (the #503 resume hazards), `CONFIRM_REQUIRED`.
 
 **1b. Act on the contract** - the only decision left to you:
 
@@ -126,27 +132,33 @@ hazards), `CONFIRM_REQUIRED`.
 - `LANE=current-branch`: already on the issue's branch in the session cwd -
   use the current directory. Resumed run: Step 7 uses the git cleanup
   fallback, not `ExitWorktree`.
-- `LANE=fresh` (`CROSS_REPO=0` only): call `EnterWorktree(name="<BRANCH>")` -
+- `LANE=fresh` with `GIT_LANE=0`: call `EnterWorktree(name="<BRANCH>")` -
   native creation branches from `origin/<default-branch>` and switches the
   session in. Do NOT shell out to `git worktree add` here. Session-created:
   Step 7 removes it with `ExitWorktree`.
+- `LANE=fresh` with `GIT_LANE=1` (`FLOW_WORKTREE_BASE` set, same repo - issue
+  #584): the helper already created the worktree at
+  `$FLOW_WORKTREE_BASE/<repo>-<branch>` from `origin/<DEFAULT_BRANCH>`
+  (`WT_CREATED=1`). `cd <WT_PATH>`. Step 7 uses the git cleanup fallback.
 - `LANE=resume`: a prior session's worktree exists. If `CONFIRM_REQUIRED=1`
   (`LIVE_DRIVER=suspected` - a dirty file touched within ~30m, another live
   session may own this checkout (issue #503) - and/or `PR_HEAD` shows an
   open/merged PR, the already-shipped hazard), **STOP** and require EXPLICIT
   user confirmation before entering. Then `EnterWorktree(path="<WT_PATH>")` -
-  or, when `CROSS_REPO=1`, `cd <WT_PATH>` instead (issue #578). Resumed run:
-  Step 7 uses the git cleanup fallback.
+  or, when `GIT_LANE=1` (cross-repo #578, or a worktree outside the target
+  repo such as a base-override checkout from a prior run #584), `cd <WT_PATH>`
+  instead. Resumed run: Step 7 uses the git cleanup fallback.
 - `LANE=remote-pickup`: the helper already added the worktree from the remote
   branch (`WT_CREATED=1`). `EnterWorktree(path="<WT_PATH>")` - or `cd
-  <WT_PATH>` when `CROSS_REPO=1`. Step 7 uses the git cleanup fallback (a
+  <WT_PATH>` when `GIT_LANE=1`. Step 7 uses the git cleanup fallback (a
   `path`-entered worktree is not removed by `ExitWorktree`).
 - `LANE=cross-repo`: fresh start in a repo `EnterWorktree` cannot reach - the
   helper already created the worktree from `origin/<DEFAULT_BRANCH>`
   (`WT_CREATED=1`). `cd <WT_PATH>`. The run rides the git lane end-to-end:
-  Step 7 uses the git cleanup fallback. The worktree still lives under the
-  TARGET repo's `.claude/worktrees/`, so the #473/#486 guards and the
-  friction-log durable buffer resolve exactly as in a native run; resolve
+  Step 7 uses the git cleanup fallback. Whether `WT_PATH` sits under the
+  TARGET repo's `.claude/worktrees/` or at a `FLOW_WORKTREE_BASE` location,
+  the #473/#486 guards and the friction-log durable buffer resolve via git
+  plumbing exactly as in a native run (verified in ADR 0003); resolve
   `Write`/`Edit` paths from `git rev-parse --show-toplevel` run inside the
   worktree (the #486 rule, which already covers this lane).
 
@@ -616,9 +628,9 @@ Report: `Step 6/9: Finish complete - PR #XX created`
    correct. After this the session cwd is back in the main repo.
 
    **Otherwise** (Step 1 resumed an existing worktree, entered via
-   `EnterWorktree(path=...)`, ran the cross-repo git lane (`CROSS_REPO=1`,
-   issue #578), or you are on a feature branch in the main repo)
-   `ExitWorktree` will not remove it, so use the git fallback. **CRITICAL: `cd` to
+   `EnterWorktree(path=...)`, ran the git lane (`GIT_LANE=1` - cross-repo
+   #578, or `FLOW_WORKTREE_BASE` set #584), or you are on a feature branch in
+   the main repo) `ExitWorktree` will not remove it, so use the git fallback. **CRITICAL: `cd` to
    the main repo BEFORE removing the worktree - never remove a worktree while your
    cwd is inside it. Execute as SEPARATE Bash calls.**
 
@@ -969,6 +981,7 @@ Key failure scenarios:
 - Each step builds on the previous one; there's no skipping
 - Worktrees are native: Step 1 uses the `EnterWorktree` tool (checkout under `.claude/worktrees/`, branched from `origin/<default-branch>`) and Step 7 uses `ExitWorktree` for session-created worktrees, with a `git worktree` fallback for resumed or cross-machine worktrees. The issue-anchored `issue-<N>-<slug>` branch name, the ELI5 gate, and quality gates are CPP policy layered on top of the native mechanics
 - Cross-repo invocations (`/flow:auto <ISSUE> <PROJECT>`, or a session cwd outside any git repo) are first-class (issue #578): Step 1 resolves the target checkout (path, else `~/Projects/<PROJECT>`), detects the mismatch, and rides the deterministic git lane end-to-end - `git -C` worktree create, `cd` instead of `EnterWorktree`, git cleanup at Step 7 - with the worktree still under the target repo's `.claude/worktrees/` so every guard resolves unchanged
+- The worktree base is configurable (issue #584, ADR 0003 Option A): `FLOW_WORKTREE_BASE`, when set in host config, relocates worktrees to `$FLOW_WORKTREE_BASE/<repo>-<branch>` and commits the run to the same git lane (`GIT_LANE=1`); unset, shipped behavior is byte-identical to the in-repo default. The guard/merge/remove/friction scripts resolve via git plumbing and need no awareness of the base
 - The deploy step is always optional - it only runs if a deploy target exists
 - After completion, the user is in the main repo on the main branch
 - For step-by-step control, use individual commands: `/flow:start`, `/flow:eli5`, `/flow:finish`, `/flow:merge`, `/flow:deploy`

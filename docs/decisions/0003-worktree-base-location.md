@@ -1,6 +1,6 @@
 # ADR 0003: Configurable worktree base location (CPP + CxPP)
 
-- Status: Proposed (awaiting owner decisions 1-3 below)
+- Status: Accepted (owner decisions recorded 2026-07-18; see "Decision record" below. Implementation: #584; CxPP twin: cooneycw/codex-power-pack#136)
 - Date: 2026-07-18
 - Deciders: cooneycw (owner)
 - Issue: #572 (exploration/design; Phase 0 per the security-first-before-scaffolding norm)
@@ -206,6 +206,29 @@ Worktrees stay exactly where they are; visibility is a projection:
   via git plumbing and keep working under both options (verified in the
   sweep); no guard needs a compensating change, so neither option weakens an
   existing protection.
+
+## Decision record (2026-07-18)
+
+The owner answered the three decisions the same day, interactively:
+
+1. **Scope: real feature in both packs.** The corrected blast radius made the
+   shipped knob the cheap path; the owner's box only sets the env var.
+2. **Mechanism: Option A** - real checkouts, work-from. The symlink farm
+   (Option D) was declined.
+3. **Layout: INTERLEAVED, deviating from this ADR's dedicated-subdir
+   recommendation.** The owner sets `FLOW_WORKTREE_BASE=$HOME/Projects`
+   directly, so worktrees sit at `~/Projects/<repo>-<branch>` beside real
+   projects - maximum visibility was the point. The phantom-project concern
+   that motivated the `_worktrees/` subdir is mitigated in tooling instead:
+   `project-next` / `project-lite` detect a linked worktree at resolution time
+   (its `.git` is a FILE, not a directory) and flag it rather than analyzing
+   it as a project. Nothing else enumerates `~/Projects` blindly (verified:
+   both commands resolve NAMED directories only).
+
+Knob semantics as shipped (#584): `FLOW_WORKTREE_BASE` unset -> in-repo
+default, byte-identical behavior; set -> worktrees at
+`$FLOW_WORKTREE_BASE/<repo>-<branch>`, run committed to the #578 git lane
+end-to-end (`GIT_LANE=1`), guards unchanged.
 
 ## Open decisions for owner (restated with this pass's findings weighed in)
 

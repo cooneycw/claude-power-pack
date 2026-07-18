@@ -10,6 +10,7 @@ discipline, and the cross-session ``git worktree`` cleanup fallback.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -40,13 +41,18 @@ def test_auto_uses_native_enter_and_exit_worktree() -> None:
 def test_fresh_path_drops_sibling_worktree_dir() -> None:
     # The old plumbing created ../<repo>-issue-<N> and branched it with git; the
     # native fresh path must not reintroduce that create mechanic. The
-    # cross-machine path (which git-adds "$LOCAL_BRANCH") and the cross-repo lane
-    # (which git-adds via `git -C "$TARGET_REPO"`, issue #578) are intentionally
-    # kept - only the bare same-repo fresh path must stay native.
+    # cross-machine path (which git-adds "$LOCAL_BRANCH"), the cross-repo lane
+    # (which git-adds via `git -C "$TARGET_REPO"`, issue #578), and the
+    # FLOW_WORKTREE_BASE override lane (which git-adds "$WT_PATH", issue #584 /
+    # ADR 0003) are intentionally kept - only the bare same-repo default fresh
+    # path must stay native.
     for rel in (".claude/commands/flow/start.md", ".claude/commands/flow/auto.md"):
         text = _read(rel)
         assert 'WORKTREE_DIR="../' not in text, f"{rel} still creates a sibling worktree dir"
-        assert 'git worktree add -b "$BRANCH"' not in text, f"{rel} still git-adds the fresh path"
+        for match in re.findall(r'git worktree add -b "\$BRANCH" \S+', text):
+            assert '"$WT_PATH"' in match, (
+                f"{rel} git-adds the fresh path outside the #584 override lane: {match}"
+            )
 
 
 def test_auto_cross_repo_lane() -> None:

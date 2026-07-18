@@ -44,6 +44,16 @@ git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/orig
 # User identity
 git config user.name 2>/dev/null || echo "NOT_SET"
 git config user.email 2>/dev/null || echo "NOT_SET"
+
+# Effective worktree base (issue #584, ADR 0003): unset = in-repo default.
+# When set, /flow:start + /flow:auto create worktrees at
+# $FLOW_WORKTREE_BASE/<repo>-<branch> via the git lane (never EnterWorktree).
+if [ -n "$FLOW_WORKTREE_BASE" ]; then
+    echo "Worktree base: $FLOW_WORKTREE_BASE (override; git-lane worktrees)"
+    [ -d "$FLOW_WORKTREE_BASE" ] || echo "WARN worktree base dir does not exist yet (created on first use)"
+else
+    echo "Worktree base: .claude/worktrees/ (in-repo default)"
+fi
 ```
 
 ### Step 3: Makefile Targets
