@@ -58,7 +58,7 @@ def test_auto_cross_repo_lane() -> None:
     assert "/flow:auto <ISSUE> [PROJECT]" in text  # documented invocation form
     assert "TARGET_REPO" in text  # explicit target-repo resolution
     assert "CROSS_REPO" in text  # deterministic lane selection
-    assert '"$HOME/Projects/$PROJECT"' in text  # /project-next resolution convention
+    assert '"$HOME/Projects/$PROJECT"' in text  # /project:next resolution convention
     assert 'git -C "$TARGET_REPO" worktree add -b "$BRANCH"' in text  # git-lane fresh path
     # The cross-repo lane keeps the worktree under the TARGET repo so the
     # #473/#486 guards and friction buffer resolve unchanged.

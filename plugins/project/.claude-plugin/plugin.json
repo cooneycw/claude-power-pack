@@ -1,7 +1,7 @@
 {
   "name": "project",
-  "description": "Project scaffolding: /project:init zero-to-GitHub-repo orchestration (repo creation, CLAUDE.md via the native /init, CI/CD wiring).",
-  "version": "1.0.0",
+  "description": "Project scaffolding and orientation: /project:init zero-to-GitHub-repo orchestration (repo creation, CLAUDE.md via the native /init, CI/CD wiring), /project:next prioritized next-step report, /project:lite quick low-token reference.",
+  "version": "1.1.0",
   "author": {
     "name": "cooneycw",
     "url": "https://github.com/cooneycw"
@@ -9,5 +9,9 @@
   "homepage": "https://github.com/cooneycw/claude-power-pack",
   "repository": "https://github.com/cooneycw/claude-power-pack",
   "license": "MIT",
-  "keywords": ["scaffolding", "project-init", "bootstrap"]
+  "keywords": [
+    "scaffolding",
+    "project-init",
+    "bootstrap"
+  ]
 }

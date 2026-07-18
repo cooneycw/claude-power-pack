@@ -4,6 +4,27 @@
 
 ### Added
 
+- **Top-level commands folded into families + discovery-completeness gate**
+  (issue #582) - the six loose top-level commands shipped in NO plugin and NO
+  Codex skill because both generators discover sources via
+  `.claude/commands/<family>/*.md` only (field-confirmed: `/project:next` was
+  "Unknown skill" on a clean plugin-only install). Disposition (a), recorded in
+  the ADR 0001 amendment (2026-07-18): `project-next`/`project-lite` ->
+  `project/next.md`/`project/lite.md` (`/project:next`, `/project:lite`);
+  `dockers`/`happy-check`/`load-best-practices`/`load-mcp-docs` -> the `cpp`
+  family (`/cpp:dockers` etc., so the cpp plugin is no longer help-only; the
+  init/status/update installer exclusion is unchanged). The cpp plugin bundles
+  `docs/reference/CLAUDE_CODE_BEST_PRACTICES_FULL.md` so
+  `/cpp:load-best-practices` works without a CPP checkout. Both `--check` gates
+  now fail on any top-level `*.md` (unless in an explicit, empty-by-design
+  `TOP_LEVEL_EXCLUDE`) and on family dirs absent from `FAMILIES` +
+  `UNPACKAGED_FAMILIES` (`spec`; `codex` on the Codex surface), tests pin the
+  gate plus help-consistency (family help.md may only advertise commands that
+  exist) and the retirement of the six bare invocations, and
+  `scripts/commands-mirror-sync.sh` (+ `/cpp:update` Step 7.8) guards
+  out-of-repo commands mirrors like `~/Projects/.claude/commands/`. Version
+  7.3.0 -> 7.4.0 (user-facing invocation renames).
+
 - **Explicit Codex-skill drift gate** (issue #556, CPP side of the pull-model
   cutover) - `.woodpecker.yml` gains a dedicated `codex-skills-check` step
   (`python3 scripts/codex-skill-sync.py --check`) so a `codex/skills/` tree left

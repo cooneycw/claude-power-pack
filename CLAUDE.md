@@ -10,7 +10,7 @@
 - Before debugging manually, run `make lint` and `make test` to surface known issues.
 - **A test that shells out to a real binary (`git`, `docker`, `gitleaks`) MUST guard with `@pytest.mark.skipif(shutil.which("<tool>") is None, ...)`.** The Woodpecker `validate` container (uv:python3.11-slim) ships none of them, so an unguarded test errors the suite and turns CI red even though it passes locally (recurred #451, #489).
 - After any fix, verify through the full pipeline: `make verify`.
-- Use `/dockers` to check container status, health, and project linkages.
+- Use `/cpp:dockers` to check container status, health, and project linkages.
 - **Use single dashes (-) not em dashes (-)** in all markdown, comments, and documentation. Never generate Unicode em dashes (U+2014) or en dashes (U+2013).
 - **One inventory item per line in CLAUDE.md.** When adding to an inventory entry (the `scripts/` list, component feature lists, CI behavior lists), add a new sub-bullet - never append to an existing line. Git merges at line granularity, so packed single-line lists make every concurrent PR that touches them a manual merge conflict (#501).
 
@@ -19,7 +19,7 @@
 Core components and their locations:
 
 - `docs/skills/` - Topic-focused best practices (~3K tokens each). Load on demand.
-- `docs/reference/CLAUDE_CODE_BEST_PRACTICES_FULL.md` - Complete guide (25K tokens). Load via `/load-best-practices`.
+- `docs/reference/CLAUDE_CODE_BEST_PRACTICES_FULL.md` - Complete guide (25K tokens). Load via `/cpp:load-best-practices`.
 - `ISSUE_DRIVEN_DEVELOPMENT.md` - IDD methodology
 - `PROGRESSIVE_DISCLOSURE_GUIDE.md` - Context optimization patterns
 - `MCP_TOKEN_AUDIT_CHECKLIST.md` - Token efficiency checklist
@@ -52,17 +52,18 @@ Core components and their locations:
   - speckit-tasks-to-issues
   - playwright-desk - lease-desk ledger
   - check-ignored-additions - advisory guard warning when a blanket-ignore rule silently swallowed a file the repo should track; skips a short allow-list of files git-ignored by design (env-only `.claude/` runtime state such as `settings.local.json`/`friction.jsonl`) so it never cries wolf on them (#504)
+  - commands-mirror-sync - drift guard + refresher for hosts serving the command surface from an out-of-repo byte-copy of `.claude/commands/` (e.g. `~/Projects/.claude/commands`) instead of `/plugin` installs; `--check` reports drift, `--write` refreshes (prune + copy); wired into `/cpp:update` Step 7.8, opt-in and fail-open (#582)
   - sandbox-phase1-trial - ADR 0002 Phase 1 empirical trial harness (#548): runs the E1-E6 sandbox exit-bar checks in a throwaway, project-scoped trial (nested `claude -p` write-containment probes + a `bwrap` ro-bind primitive); never touches `~/.claude/settings.json`. Historical record only: the sandbox epic (#541) was abandoned (#553, ADR 0002 Rejected) after live enablement broke bash on the bwrap/symlink interaction
 - `templates/` - Makefile, workflow, container templates
 - `.claude-plugin/marketplace.json` - Plugin-marketplace manifest (marketplace name `cpp`) listing CPP's per-family plugins. Install path: `/plugin marketplace add cooneycw/claude-power-pack` then `/plugin install <family>@cpp` (ADR 0001, epic #417 Phase B).
-- `plugins/` - Per-family Claude Code plugins. Phase B2 (#478) packages every surviving family (15 plugins, `browser` through `self-improvement`): byte-identical copies of `.claude/commands/<family>/*.md` (the single source of truth, ADR 0001 section 5), kept honest by `scripts/plugin-sync.sh --check` and regenerated with `--write` after any command edit. Phase B3 (#479) adds bundled hooks + MCP pointers: `secrets` ships the PostToolUse masking hook (plugin-local script via `${CLAUDE_PLUGIN_ROOT}`) and `second-opinion` ships its `.mcp.json` client pointer (matches the repo-root one). The `cpp` plugin is help/meta-only (the init/update/status installer stays repo-local). Phase B4 (#480) proved parity and retired the dual surface: the global-skill mirror, `flow-skill-sync.py`, `skill-drift.py`, and `.claude/deprecated-skills.yaml` are gone. Phase B5 (#481) cut the docs over to the `/plugin` install path (`/plugin marketplace add cooneycw/claude-power-pack` then `/plugin install <family>@cpp`); `/cpp:init` / `/cpp:update` remain only for the non-plugin infra a plugin cannot deliver.
+- `plugins/` - Per-family Claude Code plugins. Phase B2 (#478) packages every surviving family (15 plugins, `browser` through `self-improvement`): byte-identical copies of `.claude/commands/<family>/*.md` (the single source of truth, ADR 0001 section 5), kept honest by `scripts/plugin-sync.sh --check` and regenerated with `--write` after any command edit. Phase B3 (#479) adds bundled hooks + MCP pointers: `secrets` ships the PostToolUse masking hook (plugin-local script via `${CLAUDE_PLUGIN_ROOT}`) and `second-opinion` ships its `.mcp.json` client pointer (matches the repo-root one). The `cpp` plugin ships help/meta plus the cross-cutting utilities folded in from the loose top-level commands (`/cpp:dockers`, `/cpp:happy-check`, `/cpp:load-best-practices` with the bundled 25K guide, `/cpp:load-mcp-docs`; issue #582, ADR 0001 amendment) - the init/update/status installer stays repo-local. Phase B4 (#480) proved parity and retired the dual surface: the global-skill mirror, `flow-skill-sync.py`, `skill-drift.py`, and `.claude/deprecated-skills.yaml` are gone. Phase B5 (#481) cut the docs over to the `/plugin` install path (`/plugin marketplace add cooneycw/claude-power-pack` then `/plugin install <family>@cpp`); `/cpp:init` / `/cpp:update` remain only for the non-plugin infra a plugin cannot deliver.
 - `codex/skills/` - Codex SKILL.md skills, the second harness surface (issue #555, companion to codex-power-pack epic cooneycw/codex-power-pack#64): generated `<family>-<cmd>/` skill dirs emitted from the same `.claude/commands/<family>/` single source by `scripts/codex-skill-sync.py`; codex-power-pack vendors this source (pull model, issue #556 / codex-power-pack#75) rather than receiving a push, and CPP's own currency is guarded by the explicit `codex-skills-check` step in `.woodpecker.yml`. Regenerate with `make codex-skills` after any command or referenced-script edit; `make codex-init` installs to `~/.codex/skills/`. Hand-curated skill dirs (no GENERATED marker) are never touched.
 - `codex/cpp-memory.md` - Hand-curated Codex `/cpp-memory` prompt (#433) for the common-memory harness, installed to `~/.codex/prompts/cpp-memory.md` by `scripts/install-memory-harness.sh`. Relocated here when the deprecated generated `codex/prompts/` flat surface (#446) was retired at the #556 cutover (superseded by `codex/skills/`, #555).
 - `.woodpecker.yml` - Woodpecker CI pipeline (secret-scan, lint, test, typecheck, Dockerfile lint)
 
 ## Environment Variables
 
-- `CLAUDE_PROJECT` - Default project for `/project-next` from `~/Projects`. Set in `~/.bashrc`.
+- `CLAUDE_PROJECT` - Default project for `/project:next` from `~/Projects`. Set in `~/.bashrc`.
 
 ## MCP Servers and Secrets
 
@@ -140,8 +141,8 @@ canonical repo first, then re-vendoring).
 
 ### Project
 - `/project:init <name>` - Full project scaffolding (zero to GitHub repo)
-- `/project-next` - Prioritized next-step report (compact default ~2-4K tokens; `--full` deep 5-tier analysis ~15-30K, `--brief` single pick)
-- `/project-lite` - Quick project reference (~500-800 tokens)
+- `/project:next` - Prioritized next-step report (compact default ~2-4K tokens; `--full` deep 5-tier analysis ~15-30K, `--brief` single pick)
+- `/project:lite` - Quick project reference (~500-800 tokens)
 
 `/project:init` delegates config scaffolding (CLAUDE.md, skills, hooks) to Claude
 Code's native `/init` interview rather than hand-rolling a fixed template, then
@@ -238,14 +239,14 @@ The command/skill/hook surface installs via Claude Code's `/plugin` (ADR 0001, e
 
 - `/cpp:init` - Non-plugin infra installer (Tiers: Minimal, Standard, Full, CI/CD, Codex); wires the external second-opinion `.mcp.json` pointer, `@playwright/mcp`, the census hook + flow allowlist, and optionally the spec-kit CLI (`specify`, the engine behind `/spec:adopt`)
 - `/cpp:status` - Check installation state
-- `/cpp:update` - Pull latest, sync deps, migrate legacy systemd units if present, tear down orphaned Docker MCP infra via the curated `.claude/deprecated-mcps.yaml` (Step 6c/7, user-confirmed; CPP ships no container runtime since #469), then offer to merge new flow allowlist rules from `templates/claude-settings-permissions.json` into `~/.claude/settings.json` (Step 7.5, user-confirmed) and to register the observe-only PermissionRequest census hook there (Step 7.6, user-confirmed); also refreshes the optional spec-kit CLI (`specify`) if installed (Step 4.6)
+- `/cpp:update` - Pull latest, sync deps, migrate legacy systemd units if present, tear down orphaned Docker MCP infra via the curated `.claude/deprecated-mcps.yaml` (Step 6c/7, user-confirmed; CPP ships no container runtime since #469), then offer to merge new flow allowlist rules from `templates/claude-settings-permissions.json` into `~/.claude/settings.json` (Step 7.5, user-confirmed) and to register the observe-only PermissionRequest census hook there (Step 7.6, user-confirmed); also refreshes the optional spec-kit CLI (`specify`) if installed (Step 4.6); and offers an out-of-repo commands-mirror drift check/refresh via `scripts/commands-mirror-sync.sh` when a mirror exists (Step 7.8, #582)
 
 ### Other
-- `/dockers` - Docker container status, health, project linkages
+- `/cpp:dockers` - Docker container status, health, project linkages
 - `/self-improvement:retro` - Post-run friction retro (the grill-me cycle): always-on capture (`scripts/friction-log.sh` -> `.claude/friction.jsonl`, woven into `/flow:auto` + `/flow:merge`) then classify -> dedup -> propose -> confirm -> codify durable fixes; local ledger `.claude/learnings.md`, portable knowledge delegates to `/self-improvement:memory` (#433)
 - `/self-improvement:deployment` - Retrospective analysis after failed deploys
 - `/self-improvement:memory` - Populate the shared common-memory ledger with portable friction-knowledge (bucket-2-plus); consult-not-push, fail-open
-- `/happy-check` - Check happy-cli version (optional)
+- `/cpp:happy-check` - Check happy-cli version (optional)
 
 ## Makefile Integration
 
@@ -290,7 +291,7 @@ Load topic-specific skills instead of the full guide (88-92% token savings):
 - Hooks/automation, spec-driven dev, issue-driven dev, CLAUDE.md config
 - Code quality, Python packaging, CI/CD verification, documentation/diagrams
 
-**Commands:** `/load-best-practices` (full 25K guide), `/load-mcp-docs` (MCP server docs)
+**Commands:** `/cpp:load-best-practices` (full 25K guide), `/cpp:load-mcp-docs` (MCP server docs)
 
 ## Secrets Management
 
@@ -298,4 +299,4 @@ Tiered: dotenv-global (`~/.config/claude-power-pack/secrets/`) -> env-file -> AW
 
 ## Version
 
-Current version: 7.3.0
+Current version: 7.4.0

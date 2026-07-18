@@ -78,7 +78,7 @@ git worktree list
 
 ## Getting Started
 
-Use the `/project-next` command to analyze your repository's issues and get prioritized recommendations for what to work on next.
+Use the `/project:next` command to analyze your repository's issues and get prioritized recommendations for what to work on next.
 
 ## Multi-Session Workflow
 
@@ -93,8 +93,8 @@ Each session has its own context, no branch switching needed.
 ## Related Resources
 
 - `ISSUE_DRIVEN_DEVELOPMENT.md` - Complete methodology guide
-- `/project-next` - Issue prioritization command
-- `/project-lite` - Quick project reference
+- `/project:next` - Issue prioritization command
+- `/project:lite` - Quick project reference
 
 ---
 

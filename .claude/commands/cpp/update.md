@@ -916,6 +916,43 @@ If no: report `→ Pending-retro reminder registration skipped (default)` and co
 
 ---
 
+## Step 7.8: Commands-Mirror Refresh (opt-in, fail-open)
+
+Hosts that serve the command surface from an out-of-repo byte-copy of
+`.claude/commands/` (e.g. `~/Projects/.claude/commands`, project scope for
+sessions started above the checkout) instead of `/plugin` installs had nothing
+maintaining that mirror, so it silently went stale as merges landed (issue #582).
+This step guards it. It is a no-op on hosts without a mirror.
+
+```bash
+MIRROR="${CPP_COMMANDS_MIRROR:-}"
+# Auto-detect the common layout when the env var is unset: a commands dir in a
+# .claude/ directory directly above this checkout.
+if [ -z "$MIRROR" ]; then
+  CAND="$(dirname "$(pwd)")/.claude/commands"
+  [ -d "$CAND" ] && MIRROR="$CAND"
+fi
+if [ -n "$MIRROR" ] && [ -d "$MIRROR" ]; then
+  if ! scripts/commands-mirror-sync.sh --check "$MIRROR"; then
+    echo "Commands mirror at $MIRROR has drifted from the repo."
+  fi
+fi
+```
+
+If drift is reported, ask the user:
+
+```
+Refresh the commands mirror at {MIRROR} from the repo (prunes files the repo
+no longer has, copies everything current)?  [Y/n]
+```
+
+If yes: `scripts/commands-mirror-sync.sh --write "$MIRROR"`. If no: report
+`→ Commands mirror left stale (re-run scripts/commands-mirror-sync.sh --write later)`
+and continue. Long term, prefer retiring the mirror in favor of `/plugin`
+installs (#582 follow-through tracked with #575).
+
+---
+
 ## Step 8: Detect Current Installation Tier
 
 Determine the user's current tier level so we can offer upgrades:

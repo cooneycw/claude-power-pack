@@ -223,7 +223,7 @@ IN_FLIGHT_ISSUES or BLOCKED_ISSUES must never appear in tiers 3-5.
 
 - To act on a recommendation: `/flow:auto {N}` (full lifecycle) or
   `/flow:start {N}` (worktree only).
-- For a quick orientation without issue analysis, use `/project-lite`.
+- For a quick orientation without issue analysis, use `/project:lite`.
 - Optional per-project tuning via a "Project-Next Configuration" block in
   CLAUDE.md (priority labels, hierarchy style: wave / epic / parent-child /
   flat).
