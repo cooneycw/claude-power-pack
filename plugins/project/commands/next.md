@@ -37,6 +37,13 @@ if [ -n "$TARGET" ] && [ -d "$HOME/Projects/$TARGET" ]; then
 elif [ -n "$CLAUDE_PROJECT" ] && ! git rev-parse --git-dir >/dev/null 2>&1; then
   [ -d "$HOME/Projects/$CLAUDE_PROJECT" ] && cd "$HOME/Projects/$CLAUDE_PROJECT"
 fi
+# Interleaved flow worktrees (FLOW_WORKTREE_BASE, ADR 0003 / #584) can sit at
+# ~/Projects/<repo>-<branch> beside real projects; a linked worktree's .git is
+# a FILE, not a directory. Analyzing one as a "project" double-reports its
+# parent repo - flag it and analyze the parent instead.
+if [ -f .git ]; then
+  echo "NOTE: '$PWD' is a linked flow worktree, not a project - its issues belong to the parent repo. Re-run against the parent (worktrees appear in its in-flight table)."
+fi
 gh repo view --json owner,name,defaultBranchRef \
   --jq '{owner: .owner.login, name: .name, default_branch: .defaultBranchRef.name}'
 ```
