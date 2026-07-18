@@ -89,6 +89,9 @@ def _run(
     extra_env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
+    # A host-level #584 base override must not bleed into the default-path
+    # assertions; tests opt in explicitly via extra_env.
+    env.pop("FLOW_WORKTREE_BASE", None)
     env["FLOW_START_RESOLVE_GH"] = str(gh)
     env.update(
         {
@@ -152,6 +155,7 @@ def test_fresh_lane_in_session_repo(tmp_path: Path):
     c = _contract(res)
     assert c["LANE"] == "fresh"
     assert c["CROSS_REPO"] == "0"
+    assert c["GIT_LANE"] == "0"
     assert c["BRANCH"] == "issue-42-fix-the-frobnicator"
     assert c["WT_PATH"].endswith(".claude/worktrees/issue-42-fix-the-frobnicator")
     # The native lane creates nothing - EnterWorktree owns fresh creation.
@@ -224,6 +228,7 @@ def test_cross_repo_fresh_creates_worktree(tmp_path: Path):
     c = _contract(res)
     assert c["LANE"] == "cross-repo"
     assert c["CROSS_REPO"] == "1"
+    assert c["GIT_LANE"] == "1"
     assert c["WT_CREATED"] == "1"
     wt = Path(c["WT_PATH"])
     assert wt.is_dir()
@@ -334,6 +339,48 @@ def test_remote_pickup_creates_tracking_worktree(tmp_path: Path):
     wt = Path(c["WT_PATH"])
     assert (wt / "b.txt").exists()
     assert _git(wt, "branch", "--show-current").strip() == "issue-42-remote-work"
+
+
+# --- resolve: FLOW_WORKTREE_BASE override (issue #584) -----------------------
+
+
+@requires_git
+def test_base_override_fresh_same_repo_rides_git_lane(tmp_path: Path):
+    _, clone = _make_origin_and_clone(tmp_path)
+    base = tmp_path / "wt-base"
+    res = _run(
+        "42",
+        cwd=clone,
+        gh=_fake_gh(tmp_path),
+        extra_env={"FLOW_WORKTREE_BASE": str(base)},
+    )
+    assert res.returncode == 0, res.stderr
+    c = _contract(res)
+    assert c["LANE"] == "fresh"
+    assert c["CROSS_REPO"] == "0"
+    assert c["GIT_LANE"] == "1"
+    # Interleaved layout: $FLOW_WORKTREE_BASE/<repo>-<branch>, created by the
+    # helper (EnterWorktree cannot reach an out-of-repo base).
+    assert c["WT_CREATED"] == "1"
+    assert c["WT_PATH"] == str(base / f"{clone.name}-{c['BRANCH']}")
+    wt = Path(c["WT_PATH"])
+    assert wt.is_dir()
+    assert _git(wt, "branch", "--show-current").strip() == c["BRANCH"]
+
+
+@requires_git
+def test_resume_of_out_of_repo_worktree_forces_git_lane(tmp_path: Path):
+    _, clone = _make_origin_and_clone(tmp_path)
+    outside = tmp_path / "wt-base" / f"{clone.name}-issue-42-earlier-work"
+    outside.parent.mkdir()
+    _git(clone, "worktree", "add", "-q", "-b", "issue-42-earlier-work", str(outside))
+    # No FLOW_WORKTREE_BASE this run - the prior run's base-override worktree
+    # still must not be entered via EnterWorktree(path=...).
+    res = _run("42", cwd=clone, gh=_fake_gh(tmp_path))
+    c = _contract(res)
+    assert c["LANE"] == "resume"
+    assert c["GIT_LANE"] == "1"
+    assert c["WT_PATH"] == str(outside)
 
 
 # --- verify mode -------------------------------------------------------------

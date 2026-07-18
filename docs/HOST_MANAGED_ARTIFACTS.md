@@ -98,7 +98,10 @@ record to that project's `.claude/friction.jsonl` for `/self-improvement:retro`.
 **Risk:** Low. The hook is observe-only (never emits a permission decision) and
 fail-open (never exits non-zero, swallows an unwritable buffer), so a stale or
 missing registration degrades capture but never blocks a session or a permission
-prompt. The symlinks are re-pointed on every `/cpp:update`.
+prompt. Existing symlinks follow the git pull automatically; scripts that are NEW
+since the install are linked by `/cpp:update` Step 5b (issue #581 - the flow
+allowlist rules match the stable `~/.claude/scripts/` path, so a missing link
+degrades the zero-prompt lane).
 
 **Detection:** `/cpp:update` Step 7.7 reports whether the hook is registered;
 `/cpp:status` counts installed `~/.claude/scripts/` entries.

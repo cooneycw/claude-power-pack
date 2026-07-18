@@ -121,7 +121,8 @@ a resumed worktree lies outside the target repo), `TARGET_REPO`, `ISSUE_STATE`,
 `FLOW_WORKTREE_BASE`: `$FLOW_WORKTREE_BASE/<repo>-<branch>` when set, else
 in-repo `.claude/worktrees/<branch>`), `DEFAULT_BRANCH`, `REMOTE_BRANCH`
 (pickup lane), `WT_CREATED` (1 = the helper already ran `git worktree add`),
-`LIVE_DRIVER` / `PR_HEAD` (the #503 resume hazards), `CONFIRM_REQUIRED`.
+`LIVE_DRIVER` / `PR_HEAD` (the #503 resume hazards - the helper wraps its
+sibling `scripts/flow-live-driver-guard.sh`), `CONFIRM_REQUIRED`.
 
 **1b. Act on the contract** - the only decision left to you:
 
@@ -569,36 +570,43 @@ Report: `Step 6/9: Finish complete - PR #XX created`
    fi
    ```
 
-2. **Merge the PR:**
-   ```bash
-   PR_NUMBER=$(gh pr list --head "$BRANCH" --json number --jq '.[0].number')
+2. **Merge the PR.** Look up the PR number first (allowlisted read):
 
-   # Merge robustly across worktree layouts. Run from inside a linked worktree,
-   # `gh pr merge --delete-branch` fails AFTER the remote squash succeeds - gh
-   # tries to switch this worktree off the merged branch onto the default branch,
-   # which is checked out in the primary worktree ("fatal: 'main' is already
-   # checked out"), and exits non-zero. The merge still landed; treating that exit
-   # as a failure is a false STOP (issue #461). The helper drops --delete-branch in
-   # a linked worktree, deletes the remote branch itself, and verifies the PR
-   # reached MERGED before reporting failure. Local worktree/branch cleanup is left
-   # to step 4 below, so the native ExitWorktree path is unaffected.
-   if [[ -x ~/.claude/scripts/gh-pr-merge.sh ]]; then
-       ~/.claude/scripts/gh-pr-merge.sh "$PR_NUMBER" "$BRANCH"
-       MERGE_RC=$?
-   else
-       # Inline fallback (helper not installed): same linked-worktree guard.
-       if [[ -f ".git" ]]; then
-           gh pr merge "$PR_NUMBER" --squash
-           git push origin --delete "$BRANCH" >/dev/null 2>&1 || true
-       else
-           gh pr merge "$PR_NUMBER" --squash --delete-branch
-       fi
-       # Trust PR state over the local exit code.
-       [[ "$(gh pr view "$PR_NUMBER" --json state --jq '.state' 2>/dev/null)" == "MERGED" ]]
-       MERGE_RC=$?
-   fi
+   ```bash
+   gh pr list --head "$BRANCH" --json number --jq '.[0].number'
    ```
-   - If the merge genuinely failed (`MERGE_RC` non-zero - conflicts, failing
+
+   Then merge via the layout-aware helper, invoked BARE with the literal PR
+   number and branch (#581 discipline). Run from inside a linked worktree,
+   plain `gh pr merge --delete-branch` fails AFTER the remote squash succeeds
+   - gh tries to switch this worktree off the merged branch onto the default
+   branch, which is checked out in the primary worktree ("fatal: 'main' is
+   already checked out"), and exits non-zero. The merge still landed; treating
+   that exit as a failure is a false STOP (issue #461). The helper drops
+   `--delete-branch` in a linked worktree, deletes the remote branch itself,
+   and verifies the PR reached `MERGED` before reporting failure. Local
+   worktree/branch cleanup is left to step 4 below, so the native
+   `ExitWorktree` path is unaffected.
+
+   ```bash
+   ~/.claude/scripts/gh-pr-merge.sh 78 issue-42-fix-login
+   ```
+
+   If the helper is not installed (exit 127), use the inline fallback - same
+   linked-worktree guard:
+   ```bash
+   PR_NUMBER=<literal>
+   BRANCH=<literal>
+   if [[ -f ".git" ]]; then
+       gh pr merge "$PR_NUMBER" --squash
+       git push origin --delete "$BRANCH" >/dev/null 2>&1 || true
+   else
+       gh pr merge "$PR_NUMBER" --squash --delete-branch
+   fi
+   # Trust PR state over the local exit code.
+   [[ "$(gh pr view "$PR_NUMBER" --json state --jq '.state' 2>/dev/null)" == "MERGED" ]]
+   ```
+   - If the merge genuinely failed (non-zero helper exit - conflicts, failing
      checks, PR not `MERGED`): **STOP**. Report and exit. A non-zero `gh` exit
      whose PR is nonetheless `MERGED` is NOT a failure - the helper already treats
      it as success and continues to cleanup.
@@ -640,20 +648,20 @@ Report: `Step 6/9: Finish complete - PR #XX created`
    pwd  # Verify you are in the main repo, NOT the worktree
    ```
 
-   **Step 7b - Remove the worktree (separate Bash call, AFTER confirming cd succeeded):**
+   **Step 7b - Remove the worktree (separate Bash call, AFTER confirming cd
+   succeeded).** When a worktree exists (`WORKTREE_PATH` non-empty and not the
+   main repo), invoke the removal helper BARE with the literal path (#581
+   discipline):
    ```bash
-   if [[ -n "$WORKTREE_PATH" && "$WORKTREE_PATH" != "$MAIN_REPO" ]]; then
-       if [[ -f ~/.claude/scripts/worktree-remove.sh ]]; then
-           ~/.claude/scripts/worktree-remove.sh "$WORKTREE_PATH" --force --delete-branch
-       else
-           git worktree remove "$WORKTREE_PATH" --force
-           git branch -D "$BRANCH" 2>/dev/null || true
-       fi
-   else
-       # On a feature branch in the main repo (no worktree) - just delete the branch
-       git branch -D "$BRANCH" 2>/dev/null || true
-   fi
+   ~/.claude/scripts/worktree-remove.sh /path/to/worktree --force --delete-branch
    ```
+   If the helper is not installed (exit 127), fall back to:
+   ```bash
+   git worktree remove "$WORKTREE_PATH" --force
+   git branch -D "$BRANCH" 2>/dev/null || true
+   ```
+   With no worktree (a feature branch in the main repo), just delete the
+   branch: `git branch -D <branch>`.
 
 5. **Update local main:**
    ```bash
@@ -980,7 +988,8 @@ Key failure scenarios:
 - The ELI5 step (Step 3) is a human checkpoint: it restates intent in plain language, verifies the issue is still worth doing, and gates implementation on plan approval. Use `--yes` (or an `eli5: auto-approve` trailer) for fully unattended runs; a `No longer needed` verdict never auto-implements
 - Each step builds on the previous one; there's no skipping
 - Worktrees are native: Step 1 uses the `EnterWorktree` tool (checkout under `.claude/worktrees/`, branched from `origin/<default-branch>`) and Step 7 uses `ExitWorktree` for session-created worktrees, with a `git worktree` fallback for resumed or cross-machine worktrees. The issue-anchored `issue-<N>-<slug>` branch name, the ELI5 gate, and quality gates are CPP policy layered on top of the native mechanics
-- Cross-repo invocations (`/flow:auto <ISSUE> <PROJECT>`, or a session cwd outside any git repo) are first-class (issue #578): Step 1 resolves the target checkout (path, else `~/Projects/<PROJECT>`), detects the mismatch, and rides the deterministic git lane end-to-end - `git -C` worktree create, `cd` instead of `EnterWorktree`, git cleanup at Step 7 - with the worktree still under the target repo's `.claude/worktrees/` so every guard resolves unchanged
+- Step 1's plumbing is deterministic (issue #581): `scripts/flow-start-resolve.sh` owns target-repo resolution, issue fetch, branch derivation, existing-work triage, the #503 guard, and git-lane creation, emitting a `key=value` contract; the model's only decision is `EnterWorktree` vs `cd`. Helpers are invoked bare at their stable `~/.claude/scripts/` paths so the shipped allowlist rules match (`templates/claude-settings-permissions.json`) and Phase 1 runs prompt-free
+- Cross-repo invocations (`/flow:auto <ISSUE> <PROJECT>`, or a session cwd outside any git repo) are first-class (issue #578): the resolver detects the mismatch (path, else `~/Projects/<PROJECT>`) and the run rides the deterministic git lane end-to-end - helper-created worktree, `cd` instead of `EnterWorktree`, git cleanup at Step 7 - with the worktree still under the target repo's `.claude/worktrees/` so every guard resolves unchanged
 - The worktree base is configurable (issue #584, ADR 0003 Option A): `FLOW_WORKTREE_BASE`, when set in host config, relocates worktrees to `$FLOW_WORKTREE_BASE/<repo>-<branch>` and commits the run to the same git lane (`GIT_LANE=1`); unset, shipped behavior is byte-identical to the in-repo default. The guard/merge/remove/friction scripts resolve via git plumbing and need no awareness of the base
 - The deploy step is always optional - it only runs if a deploy target exists
 - After completion, the user is in the main repo on the main branch

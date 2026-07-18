@@ -44,6 +44,8 @@ Core components and their locations:
   - gh-pr-merge - layout-aware PR squash-merge used by `/flow:auto` + `/flow:merge`; polls mergeability to wait out a transient `UNKNOWN` right after push (#485); bounded refetch+retry when the squash fails on `Base branch was modified` (sibling merge race, #502); opt-in `--admin` flag plus a single admin-gated auto-retry when a squash is rejected by branch protection on an owner merge (#517)
   - flow-stale-check - advisory early stale-base detector for `/flow:auto` Step 4/6 + `/flow:finish` (#473)
   - flow-worktree-guard - advisory leaked-edit detector: warns when a `/flow:auto` edit landed in the MAIN tree instead of the worktree (#486)
+  - flow-start-resolve - deterministic `/flow` Step-1 resolver + `--verify` gate (#581): target-repo resolution (#578), issue fetch + state check, issue-anchored branch derivation, existing-work triage (`current-branch|fresh|resume|remote-pickup|cross-repo`), wraps the #503 live-driver guard + shipped-PR hazard, performs git-lane worktree creation (honoring `FLOW_WORKTREE_BASE`, #584), and emits a `key=value` contract - extracts the compound Step-1 bash the permission matcher could never auto-allow
+  - flow-live-driver-guard - advisory concurrent-session guard (#503): warns when a worktree's dirty files were modified within the freshness window, the signature of another live session mid-implementation; wrapped by flow-start-resolve on the resume lane
   - hooks
   - drift-detect
   - mcp-drift
@@ -287,7 +289,7 @@ and `lib/security` own the **deterministic** complement: secret scanning
 - CRITICAL findings block gates; HIGH findings produce warnings
 - Configure gating in `.claude/security.yml` (optional, created by `/security:scan` when needed)
 - For **semantic** code review (SQLi/XSS/authz/insecure handling), run native `/security-review` - not a CPP command
-- **User-level flow allowlist** (`templates/claude-settings-permissions.json`) auto-approves the read-only git/gh plumbing that `/flow:*` runs; shipping actions (`git push`, `gh pr create`) and `cat` are deliberately excluded so gates and secret-read prompts stay intact. Merged via `/cpp:init` or `/cpp:update` Step 7.6; checked by `/flow:doctor`. Rationale: `templates/claude-settings-permissions.md`
+- **User-level flow allowlist** (`templates/claude-settings-permissions.json`) auto-approves the read-only git/gh plumbing that `/flow:*` runs, plus the audited flow helper-script family at its stable `~/.claude/scripts/` path (flow-start-resolve, flow-stale-check, flow-worktree-guard, flow-live-driver-guard, gh-pr-merge, worktree-remove - issue #581, invoked BARE so the prefix rules match); raw shipping actions (`git push`, `gh pr create`) and `cat` are deliberately excluded so gates and secret-read prompts stay intact. Merged via `/cpp:init` or `/cpp:update` Step 7.6; scripts re-linked by `/cpp:update` Step 5b; checked by `/flow:doctor`. Rationale: `templates/claude-settings-permissions.md`
 
 ## On-Demand Documentation
 

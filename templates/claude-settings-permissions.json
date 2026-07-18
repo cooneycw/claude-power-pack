@@ -32,7 +32,13 @@
       "Bash(tail:*)",
       "Bash(wc:*)",
       "Bash(cd:*)",
-      "Bash(pwd)"
+      "Bash(pwd)",
+      "Bash(~/.claude/scripts/flow-start-resolve.sh:*)",
+      "Bash(~/.claude/scripts/flow-stale-check.sh:*)",
+      "Bash(~/.claude/scripts/flow-worktree-guard.sh:*)",
+      "Bash(~/.claude/scripts/flow-live-driver-guard.sh:*)",
+      "Bash(~/.claude/scripts/gh-pr-merge.sh:*)",
+      "Bash(~/.claude/scripts/worktree-remove.sh:*)"
     ]
   }
 }

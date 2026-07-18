@@ -52,7 +52,7 @@ A plugin install delivers commands, skills, and hooks - but not the out-of-band 
 - **Browser automation** - registers the upstream `@playwright/mcp` npx/stdio server (no container).
 - **Secrets provisioning** - AWS Secrets Manager access for Woodpecker CI keys (`essent-ai`) and the `CPP_MEMORIES_DSN` common-memory DSN; fetched directly via the AWS SDK/CLI.
 - **Bootstrap prerequisites** - `jq`, and the optional spec-kit CLI (`specify`, the engine behind `/spec:adopt`).
-- **Permission census hook + flow allowlist** - registers the observe-only PermissionRequest census hook and merges the read-only `/flow:*` allowlist into `~/.claude/settings.json` (both user-confirmed).
+- **Permission census hook + flow allowlist** - registers the observe-only PermissionRequest census hook and merges the read-only `/flow:*` allowlist - including the audited flow helper-script rules that make `/flow:auto` Phase 1 prompt-free (issue #581) - into `~/.claude/settings.json` (both user-confirmed).
 
 `/cpp:update` refreshes those same non-plugin artifacts. See [`docs/HOST_MANAGED_ARTIFACTS.md`](docs/HOST_MANAGED_ARTIFACTS.md) for the full inventory.
 

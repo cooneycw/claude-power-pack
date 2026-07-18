@@ -11,6 +11,14 @@ governed by the `worktree.baseRef` setting - `fresh`, the default, branches from
 the session into it. The issue-anchored `issue-<N>-<slug>` branch name is the
 policy CPP keeps and enforces; it is not absorbed by the native tool.
 
+The plumbing - issue fetch + state check, slug/branch derivation, existing-work
+triage, the #503 live-driver guard, git-lane worktree creation, and the
+`FLOW_WORKTREE_BASE` override (issue #584, ADR 0003) - lives in ONE audited
+helper, `scripts/flow-start-resolve.sh` (issue #581). Do NOT re-implement it as
+inline bash: a multi-line block with variable assignments or control flow can
+never match a permission allowlist rule, so it prompts on every run - the exact
+friction the helper removes.
+
 ## Arguments
 
 - `ISSUE` (required): GitHub issue number (e.g., `42`)
@@ -19,15 +27,7 @@ policy CPP keeps and enforces; it is not absorbed by the native tool.
 
 When the user invokes `/flow-start <ISSUE>`, perform these steps:
 
-### Step 1: Validate Prerequisites
-
-```bash
-# Ensure gh is authenticated
-gh auth status
-
-# Ensure we're in a git repo
-git rev-parse --show-toplevel
-```
+### Step 1: Resolve
 
 `/flow-start` operates on the SESSION cwd's repo - `EnterWorktree` cannot create
 a worktree in any other checkout, so invoke it from within the target repo. To
@@ -35,122 +35,87 @@ drive an issue in a repo the session did not start in, use
 `/flow-auto <ISSUE> <PROJECT>`, whose Step 1 resolves the target checkout and
 rides the deterministic git-worktree lane instead (issue #578).
 
-### Step 2: Fetch Issue Details
+**Invocation discipline (issue #581):** call the helper BARE, with the literal
+issue number - never wrapped in `if [ -x ... ]`, never chained with `&&` or
+`;`, never followed by `echo $?`. A compound invocation defeats the allowlist
+prefix rule; the helper prints its own status markers.
 
 ```bash
-ISSUE_NUM="$1"
-gh issue view "$ISSUE_NUM" --json number,title,state,body
+~/.claude/scripts/flow-start-resolve.sh 42
 ```
 
-- If issue is not OPEN, warn the user and ask whether to proceed
-- Extract the title for branch naming
+If the stable path is missing (exit 127 - the helper family installs via
+`/cpp:init` / `/cpp:update`), fall back to `scripts/flow-start-resolve.sh` from
+the CPP checkout; that path may prompt once.
 
-### Step 3: Derive Branch and Worktree Names
+The helper fetches the issue, derives the `issue-<N>-<slug>` branch (slug cut
+to keep the name within the EnterWorktree 64-char limit), triages existing
+work, and prints a `key=value` contract ending in `FLOW_START_RESOLVE: ok`. On
+`FLOW_START_RESOLVE: error` (with an `ERROR=` line): **STOP** and report it.
+Keys: `LANE`, `CROSS_REPO`, `GIT_LANE`, `TARGET_REPO`, `ISSUE_STATE`,
+`ISSUE_TITLE`, `BRANCH`, `WT_PATH`, `DEFAULT_BRANCH`, `REMOTE_BRANCH`,
+`WT_CREATED`, `LIVE_DRIVER` (the helper wraps its sibling
+`scripts/flow-live-driver-guard.sh`, #503), `PR_HEAD`, `CONFIRM_REQUIRED` -
+the same contract `/flow-auto` Step 1 documents.
 
-```bash
-# Sanitize title: lowercase, replace non-alphanum with hyphens, truncate.
-# The cut -c1-64 keeps the name within the EnterWorktree 64-char limit.
-SLUG=$(echo "$TITLE" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//' | cut -c1-50)
-
-BRANCH="issue-${ISSUE_NUM}-${SLUG}"
-```
-
-The native worktree lives under `.claude/worktrees/${BRANCH}` - you do not choose
-a sibling directory; pass `${BRANCH}` as the worktree `name` and the tool places
-and names it.
-
-**Worktree base override (issue #584, ADR 0003 Option A):** when
-`FLOW_WORKTREE_BASE` is set (host config, e.g. `~/.bashrc`), worktrees are
-created OUT of the repo at `$FLOW_WORKTREE_BASE/<repo>-<branch>` via plain
+`WT_PATH` honors the **worktree base override** (issue #584, ADR 0003 Option
+A): when `FLOW_WORKTREE_BASE` is set (host config, e.g. `~/.bashrc`), worktrees
+are created OUT of the repo at `$FLOW_WORKTREE_BASE/<repo>-<branch>` via plain
 `git worktree add` + `cd` instead of `EnterWorktree` - the native tool's base
 dir is not configurable, and `EnterWorktree(path=...)` outside the repo
 triggers an approval prompt permission rules cannot suppress. Unset (the
-shipped default), behavior below is byte-identical to today. Cleanup of a
-base-override worktree is the git fallback (`/flow-merge` / `/flow-cleanup` /
-`scripts/worktree-remove.sh` - all already layout-aware).
+shipped default), behavior is byte-identical to today: in-repo
+`.claude/worktrees/${BRANCH}`. Cleanup of a base-override worktree is the git
+fallback (`/flow-merge` / `/flow-cleanup` / `scripts/worktree-remove.sh` - all
+already layout-aware). The helper folds this in: `GIT_LANE=1` on the contract
+means the git lane applies.
 
-### Step 4: Check for Existing Work
+### Step 2: Act on the contract
 
-```bash
-# Check if already on the issue's branch (do NOT re-create in that case)
-CURRENT_BRANCH=$(git branch --show-current)
+Pick exactly the path the contract names:
 
-# Check if a worktree already exists for this issue
-git worktree list | grep "issue-${ISSUE_NUM}"
-
-# Check if a remote branch exists (cross-machine pickup)
-git fetch origin
-git branch -r | grep "issue-${ISSUE_NUM}-"
-```
-
-Pick exactly one path:
-
-- **Already on the issue branch** (`$CURRENT_BRANCH` matches `issue-${ISSUE_NUM}-`):
-  verify you are NOT on main/master and use the current directory. Do nothing else.
-- **Worktree already exists** (from a prior session): enter it with the
-  `EnterWorktree` tool using its existing path (do NOT create a new one):
-  `EnterWorktree(path="<path from git worktree list>")`.
-- **Remote branch exists, no local worktree** (cross-machine pickup): the native
-  tool cannot check out an existing remote branch, so add the worktree with git,
-  then switch into it with `EnterWorktree`:
-  ```bash
-  REMOTE_BRANCH=$(git branch -r | grep "issue-${ISSUE_NUM}-" | head -1 | xargs)
-  LOCAL_BRANCH="${REMOTE_BRANCH#origin/}"
-  if [ -n "$FLOW_WORKTREE_BASE" ]; then
-      mkdir -p "$FLOW_WORKTREE_BASE"
-      WT_PATH="${FLOW_WORKTREE_BASE}/$(basename "$(git rev-parse --show-toplevel)")-${LOCAL_BRANCH}"
-  else
-      WT_PATH=".claude/worktrees/${LOCAL_BRANCH}"
-  fi
-  git worktree add -b "$LOCAL_BRANCH" "$WT_PATH" "$REMOTE_BRANCH"
-  ```
-  then call `EnterWorktree(path="$WT_PATH")` - or, when `FLOW_WORKTREE_BASE` is
-  set, `cd "$WT_PATH"` instead (out-of-repo `EnterWorktree(path=...)` prompts;
-  see the base-override note in Step 3).
-- **Neither exists** (fresh start): create and enter the worktree natively by
-  calling the `EnterWorktree` tool with `name="${BRANCH}"`. This branches from
+- `ISSUE_STATE` not `OPEN` (`CONFIRM_REQUIRED=1`): warn the user and ask
+  whether to proceed (they may want to reopen). On yes, re-run the resolve
+  with `--allow-closed` appended and continue with its new contract.
+- `LANE=current-branch`: already on the issue's branch - use the current
+  directory. Do nothing else.
+- `LANE=fresh` with `GIT_LANE=0`: create and enter the worktree natively by
+  calling the `EnterWorktree` tool with `name="${BRANCH}"` (the literal
+  `BRANCH` value from the contract). This branches from
   `origin/<default-branch>` (under the default `worktree.baseRef: fresh`) and
-  switches the session into `.claude/worktrees/${BRANCH}`. Do NOT shell out to
-  `git worktree add` for the fresh path. If your `worktree.baseRef` is set to
-  `head`, sync `main` first so the branch does not start from a stale local HEAD.
+  switches the session into `.claude/worktrees/${BRANCH}`. Do NOT shell out
+  to `git worktree add` for this path. If your `worktree.baseRef` is set to
+  `head`, sync `main` first so the branch does not start from a stale local
+  HEAD.
+- `LANE=fresh` with `GIT_LANE=1` (`FLOW_WORKTREE_BASE` set, issue #584): the
+  helper already created the worktree at `WT_PATH` from
+  `origin/<DEFAULT_BRANCH>` (`WT_CREATED=1`) - `cd <WT_PATH>` (bare, literal).
+- `LANE=resume`: a prior session's worktree exists. If `CONFIRM_REQUIRED=1`
+  (`LIVE_DRIVER=suspected` and/or `PR_HEAD` shows an open/merged PR - the
+  #503 concurrent/shipped hazards), require explicit user confirmation first.
+  Then enter it with `EnterWorktree(path="<WT_PATH>")` (do NOT create a new
+  one) - or `cd <WT_PATH>` when `GIT_LANE=1` (a base-override worktree from a
+  prior run lies outside the repo).
+- `LANE=remote-pickup` (cross-machine): the native tool cannot check out an
+  existing remote branch, so the helper already added the worktree from
+  `REMOTE_BRANCH` (`WT_CREATED=1`). Enter with
+  `EnterWorktree(path="<WT_PATH>")` - or `cd <WT_PATH>` when `GIT_LANE=1`.
 
-  **Base-override exception (issue #584):** when `FLOW_WORKTREE_BASE` is set,
-  the fresh path is the git lane instead of `EnterWorktree`:
-  ```bash
-  git fetch origin --quiet
-  DEFAULT_BRANCH=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null)
-  DEFAULT_BRANCH=${DEFAULT_BRANCH#origin/}
-  DEFAULT_BRANCH=${DEFAULT_BRANCH:-main}
-  mkdir -p "$FLOW_WORKTREE_BASE"
-  WT_PATH="${FLOW_WORKTREE_BASE}/$(basename "$(git rev-parse --show-toplevel)")-${BRANCH}"
-  git worktree add -b "$BRANCH" "$WT_PATH" "origin/${DEFAULT_BRANCH}"
-  cd "$WT_PATH"
-  ```
+### Step 3: Verify, Normalize Branch, Output
 
-### Step 5: Verify, Normalize Branch, Output
-
-**CRITICAL: Verify you are in the worktree, not on main/master.**
-
-```bash
-CURRENT_BRANCH=$(git branch --show-current)
-if [[ "$CURRENT_BRANCH" == "main" || "$CURRENT_BRANCH" == "master" ]]; then
-    echo "ERROR: Still on main/master. EnterWorktree did not switch the session."
-    exit 1
-fi
-```
-
-**Enforce the issue-anchored branch name (the moat).** Native worktree creation
-derives the branch from the worktree name; if the resulting branch is not exactly
-`issue-${ISSUE_NUM}-${SLUG}`, rename it so every downstream step (`/flow-merge`,
-`/flow-status`, `/flow-cleanup`) can extract the issue number from the branch:
+**CRITICAL: Verify you are in the worktree, not on main/master.** From inside
+the worktree, run bare (literal values from the contract):
 
 ```bash
-if [[ "$CURRENT_BRANCH" != "$BRANCH" ]]; then
-    git branch -m "$BRANCH"
-    CURRENT_BRANCH="$BRANCH"
-fi
-echo "Verified: on branch '$CURRENT_BRANCH' in $(pwd)"
+~/.claude/scripts/flow-start-resolve.sh --verify 42 issue-42-fix-login
 ```
+
+This is the moat: it fails (`FLOW_START_VERIFY: fail`, exit 1) when the
+checkout is still on main/master, and renames a branch that does not match
+`issue-${ISSUE_NUM}-*` to the expected name so every downstream step
+(`/flow-merge`, `/flow-status`, `/flow-cleanup`) can extract the issue number
+from the branch. On success it prints the final `BRANCH=` and `WT_ROOT=`. If
+it fails, STOP and report.
 
 **Worktree path-resolution rule (issue #486).** A native `EnterWorktree` session
 edits the worktree, but the worktree lives *inside* the main repo at
@@ -172,12 +137,12 @@ Created worktree for issue #42: "Fix login bug"
 
 ## Error Handling
 
-- **Issue not found:** `gh issue view` fails → report "Issue #N not found"
-- **Issue closed:** Warn but allow user to proceed (they may want to reopen)
-- **Worktree exists:** Report existing path, do not error
+- **Issue not found:** the resolve prints `FLOW_START_RESOLVE: error` → report "Issue #N not found"
+- **Issue closed:** `CONFIRM_REQUIRED=1` - warn but allow user to proceed (they may want to reopen); re-run with `--allow-closed`
+- **Worktree exists:** `LANE=resume` - report existing path, do not error
 - **Branch name collision:** Append short hash if needed
-- **Not in a git repo:** Report error clearly
+- **Not in a git repo:** the resolve errors with the `/flow-auto <ISSUE> <PROJECT>` pointer - report it clearly
 
 ## Idempotency
 
-Running `/flow-start 42` when the worktree already exists should detect it and report the path, not error or create a duplicate.
+Running `/flow-start 42` when the worktree already exists resolves to `LANE=resume` and reports the path, not an error or a duplicate.
