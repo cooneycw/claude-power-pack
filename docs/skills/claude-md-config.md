@@ -89,7 +89,7 @@ Keep CLAUDE.md focused on essentials. Use on-demand loading for details:
 ```markdown
 ## On-Demand Documentation
 
-- `/load-best-practices` - Community wisdom
+- `/cpp:load-best-practices` - Community wisdom
 - `/load-api-docs` - API documentation
 - Ask about specific topics to load relevant skills
 ```

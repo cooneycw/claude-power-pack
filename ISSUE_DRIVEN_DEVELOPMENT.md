@@ -531,7 +531,7 @@ Main Repo (planning)          Worktree 1 (issue-42)       Worktree 2 (issue-57)
 ### Tips for Multi-Agent Work
 
 1. **Write issues before starting sessions** - All context upfront
-2. **Use `/project-next` to identify parallel work** - Find non-blocking issues
+2. **Use `/project:next` to identify parallel work** - Find non-blocking issues
 3. **Use `/flow:start N` to begin** - Creates isolated worktree per issue
 4. **Use prompt context** - Visual confirmation of current worktree/issue
 5. **Don't share worktrees between sessions** - One session per worktree
@@ -646,7 +646,7 @@ git pull
 1. **Use `/flow:start N` to begin work** - Creates worktree automatically
 2. **Use `/flow:finish` to ship** - Handles commit, push, PR creation
 3. **Use `/flow:merge` to clean up** - Merges PR, removes worktree
-4. **Use `/project-next`** - Get prioritized recommendations
+4. **Use `/project:next`** - Get prioritized recommendations
 5. **Don't start Claude from worktrees** - Start from main repo
 
 ---

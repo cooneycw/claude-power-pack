@@ -11,8 +11,8 @@ Commands for creating and managing projects.
 | Command | Description |
 |---------|-------------|
 | `/project:init <name>` | Full project scaffolding - zero to GitHub repo |
-| `/project-next` | Scan issues and worktrees to recommend next steps |
-| `/project-lite` | Quick project reference with minimal context |
+| `/project:next` | Scan issues and worktrees to recommend next steps |
+| `/project:lite` | Quick project reference with minimal context |
 | `/claude-md:lint` | Audit CLAUDE.md for CI/CD and troubleshooting directives |
 
 ## /project:init
@@ -40,13 +40,13 @@ One-command project setup that orchestrates:
   owns only the zero-to-GitHub-repo orchestration and the governance overlay
 - Integrates with `/flow`, `/spec`, `/security`, and all CPP commands
 
-## /project-next
+## /project:next
 
 Prioritized next-step report. Scans open issues in one batched call, maps worktrees, applies a blocked/in-flight verification gate, and recommends what to work on next. Compact by default; `--full` for the deep 5-tier analysis, `--brief` for a single top pick.
 
 **Use when:** Unsure what to work on, need issue triage, or want cleanup suggestions.
 
-## /project-lite
+## /project:lite
 
 Lightweight project reference for quick orientation. Shows repo info, conventions, worktrees, and available commands with minimal context usage.
 

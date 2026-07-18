@@ -33,6 +33,7 @@ only to the git-free sync guard, so it runs in CI's git-less validate container
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -45,8 +46,9 @@ PLUGINS_DIR = ROOT / "plugins"
 SOURCE_COMMANDS = ROOT / ".claude" / "commands"
 SYNC_SCRIPT = ROOT / "scripts" / "plugin-sync.sh"
 
-# Every packaged family (ADR 0001 target design). `spec` and the loose
-# top-level commands are deliberately NOT packaged - see the ADR B2 resolution.
+# Every packaged family (ADR 0001 target design). `spec` is deliberately NOT
+# packaged (spec-kit is the upstream product); the loose top-level commands
+# were folded into the project/cpp families by #582 - see the ADR amendment.
 FAMILIES = [
     "browser",
     "cicd",
@@ -167,12 +169,97 @@ def test_plugin_commands_are_byte_identical_to_source(family: str):
         )
 
 
-def test_cpp_plugin_is_help_only():
-    # ADR 0001: the cpp plugin carries cross-cutting help/meta only. The
-    # init/update/status installer is the legacy surface B4 retires; it must
-    # not ship through the plugin marketplace.
+def test_cpp_plugin_ships_utilities_but_never_the_installer():
+    # ADR 0001 (amended for #582): the cpp plugin carries cross-cutting
+    # help/meta plus the utilities folded in from the loose top-level commands.
+    # The init/update/status installer is the legacy surface B4 retired; it
+    # must not ship through the plugin marketplace.
     packaged = {p.name for p in (PLUGINS_DIR / "cpp" / "commands").glob("*.md")}
-    assert packaged == {"help.md"}, f"cpp plugin must ship help.md only, got {packaged}"
+    assert packaged == {
+        "help.md",
+        "dockers.md",
+        "happy-check.md",
+        "load-best-practices.md",
+        "load-mcp-docs.md",
+    }, f"unexpected cpp plugin command set: {packaged}"
+    assert not packaged & {"init.md", "status.md", "update.md"}
+
+
+def test_project_plugin_ships_next_and_lite():
+    # The field report on #582 hit this exact gap from a clean plugin-only
+    # install: /project:next was "Unknown skill" and the plugin's own help.md
+    # advertised it anyway.
+    packaged = {p.name for p in (PLUGINS_DIR / "project" / "commands").glob("*.md")}
+    assert {"next.md", "lite.md"} <= packaged, f"project plugin missing next/lite: {packaged}"
+
+
+def test_no_top_level_source_commands():
+    # #582: a *.md directly under .claude/commands/ is outside every family
+    # glob, so BOTH generated surfaces silently exclude it and the parity
+    # diffs cannot see it. Every command must live in a family dir.
+    loose = sorted(p.name for p in SOURCE_COMMANDS.glob("*.md"))
+    assert loose == [], f"top-level commands are unpackageable, move into a family: {loose}"
+
+
+def test_cpp_plugin_bundles_best_practices_doc():
+    # /cpp:load-best-practices reads this doc; a plugin-only install has no
+    # CPP checkout, so the plugin must bundle it byte-identically (#582).
+    rel = "docs/reference/CLAUDE_CODE_BEST_PRACTICES_FULL.md"
+    bundled = PLUGINS_DIR / "cpp" / rel
+    assert bundled.is_file(), f"missing {bundled} (run scripts/plugin-sync.sh --write)"
+    assert bundled.read_bytes() == (ROOT / rel).read_bytes(), (
+        f"plugins/cpp/{rel} differs from source (run scripts/plugin-sync.sh --write)"
+    )
+
+
+_HELP_REF = re.compile(r"/([a-z][a-z0-9-]*):([a-z][a-z0-9-]*)")
+
+
+def test_family_help_advertises_only_real_commands():
+    # #582 field report: plugins/project/commands/help.md listed /project-next
+    # while the plugin (and, post-fold, the repo) had no such command. Every
+    # /<family>:<cmd> reference on an ADVERTISING line of a family help.md
+    # (table row, list bullet, heading - the formats that present a command as
+    # available) must resolve to a source command file for that family. Prose
+    # is exempt: retirement notes legitimately name commands that no longer
+    # exist (e.g. spec/help.md documenting the #420 /spec:* retirement).
+    known = set(FAMILIES) | {"spec"}
+    stale: list[str] = []
+    for help_md in sorted(SOURCE_COMMANDS.glob("*/help.md")):
+        for line in help_md.read_text().splitlines():
+            if not line.startswith(("| ", "- ", "#")):
+                continue
+            for family, cmd in _HELP_REF.findall(line):
+                if family not in known:
+                    continue
+                if not (SOURCE_COMMANDS / family / f"{cmd}.md").is_file():
+                    rel = help_md.relative_to(ROOT)
+                    stale.append(f"{rel}: /{family}:{cmd}")
+    assert stale == [], f"help files advertise commands that do not exist: {stale}"
+
+
+RETIRED_BARE_INVOCATIONS = [
+    "/project-next",
+    "/project-lite",
+    "/dockers",
+    "/happy-check",
+    "/load-best-practices",
+    "/load-mcp-docs",
+]
+
+
+def test_retired_bare_invocations_gone_from_sources():
+    # After the #582 fold these exist only as /project:next, /project:lite,
+    # /cpp:dockers, /cpp:happy-check, /cpp:load-best-practices and
+    # /cpp:load-mcp-docs. A bare reference in a command source is stale
+    # advertising for an invocation no surface delivers.
+    offenders: list[str] = []
+    for src in sorted(SOURCE_COMMANDS.rglob("*.md")):
+        text = src.read_text()
+        for bare in RETIRED_BARE_INVOCATIONS:
+            if bare in text:
+                offenders.append(f"{src.relative_to(ROOT)}: {bare}")
+    assert offenders == [], f"stale bare invocations in command sources: {offenders}"
 
 
 # --------------------------------------------------------------------------- #
@@ -261,6 +348,72 @@ def test_sync_script_rejects_unknown_family():
         text=True,
     )
     assert result.returncode == 2, "unknown family must be a usage error (exit 2)"
+
+
+# --------------------------------------------------------------------------- #
+# Completeness gate (#582): sources outside every family fail --check loudly
+# --------------------------------------------------------------------------- #
+def _tmp_tree_with_flow(tmp_path: Path) -> Path:
+    """Minimal repo tree where the flow family is in perfect sync, so any
+    --check failure comes from the completeness gate alone."""
+    src = tmp_path / ".claude" / "commands" / "flow"
+    src.mkdir(parents=True)
+    (src / "auto.md").write_text("# auto\n")
+    dest = tmp_path / "plugins" / "flow" / "commands"
+    dest.mkdir(parents=True)
+    (dest / "auto.md").write_text("# auto\n")
+    return tmp_path
+
+
+def _run_sync(tree: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["bash", str(SYNC_SCRIPT), *args],
+        capture_output=True,
+        text=True,
+        env={"PATH": "/usr/bin:/bin", "PLUGIN_SYNC_REPO_ROOT": str(tree)},
+    )
+
+
+def test_completeness_flags_top_level_command(tmp_path: Path):
+    if shutil.which("bash") is None:  # pragma: no cover - bash present in CI
+        pytest.skip("bash unavailable")
+    tree = _tmp_tree_with_flow(tmp_path)
+    (tree / ".claude" / "commands" / "stray.md").write_text("# stray\n")
+    result = _run_sync(tree, "--check", "flow")
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "UNPACKAGED top-level command: .claude/commands/stray.md" in result.stdout
+
+
+def test_completeness_flags_unlisted_family(tmp_path: Path):
+    if shutil.which("bash") is None:  # pragma: no cover - bash present in CI
+        pytest.skip("bash unavailable")
+    tree = _tmp_tree_with_flow(tmp_path)
+    rogue = tree / ".claude" / "commands" / "rogue"
+    rogue.mkdir()
+    (rogue / "x.md").write_text("# x\n")
+    result = _run_sync(tree, "--check", "flow")
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "UNPACKAGED family: .claude/commands/rogue/" in result.stdout
+
+
+def test_completeness_allows_documented_exclusions(tmp_path: Path):
+    if shutil.which("bash") is None:  # pragma: no cover - bash present in CI
+        pytest.skip("bash unavailable")
+    tree = _tmp_tree_with_flow(tmp_path)
+    spec = tree / ".claude" / "commands" / "spec"
+    spec.mkdir()
+    (spec / "adopt.md").write_text("# adopt\n")
+    result = _run_sync(tree, "--check", "flow")
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_completeness_only_gates_check_mode(tmp_path: Path):
+    if shutil.which("bash") is None:  # pragma: no cover - bash present in CI
+        pytest.skip("bash unavailable")
+    tree = _tmp_tree_with_flow(tmp_path)
+    (tree / ".claude" / "commands" / "stray.md").write_text("# stray\n")
+    result = _run_sync(tree, "--write", "flow")
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 # --------------------------------------------------------------------------- #

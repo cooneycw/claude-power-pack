@@ -67,7 +67,7 @@ def test_auto_cross_repo_lane() -> None:
     assert "flow-start-resolve.sh" in text  # Step 1 delegates to the helper
     assert "CROSS_REPO" in text and "cross-repo" in text  # lane surfaced in the contract
     script = _read("scripts/flow-start-resolve.sh")
-    assert '"$PROJECTS_DIR/$PROJECT"' in script  # /project-next resolution convention
+    assert '"$PROJECTS_DIR/$PROJECT"' in script  # /project:next resolution convention
     assert "worktree add" in script  # git-lane creation lives in the helper
     # The default layout keeps the worktree under the TARGET repo so the
     # #473/#486 guards and friction buffer resolve unchanged.
