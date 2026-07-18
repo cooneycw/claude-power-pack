@@ -1,6 +1,6 @@
 # ADR 0003: Configurable worktree base location (CPP + CxPP)
 
-- Status: Accepted (owner decisions recorded 2026-07-18; see "Decision record" below. Implementation: #584; CxPP twin: cooneycw/codex-power-pack#136)
+- Status: Accepted (owner decisions recorded 2026-07-18; see "Decision record" below. Implementation: #584; CxPP twin: cooneycw/codex-power-pack#136). AMENDED 2026-07-18 (see "Addendum": owner wants visible worktrees; CxPP defaults to visible per cooneycw/codex-power-pack#133 + #136, a scoped deviation from Constraint 1; CPP keeps the in-repo default + opt-in.)
 - Date: 2026-07-18
 - Deciders: cooneycw (owner)
 - Issue: #572 (exploration/design; Phase 0 per the security-first-before-scaffolding norm)
@@ -229,6 +229,40 @@ Knob semantics as shipped (#584): `FLOW_WORKTREE_BASE` unset -> in-repo
 default, byte-identical behavior; set -> worktrees at
 `$FLOW_WORKTREE_BASE/<repo>-<branch>`, run committed to the #578 git lane
 end-to-end (`GIT_LANE=1`), guards unchanged.
+
+## Addendum (2026-07-18, later same day): owner wants visible worktrees; CxPP defaults to visible
+
+After #584 shipped, the owner confirmed the goal in plain terms: **"I want visible
+worktrees."** On the CxPP side this had already been implemented as a hardcoded
+default rather than an opt-in - cooneycw/codex-power-pack#133 moved Codex flow
+worktrees out of the hidden in-repo `.codex/worktrees/<branch>` to a **visible
+sibling of the repo (`../<repo>-<branch>`) by DEFAULT**, and #136 then layered
+`FLOW_WORKTREE_BASE` on top as a base override (default = the repo's parent dir;
+set -> `$FLOW_WORKTREE_BASE/<repo>-<branch>`). The owner's decision is to **keep
+that visible-by-default behavior for CxPP** rather than revert it to the in-repo
+default this ADR originally specified.
+
+This is a deliberate, owner-ratified **deviation from Constraint 1 and the rejected
+Option C, scoped to CxPP.** It is recorded here so the ADR and the shipped CxPP
+code no longer conflict.
+
+**Why the two packs now differ in DEFAULT (not just in the knob):**
+
+- **CxPP defaults to visible.** CxPP flow is always plain `git worktree add` (no
+  `EnterWorktree`), so an out-of-repo default costs nothing mechanically -
+  constraint 1's "native fresh lane intact" concern does not apply, and constraint
+  2's unsuppressable prompt cannot fire. Visible-by-default is free there.
+- **CPP keeps the in-repo default + opt-in.** CPP's fresh lane rides
+  `EnterWorktree(name=...)`, whose base dir is not configurable (constraint 1) and
+  whose out-of-repo `path=` form triggers the unsuppressable approval prompt
+  (constraint 2). A visible CPP default would force the git lane on every fresh
+  run, retiring the native lane. So CPP stays in-repo-default; the owner gets
+  visible CPP worktrees on their box via `export FLOW_WORKTREE_BASE=$HOME/Projects`.
+
+**Still open (not decided here):** whether CPP's *default* should also become
+visible (accepting the always-git-lane cost and losing the native `EnterWorktree`
+fresh lane). Deferred to a separate issue; today CPP delivers visibility via the
+opt-in knob only.
 
 ## Open decisions for owner (restated with this pass's findings weighed in)
 
