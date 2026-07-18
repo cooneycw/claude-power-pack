@@ -218,17 +218,23 @@ _HELP_REF = re.compile(r"/([a-z][a-z0-9-]*):([a-z][a-z0-9-]*)")
 def test_family_help_advertises_only_real_commands():
     # #582 field report: plugins/project/commands/help.md listed /project-next
     # while the plugin (and, post-fold, the repo) had no such command. Every
-    # /<family>:<cmd> reference in a family help.md must resolve to a source
-    # command file for that family.
+    # /<family>:<cmd> reference on an ADVERTISING line of a family help.md
+    # (table row, list bullet, heading - the formats that present a command as
+    # available) must resolve to a source command file for that family. Prose
+    # is exempt: retirement notes legitimately name commands that no longer
+    # exist (e.g. spec/help.md documenting the #420 /spec:* retirement).
     known = set(FAMILIES) | {"spec"}
     stale: list[str] = []
     for help_md in sorted(SOURCE_COMMANDS.glob("*/help.md")):
-        for family, cmd in _HELP_REF.findall(help_md.read_text()):
-            if family not in known:
+        for line in help_md.read_text().splitlines():
+            if not line.startswith(("| ", "- ", "#")):
                 continue
-            if not (SOURCE_COMMANDS / family / f"{cmd}.md").is_file():
-                rel = help_md.relative_to(ROOT)
-                stale.append(f"{rel}: /{family}:{cmd}")
+            for family, cmd in _HELP_REF.findall(line):
+                if family not in known:
+                    continue
+                if not (SOURCE_COMMANDS / family / f"{cmd}.md").is_file():
+                    rel = help_md.relative_to(ROOT)
+                    stale.append(f"{rel}: /{family}:{cmd}")
     assert stale == [], f"help files advertise commands that do not exist: {stale}"
 
 

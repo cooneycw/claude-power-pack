@@ -26,6 +26,11 @@ Run these commands to detect the current repository:
 ```bash
 # Get basic repo info
 gh repo view --json owner,name,defaultBranchRef --jq '{owner: .owner.login, name: .name, branch: .defaultBranchRef.name}' 2>/dev/null || echo "Not a GitHub repo"
+
+# Interleaved flow worktrees (FLOW_WORKTREE_BASE, ADR 0003 / #584) look like
+# projects under ~/Projects; a linked worktree's .git is a FILE. Say so rather
+# than presenting the worktree as the project.
+[ -f .git ] && echo "NOTE: current dir is a linked flow worktree of the repo above, not a standalone project."
 ```
 
 If not a GitHub repo, output a simple message and stop.
