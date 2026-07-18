@@ -682,7 +682,7 @@ else
     echo "  Try: sudo npm install -g happy-coder"
   fi
 fi
-echo "✓ /happy-check command available (verify version updates)"
+echo "✓ /cpp:happy-check command available (verify version updates)"
 ```
 
 If no:
@@ -1153,7 +1153,7 @@ Next Steps:
      /cpp:status
 
   4. Try the commands:
-     /project-next    - See what to work on
+     /project:next    - See what to work on
      /spec:help       - Spec-driven development
      /github:help     - Issue management
      /cicd:help       - CI/CD build & verification
@@ -1166,7 +1166,7 @@ Change Permissions Later:
 Documentation:
   • CLAUDE.md - Full reference
   • ISSUE_DRIVEN_DEVELOPMENT.md - IDD workflow
-  • /load-best-practices - Community tips
+  • /cpp:load-best-practices - Community tips
 
 =================================
 ```

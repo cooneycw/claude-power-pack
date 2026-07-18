@@ -100,6 +100,28 @@ def test_real_repo_bundled_scripts_byte_identical():
         assert bundled.read_bytes() == source.read_bytes(), bundled
 
 
+def test_real_repo_folded_top_level_commands_generated():
+    # #582: the six loose top-level commands were folded into families so the
+    # Codex surface actually delivers them.
+    skills = ROOT / "codex" / "skills"
+    for name in [
+        "project-next",
+        "project-lite",
+        "cpp-dockers",
+        "cpp-happy-check",
+        "cpp-load-best-practices",
+        "cpp-load-mcp-docs",
+    ]:
+        assert (skills / name / "SKILL.md").is_file(), f"missing generated skill {name}"
+
+
+def test_real_repo_no_top_level_source_commands():
+    # #582 completeness invariant: discovery globs .claude/commands/<family>/
+    # only, so a top-level *.md is invisible to every drift check.
+    loose = sorted(p.name for p in (ROOT / ".claude" / "commands").glob("*.md"))
+    assert loose == [], f"top-level commands are invisible to packaging: {loose}"
+
+
 # ---------------------------------------------------------------------------
 # Unit tests on a hermetic tmp tree
 # ---------------------------------------------------------------------------
@@ -338,3 +360,38 @@ def test_generation_is_deterministic(tmp_repo):
     codex_skill_sync.main(["--write"])
     second = {f.as_posix(): f.read_text() for f in out.rglob("*") if f.is_file()}
     assert first == second
+
+
+# ---------------------------------------------------------------------------
+# Completeness gate (#582): sources outside every family fail --check loudly
+# ---------------------------------------------------------------------------
+
+
+def test_completeness_flags_top_level_command(tmp_repo):
+    codex_skill_sync.main(["--write"])
+    (tmp_repo / ".claude" / "commands" / "stray.md").write_text("# stray\n")
+    assert codex_skill_sync.main(["--check"]) == 1
+
+
+def test_completeness_allows_top_level_exclusion(tmp_repo, monkeypatch):
+    codex_skill_sync.main(["--write"])
+    (tmp_repo / ".claude" / "commands" / "stray.md").write_text("# stray\n")
+    monkeypatch.setattr(codex_skill_sync, "TOP_LEVEL_EXCLUDE", {"stray.md"})
+    assert codex_skill_sync.main(["--check"]) == 0
+
+
+def test_completeness_flags_unlisted_family(tmp_repo):
+    codex_skill_sync.main(["--write"])
+    rogue = tmp_repo / ".claude" / "commands" / "rogue"
+    rogue.mkdir()
+    (rogue / "x.md").write_text("# x\n")
+    assert codex_skill_sync.main(["--check"]) == 1
+
+
+def test_completeness_allows_unpackaged_family(tmp_repo):
+    codex_skill_sync.main(["--write"])
+    # `spec` is in the module-default UNPACKAGED_FAMILIES carve-out.
+    spec = tmp_repo / ".claude" / "commands" / "spec"
+    spec.mkdir()
+    (spec / "adopt.md").write_text("# adopt\n")
+    assert codex_skill_sync.main(["--check"]) == 0

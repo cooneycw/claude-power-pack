@@ -6,7 +6,7 @@ Complete end-to-end workflow: start worktree → analyze issue → ELI5 plan + n
 
 - `ISSUE` (required): GitHub issue number (e.g., `42`)
 - `PROJECT` (optional): target repo when the session cwd is not the repo the
-  issue belongs to (issue #578). Resolved like `/project-next`: an existing
+  issue belongs to (issue #578). Resolved like `/project:next`: an existing
   directory path first, else `~/Projects/<PROJECT>`; must be a git checkout.
   When the resolved target differs from the session repo (or the session cwd is
   not in a git repo at all), Step 1 commits the run to the deterministic

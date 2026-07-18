@@ -12,6 +12,14 @@ CPP provides commands for setting up and managing Claude Code enhancements.
 | `/cpp:update` | Pull latest version, sync deps, refresh Docker/systemd runtime, offer tier upgrades |
 | `/cpp:status` | Check current installation state |
 | `/cpp-help` | This help overview |
+| `/cpp-dockers` | Docker container status, health, and project linkages |
+| `/cpp-happy-check` | Check happy-cli version (optional) |
+| `/cpp-load-best-practices` | Load the full best-practices guide (25K tokens) |
+| `/cpp-load-mcp-docs` | Load MCP Second Opinion server documentation |
+
+The four utility commands above were folded into the `cpp` family from loose
+top-level files (issue #582) so plugin and Codex-skill packaging deliver them;
+`/cpp:init|status|update` remain repo-local (not shipped in the cpp plugin).
 
 ## Installation Tiers
 

@@ -29,7 +29,7 @@
     {
       "name": "cpp",
       "source": "./plugins/cpp",
-      "description": "Claude Power Pack cross-cutting help/meta: /cpp:help maps every CPP command family. Help-only by design (ADR 0001); the legacy symlink installer is not distributed as a plugin."
+      "description": "Claude Power Pack cross-cutting help/meta plus utilities: /cpp:help maps every CPP command family; /cpp:dockers container status, /cpp:happy-check, /cpp:load-best-practices (bundled 25K guide), /cpp:load-mcp-docs (folded from top-level commands, #582). The legacy symlink installer is not distributed as a plugin."
     },
     {
       "name": "documentation",
@@ -54,7 +54,7 @@
     {
       "name": "project",
       "source": "./plugins/project",
-      "description": "Project scaffolding: /project:init zero-to-GitHub-repo orchestration (repo creation, CLAUDE.md via native /init, CI/CD wiring)."
+      "description": "Project scaffolding and orientation: /project:init zero-to-GitHub-repo orchestration, /project:next prioritized next-step report, /project:lite quick low-token project reference."
     },
     {
       "name": "qa",

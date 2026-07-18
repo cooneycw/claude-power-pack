@@ -618,7 +618,7 @@ Project created: {PROJECT_NAME}
 
 Next steps:
   cd ~/Projects/{PROJECT_NAME}
-  /project-next              # See recommended actions
+  /project:next              # See recommended actions
   /spec:adopt                # Adopt official spec-kit for feature specs (optional)
   /flow:start {N}            # Start working on an issue
 ```

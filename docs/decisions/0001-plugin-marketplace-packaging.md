@@ -383,3 +383,42 @@ packaging.
 - **Keep the symlink installer (do nothing).** Rejected: it is the documented
   legacy pattern and a standing maintenance tax (drift scripts, dual surface,
   3,140-line wizard).
+
+## Amendment 2026-07-18: top-level commands folded into families (issue #582)
+
+The B2 resolution left the loose top-level commands (`dockers`, `project-next`,
+`project-lite`, `happy-check`, `load-*`) unpackaged, "a B4/B5 decision" that was
+never made. The gap shipped: both generated surfaces discover sources via
+`.claude/commands/<family>/*.md` only, so a clean `/plugin`-only install never
+received these six commands and `codex/skills/` never carried them - confirmed
+in the field on 2026-07-18 (`/project:next` -> Unknown skill from a plugin-only
+box whose `project` plugin help.md advertised it anyway).
+
+Decision (#582, disposition (a) - fold, not generator special-casing):
+
+- `project-next.md` -> `project/next.md` (`/project:next`), `project-lite.md`
+  -> `project/lite.md` (`/project:lite`).
+- `dockers.md`, `happy-check.md`, `load-best-practices.md`, `load-mcp-docs.md`
+  -> the `cpp` family (`/cpp:dockers` etc.). **The cpp plugin is therefore no
+  longer help-only:** it ships help/meta plus these cross-cutting utilities.
+  The `/cpp:init|status|update` installer exclusion is unchanged.
+- The cpp plugin bundles `docs/reference/CLAUDE_CODE_BEST_PRACTICES_FULL.md`
+  (EXTRA_FILES) so `/cpp:load-best-practices` works without a CPP checkout;
+  the command resolves the doc via `${CLAUDE_PLUGIN_ROOT}` on plugin installs.
+- **Completeness gate:** `plugin-sync.sh --check` and `codex-skill-sync.py
+  --check` now fail on any `*.md` directly under `.claude/commands/` (unless in
+  an explicit `TOP_LEVEL_EXCLUDE`, empty by design) and on any family dir absent
+  from both `FAMILIES` and the documented `UNPACKAGED_FAMILIES` carve-outs
+  (`spec`; plus `codex` on the Codex surface). Exclusion by discovery is no
+  longer silent.
+- Out-of-repo commands mirrors (e.g. `~/Projects/.claude/commands/`) are now
+  guarded by `scripts/commands-mirror-sync.sh` (`/cpp:update` Step 7.8);
+  preferred end state remains retiring them in favor of `/plugin` installs
+  (#575).
+
+Rationale for (a) over teaching the generators about top-level files: plugin
+namespacing renames top-level commands on the canonical `/plugin` surface
+regardless (this ADR's original observation), so option (b) would make the repo
+and plugin surfaces disagree on invocation names. Folding gives every surface -
+repo checkout, plugin install, Codex skill, mirror - the same family-scoped
+name, at the one-time cost of renaming six invocations.

@@ -79,7 +79,7 @@ upstream templates:
 
 - Tasks become GitHub issues via `scripts/speckit-tasks-to-issues.sh`
 - Each issue ships through `/flow:auto` (worktree → ELI5 gate → implement → PR → merge)
-- `/project-next` surfaces open issues for prioritization
+- `/project:next` surfaces open issues for prioritization
 
 ## Attribution
 

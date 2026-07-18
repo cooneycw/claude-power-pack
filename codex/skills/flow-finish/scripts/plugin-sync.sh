@@ -13,10 +13,10 @@
 #   plugin-sync.sh --check [family...]  # check some or all families
 #   plugin-sync.sh --write [family...]  # (re)generate plugins/<family>/commands/
 #
-# The cpp plugin ships help.md ONLY: ADR 0001 scopes the cpp plugin to
-# cross-cutting help/meta, and the /cpp:init|update|status symlink installer is
-# the legacy surface this migration replaces (it retires in Phase B4), so it is
-# not distributed through the new one.
+# The cpp plugin ships help/meta plus the cross-cutting utilities folded in by
+# issue #582 (dockers, happy-check, load-best-practices, load-mcp-docs; ADR 0001
+# amendment 2026-07-18). The /cpp:init|status|update symlink installer stays
+# excluded: it is the legacy surface this migration replaced in Phase B4.
 #
 # Supersedes the B1 scripts/plugin-flow-sync.sh (issue #477), retired in B4
 # (#480). Mirrors the eli5-core-drift.sh deterministic-generator idiom.
@@ -26,14 +26,25 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+# PLUGIN_SYNC_REPO_ROOT is a test seam (hermetic tmp trees); unset in real use.
+REPO_ROOT="${PLUGIN_SYNC_REPO_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 
-# Every packaged family (ADR 0001 target design; spec and the loose top-level
-# commands are deliberately not packaged - see the ADR B2 resolution section).
+# Every packaged family (ADR 0001 target design).
 FAMILIES=(
     browser cicd claude-md codex cpp documentation evaluate flow github
     project qa second-opinion secrets security self-improvement
 )
+
+# Families deliberately not packaged as plugins (ADR 0001 B2 resolution):
+#   spec: spec-kit is the upstream product; /spec:adopt installs it.
+UNPACKAGED_FAMILIES=(spec)
+
+# Loose *.md files allowed directly under .claude/commands/. Empty by design
+# since #582 folded the last six into families: a top-level command is outside
+# every family glob, so BOTH generated surfaces (plugins/, codex/skills/)
+# silently exclude it and no drift check can see it. Adding a name here is an
+# explicit, reviewed exception - not a home for new commands.
+TOP_LEVEL_EXCLUDE=()
 
 # Per-family source basenames excluded from packaging (space-separated).
 declare -A EXCLUDE=(
@@ -48,6 +59,9 @@ declare -A EXCLUDE=(
 # the copy via ${CLAUDE_PLUGIN_ROOT}).
 declare -A EXTRA_FILES=(
     [secrets]="scripts/hook-mask-output.sh"
+    # /cpp:load-best-practices reads this doc; a plugin-only install has no CPP
+    # checkout, so the plugin bundles it (resolved via ${CLAUDE_PLUGIN_ROOT}).
+    [cpp]="docs/reference/CLAUDE_CODE_BEST_PRACTICES_FULL.md"
 )
 
 MODE="check"
@@ -89,7 +103,43 @@ is_excluded() {
     return 1
 }
 
+# Discovery-completeness gate (#582): every source under .claude/commands/ must
+# map to a packaged family or an explicit exclusion. Packaging globs only
+# .claude/commands/<family>/*.md, so a top-level file or an unlisted family dir
+# is not excluded by the parity diff - it is invisible to it.
+completeness_check() {
+    local rc=0 f base d fam item known
+    for f in "$REPO_ROOT/.claude/commands/"*.md; do
+        [[ -e "$f" ]] || continue
+        base="$(basename "$f")"
+        known=0
+        for item in "${TOP_LEVEL_EXCLUDE[@]}"; do
+            [[ "$item" == "$base" ]] && known=1 && break
+        done
+        if [[ "$known" -eq 0 ]]; then
+            echo "UNPACKAGED top-level command: .claude/commands/$base (move it into a family dir, or list it in TOP_LEVEL_EXCLUDE)"
+            rc=1
+        fi
+    done
+    for d in "$REPO_ROOT/.claude/commands/"*/; do
+        [[ -d "$d" ]] || continue
+        fam="$(basename "$d")"
+        known=0
+        for item in "${FAMILIES[@]}" "${UNPACKAGED_FAMILIES[@]}"; do
+            [[ "$item" == "$fam" ]] && known=1 && break
+        done
+        if [[ "$known" -eq 0 ]]; then
+            echo "UNPACKAGED family: .claude/commands/$fam/ (add it to FAMILIES, or list it in UNPACKAGED_FAMILIES)"
+            rc=1
+        fi
+    done
+    return $rc
+}
+
 drift=0
+if [[ "$MODE" == "check" ]]; then
+    completeness_check || drift=1
+fi
 for family in "${SELECTED[@]}"; do
     src_dir="$REPO_ROOT/.claude/commands/$family"
     dest_dir="$REPO_ROOT/plugins/$family/commands"

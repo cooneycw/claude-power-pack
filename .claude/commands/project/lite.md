@@ -1,18 +1,18 @@
 ---
-description: Quick project reference with minimal context usage (context-efficient alternative to /project-next)
+description: Quick project reference with minimal context usage (context-efficient alternative to /project:next)
 allowed-tools: Bash(gh:*), Bash(git:*), Bash(ls:*), Bash(~/.claude/:*), Read, Glob
 ---
 
 # Project Lite - Quick Reference
 
-Generate a context-efficient project overview. This command uses minimal tokens (~500-800) compared to `/project-next` (~2-4K compact, ~15-30K with `--full`).
+Generate a context-efficient project overview. This command uses minimal tokens (~500-800) compared to `/project:next` (~2-4K compact, ~15-30K with `--full`).
 
 **Use this when:**
 - Starting a session and want quick orientation
 - Context is already high and you need project info
 - You know what you want to work on (don't need issue analysis)
 
-**Use `/project-next` when:**
+**Use `/project:next` when:**
 - You need issue prioritization and recommendations
 - You want worktree analysis and cleanup suggestions
 - You're unsure what to work on next
@@ -103,7 +103,7 @@ No active locks or sessions.
 {list if detected in .claude/commands/ or CLAUDE.md}
 
 ---
-For issue analysis and prioritized recommendations, run `/project-next`.
+For issue analysis and prioritized recommendations, run `/project:next`.
 ```
 
 ---
@@ -112,7 +112,7 @@ For issue analysis and prioritized recommendations, run `/project-next`.
 
 After output, add:
 
-> **Token usage:** ~{X} tokens (vs ~2-4K for /project-next compact, ~15-30K for --full)
+> **Token usage:** ~{X} tokens (vs ~2-4K for /project:next compact, ~15-30K for --full)
 
 ---
 
@@ -142,7 +142,7 @@ Example:
 
 | Scenario | Command | Token Cost |
 |----------|---------|------------|
-| Quick orientation | `/project-lite` | ~500-800 |
-| Issue analysis + recommendations | `/project-next` | ~2-4K compact / ~15-30K --full |
+| Quick orientation | `/project:lite` | ~500-800 |
+| Issue analysis + recommendations | `/project:next` | ~2-4K compact / ~15-30K --full |
 | View specific issue | `/github:issue-view N` | ~1-2K |
 | List open issues | `/github:issue-list` | ~2-5K |
