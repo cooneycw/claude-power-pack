@@ -437,6 +437,33 @@ echo "$RUNTIME_STATUS"
 
 ---
 
+## Step 5b: Script Symlink Refresh (Tier 2)
+
+The git pull may have ADDED new helper scripts under `scripts/` (e.g. the flow
+helper family, issue #581). EXISTING symlinks in `~/.claude/scripts/` follow
+the pull automatically, but a NEW script has no symlink yet - and the flow
+allowlist rules delivered by Step 7.5 match the stable `~/.claude/scripts/`
+path, so without this refresh a new rule points at a path that does not exist
+and the zero-prompt lane silently degrades. Re-run the same idempotent link
+loop as `/cpp:init` Tier 2; skip when this install has no `~/.claude/scripts/`
+directory (Tier 0/1 - never self-upgrade the tier here):
+
+```bash
+if [ -d ~/.claude/scripts ]; then
+  for script in "$CPP_DIR"/scripts/*.sh; do
+    name=$(basename "$script")
+    if [ ! -L ~/.claude/scripts/"$name" ]; then
+      ln -sf "$script" ~/.claude/scripts/"$name"
+      echo "✓ $name newly linked"
+    fi
+  done
+else
+  echo "→ Script refresh skipped (no ~/.claude/scripts - Tier 0/1 install)"
+fi
+```
+
+---
+
 ## Step 6: MCP Server Drift Detection
 
 After pulling, scan for drift between what CPP expects and what is actually

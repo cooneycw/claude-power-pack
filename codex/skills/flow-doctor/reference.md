@@ -134,6 +134,20 @@ elif [ -f "$HOME/.claude/scripts/worktree-remove.sh" ]; then
 else
   echo "WARN worktree-remove.sh (optional fallback not installed; native ExitWorktree covers same-session cleanup)"
 fi
+
+# Flow helper family (issue #581): the zero-prompt lane invokes these BARE at
+# their stable ~/.claude/scripts/ paths, matched by the shipped allowlist
+# rules. Missing is a WARN, not a FAIL - flow still works via the CPP-checkout
+# fallback paths, but those invocations prompt.
+for script in flow-start-resolve.sh flow-stale-check.sh flow-worktree-guard.sh flow-live-driver-guard.sh gh-pr-merge.sh; do
+  if [ -x "$HOME/.claude/scripts/$script" ]; then
+    echo "PASS $script (flow helper)"
+  elif [ -f "$HOME/.claude/scripts/$script" ]; then
+    echo "WARN $script (flow helper present but not executable)"
+  else
+    echo "WARN $script (flow helper not at ~/.claude/scripts/ - zero-prompt lane degraded; install via /cpp:update)"
+  fi
+done
 ```
 
 ### Step 5b: User-Level Flow Allowlist
@@ -282,7 +296,8 @@ Output a single diagnostic report in this format:
 | prompt-context.sh | ✅/❌ | Shell prompt context |
 | worktree-remove.sh | ✅/⚠️ | Optional fallback (native ExitWorktree is primary) |
 | secrets-mask.sh | ✅/❌ | Output masking filter |
-| Flow allowlist | ✅/⚠️/❌ | 32/32 rules in ~/.claude/settings.json / N missing / settings.json missing |
+| Flow helper family | ✅/⚠️ | flow-start-resolve, flow-stale-check, flow-worktree-guard, flow-live-driver-guard, gh-pr-merge at ~/.claude/scripts/ (zero-prompt lane, #581) |
+| Flow allowlist | ✅/⚠️/❌ | 38/38 rules in ~/.claude/settings.json / N missing / settings.json missing |
 
 ### MCP Server Wiring
 
@@ -336,6 +351,7 @@ Output a single diagnostic report in this format:
    - Monorepo: `cp ~/Projects/claude-power-pack/templates/makefiles/multi.mk Makefile`
 2. ⚠️ **worktree-remove.sh not found (optional)** - `/flow` uses the native `EnterWorktree`/`ExitWorktree` tools for same-session worktrees; the script is only a fallback for cross-session / cross-machine cleanup. Install if you want it: `ln -sf ~/Projects/claude-power-pack/scripts/worktree-remove.sh ~/.claude/scripts/`
 2b. ⚠️ **Flow allowlist missing/incomplete** - `/flow:*` will prompt for read-only git/gh plumbing on every run. Merge via `/cpp:update` or `/cpp:init`; rationale and caveats in `templates/claude-settings-permissions.md`
+2c. ⚠️ **Flow helper(s) not at ~/.claude/scripts/** - the #581 zero-prompt lane degrades to CPP-checkout fallback paths, which prompt. Run `/cpp:update` (Step 5b re-links new scripts) or `/cpp:init` Tier 2
 3. ⚠️ **uv not installed** - Install: `curl -LsSf https://astral.sh/uv/install.sh | sh`
 4. ❌ **cicd.yml missing** - Run `/cicd-init` to auto-detect framework and generate configuration
 5. ⚠️ **Makefile gaps** - Run `/cicd-check` for details or `/cicd-init` to add missing targets

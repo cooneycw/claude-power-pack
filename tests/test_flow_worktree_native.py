@@ -59,16 +59,19 @@ def test_auto_cross_repo_lane() -> None:
     # Issue #578: /flow:auto invoked with a PROJECT arg, or from a session cwd
     # outside any git repo, must resolve the target checkout and deterministically
     # ride the git-worktree lane instead of attempting EnterWorktree (which is
-    # bound to the session cwd's repo).
+    # bound to the session cwd's repo). The mechanics were extracted from inline
+    # doc bash into scripts/flow-start-resolve.sh (#581); the doc wires the
+    # helper and the helper owns resolution + git-lane creation.
     text = _read(".claude/commands/flow/auto.md")
     assert "/flow:auto <ISSUE> [PROJECT]" in text  # documented invocation form
-    assert "TARGET_REPO" in text  # explicit target-repo resolution
-    assert "CROSS_REPO" in text  # deterministic lane selection
-    assert '"$HOME/Projects/$PROJECT"' in text  # /project:next resolution convention
-    assert 'git -C "$TARGET_REPO" worktree add -b "$BRANCH"' in text  # git-lane fresh path
-    # The cross-repo lane keeps the worktree under the TARGET repo so the
+    assert "flow-start-resolve.sh" in text  # Step 1 delegates to the helper
+    assert "CROSS_REPO" in text and "cross-repo" in text  # lane surfaced in the contract
+    script = _read("scripts/flow-start-resolve.sh")
+    assert '"$PROJECTS_DIR/$PROJECT"' in script  # /project:next resolution convention
+    assert "worktree add" in script  # git-lane creation lives in the helper
+    # The default layout keeps the worktree under the TARGET repo so the
     # #473/#486 guards and friction buffer resolve unchanged.
-    assert '"$TARGET_REPO/.claude/worktrees/${BRANCH}"' in text
+    assert "/.claude/worktrees/" in script
     # start.md points cross-repo users at /flow:auto rather than half-supporting it.
     start = _read(".claude/commands/flow/start.md")
     assert "#578" in start
@@ -82,9 +85,12 @@ def test_moat_preserved_in_auto() -> None:
     text = _read(".claude/commands/flow/auto.md")
     # eli5 necessity gate still runs before implementation.
     assert "eli5" in text.lower()
-    # Issue-anchored branch name is enforced after native creation.
-    assert 'BRANCH="issue-${ISSUE_NUM}-${SLUG}"' in text
-    assert "git branch -m" in text
+    # Issue-anchored branch enforcement moved into the Step-1 helper's --verify
+    # gate (#581): auto.md must wire it and the helper must enforce it.
+    assert "flow-start-resolve.sh --verify" in text
+    script = _read("scripts/flow-start-resolve.sh")
+    assert 'BRANCH="issue-${ISSUE_NUM}-${SLUG}"' in script
+    assert "branch -m" in script
     # Squash-merge discipline is unchanged.
     assert "--squash" in text
     # Quality gates are unchanged.
