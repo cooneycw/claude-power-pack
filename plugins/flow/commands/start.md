@@ -57,6 +57,16 @@ The native worktree lives under `.claude/worktrees/${BRANCH}` - you do not choos
 a sibling directory; pass `${BRANCH}` as the worktree `name` and the tool places
 and names it.
 
+**Worktree base override (issue #584, ADR 0003 Option A):** when
+`FLOW_WORKTREE_BASE` is set (host config, e.g. `~/.bashrc`), worktrees are
+created OUT of the repo at `$FLOW_WORKTREE_BASE/<repo>-<branch>` via plain
+`git worktree add` + `cd` instead of `EnterWorktree` - the native tool's base
+dir is not configurable, and `EnterWorktree(path=...)` outside the repo
+triggers an approval prompt permission rules cannot suppress. Unset (the
+shipped default), behavior below is byte-identical to today. Cleanup of a
+base-override worktree is the git fallback (`/flow:merge` / `/flow:cleanup` /
+`scripts/worktree-remove.sh` - all already layout-aware).
+
 ### Step 4: Check for Existing Work
 
 ```bash
@@ -84,15 +94,36 @@ Pick exactly one path:
   ```bash
   REMOTE_BRANCH=$(git branch -r | grep "issue-${ISSUE_NUM}-" | head -1 | xargs)
   LOCAL_BRANCH="${REMOTE_BRANCH#origin/}"
-  git worktree add -b "$LOCAL_BRANCH" ".claude/worktrees/${LOCAL_BRANCH}" "$REMOTE_BRANCH"
+  if [ -n "$FLOW_WORKTREE_BASE" ]; then
+      mkdir -p "$FLOW_WORKTREE_BASE"
+      WT_PATH="${FLOW_WORKTREE_BASE}/$(basename "$(git rev-parse --show-toplevel)")-${LOCAL_BRANCH}"
+  else
+      WT_PATH=".claude/worktrees/${LOCAL_BRANCH}"
+  fi
+  git worktree add -b "$LOCAL_BRANCH" "$WT_PATH" "$REMOTE_BRANCH"
   ```
-  then call `EnterWorktree(path=".claude/worktrees/${LOCAL_BRANCH}")`.
+  then call `EnterWorktree(path="$WT_PATH")` - or, when `FLOW_WORKTREE_BASE` is
+  set, `cd "$WT_PATH"` instead (out-of-repo `EnterWorktree(path=...)` prompts;
+  see the base-override note in Step 3).
 - **Neither exists** (fresh start): create and enter the worktree natively by
   calling the `EnterWorktree` tool with `name="${BRANCH}"`. This branches from
   `origin/<default-branch>` (under the default `worktree.baseRef: fresh`) and
   switches the session into `.claude/worktrees/${BRANCH}`. Do NOT shell out to
   `git worktree add` for the fresh path. If your `worktree.baseRef` is set to
   `head`, sync `main` first so the branch does not start from a stale local HEAD.
+
+  **Base-override exception (issue #584):** when `FLOW_WORKTREE_BASE` is set,
+  the fresh path is the git lane instead of `EnterWorktree`:
+  ```bash
+  git fetch origin --quiet
+  DEFAULT_BRANCH=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null)
+  DEFAULT_BRANCH=${DEFAULT_BRANCH#origin/}
+  DEFAULT_BRANCH=${DEFAULT_BRANCH:-main}
+  mkdir -p "$FLOW_WORKTREE_BASE"
+  WT_PATH="${FLOW_WORKTREE_BASE}/$(basename "$(git rev-parse --show-toplevel)")-${BRANCH}"
+  git worktree add -b "$BRANCH" "$WT_PATH" "origin/${DEFAULT_BRANCH}"
+  cd "$WT_PATH"
+  ```
 
 ### Step 5: Verify, Normalize Branch, Output
 
