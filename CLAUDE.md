@@ -63,6 +63,7 @@ Core components and their locations:
 ## Environment Variables
 
 - `CLAUDE_PROJECT` - Default project for `/project-next` from `~/Projects`. Set in `~/.bashrc`.
+- `FLOW_WORKTREE_BASE` - Optional worktree base override (issue #584, ADR 0003 Option A): when set (host config, e.g. `~/.bashrc`), `/flow:start` + `/flow:auto` create worktrees at `$FLOW_WORKTREE_BASE/<repo>-<branch>` via the git lane instead of in-repo `.claude/worktrees/<branch>` via `EnterWorktree`. Unset = shipped default, byte-identical to today. Never set in shipped config (PR #527 norm).
 
 ## MCP Servers and Secrets
 
@@ -105,7 +106,13 @@ name (enforced after `EnterWorktree`), the `/flow:eli5` necessity gate, the
 quality gates, and merge/cleanup discipline are unchanged. Because native
 `ExitWorktree` only removes worktrees created in the current session, cross-session
 and cross-machine cleanup (`/flow:merge`, `/flow:cleanup`) keep `git worktree
-remove` / `scripts/worktree-remove.sh` as the fallback. The `/flow:*` commands
+remove` / `scripts/worktree-remove.sh` as the fallback. The base location is
+configurable via `FLOW_WORKTREE_BASE` (issue #584, ADR 0003 Option A): when set,
+worktrees are created at `$FLOW_WORKTREE_BASE/<repo>-<branch>` and the run rides
+the #578 git lane end-to-end (the native tool's base dir is not configurable,
+and out-of-repo `EnterWorktree(path=...)` triggers an unsuppressable approval
+prompt); the guard/merge/remove/friction scripts resolve via git plumbing and
+work unchanged at any base. The `/flow:*` commands
 ship as the `flow` plugin (`/plugin install flow@cpp`): `.claude/commands/flow/*`
 is the permanent source of truth and `plugins/flow/commands/*` holds
 byte-identical copies kept in sync by `scripts/plugin-sync.sh`. The legacy
