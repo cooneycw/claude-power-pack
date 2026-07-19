@@ -113,6 +113,9 @@ def test_posture_file_matches_adr_0004():
     assert p["enforce_admins"] is False, "ADR 0004 keeps the owner break-glass"
 
 
+@pytest.mark.skipif(
+    shutil.which("git") is None, reason="git not installed (absent in the CI validate image)"
+)
 def test_posture_file_is_tracked():
     # .gitignore blankets *.json; without an explicit negation the posture file is
     # silently untracked and the check compares against nothing (issue #430 trap).
