@@ -51,7 +51,9 @@ Core components and their locations:
   - tool-risk-drift - shared permission-risk taxonomy guard (#495, wired in #576): checks that the safety-critical `DESTRUCTIVE_TOKENS` and `CODE_EXEC` sets are identical between the canonical `scripts/classify-tool-risk.py` and the copy vendored inline in `scripts/hook-permission-census.sh`, so a command one classifier calls dangerous can never be emitted as an allow-rule candidate by the other. Advisory by default; `--strict` exits 1 on drift and is a HARD gate (`make tool-risk-check`, the `tool-risk-drift` step in `.woodpecker.yml`, pinned by `tests/test_tool_risk_drift.py`). Non-safety sets (task-runner, dual-use-net) may differ benignly and are deliberately not guarded
   - flow-start-resolve - deterministic `/flow` Step-1 resolver + `--verify` gate (#581): target-repo resolution (#578), issue fetch + state check, issue-anchored branch derivation, existing-work triage (`current-branch|fresh|resume|remote-pickup|cross-repo`), wraps the #503 live-driver guard + shipped-PR hazard, performs git-lane worktree creation (honoring `FLOW_WORKTREE_BASE`, #584), and emits a `key=value` contract - extracts the compound Step-1 bash the permission matcher could never auto-allow
   - flow-start-resolve `--session-cwd` - the session cwd is DECLARED, not inferred (#592): the Bash tool's cwd persists across calls and drifts on any earlier `cd`, while `EnterWorktree` acts on the session cwd, which never moves - so `CROSS_REPO`/`GIT_LANE` (and, with no PROJECT arg, `TARGET_REPO` itself) are resolved from the path `auto.md`/`start.md` pass verbatim. Omitting it emits `SESSION_CWD_INFERRED=1` and fails closed to `GIT_LANE=1`, since the git lane is correct in every case while a wrong `GIT_LANE=0` points `EnterWorktree` at the wrong repo - or at none
-  - flow-live-driver-guard - advisory concurrent-session guard (#503): warns when a worktree's dirty files were modified within the freshness window, the signature of another live session mid-implementation; wrapped by flow-start-resolve on the resume lane
+  - flow-live-driver-guard - advisory concurrent-session guard (#503): warns when a worktree's dirty files were modified within the freshness window, the signature of another live session mid-implementation; wrapped by flow-start-resolve on the resume lane, and re-run at `/flow:auto` Step 4 before the first edit (#597) because a single Step-1 check goes stale across the analysis + ELI5 pause
+  - flow-worktree-claim - cross-session OWNERSHIP claim on a flow worktree (#597), the half #503 could not cover: the live-driver guard protects a session ENTERING a worktree, but nothing protected an active worktree from being REMOVED by a sibling session, whose Step-7 cleanup deleted an issue-N checkout by name and destroyed uncommitted work with no signal but the user noticing. Rides git's own `git worktree lock --reason "flow-claim issue=N pid=... session=... host=... ts=..."`, so the claim is a real barrier (`git worktree remove --force` refuses a locked worktree) rather than an advisory note, and is readable from `git worktree list --porcelain`. `claim`/`check`/`release` verbs; ownership is pid + session, liveness is `kill -0` trusted only when the recorded host matches, and a claim whose owner is gone is STALE and auto-taken-over so the mechanism can never wedge a repo. A lock this family did not write is FOREIGN and never stolen. Staked in `flow-start-resolve.sh --verify` - the only hook point running INSIDE the worktree on every lane, since the native EnterWorktree lane creates the checkout after resolve mode returns - and read by resolve mode via `check --issue N` BEFORE any worktree is created, so two sessions handed the same issue stop instead of racing. Fail-open everywhere except the case it exists for: claiming against a live owner exits 1
+  - worktree-remove `--steal` + claim owner check (#597) - refuses with exit 4 to remove a worktree claimed by another LIVE session (printing the owning pid/session), releases a self-owned or stale claim and proceeds otherwise, and takes `--steal` as the deliberate override. One change covers `/flow:auto` Step 7, `/flow:merge` and `/flow:cleanup`, since all three route removal through this script
   - hooks
   - drift-detect
   - mcp-drift
@@ -154,6 +156,27 @@ overlapping dirt whose main-side mtime predates the run's freshness window
 is someone else's uncommitted work on a shared file, not a leak from this run.
 A total leak (idle worktree + fresh main edits) is caught by the same freshness
 rule (#573).
+
+**Concurrent flow sessions (issue #597):** CPP encourages parallel `/flow`
+sessions, and nothing used to stop two of them from operating on one repo - or
+one worktree. Four failures were captured in a single friction buffer, the worst
+of them silent: a sibling session's Step-7 cleanup removed a live session's
+worktree by name, destroying uncommitted work. A run now stakes a **claim** on
+its checkout (`scripts/flow-worktree-claim.sh`, a real `git worktree lock`)
+during the Step-1 verify gate, and three guards read it: Step 1 refuses to start
+on an issue another LIVE session holds (`CLAIM=held` -> `CONFIRM_REQUIRED=1`),
+`worktree-remove.sh` refuses (exit 4) to delete a worktree claimed by a live
+sibling, and Step 4 re-runs the #503 live-driver guard immediately before the
+first edit, since the Step-1 check goes stale across the analysis and approval
+pause. Separately, Step 9 skips `make deploy` when `.claude/deploy.log` already
+records a SUCCESSFUL deploy of the current HEAD sha, so a commit a concurrent
+session just shipped is not deployed twice. Ownership is pid + session with
+host-scoped `kill -0` liveness; an owner that is gone reads as `stale` and is
+taken over automatically, so a claim can never permanently wedge a repo, and
+`--steal` is the documented break-glass. Repeated stale-base churn (the fourth
+captured failure - `origin/main` moving several times mid-run) is NOT addressed
+here: it needs serialized merges, not an ownership claim, and the #473
+stale-check plus the #462 Step-7 guard remain its only mitigations.
 
 **Standalone skill extractions (issue #443):** skills with standalone value are
 extracted to their own public plugin repos so users never have to clone CPP -

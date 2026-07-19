@@ -5,12 +5,19 @@
 # changes to the main repository first (determined from the worktree's
 # .git file) to prevent breaking your shell session.
 #
+# A worktree CLAIMED by another live /flow session (issue #597) is never
+# removed: the claim is checked first and a live foreign owner is a hard stop
+# (exit 4), because removing it is exactly the silent-data-loss failure that
+# motivated the claim. A self-owned or stale claim is released and removed as
+# usual, and --steal is the deliberate override.
+#
 # Usage:
-#   worktree-remove.sh <worktree-path> [--force] [--delete-branch]
+#   worktree-remove.sh <worktree-path> [--force] [--delete-branch] [--steal]
 #
 # Options:
 #   --force          Remove even if worktree has uncommitted changes
 #   --delete-branch  Also delete the associated branch after removal
+#   --steal          Remove even when another live session claims it (#597)
 #
 # Examples:
 #   worktree-remove.sh /home/user/Projects/nhl-api-issue-42
@@ -30,6 +37,7 @@ NC='\033[0m' # No Color
 WORKTREE_PATH=""
 FORCE=""
 DELETE_BRANCH=false
+STEAL=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -39,6 +47,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --delete-branch)
             DELETE_BRANCH=true
+            shift
+            ;;
+        --steal)
+            STEAL=true
             shift
             ;;
         -h|--help)
@@ -52,6 +64,8 @@ while [[ $# -gt 0 ]]; do
             echo "  --force          Remove even if worktree has uncommitted changes"
             echo "  --delete-branch  Also delete the associated branch after removal"
             echo "                   (force-deletes a squash-merged branch non-interactively)"
+            echo "  --steal          Remove even when another live /flow session claims it"
+            echo "                   (issue #597; without it a live claim is a hard stop)"
             echo ""
             echo "Examples:"
             echo "  worktree-remove.sh /home/user/Projects/nhl-api-issue-42"
@@ -158,6 +172,53 @@ fi
 
 # Get the branch name before removing
 BRANCH_NAME=$(git -C "$WORKTREE_PATH" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+
+# --- Cross-session claim check (issue #597) ----------------------------------
+# Another LIVE /flow session may be driving this checkout right now. Removing it
+# out from under that session is the silent-data-loss failure this guard exists
+# for, so a live foreign claim is a hard stop. A claim owned by THIS session, or
+# left behind by a session that has since died, is simply released first.
+#
+# Fail-open in both directions: a missing helper, an unreadable lock, or a git
+# too old to report one leaves the previous behavior exactly as it was.
+SELF_SCRIPT_DIR="$(dirname "$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")")"
+CLAIM_HELPER=""
+for cand in "$SELF_SCRIPT_DIR/flow-worktree-claim.sh" "$HOME/.claude/scripts/flow-worktree-claim.sh"; do
+    if [[ -f "$cand" ]]; then
+        CLAIM_HELPER="$cand"
+        break
+    fi
+done
+
+if [[ -n "$CLAIM_HELPER" ]]; then
+    CLAIM_OUT=$(bash "$CLAIM_HELPER" check "$WORKTREE_PATH" 2>/dev/null || true)
+    CLAIM_STATE=$(printf '%s\n' "$CLAIM_OUT" | sed -n 's/^FLOW_CLAIM: //p' | tail -1)
+    CLAIM_PID=$(printf '%s\n' "$CLAIM_OUT" | sed -n 's/^FLOW_CLAIM_OWNER_PID=//p' | tail -1)
+    CLAIM_SESSION=$(printf '%s\n' "$CLAIM_OUT" | sed -n 's/^FLOW_CLAIM_OWNER_SESSION=//p' | tail -1)
+    CLAIM_ISSUE=$(printf '%s\n' "$CLAIM_OUT" | sed -n 's/^FLOW_CLAIM_ISSUE=//p' | tail -1)
+
+    case "${CLAIM_STATE:-unknown}" in
+        held | foreign)
+            if [[ "$STEAL" != true ]]; then
+                echo -e "${RED}Error: refusing to remove a worktree claimed by another session${NC}" >&2
+                echo "" >&2
+                echo "  Worktree: $WORKTREE_PATH" >&2
+                echo "  Claim:    ${CLAIM_STATE} (issue #${CLAIM_ISSUE:--}, pid ${CLAIM_PID:--}, session ${CLAIM_SESSION:--})" >&2
+                echo "" >&2
+                echo "  Another /flow session is driving this checkout. Removing it would destroy" >&2
+                echo "  its uncommitted work - the failure this claim exists to prevent (issue #597)." >&2
+                echo "  Wait for that session to finish, or pass --steal if you are certain it is gone." >&2
+                exit 4
+            fi
+            echo -e "${YELLOW}Warning: --steal given; removing a worktree claimed by pid ${CLAIM_PID:--}.${NC}" >&2
+            bash "$CLAIM_HELPER" release "$WORKTREE_PATH" --force >/dev/null 2>&1 || true
+            ;;
+        self | stale)
+            # Ours, or abandoned - drop the lock so the removal below can proceed.
+            bash "$CLAIM_HELPER" release "$WORKTREE_PATH" >/dev/null 2>&1 || true
+            ;;
+    esac
+fi
 
 # Check for uncommitted changes (unless --force)
 if [[ -z "$FORCE" ]]; then

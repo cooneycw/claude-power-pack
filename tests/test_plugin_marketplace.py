@@ -314,6 +314,7 @@ FLOW_PLUGIN_SCRIPTS = PLUGINS_DIR / "flow" / "scripts"
 FLOW_BUNDLED_HELPERS = [
     "flow-start-resolve.sh",
     "flow-live-driver-guard.sh",
+    "flow-worktree-claim.sh",
     "flow-stale-check.sh",
     "flow-worktree-guard.sh",
     "gh-pr-merge.sh",

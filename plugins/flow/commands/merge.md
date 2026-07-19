@@ -11,6 +11,20 @@ cross-session cleanup therefore stays on `git worktree remove` /
 same session with `EnterWorktree(name=...)`, prefer the native
 `ExitWorktree(action="remove", discard_changes=true)` instead of Steps 5a-5c.
 
+**Release the #597 claim before ANY removal path.** A `/flow` run stakes a real
+`git worktree lock` on its checkout, and git refuses to remove a locked worktree
+- including via the native tool, which knows nothing about the claim. Run this
+bare first (fail-open; it releases only a claim owned by this session or an
+abandoned one):
+
+```bash
+~/.claude/scripts/flow-worktree-claim.sh release /path/to/worktree
+```
+
+`worktree-remove.sh` does this itself, and **exits 4** rather than removing a
+worktree another LIVE session claims - a correct refusal, not a failure. Report
+it and stop instead of reaching for `--steal`.
+
 ## Instructions
 
 When the user invokes `/flow:merge`, perform these steps:
