@@ -50,7 +50,7 @@ append a record via the fail-open capture helper (it never blocks the flow):
 - a **manual intervention / correction** the user had to make
 
 ```bash
-scripts/friction-log.sh --class <gate-failure|red-output|manual-intervention> \
+~/.claude/scripts/friction-log.sh --class <gate-failure|red-output|manual-intervention> \
   --signal "<what happened>" --fix "<proposed fix, if obvious>" \
   --scope <local|portable> --run "flow:auto #$ISSUE_NUM" --step "<N/9 Name>" --outcome "<retried|worked-around|corrected>"
 ```
@@ -66,7 +66,11 @@ hand.
 Records go to the main repo's `.claude/friction.jsonl` (a queue drained by
 `/self-improvement:retro`). The helper resolves that durable buffer automatically
 via `git-common-dir`, so signals captured inside this run's worktree survive its
-removal at Step 7 (issue #471) - no env var or per-call path needed.
+removal at Step 7 (issue #471) - no env var or per-call path needed. It is
+invoked at the stable `~/.claude/scripts/` path like every other helper; on exit
+127 fall back to `${CLAUDE_PLUGIN_ROOT}/scripts/friction-log.sh` (bundled with
+the plugin, #590) or the CPP-checkout copy. Capture is fail-open - if no copy
+exists, skip it rather than stopping the run.
 This is capture only - proposing and applying fixes happens in the retro, not here.
 
 ---
@@ -103,9 +107,19 @@ number (and project, when `/flow:auto` was given a PROJECT arg):
 ~/.claude/scripts/flow-start-resolve.sh 42 my-project
 ```
 
-If the stable path is missing (exit 127 - the helper family installs via
-`/cpp:init` / `/cpp:update`), fall back to `scripts/flow-start-resolve.sh` from
-the CPP checkout; that path may prompt once.
+If the stable path is missing (exit 127), fall back in this order - the first
+that exists (issue #590):
+
+1. `${CLAUDE_PLUGIN_ROOT}/scripts/flow-start-resolve.sh` - the flow plugin
+   bundles the helper family, so a marketplace-only install (no CPP clone) has
+   this copy. `CLAUDE_PLUGIN_ROOT` is unset outside a plugin install.
+2. `scripts/flow-start-resolve.sh` from the CPP checkout.
+
+Either fallback may prompt once: the allowlist rules match only the stable
+`~/.claude/scripts/` path. Tell the user to run **`/flow:repair`**, which
+installs the family there and restores the prompt-free lane. If BOTH fallbacks
+exit 127 there is no helper source at all - **STOP** and report that flow needs
+`/plugin install flow@cpp` (then `/flow:repair`) or a CPP checkout.
 
 The helper prints a `key=value` contract ending in `FLOW_START_RESOLVE: ok`.
 On `FLOW_START_RESOLVE: error` (with an `ERROR=` line): **STOP** and report it.
@@ -285,8 +299,10 @@ applies to every helper call below):
 ```
 
 (Exit 127 - helper family not installed: fall back to
-`$CPP_DIR/scripts/flow-stale-check.sh` after locating the CPP checkout; that
-path may prompt.)
+`${CLAUDE_PLUGIN_ROOT}/scripts/flow-stale-check.sh` (bundled with the plugin,
+#590), else `$CPP_DIR/scripts/flow-stale-check.sh` after locating the CPP
+checkout; either may prompt. This guard is advisory - if no copy exists, note it
+and continue. `/flow:repair` installs the family at the stable path.)
 
 - If it reports `FLOW_STALE_BASE: collision` - or names a file you are about to
   touch under "Changed upstream" - bring the base in now, before piling edits on
@@ -375,7 +391,9 @@ ISSUE_NUM=$(echo "$BRANCH" | grep -oP 'issue-\K[0-9]+' || echo "")
 **Stale-base pre-check (issue #473) - run BEFORE the quality gates and commit**,
 so the commit lands on a current tree and the gate reflects what will merge (the
 #462 Step-7 guard stays the final backstop). Bare invocation first (#581
-discipline; on exit 127 fall back to the CPP-checkout copy):
+discipline; on exit 127 fall back to the plugin-bundled copy at
+`${CLAUDE_PLUGIN_ROOT}/scripts/flow-stale-check.sh` (#590), else the
+CPP-checkout copy):
 
 ```bash
 ~/.claude/scripts/flow-stale-check.sh origin/main

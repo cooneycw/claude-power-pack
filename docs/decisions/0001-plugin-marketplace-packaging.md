@@ -422,3 +422,51 @@ regardless (this ADR's original observation), so option (b) would make the repo
 and plugin surfaces disagree on invocation names. Folding gives every surface -
 repo checkout, plugin install, Codex skill, mirror - the same family-scoped
 name, at the one-time cost of renaming six invocations.
+
+## Amendment 2026-07-19: the flow plugin bundles its helper family (issue #590)
+
+Phase B5 made `/plugin install flow@cpp` the canonical install path, but the
+flow commands are only half the product: they invoke ~14 helper scripts, and
+`/flow:start` + `/flow:auto` Step 1 hard-depend on `flow-start-resolve.sh`
+(#581), `/flow:merge` on `gh-pr-merge.sh`. Those reached the host only through
+`/cpp:init` / `/cpp:update`, which this ADR deliberately keeps repo-local. A
+marketplace-only user therefore got exit 127 at Step 1, with the documented
+"fall back to the CPP checkout" remedy unavailable and auto.md forbidding an
+inline-bash workaround. The `#578` cross-repo lane, living entirely inside the
+resolver, was likewise absent for plugin-only users.
+
+The tension is real: bundling alone does not fix it, because the #581 allowlist
+rules in `templates/claude-settings-permissions.json` match the stable bare path
+`~/.claude/scripts/<helper>`, and a version-stamped plugin-cache path never
+matches them - running the helpers in place would trade exit-127 breakage for a
+permission prompt on every call.
+
+Decision (#590, the issue's Option 1 - bundle + repair, not "declare flow
+clone-required"):
+
+- **Bundle.** `plugins/flow/scripts/` carries the load-bearing family via
+  `EXTRA_FILES` - the same mechanism `secrets` uses for its masking hook (B3,
+  #479) and `cpp` for the best-practices guide (#582 amendment) - so the copies
+  stay byte-identical under `plugin-sync.sh --check`.
+  `flow-live-driver-guard.sh` travels with `flow-start-resolve.sh`, which
+  resolves it via `$SELF_DIR`.
+- **Place.** A new `/flow:repair` (`scripts/flow-helpers-install.sh`, itself
+  bundled) installs the family at `~/.claude/scripts/`, so the shipped allowlist
+  keeps matching and the zero-prompt lane survives a plugin-only install. It
+  **symlinks** from a CPP checkout (following `git pull`, as `/cpp:init` Tier 2
+  does) and **copies** from a plugin bundle - a symlink into a version-stamped
+  cache would dangle at the next upgrade.
+- **Detect.** The copy lane's failure mode is staleness rather than breakage, so
+  `flow-helpers-install.sh --check` (read-only) compares content and reports
+  `ok|missing|stale`; `/flow:doctor` calls it, and now hard-FAILs on a missing
+  helper when no CPP checkout exists to fall back to.
+- **Say so.** `/flow:help` gains a Prerequisites section, and the plugin +
+  marketplace descriptions state that the helpers are bundled and `/flow:repair`
+  places them.
+
+Rationale for Option 1 over Option 2 (declare flow clone-required and fail
+loudly): Option 2 would concede that the flagship family cannot honor the B5
+promise that `/plugin` is the install path, and would leave the #578 cross-repo
+lane clone-only. The residual cost of Option 1 - one explicit post-install
+command, and copies that need `/flow:repair` after a plugin upgrade - is
+detectable and repairable, whereas a clone requirement is permanent.

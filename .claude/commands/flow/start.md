@@ -42,9 +42,19 @@ prefix rule; the helper prints its own status markers.
 ~/.claude/scripts/flow-start-resolve.sh 42
 ```
 
-If the stable path is missing (exit 127 - the helper family installs via
-`/cpp:init` / `/cpp:update`), fall back to `scripts/flow-start-resolve.sh` from
-the CPP checkout; that path may prompt once.
+If the stable path is missing (exit 127), fall back in this order - the first
+that exists (issue #590):
+
+1. `${CLAUDE_PLUGIN_ROOT}/scripts/flow-start-resolve.sh` - the flow plugin
+   bundles the helper family, so a marketplace-only install (no CPP clone) has
+   this copy. `CLAUDE_PLUGIN_ROOT` is unset outside a plugin install.
+2. `scripts/flow-start-resolve.sh` from the CPP checkout.
+
+Either fallback may prompt once: the allowlist rules match only the stable
+`~/.claude/scripts/` path. Tell the user to run **`/flow:repair`**, which
+installs the family there and restores the prompt-free lane. If BOTH fallbacks
+exit 127 there is no helper source at all - **STOP** and report that flow needs
+`/plugin install flow@cpp` (then `/flow:repair`) or a CPP checkout.
 
 The helper fetches the issue, derives the `issue-<N>-<slug>` branch (slug cut
 to keep the name within the EnterWorktree 64-char limit), triages existing

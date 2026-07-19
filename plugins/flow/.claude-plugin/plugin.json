@@ -1,7 +1,7 @@
 {
   "name": "flow",
-  "description": "Worktree-based GitHub issue lifecycle for Claude Code: /flow:start, /flow:eli5 (necessity gate), /flow:check, /flow:finish, /flow:merge, /flow:deploy, /flow:auto (full lifecycle in one shot), plus sync, cleanup, status, and doctor helpers. Issue-anchored branch naming and quality gates on top of native worktrees.",
-  "version": "1.0.0",
+  "description": "Worktree-based GitHub issue lifecycle for Claude Code: /flow:start, /flow:eli5 (necessity gate), /flow:check, /flow:finish, /flow:merge, /flow:deploy, /flow:auto (full lifecycle in one shot), plus sync, cleanup, status, doctor, and repair helpers. Issue-anchored branch naming and quality gates on top of native worktrees. Bundles the flow helper family (flow-start-resolve, gh-pr-merge, the advisory guards); run /flow:repair once after installing to place them at ~/.claude/scripts/, the path the shipped permission allowlist matches.",
+  "version": "1.1.0",
   "author": {
     "name": "cooneycw",
     "url": "https://github.com/cooneycw"

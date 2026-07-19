@@ -44,7 +44,7 @@
     {
       "name": "flow",
       "source": "./plugins/flow",
-      "description": "Worktree-based GitHub issue lifecycle: start, eli5 necessity gate, check, finish, merge, deploy, auto, sync, cleanup, status, and doctor. Issue-anchored branch naming and quality gates, no locks or Redis - just git."
+      "description": "Worktree-based GitHub issue lifecycle: start, eli5 necessity gate, check, finish, merge, deploy, auto, sync, cleanup, status, doctor, and repair. Issue-anchored branch naming and quality gates, no locks or Redis - just git. Bundles its helper scripts; run /flow:repair once after installing."
     },
     {
       "name": "github",

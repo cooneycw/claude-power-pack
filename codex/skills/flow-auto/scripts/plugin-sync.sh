@@ -59,6 +59,13 @@ declare -A EXCLUDE=(
 # the copy via ${CLAUDE_PLUGIN_ROOT}).
 declare -A EXTRA_FILES=(
     [secrets]="scripts/hook-mask-output.sh"
+    # The flow commands call these helpers by name; without them a
+    # marketplace-only install dead-ends at exit 127 (issue #590). Bundled here,
+    # then placed at the stable ~/.claude/scripts/ path - the one the #581
+    # allowlist rules match - by /flow:repair (flow-helpers-install.sh, itself
+    # bundled so a plugin-only user can run it). flow-start-resolve.sh resolves
+    # flow-live-driver-guard.sh via $SELF_DIR, so the two must travel together.
+    [flow]="scripts/flow-start-resolve.sh scripts/flow-live-driver-guard.sh scripts/flow-stale-check.sh scripts/flow-worktree-guard.sh scripts/gh-pr-merge.sh scripts/worktree-remove.sh scripts/friction-log.sh scripts/check-ignored-additions.sh scripts/flow-helpers-install.sh"
     # /cpp:load-best-practices reads this doc; a plugin-only install has no CPP
     # checkout, so the plugin bundles it (resolved via ${CLAUDE_PLUGIN_ROOT}).
     [cpp]="docs/reference/CLAUDE_CODE_BEST_PRACTICES_FULL.md"
