@@ -30,7 +30,19 @@ if [ -z "$CPP_DIR" ]; then
   echo "ERROR: claude-power-pack not found"
   exit 1
 fi
+
+if ! command -v uv >/dev/null 2>&1; then
+  echo "ERROR: 'uv' not found - lib/cicd runs through it so its deps (pydantic)"
+  echo "resolve and the interpreter is pinned >= 3.11. Install uv, then re-run."
+  exit 1
+fi
 ```
+
+Every `lib.cicd` invocation below runs through `uv run --project "$CPP_DIR"`
+with `PYTHONPATH` pointed at `$CPP_DIR` - the **parent** of `lib/`, so
+`-m lib.cicd` resolves. Pointing it inside `lib/` instead, and running the
+system interpreter rather than uv, fails on both counts: that was the long-lived
+defect fixed in issue #595.
 
 ---
 
@@ -67,7 +79,7 @@ fi
 **Before deploying**, snapshot the currently-running system:
 
 ```bash
-PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -m lib.cicd verify --baseline
+PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd verify --baseline
 ```
 
 This runs every health check and smoke test once and writes the result to
@@ -84,7 +96,7 @@ baseline is the "before" picture the post-deploy run is compared against.
 **After `make deploy`**, re-run the probes and diff against the baseline:
 
 ```bash
-PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -m lib.cicd verify
+PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd verify
 ```
 
 Add `--summary` for a one-line verdict, or `--json` for machine-readable output.
