@@ -158,8 +158,21 @@ permission-prompt signals are present:
    `Bash(git remote -v)`). The census hook already emits this candidate in `fix`.
 2. **Deliberately EXCLUDE shipping/mutating actions** so gates and secret-read
    prompts stay intact: never propose allow rules for `git push`, `gh pr create`,
-   `gh pr merge`, or `cat` (which would defeat output masking). The census hook
-   already withholds a `fix` for these (non-safe tiers), so honour that.
+   or `gh pr merge`. Two further classes are excluded for the same reason and are
+   now ENFORCED in the hook rather than assumed here (issue #598 - before it, the
+   hook emitted `Bash(cat:*)` and `Bash(git:*)` as safe candidates while this
+   step told you to trust `fix`):
+   - **file-dumpers** (`cat`, `head`, `tail`, `less`, `more`, `tac`, `nl`,
+     `strings`, `xxd`, `od`, `hexdump`, `base64`) - an allow rule defeats output
+     masking on a secret file, and `head -20 .env` leaks exactly as `cat .env`
+     does;
+   - **bare tool namespaces** (`Bash(git:*)`, `Bash(gh:*)`, `Bash(docker:*)`) -
+     a namespace grant silently includes `git push` and `git reset --hard`.
+     Derive at subcommand granularity or propose nothing.
+   The census hook withholds a `fix` for all of these (`NO_ALLOW_CANDIDATE` /
+   `SUBCOMMAND_REQUIRED` in `scripts/hook-permission-census.sh`, pinned by
+   `tests/test_hook_permission_census.py`), so an empty `fix` on a SAFE-tier
+   record is a deliberate verdict - do not "helpfully" reconstruct the rule.
 3. Recognize that CPP already ships this exact set as
    `templates/claude-settings-permissions.json`. If your derived rules are a subset
    of that template, recommend the supported merge path instead of hand-editing:

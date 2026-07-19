@@ -28,8 +28,6 @@
       "Bash(cut:*)",
       "Bash(sed:*)",
       "Bash(basename:*)",
-      "Bash(head:*)",
-      "Bash(tail:*)",
       "Bash(wc:*)",
       "Bash(cd:*)",
       "Bash(pwd)",

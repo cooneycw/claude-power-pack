@@ -21,7 +21,7 @@ whether the allowlist is installed.
 | Git reads | `git status/log/diff/show/branch/rev-parse`, `git config --get`, `git remote -v` | analysis, ELI5 anchored history check, verification gates |
 | Git plumbing | `git fetch`, `git worktree` | worktree create/list/remove (flow Steps 1 and 7) |
 | Text pipeline | `echo/tr/cut/sed/basename` | the branch-slug sanitization pipeline in flow Step 1 |
-| Filesystem reads | `grep/rg/ls/find/head/tail/wc`, `cd`, `pwd` | codebase exploration, directory verification gates |
+| Filesystem reads | `grep/rg/ls/find/wc`, `cd`, `pwd` | codebase exploration, directory verification gates |
 | Flow helper scripts | `~/.claude/scripts/{flow-start-resolve, flow-stale-check, flow-worktree-guard, flow-live-driver-guard, gh-pr-merge, worktree-remove}.sh` | the audited flow helper family (issue #581): Step-1 resolve + verify gate, stale-base / leaked-edit / live-driver guards (Steps 4 and 6), PR squash-merge + worktree cleanup (Step 7) |
 
 ## What is deliberately excluded
@@ -29,10 +29,24 @@ whether the allowlist is installed.
 - **`git commit`, `git push`, `git merge`, `gh pr create`, `gh pr merge`** -
   CPP's gate policy: shipping actions stay behind explicit approval (or the
   deterministic `/flow:finish` path the user invokes on purpose).
-- **`cat`** - reads file contents into terminal output. In CPP repos the
-  PostToolUse masking hook redacts secrets, but this allowlist is user-level
-  and applies in repos WITHOUT that hook; excluding `cat` keeps secret-file
-  reads behind a prompt. (Claude's Read tool is governed separately.)
+- **`cat`, and every other file-dumper (`head`, `tail`, `less`, `more`, `tac`,
+  `nl`, `strings`, `xxd`, `od`, `hexdump`, `base64`)** - they read file contents
+  into terminal output. In CPP repos the PostToolUse masking hook redacts
+  secrets, but this allowlist is user-level and applies in repos WITHOUT that
+  hook; excluding them keeps secret-file reads behind a prompt. (Claude's Read
+  tool is governed separately.) `head` and `tail` shipped here until issue #598:
+  `head -20 .env` leaks exactly as `cat .env` does, so the convenience was
+  buying a hole the `cat` exclusion was meant to close. The same set is
+  withheld as an allow-rule CANDIDATE by the census hook
+  (`NO_ALLOW_CANDIDATE` in `scripts/hook-permission-census.sh`), so the two
+  surfaces agree. Note the union-merge in `/cpp:update` Step 7.6 only ADDS
+  rules: a box that merged an earlier template still has `Bash(head:*)` and
+  must drop it by hand.
+- **Bare tool namespaces (`Bash(git:*)`, `Bash(gh:*)`, `Bash(docker:*)`)** -
+  a namespace-wide grant silently includes `git push` and `git reset --hard`,
+  defeating the shipping-action exclusions above. Every rule here is
+  subcommand-granular, and the census hook withholds a candidate rather than
+  widening to a namespace when it cannot derive a subcommand (issue #598).
 - **`git remote` (bare)** - `git remote add/remove` writes `.git/config`;
   only the exact read form `git remote -v` is allowed.
 
