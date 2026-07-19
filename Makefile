@@ -2,6 +2,7 @@
        bootstrap-check drift-check deploy setup-woodpecker-cli \
        codex-init codex-skills codex-skills-check codex-install \
        eli5-check eli5-drift eli5-revendor \
+       tool-risk-check tool-risk-drift \
        branch-protection-check branch-protection-apply branch-protection-show \
        host-surfaces-check host-surfaces-plan host-surfaces-prune memory-harness
 
@@ -102,6 +103,19 @@ eli5-drift:
 
 eli5-revendor:
 	@python3 scripts/eli5-vendor.py --revendor
+
+## Shared permission-risk taxonomy (issue #576)
+## classify-tool-risk.py (canonical) and the copy vendored inline in
+## hook-permission-census.sh must agree on the safety-critical sets. tool-risk-check
+## is the CI shape (--strict, exit 1 on drift; same command the tool-risk-drift
+## Woodpecker step runs); tool-risk-drift is the advisory local shape that reports
+## and exits 0.
+
+tool-risk-check:
+	@python3 scripts/tool-risk-drift.py --strict
+
+tool-risk-drift:
+	@python3 scripts/tool-risk-drift.py
 
 ## Branch-protection posture (issue #577, ADR 0004)
 ## The posture is DATA (.claude/branch-protection.json), not a click-path: check

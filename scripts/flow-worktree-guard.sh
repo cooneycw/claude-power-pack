@@ -23,7 +23,8 @@
 # buries the real signal. A dirty main file is treated as a leak only when it
 # ALSO appears among the paths THIS run edited (branch commits vs the base, plus
 # worktree dirt) - i.e. the run tried to touch that path yet it shows up modified
-# in main. Overlapping dirt -> a loud WARNING (and a --strict failure);
+# in main. Overlapping dirt -> a loud WARNING (and, when the overlapping file was
+# itself touched within FRESH_MIN, a --strict failure - issue #576);
 # non-overlapping dirt -> a quiet info note, never a failure.
 #
 # The one leak the overlap check cannot see is a TOTAL leak (issue #573): when
@@ -45,11 +46,20 @@
 #   flow-worktree-guard.sh [--strict]
 #
 # Options:
-#   --strict   Exit non-zero (3) on a leak signature: a main modification that
-#              OVERLAPS a path this run edited, OR a total leak (idle worktree +
-#              fresh main edits, issue #573). Stale/pre-existing non-overlapping
-#              dirt never fails, even under --strict. Default is advisory: always
-#              exit 0, just warn/note.
+#   --strict   Exit non-zero (3) on a FRESH leak signature: a main modification
+#              that OVERLAPS a path this run edited and was itself modified within
+#              FRESH_MIN, OR a total leak (idle worktree + fresh main edits, issue
+#              #573). Freshness is the discriminator in BOTH branches (issue
+#              #576): a leak is written during this run, while pre-existing dirt
+#              on a shared file this run also edits is someone else's uncommitted
+#              work and must not stop the run. Stale overlap and non-overlapping
+#              dirt warn but never fail. Default is advisory: always exit 0, just
+#              warn/note.
+#
+#              /flow:auto Steps 4 and 6 invoke this WITH --strict (issue #576):
+#              a live leak means every further edit compounds and the commit the
+#              flow is about to make does not contain the work, so exit 3 is a
+#              STOP at both call sites, not a warning to narrate past.
 #
 # Output:
 #   - Overlap (leak): a "[flow] WARNING" block naming the overlapping paths with
@@ -62,9 +72,10 @@
 #
 # Env (test hook - unset in normal use):
 #   FLOW_WORKTREE_GIT     override the `git` binary (default: git)
-#   FLOW_LEAK_FRESH_MIN   freshness window in minutes for the total-leak check
-#                         (issue #573; default 30). A main modification is a
-#                         total-leak suspect only if edited within this window.
+#   FLOW_LEAK_FRESH_MIN   freshness window in minutes for BOTH strict checks -
+#                         the total-leak check (issue #573) and the overlap check
+#                         (issue #576); default 30. A main modification blocks
+#                         --strict only if edited within this window.
 
 set -uo pipefail
 
@@ -237,7 +248,38 @@ echo "  never a hand-built '.claude/worktrees/<name>/...' absolute path. Move th
 echo "  into the worktree, then revert main:  git -C \"$MAIN_REPO\" checkout -- <path>" >&2
 echo "  (If these are intentional edits to main, ignore this warning.)" >&2
 
+# Overlap alone is not enough to BLOCK (issue #576). Overlap answers "did this run
+# touch a path that is also dirty in main?", and that question has a second, common
+# answer besides a leak: main was ALREADY carrying an uncommitted edit to a
+# high-traffic shared file (CLAUDE.md, a template) before this run started, and the
+# run legitimately edits that same file in its worktree. The advisory warning above
+# is right to fire either way - a human should look - but exiting 3 on it would
+# stop the run for someone else's dirty tree.
+#
+# Freshness is the discriminator, exactly as it already is for the total-leak
+# branch (#573): a LEAKED edit is written to main DURING this run (within
+# FRESH_MIN), while pre-existing dirt predates the window. So --strict fails only
+# on FRESH overlap; stale overlap warns and exits 0. This is what makes promoting
+# both /flow:auto call sites to --strict (#576) safe rather than a false-stop
+# generator - the promotion was blocked on it during the #576 run itself, where
+# main carried uncommitted retro edits to CLAUDE.md, a file that run had to edit.
 if [ "$STRICT" -eq 1 ]; then
+  fresh_overlap=()
+  for p in "${overlap[@]}"; do
+    if [ -n "$(find "$MAIN_REPO/$p" -mmin "-${FRESH_MIN}" 2>/dev/null)" ]; then
+      fresh_overlap+=("$p")
+    fi
+  done
+  if [ "${#fresh_overlap[@]}" -eq 0 ]; then
+    echo "" >&2
+    echo "  --strict: none of the overlapping file(s) were modified in main within the" >&2
+    echo "  last ${FRESH_MIN}m, so this is pre-existing dirt rather than a leak from THIS" >&2
+    echo "  run - warning only, not blocking (issue #576)." >&2
+    exit 0
+  fi
+  echo "" >&2
+  echo "  --strict: ${#fresh_overlap[@]} of these were modified in main within the last ${FRESH_MIN}m" >&2
+  echo "  (this run's window) - blocking." >&2
   exit 3
 fi
 exit 0

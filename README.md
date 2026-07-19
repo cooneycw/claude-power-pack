@@ -88,7 +88,7 @@ claude-power-pack/
   templates/            Makefile, workflow, and container templates
   scripts/              Shell utilities
   tests/                Unit tests
-  .woodpecker.yml       CI pipeline (secret-scan, lint, test, typecheck, Dockerfile lint)
+  .woodpecker.yml       CI pipeline (secret-scan, lint, test, typecheck, drift gates, Dockerfile lint)
   Makefile              Build interface for all operations
 ```
 
