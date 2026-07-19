@@ -245,6 +245,113 @@ def test_pipeline_is_a_segment_boundary(tmp_path: Path):
     assert rec["risk"] == "READONLY-ADDABLE"
 
 
+# --- Never-allowlist policy (issue #598) -------------------------------------
+#
+# /self-improvement:retro Step 4 tells the retro to trust the `fix` field and
+# states that the census "already withholds a fix" for rules that would defeat a
+# gate. These cases turn that stated invariant into an enforced one.
+
+# File-dumpers: an allow rule for any of them defeats the PostToolUse masking
+# hook on a secret file (`head -20 .env` leaks exactly as `cat .env` does).
+FILE_DUMPERS = [
+    "cat", "head", "tail", "less", "more", "tac", "nl",
+    "strings", "xxd", "od", "hexdump", "base64",
+]
+
+
+@pytest.mark.parametrize("exe", FILE_DUMPERS)
+def test_file_dumpers_never_yield_an_allow_candidate(tmp_path: Path, exe: str):
+    # The record is still WRITTEN with its (truthful, read-only) tier - the
+    # census keeps its signal; only the forbidden rule is withheld.
+    rec = _one(tmp_path, {"tool_name": "Bash", "tool_input": {
+        "command": f"{exe} .env"}})
+    assert rec["fix"] == ""
+    assert rec["risk"] == "READONLY-ADDABLE"
+    assert exe in rec["signal"]
+
+
+def test_file_dumper_driving_a_pipeline_still_withholds(tmp_path: Path):
+    # `cat` is the segment that drove the prompt; the walk must not fall through
+    # to grep and emit a candidate as though cat were never there.
+    rec = _one(tmp_path, {"tool_name": "Bash", "tool_input": {
+        "command": "cat .env | grep TOKEN"}})
+    assert rec["fix"] == ""
+
+
+def test_allowlisted_file_dumper_does_not_mask_the_real_driver(tmp_path: Path):
+    # Withholding is applied at EMISSION, not in the coverage walk: a `cat`
+    # segment the user already allowlisted is still stepped over, so the
+    # candidate remains the real driver behind the prompt.
+    rec = _one(tmp_path, {"tool_name": "Bash", "tool_input": {
+        "command": "cat notes.txt && git commit -m wip"}},
+        allow=["Bash(cat:*)"])
+    assert rec["fix"] == "Bash(git commit:*)"
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "git -C /tmp/repo status",        # flag before the verb
+        "git --no-pager log --oneline",
+        "gh -R owner/repo issue list",
+        "docker -H tcp://host:2375 ps",
+    ],
+)
+def test_bare_tool_namespace_is_never_emitted(tmp_path: Path, command: str):
+    # `Bash(git:*)` would silently permit `git push` and `git reset --hard`.
+    # When no subcommand can be derived the candidate is withheld, not widened -
+    # a narrow rule could not match a flag-bearing invocation anyway, since allow
+    # rules match a command PREFIX.
+    rec = _one(tmp_path, {"tool_name": "Bash", "tool_input": {"command": command}})
+    exe = command.split()[0]
+    assert rec["fix"] not in (f"Bash({exe})", f"Bash({exe}:*)")
+    assert rec["fix"] == ""
+
+
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
+        ("git status --short", "Bash(git status:*)"),
+        ("git worktree list", "Bash(git worktree:*)"),
+        ("gh issue view 598", "Bash(gh issue view:*)"),
+        ("docker ps -a", "Bash(docker ps:*)"),
+        ("pwd", "Bash(pwd)"),
+        ("wc -l file", "Bash(wc:*)"),
+    ],
+)
+def test_subcommand_granular_candidates_still_emitted(
+    tmp_path: Path, command: str, expected: str
+):
+    # Regression floor for #598: the policy withholds two specific classes and
+    # must not blunt ordinary derivation.
+    rec = _one(tmp_path, {"tool_name": "Bash", "tool_input": {"command": command}})
+    assert rec["fix"] == expected
+
+
+def test_no_forbidden_rule_survives_a_mixed_corpus(tmp_path: Path):
+    # Belt-and-braces: run a corpus through the hook and assert the whole set of
+    # emitted candidates is free of every rule the retro spec forbids.
+    forbidden = {f"Bash({e}:*)" for e in FILE_DUMPERS} | {
+        "Bash(git:*)", "Bash(gh:*)", "Bash(docker:*)",
+        "Bash(git push:*)", "Bash(gh pr create:*)", "Bash(gh pr merge:*)",
+    }
+    corpus = [
+        "cat .env", "head -5 secrets.yml", "tail -n 2 .env.local",
+        "git -C /repo status", "git push origin main", "gh pr create --fill",
+        "gh pr merge 12 --squash", "docker -H tcp://h ps", "less /etc/passwd",
+        "cd /repo && cat .env", "git status && cat .env",
+    ]
+    emitted = set()
+    for command in corpus:
+        rec = _one(tmp_path, {"tool_name": "Bash", "tool_input": {"command": command}})
+        if rec["fix"]:
+            emitted.add(rec["fix"])
+        # Every record is still captured - withholding a rule never drops signal.
+        assert rec["signal"]
+        (tmp_path / ".claude" / "friction.jsonl").unlink()
+    assert emitted & forbidden == set(), sorted(emitted & forbidden)
+
+
 # --- Non-Bash tools ----------------------------------------------------------
 
 def test_readonly_tool_rule_is_the_tool_name(tmp_path: Path):

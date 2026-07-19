@@ -20,6 +20,10 @@
 #      for the SAFE tiers (read-only + reversible local writes); a risky prompt is
 #      recorded with its tier and NO allow candidate, so a command approved once
 #      never becomes a blind allowlist rule. Retro maps the tier to allow/ask/deny.
+#      Two classes are withheld even at a safe tier (issue #598): file-dumpers
+#      (`cat`/`head`/... - an allow rule defeats output masking on a secret file)
+#      and bare tool namespaces (`Bash(git:*)` would permit `git push` and
+#      `git reset --hard`). See NO_ALLOW_CANDIDATE / SUBCOMMAND_REQUIRED.
 #
 # Contract (both non-negotiable):
 #   - OBSERVE-ONLY: emits NOTHING on stdout, so it can never return a permission
@@ -113,6 +117,11 @@ RO_ANY = {
     "sort", "base64", "grep", "egrep", "fgrep", "sha256sum", "tree", "date",
     "hostname", "pgrep", "ss", "fd", "rg", "jq", "uniq", "find", "printf",
     "test", "pwd", "whoami", "basename", "dirname", "realpath", "awk", "less",
+    # Read-only file-dumpers the canonical classifier already rates read-only.
+    # Listed so the recorded TIER is truthful; NO_ALLOW_CANDIDATE below is what
+    # keeps them from ever becoming an allow rule (issue #598) - relying on an
+    # accidental OTHER tier would be protection by omission.
+    "more", "strings", "xxd", "od", "hexdump",
 }
 CODE_EXEC = {
     "python", "python3", "node", "bun", "deno", "ruby", "perl", "php", "lua",
@@ -123,6 +132,30 @@ TASK_RUNNER = {"make", "just", "rake", "cargo", "go", "npm", "yarn", "pnpm", "gr
 DUAL_NET = {"curl", "wget", "aws", "gcloud", "az", "scp", "rsync", "nc", "telnet"}
 DESTRUCTIVE_TOKENS = {"rm", "rmdir", "shred", "mkfs", "dd", "truncate", "fdisk"}
 WRITE_LOCAL_TOKENS = {"mkdir", "touch", "tee", "cp", "ln", "chmod", "chown", "mv"}
+
+# --- Never-allowlist policy (issue #598) -------------------------------------
+# The two sets below withhold the RULE CANDIDATE only. The risk TIER is still
+# recorded truthfully (`cat` really is read-only), so the census keeps its full
+# signal; what it stops doing is handing the retro a rule it is forbidden to
+# propose. Before this, /self-improvement:retro Step 4's stated invariant - "the
+# census hook already withholds a fix for these" - was prose the hook did not
+# honour, so a retro that trusted the `fix` field would allowlist `cat`.
+#
+# 1. File-dumpers: their whole purpose is to print file contents verbatim, so a
+#    standing allow rule defeats the PostToolUse masking hook on a secret file.
+#    `head -20 .env` leaks exactly as `cat .env` does - the whole family goes.
+NO_ALLOW_CANDIDATE = {
+    "cat", "head", "tail", "less", "more", "tac", "nl",
+    "strings", "xxd", "od", "hexdump", "base64",
+}
+# 2. Multi-verb tools whose BARE namespace is far too broad to ever allowlist:
+#    `Bash(git:*)` silently permits `git push` and `git reset --hard`. A rule is
+#    emitted only at subcommand granularity; when no subcommand can be derived
+#    (`git -C /path status` - a flag precedes the verb) the candidate is
+#    withheld rather than widened. Withholding is the honest answer there: allow
+#    rules match a command PREFIX, so no narrow rule could match a flag-bearing
+#    invocation anyway - a derived `Bash(git status:*)` would never fire.
+SUBCOMMAND_REQUIRED = {"git", "gh", "docker"}
 
 GIT_RO = {
     "status", "log", "diff", "show", "blame", "tag", "remote", "ls-files",
@@ -282,6 +315,24 @@ def derive_rule(t):
     return "Bash(%s:*)" % prefix
 
 
+def allow_candidate(t):
+    """derive_rule filtered through the never-allowlist policy (issue #598).
+
+    Deliberately SEPARATE from derive_rule: the segment walk uses derive_rule to
+    ask "is this segment already allowed?" (_covered), and a withheld candidate
+    must not make an already-allowlisted `cat` segment look fresh. Only the two
+    places that EMIT a `fix` go through this filter."""
+    if not t:
+        return ""
+    exe = t[0].split("/")[-1]
+    if exe in NO_ALLOW_CANDIDATE:
+        return ""
+    rule = derive_rule(t)
+    if exe in SUBCOMMAND_REQUIRED and rule in ("Bash(%s)" % exe, "Bash(%s:*)" % exe):
+        return ""
+    return rule
+
+
 def load_allowlist(cwd):
     """Rules already in the installed allow-list, so the walk can step past
     leading segments that would never prompt. Sourced from the user settings
@@ -340,7 +391,8 @@ def analyze_command(cmd, allow):
         `<safe> && <dangerous>` chain is never under-rated;
       - fix  = the narrowest allow-rule for the FIRST not-already-allowed
         segment, emitted ONLY when that worst risk is a SAFE tier (a command
-        that also does something risky never yields a blind allow candidate).
+        that also does something risky never yields a blind allow candidate)
+        AND the never-allowlist policy permits it (allow_candidate, #598).
     A shown prompt almost always has a not-already-allowed segment; if every
     segment is trivial/allowed, fall back to the first SUBSTANTIVE segment (so a
     `cd DIR && <allowed>` degenerate case never re-suggests the noise cd), or to
@@ -367,9 +419,9 @@ def analyze_command(cmd, allow):
         if not toks:
             return "", "OTHER"
         tier = classify(toks)
-        return (derive_rule(toks) if tier in SAFE_TIERS else ""), tier
+        return (allow_candidate(toks) if tier in SAFE_TIERS else ""), tier
     risk = max((tier for _, tier in fresh), key=lambda t: SEVERITY.get(t, 3))
-    fix = derive_rule(fresh[0][0]) if risk in SAFE_TIERS else ""
+    fix = allow_candidate(fresh[0][0]) if risk in SAFE_TIERS else ""
     return fix, risk
 
 
