@@ -19,7 +19,27 @@ Streamlined worktree-based development workflow. No locks, no Redis - just git.
 | `/flow-auto <issue>` | Full lifecycle: start → analyze → ELI5 (plan + necessity gate) → implement → update docs → finish → merge → deploy |
 | `/flow-cleanup` | Prune stale worktree references and delete merged branches |
 | `/flow-doctor` | Diagnose workflow environment and readiness |
+| `/flow-repair` | Install the flow helper family into `~/.claude/scripts/` (run once after a plugin install) |
 | `/flow-help` | This help page |
+
+## Prerequisites
+
+The flow commands call a family of helper scripts by name -
+`flow-start-resolve.sh` drives Step 1 of `/flow-start` and `/flow-auto`,
+`gh-pr-merge.sh` drives `/flow-merge`, and several advisory guards run
+alongside. They are invoked at the stable path `~/.claude/scripts/<helper>`,
+which is what the shipped permission allowlist rules match (issue #581).
+
+- **Installed from the marketplace** (`/plugin install flow@cpp`): the plugin
+  bundles the helpers, but they must be placed at that stable path first. **Run
+  `/flow-repair` once after installing.** Without it, Step 1 exits 127 (issue
+  #590). Re-run it after a plugin upgrade; `/flow-doctor` reports when the
+  installed copies have gone stale.
+- **Installed from a CPP clone** (`/cpp:init` Tier 2 or later `/cpp:update`):
+  nothing to do - the installer already links every `scripts/*.sh`. `/flow-repair`
+  is harmless and idempotent if you run it anyway.
+
+`/flow-doctor` reports helper and allowlist state without changing anything.
 
 ## The Golden Path
 

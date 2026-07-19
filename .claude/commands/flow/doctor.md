@@ -140,18 +140,52 @@ fi
 
 # Flow helper family (issue #581): the zero-prompt lane invokes these BARE at
 # their stable ~/.claude/scripts/ paths, matched by the shipped allowlist
-# rules. Missing is a WARN, not a FAIL - flow still works via the CPP-checkout
-# fallback paths, but those invocations prompt.
+# rules. For a CLONE install, missing is a WARN - the CPP-checkout fallback
+# paths still work, they just prompt. For a MARKETPLACE-ONLY install there is
+# no checkout to fall back to, so missing is a hard FAIL: Step 1 of
+# /flow:start and /flow:auto dies on exit 127 (issue #590).
+# Resolve CPP_DIR here too - each block runs in its own shell, so the value
+# from Step 3 does not carry over.
+CPP_DIR=""
+for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-pack; do
+  if [ -d "$dir" ] && [ -f "$dir/CLAUDE.md" ]; then CPP_DIR="$dir"; break; fi
+done
+
 for script in flow-start-resolve.sh flow-stale-check.sh flow-worktree-guard.sh flow-live-driver-guard.sh gh-pr-merge.sh; do
   if [ -x "$HOME/.claude/scripts/$script" ]; then
     echo "PASS $script (flow helper)"
   elif [ -f "$HOME/.claude/scripts/$script" ]; then
     echo "WARN $script (flow helper present but not executable)"
+  elif [ -n "$CPP_DIR" ]; then
+    echo "WARN $script (flow helper not at ~/.claude/scripts/ - zero-prompt lane degraded; run /flow:repair or /cpp:update)"
   else
-    echo "WARN $script (flow helper not at ~/.claude/scripts/ - zero-prompt lane degraded; install via /cpp:update)"
+    echo "FAIL $script (flow helper missing and no CPP checkout to fall back to - /flow:start and /flow:auto will exit 127; run /flow:repair)"
   fi
 done
 ```
+
+Then run the installer's own read-only check, which additionally catches
+**stale** copies - the failure mode a marketplace install can hit that a clone
+cannot. A plugin-only install receives helpers by copy (a symlink into a
+version-stamped plugin cache would dangle at the next upgrade), and a copy does
+not follow a plugin upgrade. `--check` compares content and never writes:
+
+```bash
+~/.claude/scripts/flow-helpers-install.sh --check
+```
+
+If that exits 127, the family is not installed at all - try the bundled copy
+(present only on a plugin install; `CLAUDE_PLUGIN_ROOT` is unset in a checkout):
+
+```bash
+${CLAUDE_PLUGIN_ROOT}/scripts/flow-helpers-install.sh --check
+```
+
+Verdict line: `FLOW_HELPERS: ok` (nothing to do) | `missing` | `stale`
+(installed copies differ from the bundled source - a plugin upgrade landed).
+Both non-ok verdicts are repaired by `/flow:repair`. If both invocations exit
+127, this is neither a plugin nor a clone install - report that flow has no
+helper source at all.
 
 ### Step 5b: User-Level Flow Allowlist
 
@@ -299,7 +333,8 @@ Output a single diagnostic report in this format:
 | prompt-context.sh | ✅/❌ | Shell prompt context |
 | worktree-remove.sh | ✅/⚠️ | Optional fallback (native ExitWorktree is primary) |
 | secrets-mask.sh | ✅/❌ | Output masking filter |
-| Flow helper family | ✅/⚠️ | flow-start-resolve, flow-stale-check, flow-worktree-guard, flow-live-driver-guard, gh-pr-merge at ~/.claude/scripts/ (zero-prompt lane, #581) |
+| Flow helper family | ✅/⚠️/❌ | flow-start-resolve, flow-stale-check, flow-worktree-guard, flow-live-driver-guard, gh-pr-merge at ~/.claude/scripts/ (zero-prompt lane, #581). ❌ when missing with no CPP checkout to fall back to (#590) |
+| Helper freshness | ✅/⚠️ | `flow-helpers-install.sh --check`: ok / stale (plugin upgraded, installed copies behind) |
 | Flow allowlist | ✅/⚠️/❌ | 38/38 rules in ~/.claude/settings.json / N missing / settings.json missing |
 
 ### MCP Server Wiring
@@ -354,7 +389,9 @@ Output a single diagnostic report in this format:
    - Monorepo: `cp ~/Projects/claude-power-pack/templates/makefiles/multi.mk Makefile`
 2. ⚠️ **worktree-remove.sh not found (optional)** - `/flow` uses the native `EnterWorktree`/`ExitWorktree` tools for same-session worktrees; the script is only a fallback for cross-session / cross-machine cleanup. Install if you want it: `ln -sf ~/Projects/claude-power-pack/scripts/worktree-remove.sh ~/.claude/scripts/`
 2b. ⚠️ **Flow allowlist missing/incomplete** - `/flow:*` will prompt for read-only git/gh plumbing on every run. Merge via `/cpp:update` or `/cpp:init`; rationale and caveats in `templates/claude-settings-permissions.md`
-2c. ⚠️ **Flow helper(s) not at ~/.claude/scripts/** - the #581 zero-prompt lane degrades to CPP-checkout fallback paths, which prompt. Run `/cpp:update` (Step 5b re-links new scripts) or `/cpp:init` Tier 2
+2c. ⚠️ **Flow helper(s) not at ~/.claude/scripts/ (clone install)** - the #581 zero-prompt lane degrades to CPP-checkout fallback paths, which prompt. Run `/flow:repair`, `/cpp:update` (Step 5b re-links new scripts), or `/cpp:init` Tier 2
+2d. ❌ **Flow helper(s) missing, no CPP checkout (marketplace-only install)** - `/flow:start` and `/flow:auto` will exit 127 at Step 1 (issue #590). Run `/flow:repair` to install the bundled helpers into `~/.claude/scripts/`
+2e. ⚠️ **Flow helpers stale** - `flow-helpers-install.sh --check` reports installed copies differing from the bundled source, i.e. the plugin was upgraded but the copies at `~/.claude/scripts/` were not. Run `/flow:repair`
 3. ⚠️ **uv not installed** - Install: `curl -LsSf https://astral.sh/uv/install.sh | sh`
 4. ❌ **cicd.yml missing** - Run `/cicd:init` to auto-detect framework and generate configuration
 5. ⚠️ **Makefile gaps** - Run `/cicd:check` for details or `/cicd:init` to add missing targets

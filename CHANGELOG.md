@@ -4,6 +4,27 @@
 
 ### Added
 
+- **Flow plugin is self-sufficient for marketplace-only installs** (issue #590)
+  - the flow commands invoke ~14 helper scripts that only the repo-local
+  `/cpp:init` / `/cpp:update` installer ever placed at `~/.claude/scripts/`, so
+  a `/plugin install flow@cpp` user with no CPP clone hit exit 127 at Step 1 of
+  `/flow:start` and `/flow:auto` (and silently lacked the whole #578 cross-repo
+  lane, which lives inside `flow-start-resolve.sh`). `plugins/flow/scripts/` now
+  bundles the load-bearing family via `plugin-sync` `EXTRA_FILES` - the same
+  mechanism `secrets` uses for its masking hook - and a new **`/flow:repair`**
+  (`scripts/flow-helpers-install.sh`, also bundled) installs it to
+  `~/.claude/scripts/`, the stable path the #581 allowlist rules match;
+  bundling alone would have traded exit-127 breakage for a prompt on every
+  helper call. The installer symlinks from a CPP checkout (following `git pull`
+  like `/cpp:init` Tier 2) and copies from a plugin bundle (a symlink into a
+  version-stamped plugin cache would dangle at the next upgrade), with
+  `--check` reporting `ok|missing|stale` read-only. `/flow:doctor` now calls
+  that check, hard-FAILs on a missing helper when no checkout exists to fall
+  back to, and surfaces stale copies after a plugin upgrade; `/flow:help` gains
+  a Prerequisites section; `/flow:auto` and `/flow:start` name
+  `${CLAUDE_PLUGIN_ROOT}` and `/flow:repair` in their exit-127 fallbacks.
+  Recorded as the ADR 0001 amendment 2026-07-19. flow plugin 1.0.0 -> 1.1.0.
+
 - **Top-level commands folded into families + discovery-completeness gate**
   (issue #582) - the six loose top-level commands shipped in NO plugin and NO
   Codex skill because both generators discover sources via

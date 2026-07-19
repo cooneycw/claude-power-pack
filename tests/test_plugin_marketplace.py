@@ -303,6 +303,66 @@ def test_secrets_hook_script_is_executable():
     )
 
 
+# --------------------------------------------------------------------------- #
+# #590: the flow plugin bundles its helper family
+# --------------------------------------------------------------------------- #
+FLOW_PLUGIN_SCRIPTS = PLUGINS_DIR / "flow" / "scripts"
+
+# The load-bearing helpers plus the installer that places them. Sourced from the
+# same list plugin-sync.sh packages; a helper the commands call but the plugin
+# does not ship is exit 127 for a marketplace-only user.
+FLOW_BUNDLED_HELPERS = [
+    "flow-start-resolve.sh",
+    "flow-live-driver-guard.sh",
+    "flow-stale-check.sh",
+    "flow-worktree-guard.sh",
+    "gh-pr-merge.sh",
+    "worktree-remove.sh",
+    "friction-log.sh",
+    "check-ignored-additions.sh",
+    "flow-helpers-install.sh",
+]
+
+
+@pytest.mark.parametrize("name", FLOW_BUNDLED_HELPERS)
+def test_flow_plugin_bundles_helper(name: str):
+    bundled = FLOW_PLUGIN_SCRIPTS / name
+    assert bundled.is_file(), (
+        f"plugins/flow/scripts/{name} missing - a marketplace-only install would "
+        f"exit 127 when a flow command calls it (#590). Run scripts/plugin-sync.sh --write"
+    )
+    assert bundled.read_bytes() == (ROOT / "scripts" / name).read_bytes(), (
+        f"plugins/flow/scripts/{name} differs from scripts/{name} "
+        "(run scripts/plugin-sync.sh --write)"
+    )
+    assert bundled.stat().st_mode & 0o111, (
+        f"bundled {name} lost its executable bit (invoking it fails with EACCES)"
+    )
+
+
+def test_flow_start_resolve_ships_with_its_sibling_guard():
+    # flow-start-resolve.sh calls "$SELF_DIR/flow-live-driver-guard.sh" (#503).
+    # Bundling the resolver without the guard silently drops the live-driver
+    # hazard check for plugin-only users.
+    resolver = (FLOW_PLUGIN_SCRIPTS / "flow-start-resolve.sh").read_text()
+    assert "flow-live-driver-guard.sh" in resolver
+    assert (FLOW_PLUGIN_SCRIPTS / "flow-live-driver-guard.sh").is_file(), (
+        "flow-start-resolve.sh resolves its live-driver sibling via $SELF_DIR, so "
+        "the guard must be bundled alongside it"
+    )
+
+
+def test_flow_commands_reference_repair_for_missing_helpers():
+    # The exit-127 paths must name the remedy; without it the model is left with
+    # a dead end (auto.md forbids inline-bash workarounds, #581).
+    for cmd in ("auto.md", "start.md"):
+        text = (ROOT / ".claude" / "commands" / "flow" / cmd).read_text()
+        assert "/flow:repair" in text, f"{cmd} does not point at /flow:repair on exit 127"
+        assert "CLAUDE_PLUGIN_ROOT" in text, (
+            f"{cmd} does not offer the plugin-bundled helper as a fallback (#590)"
+        )
+
+
 def test_second_opinion_plugin_does_not_autoregister_mcp_server():
     # #569: the external mcp-second-opinion server is opt-in and not running on a
     # fresh box. A plugin that auto-registers an http MCP pointer on install makes
@@ -362,6 +422,15 @@ def _tmp_tree_with_flow(tmp_path: Path) -> Path:
     dest = tmp_path / "plugins" / "flow" / "commands"
     dest.mkdir(parents=True)
     (dest / "auto.md").write_text("# auto\n")
+    # The flow family also packages its helper scripts (EXTRA_FILES, #590), and
+    # a missing extra source is a hard error - so the stub tree must carry them
+    # on both sides to stay "in perfect sync".
+    (tmp_path / "scripts").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "plugins" / "flow" / "scripts").mkdir(parents=True, exist_ok=True)
+    for name in FLOW_BUNDLED_HELPERS:
+        body = f"#!/usr/bin/env bash\n# stub {name}\n"
+        (tmp_path / "scripts" / name).write_text(body)
+        (tmp_path / "plugins" / "flow" / "scripts" / name).write_text(body)
     return tmp_path
 
 

@@ -42,7 +42,7 @@ CPP ships as a **plugin marketplace** (ADR [0001](docs/decisions/0001-plugin-mar
 #     help-only cpp plugin.
 ```
 
-`/plugin` handles versioning and updates for the installed surfaces. The `secrets` plugin bundles the PostToolUse secret-masking hook, so a plugin-only install gets masking with no host setup. The `second-opinion` plugin ships the review *commands* only and deliberately does NOT auto-register an MCP server (the external server is opt-in and not running on a fresh box, so auto-registration would surface as "1 error during load"); register it yourself once the server is up (see below).
+`/plugin` handles versioning and updates for the installed surfaces. The `secrets` plugin bundles the PostToolUse secret-masking hook, so a plugin-only install gets masking with no host setup. **If you installed `flow`, run `/flow:repair` once**: its commands call a family of helper scripts, and while the plugin bundles them, they have to be placed at `~/.claude/scripts/` - the stable path the shipped permission allowlist matches - before `/flow:start` and `/flow:auto` will run (issue #590). Re-run it after a plugin upgrade; `/flow:doctor` reports when the installed copies have gone stale. The `second-opinion` plugin ships the review *commands* only and deliberately does NOT auto-register an MCP server (the external server is opt-in and not running on a fresh box, so auto-registration would surface as "1 error during load"); register it yourself once the server is up (see below).
 
 ### Non-plugin setup (the fallback `/plugin` cannot cover)
 
