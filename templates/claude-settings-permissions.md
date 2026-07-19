@@ -61,6 +61,17 @@ installed at the stable `~/.claude/scripts/` path by `/cpp:init` /
   compound command and prompts. The flow docs (auto.md Steps 1/4/6/7,
   start.md) encode this invocation discipline; helpers print their own status
   markers so no wrapper is ever needed.
+- **The `cd X && <cmd>` habit defeats the whole allowlist.** The rule generalizes
+  past the helper family to ORDINARY read-only commands: `grep -n foo bar.md` is
+  auto-allowed, `cd "$(git rev-parse --show-toplevel)" && grep -n foo bar.md` is a
+  compound command and prompts. A 2026-07-19 retro found every safe-tier prompt in
+  a 138-record census - `pwd`, `grep`, `sed`, `git log`, `git worktree` - fired
+  this way, with the matching allow rule already present and simply unmatchable.
+  The habit exists because the Bash tool's cwd persists across calls and drifts,
+  so `cd` reads as defensive; the fix is to name the path instead of moving to it
+  (`git -C <path> ...`, an absolute path, or the tool's own path argument). Same
+  root cause as the cwd-drift lane bugs (#590, #592) and the stale-grep
+  verification trap (#595).
 
 ## Known caveat: `sed`
 

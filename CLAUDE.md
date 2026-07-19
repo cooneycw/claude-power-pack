@@ -12,6 +12,7 @@
 - After any fix, verify through the full pipeline: `make verify`.
 - Use `/cpp:dockers` to check container status, health, and project linkages.
 - **Use single dashes (-) not em dashes (-)** in all markdown, comments, and documentation. Never generate Unicode em dashes (U+2014) or en dashes (U+2013).
+- **Never wrap a read-only command in `cd X && ...`.** Name the path instead of moving to it: `git -C <path> status`, an absolute path, or the tool's own path argument. A permission allow rule matches a command PREFIX, so `cd "$(git rev-parse --show-toplevel)" && grep -n foo bar.md` prompts even though `Bash(grep:*)` is allowlisted - the 2026-07-19 retro found EVERY safe-tier prompt in a 138-record census firing this way, with the matching rule already installed. This generalizes #581's bare-invocation discipline from the flow helpers to ordinary commands. The `cd` habit is a defense against the Bash tool's cwd drifting between calls, and that same drift caused the #590/#592 lane bugs and the #595 stale-grep trap - so prefer an explicit path there too, rather than trusting where the shell happens to be.
 - **One inventory item per line in CLAUDE.md.** When adding to an inventory entry (the `scripts/` list, component feature lists, CI behavior lists), add a new sub-bullet - never append to an existing line. Git merges at line granularity, so packed single-line lists make every concurrent PR that touches them a manual merge conflict (#501).
 
 ## Project Map
