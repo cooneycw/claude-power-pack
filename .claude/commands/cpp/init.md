@@ -1111,6 +1111,47 @@ if command -v codex &>/dev/null; then
 fi
 ```
 
+#### 5e. Install CPP Codex Skills (issue #575)
+
+The repo's `codex/skills/` holds a generated, CI-gated skill dir per CPP
+command (`codex-skills-check`) - but until #575 nothing in `/cpp:init` or
+`/cpp:update` copied it to `~/.codex/skills/`, so a freshly initialized Codex
+tier had the MCP servers registered and **not one CPP skill installed**. The
+observed state on the primary box was `~/.codex/skills/` containing only
+`.system`.
+
+The installer replaces each managed skill dir wholesale and prunes managed
+orphans at the destination, so a skill CPP has dropped stops loading. Ownership
+is decided by the GENERATED marker: hand-curated skill dirs, skills the user
+wrote, and dotted runtime state such as `.system` are never touched.
+
+```bash
+if command -v codex &>/dev/null; then
+  echo ""
+  echo "=== Installing CPP Codex Skills ==="
+  python3 "$CPP_DIR/scripts/codex-skill-sync.py" --install \
+    || echo "WARNING: codex skill install failed (continuing)"
+fi
+```
+
+Init only ever INSTALLS. Teardown of retired surfaces belongs to `/cpp:update`
+Step 7.9, which asks before moving anything - a first-time init has no history
+to reconcile.
+
+#### 5f. Wire the Common-Memory Harness (issue #575)
+
+`scripts/install-memory-harness.sh` links `scripts/cpp-memory` onto `PATH` and
+installs the hand-authored Codex `/cpp-memory` prompt. Its header has always
+said it is safe to re-run from `/cpp:update`, but no step ever invoked it, so
+`cpp-memory` was missing from `PATH` unless run by hand. It also covers a gap in
+the Tier 2 symlink loop, which iterates `scripts/*.sh` and therefore never
+matches `scripts/cpp-memory` (no `.sh` suffix). Idempotent.
+
+```bash
+bash "$CPP_DIR/scripts/install-memory-harness.sh" \
+  || echo "WARNING: memory harness install failed (continuing)"
+```
+
 ---
 
 ## Step 6: Installation Summary

@@ -506,19 +506,56 @@ def run_write(selected: list[str]) -> int:
     return 0
 
 
+def install_dest_root() -> Path:
+    return Path.home() / ".codex" / "skills"
+
+
+def find_installed_orphans(dest_root: Path, source_names: set[str]) -> list[Path]:
+    """MANAGED skill dirs at the install destination with no source dir left.
+
+    `copytree(dirs_exist_ok=True)` only ever adds or overwrites, so a skill
+    removed from `codex/skills/` used to linger in ~/.codex/skills forever -
+    Codex kept loading a skill CPP no longer ships (issue #575). Ownership is
+    decided by the GENERATED marker, never by a name list: a hand-curated skill
+    dir, a skill the user wrote themselves, and dotted runtime state such as
+    `.system` all lack the marker and are never touched.
+    """
+    if not dest_root.is_dir():
+        return []
+    orphans = []
+    for d in sorted(dest_root.iterdir()):
+        if not d.is_dir() or d.name.startswith(".") or d.name in source_names:
+            continue
+        if is_managed(d):
+            orphans.append(d)
+    return orphans
+
+
 def run_install() -> int:
     if not OUTPUT_ROOT.is_dir():
         print(f"codex-skill-sync: nothing to install ({OUTPUT_ROOT} missing)", file=sys.stderr)
         return 2
-    dest_root = Path.home() / ".codex" / "skills"
+    dest_root = install_dest_root()
     dest_root.mkdir(parents=True, exist_ok=True)
+    source_names = set()
     count = 0
     for d in sorted(OUTPUT_ROOT.iterdir()):
         if not d.is_dir() or not (d / "SKILL.md").is_file():
             continue
-        shutil.copytree(d, dest_root / d.name, dirs_exist_ok=True)
+        dest = dest_root / d.name
+        # Replace rather than merge: a file dropped from a skill dir upstream
+        # would otherwise survive inside the installed copy.
+        if dest.is_dir() and is_managed(dest):
+            shutil.rmtree(dest)
+        shutil.copytree(d, dest, dirs_exist_ok=True)
+        source_names.add(d.name)
         count += 1
-    print(f"codex-skill-sync: installed {count} skill(s) -> {dest_root}")
+    removed = 0
+    for orphan in find_installed_orphans(dest_root, source_names):
+        shutil.rmtree(orphan)
+        print(f"codex-skill-sync: removed orphaned installed skill {orphan.name}")
+        removed += 1
+    print(f"codex-skill-sync: installed {count} skill(s) -> {dest_root} ({removed} orphan(s) removed)")
     return 0
 
 
