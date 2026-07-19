@@ -212,6 +212,7 @@ mirrors the `/security` #438 and hooks #439 defer-the-commodity-half moves).
 - `python -m lib.cicd run --plan <name>` - Execute CI/CD plan deterministically (finish, check, deploy)
 - `python -m lib.cicd verify --baseline` - Capture pre-deploy health/smoke baseline
 - `python -m lib.cicd verify` - Verify post-deploy against baseline (exit 1 = ROLLBACK)
+  - Invocation contract for every `lib.cicd` call in a command doc: `PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd ...` - `PYTHONPATH` names the PARENT of `lib/` (or `-m lib.cicd` cannot resolve) and `uv` supplies the pinned 3.11+ interpreter plus pydantic. Bare `python3` with `PYTHONPATH` pointed inside `lib/` fails on both counts; it silently disabled deploy verification for months (#430 fixed Step 6, #595 fixed the Step 9 / `/flow:deploy` / `/cicd:verify` verify calls, pinned by `tests/test_cicd_verify_invocation.py`). The same broken shape still rides ~40 non-`verify` `lib.cicd` lines in the `cicd`/`cpp`/`codex`/`project` families - a known latent bug awaiting its own sweep, not a covered case
 - `python -m lib.cicd.bootstrap check` - Check admin-only bootstrap dependencies (config: `.claude/bootstrap.yaml`)
 
 ### Codex Orchestration

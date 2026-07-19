@@ -123,14 +123,22 @@ for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-p
 done
 
 if [ -n "$CPP_DIR" ] && grep -q "deploy_verification:" .claude/cicd.yml 2>/dev/null; then
-    echo "Capturing pre-deploy baseline..."
-    PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -m lib.cicd verify --baseline --summary
+    if command -v uv >/dev/null 2>&1; then
+        echo "Capturing pre-deploy baseline..."
+        # Invoke through uv, and point PYTHONPATH at CPP_DIR (the PARENT of
+        # lib/) - bare `python3 -m lib.cicd` with PYTHONPATH inside lib/ cannot
+        # resolve the package and has no pydantic (issue #595, same contract as
+        # the Step-6 quality-gate runner).
+        PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd verify --baseline --summary
+    else
+        echo "NOTE: deploy verification configured but 'uv' is not installed; skipping baseline capture." >&2
+    fi
 fi
 ```
 
 - Captures health + smoke probes into `.claude/deploy-baseline.json`.
-- Fail-open: if `lib/cicd` is unavailable or no probes are configured, skip -
-  the deploy is never blocked by baseline capture.
+- Fail-open: if `lib/cicd` is unavailable, `uv` is missing, or no probes are
+  configured, skip - the deploy is never blocked by baseline capture.
 
 ### Step 4b: Run Deploy via Deterministic Runner (primary path)
 
@@ -265,9 +273,12 @@ If `CPP_DIR` is found and `.claude/cicd.yml` exists:
 
    ```bash
    echo "Running deploy verification..."
-   PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -m lib.cicd verify
+   PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd verify
    VERIFY_EXIT=$?
    ```
+
+   Skips when `uv` is unavailable, exactly as the Step 4c baseline capture does
+   - with no baseline there is nothing to diff against anyway (issue #595).
 
    - `VERIFY_EXIT == 0` (PROCEED or REVIEW): keep the deployment. On REVIEW,
      surface the flagged probes to the user.
@@ -288,7 +299,7 @@ If `CPP_DIR` is found and `.claude/cicd.yml` exists:
    ```bash
    HEALTH_PASS=$( [ "$HEALTH_EXIT" -eq 0 ] && echo "pass" || echo "fail" )
    SMOKE_PASS=$( [ "$SMOKE_EXIT" -eq 0 ] && echo "pass" || echo "fail" )
-   VERDICT=$( PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -m lib.cicd verify --summary 2>/dev/null | grep -oiE 'proceed|review|rollback' | head -1 | tr 'A-Z' 'a-z' )
+   VERDICT=$( PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd verify --summary 2>/dev/null | grep -oiE 'proceed|review|rollback' | head -1 | tr 'A-Z' 'a-z' )
    echo "$(date -Iseconds) | ${TARGET} | $(git rev-parse --short HEAD) | $(git branch --show-current) | $DEPLOY_EXIT | health:${HEALTH_PASS} | smoke:${SMOKE_PASS} | verify:${VERDICT:-none}" >> .claude/deploy.log
    ```
 
