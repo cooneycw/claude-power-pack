@@ -10,6 +10,12 @@ Contract:
 - When the squash fails with "Base branch was modified" (a sibling PR merged in
   the poll->merge race window, issue #502), refetch + retry a bounded number of
   times; any other failure is not retried.
+- Required status checks on the base branch are WAITED FOR before the squash and
+  never auto-overridden (issue #577): a pending check is polled, a red one is a
+  hard stop, one that never reports times out into a stop naming the --admin
+  break-glass, and a required-check block is excluded from the #517 --admin
+  auto-retry (a review block still triggers it). A base with no required checks
+  takes the original path unchanged.
 - Return non-zero only when the PR genuinely did not merge.
 
 ``gh`` and ``git`` are stubbed via the GH_PR_MERGE_GH / GH_PR_MERGE_GIT env hooks;
@@ -39,6 +45,8 @@ def _make_stubs(
     mergeable: str | list[str] = "MERGEABLE",
     merge_outcomes: list[tuple[int, str]] | None = None,
     viewer_permission: str = "ADMIN",
+    required_contexts: list[str] | None = None,
+    check_rollup: list[list[tuple[str, str]]] | None = None,
 ) -> dict:
     """Create fake gh/git that log their args and honour a scripted outcome.
 
@@ -52,6 +60,13 @@ def _make_stubs(
 
     ``viewer_permission`` scripts ``gh repo view --json viewerPermission`` - the
     repo-admin check that gates the branch-protection --admin retry (issue #517).
+
+    ``required_contexts`` scripts the base branch's required status checks (issue
+    #577); empty (the default) means the branch requires none, so the pre-merge
+    wait is inert and every pre-#577 test exercises the original path unchanged.
+    ``check_rollup`` scripts ``gh pr view --json statusCheckRollup`` as a list of
+    polls, each a list of ``(name, state)`` pairs, consumed one poll per call and
+    staying on the last once exhausted.
     """
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -69,6 +84,17 @@ def _make_stubs(
     outcomes = merge_outcomes if merge_outcomes is not None else [(merge_exit, "")]
     merge_seq_file.write_text("".join(f"{code}|{msg}\n" for code, msg in outcomes))
 
+    # Issue #577: the base branch's required contexts, and the per-poll rollup.
+    req_file = tmp_path / "required_contexts"
+    req_file.write_text("".join(f"{c}\n" for c in (required_contexts or [])))
+    rollup_seq_file = tmp_path / "rollup_seq"
+    rollup_ctr_file = tmp_path / "rollup_ctr"
+    # One line per poll; states within a poll are comma-separated `name=state`.
+    rollup_polls = check_rollup if check_rollup is not None else [[]]
+    rollup_seq_file.write_text(
+        "".join(",".join(f"{n}={s}" for n, s in poll) + "\n" for poll in rollup_polls)
+    )
+
     # gh: log argv; `pr merge` honours the next scripted (exit, stderr) outcome;
     # `pr view --json mergeable` echoes the next scripted mergeable value; any
     # other `pr view` echoes pr_state.
@@ -84,8 +110,26 @@ def _make_stubs(
         '  IFS="|" read -r code msg <<< "${lines[$idx]}"\n'
         '  if [[ -n "$msg" ]]; then echo "$msg" >&2; fi\n'
         '  exit "$code"\n'
+        'elif [[ "$1" == "api" ]]; then\n'
+        '  if [[ "$*" == *required_status_checks* ]]; then\n'
+        f'    cat "{req_file}"\n'
+        "  fi\n"
+        "  exit 0\n"
         'elif [[ "$1 $2" == "pr view" ]]; then\n'
-        '  if [[ "$*" == *mergeable* ]]; then\n'
+        '  if [[ "$*" == *baseRefName* ]]; then\n'
+        '    echo "main"\n'
+        '  elif [[ "$*" == *statusCheckRollup* ]]; then\n'
+        f'    ctr=$(cat "{rollup_ctr_file}" 2>/dev/null || echo 0)\n'
+        f'    mapfile -t polls < "{rollup_seq_file}"\n'
+        "    idx=$ctr\n"
+        "    if (( idx >= ${#polls[@]} )); then idx=$(( ${#polls[@]} - 1 )); fi\n"
+        f'    echo $(( ctr + 1 )) > "{rollup_ctr_file}"\n'
+        '    IFS="," read -ra entries <<< "${polls[$idx]}"\n'
+        '    for e in "${entries[@]}"; do\n'
+        '      [[ -z "$e" ]] && continue\n'
+        '      echo "${e%%=*}|${e##*=}"\n'
+        "    done\n"
+        '  elif [[ "$*" == *mergeable* ]]; then\n'
         f'    ctr=$(cat "{ctr_file}" 2>/dev/null || echo 0)\n'
         f'    mapfile -t vals < "{seq_file}"\n'
         "    idx=$ctr\n"
@@ -118,6 +162,8 @@ def _run(cwd: Path, stubs: dict, *args: str) -> subprocess.CompletedProcess[str]
     env["GH_PR_MERGE_GIT"] = stubs["GH_PR_MERGE_GIT"]
     env["GH_PR_MERGE_POLL_DELAY"] = "0"  # keep the mergeability poll instant in tests
     env["GH_PR_MERGE_BASE_RETRY_DELAY"] = "0"  # keep the base-modified retry instant too
+    env["GH_PR_MERGE_CHECK_DELAY"] = "0"  # and the #577 required-check wait
+    env["GH_PR_MERGE_CHECK_ATTEMPTS"] = "3"  # bounded, so the timeout path is testable
     return subprocess.run(
         ["bash", str(SCRIPT), *args],
         check=False,
@@ -407,3 +453,146 @@ def test_non_protection_failure_no_admin_retry(tmp_path: Path):
     merge_calls = [c for c in _calls(stubs) if c.startswith("gh pr merge")]
     assert len(merge_calls) == 1, merge_calls
     assert not any("--admin" in c for c in merge_calls)
+
+
+# --- Required status checks are waited for, never overridden (issue #577) -----
+
+WOODPECKER = "ci/woodpecker/pr/woodpecker"
+
+# The stderr GitHub returns when the block is a required STATUS CHECK rather than
+# a review - the family that must NOT trigger the #517 --admin auto-retry.
+CHECK_BLOCKED = (
+    "failed to merge pull request: GraphQL: Required status check "
+    '"ci/woodpecker/pr/woodpecker" is expected. (mergePullRequest)'
+)
+
+
+def test_no_required_contexts_skips_the_wait(tmp_path: Path):
+    # An unprotected base branch (or one with no required checks) must behave
+    # exactly as before #577: no rollup polling, straight to the squash.
+    stubs = _make_stubs(tmp_path, merge_exit=0, pr_state="MERGED", required_contexts=[])
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-577-fix")
+    assert result.returncode == 0, result.stderr
+    assert not any("statusCheckRollup" in c for c in _calls(stubs)), "must not poll checks"
+
+
+def test_waits_for_pending_required_check_then_merges(tmp_path: Path):
+    # The core #577 case: the squash is attempted the instant after a push, so the
+    # required check is still PENDING. Wait for it, then merge - do not --admin
+    # past it.
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        required_contexts=[WOODPECKER],
+        check_rollup=[
+            [(WOODPECKER, "PENDING")],
+            [(WOODPECKER, "PENDING")],
+            [(WOODPECKER, "SUCCESS")],
+        ],
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-577-fix")
+    assert result.returncode == 0, result.stderr
+    assert "waiting for required status check" in result.stderr
+    merge_calls = [c for c in _calls(stubs) if c.startswith("gh pr merge")]
+    assert len(merge_calls) == 1, merge_calls
+    assert "--admin" not in merge_calls[0]
+
+
+def test_red_required_check_stops_without_merging(tmp_path: Path):
+    # A genuinely failing required check is a hard stop: never attempt the merge,
+    # never reach for --admin.
+    stubs = _make_stubs(
+        tmp_path,
+        pr_state="OPEN",
+        viewer_permission="ADMIN",
+        required_contexts=[WOODPECKER],
+        check_rollup=[[(WOODPECKER, "FAILURE")]],
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-577-fix")
+    assert result.returncode == 1
+    assert "RED" in result.stderr
+    assert not any(c.startswith("gh pr merge") for c in _calls(stubs)), "must not merge"
+
+
+def test_required_check_that_never_reports_times_out_without_merging(tmp_path: Path):
+    # A required context missing from the rollup entirely (skipped pipeline,
+    # renamed context) must time out into a stop that names the break-glass -
+    # not into a silent --admin merge.
+    stubs = _make_stubs(
+        tmp_path,
+        pr_state="OPEN",
+        viewer_permission="ADMIN",
+        required_contexts=[WOODPECKER],
+        check_rollup=[[]],
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-577-fix")
+    assert result.returncode == 1
+    assert "never reported" in result.stderr
+    assert "--admin" in result.stderr, "the stop must name the documented break-glass"
+    assert not any(c.startswith("gh pr merge") for c in _calls(stubs)), "must not merge"
+
+
+def test_explicit_admin_skips_the_check_wait(tmp_path: Path):
+    # An explicit --admin is a conscious owner override, so it bypasses the wait -
+    # otherwise the break-glass would be blocked by the very check it overrides.
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        required_contexts=[WOODPECKER],
+        check_rollup=[[(WOODPECKER, "FAILURE")]],
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "--admin", "42", "issue-577-fix")
+    assert result.returncode == 0, result.stderr
+    assert not any("statusCheckRollup" in c for c in _calls(stubs))
+
+
+def test_required_check_block_does_not_trigger_admin_retry(tmp_path: Path):
+    # The #577 narrowing of the #517 auto-retry: when the squash is rejected by a
+    # required STATUS CHECK, an admin actor must NOT be auto-escalated to --admin -
+    # that would defeat the required check on every run. (A review block still is;
+    # see test_protection_block_admin_retries_with_admin above.)
+    stubs = _make_stubs(
+        tmp_path,
+        pr_state="OPEN",
+        viewer_permission="ADMIN",
+        required_contexts=[WOODPECKER],
+        check_rollup=[[(WOODPECKER, "SUCCESS")]],
+        merge_outcomes=[(1, CHECK_BLOCKED)],
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-577-fix")
+    assert result.returncode == 1
+    merge_calls = [c for c in _calls(stubs) if c.startswith("gh pr merge")]
+    assert len(merge_calls) == 1, merge_calls
+    assert not any("--admin" in c for c in merge_calls)
+    assert "NOT retrying" in result.stderr
+
+
+def test_check_run_conclusion_shape_is_understood(tmp_path: Path):
+    # The rollup mixes commit STATUSes (context/state) with CHECK RUNs
+    # (name/conclusion). A green check run must satisfy the required context, or
+    # a GitHub-Actions-style required check would wait forever.
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        required_contexts=["build"],
+        check_rollup=[[("build", "SUCCESS")]],
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-577-fix")
+    assert result.returncode == 0, result.stderr
+
+
+def test_neutral_and_skipped_states_count_as_green(tmp_path: Path):
+    # GitHub treats NEUTRAL/SKIPPED as satisfying a required check; mirroring that
+    # keeps a conditionally-skipped pipeline from deadlocking every PR.
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        required_contexts=[WOODPECKER],
+        check_rollup=[[(WOODPECKER, "SKIPPED")]],
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-577-fix")
+    assert result.returncode == 0, result.stderr

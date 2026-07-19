@@ -46,6 +46,18 @@
 #   bypasses every protection at once (including a red required check), so the
 #   auto-retry is deliberately bounded and admin-gated.
 #
+# Required status checks are WAITED FOR, never overridden (issue #577, ADR 0004):
+#   With a required status check on the base branch (CPP's posture makes the
+#   Woodpecker PR pipeline required), a squash attempted the instant after a push
+#   is rejected because the check has not reported yet. The #517 auto-retry above
+#   would then "fix" that by merging with --admin - bypassing the very check the
+#   posture exists to enforce, on every single run. That is protection theatre.
+#   So: before merging, resolve the base branch's required contexts and POLL the
+#   PR head until they are green; hard-stop on a genuinely red one; and exclude a
+#   required-status-check block from the --admin auto-retry (a review block, the
+#   #517 case, is unchanged). An explicit --admin from the caller still skips the
+#   wait - a conscious owner override is the documented break-glass.
+#
 # This wrapper makes the merge layout-aware:
 #   * Linked worktree (cwd's `.git` is a FILE): run `gh pr merge --squash` WITHOUT
 #     --delete-branch so gh never attempts the local branch switch, then delete the
@@ -71,6 +83,8 @@
 #   GH_PR_MERGE_POLL_DELAY     seconds between poll attempts (default: 2)
 #   GH_PR_MERGE_BASE_RETRY_ATTEMPTS  squash retries on "Base branch was modified" (default: 2)
 #   GH_PR_MERGE_BASE_RETRY_DELAY     seconds before each such retry (default: 2)
+#   GH_PR_MERGE_CHECK_ATTEMPTS       required-check poll attempts (default: 60)
+#   GH_PR_MERGE_CHECK_DELAY          seconds between check polls (default: 10)
 
 set -uo pipefail
 
@@ -128,6 +142,18 @@ is_protection_block() {
         <<<"$LAST_MERGE_ERR"
 }
 
+# A protection block caused specifically by a REQUIRED STATUS CHECK that is not
+# green (issue #577). Distinguished from the review-required family above because
+# the two want opposite handling: a review block is the #517 owner-authority case
+# the --admin retry exists for, while a status-check block means CI has not passed
+# - overriding it with --admin would defeat the posture on every run. This is the
+# narrower match, so it is tested BEFORE the generic protection families.
+is_required_check_block() {
+    grep -qiE \
+        'required status check|expected status check|status checks? (are|is) (expected|pending|failing)|checks? (are|is) still (pending|running|expected)' \
+        <<<"$LAST_MERGE_ERR"
+}
+
 # True when the authenticated actor has admin permission on the repo - the only
 # actor for whom `gh pr merge --admin` can override protection (issue #517).
 is_repo_admin() {
@@ -172,7 +198,97 @@ poll_mergeable() {
     return 0
 }
 
+# The status-check contexts the BASE branch requires (issue #577). Empty when the
+# branch is unprotected, has no required checks, or the lookup is not permitted -
+# in every one of those cases there is nothing to wait for, so the wait below is
+# inert and this helper behaves exactly as it did before. Both API shapes are
+# read: the legacy `contexts` list and the newer `checks[].context` form.
+required_contexts() {
+    local base
+    base=$("$GH_BIN" pr view "$PR_NUMBER" --json baseRefName --jq '.baseRefName' 2>/dev/null)
+    [[ -z "$base" ]] && return 0
+    "$GH_BIN" api "repos/{owner}/{repo}/branches/${base}/protection/required_status_checks" \
+        --jq '((.contexts // []) + ((.checks // []) | map(.context))) | unique | .[]' 2>/dev/null
+}
+
+# Current state of each check on the PR head, as `name|state` lines. The rollup
+# mixes two node types - a commit STATUS (context/state, what Woodpecker posts)
+# and a GitHub CHECK RUN (name/status/conclusion) - so both are flattened to one
+# shape. A check run that is still running has no conclusion yet; report its
+# status so the poller treats it as pending rather than as an unknown.
+check_states() {
+    "$GH_BIN" pr view "$PR_NUMBER" --json statusCheckRollup \
+        --jq '.statusCheckRollup[] | "\(.context // .name)|\(.state // .conclusion // .status // "PENDING")"' \
+        2>/dev/null
+}
+
+# Wait for every required context to go green before the squash (issue #577).
+# Returns 0 to proceed, 1 to stop. A required check that FAILS is a hard stop -
+# never an --admin override - and so is one that never reports within the budget.
+wait_for_required_checks() {
+    local -a required=()
+    mapfile -t required < <(required_contexts)
+    (( ${#required[@]} == 0 )) && return 0
+
+    local attempts="${GH_PR_MERGE_CHECK_ATTEMPTS:-60}"
+    local delay="${GH_PR_MERGE_CHECK_DELAY:-10}"
+    local i ctx state line pending failed
+
+    for ((i = 1; i <= attempts; i++)); do
+        local -A states=()
+        while IFS= read -r line; do
+            [[ -z "$line" ]] && continue
+            states["${line%%|*}"]="${line##*|}"
+        done < <(check_states)
+
+        pending=""
+        failed=""
+        for ctx in "${required[@]}"; do
+            state="${states[$ctx]:-MISSING}"
+            case "${state^^}" in
+                SUCCESS|NEUTRAL|SKIPPED)
+                    ;;
+                FAILURE|ERROR|CANCELLED|TIMED_OUT|ACTION_REQUIRED|STARTUP_FAILURE)
+                    failed+="${ctx} (${state}) "
+                    ;;
+                *)
+                    pending+="${ctx} (${state}) "
+                    ;;
+            esac
+        done
+
+        if [[ -n "$failed" ]]; then
+            echo "error: required status check(s) are RED on PR #$PR_NUMBER: ${failed}" >&2
+            echo "       Fix CI and push again - this is a required check, so it is" \
+                 "never merged past automatically (issue #577, ADR 0004)." >&2
+            return 1
+        fi
+        if [[ -z "$pending" ]]; then
+            (( i > 1 )) && echo "note: required status check(s) are green; merging." >&2
+            return 0
+        fi
+        if (( i < attempts )); then
+            (( i == 1 )) && echo "note: waiting for required status check(s) on PR" \
+                "#$PR_NUMBER: ${pending}" >&2
+            sleep "$delay"
+        fi
+    done
+
+    echo "error: required status check(s) never reported for PR #$PR_NUMBER after" \
+         "$attempts check(s): ${pending}" >&2
+    echo "       Not merging: overriding a required check would defeat the posture." \
+         "If the pipeline genuinely will not run, the documented break-glass is" \
+         "'gh-pr-merge.sh --admin $PR_NUMBER $BRANCH' (issue #577, ADR 0004)." >&2
+    return 1
+}
+
 if ! poll_mergeable; then
+    exit 1
+fi
+
+# An explicit --admin is a conscious owner override of protection, so it also
+# skips the wait; without it, required checks must be green before the squash.
+if (( ADMIN_OPT_IN == 0 )) && ! wait_for_required_checks; then
     exit 1
 fi
 
@@ -225,7 +341,16 @@ run_squash ${BASE_FLAGS+"${BASE_FLAGS[@]}"}
 # protection, the caller did not already force --admin, and the actor is a repo
 # admin, retry once with --admin. Any non-protection failure, or a non-admin
 # actor, is left to the MERGED-state check below - never an --admin override.
-if [[ $merge_exit -ne 0 && $ADMIN_OPT_IN -eq 0 ]] && is_protection_block && is_repo_admin; then
+#
+# One protection family is deliberately EXCLUDED (issue #577): a required STATUS
+# CHECK that is not green. The wait above already gave it every chance to pass, so
+# a block here means CI is red or absent - and auto-overriding it would silently
+# defeat the required check on every run. Only a human --admin may do that.
+if [[ $merge_exit -ne 0 ]] && is_required_check_block; then
+    echo "note: PR #$PR_NUMBER was blocked by a required status check - NOT retrying" \
+         "with --admin (issue #577: a required check is waited for, never overridden" \
+         "automatically)." >&2
+elif [[ $merge_exit -ne 0 && $ADMIN_OPT_IN -eq 0 ]] && is_protection_block && is_repo_admin; then
     echo "note: PR #$PR_NUMBER was blocked by branch protection and the actor is a" \
          "repo admin - retrying the squash once with --admin (issue #517)." >&2
     run_squash --admin ${BASE_FLAGS+"${BASE_FLAGS[@]}"}

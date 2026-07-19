@@ -62,6 +62,10 @@ desktop.ini
 # design: it IS the offline gate's source of truth, so the blanket *.json rule
 # must not swallow it.
 !.claude/eli5-vendor.json
+# Declared branch-protection posture (#577, ADR 0004) - checked in by design: it
+# IS the posture's source of truth, so the blanket *.json rule must not swallow
+# it.
+!.claude/branch-protection.json
 !templates/playwright-pool.example.json
 !templates/sandbox/settings-bash-sandbox.json
 # Plugin marketplace manifests (issue #477, ADR 0001) - tracked despite *.json
