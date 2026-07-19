@@ -868,9 +868,19 @@ for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-p
     break
   fi
 done
+# Verification runs through `uv`, exactly as the Step 6 gate does (issue #595):
+# bare `python3 -m lib.cicd` uses the system interpreter (often 3.10, no venv),
+# so lib/cicd's deps (pydantic) are absent and the module dies on import. If
+# `uv` is missing, verification is skipped with a NOTE rather than attempted -
+# it is a fail-open confidence gate, and there is no Makefile fallback for it
+# the way `make lint` / `make test` back the Step 6 runner.
 VERIFY_ENABLED=0
 if [ -n "$CPP_DIR" ] && grep -q "deploy_verification:" .claude/cicd.yml 2>/dev/null; then
-    VERIFY_ENABLED=1
+    if command -v uv >/dev/null 2>&1; then
+        VERIFY_ENABLED=1
+    else
+        echo "NOTE: deploy verification configured but 'uv' is not installed; skipping baseline + verdict." >&2
+    fi
 fi
 
 # Out-of-band deploy opt-out (issue #535): a repo whose real deploy path is a host
@@ -910,7 +920,9 @@ elif [[ -f "Makefile" ]] && grep -q "^deploy:" Makefile; then
     # verify can detect regressions.
     if [ "$VERIFY_ENABLED" -eq 1 ]; then
         echo "Capturing pre-deploy baseline..."
-        PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -m lib.cicd verify --baseline --summary
+        # PYTHONPATH points at CPP_DIR (the PARENT of lib/), not at lib/ itself,
+        # or `-m lib.cicd` cannot resolve the package - same contract as Step 6.
+        PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd verify --baseline --summary
     fi
 
     echo "Running: make deploy"
@@ -921,7 +933,7 @@ elif [[ -f "Makefile" ]] && grep -q "^deploy:" Makefile; then
     VERDICT="none"
     if [ "$VERIFY_ENABLED" -eq 1 ]; then
         echo "Running deploy verification..."
-        PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -m lib.cicd verify
+        PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd verify
         VERIFY_EXIT=$?
         VERDICT=$( [ "$VERIFY_EXIT" -eq 1 ] && echo "rollback" || echo "proceed/review" )
         if [ "$VERIFY_EXIT" -eq 1 ]; then
