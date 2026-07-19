@@ -4,7 +4,8 @@
        eli5-check eli5-drift eli5-revendor \
        tool-risk-check tool-risk-drift \
        branch-protection-check branch-protection-apply branch-protection-show \
-       host-surfaces-check host-surfaces-plan host-surfaces-prune memory-harness
+       host-surfaces-check host-surfaces-plan host-surfaces-prune memory-harness \
+       binary-guards-check
 
 ## Quality gates (used by /flow:finish)
 
@@ -33,7 +34,17 @@ secret-scan:
 
 ## Pre-deploy gate (runs all quality checks)
 
-verify: lint test typecheck
+verify: lint test typecheck binary-guards-check
+
+## Enforce the CLAUDE.md "guard tests that shell out to git/docker/gitleaks"
+## directive (issue #602). It failed three times as prose (#451, #489, #577)
+## precisely because it is invisible locally: this box HAS git, so the red
+## pipeline was the only messenger. Stdlib-only source analysis, so it gives the
+## same verdict here as in the slim CI image. Also asserted by
+## tests/test_test_binary_guards.py, which is what runs it in CI `validate`.
+
+binary-guards-check:
+	@python3 scripts/check-test-binary-guards.py
 
 ## Documentation (used by /flow:auto and /flow:finish)
 
