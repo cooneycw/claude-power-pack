@@ -3,7 +3,8 @@
 #
 # Pipeline:
 #   PR/push -> secret-scan -> validate (lint+test+typecheck) + codex-skills-check
-#              + eli5-vendor-check + eli5-upstream-drift (advisory) -> Dockerfile lint
+#              + eli5-vendor-check + eli5-upstream-drift (advisory)
+#              + tool-risk-drift -> Dockerfile lint
 #
 # The Docker MCP runtime (second-opinion + aws-secrets-agent images, compose
 # policy checks, image CVE/SBOM scans, and the runtime smoke stage) was retired
@@ -68,6 +69,25 @@ steps:
     failure: ignore
     commands:
       - python3 scripts/eli5-vendor.py --upstream
+
+  # Shared permission-risk taxonomy gate (issue #576). CPP classifies command
+  # risk in TWO places that must agree on what is dangerous: the canonical
+  # scripts/classify-tool-risk.py (used by /security:permissions) and the
+  # inline copy vendored into scripts/hook-permission-census.sh (kept
+  # self-contained so the census hook stays fail-open). If DESTRUCTIVE_TOKENS
+  # or CODE_EXEC drift apart, a command one classifier calls dangerous can be
+  # proposed as an allow rule by the other - the taxonomy is safety-critical,
+  # so this is a HARD gate (--strict, exit 1), not an advisory.
+  #
+  # The guard shipped with #495 documenting --strict "(for CI)" and was then
+  # wired into nothing at all - no step, no target, no test - the same
+  # dormant-capability shape #591 fixed for the eli5 vendor link. Stdlib-only
+  # and git-free, so it runs directly under the slim image (the #451/#489 trap).
+  tool-risk-drift:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
+    depends_on: [secret-scan]
+    commands:
+      - python3 scripts/tool-risk-drift.py --strict
 
   dockerfile-lint:
     image: ghcr.io/hadolint/hadolint:v2.14.0-debian

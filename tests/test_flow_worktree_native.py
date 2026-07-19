@@ -349,3 +349,57 @@ def test_guard_rejects_unknown_option(tmp_path: Path) -> None:
     _main, wt = _make_repo_with_worktree(tmp_path)
     res = _run(wt, "--bogus")
     assert res.returncode == 2
+
+
+# ---------------------------------------------------------------------------
+# Issue #576: /flow:auto Steps 4 and 6 invoke the guard WITH --strict, so exit 3
+# now stops a run. That promotion is only safe if --strict distinguishes a leak
+# from pre-existing dirt on a shared file the run legitimately also edits -
+# otherwise the first high-traffic file (CLAUDE.md, a template) left uncommitted
+# in main by someone else halts every subsequent flow run. Freshness is the
+# discriminator, the same rule the #573 total-leak branch already applied.
+# ---------------------------------------------------------------------------
+
+
+@requires_git
+def test_guard_strict_ignores_stale_overlap(tmp_path: Path) -> None:
+    """Pre-existing main dirt on a file this run also edits warns but does NOT block."""
+    main, wt = _make_repo_with_worktree(tmp_path)
+    (wt / "tracked.txt").write_text("intended-in-worktree\n")
+    (main / "tracked.txt").write_text("pre-existing-uncommitted-work\n")
+    # Backdate main's copy well outside the 30m freshness window: this edit
+    # predates the run, so it cannot be a leak FROM the run.
+    stale = time.time() - 4 * 60 * 60
+    os.utime(main / "tracked.txt", (stale, stale))
+
+    res = _run(wt, "--strict")
+    assert res.returncode == 0, (
+        "stale overlapping dirt is someone else's uncommitted work, not a leak - "
+        "it must not block a --strict run (issue #576)"
+    )
+    # It still WARNS: a human should look, the run just isn't stopped.
+    assert "WARNING" in res.stderr
+    assert "#576" in res.stderr
+
+
+@requires_git
+def test_guard_strict_still_blocks_fresh_overlap(tmp_path: Path) -> None:
+    """The #486 leak signature is fresh by definition and must still exit 3."""
+    main, wt = _make_repo_with_worktree(tmp_path)
+    (wt / "tracked.txt").write_text("intended-in-worktree\n")
+    (main / "tracked.txt").write_text("LEAKED\n")  # mtime = now
+    res = _run(wt, "--strict")
+    assert res.returncode == 3
+    assert "blocking" in res.stderr
+
+
+def test_auto_invokes_the_guard_in_strict_mode() -> None:
+    """AC (#576 item 3): both call sites promoted from advisory to blocking."""
+    text = _read(".claude/commands/flow/auto.md")
+    assert text.count("flow-worktree-guard.sh --strict") >= 2, (
+        "auto.md must invoke the guard with --strict at BOTH Step 4 and Step 6 "
+        "(issue #576 promotion decision)"
+    )
+    assert "Exit 3 is a STOP" in text, (
+        "auto.md must state that exit 3 stops the run, or --strict is decorative"
+    )

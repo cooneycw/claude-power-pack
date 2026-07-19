@@ -348,14 +348,18 @@ but is written to the wrong tree. So, for every edit in this step:
   path. A path under `$(git rev-parse --show-toplevel)/...`, or a plain relative
   path from the session cwd, targets the worktree correctly.
 - After writing, confirm the change landed in the worktree (`git status` shows it)
-  and did NOT leak into main. The guard makes the leak check verifiable - bare
-  invocation (advisory: warns on a leak, never blocks):
+  and did NOT leak into main. The guard makes the leak check verifiable -
+  invoked with `--strict`, which BLOCKS on a leak signature (issue #576):
   ```bash
-  ~/.claude/scripts/flow-worktree-guard.sh
+  ~/.claude/scripts/flow-worktree-guard.sh --strict
   ```
-  If it warns that main has tracked modifications mirroring files you edited, the
-  edit leaked: move the change into the worktree, then `git -C <main> checkout --
-  <path>` to revert main before continuing.
+  **Exit 3 is a STOP.** A leak means your edits are landing in the wrong tree, so
+  every further edit compounds the damage and the worktree the rest of the flow
+  commits from does not contain the work. Move the change into the worktree, then
+  `git -C <main> checkout -- <path>` to revert main, then re-run the guard before
+  continuing. Only a leak signature exits 3: pre-existing, non-overlapping dirt in
+  main stays a quiet note and never blocks (#536), and a total leak (idle worktree
+  + fresh main edits) is caught the same way (#573).
 
 Execute the approved plan from the Step 3 ELI5 gate:
 
@@ -512,16 +516,21 @@ fi
    ```
    If it warns, add a `!negation` to `.gitignore` for any intended file and re-stage.
 
-   **Worktree-leak guard** (issue #486): in a native-worktree session, confirm no
-   edit leaked into the MAIN repo working tree before committing (a stray dirty
-   file on main is otherwise committed later by whoever works there next):
+   **Worktree-leak guard** (issue #486; blocking since #576): in a
+   native-worktree session, confirm no edit leaked into the MAIN repo working
+   tree before committing (a stray dirty file on main is otherwise committed
+   later by whoever works there next, and the commit about to be made here is
+   missing that work). Invoke bare with `--strict` (#581 discipline):
    ```bash
-   if [ -n "$CPP_DIR" ] && [ -x "$CPP_DIR/scripts/flow-worktree-guard.sh" ]; then
-       "$CPP_DIR/scripts/flow-worktree-guard.sh"   # advisory: warns on a leak, never blocks
-   fi
+   ~/.claude/scripts/flow-worktree-guard.sh --strict
    ```
-   If it warns, an edit landed in main instead of the worktree: move it into the
-   worktree and revert main (`git -C <main> checkout -- <path>`), then re-gate.
+   **Exit 3 is a STOP** - do not commit. An edit landed in main instead of the
+   worktree: move it into the worktree and revert main (`git -C <main> checkout
+   -- <path>`), then re-run the guard and re-gate. Non-overlapping pre-existing
+   main dirt is a quiet note and never blocks (#536). On exit 127 fall back to
+   `${CLAUDE_PLUGIN_ROOT}/scripts/flow-worktree-guard.sh --strict` (#590), else
+   the CPP-checkout copy; if no copy exists, note it and continue (the guard
+   cannot block what it cannot run).
 
 2. **Commit** - if there are uncommitted changes:
    - Use conventional commit format: `type(scope): Description (Closes #N)`

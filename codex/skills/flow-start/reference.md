@@ -147,7 +147,8 @@ edits the worktree, but the worktree lives *inside* the main repo at
 worktree root - `git rev-parse --show-toplevel` - or use plain relative paths from
 the session cwd; never hand-build a `.claude/worktrees/<name>/...` absolute path,
 which has been observed to land the edit in the MAIN repo working tree instead.
-`/flow-auto` verifies this with `scripts/flow-worktree-guard.sh` before commit.
+`/flow-auto` verifies this with `scripts/flow-worktree-guard.sh --strict` before
+commit, where a fresh leak signature (exit 3) stops the run (issue #576).
 
 Report to the user:
 
