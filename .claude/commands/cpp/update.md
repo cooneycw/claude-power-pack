@@ -980,6 +980,71 @@ installs (#582 follow-through tracked with #575).
 
 ---
 
+## Step 7.9: Generated Host-Surface Refresh (issue #575)
+
+CPP ships installers and teardowns for the generated surfaces it writes into
+HOME, and until #575 **none of them were invoked here** - so an updated host
+ended up missing current files AND keeping retired ones. Both halves run in
+this step. It is fail-open throughout: any failure warns and continues, never
+aborting the update.
+
+**7.9a - Install the current Codex skills.** The repo's `codex/skills/` is the
+CI-gated source of truth (`codex-skills-check`), but nothing ever copied it to
+`~/.codex/skills/`, so Codex could not see any CPP skill. The installer prunes
+managed orphans at the destination too, so a skill dropped upstream stops
+loading here. Skip when Codex is not installed on this box.
+
+```bash
+if command -v codex >/dev/null 2>&1; then
+  python3 scripts/codex-skill-sync.py --install || echo "WARNING: codex skill install failed (continuing)"
+else
+  echo "→ Codex skills skipped (codex CLI not installed)"
+fi
+```
+
+**7.9b - Wire the common-memory harness.** `scripts/install-memory-harness.sh`
+has always advertised itself as safe to re-run from `/cpp:update`, and nothing
+ever ran it - so `cpp-memory` was missing from PATH on hosts that never ran it
+by hand. Idempotent.
+
+```bash
+bash scripts/install-memory-harness.sh || echo "WARNING: memory harness install failed (continuing)"
+```
+
+**7.9c - Detect retired surfaces still present.** Directories CPP once
+generated into and no longer does. Detection is curated
+(`.claude/retired-surfaces.yaml`) AND marker-gated, so a hand-authored file or
+a skill the user installed themselves is never a finding:
+
+```bash
+python3 scripts/retired-surface-prune.py --check
+```
+
+Exit 0 means nothing on this host is CPP-generated in those directories -
+report `✓ No retired host surfaces present` and continue to Step 8.
+
+On exit 1, show the user exactly what would move (`--plan` is pure - it prints
+the `mv` commands and changes nothing), then ask **per surface**:
+
+```
+Retired surface {name} still has {N} CPP-generated file(s) at {path}.
+  Retired because: {reason}
+  Superseded by:   {replacement}
+  Preserved untouched: {the non-CPP files in that directory}
+
+Move the {N} CPP-generated item(s) aside to {path}-retired-{date}?
+(Reversible - files are MOVED, not deleted; recover with mv.)  [y/N]
+```
+
+If yes: `python3 scripts/retired-surface-prune.py --prune {name}`. If no:
+report `→ {name} left in place` and continue. Never pass `--all` without
+per-surface assent, and never delete - the script only ever moves.
+
+Set `HOST_SURFACE_STATUS` to `refreshed`, `partial`, or `clean` for the Step 10
+summary.
+
+---
+
 ## Step 8: Detect Current Installation Tier
 
 Determine the user's current tier level so we can offer upgrades:
@@ -1067,6 +1132,11 @@ Docker MCP Drift:
   {MCP_DOCKER_DRIFT_STATUS - e.g. "clean", "torn down (newest image kept as restore
    point unless prune-all)", or "drift remaining (user kept some servers)"}
 
+Host Surfaces:
+  {HOST_SURFACE_STATUS - e.g. "refreshed (73 codex skills installed, memory harness
+   linked, no retired surfaces present)", "partial (user kept a retired surface)",
+   or "clean"}
+
 Run /cpp:status for full installation details.
 =================================
 ```
@@ -1083,6 +1153,11 @@ Run /cpp:status for full installation details.
 - Legacy systemd units are detected and removed only after user confirmation
 - MCP drift detection compares CPP's expected servers against leftover retired
   containers, legacy systemd remnants, claude mcp registrations, and listening ports
+- Generated host surfaces are refreshed in Step 7.9 (issue #575): the Codex skill
+  install and the common-memory harness both run here, and retired surfaces are
+  detected against the curated `.claude/retired-surfaces.yaml`
+- Retired-surface teardown is per-surface, user-confirmed, marker-gated, and
+  REVERSIBLE - files are moved to a timestamped sibling directory, never deleted
 - Orphaned legacy systemd units such as `mcp-coordination` are flagged for teardown
 - Orphaned Docker MCP infra (Step 6c/7) - a container, `mcp-<name>:*` image, or
   `claude`/`codex mcp` registration left behind after a server is retired from CPP

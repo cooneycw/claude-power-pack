@@ -395,3 +395,86 @@ def test_completeness_allows_unpackaged_family(tmp_repo):
     spec.mkdir()
     (spec / "adopt.md").write_text("# adopt\n")
     assert codex_skill_sync.main(["--check"]) == 0
+
+
+# ---------------------------------------------------------------------------
+# Install to the host destination (issue #575)
+#
+# Before #575, `--install` copytree'd with dirs_exist_ok and never removed
+# anything, so a skill dropped from the repo lingered in ~/.codex/skills
+# forever and Codex kept loading a skill CPP no longer ships. These pin the
+# pruning half - and that the marker predicate is what protects everything
+# CPP does not own. run_install() was previously untested because it writes
+# to Path.home().
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def tmp_home(tmp_path, monkeypatch):
+    """Redirect the install destination into the tmp tree."""
+    home = tmp_path / "home"
+    dest = home / ".codex" / "skills"
+    monkeypatch.setattr(codex_skill_sync, "install_dest_root", lambda: dest)
+    return dest
+
+
+def test_install_copies_generated_skills(tmp_repo, tmp_home):
+    codex_skill_sync.main(["--write"])
+    assert codex_skill_sync.main(["--install"]) == 0
+    assert (tmp_home / "flow-auto" / "SKILL.md").is_file()
+    assert (tmp_home / "qa-test" / "SKILL.md").is_file()
+
+
+def test_install_is_idempotent(tmp_repo, tmp_home):
+    codex_skill_sync.main(["--write"])
+    codex_skill_sync.main(["--install"])
+    before = sorted(p.name for p in tmp_home.iterdir())
+    codex_skill_sync.main(["--install"])
+    assert sorted(p.name for p in tmp_home.iterdir()) == before
+
+
+def test_install_prunes_orphaned_managed_skill(tmp_repo, tmp_home):
+    """A skill dropped from the repo must stop loading on the host."""
+    codex_skill_sync.main(["--write"])
+    codex_skill_sync.main(["--install"])
+    assert (tmp_home / "qa-test").is_dir()
+
+    (tmp_repo / ".claude" / "commands" / "qa" / "test.md").unlink()
+    codex_skill_sync.main(["--write"])
+    codex_skill_sync.main(["--install"])
+    assert not (tmp_home / "qa-test").exists(), "orphaned generated skill survived the install"
+    assert (tmp_home / "flow-auto").is_dir()
+
+
+def test_install_never_touches_unmarked_skills(tmp_repo, tmp_home):
+    """A skill the user wrote (or `npx skills add` installed) has no CPP marker."""
+    codex_skill_sync.main(["--write"])
+    codex_skill_sync.main(["--install"])
+    mine = tmp_home / "my-own-skill"
+    mine.mkdir()
+    (mine / "SKILL.md").write_text("---\nname: mine\n---\n# Hand written, not CPP\n")
+    codex_skill_sync.main(["--install"])
+    assert (mine / "SKILL.md").is_file(), "a non-CPP skill was removed"
+
+
+def test_install_never_touches_dotted_entries(tmp_repo, tmp_home):
+    """`.system` is Codex runtime state, not a skill."""
+    codex_skill_sync.main(["--write"])
+    tmp_home.mkdir(parents=True, exist_ok=True)
+    system = tmp_home / ".system"
+    system.mkdir()
+    (system / "state.json").write_text("{}\n")
+    codex_skill_sync.main(["--install"])
+    assert (system / "state.json").is_file()
+
+
+def test_install_drops_files_removed_from_a_skill_dir(tmp_repo, tmp_home):
+    """Replacing rather than merging: a file dropped upstream must not survive
+    inside the installed copy."""
+    codex_skill_sync.main(["--write"])
+    codex_skill_sync.main(["--install"])
+    stale = tmp_home / "flow-auto" / "scripts" / "gone.sh"
+    stale.parent.mkdir(parents=True, exist_ok=True)
+    stale.write_text("#!/bin/bash\necho stale\n")
+    codex_skill_sync.main(["--install"])
+    assert not stale.exists(), "a file removed upstream survived inside the installed skill"

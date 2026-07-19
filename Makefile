@@ -1,7 +1,8 @@
 .PHONY: test lint format typecheck verify secret-scan update_docs clean \
        bootstrap-check drift-check deploy setup-woodpecker-cli \
-       codex-init codex-skills codex-skills-check \
-       eli5-check eli5-drift eli5-revendor
+       codex-init codex-skills codex-skills-check codex-install \
+       eli5-check eli5-drift eli5-revendor \
+       host-surfaces-check host-surfaces-plan host-surfaces-prune memory-harness
 
 ## Quality gates (used by /flow:finish)
 
@@ -78,6 +79,13 @@ codex-skills:
 codex-init:
 	@python3 scripts/codex-skill-sync.py --write --install
 
+## Install the checked-in skills to ~/.codex/skills WITHOUT regenerating them -
+## the host-refresh path used by /cpp:init Tier 5 and /cpp:update Step 7.9,
+## where the repo copy is already current and CI-gated (issue #575). Prunes
+## managed orphans at the destination; never touches unmarked or dotted entries.
+codex-install:
+	@python3 scripts/codex-skill-sync.py --install
+
 ## Vendored eli5-gate core (issue #591)
 ## The canonical home of the /flow:eli5 necessity gate is cooneycw/eli5-gate;
 ## CPP vendors its core between the eli5-core markers. Two complementary checks:
@@ -93,6 +101,29 @@ eli5-drift:
 
 eli5-revendor:
 	@python3 scripts/eli5-vendor.py --revendor
+
+## Retired host surfaces (issue #575)
+## Directories in HOME that CPP once generated into and no longer does. The
+## generator gets deleted from the repo; the copies it already wrote stay put,
+## unmaintained and silently loading. Curated by .claude/retired-surfaces.yaml,
+## gated on the GENERATED marker, and reversible - prune MOVES files to a
+## timestamped sibling rather than deleting them.
+
+host-surfaces-check:
+	@python3 scripts/retired-surface-prune.py --check
+
+host-surfaces-plan:
+	@python3 scripts/retired-surface-prune.py --plan
+
+host-surfaces-prune:
+	@python3 scripts/retired-surface-prune.py --prune --all
+
+## Common-memory harness (issue #433): links scripts/cpp-memory onto PATH and
+## installs the hand-authored Codex /cpp-memory prompt. Idempotent. Wired into
+## /cpp:init Tier 5 and /cpp:update Step 7.9 (issue #575) - before that it was
+## documented as re-runnable from /cpp:update but never actually invoked.
+memory-harness:
+	@bash scripts/install-memory-harness.sh
 
 ## Utilities
 
