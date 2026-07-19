@@ -2,7 +2,8 @@
 # Runs quality gates and Dockerfile lint.
 #
 # Pipeline:
-#   PR/push -> secret-scan -> validate (lint+test+typecheck) + codex-skills-check -> Dockerfile lint
+#   PR/push -> secret-scan -> validate (lint+test+typecheck) + codex-skills-check
+#              + eli5-vendor-check + eli5-upstream-drift (advisory) -> Dockerfile lint
 #
 # The Docker MCP runtime (second-opinion + aws-secrets-agent images, compose
 # policy checks, image CVE/SBOM scans, and the runtime smoke stage) was retired
@@ -37,6 +38,36 @@ steps:
     depends_on: [secret-scan]
     commands:
       - python3 scripts/codex-skill-sync.py --check
+
+  # Vendored eli5-gate core gates (issue #591). The canonical home of the
+  # /flow:eli5 necessity gate is cooneycw/eli5-gate; CPP vendors its core
+  # between the eli5-core markers. The drift script for that link existed and
+  # worked but was invoked by NOTHING - no step, no target, no test - so a stale
+  # core was invisible. Two steps, because they catch different failures:
+  #
+  #   eli5-vendor-check   HARD gate, offline. Verifies the checked-in core still
+  #                       matches the hash pinned in .claude/eli5-vendor.json,
+  #                       i.e. nobody edited the vendored copy instead of the
+  #                       canonical repo. Stdlib-only and network-free, so it
+  #                       runs directly under the slim image (no curl, no git -
+  #                       the #451/#489 trap).
+  #   eli5-upstream-drift ADVISORY, network. The manifest pins what WAS vendored
+  #                       and therefore cannot notice that upstream MOVED; only
+  #                       a live fetch can. `failure: ignore` plus the script's
+  #                       own fail-open behavior means neither drift nor an
+  #                       offline runner can redden the pipeline - it reports.
+  eli5-vendor-check:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
+    depends_on: [secret-scan]
+    commands:
+      - python3 scripts/eli5-vendor.py
+
+  eli5-upstream-drift:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
+    depends_on: [secret-scan]
+    failure: ignore
+    commands:
+      - python3 scripts/eli5-vendor.py --upstream
 
   dockerfile-lint:
     image: ghcr.io/hadolint/hadolint:v2.14.0-debian

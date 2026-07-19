@@ -103,9 +103,25 @@ result. This rule applies to every flow helper in this file (see also Steps 4,
 number (and project, when `/flow:auto` was given a PROJECT arg):
 
 ```bash
-~/.claude/scripts/flow-start-resolve.sh 42
-~/.claude/scripts/flow-start-resolve.sh 42 my-project
+~/.claude/scripts/flow-start-resolve.sh 42 --session-cwd /home/user/Projects/my-repo
+~/.claude/scripts/flow-start-resolve.sh 42 my-project --session-cwd /home/user/Projects/my-repo
 ```
+
+**`--session-cwd` is not optional in practice (issue #592).** The helper cannot
+observe the Claude session's working directory - it sees only the cwd this Bash
+call inherited, and that cwd persists across calls and drifts the moment any
+earlier step `cd`s somewhere. `EnterWorktree` always acts on the SESSION cwd,
+which never moves. When the two diverge, the contract's central decision
+(`EnterWorktree` vs `cd`) is made against the wrong repo and a faithful reading
+of this contract does the wrong thing. So pass the session's working directory
+VERBATIM as a literal path - the directory this session reports as its cwd,
+never `$(pwd)` and never wherever a previous step left the shell.
+
+Omitting it does not break the run: the helper falls back to the process cwd,
+reports `SESSION_CWD_INFERRED=1`, and fails closed to `GIT_LANE=1`. The git
+lane is correct in every case, just slightly less ergonomic than the native
+one - the asymmetry is deliberate, since a wrong `GIT_LANE=0` sends
+`EnterWorktree` at a directory that may not be a repo at all.
 
 If the stable path is missing (exit 127), fall back in this order - the first
 that exists (issue #590):
@@ -129,8 +145,13 @@ Contract keys: `LANE` (`current-branch|fresh|resume|remote-pickup|cross-repo`),
 `EnterWorktree`, git cleanup at Step 7 - set for cross-repo runs, when
 `FLOW_WORKTREE_BASE` relocates worktrees out of the repo (issue #584, ADR 0003:
 the native tool's base dir is not configurable, and out-of-repo
-`EnterWorktree(path=...)` triggers an unsuppressable approval prompt), and when
-a resumed worktree lies outside the target repo), `TARGET_REPO`, `ISSUE_STATE`,
+`EnterWorktree(path=...)` triggers an unsuppressable approval prompt), when
+a resumed worktree lies outside the target repo, and whenever the session cwd
+was inferred rather than declared (issue #592)), `SESSION_CWD` (the directory
+the lane decision was made against), `SESSION_CWD_INFERRED` (1 = no
+`--session-cwd` was passed; the decision rests on a possibly drifted process
+cwd, so `GIT_LANE` was forced to 1 - if you see this, you forgot to pass it),
+`TARGET_REPO`, `ISSUE_STATE`,
 `ISSUE_TITLE`, `BRANCH` (the enforced issue-anchored name), `WT_PATH` (honors
 `FLOW_WORKTREE_BASE`: `$FLOW_WORKTREE_BASE/<repo>-<branch>` when set, else
 in-repo `.claude/worktrees/<branch>`), `DEFAULT_BRANCH`, `REMOTE_BRANCH`
@@ -1007,6 +1028,7 @@ Key failure scenarios:
 - Each step builds on the previous one; there's no skipping
 - Worktrees are native: Step 1 uses the `EnterWorktree` tool (checkout under `.claude/worktrees/`, branched from `origin/<default-branch>`) and Step 7 uses `ExitWorktree` for session-created worktrees, with a `git worktree` fallback for resumed or cross-machine worktrees. The issue-anchored `issue-<N>-<slug>` branch name, the ELI5 gate, and quality gates are CPP policy layered on top of the native mechanics
 - Step 1's plumbing is deterministic (issue #581): `scripts/flow-start-resolve.sh` owns target-repo resolution, issue fetch, branch derivation, existing-work triage, the #503 guard, and git-lane creation, emitting a `key=value` contract; the model's only decision is `EnterWorktree` vs `cd`. Helpers are invoked bare at their stable `~/.claude/scripts/` paths so the shipped allowlist rules match (`templates/claude-settings-permissions.json`) and Phase 1 runs prompt-free
+- The session cwd is DECLARED, not inferred (issue #592): Step 1a passes `--session-cwd <path>` so the resolver decides `CROSS_REPO`/`GIT_LANE` (and, with no PROJECT arg, `TARGET_REPO` itself) against the session's working directory rather than the Bash tool's cwd, which drifts on any earlier `cd`. Without it the resolver reports `SESSION_CWD_INFERRED=1` and fails closed to `GIT_LANE=1` - the residual #578 left behind
 - Cross-repo invocations (`/flow:auto <ISSUE> <PROJECT>`, or a session cwd outside any git repo) are first-class (issue #578): the resolver detects the mismatch (path, else `~/Projects/<PROJECT>`) and the run rides the deterministic git lane end-to-end - helper-created worktree, `cd` instead of `EnterWorktree`, git cleanup at Step 7 - with the worktree still under the target repo's `.claude/worktrees/` so every guard resolves unchanged
 - The worktree base is configurable (issue #584, ADR 0003 Option A): `FLOW_WORKTREE_BASE`, when set in host config, relocates worktrees to `$FLOW_WORKTREE_BASE/<repo>-<branch>` and commits the run to the same git lane (`GIT_LANE=1`); unset, shipped behavior is byte-identical to the in-repo default. The guard/merge/remove/friction scripts resolve via git plumbing and need no awareness of the base
 - The deploy step is always optional - it only runs if a deploy target exists

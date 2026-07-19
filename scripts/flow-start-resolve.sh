@@ -15,11 +15,24 @@
 # call EnterWorktree, or ride the git lane (cd).
 #
 # Resolve mode:
-#   flow-start-resolve.sh <ISSUE> [PROJECT] [--allow-closed]
+#   flow-start-resolve.sh <ISSUE> [PROJECT] [--session-cwd PATH] [--allow-closed]
 #
 #   PROJECT        target repo when the session cwd is not the issue's repo
 #                  (issue #578): tried as a path first, else
 #                  $HOME/Projects/<PROJECT>.
+#   --session-cwd  the CLAUDE SESSION's working directory, passed verbatim by
+#                  auto.md / start.md (issue #592). This is NOT the same thing
+#                  as the process cwd: the Bash tool's cwd persists across calls
+#                  and drifts whenever any earlier command `cd`s somewhere,
+#                  while EnterWorktree always acts on the session cwd, which
+#                  never moves. Inferring the session repo from `.` therefore
+#                  decides GIT_LANE against whatever repo the last `cd` landed
+#                  in. May also be supplied as FLOW_SESSION_CWD.
+#                  When ABSENT the resolver falls back to `.` (nothing
+#                  regresses) but says so - SESSION_CWD_INFERRED=1 - and fails
+#                  closed to GIT_LANE=1, because the git lane is correct in
+#                  every case while a wrong GIT_LANE=0 points EnterWorktree at
+#                  a directory that may not be a repo at all.
 #   --allow-closed proceed with worktree creation although the issue is not
 #                  OPEN (pass only after the user has confirmed).
 #
@@ -29,8 +42,16 @@
 #     GIT_LANE=0|1          1 = ride the git lane end-to-end: enter with `cd`,
 #                           never EnterWorktree, git cleanup at Step 7. Set for
 #                           cross-repo runs, when FLOW_WORKTREE_BASE is set
-#                           (issue #584, ADR 0003), and when a resumed worktree
-#                           lies outside the target repo
+#                           (issue #584, ADR 0003), when a resumed worktree
+#                           lies outside the target repo, and whenever the
+#                           session cwd was inferred rather than declared
+#                           (issue #592 - fail closed toward the safe lane)
+#     SESSION_CWD=<path>    the session cwd this resolution was decided against
+#     SESSION_CWD_INFERRED=0|1
+#                           1 = no --session-cwd/FLOW_SESSION_CWD was supplied,
+#                           so the process cwd was used as a stand-in and the
+#                           run may be resolving against a drifted directory
+#                           (issue #592); GIT_LANE is forced to 1 in this case
 #     TARGET_REPO=<abs path of the primary checkout>
 #     ISSUE_STATE=OPEN|CLOSED|MERGED
 #     ISSUE_TITLE=<title, whitespace flattened>
@@ -61,6 +82,7 @@
 # Env:
 #   FLOW_WORKTREE_BASE               worktree base override (issue #584, ADR
 #                                    0003 Option A; host config, never shipped)
+#   FLOW_SESSION_CWD                 session cwd (issue #592); --session-cwd wins
 # Env (test hooks - unset in normal use):
 #   FLOW_START_RESOLVE_GH            override the `gh` binary
 #   FLOW_START_RESOLVE_PROJECTS_DIR  override $HOME/Projects for name lookup
@@ -107,13 +129,20 @@ ALLOW_CLOSED=0
 ISSUE_NUM=""
 PROJECT=""
 EXPECTED_BRANCH=""
+SESSION_CWD_ARG=""
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --verify) MODE=verify ;;
     --allow-closed) ALLOW_CLOSED=1 ;;
+    --session-cwd)
+      [ "$#" -ge 2 ] || usage_fail "--session-cwd requires a path argument"
+      SESSION_CWD_ARG="$2"
+      shift
+      ;;
+    --session-cwd=*) SESSION_CWD_ARG="${1#--session-cwd=}" ;;
     --help|-h)
-      sed -n '2,60p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '2,80p' "$0" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     --*) usage_fail "unknown option: $1" ;;
@@ -171,6 +200,28 @@ if [ "$MODE" = verify ]; then
   exit 0
 fi
 
+# ---- session cwd (issue #592) -----------------------------------------------
+# The process cwd is NOT the session cwd. In Claude Code the Bash tool's working
+# directory persists across calls and drifts on any earlier `cd`, while
+# EnterWorktree always acts on the session's working directory, which never
+# moves. Resolving the session repo from `.` therefore decides the contract's
+# central question against whatever repo the last `cd` happened to land in.
+# Prefer the value the caller declares; fall back to `.` so nothing regresses,
+# but mark the fallback as inferred and fail closed below.
+SESSION_CWD_INFERRED=0
+if [ -n "$SESSION_CWD_ARG" ]; then
+  SESSION_CWD="$SESSION_CWD_ARG"
+elif [ -n "${FLOW_SESSION_CWD:-}" ]; then
+  SESSION_CWD="$FLOW_SESSION_CWD"
+else
+  SESSION_CWD="."
+  SESSION_CWD_INFERRED=1
+fi
+if [ "$SESSION_CWD_INFERRED" -eq 0 ] && [ ! -d "$SESSION_CWD" ]; then
+  fail "--session-cwd '$SESSION_CWD' is not a directory"
+fi
+SESSION_CWD_ABS=$(cd "$SESSION_CWD" 2>/dev/null && pwd) || SESSION_CWD_ABS="$SESSION_CWD"
+
 # ---- target-repo resolution (issue #578) ------------------------------------
 TARGET_REPO=""
 if [ -n "$PROJECT" ]; then
@@ -182,11 +233,14 @@ if [ -n "$PROJECT" ]; then
   done
   [ -n "$TARGET_REPO" ] || fail "PROJECT '$PROJECT' is not a git checkout (tried '$PROJECT' and '$PROJECTS_DIR/$PROJECT')"
 else
-  TARGET_REPO=$(resolve_primary . || true)
-  [ -n "$TARGET_REPO" ] || fail "session cwd is not inside a git repo and no PROJECT was given - re-run as: flow-start-resolve.sh $ISSUE_NUM <PROJECT>"
+  # No PROJECT: the target repo comes from the SESSION cwd, never from the
+  # process cwd - a bare `/flow:start 42` after any earlier `cd` would otherwise
+  # branch and create a worktree in a surprise repository (issue #592, facet 2).
+  TARGET_REPO=$(resolve_primary "$SESSION_CWD" || true)
+  [ -n "$TARGET_REPO" ] || fail "session cwd '$SESSION_CWD_ABS' is not inside a git repo and no PROJECT was given - re-run as: flow-start-resolve.sh $ISSUE_NUM <PROJECT>"
 fi
 
-SESSION_PRIMARY=$(resolve_primary . 2>/dev/null || true)
+SESSION_PRIMARY=$(resolve_primary "$SESSION_CWD" 2>/dev/null || true)
 CROSS_REPO=1
 [ -n "$SESSION_PRIMARY" ] && [ "$SESSION_PRIMARY" = "$TARGET_REPO" ] && CROSS_REPO=0
 
@@ -196,6 +250,15 @@ CROSS_REPO=1
 # unsuppressable approval prompt (ADR 0003 constraint 2).
 GIT_LANE=$CROSS_REPO
 [ -n "${FLOW_WORKTREE_BASE:-}" ] && GIT_LANE=1
+# Fail closed (issue #592): GIT_LANE=1 is safe in every case - the git lane
+# works whether or not the session sits in the target repo - while a wrong
+# GIT_LANE=0 tells the model to call EnterWorktree on a directory that may be
+# another repo or no repo at all. So an UNVERIFIED session cwd never earns the
+# native lane.
+if [ "$SESSION_CWD_INFERRED" -eq 1 ]; then
+  GIT_LANE=1
+  echo "flow-start-resolve: no --session-cwd given - resolving against the process cwd '$SESSION_CWD_ABS', which may have drifted from the session cwd; riding the git lane (issue #592)." >&2
+fi
 
 # Worktree path for a branch, honoring the #584 base override.
 wt_path_for() {
@@ -255,14 +318,15 @@ WT_CREATED=0
 LIVE_DRIVER=skipped
 PR_HEAD=none
 
-# 1. Already on the issue's branch in the session cwd (same repo only).
-SESSION_BRANCH=$("$GIT" branch --show-current 2>/dev/null || true)
+# 1. Already on the issue's branch in the session cwd (same repo only). Read
+#    the branch and toplevel from the SESSION cwd, not the process cwd (#592).
+SESSION_BRANCH=$("$GIT" -C "$SESSION_CWD" branch --show-current 2>/dev/null || true)
 case "$SESSION_BRANCH" in
   issue-"$ISSUE_NUM"-*)
     if [ "$CROSS_REPO" -eq 0 ]; then
       LANE=current-branch
       BRANCH="$SESSION_BRANCH"
-      WT_PATH=$("$GIT" rev-parse --show-toplevel)
+      WT_PATH=$("$GIT" -C "$SESSION_CWD" rev-parse --show-toplevel)
     fi
     ;;
 esac
@@ -354,6 +418,8 @@ fi
 echo "LANE=$LANE"
 echo "CROSS_REPO=$CROSS_REPO"
 echo "GIT_LANE=$GIT_LANE"
+echo "SESSION_CWD=$SESSION_CWD_ABS"
+echo "SESSION_CWD_INFERRED=$SESSION_CWD_INFERRED"
 echo "TARGET_REPO=$TARGET_REPO"
 echo "ISSUE_STATE=$ISSUE_STATE"
 echo "ISSUE_TITLE=$ISSUE_TITLE"

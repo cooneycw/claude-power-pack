@@ -58,6 +58,10 @@ desktop.ini
 !renovate.json
 !.mcp.json
 !templates/claude-settings-permissions.json
+# Pinned-SHA manifest for the vendored eli5-gate core (#591) - checked in by
+# design: it IS the offline gate's source of truth, so the blanket *.json rule
+# must not swallow it.
+!.claude/eli5-vendor.json
 !templates/playwright-pool.example.json
 !templates/sandbox/settings-bash-sandbox.json
 # Plugin marketplace manifests (issue #477, ADR 0001) - tracked despite *.json
