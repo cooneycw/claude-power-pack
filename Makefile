@@ -1,6 +1,7 @@
 .PHONY: test lint format typecheck verify secret-scan update_docs clean \
        bootstrap-check drift-check deploy setup-woodpecker-cli \
-       codex-init codex-skills codex-skills-check
+       codex-init codex-skills codex-skills-check \
+       eli5-check eli5-drift eli5-revendor
 
 ## Quality gates (used by /flow:finish)
 
@@ -76,6 +77,22 @@ codex-skills:
 
 codex-init:
 	@python3 scripts/codex-skill-sync.py --write --install
+
+## Vendored eli5-gate core (issue #591)
+## The canonical home of the /flow:eli5 necessity gate is cooneycw/eli5-gate;
+## CPP vendors its core between the eli5-core markers. Two complementary checks:
+## eli5-check is OFFLINE and a hard gate (did the local core get edited out of
+## band?); eli5-drift is a NETWORK, fail-open advisory (did upstream move?).
+## Neither subsumes the other - a manifest cannot notice upstream moving.
+
+eli5-check:
+	@python3 scripts/eli5-vendor.py
+
+eli5-drift:
+	@python3 scripts/eli5-vendor.py --upstream
+
+eli5-revendor:
+	@python3 scripts/eli5-vendor.py --revendor
 
 ## Utilities
 

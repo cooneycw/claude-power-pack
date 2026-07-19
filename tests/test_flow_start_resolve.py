@@ -149,13 +149,14 @@ def test_script_exists_and_executable():
 @requires_git
 def test_fresh_lane_in_session_repo(tmp_path: Path):
     _, clone = _make_origin_and_clone(tmp_path)
-    res = _run("42", cwd=clone, gh=_fake_gh(tmp_path))
+    res = _run("42", "--session-cwd", str(clone), cwd=clone, gh=_fake_gh(tmp_path))
     assert res.returncode == 0, res.stderr
     assert "FLOW_START_RESOLVE: ok" in res.stdout
     c = _contract(res)
     assert c["LANE"] == "fresh"
     assert c["CROSS_REPO"] == "0"
     assert c["GIT_LANE"] == "0"
+    assert c["SESSION_CWD_INFERRED"] == "0"
     assert c["BRANCH"] == "issue-42-fix-the-frobnicator"
     assert c["WT_PATH"].endswith(".claude/worktrees/issue-42-fix-the-frobnicator")
     # The native lane creates nothing - EnterWorktree owns fresh creation.
@@ -215,6 +216,122 @@ def test_error_when_gh_unavailable(tmp_path: Path):
     assert "FLOW_START_RESOLVE: error" in res.stdout
 
 
+# --- resolve: session cwd is declared, not inferred (issue #592) -------------
+#
+# The regression these pin: in Claude Code the Bash tool's cwd persists across
+# calls and drifts on any earlier `cd`, while EnterWorktree always acts on the
+# session cwd, which never moves. Resolving from `.` therefore decided GIT_LANE
+# (and, with no PROJECT, TARGET_REPO itself) against whatever repo the last
+# `cd` landed in. Every test below runs the resolver with a process cwd
+# DELIBERATELY different from the declared session cwd.
+
+
+@requires_git
+def test_drifted_process_cwd_does_not_win_over_declared_session_cwd(tmp_path: Path):
+    """The #592 scenario verbatim: process cwd sits in the target repo while the
+    session cwd is elsewhere. GIT_LANE must stay 1 - EnterWorktree would act on
+    the session cwd, which is not this repo."""
+    _, clone = _make_origin_and_clone(tmp_path)
+    session = tmp_path / "session-elsewhere"
+    session.mkdir()
+    # cwd=clone is the drift; --session-cwd is the truth.
+    res = _run("42", str(clone), "--session-cwd", str(session), cwd=clone, gh=_fake_gh(tmp_path))
+    assert res.returncode == 0, res.stderr
+    c = _contract(res)
+    assert c["SESSION_CWD"] == str(session.resolve())
+    assert c["SESSION_CWD_INFERRED"] == "0"
+    assert c["CROSS_REPO"] == "1", "session cwd is not the target repo"
+    assert c["GIT_LANE"] == "1", "must not send EnterWorktree at a repo the session is not in"
+    assert c["LANE"] == "cross-repo"
+    assert c["WT_CREATED"] == "1"
+
+
+@requires_git
+def test_target_repo_comes_from_session_cwd_not_process_cwd(tmp_path: Path):
+    """Second facet: with no PROJECT arg, TARGET_REPO itself was resolved from
+    the drifted cwd - so a bare `/flow:start 42` could branch in a surprise
+    repository."""
+    _, session_repo = _make_origin_and_clone(tmp_path)
+    other = tmp_path / "other-origin"
+    other.mkdir()
+    _git(other, "init", "-q", "-b", "main")
+    (other / "b.txt").write_text("b\n")
+    _git(other, "add", "-A")
+    _git(other, "commit", "-q", "-m", "init")
+
+    res = _run("42", "--session-cwd", str(session_repo), cwd=other, gh=_fake_gh(tmp_path))
+    assert res.returncode == 0, res.stderr
+    c = _contract(res)
+    assert c["TARGET_REPO"] == str(session_repo.resolve()), "resolved the wrong repo"
+    assert c["CROSS_REPO"] == "0"
+    assert c["GIT_LANE"] == "0"
+
+
+@requires_git
+def test_session_cwd_env_var_is_honored(tmp_path: Path):
+    _, clone = _make_origin_and_clone(tmp_path)
+    session = tmp_path / "session-elsewhere"
+    session.mkdir()
+    res = _run(
+        "42",
+        str(clone),
+        cwd=clone,
+        gh=_fake_gh(tmp_path),
+        extra_env={"FLOW_SESSION_CWD": str(session)},
+    )
+    c = _contract(res)
+    assert c["SESSION_CWD_INFERRED"] == "0"
+    assert c["SESSION_CWD"] == str(session.resolve())
+    assert c["GIT_LANE"] == "1"
+
+
+@requires_git
+def test_inferred_session_cwd_fails_closed_to_git_lane(tmp_path: Path):
+    """No --session-cwd: the resolver must SAY so and pick the safe lane rather
+    than silently trusting a cwd it cannot vouch for."""
+    _, clone = _make_origin_and_clone(tmp_path)
+    res = _run("42", cwd=clone, gh=_fake_gh(tmp_path))
+    assert res.returncode == 0, res.stderr
+    c = _contract(res)
+    assert c["SESSION_CWD_INFERRED"] == "1"
+    assert c["CROSS_REPO"] == "0", "the process cwd IS this repo - only its provenance is unverified"
+    assert c["GIT_LANE"] == "1", "unverified session cwd never earns the native lane"
+    # Failing closed means the git lane must actually be usable: the helper
+    # creates the worktree itself, since EnterWorktree will not be called.
+    assert c["WT_CREATED"] == "1"
+    assert Path(c["WT_PATH"]).is_dir()
+
+
+@requires_git
+def test_session_cwd_must_be_a_directory(tmp_path: Path):
+    _, clone = _make_origin_and_clone(tmp_path)
+    res = _run("42", "--session-cwd", str(tmp_path / "nope"), cwd=clone, gh=_fake_gh(tmp_path))
+    assert res.returncode == 1
+    assert "FLOW_START_RESOLVE: error" in res.stdout
+    assert "not a directory" in res.stdout
+
+
+@requires_git
+def test_current_branch_lane_reads_the_session_cwd(tmp_path: Path):
+    """The current-branch lane asked `git branch --show-current` of the process
+    cwd; on a drifted cwd that reports another checkout's branch."""
+    _, clone = _make_origin_and_clone(tmp_path)
+    _git(clone, "switch", "-q", "-c", "issue-42-already-here")
+    drifted = tmp_path / "drifted"
+    drifted.mkdir()
+    _git(drifted, "init", "-q", "-b", "main")
+    (drifted / "c.txt").write_text("c\n")
+    _git(drifted, "add", "-A")
+    _git(drifted, "commit", "-q", "-m", "init")
+    _git(drifted, "switch", "-q", "-c", "issue-42-decoy-branch")
+
+    res = _run("42", "--session-cwd", str(clone), cwd=drifted, gh=_fake_gh(tmp_path))
+    c = _contract(res)
+    assert c["LANE"] == "current-branch"
+    assert c["BRANCH"] == "issue-42-already-here", "picked up the drifted checkout's branch"
+    assert c["WT_PATH"] == str(clone.resolve())
+
+
 # --- resolve: cross-repo lane (issue #578) -----------------------------------
 
 
@@ -223,7 +340,7 @@ def test_cross_repo_fresh_creates_worktree(tmp_path: Path):
     _, clone = _make_origin_and_clone(tmp_path)
     plain = tmp_path / "elsewhere"
     plain.mkdir()
-    res = _run("42", str(clone), cwd=plain, gh=_fake_gh(tmp_path))
+    res = _run("42", str(clone), "--session-cwd", str(plain), cwd=plain, gh=_fake_gh(tmp_path))
     assert res.returncode == 0, res.stderr
     c = _contract(res)
     assert c["LANE"] == "cross-repo"
@@ -350,6 +467,8 @@ def test_base_override_fresh_same_repo_rides_git_lane(tmp_path: Path):
     base = tmp_path / "wt-base"
     res = _run(
         "42",
+        "--session-cwd",
+        str(clone),
         cwd=clone,
         gh=_fake_gh(tmp_path),
         extra_env={"FLOW_WORKTREE_BASE": str(base)},
@@ -376,10 +495,11 @@ def test_resume_of_out_of_repo_worktree_forces_git_lane(tmp_path: Path):
     _git(clone, "worktree", "add", "-q", "-b", "issue-42-earlier-work", str(outside))
     # No FLOW_WORKTREE_BASE this run - the prior run's base-override worktree
     # still must not be entered via EnterWorktree(path=...).
-    res = _run("42", cwd=clone, gh=_fake_gh(tmp_path))
+    res = _run("42", "--session-cwd", str(clone), cwd=clone, gh=_fake_gh(tmp_path))
     c = _contract(res)
     assert c["LANE"] == "resume"
     assert c["GIT_LANE"] == "1"
+    assert c["SESSION_CWD_INFERRED"] == "0"
     assert c["WT_PATH"] == str(outside)
 
 

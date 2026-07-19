@@ -1,0 +1,28 @@
+{
+  "_comment": [
+    "Pinned-SHA vendor manifest for the eli5 necessity-gate core (issue #591).",
+    "The core between the eli5-core markers in vendored.file is copied verbatim",
+    "from the canonical repo below. This manifest pins WHAT WAS VENDORED so an",
+    "offline, network-free CI gate can verify the local copy was not edited out",
+    "of band (scripts/eli5-vendor.py, `make eli5-check`). It cannot detect that",
+    "UPSTREAM moved - that is `make eli5-drift`, the advisory live-fetch check.",
+    "Re-vendor with `make eli5-revendor`, which rewrites both together."
+  ],
+  "source": {
+    "repo": "cooneycw/eli5-gate",
+    "path": "commands/eli5.md",
+    "raw_url": "https://raw.githubusercontent.com/cooneycw/eli5-gate/main/commands/eli5.md",
+    "commits_api": "https://api.github.com/repos/cooneycw/eli5-gate/commits?path=commands/eli5.md&per_page=1",
+    "upstream_commit": "4e9431afa16fd07d83143b41affb3c2607b834be"
+  },
+  "vendored": {
+    "file": ".claude/commands/flow/eli5.md",
+    "markers": [
+      "eli5-core:begin",
+      "eli5-core:end"
+    ],
+    "core_sha256": "1bd933a256e7aea65e310c555f469098d1b8121dd856ea5a4d933e7e62cc4bf2",
+    "core_lines": 164,
+    "vendored_at": "2026-07-19"
+  }
+}

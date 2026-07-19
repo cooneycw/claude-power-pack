@@ -69,7 +69,25 @@ Emit all three sections every time. Do not skip a section even if it is short.
 
 **Section A - ELI5 overview of intent.** A plain-language restatement of what the
 issue is trying to accomplish and why, free of implementation jargon. Two to four
-sentences a non-author reviewer can sanity-check for a misread of intent.
+sentences minimum - a short paragraph is fine - that a non-author reviewer can
+sanity-check for a misread of intent.
+
+**Section A depth floor (applies regardless of how concise the model is tuned to
+be):** this is the section the gate is named for, and the one concision pressure
+squeezes hardest, so it carries an explicit floor too:
+
+- **Motivation before mechanics.** Explain what is wrong or missing today, and
+  why that matters, *before* describing what will change. Misread intent almost
+  always hides in the motivation, not in the file list - Section C already covers
+  the mechanics.
+- **No unexplained jargon.** Any technical term the issue cannot avoid gets a
+  plain-language gloss on first use - "the worktree (a scratch copy of the repo)",
+  "idempotent (safe to run twice)". A term left unglossed is jargon, however
+  ordinary it looks to the implementer.
+- **The explain-like-I'm-five bar.** Someone who has never seen this codebase
+  should finish Section A understanding what is wrong today and what will be
+  better afterward. A restatement of the issue title, or sentences that only parse
+  for a reader who already read the issue body, does not satisfy the gate.
 
 **Section B - Necessity / staleness analysis.** Assess whether the issue is still
 necessary given the current code and anything merged *after* it was filed. Inspect
@@ -144,7 +162,8 @@ The verdict drives what happens next:
 ELI5 Gate: Issue #398
 
 == A. What this issue actually wants (ELI5) ==
-{plain-language intent, 2-4 sentences}
+{plain-language intent: what is wrong today and why it matters, then what will
+ be better - 2-4 sentences minimum, every technical term glossed on first use}
 
 == B. Is it still needed? ==
 Verdict: Still needed | Partially addressed | No longer needed | Needs reframing

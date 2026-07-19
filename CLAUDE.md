@@ -45,12 +45,15 @@ Core components and their locations:
   - flow-stale-check - advisory early stale-base detector for `/flow:auto` Step 4/6 + `/flow:finish` (#473)
   - flow-worktree-guard - advisory leaked-edit detector: warns when a `/flow:auto` edit landed in the MAIN tree instead of the worktree (#486)
   - flow-start-resolve - deterministic `/flow` Step-1 resolver + `--verify` gate (#581): target-repo resolution (#578), issue fetch + state check, issue-anchored branch derivation, existing-work triage (`current-branch|fresh|resume|remote-pickup|cross-repo`), wraps the #503 live-driver guard + shipped-PR hazard, performs git-lane worktree creation (honoring `FLOW_WORKTREE_BASE`, #584), and emits a `key=value` contract - extracts the compound Step-1 bash the permission matcher could never auto-allow
+  - flow-start-resolve `--session-cwd` - the session cwd is DECLARED, not inferred (#592): the Bash tool's cwd persists across calls and drifts on any earlier `cd`, while `EnterWorktree` acts on the session cwd, which never moves - so `CROSS_REPO`/`GIT_LANE` (and, with no PROJECT arg, `TARGET_REPO` itself) are resolved from the path `auto.md`/`start.md` pass verbatim. Omitting it emits `SESSION_CWD_INFERRED=1` and fails closed to `GIT_LANE=1`, since the git lane is correct in every case while a wrong `GIT_LANE=0` points `EnterWorktree` at the wrong repo - or at none
   - flow-live-driver-guard - advisory concurrent-session guard (#503): warns when a worktree's dirty files were modified within the freshness window, the signature of another live session mid-implementation; wrapped by flow-start-resolve on the resume lane
   - hooks
   - drift-detect
   - mcp-drift
   - plugin-sync - byte-identical drift guard keeping every packaged family plugin in sync with its command source (#477/#478) plus per-family extra artifacts such as the secrets masking-hook script (#479); the B1 plugin-flow-sync shim was retired in B4 (#480)
   - codex-skill-sync - single-source -> per-harness SKILL.md generator (#555, CxPP epic cooneycw/codex-power-pack#64 story B1): emits checked-in per-command Codex skill dirs under `codex/skills/<family>-<cmd>/` (frontmatter name/description with front-loaded trigger words, Codex harness-adaptations block for detected Claude-only constructs, long bodies split to `reference.md`, referenced helper scripts bundled byte-identical); `--check` drift gate (pinned by tests/test_codex_skill_sync.py AND an explicit `codex-skills-check` step in `.woodpecker.yml`, #556), `--write` regen, `--install` copies to `~/.codex/skills/`; editing any bundled `scripts/*` requires a `--write` re-run. Superseded the deprecated flat `codex/prompts/` surface + its `codex-prompt-sync.py` generator, both retired at the #556 cutover
+  - eli5-vendor - guard for the canonical->vendored eli5-core link (#591): `check` (default) verifies the vendored core against the sha256 pinned in `.claude/eli5-vendor.json` - offline, stdlib-only, a HARD gate (`make eli5-check`, `eli5-vendor-check` step in `.woodpecker.yml`); `--upstream` live-fetches cooneycw/eli5-gate and diffs - advisory + fail-open (`make eli5-drift`, `eli5-upstream-drift` step, `failure: ignore`); `--revendor` re-fetches the core, replaces it in place and re-pins the manifest (`make eli5-revendor`). The two halves are complementary: a manifest cannot notice that UPSTREAM moved, and a live fetch cannot run offline
+  - eli5-core-drift - thin shim onto `eli5-vendor.py --upstream`, kept so existing references resolve to one implementation (#591)
   - speckit-tasks-to-issues
   - playwright-desk - lease-desk ledger
   - check-ignored-additions - advisory guard warning when a blanket-ignore rule silently swallowed a file the repo should track; skips a short allow-list of files git-ignored by design (env-only `.claude/` runtime state such as `settings.local.json`/`friction.jsonl`) so it never cries wolf on them (#504)
@@ -61,7 +64,7 @@ Core components and their locations:
 - `plugins/` - Per-family Claude Code plugins. Phase B2 (#478) packages every surviving family (15 plugins, `browser` through `self-improvement`): byte-identical copies of `.claude/commands/<family>/*.md` (the single source of truth, ADR 0001 section 5), kept honest by `scripts/plugin-sync.sh --check` and regenerated with `--write` after any command edit. Phase B3 (#479) adds bundled hooks + MCP pointers: `secrets` ships the PostToolUse masking hook (plugin-local script via `${CLAUDE_PLUGIN_ROOT}`) and `second-opinion` ships its `.mcp.json` client pointer (matches the repo-root one). The `flow` plugin bundles its helper family (`plugins/flow/scripts/`, #590) and `/flow:repair` installs it to `~/.claude/scripts/` so the #581 allowlist rules keep matching. The `cpp` plugin ships help/meta plus the cross-cutting utilities folded in from the loose top-level commands (`/cpp:dockers`, `/cpp:happy-check`, `/cpp:load-best-practices` with the bundled 25K guide, `/cpp:load-mcp-docs`; issue #582, ADR 0001 amendment) - the init/update/status installer stays repo-local. Phase B4 (#480) proved parity and retired the dual surface: the global-skill mirror, `flow-skill-sync.py`, `skill-drift.py`, and `.claude/deprecated-skills.yaml` are gone. Phase B5 (#481) cut the docs over to the `/plugin` install path (`/plugin marketplace add cooneycw/claude-power-pack` then `/plugin install <family>@cpp`); `/cpp:init` / `/cpp:update` remain only for the non-plugin infra a plugin cannot deliver.
 - `codex/skills/` - Codex SKILL.md skills, the second harness surface (issue #555, companion to codex-power-pack epic cooneycw/codex-power-pack#64): generated `<family>-<cmd>/` skill dirs emitted from the same `.claude/commands/<family>/` single source by `scripts/codex-skill-sync.py`; codex-power-pack vendors this source (pull model, issue #556 / codex-power-pack#75) rather than receiving a push, and CPP's own currency is guarded by the explicit `codex-skills-check` step in `.woodpecker.yml`. Regenerate with `make codex-skills` after any command or referenced-script edit; `make codex-init` installs to `~/.codex/skills/`. Hand-curated skill dirs (no GENERATED marker) are never touched.
 - `codex/cpp-memory.md` - Hand-curated Codex `/cpp-memory` prompt (#433) for the common-memory harness, installed to `~/.codex/prompts/cpp-memory.md` by `scripts/install-memory-harness.sh`. Relocated here when the deprecated generated `codex/prompts/` flat surface (#446) was retired at the #556 cutover (superseded by `codex/skills/`, #555).
-- `.woodpecker.yml` - Woodpecker CI pipeline (secret-scan, lint, test, typecheck, Dockerfile lint)
+- `.woodpecker.yml` - Woodpecker CI pipeline (secret-scan, lint, test, typecheck, codex-skills-check, eli5-vendor-check, eli5-upstream-drift (advisory), Dockerfile lint)
 
 ## Environment Variables
 
@@ -149,9 +152,17 @@ stays a consumer: it vendors the extracted skill's canonical core between
 marker comments and layers its /flow wiring outside them; an advisory drift
 script warns when the vendored copy falls behind. First extraction: the
 `/flow:eli5` necessity gate -> https://github.com/cooneycw/eli5-gate
-(core markers `eli5-core:begin`/`end` in `.claude/commands/flow/eli5.md`,
-checked by `scripts/eli5-core-drift.sh`; reconcile drift by editing the
-canonical repo first, then re-vendoring).
+(core markers `eli5-core:begin`/`end` in `.claude/commands/flow/eli5.md`).
+That link is guarded on both sides (issue #591 - before it, the drift script
+was invoked by nothing at all): `.claude/eli5-vendor.json` pins the vendored
+core's sha256 plus the upstream commit, enforced offline by
+`scripts/eli5-vendor.py` (`make eli5-check`, the `eli5-vendor-check` CI step
+and `tests/test_eli5_vendor.py`), while `scripts/eli5-core-drift.sh` ->
+`eli5-vendor.py --upstream` live-fetches the canonical copy as a fail-open
+advisory (`make eli5-drift`, the `eli5-upstream-drift` CI step). Neither
+subsumes the other: the manifest cannot see upstream move, the fetch cannot run
+offline. Reconcile drift by editing the canonical repo first, then
+`make eli5-revendor` (which re-pins the manifest in the same step).
 
 ### Project
 - `/project:init <name>` - Full project scaffolding (zero to GitHub repo)
