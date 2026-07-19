@@ -2,6 +2,7 @@
        bootstrap-check drift-check deploy setup-woodpecker-cli \
        codex-init codex-skills codex-skills-check codex-install \
        eli5-check eli5-drift eli5-revendor \
+       branch-protection-check branch-protection-apply branch-protection-show \
        host-surfaces-check host-surfaces-plan host-surfaces-prune memory-harness
 
 ## Quality gates (used by /flow:finish)
@@ -101,6 +102,21 @@ eli5-drift:
 
 eli5-revendor:
 	@python3 scripts/eli5-vendor.py --revendor
+
+## Branch-protection posture (issue #577, ADR 0004)
+## The posture is DATA (.claude/branch-protection.json), not a click-path: check
+## diffs live protection against it, apply PUTs it idempotently. Deliberately NOT
+## a CI gate - reading protection needs an admin-scoped token the pipeline does
+## not have - so this is a local check, run when protection may have moved.
+
+branch-protection-check:
+	@bash scripts/branch-protection.sh check
+
+branch-protection-apply:
+	@bash scripts/branch-protection.sh --apply
+
+branch-protection-show:
+	@bash scripts/branch-protection.sh --show
 
 ## Retired host surfaces (issue #575)
 ## Directories in HOME that CPP once generated into and no longer does. The

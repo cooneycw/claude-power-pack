@@ -1,0 +1,21 @@
+{
+  "_comment": "Declared branch-protection posture for this repo (issue #577, ADR 0004). Edit here, then `make branch-protection-apply`. `make branch-protection-check` reports drift read-only.",
+  "branch": "main",
+  "protection": {
+    "required_status_checks": {
+      "strict": true,
+      "contexts": [
+        "ci/woodpecker/pr/woodpecker"
+      ]
+    },
+    "enforce_admins": false,
+    "required_pull_request_reviews": {
+      "dismiss_stale_reviews": false,
+      "require_code_owner_reviews": false,
+      "required_approving_review_count": 0
+    },
+    "restrictions": null,
+    "allow_force_pushes": false,
+    "allow_deletions": false
+  }
+}
