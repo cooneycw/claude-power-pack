@@ -44,6 +44,13 @@ git -C "$MAIN_REPO" worktree prune
 
 Report what was pruned (or "No stale worktree references found").
 
+Note: `git worktree prune` deliberately skips a LOCKED entry, so a worktree
+still carrying a live `/flow` claim (issue #597) is never pruned even if its
+directory is gone. That is the intended asymmetry - a claim outranks cleanup.
+Inspect one with `~/.claude/scripts/flow-worktree-claim.sh check --issue <N>`;
+a claim whose owning process is gone reports `stale` and is released by the
+next run that needs the worktree.
+
 ### Step 3: Find and Delete Merged Local Branches
 
 Delete local `issue-*` branches that have been merged to main. Protect `main`, `master`, and any branch with an active worktree.

@@ -64,10 +64,17 @@
 #     REMOTE_BRANCH=origin/<...>       (remote-pickup lane only)
 #     WT_CREATED=0|1        1 = this run already ran `git worktree add`
 #     LIVE_DRIVER=clear|suspected|unknown|skipped  (#503 guard, resume lane)
+#     CLAIM=none|free|self|held|stale|foreign|unsupported|unknown
+#                           cross-session ownership of issue-N (issue #597),
+#                           read before any worktree is created. `held` = another
+#                           LIVE session is driving this issue right now
+#     CLAIM_PID=<pid|->     owning process id when CLAIM names an owner
+#     CLAIM_SESSION=<id|->  owning Claude session id
 #     PR_HEAD=none|<number>:<state>|unknown        (resume shipped-PR hazard)
 #     CONFIRM_REQUIRED=0|1  1 = STOP: explicit user confirmation needed
-#                           (suspected live driver, existing open/merged PR,
-#                           or non-OPEN issue without --allow-closed)
+#                           (suspected live driver, a live cross-session claim
+#                           on this issue, existing open/merged PR, or non-OPEN
+#                           issue without --allow-closed)
 #     FLOW_START_RESOLVE: ok
 #   On a hard error: ERROR=<reason> then `FLOW_START_RESOLVE: error`, exit 1.
 #
@@ -77,7 +84,12 @@
 #   Fails (FLOW_START_VERIFY: fail, exit 1) when the checkout is still on
 #   main/master or detached; renames a non-issue-anchored branch to
 #   EXPECTED_BRANCH so downstream steps can parse the issue number. On success
-#   prints BRANCH= and WT_ROOT= then `FLOW_START_VERIFY: ok`.
+#   prints BRANCH=, WT_ROOT= and CLAIM= then `FLOW_START_VERIFY: ok`.
+#
+#   Verify mode also STAKES the cross-session claim (issue #597) - it is the one
+#   hook point that runs inside the worktree on every lane, since the native
+#   EnterWorktree lane creates the checkout only after resolve mode has already
+#   returned. Claiming is advisory here and never fails the gate.
 #
 # Env:
 #   FLOW_WORKTREE_BASE               worktree base override (issue #584, ADR
@@ -100,6 +112,13 @@ fail() {
 }
 
 usage_fail() { echo "flow-start-resolve: $1" >&2; exit 2; }
+
+# Path to a sibling helper script (installed alongside this one).
+sibling() {
+  local self_dir
+  self_dir=$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")
+  echo "$self_dir/$1"
+}
 
 # Given any checkout path, print the PRIMARY checkout's toplevel (a linked
 # worktree resolves to the main repo that owns it).
@@ -194,8 +213,27 @@ if [ "$MODE" = verify ]; then
       CURRENT="$EXPECTED_BRANCH"
       ;;
   esac
+  WT_ROOT=$("$GIT" rev-parse --show-toplevel)
+
+  # Stake the cross-session claim (issue #597). This is the only hook point that
+  # runs INSIDE the worktree on every lane: the native lane's worktree does not
+  # exist yet when resolve mode returns, so resolve cannot claim it. Advisory by
+  # design - the gate's job is to prove we are on the right branch, and a claim
+  # that cannot be taken must never turn a healthy Step 1 into a hard stop.
+  CLAIM=unknown
+  CLAIM_HELPER=$(sibling flow-worktree-claim.sh)
+  if [ -f "$CLAIM_HELPER" ]; then
+    claim_out=$(bash "$CLAIM_HELPER" claim "$WT_ROOT" --issue "$ISSUE_NUM" 2>&1) || true
+    CLAIM=$(printf '%s\n' "$claim_out" | sed -n 's/^FLOW_CLAIM: //p' | tail -1)
+    CLAIM=${CLAIM:-unknown}
+    if [ "$CLAIM" = held ]; then
+      printf '%s\n' "$claim_out" | grep -v '^FLOW_CLAIM' >&2 || true
+    fi
+  fi
+
   echo "BRANCH=$CURRENT"
-  echo "WT_ROOT=$("$GIT" rev-parse --show-toplevel)"
+  echo "WT_ROOT=$WT_ROOT"
+  echo "CLAIM=$CLAIM"
   echo "FLOW_START_VERIFY: ok"
   exit 0
 fi
@@ -289,6 +327,33 @@ SLUG=$(printf '%s' "$ISSUE_TITLE" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9
 SLUG=$(printf '%s' "$SLUG" | sed 's/-$//')
 [ -n "$SLUG" ] || SLUG=work
 BRANCH="issue-${ISSUE_NUM}-${SLUG}"
+
+# ---- cross-session claim check (issue #597) ---------------------------------
+# Before triaging existing work, ask whether ANOTHER live session already holds
+# issue-N. Two sessions handed the same issue used to race silently: both
+# implemented it, and whichever cleaned up first deleted the other's worktree.
+# Run this BEFORE any worktree is created, so a fresh lane cannot find its own
+# brand-new checkout and report itself as the owner.
+CLAIM=none
+CLAIM_PID=-
+CLAIM_SESSION=-
+CLAIM_HELPER=$(sibling flow-worktree-claim.sh)
+if [ -f "$CLAIM_HELPER" ]; then
+  claim_out=$(bash "$CLAIM_HELPER" check --issue "$ISSUE_NUM" --repo "$TARGET_REPO" 2>/dev/null) || true
+  CLAIM=$(printf '%s\n' "$claim_out" | sed -n 's/^FLOW_CLAIM: //p' | tail -1)
+  CLAIM=${CLAIM:-none}
+  CLAIM_PID=$(printf '%s\n' "$claim_out" | sed -n 's/^FLOW_CLAIM_OWNER_PID=//p' | tail -1)
+  CLAIM_SESSION=$(printf '%s\n' "$claim_out" | sed -n 's/^FLOW_CLAIM_OWNER_SESSION=//p' | tail -1)
+  CLAIM_PID=${CLAIM_PID:--}
+  CLAIM_SESSION=${CLAIM_SESSION:--}
+  if [ "$CLAIM" = held ]; then
+    CONFIRM_REQUIRED=1
+    echo "flow-start-resolve: issue #$ISSUE_NUM is CLAIMED by another live session (pid $CLAIM_PID, session $CLAIM_SESSION)." >&2
+    echo "  That session is working this issue right now. Proceeding would duplicate its work, and" >&2
+    echo "  whichever run cleans up first deletes the other's worktree (issue #597)." >&2
+    echo "  STOP and confirm with the user before continuing." >&2
+  fi
+fi
 
 # ---- remote sync + default branch -------------------------------------------
 if ! "$GIT" -C "$TARGET_REPO" fetch origin --quiet 2>/dev/null; then
@@ -431,6 +496,9 @@ if [ -n "$REMOTE_BRANCH" ]; then
 fi
 echo "WT_CREATED=$WT_CREATED"
 echo "LIVE_DRIVER=$LIVE_DRIVER"
+echo "CLAIM=$CLAIM"
+echo "CLAIM_PID=$CLAIM_PID"
+echo "CLAIM_SESSION=$CLAIM_SESSION"
 echo "PR_HEAD=$PR_HEAD"
 echo "CONFIRM_REQUIRED=$CONFIRM_REQUIRED"
 echo "FLOW_START_RESOLVE: ok"

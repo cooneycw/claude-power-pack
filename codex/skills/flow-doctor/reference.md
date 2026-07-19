@@ -148,7 +148,7 @@ for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-p
   if [ -d "$dir" ] && [ -f "$dir/CLAUDE.md" ]; then CPP_DIR="$dir"; break; fi
 done
 
-for script in flow-start-resolve.sh flow-stale-check.sh flow-worktree-guard.sh flow-live-driver-guard.sh gh-pr-merge.sh; do
+for script in flow-start-resolve.sh flow-stale-check.sh flow-worktree-guard.sh flow-live-driver-guard.sh flow-worktree-claim.sh gh-pr-merge.sh; do
   if [ -x "$HOME/.claude/scripts/$script" ]; then
     echo "PASS $script (flow helper)"
   elif [ -f "$HOME/.claude/scripts/$script" ]; then
@@ -330,7 +330,7 @@ Output a single diagnostic report in this format:
 | prompt-context.sh | ✅/❌ | Shell prompt context |
 | worktree-remove.sh | ✅/⚠️ | Optional fallback (native ExitWorktree is primary) |
 | secrets-mask.sh | ✅/❌ | Output masking filter |
-| Flow helper family | ✅/⚠️/❌ | flow-start-resolve, flow-stale-check, flow-worktree-guard, flow-live-driver-guard, gh-pr-merge at ~/.claude/scripts/ (zero-prompt lane, #581). ❌ when missing with no CPP checkout to fall back to (#590) |
+| Flow helper family | ✅/⚠️/❌ | flow-start-resolve, flow-stale-check, flow-worktree-guard, flow-live-driver-guard, flow-worktree-claim, gh-pr-merge at ~/.claude/scripts/ (zero-prompt lane, #581). ❌ when missing with no CPP checkout to fall back to (#590) |
 | Helper freshness | ✅/⚠️ | `flow-helpers-install.sh --check`: ok / stale (plugin upgraded, installed copies behind) |
 | Flow allowlist | ✅/⚠️/❌ | 38/38 rules in ~/.claude/settings.json / N missing / settings.json missing |
 

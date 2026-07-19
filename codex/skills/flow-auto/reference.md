@@ -159,10 +159,20 @@ cwd, so `GIT_LANE` was forced to 1 - if you see this, you forgot to pass it),
 in-repo `.claude/worktrees/<branch>`), `DEFAULT_BRANCH`, `REMOTE_BRANCH`
 (pickup lane), `WT_CREATED` (1 = the helper already ran `git worktree add`),
 `LIVE_DRIVER` / `PR_HEAD` (the #503 resume hazards - the helper wraps its
-sibling `scripts/flow-live-driver-guard.sh`), `CONFIRM_REQUIRED`.
+sibling `scripts/flow-live-driver-guard.sh`), `CLAIM` / `CLAIM_PID` /
+`CLAIM_SESSION` (the #597 cross-session claim on issue-N, read BEFORE any
+worktree is created), `CONFIRM_REQUIRED`.
 
 **1b. Act on the contract** - the only decision left to you:
 
+- `CLAIM=held` (`CONFIRM_REQUIRED=1`): another LIVE session is driving this
+  issue right now (issue #597). **STOP.** Do not create or enter anything -
+  proceeding duplicates that session's work, and whichever run reaches Step 7
+  first deletes the other's worktree. Report the owner (`CLAIM_PID`,
+  `CLAIM_SESSION`) and let the user decide: wait for that session, pick a
+  different issue, or - only if they confirm the other session is genuinely
+  gone - take it over. `CLAIM=stale` (owner process no longer exists) is taken
+  over automatically and needs no confirmation.
 - `ISSUE_STATE` not `OPEN` (`CONFIRM_REQUIRED=1`): warn the user and ask
   whether to proceed. On yes, re-run the same resolve command with
   `--allow-closed` appended (the helper is idempotent) and continue with its
@@ -213,7 +223,15 @@ This enforces the moat every later step relies on: it fails
 (`FLOW_START_VERIFY: fail`, exit 1) when the checkout is still on main/master,
 and renames a non-conforming branch to the issue-anchored `issue-<N>-<slug>`
 name so downstream steps can parse the issue number. On success it prints the
-final `BRANCH=` and `WT_ROOT=`.
+final `BRANCH=`, `WT_ROOT=` and `CLAIM=`.
+
+The verify gate also STAKES this run's claim on the worktree (issue #597) - it
+is the only hook point that runs inside the checkout on every lane, since the
+native `EnterWorktree` lane creates it only after 1a has already returned. A
+`CLAIM=self` line means the worktree is locked to this session and a sibling
+run's cleanup will refuse to remove it. Claiming is advisory: `unsupported` or
+`unknown` (git too old, or the current-branch lane, where the primary checkout
+cannot be locked) is normal and never blocks the run.
 
 **If this verification fails, STOP immediately. Report the failure using the error template at the bottom of this file. Do NOT proceed to Step 2.**
 
@@ -309,6 +327,28 @@ Report: `Step 3/9: ELI5 complete - verdict: {Still needed|Partially addressed|No
 ---
 
 ### Step 4: Implement - Write the Code
+
+**Re-check for a second driver (issue #597) - run BEFORE the first edit.** The
+#503 live-driver guard fires once, in Step 1. Everything between Step 1 and here
+- analysis, the ELI5 gate, the approval pause - is wall-clock time in which
+another session can enter this checkout, and one did: on `flow:auto #13` a
+concurrent session wrote a file into this worktree between the Step-1 clear
+verdict and the Step-4 merge, which then aborted on their dirty tree. A guard
+that runs only at Step 1 cannot see that. Re-run it bare, against the worktree
+(#581 invocation discipline; advisory, fail-open):
+
+```bash
+~/.claude/scripts/flow-live-driver-guard.sh
+```
+
+- `FLOW_LIVE_DRIVER: clear` - proceed.
+- `FLOW_LIVE_DRIVER: suspected` - dirty files here were modified in the last
+  30m and you have not written anything yet, so they are NOT yours. **STOP** and
+  ask the user before editing: another session is mid-implementation in this
+  checkout. Editing now means two drivers fighting over one tree.
+- Confirm the claim is still ours if anything looks off:
+  `~/.claude/scripts/flow-worktree-claim.sh check .` - `FLOW_CLAIM: self` is the
+  healthy answer; `held` means someone took the checkout over.
 
 **Early stale-base check (issue #473) - run BEFORE editing.** A sibling PR that
 merges during implementation moves `origin/main` under you; discovering it only
@@ -674,6 +714,20 @@ Report: `Step 6/9: Finish complete - PR #XX created`
 
 4. **Clean up worktree and branch:**
 
+   **Release this run's claim FIRST (issue #597), whichever path follows.** The
+   claim is a real `git worktree lock`, and git refuses to remove a locked
+   worktree - including via the native tool, which does not know about the
+   claim. Drop it before removing, bare (#581 discipline; fail-open, never
+   blocks):
+
+   ```bash
+   ~/.claude/scripts/flow-worktree-claim.sh release /path/to/worktree
+   ```
+
+   It only releases a claim owned by THIS session (or an abandoned one); a
+   sibling's live claim is left intact and reported, which is the signal that
+   you are about to remove the wrong checkout.
+
    **If Step 1 created the worktree this session via `EnterWorktree(name=...)`**
    (the fresh-start path), remove it natively - a single tool call that deletes the
    worktree and its branch and restores the session to the main repo, with no
@@ -705,6 +759,16 @@ Report: `Step 6/9: Finish complete - PR #XX created`
    ```bash
    ~/.claude/scripts/worktree-remove.sh /path/to/worktree --force --delete-branch
    ```
+   The helper checks the #597 claim before removing and **exits 4** when the
+   worktree is claimed by another LIVE session, printing the owner. That is a
+   correct refusal, not a flow failure: it means the path you were about to
+   delete belongs to a run that is still working in it (the failure that
+   destroyed uncommitted work on `flow:auto #5`). Do NOT retry with `--steal` -
+   report it and stop, so the user can decide. Almost always it means Step 1
+   resumed someone else's checkout; the claim caught it late but correctly.
+   A claim owned by THIS session, or left by a dead one, is released
+   automatically and the removal proceeds normally.
+
    If the helper is not installed (exit 127), fall back to:
    ```bash
    git worktree remove "$WORKTREE_PATH" --force
@@ -901,7 +965,23 @@ fi
 # fixed prod container_name values and leaks orphaned volumes/networks.
 DEPLOY_MODE=$(grep -oP '^\s*mode:\s*\K\S+' .claude/deploy.yaml 2>/dev/null | head -1)
 
-if [ "$DEPLOY_MODE" = "external" ]; then
+# Deploy idempotence (issue #597): with several sessions merging to the same
+# main, a sibling run can have deployed THIS exact sha minutes ago - on
+# flow:auto #49 the deploy.log showed the same sha 2 minutes earlier and the
+# duplicate deploy was skipped only because the model happened to notice. Make
+# it a guard: a successful deploy of the current HEAD already on record means
+# there is nothing to do. Only an exit-0 record counts, so a failed deploy is
+# still retried. Fail-open - no log, no skip.
+HEAD_SHA=$(git rev-parse --short HEAD)
+ALREADY_DEPLOYED=0
+if [ -f .claude/deploy.log ] && awk -F'|' -v sha="$HEAD_SHA" '$2 ~ /deploy/ && $3 ~ ("^[[:space:]]*" sha "[[:space:]]*$") && $5 ~ /^[[:space:]]*0[[:space:]]*$/ { found = 1 } END { exit !found }' .claude/deploy.log; then
+    ALREADY_DEPLOYED=1
+fi
+
+if [ "$ALREADY_DEPLOYED" -eq 1 ]; then
+    echo "Deploy skipped: $HEAD_SHA is already recorded as successfully deployed in .claude/deploy.log"
+    echo "(issue #597 - a concurrent session deployed this same commit; re-running would be a duplicate deploy)."
+elif [ "$DEPLOY_MODE" = "external" ]; then
     echo "Deploy mode 'external' (.claude/deploy.yaml) - deploy runs out of band (host timer / CI on origin/main). Skipping inline 'make deploy'."
 elif [[ -f "Makefile" ]] && grep -q "^deploy:" Makefile; then
     # Compose-project safety (issue #535): when COMPOSE_PROJECT_NAME is unset,
@@ -965,7 +1045,8 @@ fi
   never rolls back automatically - it is an actionable signal, not an action.
 
 Report: `Step 9/9: Deploy complete (verify: {proceed|review|rollback|none})` or
-`Step 9/9: Deploy skipped (no Makefile target)`
+`Step 9/9: Deploy skipped (no Makefile target)` or
+`Step 9/9: Deploy skipped ({sha} already deployed by a concurrent session)`
 
 ---
 

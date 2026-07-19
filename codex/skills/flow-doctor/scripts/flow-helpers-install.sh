@@ -51,6 +51,7 @@ HELPERS=(
     flow-live-driver-guard.sh
     flow-stale-check.sh
     flow-worktree-guard.sh
+    flow-worktree-claim.sh
     gh-pr-merge.sh
     worktree-remove.sh
     friction-log.sh
