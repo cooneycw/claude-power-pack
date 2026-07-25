@@ -9,7 +9,6 @@ description: "Flow: Merge PR and Clean Up - Merge the current branch's PR, then 
 Generated from a Claude Code command. Where the procedure references these Claude-only surfaces, adapt as follows:
 
 - Native worktrees (`EnterWorktree`/`ExitWorktree` tool calls, `.claude/worktrees/` paths): use plain git instead - `git worktree add <path> -b <branch>`, work inside it, then `git worktree remove <path>` when done.
-- `CLAUDE.md` references: Codex reads `AGENTS.md`; treat them as the target repo's agent-context file.
 - Helper scripts referenced as `scripts/<name>` are bundled under `scripts/` in this skill directory (byte-identical copies from the claude-power-pack checkout); some expect sibling repo resources, so prefer a full checkout when one is available.
 
 # Flow: Merge PR and Clean Up

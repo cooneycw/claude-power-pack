@@ -510,51 +510,39 @@ if [ "$(git rev-list --count HEAD..origin/main)" -gt 0 ]; then
 fi
 ```
 
-1. **Quality gates** - use the deterministic runner as primary path:
+1. **Quality gates** - ONE audited helper owns the deterministic-runner
+   invocation (issue #613, the #581 pattern): CPP-checkout resolution, the `uv`
+   check, the documented `PYTHONPATH` / `uv run --project` contract (#430), and
+   the `make lint` + `make test` fallback all live in
+   `scripts/flow-finish-gate.sh`. Do NOT re-implement any of it as inline bash -
+   a leading env-var assignment plus an interpolated `$CPP_DIR` can never match
+   a permission prefix rule, so the inline shape prompts on every finish and
+   every merge re-gate. Invoke it BARE (#581 discipline):
 
-   **Primary path:** Call the CI/CD runner for reproducible quality gates:
    ```bash
-   CPP_DIR=""
-   for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-pack; do
-     if [ -d "$dir" ] && [ -f "$dir/CLAUDE.md" ]; then
-       CPP_DIR="$dir"
-       break
-     fi
-   done
-
-   RUNNER_RAN=0
-   if [ -n "$CPP_DIR" ] && command -v uv >/dev/null 2>&1; then
-       # Invoke through uv so lib/cicd's deps (pydantic) resolve and the
-       # interpreter is pinned >= 3.11. Bare `python3 -m lib.cicd` uses the
-       # system interpreter (often 3.10, no venv) inside a fresh worktree and
-       # dies on ModuleNotFoundError - silently degrading to the fallback in
-       # exactly the environment /flow-auto always creates (issue #430).
-       # PYTHONPATH must point at CPP_DIR (the PARENT of lib/) so `-m lib.cicd`
-       # resolves for external projects too, not just when dogfooding CPP.
-       PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd run --plan finish
-       RUNNER_EXIT=$?
-       RUNNER_RAN=1
-   fi
-
-   if [ "$RUNNER_RAN" -eq 0 ]; then
-       REASON=$([ -z "$CPP_DIR" ] && echo "CPP checkout not found" || echo "uv not installed")
-       echo "NOTE: deterministic runner unavailable ($REASON); using Makefile fallback." >&2
-   fi
+   ~/.claude/scripts/flow-finish-gate.sh
    ```
 
-   - If runner ran and **succeeds** (exit 0): quality gates passed, proceed to commit.
-   - If runner ran and **fails**: parse JSON output, report the failed step, **STOP**.
+   (Exit 127 - helper not installed: fall back to
+   `${CLAUDE_PLUGIN_ROOT}/scripts/flow-finish-gate.sh` (bundled with the
+   plugin, #590), else the CPP-checkout copy; either may prompt once - tell the
+   user to run **`/flow-repair`** to restore the prompt-free lane.)
 
-   **Fallback** (only when the runner did not run, `RUNNER_RAN=0`): Run `make lint` and `make test` directly (these bootstrap the venv via `uv run`).
-   - If either fails: **STOP**. Report the failure and exit.
+   The helper ends with a machine-readable marker:
+   - `FLOW_FINISH_GATE: ok` (exit 0): gates passed - via the runner, or its
+     documented Makefile fallback when the runner is unavailable (the helper
+     prints a NOTE naming which path ran). Proceed to commit.
+   - `FLOW_FINISH_GATE: fail` (exit 1): parse the runner/make output above the
+     marker, report the failed step, **STOP**.
+   - `FLOW_FINISH_GATE: skipped` (exit 0): no runner AND no Makefile
+     lint/test targets - warn the user, then proceed.
 
    **Ignored-additions guard** (issue #430, Finding 1): before committing, warn
    if a blanket `.gitignore` rule silently swallowed a new file you meant to
-   track (`git add` no-ops with no error):
+   track (`git add` no-ops with no error). Advisory - warns, never blocks;
+   invoke bare at the stable path (#581 discipline; on exit 127 skip it):
    ```bash
-   if [ -n "$CPP_DIR" ] && [ -x "$CPP_DIR/scripts/check-ignored-additions.sh" ]; then
-       "$CPP_DIR/scripts/check-ignored-additions.sh"   # advisory: warns, never blocks
-   fi
+   ~/.claude/scripts/check-ignored-additions.sh
    ```
    If it warns, add a `!negation` to `.gitignore` for any intended file and re-stage.
 
@@ -618,12 +606,6 @@ Report: `Step 6/9: Finish complete - PR #XX created`
            echo "(Do NOT 'git merge --abort' - that discards the resolution.)"
            exit 1
        fi
-       # Re-run the FULL quality gate on the MERGED tree (not the pre-merge branch)
-       # - same deterministic runner as Step 6, with the same Makefile fallback.
-       CPP_DIR=""
-       for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-pack; do
-         [ -d "$dir" ] && [ -f "$dir/CLAUDE.md" ] && { CPP_DIR="$dir"; break; }
-       done
        # If the merge pulled ANY command-family source, re-sync the in-repo
        # generated surfaces - the packaged plugin copies AND the Codex skills
        # (all families, not just flow - issue #506; Codex skills #555, flat
@@ -643,21 +625,24 @@ Report: `Step 6/9: Finish complete - PR #XX created`
            git add plugins/ codex/skills/
            git commit -m "chore(generated): re-sync plugin + codex skill copies after merging origin/main (#506)"
        fi
-       if [ -n "$CPP_DIR" ] && command -v uv >/dev/null 2>&1; then
-           PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd run --plan finish
-           REGATE_EXIT=$?
-       else
-           echo "NOTE: deterministic runner unavailable; re-gating via Makefile fallback." >&2
-           make lint && make test
-           REGATE_EXIT=$?
-       fi
-       if [ "$REGATE_EXIT" -ne 0 ]; then
-           echo "STOP: quality gate failed on the post-merge tree. Fix, commit, then re-run /flow-merge."
-           exit 1
-       fi
-       # Push the merge so the PR reflects the post-merge tree before squashing.
-       git push origin "$BRANCH"
    fi
+   ```
+
+   **If the merge above ran** (the branch was behind), re-run the FULL quality
+   gate on the MERGED tree - the same Step-6 helper, invoked BARE as a separate
+   call (#613; the #581 discipline - never fold it back into a compound block):
+
+   ```bash
+   ~/.claude/scripts/flow-finish-gate.sh
+   ```
+
+   On `FLOW_FINISH_GATE: fail` (exit 1): **STOP** - the quality gate failed on
+   the post-merge tree. Fix, commit, then re-run `/flow-merge`. On `ok` (or
+   `skipped`, with a warning), push the merge so the PR reflects the post-merge
+   tree before squashing:
+
+   ```bash
+   git push origin "$BRANCH"
    ```
 
 2. **Merge the PR.** Look up the PR number first (allowlisted read):

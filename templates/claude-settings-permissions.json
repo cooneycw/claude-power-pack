@@ -36,6 +36,7 @@
       "Bash(~/.claude/scripts/flow-worktree-guard.sh:*)",
       "Bash(~/.claude/scripts/flow-live-driver-guard.sh:*)",
       "Bash(~/.claude/scripts/flow-worktree-claim.sh:*)",
+      "Bash(~/.claude/scripts/flow-finish-gate.sh:*)",
       "Bash(~/.claude/scripts/gh-pr-merge.sh:*)",
       "Bash(~/.claude/scripts/worktree-remove.sh:*)"
     ]
