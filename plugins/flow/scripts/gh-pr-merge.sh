@@ -58,6 +58,29 @@
 #   #517 case, is unchanged). An explicit --admin from the caller still skips the
 #   wait - a conscious owner override is the documented break-glass.
 #
+# The wait must never fire on contexts it only IMAGINED (issue #610):
+#   The #577 resolver read one endpoint - classic branch protection - and threw
+#   away its exit code. Two independent consequences, and both of them turned a
+#   green PR into a 10-minute stall plus a hard refusal (25 flow:auto runs,
+#   roughly 4h of wall-clock, every one ending in a manual `gh pr merge --squash`):
+#     1. `gh api` prints the ERROR body on stdout WITHOUT applying --jq, so a 404
+#        `{"message":"Branch not protected", ...}` was mapped straight into the
+#        required-contexts list. The wait then polled for a context literally
+#        named `{"message": ...` - which can never report - and hard-stopped.
+#     2. GitHub declares required checks through TWO mechanisms, and the legacy
+#        endpoint cannot see the modern one: a branch guarded by a repository
+#        RULESET returns that same 404, so a repo that genuinely does require a
+#        check reads as unprotected.
+#   So resolution now reads BOTH sources - /branches/{b}/protection/... and
+#   /repos/{o}/{r}/rules/branches/{b} - treats ONLY a 2xx response as data, and
+#   reports one of three states: `declared` (wait, exactly as #577 does),
+#   `none` (a source answered and nothing is required -> skip the wait), or
+#   `unresolved` (neither source readable -> fall back to what the PR itself
+#   reports). Enumeration failure is no longer allowed to outrank observed
+#   reality, and the client-side wait is defence in depth: GitHub enforces the
+#   posture server-side at squash time, so a plain `gh pr merge --squash` cannot
+#   bypass a ruleset even when this script decides not to wait.
+#
 # This wrapper makes the merge layout-aware:
 #   * Linked worktree (cwd's `.git` is a FILE): run `gh pr merge --squash` WITHOUT
 #     --delete-branch so gh never attempts the local branch switch, then delete the
@@ -198,17 +221,83 @@ poll_mergeable() {
     return 0
 }
 
-# The status-check contexts the BASE branch requires (issue #577). Empty when the
-# branch is unprotected, has no required checks, or the lookup is not permitted -
-# in every one of those cases there is nothing to wait for, so the wait below is
-# inert and this helper behaves exactly as it did before. Both API shapes are
-# read: the legacy `contexts` list and the newer `checks[].context` form.
-required_contexts() {
-    local base
+# `gh api <path> --jq <filter>`, but ONLY a successful response counts as data
+# (issue #610). On any non-2xx, gh writes the raw error body to STDOUT with the
+# --jq filter unapplied, so a caller that ignores the exit code silently promotes
+# `{"message":"Branch not protected"}` to a required status-check context. Return
+# 1 printing nothing in that case, so an error can never be mistaken for a fact.
+_gh_api_jq() {
+    local path="$1" filter="$2" out rc
+    out=$("$GH_BIN" api "$path" --jq "$filter" 2>/dev/null)
+    rc=$?
+    (( rc != 0 )) && return 1
+    [[ -n "$out" ]] && printf '%s\n' "$out"
+    return 0
+}
+
+# Resolution result, set by resolve_required_contexts:
+#   REQUIRED_CONTEXTS  the contexts the base branch requires (may be empty)
+#   RESOLVE_STATUS     declared | none | unresolved (see the header, issue #610)
+REQUIRED_CONTEXTS=()
+RESOLVE_STATUS="unresolved"
+
+# The status-check contexts the BASE branch requires, read from BOTH mechanisms
+# GitHub offers (issues #577, #610):
+#   * classic branch protection - /branches/{base}/protection/required_status_checks,
+#     in both its API shapes (the legacy `contexts` list and the newer
+#     `checks[].context` form)
+#   * repository rulesets - /repos/{o}/{r}/rules/branches/{base}, the modern
+#     mechanism, entirely invisible to the endpoint above
+# A source that 404s (or is not permitted) contributes NOTHING and does not mark
+# the lookup as answered; only a 2xx does. That distinction is the whole fix: a
+# branch with no protection of either kind gets a 200 + empty array from the
+# rulesets endpoint, so it resolves as `none` and skips the wait, while a branch
+# whose posture is simply unreadable resolves as `unresolved` and falls back to
+# the PR's own checks rather than to a 10-minute stall.
+resolve_required_contexts() {
+    REQUIRED_CONTEXTS=()
+    RESOLVE_STATUS="unresolved"
+
+    local base out line
     base=$("$GH_BIN" pr view "$PR_NUMBER" --json baseRefName --jq '.baseRefName' 2>/dev/null)
     [[ -z "$base" ]] && return 0
-    "$GH_BIN" api "repos/{owner}/{repo}/branches/${base}/protection/required_status_checks" \
-        --jq '((.contexts // []) + ((.checks // []) | map(.context))) | unique | .[]' 2>/dev/null
+
+    local -a found=()
+    local answered=0
+
+    if out=$(_gh_api_jq "repos/{owner}/{repo}/branches/${base}/protection/required_status_checks" \
+                        '((.contexts // []) + ((.checks // []) | map(.context))) | unique | .[]'); then
+        answered=1
+        while IFS= read -r line; do
+            [[ -n "$line" ]] && found+=("$line")
+        done <<<"$out"
+    fi
+
+    if out=$(_gh_api_jq "repos/{owner}/{repo}/rules/branches/${base}" \
+                        '[.[] | select(.type == "required_status_checks")
+                              | .parameters.required_status_checks[]?.context] | unique | .[]'); then
+        answered=1
+        while IFS= read -r line; do
+            [[ -n "$line" ]] && found+=("$line")
+        done <<<"$out"
+    fi
+
+    # Union the two sources - a context declared by both must be waited on once.
+    local -A seen=()
+    local ctx
+    for ctx in ${found+"${found[@]}"}; do
+        [[ -n "${seen[$ctx]:-}" ]] && continue
+        seen["$ctx"]=1
+        REQUIRED_CONTEXTS+=("$ctx")
+    done
+
+    if (( ${#REQUIRED_CONTEXTS[@]} > 0 )); then
+        RESOLVE_STATUS="declared"
+    elif (( answered )); then
+        RESOLVE_STATUS="none"
+    else
+        RESOLVE_STATUS="unresolved"
+    fi
 }
 
 # Current state of each check on the PR head, as `name|state` lines. The rollup
@@ -226,9 +315,20 @@ check_states() {
 # Returns 0 to proceed, 1 to stop. A required check that FAILS is a hard stop -
 # never an --admin override - and so is one that never reports within the budget.
 wait_for_required_checks() {
-    local -a required=()
-    mapfile -t required < <(required_contexts)
-    (( ${#required[@]} == 0 )) && return 0
+    resolve_required_contexts
+
+    case "$RESOLVE_STATUS" in
+        none)
+            # A source answered and declares nothing required: pre-#577 behavior.
+            return 0
+            ;;
+        unresolved)
+            wait_for_observed_checks
+            return $?
+            ;;
+    esac
+
+    local -a required=("${REQUIRED_CONTEXTS[@]}")
 
     local attempts="${GH_PR_MERGE_CHECK_ATTEMPTS:-60}"
     local delay="${GH_PR_MERGE_CHECK_DELAY:-10}"
@@ -280,6 +380,69 @@ wait_for_required_checks() {
          "If the pipeline genuinely will not run, the documented break-glass is" \
          "'gh-pr-merge.sh --admin $PR_NUMBER $BRANCH' (issue #577, ADR 0004)." >&2
     return 1
+}
+
+# Neither mechanism could be read (issue #610), so nothing is KNOWN to be
+# required. Hard-stopping here is what cost 25 runs ~4h of waiting, so trust what
+# the PR itself reports instead - the same rollup the declared path polls:
+#   * no checks at all, or all of them terminal and green -> merge immediately
+#   * any check genuinely RED                             -> hard stop; a red
+#     check is authoritative on its own, whoever declared it
+#   * still pending -> poll, then FAIL OPEN once the budget is spent. GitHub
+#     enforces any ruleset/protection posture server-side at squash time, so the
+#     squash itself is the real gate; a client-side guess must never be the thing
+#     that blocks a PR whose posture it cannot even see.
+wait_for_observed_checks() {
+    local attempts="${GH_PR_MERGE_CHECK_ATTEMPTS:-60}"
+    local delay="${GH_PR_MERGE_CHECK_DELAY:-10}"
+    local i line name state pending failed announced=0
+
+    for ((i = 1; i <= attempts; i++)); do
+        pending=""
+        failed=""
+        while IFS= read -r line; do
+            [[ -z "$line" ]] && continue
+            name="${line%%|*}"
+            state="${line##*|}"
+            case "${state^^}" in
+                SUCCESS|NEUTRAL|SKIPPED)
+                    ;;
+                FAILURE|ERROR|CANCELLED|TIMED_OUT|ACTION_REQUIRED|STARTUP_FAILURE)
+                    failed+="${name} (${state}) "
+                    ;;
+                *)
+                    pending+="${name} (${state}) "
+                    ;;
+            esac
+        done < <(check_states)
+
+        if [[ -n "$failed" ]]; then
+            echo "error: status check(s) are RED on PR #$PR_NUMBER: ${failed}" >&2
+            echo "       Required contexts could not be enumerated (issue #610), but a red" \
+                 "check is authoritative on its own - fix CI and push again." >&2
+            return 1
+        fi
+        if [[ -z "$pending" ]]; then
+            (( announced )) && echo "note: reported check(s) are green; merging." >&2
+            return 0
+        fi
+        if (( i < attempts )); then
+            if (( announced == 0 )); then
+                echo "note: required status-check contexts are not enumerable for PR" \
+                     "#$PR_NUMBER (no classic branch protection and no readable ruleset)" \
+                     "- waiting on the check(s) the PR itself reports: ${pending}" >&2
+                announced=1
+            fi
+            sleep "$delay"
+        fi
+    done
+
+    echo "note: check(s) still pending on PR #$PR_NUMBER after $attempts check(s):" \
+         "${pending}" >&2
+    echo "      Not treating that as a required-check violation - the posture was never" \
+         "enumerable, and GitHub enforces it server-side at squash time. Attempting the" \
+         "merge (issue #610)." >&2
+    return 0
 }
 
 if ! poll_mergeable; then

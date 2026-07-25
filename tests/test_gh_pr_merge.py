@@ -16,7 +16,14 @@ Contract:
   break-glass, and a required-check block is excluded from the #517 --admin
   auto-retry (a review block still triggers it). A base with no required checks
   takes the original path unchanged.
-- Return non-zero only when the PR genuinely did not merge.
+- Required contexts are resolved from BOTH mechanisms GitHub offers - classic
+  branch protection and repository RULESETS - and only a successful response
+  counts as data (issue #610). An error body is never mistaken for a context, a
+  base with no protection of either kind skips the wait outright, and when
+  neither source is readable the PR's own checks decide: green merges, red stops,
+  pending waits then fails open (GitHub enforces the posture server-side anyway).
+- Return non-zero only when the PR genuinely did not merge - and non-zero on
+  EVERY refusal to merge, since /flow:auto Step 7 trusts the exit code.
 
 ``gh`` and ``git`` are stubbed via the GH_PR_MERGE_GH / GH_PR_MERGE_GIT env hooks;
 each stub appends its argv to a call log the tests assert against.
@@ -25,8 +32,11 @@ each stub appends its argv to a call log the tests assert against.
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "gh-pr-merge.sh"
@@ -46,6 +56,9 @@ def _make_stubs(
     merge_outcomes: list[tuple[int, str]] | None = None,
     viewer_permission: str = "ADMIN",
     required_contexts: list[str] | None = None,
+    protection_ok: bool = True,
+    ruleset_contexts: list[str] | None = None,
+    ruleset_ok: bool = True,
     check_rollup: list[list[tuple[str, str]]] | None = None,
 ) -> dict:
     """Create fake gh/git that log their args and honour a scripted outcome.
@@ -61,9 +74,19 @@ def _make_stubs(
     ``viewer_permission`` scripts ``gh repo view --json viewerPermission`` - the
     repo-admin check that gates the branch-protection --admin retry (issue #517).
 
-    ``required_contexts`` scripts the base branch's required status checks (issue
-    #577); empty (the default) means the branch requires none, so the pre-merge
-    wait is inert and every pre-#577 test exercises the original path unchanged.
+    ``required_contexts`` scripts the base branch's CLASSIC branch-protection
+    required status checks (issue #577); empty (the default) means the branch
+    requires none, so the pre-merge wait is inert and every pre-#577 test
+    exercises the original path unchanged. ``ruleset_contexts`` scripts the same
+    thing for the RULESETS endpoint (issue #610), the mechanism classic
+    protection cannot see.
+
+    ``protection_ok`` / ``ruleset_ok`` control whether each endpoint ANSWERS.
+    Setting one False makes that ``gh api`` call behave the way the real one does
+    on a 404: the error body goes to STDOUT (unfiltered by --jq) and gh exits
+    non-zero - the exact shape that, pre-#610, was mapped into the required-context
+    list and waited on until it timed out.
+
     ``check_rollup`` scripts ``gh pr view --json statusCheckRollup`` as a list of
     polls, each a list of ``(name, state)`` pairs, consumed one poll per call and
     staying on the last once exhausted.
@@ -85,8 +108,20 @@ def _make_stubs(
     merge_seq_file.write_text("".join(f"{code}|{msg}\n" for code, msg in outcomes))
 
     # Issue #577: the base branch's required contexts, and the per-poll rollup.
+    # Issue #610: the same, from the rulesets endpoint. Both hold the POST-jq
+    # output (one context per line); the stub ignores the --jq filter, exactly as
+    # the pre-existing required-contexts stub does.
     req_file = tmp_path / "required_contexts"
     req_file.write_text("".join(f"{c}\n" for c in (required_contexts or [])))
+    rules_file = tmp_path / "ruleset_contexts"
+    rules_file.write_text("".join(f"{c}\n" for c in (ruleset_contexts or [])))
+    # The verbatim 404 body GitHub returns for a branch with no CLASSIC protection
+    # - including one guarded by a ruleset, which this endpoint cannot see.
+    not_protected = (
+        '{"message":"Branch not protected","documentation_url":'
+        '"https://docs.github.com/rest/branches/branch-protection'
+        '#get-status-checks-protection","status":"404"}'
+    )
     rollup_seq_file = tmp_path / "rollup_seq"
     rollup_ctr_file = tmp_path / "rollup_ctr"
     # One line per poll; states within a poll are comma-separated `name=state`.
@@ -111,9 +146,17 @@ def _make_stubs(
         '  if [[ -n "$msg" ]]; then echo "$msg" >&2; fi\n'
         '  exit "$code"\n'
         'elif [[ "$1" == "api" ]]; then\n'
-        '  if [[ "$*" == *required_status_checks* ]]; then\n'
-        f'    cat "{req_file}"\n'
-        "  fi\n"
+        # Match on the PATH, not on "$*": the rulesets jq filter also contains the
+        # string `required_status_checks`, so a naive match routes it wrongly.
+        '  if [[ "$2" == *"/protection/required_status_checks" ]]; then\n'
+        + ("    " + f'cat "{req_file}"\n' if protection_ok else f"    echo '{not_protected}'\n    exit 1\n")
+        + '  elif [[ "$2" == *"/rules/branches/"* ]]; then\n'
+        + (
+            "    " + f'cat "{rules_file}"\n'
+            if ruleset_ok
+            else '    echo \'{"message":"Not Found","status":"404"}\'\n    exit 1\n'
+        )
+        + "  fi\n"
         "  exit 0\n"
         'elif [[ "$1 $2" == "pr view" ]]; then\n'
         '  if [[ "$*" == *baseRefName* ]]; then\n'
@@ -596,3 +639,275 @@ def test_neutral_and_skipped_states_count_as_green(tmp_path: Path):
     )
     result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-577-fix")
     assert result.returncode == 0, result.stderr
+
+
+# --- Contexts that cannot be enumerated never become a hard stop (issue #610) --
+#
+# The #577 resolver read ONE endpoint (classic branch protection) and discarded
+# its exit code. `gh api` prints an error body on STDOUT with --jq unapplied, so a
+# 404 became a "required context" named after the JSON itself - unreportable by
+# construction - and the wait timed out into a refusal. It fired two ways: on a
+# repo with no protection at all, and on one guarded by a RULESET, which the
+# legacy endpoint cannot see. 25 flow:auto runs, ~4h of wall-clock, every one
+# ending in a manual `gh pr merge --squash`.
+
+
+def test_unprotected_base_skips_the_wait_entirely(tmp_path: Path):
+    # No protection of EITHER kind: classic 404s, the rulesets endpoint answers
+    # with an empty list. That is a definitive "nothing is required", so the wait
+    # must be skipped outright - not merely survived. Zero rollup polls.
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        protection_ok=False,
+        ruleset_contexts=[],
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-610-fix")
+    assert result.returncode == 0, result.stderr
+    assert not any("statusCheckRollup" in c for c in _calls(stubs)), "must not poll checks"
+    assert "never reported" not in result.stderr
+
+
+def test_error_body_is_never_treated_as_a_required_context(tmp_path: Path):
+    # The regression itself: with BOTH endpoints erroring, the 404 payload must
+    # not surface as a context to wait for. Pre-#610 this produced
+    #   waiting for required status check(s): {"message":"Branch not protected"...}
+    # followed by a timeout refusal.
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        protection_ok=False,
+        ruleset_ok=False,
+        check_rollup=[[]],
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-610-fix")
+    assert result.returncode == 0, result.stderr
+    assert "Branch not protected" not in result.stderr, "an error body is not a context"
+    assert "never reported" not in result.stderr
+
+
+def test_ruleset_required_context_is_resolved_and_waited_for(tmp_path: Path):
+    # The now-dominant shape: classic protection 404s because the branch is
+    # guarded by a RULESET. The context must still be found - and waited on - via
+    # the rulesets endpoint, or the posture would be silently skipped.
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        protection_ok=False,
+        ruleset_contexts=[WOODPECKER],
+        check_rollup=[[(WOODPECKER, "PENDING")], [(WOODPECKER, "SUCCESS")]],
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-610-fix")
+    assert result.returncode == 0, result.stderr
+    assert "waiting for required status check" in result.stderr
+    assert WOODPECKER in result.stderr
+    assert any("/rules/branches/" in c for c in _calls(stubs)), "must consult the rulesets API"
+
+
+def test_ruleset_required_context_that_is_red_stops(tmp_path: Path):
+    # A ruleset-declared context is exactly as binding as a classic one.
+    stubs = _make_stubs(
+        tmp_path,
+        pr_state="OPEN",
+        protection_ok=False,
+        ruleset_contexts=[WOODPECKER],
+        check_rollup=[[(WOODPECKER, "FAILURE")]],
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-610-fix")
+    assert result.returncode == 1
+    assert "RED" in result.stderr
+    assert not any(c.startswith("gh pr merge") for c in _calls(stubs)), "must not merge"
+
+
+def test_classic_protection_survives_an_unreadable_rulesets_endpoint(tmp_path: Path):
+    # Older GHES, or a token without the scope: the rulesets call fails. Classic
+    # protection answered, so its contexts still bind - the new source is additive,
+    # never a precondition.
+    stubs = _make_stubs(
+        tmp_path,
+        pr_state="OPEN",
+        required_contexts=[WOODPECKER],
+        ruleset_ok=False,
+        check_rollup=[[(WOODPECKER, "FAILURE")]],
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-610-fix")
+    assert result.returncode == 1
+    assert "RED" in result.stderr
+
+
+def test_contexts_from_both_mechanisms_are_unioned(tmp_path: Path):
+    # A repo can carry classic protection AND a ruleset. Every declared context
+    # binds, so greening only one of them must not release the merge.
+    stubs = _make_stubs(
+        tmp_path,
+        pr_state="OPEN",
+        required_contexts=["build"],
+        ruleset_contexts=[WOODPECKER],
+        check_rollup=[[("build", "SUCCESS")]],
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-610-fix")
+    assert result.returncode == 1
+    assert "never reported" in result.stderr
+    assert WOODPECKER in result.stderr
+    assert not any(c.startswith("gh pr merge") for c in _calls(stubs)), "must not merge"
+
+
+def test_context_declared_by_both_mechanisms_is_waited_on_once(tmp_path: Path):
+    # The same context from both sources must dedupe, not double.
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        required_contexts=[WOODPECKER],
+        ruleset_contexts=[WOODPECKER],
+        check_rollup=[[(WOODPECKER, "PENDING")], [(WOODPECKER, "SUCCESS")]],
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-610-fix")
+    assert result.returncode == 0, result.stderr
+    waiting = next(ln for ln in result.stderr.splitlines() if "waiting for required" in ln)
+    assert waiting.count(WOODPECKER) == 1, waiting
+
+
+def test_unresolvable_contexts_with_green_checks_merges(tmp_path: Path):
+    # Neither mechanism readable, but the PR itself reports a terminal green
+    # check. Observed reality outranks a failed enumeration: merge.
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        protection_ok=False,
+        ruleset_ok=False,
+        check_rollup=[[(WOODPECKER, "SUCCESS")]],
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-610-fix")
+    assert result.returncode == 0, result.stderr
+    assert "never reported" not in result.stderr
+
+
+def test_unresolvable_contexts_with_red_check_stops(tmp_path: Path):
+    # The one case that still stops when nothing could be enumerated: a check the
+    # PR reports as genuinely red is authoritative on its own.
+    stubs = _make_stubs(
+        tmp_path,
+        pr_state="OPEN",
+        protection_ok=False,
+        ruleset_ok=False,
+        check_rollup=[[(WOODPECKER, "FAILURE")]],
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-610-fix")
+    assert result.returncode == 1
+    assert "RED" in result.stderr
+    assert not any(c.startswith("gh pr merge") for c in _calls(stubs)), "must not merge"
+
+
+def test_unresolvable_contexts_with_pending_checks_fails_open(tmp_path: Path):
+    # Pending forever, with the posture never enumerable: wait out the budget,
+    # then ATTEMPT the merge. GitHub enforces any ruleset server-side at squash
+    # time, so a client-side guess must not be what blocks the PR.
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        protection_ok=False,
+        ruleset_ok=False,
+        check_rollup=[[(WOODPECKER, "PENDING")]],
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-610-fix")
+    assert result.returncode == 0, result.stderr
+    assert "still pending" in result.stderr
+    assert any(c.startswith("gh pr merge") for c in _calls(stubs)), "must attempt the merge"
+
+
+def test_every_refusal_to_merge_exits_non_zero(tmp_path: Path):
+    # A refusal that exits 0 is worse than a false STOP: /flow:auto Step 7 trusts
+    # the exit code, so a phantom success carries the run into Step 8 against an
+    # unmerged PR. Pin every path that declines to merge.
+    refusals = {
+        "conflicting": {"mergeable": "CONFLICTING", "pr_state": "OPEN"},
+        "red required check": {
+            "pr_state": "OPEN",
+            "required_contexts": [WOODPECKER],
+            "check_rollup": [[(WOODPECKER, "FAILURE")]],
+        },
+        "required check never reports": {
+            "pr_state": "OPEN",
+            "required_contexts": [WOODPECKER],
+            "check_rollup": [[]],
+        },
+        "red check, contexts unresolvable": {
+            "pr_state": "OPEN",
+            "protection_ok": False,
+            "ruleset_ok": False,
+            "check_rollup": [[(WOODPECKER, "FAILURE")]],
+        },
+        "squash failed, PR not merged": {"merge_exit": 1, "pr_state": "OPEN"},
+    }
+    for label, kwargs in refusals.items():
+        case_dir = tmp_path / label.replace(" ", "_").replace(",", "")
+        case_dir.mkdir()
+        stubs = _make_stubs(case_dir, **kwargs)  # type: ignore[arg-type]
+        result = _run(_linked_worktree(case_dir), stubs, "42", "issue-610-fix")
+        assert result.returncode != 0, f"{label}: refused to merge but exited 0"
+
+
+# The shape GitHub's rulesets API actually returns, so the jq filter in the script
+# is pinned against real data rather than against the stub's post-jq shortcut.
+REAL_RULESET_PAYLOAD = """[
+  {"type": "deletion", "ruleset_source_type": "Repository", "ruleset_id": 1},
+  {"type": "non_fast_forward", "ruleset_source_type": "Repository", "ruleset_id": 1},
+  {"type": "pull_request", "ruleset_id": 1,
+   "parameters": {"required_approving_review_count": 0, "dismiss_stale_reviews_on_push": false}},
+  {"type": "required_status_checks", "ruleset_id": 1,
+   "parameters": {"do_not_enforce_on_create": false,
+                  "strict_required_status_checks_policy": false,
+                  "required_status_checks": [
+                    {"context": "ci/woodpecker/pr/woodpecker", "integration_id": null}]}}
+]"""
+
+
+def _ruleset_jq_filter() -> str:
+    """The rulesets jq filter, read out of the script so the test cannot drift."""
+    import re
+
+    match = re.search(
+        r"\[\.\[\] \| select\(\.type == \"required_status_checks\"\).*?\| unique \| \.\[\]",
+        SCRIPT.read_text(),
+        re.DOTALL,
+    )
+    assert match, "could not locate the rulesets jq filter in gh-pr-merge.sh"
+    return match.group(0)
+
+
+@pytest.mark.skipif(shutil.which("jq") is None, reason="jq not installed")
+def test_ruleset_jq_filter_extracts_contexts_from_the_real_shape():
+    result = subprocess.run(
+        ["jq", "-r", _ruleset_jq_filter()],
+        input=REAL_RULESET_PAYLOAD,
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.split() == ["ci/woodpecker/pr/woodpecker"]
+
+
+@pytest.mark.skipif(shutil.which("jq") is None, reason="jq not installed")
+def test_ruleset_jq_filter_is_empty_when_no_rule_requires_checks():
+    # A branch with rules but no required-checks rule, and a branch with no rules
+    # at all, must both yield nothing - and, crucially, exit 0 so the lookup counts
+    # as ANSWERED (that is what separates "nothing required" from "unreadable").
+    for payload in ("[]", '[{"type": "pull_request", "parameters": {}}]'):
+        result = subprocess.run(
+            ["jq", "-r", _ruleset_jq_filter()],
+            input=payload,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        assert result.returncode == 0, f"{payload}: {result.stderr}"
+        assert result.stdout.strip() == "", payload

@@ -71,6 +71,30 @@ And, so the check is real rather than decorative, `scripts/gh-pr-merge.sh`:
 - still honours an **explicit** `--admin` from the caller, which skips the wait.
   A conscious owner override is the break-glass; an automatic one is not.
 
+**Amendment 2026-07-25 (issue #610): the client-side wait is defence in depth,
+not the gate.** As first shipped, the wait resolved required contexts from
+classic branch protection alone and treated a failure to enumerate them as
+proof that a required check had not reported. That inverted the evidence
+hierarchy, and it misfired constantly - 25 `/flow:auto` runs across six days,
+roughly four hours of wall-clock, every one ending in a manual `gh pr merge
+--squash`. Two causes, one symptom: `gh api` prints a 404 body on STDOUT with
+`--jq` unapplied (so the JSON itself became a "required context" that could
+never go green), and a branch guarded by a repository **ruleset** returns that
+same 404 from the legacy endpoint, because rulesets are invisible to it. The
+second case is the worse one: a check genuinely WAS required, it had already
+passed, and the helper still refused.
+
+Resolution now unions both mechanisms - classic protection and
+`/repos/{o}/{r}/rules/branches/{b}` - and counts only a 2xx as data, yielding
+`declared` (wait, as above), `none` (nothing required, skip the wait), or
+`unresolved` (neither readable). In the `unresolved` case the PR's own checks
+decide: green merges, red still hard-stops, pending waits and then **fails
+open**. Failing open is safe precisely because the posture is enforced by
+GitHub at squash time - a ruleset rejects a violating merge server-side, so a
+plain `gh pr merge --squash` cannot bypass it. The principle this records: a
+client-side pre-check may refuse to merge only on evidence it actually has, and
+never on the absence of evidence it could not obtain.
+
 Net effect on `/flow:auto`: the CI wait moves from Step 8 (after the merge) to
 Step 7 (before it). Wall-clock is roughly unchanged; what changes is that a red
 pipeline now costs a stopped run instead of a bad commit on `main`.
