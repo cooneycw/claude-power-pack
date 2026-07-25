@@ -513,7 +513,7 @@ fi
 1. **Quality gates** - ONE audited helper owns the deterministic-runner
    invocation (issue #613, the #581 pattern): CPP-checkout resolution, the `uv`
    check, the documented `PYTHONPATH` / `uv run --project` contract (#430), and
-   the `make lint` + `make test` fallback all live in
+   the `make lint` + `make test` + `make typecheck` fallback all live in
    `scripts/flow-finish-gate.sh`. Do NOT re-implement any of it as inline bash -
    a leading env-var assignment plus an interpolated `$CPP_DIR` can never match
    a permission prefix rule, so the inline shape prompts on every finish and
@@ -535,7 +535,7 @@ fi
    - `FLOW_FINISH_GATE: fail` (exit 1): parse the runner/make output above the
      marker, report the failed step, **STOP**.
    - `FLOW_FINISH_GATE: skipped` (exit 0): no runner AND no Makefile
-     lint/test targets - warn the user, then proceed.
+     lint/test/typecheck targets - warn the user, then proceed.
 
    **Ignored-additions guard** (issue #430, Finding 1): before committing, warn
    if a blanket `.gitignore` rule silently swallowed a new file you meant to

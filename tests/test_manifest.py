@@ -26,7 +26,7 @@ from lib.cicd.manifest import (
     step_model_to_step_def,
     write_manifest,
 )
-from lib.cicd.steps import StepDef, get_plan_steps
+from lib.cicd.steps import ShellStep, StepDef, get_plan_steps
 
 # -- StepModel validation tests --
 
@@ -523,3 +523,81 @@ class TestCPPManifest:
         # Verify cross-references are valid
         errors = manifest.validate_plan_references()
         assert errors == [], f"CPP manifest has reference errors: {errors}"
+
+
+class TestManifestPlansIncludeTypecheck:
+    """The runner PREFERS `.claude/cicd_tasks.yml` over BUILTIN_PLANS, so fixing
+    only the built-ins leaves every manifest-carrying project (CPP itself
+    included) with the issue #617 false green. A typecheck step defined under
+    `steps:` but referenced by no plan is dead config - these tests pin the
+    reference, not just the definition."""
+
+    @staticmethod
+    def _py_project(root: Path) -> None:
+        (root / "pyproject.toml").write_text("[project]\nname = 'test'\n")
+        (root / "uv.lock").write_text("")
+        (root / "Makefile").write_text(
+            ".PHONY: lint test typecheck\n\n"
+            "lint:\n\tuv run ruff check .\n\n"
+            "test:\n\tuv run pytest\n\n"
+            "typecheck:\n\tuv run mypy .\n"
+        )
+
+    def test_generated_finish_plan_includes_typecheck(self, tmp_path):
+        self._py_project(tmp_path)
+        manifest = generate_manifest(tmp_path)
+        assert "typecheck" in manifest.steps
+        assert "typecheck" in manifest.plans["finish"].steps, (
+            "generated finish plan defines a typecheck step but never runs it (#617)"
+        )
+
+    def test_generated_check_plan_includes_typecheck(self, tmp_path):
+        self._py_project(tmp_path)
+        manifest = generate_manifest(tmp_path)
+        assert "typecheck" in manifest.plans["check"].steps
+
+    def test_generated_typecheck_runs_before_security_scan(self, tmp_path):
+        self._py_project(tmp_path)
+        steps = generate_manifest(tmp_path).plans["finish"].steps
+        assert steps.index("typecheck") < steps.index("security_scan")
+
+    def test_project_without_typecheck_target_skips_at_runtime(self, tmp_path):
+        """What makes this safe to ship by default is the skip_if guard, not
+        plan membership: a Python project always gets a typecheck step (the
+        framework runner supplies `uv run mypy .` even with no Makefile
+        target), and it silently skips at runtime exactly as a missing `lint:`
+        or `test:` already does."""
+        (tmp_path / "pyproject.toml").write_text("[project]\nname = 'test'\n")
+        (tmp_path / "uv.lock").write_text("")
+        (tmp_path / "Makefile").write_text(
+            ".PHONY: lint test\n\nlint:\n\techo lint\n\ntest:\n\techo test\n"
+        )
+        manifest = generate_manifest(tmp_path)
+        assert manifest.validate_plan_references() == []
+
+        step = step_model_to_step_def("typecheck", manifest.steps["typecheck"])
+        assert step.skip_if == '! grep -q "^typecheck:" Makefile 2>/dev/null'
+        assert ShellStep(step).should_skip({"project_root": str(tmp_path), "env": {}}) is True
+
+    def test_typecheck_does_not_skip_when_target_exists(self, tmp_path):
+        self._py_project(tmp_path)
+        manifest = generate_manifest(tmp_path)
+        step = step_model_to_step_def("typecheck", manifest.steps["typecheck"])
+        assert ShellStep(step).should_skip({"project_root": str(tmp_path), "env": {}}) is False
+
+    def test_cpp_own_manifest_gates_typecheck(self):
+        """CPP's checked-in manifest is what its own /flow:finish actually runs,
+        and .woodpecker.yml's validate step runs mypy - so omitting typecheck
+        here guarantees local-green-then-CI-red on this very repo (#617)."""
+        from lib.cicd.steps import _CPP_ROOT
+
+        manifest_path = Path(_CPP_ROOT) / ".claude" / "cicd_tasks.yml"
+        if not manifest_path.is_file():
+            pytest.skip("no checked-in manifest in this checkout")
+        manifest = load_manifest(Path(_CPP_ROOT))
+        assert manifest is not None
+        for plan_name in ("finish", "check"):
+            assert "typecheck" in manifest.plans[plan_name].steps, (
+                f"CPP's own '{plan_name}' plan does not run typecheck, but CI does (#617)"
+            )
+        assert manifest.validate_plan_references() == []

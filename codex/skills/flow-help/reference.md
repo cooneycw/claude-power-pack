@@ -11,7 +11,7 @@ Streamlined worktree-based development workflow. No locks, no Redis - just git.
 | `/flow-start <issue>` | Create worktree and branch from a GitHub issue |
 | `/flow-eli5 <issue>` | Plain-language intent + necessity/staleness verdict + plan approval gate (pre-implementation) |
 | `/flow-status` | Show all active worktrees with issue/PR state |
-| `/flow-check` | Run quality checks (lint, test, security) without committing |
+| `/flow-check` | Run quality checks (lint, test, typecheck, security) without committing |
 | `/flow-finish` | Run quality gates, commit, push, and create PR |
 | `/flow-merge` | Merge PR, clean up worktree and branch |
 | `/flow-deploy [target]` | Run Makefile deploy target |
@@ -115,7 +115,7 @@ If no `.claude/security.yml` exists, the defaults above are used. If `lib/securi
 /flow-status
 # → Shows worktrees, dirty state, PR status
 
-# Pre-flight check (lint + test + security, no commit)
+# Pre-flight check (lint + test + typecheck + security, no commit)
 /flow-check
 # → Reports pass/fail per check
 

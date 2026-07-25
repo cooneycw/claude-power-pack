@@ -268,6 +268,15 @@ class ShellStep:
 
 # Built-in plan definitions for flow commands
 # These define the steps that each flow command executes
+#
+# The `finish` plan's contract is that a green gate means a green CI, so its
+# make-target steps must cover everything the shipped CI templates run. All four
+# templates (templates/workflows/ci-python.yml, ci-node.yml,
+# woodpecker-python.yml, woodpecker-node.yml) run exactly lint + test +
+# typecheck, and PipelineConfig.branches["pr"] defaults to the same three - so a
+# plan without `typecheck` went green on trees CI then rejected (issue #617,
+# observed twice in agentic-poker). Any step added to those templates belongs
+# here too; tests/test_runner.py::TestPlansCoverCITemplates pins the invariant.
 
 BUILTIN_PLANS: dict[str, list[StepDef]] = {
     "finish": [
@@ -286,6 +295,14 @@ BUILTIN_PLANS: dict[str, list[StepDef]] = {
             timeout_seconds=600,
             max_attempts=1,
             skip_if='! grep -q "^test:" Makefile 2>/dev/null',
+        ),
+        StepDef(
+            id="typecheck",
+            command="make typecheck",
+            description="Run type checker",
+            timeout_seconds=300,
+            max_attempts=1,
+            skip_if='! grep -q "^typecheck:" Makefile 2>/dev/null',
         ),
         StepDef(
             id="security_scan",
@@ -313,6 +330,14 @@ BUILTIN_PLANS: dict[str, list[StepDef]] = {
             timeout_seconds=600,
             max_attempts=1,
             skip_if='! grep -q "^test:" Makefile 2>/dev/null',
+        ),
+        StepDef(
+            id="typecheck",
+            command="make typecheck",
+            description="Run type checker",
+            timeout_seconds=300,
+            max_attempts=1,
+            skip_if='! grep -q "^typecheck:" Makefile 2>/dev/null',
         ),
     ],
     "deploy": [

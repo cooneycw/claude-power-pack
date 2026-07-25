@@ -1,11 +1,11 @@
 ---
-description: Run quality checks (lint + security) without committing
+description: Run quality checks (lint + test + typecheck + security) without committing
 allowed-tools: Bash(make:*), Bash(grep:*), Bash(test:*), Bash(python3:*), Bash(PYTHONPATH=*), Bash(git:*), Bash(~/.claude/scripts/flow-finish-gate.sh:*), Read
 ---
 
 # Flow: Check - Run Quality Gates Without Committing
 
-Run lint and security checks to verify code quality. Does not commit, push, or create a PR.
+Run lint, test, typecheck and security checks to verify code quality. Does not commit, push, or create a PR.
 
 Use this to validate your changes before running `/flow:finish`.
 
@@ -21,12 +21,16 @@ CHECKS_PASS=0
 CHECKS_WARN=0
 CHECKS_FAIL=0
 
-# Detect Makefile targets
+# Detect Makefile targets. typecheck is detected alongside lint/test because
+# every shipped CI template runs it as a hard step - a check that omits it
+# reports green on a tree CI will reject (issue #617).
 HAS_LINT=false
 HAS_TEST=false
+HAS_TYPECHECK=false
 if [[ -f "Makefile" ]]; then
     grep -q "^lint:" Makefile && HAS_LINT=true
     grep -q "^test:" Makefile && HAS_TEST=true
+    grep -q "^typecheck:" Makefile && HAS_TYPECHECK=true
 fi
 
 # Detect security scanner
@@ -72,6 +76,22 @@ if [[ "$HAS_TEST" == "true" ]]; then
     TEST_EXIT=$?
     CHECKS_RUN=$((CHECKS_RUN + 1))
     if [[ $TEST_EXIT -eq 0 ]]; then
+        CHECKS_PASS=$((CHECKS_PASS + 1))
+    else
+        CHECKS_FAIL=$((CHECKS_FAIL + 1))
+    fi
+fi
+```
+
+### Step 3b: Run Typecheck
+
+```bash
+if [[ "$HAS_TYPECHECK" == "true" ]]; then
+    echo "Running: make typecheck"
+    make typecheck
+    TYPECHECK_EXIT=$?
+    CHECKS_RUN=$((CHECKS_RUN + 1))
+    if [[ $TYPECHECK_EXIT -eq 0 ]]; then
         CHECKS_PASS=$((CHECKS_PASS + 1))
     else
         CHECKS_FAIL=$((CHECKS_FAIL + 1))
@@ -141,6 +161,7 @@ Present a summary report:
 |-------|--------|---------|
 | Lint (`make lint`) | PASS/FAIL/SKIP | All checks passed / 3 errors / No Makefile |
 | Tests (`make test`) | PASS/FAIL/SKIP | 211 passed / 2 failed / No Makefile |
+| Typecheck (`make typecheck`) | PASS/FAIL/SKIP | No issues / 15 errors / No `typecheck:` target |
 | Security scan | PASS/WARN/FAIL/SKIP | Clean / 1 HIGH warning / 1 CRITICAL / lib/security not available |
 | Makefile completeness | PASS/WARN/SKIP | 6/6 targets / 1 missing / lib/cicd not available |
 
@@ -164,5 +185,9 @@ Based on results:
 
 - This command is **read-only** - it never commits, pushes, or modifies files
 - It runs the same checks as `/flow:finish` Step 2, extracted for standalone use
+- Lint, test and typecheck are the three steps every shipped CI template runs
+  (`templates/workflows/ci-*.yml`, `woodpecker-*.yml`), and the `finish`/`check`
+  runner plans carry the same three (issue #617). Keep the sets aligned: a step
+  CI runs but the check omits turns this report into a false green
 - Use it to validate changes before committing or as a pre-flight check
 - The security gate uses the same `.claude/security.yml` configuration as `/flow:finish`
