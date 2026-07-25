@@ -22,7 +22,7 @@ whether the allowlist is installed.
 | Git plumbing | `git fetch`, `git worktree` | worktree create/list/remove (flow Steps 1 and 7) |
 | Text pipeline | `echo/tr/cut/sed/basename` | the branch-slug sanitization pipeline in flow Step 1 |
 | Filesystem reads | `grep/rg/ls/find/wc`, `cd`, `pwd` | codebase exploration, directory verification gates |
-| Flow helper scripts | `~/.claude/scripts/{flow-start-resolve, flow-stale-check, flow-worktree-guard, flow-live-driver-guard, gh-pr-merge, worktree-remove}.sh` | the audited flow helper family (issue #581): Step-1 resolve + verify gate, stale-base / leaked-edit / live-driver guards (Steps 4 and 6), PR squash-merge + worktree cleanup (Step 7) |
+| Flow helper scripts | `~/.claude/scripts/{flow-start-resolve, flow-stale-check, flow-worktree-guard, flow-live-driver-guard, flow-worktree-claim, flow-finish-gate, gh-pr-merge, worktree-remove}.sh` | the audited flow helper family (issue #581): Step-1 resolve + verify gate, stale-base / leaked-edit / live-driver guards (Steps 4 and 6), the deterministic quality-gate runner invocation (Step 6 and the merge re-gate, #613), PR squash-merge + worktree cleanup (Step 7) |
 
 ## What is deliberately excluded
 

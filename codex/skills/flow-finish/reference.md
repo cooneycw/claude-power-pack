@@ -79,61 +79,34 @@ guard remains the final backstop.
 
 ### Step 2: Run Quality Gates via Deterministic Runner (primary path)
 
-**Primary path:** Use the deterministic CI/CD runner for reproducible quality gates:
+**Primary path:** ONE audited helper owns the deterministic-runner invocation
+(issue #613, the #581 pattern): CPP-checkout resolution, the `uv` check, the
+documented `PYTHONPATH` / `uv run --project` contract (#430), and the
+`make lint` + `make test` fallback all live in `scripts/flow-finish-gate.sh`.
+Do NOT re-implement any of it as inline bash - a leading env-var assignment
+plus an interpolated `$CPP_DIR` can never match a permission prefix rule, so
+the inline shape prompts on every run. Invoke it BARE (#581 discipline):
 
 ```bash
-# Locate CPP source for lib/cicd
-CPP_DIR=""
-for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-pack; do
-  if [ -d "$dir" ] && [ -f "$dir/CLAUDE.md" ]; then
-    CPP_DIR="$dir"
-    break
-  fi
-done
-
-RUNNER_RAN=0
-if [ -n "$CPP_DIR" ] && command -v uv >/dev/null 2>&1; then
-    # Invoke through uv so lib/cicd's deps (pydantic) resolve and the
-    # interpreter is pinned >= 3.11. Bare `python3 -m lib.cicd` uses the
-    # system interpreter (often 3.10, no venv) inside a fresh worktree and
-    # dies on ModuleNotFoundError, silently degrading to the fallback (#430).
-    # PYTHONPATH must point at CPP_DIR (the PARENT of lib/) so `-m lib.cicd`
-    # resolves for external projects too, not just when dogfooding CPP.
-    PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd run --plan finish
-    RUNNER_EXIT=$?
-    RUNNER_RAN=1
-fi
-
-if [ "$RUNNER_RAN" -eq 0 ]; then
-    REASON=$([ -z "$CPP_DIR" ] && echo "CPP checkout not found" || echo "uv not installed")
-    echo "NOTE: deterministic runner unavailable ($REASON); using Makefile fallback." >&2
-fi
+~/.claude/scripts/flow-finish-gate.sh
 ```
 
-- If runner ran and **succeeds** (exit 0): quality gates passed, skip to Step 2d.
-- If runner ran and **fails** (exit non-zero): parse the JSON output for the failed step, report it, and **stop**.
-- If the runner **did not run** (`RUNNER_RAN=0` - no CPP_DIR or no uv): fall back to manual execution below.
+(Exit 127 - helper not installed: fall back to
+`${CLAUDE_PLUGIN_ROOT}/scripts/flow-finish-gate.sh` (bundled with the plugin,
+#590), else the CPP-checkout copy; either may prompt once - tell the user to
+run **`/flow-repair`** to restore the prompt-free lane.)
 
-**Fallback path** (only if runner unavailable):
+The helper ends with a machine-readable marker:
 
-```bash
-if [[ -f "Makefile" ]]; then
-    # Run lint if target exists
-    if grep -q "^lint:" Makefile; then
-        echo "Running: make lint"
-        make lint
-    fi
-
-    # Run tests if target exists
-    if grep -q "^test:" Makefile; then
-        echo "Running: make test"
-        make test
-    fi
-fi
-```
-
-- If tests or lint fail, **stop and report**. Do not proceed to PR creation.
-- If no Makefile exists, skip quality gates (warn the user).
+- `FLOW_FINISH_GATE: ok` (exit 0): gates passed - via the runner, or its
+  documented Makefile fallback when the runner is unavailable (the helper
+  prints a NOTE naming which path ran). If the runner ran, skip to Step 2d;
+  if the fallback ran, continue with Step 2b (the runner includes the security
+  scan, the Makefile fallback does not).
+- `FLOW_FINISH_GATE: fail` (exit 1): parse the runner/make output above the
+  marker, report the failed step, and **stop**. Do not proceed to PR creation.
+- `FLOW_FINISH_GATE: skipped` (exit 0): no runner AND no Makefile lint/test
+  targets - warn the user, then continue.
 
 ### Step 2b: Run Security Quick Scan (fallback only - runner includes this)
 
@@ -191,38 +164,22 @@ When this target exists, check documentation freshness:
 
 ### Step 2c: Makefile Completeness Check (optional, non-blocking)
 
-If `lib/cicd` is available, run a quick Makefile validation and report any gaps as warnings:
+Run a quick Makefile validation and report any gaps as warnings - the same
+audited helper as Step 2, in its advisory mode (it resolves the CPP checkout,
+checks `uv`, and applies the #430 invocation contract itself; #613). Invoke
+BARE (#581 discipline):
 
 ```bash
-# Locate CPP source for lib/cicd
-CPP_DIR=""
-for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-pack; do
-  if [ -d "$dir" ] && [ -f "$dir/CLAUDE.md" ]; then
-    CPP_DIR="$dir"
-    break
-  fi
-done
+~/.claude/scripts/flow-finish-gate.sh --check-summary
 ```
 
-If `CPP_DIR` is found, `uv` is available, and a Makefile exists (invoke via
-`uv run` so `lib/cicd`'s deps resolve under a pinned >= 3.11 interpreter - bare
-`python3` crashes in a fresh worktree, see #430):
-
-```bash
-if command -v uv >/dev/null 2>&1; then
-    PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd check --summary
-    CHECK_EXIT=$?
-fi
-```
-
-- If check reports **missing required targets**: display as a warning but **do NOT block**.
+- `FLOW_FINISH_GATE: warn` - **missing required targets**: display as a warning but **do NOT block**.
   ```
   ⚠️  Makefile check: 1 required target missing (typecheck)
       Run /cicd-check for details or /cicd-init to fix
   ```
-- If check passes: report briefly - `"Makefile check: OK (6/6 targets present)"`
-- If `lib/cicd` is not available: skip silently
-- If no Makefile exists: skip silently (Step 2 already handles this)
+- `FLOW_FINISH_GATE: ok` - report briefly - `"Makefile check: OK (6/6 targets present)"`
+- `FLOW_FINISH_GATE: skipped` - `lib/cicd` unavailable or no Makefile: skip silently (Step 2 already handles the no-Makefile case)
 
 **This step never blocks the flow** - it is purely informational.
 
@@ -237,10 +194,11 @@ git status --porcelain
 blanket `.gitignore` rule (e.g. `*.json`) can swallow a file you meant to
 commit - `git add` no-ops with no error. Surface it before committing:
 
+Advisory - warns, never blocks; invoke bare at the stable path (#581
+discipline; on exit 127 skip it):
+
 ```bash
-if [ -n "$CPP_DIR" ] && [ -x "$CPP_DIR/scripts/check-ignored-additions.sh" ]; then
-    "$CPP_DIR/scripts/check-ignored-additions.sh"   # advisory: warns, never blocks
-fi
+~/.claude/scripts/check-ignored-additions.sh
 ```
 
 - If it warns, confirm each listed file is genuinely scratch. If any is an

@@ -315,6 +315,7 @@ FLOW_BUNDLED_HELPERS = [
     "flow-start-resolve.sh",
     "flow-live-driver-guard.sh",
     "flow-worktree-claim.sh",
+    "flow-finish-gate.sh",
     "flow-stale-check.sh",
     "flow-worktree-guard.sh",
     "gh-pr-merge.sh",

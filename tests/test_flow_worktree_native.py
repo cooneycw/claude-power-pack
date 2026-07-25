@@ -128,8 +128,11 @@ def test_stale_branch_guard_before_squash_merge() -> None:
         assert "git merge --no-edit origin/main" in text, f"{rel} does not merge main in before squash"
         # Conflicts are surfaced and stopped-on, never silently auto-resolved.
         assert "--diff-filter=U" in text, f"{rel} does not surface merge conflicts on STOP"
-        # The re-gate runs on the merged tree via the deterministic runner.
-        assert "lib.cicd run --plan finish" in text, f"{rel} does not re-gate the post-merge tree"
+        # The re-gate runs on the merged tree via the audited gate helper, which
+        # owns the deterministic-runner invocation (#613; inline
+        # `PYTHONPATH=... uv run ... lib.cicd run --plan finish` could never
+        # match a permission prefix rule).
+        assert "flow-finish-gate.sh" in text, f"{rel} does not re-gate the post-merge tree"
 
 
 # ---------------------------------------------------------------------------

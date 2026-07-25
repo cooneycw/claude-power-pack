@@ -1,6 +1,6 @@
 ---
 description: Run quality checks (lint + security) without committing
-allowed-tools: Bash(make:*), Bash(grep:*), Bash(test:*), Bash(python3:*), Bash(PYTHONPATH=*), Bash(git:*), Read
+allowed-tools: Bash(make:*), Bash(grep:*), Bash(test:*), Bash(python3:*), Bash(PYTHONPATH=*), Bash(git:*), Bash(~/.claude/scripts/flow-finish-gate.sh:*), Read
 ---
 
 # Flow: Check - Run Quality Gates Without Committing
@@ -100,21 +100,19 @@ fi
 
 ### Step 5: Run Makefile Completeness Check (optional)
 
-Invoke via `uv run` so `lib/cicd`'s deps resolve under a pinned >= 3.11
-interpreter; bare `python3` crashes in a fresh worktree (#430).
+The audited gate helper owns the `lib.cicd` invocation contract (CPP-checkout
+resolution, the `uv` check, the #430 `PYTHONPATH` / `uv run --project` shape -
+issue #613). Its `--check-summary` mode is advisory and always exits 0; invoke
+it BARE (#581 discipline; on exit 127 the helper is not installed - suggest
+`/flow:repair` and count the check as SKIP):
 
 ```bash
-if [[ "$HAS_CICD" == "true" ]] && [[ -f "Makefile" ]] && command -v uv >/dev/null 2>&1; then
-    PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd check --summary
-    CICD_EXIT=$?
-    CHECKS_RUN=$((CHECKS_RUN + 1))
-    if [[ $CICD_EXIT -eq 0 ]]; then
-        CHECKS_PASS=$((CHECKS_PASS + 1))
-    else
-        CHECKS_WARN=$((CHECKS_WARN + 1))  # Non-blocking
-    fi
-fi
+~/.claude/scripts/flow-finish-gate.sh --check-summary
 ```
+
+- `FLOW_FINISH_GATE: ok` - count a PASS.
+- `FLOW_FINISH_GATE: warn` - count a WARN (non-blocking).
+- `FLOW_FINISH_GATE: skipped` - `lib/cicd` or Makefile unavailable: count a SKIP.
 
 ### Step 5b: Guard Against Silently-Ignored New Files (advisory)
 
