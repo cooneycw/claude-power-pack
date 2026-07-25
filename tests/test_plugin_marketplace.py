@@ -212,7 +212,7 @@ def test_cpp_plugin_bundles_best_practices_doc():
     )
 
 
-_HELP_REF = re.compile(r"/([a-z][a-z0-9-]*):([a-z][a-z0-9-]*)")
+_HELP_REF = re.compile(r"/([a-z][a-z0-9-]*):([a-z][a-z0-9_-]*)")
 
 
 def test_family_help_advertises_only_real_commands():

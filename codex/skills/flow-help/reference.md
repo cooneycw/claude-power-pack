@@ -17,6 +17,7 @@ Streamlined worktree-based development workflow. No locks, no Redis - just git.
 | `/flow-deploy [target]` | Run Makefile deploy target |
 | `/flow-sync` | Push WIP branch to remote for cross-machine pickup |
 | `/flow-auto <issue>` | Full lifecycle: start → analyze → ELI5 (plan + necessity gate) → implement → update docs → finish → merge → deploy |
+| `/flow-auto_codex <issue>` | `/flow-auto` plus a Codex pre-PR review stage between implement and update docs (`/codex:code_review`; degrades to plain `/flow-auto` if Codex CLI is unavailable) |
 | `/flow-cleanup` | Prune stale worktree references and delete merged branches |
 | `/flow-doctor` | Diagnose workflow environment and readiness |
 | `/flow-repair` | Install the flow helper family into `~/.claude/scripts/` (run once after a plugin install) |
