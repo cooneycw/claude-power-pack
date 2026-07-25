@@ -14,6 +14,7 @@ Cross-model implementation and review - Claude manages the workflow, Codex write
 | `/codex:auto <ISSUE>` | Full issue lifecycle delegated to Codex - worktree, implement, review, quality gates, PR |
 | `/codex:exec <PROMPT>` | One-shot Codex execution in current directory with JSONL monitoring |
 | `/codex:ask <QUESTION>` | Delegate a read-only question to Codex and relay its answer (network opt-in on request) |
+| `/codex:code_review [BASE]` | Codex reviews the current branch (read-only) and returns structured findings - used by `/flow:auto_codex` as the pre-PR review stage |
 | `/codex:status` | Check Codex CLI installation, config, and readiness |
 | `/codex:help` | This help overview |
 
@@ -42,6 +43,9 @@ Claude Code (supervisor)            Codex CLI (implementer)
 
 # Ask Codex a read-only question (no file changes)
 /codex:ask "What does lib/cicd/config.py validate, and where are its tests?"
+
+# Have Codex review the current branch before a PR exists
+/codex:code_review origin/main
 
 # Full issue lifecycle
 /codex:auto 42

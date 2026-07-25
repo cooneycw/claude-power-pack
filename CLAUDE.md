@@ -104,6 +104,7 @@ CPP ships **no container runtime** as of #469. The Docker MCP runtime (the `mcp-
 - `/flow:deploy [target]` - Run make deploy + health/smoke checks
 - `/flow:auto` - Full issue lifecycle in one shot (ELI5 plan/necessity approval gate between analyze and implement; `--yes` to skip the pause)
   - Optional second arg `PROJECT` targets a repo other than the session cwd (resolved as a path, else `~/Projects/<name>`); such cross-repo runs ride the deterministic git-worktree lane end-to-end instead of `EnterWorktree`, which cannot leave the session repo (#578)
+- `/flow:auto_codex` - `/flow:auto` with a Codex pre-PR review stage inserted between Implement and Update Docs (10 steps): `/codex:code_review` reviews the branch, accepted findings are fixed in the worktree with one bounded re-review, and the accepted/rejected/deferred summary lands in the PR body; degrades to plain `/flow:auto` when Codex CLI is unavailable (#611)
 - `/flow:merge` - Merge PR, clean up worktree
 - `/flow:sync` - Push WIP to remote for cross-machine pickup
 - `/flow:cleanup` - Prune stale worktrees and branches
@@ -251,6 +252,7 @@ mirrors the `/security` #438 and hooks #439 defer-the-commodity-half moves).
 - `/codex:auto <ISSUE>` - Full issue lifecycle delegated to Codex CLI (worktree, implement, review, quality gates, PR)
 - `/codex:exec <PROMPT>` - One-shot Codex execution in current directory with JSONL monitoring
 - `/codex:ask <QUESTION>` - Delegate a read-only question to Codex and relay its answer (read-only by default; network opt-in on explicit request)
+- `/codex:code_review [BASE] [CONTEXT]` - Codex reviews the current branch's diff vs base (read-only) and returns structured findings (severity, file:line, suggestion); consumed by `/flow:auto_codex` as the pre-PR review stage, usable standalone from any branch (#611)
 - `/codex:status` - Check Codex CLI installation, config, and readiness
 - `/codex:help` - Codex commands overview
 
