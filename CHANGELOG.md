@@ -85,6 +85,32 @@
 
 ### Fixed
 
+- **`gh-pr-merge.sh` no longer refuses to merge over contexts it could not
+  enumerate** (issue #610) - the #577 required-check wait read ONE endpoint
+  (classic branch protection) and discarded gh's exit code. `gh api` prints an
+  error body on STDOUT with `--jq` unapplied, so a 404
+  `{"message":"Branch not protected"...}` was mapped straight into the
+  required-contexts list; the wait then polled ~10 minutes for a context named
+  after the JSON itself and hard-stopped. It fired two ways - on a repo with no
+  protection, and on one whose `main` is guarded by a repository **ruleset**,
+  which the legacy endpoint cannot see. The ruleset case was the worse of the
+  two: the check genuinely was required, it had already passed, and the helper
+  still refused. Measured cost in agentic-poker alone: **25 `/flow:auto` runs
+  over six days, ~4h of wall-clock**, every one worked around by hand with
+  `gh pr merge --squash`. Resolution now unions both mechanisms
+  (`/branches/{b}/protection/required_status_checks` and
+  `/repos/{o}/{r}/rules/branches/{b}`) and counts only a 2xx as data, giving
+  three states: `declared` (wait, exactly as #577), `none` (a source answered
+  and nothing is required -> skip the wait outright), and `unresolved` (neither
+  readable -> the checks the PR itself reports decide: green merges, RED is
+  still a hard stop, pending waits then fails open). Failing open is safe
+  because GitHub enforces a ruleset server-side at squash time, so a plain
+  squash cannot bypass the posture - the client-side wait is defence in depth,
+  not the gate (ADR 0004 amendment). The `--admin` break-glass and the hard
+  stops for genuinely red or genuinely missing declared checks are unchanged.
+  The issue's secondary claim - that the helper exits 0 while refusing - did not
+  reproduce on any refusal path; a test now pins non-zero on all five.
+
 - **Friction ledger attributes Claude captures as `harness=claude`** (issue #563,
   completing #557) - #557 added the `harness` dimension end to end, but the Claude
   capture side never set it, so every flow-captured and permission-census row
