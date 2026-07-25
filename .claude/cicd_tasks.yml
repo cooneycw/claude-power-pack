@@ -71,11 +71,18 @@ steps:
     idempotent: false
 
 plans:
+  # typecheck is listed in every plan that gates a PR, not merely defined under
+  # `steps:` above. This manifest WINS over lib/cicd/steps.py BUILTIN_PLANS, so
+  # a typecheck step defined but never referenced is dead config - which is how
+  # the finish gate reported ok on trees CI then rejected on `make typecheck`
+  # (issue #617). The .woodpecker.yml `validate` step runs mypy, so omitting it
+  # here guarantees local-green-then-CI-red.
   finish:
     description: Quality gates for /flow:finish
     steps:
       - lint
       - test
+      - typecheck
       - security_scan
 
   check:
@@ -83,6 +90,7 @@ plans:
     steps:
       - lint
       - test
+      - typecheck
 
   deploy:
     description: Deployment pipeline for /flow:deploy

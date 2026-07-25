@@ -85,6 +85,38 @@
 
 ### Fixed
 
+- **The `finish`/`check` quality gates run typecheck, so a green gate means a
+  green CI again** (issue #617) - `/flow:auto` Step 6 reported
+  `FLOW_FINISH_GATE: ok`, the PR opened, and CI then failed on **typecheck**, a
+  step the local gate never ran (hit twice in agentic-poker, `flow:auto #98` and
+  `#176`, both after the PR was already public). The audit the issue asked for
+  found all four shipped CI templates run exactly lint + test + typecheck and
+  `PipelineConfig.branches["pr"]` defaults to the same three, so typecheck was
+  the only missing step - but it was missing in FOUR places, not the one the
+  issue named: `BUILTIN_PLANS` in `lib/cicd/steps.py`; `generate_manifest()` in
+  `lib/cicd/manifest.py`, which built a typecheck **step** and referenced it
+  from no plan; CPP's own `.claude/cicd_tasks.yml`, carrying the same dead
+  step; and the `make lint` + `make test` fallback in
+  `scripts/flow-finish-gate.sh`. The last three are load-bearing because the
+  runner **prefers** `.claude/cicd_tasks.yml` and only falls back to
+  `BUILTIN_PLANS` when no manifest exists - so the issue's proposed fix, applied
+  to the built-ins alone, would have been a no-op for CPP itself and for every
+  manifest-carrying project. That was caught by dogfooding rather than reading:
+  with the built-ins fixed the gate still reported `3/3` steps
+  (`FLOW_GATE_CPP_DIR=<worktree>` runs the gate against the worktree's own
+  runner + manifest), and reports `4/4` with `typecheck: SUCCESS` now.
+  `/flow:check` ran lint + test inline with no typecheck and had the gap
+  independently of the runner; it gains a Step 3b and a results-table row. Every
+  step is `skip_if`-guarded on its Makefile target, so a repo with no
+  `typecheck:` target is unaffected - the contract lint and test already had.
+  The tests pin the invariant rather than the one step:
+  `TestPlansCoverCITemplates` parses the shipped CI templates and asserts the
+  plans cover every `make` target they run, `TestFinishGateFallbackParity`
+  asserts the shell fallback matches the plan, and
+  `TestManifestPlansIncludeTypecheck` covers the generator and CPP's own
+  manifest - so a step added to the templates can no longer silently skip the
+  local gate.
+
 - **`gh-pr-merge.sh` no longer refuses to merge over contexts it could not
   enumerate** (issue #610) - the #577 required-check wait read ONE endpoint
   (classic branch protection) and discarded gh's exit code. `gh api` prints an

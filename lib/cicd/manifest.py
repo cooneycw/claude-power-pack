@@ -330,16 +330,24 @@ def generate_manifest(
     # Build standard plans
     plans: dict[str, PlanModel] = {}
 
-    # finish plan: lint -> test -> security_scan
-    finish_steps = [s for s in ["lint", "test", "security_scan"] if s in steps]
+    # finish plan: lint -> test -> typecheck -> security_scan
+    #
+    # typecheck is in the plan, not just in `steps`, because the runner PREFERS
+    # this manifest over BUILTIN_PLANS whenever one exists - so a manifest that
+    # defines a typecheck step but never references it from a plan produces dead
+    # config and the exact false green issue #617 is about: the gate reports ok,
+    # the PR opens, and CI (which runs `make typecheck` in every shipped
+    # template) goes red. Each step is filtered on `in steps`, so a project with
+    # no typecheck target still gets a two-step plan.
+    finish_steps = [s for s in ["lint", "test", "typecheck", "security_scan"] if s in steps]
     if finish_steps:
         plans["finish"] = PlanModel(
             steps=finish_steps,
             description="Quality gates for /flow:finish",
         )
 
-    # check plan: lint -> test
-    check_steps = [s for s in ["lint", "test"] if s in steps]
+    # check plan: lint -> test -> typecheck
+    check_steps = [s for s in ["lint", "test", "typecheck"] if s in steps]
     if check_steps:
         plans["check"] = PlanModel(
             steps=check_steps,

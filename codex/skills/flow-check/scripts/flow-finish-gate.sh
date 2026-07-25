@@ -20,8 +20,11 @@
 #   documented PYTHONPATH / `uv run --project` contract (PYTHONPATH names the
 #   PARENT of lib/ so `-m lib.cicd` resolves for external projects too, and uv
 #   pins the >= 3.11 interpreter plus pydantic - issue #430). When the runner
-#   is unavailable it degrades to `make lint` + `make test`, the same fallback
-#   the command docs describe; with no Makefile gates either, it skips loudly.
+#   is unavailable it degrades to `make lint` + `make test` + `make typecheck`,
+#   the same fallback the command docs describe; with no Makefile gates either,
+#   it skips loudly. The fallback mirrors the runner's `finish` plan target for
+#   target: when it ran only lint + test it reproduced the exact false green the
+#   plan itself had (issue #617) for every repo without uv or a CPP checkout.
 #
 # Usage:
 #   flow-finish-gate.sh                  # run the 'finish' quality-gate plan
@@ -142,9 +145,17 @@ if [[ -f Makefile ]]; then
         make test || FAILED=1
         RAN=1
     fi
+    # Typecheck is a hard step in every shipped CI template, so the fallback
+    # runs it too - otherwise a repo that degrades here gets the same
+    # local-green-then-CI-red the runner plan had before #617.
+    if grep -q "^typecheck:" Makefile; then
+        echo "flow-finish-gate: running fallback gate 'make typecheck'"
+        make typecheck || FAILED=1
+        RAN=1
+    fi
 fi
 if [[ "$RAN" -eq 0 ]]; then
-    echo "WARNING: no deterministic runner and no Makefile lint/test targets - quality gates SKIPPED." >&2
+    echo "WARNING: no deterministic runner and no Makefile lint/test/typecheck targets - quality gates SKIPPED." >&2
     verdict skipped
     exit 0
 fi

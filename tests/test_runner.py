@@ -412,3 +412,112 @@ class TestStepDefinitionsSandboxAware:
         assert (Path(_CPP_ROOT) / "lib" / "security").exists() or (
             Path(_CPP_ROOT) / "lib"
         ).is_dir()
+
+
+class TestPlansCoverCITemplates:
+    """The `finish` gate's contract is that a green gate means a green CI, so its
+    make-target steps must cover every `make <target>` the shipped CI templates
+    run. `typecheck` was missing for months: the plan reported ok, the PR opened,
+    and CI went red on a step the local gate never ran (issue #617, hit twice in
+    agentic-poker). These tests pin the invariant, not just the one missing step."""
+
+    CI_TEMPLATES = (
+        "templates/workflows/ci-python.yml",
+        "templates/workflows/ci-node.yml",
+        "templates/workflows/woodpecker-python.yml",
+        "templates/workflows/woodpecker-node.yml",
+    )
+
+    @staticmethod
+    def _make_targets(plan_name: str) -> set[str]:
+        """The Makefile targets a plan invokes (`make X` steps only)."""
+        return {
+            step.command.split()[1]
+            for step in BUILTIN_PLANS[plan_name]
+            if step.command.startswith("make ")
+        }
+
+    def _ci_targets(self) -> set[str]:
+        """Every `make <target>` the shipped CI templates run."""
+        targets: set[str] = set()
+        for rel in self.CI_TEMPLATES:
+            path = Path(_CPP_ROOT) / rel
+            if not path.is_file():
+                continue
+            for line in path.read_text().splitlines():
+                stripped = line.strip().lstrip("-").strip()
+                if stripped.startswith("run:"):
+                    stripped = stripped[len("run:") :].strip()
+                if stripped.startswith("make "):
+                    targets.add(stripped.split()[1])
+        return targets
+
+    def test_ci_templates_are_readable(self):
+        """Guard the guard: an empty set would make the coverage test vacuous."""
+        assert self._ci_targets(), "no `make` targets parsed from the CI templates"
+
+    def test_finish_plan_covers_every_ci_make_target(self):
+        missing = self._ci_targets() - self._make_targets("finish")
+        assert not missing, (
+            f"CI runs make targets the 'finish' plan never runs: {sorted(missing)}. "
+            "A gate that omits a hard CI step reports green on a tree CI rejects (#617)."
+        )
+
+    def test_check_plan_covers_every_ci_make_target(self):
+        missing = self._ci_targets() - self._make_targets("check")
+        assert not missing, (
+            f"CI runs make targets the 'check' plan never runs: {sorted(missing)} (#617)."
+        )
+
+    @pytest.mark.parametrize("plan_name", ["finish", "check"])
+    def test_typecheck_step_present_and_guarded(self, plan_name: str):
+        """The skip_if guard is what makes shipping this by default safe: a repo
+        with no `typecheck:` target skips it silently, as it already does for
+        a missing `lint:` or `test:`."""
+        step = {s.id: s for s in BUILTIN_PLANS[plan_name]}.get("typecheck")
+        assert step is not None, f"'{plan_name}' plan has no typecheck step (#617)"
+        assert step.command == "make typecheck"
+        assert step.skip_if == '! grep -q "^typecheck:" Makefile 2>/dev/null'
+        assert step.max_attempts == 1
+
+    def test_typecheck_skips_when_makefile_has_no_target(self, tmp_project: Path):
+        (tmp_project / "Makefile").write_text("lint:\n\techo lint\n")
+        step = ShellStep({s.id: s for s in BUILTIN_PLANS["finish"]}["typecheck"])
+        assert step.should_skip({"project_root": str(tmp_project), "env": {}}) is True
+
+    def test_typecheck_runs_when_makefile_has_target(self, tmp_project: Path):
+        (tmp_project / "Makefile").write_text("typecheck:\n\techo typecheck\n")
+        step = ShellStep({s.id: s for s in BUILTIN_PLANS["finish"]}["typecheck"])
+        assert step.should_skip({"project_root": str(tmp_project), "env": {}}) is False
+
+    def test_typecheck_runs_before_security_scan(self):
+        """Order matters for the report: the cheap deterministic gates run first,
+        so a type error is surfaced before the security scan's output buries it."""
+        ids = [s.id for s in BUILTIN_PLANS["finish"]]
+        assert ids.index("typecheck") < ids.index("security_scan")
+        assert ids.index("test") < ids.index("typecheck")
+
+
+class TestFinishGateFallbackParity:
+    """scripts/flow-finish-gate.sh's Makefile fallback (used when uv or the CPP
+    checkout is unavailable) must run the same targets as the plan it degrades
+    from - otherwise the #617 false green survives on every repo that lands in
+    the fallback."""
+
+    def test_fallback_runs_every_finish_plan_make_target(self):
+        gate = Path(_CPP_ROOT) / "scripts" / "flow-finish-gate.sh"
+        if not gate.is_file():
+            pytest.skip("flow-finish-gate.sh not present in this checkout")
+        body = gate.read_text()
+        plan_targets = {
+            step.command.split()[1]
+            for step in BUILTIN_PLANS["finish"]
+            if step.command.startswith("make ")
+        }
+        for target in sorted(plan_targets):
+            assert f'grep -q "^{target}:" Makefile' in body, (
+                f"fallback never detects the '{target}:' target (#617)"
+            )
+            assert f"make {target} || FAILED=1" in body, (
+                f"fallback never runs 'make {target}' (#617)"
+            )

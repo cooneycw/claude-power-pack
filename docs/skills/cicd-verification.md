@@ -240,7 +240,7 @@ Generated via `/cicd:container` using templates in `templates/containers/`:
 
 | Flow Command | CI/CD Integration |
 |-------------|-------------------|
-| `/flow:finish` | Runs `make lint` + `make test` as quality gates |
+| `/flow:finish` | Runs `make lint` + `make test` + `make typecheck` as quality gates (the same targets the CI templates run, #617) |
 | `/flow:deploy` | Runs `make deploy`, then post-deploy health + smoke |
 | `/flow:auto` | Full lifecycle including deploy verification |
 | `/flow:doctor` | Reports Makefile target availability |
