@@ -7,6 +7,7 @@ Each step type knows how to execute a specific kind of operation
 from __future__ import annotations
 
 import os
+import re
 import signal
 import subprocess
 import threading
@@ -15,6 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional, Protocol
 
+from .outcomes import SuiteOutcome, parse_suite_outcome
 from .state import StepStatus
 
 # Root of the CPP checkout (the parent of ``lib/``), derived from this file's
@@ -23,6 +25,15 @@ from .state import StepStatus
 # claude-power-pack" prefix broke under a sandbox or an alternate checkout
 # (/opt, ~/.claude-power-pack), the very fallbacks flow:auto searches (#534).
 _CPP_ROOT = str(Path(__file__).resolve().parents[2])
+
+# A step whose id or command names a test runner is the only place a test
+# summary line is expected, so the #621 skip-count parse is gated on it - a
+# linter that prints "3 files passed" must never be reported as a test suite.
+# Word-boundaried on both sides so "latest" / "contested" do not match.
+_TEST_STEP_HINT = re.compile(
+    r"(?:^|[^a-z])(?:tests?|pytest|jest|vitest|unittest|nose)(?:[^a-z]|$)",
+    re.IGNORECASE,
+)
 
 
 class StepExecutor(Protocol):
@@ -44,6 +55,11 @@ class StepResult:
     exit_code: int = 0
     output: str = ""
     error: str = ""
+    # Counts parsed from a test runner's summary line, when this step ran one
+    # (issue #621). Advisory only - it never changes ``status``, which stays
+    # exit-code driven; it exists so a SUCCESS whose suite executed nothing can
+    # be reported as such instead of as a bare green.
+    tests: Optional[SuiteOutcome] = None
 
     @property
     def success(self) -> bool:
@@ -112,6 +128,22 @@ class ShellStep:
             env = dict(env) if env is not None else dict(os.environ)
             env.update(self.env)
         return env
+
+    def is_test_step(self) -> bool:
+        """True when this step's id or command names a test runner (issue #621)."""
+        return bool(
+            _TEST_STEP_HINT.search(self.id) or _TEST_STEP_HINT.search(self.command)
+        )
+
+    def _parse_tests(self, output: str, error: str) -> Optional[SuiteOutcome]:
+        """Parse a test summary from this step's captured output, if it is a test step.
+
+        Both streams are scanned: pytest prints its tail to stdout, but a
+        ``make`` recipe (or a wrapper that redirects) can land it on stderr.
+        """
+        if not self.is_test_step():
+            return None
+        return parse_suite_outcome(output) or parse_suite_outcome(error)
 
     def should_skip(self, context: dict[str, Any]) -> bool:
         """Check if this step should be skipped."""
@@ -200,6 +232,7 @@ class ShellStep:
 
         output = "".join(out_chunks)
         error = "".join(err_chunks)
+        tests = self._parse_tests(output, error)
 
         if timed_out:
             timeout_msg = f"Step timed out after {self.timeout_seconds}s"
@@ -208,6 +241,7 @@ class ShellStep:
                 exit_code=124,  # standard timeout exit code
                 output=output,
                 error=f"{error}\n{timeout_msg}".strip() if error else timeout_msg,
+                tests=tests,
             )
 
         if proc.returncode == 0:
@@ -215,12 +249,14 @@ class ShellStep:
                 status=StepStatus.SUCCESS,
                 exit_code=0,
                 output=output,
+                tests=tests,
             )
         return StepResult(
             status=StepStatus.FAILED,
             exit_code=proc.returncode if proc.returncode is not None else 1,
             output=output,
             error=error,
+            tests=tests,
         )
 
     @staticmethod

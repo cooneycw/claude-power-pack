@@ -1,0 +1,196 @@
+"""Tests for lib/cicd/outcomes.py - test-runner summary parsing (issue #621).
+
+A test step's exit code cannot distinguish "312 tests passed" from "312 tests
+were skipped", because pytest exits 0 for both. These tests pin the parser that
+recovers the counts, and the deliberate blind spots: a step that is not a test
+step, and output with no recognizable summary, must yield None so the runner
+reports exactly what it reported before.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from lib.cicd.outcomes import SuiteOutcome, parse_suite_outcome
+from lib.cicd.steps import ShellStep, StepDef
+
+
+class TestPytestParsing:
+    def test_passed_and_skipped(self) -> None:
+        # The line from the run that produced issue #621.
+        out = parse_suite_outcome(
+            "======= 312 passed, 66 skipped, 1 warning in 55.69s ======="
+        )
+        assert out is not None
+        assert out.framework == "pytest"
+        assert out.passed == 312
+        assert out.skipped == 66
+        assert out.executed == 312
+        assert not out.nothing_ran
+        assert out.summary() == "312 passed, 66 skipped"
+
+    def test_everything_skipped_is_nothing_ran(self) -> None:
+        out = parse_suite_outcome("========== 66 skipped in 0.42s ==========")
+        assert out is not None
+        assert out.passed == 0
+        assert out.skipped == 66
+        assert out.nothing_ran
+        assert out.summary() == "0 passed, 66 skipped"
+
+    def test_no_tests_ran(self) -> None:
+        out = parse_suite_outcome("=========== no tests ran in 0.01s ===========")
+        assert out is not None
+        assert out.framework == "pytest"
+        assert out.nothing_ran
+        assert out.skipped == 0
+
+    def test_failures_and_errors(self) -> None:
+        out = parse_suite_outcome("=== 2 failed, 8 passed, 1 error in 3.20s ===")
+        assert out is not None
+        assert out.failed == 2
+        assert out.passed == 8
+        assert out.errors == 1
+        assert out.executed == 11
+        assert not out.nothing_ran
+
+    def test_xfail_and_xpass_count_as_executed(self) -> None:
+        out = parse_suite_outcome("== 5 passed, 1 xfailed, 1 xpassed in 1.00s ==")
+        assert out is not None
+        assert out.passed == 6  # 5 passed + 1 xpassed
+        assert out.failed == 1  # xfailed ran and failed as expected
+        assert not out.nothing_ran
+
+    def test_last_summary_wins(self) -> None:
+        # A `make test` target that runs two suites reports the final one.
+        text = "\n".join(
+            [
+                "=== 10 passed in 1.00s ===",
+                "running the second suite",
+                "=== 4 passed, 2 skipped in 2.00s ===",
+            ]
+        )
+        out = parse_suite_outcome(text)
+        assert out is not None
+        assert out.passed == 4
+        assert out.skipped == 2
+
+    def test_summary_embedded_in_full_output(self) -> None:
+        text = (
+            "uv run pytest\n"
+            "tests/test_a.py ..s                                    [ 60%]\n"
+            "tests/test_b.py ss                                     [100%]\n"
+            "\n"
+            "================== 2 passed, 3 skipped in 0.31s ==================\n"
+        )
+        out = parse_suite_outcome(text)
+        assert out is not None
+        assert (out.passed, out.skipped) == (2, 3)
+
+
+class TestJestParsing:
+    def test_tests_line(self) -> None:
+        out = parse_suite_outcome(
+            "Test Suites: 3 passed, 3 total\n"
+            "Tests:       2 skipped, 10 passed, 12 total\n"
+            "Time:        4.2 s\n"
+        )
+        assert out is not None
+        assert out.framework == "jest"
+        assert out.passed == 10
+        assert out.skipped == 2
+        assert not out.nothing_ran
+
+    def test_all_skipped(self) -> None:
+        out = parse_suite_outcome("Tests:       12 skipped, 12 total\n")
+        assert out is not None
+        assert out.nothing_ran
+        assert out.skipped == 12
+
+    def test_todo_counts_as_unexecuted(self) -> None:
+        out = parse_suite_outcome("Tests:       1 todo, 4 passed, 5 total\n")
+        assert out is not None
+        assert out.skipped == 1
+        assert out.passed == 4
+
+
+class TestUnittestParsing:
+    def test_ok_with_skips(self) -> None:
+        out = parse_suite_outcome("Ran 12 tests in 0.03s\n\nOK (skipped=3)\n")
+        assert out is not None
+        assert out.framework == "unittest"
+        assert out.passed == 9
+        assert out.skipped == 3
+        assert not out.nothing_ran
+
+    def test_everything_skipped(self) -> None:
+        out = parse_suite_outcome("Ran 5 tests in 0.01s\n\nOK (skipped=5)\n")
+        assert out is not None
+        assert out.nothing_ran
+
+    def test_failed_verdict(self) -> None:
+        out = parse_suite_outcome(
+            "Ran 10 tests in 0.10s\n\nFAILED (failures=2, skipped=1)\n"
+        )
+        assert out is not None
+        assert out.failed == 2
+        assert out.skipped == 1
+        assert out.passed == 7
+
+    def test_verdict_without_ran_line_is_ignored(self) -> None:
+        # A bare "OK" in arbitrary output is not a test summary.
+        assert parse_suite_outcome("OK\n") is None
+
+
+class TestNonSummaries:
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "",
+            "All checks passed!\n",  # ruff
+            "Success: no issues found in 120 source files\n",  # mypy
+            "Compiled 3 files in 0.5s\n",
+            "3 files reformatted in 1.2s\n",
+            "12 vulnerabilities passed the allowlist\n",  # no duration -> not a summary
+        ],
+    )
+    def test_unrecognized_output_yields_none(self, text: str) -> None:
+        assert parse_suite_outcome(text) is None
+
+
+class TestStepGating:
+    """The parse only fires for steps that name a test runner."""
+
+    @pytest.mark.parametrize(
+        "step_id,command",
+        [
+            ("test", "make test"),
+            ("test-pg", "make test-pg"),
+            ("unit_tests", "uv run pytest"),
+            ("suite", "npx jest --ci"),
+            ("check", "uv run vitest run"),
+        ],
+    )
+    def test_recognized_test_steps(self, step_id: str, command: str) -> None:
+        assert ShellStep(StepDef(id=step_id, command=command)).is_test_step()
+
+    @pytest.mark.parametrize(
+        "step_id,command",
+        [
+            ("lint", "make lint"),
+            ("typecheck", "make typecheck"),
+            ("security_scan", "python3 -m lib.security gate flow_finish"),
+            ("deploy", "make deploy"),
+            ("latest", "make build-latest"),  # "latest" is not "test"
+        ],
+    )
+    def test_non_test_steps(self, step_id: str, command: str) -> None:
+        assert not ShellStep(StepDef(id=step_id, command=command)).is_test_step()
+
+    def test_non_test_step_never_parses_counts(self) -> None:
+        step = ShellStep(StepDef(id="lint", command="make lint"))
+        assert step._parse_tests("== 1 passed, 9 skipped in 1.0s ==", "") is None
+
+    def test_test_step_parses_from_stderr_too(self) -> None:
+        step = ShellStep(StepDef(id="test", command="make test"))
+        outcome = step._parse_tests("", "== 1 passed, 9 skipped in 1.0s ==")
+        assert outcome == SuiteOutcome(passed=1, skipped=9, framework="pytest")

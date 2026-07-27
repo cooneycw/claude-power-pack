@@ -94,7 +94,9 @@ block):
 
 On `FLOW_FINISH_GATE: fail` (exit 1): **STOP** - the quality gate failed on
 the post-merge tree. Fix, commit, then re-run `/flow-merge`. On `ok` (or
-`skipped`, with a warning), push the merge so the PR reflects the post-merge
+`skipped` / `warn`, each with a warning - `warn` means a test step exited 0
+having executed no tests, issue #621: report its counts, do not call it "tests
+passed"), push the merge so the PR reflects the post-merge
 tree before squashing:
 
 ```bash
