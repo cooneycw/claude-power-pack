@@ -18,11 +18,19 @@
 #     /flow:auto worktree too.
 #   - the sibling .claude/learnings.md ledger, counting entries still awaiting a
 #     decision (Status: proposed).
+#   - the installed-vs-checkout command drift reported by the sibling
+#     scripts/install-drift.sh (issue #622). Session open is the ONLY moment that
+#     fact helps: a session that learns its command text is 15 commits old before
+#     it acts avoids re-diagnosing an already-fixed bug and filing a duplicate
+#     issue for it, which is what happened on flow:auto #65. Set
+#     CPP_HOOK_SKIP_INSTALL_DRIFT=1 to suppress just this half.
 #
-# Output: at most ONE advisory line to stdout, shown at session open. Permission
-# -prompt census records (bulk, auto-captured) are counted separately from the
-# actionable classes so the line is honest rather than alarming. Exit 0 ALWAYS -
-# absent files, parse hiccups, or no-git all resolve to "silent, no error".
+# Output: at most TWO advisory lines to stdout, shown at session open - the retro
+# line and the install-drift line, INDEPENDENT of each other (either can be
+# silent). Permission-prompt census records (bulk, auto-captured) are counted
+# separately from the actionable classes so the line is honest rather than
+# alarming. Exit 0 ALWAYS - absent files, parse hiccups, an absent or failing
+# install-drift.sh, or no-git all resolve to "silent, no error".
 
 set -u
 
@@ -63,17 +71,37 @@ if [ -f "$LEDGER" ]; then
 fi
 
 TOTAL=$((ACTIONABLE + CENSUS + PROPOSED))
-[ "$TOTAL" -gt 0 ] || exit 0
 
-# --- Emit one advisory line (actionable first, census labelled, learnings last) ---
-parts=""
-[ "$ACTIONABLE" -gt 0 ] && parts="${ACTIONABLE} actionable"
-if [ "$CENSUS" -gt 0 ]; then
-  [ -n "$parts" ] && parts="${parts} + "
-  parts="${parts}${CENSUS} permission-prompt"
+# --- Advisory 1: pending retro material (actionable first, census labelled) ---
+if [ "$TOTAL" -gt 0 ]; then
+  parts=""
+  [ "$ACTIONABLE" -gt 0 ] && parts="${ACTIONABLE} actionable"
+  if [ "$CENSUS" -gt 0 ]; then
+    [ -n "$parts" ] && parts="${parts} + "
+    parts="${parts}${CENSUS} permission-prompt"
+  fi
+  MSG="CPP retro: ${parts} friction signal(s) pending"
+  [ "$PROPOSED" -gt 0 ] && MSG="${MSG} + ${PROPOSED} uncodified learning(s)"
+  MSG="${MSG} - run /self-improvement:retro to review"
+  printf '%s\n' "$MSG"
 fi
-MSG="CPP retro: ${parts} friction signal(s) pending"
-[ "$PROPOSED" -gt 0 ] && MSG="${MSG} + ${PROPOSED} uncodified learning(s)"
-MSG="${MSG} - run /self-improvement:retro to review"
-printf '%s\n' "$MSG"
+
+# --- Advisory 2: stale installed command text (issue #622) -------------------
+# Independent of advisory 1 - the two answer different questions, and gating the
+# drift line on pending retro material would hide it exactly on the clean boxes
+# most likely to be running week-old commands. install-drift.sh --quiet prints
+# one line only on drift and always exits 0; everything here is belt-and-braces
+# on top of that, since a hook that errors is worse than a hook that is silent.
+if [ -z "${CPP_HOOK_SKIP_INSTALL_DRIFT:-}" ]; then
+  SELF="$(readlink -f "$0" 2>/dev/null || printf '%s' "$0")"
+  DRIFT_SCRIPT="$(dirname "$SELF")/install-drift.sh"
+  if [ -f "$DRIFT_SCRIPT" ]; then
+    if command -v timeout >/dev/null 2>&1; then
+      timeout 20 bash "$DRIFT_SCRIPT" --quiet 2>/dev/null || true
+    else
+      bash "$DRIFT_SCRIPT" --quiet 2>/dev/null || true
+    fi
+  fi
+fi
+
 exit 0

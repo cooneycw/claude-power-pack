@@ -111,6 +111,34 @@ user-confirmed hook registration). The registration merge is idempotent - it add
 the hook only if that exact command is not already present, preserving all other
 `settings.json` keys and entries.
 
+### 5. Installed Plugin Command Surface
+
+| Artifact | Template Source | Installed Location | Category |
+|----------|---------------|--------------------|----------|
+| Marketplace clone | `cooneycw/claude-power-pack` | `~/.claude/plugins/marketplaces/cpp` | Reconcilable |
+| Per-family command snapshot | `plugins/<family>/commands/*.md` | `~/.claude/plugins/cache/cpp/<family>/<version>/commands/` | Reconcilable |
+
+**What:** `/plugin install <family>@cpp` copies the packaged commands into a
+version-stamped cache. **That cache, not this checkout, is the text a session
+executes.** It moves only when the plugin is re-installed, while the checkout
+moves on every `git pull`.
+
+**Risk:** High, and it was invisible until issue #622. A box ran 15 commits / 7
+days behind for a week with nothing saying so; a session then executed the
+pre-#595 verifier invocation, re-diagnosed a bug that was already fixed, and
+nearly filed a duplicate issue for it - which is worse than silence, because it
+puts noise into the tracker. It compounds with artifact 4: the helper scripts
+there are SYMLINKS that follow `git pull` instantly, so the two halves of one
+install drift independently and a run gets new helpers driven by old
+instructions.
+
+**Detection:** `scripts/install-drift.sh` (`make install-drift-check`), the
+opt-in SessionStart reminder, and `/cpp:update` Step 7.10.
+
+**Reconciliation:** `/plugin update` (or `/plugin marketplace update cpp`).
+`/cpp:update` deliberately does NOT do this - it owns the non-plugin infra only,
+and pretending otherwise is how the gap stayed invisible.
+
 ## Repo-Controlled (No Drift Risk)
 
 These artifacts are fully managed by the repo:

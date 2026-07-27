@@ -884,10 +884,12 @@ If no: report `→ Permission-prompt census hook registration skipped` and conti
 ## Step 7.7: Pending-Retro Reminder Registration (opt-in)
 
 The git pull may have added `scripts/hook-pending-retro.sh` (a `SessionStart`
-hook that prints ONE advisory line at session open when retro material is waiting
-- pending `.claude/friction.jsonl` signals plus uncodified `Status: proposed`
-learnings - pointing at `/self-improvement:retro`; issue #530). It only surfaces,
-never codifies, and is silent when nothing is pending. The script is re-linked
+hook that prints up to TWO independent advisory lines at session open: pending
+retro material - `.claude/friction.jsonl` signals plus uncodified
+`Status: proposed` learnings, pointing at `/self-improvement:retro` (#530) - and
+installed-vs-checkout command drift via the sibling `scripts/install-drift.sh`
+(#622)). It only surfaces, never codifies, and is silent when there is nothing to
+report. The script is re-linked
 into `~/.claude/scripts/` by the Tier 2 refresh; this step registers it in
 `~/.claude/settings.json` if not already there. Opt-in and user-confirmed
 (default N) - it is deliberately NOT shipped in `.claude/hooks.json`, so it never
@@ -917,10 +919,11 @@ fi
 If not registered, ask the user:
 
 ```
-Register the session-open pending-retro reminder in ~/.claude/settings.json?
-It prints one advisory line when pending friction signals or uncodified learnings
-exist, so you can choose to run /self-improvement:retro. Surfaces only - never
-codifies, never blocks. Silent when nothing is pending.  [y/N default N]
+Register the session-open reminder in ~/.claude/settings.json? It prints one
+advisory line when pending friction signals or uncodified learnings exist (run
+/self-improvement:retro), and one when the installed command surface has fallen
+behind this checkout (run /plugin update). Surfaces only - never codifies, never
+blocks. Silent when there is nothing to report.  [y/N default N]
 ```
 
 If yes, run the same idempotent merge as `/cpp:init`:
@@ -1045,6 +1048,47 @@ summary.
 
 ---
 
+## Step 7.10: Installed-Command Drift Report (issue #622)
+
+The `git pull` in Step 2 moved the CHECKOUT. It did not move the copy a session
+actually executes: `/plugin install <family>@cpp` snapshots the commands into
+`~/.claude/plugins/`, and that snapshot only moves on a plugin re-install. Until
+#622 nothing compared the two, so a box could sit 15 commits behind for a week
+and every session would silently run week-old instructions - on flow:auto #65
+that meant re-diagnosing a bug #595 had already fixed and nearly filing a
+duplicate issue for it.
+
+This step reports the gap and names the command files that changed, so a
+long-running session learns what it was missing. Read-only and fail-open.
+
+```bash
+scripts/install-drift.sh || true
+```
+
+- `INSTALL_DRIFT: ok` - the install matches the checkout; report
+  `✓ Installed commands match the checkout` and continue.
+- `INSTALL_DRIFT: skipped` - no plugin install on this box (or no checkout, which
+  cannot happen here); report and continue.
+- `INSTALL_DRIFT: drift` - surface the report as-is. It already names the stale
+  files; add `--list` if the user wants all of them rather than the sample. Then
+  tell them how to reconcile, which is NOT something this command can do:
+
+  ```
+  The installed plugin snapshot is {N} commit(s) behind this checkout and {M}
+  command file(s) differ. /cpp:update refreshes the non-plugin infra (helpers,
+  hooks, allowlist) but cannot update a /plugin install - run:
+
+    /plugin update            (or: /plugin marketplace update cpp)
+
+  Until then, sessions execute the older command text.
+  ```
+
+A `SPLIT INSTALL` line in the report is worth repeating verbatim: it means the
+helpers this command just re-linked are current while the markdown driving them
+is not, which presents as a helper bug rather than as staleness.
+
+---
+
 ## Step 8: Detect Current Installation Tier
 
 Determine the user's current tier level so we can offer upgrades:
@@ -1158,6 +1202,10 @@ Run /cpp:status for full installation details.
   detected against the curated `.claude/retired-surfaces.yaml`
 - Retired-surface teardown is per-surface, user-confirmed, marker-gated, and
   REVERSIBLE - files are moved to a timestamped sibling directory, never deleted
+- Step 7.10 reports installed-plugin-vs-checkout command drift (issue #622) and
+  names the stale command files. `/cpp:update` cannot fix that half - a `/plugin`
+  install is refreshed by `/plugin update`, not by this command - so the step
+  reports and points, and never pretends to have reconciled it
 - Orphaned legacy systemd units such as `mcp-coordination` are flagged for teardown
 - Orphaned Docker MCP infra (Step 6c/7) - a container, `mcp-<name>:*` image, or
   `claude`/`codex mcp` registration left behind after a server is retired from CPP
