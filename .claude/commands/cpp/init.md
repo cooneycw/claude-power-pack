@@ -550,25 +550,34 @@ echo "→ Permission-prompt census hook skipped"
 echo "  Register later via /cpp:update, or read docs/HOST_MANAGED_ARTIFACTS.md"
 ```
 
-**Pending-Retro Reminder (Optional, opt-in)**
+**Session-Open Reminders (Optional, opt-in)**
 
 `scripts/hook-pending-retro.sh` (a `SessionStart` hook, installed as a Tier 2
-script above) prints ONE advisory line at session open when retro material is
-waiting - pending `.claude/friction.jsonl` signals (actionable vs the bulk
-permission-prompt census, counted separately) plus any uncodified
-`Status: proposed` learnings - and points at `/self-improvement:retro`. It only
-SURFACES; it never codifies, and it is silent when nothing is pending (issue
-#530). It is deliberately NOT shipped in `.claude/hooks.json`, so it never turns
+script above) prints up to TWO advisory lines at session open, each independent
+of the other:
+
+1. **Pending retro material** - `.claude/friction.jsonl` signals (actionable vs
+   the bulk permission-prompt census, counted separately) plus any uncodified
+   `Status: proposed` learnings, pointing at `/self-improvement:retro` (#530).
+2. **Stale installed commands** - how far the `~/.claude/plugins/` snapshot a
+   session actually executes has fallen behind the CPP checkout, via the sibling
+   `scripts/install-drift.sh` (#622). Session open is the only moment that fact
+   helps: it is what stops a session from acting on week-old instructions and
+   re-diagnosing an already-fixed bug.
+
+It only SURFACES; it never codifies, and it is silent when there is nothing to
+report. It is deliberately NOT shipped in `.claude/hooks.json`, so it never turns
 itself on; registering it edits `~/.claude/settings.json` (the user-level trust
 boundary), so it is offered, not applied - default N:
 
 ```
-=== Optional: Pending-Retro Reminder (opt-in) ===
+=== Optional: Session-Open Reminders (opt-in) ===
 
-Register the session-open retro reminder in ~/.claude/settings.json? It prints
-one advisory line when pending friction signals or uncodified learnings exist,
-so you can choose to run /self-improvement:retro. Surfaces only - never codifies,
-never blocks. Silent when nothing is pending.  [y/N default N]
+Register the session-open reminder in ~/.claude/settings.json? It prints one
+advisory line when pending friction signals or uncodified learnings exist (run
+/self-improvement:retro), and one when the installed command surface has fallen
+behind this checkout (run /plugin update). Surfaces only - never codifies, never
+blocks. Silent when there is nothing to report.  [y/N default N]
 ```
 
 If yes:

@@ -4,6 +4,40 @@
 
 ### Added
 
+- **Installed-plugin-vs-checkout drift detection** (issue #622) - the copy of a
+  command the Skill tool loads is not the copy this repo maintains.
+  `/plugin install <family>@cpp` snapshots the commands into `~/.claude/plugins/`
+  and that snapshot moves only on re-install, while the checkout moves on every
+  pull. Nothing compared the two, so a box sat 15 commits / 7 days behind in
+  silence: on `flow:auto #65` the session ran the **pre-#595** verifier
+  invocation, re-diagnosed a bug #595 had already fixed on 2026-07-24, worked
+  around it, and was about to file a duplicate issue for it. Among the 15 commits
+  it did not have: #595, #610, #577, #613, #617 - every one a fix for friction
+  the stale session was still exposed to. The failure is worse than ordinary
+  staleness because the install is **split** and the halves drift independently:
+  `~/.claude/scripts/` was current (the #597 worktree claim fired correctly in
+  Step 1 of the same run) while the markdown driving those helpers predated #597
+  landing, so the run got new helpers driven by old instructions with no signal
+  in either direction. New **`scripts/install-drift.sh`** compares the
+  marketplace clone by commit distance - resolved in the CHECKOUT, which has both
+  ends of the range, since the clone was fetched at install time and does not -
+  the version-stamped plugin cache by per-file content parity (no git there at
+  all, and it is the copy sessions actually execute), and the host helpers, so
+  the SPLIT case is named explicitly rather than left to be inferred from a
+  symptom that reads as a helper bug. It is read-only, network-free, and treats
+  `skipped` as a first-class non-failing answer for a marketplace-only host with
+  no checkout and a checkout-only host with no plugins. The opt-in SessionStart
+  reminder (`scripts/hook-pending-retro.sh`, #530) now carries it as a **second,
+  independent** advisory - gating it on pending retro material would hide it on
+  exactly the clean boxes most likely to be running week-old commands - fail-open
+  past a missing, failing or slow check and suppressible alone with
+  `CPP_HOOK_SKIP_INSTALL_DRIFT=1`. `/cpp:update` gains **Step 7.10**, which
+  reports the gap and names the stale command files, and is explicit that it
+  cannot fix that half: a `/plugin` install is refreshed by `/plugin update`, not
+  by `/cpp:update`. Also `make install-drift-check` / `install-drift-list` and an
+  allowlist rule for the read-only helper; deliberately NOT part of `make verify`,
+  since it inspects HOME and a CI container legitimately has no install at all.
+
 - **Flow plugin is self-sufficient for marketplace-only installs** (issue #590)
   - the flow commands invoke ~14 helper scripts that only the repo-local
   `/cpp:init` / `/cpp:update` installer ever placed at `~/.claude/scripts/`, so
