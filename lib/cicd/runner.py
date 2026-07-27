@@ -21,7 +21,7 @@ import os
 import re
 import socket
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional, TextIO
 
@@ -115,6 +115,11 @@ class RunResult:
     steps_total: int = 0
     failed_step: Optional[str] = None
     error: Optional[str] = None
+    # Test-runner counts per test step, e.g. {"test": {"passed": 312, ...}}, and
+    # the qualifications that go with them (issue #621). A plan whose test step
+    # executed nothing still succeeds - but it never reports a bare SUCCESS.
+    tests: dict[str, dict[str, Any]] = field(default_factory=dict)
+    warnings: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -128,6 +133,10 @@ class RunResult:
             d["failed_step"] = self.failed_step
         if self.error:
             d["error"] = self.error
+        if self.tests:
+            d["tests"] = self.tests
+        if self.warnings:
+            d["warnings"] = self.warnings
         return d
 
 
@@ -227,6 +236,8 @@ class DeterministicRunner:
         }
 
         completed = state.current_index
+        tests: dict[str, dict[str, Any]] = {}
+        warnings: list[str] = []
 
         for idx in range(state.current_index, len(state.step_records)):
             step_def = step_defs[idx]
@@ -247,14 +258,38 @@ class DeterministicRunner:
 
             result = step.execute_with_retry(context)
 
+            # A test step's exit code says only that the runner did not error -
+            # pytest exits 0 with every test skipped - so carry the counts it
+            # reported and qualify the verdict with them (issue #621).
+            outcome = result.tests
+            outcome_dict = outcome.to_dict() if outcome else None
+            if outcome_dict is not None:
+                tests[step.id] = outcome_dict
+            qualifier = f" ({outcome.summary()})" if outcome else ""
+
             if result.success:
-                self._log(f"  [{idx + 1}/{len(step_defs)}] {step.id}: SUCCESS")
-                state.mark_step_success(idx, result.output)
+                if outcome is not None and outcome.nothing_ran:
+                    warnings.append(
+                        f"{step.id}: exited 0 but executed NO tests ({outcome.summary()}) "
+                        "- this gate proved nothing about the change"
+                    )
+                    self._log(
+                        f"  [{idx + 1}/{len(step_defs)}] {step.id}: "
+                        f"SUCCESS - NO TESTS RAN{qualifier}"
+                    )
+                else:
+                    self._log(f"  [{idx + 1}/{len(step_defs)}] {step.id}: SUCCESS{qualifier}")
+                state.mark_step_success(idx, result.output, tests=outcome_dict)
                 state.save(self.project_root)
                 completed = idx + 1
             else:
-                self._log(f"  [{idx + 1}/{len(step_defs)}] {step.id}: FAILED (exit {result.exit_code})")
-                state.mark_step_failed(idx, result.exit_code, result.output, result.error)
+                self._log(
+                    f"  [{idx + 1}/{len(step_defs)}] {step.id}: "
+                    f"FAILED (exit {result.exit_code}){qualifier}"
+                )
+                state.mark_step_failed(
+                    idx, result.exit_code, result.output, result.error, tests=outcome_dict
+                )
                 state.save(self.project_root)
 
                 return RunResult(
@@ -265,13 +300,26 @@ class DeterministicRunner:
                     steps_total=len(step_defs),
                     failed_step=step.id,
                     error=result.error or result.output,
+                    tests=tests,
+                    warnings=warnings,
                 )
 
         # All steps completed successfully
         state.mark_complete()
         state.save(self.project_root)
 
-        self._log(f"Plan '{state.plan_name}' completed successfully ({completed}/{len(step_defs)} steps)")
+        # A plan whose test step ran nothing still succeeds - but it must never
+        # report a bare "completed successfully", which is the sentence a
+        # reviewer trusts as "safe to merge" (issue #621).
+        if warnings:
+            self._log(
+                f"Plan '{state.plan_name}' completed WITH WARNINGS "
+                f"({completed}/{len(step_defs)} steps)"
+            )
+            for warning in warnings:
+                self._log(f"  WARNING: {warning}")
+        else:
+            self._log(f"Plan '{state.plan_name}' completed successfully ({completed}/{len(step_defs)} steps)")
 
         # Clean up state file on success
         state.cleanup(self.project_root)
@@ -282,6 +330,8 @@ class DeterministicRunner:
             plan_name=state.plan_name,
             steps_completed=completed,
             steps_total=len(step_defs),
+            tests=tests,
+            warnings=warnings,
         )
 
     def _log(self, message: str) -> None:

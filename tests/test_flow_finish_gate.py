@@ -220,3 +220,76 @@ def test_command_docs_invoke_the_helper_not_inline_bash(doc: str) -> None:
     # (auto.md Step 9 deploy VERIFICATION legitimately keeps `lib.cicd verify`
     # lines - only the quality-GATE `run --plan` shape is extracted, #613.)
     assert "python -m lib.cicd run --plan" not in text
+
+
+# --- #621: a green gate whose test step executed nothing ---------------------
+
+
+def _uv_stub_printing(bindir: Path, stdout_payload: str, exit_code: int = 0) -> None:
+    """A `uv` shim that prints a canned runner JSON payload on stdout."""
+    stub = bindir / "uv"
+    stub.write_text(
+        "#!/usr/bin/env bash\n"
+        f'echo "$@" >> "{bindir / "uv.log"}"\n'
+        f"cat <<'JSON'\n{stdout_payload}\nJSON\n"
+        f"exit {exit_code}\n"
+    )
+    stub.chmod(0o755)
+
+
+def _run_with_uv_stub(
+    tmp_path: Path, cpp: Path, payload: str, exit_code: int = 0
+) -> subprocess.CompletedProcess[str]:
+    bindir = tmp_path / "bin"
+    bindir.mkdir(exist_ok=True)
+    _uv_stub_printing(bindir, payload, exit_code)
+    env = os.environ.copy()
+    env["PATH"] = f"{bindir}:{env['PATH']}"
+    env["FLOW_GATE_CPP_DIR"] = str(cpp)
+    return subprocess.run(
+        ["bash", str(SCRIPT)],
+        cwd=tmp_path,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+
+
+@requires_bash
+def test_qualified_run_reports_warn_not_ok(tmp_path: Path) -> None:
+    """The runner qualifies an all-skipped test step; this helper is the layer
+    the flow commands read, so flattening that back to a bare `ok` would re-hide
+    the #621 false green one level up. Exit status stays 0 - it is a signal."""
+    cpp = _fake_cpp(tmp_path)
+    payload = (
+        '{\n  "success": true,\n  "steps_completed": 3,\n'
+        '  "tests": {"test": {"passed": 0, "skipped": 66, "executed": 0}},\n'
+        '  "warnings": ["test: exited 0 but executed NO tests (0 passed, 66 skipped)"]\n}'
+    )
+    proc = _run_with_uv_stub(tmp_path, cpp, payload)
+    assert proc.returncode == 0
+    assert "FLOW_FINISH_GATE: warn" in proc.stdout
+    assert "FLOW_FINISH_GATE: ok" not in proc.stdout
+    assert "issue #621" in proc.stdout
+    # The runner's own JSON still reaches the caller (tee, not swallow).
+    assert '"warnings"' in proc.stdout
+
+
+@requires_bash
+def test_unqualified_run_still_reports_ok(tmp_path: Path) -> None:
+    cpp = _fake_cpp(tmp_path)
+    payload = '{\n  "success": true,\n  "steps_completed": 3,\n  "steps_total": 3\n}'
+    proc = _run_with_uv_stub(tmp_path, cpp, payload)
+    assert proc.returncode == 0
+    assert "FLOW_FINISH_GATE: ok" in proc.stdout
+    assert "warn" not in proc.stdout
+
+
+@requires_bash
+def test_failed_run_is_fail_even_with_warnings(tmp_path: Path) -> None:
+    cpp = _fake_cpp(tmp_path)
+    payload = '{\n  "success": false,\n  "warnings": ["test: exited 0 but executed NO tests"]\n}'
+    proc = _run_with_uv_stub(tmp_path, cpp, payload, exit_code=1)
+    assert proc.returncode == 1
+    assert "FLOW_FINISH_GATE: fail" in proc.stdout

@@ -530,6 +530,15 @@ fi
    - `FLOW_FINISH_GATE: ok` (exit 0): gates passed - via the runner, or its
      documented Makefile fallback when the runner is unavailable (the helper
      prints a NOTE naming which path ran). Proceed to commit.
+   - `FLOW_FINISH_GATE: warn` (exit 0, issue #621): the gate PASSED but a test
+     step exited 0 having executed no tests - every test skipped, or none were
+     collected. Proceed, but report the counts to the user verbatim (they are in
+     the runner's `warnings` array above the marker) and say plainly that this
+     gate proved nothing about the change. Never summarize such a run as "tests
+     passed". If the skips look load-bearing (a suite that needs a live database,
+     a service, a credential), say which prerequisite is missing and offer to run
+     the fuller target - the agentic-poker case was `make test-pg` sitting unused
+     beside the `make test` the gate ran.
    - `FLOW_FINISH_GATE: fail` (exit 1): parse the runner/make output above the
      marker, report the failed step, **STOP**.
    - `FLOW_FINISH_GATE: skipped` (exit 0): no runner AND no Makefile
@@ -636,7 +645,9 @@ Report: `Step 6/9: Finish complete - PR #XX created`
 
    On `FLOW_FINISH_GATE: fail` (exit 1): **STOP** - the quality gate failed on
    the post-merge tree. Fix, commit, then re-run `/flow:merge`. On `ok` (or
-   `skipped`, with a warning), push the merge so the PR reflects the post-merge
+   `skipped` / `warn`, each with a warning - `warn` means a test step exited 0
+   having executed no tests, issue #621: report its counts, do not call it
+   "tests passed"), push the merge so the PR reflects the post-merge
    tree before squashing:
 
    ```bash

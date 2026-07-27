@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import time
 import uuid
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from enum import Enum
 from pathlib import Path
 from typing import Any, Optional
@@ -38,6 +38,10 @@ class StepRecord:
     finished_at: Optional[str] = None
     attempt: int = 0
     max_attempts: int = 1
+    # Test-runner counts for a test step (issue #621), e.g.
+    # {"passed": 312, "skipped": 66, ...}. Optional and defaulted so state files
+    # written before this field existed still load.
+    tests: Optional[dict[str, Any]] = None
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
@@ -47,7 +51,10 @@ class StepRecord:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> StepRecord:
         data["status"] = StepStatus(data["status"])
-        return cls(**data)
+        # Ignore keys a newer/older writer added so a stale state file on disk
+        # resumes instead of dying on an unexpected keyword.
+        known = {f.name for f in fields(cls)}
+        return cls(**{k: v for k, v in data.items() if k in known})
 
 
 @dataclass
@@ -109,16 +116,26 @@ class RunState:
         record.started_at = _now()
         record.attempt += 1
 
-    def mark_step_success(self, index: int, output: str = "") -> None:
+    def mark_step_success(
+        self, index: int, output: str = "", tests: Optional[dict[str, Any]] = None
+    ) -> None:
         """Mark a step as successful and advance the index."""
         record = self.step_records[index]
         record.status = StepStatus.SUCCESS
         record.output = _truncate(output, 5000)
         record.finished_at = _now()
         record.exit_code = 0
+        record.tests = tests
         self.current_index = index + 1
 
-    def mark_step_failed(self, index: int, exit_code: int = 1, output: str = "", error: str = "") -> None:
+    def mark_step_failed(
+        self,
+        index: int,
+        exit_code: int = 1,
+        output: str = "",
+        error: str = "",
+        tests: Optional[dict[str, Any]] = None,
+    ) -> None:
         """Mark a step as failed."""
         record = self.step_records[index]
         record.status = StepStatus.FAILED
@@ -126,6 +143,7 @@ class RunState:
         record.output = _truncate(output, 5000)
         record.error = _truncate(error, 5000)
         record.finished_at = _now()
+        record.tests = tests
         self.status = "failed"
 
     def mark_step_skipped(self, index: int) -> None:
@@ -201,6 +219,10 @@ class RunState:
         steps_summary = []
         for r in self.step_records:
             entry: dict[str, Any] = {"id": r.step_id, "status": r.status.value}
+            if r.tests:
+                # A green test step whose suite executed nothing is the #621
+                # false green - carry the counts so the summary can say so.
+                entry["tests"] = r.tests
             if r.status == StepStatus.FAILED:
                 entry["error"] = r.error
                 entry["exit_code"] = r.exit_code

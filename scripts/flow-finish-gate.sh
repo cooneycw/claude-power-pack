@@ -37,8 +37,15 @@
 #
 #   ok      gate passed (runner, or Makefile fallback)         -> exit 0
 #   fail    gate failed                                        -> exit 1
-#   warn    --check-summary found gaps (advisory)              -> exit 0
+#   warn    --check-summary found gaps (advisory), OR the gate  -> exit 0
+#           passed but the runner qualified it (issue #621: a
+#           test step that exited 0 having executed no tests)
 #   skipped no runner AND no Makefile gates to run             -> exit 0
+#
+# The #621 qualification exists because this helper is the layer the flow
+# commands read: a runner that carefully reports "completed WITH WARNINGS"
+# would be flattened back to a bare `ok` here, re-hiding the false green one
+# level up. Exit status is unchanged (0) - the warning is a signal, not a gate.
 #
 # Env (test hooks - unset in normal use):
 #   FLOW_GATE_CPP_DIR   override the CPP checkout path (set empty to force
@@ -120,9 +127,24 @@ fi
 # --- Primary path: the deterministic runner ---------------------------------
 if [[ "$RUNNER_OK" -eq 1 ]]; then
     echo "flow-finish-gate: running deterministic gate (lib.cicd run --plan $PLAN, CPP at $CPP_DIR)"
-    PYTHONPATH="$CPP_DIR:${PYTHONPATH:-}" uv run --project "$CPP_DIR" python -m lib.cicd run --plan "$PLAN"
-    RUNNER_EXIT=$?
+    # Tee the runner's JSON (stdout) so the #621 qualification can be read back
+    # while the user still sees it live; stderr - the per-step progress log -
+    # streams straight through untouched.
+    RUNNER_JSON=$(mktemp "${TMPDIR:-/tmp}/flow-finish-gate.XXXXXX")
+    PYTHONPATH="$CPP_DIR:${PYTHONPATH:-}" uv run --project "$CPP_DIR" python -m lib.cicd run --plan "$PLAN" \
+        | tee "$RUNNER_JSON"
+    RUNNER_EXIT=${PIPESTATUS[0]}
+    QUALIFIED=0
+    if grep -q '"warnings"' "$RUNNER_JSON" 2>/dev/null; then
+        QUALIFIED=1
+    fi
+    rm -f "$RUNNER_JSON"
     if [[ "$RUNNER_EXIT" -eq 0 ]]; then
+        if [[ "$QUALIFIED" -eq 1 ]]; then
+            echo "WARNING: the gate passed but the runner QUALIFIED it (see \"warnings\" above) - a test step exited 0 without executing any tests (issue #621). Do not read this as 'safe to merge' until you know why." >&2
+            verdict warn
+            exit 0
+        fi
         verdict ok
         exit 0
     fi

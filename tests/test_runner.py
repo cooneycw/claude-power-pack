@@ -14,7 +14,7 @@ from lib.cicd.runner import (
     _is_offline,
     _project_python_floor,
 )
-from lib.cicd.state import RunState
+from lib.cicd.state import RunState, StepRecord
 from lib.cicd.steps import _CPP_ROOT, BUILTIN_PLANS, ShellStep, StepDef
 
 
@@ -521,3 +521,112 @@ class TestFinishGateFallbackParity:
             assert f"make {target} || FAILED=1" in body, (
                 f"fallback never runs 'make {target}' (#617)"
             )
+
+
+class TestSkippedSuiteReporting:
+    """A test step that exits 0 having executed nothing must not be reported as a
+    bare SUCCESS (issue #621). pytest exits 0 when every test skips, so the plan
+    used to report `completed successfully` for a gate that proved nothing - the
+    agentic-poker run where the 66 skipped tests were the acceptance tests for
+    the change being gated. Counts are surfaced; exit status is unchanged."""
+
+    def _steps(self, summary: str):
+        # A fake test step: echoes a runner summary line, exits 0 - exactly the
+        # shape the bug rides on.
+        return [StepDef(id="test", command=f"echo '{summary}'", timeout_seconds=30)]
+
+    def test_all_skipped_run_is_qualified_not_bare_success(self, tmp_project: Path):
+        log = StringIO()
+        runner = DeterministicRunner(project_root=tmp_project, output=log)
+        result = runner.run("check", step_defs=self._steps("== 66 skipped in 0.42s =="))
+
+        # Still a success - the fix surfaces the hole, it does not invent a gate.
+        assert result.success
+        assert result.tests["test"]["skipped"] == 66
+        assert result.tests["test"]["executed"] == 0
+        assert result.warnings, "an all-skipped test step must record a warning"
+        assert "executed NO tests" in result.warnings[0]
+
+        text = log.getvalue()
+        assert "NO TESTS RAN" in text
+        assert "completed WITH WARNINGS" in text
+        assert "completed successfully" not in text
+
+    def test_no_tests_ran_is_also_qualified(self, tmp_project: Path):
+        runner = DeterministicRunner(project_root=tmp_project, output=StringIO())
+        result = runner.run("check", step_defs=self._steps("== no tests ran in 0.01s =="))
+        assert result.success
+        assert result.warnings
+
+    def test_counts_are_surfaced_when_tests_did_run(self, tmp_project: Path):
+        log = StringIO()
+        runner = DeterministicRunner(project_root=tmp_project, output=log)
+        result = runner.run(
+            "check", step_defs=self._steps("== 312 passed, 66 skipped in 55.69s ==")
+        )
+        assert result.success
+        assert result.tests["test"] == {
+            "passed": 312,
+            "failed": 0,
+            "skipped": 66,
+            "errors": 0,
+            "executed": 312,
+            "framework": "pytest",
+        }
+        # Some tests DID run, so this is a real green - no warning, no
+        # "WITH WARNINGS" banner, but the counts are visible either way.
+        assert not result.warnings
+        text = log.getvalue()
+        assert "test: SUCCESS (312 passed, 66 skipped)" in text
+        assert "completed successfully" in text
+
+    def test_suite_that_skips_nothing_is_unchanged(self, tmp_project: Path):
+        log = StringIO()
+        runner = DeterministicRunner(project_root=tmp_project, output=log)
+        result = runner.run("check", step_defs=self._steps("== 312 passed in 55.69s =="))
+        assert result.success
+        assert not result.warnings
+        assert "WITH WARNINGS" not in log.getvalue()
+        assert "warnings" not in result.to_dict()
+
+    def test_non_test_step_carries_no_counts(self, tmp_project: Path):
+        steps = [
+            StepDef(id="lint", command="echo '== 9 skipped in 0.1s =='", timeout_seconds=30),
+        ]
+        runner = DeterministicRunner(project_root=tmp_project, output=StringIO())
+        result = runner.run("check", step_defs=steps)
+        assert result.success
+        assert result.tests == {}
+        assert not result.warnings
+
+    def test_counts_persist_to_state_on_failure(self, tmp_project: Path):
+        steps = [
+            StepDef(
+                id="test",
+                command="echo '== 2 failed, 8 passed, 3 skipped in 1.0s =='; exit 1",
+                timeout_seconds=30,
+            ),
+        ]
+        runner = DeterministicRunner(project_root=tmp_project, output=StringIO())
+        result = runner.run("check", step_defs=steps)
+
+        assert not result.success
+        assert result.tests["test"]["failed"] == 2
+        state = RunState.load(result.run_id, tmp_project)
+        assert state.summary()["steps"][0]["tests"]["skipped"] == 3
+
+    def test_state_file_without_tests_field_still_loads(self, tmp_project: Path):
+        """State written before #621 (no `tests` key) must still resume."""
+        legacy = {
+            "step_id": "test",
+            "status": "success",
+            "exit_code": 0,
+            "output": "",
+            "error": None,
+            "started_at": None,
+            "finished_at": None,
+            "attempt": 1,
+            "max_attempts": 1,
+        }
+        record = StepRecord.from_dict(dict(legacy))
+        assert record.tests is None

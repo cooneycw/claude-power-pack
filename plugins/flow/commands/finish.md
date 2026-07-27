@@ -102,6 +102,13 @@ The helper ends with a machine-readable marker:
   prints a NOTE naming which path ran). If the runner ran, skip to Step 2d;
   if the fallback ran, continue with Step 2b (the runner includes the security
   scan, the Makefile fallback does not).
+- `FLOW_FINISH_GATE: warn` (exit 0, issue #621): the gate PASSED but a test step
+  exited 0 having executed no tests (every test skipped, or none collected).
+  Continue as for `ok`, but report the counts from the runner's `warnings` array
+  verbatim and say plainly that this gate proved nothing about the change - never
+  summarize it as "tests passed". Name the missing prerequisite if the skips look
+  load-bearing (a live database, a service, a credential) and offer the fuller
+  test target if the Makefile has one.
 - `FLOW_FINISH_GATE: fail` (exit 1): parse the runner/make output above the
   marker, report the failed step, and **stop**. Do not proceed to PR creation.
 - `FLOW_FINISH_GATE: skipped` (exit 0): no runner AND no Makefile lint/test/typecheck
