@@ -8,6 +8,9 @@ from __future__ import annotations
 
 import json
 
+import pytest
+from pydantic import ValidationError
+
 from lib.cicd.config import (
     BuildConfig,
     CICDConfig,
@@ -399,3 +402,225 @@ class TestCliValidate:
         schema = json.loads(capsys.readouterr().out)
         assert "title" in schema
         assert schema["title"] == "CICDConfig"
+
+
+class TestProcessCheckProbeUnion:
+    """ProcessCheck is a probe union, not a port-only check (issue #620)."""
+
+    def test_port_form_unchanged(self):
+        proc = ProcessCheck(name="web", port=8010)
+        assert proc.port == 8010
+        assert proc.probe == "port"
+        assert proc.systemd_user_unit is None
+
+    def test_systemd_user_unit_needs_no_port(self):
+        proc = ProcessCheck(name="worker", systemd_user_unit="w.service")
+        assert proc.port is None
+        assert proc.probe == "systemd_user_unit"
+
+    def test_systemd_unit_form(self):
+        proc = ProcessCheck(name="daemon", systemd_unit="d.service")
+        assert proc.probe == "systemd_unit"
+
+    def test_pattern_form(self):
+        proc = ProcessCheck(name="legacy", pattern="gunicorn.*wsgi")
+        assert proc.probe == "pattern"
+
+    def test_no_probe_is_an_error(self):
+        with pytest.raises(ValidationError) as exc:
+            ProcessCheck(name="worker")
+        assert "names no probe method" in str(exc.value)
+
+    def test_two_probes_is_an_error(self):
+        with pytest.raises(ValidationError) as exc:
+            ProcessCheck(name="both", port=8010, systemd_unit="b.service")
+        assert "names 2 probe methods" in str(exc.value)
+
+    def test_mixed_process_list_loads_whole_config(self, tmp_path):
+        """The #620 blast-radius case: a port-less worker must not sink the file."""
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+        (claude_dir / "cicd.yml").write_text(
+            """
+health:
+  processes:
+    - name: web
+      port: 8010
+    - name: worker
+      systemd_user_unit: agentic-poker-dev-worker.service
+  deploy_verification:
+    enabled: true
+"""
+        )
+        config = CICDConfig.load(str(tmp_path))
+        assert len(config.health.processes) == 2
+        assert config.health.processes[0].probe == "port"
+        assert config.health.processes[1].systemd_user_unit == (
+            "agentic-poker-dev-worker.service"
+        )
+
+
+class TestProbeSoftValidation:
+    """One malformed probe must not take the whole config down (issue #620)."""
+
+    def _load(self, tmp_path, body):
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+        (claude_dir / "cicd.yml").write_text(body)
+        return tmp_path
+
+    def test_invalid_probe_is_dropped_not_fatal(self, tmp_path):
+        root = self._load(
+            tmp_path,
+            """
+health:
+  processes:
+    - name: web
+      port: 8010
+    - name: broken
+  smoke_tests:
+    - name: ping
+      command: curl -sf localhost:8010
+""",
+        )
+        with pytest.warns(UserWarning, match=r"dropping invalid health\.processes\[1\]"):
+            config = CICDConfig.load(str(root))
+
+        # The good probes survive - the whole point of failing soft.
+        assert [p.name for p in config.health.processes] == ["web"]
+        assert [s.name for s in config.health.smoke_tests] == ["ping"]
+
+    def test_warning_names_the_reason(self, tmp_path):
+        root = self._load(
+            tmp_path,
+            """
+health:
+  processes:
+    - name: both
+      port: 8010
+      systemd_unit: b.service
+""",
+        )
+        with pytest.warns(UserWarning, match="names 2 probe methods"):
+            config = CICDConfig.load(str(root))
+        assert config.health.processes == []
+
+    def test_valid_config_warns_nothing(self, tmp_path, recwarn):
+        root = self._load(
+            tmp_path,
+            """
+health:
+  processes:
+    - name: web
+      port: 8010
+""",
+        )
+        config = CICDConfig.load(str(root))
+        assert len(config.health.processes) == 1
+        assert [w for w in recwarn if issubclass(w.category, UserWarning)] == []
+
+
+class TestNestedUnknownKeys:
+    """extra="ignore" makes a typo inside a probe silently inert (issue #620)."""
+
+    def _validate(self, tmp_path, body):
+        config_file = tmp_path / "cicd.yml"
+        config_file.write_text(body)
+        return CICDConfig.validate_file(config_file)
+
+    def test_endpoint_typo_reported(self, tmp_path):
+        issues = self._validate(
+            tmp_path,
+            """
+health:
+  endpoints:
+    - url: http://localhost:8010/
+      expect_status: 302
+""",
+        )
+        assert any("expect_status" in i and "health.endpoints[0]" in i for i in issues)
+
+    def test_process_typo_reported(self, tmp_path):
+        issues = self._validate(
+            tmp_path,
+            """
+health:
+  processes:
+    - name: worker
+      systemd_user_units: w.service
+""",
+        )
+        assert any("systemd_user_units" in i for i in issues)
+
+    def test_smoke_test_typo_reported(self, tmp_path):
+        issues = self._validate(
+            tmp_path,
+            """
+health:
+  smoke_tests:
+    - name: ping
+      command: true
+      expected_exits: 0
+""",
+        )
+        assert any("expected_exits" in i for i in issues)
+
+    def test_valid_keys_are_not_reported(self, tmp_path):
+        issues = self._validate(
+            tmp_path,
+            """
+health:
+  endpoints:
+    - url: http://localhost:8010/
+      expected_status: 302
+  processes:
+    - name: worker
+      systemd_user_unit: w.service
+""",
+        )
+        assert issues == []
+
+
+class TestValidateFileProbeRequirement:
+    """validate_file reports probe arity, not a missing port (issue #620)."""
+
+    def _validate(self, tmp_path, body):
+        config_file = tmp_path / "cicd.yml"
+        config_file.write_text(body)
+        return CICDConfig.validate_file(config_file)
+
+    def test_portless_unit_entry_is_valid(self, tmp_path):
+        issues = self._validate(
+            tmp_path,
+            """
+health:
+  processes:
+    - name: worker
+      systemd_user_unit: w.service
+""",
+        )
+        assert issues == []
+
+    def test_no_probe_reported(self, tmp_path):
+        issues = self._validate(
+            tmp_path,
+            """
+health:
+  processes:
+    - name: worker
+""",
+        )
+        assert any("names no probe method" in i for i in issues)
+
+    def test_two_probes_reported(self, tmp_path):
+        issues = self._validate(
+            tmp_path,
+            """
+health:
+  processes:
+    - name: both
+      port: 8010
+      systemd_unit: b.service
+""",
+        )
+        assert any("names 2 probe methods" in i for i in issues)

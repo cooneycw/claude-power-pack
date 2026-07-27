@@ -95,9 +95,15 @@ health:
       name: API Server
       expected_status: 200
       timeout: 5
+  # A process entry names EXACTLY ONE probe: port (ss/lsof),
+  # systemd_user_unit (systemctl --user is-active), systemd_unit
+  # (systemctl is-active), or pattern (pgrep -f). A service with no
+  # listening socket needs no port (#620).
   processes:
     - name: uvicorn
       port: 8000
+    - name: worker
+      systemd_user_unit: my-worker.service
   smoke_tests:
     - name: API responds
       command: "curl -sf http://localhost:8000/health"
