@@ -90,6 +90,12 @@ health:
       port: 8000
     - name: node
       port: 3000
+    - name: worker                       # no listening socket
+      systemd_user_unit: my-worker.service
+    - name: daemon
+      systemd_unit: my-daemon.service
+    - name: legacy
+      pattern: "gunicorn.*wsgi"
 ```
 
 ### Health Check Types
@@ -97,7 +103,34 @@ health:
 | Type | What It Checks | How |
 |------|---------------|-----|
 | **Endpoint** | HTTP response | `curl` with status code + timeout |
-| **Process** | Service running | `ss`/`lsof` for port listening |
+| **Process** | Service running | one of four probes, below |
+
+### Process Probe Methods
+
+A `processes:` entry names **exactly one** of these (issue #620). A service with
+no listening socket - a queue worker, a scheduler, a unit that only consumes -
+has no port to describe, so the port form is one option among four rather than
+the only one.
+
+| Field | Probe | Use for |
+|-------|-------|---------|
+| `port` | `ss`, then `lsof` | anything with a listening TCP socket |
+| `systemd_user_unit` | `systemctl --user is-active <unit>` | a user-scoped systemd service |
+| `systemd_unit` | `systemctl is-active <unit>` | a system-scoped systemd service |
+| `pattern` | `pgrep -f <pattern>` | a process with no unit and no socket |
+
+Naming none is a validation error, and so is naming two - with several set the
+runner would need a silent precedence order, and a config field that quietly
+loses to another is exactly the class of bug this union exists to fix. To check
+two properties of one service, write two entries.
+
+A probe that fails to validate is dropped with a warning rather than failing the
+whole file: verification is fail-open, so one malformed entry taking every other
+probe (and the verification gate itself) down with it is a large blast radius for
+a small mistake. Run `python -m lib.cicd validate` to see the dropped entries as
+issues - it also reports unknown keys *inside* a probe, which load-time
+`extra="ignore"` would otherwise discard in silence (a `expect_status` typo
+leaves the probe comparing against the default 200 and nothing says so).
 
 ### Best Practices
 

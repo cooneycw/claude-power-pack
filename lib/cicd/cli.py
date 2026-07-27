@@ -252,6 +252,8 @@ def cmd_health(args: argparse.Namespace) -> int:
         print("      processes:")
         print("        - name: uvicorn")
         print("          port: 8000")
+        print("        - name: worker            # no listening socket:")
+        print("          systemd_user_unit: my-worker.service")
         return 0
 
     print("## Health Checks")

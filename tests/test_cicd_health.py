@@ -176,6 +176,104 @@ class TestCheckProcess:
         assert "Nothing listening" in result.detail
 
 
+class TestCheckProcessSystemdUnit:
+    """Test the systemd-unit probe forms of check_process (issue #620)."""
+
+    @patch("lib.cicd.health.shutil.which")
+    def test_systemctl_missing(self, mock_which: MagicMock) -> None:
+        mock_which.return_value = None
+        process = ProcessCheck(name="worker", systemd_user_unit="w.service")
+        result = check_process(process)
+        assert not result.passed
+        assert "systemctl not found" in result.detail
+
+    @patch("lib.cicd.health.subprocess.run")
+    @patch("lib.cicd.health.shutil.which")
+    def test_user_unit_active(self, mock_which: MagicMock, mock_run: MagicMock) -> None:
+        mock_which.return_value = "/usr/bin/systemctl"
+        mock_run.return_value = MagicMock(stdout="active\n", stderr="", returncode=0)
+        process = ProcessCheck(name="worker", systemd_user_unit="w.service")
+        result = check_process(process)
+        assert result.passed
+        assert result.detail == "Unit is active"
+        assert result.name == "worker (user unit w.service)"
+        # --user must be present for the user form, and absent for the system one.
+        assert mock_run.call_args[0][0] == [
+            "/usr/bin/systemctl",
+            "--user",
+            "is-active",
+            "w.service",
+        ]
+
+    @patch("lib.cicd.health.subprocess.run")
+    @patch("lib.cicd.health.shutil.which")
+    def test_system_unit_inactive(self, mock_which: MagicMock, mock_run: MagicMock) -> None:
+        mock_which.return_value = "/usr/bin/systemctl"
+        mock_run.return_value = MagicMock(stdout="inactive\n", stderr="", returncode=3)
+        process = ProcessCheck(name="daemon", systemd_unit="d.service")
+        result = check_process(process)
+        assert not result.passed
+        assert result.detail == "Unit is inactive"
+        assert result.name == "daemon (unit d.service)"
+        assert mock_run.call_args[0][0] == [
+            "/usr/bin/systemctl",
+            "is-active",
+            "d.service",
+        ]
+
+    @patch("lib.cicd.health.subprocess.run")
+    @patch("lib.cicd.health.shutil.which")
+    def test_unit_state_falls_back_to_stderr(
+        self, mock_which: MagicMock, mock_run: MagicMock
+    ) -> None:
+        mock_which.return_value = "/usr/bin/systemctl"
+        mock_run.return_value = MagicMock(
+            stdout="", stderr="Failed to connect to bus\n", returncode=1
+        )
+        process = ProcessCheck(name="worker", systemd_user_unit="w.service")
+        result = check_process(process)
+        assert not result.passed
+        assert "Failed to connect to bus" in result.detail
+
+
+class TestCheckProcessPattern:
+    """Test the pgrep pattern probe form of check_process (issue #620)."""
+
+    @patch("lib.cicd.health.shutil.which")
+    def test_pgrep_missing(self, mock_which: MagicMock) -> None:
+        mock_which.return_value = None
+        process = ProcessCheck(name="legacy", pattern="gunicorn.*wsgi")
+        result = check_process(process)
+        assert not result.passed
+        assert "pgrep not found" in result.detail
+
+    @patch("lib.cicd.health.subprocess.run")
+    @patch("lib.cicd.health.shutil.which")
+    def test_pattern_matches(self, mock_which: MagicMock, mock_run: MagicMock) -> None:
+        mock_which.return_value = "/usr/bin/pgrep"
+        mock_run.return_value = MagicMock(stdout="1234\n5678\n", returncode=0)
+        process = ProcessCheck(name="legacy", pattern="gunicorn.*wsgi")
+        result = check_process(process)
+        assert result.passed
+        assert "2 matching processes" in result.detail
+        assert result.name == "legacy (pattern gunicorn.*wsgi)"
+        assert mock_run.call_args[0][0] == [
+            "/usr/bin/pgrep",
+            "-f",
+            "gunicorn.*wsgi",
+        ]
+
+    @patch("lib.cicd.health.subprocess.run")
+    @patch("lib.cicd.health.shutil.which")
+    def test_pattern_no_match(self, mock_which: MagicMock, mock_run: MagicMock) -> None:
+        mock_which.return_value = "/usr/bin/pgrep"
+        mock_run.return_value = MagicMock(stdout="", returncode=1)
+        process = ProcessCheck(name="legacy", pattern="gunicorn.*wsgi")
+        result = check_process(process)
+        assert not result.passed
+        assert "No process matches" in result.detail
+
+
 class TestRunHealthChecks:
     """Test run_health_checks orchestrator."""
 

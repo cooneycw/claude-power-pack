@@ -13,10 +13,11 @@ from __future__ import annotations
 import json
 import os
 import re
+import warnings
 from pathlib import Path
 from typing import Any, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 # Safe path/target chars for values that are interpolated into generated CI
 # shell commands (defense-in-depth against a malicious .claude/cicd.yml).
@@ -48,13 +49,60 @@ class HealthEndpoint(BaseModel):
     timeout: int = 5
 
 
+# The probe methods a ProcessCheck can name, in the order they are reported.
+# Exactly one must be set (issue #620): a service with no listening socket - a
+# queue worker, a scheduler, a systemd unit that only consumes - has no port to
+# describe, and fabricating one is a probe that tests nothing. Requiring exactly
+# one rather than at least one is deliberate: with several set the runner would
+# need a silent precedence order, and a field that quietly loses to another is
+# the same class of bug this union exists to fix. Want two checks on one
+# service? Write two entries.
+PROCESS_PROBE_FIELDS = ("port", "systemd_user_unit", "systemd_unit", "pattern")
+
+
 class ProcessCheck(BaseModel):
-    """A process health check."""
+    """A process health check.
+
+    Names exactly one probe method (issue #620):
+
+    - ``port`` - something is listening on this TCP port (``ss``, then ``lsof``)
+    - ``systemd_user_unit`` - ``systemctl --user is-active <unit>``
+    - ``systemd_unit`` - ``systemctl is-active <unit>``
+    - ``pattern`` - ``pgrep -f <pattern>``
+    """
 
     model_config = ConfigDict(extra="ignore")
 
     name: str
-    port: int
+    port: Optional[int] = None
+    systemd_user_unit: Optional[str] = None
+    systemd_unit: Optional[str] = None
+    pattern: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _exactly_one_probe(self) -> ProcessCheck:
+        named = [f for f in PROCESS_PROBE_FIELDS if getattr(self, f) is not None]
+        if not named:
+            raise ValueError(
+                f"process check '{self.name}' names no probe method - set exactly "
+                f"one of: {', '.join(PROCESS_PROBE_FIELDS)}"
+            )
+        if len(named) > 1:
+            raise ValueError(
+                f"process check '{self.name}' names {len(named)} probe methods "
+                f"({', '.join(named)}) - set exactly one. To check more than one "
+                f"property of a service, add one entry per probe."
+            )
+        return self
+
+    @property
+    def probe(self) -> str:
+        """The name of the single probe field this check uses."""
+        for field in PROCESS_PROBE_FIELDS:
+            if getattr(self, field) is not None:
+                return field
+        # Unreachable: the model validator rejects a probe-less check.
+        raise ValueError(f"process check '{self.name}' names no probe method")
 
 
 class SmokeTest(BaseModel):
@@ -228,6 +276,54 @@ class ContainerConfig(BaseModel):
     compose_services: list[dict[str, Any]] = Field(default_factory=list)
 
 
+# The health probe lists, and the model each of their entries parses as. Used
+# both by the per-entry soft validation below and by validate_file's nested
+# unknown-key check.
+_HEALTH_PROBE_LISTS: dict[str, type[BaseModel]] = {
+    "endpoints": HealthEndpoint,
+    "processes": ProcessCheck,
+    "smoke_tests": SmokeTest,
+}
+
+
+def _drop_invalid_probes(health_data: dict[str, Any], source: str) -> None:
+    """Drop individually-invalid health probes, in place, with a warning.
+
+    Deploy verification is fail-open by design, so one malformed probe taking
+    the WHOLE config down with it - and with it every other probe plus the
+    verification gate - is a large blast radius for a small mistake (issue
+    #620). A probe that cannot be parsed is dropped and warned about; the rest
+    of the config survives and keeps running.
+
+    Only the per-entry lists are softened. A structural error elsewhere still
+    raises, because there is no smaller unit to fall back to.
+    """
+    for key, model in _HEALTH_PROBE_LISTS.items():
+        entries = health_data.get(key)
+        if not isinstance(entries, list):
+            continue
+
+        kept: list[Any] = []
+        for i, entry in enumerate(entries):
+            try:
+                model.model_validate(entry)
+            except ValidationError as e:
+                reasons = "; ".join(
+                    f"{'.'.join(str(p) for p in err['loc']) or '<entry>'}: {err['msg']}"
+                    for err in e.errors()
+                )
+                warnings.warn(
+                    f"{source}: dropping invalid health.{key}[{i}] - {reasons}. "
+                    f"The remaining probes still run; fix the entry to restore it.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+                continue
+            kept.append(entry)
+
+        health_data[key] = kept
+
+
 class CICDConfig(BaseModel):
     """Full CI/CD configuration."""
 
@@ -269,6 +365,12 @@ class CICDConfig(BaseModel):
 
         with open(path) as f:
             data = yaml.safe_load(f) or {}
+
+        # Soften per-probe failures so one bad entry cannot take the whole
+        # config - and the fail-open verification gate - down with it (#620).
+        health_data = data.get("health")
+        if isinstance(health_data, dict):
+            _drop_invalid_probes(health_data, str(path))
 
         # Handle tagging key mapping (managed-by -> managed_by)
         infra_data = data.get("infrastructure", {})
@@ -382,8 +484,18 @@ class CICDConfig(BaseModel):
                 if isinstance(proc, dict):
                     if "name" not in proc:
                         issues.append(f"health.processes[{i}] is missing required field 'name'")
-                    if "port" not in proc:
-                        issues.append(f"health.processes[{i}] is missing required field 'port'")
+                    named = [f for f in PROCESS_PROBE_FIELDS if proc.get(f) is not None]
+                    if not named:
+                        issues.append(
+                            f"health.processes[{i}] names no probe method. Set exactly "
+                            f"one of: {', '.join(PROCESS_PROBE_FIELDS)}"
+                        )
+                    elif len(named) > 1:
+                        issues.append(
+                            f"health.processes[{i}] names {len(named)} probe methods "
+                            f"({', '.join(named)}). Set exactly one - add a separate "
+                            f"entry per probe to check more than one property"
+                        )
 
             for i, st in enumerate(health_data.get("smoke_tests", [])):
                 if isinstance(st, dict):
@@ -391,6 +503,25 @@ class CICDConfig(BaseModel):
                         issues.append(f"health.smoke_tests[{i}] is missing required field 'name'")
                     if "command" not in st:
                         issues.append(f"health.smoke_tests[{i}] is missing required field 'command'")
+
+            # Unknown keys INSIDE a probe (issue #620). Every model here is
+            # extra="ignore", so a typo parses fine and is silently inert -
+            # `expect_status` instead of `expected_status` compares a 302 probe
+            # against the default 200 and nothing ever says so. The top-level
+            # unknown-key check above cannot see this one level down.
+            for key, model in _HEALTH_PROBE_LISTS.items():
+                known = set(model.model_fields)
+                for i, entry in enumerate(health_data.get(key, [])):
+                    if not isinstance(entry, dict):
+                        continue
+                    unknown_keys = set(entry) - known
+                    if unknown_keys:
+                        issues.append(
+                            f"health.{key}[{i}] has unknown keys: "
+                            f"{', '.join(sorted(unknown_keys))}. These are ignored at "
+                            f"load time, so the setting has no effect. Valid keys: "
+                            f"{', '.join(sorted(known))}"
+                        )
 
         # Validate infrastructure section
         infra_data = data.get("infrastructure", {})

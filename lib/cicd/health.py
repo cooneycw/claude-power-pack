@@ -174,15 +174,156 @@ def check_endpoint(endpoint: HealthEndpoint) -> HealthCheckEntry:
 
 
 def check_process(process: ProcessCheck) -> HealthCheckEntry:
-    """Check if a process is listening on the expected port.
+    """Check that a configured process is alive.
 
-    Uses ss (preferred) or lsof as fallback.
+    Dispatches on the single probe method the check names (issue #620):
+    ``port`` (ss/lsof), ``systemd_user_unit``, ``systemd_unit``, or
+    ``pattern``.
 
     Args:
         process: Process check configuration.
 
     Returns:
         HealthCheckEntry with pass/fail and details.
+    """
+    probe = process.probe
+    if probe == "systemd_user_unit":
+        return _check_systemd_unit(process, user=True)
+    if probe == "systemd_unit":
+        return _check_systemd_unit(process, user=False)
+    if probe == "pattern":
+        return _check_pattern(process)
+    return _check_port(process)
+
+
+def _check_systemd_unit(process: ProcessCheck, user: bool) -> HealthCheckEntry:
+    """Check a systemd unit with ``systemctl [--user] is-active <unit>``."""
+    unit = process.systemd_user_unit if user else process.systemd_unit
+    label = "user unit" if user else "unit"
+    name = f"{process.name} ({label} {unit})"
+    start = time.monotonic()
+
+    systemctl_path = shutil.which("systemctl")
+    if not systemctl_path:
+        return HealthCheckEntry(
+            name=name,
+            kind="process",
+            passed=False,
+            detail="systemctl not found in PATH",
+            elapsed_ms=(time.monotonic() - start) * 1000,
+        )
+
+    argv = [systemctl_path]
+    if user:
+        argv.append("--user")
+    argv += ["is-active", str(unit)]
+
+    try:
+        proc = subprocess.run(argv, capture_output=True, text=True, timeout=5)
+    except subprocess.TimeoutExpired:
+        return HealthCheckEntry(
+            name=name,
+            kind="process",
+            passed=False,
+            detail="Timeout after 5s running systemctl is-active",
+            elapsed_ms=(time.monotonic() - start) * 1000,
+        )
+    except OSError as e:
+        return HealthCheckEntry(
+            name=name,
+            kind="process",
+            passed=False,
+            detail=str(e),
+            elapsed_ms=(time.monotonic() - start) * 1000,
+        )
+
+    elapsed = (time.monotonic() - start) * 1000
+    # `is-active` prints the state on stdout either way and exits 0 only when
+    # active, so the exit code is the verdict and stdout is the detail.
+    state = proc.stdout.strip() or proc.stderr.strip() or "unknown"
+    if proc.returncode == 0:
+        return HealthCheckEntry(
+            name=name,
+            kind="process",
+            passed=True,
+            detail=f"Unit is {state}",
+            elapsed_ms=elapsed,
+        )
+
+    return HealthCheckEntry(
+        name=name,
+        kind="process",
+        passed=False,
+        detail=f"Unit is {state}",
+        elapsed_ms=elapsed,
+    )
+
+
+def _check_pattern(process: ProcessCheck) -> HealthCheckEntry:
+    """Check for a running process matching a pattern with ``pgrep -f``."""
+    pattern = str(process.pattern)
+    name = f"{process.name} (pattern {pattern})"
+    start = time.monotonic()
+
+    pgrep_path = shutil.which("pgrep")
+    if not pgrep_path:
+        return HealthCheckEntry(
+            name=name,
+            kind="process",
+            passed=False,
+            detail="pgrep not found in PATH",
+            elapsed_ms=(time.monotonic() - start) * 1000,
+        )
+
+    try:
+        proc = subprocess.run(
+            [pgrep_path, "-f", pattern],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except subprocess.TimeoutExpired:
+        return HealthCheckEntry(
+            name=name,
+            kind="process",
+            passed=False,
+            detail="Timeout after 5s running pgrep",
+            elapsed_ms=(time.monotonic() - start) * 1000,
+        )
+    except OSError as e:
+        return HealthCheckEntry(
+            name=name,
+            kind="process",
+            passed=False,
+            detail=str(e),
+            elapsed_ms=(time.monotonic() - start) * 1000,
+        )
+
+    elapsed = (time.monotonic() - start) * 1000
+    pids = proc.stdout.split()
+    if proc.returncode == 0 and pids:
+        noun = "process" if len(pids) == 1 else "processes"
+        return HealthCheckEntry(
+            name=name,
+            kind="process",
+            passed=True,
+            detail=f"{len(pids)} matching {noun} (pid {', '.join(pids)})",
+            elapsed_ms=elapsed,
+        )
+
+    return HealthCheckEntry(
+        name=name,
+        kind="process",
+        passed=False,
+        detail="No process matches the pattern",
+        elapsed_ms=elapsed,
+    )
+
+
+def _check_port(process: ProcessCheck) -> HealthCheckEntry:
+    """Check if a process is listening on the expected port.
+
+    Uses ss (preferred) or lsof as fallback.
     """
     name = f"{process.name} (port {process.port})"
     start = time.monotonic()
