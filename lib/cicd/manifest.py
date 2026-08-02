@@ -39,8 +39,16 @@ import yaml
 
 from .detector import detect_framework
 from .makefile import parse_makefile
+from .models import Framework
 
 logger = logging.getLogger(__name__)
+
+# The pyproject.toml token that signals each quality gate's tool is configured,
+# used to build a make-or-`uv run` fallback + skip guard for Python/Django
+# projects (issue #628): a detected `uv run <tool>` gate must not be
+# skip_if-skipped merely because a Makefile target is absent, and it must skip
+# when the tool is genuinely unconfigured rather than hard-fail.
+_GATE_PYPROJECT_TOKENS = {"lint": "ruff", "test": "pytest", "typecheck": "mypy"}
 
 MANIFEST_FILENAME = "cicd_tasks.yml"
 MANIFEST_PATH = ".claude/cicd_tasks.yml"
@@ -279,11 +287,49 @@ def generate_manifest(
         "clean": ("Clean build artifacts", 60),
     }
 
+    is_python = info.framework in (Framework.PYTHON, Framework.DJANGO)
+
     for step_name, (desc, timeout) in standard_steps.items():
-        # Use framework runner command if available, otherwise use make target
-        if step_name in runners:
+        have_runner = step_name in runners
+        have_make = step_name in makefile_targets
+
+        # Quality gates on a Python/Django project: prefer the Makefile target,
+        # fall back to the framework's `uv run`/`python -m` command, and skip
+        # ONLY when neither the target nor the tool (ruff/pytest/mypy in
+        # pyproject) exists (issue #628). Previously a detected `uv run` command
+        # was still skip_if-gated on the Makefile alone, so a Makefile-less
+        # project skipped every gate and the runner reported a bare success -
+        # the same false green in the generated manifest as in BUILTIN_PLANS.
+        if step_name in _GATE_PYPROJECT_TOKENS and is_python and (have_runner or have_make):
+            runner_cmd = runners.get(step_name)
+            if have_make and runner_cmd:
+                command = (
+                    f'if grep -q "^{step_name}:" Makefile 2>/dev/null; '
+                    f"then make {step_name}; else {runner_cmd}; fi"
+                )
+            elif have_make:
+                command = f"make {step_name}"
+            else:
+                command = runner_cmd  # type: ignore[assignment]
+            token = _GATE_PYPROJECT_TOKENS[step_name]
+            skip_if = (
+                f'! grep -q "^{step_name}:" Makefile 2>/dev/null '
+                f'&& ! grep -q "{token}" pyproject.toml 2>/dev/null'
+            )
+            steps[step_name] = StepModel(
+                command=command,
+                description=desc,
+                timeout=timeout,
+                idempotent=True,
+                skip_if=skip_if,
+            )
+            continue
+
+        # Non-gate steps (and non-Python gates): framework runner if available,
+        # else the make target.
+        if have_runner:
             command = runners[step_name]
-        elif step_name in makefile_targets:
+        elif have_make:
             command = f"make {step_name}"
         else:
             continue
