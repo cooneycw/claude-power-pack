@@ -1,6 +1,7 @@
 """Tests for the deterministic CI/CD runner."""
 
 import os
+import re
 from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
@@ -15,7 +16,7 @@ from lib.cicd.runner import (
     _project_python_floor,
 )
 from lib.cicd.state import RunState, StepRecord
-from lib.cicd.steps import _CPP_ROOT, BUILTIN_PLANS, ShellStep, StepDef
+from lib.cicd.steps import _CPP_ROOT, BUILTIN_PLANS, GATE_STEP_IDS, ShellStep, StepDef
 
 
 @pytest.fixture
@@ -430,11 +431,17 @@ class TestPlansCoverCITemplates:
 
     @staticmethod
     def _make_targets(plan_name: str) -> set[str]:
-        """The Makefile targets a plan invokes (`make X` steps only)."""
+        """The Makefile targets a plan invokes (`make X`, anywhere in the step
+        command). The #628 gate steps embed `make <target>` inside a
+        make-or-`uv run` fallback (`if grep ...; then make lint; else uv ...`),
+        so a plain ``startswith('make ')`` no longer sees them - the invariant is
+        that the plan still runs the CI target when the Makefile has it, wherever
+        it sits in the command."""
+        pat = re.compile(r"\bmake\s+([A-Za-z0-9_.-]+)")
         return {
-            step.command.split()[1]
+            target
             for step in BUILTIN_PLANS[plan_name]
-            if step.command.startswith("make ")
+            for target in pat.findall(step.command)
         }
 
     def _ci_targets(self) -> set[str]:
@@ -472,18 +479,31 @@ class TestPlansCoverCITemplates:
     @pytest.mark.parametrize("plan_name", ["finish", "check"])
     def test_typecheck_step_present_and_guarded(self, plan_name: str):
         """The skip_if guard is what makes shipping this by default safe: a repo
-        with no `typecheck:` target skips it silently, as it already does for
-        a missing `lint:` or `test:`."""
+        with no `typecheck:` target AND no configured mypy skips it, but one that
+        configures mypy in pyproject now runs it via `uv run` (issue #628)."""
         step = {s.id: s for s in BUILTIN_PLANS[plan_name]}.get("typecheck")
         assert step is not None, f"'{plan_name}' plan has no typecheck step (#617)"
-        assert step.command == "make typecheck"
-        assert step.skip_if == '! grep -q "^typecheck:" Makefile 2>/dev/null'
+        # Prefers the Makefile target, falls back to the pyproject-configured tool.
+        assert "make typecheck" in step.command
+        assert "uv run --extra dev mypy" in step.command
+        # Skips ONLY when neither a Makefile target nor mypy config exists (#628).
+        assert step.skip_if is not None
+        assert '! grep -q "^typecheck:" Makefile 2>/dev/null' in step.skip_if
+        assert "mypy" in step.skip_if
         assert step.max_attempts == 1
 
-    def test_typecheck_skips_when_makefile_has_no_target(self, tmp_project: Path):
+    def test_typecheck_skips_when_no_target_and_no_tool(self, tmp_project: Path):
+        """No Makefile target and no pyproject mypy config -> the gate skips (#628)."""
         (tmp_project / "Makefile").write_text("lint:\n\techo lint\n")
         step = ShellStep({s.id: s for s in BUILTIN_PLANS["finish"]}["typecheck"])
         assert step.should_skip({"project_root": str(tmp_project), "env": {}}) is True
+
+    def test_typecheck_runs_when_pyproject_configures_mypy(self, tmp_project: Path):
+        """pyproject configures mypy but there is no Makefile at all: the gate no
+        longer skips - it falls back to `uv run --extra dev mypy` (issue #628)."""
+        (tmp_project / "pyproject.toml").write_text("[tool.mypy]\nstrict = true\n")
+        step = ShellStep({s.id: s for s in BUILTIN_PLANS["finish"]}["typecheck"])
+        assert step.should_skip({"project_root": str(tmp_project), "env": {}}) is False
 
     def test_typecheck_runs_when_makefile_has_target(self, tmp_project: Path):
         (tmp_project / "Makefile").write_text("typecheck:\n\techo typecheck\n")
@@ -500,26 +520,26 @@ class TestPlansCoverCITemplates:
 
 class TestFinishGateFallbackParity:
     """scripts/flow-finish-gate.sh's Makefile fallback (used when uv or the CPP
-    checkout is unavailable) must run the same targets as the plan it degrades
-    from - otherwise the #617 false green survives on every repo that lands in
-    the fallback."""
+    checkout is unavailable) must run every gate the plan it degrades from runs -
+    otherwise the #617 false green survives on every repo that lands in the
+    fallback. Since #628 each gate is invoked through a generic helper that
+    prefers the Makefile target, falls back to `uv run --extra dev`, and skips
+    (warn) only when neither exists."""
 
-    def test_fallback_runs_every_finish_plan_make_target(self):
+    def test_fallback_runs_every_finish_plan_gate(self):
         gate = Path(_CPP_ROOT) / "scripts" / "flow-finish-gate.sh"
         if not gate.is_file():
             pytest.skip("flow-finish-gate.sh not present in this checkout")
         body = gate.read_text()
-        plan_targets = {
-            step.command.split()[1]
-            for step in BUILTIN_PLANS["finish"]
-            if step.command.startswith("make ")
-        }
-        for target in sorted(plan_targets):
-            assert f'grep -q "^{target}:" Makefile' in body, (
-                f"fallback never detects the '{target}:' target (#617)"
-            )
-            assert f"make {target} || FAILED=1" in body, (
-                f"fallback never runs 'make {target}' (#617)"
+        gate_ids = [s.id for s in BUILTIN_PLANS["finish"] if s.id in GATE_STEP_IDS]
+        assert gate_ids, "the finish plan defines no gate steps - test is vacuous"
+        # The generic helper prefers the target, falls back to uv, records failure.
+        assert 'grep -q "^${id}:" Makefile 2>/dev/null' in body
+        assert 'make "${id}" || FAILED=1' in body
+        assert "uv run --extra dev ${uvargs} || FAILED=1" in body
+        for gid in gate_ids:
+            assert f"run_fallback_gate {gid} " in body, (
+                f"fallback never runs the '{gid}' gate (#617/#628)"
             )
 
 
@@ -630,3 +650,96 @@ class TestSkippedSuiteReporting:
         }
         record = StepRecord.from_dict(dict(legacy))
         assert record.tests is None
+
+
+class TestSkippedGateReporting:
+    """A quality gate (lint/test/typecheck) that skip_if-skipped verified nothing
+    about the change, so the runner must not print a bare `completed
+    successfully` - it names the skipped gates and carries them in
+    RunResult.skipped_steps for flow-finish-gate.sh to surface as `warn`
+    (issue #628). A skipped NON-gate step (security_scan) is a legitimate skip
+    and must NOT trip the warning."""
+
+    @staticmethod
+    def _always_skip(step_id: str) -> StepDef:
+        # skip_if 'true' always skips - mimics a Makefile-less repo with the tool
+        # unconfigured (the real skip_if resolves to the same outcome there).
+        return StepDef(id=step_id, command="false", skip_if="true", timeout_seconds=30)
+
+    @staticmethod
+    def _always_run(step_id: str) -> StepDef:
+        return StepDef(id=step_id, command="true", timeout_seconds=30)
+
+    def test_skipped_gates_qualify_the_run(self, tmp_project: Path):
+        log = StringIO()
+        runner = DeterministicRunner(project_root=tmp_project, output=log)
+        result = runner.run(
+            "check",
+            step_defs=[
+                self._always_skip("lint"),
+                self._always_skip("test"),
+                self._always_skip("typecheck"),
+            ],
+        )
+        # A skip is exit 0 - the fix surfaces the hole, it does not invent a gate.
+        assert result.success
+        assert result.skipped_steps == ["lint", "test", "typecheck"]
+        assert result.to_dict()["skipped"] == ["lint", "test", "typecheck"]
+
+        text = log.getvalue()
+        assert "completed WITH WARNINGS" in text
+        assert "SKIPPED GATES: lint, test, typecheck" in text
+        assert "completed successfully" not in text
+
+    def test_all_gates_run_is_bare_success(self, tmp_project: Path):
+        log = StringIO()
+        runner = DeterministicRunner(project_root=tmp_project, output=log)
+        result = runner.run(
+            "check",
+            step_defs=[self._always_run(i) for i in ("lint", "test", "typecheck")],
+        )
+        assert result.success
+        assert result.skipped_steps == []
+        assert "skipped" not in result.to_dict()
+
+        text = log.getvalue()
+        assert "completed successfully" in text
+        assert "WITH WARNINGS" not in text
+
+    def test_non_gate_skip_does_not_warn(self, tmp_project: Path):
+        log = StringIO()
+        runner = DeterministicRunner(project_root=tmp_project, output=log)
+        result = runner.run(
+            "finish",
+            step_defs=[self._always_run("lint"), self._always_skip("security_scan")],
+        )
+        assert result.success
+        # The skip is recorded, but security_scan is not a gate - no false green.
+        assert result.skipped_steps == ["security_scan"]
+
+        text = log.getvalue()
+        assert "completed successfully" in text
+        assert "SKIPPED GATES" not in text
+
+    def test_skipped_gate_and_no_tests_both_named(self, tmp_project: Path):
+        """When a gate skips AND a test step ran nothing (#621), the closing line
+        carries both qualifiers, not just one."""
+        log = StringIO()
+        runner = DeterministicRunner(project_root=tmp_project, output=log)
+        result = runner.run(
+            "check",
+            step_defs=[
+                StepDef(
+                    id="test",
+                    command="echo '== 66 skipped in 0.4s =='",
+                    timeout_seconds=30,
+                ),
+                self._always_skip("typecheck"),
+            ],
+        )
+        assert result.success
+        assert result.skipped_steps == ["typecheck"]
+        assert result.warnings  # the #621 no-tests warning
+        text = log.getvalue()
+        assert "SKIPPED GATES: typecheck" in text
+        assert "#621" in text

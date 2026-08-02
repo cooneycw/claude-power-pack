@@ -302,44 +302,63 @@ class ShellStep:
         return last_result
 
 
+# The three quality gates every shipped CI template runs (issue #617). A plan
+# that reports success while ANY of these was SKIPPED is the #628 false green - a
+# gate that verified nothing. The runner names skipped gates and
+# flow-finish-gate.sh reports `warn`, never `ok`, for them.
+GATE_STEP_IDS = frozenset({"lint", "test", "typecheck"})
+
+
+def _gate_step(
+    step_id: str, uv_tool: str, pyproject_token: str, timeout_seconds: int
+) -> "StepDef":
+    """Build a quality-gate step that prefers ``make <id>`` but falls back to the
+    pyproject-configured tool via ``uv run --extra dev`` when no Makefile target
+    exists (issue #628).
+
+    Before this, a Makefile-less repo skipped every gate on the ``make`` guard
+    alone even though ``pyproject.toml`` fully configured ruff/mypy/pytest, and
+    the runner still reported a bare SUCCESS (hit on flow:auto #2 in
+    oneninety-budget). The step now SKIPS only when NEITHER a Makefile target NOR
+    the tool is configured - and a genuinely-skipped gate is surfaced as a
+    warning by the runner (never a silent ok). CPP itself is unaffected: it has a
+    Makefile with all three targets, so the ``make`` branch always wins.
+    """
+    return StepDef(
+        id=step_id,
+        command=(
+            f'if grep -q "^{step_id}:" Makefile 2>/dev/null; then make {step_id}; '
+            f"else uv run --extra dev {uv_tool}; fi"
+        ),
+        description=f"Run {step_id} (make {step_id}, else uv run {uv_tool.split()[0]})",
+        timeout_seconds=timeout_seconds,
+        max_attempts=1,
+        skip_if=(
+            f'! grep -q "^{step_id}:" Makefile 2>/dev/null '
+            f'&& ! grep -q "{pyproject_token}" pyproject.toml 2>/dev/null'
+        ),
+    )
+
+
 # Built-in plan definitions for flow commands
 # These define the steps that each flow command executes
 #
 # The `finish` plan's contract is that a green gate means a green CI, so its
-# make-target steps must cover everything the shipped CI templates run. All four
+# gate steps must cover everything the shipped CI templates run. All four
 # templates (templates/workflows/ci-python.yml, ci-node.yml,
 # woodpecker-python.yml, woodpecker-node.yml) run exactly lint + test +
 # typecheck, and PipelineConfig.branches["pr"] defaults to the same three - so a
 # plan without `typecheck` went green on trees CI then rejected (issue #617,
 # observed twice in agentic-poker). Any step added to those templates belongs
 # here too; tests/test_runner.py::TestPlansCoverCITemplates pins the invariant.
+# Each gate prefers its Makefile target but falls back to `uv run --extra dev`
+# when pyproject configures the tool and no target exists (issue #628).
 
 BUILTIN_PLANS: dict[str, list[StepDef]] = {
     "finish": [
-        StepDef(
-            id="lint",
-            command="make lint",
-            description="Run linter",
-            timeout_seconds=300,
-            max_attempts=1,
-            skip_if='! grep -q "^lint:" Makefile 2>/dev/null',
-        ),
-        StepDef(
-            id="test",
-            command="make test",
-            description="Run tests",
-            timeout_seconds=600,
-            max_attempts=1,
-            skip_if='! grep -q "^test:" Makefile 2>/dev/null',
-        ),
-        StepDef(
-            id="typecheck",
-            command="make typecheck",
-            description="Run type checker",
-            timeout_seconds=300,
-            max_attempts=1,
-            skip_if='! grep -q "^typecheck:" Makefile 2>/dev/null',
-        ),
+        _gate_step("lint", "ruff check .", "ruff", 300),
+        _gate_step("test", "pytest", "pytest", 600),
+        _gate_step("typecheck", "mypy .", "mypy", 300),
         StepDef(
             id="security_scan",
             command="python3 -m lib.security gate flow_finish",
@@ -351,30 +370,9 @@ BUILTIN_PLANS: dict[str, list[StepDef]] = {
         ),
     ],
     "check": [
-        StepDef(
-            id="lint",
-            command="make lint",
-            description="Run linter",
-            timeout_seconds=300,
-            max_attempts=1,
-            skip_if='! grep -q "^lint:" Makefile 2>/dev/null',
-        ),
-        StepDef(
-            id="test",
-            command="make test",
-            description="Run tests",
-            timeout_seconds=600,
-            max_attempts=1,
-            skip_if='! grep -q "^test:" Makefile 2>/dev/null',
-        ),
-        StepDef(
-            id="typecheck",
-            command="make typecheck",
-            description="Run type checker",
-            timeout_seconds=300,
-            max_attempts=1,
-            skip_if='! grep -q "^typecheck:" Makefile 2>/dev/null',
-        ),
+        _gate_step("lint", "ruff check .", "ruff", 300),
+        _gate_step("test", "pytest", "pytest", 600),
+        _gate_step("typecheck", "mypy .", "mypy", 300),
     ],
     "deploy": [
         StepDef(

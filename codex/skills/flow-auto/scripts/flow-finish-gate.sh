@@ -35,17 +35,23 @@
 # Output ends with a machine-readable verdict line:
 #   FLOW_FINISH_GATE: ok | fail | warn | skipped
 #
-#   ok      gate passed (runner, or Makefile fallback)         -> exit 0
-#   fail    gate failed                                        -> exit 1
-#   warn    --check-summary found gaps (advisory), OR the gate  -> exit 0
-#           passed but the runner qualified it (issue #621: a
-#           test step that exited 0 having executed no tests)
-#   skipped no runner AND no Makefile gates to run             -> exit 0
+#   ok      gate passed AND every gate actually executed        -> exit 0
+#   fail    gate failed                                         -> exit 1
+#   warn    --check-summary found gaps (advisory), OR the gate   -> exit 0
+#           passed but a gate proved nothing: a quality gate was
+#           SKIPPED (issue #628 - `warn (skipped gates: ...)`),
+#           or a test step exited 0 having executed no tests
+#           (issue #621). Both name the reason.
+#   skipped no runner AND no Makefile/pyproject gates to run     -> exit 0
 #
-# The #621 qualification exists because this helper is the layer the flow
+# The #621/#628 qualification exists because this helper is the layer the flow
 # commands read: a runner that carefully reports "completed WITH WARNINGS"
 # would be flattened back to a bare `ok` here, re-hiding the false green one
-# level up. Exit status is unchanged (0) - the warning is a signal, not a gate.
+# level up. Both the runner and the Makefile-less fallback now prefer a gate's
+# Makefile target but fall back to `uv run --extra dev <tool>` when pyproject
+# configures the tool (issue #628), so a gate SKIPS only when it genuinely
+# cannot run - and then it is named, never a silent ok. Exit status is
+# unchanged (0) - the warning is a signal, not a gate.
 #
 # Env (test hooks - unset in normal use):
 #   FLOW_GATE_CPP_DIR   override the CPP checkout path (set empty to force
@@ -138,8 +144,24 @@ if [[ "$RUNNER_OK" -eq 1 ]]; then
     if grep -q '"warnings"' "$RUNNER_JSON" 2>/dev/null; then
         QUALIFIED=1
     fi
+    # Quality gates the runner skip_if-skipped (issue #628): a skipped gate
+    # verified nothing about the change, so the marker must report `warn` and
+    # NAME the skipped gates rather than flatten the run to a bare `ok` - the
+    # false green this helper exists to prevent one level up. The runner emits
+    # them as a top-level "skipped": [...] JSON array; pull the gate ids out of
+    # that block without needing jq (the validate container has none). Anchor on
+    # the array-opening bracket so the scalar "skipped": <n> INSIDE the #621
+    # "tests" object is not mistaken for the array (json.dumps(indent=2) always
+    # multi-lines the array).
+    SKIPPED_GATES=$(sed -n '/"skipped": \[/,/\]/p' "$RUNNER_JSON" 2>/dev/null \
+        | grep -oE '"(lint|test|typecheck)"' | tr -d '"' | tr '\n' ' ' | sed 's/ *$//')
     rm -f "$RUNNER_JSON"
     if [[ "$RUNNER_EXIT" -eq 0 ]]; then
+        if [[ -n "$SKIPPED_GATES" ]]; then
+            echo "WARNING: quality gates did NOT run: $SKIPPED_GATES (no Makefile target and no configured tool). This gate proved nothing about those checks - do not read as 'safe to merge' (issue #628)." >&2
+            verdict "warn (skipped gates: $SKIPPED_GATES)"
+            exit 0
+        fi
         if [[ "$QUALIFIED" -eq 1 ]]; then
             echo "WARNING: the gate passed but the runner QUALIFIED it (see \"warnings\" above) - a test step exited 0 without executing any tests (issue #621). Do not read this as 'safe to merge' until you know why." >&2
             verdict warn
@@ -153,37 +175,56 @@ if [[ "$RUNNER_OK" -eq 1 ]]; then
 fi
 
 # --- Fallback: Makefile gates (same degrade path the command docs document) --
+# Mirrors the runner's #628 behaviour: each gate prefers its Makefile target but
+# falls back to `uv run --extra dev <tool>` when pyproject configures the tool
+# and no target exists, and a gate that can run NEITHER is reported as `warn`
+# with the skipped gates named - never a bare `ok`.
 echo "NOTE: deterministic runner unavailable ($REASON); using Makefile fallback." >&2
 RAN=0
 FAILED=0
-if [[ -f Makefile ]]; then
-    if grep -q "^lint:" Makefile; then
-        echo "flow-finish-gate: running fallback gate 'make lint'"
-        make lint || FAILED=1
+SKIPPED_GATES=""
+UV_OK=0
+command -v uv >/dev/null 2>&1 && UV_OK=1
+
+run_fallback_gate() {
+    # $1=id  $2=uv-tool-args  $3=pyproject-token
+    local id="$1" uvargs="$2" token="$3"
+    if grep -q "^${id}:" Makefile 2>/dev/null; then
+        echo "flow-finish-gate: running fallback gate 'make ${id}'"
+        make "${id}" || FAILED=1
         RAN=1
-    fi
-    if grep -q "^test:" Makefile; then
-        echo "flow-finish-gate: running fallback gate 'make test'"
-        make test || FAILED=1
+    elif [[ "$UV_OK" -eq 1 ]] && grep -q "${token}" pyproject.toml 2>/dev/null; then
+        echo "flow-finish-gate: running fallback gate 'uv run --extra dev ${uvargs}' (no '${id}' Makefile target)"
+        # shellcheck disable=SC2086
+        uv run --extra dev ${uvargs} || FAILED=1
         RAN=1
+    else
+        SKIPPED_GATES="${SKIPPED_GATES:+$SKIPPED_GATES }${id}"
     fi
+}
+
+if [[ -f Makefile || -f pyproject.toml ]]; then
+    run_fallback_gate lint "ruff check ." "ruff"
+    run_fallback_gate test "pytest" "pytest"
     # Typecheck is a hard step in every shipped CI template, so the fallback
     # runs it too - otherwise a repo that degrades here gets the same
     # local-green-then-CI-red the runner plan had before #617.
-    if grep -q "^typecheck:" Makefile; then
-        echo "flow-finish-gate: running fallback gate 'make typecheck'"
-        make typecheck || FAILED=1
-        RAN=1
-    fi
+    run_fallback_gate typecheck "mypy ." "mypy"
 fi
-if [[ "$RAN" -eq 0 ]]; then
-    echo "WARNING: no deterministic runner and no Makefile lint/test/typecheck targets - quality gates SKIPPED." >&2
+
+if [[ "$RAN" -eq 0 && -z "$SKIPPED_GATES" ]]; then
+    echo "WARNING: no deterministic runner and no Makefile/pyproject lint/test/typecheck gates - quality gates SKIPPED." >&2
     verdict skipped
     exit 0
 fi
 if [[ "$FAILED" -eq 1 ]]; then
     verdict fail
     exit 1
+fi
+if [[ -n "$SKIPPED_GATES" ]]; then
+    echo "WARNING: quality gates did NOT run: $SKIPPED_GATES (no Makefile target and no runnable tool). This gate proved nothing about those checks - do not read as 'safe to merge' (issue #628)." >&2
+    verdict "warn (skipped gates: $SKIPPED_GATES)"
+    exit 0
 fi
 verdict ok
 exit 0

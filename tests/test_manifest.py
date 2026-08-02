@@ -495,7 +495,11 @@ class TestGetPlanStepsIntegration:
         steps = get_plan_steps("finish", project_root=str(tmp_path))
         assert len(steps) > 0
         assert steps[0].id == "lint"
-        assert steps[0].command == "make lint"  # built-in
+        # The built-in gate prefers `make lint` but carries the #628 uv fallback,
+        # which the manifest's plain `make lint` does not - so this proves we fell
+        # back to BUILTIN_PLANS, not to the manifest's step.
+        assert "make lint" in steps[0].command
+        assert "uv run --extra dev ruff" in steps[0].command
 
 
 # -- CPP's own manifest validation --
@@ -561,12 +565,13 @@ class TestManifestPlansIncludeTypecheck:
         steps = generate_manifest(tmp_path).plans["finish"].steps
         assert steps.index("typecheck") < steps.index("security_scan")
 
-    def test_project_without_typecheck_target_skips_at_runtime(self, tmp_path):
-        """What makes this safe to ship by default is the skip_if guard, not
-        plan membership: a Python project always gets a typecheck step (the
-        framework runner supplies `uv run mypy .` even with no Makefile
-        target), and it silently skips at runtime exactly as a missing `lint:`
-        or `test:` already does."""
+    def test_project_without_typecheck_target_or_tool_skips_at_runtime(self, tmp_path):
+        """A Python project always gets a typecheck step (the framework runner
+        supplies `uv run mypy .`), and with no Makefile target AND no mypy
+        configured in pyproject it skips at runtime - it does NOT hard-fail on a
+        missing tool, and it does NOT silently pass. The skip_if now also guards
+        on the pyproject tool token so a configured tool runs instead of skipping
+        (issue #628)."""
         (tmp_path / "pyproject.toml").write_text("[project]\nname = 'test'\n")
         (tmp_path / "uv.lock").write_text("")
         (tmp_path / "Makefile").write_text(
@@ -576,8 +581,25 @@ class TestManifestPlansIncludeTypecheck:
         assert manifest.validate_plan_references() == []
 
         step = step_model_to_step_def("typecheck", manifest.steps["typecheck"])
-        assert step.skip_if == '! grep -q "^typecheck:" Makefile 2>/dev/null'
+        assert '! grep -q "^typecheck:" Makefile 2>/dev/null' in (step.skip_if or "")
+        assert "mypy" in (step.skip_if or "")
         assert ShellStep(step).should_skip({"project_root": str(tmp_path), "env": {}}) is True
+
+    def test_configured_tool_runs_without_makefile_target(self, tmp_path):
+        """pyproject configures mypy and there is no typecheck Makefile target:
+        the generated gate falls back to `uv run mypy .` instead of skipping
+        (issue #628) - the twin of the BUILTIN_PLANS fix in the manifest."""
+        (tmp_path / "pyproject.toml").write_text(
+            "[project]\nname = 'test'\n\n[tool.mypy]\nstrict = true\n"
+        )
+        (tmp_path / "uv.lock").write_text("")
+        (tmp_path / "Makefile").write_text(
+            ".PHONY: lint test\n\nlint:\n\techo lint\n\ntest:\n\techo test\n"
+        )
+        manifest = generate_manifest(tmp_path)
+        step = step_model_to_step_def("typecheck", manifest.steps["typecheck"])
+        assert "uv run mypy ." in step.command
+        assert ShellStep(step).should_skip({"project_root": str(tmp_path), "env": {}}) is False
 
     def test_typecheck_does_not_skip_when_target_exists(self, tmp_path):
         self._py_project(tmp_path)
