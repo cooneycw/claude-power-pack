@@ -95,9 +95,9 @@ node_modules/
 # learnings.md - never shared, never committed.
 .claude/learnings.rejected.jsonl
 
-# Native Claude Code worktrees (issue #440) - the EnterWorktree tool creates
-# full checkouts under .claude/worktrees/<name>; these are per-workstation and
-# must never be committed to the parent repo.
+# Legacy/defensive: flow worktrees are now VISIBLE SIBLINGS outside the repo
+# (issue #627), so nothing is created here anymore. Kept ignored so any stray
+# legacy in-repo checkout (issue #440 native worktrees) is never committed.
 .claude/worktrees/
 
 # Deploy-verification baseline (issue #444) - a per-workstation snapshot of

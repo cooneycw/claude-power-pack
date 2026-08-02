@@ -45,14 +45,14 @@ git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/orig
 git config user.name 2>/dev/null || echo "NOT_SET"
 git config user.email 2>/dev/null || echo "NOT_SET"
 
-# Effective worktree base (issue #584, ADR 0003): unset = in-repo default.
-# When set, /flow:start + /flow:auto create worktrees at
-# $FLOW_WORKTREE_BASE/<repo>-<branch> via the git lane (never EnterWorktree).
+# Effective worktree base (issue #627, #584, ADR 0003): worktrees are created
+# OUTSIDE the repo on the git lane by default (never EnterWorktree). Unset =
+# visible sibling under the repo's parent dir; set = $FLOW_WORKTREE_BASE.
 if [ -n "$FLOW_WORKTREE_BASE" ]; then
-    echo "Worktree base: $FLOW_WORKTREE_BASE (override; git-lane worktrees)"
+    echo "Worktree base: $FLOW_WORKTREE_BASE/<repo>-<branch> (override; git-lane worktrees)"
     [ -d "$FLOW_WORKTREE_BASE" ] || echo "WARN worktree base dir does not exist yet (created on first use)"
 else
-    echo "Worktree base: .claude/worktrees/ (in-repo default)"
+    echo "Worktree base: ../<repo>-<branch> (visible sibling; git-lane worktrees)"
 fi
 ```
 
@@ -126,16 +126,17 @@ for script in prompt-context.sh hook-mask-output.sh secrets-mask.sh; do
   fi
 done
 
-# worktree-remove.sh is now a FALLBACK, not a hard requirement: `/flow` creates
-# and removes worktrees with the native EnterWorktree/ExitWorktree tools; the
-# script is only used for cross-session / cross-machine worktree cleanup. Missing
-# is a WARN, not a FAIL.
+# worktree-remove.sh is the git-lane cleanup path: worktrees are created OUTSIDE
+# the repo and removed with `git worktree remove` (issue #627, native
+# EnterWorktree/ExitWorktree lane retired, #440 superseded). Missing is a WARN,
+# not a FAIL - the inline `git worktree remove` fallback still works, it just
+# lacks the #597 claim check.
 if [ -x "$HOME/.claude/scripts/worktree-remove.sh" ]; then
-  echo "PASS worktree-remove.sh (optional fallback)"
+  echo "PASS worktree-remove.sh (git-lane cleanup)"
 elif [ -f "$HOME/.claude/scripts/worktree-remove.sh" ]; then
   echo "WARN worktree-remove.sh (not executable)"
 else
-  echo "WARN worktree-remove.sh (optional fallback not installed; native ExitWorktree covers same-session cleanup)"
+  echo "WARN worktree-remove.sh (not installed; inline 'git worktree remove' fallback covers cleanup without the #597 claim check)"
 fi
 
 # Flow helper family (issue #581): the zero-prompt lane invokes these BARE at
@@ -331,7 +332,7 @@ Output a single diagnostic report in this format:
 | hooks.json | ✅/❌ | 2 hooks configured / Not found |
 | mask-output hook | ✅/❌ | ~/.claude/scripts/hook-mask-output.sh |
 | prompt-context.sh | ✅/❌ | Shell prompt context |
-| worktree-remove.sh | ✅/⚠️ | Optional fallback (native ExitWorktree is primary) |
+| worktree-remove.sh | ✅/⚠️ | Git-lane cleanup (issue #627; inline `git worktree remove` fallback) |
 | secrets-mask.sh | ✅/❌ | Output masking filter |
 | Flow helper family | ✅/⚠️/❌ | flow-start-resolve, flow-stale-check, flow-worktree-guard, flow-live-driver-guard, flow-worktree-claim, gh-pr-merge at ~/.claude/scripts/ (zero-prompt lane, #581). ❌ when missing with no CPP checkout to fall back to (#590) |
 | Helper freshness | ✅/⚠️ | `flow-helpers-install.sh --check`: ok / stale (plugin upgraded, installed copies behind) |
@@ -387,7 +388,7 @@ Output a single diagnostic report in this format:
    - Go: `cp ~/Projects/claude-power-pack/templates/makefiles/go.mk Makefile`
    - Rust: `cp ~/Projects/claude-power-pack/templates/makefiles/rust.mk Makefile`
    - Monorepo: `cp ~/Projects/claude-power-pack/templates/makefiles/multi.mk Makefile`
-2. ⚠️ **worktree-remove.sh not found (optional)** - `/flow` uses the native `EnterWorktree`/`ExitWorktree` tools for same-session worktrees; the script is only a fallback for cross-session / cross-machine cleanup. Install if you want it: `ln -sf ~/Projects/claude-power-pack/scripts/worktree-remove.sh ~/.claude/scripts/`
+2. ⚠️ **worktree-remove.sh not found** - `/flow` creates worktrees outside the repo on the git lane (issue #627) and removes them with this script; without it, cleanup falls back to inline `git worktree remove` (no #597 claim check). Install it: `ln -sf ~/Projects/claude-power-pack/scripts/worktree-remove.sh ~/.claude/scripts/`
 2b. ⚠️ **Flow allowlist missing/incomplete** - `/flow:*` will prompt for read-only git/gh plumbing on every run. Merge via `/cpp:update` or `/cpp:init`; rationale and caveats in `templates/claude-settings-permissions.md`
 2c. ⚠️ **Flow helper(s) not at ~/.claude/scripts/ (clone install)** - the #581 zero-prompt lane degrades to CPP-checkout fallback paths, which prompt. Run `/flow:repair`, `/cpp:update` (Step 5b re-links new scripts), or `/cpp:init` Tier 2
 2d. ❌ **Flow helper(s) missing, no CPP checkout (marketplace-only install)** - `/flow:start` and `/flow:auto` will exit 127 at Step 1 (issue #590). Run `/flow:repair` to install the bundled helpers into `~/.claude/scripts/`

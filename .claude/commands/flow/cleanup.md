@@ -7,11 +7,12 @@ allowed-tools: Bash(git:*), Bash(grep:*), Bash(wc:*), Bash(echo:*), Read
 
 Remove orphaned worktree references, delete local branches already merged to main, and prune stale remote tracking branches.
 
-Native worktrees live under `.claude/worktrees/`. `git worktree list`,
-`git worktree prune`, and `git worktree remove` operate on them exactly as they do
-on any worktree, so this command is the correct cross-session cleanup path -
-native `ExitWorktree` only removes worktrees created by `EnterWorktree` in the
-current session and cannot prune stale or prior-session ones.
+Worktrees are visible siblings created outside the repo on the git lane (issue
+#627: `<parent>/<repo>-<branch>`, or `$FLOW_WORKTREE_BASE` when set). `git
+worktree list`, `git worktree prune`, and `git worktree remove` operate on them
+exactly as they do on any worktree, so this command is the correct cleanup path.
+The native `EnterWorktree`/`ExitWorktree` lane is retired (#440 superseded), so
+there is no native worktree state to reconcile here.
 
 ## Arguments
 

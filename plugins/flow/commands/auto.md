@@ -79,10 +79,15 @@ This is capture only - proposing and applying fixes happens in the retro, not he
 
 **CRITICAL: You MUST create or enter a worktree before proceeding. NEVER implement changes directly on main/master. This step is NOT optional - if worktree creation fails, STOP immediately.**
 
-Worktree mechanics ride Claude Code's **native worktrees**: the `EnterWorktree`
-tool creates a checkout under `.claude/worktrees/<name>` on a new branch and
-switches the session into it. CPP keeps and enforces the issue-anchored
-`issue-<N>-<slug>` branch name (the gate policy the native tool does not absorb).
+Worktrees are created OUTSIDE the repo by default (issue #627): a **visible
+sibling** of the repo under its parent dir (`../<repo>-<branch>`), or under
+`FLOW_WORKTREE_BASE` when set (#584). Because an out-of-repo worktree cannot ride
+the native `EnterWorktree` tool - its base dir is not configurable, and an
+out-of-repo `EnterWorktree(path=...)` triggers an unsuppressable approval prompt
+(ADR 0003) - the flow uses `git worktree add` + `cd` on every run; the native
+`EnterWorktree` fresh lane is retired (#440 superseded). CPP keeps and enforces
+the issue-anchored `issue-<N>-<slug>` branch name (the gate policy the helper
+enforces).
 
 Step 1's plumbing - target-repo resolution (#578), issue fetch + state check,
 slug/branch derivation, existing-work triage, the #503 live-driver guard, and
@@ -107,21 +112,18 @@ number (and project, when `/flow:auto` was given a PROJECT arg):
 ~/.claude/scripts/flow-start-resolve.sh 42 my-project --session-cwd /home/user/Projects/my-repo
 ```
 
-**`--session-cwd` is not optional in practice (issue #592).** The helper cannot
-observe the Claude session's working directory - it sees only the cwd this Bash
-call inherited, and that cwd persists across calls and drifts the moment any
-earlier step `cd`s somewhere. `EnterWorktree` always acts on the SESSION cwd,
-which never moves. When the two diverge, the contract's central decision
-(`EnterWorktree` vs `cd`) is made against the wrong repo and a faithful reading
-of this contract does the wrong thing. So pass the session's working directory
-VERBATIM as a literal path - the directory this session reports as its cwd,
-never `$(pwd)` and never wherever a previous step left the shell.
+**Pass `--session-cwd` (issue #592).** The helper cannot observe the Claude
+session's working directory - it sees only the cwd this Bash call inherited, and
+that cwd persists across calls and drifts the moment any earlier step `cd`s
+somewhere. The session cwd is what decides `TARGET_REPO` (with no PROJECT arg) and
+the `current-branch`/`resume` lanes, so pass the session's working directory
+VERBATIM as a literal path - the directory this session reports as its cwd, never
+`$(pwd)` and never wherever a previous step left the shell.
 
-Omitting it does not break the run: the helper falls back to the process cwd,
-reports `SESSION_CWD_INFERRED=1`, and fails closed to `GIT_LANE=1`. The git
-lane is correct in every case, just slightly less ergonomic than the native
-one - the asymmetry is deliberate, since a wrong `GIT_LANE=0` sends
-`EnterWorktree` at a directory that may not be a repo at all.
+Omitting it does not break the run: the helper falls back to the process cwd and
+reports `SESSION_CWD_INFERRED=1`; the worktree is still created outside the repo
+and entered with `cd` (`GIT_LANE` is always 1, issue #627), so the only risk is a
+misdetected `current-branch`/`resume` lane, not a wrong-repo `EnterWorktree`.
 
 If the stable path is missing (exit 127), fall back in this order - the first
 that exists (issue #590):
@@ -141,21 +143,17 @@ The helper prints a `key=value` contract ending in `FLOW_START_RESOLVE: ok`.
 On `FLOW_START_RESOLVE: error` (with an `ERROR=` line): **STOP** and report it.
 Contract keys: `LANE` (`current-branch|fresh|resume|remote-pickup|cross-repo`),
 `CROSS_REPO` (1 = the target repo is not the session repo, issue #578),
-`GIT_LANE` (1 = ride the git lane end-to-end: enter with `cd`, never
-`EnterWorktree`, git cleanup at Step 7 - set for cross-repo runs, when
-`FLOW_WORKTREE_BASE` relocates worktrees out of the repo (issue #584, ADR 0003:
-the native tool's base dir is not configurable, and out-of-repo
-`EnterWorktree(path=...)` triggers an unsuppressable approval prompt), when
-a resumed worktree lies outside the target repo, and whenever the session cwd
-was inferred rather than declared (issue #592)), `SESSION_CWD` (the directory
-the lane decision was made against), `SESSION_CWD_INFERRED` (1 = no
-`--session-cwd` was passed; the decision rests on a possibly drifted process
-cwd, so `GIT_LANE` was forced to 1 - if you see this, you forgot to pass it),
-`TARGET_REPO`, `COMPOSE_PROJECT_NAME` (the canonical compose-project pin for the
-whole run, issue #626 - see the compose-safety rule below), `ISSUE_STATE`,
-`ISSUE_TITLE`, `BRANCH` (the enforced issue-anchored name), `WT_PATH` (honors
-`FLOW_WORKTREE_BASE`: `$FLOW_WORKTREE_BASE/<repo>-<branch>` when set, else
-in-repo `.claude/worktrees/<branch>`), `DEFAULT_BRANCH`, `REMOTE_BRANCH`
+`GIT_LANE` (ALWAYS 1 now - worktrees are created outside the repo by default
+(issue #627), so every run rides the git lane: enter with `cd`, never
+`EnterWorktree`, git cleanup at Step 7; the native fresh lane is retired, #440
+superseded), `SESSION_CWD` (the directory the lane decision was made against),
+`SESSION_CWD_INFERRED` (1 = no `--session-cwd` was passed; the decision rests on
+a possibly drifted process cwd - pass it so current-branch/resume detection is
+correct), `TARGET_REPO`, `COMPOSE_PROJECT_NAME` (the canonical compose-project pin
+for the whole run, issue #626 - see the compose-safety rule below), `ISSUE_STATE`,
+`ISSUE_TITLE`, `BRANCH` (the enforced issue-anchored name), `WT_PATH` (created
+outside the repo: `$FLOW_WORKTREE_BASE/<repo>-<branch>` when set, else a visible
+sibling `<parent>/<repo>-<branch>`, issue #627), `DEFAULT_BRANCH`, `REMOTE_BRANCH`
 (pickup lane), `WT_CREATED` (1 = the helper already ran `git worktree add`),
 `LIVE_DRIVER` / `PR_HEAD` (the #503 resume hazards - the helper wraps its
 sibling `scripts/flow-live-driver-guard.sh`), `CLAIM` / `CLAIM_PID` /
@@ -176,38 +174,27 @@ worktree is created), `CONFIRM_REQUIRED`.
   whether to proceed. On yes, re-run the same resolve command with
   `--allow-closed` appended (the helper is idempotent) and continue with its
   new contract.
-- `LANE=current-branch`: already on the issue's branch in the session cwd -
-  use the current directory. Resumed run: Step 7 uses the git cleanup
-  fallback, not `ExitWorktree`.
-- `LANE=fresh` with `GIT_LANE=0`: call `EnterWorktree(name="<BRANCH>")` -
-  native creation branches from `origin/<default-branch>` and switches the
-  session in. Do NOT shell out to `git worktree add` here. Session-created:
-  Step 7 removes it with `ExitWorktree`.
-- `LANE=fresh` with `GIT_LANE=1` (`FLOW_WORKTREE_BASE` set, same repo - issue
-  #584): the helper already created the worktree at
-  `$FLOW_WORKTREE_BASE/<repo>-<branch>` from `origin/<DEFAULT_BRANCH>`
-  (`WT_CREATED=1`). `cd <WT_PATH>`. Step 7 uses the git cleanup fallback.
-- `LANE=resume`: a prior session's worktree exists. If `CONFIRM_REQUIRED=1`
-  (`LIVE_DRIVER=suspected` - a dirty file touched within ~30m, another live
-  session may own this checkout (issue #503) - and/or `PR_HEAD` shows an
-  open/merged PR, the already-shipped hazard), **STOP** and require EXPLICIT
-  user confirmation before entering. Then `EnterWorktree(path="<WT_PATH>")` -
-  or, when `GIT_LANE=1` (cross-repo #578, or a worktree outside the target
-  repo such as a base-override checkout from a prior run #584), `cd <WT_PATH>`
-  instead. Resumed run: Step 7 uses the git cleanup fallback.
-- `LANE=remote-pickup`: the helper already added the worktree from the remote
-  branch (`WT_CREATED=1`). `EnterWorktree(path="<WT_PATH>")` - or `cd
-  <WT_PATH>` when `GIT_LANE=1`. Step 7 uses the git cleanup fallback (a
-  `path`-entered worktree is not removed by `ExitWorktree`).
-- `LANE=cross-repo`: fresh start in a repo `EnterWorktree` cannot reach - the
-  helper already created the worktree from `origin/<DEFAULT_BRANCH>`
-  (`WT_CREATED=1`). `cd <WT_PATH>`. The run rides the git lane end-to-end:
-  Step 7 uses the git cleanup fallback. Whether `WT_PATH` sits under the
-  TARGET repo's `.claude/worktrees/` or at a `FLOW_WORKTREE_BASE` location,
-  the #473/#486 guards and the friction-log durable buffer resolve via git
-  plumbing exactly as in a native run (verified in ADR 0003); resolve
-  `Write`/`Edit` paths from `git rev-parse --show-toplevel` run inside the
-  worktree (the #486 rule, which already covers this lane).
+Worktrees live outside the repo (issue #627), so `GIT_LANE` is always 1 and you
+NEVER call `EnterWorktree` - every lane enters with `cd <WT_PATH>` and Step 7 uses
+the git cleanup fallback.
+
+- `LANE=current-branch`: already on the issue's branch in the session cwd - use
+  the current directory (nothing to enter).
+- `LANE=fresh` / `LANE=cross-repo` / `LANE=remote-pickup`: the helper already
+  created (or added) the worktree at `WT_PATH` (`WT_CREATED=1`) - a visible
+  sibling `../<repo>-<branch>`, or under `FLOW_WORKTREE_BASE` when set, branched
+  from `origin/<DEFAULT_BRANCH>` (or the remote issue branch for pickup). `cd
+  <WT_PATH>`.
+- `LANE=resume`: a prior session's worktree exists at `WT_PATH`. If
+  `CONFIRM_REQUIRED=1` (`LIVE_DRIVER=suspected` - a dirty file touched within
+  ~30m, another live session may own this checkout (issue #503) - and/or
+  `PR_HEAD` shows an open/merged PR, the already-shipped hazard), **STOP** and
+  require EXPLICIT user confirmation before entering. Then `cd <WT_PATH>`.
+
+The worktree lives outside the repo, so the #473/#486 guards and the friction-log
+durable buffer resolve via git plumbing exactly as before (verified in ADR 0003);
+resolve `Write`/`Edit` paths from `git rev-parse --show-toplevel` run inside the
+worktree (the #486 rule).
 
 #### Verification Gate (MANDATORY - do NOT skip)
 
@@ -746,23 +733,13 @@ Report: `Step 6/9: Finish complete - PR #XX created`
    sibling's live claim is left intact and reported, which is the signal that
    you are about to remove the wrong checkout.
 
-   **If Step 1 created the worktree this session via `EnterWorktree(name=...)`**
-   (the fresh-start path), remove it natively - a single tool call that deletes the
-   worktree and its branch and restores the session to the main repo, with no
-   manual `cd`-before-remove dance:
-
-   `ExitWorktree(action="remove", discard_changes=true)`
-
-   `discard_changes=true` is required because the squash-merge leaves the local
-   branch with commits not on `main`; discarding the now-merged local branch is
-   correct. After this the session cwd is back in the main repo.
-
-   **Otherwise** (Step 1 resumed an existing worktree, entered via
-   `EnterWorktree(path=...)`, ran the git lane (`GIT_LANE=1` - cross-repo
-   #578, or `FLOW_WORKTREE_BASE` set #584), or you are on a feature branch in
-   the main repo) `ExitWorktree` will not remove it, so use the git fallback. **CRITICAL: `cd` to
-   the main repo BEFORE removing the worktree - never remove a worktree while your
-   cwd is inside it. Execute as SEPARATE Bash calls.**
+   Worktrees are created on the git lane (issue #627: outside the repo, `cd`-entered,
+   never `EnterWorktree`), so cleanup is ALWAYS the git fallback - `ExitWorktree`
+   is never involved (there is no session-created native worktree to remove; the
+   only exception is `LANE=current-branch`, a feature branch in the main repo with
+   no worktree, where you just delete the branch). **CRITICAL: `cd` to the main
+   repo BEFORE removing the worktree - never remove a worktree while your cwd is
+   inside it. Execute as SEPARATE Bash calls.**
 
    **Step 7a - Return to the main repo (separate Bash call):**
    ```bash
@@ -1140,7 +1117,7 @@ Key failure scenarios:
 - **CI pipeline fails:** Stop at step 8, link to pipeline/run for investigation
 - **CI not detected:** Non-blocking at step 8, warn and continue to deploy
 - **Deploy fails:** Report but don't roll back (deploy is best-effort)
-- **Inside worktree being removed:** `ExitWorktree(action="remove")` restores the session cwd for session-created worktrees; the git fallback path uses `worktree-remove.sh`, which also handles removing from inside safely
+- **Inside worktree being removed:** the git cleanup path uses `worktree-remove.sh`, which `cd`s to the main repo first, so removing from inside the worktree is handled safely
 
 ## Notes
 
@@ -1148,7 +1125,7 @@ Key failure scenarios:
 - The analyze step ensures Claude understands the issue before writing code
 - The ELI5 step (Step 3) is a human checkpoint: it restates intent in plain language, verifies the issue is still worth doing, and gates implementation on plan approval. Use `--yes` (or an `eli5: auto-approve` trailer) for fully unattended runs; a `No longer needed` verdict never auto-implements
 - Each step builds on the previous one; there's no skipping
-- Worktrees are native: Step 1 uses the `EnterWorktree` tool (checkout under `.claude/worktrees/`, branched from `origin/<default-branch>`) and Step 7 uses `ExitWorktree` for session-created worktrees, with a `git worktree` fallback for resumed or cross-machine worktrees. The issue-anchored `issue-<N>-<slug>` branch name, the ELI5 gate, and quality gates are CPP policy layered on top of the native mechanics
+- Worktrees are visible siblings created on the git lane (issue #627): Step 1 (via `flow-start-resolve.sh`) runs `git worktree add` at `<parent>/<repo>-<branch>` (or `$FLOW_WORKTREE_BASE/<repo>-<branch>` when set), enters with `cd`, and Step 7 removes with `worktree-remove.sh`. The native `EnterWorktree`/`ExitWorktree` fresh lane is retired (#440 superseded for the default). The issue-anchored `issue-<N>-<slug>` branch name, the ELI5 gate, and quality gates are CPP policy layered on top
 - Step 1's plumbing is deterministic (issue #581): `scripts/flow-start-resolve.sh` owns target-repo resolution, issue fetch, branch derivation, existing-work triage, the #503 guard, and git-lane creation, emitting a `key=value` contract; the model's only decision is `EnterWorktree` vs `cd`. Helpers are invoked bare at their stable `~/.claude/scripts/` paths so the shipped allowlist rules match (`templates/claude-settings-permissions.json`) and Phase 1 runs prompt-free
 - The session cwd is DECLARED, not inferred (issue #592): Step 1a passes `--session-cwd <path>` so the resolver decides `CROSS_REPO`/`GIT_LANE` (and, with no PROJECT arg, `TARGET_REPO` itself) against the session's working directory rather than the Bash tool's cwd, which drifts on any earlier `cd`. Without it the resolver reports `SESSION_CWD_INFERRED=1` and fails closed to `GIT_LANE=1` - the residual #578 left behind
 - Cross-repo invocations (`/flow:auto <ISSUE> <PROJECT>`, or a session cwd outside any git repo) are first-class (issue #578): the resolver detects the mismatch (path, else `~/Projects/<PROJECT>`) and the run rides the deterministic git lane end-to-end - helper-created worktree, `cd` instead of `EnterWorktree`, git cleanup at Step 7 - with the worktree still under the target repo's `.claude/worktrees/` so every guard resolves unchanged
