@@ -172,6 +172,38 @@ def test_fresh_lane_in_session_repo(tmp_path: Path):
     assert c["CONFIRM_REQUIRED"] == "0"
 
 
+# --- resolve: compose-project pin (issue #626) ------------------------------
+
+
+@requires_git
+def test_compose_project_name_defaults_to_canonical_basename(tmp_path: Path):
+    """The contract carries a COMPOSE_PROJECT_NAME so every compose call in the
+    flow worktree inherits a stable name instead of forking a parallel stack off
+    the worktree basename. Default = the canonical primary-checkout basename,
+    lowercased - never the worktree dir."""
+    _, clone = _make_origin_and_clone(tmp_path)  # clone dir basename == "clone-repo"
+    res = _run("42", "--session-cwd", str(clone), cwd=clone, gh=_fake_gh(tmp_path))
+    assert res.returncode == 0, res.stderr
+    c = _contract(res)
+    assert c["COMPOSE_PROJECT_NAME"] == "clone-repo"
+    # It must be the repo name, not the worktree basename it would otherwise pick.
+    assert "issue-42" not in c["COMPOSE_PROJECT_NAME"]
+
+
+@requires_git
+def test_compose_project_name_honors_deploy_yaml_override(tmp_path: Path):
+    """An explicit .claude/deploy.yaml compose_project_name: wins, matching the
+    Step-9 (#535) precedence so a run that reaches deploy keeps one project name
+    end to end."""
+    _, clone = _make_origin_and_clone(tmp_path)
+    (clone / ".claude").mkdir(parents=True, exist_ok=True)
+    (clone / ".claude" / "deploy.yaml").write_text("compose_project_name: pinned-prod\n")
+    res = _run("42", "--session-cwd", str(clone), cwd=clone, gh=_fake_gh(tmp_path))
+    assert res.returncode == 0, res.stderr
+    c = _contract(res)
+    assert c["COMPOSE_PROJECT_NAME"] == "pinned-prod"
+
+
 @requires_git
 def test_slug_sanitized_and_truncated(tmp_path: Path):
     _, clone = _make_origin_and_clone(tmp_path)

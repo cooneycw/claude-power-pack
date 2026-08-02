@@ -122,14 +122,49 @@ def test_plan_passthrough(tmp_path: Path) -> None:
 
 
 @requires_bash
-def test_fallback_runs_make_lint_and_test(tmp_path: Path) -> None:
-    (tmp_path / "Makefile").write_text("lint:\n\ttrue\ntest:\n\ttrue\n")
+def test_fallback_all_three_targets_is_ok(tmp_path: Path) -> None:
+    (tmp_path / "Makefile").write_text(
+        "lint:\n\ttrue\ntest:\n\ttrue\ntypecheck:\n\ttrue\n"
+    )
     proc, bindir = _run(tmp_path, cpp_dir="", uv_exit=None, make_exit=0)
     assert proc.returncode == 0
     assert "FLOW_FINISH_GATE: ok" in proc.stdout
     assert "Makefile fallback" in proc.stdout
     argv = (bindir / "make.log").read_text().splitlines()
+    assert argv == ["lint", "test", "typecheck"]
+
+
+@requires_bash
+def test_fallback_missing_gate_reports_warn_named(tmp_path: Path) -> None:
+    """A repo with lint+test targets but no typecheck target and no configured
+    mypy: the gate did not run, so the marker is `warn (skipped gates: ...)` and
+    names it - never a bare `ok` (#628)."""
+    (tmp_path / "Makefile").write_text("lint:\n\ttrue\ntest:\n\ttrue\n")
+    proc, bindir = _run(tmp_path, cpp_dir="", uv_exit=None, make_exit=0)
+    assert proc.returncode == 0
+    assert "FLOW_FINISH_GATE: warn" in proc.stdout
+    assert "FLOW_FINISH_GATE: ok" not in proc.stdout
+    assert "typecheck" in proc.stdout
+    # lint + test still actually ran.
+    argv = (bindir / "make.log").read_text().splitlines()
     assert argv == ["lint", "test"]
+
+
+@requires_bash
+def test_fallback_uses_uv_when_no_makefile_but_pyproject(tmp_path: Path) -> None:
+    """No Makefile at all, but pyproject configures ruff/pytest/mypy and uv is
+    available: the fallback runs each gate via `uv run --extra dev <tool>`
+    instead of skipping (#628)."""
+    (tmp_path / "pyproject.toml").write_text(
+        "[tool.ruff]\n[tool.pytest.ini_options]\n[tool.mypy]\n"
+    )
+    proc, bindir = _run(tmp_path, cpp_dir="", uv_exit=0)
+    assert proc.returncode == 0
+    assert "FLOW_FINISH_GATE: ok" in proc.stdout
+    argv = (bindir / "uv.log").read_text()
+    assert "run --extra dev ruff check ." in argv
+    assert "run --extra dev pytest" in argv
+    assert "run --extra dev mypy ." in argv
 
 
 @requires_bash
@@ -293,3 +328,41 @@ def test_failed_run_is_fail_even_with_warnings(tmp_path: Path) -> None:
     proc = _run_with_uv_stub(tmp_path, cpp, payload, exit_code=1)
     assert proc.returncode == 1
     assert "FLOW_FINISH_GATE: fail" in proc.stdout
+
+
+# --- #628: a green run whose quality gates were SKIPPED ----------------------
+
+
+@requires_bash
+def test_runner_skipped_gates_report_warn_named(tmp_path: Path) -> None:
+    """The runner emits a "skipped": [...] array for skip_if-skipped gates. This
+    helper is the layer the flow commands read, so it must report `warn` and NAME
+    the skipped gates rather than flatten the run to a bare `ok` - the exact
+    false green of #628. Exit stays 0 - it is a signal."""
+    cpp = _fake_cpp(tmp_path)
+    payload = (
+        '{\n  "success": true,\n  "steps_completed": 4,\n  "steps_total": 4,\n'
+        '  "skipped": [\n    "lint",\n    "test",\n    "typecheck"\n  ]\n}'
+    )
+    proc = _run_with_uv_stub(tmp_path, cpp, payload)
+    assert proc.returncode == 0
+    assert "FLOW_FINISH_GATE: warn" in proc.stdout
+    assert "FLOW_FINISH_GATE: ok" not in proc.stdout
+    for gate in ("lint", "test", "typecheck"):
+        assert gate in proc.stdout
+    assert "issue #628" in proc.stdout
+
+
+@requires_bash
+def test_runner_skipped_non_gate_still_ok(tmp_path: Path) -> None:
+    """A skipped NON-gate step (e.g. security_scan) is a legitimate skip - the
+    runner would not list it as a gate, so the marker stays `ok`."""
+    cpp = _fake_cpp(tmp_path)
+    payload = (
+        '{\n  "success": true,\n  "steps_completed": 4,\n  "steps_total": 4,\n'
+        '  "skipped": [\n    "security_scan"\n  ]\n}'
+    )
+    proc = _run_with_uv_stub(tmp_path, cpp, payload)
+    assert proc.returncode == 0
+    assert "FLOW_FINISH_GATE: ok" in proc.stdout
+    assert "warn" not in proc.stdout

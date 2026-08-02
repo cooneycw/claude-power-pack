@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any, Optional, TextIO
 
 from .state import RunState
-from .steps import ShellStep, StepDef, get_plan_steps
+from .steps import GATE_STEP_IDS, ShellStep, StepDef, get_plan_steps
 
 # Variables the runner launcher injects (or a parent venv leaks) that must NOT
 # reach child step processes: PYTHONPATH is added so ``python -m lib.cicd`` can
@@ -120,6 +120,11 @@ class RunResult:
     # executed nothing still succeeds - but it never reports a bare SUCCESS.
     tests: dict[str, dict[str, Any]] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
+    # Step ids that skip_if-skipped this run (issue #628). A skipped GATE step
+    # (lint/test/typecheck) means the gate verified nothing about the change, so
+    # flow-finish-gate.sh reads this to report `warn` and NAME the skipped gates
+    # rather than flatten the run to a bare `ok`.
+    skipped_steps: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -137,6 +142,8 @@ class RunResult:
             d["tests"] = self.tests
         if self.warnings:
             d["warnings"] = self.warnings
+        if self.skipped_steps:
+            d["skipped"] = self.skipped_steps
         return d
 
 
@@ -238,6 +245,7 @@ class DeterministicRunner:
         completed = state.current_index
         tests: dict[str, dict[str, Any]] = {}
         warnings: list[str] = []
+        skipped: list[str] = []
 
         for idx in range(state.current_index, len(state.step_records)):
             step_def = step_defs[idx]
@@ -248,6 +256,7 @@ class DeterministicRunner:
                 self._log(f"  [{idx + 1}/{len(step_defs)}] {step.id}: SKIPPED ({step.description})")
                 state.mark_step_skipped(idx)
                 state.save(self.project_root)
+                skipped.append(step.id)
                 completed = idx + 1
                 continue
 
@@ -302,20 +311,39 @@ class DeterministicRunner:
                     error=result.error or result.output,
                     tests=tests,
                     warnings=warnings,
+                    skipped_steps=skipped,
                 )
 
         # All steps completed successfully
         state.mark_complete()
         state.save(self.project_root)
 
-        # A plan whose test step ran nothing still succeeds - but it must never
-        # report a bare "completed successfully", which is the sentence a
-        # reviewer trusts as "safe to merge" (issue #621).
+        # A plan that reports a bare "completed successfully" is the sentence a
+        # reviewer trusts as "safe to merge", so it must never be printed when the
+        # run proved less than it appears to. Two ways it can:
+        #   - a test step exited 0 having executed no tests (issue #621), and
+        #   - a quality gate (lint/test/typecheck) was SKIPPED, so it verified
+        #     nothing about the change (issue #628).
+        skipped_gates = [s for s in skipped if s in GATE_STEP_IDS]
+        qualifiers: list[str] = []
+        if skipped_gates:
+            qualifiers.append(
+                f"SKIPPED GATES: {', '.join(skipped_gates)} "
+                "(no Makefile target and no configured tool)"
+            )
         if warnings:
+            qualifiers.append("a test step executed no tests (#621)")
+
+        if qualifiers:
             self._log(
                 f"Plan '{state.plan_name}' completed WITH WARNINGS "
-                f"({completed}/{len(step_defs)} steps)"
+                f"({completed}/{len(step_defs)} steps) - {'; '.join(qualifiers)}"
             )
+            for gate in skipped_gates:
+                self._log(
+                    f"  WARNING: {gate}: quality gate SKIPPED - it did not run and "
+                    "proved nothing about the change"
+                )
             for warning in warnings:
                 self._log(f"  WARNING: {warning}")
         else:
@@ -332,6 +360,7 @@ class DeterministicRunner:
             steps_total=len(step_defs),
             tests=tests,
             warnings=warnings,
+            skipped_steps=skipped,
         )
 
     def _log(self, message: str) -> None:
