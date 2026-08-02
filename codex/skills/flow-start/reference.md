@@ -77,10 +77,19 @@ work, and prints a `key=value` contract ending in `FLOW_START_RESOLVE: ok`. On
 Keys: `LANE`, `CROSS_REPO`, `GIT_LANE`, `SESSION_CWD`, `SESSION_CWD_INFERRED`
 (1 = no `--session-cwd` was passed, so the lane decision rests on a possibly
 drifted process cwd and `GIT_LANE` was forced to 1, issue #592), `TARGET_REPO`,
-`ISSUE_STATE`, `ISSUE_TITLE`, `BRANCH`, `WT_PATH`, `DEFAULT_BRANCH`,
-`REMOTE_BRANCH`, `WT_CREATED`, `LIVE_DRIVER` (the helper wraps its sibling
-`scripts/flow-live-driver-guard.sh`, #503), `PR_HEAD`, `CONFIRM_REQUIRED` -
-the same contract `/flow-auto` Step 1 documents.
+`COMPOSE_PROJECT_NAME` (the canonical compose-project pin, issue #626 - see the
+compose-safety note below), `ISSUE_STATE`, `ISSUE_TITLE`, `BRANCH`, `WT_PATH`,
+`DEFAULT_BRANCH`, `REMOTE_BRANCH`, `WT_CREATED`, `LIVE_DRIVER` (the helper wraps
+its sibling `scripts/flow-live-driver-guard.sh`, #503), `PR_HEAD`,
+`CONFIRM_REQUIRED` - the same contract `/flow-auto` Step 1 documents.
+
+**Compose-project safety (issue #626).** After entering the worktree, any
+`docker compose` you run by hand (`make docker-up` for a test database, etc.)
+would derive its project name from the worktree basename and fork a second,
+parallel stack that collides on published ports and leaks `<basename>_*`
+orphans. Pin it in the same call using the contract value:
+`COMPOSE_PROJECT_NAME=<value> make docker-up`. #535 covered only the deploy
+step; this makes the pin available for the whole session.
 
 `WT_PATH` honors the **worktree base override** (issue #584, ADR 0003 Option
 A): when `FLOW_WORKTREE_BASE` is set (host config, e.g. `~/.bashrc`), worktrees
