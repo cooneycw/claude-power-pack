@@ -479,6 +479,18 @@ if [ -z "$LANE" ]; then
   fi
 fi
 
+# ---- compose-project pin (issue #626) ---------------------------------------
+# docker compose derives its project name from the cwd basename when
+# COMPOSE_PROJECT_NAME is unset, so ANY compose call from a worktree - not just
+# the Step-9 deploy #535 already guards - forks a parallel stack (a duplicate DB
+# for the Step-4 test loop collides on the published port and leaks
+# <basename>_pgdata / <basename>_default orphans). Emit the canonical pin once so
+# every later step and every hand-run make in the worktree can inherit it.
+# Precedence matches Step 9: an explicit .claude/deploy.yaml override, else the
+# canonical primary-checkout basename (TARGET_REPO), never the worktree basename.
+COMPOSE_PROJECT_NAME=$(grep -oP '^\s*compose_project_name:\s*\K\S+' "$TARGET_REPO/.claude/deploy.yaml" 2>/dev/null | head -1)
+[ -n "$COMPOSE_PROJECT_NAME" ] || COMPOSE_PROJECT_NAME=$(basename "$TARGET_REPO" | tr '[:upper:]' '[:lower:]')
+
 # ---- contract ---------------------------------------------------------------
 echo "LANE=$LANE"
 echo "CROSS_REPO=$CROSS_REPO"
@@ -486,6 +498,7 @@ echo "GIT_LANE=$GIT_LANE"
 echo "SESSION_CWD=$SESSION_CWD_ABS"
 echo "SESSION_CWD_INFERRED=$SESSION_CWD_INFERRED"
 echo "TARGET_REPO=$TARGET_REPO"
+echo "COMPOSE_PROJECT_NAME=$COMPOSE_PROJECT_NAME"
 echo "ISSUE_STATE=$ISSUE_STATE"
 echo "ISSUE_TITLE=$ISSUE_TITLE"
 echo "BRANCH=$BRANCH"

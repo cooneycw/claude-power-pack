@@ -151,7 +151,8 @@ was inferred rather than declared (issue #592)), `SESSION_CWD` (the directory
 the lane decision was made against), `SESSION_CWD_INFERRED` (1 = no
 `--session-cwd` was passed; the decision rests on a possibly drifted process
 cwd, so `GIT_LANE` was forced to 1 - if you see this, you forgot to pass it),
-`TARGET_REPO`, `ISSUE_STATE`,
+`TARGET_REPO`, `COMPOSE_PROJECT_NAME` (the canonical compose-project pin for the
+whole run, issue #626 - see the compose-safety rule below), `ISSUE_STATE`,
 `ISSUE_TITLE`, `BRANCH` (the enforced issue-anchored name), `WT_PATH` (honors
 `FLOW_WORKTREE_BASE`: `$FLOW_WORKTREE_BASE/<repo>-<branch>` when set, else
 in-repo `.claude/worktrees/<branch>`), `DEFAULT_BRANCH`, `REMOTE_BRANCH`
@@ -234,6 +235,23 @@ cannot be locked) is normal and never blocks the run.
 **If this verification fails, STOP immediately. Report the failure using the error template at the bottom of this file. Do NOT proceed to Step 2.**
 
 Report: `Step 1/9: Start complete - worktree at {path}, verified on branch {branch}`
+
+**Compose-project safety - RUN-WIDE (issue #626).** `docker compose` derives its
+project name from the current directory basename when `COMPOSE_PROJECT_NAME` is
+unset, and this run works inside a worktree whose basename is
+`<repo>-issue-<N>-<slug>`. So EVERY compose invocation from here - the Step-4
+local test-loop database (`make docker-up` / `docker compose up`), any hand-run
+`make docker-*`, and the Step-9 deploy - would otherwise build a SECOND, parallel
+stack that collides on published ports and leaks orphaned `<basename>_pgdata` /
+`<basename>_default` volumes and networks that nothing reclaims (#535 fixed only
+Step 9). The Step-1 resolver contract carries the canonical pin as
+`COMPOSE_PROJECT_NAME` (an explicit `.claude/deploy.yaml compose_project_name:`
+override, else the canonical primary-checkout basename - never the worktree
+basename). **Whenever any step below, or a command you run by hand, invokes
+`docker compose` in this worktree, set `COMPOSE_PROJECT_NAME` in the SAME shell
+call** (env var persistence is not guaranteed between calls) - e.g.
+`COMPOSE_PROJECT_NAME=<contract value> make docker-up`. Step 9 pins it inline
+already; Step 4 reminds you at the point a test database is started.
 
 ---
 
@@ -406,6 +424,12 @@ Execute the approved plan from the Step 3 ELI5 gate:
 1. **Make all code changes** in the worktree.
 2. **Follow existing conventions** - match the code style, patterns, and structure of the project.
 3. **Run tests locally** if a quick feedback loop is available (e.g., `make test` or the project's test command).
+   **If the local loop starts a compose stack** (a test database via `make
+   docker-up` / `docker compose up`), pin the project name in the SAME call:
+   `COMPOSE_PROJECT_NAME=<Step-1 contract value> make docker-up` (issue #626).
+   Unpinned, compose names the stack after the worktree basename and forks a
+   second parallel stack that collides on the published port and leaks
+   `<basename>_*` orphans - the run-wide rule from Step 1, at the point it bites.
 4. **Verify the changes** address all acceptance criteria from the issue.
 
 If implementation hits a blocker that cannot be resolved:
