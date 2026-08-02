@@ -54,9 +54,9 @@ Core components and their locations:
   - flow-worktree-guard `--strict` - BLOCKING at both `/flow:auto` call sites (Step 4 implement, Step 6 pre-commit) since #576: exit 3 is a STOP, because a live leak means every further edit compounds and the commit about to be made does not contain the work. Strict failure is gated on FRESHNESS (`FLOW_LEAK_FRESH_MIN`, default 30m) in BOTH branches - the #573 total-leak check and, new in #576, the overlap check - so pre-existing uncommitted dirt in main on a shared file the run also edits (CLAUDE.md, a template) warns without stopping the run; only an edit written to main DURING the run blocks
   - tool-risk-drift - shared permission-risk taxonomy guard (#495, wired in #576): checks that the safety-critical `DESTRUCTIVE_TOKENS` and `CODE_EXEC` sets are identical between the canonical `scripts/classify-tool-risk.py` and the copy vendored inline in `scripts/hook-permission-census.sh`, so a command one classifier calls dangerous can never be emitted as an allow-rule candidate by the other. Advisory by default; `--strict` exits 1 on drift and is a HARD gate (`make tool-risk-check`, the `tool-risk-drift` step in `.woodpecker.yml`, pinned by `tests/test_tool_risk_drift.py`). Non-safety sets (task-runner, dual-use-net) may differ benignly and are deliberately not guarded
   - flow-start-resolve - deterministic `/flow` Step-1 resolver + `--verify` gate (#581): target-repo resolution (#578), issue fetch + state check, issue-anchored branch derivation, existing-work triage (`current-branch|fresh|resume|remote-pickup|cross-repo`), wraps the #503 live-driver guard + shipped-PR hazard, performs git-lane worktree creation (honoring `FLOW_WORKTREE_BASE`, #584), and emits a `key=value` contract - extracts the compound Step-1 bash the permission matcher could never auto-allow
-  - flow-start-resolve `--session-cwd` - the session cwd is DECLARED, not inferred (#592): the Bash tool's cwd persists across calls and drifts on any earlier `cd`, while `EnterWorktree` acts on the session cwd, which never moves - so `CROSS_REPO`/`GIT_LANE` (and, with no PROJECT arg, `TARGET_REPO` itself) are resolved from the path `auto.md`/`start.md` pass verbatim. Omitting it emits `SESSION_CWD_INFERRED=1` and fails closed to `GIT_LANE=1`, since the git lane is correct in every case while a wrong `GIT_LANE=0` points `EnterWorktree` at the wrong repo - or at none
+  - flow-start-resolve `--session-cwd` - the session cwd is DECLARED, not inferred (#592): the Bash tool's cwd persists across calls and drifts on any earlier `cd`, so `CROSS_REPO` (and, with no PROJECT arg, `TARGET_REPO` itself) and the `current-branch`/`resume` lane detection are resolved from the path `auto.md`/`start.md` pass verbatim. `GIT_LANE` is always 1 now (worktrees are out-of-repo, issue #627), so omitting `--session-cwd` only risks a misdetected `current-branch`/`resume` lane, never a wrong-repo `EnterWorktree`; it still emits `SESSION_CWD_INFERRED=1` so the gap is visible
   - flow-live-driver-guard - advisory concurrent-session guard (#503): warns when a worktree's dirty files were modified within the freshness window, the signature of another live session mid-implementation; wrapped by flow-start-resolve on the resume lane, and re-run at `/flow:auto` Step 4 before the first edit (#597) because a single Step-1 check goes stale across the analysis + ELI5 pause
-  - flow-worktree-claim - cross-session OWNERSHIP claim on a flow worktree (#597), the half #503 could not cover: the live-driver guard protects a session ENTERING a worktree, but nothing protected an active worktree from being REMOVED by a sibling session, whose Step-7 cleanup deleted an issue-N checkout by name and destroyed uncommitted work with no signal but the user noticing. Rides git's own `git worktree lock --reason "flow-claim issue=N pid=... session=... host=... ts=..."`, so the claim is a real barrier (`git worktree remove --force` refuses a locked worktree) rather than an advisory note, and is readable from `git worktree list --porcelain`. `claim`/`check`/`release` verbs; ownership is pid + session, liveness is `kill -0` trusted only when the recorded host matches, and a claim whose owner is gone is STALE and auto-taken-over so the mechanism can never wedge a repo. A lock this family did not write is FOREIGN and never stolen. Staked in `flow-start-resolve.sh --verify` - the only hook point running INSIDE the worktree on every lane, since the native EnterWorktree lane creates the checkout after resolve mode returns - and read by resolve mode via `check --issue N` BEFORE any worktree is created, so two sessions handed the same issue stop instead of racing. Fail-open everywhere except the case it exists for: claiming against a live owner exits 1
+  - flow-worktree-claim - cross-session OWNERSHIP claim on a flow worktree (#597), the half #503 could not cover: the live-driver guard protects a session ENTERING a worktree, but nothing protected an active worktree from being REMOVED by a sibling session, whose Step-7 cleanup deleted an issue-N checkout by name and destroyed uncommitted work with no signal but the user noticing. Rides git's own `git worktree lock --reason "flow-claim issue=N pid=... session=... host=... ts=..."`, so the claim is a real barrier (`git worktree remove --force` refuses a locked worktree) rather than an advisory note, and is readable from `git worktree list --porcelain`. `claim`/`check`/`release` verbs; ownership is pid + session, liveness is `kill -0` trusted only when the recorded host matches, and a claim whose owner is gone is STALE and auto-taken-over so the mechanism can never wedge a repo. A lock this family did not write is FOREIGN and never stolen. Staked in `flow-start-resolve.sh --verify` - the hook point running INSIDE the worktree on every lane - and read by resolve mode via `check --issue N` BEFORE any worktree is created, so two sessions handed the same issue stop instead of racing. Fail-open everywhere except the case it exists for: claiming against a live owner exits 1
   - worktree-remove `--steal` + claim owner check (#597) - refuses with exit 4 to remove a worktree claimed by another LIVE session (printing the owning pid/session), releases a self-owned or stale claim and proceeds otherwise, and takes `--steal` as the deliberate override. One change covers `/flow:auto` Step 7, `/flow:merge` and `/flow:cleanup`, since all three route removal through this script
   - flow-finish-gate - the deterministic quality-gate invocation as ONE audited allowlistable helper (#613, the #581 pattern): resolves the CPP checkout, checks `uv`, runs `lib.cicd run --plan <name>` under the #430 `PYTHONPATH` / `uv run --project` contract, degrades to `make lint` + `make test` + `make typecheck` when the runner is unavailable, and ends with `FLOW_FINISH_GATE: ok|fail|warn|skipped`; `--check-summary` covers the advisory `lib.cicd check --summary` shape. Invoked BARE at `~/.claude/scripts/` by `/flow:auto` Step 6 + the Step-7/`/flow:merge` re-gate, `/flow:finish` Steps 2/2c and `/flow:check` Step 5 - the inline `PYTHONPATH=... uv run ...` line those docs carried could never match a permission prefix rule and prompted CODE-EXEC on every finish and merge
   - flow-finish-gate typecheck parity (#617) - the `finish`/`check` runner plans AND this helper's Makefile fallback all run typecheck, because every shipped CI template (`templates/workflows/ci-python.yml`, `ci-node.yml`, `woodpecker-python.yml`, `woodpecker-node.yml`) runs `make typecheck` as a hard step and `PipelineConfig.branches["pr"]` defaults to `[lint, test, typecheck]`. Without it the gate reported `ok` on trees CI then rejected - twice in agentic-poker, after the PR was already open. Each step is `skip_if`-guarded on its Makefile target, so a repo without `typecheck:` is unaffected; `tests/test_runner.py::TestPlansCoverCITemplates` pins the plan-vs-template invariant so a step added to the templates cannot silently skip the local gate again
@@ -86,7 +86,7 @@ Core components and their locations:
 ## Environment Variables
 
 - `CLAUDE_PROJECT` - Default project for `/project:next` from `~/Projects`. Set in `~/.bashrc`.
-- `FLOW_WORKTREE_BASE` - Optional worktree base override (issue #584, ADR 0003 Option A): when set (host config, e.g. `~/.bashrc`), `/flow:start` + `/flow:auto` create worktrees at `$FLOW_WORKTREE_BASE/<repo>-<branch>` via the git lane instead of in-repo `.claude/worktrees/<branch>` via `EnterWorktree`. Unset = shipped default, byte-identical to today. Never set in shipped config (PR #527 norm).
+- `FLOW_WORKTREE_BASE` - Optional worktree base override (issue #584, ADR 0003). Worktrees default to a VISIBLE sibling in the repo's parent dir (`../<repo>-<branch>`, issue #627); set this (host config, e.g. `~/.bashrc`) to relocate them to `$FLOW_WORKTREE_BASE/<repo>-<branch>` instead. Either way the run rides the git lane (`GIT_LANE=1`). Never set in shipped config beyond the visible-sibling default (PR #527 norm).
 
 ## MCP Servers and Secrets
 
@@ -119,24 +119,22 @@ CPP ships **no container runtime** as of #469. The Docker MCP runtime (the `mcp-
 - `/flow:status` - Show active worktrees
 - `/flow:doctor` - Diagnose workflow environment
 
-**Native worktrees (issue #440):** `/flow` rides Claude Code's built-in
-worktrees. `/flow:start` and `/flow:auto` create and enter a worktree with the
-`EnterWorktree` tool (checkout under `.claude/worktrees/<name>`, branched from
-`origin/<default-branch>` under the default `worktree.baseRef: fresh`) instead of
-shelling out to `git worktree add`; same-session cleanup uses `ExitWorktree`.
-`.claude/worktrees/` is gitignored. CPP layers its issue-anchored gate policy on
-top of these mechanics and does not delegate it: the `issue-<N>-<slug>` branch
-name (enforced after `EnterWorktree`), the `/flow:eli5` necessity gate, the
-quality gates, and merge/cleanup discipline are unchanged. Because native
-`ExitWorktree` only removes worktrees created in the current session, cross-session
-and cross-machine cleanup (`/flow:merge`, `/flow:cleanup`) keep `git worktree
-remove` / `scripts/worktree-remove.sh` as the fallback. The base location is
-configurable via `FLOW_WORKTREE_BASE` (issue #584, ADR 0003 Option A): when set,
-worktrees are created at `$FLOW_WORKTREE_BASE/<repo>-<branch>` and the run rides
-the #578 git lane end-to-end (the native tool's base dir is not configurable,
-and out-of-repo `EnterWorktree(path=...)` triggers an unsuppressable approval
-prompt); the guard/merge/remove/friction scripts resolve via git plumbing and
-work unchanged at any base. The `/flow:*` commands
+**Visible worktrees on the git lane (issue #627; native `EnterWorktree` #440
+superseded for the default):** `/flow:start` and `/flow:auto` create worktrees
+OUTSIDE the repo by default - a visible sibling of the repo in its parent dir
+(`../<repo>-<branch>`), or under `FLOW_WORKTREE_BASE` when set (#584) - via
+`git worktree add` (in `scripts/flow-start-resolve.sh`), entered with `cd`.
+Because an out-of-repo worktree cannot ride Claude Code's native `EnterWorktree`
+(its base dir is not configurable, and out-of-repo `EnterWorktree(path=...)`
+triggers an unsuppressable approval prompt, ADR 0003 constraint 2), the run rides
+the git lane end-to-end (`GIT_LANE=1` always) and cleanup uses `git worktree
+remove` / `scripts/worktree-remove.sh`; the native `EnterWorktree`/`ExitWorktree`
+fresh lane is retired. CPP layers its issue-anchored gate policy on top: the
+`issue-<N>-<slug>` branch name (enforced by the helper's `--verify`), the
+`/flow:eli5` necessity gate, the quality gates, and merge/cleanup discipline are
+unchanged; the guard/merge/remove/friction scripts resolve via git plumbing and
+work at any location. `.claude/worktrees/` stays gitignored (legacy/defensive -
+nothing is created there anymore). The `/flow:*` commands
 ship as the `flow` plugin (`/plugin install flow@cpp`): `.claude/commands/flow/*`
 is the permanent source of truth and `plugins/flow/commands/*` holds
 byte-identical copies kept in sync by `scripts/plugin-sync.sh`. The legacy
@@ -148,13 +146,12 @@ marketplace-only install dead-ends at exit 127 in Step 1 - and `/flow:repair`
 `~/.claude/scripts/`, the stable path the #581 allowlist rules match.
 `/flow:doctor` reports missing/stale helpers read-only.
 
-**Worktree path-resolution rule (issue #486):** a native `EnterWorktree` session
-edits the worktree, but the worktree lives *inside* the main repo at
-`.claude/worktrees/<name>/`. Resolve every `Write`/`Edit` path from the active
-worktree root - `git rev-parse --show-toplevel` - or use a plain relative path
-from the session cwd; **never hand-build a `.claude/worktrees/<name>/...`
-absolute path**, which has been observed to land the edit in the MAIN repo
-working tree instead of the worktree (flow:auto #442 x2, #471). `/flow:auto`
+**Worktree path-resolution rule (issue #486):** the flow worktree is a visible
+sibling *outside* the main repo (`../<repo>-<branch>/`, issue #627). Resolve every
+`Write`/`Edit` path from the active worktree root - `git rev-parse
+--show-toplevel` - or use a plain relative path from the session cwd; **never
+hand-build an absolute worktree path**, which has been observed to land the edit
+in the MAIN repo working tree instead of the worktree (flow:auto #442 x2, #471). `/flow:auto`
 Steps 4/6 run `scripts/flow-worktree-guard.sh --strict` - **blocking since
 #576**: it exits 3 when a path this run edited is ALSO freshly modified in the
 main tree, the signature of a leaked edit, so the trap stops the run instead of

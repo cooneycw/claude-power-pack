@@ -255,14 +255,18 @@ code no longer conflict.
 - **CPP keeps the in-repo default + opt-in.** CPP's fresh lane rides
   `EnterWorktree(name=...)`, whose base dir is not configurable (constraint 1) and
   whose out-of-repo `path=` form triggers the unsuppressable approval prompt
-  (constraint 2). A visible CPP default would force the git lane on every fresh
-  run, retiring the native lane. So CPP stays in-repo-default; the owner gets
-  visible CPP worktrees on their box via `export FLOW_WORKTREE_BASE=$HOME/Projects`.
+  (constraint 2). A visible CPP default forces the git lane on every fresh run,
+  retiring the native lane.
 
-**Still open (not decided here):** whether CPP's *default* should also become
-visible (accepting the always-git-lane cost and losing the native `EnterWorktree`
-fresh lane). Deferred to a separate issue; today CPP delivers visibility via the
-opt-in knob only.
+**Decided 2026-08-02 (cooneycw/claude-power-pack#627): CPP ALSO defaults to
+visible.** The owner accepted the always-git-lane cost. CPP flow worktrees now
+default to a visible sibling `../<repo>-<branch>` (relocatable via
+`FLOW_WORKTREE_BASE`), created with `git worktree add` + `cd`, and the native
+`EnterWorktree`/`ExitWorktree` fresh lane is retired (`GIT_LANE=1` always in
+`flow-start-resolve.sh`). Both packs are now visible-by-default and
+architecturally identical (always-git-lane). ADR 0003's original Constraint 1
+(in-repo shipped default) is thereby superseded for BOTH packs by owner decision;
+`.claude/` / `.codex/worktrees/` stay gitignored as legacy/defensive only.
 
 ## Open decisions for owner (restated with this pass's findings weighed in)
 

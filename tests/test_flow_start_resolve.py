@@ -5,9 +5,10 @@ Contract:
 - Resolve mode triages existing work into one LANE
   (``current-branch|fresh|resume|remote-pickup|cross-repo``) and prints a
   key=value contract ending in ``FLOW_START_RESOLVE: ok``.
-- The two git-lane creation cases (cross-repo fresh, remote-pickup) run
-  ``git worktree add`` themselves (``WT_CREATED=1``); the native fresh lane
-  creates nothing (EnterWorktree owns creation).
+- Worktrees are created outside the repo by default (issue #627), so GIT_LANE is
+  always 1 and every creating lane (fresh, cross-repo, remote-pickup) runs
+  ``git worktree add`` itself (``WT_CREATED=1``); the native EnterWorktree fresh
+  lane is retired.
 - A non-OPEN issue blocks creation and sets ``CONFIRM_REQUIRED=1`` unless
   ``--allow-closed`` is passed.
 - The resume lane wraps the #503 live-driver guard (``LIVE_DRIVER=``) and the
@@ -155,13 +156,18 @@ def test_fresh_lane_in_session_repo(tmp_path: Path):
     c = _contract(res)
     assert c["LANE"] == "fresh"
     assert c["CROSS_REPO"] == "0"
-    assert c["GIT_LANE"] == "0"
+    # Worktrees are created outside the repo now (issue #627), so every run rides
+    # the git lane - even a fresh start in the session repo.
+    assert c["GIT_LANE"] == "1"
     assert c["SESSION_CWD_INFERRED"] == "0"
     assert c["BRANCH"] == "issue-42-fix-the-frobnicator"
-    assert c["WT_PATH"].endswith(".claude/worktrees/issue-42-fix-the-frobnicator")
-    # The native lane creates nothing - EnterWorktree owns fresh creation.
-    assert c["WT_CREATED"] == "0"
-    assert not Path(c["WT_PATH"]).exists()
+    # Visible sibling of the repo (in its parent dir), NOT hidden in-repo.
+    assert ".claude/worktrees" not in c["WT_PATH"]
+    assert c["WT_PATH"].endswith("-issue-42-fix-the-frobnicator")
+    assert Path(c["WT_PATH"]).parent == clone.resolve().parent
+    # The helper creates the worktree itself (the native fresh lane is retired).
+    assert c["WT_CREATED"] == "1"
+    assert Path(c["WT_PATH"]).is_dir()
     assert c["ISSUE_STATE"] == "OPEN"
     assert c["CONFIRM_REQUIRED"] == "0"
 
@@ -264,7 +270,8 @@ def test_target_repo_comes_from_session_cwd_not_process_cwd(tmp_path: Path):
     c = _contract(res)
     assert c["TARGET_REPO"] == str(session_repo.resolve()), "resolved the wrong repo"
     assert c["CROSS_REPO"] == "0"
-    assert c["GIT_LANE"] == "0"
+    # GIT_LANE is always 1 now (worktrees are out-of-repo, issue #627).
+    assert c["GIT_LANE"] == "1"
 
 
 @requires_git

@@ -4,12 +4,15 @@
 
 Create a worktree and branch for a GitHub issue. Stateless - all context from git and GitHub.
 
-Worktree mechanics ride Claude Code's **native worktrees**: the `EnterWorktree`
-tool creates a checkout under `.claude/worktrees/<name>` on a new branch (base
-governed by the `worktree.baseRef` setting - `fresh`, the default, branches from
-`origin/<default-branch>`, matching the old `origin/main` behavior) and switches
-the session into it. The issue-anchored `issue-<N>-<slug>` branch name is the
-policy CPP keeps and enforces; it is not absorbed by the native tool.
+Worktrees are created OUTSIDE the repo by default (issue #627): a **visible
+sibling** of the repo under its parent dir (`../<repo>-<branch>`), or under
+`$FLOW_WORKTREE_BASE/<repo>-<branch>` when that env var is set (#584). Because an
+out-of-repo worktree cannot ride Claude Code's native `EnterWorktree` tool - its
+base dir is not configurable, and an out-of-repo `EnterWorktree(path=...)`
+triggers an unsuppressable approval prompt (ADR 0003) - the flow uses `git
+worktree add` (done by the resolver) + `cd` on every run; the native
+`EnterWorktree` fresh lane is retired (#440 superseded). The issue-anchored
+`issue-<N>-<slug>` branch name is the policy CPP keeps and enforces.
 
 The plumbing - issue fetch + state check, slug/branch derivation, existing-work
 triage, the #503 live-driver guard, git-lane worktree creation, and the
@@ -29,11 +32,11 @@ When the user invokes `/flow-start <ISSUE>`, perform these steps:
 
 ### Step 1: Resolve
 
-`/flow-start` operates on the SESSION cwd's repo - `EnterWorktree` cannot create
-a worktree in any other checkout, so invoke it from within the target repo. To
-drive an issue in a repo the session did not start in, use
-`/flow-auto <ISSUE> <PROJECT>`, whose Step 1 resolves the target checkout and
-rides the deterministic git-worktree lane instead (issue #578).
+`/flow-start` operates on the SESSION cwd's repo, so invoke it from within the
+target repo. To drive an issue in a repo the session did not start in, use
+`/flow-auto <ISSUE> <PROJECT>`, whose Step 1 resolves the target checkout
+explicitly (issue #578). Both paths ride the same deterministic git-worktree
+lane (issue #627).
 
 **Invocation discipline (issue #581):** call the helper BARE, with the literal
 issue number - never wrapped in `if [ -x ... ]`, never chained with `&&` or
@@ -43,18 +46,19 @@ prefix rule; the helper prints its own status markers.
 **Always pass `--session-cwd` (issue #592).** The helper cannot observe the
 Claude session's working directory; it can only see the cwd the Bash tool call
 inherited, and that cwd drifts whenever any earlier command in the session
-`cd`s somewhere. `EnterWorktree`, meanwhile, always acts on the session cwd,
-which never moves. So supply the session's working directory VERBATIM as a
-literal path - the same directory the session reports as its cwd, not `$(pwd)`
-and not the directory a previous step left you in:
+`cd`s somewhere. The session cwd is what decides `TARGET_REPO` (with no PROJECT
+arg) and the `current-branch`/`resume` lanes. So supply the session's working
+directory VERBATIM as a literal path - the same directory the session reports as
+its cwd, not `$(pwd)` and not the directory a previous step left you in:
 
 ```bash
 ~/.claude/scripts/flow-start-resolve.sh 42 --session-cwd /home/user/Projects/my-repo
 ```
 
 If it is omitted the helper still works, but it says so
-(`SESSION_CWD_INFERRED=1`) and fails closed to `GIT_LANE=1`, because a wrong
-`GIT_LANE=0` would point `EnterWorktree` at the wrong repo - or at no repo.
+(`SESSION_CWD_INFERRED=1`); the worktree is still created outside the repo and
+entered with `cd` (`GIT_LANE` is always 1, issue #627), so the only risk is a
+misdetected `current-branch`/`resume` lane.
 
 If the stable path is missing (exit 127), fall back in this order - the first
 that exists (issue #590):
@@ -71,59 +75,52 @@ exit 127 there is no helper source at all - **STOP** and report that flow needs
 `/plugin install flow@cpp` (then `/flow-repair`) or a CPP checkout.
 
 The helper fetches the issue, derives the `issue-<N>-<slug>` branch (slug cut
-to keep the name within the EnterWorktree 64-char limit), triages existing
+to keep the branch name to a sane length), triages existing
 work, and prints a `key=value` contract ending in `FLOW_START_RESOLVE: ok`. On
 `FLOW_START_RESOLVE: error` (with an `ERROR=` line): **STOP** and report it.
-Keys: `LANE`, `CROSS_REPO`, `GIT_LANE`, `SESSION_CWD`, `SESSION_CWD_INFERRED`
+Keys: `LANE`, `CROSS_REPO`, `GIT_LANE` (ALWAYS 1 now - worktrees are created
+outside the repo by default (issue #627), so every run rides the git lane: enter
+with `cd`, never `EnterWorktree`, git cleanup at merge; the native fresh lane is
+retired, #440 superseded), `SESSION_CWD`, `SESSION_CWD_INFERRED`
 (1 = no `--session-cwd` was passed, so the lane decision rests on a possibly
-drifted process cwd and `GIT_LANE` was forced to 1, issue #592), `TARGET_REPO`,
+drifted process cwd, issue #592), `TARGET_REPO`,
 `ISSUE_STATE`, `ISSUE_TITLE`, `BRANCH`, `WT_PATH`, `DEFAULT_BRANCH`,
 `REMOTE_BRANCH`, `WT_CREATED`, `LIVE_DRIVER` (the helper wraps its sibling
 `scripts/flow-live-driver-guard.sh`, #503), `PR_HEAD`, `CONFIRM_REQUIRED` -
 the same contract `/flow-auto` Step 1 documents.
 
-`WT_PATH` honors the **worktree base override** (issue #584, ADR 0003 Option
-A): when `FLOW_WORKTREE_BASE` is set (host config, e.g. `~/.bashrc`), worktrees
-are created OUT of the repo at `$FLOW_WORKTREE_BASE/<repo>-<branch>` via plain
-`git worktree add` + `cd` instead of `EnterWorktree` - the native tool's base
-dir is not configurable, and `EnterWorktree(path=...)` outside the repo
-triggers an approval prompt permission rules cannot suppress. Unset (the
-shipped default), behavior is byte-identical to today: in-repo
-`.claude/worktrees/${BRANCH}`. Cleanup of a base-override worktree is the git
-fallback (`/flow-merge` / `/flow-cleanup` / `scripts/worktree-remove.sh` - all
-already layout-aware). The helper folds this in: `GIT_LANE=1` on the contract
-means the git lane applies.
+`WT_PATH` is created OUTSIDE the repo by default (issue #627): a visible sibling
+`<parent>/<repo>-<branch>`, or `$FLOW_WORKTREE_BASE/<repo>-<branch>` when the
+**worktree base override** is set (issue #584, ADR 0003 Option A: host config,
+e.g. `~/.bashrc`). Either way the worktree is created via plain `git worktree
+add` + entered with `cd` - the native `EnterWorktree` tool's base dir is not
+configurable, and `EnterWorktree(path=...)` outside the repo triggers an
+approval prompt permission rules cannot suppress, so the native fresh lane is
+retired (#440 superseded). Cleanup is the git path (`/flow-merge` /
+`/flow-cleanup` / `scripts/worktree-remove.sh` - all already layout-aware). The
+helper folds this in: `GIT_LANE=1` on the contract means the git lane applies.
 
 ### Step 2: Act on the contract
 
-Pick exactly the path the contract names:
+Worktrees live outside the repo (issue #627), so `GIT_LANE` is always 1 and you
+NEVER call `EnterWorktree` - every lane enters with `cd <WT_PATH>` and cleanup
+uses the git path. Pick exactly the path the contract names:
 
 - `ISSUE_STATE` not `OPEN` (`CONFIRM_REQUIRED=1`): warn the user and ask
   whether to proceed (they may want to reopen). On yes, re-run the resolve
   with `--allow-closed` appended and continue with its new contract.
 - `LANE=current-branch`: already on the issue's branch - use the current
   directory. Do nothing else.
-- `LANE=fresh` with `GIT_LANE=0`: create and enter the worktree natively by
-  calling the `EnterWorktree` tool with `name="${BRANCH}"` (the literal
-  `BRANCH` value from the contract). This branches from
-  `origin/<default-branch>` (under the default `worktree.baseRef: fresh`) and
-  switches the session into `.claude/worktrees/${BRANCH}`. Do NOT shell out
-  to `git worktree add` for this path. If your `worktree.baseRef` is set to
-  `head`, sync `main` first so the branch does not start from a stale local
-  HEAD.
-- `LANE=fresh` with `GIT_LANE=1` (`FLOW_WORKTREE_BASE` set, issue #584): the
-  helper already created the worktree at `WT_PATH` from
-  `origin/<DEFAULT_BRANCH>` (`WT_CREATED=1`) - `cd <WT_PATH>` (bare, literal).
-- `LANE=resume`: a prior session's worktree exists. If `CONFIRM_REQUIRED=1`
-  (`LIVE_DRIVER=suspected` and/or `PR_HEAD` shows an open/merged PR - the
-  #503 concurrent/shipped hazards), require explicit user confirmation first.
-  Then enter it with `EnterWorktree(path="<WT_PATH>")` (do NOT create a new
-  one) - or `cd <WT_PATH>` when `GIT_LANE=1` (a base-override worktree from a
-  prior run lies outside the repo).
-- `LANE=remote-pickup` (cross-machine): the native tool cannot check out an
-  existing remote branch, so the helper already added the worktree from
-  `REMOTE_BRANCH` (`WT_CREATED=1`). Enter with
-  `EnterWorktree(path="<WT_PATH>")` - or `cd <WT_PATH>` when `GIT_LANE=1`.
+- `LANE=fresh`: the helper already created the worktree at `WT_PATH`
+  (`WT_CREATED=1`) - a visible sibling `../<repo>-<branch>`, or under
+  `$FLOW_WORKTREE_BASE` when set - branched from `origin/<DEFAULT_BRANCH>`.
+  `cd <WT_PATH>` (bare, literal). Do NOT call `EnterWorktree`.
+- `LANE=resume`: a prior session's worktree exists at `WT_PATH`. If
+  `CONFIRM_REQUIRED=1` (`LIVE_DRIVER=suspected` and/or `PR_HEAD` shows an
+  open/merged PR - the #503 concurrent/shipped hazards), require explicit user
+  confirmation first. Then `cd <WT_PATH>` (do NOT create a new one).
+- `LANE=remote-pickup` (cross-machine): the helper already added the worktree
+  from `REMOTE_BRANCH` (`WT_CREATED=1`). `cd <WT_PATH>`.
 
 ### Step 3: Verify, Normalize Branch, Output
 
@@ -141,21 +138,21 @@ checkout is still on main/master, and renames a branch that does not match
 from the branch. On success it prints the final `BRANCH=` and `WT_ROOT=`. If
 it fails, STOP and report.
 
-**Worktree path-resolution rule (issue #486).** A native `EnterWorktree` session
-edits the worktree, but the worktree lives *inside* the main repo at
-`.claude/worktrees/<name>/`. When you edit files from here, resolve paths from the
-worktree root - `git rev-parse --show-toplevel` - or use plain relative paths from
-the session cwd; never hand-build a `.claude/worktrees/<name>/...` absolute path,
-which has been observed to land the edit in the MAIN repo working tree instead.
-`/flow-auto` verifies this with `scripts/flow-worktree-guard.sh --strict` before
-commit, where a fresh leak signature (exit 3) stops the run (issue #576).
+**Worktree path-resolution rule (issue #486).** The worktree lives outside the
+main repo now (issue #627), but the guard still applies: when you edit files from
+here, resolve paths from the worktree root - `git rev-parse --show-toplevel` - or
+use plain relative paths from the session cwd; never hand-build an absolute path
+into another checkout, which has been observed to land the edit in the MAIN repo
+working tree instead. `/flow-auto` verifies this with
+`scripts/flow-worktree-guard.sh --strict` before commit, where a fresh leak
+signature (exit 3) stops the run (issue #576).
 
 Report to the user:
 
 ```
 Created worktree for issue #42: "Fix login bug"
 
-  Directory: .claude/worktrees/issue-42-fix-login-bug
+  Directory: ../my-repo-issue-42-fix-login-bug
   Branch:    issue-42-fix-login-bug
   Verified:  Working directory is now the worktree (not main)
 ```

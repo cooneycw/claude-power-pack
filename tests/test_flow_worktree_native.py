@@ -1,16 +1,20 @@
-"""Regression tests for issue #440: /flow rides native worktrees.
+"""Regression tests for the /flow worktree lane.
 
-These pin the migration from bespoke ``git worktree add/remove`` plumbing to
-Claude Code's native ``EnterWorktree``/``ExitWorktree`` tools, while proving the
-issue-anchored gate policy (the moat) stays layered on top: the eli5 necessity
-gate, quality gates, the ``issue-<N>-<slug>`` branch name, squash-merge
-discipline, and the cross-session ``git worktree`` cleanup fallback.
+Issue #440 first moved /flow onto Claude Code's native ``EnterWorktree`` tools;
+issue #627 then RETIRED that native fresh lane in favour of visible worktrees
+created OUTSIDE the repo (a sibling ``../<repo>-<branch>``, or under
+``FLOW_WORKTREE_BASE``) on the git lane, entered with ``cd``. These tests pin the
+current (post-#627) contract - always-git-lane, native fresh lane retired - while
+proving the issue-anchored gate policy (the moat) stays layered on top: the eli5
+necessity gate, quality gates, the ``issue-<N>-<slug>`` branch name, squash-merge
+discipline, and the ``git worktree`` cleanup path. The ``flow-worktree-guard.sh``
+behaviour tests further down (issues #486/#536/#573/#576) are unchanged - the leak
+guard resolves via git plumbing and is layout-agnostic.
 """
 
 from __future__ import annotations
 
 import os
-import re
 import shutil
 import subprocess
 import time
@@ -25,34 +29,37 @@ def _read(rel: str) -> str:
     return (ROOT / rel).read_text(encoding="utf-8")
 
 
-def test_start_uses_native_enter_worktree() -> None:
+def test_start_retires_native_enter_worktree_fresh_lane() -> None:
+    # Issue #627: the fresh lane no longer creates by name via native
+    # EnterWorktree - the helper git-adds an out-of-repo worktree and the model
+    # enters with `cd`. So start.md must NOT instruct native by-name creation.
     text = _read(".claude/commands/flow/start.md")
-    assert "EnterWorktree" in text
-    # Fresh path creates the worktree by name (native), not a sibling dir.
-    assert 'name="${BRANCH}"' in text
+    assert 'EnterWorktree(name=' not in text, "start.md still creates via native EnterWorktree"
+    assert "cd " in text and "flow-start-resolve.sh" in text
 
 
-def test_auto_uses_native_enter_and_exit_worktree() -> None:
+def test_auto_retires_native_lane_and_uses_git_cleanup() -> None:
+    # Issue #627: no native by-name creation (Step 1) and no ExitWorktree cleanup
+    # (Step 7) - every run enters with `cd` and cleans up on the git lane.
     text = _read(".claude/commands/flow/auto.md")
-    assert "EnterWorktree" in text  # Step 1 create/enter
-    assert "ExitWorktree" in text  # Step 7 same-session cleanup
+    assert 'EnterWorktree(name=' not in text, "auto.md still creates via native EnterWorktree"
+    assert "ExitWorktree(action" not in text, "auto.md still cleans up via ExitWorktree"
+    assert "worktree-remove.sh" in text  # git-lane cleanup
 
 
-def test_fresh_path_drops_sibling_worktree_dir() -> None:
-    # The old plumbing created ../<repo>-issue-<N> and branched it with git; the
-    # native fresh path must not reintroduce that create mechanic. The
-    # cross-machine path (which git-adds "$LOCAL_BRANCH"), the cross-repo lane
-    # (which git-adds via `git -C "$TARGET_REPO"`, issue #578), and the
-    # FLOW_WORKTREE_BASE override lane (which git-adds "$WT_PATH", issue #584 /
-    # ADR 0003) are intentionally kept - only the bare same-repo default fresh
-    # path must stay native.
+def test_fresh_path_creates_visible_sibling_via_helper() -> None:
+    # Issue #627: worktree creation lives in the helper (not inline md bash), and
+    # the default is a visible sibling outside the repo - never the hidden
+    # in-repo .codex/.claude/worktrees path.
+    script = _read("scripts/flow-start-resolve.sh")
+    assert 'wt_path_for()' in script
+    # Default (unset FLOW_WORKTREE_BASE) is the repo's PARENT dir, not in-repo.
+    assert 'dirname "$TARGET_REPO"' in script
+    assert "worktree add" in script  # git-lane creation lives in the helper
     for rel in (".claude/commands/flow/start.md", ".claude/commands/flow/auto.md"):
         text = _read(rel)
-        assert 'WORKTREE_DIR="../' not in text, f"{rel} still creates a sibling worktree dir"
-        for match in re.findall(r'git worktree add -b "\$BRANCH" \S+', text):
-            assert '"$WT_PATH"' in match, (
-                f"{rel} git-adds the fresh path outside the #584 override lane: {match}"
-            )
+        # The command md delegates creation to the helper - no inline create bash.
+        assert 'git worktree add -b "$BRANCH"' not in text, f"{rel} re-inlines fresh creation"
 
 
 def test_auto_cross_repo_lane() -> None:
@@ -69,9 +76,10 @@ def test_auto_cross_repo_lane() -> None:
     script = _read("scripts/flow-start-resolve.sh")
     assert '"$PROJECTS_DIR/$PROJECT"' in script  # /project:next resolution convention
     assert "worktree add" in script  # git-lane creation lives in the helper
-    # The default layout keeps the worktree under the TARGET repo so the
-    # #473/#486 guards and friction buffer resolve unchanged.
-    assert "/.claude/worktrees/" in script
+    # Worktrees are created OUTSIDE the repo now (issue #627): a visible sibling
+    # in the parent dir, or under FLOW_WORKTREE_BASE. The #473/#486 guards and
+    # friction buffer resolve via git plumbing regardless of location.
+    assert 'dirname "$TARGET_REPO"' in script and "FLOW_WORKTREE_BASE" in script
     # start.md points cross-repo users at /flow:auto rather than half-supporting it.
     start = _read(".claude/commands/flow/start.md")
     assert "#578" in start

@@ -40,12 +40,10 @@
 #     LANE=current-branch|fresh|resume|remote-pickup|cross-repo
 #     CROSS_REPO=0|1        1 = the target repo is not the session repo (#578)
 #     GIT_LANE=0|1          1 = ride the git lane end-to-end: enter with `cd`,
-#                           never EnterWorktree, git cleanup at Step 7. Set for
-#                           cross-repo runs, when FLOW_WORKTREE_BASE is set
-#                           (issue #584, ADR 0003), when a resumed worktree
-#                           lies outside the target repo, and whenever the
-#                           session cwd was inferred rather than declared
-#                           (issue #592 - fail closed toward the safe lane)
+#                           never EnterWorktree, git cleanup at Step 7. Since
+#                           worktrees are created OUTSIDE the repo by default
+#                           (issue #627), this is ALWAYS 1 - the native
+#                           EnterWorktree fresh lane is retired (#440 superseded).
 #     SESSION_CWD=<path>    the session cwd this resolution was decided against
 #     SESSION_CWD_INFERRED=0|1
 #                           1 = no --session-cwd/FLOW_SESSION_CWD was supplied,
@@ -57,9 +55,9 @@
 #     ISSUE_TITLE=<title, whitespace flattened>
 #     BRANCH=<issue-N-slug branch this run must be on>
 #     WT_PATH=<abs path of the worktree to enter (or create, LANE=fresh)>
-#                           honors FLOW_WORKTREE_BASE (#584):
-#                           $FLOW_WORKTREE_BASE/<repo>-<branch> when set, else
-#                           <target repo>/.claude/worktrees/<branch>
+#                           created OUTSIDE the repo (issue #627):
+#                           $FLOW_WORKTREE_BASE/<repo>-<branch> when set (#584),
+#                           else a visible sibling <parent>/<repo>-<branch>
 #     DEFAULT_BRANCH=<default branch name>
 #     REMOTE_BRANCH=origin/<...>       (remote-pickup lane only)
 #     WT_CREATED=0|1        1 = this run already ran `git worktree add`
@@ -282,28 +280,25 @@ SESSION_PRIMARY=$(resolve_primary "$SESSION_CWD" 2>/dev/null || true)
 CROSS_REPO=1
 [ -n "$SESSION_PRIMARY" ] && [ "$SESSION_PRIMARY" = "$TARGET_REPO" ] && CROSS_REPO=0
 
-# Git lane (issues #578, #584): cross-repo runs and base-override runs never
-# use EnterWorktree - the native tool cannot reach another repo, its base dir
-# is not configurable, and out-of-repo EnterWorktree(path=...) triggers an
-# unsuppressable approval prompt (ADR 0003 constraint 2).
-GIT_LANE=$CROSS_REPO
-[ -n "${FLOW_WORKTREE_BASE:-}" ] && GIT_LANE=1
-# Fail closed (issue #592): GIT_LANE=1 is safe in every case - the git lane
-# works whether or not the session sits in the target repo - while a wrong
-# GIT_LANE=0 tells the model to call EnterWorktree on a directory that may be
-# another repo or no repo at all. So an UNVERIFIED session cwd never earns the
-# native lane.
-if [ "$SESSION_CWD_INFERRED" -eq 1 ]; then
-  GIT_LANE=1
-  echo "flow-start-resolve: no --session-cwd given - resolving against the process cwd '$SESSION_CWD_ABS', which may have drifted from the session cwd; riding the git lane (issue #592)." >&2
-fi
+# Git lane (issues #578, #584, #627): flow worktrees are created OUTSIDE the repo
+# by DEFAULT now - a visible sibling under the repo's parent dir (issue #627),
+# relocatable via FLOW_WORKTREE_BASE (#584) - so every run rides the git lane.
+# EnterWorktree cannot be used for an out-of-repo worktree: it cannot reach
+# another repo, its base dir is not configurable, and out-of-repo
+# EnterWorktree(path=...) triggers an unsuppressable approval prompt (ADR 0003
+# constraint 2). GIT_LANE=1 is safe in every case (issue #592); the native
+# EnterWorktree fresh lane is retired for the default (#440 superseded).
+GIT_LANE=1
 
-# Worktree path for a branch, honoring the #584 base override.
+# Worktree path for a branch. Worktrees are created OUTSIDE the repo (issue #627):
+# under FLOW_WORKTREE_BASE when set (#584), else a visible sibling in the repo's
+# parent dir. Either way the dir is named <repo>-<branch> to disambiguate repos
+# that share one base (e.g. everything under ~/Projects).
 wt_path_for() {
   if [ -n "${FLOW_WORKTREE_BASE:-}" ]; then
     echo "$FLOW_WORKTREE_BASE/$(basename "$TARGET_REPO")-$1"
   else
-    echo "$TARGET_REPO/.claude/worktrees/$1"
+    echo "$(dirname "$TARGET_REPO")/$(basename "$TARGET_REPO")-$1"
   fi
 }
 
@@ -462,9 +457,9 @@ if [ -z "$LANE" ]; then
   fi
 fi
 
-# 4. Fresh start. The native lane (EnterWorktree) creates the worktree
-#    itself; the git lane (#578 cross-repo, #584 base override) cannot use
-#    EnterWorktree, so create here.
+# 4. Fresh start. Worktrees are created outside the repo (issue #627), so the
+#    git lane always applies (GIT_LANE=1) and the helper creates the worktree
+#    here - the native EnterWorktree fresh lane is retired.
 if [ -z "$LANE" ]; then
   WT_PATH=$(wt_path_for "$BRANCH")
   if [ "$CROSS_REPO" -eq 1 ]; then
