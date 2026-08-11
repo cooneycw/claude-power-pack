@@ -53,6 +53,114 @@ guesses this session's own address before any message has been delivered.
   as valid as `uds:...` (#675). The name predates the transport-opaque contract
   and is kept because it is a published flag; the same applies to the
   `FLOW_WAVE_SOCKET_*` output keys below.
+- Role-level facts (#699), all optional and all flag-answerable:
+  `--model <name>`, `--permission-mode <mode>`, `--files <a,b,c>` (this
+  session's file lane), `--capacity <text>`
+- Wave-level policy (#699), on the `policy set` verb only: `--driver`,
+  `--authority`, `--authority-model`, `--gate`, `--ledger`,
+  `--merge-authority`, `--deploy-policy`, `--repo`
+
+## The wave policy: two tiers of declared state (issue #699)
+
+The registry used to record a role, an address and a lane. Everything else a
+wave RUNS ON - whether it may write code at all, where a worker stops for
+approval, who judges, what a completion report looks like, which files each
+worker owns - lived in prose the orchestrator retyped into every message. Three
+consequences, all observed in the 2026-08-11 wave:
+
+- **It does not survive a `/clear`.** The registry's stated purpose is
+  surviving one. The protocol was the half that did not.
+- **Retyping is where the errors were.** One message fenced a worker's file
+  lane out of `flow-helpers-install.sh` and, three paragraphs later, assigned it
+  the issue whose fix lives in that file. The worker refused to start and asked
+  which was right. The cause was not carelessness - the lane existed only as
+  hand-typed text, with nothing to read it back from.
+- **The most consequential fact of all was established out of band.** Whether
+  the wave writes code or files issues - against CPP's standing "file issues,
+  don't implement" rule - took a user round-trip and then had to be restated in
+  every brief. Both workers correctly refused to infer authority from being
+  handed an issue number, because nothing in the registry could tell them.
+
+So policy is DECLARED DATA, in two tiers.
+
+**Tier 1 - wave-level, declared ONCE by the orchestrator, inherited by every
+role:**
+
+| Field | Flag | Why it is here |
+|---|---|---|
+| repo / project | `--repo` | a worker registered with `repo=""` |
+| wave name | `--wave` | was INFERRED by a worker once, correctly, by luck (#671) |
+| driver | `--driver` | `flow:auto` vs `codex:auto` determines the gate shape |
+| **implementation authority** | `--authority` | `implement` or `file-issues-only`. The out-of-band fact above |
+| gate policy | `--gate` | which step, who judges, whether `--yes` is forbidden |
+| **authority model** | `--authority-model` | `orchestrator-only` or `user-and-orchestrator`. Two required signatures is how a wave deadlocks (#676) |
+| ledger format | `--ledger` | the one structured element that already worked - both workers produced comparable output all day |
+| merge authority | `--merge-authority` | who authorises the merge |
+| deploy policy | `--deploy-policy` | Woodpecker-only, #469 no-op, etc. |
+
+**Tier 2 - role-level, declared per session on `register`:**
+
+| Field | Flag | Why it is here |
+|---|---|---|
+| role, wave | positional / `--wave` | already recorded |
+| model | `--model` | routing: do not hand the hardest issue to the smallest model |
+| **permission mode** | `--permission-mode` | a session that will hit permission prompts cannot take unattended work; routing it there wastes a cycle. Previously visible only in message metadata |
+| cwd, repo, issue, branch | `--cwd` etc. | already recorded |
+| **file lane** | `--files` | the largest gap. `list` warned on repo/issue/branch/worktree overlap; every real collision in the reference wave was file-level |
+| capacity | `--capacity` | whether this session can take a second issue |
+
+**Four anti-patterns this deliberately designs against**, because a template
+that violates them trains people to paste anything:
+
+1. **Nothing derivable is asked for.** Repo comes from the cwd's git root,
+   the address from the pid walk, the model from the session. Every field
+   above changes a downstream decision.
+2. **Nothing that goes stale instantly is required.** Issue and branch before a
+   worktree exists is the #683 trap; re-registration is normal instead.
+3. **Everything is flag-answerable, never interactive-only.** An
+   interactive-only path strands scripted startup - #677's lesson one layer up.
+4. **A declared policy nobody checks is decoration.** This is the one that
+   would make the whole feature worthless, so four things read it back:
+   `register` reprints the policy (below); an undeclared policy is reported as
+   `absent` rather than passing silently; a role briefed on a superseded rev
+   reads `brief=STALE`; and declared file lanes participate in overlap
+   detection like branches do.
+
+### Declaring the policy (orchestrator, once)
+
+```bash
+~/.claude/scripts/flow-wave-registry.sh policy set --wave cpp \
+  --repo /home/user/Projects/claude-power-pack \
+  --driver flow:auto \
+  --authority implement \
+  --authority-model orchestrator-only \
+  --gate "stop at /flow-auto Step 3; orchestrator judges; --yes forbidden" \
+  --ledger "delivered / in-scope / residual" \
+  --merge-authority worker \
+  --deploy-policy "woodpecker-only, never a manual deploy"
+```
+
+`policy set` MERGES: fields not given are left alone, so amending one field is
+a one-flag call rather than a restatement of the whole policy (restating it is
+how a field gets silently dropped). Every set bumps `rev`, and the helper names
+any live role still carrying the older rev - an amendment nobody re-read is
+exactly the drift a declared-but-unread field would hide.
+
+`--authority` and `--authority-model` are validated against their enums (a typo
+is exit 2, not a stored value nobody can act on). The rest are free text: they
+are read by humans and the wording is the content. Read it back any time with
+`policy show --wave cpp` (`--json` for the object).
+
+### The re-brief: what makes this more than a JSON file
+
+`register` REPRINTS the wave policy on every registration. That is the whole
+mechanic. `register.md` already called re-registering "the cheap re-brief" for
+addressing; a `/clear`ed or compacted worker now recovers the PROTOCOL the same
+way, by re-registering, instead of waiting for an orchestrator to retype it.
+
+A worker reading `FLOW_WAVE_POLICY=absent` should say so rather than infer:
+nothing in the wave has declared whether it may write code, and being handed an
+issue number is not that declaration.
 
 ## Instructions
 
@@ -75,11 +183,18 @@ and is wiped by the OS at reboot - exactly when every session's address dies too
 
 ### Worker side - `/flow-register <role> [--wave W]`
 
-1. Register, passing what this session knows about its lane (literal values):
+1. Register, passing what this session knows about its lane and itself
+   (literal values):
 
    ```bash
-   ~/.claude/scripts/flow-wave-registry.sh register 1 --wave cpp --cwd /path/to/worktree --repo /path/to/repo --issue 42 --branch issue-42-slug
+   ~/.claude/scripts/flow-wave-registry.sh register 1 --wave cpp --cwd /path/to/worktree --repo /path/to/repo --issue 42 --branch issue-42-slug --model opus --permission-mode bypassPermissions --files scripts/flow-wave-registry.sh,tests/test_flow_wave_registry.py
    ```
+
+   The role-level facts are optional and each answers a routing question the
+   orchestrator otherwise had to ask (#699). They are PRESERVED across a
+   re-register that omits them - unlike cwd/issue/branch, which a re-register
+   rewrites because they describe a lane that genuinely goes stale. Pass an
+   empty value (`--files ""`) to clear one deliberately.
 
    The helper self-derives this session's address by walking ancestor pids
    against the socket dir. **This step is genuinely uds-specific** and is the
@@ -96,7 +211,17 @@ and is wiped by the OS at reboot - exactly when every session's address dies too
    the NORMAL path, not a fault: the address arrives from the first delivered
    message instead.
 
-2. Act on the verdict line:
+2. Act on the verdict line, and READ THE POLICY BLOCK it prints (#699). The
+   registration output carries the wave's declared protocol - implementation
+   authority, gate policy, ledger format, merge authority - which is the
+   compaction-proof re-brief. Two states matter:
+   - `FLOW_WAVE_POLICY=declared` - those are this wave's rules; follow them,
+     and check `FLOW_WAVE_BRIEF` (`current` means nothing has changed under you).
+   - `FLOW_WAVE_POLICY=absent` - the wave has declared nothing. Do NOT infer
+     implementation authority from having been handed an issue number: say the
+     policy is undeclared and ask the orchestrator to `policy set` it. This is
+     the failure the field exists to remove.
+   Then the address verdicts:
    - `FLOW_WAVE: registered` / `updated` - proceed.
    - `FLOW_WAVE: refused` (exit 1) - the role is held by a LIVE session. Two
      sessions both believing they are "worker 1" is the failure this command
@@ -321,11 +446,23 @@ report wakes this session instead of waiting for the next time a human looks:
 
 It covers every `inbox-*.md` at once. Re-arm after handling each wake.
 
+**Declare the wave policy before assigning anything (#699).** Run `policy set`
+once (see "Declaring the policy" above). It is what makes the ack below a
+POINTER to durable state rather than the only copy of it: the gate points, the
+ledger format, the authority model and the merge authority live in the registry,
+and a worker re-reads them by re-registering. Without it, every brief is a
+retype and a `/clear` erases the protocol.
+
 **Ack with the protocol.** The registration ack is the handshake: send the
 worker its wave brief so the rules survive its compaction - the gate points
 (stop at `/flow-auto` Step 3, no `--yes`), the completeness-ledger format
 (delivered / in-scope / residual), its file lane, and the pushback rule,
-stated verbatim. Deliver it by the preference order above: `SendMessage` when
+stated verbatim. With a declared policy the first three are already recorded, so
+the ack states the worker's LANE and any issue-specific conditions and points at
+the policy rev for the rest; grant the file lane with `--files` on the worker's
+next register (or tell it to), so the lane is data the roster can check rather
+than a sentence only the orchestrator remembers. Deliver it by the preference
+order above: `SendMessage` when
 the harness routes it, otherwise the mailbox (`send --to <role>`), and only
 then a human. An ack that cannot be delivered is not an ack - if it lands in
 the mailbox, say so, because the worker sees it on its next watch wake rather
@@ -346,7 +483,14 @@ re-brief for a worker whose compaction dropped more detail than expected.
 ~/.claude/scripts/flow-wave-registry.sh list --wave cpp
 ```
 
-- Shows `role -> address`, liveness, verification state, and current issue.
+- Shows `role -> address`, liveness, verification state, and current issue -
+  plus any declared role-level facts (`files=`, `model=`, `perm=`,
+  `capacity=`), rendered only when declared so a wave that uses none reads
+  exactly as before (#699).
+- **The wave policy is the roster's header** (#699), or an explicit
+  `NONE DECLARED` line. A live role carrying a superseded policy rev is marked
+  `brief=STALE` and summarized in a `BRIEF:` line - it is running on older
+  rules until it re-registers, and re-registering is the whole fix.
 - Dead entries read `stale` and are kept, not deleted - a dead worker mid-issue
   is information, and its worktree claim outlives it.
 - **Unregistered `flow-claim` locks are reconciled in (#687).** Registration is
@@ -369,18 +513,27 @@ re-brief for a worker whose compaction dropped more detail than expected.
     repo - that is the shape of the coverage, and the reader should not have to
     guess it.
 - **Lane overlap warnings fire on the useful signal only**: same repo + same
-  issue, same branch, or same/nested worktree paths between LIVE entries.
-  Sharing a repo alone is the NORMAL wave shape (all workers, one repo,
-  separate worktrees) and prints as info, never a warning - a warning that
-  fires on the normal case trains everyone to ignore it. Roles that have
-  DECLARED NO LANE are exempt from the pairwise checks entirely (#683): the
+  issue, same branch, same/nested worktree paths, or overlapping declared FILE
+  LANES between LIVE entries. Sharing a repo alone is the NORMAL wave shape (all
+  workers, one repo, separate worktrees) and prints as info, never a warning - a
+  warning that fires on the normal case trains everyone to ignore it. Roles that
+  have DECLARED NO LANE are exempt from the pairwise checks entirely (#683): the
   `orchestrator`, which never implements and so cannot collide with a lane
-  whatever its cwd, and any live role with no issue, no branch, and a
-  shared-parent cwd. The exemption is announced in the roster rather than
+  whatever its cwd, and any live role with no issue, no branch, no file lane,
+  and a shared-parent cwd. The exemption is announced in the roster rather than
   silent - a skipped check nobody can see is a blind spot, not a quiet win -
   and it lapses the moment the role declares a lane. It is narrow on purpose:
-  a declared branch, or a genuinely nested worktree, is a lane even with no
-  issue number yet.
+  a declared branch, a genuinely nested worktree, or a granted file lane is a
+  lane even with no issue number yet.
+- **File-lane overlap is EXACT-MATCH on declared paths** (#699), not glob
+  expansion, prefix containment, or realpath resolution. Two lanes that mean the
+  same directory but spell it differently do not collide here - declare the same
+  string on both sides. The narrow rule is deliberate: a comparison that guesses
+  invents collisions nobody declared, and this warning has to be believed to be
+  worth having. Every real collision in the reference wave was file-level (two
+  workers in `register.md`, two PRs regenerating `codex/skills/**`, one issue
+  whose fix lived in another worker's file), and all of it was managed by the
+  orchestrator holding paths in prose and checking by hand.
 - **`FLOW_WAVE_BOOTSTRAP=deadlock`** counts LIVE roles with no address. Those
   are unreachable from either direction, so the orchestrator-first contact
   above has no target for them either - work the bootstrap lanes before
@@ -426,9 +579,14 @@ silently no-ops; it exposes the asymmetry, it does not remove it.)
 
 Every verb ends with a machine-readable verdict:
 `FLOW_WAVE: registered | updated | refused | released | listed | verified |
-address_filled | mismatch-corrected | free | unknown | error`, preceded by
-`FLOW_WAVE_*=` detail lines. Exit 1 = refused (live-owner conflict), exit 2 =
-usage error, else 0.
+address_filled | mismatch-corrected | free | unknown | policy_set |
+policy_shown | policy_absent | error`, preceded by `FLOW_WAVE_*=` detail lines.
+Exit 1 = refused (live-owner conflict), exit 2 = usage error, else 0.
+
+`policy_absent` is a STATE, not a failure, and exits 0 (#699) - a wave that has
+not declared its policy yet is a normal early condition, and the point is that
+it is visible rather than implicit. A new verdict must never become a new exit
+code, or a `set -euo pipefail` caller aborts on it; that is the #674 rule, kept.
 
 `verify` splits its non-matching outcomes (#674). `address_filled` means the
 recorded address was `unknown` and observation SUPPLIED one - the documented
@@ -455,6 +613,27 @@ uds-specific step. `REASON` is inherently uds-specific: it explains why a
 socket-file guess failed, and is `-` when no guess was needed.
 | `FLOW_WAVE_BOOTSTRAP` | `ok` / `deadlock` (the address is `unknown`, so `verify` cannot fire - blocked, not pending) |
 
+Wave-policy detail lines (#699), emitted by `register`, `get`, `list` and
+`policy` - present or absent, so a consumer can always tell "no policy declared"
+from "this call does not report policy":
+
+| Line | Values |
+|------|--------|
+| `FLOW_WAVE_POLICY` | `declared` / `absent` |
+| `FLOW_WAVE_POLICY_REV` | current revision (`0` when absent); every `policy set` bumps it |
+| `FLOW_WAVE_POLICY_AUTHORITY` | `implement` / `file-issues-only` |
+| `FLOW_WAVE_POLICY_AUTHORITY_MODEL` | `orchestrator-only` / `user-and-orchestrator` |
+| `FLOW_WAVE_POLICY_DRIVER` / `_GATE` / `_LEDGER` / `_MERGE_AUTHORITY` / `_DEPLOY` / `_REPO` / `_TS` | free text as declared |
+| `FLOW_WAVE_BRIEFED_REV` | the rev THIS role was briefed on (`register` / `get`) |
+| `FLOW_WAVE_BRIEF` | `current` / `stale` / `none`. `stale` = the policy was amended after this role registered; re-register to take the re-brief |
+
+`list --json` gains a `wave_policy` sibling key when a policy is declared -
+alongside `unregistered_claims` and for the same reason: roles are top-level
+keys, so policy is hung beside them rather than nested, and the key appears only
+when there is something to report, so a wave without a policy emits
+byte-identical JSON to before. The same caveat the #687 precedent accepted
+applies: a role literally named `wave_policy` would collide.
+
 ## Notes
 
 - This command is the address-exchange half carved out of #637; the assignment
@@ -465,4 +644,9 @@ socket-file guess failed, and is `-` when no guess was needed.
 - Roles are free-form labels; `orchestrator` is just a role, so workers can
   `get orchestrator` to discover where to send their hello - or learn it is
   not there yet and defer the hello to first contact (#670).
+- The wave policy covers declared STATE (#699). Its companion #701 covers state
+  TRANSITIONS - gate verdicts, lane grants, merge authorizations - and the two
+  carry the same load-bearing caveat: a declared policy or a reserved token that
+  nothing reads back is decoration, and its broken version is indistinguishable
+  from its working one. Which is why every field here has a named reader.
 - The helper needs `jq` (already a CPP bootstrap prerequisite).
