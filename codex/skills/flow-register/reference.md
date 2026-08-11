@@ -249,7 +249,15 @@ re-brief for a worker whose compaction dropped more detail than expected.
   issue, same branch, or same/nested worktree paths between LIVE entries.
   Sharing a repo alone is the NORMAL wave shape (all workers, one repo,
   separate worktrees) and prints as info, never a warning - a warning that
-  fires on the normal case trains everyone to ignore it.
+  fires on the normal case trains everyone to ignore it. Roles that have
+  DECLARED NO LANE are exempt from the pairwise checks entirely (#683): the
+  `orchestrator`, which never implements and so cannot collide with a lane
+  whatever its cwd, and any live role with no issue, no branch, and a
+  shared-parent cwd. The exemption is announced in the roster rather than
+  silent - a skipped check nobody can see is a blind spot, not a quiet win -
+  and it lapses the moment the role declares a lane. It is narrow on purpose:
+  a declared branch, or a genuinely nested worktree, is a lane even with no
+  issue number yet.
 - **`FLOW_WAVE_BOOTSTRAP=deadlock`** counts LIVE roles with no address. Those
   are unreachable from either direction, so the orchestrator-first contact
   above has no target for them either - work the bootstrap lanes before
