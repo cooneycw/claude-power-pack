@@ -38,6 +38,7 @@
       "Bash(~/.claude/scripts/flow-worktree-claim.sh:*)",
       "Bash(~/.claude/scripts/flow-wave-registry.sh:*)",
       "Bash(~/.claude/scripts/flow-wave-mailbox.sh:*)",
+      "Bash(~/.claude/scripts/flow-wave-lexicon.sh:*)",
       "Bash(~/.claude/scripts/flow-wave-plan.py:*)",
       "Bash(~/.claude/scripts/flow-finish-gate.sh:*)",
       "Bash(~/.claude/scripts/gh-pr-merge.sh:*)",
