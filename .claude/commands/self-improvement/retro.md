@@ -78,7 +78,25 @@ Collect signals from all available sources (union, then de-duplicate):
    - **manual-intervention** - places where the user corrected course, re-ran a
      command by hand, or supplied a value the flow should have known.
 3. **Replay mode** - if `TRANSCRIPT` was given, parse that file for the same four
-   classes instead of the live conversation.
+   classes instead of the live conversation. Also run the deterministic
+   measurement-shape scanner over it (issue #666, the detection half of the #659
+   ref-scoped-reads core directive):
+   ```bash
+   python3 scripts/measurement-shape-scan.py path/to/transcript.md
+   ```
+   Each `warn` finding (a `git diff|show|log ... -- <relative>` read with no
+   `-C` anchor - the cwd-drift trap whose empty diff reads as "no changes") is a
+   **red-output** signal: fold it into Step 3 classification exactly like a
+   model-observed one, with the flagged command as the signal text and the
+   ref-scoped rewrite (`git -C <root> ... -- <path>`, or full refs) as the
+   candidate fix. `info` findings (`worktree-grep`) are a heuristic tier - judge
+   from transcript context whether the grep characterized a BRANCH before
+   treating it as a signal. The scanner cannot know where the shell's cwd was
+   when a command ran, so findings are advisory input to this retro, never
+   auto-applied (the #666 false-positive guard); prose QUOTING the trap shape
+   (docs excerpts in the transcript) is a known false-positive class - drop
+   those on sight. The greppable tail line `MEASUREMENT_SHAPES: <n>` counts
+   warn findings; exit 0 is not "clean", it is "scan ran".
 
 If nothing is found:
 ```
