@@ -186,6 +186,32 @@ class TestStepGating:
     def test_non_test_steps(self, step_id: str, command: str) -> None:
         assert not ShellStep(StepDef(id=step_id, command=command)).is_test_step()
 
+    def test_path_in_command_matches_by_design(self) -> None:
+        """An absolute path is scanned like any other command text (#621, #704).
+
+        This is a characterization test, not a wish: #621 wants a `make test`
+        recipe recognized even under an unhelpful step id, which means scanning
+        the whole command, which in turn means a path carrying "test"/"pytest"
+        matches too. Narrowing the pattern to dodge paths would weaken the
+        detection it exists for, so the trade-off is pinned here - a future
+        narrowing has to be a deliberate act that turns this red rather than a
+        silent drift.
+
+        The cost lands on FIXTURES, which is how it was found (#704): a step
+        command built from `sys.executable` inherits the checkout path, so every
+        flow worktree whose branch slug contained "test" reclassified a `lint`
+        step as a test step and went red. Both poisoned shapes below are real -
+        a flow worktree path, and anything under pytest's own `tmp_path` root.
+        """
+        worktree = '"/home/u/cpp-issue-704-test-workers-cap/.venv/bin/python3" capture_env.py'
+        pytest_tmp = '"/tmp/pytest-of-u/pytest-3/plain0/interp" capture_env.py'
+
+        assert ShellStep(StepDef(id="lint", command=worktree)).is_test_step()
+        assert ShellStep(StepDef(id="lint", command=pytest_tmp)).is_test_step()
+        # The shape a fixture must use instead: a relative name, no path, and no
+        # mention of PYTEST_WORKERS (which matches on "pytest" as well).
+        assert not ShellStep(StepDef(id="lint", command="./interp capture_env.py")).is_test_step()
+
     def test_non_test_step_never_parses_counts(self) -> None:
         step = ShellStep(StepDef(id="lint", command="make lint"))
         assert step._parse_tests("== 1 passed, 9 skipped in 1.0s ==", "") is None
