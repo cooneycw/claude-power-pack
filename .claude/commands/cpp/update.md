@@ -482,6 +482,21 @@ helper BARE (allowlist rule matches the stable path):
 ```
 
 - `CPP_COMMANDS_LINK: ok` - report `✓ Command symlinks current` and continue.
+  **Report it as a TOPOLOGY result, never as an install-health verdict** (issue
+  #685): it means the 16 family links resolve to this checkout, and says nothing
+  about whether the checkout's CONTENT is correct. A restore-over-clone accident
+  produced a working tree with 106 files reverted and 111 upstream-deleted files
+  resurrected; every link resolved, this step read `ok`, and the Step-3 `git
+  pull` said "Already up to date" - three green signals while every served
+  command was stale. Do not summarise this step as "command surface healthy".
+- A `checkout: N tracked modified, M untracked (-uall) ...` line may precede the
+  verdict. It is an ADVISORY observation, not drift: relay it with its counts
+  and leave the verdict alone. Dirtiness is not staleness - a maintainer
+  mid-edit and a corrupted restore look the same from here, which is why the
+  counts are split (a handful of untracked scratch reads very differently from
+  106 tracked modifications). If the numbers look wrong for the host, the
+  content checks are `git -C "$CPP_DIR" status --porcelain -uall` (expect empty)
+  and `git -C "$CPP_DIR" rev-parse HEAD origin/main` (expect equal).
 - `CPP_COMMANDS_LINK: drift` (exit 1) - families are missing or point at
   another checkout. Ask the user, then run the install (bare, no flags):
   `~/.claude/scripts/cpp-commands-link.sh`

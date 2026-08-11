@@ -185,3 +185,30 @@ def test_unknown_argument_is_rejected(tmp_path: Path, plugin_source: Path):
     proc = _run("--nope", home=tmp_path / "home", source=plugin_source)
     assert proc.returncode == 2
     assert "unknown argument" in proc.stderr
+
+
+def test_help_stops_at_the_doc_block(tmp_path: Path):
+    """--help must print the header and nothing after it (issue #686).
+
+    The extractor is a hardcoded `sed -n '2,Np'` range, so it silently drifts
+    whenever the header grows or shrinks - it was `2,37p` against a block ending
+    at line 28, spilling `set -uo pipefail`, three variable assignments and two
+    stray comment lines into user-visible output. Asserting on the CODE that
+    must not appear (rather than on an exact line count) survives the header
+    being edited, which is the thing that will happen next.
+    """
+    proc = _run("--help", home=tmp_path / "home")
+    assert proc.returncode == 0, proc.stderr
+    out = proc.stdout
+
+    # The real help text is present...
+    assert "flow-helpers-install.sh - Install the flow helper family" in out
+    assert "FLOW_HELPERS_SOURCE" in out, "the last Env entry is the doc block's end"
+
+    # ...and no executable code leaked past it.
+    for leaked in ("set -uo pipefail", "SELF_DIR=", "HOME_DIR=", "TARGET_DIR=",
+                   "HELPERS=("):
+        assert leaked not in out, (
+            f"--help leaked {leaked!r} - the sed range extends past the doc "
+            f"block, which ends at the last `# Env:` entry (issue #686)"
+        )
