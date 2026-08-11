@@ -257,7 +257,10 @@ def test_retired_bare_invocations_gone_from_sources():
     for src in sorted(SOURCE_COMMANDS.rglob("*.md")):
         text = src.read_text()
         for bare in RETIRED_BARE_INVOCATIONS:
-            if bare in text:
+            # An INVOCATION reference, not a longer token: `/project-next.py`
+            # is a filename (the CxPP engine consumed since #636), never the
+            # retired slash command - require the match to end the token.
+            if re.search(re.escape(bare) + r"(?![\w.-])", text):
                 offenders.append(f"{src.relative_to(ROOT)}: {bare}")
     assert offenders == [], f"stale bare invocations in command sources: {offenders}"
 

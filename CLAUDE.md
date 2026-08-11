@@ -216,7 +216,8 @@ offline. Reconcile drift by editing the canonical repo first, then
 
 ### Project
 - `/project:init <name>` - Full project scaffolding (zero to GitHub repo)
-- `/project:next` - Prioritized next-step report (compact default ~2-4K tokens; `--full` deep 5-tier analysis ~15-30K, `--brief` single pick)
+- `/project:next` - Prioritized next-step report (compact default ~2-4K tokens; `--full` deep analysis, `--brief` single pick)
+  - Decision policy delegated to the shared behavioral contract (#636): classification/ranking/top-action come VERBATIM from codex-power-pack's engine (`scripts/project-next.py --json`, contract pinned v1.3 with a runtime version check that flags mismatch in the report) when a CxPP checkout is found; CPP keeps collection notes + rendering only. No engine -> the prompt policy runs as the LABELED non-authoritative fallback ("decision policy: CPP fallback"). Pinned by tests/test_project_next_contract.py incl. a fixture-backed dogfood that FAILS (never skips) on a broken engine when a checkout is present
 - `/project:lite` - Quick project reference (~500-800 tokens)
 
 `/project:init` delegates config scaffolding (CLAUDE.md, skills, hooks) to Claude
