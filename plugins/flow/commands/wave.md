@@ -105,6 +105,24 @@ flags. **Exit 3 means the graph is BROKEN, not empty** - a Blocked-by cycle's
 members are listed in `cycles`; fix the edges before assigning anything.
 Never read an exit-3 plan's empty startable set as "wave done".
 
+**Edge-grammar relationship to the project-next contract v1.3 (issue #648 - a
+DECIDED partial convergence, data not accident; also recorded in the planner
+header).** ADOPTED from the contract: fenced/inline code is stripped before
+edge parsing (a sample inside a fence never fabricates an edge - the #607
+negative-space rule finished; path/serialized/migration detection still reads
+the RAW body, since backticked paths are deliberate signal), and
+Markdown-emphasis tolerance in declaration position (`**Blocked by:** #12`
+declares an edge; line anchor + immediate-refs unchanged). DELIBERATELY
+DISTINCT, with reasons: grading + the `uncertain` class (the wave lane is
+JUDGED - an unresolvable "Blockers:" phrase goes to the orchestrator's gate,
+never into a fabricated edge or a new output class); `Blockers:`/
+`Prerequisites:` field labels (their contract value IS the declined grading
+semantics); dash-ranges (zero occurrences in 240 measured real bodies;
+speckit-tasks-to-issues emits the planner's native list grammar); spec-task
+duplicate-claim resolves-to-neither (the planner surfaces `unresolved_tasks` +
+`spec_drift` loudly instead). A wave and a next-pick can still disagree ONLY
+on those distinct features - by decision, not drift.
+
 The `path_contention` index exists because contended files that nobody's lane
 names are invisible until two workers are in one (six queued issues all naming
 one `cli.py`, in no declared lane, visible only by grepping every body). Treat
