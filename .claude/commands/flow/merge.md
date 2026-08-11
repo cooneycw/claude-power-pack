@@ -131,6 +131,12 @@ fi
 - Use `--squash` by default (clean history)
 - The remote branch is deleted by `--delete-branch` (primary repo) or by the
   helper's explicit `git push origin --delete` (linked worktree)
+- **`MERGE_RC` = 3 is a FIRST-CLASS CLEAN STOP, not a failure (issue #579):**
+  the PR awaits a required human review. Report the helper's handoff message
+  (PR URL + "approve or merge on GitHub, then re-run /flow:merge"), leave the
+  worktree, branch, and PR intact - skip Steps 4-6, do not retry, and never
+  re-invoke with `--admin` yourself; the review override is the owner's
+  explicit, human-typed call. Do not treat this stop as something to fix.
 - If the merge genuinely failed (`MERGE_RC` non-zero - conflicts, checks failing,
   PR not `MERGED`), report and stop. A non-zero `gh` exit whose PR is nonetheless
   `MERGED` is not a failure - the helper treats it as success and cleanup proceeds

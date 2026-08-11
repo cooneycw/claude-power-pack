@@ -93,11 +93,24 @@
 #     so a stray local post-merge error is never mistaken for a merge failure.
 #
 # Usage:  gh-pr-merge.sh [--admin] <pr-number> <branch-name>
-#           --admin  force `gh pr merge --admin` from the first attempt (opt-in
-#                    branch-protection override, issue #517). Without it, an admin
-#                    override is still applied automatically on a protection-block
-#                    failure when the actor is a repo admin.
-# Exit:   0 if the PR is merged on the remote; 1 only if it genuinely did not merge.
+#           --admin  force `gh pr merge --admin` from the first attempt - the
+#                    conscious, HUMAN-TYPED branch-protection override (issues
+#                    #517/#579). It skips the required-check wait AND the review
+#                    gate. Without it, an admin override is applied automatically
+#                    only for the residual ADMINISTRATIVE protection family
+#                    (protected-branch / push-authorization / base-branch-policy
+#                    blocks) - never for a required status check (#577) and never
+#                    for a required review (#579): automation must not bypass a
+#                    human-approval control.
+# Exit:   0  the PR is merged on the remote
+#         1  the PR genuinely did not merge (conflicts, red required check,
+#            unresolvable state)
+#         2  usage error (bad flag or missing pr-number/branch-name)
+#         3  CLEAN STOP, not a failure (issue #579): merge awaits a human review
+#            (reviewDecision REVIEW_REQUIRED or CHANGES_REQUESTED). The PR is
+#            left open, current, and green - approve or merge it on GitHub, then
+#            resume with /flow:merge (or re-run with an explicit --admin to
+#            consciously override the review requirement).
 #
 # Env (test hooks - unset in normal use):
 #   GH_PR_MERGE_GH             override the `gh` binary (default: gh)
@@ -175,6 +188,46 @@ is_required_check_block() {
     grep -qiE \
         'required status check|expected status check|status checks? (are|is) (expected|pending|failing)|checks? (are|is) still (pending|running|expected)' \
         <<<"$LAST_MERGE_ERR"
+}
+
+# A protection block caused specifically by a REQUIRED REVIEW (issue #579).
+# Split out of the generic protection family because it must NEVER trigger the
+# #517 --admin auto-retry: a review requirement is a human-approval control, and
+# automation overriding it silently defeats the rule the owner set up. Only an
+# explicit, human-typed --admin may do that. A match here becomes the exit-3
+# clean stop instead.
+is_review_block() {
+    grep -qiE \
+        'approving review|review is required|changes (have been |were )?requested|at least [0-9]+ (approving )?review' \
+        <<<"$LAST_MERGE_ERR"
+}
+
+# Pre-squash review gate (issue #579): detect a review-blocked PR BEFORE
+# attempting the merge, and hand off cleanly instead of failing or bypassing.
+# Fail-open on an empty/unreadable reviewDecision (no review protection, or an
+# API hiccup) - GitHub enforces the rule server-side at squash time regardless,
+# and the is_review_block backstop below catches what this gate misses.
+review_stop() {
+    local decision="$1" pr_url
+    pr_url=$("$GH_BIN" pr view "$PR_NUMBER" --json url --jq '.url' 2>/dev/null)
+    echo "CLEAN STOP: PR #$PR_NUMBER awaits a human review (reviewDecision: $decision) - this is a handoff, NOT a failure (issue #579)." >&2
+    echo "  The branch is synced and green; nothing more for automation to do." >&2
+    echo "  Next: approve or merge the PR on GitHub: ${pr_url:-<gh pr view $PR_NUMBER --web>}" >&2
+    echo "        then resume with /flow:merge." >&2
+    echo "  To consciously override the review requirement instead (owner call):" >&2
+    echo "        gh-pr-merge.sh --admin $PR_NUMBER $BRANCH" >&2
+    exit 3
+}
+
+review_gate() {
+    local decision
+    decision=$("$GH_BIN" pr view "$PR_NUMBER" --json reviewDecision --jq '.reviewDecision' 2>/dev/null)
+    case "$decision" in
+        REVIEW_REQUIRED | CHANGES_REQUESTED)
+            review_stop "$decision"
+            ;;
+    esac
+    return 0
 }
 
 # True when the authenticated actor has admin permission on the repo - the only
@@ -455,6 +508,13 @@ if (( ADMIN_OPT_IN == 0 )) && ! wait_for_required_checks; then
     exit 1
 fi
 
+# Review gate (issue #579): a required human review is a clean stop, never an
+# automated bypass. An explicit --admin skips it - the same conscious-override
+# semantics as the check wait above.
+if (( ADMIN_OPT_IN == 0 )); then
+    review_gate
+fi
+
 # Attempt the squash, retrying (bounded) only when the base moved under us at
 # squash time (issue #502). Sets the global merge_exit; any error other than
 # "Base branch was modified" is NOT retried, and the post-merge MERGED-state
@@ -513,9 +573,15 @@ if [[ $merge_exit -ne 0 ]] && is_required_check_block; then
     echo "note: PR #$PR_NUMBER was blocked by a required status check - NOT retrying" \
          "with --admin (issue #577: a required check is waited for, never overridden" \
          "automatically)." >&2
+elif [[ $merge_exit -ne 0 && $ADMIN_OPT_IN -eq 0 ]] && is_review_block; then
+    # Belt-and-braces for the pre-squash review gate (issue #579): a review
+    # block that slipped past it (empty reviewDecision, race) is the same
+    # clean stop - NEVER the #517 --admin auto-retry.
+    review_stop "review-blocked at squash time"
 elif [[ $merge_exit -ne 0 && $ADMIN_OPT_IN -eq 0 ]] && is_protection_block && is_repo_admin; then
-    echo "note: PR #$PR_NUMBER was blocked by branch protection and the actor is a" \
-         "repo admin - retrying the squash once with --admin (issue #517)." >&2
+    echo "note: PR #$PR_NUMBER was blocked by an administrative branch-protection rule" \
+         "(not a required check, not a required review) and the actor is a repo admin -" \
+         "retrying the squash once with --admin (issue #517, narrowed by #577/#579)." >&2
     run_squash --admin ${BASE_FLAGS+"${BASE_FLAGS[@]}"}
 fi
 
