@@ -27,18 +27,32 @@ torn down (issue #520). The external second-opinion server runs its own
 `mcp-second-opinion` / `aws-secrets-agent` containers, so the bare name match
 otherwise flagged a live external server as an orphan.
 
+An UNREADABLE docker socket is NOT an empty host (issue #673). `docker ps`
+refused for permission (or a dead daemon) used to empty the container inventory
+silently: every curated server then classified ABSENT and the report printed the
+clean banner when it meant "I could not look". A failed read is now carried as
+its own state - every curated server is UNKNOWN, the banner is suppressed, and
+the exit code is a distinct 3 so a caller can branch on "could not assess"
+instead of reading it as "clean". A MISSING docker binary is deliberately the
+other thing: nothing can be running under a docker that is not installed, so the
+inventory is genuinely empty (CPP has shipped no container runtime since #469) -
+that stays a clean read, named in the report rather than hidden.
+
 Statuses:
   ORPHANED DOCKER MCP - listed, gone from compose, still present  -> offer teardown
+  NAME COLLISION      - would be orphaned, but live evidence (its port answers,
+                        or a live registration targets it) says the name may be
+                        the user's own deployment                 -> never touched
   OK                  - listed but still a compose service        -> never touched
   ABSENT              - listed, gone from compose, nothing present -> nothing to do
-  UNKNOWN             - current service set could not be determined
-                        (no docker / compose parse failed)        -> never touched
+  UNKNOWN             - current state could not be determined (docker unreadable,
+                        or compose parse failed)                  -> never touched
 
 Usage:
   mcp-drift.py                          # report table; exit 1 if orphans found
   mcp-drift.py --check                  # same as no args (explicit)
   mcp-drift.py --json                   # machine-readable findings (array)
-  mcp-drift.py --list-orphans           # orphan server names, one per line (exit 0)
+  mcp-drift.py --list-orphans           # orphan server names, one per line
   mcp-drift.py --plan NAME [NAME..]     # print teardown commands (no execution)
   mcp-drift.py --teardown NAME [NAME..] # execute guarded teardown
 
@@ -50,28 +64,54 @@ Options:
   --deprecated-file FILE  Deprecation list (default: <repo>/.claude/deprecated-mcps.yaml)
   --compose-file FILE     Compose file (default: <repo>/docker-compose.yml)
   --verbose               Also list OK / ABSENT servers in the report
+  --no-sudo               Never retry a permission-refused docker read via
+                          `sudo -n` (the retry is non-interactive either way)
+  --no-port-probe         Skip the localhost port probe that downgrades an
+                          apparent orphan to NAME COLLISION
 
 Exit codes:
   0 - No orphans (--check), plan printed, or teardown succeeded
   1 - Orphans detected (--check/--json), or teardown refused/failed
   2 - Usage error
+  3 - Docker state could not be read (--check/--json/--list-orphans): nothing
+      was assessed, so this is NOT a clean result
 """
 
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import re
 import shutil
+import socket
 import subprocess
 import sys
 from pathlib import Path
 
 # Status constants
 ORPHANED = "ORPHANED DOCKER MCP"
+COLLISION = "NAME COLLISION"
 OK = "OK"
 ABSENT = "ABSENT"
 UNKNOWN = "UNKNOWN"
+
+# Docker readability states (issue #673). `absent` and `unreadable` are
+# deliberately different answers: a docker that is not installed cannot be
+# running anything, so its inventory is empty as a FACT; a docker that refused
+# the read told us nothing at all.
+DOCKER_OK = "ok"
+DOCKER_ABSENT = "absent"
+DOCKER_UNREADABLE = "unreadable"
+
+# Signatures of a docker read that failed for permission rather than for a dead
+# daemon. Only these are worth a `sudo -n` retry - sudo cannot start a daemon.
+_PERMISSION_SIGNS = (
+    "permission denied",
+    "got permission denied",
+    "dial unix /var/run/docker.sock",
+    "connect: permission denied",
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -233,9 +273,30 @@ class HostState:
         claude_regs: set[str] | None = None,
         codex_regs: set[str] | None = None,
         container_meta: dict[str, dict] | None = None,
+        docker_state: str = DOCKER_OK,
+        docker_error: str = "",
+        docker_prefix: tuple[str, ...] = ("docker",),
+        listening_ports: set[int] | None = None,
+        registration_targets: set[str] | None = None,
     ) -> None:
         self.current_services = current_services or set()
         self.services_known = services_known
+        # How the docker inventory read went (issue #673): DOCKER_OK, DOCKER_ABSENT
+        # (no binary - a known-empty inventory), or DOCKER_UNREADABLE (the read was
+        # refused, so `containers`/`images` below are meaningless and every curated
+        # server must classify UNKNOWN). Defaults to DOCKER_OK so a hermetic test
+        # that hands over an inventory directly is classified exactly as before.
+        self.docker_state = docker_state
+        self.docker_error = docker_error
+        # The argv prefix a teardown must use to reach the same docker the
+        # inventory was read from - ("docker",) normally, ("sudo", "-n", "docker")
+        # when the read only succeeded after a non-interactive sudo retry.
+        self.docker_prefix = docker_prefix
+        # Local TCP ports observed answering, and the raw target text of live
+        # claude/codex registrations. Both are live-deployment evidence that
+        # downgrades an apparent orphan to NAME COLLISION (issue #673 fix 3).
+        self.listening_ports = listening_ports or set()
+        self.registration_targets = registration_targets or set()
         self.containers = containers or {}  # container name -> state (running/exited/...)
         # container name -> {"image": <ref>, "project": <compose-project label>}.
         # Provenance used to protect a live external container that reuses a
@@ -247,22 +308,43 @@ class HostState:
         self.claude_regs = claude_regs or set()
         self.codex_regs = codex_regs or set()
 
+    @property
+    def docker_readable(self) -> bool:
+        """False only when the docker read was REFUSED. A missing docker binary
+        reads as readable-and-empty, which is the honest answer: nothing can be
+        running under a runtime that is not installed (issue #673)."""
+        return self.docker_state != DOCKER_UNREADABLE
 
-def _run(cmd: list[str], timeout: int = 20) -> tuple[int, str]:
+
+def _run_capture(cmd: list[str], timeout: int = 20) -> tuple[int, str, str]:
+    """(rc, stdout, stderr). stderr is what tells a permission refusal apart from
+    an empty host, so the docker collectors need all three (issue #673)."""
     try:
         proc = subprocess.run(
             cmd, text=True, capture_output=True, check=False, timeout=timeout
         )
-        return proc.returncode, proc.stdout
-    except (OSError, subprocess.SubprocessError):
-        return 127, ""
+        return proc.returncode, proc.stdout, proc.stderr
+    except (OSError, subprocess.SubprocessError) as exc:
+        return 127, "", str(exc)
+
+
+def _run(cmd: list[str], timeout: int = 20) -> tuple[int, str]:
+    rc, out, _ = _run_capture(cmd, timeout)
+    return rc, out
 
 
 def _has(cmd: str) -> bool:
     return shutil.which(cmd) is not None
 
 
-def collect_current_services(compose_file: Path) -> tuple[set[str], bool]:
+def _looks_like_permission_error(text: str) -> bool:
+    low = text.lower()
+    return any(sign in low for sign in _PERMISSION_SIGNS)
+
+
+def collect_current_services(
+    compose_file: Path, prefix: tuple[str, ...] = ("docker",)
+) -> tuple[set[str], bool]:
     """Return (services, known). `known` is False when the current service set
     could not be determined - in which case NOTHING is classified orphaned."""
     # No compose file at all is a KNOWN-empty state, not an unknown one: as of
@@ -273,10 +355,10 @@ def collect_current_services(compose_file: Path) -> tuple[set[str], bool]:
     # still treated as UNKNOWN below.)
     if not compose_file.is_file():
         return set(), True
-    if not _has("docker"):
+    if not _has(prefix[0]):
         return set(), False
 
-    base = ["docker", "compose", "-f", str(compose_file)]
+    base = [*prefix, "compose", "-f", str(compose_file)]
     rc, out = _run(base + ["config", "--profiles"])
     profile_args: list[str] = []
     if rc == 0:
@@ -296,22 +378,48 @@ def collect_current_services(compose_file: Path) -> tuple[set[str], bool]:
     return services, True
 
 
-def collect_containers_full() -> dict[str, dict]:
-    """Present containers keyed by name -> {"state", "image", "project"}.
+_PS_FORMAT = '{{.Names}}\t{{.State}}\t{{.Image}}\t{{.Label "com.docker.compose.project"}}'
 
-    `project` is the `com.docker.compose.project` label (empty for containers not
-    managed by compose); `image` is the image ref the container runs. Both feed
-    the live-external-container guard in classification (issue #520). Older docker
-    that does not support the label prints an empty final column, which the guard
-    treats as unknown provenance."""
+
+def probe_docker(allow_sudo: bool = True) -> tuple[str, str, tuple[str, ...], str]:
+    """Establish whether the docker inventory can be read at all (issue #673).
+
+    Returns (state, error, prefix, ps_stdout):
+      DOCKER_ABSENT    - no docker binary. A known-empty inventory, not a failed
+                         read: nothing runs under a runtime that is not installed.
+      DOCKER_UNREADABLE- docker is there but refused (permission denied, dead
+                         daemon, timeout). NOTHING may be concluded from this.
+      DOCKER_OK        - `prefix` is the argv the read succeeded with, and every
+                         later docker call (including teardown) must reuse it so
+                         what runs matches what `--plan` printed.
+
+    On a PERMISSION-shaped refusal only, one non-interactive `sudo -n docker ps`
+    retry is attempted (fix 2). `sudo -n` never prompts for a password, so a
+    drift check can never block on a TTY; a sudo that would need one simply
+    fails and the state stays UNREADABLE."""
     if not _has("docker"):
-        return {}
-    rc, out = _run([
-        "docker", "ps", "-a", "--format",
-        '{{.Names}}\t{{.State}}\t{{.Image}}\t{{.Label "com.docker.compose.project"}}',
-    ])
-    if rc != 0:
-        return {}
+        return DOCKER_ABSENT, "docker command not found", ("docker",), ""
+
+    argv = ["docker", "ps", "-a", "--format", _PS_FORMAT]
+    rc, out, err = _run_capture(argv)
+    if rc == 0:
+        return DOCKER_OK, "", ("docker",), out
+
+    detail = (err or out).strip().splitlines()
+    message = detail[0].strip() if detail else f"docker ps exited {rc}"
+
+    if allow_sudo and _has("sudo") and _looks_like_permission_error(err or out):
+        rc2, out2, err2 = _run_capture(["sudo", "-n", *argv])
+        if rc2 == 0:
+            return DOCKER_OK, "", ("sudo", "-n", "docker"), out2
+        sudo_detail = (err2 or out2).strip().splitlines()
+        sudo_message = sudo_detail[0].strip() if sudo_detail else f"sudo -n docker ps exited {rc2}"
+        message = f"{message} (sudo -n retry also failed: {sudo_message})"
+
+    return DOCKER_UNREADABLE, message, ("docker",), ""
+
+
+def _parse_ps(out: str) -> dict[str, dict]:
     result: dict[str, dict] = {}
     for line in out.splitlines():
         parts = line.split("\t")
@@ -325,17 +433,38 @@ def collect_containers_full() -> dict[str, dict]:
     return result
 
 
+def collect_containers_full() -> dict[str, dict]:
+    """Present containers keyed by name -> {"state", "image", "project"}.
+
+    `project` is the `com.docker.compose.project` label (empty for containers not
+    managed by compose); `image` is the image ref the container runs. Both feed
+    the live-external-container guard in classification (issue #520). Older docker
+    that does not support the label prints an empty final column, which the guard
+    treats as unknown provenance.
+
+    NOTE: an empty dict here is ambiguous by construction - it is returned for an
+    empty host AND for a refused read. Callers that must tell those apart go
+    through probe_docker() / collect_host_state() instead (issue #673); this
+    wrapper is kept for back-compat with external callers."""
+    state, _, _, out = probe_docker()
+    if state != DOCKER_OK:
+        return {}
+    return _parse_ps(out)
+
+
 def collect_containers() -> dict[str, str]:
     """Back-compat name -> state view over collect_containers_full()."""
     return {name: meta["state"] for name, meta in collect_containers_full().items()}
 
 
-def collect_images() -> dict[str, list[dict]]:
-    if not _has("docker"):
+def collect_images(prefix: tuple[str, ...] = ("docker",)) -> dict[str, list[dict]]:
+    """Image inventory, read through the same argv prefix the container read
+    succeeded with (so a sudo-only docker is not half-read, issue #673)."""
+    if not _has(prefix[0]):
         return {}
     rc, out = _run(
         [
-            "docker",
+            *prefix,
             "images",
             "--format",
             "{{.Repository}}\t{{.Tag}}\t{{.ID}}\t{{.Size}}\t{{.CreatedAt}}",
@@ -362,13 +491,21 @@ def collect_images() -> dict[str, list[dict]]:
     return result
 
 
-def _collect_registrations(cmd: str) -> set[str]:
+def _collect_registrations(cmd: str) -> tuple[set[str], set[str]]:
+    """(names, target texts) of live MCP registrations.
+
+    The target text is whatever follows the name on the line - typically the URL
+    (`second-opinion: http://127.0.0.1:8080/mcp - connected`). It is kept because
+    a live registration pointing at a retired name's port is evidence that the
+    name belongs to the user's own deployment, not to a CPP leftover (issue #673
+    fix 3)."""
     if not _has(cmd):
-        return set()
+        return set(), set()
     rc, out = _run([cmd, "mcp", "list"])
     if rc != 0:
-        return set()
+        return set(), set()
     names: set[str] = set()
+    targets: set[str] = set()
     for line in out.splitlines():
         line = line.strip()
         if not line or line.lower().startswith(("no mcp", "checking", "mcp server")):
@@ -377,25 +514,63 @@ def _collect_registrations(cmd: str) -> set[str]:
         token = re.split(r"[:\s]", line, maxsplit=1)[0].strip()
         if token and not token.startswith(("-", "#", "=")):
             names.add(token)
-    return names
+            rest = line[len(token):].lstrip(": \t")
+            if rest:
+                targets.add(rest)
+    return names, targets
 
 
-def collect_host_state(compose_file: Path) -> HostState:
+def probe_listening_ports(ports: set[int], timeout: float = 0.2) -> set[int]:
+    """Which of `ports` accept a local TCP connection right now.
+
+    A plain connect to loopback - no payload is sent and no request is made - so
+    the probe cannot disturb whatever is listening. Used only to downgrade an
+    apparent orphan to NAME COLLISION, never to escalate anything (issue #673)."""
+    answering: set[int] = set()
+    for port in sorted(ports):
+        for host in ("127.0.0.1", "::1"):
+            with contextlib.suppress(OSError, ValueError):
+                with socket.create_connection((host, port), timeout=timeout):
+                    answering.add(port)
+                    break
+    return answering
+
+
+def collect_host_state(
+    compose_file: Path, allow_sudo: bool = True, probe_ports: set[int] | None = None
+) -> HostState:
+    docker_state, docker_error, prefix, ps_out = probe_docker(allow_sudo=allow_sudo)
+    # Deliberately NOT routed through `prefix`: `docker compose config` parses YAML
+    # and never touches the daemon, so a socket refusal does not affect it and
+    # elevating it would only run the parse under a different environment.
     services, known = collect_current_services(compose_file)
-    full = collect_containers_full()
+
+    # A refused read yields no inventory at all - deliberately NOT an empty one,
+    # which is what made the report claim "clean" for a host it never saw (#673).
+    full = _parse_ps(ps_out) if docker_state == DOCKER_OK else {}
     containers = {name: meta["state"] for name, meta in full.items()}
     container_meta = {
         name: {"image": meta["image"], "project": meta["project"]}
         for name, meta in full.items()
     }
+    images = collect_images(prefix) if docker_state == DOCKER_OK else {}
+
+    claude_regs, claude_targets = _collect_registrations("claude")
+    codex_regs, codex_targets = _collect_registrations("codex")
+
     return HostState(
         current_services=services,
         services_known=known,
         containers=containers,
         container_meta=container_meta,
-        images=collect_images(),
-        claude_regs=_collect_registrations("claude"),
-        codex_regs=_collect_registrations("codex"),
+        images=images,
+        claude_regs=claude_regs,
+        codex_regs=codex_regs,
+        docker_state=docker_state,
+        docker_error=docker_error,
+        docker_prefix=prefix,
+        listening_ports=probe_listening_ports(probe_ports) if probe_ports else set(),
+        registration_targets=claude_targets | codex_targets,
     )
 
 
@@ -510,6 +685,32 @@ def _matching_containers(entry: dict, host: HostState) -> tuple[list[dict], list
     return owned, foreign
 
 
+def _collision_evidence(entry: dict, host: HostState) -> list[str]:
+    """Live-deployment evidence that a retired NAME is currently in use by
+    something the teardown must not touch (issue #673 fix 3).
+
+    The #520/#634 provenance guards answer this from the container itself, which
+    only works when the container is visible AND docker-managed. A retired name
+    can also be live as a plain host process or another machine's proxy - in which
+    case the port answering, or a live registration aimed at that port, is the only
+    signal there is. Either one downgrades ORPHANED to NAME COLLISION, so the
+    curated list can never offer to tear down the user's own deployment."""
+    evidence: list[str] = []
+    port = str(entry.get("port") or "").strip()
+    if not port.isdigit():
+        return evidence
+
+    if int(port) in host.listening_ports:
+        evidence.append(f"port {port} answers on localhost")
+
+    needle = f":{port}"
+    for target in sorted(host.registration_targets):
+        if needle in target:
+            evidence.append(f"live registration targets port {port} ({target})")
+            break
+    return evidence
+
+
 def classify(deprecated: list[dict], host: HostState) -> list[dict]:
     findings: list[dict] = []
     for entry in deprecated:
@@ -528,11 +729,18 @@ def classify(deprecated: list[dict], host: HostState) -> list[dict]:
         # A live external container that only shares the name is NOT a present CPP
         # artifact, so it must not make the entry look orphaned (issue #520).
         present = bool(containers or images or claude or codex)
+        collision = _collision_evidence(entry, host)
 
-        if not host.services_known:
+        # An unreadable docker socket is not an empty host (issue #673): with no
+        # trustworthy inventory NOTHING may be concluded, exactly as when the
+        # compose service set cannot be read. UNKNOWN keeps teardown's hard
+        # refusal in force for every curated server.
+        if not host.services_known or not host.docker_readable:
             status = UNKNOWN
         elif in_compose:
             status = OK
+        elif present and collision:
+            status = COLLISION
         elif present:
             status = ORPHANED
         else:
@@ -553,6 +761,9 @@ def classify(deprecated: list[dict], host: HostState) -> list[dict]:
                 "protected_images": protected_images,
                 "claude_registrations": claude,
                 "codex_registrations": codex,
+                "collision_evidence": collision if status == COLLISION else [],
+                "docker_state": host.docker_state,
+                "docker_error": host.docker_error,
             }
         )
     return findings
@@ -577,17 +788,22 @@ def images_to_remove(images: list[dict], prune_all: bool) -> list[dict]:
     return list(images[1:])
 
 
-def plan_teardown(finding: dict, prune_all_images: bool) -> list[str]:
-    """Return the ordered shell commands a teardown WOULD run. Pure - no side effects."""
+def plan_teardown(finding: dict, prune_all_images: bool, docker_cmd: str = "docker") -> list[str]:
+    """Return the ordered shell commands a teardown WOULD run. Pure - no side effects.
+
+    `docker_cmd` is the argv prefix the inventory was actually read with - `sudo -n
+    docker` when the plain socket was refused (issue #673). Emitting the prefix here
+    means `--plan` shows verbatim what `--teardown` will execute, so the elevation is
+    visible before the user confirms rather than discovered afterwards."""
     cmds: list[str] = []
     for c in finding["containers"]:
         if _is_running(c["state"]):
-            cmds.append(f"docker stop {c['name']}")
-        cmds.append(f"docker rm -f {c['name']}")
+            cmds.append(f"{docker_cmd} stop {c['name']}")
+        cmds.append(f"{docker_cmd} rm -f {c['name']}")
 
     to_remove = images_to_remove(finding["images"], prune_all_images)
     for img in to_remove:
-        cmds.append(f"docker rmi {finding['image_prefix']}:{img['tag']}")
+        cmds.append(f"{docker_cmd} rmi {finding['image_prefix']}:{img['tag']}")
     kept = [i for i in finding["images"] if i not in to_remove]
     if kept and not prune_all_images:
         cmds.append(f"# kept restore point: {finding['image_prefix']}:{kept[0]['tag']}")
@@ -624,13 +840,16 @@ def teardown(
     findings: list[dict],
     prune_all_images: bool = False,
     execute: bool = True,
+    docker_cmd: str = "docker",
 ) -> int:
     """Guarded teardown of ORPHANED DOCKER MCP servers.
 
     Hard-refuses any name that is not classified ORPHANED (unlisted, still in
-    compose/OK, ABSENT, or UNKNOWN) BEFORE running anything - this is what keeps
-    a user's own custom MCP registration from ever being removed. Each teardown
-    step is best-effort so one failure does not strand the rest."""
+    compose/OK, ABSENT, UNKNOWN, or NAME COLLISION) BEFORE running anything - this
+    is what keeps a user's own custom MCP registration from ever being removed, and
+    what makes an unreadable docker socket safe: every server reads UNKNOWN, so
+    every teardown is refused. Each teardown step is best-effort so one failure does
+    not strand the rest."""
     by_name = {f["server"]: f for f in findings}
     refused = 0
     torn = 0
@@ -642,15 +861,20 @@ def teardown(
             refused += 1
             continue
         if finding["status"] != ORPHANED:
+            detail = ""
+            if finding["status"] == UNKNOWN and finding.get("docker_error"):
+                detail = f" (docker unreadable: {finding['docker_error']})"
+            elif finding["status"] == COLLISION and finding.get("collision_evidence"):
+                detail = f" ({'; '.join(finding['collision_evidence'])})"
             print(
-                f"REFUSED {name}: classified {finding['status']}; only "
+                f"REFUSED {name}: classified {finding['status']}{detail}; only "
                 "ORPHANED DOCKER MCP servers may be torn down",
                 file=sys.stderr,
             )
             refused += 1
             continue
 
-        cmds = plan_teardown(finding, prune_all_images)
+        cmds = plan_teardown(finding, prune_all_images, docker_cmd)
         if not execute:
             for c in cmds:
                 print(c)
@@ -684,9 +908,27 @@ def teardown(
 # --------------------------------------------------------------------------- #
 # Reporting
 # --------------------------------------------------------------------------- #
-def render_table(findings: list[dict], verbose: bool) -> str:
+def render_table(findings: list[dict], verbose: bool, host: HostState | None = None) -> str:
     lines = ["Docker MCP Drift Report", "=======================", ""]
-    shown = [f for f in findings if verbose or f["status"] == ORPHANED]
+
+    # An unreadable docker socket is reported BEFORE anything else and suppresses
+    # the clean banner entirely (issue #673). The old report was indistinguishable
+    # from a genuinely clean host, and a caller relayed it as a positive finding.
+    unreadable = host is not None and not host.docker_readable
+    if unreadable:
+        assert host is not None
+        lines.append(f"DOCKER UNREADABLE: {host.docker_error or 'docker ps failed'}")
+        lines.append(
+            f"  Cannot assess {len(findings)} curated server(s) - every one is "
+            "UNKNOWN. This is NOT a clean result: the inventory was never read."
+        )
+        lines.append(
+            "  Fix: give this user docker access (e.g. the docker group), start "
+            "the daemon, or re-run where docker is readable."
+        )
+        lines.append("")
+
+    shown = [f for f in findings if verbose or f["status"] in (ORPHANED, COLLISION)]
     if shown:
         lines.append(f"{'Server':<24} {'Port':<6} {'In-compose':<11} {'Status'}")
         lines.append(f"{'-' * 24} {'-' * 6} {'-' * 11} {'-' * 20}")
@@ -730,13 +972,51 @@ def render_table(findings: list[dict], verbose: bool) -> str:
                 )
                 lines.append(f"  {f['server']}: {c['name']} ({c['state']}, {origin})")
 
-    if any(f["status"] == UNKNOWN for f in findings):
+    collisions = [f for f in findings if f["status"] == COLLISION]
+    if collisions:
+        lines.append(
+            "Name collisions (a retired name that live evidence says is in use - "
+            "reported, never torn down):"
+        )
+        for f in collisions:
+            lines.append(f"  {f['server']}: {'; '.join(f['collision_evidence'])}")
+            lines.append(
+                "    possibly your own deployment reusing the name - teardown is "
+                "refused; remove it by hand if you are sure it is a leftover."
+            )
+
+    if any(f["status"] == UNKNOWN for f in findings) and not unreadable:
         lines.append(
             "Note: current service set could not be determined (docker/compose "
             "unavailable); nothing classified as orphaned."
         )
-    if not orphans:
-        lines.append("No orphaned Docker MCP servers detected.")
+    if host is not None and host.docker_state == DOCKER_ABSENT:
+        # Named rather than hidden: this IS a clean read (nothing can run under a
+        # runtime that is not installed) but the reader deserves to know which
+        # question was answered by absence rather than by inspection (issue #673).
+        lines.append(
+            "Note: docker is not installed - the container/image inventory is "
+            "empty by absence, not unread. Registrations were still checked."
+        )
+    if host is not None and host.docker_prefix[:1] == ("sudo",):
+        lines.append(
+            "Note: the plain docker socket was refused; this inventory was read "
+            "via 'sudo -n docker'. Teardown commands carry the same prefix."
+        )
+
+    if unreadable:
+        lines.append(
+            "Assessment INCOMPLETE - no server was evaluated. Nothing here means "
+            "'clean'."
+        )
+    elif not orphans:
+        clean = "No orphaned Docker MCP servers detected."
+        if collisions:
+            clean += (
+                f" ({len(collisions)} name collision(s) reported above are NOT "
+                "orphans and were not torn down.)"
+            )
+        lines.append(clean)
     else:
         lines.append(
             f"{len(orphans)} orphaned Docker MCP server(s) flagged. Teardown is "
@@ -771,6 +1051,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--prune-all-images", action="store_true",
                         help="Remove every mcp-<name>:* image (default: keep newest)")
     parser.add_argument("--verbose", action="store_true", help="List OK/ABSENT too")
+    parser.add_argument("--no-sudo", action="store_true",
+                        help="Never retry a permission-refused docker read via 'sudo -n'")
+    parser.add_argument("--no-port-probe", action="store_true",
+                        help="Skip the localhost port probe behind NAME COLLISION")
     parser.add_argument("--deprecated-file", default=None)
     parser.add_argument("--compose-file", default=None)
     args = parser.parse_args(argv)
@@ -785,27 +1069,52 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     deprecated = load_deprecated_mcps(deprecated_file)
-    host = collect_host_state(compose_file)
+    probe_ports = set()
+    if not args.no_port_probe:
+        probe_ports = {int(e["port"]) for e in deprecated if str(e["port"]).isdigit()}
+    host = collect_host_state(
+        compose_file, allow_sudo=not args.no_sudo, probe_ports=probe_ports
+    )
     findings = classify(deprecated, host)
+    docker_cmd = " ".join(host.docker_prefix)
 
     if args.plan:
-        return teardown(args.plan, findings, args.prune_all_images, execute=False)
+        if host.docker_prefix[:1] == ("sudo",):
+            print("# inventory read via: sudo -n docker (plain docker socket refused)")
+        return teardown(args.plan, findings, args.prune_all_images,
+                        execute=False, docker_cmd=docker_cmd)
 
     if args.teardown:
-        return teardown(args.teardown, findings, args.prune_all_images, execute=True)
+        return teardown(args.teardown, findings, args.prune_all_images,
+                        execute=True, docker_cmd=docker_cmd)
+
+    # A refused docker read is its own outcome, not a clean one (issue #673). Exit
+    # 3 - distinct from both 0 (clean) and 1 (orphans found) - so a caller can
+    # branch on "could not assess" instead of relaying silence as a positive
+    # finding, which is exactly what /cpp:update did.
+    unreadable_rc = 3 if not host.docker_readable else 0
 
     if args.list_orphans:
+        # stdout stays names-only: consumers line-parse it. The warning goes to
+        # stderr, and the exit code is what a script should branch on.
         for f in removable(findings):
             print(f["server"])
-        return 0
+        if unreadable_rc:
+            print(
+                f"WARNING: docker unreadable ({host.docker_error}); "
+                f"{len(findings)} curated server(s) UNKNOWN - this empty list "
+                "means 'could not look', not 'nothing found'.",
+                file=sys.stderr,
+            )
+        return unreadable_rc
 
     if args.json:
         print(json.dumps(findings, indent=2))
-        return 1 if removable(findings) else 0
+        return unreadable_rc or (1 if removable(findings) else 0)
 
     # default / --check
-    print(render_table(findings, verbose=args.verbose))
-    return 1 if removable(findings) else 0
+    print(render_table(findings, verbose=args.verbose, host=host))
+    return unreadable_rc or (1 if removable(findings) else 0)
 
 
 if __name__ == "__main__":

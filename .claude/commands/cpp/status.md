@@ -323,8 +323,15 @@ fi
 echo ""
 echo "Orphaned Docker MCP (teardown available via /cpp:update):"
 if command -v docker &>/dev/null && [ -f "$CPP_DIR/scripts/mcp-drift.py" ]; then
-  ORPHAN_MCPS="$(python3 "$CPP_DIR/scripts/mcp-drift.py" --list-orphans 2>/dev/null || true)"
-  if [ -n "$ORPHAN_MCPS" ]; then
+  # Capture the exit code - do NOT swallow it with `|| true`. Exit 3 means the
+  # docker inventory could not be read (permission denied / dead daemon), so an
+  # empty list means "could not look", not "nothing found" (issue #673).
+  ORPHAN_MCPS="$(python3 "$CPP_DIR/scripts/mcp-drift.py" --list-orphans 2>/dev/null)"
+  ORPHAN_RC=$?
+  if [ "$ORPHAN_RC" -eq 3 ]; then
+    echo "  NOT ASSESSED - docker inventory unreadable (permission denied or daemon down)"
+    echo "      this is not 'clean': re-run with docker access, or: python3 $CPP_DIR/scripts/mcp-drift.py --check"
+  elif [ -n "$ORPHAN_MCPS" ]; then
     while IFS= read -r m; do
       [ -n "$m" ] && echo "  [!] $m: removed from docker-compose.yml but still present - run /cpp:update to tear down"
     done <<< "$ORPHAN_MCPS"

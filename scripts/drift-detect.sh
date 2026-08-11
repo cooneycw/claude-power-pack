@@ -506,8 +506,25 @@ check_orphaned_docker_mcps() {
         return
     fi
 
-    local orphans
-    orphans=$(python3 "$helper" --list-orphans 2>/dev/null || true)
+    # Exit 3 means the docker inventory could not be READ (permission denied, dead
+    # daemon) - an empty orphan list there means "I could not look", not "nothing
+    # found" (issue #673). Reporting it as ok was how a host with two retired
+    # containers running read as clean.
+    # `local orphans rc=0` on its own line first: under `set -e`, declaring and
+    # assigning in one statement masks the command's exit status behind `local`'s
+    # own, and a bare non-zero substitution would abort the whole report.
+    local orphans rc=0
+    orphans=$(python3 "$helper" --list-orphans 2>/dev/null) || rc=$?
+    if [[ $rc -eq 3 ]]; then
+        # `|| true`: purely informational, and `pipefail` would otherwise make
+        # the helper's own exit 3 abort the report here.
+        local why
+        why=$(python3 "$helper" --list-orphans 2>&1 >/dev/null | head -1) || true
+        skip "orphaned Docker MCPs - NOT ASSESSED (docker inventory unreadable)"
+        [[ -n "$why" ]] && echo "      ${why}"
+        fix "Give this user docker access (e.g. the docker group) or start the daemon, then re-run"
+        return
+    fi
     if [[ -z "$orphans" ]]; then
         ok "orphaned Docker MCPs - none detected"
         return
