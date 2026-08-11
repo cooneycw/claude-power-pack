@@ -66,13 +66,26 @@
 #          (30m) so a wave can never leave watchers spinning after it ends.
 #   list   Box inventory for the wave: box, rev, cursor, unread, mtime.
 #
+# The lexicon gate (issue #701). `send` runs the message through
+# `flow-wave-lexicon.sh validate` first, so a reserved TRANSITION token that does
+# not parse - a gate verdict naming no issue, a conditional approval carrying no
+# conditions, a merge authorisation whose predicate is "when CI passes", an
+# unstamped state assertion - is refused at the SENDER, at send time, instead of
+# being discovered by a reader an hour later. Two properties keep the gate from
+# becoming the stall it exists to prevent: a message with NO reserved token is
+# always deliverable (prose carries the argument - only a malformed PRESENT token
+# refuses), and a missing or broken validator FAILS OPEN, because a wave that
+# cannot deliver because its linter is unavailable is precisely the 2026-08-11
+# failure this lane was built to remove. `--no-lexicon` is the per-send escape.
+#
 # Output ends with a machine-readable verdict line:
-#   FLOW_MAILBOX: sent | read | empty | mail | timeout | listed | error
+#   FLOW_MAILBOX: sent | read | empty | mail | timeout | listed | refused | error
 # preceded by FLOW_MAILBOX_*= detail lines ('-' when not applicable). Message
 # BODIES are printed before the detail block, so a caller can split on the first
 # FLOW_MAILBOX_ line.
 #
-# Exit codes: 0 normal, 2 usage error, 3 lock/IO failure, 5 watch timeout.
+# Exit codes: 0 normal, 2 usage error, 3 lock/IO failure, 5 watch timeout,
+# 6 lexicon refusal (#701 - the message was NOT delivered; nothing was written).
 #
 # Env (test hooks - unset in normal use):
 #   FLOW_WAVE_MAILBOX_DIR   wave-root override (most precise)
@@ -244,14 +257,18 @@ shift
 case "$VERB" in
   send | read | watch | list) : ;;
   --help | -h)
-    sed -n '2,90p' "$0" | sed 's/^# \{0,1\}//'
+    # Self-terminating range, not a hand-counted one: a fixed `2,NNp` silently
+    # truncates mid-sentence the moment the header grows, which is #686 - and it
+    # recurred here the instant #701 added the lexicon-gate paragraph. Stop at
+    # the first non-comment line instead, so the range can never drift again.
+    sed -n '2,${/^[^#]/q;p;}' "$0" | sed 's/^# \{0,1\}//'
     exit 0
     ;;
   *) usage_fail "unknown verb: $VERB" ;;
 esac
 
 WAVE="default"; ROLE=""; A_TO=""; A_FROM=""; A_BODY=""; A_BODY_FILE=""
-REPLACE=0; PEEK=0; ALL=0; JSON_OUT=0
+REPLACE=0; PEEK=0; ALL=0; JSON_OUT=0; NO_LEXICON=0
 TIMEOUT="$WATCH_TIMEOUT_DEFAULT"; INTERVAL="$WATCH_INTERVAL_DEFAULT"
 
 while [ "$#" -gt 0 ]; do
@@ -273,6 +290,7 @@ while [ "$#" -gt 0 ]; do
     --interval) [ "$#" -ge 2 ] || usage_fail "--interval requires seconds"; INTERVAL="$2"; shift ;;
     --interval=*) INTERVAL="${1#--interval=}" ;;
     --replace) REPLACE=1 ;;
+    --no-lexicon) NO_LEXICON=1 ;;
     --peek) PEEK=1 ;;
     --all) ALL=1 ;;
     --json) JSON_OUT=1 ;;
@@ -322,6 +340,30 @@ case "$VERB" in
       usage_fail "send needs a body: --body TEXT, --body-file FILE, or stdin"
     fi
     [ -n "$BODY" ] || usage_fail "refusing to send an empty message (a delivered blank is indistinguishable from no delivery)"
+
+    # Lexicon gate (#701). ONLY exit 1 - "a reserved token is present and
+    # malformed" - refuses. Every other non-zero (a usage error, an unreadable
+    # helper, jq missing) FAILS OPEN with a note: the validator is a correctness
+    # aid, and a guard that can block delivery when it is itself broken would
+    # recreate the undelivered-assignment failure this whole lane exists to
+    # remove. Absence of tokens is `none`/exit 0 and always delivers.
+    if [ "$NO_LEXICON" -eq 0 ]; then
+      SELF_DIR="$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")"
+      LEXICON="$SELF_DIR/flow-wave-lexicon.sh"
+      if [ -r "$LEXICON" ]; then
+        LEX_OUT="$(printf '%s\n' "$BODY" | bash "$LEXICON" validate 2>&1)"
+        LEX_RC=$?
+        if [ "$LEX_RC" -eq 1 ]; then
+          printf '%s\n' "$LEX_OUT" >&2
+          echo "flow-wave-mailbox: NOT delivered - this message declares a state transition that does not parse (issue #701). Fix the token, or re-send with --no-lexicon if the line really is prose." >&2
+          E_BOX="$BOX_NAME"
+          emit refused
+          exit 6
+        elif [ "$LEX_RC" -ne 0 ]; then
+          echo "flow-wave-mailbox: NOTE - lexicon validator exited $LEX_RC (not a refusal); delivering unvalidated." >&2
+        fi
+      fi
+    fi
 
     TS="$(date -Iseconds 2>/dev/null || date +%Y-%m-%dT%H:%M:%S%z)"
     OUT="$(

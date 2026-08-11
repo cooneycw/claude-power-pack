@@ -182,6 +182,75 @@ as a nonzero `UNREAD` instead of being invisible until someone asks. A worker
 with unread mail and no progress is a worker whose watch is not armed - fix
 that rather than relaying by hand.
 
+## Setup: the transition lexicon (consume #701, do not reimplement)
+
+The registry says WHO (#638), the mailbox says it ARRIVED (#676), the policy
+says the RULES (#699). None of them says what a message DOES. That layer was
+free prose, and every miscommunication in the reference wave happened there
+while the machine-readable markers never once misfired.
+
+**Reserved tokens carry the TRANSITION; prose carries the ARGUMENT.** The
+vocabulary is deliberately tiny - only the speech acts with a wrong-answer cost:
+
+| Token | Carries | Enforced |
+|---|---|---|
+| `GATE: GO #N` | approval of a judged gate | names its subject issue |
+| `GATE: HOLD #N behind #M[, #M]` | a hold | names what it waits behind |
+| `GATE: GO-WITH-CONDITIONS #N` | conditional approval | `- <condition>` lines beneath it; optional `serializes: <marker>` |
+| `LANE: GRANT\|EXTEND <role> <paths>` | a file lane | names role AND paths |
+| `LANE: REVOKE <role> [paths]` | withdrawing a lane | names the role |
+| `MERGE: AUTHORIZED #N when <check>` | conditional merge authority | a NAMED check - "when CI passes" is refused |
+| `STATE: as-of <commit>` | any wave-state assertion | the stamp is mandatory |
+| `RATIFY \| OVERRULE #N <reason>` | answer to a reported deviation | issue + reason |
+| `PUSHBACK <argument>` | a refutation | must carry its argument |
+| `LEDGER` | the completeness ledger | `delivered:` / `in-scope:` / `residual:` |
+
+Each requirement is a specific failure made unrepeatable. `GATE`/`LANE` are
+separate tokens because one message carrying "you are unblocked for Step 4"
+beside "hard stop at Step 3 stands" nearly passed an unjudged gate - the lane
+was open, the gate was not, and only a worker's caution caught it. `LANE: GRANT`
+must name paths because a fence ("explicitly NOT yours") was read as its own
+inverse. `MERGE` must name the check because `ci/woodpecker/pr/woodpecker` is
+not the push pipeline. `STATE` must be stamped because four broadcasts were true
+when composed and wrong when read.
+
+**The tokens are READ BACK - that is the whole reason this exists.** A lexicon
+nobody validates is prose with extra steps, and a reflexive `GATE: GO` prints
+exactly what a considered one prints. Two mechanisms make a token load-bearing:
+
+1. **`send` refuses a malformed transition.** The mailbox validates every
+   message, so a broken token fails at the sender rather than in a reader's
+   inbox. A message with NO token always delivers (prose is not the target), and
+   a missing validator fails OPEN - a wave must never stall on its own linter.
+2. **A gate verdict is RECORDED by parsing it, never by hand:**
+
+   ```bash
+   ~/.claude/scripts/flow-wave-lexicon.sh record --wave <WAVE> --body-file <verdict-file>
+   ```
+
+   This derives the #645 ledger entry from the token - ruling, `holds_behind`,
+   `adds_serialized` - and appends it to `verdicts.json`. A gate therefore cannot
+   be recorded as judged without a parseable verdict. Because
+   `flow-wave-plan.py --verdicts` exits 4 on an unsuperseded hold and unions
+   `adds_serialized` into `serialized_resources`, an unparseable verdict changes
+   PLANNER BEHAVIOUR, not just a log line: `serializes: <marker>` on a
+   conditional approval is what makes the two-`0009`s migration collision visible
+   to the next re-plan, which in the reference wave was caught only by a worker's
+   status report.
+
+Validate a draft before sending it (`validate` is read-only):
+
+```bash
+~/.claude/scripts/flow-wave-lexicon.sh validate --body-file <file>
+```
+
+**What the lexicon must NOT cover: the reasoning.** The highest-value messages in
+the reference wave were a worker's design-ruling requests, its correction of
+misattributed credit, and its catch of the crossed lane/gate message. None would
+survive schematisation, and a vocabulary that crowds them out costs more than it
+saves. If a line is an argument, leave it as prose - `--no-lexicon` on `send` is
+the escape when a prose line happens to open with a reserved word.
+
 ## Phase 1: Scaffold the issue set
 
 - **Spec-kit repo:** run `scripts/speckit-tasks-to-issues.sh` (dedup-safe) to
@@ -330,7 +399,14 @@ dies at reboot when the wave dies too - the same lifetime symmetry as the
 registry. It is a JSON array of entries
 `{"issue": N, "ruling": "hold"|"approved"|"approved-with-conditions",
 "holds_behind": [N]?, "adds_serialized": [marker]?, "reason": str, "ts": str}`;
-write via tmp-file + rename (concurrent sessions share the wave dir). Append:
+write via tmp-file + rename (concurrent sessions share the wave dir).
+
+**Do not hand-write the entry - parse it out of the verdict you issued** (#701):
+`flow-wave-lexicon.sh record --wave <WAVE> --body-file <verdict-file>` derives
+`ruling`, `holds_behind` and `adds_serialized` from the `GATE:` token and appends
+under flock. Hand-writing it is what lets a ledger entry drift from the ruling
+actually delivered, and it re-opens the gap the token exists to close: a verdict
+that does not parse then records perfectly well anyway. Append:
 
 - a `hold` when you rule an issue waits (name what it waits behind);
 - every approval - and when a CONDITION changes the issue's footprint (adds a
