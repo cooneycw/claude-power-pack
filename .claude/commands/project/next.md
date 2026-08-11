@@ -1,6 +1,6 @@
 ---
 description: Prioritized next-step report from GitHub issues and worktrees (compact default; --full deep analysis, --brief single pick)
-allowed-tools: Bash(gh:*), Bash(git:*), Bash(ls:*), Bash(for :*), Bash(sort:*), Bash(printf:*), Read, Glob, Grep
+allowed-tools: Bash(gh:*), Bash(git:*), Bash(ls:*), Bash(for :*), Bash(sort:*), Bash(printf:*), Bash(grep:*), Bash(python3:*), Read, Glob, Grep
 ---
 
 # Project Next Steps Recommendation
@@ -25,7 +25,59 @@ report, not a change.
 
 ---
 
+## Step 0: Resolve the decision engine (shared behavioral contract, pinned v1.3)
+
+The DECISION POLICY - classification (in_flight / blocked / uncertain /
+available), ranking, and the top-action vs next-startable-issue split - is
+owned by the shared behavioral contract (issue #636): codex-power-pack's
+`docs/project-next-contract.md`, **pinned at contract version 1.3**, with its
+executable engine and deterministic fixture corpus as the source of truth. CPP
+keeps only Claude-side collection notes and report rendering; a second
+prompt-only decision policy is not an authoritative implementation (the
+contract's own rule).
+
+Locate the engine (first hit wins), and read the contract version it speaks:
+
+```bash
+CXPP_DIR=""
+for dir in ~/Projects/codex-power-pack /opt/codex-power-pack ~/.codex-power-pack; do
+  [ -f "$dir/scripts/project-next.py" ] && { CXPP_DIR="$dir"; break; }
+done
+[ -n "$CXPP_DIR" ] && grep -m1 "Contract version" "$CXPP_DIR/docs/project-next-contract.md"
+```
+
+- **Engine found:** compare the version line just printed against the pin. If
+  it is not `1.3`, SAY SO in the report header - "engine speaks vX, this doc
+  pinned 1.3 - output may diverge; update the pin after review" - and proceed;
+  never silently. Then run the engine and let it decide:
+
+  ```bash
+  python3 "$CXPP_DIR/scripts/project-next.py" /path/to/repo --json
+  ```
+
+  (`--brief`/`--compact`/`--full` mirror this command's own mode flags;
+  `--json` is the authoritative structured result.) Render the result through
+  the Step-5 templates - rendering is CPP's half; the classification sets,
+  ranking order, `top_action`, and `next_startable_issue` come from the engine
+  VERBATIM. Do not re-derive, filter, or "correct" them: if an engine answer
+  looks wrong, that is a contract/fixture issue for codex-power-pack, not a
+  prompt-side override. Skip Steps 1-3 entirely (the engine collects and
+  classifies); Step 4's spec-sync pointer still applies. Label the report:
+  `decision policy: contract v1.3 (engine)`.
+- **Engine present but FAILS** (crash, missing dep, unparseable JSON): report
+  the failure verbatim, then fall back to Steps 1-5 with the fallback label -
+  a broken engine must be visible, never papered over.
+- **No engine:** run Steps 1-5 as the fallback policy and LABEL the report:
+  `decision policy: CPP fallback (prompt-based), not contract v1.3 - install
+  codex-power-pack for the authoritative engine`.
+
+---
+
 ## Step 1: Resolve project and fetch state (one pass)
+
+**Steps 1-3 are the FALLBACK decision policy** - run them only when Step 0
+found no engine (or the engine failed); the report must carry the fallback
+label either way.
 
 ### 1.1 Resolve the project directory
 
@@ -166,10 +218,15 @@ In `--full` mode, show the full feature table instead.
 
 ## Step 5: Output
 
+Every mode's report opens with the decision-policy line from Step 0 -
+`decision policy: contract v1.3 (engine)` or the CPP-fallback label (plus the
+version-mismatch warning when the located contract doc is not 1.3).
+
 ### Default (compact)
 
 ```markdown
 ## {REPO} - Next Steps
+_decision policy: {contract v1.3 (engine) | CPP fallback (prompt-based)}_
 
 **State:** {N} open | {K} in-flight ({#a, #b}) | {M} blocked
 
