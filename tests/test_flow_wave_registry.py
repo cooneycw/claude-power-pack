@@ -16,6 +16,11 @@ Contract:
   issue, same branch, same/nested worktrees) - gate condition 2: same repo
   alone is the normal wave shape and must NOT warn.
 - Waves are namespaced: the same role in two waves never conflicts.
+- Loud default (issue #671): ``register``/``get``/``verify`` into wave
+  ``default`` without an explicit ``--wave`` print one advisory stderr line
+  (register also names the likely intended wave when exactly one other wave
+  has a live orchestrator), and ``list`` appends a note for LIVE entries
+  parked in OTHER waves. Advisory only - verdicts and exit codes unchanged.
 
 Liveness is pinned with the ``FLOW_WAVE_LIVE_PIDS`` hook rather than real
 processes, so no test depends on a pid that happens to exist.
@@ -360,6 +365,173 @@ class TestListOverlap:
         p = _run(tmp_path, "list", "--json", live=SELF_PID)
         payload = json.loads(p.stdout.rsplit("FLOW_WAVE:", 1)[0])
         assert payload["1"]["liveness"] == "live"
+
+
+@requires_tools
+class TestImplicitDefaultAdvisory:
+    """Loud default + cross-wave visibility (issue #671).
+
+    A worker that omits ``--wave`` lands in wave 'default' with a clean
+    verdict while the orchestrator's named-wave roster stays empty - both
+    sides read success. Every assertion here is advisory-only: verdicts and
+    exit codes must be exactly what they were before #671.
+    """
+
+    WARN = "no --wave given"
+
+    def test_register_without_wave_warns_but_registers(self, tmp_path: Path) -> None:
+        p = _run(tmp_path, "register", "A", "--socket", "uds:/tmp/a.sock")
+        assert p.returncode == 0
+        assert _verdict(p) == "registered"
+        assert self.WARN in p.stderr
+        assert "wave 'default'" in p.stderr
+
+    def test_explicit_wave_default_is_silent(self, tmp_path: Path) -> None:
+        p = _run(tmp_path, "register", "A", "--wave", "default", "--socket", "uds:/tmp/a.sock")
+        assert p.returncode == 0
+        assert self.WARN not in p.stderr
+
+    def test_named_wave_is_silent(self, tmp_path: Path) -> None:
+        p = _run(tmp_path, "register", "A", "--wave", "cpp", "--socket", "uds:/tmp/a.sock")
+        assert p.returncode == 0
+        assert self.WARN not in p.stderr
+
+    def test_get_and_verify_without_wave_warn(self, tmp_path: Path) -> None:
+        _run(tmp_path, "register", "A", "--socket", "uds:/tmp/a.sock")
+        g = _run(tmp_path, "get", "A")
+        assert g.returncode == 0
+        assert self.WARN in g.stderr
+        v = _run(tmp_path, "verify", "A", "--from", "uds:/tmp/a.sock")
+        assert v.returncode == 0
+        assert _verdict(v) == "verified"
+        assert self.WARN in v.stderr
+
+    def test_suggestion_names_the_one_live_orchestrator_wave(self, tmp_path: Path) -> None:
+        _run(
+            tmp_path,
+            "register",
+            "orchestrator",
+            "--wave",
+            "cpp-install",
+            "--socket",
+            "uds:/tmp/o.sock",
+            pid=OTHER_PID,
+            session=OTHER_SESSION,
+        )
+        p = _run(tmp_path, "register", "A", "--socket", "uds:/tmp/a.sock", live=OTHER_PID)
+        assert p.returncode == 0
+        assert "Did you mean --wave 'cpp-install'?" in p.stderr
+
+    def test_no_suggestion_when_ambiguous_or_stale(self, tmp_path: Path) -> None:
+        _run(
+            tmp_path,
+            "register",
+            "orchestrator",
+            "--wave",
+            "wave-one",
+            "--socket",
+            "uds:/tmp/o1.sock",
+            pid="7777",
+            session="s-one",
+        )
+        _run(
+            tmp_path,
+            "register",
+            "orchestrator",
+            "--wave",
+            "wave-two",
+            "--socket",
+            "uds:/tmp/o2.sock",
+            pid="8888",
+            session="s-two",
+        )
+        # Two live orchestrators: ambiguous, no suggestion (warning still fires).
+        both = _run(tmp_path, "register", "A", "--socket", "uds:/tmp/a.sock", live="7777:8888")
+        assert self.WARN in both.stderr
+        assert "Did you mean" not in both.stderr
+        # Neither live: stale orchestrators suggest nothing.
+        stale = _run(tmp_path, "register", "B", "--socket", "uds:/tmp/b.sock")
+        assert "Did you mean" not in stale.stderr
+
+    def test_list_notes_live_entry_stranded_in_default(self, tmp_path: Path) -> None:
+        """The observed 2026-08-11 failure: roster of one, worker invisible."""
+        _run(
+            tmp_path,
+            "register",
+            "orchestrator",
+            "--wave",
+            "cpp-install",
+            "--socket",
+            "uds:/tmp/o.sock",
+        )
+        _run(
+            tmp_path,
+            "register",
+            "A",
+            "--socket",
+            "uds:/tmp/a.sock",
+            pid=OTHER_PID,
+            session=OTHER_SESSION,
+        )
+        p = _run(tmp_path, "list", "--wave", "cpp-install", live=f"{SELF_PID}:{OTHER_PID}")
+        assert "note:" in p.stdout
+        assert "wave 'default'" in p.stdout
+        assert f"role A pid {OTHER_PID}" in p.stdout
+        assert "omitted --wave?" in p.stdout
+
+    def test_list_note_skips_stale_other_wave_entries(self, tmp_path: Path) -> None:
+        _run(
+            tmp_path,
+            "register",
+            "orchestrator",
+            "--wave",
+            "cpp-install",
+            "--socket",
+            "uds:/tmp/o.sock",
+        )
+        _run(
+            tmp_path,
+            "register",
+            "A",
+            "--socket",
+            "uds:/tmp/a.sock",
+            pid=OTHER_PID,
+            session=OTHER_SESSION,
+        )
+        # Only the orchestrator is live: the dead default-wave worker is not noted.
+        p = _run(tmp_path, "list", "--wave", "cpp-install", live=SELF_PID)
+        assert "note:" not in p.stdout
+
+    def test_list_note_appears_on_empty_roster_too(self, tmp_path: Path) -> None:
+        _run(
+            tmp_path,
+            "register",
+            "A",
+            "--socket",
+            "uds:/tmp/a.sock",
+            pid=OTHER_PID,
+            session=OTHER_SESSION,
+        )
+        p = _run(tmp_path, "list", "--wave", "cpp-install", live=OTHER_PID)
+        assert "no roles registered" in p.stdout
+        assert "note:" in p.stdout
+
+    def test_list_json_stdout_stays_parseable_note_on_stderr(self, tmp_path: Path) -> None:
+        _run(tmp_path, "register", "orchestrator", "--wave", "cpp-install", "--socket", "uds:/tmp/o.sock")
+        _run(
+            tmp_path,
+            "register",
+            "A",
+            "--socket",
+            "uds:/tmp/a.sock",
+            pid=OTHER_PID,
+            session=OTHER_SESSION,
+        )
+        p = _run(tmp_path, "list", "--wave", "cpp-install", "--json", live=f"{SELF_PID}:{OTHER_PID}")
+        payload = json.loads(p.stdout.rsplit("FLOW_WAVE:", 1)[0])
+        assert "orchestrator" in payload
+        assert "note:" not in p.stdout
+        assert "note:" in p.stderr
 
 
 class TestWiring:

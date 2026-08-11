@@ -25,6 +25,14 @@ and stored outside any session's transcript.
   `1`, `A`, `orchestrator`
 - `--wave <name>`: wave namespace (default `default`) so concurrent waves on
   one host cannot collide
+  - Omitting `--wave` is loud (#671): `register`/`get`/`verify` into the
+    literal wave `default` without an explicit flag print an advisory stderr
+    line (register also names the likely intended wave when exactly one other
+    wave has a live orchestrator - suggestion only, never auto-join), and
+    `list` appends a `note:` line for live entries parked in other waves, so
+    a worker stranded in `default` shows up in the orchestrator's roster view
+    instead of requiring a raw-JSON dig. Advisory only - verdicts and exit
+    codes are unchanged.
 - `--list`: orchestrator side - show the roster instead of registering
 - `--release`: leave the wave
 - `--force`: take over a role held by a live session (deliberate override only)
