@@ -65,22 +65,32 @@ Then, on FIRST CONTACT in either direction, verify the observed address:
 - Orchestrator registered first: each worker sends its hello on registering.
 - Worker registered first: its roster entry reads `[live, unverified]` - a
   PENDING HANDSHAKE. On registering, and on each `list`, initiate contact
-  with every such worker at its recorded bootstrap socket; the worker's REPLY
+  with every such worker at its recorded bootstrap address; the worker's REPLY
   is its deferred hello.
 
 On each hello (or reply), reconcile the observed `from=`:
 
 ```bash
-~/.claude/scripts/flow-wave-registry.sh verify <role> --wave <WAVE> --from <observed uds:...>
+~/.claude/scripts/flow-wave-registry.sh verify <role> --wave <WAVE> --from <observed-address>
 ```
 
-The transport-observed address is authoritative on any mismatch (#638).
+Pass the `from=` value verbatim - it is an OPAQUE transport-stamped token, not a
+path (#675). `uds:/run/user/1000/cc-socks/12345.sock` and
+`bridge:session_01RLE...` are both valid and are stored unchanged.
+
+The transport-observed address is authoritative and becomes canonical (#638).
+`verify` distinguishes two ways that happens (#674): `address_filled` when the
+recorded value was `unknown` and observation supplied one - unflagged, and the
+ONLY outcome on a transport where self-derivation cannot run - and
+`mismatch-corrected` when a recorded real address was contradicted, which stays
+loud and warrants investigation. `filled` is not a lesser grade than `verified`.
 
 Ack each worker with the wave brief: its lane, stop-at-Step-3 (never
 `--yes`), the ledger format, and the structural-pushback rule verbatim.
 
-Address workers ONLY by the registry's `uds:` socket via `SendMessage` -
-never by `ListAgents` display names. Check the roster with:
+Address workers ONLY by the address the registry holds, via `SendMessage` -
+never by `ListAgents` display names, which do not map to roles and mutate
+mid-session. Check the roster with:
 
 ```bash
 ~/.claude/scripts/flow-wave-registry.sh list --wave <WAVE>

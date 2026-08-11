@@ -2,20 +2,30 @@
 
 A worker session announces its own role to the wave orchestrator; the
 orchestrator records the authoritative return address and addresses the worker
-by socket forever after (issue #638, companion to the #637 wave loop).
+by that address forever after (issue #638, companion to the #637 wave loop).
 
 ## Why this exists
 
 Session identity is unresolvable from the orchestrator's side, and the failure
 is silent. `ListAgents` prints `projects-xx [ref]` display labels that do NOT
 map to assigned roles; guessing misrouted three times in one four-worker wave
-(2026-08-10), twice handing two workers each other's issue. The only address
-that cannot be gotten wrong is the one the messaging transport itself stamps on
-a delivered message - the `uds:/run/user/<uid>/cc-socks/<pid>.sock` value in
-`from=`. Two facts make guessing unrecoverable: GitHub authorship cannot
+(2026-08-10), and those labels MUTATE mid-session - a send that succeeded
+against a label failed minutes later after the label silently changed, same
+session, same ref (#672). The only address that cannot be gotten wrong is the
+one the messaging transport itself stamps on a delivered message: the `from=`
+value. Two facts make guessing unrecoverable: GitHub authorship cannot
 disambiguate sessions (every worker commits as the same user), and a `/clear`ed
 worker cannot vouch for its own history. So identity is DECLARED going forward
 and stored outside any session's transcript.
+
+**The address is an OPAQUE, transport-stamped token** (issue #675). The registry
+stores whatever the transport put in `from=` and never parses or validates it -
+`verify` is a string comparison. `uds:/run/user/<uid>/cc-socks/<pid>.sock` is
+one form; a Remote Control lane stamps `bridge:session_<id>`; a future transport
+will stamp something else again, and all of them work unchanged. Treat the token
+as an identifier to carry, never as a path to interpret. The one genuinely
+socket-specific mechanism is SELF-DERIVATION at registration (below), which
+guesses this session's own address before any message has been delivered.
 
 ## Arguments
 
@@ -37,6 +47,10 @@ and stored outside any session's transcript.
 - `--socket <addr>`: register an address learned by some means other than
   self-derivation (harness env, user relay) - the manual bootstrap lane for a
   session that cannot derive its own (#672). Always wins over derivation.
+  Despite the name it takes ANY transport's address verbatim - `bridge:...` is
+  as valid as `uds:...` (#675). The name predates the transport-opaque contract
+  and is kept because it is a published flag; the same applies to the
+  `FLOW_WAVE_SOCKET_*` output keys below.
 
 ## Instructions
 
@@ -55,7 +69,7 @@ copy; tell the user to run `/flow:repair` to restore the prompt-free lane.)
 The registry is a host-level file OUTSIDE any repo and outside transcripts
 (`$XDG_RUNTIME_DIR/cc-flow-wave/registry.json`): it survives a worker's
 `/clear`, can never become shared mutable repo state (the #635 hazard class),
-and is wiped by the OS at reboot - exactly when every session socket dies too.
+and is wiped by the OS at reboot - exactly when every session's address dies too.
 
 ### Worker side - `/flow:register <role> [--wave W]`
 
@@ -65,12 +79,20 @@ and is wiped by the OS at reboot - exactly when every session socket dies too.
    ~/.claude/scripts/flow-wave-registry.sh register 1 --wave cpp --cwd /path/to/worktree --repo /path/to/repo --issue 42 --branch issue-42-slug
    ```
 
-   The helper self-derives this session's socket by walking ancestor pids
-   against the socket dir. That self-derived address is **bootstrap only** - an
-   assertion, not an observation (see the trust model below). If it cannot be
-   derived, the entry records `unknown` and registration still succeeds - but
-   read `FLOW_WAVE_BOOTSTRAP` before assuming the address arrives later
-   (see "When there is no address" below).
+   The helper self-derives this session's address by walking ancestor pids
+   against the socket dir. **This step is genuinely uds-specific** and is the
+   only one that is (#675): it can produce a `uds:` address or nothing, because
+   guessing an address before any message has been delivered means looking for a
+   socket file on disk, and no other transport leaves one. Everything downstream
+   - storing, verifying, addressing - is transport-opaque.
+
+   That self-derived address is **bootstrap only** - an assertion, not an
+   observation (see the trust model below). If it cannot be derived, the entry
+   records `unknown` and registration still succeeds - but read
+   `FLOW_WAVE_BOOTSTRAP` before assuming the address arrives later (see "When
+   there is no address" below). On a transport that exposes no sockets this is
+   the NORMAL path, not a fault: the address arrives from the first delivered
+   message instead.
 
 2. Act on the verdict line:
    - `FLOW_WAVE: registered` / `updated` - proceed.
@@ -84,10 +106,10 @@ and is wiped by the OS at reboot - exactly when every session socket dies too.
    role, wave, cwd, repo, and current issue/branch. This message is what lets
    the orchestrator OBSERVE the real address. Pick the first branch that
    applies:
-   - the orchestrator's socket from `get orchestrator` - message it directly;
-   - no usable socket, but the orchestrator has messaged this session before -
+   - the orchestrator's address from `get orchestrator` - message it directly;
+   - no usable address, but the orchestrator has messaged this session before -
      reply to its most recent message's `from=`;
-   - `get orchestrator` says `free`, or its socket is `unknown` - the
+   - `get orchestrator` says `free`, or its address is `unknown` - the
      orchestrator has not (usefully) registered yet. This is NORMAL, not an
      error (issue #670): registration already succeeded in step 2 and never
      depends on the hello landing. Report
@@ -120,13 +142,25 @@ this, reading a healthy-looking verdict while both sessions stood by.
 - **`no-match`** - the dir exists but no ancestor pid of this session owns a
   socket in it. A retry alone will not change that; use lane 2 or 3.
 
+**Order the lanes by the evidence in front of you** (#675). `no-sock-dir` does
+not distinguish "not yet" from "not this transport", and the two want opposite
+first moves. Let the OBSERVED traffic decide rather than a verdict about the
+host: if messages are arriving stamped with a non-`uds:` scheme, that is
+evidence this host's live transport is not uds, so retrying self-derivation is
+unlikely to pay and lanes 2/3 are the better first move. With no such evidence,
+`no-sock-dir` really may be the lazily-created dir and lane 1 is the cheap try.
+Neither reading is a permanent claim about the host - a host with no dir at
+07:52 had one at 10:27, and this wave ran on that host's later state.
+
 Three lanes produce an address without self-derivation:
 
 1. **Re-register.** Re-run the same `register` command. It re-derives and
    adopts a socket that has since appeared (`FLOW_WAVE_SOCKET_SOURCE=self`).
-2. **`register --socket <addr>`** - the manual lane. Pass an address learned by
-   any means (harness env, or the user relaying it from the other session); an
-   explicit `--socket` always wins (`SOURCE=explicit`).
+   Only this lane depends on a uds transport.
+2. **`register --socket <addr>`** - the manual lane, and the one that works on
+   any transport. Pass an address learned by any means (harness env, or the user
+   relaying it from the other session), in whatever form that transport stamps;
+   an explicit `--socket` always wins (`SOURCE=explicit`).
 3. **User-relayed hello.** The user pastes this session's `FLOW_WAVE_*` block
    into the counterpart session; the counterpart's reply arrives over the real
    transport, and its `from=` is what `verify` needs.
@@ -145,29 +179,45 @@ worker session outlives an orchestrator restart. On registering as
 `orchestrator`, and on each `list`, treat every pre-existing unverified LIVE
 worker as a PENDING HANDSHAKE (the roster's `[live, unverified]` entries are
 exactly this list): initiate contact with each one at its recorded bootstrap
-socket. The worker's REPLY is its deferred hello, and the reply's
+address. The worker's REPLY is its deferred hello, and the reply's
 transport-stamped `from=` feeds `verify` below - so verification is reachable
-from whichever side makes first contact. A worker whose socket recorded as
-`unknown` cannot be contacted orchestrator-first; that is the socket-bootstrap
+from whichever side makes first contact. A worker whose address recorded as
+`unknown` cannot be contacted orchestrator-first; that is the address-bootstrap
 gap (#672), not an ordering problem - it waits until either side can produce a
 usable address - see "When there is no address" above for the three lanes that
-produce one, and tell the worker to re-register first (the socket dir is
-created lazily, so a retry often resolves it outright).
+produce one, and pick the lane by the evidence described there.
 
 **On receiving a worker's hello** (or its reply to your first contact),
 reconcile the recorded address with the address the transport actually stamped
 on that message:
 
 ```bash
-~/.claude/scripts/flow-wave-registry.sh verify 1 --wave cpp --from uds:/run/user/1000/cc-socks/12345.sock
+~/.claude/scripts/flow-wave-registry.sh verify 1 --wave cpp --from <observed-address>
+```
+
+Pass the `from=` value VERBATIM, whatever its shape. Two forms seen in the field
+(#675) - neither is privileged, and the registry stores either unchanged:
+
+```
+uds:/run/user/1000/cc-socks/12345.sock     # unix socket lane
+bridge:session_01RLE...                    # Remote Control lane
 ```
 
 **Trust model (gate condition, #638): the transport-observed `from=` is
-authoritative.** On `FLOW_WAVE: mismatch-corrected`, the observed address has
-REPLACED the self-derived one as canonical and the entry is flagged
-(`address_mismatch`); investigate the discrepancy, but keep addressing the
-observed socket. The reverse never happens - a self-derived address never
-survives a mismatch, and "flagged but self-derived kept" is not an outcome.
+authoritative.** Whatever `verify` observes REPLACES what was recorded and
+becomes canonical - the reverse never happens, and "flagged but self-derived
+kept" is not an outcome. That principle is transport-independent: it rests on
+observation outranking assertion, never on which transport did the stamping.
+
+`verify` reports which of two things happened, and the distinction is about
+PROVENANCE, not trust: `address_filled` when the recorded value was `unknown`
+and observation supplied one (the documented bootstrap fallback succeeding -
+unflagged, and the only possible outcome on a transport where self-derivation
+cannot run), `mismatch-corrected` when a recorded REAL address was contradicted
+(loud, flagged, investigate it). Neither is a lesser grade than `verified`: the
+address is transport-observed either way, and the word records how it was
+established, never how much to trust it. The output contract below defines both
+verdicts in full.
 
 **Ack with the protocol.** The registration ack is the handshake: send the
 worker its wave brief so the rules survive its compaction - the gate points
@@ -203,10 +253,14 @@ re-brief for a worker whose compaction dropped more detail than expected.
   above has no target for them either - work the bootstrap lanes before
   assigning anything to those roles (#672).
 
-**Addressing rule: socket-only.** Address workers exclusively by the registry's
-`uds:` socket via `SendMessage`. Never address by `ListAgents` display names
-(`projects-xx`) - those labels do not map to roles, and name-addressing is the
-misrouting failure this command exists to remove.
+**Addressing rule: registry-address-only.** Address workers exclusively by the
+address the registry holds, in whatever form the transport stamped it, via
+`SendMessage`. Never address by `ListAgents` display names (`projects-xx`) -
+those labels do not map to roles AND they mutate mid-session, so a send that
+worked once can silently reach the wrong session later; name-addressing is the
+misrouting failure this command exists to remove. The rule was written as
+"socket-only" (#675); the intent was always "not by display label", never a
+claim that the address must be a socket.
 
 ### Release - `/flow:register --release`
 
@@ -215,8 +269,18 @@ misrouting failure this command exists to remove.
 ```
 
 Run on leaving the wave. Sessions that die without releasing are caught by
-staleness detection (socket gone + pid dead); their entries persist as `stale`.
-Releasing a role owned by another LIVE session refuses without `--force`.
+staleness detection; their entries persist as `stale`. Releasing a role owned by
+another LIVE session refuses without `--force`.
+
+**Liveness is two-factor only where sockets exist** (#675). The primary proof is
+the recorded pid, signalled on the recorded host. A live socket FILE is a
+SECOND, independent proof, covering a pid the helper cannot signal - but reading
+it means stat-ing a path, so it can only ever apply to a `uds:` address. On a
+transport that stamps something else there is no file to stat and liveness rests
+on the pid alone. That is a property of the design, not an oversight: sockets
+are what the second factor reads, so a transport without them has one factor.
+(#689 makes the scheme test explicit rather than relying on a prefix-strip that
+silently no-ops; it exposes the asymmetry, it does not remove it.)
 
 ## Output contract
 
@@ -242,7 +306,13 @@ session is never reported as a healthy pending handshake:
 | Line | Values |
 |------|--------|
 | `FLOW_WAVE_SOCKET_SOURCE` | `explicit` (`--socket`) / `self` (derived) / `preserved` (derivation failed, recorded address kept) / `unknown` (no address) |
-| `FLOW_WAVE_SOCKET_REASON` | `-` / `no-sock-dir` (no transport on this host YET - created lazily, so retry) / `no-match` (dir exists, no ancestor socket) |
+| `FLOW_WAVE_SOCKET_REASON` | `-` / `no-sock-dir` (no socket dir on this host - see the lane-ordering note above before assuming a retry helps) / `no-match` (dir exists, no ancestor socket) |
+
+Both keys carry `SOCKET` for historical reasons and are published contract, so
+they are not renamed (#675). `SOURCE` describes any address whatever its
+transport - only the `self` value implies uds, since self-derivation is the one
+uds-specific step. `REASON` is inherently uds-specific: it explains why a
+socket-file guess failed, and is `-` when no guess was needed.
 | `FLOW_WAVE_BOOTSTRAP` | `ok` / `deadlock` (the address is `unknown`, so `verify` cannot fire - blocked, not pending) |
 
 ## Notes
