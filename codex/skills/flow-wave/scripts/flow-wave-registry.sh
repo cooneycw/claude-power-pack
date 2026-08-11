@@ -768,10 +768,16 @@ case "$VERB" in
     # declared none is warning about something the registry does not know.
     #
     # Two exempt shapes, and the second is deliberately NARROW:
-    #   - the `orchestrator`, which CLAUDE.md:136 documents as never
-    #     implementing. Its cwd is structurally the projects parent, so it cannot
-    #     fix the false warning by re-registering - the remedy does not exist for
-    #     it - and it warned once per live worker for a whole wave.
+    #   - the `orchestrator`. CLAUDE.md:136 documents it as never implementing,
+    #     so it HOLDS NO LANE AND CANNOT COLLIDE WITH ONE - whatever its cwd
+    #     happens to be. That is the durable reason and the only one this
+    #     exemption rests on. (Do not ground it in "its cwd is structurally the
+    #     projects parent, so it cannot re-register its way out": that was the
+    #     original justification and it is empirically FALSE - an orchestrator
+    #     re-registered with `--cwd $XDG_RUNTIME_DIR/cc-flow-wave/<wave>` and both
+    #     false warnings dropped to info immediately. That workaround is real but
+    #     depends on the orchestrator knowing the trick, which is precisely why
+    #     the exemption is the fix and the cwd argument is not load-bearing.)
     #   - any other live role that has declared NOTHING that constitutes a lane:
     #     no issue, no branch, AND a cwd that is a shared parent rather than a
     #     checkout.
