@@ -47,25 +47,46 @@ plus one orchestrator error a worker caught. This command packages that loop.
 ## Setup: the roster (consume #638, do not reimplement)
 
 Addressing is exactly the `/flow-register` protocol - this command adds NO
-addressing logic of its own. Follow `register.md`:
+addressing logic of its own. Follow `register.md`.
 
-1. Register this session as the wave's orchestrator:
-   ```bash
-   ~/.claude/scripts/flow-wave-registry.sh register orchestrator --wave <WAVE> --repo <TARGET_REPO>
-   ```
-2. Have each worker run `/flow-register <role> --wave <WAVE>` and send its
-   hello; on each hello, reconcile the observed `from=`:
-   ```bash
-   ~/.claude/scripts/flow-wave-registry.sh verify <role> --wave <WAVE> --from <observed uds:...>
-   ```
-   The transport-observed address is authoritative on any mismatch (#638).
-3. Ack each worker with the wave brief: its lane, stop-at-Step-3 (never
-   `--yes`), the ledger format, and the structural-pushback rule verbatim.
-4. Address workers ONLY by the registry's `uds:` socket via `SendMessage` -
-   never by `ListAgents` display names. Check the roster with:
-   ```bash
-   ~/.claude/scripts/flow-wave-registry.sh list --wave <WAVE>
-   ```
+**Registration is ORDER-INDEPENDENT (issue #670)** - these happen in any
+order; the registry file creates the wave on first touch, whoever touches it
+first:
+
+- Register this session as the wave's orchestrator:
+  ```bash
+  ~/.claude/scripts/flow-wave-registry.sh register orchestrator --wave <WAVE> --repo <TARGET_REPO>
+  ```
+- Each worker runs `/flow-register <role> --wave <WAVE>` - before or after the
+  orchestrator exists. A worker that registers first reports
+  `registered; orchestrator not yet in roster; hello deferred` and is NOT
+  stalled; its registration stands on its own.
+
+Then, on FIRST CONTACT in either direction, verify the observed address:
+
+- Orchestrator registered first: each worker sends its hello on registering.
+- Worker registered first: its roster entry reads `[live, unverified]` - a
+  PENDING HANDSHAKE. On registering, and on each `list`, initiate contact
+  with every such worker at its recorded bootstrap socket; the worker's REPLY
+  is its deferred hello.
+
+On each hello (or reply), reconcile the observed `from=`:
+
+```bash
+~/.claude/scripts/flow-wave-registry.sh verify <role> --wave <WAVE> --from <observed uds:...>
+```
+
+The transport-observed address is authoritative on any mismatch (#638).
+
+Ack each worker with the wave brief: its lane, stop-at-Step-3 (never
+`--yes`), the ledger format, and the structural-pushback rule verbatim.
+
+Address workers ONLY by the registry's `uds:` socket via `SendMessage` -
+never by `ListAgents` display names. Check the roster with:
+
+```bash
+~/.claude/scripts/flow-wave-registry.sh list --wave <WAVE>
+```
 
 ## Phase 1: Scaffold the issue set
 
