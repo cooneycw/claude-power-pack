@@ -34,6 +34,9 @@ and stored outside any session's transcript.
 - `--list`: orchestrator side - show the roster instead of registering
 - `--release`: leave the wave
 - `--force`: take over a role held by a live session (deliberate override only)
+- `--socket <addr>`: register an address learned by some means other than
+  self-derivation (harness env, user relay) - the manual bootstrap lane for a
+  session that cannot derive its own (#672). Always wins over derivation.
 
 ## Instructions
 
@@ -65,8 +68,9 @@ and is wiped by the OS at reboot - exactly when every session socket dies too.
    The helper self-derives this session's socket by walking ancestor pids
    against the socket dir. That self-derived address is **bootstrap only** - an
    assertion, not an observation (see the trust model below). If it cannot be
-   derived, the entry records `unknown` and the orchestrator's verify step
-   supplies the address; registration still succeeds.
+   derived, the entry records `unknown` and registration still succeeds - but
+   read `FLOW_WAVE_BOOTSTRAP` before assuming the address arrives later
+   (see "When there is no address" below).
 
 2. Act on the verdict line:
    - `FLOW_WAVE: registered` / `updated` - proceed.
@@ -97,6 +101,42 @@ and is wiped by the OS at reboot - exactly when every session socket dies too.
    ack arrives - or that the hello is deferred because no orchestrator has
    registered yet.
 
+### When there is no address - the bootstrap lanes (issue #672)
+
+`FLOW_WAVE_BOOTSTRAP=deadlock` on `register`, `get`, or `list` means the
+address in question is `unknown`. **This is blocked, not pending.** `verify`
+needs a transport-observed `from=`, which needs a delivered message, which
+needs somebody to already hold an address - so when neither side has one, no
+amount of waiting produces it. The 2026-08-11 wave lost ~2 hours to exactly
+this, reading a healthy-looking verdict while both sessions stood by.
+
+`FLOW_WAVE_SOCKET_REASON` names the cause, and the two causes differ:
+
+- **`no-sock-dir`** - the socket dir does not exist on this host. It is created
+  **lazily**, so this is a point-in-time answer, not a permanent verdict: on
+  2026-08-11 the same host had no dir at 07:52 and self-derivation succeeded at
+  10:27. Registration is idempotent and re-derives, so the first lane below
+  usually just works.
+- **`no-match`** - the dir exists but no ancestor pid of this session owns a
+  socket in it. A retry alone will not change that; use lane 2 or 3.
+
+Three lanes produce an address without self-derivation:
+
+1. **Re-register.** Re-run the same `register` command. It re-derives and
+   adopts a socket that has since appeared (`FLOW_WAVE_SOCKET_SOURCE=self`).
+2. **`register --socket <addr>`** - the manual lane. Pass an address learned by
+   any means (harness env, or the user relaying it from the other session); an
+   explicit `--socket` always wins (`SOURCE=explicit`).
+3. **User-relayed hello.** The user pastes this session's `FLOW_WAVE_*` block
+   into the counterpart session; the counterpart's reply arrives over the real
+   transport, and its `from=` is what `verify` needs.
+
+**A failed derivation never downgrades a recorded address.** Re-registering as
+the cheap re-brief is safe: if the walk comes back `unknown` while the roster
+already holds an address, the recorded one is KEPT and reported as
+`SOURCE=preserved`. A known address always outranks `unknown` - you cannot
+message `unknown` - which is the #638 trust model read in its other direction.
+
 ### Orchestrator side
 
 **Registration is order-independent (issue #670).** Workers registering before
@@ -110,7 +150,9 @@ transport-stamped `from=` feeds `verify` below - so verification is reachable
 from whichever side makes first contact. A worker whose socket recorded as
 `unknown` cannot be contacted orchestrator-first; that is the socket-bootstrap
 gap (#672), not an ordering problem - it waits until either side can produce a
-usable address.
+usable address - see "When there is no address" above for the three lanes that
+produce one, and tell the worker to re-register first (the socket dir is
+created lazily, so a retry often resolves it outright).
 
 **On receiving a worker's hello** (or its reply to your first contact),
 reconcile the recorded address with the address the transport actually stamped
@@ -156,6 +198,10 @@ re-brief for a worker whose compaction dropped more detail than expected.
   Sharing a repo alone is the NORMAL wave shape (all workers, one repo,
   separate worktrees) and prints as info, never a warning - a warning that
   fires on the normal case trains everyone to ignore it.
+- **`FLOW_WAVE_BOOTSTRAP=deadlock`** counts LIVE roles with no address. Those
+  are unreachable from either direction, so the orchestrator-first contact
+  above has no target for them either - work the bootstrap lanes before
+  assigning anything to those roles (#672).
 
 **Addressing rule: socket-only.** Address workers exclusively by the registry's
 `uds:` socket via `SendMessage`. Never address by `ListAgents` display names
@@ -179,6 +225,15 @@ Every verb ends with a machine-readable verdict:
 mismatch-corrected | free | unknown | error`, preceded by
 `FLOW_WAVE_*=` detail lines. Exit 1 = refused (live-owner conflict), exit 2 =
 usage error, else 0.
+
+Three detail lines describe the address itself (#672), so an unaddressed
+session is never reported as a healthy pending handshake:
+
+| Line | Values |
+|------|--------|
+| `FLOW_WAVE_SOCKET_SOURCE` | `explicit` (`--socket`) / `self` (derived) / `preserved` (derivation failed, recorded address kept) / `unknown` (no address) |
+| `FLOW_WAVE_SOCKET_REASON` | `-` / `no-sock-dir` (no transport on this host YET - created lazily, so retry) / `no-match` (dir exists, no ancestor socket) |
+| `FLOW_WAVE_BOOTSTRAP` | `ok` / `deadlock` (the address is `unknown`, so `verify` cannot fire - blocked, not pending) |
 
 ## Notes
 

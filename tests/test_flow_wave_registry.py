@@ -12,6 +12,11 @@ Contract:
 - ``verify`` reconciles the recorded address against the transport-observed
   ``from=``. Gate condition 1 (#638): on mismatch the OBSERVED address becomes
   canonical and the entry is flagged - never the reverse.
+- Address bootstrap is honest (#672): a failed self-derivation names its cause
+  (``no-sock-dir`` vs ``no-match``), reports ``FLOW_WAVE_BOOTSTRAP=deadlock``
+  instead of promising a ``verify`` that cannot fire, re-derives on a retry
+  (the socket dir is created lazily), and never downgrades a recorded address
+  to ``unknown``.
 - ``list`` warns on lane overlap only for the useful signal (same repo + same
   issue, same branch, same/nested worktrees) - gate condition 2: same repo
   alone is the normal wave shape and must NOT warn.
@@ -97,6 +102,25 @@ def _detail(proc: subprocess.CompletedProcess[str], key: str) -> str:
 
 def _registry_json(tmp: Path) -> dict:
     return json.loads((tmp / "reg" / "registry.json").read_text())
+
+
+def _json_payload(proc: subprocess.CompletedProcess[str]) -> dict:
+    """The JSON body of a ``list --json`` run, minus the trailing contract lines.
+
+    Split on the ``FLOW_WAVE`` prefix rather than a fixed offset so adding a
+    detail line to the contract cannot silently break the parse.
+    """
+    body: list[str] = []
+    for line in proc.stdout.splitlines():
+        if line.startswith("FLOW_WAVE"):
+            break
+        body.append(line)
+    return json.loads("\n".join(body))
+
+
+def _sock_dir(tmp: Path) -> Path:
+    """The socket dir ``_run`` points the helper at (absent until created)."""
+    return tmp / "socks"
 
 
 @requires_tools
@@ -363,8 +387,150 @@ class TestListOverlap:
     def test_list_json_carries_liveness(self, tmp_path: Path) -> None:
         _run(tmp_path, "register", "1", "--socket", "uds:/tmp/x.sock")
         p = _run(tmp_path, "list", "--json", live=SELF_PID)
-        payload = json.loads(p.stdout.rsplit("FLOW_WAVE:", 1)[0])
-        assert payload["1"]["liveness"] == "live"
+        assert _json_payload(p)["1"]["liveness"] == "live"
+
+
+@requires_tools
+class TestAddressBootstrap:
+    """Address bootstrap honesty (issue #672).
+
+    The 2026-08-11 wave deadlocked with every session recording ``unknown``:
+    the socket dir did not exist, so self-derivation could not succeed, and the
+    helper nonetheless reported that the orchestrator's ``verify`` would supply
+    the address later. It could not - ``verify`` needs an observed ``from=``,
+    which needs a delivered message, which needs an address somebody already
+    holds. These tests pin the three properties that close it: the failure
+    NAMES its cause, an address recorded before the (lazily created) socket dir
+    appears is re-derived on a retry, and a failed derivation never downgrades
+    an address the roster already has.
+    """
+
+    def test_missing_sock_dir_is_named_not_flattened(self, tmp_path: Path) -> None:
+        p = _run(tmp_path, "register", "1")
+        assert _detail(p, "FLOW_WAVE_SOCKET") == "unknown"
+        assert _detail(p, "FLOW_WAVE_SOCKET_SOURCE") == "unknown"
+        assert _detail(p, "FLOW_WAVE_SOCKET_REASON") == "no-sock-dir"
+        assert _detail(p, "FLOW_WAVE_BOOTSTRAP") == "deadlock"
+
+    def test_present_dir_without_match_is_a_distinct_reason(self, tmp_path: Path) -> None:
+        _sock_dir(tmp_path).mkdir(parents=True)
+        p = _run(tmp_path, "register", "1")
+        assert _detail(p, "FLOW_WAVE_SOCKET") == "unknown"
+        assert _detail(p, "FLOW_WAVE_SOCKET_REASON") == "no-match"
+
+    def test_unaddressed_register_never_promises_verify(self, tmp_path: Path) -> None:
+        """The exact dishonesty #672 was filed about: a promise that cannot fire."""
+        p = _run(tmp_path, "register", "1")
+        assert "cannot fire" in p.stderr
+        # ...and it points at lanes that do NOT depend on self-derivation.
+        assert "--socket" in p.stderr
+        assert "user-relayed hello" in p.stderr
+
+    def test_explicit_socket_is_the_manual_bootstrap_lane(self, tmp_path: Path) -> None:
+        p = _run(tmp_path, "register", "1", "--socket", "uds:/tmp/relayed.sock")
+        assert _detail(p, "FLOW_WAVE_SOCKET_SOURCE") == "explicit"
+        assert _detail(p, "FLOW_WAVE_SOCKET_REASON") == "-"
+        assert _detail(p, "FLOW_WAVE_BOOTSTRAP") == "ok"
+
+    def test_reregister_adopts_a_socket_that_appeared_later(self, tmp_path: Path) -> None:
+        """The socket dir is created LAZILY - 'unknown' is point-in-time, not final.
+
+        Live evidence (2026-08-11): role A recorded ``unknown`` at 07:52 and
+        role B self-derived a real socket at 10:27 on the same host.
+        """
+        first = _run(tmp_path, "register", "1")
+        assert _detail(first, "FLOW_WAVE_SOCKET") == "unknown"
+
+        socks = _sock_dir(tmp_path)
+        socks.mkdir(parents=True)
+        (socks / f"{SELF_PID}.sock").touch()
+
+        second = _run(tmp_path, "register", "1")
+        assert _detail(second, "FLOW_WAVE_SOCKET") == f"uds:{socks}/{SELF_PID}.sock"
+        assert _detail(second, "FLOW_WAVE_SOCKET_SOURCE") == "self"
+        assert _detail(second, "FLOW_WAVE_BOOTSTRAP") == "ok"
+        assert _registry_json(tmp_path)["default"]["roles"]["1"]["socket"].endswith(
+            f"{SELF_PID}.sock"
+        )
+
+    def test_failed_derivation_never_downgrades_a_recorded_address(
+        self, tmp_path: Path
+    ) -> None:
+        """The trust model's reverse direction: 'unknown' never wins (#638/#672).
+
+        register.md recommends re-registering as the cheap re-brief, so a
+        derivation that fails afterwards must not destroy the address the wave
+        is actually running on.
+        """
+        socks = _sock_dir(tmp_path)
+        socks.mkdir(parents=True)
+        (socks / f"{SELF_PID}.sock").touch()
+        _run(tmp_path, "register", "1")
+
+        shutil.rmtree(socks)  # transport disappears under a live wave
+        p = _run(tmp_path, "register", "1")
+
+        assert _detail(p, "FLOW_WAVE_SOCKET") == f"uds:{socks}/{SELF_PID}.sock"
+        assert _detail(p, "FLOW_WAVE_SOCKET_SOURCE") == "preserved"
+        assert _detail(p, "FLOW_WAVE_SOCKET_REASON") == "no-sock-dir"
+        assert _detail(p, "FLOW_WAVE_BOOTSTRAP") == "ok"
+        entry = _registry_json(tmp_path)["default"]["roles"]["1"]
+        assert entry["socket"].endswith(f"{SELF_PID}.sock")
+        # The failed assertion is still recorded honestly as such.
+        assert entry["self_socket"] == "unknown"
+
+    def test_explicit_socket_overrides_a_recorded_address(self, tmp_path: Path) -> None:
+        """Preservation is a floor against 'unknown', not a lock - operator wins."""
+        _run(tmp_path, "register", "1", "--socket", "uds:/tmp/old.sock")
+        p = _run(tmp_path, "register", "1", "--socket", "uds:/tmp/new.sock")
+        assert _detail(p, "FLOW_WAVE_SOCKET") == "uds:/tmp/new.sock"
+        assert _registry_json(tmp_path)["default"]["roles"]["1"]["socket"] == "uds:/tmp/new.sock"
+
+    def test_get_on_an_unaddressed_role_reports_deadlock(self, tmp_path: Path) -> None:
+        _run(tmp_path, "register", "1")
+        p = _run(tmp_path, "get", "1")
+        assert _verdict(p) == "listed"
+        assert _detail(p, "FLOW_WAVE_BOOTSTRAP") == "deadlock"
+        assert "NO address" in p.stderr
+
+    def test_get_on_an_addressed_role_reports_ok(self, tmp_path: Path) -> None:
+        _run(tmp_path, "register", "1", "--socket", "uds:/tmp/x.sock")
+        p = _run(tmp_path, "get", "1")
+        assert _detail(p, "FLOW_WAVE_BOOTSTRAP") == "ok"
+        assert "NO address" not in p.stderr
+
+    def test_list_flags_live_roles_with_no_address(self, tmp_path: Path) -> None:
+        _run(tmp_path, "register", "1")  # unaddressed
+        p = _run(tmp_path, "list", live=SELF_PID)
+        assert _detail(p, "FLOW_WAVE_BOOTSTRAP") == "deadlock"
+        assert "1 LIVE role(s) have no address" in p.stdout
+        assert "blocked, not pending" in p.stdout
+
+    def test_list_is_ok_when_every_live_role_is_addressed(self, tmp_path: Path) -> None:
+        _run(tmp_path, "register", "1", "--socket", "uds:/tmp/x.sock")
+        p = _run(tmp_path, "list", live=SELF_PID)
+        assert _detail(p, "FLOW_WAVE_BOOTSTRAP") == "ok"
+        assert "have no address" not in p.stdout
+
+    def test_stale_unaddressed_entries_are_not_a_live_deadlock(self, tmp_path: Path) -> None:
+        """Only LIVE roles can deadlock a wave; a dead one is just history."""
+        _run(tmp_path, "register", "1")  # unaddressed, and not in the live set
+        p = _run(tmp_path, "list")
+        assert _detail(p, "FLOW_WAVE_BOOTSTRAP") == "ok"
+
+    def test_self_address_names_why_it_failed(self, tmp_path: Path) -> None:
+        p = _run(tmp_path, "self-address")
+        assert p.stdout.strip() == "unknown"
+        assert "no socket dir" in p.stderr
+        assert "lazily" in p.stderr
+
+    def test_self_address_walk_starts_at_the_session_pid(self, tmp_path: Path) -> None:
+        """CLAUDE_PID is the session's own pid; $PPID alone starts a hop too low."""
+        socks = _sock_dir(tmp_path)
+        socks.mkdir(parents=True)
+        (socks / f"{SELF_PID}.sock").touch()
+        p = _run(tmp_path, "self-address")
+        assert p.stdout.strip() == f"uds:{socks}/{SELF_PID}.sock"
 
 
 @requires_tools
@@ -528,8 +694,7 @@ class TestImplicitDefaultAdvisory:
             session=OTHER_SESSION,
         )
         p = _run(tmp_path, "list", "--wave", "cpp-install", "--json", live=f"{SELF_PID}:{OTHER_PID}")
-        payload = json.loads(p.stdout.rsplit("FLOW_WAVE:", 1)[0])
-        assert "orchestrator" in payload
+        assert "orchestrator" in _json_payload(p)
         assert "note:" not in p.stdout
         assert "note:" in p.stderr
 
