@@ -5,7 +5,8 @@
        tool-risk-check tool-risk-drift \
        branch-protection-check branch-protection-apply branch-protection-show \
        host-surfaces-check host-surfaces-plan host-surfaces-prune memory-harness \
-       binary-guards-check install-drift-check install-drift-list
+       binary-guards-check negative-fixture-check \
+       install-drift-check install-drift-list
 
 ## Quality gates (used by /flow:finish)
 
@@ -34,7 +35,7 @@ secret-scan:
 
 ## Pre-deploy gate (runs all quality checks)
 
-verify: lint test typecheck binary-guards-check
+verify: lint test typecheck binary-guards-check negative-fixture-check
 
 ## Enforce the CLAUDE.md "guard tests that shell out to git/docker/gitleaks"
 ## directive (issue #602). It failed three times as prose (#451, #489, #577)
@@ -45,6 +46,19 @@ verify: lint test typecheck binary-guards-check
 
 binary-guards-check:
 	@python3 scripts/check-test-binary-guards.py
+
+## Enforce the CLAUDE.md "a negative-condition fixture asserts its own
+## precondition" directive (issue #697). A fixture that builds an absence
+## indirectly can create one broader than it intended, and the fail-open
+## assertions it then makes - nothing printed, exit code unchanged - are also
+## what a completely broken fixture produces, so the green run is
+## unfalsifiable from the outside (#695). Stdlib-only source analysis. Also
+## asserted by tests/test_negative_fixture_preconditions.py, which is what runs
+## it in CI `validate` - and which MUTATES the one real instance to prove this
+## gate can still fire, since a clean tree alone cannot show that.
+
+negative-fixture-check:
+	@python3 scripts/check-negative-fixture-preconditions.py
 
 ## Documentation (used by /flow:auto and /flow:finish)
 
