@@ -40,23 +40,21 @@ fi
 
 git fetch origin main --quiet
 if [ "$(git rev-list --count HEAD..origin/main)" -gt 0 ]; then
-    # The implementation is still UNCOMMITTED here, and git refuses to merge into a
-    # dirty tree ("Please commit your changes or stash them before you merge") - so
-    # STASH the work FIRST, merge, then restore it, inverting the merge-then-commit
-    # order the prose implies (issue #521). A clean tree skips the stash.
-    STASHED=0
+    # COMMIT the work FIRST, then merge on the clean tree (issue #635; supersedes
+    # the #521 stash-first order). Stashes live in the repo's COMMON git dir -
+    # every linked worktree shares ONE stack - and two concurrent sessions doing
+    # stash push -> merge -> bare pop silently swapped each other's uncommitted
+    # work. A WIP commit is branch-local (a sibling cannot take it) and the
+    # eventual squash-merge flattens it. NEVER use `git stash push` or a bare
+    # `git stash pop` in a shared-worktree flow.
     if [ -n "$(git status --porcelain)" ]; then
-        git stash push -u -m "flow-finish-pre-stale-merge" && STASHED=1
+        git add -A
+        git commit -m "wip(flow): pre-merge snapshot"
     fi
     if ! git merge --no-edit origin/main; then
         echo "STOP: 'git merge origin/main' hit CONFLICTS. Resolve them, 'git add' + 'git commit', then re-run /flow-finish."
         git diff --name-only --diff-filter=U
-        [ "$STASHED" -eq 1 ] && echo "NOTE: your work is stashed ('git stash list') - pop it after resolving."
-        exit 1
-    fi
-    if [ "$STASHED" -eq 1 ] && ! git stash pop; then
-        echo "STOP: restoring your stashed work onto the merged base hit conflicts. Resolve them and 'git add' (do NOT 'git merge --abort'), then re-run /flow-finish."
-        git diff --name-only --diff-filter=U
+        echo "NOTE: your work is safe in the 'wip(flow): pre-merge snapshot' commit on this branch."
         exit 1
     fi
     # Re-sync the in-repo generated surfaces if the merge pulled ANY command-family
@@ -216,6 +214,11 @@ discipline; on exit 127 skip it):
 - If there are uncommitted changes, help the user commit them using standard git commit workflow.
 - Use conventional commit format: `type(scope): Description (Closes #N)`
 - Include `Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>` if Claude helped write the code.
+- **An already-clean tree here is a LEGITIMATE state, not a failure** (issue
+  #635): when the Step-1 stale-base merge ran, the work is already on the
+  branch in the `wip(flow): pre-merge snapshot` commit. Skip cleanly and leave
+  the WIP commit as-is - the squash-merge flattens branch history and the PR
+  title/body carry the conventional message. Do NOT add a STOP for this state.
 
 ### Step 4: Push Branch
 
