@@ -67,6 +67,16 @@ requires_tools = pytest.mark.skipif(
     reason="requires bash and jq on PATH",
 )
 
+# The #687 claim-reconciliation suite also drives real `git worktree` locks, so
+# it carries the stricter guard (CPP core directive: the CI validate container
+# ships none of these binaries).
+requires_git_tools = pytest.mark.skipif(
+    shutil.which("bash") is None
+    or shutil.which("jq") is None
+    or shutil.which("git") is None,
+    reason="requires bash, jq and git on PATH",
+)
+
 HOST = "testhost"
 SELF_PID = "4242"
 SELF_SESSION = "session-self"
@@ -585,6 +595,196 @@ class TestObservationFlagsSurviveReRegister:
         assert _verdict(p) == "registered"
         assert _detail(p, "FLOW_WAVE_VERIFIED") == "false"
         assert _registry_json(tmp_path)["default"]["roles"]["1"]["verified"] is False
+
+
+CLAIM_PID = "7777"
+CLAIM_SESSION = "session-claim"
+
+
+def _claim_repo(
+    tmp: Path,
+    *,
+    issue: str = "999",
+    pid: str = CLAIM_PID,
+    session: str = CLAIM_SESSION,
+    host: str = HOST,
+    branch: str = "issue-999-alpha",
+) -> Path:
+    """A git repo with a linked worktree carrying a real flow-claim lock.
+
+    Uses git's own locking rather than a hand-written fixture file, so the test
+    reads exactly what ``flow-worktree-claim.sh`` writes and what
+    ``git worktree list --porcelain`` emits.
+    """
+    repo = tmp / "repo"
+    subprocess.run(["git", "init", "-q", str(repo)], check=True, capture_output=True)
+    git = ["git", "-C", str(repo)]
+    subprocess.run([*git, "config", "user.email", "t@example.com"], check=True, capture_output=True)
+    subprocess.run([*git, "config", "user.name", "t"], check=True, capture_output=True)
+    (repo / "f").write_text("x")
+    subprocess.run([*git, "add", "f"], check=True, capture_output=True)
+    subprocess.run([*git, "commit", "-qm", "init"], check=True, capture_output=True)
+    wt = tmp / "wt-a"
+    subprocess.run([*git, "worktree", "add", "-q", str(wt), "-b", branch], check=True, capture_output=True)
+    reason = f"flow-claim issue={issue} pid={pid} session={session} host={host} ts=1700000000"
+    subprocess.run([*git, "worktree", "lock", "--reason", reason, str(wt)], check=True, capture_output=True)
+    return repo
+
+
+@requires_git_tools
+class TestUnregisteredClaimReconciliation:
+    """`list` reconciles flow-claim worktree locks (issue #687).
+
+    A session that goes straight to ``/flow:auto`` never registers, so its issue,
+    branch and worktree were invisible to the roster while it held a real lock.
+    In #673 the orchestrator read an issue as free while a live session was
+    minutes from a PR on it, and only caught it by running
+    ``git worktree list --porcelain`` by hand.
+    """
+
+    def _register_orchestrator(self, tmp: Path, repo: Path) -> None:
+        _run(tmp, "register", "orchestrator", "--wave", "w", "--socket", "uds:/tmp/o.sock",
+             "--cwd", str(tmp), "--repo", str(repo), pid="100", session="orch")
+
+    def test_live_unregistered_claim_is_rendered(self, tmp_path: Path) -> None:
+        repo = _claim_repo(tmp_path)
+        self._register_orchestrator(tmp_path, repo)
+        p = _run(tmp_path, "list", "--wave", "w", live=f"100:{CLAIM_PID}")
+        assert "unregistered flow-claim locks" in p.stdout
+        assert "(claim)" in p.stdout
+        assert "issue=999" in p.stdout
+        assert f"pid={CLAIM_PID}" in p.stdout
+
+    def test_claim_participates_in_overlap_detection(self, tmp_path: Path) -> None:
+        """The bar: an orchestrator reading the roster cannot double-assign.
+
+        A claim row carries an issue, a branch and a real worktree, so it fails
+        every #683b exemption condition. Pinned rather than reasoned about -
+        those conditions changed twice on 2026-08-11.
+        """
+        repo = _claim_repo(tmp_path)
+        self._register_orchestrator(tmp_path, repo)
+        _run(tmp_path, "register", "A", "--wave", "w", "--socket", "uds:/tmp/a.sock",
+             "--cwd", str(tmp_path / "other-wt"), "--repo", str(repo),
+             "--issue", "999", "--branch", "other", pid="101", session="s1")
+        p = _run(tmp_path, "list", "--wave", "w", live=f"100:101:{CLAIM_PID}")
+        assert "WARNING" in p.stdout
+        assert "both claim issue #999" in p.stdout
+
+    def test_dead_claim_is_not_rendered(self, tmp_path: Path) -> None:
+        """A dead claim is worktree-remove's problem (#597), not roster noise."""
+        repo = _claim_repo(tmp_path)
+        self._register_orchestrator(tmp_path, repo)
+        p = _run(tmp_path, "list", "--wave", "w", live="100")
+        assert "(claim)" not in p.stdout
+
+    def test_registered_session_claim_is_not_duplicated(self, tmp_path: Path) -> None:
+        repo = _claim_repo(tmp_path)
+        self._register_orchestrator(tmp_path, repo)
+        _run(tmp_path, "register", "OWNER", "--wave", "w", "--socket", "uds:/tmp/g.sock",
+             "--cwd", str(tmp_path / "wt-a"), "--repo", str(repo), "--issue", "999",
+             pid=CLAIM_PID, session=CLAIM_SESSION)
+        p = _run(tmp_path, "list", "--wave", "w", live=f"100:{CLAIM_PID}")
+        assert "(claim)" not in p.stdout
+
+    def test_released_entry_does_not_suppress_a_live_claim(self, tmp_path: Path) -> None:
+        """Only a LIVE entry accounts for a live claim.
+
+        A released entry means the session left the wave; if something still
+        holds the lock, showing the released row over a genuinely held lane
+        would re-create #687's blindness through the back door.
+        """
+        repo = _claim_repo(tmp_path)
+        self._register_orchestrator(tmp_path, repo)
+        _run(tmp_path, "register", "OWNER", "--wave", "w", "--socket", "uds:/tmp/g.sock",
+             "--cwd", str(tmp_path / "wt-a"), "--repo", str(repo), "--issue", "999",
+             pid=CLAIM_PID, session=CLAIM_SESSION)
+        _run(tmp_path, "release", "OWNER", "--wave", "w", pid=CLAIM_PID, session=CLAIM_SESSION)
+        p = _run(tmp_path, "list", "--wave", "w", live=f"100:{CLAIM_PID}")
+        assert "(claim)" in p.stdout
+
+    def test_address_is_observed_never_derived(self, tmp_path: Path) -> None:
+        """#687 as filed asked for a socket DERIVED from the pid.
+
+        That is a uds-shaped guess, and #675/#689 had just removed exactly that
+        assumption. With no socket present the claim reports no address rather
+        than a confident wrong one.
+        """
+        repo = _claim_repo(tmp_path)
+        self._register_orchestrator(tmp_path, repo)
+        p = _run(tmp_path, "list", "--wave", "w", live=f"100:{CLAIM_PID}")
+        assert "no observed address" in p.stdout
+        assert f"uds:{tmp_path}/socks/{CLAIM_PID}.sock" not in p.stdout
+
+        # Now the socket genuinely exists -> it is reported, because it was seen.
+        import socket as _socket
+
+        (tmp_path / "socks").mkdir(exist_ok=True)
+        s = _socket.socket(_socket.AF_UNIX)
+        try:
+            s.bind(str(tmp_path / "socks" / f"{CLAIM_PID}.sock"))
+        except OSError as exc:
+            pytest.skip(f"cannot bind AF_UNIX socket here: {exc}")
+        try:
+            p2 = _run(tmp_path, "list", "--wave", "w", live=f"100:{CLAIM_PID}")
+            assert f"uds:{tmp_path}/socks/{CLAIM_PID}.sock" in p2.stdout
+        finally:
+            s.close()
+
+    def test_json_keeps_roles_top_level_and_adds_a_sibling_key(self, tmp_path: Path) -> None:
+        """Additive only: nesting roles under a wrapper would break every parser."""
+        repo = _claim_repo(tmp_path)
+        self._register_orchestrator(tmp_path, repo)
+        p = _run(tmp_path, "list", "--wave", "w", "--json", live=f"100:{CLAIM_PID}")
+        payload = _json_payload(p)
+        assert "orchestrator" in payload  # roles still indexed at the top level
+        assert "roles" not in payload  # and NOT nested under a wrapper
+        claims = payload["unregistered_claims"]
+        assert len(claims) == 1
+        assert claims[0]["issue"] == "999"
+        assert claims[0]["registered"] is False
+        assert claims[0]["source"] == "flow-claim-lock"
+        assert claims[0]["address"] is None  # observed: nothing there to observe
+
+    def test_json_is_unchanged_when_there_are_no_claims(self, tmp_path: Path) -> None:
+        """A claim-free run stays byte-compatible with pre-#687 consumers."""
+        _run(tmp_path, "register", "A", "--wave", "w", "--socket", "uds:/tmp/a.sock",
+             "--issue", "1", pid="101", session="s1")
+        p = _run(tmp_path, "list", "--wave", "w", "--json", live="101")
+        assert "unregistered_claims" not in _json_payload(p)
+
+    def test_a_dead_entry_still_contributes_its_repo_to_the_scan(self, tmp_path: Path) -> None:
+        """Repo discovery is not a liveness question.
+
+        A stale entry is a poor account of a lane but a fine record of which
+        repo the wave concerns. Restricting discovery to LIVE entries would go
+        blind exactly when the wave has died back to one dead row while an
+        unregistered session is still working - #687 at its worst.
+        """
+        repo = _claim_repo(tmp_path)
+        # Registered, names the repo, and NOT in the live set -> reads stale.
+        _run(tmp_path, "register", "GONE", "--wave", "w", "--socket", "uds:/tmp/x.sock",
+             "--cwd", str(tmp_path), "--repo", str(repo), pid="4040", session="dead")
+        p = _run(tmp_path, "list", "--wave", "w", live=CLAIM_PID)
+        assert "[stale," in p.stdout  # the dead entry is still shown as such
+        assert "(claim)" in p.stdout  # and its repo was still scanned
+        assert "issue=999" in p.stdout
+
+    def test_explicit_repo_flag_scans_a_repo_the_registry_never_names(self, tmp_path: Path) -> None:
+        """The documented escape hatch for the coverage bound."""
+        repo = _claim_repo(tmp_path)
+        p = _run(tmp_path, "list", "--wave", "w", "--repo", str(repo), live=CLAIM_PID)
+        assert "(claim)" in p.stdout
+
+    def test_reconciliation_failing_open_never_breaks_the_roster(self, tmp_path: Path) -> None:
+        """An absent/unreadable repo is skipped silently - list must still work."""
+        _run(tmp_path, "register", "A", "--wave", "w", "--socket", "uds:/tmp/a.sock",
+             "--repo", str(tmp_path / "does-not-exist"), "--issue", "1",
+             pid="101", session="s1")
+        p = _run(tmp_path, "list", "--wave", "w", live="101")
+        assert p.returncode == 0
+        assert _verdict(p) == "listed"
+        assert "A -> uds:/tmp/a.sock" in p.stdout
 
 
 @requires_tools

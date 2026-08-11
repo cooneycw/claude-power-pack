@@ -70,11 +70,24 @@
 #             worktree paths. Same repo alone is NOT a warning - in a wave,
 #             every worker shares the repo by design (info only). Roles that
 #             DECLARED NO LANE are EXEMPT from the pairwise checks (#683) - the
-#             `orchestrator` (never implements, and its parent cwd nested over
-#             every worktree) and any live role with no issue, no branch, AND a
-#             shared-parent cwd. Narrow on purpose: a declared branch or a real
-#             nested worktree is a lane even with no issue number. The exemption
-#             is announced, not silent, and lapses the moment a lane is declared.
+#             `orchestrator` (never implements, so it cannot collide with a lane)
+#             and any live role with no issue, no branch, AND a shared-parent
+#             cwd. Narrow on purpose: a declared branch or a real nested worktree
+#             is a lane even with no issue number. The exemption is announced,
+#             not silent, and lapses the moment a lane is declared.
+#             ALSO reconciles `flow-claim` worktree locks (#687): a session that
+#             went straight to /flow:auto never registered, so its issue, branch
+#             and worktree were invisible to the roster while it held a real
+#             lock - the #673 near-double-assignment. Live claims that no
+#             registry entry accounts for are rendered as claim-derived rows and
+#             DO participate in overlap detection. Their address is OBSERVED
+#             (a socket present for that pid), never derived from it, so a
+#             non-uds transport reports no address instead of a wrong one.
+#             COVERAGE BOUND, stated because a blind spot that reads like
+#             coverage is the failure this guards: repos are discovered from the
+#             wave's own LIVE entries plus an explicit --repo, so a host where
+#             nothing is registered has nothing to scan. In #673 it WOULD have
+#             fired - the orchestrator was registered with a repo.
 #   get       key=value contract for one role (for scripting).
 #   verify    Orchestrator-side: reconcile the recorded address with the
 #             OBSERVED `from=` of a real message. Three outcomes, and the split
@@ -336,6 +349,127 @@ cwd_is_shared_parent() {
     [ "$count" -ge 2 ] && return 0
   done
   return 1
+}
+
+# claim_address PID -> an OBSERVED address for a claim's pid, or empty.
+#
+# Observation, never derivation (#687). The tempting move is to BUILD
+# "uds:$SOCK_DIR/<pid>.sock" from the pid and call it the session's address -
+# and #687 as filed asked for exactly that. It is a uds-shaped guess, and #675
+# removed that assumption from the addressing docs while #689 removed it from
+# `liveness_of`; manufacturing it here would undo both from a third direction.
+#
+# So: look, and report only what is there. A socket present at the conventional
+# path is an observation and is reported. Nothing there means the claim is
+# reported WITHOUT an address - honest, and consistent with #672's rule that a
+# failed derivation never invents one. On a transport that stamps something
+# else this simply finds nothing, which is the correct answer rather than a
+# confident wrong one.
+claim_address() {
+  local pid="$1"
+  [ -n "$pid" ] || return 0
+  [ -S "$SOCK_DIR/$pid.sock" ] && printf 'uds:%s/%s.sock' "$SOCK_DIR" "$pid"
+  return 0
+}
+
+# collect_unregistered_claims REG WAVE REPOS
+#   Emits one TAB-separated record per LIVE `flow-claim` worktree lock that no
+#   registry entry in WAVE accounts for:
+#     issue \t pid \t session \t branch \t worktree \t repo \t address
+#
+# The registry and git each know who is working on what, and before #687 they
+# never spoke (#673: a live session held a claim, had the fix committed, and was
+# invisible to the roster - the orchestrator nearly assigned the issue twice).
+# `git worktree list --porcelain` already carries everything needed:
+#   locked flow-claim issue=<n> pid=<p> session=<s> host=<h> ts=<t>
+#
+# COVERAGE IS BOUNDED AND THE BOUND IS REAL: repos are discovered FROM registry
+# entries (plus an explicit --repo), so a host where nothing is registered has
+# nothing to scan and stays invisible. This closes the gap for repos the wave
+# knows about, which is what #673 needed - the orchestrator there WAS registered
+# with a repo. Stated rather than implied: a reconciliation whose blind spot
+# reads like its working case is the failure this whole series is about.
+#
+# Fail-open per repo: a missing git, an absent path, or an unreadable repo is
+# skipped silently. `list` must never break because reconciliation could not run.
+collect_unregistered_claims() {
+  local reg="$1" wave="$2" repos="$3"
+  local known_pids="" known_sessions="" rname e
+  command -v git >/dev/null 2>&1 || return 0
+  # Only a LIVE entry ACCOUNTS FOR a live claim. A released or stale entry does
+  # not: the session said it left the wave (or died) while something still holds
+  # the lock, and suppressing the claim row there would show the orchestrator a
+  # released row over a lane that is genuinely still held - the #687 blindness
+  # re-created through the back door.
+  for rname in $(printf '%s' "$reg" | jq -r --arg w "$wave" '(.[$w].roles // {}) | keys[]'); do
+    e="$(printf '%s' "$reg" | jq -c --arg w "$wave" --arg r "$rname" '.[$w].roles[$r]')"
+    [ "$(liveness_of "$e")" = "live" ] || continue
+    known_pids="$known_pids
+$(printf '%s' "$e" | jq -r '(.pid // empty) | tostring')"
+    known_sessions="$known_sessions
+$(printf '%s' "$e" | jq -r '.session // empty')"
+  done
+  printf '%s\n' "$repos" | sort -u | while IFS= read -r repo; do
+    [ -n "$repo" ] || continue
+    [ -d "$repo" ] || continue
+    local cur_wt="" cur_branch="" line kv reason
+    local c_issue c_pid c_session c_host addr
+    while IFS= read -r line; do
+      case "$line" in
+        "worktree "*)
+          cur_wt="${line#worktree }"; cur_branch="" ;;
+        "branch "*)
+          cur_branch="${line#branch }"; cur_branch="${cur_branch#refs/heads/}" ;;
+        "locked flow-claim "*)
+          reason="${line#locked }"
+          c_issue=""; c_pid=""; c_session=""; c_host=""
+          for kv in $reason; do
+            case "$kv" in
+              issue=*)   c_issue="${kv#issue=}" ;;
+              pid=*)     c_pid="${kv#pid=}" ;;
+              session=*) c_session="${kv#session=}" ;;
+              host=*)    c_host="${kv#host=}" ;;
+            esac
+          done
+          # A dead claim is worktree-remove's problem (#597 takes it over), not
+          # roster noise - only a LIVE claim can be double-assigned.
+          is_alive "$c_pid" "$c_host" || continue
+          # Accounted for by a registry entry? Match on pid OR session, the same
+          # ownership test `register` uses.
+          if [ -n "$c_pid" ] && printf '%s\n' "$known_pids" | grep -Fxq -- "$c_pid"; then continue; fi
+          if [ -n "$c_session" ] && printf '%s\n' "$known_sessions" | grep -Fxq -- "$c_session"; then continue; fi
+          addr="$(claim_address "$c_pid")"
+          printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+            "$c_issue" "$c_pid" "$c_session" "$cur_branch" "$cur_wt" "$repo" "$addr"
+          ;;
+      esac
+    done < <(git -C "$repo" worktree list --porcelain 2>/dev/null)
+  done
+}
+
+# report_overlap A_LABEL A_ISS A_BR A_CWD A_REPO B_LABEL B_ISS B_BR B_CWD B_REPO
+#
+# The ONE lane-overlap predicate, shared by role-vs-role and claim-vs-role
+# (#687). Extracted rather than copied: a safety check written twice drifts, and
+# two copies disagreeing about what counts as a collision is the hazard
+# `tool-risk-drift` exists to catch for the permission taxonomy. Precedence and
+# wording are unchanged from #638/#683 - only the call sites are new.
+# Sets WARNED=1 on a warning; info-level shared-repo never does.
+report_overlap() {
+  local al="$1" ia="$2" ba="$3" ca="$4" ra="$5"
+  local bl="$6" ib="$7" bb="$8" cb="$9" rb="${10}"
+  if [ -n "$ia" ] && [ "$ia" = "$ib" ] && [ -n "$ra" ] && [ "$ra" = "$rb" ]; then
+    echo "  WARNING: '$al' and '$bl' both claim issue #$ia in $ra - two sessions on one issue race each other's worktrees (#597)."
+    WARNED=1
+  elif [ -n "$ba" ] && [ "$ba" = "$bb" ]; then
+    echo "  WARNING: '$al' and '$bl' both claim branch '$ba' - same checkout, guaranteed collision."
+    WARNED=1
+  elif [ -n "$ca" ] && [ -n "$cb" ] && { [ "$ca" = "$cb" ] || case "$ca/" in "$cb"/*) true ;; *) false ;; esac || case "$cb/" in "$ca"/*) true ;; *) false ;; esac; }; then
+    echo "  WARNING: '$al' ($ca) and '$bl' ($cb) have same/nested worktrees - edits will collide."
+    WARNED=1
+  elif [ -n "$ra" ] && [ "$ra" = "$rb" ]; then
+    echo "  info: '$al' and '$bl' share repo $ra (separate worktrees - the normal wave shape)."
+  fi
 }
 
 # implicit_default -> 0 when this invocation landed in wave 'default' without
@@ -724,6 +858,23 @@ case "$VERB" in
     done
     BOOTSTRAP_STATE=ok
     [ "$UNADDRESSED" -gt 0 ] && BOOTSTRAP_STATE=deadlock
+    # Reconcile flow-claim worktree locks (#687). Repos come from the wave's own
+    # LIVE entries, plus an explicit --repo for the case the registry cannot
+    # know about - see the coverage bound on collect_unregistered_claims.
+    # Repo discovery deliberately reads EVERY entry, live or not - a stale or
+    # released entry is a poor account of a lane but a perfectly good record of
+    # which repo this wave concerns. Restricting discovery to live entries would
+    # blind the scan exactly when the wave has died back to one dead row and an
+    # unregistered session is still working, which is the #687 case at its worst.
+    # (Whether a claim is ACCOUNTED FOR is a separate, strictly live-only test.)
+    SCAN_REPOS="$A_REPO"
+    for r in $ROLES; do
+      e="$(printf '%s' "$REG" | jq -c --arg w "$WAVE" --arg r "$r" '.[$w].roles[$r]')"
+      rp="$(printf '%s' "$e" | jq -r '.repo // ""')"
+      [ -n "$rp" ] && SCAN_REPOS="$SCAN_REPOS
+$rp"
+    done
+    CLAIMS="$(collect_unregistered_claims "$REG" "$WAVE" "$SCAN_REPOS")"
     if [ "$JSON_OUT" -eq 1 ]; then
       # Enriched JSON: each entry plus computed liveness.
       OUT="{}"
@@ -732,6 +883,17 @@ case "$VERB" in
         lv="$(liveness_of "$e")"
         OUT="$(printf '%s' "$OUT" | jq -c --arg r "$r" --argjson e "$e" --arg lv "$lv" '.[$r] = ($e + {liveness: $lv})')"
       done
+      # Claim-derived rows are a SIBLING key, never members of the roles map
+      # (#687). They are NOT registry entries: contactable, which is the whole
+      # point, but not `verify`/`release` targets and never to be mistaken for
+      # roles. Roles stay exactly where they are - existing consumers index them
+      # at the top level, so nesting them under a `roles:` wrapper would be the
+      # very breaking change this avoids. The key appears only when there is
+      # something to report, so a claim-free run is byte-identical to pre-#687.
+      if [ -n "$CLAIMS" ]; then
+        CLAIM_JSON="$(printf '%s\n' "$CLAIMS" | jq -R -s 'split("\n") | map(select(length > 0) | split("\t")) | map({issue: .[0], pid: .[1], session: .[2], branch: .[3], worktree: .[4], repo: .[5], address: (if .[6] == "" then null else .[6] end), source: "flow-claim-lock", registered: false})')"
+        OUT="$(printf '%s' "$OUT" | jq -c --argjson c "$CLAIM_JSON" '. + {unregistered_claims: $c}')"
+      fi
       printf '%s\n' "$OUT" | jq .
       # Keep --json stdout parseable: cross-wave notes go to stderr (#671).
       cross_wave_notes >&2
@@ -741,6 +903,19 @@ case "$VERB" in
     fi
     if [ -z "$ROLES" ]; then
       echo "flow-wave-registry: no roles registered for wave '$WAVE' ($REG_FILE)."
+      # An empty roster is exactly when reconciliation matters most (#687): no
+      # registered roles and a live unregistered claim is the maximal blind
+      # spot, and it is the case an explicit --repo exists to reach. Returning
+      # "nothing registered" while a lock is held would be the original bug.
+      if [ -n "$CLAIMS" ]; then
+        echo "  -- unregistered flow-claim locks (live, not registry entries - contactable, but not addressable as roles) --"
+        while IFS="$(printf '\t')" read -r c_iss c_pid c_ses c_br c_wt c_repo c_addr; do
+          [ -n "$c_pid" ] || continue
+          echo "  (claim) -> ${c_addr:-no observed address} [live, unregistered] issue=${c_iss:--} branch=${c_br:--} pid=$c_pid wt=$c_wt"
+        done <<EOF
+$CLAIMS
+EOF
+      fi
       cross_wave_notes
       echo "FLOW_WAVE_BOOTSTRAP=$BOOTSTRAP_STATE"
       echo "FLOW_WAVE: listed"
@@ -759,6 +934,19 @@ case "$VERB" in
       ver="$(printf '%s' "$e" | jq -r 'if .address_mismatch == true then "MISMATCH-corrected" elif .address_filled == true then "filled" elif .verified == true then "verified" else "unverified" end')"
       echo "  $r -> $sock [$lv, $ver] issue=$iss"
     done
+    # Claim-derived rows (#687), rendered AFTER the roles and visibly not roles.
+    # An orchestrator scanning the issue column now sees a lane held by a
+    # session that never registered - the #673 case, where the roster said an
+    # issue was free while a live session was minutes from a PR on it.
+    if [ -n "$CLAIMS" ]; then
+      echo "  -- unregistered flow-claim locks (live, not registry entries - contactable, but not addressable as roles) --"
+      while IFS="$(printf '\t')" read -r c_iss c_pid c_ses c_br c_wt c_repo c_addr; do
+        [ -n "$c_pid" ] || continue
+        echo "  (claim) -> ${c_addr:-no observed address} [live, unregistered] issue=${c_iss:--} branch=${c_br:--} pid=$c_pid wt=$c_wt"
+      done <<EOF
+$CLAIMS
+EOF
+    fi
     # Lane-overlap warnings among LIVE entries only (gate condition 2: sharing
     # a repo is the NORMAL wave shape - never warn on it alone; warn on same
     # repo + same issue, same branch, or same/nested worktree paths).
@@ -822,20 +1010,31 @@ case "$VERB" in
         ia="$(printf '%s' "$ea" | jq -r '.issue // ""')"; ib="$(printf '%s' "$eb" | jq -r '.issue // ""')"
         ba="$(printf '%s' "$ea" | jq -r '.branch // ""')"; bb="$(printf '%s' "$eb" | jq -r '.branch // ""')"
         ca="$(printf '%s' "$ea" | jq -r '.cwd // ""')"; cb="$(printf '%s' "$eb" | jq -r '.cwd // ""')"
-        if [ -n "$ia" ] && [ "$ia" = "$ib" ] && [ -n "$ra" ] && [ "$ra" = "$rb" ]; then
-          echo "  WARNING: '$a' and '$b' both claim issue #$ia in $ra - two sessions on one issue race each other's worktrees (#597)."
-          WARNED=1
-        elif [ -n "$ba" ] && [ "$ba" = "$bb" ]; then
-          echo "  WARNING: '$a' and '$b' both claim branch '$ba' - same checkout, guaranteed collision."
-          WARNED=1
-        elif [ -n "$ca" ] && [ -n "$cb" ] && { [ "$ca" = "$cb" ] || case "$ca/" in "$cb"/*) true ;; *) false ;; esac || case "$cb/" in "$ca"/*) true ;; *) false ;; esac; }; then
-          echo "  WARNING: '$a' ($ca) and '$b' ($cb) have same/nested worktrees - edits will collide."
-          WARNED=1
-        elif [ -n "$ra" ] && [ "$ra" = "$rb" ]; then
-          echo "  info: '$a' and '$b' share repo $ra (separate worktrees - the normal wave shape)."
-        fi
+        report_overlap "$a" "$ia" "$ba" "$ca" "$ra" "$b" "$ib" "$bb" "$cb" "$rb"
       done
     done
+    # Claim-derived lanes participate in overlap detection (#687 item 2) - an
+    # unregistered claim is precisely the lane most likely to be double-assigned,
+    # since nothing else advertises it. A claim row carries an issue, a branch and
+    # a real worktree, so it fails all three #683b exemption conditions and is
+    # never skipped; that is checked by test, not left to reasoning, because
+    # those conditions have changed before.
+    if [ -n "$CLAIMS" ]; then
+      while IFS="$(printf '\t')" read -r c_iss c_pid c_ses c_br c_wt c_repo c_addr; do
+        [ -n "$c_pid" ] || continue
+        for b in $LIVE_ROLES; do
+          eb="$(printf '%s' "$REG" | jq -c --arg w "$WAVE" --arg r "$b" '.[$w].roles[$r]')"
+          rb="$(printf '%s' "$eb" | jq -r '.repo // ""')"
+          ib="$(printf '%s' "$eb" | jq -r '.issue // ""')"
+          bb="$(printf '%s' "$eb" | jq -r '.branch // ""')"
+          cb="$(printf '%s' "$eb" | jq -r '.cwd // ""')"
+          report_overlap "claim(pid $c_pid)" "$c_iss" "$c_br" "$c_wt" "$c_repo" \
+            "$b" "$ib" "$bb" "$cb" "$rb"
+        done
+      done <<EOF
+$CLAIMS
+EOF
+    fi
     # Announce the exemption (#683) - a skipped check the reader cannot see is a
     # blind spot, so name who was skipped and why rather than just going quiet.
     if [ -n "$EXEMPT_ROLES" ]; then
