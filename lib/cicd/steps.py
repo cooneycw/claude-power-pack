@@ -124,10 +124,48 @@ class ShellStep:
         guards see the same PYTHONPATH / CPP_OFFLINE the runner set (#534).
         """
         env = context.get("env")
-        if self.env:
+        test_workers = self.resolve_pytest_workers(context)
+        inherited_env = env if env is not None else os.environ
+        has_pytest_workers = self.is_test_step() and (
+            "PYTEST_WORKERS" in self.env or "PYTEST_WORKERS" in inherited_env
+        )
+        if self.env or test_workers is not None or has_pytest_workers:
             env = dict(env) if env is not None else dict(os.environ)
             env.update(self.env)
+            if self.is_test_step():
+                # An empty step override falls through during resolution and
+                # must not erase the lower-precedence non-empty value here.
+                env.pop("PYTEST_WORKERS", None)
+                if test_workers is not None:
+                    env["PYTEST_WORKERS"] = test_workers[0]
         return env
+
+    def resolve_pytest_workers(
+        self, context: dict[str, Any]
+    ) -> Optional[tuple[str, str]]:
+        """Return the effective pytest worker cap and its source for test steps.
+
+        Empty values are treated as unset. Values pass through verbatim because
+        choosing and validating the worker policy belongs to the host/project.
+        """
+        if not self.is_test_step():
+            return None
+
+        step_value = self.env.get("PYTEST_WORKERS")
+        if step_value:
+            return step_value, "step-env"
+
+        host_env = context.get("env")
+        if host_env is None:
+            host_env = os.environ
+        host_value = host_env.get("PYTEST_WORKERS")
+        if host_value:
+            return host_value, "host-env"
+
+        cap_value = host_env.get("CPP_TEST_WORKERS")
+        if cap_value:
+            return cap_value, "CPP_TEST_WORKERS"
+        return None
 
     def is_test_step(self) -> bool:
         """True when this step's id or command names a test runner (issue #621)."""
@@ -353,6 +391,8 @@ def _gate_step(
 # here too; tests/test_runner.py::TestPlansCoverCITemplates pins the invariant.
 # Each gate prefers its Makefile target but falls back to `uv run --extra dev`
 # when pyproject configures the tool and no target exists (issue #628).
+# Test gates get their PYTEST_WORKERS cap through ShellStep, with step env then
+# host PYTEST_WORKERS then host CPP_TEST_WORKERS precedence (issue #640).
 
 BUILTIN_PLANS: dict[str, list[StepDef]] = {
     "finish": [

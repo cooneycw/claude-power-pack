@@ -261,7 +261,18 @@ class DeterministicRunner:
                 continue
 
             # Execute step
-            self._log(f"  [{idx + 1}/{len(step_defs)}] {step.id}: running... ({step.description})")
+            workers = step.resolve_pytest_workers(context)
+            workers_suffix = ""
+            if step.is_test_step():
+                if workers is None:
+                    workers_suffix = " [PYTEST_WORKERS=unset]"
+                else:
+                    value, source = workers
+                    workers_suffix = f" [PYTEST_WORKERS={value} via {source}]"
+            self._log(
+                f"  [{idx + 1}/{len(step_defs)}] {step.id}: "
+                f"running... ({step.description}){workers_suffix}"
+            )
             state.mark_step_running(idx)
             state.save(self.project_root)
 

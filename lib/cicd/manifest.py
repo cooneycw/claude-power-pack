@@ -439,6 +439,8 @@ def write_manifest(manifest: TaskManifest, project_root: str | Path) -> Path:
         "#   steps.<name>.idempotent  - Safe to retry? (default: true)\n"
         "#   steps.<name>.skip_if     - Shell expression; skip if exits 0\n"
         "#   steps.<name>.env         - Extra env vars (merged on top of sanitized base)\n"
+        "#   steps.<name>.env.PYTEST_WORKERS - Per-test-step worker cap (highest precedence)\n"
+        "#   CPP_TEST_WORKERS         - Host cap after host PYTEST_WORKERS; passed verbatim, no numeric validation\n"
         "#   steps.<name>.artifacts   - Output files to preserve\n"
         "#   steps.<name>.rollback    - Command to run on failure\n"
         "#   plans.<name>.steps       - Ordered list of step names\n"
