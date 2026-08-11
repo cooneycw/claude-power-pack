@@ -243,14 +243,22 @@ derive_self_address() {
 # The three lanes that can still produce an address when self-derivation cannot,
 # printed wherever the helper reports an unaddressed session. Every one of them
 # was available during the 2026-08-11 deadlock; none was visible in the output.
+#
+# Lane 3 is the #676 mailbox. It produces no address by itself (a mailbox write
+# carries no from=), but it is the only lane that REACHES a counterpart holding
+# no address, and it wakes them - so it belongs above the human relay, which on
+# 2026-08-11 was reached first and cost ~2h.
 bootstrap_escapes() {
   echo "  Bootstrap lanes that do NOT depend on self-derivation:" >&2
   echo "    1. re-run this register - the socket dir is created lazily, so a" >&2
   echo "       retry once this session has a socket adopts the real address." >&2
   echo "    2. register --socket <addr> - pass an address learned by any means" >&2
   echo "       (harness env, the user relaying it from the other session)." >&2
-  echo "    3. user-relayed hello - the user pastes this session's FLOW_WAVE_*" >&2
-  echo "       block to the counterpart, whose reply carries an observable from=." >&2
+  echo "    3. mailbox hello - flow-wave-mailbox.sh send --to <role> [--from R]," >&2
+  echo "       then arm 'watch --role <yours>'. No address needed to deliver, and" >&2
+  echo "       the counterpart's REPLY carries the observable from=." >&2
+  echo "    4. user-relayed hello (LAST RESORT) - the user pastes this session's" >&2
+  echo "       FLOW_WAVE_* block to the counterpart, whose reply carries a from=." >&2
 }
 
 # All mutations run under flock, read-modify-write with an atomic rename.

@@ -98,6 +98,44 @@ mid-session. Check the roster with:
 ~/.claude/scripts/flow-wave-registry.sh list --wave <WAVE>
 ```
 
+## Setup: the delivery lane (consume #676, do not reimplement)
+
+The roster says WHERE a worker is. It does not deliver, and on 2026-08-11 that
+was the whole failure: the harness rejected every orchestrator->worker
+`SendMessage` (it routes only to subagents the calling session spawned), so a
+written assignment sat undelivered ~2h while both sessions correctly stood by.
+Follow the delivery preference order in `register.md` - `SendMessage` first,
+then the mailbox, and a human relay only as a named last resort.
+
+**Arm the inbox watch at setup, before the first assignment.** One background
+Bash call covers every `inbox-*.md` in the wave, so a hello, a status report, or
+a worker's pushback wakes this session instead of waiting for the next time
+somebody looks:
+
+```bash
+~/.claude/scripts/flow-wave-mailbox.sh watch --role orchestrator --wave <WAVE> --timeout 1800
+```
+
+Re-arm after each wake, for as long as the wave runs. Exit 5 is a plain
+timeout, never evidence a worker died - re-arm and read the roster.
+
+**Route these four over the lane whenever `SendMessage` cannot reach a worker**
+(all of them failed to reach one in the reference run): the registration ack +
+wave brief, each ASSIGNMENT, each gate VERDICT with its conditions, and each
+re-plan notice that changes a worker's lane.
+
+```bash
+~/.claude/scripts/flow-wave-mailbox.sh send --to <role> --wave <WAVE> --body-file <file>
+```
+
+Sends append, so an assignment already waiting is never overwritten by the
+verdict that follows it. Confirm delivery from the roster's side rather than
+assuming: `flow-wave-mailbox.sh list --wave <WAVE>` shows each box's rev,
+cursor and unread count, so an assignment a worker has NOT consumed is visible
+as a nonzero `UNREAD` instead of being invisible until someone asks. A worker
+with unread mail and no progress is a worker whose watch is not armed - fix
+that rather than relaying by hand.
+
 ## Phase 1: Scaffold the issue set
 
 - **Spec-kit repo:** run `scripts/speckit-tasks-to-issues.sh` (dedup-safe) to
@@ -180,6 +218,12 @@ For each idle registered worker, pick the next startable issue subject to:
 - The assignment message carries: issue number + scope, the lane and its
   boundaries, known hazards, the conditions format, and the
   verify-against-the-tree obligation.
+- **An assignment is not assigned until it is DELIVERED.** Send it by the
+  preference order (`SendMessage`, else the mailbox), and treat the worker's
+  acknowledgement - not your own send - as the transition to in-flight. An
+  issue marked assigned in your ledger whose box still shows `UNREAD` is the
+  2026-08-11 failure reproducing: the plan looks healthy from both ends while
+  nothing moves.
 
 ### 3. Judge the Step-3 gate
 
@@ -282,6 +326,14 @@ next assignment from the CURRENT plan (step 1 re-ran after the verdict).
   mitigation is scheduling: avoid co-scheduling issues likely to hit the
   Step-6 merge window simultaneously, and prefer letting a worker merge
   `origin/main` early (Step 4) over relying on the Step-6 stash path.
+- **An idle session is not a stalled one, and neither is visible without the
+  lane (#676).** A worker that registered, stood by, and re-reported
+  "registered" on every wake is behaving CORRECTLY - it has no way to learn an
+  assignment exists. Before diagnosing a worker as stuck, check
+  `flow-wave-mailbox.sh list --wave <WAVE>`: unread mail means delivery
+  happened and the watch is not armed; an empty box means the assignment was
+  never sent, however finished it looks in your own ledger. Two hours were lost
+  on 2026-08-11 reading this exact state as "both sessions healthy".
 - **The orchestrator is the unreliable component.** Verify before ruling,
   expect verified pushback, and record who was right.
 

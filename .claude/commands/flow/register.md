@@ -102,26 +102,108 @@ and is wiped by the OS at reboot - exactly when every session's address dies too
      the user confirms the other session is genuinely gone. A dead owner's
      entry is stale and taken over automatically - no `--force` needed.
 
-3. Send the orchestrator a registration hello via `SendMessage`, stating the
-   role, wave, cwd, repo, and current issue/branch. This message is what lets
-   the orchestrator OBSERVE the real address. Pick the first branch that
-   applies:
-   - the orchestrator's address from `get orchestrator` - message it directly;
+3. Send the orchestrator a registration hello stating the role, wave, cwd,
+   repo, and current issue/branch, following the DELIVERY PREFERENCE ORDER
+   below. A hello delivered by `SendMessage` is what lets the orchestrator
+   OBSERVE the real address; a hello delivered by mailbox does not carry a
+   `from=`, so say so in the message and let the orchestrator's own first
+   contact supply the observation. Pick the first branch that applies:
+   - the orchestrator's address from `get orchestrator` - `SendMessage` it
+     directly;
    - no usable address, but the orchestrator has messaged this session before -
      reply to its most recent message's `from=`;
    - `get orchestrator` says `free`, or its address is `unknown` - the
      orchestrator has not (usefully) registered yet. This is NORMAL, not an
      error (issue #670): registration already succeeded in step 2 and never
-     depends on the hello landing. Report
-     `registered; orchestrator not yet in roster; hello deferred` and carry
-     on. The hello fires on FIRST CONTACT from either side: when the
-     orchestrator arrives it initiates contact (see the orchestrator side),
-     and this session's REPLY is the deferred hello - the reply carries the
+     depends on the hello landing. **Write the hello to the mailbox anyway**
+     (lane 2 below) - the orchestrator's inbox watch delivers it whenever that
+     session arrives, so the hello waits in a place that WAKES someone instead
+     of waiting on a human. Report
+     `registered; orchestrator not yet in roster; hello left in the mailbox`
+     and carry on. The address handshake still fires on FIRST CONTACT from
+     either side: when the orchestrator arrives it initiates contact (see the
+     orchestrator side), and this session's REPLY carries the
      transport-stamped `from=` that `verify` needs.
 
-4. Confirm back to the user which orchestrator was registered with once the
-   ack arrives - or that the hello is deferred because no orchestrator has
-   registered yet.
+4. **ARM THE WATCH before standing by (issue #676).** This is not optional and
+   not a nicety: a registered worker with no watch is exactly the 2026-08-11
+   failure - it stands by correctly, forever, while a written assignment sits
+   undelivered, because an idle session polls nothing. Launch the watch as a
+   BACKGROUND Bash call (`run_in_background: true`) so the harness re-invokes
+   this session the moment mail lands:
+
+   ```bash
+   ~/.claude/scripts/flow-wave-mailbox.sh watch --role 1 --wave cpp --timeout 1800
+   ```
+
+   On wake it prints the messages and exits 0; re-arm it after handling them,
+   for as long as this session is in the wave. Exit 5 is a plain timeout, NOT
+   evidence the orchestrator is gone - re-arm and check the roster before
+   concluding anything. Release by simply not re-arming (the watch is bounded,
+   so a wave can never leave one spinning after it ends).
+
+5. Confirm back to the user which orchestrator was registered with once the
+   ack arrives - or that the hello is waiting in the mailbox because no
+   orchestrator has registered yet - and that the watch is armed.
+
+### The delivery lane - mailbox + wake (issue #676)
+
+Everything above is the ADDRESS BOOK: who a role is, where it lives, whether
+the address can be trusted. None of it delivers anything, and on 2026-08-11
+that gap cost ~2 hours - the harness rejected every orchestrator->worker
+`SendMessage` (it routes only to subagents the calling session spawned), so a
+fully-written assignment sat undelivered while both sessions correctly stood
+by. The only transport that moved a message was the user typing a pointer into
+the worker's terminal by hand.
+
+**Delivery preference order. Follow it in order; do not skip to the end.**
+
+1. **Direct session messaging** (`SendMessage` to the registry address) - use
+   it wherever the harness supports it. Worker->orchestrator has been reliable
+   in the field; orchestrator->worker has not.
+2. **Mailbox + watch** - the host-local lane below. This is the fallback for
+   every direction the harness cannot route, and it is a REAL lane: it wakes
+   the counterpart.
+3. **User relay** - the DOCUMENTED LAST RESORT. On 2026-08-11 it was the first
+   resort, which is the bug. Reaching for a human means lanes 1 and 2 both
+   failed, and that is worth saying out loud rather than doing quietly.
+
+**The lane.** Beside the registry, same lifetime, same host-local scope
+(`$XDG_RUNTIME_DIR/cc-flow-wave/<wave>/`), one audited helper invoked BARE
+(#581 discipline):
+
+```bash
+~/.claude/scripts/flow-wave-mailbox.sh send  --to 1 --wave cpp --body-file /tmp/brief.md
+~/.claude/scripts/flow-wave-mailbox.sh send  --to orchestrator --from 1 --wave cpp --body "..."
+~/.claude/scripts/flow-wave-mailbox.sh read  --role 1 --wave cpp
+~/.claude/scripts/flow-wave-mailbox.sh watch --role 1 --wave cpp --timeout 1800
+~/.claude/scripts/flow-wave-mailbox.sh list  --wave cpp
+```
+
+(Exit 127 - helper not installed: fall back to
+`${CLAUDE_PLUGIN_ROOT}/scripts/flow-wave-mailbox.sh`, else the CPP-checkout
+copy; tell the user to run `/flow:repair`.)
+
+- Orchestrator writes to a worker: `outbox-<role>.md`. Worker writes back:
+  `inbox-<role>.md` - one file per WRITER, so two workers reporting at the same
+  moment never contend, and the orchestrator watches all of them at once with
+  `--role orchestrator`.
+- Sends APPEND a rev-stamped block; nothing already unread is ever overwritten.
+  (`--replace` exists for a box that holds current state rather than a log, and
+  still bumps the rev so a replace can never read as already-consumed.)
+- `read` prints only what is newer than this role's cursor, then advances it;
+  `--all` re-reads history (useful after a compaction), `--peek` reads without
+  consuming so an armed watch still fires.
+- **A mailbox with no watch is not a lane.** The wake is the half that makes
+  this different from the ad-hoc 2026-08-11 workaround, which still needed a
+  human to say "go read your outbox". Arm the watch (worker step 4 above;
+  orchestrator side below) as a background call and let the harness re-invoke
+  the session on exit. Where a harness Monitor-style tool is available it works
+  equally well - the contract is "something blocks on this box and wakes the
+  session", not one specific tool.
+
+The lane is HOST-LOCAL, exactly like the registry. Two sessions on different
+machines still have no transport between them; that is out of scope here.
 
 ### When there is no address - the bootstrap lanes (issue #672)
 
@@ -152,7 +234,7 @@ unlikely to pay and lanes 2/3 are the better first move. With no such evidence,
 Neither reading is a permanent claim about the host - a host with no dir at
 07:52 had one at 10:27, and this wave ran on that host's later state.
 
-Three lanes produce an address without self-derivation:
+Four lanes produce an address without self-derivation:
 
 1. **Re-register.** Re-run the same `register` command. It re-derives and
    adopts a socket that has since appeared (`FLOW_WAVE_SOCKET_SOURCE=self`).
@@ -161,9 +243,17 @@ Three lanes produce an address without self-derivation:
    any transport. Pass an address learned by any means (harness env, or the user
    relaying it from the other session), in whatever form that transport stamps;
    an explicit `--socket` always wins (`SOURCE=explicit`).
-3. **User-relayed hello.** The user pastes this session's `FLOW_WAVE_*` block
-   into the counterpart session; the counterpart's reply arrives over the real
-   transport, and its `from=` is what `verify` needs.
+3. **Mailbox hello (issue #676).** Write the hello to the wave mailbox and arm
+   the watch. This does not itself produce an address - a mailbox write carries
+   no `from=` - but it is the lane that reaches a counterpart with no address at
+   all, and the counterpart's REPLY over the real transport is what `verify`
+   needs. Prefer it over lane 4: it needs no human, and it wakes the other side.
+4. **User-relayed hello.** The DOCUMENTED LAST RESORT. The user pastes this
+   session's `FLOW_WAVE_*` block into the counterpart session; the counterpart's
+   reply arrives over the real transport, and its `from=` is what `verify`
+   needs. Reaching for this means lanes 1-3 all failed - say so rather than
+   quietly making the human the transport, which is how ~2h were lost on
+   2026-08-11.
 
 **A failed derivation never downgrades a recorded address.** Re-registering as
 the cheap re-brief is safe: if the walk comes back `unknown` while the roster
@@ -219,11 +309,25 @@ address is transport-observed either way, and the word records how it was
 established, never how much to trust it. The output contract below defines both
 verdicts in full.
 
+**Arm the inbox watch (issue #676).** Before assigning anything, arm the
+orchestrator's own watch as a BACKGROUND Bash call, so a worker's hello or
+report wakes this session instead of waiting for the next time a human looks:
+
+```bash
+~/.claude/scripts/flow-wave-mailbox.sh watch --role orchestrator --wave cpp --timeout 1800
+```
+
+It covers every `inbox-*.md` at once. Re-arm after handling each wake.
+
 **Ack with the protocol.** The registration ack is the handshake: send the
 worker its wave brief so the rules survive its compaction - the gate points
 (stop at `/flow:auto` Step 3, no `--yes`), the completeness-ledger format
 (delivered / in-scope / residual), its file lane, and the pushback rule,
-stated verbatim:
+stated verbatim. Deliver it by the preference order above: `SendMessage` when
+the harness routes it, otherwise the mailbox (`send --to <role>`), and only
+then a human. An ack that cannot be delivered is not an ack - if it lands in
+the mailbox, say so, because the worker sees it on its next watch wake rather
+than immediately:
 
 > Workers verify assignments against the tree; "the orchestrator said so" is
 > not evidence - pushback is structural, not polite.
@@ -288,6 +392,13 @@ worked once can silently reach the wrong session later; name-addressing is the
 misrouting failure this command exists to remove. The rule was written as
 "socket-only" (#675); the intent was always "not by display label", never a
 claim that the address must be a socket.
+
+The mailbox lane (#676) does not weaken this rule - it obeys it from the other
+end. A mailbox is addressed by ROLE, the same declared identity the registry
+keys on, so `send --to 1` reaches whoever holds role 1 in this wave and cannot
+be misrouted by a label that changed since the last send. It is the registry's
+addressing model with a delivery mechanism attached, not a second addressing
+scheme.
 
 ### Release - `/flow:register --release`
 

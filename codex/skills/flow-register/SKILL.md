@@ -8,6 +8,7 @@ description: "Flow: Register - Declare This Session's Wave Role - A worker sessi
 
 Generated from a Claude Code command. Where the procedure references these Claude-only surfaces, adapt as follows:
 
+- Claude subagent/skill dispatch: do the work inline in this session, or shell out to `codex exec` when isolation is needed.
 - Helper scripts referenced as `scripts/<name>` are bundled under `scripts/` in this skill directory (byte-identical copies from the claude-power-pack checkout); some expect sibling repo resources, so prefer a full checkout when one is available.
 
 # Flow: Register - Declare This Session's Wave Role
