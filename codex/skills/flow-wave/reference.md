@@ -91,8 +91,15 @@ Loop until every wave issue is merged or explicitly parked.
 
 ```bash
 gh issue list --state all --json number,title,body,state --limit 200 > /tmp/<scratch>/wave-issues.json
-~/.claude/scripts/flow-wave-plan.py /tmp/<scratch>/wave-issues.json
+~/.claude/scripts/flow-wave-plan.py /tmp/<scratch>/wave-issues.json --in-flight <N,N or ''> --verdicts "$XDG_RUNTIME_DIR/cc-flow-wave/<WAVE>/verdicts.json"
 ```
+
+Pass `--in-flight` with the currently ASSIGNED issues (assignment state is
+yours, not the listing's): `path_contention_active` then names only the
+collisions that can happen NOW, which is what keeps the warning believable
+(#645 - flagging every open issue that mentions a shared file trains everyone
+to ignore the flag). Pass `--verdicts` with the wave's ruling ledger, every
+run (see the verdict-ledger protocol under gate judging).
 
 The planner is a pure function over the listing: Blocked-by graph + transitive
 closure, `startable` set, `path_contention` index, `serialized_resources`
@@ -154,8 +161,39 @@ turned a pure compiler fix into a migration-bearing change while another
 worker already held a migration - two `0009`s chained off one parent, caught
 only by a worker's status report. An assignment-time-only check reproduces
 exactly that bug. Diff the new plan's `serialized_resources` and
-`path_contention` against the previous run; a new overlap with an in-flight
-issue means pausing or re-scoping one side NOW, not at its merge.
+`path_contention_active` against the previous run; a new overlap with an
+in-flight issue means pausing or re-scoping one side NOW, not at its merge.
+
+**The verdict ledger (#645).** Every gate ruling is APPENDED to the wave's
+ledger - the canonical location is the wave's runtime namespace, beside the
+#638 registry:
+
+```
+$XDG_RUNTIME_DIR/cc-flow-wave/<WAVE>/verdicts.json
+```
+
+NOT session scratch: rulings must outlive any single orchestrator session (a
+successor resuming after a /clear or crash needs them, or every hold silently
+evaporates exactly when things are already going wrong), and the runtime dir
+dies at reboot when the wave dies too - the same lifetime symmetry as the
+registry. It is a JSON array of entries
+`{"issue": N, "ruling": "hold"|"approved"|"approved-with-conditions",
+"holds_behind": [N]?, "adds_serialized": [marker]?, "reason": str, "ts": str}`;
+write via tmp-file + rename (concurrent sessions share the wave dir). Append:
+
+- a `hold` when you rule an issue waits (name what it waits behind);
+- every approval - and when a CONDITION changes the issue's footprint (adds a
+  migration, claims a serialized resource), carry it in `adds_serialized`:
+  the issue's body never changes, so the ledger is the ONLY way the next
+  re-plan can see the new footprint (the two-`0009`s failure).
+
+A later entry for the same issue SUPERSEDES the earlier one - overriding a
+ruling is a recorded act with a reason, never a silent contradiction. The
+planner reads the ledger on every run: **exit 4 means an issue you are about
+to assign (or already assigned) contradicts an unsuperseded hold**. Do not
+assign - honor the hold, or append the explicit superseding entry, then
+re-plan. The plan JSON is still emitted on exit 4 (the exit-3 contract's
+loud-but-never-obstructive rule).
 
 ### 4. Verify the PR
 
