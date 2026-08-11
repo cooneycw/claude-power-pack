@@ -77,7 +77,12 @@ for arg in "$@"; do
         --check) MODE="check" ;;
         --force) FORCE=1 ;;
         --help|-h)
-            sed -n '2,37p' "$0" | sed 's/^# \{0,1\}//'
+            # 2,28p: the doc block ends at line 28 (the last `# Env:` entry).
+            # It was 2,37p, which spilled `set -uo pipefail`, three variable
+            # assignments and two stray comment lines into --help output (#686).
+            # tests/test_flow_helpers_install.py pins the boundary so the range
+            # cannot silently re-drift when the header grows.
+            sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'
             exit 0
             ;;
         *)
