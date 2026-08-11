@@ -429,6 +429,10 @@ class TestWriteManifest:
         assert "test" in reloaded.steps
         assert reloaded.steps["test"].timeout == 300
         assert reloaded.plans["check"].steps == ["lint", "test"]
+        header = path.read_text()
+        assert "steps.<name>.env.PYTEST_WORKERS" in header
+        assert "CPP_TEST_WORKERS" in header
+        assert "no numeric validation" in header
 
     def test_write_creates_directory(self, tmp_path):
         manifest = TaskManifest(
