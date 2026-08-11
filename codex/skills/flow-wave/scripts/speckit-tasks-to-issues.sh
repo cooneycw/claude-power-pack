@@ -76,14 +76,46 @@ echo "Remote:     $REMOTE_URL"
 # Match \bT\d{3}\b in existing titles (open + closed) so re-runs skip done tasks.
 # The number map (issue #607) lets a later task's dependency clause resolve to
 # `- Blocked by #N` lines in its body - the planner's native edge form.
+#
+# ISSUE_FS - the ONE field separator for the `gh issue list` records parsed below
+# (issue #700), ASCII unit separator (0x1F) and deliberately NOT tab.
+#
+# Tab is IFS *whitespace*, so shell field splitting collapses a run of it into a
+# single delimiter and an EMPTY field vanishes rather than arriving empty - every
+# later field shifts up one slot. This loop shipped with tab, and was safe only by
+# accident: field 1 is `.number`, and a GitHub issue always has one, so the
+# empty-first-field case could not arise from the input source. That safety was a
+# property of an external tool's output, held about a call site two lines away and
+# recorded nowhere - it decays the moment the query gains a field, the field order
+# changes, or a filter that can emit empty is introduced, and it decays into
+# SHIFTED FIELDS (issue bodies built from the wrong values), not an error.
+# `\037` is not IFS whitespace, so empty fields survive in every position.
+#
+# Same defect class as #698, which fixed the live instance in
+# scripts/flow-wave-registry.sh (a branchless worktree produced an empty middle
+# field on the ordinary path); this was the last whitespace-IFS read in scripts/.
+#
+# ONE definition, two spellings: the producer is a jq filter needing the `\uHHHH`
+# escape text, the reader is a shell `read` needing the byte, so the escape is
+# DERIVED from the byte rather than written out a second time. Four independent
+# definitions of the separator were what made #698 possible, and the failure mode
+# is silent, so a drifted copy would not announce itself.
+ISSUE_FS="$(printf '\037')"
+ISSUE_FS_JQ="$(printf '\\u%04x' "'$ISSUE_FS")"
+if [ "${#ISSUE_FS}" -ne 1 ] || [ "${#ISSUE_FS_JQ}" -ne 6 ]; then
+    echo "ERROR: could not derive the field separator (got a ${#ISSUE_FS}-char byte," \
+         "${#ISSUE_FS_JQ}-char escape). Refusing to parse with an unknown delimiter." >&2
+    exit 1
+fi
+
 declare -A EXISTING
 declare -A TASK_ISSUE
-while IFS=$'\t' read -r number title; do
+while IFS="$ISSUE_FS" read -r number title; do
     if [[ "$title" =~ (^|[^A-Za-z0-9])(T[0-9]{3})([^0-9]|$) ]]; then
         EXISTING["${BASH_REMATCH[2]}"]=1
         TASK_ISSUE["${BASH_REMATCH[2]}"]="$number"
     fi
-done < <(gh issue list "${GH_REPO_ARGS[@]}" --state all --limit 1000 --json number,title --jq '.[] | "\(.number)\t\(.title)"' 2>/dev/null || true)
+done < <(gh issue list "${GH_REPO_ARGS[@]}" --state all --limit 1000 --json number,title --jq ".[] | \"\(.number)${ISSUE_FS_JQ}\(.title)\"" 2>/dev/null || true)
 
 # --- Parse tasks.md and create issues -------------------------------------------
 created=0; skipped=0
