@@ -96,6 +96,54 @@ mid-session. Check the roster with:
 ~/.claude/scripts/flow-wave-registry.sh list --wave <WAVE>
 ```
 
+## Setup: the wave policy (consume #699, do not reimplement)
+
+**Declare the policy ONCE, before assigning anything.** Until #699 the
+brief above was retyped into every message, and everything in it died with a
+worker's `/clear` - the one thing the registry exists to survive. It is now
+declared data the registry inherits to every role:
+
+```bash
+~/.claude/scripts/flow-wave-registry.sh policy set --wave <WAVE> \
+  --repo <TARGET_REPO> \
+  --driver flow:auto \
+  --authority implement \
+  --authority-model orchestrator-only \
+  --gate "stop at /flow:auto Step 3; orchestrator judges; --yes forbidden" \
+  --ledger "delivered / in-scope / residual" \
+  --merge-authority worker \
+  --deploy-policy "woodpecker-only"
+```
+
+Three of these fields exist because of a specific failure, and skipping them
+re-creates it:
+
+- **`--authority`.** Against CPP's standing "file issues, don't implement" rule,
+  whether this wave writes code is the single most consequential wave-level
+  fact. Undeclared, it took a user round-trip and then had to be restated in
+  both worker briefs; both workers correctly refused to infer it from being
+  handed an issue number, and nothing in the registry could tell them.
+- **`--authority-model`.** A worker asked whether it needed BOTH its user's go
+  and the orchestrator's before writing code, and held pending an answer.
+  Requiring two signatures is how a wave stalls. Declare it once rather than
+  renegotiating it per worker.
+- **`--gate` / `--ledger`.** The ledger format was the ONE structured element in
+  the reference wave's brief, and it is the one thing that did not drift all
+  day - both workers produced directly comparable output. That is the argument
+  for this whole feature, so it is recorded rather than retyped.
+
+Amending is a one-flag `policy set` (it merges, and bumps `rev`). After any
+amendment the helper - and every later `list` - names the live roles still
+carrying the older rev: they are running on superseded rules until each
+re-registers, and **re-registering IS the re-brief**, so the fix is a message
+saying "re-register", not a retype of the policy.
+
+Assignments then carry the LANE and issue-specific conditions only; the protocol
+is already recorded. Grant a worker's file lane as DATA (`--files a,b,c` on its
+register) rather than as a sentence in a message - the roster checks declared
+file lanes for overlap, and the reference wave's every real collision was
+file-level while the orchestrator held the paths in prose.
+
 ## Setup: the delivery lane (consume #676, do not reimplement)
 
 The roster says WHERE a worker is. It does not deliver, and on 2026-08-11 that
@@ -215,7 +263,19 @@ For each idle registered worker, pick the next startable issue subject to:
     assignment. CI cannot catch this class; the file just quietly gets worse.
 - The assignment message carries: issue number + scope, the lane and its
   boundaries, known hazards, the conditions format, and the
-  verify-against-the-tree obligation.
+  verify-against-the-tree obligation. The PROTOCOL (gate point, ledger format,
+  authority model, merge authority) is not retyped here - it is declared wave
+  policy (#699), and the worker re-reads it by re-registering.
+- **Declare the lane, do not just describe it** (#699). Give the file lane as
+  `--files a,b,c` for the worker's next register, so the roster can warn when
+  two lanes overlap. The reference wave's worst orchestrator error was a message
+  that fenced a worker's file lane out of one file and, three paragraphs later,
+  assigned it the issue whose fix lived in that file - a contradiction nothing
+  could check because the lane existed only as prose.
+- **Route by declared role facts, not by guess.** `list` now shows each role's
+  `model=` and `perm=`; a session in a prompting permission mode cannot take
+  unattended work, and the hardest issue should not go to the smallest model.
+  Both were previously visible only in message metadata, if at all.
 - **An assignment is not assigned until it is DELIVERED.** Send it by the
   preference order (`SendMessage`, else the mailbox), and treat the worker's
   acknowledgement - not your own send - as the transition to in-flight. An
@@ -347,7 +407,10 @@ number is the health metric of the judging, in both directions).
 ## Notes
 
 - Worker-side mechanics are unchanged `/flow:auto`; this command is purely the
-  orchestrator's loop. The role/address handshake is `/flow:register` (#638);
+  orchestrator's loop. The wave POLICY - implementation authority, gate policy,
+  ledger format, authority model, merge and deploy policy, and the per-role file
+  lane - is declared state in the registry (#699), consumed here and
+  reimplemented nowhere; the role/address handshake is `/flow:register` (#638);
   dependency-graph fixes for `project:next` are #607; the shared behavioral
   contract for gate judging is #636. This command consumes all three and
   duplicates none.

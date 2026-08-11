@@ -37,9 +37,46 @@
 # OTHER waves (stderr in --json mode, so stdout stays parseable). Advisory
 # only - verdicts and exit codes are unchanged.
 #
+# Wave policy (issue #699): the registry records a role, an address and a lane.
+# Everything else a wave RUNS ON - implementation authority, the gate point, who
+# judges, the ledger format, the file lane, the authority model - lived in prose
+# the orchestrator retyped into every message. That prose is where the
+# 2026-08-11 wave's orchestration errors happened, and it is the one thing that
+# does NOT survive a worker's /clear, which is what this registry exists to
+# survive. So policy is DECLARED DATA in two tiers: wave-level fields set once
+# by the orchestrator (`policy set`) and INHERITED by every worker, plus
+# role-level facts each session declares for itself (--model, --permission-mode,
+# --files, --capacity).
+#
+# A DECLARED POLICY NOBODY READS IS DECORATION - the issue says so, and it is the
+# design constraint this implementation is judged against. Four things read it
+# back, so a broken policy is distinguishable from a working one:
+#   1. `register` REPRINTS the policy on every registration - the compaction-proof
+#      re-brief. Re-registering already was "the cheap re-brief" for addressing;
+#      this extends it to the protocol.
+#   2. `register`/`get` into a wave with NO policy report FLOW_WAVE_POLICY=absent
+#      and advise, so implementation authority is visible at registration rather
+#      than after a user round-trip (the #699 item-3 failure).
+#   3. Each role records the policy rev it was briefed on. A role briefed on a
+#      SUPERSEDED rev reads `brief=stale` in `list`/`get` - a policy amended
+#      after workers registered is exactly the drift an unread field would hide.
+#   4. Declared FILE LANES participate in overlap detection, like a branch or a
+#      worktree. Every real collision in the reference wave was file-level, and
+#      all of it was managed by the orchestrator holding paths in prose.
+#
+# Advisory discipline is unchanged (#674): the policy adds detail lines and
+# warnings, never a new exit code. Only a malformed enum is a usage error, and
+# that is a caller bug, not a wave state.
+#
 # Usage:
 #   flow-wave-registry.sh register <role> [--wave W] [--force] [--cwd P]
 #                         [--repo P] [--issue N] [--branch B] [--socket S]
+#                         [--model M] [--permission-mode P] [--files A,B]
+#                         [--capacity C]
+#   flow-wave-registry.sh policy set  [--wave W] [--driver D] [--authority A]
+#                         [--authority-model M] [--gate G] [--ledger L]
+#                         [--merge-authority M] [--deploy-policy D] [--repo P]
+#   flow-wave-registry.sh policy show [--wave W] [--json]
 #   flow-wave-registry.sh list    [--wave W] [--json]
 #   flow-wave-registry.sh get     <role> [--wave W]
 #   flow-wave-registry.sh verify  <role> --from <uds:...> [--wave W]
@@ -63,6 +100,14 @@
 #             are preserved together or cleared together. A takeover or a
 #             changed address clears all three. Advises when --cwd looks like a
 #             shared parent rather than a lane (#683).
+#             ALSO records this session's ROLE-LEVEL FACTS (#699) - --model,
+#             --permission-mode, --files (the file lane), --capacity - and
+#             REPRINTS the wave policy, which makes re-registering a re-brief of
+#             the PROTOCOL and not just the address. The two facts that exist
+#             purely to change a downstream decision: --permission-mode, because
+#             a session that will hit permission prompts cannot take unattended
+#             work and routing it there wastes a cycle; and --model, because the
+#             hardest issue should not go to the smallest model.
 #   list      Show the roster: role, address, issue, liveness, verification.
 #             Marks dead entries stale rather than deleting them - a dead
 #             worker mid-issue is information. Warns on lane overlaps between
@@ -88,6 +133,13 @@
 #             wave's own LIVE entries plus an explicit --repo, so a host where
 #             nothing is registered has nothing to scan. In #673 it WOULD have
 #             fired - the orchestrator was registered with a repo.
+#             Renders the wave POLICY header when one is declared, and names
+#             roles whose brief is STALE (#699). Declared FILE LANES join the
+#             same overlap predicate as branches and worktrees: two live roles in
+#             one repo naming a common path WARN. That check is exact-match on
+#             declared paths, deliberately - a glob-expanding or prefix-guessing
+#             comparison would invent collisions the roles never declared, and an
+#             overlap warning nobody believes is the #683 failure repeating.
 #   get       key=value contract for one role (for scripting).
 #   verify    Orchestrator-side: reconcile the recorded address with the
 #             OBSERVED `from=` of a real message. Three outcomes, and the split
@@ -113,15 +165,44 @@
 #             zero signal and buries the one case worth investigating.
 #   release   Mark the role released ("I'm leaving the wave"). Another LIVE
 #             session's role is refused without --force.
+#   policy    Wave-level policy (issue #699), declared ONCE and inherited by
+#             every role in the wave.
+#             `set`  writes the fields given and bumps the rev; fields NOT given
+#                    are left alone, so amending one field is a one-flag call.
+#                    Every set is stamped with who declared it, so the roster can
+#                    say which sessions were briefed before the amendment.
+#             `show` prints the policy (--json for the object). No policy yet is
+#                    reported as `policy_absent`, NOT as an error: a wave with no
+#                    declared policy is a normal early state, and the whole point
+#                    is that it is VISIBLE instead of implicit.
+#             --authority and --authority-model are VALIDATED against their
+#             enums; a typo there is a usage error (exit 2) rather than a silently
+#             stored value nobody can act on. The remaining fields are free text -
+#             they are read by humans and the wording is the content.
 #   self-address  Print this session's best-guess socket (bootstrap only).
 #                 Prints why on failure - see FLOW_WAVE_SOCKET_REASON below.
 #
 # Output ends with a machine-readable verdict line:
 #   FLOW_WAVE: registered | updated | refused | released | listed | verified |
-#              address_filled | mismatch-corrected | free | unknown | error
+#              address_filled | mismatch-corrected | free | unknown |
+#              policy_set | policy_shown | policy_absent | error
 # preceded by detail lines (FLOW_WAVE_ROLE=, FLOW_WAVE_SOCKET=, ...), '-' when
 # not applicable. Exit codes: 0 normal, 1 refused (live-owner conflict),
-# 2 usage error.
+# 2 usage error. `policy_absent` is a STATE, not a failure, and exits 0 - a new
+# verdict must never become a new exit code (#674), or a `set -euo pipefail`
+# caller aborts on a wave that has simply not declared its policy yet.
+#
+# Wave policy detail lines (#699), emitted by register/get/list/policy:
+#   FLOW_WAVE_POLICY         declared | absent
+#   FLOW_WAVE_POLICY_REV     the wave policy's current revision (0 when absent)
+#   FLOW_WAVE_POLICY_DRIVER  flow:auto | codex:auto | ... (free text)
+#   FLOW_WAVE_POLICY_AUTHORITY        implement | file-issues-only
+#   FLOW_WAVE_POLICY_AUTHORITY_MODEL  orchestrator-only | user-and-orchestrator
+#   FLOW_WAVE_POLICY_GATE / _LEDGER / _MERGE_AUTHORITY / _DEPLOY / _REPO / _TS
+#   FLOW_WAVE_BRIEFED_REV    the policy rev THIS role was briefed on (register/get)
+#   FLOW_WAVE_BRIEF          current | stale | none. `stale` means the policy was
+#                            amended after this role registered - re-register to
+#                            take the re-brief.
 #
 # Addressing honesty (#672) - three detail lines describe the address itself,
 # so an unaddressed session is never reported as a healthy pending handshake:
@@ -491,7 +572,46 @@ $(printf '%s' "$e" | jq -r '.session // empty')"
   done
 }
 
+# shared_files A_FILES B_FILES -> prints the paths declared by BOTH lanes.
+#
+# File lanes are comma-separated declared paths (#699 item 6). Comparison is
+# EXACT on the declared strings, normalized only for surrounding whitespace and
+# a trailing slash. Deliberately not glob expansion, not prefix containment, not
+# realpath resolution: those invent collisions the roles never declared, and this
+# warning has to be believed to be worth having - the #683 lesson that a check
+# firing on the normal case trains everyone to ignore it. A lane that declares
+# `.claude/commands/flow/` and one that declares
+# `.claude/commands/flow/register.md` therefore do NOT collide here; declare the
+# same string on both sides when they should.
+norm_path() { # trim surrounding whitespace + one trailing slash; keeps inner spaces
+  local p="$1"
+  p="${p#"${p%%[![:space:]]*}"}"
+  p="${p%"${p##*[![:space:]]}"}"
+  printf '%s' "${p%/}"
+}
+
+shared_files() {
+  local a="$1" b="$2" pa pb out=""
+  [ -n "$a" ] && [ -n "$b" ] || return 0
+  while IFS= read -r pa; do
+    pa="$(norm_path "$pa")"
+    [ -n "$pa" ] || continue
+    while IFS= read -r pb; do
+      pb="$(norm_path "$pb")"
+      [ -n "$pb" ] || continue
+      [ "$pa" = "$pb" ] && out="$out$pa "
+    done <<EOF
+$(printf '%s' "$b" | tr ',' '\n')
+EOF
+  done <<EOF
+$(printf '%s' "$a" | tr ',' '\n')
+EOF
+  printf '%s' "${out% }"
+  return 0
+}
+
 # report_overlap A_LABEL A_ISS A_BR A_CWD A_REPO B_LABEL B_ISS B_BR B_CWD B_REPO
+#                [A_FILES B_FILES]
 #
 # The ONE lane-overlap predicate, shared by role-vs-role and claim-vs-role
 # (#687). Extracted rather than copied: a safety check written twice drifts, and
@@ -499,9 +619,19 @@ $(printf '%s' "$e" | jq -r '.session // empty')"
 # `tool-risk-drift` exists to catch for the permission taxonomy. Precedence and
 # wording are unchanged from #638/#683 - only the call sites are new.
 # Sets WARNED=1 on a warning; info-level shared-repo never does.
+#
+# The file-lane arm (#699) sits BELOW the three lane checks and ABOVE the
+# shared-repo info. Below, because a shared branch or nested worktree is a
+# stronger statement about the same pair and would only be masked by a file
+# warning; above, because "these two share a repo, which is normal" is precisely
+# the answer that hid every file-level collision in the reference wave. Both file
+# arguments are optional so the claim call site - which has no declared lane to
+# offer - passes nothing and behaves exactly as before.
 report_overlap() {
   local al="$1" ia="$2" ba="$3" ca="$4" ra="$5"
   local bl="$6" ib="$7" bb="$8" cb="$9" rb="${10}"
+  local fa="${11:-}" fb="${12:-}" shared
+  shared="$(shared_files "$fa" "$fb")"
   if [ -n "$ia" ] && [ "$ia" = "$ib" ] && [ -n "$ra" ] && [ "$ra" = "$rb" ]; then
     echo "  WARNING: '$al' and '$bl' both claim issue #$ia in $ra - two sessions on one issue race each other's worktrees (#597)."
     WARNED=1
@@ -511,9 +641,104 @@ report_overlap() {
   elif [ -n "$ca" ] && [ -n "$cb" ] && { [ "$ca" = "$cb" ] || case "$ca/" in "$cb"/*) true ;; *) false ;; esac || case "$cb/" in "$ca"/*) true ;; *) false ;; esac; }; then
     echo "  WARNING: '$al' ($ca) and '$bl' ($cb) have same/nested worktrees - edits will collide."
     WARNED=1
+  elif [ -n "$ra" ] && [ "$ra" = "$rb" ] && [ -n "$shared" ]; then
+    echo "  WARNING: '$al' and '$bl' declare overlapping FILE LANES in $ra: $shared - separate worktrees do not prevent a merge conflict (#699)."
+    WARNED=1
   elif [ -n "$ra" ] && [ "$ra" = "$rb" ]; then
     echo "  info: '$al' and '$bl' share repo $ra (separate worktrees - the normal wave shape)."
   fi
+}
+
+# ---- wave policy (issue #699) -----------------------------------------------
+#
+# Stored at .[$wave].policy, a SIBLING of .[$wave].roles. Roles keep their exact
+# shape and location, so every existing consumer indexes them unchanged - the
+# same reason #687 hung claim rows off a sibling key instead of nesting roles.
+#
+# The rev is the load-bearing field. Without it a policy amended after the
+# workers registered is indistinguishable from one they were all briefed on, and
+# "declared but nobody re-read it" is precisely the decoration failure the issue
+# warns about. Each role stores the rev it was briefed on; the roster compares.
+
+# policy_json WAVE -> the policy object, or 'null'
+policy_json() {
+  read_registry | jq -c --arg w "$1" '.[$w].policy // null'
+}
+
+policy_field() { # policy_field POLICY_JSON KEY -> value or ''
+  printf '%s' "$1" | jq -r --arg k "$2" '.[$k] // "" | if . == null then "" else . end'
+}
+
+policy_rev_of() { # policy_rev_of POLICY_JSON -> integer (0 when absent)
+  local p="$1"
+  [ "$p" = "null" ] && { printf '0'; return; }
+  printf '%s' "$p" | jq -r '.rev // 0'
+}
+
+# emit_policy_lines POLICY_JSON - the FLOW_WAVE_POLICY_* detail block.
+#
+# Printed on EVERY register/get/list/policy call, present or absent. Absent is
+# reported as a value rather than by omitting the lines: a consumer that greps
+# for FLOW_WAVE_POLICY_AUTHORITY must be able to tell "no policy declared" from
+# "this call does not report policy", and a missing line answers neither.
+emit_policy_lines() {
+  local p="$1"
+  if [ "$p" = "null" ]; then
+    echo "FLOW_WAVE_POLICY=absent"
+    echo "FLOW_WAVE_POLICY_REV=0"
+    echo "FLOW_WAVE_POLICY_DRIVER=-"
+    echo "FLOW_WAVE_POLICY_AUTHORITY=-"
+    echo "FLOW_WAVE_POLICY_AUTHORITY_MODEL=-"
+    echo "FLOW_WAVE_POLICY_GATE=-"
+    echo "FLOW_WAVE_POLICY_LEDGER=-"
+    echo "FLOW_WAVE_POLICY_MERGE_AUTHORITY=-"
+    echo "FLOW_WAVE_POLICY_DEPLOY=-"
+    echo "FLOW_WAVE_POLICY_REPO=-"
+    echo "FLOW_WAVE_POLICY_TS=-"
+    return
+  fi
+  echo "FLOW_WAVE_POLICY=declared"
+  echo "FLOW_WAVE_POLICY_REV=$(policy_rev_of "$p")"
+  echo "FLOW_WAVE_POLICY_DRIVER=$(policy_field "$p" driver)"
+  echo "FLOW_WAVE_POLICY_AUTHORITY=$(policy_field "$p" authority)"
+  echo "FLOW_WAVE_POLICY_AUTHORITY_MODEL=$(policy_field "$p" authority_model)"
+  echo "FLOW_WAVE_POLICY_GATE=$(policy_field "$p" gate)"
+  echo "FLOW_WAVE_POLICY_LEDGER=$(policy_field "$p" ledger)"
+  echo "FLOW_WAVE_POLICY_MERGE_AUTHORITY=$(policy_field "$p" merge_authority)"
+  echo "FLOW_WAVE_POLICY_DEPLOY=$(policy_field "$p" deploy_policy)"
+  echo "FLOW_WAVE_POLICY_REPO=$(policy_field "$p" repo)"
+  echo "FLOW_WAVE_POLICY_TS=$(policy_field "$p" ts)"
+}
+
+# print_policy_brief POLICY_JSON - the human-readable re-brief, on STDOUT.
+#
+# This is the mechanic the issue is built around: a worker that lost its context
+# recovers the PROTOCOL by re-registering, not just its address. The block is
+# printed in full every time rather than diffed against what the session might
+# already know - a compacted session's "already know" is exactly what cannot be
+# trusted, and the whole block costs a few lines.
+print_policy_brief() {
+  local p="$1"
+  [ "$p" != "null" ] || return 0
+  echo "  -- wave policy (rev $(policy_rev_of "$p"), declared by $(policy_field "$p" declared_by)) --"
+  [ -n "$(policy_field "$p" driver)" ]           && echo "     driver:               $(policy_field "$p" driver)"
+  [ -n "$(policy_field "$p" authority)" ]        && echo "     implementation auth:  $(policy_field "$p" authority)"
+  [ -n "$(policy_field "$p" authority_model)" ]  && echo "     authority model:      $(policy_field "$p" authority_model)"
+  [ -n "$(policy_field "$p" gate)" ]             && echo "     gate policy:          $(policy_field "$p" gate)"
+  [ -n "$(policy_field "$p" ledger)" ]           && echo "     ledger format:        $(policy_field "$p" ledger)"
+  [ -n "$(policy_field "$p" merge_authority)" ]  && echo "     merge authority:      $(policy_field "$p" merge_authority)"
+  [ -n "$(policy_field "$p" deploy_policy)" ]    && echo "     deploy policy:        $(policy_field "$p" deploy_policy)"
+  [ -n "$(policy_field "$p" repo)" ]             && echo "     repo:                 $(policy_field "$p" repo)"
+  return 0
+}
+
+# brief_state BRIEFED_REV CURRENT_REV -> current | stale | none
+brief_state() {
+  local briefed="$1" cur="$2"
+  [ "$cur" = "0" ] && { echo none; return; }
+  [ -n "$briefed" ] && [ "$briefed" != "0" ] && [ "$briefed" -ge "$cur" ] 2>/dev/null &&
+    { echo current; return; }
+  echo stale
 }
 
 # implicit_default -> 0 when this invocation landed in wave 'default' without
@@ -567,13 +792,16 @@ cross_wave_notes() {
 
 # ---- argument parsing -------------------------------------------------------
 VERB="${1:-}"
-[ -n "$VERB" ] || usage_fail "usage: flow-wave-registry.sh register|list|get|verify|release|self-address ..."
+[ -n "$VERB" ] || usage_fail "usage: flow-wave-registry.sh register|policy|list|get|verify|release|self-address ..."
 shift
 
 case "$VERB" in
-  register | list | get | verify | release | self-address) : ;;
+  register | list | get | verify | release | self-address | policy) : ;;
   --help | -h)
-    sed -n '2,96p' "$0" | sed 's/^# \{0,1\}//'
+    # Print the whole comment header rather than a hand-counted line range: the
+    # old fixed `2,96p` silently truncated the moment the header grew, so --help
+    # stopped mid-sentence and never mentioned the verbs added after it (#699).
+    sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'
     exit 0
     ;;
   *) usage_fail "unknown verb: $VERB" ;;
@@ -581,6 +809,17 @@ esac
 
 ROLE=""; WAVE="default"; WAVE_EXPLICIT=0; FORCE=0; JSON_OUT=0
 A_CWD=""; A_REPO=""; A_ISSUE=""; A_BRANCH=""; A_SOCKET=""; A_FROM=""
+# Role-level facts (#699). Each is unset-by-default and only written when given,
+# so a re-register that omits one never blanks what a fuller one recorded.
+A_MODEL=""; A_PERMMODE=""; A_FILES=""; A_CAPACITY=""
+A_MODEL_SET=0; A_PERMMODE_SET=0; A_FILES_SET=0; A_CAPACITY_SET=0
+# Wave-level policy fields (#699). Same rule: `policy set` is a MERGE, so an
+# amendment names one flag rather than restating the whole policy - restating it
+# is how a field gets silently dropped.
+P_DRIVER=""; P_AUTHORITY=""; P_AUTHORITY_MODEL=""; P_GATE=""; P_LEDGER=""
+P_MERGE_AUTHORITY=""; P_DEPLOY=""
+P_DRIVER_SET=0; P_AUTHORITY_SET=0; P_AUTHORITY_MODEL_SET=0; P_GATE_SET=0
+P_LEDGER_SET=0; P_MERGE_AUTHORITY_SET=0; P_DEPLOY_SET=0
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -600,6 +839,28 @@ while [ "$#" -gt 0 ]; do
     --socket=*) A_SOCKET="${1#--socket=}" ;;
     --from) [ "$#" -ge 2 ] || usage_fail "--from requires an address"; A_FROM="$2"; shift ;;
     --from=*) A_FROM="${1#--from=}" ;;
+    --model) [ "$#" -ge 2 ] || usage_fail "--model requires a name"; A_MODEL="$2"; A_MODEL_SET=1; shift ;;
+    --model=*) A_MODEL="${1#--model=}"; A_MODEL_SET=1 ;;
+    --permission-mode) [ "$#" -ge 2 ] || usage_fail "--permission-mode requires a value"; A_PERMMODE="$2"; A_PERMMODE_SET=1; shift ;;
+    --permission-mode=*) A_PERMMODE="${1#--permission-mode=}"; A_PERMMODE_SET=1 ;;
+    --files) [ "$#" -ge 2 ] || usage_fail "--files requires a comma-separated path list"; A_FILES="$2"; A_FILES_SET=1; shift ;;
+    --files=*) A_FILES="${1#--files=}"; A_FILES_SET=1 ;;
+    --capacity) [ "$#" -ge 2 ] || usage_fail "--capacity requires a value"; A_CAPACITY="$2"; A_CAPACITY_SET=1; shift ;;
+    --capacity=*) A_CAPACITY="${1#--capacity=}"; A_CAPACITY_SET=1 ;;
+    --driver) [ "$#" -ge 2 ] || usage_fail "--driver requires a value"; P_DRIVER="$2"; P_DRIVER_SET=1; shift ;;
+    --driver=*) P_DRIVER="${1#--driver=}"; P_DRIVER_SET=1 ;;
+    --authority) [ "$#" -ge 2 ] || usage_fail "--authority requires a value"; P_AUTHORITY="$2"; P_AUTHORITY_SET=1; shift ;;
+    --authority=*) P_AUTHORITY="${1#--authority=}"; P_AUTHORITY_SET=1 ;;
+    --authority-model) [ "$#" -ge 2 ] || usage_fail "--authority-model requires a value"; P_AUTHORITY_MODEL="$2"; P_AUTHORITY_MODEL_SET=1; shift ;;
+    --authority-model=*) P_AUTHORITY_MODEL="${1#--authority-model=}"; P_AUTHORITY_MODEL_SET=1 ;;
+    --gate) [ "$#" -ge 2 ] || usage_fail "--gate requires a value"; P_GATE="$2"; P_GATE_SET=1; shift ;;
+    --gate=*) P_GATE="${1#--gate=}"; P_GATE_SET=1 ;;
+    --ledger) [ "$#" -ge 2 ] || usage_fail "--ledger requires a value"; P_LEDGER="$2"; P_LEDGER_SET=1; shift ;;
+    --ledger=*) P_LEDGER="${1#--ledger=}"; P_LEDGER_SET=1 ;;
+    --merge-authority) [ "$#" -ge 2 ] || usage_fail "--merge-authority requires a value"; P_MERGE_AUTHORITY="$2"; P_MERGE_AUTHORITY_SET=1; shift ;;
+    --merge-authority=*) P_MERGE_AUTHORITY="${1#--merge-authority=}"; P_MERGE_AUTHORITY_SET=1 ;;
+    --deploy-policy) [ "$#" -ge 2 ] || usage_fail "--deploy-policy requires a value"; P_DEPLOY="$2"; P_DEPLOY_SET=1; shift ;;
+    --deploy-policy=*) P_DEPLOY="${1#--deploy-policy=}"; P_DEPLOY_SET=1 ;;
     --*) usage_fail "unknown option: $1" ;;
     *)
       [ -z "$ROLE" ] || usage_fail "unexpected argument: $1"
@@ -627,6 +888,122 @@ case "$VERB" in
           ;;
       esac
     fi
+    exit 0
+    ;;
+
+  policy)
+    # ROLE carries the sub-verb here (the parser's single positional slot).
+    SUB="${ROLE:-show}"
+    case "$SUB" in
+      set | show) : ;;
+      *) usage_fail "policy takes 'set' or 'show', not '$SUB'" ;;
+    esac
+    E_ROLE="-"
+    implicit_default &&
+      echo "flow-wave-registry: no --wave given - operating on wave 'default'; a named wave's policy is elsewhere." >&2
+
+    if [ "$SUB" = "show" ]; then
+      POL="$(policy_json "$WAVE")"
+      if [ "$JSON_OUT" -eq 1 ]; then
+        printf '%s\n' "$POL" | jq .
+      else
+        if [ "$POL" = "null" ]; then
+          echo "flow-wave-registry: wave '$WAVE' has no declared policy."
+        else
+          echo "Wave '$WAVE' policy ($REG_FILE):"
+          print_policy_brief "$POL"
+        fi
+      fi
+      emit_policy_lines "$POL"
+      [ "$POL" = "null" ] && { echo "FLOW_WAVE: policy_absent"; exit 0; }
+      echo "FLOW_WAVE: policy_shown"
+      exit 0
+    fi
+
+    # --- policy set ---
+    # Validate the two enums that CHANGE WHAT A WORKER DOES. A typo in
+    # `--authority impelment` stored verbatim is worse than no policy at all: it
+    # reads as declared, and the field's whole job is to answer "may this wave
+    # write code?" without a user round-trip. The free-text fields are read by
+    # humans and carry their meaning in their wording, so validating them would
+    # only invent a vocabulary nobody agreed to (that is #701's job, for
+    # transitions - not this issue's, for state).
+    if [ "$P_AUTHORITY_SET" -eq 1 ]; then
+      case "$P_AUTHORITY" in
+        implement | file-issues-only) : ;;
+        *) usage_fail "--authority must be 'implement' or 'file-issues-only' (got '$P_AUTHORITY')" ;;
+      esac
+    fi
+    if [ "$P_AUTHORITY_MODEL_SET" -eq 1 ]; then
+      case "$P_AUTHORITY_MODEL" in
+        orchestrator-only | user-and-orchestrator) : ;;
+        *) usage_fail "--authority-model must be 'orchestrator-only' or 'user-and-orchestrator' (got '$P_AUTHORITY_MODEL')" ;;
+      esac
+    fi
+    if [ "$P_DRIVER_SET" -eq 0 ] && [ "$P_AUTHORITY_SET" -eq 0 ] &&
+       [ "$P_AUTHORITY_MODEL_SET" -eq 0 ] && [ "$P_GATE_SET" -eq 0 ] &&
+       [ "$P_LEDGER_SET" -eq 0 ] && [ "$P_MERGE_AUTHORITY_SET" -eq 0 ] &&
+       [ "$P_DEPLOY_SET" -eq 0 ] && [ -z "$A_REPO" ]; then
+      usage_fail "policy set needs at least one field (--driver/--authority/--authority-model/--gate/--ledger/--merge-authority/--deploy-policy/--repo)"
+    fi
+    # NEVER put a `?` (or any try/catch) inside this `|=` body. On jq 1.6 the
+    # update operator evaluates its body as a PATH expression, and `?` makes that
+    # backtrack - `_modify` then treats the path as absent and DELETES the key it
+    # was asked to update. The whole policy object vanished with no error and no
+    # non-zero exit; `with_lock` reported success because jq exited 0. Numeric
+    # coercion (`$pid | tonumber? // $pid`) is safe in the object CONSTRUCTOR
+    # `register` uses a few lines below, which is a plain `=` assignment - it is
+    # only unsafe here, which is exactly the kind of difference that gets copied
+    # across by hand. `declared_pid` is stored as the raw string instead; nothing
+    # compares it numerically.
+    with_lock '
+      .[$w] //= {"roles": {}} |
+      .[$w].policy //= {} |
+      .[$w].policy |=
+        ( (if $driver_set  == "1" then .driver          = $driver  else . end)
+        | (if $auth_set    == "1" then .authority       = $auth    else . end)
+        | (if $authm_set   == "1" then .authority_model = $authm   else . end)
+        | (if $gate_set    == "1" then .gate            = $gate    else . end)
+        | (if $ledger_set  == "1" then .ledger          = $ledger  else . end)
+        | (if $merge_set   == "1" then .merge_authority = $merge   else . end)
+        | (if $deploy_set  == "1" then .deploy_policy   = $deploy  else . end)
+        | (if $repo        == ""  then . else .repo     = $repo    end)
+        | .rev           = ((.rev // 0) + 1)
+        | .ts            = ($now | tonumber)
+        | .declared_by   = $by
+        | .declared_pid  = $pid
+        | .declared_session = $session
+        )' \
+      --arg w "$WAVE" --arg driver "$P_DRIVER" --arg driver_set "$P_DRIVER_SET" \
+      --arg auth "$P_AUTHORITY" --arg auth_set "$P_AUTHORITY_SET" \
+      --arg authm "$P_AUTHORITY_MODEL" --arg authm_set "$P_AUTHORITY_MODEL_SET" \
+      --arg gate "$P_GATE" --arg gate_set "$P_GATE_SET" \
+      --arg ledger "$P_LEDGER" --arg ledger_set "$P_LEDGER_SET" \
+      --arg merge "$P_MERGE_AUTHORITY" --arg merge_set "$P_MERGE_AUTHORITY_SET" \
+      --arg deploy "$P_DEPLOY" --arg deploy_set "$P_DEPLOY_SET" \
+      --arg repo "$A_REPO" --arg now "$NOW" --arg by "${CLAUDE_CODE_SESSION_ID:-$SELF_PID}" \
+      --arg pid "$SELF_PID" --arg session "$SELF_SESSION"
+    POL="$(policy_json "$WAVE")"
+    echo "Wave '$WAVE' policy set (rev $(policy_rev_of "$POL")):"
+    print_policy_brief "$POL"
+    # Name who is now carrying a superseded brief (#699 reader 3). An amendment
+    # nobody re-reads is the decoration failure, and the moment it happens is the
+    # cheapest moment to say so - the orchestrator is right here.
+    STALE_ROLES=""
+    CUR_REV="$(policy_rev_of "$POL")"
+    REG="$(read_registry)"
+    for r in $(printf '%s' "$REG" | jq -r --arg w "$WAVE" '(.[$w].roles // {}) | keys[]' 2>/dev/null); do
+      e="$(printf '%s' "$REG" | jq -c --arg w "$WAVE" --arg r "$r" '.[$w].roles[$r]')"
+      [ "$(liveness_of "$e")" = "live" ] || continue
+      br="$(printf '%s' "$e" | jq -r '.policy_rev // 0')"
+      [ "$(brief_state "$br" "$CUR_REV")" = "stale" ] && STALE_ROLES="$STALE_ROLES $r"
+    done
+    if [ -n "$STALE_ROLES" ]; then
+      echo "flow-wave-registry: live role(s) briefed on an older policy rev:${STALE_ROLES}" >&2
+      echo "  They are running on superseded rules until each re-registers (the re-brief) or is sent the new policy." >&2
+    fi
+    emit_policy_lines "$POL"
+    echo "FLOW_WAVE: policy_set"
     exit 0
     ;;
 
@@ -712,20 +1089,45 @@ case "$VERB" in
     else
       VERDICT=registered
     fi
+    # The rev this registration is briefed on (#699). Recorded at register time
+    # so a later amendment can be told apart from one this session has seen -
+    # which is what makes `brief=stale` a fact rather than a guess.
+    POL="$(policy_json "$WAVE")"
+    POL_REV="$(policy_rev_of "$POL")"
+    # Role-level facts are PRESERVED when their flag is omitted, unlike
+    # cwd/repo/issue/branch above, which a re-register rewrites. The difference is
+    # deliberate and worth stating: those describe a LANE, which genuinely goes
+    # stale (the #683 trap), while model / permission mode / capacity / file lane
+    # describe the SESSION and its grant, and re-registering is the documented
+    # cheap re-brief (#670). Blanking a granted file lane because a compacted
+    # worker re-registered to re-read the protocol would delete the very thing
+    # overlap detection reads. Passing an empty value (`--files ""`) clears a
+    # field explicitly - the flag was given, so intent is unambiguous.
     with_lock '
       .[$w] //= {"roles": {}} |
+      (.[$w].roles[$r] // {}) as $prev |
       .[$w].roles[$r] = {
         socket: $sock, self_socket: $selfsock, pid: ($pid | tonumber? // $pid),
         session: $session, host: $host, cwd: $cwd, repo: $repo,
         issue: $issue, branch: $branch, registered_ts: ($now | tonumber),
         verified: ($verified == "true"), address_mismatch: ($mismatch == "true"),
-        address_filled: ($filled == "true"), released: false
+        address_filled: ($filled == "true"), released: false,
+        model:           (if $model_set == "1" then $model else ($prev.model // "") end),
+        permission_mode: (if $perm_set  == "1" then $perm  else ($prev.permission_mode // "") end),
+        files:           (if $files_set == "1" then $files else ($prev.files // "") end),
+        capacity:        (if $cap_set   == "1" then $cap   else ($prev.capacity // "") end),
+        policy_rev:      ($polrev | tonumber)
       }' \
       --arg w "$WAVE" --arg r "$ROLE" --arg sock "$SOCK" --arg pid "$SELF_PID" \
       --arg selfsock "$SELF_SOCK" --arg verified "$KEEP_VERIFIED" \
       --arg filled "$KEEP_FILLED" --arg mismatch "$KEEP_MISMATCH" \
       --arg session "$SELF_SESSION" --arg host "$SELF_HOST" --arg cwd "$A_CWD" \
       --arg repo "$A_REPO" --arg issue "$A_ISSUE" --arg branch "$A_BRANCH" \
+      --arg model "$A_MODEL" --arg model_set "$A_MODEL_SET" \
+      --arg perm "$A_PERMMODE" --arg perm_set "$A_PERMMODE_SET" \
+      --arg files "$A_FILES" --arg files_set "$A_FILES_SET" \
+      --arg cap "$A_CAPACITY" --arg cap_set "$A_CAPACITY_SET" \
+      --arg polrev "$POL_REV" \
       --arg now "$NOW"
     # Honest failure surface (#672): name the CAUSE, and never promise a verify
     # step that cannot fire. `verify` needs a transport-observed from=, which
@@ -771,6 +1173,22 @@ case "$VERB" in
           echo "  Did you mean --wave '$LIKELY'? A live orchestrator is registered there (suggestion only - re-register with --wave to join it)." >&2
       fi
     fi
+    # THE RE-BRIEF (#699). Registration reprints the wave's policy, so a worker
+    # that lost its context to a /clear or a compaction recovers the PROTOCOL by
+    # re-registering - not just its address. register.md already called
+    # re-registering "the cheap re-brief" for addressing; this is that promise
+    # extended to the rules the wave actually runs on, which is the half that
+    # never survived.
+    if [ "$POL" = "null" ]; then
+      echo "flow-wave-registry: wave '$WAVE' has NO declared policy - implementation authority, gate policy, ledger format and merge authority are undeclared." >&2
+      echo "  Nothing here says whether this wave writes code or files issues, so a worker cannot infer it from being handed an issue number (#699)." >&2
+      echo "  The orchestrator declares it once:  flow-wave-registry.sh policy set --wave '$WAVE' --authority <implement|file-issues-only> ..." >&2
+    else
+      print_policy_brief "$POL"
+    fi
+    emit_policy_lines "$POL"
+    echo "FLOW_WAVE_BRIEFED_REV=$POL_REV"
+    echo "FLOW_WAVE_BRIEF=$(brief_state "$POL_REV" "$POL_REV")"
     E_SOCKET="$SOCK"; E_PID="$SELF_PID"; E_SESSION="$SELF_SESSION"; E_LIVE=live
     E_VERIFIED="$KEEP_VERIFIED"; E_MISMATCH="$KEEP_MISMATCH"
     E_SOURCE="$SOCK_SOURCE"; E_REASON="$SOCK_REASON"
@@ -805,6 +1223,23 @@ case "$VERB" in
     echo "FLOW_WAVE_REPO=$(printf '%s' "$CUR" | jq -r '.repo // "-" | if . == "" then "-" else . end')"
     echo "FLOW_WAVE_ISSUE=$(printf '%s' "$CUR" | jq -r '.issue // "-" | if . == "" then "-" else . end')"
     echo "FLOW_WAVE_BRANCH=$(printf '%s' "$CUR" | jq -r '.branch // "-" | if . == "" then "-" else . end')"
+    # Role-level facts (#699). `get` is the scripting contract, so an orchestrator
+    # routing work reads permission mode and model from here rather than from
+    # message metadata, which is where both were only ever visible before.
+    echo "FLOW_WAVE_MODEL=$(printf '%s' "$CUR" | jq -r '.model // "-" | if . == "" then "-" else . end')"
+    echo "FLOW_WAVE_PERMISSION_MODE=$(printf '%s' "$CUR" | jq -r '.permission_mode // "-" | if . == "" then "-" else . end')"
+    echo "FLOW_WAVE_FILES=$(printf '%s' "$CUR" | jq -r '.files // "-" | if . == "" then "-" else . end')"
+    echo "FLOW_WAVE_CAPACITY=$(printf '%s' "$CUR" | jq -r '.capacity // "-" | if . == "" then "-" else . end')"
+    GET_POL="$(policy_json "$WAVE")"
+    GET_POL_REV="$(policy_rev_of "$GET_POL")"
+    GET_BRIEFED="$(printf '%s' "$CUR" | jq -r '.policy_rev // 0')"
+    emit_policy_lines "$GET_POL"
+    echo "FLOW_WAVE_BRIEFED_REV=$GET_BRIEFED"
+    echo "FLOW_WAVE_BRIEF=$(brief_state "$GET_BRIEFED" "$GET_POL_REV")"
+    if [ "$(brief_state "$GET_BRIEFED" "$GET_POL_REV")" = "stale" ]; then
+      echo "flow-wave-registry: role '$ROLE' was briefed on policy rev $GET_BRIEFED but the wave is at rev $GET_POL_REV - it is running on superseded rules." >&2
+      echo "  Re-registering takes the re-brief; nothing about the address changes." >&2
+    fi
     emit listed
     exit 0
     ;;
@@ -890,6 +1325,8 @@ case "$VERB" in
   list)
     REG="$(read_registry)"
     ROLES="$(printf '%s' "$REG" | jq -r --arg w "$WAVE" '(.[$w].roles // {}) | keys[]' 2>/dev/null)"
+    POL="$(policy_json "$WAVE")"
+    POL_REV="$(policy_rev_of "$POL")"
     # How much of this roster is unaddressable (#672)? A LIVE entry with no
     # socket is a role nobody can open a handshake with in EITHER direction -
     # the orchestrator-first contact #670 relies on has no target either.
@@ -941,9 +1378,19 @@ $rp"
         CLAIM_JSON="$(printf '%s\n' "$CLAIMS" | jq -R -s --arg fs "$CLAIM_FS" 'split("\n") | map(select(length > 0) | split($fs)) | map({issue: .[0], pid: .[1], session: .[2], branch: .[3], worktree: .[4], repo: .[5], address: (if (.[6] // "") == "" then null else .[6] end), source: "flow-claim-lock", registered: false})')"
         OUT="$(printf '%s' "$OUT" | jq -c --argjson c "$CLAIM_JSON" '. + {unregistered_claims: $c}')"
       fi
+      # The wave policy is a sibling key too (#699), for the same reason and
+      # with the same caveat the #687 precedent accepted: roles are top-level, so
+      # a role literally named `wave_policy` would collide. Named `wave_policy`
+      # rather than `policy` to keep that collision as improbable as the shape
+      # allows, and the key appears only when a policy is declared - so a wave
+      # without one emits byte-identical JSON to pre-#699.
+      if [ "$POL" != "null" ]; then
+        OUT="$(printf '%s' "$OUT" | jq -c --argjson p "$POL" '. + {wave_policy: $p}')"
+      fi
       printf '%s\n' "$OUT" | jq .
       # Keep --json stdout parseable: cross-wave notes go to stderr (#671).
       cross_wave_notes >&2
+      emit_policy_lines "$POL"
       echo "FLOW_WAVE_BOOTSTRAP=$BOOTSTRAP_STATE"
       echo "FLOW_WAVE: listed"
       exit 0
@@ -965,11 +1412,21 @@ $CLAIMS
 EOF
       fi
       cross_wave_notes
+      emit_policy_lines "$POL"
       echo "FLOW_WAVE_BOOTSTRAP=$BOOTSTRAP_STATE"
       echo "FLOW_WAVE: listed"
       exit 0
     fi
     echo "Wave '$WAVE' roster ($REG_FILE):"
+    # The policy header (#699). Printed above the roles because it is what the
+    # whole roster is operating under - and because a wave with no declared
+    # policy should be obvious at a glance rather than discoverable by noticing
+    # an absence.
+    if [ "$POL" = "null" ]; then
+      echo "  -- wave policy: NONE DECLARED (implementation authority, gate policy, ledger and merge authority are undeclared - #699) --"
+    else
+      print_policy_brief "$POL"
+    fi
     for r in $ROLES; do
       e="$(printf '%s' "$REG" | jq -c --arg w "$WAVE" --arg r "$r" '.[$w].roles[$r]')"
       lv="$(liveness_of "$e")"
@@ -980,7 +1437,25 @@ EOF
       # rather than CONFIRMED it. Mismatch is checked first so a real
       # contradiction can never render as the benign case.
       ver="$(printf '%s' "$e" | jq -r 'if .address_mismatch == true then "MISMATCH-corrected" elif .address_filled == true then "filled" elif .verified == true then "verified" else "unverified" end')"
-      echo "  $r -> $sock [$lv, $ver] issue=$iss"
+      # Role-level facts are rendered only when declared, so a roster from a wave
+      # that never used them reads exactly as it did before (#699).
+      extra=""
+      fl="$(printf '%s' "$e" | jq -r '.files // ""')"
+      [ -n "$fl" ] && extra="$extra files=$fl"
+      md="$(printf '%s' "$e" | jq -r '.model // ""')"
+      [ -n "$md" ] && extra="$extra model=$md"
+      pm="$(printf '%s' "$e" | jq -r '.permission_mode // ""')"
+      [ -n "$pm" ] && extra="$extra perm=$pm"
+      cp="$(printf '%s' "$e" | jq -r '.capacity // ""')"
+      [ -n "$cp" ] && extra="$extra capacity=$cp"
+      # Brief staleness is shown for LIVE roles only: a stale or released entry
+      # is not running on anything, so calling its brief superseded would be
+      # noise on a row nobody is going to re-brief.
+      if [ "$lv" = "live" ] && [ "$POL" != "null" ]; then
+        bs="$(brief_state "$(printf '%s' "$e" | jq -r '.policy_rev // 0')" "$POL_REV")"
+        [ "$bs" = "stale" ] && extra="$extra brief=STALE"
+      fi
+      echo "  $r -> $sock [$lv, $ver] issue=$iss$extra"
     done
     # Claim-derived rows (#687), rendered AFTER the roles and visibly not roles.
     # An orchestrator scanning the issue column now sees a lane held by a
@@ -1040,11 +1515,18 @@ EOF
       r_br="$(printf '%s' "$e" | jq -r '.branch // ""')"
       r_cwd="$(printf '%s' "$e" | jq -r '.cwd // ""')"
       r_repo="$(printf '%s' "$e" | jq -r '.repo // ""')"
+      r_files="$(printf '%s' "$e" | jq -r '.files // ""')"
       if [ "$r" = "orchestrator" ]; then
         EXEMPT_ROLES="$EXEMPT_ROLES $r"
         continue
       fi
-      if [ -z "$r_iss" ] && [ -z "$r_br" ] && cwd_is_shared_parent "$r_cwd" "$r_repo"; then
+      # A declared FILE LANE is a lane (#699), on exactly the reasoning #683 gave
+      # for a declared branch: the exemption is for roles that declared NOTHING to
+      # collide over, and a role holding a granted file lane has declared the most
+      # collision-prone thing in the reference wave. Without this clause a worker
+      # that registered its lane before entering a worktree - the #670 normal
+      # order - would be exempted precisely when its lane is the only fact it has.
+      if [ -z "$r_iss" ] && [ -z "$r_br" ] && [ -z "$r_files" ] && cwd_is_shared_parent "$r_cwd" "$r_repo"; then
         EXEMPT_ROLES="$EXEMPT_ROLES $r"
         continue
       fi
@@ -1059,7 +1541,8 @@ EOF
         ia="$(printf '%s' "$ea" | jq -r '.issue // ""')"; ib="$(printf '%s' "$eb" | jq -r '.issue // ""')"
         ba="$(printf '%s' "$ea" | jq -r '.branch // ""')"; bb="$(printf '%s' "$eb" | jq -r '.branch // ""')"
         ca="$(printf '%s' "$ea" | jq -r '.cwd // ""')"; cb="$(printf '%s' "$eb" | jq -r '.cwd // ""')"
-        report_overlap "$a" "$ia" "$ba" "$ca" "$ra" "$b" "$ib" "$bb" "$cb" "$rb"
+        fa="$(printf '%s' "$ea" | jq -r '.files // ""')"; fb="$(printf '%s' "$eb" | jq -r '.files // ""')"
+        report_overlap "$a" "$ia" "$ba" "$ca" "$ra" "$b" "$ib" "$bb" "$cb" "$rb" "$fa" "$fb"
       done
     done
     # Claim-derived lanes participate in overlap detection (#687 item 2) - an
@@ -1088,15 +1571,32 @@ EOF
     # Announce the exemption (#683) - a skipped check the reader cannot see is a
     # blind spot, so name who was skipped and why rather than just going quiet.
     if [ -n "$EXEMPT_ROLES" ]; then
-      echo "  info: overlap checks skipped for lane-less live role(s):${EXEMPT_ROLES} (orchestrator never holds a lane; others declared no issue, no branch, and a shared-parent cwd). Applies until they declare one."
+      echo "  info: overlap checks skipped for lane-less live role(s):${EXEMPT_ROLES} (orchestrator never holds a lane; others declared no issue, no branch, no file lane, and a shared-parent cwd). Applies until they declare one."
     fi
     [ "$WARNED" -eq 1 ] && echo "flow-wave-registry: lane overlap detected - do not co-schedule the flagged pairs." >&2
+    # Stale briefs, counted (#699). A policy that was amended after workers
+    # registered is the drift a declared-but-unread field would hide, so the
+    # roster names it rather than leaving the orchestrator to compare revs.
+    if [ "$POL" != "null" ]; then
+      STALE_BRIEFS=""
+      for r in $ROLES; do
+        e="$(printf '%s' "$REG" | jq -c --arg w "$WAVE" --arg r "$r" '.[$w].roles[$r]')"
+        [ "$(liveness_of "$e")" = "live" ] || continue
+        [ "$(brief_state "$(printf '%s' "$e" | jq -r '.policy_rev // 0')" "$POL_REV")" = "stale" ] &&
+          STALE_BRIEFS="$STALE_BRIEFS $r"
+      done
+      if [ -n "$STALE_BRIEFS" ]; then
+        echo "  BRIEF: live role(s) on a superseded policy rev (wave is at rev $POL_REV):${STALE_BRIEFS}"
+        echo "  They are running on older rules until each re-registers - re-registering IS the re-brief and changes nothing about the address."
+      fi
+    fi
     if [ "$UNADDRESSED" -gt 0 ]; then
       echo "  BOOTSTRAP: $UNADDRESSED LIVE role(s) have no address - they cannot be messaged, and no from= can be observed for them."
       echo "  Verification cannot fire for those roles on its own; it is blocked, not pending."
       bootstrap_escapes
     fi
     cross_wave_notes
+    emit_policy_lines "$POL"
     echo "FLOW_WAVE_BOOTSTRAP=$BOOTSTRAP_STATE"
     echo "FLOW_WAVE: listed"
     exit 0
