@@ -24,6 +24,38 @@ first non-bullet token is one of `Blocked by` / `Depends on` / `Requires` /
 an edge - a fabricated edge silently freezes an issue's startability, which
 is worse than a missing one.
 
+Relationship to the project-next contract v1.3 grammar (issue #648 - a
+DECIDED partial convergence, recorded here and in wave.md so the divergence
+is data, not accident; measured on 240 real CPP + poker-measure bodies with
+ZERO edge changes, so the default output is byte-identical in practice):
+
+ADOPTED from the contract:
+  * fenced code blocks and inline code spans are stripped BEFORE edge
+    parsing (the #607 negative-space rule finished: a YAML sample or shell
+    comment inside a fence must never fabricate an edge) - stripping applies
+    to EDGE extraction ONLY; path/serialized/migration detection reads the
+    RAW body, because BACKTICK_PATH_RE deliberately reads inline code;
+  * Markdown-emphasis/punctuation tolerance on the keyword in declaration
+    position (`**Blocked by:** #12`), bounded to the contract's documented
+    decoration forms (*, **, _, __, optional colon) - the line anchor and
+    the immediate-refs requirement are RETAINED, so prose still cannot
+    fabricate.
+
+DELIBERATELY DISTINCT (wave-lane reasons, per #648's gate ruling):
+  * grading + the `uncertain` class: the wave lane is JUDGED - an
+    unresolvable "Blockers: (none resolved yet)" goes to the orchestrator's
+    gate, never into a fabricated edge or a new output class (output-shape
+    change with live-consumer risk the resolution does not require);
+  * `Blockers:`/`Prerequisites:` field labels: their contract value is
+    exactly the strong-without-ref -> uncertainty semantics declined above;
+    adopting the labels without the grading would be partial adoption;
+  * dash-ranges (#369-#371): zero occurrences in 240 measured bodies, and
+    speckit-tasks-to-issues emits this planner's native explicit-list
+    grammar at issue creation;
+  * spec-task duplicate-claim resolves-to-neither: this planner surfaces
+    `unresolved_tasks` + `spec_drift` loudly instead - different failure
+    semantics for a judged lane.
+
 Spec-declared dependencies (issue #607): `--specs <dir>` (e.g.
 `.specify/specs`) reads each `*/tasks.md` under it - `(depends on T0NN, ...)`
 clauses on checkbox task lines, joined to issue numbers via the file's
@@ -112,11 +144,32 @@ from pathlib import Path
 # bullet, one of the four keyword forms, then an IMMEDIATE #N list. Prose
 # references ("see #12", "filed after #600 merged") must never match - the
 # keyword has to open the line's clause and the refs must directly follow it.
+# #648 partial convergence: the keyword tolerates the contract's documented
+# Markdown decorations (*, **, _, __ around it, optional colon before/after
+# the closing emphasis) so `**Blocked by:** #12` declares an edge - the line
+# anchor and the immediate-refs requirement are unchanged, so a decorated
+# keyword deep in prose, or one not followed directly by refs (the real #283
+# shape `- **Requires**: Go 1.24.6+ ...`), still never matches.
+_EM = r"(?:\*{1,2}|_{1,2})?"
 EDGE_LINE_RE = re.compile(
-    r"^\s*(?:[-*]\s*)?(?:blocked by|depends on|requires|after)\s*:?\s+"
+    rf"^\s*(?:[-*]\s*)?{_EM}(?:blocked by|depends on|requires|after){_EM}"
+    rf"\s*:?\s*{_EM}\s*:?\s+"
     r"(#\d+(?:\s*(?:,|and)\s*#\d+)*)",
     re.IGNORECASE | re.MULTILINE,
 )
+# #648 partial convergence: fenced blocks and inline code spans are removed
+# BEFORE edge parsing - a YAML sample or shell comment inside a fence must
+# never fabricate an edge (the #607 negative-space rule finished). Deliberate
+# asymmetry: ONLY edge extraction reads the stripped body; path/serialized/
+# migration detection reads the RAW body because BACKTICK_PATH_RE
+# intentionally reads inline code.
+_FENCE_RE = re.compile(r"^(?:```|~~~).*?^(?:```|~~~)\s*$", re.MULTILINE | re.DOTALL)
+_INLINE_CODE_RE = re.compile(r"`[^`\n]*`")
+
+
+def _strip_code_for_edges(body: str) -> str:
+    """Body with fenced blocks + inline code spans removed, for edge parsing only."""
+    return _INLINE_CODE_RE.sub("", _FENCE_RE.sub("", body))
 REF_RE = re.compile(r"#(\d+)")
 # tasks.md shapes (#607): a checkbox task line with an optional depends clause,
 # and the Issue Sync join of task IDs to issue numbers.
@@ -146,7 +199,7 @@ def parse_issues(raw: object) -> dict[int, dict]:
         paths = set(PATH_EXT_RE.findall(body))
         paths.update(m for m in BACKTICK_PATH_RE.findall(body) if "/" in m)
         edge_refs: set[int] = set()
-        for clause in EDGE_LINE_RE.findall(body):
+        for clause in EDGE_LINE_RE.findall(_strip_code_for_edges(body)):
             edge_refs.update(int(m) for m in REF_RE.findall(clause))
         issues[n] = {
             "title": item.get("title") or "",

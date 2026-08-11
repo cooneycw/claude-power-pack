@@ -229,6 +229,89 @@ class TestEdgeGrammar:
         assert plan["issues"]["7"]["blocked_by"] == []
 
 
+class TestContractConvergence:
+    """Issue #648: the DECIDED partial convergence with contract v1.3.
+
+    Adopted: code stripped before edge parsing; bounded emphasis tolerance in
+    declaration position. Distinct (documented in the planner header +
+    wave.md): grading/uncertain, field labels, dash-ranges, duplicate-claim
+    semantics. The 2026-08-11 sensitivity controls are PERMANENT tests here,
+    not a one-night harness (gate condition 5).
+    """
+
+    def test_fenced_keyword_line_never_fabricates(self) -> None:
+        # The original sensitivity control: a YAML/shell sample inside a fence
+        # carried '- after #30' and 'depends on #31' - the pre-#648 grammar
+        # fabricated both edges from it.
+        body = "Example config:\n```yaml\n- after #30\ndepends on #31\n```\nreal text"
+        plan = _plan(_issue(30), _issue(31), _issue(9, body))
+        assert plan["issues"]["9"]["blocked_by"] == []
+
+    def test_emphasis_wrapped_declaration_creates_edge(self) -> None:
+        # The other control: the contract's flagship human-written form was
+        # invisible pre-#648.
+        plan = _plan(_issue(12), _issue(9, "**Blocked by:** #12"))
+        assert plan["issues"]["9"]["blocked_by"] == [12]
+
+    def test_emphasis_variants_bounded_to_contract_forms(self) -> None:
+        plan = _plan(
+            _issue(5),
+            _issue(6),
+            _issue(7),
+            _issue(9, "__Depends on__ #5\n- *Requires*: #6\n_After_ #7"),
+        )
+        assert plan["issues"]["9"]["blocked_by"] == [5, 6, 7]
+
+    def test_strip_runs_before_emphasis_parse(self) -> None:
+        # Gate condition 1 (order pin): a DECORATED declaration inside a fence
+        # is the one shape only the strip-then-parse order gets right -
+        # emphasis tolerance alone would fabricate an edge from it.
+        body = "```\n**Depends on:** #31\n```\n"
+        plan = _plan(_issue(31), _issue(9, body))
+        assert plan["issues"]["9"]["blocked_by"] == []
+
+    def test_inline_coded_declaration_never_fabricates(self) -> None:
+        plan = _plan(_issue(12), _issue(9, "`**Blocked by:** #12`\n`Depends on #12`"))
+        assert plan["issues"]["9"]["blocked_by"] == []
+
+    def test_real_283_shape_immediate_refs_saves_it(self) -> None:
+        # Gate condition 3: the REAL CPP #283 line - a decorated keyword whose
+        # continuation is prose, not refs. The immediate-refs requirement is
+        # what keeps it edge-free under emphasis tolerance.
+        plan = _plan(
+            _issue(9, "- **Requires**: Go 1.24.6+, a Woodpecker server, and patience")
+        )
+        assert plan["issues"]["9"]["blocked_by"] == []
+
+    def test_issue_648_own_body_is_edge_free(self) -> None:
+        # Gate condition 2, the self-referential canary: #648's body QUOTES
+        # disagreement examples ('**Blocked by:** #12', a fenced '# runs after
+        # #30') as inline code - the planner over its own body must see none
+        # of them as edges.
+        fixture = ROOT / "tests" / "fixtures" / "issue-648-body.md"
+        plan = _plan(_issue(648, fixture.read_text()))
+        assert plan["issues"]["648"]["blocked_by"] == []
+
+    def test_paths_inside_code_still_feed_contention(self) -> None:
+        # Gate condition 4, the deliberate asymmetry: stripping applies to
+        # EDGE parsing only - BACKTICK_PATH_RE intentionally reads inline code
+        # and fenced samples, so path-contention detection must be unchanged.
+        body_a = "Touches `lib/cicd/steps.py` here.\n```\nlib/cicd/runner.py\n```"
+        body_b = "Also edits lib/cicd/steps.py and lib/cicd/runner.py directly."
+        plan = _plan(_issue(1, body_a), _issue(2, body_b))
+        assert "lib/cicd/steps.py" in plan["path_contention"]
+        assert "lib/cicd/runner.py" in plan["path_contention"]
+
+    def test_plain_and_decorated_forms_parse_identically(self) -> None:
+        plain = _plan(_issue(1), _issue(9, "Depends on #1"))
+        decorated = _plan(_issue(1), _issue(9, "**Depends on:** #1"))
+        assert (
+            plain["issues"]["9"]["blocked_by"]
+            == decorated["issues"]["9"]["blocked_by"]
+            == [1]
+        )
+
+
 TASKS_MD = """# Tasks
 
 - [ ] T031 [US1] Add visual regression tests (depends on T027, T033)
