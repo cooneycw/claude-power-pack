@@ -114,7 +114,7 @@ claude-power-pack/
 CPP ships no container runtime (retired in #469). The `/second-opinion:*` and `/evaluate:*` commands consume an **external** second-opinion server that runs from its own repo:
 
 - Server repo: https://github.com/cooneycw/mcp-second-opinion (server + the AWS Secrets Manager Agent sidecar build recipe + a standalone docker-compose)
-- CPP ships a root `.mcp.json` registering `second-opinion` as a streamable-http client at `http://127.0.0.1:8080/mcp`. Start the external server, then edit that URL (or register it at user scope) to point at wherever it runs - localhost or a Tailscale host:
+- CPP ships a root `.mcp.json` registering `second-opinion` as a streamable-http client at `${SECOND_OPINION_URL:-http://127.0.0.1:8080}/mcp` (issue #633): localhost 8080 by default, overridable WITHOUT editing any tracked file by exporting `SECOND_OPINION_URL` with the base url, no `/mcp` (e.g. `export SECOND_OPINION_URL=http://127.0.0.1:8090`, or a Tailscale URL). The same variable is read by `mcp-evaluate/src/config.py`, so one export covers both consumers. Start the external server, then either rely on that env override or register at user scope:
 
 ```bash
 claude mcp add second-opinion --transport http --url http://127.0.0.1:8080/mcp --scope user

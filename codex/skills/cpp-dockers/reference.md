@@ -109,7 +109,31 @@ streamable-http pointer), and browser automation is the upstream
 
 Based on findings, suggest relevant actions:
 
-- **second-opinion not reachable:** it is no longer a CPP container. Run the external `cooneycw/mcp-second-opinion` server, then point the root `.mcp.json` `second-opinion` entry at it (`http://127.0.0.1:8080/mcp` for localhost, or a Tailscale URL for a remote host).
+- **second-opinion not reachable:** it is no longer a CPP container. Run the
+  external `cooneycw/mcp-second-opinion` server. The root `.mcp.json` already
+  points at `${SECOND_OPINION_URL:-http://127.0.0.1:8080}/mcp` (issue #633):
+  the default is localhost 8080, and a host where 8080 is taken exports
+  `SECOND_OPINION_URL` with the BASE url, no `/mcp` (e.g.
+  `http://127.0.0.1:8090`, or a Tailscale URL) - the same variable
+  `mcp-evaluate/src/config.py` reads, so one export covers both consumers.
+  Check reachability against the SAME address the client will use - curl the
+  URL directly rather than splitting host:port by hand (a naive `cut -d:`
+  breaks on no-port and scheme forms):
+
+  ```bash
+  SO_URL="${SECOND_OPINION_URL:-http://127.0.0.1:8080}"
+  curl -sf --max-time 3 "${SO_URL%/}/" && echo "second-opinion reachable at ${SO_URL}"
+  ```
+
+  To cross-reference against `docker ps` published ports, derive the port
+  scheme-aware (explicit port wins; no port -> 443 for https, else 80):
+
+  ```bash
+  hostport="${SO_URL#*://}"; hostport="${hostport%%/*}"
+  port="${hostport##*:}"
+  if [ "$port" = "$hostport" ]; then case "$SO_URL" in https://*) port=443 ;; *) port=80 ;; esac; fi
+  echo "expected published port: $port"
+  ```
 - **Browser automation missing:** register the upstream server with `/cpp:init`, or `claude mcp add --transport stdio --scope user playwright -- npx -y @playwright/mcp@latest --headless`
 - **Stale containers:** `docker rm <name>` for stopped containers from old projects
 

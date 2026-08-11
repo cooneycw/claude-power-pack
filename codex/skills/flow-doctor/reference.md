@@ -279,8 +279,10 @@ CI/CD Readiness: skipped (lib/cicd not available)
 
 CPP itself no longer runs any MCP server on a fixed local port. The second-opinion
 server is external (the `cooneycw/mcp-second-opinion` repo) and is reached over the
-root `.mcp.json` streamable-http pointer (localhost `http://127.0.0.1:8080/mcp` or a
-Tailscale URL); browser automation is the upstream `@playwright/mcp` npx/stdio server.
+root `.mcp.json` streamable-http pointer - `${SECOND_OPINION_URL:-http://127.0.0.1:8080}/mcp`,
+i.e. localhost 8080 by DEFAULT, overridable per host by exporting
+`SECOND_OPINION_URL` with the base url (issue #633); browser automation is the
+upstream `@playwright/mcp` npx/stdio server.
 Report how second-opinion is wired rather than probing a hardcoded port:
 
 ```bash
@@ -292,7 +294,8 @@ if [ -f ".mcp.json" ] && grep -q "second-opinion" .mcp.json 2>/dev/null; then
 else
   echo "  [ ] second-opinion: not registered in .mcp.json"
   echo "      Run the external cooneycw/mcp-second-opinion server, then point .mcp.json"
-  echo "      at it (http://127.0.0.1:8080/mcp for localhost, or a Tailscale URL)."
+  echo "      at it (default http://127.0.0.1:8080/mcp; export SECOND_OPINION_URL to"
+  echo "      override the base url per host - a Tailscale URL, or a moved port)."
 fi
 echo "  [-] playwright: upstream @playwright/mcp over npx/stdio (no port to probe)"
 ```
@@ -396,7 +399,7 @@ Output a single diagnostic report in this format:
 6. ❌ **No CI pipeline** - Run `/cicd-pipeline` to generate GitHub Actions or Woodpecker CI config
 7. ⚠️ **No health endpoints** - Add `health.endpoints` to `.claude/cicd.yml` for post-deploy verification
 8. ⚠️ **No smoke tests** - Add `health.smoke_tests` to `.claude/cicd.yml` for post-deploy testing
-9. ⚠️ **second-opinion not registered** - It is an external server now. Run the `cooneycw/mcp-second-opinion` repo's server, then point the root `.mcp.json` `second-opinion` entry at it (`http://127.0.0.1:8080/mcp` for localhost, or a Tailscale URL).
+9. ⚠️ **second-opinion not registered** - It is an external server now. Run the `cooneycw/mcp-second-opinion` repo's server; the root `.mcp.json` entry reaches it at `${SECOND_OPINION_URL:-http://127.0.0.1:8080}/mcp` (default 8080; export `SECOND_OPINION_URL` for a moved port or a Tailscale URL).
 
 *All checks passed!* → "Environment is ready for `/flow` workflow."
 ```
