@@ -608,7 +608,8 @@ def _claim_repo(
     pid: str = CLAIM_PID,
     session: str = CLAIM_SESSION,
     host: str = HOST,
-    branch: str = "issue-999-alpha",
+    branch: str | None = "issue-999-alpha",
+    reason: str | None = None,
 ) -> Path:
     """A git repo with a linked worktree carrying a real flow-claim lock.
 
@@ -625,8 +626,14 @@ def _claim_repo(
     subprocess.run([*git, "add", "f"], check=True, capture_output=True)
     subprocess.run([*git, "commit", "-qm", "init"], check=True, capture_output=True)
     wt = tmp / "wt-a"
-    subprocess.run([*git, "worktree", "add", "-q", str(wt), "-b", branch], check=True, capture_output=True)
-    reason = f"flow-claim issue={issue} pid={pid} session={session} host={host} ts=1700000000"
+    if branch is None:
+        # Detached HEAD -> `git worktree list --porcelain` emits no `branch` line,
+        # so the claim record carries an EMPTY middle field (issue #698).
+        subprocess.run([*git, "worktree", "add", "-q", "--detach", str(wt)], check=True, capture_output=True)
+    else:
+        subprocess.run([*git, "worktree", "add", "-q", str(wt), "-b", branch], check=True, capture_output=True)
+    if reason is None:
+        reason = f"flow-claim issue={issue} pid={pid} session={session} host={host} ts=1700000000"
     subprocess.run([*git, "worktree", "lock", "--reason", reason, str(wt)], check=True, capture_output=True)
     return repo
 
@@ -785,6 +792,102 @@ class TestUnregisteredClaimReconciliation:
         assert p.returncode == 0
         assert _verdict(p) == "listed"
         assert "A -> uds:/tmp/a.sock" in p.stdout
+
+
+@requires_git_tools
+class TestClaimRecordPreservesEmptyFields:
+    """Empty fields survive the claim record round-trip (issue #698).
+
+    #687 joined seven fields with TAB and split them with ``IFS=$'\\t'``. Tab is
+    IFS *whitespace*, so shell field splitting collapses a run of it and an EMPTY
+    field vanishes instead of arriving empty - every later field shifts up one
+    slot. A detached-HEAD worktree has no branch, so the claim rendered its
+    worktree path as a branch and the repo root as its worktree, and fed those
+    wrong values into overlap detection.
+
+    EVERY test here is a negative control: each asserts a field value that the
+    tab-delimited code got demonstrably WRONG, so a test passing against both the
+    old and the new implementation would not be a regression test at all. The
+    observed broken output for the branchless fixture was
+    ``branch=<worktree path>`` and ``wt=<repo root>``.
+    """
+
+    def _register_orchestrator(self, tmp: Path, repo: Path) -> None:
+        _run(tmp, "register", "orchestrator", "--wave", "w", "--socket", "uds:/tmp/o.sock",
+             "--cwd", str(tmp), "--repo", str(repo), pid="100", session="orch")
+
+    def test_branchless_claim_keeps_every_later_field_in_place(self, tmp_path: Path) -> None:
+        """Empty MIDDLE field. Broken code printed the worktree path as the branch."""
+        repo = _claim_repo(tmp_path, branch=None)
+        self._register_orchestrator(tmp_path, repo)
+        p = _run(tmp_path, "list", "--wave", "w", live=f"100:{CLAIM_PID}")
+        assert "branch=-" in p.stdout  # empty, not the worktree path
+        assert f"wt={tmp_path / 'wt-a'}" in p.stdout  # the worktree, not the repo
+        assert f"wt={repo}" not in p.stdout
+        assert "issue=999" in p.stdout
+        assert f"pid={CLAIM_PID}" in p.stdout
+
+    def test_branchless_claim_overlaps_on_its_real_worktree(self, tmp_path: Path) -> None:
+        """The field shift corrupted overlap detection, not only the display.
+
+        A registered role sits in the claim's actual worktree. Fixed: the claim's
+        worktree field holds that path, so the pair collides and WARNS. Broken:
+        the field held the repo root instead, which is neither equal to nor
+        nested under the role's cwd, so no warning was produced - this assertion
+        fails against tab-delimited records.
+        """
+        repo = _claim_repo(tmp_path, branch=None)
+        self._register_orchestrator(tmp_path, repo)
+        _run(tmp_path, "register", "A", "--wave", "w", "--socket", "uds:/tmp/a.sock",
+             "--cwd", str(tmp_path / "wt-a"), "--repo", str(repo),
+             "--issue", "1", "--branch", "b1", pid="101", session="s1")
+        p = _run(tmp_path, "list", "--wave", "w", live=f"100:101:{CLAIM_PID}")
+        assert "WARNING" in p.stdout
+        assert "same/nested worktrees" in p.stdout
+
+    def test_empty_trailing_address_does_not_shift_earlier_fields(self, tmp_path: Path) -> None:
+        """Empty TRAILING field - the COMMON case, not an edge one.
+
+        An unregistered claim usually has no observed address. The render path
+        masks this on its own (``${C_ADDR:-no observed address}`` prints the same
+        whether the field is empty or shifted away), so this asserts the fields
+        BEFORE it, which is where a collapse would show.
+        """
+        repo = _claim_repo(tmp_path, branch="issue-999-alpha")
+        self._register_orchestrator(tmp_path, repo)
+        p = _run(tmp_path, "list", "--wave", "w", live=f"100:{CLAIM_PID}")
+        assert "no observed address" in p.stdout
+        assert "branch=issue-999-alpha" in p.stdout
+        assert f"wt={tmp_path / 'wt-a'}" in p.stdout
+
+    def test_lock_reason_missing_session_still_parses(self, tmp_path: Path) -> None:
+        """The other empty-middle producer: a hand-written lock reason.
+
+        A non-flow worktree locked by hand is exactly the irregular claim #687
+        exists to see, and it need not carry every key.
+        """
+        repo = _claim_repo(
+            tmp_path,
+            reason=f"flow-claim issue=555 pid={CLAIM_PID} host={HOST} ts=1700000000",
+        )
+        self._register_orchestrator(tmp_path, repo)
+        p = _run(tmp_path, "list", "--wave", "w", live=f"100:{CLAIM_PID}")
+        assert "issue=555" in p.stdout
+        assert f"pid={CLAIM_PID}" in p.stdout
+        assert f"wt={tmp_path / 'wt-a'}" in p.stdout
+
+    def test_json_fields_are_not_shifted_for_a_branchless_claim(self, tmp_path: Path) -> None:
+        """The same corruption reached --json consumers, not just the roster."""
+        repo = _claim_repo(tmp_path, branch=None)
+        self._register_orchestrator(tmp_path, repo)
+        p = _run(tmp_path, "list", "--wave", "w", "--json", live=f"100:{CLAIM_PID}")
+        claim = _json_payload(p)["unregistered_claims"][0]
+        assert claim["issue"] == "999"
+        assert claim["pid"] == CLAIM_PID
+        assert claim["branch"] == ""
+        assert claim["worktree"] == str(tmp_path / "wt-a")
+        assert claim["repo"] == str(repo)
+        assert claim["address"] is None
 
 
 @requires_tools
