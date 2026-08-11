@@ -360,10 +360,14 @@ merges during implementation moves `origin/main` under you; discovering it only
 at the Step-7 #462 guard means your edits were already made against stale copies
 of the very files the sibling changed. Surface it now - a bare invocation
 (advisory: warns, never blocks; the #581 invocation discipline from Step 1
-applies to every helper call below):
+applies to every helper call below). Pass the worktree path from the Step-1
+contract (`WT_PATH`) verbatim as the trailing literal argument - the checkout
+is DECLARED, never inferred from the Bash cwd, which drifts on any earlier
+`cd` and once made this advisory answer for the wrong tree (issue #614, the
+#592 rule); the emitted `FLOW_STALE_PATH:` line must name the run's worktree:
 
 ```bash
-~/.claude/scripts/flow-stale-check.sh origin/main
+~/.claude/scripts/flow-stale-check.sh origin/main /path/to/worktree
 ```
 
 (Exit 127 - helper family not installed: fall back to
@@ -475,10 +479,12 @@ so the commit lands on a current tree and the gate reflects what will merge (the
 #462 Step-7 guard stays the final backstop). Bare invocation first (#581
 discipline; on exit 127 fall back to the plugin-bundled copy at
 `${CLAUDE_PLUGIN_ROOT}/scripts/flow-stale-check.sh` (#590), else the
-CPP-checkout copy):
+CPP-checkout copy). As at Step 4, pass the worktree path as the trailing
+literal argument (declared, not inferred - issue #614) and check the emitted
+`FLOW_STALE_PATH:` names this run's worktree:
 
 ```bash
-~/.claude/scripts/flow-stale-check.sh origin/main
+~/.claude/scripts/flow-stale-check.sh origin/main /path/to/worktree
 ```
 
 ```bash
