@@ -464,6 +464,40 @@ fi
 
 ---
 
+## Step 5c: Command-Surface Symlink Check (issue #663)
+
+The user-scope command symlinks (`~/.claude/commands/<family>` -> the
+checkout, installed by `/cpp:init` Tier 1) are the CANONICAL command surface:
+they follow the Step-3 `git pull` atomically, so there is nothing to refresh -
+this step only VERIFIES they exist and still point at this checkout. Call the
+helper BARE (allowlist rule matches the stable path):
+
+```bash
+~/.claude/scripts/cpp-commands-link.sh --check
+```
+
+- `CPP_COMMANDS_LINK: ok` - report `✓ Command symlinks current` and continue.
+- `CPP_COMMANDS_LINK: drift` (exit 1) - families are missing or point at
+  another checkout. Ask the user, then run the install (bare, no flags):
+  `~/.claude/scripts/cpp-commands-link.sh`
+- `foreign` lines are the user's own content winning a name collision -
+  surface them, never modify them.
+- Exit 127 (helper not yet linked): Step 5b just linked it on Tier 2+ hosts;
+  fall back to `"$CPP_DIR/scripts/cpp-commands-link.sh" --check` once, or skip
+  with a note on a Tier 0/1 install.
+
+**Marketplace-cache migration (pending #662):** while the deprecated `/plugin`
+families remain installed, sessions may read the STALE cached copies instead of
+these symlinks. If `~/.claude/plugins/cache/cpp/` still contains CPP families,
+print the uninstall list and recommend running it (user-typed CLI built-ins -
+this command cannot run them):
+
+```
+/plugin uninstall <family>@cpp    # for each family present in the cache
+```
+
+---
+
 ## Step 6: MCP Server Drift Detection
 
 After pulling, scan for drift between what CPP expects and what is actually

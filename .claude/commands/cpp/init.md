@@ -209,15 +209,31 @@ If user selects "Custom", ask which categories to enable using multi-select:
 ```
 === Tier 1: Minimal Installation ===
 
-This will create the following symlinks in your project:
+This will create the following symlinks (issue #663 - symlinks are the
+CANONICAL command surface: they follow `git pull` atomically, so the executed
+command text can never drift from the checkout):
 
-  Symlinks:
+  User scope (every session on this host):
+    • ~/.claude/commands/<family> → {CPP_DIR}/.claude/commands/<family>
+      (per-family links via scripts/cpp-commands-link.sh - your own files in
+       ~/.claude/commands/ are preserved; a name collision with your own
+       content is reported as foreign and never touched)
+
+  Project scope (this project only):
     • .claude/commands → {CPP_DIR}/.claude/commands
 
   Disk usage: ~0 MB (symlinks only)
 
   To undo:
     rm .claude/commands
+    # user scope: remove the per-family symlinks (only ones pointing into a
+    # CPP checkout's .claude/commands/):
+    ~/.claude/scripts/cpp-commands-link.sh --check   # lists what is linked
+
+  Note: if the deprecated /plugin marketplace families are still installed
+  (pending #662), the cached copies coexist with these symlinks - uninstall
+  them (`/plugin uninstall <family>@cpp`) so sessions read only the current
+  text.
 
 Proceed? [y/N]
 ```
@@ -376,6 +392,25 @@ Proceed? [y/N]
 Execute only the components that aren't already installed.
 
 ### Tier 1 Execution
+
+**User scope first (issue #663):** per-family symlinks into
+`~/.claude/commands/` serve the command surface to every session on this
+host and follow `git pull` atomically. The helper owns the safety rules
+(replaces only symlinks it created, never a user's file or dir) - do not
+re-implement it inline. Call it BARE (the #581 allowlist rule matches the
+stable path); on exit 127 fall back to `"$CPP_DIR/scripts/cpp-commands-link.sh"`:
+
+```bash
+~/.claude/scripts/cpp-commands-link.sh
+```
+
+`foreign` lines in its output are the user's own content winning a name
+collision - report them, never "fix" them. If a deprecated `/plugin`
+marketplace cache still carries CPP families (pending #662), tell the user to
+run `/plugin uninstall <family>@cpp` for each so sessions stop reading the
+stale cached copies.
+
+**Project scope (optional, this project only):**
 
 ```bash
 # Create .claude directory if needed
