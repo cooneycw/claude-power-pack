@@ -108,4 +108,5 @@ Flow Repair
 - This is the only flow command that writes outside the repo. It touches exactly
   `~/.claude/scripts/`, and only the helper family listed in the installer.
 - Clone users do not need this - `/cpp:init` Tier 2 and `/cpp:update` Step 5b
-  already link every `scripts/*.sh`. Running it anyway is harmless and idempotent.
+  already link every executable helper in `scripts/` (issue #669). Running it
+  anyway is harmless and idempotent.

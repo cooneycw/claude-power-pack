@@ -37,8 +37,9 @@ which is what the shipped permission allowlist rules match (issue #581).
   flow@cpp`, then migrate to the checkout-backed symlink surface restored by
   #663. `/flow-repair` remains compatible with the cache during migration.
 - **Installed from a CPP clone** (`/cpp:init` Tier 2 or later `/cpp:update`):
-  nothing to do - the installer already links every `scripts/*.sh`. `/flow-repair`
-  is harmless and idempotent if you run it anyway.
+  nothing to do - the installer already links every executable helper in
+  `scripts/` (issue #669). `/flow-repair` is harmless and idempotent if you run
+  it anyway.
 
 `/flow-doctor` reports helper and allowlist state without changing anything.
 

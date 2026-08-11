@@ -43,8 +43,8 @@ Check what's already installed (same logic as `/cpp:status`):
 COMMANDS_INSTALLED=false
 [ -L ".claude/commands" ] || [ -d ".claude/commands" ] && COMMANDS_INSTALLED=true
 
-# Tier 2 checks
-SCRIPTS_COUNT=$(ls ~/.claude/scripts/*.sh 2>/dev/null | wc -l)
+# Tier 2 checks (count every linked helper, not just .sh - issue #669)
+SCRIPTS_COUNT=$(find ~/.claude/scripts -maxdepth 1 -type l 2>/dev/null | wc -l)
 HOOKS_EXIST=false
 [ -f ".claude/hooks.json" ] && HOOKS_EXIST=true
 
@@ -269,7 +269,7 @@ This will make the following changes:
 
   To undo:
     rm .claude/commands
-    rm ~/.claude/scripts/*.sh
+    find ~/.claude/scripts -maxdepth 1 -type l -delete   # CPP installs symlinks only
     rm .claude/hooks.json
     # Remove PS1 line from ~/.bashrc or ~/.zshrc
 
@@ -431,8 +431,13 @@ fi
 # Create scripts directory
 mkdir -p ~/.claude/scripts
 
-# Symlink all scripts
-for script in "$CPP_DIR"/scripts/*.sh; do
+# Symlink all executable helpers, regardless of extension (issue #669: the
+# old *.sh-only glob skipped flow-wave-plan.py, so its shipped allow rule in
+# templates/claude-settings-permissions.json pointed at a nonexistent path).
+# The executability gate skips non-executable .py library files, directories,
+# and __pycache__.
+for script in "$CPP_DIR"/scripts/*; do
+  [ -f "$script" ] && [ -x "$script" ] || continue
   name=$(basename "$script")
   if [ ! -L ~/.claude/scripts/"$name" ]; then
     ln -sf "$script" ~/.claude/scripts/"$name"
@@ -1186,9 +1191,10 @@ to reconcile.
 `scripts/install-memory-harness.sh` links `scripts/cpp-memory` onto `PATH` and
 installs the hand-authored Codex `/cpp-memory` prompt. Its header has always
 said it is safe to re-run from `/cpp:update`, but no step ever invoked it, so
-`cpp-memory` was missing from `PATH` unless run by hand. It also covers a gap in
-the Tier 2 symlink loop, which iterates `scripts/*.sh` and therefore never
-matches `scripts/cpp-memory` (no `.sh` suffix). Idempotent.
+`cpp-memory` was missing from `PATH` unless run by hand. The Tier 2 symlink
+loop now also links `scripts/cpp-memory` into `~/.claude/scripts/` (it links
+every executable helper since issue #669), but that dir is not on `PATH` -
+this harness remains the canonical `PATH` install. Idempotent.
 
 ```bash
 bash "$CPP_DIR/scripts/install-memory-harness.sh" \

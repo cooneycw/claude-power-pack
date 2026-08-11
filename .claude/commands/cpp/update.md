@@ -444,13 +444,18 @@ helper family, issue #581). EXISTING symlinks in `~/.claude/scripts/` follow
 the pull automatically, but a NEW script has no symlink yet - and the flow
 allowlist rules delivered by Step 7.5 match the stable `~/.claude/scripts/`
 path, so without this refresh a new rule points at a path that does not exist
-and the zero-prompt lane silently degrades. Re-run the same idempotent link
-loop as `/cpp:init` Tier 2; skip when this install has no `~/.claude/scripts/`
-directory (Tier 0/1 - never self-upgrade the tier here):
+and the zero-prompt lane silently degrades. The loop links every EXECUTABLE
+file in `scripts/` regardless of extension (issue #669: the old `*.sh`-only
+glob skipped `flow-wave-plan.py`, so its shipped allow rule pointed at a
+nonexistent path); non-executable `.py` library files, directories, and
+`__pycache__` are skipped by the executability gate. Re-run the same
+idempotent link loop as `/cpp:init` Tier 2; skip when this install has no
+`~/.claude/scripts/` directory (Tier 0/1 - never self-upgrade the tier here):
 
 ```bash
 if [ -d ~/.claude/scripts ]; then
-  for script in "$CPP_DIR"/scripts/*.sh; do
+  for script in "$CPP_DIR"/scripts/*; do
+    [ -f "$script" ] && [ -x "$script" ] || continue
     name=$(basename "$script")
     if [ ! -L ~/.claude/scripts/"$name" ]; then
       ln -sf "$script" ~/.claude/scripts/"$name"
