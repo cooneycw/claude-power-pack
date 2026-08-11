@@ -29,8 +29,6 @@ ROOT = Path(__file__).resolve().parents[1]
 FLOW_DOCS = [
     ROOT / ".claude" / "commands" / "flow" / "auto.md",
     ROOT / ".claude" / "commands" / "flow" / "finish.md",
-    ROOT / "plugins" / "flow" / "commands" / "auto.md",
-    ROOT / "plugins" / "flow" / "commands" / "finish.md",
 ]
 
 

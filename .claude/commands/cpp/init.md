@@ -559,11 +559,10 @@ of the other:
 1. **Pending retro material** - `.claude/friction.jsonl` signals (actionable vs
    the bulk permission-prompt census, counted separately) plus any uncodified
    `Status: proposed` learnings, pointing at `/self-improvement:retro` (#530).
-2. **Stale installed commands** - how far the `~/.claude/plugins/` snapshot a
-   session actually executes has fallen behind the CPP checkout, via the sibling
-   `scripts/install-drift.sh` (#622). Session open is the only moment that fact
-   helps: it is what stops a session from acting on week-old instructions and
-   re-diagnosing an already-fixed bug.
+2. **Retired CPP marketplace cache** - which families still remain under
+   `~/.claude/plugins/cache/cpp/`, via `scripts/install-drift.sh` (#622/#662),
+   so the host can migrate them with `/plugin uninstall <family>@cpp` before
+   #663 restores the canonical symlink tier.
 
 It only SURFACES; it never codifies, and it is silent when there is nothing to
 report. It is deliberately NOT shipped in `.claude/hooks.json`, so it never turns
@@ -575,9 +574,9 @@ boundary), so it is offered, not applied - default N:
 
 Register the session-open reminder in ~/.claude/settings.json? It prints one
 advisory line when pending friction signals or uncodified learnings exist (run
-/self-improvement:retro), and one when the installed command surface has fallen
-behind this checkout (run /plugin update). Surfaces only - never codifies, never
-blocks. Silent when there is nothing to report.  [y/N default N]
+/self-improvement:retro), and one when a retired CPP marketplace cache is still
+pending uninstall (#662/#663). Surfaces only - never codifies, never blocks.
+Silent when there is nothing to report.  [y/N default N]
 ```
 
 If yes:

@@ -173,9 +173,9 @@ class TestWiring:
         installer = (ROOT / "scripts" / "flow-helpers-install.sh").read_text()
         assert "flow-wave-plan.py" in installer
 
-    def test_planner_is_bundled_with_flow_plugin(self) -> None:
-        sync = (ROOT / "scripts" / "plugin-sync.sh").read_text()
-        assert "scripts/flow-wave-plan.py" in sync
+    def test_planner_is_bundled_with_codex_skill(self) -> None:
+        bundled = ROOT / "codex" / "skills" / "flow-wave" / "scripts" / "flow-wave-plan.py"
+        assert bundled.read_text() == (ROOT / "scripts" / "flow-wave-plan.py").read_text()
 
     def test_planner_is_allowlisted_in_permissions_template(self) -> None:
         template = (ROOT / "templates" / "claude-settings-permissions.json").read_text()

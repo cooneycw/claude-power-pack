@@ -1,5 +1,5 @@
 ---
-description: Install the flow helper family into ~/.claude/scripts/ (fixes exit-127 on marketplace-only installs)
+description: Install the flow helper family into ~/.claude/scripts/
 allowed-tools: Bash(~/.claude/scripts/flow-helpers-install.sh:*), Bash(scripts/flow-helpers-install.sh:*), Bash(test:*), Bash(ls:*), Bash(jq:*), Read
 ---
 
@@ -13,20 +13,19 @@ commands invoke and the permission allowlist matches.
 The flow commands are only half the product: Step 1 of `/flow:start` and
 `/flow:auto` runs `~/.claude/scripts/flow-start-resolve.sh`, `/flow:merge` runs
 `gh-pr-merge.sh`, and so on. Historically only the repo-local `/cpp:init` /
-`/cpp:update` installer put those there, so a user who installed flow from the
-marketplace (`/plugin install flow@cpp` - the canonical path since ADR 0001
-Phase B5) hit exit 127 with no clone to fall back to.
+`/cpp:update` installer put those there. The retired marketplace lane could
+leave commands without those host helpers, producing exit 127 (#590, #662).
 
-The plugin now bundles the helper family (`${CLAUDE_PLUGIN_ROOT}/scripts/`,
-the same delivery mechanism the secrets plugin uses for its masking hook). This
-command copies or links them to `~/.claude/scripts/`. That stable path matters:
+Legacy caches may still bundle the helper family at
+`${CLAUDE_PLUGIN_ROOT}/scripts/` until they are uninstalled. This command copies
+or links helpers to `~/.claude/scripts/`. That stable path matters:
 the #581 allowlist rules in `templates/claude-settings-permissions.json` match
 `Bash(~/.claude/scripts/flow-start-resolve.sh:*)` and friends, and a versioned
 plugin-cache path would never match them - running the helpers in place would
 trade exit-127 breakage for a permission prompt on every call.
 
-Run this once after installing the plugin. It is idempotent - re-run it any
-time, and after a plugin upgrade.
+Run this after cloning CPP. It is idempotent and remains able to repair a legacy
+cache while the #662 migration is in progress.
 
 ## Instructions
 
@@ -40,8 +39,8 @@ invocation discipline: a compound invocation defeats the allowlist prefix rule).
 ~/.claude/scripts/flow-helpers-install.sh
 ```
 
-**2. Plugin bundle** (exit 127 above - a marketplace-only install). The plugin
-root is only defined when this command runs from an installed plugin:
+**2. Retired plugin cache** (exit 127 above). This compatibility fallback stays
+until #663 migrates hosts; the plugin root exists only for a cached command:
 
 ```bash
 ${CLAUDE_PLUGIN_ROOT}/scripts/flow-helpers-install.sh
@@ -54,9 +53,8 @@ ${CLAUDE_PLUGIN_ROOT}/scripts/flow-helpers-install.sh
 scripts/flow-helpers-install.sh
 ```
 
-If all three exit 127, neither a plugin nor a checkout is present: report that
-flow is not installed from a source that carries the helpers, and point at
-`/plugin install flow@cpp`.
+If all three exit 127, no CPP checkout or usable legacy cache is present. Report
+that a CPP checkout is required; the canonical symlink surface returns in #663.
 
 The installer prints one line per helper and a verdict:
 
@@ -65,9 +63,8 @@ The installer prints one line per helper and a verdict:
 - `FLOW_HELPERS: error` - report the message and stop.
 
 It picks its own delivery: **symlink** when the source is a CPP checkout, so the
-helpers follow `git pull` exactly as `/cpp:init` Tier 2 does; **copy** when the
-source is a plugin bundle, because plugin cache paths are version-stamped and a
-symlink into one dangles at the next upgrade.
+helpers follow `git pull`; **copy** for a legacy plugin cache, because a symlink
+into a version-stamped cache can dangle when that cache is uninstalled.
 
 ### Then: check the allowlist
 
@@ -89,7 +86,7 @@ rules - or they can copy them from
 ```
 Flow Repair
 
-  Source:    plugin bundle (/home/user/.claude/plugins/cache/cpp/flow/1.0.0) | CPP checkout (~/Projects/claude-power-pack)
+  Source:    retired plugin cache (/home/user/.claude/plugins/cache/cpp/flow/1.0.0) | CPP checkout (~/Projects/claude-power-pack)
   Delivery:  copy | symlink
   Installed: 9 helpers to ~/.claude/scripts/ | already current
   Allowlist: 6 rules present | not merged (flow will prompt on each helper call)

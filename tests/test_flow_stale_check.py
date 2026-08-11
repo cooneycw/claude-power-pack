@@ -8,7 +8,7 @@ Contract:
 - When the base moved AND a file this branch edited also changed upstream, the
   verdict is ``collision`` and the colliding file(s) are NAMED in the output.
 - When a ``.claude/commands/flow/*.md`` file changed upstream, the output reminds
-  the user to regenerate the packaged copies (``plugin-sync.sh``) so they do not drift.
+  the user to regenerate the Codex skill copies so they do not drift.
 - The check is advisory (exit 0) by default; ``--exit-code`` returns 1 on a
   collision so a caller can gate on it.
 
@@ -187,9 +187,10 @@ def test_flow_command_change_reminds_to_resync(tmp_path: Path):
     repo = _make_repo(tmp_path)
     _advance_main(repo, FLOW_CMD, "flow-upstream\n")
     result = _run(repo, "main")
-    assert "plugin-sync.sh" in result.stdout, (
-        "a flow command change upstream must remind to regenerate the packaged copies"
+    assert "codex-skill-sync.py --write flow" in result.stdout, (
+        "a flow command change upstream must remind to regenerate the Codex skills"
     )
+    assert "plugin-sync.sh" not in result.stdout
     assert FLOW_CMD in result.stdout
 
 

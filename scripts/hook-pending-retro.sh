@@ -18,12 +18,13 @@
 #     /flow:auto worktree too.
 #   - the sibling .claude/learnings.md ledger, counting entries still awaiting a
 #     decision (Status: proposed).
-#   - the installed-vs-checkout command drift reported by the sibling
-#     scripts/install-drift.sh (issue #622). Session open is the ONLY moment that
-#     fact helps: a session that learns its command text is 15 commits old before
-#     it acts avoids re-diagnosing an already-fixed bug and filing a duplicate
-#     issue for it, which is what happened on flow:auto #65. Set
-#     CPP_HOOK_SKIP_INSTALL_DRIFT=1 to suppress just this half.
+#   - installed-helper drift and retired CPP marketplace caches reported by the
+#     sibling scripts/install-drift.sh (issues #622/#662). Session open is the
+#     moment helper drift helps: seeing stale installed code before acting avoids
+#     re-diagnosing an already-fixed bug and filing a duplicate, as happened on
+#     flow:auto #65. The same line also names cache families still needing
+#     `/plugin uninstall <family>@cpp`. Set CPP_HOOK_SKIP_INSTALL_DRIFT=1 to
+#     suppress just this half.
 #
 # Output: at most TWO advisory lines to stdout, shown at session open - the retro
 # line and the install-drift line, INDEPENDENT of each other (either can be
@@ -86,12 +87,12 @@ if [ "$TOTAL" -gt 0 ]; then
   printf '%s\n' "$MSG"
 fi
 
-# --- Advisory 2: stale installed command text (issue #622) -------------------
-# Independent of advisory 1 - the two answer different questions, and gating the
-# drift line on pending retro material would hide it exactly on the clean boxes
-# most likely to be running week-old commands. install-drift.sh --quiet prints
-# one line only on drift and always exits 0; everything here is belt-and-braces
-# on top of that, since a hook that errors is worse than a hook that is silent.
+# --- Advisory 2: helper drift + retired marketplace state (#622/#662) -------
+# Independent of advisory 1 - gating it on pending retro material would hide
+# stale helpers exactly on clean boxes likely to diagnose with old installed
+# code. install-drift.sh --quiet prints one line when drift or migration state
+# needs attention and always exits 0; everything here is belt-and-braces on top
+# of that, since a hook that errors is worse than a hook that is silent.
 if [ -z "${CPP_HOOK_SKIP_INSTALL_DRIFT:-}" ]; then
   SELF="$(readlink -f "$0" 2>/dev/null || printf '%s' "$0")"
   DRIFT_SCRIPT="$(dirname "$SELF")/install-drift.sh"

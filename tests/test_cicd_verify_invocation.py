@@ -41,7 +41,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 
 # The surfaces that document how to run lib/cicd. `.claude/commands/` is the
-# single source of truth; `plugins/` and `codex/skills/` are generated from it
+# single source of truth; `codex/skills/` is generated from it
 # and are included so a stale regenerated copy is caught too. CHANGELOG.md is
 # deliberately excluded - it quotes historical commands as a record of what
 # changed, and editing history to satisfy a lint is the wrong fix.

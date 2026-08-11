@@ -2,12 +2,10 @@
 description: Load full Claude Code best practices documentation (25K tokens)
 ---
 
-Read and summarize the key points from the full best-practices guide. Resolve it
-from the first of these locations that exists (the second covers plugin-only
-installs, where the cpp plugin bundles the doc - issue #582):
-
-1. `docs/reference/CLAUDE_CODE_BEST_PRACTICES_FULL.md` (CPP repo checkout)
-2. `${CLAUDE_PLUGIN_ROOT}/docs/reference/CLAUDE_CODE_BEST_PRACTICES_FULL.md` (plugin install)
+Read and summarize the key points from the full best-practices guide at
+`docs/reference/CLAUDE_CODE_BEST_PRACTICES_FULL.md` in the CPP checkout. CPP's
+marketplace bundle was retired by issue #662 / ADR 0005; issue #663 restores the
+checkout-backed symlink command surface as canonical.
 
 **Note:** For context efficiency, consider using topic-specific skills instead:
 - `context-efficiency` - Token optimization

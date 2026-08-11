@@ -59,15 +59,9 @@ if [ "$(git rev-list --count HEAD..origin/main)" -gt 0 ]; then
         echo "NOTE: your work is safe in the 'wip(flow): pre-merge snapshot' commit on this branch."
         exit 1
     fi
-    # Re-sync the in-repo generated surfaces if the merge pulled ANY command-family
-    # source - the packaged plugin copies AND the Codex skills are both regenerated
-    # from .claude/commands/ and the parity gates cover all 15 families, not just
-    # flow (issue #506; Codex skills #555, flat codex/prompts/ retired at the #556
-    # cutover). LOCAL scripts re-sync THIS tree; [ -x ... ] keeps each CPP-only. The
-    # commit step below stages plugins/ and codex/skills/.
-    if [ -x scripts/plugin-sync.sh ] && git diff --name-only ORIG_HEAD..HEAD | grep -q '^\.claude/commands/.*\.md$'; then
-        scripts/plugin-sync.sh --write || true
-    fi
+    # Re-sync generated Codex skills if the merge pulled ANY command-family source
+    # (issue #506; marketplace copies retired in #662). The LOCAL script re-syncs
+    # THIS tree; [ -x ... ] keeps the step CPP-only.
     if [ -x scripts/codex-skill-sync.py ] && git diff --name-only ORIG_HEAD..HEAD | grep -q '^\.claude/commands/.*\.md$'; then
         python3 scripts/codex-skill-sync.py --write || true
     fi

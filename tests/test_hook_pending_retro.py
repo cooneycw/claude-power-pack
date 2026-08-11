@@ -8,12 +8,12 @@ split (so the bulk census records do not read as alarm), uncodified
 (`Status: proposed`) learnings counted from the sibling ledger, hard silence when
 nothing is pending / the buffer is absent, and that the hook is read-only.
 
-Since issue #622 the same hook carries a SECOND, independent advisory: the
-installed-vs-checkout command drift reported by the sibling
-`scripts/install-drift.sh`. The tests below drive the retro half with that half
-suppressed (`CPP_HOOK_SKIP_INSTALL_DRIFT`) so the two never mask each other, and
-pin the wiring of the drift half separately - including that a missing or failing
-install-drift.sh leaves the hook silent and successful.
+Since issue #622 the same hook carries a SECOND, independent advisory for stale
+installed helpers; issue #662 adds retired marketplace-cache migration state to
+that sibling `scripts/install-drift.sh` report. The tests below drive the retro
+half with that half suppressed (`CPP_HOOK_SKIP_INSTALL_DRIFT`) so the two never
+mask each other, and pin the wiring separately - including that a missing or
+failing install-drift.sh leaves the hook silent and successful.
 
 Pure-filesystem: the hook is driven with a `CPP_FRICTION_LOG` override, so no git
 subprocess is needed and this runs in the git-less CI `validate` container (only
@@ -50,9 +50,7 @@ def _run(buffer: Path) -> subprocess.CompletedProcess:
         env={
             "CPP_FRICTION_LOG": str(buffer),
             "PATH": os.environ.get("PATH", ""),
-            # Isolate the retro half: the drift half reads the real HOME and
-            # would otherwise make these assertions depend on how stale the
-            # developer's own plugin install happens to be.
+            # Isolate the retro half: helper/cache checks read the real HOME.
             "CPP_HOOK_SKIP_INSTALL_DRIFT": "1",
         },
         stdin=subprocess.DEVNULL,
@@ -137,8 +135,8 @@ def test_hook_is_read_only(tmp_path: Path):
 # Wired through a STUB sibling: the hook resolves install-drift.sh next to its
 # own realpath, so copying the hook into a tmp dir lets these tests pin the
 # wiring (does the line surface? does a failure stay silent?) without depending
-# on the state of the box's real plugin install, which test_install_drift.py
-# already covers on hermetic trees.
+# on the state of the box's real installed helpers or retired cache, which
+# test_install_drift.py already covers on hermetic trees.
 
 
 def _staged_hook(tmp_path: Path, drift_body: str | None) -> Path:
