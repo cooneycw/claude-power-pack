@@ -53,6 +53,7 @@ HELPERS=(
     flow-worktree-guard.sh
     flow-worktree-claim.sh
     flow-wave-registry.sh
+    flow-wave-plan.py
     flow-finish-gate.sh
     gh-pr-merge.sh
     worktree-remove.sh
