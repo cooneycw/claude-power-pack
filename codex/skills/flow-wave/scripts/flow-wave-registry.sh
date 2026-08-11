@@ -27,6 +27,16 @@
 # On any mismatch the OBSERVED address replaces the self-derived one as
 # canonical and the discrepancy is flagged; the reverse never happens.
 #
+# Loud default (issue #671): an omitted --wave silently lands in wave 'default'
+# with a clean verdict while every named-wave roster stays empty - the
+# silent-addressing-failure class #638 exists to prevent, one namespace level
+# up. So register/get/verify into wave 'default' without an explicit --wave
+# print one advisory stderr line (register also names the likely intended wave
+# when exactly one other wave has a live orchestrator - suggestion only, never
+# auto-join), and list appends a note for LIVE same-host entries parked in
+# OTHER waves (stderr in --json mode, so stdout stays parseable). Advisory
+# only - verdicts and exit codes are unchanged.
+#
 # Usage:
 #   flow-wave-registry.sh register <role> [--wave W] [--force] [--cwd P]
 #                         [--repo P] [--issue N] [--branch B] [--socket S]
@@ -245,6 +255,55 @@ liveness_of() {
   echo stale
 }
 
+# implicit_default -> 0 when this invocation landed in wave 'default' without
+# an explicit --wave (issue #671 - the omitted-flag signature).
+implicit_default() {
+  [ "$WAVE_EXPLICIT" -eq 0 ] && [ "$WAVE" = "default" ]
+}
+
+# likely_wave -> prints the one OTHER wave holding a LIVE orchestrator entry,
+# nothing when zero or several qualify (issue #671, item 3). Suggestion only -
+# the caller re-registers with --wave if it agrees; nothing auto-joins.
+likely_wave() {
+  local reg w e name="" count=0
+  reg="$(read_registry)"
+  for w in $(printf '%s' "$reg" | jq -r 'keys[]' 2>/dev/null); do
+    [ "$w" = "$WAVE" ] && continue
+    e="$(printf '%s' "$reg" | jq -c --arg w "$w" '.[$w].roles.orchestrator // null')"
+    [ "$e" != "null" ] || continue
+    [ "$(liveness_of "$e")" = "live" ] || continue
+    name="$w"; count=$((count + 1))
+  done
+  [ "$count" -eq 1 ] && printf '%s' "$name"
+  return 0
+}
+
+# Cross-wave visibility (issue #671): LIVE same-host entries parked in OTHER
+# waves are invisible to this roster - name them, so a worker that omitted
+# --wave (stranded in 'default') costs seconds to spot instead of a raw-JSON
+# dig. liveness_of is already host-scoped, so remote entries never appear.
+cross_wave_notes() {
+  local reg other r e pid detail n
+  reg="$(read_registry)"
+  for other in $(printf '%s' "$reg" | jq -r 'keys[]' 2>/dev/null); do
+    [ "$other" = "$WAVE" ] && continue
+    detail=""; n=0
+    for r in $(printf '%s' "$reg" | jq -r --arg w "$other" '(.[$w].roles // {}) | keys[]' 2>/dev/null); do
+      e="$(printf '%s' "$reg" | jq -c --arg w "$other" --arg r "$r" '.[$w].roles[$r]')"
+      [ "$(liveness_of "$e")" = "live" ] || continue
+      pid="$(printf '%s' "$e" | jq -r '.pid // "-"')"
+      detail="$detail, role $r pid $pid"
+      n=$((n + 1))
+    done
+    [ "$n" -gt 0 ] || continue
+    if [ "$other" = "default" ]; then
+      echo "  note: $n live session(s) registered in wave 'default' (${detail#, }) - a worker that omitted --wave?"
+    else
+      echo "  note: $n live session(s) registered in wave '$other' (${detail#, })"
+    fi
+  done
+}
+
 # ---- argument parsing -------------------------------------------------------
 VERB="${1:-}"
 [ -n "$VERB" ] || usage_fail "usage: flow-wave-registry.sh register|list|get|verify|release|self-address ..."
@@ -259,13 +318,13 @@ case "$VERB" in
   *) usage_fail "unknown verb: $VERB" ;;
 esac
 
-ROLE=""; WAVE="default"; FORCE=0; JSON_OUT=0
+ROLE=""; WAVE="default"; WAVE_EXPLICIT=0; FORCE=0; JSON_OUT=0
 A_CWD=""; A_REPO=""; A_ISSUE=""; A_BRANCH=""; A_SOCKET=""; A_FROM=""
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --wave) [ "$#" -ge 2 ] || usage_fail "--wave requires a name"; WAVE="$2"; shift ;;
-    --wave=*) WAVE="${1#--wave=}" ;;
+    --wave) [ "$#" -ge 2 ] || usage_fail "--wave requires a name"; WAVE="$2"; WAVE_EXPLICIT=1; shift ;;
+    --wave=*) WAVE="${1#--wave=}"; WAVE_EXPLICIT=1 ;;
     --force) FORCE=1 ;;
     --json) JSON_OUT=1 ;;
     --cwd) [ "$#" -ge 2 ] || usage_fail "--cwd requires a path"; A_CWD="$2"; shift ;;
@@ -382,7 +441,9 @@ case "$VERB" in
     # step that cannot fire. `verify` needs a transport-observed from=, which
     # needs a DELIVERED message, which needs someone to already hold a real
     # address - so with no address here, the fallback is not "later", it is
-    # structurally blocked until one of the bootstrap lanes below runs.
+    # structurally blocked until one of the bootstrap lanes below runs. This
+    # REPLACES the "the orchestrator's verify will supply it" line, which was
+    # the promise #672 was filed about.
     if [ "$SOCK" = "unknown" ]; then
       case "$SOCK_REASON" in
         no-sock-dir)
@@ -399,6 +460,16 @@ case "$VERB" in
     else
       E_BOOTSTRAP=ok
     fi
+    # Loud default (#671) - independent of addressing: a silently-defaulted
+    # wave and an unaddressed session are separate failures and both advise.
+    if implicit_default; then
+      echo "flow-wave-registry: no --wave given - registered into wave 'default'; concurrent waves will not see this entry." >&2
+      if [ "$ROLE" != "orchestrator" ]; then
+        LIKELY="$(likely_wave)"
+        [ -n "$LIKELY" ] &&
+          echo "  Did you mean --wave '$LIKELY'? A live orchestrator is registered there (suggestion only - re-register with --wave to join it)." >&2
+      fi
+    fi
     E_SOCKET="$SOCK"; E_PID="$SELF_PID"; E_SESSION="$SELF_SESSION"; E_LIVE=live
     E_VERIFIED="$KEEP_VERIFIED"; E_MISMATCH=false
     E_SOURCE="$SOCK_SOURCE"; E_REASON="$SOCK_REASON"
@@ -408,6 +479,8 @@ case "$VERB" in
 
   get)
     [ -n "$ROLE" ] || usage_fail "get requires a role"
+    implicit_default &&
+      echo "flow-wave-registry: no --wave given - reading wave 'default'; a role registered under a named wave will not be found here." >&2
     CUR="$(entry_json "$WAVE" "$ROLE")"
     if [ "$CUR" = "null" ]; then emit free; exit 0; fi
     E_SOCKET="$(printf '%s' "$CUR" | jq -r '.socket // "unknown"')"
@@ -438,6 +511,8 @@ case "$VERB" in
   verify)
     [ -n "$ROLE" ] || usage_fail "verify requires a role"
     [ -n "$A_FROM" ] || usage_fail "verify requires --from <observed uds:... address>"
+    implicit_default &&
+      echo "flow-wave-registry: no --wave given - verifying in wave 'default'; a role registered under a named wave will not be found here." >&2
     CUR="$(entry_json "$WAVE" "$ROLE")"
     [ "$CUR" != "null" ] || { echo "flow-wave-registry: no entry for role '$ROLE' in wave '$WAVE'." >&2; emit unknown; exit 0; }
     RECORDED="$(printf '%s' "$CUR" | jq -r '.socket // "unknown"')"
@@ -510,12 +585,15 @@ case "$VERB" in
         OUT="$(printf '%s' "$OUT" | jq -c --arg r "$r" --argjson e "$e" --arg lv "$lv" '.[$r] = ($e + {liveness: $lv})')"
       done
       printf '%s\n' "$OUT" | jq .
+      # Keep --json stdout parseable: cross-wave notes go to stderr (#671).
+      cross_wave_notes >&2
       echo "FLOW_WAVE_BOOTSTRAP=$BOOTSTRAP_STATE"
       echo "FLOW_WAVE: listed"
       exit 0
     fi
     if [ -z "$ROLES" ]; then
       echo "flow-wave-registry: no roles registered for wave '$WAVE' ($REG_FILE)."
+      cross_wave_notes
       echo "FLOW_WAVE_BOOTSTRAP=$BOOTSTRAP_STATE"
       echo "FLOW_WAVE: listed"
       exit 0
@@ -567,6 +645,7 @@ case "$VERB" in
       echo "  Verification cannot fire for those roles on its own; it is blocked, not pending."
       bootstrap_escapes
     fi
+    cross_wave_notes
     echo "FLOW_WAVE_BOOTSTRAP=$BOOTSTRAP_STATE"
     echo "FLOW_WAVE: listed"
     exit 0
