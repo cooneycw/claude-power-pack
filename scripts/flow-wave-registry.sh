@@ -27,6 +27,16 @@
 # On any mismatch the OBSERVED address replaces the self-derived one as
 # canonical and the discrepancy is flagged; the reverse never happens.
 #
+# Loud default (issue #671): an omitted --wave silently lands in wave 'default'
+# with a clean verdict while every named-wave roster stays empty - the
+# silent-addressing-failure class #638 exists to prevent, one namespace level
+# up. So register/get/verify into wave 'default' without an explicit --wave
+# print one advisory stderr line (register also names the likely intended wave
+# when exactly one other wave has a live orchestrator - suggestion only, never
+# auto-join), and list appends a note for LIVE same-host entries parked in
+# OTHER waves (stderr in --json mode, so stdout stays parseable). Advisory
+# only - verdicts and exit codes are unchanged.
+#
 # Usage:
 #   flow-wave-registry.sh register <role> [--wave W] [--force] [--cwd P]
 #                         [--repo P] [--issue N] [--branch B] [--socket S]
@@ -37,11 +47,15 @@
 #   flow-wave-registry.sh self-address
 #
 #   register  Record this session as <role>. Self-derives the socket when
-#             --socket is not given (falls back to "unknown" - the observed
-#             round-trip then supplies it via `verify`). Re-registering the
-#             role you already hold refreshes the entry (idempotent). A role
-#             held by a LIVE other session is refused (exit 1) unless --force.
-#             A dead owner's entry is stale and taken over automatically.
+#             --socket is not given; --socket is the MANUAL BOOTSTRAP LANE for
+#             an address learned by any other means (harness env, user relay)
+#             and always wins. Re-registering the role you already hold
+#             refreshes the entry (idempotent) and RE-DERIVES the address, so a
+#             session that registered before its socket existed adopts the real
+#             one on a retry - but a failed derivation never downgrades an
+#             already-recorded address to "unknown" (#672). A role held by a
+#             LIVE other session is refused (exit 1) unless --force. A dead
+#             owner's entry is stale and taken over automatically.
 #   list      Show the roster: role, address, issue, liveness, verification.
 #             Marks dead entries stale rather than deleting them - a dead
 #             worker mid-issue is information. Warns on lane overlaps between
@@ -56,6 +70,7 @@
 #   release   Mark the role released ("I'm leaving the wave"). Another LIVE
 #             session's role is refused without --force.
 #   self-address  Print this session's best-guess socket (bootstrap only).
+#                 Prints why on failure - see FLOW_WAVE_SOCKET_REASON below.
 #
 # Output ends with a machine-readable verdict line:
 #   FLOW_WAVE: registered | updated | refused | released | listed | verified |
@@ -63,6 +78,22 @@
 # preceded by detail lines (FLOW_WAVE_ROLE=, FLOW_WAVE_SOCKET=, ...), '-' when
 # not applicable. Exit codes: 0 normal, 1 refused (live-owner conflict),
 # 2 usage error.
+#
+# Addressing honesty (#672) - three detail lines describe the address itself,
+# so an unaddressed session is never reported as a healthy pending handshake:
+#   FLOW_WAVE_SOCKET_SOURCE  explicit (--socket) | self (derived) |
+#                            preserved (derivation failed, kept the recorded
+#                            address) | unknown (no address at all)
+#   FLOW_WAVE_SOCKET_REASON  '-' | no-sock-dir (the socket dir does not exist -
+#                            this host has no session transport YET; it is
+#                            created lazily, so retry) | no-match (dir exists,
+#                            no ancestor pid owns a socket in it)
+#   FLOW_WAVE_BOOTSTRAP      ok | deadlock. `deadlock` on register/get/list
+#                            means the address in question is "unknown", so
+#                            `verify` CANNOT fire: it needs an observed from=,
+#                            which needs a delivered message, which needs an
+#                            address. It is blocked, not pending - the escape
+#                            lanes are printed with it.
 #
 # Env:
 #   CLAUDE_PID / CLAUDE_CODE_SESSION_ID  owner identity (fall back: $PPID / -)
@@ -99,11 +130,14 @@ emit() {
   echo "FLOW_WAVE_WAVE=${E_WAVE:--}"
   echo "FLOW_WAVE_ROLE=${E_ROLE:--}"
   echo "FLOW_WAVE_SOCKET=${E_SOCKET:--}"
+  echo "FLOW_WAVE_SOCKET_SOURCE=${E_SOURCE:--}"
+  echo "FLOW_WAVE_SOCKET_REASON=${E_REASON:--}"
   echo "FLOW_WAVE_PID=${E_PID:--}"
   echo "FLOW_WAVE_SESSION=${E_SESSION:--}"
   echo "FLOW_WAVE_LIVENESS=${E_LIVE:--}"
   echo "FLOW_WAVE_VERIFIED=${E_VERIFIED:--}"
   echo "FLOW_WAVE_MISMATCH=${E_MISMATCH:--}"
+  echo "FLOW_WAVE_BOOTSTRAP=${E_BOOTSTRAP:--}"
   echo "FLOW_WAVE: $1"
 }
 
@@ -124,11 +158,32 @@ is_alive() {
 # Best-effort self-address: walk this process's ancestors and match each pid
 # against a socket file. Bootstrap only - `verify` with a transport-observed
 # from= is the authoritative source (gate condition 1).
-self_address() {
-  local pid="${FLOW_WAVE_SELF_PID:-$PPID}" hops=0
+#
+# Sets DERIVED_ADDR ('uds:...' or 'unknown') and DERIVED_REASON, which names WHY
+# a derivation failed rather than flattening both causes to a bare 'unknown'
+# (issue #672). The two are operationally different and want different advice:
+#   no-sock-dir  $SOCK_DIR does not exist - this host exposes no session socket
+#                transport (yet). Observed 2026-08-11: the directory is created
+#                LAZILY, so an 'unknown' recorded before it appears is a
+#                point-in-time answer, not a permanent verdict - re-registering
+#                once a socket exists adopts the real address.
+#   no-match     the directory exists but no ancestor pid owns a socket in it -
+#                a genuinely unaddressable session, not a missing transport.
+DERIVED_ADDR="unknown"
+DERIVED_REASON="-"
+derive_self_address() {
+  DERIVED_ADDR="unknown"
+  DERIVED_REASON="-"
+  if [ ! -d "$SOCK_DIR" ]; then
+    DERIVED_REASON="no-sock-dir"
+    return 0
+  fi
+  # Start from this session's own pid when the harness exports it (SELF_PID's
+  # rule); $PPID alone starts one hop too low and is only reached by luck.
+  local pid="${FLOW_WAVE_SELF_PID:-${CLAUDE_PID:-$PPID}}" hops=0
   while [ -n "$pid" ] && [ "$pid" -gt 1 ] 2>/dev/null && [ "$hops" -lt 20 ]; do
     if [ -S "$SOCK_DIR/$pid.sock" ] || [ -e "$SOCK_DIR/$pid.sock" ]; then
-      printf 'uds:%s/%s.sock' "$SOCK_DIR" "$pid"
+      DERIVED_ADDR="uds:$SOCK_DIR/$pid.sock"
       return 0
     fi
     if [ -r "/proc/$pid/status" ]; then
@@ -138,7 +193,20 @@ self_address() {
     fi
     hops=$((hops + 1))
   done
-  printf 'unknown'
+  DERIVED_REASON="no-match"
+}
+
+# The three lanes that can still produce an address when self-derivation cannot,
+# printed wherever the helper reports an unaddressed session. Every one of them
+# was available during the 2026-08-11 deadlock; none was visible in the output.
+bootstrap_escapes() {
+  echo "  Bootstrap lanes that do NOT depend on self-derivation:" >&2
+  echo "    1. re-run this register - the socket dir is created lazily, so a" >&2
+  echo "       retry once this session has a socket adopts the real address." >&2
+  echo "    2. register --socket <addr> - pass an address learned by any means" >&2
+  echo "       (harness env, the user relaying it from the other session)." >&2
+  echo "    3. user-relayed hello - the user pastes this session's FLOW_WAVE_*" >&2
+  echo "       block to the counterpart, whose reply carries an observable from=." >&2
 }
 
 # All mutations run under flock, read-modify-write with an atomic rename.
@@ -187,6 +255,55 @@ liveness_of() {
   echo stale
 }
 
+# implicit_default -> 0 when this invocation landed in wave 'default' without
+# an explicit --wave (issue #671 - the omitted-flag signature).
+implicit_default() {
+  [ "$WAVE_EXPLICIT" -eq 0 ] && [ "$WAVE" = "default" ]
+}
+
+# likely_wave -> prints the one OTHER wave holding a LIVE orchestrator entry,
+# nothing when zero or several qualify (issue #671, item 3). Suggestion only -
+# the caller re-registers with --wave if it agrees; nothing auto-joins.
+likely_wave() {
+  local reg w e name="" count=0
+  reg="$(read_registry)"
+  for w in $(printf '%s' "$reg" | jq -r 'keys[]' 2>/dev/null); do
+    [ "$w" = "$WAVE" ] && continue
+    e="$(printf '%s' "$reg" | jq -c --arg w "$w" '.[$w].roles.orchestrator // null')"
+    [ "$e" != "null" ] || continue
+    [ "$(liveness_of "$e")" = "live" ] || continue
+    name="$w"; count=$((count + 1))
+  done
+  [ "$count" -eq 1 ] && printf '%s' "$name"
+  return 0
+}
+
+# Cross-wave visibility (issue #671): LIVE same-host entries parked in OTHER
+# waves are invisible to this roster - name them, so a worker that omitted
+# --wave (stranded in 'default') costs seconds to spot instead of a raw-JSON
+# dig. liveness_of is already host-scoped, so remote entries never appear.
+cross_wave_notes() {
+  local reg other r e pid detail n
+  reg="$(read_registry)"
+  for other in $(printf '%s' "$reg" | jq -r 'keys[]' 2>/dev/null); do
+    [ "$other" = "$WAVE" ] && continue
+    detail=""; n=0
+    for r in $(printf '%s' "$reg" | jq -r --arg w "$other" '(.[$w].roles // {}) | keys[]' 2>/dev/null); do
+      e="$(printf '%s' "$reg" | jq -c --arg w "$other" --arg r "$r" '.[$w].roles[$r]')"
+      [ "$(liveness_of "$e")" = "live" ] || continue
+      pid="$(printf '%s' "$e" | jq -r '.pid // "-"')"
+      detail="$detail, role $r pid $pid"
+      n=$((n + 1))
+    done
+    [ "$n" -gt 0 ] || continue
+    if [ "$other" = "default" ]; then
+      echo "  note: $n live session(s) registered in wave 'default' (${detail#, }) - a worker that omitted --wave?"
+    else
+      echo "  note: $n live session(s) registered in wave '$other' (${detail#, })"
+    fi
+  done
+}
+
 # ---- argument parsing -------------------------------------------------------
 VERB="${1:-}"
 [ -n "$VERB" ] || usage_fail "usage: flow-wave-registry.sh register|list|get|verify|release|self-address ..."
@@ -195,19 +312,19 @@ shift
 case "$VERB" in
   register | list | get | verify | release | self-address) : ;;
   --help | -h)
-    sed -n '2,85p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,96p' "$0" | sed 's/^# \{0,1\}//'
     exit 0
     ;;
   *) usage_fail "unknown verb: $VERB" ;;
 esac
 
-ROLE=""; WAVE="default"; FORCE=0; JSON_OUT=0
+ROLE=""; WAVE="default"; WAVE_EXPLICIT=0; FORCE=0; JSON_OUT=0
 A_CWD=""; A_REPO=""; A_ISSUE=""; A_BRANCH=""; A_SOCKET=""; A_FROM=""
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --wave) [ "$#" -ge 2 ] || usage_fail "--wave requires a name"; WAVE="$2"; shift ;;
-    --wave=*) WAVE="${1#--wave=}" ;;
+    --wave) [ "$#" -ge 2 ] || usage_fail "--wave requires a name"; WAVE="$2"; WAVE_EXPLICIT=1; shift ;;
+    --wave=*) WAVE="${1#--wave=}"; WAVE_EXPLICIT=1 ;;
     --force) FORCE=1 ;;
     --json) JSON_OUT=1 ;;
     --cwd) [ "$#" -ge 2 ] || usage_fail "--cwd requires a path"; A_CWD="$2"; shift ;;
@@ -232,18 +349,42 @@ while [ "$#" -gt 0 ]; do
 done
 
 E_WAVE="$WAVE"; E_ROLE="$ROLE"; E_SOCKET=""; E_PID=""; E_SESSION=""
-E_LIVE=""; E_VERIFIED=""; E_MISMATCH=""
+E_LIVE=""; E_VERIFIED=""; E_MISMATCH=""; E_SOURCE=""; E_REASON=""; E_BOOTSTRAP=""
 
 case "$VERB" in
   self-address)
-    self_address; echo ""
+    derive_self_address
+    printf '%s\n' "$DERIVED_ADDR"
+    if [ "$DERIVED_ADDR" = "unknown" ]; then
+      case "$DERIVED_REASON" in
+        no-sock-dir)
+          echo "flow-wave-registry: no socket dir at '$SOCK_DIR' - this host exposes no session socket transport (yet)." >&2
+          echo "  The directory is created lazily, so this is a point-in-time answer, not a permanent verdict." >&2
+          ;;
+        no-match)
+          echo "flow-wave-registry: '$SOCK_DIR' exists but no ancestor pid of this session owns a socket in it." >&2
+          ;;
+      esac
+    fi
     exit 0
     ;;
 
   register)
     [ -n "$ROLE" ] || usage_fail "register requires a role"
     SOCK="$A_SOCKET"
-    [ -n "$SOCK" ] || SOCK="$(self_address)"
+    SOCK_SOURCE=explicit
+    SOCK_REASON="-"
+    KEEP_VERIFIED=false
+    if [ -z "$SOCK" ]; then
+      derive_self_address
+      SOCK="$DERIVED_ADDR"
+      SOCK_REASON="$DERIVED_REASON"
+      SOCK_SOURCE=self
+      [ "$SOCK" = "unknown" ] && SOCK_SOURCE=unknown
+    fi
+    # self_socket records what THIS registration asserted about itself, so a
+    # preserved address (below) does not masquerade as a fresh derivation.
+    SELF_SOCK="$SOCK"
     CUR="$(entry_json "$WAVE" "$ROLE")"
     if [ "$CUR" != "null" ]; then
       CUR_PID="$(printf '%s' "$CUR" | jq -r '.pid // "-"')"
@@ -263,6 +404,21 @@ case "$VERB" in
       fi
       [ "$SAME_OWNER" -eq 0 ] && [ "$CUR_LIVE" = "stale" ] &&
         echo "flow-wave-registry: taking over stale role '$ROLE' (owner pid $CUR_PID is gone)." >&2
+      # Trust model, the reverse direction (#638 gate condition 1 / #672): a
+      # FAILED self-derivation must never downgrade a recorded address to
+      # 'unknown'. You cannot address 'unknown', so any known address outranks
+      # it whatever its provenance. Without this, the idempotent re-register
+      # that register.md recommends as the cheap re-brief silently destroys the
+      # address the wave is running on the moment the socket dir is unreadable.
+      # An explicit --socket is operator intent and always wins.
+      CUR_SOCK="$(printf '%s' "$CUR" | jq -r '.socket // "unknown"')"
+      if [ "$SOCK" = "unknown" ] && [ "$CUR_SOCK" != "unknown" ]; then
+        SOCK="$CUR_SOCK"
+        SOCK_SOURCE=preserved
+        KEEP_VERIFIED="$(printf '%s' "$CUR" | jq -r '.verified // false')"
+        echo "flow-wave-registry: self-derivation returned unknown ($DERIVED_REASON) - KEEPING the recorded address '$CUR_SOCK'." >&2
+        echo "  A known address outranks a failed derivation; re-registering never downgrades one to 'unknown' (#672)." >&2
+      fi
       VERDICT=updated
       [ "$SAME_OWNER" -eq 0 ] && VERDICT=registered
     else
@@ -271,25 +427,60 @@ case "$VERB" in
     with_lock '
       .[$w] //= {"roles": {}} |
       .[$w].roles[$r] = {
-        socket: $sock, self_socket: $sock, pid: ($pid | tonumber? // $pid),
+        socket: $sock, self_socket: $selfsock, pid: ($pid | tonumber? // $pid),
         session: $session, host: $host, cwd: $cwd, repo: $repo,
         issue: $issue, branch: $branch, registered_ts: ($now | tonumber),
-        verified: false, address_mismatch: false, released: false
+        verified: ($verified == "true"), address_mismatch: false, released: false
       }' \
       --arg w "$WAVE" --arg r "$ROLE" --arg sock "$SOCK" --arg pid "$SELF_PID" \
+      --arg selfsock "$SELF_SOCK" --arg verified "$KEEP_VERIFIED" \
       --arg session "$SELF_SESSION" --arg host "$SELF_HOST" --arg cwd "$A_CWD" \
       --arg repo "$A_REPO" --arg issue "$A_ISSUE" --arg branch "$A_BRANCH" \
       --arg now "$NOW"
-    [ "$SOCK" = "unknown" ] &&
-      echo "flow-wave-registry: could not self-derive a socket - registered as 'unknown'; the orchestrator's 'verify' (observed from=) will supply it." >&2
+    # Honest failure surface (#672): name the CAUSE, and never promise a verify
+    # step that cannot fire. `verify` needs a transport-observed from=, which
+    # needs a DELIVERED message, which needs someone to already hold a real
+    # address - so with no address here, the fallback is not "later", it is
+    # structurally blocked until one of the bootstrap lanes below runs. This
+    # REPLACES the "the orchestrator's verify will supply it" line, which was
+    # the promise #672 was filed about.
+    if [ "$SOCK" = "unknown" ]; then
+      case "$SOCK_REASON" in
+        no-sock-dir)
+          echo "flow-wave-registry: no socket dir at '$SOCK_DIR' - this host exposes no session socket transport yet; registered as 'unknown'." >&2
+          ;;
+        *)
+          echo "flow-wave-registry: '$SOCK_DIR' exists but no ancestor pid of this session owns a socket in it; registered as 'unknown'." >&2
+          ;;
+      esac
+      echo "  This session has NO address, so the orchestrator's 'verify' cannot fire on its own:" >&2
+      echo "  verify needs an observed from=, which needs a delivered message, which needs an address." >&2
+      bootstrap_escapes
+      E_BOOTSTRAP=deadlock
+    else
+      E_BOOTSTRAP=ok
+    fi
+    # Loud default (#671) - independent of addressing: a silently-defaulted
+    # wave and an unaddressed session are separate failures and both advise.
+    if implicit_default; then
+      echo "flow-wave-registry: no --wave given - registered into wave 'default'; concurrent waves will not see this entry." >&2
+      if [ "$ROLE" != "orchestrator" ]; then
+        LIKELY="$(likely_wave)"
+        [ -n "$LIKELY" ] &&
+          echo "  Did you mean --wave '$LIKELY'? A live orchestrator is registered there (suggestion only - re-register with --wave to join it)." >&2
+      fi
+    fi
     E_SOCKET="$SOCK"; E_PID="$SELF_PID"; E_SESSION="$SELF_SESSION"; E_LIVE=live
-    E_VERIFIED=false; E_MISMATCH=false
+    E_VERIFIED="$KEEP_VERIFIED"; E_MISMATCH=false
+    E_SOURCE="$SOCK_SOURCE"; E_REASON="$SOCK_REASON"
     emit "$VERDICT"
     exit 0
     ;;
 
   get)
     [ -n "$ROLE" ] || usage_fail "get requires a role"
+    implicit_default &&
+      echo "flow-wave-registry: no --wave given - reading wave 'default'; a role registered under a named wave will not be found here." >&2
     CUR="$(entry_json "$WAVE" "$ROLE")"
     if [ "$CUR" = "null" ]; then emit free; exit 0; fi
     E_SOCKET="$(printf '%s' "$CUR" | jq -r '.socket // "unknown"')"
@@ -298,6 +489,17 @@ case "$VERB" in
     E_LIVE="$(liveness_of "$CUR")"
     E_VERIFIED="$(printf '%s' "$CUR" | jq -r '.verified // false')"
     E_MISMATCH="$(printf '%s' "$CUR" | jq -r '.address_mismatch // false')"
+    # `get` is what a session runs to answer "where do I send to this role?".
+    # An entry whose socket is 'unknown' cannot answer it, and saying so is the
+    # whole point (#672) - the caller would otherwise read a successful-looking
+    # 'listed' verdict and wait forever for a handshake that cannot start.
+    if [ "$E_SOCKET" = "unknown" ]; then
+      E_BOOTSTRAP=deadlock
+      echo "flow-wave-registry: role '$ROLE' (wave '$WAVE') has NO address - it cannot be messaged, so no from= can be observed for it." >&2
+      bootstrap_escapes
+    else
+      E_BOOTSTRAP=ok
+    fi
     echo "FLOW_WAVE_CWD=$(printf '%s' "$CUR" | jq -r '.cwd // "-" | if . == "" then "-" else . end')"
     echo "FLOW_WAVE_REPO=$(printf '%s' "$CUR" | jq -r '.repo // "-" | if . == "" then "-" else . end')"
     echo "FLOW_WAVE_ISSUE=$(printf '%s' "$CUR" | jq -r '.issue // "-" | if . == "" then "-" else . end')"
@@ -309,6 +511,8 @@ case "$VERB" in
   verify)
     [ -n "$ROLE" ] || usage_fail "verify requires a role"
     [ -n "$A_FROM" ] || usage_fail "verify requires --from <observed uds:... address>"
+    implicit_default &&
+      echo "flow-wave-registry: no --wave given - verifying in wave 'default'; a role registered under a named wave will not be found here." >&2
     CUR="$(entry_json "$WAVE" "$ROLE")"
     [ "$CUR" != "null" ] || { echo "flow-wave-registry: no entry for role '$ROLE' in wave '$WAVE'." >&2; emit unknown; exit 0; }
     RECORDED="$(printf '%s' "$CUR" | jq -r '.socket // "unknown"')"
@@ -360,6 +564,18 @@ case "$VERB" in
   list)
     REG="$(read_registry)"
     ROLES="$(printf '%s' "$REG" | jq -r --arg w "$WAVE" '(.[$w].roles // {}) | keys[]' 2>/dev/null)"
+    # How much of this roster is unaddressable (#672)? A LIVE entry with no
+    # socket is a role nobody can open a handshake with in EITHER direction -
+    # the orchestrator-first contact #670 relies on has no target either.
+    UNADDRESSED=0
+    for r in $ROLES; do
+      e="$(printf '%s' "$REG" | jq -c --arg w "$WAVE" --arg r "$r" '.[$w].roles[$r]')"
+      [ "$(liveness_of "$e")" = "live" ] || continue
+      [ "$(printf '%s' "$e" | jq -r '.socket // "unknown"')" = "unknown" ] &&
+        UNADDRESSED=$((UNADDRESSED + 1))
+    done
+    BOOTSTRAP_STATE=ok
+    [ "$UNADDRESSED" -gt 0 ] && BOOTSTRAP_STATE=deadlock
     if [ "$JSON_OUT" -eq 1 ]; then
       # Enriched JSON: each entry plus computed liveness.
       OUT="{}"
@@ -369,11 +585,16 @@ case "$VERB" in
         OUT="$(printf '%s' "$OUT" | jq -c --arg r "$r" --argjson e "$e" --arg lv "$lv" '.[$r] = ($e + {liveness: $lv})')"
       done
       printf '%s\n' "$OUT" | jq .
+      # Keep --json stdout parseable: cross-wave notes go to stderr (#671).
+      cross_wave_notes >&2
+      echo "FLOW_WAVE_BOOTSTRAP=$BOOTSTRAP_STATE"
       echo "FLOW_WAVE: listed"
       exit 0
     fi
     if [ -z "$ROLES" ]; then
       echo "flow-wave-registry: no roles registered for wave '$WAVE' ($REG_FILE)."
+      cross_wave_notes
+      echo "FLOW_WAVE_BOOTSTRAP=$BOOTSTRAP_STATE"
       echo "FLOW_WAVE: listed"
       exit 0
     fi
@@ -419,6 +640,13 @@ case "$VERB" in
       done
     done
     [ "$WARNED" -eq 1 ] && echo "flow-wave-registry: lane overlap detected - do not co-schedule the flagged pairs." >&2
+    if [ "$UNADDRESSED" -gt 0 ]; then
+      echo "  BOOTSTRAP: $UNADDRESSED LIVE role(s) have no address - they cannot be messaged, and no from= can be observed for them."
+      echo "  Verification cannot fire for those roles on its own; it is blocked, not pending."
+      bootstrap_escapes
+    fi
+    cross_wave_notes
+    echo "FLOW_WAVE_BOOTSTRAP=$BOOTSTRAP_STATE"
     echo "FLOW_WAVE: listed"
     exit 0
     ;;
