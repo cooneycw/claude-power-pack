@@ -68,19 +68,45 @@ and is wiped by the OS at reboot - exactly when every session socket dies too.
      the user confirms the other session is genuinely gone. A dead owner's
      entry is stale and taken over automatically - no `--force` needed.
 
-3. Send the orchestrator a registration hello via `SendMessage` (to the
-   orchestrator's socket from `get orchestrator`, or reply to its most recent
-   message's `from=`), stating the role, wave, cwd, repo, and current
-   issue/branch. This message is what lets the orchestrator OBSERVE the real
-   address.
+3. Send the orchestrator a registration hello via `SendMessage`, stating the
+   role, wave, cwd, repo, and current issue/branch. This message is what lets
+   the orchestrator OBSERVE the real address. Pick the first branch that
+   applies:
+   - the orchestrator's socket from `get orchestrator` - message it directly;
+   - no usable socket, but the orchestrator has messaged this session before -
+     reply to its most recent message's `from=`;
+   - `get orchestrator` says `free`, or its socket is `unknown` - the
+     orchestrator has not (usefully) registered yet. This is NORMAL, not an
+     error (issue #670): registration already succeeded in step 2 and never
+     depends on the hello landing. Report
+     `registered; orchestrator not yet in roster; hello deferred` and carry
+     on. The hello fires on FIRST CONTACT from either side: when the
+     orchestrator arrives it initiates contact (see the orchestrator side),
+     and this session's REPLY is the deferred hello - the reply carries the
+     transport-stamped `from=` that `verify` needs.
 
 4. Confirm back to the user which orchestrator was registered with once the
-   ack arrives.
+   ack arrives - or that the hello is deferred because no orchestrator has
+   registered yet.
 
 ### Orchestrator side
 
-**On receiving a worker's hello**, reconcile the recorded address with the
-address the transport actually stamped on that message:
+**Registration is order-independent (issue #670).** Workers registering before
+the orchestrator is NORMAL practice - a user opens worker terminals first, or a
+worker session outlives an orchestrator restart. On registering as
+`orchestrator`, and on each `list`, treat every pre-existing unverified LIVE
+worker as a PENDING HANDSHAKE (the roster's `[live, unverified]` entries are
+exactly this list): initiate contact with each one at its recorded bootstrap
+socket. The worker's REPLY is its deferred hello, and the reply's
+transport-stamped `from=` feeds `verify` below - so verification is reachable
+from whichever side makes first contact. A worker whose socket recorded as
+`unknown` cannot be contacted orchestrator-first; that is the socket-bootstrap
+gap (#672), not an ordering problem - it waits until either side can produce a
+usable address.
+
+**On receiving a worker's hello** (or its reply to your first contact),
+reconcile the recorded address with the address the transport actually stamped
+on that message:
 
 ```bash
 ~/.claude/scripts/flow-wave-registry.sh verify 1 --wave cpp --from uds:/run/user/1000/cc-socks/12345.sock
@@ -154,5 +180,6 @@ usage error, else 0.
 - Registration is idempotent for the owning session: re-running refreshes the
   entry (new issue/branch/cwd) without ceremony.
 - Roles are free-form labels; `orchestrator` is just a role, so workers can
-  `get orchestrator` to discover where to send their hello.
+  `get orchestrator` to discover where to send their hello - or learn it is
+  not there yet and defer the hello to first contact (#670).
 - The helper needs `jq` (already a CPP bootstrap prerequisite).
