@@ -42,6 +42,7 @@
       "Bash(~/.claude/scripts/gh-pr-merge.sh:*)",
       "Bash(~/.claude/scripts/worktree-remove.sh:*)",
       "Bash(~/.claude/scripts/install-drift.sh:*)",
+      "Bash(~/.claude/scripts/cpp-commands-link.sh:*)",
       "Bash(~/.claude/scripts/check-ignored-additions.sh:*)",
       "Bash(~/.claude/scripts/friction-log.sh:*)"
     ]
