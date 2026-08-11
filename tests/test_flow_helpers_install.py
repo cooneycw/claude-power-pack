@@ -16,20 +16,18 @@ from pathlib import Path
 
 import pytest
 
+from tests.test_permissions_template_link_parity import installer_helper_names
+
 ROOT = Path(__file__).resolve().parents[1]
 INSTALLER = ROOT / "scripts" / "flow-helpers-install.sh"
 
-HELPERS = [
-    "flow-start-resolve.sh",
-    "flow-live-driver-guard.sh",
-    "flow-stale-check.sh",
-    "flow-worktree-guard.sh",
-    "gh-pr-merge.sh",
-    "worktree-remove.sh",
-    "friction-log.sh",
-    "check-ignored-additions.sh",
-    "flow-helpers-install.sh",
-]
+# DERIVED from the script, never duplicated (issue #677). This list used to be a
+# hardcoded 9-entry copy beside a 13-entry array - missing flow-worktree-claim.sh,
+# flow-wave-registry.sh, flow-wave-plan.py and flow-finish-gate.sh - so it could
+# not detect an omission from the thing it was testing; it only proved the copy
+# matched itself, and stayed green while two required helpers were missing from
+# the array. Parsing the array is what makes these tests cover the real family.
+HELPERS = installer_helper_names()
 
 
 def _run(
