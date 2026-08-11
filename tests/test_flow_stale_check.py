@@ -295,26 +295,26 @@ def test_finish_wires_early_check():
     [".claude/commands/flow/auto.md", ".claude/commands/flow/finish.md"],
     ids=["auto", "finish"],
 )
-def test_stale_base_precheck_stashes_dirty_tree_before_merge(rel: str):
-    # Issue #521: at the Step-6 (auto) / early (finish) stale-base pre-check the
-    # implementation is still UNCOMMITTED, so `git merge origin/main` refuses on a
-    # dirty tree ("commit your changes or stash them before you merge"). The block
-    # must stash BEFORE the merge and restore after, and must not mislabel that
-    # dirty-tree refusal as a merge conflict. Hit on flow:auto #502 and #509.
+def test_stale_base_precheck_commits_dirty_tree_before_merge(rel: str):
+    # Issue #521 established the order (secure the uncommitted work FIRST, then
+    # merge); issue #635 replaced its stash mechanism with a branch-local WIP
+    # commit after the shared stash stack silently swapped work between
+    # concurrent worktrees. This pin asserts the CURRENT contract: the wip
+    # snapshot commit precedes the stale-base merge in source order. (The old
+    # form of this test asserted `git stash push` presence and survived the
+    # #635 removal only because the replacement COMMENT text mentions the
+    # forbidden commands - a substring pin inverted in meaning without failing.
+    # The executable-stash ABSENCE half lives in test_flow_docs_no_shared_stash.)
     text = _read(rel)
-    assert "git stash push" in text, (
-        f"{rel} must stash uncommitted work before the stale-base "
-        f"`git merge origin/main` (issue #521)"
+    assert 'git commit -m "wip(flow): pre-merge snapshot"' in text, (
+        f"{rel} must WIP-commit uncommitted work before the stale-base merge "
+        f"(issues #521 order, #635 mechanism)"
     )
-    assert "git stash pop" in text, (
-        f"{rel} must restore the stashed work after the merge (issue #521)"
-    )
-    # The stash must precede a merge in source order (commit/stash-first).
-    stash_idx = text.find("git stash push")
-    merge_after = text.find("git merge --no-edit origin/main", stash_idx)
+    commit_idx = text.find('git commit -m "wip(flow): pre-merge snapshot"')
+    merge_after = text.find("git merge --no-edit origin/main", commit_idx)
     assert merge_after != -1, (
-        f"{rel}: a `git merge origin/main` must follow the stash in the "
-        f"stale-base pre-check (issue #521)"
+        f"{rel}: `git merge origin/main` must follow the WIP commit in the "
+        f"stale-base pre-check (issue #635)"
     )
     # The old STOP text mislabeled a dirty-tree refusal (no merge started) as a
     # set of conflicts to resolve - that wording must be gone.
@@ -322,3 +322,105 @@ def test_stale_base_precheck_stashes_dirty_tree_before_merge(rel: str):
         f"{rel}: the pre-check STOP must not mislabel a dirty-tree refusal as "
         f"conflicts (issue #521)"
     )
+
+
+class TestDeclaredCheckoutPath:
+    """Issue #614: the checkout is declared by the caller, never inferred from
+    the drifting process cwd, and every verdict names the tree it inspected."""
+
+    @staticmethod
+    def _run_at(cwd, *args):
+        import subprocess
+
+        return subprocess.run(
+            ["bash", str(SCRIPT), *args, "--no-fetch"],
+            cwd=cwd,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+
+    @staticmethod
+    def _contract(stdout):
+        """Return (path_line, verdict_line, adjacent) from the output."""
+        lines = stdout.splitlines()
+        path_lines = [(i, ln) for i, ln in enumerate(lines) if ln.startswith("FLOW_STALE_PATH: ")]
+        base_lines = [(i, ln) for i, ln in enumerate(lines) if ln.startswith("FLOW_STALE_BASE: ")]
+        assert len(path_lines) == 1, stdout
+        assert len(base_lines) == 1, stdout
+        adjacent = base_lines[0][0] == path_lines[0][0] + 1
+        return path_lines[0][1], base_lines[0][1], adjacent
+
+    @requires_git
+    def test_positional_path_answers_for_named_tree_not_cwd(self, tmp_path):
+        # Run from a cwd that is NOT a repo at all, pointing at a repo whose
+        # base moved: the verdict must answer for the NAMED tree. Under the old
+        # cwd-trusting behavior this exact call reported `unknown`.
+        repo = _make_repo(tmp_path)
+        _advance_main(repo, "a.txt", "a1\n")
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        result = self._run_at(elsewhere, "main", str(repo))
+        assert result.returncode == 0
+        path_line, base_line, adjacent = self._contract(result.stdout)
+        assert base_line == "FLOW_STALE_BASE: moved-clean", result.stdout
+        assert path_line == f"FLOW_STALE_PATH: {repo.resolve()}"
+        assert adjacent, "path line must immediately precede the verdict line"
+
+    @requires_git
+    def test_declared_path_wins_over_a_different_repo_cwd(self, tmp_path):
+        # The #597 drift shape: the cwd sits in a CURRENT tree while the run's
+        # worktree (declared) is behind - the answer must be the declared tree's.
+        (tmp_path / "behind").mkdir()
+        (tmp_path / "current").mkdir()
+        behind = _make_repo(tmp_path / "behind")
+        _advance_main(behind, "a.txt", "a1\n")
+        current = _make_repo(tmp_path / "current")
+        result = self._run_at(current, "main", str(behind))
+        _, base_line, _ = self._contract(result.stdout)
+        assert base_line == "FLOW_STALE_BASE: moved-clean", result.stdout
+
+    @requires_git
+    def test_path_flag_forms(self, tmp_path):
+        repo = _make_repo(tmp_path)
+        for args in (["main", "--path", str(repo)], ["main", f"--path={repo}"]):
+            result = self._run_at(tmp_path, *args)
+            path_line, base_line, adjacent = self._contract(result.stdout)
+            assert base_line == "FLOW_STALE_BASE: current", result.stdout
+            assert path_line == f"FLOW_STALE_PATH: {repo.resolve()}"
+            assert adjacent
+
+    @requires_git
+    def test_default_cwd_backcompat_and_contract(self, tmp_path):
+        repo = _make_repo(tmp_path)
+        result = self._run_at(repo, "main")
+        path_line, base_line, adjacent = self._contract(result.stdout)
+        assert base_line == "FLOW_STALE_BASE: current"
+        assert path_line == f"FLOW_STALE_PATH: {repo.resolve()}"
+        assert adjacent
+
+    def test_invalid_path_fails_open_with_contract(self, tmp_path):
+        import shutil as _shutil
+
+        if _shutil.which("bash") is None:
+            import pytest as _pytest
+
+            _pytest.skip("bash unavailable")
+        result = self._run_at(tmp_path, "main", str(tmp_path / "missing"))
+        assert result.returncode == 0
+        path_line, base_line, adjacent = self._contract(result.stdout)
+        assert base_line == "FLOW_STALE_BASE: unknown"
+        assert str(tmp_path / "missing") in path_line
+        assert adjacent
+
+    @requires_git
+    def test_collision_verdict_carries_path(self, tmp_path):
+        repo = _make_repo(tmp_path)
+        _advance_main(repo, "shared.txt", "s1\n")
+        _write(repo, "shared.txt", "mine\n")  # dirty AFTER main advanced
+        result = self._run_at(tmp_path, "main", str(repo))
+        path_line, base_line, adjacent = self._contract(result.stdout)
+        assert base_line == "FLOW_STALE_BASE: collision", result.stdout
+        assert path_line == f"FLOW_STALE_PATH: {repo.resolve()}"
+        assert adjacent

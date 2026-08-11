@@ -35,7 +35,11 @@ for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-p
   [ -d "$dir" ] && [ -f "$dir/CLAUDE.md" ] && { CPP_DIR="$dir"; break; }
 done
 if [ -n "$CPP_DIR" ] && [ -x "$CPP_DIR/scripts/flow-stale-check.sh" ]; then
-    "$CPP_DIR/scripts/flow-stale-check.sh" origin/main   # advisory: names colliding files
+    # Advisory: names colliding files. The checkout is DECLARED (issue #614, the
+    # #592 rule): pass the worktree path as the trailing literal argument rather
+    # than trusting the Bash cwd, and check the emitted FLOW_STALE_PATH: line
+    # names this run's tree.
+    "$CPP_DIR/scripts/flow-stale-check.sh" origin/main /path/to/worktree
 fi
 
 git fetch origin main --quiet
