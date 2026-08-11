@@ -496,3 +496,115 @@ def test_cli_running_external_container_protected(tmp_path: Path) -> None:
 
 def test_script_is_executable() -> None:
     assert SCRIPT.stat().st_mode & stat.S_IXUSR
+
+
+# --------------------------------------------------------------------------- #
+# Image-tag provenance (issue #634, the image half of #520): a tag run by a
+# foreign-live container is protected; a tag referenced by nothing, or only by
+# a stale CPP container, stays a legitimate orphan.
+# --------------------------------------------------------------------------- #
+def test_tag_run_by_foreign_live_container_is_protected(tmp_path: Path) -> None:
+    """The exact #634 repro: external stack up, its :dev image present ->
+    entry reads ABSENT (no eternal nag), tag excluded from teardown."""
+    host = md.HostState(
+        current_services={"mcp-woodpecker-ci"},
+        services_known=True,
+        containers={"mcp-nano-banana": "running"},
+        container_meta={"mcp-nano-banana": {"image": "mcp-nano-banana:dev",
+                                            "project": "second-opinion"}},
+        images={"mcp-nano-banana": [
+            {"tag": "dev", "id": "1", "size": "1GB", "created": "2026-08-01"},
+        ]},
+    )
+    findings = md.classify(_dep(tmp_path), host)
+    nano = _nano(findings)
+    assert nano["status"] == md.ABSENT
+    assert nano["images"] == []
+    assert [im["tag"] for im in nano["protected_images"]] == ["dev"]
+    assert md.removable(findings) == []
+
+
+def test_unreferenced_tag_stays_orphaned_beside_protected_one(tmp_path: Path) -> None:
+    """Mixed case: only the unreferenced tag is presence- and teardown-eligible."""
+    host = md.HostState(
+        current_services={"mcp-woodpecker-ci"},
+        services_known=True,
+        containers={"mcp-nano-banana": "running"},
+        container_meta={"mcp-nano-banana": {"image": "mcp-nano-banana:dev",
+                                            "project": "second-opinion"}},
+        images={"mcp-nano-banana": [
+            {"tag": "dev", "id": "1", "size": "1GB", "created": "2026-08-01"},
+            {"tag": "old", "id": "2", "size": "1GB", "created": "2026-05-01"},
+        ]},
+    )
+    findings = md.classify(_dep(tmp_path), host)
+    nano = _nano(findings)
+    assert nano["status"] == md.ORPHANED
+    assert [im["tag"] for im in nano["images"]] == ["old"]
+    assert [im["tag"] for im in nano["protected_images"]] == ["dev"]
+    report = md.render_table(findings, verbose=False)
+    assert "1 protected: run by external stack" in report
+
+
+def test_stopped_foreign_container_protects_nothing(tmp_path: Path) -> None:
+    """Liveness rides the #520 rule: an exited container is the ordinary
+    stale-orphan case and its image stays teardown-eligible."""
+    host = md.HostState(
+        current_services={"mcp-woodpecker-ci"},
+        services_known=True,
+        containers={"mcp-nano-banana": "exited"},
+        container_meta={"mcp-nano-banana": {"image": "mcp-nano-banana:dev",
+                                            "project": "second-opinion"}},
+        images={"mcp-nano-banana": [
+            {"tag": "dev", "id": "1", "size": "1GB", "created": "2026-08-01"},
+        ]},
+    )
+    findings = md.classify(_dep(tmp_path), host)
+    nano = _nano(findings)
+    assert nano["status"] == md.ORPHANED
+    assert [im["tag"] for im in nano["images"]] == ["dev"]
+    assert nano["protected_images"] == []
+
+
+def test_owned_cpp_container_tag_stays_orphaned(tmp_path: Path) -> None:
+    """A running container with NO foreign provenance (no label, CPP image) is
+    an owned orphan candidate - its tag is not protected."""
+    host = md.HostState(
+        current_services={"mcp-woodpecker-ci"},
+        services_known=True,
+        containers={"mcp-nano-banana": "running"},
+        container_meta={"mcp-nano-banana": {"image": "mcp-nano-banana:dev",
+                                            "project": ""}},
+        images={"mcp-nano-banana": [
+            {"tag": "dev", "id": "1", "size": "1GB", "created": "2026-08-01"},
+        ]},
+    )
+    findings = md.classify(_dep(tmp_path), host)
+    nano = _nano(findings)
+    assert nano["status"] == md.ORPHANED
+    assert [im["tag"] for im in nano["images"]] == ["dev"]
+    assert nano["protected_images"] == []
+
+
+def test_bare_repo_ref_protects_latest(tmp_path: Path) -> None:
+    host = md.HostState(
+        current_services={"mcp-woodpecker-ci"},
+        services_known=True,
+        containers={"mcp-nano-banana": "running"},
+        container_meta={"mcp-nano-banana": {"image": "mcp-nano-banana",
+                                            "project": "second-opinion"}},
+        images={"mcp-nano-banana": [
+            {"tag": "latest", "id": "1", "size": "1GB", "created": "2026-08-01"},
+        ]},
+    )
+    findings = md.classify(_dep(tmp_path), host)
+    nano = _nano(findings)
+    assert nano["status"] == md.ABSENT
+    assert [im["tag"] for im in nano["protected_images"]] == ["latest"]
+
+
+def test_image_tag_parsing_survives_registry_ports() -> None:
+    assert md._image_tag("mcp-nano-banana:dev") == "dev"
+    assert md._image_tag("mcp-nano-banana") == ""
+    assert md._image_tag("registry:5000/repo") == ""
+    assert md._image_tag("registry:5000/repo:tag") == "tag"

@@ -426,6 +426,42 @@ def _image_repo(image: str) -> str:
     return image
 
 
+def _image_tag(image: str) -> str:
+    """Tag portion of a docker image ref ('' when none). The same rule as
+    _image_repo: a tag never contains '/', so a ``host:port/repo`` registry ref
+    with no tag yields '' rather than the port."""
+    image = image.strip()
+    head, sep, tail = image.rpartition(":")
+    if sep and "/" not in tail:
+        return tail
+    return ""
+
+
+def _split_protected_images(
+    entry: dict, foreign_containers: list[dict], all_images: list[dict]
+) -> tuple[list[dict], list[dict]]:
+    """(orphan_eligible, protected) image tags for this entry (issue #634).
+
+    The #520 guard protects live external CONTAINERS but the image-prefix match
+    still counted the tags those containers run as CPP leftovers - so a
+    migrated host read ORPHANED forever and the offered teardown would `docker
+    rmi` an image out from under the live external stack. A tag referenced by
+    a FOREIGN-LIVE container (liveness inherited from _matching_containers:
+    only running foreign containers land in that list) is protected; a tag
+    referenced by nothing, or only by a stale CPP-project container, stays a
+    legitimate orphan. A bare-repo ref counts as `latest`. Digest-form refs
+    (@sha256:...) carry no tag and protect none - the running container itself
+    remains #520-protected either way."""
+    protected_tags: set[str] = set()
+    for fc in foreign_containers:
+        ref = str(fc.get("image") or "")
+        if _image_repo(ref) == entry["image_prefix"] and "@" not in ref:
+            protected_tags.add(_image_tag(ref) or "latest")
+    eligible = [im for im in all_images if im["tag"] not in protected_tags]
+    protected = [im for im in all_images if im["tag"] in protected_tags]
+    return eligible, protected
+
+
 def _container_is_foreign_live(name: str, state: str, entry: dict, host: HostState) -> bool:
     """A RUNNING matched container that provenance shows is NOT a CPP-built orphan.
 
@@ -481,7 +517,12 @@ def classify(deprecated: list[dict], host: HostState) -> list[dict]:
         in_compose = name in host.current_services
 
         containers, foreign_containers = _matching_containers(entry, host)
-        images = host.images.get(entry["image_prefix"], [])
+        # Image tags run by a foreign-live container are protected, not CPP
+        # leftovers (issue #634, the image half of #520): only the remaining
+        # tags count toward presence or a teardown offer.
+        images, protected_images = _split_protected_images(
+            entry, foreign_containers, host.images.get(entry["image_prefix"], [])
+        )
         claude = [r for r in entry["claude_registrations"] if r in host.claude_regs]
         codex = [r for r in entry["codex_registrations"] if r in host.codex_regs]
         # A live external container that only shares the name is NOT a present CPP
@@ -509,6 +550,7 @@ def classify(deprecated: list[dict], host: HostState) -> list[dict]:
                 "containers": containers,
                 "foreign_containers": foreign_containers,
                 "images": images,
+                "protected_images": protected_images,
                 "claude_registrations": claude,
                 "codex_registrations": codex,
             }
@@ -662,6 +704,10 @@ def render_table(findings: list[dict], verbose: bool) -> str:
             present.append(f"{len(f['containers'])} container(s)")
         if f["images"]:
             present.append(f"{len(f['images'])} image tag(s)")
+        if f.get("protected_images"):
+            present.append(
+                f"({len(f['protected_images'])} protected: run by external stack)"
+            )
         if f["claude_registrations"]:
             present.append(f"claude:{','.join(f['claude_registrations'])}")
         if f["codex_registrations"]:
