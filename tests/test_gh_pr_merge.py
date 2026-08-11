@@ -60,6 +60,7 @@ def _make_stubs(
     ruleset_contexts: list[str] | None = None,
     ruleset_ok: bool = True,
     check_rollup: list[list[tuple[str, str]]] | None = None,
+    review_decision: str = "",
 ) -> dict:
     """Create fake gh/git that log their args and honour a scripted outcome.
 
@@ -90,6 +91,11 @@ def _make_stubs(
     ``check_rollup`` scripts ``gh pr view --json statusCheckRollup`` as a list of
     polls, each a list of ``(name, state)`` pairs, consumed one poll per call and
     staying on the last once exhausted.
+
+    ``review_decision`` scripts ``gh pr view --json reviewDecision`` (issue
+    #579). Empty (the default) models a repo with no review protection - the
+    review gate fails open and every pre-#579 test exercises its original path
+    unchanged.
     """
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -179,6 +185,8 @@ def _make_stubs(
         "    if (( idx >= ${#vals[@]} )); then idx=$(( ${#vals[@]} - 1 )); fi\n"
         '    echo "${vals[$idx]}"\n'
         f'    echo $(( ctr + 1 )) > "{ctr_file}"\n'
+        '  elif [[ "$*" == *reviewDecision* ]]; then\n'
+        f'    echo "{review_decision}"\n'
         "  else\n"
         f'    echo "{pr_state}"\n'
         "  fi\n"
@@ -446,15 +454,58 @@ def test_admin_flag_passthrough_linked_worktree(tmp_path: Path):
     assert any(c == "git push origin --delete issue-517-fix" for c in calls), calls
 
 
-def test_protection_block_admin_retries_with_admin(tmp_path: Path):
-    # The #517 trap: a repo admin's squash is rejected by branch protection; the
-    # helper retries once with --admin and it lands. The first attempt must NOT
-    # force --admin (only the retry does).
+def test_review_block_at_squash_clean_stops_never_admin(tmp_path: Path):
+    # Issue #579 (rewrite of the old #517 pin, whose stub message IS the
+    # review-required message): a review-blocked squash is a CLEAN STOP (exit 3),
+    # never an automatic --admin bypass - even for a repo admin. Exactly one
+    # merge attempt, zero --admin retries.
+    stubs = _make_stubs(
+        tmp_path,
+        pr_state="OPEN",
+        viewer_permission="ADMIN",
+        merge_outcomes=[(1, PROTECTION_BLOCKED)],
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-579-fix")
+    assert result.returncode == 3, result.stderr
+    assert "CLEAN STOP" in result.stderr
+    assert "/flow:merge" in result.stderr
+    merge_calls = [c for c in _calls(stubs) if c.startswith("gh pr merge")]
+    assert len(merge_calls) == 1, merge_calls
+    assert not any("--admin" in c for c in merge_calls)
+
+
+def test_review_block_non_admin_same_clean_stop(tmp_path: Path):
+    # The clean stop does not depend on actor permission: a non-admin hits the
+    # identical handoff (previously this was a bare exit-1 "failure").
+    stubs = _make_stubs(
+        tmp_path,
+        pr_state="OPEN",
+        viewer_permission="WRITE",
+        merge_outcomes=[(1, PROTECTION_BLOCKED)],
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-579-fix")
+    assert result.returncode == 3
+    assert "CLEAN STOP" in result.stderr
+    merge_calls = [c for c in _calls(stubs) if c.startswith("gh pr merge")]
+    assert len(merge_calls) == 1, merge_calls
+    assert not any("--admin" in c for c in merge_calls)
+
+
+ADMIN_PROTECTION_BLOCKED = (
+    "failed to merge pull request: GraphQL: You're not authorized to push to "
+    "this branch. (mergePullRequest)"
+)
+
+
+def test_administrative_block_admin_still_retries_with_admin(tmp_path: Path):
+    # The #517 residual survives #579's narrowing: an ADMINISTRATIVE protection
+    # block (no review, no required check being bypassed) still gets the single
+    # admin-gated --admin retry.
     stubs = _make_stubs(
         tmp_path,
         pr_state="MERGED",
         viewer_permission="ADMIN",
-        merge_outcomes=[(1, PROTECTION_BLOCKED), (0, "")],
+        merge_outcomes=[(1, ADMIN_PROTECTION_BLOCKED), (0, "")],
     )
     result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-517-fix")
     assert result.returncode == 0, result.stderr
@@ -462,17 +513,17 @@ def test_protection_block_admin_retries_with_admin(tmp_path: Path):
     merge_calls = [c for c in _calls(stubs) if c.startswith("gh pr merge")]
     assert len(merge_calls) == 2, merge_calls
     assert "--admin" not in merge_calls[0], "first attempt must not force --admin"
-    assert "--admin" in merge_calls[1], "protection-block retry must add --admin"
+    assert "--admin" in merge_calls[1], "administrative-block retry must add --admin"
 
 
-def test_protection_block_non_admin_does_not_retry(tmp_path: Path):
-    # A non-admin actor cannot use --admin, so the protection block is left to the
-    # MERGED-state check (genuine failure). No --admin retry is attempted.
+def test_administrative_block_non_admin_does_not_retry(tmp_path: Path):
+    # A non-admin actor cannot use --admin, so the administrative block is left
+    # to the MERGED-state check (genuine failure). No --admin retry is attempted.
     stubs = _make_stubs(
         tmp_path,
         pr_state="OPEN",
         viewer_permission="WRITE",
-        merge_outcomes=[(1, PROTECTION_BLOCKED)],
+        merge_outcomes=[(1, ADMIN_PROTECTION_BLOCKED)],
     )
     result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-517-fix")
     assert result.returncode == 1
@@ -480,6 +531,65 @@ def test_protection_block_non_admin_does_not_retry(tmp_path: Path):
     merge_calls = [c for c in _calls(stubs) if c.startswith("gh pr merge")]
     assert len(merge_calls) == 1, merge_calls
     assert not any("--admin" in c for c in merge_calls)
+
+
+def test_review_required_pre_gate_stops_before_any_merge(tmp_path: Path):
+    # Issue #579, the primary path: reviewDecision REVIEW_REQUIRED is detected
+    # BEFORE the squash - clean stop, ZERO merge attempts, actionable handoff.
+    stubs = _make_stubs(
+        tmp_path,
+        pr_state="OPEN",
+        review_decision="REVIEW_REQUIRED",
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-579-fix")
+    assert result.returncode == 3
+    assert "CLEAN STOP" in result.stderr
+    assert "REVIEW_REQUIRED" in result.stderr
+    assert "/flow:merge" in result.stderr
+    merge_calls = [c for c in _calls(stubs) if c.startswith("gh pr merge")]
+    assert merge_calls == [], "the review gate must stop before any merge attempt"
+
+
+def test_changes_requested_pre_gate_stops(tmp_path: Path):
+    # CHANGES_REQUESTED is the same handoff family as REVIEW_REQUIRED.
+    stubs = _make_stubs(
+        tmp_path,
+        pr_state="OPEN",
+        review_decision="CHANGES_REQUESTED",
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-579-fix")
+    assert result.returncode == 3
+    assert "CHANGES_REQUESTED" in result.stderr
+    assert not [c for c in _calls(stubs) if c.startswith("gh pr merge")]
+
+
+def test_admin_flag_skips_review_gate(tmp_path: Path):
+    # An explicit, human-typed --admin is the conscious override (issue #579):
+    # it skips the review gate and the merge proceeds.
+    stubs = _make_stubs(
+        tmp_path,
+        pr_state="MERGED",
+        review_decision="REVIEW_REQUIRED",
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "--admin", "42", "issue-579-fix")
+    assert result.returncode == 0, result.stderr
+    assert "merged" in result.stdout
+    merge_calls = [c for c in _calls(stubs) if c.startswith("gh pr merge")]
+    assert merge_calls, "explicit --admin must proceed to the merge"
+    assert "--admin" in merge_calls[0]
+
+
+def test_empty_review_decision_fails_open_and_merges(tmp_path: Path):
+    # A repo without review protection returns an empty reviewDecision - the
+    # gate fails open and the merge proceeds (GitHub enforces server-side).
+    stubs = _make_stubs(
+        tmp_path,
+        pr_state="MERGED",
+        review_decision="",
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-579-fix")
+    assert result.returncode == 0, result.stderr
+    assert [c for c in _calls(stubs) if c.startswith("gh pr merge")]
 
 
 def test_non_protection_failure_no_admin_retry(tmp_path: Path):

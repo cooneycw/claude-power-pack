@@ -709,6 +709,15 @@ Report: `Step 6/9: Finish complete - PR #XX created`
    # Trust PR state over the local exit code.
    [[ "$(gh pr view "$PR_NUMBER" --json state --jq '.state' 2>/dev/null)" == "MERGED" ]]
    ```
+   - **Helper exit 3 is a FIRST-CLASS CLEAN STOP, not a failure (issue #579):**
+     the PR awaits a required human review (`reviewDecision: REVIEW_REQUIRED` or
+     `CHANGES_REQUESTED`). The branch is already synced and re-gated (step 1
+     above), so the run's job is done: report the helper's handoff message (PR
+     URL + "approve or merge on GitHub, then /flow:merge"), leave the worktree,
+     branch, and PR INTACT - do NOT run cleanup, do NOT retry, and NEVER
+     re-invoke with `--admin` yourself: overriding a review requirement is the
+     owner's explicit, human-typed call. End the run here. Do not "fix" this
+     stop - it is the designed handoff.
    - If the merge genuinely failed (non-zero helper exit - conflicts, failing
      checks, PR not `MERGED`): **STOP**. Report and exit. A non-zero `gh` exit
      whose PR is nonetheless `MERGED` is NOT a failure - the helper already treats
