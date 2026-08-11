@@ -36,6 +36,17 @@ Contract:
 - ``verified``/``address_filled``/``address_mismatch`` share ONE lifecycle
   (#691/#692): preserved together across a same-owner re-register at a
   byte-identical address, cleared together on a takeover or an address change.
+- Wave POLICY is declared state in two tiers (#699): wave-level fields set once
+  by the orchestrator (``policy set``, a MERGE that bumps ``rev``) and inherited
+  by every role, plus role-level facts (``--model``, ``--permission-mode``,
+  ``--files``, ``--capacity``) each session declares for itself. Only
+  ``--authority`` and ``--authority-model`` are enum-validated; the rest are
+  free text. ``policy_absent`` is a STATE and exits 0.
+- A declared policy nobody reads is decoration, so four readers are pinned:
+  ``register`` reprints it (the compaction-proof re-brief), an undeclared policy
+  is reported as ``absent`` rather than passing silently, a role briefed on a
+  superseded rev reads ``brief=stale``, and declared FILE LANES participate in
+  overlap detection like branches do.
 - Waves are namespaced: the same role in two waves never conflicts.
 - Loud default (issue #671): ``register``/``get``/``verify`` into wave
   ``default`` without an explicit ``--wave`` print one advisory stderr line
@@ -1304,6 +1315,426 @@ class TestImplicitDefaultAdvisory:
         assert "orchestrator" in _json_payload(p)
         assert "note:" not in p.stdout
         assert "note:" in p.stderr
+
+
+@requires_tools
+class TestWavePolicyDeclaration:
+    """The wave-level policy tier (issue #699).
+
+    Declared ONCE by the orchestrator and inherited by every role. ``set``
+    MERGES, so amending one field is a one-flag call; every set bumps ``rev``.
+    """
+
+    def _set(self, tmp: Path, *args: str, **kw) -> subprocess.CompletedProcess[str]:
+        return _run(tmp, "policy", "set", "--wave", "cpp", *args, **kw)
+
+    def test_show_on_an_undeclared_wave_is_a_state_not_an_error(self, tmp_path: Path) -> None:
+        p = _run(tmp_path, "policy", "show", "--wave", "cpp")
+        assert _verdict(p) == "policy_absent"
+        assert _detail(p, "FLOW_WAVE_POLICY") == "absent"
+        assert _detail(p, "FLOW_WAVE_POLICY_REV") == "0"
+        # A new verdict must never become a new exit code (#674) - a
+        # `set -euo pipefail` caller must not abort on a wave that simply has
+        # not declared its policy yet.
+        assert p.returncode == 0
+
+    def test_set_records_every_field_and_starts_at_rev_1(self, tmp_path: Path) -> None:
+        p = self._set(
+            tmp_path,
+            "--driver", "flow:auto",
+            "--authority", "implement",
+            "--authority-model", "orchestrator-only",
+            "--gate", "stop at Step 3; --yes forbidden",
+            "--ledger", "delivered / in-scope / residual",
+            "--merge-authority", "worker",
+            "--deploy-policy", "woodpecker-only",
+            "--repo", "/tmp/repo",
+        )
+        assert _verdict(p) == "policy_set"
+        assert _detail(p, "FLOW_WAVE_POLICY") == "declared"
+        assert _detail(p, "FLOW_WAVE_POLICY_REV") == "1"
+        assert _detail(p, "FLOW_WAVE_POLICY_AUTHORITY") == "implement"
+        assert _detail(p, "FLOW_WAVE_POLICY_AUTHORITY_MODEL") == "orchestrator-only"
+        assert _detail(p, "FLOW_WAVE_POLICY_DRIVER") == "flow:auto"
+        assert _detail(p, "FLOW_WAVE_POLICY_GATE") == "stop at Step 3; --yes forbidden"
+        assert _detail(p, "FLOW_WAVE_POLICY_LEDGER") == "delivered / in-scope / residual"
+        assert _detail(p, "FLOW_WAVE_POLICY_MERGE_AUTHORITY") == "worker"
+        assert _detail(p, "FLOW_WAVE_POLICY_DEPLOY") == "woodpecker-only"
+        assert _detail(p, "FLOW_WAVE_POLICY_REPO") == "/tmp/repo"
+
+    def test_amending_one_field_keeps_the_rest_and_bumps_the_rev(self, tmp_path: Path) -> None:
+        """The merge is the point: restating a whole policy is how a field
+        gets silently dropped."""
+        self._set(
+            tmp_path,
+            "--driver", "flow:auto",
+            "--authority", "implement",
+            "--ledger", "delivered / in-scope / residual",
+        )
+        p = self._set(tmp_path, "--authority", "file-issues-only")
+        assert _detail(p, "FLOW_WAVE_POLICY_AUTHORITY") == "file-issues-only"
+        assert _detail(p, "FLOW_WAVE_POLICY_DRIVER") == "flow:auto"
+        assert _detail(p, "FLOW_WAVE_POLICY_LEDGER") == "delivered / in-scope / residual"
+        assert _detail(p, "FLOW_WAVE_POLICY_REV") == "2"
+
+    def test_policy_survives_the_jq_update_that_silently_deleted_it(self, tmp_path: Path) -> None:
+        """Regression pin for the jq-1.6 trap this was written against.
+
+        A ``?`` anywhere inside a ``|=`` body makes jq evaluate the update as a
+        backtracking path expression, and ``_modify`` then DELETES the key it was
+        told to update - exit 0, no stderr, policy gone. The failure is invisible
+        from the verdict alone, so assert the STORED object, not the message.
+        """
+        self._set(tmp_path, "--authority", "implement", "--driver", "flow:auto")
+        stored = _registry_json(tmp_path)["cpp"]["policy"]
+        assert stored["authority"] == "implement"
+        assert stored["driver"] == "flow:auto"
+        assert stored["rev"] == 1
+        assert stored["declared_pid"] == SELF_PID
+
+    def test_bad_authority_enum_is_a_usage_error(self, tmp_path: Path) -> None:
+        """A typo stored verbatim reads as declared and answers 'may this wave
+        write code?' with garbage - worse than no policy at all."""
+        p = self._set(tmp_path, "--authority", "impelment")
+        assert p.returncode == 2
+        assert "file-issues-only" in p.stderr
+        # Validation happens BEFORE any write, so the registry is untouched -
+        # a rejected policy must not half-land.
+        registry = tmp_path / "reg" / "registry.json"
+        assert not registry.exists() or "policy" not in _registry_json(tmp_path).get("cpp", {})
+
+    def test_bad_authority_model_enum_is_a_usage_error(self, tmp_path: Path) -> None:
+        p = self._set(tmp_path, "--authority-model", "everyone")
+        assert p.returncode == 2
+        assert "orchestrator-only" in p.stderr
+
+    def test_free_text_fields_are_not_validated(self, tmp_path: Path) -> None:
+        """Only the two consequential enums are checked; the rest are read by
+        humans and the wording IS the content."""
+        p = self._set(tmp_path, "--gate", "whatever the reviewer says on Tuesdays")
+        assert _verdict(p) == "policy_set"
+
+    def test_set_with_no_field_is_a_usage_error(self, tmp_path: Path) -> None:
+        p = self._set(tmp_path)
+        assert p.returncode == 2
+
+    def test_unknown_subverb_is_a_usage_error(self, tmp_path: Path) -> None:
+        p = _run(tmp_path, "policy", "reset", "--wave", "cpp")
+        assert p.returncode == 2
+
+    def test_show_json_emits_the_object(self, tmp_path: Path) -> None:
+        self._set(tmp_path, "--authority", "implement")
+        p = _run(tmp_path, "policy", "show", "--wave", "cpp", "--json")
+        assert _json_payload(p)["authority"] == "implement"
+
+    def test_policy_is_wave_namespaced(self, tmp_path: Path) -> None:
+        self._set(tmp_path, "--authority", "implement")
+        p = _run(tmp_path, "policy", "show", "--wave", "other")
+        assert _verdict(p) == "policy_absent"
+
+
+@requires_tools
+class TestPolicyIsReadBack:
+    """The anti-decoration contract (issue #699).
+
+    The issue's own load-bearing caveat is that a declared policy nobody reads
+    is decoration, and its broken version is indistinguishable from its working
+    one. Each test below pins one named reader.
+    """
+
+    def _declare(self, tmp: Path) -> None:
+        _run(
+            tmp, "policy", "set", "--wave", "cpp",
+            "--authority", "implement",
+            "--gate", "stop at Step 3",
+            "--ledger", "delivered / in-scope / residual",
+        )
+
+    def test_register_reprints_the_policy_as_the_re_brief(self, tmp_path: Path) -> None:
+        """Reader 1: re-registering recovers the PROTOCOL, not just the address.
+
+        This is the mechanic the whole issue is built around - a `/clear`ed
+        worker's brief has to come from somewhere that survived the clear.
+        """
+        self._declare(tmp_path)
+        p = _run(tmp_path, "register", "1", "--wave", "cpp", "--socket", "uds:/tmp/1.sock")
+        assert _detail(p, "FLOW_WAVE_POLICY") == "declared"
+        assert _detail(p, "FLOW_WAVE_POLICY_AUTHORITY") == "implement"
+        assert "delivered / in-scope / residual" in p.stdout
+        assert "stop at Step 3" in p.stdout
+
+    def test_register_into_a_policy_less_wave_says_so(self, tmp_path: Path) -> None:
+        """Reader 2: implementation authority is visible AT REGISTRATION rather
+        than after a user round-trip - the #699 item-3 failure."""
+        p = _run(tmp_path, "register", "1", "--wave", "cpp", "--socket", "uds:/tmp/1.sock")
+        assert _detail(p, "FLOW_WAVE_POLICY") == "absent"
+        assert "NO declared policy" in p.stderr
+        assert _verdict(p) == "registered"  # advisory, never a refusal
+
+    def test_a_role_briefed_on_a_superseded_rev_reads_stale(self, tmp_path: Path) -> None:
+        """Reader 3: an amendment nobody re-read is the drift a declared-but-
+        unread field would hide."""
+        self._declare(tmp_path)
+        r = _run(tmp_path, "register", "1", "--wave", "cpp", "--socket", "uds:/tmp/1.sock")
+        assert _detail(r, "FLOW_WAVE_BRIEF") == "current"
+        _run(tmp_path, "policy", "set", "--wave", "cpp", "--authority", "file-issues-only")
+        p = _run(tmp_path, "get", "1", "--wave", "cpp")
+        assert _detail(p, "FLOW_WAVE_BRIEF") == "stale"
+        assert _detail(p, "FLOW_WAVE_BRIEFED_REV") == "1"
+        assert _detail(p, "FLOW_WAVE_POLICY_REV") == "2"
+        assert "superseded" in p.stderr
+
+    def test_re_registering_takes_the_re_brief_and_clears_stale(self, tmp_path: Path) -> None:
+        self._declare(tmp_path)
+        _run(tmp_path, "register", "1", "--wave", "cpp", "--socket", "uds:/tmp/1.sock")
+        _run(tmp_path, "policy", "set", "--wave", "cpp", "--authority", "file-issues-only")
+        p = _run(tmp_path, "register", "1", "--wave", "cpp", "--socket", "uds:/tmp/1.sock")
+        assert _detail(p, "FLOW_WAVE_BRIEF") == "current"
+        assert _detail(p, "FLOW_WAVE_BRIEFED_REV") == "2"
+
+    def test_list_names_live_roles_on_a_superseded_rev(self, tmp_path: Path) -> None:
+        self._declare(tmp_path)
+        _run(tmp_path, "register", "1", "--wave", "cpp", "--socket", "uds:/tmp/1.sock")
+        _run(tmp_path, "policy", "set", "--wave", "cpp", "--authority", "file-issues-only")
+        p = _run(tmp_path, "list", "--wave", "cpp", live=SELF_PID)
+        assert "brief=STALE" in p.stdout
+        assert "BRIEF:" in p.stdout
+
+    def test_stale_brief_is_not_reported_for_dead_roles(self, tmp_path: Path) -> None:
+        """A stale entry is not running on anything, so calling its brief
+        superseded is noise on a row nobody will re-brief."""
+        self._declare(tmp_path)
+        _run(tmp_path, "register", "1", "--wave", "cpp", "--socket", "uds:/tmp/1.sock")
+        _run(tmp_path, "policy", "set", "--wave", "cpp", "--authority", "file-issues-only")
+        p = _run(tmp_path, "list", "--wave", "cpp", live="")
+        assert "brief=STALE" not in p.stdout
+
+    def test_policy_set_names_the_roles_it_just_superseded(self, tmp_path: Path) -> None:
+        """The cheapest moment to say a brief went stale is when it happens -
+        the orchestrator is right there."""
+        self._declare(tmp_path)
+        _run(tmp_path, "register", "1", "--wave", "cpp", "--socket", "uds:/tmp/1.sock")
+        p = _run(
+            tmp_path, "policy", "set", "--wave", "cpp", "--authority", "file-issues-only",
+            live=SELF_PID,
+        )
+        assert "older policy rev" in p.stderr
+
+    def test_list_renders_the_policy_header_and_its_absence(self, tmp_path: Path) -> None:
+        _run(tmp_path, "register", "1", "--wave", "cpp", "--socket", "uds:/tmp/1.sock")
+        p = _run(tmp_path, "list", "--wave", "cpp", live=SELF_PID)
+        assert "NONE DECLARED" in p.stdout
+        self._declare(tmp_path)
+        p = _run(tmp_path, "list", "--wave", "cpp", live=SELF_PID)
+        assert "wave policy (rev 1" in p.stdout
+
+
+@requires_tools
+class TestRoleLevelFacts:
+    """The role-level tier (issue #699): model, permission mode, file lane,
+    capacity - each answering a routing question the orchestrator otherwise had
+    to ask, or could not see at all."""
+
+    def test_facts_are_recorded_and_readable(self, tmp_path: Path) -> None:
+        _run(
+            tmp_path, "register", "1", "--wave", "cpp", "--socket", "uds:/tmp/1.sock",
+            "--model", "opus", "--permission-mode", "bypassPermissions",
+            "--files", "a.py,b.py", "--capacity", "one-more",
+        )
+        p = _run(tmp_path, "get", "1", "--wave", "cpp")
+        assert _detail(p, "FLOW_WAVE_MODEL") == "opus"
+        assert _detail(p, "FLOW_WAVE_PERMISSION_MODE") == "bypassPermissions"
+        assert _detail(p, "FLOW_WAVE_FILES") == "a.py,b.py"
+        assert _detail(p, "FLOW_WAVE_CAPACITY") == "one-more"
+
+    def test_omitted_facts_survive_the_cheap_re_brief(self, tmp_path: Path) -> None:
+        """Re-registering is the documented re-brief (#670). Blanking a granted
+        file lane because a compacted worker re-read the protocol would delete
+        the very thing overlap detection reads."""
+        _run(
+            tmp_path, "register", "1", "--wave", "cpp", "--socket", "uds:/tmp/1.sock",
+            "--model", "opus", "--files", "a.py",
+        )
+        _run(tmp_path, "register", "1", "--wave", "cpp", "--socket", "uds:/tmp/1.sock")
+        entry = _registry_json(tmp_path)["cpp"]["roles"]["1"]
+        assert entry["files"] == "a.py"
+        assert entry["model"] == "opus"
+
+    def test_an_explicit_empty_value_clears_a_fact(self, tmp_path: Path) -> None:
+        """The flag was given, so intent is unambiguous."""
+        _run(
+            tmp_path, "register", "1", "--wave", "cpp", "--socket", "uds:/tmp/1.sock",
+            "--files", "a.py",
+        )
+        _run(
+            tmp_path, "register", "1", "--wave", "cpp", "--socket", "uds:/tmp/1.sock",
+            "--files", "",
+        )
+        assert _registry_json(tmp_path)["cpp"]["roles"]["1"]["files"] == ""
+
+    def test_undeclared_facts_do_not_appear_in_the_roster(self, tmp_path: Path) -> None:
+        """A wave that uses none of this reads exactly as it did before."""
+        _run(tmp_path, "register", "1", "--wave", "cpp", "--socket", "uds:/tmp/1.sock")
+        p = _run(tmp_path, "list", "--wave", "cpp", live=SELF_PID)
+        assert "files=" not in p.stdout
+        assert "model=" not in p.stdout
+        assert "perm=" not in p.stdout
+
+
+@requires_tools
+class TestFileLaneOverlap:
+    """Declared file lanes participate in overlap detection (issue #699).
+
+    Every real collision in the reference wave was file-level, and `list` warned
+    only on repo/issue/branch/worktree.
+    """
+
+    def _pair(self, tmp: Path, files_a: str, files_b: str, repo_b: str = "/repo") -> None:
+        _run(
+            tmp, "register", "A", "--wave", "cpp", "--socket", "uds:/tmp/a.sock",
+            "--repo", "/repo", "--issue", "1", "--branch", "issue-1-a",
+            "--cwd", "/wt/a", "--files", files_a,
+        )
+        _run(
+            tmp, "register", "B", "--wave", "cpp", "--socket", "uds:/tmp/b.sock",
+            "--repo", repo_b, "--issue", "2", "--branch", "issue-2-b",
+            "--cwd", "/wt/b", "--files", files_b,
+            pid=OTHER_PID, session=OTHER_SESSION,
+        )
+
+    def test_shared_path_warns(self, tmp_path: Path) -> None:
+        self._pair(tmp_path, "scripts/x.sh,docs/y.md", "docs/y.md,scripts/z.sh")
+        p = _run(tmp_path, "list", "--wave", "cpp", live=f"{SELF_PID}:{OTHER_PID}")
+        assert "overlapping FILE LANES" in p.stdout
+        assert "docs/y.md" in p.stdout
+
+    def test_disjoint_lanes_stay_at_the_info_level(self, tmp_path: Path) -> None:
+        """A warning that fires on the normal case trains everyone to ignore
+        it - the #683 rule, applied to the new arm."""
+        self._pair(tmp_path, "scripts/x.sh", "docs/y.md")
+        p = _run(tmp_path, "list", "--wave", "cpp", live=f"{SELF_PID}:{OTHER_PID}")
+        assert "overlapping FILE LANES" not in p.stdout
+        assert "share repo" in p.stdout
+
+    def test_whitespace_around_a_declared_path_still_matches(self, tmp_path: Path) -> None:
+        self._pair(tmp_path, "docs/y.md, scripts/x.sh", " docs/y.md ")
+        p = _run(tmp_path, "list", "--wave", "cpp", live=f"{SELF_PID}:{OTHER_PID}")
+        assert "overlapping FILE LANES" in p.stdout
+
+    def test_a_shared_path_in_DIFFERENT_repos_is_not_a_collision(self, tmp_path: Path) -> None:
+        """Same relative path in two repos is two different files."""
+        self._pair(tmp_path, "docs/y.md", "docs/y.md", repo_b="/other-repo")
+        p = _run(tmp_path, "list", "--wave", "cpp", live=f"{SELF_PID}:{OTHER_PID}")
+        assert "overlapping FILE LANES" not in p.stdout
+
+    def test_comparison_is_exact_not_prefix_containment(self, tmp_path: Path) -> None:
+        """Deliberately narrow: a comparison that guesses invents collisions
+        nobody declared, and this warning has to be believed."""
+        self._pair(tmp_path, "docs/", "docs/y.md")
+        p = _run(tmp_path, "list", "--wave", "cpp", live=f"{SELF_PID}:{OTHER_PID}")
+        assert "overlapping FILE LANES" not in p.stdout
+
+    def test_a_stronger_lane_signal_still_wins_the_precedence(self, tmp_path: Path) -> None:
+        """A shared branch says more about the pair than a shared file, and the
+        file arm must not mask it."""
+        _run(
+            tmp_path, "register", "A", "--wave", "cpp", "--socket", "uds:/tmp/a.sock",
+            "--repo", "/repo", "--branch", "shared", "--cwd", "/wt/a", "--files", "x.py",
+        )
+        _run(
+            tmp_path, "register", "B", "--wave", "cpp", "--socket", "uds:/tmp/b.sock",
+            "--repo", "/repo", "--branch", "shared", "--cwd", "/wt/b", "--files", "x.py",
+            pid=OTHER_PID, session=OTHER_SESSION,
+        )
+        p = _run(tmp_path, "list", "--wave", "cpp", live=f"{SELF_PID}:{OTHER_PID}")
+        assert "both claim branch 'shared'" in p.stdout
+        assert "overlapping FILE LANES" not in p.stdout
+
+    def test_a_declared_file_lane_lapses_the_lane_less_exemption(self, tmp_path: Path) -> None:
+        """#683 exempts roles that declared NOTHING to collide over. A granted
+        file lane is the most collision-prone thing there is, so it counts as a
+        lane exactly as a declared branch does.
+
+        Each role gets its OWN shared-parent cwd (two checkouts apiece, neither
+        nesting the other), so the exemption's cwd condition is satisfied for
+        both while the same/nested-worktree arm cannot fire and mask the result.
+        """
+        parents = []
+        for name in ("pa", "pb"):
+            parent = tmp_path / name
+            (parent / "one" / ".git").mkdir(parents=True)
+            (parent / "two" / ".git").mkdir(parents=True)
+            parents.append(parent)
+        for (role, pid, session), parent in zip(
+            (("A", SELF_PID, SELF_SESSION), ("B", OTHER_PID, OTHER_SESSION)), parents
+        ):
+            _run(
+                tmp_path, "register", role, "--wave", "cpp",
+                "--socket", f"uds:/tmp/{role}.sock",
+                "--repo", "/repo", "--cwd", str(parent), "--files", "shared.py",
+                pid=pid, session=session,
+            )
+        p = _run(tmp_path, "list", "--wave", "cpp", live=f"{SELF_PID}:{OTHER_PID}")
+        assert "overlapping FILE LANES" in p.stdout
+        assert "overlap checks skipped" not in p.stdout
+
+    def test_a_lane_less_role_with_no_files_is_still_exempt(self, tmp_path: Path) -> None:
+        """The negative control for the clause above: without a declared file
+        lane the #683 exemption must still apply, or this change would have
+        widened it into the false warnings #683 removed."""
+        parents = []
+        for name in ("pa", "pb"):
+            parent = tmp_path / name
+            (parent / "one" / ".git").mkdir(parents=True)
+            (parent / "two" / ".git").mkdir(parents=True)
+            parents.append(parent)
+        for (role, pid, session), parent in zip(
+            (("A", SELF_PID, SELF_SESSION), ("B", OTHER_PID, OTHER_SESSION)), parents
+        ):
+            _run(
+                tmp_path, "register", role, "--wave", "cpp",
+                "--socket", f"uds:/tmp/{role}.sock",
+                "--repo", "/repo", "--cwd", str(parent),
+                pid=pid, session=session,
+            )
+        p = _run(tmp_path, "list", "--wave", "cpp", live=f"{SELF_PID}:{OTHER_PID}")
+        assert "overlap checks skipped" in p.stdout
+
+
+@requires_tools
+class TestPolicyBackCompat:
+    """A wave that never declares a policy behaves exactly as it did (#699)."""
+
+    def test_list_json_has_no_policy_key_when_none_is_declared(self, tmp_path: Path) -> None:
+        _run(tmp_path, "register", "1", "--wave", "cpp", "--socket", "uds:/tmp/1.sock")
+        p = _run(tmp_path, "list", "--wave", "cpp", "--json", live=SELF_PID)
+        payload = _json_payload(p)
+        assert "wave_policy" not in payload
+        assert "1" in payload
+
+    def test_list_json_gains_a_sibling_key_when_one_is(self, tmp_path: Path) -> None:
+        """Roles stay top-level, exactly as #687 kept them - policy hangs
+        beside them rather than nesting them."""
+        _run(tmp_path, "policy", "set", "--wave", "cpp", "--authority", "implement")
+        _run(tmp_path, "register", "1", "--wave", "cpp", "--socket", "uds:/tmp/1.sock")
+        payload = _json_payload(_run(tmp_path, "list", "--wave", "cpp", "--json", live=SELF_PID))
+        assert payload["wave_policy"]["authority"] == "implement"
+        assert payload["1"]["socket"] == "uds:/tmp/1.sock"
+
+    def test_policy_lines_are_emitted_even_when_absent(self, tmp_path: Path) -> None:
+        """A consumer must be able to tell 'no policy declared' from 'this call
+        does not report policy' - a missing line answers neither."""
+        _run(tmp_path, "register", "1", "--wave", "cpp", "--socket", "uds:/tmp/1.sock")
+        for args in (["list", "--wave", "cpp"], ["get", "1", "--wave", "cpp"]):
+            p = _run(tmp_path, *args, live=SELF_PID)
+            assert _detail(p, "FLOW_WAVE_POLICY") == "absent"
+
+    def test_registering_without_new_flags_keeps_the_old_verdicts(self, tmp_path: Path) -> None:
+        p = _run(tmp_path, "register", "1", "--wave", "cpp", "--socket", "uds:/tmp/1.sock")
+        assert _verdict(p) == "registered"
+        assert p.returncode == 0
+        p = _run(tmp_path, "register", "1", "--wave", "cpp", "--socket", "uds:/tmp/1.sock")
+        assert _verdict(p) == "updated"
 
 
 class TestWiring:
