@@ -61,6 +61,9 @@ def _make_stubs(
     ruleset_ok: bool = True,
     check_rollup: list[list[tuple[str, str]]] | None = None,
     review_decision: str = "",
+    pr_title: str = "",
+    pr_body: str = "",
+    title_ok: bool = True,
 ) -> dict:
     """Create fake gh/git that log their args and honour a scripted outcome.
 
@@ -96,6 +99,15 @@ def _make_stubs(
     #579). Empty (the default) models a repo with no review protection - the
     review gate fails open and every pre-#579 test exercises its original path
     unchanged.
+
+    ``pr_title`` / ``pr_body`` script ``gh pr view --json title`` / ``--json
+    body`` - the squash subject/body derivation (issue #655). An empty title
+    (the default) rides the fail-open path (no --subject/--body added), so
+    every pre-#655 test exercises its original merge argv unchanged.
+    ``title_ok=False`` makes the title fetch FAIL (exit 1, no output), the API
+    hiccup the fail-open exists for. Each ``gh pr merge`` call also dumps its
+    exact argv (NUL-separated) to ``merge_argv_<n>`` so tests can assert arg
+    BOUNDARIES - a multiline --body must arrive as one argument.
     """
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -136,6 +148,14 @@ def _make_stubs(
         "".join(",".join(f"{n}={s}" for n, s in poll) + "\n" for poll in rollup_polls)
     )
 
+    # Issue #655: the PR title/body the squash subject derivation reads. Files,
+    # not inline echo, so a multiline body (or one full of shell metacharacters)
+    # round-trips byte-exact through the stub.
+    title_file = tmp_path / "pr_title"
+    title_file.write_text(pr_title)
+    body_file = tmp_path / "pr_body"
+    body_file.write_text(pr_body)
+
     # gh: log argv; `pr merge` honours the next scripted (exit, stderr) outcome;
     # `pr view --json mergeable` echoes the next scripted mergeable value; any
     # other `pr view` echoes pr_state.
@@ -144,6 +164,9 @@ def _make_stubs(
         f'echo "gh $*" >> "{call_log}"\n'
         'if [[ "$1 $2" == "pr merge" ]]; then\n'
         f'  ctr=$(cat "{merge_ctr_file}" 2>/dev/null || echo 0)\n'
+        # Exact argv capture for this merge call (issue #655): NUL-separated so
+        # a multiline --body stays one recoverable argument.
+        f'  printf \'%s\\0\' "$@" > "{tmp_path}/merge_argv_$ctr"\n'
         f'  mapfile -t lines < "{merge_seq_file}"\n'
         "  idx=$ctr\n"
         "  if (( idx >= ${#lines[@]} )); then idx=$(( ${#lines[@]} - 1 )); fi\n"
@@ -187,6 +210,10 @@ def _make_stubs(
         f'    echo $(( ctr + 1 )) > "{ctr_file}"\n'
         '  elif [[ "$*" == *reviewDecision* ]]; then\n'
         f'    echo "{review_decision}"\n'
+        '  elif [[ "$*" == *"--json title"* ]]; then\n'
+        + (f'    cat "{title_file}"; echo\n' if title_ok else "    exit 1\n")
+        + '  elif [[ "$*" == *"--json body"* ]]; then\n'
+        f'    cat "{body_file}"; echo\n'
         "  else\n"
         f'    echo "{pr_state}"\n'
         "  fi\n"
@@ -245,6 +272,20 @@ def _primary_repo(tmp_path: Path) -> Path:
 def _calls(stubs: dict) -> list[str]:
     log = stubs["_call_log"]
     return log.read_text().splitlines() if log.exists() else []
+
+
+def _merge_argvs(tmp_path: Path) -> list[list[str]]:
+    """Exact argv of each `gh pr merge` call, recovered from the NUL dumps.
+
+    Unlike the space-joined call log, these preserve argument BOUNDARIES, so a
+    multiline --body can be asserted to have arrived as one argument (#655).
+    """
+    argvs: list[list[str]] = []
+    n = 0
+    while (dump := tmp_path / f"merge_argv_{n}").exists():
+        argvs.append(dump.read_bytes().decode().split("\0")[:-1])
+        n += 1
+    return argvs
 
 
 def test_script_is_executable():
@@ -1021,3 +1062,96 @@ def test_ruleset_jq_filter_is_empty_when_no_rule_requires_checks():
         )
         assert result.returncode == 0, f"{payload}: {result.stderr}"
         assert result.stdout.strip() == "", payload
+
+
+# Explicit squash subject/body (issue #655): with no --subject, GitHub may title
+# the squash commit from the branch's FIRST commit - and #635's commit-first
+# stale-base handling makes WIP-first branches routine, so finished features
+# landed on main as "WIP: ...". The helper now derives --subject/--body from the
+# PR itself; on a failed or empty title read it fails OPEN, omitting BOTH flags
+# together (never one without the other) and merging exactly as before.
+
+# Deliberately multiline WITH a line starting with "-": pins that the body is
+# passed as ONE quoted argument, never re-parsed as flags (gate condition 2).
+MULTILINE_BODY = (
+    "Summary of the fix.\n"
+    "\n"
+    "- WIP-first branches are routine since #635\n"
+    "- the squash subject now comes from the PR title\n"
+    "\n"
+    "Closes #655"
+)
+
+
+def test_squash_passes_pr_title_and_body_explicitly(tmp_path: Path):
+    # The default path: subject is "<PR title> (#N)" (the web squash-button
+    # convention) and the body is the PR body, byte-exact, as single arguments.
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        pr_title="fix(flow): stop WIP squash subjects",
+        pr_body=MULTILINE_BODY,
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-655-fix")
+    assert result.returncode == 0, result.stderr
+    argvs = _merge_argvs(tmp_path)
+    assert len(argvs) == 1, argvs
+    argv = argvs[0]
+    assert argv[argv.index("--subject") + 1] == "fix(flow): stop WIP squash subjects (#42)"
+    assert argv[argv.index("--body") + 1] == MULTILINE_BODY
+
+
+def test_empty_title_omits_subject_and_body_together(tmp_path: Path):
+    # An empty title read fails open: BOTH flags are omitted (never --body
+    # alone) and the merge proceeds exactly as pre-#655.
+    stubs = _make_stubs(
+        tmp_path, merge_exit=0, pr_state="MERGED", pr_body=MULTILINE_BODY
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-655-fix")
+    assert result.returncode == 0, result.stderr
+    argvs = _merge_argvs(tmp_path)
+    assert len(argvs) == 1, argvs
+    assert "--subject" not in argvs[0]
+    assert "--body" not in argvs[0]
+
+
+def test_title_fetch_failure_fails_open_and_merges(tmp_path: Path):
+    # A FAILED title read (API hiccup) is the same fail-open: no flags, and the
+    # merge is never blocked by the metadata read.
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        pr_title="fix(flow): never used",
+        pr_body=MULTILINE_BODY,
+        title_ok=False,
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-655-fix")
+    assert result.returncode == 0, result.stderr
+    argvs = _merge_argvs(tmp_path)
+    assert len(argvs) == 1, argvs
+    assert "--subject" not in argvs[0]
+    assert "--body" not in argvs[0]
+
+
+def test_admin_retry_keeps_subject_and_body(tmp_path: Path):
+    # The #517 administrative --admin retry routes through the same BASE_FLAGS,
+    # so the retry carries the identical subject/body (gate condition 1c).
+    stubs = _make_stubs(
+        tmp_path,
+        pr_state="MERGED",
+        viewer_permission="ADMIN",
+        merge_outcomes=[(1, ADMIN_PROTECTION_BLOCKED), (0, "")],
+        pr_title="feat(flow): explicit squash subject",
+        pr_body=MULTILINE_BODY,
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-655-fix")
+    assert result.returncode == 0, result.stderr
+    argvs = _merge_argvs(tmp_path)
+    assert len(argvs) == 2, argvs
+    for argv in argvs:
+        assert argv[argv.index("--subject") + 1] == "feat(flow): explicit squash subject (#42)"
+        assert argv[argv.index("--body") + 1] == MULTILINE_BODY
+    assert "--admin" not in argvs[0]
+    assert "--admin" in argvs[1]

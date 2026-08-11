@@ -558,6 +558,22 @@ BASE_FLAGS=()
 (( ADMIN_OPT_IN )) && BASE_FLAGS+=(--admin)
 in_linked_worktree || BASE_FLAGS+=(--delete-branch)
 
+# Explicit squash subject + body, derived from the PR (issue #655): with no
+# --subject, GitHub may title the squash commit from the branch's FIRST commit
+# message - and #635's commit-first stale-base handling makes WIP-first branches
+# routine, so finished features were landing on main as "WIP: ..." with an empty
+# body. Passing both explicitly makes the squash message deterministic (the same
+# "<PR title> (#N)" convention as GitHub's web squash button) regardless of
+# branch history or per-repo squash-message settings. Fail-open: if the title
+# cannot be read (API hiccup) or comes back empty, merge exactly as before - the
+# merge must never be hostage to a metadata read - and the two flags are omitted
+# TOGETHER, never one without the other.
+SQUASH_TITLE=$("$GH_BIN" pr view "$PR_NUMBER" --json title --jq '.title' 2>/dev/null)
+if [[ -n "$SQUASH_TITLE" ]]; then
+    SQUASH_BODY=$("$GH_BIN" pr view "$PR_NUMBER" --json body --jq '.body' 2>/dev/null) || SQUASH_BODY=""
+    BASE_FLAGS+=(--subject "${SQUASH_TITLE} (#${PR_NUMBER})" --body "$SQUASH_BODY")
+fi
+
 run_squash ${BASE_FLAGS+"${BASE_FLAGS[@]}"}
 
 # Branch-protection auto-retry (issue #517): if the squash was rejected by branch
