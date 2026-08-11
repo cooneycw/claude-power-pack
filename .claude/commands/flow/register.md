@@ -222,9 +222,19 @@ Releasing a role owned by another LIVE session refuses without `--force`.
 
 Every verb ends with a machine-readable verdict:
 `FLOW_WAVE: registered | updated | refused | released | listed | verified |
-mismatch-corrected | free | unknown | error`, preceded by
+address_filled | mismatch-corrected | free | unknown | error`, preceded by
 `FLOW_WAVE_*=` detail lines. Exit 1 = refused (live-owner conflict), exit 2 =
 usage error, else 0.
+
+`verify` splits its non-matching outcomes (#674). `address_filled` means the
+recorded address was `unknown` and observation SUPPLIED one - the documented
+bootstrap fallback succeeding: no warning, `address_mismatch` stays false, and
+`list` renders `filled`. It is a fully verified state, not a lesser grade than
+`verified` - the address is transport-observed either way, and the word records
+how it was established, never how much to trust it. `mismatch-corrected` is
+reserved for a recorded REAL address CONTRADICTED by the observed one, which
+stays loud and flagged. Both keep the observed address as canonical (trust model
+unchanged); neither changes the exit code, which stays 0.
 
 Three detail lines describe the address itself (#672), so an unaddressed
 session is never reported as a healthy pending handshake:
