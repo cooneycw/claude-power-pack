@@ -365,6 +365,38 @@ cwd_is_shared_parent() {
 # failed derivation never invents one. On a transport that stamps something
 # else this simply finds nothing, which is the correct answer rather than a
 # confident wrong one.
+# CLAIM_FS - the ONE field separator for claim records (#698), shared by the
+# producer and the parser so the format has a single definition.
+#
+# ASCII unit separator (0x1F), deliberately NOT tab. Tab is IFS *whitespace*, so
+# shell field splitting collapses a run of it into a single delimiter and an
+# EMPTY field vanishes rather than arriving empty - every later field shifts up
+# one slot. #687 shipped with tab and a branchless (detached-HEAD) claim
+# therefore rendered its worktree path as a branch and the repo root as its
+# worktree, and fed those wrong values into overlap detection. `\037` is not IFS
+# whitespace, so empty fields survive in every position - middle, trailing, and
+# both at once, which matters because an absent observed address is the COMMON
+# case for an unregistered claim, not an edge one.
+#
+# Four independent definitions of this separator (one printf format + three
+# `IFS=` expressions) were what made #698 possible, and the failure mode is
+# shifted fields rather than an error - so a future edit to any one of them
+# would break silently. One constant, one parser: see parse_claim_record.
+CLAIM_FS="$(printf '\037')"
+
+# parse_claim_record RECORD -> sets C_ISSUE C_PID C_SESSION C_BRANCH C_WT
+#                              C_REPO C_ADDR
+#
+# The ONE place that knows the field order and the separator. Call sites read
+# whole lines (`IFS= read -r rec`, the same single-field idiom every other read
+# loop in scripts/ uses and the reason they were all immune to #698) and hand
+# the record here.
+parse_claim_record() {
+  IFS="$CLAIM_FS" read -r C_ISSUE C_PID C_SESSION C_BRANCH C_WT C_REPO C_ADDR <<EOF
+$1
+EOF
+}
+
 claim_address() {
   local pid="$1"
   [ -n "$pid" ] || return 0
@@ -439,7 +471,11 @@ $(printf '%s' "$e" | jq -r '.session // empty')"
           if [ -n "$c_pid" ] && printf '%s\n' "$known_pids" | grep -Fxq -- "$c_pid"; then continue; fi
           if [ -n "$c_session" ] && printf '%s\n' "$known_sessions" | grep -Fxq -- "$c_session"; then continue; fi
           addr="$(claim_address "$c_pid")"
-          printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+          # CLAIM_FS is interpolated into the FORMAT string, which is normally a
+          # smell (a '%' in the variable would be read as a conversion). Safe
+          # here by construction: CLAIM_FS is a fixed control character set once
+          # at the top of this file, never derived from input.
+          printf "%s${CLAIM_FS}%s${CLAIM_FS}%s${CLAIM_FS}%s${CLAIM_FS}%s${CLAIM_FS}%s${CLAIM_FS}%s\n" \
             "$c_issue" "$c_pid" "$c_session" "$cur_branch" "$cur_wt" "$repo" "$addr"
           ;;
       esac
@@ -891,7 +927,10 @@ $rp"
       # very breaking change this avoids. The key appears only when there is
       # something to report, so a claim-free run is byte-identical to pre-#687.
       if [ -n "$CLAIMS" ]; then
-        CLAIM_JSON="$(printf '%s\n' "$CLAIMS" | jq -R -s 'split("\n") | map(select(length > 0) | split("\t")) | map({issue: .[0], pid: .[1], session: .[2], branch: .[3], worktree: .[4], repo: .[5], address: (if .[6] == "" then null else .[6] end), source: "flow-claim-lock", registered: false})')"
+        # jq splits on the SAME constant (#698). This was the fifth independent
+        # definition of the delimiter and the one the original four-definitions
+        # count missed - which is the argument for the constant, not against it.
+        CLAIM_JSON="$(printf '%s\n' "$CLAIMS" | jq -R -s --arg fs "$CLAIM_FS" 'split("\n") | map(select(length > 0) | split($fs)) | map({issue: .[0], pid: .[1], session: .[2], branch: .[3], worktree: .[4], repo: .[5], address: (if (.[6] // "") == "" then null else .[6] end), source: "flow-claim-lock", registered: false})')"
         OUT="$(printf '%s' "$OUT" | jq -c --argjson c "$CLAIM_JSON" '. + {unregistered_claims: $c}')"
       fi
       printf '%s\n' "$OUT" | jq .
@@ -909,9 +948,10 @@ $rp"
       # "nothing registered" while a lock is held would be the original bug.
       if [ -n "$CLAIMS" ]; then
         echo "  -- unregistered flow-claim locks (live, not registry entries - contactable, but not addressable as roles) --"
-        while IFS="$(printf '\t')" read -r c_iss c_pid c_ses c_br c_wt c_repo c_addr; do
-          [ -n "$c_pid" ] || continue
-          echo "  (claim) -> ${c_addr:-no observed address} [live, unregistered] issue=${c_iss:--} branch=${c_br:--} pid=$c_pid wt=$c_wt"
+        while IFS= read -r rec; do
+          [ -n "$rec" ] || continue
+          parse_claim_record "$rec"
+          echo "  (claim) -> ${C_ADDR:-no observed address} [live, unregistered] issue=${C_ISSUE:--} branch=${C_BRANCH:--} pid=$C_PID wt=$C_WT"
         done <<EOF
 $CLAIMS
 EOF
@@ -940,9 +980,10 @@ EOF
     # issue was free while a live session was minutes from a PR on it.
     if [ -n "$CLAIMS" ]; then
       echo "  -- unregistered flow-claim locks (live, not registry entries - contactable, but not addressable as roles) --"
-      while IFS="$(printf '\t')" read -r c_iss c_pid c_ses c_br c_wt c_repo c_addr; do
-        [ -n "$c_pid" ] || continue
-        echo "  (claim) -> ${c_addr:-no observed address} [live, unregistered] issue=${c_iss:--} branch=${c_br:--} pid=$c_pid wt=$c_wt"
+      while IFS= read -r rec; do
+        [ -n "$rec" ] || continue
+        parse_claim_record "$rec"
+        echo "  (claim) -> ${C_ADDR:-no observed address} [live, unregistered] issue=${C_ISSUE:--} branch=${C_BRANCH:--} pid=$C_PID wt=$C_WT"
       done <<EOF
 $CLAIMS
 EOF
@@ -1020,15 +1061,16 @@ EOF
     # never skipped; that is checked by test, not left to reasoning, because
     # those conditions have changed before.
     if [ -n "$CLAIMS" ]; then
-      while IFS="$(printf '\t')" read -r c_iss c_pid c_ses c_br c_wt c_repo c_addr; do
-        [ -n "$c_pid" ] || continue
+      while IFS= read -r rec; do
+        [ -n "$rec" ] || continue
+        parse_claim_record "$rec"
         for b in $LIVE_ROLES; do
           eb="$(printf '%s' "$REG" | jq -c --arg w "$WAVE" --arg r "$b" '.[$w].roles[$r]')"
           rb="$(printf '%s' "$eb" | jq -r '.repo // ""')"
           ib="$(printf '%s' "$eb" | jq -r '.issue // ""')"
           bb="$(printf '%s' "$eb" | jq -r '.branch // ""')"
           cb="$(printf '%s' "$eb" | jq -r '.cwd // ""')"
-          report_overlap "claim(pid $c_pid)" "$c_iss" "$c_br" "$c_wt" "$c_repo" \
+          report_overlap "claim(pid $C_PID)" "$C_ISSUE" "$C_BRANCH" "$C_WT" "$C_REPO" \
             "$b" "$ib" "$bb" "$cb" "$rb"
         done
       done <<EOF
