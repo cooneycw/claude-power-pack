@@ -64,6 +64,11 @@ def _make_stubs(
     pr_title: str = "",
     pr_body: str = "",
     title_ok: bool = True,
+    pr_deletions: list[str] | None = None,
+    deletions_ok: bool = True,
+    merge_commit: str = "",
+    pr_files: list[str] | None = None,
+    landed_paths: list[str] | None = None,
 ) -> dict:
     """Create fake gh/git that log their args and honour a scripted outcome.
 
@@ -108,6 +113,14 @@ def _make_stubs(
     hiccup the fail-open exists for. Each ``gh pr merge`` call also dumps its
     exact argv (NUL-separated) to ``merge_argv_<n>`` so tests can assert arg
     BOUNDARIES - a multiline --body must arrive as one argument.
+
+    ``pr_deletions`` scripts the pre-squash ``git diff --diff-filter=D`` read
+    (issue #657); ``deletions_ok=False`` makes that diff FAIL (exit 1), the
+    unreadable-input case that must print ``skipped``. ``merge_commit`` /
+    ``pr_files`` / ``landed_paths`` script the post-merge completeness read:
+    the PR's merge-commit sha, its file list, and the paths the landed squash
+    actually touched. The empty defaults ride the ``skipped`` fail-open path,
+    so every pre-#657 test exercises its original behavior unchanged.
     """
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -155,6 +168,14 @@ def _make_stubs(
     title_file.write_text(pr_title)
     body_file = tmp_path / "pr_body"
     body_file.write_text(pr_body)
+
+    # Issue #657: the deletion-surfacing and completeness reads.
+    deletions_file = tmp_path / "pr_deletions"
+    deletions_file.write_text("".join(f"{p}\n" for p in (pr_deletions or [])))
+    files_file = tmp_path / "pr_files"
+    files_file.write_text("".join(f"{p}\n" for p in (pr_files or [])))
+    landed_file = tmp_path / "landed_paths"
+    landed_file.write_text("".join(f"{p}\n" for p in (landed_paths or [])))
 
     # gh: log argv; `pr merge` honours the next scripted (exit, stderr) outcome;
     # `pr view --json mergeable` echoes the next scripted mergeable value; any
@@ -214,6 +235,10 @@ def _make_stubs(
         + (f'    cat "{title_file}"; echo\n' if title_ok else "    exit 1\n")
         + '  elif [[ "$*" == *"--json body"* ]]; then\n'
         f'    cat "{body_file}"; echo\n'
+        '  elif [[ "$*" == *mergeCommit* ]]; then\n'
+        f'    echo "{merge_commit}"\n'
+        '  elif [[ "$*" == *"--json files"* ]]; then\n'
+        f'    cat "{files_file}"\n'
         "  else\n"
         f'    echo "{pr_state}"\n'
         "  fi\n"
@@ -224,8 +249,22 @@ def _make_stubs(
         "fi\n"
         "exit 0\n",
     )
-    # git: log argv; everything succeeds.
-    _write_stub(bin_dir / "git", f'echo "git $*" >> "{call_log}"\nexit 0\n')
+    # git: log argv. rev-parse --show-toplevel answers with the cwd (a real
+    # root, so the #657 ref-scoped reads proceed); the deletion diff and the
+    # landed-paths diff answer from their fixture files; everything else
+    # succeeds silently.
+    _write_stub(
+        bin_dir / "git",
+        f'echo "git $*" >> "{call_log}"\n'
+        'if [[ "$*" == *"rev-parse --show-toplevel"* ]]; then\n'
+        "  pwd\n"
+        'elif [[ "$*" == *"--diff-filter=D"* ]]; then\n'
+        + (f'  cat "{deletions_file}"\n' if deletions_ok else "  exit 1\n")
+        + 'elif [[ "$*" == *"diff --name-only"* ]]; then\n'
+        f'  cat "{landed_file}"\n'
+        "fi\n"
+        "exit 0\n",
+    )
 
     return {
         "GH_PR_MERGE_GH": str(bin_dir / "gh"),
@@ -234,8 +273,13 @@ def _make_stubs(
     }
 
 
-def _run(cwd: Path, stubs: dict, *args: str) -> subprocess.CompletedProcess[str]:
+def _run(
+    cwd: Path, stubs: dict, *args: str, extra_env: dict[str, str] | None = None
+) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
+    env.pop("GH_PR_MERGE_STRICT_DELETIONS", None)  # host setting must not leak in
+    if extra_env:
+        env.update(extra_env)
     env["GH_PR_MERGE_GH"] = stubs["GH_PR_MERGE_GH"]
     env["GH_PR_MERGE_GIT"] = stubs["GH_PR_MERGE_GIT"]
     env["GH_PR_MERGE_POLL_DELAY"] = "0"  # keep the mergeability poll instant in tests
@@ -1133,6 +1177,115 @@ def test_title_fetch_failure_fails_open_and_merges(tmp_path: Path):
     assert len(argvs) == 1, argvs
     assert "--subject" not in argvs[0]
     assert "--body" not in argvs[0]
+
+
+# Deletion surfacing + post-merge completeness (issue #657): a collapse onto a
+# moved base silently records deletions of a sibling's merged work, and every
+# downstream check passes because the damaged tree is internally CONSISTENT -
+# nothing verified it was COMPLETE. The helper now surfaces the PR's deletions
+# BEFORE the squash (greppable marker, opt-in strict clean stop, exit 4) and
+# verifies AFTER a confirmed merge that the landed squash touched only paths in
+# the PR's file list (loud on violation, never exit-code-changing). Both are
+# fail-open per component: unreadable input prints `skipped`, never silence.
+
+
+def test_deletions_surfaced_and_merge_proceeds(tmp_path: Path):
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        pr_deletions=["retired/old.py", "docs/gone.md"],
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-657-fix")
+    assert result.returncode == 0, result.stderr
+    assert "GH_PR_MERGE_DELETIONS: 2 retired/old.py docs/gone.md" in result.stdout
+    assert "confirm they are" in result.stderr
+    merge_calls = [c for c in _calls(stubs) if c.startswith("gh pr merge")]
+    assert len(merge_calls) == 1, "surfacing alone must never block the merge"
+
+
+def test_no_deletions_prints_zero_marker(tmp_path: Path):
+    stubs = _make_stubs(tmp_path, merge_exit=0, pr_state="MERGED")
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-657-fix")
+    assert result.returncode == 0, result.stderr
+    assert "GH_PR_MERGE_DELETIONS: 0" in result.stdout
+
+
+def test_strict_deletions_is_clean_pre_squash_stop(tmp_path: Path):
+    # Exit 4: a documented CLEAN STOP - the PR is left open and UNTOUCHED
+    # (no merge attempt at all), mirroring the #579 exit-3 handoff semantics.
+    stubs = _make_stubs(
+        tmp_path,
+        pr_state="OPEN",
+        pr_deletions=["lib/feature.py"],
+    )
+    result = _run(
+        _linked_worktree(tmp_path),
+        stubs,
+        "42",
+        "issue-657-fix",
+        extra_env={"GH_PR_MERGE_STRICT_DELETIONS": "1"},
+    )
+    assert result.returncode == 4, result.stderr
+    assert "GH_PR_MERGE_DELETIONS: 1 lib/feature.py" in result.stdout
+    assert "CLEAN STOP" in result.stderr
+    merge_calls = [c for c in _calls(stubs) if c.startswith("gh pr merge")]
+    assert merge_calls == [], "strict stop must leave the PR untouched"
+
+
+def test_unreadable_deletion_diff_fails_open_as_skipped(tmp_path: Path):
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        pr_deletions=["never-read.py"],
+        deletions_ok=False,
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-657-fix")
+    assert result.returncode == 0, result.stderr
+    assert "GH_PR_MERGE_DELETIONS: skipped" in result.stdout
+    assert "merged" in result.stdout
+
+
+def test_completeness_ok_when_landed_paths_match_file_list(tmp_path: Path):
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        merge_commit="abc1234def",
+        pr_files=["lib/x.py", "tests/test_x.py"],
+        landed_paths=["lib/x.py", "tests/test_x.py"],
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-657-fix")
+    assert result.returncode == 0, result.stderr
+    assert "GH_PR_MERGE_COMPLETENESS: ok" in result.stdout
+
+
+def test_completeness_violation_is_loud_but_exit_zero(tmp_path: Path):
+    # Condition pin: the merge already landed, so a violation NEVER flips the
+    # exit code - loud, never obstructive.
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        merge_commit="abc1234def",
+        pr_files=["lib/x.py"],
+        landed_paths=["lib/x.py", "ui/rogue.js"],
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-657-fix")
+    assert result.returncode == 0, result.stderr
+    assert "GH_PR_MERGE_COMPLETENESS: violation" in result.stdout
+    assert "ui/rogue.js" in result.stderr
+    assert "merged" in result.stdout
+
+
+def test_completeness_unreadable_inputs_fail_open_as_skipped(tmp_path: Path):
+    # No mergeCommit resolvable (and no file list): each is independently a
+    # skipped, never silence and never a failure.
+    stubs = _make_stubs(tmp_path, merge_exit=0, pr_state="MERGED")
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-657-fix")
+    assert result.returncode == 0, result.stderr
+    assert "GH_PR_MERGE_COMPLETENESS: skipped" in result.stdout
 
 
 def test_admin_retry_keeps_subject_and_body(tmp_path: Path):

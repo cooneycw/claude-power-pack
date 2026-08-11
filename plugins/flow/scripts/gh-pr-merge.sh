@@ -102,6 +102,31 @@
 #                    blocks) - never for a required status check (#577) and never
 #                    for a required review (#579): automation must not bypass a
 #                    human-approval control.
+# Deletion surfacing + post-merge completeness (issue #657):
+#   A collapse onto a moved base (`git reset --soft origin/main` + commit, the
+#   #655-thread workaround) silently records the DELETION of everything the
+#   moved base added - poker-measure lost a merged 2,085-line feature this way
+#   with a conflict-free merge and honestly-green CI. GitHub cannot distinguish
+#   authored deletions from collapse damage at merge time (the damage IS inside
+#   the PR's own file list - incident PR #234 listed all 40 paths), so this
+#   helper does the two things that ARE sound here, both fail-open (#610
+#   posture: enumeration failure never outranks observed reality):
+#     * BEFORE the squash, surface every path the PR deletes vs its base -
+#       `GH_PR_MERGE_DELETIONS: <n> <paths...>` (or `0`, or `skipped` when the
+#       diff is unreadable) - so a reviewer/orchestrator sees "this squash
+#       lands N deletions" while there is still time to stop. Opt-in
+#       GH_PR_MERGE_STRICT_DELETIONS=1 turns any surfaced deletion into a
+#       CLEAN pre-squash stop (exit 4, PR untouched).
+#     * AFTER a confirmed merge, verify the landed squash commit touched ONLY
+#       paths in the PR's file list - `GH_PR_MERGE_COMPLETENESS: ok|violation|
+#       skipped`. A violation is LOUD but never flips the exit code (the merge
+#       already landed); it catches base-race/squash contamination, and
+#       honestly does NOT catch the collapse incident (damage inside the file
+#       list) - that guard lives at collapse time (auto.md Step 6 recipe).
+#   All git reads here are ref-scoped (`git -C <root>`, full refs, no bare
+#   relative pathspecs) - the companion #657 finding: a cwd-drifted relative
+#   pathspec reads as an empty diff, indistinguishable from "no changes".
+#
 # Exit:   0  the PR is merged on the remote
 #         1  the PR genuinely did not merge (conflicts, red required check,
 #            unresolvable state)
@@ -111,6 +136,10 @@
 #            left open, current, and green - approve or merge it on GitHub, then
 #            resume with /flow:merge (or re-run with an explicit --admin to
 #            consciously override the review requirement).
+#         4  CLEAN STOP, not a failure (issue #657): GH_PR_MERGE_STRICT_DELETIONS=1
+#            is set and the PR deletes files vs its base. The PR is left open and
+#            untouched - review the surfaced paths, then re-run without strict
+#            mode (or fix the branch) once the deletions are confirmed intended.
 #
 # Env (test hooks - unset in normal use):
 #   GH_PR_MERGE_GH             override the `gh` binary (default: gh)
@@ -121,6 +150,10 @@
 #   GH_PR_MERGE_BASE_RETRY_DELAY     seconds before each such retry (default: 2)
 #   GH_PR_MERGE_CHECK_ATTEMPTS       required-check poll attempts (default: 60)
 #   GH_PR_MERGE_CHECK_DELAY          seconds between check polls (default: 10)
+#
+# Env (operator opt-in):
+#   GH_PR_MERGE_STRICT_DELETIONS=1   turn surfaced deletions into the exit-4
+#                                    clean pre-squash stop (issue #657)
 
 set -uo pipefail
 
@@ -502,6 +535,48 @@ if ! poll_mergeable; then
     exit 1
 fi
 
+# Pre-squash deletion surfacing (issue #657): print every path this PR deletes
+# vs its base BEFORE the squash - and before the (possibly long) required-check
+# wait, so the signal is out while there is still time to act on it - as one
+# greppable marker line. Fail-open: an unreadable root/base/diff prints
+# `skipped`, never silence and never a block. Ref-scoped reads only -
+# `git -C <root>` with full refs, no bare relative pathspecs (the #657
+# companion finding: a cwd-drifted relative pathspec reads as an empty diff,
+# which is indistinguishable from "no deletions").
+surface_deletions() {
+    local root base deletions n
+    root=$("$GIT_BIN" rev-parse --show-toplevel 2>/dev/null)
+    base=$("$GH_BIN" pr view "$PR_NUMBER" --json baseRefName --jq '.baseRefName' 2>/dev/null)
+    if [[ -z "$root" || -z "$base" ]]; then
+        echo "GH_PR_MERGE_DELETIONS: skipped"
+        return 0
+    fi
+    "$GIT_BIN" -C "$root" fetch origin "$base" --quiet 2>/dev/null || true
+    if ! deletions=$("$GIT_BIN" -C "$root" diff --name-only --diff-filter=D "origin/${base}...HEAD" 2>/dev/null); then
+        echo "GH_PR_MERGE_DELETIONS: skipped"
+        return 0
+    fi
+    deletions=$(printf '%s\n' "$deletions" | sed '/^$/d')
+    if [[ -z "$deletions" ]]; then
+        echo "GH_PR_MERGE_DELETIONS: 0"
+        return 0
+    fi
+    n=$(printf '%s\n' "$deletions" | wc -l | tr -d ' ')
+    echo "GH_PR_MERGE_DELETIONS: $n $(printf '%s\n' "$deletions" | tr '\n' ' ' | sed 's/ $//')"
+    echo "warning: this squash will land $n deletion(s) vs origin/${base} - confirm they are" >&2
+    echo "         intended by PR #$PR_NUMBER, not a collapse onto a moved base (issue #657):" >&2
+    printf '         deleted: %s\n' $deletions >&2
+    if [[ "${GH_PR_MERGE_STRICT_DELETIONS:-0}" == "1" ]]; then
+        echo "CLEAN STOP: GH_PR_MERGE_STRICT_DELETIONS=1 and the PR deletes files - not merging (issue #657)." >&2
+        echo "  The PR is left open and untouched. Review the paths above; if the deletions are" >&2
+        echo "  intended, re-run without strict mode." >&2
+        exit 4
+    fi
+    return 0
+}
+
+surface_deletions
+
 # An explicit --admin is a conscious owner override of protection, so it also
 # skips the wait; without it, required checks must be green before the squash.
 if (( ADMIN_OPT_IN == 0 )) && ! wait_for_required_checks; then
@@ -608,6 +683,45 @@ if in_linked_worktree && [[ $merge_exit -eq 0 ]]; then
     "$GIT_BIN" push origin --delete "$BRANCH" >/dev/null 2>&1 || true
 fi
 
+# Post-merge completeness verification (issue #657): the landed squash commit
+# must touch ONLY paths in the PR's own file list. A violation is LOUD but never
+# flips the exit code - the merge already landed, so this is a signal to
+# investigate, not a failure to report (the #610 loud-never-obstructive posture).
+# Honestly scoped: it catches base-race/squash contamination, NOT a collapse
+# whose damage is inside the file list - that guard lives at collapse time.
+# Fail-open per component: any unreadable input prints `skipped`, never silence.
+verify_completeness() {
+    local root merge_sha files landed extras path
+    root=$("$GIT_BIN" rev-parse --show-toplevel 2>/dev/null)
+    merge_sha=$("$GH_BIN" pr view "$PR_NUMBER" --json mergeCommit --jq '.mergeCommit.oid' 2>/dev/null)
+    files=$("$GH_BIN" pr view "$PR_NUMBER" --json files --jq '.files[].path' 2>/dev/null)
+    if [[ -z "$root" || -z "$merge_sha" || "$merge_sha" == "null" || -z "$files" ]]; then
+        echo "GH_PR_MERGE_COMPLETENESS: skipped"
+        return 0
+    fi
+    "$GIT_BIN" -C "$root" fetch origin --quiet 2>/dev/null || true
+    if ! landed=$("$GIT_BIN" -C "$root" diff --name-only "${merge_sha}^" "$merge_sha" 2>/dev/null); then
+        echo "GH_PR_MERGE_COMPLETENESS: skipped"
+        return 0
+    fi
+    extras=""
+    while IFS= read -r path; do
+        [[ -z "$path" ]] && continue
+        if ! grep -qxF "$path" <<<"$files"; then
+            extras+="$path "
+        fi
+    done <<<"$landed"
+    if [[ -n "$extras" ]]; then
+        echo "GH_PR_MERGE_COMPLETENESS: violation"
+        echo "warning: the landed squash ${merge_sha:0:7} touched path(s) OUTSIDE PR #$PR_NUMBER's" >&2
+        echo "         file list (issue #657) - the merge landed, but investigate before building on it:" >&2
+        printf '         unexpected: %s\n' $extras >&2
+    else
+        echo "GH_PR_MERGE_COMPLETENESS: ok"
+    fi
+    return 0
+}
+
 # Trust the PR state over the exit code: a non-zero from a local post-merge step
 # must never mask a remote merge that actually succeeded.
 state=$("$GH_BIN" pr view "$PR_NUMBER" --json state --jq '.state' 2>/dev/null)
@@ -621,6 +735,7 @@ if [[ "$state" == "MERGED" ]]; then
             "$GIT_BIN" push origin --delete "$BRANCH" >/dev/null 2>&1 || true
         fi
     fi
+    verify_completeness
     echo "merged"
     exit 0
 fi

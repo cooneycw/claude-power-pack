@@ -529,6 +529,26 @@ if [ "$(git rev-list --count HEAD..origin/main)" -gt 0 ]; then
 fi
 ```
 
+**Collapsing the branch to one commit - the SAFE recipe (issue #657).** Prefer
+NO collapse at all: since #655 the merge helper passes an explicit
+`--subject`/`--body` derived from the PR, so a WIP-first branch squashes with
+the right message and collapsing buys nothing. If you collapse anyway (e.g. to
+curate history before pushing), the target matters more than the mechanics:
+`git reset --soft` onto a base that has MOVED past your index silently stages
+the deletion of everything the moved base added - a conflict-free,
+honestly-green merge then lands those deletions on main (poker-measure lost a
+merged 2,085-line feature to exactly this on 2026-08-11). The safe shape:
+
+```bash
+# Collapse onto your ORIGINAL base, never a moved origin/main:
+git reset --soft "$(git merge-base HEAD origin/main)"
+# Before committing, prove the collapse deletes nothing you did not delete:
+git diff --staged --diff-filter=D --name-only   # MUST be empty unless intended
+git commit -m "type(scope): Description (Closes #N)"
+# THEN bring the moved base in:
+git merge --no-edit origin/main
+```
+
 1. **Quality gates** - ONE audited helper owns the deterministic-runner
    invocation (issue #613, the #581 pattern): CPP-checkout resolution, the `uv`
    check, the documented `PYTHONPATH` / `uv run --project` contract (#430), and
@@ -726,6 +746,19 @@ Report: `Step 6/9: Finish complete - PR #XX created`
      re-invoke with `--admin` yourself: overriding a review requirement is the
      owner's explicit, human-typed call. End the run here. Do not "fix" this
      stop - it is the designed handoff.
+   - **Helper exit 4 is also a CLEAN STOP (issue #657):** the operator opted in
+     to `GH_PR_MERGE_STRICT_DELETIONS=1` and the PR deletes files vs its base.
+     The PR is left open and untouched. Review the paths in the
+     `GH_PR_MERGE_DELETIONS:` marker line; if the deletions are intended,
+     re-run without strict mode. Flow itself never sets this variable.
+   - The helper also prints two greppable markers per run (issue #657, both
+     fail-open): `GH_PR_MERGE_DELETIONS: <n> <paths...>|0|skipped` before the
+     squash - read it; a PR landing deletions the issue scope does not explain
+     is the collapse-onto-moved-base signature - and
+     `GH_PR_MERGE_COMPLETENESS: ok|violation|skipped` after a confirmed merge.
+     A `violation` (the landed squash touched paths outside the PR's file
+     list) never changes the exit code - the merge landed - but must be
+     REPORTED to the user, not narrated past.
    - If the merge genuinely failed (non-zero helper exit - conflicts, failing
      checks, PR not `MERGED`): **STOP**. Report and exit. A non-zero `gh` exit
      whose PR is nonetheless `MERGED` is NOT a failure - the helper already treats
