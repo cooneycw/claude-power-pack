@@ -72,14 +72,18 @@ echo "Tasks file: $TASKS"
 echo "Remote:     $REMOTE_URL"
 [ "$DRY_RUN" -eq 1 ] && echo "Mode:       DRY RUN (no issues will be created)"
 
-# --- Existing issue IDs (dedup) --------------------------------------------------
+# --- Existing issue IDs (dedup + task -> issue-number map) -----------------------
 # Match \bT\d{3}\b in existing titles (open + closed) so re-runs skip done tasks.
+# The number map (issue #607) lets a later task's dependency clause resolve to
+# `- Blocked by #N` lines in its body - the planner's native edge form.
 declare -A EXISTING
-while IFS= read -r title; do
+declare -A TASK_ISSUE
+while IFS=$'\t' read -r number title; do
     if [[ "$title" =~ (^|[^A-Za-z0-9])(T[0-9]{3})([^0-9]|$) ]]; then
         EXISTING["${BASH_REMATCH[2]}"]=1
+        TASK_ISSUE["${BASH_REMATCH[2]}"]="$number"
     fi
-done < <(gh issue list "${GH_REPO_ARGS[@]}" --state all --limit 1000 --json title --jq '.[].title' 2>/dev/null || true)
+done < <(gh issue list "${GH_REPO_ARGS[@]}" --state all --limit 1000 --json number,title --jq '.[] | "\(.number)\t\(.title)"' 2>/dev/null || true)
 
 # --- Parse tasks.md and create issues -------------------------------------------
 created=0; skipped=0
@@ -100,12 +104,35 @@ while IFS= read -r line; do
         skipped=$((skipped + 1))
         continue
     fi
+    # Dependency clause -> machine-readable body lines (issue #607). The clause
+    # used to survive only as title prose, which drifted from tasks.md with
+    # nothing to detect it. The body now carries BOTH forms: a `Depends on:`
+    # task-id line (joinable via the spec's Issue Sync table even when numbers
+    # are unknown), and `- Blocked by #N` bullets - flow-wave-plan.py's native
+    # edge grammar - for every dep already resolvable to an issue number
+    # (created earlier this run, or found by the dedup scan above).
+    issue_body="Auto-created from ${TASKS} (${tid}) by CPP speckit-tasks-to-issues."
+    if [[ "$desc" =~ \(depends\ on\ ([^\)]*)\) ]]; then
+        dep_clause="${BASH_REMATCH[1]}"
+        dep_tids="$(printf '%s' "$dep_clause" | grep -oE 'T[0-9]{3}' | tr '\n' ' ')"
+        if [ -n "$dep_tids" ]; then
+            issue_body+=$'\n\n'"Depends on: $(printf '%s' "$dep_tids" | sed 's/ $//; s/ /, /g')"
+            for dep in $dep_tids; do
+                if [ -n "${TASK_ISSUE[$dep]:-}" ]; then
+                    issue_body+=$'\n'"- Blocked by #${TASK_ISSUE[$dep]}"
+                fi
+            done
+        fi
+    fi
+
     if [ "$DRY_RUN" -eq 1 ]; then
         echo "would create: ${title}"
     else
-        url="$(gh issue create "${GH_REPO_ARGS[@]}" --title "$title" --body "Auto-created from ${TASKS} (${tid}) by CPP speckit-tasks-to-issues." 2>&1)"
+        url="$(gh issue create "${GH_REPO_ARGS[@]}" --title "$title" --body "$issue_body" 2>&1)"
         echo "create ${tid} -> ${url}"
         EXISTING["$tid"]=1
+        num="${url##*/}"
+        [[ "$num" =~ ^[0-9]+$ ]] && TASK_ISSUE["$tid"]="$num"
     fi
     created=$((created + 1))
 done < "$TASKS"
