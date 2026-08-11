@@ -245,6 +245,25 @@ re-brief for a worker whose compaction dropped more detail than expected.
 - Shows `role -> address`, liveness, verification state, and current issue.
 - Dead entries read `stale` and are kept, not deleted - a dead worker mid-issue
   is information, and its worktree claim outlives it.
+- **Unregistered `flow-claim` locks are reconciled in (#687).** Registration is
+  opt-in and orthogonal to `/flow-auto`, so a session doing ordinary
+  single-issue work holds a real worktree lock while appearing nowhere on the
+  roster - in #673 an issue read as free while a live session was minutes from
+  a PR on it. `list` now also reads `git worktree list --porcelain`, and any
+  LIVE `flow-claim` lock that no live registry entry accounts for is rendered
+  as a claim-derived row (issue, branch, worktree, pid) and **participates in
+  lane-overlap detection**. Claim rows are contactable but are NOT roles: they
+  are never `verify`/`release` targets, and in `--json` they appear under a
+  separate `unregistered_claims` key rather than in the roles map.
+  - Their address is **observed, never derived**: a socket actually present for
+    that pid is reported; otherwise the row says it has no address. Computing
+    one from the pid would re-introduce the uds assumption this file dropped.
+  - **Coverage bound, stated so it is not mistaken for completeness:** repos to
+    scan come from the wave's own LIVE entries, plus an explicit `--repo <path>`.
+    A host where nothing is registered has nothing to scan and stays invisible.
+    #673 WOULD have been caught, because the orchestrator was registered with a
+    repo - that is the shape of the coverage, and the reader should not have to
+    guess it.
 - **Lane overlap warnings fire on the useful signal only**: same repo + same
   issue, same branch, or same/nested worktree paths between LIVE entries.
   Sharing a repo alone is the NORMAL wave shape (all workers, one repo,
