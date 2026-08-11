@@ -30,6 +30,18 @@ _CPP_ROOT = str(Path(__file__).resolve().parents[2])
 # summary line is expected, so the #621 skip-count parse is gated on it - a
 # linter that prints "3 files passed" must never be reported as a test suite.
 # Word-boundaried on both sides so "latest" / "contested" do not match.
+#
+# The scan covers the WHOLE command, PATHS INCLUDED: a step whose command names
+# ".../my-test-project/.venv/bin/python3" classifies as a test step no matter
+# what its id says. That is the accepted cost of recognizing a `make test`
+# recipe hiding under an unhelpful step id (#621), and narrowing the pattern to
+# dodge paths would weaken the detection it exists for. The consequence for
+# TESTS is a hard rule: a fixture must never interpolate an absolute path
+# (`sys.executable`, anything under pytest's `tmp_path`) into a step it wants
+# classified as a NON-test step, or the classification follows the checkout
+# location instead of the fixture's intent - which turned every flow worktree
+# whose branch slug contained "test" red (issue #704). Pinned by
+# tests/test_cicd_outcomes.py::TestStepGating.
 _TEST_STEP_HINT = re.compile(
     r"(?:^|[^a-z])(?:tests?|pytest|jest|vitest|unittest|nose)(?:[^a-z]|$)",
     re.IGNORECASE,

@@ -23,6 +23,28 @@ def _isolated_context(monkeypatch: pytest.MonkeyPatch, **env: str) -> dict[str, 
     return {"env": dict(env)}
 
 
+def _relative_interpreter(tmp_path: Path) -> str:
+    """A RELATIVE interpreter name for a step command, free of any absolute path.
+
+    ``sys.executable`` is an absolute path this module does not control, and
+    ``is_test_step()`` scans the whole COMMAND (see ``_TEST_STEP_HINT``): under a
+    flow worktree the interpreter lives at
+    ``.../claude-power-pack-issue-N-<slug>/.venv/bin/python3``, so a slug
+    containing "test" reclassified a ``lint`` step as a test step and turned the
+    gate red for reasons unrelated to the change under review (issue #704).
+
+    An absolute path under ``tmp_path`` is no better: pytest's own temp root is
+    ``/tmp/pytest-of-<user>/pytest-<n>/``, which matches on "pytest". Naming
+    ``PYTEST_WORKERS`` in the command matches too - which is why the caller reads
+    it via ``os.environ`` inside a script whose CONTENT is never scanned. Steps
+    run with ``cwd=project_root`` (``lib/cicd/steps.py``), so a relative name in
+    that directory reaches the interpreter while keeping every path out of the
+    command string.
+    """
+    (tmp_path / "interp").symlink_to(sys.executable)
+    return "./interp"
+
+
 @pytest.mark.parametrize(
     ("step_env", "host_env", "expected"),
     [
@@ -180,7 +202,20 @@ def test_non_test_step_never_receives_injected_cap(
     )
     step = StepDef(
         id="lint",
-        command=f'"{sys.executable}" capture_env.py',
+        command=f"{_relative_interpreter(tmp_path)} capture_env.py",
+    )
+
+    # Precondition guard (issue #704, the convention adopted in #697): this
+    # fixture constructs a NEGATIVE condition - a step that must NOT be seen as
+    # a test step - indirectly, via a command string. Assert the condition holds
+    # before exercising the runner, so a future absolute path smuggled into the
+    # command fails here, naming the real cause, instead of surfacing further
+    # down as an unrelated-looking "assert '7' == 'unset'".
+    assert not ShellStep(step).is_test_step(), (
+        "step 'lint' must classify as a NON-test step. If its command above shows "
+        "an ABSOLUTE path, this fixture is at fault - the command may contain no "
+        "path and must not name PYTEST_WORKERS (#704). Otherwise is_test_step() "
+        "itself regressed."
     )
 
     result = DeterministicRunner(project_root=tmp_path, output=StringIO()).run(
