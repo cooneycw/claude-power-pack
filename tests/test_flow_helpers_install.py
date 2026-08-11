@@ -1,10 +1,9 @@
-"""Tests for scripts/flow-helpers-install.sh - the #590 marketplace repair path.
+"""Tests for scripts/flow-helpers-install.sh - host helper installation.
 
 Contract:
 - Install the flow helper family into $HOME/.claude/scripts/, idempotently.
-- SYMLINK when the source is a CPP checkout (follows `git pull`, matching
-  /cpp:init Tier 2); COPY when the source is a plugin bundle (a symlink into a
-  version-stamped plugin cache dangles at the next upgrade).
+- SYMLINK when the source is a CPP checkout (follows `git pull`); COPY when the
+  source is a legacy plugin cache during the #662/#663 migration.
 - `--check` is read-only and reports ok / missing / stale, exit 1 on the latter
   two, so /flow:doctor can call it without mutating the host.
 """
@@ -62,7 +61,7 @@ def _verdict(proc: subprocess.CompletedProcess[str]) -> str:
 
 @pytest.fixture
 def plugin_source(tmp_path: Path) -> Path:
-    """A plugin-shaped source dir: scripts/ with no CLAUDE.md above it."""
+    """A legacy-cache-shaped source: scripts/ with no CLAUDE.md above it."""
     src = tmp_path / "plugin" / "scripts"
     src.mkdir(parents=True)
     for name in HELPERS:
@@ -97,7 +96,7 @@ def test_install_is_idempotent(tmp_path: Path, plugin_source: Path):
 
 
 def test_plugin_source_copies_rather_than_symlinks(tmp_path: Path, plugin_source: Path):
-    # A symlink into a version-stamped plugin cache dangles on upgrade; the copy
+    # A symlink into a version-stamped legacy cache dangles on uninstall; the copy
     # keeps working (and goes "stale", which --check reports).
     home = tmp_path / "home"
     _run(home=home, source=plugin_source)
@@ -140,7 +139,7 @@ def test_check_reports_ok_after_install(tmp_path: Path, plugin_source: Path):
     assert _verdict(proc) == "ok"
 
 
-def test_check_detects_stale_copies_after_a_plugin_upgrade(tmp_path: Path, plugin_source: Path):
+def test_check_detects_stale_legacy_cache_copies(tmp_path: Path, plugin_source: Path):
     home = tmp_path / "home"
     _run(home=home, source=plugin_source)
     # Simulate the upgrade: the bundled source moves on, the installed copy does not.

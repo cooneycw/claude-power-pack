@@ -236,9 +236,9 @@ if [[ -n "$flow_cmd_changed" ]]; then
     echo ""
     echo "  NOTE: flow command file(s) changed upstream:"
     print_list "$flow_cmd_changed"
-    echo "  After merging the base in, regenerate the packaged copies:"
-    echo "      scripts/plugin-sync.sh --write flow && python3 scripts/codex-skill-sync.py --write flow"
-    echo "  so the plugins/flow/ and codex/skills/ copies do not drift (issue #506)."
+    echo "  After merging the base in, regenerate the Codex skill copies:"
+    echo "      python3 scripts/codex-skill-sync.py --write flow"
+    echo "  so the codex/skills/ copies do not drift (issue #506; marketplace retired #662)."
 fi
 
 verdict "$result"

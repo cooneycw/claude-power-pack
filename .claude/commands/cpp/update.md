@@ -486,7 +486,7 @@ helper BARE (allowlist rule matches the stable path):
   fall back to `"$CPP_DIR/scripts/cpp-commands-link.sh" --check` once, or skip
   with a note on a Tier 0/1 install.
 
-**Marketplace-cache migration (pending #662):** while the deprecated `/plugin`
+**Marketplace-cache migration (#662 / ADR 0005):** while the retired `/plugin`
 families remain installed, sessions may read the STALE cached copies instead of
 these symlinks. If `~/.claude/plugins/cache/cpp/` still contains CPP families,
 print the uninstall list and recommend running it (user-typed CLI built-ins -
@@ -955,9 +955,9 @@ If not registered, ask the user:
 ```
 Register the session-open reminder in ~/.claude/settings.json? It prints one
 advisory line when pending friction signals or uncodified learnings exist (run
-/self-improvement:retro), and one when the installed command surface has fallen
-behind this checkout (run /plugin update). Surfaces only - never codifies, never
-blocks. Silent when there is nothing to report.  [y/N default N]
+/self-improvement:retro), and one when a retired CPP marketplace cache is still
+pending uninstall (#662/#663). Surfaces only - never codifies, never blocks.
+Silent when there is nothing to report.  [y/N default N]
 ```
 
 If yes, run the same idempotent merge as `/cpp:init`:
@@ -1082,44 +1082,30 @@ summary.
 
 ---
 
-## Step 7.10: Installed-Command Drift Report (issue #622)
+## Step 7.10: Retired Marketplace-Cache Report (issues #622/#662)
 
-The `git pull` in Step 2 moved the CHECKOUT. It did not move the copy a session
-actually executes: `/plugin install <family>@cpp` snapshots the commands into
-`~/.claude/plugins/`, and that snapshot only moves on a plugin re-install. Until
-#622 nothing compared the two, so a box could sit 15 commits behind for a week
-and every session would silently run week-old instructions - on flow:auto #65
-that meant re-diagnosing a bug #595 had already fixed and nearly filing a
-duplicate issue for it.
-
-This step reports the gap and names the command files that changed, so a
-long-running session learns what it was missing. Read-only and fail-open.
+CPP's marketplace lane is retired by #662 / ADR 0005. The old clone/cache
+parity walk has no source after `plugins/` removal. This step now names any CPP
+families still installed under `~/.claude/plugins/cache/cpp/` as migration state.
+It is read-only, informational, and fail-open.
 
 ```bash
 scripts/install-drift.sh || true
 ```
 
-- `INSTALL_DRIFT: ok` - the install matches the checkout; report
-  `✓ Installed commands match the checkout` and continue.
-- `INSTALL_DRIFT: skipped` - no plugin install on this box (or no checkout, which
-  cannot happen here); report and continue.
-- `INSTALL_DRIFT: drift` - surface the report as-is. It already names the stale
-  files; add `--list` if the user wants all of them rather than the sample. Then
-  tell them how to reconcile, which is NOT something this command can do:
+- `INSTALL_DRIFT: skipped` with no cache - nothing remains; continue silently.
+- `INSTALL_DRIFT: skipped` with retired families - surface the informational
+  report and the per-family migration commands. Exit status remains zero.
+- `INSTALL_DRIFT: error` - report the diagnostic and continue; this advisory
+  never blocks an update.
 
+  ```text
+  CPP's marketplace lane is retired (#662). For every family listed, run:
+
+    /plugin uninstall <family>@cpp
+
+  Issue #663's restored tiered symlink surface replaces the cache.
   ```
-  The installed plugin snapshot is {N} commit(s) behind this checkout and {M}
-  command file(s) differ. /cpp:update refreshes the non-plugin infra (helpers,
-  hooks, allowlist) but cannot update a /plugin install - run:
-
-    /plugin update            (or: /plugin marketplace update cpp)
-
-  Until then, sessions execute the older command text.
-  ```
-
-A `SPLIT INSTALL` line in the report is worth repeating verbatim: it means the
-helpers this command just re-linked are current while the markdown driving them
-is not, which presents as a helper bug rather than as staleness.
 
 ---
 
@@ -1236,10 +1222,9 @@ Run /cpp:status for full installation details.
   detected against the curated `.claude/retired-surfaces.yaml`
 - Retired-surface teardown is per-surface, user-confirmed, marker-gated, and
   REVERSIBLE - files are moved to a timestamped sibling directory, never deleted
-- Step 7.10 reports installed-plugin-vs-checkout command drift (issue #622) and
-  names the stale command files. `/cpp:update` cannot fix that half - a `/plugin`
-  install is refreshed by `/plugin update`, not by this command - so the step
-  reports and points, and never pretends to have reconciled it
+- Step 7.10 names retired CPP marketplace cache families (#622/#662) and points
+  at `/plugin uninstall <family>@cpp`; it is informational until #663 restores
+  the canonical symlink tier
 - Orphaned legacy systemd units such as `mcp-coordination` are flagged for teardown
 - Orphaned Docker MCP infra (Step 6c/7) - a container, `mcp-<name>:*` image, or
   `claude`/`codex mcp` registration left behind after a server is retired from CPP

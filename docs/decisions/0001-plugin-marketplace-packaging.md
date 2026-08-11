@@ -1,11 +1,14 @@
 # ADR 0001: Plugin-marketplace packaging for CPP
 
-- Status: Accepted (phased adoption)
+- Status: Superseded by ADR 0005 (2026-08-11, issue #662)
 - Date: 2026-07-03
 - Deciders: cooneycw (owner)
 - Issue: #442 (epic #417, Phase B)
 - Supersedes: nothing
 - Related: #443 / PR #467 (eli5-gate: /flow:eli5 extracted to its own public repo https://github.com/cooneycw/eli5-gate - the precedent for this pattern), #446 (multi-harness single-source skill generation), mcp-second-opinion (SHIPPED: https://github.com/cooneycw/mcp-second-opinion; CPP strip-out #469), #472 (cpp_memory store backend mini-tier - stays in CPP)
+
+ADR [0005](0005-retire-plugin-marketplace-distribution.md) retires the Phase B
+distribution decision recorded here; the remainder is preserved as history.
 
 ## TL;DR
 

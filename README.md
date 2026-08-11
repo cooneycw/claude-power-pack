@@ -15,7 +15,7 @@
 - **Woodpecker CI** - Self-hosted pipeline (secret-scan, lint, test, typecheck, Dockerfile lint) with programmatic status polling
 - **Project scaffolding** (`/project:init`) - Zero-to-GitHub-repo setup with Makefile, CI pipeline, and Docker config
 - **Skills ecosystem** - Discover, install, and manage agent skills from [skills.sh](https://skills.sh/) via native `npx skills` and the `/plugin` marketplace (the CPP `/skills:*` wrapper was retired in issue #437)
-- **Secret-masking hook** - a PostToolUse hook masks secrets (connection strings, API keys, env vars) in Bash/Read output; bundled inside the `secrets` plugin (#479), so plugin installs get masking with no host script setup; destructive commands are handled by Claude Code's native git auto-blocking + OS sandbox
+- **Secret-masking hook** - a PostToolUse hook in `.claude/hooks.json` masks secrets (connection strings, API keys, env vars) in Bash/Read output; host installation is managed by `/cpp:init` / `/cpp:update`; destructive commands are handled by Claude Code's native git auto-blocking + OS sandbox
 
 ## Requirements
 
@@ -27,34 +27,29 @@
 
 ## Install
 
-CPP ships as a **plugin marketplace** (ADR [0001](docs/decisions/0001-plugin-marketplace-packaging.md), epic #417 Phase B). The command/skill/hook surface installs through Claude Code's `/plugin`, so there is nothing to clone and no symlink installer to run:
+CPP's own plugin marketplace was retired by issue #662 and ADR [0005](docs/decisions/0005-retire-plugin-marketplace-distribution.md). Clone the repository; issue #663 restores the tiered `/cpp:init` + `/cpp:update` symlink surface as the canonical command installation path:
 
-```
-# In Claude Code, add the marketplace once:
-/plugin marketplace add cooneycw/claude-power-pack
+```bash
+git clone https://github.com/cooneycw/claude-power-pack.git
+cd claude-power-pack
 
-# Then install only the families you want (each is an independent plugin):
-/plugin install flow@cpp
-/plugin install cicd@cpp
-/plugin install secrets@cpp
-# ... browser, claude-md, codex, documentation, evaluate, github, project,
-#     qa, second-opinion, security, self-improvement (15 in all), plus the
-#     help-only cpp plugin.
+# The restored canonical installer lands in issue #663:
+/cpp:init
 ```
 
-`/plugin` handles versioning and updates for the installed surfaces. The `secrets` plugin bundles the PostToolUse secret-masking hook, so a plugin-only install gets masking with no host setup. **If you installed `flow`, run `/flow:repair` once**: its commands call a family of helper scripts, and while the plugin bundles them, they have to be placed at `~/.claude/scripts/` - the stable path the shipped permission allowlist matches - before `/flow:start` and `/flow:auto` will run (issue #590). Re-run it after a plugin upgrade; `/flow:doctor` reports when the installed copies have gone stale. The `second-opinion` plugin ships the review *commands* only and deliberately does NOT auto-register an MCP server (the external server is opt-in and not running on a fresh box, so auto-registration would surface as "1 error during load"); register it yourself once the server is up (see below).
+Existing CPP marketplace users should run `/plugin uninstall <family>@cpp` for each of the 15 installed families. `scripts/install-drift.sh` keeps two host checks visible: it guards installed `~/.claude/scripts/*.sh` helpers against the checkout through #663's symlink restoration, and names lingering marketplace cache families as retired, non-failing migration state. The symlink tier restored by #663 replaces those caches and follows `git pull` without a separate update stamp.
 
-### Non-plugin setup (the fallback `/plugin` cannot cover)
+### Host setup
 
-A plugin install delivers commands, skills, and hooks - but not the out-of-band infrastructure some families reach, and not an auto-registered MCP server. Run `/cpp:init` in a target project for those steps (it is now the non-plugin infra installer, not the primary way to get commands):
+`/cpp:init` also configures the out-of-band infrastructure used by some command families:
 
-- **External Second Opinion server** - the multi-model review server lives in its own repo ([cooneycw/mcp-second-opinion](https://github.com/cooneycw/mcp-second-opinion)). The `second-opinion` plugin ships the review commands only and does NOT auto-register the server; start the external server, then register it with `claude mcp add second-opinion --transport http --url http://127.0.0.1:8080/mcp --scope user` (use your Tailscale URL for a remote host).
+- **External Second Opinion server** - the multi-model review server lives in its own repo ([cooneycw/mcp-second-opinion](https://github.com/cooneycw/mcp-second-opinion)). Start the external server, then register it with `claude mcp add second-opinion --transport http --url http://127.0.0.1:8080/mcp --scope user` (use your Tailscale URL for a remote host).
 - **Browser automation** - registers the upstream `@playwright/mcp` npx/stdio server (no container).
 - **Secrets provisioning** - AWS Secrets Manager access for Woodpecker CI keys (`essent-ai`) and the `CPP_MEMORIES_DSN` common-memory DSN; fetched directly via the AWS SDK/CLI.
 - **Bootstrap prerequisites** - `jq`, and the optional spec-kit CLI (`specify`, the engine behind `/spec:adopt`).
 - **Permission census hook + flow allowlist** - registers the observe-only PermissionRequest census hook and merges the read-only `/flow:*` allowlist - including the audited flow helper-script rules that make `/flow:auto` Phase 1 prompt-free (issue #581) - into `~/.claude/settings.json` (both user-confirmed).
 
-`/cpp:update` refreshes those same non-plugin artifacts. See [`docs/HOST_MANAGED_ARTIFACTS.md`](docs/HOST_MANAGED_ARTIFACTS.md) for the full inventory.
+`/cpp:update` refreshes those same host artifacts. See [`docs/HOST_MANAGED_ARTIFACTS.md`](docs/HOST_MANAGED_ARTIFACTS.md) for the full inventory.
 
 ### Developing CPP itself
 
@@ -67,7 +62,7 @@ uv sync --extra dev
 make verify
 ```
 
-`.claude/commands/<family>/*.md` is the permanent source of truth; the `plugins/` copies are byte-identical artifacts regenerated by `scripts/plugin-sync.sh --write` and guarded by `--check`. The same source also feeds the Codex harness: `scripts/codex-skill-sync.py` emits per-command Codex skills under `codex/skills/` (`make codex-skills`, issue #555), guarded by an explicit `codex-skills-check` CI step. The older flat `codex/prompts/` surface it replaced was retired at the #556 cutover.
+`.claude/commands/<family>/*.md` is the permanent source of truth. It feeds only the generated Codex harness surface: `scripts/codex-skill-sync.py` emits per-command Codex skills under `codex/skills/` (`make codex-skills`, issue #555), guarded by an explicit `codex-skills-check` CI step. The older flat `codex/prompts/` surface it replaced was retired at the #556 cutover.
 
 ## Project Structure
 
@@ -76,8 +71,6 @@ claude-power-pack/
   .claude/commands/     Slash commands (/flow:*, /cicd:*, /security:*, etc.)
   .claude/hooks.json    Safety hooks (pre/post tool use)
   .mcp.json             Client pointer for the external second-opinion server
-  .claude-plugin/       Plugin-marketplace manifest (marketplace name: cpp)
-  plugins/              Per-family plugins (15): /plugin install <family>@cpp (#477/#478, ADR 0001)
   codex/skills/         Generated Codex SKILL.md skills, second harness surface (#555)
   codex/cpp-memory.md   Curated Codex /cpp-memory prompt (#433; flat codex/prompts/ retired #556)
   lib/creds/            Secrets management library
@@ -139,7 +132,7 @@ Architecture: Woodpecker server on a dedicated VM, agent on the dev workstation,
 
 ### v7.3.0 (2026-07-04)
 
-- **Plugin-marketplace distribution + install-path cutover** (epic #417 Phase B, ADR 0001) - CPP now installs through Claude Code's `/plugin`: `/plugin marketplace add cooneycw/claude-power-pack` then `/plugin install <family>@cpp` (15 per-family plugins). The dual command/skill surface, the `~/.claude/skills` global mirror, `flow-skill-sync.py`, `skill-drift.py`, and the symlink-installer paths were retired (#477/#478/#479/#480). `/cpp:init` / `/cpp:update` remain the installer for the non-plugin infra a plugin cannot cover (external MCP server pointer, secrets, bootstrap prereqs, permission-census hook, flow allowlist).
+- **Plugin-marketplace distribution + install-path cutover** (epic #417 Phase B, ADR 0001) - CPP adopted 15 per-family plugins and retired its earlier symlink surface (#477/#478/#479/#480). **Reversed 2026-08-11:** issue #662 / ADR 0005 retires CPP's marketplace lane after version-stamp drift proved unreconcilable; uninstall existing families with `/plugin uninstall <family>@cpp`. The tiered `/cpp:init` + `/cpp:update` symlink surface returns as canonical in #663.
 - **Docker MCP runtime retired** (#469, #423) - Second Opinion moved to its own external repo ([cooneycw/mcp-second-opinion](https://github.com/cooneycw/mcp-second-opinion)) consumed via a `.mcp.json` client pointer; browser automation moved to the upstream `@playwright/mcp` npx server. CPP ships no containers and `make deploy` is an informative no-op.
 - **`/flow:eli5` necessity gate extracted** to the standalone [eli5-gate](https://github.com/cooneycw/eli5-gate) plugin (#443); CPP vendors its canonical core with a drift check.
 

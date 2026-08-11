@@ -32,7 +32,6 @@ other:
 
 Reconcile drift by editing the CANONICAL repo first, then re-vendoring here.
 After a re-vendor, refresh the generated surfaces:
-    scripts/plugin-sync.sh --write flow
     python3 scripts/codex-skill-sync.py --write flow
 """
 
@@ -247,7 +246,7 @@ def cmd_revendor(manifest: dict) -> int:
     MANIFEST_PATH.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
     print(f"eli5-vendor: {'re-vendored core and' if changed else 'core already current;'} updated the manifest")
-    print("Next: scripts/plugin-sync.sh --write flow && python3 scripts/codex-skill-sync.py --write flow")
+    print("Next: python3 scripts/codex-skill-sync.py --write flow")
     return 0
 
 

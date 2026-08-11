@@ -11,12 +11,10 @@ Generated from a Claude Code command. Where the procedure references these Claud
 - MCP tools: use the MCP servers configured in `~/.codex/config.toml`, or fall back to the referenced repo scripts and CLI entry points.
 - `CLAUDE.md` references: Codex reads `AGENTS.md`; treat them as the target repo's agent-context file.
 
-Read and summarize the key points from the full best-practices guide. Resolve it
-from the first of these locations that exists (the second covers plugin-only
-installs, where the cpp plugin bundles the doc - issue #582):
-
-1. `docs/reference/CLAUDE_CODE_BEST_PRACTICES_FULL.md` (CPP repo checkout)
-2. `${CLAUDE_PLUGIN_ROOT}/docs/reference/CLAUDE_CODE_BEST_PRACTICES_FULL.md` (plugin install)
+Read and summarize the key points from the full best-practices guide at
+`docs/reference/CLAUDE_CODE_BEST_PRACTICES_FULL.md` in the CPP checkout. CPP's
+marketplace bundle was retired by issue #662 / ADR 0005; issue #663 restores the
+checkout-backed symlink command surface as canonical.
 
 **Note:** For context efficiency, consider using topic-specific skills instead:
 - `context-efficiency` - Token optimization

@@ -3,7 +3,7 @@
 #
 # Some hosts serve the CPP command surface from a byte-copy of .claude/commands/
 # outside the repo (e.g. ~/Projects/.claude/commands, project scope for sessions
-# started above the checkout) instead of /plugin installs. Nothing maintained
+# started above the checkout). Nothing maintained
 # those mirrors, so they silently go stale as CPP merges land - and a current
 # mirror masks packaging gaps from the very box that would notice them (#582).
 #

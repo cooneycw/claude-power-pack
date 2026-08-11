@@ -130,16 +130,13 @@ misdetected `current-branch`/`resume` lane, not a wrong-repo `EnterWorktree`.
 If the stable path is missing (exit 127), fall back in this order - the first
 that exists (issue #590):
 
-1. `${CLAUDE_PLUGIN_ROOT}/scripts/flow-start-resolve.sh` - the flow plugin
-   bundles the helper family, so a marketplace-only install (no CPP clone) has
-   this copy. `CLAUDE_PLUGIN_ROOT` is unset outside a plugin install.
-2. `scripts/flow-start-resolve.sh` from the CPP checkout.
+1. `scripts/flow-start-resolve.sh` from the CPP checkout.
 
 Either fallback may prompt once: the allowlist rules match only the stable
 `~/.claude/scripts/` path. Tell the user to run **`/flow-repair`**, which
 installs the family there and restores the prompt-free lane. If BOTH fallbacks
 exit 127 there is no helper source at all - **STOP** and report that flow needs
-`/plugin install flow@cpp` (then `/flow-repair`) or a CPP checkout.
+a CPP checkout plus `/flow-repair` (the symlink tier returns in issue #663).
 
 The helper prints a `key=value` contract ending in `FLOW_START_RESOLVE: ok`.
 On `FLOW_START_RESOLVE: error` (with an `ERROR=` line): **STOP** and report it.
@@ -299,8 +296,7 @@ wins), then produce the report against THAT spec, including its report template
 and depth floor:
 
 1. the installed global skill: `~/.claude/skills/flow-eli5/SKILL.md`
-2. the installed `flow` plugin's `eli5.md` command (`plugins/flow/commands/eli5.md` in a marketplace checkout)
-3. inside the CPP repo itself: `.claude/commands/flow/eli5.md`
+2. inside the CPP repo itself: `.claude/commands/flow/eli5.md`
 
 Do NOT produce the report from the summary below alone - outside the CPP repo the
 repo-relative path does not exist, and the summary omits the template and floor.
@@ -384,10 +380,10 @@ and continue. `/flow-repair` installs the family at the stable path.)
   `git commit -m "wip(flow): pre-merge snapshot"`) and merge on the clean tree
   - never stash: the stash stack is SHARED across every worktree of the repo
   and a bare pop can restore a sibling session's work (#635). If the merge touched any
-  `.claude/commands/**/*.md`, re-run the LOCAL `scripts/plugin-sync.sh --write`
-  and `python3 scripts/codex-skill-sync.py --write`, then stage `plugins/` and
-  `codex/skills/`, so the in-repo generated surfaces do not drift - the parity
-  gates check all 15 families (issue #506; Codex skills #555, cutover #556).
+  `.claude/commands/**/*.md`, re-run the LOCAL
+  `python3 scripts/codex-skill-sync.py --write`, then stage `codex/skills/`, so
+  the generated Codex surface does not drift (issue #506; Codex skills #555,
+  marketplace retired #662).
 - If it reports `current` or `moved-clean` with no overlap, proceed - the Step-7
   #462 guard remains the final backstop.
 
@@ -511,18 +507,10 @@ if [ "$(git rev-list --count HEAD..origin/main)" -gt 0 ]; then
         echo "NOTE: your Step-4 work is safe in the 'wip(flow): pre-merge snapshot' commit on this branch."
         exit 1
     fi
-    # Keep the in-repo generated surfaces from drifting when the merge pulled ANY
-    # command-family source: the packaged plugin copies AND the Codex skills are
-    # both regenerated from .claude/commands/ and share the exact sibling-merge
-    # drift race the flow-* skill mirror had - the parity gates cover all 15
-    # families, not just flow (issue #506; Codex skills #555, flat codex/prompts/
-    # retired at the #556 cutover). Use the LOCAL scripts (they derive repo-root
-    # from their own path, so they re-sync THIS worktree, not $CPP_DIR); [ -x ... ]
-    # keeps each CPP-only, a no-op elsewhere. The Step-6 commit below stages the
-    # regenerated files.
-    if [ -x scripts/plugin-sync.sh ] && git diff --name-only ORIG_HEAD..HEAD | grep -q '^\.claude/commands/.*\.md$'; then
-        scripts/plugin-sync.sh --write || true
-    fi
+    # Keep the generated Codex surface current when the merge pulled ANY command
+    # source (issue #506; marketplace copies retired in #662). Use the LOCAL
+    # script so it re-syncs THIS worktree, not $CPP_DIR; [ -x ... ] keeps this
+    # CPP-only and a no-op elsewhere. The Step-6 commit stages generated files.
     if [ -x scripts/codex-skill-sync.py ] && git diff --name-only ORIG_HEAD..HEAD | grep -q '^\.claude/commands/.*\.md$'; then
         python3 scripts/codex-skill-sync.py --write || true
     fi
@@ -660,24 +648,19 @@ Report: `Step 6/9: Finish complete - PR #XX created`
            echo "(Do NOT 'git merge --abort' - that discards the resolution.)"
            exit 1
        fi
-       # If the merge pulled ANY command-family source, re-sync the in-repo
-       # generated surfaces - the packaged plugin copies AND the Codex skills
-       # (all families, not just flow - issue #506; Codex skills #555, flat
-       # codex/prompts/ retired at the #556 cutover) - then COMMIT them: this
+       # If the merge pulled ANY command-family source, re-sync the generated
+       # Codex skills (all families, not just flow - issue #506) and COMMIT them: this
        # branch is squashed straight after `git push` below with no further commit
-       # step, so uncommitted plugins/ or codex/skills/ would leave the squash
+       # step, so uncommitted codex/skills/ would leave the squash
        # carrying stale copies and fail the parity gates on main - the exact race
        # this guards. LOCAL scripts re-sync THIS worktree; [ -x ... ] keeps each
        # CPP-only.
-       if [ -x scripts/plugin-sync.sh ] && git diff --name-only ORIG_HEAD..HEAD | grep -q '^\.claude/commands/.*\.md$'; then
-           scripts/plugin-sync.sh --write || true
-       fi
        if [ -x scripts/codex-skill-sync.py ] && git diff --name-only ORIG_HEAD..HEAD | grep -q '^\.claude/commands/.*\.md$'; then
            python3 scripts/codex-skill-sync.py --write || true
        fi
-       if ! git diff --quiet -- plugins/ codex/skills/; then
-           git add plugins/ codex/skills/
-           git commit -m "chore(generated): re-sync plugin + codex skill copies after merging origin/main (#506)"
+       if ! git diff --quiet -- codex/skills/; then
+           git add codex/skills/
+           git commit -m "chore(generated): re-sync codex skill copies after merging origin/main (#506)"
        fi
    fi
    ```

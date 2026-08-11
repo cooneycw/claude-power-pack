@@ -30,8 +30,8 @@ Codex fallback bullet in a generated adaptations block.
 
 Ownership rule: the script manages ONLY skill dirs whose SKILL.md carries its
 GENERATED marker. Hand-curated skill dirs are never overwritten or
-orphan-deleted. Mirrors the plugin-sync.sh idiom:
-deterministic, git-free (byte-for-byte local diff, no network) so it runs in
+orphan-deleted. Generation is deterministic and git-free (byte-for-byte local
+diff, no network) so it runs in
 the git-less CI validate container. Reconcile drift by editing the SOURCE
 (.claude/commands/<family>/) then re-running with --write.
 """
@@ -50,9 +50,9 @@ SOURCE_ROOT = REPO_ROOT / ".claude" / "commands"
 SCRIPTS_ROOT = REPO_ROOT / "scripts"
 OUTPUT_ROOT = REPO_ROOT / "codex" / "skills"
 
-# Same packaged families as plugin-sync.sh (ADR 0001 target design), minus the
-# `codex` family: those commands orchestrate the Codex CLI itself, so shipping
-# them INTO Codex as skills would be circular.
+# Claude command families exposed to Codex, minus `codex`: those commands
+# orchestrate the Codex CLI itself, so shipping them INTO Codex as skills would
+# be circular.
 FAMILIES = [
     "browser", "cicd", "claude-md", "cpp", "documentation", "evaluate",
     "flow", "github", "project", "qa", "second-opinion", "secrets",
@@ -70,8 +70,7 @@ EXCLUDE: dict[str, set[str]] = {
 }
 
 # Families deliberately not generated as Codex skills (#582 completeness gate):
-#   spec: spec-kit is the upstream product; /spec:adopt installs it (same
-#     carve-out as plugin-sync.sh / ADR 0001).
+#   spec: spec-kit is the upstream product; /spec:adopt installs it.
 #   codex: orchestrates the Codex CLI itself - circular as a Codex skill.
 UNPACKAGED_FAMILIES: set[str] = {"spec", "codex"}
 
@@ -125,11 +124,6 @@ ADAPTATIONS: list[tuple[tuple[str, ...], str]] = [
         ("mcp__", "MCP", "playwright"),
         "MCP tools: use the MCP servers configured in `~/.codex/config.toml`,"
         " or fall back to the referenced repo scripts and CLI entry points.",
-    ),
-    (
-        ("/plugin install", "/plugin marketplace"),
-        "Claude `/plugin` install references: install the codex-power-pack"
-        " equivalent plugin/skill instead.",
     ),
     (
         ("CLAUDE.md",),

@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **2026-08-11 - CPP plugin-marketplace distribution retired** (issue #662,
+  ADR 0005) - removed `.claude-plugin/`, all 15 `plugins/<family>/` trees, and
+  `scripts/plugin-sync.sh`. The package stamp did not move with command content,
+  so `/plugin update` refreshed the marketplace clone while executed caches
+  remained stale; the model had no bulk reconciliation path. Existing installs
+  should run `/plugin uninstall <family>@cpp` for all 15 families. The tiered
+  `/cpp:init` + `/cpp:update` symlink command surface returns as canonical via
+  issue #663. External marketplaces and Claude Code's native `/plugin` remain
+  supported for third-party content.
+
 ### Added
 
 - **Installed-plugin-vs-checkout drift detection** (issue #622) - the copy of a

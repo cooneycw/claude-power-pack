@@ -124,13 +124,12 @@ def repo(tmp_path: Path) -> tuple[Path, Path]:
 
 
 def test_claim_script_is_registered_with_the_helper_family() -> None:
-    """A helper the flow lane calls must ship with the family, or a plugin-only
-    install dead-ends at exit 127 (the #590 failure)."""
+    """A helper the flow lane calls must ship in the host and Codex surfaces."""
     installer = (ROOT / "scripts" / "flow-helpers-install.sh").read_text()
     assert "flow-worktree-claim.sh" in installer
 
-    plugin_sync = (ROOT / "scripts" / "plugin-sync.sh").read_text()
-    assert "scripts/flow-worktree-claim.sh" in plugin_sync
+    bundled = ROOT / "codex" / "skills" / "flow-auto" / "scripts" / "flow-worktree-claim.sh"
+    assert bundled.read_text() == (ROOT / "scripts" / "flow-worktree-claim.sh").read_text()
 
     perms = (ROOT / "templates" / "claude-settings-permissions.json").read_text()
     assert "Bash(~/.claude/scripts/flow-worktree-claim.sh:*)" in perms
