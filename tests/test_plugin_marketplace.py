@@ -316,6 +316,7 @@ FLOW_BUNDLED_HELPERS = [
     "flow-live-driver-guard.sh",
     "flow-worktree-claim.sh",
     "flow-wave-registry.sh",
+    "flow-wave-plan.py",
     "flow-finish-gate.sh",
     "flow-stale-check.sh",
     "flow-worktree-guard.sh",

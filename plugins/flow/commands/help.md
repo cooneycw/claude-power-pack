@@ -17,6 +17,7 @@ Streamlined worktree-based development workflow. No locks, no Redis - just git.
 | `/flow:auto <issue>` | Full lifecycle: start → analyze → ELI5 (plan + necessity gate) → implement → update docs → finish → merge → deploy |
 | `/flow:auto_codex <issue>` | `/flow:auto` plus a Codex pre-PR review stage between implement and update docs (`/codex:code_review`; degrades to plain `/flow:auto` if Codex CLI is unavailable) |
 | `/flow:register <role>` | Declare this session's wave role so the orchestrator addresses it by socket (`--list` roster, `--release` to leave) |
+| `/flow:wave <name>` | Orchestrate a dependency-ordered issue wave across worker sessions: judged ELI5 gates, dynamic contention re-planning, completeness ledger |
 | `/flow:cleanup` | Prune stale worktree references and delete merged branches |
 | `/flow:doctor` | Diagnose workflow environment and readiness |
 | `/flow:repair` | Install the flow helper family into `~/.claude/scripts/` (run once after a plugin install) |
