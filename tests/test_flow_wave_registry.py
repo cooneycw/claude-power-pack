@@ -12,6 +12,12 @@ Contract:
 - ``verify`` reconciles the recorded address against the transport-observed
   ``from=``. Gate condition 1 (#638): on mismatch the OBSERVED address becomes
   canonical and the entry is flagged - never the reverse.
+- ``verify`` distinguishes the benign fill from the contradiction (#674):
+  ``unknown`` -> observed is ``address_filled`` (no warning, ``address_mismatch``
+  stays false, ``list`` renders ``filled``), while a real recorded address
+  contradicted by the observed one stays ``mismatch-corrected`` and loud. Both
+  keep the observed address canonical and both exit 0 - a new verdict must never
+  become a new exit code, or a ``set -euo pipefail`` caller aborts mid-script.
 - Address bootstrap is honest (#672): a failed self-derivation names its cause
   (``no-sock-dir`` vs ``no-match``), reports ``FLOW_WAVE_BOOTSTRAP=deadlock``
   instead of promising a ``verify`` that cannot fire, re-derives on a retry
@@ -281,6 +287,104 @@ class TestVerify:
         p = _run(tmp_path, "verify", "ghost", "--from", "uds:/tmp/x.sock")
         assert p.returncode == 0
         assert _verdict(p) == "unknown"
+
+
+@requires_tools
+class TestAddressFilledVsMismatch:
+    """The benign fill is not the pathological contradiction (issue #674).
+
+    Both outcomes make the observed address canonical, so what separates them is
+    what they SAY about the entry. Filling an absent address is the documented
+    bootstrap fallback succeeding; a recorded real address contradicted by the
+    transport is a possible misrouting or stale pid reuse. Before the split both
+    emitted ``mismatch-corrected`` with the flag set, so on a host with no socket
+    dir the flag fired on 100% of the fleet and carried no signal at all.
+    """
+
+    def test_unknown_recorded_is_filled_and_not_flagged(self, tmp_path: Path) -> None:
+        # No --socket and no socket dir -> the entry records the literal 'unknown'.
+        reg = _run(tmp_path, "register", "1")
+        assert _registry_json(tmp_path)["default"]["roles"]["1"]["socket"] == "unknown"
+        assert _detail(reg, "FLOW_WAVE_BOOTSTRAP") == "deadlock"
+
+        p = _run(tmp_path, "verify", "1", "--from", "uds:/tmp/observed.sock")
+        assert p.returncode == 0
+        assert _verdict(p) == "address_filled"
+        assert _detail(p, "FLOW_WAVE_MISMATCH") == "false"
+        assert _detail(p, "FLOW_WAVE_SOCKET") == "uds:/tmp/observed.sock"
+
+        entry = _registry_json(tmp_path)["default"]["roles"]["1"]
+        assert entry["socket"] == "uds:/tmp/observed.sock"
+        assert entry["verified"] is True
+        assert entry["address_filled"] is True
+        # The whole point: benign, so the flag stays DOWN.
+        assert entry["address_mismatch"] is False
+
+    def test_filled_does_not_tell_the_reader_to_investigate(self, tmp_path: Path) -> None:
+        """A flag that fires on the normal case trains everyone to ignore it."""
+        _run(tmp_path, "register", "1")
+        p = _run(tmp_path, "verify", "1", "--from", "uds:/tmp/observed.sock")
+        assert "WARNING" not in p.stderr
+        assert "Investigate" not in p.stderr
+        assert "Nothing to investigate" in p.stderr
+
+    def test_real_address_contradiction_still_shouts(self, tmp_path: Path) -> None:
+        """The discrimination: a genuine mismatch keeps the loud treatment."""
+        _run(tmp_path, "register", "1", "--socket", "uds:/tmp/self-derived.sock")
+        p = _run(tmp_path, "verify", "1", "--from", "uds:/tmp/observed.sock")
+        assert _verdict(p) == "mismatch-corrected"
+        assert "WARNING" in p.stderr
+        assert "Investigate the discrepancy" in p.stderr
+        assert _registry_json(tmp_path)["default"]["roles"]["1"]["address_mismatch"] is True
+
+    def test_list_renders_filled_and_mismatch_distinctly(self, tmp_path: Path) -> None:
+        _run(tmp_path, "register", "1")
+        _run(tmp_path, "verify", "1", "--from", "uds:/tmp/observed.sock")
+        _run(tmp_path, "register", "2", "--socket", "uds:/tmp/claimed.sock")
+        _run(tmp_path, "verify", "2", "--from", "uds:/tmp/other-observed.sock")
+
+        p = _run(tmp_path, "list", live=SELF_PID)
+        assert "1 -> uds:/tmp/observed.sock [live, filled]" in p.stdout
+        assert "2 -> uds:/tmp/other-observed.sock [live, MISMATCH-corrected]" in p.stdout
+
+    def test_filled_verdict_does_not_abort_a_strict_caller(self, tmp_path: Path) -> None:
+        """A new verdict must not become a new exit code (issue #673's lesson).
+
+        Dropping ``|| true`` from drift-detect.sh let a helper's new exit 3 abort
+        the whole report under ``set -euo pipefail`` - and the symptom was a
+        TRUNCATED report, not an error, which reads as success. So assert the
+        CALLER RUNS TO COMPLETION, not merely that the new verdict prints:
+        completion is the property, and intent is not a regression test.
+        """
+        _run(tmp_path, "register", "1")
+        caller = tmp_path / "caller.sh"
+        caller.write_text(
+            "set -euo pipefail\n"
+            f'bash {REGISTRY} verify 1 --from uds:/tmp/observed.sock --wave default\n'
+            "echo CALLER_REACHED_THE_END\n"
+        )
+        env = os.environ.copy()
+        env.update(
+            {
+                "CLAUDE_PID": SELF_PID,
+                "CLAUDE_CODE_SESSION_ID": SELF_SESSION,
+                "FLOW_WAVE_REGISTRY_DIR": str(tmp_path / "reg"),
+                "FLOW_WAVE_SOCK_DIR": str(tmp_path / "socks"),
+                "FLOW_WAVE_HOST": HOST,
+                "FLOW_WAVE_LIVE_PIDS": "",
+                "FLOW_WAVE_NOW": "1700000000",
+            }
+        )
+        p = subprocess.run(
+            ["bash", str(caller)],
+            capture_output=True,
+            text=True,
+            env=env,
+            check=False,
+        )
+        assert p.returncode == 0
+        assert "FLOW_WAVE: address_filled" in p.stdout
+        assert "CALLER_REACHED_THE_END" in p.stdout
 
 
 @requires_tools

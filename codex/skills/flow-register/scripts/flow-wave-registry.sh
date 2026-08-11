@@ -64,9 +64,27 @@
 #             every worker shares the repo by design (info only).
 #   get       key=value contract for one role (for scripting).
 #   verify    Orchestrator-side: reconcile the recorded address with the
-#             OBSERVED `from=` of a real message. Match -> verified. Mismatch
-#             -> the observed address becomes canonical, the entry is flagged
-#             (`address_mismatch`), and the verdict is `mismatch-corrected`.
+#             OBSERVED `from=` of a real message. Three outcomes, and the split
+#             between the last two is the point (#674) - the observed address
+#             becomes canonical in all of them, so they differ in what they say
+#             about the entry, never in how much it can be trusted:
+#               match                 -> `verified`.
+#               recorded was unknown  -> `address_filled`. The documented
+#                 fallback WORKING: self-derivation failed at register time and
+#                 observation supplied what it could not. Benign - info line,
+#                 no investigate warning, `address_mismatch` stays FALSE, and
+#                 `list` renders `filled`. `filled` is NOT a lesser grade than
+#                 `verified`: the address is transport-observed and fully
+#                 trustworthy, and the word records HOW it was established, not
+#                 how much to trust it. Nobody should ever have to ask whether a
+#                 `filled` entry is a problem.
+#               recorded was a real, DIFFERENT address -> `mismatch-corrected`.
+#                 A genuine contradiction (possible misrouting or stale pid
+#                 reuse): loud warning, `address_mismatch` flagged true.
+#             Before #674 the benign fill took the mismatch branch verbatim, so
+#             on a host with no socket dir EVERY worker registered `unknown` and
+#             EVERY verify shouted - a flag firing on 100% of the fleet carries
+#             zero signal and buries the one case worth investigating.
 #   release   Mark the role released ("I'm leaving the wave"). Another LIVE
 #             session's role is refused without --force.
 #   self-address  Print this session's best-guess socket (bootstrap only).
@@ -74,7 +92,7 @@
 #
 # Output ends with a machine-readable verdict line:
 #   FLOW_WAVE: registered | updated | refused | released | listed | verified |
-#              mismatch-corrected | free | unknown | error
+#              address_filled | mismatch-corrected | free | unknown | error
 # preceded by detail lines (FLOW_WAVE_ROLE=, FLOW_WAVE_SOCKET=, ...), '-' when
 # not applicable. Exit codes: 0 normal, 1 refused (live-owner conflict),
 # 2 usage error.
@@ -430,7 +448,8 @@ case "$VERB" in
         socket: $sock, self_socket: $selfsock, pid: ($pid | tonumber? // $pid),
         session: $session, host: $host, cwd: $cwd, repo: $repo,
         issue: $issue, branch: $branch, registered_ts: ($now | tonumber),
-        verified: ($verified == "true"), address_mismatch: false, released: false
+        verified: ($verified == "true"), address_mismatch: false,
+        address_filled: false, released: false
       }' \
       --arg w "$WAVE" --arg r "$ROLE" --arg sock "$SOCK" --arg pid "$SELF_PID" \
       --arg selfsock "$SELF_SOCK" --arg verified "$KEEP_VERIFIED" \
@@ -522,9 +541,33 @@ case "$VERB" in
       emit verified
       exit 0
     fi
+    # Benign fill (#674): there was no recorded address to contradict, so
+    # observation did not overrule a claim - it supplied one that self-derivation
+    # could not. This is the documented bootstrap fallback succeeding, and it is
+    # deliberately NOT flagged: before the split it took the mismatch branch
+    # below verbatim, so on a host with no socket dir every worker registered
+    # `unknown` and every verify shouted, which is a flag with zero signal.
+    # `address_mismatch` stays false and the entry is fully verified - the
+    # address is transport-observed, exactly as in the match case.
+    if [ "$RECORDED" = "unknown" ] || [ -z "$RECORDED" ] || [ "$RECORDED" = "null" ]; then
+      with_lock '
+        .[$w].roles[$r].socket = $obs |
+        .[$w].roles[$r].verified = true |
+        .[$w].roles[$r].address_filled = true |
+        .[$w].roles[$r].address_mismatch = false' \
+        --arg w "$WAVE" --arg r "$ROLE" --arg obs "$A_FROM"
+      echo "flow-wave-registry: role '$ROLE' had no address; the transport observed '$A_FROM' and it is now canonical." >&2
+      echo "  Nothing to investigate - self-derivation failed at register time and observation supplied the address (the documented fallback)." >&2
+      E_SOCKET="$A_FROM"; E_VERIFIED=true; E_MISMATCH=false
+      E_SOURCE=observed
+      emit address_filled
+      exit 0
+    fi
     # Gate condition 1 (#638): the transport-observed address is authoritative.
     # It REPLACES the self-derived one as canonical; the discrepancy is flagged.
     # Never the reverse - a self-derived address never survives a mismatch.
+    # Reached only when the recorded value was a REAL address that DIFFERS from
+    # the observed one - a genuine contradiction worth a human look (#674).
     with_lock '
       .[$w].roles[$r].socket = $obs |
       .[$w].roles[$r].verified = true |
@@ -533,6 +576,7 @@ case "$VERB" in
     echo "flow-wave-registry: WARNING - role '$ROLE' self-reported '$RECORDED' but the transport observed '$A_FROM'." >&2
     echo "  The OBSERVED address is now canonical (self-derivation is bootstrap only). Investigate the discrepancy." >&2
     E_SOCKET="$A_FROM"; E_VERIFIED=true; E_MISMATCH=true
+    E_SOURCE=observed
     emit mismatch-corrected
     exit 0
     ;;
@@ -604,7 +648,11 @@ case "$VERB" in
       lv="$(liveness_of "$e")"
       sock="$(printf '%s' "$e" | jq -r '.socket // "unknown"')"
       iss="$(printf '%s' "$e" | jq -r '.issue // "" | if . == "" then "-" else . end')"
-      ver="$(printf '%s' "$e" | jq -r 'if .address_mismatch == true then "MISMATCH-corrected" elif .verified == true then "verified" else "unverified" end')"
+      # `filled` is a verified state, not a lesser one (#674): the address was
+      # transport-observed, and the word records that observation SUPPLIED it
+      # rather than CONFIRMED it. Mismatch is checked first so a real
+      # contradiction can never render as the benign case.
+      ver="$(printf '%s' "$e" | jq -r 'if .address_mismatch == true then "MISMATCH-corrected" elif .address_filled == true then "filled" elif .verified == true then "verified" else "unverified" end')"
       echo "  $r -> $sock [$lv, $ver] issue=$iss"
     done
     # Lane-overlap warnings among LIVE entries only (gate condition 2: sharing
