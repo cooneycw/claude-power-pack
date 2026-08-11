@@ -37,6 +37,21 @@ TARGET_DIR="$HOME_DIR/.claude/scripts"
 # sibling via $SELF_DIR, so the guard must travel with it. The advisory guards
 # fail open when absent, but a legacy-cache user should keep the zero-prompt lane
 # whole, not degraded.
+#
+# Despite the script's name this is NOT a flow-only list - it already carries
+# gh-pr-merge.sh, worktree-remove.sh, friction-log.sh, check-ignored-additions.sh
+# and this installer itself. The membership rule is simpler than the name
+# suggests: THIS IS THE STABLE-PATH INSTALL SET. Anything that
+# templates/claude-settings-permissions.json pre-approves at
+# `Bash(~/.claude/scripts/<name>:*)` belongs here, whatever family it comes from,
+# because that rule matches a command PREFIX - so a helper the rule blesses but
+# nothing installs leaves the rule matching a path that does not exist (issue
+# #677: cpp-commands-link.sh and install-drift.sh were both missing, so on any
+# host provisioned WITHOUT interactive /cpp:init the rule was inert and
+# /cpp:update Step 5c fell back to the checkout copy - which the rule does not
+# match - and prompted, the exact friction the stable path removes). Do not
+# re-litigate a non-flow addition on naming grounds; the template is the
+# membership test, and tests/test_permissions_template_link_parity.py enforces it.
 HELPERS=(
     flow-start-resolve.sh
     flow-live-driver-guard.sh
@@ -50,6 +65,8 @@ HELPERS=(
     worktree-remove.sh
     friction-log.sh
     check-ignored-additions.sh
+    cpp-commands-link.sh
+    install-drift.sh
     flow-helpers-install.sh
 )
 
