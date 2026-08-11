@@ -56,12 +56,25 @@
 #             already-recorded address to "unknown" (#672). A role held by a
 #             LIVE other session is refused (exit 1) unless --force. A dead
 #             owner's entry is stale and taken over automatically.
+#             The observation flags (`verified`, `address_filled`,
+#             `address_mismatch`) SURVIVE a re-register by the same owner at a
+#             byte-identical address (#691/#692) - they record one transport
+#             observation that a routine re-brief does not invalidate, so they
+#             are preserved together or cleared together. A takeover or a
+#             changed address clears all three. Advises when --cwd looks like a
+#             shared parent rather than a lane (#683).
 #   list      Show the roster: role, address, issue, liveness, verification.
 #             Marks dead entries stale rather than deleting them - a dead
 #             worker mid-issue is information. Warns on lane overlaps between
 #             LIVE entries: same repo + same issue, same branch, or same/nested
 #             worktree paths. Same repo alone is NOT a warning - in a wave,
-#             every worker shares the repo by design (info only).
+#             every worker shares the repo by design (info only). Roles that
+#             DECLARED NO LANE are EXEMPT from the pairwise checks (#683) - the
+#             `orchestrator` (never implements, and its parent cwd nested over
+#             every worktree) and any live role with no issue, no branch, AND a
+#             shared-parent cwd. Narrow on purpose: a declared branch or a real
+#             nested worktree is a lane even with no issue number. The exemption
+#             is announced, not silent, and lapses the moment a lane is declared.
 #   get       key=value contract for one role (for scripting).
 #   verify    Orchestrator-side: reconcile the recorded address with the
 #             OBSERVED `from=` of a real message. Three outcomes, and the split
@@ -266,11 +279,63 @@ liveness_of() {
   if is_alive "$pid" "$host"; then echo live; return; fi
   # A live socket file on this host also proves liveness (covers a pid the
   # helper cannot signal but whose session socket clearly exists).
+  #
+  # This secondary proof is UDS-ONLY and now says so (#689). It used to strip a
+  # `uds:` prefix unconditionally and stat the remainder, which on any other
+  # transport - `bridge:session_01RLE...` - stripped nothing and tested whether a
+  # file literally named `bridge:session_...` existed. Always false, so the
+  # fallback was silently inert rather than absent, and register.md's two-factor
+  # staleness rule ("socket gone + pid dead") was one-factor on those transports.
+  #
+  # Deliberately EXPOSES the gap rather than closing it: whether another
+  # transport can offer its own secondary proof is a separate question (#676).
+  # On a non-uds address liveness rests on `kill -0` alone - the registry is
+  # host-local by construction, so that is sound today, but it is one mechanism
+  # and not two, and the code should state that instead of implying otherwise.
   if [ "$host" = "$SELF_HOST" ] && [ "$sock" != "unknown" ]; then
-    local p="${sock#uds:}"
-    [ -S "$p" ] && { echo live; return; }
+    case "$sock" in
+      uds:*) [ -S "${sock#uds:}" ] && { echo live; return; } ;;
+      # Any other scheme: no socket-file proof exists. Fall through to stale on
+      # the strength of `kill -0` alone rather than running a test that cannot
+      # pass (#689).
+      *) : ;;
+    esac
   fi
   echo stale
+}
+
+# cwd_is_shared_parent CWD REPO -> 0 when CWD looks like a shared projects
+# parent rather than a lane (#683).
+#
+# A session that registers BEFORE entering a worktree - normal practice since
+# #670 made worker-first registration first-class - records the projects parent
+# as its cwd. That single path then NESTS OVER every worktree on the host, so
+# the `list` overlap check fires "same/nested worktrees" against each live role.
+# Observed producing three simultaneous false warnings in one wave.
+#
+# Two signatures, either sufficient:
+#   1. cwd is a STRICT ancestor of the declared --repo. Direct and exact.
+#   2. cwd directly contains 2+ git checkouts - the ~/Projects shape - which
+#      catches a registration that declared no --repo.
+# Heuristic by nature, and advisory-only precisely because of that: a false
+# positive costs one line of stderr and never changes a verdict.
+cwd_is_shared_parent() {
+  local cwd="$1" repo="$2" count=0 d
+  [ -n "$cwd" ] || return 1
+  cwd="${cwd%/}"
+  [ -n "$cwd" ] || return 1
+  if [ -n "$repo" ]; then
+    repo="${repo%/}"
+    if [ "$cwd" != "$repo" ]; then
+      case "$repo/" in "$cwd"/*) return 0 ;; esac
+    fi
+  fi
+  [ -d "$cwd" ] || return 1
+  for d in "$cwd"/*/; do
+    [ -e "$d.git" ] && count=$((count + 1))
+    [ "$count" -ge 2 ] && return 0
+  done
+  return 1
 }
 
 # implicit_default -> 0 when this invocation landed in wave 'default' without
@@ -392,7 +457,13 @@ case "$VERB" in
     SOCK="$A_SOCKET"
     SOCK_SOURCE=explicit
     SOCK_REASON="-"
+    # The three flags describing the transport observation share ONE lifecycle
+    # (#691/#692). Splitting them is how this class of inconsistency arises:
+    # they record one fact - "the transport was observed to reach THIS session at
+    # THIS address" - so they are preserved together or cleared together.
     KEEP_VERIFIED=false
+    KEEP_FILLED=false
+    KEEP_MISMATCH=false
     if [ -z "$SOCK" ]; then
       derive_self_address
       SOCK="$DERIVED_ADDR"
@@ -433,9 +504,30 @@ case "$VERB" in
       if [ "$SOCK" = "unknown" ] && [ "$CUR_SOCK" != "unknown" ]; then
         SOCK="$CUR_SOCK"
         SOCK_SOURCE=preserved
-        KEEP_VERIFIED="$(printf '%s' "$CUR" | jq -r '.verified // false')"
         echo "flow-wave-registry: self-derivation returned unknown ($DERIVED_REASON) - KEEPING the recorded address '$CUR_SOCK'." >&2
         echo "  A known address outranks a failed derivation; re-registering never downgrades one to 'unknown' (#672)." >&2
+      fi
+      # Re-registration is the DOCUMENTED cheap re-brief (#670 makes it routine),
+      # so it must not silently rewrite what the transport already established
+      # (#691/#692). When the same owner re-registers at a byte-identical
+      # address, the prior observation still holds and every flag derived from it
+      # survives - including `address_mismatch`, whose erasure is the dangerous
+      # direction: #674 narrowed that flag so firing MEANS something, and
+      # clearing it on a routine action undid that from the other end, wiping an
+      # uninvestigated discrepancy off the roster with no record it existed.
+      #
+      # This EXTENDS the #672 rule above rather than adding a second mechanism -
+      # that branch already preserved `verified` for the derivation-failed case;
+      # it was simply scoped to the rarer case. A successful derivation returning
+      # the SAME socket is what actually happens, and it was clearing everything.
+      #
+      # A TAKEOVER (different owner) or a CHANGED address still clears all three:
+      # the observation was about a specific session at a specific address, so
+      # once either changes it no longer applies and must be re-established.
+      if [ "$SAME_OWNER" -eq 1 ] && [ "$SOCK" = "$CUR_SOCK" ] && [ "$SOCK" != "unknown" ]; then
+        KEEP_VERIFIED="$(printf '%s' "$CUR" | jq -r '.verified // false')"
+        KEEP_FILLED="$(printf '%s' "$CUR" | jq -r '.address_filled // false')"
+        KEEP_MISMATCH="$(printf '%s' "$CUR" | jq -r '.address_mismatch // false')"
       fi
       VERDICT=updated
       [ "$SAME_OWNER" -eq 0 ] && VERDICT=registered
@@ -448,11 +540,12 @@ case "$VERB" in
         socket: $sock, self_socket: $selfsock, pid: ($pid | tonumber? // $pid),
         session: $session, host: $host, cwd: $cwd, repo: $repo,
         issue: $issue, branch: $branch, registered_ts: ($now | tonumber),
-        verified: ($verified == "true"), address_mismatch: false,
-        address_filled: false, released: false
+        verified: ($verified == "true"), address_mismatch: ($mismatch == "true"),
+        address_filled: ($filled == "true"), released: false
       }' \
       --arg w "$WAVE" --arg r "$ROLE" --arg sock "$SOCK" --arg pid "$SELF_PID" \
       --arg selfsock "$SELF_SOCK" --arg verified "$KEEP_VERIFIED" \
+      --arg filled "$KEEP_FILLED" --arg mismatch "$KEEP_MISMATCH" \
       --arg session "$SELF_SESSION" --arg host "$SELF_HOST" --arg cwd "$A_CWD" \
       --arg repo "$A_REPO" --arg issue "$A_ISSUE" --arg branch "$A_BRANCH" \
       --arg now "$NOW"
@@ -479,6 +572,17 @@ case "$VERB" in
     else
       E_BOOTSTRAP=ok
     fi
+    # Shared-parent cwd (#683) - independent of both addressing and wave: a
+    # registration is perfectly valid from a parent directory (bootstrap needs
+    # no lane), it just makes overlap detection cry wolf against every worktree
+    # nested under it. Say so HERE, at the moment the cwd is recorded, so the
+    # worker can fix it by re-registering rather than waiting for an orchestrator
+    # to notice a roster full of false collisions.
+    if cwd_is_shared_parent "$A_CWD" "$A_REPO"; then
+      echo "flow-wave-registry: cwd '$A_CWD' looks like a shared parent directory, not a lane." >&2
+      echo "  Re-register with --cwd <worktree> once your lane exists, or overlap detection will cry wolf against every worktree under it (#683)." >&2
+      echo "  Harmless for bootstrap - the entry is valid and this changes no verdict." >&2
+    fi
     # Loud default (#671) - independent of addressing: a silently-defaulted
     # wave and an unaddressed session are separate failures and both advise.
     if implicit_default; then
@@ -490,7 +594,7 @@ case "$VERB" in
       fi
     fi
     E_SOCKET="$SOCK"; E_PID="$SELF_PID"; E_SESSION="$SELF_SESSION"; E_LIVE=live
-    E_VERIFIED="$KEEP_VERIFIED"; E_MISMATCH=false
+    E_VERIFIED="$KEEP_VERIFIED"; E_MISMATCH="$KEEP_MISMATCH"
     E_SOURCE="$SOCK_SOURCE"; E_REASON="$SOCK_REASON"
     emit "$VERDICT"
     exit 0
@@ -658,11 +762,50 @@ case "$VERB" in
     # Lane-overlap warnings among LIVE entries only (gate condition 2: sharing
     # a repo is the NORMAL wave shape - never warn on it alone; warn on same
     # repo + same issue, same branch, or same/nested worktree paths).
+    #
+    # A role that has DECLARED NO LANE is excluded from the pairwise checks
+    # (#683). The mechanism compares declared lanes, so warning about a role that
+    # declared none is warning about something the registry does not know.
+    #
+    # Two exempt shapes, and the second is deliberately NARROW:
+    #   - the `orchestrator`, which CLAUDE.md:136 documents as never
+    #     implementing. Its cwd is structurally the projects parent, so it cannot
+    #     fix the false warning by re-registering - the remedy does not exist for
+    #     it - and it warned once per live worker for a whole wave.
+    #   - any other live role that has declared NOTHING that constitutes a lane:
+    #     no issue, no branch, AND a cwd that is a shared parent rather than a
+    #     checkout.
+    #
+    # "No issue claimed" ALONE is too coarse and was tried first: it also
+    # swallowed a declared BRANCH and a genuinely nested pair of worktrees, both
+    # real collisions that happen to carry no issue number (caught by the
+    # pre-existing TestListOverlap cases, which now pass unmodified - that they
+    # do is the evidence this boundary is the right one). The false warnings
+    # never came from nested worktrees; they came from a cwd that is a shared
+    # PARENT, so that is what the exemption keys on.
+    #
+    # The exemption is ANNOUNCED, never silent. Trading a false warning for a
+    # blind spot would just move the problem: #674's rule is do-not-alarm, not
+    # do-not-say. It also lapses the moment the role declares any lane.
     WARNED=0
     LIVE_ROLES=""
+    EXEMPT_ROLES=""
     for r in $ROLES; do
       e="$(printf '%s' "$REG" | jq -c --arg w "$WAVE" --arg r "$r" '.[$w].roles[$r]')"
-      [ "$(liveness_of "$e")" = "live" ] && LIVE_ROLES="$LIVE_ROLES $r"
+      [ "$(liveness_of "$e")" = "live" ] || continue
+      r_iss="$(printf '%s' "$e" | jq -r '.issue // ""')"
+      r_br="$(printf '%s' "$e" | jq -r '.branch // ""')"
+      r_cwd="$(printf '%s' "$e" | jq -r '.cwd // ""')"
+      r_repo="$(printf '%s' "$e" | jq -r '.repo // ""')"
+      if [ "$r" = "orchestrator" ]; then
+        EXEMPT_ROLES="$EXEMPT_ROLES $r"
+        continue
+      fi
+      if [ -z "$r_iss" ] && [ -z "$r_br" ] && cwd_is_shared_parent "$r_cwd" "$r_repo"; then
+        EXEMPT_ROLES="$EXEMPT_ROLES $r"
+        continue
+      fi
+      LIVE_ROLES="$LIVE_ROLES $r"
     done
     for a in $LIVE_ROLES; do
       for b in $LIVE_ROLES; do
@@ -687,6 +830,11 @@ case "$VERB" in
         fi
       done
     done
+    # Announce the exemption (#683) - a skipped check the reader cannot see is a
+    # blind spot, so name who was skipped and why rather than just going quiet.
+    if [ -n "$EXEMPT_ROLES" ]; then
+      echo "  info: overlap checks skipped for lane-less live role(s):${EXEMPT_ROLES} (orchestrator never holds a lane; others declared no issue, no branch, and a shared-parent cwd). Applies until they declare one."
+    fi
     [ "$WARNED" -eq 1 ] && echo "flow-wave-registry: lane overlap detected - do not co-schedule the flagged pairs." >&2
     if [ "$UNADDRESSED" -gt 0 ]; then
       echo "  BOOTSTRAP: $UNADDRESSED LIVE role(s) have no address - they cannot be messaged, and no from= can be observed for them."

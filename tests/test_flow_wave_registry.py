@@ -26,6 +26,16 @@ Contract:
 - ``list`` warns on lane overlap only for the useful signal (same repo + same
   issue, same branch, same/nested worktrees) - gate condition 2: same repo
   alone is the normal wave shape and must NOT warn.
+- Lane-less live roles are exempt from the overlap checks (#683) - the
+  ``orchestrator`` and any role with no issue claimed - and the exemption is
+  ANNOUNCED, never silent; ``register`` advises when ``--cwd`` looks like a
+  shared parent rather than a lane.
+- The socket-file liveness fallback is uds-only and says so (#689); on other
+  transports liveness rests on ``kill -0`` alone rather than on a test that
+  cannot pass.
+- ``verified``/``address_filled``/``address_mismatch`` share ONE lifecycle
+  (#691/#692): preserved together across a same-owner re-register at a
+  byte-identical address, cleared together on a takeover or an address change.
 - Waves are namespaced: the same role in two waves never conflicts.
 - Loud default (issue #671): ``register``/``get``/``verify`` into wave
   ``default`` without an explicit ``--wave`` print one advisory stderr line
@@ -385,6 +395,196 @@ class TestAddressFilledVsMismatch:
         assert p.returncode == 0
         assert "FLOW_WAVE: address_filled" in p.stdout
         assert "CALLER_REACHED_THE_END" in p.stdout
+
+
+@requires_tools
+class TestSharedParentCwdAdvisory:
+    """Registering from a shared parent advises, it does not fail (#683)."""
+
+    def _parent_with_two_checkouts(self, tmp: Path) -> Path:
+        parent = tmp / "projects"
+        for name in ("repo-a", "repo-b"):
+            (parent / name / ".git").mkdir(parents=True)
+        return parent
+
+    def test_parent_cwd_advises_without_changing_the_verdict(self, tmp_path: Path) -> None:
+        parent = self._parent_with_two_checkouts(tmp_path)
+        p = _run(tmp_path, "register", "1", "--socket", "uds:/tmp/x.sock", "--cwd", str(parent))
+        assert p.returncode == 0
+        assert _verdict(p) == "registered"  # advisory only - verdict untouched
+        assert "shared parent directory" in p.stderr
+        assert "cry wolf" in p.stderr
+
+    def test_ancestor_of_declared_repo_advises(self, tmp_path: Path) -> None:
+        """The direct signature: cwd is a strict ancestor of --repo."""
+        parent = tmp_path / "projects"
+        repo = parent / "the-repo"
+        repo.mkdir(parents=True)
+        p = _run(
+            tmp_path, "register", "1", "--socket", "uds:/tmp/x.sock",
+            "--cwd", str(parent), "--repo", str(repo),
+        )
+        assert "shared parent directory" in p.stderr
+
+    def test_real_worktree_cwd_is_silent(self, tmp_path: Path) -> None:
+        """A warning that fires on the normal case is the bug, so: no false positive."""
+        wt = tmp_path / "projects" / "repo-a"
+        (wt / ".git").mkdir(parents=True)
+        p = _run(
+            tmp_path, "register", "1", "--socket", "uds:/tmp/x.sock",
+            "--cwd", str(wt), "--repo", str(wt),
+        )
+        assert "shared parent" not in p.stderr
+
+
+@requires_tools
+class TestLaneLessRolesExemptFromOverlap:
+    """A role that declared no lane cannot collide (#683).
+
+    The overlap mechanism compares DECLARED lanes. The orchestrator never holds
+    one (CLAUDE.md:136) and its cwd is structurally the projects parent, so it
+    nested over every worktree and warned once per live worker for a whole wave.
+    """
+
+    def _wave(self, tmp: Path) -> None:
+        _run(tmp, "register", "orchestrator", "--socket", "uds:/tmp/o.sock",
+             "--cwd", "/projects", "--repo", "/projects/repo",
+             pid="100", session="orch")
+        _run(tmp, "register", "A", "--socket", "uds:/tmp/a.sock",
+             "--cwd", "/projects/repo-wt-a", "--repo", "/projects/repo",
+             "--issue", "1", "--branch", "b1", pid="101", session="s1")
+        _run(tmp, "register", "IDLE", "--socket", "uds:/tmp/i.sock",
+             "--cwd", "/projects", "--repo", "/projects/repo",
+             pid="102", session="s2")
+
+    def test_orchestrator_and_unassigned_roles_do_not_warn(self, tmp_path: Path) -> None:
+        self._wave(tmp_path)
+        p = _run(tmp_path, "list", live="100:101:102")
+        assert "WARNING" not in p.stdout
+        assert "WARNING" not in p.stderr
+
+    def test_exemption_is_announced_not_silent(self, tmp_path: Path) -> None:
+        """Do-not-alarm is not do-not-say: a skipped check must stay visible."""
+        self._wave(tmp_path)
+        p = _run(tmp_path, "list", live="100:101:102")
+        assert "overlap checks skipped for lane-less live role(s)" in p.stdout
+        assert "orchestrator" in p.stdout
+        assert "IDLE" in p.stdout
+
+    def test_a_real_overlap_between_lane_holders_still_warns(self, tmp_path: Path) -> None:
+        """The discrimination: exempting lane-less roles must not blind the check."""
+        self._wave(tmp_path)
+        _run(tmp_path, "register", "B", "--socket", "uds:/tmp/b.sock",
+             "--cwd", "/projects/repo-wt-a", "--repo", "/projects/repo",
+             "--issue", "1", "--branch", "b1", pid="103", session="s3")
+        p = _run(tmp_path, "list", live="100:101:102:103")
+        assert "WARNING" in p.stdout
+        assert "both claim issue #1" in p.stdout
+
+    def test_exemption_lapses_when_the_role_claims_an_issue(self, tmp_path: Path) -> None:
+        self._wave(tmp_path)
+        # IDLE claims A's branch - now it holds a lane, so the check applies.
+        _run(tmp_path, "register", "IDLE", "--socket", "uds:/tmp/i.sock",
+             "--cwd", "/projects/repo-wt-a", "--repo", "/projects/repo",
+             "--issue", "7", "--branch", "b1", pid="102", session="s2")
+        p = _run(tmp_path, "list", live="100:101:102")
+        assert "both claim branch 'b1'" in p.stdout
+
+
+@requires_tools
+class TestLivenessSecondaryProofIsUdsOnly:
+    """The socket-file fallback states its precondition (#689).
+
+    It used to strip `uds:` unconditionally and stat the remainder, so on a
+    `bridge:` address it tested for a file literally named `bridge:session_...`
+    - always false, so the fallback was silently inert rather than absent.
+    Behaviour is preserved for uds; the non-uds gap becomes explicit.
+    """
+
+    def test_uds_socket_file_still_proves_liveness_for_a_dead_pid(self, tmp_path: Path) -> None:
+        import socket as _socket
+
+        sock_path = tmp_path / "live.sock"
+        s = _socket.socket(_socket.AF_UNIX)
+        try:
+            s.bind(str(sock_path))
+        except OSError as exc:  # path too long for AF_UNIX on this box
+            pytest.skip(f"cannot bind AF_UNIX socket here: {exc}")
+        try:
+            _run(tmp_path, "register", "1", "--socket", f"uds:{sock_path}", pid="999999")
+            p = _run(tmp_path, "list", live="none")
+            assert "[live," in p.stdout
+        finally:
+            s.close()
+
+    def test_non_uds_address_reads_stale_without_consulting_a_file(self, tmp_path: Path) -> None:
+        _run(tmp_path, "register", "1", "--socket", "bridge:session_01RLEabc", pid="999998")
+        p = _run(tmp_path, "list", live="none")
+        assert p.returncode == 0
+        assert "[stale," in p.stdout
+
+
+@requires_tools
+class TestObservationFlagsSurviveReRegister:
+    """One observation, one lifecycle (#691/#692).
+
+    `verified`, `address_filled` and `address_mismatch` all record the same fact
+    - the transport was observed to reach THIS session at THIS address - so a
+    re-register that changes neither must not rewrite any of them. #691 is the
+    annoying direction (trust downgraded); #692 is the dangerous one (a genuine
+    misrouting flag erased by the routine re-brief the protocol recommends).
+    """
+
+    def test_verified_survives_an_unchanged_re_register(self, tmp_path: Path) -> None:
+        _run(tmp_path, "register", "1", "--socket", "uds:/tmp/x.sock")
+        _run(tmp_path, "verify", "1", "--from", "uds:/tmp/x.sock")
+        p = _run(tmp_path, "register", "1", "--socket", "uds:/tmp/x.sock", "--issue", "42")
+        assert _detail(p, "FLOW_WAVE_VERIFIED") == "true"
+        entry = _registry_json(tmp_path)["default"]["roles"]["1"]
+        assert entry["verified"] is True
+        assert entry["issue"] == "42"  # the lane update still applied
+
+    def test_address_mismatch_survives_the_cheap_re_brief(self, tmp_path: Path) -> None:
+        """#692, the dangerous direction: an uninvestigated flag must not vanish."""
+        _run(tmp_path, "register", "1", "--socket", "uds:/tmp/claimed.sock")
+        v = _run(tmp_path, "verify", "1", "--from", "uds:/tmp/observed.sock")
+        assert _verdict(v) == "mismatch-corrected"
+        p = _run(tmp_path, "register", "1", "--socket", "uds:/tmp/observed.sock", "--issue", "42")
+        assert _detail(p, "FLOW_WAVE_MISMATCH") == "true"
+        assert _registry_json(tmp_path)["default"]["roles"]["1"]["address_mismatch"] is True
+
+    def test_address_filled_survives(self, tmp_path: Path) -> None:
+        """Else a filled entry silently re-renders as plain `verified` (#674)."""
+        _run(tmp_path, "register", "1")  # no socket dir -> 'unknown'
+        _run(tmp_path, "verify", "1", "--from", "uds:/tmp/observed.sock")
+        _run(tmp_path, "register", "1", "--socket", "uds:/tmp/observed.sock", "--issue", "42")
+        entry = _registry_json(tmp_path)["default"]["roles"]["1"]
+        assert entry["address_filled"] is True
+        p = _run(tmp_path, "list", live=SELF_PID)
+        assert "[live, filled]" in p.stdout
+
+    def test_changed_address_clears_all_three(self, tmp_path: Path) -> None:
+        """The observation was about a specific address; move it and it lapses."""
+        _run(tmp_path, "register", "1", "--socket", "uds:/tmp/a.sock")
+        _run(tmp_path, "verify", "1", "--from", "uds:/tmp/a.sock")
+        p = _run(tmp_path, "register", "1", "--socket", "uds:/tmp/moved.sock")
+        assert _detail(p, "FLOW_WAVE_VERIFIED") == "false"
+        entry = _registry_json(tmp_path)["default"]["roles"]["1"]
+        assert entry["verified"] is False
+        assert entry["address_mismatch"] is False
+        assert entry["address_filled"] is False
+
+    def test_takeover_by_another_session_clears_all_three(self, tmp_path: Path) -> None:
+        """Even at the same address: it was an observation about a SESSION too."""
+        _run(tmp_path, "register", "1", "--socket", "uds:/tmp/x.sock",
+             pid=OTHER_PID, session=OTHER_SESSION)
+        _run(tmp_path, "verify", "1", "--from", "uds:/tmp/x.sock")
+        # Prior owner is not in FLOW_WAVE_LIVE_PIDS, so it reads stale and is
+        # taken over without --force.
+        p = _run(tmp_path, "register", "1", "--socket", "uds:/tmp/x.sock", live=SELF_PID)
+        assert _verdict(p) == "registered"
+        assert _detail(p, "FLOW_WAVE_VERIFIED") == "false"
+        assert _registry_json(tmp_path)["default"]["roles"]["1"]["verified"] is False
 
 
 @requires_tools
