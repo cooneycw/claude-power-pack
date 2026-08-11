@@ -11,14 +11,32 @@ cheap and reproducible.
 Input (file argument, or stdin with '-'): the output of
     gh issue list --state all --json number,title,body,state --limit 200
 A plain JSON array of {number, title, body, state}. Feeding --state all is
-the strict mode: a "- Blocked by #N" edge pointing at an issue absent from
-the input is assumed CLOSED (satisfied) and recorded under
-"external_blockers" so the assumption is visible.
+the strict mode: an edge pointing at an issue absent from the input is
+assumed CLOSED (satisfied) and recorded under "external_blockers" so the
+assumption is visible.
+
+Edge grammar (issue #607 widened it to project-next's four keyword forms;
+dependency-POSITION only, so prose cannot fabricate edges): a line whose
+first non-bullet token is one of `Blocked by` / `Depends on` / `Requires` /
+`After`, case-insensitive, followed immediately by a `#N` list (`#1, #2` /
+`#1 and #2`). Matching is LINE-ANCHORED: "complement of #592", "see #12",
+"filed after #600 merged", or "the #521 case" in running prose never create
+an edge - a fabricated edge silently freezes an issue's startability, which
+is worse than a missing one.
+
+Spec-declared dependencies (issue #607): `--specs <dir>` (e.g.
+`.specify/specs`) reads each `*/tasks.md` under it - `(depends on T0NN, ...)`
+clauses on checkbox task lines, joined to issue numbers via the file's
+`## Issue Sync` table - and UNIONS the resolved edges into the graph, never
+replacing issue-text edges. Disagreement is surfaced, not silently resolved:
+"spec_drift" lists spec edges absent from the issue's own text (the
+prefer-the-spec rule as data), and task IDs with no Issue Sync row land in
+"unresolved_tasks" rather than being dropped.
 
 Output: one JSON object on stdout:
-    issues        {N: {title, state, blocked_by, blocked_by_transitive,
-                       startable, in_cycle, paths, serialized_markers,
-                       migration_bearing}}
+    issues        {N: {title, state, blocked_by, blocked_by_spec,
+                       blocked_by_transitive, startable, in_cycle, paths,
+                       serialized_markers, migration_bearing}}
     startable     [N...] - OPEN, not in a cycle, every known blocker non-OPEN
     cycles        [[members]...] - Blocked-by cycles (see contract below)
     path_contention        {path: [N...]} - paths named by >1 OPEN issue
@@ -49,7 +67,22 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
-BLOCKED_BY_RE = re.compile(r"^\s*[-*]\s*Blocked by\s+#(\d+)\b", re.IGNORECASE | re.MULTILINE)
+# Dependency-position grammar (#607, gate condition 1): line-anchored, optional
+# bullet, one of the four keyword forms, then an IMMEDIATE #N list. Prose
+# references ("see #12", "filed after #600 merged") must never match - the
+# keyword has to open the line's clause and the refs must directly follow it.
+EDGE_LINE_RE = re.compile(
+    r"^\s*(?:[-*]\s*)?(?:blocked by|depends on|requires|after)\s*:?\s+"
+    r"(#\d+(?:\s*(?:,|and)\s*#\d+)*)",
+    re.IGNORECASE | re.MULTILINE,
+)
+REF_RE = re.compile(r"#(\d+)")
+# tasks.md shapes (#607): a checkbox task line with an optional depends clause,
+# and the Issue Sync join of task IDs to issue numbers.
+TASK_LINE_RE = re.compile(r"^\s*-\s*\[[ xX]\]\s*(?:\[[^\]]+\]\s*)*(T\d{3})\b(.*)$")
+DEPENDS_CLAUSE_RE = re.compile(r"\(depends on\s+([^)]*)\)", re.IGNORECASE)
+TASK_ID_RE = re.compile(r"T\d{3}")
+ISSUE_SYNC_HEADING_RE = re.compile(r"^#{2,}\s*Issue Sync\b", re.IGNORECASE)
 SERIALIZED_RE = re.compile(r"^\s*Serialized-resource:\s*(\S+)", re.IGNORECASE | re.MULTILINE)
 # Path-looking tokens: something/with/slashes ending in a code-ish extension,
 # or any backticked token containing a slash.
@@ -71,16 +104,76 @@ def parse_issues(raw: object) -> dict[int, dict]:
         body = item.get("body") or ""
         paths = set(PATH_EXT_RE.findall(body))
         paths.update(m for m in BACKTICK_PATH_RE.findall(body) if "/" in m)
+        edge_refs: set[int] = set()
+        for clause in EDGE_LINE_RE.findall(body):
+            edge_refs.update(int(m) for m in REF_RE.findall(clause))
         issues[n] = {
             "title": item.get("title") or "",
             "state": (item.get("state") or "OPEN").upper(),
             "body": body,
-            "blocked_by": sorted({int(m) for m in BLOCKED_BY_RE.findall(body)}),
+            "blocked_by": sorted(edge_refs),
             "paths": sorted(paths),
             "serialized_markers": sorted({m.lower() for m in SERIALIZED_RE.findall(body)}),
             "migration_bearing": bool(MIGRATION_HINT_RE.search(body)),
         }
     return issues
+
+
+def parse_specs(specs_dir: Path) -> tuple[dict[int, set[int]], list[dict]]:
+    """Spec-declared edges (#607): {issue: {blocking issues}} from every
+    */tasks.md under specs_dir, plus the unresolved-task report.
+
+    A task's `(depends on T0NN, ...)` clause becomes edges only when BOTH ends
+    resolve through the file's `## Issue Sync` table; anything unresolvable is
+    reported, never silently dropped.
+    """
+    spec_edges: dict[int, set[int]] = {}
+    unresolved: list[dict] = []
+    for tasks_md in sorted(specs_dir.glob("*/tasks.md")) + (
+        [specs_dir / "tasks.md"] if (specs_dir / "tasks.md").is_file() else []
+    ):
+        try:
+            text = tasks_md.read_text()
+        except OSError:
+            continue
+        lines = text.splitlines()
+        # Issue Sync join: within the section, any line carrying a task ID and
+        # a #N on the same row maps the task to its issue (liberal on table
+        # formatting by design - the section is a convention, not a schema).
+        sync: dict[str, int] = {}
+        in_sync = False
+        for ln in lines:
+            if ISSUE_SYNC_HEADING_RE.match(ln):
+                in_sync = True
+                continue
+            if in_sync and re.match(r"^#{2,}\s", ln):
+                in_sync = False
+            if in_sync:
+                tid_m = TASK_ID_RE.search(ln)
+                ref_m = REF_RE.search(ln)
+                if tid_m and ref_m:
+                    sync[tid_m.group(0)] = int(ref_m.group(1))
+        for ln in lines:
+            task_m = TASK_LINE_RE.match(ln)
+            if not task_m:
+                continue
+            tid, rest = task_m.group(1), task_m.group(2)
+            clause = DEPENDS_CLAUSE_RE.search(rest)
+            if not clause:
+                continue
+            dep_tids = TASK_ID_RE.findall(clause.group(1))
+            missing = [t for t in ([tid] if tid not in sync else []) + [d for d in dep_tids if d not in sync]]
+            if missing:
+                unresolved.append(
+                    {"file": str(tasks_md), "task": tid, "unresolved": sorted(set(missing))}
+                )
+            if tid not in sync:
+                continue
+            issue_n = sync[tid]
+            for d in dep_tids:
+                if d in sync:
+                    spec_edges.setdefault(issue_n, set()).add(sync[d])
+    return spec_edges, unresolved
 
 
 def find_cycles(issues: dict[int, dict]) -> list[list[int]]:
@@ -154,7 +247,27 @@ def transitive_blockers(issues: dict[int, dict]) -> dict[int, list[int]]:
     return {n: sorted(walk(n, frozenset({n}))) for n in issues}
 
 
-def build_plan(issues: dict[int, dict]) -> dict:
+def build_plan(
+    issues: dict[int, dict],
+    spec_edges: dict[int, set[int]] | None = None,
+    unresolved_tasks: list[dict] | None = None,
+) -> dict:
+    # Spec union (#607): spec-declared edges join the graph BEFORE closure /
+    # cycle / startability computation - union, never replace. Disagreement
+    # (a spec edge the issue's own text lacks) is recorded as spec_drift.
+    spec_drift: dict[int, list[int]] = {}
+    for n, deps in (spec_edges or {}).items():
+        if n not in issues:
+            continue
+        text_edges = set(issues[n]["blocked_by"])
+        extra = sorted(d for d in deps if d not in text_edges)
+        if extra:
+            spec_drift[n] = extra
+        issues[n]["blocked_by_spec"] = sorted(deps)
+        issues[n]["blocked_by"] = sorted(text_edges | deps)
+    for n in issues:
+        issues[n].setdefault("blocked_by_spec", [])
+
     cycles = find_cycles(issues)
     in_cycle = {n for comp in cycles for n in comp}
     closure = transitive_blockers(issues)
@@ -191,6 +304,7 @@ def build_plan(issues: dict[int, dict]) -> dict:
                 "title": d["title"],
                 "state": d["state"],
                 "blocked_by": d["blocked_by"],
+                "blocked_by_spec": d["blocked_by_spec"],
                 "blocked_by_transitive": closure[n],
                 "startable": d["startable"],
                 "in_cycle": d["in_cycle"],
@@ -209,28 +323,61 @@ def build_plan(issues: dict[int, dict]) -> dict:
             m: sorted(ns) for m, ns in sorted(marker_index.items()) if len(ns) > 1
         },
         "external_blockers": {str(n): v for n, v in sorted(external.items())},
+        "spec_drift": {str(n): v for n, v in sorted(spec_drift.items())},
+        "unresolved_tasks": unresolved_tasks or [],
     }
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) != 2 or argv[1] in {"-h", "--help"}:
+    args = argv[1:]
+    specs_dir: Path | None = None
+    positional: list[str] = []
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a in {"-h", "--help"}:
+            positional = []
+            break
+        if a == "--specs":
+            if i + 1 >= len(args):
+                sys.stderr.write("flow-wave-plan: --specs requires a directory\n")
+                return 2
+            specs_dir = Path(args[i + 1])
+            i += 2
+            continue
+        if a.startswith("--specs="):
+            specs_dir = Path(a[len("--specs=") :])
+            i += 1
+            continue
+        positional.append(a)
+        i += 1
+    if len(positional) != 1:
         sys.stderr.write(
-            "usage: flow-wave-plan.py <issues.json | ->\n"
+            "usage: flow-wave-plan.py <issues.json | -> [--specs <dir>]\n"
             "  input: gh issue list --state all --json number,title,body,state\n"
+            "  --specs: union spec-declared deps from <dir>/*/tasks.md (#607)\n"
             "  exit: 0 ok, 2 usage/parse error, 3 Blocked-by cycle detected\n"
         )
         return 2
     try:
-        if argv[1] == "-":
+        if positional[0] == "-":
             raw = json.load(sys.stdin)
         else:
-            raw = json.loads(Path(argv[1]).read_text())
+            raw = json.loads(Path(positional[0]).read_text())
         issues = parse_issues(raw)
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         sys.stderr.write(f"flow-wave-plan: cannot read issues: {exc}\n")
         return 2
 
-    plan = build_plan(issues)
+    spec_edges: dict[int, set[int]] = {}
+    unresolved_tasks: list[dict] = []
+    if specs_dir is not None:
+        if not specs_dir.is_dir():
+            sys.stderr.write(f"flow-wave-plan: --specs '{specs_dir}' is not a directory\n")
+            return 2
+        spec_edges, unresolved_tasks = parse_specs(specs_dir)
+
+    plan = build_plan(issues, spec_edges, unresolved_tasks)
     json.dump(plan, sys.stdout, indent=2)
     sys.stdout.write("\n")
     if plan["cycles"]:

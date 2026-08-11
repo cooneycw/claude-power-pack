@@ -80,10 +80,30 @@ Skipping this step causes misclassification - it is a strict gate.
 
 1. **IN_FLIGHT_ISSUES** - every issue with a matching `issue-{N}-*` branch or
    worktree.
-2. **DEPENDENCY_MAP** - parse issue bodies for **explicit dependency keywords
-   only**: `Depends on #N`, `Blocked by #N`, `Requires #N`, `After #N`, or a
-   parent Wave/Phase/epic whose checklist still has unchecked items referencing
-   the issue. `Related to #N` / `See also #N` is NOT a dependency.
+2. **DEPENDENCY_MAP** - built by the deterministic planner, ONE parser shared
+   with `/flow-wave` so the two never disagree on graph semantics (issue #607):
+
+   ```bash
+   gh issue list --state all --json number,title,body,state --limit 200 > /tmp/<scratch>/issues.json
+   ~/.claude/scripts/flow-wave-plan.py /tmp/<scratch>/issues.json --specs .specify/specs
+   ```
+
+   (Drop `--specs` when `.specify/specs/` does not exist; on exit 127 fall
+   back to the CPP-checkout copy of the script.) The planner reads the
+   **explicit dependency keyword forms only** - `Depends on #N`, `Blocked by
+   #N`, `Requires #N`, `After #N`, line-anchored so prose references never
+   fabricate an edge - and, with `--specs`, UNIONS the spec-declared
+   `(depends on T0NN)` edges from each `tasks.md`, joined to issue numbers
+   via its `## Issue Sync` table. `Related to #N` / `See also #N` is NOT a
+   dependency. Epic/Wave checklists with unchecked items referencing the
+   issue remain a dependency source YOU add on top (the planner does not
+   parse checklists). Two planner outputs feed the report directly:
+   - `spec_drift` - the spec knows an edge the issue text omits. Where they
+     disagree, the spec is preferred and the report SAYS SO (e.g. "#52 title
+     omits T033/#56") - this exact silent drift once made a blocked issue
+     the top pick.
+   - `unresolved_tasks` - a depends-on task ID with no Issue Sync row;
+     surface it rather than assuming the dependency away.
 3. **BLOCKED_ISSUES** - transitive closure over DEPENDENCY_MAP: an issue is
    blocked if ANY upstream dependency is in-flight, still open, or itself
    blocked. Walk the chain - multi-hop (A blocks B blocks C) MUST be caught;

@@ -185,3 +185,145 @@ class TestWiring:
         doc = (ROOT / ".claude" / "commands" / "flow" / "wave.md").read_text()
         assert "verdict issued -> planner re-run -> contention diff checked" in doc
         assert "approve-with-conditions" in doc
+
+
+class TestEdgeGrammar:
+    """Issue #607 widened the grammar to four keyword forms - and gate
+    condition 1 pins its NEGATIVE space: dependency-position only, so prose
+    cannot fabricate edges that would silently freeze startability."""
+
+    def test_four_keyword_forms_create_edges(self) -> None:
+        plan = _plan(
+            _issue(1),
+            _issue(2),
+            _issue(3),
+            _issue(4),
+            _issue(5, "Depends on #1\nblocked by #2\nRequires: #3\nAfter #4"),
+        )
+        assert plan["issues"]["5"]["blocked_by"] == [1, 2, 3, 4]
+
+    def test_comma_and_lists(self) -> None:
+        plan = _plan(_issue(1), _issue(2), _issue(3), _issue(4, "Depends on #1, #2 and #3"))
+        assert plan["issues"]["4"]["blocked_by"] == [1, 2, 3]
+
+    def test_prose_references_do_not_create_edges(self) -> None:
+        # The exact shapes from the gate condition: references in running
+        # prose, narrative "after", and case citations must NOT be edges.
+        plan = _plan(
+            _issue(
+                9,
+                "This is the complement of #592.\n"
+                "see #12 for background\n"
+                "It was filed after #600 merged.\n"
+                "The #521 case applies here.\n",
+            )
+        )
+        assert plan["issues"]["9"]["blocked_by"] == []
+
+    def test_trailing_prose_after_ref_list_stops_the_list(self) -> None:
+        plan = _plan(_issue(1), _issue(2, "Blocked by #1 which shipped after #99 merged"))
+        assert plan["issues"]["2"]["blocked_by"] == [1]
+
+    def test_related_and_see_also_are_not_dependencies(self) -> None:
+        plan = _plan(_issue(7, "Related to #3\nSee also #4"))
+        assert plan["issues"]["7"]["blocked_by"] == []
+
+
+TASKS_MD = """# Tasks
+
+- [ ] T031 [US1] Add visual regression tests (depends on T027, T033)
+- [x] T027 [US1] Base harness
+- [ ] T033 Watchdog groundwork
+- [ ] T040 Uses an unmapped dep (depends on T099)
+
+## Issue Sync
+
+| Task | Issue |
+|------|-------|
+| T031 | #52 |
+| T027 | #40 |
+| T033 | #56 |
+| T040 | #60 |
+"""
+
+
+class TestSpecDeclaredDeps:
+    """Issue #607: --specs unions tasks.md edges via the Issue Sync join."""
+
+    def _specs(self, tmp_path):
+        d = tmp_path / "specs" / "feature-x"
+        d.mkdir(parents=True)
+        (d / "tasks.md").write_text(TASKS_MD)
+        return tmp_path / "specs"
+
+    def _plan_with_specs(self, tmp_path, *issues):
+        spec_edges, unresolved = MOD.parse_specs(self._specs(tmp_path))
+        return MOD.build_plan(MOD.parse_issues(list(issues)), spec_edges, unresolved)
+
+    def test_spec_edges_union_and_drift(self, tmp_path) -> None:
+        # #52's issue text names only #40; the spec adds #56 - union, never
+        # replace, and the omission surfaces as spec_drift.
+        plan = self._plan_with_specs(
+            tmp_path,
+            _issue(52, "Depends on #40"),
+            _issue(40, state="CLOSED"),
+            _issue(56),
+        )
+        assert plan["issues"]["52"]["blocked_by"] == [40, 56]
+        assert plan["issues"]["52"]["blocked_by_spec"] == [40, 56]
+        assert plan["spec_drift"] == {"52": [56]}
+        # #56 is OPEN -> #52 must not be startable (the #607 wrong-top-pick).
+        assert 52 not in plan["startable"]
+
+    def test_no_drift_when_text_matches_spec(self, tmp_path) -> None:
+        plan = self._plan_with_specs(
+            tmp_path,
+            _issue(52, "Depends on #40, #56"),
+            _issue(40, state="CLOSED"),
+            _issue(56, state="CLOSED"),
+        )
+        assert plan["spec_drift"] == {}
+        assert 52 in plan["startable"]
+
+    def test_unresolved_task_reported_not_dropped(self, tmp_path) -> None:
+        plan = self._plan_with_specs(tmp_path, _issue(60))
+        assert any(
+            u["task"] == "T040" and "T099" in u["unresolved"] for u in plan["unresolved_tasks"]
+        )
+        # The unresolvable dep creates no edge - #60 stays startable.
+        assert 60 in plan["startable"]
+
+    def test_speckit_emitted_body_parses_end_to_end(self, tmp_path) -> None:
+        # The exact body shape scripts/speckit-tasks-to-issues.sh now writes
+        # (#607): the T-id line alone creates no edge; the Blocked-by bullets
+        # are the planner's native grammar. This is the CI-side coverage for
+        # the gh-dependent script.
+        body = (
+            "Auto-created from .specify/specs/x/tasks.md (T031) by CPP "
+            "speckit-tasks-to-issues.\n\n"
+            "Depends on: T027, T033\n"
+            "- Blocked by #40\n"
+            "- Blocked by #56\n"
+        )
+        plan = _plan(_issue(52, body), _issue(40, state="CLOSED"), _issue(56))
+        assert plan["issues"]["52"]["blocked_by"] == [40, 56]
+        assert 52 not in plan["startable"]
+
+    def test_cli_specs_flag(self, tmp_path) -> None:
+        import subprocess
+        import sys as _sys
+
+        specs = self._specs(tmp_path)
+        issues_file = tmp_path / "issues.json"
+        issues_file.write_text(
+            json.dumps([_issue(52, "Depends on #40"), _issue(40, state="CLOSED"), _issue(56)])
+        )
+        proc = subprocess.run(
+            [_sys.executable, str(SCRIPT), str(issues_file), "--specs", str(specs)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert proc.returncode == 0, proc.stderr
+        plan = json.loads(proc.stdout)
+        assert plan["spec_drift"] == {"52": [56]}
