@@ -22,8 +22,7 @@ Identical to `/flow-auto`:
 from this file alone.** Load the full `/flow-auto` spec first, from whichever
 surface this installation has (first match wins):
 
-1. the installed `flow` plugin's `auto.md` command (`${CLAUDE_PLUGIN_ROOT}/commands/auto.md`, `plugins/flow/commands/auto.md` in a marketplace checkout)
-2. inside the CPP repo itself: `.claude/commands/flow/auto.md`
+1. inside the CPP repo itself: `.claude/commands/flow/auto.md`
 
 Then execute that spec **exactly**, with two changes:
 

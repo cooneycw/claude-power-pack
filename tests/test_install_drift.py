@@ -1,22 +1,9 @@
-"""Regression tests for installed-plugin-vs-checkout drift detection (issue #622).
+"""Regression tests for the surviving install-drift jobs (#622/#662).
 
-`scripts/install-drift.sh` answers a question nothing else in CPP asked: is the
-command text a session is EXECUTING the same text the repo maintains? The copy
-the Skill tool loads lives under `~/.claude/plugins/`, snapshotted at install
-time, while the checkout moves on every pull - and on flow:auto #65 the gap was
-15 commits, so the session re-diagnosed an already-fixed bug and nearly filed a
-duplicate issue for it.
-
-These tests pin the behaviours that make the check trustworthy enough to run in
-a SessionStart hook: content parity per command file, the SPLIT case (helpers
-current, markdown stale) named explicitly, `skipped` as a non-failing answer for
-marketplace-only and checkout-only hosts, `--quiet` being exactly one line and
-never non-zero, and the check never writing anything.
-
-Driven entirely through the `CPP_INSTALL_DRIFT_HOME` / `CPP_INSTALL_DRIFT_CHECKOUT`
-seams on hermetic tmp trees, so only bash is required; the one commit-distance
-test is guarded on git being present and is skipped in the git-less CI validate
-container.
+The marketplace clone/cache parity walk retired with that distribution lane,
+but installed helpers remain byte-compared with checkout helpers through the
+symlink restoration in #663. Retired marketplace state is still reported as a
+non-failing migration finding. All cases run on hermetic HOME/checkout trees.
 """
 
 from __future__ import annotations
@@ -31,41 +18,40 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "install-drift.sh"
+HELPER = "flow-start-resolve.sh"
+HELPER_BODY = "#!/usr/bin/env bash\necho resolve\n"
 
 pytestmark = pytest.mark.skipif(
     shutil.which("bash") is None, reason="requires bash on PATH"
 )
 
-FAMILY = "flow"
-COMMANDS = {"auto.md": "# auto\ncurrent text\n", "help.md": "# help\n"}
-HELPERS = {"flow-start-resolve.sh": "#!/usr/bin/env bash\necho resolve\n"}
-
 
 def _make_checkout(root: Path) -> Path:
-    """A minimal tree that satisfies the checkout probe (CLAUDE.md + commands + plugins)."""
-    (root / ".claude" / "commands" / FAMILY).mkdir(parents=True)
-    (root / "plugins" / FAMILY / "commands").mkdir(parents=True)
-    (root / "scripts").mkdir(parents=True)
+    """A post-#662 checkout deliberately has no plugins/ directory."""
+    (root / ".claude" / "commands" / "flow").mkdir(parents=True)
+    (root / "scripts").mkdir()
     (root / "CLAUDE.md").write_text("# fake CPP\n", encoding="utf-8")
-    for name, body in COMMANDS.items():
-        (root / ".claude" / "commands" / FAMILY / name).write_text(body, encoding="utf-8")
-        (root / "plugins" / FAMILY / "commands" / name).write_text(body, encoding="utf-8")
-    for name, body in HELPERS.items():
-        (root / "scripts" / name).write_text(body, encoding="utf-8")
+    (root / ".claude" / "commands" / "flow" / "auto.md").write_text(
+        "# auto\n", encoding="utf-8"
+    )
+    (root / "scripts" / HELPER).write_text(HELPER_BODY, encoding="utf-8")
     return root
 
 
-def _make_install(home: Path, *, version: str = "1.0.0") -> Path:
-    """The installed halves: the version-stamped plugin cache plus host helpers."""
-    cache = home / ".claude" / "plugins" / "cache" / "cpp" / FAMILY / version / "commands"
-    cache.mkdir(parents=True)
-    for name, body in COMMANDS.items():
-        (cache / name).write_text(body, encoding="utf-8")
-    scripts = home / ".claude" / "scripts"
-    scripts.mkdir(parents=True)
-    for name, body in HELPERS.items():
-        (scripts / name).write_text(body, encoding="utf-8")
+def _make_cache(home: Path, *families: str) -> Path:
+    cache = home / ".claude" / "plugins" / "cache" / "cpp"
+    for family in families:
+        commands = cache / family / "1.1.0" / "commands"
+        commands.mkdir(parents=True)
+        (commands / "help.md").write_text("# stale snapshot\n", encoding="utf-8")
     return cache
+
+
+def _make_helpers(home: Path) -> Path:
+    scripts = home / ".claude" / "scripts"
+    scripts.mkdir(parents=True, exist_ok=True)
+    (scripts / HELPER).write_text(HELPER_BODY, encoding="utf-8")
+    return scripts
 
 
 def _run(checkout: Path, home: Path, *args: str, script: Path | None = None):
@@ -82,247 +68,217 @@ def _run(checkout: Path, home: Path, *args: str, script: Path | None = None):
     )
 
 
-@pytest.fixture()
-def tree(tmp_path: Path):
+def test_stale_helper_is_real_drift_in_every_output_mode(tmp_path: Path):
     checkout = _make_checkout(tmp_path / "checkout")
     home = tmp_path / "home"
-    cache = _make_install(home)
-    return checkout, home, cache
-
-
-def test_in_sync_install_reports_ok(tree):
-    checkout, home, _ = tree
-    r = _run(checkout, home)
-    assert r.returncode == 0, r.stdout + r.stderr
-    assert "INSTALL_DRIFT: ok" in r.stdout
-    assert "0 of 2 command file(s) differ" in r.stdout
-
-
-def test_changed_command_file_is_reported_by_name(tree):
-    checkout, home, cache = tree
-    (cache / "auto.md").write_text("# auto\nWEEK OLD TEXT\n", encoding="utf-8")
-    r = _run(checkout, home)
-    assert r.returncode == 1
-    assert "INSTALL_DRIFT: drift" in r.stdout
-    assert "flow/auto.md - differs" in r.stdout
-    assert "1 of 2 command file(s) differ" in r.stdout
-
-
-def test_command_missing_from_install_is_drift(tree):
-    checkout, home, cache = tree
-    (cache / "help.md").unlink()
-    r = _run(checkout, home)
-    assert r.returncode == 1
-    assert "flow/help.md - missing from install" in r.stdout
-
-
-def test_command_retired_upstream_but_still_installed_is_drift(tree):
-    checkout, home, cache = tree
-    (cache / "gone.md").write_text("# a command the repo dropped\n", encoding="utf-8")
-    r = _run(checkout, home)
-    assert r.returncode == 1
-    assert "flow/gone.md - retired upstream, still installed" in r.stdout
-
-
-def test_split_install_is_named_explicitly(tree):
-    # The #622 signature: helper half current, markdown half stale. The symptom
-    # reads as a helper bug unless the check says otherwise.
-    checkout, home, cache = tree
-    (cache / "auto.md").write_text("# auto\nold\n", encoding="utf-8")
-    r = _run(checkout, home)
-    assert "SPLIT INSTALL" in r.stdout, r.stdout
-    assert "1 current, 0 stale" in r.stdout
-
-
-def test_stale_helper_is_reported_and_is_not_a_split(tree):
-    checkout, home, _ = tree
-    (home / ".claude" / "scripts" / "flow-start-resolve.sh").write_text(
+    scripts = _make_helpers(home)
+    (scripts / HELPER).write_text(
         "#!/usr/bin/env bash\necho OLD\n", encoding="utf-8"
     )
-    r = _run(checkout, home)
-    assert r.returncode == 1
-    assert "0 current, 1 stale" in r.stdout
-    assert "Stale helpers: flow-start-resolve.sh" in r.stdout
-    # Both halves stale is ordinary staleness, not the split this issue is about.
-    assert "SPLIT INSTALL" not in r.stdout
+
+    report = _run(checkout, home)
+    quiet = _run(checkout, home, "--quiet")
+    json_result = _run(checkout, home, "--json")
+    payload = json.loads(json_result.stdout)
+
+    assert report.returncode == 0, report.stdout + report.stderr
+    assert "0 current, 1 stale" in report.stdout
+    assert f"Stale helpers: {HELPER}" in report.stdout
+    assert "INSTALL_DRIFT: drift" in report.stdout
+    assert quiet.returncode == 0
+    assert quiet.stdout.splitlines() == [
+        "CPP install: 1 helper(s) stale - run /cpp:update"
+    ]
+    assert json_result.returncode == 0
+    assert payload["verdict"] == "drift"
+    assert payload["helpers_stale"] == 1
+    assert payload["stale_helpers"] == [HELPER]
 
 
-def test_host_only_scripts_are_not_judged(tree):
+def test_host_only_scripts_are_not_judged(tmp_path: Path):
     # A script the user put in ~/.claude/scripts that CPP does not ship is none
     # of this check's business - flagging it would make the check cry wolf.
-    checkout, home, _ = tree
-    (home / ".claude" / "scripts" / "my-own-tool.sh").write_text("#!/bin/sh\n", encoding="utf-8")
-    r = _run(checkout, home)
-    assert r.returncode == 0
-    assert "1 current, 0 stale" in r.stdout
-
-
-def test_uninstalled_family_is_not_drift(tmp_path: Path):
-    # Not installing a family is a choice, not staleness.
     checkout = _make_checkout(tmp_path / "checkout")
-    (checkout / "plugins" / "security" / "commands").mkdir(parents=True)
-    (checkout / "plugins" / "security" / "commands" / "scan.md").write_text("# scan\n", encoding="utf-8")
     home = tmp_path / "home"
-    _make_install(home)
-    r = _run(checkout, home)
-    assert r.returncode == 0, r.stdout
-    assert "INSTALL_DRIFT: ok" in r.stdout
+    scripts = _make_helpers(home)
+    (scripts / "my-own-tool.sh").write_text("#!/bin/sh\necho host\n", encoding="utf-8")
+
+    result = _run(checkout, home)
+
+    assert result.returncode == 0
+    assert "1 current, 0 stale" in result.stdout
+    assert "my-own-tool.sh" not in result.stdout
+    assert "INSTALL_DRIFT: ok" in result.stdout
 
 
-def test_no_plugin_install_is_skipped_not_failed(tmp_path: Path):
+def test_split_install_is_named_with_current_helpers_and_retired_cache(tmp_path: Path):
+    # The two independently installed halves from #622 remain visible during
+    # migration: helpers can match the checkout while the old command cache is
+    # still present. Cache contents are no longer judged after #662.
+    checkout = _make_checkout(tmp_path / "checkout")
+    home = tmp_path / "home"
+    _make_helpers(home)
+    _make_cache(home, "flow")
+
+    report = _run(checkout, home)
+    payload = json.loads(_run(checkout, home, "--json").stdout)
+
+    assert report.returncode == 0
+    assert "SPLIT INSTALL" in report.stdout
+    assert "1 current, 0 stale" in report.stdout
+    assert "INSTALL_DRIFT: skipped" in report.stdout
+    assert payload["split"] is True
+
+
+def test_stale_helpers_and_retired_cache_coexist_with_drift_dominant(tmp_path: Path):
+    checkout = _make_checkout(tmp_path / "checkout")
+    home = tmp_path / "home"
+    scripts = _make_helpers(home)
+    (scripts / HELPER).write_text("#!/bin/sh\necho stale\n", encoding="utf-8")
+    _make_cache(home, "flow")
+
+    report = _run(checkout, home)
+    quiet = _run(checkout, home, "--quiet")
+    payload = json.loads(_run(checkout, home, "--json").stdout)
+
+    assert "Stale helpers" in report.stdout
+    assert "/plugin uninstall flow@cpp" in report.stdout
+    assert "INSTALL_DRIFT: drift" in report.stdout
+    assert len(quiet.stdout.splitlines()) == 1
+    assert "1 helper(s) stale" in quiet.stdout
+    assert "retired marketplace surface" in quiet.stdout
+    assert payload["verdict"] == "drift"
+    assert payload["cache_families"] == ["flow"]
+
+
+def test_plugins_less_checkout_with_lingering_cache_is_retired_info(tmp_path: Path):
+    """The #662 regression: removed checkout sources must not crash the walk."""
+    checkout = _make_checkout(tmp_path / "checkout")
+    home = tmp_path / "home"
+    _make_cache(home, "flow")
+
+    result = _run(checkout, home)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "retired CPP marketplace surface" in result.stdout
+    assert "/plugin uninstall flow@cpp" in result.stdout
+    assert "INSTALL_DRIFT: skipped" in result.stdout
+    assert "drift" not in result.stderr.lower()
+
+
+def test_multiple_cached_families_are_named(tmp_path: Path):
+    checkout = _make_checkout(tmp_path / "checkout")
+    home = tmp_path / "home"
+    _make_cache(home, "flow", "security")
+
+    result = _run(checkout, home)
+
+    assert result.returncode == 0
+    assert "installed families flow security" in result.stdout
+    assert "/plugin uninstall flow@cpp" in result.stdout
+    assert "/plugin uninstall security@cpp" in result.stdout
+
+
+def test_quiet_retired_cache_is_one_non_failing_line(tmp_path: Path):
+    checkout = _make_checkout(tmp_path / "checkout")
+    home = tmp_path / "home"
+    _make_cache(home, "flow", "security")
+
+    result = _run(checkout, home, "--quiet")
+
+    assert result.returncode == 0
+    lines = [line for line in result.stdout.splitlines() if line.strip()]
+    assert lines == [
+        "CPP install: retired marketplace surface pending uninstall (#662/#663): flow,security"
+    ]
+
+
+def test_no_retired_surface_is_skipped_silently_in_quiet_mode(tmp_path: Path):
     checkout = _make_checkout(tmp_path / "checkout")
     home = tmp_path / "home"
     home.mkdir()
-    r = _run(checkout, home)
-    assert r.returncode == 0
-    assert "INSTALL_DRIFT: skipped" in r.stdout
+
+    report = _run(checkout, home)
+    quiet = _run(checkout, home, "--quiet")
+
+    assert report.returncode == 0
+    assert "INSTALL_DRIFT: skipped" in report.stdout
+    assert quiet.returncode == 0
+    assert quiet.stdout == ""
+
+
+def test_marketplace_clone_is_reported_without_cache(tmp_path: Path):
+    checkout = _make_checkout(tmp_path / "checkout")
+    home = tmp_path / "home"
+    (home / ".claude" / "plugins" / "marketplaces" / "cpp").mkdir(parents=True)
+
+    report = _run(checkout, home)
+    quiet = _run(checkout, home, "--quiet")
+
+    assert report.returncode == 0
+    assert "marketplace clone" in report.stdout
+    assert "(retired)" in report.stdout
+    assert quiet.stdout.count("\n") == 1
+    assert "retired marketplace clone" in quiet.stdout
+
+
+def test_json_reports_skipped_retired_surface(tmp_path: Path):
+    checkout = _make_checkout(tmp_path / "checkout")
+    home = tmp_path / "home"
+    _make_cache(home, "flow")
+
+    result = _run(checkout, home, "--json")
+    payload = json.loads(result.stdout)
+
+    assert result.returncode == 0
+    assert payload["verdict"] == "skipped"
+    assert payload["reason"] == "retired marketplace surface"
+    assert payload["cache_families"] == ["flow"]
 
 
 def test_no_checkout_is_skipped_not_failed(tmp_path: Path):
-    # The marketplace-only user: a plugin install and no repo to compare against.
-    # Run a COPY of the script from a dir whose parent is not a checkout, so
-    # self-location cannot find one either.
     home = tmp_path / "home"
-    _make_install(home)
+    _make_cache(home, "flow")
     bin_dir = tmp_path / "elsewhere" / "bin"
     bin_dir.mkdir(parents=True)
-    copy = bin_dir / "install-drift.sh"
-    shutil.copy(SCRIPT, copy)
-    r = subprocess.run(
-        ["bash", str(copy)],
+    copied_script = bin_dir / "install-drift.sh"
+    shutil.copy(SCRIPT, copied_script)
+
+    result = subprocess.run(
+        ["bash", str(copied_script)],
         env={"CPP_INSTALL_DRIFT_HOME": str(home), "PATH": os.environ.get("PATH", "")},
         stdin=subprocess.DEVNULL,
         capture_output=True,
         text=True,
     )
-    assert r.returncode == 0, r.stdout + r.stderr
-    assert "INSTALL_DRIFT: skipped" in r.stdout
-    assert "no CPP checkout" in r.stdout
+
+    assert result.returncode == 0
+    assert "no CPP checkout" in result.stdout
+    assert "INSTALL_DRIFT: skipped" in result.stdout
 
 
-def test_bad_checkout_override_is_an_error_not_a_silent_fallthrough(tmp_path: Path):
+def test_bad_checkout_override_is_an_error(tmp_path: Path):
     home = tmp_path / "home"
-    _make_install(home)
-    r = _run(tmp_path / "not-a-checkout", home)
-    assert r.returncode == 2
-    assert "INSTALL_DRIFT: error" in r.stdout
+    _make_cache(home, "flow")
+
+    result = _run(tmp_path / "not-a-checkout", home)
+
+    assert result.returncode == 2
+    assert "INSTALL_DRIFT: error" in result.stdout
 
 
-def test_quiet_is_one_line_on_drift_and_always_exit_zero(tree):
-    checkout, home, cache = tree
-    (cache / "auto.md").write_text("# auto\nold\n", encoding="utf-8")
-    r = _run(checkout, home, "--quiet")
-    assert r.returncode == 0, "a session-start hook must never fail the session"
-    lines = [ln for ln in r.stdout.splitlines() if ln.strip()]
-    assert len(lines) == 1, r.stdout
-    assert lines[0].startswith("CPP install:")
-    assert "/cpp:update" in lines[0]
-    assert "1 command file(s) stale" in lines[0]
-
-
-def test_quiet_is_silent_when_in_sync(tree):
-    checkout, home, _ = tree
-    r = _run(checkout, home, "--quiet")
-    assert r.returncode == 0
-    assert r.stdout.strip() == "", "no drift -> nothing in the session's context"
-
-
-def test_quiet_is_silent_when_skipped(tmp_path: Path):
+def test_check_never_writes(tmp_path: Path):
     checkout = _make_checkout(tmp_path / "checkout")
     home = tmp_path / "home"
-    home.mkdir()
-    r = _run(checkout, home, "--quiet")
-    assert r.returncode == 0
-    assert r.stdout.strip() == "", "a skip is not news; the verdict line must stay out"
-
-
-def test_list_shows_every_stale_file(tree):
-    checkout, home, cache = tree
-    for i in range(12):
-        (cache / f"extra{i}.md").write_text("# orphan\n", encoding="utf-8")
-    sampled = _run(checkout, home).stdout
-    assert "more - re-run with --list" in sampled
-    full = _run(checkout, home, "--list").stdout
-    assert "more - re-run with --list" not in full
-    for i in range(12):
-        assert f"flow/extra{i}.md" in full
-
-
-def test_json_shape(tree):
-    checkout, home, cache = tree
-    (cache / "auto.md").write_text("# auto\nold\n", encoding="utf-8")
-    r = _run(checkout, home, "--json")
-    assert r.returncode == 1
-    payload = json.loads(r.stdout)
-    assert payload["verdict"] == "drift"
-    assert payload["commands_stale"] == 1
-    assert payload["commands_total"] == 2
-    assert payload["helpers_current"] == 1
-    assert payload["helpers_stale"] == 0
-    assert payload["split"] is True
-
-
-def test_check_never_writes(tree):
-    checkout, home, cache = tree
-    (cache / "auto.md").write_text("# auto\nold\n", encoding="utf-8")
+    _make_cache(home, "flow")
 
     def snapshot(root: Path):
         return {
-            str(p.relative_to(root)): p.read_bytes()
-            for p in sorted(root.rglob("*"))
-            if p.is_file()
+            str(path.relative_to(root)): path.read_bytes()
+            for path in sorted(root.rglob("*"))
+            if path.is_file()
         }
 
-    before = (snapshot(checkout), snapshot(home))
+    before = snapshot(checkout), snapshot(home)
     _run(checkout, home)
-    assert (snapshot(checkout), snapshot(home)) == before, "the check must be read-only"
-
-
-@pytest.mark.skipif(shutil.which("git") is None, reason="requires git on PATH")
-def test_marketplace_commit_distance_is_measured_in_the_checkout(tmp_path: Path):
-    # The clone was fetched at install time and does not have the commits that
-    # landed since, so the range must be resolved in the CHECKOUT, which has both.
-    checkout = _make_checkout(tmp_path / "checkout")
-    git_env = {
-        "PATH": os.environ.get("PATH", ""),
-        "HOME": str(tmp_path),
-        "GIT_AUTHOR_NAME": "t",
-        "GIT_AUTHOR_EMAIL": "t@example.com",
-        "GIT_COMMITTER_NAME": "t",
-        "GIT_COMMITTER_EMAIL": "t@example.com",
-        "GIT_CONFIG_GLOBAL": str(tmp_path / "no-such-gitconfig"),
-        "GIT_CONFIG_SYSTEM": str(tmp_path / "no-such-gitconfig"),
-    }
-
-    def git(*args: str, cwd: Path = checkout):
-        return subprocess.run(
-            ["git", "-C", str(cwd), *args], env=git_env, capture_output=True, text=True, check=True
-        )
-
-    git("init", "-q", "-b", "main")
-    git("add", "-A")
-    git("commit", "-qm", "one")
-    (checkout / "plugins" / FAMILY / "commands" / "auto.md").write_text(
-        "# auto\nnewer text\n", encoding="utf-8"
-    )
-    git("add", "-A")
-    git("commit", "-qm", "two")
-
-    home = tmp_path / "home"
-    _make_install(home)
-    mkt = home / ".claude" / "plugins" / "marketplaces" / "cpp"
-    mkt.parent.mkdir(parents=True, exist_ok=True)
-    subprocess.run(
-        ["git", "clone", "-q", str(checkout), str(mkt)], env=git_env, capture_output=True, check=True
-    )
-    git("reset", "-q", "--hard", "HEAD~1", cwd=mkt)
-
-    r = _run(checkout, home, "--json")
-    payload = json.loads(r.stdout)
-    assert payload["commit_state"] == "resolved"
-    assert payload["behind"] == 1
-    assert payload["ahead"] == 0
-    assert payload["verdict"] == "drift"
-
-    report = _run(checkout, home).stdout
-    assert "1 commit(s) behind the checkout" in report
+    assert (snapshot(checkout), snapshot(home)) == before

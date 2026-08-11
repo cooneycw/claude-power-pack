@@ -159,13 +159,12 @@ host-surfaces-plan:
 host-surfaces-prune:
 	@python3 scripts/retired-surface-prune.py --prune --all
 
-## Installed-vs-checkout command drift (issue #622)
-## The command text a session EXECUTES lives in the plugin snapshot under
-## ~/.claude/plugins/, not in this checkout, and only moves when the plugin is
-## re-installed - so a session can run week-old instructions and re-diagnose an
-## already-fixed bug with nothing saying the text is stale. Deliberately NOT part
-## of `make verify`: it inspects HOME, so it is a local check about THIS box, and
-## a CI container legitimately has no install at all.
+## Installed-helper drift guard + retired marketplace report (issues #622/#662)
+## Compares installed ~/.claude/scripts helpers with the checkout through #663;
+## also names cached families pending `/plugin uninstall <family>@cpp` without
+## reviving the retired marketplace clone/cache parity walk.
+## Deliberately NOT part of `make verify`: it inspects HOME, so it is a local
+## check about THIS box, and a CI container legitimately has no install at all.
 
 install-drift-check:
 	@scripts/install-drift.sh

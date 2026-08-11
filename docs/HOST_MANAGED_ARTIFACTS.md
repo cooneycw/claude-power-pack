@@ -3,23 +3,19 @@
 This document inventories deploy-critical artifacts that live outside the repo checkout,
 classifies them by lifecycle, and describes how drift is detected and reconciled.
 
-## Install path: `/plugin` first, this document is the fallback
+## Install path: checkout + tiered symlinks
 
-CPP's command/skill/hook surface installs through Claude Code's `/plugin`
-(`/plugin marketplace add cooneycw/claude-power-pack` then `/plugin install
-<family>@cpp`; ADR [0001](decisions/0001-plugin-marketplace-packaging.md), epic
-#417 Phase B). Those surfaces - commands, skills, the bundled PostToolUse masking
-hook, and the `second-opinion` `.mcp.json` client pointer - are versioned and
-updated by `/plugin` and are **not** host-managed artifacts: a plugin user does
-not symlink them, and the retired dual-surface machinery (the `~/.claude/skills`
-global mirror, `flow-skill-sync.py`, `skill-drift.py`) no longer exists (#480).
+CPP's own marketplace lane is retired by issue #662 and ADR
+[0005](decisions/0005-retire-plugin-marketplace-distribution.md). The repository
+checkout is the source of truth; issue #663 restores the tiered `/cpp:init` +
+`/cpp:update` symlink command surface as canonical. Existing CPP plugin caches
+are migration artifacts, not a supported install lane, and should be removed
+with `/plugin uninstall <family>@cpp`.
 
-The artifacts below are the **non-plugin infra** a plugin install cannot deliver -
-the documented fallback `/cpp:init` / `/cpp:update` still own: host scripts +
-user-level hook registration, the external Second Opinion MCP server pointer and
-`@playwright/mcp` registration, AWS Secrets Manager access, Woodpecker bootstrap,
-and workstation tuning. This document is the inventory of that fallback; it does
-not cover the plugin-delivered surfaces above.
+The artifacts below are the host-managed pieces owned by `/cpp:init` and
+`/cpp:update`: command and helper symlinks (as restored by #663), user-level hook
+registration, MCP client registration, AWS Secrets Manager access, Woodpecker
+bootstrap, and workstation tuning.
 
 ## Classification
 
@@ -111,33 +107,28 @@ user-confirmed hook registration). The registration merge is idempotent - it add
 the hook only if that exact command is not already present, preserving all other
 `settings.json` keys and entries.
 
-### 5. Installed Plugin Command Surface
+### 5. Retired CPP Plugin Cache
 
 | Artifact | Template Source | Installed Location | Category |
 |----------|---------------|--------------------|----------|
-| Marketplace clone | `cooneycw/claude-power-pack` | `~/.claude/plugins/marketplaces/cpp` | Reconcilable |
-| Per-family command snapshot | `plugins/<family>/commands/*.md` | `~/.claude/plugins/cache/cpp/<family>/<version>/commands/` | Reconcilable |
+| Marketplace clone | Retired in #662 | `~/.claude/plugins/marketplaces/cpp` | Migration artifact |
+| Per-family command snapshot | Retired in #662 | `~/.claude/plugins/cache/cpp/<family>/<version>/commands/` | Migration artifact |
 
-**What:** `/plugin install <family>@cpp` copies the packaged commands into a
-version-stamped cache. **That cache, not this checkout, is the text a session
-executes.** It moves only when the plugin is re-installed, while the checkout
-moves on every `git pull`.
+**What:** Hosts that used the retired CPP marketplace may still execute commands
+from a version-stamped cache. CPP no longer publishes `plugins/<family>/`
+sources, so that cache is pending uninstall rather than reconciliation.
 
-**Risk:** High, and it was invisible until issue #622. A box ran 15 commits / 7
-days behind for a week with nothing saying so; a session then executed the
-pre-#595 verifier invocation, re-diagnosed a bug that was already fixed, and
-nearly filed a duplicate issue for it - which is worse than silence, because it
-puts noise into the tracker. It compounds with artifact 4: the helper scripts
-there are SYMLINKS that follow `git pull` instantly, so the two halves of one
-install drift independently and a run gets new helpers driven by old
-instructions.
+**Risk:** High until removed. Issue #662 recorded an executed cache 34 commits /
+48 command files behind while `/plugin update` reported version 1.1.0 current.
+The stamp did not move with command content, so there was no marketplace
+reconciliation path short of per-family uninstall/reinstall.
 
-**Detection:** `scripts/install-drift.sh` (`make install-drift-check`), the
-opt-in SessionStart reminder, and `/cpp:update` Step 7.10.
+**Detection:** `scripts/install-drift.sh` (`make install-drift-check`) names
+cached families as a retired, non-failing surface. It does not compare content
+against the removed plugin trees.
 
-**Reconciliation:** `/plugin update` (or `/plugin marketplace update cpp`).
-`/cpp:update` deliberately does NOT do this - it owns the non-plugin infra only,
-and pretending otherwise is how the gap stayed invisible.
+**Migration:** `/plugin uninstall <family>@cpp` for each of the 15 CPP families.
+Issue #663's restored tiered symlink surface replaces the cache.
 
 ## Repo-Controlled (No Drift Risk)
 

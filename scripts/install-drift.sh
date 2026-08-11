@@ -1,44 +1,33 @@
 #!/usr/bin/env bash
-# install-drift.sh - report drift between the INSTALLED command surface and the
-# CPP checkout (issue #622).
+# install-drift.sh - guard installed CPP helpers and report retired marketplace
+# state left on a host (issues #622/#662).
 #
-# Problem:
-#   The copy of a command the Skill tool loads is not the copy the repo
-#   maintains. `/plugin install <family>@cpp` snapshots the commands into
-#   ~/.claude/plugins/, and that snapshot only moves when the plugin is
-#   re-installed - while the checkout moves on every `git pull`. On flow:auto #65
-#   the installed text was 15 commits / 7 days behind, so the session ran the
-#   pre-#595 verifier invocation, re-diagnosed a bug #595 had already fixed, and
-#   was about to file a duplicate issue for it. Nothing said the text was stale.
+# Two independent, read-only jobs survive the marketplace retirement:
+#   1. Compare installed ~/.claude/scripts/*.sh helpers with the same basenames
+#      under <checkout>/scripts. Only basenames the checkout ships are judged; a
+#      host's own scripts are none of this check's business. This remains the
+#      symlink-era drift guard through issue #663.
+#   2. Name CPP cache families and the marketplace clone retired by issue #662 /
+#      ADR 0005 so the operator can migrate them with
+#      `/plugin uninstall <family>@cpp`.
 #
-#   It is worse than plain staleness because the install is SPLIT and the halves
-#   drift independently: the helper scripts live at ~/.claude/scripts/ (symlinked
-#   from a checkout, so current the moment you pull) while the markdown that
-#   drives them lives in the plugin snapshot. A run then gets new helpers driven
-#   by old instructions, silent in both directions.
-#
-# What it compares (all local, no network, never writes):
-#   1. ~/.claude/plugins/marketplaces/cpp - a git clone: commit distance from the
-#      checkout when the sha is resolvable there, else content parity.
-#   2. ~/.claude/plugins/cache/cpp/<family>/<version>/commands - plain copies with
-#      no git at all, and the ones a session actually executes: content parity
-#      per command file.
-#   3. ~/.claude/scripts/*.sh - the helper half, so the SPLIT case is named
-#      rather than left to be inferred. Only files the checkout also has are
-#      judged; a host's own scripts are none of this check's business.
+# Combined verdicts give helper drift priority: any stale judged helper is
+# `drift`, even when retired marketplace state also exists. Retired state alone
+# remains informational `skipped`; comparable current helpers with no retired
+# state are `ok`. No checkout, or no retired state and no comparable installed
+# helpers, is also `skipped`. A current helper half beside retired marketplace
+# state is named as a SPLIT INSTALL, but the retired half is not content-judged.
+# Successful checks always exit 0, including a `drift` verdict; only bad usage or
+# an invalid explicit checkout override exits 2.
 #
 # Usage:
-#   install-drift.sh                # human report; exit 1 on drift
-#   install-drift.sh --list         # same, listing every stale file (not a sample)
-#   install-drift.sh --quiet        # ONE line if drift, silent otherwise; ALWAYS exit 0
-#   install-drift.sh --json         # machine-readable; exit 1 on drift
+#   install-drift.sh                # human report; always exit 0
+#   install-drift.sh --list         # accepted for backward compatibility
+#   install-drift.sh --quiet        # one advisory line when action is needed
+#   install-drift.sh --json         # machine-readable; always exit 0
 #
-# Output always ends with a verdict line:
+# Output in report mode ends with:
 #   INSTALL_DRIFT: ok | drift | skipped | error
-#
-# `skipped` is a first-class, non-failing answer: a marketplace-only user has no
-# checkout to compare against, and a checkout-only user has no plugin install.
-# Neither is a problem, and neither should ever be reported as one.
 #
 # Env (test seams - unset in normal use):
 #   CPP_INSTALL_DRIFT_HOME      override $HOME (plugin + helper roots)
@@ -51,17 +40,13 @@ SELF_DIR="$(cd "$(dirname "$SELF")" && pwd)"
 HOME_DIR="${CPP_INSTALL_DRIFT_HOME:-${HOME:-}}"
 
 MODE="report"
-LIST_ALL=0
-SAMPLE=8
-
 for arg in "$@"; do
     case "$arg" in
-        --check|--report) MODE="report" ;;
+        --check|--report|--list) MODE="report" ;;
         --quiet) MODE="quiet" ;;
         --json) MODE="json" ;;
-        --list) LIST_ALL=1 ;;
         -h|--help)
-            sed -n '2,47p' "$SELF" | sed 's/^# \{0,1\}//'
+            sed -n '2,34p' "$SELF" | sed 's/^# \{0,1\}//'
             exit 0 ;;
         *)
             echo "install-drift: unknown argument '$arg' (use --quiet, --json, --list)" >&2
@@ -69,15 +54,12 @@ for arg in "$@"; do
     esac
 done
 
-# --- Resolve the checkout (the source of truth) -----------------------------
 is_checkout() {
-    [ -n "$1" ] && [ -f "$1/CLAUDE.md" ] && [ -d "$1/.claude/commands" ] && [ -d "$1/plugins" ]
+    [ -n "$1" ] && [ -f "$1/CLAUDE.md" ] && [ -d "$1/.claude/commands" ]
 }
 
 CHECKOUT=""
 if [ -n "${CPP_INSTALL_DRIFT_CHECKOUT:-}" ]; then
-    # An explicit override that is not a checkout is an operator error, not a
-    # reason to silently fall through to some other repo on the box.
     if is_checkout "$CPP_INSTALL_DRIFT_CHECKOUT"; then
         CHECKOUT="$CPP_INSTALL_DRIFT_CHECKOUT"
     else
@@ -86,8 +68,7 @@ if [ -n "${CPP_INSTALL_DRIFT_CHECKOUT:-}" ]; then
         exit 2
     fi
 else
-    # Self-location first: symlinked into ~/.claude/scripts/, readlink -f above
-    # already resolved back to <checkout>/scripts, so this is the common case.
+    # Self-location first: a helper symlink resolves back to <checkout>/scripts.
     for dir in "$SELF_DIR/.." "${HOME_DIR:+$HOME_DIR/Projects/claude-power-pack}" \
                /opt/claude-power-pack "${HOME_DIR:+$HOME_DIR/.claude-power-pack}"; do
         [ -n "$dir" ] || continue
@@ -98,122 +79,59 @@ else
     done
 fi
 
-emit_skip() {  # $1 = reason
+emit_skip() {
+    local reason="$1"
     case "$MODE" in
-        # A hook must stay silent when there is nothing to say - not even the
-        # verdict line, which would otherwise land in every session's context.
         quiet) : ;;
-        json) printf '{"verdict":"skipped","reason":"%s"}\n' "$1" ;;
+        json) printf '{"verdict":"skipped","reason":"%s"}\n' "$reason" ;;
         *)
-            echo "install-drift: $1"
+            echo "install-drift: $reason"
             echo "INSTALL_DRIFT: skipped" ;;
     esac
     exit 0
 }
 
-[ -n "$CHECKOUT" ] || emit_skip "no CPP checkout found - nothing to compare the install against"
+[ -n "$CHECKOUT" ] || emit_skip "no CPP checkout found - nothing to inspect"
 
 PLUGINS_DIR="${HOME_DIR:+$HOME_DIR/.claude/plugins}"
 MKT="${PLUGINS_DIR:+$PLUGINS_DIR/marketplaces/cpp}"
 CACHE="${PLUGINS_DIR:+$PLUGINS_DIR/cache/cpp}"
 SCRIPTS_DIR="${HOME_DIR:+$HOME_DIR/.claude/scripts}"
 
-if [ -z "$PLUGINS_DIR" ] || { [ ! -d "$MKT" ] && [ ! -d "$CACHE" ]; }; then
-    emit_skip "no CPP plugin install found under ${PLUGINS_DIR:-~/.claude/plugins} - nothing to compare"
-fi
-
-# --- 1. Commit distance (marketplace clone vs checkout) ---------------------
-# Resolved in the CHECKOUT, not the clone: the clone was fetched at install time
-# and does not have the commits that landed since, while the checkout has both
-# ends of the range whenever the clone's HEAD is an ancestor of its own.
-COMMIT_STATE="unavailable"
-BEHIND=0
-AHEAD=0
-MKT_SHA=""
-CO_SHA=""
-CO_REF=""
-if [ -e "$MKT/.git" ] && command -v git >/dev/null 2>&1 \
-   && git -C "$CHECKOUT" rev-parse --git-dir >/dev/null 2>&1; then
-    MKT_SHA="$(git -C "$MKT" rev-parse --short HEAD 2>/dev/null || printf '')"
-    CO_SHA="$(git -C "$CHECKOUT" rev-parse --short HEAD 2>/dev/null || printf '')"
-    CO_REF="$(git -C "$CHECKOUT" rev-parse --abbrev-ref HEAD 2>/dev/null || printf '')"
-    if [ -n "$MKT_SHA" ] && [ -n "$CO_SHA" ] \
-       && git -C "$CHECKOUT" cat-file -e "${MKT_SHA}^{commit}" 2>/dev/null; then
-        BEHIND="$(git -C "$CHECKOUT" rev-list --count "${MKT_SHA}..HEAD" 2>/dev/null || printf '0')"
-        AHEAD="$(git -C "$CHECKOUT" rev-list --count "HEAD..${MKT_SHA}" 2>/dev/null || printf '0')"
-        COMMIT_STATE="resolved"
-    else
-        # Unfetched, rebased, or shallow: content parity below is the answer.
-        COMMIT_STATE="unresolved"
-    fi
-fi
-
-# --- 2. Command-file content parity -----------------------------------------
-declare -A TOTAL=()
-declare -A DIFFER=()
-STALE_FILES=()
-
-compare_commands() {  # $1 label, $2 family, $3 src commands dir, $4 installed commands dir
-    local label="$1" family="$2" src="$3" dest="$4" f base
-    [ -d "$src" ] || return 0
-    # A family the user never installed is not drift - it is a choice.
-    [ -d "$dest" ] || return 0
-    for f in "$src"/*.md; do
-        [ -e "$f" ] || continue
-        base="${f##*/}"
-        TOTAL[$label]=$(( ${TOTAL[$label]:-0} + 1 ))
-        if [ ! -f "$dest/$base" ]; then
-            DIFFER[$label]=$(( ${DIFFER[$label]:-0} + 1 ))
-            STALE_FILES+=("$label|$family/$base|missing from install")
-        elif ! cmp -s "$f" "$dest/$base"; then
-            DIFFER[$label]=$(( ${DIFFER[$label]:-0} + 1 ))
-            STALE_FILES+=("$label|$family/$base|differs")
-        fi
-    done
-    for f in "$dest"/*.md; do
-        [ -e "$f" ] || continue
-        base="${f##*/}"
-        if [ ! -f "$src/$base" ]; then
-            DIFFER[$label]=$(( ${DIFFER[$label]:-0} + 1 ))
-            STALE_FILES+=("$label|$family/$base|retired upstream, still installed")
-        fi
-    done
-}
-
-# The marketplace clone mirrors the repo layout: plugins/<family>/commands/.
-if [ -d "$MKT" ]; then
-    for src in "$CHECKOUT"/plugins/*/commands; do
-        [ -d "$src" ] || continue
-        fam="${src%/commands}"; fam="${fam##*/}"
-        compare_commands "marketplace" "$fam" "$src" "$MKT/plugins/$fam/commands"
-    done
-fi
-
-# The cache is version-stamped and flat: <family>/<version>/commands/. This is
-# the copy a session actually executes.
+# --- Retired marketplace migration state (#662) ----------------------------
+FAMILIES=()
 if [ -d "$CACHE" ]; then
-    for dest in "$CACHE"/*/*/commands; do
-        [ -d "$dest" ] || continue
-        p="${dest%/commands}"; p="${p%/*}"; fam="${p##*/}"
-        compare_commands "cache" "$fam" "$CHECKOUT/plugins/$fam/commands" "$dest"
+    for family_dir in "$CACHE"/*; do
+        [ -d "$family_dir" ] || continue
+        FAMILIES+=("${family_dir##*/}")
     done
 fi
 
-CMD_DRIFT=$(( ${DIFFER[marketplace]:-0} + ${DIFFER[cache]:-0} ))
+RETIRED=0
+if [ "${#FAMILIES[@]}" -gt 0 ] || [ -d "$MKT" ]; then
+    RETIRED=1
+fi
 
-# --- 3. Helper half (the split) ---------------------------------------------
+family_csv=""
+if [ "${#FAMILIES[@]}" -gt 0 ]; then
+    family_csv="$(IFS=,; printf '%s' "${FAMILIES[*]}")"
+fi
+
+# --- Installed helper parity (#622, retained through #663) -----------------
 HELPERS_CURRENT=0
 HELPERS_STALE=0
 STALE_HELPERS=()
 if [ -n "$SCRIPTS_DIR" ] && [ -d "$SCRIPTS_DIR" ]; then
-    for f in "$SCRIPTS_DIR"/*.sh; do
+    for installed in "$SCRIPTS_DIR"/*.sh; do
         # -e is false for a dangling symlink; that is /flow:doctor's report to
         # make, not this one's.
-        [ -e "$f" ] || continue
-        base="${f##*/}"
-        src="$CHECKOUT/scripts/$base"
-        [ -f "$src" ] || continue
-        if cmp -s "$src" "$f"; then
+        [ -e "$installed" ] || continue
+        base="${installed##*/}"
+        source_helper="$CHECKOUT/scripts/$base"
+        # A script the host owns is none of this check's business. Judge only
+        # installed basenames that exist in the checkout.
+        [ -f "$source_helper" ] || continue
+        if cmp -s "$source_helper" "$installed"; then
             HELPERS_CURRENT=$(( HELPERS_CURRENT + 1 ))
         else
             HELPERS_STALE=$(( HELPERS_STALE + 1 ))
@@ -221,122 +139,110 @@ if [ -n "$SCRIPTS_DIR" ] && [ -d "$SCRIPTS_DIR" ]; then
         fi
     done
 fi
+HELPERS_TOTAL=$(( HELPERS_CURRENT + HELPERS_STALE ))
 
-# The #622 signature: the helper half current, the markdown half behind. Worth
-# naming explicitly, because the symptom (new helpers, old instructions) reads
-# as a bug in the helpers rather than as staleness.
+if [ "$RETIRED" -eq 0 ] && [ "$HELPERS_TOTAL" -eq 0 ]; then
+    emit_skip "no retired CPP marketplace surface or installed checkout helpers found"
+fi
+
 SPLIT=0
-if [ "$HELPERS_STALE" -eq 0 ] && [ "$HELPERS_CURRENT" -gt 0 ] \
-   && { [ "$CMD_DRIFT" -gt 0 ] || [ "$BEHIND" -gt 0 ]; }; then
+if [ "$RETIRED" -eq 1 ] && [ "$HELPERS_CURRENT" -gt 0 ] && [ "$HELPERS_STALE" -eq 0 ]; then
     SPLIT=1
 fi
 
-DRIFT=0
-if [ "$CMD_DRIFT" -gt 0 ] || [ "$BEHIND" -gt 0 ] || [ "$HELPERS_STALE" -gt 0 ]; then
-    DRIFT=1
+VERDICT="ok"
+if [ "$HELPERS_STALE" -gt 0 ]; then
+    VERDICT="drift"
+elif [ "$RETIRED" -eq 1 ]; then
+    VERDICT="skipped"
 fi
 
-# --- Output -----------------------------------------------------------------
-summary_clause() {
-    local parts=""
-    if [ "$COMMIT_STATE" = "resolved" ] && [ "$BEHIND" -gt 0 ]; then
-        parts="${BEHIND} commit(s) behind checkout"
+# --- Output ----------------------------------------------------------------
+retired_quiet_clause() {
+    if [ -n "$family_csv" ]; then
+        printf 'retired marketplace surface pending uninstall (#662/#663): %s' "$family_csv"
+    else
+        printf 'retired marketplace clone pending removal (#662/#663)'
     fi
-    if [ "$CMD_DRIFT" -gt 0 ]; then
-        [ -n "$parts" ] && parts="${parts}, "
-        parts="${parts}${CMD_DRIFT} command file(s) stale"
-    fi
-    if [ "$HELPERS_STALE" -gt 0 ]; then
-        [ -n "$parts" ] && parts="${parts}, "
-        parts="${parts}${HELPERS_STALE} helper(s) stale"
-    elif [ "$SPLIT" -eq 1 ]; then
-        parts="${parts} (helpers current)"
-    fi
-    printf '%s' "$parts"
 }
 
 if [ "$MODE" = "quiet" ]; then
-    if [ "$DRIFT" -eq 1 ]; then
-        echo "CPP install: $(summary_clause) - run /cpp:update"
+    if [ "$HELPERS_STALE" -gt 0 ]; then
+        message="CPP install: ${HELPERS_STALE} helper(s) stale - run /cpp:update"
+        if [ "$RETIRED" -eq 1 ]; then
+            message="${message}; $(retired_quiet_clause)"
+        fi
+        echo "$message"
+    elif [ "$RETIRED" -eq 1 ]; then
+        echo "CPP install: $(retired_quiet_clause)"
     fi
     exit 0
 fi
 
 if [ "$MODE" = "json" ]; then
-    printf '{'
-    printf '"verdict":"%s",' "$([ "$DRIFT" -eq 1 ] && echo drift || echo ok)"
-    printf '"checkout":"%s",' "$CHECKOUT"
-    printf '"checkout_ref":"%s","checkout_sha":"%s",' "$CO_REF" "$CO_SHA"
-    printf '"commit_state":"%s","behind":%s,"ahead":%s,' "$COMMIT_STATE" "${BEHIND:-0}" "${AHEAD:-0}"
-    printf '"marketplace_sha":"%s",' "$MKT_SHA"
-    printf '"commands_total":%s,"commands_stale":%s,' \
-        "$(( ${TOTAL[marketplace]:-0} + ${TOTAL[cache]:-0} ))" "$CMD_DRIFT"
-    printf '"helpers_current":%s,"helpers_stale":%s,' "$HELPERS_CURRENT" "$HELPERS_STALE"
-    printf '"split":%s' "$([ "$SPLIT" -eq 1 ] && echo true || echo false)"
-    printf '}\n'
-    [ "$DRIFT" -eq 1 ] && exit 1
+    printf '{"verdict":"%s",' "$VERDICT"
+    if [ "$VERDICT" = "skipped" ]; then
+        printf '"reason":"retired marketplace surface",'
+    fi
+    printf '"checkout":"%s","marketplace_clone":%s,"cache_families":[' \
+        "$CHECKOUT" "$([ -d "$MKT" ] && echo true || echo false)"
+    separator=""
+    for family in "${FAMILIES[@]}"; do
+        printf '%s"%s"' "$separator" "$family"
+        separator=,
+    done
+    printf '],"helpers_current":%s,"helpers_stale":%s,"stale_helpers":[' \
+        "$HELPERS_CURRENT" "$HELPERS_STALE"
+    separator=""
+    for helper in "${STALE_HELPERS[@]}"; do
+        printf '%s"%s"' "$separator" "$helper"
+        separator=,
+    done
+    printf '],"split":%s}\n' "$([ "$SPLIT" -eq 1 ] && echo true || echo false)"
     exit 0
 fi
 
-echo "install-drift: checkout $CHECKOUT${CO_SHA:+ (${CO_REF:-detached} @ $CO_SHA)}"
-echo ""
-if [ -d "$MKT" ]; then
-    echo "  marketplace clone  $MKT"
-    case "$COMMIT_STATE" in
-        resolved)
-            if [ "$BEHIND" -gt 0 ]; then
-                echo "    ${MKT_SHA} - ${BEHIND} commit(s) behind the checkout"
-            elif [ "$AHEAD" -gt 0 ]; then
-                echo "    ${MKT_SHA} - ${AHEAD} commit(s) AHEAD of the checkout (pull the checkout)"
-            else
-                echo "    ${MKT_SHA} - same commit as the checkout"
-            fi ;;
-        unresolved)
-            echo "    ${MKT_SHA:-unknown} - commit distance unresolvable (not in checkout history); using content parity" ;;
-        *)
-            echo "    commit distance unavailable (no git); using content parity" ;;
-    esac
-    echo "    ${DIFFER[marketplace]:-0} of ${TOTAL[marketplace]:-0} command file(s) differ"
-fi
-if [ -d "$CACHE" ]; then
-    echo "  plugin cache       $CACHE"
-    echo "    ${DIFFER[cache]:-0} of ${TOTAL[cache]:-0} command file(s) differ (this is the copy sessions execute)"
-fi
+echo "install-drift: checkout $CHECKOUT"
 echo "  host helpers       ${SCRIPTS_DIR:-<none>}"
 echo "    ${HELPERS_CURRENT} current, ${HELPERS_STALE} stale"
-
-if [ "${#STALE_FILES[@]}" -gt 0 ]; then
-    echo ""
-    echo "  Stale command files:"
-    shown=0
-    for rec in "${STALE_FILES[@]}"; do
-        if [ "$LIST_ALL" -eq 0 ] && [ "$shown" -ge "$SAMPLE" ]; then
-            echo "    (+ $(( ${#STALE_FILES[@]} - shown )) more - re-run with --list)"
-            break
-        fi
-        IFS='|' read -r lbl path state <<< "$rec"
-        echo "    [$lbl] $path - $state"
-        shown=$(( shown + 1 ))
-    done
-fi
 if [ "${#STALE_HELPERS[@]}" -gt 0 ]; then
     echo ""
     echo "  Stale helpers: ${STALE_HELPERS[*]}"
 fi
 
-echo ""
-if [ "$DRIFT" -eq 0 ]; then
-    echo "install-drift: install matches the checkout."
-    echo "INSTALL_DRIFT: ok"
-    exit 0
+if [ "$RETIRED" -eq 1 ]; then
+    echo ""
+    echo "install-drift: retired CPP marketplace surface detected (issue #662)"
+    if [ -d "$MKT" ]; then
+        echo "  marketplace clone  $MKT (retired)"
+    fi
+    if [ "${#FAMILIES[@]}" -gt 0 ]; then
+        echo "  plugin cache       $CACHE (retired)"
+        echo "  installed families ${FAMILIES[*]}"
+        echo ""
+        echo "Migration: uninstall each cached family; for example:"
+        for family in "${FAMILIES[@]}"; do
+            echo "  /plugin uninstall ${family}@cpp"
+        done
+    fi
+    echo "The tiered symlink command surface returns as canonical in issue #663."
 fi
 
+echo ""
 if [ "$SPLIT" -eq 1 ]; then
-    echo "SPLIT INSTALL: the helpers are current but the command markdown is not."
-    echo "A session gets new helpers driven by old instructions, and the mismatch is"
-    echo "silent in both directions (issue #622)."
+    echo "SPLIT INSTALL: helpers match the checkout, but retired marketplace state remains."
+    echo "The helper and command halves came from independent install lanes (issue #622)."
     echo ""
 fi
-echo "Reconcile: /plugin update, or /cpp:update (which also re-links the helpers)."
-echo "INSTALL_DRIFT: drift"
-exit 1
+
+case "$VERDICT" in
+    drift)
+        echo "Reconcile stale helpers with /cpp:update."
+        echo "INSTALL_DRIFT: drift" ;;
+    ok)
+        echo "install-drift: installed helpers match the checkout."
+        echo "INSTALL_DRIFT: ok" ;;
+    skipped)
+        echo "INSTALL_DRIFT: skipped" ;;
+esac
+exit 0

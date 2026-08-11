@@ -235,9 +235,9 @@ def test_helper_is_in_install_family() -> None:
     assert "flow-finish-gate.sh" in text
 
 
-def test_helper_is_bundled_in_flow_plugin() -> None:
-    text = (ROOT / "scripts" / "plugin-sync.sh").read_text()
-    assert "scripts/flow-finish-gate.sh" in text
+def test_helper_is_bundled_in_codex_skill() -> None:
+    bundled = ROOT / "codex" / "skills" / "flow-finish" / "scripts" / "flow-finish-gate.sh"
+    assert bundled.read_text() == (ROOT / "scripts" / "flow-finish-gate.sh").read_text()
 
 
 def test_helper_is_allowlisted() -> None:

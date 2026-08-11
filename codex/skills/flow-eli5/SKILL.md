@@ -8,7 +8,6 @@ description: "Flow: ELI5 - Post-Analysis Plan + Necessity Gate - The post-analys
 
 Generated from a Claude Code command. Where the procedure references these Claude-only surfaces, adapt as follows:
 
-- Claude `/plugin` install references: install the codex-power-pack equivalent plugin/skill instead.
 - Helper scripts referenced as `scripts/<name>` are bundled under `scripts/` in this skill directory (byte-identical copies from the claude-power-pack checkout); some expect sibling repo resources, so prefer a full checkout when one is available.
 
 # Flow: ELI5 - Post-Analysis Plan + Necessity Gate
