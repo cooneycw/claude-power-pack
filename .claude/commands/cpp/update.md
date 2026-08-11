@@ -671,6 +671,12 @@ cd "$CPP_DIR"
 MCP_DOCKER_DRIFT_STATUS="clean"
 python3 scripts/mcp-drift.py --check
 MCP_DOCKER_DRIFT_RC=$?
+
+# Exit 3 = the docker inventory could not be READ. Nothing was assessed, so this
+# is NOT a clean result and must never be relayed as one (issue #673).
+if [ "$MCP_DOCKER_DRIFT_RC" -eq 3 ]; then
+  MCP_DOCKER_DRIFT_STATUS="NOT ASSESSED (docker unreadable)"
+fi
 ```
 
 A server is classified **ORPHANED DOCKER MCP** only when it is listed in
@@ -683,6 +689,28 @@ service set cannot be read the server is `UNKNOWN` (never torn down). Registrati
 CPP never shipped are never listed, so they are never flagged - and the valid new
 `second-opinion` registration is deliberately left off the retired entry's
 registration list, so the user's new wiring is never torn down.
+
+**Exit code 3 is "I could not look", not "clean" (issue #673).** A docker socket
+that refuses the read (permission denied, or a dead daemon) used to empty the
+container inventory silently: every curated server classified `ABSENT` and the
+report printed `No orphaned Docker MCP servers detected.` on a host that had two
+retired containers running the whole time - and this command relayed that as a
+positive finding. A refused read now classifies every curated server `UNKNOWN`,
+prints a `DOCKER UNREADABLE` banner instead of the clean line, and exits **3**.
+When `MCP_DOCKER_DRIFT_RC` is 3, report the host as **not assessed** - never as
+clean - and offer no teardown (there is nothing trustworthy to tear down from).
+The script retries a permission-refused read once via non-interactive `sudo -n`
+before giving up; when that retry is what succeeded, the report says so and the
+teardown commands carry the same `sudo -n` prefix, so what `--plan` prints is what
+`--teardown` runs. A **missing** docker binary is deliberately different: nothing
+can run under a runtime that is not installed, so that stays a clean read and is
+named as such in the report.
+
+A server may also be classified **NAME COLLISION**: it would have been flagged
+orphaned, but its declared port answers on localhost, or a live `claude`/`codex`
+registration targets that port - evidence that the retired name is the user's own
+deployment rather than a CPP leftover. Collisions are reported with their evidence,
+are never counted as orphans, and teardown hard-refuses them.
 
 Limitation to surface if asked: like skill drift, detection is curated-list
 driven. A retired server without a `deprecated-mcps.yaml` entry reads as
@@ -721,6 +749,14 @@ structured findings and drive a per-server, user-confirmed teardown. Teardown is
 reversible-where-possible: images keep a newest-tag restore point unless the user
 chooses prune-all, and `mcp-drift.py` hard-refuses to touch anything not
 classified `ORPHANED DOCKER MCP`.
+
+**On `MCP_DOCKER_DRIFT_RC` = 3 there is nothing to offer** (issue #673): the
+docker inventory was never read, so every server is `UNKNOWN` and every teardown
+would be refused anyway. Do not present a teardown option; report the host as not
+assessed, surface the `DOCKER UNREADABLE` line from Step 6c verbatim, and tell the
+user what would make the read work (docker group membership, or starting the
+daemon). Saying "no orphaned Docker MCP" here is the exact false-positive this
+guard exists to prevent.
 
 ```bash
 cd "$CPP_DIR"
@@ -761,8 +797,12 @@ and record the outcome for the summary:
 ```bash
 cd "$CPP_DIR"
 python3 scripts/mcp-drift.py --check
-if [ $? -eq 0 ]; then
+RESCAN_RC=$?
+if [ "$RESCAN_RC" -eq 0 ]; then
   MCP_DOCKER_DRIFT_STATUS="torn down (newest image kept as restore point unless prune-all)"
+elif [ "$RESCAN_RC" -eq 3 ]; then
+  # Do not call an unreadable re-scan "drift remaining" either - it is unknown.
+  MCP_DOCKER_DRIFT_STATUS="NOT ASSESSED (docker became unreadable during the re-scan)"
 else
   MCP_DOCKER_DRIFT_STATUS="drift remaining (user kept some servers)"
 fi

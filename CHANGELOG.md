@@ -2,6 +2,29 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **2026-08-11 - `mcp-drift.py` no longer reads an unreadable docker socket as
+  an empty host** (issue #673) - `docker ps` refused for permission emptied the
+  container inventory silently, so every curated server classified `ABSENT` and
+  the report printed `No orphaned Docker MCP servers detected.` on a host where
+  `sudo docker ps` showed two retired containers running; `/cpp:update` relayed
+  that as a positive finding. A refused read is now its own state: every curated
+  server is `UNKNOWN`, the clean banner is replaced by a `DOCKER UNREADABLE`
+  block naming the error, and the exit code is a **new 3** - distinct from 0
+  (clean) and 1 (orphans found), so `/cpp:update` Step 6c, `/cpp:status` and
+  `scripts/drift-detect.sh` branch on "could not assess" instead of on silence.
+  A permission-shaped refusal is retried once via non-interactive `sudo -n
+  docker` (`--no-sudo` opts out); when that retry is what succeeded, `--plan`
+  and `--teardown` both carry the `sudo -n` prefix so the elevation is visible
+  before confirmation. A **missing** docker binary stays a clean read - nothing
+  runs under a runtime that is not installed, and CPP has shipped none since
+  #469 - but is now named in the report rather than passing silently. New third
+  status `NAME COLLISION` covers what the #520/#634 container-provenance guards
+  cannot see: a would-be orphan whose declared port answers on localhost, or
+  which a live `claude`/`codex` registration targets, is reported with its
+  evidence and hard-refused for teardown instead of being called an orphan.
+
 ### Changed
 
 - **2026-08-11 - CPP plugin-marketplace distribution retired** (issue #662,

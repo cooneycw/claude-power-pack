@@ -330,6 +330,78 @@ def test_drift_detect_flags_orphaned_docker_mcp(tmp_path: Path) -> None:
     assert "claude mcp remove nano-banana" in output
 
 
+def test_drift_detect_reports_not_assessed_when_docker_is_unreadable(tmp_path: Path) -> None:
+    """A refused docker socket must NOT be reported as `ok - none detected`
+    (issue #673). This consumer line-parsed `--list-orphans` and swallowed its
+    exit code with `|| true`, so an empty list from a host it could not read
+    became a clean check - the relay that made the false clean actionable."""
+    home = tmp_path / "home"
+    (home / ".config" / "systemd" / "user").mkdir(parents=True)
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    _write_executable(bin_dir / "uv", "#!/usr/bin/env bash\nexit 0\n")
+    _write_executable(
+        bin_dir / "docker",
+        """
+        #!/usr/bin/env bash
+        if [[ "$1" == "--version" ]]; then echo "Docker version 26.0.0"; exit 0; fi
+        if [[ "$1" == "compose" && "$2" == "version" ]]; then echo "Docker Compose version v2.27.0"; exit 0; fi
+        # The daemon-backed reads are refused; `compose config` (pure YAML parse)
+        # is unaffected, which is exactly how a permission-denied socket behaves.
+        if [[ "$1" == "ps" || "$1" == "images" ]]; then
+          echo "permission denied while trying to connect to the Docker daemon socket" >&2
+          exit 1
+        fi
+        exit 0
+        """,
+    )
+    # No passwordless sudo: the non-interactive retry fails, so the verdict stays
+    # "could not look". A fake is installed so the host's real sudo is never run.
+    _write_executable(
+        bin_dir / "sudo",
+        "#!/usr/bin/env bash\necho 'sudo: a password is required' >&2\nexit 1\n",
+    )
+    _write_executable(
+        bin_dir / "systemctl",
+        """
+        #!/usr/bin/env bash
+        args="$*"
+        if [[ "$args" == *"show -p LoadState"* ]]; then echo "not-found"; exit 0; fi
+        if [[ "$args" == *"is-active"* ]]; then echo "inactive"; exit 0; fi
+        exit 0
+        """,
+    )
+    _write_executable(bin_dir / "claude", "#!/usr/bin/env bash\nexit 0\n")
+    _write_executable(bin_dir / "codex", "#!/usr/bin/env bash\nexit 0\n")
+    _write_executable(bin_dir / "ss",
+        "#!/usr/bin/env bash\necho 'State Recv-Q Send-Q Local Address:Port Peer Address:Port Process'\n")
+    _write_executable(
+        bin_dir / "sysctl",
+        """
+        #!/usr/bin/env bash
+        echo unknown
+        """,
+    )
+
+    env = os.environ.copy()
+    env.update({"HOME": str(home), "PATH": f"{bin_dir}:{env['PATH']}", "USER": "tester"})
+
+    result = subprocess.run(
+        ["bash", str(DRIFT_SCRIPT)],
+        cwd=ROOT, env=env, text=True,
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False,
+    )
+
+    output = result.stdout
+    assert "orphaned Docker MCPs - NOT ASSESSED" in output
+    assert "orphaned Docker MCPs - none detected" not in output
+    # The report must still COMPLETE: under `set -euo pipefail` an unguarded
+    # `$(helper)` whose exit is now 3 aborts the whole run before the summary,
+    # which silently truncates every check after this one.
+    assert "checked," in output  # the trailing "N checked, M skipped" summary
+
+
 def test_orphan_detection_ignores_sibling_worktree_templates(tmp_path: Path) -> None:
     """A deploy template inside .claude/worktrees/<sibling>/ (another session's
     checkout) must not make repo_ships_systemd_unit() treat the unit as shipped -
