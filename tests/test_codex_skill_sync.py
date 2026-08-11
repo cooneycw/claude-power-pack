@@ -223,6 +223,18 @@ def test_adaptations_block_only_when_constructs_detected(tmp_repo):
     assert "Codex harness adaptations" not in qa
 
 
+def test_worktree_adaptation_carries_visible_sibling_convention(tmp_repo):
+    """Issue #586: the emitted worktree guidance names the visible-sibling
+    location both harnesses converged on (ADR 0003/#627; codex-power-pack#133)
+    - a generic `<path>` placeholder stripped CxPP's sibling guidance on every
+    refresh, so a regression back to it must fail here."""
+    codex_skill_sync.main(["--write"])
+    flow = _skill_md(tmp_repo, "flow-auto")
+    assert "../<repo>-<branch>" in flow
+    assert "$FLOW_WORKTREE_BASE/<repo>-<branch>" in flow
+    assert "git worktree add <path>" not in flow
+
+
 def test_referenced_script_bundled_byte_identical(tmp_repo):
     codex_skill_sync.main(["--write"])
     bundled = tmp_repo / "codex" / "skills" / "flow-auto" / "scripts" / "helper.sh"

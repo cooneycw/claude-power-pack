@@ -99,10 +99,17 @@ INLINE_MAX_LINES = 100
 ADAPTATIONS: list[tuple[tuple[str, ...], str]] = [
     (
         ("EnterWorktree", "ExitWorktree", ".claude/worktrees"),
+        # The location is the visible-sibling convention BOTH harnesses use
+        # (claude-power-pack ADR 0003/#627; codex-power-pack#133) - a generic
+        # `<path>` here stripped CxPP's sibling guidance on every refresh
+        # (issue #586).
         "Native worktrees (`EnterWorktree`/`ExitWorktree` tool calls,"
-        " `.claude/worktrees/` paths): use plain git instead -"
-        " `git worktree add <path> -b <branch>`, work inside it, then"
-        " `git worktree remove <path>` when done.",
+        " `.claude/worktrees/` paths): use plain git instead, with the"
+        " worktree as a VISIBLE SIBLING of the repo -"
+        " `git worktree add ../<repo>-<branch> -b <branch>` (or"
+        " `$FLOW_WORKTREE_BASE/<repo>-<branch>` when that env var is set),"
+        " work inside it, then `git worktree remove ../<repo>-<branch>`"
+        " when done.",
     ),
     (
         ("AskUserQuestion",),

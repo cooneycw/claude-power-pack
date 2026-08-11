@@ -8,7 +8,7 @@ description: "Flow: Auto - Full Issue Lifecycle in One Shot - Complete end-to-en
 
 Generated from a Claude Code command. Where the procedure references these Claude-only surfaces, adapt as follows:
 
-- Native worktrees (`EnterWorktree`/`ExitWorktree` tool calls, `.claude/worktrees/` paths): use plain git instead - `git worktree add <path> -b <branch>`, work inside it, then `git worktree remove <path>` when done.
+- Native worktrees (`EnterWorktree`/`ExitWorktree` tool calls, `.claude/worktrees/` paths): use plain git instead, with the worktree as a VISIBLE SIBLING of the repo - `git worktree add ../<repo>-<branch> -b <branch>` (or `$FLOW_WORKTREE_BASE/<repo>-<branch>` when that env var is set), work inside it, then `git worktree remove ../<repo>-<branch>` when done.
 - Claude `/plugin` install references: install the codex-power-pack equivalent plugin/skill instead.
 - `CLAUDE.md` references: Codex reads `AGENTS.md`; treat them as the target repo's agent-context file.
 - Helper scripts referenced as `scripts/<name>` are bundled under `scripts/` in this skill directory (byte-identical copies from the claude-power-pack checkout); some expect sibling repo resources, so prefer a full checkout when one is available.

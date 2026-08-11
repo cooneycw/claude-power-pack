@@ -8,7 +8,7 @@ description: "Flow: Status of Active Worktrees - Show all active worktrees with 
 
 Generated from a Claude Code command. Where the procedure references these Claude-only surfaces, adapt as follows:
 
-- Native worktrees (`EnterWorktree`/`ExitWorktree` tool calls, `.claude/worktrees/` paths): use plain git instead - `git worktree add <path> -b <branch>`, work inside it, then `git worktree remove <path>` when done.
+- Native worktrees (`EnterWorktree`/`ExitWorktree` tool calls, `.claude/worktrees/` paths): use plain git instead, with the worktree as a VISIBLE SIBLING of the repo - `git worktree add ../<repo>-<branch> -b <branch>` (or `$FLOW_WORKTREE_BASE/<repo>-<branch>` when that env var is set), work inside it, then `git worktree remove ../<repo>-<branch>` when done.
 
 # Flow: Status of Active Worktrees
 
