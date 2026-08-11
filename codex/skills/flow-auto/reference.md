@@ -375,7 +375,11 @@ and continue. `/flow-repair` installs the family at the stable path.)
 - If it reports `FLOW_STALE_BASE: collision` - or names a file you are about to
   touch under "Changed upstream" - bring the base in now, before piling edits on
   a stale tree: `git merge --no-edit origin/main`, resolve any conflict in the
-  named file(s), then implement. If the merge touched any
+  named file(s), then implement. If git refuses to START the merge because
+  local changes overlap incoming ones, commit the work first (`git add -A` +
+  `git commit -m "wip(flow): pre-merge snapshot"`) and merge on the clean tree
+  - never stash: the stash stack is SHARED across every worktree of the repo
+  and a bare pop can restore a sibling session's work (#635). If the merge touched any
   `.claude/commands/**/*.md`, re-run the LOCAL `scripts/plugin-sync.sh --write`
   and `python3 scripts/codex-skill-sync.py --write`, then stage `plugins/` and
   `codex/skills/`, so the in-repo generated surfaces do not drift - the parity
@@ -479,28 +483,26 @@ CPP-checkout copy):
 
 ```bash
 # If the base moved, merge it in now so the gate + commit ride the current tree.
-# The Step-4 implementation is still UNCOMMITTED here, and git refuses to merge
-# into a dirty tree ("Please commit your changes or stash them before you merge")
-# - so STASH the work FIRST, merge, then restore it. This inverts the
-# merge-then-commit order the surrounding prose implies (issue #521; hit on
-# flow:auto #502 and #509). A clean tree (e.g. a resumed run already committed)
-# skips the stash.
+# COMMIT the Step-4 work FIRST, then merge on the clean tree (issue #635; this
+# supersedes the #521 stash-first order). Stashes live in the repo's COMMON git
+# dir, so every linked worktree shares ONE stack: with ~7 concurrent sessions,
+# two runs stash-pushed seconds apart and each bare `git stash pop` silently
+# restored the OTHER session's uncommitted work into the wrong worktree. A WIP
+# commit is branch-local - a sibling session cannot take it - and the Step-7
+# squash flattens it, so nothing visible changes in what ships. (#521's premise
+# was also too broad: git refuses a dirty-tree merge only when incoming changes
+# OVERLAP locally-modified files; commit-first is safe in every case.) NEVER
+# use `git stash push` or a bare `git stash pop` in a shared-worktree flow.
 git fetch origin main --quiet
 if [ "$(git rev-list --count HEAD..origin/main)" -gt 0 ]; then
-    STASHED=0
     if [ -n "$(git status --porcelain)" ]; then
-        git stash push -u -m "flow-auto-pre-stale-merge" && STASHED=1
+        git add -A
+        git commit -m "wip(flow): pre-merge snapshot"
     fi
     if ! git merge --no-edit origin/main; then
         echo "STOP: 'git merge origin/main' hit CONFLICTS. Resolve them, 'git add' + 'git commit', then re-run Step 6."
         git diff --name-only --diff-filter=U
-        [ "$STASHED" -eq 1 ] && echo "NOTE: your Step-4 work is stashed ('git stash list') - pop it after resolving."
-        exit 1
-    fi
-    # Restore the Step-4 work on top of the freshly-merged base.
-    if [ "$STASHED" -eq 1 ] && ! git stash pop; then
-        echo "STOP: restoring your stashed Step-4 work onto the merged base hit conflicts. Resolve them and 'git add' (do NOT 'git merge --abort'), then re-run Step 6."
-        git diff --name-only --diff-filter=U
+        echo "NOTE: your Step-4 work is safe in the 'wip(flow): pre-merge snapshot' commit on this branch."
         exit 1
     fi
     # Keep the in-repo generated surfaces from drifting when the merge pulled ANY
@@ -585,6 +587,12 @@ fi
 2. **Commit** - if there are uncommitted changes:
    - Use conventional commit format: `type(scope): Description (Closes #N)`
    - Include `Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>`
+   - **An already-clean tree here is a LEGITIMATE state, not a failure** (issue
+     #635): when the stale-base merge above ran, the Step-4 work is already on
+     the branch in the `wip(flow): pre-merge snapshot` commit. Skip this commit
+     step cleanly and leave the WIP commit as-is - the Step-7 squash flattens
+     branch history and the PR title/body carry the conventional message, so
+     the WIP message never reaches `main`. Do NOT add a STOP for this state.
 
 3. **Push** the branch:
    ```bash
