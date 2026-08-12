@@ -77,6 +77,8 @@ claude-power-pack/
   lib/security/         Security scanning library
   lib/cicd/             CI/CD framework detection and generation
   docs/skills/          Topic-focused best practices (~3K tokens each)
+  docs/scripts.md       Per-script history for the scripts/ inventory (#711)
+  docs/commands-reference.md  Per-command detail beyond the skill listing (#711)
   woodpecker/           Woodpecker CI server + agent deployment configs
   templates/            Makefile, workflow, and container templates
   scripts/              Shell utilities
