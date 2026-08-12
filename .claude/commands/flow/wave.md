@@ -360,10 +360,38 @@ Judge it with verification, not trust:
 - Re-run the necessity evidence yourself against the tree (`git log --since`,
   merged PRs, duplicate search) - verify the worker's claims, and expect the
   worker to have verified yours.
-- Sort every task in the issue into **delivered / in-scope / residual**; any
-  narrowing must ship a filed issue for the residual BEFORE approval.
-  "Another issue mentions it" is not coverage; "nothing residual" is a recorded
-  judgment naming what delivered each excluded task.
+- Sort every task in the issue into **delivered / in-scope / residual**; every
+  residual is DECLARED before approval. "Another issue mentions it" is not
+  coverage; "nothing residual" is a recorded judgment naming what delivered each
+  excluded task.
+- **Where a declared residual GOES is a severity call, not a reflex (#714).**
+  File an issue when the residual names a consequence someone would notice - a
+  user-visible behavior, a correctness or security risk, a cost or data-loss
+  exposure, or work another issue is already blocked on. Otherwise the ledger's
+  `residual:` line plus the PR description is the whole of its record. Not
+  issue-worthy on their own: "measure X", "annotate the files we excluded",
+  "tighten a coupling we just introduced", "consider whether Y is still needed".
+  This changes a low-severity residual's DESTINATION, never whether it is
+  declared - the anti-silence property the rule exists for is untouched, and it
+  is still the gate, not the worker, that rules on the sort.
+  The evidence is depth, not volume: the 2026-08-11 aws-learn wave turned 5 seed
+  issues into 26 and drained the backlog fine, but error rate rose with each
+  generation, because a residual reasons about the previous agent's WORK PRODUCT
+  rather than about the system or a user need. Gen-2 caught real defects in code
+  the wave had just written (tests firing live AWS calls under production
+  credentials); gen-3 produced aws-learn#838, which proposed flipping a compose
+  dependency to `service_healthy` on a pattern match against how the other
+  services were gated. As written it would have deadlocked every cold start - the
+  healthcheck it would have waited on aggregates a heartbeat only the gated
+  service can write. It even asked for a deadlock check, and shipped anyway,
+  because the policy required a residual to be FILED, not to be VALIDATED.
+- **A residual proposing a change to a system you have not run carries its
+  verification, or is recorded as a QUESTION rather than a directive (#714).**
+  "Change X to Y" asserts you checked what Y does here; if you did not, the
+  honest form is "does X need Y? - unverified, nothing checked about <what Y
+  depends on>". Stamp a residual's generation when you file one: a residual
+  descended from another residual is a signal to write it down rather than file
+  it, and it is the stamp that makes that visible to whoever triages it.
 - Rule with explicit conditions; make required regression tests and fixture
   constraints gate conditions, not suggestions.
 
@@ -476,9 +504,12 @@ next assignment from the CURRENT plan (step 1 re-ran after the verdict).
 Maintain a compact wave ledger (in-context, plus a summary message on each
 change): per issue - worker, state (queued / assigned / at-gate / implementing
 / PR-open / merged / parked), gate verdict + conditions, ledger outcome,
-residuals filed. Per wave close: issues merged, residuals filed, defects
-caught at gates, orchestrator errors caught by workers (count them - the
-number is the health metric of the judging, in both directions).
+residuals recorded. Per wave close: issues merged, residuals RECORDED and the
+subset of them FILED (report both - one number cannot show whether the #714
+severity gate is working, and a wave whose two counts are equal has stopped
+applying it), defects caught at gates, orchestrator errors caught by workers
+(count them - the number is the health metric of the judging, in both
+directions).
 
 ## Notes
 
