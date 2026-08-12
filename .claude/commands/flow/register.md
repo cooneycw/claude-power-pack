@@ -215,6 +215,9 @@ and is wiped by the OS at reboot - exactly when every session's address dies too
    compaction-proof re-brief. Two states matter:
    - `FLOW_WAVE_POLICY=declared` - those are this wave's rules; follow them,
      and check `FLOW_WAVE_BRIEF` (`current` means nothing has changed under you).
+     `FLOW_WAVE_POLICY_LEDGER` is the one line here this session must PRODUCE
+     rather than merely obey - see "What a worker EMITS" below for the block
+     shape the validator enforces against it.
    - `FLOW_WAVE_POLICY=absent` - the wave has declared nothing. Do NOT infer
      implementation authority from having been handed an issue number: say the
      policy is undeclared and ask the orchestrator to `policy set` it. This is
@@ -270,6 +273,93 @@ and is wiped by the OS at reboot - exactly when every session's address dies too
 5. Confirm back to the user which orchestrator was registered with once the
    ack arrives - or that the hello is waiting in the mailbox because no
    orchestrator has registered yet - and that the watch is armed.
+
+### What a worker EMITS - the two transition tokens (issue #701)
+
+Everything above is how a worker JOINS a wave. This is what it SAYS once it is
+in one, and it is the half that is already enforced. #701 gave the wave a
+reserved vocabulary for the speech acts that are state transitions with a
+wrong-answer cost, and two of those tokens are emitted by the WORKER. The rest
+(`GATE:`, `LANE:`, `MERGE:`, `STATE:`, `RATIFY`/`OVERRULE`) are the
+orchestrator's and are documented in `wave.md`.
+
+**Both are refused at SEND, not at read.** `flow-wave-mailbox.sh send` validates
+every body: a malformed reserved token exits 6 with `FLOW_WAVE_MAILBOX: refused`
+and the box is left untouched, so the message does not arrive late and wrong -
+it does not arrive at all. That is why the shapes belong here rather than only
+in the orchestrator's file: the guard fires correctly, and until it was written
+down it fired at a reader who had never been told the rule. Reserved lines are
+LINE-ANCHORED (the token opens the line, leading whitespace allowed), so a
+mention inside a sentence is never mistaken for a declaration, and a message
+carrying NO reserved token always delivers - prose is not the target.
+
+**`PUSHBACK <argument>` - refuting an assignment's premise.** The orchestrator
+side of this file already states the rule ("pushback is structural, not
+polite"); this is its shape. The argument is MANDATORY - a bare `PUSHBACK` is
+refused - because the token exists precisely so that a refutation cannot be
+skimmed past as agreement. Put the argument on the same line, or on the lines
+beneath it: continuation lines belong to the token and run to the next reserved
+line or EOF, so a multi-paragraph refutation needs no terminator.
+
+<!-- lexicon-example: pushback -->
+
+```
+PUSHBACK the assignment fences my lane out of scripts/flow-wave-registry.sh,
+but the fix for the assigned issue lives in that file - the lane and the issue
+contradict each other. Verified against the tree: `policy set` is defined in
+that script and nowhere else, so I cannot close the issue without writing to
+the fenced path. Which of the two is authoritative?
+```
+
+**`LEDGER` - the completeness ledger.** A block carrying `delivered:`,
+`in-scope:` and `residual:`. All three sections are REQUIRED and a missing one
+is refused BY NAME, because this is the one structured element that already
+worked in the reference wave - formalised rather than invented. It is the same
+format the wave declared once with `policy set --ledger` (#699) and that this
+session reads back as `FLOW_WAVE_POLICY_LEDGER` on every register: the policy
+line is what the wave expects to RECEIVE, this block is how a worker PRODUCES
+it. The orchestrator takes it when verifying the PR, and accepting it is what
+releases the next issue - so it is the report itself, not a courtesy summary.
+
+<!-- lexicon-example: ledger -->
+
+```
+LEDGER
+delivered: PUSHBACK and LEDGER shapes documented in the worker-side section,
+  with the pre-send check that verifies a draft before the mailbox sees it
+in-scope: nothing further - the assignment named two tokens and both are
+  covered, including the enforcement each one carries
+residual: none. The other reserved tokens are orchestrator-emitted and were
+  already documented in wave.md when the lexicon shipped
+```
+
+State `residual: none` explicitly rather than omitting the section: an empty
+residual is a recorded JUDGMENT, and `wave.md` requires any narrowing to ship a
+filed issue BEFORE approval, so this is the line that names that issue number.
+
+**Validate a draft BEFORE sending it.** `validate` is read-only and runs the
+same parser `send` runs, so a report can be checked without spending a delivery
+attempt. Invoke it BARE at the stable path (#581 discipline):
+
+```bash
+~/.claude/scripts/flow-wave-lexicon.sh validate --body-file /tmp/report.md
+```
+
+It prints one `FLOW_LEXICON_TRANSITION=` line per recognized token and ends in
+`FLOW_LEXICON: ok | invalid | none`. `invalid` (exit 1) names the offending
+line number and what is missing. `none` (exit 0) means the body declares no
+transition at all - correct for ordinary prose, and worth a second look on a
+message you MEANT to carry a token, since a token mis-typed out of
+line-anchored position reads as prose rather than as a broken block.
+
+(Exit 127 - helper not installed: fall back to
+`${CLAUDE_PLUGIN_ROOT}/scripts/flow-wave-lexicon.sh`, else the CPP-checkout
+copy; tell the user to run `/flow:repair`. The validator FAILS OPEN by design -
+`send` delivers unvalidated rather than blocking when the helper is missing or
+itself broken, since a wave stalling on its own linter is the #676 failure in a
+different hat. A missing validator is therefore not permission to skip the
+shape; it only means nothing will tell you.) If a prose line legitimately opens
+with a reserved word, `send --no-lexicon` is the per-message escape.
 
 ### The delivery lane - mailbox + wake (issue #676)
 
@@ -646,5 +736,7 @@ applies: a role literally named `wave_policy` would collide.
   TRANSITIONS - gate verdicts, lane grants, merge authorizations - and the two
   carry the same load-bearing caveat: a declared policy or a reserved token that
   nothing reads back is decoration, and its broken version is indistinguishable
-  from its working one. Which is why every field here has a named reader.
+  from its working one. Which is why every field here has a named reader. The
+  two WORKER-emitted tokens, `PUSHBACK` and `LEDGER`, are documented above under
+  "What a worker EMITS"; the orchestrator-emitted rest live in `wave.md`.
 - The helper needs `jq` (already a CPP bootstrap prerequisite).
