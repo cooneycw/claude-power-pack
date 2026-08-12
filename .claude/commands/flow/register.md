@@ -334,8 +334,24 @@ residual: none. The other reserved tokens are orchestrator-emitted and were
 ```
 
 State `residual: none` explicitly rather than omitting the section: an empty
-residual is a recorded JUDGMENT, and `wave.md` requires any narrowing to ship a
-filed issue BEFORE approval, so this is the line that names that issue number.
+residual is a recorded JUDGMENT, and this line is where every narrowing gets
+declared BEFORE approval.
+
+**Declaring a residual is mandatory; FILING it is a severity call (#714).** File
+an issue - and name its number on this line - when the residual names a
+consequence someone would notice: a user-visible behavior, a correctness or
+security risk, a cost or data-loss exposure, or work another issue is already
+blocked on. Otherwise this line plus the PR description is the whole of its
+record. Not issue-worthy on their own: "measure X", "annotate the files we
+excluded", "tighten a coupling we just introduced", "consider whether Y is still
+needed". Filing those anyway is what bred the third-generation residual that
+proposed a compose-dependency change which, as written, would have deadlocked the
+stack on every cold start (aws-learn#838) - a residual reasoning about the
+previous agent's work product rather than about the system. So: a residual
+proposing a change to a system you have not run carries its verification, or is
+worded as a QUESTION rather than a directive, and one descended from another
+residual carries its generation - that is the signal to write it down instead of
+filing it.
 
 **Validate a draft BEFORE sending it.** `validate` is read-only and runs the
 same parser `send` runs, so a report can be checked without spending a delivery
