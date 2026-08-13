@@ -69,6 +69,13 @@ def _make_stubs(
     merge_commit: str = "",
     pr_files: list[str] | None = None,
     landed_paths: list[str] | None = None,
+    repo_full: str = "cooneycw/claude-power-pack",
+    head_sha: str = "deadfeed0000000000000000000000000000face",
+    pr_up_to_date: bool = False,
+    tested_tree: str = "0f00d0f00d0f00d0f00d0f00d0f00d0f00d0f00",
+    woodpecker_lookup_ok: bool = True,
+    woodpecker_repo_id: str = "42",
+    woodpecker_pipeline_statuses: list[str] | None = None,
 ) -> dict:
     """Create fake gh/git that log their args and honour a scripted outcome.
 
@@ -121,6 +128,23 @@ def _make_stubs(
     the PR's merge-commit sha, its file list, and the paths the landed squash
     actually touched. The empty defaults ride the ``skipped`` fail-open path,
     so every pre-#657 test exercises its original behavior unchanged.
+
+    ``pr_up_to_date`` scripts the ``git merge-base --is-ancestor`` ancestry
+    check behind the #716 tested-tree trailer; ``tested_tree`` is what
+    ``git rev-parse HEAD^{tree}`` answers. Default ``False`` is the SAFE
+    default (no trailer), so every pre-#716 test exercises its original
+    argv unchanged without needing to know this parameter exists.
+
+    ``repo_full`` / ``head_sha`` script ``gh repo view --json nameWithOwner``
+    and ``git rev-parse HEAD`` - both consulted by the #717 Woodpecker
+    queue-wait, which itself only activates when ``WOODPECKER_API_TOKEN`` is
+    set via ``extra_env`` (the default test env has it popped, so the whole
+    feature is a no-op unless a test opts in). ``woodpecker_lookup_ok=False``
+    makes the repo-id lookup curl call FAIL (the token-set-but-unresolvable
+    case). ``woodpecker_pipeline_statuses`` scripts successive
+    ``.../pipelines`` polls (one status consumed per call, staying on the
+    last once exhausted); the default ``None`` answers "running" so an
+    opted-in test that does not care about queuing sees an instant pass-through.
     """
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -244,20 +268,31 @@ def _make_stubs(
         "  fi\n"
         "  exit 0\n"
         'elif [[ "$1 $2" == "repo view" ]]; then\n'
-        f'  echo "{viewer_permission}"\n'
+        '  if [[ "$*" == *nameWithOwner* ]]; then\n'
+        f'    echo "{repo_full}"\n'
+        "  else\n"
+        f'    echo "{viewer_permission}"\n'
+        "  fi\n"
         "  exit 0\n"
         "fi\n"
         "exit 0\n",
     )
     # git: log argv. rev-parse --show-toplevel answers with the cwd (a real
     # root, so the #657 ref-scoped reads proceed); the deletion diff and the
-    # landed-paths diff answer from their fixture files; everything else
-    # succeeds silently.
+    # landed-paths diff answer from their fixture files; the tree/ancestor/HEAD
+    # checks (issues #716, #717) answer from the scripted knobs above;
+    # everything else succeeds silently.
     _write_stub(
         bin_dir / "git",
         f'echo "git $*" >> "{call_log}"\n'
         'if [[ "$*" == *"rev-parse --show-toplevel"* ]]; then\n'
         "  pwd\n"
+        'elif [[ "$*" == *"rev-parse"*"HEAD^{tree}"* ]]; then\n'
+        f'  echo "{tested_tree}"\n'
+        'elif [[ "$*" == *"merge-base --is-ancestor"* ]]; then\n'
+        + ("  exit 0\n" if pr_up_to_date else "  exit 1\n")
+        + 'elif [[ "$*" == "rev-parse HEAD" ]]; then\n'
+        f'  echo "{head_sha}"\n'
         'elif [[ "$*" == *"--diff-filter=D"* ]]; then\n'
         + (f'  cat "{deletions_file}"\n' if deletions_ok else "  exit 1\n")
         + 'elif [[ "$*" == *"diff --name-only"* ]]; then\n'
@@ -266,9 +301,37 @@ def _make_stubs(
         "exit 0\n",
     )
 
+    # curl: log argv. Only consulted by the #717 Woodpecker queue-wait, which
+    # itself only fires when WOODPECKER_API_TOKEN is set (via extra_env) - so
+    # this stub is inert for every test that does not opt in.
+    wp_seq_file = tmp_path / "woodpecker_statuses"
+    wp_ctr_file = tmp_path / "woodpecker_status_ctr"
+    wp_statuses = woodpecker_pipeline_statuses if woodpecker_pipeline_statuses is not None else ["running"]
+    wp_seq_file.write_text("\n".join(wp_statuses) + "\n")
+    _write_stub(
+        bin_dir / "curl",
+        f'echo "curl $*" >> "{call_log}"\n'
+        'if [[ "$*" == *"/api/repos/lookup/"* ]]; then\n'
+        + (
+            f'  echo \'{{"id": "{woodpecker_repo_id}"}}\'\n'
+            if woodpecker_lookup_ok
+            else "  exit 22\n"
+        )
+        + 'elif [[ "$*" == *"/pipelines?per_page=5"* ]]; then\n'
+        f'  ctr=$(cat "{wp_ctr_file}" 2>/dev/null || echo 0)\n'
+        f'  mapfile -t statuses < "{wp_seq_file}"\n'
+        "  idx=$ctr\n"
+        "  if (( idx >= ${#statuses[@]} )); then idx=$(( ${#statuses[@]} - 1 )); fi\n"
+        f'  echo $(( ctr + 1 )) > "{wp_ctr_file}"\n'
+        f'  echo "[{{\\"commit\\": \\"{head_sha}\\", \\"status\\": \\"${{statuses[$idx]}}\\"}}]"\n'
+        "fi\n"
+        "exit 0\n",
+    )
+
     return {
         "GH_PR_MERGE_GH": str(bin_dir / "gh"),
         "GH_PR_MERGE_GIT": str(bin_dir / "git"),
+        "GH_PR_MERGE_CURL": str(bin_dir / "curl"),
         "_call_log": call_log,
     }
 
@@ -278,14 +341,22 @@ def _run(
 ) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     env.pop("GH_PR_MERGE_STRICT_DELETIONS", None)  # host setting must not leak in
+    # A real WOODPECKER_API_TOKEN/SERVER on the host must never leak into a test -
+    # it would make the #717 queue-wait code hit the real Woodpecker server
+    # instead of the stub (issue #716/#717 test isolation).
+    env.pop("WOODPECKER_API_TOKEN", None)
+    env.pop("WOODPECKER_SERVER", None)
     if extra_env:
         env.update(extra_env)
     env["GH_PR_MERGE_GH"] = stubs["GH_PR_MERGE_GH"]
     env["GH_PR_MERGE_GIT"] = stubs["GH_PR_MERGE_GIT"]
+    env["GH_PR_MERGE_CURL"] = stubs["GH_PR_MERGE_CURL"]
     env["GH_PR_MERGE_POLL_DELAY"] = "0"  # keep the mergeability poll instant in tests
     env["GH_PR_MERGE_BASE_RETRY_DELAY"] = "0"  # keep the base-modified retry instant too
     env["GH_PR_MERGE_CHECK_DELAY"] = "0"  # and the #577 required-check wait
     env["GH_PR_MERGE_CHECK_ATTEMPTS"] = "3"  # bounded, so the timeout path is testable
+    env["GH_PR_MERGE_QUEUE_WAIT_DELAY"] = "0"  # and the #717 queue-wait budget
+    env["GH_PR_MERGE_QUEUE_WAIT_ATTEMPTS"] = "3"  # bounded, so the timeout path is testable
     return subprocess.run(
         ["bash", str(SCRIPT), *args],
         check=False,
@@ -1286,6 +1357,208 @@ def test_completeness_unreadable_inputs_fail_open_as_skipped(tmp_path: Path):
     result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-657-fix")
     assert result.returncode == 0, result.stderr
     assert "GH_PR_MERGE_COMPLETENESS: skipped" in result.stdout
+
+
+# --- Tested-tree trailer (issue #716) ------------------------------------
+#
+# When the PR branch was up to date with its base at squash time, a
+# self-verifying `Woodpecker-Tested-Tree: <hash>` trailer is appended so the
+# consumer (poker-measure's push pipeline) can skip the full suite by
+# recomputing the same hash on what it actually checked out. Default
+# (`pr_up_to_date=False`, exercised by every prior test in this file) is the
+# safe no-trailer path - proven by the full pre-#716 suite passing unchanged.
+
+
+def test_tested_tree_trailer_appended_when_up_to_date(tmp_path: Path):
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        pr_up_to_date=True,
+        tested_tree="cafef00dcafef00dcafef00dcafef00dcafef00d",
+        pr_title="fix(flow): add tested-tree trailer",
+        pr_body="Summary.",
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-716-fix")
+    assert result.returncode == 0, result.stderr
+    argvs = _merge_argvs(tmp_path)
+    assert len(argvs) == 1, argvs
+    body = argvs[0][argvs[0].index("--body") + 1]
+    assert body == "Summary.\n\nWoodpecker-Tested-Tree: cafef00dcafef00dcafef00dcafef00dcafef00d"
+
+
+def test_tested_tree_trailer_omitted_when_behind_base(tmp_path: Path):
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        pr_up_to_date=False,
+        pr_title="fix(flow): add tested-tree trailer",
+        pr_body="Summary.",
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-716-fix")
+    assert result.returncode == 0, result.stderr
+    argvs = _merge_argvs(tmp_path)
+    body = argvs[0][argvs[0].index("--body") + 1]
+    assert body == "Summary."
+    assert "Woodpecker-Tested-Tree" not in body
+
+
+def test_tested_tree_trailer_alone_when_title_empty(tmp_path: Path):
+    # The #655 fail-open path (no PR title) normally omits --subject/--body
+    # TOGETHER - but when the tree is provably tested, the trailer still must
+    # reach the squash message, so --body is passed alone.
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        pr_up_to_date=True,
+        tested_tree="beadedbeadedbeadedbeadedbeadedbeadedbead",
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-716-fix")
+    assert result.returncode == 0, result.stderr
+    argvs = _merge_argvs(tmp_path)
+    assert "--subject" not in argvs[0]
+    assert argvs[0][argvs[0].index("--body") + 1] == "Woodpecker-Tested-Tree: beadedbeadedbeadedbeadedbeadedbeadedbead"
+
+
+def test_tested_tree_trailer_omitted_with_empty_pr_body(tmp_path: Path):
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        pr_up_to_date=True,
+        tested_tree="0000feed0000feed0000feed0000feed0000feed",
+        pr_title="fix(flow): add tested-tree trailer",
+        pr_body="",
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-716-fix")
+    assert result.returncode == 0, result.stderr
+    argvs = _merge_argvs(tmp_path)
+    assert argvs[0][argvs[0].index("--body") + 1] == "Woodpecker-Tested-Tree: 0000feed0000feed0000feed0000feed0000feed"
+
+
+def test_tested_tree_trailer_survives_admin_retry(tmp_path: Path):
+    # The trailer rides BASE_FLAGS, so the #517 --admin retry carries it too.
+    stubs = _make_stubs(
+        tmp_path,
+        pr_state="MERGED",
+        viewer_permission="ADMIN",
+        merge_outcomes=[(1, ADMIN_PROTECTION_BLOCKED), (0, "")],
+        pr_up_to_date=True,
+        tested_tree="1111feed1111feed1111feed1111feed1111feed",
+        pr_title="fix(flow): add tested-tree trailer",
+        pr_body="Summary.",
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-716-fix")
+    assert result.returncode == 0, result.stderr
+    argvs = _merge_argvs(tmp_path)
+    assert len(argvs) == 2, argvs
+    for argv in argvs:
+        body = argv[argv.index("--body") + 1]
+        assert "Woodpecker-Tested-Tree: 1111feed1111feed1111feed1111feed1111feed" in body
+
+
+# --- Woodpecker queue wait (issue #717) -----------------------------------
+#
+# WOODPECKER_API_TOKEN must be popped from the host env by `_run` and only
+# reintroduced via `extra_env`, so every test in the rest of this file (which
+# never sets it) exercises this feature's default no-op path implicitly - the
+# full pre-#717 suite passing unchanged above is the proof.
+
+
+def test_queue_wait_skipped_without_token(tmp_path: Path):
+    stubs = _make_stubs(tmp_path, merge_exit=0, pr_state="MERGED")
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-717-fix")
+    assert result.returncode == 0, result.stderr
+    assert not any(c.startswith("curl") for c in _calls(stubs)), "must not call curl without a token"
+    assert "queued" not in result.stderr
+
+
+def test_queue_wait_polls_until_running_then_proceeds(tmp_path: Path):
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        woodpecker_pipeline_statuses=["pending", "pending", "running"],
+    )
+    result = _run(
+        _linked_worktree(tmp_path),
+        stubs,
+        "42",
+        "issue-717-fix",
+        extra_env={"WOODPECKER_API_TOKEN": "test-token"},
+    )
+    assert result.returncode == 0, result.stderr
+    assert "is queued" in result.stderr
+    calls = _calls(stubs)
+    pipeline_polls = [c for c in calls if "/pipelines?per_page=5" in c]
+    assert len(pipeline_polls) == 3, calls
+    # And the merge still proceeds after the queue clears.
+    assert any(c.startswith("gh pr merge") for c in calls), calls
+
+
+def test_queue_wait_never_reports_running_still_proceeds(tmp_path: Path):
+    # Bounded budget (GH_PR_MERGE_QUEUE_WAIT_ATTEMPTS=3 in tests): even if the
+    # pipeline is STILL pending when the budget runs out, this is advisory -
+    # fall through to the unchanged required-check poll rather than blocking.
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        woodpecker_pipeline_statuses=["pending"],
+    )
+    result = _run(
+        _linked_worktree(tmp_path),
+        stubs,
+        "42",
+        "issue-717-fix",
+        extra_env={"WOODPECKER_API_TOKEN": "test-token"},
+    )
+    assert result.returncode == 0, result.stderr
+    assert any(c.startswith("gh pr merge") for c in _calls(stubs))
+
+
+def test_queue_wait_fails_open_on_unresolvable_repo(tmp_path: Path):
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        woodpecker_lookup_ok=False,
+    )
+    result = _run(
+        _linked_worktree(tmp_path),
+        stubs,
+        "42",
+        "issue-717-fix",
+        extra_env={"WOODPECKER_API_TOKEN": "test-token"},
+    )
+    assert result.returncode == 0, result.stderr
+    assert "is queued" not in result.stderr
+    calls = _calls(stubs)
+    assert not any("/pipelines?per_page=5" in c for c in calls), "must not poll pipelines on a failed lookup"
+    assert any(c.startswith("gh pr merge") for c in calls)
+
+
+def test_queue_wait_skipped_with_admin_flag(tmp_path: Path):
+    # --admin skips the required-check wait AND the queue wait that precedes
+    # it (issue #579's existing precedent, extended by #717).
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        woodpecker_pipeline_statuses=["pending"],
+    )
+    result = _run(
+        _linked_worktree(tmp_path),
+        stubs,
+        "--admin",
+        "42",
+        "issue-717-fix",
+        extra_env={"WOODPECKER_API_TOKEN": "test-token"},
+    )
+    assert result.returncode == 0, result.stderr
+    assert not any(c.startswith("curl") for c in _calls(stubs)), "admin must skip the queue wait entirely"
 
 
 def test_admin_retry_keeps_subject_and_body(tmp_path: Path):
