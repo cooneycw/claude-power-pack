@@ -3,7 +3,7 @@
 
 CLAUDE.md carries the rule:
 
-    A test that shells out to a real binary (`git`, `docker`, `gitleaks`) MUST
+    A test that shells out to a real binary (`git`, `docker`, `gitleaks`, `jq`) MUST
     guard with `@pytest.mark.skipif(shutil.which("<tool>") is None, ...)`.
 
 The Woodpecker ``validate`` container (``uv:python3.11-bookworm-slim``) ships
@@ -67,7 +67,18 @@ from pathlib import Path
 
 #: Binaries absent from the CI ``validate`` image. ``bash`` is deliberately NOT
 #: here - the image ships it, and including it would flag most of the suite.
-GUARDED_BINARIES = frozenset({"git", "docker", "gitleaks"})
+#: ``jq`` joined the set after issue #716/#717's own CI run reproduced the
+#: exact failure mode this gate exists for: `uv:python3.11-bookworm-slim`
+#: ships none of `git`/`docker`/`gitleaks`/`curl`/`jq`, and this dev box has
+#: `jq` installed, so a directly-called, unguarded `jq` test is invisible
+#: locally and red only in CI - structurally the same trap #602 already
+#: covers for the other three. Note the scope limit below still applies: this
+#: only catches a LITERAL `["jq", ...]` argv in Python test source, not `jq`
+#: called from inside a bash script under test (e.g. `subprocess.run(["bash",
+#: SCRIPT])` where SCRIPT internally shells out to jq) - that transitive case
+#: needs a hand-added skipif, same as any other dynamic argv this gate cannot
+#: statically resolve.
+GUARDED_BINARIES = frozenset({"git", "docker", "gitleaks", "jq"})
 
 SUBPROCESS_FUNCS = frozenset({"run", "Popen", "call", "check_call", "check_output"})
 OS_SHELL_FUNCS = frozenset({"system", "popen"})

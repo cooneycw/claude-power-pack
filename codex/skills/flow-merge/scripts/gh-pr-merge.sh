@@ -127,6 +127,50 @@
 #   relative pathspecs) - the companion #657 finding: a cwd-drifted relative
 #   pathspec reads as an empty diff, indistinguishable from "no changes".
 #
+# Squash-commit trailer carries the tested tree hash (issue #716):
+#   poker-measure's CI throughput on its single shared Woodpecker agent
+#   (WOODPECKER_MAX_WORKFLOWS=2) is capped enough that every squash-to-main
+#   re-runs the full suite and competes for a scarce slot with the next PR's
+#   pipeline (poker-measure#236). When this PR's branch was up to date with
+#   its base at squash time - no intervening base commits since the branch
+#   point - the squashed tree is PROVABLY identical to the PR head that
+#   already passed CI, so this helper appends a git trailer naming the TESTED
+#   TREE HASH: `Woodpecker-Tested-Tree: <sha1 of HEAD^{tree}>`. Deliberately
+#   NOT a boolean trailer - `gh pr merge --squash` composes the squash body
+#   from the PR's own commits when neither --subject nor --body is given, so
+#   a bare `Woodpecker-Skip-Full-Test: true` typed into ANY commit message
+#   would silently propagate and skip the consuming CI's full suite with this
+#   script's up-to-date check never consulted. The tree hash is
+#   self-verifying instead: the consumer (poker-measure/.woodpecker.yml)
+#   recomputes `git rev-parse HEAD^{tree}` on the squash commit it just
+#   checked out and skips only when it EQUALS this value - forging a skip
+#   then requires naming the exact tree hash of genuinely matching content.
+#   Fail-open per component (the #610 posture): an unreadable base, an
+#   unresolvable ancestry check, or a branch behind its base all omit the
+#   trailer, and the consumer's push pipeline runs the full suite - the safe
+#   default either way.
+#
+# Poll window vs. CI queue depth (issue #717):
+#   The required-check poll below (GH_PR_MERGE_CHECK_ATTEMPTS x
+#   GH_PR_MERGE_CHECK_DELAY) counts from when polling STARTS, not from when
+#   the pipeline is actually picked up - so on the same shared 2-worker
+#   Woodpecker agent, a PR that sits queued behind others eats into the same
+#   budget as one that is genuinely stuck. Measured the same night: 8 of 8
+#   poker-measure merges needed exactly one retry - a deterministic tax, not
+#   an intermittent fault. GitHub's classic commit-status API - what
+#   Woodpecker posts (`ci/woodpecker/pr/woodpecker`) - has no queued-vs-
+#   running distinction in its `state` field (only GitHub Check Runs expose
+#   that), so the fix asks Woodpecker's OWN pipeline API instead: when
+#   WOODPECKER_API_TOKEN is set (the same credential /flow:auto Step 8 uses
+#   for post-merge CI verification), wait out a QUEUED pipeline on a separate
+#   bounded budget (GH_PR_MERGE_QUEUE_WAIT_ATTEMPTS x
+#   GH_PR_MERGE_QUEUE_WAIT_DELAY) before the existing check-poll budget
+#   starts counting - so that budget only has to cover genuine run time.
+#   Entirely fail-open: no token, no curl/jq, an unresolvable repo id, or no
+#   matching pipeline all fall straight through to the unchanged pre-#717
+#   poll. This can only ever shrink the effective wait; it is never a new way
+#   to stop the merge.
+#
 # Exit:   0  the PR is merged on the remote
 #         1  the PR genuinely did not merge (conflicts, red required check,
 #            unresolvable state)
@@ -150,6 +194,15 @@
 #   GH_PR_MERGE_BASE_RETRY_DELAY     seconds before each such retry (default: 2)
 #   GH_PR_MERGE_CHECK_ATTEMPTS       required-check poll attempts (default: 60)
 #   GH_PR_MERGE_CHECK_DELAY          seconds between check polls (default: 10)
+#   GH_PR_MERGE_CURL                 override the `curl` binary (default: curl)
+#   GH_PR_MERGE_QUEUE_WAIT_ATTEMPTS  Woodpecker queued-pipeline poll attempts
+#                                    before the check-poll budget starts (default: 30)
+#   GH_PR_MERGE_QUEUE_WAIT_DELAY     seconds between queued-pipeline polls (default: 10)
+#
+# Env (optional integration, issue #717):
+#   WOODPECKER_API_TOKEN      enables the queued-pipeline wait; unset skips it
+#                              entirely (same credential /flow:auto Step 8 uses)
+#   WOODPECKER_SERVER         Woodpecker base URL (default: https://woodpecker.essent-ai.com)
 #
 # Env (operator opt-in):
 #   GH_PR_MERGE_STRICT_DELETIONS=1   turn surfaced deletions into the exit-4
@@ -193,6 +246,7 @@ fi
 
 GH_BIN="${GH_PR_MERGE_GH:-gh}"
 GIT_BIN="${GH_PR_MERGE_GIT:-git}"
+CURL_BIN="${GH_PR_MERGE_CURL:-curl}"
 
 # stderr of the last `gh pr merge` attempt - inspected by is_protection_block.
 LAST_MERGE_ERR=""
@@ -531,6 +585,68 @@ wait_for_observed_checks() {
     return 0
 }
 
+# Resolve the Woodpecker repo id once (issue #717). Sets WOODPECKER_REPO_ID /
+# WOODPECKER_SERVER_RESOLVED on success. Fails (return 1) - and stays failed
+# for the rest of the run - on a missing token, a missing curl/jq, or an
+# unresolvable repo; every caller must treat that as "skip the queue wait
+# entirely", never as a merge blocker.
+WOODPECKER_REPO_ID=""
+WOODPECKER_SERVER_RESOLVED=""
+woodpecker_repo_id() {
+    [[ -n "$WOODPECKER_REPO_ID" ]] && return 0
+    [[ -z "${WOODPECKER_API_TOKEN:-}" ]] && return 1
+    command -v "$CURL_BIN" >/dev/null 2>&1 || return 1
+    command -v jq >/dev/null 2>&1 || return 1
+    local server repo_full raw id
+    server="${WOODPECKER_SERVER:-https://woodpecker.essent-ai.com}"
+    repo_full=$("$GH_BIN" repo view --json nameWithOwner --jq '.nameWithOwner' 2>/dev/null)
+    [[ -z "$repo_full" ]] && return 1
+    raw=$("$CURL_BIN" -sf -H "Authorization: Bearer $WOODPECKER_API_TOKEN" \
+        -H "Accept: application/json" "${server}/api/repos/lookup/${repo_full}" 2>/dev/null) || return 1
+    id=$(jq -r '.id // empty' <<<"$raw" 2>/dev/null)
+    [[ -z "$id" || "$id" == "null" ]] && return 1
+    WOODPECKER_REPO_ID="$id"
+    WOODPECKER_SERVER_RESOLVED="$server"
+    return 0
+}
+
+# The status ("pending" | "running" | "success" | "failure" | ...) of the
+# Woodpecker pipeline for the current HEAD commit - the PR's pushed head,
+# under the same HEAD-is-PR-head assumption the #716 trailer relies on.
+# Prints nothing (and the caller must fail-open) on any unreadable input.
+woodpecker_pipeline_status() {
+    local sha raw
+    sha=$("$GIT_BIN" rev-parse HEAD 2>/dev/null)
+    [[ -z "$sha" ]] && return 1
+    raw=$("$CURL_BIN" -sf -H "Authorization: Bearer $WOODPECKER_API_TOKEN" \
+        -H "Accept: application/json" \
+        "${WOODPECKER_SERVER_RESOLVED}/api/repos/${WOODPECKER_REPO_ID}/pipelines?per_page=5" 2>/dev/null) || return 1
+    jq -r --arg sha "$sha" '[.[] | select(.commit == $sha)] | .[0].status // empty' <<<"$raw" 2>/dev/null
+}
+
+# Wait out a QUEUED Woodpecker pipeline on its OWN bounded budget, before the
+# required-check poll below starts counting (issue #717). Entirely advisory:
+# an unresolvable token/repo/pipeline, or a status that already left "pending",
+# returns immediately - callers get the unchanged pre-#717 poll either way.
+wait_out_woodpecker_queue() {
+    woodpecker_repo_id || return 0
+    local attempts="${GH_PR_MERGE_QUEUE_WAIT_ATTEMPTS:-30}"
+    local delay="${GH_PR_MERGE_QUEUE_WAIT_DELAY:-10}"
+    local i status announced=0
+    for ((i = 1; i <= attempts; i++)); do
+        status=$(woodpecker_pipeline_status)
+        [[ -z "$status" || "$status" != "pending" ]] && return 0
+        if (( announced == 0 )); then
+            echo "note: Woodpecker pipeline for PR #$PR_NUMBER is queued (not yet" \
+                 "running) - waiting it out before starting the required-check poll" \
+                 "budget (issue #717)." >&2
+            announced=1
+        fi
+        (( i < attempts )) && sleep "$delay"
+    done
+    return 0
+}
+
 if ! poll_mergeable; then
     exit 1
 fi
@@ -578,9 +694,13 @@ surface_deletions() {
 surface_deletions
 
 # An explicit --admin is a conscious owner override of protection, so it also
-# skips the wait; without it, required checks must be green before the squash.
-if (( ADMIN_OPT_IN == 0 )) && ! wait_for_required_checks; then
-    exit 1
+# skips the wait (and the queue wait that precedes it, issue #717); without
+# it, required checks must be green before the squash.
+if (( ADMIN_OPT_IN == 0 )); then
+    wait_out_woodpecker_queue
+    if ! wait_for_required_checks; then
+        exit 1
+    fi
 fi
 
 # Review gate (issue #579): a required human review is a clean stop, never an
@@ -643,10 +763,44 @@ in_linked_worktree || BASE_FLAGS+=(--delete-branch)
 # cannot be read (API hiccup) or comes back empty, merge exactly as before - the
 # merge must never be hostage to a metadata read - and the two flags are omitted
 # TOGETHER, never one without the other.
+# Tested-tree trailer (issue #716): if and only if this PR's branch was up to
+# date with its base at squash time, append a self-verifying
+# `Woodpecker-Tested-Tree: <hash>` trailer so the consumer (poker-measure's
+# push pipeline) can skip re-running the full suite by recomputing the same
+# hash on what it actually checked out. Ref-scoped reads only (`git -C <root>`,
+# full refs - the #657/#659 companion rule); fail-open per component, so an
+# unreadable base or an ancestry check that cannot resolve simply omits the
+# trailer - the safe default.
+TESTED_TREE_TRAILER=""
+resolve_tested_tree_trailer() {
+    local root base tree
+    root=$("$GIT_BIN" rev-parse --show-toplevel 2>/dev/null)
+    base=$("$GH_BIN" pr view "$PR_NUMBER" --json baseRefName --jq '.baseRefName' 2>/dev/null)
+    [[ -z "$root" || -z "$base" ]] && return 0
+    "$GIT_BIN" -C "$root" fetch origin "$base" --quiet 2>/dev/null || true
+    "$GIT_BIN" -C "$root" merge-base --is-ancestor "origin/${base}" HEAD 2>/dev/null || return 0
+    tree=$("$GIT_BIN" -C "$root" rev-parse "HEAD^{tree}" 2>/dev/null)
+    [[ -z "$tree" ]] && return 0
+    TESTED_TREE_TRAILER="Woodpecker-Tested-Tree: ${tree}"
+}
+resolve_tested_tree_trailer
+
 SQUASH_TITLE=$("$GH_BIN" pr view "$PR_NUMBER" --json title --jq '.title' 2>/dev/null)
 if [[ -n "$SQUASH_TITLE" ]]; then
     SQUASH_BODY=$("$GH_BIN" pr view "$PR_NUMBER" --json body --jq '.body' 2>/dev/null) || SQUASH_BODY=""
+    if [[ -n "$TESTED_TREE_TRAILER" ]]; then
+        if [[ -n "$SQUASH_BODY" ]]; then
+            SQUASH_BODY="${SQUASH_BODY}"$'\n\n'"${TESTED_TREE_TRAILER}"
+        else
+            SQUASH_BODY="$TESTED_TREE_TRAILER"
+        fi
+    fi
     BASE_FLAGS+=(--subject "${SQUASH_TITLE} (#${PR_NUMBER})" --body "$SQUASH_BODY")
+elif [[ -n "$TESTED_TREE_TRAILER" ]]; then
+    # Title read failed/empty (the #655 fail-open path omits --subject/--body
+    # together), but the trailer still needs to land in the squash message -
+    # pass --body alone; GitHub derives the subject as it always has here.
+    BASE_FLAGS+=(--body "$TESTED_TREE_TRAILER")
 fi
 
 run_squash ${BASE_FLAGS+"${BASE_FLAGS[@]}"}
