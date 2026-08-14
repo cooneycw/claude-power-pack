@@ -1475,7 +1475,16 @@ def test_queue_wait_skipped_without_token(tmp_path: Path):
     assert "queued" not in result.stderr
 
 
+@pytest.mark.skipif(shutil.which("jq") is None, reason="jq not installed")
 def test_queue_wait_polls_until_running_then_proceeds(tmp_path: Path):
+    # woodpecker_repo_id()/woodpecker_pipeline_status() shell out to a real,
+    # unstubbed `jq` (gh/git/curl are stubbed, but jq is not - see the module
+    # docstring's `pr_up_to_date`/`woodpecker_*` note); the CI `validate` image
+    # (uv:python3.11-bookworm-slim) ships none of git/docker/gitleaks/curl/jq,
+    # so this must guard exactly like test_ruleset_jq_filter_* below (#716/#717
+    # is what surfaced this: this dev box HAS jq, so it passed locally and only
+    # went red in CI - the precise failure mode the binary-guard gate exists
+    # for, #602).
     stubs = _make_stubs(
         tmp_path,
         merge_exit=0,
@@ -1498,10 +1507,16 @@ def test_queue_wait_polls_until_running_then_proceeds(tmp_path: Path):
     assert any(c.startswith("gh pr merge") for c in calls), calls
 
 
+@pytest.mark.skipif(shutil.which("jq") is None, reason="jq not installed")
 def test_queue_wait_never_reports_running_still_proceeds(tmp_path: Path):
     # Bounded budget (GH_PR_MERGE_QUEUE_WAIT_ATTEMPTS=3 in tests): even if the
     # pipeline is STILL pending when the budget runs out, this is advisory -
     # fall through to the unchanged required-check poll rather than blocking.
+    # Guarded for the same reason as the test above: without jq this would
+    # pass VACUOUSLY (woodpecker_repo_id fails at the jq check, so the
+    # exhaustion path it means to exercise never runs) rather than actually
+    # proving the intended behavior - the CLAUDE.md "assert the precondition"
+    # spirit, applied to a real binary instead of a constructed fixture.
     stubs = _make_stubs(
         tmp_path,
         merge_exit=0,
