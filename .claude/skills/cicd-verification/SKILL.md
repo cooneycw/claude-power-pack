@@ -2,6 +2,9 @@
 name: CI/CD & Verification
 description: Build system, health checks, CI/CD pipeline, and container patterns
 trigger: CI/CD, pipeline, health check, smoke test, Makefile generation, GitHub Actions, Dockerfile, docker-compose, verification, post-deploy
+metadata:
+  provenance:
+    class: cpp-authored
 ---
 
 # CI/CD & Verification Skill

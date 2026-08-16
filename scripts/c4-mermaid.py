@@ -31,7 +31,7 @@ from pathlib import Path
 from typing import Any
 
 # C4 node type -> (fill colour, text colour). Matches the palette documented in
-# .claude/skills/documentation.md and .claude/commands/documentation/help.md.
+# .claude/skills/documentation/SKILL.md and .claude/commands/documentation/help.md.
 C4_COLORS: dict[str, tuple[str, str]] = {
     "person": ("#08427b", "#ffffff"),
     "system": ("#6b7280", "#ffffff"),

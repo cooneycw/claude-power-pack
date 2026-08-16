@@ -2,6 +2,9 @@
 name: Issue-Driven Development
 description: IDD workflow with git worktrees and issue hierarchy
 trigger: issue driven, worktree, IDD, parallel development, git worktree
+metadata:
+  provenance:
+    class: cpp-authored
 ---
 
 # Issue-Driven Development Skill

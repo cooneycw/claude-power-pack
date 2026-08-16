@@ -1,3 +1,11 @@
+---
+name: Tiered Browser Automation
+description: Use bdg CLI for lightweight operations, escalating to Playwright MCP for complex workflows
+trigger: browser automation, bdg, Playwright MCP, browser testing, screenshots, PDF
+metadata:
+  provenance:
+    class: cpp-authored
+---
 # Tiered Browser Automation Skill
 
 Use bdg CLI for lightweight operations, escalate to Playwright MCP for complex workflows.

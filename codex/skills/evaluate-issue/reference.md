@@ -361,7 +361,7 @@ The domain type influences how each phase focuses its analysis. Refer to the eva
 
 - Uses `language="markdown"` for non-code content in the second-opinion tools (acceptable workaround)
 - No separate MCP server required -- works entirely with existing `second-opinion` and optionally `sequential-thinking` tools
-- Domain prompts are provided by the evaluate skill (.claude/skills/evaluate.md)
+- Domain prompts are provided by the evaluate skill (.claude/skills/evaluate/SKILL.md)
 - Each phase takes 30-60 seconds; full evaluation is ~3-5 minutes
 - Cost depends on model selection and verbosity; typical run is $0.10-0.30
 - If only one model is available, falls back to `get_code_second_opinion` with single-model mode

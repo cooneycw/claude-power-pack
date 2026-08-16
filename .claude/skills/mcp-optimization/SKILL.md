@@ -2,6 +2,9 @@
 name: MCP Optimization
 description: MCP token optimization, Code-Mode, and tool selection
 trigger: MCP, token consumption, tool optimization, code-mode
+metadata:
+  provenance:
+    class: cpp-authored
 ---
 
 # MCP Optimization Skill

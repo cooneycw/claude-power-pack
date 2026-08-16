@@ -2,6 +2,9 @@
 name: Spec-Driven Development
 description: Specification-first development workflow and planning
 trigger: spec driven, specification, SDD, planning, requirements
+metadata:
+  provenance:
+    class: cpp-authored
 ---
 
 # Spec-Driven Development Skill

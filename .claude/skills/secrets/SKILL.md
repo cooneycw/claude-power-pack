@@ -2,6 +2,9 @@
 name: Secrets Management
 description: Secure credential access with tiered providers, output masking, and web UI
 trigger: secrets, credentials, database password, api key, aws secrets, environment variables, .env, get credentials, connection string, secret management
+metadata:
+  provenance:
+    class: cpp-authored
 ---
 
 # Secrets Management Skill

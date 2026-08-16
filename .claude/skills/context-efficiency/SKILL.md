@@ -2,6 +2,9 @@
 name: Context Efficiency
 description: Progressive disclosure, token budgets, and optimization techniques
 trigger: context, tokens, optimization, token budget, progressive disclosure
+metadata:
+  provenance:
+    class: cpp-authored
 ---
 
 # Context Efficiency Skill

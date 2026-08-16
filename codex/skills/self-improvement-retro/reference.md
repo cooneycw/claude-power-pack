@@ -7,6 +7,8 @@ The "grill-me cycle": grill a just-finished session for friction, then propose a
 the assess-and-codify member of the grill family (`/grill:me`, `/grill:yourself`,
 `/second-opinion:grill-plan`) and the general sibling of
 `/self-improvement-deployment` - it looks at ALL friction, not just deploys.
+The grill-me concept is adapted from Matt Pocock's MIT-licensed upstream
+`mattpocock/skills` project.
 
 Steal the compound-engineering loop: plan -> work -> assess -> **codify**, with
 learnings persisted and consulted so a fix is never re-litigated.
