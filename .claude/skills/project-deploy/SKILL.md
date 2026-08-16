@@ -1,3 +1,11 @@
+---
+name: Project Deployment
+description: Deploy and test changes in projects with deployment scripts
+trigger: deploy, start servers, run locally, test changes, restart dev, restart servers
+metadata:
+  provenance:
+    class: cpp-authored
+---
 # Project Deployment Skill
 
 Use this skill when deploying or testing changes in projects with deployment scripts.

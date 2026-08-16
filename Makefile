@@ -5,7 +5,7 @@
        tool-risk-check tool-risk-drift \
        branch-protection-check branch-protection-apply branch-protection-show \
        host-surfaces-check host-surfaces-plan host-surfaces-prune memory-harness \
-       binary-guards-check negative-fixture-check \
+       binary-guards-check negative-fixture-check skills-check \
        install-drift-check install-drift-list
 
 ## Quality gates (used by /flow:finish)
@@ -102,6 +102,11 @@ codex-skills-check:
 
 codex-skills:
 	@python3 scripts/codex-skill-sync.py --write
+
+## Topic skill package, provenance, reference, and managed-install parity (#720)
+
+skills-check:
+	@python3 scripts/skills-check.py
 
 codex-init:
 	@python3 scripts/codex-skill-sync.py --write --install

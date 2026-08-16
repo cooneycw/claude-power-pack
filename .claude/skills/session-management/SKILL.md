@@ -2,6 +2,9 @@
 name: Session Management
 description: Session resets, context degradation, and plan mode best practices
 trigger: session, reset, plan mode, context degradation, compacting
+metadata:
+  provenance:
+    class: cpp-authored
 ---
 
 # Session Management Skill

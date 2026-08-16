@@ -75,6 +75,7 @@ Core components and their locations:
   - playwright-desk - lease-desk ledger
   - check-ignored-additions - advisory guard for a file a blanket-ignore rule silently swallowed
   - check-test-binary-guards - gate for the shell-out-binary guard directive
+  - skills-check - read-only topic-skill provenance, reference, and managed-install parity gate
   - check-negative-fixture-preconditions - gate for the negative-fixture precondition directive
   - install-drift - read-only host check: installed helpers vs checkout, plus retired marketplace state
   - commands-mirror-sync - drift guard + refresher for out-of-repo command-surface mirrors

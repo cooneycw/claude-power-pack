@@ -289,7 +289,7 @@ class TestCommandDocsContract:
         assert "descoped" not in body.lower()
 
     def test_docs_drop_descoped_language(self) -> None:
-        for rel in (".claude/skills/documentation.md", ".claude/commands/documentation/help.md"):
+        for rel in (".claude/skills/documentation/SKILL.md", ".claude/commands/documentation/help.md"):
             body = self._read(rel).lower()
             assert "descoped" not in body
             assert "mermaid" in body

@@ -2,6 +2,9 @@
 name: Code Quality
 description: Code review patterns, testing, and quality best practices
 trigger: code review, quality, testing, production ready, best practices
+metadata:
+  provenance:
+    class: cpp-authored
 ---
 
 # Code Quality Skill

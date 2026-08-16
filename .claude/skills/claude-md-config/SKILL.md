@@ -2,6 +2,9 @@
 name: CLAUDE.md Configuration
 description: CLAUDE.md structure, optimization, and best practices
 trigger: CLAUDE.md, configuration, project setup, conventions
+metadata:
+  provenance:
+    class: cpp-authored
 ---
 
 # CLAUDE.md Configuration Skill

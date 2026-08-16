@@ -2,6 +2,9 @@
 name: Best Practices Dispatcher
 description: Routes to topic-specific best practices skills for context efficiency
 trigger: best practices, claude code help, how to, tips
+metadata:
+  provenance:
+    class: cpp-authored
 ---
 
 # Best Practices Dispatcher

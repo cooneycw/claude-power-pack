@@ -2,6 +2,9 @@
 name: Infrastructure Hardening
 description: Validation gates, runtime contracts, canary validation, sentinel files for infrastructure resilience
 trigger: repeated failure, infrastructure hardening, validation gate, runtime contract, canary validation, sentinel file, pipeline hardening, SRE pattern
+metadata:
+  provenance:
+    class: cpp-authored
 ---
 
 # Infrastructure Hardening Skill

@@ -2,6 +2,9 @@
 name: Hooks & Automation
 description: Hook types, lifecycle, and automation patterns
 trigger: hooks, automation, hook lifecycle, SessionStart, UserPromptSubmit
+metadata:
+  provenance:
+    class: cpp-authored
 ---
 
 # Hooks & Automation Skill
