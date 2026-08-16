@@ -21,6 +21,7 @@ Create a new project from zero to pushed GitHub repo in one command.
 
 ```
 /project-init my-awesome-app
+  Preliminary: Confirm destination, classify route clarity + expected sessions
   Step 1: Validate & create ~/Projects/my-awesome-app
   Step 2: Select framework, generate scaffold
   Step 3: Initialize git, push to GitHub
@@ -28,6 +29,84 @@ Create a new project from zero to pushed GitHub repo in one command.
   Step 5: Initial spec (optional) + issue sync
   Step 6: Summary
 ```
+
+---
+
+## Preliminary Step: Destination and Discovery Route
+
+Run this discovery gate before the existing Step 1 file-presence resume check,
+framework selection, or production file generation. The interview stays in this
+command adapter; `scripts/project-init.py` never prompts.
+
+Set `TARGET_DIR="$HOME/Projects/$PROJECT_NAME"` without creating it. If
+`$TARGET_DIR/.claude/wayfinder-map.json` exists, resume it first with the
+engine's `resume_wayfinder_map()` function and the current project name. The
+loader distinctly refuses `schema_version` and immutable-origin `fingerprint`
+mismatches. Do not ask for the stored destination or any resolved decision
+again.
+
+For a resumed map:
+
+- Show its stored destination, decisions and resolutions, remaining fog,
+  out-of-scope items, blocking edges, and computed `frontier`.
+- While its state is `awaiting-decisions`, use
+  `resolve_wayfinder_decision()` plus `save_wayfinder_map()` to record settled
+  answers. Work in the map is limited to decision questions of kind `grilling`,
+  `prototype`, `research`, or decision-blocking `task`; it never implements
+  production code.
+- When every decision is resolved, call `mark_wayfinder_map_cleared()` and save
+  that `cleared` checkpoint before calling `clear_map()`. Present the returned
+  spec path and content as a proposed write and require confirmation before
+  writing it. On approval, continue through Step 1 and route to Step 5 using
+  that proposal, not Step 2. If interrupted after the cleared checkpoint, the
+  next run regenerates the same handoff without re-asking settled questions.
+- A map already in `cleared` state routes directly to the same confirmed Step 5
+  handoff. It does not create code, a pull request, or tracker items itself.
+
+When no map exists, use `AskUserQuestion` to establish and explicitly confirm a
+one-sentence destination: the observable outcome this project should reach.
+Record that confirmed destination in the adapter's current discovery record
+before asking about framework or writing files. Then ask only the two narrow
+classification questions:
+
+1. Is the route sufficiently `clear`, or are key route decisions `unclear`?
+2. Is delivery expected to fit in `one` agent session or require `multiple`?
+
+Pass those exact values to the engine's pure `classify_route()` function and
+follow its result:
+
+| Route | Expected sessions | Engine action | Adapter route |
+|-------|-------------------|---------------|---------------|
+| Clear | One | `scaffold` | Continue through Step 1 to Step 2 |
+| Clear | Multiple | `spec-and-implementation-tasks` | Continue through Step 1 to Step 5; create or link the implementation spec/tasks without Wayfinder decision tickets |
+| Unclear | One | `clarify-and-reclassify` | Run a focused clarification/grill, then repeat only the two-axis classification |
+| Unclear | Multiple | `offer-wayfinder` | Inventory initial fog, then offer a map |
+
+For the map-offer route, first name the not-yet-specified fog. Pass that list to
+`classify_route_with_fog()`. If it is empty, do not offer or create a map; use
+the returned clear multi-session Step 5 route. This is the opening no-fog
+escape, not a reason to broaden the classifier.
+
+If fog remains, present the proposed local map before mutation: destination,
+one-line decision questions, fog, out of scope, blocking edges, and its initial
+frontier. Reject implementation-imperative items such as "Build the login page";
+production implementation belongs after specification. A `task` question must
+name the fog entry or other decision it resolves.
+
+Use `AskUserQuestion` for explicit map approval:
+
+**Question:** "Create the proposed Wayfinder decision map and stop before production scaffolding?"
+
+**Options:**
+- **Create map** - Persist the approved decision map and stop in a resumable state
+- **Continue clarification** - Refine the route without creating a map
+- **Stop** - Make no mutation
+
+Only the **Create map** answer may call `create_wayfinder_map(...,
+approved=True, target_dir=TARGET_DIR)`. The other answers must not create the
+map. Report its `awaiting-decisions` state and stop before Step 1 and Step 2.
+Any proposed tracker mutation remains a separate plan with its own confirmation;
+decision records never route to `flow:auto`.
 
 ---
 
@@ -354,6 +433,19 @@ Report: `Step 4/6: CPP setup complete - Makefile, CPP toolkit, CLAUDE.md (via na
 Create an initial feature specification for the project. This step is mandatory to
 ensure every project starts with a spec-driven foundation. The spec can be minimal
 and refined later.
+
+When the preliminary gate routed a clear multi-session effort here, use the
+confirmed destination as the feature and create or link its implementation spec
+and tasks without creating Wayfinder decision tickets. When a cleared Wayfinder
+map routed here, apply the confirmed `PlannedWrite` returned by `clear_map()` as
+`spec.md` instead of the generic spec stub below, preserve its exact
+`lifecycle: active` and `transitional: true` metadata and map/decision links,
+then derive implementation tasks from that evidence. This active spec governs
+unresolved delivery work and is suitable for later graduation; it is not
+permanent product documentation by default. Do not implement graduation or emit
+`graduated`, `stale`, or `retained` here. Skip the following feature-name
+question for either preliminary-gate route; its confirmed destination already
+supplies the feature identity.
 
 Ask the user with `AskUserQuestion`:
 

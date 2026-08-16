@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""project-init.py - Deterministic scaffold planning and application (issue #721).
+"""project-init.py - Deterministic project discovery and scaffolding (issues #721 and #722).
 
 The pure ``plan(ProjectInitInput)`` interface resolves one of the checked-in
 Python, Node, Go, or Rust template catalogs into immutable proposed file writes
@@ -17,6 +17,10 @@ state out of the initial commit.
 Exit codes: 0 success, 1 apply/checkpoint refusal, 2 usage/input validation
 error. Dry-run prints the plan as deterministic JSON and performs no writes or
 commands.
+
+Wayfinder concepts are adapted from Matt Pocock's MIT-licensed
+``mattpocock/skills`` project. They are adapted rather than vendored, and no
+upstream content is fetched at runtime.
 """
 
 from __future__ import annotations
@@ -32,7 +36,7 @@ import tempfile
 import time
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from string import Template
@@ -40,10 +44,38 @@ from typing import Any, Literal, Protocol, cast
 
 PLAN_SCHEMA_VERSION = 1
 CHECKPOINT_SCHEMA_VERSION = 1
+WAYFINDER_SCHEMA_VERSION = 1
 LOCK_TIMEOUT_SECONDS = 10.0
 PROJECT_NAME_RE = re.compile(r"^[a-z][a-z0-9-]*$")
 FRAMEWORKS = ("python", "node", "go", "rust")
 Framework = Literal["python", "node", "go", "rust"]
+
+ROUTE_SCAFFOLD: Literal["scaffold"] = "scaffold"
+ROUTE_SPEC_AND_TASKS: Literal["spec-and-implementation-tasks"] = "spec-and-implementation-tasks"
+ROUTE_CLARIFY_AND_RECLASSIFY: Literal["clarify-and-reclassify"] = "clarify-and-reclassify"
+ROUTE_OFFER_WAYFINDER: Literal["offer-wayfinder"] = "offer-wayfinder"
+Route = Literal[
+    "scaffold",
+    "spec-and-implementation-tasks",
+    "clarify-and-reclassify",
+    "offer-wayfinder",
+]
+Clarity = Literal["clear", "unclear"]
+SessionCount = Literal["one", "multiple"]
+
+DECISION_KINDS = ("grilling", "prototype", "research", "task")
+DECISION_STATUSES = ("open", "blocked", "resolved")
+WAYFINDER_STATES = ("awaiting-decisions", "cleared")
+DecisionKind = Literal["grilling", "prototype", "research", "task"]
+DecisionStatus = Literal["open", "blocked", "resolved"]
+WayfinderState = Literal["awaiting-decisions", "cleared"]
+
+IMPLEMENTATION_IMPERATIVE_LEAD_VERBS = frozenset(
+    {"build", "implement", "add", "create", "write", "ship", "deploy", "code"}
+)
+INTERROGATIVE_LEAD_WORDS = frozenset(
+    {"who", "what", "where", "when", "why", "how", "is", "does", "should", "can"}
+)
 
 INITIAL_COMMIT_MESSAGE = (
     "Initial project scaffold\n\n"
@@ -75,6 +107,18 @@ class CheckpointError(ProjectInitError):
 
 class ApplyError(ProjectInitError):
     """A planned write or command could not be applied."""
+
+
+class WayfinderError(ProjectInitError):
+    """Base class for expected Wayfinder failures."""
+
+
+class WayfinderValidationError(WayfinderError):
+    """Wayfinder inputs or persisted data violate the map contract."""
+
+
+class WayfinderStateError(WayfinderError):
+    """Wayfinder state cannot safely be persisted, resumed, or cleared."""
 
 
 @dataclass(frozen=True)
@@ -143,6 +187,71 @@ class PlannedWrite:
 
     def to_dict(self) -> dict[str, str]:
         return {"path": self.path, "content": self.content}
+
+
+@dataclass(frozen=True)
+class WayfinderDecision:
+    """One decision question and its blocking or resolution evidence."""
+
+    decision_id: str
+    question: str
+    kind: DecisionKind
+    status: DecisionStatus = "open"
+    blocked_by: tuple[str, ...] = ()
+    resolves: str | None = None
+    resolution: str | None = None
+    resolved_at: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "decision_id": self.decision_id,
+            "question": self.question,
+            "kind": self.kind,
+            "status": self.status,
+            "blocked_by": list(self.blocked_by),
+            "resolves": self.resolves,
+            "resolution": self.resolution,
+            "resolved_at": self.resolved_at,
+        }
+
+
+@dataclass(frozen=True)
+class WayfinderMap:
+    """Immutable, resumable decision map for one project destination."""
+
+    schema_version: int
+    fingerprint: str
+    destination: str
+    state: WayfinderState
+    decisions: tuple[WayfinderDecision, ...]
+    fog: tuple[str, ...]
+    out_of_scope: tuple[str, ...]
+    created_at: str
+    updated_at: str
+
+    @property
+    def frontier(self) -> tuple[WayfinderDecision, ...]:
+        """Return open decisions whose declared blockers are all resolved."""
+        by_id = {decision.decision_id: decision for decision in self.decisions}
+        return tuple(
+            decision
+            for decision in self.decisions
+            if decision.status == "open"
+            and all(by_id[blocker].status == "resolved" for blocker in decision.blocked_by)
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "schema_version": self.schema_version,
+            "fingerprint": self.fingerprint,
+            "destination": self.destination,
+            "state": self.state,
+            "decisions": [decision.to_dict() for decision in self.decisions],
+            "fog": list(self.fog),
+            "out_of_scope": list(self.out_of_scope),
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+        }
 
 
 @dataclass(frozen=True)
@@ -533,6 +642,465 @@ def plan(project_input: ProjectInitInput) -> Plan:
     return Plan.create(project, writes, commands)
 
 
+def classify_route(clarity: str, session_count: str) -> Route:
+    """Classify destination discovery with no filesystem or tracker access."""
+    routes: dict[tuple[str, str], Route] = {
+        ("clear", "one"): ROUTE_SCAFFOLD,
+        ("clear", "multiple"): ROUTE_SPEC_AND_TASKS,
+        ("unclear", "one"): ROUTE_CLARIFY_AND_RECLASSIFY,
+        ("unclear", "multiple"): ROUTE_OFFER_WAYFINDER,
+    }
+    try:
+        return routes[(clarity, session_count)]
+    except KeyError as exc:
+        if clarity not in {"clear", "unclear"}:
+            raise WayfinderValidationError("clarity must be 'clear' or 'unclear'") from exc
+        raise WayfinderValidationError("session_count must be 'one' or 'multiple'") from exc
+
+
+def classify_route_with_fog(clarity: str, session_count: str, fog: Sequence[str]) -> Route:
+    """Apply the opening no-fog escape to the pure two-axis route result."""
+    route = classify_route(clarity, session_count)
+    if route == ROUTE_OFFER_WAYFINDER and not fog:
+        return ROUTE_SPEC_AND_TASKS
+    return route
+
+
+def create_wayfinder_map(
+    project_name: str,
+    destination: str,
+    decisions: Sequence[WayfinderDecision | Mapping[str, object]] = (),
+    fog: Sequence[str] = (),
+    out_of_scope: Sequence[str] = (),
+    *,
+    approved: bool,
+    target_dir: Path | None = None,
+    now: str | None = None,
+) -> WayfinderMap:
+    """Create an approved awaiting-decisions map, optionally persisting it locally."""
+    if not approved:
+        raise WayfinderValidationError("Wayfinder map creation requires explicit approved=True")
+    _validate_wayfinder_origin(project_name, destination)
+    if not fog:
+        raise WayfinderValidationError(
+            "Wayfinder map creation requires at least one fog item; use the no-fog route instead"
+        )
+    timestamp = _timestamp(now)
+    wayfinder_map = WayfinderMap(
+        schema_version=WAYFINDER_SCHEMA_VERSION,
+        fingerprint=_wayfinder_fingerprint(project_name, destination),
+        destination=destination,
+        state="awaiting-decisions",
+        decisions=tuple(_coerce_wayfinder_decision(decision) for decision in decisions),
+        fog=_validated_string_tuple(fog, "fog"),
+        out_of_scope=_validated_string_tuple(out_of_scope, "out_of_scope"),
+        created_at=timestamp,
+        updated_at=timestamp,
+    )
+    _validate_wayfinder_map(wayfinder_map)
+    if target_dir is not None:
+        if not target_dir.is_absolute():
+            raise WayfinderValidationError("target_dir must be an absolute path")
+        save_wayfinder_map(wayfinder_map, default_wayfinder_map_path(target_dir), require_absent=True)
+    return wayfinder_map
+
+
+def default_wayfinder_map_path(target_dir: Path) -> Path:
+    return target_dir / ".claude" / "wayfinder-map.json"
+
+
+def save_wayfinder_map(
+    wayfinder_map: WayfinderMap,
+    map_path: Path,
+    *,
+    require_absent: bool = False,
+) -> None:
+    """Persist a validated map with a per-path flock and atomic replacement."""
+    map_path = map_path.absolute()
+    _validate_wayfinder_map(wayfinder_map)
+    with _wayfinder_lock(map_path):
+        if map_path.exists():
+            if require_absent:
+                raise WayfinderStateError(f"Wayfinder map already exists: {map_path}; resume it instead")
+            raw = _read_json_object(map_path, "Wayfinder map", WayfinderStateError)
+            if raw.get("schema_version") != WAYFINDER_SCHEMA_VERSION:
+                raise WayfinderStateError(
+                    "Wayfinder map schema_version mismatch: "
+                    f"expected {WAYFINDER_SCHEMA_VERSION}, found {raw.get('schema_version')!r}"
+                )
+            if raw.get("fingerprint") != wayfinder_map.fingerprint:
+                raise WayfinderStateError(
+                    "Wayfinder map fingerprint mismatch: "
+                    f"expected {wayfinder_map.fingerprint}, found {raw.get('fingerprint')!r}"
+                )
+        _atomic_write_private_json(
+            map_path,
+            wayfinder_map.to_dict(),
+            prefix=".wayfinder-map.",
+            label="Wayfinder map",
+            error_type=WayfinderStateError,
+        )
+
+
+def load_wayfinder_map(
+    map_path: Path,
+    *,
+    project_name: str,
+    destination: str | None = None,
+) -> WayfinderMap:
+    """Load and validate an origin-bound map without silently restarting it."""
+    map_path = map_path.absolute()
+    if not PROJECT_NAME_RE.fullmatch(project_name):
+        raise WayfinderValidationError("project_name is invalid for Wayfinder resume")
+    with _wayfinder_lock(map_path):
+        raw = _read_json_object(map_path, "Wayfinder map", WayfinderStateError)
+    if raw.get("schema_version") != WAYFINDER_SCHEMA_VERSION:
+        raise WayfinderStateError(
+            "Wayfinder map schema_version mismatch: "
+            f"expected {WAYFINDER_SCHEMA_VERSION}, found {raw.get('schema_version')!r}"
+        )
+    stored_destination = raw.get("destination")
+    if not isinstance(stored_destination, str) or not stored_destination.strip():
+        raise WayfinderValidationError("Wayfinder map destination must be a non-empty string")
+    expected_destination = destination if destination is not None else stored_destination
+    _validate_wayfinder_origin(project_name, expected_destination)
+    expected_fingerprint = _wayfinder_fingerprint(project_name, expected_destination)
+    if raw.get("fingerprint") != expected_fingerprint or stored_destination != expected_destination:
+        raise WayfinderStateError(
+            "Wayfinder map fingerprint mismatch: "
+            f"expected {expected_fingerprint}, found {raw.get('fingerprint')!r}"
+        )
+    wayfinder_map = _wayfinder_map_from_dict(raw)
+    _validate_wayfinder_map(wayfinder_map)
+    return wayfinder_map
+
+
+def resume_wayfinder_map(
+    target_dir: Path,
+    *,
+    project_name: str,
+    destination: str | None = None,
+) -> WayfinderMap:
+    """Load the conventional project-local map for an initialization resume."""
+    return load_wayfinder_map(
+        default_wayfinder_map_path(target_dir),
+        project_name=project_name,
+        destination=destination,
+    )
+
+
+def resolve_wayfinder_decision(
+    wayfinder_map: WayfinderMap,
+    decision_id: str,
+    resolution: str,
+    *,
+    now: str | None = None,
+) -> WayfinderMap:
+    """Return a new map with one decision's evidence recorded as resolved."""
+    if wayfinder_map.state == "cleared":
+        raise WayfinderStateError("cannot change decisions after a Wayfinder map is cleared")
+    if not resolution.strip():
+        raise WayfinderValidationError("resolution must be a non-empty string")
+    matches = [decision for decision in wayfinder_map.decisions if decision.decision_id == decision_id]
+    if not matches:
+        raise WayfinderValidationError(f"unknown decision_id: {decision_id!r}")
+    timestamp = _timestamp(now)
+    resolved = replace(
+        matches[0],
+        status="resolved",
+        resolution=resolution,
+        resolved_at=timestamp,
+    )
+    decisions = tuple(
+        resolved if decision.decision_id == decision_id else decision
+        for decision in wayfinder_map.decisions
+    )
+    updated = replace(wayfinder_map, decisions=decisions, updated_at=timestamp)
+    _validate_wayfinder_map(updated)
+    return updated
+
+
+def mark_wayfinder_map_cleared(
+    wayfinder_map: WayfinderMap,
+    *,
+    now: str | None = None,
+) -> WayfinderMap:
+    """Return the resumable cleared-state checkpoint after all decisions resolve."""
+    _require_all_decisions_resolved(wayfinder_map)
+    if wayfinder_map.state == "cleared":
+        return wayfinder_map
+    cleared = replace(wayfinder_map, state="cleared", updated_at=_timestamp(now))
+    _validate_wayfinder_map(cleared)
+    return cleared
+
+
+def clear_map(wayfinder_map: WayfinderMap, *, spec_name: str | None = None) -> PlannedWrite:
+    """Collapse resolved decision evidence into an active transitional spec proposal."""
+    _require_all_decisions_resolved(wayfinder_map)
+    slug = _spec_slug(spec_name or wayfinder_map.destination)
+    map_path = ".claude/wayfinder-map.json"
+    decision_ids = [decision.decision_id for decision in wayfinder_map.decisions]
+    lines = [
+        "---",
+        "lifecycle: active",
+        "transitional: true",
+        f"originating_map: {json.dumps(map_path, ensure_ascii=True)}",
+        f"originating_map_fingerprint: {json.dumps(wayfinder_map.fingerprint, ensure_ascii=True)}",
+        f"decision_ids: {_canonical_json(decision_ids)}",
+        "---",
+        "",
+        f"# Implementation Specification: {wayfinder_map.destination}",
+        "",
+        "> This active specification governs unresolved implementation work. It is a transitional",
+        "> coordination artifact and is not permanent product documentation by default.",
+        "",
+        "## Destination",
+        "",
+        wayfinder_map.destination,
+        "",
+        "## Originating Wayfinder map",
+        "",
+        f"[`.claude/wayfinder-map.json`](../../../{map_path})",
+        "",
+        f"Map fingerprint: `{wayfinder_map.fingerprint}`",
+        "",
+        "## Decision evidence",
+        "",
+    ]
+    for decision in wayfinder_map.decisions:
+        lines.extend(
+            (
+                f"### {decision.decision_id}: {decision.question}",
+                "",
+                f"- Kind: `{decision.kind}`",
+                f"- Resolution: {decision.resolution}",
+                f"- Resolved at: `{decision.resolved_at}`",
+                f"- Evidence source: [{decision.decision_id} in the Wayfinder map](../../../{map_path})",
+                "",
+            )
+        )
+    lines.extend(
+        (
+            "## Out of scope",
+            "",
+            *(f"- {item}" for item in wayfinder_map.out_of_scope),
+            "",
+            "## Remaining delivery work",
+            "",
+            "Derive implementation tasks from the destination and resolved decision evidence above.",
+            "Production implementation starts downstream of this specification, never inside the map.",
+            "",
+        )
+    )
+    return PlannedWrite(path=f".specify/specs/{slug}/spec.md", content="\n".join(lines))
+
+
+def _validate_wayfinder_origin(project_name: str, destination: str) -> None:
+    if not PROJECT_NAME_RE.fullmatch(project_name):
+        raise WayfinderValidationError(
+            "project_name must be lowercase, start with a letter, and contain only letters, numbers, and hyphens"
+        )
+    if not isinstance(destination, str) or not destination.strip():
+        raise WayfinderValidationError("destination must be a non-empty string")
+
+
+def _wayfinder_fingerprint(project_name: str, destination: str) -> str:
+    origin = {"destination": destination, "project_name": project_name}
+    return hashlib.sha256(_canonical_json(origin).encode("utf-8")).hexdigest()
+
+
+def _coerce_wayfinder_decision(
+    value: WayfinderDecision | Mapping[str, object],
+) -> WayfinderDecision:
+    if isinstance(value, WayfinderDecision):
+        return value
+    if not isinstance(value, Mapping):
+        raise WayfinderValidationError("each decision must be a WayfinderDecision or object")
+    decision_id = value.get("decision_id")
+    question = value.get("question")
+    kind = value.get("kind")
+    status = value.get("status", "open")
+    blocked_by = value.get("blocked_by", [])
+    resolves = value.get("resolves")
+    resolution = value.get("resolution")
+    resolved_at = value.get("resolved_at")
+    if not isinstance(decision_id, str) or not isinstance(question, str):
+        raise WayfinderValidationError("decision_id and question must be strings")
+    if kind not in DECISION_KINDS:
+        raise WayfinderValidationError(f"decision kind must be one of {', '.join(DECISION_KINDS)}")
+    if status not in DECISION_STATUSES:
+        raise WayfinderValidationError(
+            f"decision status must be one of {', '.join(DECISION_STATUSES)}"
+        )
+    blocked_by_tuple = _validated_string_tuple(blocked_by, "blocked_by")
+    for field_name, field_value in (
+        ("resolves", resolves),
+        ("resolution", resolution),
+        ("resolved_at", resolved_at),
+    ):
+        if field_value is not None and not isinstance(field_value, str):
+            raise WayfinderValidationError(f"decision {field_name} must be a string or null")
+    return WayfinderDecision(
+        decision_id=decision_id,
+        question=question,
+        kind=cast(DecisionKind, kind),
+        status=cast(DecisionStatus, status),
+        blocked_by=blocked_by_tuple,
+        resolves=cast(str | None, resolves),
+        resolution=cast(str | None, resolution),
+        resolved_at=cast(str | None, resolved_at),
+    )
+
+
+def _wayfinder_map_from_dict(raw: Mapping[str, object]) -> WayfinderMap:
+    decisions = raw.get("decisions")
+    if not isinstance(decisions, list):
+        raise WayfinderValidationError("Wayfinder map decisions must be an array")
+    destination = raw.get("destination")
+    fingerprint = raw.get("fingerprint")
+    state = raw.get("state")
+    created_at = raw.get("created_at")
+    updated_at = raw.get("updated_at")
+    if not isinstance(destination, str) or not isinstance(fingerprint, str):
+        raise WayfinderValidationError("Wayfinder map destination and fingerprint must be strings")
+    if state not in WAYFINDER_STATES:
+        raise WayfinderValidationError(f"Wayfinder map state must be one of {', '.join(WAYFINDER_STATES)}")
+    if not isinstance(created_at, str) or not isinstance(updated_at, str):
+        raise WayfinderValidationError("Wayfinder map created_at and updated_at must be strings")
+    return WayfinderMap(
+        schema_version=WAYFINDER_SCHEMA_VERSION,
+        fingerprint=fingerprint,
+        destination=destination,
+        state=cast(WayfinderState, state),
+        decisions=tuple(_coerce_wayfinder_decision(decision) for decision in decisions),
+        fog=_validated_string_tuple(raw.get("fog"), "fog"),
+        out_of_scope=_validated_string_tuple(raw.get("out_of_scope"), "out_of_scope"),
+        created_at=created_at,
+        updated_at=updated_at,
+    )
+
+
+def _validated_string_tuple(value: object, field: str) -> tuple[str, ...]:
+    if not isinstance(value, (list, tuple)) or not all(
+        isinstance(item, str) and item.strip() for item in value
+    ):
+        raise WayfinderValidationError(f"Wayfinder {field} must be an array of non-empty strings")
+    return tuple(value)
+
+
+def _validate_decision_question(question: str) -> None:
+    """Validate the named implementation-imperative content shape.
+
+    This heuristic targets the spec's named build-X shape (spec.md Edge Cases),
+    not adversarial phrasing - it is a data-quality check, not a security
+    boundary, since no map item has a code-execution path regardless of
+    classification.
+    """
+    stripped = question.strip()
+    if not stripped:
+        raise WayfinderValidationError("decision question must be a non-empty string")
+    first_word_match = re.match(r"[A-Za-z]+", stripped)
+    first_word = first_word_match.group(0).lower() if first_word_match else ""
+    is_interrogative = "?" in stripped or first_word in INTERROGATIVE_LEAD_WORDS
+    if first_word in IMPLEMENTATION_IMPERATIVE_LEAD_VERBS and not is_interrogative:
+        raise WayfinderValidationError(
+            "decision question is an implementation imperative, not a decision question"
+        )
+
+
+def _validate_wayfinder_map(wayfinder_map: WayfinderMap) -> None:
+    if wayfinder_map.schema_version != WAYFINDER_SCHEMA_VERSION:
+        raise WayfinderValidationError(
+            "Wayfinder map schema_version mismatch: "
+            f"expected {WAYFINDER_SCHEMA_VERSION}, found {wayfinder_map.schema_version!r}"
+        )
+    if not wayfinder_map.fingerprint:
+        raise WayfinderValidationError("Wayfinder map fingerprint must be a non-empty string")
+    if not wayfinder_map.destination.strip():
+        raise WayfinderValidationError("Wayfinder map destination must be a non-empty string")
+    if wayfinder_map.state not in WAYFINDER_STATES:
+        raise WayfinderValidationError(f"Wayfinder map state must be one of {', '.join(WAYFINDER_STATES)}")
+    if not wayfinder_map.created_at or not wayfinder_map.updated_at:
+        raise WayfinderValidationError("Wayfinder map timestamps must be non-empty strings")
+    if len(wayfinder_map.fog) != len(set(wayfinder_map.fog)):
+        raise WayfinderValidationError("Wayfinder fog entries must be unique")
+
+    decision_ids = [decision.decision_id for decision in wayfinder_map.decisions]
+    if any(not decision_id.strip() for decision_id in decision_ids):
+        raise WayfinderValidationError("decision_id must be a non-empty string")
+    if len(decision_ids) != len(set(decision_ids)):
+        raise WayfinderValidationError("decision_id values must be unique")
+    known_decisions = set(decision_ids)
+    known_fog = set(wayfinder_map.fog)
+
+    for decision in wayfinder_map.decisions:
+        _validate_decision_question(decision.question)
+        if decision.kind not in DECISION_KINDS:
+            raise WayfinderValidationError(
+                f"decision {decision.decision_id!r} kind must be one of {', '.join(DECISION_KINDS)}"
+            )
+        if decision.status not in DECISION_STATUSES:
+            raise WayfinderValidationError(
+                f"decision {decision.decision_id!r} status must be one of {', '.join(DECISION_STATUSES)}"
+            )
+        if len(decision.blocked_by) != len(set(decision.blocked_by)):
+            raise WayfinderValidationError(
+                f"decision {decision.decision_id!r} blocked_by entries must be unique"
+            )
+        for blocker in decision.blocked_by:
+            if blocker not in known_decisions:
+                raise WayfinderValidationError(
+                    f"decision {decision.decision_id!r} has dangling blocked_by reference {blocker!r}"
+                )
+            if blocker == decision.decision_id:
+                raise WayfinderValidationError(
+                    f"decision {decision.decision_id!r} cannot be blocked by itself"
+                )
+        if decision.kind == "task":
+            if not decision.resolves:
+                raise WayfinderValidationError(
+                    f"task-kind decision {decision.decision_id!r} requires a resolves target"
+                )
+            if decision.resolves not in known_fog and (
+                decision.resolves not in known_decisions or decision.resolves == decision.decision_id
+            ):
+                raise WayfinderValidationError(
+                    f"task-kind decision {decision.decision_id!r} has dangling resolves reference "
+                    f"{decision.resolves!r}"
+                )
+        if decision.status == "resolved":
+            if not decision.resolution or not decision.resolved_at:
+                raise WayfinderValidationError(
+                    f"resolved decision {decision.decision_id!r} requires resolution and resolved_at"
+                )
+        elif decision.resolution is not None or decision.resolved_at is not None:
+            raise WayfinderValidationError(
+                f"unresolved decision {decision.decision_id!r} cannot carry resolution evidence"
+            )
+    if wayfinder_map.state == "cleared":
+        _require_all_decisions_resolved(wayfinder_map)
+
+
+def _require_all_decisions_resolved(wayfinder_map: WayfinderMap) -> None:
+    unresolved = [
+        decision.decision_id
+        for decision in wayfinder_map.decisions
+        if decision.status != "resolved"
+    ]
+    if unresolved:
+        raise WayfinderStateError(
+            f"Wayfinder map cannot be cleared while decisions remain unresolved: {', '.join(unresolved)}"
+        )
+
+
+def _spec_slug(value: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")[:80]
+    if not slug:
+        raise WayfinderValidationError("spec_name must contain at least one letter or number")
+    _validate_relative_path(f".specify/specs/{slug}/spec.md")
+    return slug
+
+
 def apply(
     init_plan: Plan,
     checkpoint_path: Path,
@@ -597,7 +1165,7 @@ def _plan_payload(
     }
 
 
-def _canonical_json(payload: Mapping[str, Any]) -> str:
+def _canonical_json(payload: object) -> str:
     return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
 
 
@@ -636,13 +1204,30 @@ def _atomic_write_text(path: Path, content: str) -> None:
 
 
 def _atomic_write_checkpoint(path: Path, checkpoint: Checkpoint) -> None:
+    _atomic_write_private_json(
+        path,
+        checkpoint.to_dict(),
+        prefix=".project-init.",
+        label="checkpoint",
+        error_type=CheckpointError,
+    )
+
+
+def _atomic_write_private_json(
+    path: Path,
+    payload: Mapping[str, Any],
+    *,
+    prefix: str,
+    label: str,
+    error_type: type[ProjectInitError],
+) -> None:
     temp_path: Path | None = None
     try:
         path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        fd, raw_temp_path = tempfile.mkstemp(prefix=".project-init.", dir=path.parent)
+        fd, raw_temp_path = tempfile.mkstemp(prefix=prefix, dir=path.parent)
         temp_path = Path(raw_temp_path)
         with os.fdopen(fd, "w", encoding="utf-8") as stream:
-            json.dump(checkpoint.to_dict(), stream, indent=2)
+            json.dump(payload, stream, indent=2)
             stream.write("\n")
             stream.flush()
             os.fsync(stream.fileno())
@@ -650,19 +1235,28 @@ def _atomic_write_checkpoint(path: Path, checkpoint: Checkpoint) -> None:
         os.replace(temp_path, path)
         temp_path = None
     except OSError as exc:
-        raise CheckpointError(f"cannot atomically write checkpoint {path}: {exc}") from exc
+        raise error_type(f"cannot atomically write {label} {path}: {exc}") from exc
     finally:
         if temp_path is not None:
             temp_path.unlink(missing_ok=True)
 
 
-def _load_checkpoint(path: Path, init_plan: Plan) -> Checkpoint:
+def _read_json_object(
+    path: Path,
+    label: str,
+    error_type: type[ProjectInitError],
+) -> dict[str, Any]:
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        raise CheckpointError(f"cannot read checkpoint {path}: {exc}") from exc
+        raise error_type(f"cannot read {label} {path}: {exc}") from exc
     if not isinstance(raw, dict):
-        raise CheckpointError("checkpoint must be a JSON object")
+        raise error_type(f"{label} must be a JSON object")
+    return raw
+
+
+def _load_checkpoint(path: Path, init_plan: Plan) -> Checkpoint:
+    raw = _read_json_object(path, "checkpoint", CheckpointError)
     if raw.get("schema_version") != CHECKPOINT_SCHEMA_VERSION:
         raise CheckpointError(
             "checkpoint schema_version mismatch: "
@@ -735,14 +1329,30 @@ def _run_executor(executor: Executor, command: PlannedCommand, cwd: Path) -> Non
 
 @contextmanager
 def _checkpoint_lock(checkpoint_path: Path) -> Iterator[None]:
+    with _state_file_lock(checkpoint_path, "checkpoint", CheckpointError):
+        yield
+
+
+@contextmanager
+def _wayfinder_lock(map_path: Path) -> Iterator[None]:
+    with _state_file_lock(map_path, "Wayfinder map", WayfinderStateError):
+        yield
+
+
+@contextmanager
+def _state_file_lock(
+    state_path: Path,
+    label: str,
+    error_type: type[ProjectInitError],
+) -> Iterator[None]:
     runtime_dir = Path(os.environ.get("XDG_RUNTIME_DIR", tempfile.gettempdir()))
     lock_dir = runtime_dir / "cpp-project-init-locks"
-    digest = hashlib.sha256(str(checkpoint_path).encode("utf-8")).hexdigest()
+    digest = hashlib.sha256(str(state_path).encode("utf-8")).hexdigest()
     try:
         lock_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
         lock_file = (lock_dir / f"{digest}.lock").open("a+", encoding="utf-8")
     except OSError as exc:
-        raise CheckpointError(f"cannot prepare checkpoint lock: {exc}") from exc
+        raise error_type(f"cannot prepare {label} lock: {exc}") from exc
     with lock_file:
         deadline = time.monotonic() + LOCK_TIMEOUT_SECONDS
         while True:
@@ -751,12 +1361,10 @@ def _checkpoint_lock(checkpoint_path: Path) -> Iterator[None]:
                 break
             except BlockingIOError as exc:
                 if time.monotonic() >= deadline:
-                    raise CheckpointError(
-                        f"could not lock checkpoint {checkpoint_path} within 10 seconds"
-                    ) from exc
+                    raise error_type(f"could not lock {label} {state_path} within 10 seconds") from exc
                 time.sleep(0.05)
             except OSError as exc:
-                raise CheckpointError(f"cannot lock checkpoint {checkpoint_path}: {exc}") from exc
+                raise error_type(f"cannot lock {label} {state_path}: {exc}") from exc
         try:
             yield
         finally:
