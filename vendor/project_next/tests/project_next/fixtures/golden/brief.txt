@@ -1,0 +1,4 @@
+Project Next 1.3 — brief
+Top action: continue_pr: Build active foundation (issue #2, PR #20) — PR #20 is active and should be completed before broad new work. Evidence: head:issue-2-active-foundation, checks:pending, review:unknown.
+Next safe issue: #3 Wave 1 feature
+Inventory: complete

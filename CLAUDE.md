@@ -77,6 +77,7 @@ Core components and their locations:
   - check-ignored-additions - advisory guard for a file a blanket-ignore rule silently swallowed
   - check-test-binary-guards - gate for the shell-out-binary guard directive
   - skills-check - read-only topic-skill provenance, reference, and managed-install parity gate
+  - project-next-vendor - offline per-file pin check, advisory upstream drift check, and reviewed refresh for the vendored project-next engine
   - check-negative-fixture-preconditions - gate for the negative-fixture precondition directive
   - install-drift - read-only host check: installed helpers vs checkout, plus retired marketplace state
   - commands-mirror-sync - drift guard + refresher for out-of-repo command-surface mirrors
@@ -176,7 +177,7 @@ fail-open). Reconcile drift by editing the canonical repo first, then
 
 ### Family decisions and delegations
 
-- `/project:next` - Decision policy delegated to the shared behavioral contract (#636): classification/ranking/top-action come VERBATIM from codex-power-pack's engine (`scripts/project-next.py --json`, contract pinned v1.3 with a runtime version check that flags mismatch in the report) when a CxPP checkout is found; CPP keeps collection notes + rendering only. No engine -> the prompt policy runs as the LABELED non-authoritative fallback ("decision policy: CPP fallback"). Pinned by tests/test_project_next_contract.py incl. a fixture-backed dogfood that FAILS (never skips) on a broken engine when a checkout is present
+- `/project:next` - Decision policy comes VERBATIM from the always-present codex-power-pack engine vendored under `vendor/project_next/` (#636/#723), with an offline per-file manifest pin and runtime contract-version check. CPP's thin `scripts/project-next.py` adapter adds native GitHub relationship confidence, planning-only Wayfinder routes, and one shared spec-lifecycle annotation without re-ranking or correcting the engine result; fixture dogfood is unconditional and a missing or broken vendored engine FAILS rather than falling back or skipping
 
 `/project:init` delegates config scaffolding (CLAUDE.md, skills, hooks) to Claude
 Code's native `/init` interview rather than hand-rolling a fixed template, then

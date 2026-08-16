@@ -2,6 +2,7 @@
        bootstrap-check drift-check deploy setup-woodpecker-cli \
        codex-init codex-skills codex-skills-check codex-install \
        eli5-check eli5-drift eli5-revendor \
+       project-next-check project-next-drift project-next-revendor \
        tool-risk-check tool-risk-drift \
        branch-protection-check branch-protection-apply branch-protection-show \
        host-surfaces-check host-surfaces-plan host-surfaces-prune memory-harness \
@@ -35,7 +36,7 @@ secret-scan:
 
 ## Pre-deploy gate (runs all quality checks)
 
-verify: lint test typecheck binary-guards-check negative-fixture-check
+verify: lint test typecheck binary-guards-check negative-fixture-check project-next-check
 
 ## Enforce the CLAUDE.md "guard tests that shell out to git/docker/gitleaks"
 ## directive (issue #602). It failed three times as prose (#451, #489, #577)
@@ -133,6 +134,19 @@ eli5-drift:
 
 eli5-revendor:
 	@python3 scripts/eli5-vendor.py --revendor
+
+## Vendored codex-power-pack project-next engine (issue #723). The offline
+## per-file manifest check is a hard gate. The live upstream comparison is a
+## fail-open network advisory; refresh only after reviewing upstream drift.
+
+project-next-check:
+	@python3 scripts/project-next-vendor.py check
+
+project-next-drift:
+	@python3 scripts/project-next-vendor.py --upstream
+
+project-next-revendor:
+	@python3 scripts/project-next-vendor.py --revendor
 
 ## Shared permission-risk taxonomy (issue #576)
 ## classify-tool-risk.py (canonical) and the copy vendored inline in

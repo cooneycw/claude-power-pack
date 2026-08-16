@@ -2,309 +2,156 @@
 
 # Project Next Steps Recommendation
 
-Analyze the project's GitHub issues and worktree state, then recommend
-prioritized next steps. This command is **read-only**: it never modifies
-issues, creates branches, or writes files. Do NOT enter plan mode - this is a
-report, not a change.
+Run CPP's always-present vendored project-next engine and return its read-only,
+deterministic recommendation. This command never modifies issues, branches,
+worktrees, specifications, or lifecycle ledgers. Do not enter plan mode - this
+is a report, not a change.
 
 ## Arguments
 
-`$ARGUMENTS` may contain a project name and/or a mode flag, in any order:
+`$ARGUMENTS` may contain a project name and one mode flag, in any order:
 
-- `<project>` (optional): a directory under `~/Projects` to analyze.
-  Resolution order: positional argument -> `CLAUDE_PROJECT` env var -> the
-  current git repository.
-- (no flag, default): **compact report** - state summary, top 3 ready-to-start
-  issues, in-flight and blocked tables.
-- `--full`: **deep report** - priority tiers 1-5, spec features table,
-  worktree status table, categorized backlog.
-- `--brief`: **single top recommendation** only.
+- `<project>` (optional): a directory under `~/Projects`. Resolution order is
+  positional argument, `CLAUDE_PROJECT`, then the current git repository.
+- no flag: compact report with the top three safe candidates plus active,
+  blocked, uncertain, lifecycle, and Wayfinder state.
+- `--brief`: top action, next safe issue, confidence, and lifecycle counts.
+- `--full`: the complete operational, specification, lifecycle, relationship,
+  worktree, and cleanup report.
 
----
+## Step 0: Resolve the pinned vendored contract
 
-## Step 0: Resolve the decision engine (shared behavioral contract, pinned v1.3)
+CPP vendors codex-power-pack's engine, contract, and fixture corpus under
+`vendor/project_next/`. The executable CPP entry point is
+`scripts/project-next.py`; normal installations expose it as
+`~/.claude/scripts/project-next.py`. It is always present with this command, so
+there is no sibling-checkout probe and no prompt-policy fallback.
 
-The DECISION POLICY - classification (in_flight / blocked / uncertain /
-available), ranking, and the top-action vs next-startable-issue split - is
-owned by the shared behavioral contract (issue #636): codex-power-pack's
-`docs/project-next-contract.md`, **pinned at contract version 1.3**, with its
-executable engine and deterministic fixture corpus as the source of truth. CPP
-keeps only Claude-side collection notes and report rendering; a second
-prompt-only decision policy is not an authoritative implementation (the
-contract's own rule).
+Read `.claude/project-next-vendor.json` from the CPP checkout and use its
+`contract_version` as the runtime pin. The wrapper performs the same check and
+fails loudly if the vendored engine speaks a different version. Never fetch a
+contract at runtime. Upstream movement is maintenance evidence surfaced by
+`make project-next-drift`, not an invitation to silently change behavior.
 
-Locate the engine (first hit wins), and read the contract version it speaks:
+The decision policy - classification, ranking, `top_action`,
+`next_startable_issue`, and candidates - comes VERBATIM from the vendored
+engine. CPP's adapter normalizes collector evidence before that decision and
+adds `cpp_extensions` afterward; it never re-ranks, filters, or corrects the
+engine result. Label every report:
 
-```bash
-CXPP_DIR=""
-for dir in ~/Projects/codex-power-pack /opt/codex-power-pack ~/.codex-power-pack; do
-  [ -f "$dir/scripts/project-next.py" ] && { CXPP_DIR="$dir"; break; }
-done
-[ -n "$CXPP_DIR" ] && grep -m1 "Contract version" "$CXPP_DIR/docs/project-next-contract.md"
-```
+`decision policy: contract v<manifest contract_version> (vendored engine)`
 
-- **Engine found:** compare the version line just printed against the pin. If
-  it is not `1.3`, SAY SO in the report header - "engine speaks vX, this doc
-  pinned 1.3 - output may diverge; update the pin after review" - and proceed;
-  never silently. Then run the engine and let it decide:
+## Step 1: Resolve the project
 
-  ```bash
-  python3 "$CXPP_DIR/scripts/project-next.py" /path/to/repo --json
-  ```
-
-  (`--brief`/`--compact`/`--full` mirror this command's own mode flags;
-  `--json` is the authoritative structured result.) Render the result through
-  the Step-5 templates - rendering is CPP's half; the classification sets,
-  ranking order, `top_action`, and `next_startable_issue` come from the engine
-  VERBATIM. Do not re-derive, filter, or "correct" them: if an engine answer
-  looks wrong, that is a contract/fixture issue for codex-power-pack, not a
-  prompt-side override. Skip Steps 1-3 entirely (the engine collects and
-  classifies); Step 4's spec-sync pointer still applies. Label the report:
-  `decision policy: contract v1.3 (engine)`.
-- **Engine present but FAILS** (crash, missing dep, unparseable JSON): report
-  the failure verbatim, then fall back to Steps 1-5 with the fallback label -
-  a broken engine must be visible, never papered over.
-- **No engine:** run Steps 1-5 as the fallback policy and LABEL the report:
-  `decision policy: CPP fallback (prompt-based), not contract v1.3 - install
-  codex-power-pack for the authoritative engine`.
-
----
-
-## Step 1: Resolve project and fetch state (one pass)
-
-**Steps 1-3 are the FALLBACK decision policy** - run them only when Step 0
-found no engine (or the engine failed); the report must carry the fallback
-label either way.
-
-### 1.1 Resolve the project directory
+Resolve the first non-flag token in `$ARGUMENTS`:
 
 ```bash
-# Positional argument wins; then CLAUDE_PROJECT; then current repo
 TARGET="<first non-flag token of $ARGUMENTS>"
-if [ -n "$TARGET" ] && [ -d "$HOME/Projects/$TARGET" ]; then
-  cd "$HOME/Projects/$TARGET"
+if [ -n "$TARGET" ]; then
+  TARGET="$HOME/Projects/$TARGET"
 elif [ -n "$CLAUDE_PROJECT" ] && ! git rev-parse --git-dir >/dev/null 2>&1; then
-  [ -d "$HOME/Projects/$CLAUDE_PROJECT" ] && cd "$HOME/Projects/$CLAUDE_PROJECT"
+  TARGET="$HOME/Projects/$CLAUDE_PROJECT"
+else
+  TARGET="$(git rev-parse --show-toplevel 2>/dev/null)"
 fi
-# Interleaved flow worktrees (FLOW_WORKTREE_BASE, ADR 0003 / #584) can sit at
-# ~/Projects/<repo>-<branch> beside real projects; a linked worktree's .git is
-# a FILE, not a directory. Analyzing one as a "project" double-reports its
-# parent repo - flag it and analyze the parent instead.
-if [ -f .git ]; then
-  echo "NOTE: '$PWD' is a linked flow worktree, not a project - its issues belong to the parent repo. Re-run against the parent (worktrees appear in its in-flight table)."
-fi
-gh repo view --json owner,name,defaultBranchRef \
-  --jq '{owner: .owner.login, name: .name, default_branch: .defaultBranchRef.name}'
 ```
 
-- Named project directory missing: STOP - "~/Projects/{name} doesn't exist".
-- Not a git repo and nothing resolved: STOP - "cd to a project or pass a name".
-- `gh` errors (no remote, rate limit): report the error (and reset time for
-  rate limits), then STOP.
+- If a named directory does not exist, stop and say which path is missing.
+- If no git repository resolves, stop and ask for a project name or repository.
+- A linked worktree has a `.git` file. Say that its issues belong to the parent
+  repository and run against the parent instead of double-reporting it.
 
-### 1.2 Fetch everything in ONE batched call
+## Step 2: Run the engine once
+
+Map the requested mode to exactly one of `--brief`, `--compact`, or `--full`,
+then run:
 
 ```bash
-# Single call - never per-issue `gh issue view` loops
-gh issue list --state open --json number,title,labels,body --limit 200
+python3 ~/.claude/scripts/project-next.py "$TARGET" <mode>
 ```
 
-If no open issues: report "No actionable issues found." and stop (in compact
-and brief modes, still show the in-flight/worktree state if any exists).
+Return that report without independently collecting issues or rebuilding its
+decision. If diagnosis needs the complete structured result, run the same
+entry point once with `--json`; the JSON result is authoritative.
 
-### 1.3 Scan worktrees and branches
+The collector uses batched GitHub and git reads. It collects issue assignees
+and GitHub's native `blockedBy`, `blocking`, `parent`, and `subIssues` fields.
+Native blocker relationships are confirmed edges. A dependency found only in
+documented text is retained as evidence but explicitly classified `uncertain`;
+it is never presented with native-edge confidence. Parent/sub-issue links are
+hierarchy evidence and do not silently become blocker edges.
 
-```bash
-git worktree list --porcelain
-git branch --list 'issue-*'
-git fetch origin --quiet 2>/dev/null || true
+Collection, authentication, rate-limit, parse, and inventory failures remain
+visible. An incomplete inventory produces no globally safe
+`next_startable_issue`.
+
+## CPP extension contract
+
+The `cpp_extensions` JSON object contains three annotation sets computed once
+and consumed by brief, compact, and full rendering:
+
+- `relationships`: native relationship edges plus documented-text fallback
+  edges with `confirmed` or `uncertain` confidence.
+- `planning_routes`: an awaiting-decisions `.claude/wayfinder-map.json` and
+  issues linked to one of its `DNNN` decision IDs route to `/project-init` for
+  planning/resolution. They never route to `/flow-auto`.
+- `spec_lifecycle`: one decision per known spec slug: `active`, `graduated`,
+  `stale`, or `retained`.
+
+Lifecycle defaults to `active` when `spec.md` has no `lifecycle` frontmatter,
+preserving compatibility with pre-Wayfinder specs. An active spec becomes
+`stale` only when its spec-sync issue state conflicts with the engine's current
+open-issue evidence. The engine's own `spec_features` remains the separate
+`spec-sync:v1` completeness axis.
+
+Graduated and retained decisions come from the optional human-approved
+`.specify/graduation-ledger.json`:
+
+```json
+{
+  "version": 1,
+  "specs": [
+    {
+      "spec_slug": "completed-feature",
+      "state": "graduated",
+      "evidence_url": "https://github.com/owner/repo/pull/123",
+      "recorded_at": "2026-08-16"
+    },
+    {
+      "spec_slug": "public-protocol",
+      "state": "retained",
+      "owner": "platform-team",
+      "evidence_url": "https://github.com/owner/repo/issues/456",
+      "recorded_at": "2026-08-16"
+    }
+  ]
+}
 ```
 
-For each worktree: note its branch, mapped issue number (pattern
-`issue-{N}-*`), and whether it is dirty (`git -C <path> status --short`).
+A graduated spec is normally absent after verified knowledge transfer, so its
+ledger evidence prevents a false missing-file warning. Active missing specs are
+warned. Retained specs require an owner because they remain maintained
+contractual, regulatory, compliance, public-protocol, or cross-team material.
+This command only reads the ledger; a future graduation gate owns writing it.
 
----
+## Output invariants
 
-## Step 2: Materialize state (MANDATORY verification gate)
-
-Build these three lists explicitly before writing any recommendation.
-Skipping this step causes misclassification - it is a strict gate.
-
-1. **IN_FLIGHT_ISSUES** - every issue with a matching `issue-{N}-*` branch or
-   worktree.
-2. **DEPENDENCY_MAP** - built by the deterministic planner, ONE parser shared
-   with `/flow-wave` so the two never disagree on graph semantics (issue #607):
-
-   ```bash
-   gh issue list --state all --json number,title,body,state --limit 200 > /tmp/<scratch>/issues.json
-   ~/.claude/scripts/flow-wave-plan.py /tmp/<scratch>/issues.json --specs .specify/specs
-   ```
-
-   (Drop `--specs` when `.specify/specs/` does not exist; on exit 127 fall
-   back to the CPP-checkout copy of the script.) The planner reads the
-   **explicit dependency keyword forms only** - `Depends on #N`, `Blocked by
-   #N`, `Requires #N`, `After #N`, line-anchored so prose references never
-   fabricate an edge - and, with `--specs`, UNIONS the spec-declared
-   `(depends on T0NN)` edges from each `tasks.md`, joined to issue numbers
-   via its `## Issue Sync` table. `Related to #N` / `See also #N` is NOT a
-   dependency. Epic/Wave checklists with unchecked items referencing the
-   issue remain a dependency source YOU add on top (the planner does not
-   parse checklists). Two planner outputs feed the report directly:
-   - `spec_drift` - the spec knows an edge the issue text omits. Where they
-     disagree, the spec is preferred and the report SAYS SO (e.g. "#52 title
-     omits T033/#56") - this exact silent drift once made a blocked issue
-     the top pick.
-   - `unresolved_tasks` - a depends-on task ID with no Issue Sync row;
-     surface it rather than assuming the dependency away.
-3. **BLOCKED_ISSUES** - transitive closure over DEPENDENCY_MAP: an issue is
-   blocked if ANY upstream dependency is in-flight, still open, or itself
-   blocked. Walk the chain - multi-hop (A blocks B blocks C) MUST be caught;
-   treat dependency cycles as blocked. Closed/merged upstreams satisfy the
-   dependency.
-
-```
-IN_FLIGHT_ISSUES: [#N, ...]
-BLOCKED_ISSUES:   [#X (by #N), ...]
-AVAILABLE_ISSUES: [everything open and in neither list]
-```
-
-**Validation (mandatory):** every open issue lands in exactly one list; no
-issue from IN_FLIGHT_ISSUES or BLOCKED_ISSUES may appear among the
-recommendations. Critical/security issues are the one exception: always
-surface them, flagged with their in-flight/blocked state.
-
----
-
-## Step 3: Rank AVAILABLE_ISSUES
-
-Order by, in sequence:
-
-1. **Critical** - labels `security`, `blocker`, or `bug` + `priority-high`.
-2. **Priority labels** - `p1` before `p2` before unlabeled.
-3. **Phase order** - lower `phase-N` label (or Wave/Phase number in the title)
-   first.
-4. **Tie-break** - lower issue number (first-filed).
-
-Note quick wins (labels `documentation`, `chore`, or obviously small scope) in
-the rationale - they are good picks when a worktree is already active.
-
-If no priority/phase labels exist at all, fall back to issue-number order and
-warn: "No priority labels detected - ordering by issue number."
-
----
-
-## Step 4: Spec sync check (only if `.specify/` exists)
-
-```bash
-for d in .specify/specs/*/; do
-    [ -d "$d" ] || continue
-    feat=$(basename "$d")
-    have_spec=$([ -s "${d}spec.md" ] && echo "y" || echo "n")
-    have_plan=$([ -s "${d}plan.md" ] && echo "y" || echo "n")
-    have_tasks=$([ -s "${d}tasks.md" ] && echo "y" || echo "n")
-    echo "${feat}|${have_spec}|${have_plan}|${have_tasks}"
-done 2>/dev/null || echo "no .specify/specs"
-```
-
-Surface a pointer ONLY when a feature has a `tasks.md` with no matching GitHub
-issues yet: "Spec `{feat}` has tasks not yet synced - run
-`scripts/speckit-tasks-to-issues.sh`, then `/flow-auto <issue>` per issue."
-In `--full` mode, show the full feature table instead.
-
----
-
-## Step 5: Output
-
-Every mode's report opens with the decision-policy line from Step 0 -
-`decision policy: contract v1.3 (engine)` or the CPP-fallback label (plus the
-version-mismatch warning when the located contract doc is not 1.3).
-
-### Default (compact)
-
-```markdown
-## {REPO} - Next Steps
-_decision policy: {contract v1.3 (engine) | CPP fallback (prompt-based)}_
-
-**State:** {N} open | {K} in-flight ({#a, #b}) | {M} blocked
-
-### Ready to start (top 3)
-1. #{N} {title}  [{p1|p2|-}, {phase|-}]
-   {one-line rationale} -> /flow-auto {N}
-2. ...
-3. ...
-
-### In flight
-| # | branch | status |
-|---|--------|--------|
-| {N} | issue-{N}-... | clean|dirty |
-
-### Blocked
-| # | by | reason |
-|---|-----|--------|
-| {X} | #{N} | in-flight|open dep|transitive |
-
-{spec-sync pointer, only if applicable}
-(--full for the 5-tier report, --brief for a single pick)
-```
-
-Omit any empty section. Rationales are one line each - do not expand into
-per-issue analysis.
-
-### --brief
-
-```markdown
-Recommended next issue:
-
-  #{N}  {title}
-  Priority: {p1|p2|-} | Phase: {phase|-} | Blocked by: none
-  Rationale: {one sentence}
-
-  -> /flow-auto {N}
-```
-
-### --full
-
-The deep report - all sections:
-
-1. **Current State Summary** - repo, open-issue counts by category (critical /
-   bugs / features / docs / tech-debt / planning), worktree list, uncommitted
-   work.
-2. **Spec Features table** (if `.specify/` exists) - feature | spec | plan |
-   tasks | action.
-3. **Priority tiers:**
-   - Priority 1: Critical/blocking (surfaced even when in-flight/blocked,
-     flagged).
-   - Priority 2: Active work - IN_FLIGHT_ISSUES only, with worktree path,
-     branch status, uncommitted changes.
-   - Blocked (not actionable) - table with issue | title | blocked-by |
-     reason. No effort estimates; never suggest starting these.
-   - Priority 3: Ready to start - gate-passed issues, with Why / Effort /
-     `/flow-auto` command per issue.
-   - Priority 3b: Pending spec sync (if applicable).
-   - Priority 4: Quick wins (gate-passed only).
-   - Priority 5: Planning/discussion issues.
-4. **Worktree Status table** - directory | branch | issue | status.
-5. **Recommendations** - cleanup candidates (merged/stale worktrees).
-
-The tier assignments come EXACTLY from the Step 2 gate - an issue in
-IN_FLIGHT_ISSUES or BLOCKED_ISSUES must never appear in tiers 3-5.
-
----
-
-## Edge cases
-
-- **All open issues blocked:** report the unique set of blockers and which
-  in-flight work resolves them.
-- **Top pick already has a worktree:** it belongs in the in-flight table, not
-  the recommendations - recommend the next available issue instead.
-- **Worktree without an open issue** (merged/closed): list under a one-line
-  cleanup note - "run `/flow-cleanup`".
+- Every open issue is in exactly one engine partition: `in_flight`, `blocked`,
+  `uncertain`, or `available`.
+- `next_startable_issue` and start candidates never name an issue outside
+  `available` when inventory is complete.
+- Critical non-startable work remains visible but is not recommended as safe.
+- All modes use the same engine result, lifecycle decisions, relationship
+  evidence, and Wayfinder routes. Renderers do not reclassify them.
+- Planning-only Wayfinder artifacts never display a `/flow-auto` route.
+- A malformed vendored package, fixture corpus, manifest hash, import, or
+  contract-version pin is a hard failure, never a skipped optional dogfood.
 
 ## Notes
 
-- To act on a recommendation: `/flow-auto {N}` (full lifecycle) or
-  `/flow-start {N}` (worktree only).
-- For a quick orientation without issue analysis, use `/project-lite`.
-- Optional per-project tuning via a "Project-Next Configuration" block in
-  CLAUDE.md (priority labels, hierarchy style: wave / epic / parent-child /
-  flat).
+- Use `/flow-auto N` only for an implementation candidate that the report
+  leaves on that route.
+- Use `/project-init` for a Wayfinder planning/resolution route.
+- Use `/project-lite` for orientation without issue analysis.
+- Optional ranking configuration remains in `.project-next.json`, per the
+  vendored contract.
