@@ -8,7 +8,6 @@ description: "Prioritized next-step report from GitHub issues and worktrees (com
 
 Generated from a Claude Code command. Where the procedure references these Claude-only surfaces, adapt as follows:
 
-- `CLAUDE.md` references: Codex reads `AGENTS.md`; treat them as the target repo's agent-context file.
 - Helper scripts referenced as `scripts/<name>` are bundled under `scripts/` in this skill directory (byte-identical copies from the claude-power-pack checkout); some expect sibling repo resources, so prefer a full checkout when one is available.
 
 # Project Next Steps Recommendation

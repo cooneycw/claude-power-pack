@@ -1,0 +1,25 @@
+{
+  "source_repo": "https://github.com/cooneycw/codex-power-pack",
+  "upstream_commit": "1724e7d90ea10260f58d62174e5e6c74d641abbd",
+  "upstream_license": "MIT License",
+  "contract_version": "1.3",
+  "vendored_at": "2026-08-16",
+  "files": {
+    "LICENSE": "09fc9c15f0b236d2bce483820f98147b4e8f65a807e927b58ea363f531fe0ab0",
+    "docs/project-next-contract.md": "01f83dfb869252112ec9f06abbd17cd0071408e2063eb981c1075ccc13f6277b",
+    "lib/project_next/__init__.py": "0df00452c2ea69de59ca4a528eff28b0b79c1f2b3faedbffa7b2f89f558cf988",
+    "lib/project_next/classify.py": "ff266bf11be02a366dc49c75ddbc8a10f248b9e7df022d71ee0ac170b390c8ef",
+    "lib/project_next/cli.py": "e084bcbf526acf9ad373c6c843e019fbdb57b19d5a5e43c4a88c323b1e4dea5c",
+    "lib/project_next/collect.py": "d92f2b2fb83a5a03f23940ea2c72b0d2e4f79b4b83b7604b9adc3e0cc74032e4",
+    "lib/project_next/config.py": "d050b91588390ed869053542309fc2afae4d9f266aa22eda7f642c903b47cea3",
+    "lib/project_next/models.py": "c8da2d0730070008a4a1e27022de6a284c6a1386a88b174bcb737f514dee787f",
+    "lib/project_next/rank.py": "fa27d94de2e3752d96388d5af7b9f209fd631d2649899686aa9ec2a1c940de9d",
+    "lib/project_next/render.py": "3fd2958fa281dc97418697d4fb718b374ea58d334efe8d2fb522920f489340ec",
+    "scripts/project-next.py": "d483a2d3a2c84787df4037112a18ddfb08530c66b16747176a96d4bd2946366f",
+    "tests/project_next/fixtures/golden/brief.txt": "98f9312d89d351cafc99e4368bcac8540c4fa38fc67cfbe247bb0231f81c2789",
+    "tests/project_next/fixtures/golden/compact.md": "2218bb8185715d51324440ac5ef420555de3b8d3742d04e028eba24c70abb6fc",
+    "tests/project_next/fixtures/golden/full.md": "4e99218b12583e7902904147879300165a16263e3aa0a5604a7e36a608a70ab7",
+    "tests/project_next/fixtures/golden/result.json": "596110e442656a138f93ad9c95035573e0d0f419ec335db2652c77a6a37d902e",
+    "tests/project_next/fixtures/scenarios.json": "f7e70d0bc5096096ce606087662080219e0e001093ce58a81ffe8b3ad000262a"
+  }
+}

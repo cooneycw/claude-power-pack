@@ -1,0 +1,501 @@
+{
+  "active_pr_and_safe_issue": {
+    "state": {
+      "repository": "example/active",
+      "default_branch": "main",
+      "collected_at": "2026-08-06T20:00:00Z",
+      "issues": [
+        {"number": 1, "title": "Critical active fix", "labels": ["bug", "priority-high"]},
+        {"number": 2, "title": "Ready task", "labels": ["p2", "task"]}
+      ],
+      "pull_requests": [
+        {
+          "number": 10,
+          "title": "Fix critical active work",
+          "head_ref": "issue-1-critical-fix",
+          "closing_issue_numbers": [1],
+          "checks_state": "failure",
+          "merge_state": "BLOCKED"
+        }
+      ],
+      "worktrees": [
+        {"path": "/tmp/active", "branch": "issue-1-critical-fix", "dirty": false}
+      ]
+    },
+    "expected": {
+      "top_action": "fix_gate",
+      "top_issue": 1,
+      "next_startable": 2,
+      "in_flight": [1],
+      "blocked": [],
+      "available": [2],
+      "uncertain": []
+    }
+  },
+  "dependency_chain": {
+    "state": {
+      "repository": "example/chain",
+      "default_branch": "main",
+      "collected_at": "2026-08-06T20:00:00Z",
+      "issues": [
+        {"number": 10, "title": "Wave 1 final", "body": "Depends on #11"},
+        {"number": 11, "title": "Wave 1 middle", "body": "Requires #12"},
+        {"number": 12, "title": "Wave 1 foundation", "labels": ["task"]}
+      ]
+    },
+    "expected": {
+      "top_action": "start_issue",
+      "top_issue": 12,
+      "next_startable": 12,
+      "in_flight": [],
+      "blocked": [10, 11],
+      "available": [12],
+      "uncertain": []
+    }
+  },
+  "dependency_cycle": {
+    "state": {
+      "repository": "example/cycle",
+      "default_branch": "main",
+      "collected_at": "2026-08-06T20:00:00Z",
+      "issues": [
+        {"number": 20, "title": "Cycle A", "body": "Blocked by #21"},
+        {"number": 21, "title": "Cycle B", "body": "After #20"}
+      ]
+    },
+    "expected": {
+      "top_action": null,
+      "top_issue": null,
+      "next_startable": null,
+      "in_flight": [],
+      "blocked": [20, 21],
+      "available": [],
+      "uncertain": []
+    }
+  },
+  "ambiguous_dependency": {
+    "state": {
+      "repository": "example/uncertain",
+      "default_branch": "main",
+      "collected_at": "2026-08-06T20:00:00Z",
+      "issues": [
+        {"number": 30, "title": "Needs a decision", "body": "Blocked by design review"},
+        {"number": 31, "title": "Safe task", "labels": ["task"]}
+      ]
+    },
+    "expected": {
+      "top_action": "start_issue",
+      "top_issue": 31,
+      "next_startable": 31,
+      "in_flight": [],
+      "blocked": [],
+      "available": [31],
+      "uncertain": [30]
+    }
+  },
+  "incomplete_inventory": {
+    "state": {
+      "repository": "example/incomplete",
+      "default_branch": "main",
+      "collected_at": "2026-08-06T20:00:00Z",
+      "inventory_complete": false,
+      "collector_warnings": ["issue inventory truncated"],
+      "issues": [
+        {"number": 40, "title": "Apparently ready", "labels": ["p1"]}
+      ]
+    },
+    "expected": {
+      "top_action": "resolve_inventory",
+      "top_issue": null,
+      "next_startable": null,
+      "in_flight": [],
+      "blocked": [],
+      "available": [40],
+      "uncertain": []
+    }
+  },
+  "codex_power_pack_dogfood": {
+    "state": {
+      "repository": "cooneycw/codex-power-pack",
+      "default_branch": "main",
+      "collected_at": "2026-08-06T20:00:00Z",
+      "issues": [
+        {
+          "number": 158,
+          "title": "Wave 7 Stage 1",
+          "body": "Re-evaluate the ten time-bounded Wave 7 skill exclusions after the v0.2.0 rollout has accumulated real usage evidence.\n\nRun after the v0.2.0 release has accumulated dogfood feedback and no later than 2026-09-30."
+        },
+        {"number": 159, "title": "Wave 7 Stage 2", "body": "**Depends on:** #157"},
+        {"number": 160, "title": "Wave 7 Stage 3", "body": "**Blocked by:** #158, #159"}
+      ],
+      "branches": [
+        {"name": "issue-158-wave-7-stage-1", "remote": false}
+      ]
+    },
+    "expected": {
+      "top_action": "continue_work",
+      "top_issue": 158,
+      "next_startable": 159,
+      "in_flight": [158],
+      "blocked": [160],
+      "available": [159],
+      "uncertain": []
+    }
+  },
+  "claude_power_pack_dogfood": {
+    "state": {
+      "repository": "cooneycw/claude-power-pack",
+      "default_branch": "main",
+      "collected_at": "2026-08-06T20:00:00Z",
+      "issues": [
+        {"number": 700, "title": "Phase 2 active", "labels": ["Priority: High"]},
+        {
+          "number": 701,
+          "title": "Phase 1 documentation",
+          "labels": ["documentation"],
+          "body": "Rewrite the setup guide.\n\n```python\n# this example depends on #700 but is code, not a declaration\nrender(after=700)\n```"
+        },
+        {"number": 702, "title": "Phase 3 dependent", "body": "Requires #700 before it can start."}
+      ],
+      "pull_requests": [
+        {
+          "number": 800,
+          "title": "Phase 2 active",
+          "head_ref": "issue-700-phase-2-active",
+          "closing_issue_numbers": [700],
+          "checks_state": "success",
+          "review_decision": "APPROVED",
+          "merge_state": "CLEAN"
+        }
+      ]
+    },
+    "expected": {
+      "top_action": "merge_pr",
+      "top_issue": 700,
+      "next_startable": 701,
+      "in_flight": [700],
+      "blocked": [702],
+      "available": [701],
+      "uncertain": []
+    }
+  },
+  "empty_repository": {
+    "state": {
+      "repository": "example/empty",
+      "default_branch": "main",
+      "collected_at": "2026-08-07T13:00:00Z"
+    },
+    "expected": {
+      "top_action": null,
+      "top_issue": null,
+      "next_startable": null,
+      "in_flight": [],
+      "blocked": [],
+      "available": [],
+      "uncertain": []
+    }
+  },
+  "operational_report": {
+    "state": {
+      "repository": "example/operations",
+      "default_branch": "main",
+      "collected_at": "2026-08-07T13:00:00Z",
+      "issues": [
+        {
+          "number": 1,
+          "title": "Critical security repair",
+          "body": "Blocked by #2",
+          "labels": ["security", "p0"]
+        },
+        {"number": 2, "title": "Active foundation", "labels": ["p1", "task"]},
+        {"number": 3, "title": "Wave 1 feature", "labels": ["p1", "feature"]},
+        {"number": 4, "title": "Document setup", "labels": ["documentation", "size-s"]},
+        {"number": 5, "title": "Planning epic", "labels": ["planning"]},
+        {"number": 6, "title": "Choose storage", "body": "Blocked by design review"}
+      ],
+      "pull_requests": [
+        {
+          "number": 20,
+          "title": "Build active foundation",
+          "head_ref": "issue-2-active-foundation",
+          "closing_issue_numbers": [2],
+          "checks_state": "pending",
+          "merge_state": "BLOCKED"
+        }
+      ],
+      "worktrees": [
+        {
+          "path": "/repo",
+          "branch": "main",
+          "dirty": false,
+          "recent_commits": ["aaa main commit"]
+        },
+        {
+          "path": "/repo-issue-2",
+          "branch": "issue-2-active-foundation",
+          "dirty": true,
+          "recent_commits": ["bbb active work", "aaa main commit"]
+        },
+        {
+          "path": "/repo-issue-99",
+          "branch": "issue-99-old-work",
+          "dirty": false,
+          "recent_commits": ["ccc old work"]
+        }
+      ],
+      "branches": [
+        {"name": "main", "upstream": "origin/main"},
+        {"name": "issue-2-active-foundation", "upstream": "origin/issue-2-active-foundation"},
+        {"name": "issue-99-old-work"},
+        {"name": "origin/issue-88-abandoned", "remote": true}
+      ],
+      "spec_tasks": [
+        {
+          "task_id": "T001",
+          "title": "Mapped task",
+          "feature": "checkout",
+          "source": ".specify/specs/checkout/tasks.md",
+          "issue_numbers": [3],
+          "synchronized": true,
+          "mapping_status": "mapped"
+        },
+        {
+          "task_id": "T002",
+          "title": "Pending task",
+          "feature": "checkout",
+          "source": ".specify/specs/checkout/tasks.md",
+          "mapping_status": "missing"
+        }
+      ],
+      "spec_features": [
+        {
+          "name": "checkout",
+          "path": ".specify/specs/checkout",
+          "has_spec": true,
+          "has_plan": true,
+          "has_tasks": true,
+          "total_tasks": 2,
+          "mapped_tasks": 1,
+          "mapping_status": "partial",
+          "recommended_action": "sync remaining tasks to issues"
+        }
+      ]
+    },
+    "expected": {
+      "top_action": "continue_pr",
+      "top_issue": 2,
+      "next_startable": 3,
+      "in_flight": [2],
+      "blocked": [1],
+      "available": [3, 4, 5],
+      "uncertain": [6]
+    }
+  },
+  "markdown_dependency_forms": {
+    "state": {
+      "repository": "example/markdown",
+      "default_branch": "main",
+      "collected_at": "2026-08-07T13:00:00Z",
+      "issues": [
+        {
+          "number": 50,
+          "title": "T-CV14: release gate",
+          "body": "**Parent:** #40 · **Task:** T-CV14 · **Depends on:** #51, #52–#53"
+        },
+        {"number": 51, "title": "Base one", "labels": ["task"]},
+        {"number": 52, "title": "Base two", "labels": ["task"]},
+        {"number": 53, "title": "Base three", "labels": ["task"]}
+      ]
+    },
+    "expected": {
+      "top_action": "start_issue",
+      "top_issue": 51,
+      "next_startable": 51,
+      "in_flight": [],
+      "blocked": [50],
+      "available": [51, 52, 53],
+      "uncertain": []
+    }
+  },
+  "prose_is_not_a_dependency": {
+    "state": {
+      "repository": "example/prose",
+      "default_branch": "main",
+      "collected_at": "2026-08-07T13:00:00Z",
+      "issues": [
+        {
+          "number": 60,
+          "title": "Review exclusions",
+          "labels": ["task"],
+          "body": "Run this after the v0.2.0 release has accumulated feedback.\n\nThe `icm_aware` phase definition requires ante in play, and ranges with heavy blocker overlap still reconcile."
+        },
+        {
+          "number": 61,
+          "title": "Label gutter fix",
+          "labels": ["bug"],
+          "body": "From the layout audit:\n\n```python\nx=layout.left_gutter_px,  # <- starts after the label gutter\n```\n\nAfter sign-in the position is not much better."
+        }
+      ]
+    },
+    "expected": {
+      "top_action": "start_issue",
+      "top_issue": 60,
+      "next_startable": 60,
+      "in_flight": [],
+      "blocked": [],
+      "available": [60, 61],
+      "uncertain": []
+    }
+  },
+  "declared_blocker_without_a_reference": {
+    "state": {
+      "repository": "example/declared",
+      "default_branch": "main",
+      "collected_at": "2026-08-07T13:00:00Z",
+      "issues": [
+        {"number": 70, "title": "Needs a decision", "body": "**Blockers:** the design review has not happened"},
+        {"number": 71, "title": "Safe task", "labels": ["task"]}
+      ]
+    },
+    "expected": {
+      "top_action": "start_issue",
+      "top_issue": 71,
+      "next_startable": 71,
+      "in_flight": [],
+      "blocked": [],
+      "available": [71],
+      "uncertain": [70]
+    }
+  },
+  "spec_task_dependencies": {
+    "state": {
+      "repository": "cooneycw/poker-measure",
+      "default_branch": "main",
+      "collected_at": "2026-08-07T13:00:00Z",
+      "issues": [
+        {"number": 13, "title": "Canonical corpus schema (depends on T004)", "labels": ["task"]},
+        {
+          "number": 14,
+          "title": "Repository-owned parser (depends on T008)",
+          "labels": ["task"],
+          "body": "- [ ] **T009** Port card parsing (depends on T008)\n- [ ] **T010** Port header parsing (depends on T009)\n- [ ] **T011** Map results (depends on T010)\n\nAfter synchronization, update the Issue Sync ledger for `wave-3`."
+        },
+        {"number": 15, "title": "Unrelated cleanup", "labels": ["chore"]}
+      ],
+      "branches": [{"name": "issue-13-canonical-corpus-schema", "remote": false}],
+      "spec_tasks": [
+        {
+          "task_id": "T008",
+          "title": "PostgreSQL tests",
+          "feature": "ingestion",
+          "source": ".specify/specs/ingestion/tasks.md",
+          "issue_numbers": [13],
+          "synchronized": true,
+          "mapping_status": "mapped"
+        },
+        {
+          "task_id": "T009",
+          "title": "Port card parsing",
+          "feature": "ingestion",
+          "source": ".specify/specs/ingestion/tasks.md",
+          "issue_numbers": [14],
+          "synchronized": true,
+          "mapping_status": "mapped"
+        }
+      ]
+    },
+    "expected": {
+      "top_action": "continue_work",
+      "top_issue": 13,
+      "next_startable": 15,
+      "in_flight": [13],
+      "blocked": [14],
+      "available": [15],
+      "uncertain": []
+    }
+  },
+  "task_ids_resolved_from_issue_titles": {
+    "state": {
+      "repository": "cooneycw/agentic-poker",
+      "default_branch": "main",
+      "collected_at": "2026-08-07T13:00:00Z",
+      "issues": [
+        {"number": 368, "title": "T-CV03: store versioned absolute EV", "labels": ["enhancement"]},
+        {
+          "number": 371,
+          "title": "T-CV06: show realized and benchmark-best EV",
+          "labels": ["enhancement"],
+          "body": "**Parent:** #365 · **Depends on:** T-CV03 · **Coordinates with:** #314"
+        }
+      ]
+    },
+    "expected": {
+      "top_action": "start_issue",
+      "top_issue": 368,
+      "next_startable": 368,
+      "in_flight": [],
+      "blocked": [371],
+      "available": [368],
+      "uncertain": []
+    }
+  },
+  "unlabeled_backlog": {
+    "state": {
+      "repository": "cooneycw/agentic-poker",
+      "default_branch": "main",
+      "collected_at": "2026-08-07T13:00:00Z",
+      "issues": [
+        {"number": 264, "title": "Zero values take a direction", "labels": ["bug", "information-design"]},
+        {"number": 334, "title": "Diverging bars name no unit", "labels": ["enhancement", "postflop-solver"]}
+      ]
+    },
+    "expected": {
+      "top_action": "start_issue",
+      "top_issue": 264,
+      "next_startable": 264,
+      "in_flight": [],
+      "blocked": [],
+      "available": [264, 334],
+      "uncertain": []
+    }
+  },
+  "untracked_only_worktree": {
+    "state": {
+      "repository": "example/untracked",
+      "default_branch": "main",
+      "collected_at": "2026-08-07T13:00:00Z",
+      "issues": [{"number": 90, "title": "Ready work", "labels": ["task"]}],
+      "worktrees": [
+        {"path": "/repo", "branch": "main", "dirty": false, "untracked_only": true}
+      ]
+    },
+    "expected": {
+      "top_action": "start_issue",
+      "top_issue": 90,
+      "next_startable": 90,
+      "in_flight": [],
+      "blocked": [],
+      "available": [90],
+      "uncertain": []
+    }
+  },
+  "untracked_only_with_no_startable_work": {
+    "state": {
+      "repository": "example/untracked-idle",
+      "default_branch": "main",
+      "collected_at": "2026-08-07T13:00:00Z",
+      "worktrees": [
+        {"path": "/repo", "branch": "main", "dirty": false, "untracked_only": true}
+      ]
+    },
+    "expected": {
+      "top_action": "review_untracked",
+      "top_issue": null,
+      "next_startable": null,
+      "in_flight": [],
+      "blocked": [],
+      "available": [],
+      "uncertain": []
+    }
+  }
+}

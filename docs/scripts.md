@@ -122,6 +122,10 @@ See also `docs/commands-reference.md` (the command-surface half of the same move
 
 - eli5-vendor - guard for the canonical->vendored eli5-core link (#591): `check` (default) verifies the vendored core against the sha256 pinned in `.claude/eli5-vendor.json` - offline, stdlib-only, a HARD gate (`make eli5-check`, `eli5-vendor-check` step in `.woodpecker.yml`); `--upstream` live-fetches cooneycw/eli5-gate and diffs - advisory + fail-open (`make eli5-drift`, `eli5-upstream-drift` step, `failure: ignore`); `--revendor` re-fetches the core, replaces it in place and re-pins the manifest (`make eli5-revendor`). The two halves are complementary: a manifest cannot notice that UPSTREAM moved, and a live fetch cannot run offline
 
+## `project-next-vendor`
+
+- project-next-vendor - symmetric pull-model guard for codex-power-pack's project-next engine (#723): CPP vendors the upstream package, entry point, v1.3 contract, MIT license, and golden fixture corpus under `vendor/project_next/`, mirroring CxPP's existing inverse vendor of CPP's Codex skills. Default `check` is a stdlib-only, git-free, network-free hard gate (`make project-next-check`) that hashes every file separately against `.claude/project-next-vendor.json`, so a failure names the exact drifted file. `--upstream` compares against upstream main but fails open on network trouble (`make project-next-drift`); `--revendor` resolves main to an immutable commit, refreshes the fixed file set, derives the contract version and license from fetched source, and rewrites the commit/date/per-file pins (`make project-next-revendor`)
+
 ## `eli5-core-drift`
 
 - eli5-core-drift - thin shim onto `eli5-vendor.py --upstream`, kept so existing references resolve to one implementation (#591)

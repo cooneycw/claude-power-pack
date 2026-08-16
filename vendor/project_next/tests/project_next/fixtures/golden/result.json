@@ -1,0 +1,45 @@
+{
+  "backlog_summary": {
+    "bugs": 0,
+    "critical": 0,
+    "docs": 0,
+    "features": 0,
+    "open": 0,
+    "other": 0,
+    "planning": 0,
+    "tech_debt": 0
+  },
+  "backlog_tiers": {
+    "active": [],
+    "blocked": [],
+    "critical": [],
+    "pending_spec_sync": [],
+    "planning": [],
+    "quick_wins": [],
+    "ready": [],
+    "uncertain": []
+  },
+  "candidates": [],
+  "classification": {
+    "available": [],
+    "blocked": [],
+    "blocked_by": {},
+    "dependency_map": {},
+    "in_flight": [],
+    "in_flight_evidence": {},
+    "uncertain": [],
+    "uncertainty": {},
+    "unmapped_worktrees": []
+  },
+  "cleanup_candidates": [],
+  "contract_version": "1.3",
+  "inventory_complete": true,
+  "next_startable_issue": null,
+  "ranked_available": [],
+  "repository": "example/empty",
+  "spec_features": [],
+  "top_action": null,
+  "unsynchronized_spec_tasks": [],
+  "warnings": [],
+  "worktree_details": []
+}
