@@ -61,6 +61,7 @@ Core components and their locations:
   - flow-wave-mailbox - the wave DELIVERY lane - `send`/`read`/`watch`/`list`
   - flow-wave-lexicon - reserved vocabulary for wave STATE TRANSITIONS
   - flow-wave-plan - deterministic wave planner; the ONE dependency parser shared with `/project:next`
+  - flow-wave-residuals - executable residual candidate ledger, close-time human promotion gate, and issue-economy metrics
   - flow-finish-gate - the deterministic quality-gate invocation as ONE audited helper
   - hooks
   - drift-detect
