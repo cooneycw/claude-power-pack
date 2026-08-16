@@ -2,6 +2,7 @@
 
 > **Branch:** `spec/balanced-agentic-development`
 > **Created:** 2026-08-15
+> **Amended:** 2026-08-16 - knowledge graduation lifecycle
 > **Status:** Approved
 
 ---
@@ -27,6 +28,10 @@ This feature defines one balancing model:
    post-wave promotion pass may create a follow-up issue.
 4. **Executable contracts over prose enforcement.** Critical workflow rules are
    represented by deterministic state, validators, and behavioral tests.
+5. **Graduate knowledge after delivery.** Specs coordinate unresolved work. Once
+   implementation is verified, each durable fact moves to its authoritative
+   home and the completed spec is removed instead of becoming a second,
+   drifting description of the code.
 
 The Wayfinder portion adapts Matt Pocock's situational planning on-ramp: an
 effort that is both larger than one agent session and whose route is unclear is
@@ -136,6 +141,9 @@ decisions before committing to a stack.
       production scaffolding; map creation requires explicit user approval.
 - [ ] Wayfinder items are decision questions, not implementation slices, and the
       cleared map hands off to a spec rather than code or a pull request.
+- [ ] The handed-off spec is explicitly `active` and transitional: it governs
+      unresolved implementation work, but is not designated as permanent
+      product documentation.
 - [ ] The map preserves destination, decisions so far, not-yet-specified fog,
       out-of-scope items, blocking edges, and the open/unblocked frontier.
 
@@ -148,6 +156,9 @@ decisions before committing to a stack.
 3. Given a large idea whose key route decisions are unknown, when the user
    approves Wayfinder, then initialization records the map and exits with a
    resumable `awaiting-decisions` state.
+4. Given a cleared Wayfinder map, when it is collapsed for implementation, then
+   the resulting spec records an active lifecycle state and links back to the
+   decisions that produced it.
 
 ---
 
@@ -169,6 +180,11 @@ to an implementation workflow.
 - [ ] `project:next` retains brief, compact, and full views. Required evidence is
       preserved in compact output rather than removed to meet an arbitrary line
       target.
+- [ ] `project:next` distinguishes `active`, `graduated`, and `stale` spec
+      lifecycles using tracked issue/PR evidence; an intentionally removed,
+      graduated spec is not reported as missing or pending.
+- [ ] An active spec that disagrees with its issues or implementation is surfaced
+      as stale rather than silently preferred forever.
 
 ---
 
@@ -189,6 +205,38 @@ execution guidance.
       silently expanding or pointing to missing documentation.
 - [ ] No execution skill is shortened solely by line count; reductions require a
       preserved behavioral contract and regression coverage.
+- [ ] Newly initialized projects receive a compact knowledge-lifecycle principle
+      in `CLAUDE.md` plus a pointer to one canonical reference; skills do not
+      duplicate the full policy.
+- [ ] Relevant lifecycle-boundary skills invoke a graduation check that maps
+      durable knowledge before a completed spec can be removed.
+
+---
+
+## Knowledge Graduation Policy
+
+Specs are temporary coordination artifacts. They remain authoritative while
+requirements are unresolved or implementation is in flight. After delivery, a
+graduation check maps every durable fact to the narrowest maintained source that
+can enforce or explain it:
+
+| Knowledge in the completed spec | Durable home |
+|---------------------------------|--------------|
+| Observable behavior and acceptance criteria | Production code plus behavioral tests |
+| Types, interfaces, data shape, and machine contracts | Types, schemas, validators, and API definitions |
+| Non-obvious local intent or invariant | A nearby comment that explains why, never a restatement of what the code does |
+| Consequential, hard-to-reverse trade-off and rejected alternatives | ADR |
+| Canonical domain language | `CONTEXT.md` or the configured domain glossary |
+| Operational procedure, recovery, or deployment behavior | Runbook and executable checks |
+| Public or cross-team contract | Maintained user/API/interface documentation |
+| Unimplemented or deliberately deferred requirement | Linked open issue or explicit rejection record |
+
+Graduation requires implementation and review evidence, a mapping for every
+acceptance criterion, resolution of every task, and a tracker/PR marker linking
+the evidence. Only then may the completed spec be removed from the current tree;
+Git and tracker history preserve provenance. Specifications with independent
+contractual, regulatory, compliance, public-protocol, or cross-team value are
+retained and maintained instead of graduated away.
 
 ---
 
@@ -227,6 +275,10 @@ auto-promoted at any generation.
 | A generated project directory already contains files | Preserve current conflict/resume semantics and make the dry-run disclose every proposed write |
 | A detailed skill is long because it encodes recovery states | Move lookup material to references where safe, but retain state transitions and behavioral tests |
 | A CPP-authored skill uses the same workflow family name as an upstream skill | Record inspiration separately if appropriate; do not label it vendored without a copied or adapted source |
+| A completed spec contains an acceptance criterion with no code/test mapping | Graduation fails; keep the spec active until the gap is implemented, rejected, or tracked |
+| A removed spec was explicitly marked graduated in its closing PR/issue | `project:next` follows the graduation evidence and does not flag the absent file as drift |
+| Code explains behavior but not why a surprising choice was made | Graduate the rationale to an ADR or local intent comment before deleting the spec |
+| A spec is a regulatory record, public protocol, or cross-team contract | Retain it as independently valuable documentation and require an owner/update path |
 
 ---
 
@@ -241,6 +293,8 @@ auto-promoted at any generation.
   or previously proven safeguards.
 - Changing model/provider selection or adding a runtime service dependency.
 - Retrofitting historical waves or historical issue metrics.
+- Deleting active specs, unresolved acceptance criteria, or documentation with
+  independent contractual, regulatory, compliance, public, or cross-team value.
 
 ---
 
@@ -267,6 +321,11 @@ auto-promoted at any generation.
 | R15 | Reduce always-loaded repository guidance while keeping execution detail available on demand | Should | US6 |
 | R16 | Run each implementation task through behavioral tests and the standard finish gate | Must | All |
 | R17 | Validate provenance for vendored/adapted skills and distinguish it from inspiration or CPP authorship | Must | US2 |
+| R18 | Mark Wayfinder-produced implementation specs as active transitional artifacts linked to their decision map | Must | US4 |
+| R19 | Model active, graduated, and stale spec states without treating an intentionally graduated file as missing | Must | US5 |
+| R20 | Install a compact knowledge-lifecycle principle and canonical-reference pointer in new project `CLAUDE.md` files | Must | US6 |
+| R21 | Keep one canonical knowledge-graduation reference and route only lifecycle-boundary skills to it | Must | US6 |
+| R22 | Require a verified acceptance-to-durable-source mapping before removing a completed spec | Must | US6 |
 
 ### Non-Functional Requirements
 
@@ -280,6 +339,8 @@ auto-promoted at any generation.
 | NFR6 | Test reliability | No project-next contract test skips because an optional sibling checkout is missing |
 | NFR7 | Compatibility | Existing command names and documented modes remain available unless a task explicitly documents a migration |
 | NFR8 | Portability | New executable workflow logic uses Python 3.11+ and passes Linux/macOS-compatible tests without network access |
+| NFR9 | Graduation completeness | 100% of completed-spec acceptance criteria map to code/tests, durable documentation, a linked open issue, or an explicit rejection before removal |
+| NFR10 | Policy locality | One canonical normative knowledge-lifecycle reference; `CLAUDE.md` and skills contain only a compact rule or routing pointer |
 
 ---
 
@@ -300,6 +361,14 @@ auto-promoted at any generation.
       without a sibling repository.
 - [ ] `CLAUDE.md` satisfies its context budget without moving required global
       safety rules out of persistent context.
+- [ ] Generated `CLAUDE.md` files contain the compact knowledge-lifecycle rule
+      and a resolving pointer to the canonical reference.
+- [ ] A graduation test rejects an unmapped acceptance criterion, preserves an
+      independently valuable contract, and accepts an intentionally graduated
+      spec without making `project:next` report it missing.
+- [ ] The balanced-agentic-development spec is evaluated as the first graduation
+      candidate after T001-T006 are implemented; it is removed only if its own
+      graduation check passes.
 - [ ] Standard repository verification passes for every implementation PR.
 - [ ] Documentation explains when depth is valuable instead of describing all
       verbosity as a defect.
