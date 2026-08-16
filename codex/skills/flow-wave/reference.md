@@ -7,7 +7,7 @@ dependency-ordered wave of issues to merge (issue #637). The orchestrator never
 implements. It picks what is startable, assigns disjoint lanes, judges each
 worker's `/flow-auto` Step-3 ELI5 gate, re-derives resource contention after
 every ruling, and enforces the completeness policy so a narrowed scope always
-leaves a filed issue behind rather than a hole.
+leaves a recorded residual candidate behind rather than a hole.
 
 Proven shape: a hand-driven 2026-08-10 run (4 workers, ~2h) merged/queued 6+
 issues and its judged gates caught two real defects before a line was written -
@@ -367,11 +367,12 @@ Judge it with verification, not trust:
   coverage; "nothing residual" is a recorded judgment naming what delivered each
   excluded task.
 - **Where a declared residual GOES is a severity call, not a reflex (#714).**
-  File an issue when the residual names a consequence someone would notice - a
-  user-visible behavior, a correctness or security risk, a cost or data-loss
-  exposure, or work another issue is already blocked on. Otherwise the ledger's
-  `residual:` line plus the PR description is the whole of its record. Not
-  issue-worthy on their own: "measure X", "annotate the files we excluded",
+  Record a `pre-existing-oos` candidate when the residual names a consequence
+  someone would notice - a user-visible behavior, a correctness or security
+  risk, a cost or data-loss exposure, or work another issue is already blocked
+  on. Do not file an ordinary residual issue while the wave is active. Otherwise
+  the ledger's `residual:` line plus the PR description is the whole of its
+  record. Not issue-worthy on their own: "measure X", "annotate the files we excluded",
   "tighten a coupling we just introduced", "consider whether Y is still needed".
   This changes a low-severity residual's DESTINATION, never whether it is
   declared - the anti-silence property the rule exists for is untouched, and it
@@ -391,11 +392,32 @@ Judge it with verification, not trust:
   verification, or is recorded as a QUESTION rather than a directive (#714).**
   "Change X to Y" asserts you checked what Y does here; if you did not, the
   honest form is "does X need Y? - unverified, nothing checked about <what Y
-  depends on>". Stamp a residual's generation when you file one: a residual
+  depends on>". Stamp a residual's generation when you record one: a residual
   descended from another residual is a signal to write it down rather than file
   it, and it is the stamp that makes that visible to whoever triages it.
 - Rule with explicit conditions; make required regression tests and fixture
   constraints gate conditions, not suggestions.
+
+**Route every declared residual through the executable ledger (#719).** The
+prose sorting rules above remain the operative mask and fallback, while the tool
+enforces their state transitions. A worker or reviewer must not run
+`gh issue create` for a residual during an active wave. Record it instead:
+
+```bash
+scripts/flow-wave-residuals.py record --wave <WAVE> \
+  --root-issue <ROOT_ISSUE> --source-issue <SOURCE_ISSUE> \
+  --classification <current-issue-failure|active-pr-defect|pre-existing-oos|emergency|speculative|duplicate> \
+  --consequence <TEXT> --evidence <TEXT> --generation <N> \
+  [--dedupe-of <CANDIDATE_ID>] [--source-link <TEXT> ...]
+```
+
+`current-issue-failure` routes to `fix-before-close`, and `active-pr-defect`
+routes to `fix-current-pr`; neither can enter promotion. `pre-existing-oos` is
+eligible only after final-tree review. `emergency` still requires explicit
+human override. `speculative` stays ledger-only. `duplicate` requires
+`--dedupe-of`; the tool merges evidence and every retained source into the
+canonical candidate instead of minting another canonical candidate. Recording
+after close is refused, so repeating the command cannot silently reopen a wave.
 
 **After ANY verdict that touches scope - including approve-with-conditions,
 since conditions can widen an issue's footprint - re-run the planner BEFORE
@@ -467,6 +489,44 @@ workers were caught behind at least once in the reference run.
 On ledger acceptance the worker proceeds to merge (Step 7-9), then gets its
 next assignment from the CURRENT plan (step 1 re-ran after the verdict).
 
+## Phase 3: Close, promote, and report issue economy
+
+After every wave PR has landed and the final tree has passed its required
+checks, revalidate each recorded consequence and its reproducible evidence
+against that exact tree. Then freeze the ledger at the tested commit:
+
+```bash
+scripts/flow-wave-residuals.py close --wave <WAVE> --at-commit <FINAL_SHA>
+```
+
+`close` is idempotent. Re-closing at a later final-tree commit revalidates the
+ledger and invalidates a promotion tied to the stale tree; `record` cannot
+un-close it. Deduplicate before promotion, and offer only a candidate whose
+final-tree evidence still reproduces. The human making the decision runs one
+promotion command for the one candidate they choose:
+
+```bash
+scripts/flow-wave-residuals.py promote --wave <WAVE> \
+  --candidate-id <ID> --approved-by <HUMAN_IDENTITY>
+```
+
+For a generation-2+ security, data-loss, or work-blocking emergency, the human
+must additionally supply both `--emergency-override` and
+`--override-reason <TEXT>`. No generation is auto-promoted. Promotion records
+the audit decision but deliberately does not call `gh issue create`; after a
+successful promotion, the approving human may file that one issue manually.
+
+Every close summary takes its original seed count from the orchestrator, since
+the offline tool has no GitHub access:
+
+```bash
+scripts/flow-wave-residuals.py metrics --wave <WAVE> --seed-count <N>
+```
+
+Report all six returned fields: `seed_count`, `recorded`, `duplicates`,
+`promoted`, `amplification`, and `promotion_rate`. With zero seeds,
+`amplification` is the string `not-applicable`, never a numeric ratio.
+
 ## Hazards (confront, do not assume away)
 
 - **One CI agent serializes the wave.** N workers produce N queued Woodpecker
@@ -507,11 +567,11 @@ Maintain a compact wave ledger (in-context, plus a summary message on each
 change): per issue - worker, state (queued / assigned / at-gate / implementing
 / PR-open / merged / parked), gate verdict + conditions, ledger outcome,
 residuals recorded. Per wave close: issues merged, residuals RECORDED and the
-subset of them FILED (report both - one number cannot show whether the #714
+subset of them PROMOTED (report both - one number cannot show whether the #714
 severity gate is working, and a wave whose two counts are equal has stopped
-applying it), defects caught at gates, orchestrator errors caught by workers
-(count them - the number is the health metric of the judging, in both
-directions).
+applying it), duplicate links, seed count, amplification, promotion rate,
+defects caught at gates, and orchestrator errors caught by workers (count them -
+the number is the health metric of the judging, in both directions).
 
 ## Notes
 
