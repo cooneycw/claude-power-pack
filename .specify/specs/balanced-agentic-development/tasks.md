@@ -2,6 +2,7 @@
 
 > **Plan:** [plan.md](./plan.md)
 > **Created:** 2026-08-15
+> **Amended:** 2026-08-16 - knowledge graduation lifecycle
 > **Status:** Ready
 
 ---
@@ -48,23 +49,29 @@ specified bug fixes.
 
 ## Wave 3: Add discovery and planning-aware routing
 
-- [ ] T004 [US4] Add a destination-first clarity/session-count gate to `project:init`, explicitly approved Wayfinder maps of decision questions with fog/frontier/blocking state, and a resumable cleared-map handoff to specification without production implementation (depends on T003)
-- [ ] T005 [US5] Extend `project:next` with native blockedBy/blocking/parent/sub-issue/assignee collection, planning-only Wayfinder routes, explicit fallback uncertainty, shared brief/compact/full decisions, and an authoritative in-repo engine/fixture contract that cannot skip in CI (depends on T004)
+- [ ] T004 [US4] Add a destination-first clarity/session-count gate to `project:init`, explicitly approved Wayfinder maps of decision questions with fog/frontier/blocking state, and a resumable cleared-map handoff to an active transitional specification without production implementation (depends on T003)
+- [ ] T005 [US5] Extend `project:next` with native blockedBy/blocking/parent/sub-issue/assignee collection, planning-only Wayfinder routes, active/graduated/stale spec lifecycles, explicit fallback uncertainty, shared brief/compact/full decisions, and an authoritative in-repo engine/fixture contract that cannot skip in CI (depends on T004)
 
 **Checkpoint:** All four discovery routes are covered. No tracker mutation occurs
 without approval, no decision ticket routes to `flow:auto`, and native and
 fallback issue graphs produce explainable recommendations from the same tested
-decision core.
+decision core. A cleared map produces an active transitional spec; an
+intentionally graduated spec is not reported missing, while a conflicting active
+spec is reported stale.
 
 ---
 
 ## Wave 4: Minimize persistent context safely
 
-- [ ] T006 [US6] Reduce `CLAUDE.md` to durable invariants, safety rules, verification commands, source-of-truth pointers, and workflow routing; move owned depth to on-demand references and add word-budget, link, and behavior-preservation checks (depends on T002, T003, T004, T005)
+- [ ] T006 [US6] Reduce `CLAUDE.md` to durable invariants and routing, add the compact knowledge-lifecycle principle to new-project guidance, establish one canonical graduation reference used only by lifecycle-boundary skills, and require verified acceptance-to-code/tests/docs/issues mapping before a completed spec is removed (depends on T002, T003, T004, T005)
 
 **Checkpoint:** `CLAUDE.md` is at most 2,000 words, every pointer resolves, cold
 start navigation remains sufficient, detailed state machines remain available
 from their owning skills, and the full repository verification suite passes.
+Generated projects receive the compact rule plus a resolving pointer, not a
+duplicated manual. Graduation fails for unmapped criteria and independently
+valuable contracts, succeeds without a later `project:next` missing-spec warning,
+and evaluates this specification as the first candidate after T001-T006 finish.
 
 ---
 
@@ -81,6 +88,9 @@ from their owning skills, and the full repository verification suite passes.
   candidates remain ledger-only absent a human-approved security, data-loss, or
   work-blocking emergency.
 - Report recorded and promoted counts at every checkpoint.
+- Keep active specs until the graduation gate maps every acceptance criterion;
+  retain independently valuable contracts and remove only verified duplicates
+  of durable code/tests/documentation.
 
 ---
 

@@ -3,6 +3,7 @@
 > **Branch:** `spec/balanced-agentic-development`
 > **Spec:** [spec.md](./spec.md)
 > **Created:** 2026-08-15
+> **Amended:** 2026-08-16 - knowledge graduation lifecycle
 > **Status:** Approved
 
 ---
@@ -15,7 +16,10 @@ the deterministic `project:init` engine in parallel. Add the Wayfinder discovery
 gate only after initialization is testable, teach `project:next` the resulting
 planning graph, and trim always-loaded context last. This order prevents review
 from multiplying work while the remaining improvements are underway and avoids
-rewriting prose before executable sources of truth exist.
+rewriting prose before executable sources of truth exist. The final phase also
+adds a knowledge-graduation gate: active specs coordinate delivery, then durable
+facts move into code, tests, narrow documentation, or explicit remaining issues
+before the completed spec is removed.
 
 ---
 
@@ -149,7 +153,9 @@ The map is an index with destination, one-line decisions, fog, out of scope, and
 links. Questions live in decision records with blocking edges and one of
 `grilling`, `prototype`, `research`, or decision-blocking `task`. Production
 implementation is prohibited in the map. Tracker mutations are exposed as a
-plan first and require confirmation.
+plan first and require confirmation. A cleared map creates an `active`,
+transitional implementation spec linked to its decision evidence; it does not
+create permanent product documentation by default.
 
 ### Project-next planning contract
 
@@ -158,7 +164,11 @@ existing documented text grammar as fallback. Normalize both sources into one
 tested model with provenance and uncertainty. Planning artifacts produce actions
 such as `resolve decision`, `clarify destination`, or `collapse cleared map to
 spec`; implementation artifacts retain current flow actions. Brief, compact, and
-full renderers consume the same decision result.
+full renderers consume the same decision result. The normalized model also
+tracks spec lifecycle: `active` still governs unresolved work, `graduated` is
+intentionally absent after a verified knowledge transfer, and `stale` conflicts
+with current tracker or implementation evidence. Missing-file warnings apply to
+active specs, not graduated ones.
 
 ### Persistent context budget
 
@@ -167,6 +177,27 @@ Retain global safety, repository topology, source-of-truth pointers, quality
 commands, and the smallest routing table. Move detailed histories, examples, and
 state-machine instructions to owned references. Add a word-budget and broken-link
 test; do not treat the word target as permission to delete required invariants.
+New projects receive only a compact knowledge-lifecycle rule and pointer, not a
+copy of the full policy.
+
+### Knowledge graduation contract
+
+Create one canonical reference, provisionally
+`docs/agents/knowledge-lifecycle.md`, that defines the mapping from completed
+spec knowledge to code/tests, schemas, local intent comments, ADRs, domain
+glossaries, runbooks, public contracts, or remaining issues. Project setup,
+Wayfinder/spec handoff, implementation review, finish/close-out, project-next,
+and documentation guidance point to that contract only at their lifecycle
+boundary.
+
+The graduation check consumes the active spec, its tasks/issues, the final diff
+and tests, and an explicit mapping record. It fails closed for an unmapped
+acceptance criterion, unresolved task, or missing durable owner. It records a
+machine-readable `graduated` marker and evidence links on the tracker/PR before
+the spec is removed. Regulatory, contractual, compliance, public-protocol, and
+cross-team interface specs are marked `retained` with an owner instead. The
+balanced-agentic-development spec is the first graduation candidate after all
+six implementation tasks complete.
 
 ---
 
@@ -191,6 +222,8 @@ not copied or fetched at runtime.
 | `tests/test_project_next_contract.py` | Existing optional-engine contract test to make authoritative |
 | `scripts/eli5-vendor.py` and drift tests | Pattern for checked-in external deterministic core/fixture updates |
 | `CLAUDE.md` | Always-loaded repository context to trim last |
+| `docs/agents/knowledge-lifecycle.md` | Canonical knowledge-graduation policy loaded only at lifecycle boundaries |
+| Spec/review/finish command and skill references | Graduation producers and enforcement points |
 
 ---
 
@@ -214,7 +247,10 @@ tests/
 ├── test_skill_surface_check.py
 ├── test_project_init.py
 ├── test_project_wayfinder.py
-└── test_project_next_contract.py
+├── test_project_next_contract.py
+└── test_knowledge_graduation.py
+docs/agents/
+└── knowledge-lifecycle.md
 .claude/skills/<skill>/
 ├── SKILL.md
 └── reference.md                    # only when depth is required
@@ -248,8 +284,8 @@ T002 and T003 may run in parallel with at most two workers.
 
 | Task ID | Description | Primary files | Dependencies |
 |---------|-------------|---------------|--------------|
-| T004 | Add destination-first Wayfinder classification, approved map creation, decision frontier, and resumable handoff to spec | project init adapter/engine, project command/skill references, `tests/` | T003 |
-| T005 | Consume native issue relationships, route planning artifacts safely, and make the authoritative project-next engine/fixtures available in CI | project-next engine/contract/docs/tests | T004 |
+| T004 | Add destination-first Wayfinder classification, approved map creation, decision frontier, and resumable handoff to an active transitional spec | project init adapter/engine, project command/skill references, `tests/` | T003 |
+| T005 | Consume native issue relationships, route planning artifacts safely, model active/graduated/stale specs, and make the authoritative project-next engine/fixtures available in CI | project-next engine/contract/docs/tests | T004 |
 
 These land sequentially because T005 consumes T004's artifact contract.
 
@@ -257,7 +293,7 @@ These land sequentially because T005 consumes T004's artifact contract.
 
 | Task ID | Description | Primary files | Dependencies |
 |---------|-------------|---------------|--------------|
-| T006 | Trim `CLAUDE.md` to durable invariants and routing pointers, with budget/reference/behavior checks | `CLAUDE.md`, owned references, `tests/` | T002, T003, T004, T005 |
+| T006 | Trim `CLAUDE.md`, install the compact generated-project lifecycle rule, add one canonical graduation contract and boundary-skill pointers, and enforce verified spec graduation | `CLAUDE.md`, project setup/config guidance, lifecycle references, finish/review surfaces, `tests/` | T002, T003, T004, T005 |
 
 Trimming last ensures every removed detail already has a tested owner.
 
@@ -292,6 +328,9 @@ Trimming last ensures every removed detail already has a tested owner.
 | Vendored project-next core drifts | Medium | Medium | Manifest/upstream version, deterministic update command, drift test patterned after ELI5 |
 | CLAUDE.md trimming removes a safety invariant | Low | High | Inventory retained invariants, link checks, workflow regression tests, final task only |
 | Metrics are gamed by not declaring residuals | Medium | High | Reviewer completion requires ledger record or canonical duplicate; report review completeness separately |
+| Specs are deleted before durable knowledge is represented | Medium | High | Fail-closed criterion mapping, unresolved-task check, tracker evidence, and retained-spec exceptions |
+| The graduation rule is copied into every skill and drifts | Medium | Medium | One canonical normative reference; compact pointers only at lifecycle boundaries |
+| `project:next` treats intentional graduation as missing documentation | Medium | Medium | Explicit lifecycle markers and fixtures for active, graduated, stale, and retained states |
 
 ---
 
@@ -310,6 +349,8 @@ Trimming last ensures every removed detail already has a tested owner.
 - Native/text issue normalization, uncertainty, action routing, and renderer
   equivalence.
 - Persistent-context budget and reference resolution.
+- Graduation state transitions, criterion mappings, retained-spec exceptions,
+  and canonical-policy locality.
 
 ### Integration Tests
 
@@ -318,9 +359,12 @@ Trimming last ensures every removed detail already has a tested owner.
 - Compare current and extracted scaffold fixtures for Python, Node, Go, and Rust;
   verify dry-run leaves an empty target unchanged.
 - Simulate a foggy initialization, approval, decision resolution, map clear, spec
-  handoff, and resume.
+  handoff with active lifecycle metadata, and resume.
 - Exercise `project:next` against fixture graphs containing native blockers,
-  parents/sub-issues, assignments, Wayfinder maps, and implementation issues.
+  parents/sub-issues, assignments, Wayfinder maps, implementation issues, and
+  active/graduated/stale spec states.
+- Run a completed-spec graduation fixture through acceptance mapping, tracker
+  evidence, removal, and a subsequent `project:next` scan.
 - Run `make skills-check`, Codex generated-surface checks, and standard `make
   verify` from a clean checkout.
 
@@ -336,6 +380,10 @@ Trimming last ensures every removed detail already has a tested owner.
 - Route a `wayfinder:grilling` item to `flow:auto` and assert the contract fails.
 - Remove the bundled project-next core/fixtures and assert CI fails rather than
   skips.
+- Leave one acceptance criterion unmapped or mark a regulatory contract for
+  deletion and assert graduation fails.
+- Duplicate the normative lifecycle policy into a skill and assert the locality
+  check fails.
 
 ### Manual Verification
 
@@ -346,6 +394,8 @@ Trimming last ensures every removed detail already has a tested owner.
 - Read the compact `project:next` output to confirm it remains decision-complete,
   then compare `--brief` and `--full` views.
 - Review the final `CLAUDE.md` as a cold-start agent navigation document.
+- Review a newly initialized project's compact lifecycle rule and perform the
+  balanced-agentic-development spec's graduation decision after T006.
 
 ---
 
@@ -361,6 +411,9 @@ Trimming last ensures every removed detail already has a tested owner.
    than prompt length.
 5. Keep each compatibility migration reversible until its installed-surface and
    behavioral tests pass in a clean environment.
+6. After T006, evaluate this specification with the graduation check. Remove it
+   only when all criteria map to durable sources and all six task issues are
+   complete; otherwise keep it active with the failing mappings reported.
 
 ---
 
