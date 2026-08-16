@@ -8,6 +8,44 @@ or dropped, so a rule summarised in `CLAUDE.md` also appears here in full.
 
 See also `docs/scripts.md` (the `scripts/` half of the same move).
 
+## Persistent-context detail relocated by issue #724
+
+The root `CLAUDE.md` retains the operative rules and routes here for their
+history and boundary detail. Test fixtures must not inherit uncontrolled
+absolute paths in values consumed by broad classifiers: checkout names and
+pytest temporary roots can contain a matched word, turning the fixture's host
+location into an accidental input. Use a fixture-owned relative executable and
+assert the intended negative classification before running the exercise.
+
+Read-only commands should name their target through `git -C`, full refs, or an
+absolute tool argument. A `cd X && ...` prefix defeats narrow permission rules,
+and a cwd-relative branch measurement can return an empty, plausible-looking
+answer after the shell cwd drifts. In shared checkouts, ref-scoped evidence is
+the contract; agreement among reads sharing the same unverified cwd is not
+corroboration.
+
+CPP has no deployable container runtime. Its external second-opinion and browser
+servers are client registrations, while remaining AWS Secrets Manager clients
+fetch directly. Reproducible builds pin remaining image references by version
+tag plus digest; Renovate owns digest rotation. The full retired-runtime and
+host-artifact inventory lives in `docs/HOST_MANAGED_ARTIFACTS.md`.
+
+Makefile targets remain the canonical build interface. The deterministic runner
+and command adapters own fallback, baseline, deploy, and recovery states; the
+root memory file only names the local verification targets.
+
+The CI/CD configuration keeps its detailed machine contracts in `lib/cicd/`.
+`ProcessCheck` is an exactly-one probe union: an entry names one of `port`,
+`systemd_user_unit`, `systemd_unit`, or `pattern`, so portless workers are
+described honestly and multiple probes never depend on silent precedence.
+Invalid endpoint, process, and smoke-test entries fail soft with a warning so
+one malformed probe cannot disable every other probe or the deployment gate;
+structural errors outside those lists still fail closed. `validate_file`
+reports unknown nested probe keys even though runtime loading remains
+permissive. CPP dogfoods deploy verification through its service-less import
+smoke probe, and `tests/test_step9_verify_executes.py` executes the documented
+baseline/verify pair so invocation drift is a test failure rather than prose.
+
 ## Workflow commands - detail beyond the skill listing
 
   - Optional second arg `PROJECT` targets a repo other than the session cwd (resolved as a path, else `~/Projects/<name>`); such cross-repo runs ride the deterministic git-worktree lane end-to-end instead of `EnterWorktree`, which cannot leave the session repo (#578)

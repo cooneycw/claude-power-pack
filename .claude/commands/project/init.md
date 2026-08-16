@@ -450,6 +450,8 @@ permanent product documentation by default. Do not implement graduation or emit
 question for either preliminary-gate route; its confirmed destination already
 supplies the feature identity.
 
+Route later spec close-out through the canonical [knowledge lifecycle](../../../docs/agents/knowledge-lifecycle.md) before removing the completed spec.
+
 Ask the user with `AskUserQuestion`:
 
 **Question:** "What is the first feature or MVP for this project? (Enter a name or press enter to use the project name)"

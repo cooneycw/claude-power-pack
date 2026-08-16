@@ -164,6 +164,12 @@ When this target exists, check documentation freshness:
 
 **This step never blocks the flow** - it is purely informational.
 
+When this PR closes a specification's last task, treat it as a graduation
+candidate. Follow the canonical [knowledge lifecycle](../../../docs/agents/knowledge-lifecycle.md)
+and run `scripts/knowledge-graduation-check.py` with the reviewed mapping and
+this PR's URL before removing the spec. This is an explicit close-out step, not
+an automatic network-coupled quality gate.
+
 ### Step 2c: Makefile Completeness Check (optional, non-blocking)
 
 Run a quick Makefile validation and report any gaps as warnings - the same
