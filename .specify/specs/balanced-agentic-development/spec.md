@@ -87,8 +87,15 @@ files, or broken references.
       parity, and installed-surface parity without mutating user-authored skills.
 - [ ] Stale `.agents/skills` mirrors and retired wrappers are either removed or
       reported with an actionable owner/source-of-truth message.
+- [ ] Every vendored or adapted skill records machine-readable provenance:
+      upstream author, exact source URL, license, pinned revision, and a summary
+      of local changes. Inspired-but-original skills identify CPP as their
+      source and do not claim to be vendored.
+- [ ] The grill family is classified accurately: `grill-me` attributes Matt
+      Pocock and the MIT-licensed upstream; `grill-yourself` is marked
+      CPP-authored unless repository history demonstrates copied upstream text.
 - [ ] `make skills-check` fails deterministically for a broken reference,
-      duplicate surface, or managed install drift.
+      duplicate surface, invalid provenance, or managed install drift.
 
 ---
 
@@ -219,6 +226,7 @@ auto-promoted at any generation.
 | Initialization is resumed after decisions clear | Collapse linked decisions into the spec, then continue from the saved checkpoint without re-asking settled questions |
 | A generated project directory already contains files | Preserve current conflict/resume semantics and make the dry-run disclose every proposed write |
 | A detailed skill is long because it encodes recovery states | Move lookup material to references where safe, but retain state transitions and behavioral tests |
+| A CPP-authored skill uses the same workflow family name as an upstream skill | Record inspiration separately if appropriate; do not label it vendored without a copied or adapted source |
 
 ---
 
@@ -258,6 +266,7 @@ auto-promoted at any generation.
 | R14 | Preserve brief, compact, and full `project:next` views under a shared decision contract | Must | US5 |
 | R15 | Reduce always-loaded repository guidance while keeping execution detail available on demand | Should | US6 |
 | R16 | Run each implementation task through behavioral tests and the standard finish gate | Must | All |
+| R17 | Validate provenance for vendored/adapted skills and distinguish it from inspiration or CPP authorship | Must | US2 |
 
 ### Non-Functional Requirements
 
@@ -280,6 +289,9 @@ auto-promoted at any generation.
 - [ ] A behavioral test proves a current-PR defect is routed back to that PR.
 - [ ] Wave summaries distinguish residuals recorded from follow-ups promoted.
 - [ ] `make skills-check` detects broken references and managed-surface drift.
+- [ ] `make skills-check` rejects missing or misleading provenance, including a
+      vendored `grill-me` without Matt Pocock/MIT/source/revision metadata or a
+      CPP-authored `grill-yourself` falsely marked as vendored.
 - [ ] Characterization fixtures cover all four supported project families plus
       dry-run, resume, placeholder rendering, and default branch behavior.
 - [ ] Wayfinder routing tests cover all four clarity/session combinations and

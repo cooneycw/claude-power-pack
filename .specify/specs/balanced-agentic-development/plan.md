@@ -113,6 +113,12 @@ creator; they never require network access.
 The validator walks canonical Claude and Codex skill packages, parses required
 metadata, resolves local references, identifies deprecated flat files and stale
 mirrors, and distinguishes managed installed content from user-authored content.
+For vendored or adapted content it also validates a provenance record containing
+the upstream author, exact source URL, license, pinned revision, and local-change
+summary. Provenance class is explicit (`vendored`, `adapted`, `inspired`, or
+`cpp-authored`), so shared vocabulary cannot become a false copying claim. The
+grill migration must attribute Matt Pocock's MIT-licensed `grill-me` source while
+classifying `grill-yourself` as CPP-authored unless history proves otherwise.
 `make skills-check` is read-only. Install/repair remains an explicit separate
 operation. Migration retains activation summaries under the constitution's
 200-character limit and moves long lookup material into `reference.md` only when
@@ -296,7 +302,8 @@ Trimming last ensures every removed detail already has a tested owner.
 - Residual schema, classification transitions, generation rules,
   deduplication, approval, ratios, and atomic persistence.
 - Skill metadata length, required fields, link resolution, duplicate ownership,
-  managed marker behavior, and stale mirror detection.
+  managed marker behavior, stale mirror detection, missing vendored provenance,
+  and false vendored attribution.
 - Project input validation, template rendering, plan hashing, checkpoint resume,
   and default branch selection.
 - Route classifier truth table and Wayfinder ticket/map invariants.

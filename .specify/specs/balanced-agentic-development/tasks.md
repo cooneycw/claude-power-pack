@@ -33,11 +33,13 @@ amplification, and promotion rate.
 
 ## Wave 2: Repair foundations
 
-- [ ] T002 [P] [US2] Convert supported native skills to canonical directory-based `SKILL.md` packages, remove or report stale mirrors/retired wrappers, and add non-mutating source/reference/managed-install parity checks through `make skills-check` (depends on T001)
+- [ ] T002 [P] [US2] Convert supported native skills to canonical directory-based `SKILL.md` packages, remove or report stale mirrors/retired wrappers, add truthful vendored/adapted/inspired/CPP-authored provenance (including Matt Pocock/MIT attribution for `grill-me` without mislabeling CPP's `grill-yourself`), and add non-mutating source/reference/managed-install parity checks through `make skills-check` (depends on T001)
 - [ ] T003 [P] [US3] Add Python/Node/Go/Rust characterization fixtures and extract a deterministic `project:init` planning/apply engine with idempotent dry-run, validated resume checkpoints, resolved template values, and explicit `main` initialization (depends on T001)
 
 **Checkpoint:** T002 and T003 each pass independently. A clean skill install has
-surface parity without touching user-authored skills. Repeated init plans are
+surface parity and valid provenance without touching user-authored skills;
+missing upstream attribution and false vendored claims fail deterministically.
+Repeated init plans are
 byte-identical, dry-run does not mutate, resume does not repeat completed work,
 and existing supported scaffold outputs remain compatible except for the two
 specified bug fixes.
