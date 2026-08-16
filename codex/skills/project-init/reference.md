@@ -72,7 +72,11 @@ Report: `Step 1/6: Project directory ready at ~/Projects/{PROJECT_NAME}`
 
 ## Step 2: Framework Selection & Scaffold
 
-Ask the user which framework to use with `AskUserQuestion`:
+Ask the user which framework to use with `AskUserQuestion`. The deterministic
+engine owns template rendering, file writes, dependency installation, local Git
+initialization, staging, the initial commit, dry-run, and checkpointed resume.
+This command supplies resolved inputs and reports the engine result; it does not
+render scaffold files from shell heredocs.
 
 **Options:**
 
@@ -83,222 +87,68 @@ Ask the user which framework to use with `AskUserQuestion`:
 | **Go** | `go.mod`, `cmd/main.go`, `internal/` |
 | **Rust** | `Cargo.toml`, `src/main.rs` |
 
-### Python Scaffold
+For Go, ask for the module path or offer
+`github.com/$(gh api user --jq '.login')/$PROJECT_NAME` as the default. Resolve
+that value before invoking the engine. Locate the CPP checkout using the same
+search path used later in Step 4, then build the engine arguments:
 
 ```bash
-PROJECT_NAME="..."
-PKG_NAME=$(echo "$PROJECT_NAME" | tr '-' '_')
+CPP_DIR=""
+for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-pack; do
+    if [ -d "$dir" ] && [ -f "$dir/scripts/project-init.py" ]; then
+        CPP_DIR="$dir"
+        break
+    fi
+done
 
-# pyproject.toml (PEP 621 + uv)
-cat > pyproject.toml << PYEOF
-[project]
-name = "$PROJECT_NAME"
-version = "0.1.0"
-description = ""
-requires-python = ">=3.11"
-dependencies = []
+if [ -z "$CPP_DIR" ]; then
+    echo "ERROR: claude-power-pack checkout with scripts/project-init.py not found."
+    exit 1
+fi
 
-[project.optional-dependencies]
-dev = [
-    "pytest>=8.0",
-    "ruff>=0.4",
-]
-
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.backends"
-
-[tool.ruff]
-target-version = "py311"
-line-length = 100
-
-[tool.ruff.lint]
-select = ["E", "F", "I", "N", "W"]
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-PYEOF
-
-# Source directory
-mkdir -p "src/$PKG_NAME"
-cat > "src/$PKG_NAME/__init__.py" << 'INITEOF'
-"""$PROJECT_NAME."""
-
-__version__ = "0.1.0"
-INITEOF
-
-# Tests
-mkdir -p tests
-cat > tests/conftest.py << 'TESTEOF'
-"""Shared test fixtures."""
-TESTEOF
-
-cat > tests/test_placeholder.py << 'TESTEOF'
-"""Placeholder test to verify setup."""
-
-
-def test_import():
-    """Verify the package can be imported."""
-    import importlib
-    mod = importlib.import_module("$PKG_NAME")
-    assert hasattr(mod, "__version__")
-TESTEOF
-
-# Initialize uv
-uv sync
+FRAMEWORK="..."  # python, node, go, or rust
+TARGET_DIR="$HOME/Projects/$PROJECT_NAME"
+ENGINE_ARGS=(
+    --project-name "$PROJECT_NAME"
+    --framework "$FRAMEWORK"
+    --target-dir "$TARGET_DIR"
+)
+if [ "$FRAMEWORK" = "go" ]; then
+    ENGINE_ARGS+=(--module-path "$MODULE_PATH")
+fi
 ```
 
-### Node.js Scaffold
+Before mutation, offer a dry-run when the user asks to preview the resolved
+writes and command order. A dry-run is plan-only and must leave the target
+unchanged:
 
 ```bash
-PROJECT_NAME="..."
-
-cat > package.json << PKGEOF
-{
-  "name": "$PROJECT_NAME",
-  "version": "0.1.0",
-  "description": "",
-  "type": "module",
-  "main": "dist/index.js",
-  "scripts": {
-    "build": "tsc",
-    "lint": "eslint src/",
-    "test": "vitest run",
-    "dev": "tsx watch src/index.ts"
-  },
-  "devDependencies": {
-    "typescript": "^5.0.0",
-    "vitest": "^2.0.0"
-  }
-}
-PKGEOF
-
-cat > tsconfig.json << TSEOF
-{
-  "compilerOptions": {
-    "target": "ES2022",
-    "module": "ESNext",
-    "moduleResolution": "bundler",
-    "outDir": "dist",
-    "rootDir": "src",
-    "strict": true,
-    "esModuleInterop": true,
-    "skipLibCheck": true
-  },
-  "include": ["src"]
-}
-TSEOF
-
-mkdir -p src tests
-echo 'console.log("Hello from $PROJECT_NAME");' > src/index.ts
-cat > tests/placeholder.test.ts << 'TESTEOF'
-import { describe, it, expect } from 'vitest';
-
-describe('placeholder', () => {
-  it('passes', () => {
-    expect(true).toBe(true);
-  });
-});
-TESTEOF
-
-npm install
+PYTHONPATH="$CPP_DIR:$PYTHONPATH" python3 "$CPP_DIR/scripts/project-init.py" \
+    "${ENGINE_ARGS[@]}" --dry-run
 ```
 
-### Go Scaffold
+For a new scaffold, run the plan. When
+`.claude/project-init-checkpoint.json` already exists, pass `--resume`; the
+engine refuses stale schema versions, changed fingerprints, renamed/reordered
+semantic steps, or changed completed files instead of silently restarting.
 
 ```bash
-PROJECT_NAME="..."
-# Ask user for module path or default to github.com/USER/PROJECT_NAME
-MODULE_PATH="github.com/$(gh api user --jq '.login')/$PROJECT_NAME"
-
-cat > go.mod << GOEOF
-module $MODULE_PATH
-
-go 1.22
-GOEOF
-
-mkdir -p cmd internal
-cat > cmd/main.go << 'GOEOF'
-package main
-
-import "fmt"
-
-func main() {
-	fmt.Println("Hello from $PROJECT_NAME")
-}
-GOEOF
+if [ -f "$TARGET_DIR/.claude/project-init-checkpoint.json" ]; then
+    PYTHONPATH="$CPP_DIR:$PYTHONPATH" python3 "$CPP_DIR/scripts/project-init.py" \
+        "${ENGINE_ARGS[@]}" --resume
+else
+    PYTHONPATH="$CPP_DIR:$PYTHONPATH" python3 "$CPP_DIR/scripts/project-init.py" \
+        "${ENGINE_ARGS[@]}"
+fi
 ```
 
-### Rust Scaffold
+The engine completes the local `git init`, `git add`, and initial commit. After
+it succeeds, treat the local repository-mutation block at the start of Step 3 as
+complete and continue with the visibility question and `gh repo create`. If the
+engine stops because Git identity is missing, complete Step 3's user-name/email
+configuration and rerun the same engine command with `--resume`.
 
-```bash
-PROJECT_NAME="..."
-
-cat > Cargo.toml << RUSTEOF
-[package]
-name = "$PROJECT_NAME"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-RUSTEOF
-
-mkdir -p src
-cat > src/main.rs << 'RUSTEOF'
-fn main() {
-    println!("Hello from $PROJECT_NAME");
-}
-RUSTEOF
-```
-
-### .gitignore (all frameworks)
-
-Generate a `.gitignore` appropriate for the selected framework. Use templates from GitHub's gitignore collection or create a sensible default.
-
-**Python:**
-```
-__pycache__/
-*.py[cod]
-.venv/
-dist/
-build/
-*.egg-info/
-.pytest_cache/
-.ruff_cache/
-.mypy_cache/
-.coverage
-htmlcov/
-.env
-.claude/settings.local.json
-```
-
-**Node:**
-```
-node_modules/
-dist/
-build/
-.next/
-coverage/
-.env
-.claude/settings.local.json
-```
-
-**Go:**
-```
-bin/
-coverage.out
-.env
-.claude/settings.local.json
-```
-
-**Rust:**
-```
-target/
-.env
-.claude/settings.local.json
-```
-
-Report: `Step 2/6: {Framework} scaffold created`
+Report: `Step 2/6: {Framework} scaffold planned and applied by project-init engine`
 
 ---
 
@@ -306,7 +156,7 @@ Report: `Step 2/6: {Framework} scaffold created`
 
 ```bash
 # Initialize git
-git init
+git init -b main
 
 # Configure git user if not set globally
 if ! git config user.name &>/dev/null; then

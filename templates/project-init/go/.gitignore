@@ -1,0 +1,4 @@
+bin/
+coverage.out
+.env
+.claude/settings.local.json
