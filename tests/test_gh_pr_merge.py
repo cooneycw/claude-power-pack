@@ -1304,6 +1304,97 @@ def test_strict_deletions_is_clean_pre_squash_stop(tmp_path: Path):
     assert merge_calls == [], "strict stop must leave the PR untouched"
 
 
+def test_negated_close_keyword_refuses_before_squash(tmp_path: Path):
+    # Exit 5: a documented CLEAN STOP - the PR is left open and UNTOUCHED.
+    # Zero merge calls pins the #726 guard ahead of both run_squash call sites.
+    stubs = _make_stubs(
+        tmp_path,
+        pr_state="OPEN",
+        pr_title="docs: clarify follow-up scope",
+        pr_body="Does not close #99",
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-726-fix")
+    assert result.returncode == 5, result.stderr
+    assert "CLEAN STOP" in result.stderr
+    assert "#99" in result.stderr
+    assert "Does not close #99" in result.stderr
+    merge_calls = [c for c in _calls(stubs) if c.startswith("gh pr merge")]
+    assert merge_calls == [], "negated-close stop must leave the PR untouched"
+
+
+def test_plain_close_keyword_passes(tmp_path: Path):
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        pr_title="fix: complete issue work",
+        pr_body="Closes #99",
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-726-fix")
+    assert result.returncode == 0, result.stderr
+    assert "merged" in result.stdout
+    assert any(c.startswith("gh pr merge") for c in _calls(stubs))
+
+
+def test_negated_close_override_flag_bypasses_guard(tmp_path: Path):
+    # The per-merge override proceeds, but detection and consumption stay loud
+    # so the exceptional decision remains visible in the merge transcript.
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        pr_title="docs: clarify follow-up scope",
+        pr_body="Does not close #99",
+    )
+    result = _run(
+        _linked_worktree(tmp_path),
+        stubs,
+        "--allow-negated-close",
+        "42",
+        "issue-726-fix",
+    )
+    assert result.returncode == 0, result.stderr
+    assert "merged" in result.stdout
+    assert "#99" in result.stderr
+    assert "Does not close #99" in result.stderr
+    assert "override consumed: --allow-negated-close bypassed" in result.stderr
+    assert any(c.startswith("gh pr merge") for c in _calls(stubs))
+
+
+def test_negated_close_colon_form_refuses(tmp_path: Path):
+    # GitHub's own matcher accepts the colon form ("Fixes: #123" auto-closes),
+    # so the guard's `:?` tolerance must catch a negated colon-form match too -
+    # a gate condition on #726, pinned here rather than left implicit in the regex.
+    stubs = _make_stubs(
+        tmp_path,
+        pr_state="OPEN",
+        pr_title="docs: clarify follow-up scope",
+        pr_body="does not close: #42",
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-726-fix")
+    assert result.returncode == 5, result.stderr
+    assert "CLEAN STOP" in result.stderr
+    assert "#42" in result.stderr
+    merge_calls = [c for c in _calls(stubs) if c.startswith("gh pr merge")]
+    assert merge_calls == [], "negated colon-form stop must leave the PR untouched"
+
+
+def test_plain_close_colon_form_passes(tmp_path: Path):
+    # Companion to the refusal above: a non-negated colon-form close keyword
+    # ("Fixes: #123", GitHub's own documented syntax) must merge normally.
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        pr_title="fix: complete issue work",
+        pr_body="Fixes: #42",
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-726-fix")
+    assert result.returncode == 0, result.stderr
+    assert "merged" in result.stdout
+    assert any(c.startswith("gh pr merge") for c in _calls(stubs))
+
+
 def test_unreadable_deletion_diff_fails_open_as_skipped(tmp_path: Path):
     stubs = _make_stubs(
         tmp_path,

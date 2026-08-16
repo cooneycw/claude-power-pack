@@ -92,7 +92,7 @@
 #   * Either way, verify the PR actually reached MERGED before returning non-zero,
 #     so a stray local post-merge error is never mistaken for a merge failure.
 #
-# Usage:  gh-pr-merge.sh [--admin] <pr-number> <branch-name>
+# Usage:  gh-pr-merge.sh [--admin] [--allow-negated-close] <pr-number> <branch-name>
 #           --admin  force `gh pr merge --admin` from the first attempt - the
 #                    conscious, HUMAN-TYPED branch-protection override (issues
 #                    #517/#579). It skips the required-check wait AND the review
@@ -102,6 +102,9 @@
 #                    blocks) - never for a required status check (#577) and never
 #                    for a required review (#579): automation must not bypass a
 #                    human-approval control.
+#           --allow-negated-close  consciously bypass the issue #726 refusal
+#                    after the detected trigger and surrounding text are printed;
+#                    this is a loud, per-merge override, never persistent config.
 # Deletion surfacing + post-merge completeness (issue #657):
 #   A collapse onto a moved base (`git reset --soft origin/main` + commit, the
 #   #655-thread workaround) silently records the DELETION of everything the
@@ -126,6 +129,15 @@
 #   All git reads here are ref-scoped (`git -C <root>`, full refs, no bare
 #   relative pathspecs) - the companion #657 finding: a cwd-drifted relative
 #   pathspec reads as an empty diff, indistinguishable from "no changes".
+#
+# Negated close keywords still close issues (issue #726):
+#   GitHub matches a literal close/fix/resolve keyword plus `#N` even when prose
+#   negates it, so "does not close #N" closes the issue when the squash lands.
+#   Author-time prose cannot reliably prevent that composition trap. Immediately
+#   before the squash, scan the exact title/body being sent for a negation in the
+#   preceding same-sentence window and CLEAN STOP before any merge attempt. The
+#   per-invocation --allow-negated-close escape hatch stays loud: it prints every
+#   detected issue/context plus an audit line before deliberately proceeding.
 #
 # Squash-commit trailer carries the tested tree hash (issue #716):
 #   poker-measure's CI throughput on its single shared Woodpecker agent
@@ -184,6 +196,10 @@
 #            is set and the PR deletes files vs its base. The PR is left open and
 #            untouched - review the surfaced paths, then re-run without strict
 #            mode (or fix the branch) once the deletions are confirmed intended.
+#         5  CLEAN STOP, not a failure (issue #726): the squash title or body has
+#            a negated close/fix/resolve keyword that GitHub would still honor.
+#            The PR is left open and untouched - reword it or consciously re-run
+#            with --allow-negated-close after reviewing the printed context.
 #
 # Env (test hooks - unset in normal use):
 #   GH_PR_MERGE_GH             override the `gh` binary (default: gh)
@@ -210,14 +226,19 @@
 
 set -uo pipefail
 
-# Parse an optional --admin flag from anywhere in the argv, keeping the two
+# Parse optional per-invocation flags from anywhere in the argv, keeping the two
 # positional args (pr-number, branch-name) backward-compatible for every caller.
 ADMIN_OPT_IN=0
+ALLOW_NEGATED_CLOSE=0
 POSITIONAL=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --admin)
             ADMIN_OPT_IN=1
+            shift
+            ;;
+        --allow-negated-close)
+            ALLOW_NEGATED_CLOSE=1
             shift
             ;;
         --)
@@ -226,7 +247,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         -*)
             echo "gh-pr-merge.sh: unknown option '$1'" >&2
-            echo "Usage: gh-pr-merge.sh [--admin] <pr-number> <branch-name>" >&2
+            echo "Usage: gh-pr-merge.sh [--admin] [--allow-negated-close] <pr-number> <branch-name>" >&2
             exit 2
             ;;
         *)
@@ -240,7 +261,7 @@ PR_NUMBER="${POSITIONAL[0]:-}"
 BRANCH="${POSITIONAL[1]:-}"
 
 if [[ -z "$PR_NUMBER" || -z "$BRANCH" ]]; then
-    echo "Usage: gh-pr-merge.sh [--admin] <pr-number> <branch-name>" >&2
+    echo "Usage: gh-pr-merge.sh [--admin] [--allow-negated-close] <pr-number> <branch-name>" >&2
     exit 2
 fi
 
@@ -691,6 +712,59 @@ surface_deletions() {
     return 0
 }
 
+# Negated issue-closing keywords (issue #726): GitHub's matcher sees the literal
+# trigger even in "does not close #N", so a disclaimer silently closes the issue
+# after merge. Check every close/fix/resolve match against the preceding 30
+# characters in the same sentence and stop before either squash call. The
+# per-merge override is deliberately loud so consuming it leaves an audit trail.
+guard_negated_close_keywords() {
+    local keyword_re negation_re source text line entry offset match issue
+    local start after prefix suffix context found=0
+    keyword_re='(?i)\b(?:close(?:s|d)?|fix(?:es|ed)?|resolve(?:s|d)?)\b:?\s*#[[:digit:]]+'
+    negation_re="(?i)(?:\\b(?:does\\h+not|not|never|no)\\b|\\b[[:alpha:]]+n't\\b)"
+
+    for source in title body; do
+        if [[ "$source" == "title" ]]; then
+            text="$SQUASH_TITLE"
+        else
+            text="${SQUASH_BODY:-}"
+        fi
+        while IFS= read -r line || [[ -n "$line" ]]; do
+            while IFS= read -r entry; do
+                [[ -z "$entry" ]] && continue
+                offset=${entry%%:*}
+                match=${entry#*:}
+                start=$(( offset > 30 ? offset - 30 : 0 ))
+                prefix=${line:start:offset-start}
+                # A sentence-ending mark is a hard boundary even when it falls
+                # inside the 30-character lookback window.
+                prefix=${prefix##*[.!?]}
+                if ! printf '%s\n' "$prefix" | grep -Pqi "$negation_re"; then
+                    continue
+                fi
+                issue=${match##*#}
+                after=$(( offset + ${#match} ))
+                suffix=${line:after:30}
+                suffix=${suffix%%[.!?]*}
+                context="${prefix}${match}${suffix}"
+                printf 'GH_PR_MERGE_NEGATED_CLOSE: %s matched #%s in "%s"\n' \
+                    "$source" "$issue" "$context" >&2
+                found=1
+            done < <(printf '%s\n' "$line" | grep -Pob "$keyword_re" || true)
+        done <<< "$text"
+    done
+
+    (( found == 0 )) && return 0
+    if (( ALLOW_NEGATED_CLOSE )); then
+        echo "override consumed: --allow-negated-close bypassed the issue #726 negated-close-keyword refusal." >&2
+        return 0
+    fi
+    echo "CLEAN STOP: negated issue-closing keyword detected - not merging (issue #726)." >&2
+    echo "  The PR is left open and untouched. Reword without the literal trigger pattern," >&2
+    echo "  e.g. '#N remains open for T0xx' instead of 'does not close #N', then re-run." >&2
+    exit 5
+}
+
 surface_deletions
 
 # An explicit --admin is a conscious owner override of protection, so it also
@@ -802,6 +876,8 @@ elif [[ -n "$TESTED_TREE_TRAILER" ]]; then
     # pass --body alone; GitHub derives the subject as it always has here.
     BASE_FLAGS+=(--body "$TESTED_TREE_TRAILER")
 fi
+
+guard_negated_close_keywords
 
 run_squash ${BASE_FLAGS+"${BASE_FLAGS[@]}"}
 
