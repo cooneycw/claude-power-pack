@@ -1,11 +1,11 @@
 ---
-description: Lint CLAUDE.md for missing CI/CD, Docker, and troubleshooting directives
+description: Lint CLAUDE.md for missing CI/CD, lifecycle, Docker, and troubleshooting directives
 allowed-tools: Bash(cat:*), Bash(grep:*), Bash(test:*), Bash(ls:*), Bash(PYTHONPATH=*), Bash(python3:*), Read, Glob, Grep
 ---
 
 # /claude-md:lint - CLAUDE.md Health Check
 
-Audit a project's CLAUDE.md to ensure it includes essential directives for CI/CD protocols, Docker conventions, and troubleshooting workflows.
+Audit a project's CLAUDE.md to ensure it includes essential directives for CI/CD protocols, knowledge lifecycle, Docker conventions, and troubleshooting workflows.
 
 ## Why This Matters
 
@@ -63,6 +63,7 @@ Check for these directive categories (case-insensitive, flexible matching):
 | **Docker Conventions** | Documents the project's Docker workflow (only if Docker files exist) | CONDITIONAL |
 | **Deployment Protocol** | Mentions `make deploy` or deployment workflow | RECOMMENDED |
 | **Available Commands** | Lists Makefile targets or build commands | RECOMMENDED |
+| **Knowledge Lifecycle** | Says specs are temporary, routes durable facts to maintained sources, and links the canonical reference | REQUIRED |
 
 ### Detection Patterns
 
@@ -102,6 +103,11 @@ For each category, search CLAUDE.md for these patterns:
 - A table or list containing `make` targets
 - `## Commands` or `## Makefile` or `## Available`
 
+**Knowledge Lifecycle** (all concepts):
+- `specs are temporary` or `specifications are temporary`
+- `code/tests`, `ADRs`, `runbooks`, or maintained `docs`
+- `knowledge-lifecycle.md` or the canonical public URL
+
 ---
 
 ## Step 3: Score and Report
@@ -127,19 +133,20 @@ Present results as a health report:
 | Docker Conventions | PASS/FAIL/SKIP | {what was found, or "No Docker files"} |
 | Deployment Protocol | PASS/WARN | {what was found or missing} |
 | Available Commands | PASS/WARN | {what was found or missing} |
+| Knowledge Lifecycle | PASS/FAIL | {what was found or missing} |
 
-### Score: {N}/6 ({percentage}%)
+### Score: {N}/7 ({percentage}%)
 
 ### {HEALTHY / NEEDS ATTENTION / UNHEALTHY}
 ```
 
 **Scoring:**
-- PASS on REQUIRED = 1 point each (3 total)
+- PASS on REQUIRED = 1 point each (4 total)
 - PASS on CONDITIONAL (Docker) = 1 point if applicable, auto-PASS if no Docker
 - PASS on RECOMMENDED = 1 point each (2 total)
-- **HEALTHY:** 5-6 points
-- **NEEDS ATTENTION:** 3-4 points
-- **UNHEALTHY:** 0-2 points
+- **HEALTHY:** 6-7 points
+- **NEEDS ATTENTION:** 4-5 points
+- **UNHEALTHY:** 0-3 points
 
 ---
 
@@ -231,6 +238,21 @@ Run `make help` or see the Makefile for all targets. Key targets:
 | `make deploy` | Deploy (after verify) |
 | `make clean` | Remove build artifacts |
 | `make troubleshoot` | Diagnostic pass |
+```
+
+### If Knowledge Lifecycle is FAIL:
+
+```markdown
+**Add to CLAUDE.md:**
+
+## Knowledge Lifecycle
+
+Specifications are temporary coordination artifacts. Durable facts graduate to
+code and behavioral tests, schemas, nearby intent comments, ADRs, domain
+glossaries, runbooks, maintained documentation, or linked issues before a
+completed spec is removed. Do not accumulate permanent narrative in a spec.
+See the [canonical knowledge-lifecycle reference](https://github.com/cooneycw/claude-power-pack/blob/main/docs/agents/knowledge-lifecycle.md)
+for the graduation check and retention rules.
 ```
 
 ---

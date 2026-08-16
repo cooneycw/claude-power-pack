@@ -500,9 +500,16 @@ class TestWiring:
         assert "--approved-by <HUMAN_IDENTITY>" in document
         assert "must not run\n`gh issue create`" in document
 
-    def test_script_inventory_and_history_are_documented(self) -> None:
+    def test_script_history_is_documented(self) -> None:
+        # #724 (T006) superseded the per-script CLAUDE.md inventory line this
+        # test used to pin: the full scripts/ inventory now lives only in
+        # docs/scripts.md, and CLAUDE.md's Project Map names `scripts/`
+        # generically to keep the always-loaded file from re-growing one line
+        # per script. The docs/scripts.md history entry - the part of the
+        # original assertion that still matches current convention - is
+        # unchanged and still required.
         memory = (ROOT / "CLAUDE.md").read_text()
         history = (ROOT / "docs" / "scripts.md").read_text()
-        assert memory.count("  - flow-wave-residuals -") == 1
         assert "## `flow-wave-residuals`" in history
         assert "$XDG_RUNTIME_DIR/cc-flow-wave/<wave>/residuals.json" in history
+        assert "docs/scripts.md" in memory

@@ -7,6 +7,13 @@ verbatim moves - nothing was reworded or dropped.
 
 See also `docs/commands-reference.md` (the command-surface half of the same move).
 
+## Persistent-context checks and knowledge graduation
+
+- check-claude-md-budget - enforces the 2,000-word ceiling for the always-loaded `CLAUDE.md`; `make claude-md-budget-check`, folded into `make verify`
+- check-claude-md-links - resolves relative Markdown links and backtick paths under an explicit prefix list, avoiding false positives from inline commands and flags; `make claude-md-links-check`, folded into `make verify`
+- check-claude-md-behavior - checks the committed pre-#724 obligation slugs remain findable across the compact root file, docs, and referenced skills; named-reason retirements permit deliberate future removal, and a locality rule rejects a duplicated normative lifecycle table; `make claude-md-behavior-check`, folded into `make verify`
+- knowledge-graduation-check - validates every completed-spec acceptance criterion, durable artifact, and task resolution; refuses deletion of independently valuable contracts; writes reader-compatible version-1 entries to `.specify/graduation-ledger.json` through a per-path flock and atomic replacement
+
 ## `prompt-context`
 
 - prompt-context

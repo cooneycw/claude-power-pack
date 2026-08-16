@@ -6,7 +6,8 @@
        tool-risk-check tool-risk-drift \
        branch-protection-check branch-protection-apply branch-protection-show \
        host-surfaces-check host-surfaces-plan host-surfaces-prune memory-harness \
-       binary-guards-check negative-fixture-check skills-check \
+       binary-guards-check negative-fixture-check claude-md-budget-check \
+       claude-md-links-check claude-md-behavior-check skills-check \
        install-drift-check install-drift-list
 
 ## Quality gates (used by /flow:finish)
@@ -36,7 +37,9 @@ secret-scan:
 
 ## Pre-deploy gate (runs all quality checks)
 
-verify: lint test typecheck binary-guards-check negative-fixture-check project-next-check
+verify: lint test typecheck binary-guards-check negative-fixture-check \
+	claude-md-budget-check claude-md-links-check claude-md-behavior-check \
+	project-next-check
 
 ## Enforce the CLAUDE.md "guard tests that shell out to git/docker/gitleaks"
 ## directive (issue #602). It failed three times as prose (#451, #489, #577)
@@ -60,6 +63,18 @@ binary-guards-check:
 
 negative-fixture-check:
 	@python3 scripts/check-negative-fixture-preconditions.py
+
+## Keep always-loaded repository guidance bounded, resolvable, and behaviorally
+## findable after narrative moves to owned documentation (issue #724).
+
+claude-md-budget-check:
+	@python3 scripts/check-claude-md-budget.py
+
+claude-md-links-check:
+	@python3 scripts/check-claude-md-links.py
+
+claude-md-behavior-check:
+	@python3 scripts/check-claude-md-behavior.py
 
 ## Documentation (used by /flow:auto and /flow:finish)
 
