@@ -22,6 +22,9 @@ Contract:
   base with no protection of either kind skips the wait outright, and when
   neither source is readable the PR's own checks decide: green merges, red stops,
   pending waits then fails open (GitHub enforces the posture server-side anyway).
+- Open stacked child PRs are retargeted to the resolved default branch before
+  the squash can delete their base (poker-measure#405); unreadable enumeration,
+  default metadata, or individual edits stay fail-open and visible by marker.
 - Return non-zero only when the PR genuinely did not merge - and non-zero on
   EVERY refusal to merge, since /flow:auto Step 7 trusts the exit code.
 
@@ -76,6 +79,11 @@ def _make_stubs(
     woodpecker_lookup_ok: bool = True,
     woodpecker_repo_id: str = "42",
     woodpecker_pipeline_statuses: list[str] | None = None,
+    stacked_children: list[int] | None = None,
+    default_branch: str = "main",
+    pr_list_ok: bool = True,
+    default_branch_ok: bool = True,
+    pr_edit_failures: list[int] | None = None,
 ) -> dict:
     """Create fake gh/git that log their args and honour a scripted outcome.
 
@@ -145,6 +153,13 @@ def _make_stubs(
     ``.../pipelines`` polls (one status consumed per call, staying on the
     last once exhausted); the default ``None`` answers "running" so an
     opted-in test that does not care about queuing sees an instant pass-through.
+
+    ``stacked_children`` scripts the open PR numbers returned by ``gh pr list
+    --base <branch>`` (poker-measure#405). ``pr_list_ok=False`` makes that
+    enumeration unreadable. ``default_branch`` / ``default_branch_ok`` script
+    ``gh repo view --json defaultBranchRef``; ``pr_edit_failures`` names child
+    PRs whose otherwise logged ``gh pr edit --base`` call fails. Every failure
+    is advisory so the merge path remains fail-open.
     """
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -201,6 +216,12 @@ def _make_stubs(
     landed_file = tmp_path / "landed_paths"
     landed_file.write_text("".join(f"{p}\n" for p in (landed_paths or [])))
 
+    # poker-measure#405: open stacked children returned after gh applies the
+    # `--jq '.[].number'` filter, one PR number per line.
+    stacked_file = tmp_path / "stacked_children"
+    stacked_file.write_text("".join(f"{n}\n" for n in (stacked_children or [])))
+    edit_failures = " ".join(str(n) for n in (pr_edit_failures or []))
+
     # gh: log argv; `pr merge` honours the next scripted (exit, stderr) outcome;
     # `pr view --json mergeable` echoes the next scripted mergeable value; any
     # other `pr view` echoes pr_state.
@@ -231,6 +252,14 @@ def _make_stubs(
             else '    echo \'{"message":"Not Found","status":"404"}\'\n    exit 1\n'
         )
         + "  fi\n"
+        "  exit 0\n"
+        'elif [[ "$1 $2" == "pr list" ]]; then\n'
+        + (f'  cat "{stacked_file}"\n' if pr_list_ok else "  exit 1\n")
+        + "  exit 0\n"
+        'elif [[ "$1 $2" == "pr edit" ]]; then\n'
+        f'  for failed in {edit_failures or "__none__"}; do\n'
+        '    [[ "$3" == "$failed" ]] && exit 1\n'
+        "  done\n"
         "  exit 0\n"
         'elif [[ "$1 $2" == "pr view" ]]; then\n'
         '  if [[ "$*" == *baseRefName* ]]; then\n'
@@ -268,7 +297,9 @@ def _make_stubs(
         "  fi\n"
         "  exit 0\n"
         'elif [[ "$1 $2" == "repo view" ]]; then\n'
-        '  if [[ "$*" == *nameWithOwner* ]]; then\n'
+        '  if [[ "$*" == *defaultBranchRef* ]]; then\n'
+        + (f'    echo "{default_branch}"\n' if default_branch_ok else "    exit 1\n")
+        + '  elif [[ "$*" == *nameWithOwner* ]]; then\n'
         f'    echo "{repo_full}"\n'
         "  else\n"
         f'    echo "{viewer_permission}"\n'
@@ -1687,3 +1718,116 @@ def test_admin_retry_keeps_subject_and_body(tmp_path: Path):
         assert argv[argv.index("--body") + 1] == MULTILINE_BODY
     assert "--admin" not in argvs[0]
     assert "--admin" in argvs[1]
+
+
+# --- Stacked children are retargeted before branch deletion (poker-measure#405) -
+
+
+def test_no_stacked_children_prints_zero_without_edit(tmp_path: Path):
+    stubs = _make_stubs(tmp_path, merge_exit=0, pr_state="MERGED")
+    result = _run(_primary_repo(tmp_path), stubs, "42", "stacked-parent")
+    assert result.returncode == 0, result.stderr
+    assert "GH_PR_MERGE_STACKED_RETARGET: 0" in result.stdout
+    assert not any(c.startswith("gh pr edit") and " --base " in c for c in _calls(stubs))
+
+
+def test_one_stacked_child_retargets_before_merge(tmp_path: Path):
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        stacked_children=[382],
+        default_branch="trunk",
+    )
+    result = _run(_primary_repo(tmp_path), stubs, "42", "stacked-parent")
+    assert result.returncode == 0, result.stderr
+    assert "GH_PR_MERGE_STACKED_RETARGET: 1 382" in result.stdout
+    assert "poker-measure#405" in result.stderr
+    calls = _calls(stubs)
+    edit_calls = [c for c in calls if c.startswith("gh pr edit")]
+    assert edit_calls == ["gh pr edit 382 --base trunk"]
+    assert calls.index(edit_calls[0]) < next(
+        i for i, call in enumerate(calls) if call.startswith("gh pr merge")
+    ), calls
+
+
+def test_multiple_stacked_children_all_retarget(tmp_path: Path):
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        stacked_children=[390, 392],
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "stacked-parent")
+    assert result.returncode == 0, result.stderr
+    assert "GH_PR_MERGE_STACKED_RETARGET: 2 390 392" in result.stdout
+    assert [c for c in _calls(stubs) if c.startswith("gh pr edit")] == [
+        "gh pr edit 390 --base main",
+        "gh pr edit 392 --base main",
+    ]
+
+
+def test_stacked_child_enumeration_failure_fails_open(tmp_path: Path):
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        stacked_children=[382],
+        pr_list_ok=False,
+    )
+    result = _run(_primary_repo(tmp_path), stubs, "42", "stacked-parent")
+    assert result.returncode == 0, result.stderr
+    assert "GH_PR_MERGE_STACKED_RETARGET: skipped" in result.stdout
+    calls = _calls(stubs)
+    assert not any(c.startswith("gh pr edit") for c in calls)
+    assert any(c.startswith("gh pr merge") for c in calls), "enumeration failure must not block"
+
+
+def test_default_branch_failure_skips_all_stacked_edits(tmp_path: Path):
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        stacked_children=[382],
+        default_branch_ok=False,
+    )
+    result = _run(_primary_repo(tmp_path), stubs, "42", "stacked-parent")
+    assert result.returncode == 0, result.stderr
+    assert "GH_PR_MERGE_STACKED_RETARGET: skipped" in result.stdout
+    calls = _calls(stubs)
+    assert not any(c.startswith("gh pr edit") for c in calls)
+    assert any(c.startswith("gh pr merge") for c in calls), "metadata failure must not block"
+
+
+def test_child_already_based_on_default_branch_skips_redundant_edit(tmp_path: Path):
+    # The list is filtered to children based on BRANCH. If BRANCH is the resolved
+    # default already, every listed child is a no-op and must not consume an edit.
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        stacked_children=[382],
+        default_branch="stacked-parent",
+    )
+    result = _run(_primary_repo(tmp_path), stubs, "42", "stacked-parent")
+    assert result.returncode == 0, result.stderr
+    assert "GH_PR_MERGE_STACKED_RETARGET: 0" in result.stdout
+    assert not any(c.startswith("gh pr edit") for c in _calls(stubs))
+
+
+def test_one_stacked_edit_failure_warns_and_continues(tmp_path: Path):
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        stacked_children=[382, 390],
+        pr_edit_failures=[382],
+    )
+    result = _run(_primary_repo(tmp_path), stubs, "42", "stacked-parent")
+    assert result.returncode == 0, result.stderr
+    assert "warning: failed to retarget stacked child PR #382" in result.stderr
+    assert "GH_PR_MERGE_STACKED_RETARGET: 1 390" in result.stdout
+    assert [c for c in _calls(stubs) if c.startswith("gh pr edit")] == [
+        "gh pr edit 382 --base main",
+        "gh pr edit 390 --base main",
+    ]
