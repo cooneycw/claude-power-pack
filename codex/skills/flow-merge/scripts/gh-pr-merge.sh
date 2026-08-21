@@ -183,6 +183,19 @@
 #   poll. This can only ever shrink the effective wait; it is never a new way
 #   to stop the merge.
 #
+# Stacked dependent PRs are retargeted before branch deletion (poker-measure#405):
+#   During the 2026-08-20 poker wave merge drain, squash-merging PR #375 through
+#   this helper deleted its branch and GitHub auto-closed open PR #382, whose base
+#   was that branch, in the same second. GitHub retargets stacked children only
+#   in its web-UI merge flow, not when the API/CLI squash and branch deletion used
+#   here remove the base ref. Before any squash attempt, enumerate every open PR
+#   based on `$BRANCH` and retarget it to the repo's resolved default branch; the
+#   temporarily inflated child diff self-corrects after the parent lands. The
+#   operation is non-destructive and fail-open per the #610 posture: unreadable
+#   enumeration/default metadata prints `GH_PR_MERGE_STACKED_RETARGET: skipped`,
+#   while successful edits print `GH_PR_MERGE_STACKED_RETARGET: <n> <PRs...>`;
+#   one failed child edit warns but never blocks the remaining edits or merge.
+#
 # Exit:   0  the PR is merged on the remote
 #         1  the PR genuinely did not merge (conflicts, red required check,
 #            unresolvable state)
@@ -712,6 +725,60 @@ surface_deletions() {
     return 0
 }
 
+# Retarget open stacked children BEFORE the squash can delete their base branch
+# (poker-measure#405). GitHub's API/CLI path closes an open PR when its base ref
+# is deleted; only the web-UI merge flow retargets it automatically. Enumeration
+# and default-branch resolution are advisory reads, so either failing prints
+# `skipped` and never blocks the merge (#610 posture). Each edit is independently
+# fail-open so one unreadable child cannot strand the rest.
+retarget_stacked_children() {
+    local listed default_branch child n
+    local -a children=() retargeted=()
+
+    if ! listed=$("$GH_BIN" pr list --state open --base "$BRANCH" --json number \
+        --jq '.[].number' 2>/dev/null); then
+        echo "GH_PR_MERGE_STACKED_RETARGET: skipped"
+        return 0
+    fi
+    while IFS= read -r child; do
+        [[ -n "$child" ]] && children+=("$child")
+    done <<<"$listed"
+    if (( ${#children[@]} == 0 )); then
+        echo "GH_PR_MERGE_STACKED_RETARGET: 0"
+        return 0
+    fi
+
+    if ! default_branch=$("$GH_BIN" repo view --json defaultBranchRef \
+        --jq '.defaultBranchRef.name' 2>/dev/null) || \
+        [[ -z "$default_branch" || "$default_branch" == "null" ]]; then
+        echo "GH_PR_MERGE_STACKED_RETARGET: skipped"
+        return 0
+    fi
+
+    for child in "${children[@]}"; do
+        # The list is base-filtered, so every returned child's observed base is
+        # BRANCH. If that is already the resolved default, there is nothing to do.
+        [[ "$BRANCH" == "$default_branch" ]] && continue
+        if "$GH_BIN" pr edit "$child" --base "$default_branch" >/dev/null 2>&1; then
+            retargeted+=("$child")
+        else
+            echo "warning: failed to retarget stacked child PR #$child from '$BRANCH'" \
+                 "to '$default_branch' before branch deletion (poker-measure#405); continuing." >&2
+        fi
+    done
+
+    n=${#retargeted[@]}
+    if (( n == 0 )); then
+        echo "GH_PR_MERGE_STACKED_RETARGET: 0"
+        return 0
+    fi
+    echo "GH_PR_MERGE_STACKED_RETARGET: $n ${retargeted[*]}"
+    echo "note: retargeted stacked child PR(s) ${retargeted[*]} from '$BRANCH' to" \
+         "'$default_branch' before deleting '$BRANCH' (poker-measure#405), so GitHub" \
+         "does not auto-close them when their base branch is removed." >&2
+    return 0
+}
+
 # Negated issue-closing keywords (issue #726): GitHub's matcher sees the literal
 # trigger even in "does not close #N", so a disclaimer silently closes the issue
 # after merge. Check every close/fix/resolve match against the preceding 30
@@ -766,6 +833,7 @@ guard_negated_close_keywords() {
 }
 
 surface_deletions
+retarget_stacked_children
 
 # An explicit --admin is a conscious owner override of protection, so it also
 # skips the wait (and the queue wait that precedes it, issue #717); without
