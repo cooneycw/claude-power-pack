@@ -8,6 +8,7 @@
 - **MCP servers** extending Claude Code's capabilities:
   - **Second Opinion** - Multi-model code review via external LLMs (Gemini, OpenAI, Anthropic), served by the external `cooneycw/mcp-second-opinion` repo and wired in through the root `.mcp.json` (streamable-http)
   - **Browser automation** - upstream `@playwright/mcp` server (npx/stdio, no container), registered by `/cpp:init`
+  - **Tavily** - web search, content extraction, site crawling, and URL mapping via the upstream `tavily-mcp` server (npx/stdio), registered by `/cpp:init`; API key stored in AWS Secrets Manager (`claude-power-pack/mcp-keys`)
 - **PowerPoint generation** - Slide decks via the native Anthropic `pptx` skill (`npx skills add anthropics/skills@pptx`)
 - **Security scanning** (`/security:scan`) - Native vulnerability detection with git history analysis
 - **Secrets management** (`/secrets:*`) - Tiered credential storage (dotenv, env-file, AWS Secrets Manager) with audit logging and a web UI
@@ -45,6 +46,7 @@ Existing CPP marketplace users should run `/plugin uninstall <family>@cpp` for e
 
 - **External Second Opinion server** - the multi-model review server lives in its own repo ([cooneycw/mcp-second-opinion](https://github.com/cooneycw/mcp-second-opinion)). Start the external server, then register it with `claude mcp add second-opinion --transport http --url http://127.0.0.1:8080/mcp --scope user` (use your Tailscale URL for a remote host).
 - **Browser automation** - registers the upstream `@playwright/mcp` npx/stdio server (no container).
+- **Tavily web tools** - registers the upstream [tavily-mcp](https://github.com/tavily-ai/tavily-mcp) npx/stdio server for web search, extract, crawl, and map. Requires `TAVILY_API_KEY` (stored in AWS Secrets Manager `claude-power-pack/mcp-keys`).
 - **Secrets provisioning** - AWS Secrets Manager access for Woodpecker CI keys (`essent-ai`) and the `CPP_MEMORIES_DSN` common-memory DSN; fetched directly via the AWS SDK/CLI.
 - **Bootstrap prerequisites** - `jq`, and the optional spec-kit CLI (`specify`, the engine behind `/spec:adopt`).
 - **Permission census hook + flow allowlist** - registers the observe-only PermissionRequest census hook and merges the read-only `/flow:*` allowlist - including the audited flow helper-script rules that make `/flow:auto` Phase 1 prompt-free (issue #581) - into `~/.claude/settings.json` (both user-confirmed).
@@ -115,7 +117,7 @@ CPP ships no container runtime (retired in #469). The `/second-opinion:*` and `/
 claude mcp add second-opinion --transport http --url http://127.0.0.1:8080/mcp --scope user
 ```
 
-Browser automation uses the upstream `@playwright/mcp` npx/stdio server (registered by `/cpp:init`). CPP stores no application secrets on disk and runs no secrets sidecar; the remaining AWS Secrets Manager consumers (`essent-ai` for Woodpecker CI keys and the `CPP_MEMORIES_DSN` common-memory DSN) fetch directly via the AWS SDK/CLI.
+Browser automation uses the upstream `@playwright/mcp` npx/stdio server (registered by `/cpp:init`). Tavily web search/extract/crawl/map uses the upstream `tavily-mcp` npx/stdio server (registered by `/cpp:init`); its API key (`TAVILY_API_KEY`) is stored in `claude-power-pack/mcp-keys` alongside the Second Opinion keys. CPP stores no application secrets on disk and runs no secrets sidecar; the remaining AWS Secrets Manager consumers (`essent-ai` for Woodpecker CI keys and the `CPP_MEMORIES_DSN` common-memory DSN) fetch directly via the AWS SDK/CLI.
 
 ## CI/CD
 

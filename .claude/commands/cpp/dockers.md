@@ -94,8 +94,9 @@ Present a structured report:
 
 CPP itself ships no containers. The second-opinion MCP server runs from the
 external `cooneycw/mcp-second-opinion` repo (reached over the root `.mcp.json`
-streamable-http pointer), and browser automation is the upstream
-`@playwright/mcp` npx/stdio server, so neither appears in the Docker table below.
+streamable-http pointer), browser automation is the upstream `@playwright/mcp`
+npx/stdio server, and Tavily web tools use the upstream `tavily-mcp` npx/stdio
+server, so none of these appear in the Docker table below.
 
 ### Containers
 
@@ -105,7 +106,7 @@ streamable-http pointer), and browser automation is the upstream
 
 ### Summary
 - **Total containers:** 1 (1 running)
-- **CPP-managed containers:** none (second-opinion is external via .mcp.json; playwright via npx/stdio)
+- **CPP-managed containers:** none (second-opinion is external via .mcp.json; playwright and tavily via npx/stdio)
 ```
 
 ### Step 6: Suggest Actions

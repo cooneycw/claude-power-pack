@@ -283,7 +283,8 @@ server is external (the `cooneycw/mcp-second-opinion` repo) and is reached over 
 root `.mcp.json` streamable-http pointer - `${SECOND_OPINION_URL:-http://127.0.0.1:8080}/mcp`,
 i.e. localhost 8080 by DEFAULT, overridable per host by exporting
 `SECOND_OPINION_URL` with the base url (issue #633); browser automation is the
-upstream `@playwright/mcp` npx/stdio server.
+upstream `@playwright/mcp` npx/stdio server; Tavily web tools use the upstream
+`tavily-mcp` npx/stdio server.
 Report how second-opinion is wired rather than probing a hardcoded port:
 
 ```bash
@@ -299,6 +300,7 @@ else
   echo "      override the base url per host - a Tailscale URL, or a moved port)."
 fi
 echo "  [-] playwright: upstream @playwright/mcp over npx/stdio (no port to probe)"
+echo "  [-] tavily: upstream tavily-mcp over npx/stdio (no port to probe)"
 ```
 
 ### Step 8: Generate Report
@@ -345,6 +347,7 @@ Output a single diagnostic report in this format:
 |--------|-----------|--------|---------|
 | second-opinion | .mcp.json (streamable-http) | ✅/❌ | Registered in .mcp.json (external server) / Not registered |
 | playwright | npx/stdio | - | Upstream @playwright/mcp (no port) |
+| tavily | npx/stdio | - | Upstream tavily-mcp (no port) |
 
 ### Active Worktrees
 

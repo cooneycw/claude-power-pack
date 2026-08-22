@@ -68,11 +68,14 @@ installation details.
 ## MCP Servers and Secrets
 
 CPP ships no container runtime. It consumes the external second-opinion server
-through `.mcp.json` and upstream Playwright MCP through `/cpp:init`. Remaining
-AWS Secrets Manager consumers fetch directly through the SDK or CLI; CPP stores
-no application secrets in this repository. Use `/secrets:*` for credentials and
-`make secret-scan` for the deterministic leak check. Runtime retirement,
-bootstrap, drift, and reproducible-image details live in
+through `.mcp.json`, upstream Playwright MCP through `/cpp:init`, and upstream
+Tavily MCP (tavily-mcp, npx/stdio) through `/cpp:init` for web search, extract,
+crawl, and map. The Tavily API key is stored in `claude-power-pack/mcp-keys`
+alongside the Second Opinion keys. Remaining AWS Secrets Manager consumers fetch
+directly through the SDK or CLI; CPP stores no application secrets in this
+repository. Use `/secrets:*` for credentials and `make secret-scan` for the
+deterministic leak check. Runtime retirement, bootstrap, drift, and
+reproducible-image details live in
 [commands-reference.md](docs/commands-reference.md).
 
 ## Commands Reference

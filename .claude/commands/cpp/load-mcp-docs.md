@@ -22,4 +22,17 @@ Provide an overview of:
 - Best practices for using the MCP server
 - Playwright integration for web debugging
 
+## Tavily MCP Server
+
+The Tavily MCP server is the upstream [tavily-ai/tavily-mcp](https://github.com/tavily-ai/tavily-mcp)
+package, registered via npx/stdio by `/cpp:init`. It provides four tools:
+
+- `tavily-search` - real-time web search (basic/advanced/fast/ultra-fast depth, topic filters, date ranges)
+- `tavily-extract` - extract content from URLs (markdown or text format)
+- `tavily-crawl` - graph-based website traversal with intelligent discovery
+- `tavily-map` - generate comprehensive sitemaps through intelligent traversal
+
+API key (`TAVILY_API_KEY`) stored in AWS Secrets Manager `claude-power-pack/mcp-keys`.
+Requires Node.js 20+. Registration: `claude mcp add tavily --transport stdio --scope user -e TAVILY_API_KEY=... -- npx -y tavily-mcp@latest`
+
 Format the response as a concise reference guide.
