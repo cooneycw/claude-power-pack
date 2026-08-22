@@ -204,15 +204,16 @@ fi
 # CPP ships no local MCP server projects. The second-opinion server is external
 # (the cooneycw/mcp-second-opinion repo), connected via the root .mcp.json
 # streamable-http pointer. Browser automation is upstream @playwright/mcp (npx/stdio).
+# Tavily web search/extract/crawl/map is upstream tavily-mcp (npx/stdio).
 echo ""
 echo "MCP Server Projects:"
-echo "  [-] none bundled (second-opinion is external via .mcp.json; playwright via npx/stdio)"
+echo "  [-] none bundled (second-opinion is external via .mcp.json; playwright and tavily via npx/stdio)"
 
 # Check MCP servers registered
 echo ""
 echo "MCP Servers (Claude Code):"
 MCP_LIST=$(claude mcp list 2>/dev/null || echo "")
-for server in second-opinion playwright; do
+for server in second-opinion playwright tavily; do
   if echo "$MCP_LIST" | grep -q "$server"; then
     echo "  [x] $server: registered"
   else
@@ -228,7 +229,7 @@ echo ""
 echo "MCP Servers (Codex):"
 if command -v codex &>/dev/null; then
   CODEX_LIST=$(codex mcp list 2>/dev/null || echo "")
-  for server in second-opinion playwright; do
+  for server in second-opinion playwright tavily; do
     if echo "$CODEX_LIST" | grep -q "$server"; then
       echo "  [x] $server: registered"
     else
@@ -259,6 +260,7 @@ else
   echo "      at it (http://127.0.0.1:8080/mcp for localhost, or a Tailscale URL)."
 fi
 echo "  [-] playwright: upstream @playwright/mcp over npx/stdio (no port to probe)"
+echo "  [-] tavily: upstream tavily-mcp over npx/stdio (no port to probe)"
 
 # Check legacy systemd services
 echo ""
@@ -438,7 +440,7 @@ fi
 # Check Codex MCP registrations
 if command -v codex &>/dev/null; then
   CODEX_MCP=$(codex mcp list 2>/dev/null || echo "")
-  for server in second-opinion playwright; do
+  for server in second-opinion playwright tavily; do
     if echo "$CODEX_MCP" | grep -q "$server"; then
       echo "  [x] Codex MCP: $server registered"
     else
@@ -493,9 +495,11 @@ Tier 3 (Full):
   [x] uv: 0.5.x
   [x] second-opinion: registered (external cooneycw/mcp-second-opinion via .mcp.json)
   [x] playwright: registered (upstream @playwright/mcp, npx/stdio)
+  [x] tavily: registered (upstream tavily-mcp, npx/stdio)
   MCP Server Wiring (.mcp.json):
     [x] second-opinion: registered in .mcp.json (http://127.0.0.1:8080/mcp)
     [-] playwright: npx/stdio - no port to probe
+    [-] tavily: npx/stdio - no port to probe
   Legacy Systemd:
     none (ok)
   Status: Partial
@@ -514,6 +518,7 @@ Tier 5 (Codex):
   [x] OpenAI API key: set in environment
   [x] Codex MCP: second-opinion registered
   [x] Codex MCP: playwright registered
+  [x] Codex MCP: tavily registered
   [x] Codex commands: 4/4 available
   Status: Complete
 

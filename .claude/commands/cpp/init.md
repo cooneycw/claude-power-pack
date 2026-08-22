@@ -858,6 +858,27 @@ if ! echo "$MCP_LIST" | grep -qw "playwright"; then
 else
   echo "→ playwright MCP already registered (skipped)"
 fi
+
+# Tavily web search/extract/crawl/map is the upstream tavily-mcp server,
+# registered via npx/stdio (no container). Requires Node.js 20+ and a
+# TAVILY_API_KEY in the environment. API key is stored in AWS Secrets Manager
+# (claude-power-pack/mcp-keys).
+if ! echo "$MCP_LIST" | grep -qw "tavily"; then
+  if command -v npx &>/dev/null; then
+    if [ -n "$TAVILY_API_KEY" ]; then
+      claude mcp add tavily --transport stdio --scope user -e TAVILY_API_KEY="$TAVILY_API_KEY" -- npx -y tavily-mcp@latest
+      echo "✓ tavily MCP (upstream tavily-mcp) registered"
+    else
+      echo "⚠ TAVILY_API_KEY not set. Get a key from https://app.tavily.com/home"
+      echo "  Then: claude mcp add tavily --transport stdio --scope user -e TAVILY_API_KEY=tvly-... -- npx -y tavily-mcp@latest"
+    fi
+  else
+    echo "⚠ npx not found. Tavily MCP needs Node.js 20+."
+    echo "  Install later: claude mcp add tavily --transport stdio --scope user -e TAVILY_API_KEY=... -- npx -y tavily-mcp@latest"
+  fi
+else
+  echo "→ tavily MCP already registered (skipped)"
+fi
 ```
 
 #### 3d. Register the browser desk pool (optional, off by default)

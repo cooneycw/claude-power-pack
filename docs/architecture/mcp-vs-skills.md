@@ -81,6 +81,7 @@ CPP itself ships no container runtime. MCP servers are external or upstream, wir
 |--------|-------------|--------|
 | Second Opinion | External `cooneycw/mcp-second-opinion` server (run it yourself) | `.mcp.json` streamable-http entry at `http://127.0.0.1:8080/mcp` (localhost) or a Tailscale URL |
 | Browser automation | Upstream `@playwright/mcp` (npx/stdio) | Registered by `/cpp:init` (no container) |
+| Tavily web tools | Upstream `tavily-mcp` (npx/stdio) | Registered by `/cpp:init`; needs `TAVILY_API_KEY` and Node.js 20+ |
 
 **Secrets:** the external Second Opinion server manages its own API keys - keep them on the server side, never in this repo.
 

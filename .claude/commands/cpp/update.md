@@ -605,6 +605,8 @@ Compare the inventories and classify each finding. Use the following logic:
   Claude Code at `http://127.0.0.1:8080/mcp` (project scope), optionally also
   registered at user scope. CPP does not build or run it.
 - `playwright` - upstream `@playwright/mcp` via npx/stdio.
+- `tavily` - upstream `tavily-mcp` via npx/stdio; provides web search, extract,
+  crawl, and map tools. API key from `claude-power-pack/mcp-keys` in AWS SM.
 
 **Retired servers** (removed; listed in `.claude/deprecated-mcps.yaml`, torn down as
 orphans by Step 6c/7 + `scripts/mcp-drift.py`):
