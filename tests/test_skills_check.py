@@ -22,6 +22,11 @@ _spec.loader.exec_module(skills_check)  # type: ignore[union-attr]
 
 
 EXPECTED_LOADING_METADATA = {
+    "boot": {
+        "name": "Boot",
+        "description": "Menu-driven session identity registration for Kyle-compatible local-network discovery",
+        "trigger": "boot, register, identity, session type, kyle",
+    },
     "best-practices": {
         "name": "Best Practices Dispatcher",
         "description": "Routes to topic-specific best practices skills for context efficiency",
