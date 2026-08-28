@@ -261,6 +261,11 @@ This will make the following changes:
   [Tier 2 - Shell Prompt] (optional)
     • Add worktree context to PS1: [CPP #42] ~/project $
 
+  [Tier 2 - Tmux Auto-Start] (optional)
+    • Add tmux auto-start to ~/.bashrc
+    • Each new terminal tab opens its own tmux session
+    • Skipped inside existing tmux sessions and non-interactive shells
+
   [Tier 2 - Makefile] (optional)
     • Create starter Makefile with lint, test, deploy targets
     • Used by /flow:finish and /flow:deploy
@@ -667,6 +672,54 @@ echo '' >> ~/.bashrc
 echo '# Claude Power Pack - worktree context in prompt' >> ~/.bashrc
 echo 'export PS1='\''$(~/.claude/scripts/prompt-context.sh)\w $ '\''' >> ~/.bashrc
 echo "✓ Shell prompt configured (restart shell or source ~/.bashrc)"
+```
+
+**Tmux Auto-Start (Optional)**
+
+Ask the user if they want tmux to start automatically in new terminal tabs:
+
+```
+=== Optional: Tmux Auto-Start ===
+
+Start tmux automatically when opening a new terminal tab?
+
+Each tab gets its own independent tmux session. Skipped inside existing
+tmux sessions and non-interactive shells (scripts, cron, Claude Code).
+
+Requires: tmux installed (apt install tmux)
+
+Add to ~/.bashrc? [y/N]
+```
+
+If yes:
+```bash
+# Check if tmux is installed
+if ! command -v tmux &>/dev/null; then
+  echo "⚠ tmux not found. Install it first:"
+  echo "  sudo apt install tmux"
+  echo "  Skipping tmux auto-start."
+else
+  # Check if already configured
+  if grep -q 'tmux new-session' ~/.bashrc 2>/dev/null; then
+    echo "→ tmux auto-start already in ~/.bashrc (skipped)"
+  else
+    cat >> ~/.bashrc << 'TMUX_EOF'
+
+# Claude Power Pack - tmux auto-start
+if command -v tmux &>/dev/null && [ -z "$TMUX" ] && [[ $- == *i* ]]; then
+    tmux new-session
+fi
+TMUX_EOF
+    echo "✓ tmux auto-start configured (restart shell or source ~/.bashrc)"
+  fi
+fi
+```
+
+If no:
+```bash
+echo "→ Tmux auto-start skipped"
+echo "  Add later by appending to ~/.bashrc:"
+echo '  if command -v tmux &>/dev/null && [ -z "$TMUX" ] && [[ $- == *i* ]]; then tmux new-session; fi'
 ```
 
 **Makefile Setup (Optional)**
