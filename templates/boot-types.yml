@@ -1,0 +1,47 @@
+# Boot types configuration for /boot session registration
+#
+# Place this file at ~/.claude/boot-types.yml
+#
+# /boot reads this file to present a menu of Kyle-compatible identities.
+# Registering renames your tmux session so Kyle's local-network scanner
+# can discover it (tmux list-sessions over SSH).
+#
+# Constraints enforced by Kyle's scanner:
+#   - "core" group is excluded from external discovery (is_external_handle).
+#   - "master" role is reserved for the Kyle singleton.
+#   - Names are slugified: lowercase, non-alphanumeric -> hyphens.
+#   - Final tmux name: <prefix><group>-<role>-<name>
+
+# Tmux session name prefix - must match Kyle's TMUX_PREFIX.
+# Production: "kyle-"   Development: "kyle-dev-"
+prefix: "kyle-"
+
+# Available groups for this machine/team.
+# Do NOT add "core" - Kyle's scanner excludes core-group sessions
+# from external discovery.
+groups:
+  - slug: research
+    label: Research & analysis
+  - slug: ops
+    label: Operations & maintenance
+  - slug: budget
+    label: Budget domain
+
+# Available roles (Kyle archetypes).
+# Do NOT add "master" - reserved for the Kyle singleton.
+roles:
+  - slug: worker
+    label: Worker - task executor
+  - slug: orchestrator
+    label: Orchestrator - coordinates group members
+  - slug: steward
+    label: Steward - domain guardian
+
+# Suggested instance names.
+# The user can always enter a custom name via "Other" in the menu.
+names:
+  - analyzer
+  - builder
+  - reviewer
+  - planner
+  - monitor
