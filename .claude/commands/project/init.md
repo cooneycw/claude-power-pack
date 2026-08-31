@@ -402,6 +402,12 @@ if [ ! -d ".specify" ]; then
 
 {Description of the principle and how it guides development.}
 
+### P3: Proportional response
+
+Match ceremony to scope. The cost of governance process must not exceed
+the cost of the change it governs. Default to the lightest sufficient
+process and escalate only when analysis reveals the need.
+
 ---
 
 ## Development Workflow
@@ -412,6 +418,15 @@ if [ ! -d ".specify" ]; then
 4. Break into tasks
 5. Sync tasks to issues
 6. Implement with tests
+
+### Governance Tiers
+
+- **Tier 1 (Surgical):** 1-3 files, single concern. Branch, implement+test,
+  PR. No spec, ELI5 auto-approves.
+- **Tier 2 (Considered):** 4-10 files, new model/endpoint. Branch, ELI5+
+  approval, implement+test, PR.
+- **Tier 3 (Architectural):** New subsystem, security boundary, multi-issue.
+  Full .specify/ pipeline + ELI5 + implement + PR.
 
 ---
 
