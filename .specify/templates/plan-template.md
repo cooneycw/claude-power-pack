@@ -26,13 +26,12 @@
 
 ## Constitution Check
 
-Before proceeding, verify alignment with constitution:
+Before proceeding, verify alignment with your project constitution.
+Replace the placeholders below with your project's actual principles:
 
-- [ ] **P1 Context Efficiency:** Does this add minimal context overhead?
-- [ ] **P2 Issue-Driven:** Is there a GitHub issue for this work?
-- [ ] **P3 Spec-First:** Is the spec complete and approved?
-- [ ] **P4 Test-Driven:** Are test scenarios defined?
-- [ ] **P5 Cross-Platform:** Will this work on Linux/Mac/Windows?
+- [ ] **P1:** {First principle — does this change align?}
+- [ ] **P2:** {Second principle — does this change align?}
+- [ ] **Proportional response:** Is this the lightest process that fits?
 
 ---
 

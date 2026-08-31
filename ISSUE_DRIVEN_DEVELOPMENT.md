@@ -728,6 +728,23 @@ Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>
 
 ---
 
+## Proportional Governance
+
+Not every issue needs the full ceremony. Match process weight to change scope:
+
+| Tier | Scope | Process |
+|------|-------|---------|
+| **Tier 1 (Surgical)** | 1-3 files, single concern | Branch → implement+test → PR. No spec, ELI5 auto-approves. |
+| **Tier 2 (Considered)** | 4-10 files, new model/endpoint | Branch → ELI5+approval → implement+test → PR. |
+| **Tier 3 (Architectural)** | New subsystem, security boundary, multi-issue | Full .specify/ pipeline → ELI5 → implement → PR. |
+
+Default to Tier 1. Escalate only when analysis shows the need — the cost of
+governance process must not exceed the cost of the change it governs. The full
+spec→plan→tasks pipeline described in this guide is Tier 3; most day-to-day
+issues ship through `/flow:auto` at Tier 1 or 2.
+
+---
+
 ## Related Documentation
 
 - [Claude Code Best Practices](CLAUDE_CODE_BEST_PRACTICES_COMPREHENSIVE.md)

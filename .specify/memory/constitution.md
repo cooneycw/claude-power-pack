@@ -61,6 +61,12 @@ After two or more failures from the same root cause, propose systemic hardening 
 - Suggest canary validation before fleet-wide rollout
 - Prevent classes of failures, not just instances
 
+### P7: Proportional response
+
+Match ceremony to scope. The cost of governance process must not exceed
+the cost of the change it governs. Default to the lightest sufficient
+process and escalate only when analysis reveals the need.
+
 ---
 
 ## Development Workflow
@@ -92,6 +98,15 @@ After two or more failures from the same root cause, propose systemic hardening 
 ---
 
 ## Governance
+
+### Governance Tiers
+
+- **Tier 1 (Surgical):** 1-3 files, single concern. Branch, implement+test,
+  PR. No spec, ELI5 auto-approves.
+- **Tier 2 (Considered):** 4-10 files, new model/endpoint. Branch, ELI5+
+  approval, implement+test, PR.
+- **Tier 3 (Architectural):** New subsystem, security boundary, multi-issue.
+  Full .specify/ pipeline + ELI5 + implement + PR.
 
 ### Compliance
 - All PRs must verify alignment with constitution

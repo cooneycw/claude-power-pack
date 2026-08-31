@@ -29,6 +29,13 @@ Constitution (principles) → Spec (what) → Plan (how) → Tasks (work) → Is
 Authoring itself is done with the upstream `/speckit-*` skills that `/spec:adopt`
 installs, not with CPP-specific commands.
 
+## When to Use the Spec Pipeline
+
+The full spec→plan→tasks pipeline is for **Tier 3 (Architectural)** work: new
+subsystems, security boundaries, or multi-issue efforts. Tier 1 (Surgical) and
+Tier 2 (Considered) work should skip the spec pipeline and go directly to
+issue → `/flow:auto`.
+
 ## Supported Workflow
 
 1. **Adopt spec-kit** (once per project):
