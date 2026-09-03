@@ -463,6 +463,57 @@ else
 fi
 ```
 
+## Step 7: Check Tier 6 (Local Qwen Orchestration)
+
+Tier 6 is OPTIONAL and additive - report it as "not installed (optional)"
+rather than "missing" when absent. It needs the Codex CLI as a harness (no
+OpenAI key) plus a reachable Ollama server holding the Qwen model.
+
+```bash
+echo ""
+echo "Tier 6 (Local Qwen - optional):"
+
+QWEN_ENDPOINT="${QWEN_OLLAMA_URL:-http://127.0.0.1:11434}"
+QWEN_MODEL="${QWEN_MODEL:-qwen3.8-code:latest}"
+
+# Harness
+if command -v codex &>/dev/null && codex exec --help 2>&1 | grep -q -- "--oss"; then
+  echo "  [x] Codex CLI harness with --oss support"
+else
+  echo "  [ ] Codex CLI harness: missing or lacks --oss (npm install -g @openai/codex)"
+fi
+
+# Server
+if curl -sf --max-time 5 "$QWEN_ENDPOINT/api/version" > /dev/null 2>&1; then
+  echo "  [x] Ollama server reachable at $QWEN_ENDPOINT"
+  # Model
+  if curl -sf --max-time 5 "$QWEN_ENDPOINT/api/tags" 2>/dev/null | grep -q "${QWEN_MODEL%%:*}"; then
+    echo "  [x] Model present: $QWEN_MODEL"
+  else
+    echo "  [ ] Model '$QWEN_MODEL' not on server"
+  fi
+else
+  echo "  [ ] Ollama server not reachable at $QWEN_ENDPOINT"
+  echo "      (serving machine: start Ollama; consumer machine: set QWEN_OLLAMA_URL)"
+fi
+
+# Commands
+QWEN_CMDS=0
+for cmd in auto exec status help; do
+  [ -f ".claude/commands/qwen/${cmd}.md" ] && QWEN_CMDS=$((QWEN_CMDS + 1))
+done
+echo "  [x] Qwen commands: $QWEN_CMDS/4 available"
+
+# Remote profile (consumer machines)
+if [ -n "$QWEN_CODEX_PROFILE" ]; then
+  if grep -q "\[profiles.$QWEN_CODEX_PROFILE\]" ~/.codex/config.toml 2>/dev/null; then
+    echo "  [x] Remote profile: $QWEN_CODEX_PROFILE (in ~/.codex/config.toml)"
+  else
+    echo "  [!] QWEN_CODEX_PROFILE set but profile missing from ~/.codex/config.toml"
+  fi
+fi
+```
+
 ## Step 8: Summary
 
 Based on the checks above, report:
@@ -520,6 +571,13 @@ Tier 5 (Codex):
   [x] Codex MCP: playwright registered
   [x] Codex MCP: tavily registered
   [x] Codex commands: 4/4 available
+  Status: Complete
+
+Tier 6 (Local Qwen - optional):
+  [x] Codex CLI harness with --oss support
+  [x] Ollama server reachable at http://127.0.0.1:11434
+  [x] Model present: qwen3.8-code:latest
+  [x] Qwen commands: 4/4 available
   Status: Complete
 
 ---------------------------------

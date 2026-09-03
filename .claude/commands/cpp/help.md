@@ -78,6 +78,13 @@ CPP uses a tiered installation model:
 - **Cross-model review**: Claude reviews Codex's implementation
 - **Fix loop**: Automatic re-prompt on quality gate failure (max 2 retries)
 
+### Tier 6 - Local Qwen (optional)
+- **Qwen Auto** (`/qwen:auto`): Full issue lifecycle delegated to a locally hosted Qwen model (Ollama-served, zero API cost)
+- **Qwen Exec** (`/qwen:exec`): One-shot local Qwen execution with JSONL monitoring
+- **Harness**: reuses the Codex CLI in `--oss` mode (no OpenAI API key needed)
+- **Network serving**: one machine hosts the model; others reach it over LAN/Tailscale via a Codex profile
+- **Same safety machinery**: execution fence, `workspace-write` sandbox, overrun verification
+
 ## CI/CD Commands (Tier 4)
 
 | Command | Purpose |
@@ -99,6 +106,15 @@ CPP uses a tiered installation model:
 | `/codex:ask <QUESTION>` | Delegate a read-only question to Codex and relay its answer |
 | `/codex:status` | Check Codex CLI installation and readiness |
 | `/codex:help` | Codex commands overview |
+
+## Local Qwen Orchestration Commands (Tier 6, optional)
+
+| Command | Purpose |
+|---------|---------|
+| `/qwen:auto <ISSUE>` | Full issue lifecycle delegated to local Qwen model |
+| `/qwen:exec <PROMPT>` | One-shot local Qwen execution with JSONL monitoring |
+| `/qwen:status` | Check Ollama server, model, and harness readiness |
+| `/qwen:help` | Qwen commands overview |
 
 ## Skills Ecosystem
 
