@@ -91,8 +91,13 @@ Ask the user which tier they want to install using the AskUserQuestion tool:
 | 3 | **Full** | + MCP servers (external second-opinion + playwright) |
 | 4 | **CI/CD** | + Build system, health checks, pipelines, containers |
 | 5 | **Codex** | + Codex CLI orchestration (cross-model implementation and review) |
+| 6 | **Local Qwen** | + Local-model orchestration via Ollama-served Qwen (zero API cost, private) |
 
-Default recommendation: **Standard** for most users, **Full** for MCP-powered workflows, **CI/CD** for projects needing build automation, **Codex** for cross-model implementation workflows.
+Default recommendation: **Standard** for most users, **Full** for MCP-powered workflows, **CI/CD** for projects needing build automation, **Codex** for cross-model implementation workflows, **Local Qwen** for zero-cost/private local-model implementation.
+
+Tier 6 is optional and additive: it layers on Tier 1 (commands symlink) and
+does not require Tiers 2-5, though it reuses the Codex CLI binary as a
+harness if Tier 5 already installed it.
 
 ---
 
@@ -386,6 +391,35 @@ This will make the following changes:
   To undo:
     # Tier 1+2+3+4 cleanup (see above)
     npm uninstall -g @openai/codex
+
+Proceed? [y/N]
+```
+
+### Tier 6 Disclosure (Local Qwen)
+
+```
+=== Tier 6: Local Qwen Orchestration ===
+
+This will make the following changes:
+
+  [Tier 1 - Commands symlink]
+    (see above; Tiers 2-5 are NOT required for this tier)
+
+  [Tier 6 - Local Qwen]
+    - Requires: Codex CLI as the agentic harness (npm install -g @openai/codex)
+      NOTE: no OpenAI API key is needed - the harness runs in --oss mode
+    - Requires: an Ollama server with the Qwen model, either on this machine
+      (ollama pull qwen3.8:27b + tuned qwen3.8-code tag) or reachable over the
+      network (QWEN_OLLAMA_URL / QWEN_CODEX_PROFILE)
+    - Installs: /qwen:auto, /qwen:exec, /qwen:status, /qwen:help commands
+    - Optional: write a Codex model_providers profile for remote access
+
+  Disk usage: ~0 MB (commands via symlink); the model itself is ~17 GB
+  and lives on the serving machine only.
+
+  To undo:
+    # Tier 1 cleanup (see above)
+    # On the serving machine, optionally: ollama rm qwen3.8-code qwen3.8:27b
 
 Proceed? [y/N]
 ```
@@ -1275,6 +1309,115 @@ bash "$CPP_DIR/scripts/install-memory-harness.sh" \
   || echo "WARNING: memory harness install failed (continuing)"
 ```
 
+### Tier 6 Execution (Local Qwen Orchestration)
+
+Only run when the user selected Tier 6. This tier layers on Tier 1 only; do
+not force Tiers 2-5 first. Ask whether this machine SERVES the model or
+CONSUMES a remote server before running the checks.
+
+#### 6a. Verify the Codex CLI Harness (no API key needed)
+
+```bash
+echo ""
+echo "=== Tier 6: Local Qwen Orchestration ==="
+echo ""
+
+if command -v codex &>/dev/null; then
+  CODEX_VERSION=$(codex --version 2>/dev/null || echo "unknown")
+  echo "[x] Codex CLI harness: $CODEX_VERSION"
+  if ! codex exec --help 2>&1 | grep -q -- "--oss"; then
+    echo "[!] This Codex version lacks --oss local-provider support"
+    echo "    Upgrade: npm install -g @openai/codex"
+  fi
+else
+  echo "[ ] Codex CLI: not installed (required as the local-model harness)"
+  echo "    NOTE: /qwen:* uses --oss mode - no OpenAI API key is required"
+  # Ask user if they want to install; if yes:
+  npm install -g @openai/codex
+fi
+```
+
+#### 6b. Verify the Ollama Server and Model
+
+```bash
+QWEN_ENDPOINT="${QWEN_OLLAMA_URL:-http://127.0.0.1:11434}"
+QWEN_MODEL="${QWEN_MODEL:-qwen3.8-code:latest}"
+
+if curl -sf --max-time 5 "$QWEN_ENDPOINT/api/version" > /dev/null; then
+  echo "[x] Ollama reachable at $QWEN_ENDPOINT"
+else
+  echo "[ ] Ollama NOT reachable at $QWEN_ENDPOINT"
+  echo "    Serving machine: install and start Ollama (brew install ollama on macOS),"
+  echo "    bind to the network with OLLAMA_HOST=0.0.0.0:11434 for LAN/tailnet use."
+  echo "    Consumer machine: set QWEN_OLLAMA_URL=http://<serving-ip>:11434"
+fi
+
+if curl -sf --max-time 5 "$QWEN_ENDPOINT/api/tags" 2>/dev/null | grep -q "${QWEN_MODEL%%:*}"; then
+  echo "[x] Model present: $QWEN_MODEL"
+else
+  echo "[ ] Model '$QWEN_MODEL' missing"
+  echo "    On the serving machine:"
+  echo "      ollama pull qwen3.8:27b"
+  echo "      printf 'FROM qwen3.8:27b\nPARAMETER num_ctx 65536\nPARAMETER temperature 0.7\nPARAMETER top_p 0.8\n' | ollama create qwen3.8-code -f -"
+fi
+```
+
+#### 6c. Remote Access Profile (consumer machines only)
+
+The Codex harness ignores OLLAMA_HOST; remote machines need a
+`model_providers` profile. Offer to append to `~/.codex/config.toml`
+(never overwrite existing content; skip if the profile exists):
+
+```toml
+[model_providers.qwen-local]
+name = "Qwen on local network"
+base_url = "http://<serving-machine-ip>:11434/v1"
+wire_api = "chat"
+
+[profiles.qwen]
+model_provider = "qwen-local"
+model = "qwen3.8-code:latest"
+```
+
+Then instruct the user to set `QWEN_CODEX_PROFILE=qwen` (e.g., in shell rc)
+so `/qwen:auto` and `/qwen:exec` route through it.
+
+#### 6d. Smoke Test (optional)
+
+```bash
+codex exec --oss --local-provider ollama -m "$QWEN_MODEL" \
+  --sandbox read-only --skip-git-repo-check \
+  "Reply with exactly: QWEN-HARNESS-OK" < /dev/null 2>&1 | tail -3
+```
+
+A local 27B model takes minutes for a first turn (model load + prompt eval);
+warn the user before running and offer to skip.
+
+#### 6e. Always-On Second Opinion (optional)
+
+The external mcp-second-opinion server (v2.3.0+) supports a keyless `ollama`
+provider and an `ALWAYS_CONSULT_MODELS` list: models merged into EVERY
+second-opinion consultation, so the local Qwen weighs in on every review at
+zero cost. Offer to enable it:
+
+```bash
+# Check whether the running server already supports it
+SO_HEALTH=$(curl -sf --max-time 5 "${SECOND_OPINION_URL:-http://127.0.0.1:8080}/" > /dev/null 2>&1 && echo up || echo down)
+echo "second-opinion server: $SO_HEALTH"
+```
+
+- Server v2.3.0+ defaults are already always-on: `qwen-local` is in
+  `DEFAULT_MODELS` and `ALWAYS_CONSULT_MODELS`, pointing at
+  `OLLAMA_BASE_URL` (default `http://127.0.0.1:11434`) with model
+  `OLLAMA_MODEL` (default `qwen3.8-code:latest`).
+- If the second-opinion server runs on a DIFFERENT machine than the Qwen
+  server, set `OLLAMA_BASE_URL=http://<qwen-serving-ip>:11434` in the
+  server's environment (launchd plist or .env) and restart it.
+- To disable the always-on behavior: `ALWAYS_CONSULT_MODELS=""` in the
+  server's environment.
+- Verify with the server's `health_check` tool: `always_consult_models`
+  should list `qwen-local` and `ollama_configured` should be true.
+
 ---
 
 ## Step 6: Installation Summary
@@ -1290,6 +1433,7 @@ Installed:
   ✓ Tier 3: MCP servers (external second-opinion + playwright)
   ✓ Tier 4: CI/CD build system, health checks, pipeline, containers
   ✓ Tier 5: Codex CLI orchestration
+  ✓ Tier 6: Local Qwen orchestration (optional - only if selected)
 
 Permission Profile: {PROFILE_NAME}
   Auto-approved: {AUTO_APPROVE_SUMMARY}

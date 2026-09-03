@@ -233,6 +233,13 @@ qualifiers such as `/qa:test` being single-session) are not lost.
 - `/codex:ask <QUESTION>` - Delegate a read-only question to Codex and relay its answer (read-only by default; network opt-in on explicit request)
 - `/codex:status` - Check Codex CLI installation, config, and readiness
 - `/codex:help` - Codex commands overview
+### Local Qwen Orchestration (Tier 6, optional)
+
+- `/qwen:auto <ISSUE>` - Full issue lifecycle delegated to a locally hosted Qwen model (Ollama-served, driven through the Codex CLI harness in `--oss` mode; no OpenAI API key or per-token cost)
+- `/qwen:exec <PROMPT>` - One-shot local Qwen execution in current directory with JSONL monitoring (`workspace-write` sandbox)
+- `/qwen:status` - Check the Ollama server, model presence, network exposure, and Codex harness readiness
+- `/qwen:help` - Qwen commands overview, serving-stack recipe, and remote-access Codex profile setup
+- Design notes: same supervisor/implementer split and issue #735 safety machinery as `/codex:auto` (execution fence, `workspace-write` sandbox, overrun verification); local-model calibration demands tighter prompts and stricter Claude review, with escalation to `/codex:auto` when the fix loop exhausts. One machine serves the model (Ollama bound to `0.0.0.0:11434`); consumer machines reach it via `QWEN_OLLAMA_URL` for status checks and a `model_providers` profile in `~/.codex/config.toml` (selected with `QWEN_CODEX_PROFILE`) for execution, because the Codex harness ignores `OLLAMA_HOST`.
 ### Security
 
 - `/security:scan` - Full scan: native + external tools

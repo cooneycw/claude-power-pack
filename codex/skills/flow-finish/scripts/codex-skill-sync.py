@@ -72,7 +72,9 @@ EXCLUDE: dict[str, set[str]] = {
 # Families deliberately not generated as Codex skills (#582 completeness gate):
 #   spec: spec-kit is the upstream product; /spec:adopt installs it.
 #   codex: orchestrates the Codex CLI itself - circular as a Codex skill.
-UNPACKAGED_FAMILIES: set[str] = {"spec", "codex"}
+#   qwen: drives a local model THROUGH the Codex CLI (--oss harness) - same
+#     circularity as the codex family.
+UNPACKAGED_FAMILIES: set[str] = {"spec", "codex", "qwen"}
 
 # Loose *.md files allowed directly under .claude/commands/. Empty by design
 # since #582 folded the last six into families: a top-level file is outside
