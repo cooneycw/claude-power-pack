@@ -105,6 +105,38 @@ The commands derive the harness endpoint from it
 (`$QWEN_OLLAMA_URL/v1`) and pass it via `--openai-base-url`. Unset, the
 commands default to `http://127.0.0.1:11434`.
 
+## Sandbox and Remote Endpoints (issue #749)
+
+The Qwen Code CLI's `--sandbox` flag runs the model inside a Docker container
+(Linux) or a Seatbelt profile (macOS) that blocks writes outside the working
+directory. On Linux, Docker containers run in their own network namespace, so
+they cannot reach Tailscale interfaces, LAN-only addresses, or other host-only
+network endpoints.
+
+**Automatic detection:** `/qwen:auto` and `/qwen:exec` parse `QWEN_OLLAMA_URL`
+and decide at invocation time:
+
+| Endpoint host | Sandbox | Rationale |
+|---------------|---------|-----------|
+| `127.0.0.1`, `localhost`, `::1` (or unset) | `--sandbox` enabled | Local server - Docker networking is fine |
+| Anything else (e.g., a Tailscale IP) | `--sandbox` skipped | Docker network namespace cannot reach host-only interfaces |
+
+When the sandbox is skipped, the two other safety layers remain active:
+
+1. **Execution fence** - a textual constraint at the top of every prompt that
+   forbids git/gh/deploy/infrastructure commands.
+2. **Post-execution overrun verification** - automated checks that the model
+   did not commit, push, create PRs, or escape its implementation-only boundary.
+
+These layers are always present regardless of sandbox state and already carry
+the network boundary (the sandbox never blocked network from shell commands the
+model runs).
+
+**Force override:** To force sandbox on for a remote endpoint (e.g., if Docker
+is configured with `--network host`), set `QWEN_FORCE_SANDBOX=1`. To force
+sandbox off for a local endpoint, set `QWEN_FORCE_SANDBOX=0`. The detection
+only applies when the variable is unset.
+
 ## Quick Start
 
 ```bash
@@ -128,7 +160,7 @@ commands default to `http://127.0.0.1:11434`.
 | Privacy | Code sent to OpenAI | Code never leaves the network |
 | Speed | Fast (cloud inference) | ~15-20 tok/s (Apple Silicon) |
 | Capability | Frontier model | Strong 27B - needs tighter prompts, stricter review |
-| Sandbox | `workspace-write` | Seatbelt/Docker sandbox + yolo approval |
+| Sandbox | `workspace-write` | Seatbelt/Docker sandbox (local endpoint) / skipped for remote (issue #749) |
 | Escalation path | - | Falls back to `/codex:auto` when it struggles |
 
 ## When To Use Which
@@ -159,8 +191,8 @@ Run `/cpp:init` and select **Tier 6 (Local Qwen)** to:
 
 ## Notes
 
-- Same defense-in-depth as `/codex:auto`: execution fence + sandbox + overrun verification
+- Same defense-in-depth as `/codex:auto`: execution fence + sandbox + overrun verification. When `QWEN_OLLAMA_URL` is a remote endpoint, the sandbox is automatically skipped (issue #749) and the fence + overrun verification carry the full boundary
 - A local model wanders more than a frontier model - the fence and the Claude review step are mandatory, never skipped
 - `QWEN_MODEL` overrides the model tag; any Ollama-served coding model works (e.g., `qwen3-coder:30b`)
 - Expect minutes-per-turn pacing on the serving hardware; the JSONL stream shows liveness
-- The Qwen Code sandbox (default macOS Seatbelt profile) blocks writes outside the working directory but does NOT block network from shell commands the model runs - the execution fence plus post-run overrun verification cover that gap, exactly as they did under Codex
+- The sandbox (Seatbelt/Docker) blocks writes outside the working directory but does NOT block network from shell commands the model runs - the execution fence plus post-run overrun verification cover that gap in all modes. `QWEN_FORCE_SANDBOX` overrides the automatic detection (1 = force on, 0 = force off)
