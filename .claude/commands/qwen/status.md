@@ -1,12 +1,12 @@
 ---
-description: Check local Qwen serving stack - Ollama server, model, and Codex harness readiness
-allowed-tools: Bash(codex:*), Bash(ollama:*), Bash(command -v:*), Bash(ls:*), Bash(cat:*), Bash(grep:*), Bash(curl:*), Bash(test:*), Bash(head:*), Bash(launchctl:*)
+description: Check local Qwen serving stack - Ollama server, model, and Qwen Code harness readiness
+allowed-tools: Bash(qwen:*), Bash(ollama:*), Bash(command -v:*), Bash(ls:*), Bash(cat:*), Bash(grep:*), Bash(curl:*), Bash(test:*), Bash(head:*), Bash(launchctl:*)
 ---
 
 # Qwen Status: Check Local Qwen Stack Readiness
 
-Check the Ollama server, the Qwen model, network exposure, and the Codex CLI
-harness that `/qwen:auto` and `/qwen:exec` depend on.
+Check the Ollama server, the Qwen model, network exposure, and the Qwen Code
+CLI harness that `/qwen:auto` and `/qwen:exec` depend on.
 
 ## Instructions
 
@@ -65,36 +65,33 @@ if command -v ollama &>/dev/null; then
 fi
 ```
 
-### Step 3: Check Codex CLI Harness
+### Step 3: Check Qwen Code CLI Harness
 
 ```bash
 echo ""
-echo "=== Codex CLI Harness ==="
+echo "=== Qwen Code CLI Harness ==="
 echo ""
 
-if command -v codex &>/dev/null; then
-    CODEX_VERSION=$(codex --version 2>/dev/null || echo "unknown")
-    echo "[x] Codex CLI: $CODEX_VERSION"
-    if codex exec --help 2>&1 | grep -q -- "--oss"; then
-        echo "[x] --oss local-provider support: present"
+if command -v qwen &>/dev/null; then
+    QWEN_CLI_VERSION=$(qwen --version 2>/dev/null || echo "unknown")
+    echo "[x] Qwen Code CLI: $QWEN_CLI_VERSION"
+    if qwen --help 2>&1 | grep -q -- "--output-format"; then
+        echo "[x] Headless stream-json support: present"
     else
-        echo "[ ] --oss flag not supported - upgrade: npm install -g @openai/codex"
+        echo "[ ] --output-format not supported - upgrade: npm install -g @qwen-code/qwen-code"
     fi
 else
-    echo "[ ] Codex CLI: not installed (required as the local-model harness)"
-    echo "    Install with: npm install -g @openai/codex"
-    echo "    NOTE: no OpenAI API key is needed for /qwen:* usage"
+    echo "[ ] Qwen Code CLI: not installed (required as the local-model harness)"
+    echo "    Install with: npm install -g @qwen-code/qwen-code"
+    echo "    NOTE: no cloud API key is needed for /qwen:* usage"
 fi
 
-# Remote profile, if configured
+# Flag the retired Codex harness path if its env var is still set
 if [ -n "$QWEN_CODEX_PROFILE" ]; then
     echo ""
-    if grep -q "\[profiles.$QWEN_CODEX_PROFILE\]" ~/.codex/config.toml 2>/dev/null; then
-        echo "[x] Remote profile '$QWEN_CODEX_PROFILE' found in ~/.codex/config.toml"
-    else
-        echo "[ ] QWEN_CODEX_PROFILE='$QWEN_CODEX_PROFILE' set but not found in ~/.codex/config.toml"
-        echo "    See /qwen:help for the profile recipe"
-    fi
+    echo "[~] QWEN_CODEX_PROFILE is set but no longer used: the Codex CLI"
+    echo "    harness was retired (issue #745). Remote serving machines now"
+    echo "    need only QWEN_OLLAMA_URL - see /qwen:help. Unset it."
 fi
 ```
 
@@ -106,11 +103,13 @@ If the server and model are present, offer a quick generation probe:
 echo ""
 echo "=== Latency Probe ==="
 curl -s "$QWEN_ENDPOINT/api/generate" \
-  -d "{\"model\":\"$QWEN_MODEL\",\"prompt\":\"Say OK. /no_think\",\"stream\":false}" \
+  -d "{\"model\":\"$QWEN_MODEL\",\"prompt\":\"Say OK.\",\"think\":false,\"stream\":false}" \
   --max-time 120 | grep -o '"eval_count":[0-9]*\|"eval_duration":[0-9]*' || echo "(probe failed or timed out)"
 ```
 
 Report tokens/second if the probe succeeds (eval_count / (eval_duration / 1e9)).
+(`"think": false` keeps the probe fast on thinking-enabled models; it is the
+native-API hard switch, more reliable than the `/no_think` soft prompt.)
 
 ### Step 5: Summary
 
@@ -119,7 +118,7 @@ echo ""
 echo "==================================="
 
 READY=true
-command -v codex &>/dev/null || READY=false
+command -v qwen &>/dev/null || READY=false
 curl -sf --max-time 5 "$QWEN_ENDPOINT/api/version" > /dev/null 2>&1 || READY=false
 
 if [ "$READY" = "true" ]; then
@@ -140,5 +139,5 @@ echo "==================================="
 ## Notes
 
 - This command is read-only - it checks state but does not modify anything
-- `QWEN_OLLAMA_URL` lets a remote machine check the serving machine's stack
-- The Codex CLI is required only as an agentic harness; `/qwen:*` never uses an OpenAI API key
+- `QWEN_OLLAMA_URL` lets a remote machine check (and use) the serving machine's stack
+- The Qwen Code CLI is required only as an agentic harness; `/qwen:*` never uses a cloud API key

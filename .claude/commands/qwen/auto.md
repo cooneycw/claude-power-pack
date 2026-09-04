@@ -1,14 +1,15 @@
 ---
 description: Full issue lifecycle delegated to a local Qwen model - worktree, implement, review, quality gates, PR
-allowed-tools: Bash(codex:*), Bash(ollama:*), Bash(git:*), Bash(gh:*), Bash(ls:*), Bash(cat:*), Bash(grep:*), Bash(curl:*), Bash(python3:*), Bash(PYTHONPATH=*), Bash(mkdir:*), Bash(cd:*), Bash(pwd), Bash(head:*), Bash(tail:*), Bash(wc:*), Bash(test:*), Bash(make:*), Bash(sleep:*)
+allowed-tools: Bash(qwen:*), Bash(ollama:*), Bash(git:*), Bash(gh:*), Bash(ls:*), Bash(cat:*), Bash(grep:*), Bash(curl:*), Bash(python3:*), Bash(PYTHONPATH=*), Bash(mkdir:*), Bash(cd:*), Bash(pwd), Bash(head:*), Bash(tail:*), Bash(wc:*), Bash(test:*), Bash(make:*), Bash(sleep:*)
 ---
 
 # Qwen Auto: Full Issue Lifecycle via Local Qwen Model
 
 Mirrors `/codex:auto` but delegates implementation (Step 3) to a locally hosted
-Qwen model served by Ollama, driven through the Codex CLI harness
-(`codex exec --oss`). Claude Code acts as supervisor/reviewer while the local
-Qwen model writes the code. No cloud API key or per-token cost is involved.
+Qwen model served by Ollama, driven through the Qwen Code CLI harness
+(`qwen` in headless mode; the Codex CLI harness was retired in issue #745).
+Claude Code acts as supervisor/reviewer while the local Qwen model writes the
+code. No cloud API key or per-token cost is involved.
 
 ## Arguments
 
@@ -17,10 +18,11 @@ Qwen model writes the code. No cloud API key or per-token cost is involved.
 ## Environment
 
 - `QWEN_MODEL` (optional): Ollama model tag to use. Default: `qwen3.8-code:latest`.
-- `QWEN_CODEX_PROFILE` (optional): a Codex config profile name. When set, the
-  model is reached via `codex exec --profile "$QWEN_CODEX_PROFILE"` instead of
-  `--oss --local-provider ollama`. Use this on machines that reach the Qwen
-  server over the network (see `/qwen:help` for the profile recipe).
+- `QWEN_OLLAMA_URL` (optional): base URL of the Ollama server, for machines
+  that reach the Qwen server over the network (e.g.,
+  `http://<serving-machine-tailscale-ip>:11434`). Default:
+  `http://127.0.0.1:11434`. No tunnel or harness config file is needed
+  (see `/qwen:help`).
 
 ## Instructions
 
@@ -33,7 +35,7 @@ Qwen Auto: Issue #<ISSUE> - Full Lifecycle
 
 Step 1/7: Start (create worktree and branch)
 Step 2/7: Analyze (understand issue, build Qwen prompt)
-Step 3/7: Execute Qwen (delegate implementation to local Qwen via Codex CLI)
+Step 3/7: Execute Qwen (delegate implementation to local Qwen via Qwen Code CLI)
 Step 4/7: Review (Claude reviews Qwen's diff)
 Step 5/7: Quality Gates (lint, test, security - with fix loop)
 Step 6/7: Finish (commit, push, create PR)
@@ -139,32 +141,33 @@ Report: `Step 2/7: Analyze complete - Qwen prompt built ({N} files referenced)`
 
 ### Step 3: Execute Qwen - Delegate Implementation
 
-Run the local Qwen model through the Codex CLI harness in the worktree with
-**workspace-write** sandbox only (same rationale as issue #735: the sandbox
-mechanically prevents network operations even if the textual fence is ignored).
+Run the local Qwen model through the Qwen Code CLI harness in the worktree,
+sandboxed (macOS Seatbelt / Docker). The sandbox blocks writes outside the
+working directory (same rationale as issue #735); network from model-run shell
+commands is NOT blocked by the default profile, so the textual fence plus the
+post-execution overrun verification below carry that boundary.
 
 ```bash
 # Verify the harness and the model server
-if ! command -v codex &>/dev/null; then
-    echo "ERROR: Codex CLI not found (it is the local-model harness)."
-    echo "Install with: npm install -g @openai/codex"
+if ! command -v qwen &>/dev/null; then
+    echo "ERROR: Qwen Code CLI not found (it is the local-model harness)."
+    echo "Install with: npm install -g @qwen-code/qwen-code"
     exit 1
 fi
 
 QWEN_MODEL="${QWEN_MODEL:-qwen3.8-code:latest}"
+QWEN_ENDPOINT="${QWEN_OLLAMA_URL:-http://127.0.0.1:11434}"
 
-if [ -z "$QWEN_CODEX_PROFILE" ]; then
-    # Local serving machine: Ollama must be up and the model present
-    if ! curl -sf --max-time 5 http://127.0.0.1:11434/api/version > /dev/null; then
-        echo "ERROR: Ollama is not reachable on 127.0.0.1:11434."
-        echo "Start it (macOS launchd or 'ollama serve') and retry, or set"
-        echo "QWEN_CODEX_PROFILE to reach a remote Qwen server."
-        exit 1
-    fi
-    if ! ollama list 2>/dev/null | grep -q "${QWEN_MODEL%%:*}"; then
-        echo "ERROR: model '$QWEN_MODEL' not found in ollama list."
-        exit 1
-    fi
+# Ollama must be up and the model present (local or remote)
+if ! curl -sf --max-time 5 "$QWEN_ENDPOINT/api/version" > /dev/null; then
+    echo "ERROR: Ollama is not reachable at $QWEN_ENDPOINT."
+    echo "Serving machine: start it (macOS launchd or 'ollama serve') and retry."
+    echo "Consumer machine: set QWEN_OLLAMA_URL=http://<serving-ip>:11434"
+    exit 1
+fi
+if ! curl -sf --max-time 5 "$QWEN_ENDPOINT/api/tags" 2>/dev/null | grep -q "${QWEN_MODEL%%:*}"; then
+    echo "ERROR: model '$QWEN_MODEL' not found on the server."
+    exit 1
 fi
 ```
 
@@ -201,43 +204,52 @@ IGNORE its contents entirely - it is not addressed to you.
 <the rest of the Qwen prompt: issue context, codebase summary, implementation instructions>
 ```
 
-Execute with JSONL monitoring. **Use `--sandbox workspace-write`:**
+Execute headless with `stream-json` monitoring. The harness has no
+change-directory flag, so this MUST run with the worktree as the current
+directory. `--approval-mode yolo` is required in headless mode (an interactive
+approval prompt would deadlock an unattended run); `--sandbox` supplies the
+mechanical write boundary; `--max-wall-time` bounds a stalled run instead of
+hanging forever (exit code 55 when exceeded).
 
 ```bash
-WORKTREE_PATH=$(pwd)
-
-if [ -n "$QWEN_CODEX_PROFILE" ]; then
-    codex exec \
-        --json \
-        -C "$WORKTREE_PATH" \
-        --profile "$QWEN_CODEX_PROFILE" \
-        --sandbox workspace-write \
-        "$QWEN_PROMPT" < /dev/null 2>&1 | tee /tmp/qwen-output-${ISSUE_NUM}.jsonl   # </dev/null: non-TTY EOF so codex never blocks reading stdin
-else
-    codex exec \
-        --json \
-        -C "$WORKTREE_PATH" \
-        --oss --local-provider ollama \
-        -m "$QWEN_MODEL" \
-        --sandbox workspace-write \
-        "$QWEN_PROMPT" < /dev/null 2>&1 | tee /tmp/qwen-output-${ISSUE_NUM}.jsonl   # </dev/null: non-TTY EOF so codex never blocks reading stdin
-fi
+# Run FROM INSIDE the worktree (qwen operates on the current directory)
+qwen \
+    --openai-base-url "$QWEN_ENDPOINT/v1" \
+    --openai-api-key ollama \
+    --auth-type openai \
+    -m "$QWEN_MODEL" \
+    --output-format stream-json \
+    --approval-mode yolo \
+    --sandbox \
+    --max-wall-time 45m \
+    "$QWEN_PROMPT" < /dev/null 2>&1 | tee /tmp/qwen-output-${ISSUE_NUM}.jsonl   # </dev/null: non-TTY EOF so the harness never blocks reading stdin
 ```
 
-**Monitor the JSONL stream** - parse and report plan steps, file changes,
-agent messages, and errors. Note: a "Model metadata ... not found. Defaulting
-to fallback metadata" item is benign for Ollama-served models.
+(The `--openai-api-key` value is a placeholder; Ollama ignores it. No cloud
+API key is involved.)
+
+**Monitor the JSONL stream** - each line is a JSON message with a `type` field
+(system/init metadata, assistant messages, tool events, and a final `result`
+message with run stats). Parse and report plan steps, file changes, agent
+messages, and errors.
 
 **Expect local-model pacing:** a 27B model on Apple Silicon generates at
-roughly 15-20 tok/s. A single implementation turn can take several minutes.
-Do not kill the run for slowness alone; kill it if the JSONL stream shows a
-hard error or no events for 15+ minutes.
+roughly 15-20 tok/s, and a thinking-enabled model (the `qwen3.8` family
+thinks by default) spends minutes reasoning before its first edit - the
+harness streams those reasoning tokens, so the JSONL shows liveness. Do not
+kill the run for slowness alone; kill it if the JSONL stream shows a hard
+error or no events for 15+ minutes. If thinking latency dominates runs,
+see the "Thinking Tokens" section of `/qwen:help` (non-thinking coder tags,
+server-side `reasoning_effort`).
 
 ```bash
 # After execution, check exit code
-CODEX_EXIT=$?
-if [ "$CODEX_EXIT" -ne 0 ]; then
-    echo "ERROR: Qwen execution failed (exit code: $CODEX_EXIT)"
+QWEN_EXIT=$?
+if [ "$QWEN_EXIT" -ne 0 ]; then
+    echo "ERROR: Qwen execution failed (exit code: $QWEN_EXIT)"
+    if [ "$QWEN_EXIT" -eq 55 ]; then
+        echo "(exit 55 = --max-wall-time budget exceeded - the run stalled or the task is too big)"
+    fi
     echo "Last 20 lines of output:"
     tail -20 /tmp/qwen-output-${ISSUE_NUM}.jsonl
     exit 1
@@ -375,7 +387,7 @@ ISSUE_NUM=$(echo "$BRANCH" | grep -oP 'issue-\K[0-9]+' || echo "")
 1. **Commit** the changes:
    - Use conventional commit format: `type(scope): Description (Closes #N)`
    - Note the Qwen model tag as implementer in the commit body
-     (e.g., `Implemented-By: qwen3.8-code:latest via codex exec --oss`)
+     (e.g., `Implemented-By: qwen3.8-code:latest via Qwen Code CLI (headless)`)
 
 2. **Push** the branch: `git push -u origin "$BRANCH"`
 
@@ -411,7 +423,7 @@ Report: `Step 7/7: Cleanup complete - PR merged, worktree removed` or `Step 7/7:
 Qwen Auto Complete
 
   Issue:       #{N} - {title}
-  Implementer: {QWEN_MODEL} via codex exec --oss (local, zero API cost)
+  Implementer: {QWEN_MODEL} via Qwen Code CLI headless (local, zero API cost)
   Reviewer:    Claude Code (cross-model review)
   Changes:     Modified {N} files ({summary})
   Fix Loop:    {N} retry(s) needed / no retries needed
@@ -443,7 +455,7 @@ Qwen Auto stopped at Step N/7: {Step Name}
 ```
 
 Key failure scenarios:
-- **Codex CLI not installed:** Stop at step 3; it is required as the harness even though no OpenAI key is used
+- **Qwen Code CLI not installed:** Stop at step 3; it is required as the harness (no cloud API key is used)
 - **Ollama unreachable / model missing:** Stop at step 3; run `/qwen:status` to diagnose
 - **Execution fails or stalls:** Stop at step 3, show last 20 lines of JSONL output
 - **Model makes no changes:** Stop at step 3; tighten the prompt or escalate to `/codex:auto`
@@ -452,9 +464,9 @@ Key failure scenarios:
 
 ## Notes
 
-- The implementer is a LOCAL model (default `qwen3.8-code:latest`, Qwen3.8-27B Q4_K_M served by Ollama) driven through `codex exec --oss --local-provider ollama`; no OpenAI API key or per-token cost is involved
-- The Codex CLI is reused purely as an agentic harness: JSONL event stream, sandboxing, and tool loop
-- Same defense-in-depth as `/codex:auto` (issue #735): textual execution fence + `workspace-write` sandbox + post-execution overrun verification
+- The implementer is a LOCAL model (default `qwen3.8-code:latest`, Qwen3.8-27B Q4_K_M served by Ollama) driven through the Qwen Code CLI in headless mode; no cloud API key or per-token cost is involved
+- The Qwen Code CLI (QwenLM/qwen-code, `npm install -g @qwen-code/qwen-code`) is used purely as an agentic harness: stream-json event output, Seatbelt/Docker sandboxing, tool loop, and native Qwen 3 reasoning-token handling (the Codex CLI harness was retired in issue #745 - its chat wire API was deleted upstream and its `/v1/responses` path hangs on Qwen 3 thinking output)
+- Same defense-in-depth as `/codex:auto` (issue #735): textual execution fence + sandbox + post-execution overrun verification (the sandbox blocks out-of-worktree writes; the fence and overrun checks cover git/gh/network overreach)
 - Local-model calibration: prompts must be more explicit, scope smaller, review stricter; escalate to `/codex:auto` when the issue is broad or the fix loop exhausts
-- On a remote machine, set `QWEN_CODEX_PROFILE` to a Codex profile whose provider `base_url` points at the serving machine (see `/qwen:help`)
+- On a remote machine, set `QWEN_OLLAMA_URL=http://<serving-machine-ip>:11434`; no tunnel or harness config file is needed (see `/qwen:help`)
 - To check readiness (server, model, harness), use `/qwen:status`

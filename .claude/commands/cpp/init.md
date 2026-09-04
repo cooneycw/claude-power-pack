@@ -406,13 +406,13 @@ This will make the following changes:
     (see above; Tiers 2-5 are NOT required for this tier)
 
   [Tier 6 - Local Qwen]
-    - Requires: Codex CLI as the agentic harness (npm install -g @openai/codex)
-      NOTE: no OpenAI API key is needed - the harness runs in --oss mode
+    - Requires: Qwen Code CLI as the agentic harness
+      (npm install -g @qwen-code/qwen-code)
+      NOTE: no cloud API key is needed - the harness talks straight to Ollama
     - Requires: an Ollama server with the Qwen model, either on this machine
       (ollama pull qwen3.8:27b + tuned qwen3.8-code tag) or reachable over the
-      network (QWEN_OLLAMA_URL / QWEN_CODEX_PROFILE)
+      network (QWEN_OLLAMA_URL)
     - Installs: /qwen:auto, /qwen:exec, /qwen:status, /qwen:help commands
-    - Optional: write a Codex model_providers profile for remote access
 
   Disk usage: ~0 MB (commands via symlink); the model itself is ~17 GB
   and lives on the serving machine only.
@@ -1315,25 +1315,31 @@ Only run when the user selected Tier 6. This tier layers on Tier 1 only; do
 not force Tiers 2-5 first. Ask whether this machine SERVES the model or
 CONSUMES a remote server before running the checks.
 
-#### 6a. Verify the Codex CLI Harness (no API key needed)
+#### 6a. Verify the Qwen Code CLI Harness (no API key needed)
 
 ```bash
 echo ""
 echo "=== Tier 6: Local Qwen Orchestration ==="
 echo ""
 
-if command -v codex &>/dev/null; then
-  CODEX_VERSION=$(codex --version 2>/dev/null || echo "unknown")
-  echo "[x] Codex CLI harness: $CODEX_VERSION"
-  if ! codex exec --help 2>&1 | grep -q -- "--oss"; then
-    echo "[!] This Codex version lacks --oss local-provider support"
-    echo "    Upgrade: npm install -g @openai/codex"
+if command -v qwen &>/dev/null; then
+  QWEN_CLI_VERSION=$(qwen --version 2>/dev/null || echo "unknown")
+  echo "[x] Qwen Code CLI harness: $QWEN_CLI_VERSION"
+  if ! qwen --help 2>&1 | grep -q -- "--output-format"; then
+    echo "[!] This Qwen Code version lacks headless stream-json support"
+    echo "    Upgrade: npm install -g @qwen-code/qwen-code"
   fi
 else
-  echo "[ ] Codex CLI: not installed (required as the local-model harness)"
-  echo "    NOTE: /qwen:* uses --oss mode - no OpenAI API key is required"
+  echo "[ ] Qwen Code CLI: not installed (required as the local-model harness)"
+  echo "    NOTE: /qwen:* talks straight to Ollama - no cloud API key is required"
   # Ask user if they want to install; if yes:
-  npm install -g @openai/codex
+  npm install -g @qwen-code/qwen-code
+fi
+
+# Flag the retired Codex-harness env var if still set (issue #745)
+if [ -n "$QWEN_CODEX_PROFILE" ]; then
+  echo "[~] QWEN_CODEX_PROFILE is set but no longer used (Codex harness retired,"
+  echo "    issue #745). Remote machines need only QWEN_OLLAMA_URL. Unset it."
 fi
 ```
 
@@ -1362,31 +1368,29 @@ else
 fi
 ```
 
-#### 6c. Remote Access Profile (consumer machines only)
+#### 6c. Remote Access (consumer machines only)
 
-The Codex harness ignores OLLAMA_HOST; remote machines need a
-`model_providers` profile. Offer to append to `~/.codex/config.toml`
-(never overwrite existing content; skip if the profile exists):
+No harness config file is needed for a remote Ollama server. Instruct the
+user to set one environment variable (e.g., in shell rc):
 
-```toml
-[model_providers.qwen-local]
-name = "Qwen on local network"
-base_url = "http://<serving-machine-ip>:11434/v1"
-wire_api = "chat"
-
-[profiles.qwen]
-model_provider = "qwen-local"
-model = "qwen3.8-code:latest"
+```bash
+export QWEN_OLLAMA_URL=http://<serving-machine-ip>:11434
 ```
 
-Then instruct the user to set `QWEN_CODEX_PROFILE=qwen` (e.g., in shell rc)
-so `/qwen:auto` and `/qwen:exec` route through it.
+`/qwen:auto`, `/qwen:exec`, and `/qwen:status` derive the harness endpoint
+from it (`$QWEN_OLLAMA_URL/v1` via `--openai-base-url`). If the user still
+has a `QWEN_CODEX_PROFILE` export or a `[model_providers.qwen-local]` block
+in `~/.codex/config.toml` from the retired Codex harness (issue #745), advise
+removing them - a leftover `wire_api = "chat"` provider block hard-errors
+every modern Codex invocation, including unrelated `/codex:*` commands.
 
 #### 6d. Smoke Test (optional)
 
 ```bash
-codex exec --oss --local-provider ollama -m "$QWEN_MODEL" \
-  --sandbox read-only --skip-git-repo-check \
+QWEN_ENDPOINT="${QWEN_OLLAMA_URL:-http://127.0.0.1:11434}"
+qwen --openai-base-url "$QWEN_ENDPOINT/v1" --openai-api-key ollama \
+  --auth-type openai -m "$QWEN_MODEL" \
+  --approval-mode plan --output-format text --max-wall-time 10m \
   "Reply with exactly: QWEN-HARNESS-OK" < /dev/null 2>&1 | tail -3
 ```
 
