@@ -466,8 +466,8 @@ fi
 ## Step 7: Check Tier 6 (Local Qwen Orchestration)
 
 Tier 6 is OPTIONAL and additive - report it as "not installed (optional)"
-rather than "missing" when absent. It needs the Codex CLI as a harness (no
-OpenAI key) plus a reachable Ollama server holding the Qwen model.
+rather than "missing" when absent. It needs the Qwen Code CLI as a harness
+(no cloud API key) plus a reachable Ollama server holding the Qwen model.
 
 ```bash
 echo ""
@@ -477,10 +477,10 @@ QWEN_ENDPOINT="${QWEN_OLLAMA_URL:-http://127.0.0.1:11434}"
 QWEN_MODEL="${QWEN_MODEL:-qwen3.8-code:latest}"
 
 # Harness
-if command -v codex &>/dev/null && codex exec --help 2>&1 | grep -q -- "--oss"; then
-  echo "  [x] Codex CLI harness with --oss support"
+if command -v qwen &>/dev/null && qwen --help 2>&1 | grep -q -- "--output-format"; then
+  echo "  [x] Qwen Code CLI harness with headless stream-json support"
 else
-  echo "  [ ] Codex CLI harness: missing or lacks --oss (npm install -g @openai/codex)"
+  echo "  [ ] Qwen Code CLI harness: missing or outdated (npm install -g @qwen-code/qwen-code)"
 fi
 
 # Server
@@ -504,13 +504,10 @@ for cmd in auto exec status help; do
 done
 echo "  [x] Qwen commands: $QWEN_CMDS/4 available"
 
-# Remote profile (consumer machines)
+# Retired Codex-harness env var (issue #745)
 if [ -n "$QWEN_CODEX_PROFILE" ]; then
-  if grep -q "\[profiles.$QWEN_CODEX_PROFILE\]" ~/.codex/config.toml 2>/dev/null; then
-    echo "  [x] Remote profile: $QWEN_CODEX_PROFILE (in ~/.codex/config.toml)"
-  else
-    echo "  [!] QWEN_CODEX_PROFILE set but profile missing from ~/.codex/config.toml"
-  fi
+  echo "  [~] QWEN_CODEX_PROFILE set but no longer used (Codex harness retired,"
+  echo "      issue #745) - remote machines need only QWEN_OLLAMA_URL. Unset it."
 fi
 ```
 
@@ -574,7 +571,7 @@ Tier 5 (Codex):
   Status: Complete
 
 Tier 6 (Local Qwen - optional):
-  [x] Codex CLI harness with --oss support
+  [x] Qwen Code CLI harness with headless stream-json support
   [x] Ollama server reachable at http://127.0.0.1:11434
   [x] Model present: qwen3.8-code:latest
   [x] Qwen commands: 4/4 available

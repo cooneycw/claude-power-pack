@@ -81,9 +81,9 @@ CPP uses a tiered installation model:
 ### Tier 6 - Local Qwen (optional)
 - **Qwen Auto** (`/qwen:auto`): Full issue lifecycle delegated to a locally hosted Qwen model (Ollama-served, zero API cost)
 - **Qwen Exec** (`/qwen:exec`): One-shot local Qwen execution with JSONL monitoring
-- **Harness**: reuses the Codex CLI in `--oss` mode (no OpenAI API key needed)
-- **Network serving**: one machine hosts the model; others reach it over LAN/Tailscale via a Codex profile
-- **Same safety machinery**: execution fence, `workspace-write` sandbox, overrun verification
+- **Harness**: Qwen Code CLI in headless mode (no cloud API key needed; Codex harness retired in issue #745)
+- **Network serving**: one machine hosts the model; others reach it over LAN/Tailscale via `QWEN_OLLAMA_URL`
+- **Same safety machinery**: execution fence, sandbox, overrun verification
 
 ## CI/CD Commands (Tier 4)
 

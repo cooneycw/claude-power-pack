@@ -235,11 +235,11 @@ qualifiers such as `/qa:test` being single-session) are not lost.
 - `/codex:help` - Codex commands overview
 ### Local Qwen Orchestration (Tier 6, optional)
 
-- `/qwen:auto <ISSUE>` - Full issue lifecycle delegated to a locally hosted Qwen model (Ollama-served, driven through the Codex CLI harness in `--oss` mode; no OpenAI API key or per-token cost)
-- `/qwen:exec <PROMPT>` - One-shot local Qwen execution in current directory with JSONL monitoring (`workspace-write` sandbox)
-- `/qwen:status` - Check the Ollama server, model presence, network exposure, and Codex harness readiness
-- `/qwen:help` - Qwen commands overview, serving-stack recipe, and remote-access Codex profile setup
-- Design notes: same supervisor/implementer split and issue #735 safety machinery as `/codex:auto` (execution fence, `workspace-write` sandbox, overrun verification); local-model calibration demands tighter prompts and stricter Claude review, with escalation to `/codex:auto` when the fix loop exhausts. One machine serves the model (Ollama bound to `0.0.0.0:11434`); consumer machines reach it via `QWEN_OLLAMA_URL` for status checks and a `model_providers` profile in `~/.codex/config.toml` (selected with `QWEN_CODEX_PROFILE`) for execution, because the Codex harness ignores `OLLAMA_HOST`.
+- `/qwen:auto <ISSUE>` - Full issue lifecycle delegated to a locally hosted Qwen model (Ollama-served, driven through the Qwen Code CLI harness in headless stream-json mode; no cloud API key or per-token cost)
+- `/qwen:exec <PROMPT>` - One-shot local Qwen execution in current directory with JSONL monitoring (Seatbelt/Docker sandbox, yolo approval, wall-time budget)
+- `/qwen:status` - Check the Ollama server, model presence, network exposure, and Qwen Code harness readiness
+- `/qwen:help` - Qwen commands overview, serving-stack recipe, thinking-token guidance, and remote-access setup
+- Design notes: same supervisor/implementer split and issue #735 safety machinery as `/codex:auto` (execution fence, sandbox, overrun verification); local-model calibration demands tighter prompts and stricter Claude review, with escalation to `/codex:auto` when the fix loop exhausts. One machine serves the model (Ollama bound to `0.0.0.0:11434`); consumer machines reach it by setting `QWEN_OLLAMA_URL`, which every `/qwen:*` command uses for both status checks and execution (`--openai-base-url $QWEN_OLLAMA_URL/v1`). The original Codex CLI harness (`codex exec --oss`, `QWEN_CODEX_PROFILE`) was retired in issue #745: Codex deleted the chat-completions wire API at v0.95 (a leftover `wire_api = "chat"` provider block hard-errors every Codex run), its `/v1/responses` path hangs on Qwen 3 thinking output (ollama/ollama#18187), and upstream closed remote-Ollama support as not-planned.
 ### Security
 
 - `/security:scan` - Full scan: native + external tools
