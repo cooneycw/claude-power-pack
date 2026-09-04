@@ -68,7 +68,8 @@
 #                           LIVE session is driving this issue right now
 #     CLAIM_PID=<pid|->     owning process id when CLAIM names an owner
 #     CLAIM_SESSION=<id|->  owning Claude session id
-#     PR_HEAD=none|<number>:<state>|unknown        (resume shipped-PR hazard)
+#     PR_HEAD=none|<number>:<state>|unknown        (shipped-PR hazard; probed on
+#                           the resume AND remote-pickup lanes, #742)
 #     CONFIRM_REQUIRED=0|1  1 = STOP: explicit user confirmation needed
 #                           (suspected live driver, a live cross-session claim
 #                           on this issue, existing open/merged PR, or non-OPEN
@@ -370,6 +371,40 @@ DEFAULT_BRANCH=${DEFAULT_BRANCH:-main}
 BASE_REF="origin/$DEFAULT_BRANCH"
 "$GIT" -C "$TARGET_REPO" show-ref --verify --quiet "refs/remotes/origin/$DEFAULT_BRANCH" || BASE_REF="$DEFAULT_BRANCH"
 
+# ---- shipped-PR probe (issues #503, #742) -----------------------------------
+# Ask GitHub whether a branch already has an OPEN or MERGED PR - the guard that
+# stops a run from silently duplicating or steamrolling in-flight work. Name the
+# target repository EXPLICITLY (--repo, parsed from origin's URL): gh otherwise
+# resolves the repo from its cwd, and a cross-repo run (session cwd outside the
+# target repo, #578) must never let that resolution drift (#742). When origin's
+# URL is not an owner/repo-shaped GitHub remote (e.g. a local test fixture),
+# fall back to gh's cwd-based resolution from inside TARGET_REPO, which is the
+# pre-#742 shape. Sets PR_HEAD; an OPEN/MERGED hit sets CONFIRM_REQUIRED=1.
+probe_pr_head() {
+  local branch="$1" owner_repo
+  owner_repo=$("$GIT" -C "$TARGET_REPO" remote get-url origin 2>/dev/null |
+    sed -E -e 's#^git@[^:]+:##' -e 's#^(ssh|git|https?)://[^/]+/##' -e 's#\.git$##' -e 's#/$##')
+  case "$owner_repo" in
+    /* | *" "* | */*/* | "") owner_repo="" ;; # not an owner/repo shape
+    */*) : ;;
+    *) owner_repo="" ;;
+  esac
+  if [ -n "$owner_repo" ]; then
+    PR_HEAD=$("$GH" pr list --repo "$owner_repo" --head "$branch" --state all --json number,state \
+      --jq '[.[] | select(.state == "OPEN" or .state == "MERGED")][0] | if . == null then "none" else "\(.number):\(.state)" end' 2>/dev/null) || true
+  else
+    PR_HEAD=$(cd "$TARGET_REPO" && "$GH" pr list --head "$branch" --state all --json number,state \
+      --jq '[.[] | select(.state == "OPEN" or .state == "MERGED")][0] | if . == null then "none" else "\(.number):\(.state)" end' 2>/dev/null) || true
+  fi
+  PR_HEAD=${PR_HEAD:-unknown}
+  case "$PR_HEAD" in
+    *:*)
+      CONFIRM_REQUIRED=1
+      echo "flow-start-resolve: branch '$branch' already has PR $PR_HEAD - possible concurrent or already-shipped work; confirm before entering." >&2
+      ;;
+  esac
+}
+
 # ---- existing-work triage ---------------------------------------------------
 LANE=""
 WT_PATH=""
@@ -431,15 +466,7 @@ if [ "$LANE" = resume ]; then
   [ "$LIVE_DRIVER" = suspected ] && CONFIRM_REQUIRED=1
 
   # The other resume hazard: this branch already has an open/merged PR.
-  PR_HEAD=$(cd "$TARGET_REPO" && "$GH" pr list --head "$BRANCH" --state all --json number,state \
-    --jq '[.[] | select(.state == "OPEN" or .state == "MERGED")][0] | if . == null then "none" else "\(.number):\(.state)" end' 2>/dev/null) || true
-  PR_HEAD=${PR_HEAD:-unknown}
-  case "$PR_HEAD" in
-    *:*)
-      CONFIRM_REQUIRED=1
-      echo "flow-start-resolve: branch '$BRANCH' already has PR $PR_HEAD - possible concurrent or already-shipped work; confirm before entering." >&2
-      ;;
-  esac
+  probe_pr_head "$BRANCH"
 fi
 
 # 3. A remote branch exists but no local worktree (cross-machine pickup).
@@ -449,6 +476,10 @@ if [ -z "$LANE" ]; then
     LANE=remote-pickup
     BRANCH="${REMOTE_BRANCH#origin/}"
     WT_PATH=$(wt_path_for "$BRANCH")
+    # The pushed branch may already have an open/merged PR - the same
+    # shipped-PR hazard as the resume lane. This probe was resume-only until
+    # #742, so a remote pickup of an in-flight PR sailed through unconfirmed.
+    probe_pr_head "$BRANCH"
     if [ "$CREATE_OK" -eq 1 ]; then
       create_worktree "$WT_PATH" "$BRANCH" "$REMOTE_BRANCH" ||
         fail "git worktree add for '$BRANCH' from '$REMOTE_BRANCH' failed in $TARGET_REPO"
@@ -483,7 +514,9 @@ fi
 # every later step and every hand-run make in the worktree can inherit it.
 # Precedence matches Step 9: an explicit .claude/deploy.yaml override, else the
 # canonical primary-checkout basename (TARGET_REPO), never the worktree basename.
-COMPOSE_PROJECT_NAME=$(grep -oP '^\s*compose_project_name:\s*\K\S+' "$TARGET_REPO/.claude/deploy.yaml" 2>/dev/null | head -1)
+# Portable extraction (no grep -P: BSD grep on macOS lacks it, and the PCRE
+# shape silently matched nothing there, dropping the override - found via #742's gate).
+COMPOSE_PROJECT_NAME=$(sed -n 's/^[[:space:]]*compose_project_name:[[:space:]]*\([^[:space:]]*\).*/\1/p' "$TARGET_REPO/.claude/deploy.yaml" 2>/dev/null | head -1)
 [ -n "$COMPOSE_PROJECT_NAME" ] || COMPOSE_PROJECT_NAME=$(basename "$TARGET_REPO" | tr '[:upper:]' '[:lower:]')
 
 # ---- contract ---------------------------------------------------------------

@@ -492,9 +492,43 @@ def test_remote_pickup_creates_tracking_worktree(tmp_path: Path):
     assert c["REMOTE_BRANCH"] == "origin/issue-42-remote-work"
     assert c["BRANCH"] == "issue-42-remote-work"
     assert c["WT_CREATED"] == "1"
+    # No PR on the pushed branch: the #742 probe ran and found nothing.
+    assert c["PR_HEAD"] == "none"
+    assert c["CONFIRM_REQUIRED"] == "0"
     wt = Path(c["WT_PATH"])
     assert (wt / "b.txt").exists()
     assert _git(wt, "branch", "--show-current").strip() == "issue-42-remote-work"
+
+
+@requires_git
+def test_remote_pickup_existing_pr_requires_confirmation(tmp_path: Path):
+    """Regression for issue #742, cross-repo shape: a remote branch with an OPEN
+    PR, picked up from a session cwd OUTSIDE the target repo, must surface the
+    shipped-PR hazard (PR_HEAD + CONFIRM_REQUIRED=1). The probe used to run only
+    on the resume lane, so this exact shape reported PR_HEAD=none."""
+    origin, clone = _make_origin_and_clone(tmp_path)
+    _git(origin, "switch", "-q", "-c", "issue-42-remote-work")
+    (origin / "b.txt").write_text("remote work\n")
+    _git(origin, "add", "-A")
+    _git(origin, "commit", "-q", "-m", "remote work")
+    plain = tmp_path / "not-a-repo"
+    plain.mkdir()
+    res = _run(
+        "42",
+        str(clone),
+        "--session-cwd",
+        str(plain),
+        cwd=plain,
+        gh=_fake_gh(tmp_path),
+        extra_env={"FAKE_GH_PR": "211:OPEN"},
+    )
+    assert res.returncode == 0, res.stderr
+    c = _contract(res)
+    assert c["LANE"] == "remote-pickup"
+    assert c["CROSS_REPO"] == "1"
+    assert c["PR_HEAD"] == "211:OPEN"
+    assert c["CONFIRM_REQUIRED"] == "1"
+    assert "already has PR 211:OPEN" in res.stderr
 
 
 # --- resolve: FLOW_WORKTREE_BASE override (issue #584) -----------------------
