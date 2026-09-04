@@ -45,13 +45,42 @@ fi
 echo "Harness: qwen $(qwen --version 2>/dev/null)"
 echo "Model:   $QWEN_MODEL via $QWEN_ENDPOINT"
 echo "Working directory: $(pwd)"
+
+# Sandbox detection (issue #749): Docker sandbox containers cannot reach
+# Tailscale or other host-only network interfaces. When the Ollama endpoint
+# is remote, skip --sandbox and rely on the execution fence + overrun
+# verification (the two layers that are always active regardless).
+# QWEN_FORCE_SANDBOX overrides the automatic detection (1 = force on, 0 = force off).
+if [ "${QWEN_FORCE_SANDBOX:-}" = "1" ]; then
+    SANDBOX_FLAG="--sandbox"
+    echo "Sandbox forced on (QWEN_FORCE_SANDBOX=1)."
+elif [ "${QWEN_FORCE_SANDBOX:-}" = "0" ]; then
+    SANDBOX_FLAG=""
+    echo "Sandbox forced off (QWEN_FORCE_SANDBOX=0)."
+else
+    SANDBOX_FLAG="--sandbox"
+    ENDPOINT_HOST=$(echo "$QWEN_ENDPOINT" | sed -E 's|^https?://||' | sed -E 's|:[0-9]+.*||' | sed -E 's|/.*||')
+    case "$ENDPOINT_HOST" in
+        127.0.0.1|localhost|::1|"[::1]")
+            echo "Ollama endpoint is local ($ENDPOINT_HOST) - sandbox enabled."
+            ;;
+        *)
+            SANDBOX_FLAG=""
+            echo "Ollama endpoint is remote ($ENDPOINT_HOST) - sandbox skipped (issue #749)."
+            echo "Safety layers active: execution fence + post-execution overrun verification."
+            ;;
+    esac
+fi
 ```
 
 ### Step 2: Execute
 
-Run headless with `stream-json` output for structured monitoring. The harness
-runs sandboxed (macOS Seatbelt / Docker) with `yolo` approval so the headless
-run never blocks on an interactive confirmation; `--max-wall-time` bounds a
+Run headless with `stream-json` output for structured monitoring. When the
+Ollama endpoint is local, the harness runs sandboxed (macOS Seatbelt / Docker);
+when remote, the sandbox is skipped (issue #749: Docker network namespace cannot
+reach Tailscale/host-only interfaces) and the execution fence + overrun
+verification carry the safety boundary. `yolo` approval prevents the headless
+run from blocking on an interactive confirmation; `--max-wall-time` bounds a
 runaway or stalled run (exit code 55 when exceeded).
 
 ```bash
@@ -65,7 +94,7 @@ qwen \
     -m "$QWEN_MODEL" \
     --output-format stream-json \
     --approval-mode yolo \
-    --sandbox \
+    $SANDBOX_FLAG \
     --max-wall-time 30m \
     "$PROMPT" < /dev/null 2>&1 | tee "$OUTPUT_FILE"   # </dev/null: non-TTY EOF so the harness never blocks reading stdin
 
@@ -124,8 +153,11 @@ or git checkout -- . to discard.
 ## Notes
 
 - Runs in the CURRENT directory (not a worktree) - changes are applied directly
-- The sandbox (default macOS Seatbelt profile) blocks writes outside the
-  working directory; shell commands the model runs retain network access, so
+- When the Ollama endpoint is local (localhost/127.0.0.1/::1), the sandbox
+  (Seatbelt/Docker) blocks writes outside the working directory. When remote
+  (`QWEN_OLLAMA_URL` points at another machine), the sandbox is skipped because
+  Docker's network namespace cannot reach Tailscale/host-only interfaces (issue
+  #749). Shell commands the model runs retain network access in both modes, so
   the execution-fence + overrun-verification pattern from `/qwen:auto` still
   applies for anything beyond quick tasks
 - JSONL output is saved to /tmp for later inspection

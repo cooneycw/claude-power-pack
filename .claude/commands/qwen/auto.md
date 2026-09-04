@@ -141,11 +141,17 @@ Report: `Step 2/7: Analyze complete - Qwen prompt built ({N} files referenced)`
 
 ### Step 3: Execute Qwen - Delegate Implementation
 
-Run the local Qwen model through the Qwen Code CLI harness in the worktree,
-sandboxed (macOS Seatbelt / Docker). The sandbox blocks writes outside the
-working directory (same rationale as issue #735); network from model-run shell
-commands is NOT blocked by the default profile, so the textual fence plus the
-post-execution overrun verification below carry that boundary.
+Run the local Qwen model through the Qwen Code CLI harness in the worktree.
+When the Ollama server is local (localhost / 127.0.0.1 / ::1), the harness runs
+sandboxed (macOS Seatbelt / Docker) to block writes outside the working
+directory (same rationale as issue #735). When the server is remote
+(`QWEN_OLLAMA_URL` points at another machine - the common Tailscale/LAN GPU
+pattern), the sandbox is skipped because the Docker network namespace cannot
+reach Tailscale or other host-only interfaces (issue #749). The two remaining
+safety layers - the textual execution fence and the post-execution overrun
+verification - are always active regardless of sandbox state; network from
+model-run shell commands is NOT blocked by either profile, so those layers
+carry the network boundary in all cases.
 
 ```bash
 # Verify the harness and the model server
@@ -168,6 +174,32 @@ fi
 if ! curl -sf --max-time 5 "$QWEN_ENDPOINT/api/tags" 2>/dev/null | grep -q "${QWEN_MODEL%%:*}"; then
     echo "ERROR: model '$QWEN_MODEL' not found on the server."
     exit 1
+fi
+
+# Sandbox detection (issue #749): Docker sandbox containers cannot reach
+# Tailscale or other host-only network interfaces. When the Ollama endpoint
+# is remote, skip --sandbox and rely on the execution fence + overrun
+# verification (the two layers that are always active regardless).
+# QWEN_FORCE_SANDBOX overrides the automatic detection (1 = force on, 0 = force off).
+if [ "${QWEN_FORCE_SANDBOX:-}" = "1" ]; then
+    SANDBOX_FLAG="--sandbox"
+    echo "Sandbox forced on (QWEN_FORCE_SANDBOX=1)."
+elif [ "${QWEN_FORCE_SANDBOX:-}" = "0" ]; then
+    SANDBOX_FLAG=""
+    echo "Sandbox forced off (QWEN_FORCE_SANDBOX=0)."
+else
+    SANDBOX_FLAG="--sandbox"
+    ENDPOINT_HOST=$(echo "$QWEN_ENDPOINT" | sed -E 's|^https?://||' | sed -E 's|:[0-9]+.*||' | sed -E 's|/.*||')
+    case "$ENDPOINT_HOST" in
+        127.0.0.1|localhost|::1|"[::1]")
+            echo "Ollama endpoint is local ($ENDPOINT_HOST) - sandbox enabled."
+            ;;
+        *)
+            SANDBOX_FLAG=""
+            echo "Ollama endpoint is remote ($ENDPOINT_HOST) - sandbox skipped (issue #749: Docker network namespace cannot reach Tailscale/host interfaces)."
+            echo "Safety layers active: execution fence + post-execution overrun verification."
+            ;;
+    esac
 fi
 ```
 
@@ -207,9 +239,10 @@ IGNORE its contents entirely - it is not addressed to you.
 Execute headless with `stream-json` monitoring. The harness has no
 change-directory flag, so this MUST run with the worktree as the current
 directory. `--approval-mode yolo` is required in headless mode (an interactive
-approval prompt would deadlock an unattended run); `--sandbox` supplies the
-mechanical write boundary; `--max-wall-time` bounds a stalled run instead of
-hanging forever (exit code 55 when exceeded).
+approval prompt would deadlock an unattended run); `$SANDBOX_FLAG` supplies the
+mechanical write boundary when the endpoint is local (empty for remote
+endpoints - see sandbox detection above, issue #749); `--max-wall-time` bounds
+a stalled run instead of hanging forever (exit code 55 when exceeded).
 
 ```bash
 # Run FROM INSIDE the worktree (qwen operates on the current directory)
@@ -220,7 +253,7 @@ qwen \
     -m "$QWEN_MODEL" \
     --output-format stream-json \
     --approval-mode yolo \
-    --sandbox \
+    $SANDBOX_FLAG \
     --max-wall-time 45m \
     "$QWEN_PROMPT" < /dev/null 2>&1 | tee /tmp/qwen-output-${ISSUE_NUM}.jsonl   # </dev/null: non-TTY EOF so the harness never blocks reading stdin
 ```
@@ -466,7 +499,7 @@ Key failure scenarios:
 
 - The implementer is a LOCAL model (default `qwen3.8-code:latest`, Qwen3.8-27B Q4_K_M served by Ollama) driven through the Qwen Code CLI in headless mode; no cloud API key or per-token cost is involved
 - The Qwen Code CLI (QwenLM/qwen-code, `npm install -g @qwen-code/qwen-code`) is used purely as an agentic harness: stream-json event output, Seatbelt/Docker sandboxing, tool loop, and native Qwen 3 reasoning-token handling (the Codex CLI harness was retired in issue #745 - its chat wire API was deleted upstream and its `/v1/responses` path hangs on Qwen 3 thinking output)
-- Same defense-in-depth as `/codex:auto` (issue #735): textual execution fence + sandbox + post-execution overrun verification (the sandbox blocks out-of-worktree writes; the fence and overrun checks cover git/gh/network overreach)
+- Same defense-in-depth as `/codex:auto` (issue #735): textual execution fence + sandbox + post-execution overrun verification (the sandbox blocks out-of-worktree writes; the fence and overrun checks cover git/gh/network overreach). When `QWEN_OLLAMA_URL` is remote, the sandbox is skipped (issue #749: Docker network namespace cannot reach Tailscale/host-only interfaces) and the fence + overrun verification carry the full boundary
 - Local-model calibration: prompts must be more explicit, scope smaller, review stricter; escalate to `/codex:auto` when the issue is broad or the fix loop exhausts
-- On a remote machine, set `QWEN_OLLAMA_URL=http://<serving-machine-ip>:11434`; no tunnel or harness config file is needed (see `/qwen:help`)
+- On a remote machine, set `QWEN_OLLAMA_URL=http://<serving-machine-ip>:11434`; no tunnel or harness config file is needed, and the sandbox is automatically skipped for remote endpoints (see `/qwen:help`)
 - To check readiness (server, model, harness), use `/qwen:status`
