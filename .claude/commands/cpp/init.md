@@ -1388,9 +1388,9 @@ every modern Codex invocation, including unrelated `/codex:*` commands.
 
 ```bash
 QWEN_ENDPOINT="${QWEN_OLLAMA_URL:-http://127.0.0.1:11434}"
-qwen --openai-base-url "$QWEN_ENDPOINT/v1" --openai-api-key ollama \
+timeout 600 qwen --openai-base-url "$QWEN_ENDPOINT/v1" --openai-api-key ollama \
   --auth-type openai -m "$QWEN_MODEL" \
-  --approval-mode plan --output-format text --max-wall-time 10m \
+  --approval-mode plan --output-format text \
   "Reply with exactly: QWEN-HARNESS-OK" < /dev/null 2>&1 | tail -3
 ```
 

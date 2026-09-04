@@ -208,12 +208,13 @@ Execute headless with `stream-json` monitoring. The harness has no
 change-directory flag, so this MUST run with the worktree as the current
 directory. `--approval-mode yolo` is required in headless mode (an interactive
 approval prompt would deadlock an unattended run); `--sandbox` supplies the
-mechanical write boundary; `--max-wall-time` bounds a stalled run instead of
-hanging forever (exit code 55 when exceeded).
+mechanical write boundary; bash `timeout` bounds a stalled run instead of
+hanging forever (exit code 124 when exceeded - Qwen Code CLI has no native
+wall-time flag).
 
 ```bash
 # Run FROM INSIDE the worktree (qwen operates on the current directory)
-qwen \
+timeout 2700 qwen \
     --openai-base-url "$QWEN_ENDPOINT/v1" \
     --openai-api-key ollama \
     --auth-type openai \
@@ -221,7 +222,6 @@ qwen \
     --output-format stream-json \
     --approval-mode yolo \
     --sandbox \
-    --max-wall-time 45m \
     "$QWEN_PROMPT" < /dev/null 2>&1 | tee /tmp/qwen-output-${ISSUE_NUM}.jsonl   # </dev/null: non-TTY EOF so the harness never blocks reading stdin
 ```
 
@@ -247,8 +247,8 @@ server-side `reasoning_effort`).
 QWEN_EXIT=$?
 if [ "$QWEN_EXIT" -ne 0 ]; then
     echo "ERROR: Qwen execution failed (exit code: $QWEN_EXIT)"
-    if [ "$QWEN_EXIT" -eq 55 ]; then
-        echo "(exit 55 = --max-wall-time budget exceeded - the run stalled or the task is too big)"
+    if [ "$QWEN_EXIT" -eq 124 ]; then
+        echo "(exit 124 = timeout exceeded - the run stalled or the task is too big)"
     fi
     echo "Last 20 lines of output:"
     tail -20 /tmp/qwen-output-${ISSUE_NUM}.jsonl

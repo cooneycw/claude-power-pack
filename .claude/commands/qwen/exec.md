@@ -51,14 +51,15 @@ echo "Working directory: $(pwd)"
 
 Run headless with `stream-json` output for structured monitoring. The harness
 runs sandboxed (macOS Seatbelt / Docker) with `yolo` approval so the headless
-run never blocks on an interactive confirmation; `--max-wall-time` bounds a
-runaway or stalled run (exit code 55 when exceeded).
+run never blocks on an interactive confirmation; bash `timeout` bounds a
+runaway or stalled run (exit code 124 when exceeded - Qwen Code CLI has no
+native wall-time flag).
 
 ```bash
 TIMESTAMP=$(date +%Y%m%d-%H%M%S)
 OUTPUT_FILE="/tmp/qwen-exec-${TIMESTAMP}.jsonl"
 
-qwen \
+timeout 1800 qwen \
     --openai-base-url "$QWEN_ENDPOINT/v1" \
     --openai-api-key ollama \
     --auth-type openai \
@@ -66,7 +67,6 @@ qwen \
     --output-format stream-json \
     --approval-mode yolo \
     --sandbox \
-    --max-wall-time 30m \
     "$PROMPT" < /dev/null 2>&1 | tee "$OUTPUT_FILE"   # </dev/null: non-TTY EOF so the harness never blocks reading stdin
 
 QWEN_EXIT=$?
@@ -91,8 +91,8 @@ liveness either way.
 if [ "$QWEN_EXIT" -ne 0 ]; then
     echo ""
     echo "Qwen execution failed (exit code: $QWEN_EXIT)"
-    if [ "$QWEN_EXIT" -eq 55 ]; then
-        echo "(exit 55 = --max-wall-time or --max-tool-calls budget exceeded)"
+    if [ "$QWEN_EXIT" -eq 124 ]; then
+        echo "(exit 124 = timeout exceeded - the run stalled or the task is too big)"
     fi
     echo "Output saved to: $OUTPUT_FILE"
     exit 1
