@@ -843,123 +843,68 @@ Report: `Step 7/9: Merge complete - worktree cleaned up`
 
 After merging to main, verify that the CI pipeline passes before deploying.
 
-1. **Detect CI system and poll for results:**
+ONE audited helper owns this (issue #766): `scripts/flow-ci-status.sh` resolves
+the pipeline for a commit SHA, waits for it to finish, and names the failed
+steps. Invoke it BARE with the literal SHA and checkout path (#581 discipline;
+the checkout is DECLARED, never inferred from the Bash cwd - the #614 rule):
 
 ```bash
-cd "$MAIN_REPO"
-COMMIT_SHA=$(git rev-parse HEAD)
-SHORT_SHA=$(git rev-parse --short HEAD)
-REPO_FULL=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
+~/.claude/scripts/flow-ci-status.sh <merge-sha> --path /path/to/main/repo --wait
 ```
 
-2. **Check Woodpecker CI** (if `WOODPECKER_API_TOKEN` is set):
+Do NOT hand-roll this with `curl`, `gh run list`, or - worst of all - a grep over
+`woodpecker-cli pipeline ls`. Step 8 previously inlined a curl+jq lookup gated on
+`WOODPECKER_API_TOKEN` already being exported, which it usually is not (the token
+lives in an AWS secret, not a shell profile), so the model improvised. On
+flow:auto #516 the improvised grep matched an unrelated PR pipeline from a
+DIFFERENT concurrent session and reported a failure while the run's own pipeline
+was still queued. With several sessions merging into one repo, any positional
+grep over that shared list is a coin flip. The helper matches on `.commit` and
+cannot make that mistake; it also fetches the token from AWS Secrets Manager
+itself when it is not exported.
 
-```bash
-if [[ -n "$WOODPECKER_API_TOKEN" ]]; then
-    WOODPECKER_SERVER="${WOODPECKER_SERVER:-https://woodpecker.essent-ai.com}"
-    echo "Polling Woodpecker CI for commit $SHORT_SHA..."
-
-    # Woodpecker v3 API requires numeric repo ID, not owner/name
-    # First resolve repo ID via lookup endpoint
-    REPO_ID=$(curl -s -H "Authorization: Bearer $WOODPECKER_API_TOKEN" \
-        -H "Accept: application/json" \
-        "$WOODPECKER_SERVER/api/repos/lookup/$REPO_FULL" | jq -r '.id' 2>/dev/null)
-
-    if [[ -z "$REPO_ID" || "$REPO_ID" == "null" ]]; then
-        echo "WARNING: Could not resolve Woodpecker repo ID for $REPO_FULL. Skipping CI verification."
-    else
-        # Poll up to 10 minutes (60 attempts, 10s apart)
-        for i in $(seq 1 60); do
-            PIPELINE_JSON=$(curl -s -H "Authorization: Bearer $WOODPECKER_API_TOKEN" \
-                -H "Accept: application/json" \
-                "$WOODPECKER_SERVER/api/repos/$REPO_ID/pipelines?per_page=5" | \
-                jq --arg sha "$COMMIT_SHA" '[.[] | select(.commit == $sha)] | .[0]' 2>/dev/null)
-
-            if [[ -n "$PIPELINE_JSON" && "$PIPELINE_JSON" != "null" ]]; then
-                STATUS=$(echo "$PIPELINE_JSON" | jq -r '.status')
-                PIPELINE_NUM=$(echo "$PIPELINE_JSON" | jq -r '.number')
-
-                case "$STATUS" in
-                    success)
-                        echo "Woodpecker pipeline #$PIPELINE_NUM passed."
-                        break
-                        ;;
-                    failure|error|killed)
-                        echo "Woodpecker pipeline #$PIPELINE_NUM FAILED (status: $STATUS)."
-                        echo "View: $WOODPECKER_SERVER/repos/$REPO_FULL/pipeline/$PIPELINE_NUM"
-                        # STOP - do not deploy
-                        exit 1
-                        ;;
-                    *)
-                        echo "Pipeline #$PIPELINE_NUM status: $STATUS (attempt $i/60)..."
-                        sleep 10
-                        ;;
-                esac
-            else
-                if [[ $i -ge 60 ]]; then
-                    echo "WARNING: No Woodpecker pipeline found for $SHORT_SHA after 10 minutes."
-                    break
-                fi
-                sleep 10
-            fi
-        done
-    fi
-fi
-```
-
-3. **Check GitHub Actions** (fallback if no Woodpecker token):
-
-```bash
-if [[ -z "$WOODPECKER_API_TOKEN" ]]; then
-    echo "Polling GitHub Actions for commit $SHORT_SHA..."
-
-    for i in $(seq 1 60); do
-        RUN_JSON=$(gh run list --commit "$COMMIT_SHA" --json status,conclusion,databaseId,name --jq '.[0]' 2>/dev/null)
-
-        if [[ -n "$RUN_JSON" && "$RUN_JSON" != "null" ]]; then
-            GH_STATUS=$(echo "$RUN_JSON" | jq -r '.status')
-            GH_CONCLUSION=$(echo "$RUN_JSON" | jq -r '.conclusion')
-            RUN_ID=$(echo "$RUN_JSON" | jq -r '.databaseId')
-
-            if [[ "$GH_STATUS" == "completed" ]]; then
-                if [[ "$GH_CONCLUSION" == "success" ]]; then
-                    echo "GitHub Actions run #$RUN_ID passed."
-                    break
-                else
-                    echo "GitHub Actions run #$RUN_ID FAILED (conclusion: $GH_CONCLUSION)."
-                    echo "View: gh run view $RUN_ID"
-                    exit 1
-                fi
-            else
-                echo "Run #$RUN_ID status: $GH_STATUS (attempt $i/60)..."
-                sleep 10
-            fi
-        else
-            if [[ $i -ge 60 ]]; then
-                echo "WARNING: No GitHub Actions run found for $SHORT_SHA after 10 minutes."
-                break
-            fi
-            sleep 10
-        fi
-    done
-fi
-```
-
-4. **No CI detected:**
-
-If neither `WOODPECKER_API_TOKEN` is set nor GitHub Actions runs are found, skip with a warning:
+The helper prints a machine-readable contract, the failed-step lines (when any)
+immediately before the verdict:
 
 ```
-WARNING: No CI system detected. Skipping verification.
+FLOW_CI_PROVIDER: woodpecker | github-actions | none
+FLOW_CI_REF: <sha>
+FLOW_CI_PIPELINE: <number|->
+FLOW_CI_URL: <url|->
+FLOW_CI_FAILED_STEP: <name>        (repeated, only on failure)
+FLOW_CI_STATUS: success | failure | running | pending | not-found | unknown
 ```
 
-- If CI **passes**: proceed to Step 9.
-- If CI **fails**: **STOP**. Report the failure and exit. Do not deploy broken code.
-- If CI **not found** after timeout: warn and proceed (non-blocking).
+Act on `FLOW_CI_STATUS`:
 
-Report: `Step 8/9: Verify CI complete - pipeline #{N} passed` or `Step 8/9: Verify CI skipped (no CI detected)`
+- `success` -> proceed to Step 9.
+- `failure` -> **STOP**. Do not deploy. Report `FLOW_CI_URL` and every
+  `FLOW_CI_FAILED_STEP` line: which step failed is the whole diagnosis, and
+  pipeline colour does not carry it. A red `deploy` step (a transient SSH
+  connect timeout on kyle's push pipelines, say) is a different problem from a
+  red `test-unit`, and only the step name distinguishes them.
+- `running` / `pending` -> the wait window expired with the pipeline still
+  going. Non-blocking: report that CI was still running and let the user decide
+  whether to wait, rather than deploying on an unknown result.
+- `not-found` -> no pipeline carries this SHA (CI may not be wired for the repo,
+  or the push has not registered yet). Warn and proceed.
+- `unknown` -> the helper could not reach a provider (no credentials, no
+  network). It is fail-open by design: warn and proceed.
 
----
+`--wait` defaults to 600s and polls every 15s; pass `--wait <seconds>` to change
+it, or omit `--wait` for a single-shot read. Add `--event pull_request` when
+resolving a PR pipeline rather than the post-merge push pipeline, and
+`--exit-code` if you want a `failure` verdict to exit 1.
+
+On exit 127 the helper family is not installed: fall back to
+`${CLAUDE_PLUGIN_ROOT}/scripts/flow-ci-status.sh` (bundled with the plugin,
+#590), else the CPP-checkout copy - either may prompt once; tell the user to run
+**`/flow-repair`** to restore the prompt-free lane. If no copy exists at all,
+skip CI verification with a warning rather than improvising a lookup, and say
+plainly in the final summary that CI was NOT verified.
+
+Report: `Step 8/9: Verify CI complete - pipeline #{N} passed` or
+`Step 8/9: Verify CI skipped ({not-found|unknown})`
 
 ### Step 9: Deploy (optional)
 
