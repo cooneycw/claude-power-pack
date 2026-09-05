@@ -23,10 +23,16 @@ QWEN_ENDPOINT="${QWEN_OLLAMA_URL:-http://127.0.0.1:11434}"
 VERSION_JSON=$(curl -sf --max-time 5 "$QWEN_ENDPOINT/api/version" 2>/dev/null)
 if [ -n "$VERSION_JSON" ]; then
     echo "[x] Ollama reachable at $QWEN_ENDPOINT: $VERSION_JSON"
+elif [ -z "${QWEN_OLLAMA_URL:-}" ]; then
+    echo "[ ] QWEN_OLLAMA_URL is unset - no serving machine URL was provided, and localhost is not answering."
+    echo "    If the model is served on another machine:"
+    echo "      export QWEN_OLLAMA_URL=http://<serving-host>:11434"
+    echo "    Run /cpp:init and select Tier 6 to persist it (issue #755)."
+    echo "    If this is the serving machine, start the service (launchd agent or 'ollama serve')."
 else
     echo "[ ] Ollama NOT reachable at $QWEN_ENDPOINT"
-    echo "    Local machine: start the service (launchd agent or 'ollama serve')"
-    echo "    Remote machine: set QWEN_OLLAMA_URL to the serving machine's URL"
+    echo "    This endpoint came from QWEN_OLLAMA_URL. Check that the server is"
+    echo "    running and that the configured host is correct."
 fi
 
 # On the serving machine, report network exposure
@@ -130,7 +136,11 @@ if [ "$READY" = "true" ]; then
 else
     echo "Status: NOT READY"
     echo ""
-    echo "To set up: /cpp:init (select Tier 6 - Local Qwen), or see /qwen:help"
+    if [ -z "${QWEN_OLLAMA_URL:-}" ]; then
+        echo "Likely cause: QWEN_OLLAMA_URL is unset; /cpp:init Tier 6 can persist it"
+    else
+        echo "To set up: /cpp:init (select Tier 6 - Local Qwen), or see /qwen:help"
+    fi
 fi
 
 echo "==================================="
@@ -140,4 +150,6 @@ echo "==================================="
 
 - This command is read-only - it checks state but does not modify anything
 - `QWEN_OLLAMA_URL` lets a remote machine check (and use) the serving machine's stack
+- An unset `QWEN_OLLAMA_URL` is diagnosed separately from a configured but
+  unreachable endpoint (issue #755)
 - The Qwen Code CLI is required only as an agentic harness; `/qwen:*` never uses a cloud API key
