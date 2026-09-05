@@ -4,6 +4,23 @@
 
 ### Fixed
 
+- **2026-09-05 - `/flow:auto` Step 8 verifies CI by commit SHA, not by grepping a
+  shared pipeline list** (issue #766) - Step 8 was the last un-helpered step in
+  the flow: it inlined a `curl`+`jq` Woodpecker lookup gated on
+  `WOODPECKER_API_TOKEN` already being exported, which it usually is not because
+  the token lives in an AWS secret. Left to improvise, a run grepped
+  `woodpecker-cli pipeline ls` and reported `STATUS=failure` from an unrelated PR
+  pipeline belonging to a **different concurrent session** while its own pipeline
+  was still queued (kyle flow:auto #516). New `scripts/flow-ci-status.sh` selects
+  the pipeline whose `.commit` equals the SHA, fetches the token from AWS Secrets
+  Manager when it is not exported (never echoing it, never putting it in argv),
+  names the failed **steps** so a red `deploy` is distinguishable from a red
+  `test-unit`, supports `--wait` / `--event` / `--exit-code`, and falls back to
+  GitHub Actions. It is fail-open - no credentials, network, provider or checkout
+  yields `unknown` and exit 0 - so CI verification can never block a flow it
+  cannot assess. Registered in the helper family and the permission allowlist so
+  it runs prompt-free at the stable `~/.claude/scripts/` path.
+
 - **2026-08-11 - `mcp-drift.py` no longer reads an unreadable docker socket as
   an empty host** (issue #673) - `docker ps` refused for permission emptied the
   container inventory silently, so every curated server classified `ABSENT` and
