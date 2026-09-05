@@ -87,7 +87,7 @@ visible. An incomplete inventory produces no globally safe
 
 ## CPP extension contract
 
-The `cpp_extensions` JSON object contains three annotation sets computed once
+The `cpp_extensions` JSON object contains four annotation sets computed once
 and consumed by brief, compact, and full rendering:
 
 - `relationships`: native relationship edges plus documented-text fallback
@@ -97,6 +97,8 @@ and consumed by brief, compact, and full rendering:
   planning/resolution. They never route to `/flow-auto`.
 - `spec_lifecycle`: one decision per known spec slug: `active`, `graduated`,
   `stale`, or `retained`.
+- `premise_flags`: open spec-derived issues whose parent specification predates
+  a live architecture decision covering the same domain.
 
 Lifecycle defaults to `active` when `spec.md` has no `lifecycle` frontmatter,
 preserving compatibility with pre-Wayfinder specs. An active spec becomes
@@ -134,6 +136,39 @@ warned. Retained specs require an owner because they remain maintained
 contractual, regulatory, compliance, public-protocol, or cross-team material.
 This command only reads the ledger; a future graduation gate owns writing it.
 
+## Premise staleness
+
+Ranking inputs - value, effort, unblocking - are all properties of the issue
+itself. None of them can see that a decision merged after the issue's parent
+specification retired the premise that specification was written under, so a
+dead issue still reads as small, well-formed, and safe.
+
+Architecture decision records are read from `docs/decisions/`, `docs/adr/`, and
+`docs/adrs/`, matching `NNNN-*.md` with `- Status:` and `- Date:` header fields.
+An unparsable header is reported in the CPP extension warnings, never skipped
+silently.
+
+- Only a record whose status still reads `Accepted` can retire a premise. A
+  superseded or rejected record states no live decision, and the record that
+  replaced a superseded one carries its own date, so the successor raises the
+  flag its predecessor cannot.
+- A specification's as-of date is the later of its `Created` and `Amended`
+  headers (`> **Created:** YYYY-MM-DD`, or YAML frontmatter `created:`/`date:`).
+  An amended specification has already been revisited, so it is never accused of
+  predating a decision it absorbed.
+- Domain evidence is declared domains on both documents first (`- Domains:` on
+  the record, `> **Domains:**` on the specification), then shared significant
+  terms between the specification slug/title and the record title/filename.
+  Every flag names the matched term and which of the two produced it, so a
+  heuristic match is never presented with declared-evidence confidence.
+- Issues are reached through the specification's task mapping, so only
+  spec-derived open issues are ever flagged.
+
+The flag is advisory and additive: it carries a reason naming both the
+specification and the decision, and it never changes a score, an order, or a
+partition. `/flow-eli5` remains the necessity decision point, and closing an
+issue on premise grounds stays a reviewer decision.
+
 ## Output invariants
 
 - Every open issue is in exactly one engine partition: `in_flight`, `blocked`,
@@ -144,6 +179,8 @@ This command only reads the ledger; a future graduation gate owns writing it.
 - All modes use the same engine result, lifecycle decisions, relationship
   evidence, and Wayfinder routes. Renderers do not reclassify them.
 - Planning-only Wayfinder artifacts never display a `/flow-auto` route.
+- A premise flag annotates a ranked issue; it never re-ranks, filters, or hides
+  one.
 - A malformed vendored package, fixture corpus, manifest hash, import, or
   contract-version pin is a hard failure, never a skipped optional dogfood.
 
