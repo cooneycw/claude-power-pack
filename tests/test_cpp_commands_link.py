@@ -163,17 +163,68 @@ def test_check_reports_drift_when_missing(tmp_path: Path):
     _run(tmp_path, src)
     (_target(tmp_path) / "flow").unlink()
     result = _run(tmp_path, src, "--check")
-    assert result.returncode == 1
+    assert result.returncode == 3
     assert "missing  flow" in result.stdout
-    assert "CPP_COMMANDS_LINK: drift" in result.stdout
+    assert result.stdout.splitlines()[-1] == "CPP_COMMANDS_LINK: drift-missing"
 
 
 def test_check_is_read_only(tmp_path: Path):
     src = _make_source(tmp_path)
     result = _run(tmp_path, src, "--check")
-    assert result.returncode == 1
-    assert "CPP_COMMANDS_LINK: drift" in result.stdout
+    assert result.returncode == 3
+    assert result.stdout.splitlines()[-1] == "CPP_COMMANDS_LINK: drift-missing"
     assert not _target(tmp_path).exists(), "--check must not create anything"
+
+
+def test_check_reports_drift_when_stale(tmp_path: Path):
+    # A link aimed at another checkout may be an intentional user choice, so
+    # stale-only drift keeps the human-gated exit 1 verdict.
+    src = _make_source(tmp_path)
+    _run(tmp_path, src)
+    other = tmp_path / "other-checkout" / ".claude" / "commands" / "flow"
+    other.mkdir(parents=True)
+    link = _target(tmp_path) / "flow"
+    link.unlink()
+    link.symlink_to(other)
+
+    result = _run(tmp_path, src, "--check")
+    assert result.returncode == 1
+    assert "stale    flow" in result.stdout
+    assert result.stdout.splitlines()[-1] == "CPP_COMMANDS_LINK: drift"
+
+
+def test_check_reports_drift_when_missing_and_stale(tmp_path: Path):
+    # Missing links are safe to add, but one stale link makes the combined
+    # state ambiguous. Stale wins so the install still waits for a human.
+    src = _make_source(tmp_path)
+    _run(tmp_path, src)
+    target = _target(tmp_path)
+    (target / "flow").unlink()
+    other = tmp_path / "other-checkout" / ".claude" / "commands" / "cicd"
+    other.mkdir(parents=True)
+    (target / "cicd").unlink()
+    (target / "cicd").symlink_to(other)
+
+    result = _run(tmp_path, src, "--check")
+    assert result.returncode == 1
+    assert "missing  flow" in result.stdout
+    assert "stale    cicd" in result.stdout
+    assert result.stdout.splitlines()[-1] == "CPP_COMMANDS_LINK: drift"
+
+
+def test_check_reports_drift_for_owned_orphan(tmp_path: Path):
+    # Removing a retired family changes the visible command surface, so an
+    # owned orphan remains stale and must not use the missing-only verdict.
+    src = _make_source(tmp_path)
+    _run(tmp_path, src)
+    gone = tmp_path / "old-checkout" / ".claude" / "commands" / "retiredfam"
+    gone.mkdir(parents=True)
+    (_target(tmp_path) / "retiredfam").symlink_to(gone)
+
+    result = _run(tmp_path, src, "--check")
+    assert result.returncode == 1
+    assert "orphan   retiredfam" in result.stdout
+    assert result.stdout.splitlines()[-1] == "CPP_COMMANDS_LINK: drift"
 
 
 def test_foreign_is_not_drift_in_check(tmp_path: Path):

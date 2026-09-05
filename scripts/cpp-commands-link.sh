@@ -39,11 +39,14 @@
 #   cpp-commands-link.sh --source <dir>  # override the source commands dir (tests)
 #
 # Contract (last line):
-#   CPP_COMMANDS_LINK: ok | installed | drift | error
+#   CPP_COMMANDS_LINK: ok | installed | drift | drift-missing | error
 #     install mode: `installed` when anything changed, `ok` when nothing did
-#     --check:      `ok` when every family is a current owned link, `drift`
-#                   (exit 1) when any is missing or stale; foreign entries are
-#                   reported but are NOT drift - the user's content wins
+#     --check:      `ok` (exit 0) when no missing or stale state is found;
+#                   `drift` (exit 1) when any link is stale, including an
+#                   orphan, regardless of missing links; `drift-missing`
+#                   (exit 3) when links are missing but none are stale; `error`
+#                   exits 2. Foreign entries are NOT drift - the user's
+#                   content wins.
 #
 #   `ok` IS A TOPOLOGY VERDICT, NOT A HEALTH VERDICT (#685). It says the 16
 #   links resolve to this checkout. It says NOTHING about whether the checkout's
@@ -190,6 +193,9 @@ if [ -d "$TARGET" ]; then
                 echo "pruned   $name (family no longer shipped)"
                 changed=$((changed + 1))
             else
+                # Deliberately stale, not missing: pruning an orphan removes a
+                # command family the user can currently see, so it is not a
+                # safe missing-family self-heal.
                 echo "orphan   $name (owned link, family no longer shipped)"
                 stale=$((stale + 1))
             fi
@@ -236,9 +242,16 @@ content_advisory() {
 
 if [ "$MODE" = "check" ]; then
     content_advisory
-    if [ $((missing + stale)) -gt 0 ]; then
+    if [ "$stale" -gt 0 ]; then
         echo "CPP_COMMANDS_LINK: drift"
         exit 1
+    fi
+    if [ "$missing" -gt 0 ]; then
+        # Exit 3 deliberately separates safe missing-only drift. Exit 2 already
+        # means error, while existing consumers still treat every non-zero as
+        # not clean, preserving backward compatibility.
+        echo "CPP_COMMANDS_LINK: drift-missing"
+        exit 3
     fi
     echo "CPP_COMMANDS_LINK: ok"
     exit 0

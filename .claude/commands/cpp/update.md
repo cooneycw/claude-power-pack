@@ -481,6 +481,13 @@ helper BARE (allowlist rule matches the stable path):
 ~/.claude/scripts/cpp-commands-link.sh --check
 ```
 
+The drift verdicts are deliberately split (issue #756). A family CPP just
+shipped with no link at all is unambiguous: the symlink tier (issue #663)
+exists so the command surface follows `git pull`, and requiring a prompt here
+means every new family silently fails to reach users who defer the update. A
+link pointing somewhere else is a choice the user may have made, and still
+needs a human.
+
 - `CPP_COMMANDS_LINK: ok` - report `✓ Command symlinks current` and continue.
   **Report it as a TOPOLOGY result, never as an install-health verdict** (issue
   #685): it means the 16 family links resolve to this checkout, and says nothing
@@ -497,8 +504,14 @@ helper BARE (allowlist rule matches the stable path):
   106 tracked modifications). If the numbers look wrong for the host, the
   content checks are `git -C "$CPP_DIR" status --porcelain -uall` (expect empty)
   and `git -C "$CPP_DIR" rev-parse HEAD origin/main` (expect equal).
-- `CPP_COMMANDS_LINK: drift` (exit 1) - families are missing or point at
-  another checkout. Ask the user, then run the install (bare, no flags):
+- `CPP_COMMANDS_LINK: drift-missing` (exit 3) - new families have no link and
+  no stale link needs a decision. Without prompting, run the install bare
+  (`~/.claude/scripts/cpp-commands-link.sh`). Use its `linked   <fam> -> ...`
+  lines and `changed:` counter as the source for N, then report
+  `✓ linked N new famil(ies)`.
+- `CPP_COMMANDS_LINK: drift` (exit 1) - a link points at ANOTHER checkout, or
+  an owned link is an orphan for a retired family. Ask the user, then run the
+  install (bare, no flags):
   `~/.claude/scripts/cpp-commands-link.sh`
 - `foreign` lines are the user's own content winning a name collision -
   surface them, never modify them.
