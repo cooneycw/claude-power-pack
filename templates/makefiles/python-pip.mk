@@ -5,11 +5,11 @@
 #   /flow:deploy  → runs `make deploy`
 #   /flow:doctor  → reports which targets are available
 #
-# Uses pip with a virtual environment. Activate your venv first,
-# or adjust commands to use `python -m` prefix.
+# Uses pip with a virtual environment bootstrapped by `uv venv`. Activate your
+# venv first, or adjust commands to use `python -m` prefix.
 # Copy to your project root as "Makefile" and customize.
 
-.PHONY: lint test typecheck format build deploy clean verify troubleshoot venv ci-local
+.PHONY: lint test typecheck format build deploy clean verify troubleshoot venv venv-stdlib ci-local
 
 ## Quality gates (used by /flow:finish)
 
@@ -32,7 +32,15 @@ build:
 
 ## Virtual environment setup
 
+# `uv` is already a CPP prerequisite, so it is present wherever CPP works.
+# Debian/Ubuntu split ensurepip into python3-venv; a stdlib failure can leave a
+# half-built .venv without pip.
 venv:
+	uv venv .venv
+	uv pip install -r requirements.txt
+
+# Stdlib fallback: Debian/Ubuntu require `apt install python3-venv`.
+venv-stdlib:
 	python -m venv .venv
 	.venv/bin/pip install -r requirements.txt
 
