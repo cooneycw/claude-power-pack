@@ -92,12 +92,19 @@ Ask the user which tier they want to install using the AskUserQuestion tool:
 | 4 | **CI/CD** | + Build system, health checks, pipelines, containers |
 | 5 | **Codex** | + Codex CLI orchestration (cross-model implementation and review) |
 | 6 | **Local Qwen** | + Local-model orchestration via Ollama-served Qwen (zero API cost, private) |
+| 7 | **Local Gemma** | + Second local-model lane via Ollama-served Gemma 4 on a GPU box (zero API cost, private, faster) |
 
-Default recommendation: **Standard** for most users, **Full** for MCP-powered workflows, **CI/CD** for projects needing build automation, **Codex** for cross-model implementation workflows, **Local Qwen** for zero-cost/private local-model implementation.
+Default recommendation: **Standard** for most users, **Full** for MCP-powered workflows, **CI/CD** for projects needing build automation, **Codex** for cross-model implementation workflows, **Local Qwen** or **Local Gemma** for zero-cost/private local-model implementation.
 
 Tier 6 is optional and additive: it layers on Tier 1 (commands symlink) and
 does not require Tiers 2-5, though it reuses the Codex CLI binary as a
 harness if Tier 5 already installed it.
+
+Tier 7 is likewise optional and additive, and independent of Tier 6: a
+different model, a different harness (OpenCode), a different env var, and its
+own config block. Installing both is supported and needs no coordination -
+pick Tier 7 when a GPU box is available (markedly faster) or when a second,
+non-Qwen local opinion is wanted.
 
 ---
 
@@ -420,6 +427,41 @@ This will make the following changes:
   To undo:
     # Tier 1 cleanup (see above)
     # On the serving machine, optionally: ollama rm qwen3.8-code qwen3.8:27b
+
+Proceed? [y/N]
+```
+
+### Tier 7 Disclosure (Local Gemma)
+
+```
+=== Tier 7: Local Gemma Orchestration ===
+
+This will make the following changes:
+
+  [Tier 1 - Commands symlink]
+    (see above; Tiers 2-6 are NOT required for this tier)
+
+  [Tier 7 - Local Gemma]
+    - Requires: OpenCode CLI as the agentic harness
+      (npm install -g opencode-ai)
+      NOTE: no cloud API key is needed - the harness talks straight to Ollama
+    - Requires: an Ollama server with the Gemma model, either on this machine
+      (ollama pull gemma4:31b-it-qat + tuned 64K gemma4-code tag) or reachable
+      over the network (GEMMA_OLLAMA_URL)
+    - Writes: ~/.config/opencode/opencode.json - adds a 'gemma-ollama'
+      provider (native /api/chat) and a 'gemma-implementer' agent profile
+      whose permission rules deny git/gh/deploy commands and out-of-directory
+      writes. An existing file is merged into, never overwritten.
+    - Installs: /gemma:auto, /gemma:exec, /gemma:status, /gemma:help commands
+
+  Disk usage: ~0 MB (commands via symlink); the model itself is ~18 GB
+  and lives on the serving machine only.
+
+  To undo:
+    # Tier 1 cleanup (see above)
+    # Remove the gemma-ollama provider and gemma-implementer agent blocks
+    #   from ~/.config/opencode/opencode.json
+    # On the serving machine, optionally: ollama rm gemma4-code gemma4:31b-it-qat
 
 Proceed? [y/N]
 ```
@@ -1422,6 +1464,120 @@ echo "second-opinion server: $SO_HEALTH"
 - Verify with the server's `health_check` tool: `always_consult_models`
   should list `qwen-local` and `ollama_configured` should be true.
 
+### Tier 7 Execution (Local Gemma Orchestration)
+
+Only run when the user selected Tier 7. It is independent of Tier 6: different
+model, harness, env var, and config block.
+
+#### 7a. Verify the OpenCode Harness (no API key needed)
+
+```bash
+echo ""
+echo "=== Tier 7: Local Gemma Orchestration ==="
+echo ""
+
+if command -v opencode &>/dev/null; then
+  echo "[x] OpenCode harness: $(opencode --version 2>/dev/null)"
+else
+  echo "[ ] OpenCode CLI: not installed (required as the local-model harness)"
+  echo "    NOTE: /gemma:* talks straight to Ollama - no cloud API key is required"
+  npm install -g opencode-ai
+fi
+```
+
+#### 7b. Verify the Ollama Server and Model
+
+```bash
+GEMMA_ENDPOINT="${GEMMA_OLLAMA_URL:-http://127.0.0.1:11434}"
+GEMMA_MODEL="${GEMMA_MODEL:-gemma4-code:latest}"
+
+if curl -sf --max-time 5 "$GEMMA_ENDPOINT/api/version" > /dev/null; then
+  echo "[x] Ollama reachable at $GEMMA_ENDPOINT"
+else
+  echo "[ ] Ollama NOT reachable at $GEMMA_ENDPOINT"
+  echo "    Serving machine: start it ('ollama serve') and retry."
+  echo "    Consumer machine: set GEMMA_OLLAMA_URL=http://<serving-host>:11434"
+  echo "    Shared-GPU host: another VM may currently hold the card."
+fi
+
+if curl -sf --max-time 5 "$GEMMA_ENDPOINT/api/tags" 2>/dev/null | grep -q "${GEMMA_MODEL%%:*}"; then
+  echo "[x] Model present: $GEMMA_MODEL"
+else
+  echo "[ ] Model '$GEMMA_MODEL' missing"
+  echo "    On the serving machine:"
+  echo "      ollama pull gemma4:31b-it-qat"
+  echo "      printf 'FROM gemma4:31b-it-qat\nPARAMETER num_ctx 65536\nPARAMETER temperature 0.2\n' > /tmp/Modelfile.gemma4-code"
+  echo "      ollama create gemma4-code -f /tmp/Modelfile.gemma4-code"
+  echo "    Then confirm 'ollama ps' still reports 100% GPU: the 64K context"
+  echo "    bump costs VRAM, and one layer spilling to CPU collapses throughput."
+fi
+```
+
+The `num_ctx` bump is not optional tuning. Ollama's 32K default silently
+truncates long agent transcripts mid-run - no error, the model just loses the
+start of its own session.
+
+#### 7c. Install the Provider and the Mechanical Fence
+
+CPP ships both blocks as `templates/opencode-gemma.json`. Merge them into the
+user's OpenCode config; never overwrite an existing file, which may hold their
+own providers and agents.
+
+```bash
+OC_CONFIG="$HOME/.config/opencode/opencode.json"
+mkdir -p "$(dirname "$OC_CONFIG")"
+
+PYTHONPATH= python3 - "$CPP_DIR/templates/opencode-gemma.json" "$OC_CONFIG" <<'PYEOF'
+import json, sys, pathlib
+tmpl_path, cfg_path = sys.argv[1], pathlib.Path(sys.argv[2])
+tmpl = json.loads(pathlib.Path(tmpl_path).read_text())
+cfg = json.loads(cfg_path.read_text()) if cfg_path.exists() else {}
+cfg.setdefault("$schema", tmpl["$schema"])
+for section in ("provider", "agent"):
+    cfg.setdefault(section, {}).update(tmpl[section])
+cfg_path.write_text(json.dumps(cfg, indent=2) + "\n")
+print(f"[x] merged gemma-ollama provider + gemma-implementer agent into {cfg_path}")
+PYEOF
+```
+
+Two things are being installed here, and the second is the safety-critical one:
+
+- **`gemma-ollama` provider** - pinned to the `ai-sdk-ollama` npm package,
+  which speaks Ollama's NATIVE `/api/chat`. Do not switch it to
+  `@ai-sdk/openai-compatible`, even though that is what OpenCode's own docs
+  suggest for Ollama: the `/v1` shim silently discards tool calls once the
+  system prompt passes ~1,600 tokens (ollama/ollama#14958), and OpenCode's
+  agentic prompt measures ~6,900. The lane would fail as prose, not as an
+  error. `baseURL` is left as the literal `{env:GEMMA_OLLAMA_URL}` so one
+  config works on the serving machine and every consumer machine.
+- **`gemma-implementer` agent** - the MECHANICAL FENCE. OpenCode has no
+  `--sandbox` flag, so these permission rules are what stop a wandering local
+  model from running the lifecycle itself: ref-modifying git, all `gh`,
+  deploy/docker/kubectl/terraform, webfetch/websearch, and writes outside the
+  run directory are denied. `/gemma:auto` and `/gemma:exec` both refuse to run
+  without it.
+
+#### 7d. Smoke Test (recommended)
+
+This is the check that actually proves the native-API path works, because it
+runs a real `opencode run` and therefore inherits the full system prompt. A
+bare curl probe passes on both `/v1` and `/api/chat` and proves nothing.
+
+```bash
+SMOKE_DIR=$(mktemp -d)
+echo "probe" > "$SMOKE_DIR/probe.txt"
+GEMMA_OLLAMA_URL="$GEMMA_ENDPOINT" timeout 120 opencode run \
+  --dir "$SMOKE_DIR" \
+  -m "gemma-ollama/${GEMMA_MODEL%%:*}" \
+  --agent gemma-implementer --format json --auto \
+  "List the files in the current directory using your tools." 2>&1 | grep -c '"type":"tool_use"'
+rm -rf "$SMOKE_DIR"
+```
+
+A count of 1 or more means tool calling survives the full harness. Zero is the
+`/v1` signature - re-check the provider block from 7c. Run `/gemma:status` for
+the full diagnosis.
+
 ---
 
 ## Step 6: Installation Summary
@@ -1438,6 +1594,7 @@ Installed:
   ✓ Tier 4: CI/CD build system, health checks, pipeline, containers
   ✓ Tier 5: Codex CLI orchestration
   ✓ Tier 6: Local Qwen orchestration (optional - only if selected)
+  ✓ Tier 7: Local Gemma orchestration (optional - only if selected)
 
 Permission Profile: {PROFILE_NAME}
   Auto-approved: {AUTO_APPROVE_SUMMARY}

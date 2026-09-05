@@ -74,7 +74,10 @@ EXCLUDE: dict[str, set[str]] = {
 #   codex: orchestrates the Codex CLI itself - circular as a Codex skill.
 #   qwen: Claude-supervised local-model orchestration (Qwen Code CLI harness
 #     since #745); not a workflow a Codex session drives.
-UNPACKAGED_FAMILIES: set[str] = {"spec", "codex", "qwen"}
+#   gemma: the second Claude-supervised local-model lane (OpenCode harness,
+#     #752); same rationale as qwen - Claude is the supervisor, so there is no
+#     Codex-side workflow to package.
+UNPACKAGED_FAMILIES: set[str] = {"spec", "codex", "qwen", "gemma"}
 
 # Loose *.md files allowed directly under .claude/commands/. Empty by design
 # since #582 folded the last six into families: a top-level file is outside

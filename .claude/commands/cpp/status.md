@@ -511,7 +511,67 @@ if [ -n "$QWEN_CODEX_PROFILE" ]; then
 fi
 ```
 
-## Step 8: Summary
+## Step 8: Check Tier 7 (Local Gemma Orchestration)
+
+Tier 7 is OPTIONAL and additive - report it as "not installed (optional)"
+rather than "missing" when absent. It needs the OpenCode CLI as a harness
+(no cloud API key), a reachable Ollama server holding the Gemma model, and the
+`gemma-implementer` agent profile that carries the mechanical fence.
+
+```bash
+echo ""
+echo "Tier 7 (Local Gemma - optional):"
+
+GEMMA_ENDPOINT="${GEMMA_OLLAMA_URL:-http://127.0.0.1:11434}"
+GEMMA_MODEL="${GEMMA_MODEL:-gemma4-code:latest}"
+
+# Harness
+if command -v opencode &>/dev/null; then
+  echo "  [x] OpenCode harness: $(opencode --version 2>/dev/null)"
+else
+  echo "  [ ] OpenCode harness: not installed (npm install -g opencode-ai)"
+fi
+
+# Server
+if curl -sf --max-time 5 "$GEMMA_ENDPOINT/api/version" > /dev/null 2>&1; then
+  echo "  [x] Ollama server reachable at $GEMMA_ENDPOINT"
+  # Model
+  if curl -sf --max-time 5 "$GEMMA_ENDPOINT/api/tags" 2>/dev/null | grep -q "${GEMMA_MODEL%%:*}"; then
+    echo "  [x] Model present: $GEMMA_MODEL"
+  else
+    echo "  [ ] Model '$GEMMA_MODEL' not on server"
+  fi
+else
+  echo "  [ ] Ollama server not reachable at $GEMMA_ENDPOINT"
+  echo "      (serving machine: start Ollama; consumer machine: set GEMMA_OLLAMA_URL)"
+  echo "      A shared-GPU host may simply have the card claimed by another VM."
+fi
+
+# Provider + mechanical fence. The agent profile is not cosmetic: without it
+# /gemma:auto runs on the textual fence alone, which is a silent downgrade.
+if grep -q '"gemma-ollama"' ~/.config/opencode/opencode.json 2>/dev/null; then
+  echo "  [x] Provider 'gemma-ollama' configured (native /api/chat)"
+else
+  echo "  [ ] Provider 'gemma-ollama' not in ~/.config/opencode/opencode.json"
+fi
+if grep -q '"gemma-implementer"' ~/.config/opencode/opencode.json 2>/dev/null; then
+  echo "  [x] Agent profile 'gemma-implementer' configured (mechanical fence)"
+else
+  echo "  [ ] Agent 'gemma-implementer' missing - install templates/opencode-gemma.json"
+fi
+
+# Commands
+GEMMA_CMDS=0
+for cmd in auto exec status help; do
+  [ -f ".claude/commands/gemma/${cmd}.md" ] && GEMMA_CMDS=$((GEMMA_CMDS + 1))
+done
+echo "  [x] Gemma commands: $GEMMA_CMDS/4 available"
+```
+
+For the full readiness check - including the tool-calling smoke test that
+proves the native-API path works - run `/gemma:status`.
+
+## Step 9: Summary
 
 Based on the checks above, report:
 
@@ -575,6 +635,15 @@ Tier 6 (Local Qwen - optional):
   [x] Ollama server reachable at http://127.0.0.1:11434
   [x] Model present: qwen3.8-code:latest
   [x] Qwen commands: 4/4 available
+  Status: Complete
+
+Tier 7 (Local Gemma - optional):
+  [x] OpenCode harness: 1.18.29
+  [x] Ollama server reachable at http://proxvmgemma23:11434
+  [x] Model present: gemma4-code:latest
+  [x] Provider 'gemma-ollama' configured (native /api/chat)
+  [x] Agent profile 'gemma-implementer' configured (mechanical fence)
+  [x] Gemma commands: 4/4 available
   Status: Complete
 
 ---------------------------------

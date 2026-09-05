@@ -1,0 +1,50 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "gemma-ollama": {
+      "npm": "ai-sdk-ollama",
+      "name": "Gemma (native Ollama API)",
+      "options": {
+        "baseURL": "{env:GEMMA_OLLAMA_URL}"
+      },
+      "models": {
+        "gemma4-code": {
+          "name": "Gemma 4 Code (64K ctx)"
+        }
+      }
+    }
+  },
+  "agent": {
+    "gemma-implementer": {
+      "description": "CPP implementation-only lane for /gemma:auto and /gemma:exec - writes source, never runs lifecycle commands",
+      "mode": "primary",
+      "model": "gemma-ollama/gemma4-code",
+      "temperature": 0.2,
+      "permission": {
+        "external_directory": "deny",
+        "webfetch": "deny",
+        "websearch": "deny",
+        "bash": {
+          "*": "allow",
+          "git commit*": "deny",
+          "git push*": "deny",
+          "git reset*": "deny",
+          "git rebase*": "deny",
+          "git merge*": "deny",
+          "git checkout*": "deny",
+          "git switch*": "deny",
+          "git branch*": "deny",
+          "git tag*": "deny",
+          "git worktree*": "deny",
+          "git stash*": "deny",
+          "gh *": "deny",
+          "make deploy*": "deny",
+          "make docker*": "deny",
+          "docker*": "deny",
+          "kubectl*": "deny",
+          "terraform*": "deny"
+        }
+      }
+    }
+  }
+}
