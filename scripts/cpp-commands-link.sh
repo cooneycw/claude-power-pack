@@ -48,8 +48,8 @@
 #                   exits 2. Foreign entries are NOT drift - the user's
 #                   content wins.
 #
-#   `ok` IS A TOPOLOGY VERDICT, NOT A HEALTH VERDICT (#685). It says the 16
-#   links resolve to this checkout. It says NOTHING about whether the checkout's
+#   `ok` IS A TOPOLOGY VERDICT, NOT A HEALTH VERDICT (#685). It says every family
+#   link resolves to this checkout. It says NOTHING about whether the checkout's
 #   content is what it should be. To assess content:
 #       git -C <checkout> status --porcelain -uall   # expect empty
 #       git -C <checkout> rev-parse HEAD origin/main # expect equal

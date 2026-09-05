@@ -490,12 +490,14 @@ needs a human.
 
 - `CPP_COMMANDS_LINK: ok` - report `✓ Command symlinks current` and continue.
   **Report it as a TOPOLOGY result, never as an install-health verdict** (issue
-  #685): it means the 16 family links resolve to this checkout, and says nothing
-  about whether the checkout's CONTENT is correct. A restore-over-clone accident
-  produced a working tree with 106 files reverted and 111 upstream-deleted files
-  resurrected; every link resolved, this step read `ok`, and the Step-3 `git
-  pull` said "Already up to date" - three green signals while every served
-  command was stale. Do not summarise this step as "command surface healthy".
+  #685): quote the helper's own `families:` and `ok:` numbers from its summary
+  line; the `ok:` number means that many family links resolve to this checkout,
+  and says nothing about whether the checkout's CONTENT is correct. A
+  restore-over-clone accident produced a working tree with 106 files reverted
+  and 111 upstream-deleted files resurrected; every link resolved, this step
+  read `ok`, and the Step-3 `git pull` said "Already up to date" - three green
+  signals while every served command was stale. Do not summarise this step as
+  "command surface healthy".
 - A `checkout: N tracked modified, M untracked (-uall) ...` line may precede the
   verdict. It is an ADVISORY observation, not drift: relay it with its counts
   and leave the verdict alone. Dirtiness is not staleness - a maintainer
