@@ -8,7 +8,9 @@ not represent yet:
 
 - native GitHub issue relationships and explicitly uncertain text fallbacks;
 - Wayfinder planning routes that never send decision work to ``flow:auto``;
-- one shared spec-lifecycle decision consumed by all three render modes.
+- one shared spec-lifecycle decision consumed by all three render modes;
+- premise-staleness flags for spec-derived issues whose parent spec predates
+  a live architecture decision in the same domain.
 
 Lifecycle is intentionally outside ``vendor/project_next``. A graduation
 ledger can describe an absent spec, so frontmatter alone cannot represent the
@@ -22,7 +24,8 @@ import json
 import re
 import subprocess
 import sys
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass, field, replace
+from datetime import date
 from pathlib import Path
 from typing import Sequence
 
@@ -34,7 +37,12 @@ sys.path.insert(0, str(VENDOR_ROOT))
 from lib.project_next.classify import _dependencies, _task_issue_index  # noqa: E402
 from lib.project_next.collect import CollectionError, collect_repository  # noqa: E402
 from lib.project_next.config import ConfigError, load_config  # noqa: E402
-from lib.project_next.models import Issue, RecommendationResult, RepositoryState  # noqa: E402
+from lib.project_next.models import (  # noqa: E402
+    Issue,
+    RecommendationResult,
+    RepositoryState,
+    normalize_label,
+)
 from lib.project_next.rank import recommend  # noqa: E402
 from lib.project_next.render import render_result  # noqa: E402
 
@@ -46,6 +54,38 @@ LIFECYCLE_STATES = frozenset({"active", "graduated", "stale", "retained"})
 GRADUATION_LEDGER = Path(".specify/graduation-ledger.json")
 GRADUATION_LEDGER_VERSION = 1
 DECISION_ID = re.compile(r"\bD\d{3}\b")
+# Premise staleness (issue #770). Architecture decision records are read from
+# the conventional published locations; only a record whose status still reads
+# as a live decision can retire a specification's premise.
+DECISION_DIRECTORIES = ("docs/decisions", "docs/adr", "docs/adrs")
+DECISION_FILENAME = re.compile(r"^(?P<identifier>\d{3,4})-.+\.md$")
+DECISION_HEADING = re.compile(r"^ADR\s*\d+\s*[:.-]?\s*", re.IGNORECASE)
+SPEC_HEADING = re.compile(r"^Feature Specification\s*:\s*", re.IGNORECASE)
+HEADER_FIELD = re.compile(r"^>?\s*[-*]?\s*(?P<key>[A-Za-z][A-Za-z ]*?)\s*:\s*(?P<value>.*)$")
+ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
+LIVE_DECISION_STATUS = "accepted"
+SPEC_DATE_KEYS = frozenset({"created", "date", "amended", "updated", "revised"})
+PREMISE_HEADER_LINES = 24
+PREMISE_TERM_MINIMUM = 4
+PREMISE_ADVISORY = (
+    "_Premise flags are advisory: ranking is unchanged and no issue is filtered. "
+    "`/flow:eli5` remains the necessity decision point._"
+)
+# Shared-term matching is evidence only when the shared term is specific. The
+# second group is repository-generic vocabulary that appears in nearly every
+# specification and decision title, so an overlap on it says nothing about domain.
+PREMISE_STOPWORDS = frozenset(
+    """
+    about after again against along also another around because been before being
+    between both cannot could does done during each either else even ever every
+    from have into just like made make many more most must need needs note only
+    other over same shall should since some such than that their them then there
+    these they this those through under until upon using were what when where
+    which while will with within without would
+    claude decision decisions design feature issue issues pack phase plan power
+    project record spec specification specs support task tasks wave
+    """.split()
+)
 
 
 @dataclass(frozen=True)
@@ -78,11 +118,46 @@ class PlanningRoute:
 
 
 @dataclass(frozen=True)
+class DecisionRecord:
+    identifier: str
+    title: str
+    path: str
+    date: str
+    status: str
+    domains: frozenset[str] = frozenset()
+
+
+@dataclass(frozen=True)
+class SpecPremise:
+    spec_slug: str
+    title: str
+    path: str
+    as_of: str
+    domains: frozenset[str] = frozenset()
+
+
+@dataclass(frozen=True)
+class PremiseFlag:
+    issue_number: int
+    spec_slug: str
+    spec_path: str
+    spec_dated: str
+    decision_id: str
+    decision_title: str
+    decision_path: str
+    decision_dated: str
+    domain: str
+    match: str
+    reason: str
+
+
+@dataclass(frozen=True)
 class CppExtensions:
     relationships: tuple[Relationship, ...]
     spec_lifecycle: tuple[LifecycleDecision, ...]
     planning_routes: tuple[PlanningRoute, ...]
     warnings: tuple[str, ...]
+    premise_flags: tuple[PremiseFlag, ...] = field(default_factory=tuple)
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -423,6 +498,230 @@ def planning_routes(repository: Path, state: RepositoryState) -> tuple[PlanningR
     return tuple(routes)
 
 
+def _iso_date(value: str) -> str:
+    """Return the first well-formed ISO date in ``value``, or an empty string."""
+    match = ISO_DATE.search(value)
+    if match is None:
+        return ""
+    try:
+        date.fromisoformat(match.group(0))
+    except ValueError:
+        return ""
+    return match.group(0)
+
+
+def _premise_terms(*sources: str) -> frozenset[str]:
+    """Significant vocabulary shared-term domain matching is allowed to use."""
+    terms: set[str] = set()
+    for source in sources:
+        for raw in re.split(r"[^A-Za-z0-9]+", source):
+            token = raw.casefold()
+            if len(token) < PREMISE_TERM_MINIMUM or token.isdigit() or token in PREMISE_STOPWORDS:
+                continue
+            terms.add(token)
+    return frozenset(terms)
+
+
+def _declared_domains(value: str) -> frozenset[str]:
+    return frozenset(normalize_label(item) for item in re.split(r"[,;]", value) if item.strip())
+
+
+def _header_fields(lines: Sequence[str]) -> tuple[str, dict[str, str], list[str]]:
+    """Split a document header into its first heading and its ``key: value`` lines.
+
+    Both artifact families put their metadata in a leading block of `- Key: value`
+    (decision records) or `> **Key:** value` (Spec Kit specifications) lines, so
+    one reader serves both. Emphasis markers are stripped before matching, and
+    repeated keys are kept in order because a spec's amendment dates are as
+    load-bearing as its creation date.
+    """
+    heading = ""
+    fields: dict[str, str] = {}
+    repeated: list[str] = []
+    for line in lines[:PREMISE_HEADER_LINES]:
+        stripped = line.strip().replace("**", "")
+        if not heading and stripped.startswith("#"):
+            heading = stripped.lstrip("#").strip()
+            continue
+        match = HEADER_FIELD.match(stripped)
+        if match is None:
+            continue
+        key = match.group("key").strip().casefold()
+        value = match.group("value").strip()
+        repeated.append(f"{key}: {value}")
+        fields.setdefault(key, value)
+    return heading, fields, repeated
+
+
+def _decision_records(repository: Path) -> tuple[tuple[DecisionRecord, ...], list[str]]:
+    """Read every architecture decision record the repository publishes."""
+    records: list[DecisionRecord] = []
+    warnings: list[str] = []
+    for relative in DECISION_DIRECTORIES:
+        directory = repository / relative
+        if not directory.is_dir():
+            continue
+        for path in sorted(directory.glob("*.md")):
+            name = DECISION_FILENAME.match(path.name)
+            if name is None:
+                continue
+            source = f"{relative}/{path.name}"
+            try:
+                lines = path.read_text(encoding="utf-8").splitlines()
+            except OSError as exc:
+                warnings.append(f"cannot read {source}: {exc}")
+                continue
+            heading, fields, _ = _header_fields(lines)
+            leading = re.match(r"[A-Za-z]+", fields.get("status", ""))
+            status = leading.group(0).casefold() if leading else ""
+            decided = _iso_date(fields.get("date", ""))
+            if not status or not decided:
+                warnings.append(f"{source}: decision record needs parsable 'Status' and 'Date' header fields")
+                continue
+            title = DECISION_HEADING.sub("", heading).strip() or heading or path.stem
+            records.append(
+                DecisionRecord(
+                    identifier=f"ADR {name.group('identifier')}",
+                    title=title,
+                    path=source,
+                    date=decided,
+                    status=status,
+                    domains=_declared_domains(fields.get("domains") or fields.get("domain") or ""),
+                )
+            )
+    return tuple(records), warnings
+
+
+def _spec_premise(repository: Path, slug: str, relative: str) -> SpecPremise | None:
+    """Read one specification's premise evidence: when it was written, and about what.
+
+    An amendment date counts as the as-of date because an amended spec has
+    already been revisited; accusing it of predating a decision it absorbed
+    would be exactly the false positive this annotation must not produce.
+    """
+    path = repository / relative / "spec.md"
+    if not path.is_file():
+        return None
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    heading, fields, repeated = _header_fields(lines)
+    dates = []
+    for entry in repeated:
+        key, _, value = entry.partition(":")
+        if key in SPEC_DATE_KEYS:
+            iso = _iso_date(value)
+            if iso:
+                dates.append(iso)
+    title = SPEC_HEADING.sub("", heading).strip() or heading or slug
+    return SpecPremise(
+        spec_slug=slug,
+        title=title,
+        path=f"{relative}/spec.md",
+        as_of=max(dates) if dates else "",
+        domains=_declared_domains(fields.get("domains") or fields.get("domain") or ""),
+    )
+
+
+def _premise_domain_match(spec: SpecPremise, decision: DecisionRecord) -> tuple[str, str] | None:
+    """Decide whether a spec and a decision record cover the same domain.
+
+    Declared domains on both documents are authoritative. Shared significant
+    terms are the fallback that lets the check act on a backlog as it stands,
+    and every flag names which of the two produced it so a heuristic match is
+    never presented with declared-evidence confidence.
+    """
+    declared = spec.domains & decision.domains
+    if declared:
+        return "declared", sorted(declared)[0]
+    shared = _premise_terms(spec.spec_slug, spec.title) & _premise_terms(decision.title, Path(decision.path).stem)
+    if shared:
+        return "shared-term", sorted(shared)[0]
+    return None
+
+
+def premise_flags(
+    repository: Path,
+    state: RepositoryState,
+    result: RecommendationResult,
+) -> tuple[tuple[PremiseFlag, ...], tuple[str, ...]]:
+    """Flag open spec-derived issues whose parent spec predates a live decision.
+
+    WSJF-shaped ranking reads value, effort, and unblocking - all properties of
+    the issue itself. None of them can see that a decision merged after the
+    parent spec retired the premise the spec was written under, so a dead issue
+    still ranks as a well-formed, small, safe pick (issue #770). This annotation
+    names that pair and only that pair: it never re-ranks, filters, or hides an
+    engine result, and ``/flow:eli5`` remains the necessity decision point.
+
+    Superseded and rejected records are excluded on purpose. They no longer
+    state a live decision, and the record that replaced a superseded one carries
+    its own date, so the successor raises the flag the predecessor cannot.
+    """
+    decisions, warnings = _decision_records(repository)
+    live = tuple(record for record in decisions if record.status == LIVE_DECISION_STATUS)
+    if not live:
+        return (), tuple(warnings)
+
+    open_issues = set(result.classification.in_flight)
+    open_issues.update(result.classification.blocked)
+    open_issues.update(result.classification.uncertain)
+    open_issues.update(result.classification.available)
+
+    paths = {feature.name: feature.path for feature in state.spec_features}
+    mapped: dict[str, set[int]] = {}
+    for task in state.spec_tasks:
+        derived = {number for number in task.issue_numbers if number in open_issues}
+        if derived:
+            mapped.setdefault(task.feature, set()).update(derived)
+
+    flags: list[PremiseFlag] = []
+    for slug in sorted(mapped):
+        relative = paths.get(slug) or f".specify/specs/{slug}"
+        spec = _spec_premise(repository, slug, relative)
+        if spec is None:
+            # An absent spec.md is already reported by classify_spec_lifecycle;
+            # a second warning for one file would be noise, not evidence.
+            continue
+        if not spec.as_of:
+            warnings.append(
+                f"premise check skipped for spec {slug!r}: {spec.path} has no parsable "
+                "'Created' or 'Amended' date"
+            )
+            continue
+        for record in live:
+            if spec.as_of >= record.date:
+                continue
+            match = _premise_domain_match(spec, record)
+            if match is None:
+                continue
+            method, domain = match
+            evidence = "declared domain" if method == "declared" else "shared term"
+            reason = (
+                f"spec {slug!r} ({spec.as_of}) predates {record.identifier} {record.title!r} "
+                f"({record.date}); {evidence} {domain!r}"
+            )
+            flags.extend(
+                PremiseFlag(
+                    issue_number=number,
+                    spec_slug=slug,
+                    spec_path=spec.path,
+                    spec_dated=spec.as_of,
+                    decision_id=record.identifier,
+                    decision_title=record.title,
+                    decision_path=record.path,
+                    decision_dated=record.date,
+                    domain=domain,
+                    match=method,
+                    reason=reason,
+                )
+                for number in sorted(mapped[slug])
+            )
+    ordered = tuple(sorted(flags, key=lambda flag: (flag.issue_number, flag.decision_id, flag.spec_slug)))
+    return ordered, tuple(warnings)
+
+
 def _apply_route_rendering(text: str, routes: tuple[PlanningRoute, ...]) -> str:
     for route in routes:
         if route.issue_number is None:
@@ -471,6 +770,37 @@ def render_cpp(
         )
         if not extensions.spec_lifecycle:
             lines.append("- no specifications found")
+
+    flags = extensions.premise_flags
+    if mode == "brief":
+        if flags:
+            numbers = ", ".join(f"#{number}" for number in sorted({item.issue_number for item in flags}))
+            lines.append(f"Premise staleness: {len(flags)} advisory flag(s) on {numbers} - confirm with `/flow:eli5`")
+        else:
+            lines.append("Premise staleness: none")
+    elif mode == "full":
+        lines.extend(
+            (
+                "",
+                "### Premise staleness (advisory)",
+                "| Issue | Spec | Spec dated | Decision | Decided | Domain | Match | Reason |",
+                "|---:|---|---|---|---|---|---|---|",
+            )
+        )
+        for item in flags:
+            lines.append(
+                f"| #{item.issue_number} | {item.spec_slug} | {item.spec_dated} | {item.decision_id} | "
+                f"{item.decision_dated} | {item.domain} | {item.match} | {item.reason} |"
+            )
+        if not flags:
+            lines.append("| - | - | - | - | - | - | - | no spec predates a live decision in its domain |")
+        lines.extend(("", PREMISE_ADVISORY))
+    else:
+        lines.extend(("", "### Premise staleness (advisory)"))
+        lines.extend(f"- issue #{item.issue_number}: {item.reason}" for item in flags)
+        if not flags:
+            lines.append("- none: no spec predates a live decision in its domain")
+        lines.extend(("", PREMISE_ADVISORY))
 
     if extensions.planning_routes:
         lines.extend(("", "### Wayfinder planning routes"))
@@ -531,12 +861,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 2
     lifecycle, lifecycle_warnings = classify_spec_lifecycle(repository, engine_state, result)
-    warnings = tuple(item for item in (native_warning, *lifecycle_warnings) if item)
+    premise, premise_warnings = premise_flags(repository, engine_state, result)
+    warnings = tuple(item for item in (native_warning, *lifecycle_warnings, *premise_warnings) if item)
     extensions = CppExtensions(
         relationships=relationships,
         spec_lifecycle=lifecycle,
         planning_routes=planning_routes(repository, state),
         warnings=warnings,
+        premise_flags=premise,
     )
     if args.json:
         payload = result.to_dict()
