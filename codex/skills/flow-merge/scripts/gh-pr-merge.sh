@@ -145,14 +145,16 @@
 #   relative pathspecs) - the companion #657 finding: a cwd-drifted relative
 #   pathspec reads as an empty diff, indistinguishable from "no changes".
 #
-# Negated close keywords still close issues (issue #726):
+# Negated close keywords still close issues (issues #726 and #772):
 #   GitHub matches a literal close/fix/resolve keyword plus `#N` even when prose
 #   negates it, so "does not close #N" closes the issue when the squash lands.
 #   Author-time prose cannot reliably prevent that composition trap. Immediately
-#   before the squash, scan the exact title/body being sent for a negation in the
-#   preceding same-sentence window and CLEAN STOP before any merge attempt. The
-#   per-invocation --allow-negated-close escape hatch stays loud: it prints every
-#   detected issue/context plus an audit line before deliberately proceeding.
+#   before the squash, scan the exact title/body being sent, trim each keyword's
+#   prefix at the nearest sentence or clause boundary, and recognize only an
+#   adjacent negation with at most two intervening words. CLEAN STOP before any
+#   merge attempt. The per-invocation --allow-negated-close escape hatch stays
+#   loud: it prints every detected issue/context plus an audit line before
+#   deliberately proceeding.
 #
 # Squash-commit trailer carries the tested tree hash (issue #716):
 #   poker-measure's CI throughput on its single shared Woodpecker agent
@@ -805,16 +807,22 @@ retarget_stacked_children() {
     return 0
 }
 
-# Negated issue-closing keywords (issue #726): GitHub's matcher sees the literal
-# trigger even in "does not close #N", so a disclaimer silently closes the issue
-# after merge. Check every close/fix/resolve match against the preceding 30
-# characters in the same sentence and stop before either squash call. The
-# per-merge override is deliberately loud so consuming it leaves an audit trail.
+# Negated issue-closing keywords (issues #726 and #772): GitHub's matcher sees
+# the literal trigger even in "does not close #N", so a disclaimer silently
+# closes the issue after merge. Trim each prefix at sentence and clause
+# boundaries, then require the negation to be adjacent to the close/fix/resolve
+# keyword with no more than two intervening words. Stop before either squash
+# call. The per-merge override is deliberately loud so consuming it leaves an
+# audit trail.
 guard_negated_close_keywords() {
-    local keyword_re negation_re source text line entry offset match issue
-    local start after prefix suffix context found=0
+    local keyword_re auxiliary_re negation_re source text line entry offset match issue
+    local after prefix suffix context found=0
+    local en_dash=$'\xE2\x80\x93' em_dash=$'\xE2\x80\x94' apostrophe=$'\xE2\x80\x99'
+    # grep -b reports byte offsets, so keep Bash and the grep children byte-oriented.
+    local -x LC_ALL=C
     keyword_re='(?i)\b(?:close(?:s|d)?|fix(?:es|ed)?|resolve(?:s|d)?)\b:?\s*#[[:digit:]]+'
-    negation_re="(?i)(?:\\b(?:does\\h+not|not|never|no)\\b|\\b[[:alpha:]]+n't\\b)"
+    auxiliary_re='does|do|did|will|would|shall|should|can|could|must|may|might|is|are|was|were|be|been|has|have|had'
+    negation_re="(?i)(?:\\b(?:(?:${auxiliary_re})\\h+not|not|never|no)\\b|\\b[[:alpha:]]+n(?:'|${apostrophe})t\\b)(?:\\h+[[:alpha:]]+){0,2}\\h*$"
 
     for source in title body; do
         if [[ "$source" == "title" ]]; then
@@ -827,11 +835,10 @@ guard_negated_close_keywords() {
                 [[ -z "$entry" ]] && continue
                 offset=${entry%%:*}
                 match=${entry#*:}
-                start=$(( offset > 30 ? offset - 30 : 0 ))
-                prefix=${line:start:offset-start}
-                # A sentence-ending mark is a hard boundary even when it falls
-                # inside the 30-character lookback window.
-                prefix=${prefix##*[.!?]}
+                prefix=${line:0:offset}
+                prefix=${prefix##*[.!?,;:()]}
+                prefix=${prefix##*"$en_dash"}
+                prefix=${prefix##*"$em_dash"}
                 if ! printf '%s\n' "$prefix" | grep -Pqi "$negation_re"; then
                     continue
                 fi
