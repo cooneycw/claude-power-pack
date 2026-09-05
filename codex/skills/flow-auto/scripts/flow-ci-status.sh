@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# flow-ci-status.sh - Resolve the CI outcome for ONE commit SHA (issue #766).
+# flow-ci-status.sh - Resolve the CI outcome for ONE commit SHA (issues #766, #768).
 #
 # Problem:
 #   /flow:auto Step 8 (Verify CI) was the last un-helpered step in the flow. It
@@ -17,8 +17,11 @@
 #   connect timeout", which are materially different outcomes.
 #
 # So this helper anchors on the SHA, never on list position, and names the
-# failed STEPS. It is ADVISORY and FAIL-OPEN: no token, no network, no provider
-# all yield `unknown` and exit 0, never a blocked flow (unless --exit-code).
+# failed STEPS. It has three provider lanes: the Woodpecker HTTP API when its
+# credentials resolve, authenticated `woodpecker-cli` with machine-readable
+# go-template output otherwise (issue #768), then GitHub Actions. It is
+# ADVISORY and FAIL-OPEN: no token, no network, no provider all yield `unknown`
+# and exit 0, never a blocked flow (unless --exit-code).
 #
 # The token is read from $WOODPECKER_API_TOKEN when exported, else fetched from
 # AWS Secrets Manager. It is never echoed, and never passed on a command line
@@ -54,6 +57,7 @@
 # Env (test hooks - unset in normal use):
 #   FLOW_CI_CURL   override the `curl` binary
 #   FLOW_CI_AWS    override the `aws` binary
+#   FLOW_CI_WPCLI  override the `woodpecker-cli` binary
 #   FLOW_CI_GH     override the `gh` binary
 #   FLOW_CI_SLEEP  override the `sleep` binary (make --wait instant in tests)
 
@@ -70,6 +74,7 @@ WANT_EXIT_CODE=0
 
 CURL_BIN="${FLOW_CI_CURL:-curl}"
 AWS_BIN="${FLOW_CI_AWS:-}"
+WPCLI_BIN="${FLOW_CI_WPCLI:-woodpecker-cli}"
 GH_BIN="${FLOW_CI_GH:-gh}"
 SLEEP_BIN="${FLOW_CI_SLEEP:-sleep}"
 
@@ -97,7 +102,7 @@ while [[ $# -gt 0 ]]; do
             if [[ "${2:-}" =~ ^[0-9]+$ ]]; then WAIT_SECS="$2"; shift 2; else WAIT_SECS=600; shift; fi
             ;;
         --wait=*)      WAIT_SECS="${1#*=}"; [[ "$WAIT_SECS" =~ ^[0-9]+$ ]] || die_usage "--wait needs seconds"; shift ;;
-        -h|--help)     sed -n '2,60p' "$0"; exit 0 ;;
+        -h|--help)     sed -n '2,62p' "$0"; exit 0 ;;
         -*)            die_usage "unknown argument: $1" ;;
         *)             [[ -z "$SHA" ]] || die_usage "unexpected argument: $1"; SHA="$1"; shift ;;
     esac
@@ -232,6 +237,75 @@ if [[ -n "$WP_TOKEN" && -n "$WP_SERVER" ]]; then
                 [[ -n "$step" ]] && FAILED_STEPS+=("$step")
             done < <(wp_api "/api/repos/$REPO_ID/pipelines/$PIPELINE" \
                 | jq -r '[.workflows[]?.children[]? | select(.state=="failure" or .state=="error" or .state=="killed") | .name] | .[]' 2>/dev/null)
+        fi
+        emit
+    fi
+fi
+
+# ── Woodpecker CLI fallback ────────────────────────────────────────────────
+if command -v "$WPCLI_BIN" >/dev/null 2>&1; then
+    WPCLI_ROWS="$("$WPCLI_BIN" pipeline ls --output-no-headers \
+        --output 'go-template={{range .}}{{.Number}}|{{.Status}}|{{.Commit}}|{{.Event}}{{"\n"}}{{end}}' \
+        --limit 50 "$REPO" 2>/dev/null)"
+    WPCLI_RC=$?
+    if [[ "$WPCLI_RC" -eq 0 && -n "$(sed -n '/[^[:space:]]/p' <<<"$WPCLI_ROWS")" ]]; then
+        PROVIDER="woodpecker"
+        # The canonical web URL needs the numeric repo id, which this lane does not have.
+        URL="-"
+        DEADLINE=$(( $(date +%s) + WAIT_SECS ))
+        while :; do
+            MATCHES=()
+            while IFS='|' read -r number state commit event; do
+                [[ "$commit" == "$SHA" && "$event" == "$PREFER_EVENT" ]] || continue
+                MATCHES+=("$number|$state|$commit|$event")
+            done <<<"$WPCLI_ROWS"
+            while IFS='|' read -r number state commit event; do
+                [[ "$commit" == "$SHA" && "$event" != "$PREFER_EVENT" ]] || continue
+                MATCHES+=("$number|$state|$commit|$event")
+            done <<<"$WPCLI_ROWS"
+
+            COUNT="${#MATCHES[@]}"
+            if [[ "$COUNT" -gt 0 ]]; then
+                IFS='|' read -r PIPELINE WP_STATE _ _ <<<"${MATCHES[0]}"
+                if [[ "$COUNT" -gt 1 ]]; then
+                    echo "flow-ci-status: $COUNT pipelines share $SHA; reporting the '$PREFER_EVENT' one first:" >&2
+                    for match in "${MATCHES[@]}"; do
+                        IFS='|' read -r MATCH_NUMBER MATCH_STATE _ MATCH_EVENT <<<"$match"
+                        echo "  #$MATCH_NUMBER $MATCH_EVENT $MATCH_STATE" >&2
+                    done
+                fi
+                case "$WP_STATE" in
+                    success)                 STATUS="success" ;;
+                    failure|error|killed)    STATUS="failure" ;;
+                    running|started)         STATUS="running" ;;
+                    pending|blocked|created) STATUS="pending" ;;
+                    *)                       STATUS="unknown" ;;
+                esac
+            else
+                PIPELINE="-"; STATUS="not-found"
+            fi
+
+            # Terminal, or out of patience.
+            if [[ "$STATUS" == "success" || "$STATUS" == "failure" || "$STATUS" == "unknown" ]]; then break; fi
+            if [[ "$WAIT_SECS" -eq 0 || "$(date +%s)" -ge "$DEADLINE" ]]; then break; fi
+            "$SLEEP_BIN" 15
+            WPCLI_ROWS="$("$WPCLI_BIN" pipeline ls --output-no-headers \
+                --output 'go-template={{range .}}{{.Number}}|{{.Status}}|{{.Commit}}|{{.Event}}{{"\n"}}{{end}}' \
+                --limit 50 "$REPO" 2>/dev/null)"
+            WPCLI_RC=$?
+            if [[ "$WPCLI_RC" -ne 0 || -z "$(sed -n '/[^[:space:]]/p' <<<"$WPCLI_ROWS")" ]]; then
+                STATUS="unknown"
+                break
+            fi
+        done
+
+        if [[ "$STATUS" == "failure" && "$PIPELINE" != "-" ]]; then
+            while IFS='|' read -r step state; do
+                case "$state" in
+                    failure|error|killed) [[ -n "$step" ]] && FAILED_STEPS+=("$step") ;;
+                esac
+            done < <("$WPCLI_BIN" pipeline ps --format '{{ .step.Name }}|{{ .step.State }}
+' "$REPO" "$PIPELINE" 2>/dev/null)
         fi
         emit
     fi
