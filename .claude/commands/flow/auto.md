@@ -869,6 +869,11 @@ grep over that shared list is a coin flip. The helper matches on `.commit` and
 cannot make that mistake; it also fetches the token from AWS Secrets Manager
 itself when it is not exported.
 
+The helper now has three provider lanes (#768): the Woodpecker HTTP API when a
+token resolves, `woodpecker-cli` in machine-readable `go-template` mode when it
+does not, and GitHub Actions. The CLI lane still anchors on the exact commit
+SHA, which is precisely what the #516 improvisation failed to do.
+
 The helper prints a machine-readable contract, the failed-step lines (when any)
 immediately before the verdict:
 

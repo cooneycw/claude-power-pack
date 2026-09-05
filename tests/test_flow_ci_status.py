@@ -1,4 +1,4 @@
-"""Tests for scripts/flow-ci-status.sh - SHA-anchored CI verification (issue #766).
+"""Tests for scripts/flow-ci-status.sh - SHA-anchored CI verification (#766, #768).
 
 Contract:
 - The pipeline is selected by matching ``.commit`` against the SHA, NEVER by
@@ -15,8 +15,9 @@ Contract:
 - Everything is fail-open: no credentials, no provider, no checkout ⇒ ``unknown``
   and exit 0. Only ``--exit-code`` turns a ``failure`` verdict into exit 1.
 
-No test touches the network: ``curl``, ``aws`` and ``gh`` are replaced through the
-FLOW_CI_* test hooks.
+No test touches the network: ``curl``, ``aws``, ``woodpecker-cli`` and ``gh`` are
+replaced through the FLOW_CI_* test hooks. The third provider lane exercises the
+CLI only through ``FLOW_CI_WPCLI``.
 """
 
 from __future__ import annotations
@@ -65,6 +66,38 @@ def _write_fake_curl(tmp_path: Path, routes: dict[str, object], argv_log: Path) 
     return path
 
 
+def _write_fake_wpcli(
+    tmp_path: Path,
+    ls_rows: list[str],
+    ps_rows: list[str],
+    argv_log: Path,
+) -> Path:
+    """A stand-in woodpecker-cli that logs argv and returns canned rows."""
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    body = [
+        "#!/usr/bin/env bash",
+        f'{{ printf "ARGV:"; printf " <%s>" "$@"; printf "\\n"; }} >> "{argv_log}"',
+        'case "$2" in',
+        "ls)",
+        "cat <<'ROWS'",
+        *ls_rows,
+        "ROWS",
+        ";;",
+        "ps)",
+        "cat <<'ROWS'",
+        *ps_rows,
+        "ROWS",
+        ";;",
+        "*) exit 1 ;;",
+        "esac",
+        "",
+    ]
+    path = tmp_path / "woodpecker-cli"
+    path.write_text("\n".join(body), encoding="utf-8")
+    path.chmod(0o755)
+    return path
+
+
 def _pipeline(number: int, commit: str, status: str, event: str = "push") -> dict:
     return {"number": number, "commit": commit, "status": status, "event": event}
 
@@ -77,6 +110,7 @@ def _run(tmp_path: Path, *args: str, env: dict | None = None) -> subprocess.Comp
     full_env.update(
         {
             "FLOW_CI_AWS": "/nonexistent/aws",
+            "FLOW_CI_WPCLI": "/nonexistent/woodpecker-cli",
             "FLOW_CI_GH": "/nonexistent/gh",
             "FLOW_CI_SLEEP": "/bin/true",
             "WOODPECKER_SERVER": "https://wp.example.invalid",
@@ -100,6 +134,204 @@ def _markers(out: str) -> dict[str, list[str]]:
             key, _, value = line.partition(": ")
             found.setdefault(key, []).append(value)
     return found
+
+
+@requires_bash
+def test_wpcli_selects_pipeline_by_exact_sha_not_list_position(tmp_path):
+    """The CLI fallback must not revive the positional #516 regression."""
+    missing_curl = Path("/nonexistent/curl")
+    assert not missing_curl.exists()
+    argv_log = tmp_path / "wpcli-argv.log"
+    wpcli = _write_fake_wpcli(
+        tmp_path,
+        [
+            f"1250|failure|{OTHER_SHA}|push",
+            f"1249|success|{SHA}|push",
+        ],
+        [],
+        argv_log,
+    )
+    result = _run(
+        tmp_path,
+        SHA,
+        "--repo",
+        "o/r",
+        env={"FLOW_CI_CURL": str(missing_curl), "FLOW_CI_WPCLI": str(wpcli)},
+    )
+    markers = _markers(result.stdout)
+    assert markers["FLOW_CI_STATUS"] == ["success"], result.stdout + result.stderr
+    assert markers["FLOW_CI_PIPELINE"] == ["1249"]
+    assert markers["FLOW_CI_PROVIDER"] == ["woodpecker"]
+    assert markers["FLOW_CI_URL"] == ["-"]
+    assert result.returncode == 0
+
+
+@requires_bash
+def test_wpcli_event_preference_picks_among_rows_sharing_a_sha(tmp_path):
+    missing_curl = Path("/nonexistent/curl")
+    assert not missing_curl.exists()
+    argv_log = tmp_path / "wpcli-argv.log"
+    wpcli = _write_fake_wpcli(
+        tmp_path,
+        [
+            f"90|failure|{SHA}|pull_request",
+            f"91|success|{SHA}|push",
+        ],
+        [],
+        argv_log,
+    )
+    push = _run(
+        tmp_path,
+        SHA,
+        "--repo",
+        "o/r",
+        env={"FLOW_CI_CURL": str(missing_curl), "FLOW_CI_WPCLI": str(wpcli)},
+    )
+    assert _markers(push.stdout)["FLOW_CI_PIPELINE"] == ["91"]
+    assert _markers(push.stdout)["FLOW_CI_STATUS"] == ["success"]
+
+    pr = _run(
+        tmp_path,
+        SHA,
+        "--repo",
+        "o/r",
+        "--event",
+        "pull_request",
+        env={"FLOW_CI_CURL": str(missing_curl), "FLOW_CI_WPCLI": str(wpcli)},
+    )
+    assert _markers(pr.stdout)["FLOW_CI_PIPELINE"] == ["90"]
+    assert _markers(pr.stdout)["FLOW_CI_STATUS"] == ["failure"]
+    assert f"2 pipelines share {SHA}" in pr.stderr
+
+
+@requires_bash
+def test_wpcli_list_uses_machine_readable_go_template(tmp_path):
+    missing_curl = Path("/nonexistent/curl")
+    assert not missing_curl.exists()
+    argv_log = tmp_path / "wpcli-argv.log"
+    wpcli = _write_fake_wpcli(
+        tmp_path,
+        [f"7|success|{SHA}|push"],
+        [],
+        argv_log,
+    )
+    result = _run(
+        tmp_path,
+        SHA,
+        "--repo",
+        "o/r",
+        env={"FLOW_CI_CURL": str(missing_curl), "FLOW_CI_WPCLI": str(wpcli)},
+    )
+    assert result.returncode == 0
+    calls = argv_log.read_text(encoding="utf-8").splitlines()
+    list_calls = [line for line in calls if line.startswith("ARGV: <pipeline> <ls>")]
+    assert list_calls
+    assert all("<--output-no-headers>" in line for line in list_calls)
+    assert all("go-template=" in line for line in list_calls)
+    assert all(line.strip() != "ARGV: <pipeline> <ls>" for line in list_calls)
+
+
+@requires_bash
+def test_wpcli_failure_names_only_failed_steps_from_pipeline_ps(tmp_path):
+    missing_curl = Path("/nonexistent/curl")
+    assert not missing_curl.exists()
+    argv_log = tmp_path / "wpcli-argv.log"
+    wpcli = _write_fake_wpcli(
+        tmp_path,
+        [f"1275|failure|{SHA}|push"],
+        [
+            "clone|success",
+            "test-unit|failure",
+            "deploy|error",
+            "cleanup|killed",
+        ],
+        argv_log,
+    )
+    result = _run(
+        tmp_path,
+        SHA,
+        "--repo",
+        "o/r",
+        env={"FLOW_CI_CURL": str(missing_curl), "FLOW_CI_WPCLI": str(wpcli)},
+    )
+    markers = _markers(result.stdout)
+    assert markers["FLOW_CI_STATUS"] == ["failure"]
+    assert markers["FLOW_CI_FAILED_STEP"] == ["test-unit", "deploy", "cleanup"]
+    assert "clone" not in markers["FLOW_CI_FAILED_STEP"]
+
+
+@requires_bash
+def test_wpcli_reports_not_found_when_no_row_carries_the_sha(tmp_path):
+    missing_curl = Path("/nonexistent/curl")
+    assert not missing_curl.exists()
+    argv_log = tmp_path / "wpcli-argv.log"
+    wpcli = _write_fake_wpcli(
+        tmp_path,
+        [f"1|success|{OTHER_SHA}|push"],
+        [],
+        argv_log,
+    )
+    result = _run(
+        tmp_path,
+        SHA,
+        "--repo",
+        "o/r",
+        env={"FLOW_CI_CURL": str(missing_curl), "FLOW_CI_WPCLI": str(wpcli)},
+    )
+    markers = _markers(result.stdout)
+    assert markers["FLOW_CI_STATUS"] == ["not-found"]
+    assert markers["FLOW_CI_PIPELINE"] == ["-"]
+    assert markers["FLOW_CI_PROVIDER"] == ["woodpecker"]
+
+
+@requires_bash
+def test_wpcli_is_not_consulted_when_api_lane_answers(tmp_path):
+    curl_log = tmp_path / "curl-argv.log"
+    wpcli_log = tmp_path / "wpcli-argv.log"
+    curl = _write_fake_curl(
+        tmp_path / "api",
+        {"/api/repos/lookup/": {"id": 17}, "pipelines?per_page": [_pipeline(4, SHA, "success")]},
+        curl_log,
+    )
+    wpcli = _write_fake_wpcli(
+        tmp_path / "cli",
+        [f"5|failure|{SHA}|push"],
+        [],
+        wpcli_log,
+    )
+    result = _run(
+        tmp_path,
+        SHA,
+        "--repo",
+        "o/r",
+        env={"FLOW_CI_CURL": str(curl), "FLOW_CI_WPCLI": str(wpcli)},
+    )
+    assert _markers(result.stdout)["FLOW_CI_PIPELINE"] == ["4"]
+    assert not wpcli_log.exists()
+
+
+@requires_bash
+def test_missing_wpcli_falls_through_and_stays_fail_open(tmp_path):
+    missing_curl = Path("/nonexistent/curl")
+    missing_wpcli = Path("/nonexistent/woodpecker-cli")
+    missing_gh = Path("/nonexistent/gh")
+    assert not missing_curl.exists()
+    assert not missing_wpcli.exists()
+    assert not missing_gh.exists()
+    result = _run(
+        tmp_path,
+        SHA,
+        "--repo",
+        "o/r",
+        env={
+            "FLOW_CI_CURL": str(missing_curl),
+            "FLOW_CI_WPCLI": str(missing_wpcli),
+        },
+    )
+    markers = _markers(result.stdout)
+    assert markers["FLOW_CI_STATUS"] == ["unknown"]
+    assert markers["FLOW_CI_PROVIDER"] == ["none"]
+    assert result.returncode == 0
 
 
 @requires_bash
@@ -262,6 +494,9 @@ def test_fetches_token_from_aws_when_not_exported(tmp_path):
 
 @requires_bash
 def test_fails_open_without_credentials_or_provider(tmp_path):
+    assert not Path("/nonexistent/curl").exists()
+    assert not Path("/nonexistent/woodpecker-cli").exists()
+    assert not Path("/nonexistent/gh").exists()
     result = _run(tmp_path, SHA, "--repo", "o/r",
                   env={"FLOW_CI_CURL": "/nonexistent/curl", "WOODPECKER_API_TOKEN": "",
                        "WOODPECKER_SERVER": ""})
