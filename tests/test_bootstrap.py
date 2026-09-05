@@ -4,9 +4,12 @@ from pathlib import Path
 
 import pytest
 
+import lib.cicd.bootstrap as bootstrap
 from lib.cicd.bootstrap import (
     BootstrapConfig,
     BootstrapDependency,
+    CheckResult,
+    built_in_advisories,
     check_all,
     check_dependency,
     main,
@@ -22,6 +25,17 @@ def tmp_project(tmp_path: Path) -> Path:
 def _write_config(project_root: Path, yaml_content: str) -> None:
     config_path = project_root / ".claude" / "bootstrap.yaml"
     config_path.write_text(yaml_content)
+
+
+def _failed_check(dep: BootstrapDependency, _project_root: Path) -> CheckResult:
+    return CheckResult(
+        name=dep.name,
+        satisfied=False,
+        description=dep.description,
+        remediation=dep.remediation,
+        error="Not available",
+        advisory=dep.advisory,
+    )
 
 
 class TestBootstrapConfig:
@@ -78,6 +92,22 @@ dependencies:
         assert config is not None
         assert len(config.dependencies) == 1
         assert config.dependencies[0].name == "good-dep"
+
+    def test_advisory_defaults_to_false(self, tmp_project: Path):
+        _write_config(
+            tmp_project,
+            """
+version: "1"
+dependencies:
+  required-dep:
+    description: Required dependency
+    check_command: "required-check"
+    remediation: "Install it"
+""",
+        )
+        config = BootstrapConfig.load(tmp_project)
+        assert config is not None
+        assert config.dependencies[0].advisory is False
 
 
 class TestCheckDependency:
@@ -193,6 +223,127 @@ dependencies: {}
         assert passed
         assert results == []
 
+    def test_failing_advisory_does_not_block(
+        self, tmp_project: Path, monkeypatch, capsys
+    ):
+        _write_config(
+            tmp_project,
+            """
+version: "1"
+dependencies:
+  optional-dep:
+    description: Optional dependency
+    check_command: "optional-check"
+    remediation: "Install it if needed"
+    advisory: true
+""",
+        )
+        monkeypatch.setattr(bootstrap, "check_dependency", _failed_check)
+
+        passed, results = check_all(tmp_project)
+
+        assert passed
+        assert len(results) == 1
+        assert not results[0].satisfied
+        assert results[0].advisory
+        assert main(["check", "--project-root", str(tmp_project)]) == 0
+        output = capsys.readouterr().out
+        assert "WARN" in output
+        assert "PASSED" in output
+        assert "BLOCKED" not in output
+
+    def test_failing_blocking_dependency_still_blocks(
+        self, tmp_project: Path, monkeypatch
+    ):
+        _write_config(
+            tmp_project,
+            """
+version: "1"
+dependencies:
+  required-dep:
+    description: Required dependency
+    check_command: "required-check"
+    remediation: "Install it"
+""",
+        )
+        monkeypatch.setattr(bootstrap, "check_dependency", _failed_check)
+
+        passed, results = check_all(tmp_project)
+
+        assert not passed
+        assert len(results) == 1
+        assert not results[0].advisory
+        assert main(["check", "--project-root", str(tmp_project)]) == 1
+
+    def test_failing_advisory_does_not_mask_blocking_failure(
+        self, tmp_project: Path, monkeypatch
+    ):
+        _write_config(
+            tmp_project,
+            """
+version: "1"
+dependencies:
+  optional-dep:
+    description: Optional dependency
+    check_command: "optional-check"
+    remediation: "Install it if needed"
+    advisory: true
+  required-dep:
+    description: Required dependency
+    check_command: "required-check"
+    remediation: "Install it"
+""",
+        )
+        monkeypatch.setattr(bootstrap, "check_dependency", _failed_check)
+
+        passed, results = check_all(tmp_project)
+
+        assert not passed
+        assert len(results) == 2
+        assert {result.advisory for result in results} == {False, True}
+        assert main(["check", "--project-root", str(tmp_project)]) == 1
+
+
+class TestBuiltInAdvisories:
+    @pytest.mark.parametrize("marker", ["pyproject.toml", "requirements.txt"])
+    def test_python_project_gets_python3_venv_advisory(
+        self, tmp_project: Path, marker: str
+    ):
+        (tmp_project / marker).write_text("")
+
+        advisories = built_in_advisories(tmp_project)
+
+        assert len(advisories) == 1
+        assert advisories[0].name == "python3-venv"
+        assert advisories[0].advisory
+        assert advisories[0].check_command == 'python3 -c "import ensurepip"'
+        assert "uv venv .venv" in advisories[0].remediation
+        assert "apt install python3-venv" in advisories[0].remediation
+
+    def test_non_python_project_gets_no_python_advisory(self, tmp_project: Path):
+        python_markers = ("pyproject.toml", "requirements.txt", "setup.py")
+        assert all(not (tmp_project / marker).exists() for marker in python_markers)
+
+        assert built_in_advisories(tmp_project) == []
+
+    def test_no_config_python_project_still_runs_advisory(
+        self, tmp_project: Path, monkeypatch, capsys
+    ):
+        assert BootstrapConfig.load(tmp_project) is None
+        (tmp_project / "pyproject.toml").write_text("")
+        monkeypatch.setattr(bootstrap, "check_dependency", _failed_check)
+
+        passed, results = check_all(tmp_project)
+
+        assert passed
+        assert [result.name for result in results] == ["python3-venv"]
+        assert not results[0].satisfied
+        assert results[0].advisory
+        assert main(["check", "--project-root", str(tmp_project)]) == 0
+        output = capsys.readouterr().out
+        assert "Config: \x1b[0;34mnone (only built-in advisories shown)" in output
+        assert str(tmp_project / ".claude" / "bootstrap.yaml") not in output
+
 
 class TestCLI:
     def test_check_no_config(self, tmp_project: Path, monkeypatch):
@@ -215,6 +366,26 @@ dependencies:
         )
         exit_code = main(["check"])
         assert exit_code == 0
+
+    def test_check_report_names_existing_config(
+        self, tmp_project: Path, capsys
+    ):
+        _write_config(
+            tmp_project,
+            """
+version: "1"
+dependencies: {}
+""",
+        )
+        config_path = tmp_project / ".claude" / "bootstrap.yaml"
+        assert config_path.exists()
+
+        exit_code = main(["check", "--project-root", str(tmp_project)])
+
+        assert exit_code == 0
+        output = capsys.readouterr().out
+        assert f"Config: \x1b[0;34m{config_path}\x1b[0m" in output
+        assert "only built-in advisories shown" not in output
 
     def test_check_blocked(self, tmp_project: Path, monkeypatch):
         monkeypatch.chdir(tmp_project)
@@ -249,6 +420,19 @@ dependencies:
         assert exit_code == 0
         output = capsys.readouterr().out
         assert "my-dep" in output
+
+    def test_list_command_includes_built_in_advisory(
+        self, tmp_project: Path, capsys
+    ):
+        assert BootstrapConfig.load(tmp_project) is None
+        (tmp_project / "requirements.txt").write_text("")
+
+        exit_code = main(["list", "--project-root", str(tmp_project)])
+
+        assert exit_code == 0
+        output = capsys.readouterr().out
+        assert "python3-venv (advisory)" in output
+        assert "No bootstrap dependencies configured." not in output
 
     def test_project_root_flag(self, tmp_project: Path):
         _write_config(

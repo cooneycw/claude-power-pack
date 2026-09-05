@@ -427,13 +427,20 @@ BUILTIN_PLANS: dict[str, list[StepDef]] = {
         _gate_step("typecheck", "mypy .", "mypy", 300),
     ],
     "deploy": [
+        # Keep these Python markers aligned with built_in_advisories() in
+        # bootstrap.py so applicable advisories are not skipped by the plan.
         StepDef(
             id="bootstrap_check",
             command="python3 -m lib.cicd.bootstrap check",
-            description="Check admin-only bootstrap dependencies",
+            description="Check bootstrap dependencies and built-in advisories",
             timeout_seconds=30,
             max_attempts=1,
-            skip_if="! [ -f .claude/bootstrap.yaml ]",
+            skip_if=(
+                "! [ -f .claude/bootstrap.yaml ] && "
+                "! [ -f pyproject.toml ] && "
+                "! [ -f requirements.txt ] && "
+                "! [ -f setup.py ]"
+            ),
             env={"PYTHONPATH": _CPP_ROOT},
         ),
         StepDef(

@@ -2,6 +2,7 @@
 
 import os
 import re
+import shutil
 from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
@@ -402,6 +403,43 @@ class TestStepDefinitionsSandboxAware:
         step = {s.id: s for s in BUILTIN_PLANS["deploy"]}["bootstrap_check"]
         assert step.command == "python3 -m lib.cicd.bootstrap check"
         assert step.env.get("PYTHONPATH") == _CPP_ROOT
+
+    @pytest.mark.skipif(shutil.which("sh") is None, reason="requires sh")
+    @pytest.mark.parametrize(
+        "marker", ["pyproject.toml", "requirements.txt", "setup.py"]
+    )
+    def test_deploy_bootstrap_check_runs_for_python_project_without_config(
+        self, tmp_project: Path, marker: str
+    ):
+        config_path = tmp_project / ".claude" / "bootstrap.yaml"
+        assert not config_path.exists()
+        (tmp_project / marker).write_text("")
+        step = ShellStep(
+            {s.id: s for s in BUILTIN_PLANS["deploy"]}["bootstrap_check"]
+        )
+
+        assert (
+            step.should_skip({"project_root": str(tmp_project), "env": {}}) is False
+        )
+
+    @pytest.mark.skipif(shutil.which("sh") is None, reason="requires sh")
+    def test_deploy_bootstrap_check_skips_without_config_or_python_markers(
+        self, tmp_project: Path
+    ):
+        relevant_files = (
+            ".claude/bootstrap.yaml",
+            "pyproject.toml",
+            "requirements.txt",
+            "setup.py",
+        )
+        assert all(not (tmp_project / path).exists() for path in relevant_files)
+        step = ShellStep(
+            {s.id: s for s in BUILTIN_PLANS["deploy"]}["bootstrap_check"]
+        )
+
+        assert (
+            step.should_skip({"project_root": str(tmp_project), "env": {}}) is True
+        )
 
     def test_deploy_security_scan_dehardcoded(self):
         step = {s.id: s for s in BUILTIN_PLANS["deploy"]}["security_scan"]
