@@ -104,9 +104,12 @@ The helper ends with a machine-readable marker:
   exited 0 having executed no tests (every test skipped, or none collected).
   Continue as for `ok`, but report the counts from the runner's `warnings` array
   verbatim and say plainly that this gate proved nothing about the change - never
-  summarize it as "tests passed". Name the missing prerequisite if the skips look
-  load-bearing (a live database, a service, a credential) and offer the fuller
-  test target if the Makefile has one.
+  summarize it as "tests passed". `warn` also means a test failed on the first
+  attempt and PASSED when re-run against only its failed ids (issue #769) - the
+  ids are on the `RERUN_PASSED:` line above the marker. Proceed, but report those
+  ids and never call the run a clean pass. Name the missing prerequisite if the
+  skips look load-bearing (a live database, a service, a credential) and offer
+  the fuller test target if the Makefile has one.
 - `FLOW_FINISH_GATE: fail` (exit 1): parse the runner/make output above the
   marker, report the failed step, and **stop**. Do not proceed to PR creation.
 - `FLOW_FINISH_GATE: skipped` (exit 0): no runner AND no Makefile lint/test/typecheck

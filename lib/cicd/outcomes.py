@@ -88,6 +88,28 @@ _UNITTEST_RAN = re.compile(r"^Ran (\d+) tests? in ")
 _UNITTEST_VERDICT = re.compile(r"^(OK|FAILED)\b(?:\s*\((?P<detail>[^)]*)\))?")
 _UNITTEST_DETAIL = re.compile(r"(failures|errors|skipped|expected failures)=(\d+)")
 
+# Pytest's short-summary ids make a first-attempt flake nameable and countable
+# in the #769 report. They are NOT the selection mechanism: ``--last-failed``
+# narrows the re-run from pytest's own cache, so this best-effort parse is never
+# load-bearing for whether the gate is correct.
+_PYTEST_FAILED_NODE_ID = re.compile(r"^\s*(?:FAILED|ERROR)\s+(\S+)", re.MULTILINE)
+
+
+def parse_failed_node_ids(text: str) -> list[str]:
+    """Return pytest FAILED/ERROR node ids in first-seen order."""
+    if not text:
+        return []
+
+    ids: list[str] = []
+    seen: set[str] = set()
+    for match in _PYTEST_FAILED_NODE_ID.finditer(text):
+        node_id = match.group(1)
+        if ("::" not in node_id and not node_id.endswith(".py")) or node_id in seen:
+            continue
+        seen.add(node_id)
+        ids.append(node_id)
+    return ids
+
 
 def parse_suite_outcome(text: str) -> Optional[SuiteOutcome]:
     """Parse a test runner's summary out of captured step output.

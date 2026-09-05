@@ -266,6 +266,8 @@ def _uv_stub_printing(bindir: Path, stdout_payload: str, exit_code: int = 0) -> 
     stub.write_text(
         "#!/usr/bin/env bash\n"
         f'echo "$@" >> "{bindir / "uv.log"}"\n'
+        f'echo "CPP_GATE_RERUN_FAILED=${{CPP_GATE_RERUN_FAILED-UNSET}}" '
+        f'>> "{bindir / "uv.env.log"}"\n'
         f"cat <<'JSON'\n{stdout_payload}\nJSON\n"
         f"exit {exit_code}\n"
     )
@@ -273,7 +275,11 @@ def _uv_stub_printing(bindir: Path, stdout_payload: str, exit_code: int = 0) -> 
 
 
 def _run_with_uv_stub(
-    tmp_path: Path, cpp: Path, payload: str, exit_code: int = 0
+    tmp_path: Path,
+    cpp: Path,
+    payload: str,
+    exit_code: int = 0,
+    flow_gate_rerun: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     bindir = tmp_path / "bin"
     bindir.mkdir(exist_ok=True)
@@ -281,6 +287,8 @@ def _run_with_uv_stub(
     env = os.environ.copy()
     env["PATH"] = f"{bindir}:{env['PATH']}"
     env["FLOW_GATE_CPP_DIR"] = str(cpp)
+    if flow_gate_rerun is not None:
+        env["FLOW_GATE_RERUN"] = flow_gate_rerun
     return subprocess.run(
         ["bash", str(SCRIPT)],
         cwd=tmp_path,
@@ -328,6 +336,289 @@ def test_failed_run_is_fail_even_with_warnings(tmp_path: Path) -> None:
     proc = _run_with_uv_stub(tmp_path, cpp, payload, exit_code=1)
     assert proc.returncode == 1
     assert "FLOW_FINISH_GATE: fail" in proc.stdout
+
+
+# --- #769: one targeted re-run of pytest's failed ids -----------------------
+
+
+@requires_bash
+def test_runner_rerun_passed_reports_warn_and_ids(tmp_path: Path) -> None:
+    cpp = _fake_cpp(tmp_path)
+    payload = """{
+  "success": true,
+  "steps_completed": 3,
+  "steps_total": 3,
+  "reruns": [
+    {
+      "step": "test",
+      "ids": [
+        "tests/a.py::t1"
+      ],
+      "outcome": "passed",
+      "first_attempt": null,
+      "rerun": null
+    }
+  ]
+}"""
+    proc = _run_with_uv_stub(tmp_path, cpp, payload)
+
+    assert proc.returncode == 0
+    assert "FLOW_FINISH_GATE: warn" in proc.stdout
+    assert "FLOW_FINISH_GATE: ok" not in proc.stdout
+    assert "RERUN_PASSED: tests/a.py::t1" in proc.stdout
+    assert "issue #769" in proc.stdout
+
+
+@requires_bash
+@pytest.mark.parametrize("rerun_outcome", ["failed", "inconclusive"])
+def test_uncleared_rerun_has_no_rerun_passed_line(
+    tmp_path: Path, rerun_outcome: str
+) -> None:
+    cpp = _fake_cpp(tmp_path)
+    payload = """{
+  "success": false,
+  "reruns": [
+    {
+      "step": "test",
+      "ids": [
+        "tests/a.py::t1"
+      ],
+      "outcome": "%s",
+      "first_attempt": null,
+      "rerun": null
+    }
+  ]
+}""" % rerun_outcome
+    proc = _run_with_uv_stub(tmp_path, cpp, payload, exit_code=1)
+
+    assert proc.returncode == 1
+    assert "FLOW_FINISH_GATE: fail" in proc.stdout
+    assert "RERUN_PASSED:" not in proc.stdout
+
+
+@requires_bash
+def test_gate_enables_runner_rerun_by_default(tmp_path: Path) -> None:
+    cpp = _fake_cpp(tmp_path)
+    payload = '{\n  "success": true\n}'
+    proc = _run_with_uv_stub(tmp_path, cpp, payload)
+
+    assert proc.returncode == 0
+    assert (tmp_path / "bin" / "uv.env.log").read_text().strip() == (
+        "CPP_GATE_RERUN_FAILED=1"
+    )
+
+
+@requires_bash
+def test_gate_can_disable_runner_rerun(tmp_path: Path) -> None:
+    cpp = _fake_cpp(tmp_path)
+    payload = '{\n  "success": true\n}'
+    proc = _run_with_uv_stub(tmp_path, cpp, payload, flow_gate_rerun="0")
+
+    assert proc.returncode == 0
+    assert (tmp_path / "bin" / "uv.env.log").read_text().strip() == (
+        "CPP_GATE_RERUN_FAILED=0"
+    )
+
+
+@requires_bash
+def test_disabled_rerun_overrides_an_inherited_opt_in(tmp_path: Path) -> None:
+    """FLOW_GATE_RERUN=0 must OVERRIDE an inherited CPP_GATE_RERUN_FAILED=1, not
+    merely decline to set it. A nested gate is the normal case - CPP's own suite
+    runs under an outer gate that already exported the opt-in - so an opt-out
+    that only omits the assignment disables nothing where it matters most."""
+    cpp = _fake_cpp(tmp_path)
+    payload = '{\n  "success": true\n}'
+    bindir = tmp_path / "bin"
+    bindir.mkdir(exist_ok=True)
+    _uv_stub_printing(bindir, payload, 0)
+    env = os.environ.copy()
+    env["PATH"] = f"{bindir}:{env['PATH']}"
+    env["FLOW_GATE_CPP_DIR"] = str(cpp)
+    env["FLOW_GATE_RERUN"] = "0"
+    env["CPP_GATE_RERUN_FAILED"] = "1"
+    proc = subprocess.run(
+        ["bash", str(SCRIPT)],
+        cwd=tmp_path,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+
+    assert proc.returncode == 0
+    assert (bindir / "uv.env.log").read_text().strip() == "CPP_GATE_RERUN_FAILED=0"
+
+
+@requires_bash
+def test_runner_rerun_reports_multiple_ids(tmp_path: Path) -> None:
+    cpp = _fake_cpp(tmp_path)
+    payload = """{
+  "success": true,
+  "reruns": [
+    {
+      "step": "test",
+      "ids": [
+        "tests/a.py::t1",
+        "tests/b.py::TestB::t2[param]"
+      ],
+      "outcome": "passed",
+      "first_attempt": null,
+      "rerun": null
+    }
+  ]
+}"""
+    proc = _run_with_uv_stub(tmp_path, cpp, payload)
+
+    assert proc.returncode == 0
+    assert (
+        "RERUN_PASSED: tests/a.py::t1 tests/b.py::TestB::t2[param]"
+        in proc.stdout
+    )
+
+
+def _fallback_make_stub(
+    bindir: Path, rerun_passes: bool, fail_target: str | None = None
+) -> None:
+    stub = bindir / "make"
+    second_exit = (
+        "printf 'PYTEST_ADDOPTS=%s\\n' \"${PYTEST_ADDOPTS:-}\"; "
+        "printf '=== 1 passed in 0.01s ===\\n'; exit 0"
+        if rerun_passes
+        else (
+            "printf '=== 1 failed in 0.01s ===\\n'; "
+            "printf 'FAILED tests/a.py::t1 - AssertionError\\n'; exit 1"
+        )
+    )
+    stub.write_text(
+        "#!/usr/bin/env bash\n"
+        f"if [[ \"$1\" == \"{fail_target}\" ]]; then exit 1; fi\n"
+        "if [[ \"$1\" != \"test\" ]]; then exit 0; fi\n"
+        f"printf x >> \"{bindir / 'test-attempts'}\"\n"
+        f"if [[ -f \"{bindir / 'test-marker'}\" ]]; then {second_exit}; fi\n"
+        f": > \"{bindir / 'test-marker'}\"\n"
+        "printf '=== 1 failed in 0.01s ===\\n'\n"
+        "printf 'FAILED tests/a.py::t1 - AssertionError\\n'\n"
+        "exit 1\n"
+    )
+    stub.chmod(0o755)
+
+
+@requires_bash
+def test_fallback_rerun_passes_and_warns(tmp_path: Path) -> None:
+    (tmp_path / "Makefile").write_text("lint:\n\ntest:\n\ntypecheck:\n")
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    _fallback_make_stub(bindir, rerun_passes=True)
+
+    proc, _ = _run(tmp_path, cpp_dir="", uv_exit=None, cwd=tmp_path)
+
+    assert proc.returncode == 0
+    assert "FLOW_FINISH_GATE: warn" in proc.stdout
+    assert "RERUN_PASSED: tests/a.py::t1" in proc.stdout
+    assert "issue #769" in proc.stdout
+    assert (bindir / "test-attempts").read_text() == "xx"
+    assert "--last-failed --last-failed-no-failures none" in proc.stdout
+
+
+@requires_bash
+def test_fallback_rerun_failure_stays_failed(tmp_path: Path) -> None:
+    (tmp_path / "Makefile").write_text("lint:\n\ntest:\n\ntypecheck:\n")
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    _fallback_make_stub(bindir, rerun_passes=False)
+
+    proc, _ = _run(tmp_path, cpp_dir="", uv_exit=None, cwd=tmp_path)
+
+    assert proc.returncode == 1
+    assert "FLOW_FINISH_GATE: fail" in proc.stdout
+    assert "RERUN_PASSED:" not in proc.stdout
+    assert (bindir / "test-attempts").read_text() == "xx"
+
+
+@requires_bash
+def test_skipped_gates_win_but_rerun_ids_are_still_printed(tmp_path: Path) -> None:
+    cpp = _fake_cpp(tmp_path)
+    payload = """{
+  "success": true,
+  "reruns": [
+    {
+      "step": "test",
+      "ids": [
+        "tests/a.py::t1"
+      ],
+      "outcome": "passed",
+      "first_attempt": null,
+      "rerun": null
+    }
+  ],
+  "skipped": [
+    "typecheck"
+  ]
+}"""
+    proc = _run_with_uv_stub(tmp_path, cpp, payload)
+
+    assert proc.returncode == 0
+    assert "FLOW_FINISH_GATE: warn (skipped gates: typecheck)" in proc.stdout
+    assert "RERUN_PASSED: tests/a.py::t1" in proc.stdout
+
+
+@requires_bash
+def test_fallback_prints_rerun_ids_even_when_a_later_gate_fails(
+    tmp_path: Path,
+) -> None:
+    """The runner path prints RERUN_PASSED before verdict precedence is applied;
+    the fallback must too. Emitting it only after the `fail` branch dropped the
+    ids on exactly the red-and-flaky run that is hardest to read - a test cleared
+    by its re-run, then a genuinely failing typecheck - which is the fallback
+    silently diverging from the runner, the #617/#621/#628 trap."""
+    (tmp_path / "Makefile").write_text("lint:\n\ntest:\n\ntypecheck:\n")
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    _fallback_make_stub(bindir, rerun_passes=True, fail_target="typecheck")
+
+    proc, _ = _run(tmp_path, cpp_dir="", uv_exit=None, cwd=tmp_path)
+
+    assert proc.returncode == 1
+    assert "FLOW_FINISH_GATE: fail" in proc.stdout
+    # The genuine failure still wins the verdict, but the flake is not erased.
+    assert "RERUN_PASSED: tests/a.py::t1" in proc.stdout
+
+
+@requires_bash
+def test_fallback_rerun_appends_to_host_pytest_addopts(tmp_path: Path) -> None:
+    """The runner's rerun_env APPENDS to any host PYTEST_ADDOPTS; the fallback
+    must not replace it, or the two attempts are not the same invocation and the
+    caller's own pytest options silently vanish on the re-run only."""
+    (tmp_path / "Makefile").write_text("lint:\n\ntest:\n\ntypecheck:\n")
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    _fallback_make_stub(bindir, rerun_passes=True)
+
+    env = os.environ.copy()
+    env["PATH"] = f"{bindir}:{env['PATH']}"
+    env["FLOW_GATE_CPP_DIR"] = ""
+    env["PYTEST_ADDOPTS"] = "-p no:randomly"
+    proc = subprocess.run(
+        ["bash", str(SCRIPT)],
+        cwd=tmp_path,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+
+    assert proc.returncode == 0
+    assert "PYTEST_ADDOPTS=-p no:randomly --last-failed" in proc.stdout
+
+
+def test_rerun_id_cap_matches_the_runner() -> None:
+    """The shell fallback and the Python runner each carry their own copy of the
+    #769 cap. They gate the same decision, so a drift between them would make the
+    two local-gate paths disagree about what counts as a flake."""
+    from lib.cicd.runner import MAX_RERUN_IDS
+
+    shell = SCRIPT.read_text()
+    assert f"MAX_RERUN_IDS={MAX_RERUN_IDS}\n" in shell
 
 
 # --- #628: a green run whose quality gates were SKIPPED ----------------------

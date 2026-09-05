@@ -11,8 +11,46 @@ from __future__ import annotations
 
 import pytest
 
-from lib.cicd.outcomes import SuiteOutcome, parse_suite_outcome
+from lib.cicd.outcomes import (
+    SuiteOutcome,
+    parse_failed_node_ids,
+    parse_suite_outcome,
+)
 from lib.cicd.steps import ShellStep, StepDef
+
+
+class TestFailedNodeIds:
+    def test_realistic_short_summary(self) -> None:
+        text = """================ short test summary info =================
+FAILED tests/test_x.py::test_y - AssertionError: expected 1
+FAILED tests/test_x.py::TestC::test_z[param-1]
+  ERROR tests/test_w.py::test_v - fixture 'db' not found
+================ 2 failed, 1 error in 0.42s =================
+"""
+        assert parse_failed_node_ids(text) == [
+            "tests/test_x.py::test_y",
+            "tests/test_x.py::TestC::test_z[param-1]",
+            "tests/test_w.py::test_v",
+        ]
+
+    def test_reason_suffix_is_stripped_and_duplicates_preserve_order(self) -> None:
+        text = """FAILED tests/a.py::test_one - AssertionError: first
+ERROR tests/b.py::TestB::test_two[param] - RuntimeError
+FAILED tests/a.py::test_one - AssertionError: repeated
+"""
+        assert parse_failed_node_ids(text) == [
+            "tests/a.py::test_one",
+            "tests/b.py::TestB::test_two[param]",
+        ]
+
+    def test_bare_error_line_yields_nothing(self) -> None:
+        assert parse_failed_node_ids("ERROR at setup of test_x\n") == []
+
+    def test_empty_string_yields_nothing(self) -> None:
+        assert parse_failed_node_ids("") == []
+
+    def test_prose_is_not_a_summary_line(self) -> None:
+        assert parse_failed_node_ids("The request failed tests/a.py::test_one\n") == []
 
 
 class TestPytestParsing:
