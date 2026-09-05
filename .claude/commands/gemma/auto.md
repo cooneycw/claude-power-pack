@@ -55,6 +55,10 @@ Proceeding...
 
 ### Step 1: Start - Create Worktree
 
+This step has two preconditions: the current directory is an existing git
+checkout, and `<ISSUE>` is the number of an OPEN GitHub issue in that
+repository.
+
 **CRITICAL: You MUST create or enter a worktree before proceeding. NEVER implement changes directly on main/master.**
 
 ```bash
@@ -509,6 +513,10 @@ Gemma Auto stopped at Step N/7: {Step Name}
 ```
 
 Key failure scenarios:
+- **Greenfield or missing issue:** If there is no git repository, no issue
+  number, or `gh issue view` fails because the issue does not exist, stop. This
+  is not a repair of `/gemma:auto`; run
+  `/gemma:exec "<what you wanted to build>"` in the target directory instead
 - **OpenCode CLI not installed:** Stop at step 3; it is required as the harness (no cloud API key is used)
 - **Agent profile missing:** Stop at step 3; the mechanical fence is mandatory, install it from `templates/opencode-gemma.json` or via `/cpp:init` Tier 7
 - **Ollama unreachable / model missing:** Stop at step 3; run `/gemma:status` to diagnose. On the reference server this can mean another VM holds the GPU claim

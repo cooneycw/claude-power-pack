@@ -9,6 +9,10 @@ Run the local Qwen model (via the Qwen Code CLI harness) in the current
 directory with JSONL monitoring. For quick tasks without the full issue
 lifecycle. Zero API cost - the model runs on local hardware through Ollama.
 
+This is also the greenfield command: it needs no repo or issue and works in a
+brand-new empty directory. `/qwen:auto` is narrower and requires both an
+existing git checkout and a filed issue.
+
 ## Arguments
 
 - `PROMPT` (required): The task prompt (e.g., `"Add input validation to the login form"`)

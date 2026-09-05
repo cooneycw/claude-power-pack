@@ -13,8 +13,8 @@ and available to every machine on the tailnet/LAN.
 
 | Command | Description |
 |---------|-------------|
-| `/qwen:auto <ISSUE>` | Full issue lifecycle delegated to local Qwen - worktree, implement, review, quality gates, PR |
-| `/qwen:exec <PROMPT>` | One-shot local Qwen execution in current directory with JSONL monitoring |
+| `/qwen:auto <ISSUE>` | Full lifecycle for an existing repo with a filed issue - worktree, implement, review, quality gates, PR |
+| `/qwen:exec <PROMPT>` | Any task in the current directory - no repo or issue needed, and no automatic commit |
 | `/qwen:status` | Check Ollama server, model, and Qwen Code harness readiness |
 | `/qwen:help` | This help overview |
 
@@ -138,6 +138,14 @@ sandbox off for a local endpoint, set `QWEN_FORCE_SANDBOX=0`. The detection
 only applies when the variable is unset.
 
 ## Quick Start
+
+Choose by precondition, not task size:
+
+- `/qwen:auto <ISSUE>` - an EXISTING repo with a FILED issue. Creates a
+  worktree and runs the full lifecycle through review, quality gates, and PR.
+- `/qwen:exec <PROMPT>` - anything else, including a brand-new empty
+  directory. Runs in the current directory with no repo or issue required and
+  no automatic commit.
 
 ```bash
 # Check if the stack is ready

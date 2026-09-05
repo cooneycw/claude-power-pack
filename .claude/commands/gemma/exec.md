@@ -9,6 +9,10 @@ Run the local Gemma 4 model (via the OpenCode harness) in the current directory
 with JSONL monitoring. For quick tasks without the full issue lifecycle. Zero
 API cost - the model runs on local GPU hardware through Ollama.
 
+This is also the greenfield command: it needs no repo or issue and works in a
+brand-new empty directory. `/gemma:auto` is narrower and requires both an
+existing git checkout and a filed issue.
+
 ## Arguments
 
 - `PROMPT` (required): The task prompt (e.g., `"Add input validation to the login form"`)
