@@ -1522,6 +1522,113 @@ def test_plain_close_keyword_passes(tmp_path: Path):
     assert any(c.startswith("gh pr merge") for c in _calls(stubs))
 
 
+def test_distant_not_in_issue_771_title_does_not_block_merge(tmp_path: Path):
+    title = "feat(flow): resolve Step 8 CI status by commit SHA, not list position (Closes #766)"
+    assert "not list position (Closes #766)" in title
+    assert "not closes" not in title.lower()
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        pr_title=title,
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-772-fix")
+    assert result.returncode == 0, result.stderr
+    assert "merged" in result.stdout
+    assert any(c.startswith("gh pr merge") for c in _calls(stubs))
+
+
+def test_distant_no_in_summary_clause_does_not_block_merge(tmp_path: Path):
+    title = "fix(flow): no longer polls the list for CI status (Closes #99)"
+    assert "no longer polls the list for CI status (Closes #99)" in title
+    assert "no longer closes" not in title.lower()
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        pr_title=title,
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-772-fix")
+    assert result.returncode == 0, result.stderr
+    assert "merged" in result.stdout
+    assert any(c.startswith("gh pr merge") for c in _calls(stubs))
+
+
+def test_contracted_negated_close_keyword_refuses(tmp_path: Path):
+    body = "doesn't fix #99"
+    assert body.startswith("doesn't fix ")
+    stubs = _make_stubs(
+        tmp_path,
+        pr_state="OPEN",
+        pr_title="docs: clarify follow-up scope",
+        pr_body=body,
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-772-fix")
+    assert result.returncode == 5, result.stderr
+    merge_calls = [c for c in _calls(stubs) if c.startswith("gh pr merge")]
+    assert merge_calls == [], "contracted negated-close stop must leave the PR untouched"
+
+
+def test_typographic_contracted_negated_close_keyword_refuses(tmp_path: Path):
+    body = "doesn’t fix #99"
+    assert body.startswith("doesn’t fix ")
+    stubs = _make_stubs(
+        tmp_path,
+        pr_state="OPEN",
+        pr_title="docs: clarify follow-up scope",
+        pr_body=body,
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-772-fix")
+    assert result.returncode == 5, result.stderr
+    merge_calls = [c for c in _calls(stubs) if c.startswith("gh pr merge")]
+    assert merge_calls == [], "contracted negated-close stop must leave the PR untouched"
+
+
+def test_auxiliary_negated_close_keyword_refuses(tmp_path: Path):
+    body = "will not resolve #99"
+    assert body.startswith("will not resolve ")
+    stubs = _make_stubs(
+        tmp_path,
+        pr_state="OPEN",
+        pr_title="docs: clarify follow-up scope",
+        pr_body=body,
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-772-fix")
+    assert result.returncode == 5, result.stderr
+    merge_calls = [c for c in _calls(stubs) if c.startswith("gh pr merge")]
+    assert merge_calls == [], "auxiliary negated-close stop must leave the PR untouched"
+
+
+def test_never_negated_close_keyword_refuses(tmp_path: Path):
+    body = "never closes #99"
+    assert body.startswith("never closes ")
+    stubs = _make_stubs(
+        tmp_path,
+        pr_state="OPEN",
+        pr_title="docs: clarify follow-up scope",
+        pr_body=body,
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-772-fix")
+    assert result.returncode == 5, result.stderr
+    merge_calls = [c for c in _calls(stubs) if c.startswith("gh pr merge")]
+    assert merge_calls == [], "never negated-close stop must leave the PR untouched"
+
+
+def test_no_with_intervening_word_negated_close_keyword_refuses(tmp_path: Path):
+    body = "no longer closes #99"
+    assert body.startswith("no longer closes ")
+    stubs = _make_stubs(
+        tmp_path,
+        pr_state="OPEN",
+        pr_title="docs: clarify follow-up scope",
+        pr_body=body,
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-772-fix")
+    assert result.returncode == 5, result.stderr
+    merge_calls = [c for c in _calls(stubs) if c.startswith("gh pr merge")]
+    assert merge_calls == [], "adjacent no negated-close stop must leave the PR untouched"
+
+
 def test_negated_close_override_flag_bypasses_guard(tmp_path: Path):
     # The per-merge override proceeds, but detection and consumption stay loud
     # so the exceptional decision remains visible in the merge transcript.
