@@ -8,6 +8,10 @@ allowed-tools: Bash(codex:*), Bash(git:*), Bash(ls:*), Bash(cat:*), Bash(grep:*)
 Run Codex CLI in the current directory with JSONL monitoring.
 For quick tasks without the full issue lifecycle.
 
+This is also the greenfield command: it needs no repo or issue and works in a
+brand-new empty directory. `/codex:auto` is narrower and requires both an
+existing git checkout and a filed issue.
+
 ## Arguments
 
 - `PROMPT` (required): The task prompt for Codex (e.g., `"Add input validation to the login form"`)

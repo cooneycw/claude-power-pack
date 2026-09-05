@@ -11,8 +11,8 @@ Cross-model implementation and review - Claude manages the workflow, Codex write
 
 | Command | Description |
 |---------|-------------|
-| `/codex:auto <ISSUE>` | Full issue lifecycle delegated to Codex - worktree, implement, review, quality gates, PR |
-| `/codex:exec <PROMPT>` | One-shot Codex execution in current directory with JSONL monitoring |
+| `/codex:auto <ISSUE>` | Full lifecycle for an existing repo with a filed issue - worktree, implement, review, quality gates, PR |
+| `/codex:exec <PROMPT>` | Any task in the current directory - no repo or issue needed, and no automatic commit |
 | `/codex:ask <QUESTION>` | Delegate a read-only question to Codex and relay its answer (network opt-in on request) |
 | `/codex:code_review [BASE]` | Codex reviews the current branch (read-only) and returns structured findings - used by `/flow:auto_codex` as the pre-PR review stage |
 | `/codex:status` | Check Codex CLI installation, config, and readiness |
@@ -33,6 +33,14 @@ Claude Code (supervisor)            Codex CLI (implementer)
 ```
 
 ## Quick Start
+
+Choose by precondition, not task size:
+
+- `/codex:auto <ISSUE>` - an EXISTING repo with a FILED issue. Creates a
+  worktree and runs the full lifecycle through review, quality gates, and PR.
+- `/codex:exec <PROMPT>` - anything else, including a brand-new empty
+  directory. Runs in the current directory with no repo or issue required and
+  no automatic commit.
 
 ```bash
 # Check if Codex is ready

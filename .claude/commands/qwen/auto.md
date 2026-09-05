@@ -48,6 +48,10 @@ Proceeding...
 
 ### Step 1: Start - Create Worktree
 
+This step has two preconditions: the current directory is an existing git
+checkout, and `<ISSUE>` is the number of an OPEN GitHub issue in that
+repository.
+
 **CRITICAL: You MUST create or enter a worktree before proceeding. NEVER implement changes directly on main/master.**
 
 ```bash
@@ -488,6 +492,10 @@ Qwen Auto stopped at Step N/7: {Step Name}
 ```
 
 Key failure scenarios:
+- **Greenfield or missing issue:** If there is no git repository, no issue
+  number, or `gh issue view` fails because the issue does not exist, stop. This
+  is not a repair of `/qwen:auto`; run
+  `/qwen:exec "<what you wanted to build>"` in the target directory instead
 - **Qwen Code CLI not installed:** Stop at step 3; it is required as the harness (no cloud API key is used)
 - **Ollama unreachable / model missing:** Stop at step 3; run `/qwen:status` to diagnose
 - **Execution fails or stalls:** Stop at step 3, show last 20 lines of JSONL output

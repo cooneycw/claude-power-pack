@@ -13,8 +13,8 @@ privacy, and available to every machine on the tailnet/LAN.
 
 | Command | Description |
 |---------|-------------|
-| `/gemma:auto <ISSUE>` | Full issue lifecycle delegated to local Gemma - worktree, implement, review, quality gates, PR |
-| `/gemma:exec <PROMPT>` | One-shot local Gemma execution in current directory with JSONL monitoring |
+| `/gemma:auto <ISSUE>` | Full lifecycle for an existing repo with a filed issue - worktree, implement, review, quality gates, PR |
+| `/gemma:exec <PROMPT>` | Any task in the current directory - no repo or issue needed, and no automatic commit |
 | `/gemma:status` | Check Ollama server, model, OpenCode harness, agent profile, and tool-calling readiness |
 | `/gemma:help` | This help overview |
 
@@ -186,6 +186,14 @@ export OLLAMA_HOST=http://proxvmgemma23:11434   # ollama CLI
 ```
 
 ## Quick Start
+
+Choose by precondition, not task size:
+
+- `/gemma:auto <ISSUE>` - an EXISTING repo with a FILED issue. Creates a
+  worktree and runs the full lifecycle through review, quality gates, and PR.
+- `/gemma:exec <PROMPT>` - anything else, including a brand-new empty
+  directory. Runs in the current directory with no repo or issue required and
+  no automatic commit.
 
 ```bash
 # Check if the stack is ready (includes a real tool-calling smoke test)

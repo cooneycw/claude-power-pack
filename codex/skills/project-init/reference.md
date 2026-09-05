@@ -227,6 +227,44 @@ complete and continue with the visibility question and `gh repo create`. If the
 engine stops because Git identity is missing, complete Step 3's user-name/email
 configuration and rerun the same engine command with `--resume`.
 
+### Optional: Flesh Out the Scaffold
+
+After the engine succeeds and before reporting Step 2, detect the available
+greenfield lanes:
+
+```bash
+GREENFIELD_EXEC=()
+if command -v opencode &>/dev/null; then
+    GREENFIELD_EXEC+=(
+        '/gemma:exec "Flesh out this scaffold to deliver: {confirmed destination}"'
+    )
+fi
+if command -v qwen &>/dev/null; then
+    GREENFIELD_EXEC+=(
+        '/qwen:exec "Flesh out this scaffold to deliver: {confirmed destination}"'
+    )
+fi
+if [ "${#GREENFIELD_EXEC[@]}" -eq 0 ] && command -v codex &>/dev/null; then
+    GREENFIELD_EXEC+=(
+        '/codex:exec "Flesh out this scaffold to deliver: {confirmed destination}"'
+    )
+fi
+```
+
+If `GREENFIELD_EXEC` is not empty, make one `AskUserQuestion` offer to flesh
+out the scaffold now, listing only the detected command or commands. The Gemma
+and Qwen lanes run locally at zero API cost. Mention `/codex:exec` only when no
+local lane was detected and Codex is installed. If the user accepts, invoke the
+selected lane with the `Skill` tool (`skill: "gemma:exec"`, `skill: "qwen:exec"`,
+or `skill: "codex:exec"`). The session must already be working in `$TARGET_DIR`
+so the lane's current directory is the new project. Otherwise continue to Step 3.
+
+Explain the boundary with the offer: at this point the project has a skeleton
+but no issue tracker content or filed issues, so `/gemma:auto`, `/qwen:auto`,
+and `/codex:auto` cannot serve it. Their `exec` commands are the greenfield
+route. Once Step 3 creates the GitHub repo and Step 5's spec produces filed
+issues, the corresponding `auto` lanes become available for those issues.
+
 Report: `Step 2/6: {Framework} scaffold planned and applied by project-init engine`
 
 ---
@@ -608,6 +646,9 @@ Key failure scenarios:
 - This command is **idempotent** - safe to run again if interrupted
 - Each step checks for prior completion before executing
 - The scaffold is minimal - just enough to start coding
+- Greenfield project-specific code after Step 2 uses an installed
+  `/gemma:exec` or `/qwen:exec` lane, with `/codex:exec` as the installed
+  fallback; `auto` requires a filed issue (issue #758)
 - Framework detection from `lib/cicd` is reused for Makefile generation
 - Config scaffolding (CLAUDE.md, skills, hooks) is **delegated to native `/init`**
   (Step 4c); CPP keeps only the governance overlay via `/claude-md-lint`. CPP does
