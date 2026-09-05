@@ -564,10 +564,13 @@ git merge --no-edit origin/main
      collected. Proceed, but report the counts to the user verbatim (they are in
      the runner's `warnings` array above the marker) and say plainly that this
      gate proved nothing about the change. Never summarize such a run as "tests
-     passed". If the skips look load-bearing (a suite that needs a live database,
-     a service, a credential), say which prerequisite is missing and offer to run
-     the fuller target - the agentic-poker case was `make test-pg` sitting unused
-     beside the `make test` the gate ran.
+     passed". `warn` also means a test failed on the first attempt and PASSED
+     when re-run against only its failed ids (issue #769) - the ids are on the
+     `RERUN_PASSED:` line above the marker. Proceed, but report those ids and
+     never call the run a clean pass. If the skips look load-bearing (a suite
+     that needs a live database, a service, a credential), say which prerequisite
+     is missing and offer to run the fuller target - the agentic-poker case was
+     `make test-pg` sitting unused beside the `make test` the gate ran.
    - `FLOW_FINISH_GATE: fail` (exit 1): parse the runner/make output above the
      marker, report the failed step, **STOP**.
    - `FLOW_FINISH_GATE: skipped` (exit 0): no runner AND no Makefile

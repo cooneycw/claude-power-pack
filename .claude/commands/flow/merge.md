@@ -92,7 +92,10 @@ On `FLOW_FINISH_GATE: fail` (exit 1): **STOP** - the quality gate failed on
 the post-merge tree. Fix, commit, then re-run `/flow:merge`. On `ok` (or
 `skipped` / `warn`, each with a warning - `warn` means a test step exited 0
 having executed no tests, issue #621: report its counts, do not call it "tests
-passed"), push the merge so the PR reflects the post-merge
+passed"; `warn` also means a test failed on the first attempt and PASSED when
+re-run against only its failed ids, issue #769: the ids are on the
+`RERUN_PASSED:` line above the marker; proceed, but report them and never call
+the run a clean pass), push the merge so the PR reflects the post-merge
 tree before squashing:
 
 ```bash

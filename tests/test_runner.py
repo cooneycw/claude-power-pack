@@ -10,11 +10,13 @@ from unittest.mock import patch
 import pytest
 
 from lib.cicd.runner import (
+    MAX_RERUN_IDS,
     DeterministicRunner,
     RunResult,
     _build_step_env,
     _is_offline,
     _project_python_floor,
+    run_plan,
 )
 from lib.cicd.state import RunState, StepRecord
 from lib.cicd.steps import _CPP_ROOT, BUILTIN_PLANS, GATE_STEP_IDS, ShellStep, StepDef
@@ -300,6 +302,201 @@ class TestShellStepStreaming:
         assert not result.success
         assert result.exit_code == 3
         assert "oops" in result.error
+
+
+class TestRerunFailedTests:
+    @staticmethod
+    def _first_fails_then(summary: str) -> str:
+        return (
+            "if [ -f rerun-marker ]; then "
+            f"printf '{summary}\\n'; "
+            "else : > rerun-marker; "
+            "printf '=== 1 failed, 2 passed in 0.01s ===\\n'; "
+            "printf 'FAILED tests/a.py::t1 - AssertionError: first attempt\\n'; "
+            "exit 1; fi"
+        )
+
+    def test_off_by_default(self, tmp_project: Path) -> None:
+        step = StepDef(
+            id="test",
+            command=(
+                "printf x >> counter; "
+                "printf '=== 1 failed in 0.01s ===\\n'; "
+                "printf 'FAILED tests/a.py::t1 - AssertionError\\n'; exit 1"
+            ),
+            timeout_seconds=30,
+        )
+        result = DeterministicRunner(
+            project_root=tmp_project, output=StringIO()
+        ).run("check", step_defs=[step])
+
+        assert not result.success
+        assert (tmp_project / "counter").read_text() == "x"
+        assert result.reruns == []
+        assert "reruns" not in result.to_dict()
+
+    def test_rerun_passes_and_preserves_first_attempt_counts(
+        self, tmp_project: Path
+    ) -> None:
+        step = StepDef(
+            id="test",
+            command=self._first_fails_then("=== 1 passed in 0.01s ==="),
+            timeout_seconds=30,
+        )
+        log = StringIO()
+        result = DeterministicRunner(
+            project_root=tmp_project, output=log, rerun_failed=True
+        ).run("check", step_defs=[step])
+
+        assert result.success
+        assert result.to_dict()["reruns"][0]["outcome"] == "passed"
+        assert result.reruns[0]["ids"] == ["tests/a.py::t1"]
+        assert result.tests["test"]["failed"] == 1
+        assert result.tests["test"]["passed"] == 2
+        assert result.reruns[0]["first_attempt"] == result.tests["test"]
+        assert result.reruns[0]["rerun"]["passed"] == 1
+        assert "RE-RAN AND PASSED: tests/a.py::t1 (1 id)" in log.getvalue()
+        assert "completed successfully" not in log.getvalue()
+
+    def test_rerun_sees_pytest_addopts(
+        self, tmp_project: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        command = (
+            "if [ -f rerun-marker ]; then "
+            "printf '%s' \"${PYTEST_ADDOPTS:-}\" > rerun-addopts; "
+            "printf '=== 1 passed in 0.01s ===\\n'; "
+            "else : > rerun-marker; "
+            "printf '=== 1 failed in 0.01s ===\\n'; "
+            "printf 'FAILED tests/a.py::t1 - AssertionError\\n'; exit 1; fi"
+        )
+        step = StepDef(id="test", command=command, timeout_seconds=30)
+        monkeypatch.setenv("PYTEST_ADDOPTS", "-q")
+        result = DeterministicRunner(
+            project_root=tmp_project, output=StringIO(), rerun_failed=True
+        ).run("check", step_defs=[step])
+
+        assert result.success
+        addopts = (tmp_project / "rerun-addopts").read_text()
+        assert addopts.startswith("-q ")
+        assert "--last-failed" in addopts
+        assert "--last-failed-no-failures none" in addopts
+
+    def test_genuine_failure_still_fails_after_one_rerun(
+        self, tmp_project: Path
+    ) -> None:
+        step = StepDef(
+            id="test",
+            command=(
+                "printf x >> counter; "
+                "printf '=== 1 failed in 0.01s ===\\n'; "
+                "printf 'FAILED tests/a.py::t1 - AssertionError\\n'; exit 1"
+            ),
+            timeout_seconds=30,
+        )
+        result = DeterministicRunner(
+            project_root=tmp_project, output=StringIO(), rerun_failed=True
+        ).run("check", step_defs=[step])
+
+        assert not result.success
+        assert result.reruns[0]["outcome"] == "failed"
+        assert (tmp_project / "counter").read_text() == "xx"
+
+    def test_inconclusive_rerun_keeps_original_failure(
+        self, tmp_project: Path
+    ) -> None:
+        step = StepDef(
+            id="test",
+            command=self._first_fails_then("=== no tests ran in 0.01s ==="),
+            timeout_seconds=30,
+        )
+        result = DeterministicRunner(
+            project_root=tmp_project, output=StringIO(), rerun_failed=True
+        ).run("check", step_defs=[step])
+
+        assert not result.success
+        assert result.reruns[0]["outcome"] == "inconclusive"
+        assert result.reruns[0]["rerun"]["executed"] == 0
+
+    def test_non_test_step_is_never_rerun(self, tmp_project: Path) -> None:
+        step = StepDef(
+            id="lint",
+            command="printf x >> counter; exit 1",
+            timeout_seconds=30,
+        )
+        result = DeterministicRunner(
+            project_root=tmp_project, output=StringIO(), rerun_failed=True
+        ).run("check", step_defs=[step])
+
+        assert not result.success
+        assert (tmp_project / "counter").read_text() == "x"
+        assert result.reruns == []
+
+    def test_zero_reported_failures_is_not_rerun(self, tmp_project: Path) -> None:
+        step = StepDef(
+            id="test",
+            command=(
+                "printf x >> counter; "
+                "printf '=== 3 passed in 0.01s ===\\n'; exit 1"
+            ),
+            timeout_seconds=30,
+        )
+        result = DeterministicRunner(
+            project_root=tmp_project, output=StringIO(), rerun_failed=True
+        ).run("check", step_defs=[step])
+
+        assert not result.success
+        assert (tmp_project / "counter").read_text() == "x"
+        assert result.reruns == []
+
+    def test_more_than_cap_is_not_rerun(self, tmp_project: Path) -> None:
+        failed_lines = "\\n".join(
+            f"FAILED tests/a.py::test_{idx} - AssertionError"
+            for idx in range(MAX_RERUN_IDS + 1)
+        )
+        step = StepDef(
+            id="test",
+            command=(
+                "printf x >> counter; "
+                f"printf '=== {MAX_RERUN_IDS + 1} failed in 0.01s ===\\n'; "
+                f"printf '{failed_lines}\\n'; exit 1"
+            ),
+            timeout_seconds=30,
+        )
+        result = DeterministicRunner(
+            project_root=tmp_project, output=StringIO(), rerun_failed=True
+        ).run("check", step_defs=[step])
+
+        assert not result.success
+        assert (tmp_project / "counter").read_text() == "x"
+        assert result.reruns == []
+
+    def test_run_plan_honours_env_opt_in(
+        self, tmp_project: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        result = RunResult(success=True, run_id="run", plan_name="check")
+        with patch("lib.cicd.runner.DeterministicRunner") as runner_class:
+            runner_class.return_value.run.return_value = result
+            monkeypatch.setenv("CPP_GATE_RERUN_FAILED", "1")
+
+            assert run_plan("check", str(tmp_project), json_output=False) == 0
+
+        assert runner_class.call_args.kwargs["rerun_failed"] is True
+
+    @pytest.mark.parametrize("value", ["0", "true", "yes", "2"])
+    def test_run_plan_ignores_other_env_values(
+        self,
+        tmp_project: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        value: str,
+    ) -> None:
+        result = RunResult(success=True, run_id="run", plan_name="check")
+        with patch("lib.cicd.runner.DeterministicRunner") as runner_class:
+            runner_class.return_value.run.return_value = result
+            monkeypatch.setenv("CPP_GATE_RERUN_FAILED", value)
+
+            assert run_plan("check", str(tmp_project), json_output=False) == 0
+
+        assert runner_class.call_args.kwargs["rerun_failed"] is False
 
 
 class TestBuildStepEnv:

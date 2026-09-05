@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional, TextIO
 
+from .outcomes import parse_failed_node_ids
 from .state import RunState
 from .steps import GATE_STEP_IDS, ShellStep, StepDef, get_plan_steps
 
@@ -35,6 +36,11 @@ from .steps import GATE_STEP_IDS, ShellStep, StepDef, get_plan_steps
 # interpreter and hide the project's own dev deps (e.g. pytest-cov), so the
 # child must re-resolve the project venv from scratch (issue #534).
 RUNNER_STRIP_VARS = frozenset({"PYTHONPATH", "VIRTUAL_ENV", "PYTHONHOME"})
+
+# A flake is a handful of tests. A hundred failures is a regression, and
+# re-running it just doubles the wall clock before reporting the same red
+# (issue #769).
+MAX_RERUN_IDS = 25
 
 
 def _project_python_floor(project_root: Optional[Path]) -> Optional[str]:
@@ -120,6 +126,13 @@ class RunResult:
     # executed nothing still succeeds - but it never reports a bare SUCCESS.
     tests: dict[str, dict[str, Any]] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
+    # Test steps that failed, were re-run ONCE against only their failed ids, and
+    # the outcome of that re-run (issue #769). This is its own channel, NOT
+    # `warnings`: `warnings` is the #621 "exited 0 having executed no tests"
+    # signal and flow-finish-gate.sh renders it with that exact wording. A
+    # re-run that passed is a DIFFERENT qualification and must not borrow #621's
+    # sentence.
+    reruns: list[dict[str, Any]] = field(default_factory=list)
     # Step ids that skip_if-skipped this run (issue #628). A skipped GATE step
     # (lint/test/typecheck) means the gate verified nothing about the change, so
     # flow-finish-gate.sh reads this to report `warn` and NAME the skipped gates
@@ -142,6 +155,8 @@ class RunResult:
             d["tests"] = self.tests
         if self.warnings:
             d["warnings"] = self.warnings
+        if self.reruns:
+            d["reruns"] = self.reruns
         if self.skipped_steps:
             d["skipped"] = self.skipped_steps
         return d
@@ -162,9 +177,11 @@ class DeterministicRunner:
         self,
         project_root: Optional[Path] = None,
         output: Optional[TextIO] = None,
+        rerun_failed: bool = False,
     ):
         self.project_root = project_root or Path(".")
         self.output = output or sys.stderr
+        self.rerun_failed = rerun_failed
 
     def run(self, plan_name: str, step_defs: Optional[list[StepDef]] = None) -> RunResult:
         """Execute a named plan from scratch or resume a failed run.
@@ -245,6 +262,7 @@ class DeterministicRunner:
         completed = state.current_index
         tests: dict[str, dict[str, Any]] = {}
         warnings: list[str] = []
+        reruns: list[dict[str, Any]] = []
         skipped: list[str] = []
 
         for idx in range(state.current_index, len(state.step_records)):
@@ -307,6 +325,78 @@ class DeterministicRunner:
                     f"  [{idx + 1}/{len(step_defs)}] {step.id}: "
                     f"FAILED (exit {result.exit_code}){qualifier}"
                 )
+                failed_ids: list[str] = []
+                if (
+                    self.rerun_failed
+                    and step.is_test_step()
+                    and outcome is not None
+                    and outcome.framework == "pytest"
+                    and outcome.failed + outcome.errors > 0
+                ):
+                    failed_ids = parse_failed_node_ids(
+                        result.output
+                    ) or parse_failed_node_ids(result.error)
+                if failed_ids and len(failed_ids) <= MAX_RERUN_IDS:
+                    id_count = len(failed_ids)
+                    self._log(
+                        f"  [{idx + 1}/{len(step_defs)}] {step.id}: "
+                        f"RE-RUNNING {id_count} failed id(s) once (issue #769): "
+                        f"{', '.join(failed_ids)}"
+                    )
+                    rerun_env = dict(context.get("env") or os.environ)
+                    addopts = rerun_env.get("PYTEST_ADDOPTS", "").strip()
+                    rerun_env["PYTEST_ADDOPTS"] = (
+                        f"{addopts} --last-failed --last-failed-no-failures none".strip()
+                    )
+                    rerun_context = {**context, "env": rerun_env}
+                    # The step's configured retry policy was spent by the first
+                    # attempt; #769 permits exactly one targeted extra execution.
+                    rerun_result = step.execute(rerun_context)
+                    rerun_outcome = rerun_result.tests
+                    if rerun_outcome is not None and rerun_outcome.nothing_ran:
+                        rerun_verdict = "inconclusive"
+                        self._log(
+                            f"  [{idx + 1}/{len(step_defs)}] {step.id}: "
+                            "RE-RUN INCONCLUSIVE - no tests ran; the original "
+                            "failure stands"
+                        )
+                    elif rerun_result.success and rerun_outcome is not None:
+                        rerun_verdict = "passed"
+                        self._log(
+                            f"  [{idx + 1}/{len(step_defs)}] {step.id}: "
+                            f"RE-RUN PASSED - first attempt was a flake ({id_count} id(s))"
+                        )
+                    elif rerun_result.success:
+                        rerun_verdict = "inconclusive"
+                        self._log(
+                            f"  [{idx + 1}/{len(step_defs)}] {step.id}: "
+                            "RE-RUN INCONCLUSIVE - no test outcome was reported; "
+                            "the original failure stands"
+                        )
+                    else:
+                        rerun_verdict = "failed"
+                        self._log(
+                            f"  [{idx + 1}/{len(step_defs)}] {step.id}: "
+                            "RE-RUN FAILED - the failure reproduces"
+                        )
+                    reruns.append(
+                        {
+                            "step": step.id,
+                            "ids": failed_ids,
+                            "outcome": rerun_verdict,
+                            "first_attempt": outcome_dict,
+                            "rerun": rerun_outcome.to_dict() if rerun_outcome else None,
+                        }
+                    )
+                    if rerun_verdict == "passed":
+                        # Keep the clean invocation's counts as the primary test
+                        # record; the targeted counts live in the rerun channel.
+                        state.mark_step_success(
+                            idx, rerun_result.output, tests=outcome_dict
+                        )
+                        state.save(self.project_root)
+                        completed = idx + 1
+                        continue
                 state.mark_step_failed(
                     idx, result.exit_code, result.output, result.error, tests=outcome_dict
                 )
@@ -322,6 +412,7 @@ class DeterministicRunner:
                     error=result.error or result.output,
                     tests=tests,
                     warnings=warnings,
+                    reruns=reruns,
                     skipped_steps=skipped,
                 )
 
@@ -331,10 +422,12 @@ class DeterministicRunner:
 
         # A plan that reports a bare "completed successfully" is the sentence a
         # reviewer trusts as "safe to merge", so it must never be printed when the
-        # run proved less than it appears to. Two ways it can:
+        # run proved less than it appears to. Three ways it can:
         #   - a test step exited 0 having executed no tests (issue #621), and
         #   - a quality gate (lint/test/typecheck) was SKIPPED, so it verified
-        #     nothing about the change (issue #628).
+        #     nothing about the change (issue #628), and
+        #   - a first-attempt test failure passed its one targeted re-run, which
+        #     is green but explicitly not a clean pass (issue #769).
         skipped_gates = [s for s in skipped if s in GATE_STEP_IDS]
         qualifiers: list[str] = []
         if skipped_gates:
@@ -344,6 +437,20 @@ class DeterministicRunner:
             )
         if warnings:
             qualifiers.append("a test step executed no tests (#621)")
+        passed_rerun_ids = [
+            node_id
+            for rerun in reruns
+            if rerun["outcome"] == "passed"
+            for node_id in rerun["ids"]
+        ]
+        if passed_rerun_ids:
+            id_count = len(passed_rerun_ids)
+            id_word = "id" if id_count == 1 else "ids"
+            qualifiers.append(
+                f"RE-RAN AND PASSED: {', '.join(passed_rerun_ids)} "
+                f"({id_count} {id_word}) - a first attempt failed and the re-run "
+                "cleared it; this run is NOT a clean pass"
+            )
 
         if qualifiers:
             self._log(
@@ -371,6 +478,7 @@ class DeterministicRunner:
             steps_total=len(step_defs),
             tests=tests,
             warnings=warnings,
+            reruns=reruns,
             skipped_steps=skipped,
         )
 
@@ -379,14 +487,23 @@ class DeterministicRunner:
         print(message, file=self.output, flush=True)
 
 
-def run_plan(plan_name: str, project_root: Optional[str] = None, json_output: bool = True) -> int:
+def run_plan(
+    plan_name: str,
+    project_root: Optional[str] = None,
+    json_output: bool = True,
+    rerun_failed: bool = False,
+) -> int:
     """Execute a plan and return exit code.
 
     This is the main entry point called from the CLI.
     Outputs structured JSON to stdout for LLM consumption.
     """
     root = Path(project_root) if project_root else Path(".")
-    runner = DeterministicRunner(project_root=root)
+    # The gate helper resolves whatever CPP checkout is installed, which may
+    # predate #769. Its opt-in must therefore be an env var an old runner ignores,
+    # not a new CLI flag that old argparse rejects before any gate can run.
+    rerun_failed = rerun_failed or os.environ.get("CPP_GATE_RERUN_FAILED") == "1"
+    runner = DeterministicRunner(project_root=root, rerun_failed=rerun_failed)
 
     result = runner.run(plan_name)
 
@@ -407,10 +524,17 @@ def run_plan(plan_name: str, project_root: Optional[str] = None, json_output: bo
     return 0 if result.success else 1
 
 
-def resume_run(run_id: str, project_root: Optional[str] = None, json_output: bool = True) -> int:
+def resume_run(
+    run_id: str,
+    project_root: Optional[str] = None,
+    json_output: bool = True,
+    rerun_failed: bool = False,
+) -> int:
     """Resume a failed run and return exit code."""
     root = Path(project_root) if project_root else Path(".")
-    runner = DeterministicRunner(project_root=root)
+    # Match run_plan's cross-version-safe env opt-in when resuming the same gate.
+    rerun_failed = rerun_failed or os.environ.get("CPP_GATE_RERUN_FAILED") == "1"
+    runner = DeterministicRunner(project_root=root, rerun_failed=rerun_failed)
 
     result = runner.resume(run_id)
 
