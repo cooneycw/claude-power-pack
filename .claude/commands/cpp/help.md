@@ -85,6 +85,13 @@ CPP uses a tiered installation model:
 - **Network serving**: one machine hosts the model; others reach it over LAN/Tailscale via `QWEN_OLLAMA_URL`
 - **Same safety machinery**: execution fence, sandbox, overrun verification
 
+### Tier 7 - Local Gemma (optional)
+- **Gemma Auto** (`/gemma:auto`): Full issue lifecycle delegated to a locally hosted Gemma 4 model (Ollama-served on a GPU box, zero API cost)
+- **Gemma Exec** (`/gemma:exec`): One-shot local Gemma execution with JSONL monitoring
+- **Harness**: OpenCode in headless mode, pinned to Ollama's NATIVE `/api/chat` - never the `/v1` shim, which silently drops tool calls on long system prompts (ollama/ollama#14958)
+- **Network serving**: one machine hosts the model; others reach it over LAN/Tailscale via `GEMMA_OLLAMA_URL`
+- **Mechanical fence**: an OpenCode permission profile (`gemma-implementer`) rather than a container, so it stays active for remote endpoints
+
 ## CI/CD Commands (Tier 4)
 
 | Command | Purpose |
@@ -115,6 +122,15 @@ CPP uses a tiered installation model:
 | `/qwen:exec <PROMPT>` | One-shot local Qwen execution with JSONL monitoring |
 | `/qwen:status` | Check Ollama server, model, and harness readiness |
 | `/qwen:help` | Qwen commands overview |
+
+## Local Gemma Orchestration Commands (Tier 7, optional)
+
+| Command | Purpose |
+|---------|---------|
+| `/gemma:auto <ISSUE>` | Full issue lifecycle delegated to local Gemma model |
+| `/gemma:exec <PROMPT>` | One-shot local Gemma execution with JSONL monitoring |
+| `/gemma:status` | Check Ollama server, model, harness, agent profile, and tool-calling readiness |
+| `/gemma:help` | Gemma commands overview |
 
 ## Skills Ecosystem
 
