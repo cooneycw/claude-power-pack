@@ -139,6 +139,12 @@ fi
   worktree, branch, and PR intact - skip Steps 4-6, do not retry, and never
   re-invoke with `--admin` yourself; the review override is the owner's
   explicit, human-typed call. Do not treat this stop as something to fix.
+- **`MERGE_RC` = 6 is a FIRST-CLASS CLEAN STOP, not a failure (issue #767):**
+  the base advanced while required checks were running, so the gated tree is
+  not the tree that would land. Leave the worktree, branch, and PR intact -
+  skip Steps 4-6, do not retry, and never self-escalate to `--admin`. Sync the
+  branch with the base, re-run the quality gate on that merged tree, push, and
+  re-run `/flow-merge`.
 - If the merge genuinely failed (`MERGE_RC` non-zero - conflicts, checks failing,
   PR not `MERGED`), report and stop. A non-zero `gh` exit whose PR is nonetheless
   `MERGED` is not a failure - the helper treats it as success and cleanup proceeds

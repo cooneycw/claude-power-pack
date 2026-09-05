@@ -4,6 +4,22 @@
 
 ### Fixed
 
+- **2026-09-05 - `gh-pr-merge.sh` re-checks the base after waiting for required
+  checks** (issue #767) - `/flow:auto` synced and re-gated before invoking the
+  helper, but a busy repository could advance `origin/main` during the helper's
+  several-minute required-check wait. The checks then went green for a tree
+  that was no longer the tree the squash would land, ending in a late merge
+  conflict after the caller's stale-base guard had already passed. The helper
+  now snapshots the fetched full remote base ref before the non-admin wait and
+  re-fetches it afterward. An unchanged tip, or a new tip already contained in
+  `HEAD`, proceeds; unreadable snapshots fail open with
+  `GH_PR_MERGE_BASE_MOVED: skipped`. A new tip not contained in `HEAD` prints
+  both SHAs and exits 6 as a clean pre-review, pre-squash stop, leaving the PR
+  open for sync, re-gate, push, and retry. `--allow-base-move` is the loud
+  per-invocation override, while explicit `--admin` skips the guard with the
+  waits it already bypasses. `/flow:auto` and `/flow:merge` document exit 6 as
+  a first-class clean stop and name the full recovery path.
+
 - **2026-09-05 - `/flow:auto` Step 8 verifies CI by commit SHA, not by grepping a
   shared pipeline list** (issue #766) - Step 8 was the last un-helpered step in
   the flow: it inlined a `curl`+`jq` Woodpecker lookup gated on

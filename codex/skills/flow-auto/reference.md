@@ -734,10 +734,18 @@ Report: `Step 6/9: Finish complete - PR #XX created`
      The PR is left open and untouched. Review the paths in the
      `GH_PR_MERGE_DELETIONS:` marker line; if the deletions are intended,
      re-run without strict mode. Flow itself never sets this variable.
-   - The helper also prints two greppable markers per run (issue #657, both
-     fail-open): `GH_PR_MERGE_DELETIONS: <n> <paths...>|0|skipped` before the
-     squash - read it; a PR landing deletions the issue scope does not explain
-     is the collapse-onto-moved-base signature - and
+   - **Helper exit 6 is also a CLEAN STOP, not a failure (issue #767):** the
+     base advanced while required checks were running, so the tree that was
+     gated is not the tree that would land. Leave the worktree, branch, and PR
+     intact. Do not retry the merge and do not self-escalate to `--admin`.
+     Re-run Step 7 from sub-step 1: sync with `origin/main`, re-run the quality
+     gate on the merged tree, push, then invoke the merge again.
+   - The helper also prints greppable markers per run (issues #657/#767, every
+     one fail-open where it reports `skipped`):
+     `GH_PR_MERGE_BASE_MOVED: <old-sha> -> <new-sha>|0|skipped` around the
+     required-check wait; `GH_PR_MERGE_DELETIONS: <n> <paths...>|0|skipped`
+     before the squash - read that one; a PR landing deletions the issue scope
+     does not explain is the collapse-onto-moved-base signature - and
      `GH_PR_MERGE_COMPLETENESS: ok|violation|skipped` after a confirmed merge.
      A `violation` (the landed squash touched paths outside the PR's file
      list) never changes the exit code - the merge landed - but must be

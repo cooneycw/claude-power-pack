@@ -81,6 +81,18 @@
 #   posture server-side at squash time, so a plain `gh pr merge --squash` cannot
 #   bypass a ruleset even when this script decides not to wait.
 #
+# Base moved DURING the required-check wait (issue #767):
+#   /flow:auto syncs the branch with the base and re-runs the quality gate before
+#   invoking this helper, but the required-check wait can then last several
+#   minutes. A sibling PR can advance the base during that window, leaving the
+#   checks green for a tree that is no longer the tree the squash would land.
+#   Snapshot the fetched base tip before the non-admin wait and compare it after
+#   the checks succeed. An unchanged tip, or a new tip already contained in HEAD,
+#   proceeds; unreadable snapshots fail open. A changed tip not contained in HEAD
+#   is a clean exit-6 stop before the review gate or squash work. The explicit
+#   --allow-base-move flag is the loud, per-merge override; --admin skips this
+#   guard together with the queue and required-check waits it already bypasses.
+#
 # This wrapper makes the merge layout-aware:
 #   * Linked worktree (cwd's `.git` is a FILE): run `gh pr merge --squash` WITHOUT
 #     --delete-branch so gh never attempts the local branch switch, then delete the
@@ -92,7 +104,7 @@
 #   * Either way, verify the PR actually reached MERGED before returning non-zero,
 #     so a stray local post-merge error is never mistaken for a merge failure.
 #
-# Usage:  gh-pr-merge.sh [--admin] [--allow-negated-close] <pr-number> <branch-name>
+# Usage:  gh-pr-merge.sh [--admin] [--allow-negated-close] [--allow-base-move] <pr-number> <branch-name>
 #           --admin  force `gh pr merge --admin` from the first attempt - the
 #                    conscious, HUMAN-TYPED branch-protection override (issues
 #                    #517/#579). It skips the required-check wait AND the review
@@ -105,6 +117,9 @@
 #           --allow-negated-close  consciously bypass the issue #726 refusal
 #                    after the detected trigger and surrounding text are printed;
 #                    this is a loud, per-merge override, never persistent config.
+#           --allow-base-move  consciously bypass the issue #767 clean stop when
+#                    the base advances during the required-check wait; the moved
+#                    tips and an override-consumed audit line are still printed.
 # Deletion surfacing + post-merge completeness (issue #657):
 #   A collapse onto a moved base (`git reset --soft origin/main` + commit, the
 #   #655-thread workaround) silently records the DELETION of everything the
@@ -213,6 +228,10 @@
 #            a negated close/fix/resolve keyword that GitHub would still honor.
 #            The PR is left open and untouched - reword it or consciously re-run
 #            with --allow-negated-close after reviewing the printed context.
+#         6  CLEAN STOP, not a failure (issue #767): the base advanced during the
+#            required-check wait and its new tip is not contained in HEAD. The PR
+#            is left open and untouched - sync the base, re-run the quality gate,
+#            push, and re-run the merge (or consciously use --allow-base-move).
 #
 # Env (test hooks - unset in normal use):
 #   GH_PR_MERGE_GH             override the `gh` binary (default: gh)
@@ -243,6 +262,7 @@ set -uo pipefail
 # positional args (pr-number, branch-name) backward-compatible for every caller.
 ADMIN_OPT_IN=0
 ALLOW_NEGATED_CLOSE=0
+ALLOW_BASE_MOVE=0
 POSITIONAL=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -254,13 +274,17 @@ while [[ $# -gt 0 ]]; do
             ALLOW_NEGATED_CLOSE=1
             shift
             ;;
+        --allow-base-move)
+            ALLOW_BASE_MOVE=1
+            shift
+            ;;
         --)
             shift
             while [[ $# -gt 0 ]]; do POSITIONAL+=("$1"); shift; done
             ;;
         -*)
             echo "gh-pr-merge.sh: unknown option '$1'" >&2
-            echo "Usage: gh-pr-merge.sh [--admin] [--allow-negated-close] <pr-number> <branch-name>" >&2
+            echo "Usage: gh-pr-merge.sh [--admin] [--allow-negated-close] [--allow-base-move] <pr-number> <branch-name>" >&2
             exit 2
             ;;
         *)
@@ -274,7 +298,7 @@ PR_NUMBER="${POSITIONAL[0]:-}"
 BRANCH="${POSITIONAL[1]:-}"
 
 if [[ -z "$PR_NUMBER" || -z "$BRANCH" ]]; then
-    echo "Usage: gh-pr-merge.sh [--admin] [--allow-negated-close] <pr-number> <branch-name>" >&2
+    echo "Usage: gh-pr-merge.sh [--admin] [--allow-negated-close] [--allow-base-move] <pr-number> <branch-name>" >&2
     exit 2
 fi
 
@@ -432,14 +456,13 @@ resolve_required_contexts() {
     REQUIRED_CONTEXTS=()
     RESOLVE_STATUS="unresolved"
 
-    local base out line
-    base=$("$GH_BIN" pr view "$PR_NUMBER" --json baseRefName --jq '.baseRefName' 2>/dev/null)
-    [[ -z "$base" ]] && return 0
+    local out line
+    [[ -z "$PR_BASE_BRANCH" ]] && return 0
 
     local -a found=()
     local answered=0
 
-    if out=$(_gh_api_jq "repos/{owner}/{repo}/branches/${base}/protection/required_status_checks" \
+    if out=$(_gh_api_jq "repos/{owner}/{repo}/branches/${PR_BASE_BRANCH}/protection/required_status_checks" \
                         '((.contexts // []) + ((.checks // []) | map(.context))) | unique | .[]'); then
         answered=1
         while IFS= read -r line; do
@@ -447,7 +470,7 @@ resolve_required_contexts() {
         done <<<"$out"
     fi
 
-    if out=$(_gh_api_jq "repos/{owner}/{repo}/rules/branches/${base}" \
+    if out=$(_gh_api_jq "repos/{owner}/{repo}/rules/branches/${PR_BASE_BRANCH}" \
                         '[.[] | select(.type == "required_status_checks")
                               | .parameters.required_status_checks[]?.context] | unique | .[]'); then
         answered=1
@@ -685,6 +708,10 @@ if ! poll_mergeable; then
     exit 1
 fi
 
+# Resolve the PR base once for every feature that needs it. A failed or empty
+# metadata read remains fail-open at each caller; GitHub is the final arbiter.
+PR_BASE_BRANCH=$("$GH_BIN" pr view "$PR_NUMBER" --json baseRefName --jq '.baseRefName' 2>/dev/null)
+
 # Pre-squash deletion surfacing (issue #657): print every path this PR deletes
 # vs its base BEFORE the squash - and before the (possibly long) required-check
 # wait, so the signal is out while there is still time to act on it - as one
@@ -694,15 +721,14 @@ fi
 # companion finding: a cwd-drifted relative pathspec reads as an empty diff,
 # which is indistinguishable from "no deletions").
 surface_deletions() {
-    local root base deletions n
+    local root deletions n
     root=$("$GIT_BIN" rev-parse --show-toplevel 2>/dev/null)
-    base=$("$GH_BIN" pr view "$PR_NUMBER" --json baseRefName --jq '.baseRefName' 2>/dev/null)
-    if [[ -z "$root" || -z "$base" ]]; then
+    if [[ -z "$root" || -z "$PR_BASE_BRANCH" ]]; then
         echo "GH_PR_MERGE_DELETIONS: skipped"
         return 0
     fi
-    "$GIT_BIN" -C "$root" fetch origin "$base" --quiet 2>/dev/null || true
-    if ! deletions=$("$GIT_BIN" -C "$root" diff --name-only --diff-filter=D "origin/${base}...HEAD" 2>/dev/null); then
+    "$GIT_BIN" -C "$root" fetch origin "$PR_BASE_BRANCH" --quiet 2>/dev/null || true
+    if ! deletions=$("$GIT_BIN" -C "$root" diff --name-only --diff-filter=D "origin/${PR_BASE_BRANCH}...HEAD" 2>/dev/null); then
         echo "GH_PR_MERGE_DELETIONS: skipped"
         return 0
     fi
@@ -713,7 +739,7 @@ surface_deletions() {
     fi
     n=$(printf '%s\n' "$deletions" | wc -l | tr -d ' ')
     echo "GH_PR_MERGE_DELETIONS: $n $(printf '%s\n' "$deletions" | tr '\n' ' ' | sed 's/ $//')"
-    echo "warning: this squash will land $n deletion(s) vs origin/${base} - confirm they are" >&2
+    echo "warning: this squash will land $n deletion(s) vs origin/${PR_BASE_BRANCH} - confirm they are" >&2
     echo "         intended by PR #$PR_NUMBER, not a collapse onto a moved base (issue #657):" >&2
     printf '         deleted: %s\n' $deletions >&2
     if [[ "${GH_PR_MERGE_STRICT_DELETIONS:-0}" == "1" ]]; then
@@ -836,12 +862,50 @@ surface_deletions
 retarget_stacked_children
 
 # An explicit --admin is a conscious owner override of protection, so it also
-# skips the wait (and the queue wait that precedes it, issue #717); without
-# it, required checks must be green before the squash.
+# skips the wait, the queue wait that precedes it, and the base-move guard around
+# them (issues #717/#767); without it, required checks must be green before the
+# squash and the gated tree must still contain the fetched base.
 if (( ADMIN_OPT_IN == 0 )); then
+    BASE_WAIT_ROOT=$("$GIT_BIN" rev-parse --show-toplevel 2>/dev/null)
+    BASE_TIP_BEFORE=""
+    if [[ -n "$BASE_WAIT_ROOT" && -n "$PR_BASE_BRANCH" ]] && \
+       "$GIT_BIN" -C "$BASE_WAIT_ROOT" fetch origin "$PR_BASE_BRANCH" --quiet 2>/dev/null; then
+        BASE_TIP_BEFORE=$("$GIT_BIN" -C "$BASE_WAIT_ROOT" rev-parse \
+            "refs/remotes/origin/${PR_BASE_BRANCH}" 2>/dev/null)
+    fi
+
     wait_out_woodpecker_queue
     if ! wait_for_required_checks; then
         exit 1
+    fi
+
+    BASE_TIP_AFTER=""
+    if [[ -n "$BASE_WAIT_ROOT" && -n "$PR_BASE_BRANCH" ]] && \
+       "$GIT_BIN" -C "$BASE_WAIT_ROOT" fetch origin "$PR_BASE_BRANCH" --quiet 2>/dev/null; then
+        BASE_TIP_AFTER=$("$GIT_BIN" -C "$BASE_WAIT_ROOT" rev-parse \
+            "refs/remotes/origin/${PR_BASE_BRANCH}" 2>/dev/null)
+    fi
+
+    if [[ -z "$BASE_TIP_BEFORE" || -z "$BASE_TIP_AFTER" ]]; then
+        echo "GH_PR_MERGE_BASE_MOVED: skipped"
+    elif [[ "$BASE_TIP_BEFORE" == "$BASE_TIP_AFTER" ]] || \
+         "$GIT_BIN" -C "$BASE_WAIT_ROOT" merge-base --is-ancestor \
+            "$BASE_TIP_AFTER" HEAD 2>/dev/null; then
+        echo "GH_PR_MERGE_BASE_MOVED: 0"
+    else
+        echo "GH_PR_MERGE_BASE_MOVED: $BASE_TIP_BEFORE -> $BASE_TIP_AFTER"
+        if (( ALLOW_BASE_MOVE )); then
+            echo "warning: override consumed: --allow-base-move bypassed the issue #767 base-move clean stop for PR #$PR_NUMBER." >&2
+        else
+            echo "CLEAN STOP: base '$PR_BASE_BRANCH' advanced while the required checks were running - not merging PR #$PR_NUMBER (issue #767)." >&2
+            echo "  The tree that was gated is not the tree that would land. The PR is left open and untouched." >&2
+            echo "  Bring the branch current, re-run the quality gate, push, and re-run the merge:" >&2
+            echo "        git fetch origin $PR_BASE_BRANCH" >&2
+            echo "        git merge origin/$PR_BASE_BRANCH" >&2
+            echo "  Resume /flow:auto Step 7 from its sync sub-step, or re-run /flow:merge." >&2
+            echo "  Conscious override: re-run this helper with --allow-base-move." >&2
+            exit 6
+        fi
     fi
 fi
 
@@ -915,12 +979,12 @@ in_linked_worktree || BASE_FLAGS+=(--delete-branch)
 # trailer - the safe default.
 TESTED_TREE_TRAILER=""
 resolve_tested_tree_trailer() {
-    local root base tree
+    local root tree
     root=$("$GIT_BIN" rev-parse --show-toplevel 2>/dev/null)
-    base=$("$GH_BIN" pr view "$PR_NUMBER" --json baseRefName --jq '.baseRefName' 2>/dev/null)
-    [[ -z "$root" || -z "$base" ]] && return 0
-    "$GIT_BIN" -C "$root" fetch origin "$base" --quiet 2>/dev/null || true
-    "$GIT_BIN" -C "$root" merge-base --is-ancestor "origin/${base}" HEAD 2>/dev/null || return 0
+    [[ -z "$root" || -z "$PR_BASE_BRANCH" ]] && return 0
+    "$GIT_BIN" -C "$root" fetch origin "$PR_BASE_BRANCH" --quiet 2>/dev/null || true
+    "$GIT_BIN" -C "$root" merge-base --is-ancestor \
+        "origin/${PR_BASE_BRANCH}" HEAD 2>/dev/null || return 0
     tree=$("$GIT_BIN" -C "$root" rev-parse "HEAD^{tree}" 2>/dev/null)
     [[ -z "$tree" ]] && return 0
     TESTED_TREE_TRAILER="Woodpecker-Tested-Tree: ${tree}"

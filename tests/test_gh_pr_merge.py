@@ -16,6 +16,9 @@ Contract:
   break-glass, and a required-check block is excluded from the #517 --admin
   auto-retry (a review block still triggers it). A base with no required checks
   takes the original path unchanged.
+- If the base advances during that wait and its new tip is not already in HEAD,
+  clean-stop before the review gate or squash (issue #767); unreadable tips fail
+  open, while --allow-base-move and --admin are conscious overrides.
 - Required contexts are resolved from BOTH mechanisms GitHub offers - classic
   branch protection and repository RULESETS - and only a successful response
   counts as data (issue #610). An error body is never mistaken for a context, a
@@ -75,6 +78,7 @@ def _make_stubs(
     repo_full: str = "cooneycw/claude-power-pack",
     head_sha: str = "deadfeed0000000000000000000000000000face",
     pr_up_to_date: bool = False,
+    base_tips: list[str] | None = None,
     tested_tree: str = "0f00d0f00d0f00d0f00d0f00d0f00d0f00d0f00",
     woodpecker_lookup_ok: bool = True,
     woodpecker_repo_id: str = "42",
@@ -138,10 +142,17 @@ def _make_stubs(
     so every pre-#657 test exercises its original behavior unchanged.
 
     ``pr_up_to_date`` scripts the ``git merge-base --is-ancestor`` ancestry
-    check behind the #716 tested-tree trailer; ``tested_tree`` is what
-    ``git rev-parse HEAD^{tree}`` answers. Default ``False`` is the SAFE
-    default (no trailer), so every pre-#716 test exercises its original
-    argv unchanged without needing to know this parameter exists.
+    checks behind the #767 base-move guard and #716 tested-tree trailer;
+    ``tested_tree`` is what ``git rev-parse HEAD^{tree}`` answers. Default
+    ``False`` is the SAFE default (no trailer), so every pre-#716 test
+    exercises its original argv unchanged without needing to know this
+    parameter exists.
+
+    ``base_tips`` scripts successive ``git rev-parse
+    refs/remotes/origin/main`` reads around the #767 required-check wait,
+    consumed one value per read and staying on the last once exhausted. The
+    default ``None`` leaves those commands unmatched, preserving the prior
+    stub's successful empty output and exercising the fail-open path.
 
     ``repo_full`` / ``head_sha`` script ``gh repo view --json nameWithOwner``
     and ``git rev-parse HEAD`` - both consulted by the #717 Woodpecker
@@ -215,6 +226,14 @@ def _make_stubs(
     files_file.write_text("".join(f"{p}\n" for p in (pr_files or [])))
     landed_file = tmp_path / "landed_paths"
     landed_file.write_text("".join(f"{p}\n" for p in (landed_paths or [])))
+
+    # Issue #767: successive fetched base-tip reads around the required-check
+    # wait. None deliberately leaves the rev-parse command unmatched below,
+    # preserving the git stub's original successful empty-output behavior.
+    base_tip_seq_file = tmp_path / "base_tip_seq"
+    base_tip_ctr_file = tmp_path / "base_tip_ctr"
+    if base_tips is not None:
+        base_tip_seq_file.write_text("".join(f"{tip}\n" for tip in base_tips))
 
     # poker-measure#405: open stacked children returned after gh applies the
     # `--jq '.[].number'` filter, one PR number per line.
@@ -311,7 +330,7 @@ def _make_stubs(
     # git: log argv. rev-parse --show-toplevel answers with the cwd (a real
     # root, so the #657 ref-scoped reads proceed); the deletion diff and the
     # landed-paths diff answer from their fixture files; the tree/ancestor/HEAD
-    # checks (issues #716, #717) answer from the scripted knobs above;
+    # checks (issues #716, #717, #767) answer from the scripted knobs above;
     # everything else succeeds silently.
     _write_stub(
         bin_dir / "git",
@@ -320,7 +339,19 @@ def _make_stubs(
         "  pwd\n"
         'elif [[ "$*" == *"rev-parse"*"HEAD^{tree}"* ]]; then\n'
         f'  echo "{tested_tree}"\n'
-        'elif [[ "$*" == *"merge-base --is-ancestor"* ]]; then\n'
+        + (
+            'elif [[ "$*" == *"rev-parse refs/remotes/origin/main"* ]]; then\n'
+            f'  ctr=$(cat "{base_tip_ctr_file}" 2>/dev/null || echo 0)\n'
+            f'  mapfile -t tips < "{base_tip_seq_file}"\n'
+            '  (( ${#tips[@]} == 0 )) && exit 0\n'
+            '  idx=$ctr\n'
+            '  if (( idx >= ${#tips[@]} )); then idx=$(( ${#tips[@]} - 1 )); fi\n'
+            f'  echo $(( ctr + 1 )) > "{base_tip_ctr_file}"\n'
+            '  printf \'%s\\n\' "${tips[$idx]}"\n'
+            if base_tips is not None
+            else ""
+        )
+        + 'elif [[ "$*" == *"merge-base --is-ancestor"* ]]; then\n'
         + ("  exit 0\n" if pr_up_to_date else "  exit 1\n")
         + 'elif [[ "$*" == "rev-parse HEAD" ]]; then\n'
         f'  echo "{head_sha}"\n'
@@ -888,6 +919,124 @@ def test_explicit_admin_skips_the_check_wait(tmp_path: Path):
     assert not any("statusCheckRollup" in c for c in _calls(stubs))
 
 
+# --- Base movement across the required-check wait (issue #767) -------------
+
+BASE_TIP_OLD = "1111111111111111111111111111111111111111"
+BASE_TIP_NEW = "2222222222222222222222222222222222222222"
+
+
+def test_unchanged_base_across_check_wait_merges(tmp_path: Path):
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        required_contexts=[WOODPECKER],
+        check_rollup=[[(WOODPECKER, "PENDING")], [(WOODPECKER, "SUCCESS")]],
+        base_tips=[BASE_TIP_OLD, BASE_TIP_OLD],
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-767-fix")
+    assert result.returncode == 0, result.stderr
+    assert "GH_PR_MERGE_BASE_MOVED: 0" in result.stdout
+    calls = _calls(stubs)
+    assert any(c.startswith("gh pr merge") for c in calls), calls
+    assert len([c for c in calls if "baseRefName" in c]) == 1, calls
+    assert len(
+        [c for c in calls if "rev-parse refs/remotes/origin/main" in c]
+    ) == 2, calls
+
+
+def test_base_move_during_check_wait_clean_stops_before_merge(tmp_path: Path):
+    stubs = _make_stubs(
+        tmp_path,
+        pr_state="OPEN",
+        required_contexts=[WOODPECKER],
+        check_rollup=[[(WOODPECKER, "PENDING")], [(WOODPECKER, "SUCCESS")]],
+        base_tips=[BASE_TIP_OLD, BASE_TIP_NEW],
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-767-fix")
+    assert result.returncode == 6, result.stderr
+    assert f"GH_PR_MERGE_BASE_MOVED: {BASE_TIP_OLD} -> {BASE_TIP_NEW}" in result.stdout
+    assert "CLEAN STOP" in result.stderr
+    assert "git fetch origin main" in result.stderr
+    assert "git merge origin/main" in result.stderr
+    assert "--allow-base-move" in result.stderr
+    calls = _calls(stubs)
+    assert not any(c.startswith("gh pr merge") for c in calls), "PR must be untouched"
+    assert not any("reviewDecision" in c or "--json title" in c for c in calls), calls
+    assert not any("HEAD^{tree}" in c for c in calls), calls
+
+
+def test_moved_base_already_in_head_merges(tmp_path: Path):
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        required_contexts=[WOODPECKER],
+        check_rollup=[[(WOODPECKER, "PENDING")], [(WOODPECKER, "SUCCESS")]],
+        base_tips=[BASE_TIP_OLD, BASE_TIP_NEW],
+        pr_up_to_date=True,
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-767-fix")
+    assert result.returncode == 0, result.stderr
+    assert "GH_PR_MERGE_BASE_MOVED: 0" in result.stdout
+    assert any(c.startswith("gh pr merge") for c in _calls(stubs))
+
+
+def test_unreadable_base_tip_fails_open_and_merges(tmp_path: Path):
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        required_contexts=[WOODPECKER],
+        check_rollup=[[(WOODPECKER, "SUCCESS")]],
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-767-fix")
+    assert result.returncode == 0, result.stderr
+    assert "GH_PR_MERGE_BASE_MOVED: skipped" in result.stdout
+    assert any(c.startswith("gh pr merge") for c in _calls(stubs))
+
+
+def test_allow_base_move_flag_proceeds_after_detected_move(tmp_path: Path):
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        required_contexts=[WOODPECKER],
+        check_rollup=[[(WOODPECKER, "PENDING")], [(WOODPECKER, "SUCCESS")]],
+        base_tips=[BASE_TIP_OLD, BASE_TIP_NEW],
+    )
+    result = _run(
+        _linked_worktree(tmp_path),
+        stubs,
+        "--allow-base-move",
+        "42",
+        "issue-767-fix",
+    )
+    assert result.returncode == 0, result.stderr
+    assert f"GH_PR_MERGE_BASE_MOVED: {BASE_TIP_OLD} -> {BASE_TIP_NEW}" in result.stdout
+    assert "override consumed: --allow-base-move" in result.stderr
+    assert any(c.startswith("gh pr merge") for c in _calls(stubs))
+
+
+def test_admin_skips_base_move_guard_with_check_wait(tmp_path: Path):
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        required_contexts=[WOODPECKER],
+        check_rollup=[[(WOODPECKER, "FAILURE")]],
+        base_tips=[BASE_TIP_OLD, BASE_TIP_NEW],
+    )
+    result = _run(
+        _linked_worktree(tmp_path), stubs, "--admin", "42", "issue-767-fix"
+    )
+    assert result.returncode == 0, result.stderr
+    assert "GH_PR_MERGE_BASE_MOVED:" not in result.stdout
+    calls = _calls(stubs)
+    assert not any("rev-parse refs/remotes/origin/main" in c for c in calls), calls
+    assert any(c.startswith("gh pr merge") for c in calls)
+
+
 def test_required_check_block_does_not_trigger_admin_retry(tmp_path: Path):
     # The #577 narrowing of the #517 auto-retry: when the squash is rejected by a
     # required STATUS CHECK, an admin actor must NOT be auto-escalated to --admin -
@@ -1139,6 +1288,12 @@ def test_every_refusal_to_merge_exits_non_zero(tmp_path: Path):
             "protection_ok": False,
             "ruleset_ok": False,
             "check_rollup": [[(WOODPECKER, "FAILURE")]],
+        },
+        "base moved during check wait": {
+            "pr_state": "OPEN",
+            "required_contexts": [WOODPECKER],
+            "check_rollup": [[(WOODPECKER, "SUCCESS")]],
+            "base_tips": [BASE_TIP_OLD, BASE_TIP_NEW],
         },
         "squash failed, PR not merged": {"merge_exit": 1, "pr_state": "OPEN"},
     }
