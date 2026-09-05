@@ -24,11 +24,16 @@ GEMMA_ENDPOINT="${GEMMA_OLLAMA_URL:-http://127.0.0.1:11434}"
 VERSION_JSON=$(curl -sf --max-time 5 "$GEMMA_ENDPOINT/api/version" 2>/dev/null)
 if [ -n "$VERSION_JSON" ]; then
     echo "[x] Ollama reachable at $GEMMA_ENDPOINT: $VERSION_JSON"
+elif [ -z "${GEMMA_OLLAMA_URL:-}" ]; then
+    echo "[ ] GEMMA_OLLAMA_URL is unset - no serving machine URL was provided, and localhost is not answering."
+    echo "    If the model is served on another machine:"
+    echo "      export GEMMA_OLLAMA_URL=http://<serving-host>:11434"
+    echo "    Run /cpp:init and select Tier 7 to persist it (issue #755)."
+    echo "    If this is the serving machine, start the service ('ollama serve')."
 else
     echo "[ ] Ollama NOT reachable at $GEMMA_ENDPOINT"
-    echo "    Local machine: start the service ('ollama serve')"
-    echo "    Remote machine: set GEMMA_OLLAMA_URL to the serving machine's URL"
-    echo "    (e.g. GEMMA_OLLAMA_URL=http://proxvmgemma23:11434)"
+    echo "    This endpoint came from GEMMA_OLLAMA_URL. Check that the server is"
+    echo "    running and that the configured host is correct."
 fi
 ```
 
@@ -195,7 +200,11 @@ if [ "$READY" = "true" ]; then
 else
     echo "Status: NOT READY"
     echo ""
-    echo "See /gemma:help for setup (endpoint, Modelfile, OpenCode provider config)"
+    if [ -z "${GEMMA_OLLAMA_URL:-}" ]; then
+        echo "Likely cause: GEMMA_OLLAMA_URL is unset; /cpp:init Tier 7 can persist it"
+    else
+        echo "See /gemma:help for setup (endpoint, Modelfile, OpenCode provider config)"
+    fi
 fi
 
 echo "==================================="
@@ -210,6 +219,8 @@ echo "==================================="
   provider's `baseURL` in `~/.config/opencode/opencode.json` is
   `{env:GEMMA_OLLAMA_URL}` (OpenCode's env-var substitution, resolved at
   invocation time, not hardcoded)
+- An unset `GEMMA_OLLAMA_URL` is diagnosed separately from a configured but
+  unreachable endpoint (issue #755)
 - The OpenCode CLI is required only as an agentic harness; `/gemma:*` never
   uses a cloud API key
 - Step 4 is the one check that actually exercises the failure mode from

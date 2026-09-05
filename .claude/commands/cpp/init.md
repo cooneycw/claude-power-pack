@@ -1412,11 +1412,54 @@ fi
 
 #### 6c. Remote Access (consumer machines only)
 
-No harness config file is needed for a remote Ollama server. Instruct the
-user to set one environment variable (e.g., in shell rc):
+No harness config file is needed for a remote Ollama server. Only offer to
+persist the endpoint when `QWEN_ENDPOINT` is not
+`http://127.0.0.1:11434`, or when the user said this machine consumes a
+remote server. If the user identified it as a consumer but the endpoint is
+still the localhost default, ask for the actual serving endpoint first and
+use that value. Do not offer this on the serving machine: the localhost
+default already works there, and a hardcoded export is a liability. This
+closes the fresh-shell persistence gap tracked in issue #755.
+
+Choose the rc file from the user's shell: `~/.zshrc` when `$SHELL` ends in
+`zsh`, otherwise `~/.bashrc`:
 
 ```bash
-export QWEN_OLLAMA_URL=http://<serving-machine-ip>:11434
+case "${SHELL##*/}" in
+  zsh) QWEN_RC="$HOME/.zshrc"; QWEN_RC_DISPLAY="~/.zshrc" ;;
+  *) QWEN_RC="$HOME/.bashrc"; QWEN_RC_DISPLAY="~/.bashrc" ;;
+esac
+```
+
+Show the actual `QWEN_ENDPOINT` and selected rc file in this prompt, not
+placeholders:
+
+```
+=== Optional: Persist Qwen Endpoint ===
+
+Remote Qwen commands need this setting in every fresh shell. I can add:
+  # Claude Power Pack - Qwen serving endpoint (issue #755)
+  export QWEN_OLLAMA_URL=${QWEN_ENDPOINT}
+
+Add to ${QWEN_RC_DISPLAY}? [y/N]
+```
+
+If yes:
+```bash
+if grep -q 'QWEN_OLLAMA_URL' "$QWEN_RC" 2>/dev/null; then
+  echo "-> QWEN_OLLAMA_URL already in $QWEN_RC_DISPLAY (skipped)"
+else
+  printf '\n# Claude Power Pack - Qwen serving endpoint (issue #755)\nexport QWEN_OLLAMA_URL=%s\n' "$QWEN_ENDPOINT" >> "$QWEN_RC"
+  echo "✓ QWEN_OLLAMA_URL saved in $QWEN_RC_DISPLAY"
+  echo "  Restart the shell or source $QWEN_RC_DISPLAY"
+fi
+```
+
+If no:
+```bash
+echo "-> QWEN_OLLAMA_URL persistence skipped"
+echo "  Add these exact lines to $QWEN_RC_DISPLAY later:"
+printf '# Claude Power Pack - Qwen serving endpoint (issue #755)\nexport QWEN_OLLAMA_URL=%s\n' "$QWEN_ENDPOINT"
 ```
 
 `/qwen:auto`, `/qwen:exec`, and `/qwen:status` derive the harness endpoint
@@ -1516,6 +1559,61 @@ fi
 The `num_ctx` bump is not optional tuning. Ollama's 32K default silently
 truncates long agent transcripts mid-run - no error, the model just loses the
 start of its own session.
+
+#### 7b.1 Persist the Gemma Endpoint (consumer machines only)
+
+Only offer to persist the endpoint when `GEMMA_ENDPOINT` is not
+`http://127.0.0.1:11434`, or when the user said this machine consumes a
+remote server. If the user identified it as a consumer but the endpoint is
+still the localhost default, ask for the actual serving endpoint first and
+use that value. Do not offer this on the serving machine: the localhost
+default already works there, and a hardcoded export is a liability.
+
+This matters specifically for Gemma because the OpenCode provider's
+`baseURL` is the literal `{env:GEMMA_OLLAMA_URL}`. OpenCode resolves it at
+invocation time, so an unset variable does not preserve a discovered remote
+endpoint - the lane silently addresses localhost (issue #755).
+
+Choose the rc file from the user's shell: `~/.zshrc` when `$SHELL` ends in
+`zsh`, otherwise `~/.bashrc`:
+
+```bash
+case "${SHELL##*/}" in
+  zsh) GEMMA_RC="$HOME/.zshrc"; GEMMA_RC_DISPLAY="~/.zshrc" ;;
+  *) GEMMA_RC="$HOME/.bashrc"; GEMMA_RC_DISPLAY="~/.bashrc" ;;
+esac
+```
+
+Show the actual `GEMMA_ENDPOINT` and selected rc file in this prompt, not
+placeholders:
+
+```
+=== Optional: Persist Gemma Endpoint ===
+
+Remote Gemma commands need this setting in every fresh shell. I can add:
+  # Claude Power Pack - Gemma serving endpoint (issue #755)
+  export GEMMA_OLLAMA_URL=${GEMMA_ENDPOINT}
+
+Add to ${GEMMA_RC_DISPLAY}? [y/N]
+```
+
+If yes:
+```bash
+if grep -q 'GEMMA_OLLAMA_URL' "$GEMMA_RC" 2>/dev/null; then
+  echo "-> GEMMA_OLLAMA_URL already in $GEMMA_RC_DISPLAY (skipped)"
+else
+  printf '\n# Claude Power Pack - Gemma serving endpoint (issue #755)\nexport GEMMA_OLLAMA_URL=%s\n' "$GEMMA_ENDPOINT" >> "$GEMMA_RC"
+  echo "✓ GEMMA_OLLAMA_URL saved in $GEMMA_RC_DISPLAY"
+  echo "  Restart the shell or source $GEMMA_RC_DISPLAY"
+fi
+```
+
+If no:
+```bash
+echo "-> GEMMA_OLLAMA_URL persistence skipped"
+echo "  Add these exact lines to $GEMMA_RC_DISPLAY later:"
+printf '# Claude Power Pack - Gemma serving endpoint (issue #755)\nexport GEMMA_OLLAMA_URL=%s\n' "$GEMMA_ENDPOINT"
+```
 
 #### 7c. Install the Provider and the Mechanical Fence
 
