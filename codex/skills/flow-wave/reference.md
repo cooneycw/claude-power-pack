@@ -167,11 +167,17 @@ a worker's pushback wakes this session instead of waiting for the next time
 somebody looks:
 
 ```bash
-~/.claude/scripts/flow-wave-mailbox.sh watch --role orchestrator --wave <WAVE> --timeout 1800
+~/.claude/scripts/flow-wave-mailbox.sh watch --role orchestrator --wave <WAVE> --timeout 1800 --consume
 ```
 
-Re-arm after each wake, for as long as the wave runs. Exit 5 is a plain
-timeout, never evidence a worker died - re-arm and read the roster.
+`--consume` is required (issue #792): a bare `watch` used to consume by
+default, so a backlog already waiting could be marked read while only the
+first message was ever shown. Re-arm after each wake, for as long as the wave
+runs. Exit 5 is a plain timeout, never evidence a worker died - re-arm and
+read the roster. If a wake's FIRST line is
+`flow-wave-mailbox: NOTE - mail was already unread when this watch armed`,
+that backlog predates this arm - not a fresh wake - so check `list` for how
+much else might be waiting before assuming this is all of it.
 
 **Route these four over the lane whenever `SendMessage` cannot reach a worker**
 (all of them failed to reach one in the reference run): the registration ack +

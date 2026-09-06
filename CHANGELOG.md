@@ -154,6 +154,35 @@
 
 ### Fixed
 
+- **2026-09-06 - flow-wave-mailbox: seven ways `watch` reported confidently
+  and wrongly** (issue #792, follow-on to #778) - found across the
+  `kyle-completion` wave (2026-09-05) by 8 workers and a critic, each hitting
+  a defect rather than reading the script. `watch` used to consume-by-default:
+  arming with 42 unread across six inboxes printed one message and advanced
+  every cursor to the end, marking 41 messages read without ever showing them.
+  There is no default now - `watch` requires an explicit `--peek` or
+  `--consume`, and prints a `NOTE -` line up front when it fires on mail that
+  was already unread at arm rather than a fresh wake. A one-shot `watch`
+  also made a bare unread count undiagnosable (zero meant both "just woke"
+  and "blind"); `watch --status` reports the heartbeat plus a
+  `re-armed: yes/no` verdict from a corrected, self-excluding live-watcher
+  count (the old `pgrep -cf` shape double-counted a background launcher's
+  `bash -c` wrapper and the measuring pipeline itself - published counts
+  were uniformly 2x reality). `watch` now refuses a second live watcher on
+  the same role+wave (exit 4, `duplicate`) instead of letting them
+  accumulate silently and compete for the same mail. `read --from <role>`
+  narrows the orchestrator's drain to one correspondent's inbox, and a
+  consuming orchestrator-wide read run non-interactively now refuses without
+  an explicit `--out FILE` destination, closing the gap that once destroyed
+  13 messages' content in one piped command. Documented, not code-fixed: a
+  watcher launched from a since-removed worktree can print its mail and then
+  have a harness's trailing `pwd -P` report exit 1 anyway - the discriminator
+  is in the captured output (mail present means delivered), not the exit
+  code, since that trailing command runs after this script has already
+  exited. `codex/skills/flow-register/scripts/` and
+  `codex/skills/flow-wave/scripts/` mirrors resynced; `register.md`/`wave.md`
+  examples updated to the required `--consume`.
+
 - **2026-09-05 - the delegated drivers' Step 3/8 gate has no bypass either**
   (issue #784) - `/codex:auto`, `/qwen:auto` and `/gemma:auto` kept the
   invoker-typed `--yes` / `--auto-approve` that #774 shipped their gate with,
