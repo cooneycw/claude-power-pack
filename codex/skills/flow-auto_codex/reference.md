@@ -14,7 +14,7 @@ Identical to `/flow-auto`:
 
 - `ISSUE` (required): GitHub issue number
 - `PROJECT` (optional): target repo when the session cwd is not the issue's repo
-- `--yes` (alias `--auto-approve`): skip the ELI5 approval pause
+- `--yes` (alias `--auto-approve`): recognized and refused - the ELI5 approval pause has no bypass (issue #775)
 
 ## Instructions
 

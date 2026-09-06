@@ -4,6 +4,56 @@
 
 ### Fixed
 
+- **2026-09-05 - the ELI5 gate has no bypass** (issue #775) - `/flow:auto`'s
+  Step 3 is the only checkpoint between reading an issue and writing code, and
+  it could be skipped three ways: `--yes`, its `--auto-approve` alias, and an
+  `eli5: auto-approve` trailer read from the issue body or the HEAD commit
+  message. All three are removed.
+
+  The trailer was the channel no invoker controlled. An issue body is written by
+  whoever filed the issue - in a fleet, routinely another agent - and on a
+  worktree freshly branched off main, HEAD *is* main's tip commit, written by
+  whoever merged last. One merged commit carrying the trailer disarmed the gate
+  for every later run branched from that tip, across unrelated issues and
+  unrelated sessions, with no flag passed and no invoker at fault. The issue
+  measured this as latent; in CPP it was already live on both channels. Main's
+  tip when #775 was filed was `dbf72bf` - the commit that closed #774 by
+  *declining* to propagate the trailer to the delegated drivers - and it
+  contains the literal string, as does the body of #775 itself. The run that
+  implemented this fix would have been auto-approved twice over.
+
+  The flags go with it under one structural argument covering all three: a
+  bypass is chosen before Section C exists, so it can never be an approval **of**
+  the plan, only standing consent to whatever plan the run later produces.
+  `--yes` / `--auto-approve` stay recognized, and are refused out loud rather
+  than ignored silently; the trailer is not read at all. `auto-granted` leaves
+  the Step 3 report vocabulary entirely, since a field that can still be
+  produced means something can still skip the gate.
+
+  A fourth channel the issue did not name is closed too: the governance ladder
+  let **Tier 1 (Surgical)** auto-approve by change size. Scope is a dial for
+  spec ceremony, not a reason to implement a plan nobody approved
+  (`project/init.md`, `.specify/memory/constitution.md`,
+  `ISSUE_DRIVEN_DEVELOPMENT.md`).
+
+  The rule lives in eli5.md's **vendored core**, so it is the gate's own
+  behavior rather than a CPP-local override that the next re-vendor would
+  discard. Canonical `cooneycw/eli5-gate` was updated first (commit `6b10d79`,
+  a breaking change there too) and re-vendored here via `make eli5-revendor`,
+  which moved the core and its manifest pin together;
+  `tests/test_eli5_gate_not_bypassable.py` (17 cases) pins the result. Naming a
+  removed channel is allowed - both are named on purpose, so a future editor
+  reinstates one deliberately rather than by accident - but describing one as
+  functional turns the suite red. Following #772's lesson, a nearby negation is
+  not enough to vouch for a block: the pre-change text carried "to proceed
+  without pausing" and "Auto-approve never overrides" in the same paragraph, so
+  the guard requires the absence of a grant phrase as well as the presence of a
+  refusal. Verified non-vacuous - 15 of 17 cases fail against the pre-change
+  tree, the two that pass being tokens those files did not yet contain.
+
+  Note the deliberate contrast with the delegated drivers (#774), which keep an
+  invoker-typed `--yes` for their own `Step 3/8: Approve` gate.
+
 - **2026-09-05 - `gh-pr-merge.sh` re-checks the base after waiting for required
   checks** (issue #767) - `/flow:auto` synced and re-gated before invoking the
   helper, but a busy repository could advance `origin/main` during the helper's

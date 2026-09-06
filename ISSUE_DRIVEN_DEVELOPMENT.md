@@ -734,7 +734,7 @@ Not every issue needs the full ceremony. Match process weight to change scope:
 
 | Tier | Scope | Process |
 |------|-------|---------|
-| **Tier 1 (Surgical)** | 1-3 files, single concern | Branch → implement+test → PR. No spec, ELI5 auto-approves. |
+| **Tier 1 (Surgical)** | 1-3 files, single concern | Branch → ELI5+approval → implement+test → PR. No spec. |
 | **Tier 2 (Considered)** | 4-10 files, new model/endpoint | Branch → ELI5+approval → implement+test → PR. |
 | **Tier 3 (Architectural)** | New subsystem, security boundary, multi-issue | Full .specify/ pipeline → ELI5 → implement → PR. |
 

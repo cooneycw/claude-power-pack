@@ -13,7 +13,7 @@
     "path": "commands/eli5.md",
     "raw_url": "https://raw.githubusercontent.com/cooneycw/eli5-gate/main/commands/eli5.md",
     "commits_api": "https://api.github.com/repos/cooneycw/eli5-gate/commits?path=commands/eli5.md&per_page=1",
-    "upstream_commit": "4e9431afa16fd07d83143b41affb3c2607b834be"
+    "upstream_commit": "6b10d7934df2541c777393604056e56ff1a7e4a9"
   },
   "vendored": {
     "file": ".claude/commands/flow/eli5.md",
@@ -21,8 +21,8 @@
       "eli5-core:begin",
       "eli5-core:end"
     ],
-    "core_sha256": "1bd933a256e7aea65e310c555f469098d1b8121dd856ea5a4d933e7e62cc4bf2",
-    "core_lines": 164,
-    "vendored_at": "2026-07-19"
+    "core_sha256": "165ebb70391bf3878787f026ab55c968e17cf10d12fa4f9444f252ecf35c0876",
+    "core_lines": 187,
+    "vendored_at": "2026-09-05"
   }
 }
