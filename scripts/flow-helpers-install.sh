@@ -65,6 +65,7 @@ HELPERS=(
     flow-driver-capability.sh
     flow-finish-gate.sh
     flow-ci-status.sh
+    flow-pr-watch.sh
     gh-pr-merge.sh
     worktree-remove.sh
     friction-log.sh

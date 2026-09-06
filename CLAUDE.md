@@ -154,4 +154,4 @@ arguments, or logs.
 
 ## Version
 
-Current version: 7.4.0
+Current version: 7.5.0
