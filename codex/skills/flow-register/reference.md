@@ -272,6 +272,16 @@ and is wiped by the OS at reboot - exactly when every session's address dies too
    concluding anything. Release by simply not re-arming (the watch is bounded,
    so a wave can never leave one spinning after it ends).
 
+   **Skipping this step is now VISIBLE to the orchestrator (issue #778).** It
+   used to be the one part of registration that left no trace: a worker could be
+   `[live, verified] brief=current` in the roster and completely deaf, and on
+   2026-09-05 one sat that way for over an hour while its six-issue assignment
+   went unread. `watch` stamps a heartbeat, so
+   `flow-wave-registry.sh list` now renders `watch=armed`, `watch=stale(42m)` or
+   `watch=ABSENT` against every live role - plus `unread=N` and a loud
+   `** NEVER READ **` when the cursor has never moved. Not arming it no longer
+   reads as a healthy worker; it reads as the deaf one it is.
+
 5. Confirm back to the user which orchestrator was registered with once the
    ack arrives - or that the hello is waiting in the mailbox because no
    orchestrator has registered yet - and that the watch is armed.
@@ -434,6 +444,11 @@ copy; tell the user to run `/flow-repair`.)
   the session on exit. Where a harness Monitor-style tool is available it works
   equally well - the contract is "something blocks on this box and wakes the
   session", not one specific tool.
+- **An unarmed watch is no longer silent (#778).** `watch` stamps
+  `.watch-<role>` in the wave dir on arm and on every poll, so `list` reports
+  `armed` / `stale` / `absent` per role and the roster joins it onto every live
+  entry. A killed watch decays; one that was never armed reads `absent`, which
+  is the case that cost an hour on 2026-09-05.
 
 The lane is HOST-LOCAL, exactly like the registry. Two sessions on different
 machines still have no transport between them; that is out of scope here.

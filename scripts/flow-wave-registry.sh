@@ -152,7 +152,34 @@
 #             declared paths, deliberately - a glob-expanding or prefix-guessing
 #             comparison would invent collisions the roles never declared, and an
 #             overlap warning nobody believes is the #683 failure repeating.
-#   get       key=value contract for one role (for scripting).
+#             ALSO joins the #676 MAILBOX so a role's WATCH state is visible
+#             (#778). A role could be `live`, address-`verified` and
+#             `brief=current` and still be completely DEAF: arming the mailbox
+#             watch is the one element of participation that left no trace in
+#             the roster when it was missing. In the `kyle-completion` wave on
+#             2026-09-05 a worker skipped step 4 of /flow:register, read
+#             `[live, verified] brief=current` for over an hour, and never saw
+#             its six-issue assignment; both sides looked healthy and the only
+#             tell was `flow-wave-mailbox.sh list` showing `CURSOR 0 / UNREAD 2`,
+#             found by accident. So each LIVE role now renders `watch=armed`,
+#             `watch=stale(42m)` or `watch=ABSENT`, plus `unread=N since <ts>`
+#             and a loud `** NEVER READ **` when the cursor is 0 against a
+#             non-zero rev - the unambiguous "has consumed nothing, ever" case,
+#             which a count alone does not say.
+#             TWO BOUNDS, both deliberate. The data comes from ONE call to the
+#             sibling `flow-wave-mailbox.sh list --json`, never from reading box
+#             files here: the mailbox owns that format, and a roster that
+#             reimplemented it would drift. That call FAILS OPEN - a missing,
+#             unreadable or erroring sibling yields `watch=unknown`, renders
+#             nothing and warns about nothing, because a broken mailbox must
+#             never break the roster. And watch state is rendered ONLY when the
+#             mailbox lane is IN USE in this wave (at least one box or one
+#             heartbeat exists); in a wave that never uses it, every role would
+#             otherwise read ABSENT, which is a flag firing on 100% of the fleet
+#             and carrying zero signal - the #674 rule, restated.
+#   get       key=value contract for one role (for scripting). Deliberately does
+#             NOT carry watch state (#778): the deafness gap is a property of the
+#             roster SWEEP, and `get` answers "where do I send to this role?".
 #   verify    Orchestrator-side: reconcile the recorded address with the
 #             OBSERVED `from=` of a real message. Three outcomes, and the split
 #             between the last two is the point (#674) - the observed address
@@ -239,6 +266,11 @@
 #                            this host has no session transport YET; it is
 #                            created lazily, so retry) | no-match (dir exists,
 #                            no ancestor pid owns a socket in it)
+# Mailbox/watch detail lines (#778), emitted by list only:
+#   FLOW_WAVE_WATCH_UNARMED  count of LIVE roles with no armed watch (0 when the
+#                            mailbox lane is unused or unreadable)
+#   FLOW_WAVE_UNREAD         total messages sitting unread across the wave
+#
 #   FLOW_WAVE_BOOTSTRAP      ok | deadlock. `deadlock` on register/get/list
 #                            means the address in question is "unknown", so
 #                            `verify` CANNOT fire: it needs an observed from=,
@@ -254,6 +286,8 @@
 #   FLOW_WAVE_NOW           override "now" as epoch seconds
 #   FLOW_WAVE_HOST          override this host's name
 #   FLOW_WAVE_LIVE_PIDS     ':'-separated pids treated as alive (bypasses kill -0)
+#   FLOW_WAVE_MAILBOX_DIR   mailbox wave-root override, passed through to the
+#                           sibling helper so the two always co-locate (#778)
 #   FLOW_WAVE_SELF_PID      starting pid for the self-address ancestor walk
 
 set -uo pipefail
@@ -823,6 +857,101 @@ brief_state() {
   [ -n "$briefed" ] && [ "$briefed" != "0" ] && [ "$briefed" -ge "$cur" ] 2>/dev/null &&
     { echo current; return; }
   echo stale
+}
+
+# --- The mailbox / watch join (#778) -------------------------------------------
+#
+# The registry answers "who and where"; the #676 mailbox answers "did it arrive"
+# and, since #778, "is anyone listening". Joining the second onto the roster is
+# what turns a deaf worker from a lucky cross-reference into one look.
+#
+# The join goes through the sibling helper's own `list --json`, never through
+# reading `outbox-*.md` / `.cursor-*` / `.watch-*` here. The mailbox OWNS that
+# format - it has already changed twice - and a roster that reimplemented the
+# parse would drift silently into reporting a healthy wave that is not one,
+# which is the failure class this whole join exists to remove.
+
+MAILBOX_JSON=""      # cached `list --json` payload; "" = unavailable
+MAILBOX_IN_USE=0     # 1 when this wave has at least one box or one heartbeat
+
+# Populate MAILBOX_JSON / MAILBOX_IN_USE for $WAVE. FAILS OPEN in every failure
+# mode: a missing sibling, a non-zero exit, unparseable output - all leave
+# MAILBOX_JSON empty, which renders nothing and warns about nothing. A broken
+# mailbox must never break the roster, exactly as a broken lexicon validator
+# must never block a send (#701).
+load_mailbox() {
+  local self_dir mb out body
+  self_dir="$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")"
+  mb="$self_dir/flow-wave-mailbox.sh"
+  [ -r "$mb" ] || return 0
+  out="$(bash "$mb" list --wave "$WAVE" --json 2>/dev/null)" || return 0
+  # The helper prints its FLOW_MAILBOX_* contract after the JSON; split on the
+  # first contract line rather than a fixed offset, so a detail line added
+  # there can never silently break this parse.
+  body="$(printf '%s\n' "$out" | sed -n '/^FLOW_MAILBOX/q;p')"
+  [ -n "$body" ] || return 0
+  printf '%s' "$body" | jq -e . >/dev/null 2>&1 || return 0
+  MAILBOX_JSON="$body"
+  [ "$(printf '%s' "$MAILBOX_JSON" | jq -r '((.boxes // []) | length) + ((.watches // []) | length)')" -gt 0 ] 2>/dev/null &&
+    MAILBOX_IN_USE=1
+  return 0
+}
+
+# mailbox_watch_state ROLE -> armed | stale | absent | unknown
+# `unknown` covers both "no mailbox data at all" and "this wave does not use the
+# lane", and is the value that renders nothing.
+mailbox_watch_state() {
+  [ -n "$MAILBOX_JSON" ] && [ "$MAILBOX_IN_USE" -eq 1 ] || { echo unknown; return; }
+  printf '%s' "$MAILBOX_JSON" |
+    jq -r --arg r "$1" '(.watches // []) | map(select(.role == $r)) | (.[0].state // "absent")'
+}
+
+# mailbox_watch_age ROLE -> seconds since the last heartbeat, '-' when none.
+mailbox_watch_age() {
+  [ -n "$MAILBOX_JSON" ] || { echo '-'; return; }
+  printf '%s' "$MAILBOX_JSON" |
+    jq -r --arg r "$1" '(.watches // []) | map(select(.role == $r)) | (.[0].age_secs // "-") | tostring'
+}
+
+# mailbox_box_field ROLE FIELD -> that field of the role's OWN box, '-' when the
+# role has none. A worker reads outbox-<role>.md; the orchestrator reads every
+# inbox-*.md, so its figures are AGGREGATED (summed unread, and 'never read'
+# only when it has consumed nothing from any of them).
+mailbox_box_field() {
+  local role="$1" field="$2"
+  [ -n "$MAILBOX_JSON" ] || { echo '-'; return; }
+  if [ "$role" = "orchestrator" ]; then
+    case "$field" in
+      unread) printf '%s' "$MAILBOX_JSON" | jq -r '[(.boxes // [])[] | select(.reader == "orchestrator") | .unread] | add // "-"' ;;
+      rev)    printf '%s' "$MAILBOX_JSON" | jq -r '[(.boxes // [])[] | select(.reader == "orchestrator") | .rev] | add // "-"' ;;
+      cursor) printf '%s' "$MAILBOX_JSON" | jq -r '[(.boxes // [])[] | select(.reader == "orchestrator") | .cursor] | add // "-"' ;;
+      mtime)  printf '%s' "$MAILBOX_JSON" | jq -r '[(.boxes // [])[] | select(.reader == "orchestrator") | .mtime] | max // "-"' ;;
+    esac
+    return
+  fi
+  printf '%s' "$MAILBOX_JSON" |
+    jq -r --arg r "$role" --arg f "$field" \
+      '(.boxes // []) | map(select(.reader == $r)) | (.[0][$f] // "-") | tostring'
+}
+
+# A role that has NEVER consumed anything, against a box that holds something.
+# Its own marker rather than a count, because "cursor 0 with a non-zero rev" is
+# the unambiguous statement that nothing has EVER been read - which is what the
+# 2026-09-05 worker's roster entry could not say (#778).
+mailbox_never_read() {
+  local rev cur
+  rev="$(mailbox_box_field "$1" rev)"; cur="$(mailbox_box_field "$1" cursor)"
+  [ "$rev" != "-" ] && [ "$cur" != "-" ] && [ "$rev" -gt 0 ] && [ "$cur" -eq 0 ] 2>/dev/null
+}
+
+# Render a heartbeat age the way a sweeping human reads it: stale(42m), not
+# stale(2520s).
+human_age() {
+  local a="$1"
+  case "$a" in ''|*[!0-9]*) echo '?'; return ;; esac
+  if [ "$a" -lt 90 ]; then echo "${a}s"
+  elif [ "$a" -lt 5400 ]; then echo "$((a / 60))m"
+  else echo "$((a / 3600))h"; fi
 }
 
 # implicit_default -> 0 when this invocation landed in wave 'default' without
@@ -1422,6 +1551,10 @@ case "$VERB" in
     ROLES="$(printf '%s' "$REG" | jq -r --arg w "$WAVE" '(.[$w].roles // {}) | keys[]' 2>/dev/null)"
     POL="$(policy_json "$WAVE")"
     POL_REV="$(policy_rev_of "$POL")"
+    # One call to the sibling mailbox, cached for every render below (#778).
+    # Fails open: on any problem MAILBOX_JSON stays empty and every watch
+    # question answers `unknown`, which renders and warns nothing.
+    load_mailbox
     # How much of this roster is unaddressable (#672)? A LIVE entry with no
     # socket is a role nobody can open a handshake with in EITHER direction -
     # the orchestrator-first contact #670 relies on has no target either.
@@ -1434,6 +1567,33 @@ case "$VERB" in
     done
     BOOTSTRAP_STATE=ok
     [ "$UNADDRESSED" -gt 0 ] && BOOTSTRAP_STATE=deadlock
+    # Deafness, computed once for every render path below (#778). Scoped to LIVE
+    # roles, and gated on the mailbox lane being IN USE in this wave: in a wave
+    # that never used it, every role would read ABSENT, and a flag that fires on
+    # 100% of the fleet carries zero signal and buries the one case worth acting
+    # on - the #674 rule, which this repo has already paid for once.
+    WATCH_UNARMED=0
+    WATCH_DEAF=""
+    NEVER_READ=""
+    UNREAD_TOTAL=0
+    if [ "$MAILBOX_IN_USE" -eq 1 ]; then
+      for r in $ROLES; do
+        e="$(printf '%s' "$REG" | jq -c --arg w "$WAVE" --arg r "$r" '.[$w].roles[$r]')"
+        [ "$(liveness_of "$e")" = "live" ] || continue
+        ws="$(mailbox_watch_state "$r")"
+        if [ "$ws" = "absent" ] || [ "$ws" = "stale" ]; then
+          WATCH_UNARMED=$((WATCH_UNARMED + 1))
+          if [ "$ws" = "absent" ]; then
+            WATCH_DEAF="$WATCH_DEAF $r(never armed)"
+          else
+            WATCH_DEAF="$WATCH_DEAF $r(stale $(human_age "$(mailbox_watch_age "$r")"))"
+          fi
+        fi
+        mailbox_never_read "$r" && NEVER_READ="$NEVER_READ $r"
+        u="$(mailbox_box_field "$r" unread)"
+        [ "$u" != "-" ] && UNREAD_TOTAL=$((UNREAD_TOTAL + u)) 2>/dev/null
+      done
+    fi
     # Reconcile flow-claim worktree locks (#687). Repos come from the wave's own
     # LIVE entries, plus an explicit --repo for the case the registry cannot
     # know about - see the coverage bound on collect_unregistered_claims.
@@ -1458,6 +1618,26 @@ $rp"
         e="$(printf '%s' "$REG" | jq -c --arg w "$WAVE" --arg r "$r" '.[$w].roles[$r]')"
         lv="$(liveness_of "$e")"
         OUT="$(printf '%s' "$OUT" | jq -c --arg r "$r" --argjson e "$e" --arg lv "$lv" '.[$r] = ($e + {liveness: $lv})')"
+        # `watch` and `mailbox` are computed keys like `liveness`, and appear
+        # ONLY when this wave actually uses the mailbox lane (#778) - so a wave
+        # that never touched it emits byte-identical JSON to pre-#778, the same
+        # promise #687's `unregistered_claims` and #699's `wave_policy` made.
+        [ "$MAILBOX_IN_USE" -eq 1 ] || continue
+        w_state="$(mailbox_watch_state "$r")"; w_age="$(mailbox_watch_age "$r")"
+        m_rev="$(mailbox_box_field "$r" rev)"; m_cur="$(mailbox_box_field "$r" cursor)"
+        m_unr="$(mailbox_box_field "$r" unread)"; m_mt="$(mailbox_box_field "$r" mtime)"
+        nr=false; mailbox_never_read "$r" && nr=true
+        OUT="$(printf '%s' "$OUT" | jq -c \
+          --arg r "$r" --arg ws "$w_state" --arg wa "$w_age" \
+          --arg rev "$m_rev" --arg cur "$m_cur" --arg unr "$m_unr" --arg mt "$m_mt" \
+          --argjson nr "$nr" '
+            def num($v): if $v == "-" then null else ($v | tonumber? // null) end;
+            .[$r] += {
+              watch: {state: $ws, age_secs: num($wa)},
+              mailbox: {rev: num($rev), cursor: num($cur), unread: num($unr),
+                        last_delivery: (if $mt == "-" then null else $mt end),
+                        never_read: $nr}
+            }')"
       done
       # Claim-derived rows are a SIBLING key, never members of the roles map
       # (#687). They are NOT registry entries: contactable, which is the whole
@@ -1486,6 +1666,8 @@ $rp"
       # Keep --json stdout parseable: cross-wave notes go to stderr (#671).
       cross_wave_notes >&2
       emit_policy_lines "$POL"
+      echo "FLOW_WAVE_WATCH_UNARMED=$WATCH_UNARMED"
+      echo "FLOW_WAVE_UNREAD=$UNREAD_TOTAL"
       echo "FLOW_WAVE_BOOTSTRAP=$BOOTSTRAP_STATE"
       echo "FLOW_WAVE: listed"
       exit 0
@@ -1508,6 +1690,8 @@ EOF
       fi
       cross_wave_notes
       emit_policy_lines "$POL"
+      echo "FLOW_WAVE_WATCH_UNARMED=$WATCH_UNARMED"
+      echo "FLOW_WAVE_UNREAD=$UNREAD_TOTAL"
       echo "FLOW_WAVE_BOOTSTRAP=$BOOTSTRAP_STATE"
       echo "FLOW_WAVE: listed"
       exit 0
@@ -1559,6 +1743,23 @@ EOF
       if [ "$lv" = "live" ] && [ "$POL" != "null" ]; then
         bs="$(brief_state "$(printf '%s' "$e" | jq -r '.policy_rev // 0')" "$POL_REV")"
         [ "$bs" = "stale" ] && extra="$extra brief=STALE"
+      fi
+      # The watch column (#778), LIVE roles only - a dead role's watch is moot,
+      # and saying ABSENT of a stale entry is noise on a row nobody will re-arm.
+      if [ "$lv" = "live" ] && [ "$MAILBOX_IN_USE" -eq 1 ]; then
+        ws="$(mailbox_watch_state "$r")"
+        case "$ws" in
+          armed)  extra="$extra watch=armed" ;;
+          stale)  extra="$extra watch=stale($(human_age "$(mailbox_watch_age "$r")"))" ;;
+          absent) extra="$extra watch=ABSENT" ;;
+        esac
+        unr="$(mailbox_box_field "$r" unread)"
+        if [ "$unr" != "-" ] && [ "$unr" -gt 0 ] 2>/dev/null; then
+          extra="$extra unread=$unr"
+          mt="$(mailbox_box_field "$r" mtime)"
+          [ "$mt" != "-" ] && extra="$extra since=$mt"
+        fi
+        mailbox_never_read "$r" && extra="$extra ** NEVER READ **"
       fi
       echo "  $r -> $sock [$lv, $ver] issue=$iss$extra"
     done
@@ -1700,8 +1901,22 @@ EOF
       echo "  Verification cannot fire for those roles on its own; it is blocked, not pending."
       bootstrap_escapes
     fi
+    # Deafness, counted and named (#778). The per-row `watch=` column answers it
+    # for a reader going line by line; this answers it for one who is not, which
+    # is the sweep that missed it on 2026-09-05.
+    if [ -n "$WATCH_DEAF" ]; then
+      echo "  WATCH: live role(s) with no armed watch:${WATCH_DEAF}"
+      echo "  They are registered and addressable, and nothing sent to them will WAKE them - an idle session polls nothing."
+      echo "  Each arms it as a BACKGROUND call (step 4 of /flow:register):  flow-wave-mailbox.sh watch --role <role> --wave $WAVE"
+    fi
+    if [ -n "$NEVER_READ" ]; then
+      echo "  UNREAD: role(s) that have consumed NOTHING from their box:${NEVER_READ}"
+      echo "  A cursor at 0 against a delivered message is not a worker holding - it is a worker that has never looked."
+    fi
     cross_wave_notes
     emit_policy_lines "$POL"
+    echo "FLOW_WAVE_WATCH_UNARMED=$WATCH_UNARMED"
+    echo "FLOW_WAVE_UNREAD=$UNREAD_TOTAL"
     echo "FLOW_WAVE_BOOTSTRAP=$BOOTSTRAP_STATE"
     echo "FLOW_WAVE: listed"
     exit 0

@@ -71,6 +71,44 @@
   roster must render **no** fence rather than a remembered one. Verified
   non-vacuous: one wrong row in the matrix turns 4 cases red.
 
+- **2026-09-05 - the wave roster can see whether a role is actually listening**
+  (issue #778) - a role could read `[live, verified] brief=current` in
+  `flow-wave-registry.sh list` and be completely DEAF. Arming the #676 mailbox
+  watch was the one element of participation that left no trace in the roster
+  when it was missing, so the orchestrator's one-look health check reported a
+  healthy worker while nothing sent to it would ever arrive.
+
+  Observed in the `kyle-completion` wave: a worker skipped step 4 of
+  `/flow:register`, sat in that state for over an hour, and never saw its
+  six-issue assignment. The orchestrator's ledger said assigned; the worker's
+  roster entry said free. Both sides looked healthy. The only tell was
+  `flow-wave-mailbox.sh list` showing `CURSOR 0 / UNREAD 2`, found by accident
+  during a sweep prompted by an unrelated question.
+
+  The existing guidance was not the gap. `flow:wave` already says an idle
+  session is not a stalled one and to check the mailbox before diagnosing a
+  stall, and the orchestrator had followed it all evening - the rule requires
+  REMEMBERING to cross-reference two tools, per worker, continuously, against a
+  failure that is silent, has no deadline, and looks identical to a worker
+  legitimately holding.
+
+  `flow-wave-mailbox.sh watch` now stamps a `.watch-<role>` heartbeat on arm and
+  on every poll, so a killed watch decays while a blocking one stays fresh, and
+  `list` renders `armed` / `stale` / `absent` per role. The registry joins that
+  onto every LIVE roster row - `watch=ABSENT`, `watch=stale(42m)`,
+  `unread=N since <ts>`, and a loud `** NEVER READ **` for a cursor at 0 against
+  a delivered message - plus `WATCH:` / `UNREAD:` summary lines and the
+  `FLOW_WAVE_WATCH_UNARMED` / `FLOW_WAVE_UNREAD` contract lines.
+
+  Three bounds keep the new signal honest. The join goes through one call to the
+  sibling helper's own `list --json`, never a second parse of the box format.
+  That call fails open in every mode, because a broken mailbox must never break
+  the roster. And watch state renders only where the mailbox lane is in use: in
+  a wave that never touches it, every role would read ABSENT, and a flag firing
+  on 100% of the fleet carries zero signal - the #674 rule this repo has already
+  paid for once. A mailbox-free wave emits byte-identical text and JSON to
+  pre-#778.
+
 ### Fixed
 
 - **2026-09-05 - the delegated drivers' Step 3/8 gate has no bypass either**

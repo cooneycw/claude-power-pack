@@ -519,3 +519,184 @@ class TestNamespacingAndUsage:
         )
         assert _verdict(proc) == "sent"
         assert (tmp_path / "shared" / WAVE / "outbox-1.md").exists()
+
+
+# --------------------------------------------------------------------------
+# The watch heartbeat (issue #778)
+# --------------------------------------------------------------------------
+
+
+def _watch_file(tmp: Path, wave: str, role: str) -> Path:
+    return tmp / "mb" / wave / f".watch-{role}"
+
+
+def _watch_states(proc: subprocess.CompletedProcess[str]) -> dict[str, str]:
+    """Parse the text ``list`` watch table into ``{role: state}``.
+
+    Parsed rather than substring-matched: the helper prints the wave DIR, and a
+    pytest tmp path derived from the test's own name can contain the very word
+    the assertion looks for (CPP directive - a pattern-matching fixture must not
+    interpolate an absolute path it does not control).
+    """
+    states: dict[str, str] = {}
+    in_table = False
+    for line in proc.stdout.splitlines():
+        if line.startswith("ROLE") and "WATCH" in line:
+            in_table = True
+            continue
+        if not in_table:
+            continue
+        if line.startswith("FLOW_MAILBOX") or not line.strip():
+            break
+        parts = line.split()
+        if len(parts) >= 2:
+            states[parts[0]] = parts[1]
+    return states
+
+
+def _run_at(tmp: Path, now: str, *args: str, timeout: int = 60):
+    """``_run`` with the clock pinned, so heartbeat ages are deterministic."""
+    env = os.environ.copy()
+    env["FLOW_WAVE_MAILBOX_DIR"] = str(tmp / "mb")
+    env["FLOW_WAVE_NOW"] = now
+    return subprocess.run(
+        ["bash", str(MAILBOX), *args],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+        timeout=timeout,
+    )
+
+
+@requires_bash
+class TestWatchHeartbeat:
+    """Arming the watch was the one element of participation that left NO trace
+    (#778): a worker could be live, verified and brief-current in the #638
+    roster and still be completely deaf. The heartbeat is that trace.
+    """
+
+    def test_no_watch_leaves_no_heartbeat(self, tmp_path: Path) -> None:
+        """The negative precondition the rest of the suite rests on: sending
+        alone must not stamp anything, or `absent` could never mean anything.
+        """
+        _run(tmp_path, "send", "--wave", WAVE, "--to", "1", "--body", "assignment")
+        assert not _watch_file(tmp_path, WAVE, "1").exists()
+
+    def test_watch_stamps_a_heartbeat_on_arm(self, tmp_path: Path) -> None:
+        wf = _watch_file(tmp_path, WAVE, "1")
+        assert not wf.exists()  # precondition: nothing armed yet
+        _run(tmp_path, "watch", "--role", "1", "--wave", WAVE, "--timeout", "0")
+        assert wf.exists()
+        assert wf.read_text().strip().isdigit()
+
+    def test_watch_stamps_even_when_mail_is_already_waiting(self, tmp_path: Path) -> None:
+        """The stamp happens BEFORE the unread check, so an arm that fires on
+        its first poll still leaves the trace.
+        """
+        _run(tmp_path, "send", "--wave", WAVE, "--to", "1", "--body", "waiting")
+        proc = _run(tmp_path, "watch", "--role", "1", "--wave", WAVE, "--timeout", "0")
+        assert _verdict(proc) == "mail"
+        assert _watch_file(tmp_path, WAVE, "1").exists()
+
+    def test_heartbeat_refreshes_while_the_watch_blocks(self, tmp_path: Path) -> None:
+        """A KILLED watch must decay while a blocking one stays fresh - only a
+        REFRESHING stamp separates those two, which is why the stamp is on every
+        poll and re-reads the clock rather than reusing the arm-time value.
+        """
+        wf = _watch_file(tmp_path, WAVE, "1")
+        proc = subprocess.Popen(
+            [
+                "bash", str(MAILBOX), "watch", "--role", "1", "--wave", WAVE,
+                "--timeout", "30", "--interval", "1",
+            ],
+            env={**os.environ, "FLOW_WAVE_MAILBOX_DIR": str(tmp_path / "mb")},
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        try:
+            deadline = time.time() + 10
+            while not wf.exists() and time.time() < deadline:
+                time.sleep(0.1)
+            assert wf.exists(), "watch never stamped a heartbeat"
+            first = wf.read_text().strip()
+            # Wait for a stamp that is strictly newer than the first one.
+            deadline = time.time() + 10
+            while wf.read_text().strip() == first and time.time() < deadline:
+                time.sleep(0.2)
+            assert wf.read_text().strip() != first, "heartbeat froze at arm time"
+        finally:
+            proc.kill()
+            proc.wait(timeout=10)
+
+    def test_heartbeat_survives_the_watch_exiting(self, tmp_path: Path) -> None:
+        """'died' and 'never armed' are operationally different answers, so the
+        stamp is deliberately NOT removed on exit - erasing it would flatten
+        them back into the one state #778 exists to split apart.
+        """
+        _run(tmp_path, "watch", "--role", "1", "--wave", WAVE, "--timeout", "0")
+        assert _watch_file(tmp_path, WAVE, "1").exists()
+
+
+@requires_bash
+class TestListWatchState:
+    def test_list_reports_absent_before_any_watch(self, tmp_path: Path) -> None:
+        _run(tmp_path, "send", "--wave", WAVE, "--to", "1", "--body", "assignment")
+        proc = _run(tmp_path, "list", "--wave", WAVE)
+        assert _watch_states(proc) == {"1": "absent"}
+        assert "never armed" in proc.stdout
+
+    def test_list_reports_armed_after_a_recent_watch(self, tmp_path: Path) -> None:
+        _run_at(tmp_path, "1700000000", "watch", "--role", "1", "--wave", WAVE, "--timeout", "0")
+        proc = _run_at(tmp_path, "1700000010", "list", "--wave", WAVE)
+        assert _watch_states(proc) == {"1": "armed"}
+
+    def test_list_reports_stale_past_the_threshold(self, tmp_path: Path) -> None:
+        _run_at(tmp_path, "1700000000", "watch", "--role", "1", "--wave", WAVE, "--timeout", "0")
+        # 2520s later - past the 300s default.
+        proc = _run_at(tmp_path, "1700002520", "list", "--wave", WAVE)
+        assert _watch_states(proc) == {"1": "stale"}
+
+    def test_stale_threshold_is_configurable(self, tmp_path: Path) -> None:
+        _run_at(tmp_path, "1700000000", "watch", "--role", "1", "--wave", WAVE, "--timeout", "0")
+        env = os.environ.copy()
+        env["FLOW_WAVE_MAILBOX_DIR"] = str(tmp_path / "mb")
+        env["FLOW_WAVE_NOW"] = "1700002520"
+        env["FLOW_WAVE_WATCH_STALE_SECS"] = "9000"
+        proc = subprocess.run(
+            ["bash", str(MAILBOX), "list", "--wave", WAVE],
+            capture_output=True, text=True, env=env, check=False, timeout=60,
+        )
+        assert _watch_states(proc) == {"1": "armed"}
+
+    def test_json_carries_reader_mtime_and_watches(self, tmp_path: Path) -> None:
+        """The registry joins on `reader` and reads `watches`, so both are part
+        of the contract rather than incidental output (#778).
+        """
+        _run(tmp_path, "send", "--wave", WAVE, "--to", "1", "--body", "assignment")
+        _run(tmp_path, "send", "--wave", WAVE, "--to", "orchestrator", "--from", "1", "--body", "hello")
+        _run_at(tmp_path, "1700000000", "watch", "--role", "1", "--wave", WAVE, "--timeout", "0")
+        proc = _run_at(tmp_path, "1700000000", "list", "--wave", WAVE, "--json")
+        payload = json.loads(proc.stdout.split("FLOW_MAILBOX")[0])
+        by_box = {b["box"]: b for b in payload["boxes"]}
+        assert by_box["outbox-1.md"]["reader"] == "1"
+        assert by_box["inbox-1.md"]["reader"] == "orchestrator"
+        assert by_box["outbox-1.md"]["mtime"] != "-"
+        watches = {w["role"]: w for w in payload["watches"]}
+        assert watches["1"]["state"] == "armed"
+        assert watches["1"]["age_secs"] == 0
+        assert watches["orchestrator"]["state"] == "absent"
+        assert watches["orchestrator"]["age_secs"] is None
+
+    def test_a_role_that_armed_before_any_box_exists_is_still_reported(
+        self, tmp_path: Path
+    ) -> None:
+        """Arming before the orchestrator sends anything is the HEALTHY order
+        (worker step 4 runs at registration), so a box-only scan would miss
+        exactly the roles doing it right.
+        """
+        _run(tmp_path, "watch", "--role", "1", "--wave", WAVE, "--timeout", "0")
+        proc = _run(tmp_path, "list", "--wave", WAVE)
+        assert "No mailboxes" in proc.stdout  # precondition: no box exists yet
+        assert _watch_states(proc) == {"1": "armed"}

@@ -594,6 +594,21 @@ Report all six returned fields: `seed_count`, `recorded`, `duplicates`,
   happened and the watch is not armed; an empty box means the assignment was
   never sent, however finished it looks in your own ledger. Two hours were lost
   on 2026-08-11 reading this exact state as "both sessions healthy".
+- **Read the `watch=` column on every sweep (#778) - it is the fastest of these
+  checks and the only one that is one look.** The rule above is correct and was
+  followed all evening by the orchestrator that still missed this: it requires
+  REMEMBERING to cross-reference two tools, per worker, continuously, against a
+  failure that is silent and has no deadline. `flow-wave-registry.sh list` now
+  renders that cross-reference for you - `watch=ABSENT` (never armed),
+  `watch=stale(42m)` (died, or busy between wakes), `unread=N since <ts>`, and
+  `** NEVER READ **` when a role has consumed nothing at all - plus a
+  `WATCH:` summary and the `FLOW_WAVE_WATCH_UNARMED` / `FLOW_WAVE_UNREAD`
+  contract lines. On 2026-09-05 a `kyle-completion` worker was `[live,
+  verified] brief=current` and deaf for over an hour; its six-issue assignment
+  was delivered and never read, your ledger said assigned, its roster entry
+  said free, and the only tell was a cursor at 0 spotted by accident. Treat
+  `watch=ABSENT` on a role you are about to assign as a BLOCKER: tell it to arm
+  the watch before you send, because nothing you send will wake it.
 - **The orchestrator is the unreliable component.** Verify before ruling,
   expect verified pushback, and record who was right.
 
