@@ -1737,6 +1737,215 @@ class TestPolicyBackCompat:
         assert _verdict(p) == "updated"
 
 
+# --------------------------------------------------------------------------
+# The watch column (issue #778)
+# --------------------------------------------------------------------------
+
+MAILBOX = ROOT / "scripts" / "flow-wave-mailbox.sh"
+
+# The #778 join drives the sibling mailbox helper as a real subprocess, so it
+# carries the same guard the rest of the suite does.
+requires_mailbox = pytest.mark.skipif(
+    shutil.which("bash") is None or shutil.which("jq") is None,
+    reason="requires bash and jq on PATH",
+)
+
+
+def _mailbox(tmp: Path, *args: str, now: str = "1700000000"):
+    """Drive the sibling mailbox helper against the SAME wave root the registry
+    uses, which is what makes the two co-locate in real deployments too.
+    """
+    env = os.environ.copy()
+    env.update(
+        {
+            "FLOW_WAVE_REGISTRY_DIR": str(tmp / "reg"),
+            "FLOW_WAVE_NOW": now,
+        }
+    )
+    env.pop("FLOW_WAVE_MAILBOX_DIR", None)
+    return subprocess.run(
+        ["bash", str(MAILBOX), *args],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+        timeout=60,
+    )
+
+
+def _row(proc: subprocess.CompletedProcess[str], role: str) -> str:
+    """The roster line for one role, or '' when it is absent."""
+    for line in proc.stdout.splitlines():
+        if line.strip().startswith(f"{role} -> "):
+            return line
+    return ""
+
+
+@requires_mailbox
+class TestWatchColumn:
+    """A role could be `live`, address-`verified` and `brief=current` and still
+    be completely DEAF (#778): arming the mailbox watch was the one element of
+    participation that left no trace in the roster when it was missing. On
+    2026-09-05 a worker sat that way for over an hour with a six-issue
+    assignment unread, and both sides looked healthy.
+    """
+
+    def test_never_armed_reads_absent_with_the_never_read_marker(
+        self, tmp_path: Path
+    ) -> None:
+        """The exact observed failure, rendered in one look."""
+        _run(tmp_path, "register", "worker-H", "--wave", "cpp", "--socket", "uds:/tmp/h.sock")
+        _mailbox(tmp_path, "send", "--wave", "cpp", "--to", "worker-H", "--body", "your lane: #1 #2")
+        p = _run(tmp_path, "list", "--wave", "cpp", live=SELF_PID)
+        row = _row(p, "worker-H")
+        assert "watch=ABSENT" in row
+        assert "unread=1" in row
+        assert "** NEVER READ **" in row
+        assert _detail(p, "FLOW_WAVE_WATCH_UNARMED") == "1"
+        assert _detail(p, "FLOW_WAVE_UNREAD") == "1"
+
+    def test_armed_watch_reads_armed_and_warns_about_nothing(self, tmp_path: Path) -> None:
+        _run(tmp_path, "register", "worker-H", "--wave", "cpp", "--socket", "uds:/tmp/h.sock")
+        _mailbox(tmp_path, "send", "--wave", "cpp", "--to", "worker-H", "--body", "your lane")
+        _mailbox(tmp_path, "watch", "--role", "worker-H", "--wave", "cpp", "--timeout", "0")
+        p = _run(tmp_path, "list", "--wave", "cpp", live=SELF_PID)
+        assert "watch=armed" in _row(p, "worker-H")
+        assert _detail(p, "FLOW_WAVE_WATCH_UNARMED") == "0"
+        assert "WATCH: live role(s)" not in p.stdout
+
+    def test_a_decayed_heartbeat_reads_stale_with_its_age(self, tmp_path: Path) -> None:
+        """`stale` and `absent` are different answers - a watch that DIED is not
+        one that was never armed - so the age is always printed for the reader
+        to judge which.
+        """
+        _run(tmp_path, "register", "worker-H", "--wave", "cpp", "--socket", "uds:/tmp/h.sock")
+        _mailbox(tmp_path, "send", "--wave", "cpp", "--to", "worker-H", "--body", "your lane")
+        # Armed 42 minutes before the registry's pinned "now" of 1700000000.
+        _mailbox(tmp_path, "watch", "--role", "worker-H", "--wave", "cpp",
+                 "--timeout", "0", now="1699997480")
+        p = _run(tmp_path, "list", "--wave", "cpp", live=SELF_PID)
+        assert "watch=stale(42m)" in _row(p, "worker-H")
+        assert _detail(p, "FLOW_WAVE_WATCH_UNARMED") == "1"
+        assert "worker-H(stale 42m)" in p.stdout
+
+    def test_a_read_box_is_not_flagged_never_read(self, tmp_path: Path) -> None:
+        _run(tmp_path, "register", "worker-H", "--wave", "cpp", "--socket", "uds:/tmp/h.sock")
+        _mailbox(tmp_path, "send", "--wave", "cpp", "--to", "worker-H", "--body", "your lane")
+        _mailbox(tmp_path, "read", "--role", "worker-H", "--wave", "cpp")
+        p = _run(tmp_path, "list", "--wave", "cpp", live=SELF_PID)
+        row = _row(p, "worker-H")
+        assert "** NEVER READ **" not in row
+        assert "unread=" not in row
+        assert _detail(p, "FLOW_WAVE_UNREAD") == "0"
+
+    def test_dead_roles_are_not_flagged_deaf(self, tmp_path: Path) -> None:
+        """A dead worker's watch is moot - calling it ABSENT is noise on a row
+        nobody is going to re-arm, the same reasoning that scopes brief
+        staleness to live roles.
+        """
+        _run(tmp_path, "register", "worker-H", "--wave", "cpp", "--socket", "uds:/tmp/h.sock")
+        _mailbox(tmp_path, "send", "--wave", "cpp", "--to", "worker-H", "--body", "your lane")
+        p = _run(tmp_path, "list", "--wave", "cpp", live="")  # nothing alive
+        row = _row(p, "worker-H")
+        assert "stale," in row  # precondition: the entry really is dead
+        assert "watch=" not in row
+        assert _detail(p, "FLOW_WAVE_WATCH_UNARMED") == "0"
+
+    def test_json_carries_watch_and_mailbox_objects(self, tmp_path: Path) -> None:
+        _run(tmp_path, "register", "worker-H", "--wave", "cpp", "--socket", "uds:/tmp/h.sock")
+        _mailbox(tmp_path, "send", "--wave", "cpp", "--to", "worker-H", "--body", "your lane")
+        p = _run(tmp_path, "list", "--wave", "cpp", "--json", live=SELF_PID)
+        entry = _json_payload(p)["worker-H"]
+        assert entry["watch"] == {"state": "absent", "age_secs": None}
+        assert entry["mailbox"]["rev"] == 1
+        assert entry["mailbox"]["cursor"] == 0
+        assert entry["mailbox"]["unread"] == 1
+        assert entry["mailbox"]["never_read"] is True
+        assert entry["mailbox"]["last_delivery"] is not None
+
+    def test_orchestrator_figures_aggregate_every_inbox(self, tmp_path: Path) -> None:
+        """A worker reads one box; the orchestrator reads every inbox, so its
+        unread count must be the SUM rather than whichever box sorted first.
+        """
+        _run(tmp_path, "register", "orchestrator", "--wave", "cpp", "--socket", "uds:/tmp/o.sock")
+        _mailbox(tmp_path, "send", "--wave", "cpp", "--to", "orchestrator", "--from", "a", "--body", "from a")
+        _mailbox(tmp_path, "send", "--wave", "cpp", "--to", "orchestrator", "--from", "b", "--body", "from b")
+        p = _run(tmp_path, "list", "--wave", "cpp", "--json", live=SELF_PID)
+        assert _json_payload(p)["orchestrator"]["mailbox"]["unread"] == 2
+        assert _detail(p, "FLOW_WAVE_UNREAD") == "2"
+
+
+@requires_mailbox
+class TestWatchColumnDoesNotCryWolf:
+    """#674's rule, restated: a flag that fires on 100% of the fleet carries
+    zero signal and buries the one case worth investigating. Watch state is a
+    strong claim, so it renders ONLY where it means something.
+    """
+
+    def test_a_wave_that_never_uses_the_mailbox_renders_unchanged(
+        self, tmp_path: Path
+    ) -> None:
+        """Otherwise every role in a mailbox-free wave would read ABSENT."""
+        _run(tmp_path, "register", "worker-H", "--wave", "cpp", "--socket", "uds:/tmp/h.sock")
+        p = _run(tmp_path, "list", "--wave", "cpp", live=SELF_PID)
+        row = _row(p, "worker-H")
+        assert row  # precondition: the role really is on the roster
+        assert "watch=" not in row
+        assert "WATCH:" not in p.stdout
+        assert _detail(p, "FLOW_WAVE_WATCH_UNARMED") == "0"
+
+    def test_a_mailbox_free_wave_emits_no_watch_keys_in_json(self, tmp_path: Path) -> None:
+        """Byte-identical JSON to pre-#778, the promise #687 and #699 both made
+        for their own sibling keys.
+        """
+        _run(tmp_path, "register", "worker-H", "--wave", "cpp", "--socket", "uds:/tmp/h.sock")
+        p = _run(tmp_path, "list", "--wave", "cpp", "--json", live=SELF_PID)
+        entry = _json_payload(p)["worker-H"]
+        assert "watch" not in entry
+        assert "mailbox" not in entry
+
+    def test_a_missing_mailbox_sibling_fails_open(self, tmp_path: Path) -> None:
+        """A broken mailbox must never break the roster - the same fail-open
+        rule the mailbox itself applies to the #701 lexicon validator.
+        """
+        lone = tmp_path / "lone"
+        lone.mkdir()
+        solo = lone / "flow-wave-registry.sh"
+        solo.write_text(REGISTRY.read_text())
+        assert not (lone / "flow-wave-mailbox.sh").exists()  # precondition
+        _run(tmp_path, "register", "worker-H", "--wave", "cpp", "--socket", "uds:/tmp/h.sock")
+        _mailbox(tmp_path, "send", "--wave", "cpp", "--to", "worker-H", "--body", "your lane")
+        env = os.environ.copy()
+        env.update(
+            {
+                "CLAUDE_PID": SELF_PID,
+                "CLAUDE_CODE_SESSION_ID": SELF_SESSION,
+                "FLOW_WAVE_REGISTRY_DIR": str(tmp_path / "reg"),
+                "FLOW_WAVE_SOCK_DIR": str(tmp_path / "socks"),
+                "FLOW_WAVE_HOST": HOST,
+                "FLOW_WAVE_LIVE_PIDS": SELF_PID,
+                "FLOW_WAVE_NOW": "1700000000",
+            }
+        )
+        p = subprocess.run(
+            ["bash", str(solo), "list", "--wave", "cpp"],
+            capture_output=True, text=True, env=env, check=False,
+        )
+        assert p.returncode == 0
+        assert _verdict(p) == "listed"
+        assert "watch=" not in _row(p, "worker-H")
+        assert _detail(p, "FLOW_WAVE_WATCH_UNARMED") == "0"
+
+    def test_contract_lines_are_emitted_even_with_no_mailbox(self, tmp_path: Path) -> None:
+        """A consumer must be able to tell '0 deaf roles' from 'this call does
+        not report deafness' - a missing line answers neither (#699's rule for
+        the policy lines, applied to these).
+        """
+        p = _run(tmp_path, "list", "--wave", "empty-wave", live=SELF_PID)
+        assert _detail(p, "FLOW_WAVE_WATCH_UNARMED") == "0"
+        assert _detail(p, "FLOW_WAVE_UNREAD") == "0"
+
+
 class TestWiring:
     """Read-only wiring assertions - no subprocesses needed."""
 
