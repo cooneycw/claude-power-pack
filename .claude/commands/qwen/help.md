@@ -151,6 +151,15 @@ Choose by precondition, not task size:
   directory. Runs in the current directory with no repo or issue required and
   no automatic commit.
 
+Then check CAPABILITY, which is a different axis from precondition (issue #783):
+
+> **`/qwen:auto` cannot take `research` or `web` work.** The model runs under an
+> IMPLEMENTATION-ONLY execution fence, so its deliverable is a source diff, not
+> a finding; and this lane configures no retrieval tool, so a live-source
+> question comes back answered from a local model's training data. Route both
+> classes to `/flow:auto`. See "Capability contract" in `/qwen:auto`, or run
+> `~/.claude/scripts/flow-driver-capability.sh show qwen:auto`.
+
 ```bash
 # Check if the stack is ready
 /qwen:status

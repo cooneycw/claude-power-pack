@@ -29,6 +29,54 @@ Approve" for why the gate holds no bypass at all (issue #784).
   `http://127.0.0.1:11434`. No tunnel or harness config file is needed
   (see `/qwen:help`).
 
+## Capability contract - what this driver CANNOT take (issue #783)
+
+**Read this before accepting an assignment, not at Step 2.** The Step 3 gate
+answers *"is this the right plan?"*. It cannot answer *"can this driver do this
+work at all?"*, and for two whole classes of issue the answer here is no:
+
+| | |
+|---|---|
+| **Scope** | **implementation-only** - the deliverable is a source diff |
+| **Web** | **no** - a local code model with no web tool configured in this lane; the Docker sandbox is skipped entirely for a remote endpoint (issue #749) |
+| **Cannot take** | `research`, `web` |
+
+- **Research tickets.** Work whose product is a finding, a recommendation, or a
+  written comparison is not work this driver can do: its execution fence (Step 4)
+  makes the model an IMPLEMENTATION-ONLY agent, so it can only return something
+  diff-shaped. Route it to `/flow:auto`, or do it in-session.
+- **Anything needing a live source.** State the basis honestly, because it is
+  the softest of the three delegated drivers: this is an **absence of
+  provision**, not a denial. Qwen Code CLI has web tools upstream; the CPP lane
+  configures none, and Step 4 says in as many words that "network from
+  model-run shell commands is NOT blocked by either profile". So nothing stops
+  the model *trying* - it simply has no retrieval tool and would answer a
+  live-source question from a local model's training data. Treat `web` work as
+  out of scope here and route it to `/flow:auto`.
+
+Both failure modes were observed on the `kyle-completion` wave, 2026-09-05 (on
+sibling drivers), and both were caught only because a worker read the fence and
+refused. This section exists so the check reads a **stated contract** rather than
+inferring one from a fence written for a different purpose (#735's job is
+stopping the model self-directing into the lifecycle, not describing what work
+suits it).
+
+The same contract is declared as machine-readable data - one source of truth for
+this table, the roster annotation, and the tests:
+
+```bash
+~/.claude/scripts/flow-driver-capability.sh show qwen:auto
+~/.claude/scripts/flow-driver-capability.sh check qwen:auto --needs research
+```
+
+In a `/flow:wave`, register with `--driver qwen:auto` so the roster annotates
+this role `[impl-only,no-web]` and the orchestrator sees the mismatch when it
+**assigns**, rather than when you refuse.
+
+Distinct from the `/qwen:auto` vs `/qwen:exec` **precondition** split (issue
+#758): that one is about needing a filed issue and an existing checkout. This one
+is about what kind of work the driver can produce once it has both.
+
 ## Instructions
 
 When the user invokes `/qwen:auto <ISSUE>`, perform these steps sequentially. Stop immediately if any step fails.
@@ -114,6 +162,28 @@ Report: `Step 1/8: Start complete - worktree at {path}, on branch {branch}`
 ### Step 2: Analyze - Build Qwen Prompt
 
 Working from the worktree, analyze the issue and build a comprehensive prompt for the Qwen model.
+
+**0. Capability pre-flight (issue #783) - before building any prompt.** Having
+read the issue body, decide what the work actually NEEDS and check it against the
+capability contract above. Two questions, both answerable from the issue:
+
+- Is the deliverable a **source diff**, or a finding/recommendation? A finding is
+  `research`, and this driver cannot produce one.
+- Does closing it require consulting a **live source** - current terms, an
+  upstream changelog, a present-day API or price? That is `web`, and this lane
+  provides no retrieval tool.
+
+```bash
+# Declare what the work needs; the helper judges the fit. Needs are DECLARED,
+# never inferred from the issue text - a guess at prose would invent mismatches.
+~/.claude/scripts/flow-driver-capability.sh check qwen:auto --needs implementation
+```
+
+`FLOW_DRIVER_CHECK: fit` -> continue. `mismatch` (exit 1) -> **STOP before
+building the prompt.** Report which need is unmet and why, and say what to do
+instead (`/flow:auto` for research or live sources). Do not delegate anyway and
+let Step 5 review a diff that should never have existed - the whole cost of this
+mis-route is paid before the gate is ever reached.
 
 1. **Parse the issue body:**
    - Extract acceptance criteria (checkbox items `- [ ]`)

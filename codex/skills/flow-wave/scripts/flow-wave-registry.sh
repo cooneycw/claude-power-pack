@@ -72,7 +72,7 @@
 #   flow-wave-registry.sh register <role> [--wave W] [--force] [--cwd P]
 #                         [--repo P] [--issue N] [--branch B] [--socket S]
 #                         [--model M] [--permission-mode P] [--files A,B]
-#                         [--capacity C]
+#                         [--capacity C] [--driver D]
 #   flow-wave-registry.sh policy set  [--wave W] [--driver D] [--authority A]
 #                         [--authority-model M] [--gate G] [--ledger L]
 #                         [--merge-authority M] [--deploy-policy D] [--repo P]
@@ -108,6 +108,18 @@
 #             a session that will hit permission prompts cannot take unattended
 #             work and routing it there wastes a cycle; and --model, because the
 #             hardest issue should not go to the smallest model.
+#             --driver (#783) is the third of that kind, and the sharpest: it
+#             names the LIFECYCLE COMMAND this session runs (`flow:auto`,
+#             `codex:auto`, `qwen:auto`, `gemma:auto`), and the roster annotates
+#             it with the capability fence read from flow-driver-capability.sh.
+#             The other two facts change how WELL work goes; this one changes
+#             whether the work is POSSIBLE - the three delegated drivers are
+#             implementation-only and web-denied, so a research ticket routed to
+#             one can only come back wrong. Free text and fail-open: an
+#             undeclared driver simply carries no annotation. The same flag
+#             declares the wave-level default under `policy set`; on `register`
+#             it records what THIS session is actually running, which is the one
+#             that matters when a wave runs mixed drivers.
 #   list      Show the roster: role, address, issue, liveness, verification.
 #             Marks dead entries stale rather than deleting them - a dead
 #             worker mid-issue is information. Warns on lane overlaps between
@@ -227,6 +239,20 @@
 #   FLOW_WAVE_POLICY_AUTHORITY_MODEL  orchestrator-only | user-and-orchestrator
 #   FLOW_WAVE_POLICY_GATE / _LEDGER / _MERGE_AUTHORITY / _DEPLOY / _REPO / _TS
 #   FLOW_WAVE_BRIEFED_REV    the policy rev THIS role was briefed on (register/get)
+#
+# Driver capability detail lines (#783), derived from flow-driver-capability.sh
+# and never restated here. Emitted as '-' whenever the driver is undeclared,
+# unknown, or the helper is absent - a missing fence is never a claim of one:
+#   FLOW_WAVE_DRIVER         the lifecycle command THIS role runs (get)
+#   FLOW_WAVE_DRIVER_SCOPE   general | implementation-only
+#   FLOW_WAVE_DRIVER_WEB     yes | no  (can it consult a live source?)
+#   FLOW_WAVE_DRIVER_CANNOT  the needs it structurally cannot meet, e.g.
+#                            `research web`. THE routing line: an issue whose
+#                            deliverable is a finding rather than a diff, handed
+#                            to a role naming `research` here, is the mis-route
+#                            #783 was filed about - now visible at assignment.
+#   FLOW_WAVE_POLICY_DRIVER_SCOPE / _WEB / _CANNOT  the same, for the wave-level
+#                            default driver (register/get/list/policy)
 #   FLOW_WAVE_BRIEF          current | stale | none. `stale` means the policy was
 #                            amended after this role registered - re-register to
 #                            take the re-brief.
@@ -277,6 +303,41 @@ SELF_HOST="${FLOW_WAVE_HOST:-${HOSTNAME:-$(hostname 2>/dev/null || echo unknown)
 NOW="${FLOW_WAVE_NOW:-$(date +%s)}"
 
 usage_fail() { echo "flow-wave-registry: $1" >&2; exit 2; }
+
+# Driver capability (#783). The roster's job here is to SURFACE the fence at
+# assignment time; the fence itself is declared once in the sibling helper and
+# read back from it. Deriving rather than restating is the whole point - a
+# second copy of "codex:auto cannot do research" living in this file would drift
+# from the first, and both would still read like documentation.
+#
+# Fail-open in every direction: no helper, an unknown driver, or a driver nobody
+# declared all yield an empty annotation, and the roster renders exactly as it
+# did before #783. A missing capability line must never be mistaken for a
+# capability claim.
+SELF_DIR="$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")"
+CAP_HELPER="$SELF_DIR/flow-driver-capability.sh"
+
+# driver_cap DRIVER FIELD -> the FLOW_DRIVER_<FIELD> value, or '' when unknown.
+driver_cap() {
+  local d="$1" field="$2" out
+  [ -n "$d" ] || return 0
+  [ -x "$CAP_HELPER" ] || return 0
+  out="$("$CAP_HELPER" show "$d" 2>/dev/null | sed -n "s/^FLOW_DRIVER_${field}=//p")"
+  [ "$out" = "-" ] && out=""
+  printf '%s' "$out"
+}
+
+# driver_cap_dash DRIVER FIELD -> the value, or '-' when there is none.
+#
+# The detail lines use '-' for not-applicable throughout (#674: a consumer must
+# be able to tell "no fence declared" from "this call does not report one", and
+# an EMPTY value answers neither). Piping through `sed 's/^$/-/'` does not do
+# this - driver_cap prints no trailing newline, so an empty result is zero LINES
+# and sed has nothing to substitute.
+driver_cap_dash() {
+  local out; out="$(driver_cap "$1" "$2")"
+  printf '%s' "${out:--}"
+}
 
 command -v jq >/dev/null 2>&1 || {
   echo "flow-wave-registry: jq is required (see .claude/bootstrap.yaml)" >&2
@@ -721,6 +782,9 @@ emit_policy_lines() {
     echo "FLOW_WAVE_POLICY=absent"
     echo "FLOW_WAVE_POLICY_REV=0"
     echo "FLOW_WAVE_POLICY_DRIVER=-"
+    echo "FLOW_WAVE_POLICY_DRIVER_SCOPE=-"
+    echo "FLOW_WAVE_POLICY_DRIVER_WEB=-"
+    echo "FLOW_WAVE_POLICY_DRIVER_CANNOT=-"
     echo "FLOW_WAVE_POLICY_AUTHORITY=-"
     echo "FLOW_WAVE_POLICY_AUTHORITY_MODEL=-"
     echo "FLOW_WAVE_POLICY_GATE=-"
@@ -731,9 +795,17 @@ emit_policy_lines() {
     echo "FLOW_WAVE_POLICY_TS=-"
     return
   fi
+  local pd; pd="$(policy_field "$p" driver)"
   echo "FLOW_WAVE_POLICY=declared"
   echo "FLOW_WAVE_POLICY_REV=$(policy_rev_of "$p")"
-  echo "FLOW_WAVE_POLICY_DRIVER=$(policy_field "$p" driver)"
+  echo "FLOW_WAVE_POLICY_DRIVER=$pd"
+  # The wave-level driver's capability fence (#783), derived not restated. The
+  # policy field stays FREE TEXT as #699 declared it - an undeclared or unknown
+  # driver annotates as '-' rather than becoming a usage error, so a wave naming
+  # `flow:auto (Opus 5)` or a downstream driver keeps working unchanged.
+  echo "FLOW_WAVE_POLICY_DRIVER_SCOPE=$(driver_cap_dash "$pd" SCOPE)"
+  echo "FLOW_WAVE_POLICY_DRIVER_WEB=$(driver_cap_dash "$pd" WEB)"
+  echo "FLOW_WAVE_POLICY_DRIVER_CANNOT=$(driver_cap_dash "$pd" CANNOT)"
   echo "FLOW_WAVE_POLICY_AUTHORITY=$(policy_field "$p" authority)"
   echo "FLOW_WAVE_POLICY_AUTHORITY_MODEL=$(policy_field "$p" authority_model)"
   echo "FLOW_WAVE_POLICY_GATE=$(policy_field "$p" gate)"
@@ -755,7 +827,19 @@ print_policy_brief() {
   local p="$1"
   [ "$p" != "null" ] || return 0
   echo "  -- wave policy (rev $(policy_rev_of "$p"), declared by $(policy_field "$p" declared_by)) --"
-  [ -n "$(policy_field "$p" driver)" ]           && echo "     driver:               $(policy_field "$p" driver)"
+  local pd pcannot
+  pd="$(policy_field "$p" driver)"
+  if [ -n "$pd" ]; then
+    pcannot="$(driver_cap "$pd" CANNOT)"
+    if [ -n "$pcannot" ]; then
+      # Named in the brief, not only in the machine lines: this block is what a
+      # compacted worker re-reads, and "this driver cannot take research or web
+      # work" is precisely the fact #783 was filed about being invisible.
+      echo "     driver:               $pd  [cannot take: $pcannot]"
+    else
+      echo "     driver:               $pd"
+    fi
+  fi
   [ -n "$(policy_field "$p" authority)" ]        && echo "     implementation auth:  $(policy_field "$p" authority)"
   [ -n "$(policy_field "$p" authority_model)" ]  && echo "     authority model:      $(policy_field "$p" authority_model)"
   [ -n "$(policy_field "$p" gate)" ]             && echo "     gate policy:          $(policy_field "$p" gate)"
@@ -1227,7 +1311,7 @@ case "$VERB" in
     # cwd/repo/issue/branch above, which a re-register rewrites. The difference is
     # deliberate and worth stating: those describe a LANE, which genuinely goes
     # stale (the #683 trap), while model / permission mode / capacity / file lane
-    # describe the SESSION and its grant, and re-registering is the documented
+    # / driver describe the SESSION and its grant, and re-registering is the documented
     # cheap re-brief (#670). Blanking a granted file lane because a compacted
     # worker re-registered to re-read the protocol would delete the very thing
     # overlap detection reads. Passing an empty value (`--files ""`) clears a
@@ -1245,6 +1329,7 @@ case "$VERB" in
         permission_mode: (if $perm_set  == "1" then $perm  else ($prev.permission_mode // "") end),
         files:           (if $files_set == "1" then $files else ($prev.files // "") end),
         capacity:        (if $cap_set   == "1" then $cap   else ($prev.capacity // "") end),
+        driver:          (if $drv_set   == "1" then $drv   else ($prev.driver // "") end),
         policy_rev:      ($polrev | tonumber)
       }' \
       --arg w "$WAVE" --arg r "$ROLE" --arg sock "$SOCK" --arg pid "$SELF_PID" \
@@ -1256,6 +1341,7 @@ case "$VERB" in
       --arg perm "$A_PERMMODE" --arg perm_set "$A_PERMMODE_SET" \
       --arg files "$A_FILES" --arg files_set "$A_FILES_SET" \
       --arg cap "$A_CAPACITY" --arg cap_set "$A_CAPACITY_SET" \
+      --arg drv "$P_DRIVER" --arg drv_set "$P_DRIVER_SET" \
       --arg polrev "$POL_REV" \
       --arg now "$NOW"
     # Honest failure surface (#672): name the CAUSE, and never promise a verify
@@ -1359,6 +1445,15 @@ case "$VERB" in
     echo "FLOW_WAVE_PERMISSION_MODE=$(printf '%s' "$CUR" | jq -r '.permission_mode // "-" | if . == "" then "-" else . end')"
     echo "FLOW_WAVE_FILES=$(printf '%s' "$CUR" | jq -r '.files // "-" | if . == "" then "-" else . end')"
     echo "FLOW_WAVE_CAPACITY=$(printf '%s' "$CUR" | jq -r '.capacity // "-" | if . == "" then "-" else . end')"
+    # The role's driver and what it structurally CANNOT take (#783). This is the
+    # line an orchestrator reads before routing: a research ticket sent to a role
+    # whose FLOW_WAVE_DRIVER_CANNOT names `research` is the mis-route the issue
+    # was filed about, and it is now answerable without asking the worker.
+    GET_DRIVER="$(printf '%s' "$CUR" | jq -r '.driver // "" | if . == null then "" else . end')"
+    echo "FLOW_WAVE_DRIVER=${GET_DRIVER:--}"
+    echo "FLOW_WAVE_DRIVER_SCOPE=$(driver_cap_dash "$GET_DRIVER" SCOPE)"
+    echo "FLOW_WAVE_DRIVER_WEB=$(driver_cap_dash "$GET_DRIVER" WEB)"
+    echo "FLOW_WAVE_DRIVER_CANNOT=$(driver_cap_dash "$GET_DRIVER" CANNOT)"
     GET_POL="$(policy_json "$WAVE")"
     GET_POL_REV="$(policy_rev_of "$GET_POL")"
     GET_BRIEFED="$(printf '%s' "$CUR" | jq -r '.policy_rev // 0')"
@@ -1632,6 +1727,16 @@ EOF
       [ -n "$pm" ] && extra="$extra perm=$pm"
       cp="$(printf '%s' "$e" | jq -r '.capacity // ""')"
       [ -n "$cp" ] && extra="$extra capacity=$cp"
+      # Driver + its capability fence (#783), rendered together so routing reads
+      # as one fact. `worker-2 -> ... driver=gemma:auto[impl-only,no-web]` is the
+      # whole feature: the mismatch is visible when the orchestrator ASSIGNS,
+      # rather than when the worker reads its own fence and refuses. An
+      # undeclared driver renders bare - the roster never invents a fence.
+      dv="$(printf '%s' "$e" | jq -r '.driver // ""')"
+      if [ -n "$dv" ]; then
+        dvf="$(driver_cap "$dv" FENCE)"
+        [ -n "$dvf" ] && extra="$extra driver=$dv[$dvf]" || extra="$extra driver=$dv"
+      fi
       # Brief staleness is shown for LIVE roles only: a stale or released entry
       # is not running on anything, so calling its brief superseded would be
       # noise on a row nobody is going to re-brief.
