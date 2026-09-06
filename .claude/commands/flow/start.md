@@ -81,8 +81,10 @@ retired, #440 superseded), `SESSION_CWD`, `SESSION_CWD_INFERRED`
 drifted process cwd, issue #592), `TARGET_REPO`,
 `COMPOSE_PROJECT_NAME` (the canonical compose-project pin, issue #626 - see the
 compose-safety note below), `ISSUE_STATE`, `ISSUE_TITLE`, `BRANCH`, `WT_PATH`,
-`DEFAULT_BRANCH`, `REMOTE_BRANCH`, `WT_CREATED`, `LIVE_DRIVER` (the helper wraps
-its sibling `scripts/flow-live-driver-guard.sh`, #503), `PR_HEAD`,
+`DEFAULT_BRANCH`, `REMOTE_BRANCH`, `WT_CREATED`, `WT_BASE` (present only when
+`WT_CREATED=1`; names a reused pre-existing branch instead of the base ref when
+`LANE` did not actually branch fresh off it, issue #793), `LIVE_DRIVER` (the
+helper wraps its sibling `scripts/flow-live-driver-guard.sh`, #503), `PR_HEAD`,
 `CONFIRM_REQUIRED` - the same contract `/flow:auto` Step 1 documents.
 
 **Compose-project safety (issue #626).** After entering the worktree, any
@@ -118,13 +120,27 @@ uses the git path. Pick exactly the path the contract names:
 - `LANE=fresh`: the helper already created the worktree at `WT_PATH`
   (`WT_CREATED=1`) - a visible sibling `../<repo>-<branch>`, or under
   `$FLOW_WORKTREE_BASE` when set - branched from `origin/<DEFAULT_BRANCH>`.
-  `cd <WT_PATH>` (bare, literal). Do NOT call `EnterWorktree`.
+  `cd <WT_PATH>` (bare, literal). Do NOT call `EnterWorktree`. Check `WT_BASE`
+  too (issue #793): if it names a reused branch rather than the base ref, the
+  checkout is NOT freshly branched from `origin/<DEFAULT_BRANCH>` - it stood on
+  an existing local branch whose tip was verified to be already contained in
+  it, so nothing is lost, but say so if you report the base to the user.
 - `LANE=resume`: a prior session's worktree exists at `WT_PATH`. If
   `CONFIRM_REQUIRED=1` (`LIVE_DRIVER=suspected` and/or `PR_HEAD` shows an
   open/merged PR - the #503 concurrent/shipped hazards), require explicit user
   confirmation first. Then `cd <WT_PATH>` (do NOT create a new one).
 - `LANE=remote-pickup` (cross-machine): the helper already added the worktree
   from `REMOTE_BRANCH` (`WT_CREATED=1`). `cd <WT_PATH>`.
+- `LANE=local-pickup` (issue #793): a LOCAL branch matching `issue-<N>-*`
+  already existed with no worktree attached to it (e.g. left over from a
+  removed worktree, possibly under an older slug than the issue's current
+  title). The helper already added the worktree from it (`WT_CREATED=1`) after
+  verifying its tip is contained in `origin/<DEFAULT_BRANCH>`. `cd <WT_PATH>`.
+- `FLOW_START_RESOLVE: error` naming a branch as unmerged/not-an-ancestor
+  (issue #793): a pre-existing branch for this issue carries commits the base
+  does not have - possibly another worker's in-flight work. This is a hard
+  stop, not a lane. Surface the error to the user; do not retry blindly. They
+  may need to delete/rename the branch, or rebase it onto the base themselves.
 
 ### Step 3: Verify, Normalize Branch, Output
 
