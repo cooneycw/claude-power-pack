@@ -4,6 +4,49 @@
 
 ### Added
 
+- **2026-09-06 - post-clearance PR pipeline watch with a classified verdict**
+  (issue #788) - in a wave the merge-queue critic clears a PR's queue position,
+  the PR's next pipeline runs, and nothing watches the result. On the
+  `kyle-completion` wave (2026-09-05) the owner noticed a red pipeline on a
+  cleared PR before the critic did: issuing the clearance is where attention
+  ended, so a stale `CLEAR` stood over a red run.
+
+  Colour alone was not the missing piece either. A red on a cleared PR is one of
+  three things whose right responses are opposite - re-pushing a **cancelled**
+  run (killed by a superseding push) only lengthens the single-agent queue,
+  retrying a **real failure** until it wins hides the defect, and blaming a
+  declared **flake** on the PR stalls a clean merge. Triage was done by hand all
+  evening: `pipeline ps` for the failed step, `pipeline log show` for the pytest
+  summary, then a comparison against the wave's flake baseline.
+
+  `scripts/flow-pr-watch.sh` blocks until a PR's pipeline is terminal (or a newer
+  run supersedes it) and emits one verdict - `green` / `cancelled` / `flake` /
+  `red` / `timeout` / `unknown` - with the superseding pipeline number, the
+  failed test ids, and the first `E` assertion line per test. Run it as a
+  background call after a clearance and the harness re-invokes the critic with
+  the answer, the same wake shape as the mailbox watch.
+
+  Two decisions are load-bearing. **Cancellation is conjunctive**: a superseding
+  run must exist AND the watched run must carry the kill signature (state
+  `killed`, or every stopped step sharing one timestamp with no pytest summary).
+  Either half alone would excuse a genuine defect that merely happened to be
+  re-pushed over - the expensive direction of this error - so a superseded run
+  whose log reached a real summary is still classified on its failures, pinned by
+  its own regression test. And the helper **never decides what a flake is**: it
+  reports whether every failed id is inside the baseline file the wave declared,
+  all-or-nothing, always printing the ids it excused.
+
+  Resolution goes through the check rollup's `targetUrl`, not `pipeline ls`: for
+  a `pull_request` event Woodpecker records the TARGET branch, not the head, so a
+  branch grep finds the wrong run or none. The `woodpecker-cli` lane is a
+  fallback and anchors on the exact head SHA, never on list position (the
+  #766/#516 lesson). Exit codes reuse the mailbox convention with no new value
+  for a new verdict (#674): 0 for green/cancelled/flake/unknown, 1 for red, 5 for
+  timeout. Fail-open throughout - no `gh`, no CLI, no pipeline for the head all
+  report `unknown` and exit 0, because a watch that cannot see must never be why
+  a wave stops. Wired into `/flow:wave` step 4 and its Hazards list, the
+  stable-path installer, and the permissions template. Version 7.4.0 -> 7.5.0.
+
 - **2026-09-06 - driver capability is declared data, checkable before assignment**
   (issue #783) - the ELI5 gate (#775) and the delegated drivers' Step 3/8 gate
   (#774/#784) both answer *should this work be done, and is this the right plan?*.

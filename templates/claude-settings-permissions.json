@@ -43,6 +43,7 @@
       "Bash(~/.claude/scripts/flow-driver-capability.sh:*)",
       "Bash(~/.claude/scripts/flow-finish-gate.sh:*)",
       "Bash(~/.claude/scripts/flow-ci-status.sh:*)",
+      "Bash(~/.claude/scripts/flow-pr-watch.sh:*)",
       "Bash(~/.claude/scripts/gh-pr-merge.sh:*)",
       "Bash(~/.claude/scripts/worktree-remove.sh:*)",
       "Bash(~/.claude/scripts/install-drift.sh:*)",
