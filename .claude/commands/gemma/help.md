@@ -199,6 +199,16 @@ Choose by precondition, not task size:
   directory. Runs in the current directory with no repo or issue required and
   no automatic commit.
 
+Then check CAPABILITY, which is a different axis from precondition (issue #783):
+
+> **`/gemma:auto` cannot take `research` or `web` work.** The model runs under an
+> IMPLEMENTATION-ONLY execution fence, so its deliverable is a source diff, not
+> a finding; and the `gemma-implementer` profile DENIES `webfetch` and
+> `websearch` by name, so a live source is a hard block rather than a judgment
+> call. Route both classes to `/flow:auto`. See "Capability contract" in
+> `/gemma:auto`, or run
+> `~/.claude/scripts/flow-driver-capability.sh show gemma:auto`.
+
 ```bash
 # Check if the stack is ready (includes a real tool-calling smoke test)
 /gemma:status

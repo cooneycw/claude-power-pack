@@ -46,6 +46,15 @@ Choose by precondition, not task size:
   directory. Runs in the current directory with no repo or issue required and
   no automatic commit.
 
+Then check CAPABILITY, which is a different axis from precondition (issue #783):
+
+> **`/codex:auto` cannot take `research` or `web` work.** Codex runs under an
+> IMPLEMENTATION-ONLY execution fence, so its deliverable is a source diff, not
+> a finding; and `--sandbox workspace-write` blocks network, so it cannot
+> consult a live source and would answer from training data. Route both classes
+> to `/flow:auto`. See "Capability contract" in `/codex:auto`, or run
+> `~/.claude/scripts/flow-driver-capability.sh show codex:auto`.
+
 ```bash
 # Check if Codex is ready
 /codex:status

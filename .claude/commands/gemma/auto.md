@@ -36,6 +36,53 @@ Approve" for why the gate holds no bypass at all (issue #784).
   exported BEFORE `opencode` runs - the provider `baseURL` is the literal
   `{env:GEMMA_OLLAMA_URL}`, resolved at invocation time (see `/gemma:help`).
 
+## Capability contract - what this driver CANNOT take (issue #783)
+
+**Read this before accepting an assignment, not at Step 2.** The Step 3 gate
+answers *"is this the right plan?"*. It cannot answer *"can this driver do this
+work at all?"*, and for two whole classes of issue the answer here is no:
+
+| | |
+|---|---|
+| **Scope** | **implementation-only** - the deliverable is a source diff |
+| **Web** | **no, mechanically** - the `gemma-implementer` profile DENIES `webfetch` and `websearch` by name (`templates/opencode-gemma.json`, issue #752) |
+| **Cannot take** | `research`, `web` |
+
+- **Research tickets.** Work whose product is a finding, a recommendation, or a
+  written comparison is not work this driver can do: its execution fence (Step 4)
+  makes the model an IMPLEMENTATION-ONLY agent, so it can only return something
+  diff-shaped. Route it to `/flow:auto`, or do it in-session.
+- **Anything needing a live source.** This is the hardest of the three delegated
+  drivers' web answers and the one that was actually hit: a worker handed a
+  terms-research issue reported the denial as **"a hard block, not a judgment
+  call"** - verified against the profile rather than inferred from having
+  declined before. The tools are denied at the permission layer, so the model
+  cannot reach a source even if it tries, and a live-source question comes back
+  answered from a local model's training data. `/flow:auto` is the driver for
+  that work.
+
+Observed on the `kyle-completion` wave, 2026-09-05, and caught only because the
+worker read the profile and refused. This section exists so the check reads a
+**stated contract** rather than inferring one from a fence written for a
+different purpose (#735's job is stopping the model self-directing into the
+lifecycle, not describing what work suits it).
+
+The same contract is declared as machine-readable data - one source of truth for
+this table, the roster annotation, and the tests:
+
+```bash
+~/.claude/scripts/flow-driver-capability.sh show gemma:auto
+~/.claude/scripts/flow-driver-capability.sh check gemma:auto --needs web
+```
+
+In a `/flow:wave`, register with `--driver gemma:auto` so the roster annotates
+this role `[impl-only,no-web]` and the orchestrator sees the mismatch when it
+**assigns**, rather than when you refuse.
+
+Distinct from the `/gemma:auto` vs `/gemma:exec` **precondition** split (issue
+#758): that one is about needing a filed issue and an existing checkout. This one
+is about what kind of work the driver can produce once it has both.
+
 ## Instructions
 
 When the user invokes `/gemma:auto <ISSUE>`, perform these steps sequentially. Stop immediately if any step fails.
@@ -125,6 +172,28 @@ Report: `Step 1/8: Start complete - worktree at {path}, on branch {branch}`
 ### Step 2: Analyze - Build Gemma Prompt
 
 Working from the worktree, analyze the issue and build a comprehensive prompt for the Gemma model.
+
+**0. Capability pre-flight (issue #783) - before building any prompt.** Having
+read the issue body, decide what the work actually NEEDS and check it against the
+capability contract above. Two questions, both answerable from the issue:
+
+- Is the deliverable a **source diff**, or a finding/recommendation? A finding is
+  `research`, and this driver cannot produce one.
+- Does closing it require consulting a **live source** - current terms, an
+  upstream changelog, a present-day API or price? That is `web`, and the
+  `gemma-implementer` profile denies the tools outright.
+
+```bash
+# Declare what the work needs; the helper judges the fit. Needs are DECLARED,
+# never inferred from the issue text - a guess at prose would invent mismatches.
+~/.claude/scripts/flow-driver-capability.sh check gemma:auto --needs implementation
+```
+
+`FLOW_DRIVER_CHECK: fit` -> continue. `mismatch` (exit 1) -> **STOP before
+building the prompt.** Report which need is unmet and why, and say what to do
+instead (`/flow:auto` for research or live sources). Do not delegate anyway and
+let Step 5 review a diff that should never have existed - the whole cost of this
+mis-route is paid before the gate is ever reached.
 
 1. **Parse the issue body:**
    - Extract acceptance criteria (checkbox items `- [ ]`)

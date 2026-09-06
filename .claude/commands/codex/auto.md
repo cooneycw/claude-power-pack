@@ -17,6 +17,52 @@ and `--auto-approve` are recognized so a caller that passes one is told plainly
 that the Step 3 gate is not skippable - they do not skip it. See "Step 3:
 Approve" for why the gate holds no bypass at all (issue #784).
 
+## Capability contract - what this driver CANNOT take (issue #783)
+
+**Read this before accepting an assignment, not at Step 2.** The Step 3 gate
+answers *"is this the right plan?"*. It cannot answer *"can this driver do this
+work at all?"*, and for two whole classes of issue the answer here is no:
+
+| | |
+|---|---|
+| **Scope** | **implementation-only** - the deliverable is a source diff |
+| **Web** | **no** - `codex exec --sandbox workspace-write` blocks network for the shell commands Codex runs (issue #735) |
+| **Cannot take** | `research`, `web` |
+
+- **Research tickets.** Work whose product is a finding, a recommendation, or a
+  written comparison is not work Codex can do here: its execution fence (Step 4)
+  makes it an IMPLEMENTATION-ONLY agent, so it can only return something
+  diff-shaped. Delegating a research ticket means writing the brief yourself and
+  asking Codex to retype it. Do the work in-session with `/flow:auto`, or hand it
+  to a reviewer - do not route it through this driver.
+- **Anything needing a live source.** Current terms of service, an upstream
+  changelog, a library's present API, today's pricing: the sandbox denies network
+  to Codex's shell commands, so it would answer from training data and report it
+  with the same confidence as a verified fact. `/flow:auto` (Claude, with
+  WebFetch/WebSearch) is the driver for that work.
+
+Both failures were observed on the `kyle-completion` wave, 2026-09-05, and both
+were caught only because a worker read the fence and refused. This section exists
+so the check reads a **stated contract** rather than inferring one from a fence
+written for a different purpose (#735's job is stopping Codex self-directing into
+the lifecycle, not describing what work suits it).
+
+The same contract is declared as machine-readable data - one source of truth for
+this table, the roster annotation, and the tests:
+
+```bash
+~/.claude/scripts/flow-driver-capability.sh show codex:auto
+~/.claude/scripts/flow-driver-capability.sh check codex:auto --needs research
+```
+
+In a `/flow:wave`, register with `--driver codex:auto` so the roster annotates
+this role `[impl-only,no-web]` and the orchestrator sees the mismatch when it
+**assigns**, rather than when you refuse.
+
+Distinct from the `/codex:auto` vs `/codex:exec` **precondition** split (issue
+#758): that one is about needing a filed issue and an existing checkout. This one
+is about what kind of work the driver can produce once it has both.
+
 ## Instructions
 
 When the user invokes `/codex:auto <ISSUE>`, perform these steps sequentially. Stop immediately if any step fails.
@@ -102,6 +148,28 @@ Report: `Step 1/8: Start complete - worktree at {path}, on branch {branch}`
 ### Step 2: Analyze - Build Codex Prompt
 
 Working from the worktree, analyze the issue and build a comprehensive prompt for Codex.
+
+**0. Capability pre-flight (issue #783) - before building any prompt.** Having
+read the issue body, decide what the work actually NEEDS and check it against the
+capability contract above. Two questions, both answerable from the issue:
+
+- Is the deliverable a **source diff**, or a finding/recommendation? A finding is
+  `research`, and this driver cannot produce one.
+- Does closing it require consulting a **live source** - current terms, an
+  upstream changelog, a present-day API or price? That is `web`, and this driver
+  has none.
+
+```bash
+# Declare what the work needs; the helper judges the fit. Needs are DECLARED,
+# never inferred from the issue text - a guess at prose would invent mismatches.
+~/.claude/scripts/flow-driver-capability.sh check codex:auto --needs implementation
+```
+
+`FLOW_DRIVER_CHECK: fit` -> continue. `mismatch` (exit 1) -> **STOP before
+building the prompt.** Report which need is unmet and why, and say what to do
+instead (`/flow:auto` for research or live sources). Do not delegate anyway and
+let Step 5 review a diff that should never have existed - the whole cost of this
+mis-route is paid before the gate is ever reached.
 
 1. **Parse the issue body:**
    - Extract acceptance criteria (checkbox items `- [ ]`)

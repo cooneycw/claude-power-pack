@@ -61,6 +61,12 @@ first:
   orchestrator exists. A worker that registers first reports
   `registered; orchestrator not yet in roster; hello deferred` and is NOT
   stalled; its registration stands on its own.
+- **A worker running a delegated driver declares it: `--driver codex:auto`**
+  (or `qwen:auto` / `gemma:auto` / `flow:auto`). The roster then annotates that
+  role with the driver's capability fence, so routing can see what the role
+  structurally cannot take (#783) - see *Assign* below. This matters most on a
+  MIXED wave, where the wave-level `policy set --driver` names a default that
+  some workers are not running.
 
 Then, on FIRST CONTACT in either direction, verify the observed address:
 
@@ -344,9 +350,41 @@ For each idle registered worker, pick the next startable issue subject to:
   assigned it the issue whose fix lived in that file - a contradiction nothing
   could check because the lane existed only as prose.
 - **Route by declared role facts, not by guess.** `list` now shows each role's
-  `model=` and `perm=`; a session in a prompting permission mode cannot take
-  unattended work, and the hardest issue should not go to the smallest model.
-  Both were previously visible only in message metadata, if at all.
+  `model=`, `perm=` and `driver=`; a session in a prompting permission mode
+  cannot take unattended work, and the hardest issue should not go to the
+  smallest model. Both were previously visible only in message metadata, if at
+  all.
+- **Check the driver CAN do the work before you assign it** (#783). `driver=`
+  carries the role's capability fence, derived from
+  `flow-driver-capability.sh` and rendered inline:
+
+  ```
+  worker-2 -> uds:... [live, verified] issue=- model=gemma4:31b driver=gemma:auto[impl-only,no-web]
+  ```
+
+  `impl-only` means the deliverable can only be a source diff - the three
+  delegated drivers each wrap their model in an IMPLEMENTATION-ONLY execution
+  fence, so a **research ticket** handed to one comes back diff-shaped because
+  that is all it can produce. `no-web` means the driver cannot reach a live
+  source, so a ticket needing current terms, an upstream changelog or a
+  present-day API comes back **confidently answered from training data**. Both
+  happened on the reference wave, on two different drivers in one evening, and
+  both were caught only because the worker read its own fence and refused -
+  discipline, not mechanism, and precisely the gap #774 closed for halting.
+
+  Route `research` and `web` work to a `flow:auto` worker, or take it yourself.
+  Judge the fit explicitly when it is not obvious:
+
+  ```bash
+  ~/.claude/scripts/flow-driver-capability.sh check gemma:auto --needs web
+  # FLOW_DRIVER_CHECK: mismatch   (exit 1, naming the need and why)
+  ```
+
+  Needs are DECLARED by you, never inferred from the issue text: a classifier
+  guessing at prose would invent mismatches nobody declared, the #683 failure
+  where an overlap warning stops being believed. A driver the helper has never
+  heard of reports `unknown` and exits 0 - the routing question is then simply
+  unanswered, and the judgment is yours.
 - **An assignment is not assigned until it is DELIVERED.** Send it by the
   preference order (`SendMessage`, else the mailbox), and treat the worker's
   acknowledgement - not your own send - as the transition to in-flight. An

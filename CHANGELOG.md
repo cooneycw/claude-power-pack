@@ -2,6 +2,75 @@
 
 ## [Unreleased]
 
+### Added
+
+- **2026-09-06 - driver capability is declared data, checkable before assignment**
+  (issue #783) - the ELI5 gate (#775) and the delegated drivers' Step 3/8 gate
+  (#774/#784) both answer *should this work be done, and is this the right plan?*.
+  Nothing answered *can this driver do this work at all?* - and for three of the
+  four drivers the answer is structurally **no** for whole classes of issue.
+
+  `/codex:auto`, `/qwen:auto` and `/gemma:auto` each wrap their model in an
+  IMPLEMENTATION-ONLY execution fence, so their deliverable is a source diff: a
+  research ticket handed to one comes back diff-shaped because that is all the
+  model can produce. None can reach a live source either - `codex --sandbox
+  workspace-write` blocks network for shell commands, and the `gemma-implementer`
+  profile DENIES `webfetch`/`websearch` by name - so a ticket needing current
+  terms or an upstream changelog comes back confidently answered from training
+  data. Both were observed on the `kyle-completion` wave on 2026-09-05, by two
+  workers on two drivers in one evening, and both were caught only because the
+  worker read its own fence and refused: discipline, not mechanism, and the same
+  gap #774 closed for halting.
+
+  Worse, those fences live inside **prompt-construction** instructions written
+  for a different purpose (#735 exists to stop a model self-directing into the
+  lifecycle, not to describe what work suits it). A worker checking its own
+  capability was reading a document that never set out to answer the question,
+  and an orchestrator routing the work had nothing to read at all.
+
+  `scripts/flow-driver-capability.sh` declares all four drivers on the two axes
+  the issue names - `scope` (general | implementation-only) and `web` (yes | no) -
+  with `show` / `list` / `check <driver> --needs implementation|research|web`.
+  Needs are **declared by the caller** out of a closed enum, never inferred from
+  issue prose: a classifier guessing at text would invent mismatches nobody
+  declared, the #683 failure where an overlap warning stops being believed. An
+  unknown need is a usage error rather than a silent `fit`; an unknown driver
+  reports `unknown` and exits 0, because failing closed on a downstream driver
+  would block a wave over a name.
+
+  A `web_basis` field records **how** each `no` is enforced, because the three
+  say `no` for materially different reasons and collapsing them would overstate
+  two: gemma's is a named tool denial, codex's is the sandbox, and qwen's is an
+  *absence of provision* - Qwen Code CLI has web tools upstream, the CPP lane
+  configures none, and `qwen/auto.md` says in as many words that network from
+  model-run shell commands is not blocked. A matrix that overstates a block is
+  worse than one that admits a soft edge, so the test forbids qwen's basis from
+  claiming a denial it does not have.
+
+  **Read back by three consumers, which is what keeps it from being decoration**
+  (a capability matrix nobody reads is prose with extra steps - #701's own kill
+  condition): `flow-wave-registry.sh register --driver <d>` records what a role
+  is running and `list` renders `driver=gemma:auto[impl-only,no-web]`, derived
+  from the helper, so an orchestrator sees the mismatch when it **assigns**
+  rather than when the worker refuses; each driver's skill file states a
+  Capability contract and runs the check as a Step 2/8 pre-flight before any
+  prompt is built; and `tests/test_driver_capability.py` derives the expected
+  matrix from the driver documents themselves, so a driver that loses its fence
+  or whose sandbox flag changes turns the suite red instead of leaving the data
+  quietly lying.
+
+  Distinct from the #758 **precondition** split (`auto` needs a filed issue and
+  an existing checkout, `exec` does not): that is whether the driver can start,
+  this is what it can produce. Both now sit side by side in each help page, in
+  that order.
+
+  Non-breaking: `--driver` stays free text as #699 declared it, so
+  `flow:auto (Opus 5)` still resolves and an undeclared driver simply carries no
+  annotation. A wave that never declares one reads exactly as it did before -
+  pinned by test, as is the mutation case where the helper is absent and the
+  roster must render **no** fence rather than a remembered one. Verified
+  non-vacuous: one wrong row in the matrix turns 4 cases red.
+
 ### Fixed
 
 - **2026-09-05 - the delegated drivers' Step 3/8 gate has no bypass either**
