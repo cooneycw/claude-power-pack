@@ -40,7 +40,8 @@ Choose by precondition, not task size:
 - `/codex:auto <ISSUE>` - an EXISTING repo with a FILED issue. Creates a
   worktree and runs the full lifecycle through review, quality gates, and PR.
   It STOPS after the Step 2 plan report and waits for approval before Codex
-  writes anything (Step 3/8); pass `--yes` to skip that pause (issue #774).
+  writes anything (Step 3/8). That pause has no bypass (issue #784): `--yes` /
+  `--auto-approve` are recognized only to report that the gate is not skippable.
 - `/codex:exec <PROMPT>` - anything else, including a brand-new empty
   directory. Runs in the current directory with no repo or issue required and
   no automatic commit.
