@@ -49,8 +49,10 @@
 #   flow-wave-mailbox.sh send  --to <role> [--from <role>] [--wave W]
 #                              [--body TEXT | --body-file F | < stdin] [--replace]
 #   flow-wave-mailbox.sh read  --role <role> [--wave W] [--all] [--peek]
+#                              [--from <role>] [--out FILE]
 #   flow-wave-mailbox.sh watch --role <role> [--wave W] [--timeout SEC]
-#                              [--interval SEC] [--peek]
+#                              [--interval SEC] (--peek | --consume)
+#   flow-wave-mailbox.sh watch --status --role <role> [--wave W]
 #   flow-wave-mailbox.sh list  [--wave W] [--json]
 #
 #   send   Deliver a message. `--to orchestrator` writes inbox-<from>.md and
@@ -61,13 +63,67 @@
 #   read   Print messages addressed to <role> that are newer than its read
 #          cursor, then advance the cursor. --all re-prints the whole box
 #          history; --peek prints without advancing (so a watch still fires).
+#          `--from <role>` (orchestrator only) narrows to one correspondent's
+#          inbox instead of draining all of them (#792 item 7). A CONSUMING
+#          orchestrator-wide read (no --from, no --peek) run non-interactively
+#          refuses without `--out FILE` - a durable copy taken before the
+#          drain - because piping that output through a filter has silently
+#          destroyed message content before (#792).
 #   watch  BLOCK until <role> has unread mail, print it, exit 0. Exit 5 on
 #          timeout. THIS IS THE WAKE - launch it as a background call and the
 #          harness re-invokes the session when it exits. Bounded by default
 #          (30m) so a wave can never leave watchers spinning after it ends.
-#          STAMPS A HEARTBEAT (#778) - see below.
+#          STAMPS A HEARTBEAT (#778) - see below. REQUIRES an explicit
+#          `--peek` or `--consume` (#792 item 1): a bare `watch` used to
+#          consume-by-default, which silently marked mail read the caller
+#          never saw when many messages were already waiting. There is no
+#          default now - the caller must say which it means. Ordering
+#          (#792 item 2): with `--peek`, read the box THEN arm the watch
+#          (the cursor never moves, so an unread backlog would otherwise
+#          spin-fire on the very message the caller just read); with
+#          `--consume`, arm THEN read. If a watch fires on its very first
+#          poll - mail was already unread the moment it armed, not a fresh
+#          wake - it prints a `flow-wave-mailbox: NOTE -` line ahead of the
+#          message body saying so. Refuses to start (exit 4, `duplicate`)
+#          when a live watcher already holds the same role in the same wave
+#          (#792 item 4) - a role is single-owner, so a second watcher is
+#          always a mistake, competing for the same mail rather than
+#          receiving a copy of it. `watch --status` reports the heartbeat
+#          state/age plus the live watcher count and a `re-armed: yes/no`
+#          verdict instead of a bare, undiagnosable zero (#792 item 3),
+#          using the self-excluding, PID-based watcher count that replaces
+#          the old `pgrep -cf` (#792 item 5 - see COUNTING below).
 #   list   Box inventory for the wave: box, reader, rev, cursor, unread, mtime,
 #          plus the WATCH state of every role known to read here (#778).
+#
+# Counting watchers (issue #792 item 5). `pgrep -af 'flow-wave-mailbox.sh
+# watch' | grep -- "--role X "` double-counts: a background launcher's
+# `/bin/bash -c "<text>"` wrapper does not exec, so its argv is a SEPARATE
+# live process whose one `-c` argument IS the inner command's text and
+# therefore contains this same pattern too - one logical watcher, two OS
+# processes, both matching. `count_watchers()` below reads each candidate's
+# REAL argv from `/proc/<pid>/cmdline` and requires it to BE the script
+# invocation (`argv[1]` the script path, `argv[2]` "watch") rather than
+# CONTAIN it, which excludes a `-c` wrapper structurally. Self-exclusion
+# walks the full ancestor chain, not one PID: this runs inside a `$(...)`
+# subshell, and the subshell's own PARENT - the real, currently alive
+# top-level process, legitimately blocked waiting on this very check -
+# carries the identical argv under a different PID.
+#
+# A watcher launched from a since-removed worktree (#792 item 6). Some
+# harnesses run a trailing `pwd -P` (or similar) after a background command
+# to re-anchor the session's directory; if the watch was launched from a
+# worktree that gets removed while it blocks, THAT trailing command fails
+# with `getcwd: cannot access parent directories` and the wrapper reports
+# exit 1 - AFTER this script already printed its mail and exited 0. That
+# non-zero is the wrapper's, not this script's, and this script has no way to
+# suppress a command that runs after it has already exited. The discriminator
+# is in the captured output, not the exit code: `FLOW_MAILBOX: mail` (or any
+# message body) present means delivered regardless of what runs after;
+# a bare `pwd: error retrieving current directory` with NO prior output means
+# genuinely lost. This generalizes to any monitor launched from a removed
+# worktree, not just `watch` - treat output-then-pwd-error and
+# pwd-error-alone as the two distinct cases they are.
 #
 # The watch heartbeat (issue #778). Arming the watch was the one element of
 # participation that left NO trace: a worker could be live, address-verified and
@@ -104,13 +160,16 @@
 # failure this lane was built to remove. `--no-lexicon` is the per-send escape.
 #
 # Output ends with a machine-readable verdict line:
-#   FLOW_MAILBOX: sent | read | empty | mail | timeout | listed | refused | error
+#   FLOW_MAILBOX: sent | read | empty | mail | timeout | listed | status |
+#                 duplicate | refused | error
 # preceded by FLOW_MAILBOX_*= detail lines ('-' when not applicable). Message
 # BODIES are printed before the detail block, so a caller can split on the first
 # FLOW_MAILBOX_ line.
 #
-# Exit codes: 0 normal, 2 usage error, 3 lock/IO failure, 5 watch timeout,
-# 6 lexicon refusal (#701 - the message was NOT delivered; nothing was written).
+# Exit codes: 0 normal, 2 usage error, 3 lock/IO failure, 4 duplicate watcher
+# (#792 - a live watcher already holds this role+wave; nothing was started),
+# 5 watch timeout, 6 lexicon refusal (#701 - the message was NOT delivered;
+# nothing was written).
 #
 # Env:
 #   FLOW_WAVE_WATCH_STALE_SECS  heartbeat age past which a watch reads `stale`
@@ -350,6 +409,127 @@ EOF
   return 0
 }
 
+# --- Watcher counting (#792 item 5) --------------------------------------------
+# Count LIVE `watch --role <role> --wave <wave>` processes, excluding this
+# process. A flattened-string match over `ps -eo args` - what `pgrep -f`
+# does, and what a first draft of this fix also did - double-counts
+# structurally, not just by accident: a background launcher's `/bin/bash -c
+# "<text>"` wrapper does not exec, so its argv is a SEPARATE live process
+# whose one `-c` argument IS the inner command's text, and that text
+# contains this same pattern - one logical watcher, two OS processes, both
+# matching. Verified empirically while building this fix: a single
+# multi-line test harness command containing three unrelated
+# `flow-wave-mailbox.sh watch --role 1 ...` substrings inflated the count to
+# 2 for a role that had zero real watchers running.
+#
+# Reading each candidate's REAL argv - /proc/<pid>/cmdline, NUL-separated,
+# no shell re-parsing involved - fixes this structurally instead of by
+# pattern-excluding text that could just as easily appear in something
+# legitimate: a `bash -c "<text>"` wrapper's argv is exactly three elements
+# (`bash`, `-c`, `<text>`), so argv[1] is `-c`, never our script's path, and
+# it is excluded on that ground alone.
+count_watchers() {
+  local role="$1" wave="$2"
+  if [ -d /proc ]; then
+    count_watchers_proc "$role" "$wave"
+  else
+    count_watchers_ps_fallback "$role" "$wave"
+  fi
+}
+
+# The calling process's own ancestor chain: its subshell, up through every
+# parent, back to PID 1. A single PID ($$ or $BASHPID alone) is not enough
+# to exclude: `count_watchers` runs inside a `$(...)` command substitution,
+# which forks a subshell, and the subshell's PARENT - the real, currently
+# alive top-level process, legitimately blocked waiting on this very check -
+# carries the IDENTICAL argv under a DIFFERENT pid ($$ keeps reporting that
+# parent's pid even from inside the subshell). A nested substitution could
+# add further layers than that. Every ancestor is definitionally part of
+# THIS invocation, never a second watcher, so the whole chain is excluded.
+self_chain_proc() {
+  local pid="$BASHPID" chain=" $BASHPID " ppid
+  while [ -n "$pid" ] && [ "$pid" != "1" ]; do
+    ppid="$(awk '/^PPid:/{print $2}' "/proc/$pid/status" 2>/dev/null)"
+    [ -n "$ppid" ] || break
+    chain="$chain$ppid "
+    pid="$ppid"
+  done
+  printf '%s' "$chain"
+}
+
+count_watchers_proc() {
+  local role="$1" wave="$2" pid n=0
+  local self_chain
+  self_chain="$(self_chain_proc)"
+  for pid in /proc/[0-9]*; do
+    pid="${pid#/proc/}"
+    case "$self_chain" in *" $pid "*) continue ;; esac
+    [ -r "/proc/$pid/cmdline" ] || continue
+    local argv=() tok i found_role="" found_wave="default"
+    while IFS= read -r -d '' tok; do argv+=("$tok"); done < "/proc/$pid/cmdline" 2>/dev/null
+    [ "${#argv[@]}" -ge 3 ] || continue
+    case "${argv[0]##*/}" in bash) : ;; *) continue ;; esac
+    case "${argv[1]}" in */flow-wave-mailbox.sh | flow-wave-mailbox.sh) : ;; *) continue ;; esac
+    [ "${argv[2]}" = "watch" ] || continue
+    for ((i = 3; i < ${#argv[@]}; i++)); do
+      case "${argv[$i]}" in
+        --role) found_role="${argv[$((i + 1))]:-}" ;;
+        --role=*) found_role="${argv[$i]#--role=}" ;;
+        --wave) found_wave="${argv[$((i + 1))]:-default}" ;;
+        --wave=*) found_wave="${argv[$i]#--wave=}" ;;
+      esac
+    done
+    [ "$found_role" = "$role" ] || continue
+    [ "$found_wave" = "$wave" ] || continue
+    n=$((n + 1))
+  done
+  echo "$n"
+}
+
+# Ancestor chain via `ps` for hosts with no /proc - see self_chain_proc above
+# for why the whole chain, not one PID, must be excluded.
+self_chain_ps() {
+  local pid="$BASHPID" chain=" $BASHPID " ppid
+  while [ -n "$pid" ] && [ "$pid" != "1" ]; do
+    ppid="$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')"
+    [ -n "$ppid" ] || break
+    chain="$chain$ppid "
+    pid="$ppid"
+  done
+  printf '%s' "$chain"
+}
+
+# Best-effort fallback for a host with no /proc (non-Linux): a flattened
+# `ps -eo args` match, self-excluded by ancestor chain. This CANNOT
+# distinguish a real duplicate from a wrapper whose `-c` argument merely
+# contains the pattern (see above) - it degrades toward the old
+# over-counting failure rather than refusing to run, because a wave that
+# cannot start because its duplicate guard is unavailable is worse than an
+# occasional false "duplicate".
+count_watchers_ps_fallback() {
+  local role="$1" wave="$2" line pid args n=0
+  local self_chain
+  self_chain="$(self_chain_ps)"
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    pid="${line%% *}"
+    args="${line#* }"
+    case "$self_chain" in *" $pid "*) continue ;; esac
+    case "$args" in
+      *flow-wave-mailbox.sh\ watch*"--role $role "*|*flow-wave-mailbox.sh\ watch*"--role $role")
+        case "$args" in
+          *"--wave $wave "*|*"--wave $wave") n=$((n + 1)) ;;
+          *"--wave "*) : ;; # a different wave - not a duplicate
+          *) [ "$wave" = "default" ] && n=$((n + 1)) ;;
+        esac
+        ;;
+    esac
+  done <<EOF
+$(ps -eo pid,args --no-headers 2>/dev/null)
+EOF
+  echo "$n"
+}
+
 # Advance a box's read cursor under the wave flock, so a concurrent send cannot
 # interleave with a half-written cursor and have its rev skipped.
 cursor_set() {
@@ -378,8 +558,8 @@ case "$VERB" in
   *) usage_fail "unknown verb: $VERB" ;;
 esac
 
-WAVE="default"; ROLE=""; A_TO=""; A_FROM=""; A_BODY=""; A_BODY_FILE=""
-REPLACE=0; PEEK=0; ALL=0; JSON_OUT=0; NO_LEXICON=0
+WAVE="default"; ROLE=""; A_TO=""; A_FROM=""; A_BODY=""; A_BODY_FILE=""; A_OUT=""
+REPLACE=0; PEEK=0; CONSUME=0; ALL=0; JSON_OUT=0; NO_LEXICON=0; STATUS=0
 TIMEOUT="$WATCH_TIMEOUT_DEFAULT"; INTERVAL="$WATCH_INTERVAL_DEFAULT"
 
 while [ "$#" -gt 0 ]; do
@@ -396,6 +576,8 @@ while [ "$#" -gt 0 ]; do
     --body=*) A_BODY="${1#--body=}" ;;
     --body-file) [ "$#" -ge 2 ] || usage_fail "--body-file requires a path"; A_BODY_FILE="$2"; shift ;;
     --body-file=*) A_BODY_FILE="${1#--body-file=}" ;;
+    --out) [ "$#" -ge 2 ] || usage_fail "--out requires a path"; A_OUT="$2"; shift ;;
+    --out=*) A_OUT="${1#--out=}" ;;
     --timeout) [ "$#" -ge 2 ] || usage_fail "--timeout requires seconds"; TIMEOUT="$2"; shift ;;
     --timeout=*) TIMEOUT="${1#--timeout=}" ;;
     --interval) [ "$#" -ge 2 ] || usage_fail "--interval requires seconds"; INTERVAL="$2"; shift ;;
@@ -403,6 +585,8 @@ while [ "$#" -gt 0 ]; do
     --replace) REPLACE=1 ;;
     --no-lexicon) NO_LEXICON=1 ;;
     --peek) PEEK=1 ;;
+    --consume) CONSUME=1 ;;
+    --status) STATUS=1 ;;
     --all) ALL=1 ;;
     --json) JSON_OUT=1 ;;
     --*) usage_fail "unknown option: $1" ;;
@@ -523,13 +707,62 @@ case "$VERB" in
   read)
     [ -n "$ROLE" ] || usage_fail "read requires --role <role>"
     valid_name "$ROLE" || usage_fail "invalid role: '$ROLE'"
+    if [ -n "$A_FROM" ]; then
+      [ "$ROLE" = "orchestrator" ] || usage_fail "read: --from is only meaningful with --role orchestrator (a worker has exactly one box: its own outbox)"
+      valid_name "$A_FROM" || usage_fail "invalid --from role: '$A_FROM'"
+    fi
+
+    # #792 item 7: draining every inbox at once, non-interactively, with no
+    # copy kept anywhere but the terminal has destroyed message content when
+    # piped through a filter. Force an explicit choice instead: narrow with
+    # --from, don't consume with --peek, or keep a durable copy with --out.
+    FULL_DRAIN=0
+    [ "$ROLE" = "orchestrator" ] && [ -z "$A_FROM" ] && FULL_DRAIN=1
+    if [ "$PEEK" -eq 0 ] && [ "$FULL_DRAIN" -eq 1 ] && [ ! -t 1 ] && [ -z "$A_OUT" ]; then
+      usage_fail "read: refusing to drain every inbox non-interactively with no destination (issue #792) - add --peek (non-destructive), --from <role> (one box), or --out FILE (keeps a durable copy before consuming)"
+    fi
+
+    if [ -n "$A_FROM" ]; then
+      BOX="$WAVE_DIR/inbox-$A_FROM.md"
+      UNREAD="$(unread_in "$BOX")"
+      if [ "$UNREAD" -eq 0 ] && [ "$ALL" -eq 0 ]; then
+        E_ROLE="$ROLE"; E_BOX="inbox-$A_FROM.md"; E_UNREAD=0
+        emit empty
+        exit 0
+      fi
+      if [ "$ALL" -eq 1 ]; then MIN=-1; else MIN="$(cursor_of "$BOX")"; fi
+      TOP="$(max_rev "$BOX")"
+      BODY_OUT=""
+      if [ "$TOP" -gt "$MIN" ] || [ "$ALL" -eq 1 ]; then
+        BODY_OUT="$(extract_since "$BOX" "$MIN")"
+      fi
+      if [ -n "$BODY_OUT" ]; then
+        printf '=== %s ===\n%s\n' "$(basename "$BOX")" "$BODY_OUT"
+      fi
+      if [ "$PEEK" -eq 0 ] && [ "$TOP" -gt 0 ]; then
+        cursor_set "$BOX" "$TOP"
+      fi
+      if [ -n "$A_OUT" ]; then
+        printf '%s\n' "$BODY_OUT" > "$A_OUT" || usage_fail "cannot write --out: $A_OUT"
+      fi
+      E_ROLE="$ROLE"; E_BOX="inbox-$A_FROM.md"; E_UNREAD="$UNREAD"
+      emit read
+      exit 0
+    fi
+
     UNREAD="$(unread_for_role "$ROLE")"
     if [ "$UNREAD" -eq 0 ] && [ "$ALL" -eq 0 ]; then
       E_ROLE="$ROLE"; E_UNREAD=0
       emit empty
       exit 0
     fi
-    drain_role "$ROLE" "$PEEK" "$ALL"
+    if [ -n "$A_OUT" ]; then
+      BODY_OUT="$(drain_role "$ROLE" "$PEEK" "$ALL")"
+      [ -n "$BODY_OUT" ] && echo "$BODY_OUT"
+      printf '%s\n' "$BODY_OUT" > "$A_OUT" || usage_fail "cannot write --out: $A_OUT"
+    else
+      drain_role "$ROLE" "$PEEK" "$ALL"
+    fi
     E_ROLE="$ROLE"; E_UNREAD="$UNREAD"
     emit read
     exit 0
@@ -538,22 +771,76 @@ case "$VERB" in
   watch)
     [ -n "$ROLE" ] || usage_fail "watch requires --role <role>"
     valid_name "$ROLE" || usage_fail "invalid role: '$ROLE'"
+
+    # `watch --status` (#792 item 3): a one-shot watch makes a bare unread
+    # count undiagnosable - zero is BOTH "just woke, re-arm pending" and
+    # "blind, nobody is listening". Report the heartbeat plus whether a live
+    # watcher process currently holds this role instead.
+    if [ "$STATUS" -eq 1 ]; then
+      WSTATE="$(watch_state "$ROLE")"
+      WAGE="$(watch_age "$ROLE")"
+      WCOUNT="$(count_watchers "$ROLE" "$WAVE")"
+      if [ "$WAGE" = "-" ]; then WLAST="never armed"; else WLAST="${WAGE}s ago"; fi
+      if [ "$WCOUNT" -gt 0 ]; then REARMED=yes; else REARMED=no; fi
+      echo "flow-wave-mailbox: role '$ROLE' wave '$WAVE': last wake handled $WLAST (state: $WSTATE); $WCOUNT live watcher process(es); re-armed: $REARMED"
+      E_ROLE="$ROLE"
+      echo "FLOW_MAILBOX_WATCH_STATE=$WSTATE"
+      echo "FLOW_MAILBOX_WATCH_AGE=$WAGE"
+      echo "FLOW_MAILBOX_WATCHER_COUNT=$WCOUNT"
+      echo "FLOW_MAILBOX_REARMED=$REARMED"
+      emit status
+      exit 0
+    fi
+
     case "$TIMEOUT" in ''|*[!0-9]*) usage_fail "--timeout must be whole seconds" ;; esac
     case "$INTERVAL" in ''|*[!0-9]*) usage_fail "--interval must be whole seconds" ;; esac
     [ "$INTERVAL" -ge 1 ] || usage_fail "--interval must be at least 1 second"
 
+    # #792 item 1: a bare `watch` used to consume by default, so mail already
+    # waiting was marked read without ever being shown. There is no default
+    # left - say which you mean. #792 item 2: the correct order depends on
+    # the answer - with --peek, read the box THEN arm (the cursor never
+    # moves, so arming first on an unread backlog spin-fires on what you just
+    # read); with --consume, arm THEN read.
+    if [ "$PEEK" -eq 1 ] && [ "$CONSUME" -eq 1 ]; then
+      usage_fail "watch: --peek and --consume are mutually exclusive"
+    fi
+    if [ "$PEEK" -eq 0 ] && [ "$CONSUME" -eq 0 ]; then
+      usage_fail "watch requires an explicit --peek or --consume (issue #792) - silent default consumption has marked mail read that was never shown. Use --consume to arm-then-read (mail is marked read on wake), or --peek to read-then-arm (mail is NOT consumed, so re-arming immediately would spin-fire on it)."
+    fi
+
+    # #792 item 4: a role is single-owner by construction, so a second live
+    # watcher on the same role+wave is always a mistake - it competes for the
+    # same mail instead of getting a copy of it. Refuse rather than let
+    # duplicates accumulate invisibly.
+    EXISTING="$(count_watchers "$ROLE" "$WAVE")"
+    if [ "$EXISTING" -gt 0 ]; then
+      E_ROLE="$ROLE"
+      echo "flow-wave-mailbox: refusing to arm - $EXISTING live watcher(s) already hold role '$ROLE' in wave '$WAVE' (issue #792). A role is single-owner: two watchers compete for the same mail rather than each seeing a copy. Check 'watch --status --role $ROLE --wave $WAVE' before starting another." >&2
+      emit duplicate
+      exit 4
+    fi
+
     WAITED=0
+    FIRST_POLL=1
     while :; do
       # Stamp BEFORE the check, so an arm that fires on its very first poll -
       # mail already waiting - still leaves the trace #778 exists to leave.
       watch_stamp "$ROLE"
       UNREAD="$(unread_for_role "$ROLE")"
       if [ "$UNREAD" -gt 0 ]; then
+        # #792 item 2: this fired on the very first poll, i.e. the mail was
+        # already unread the instant this watch armed - not a fresh wake.
+        # Say so up front rather than let it read as one.
+        if [ "$FIRST_POLL" -eq 1 ]; then
+          echo "flow-wave-mailbox: NOTE - mail was already unread when this watch armed; this is not a fresh wake (issue #792)."
+        fi
         drain_role "$ROLE" "$PEEK" 0
         E_ROLE="$ROLE"; E_UNREAD="$UNREAD"
         emit mail
         exit 0
       fi
+      FIRST_POLL=0
       # A timeout of 0 means "check once and report" - useful in tests and as a
       # cheap poll, and it keeps the bounded default from being the only shape.
       [ "$WAITED" -lt "$TIMEOUT" ] || break

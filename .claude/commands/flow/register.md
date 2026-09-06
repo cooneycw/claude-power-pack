@@ -261,14 +261,22 @@ and is wiped by the OS at reboot - exactly when every session's address dies too
    this session the moment mail lands:
 
    ```bash
-   ~/.claude/scripts/flow-wave-mailbox.sh watch --role 1 --wave cpp --timeout 1800
+   ~/.claude/scripts/flow-wave-mailbox.sh watch --role 1 --wave cpp --timeout 1800 --consume
    ```
 
-   On wake it prints the messages and exits 0; re-arm it after handling them,
-   for as long as this session is in the wave. Exit 5 is a plain timeout, NOT
-   evidence the orchestrator is gone - re-arm and check the roster before
-   concluding anything. Release by simply not re-arming (the watch is bounded,
-   so a wave can never leave one spinning after it ends).
+   `--consume` is required (issue #792) - `watch` no longer has a default, so
+   say explicitly that this arm marks mail read on wake. On wake it prints the
+   messages and exits 0; re-arm it after handling them, for as long as this
+   session is in the wave. Exit 5 is a plain timeout, NOT evidence the
+   orchestrator is gone - re-arm and check the roster before concluding
+   anything. Release by simply not re-arming (the watch is bounded, so a wave
+   can never leave one spinning after it ends). A live watcher already
+   holding this role refuses a second one (exit 4, `duplicate`) rather than
+   silently competing with it for the same mail - a common way to trigger
+   this by accident is bundling a watch onto the tail of another command
+   (`... register ; ... watch`); check
+   `flow-wave-mailbox.sh watch --status --role 1 --wave cpp` before assuming
+   none is running.
 
    **Skipping this step is now VISIBLE to the orchestrator (issue #778).** It
    used to be the one part of registration that left no trace: a worker could be
@@ -417,7 +425,7 @@ the worker's terminal by hand.
 ~/.claude/scripts/flow-wave-mailbox.sh send  --to 1 --wave cpp --body-file /tmp/brief.md
 ~/.claude/scripts/flow-wave-mailbox.sh send  --to orchestrator --from 1 --wave cpp --body "..."
 ~/.claude/scripts/flow-wave-mailbox.sh read  --role 1 --wave cpp
-~/.claude/scripts/flow-wave-mailbox.sh watch --role 1 --wave cpp --timeout 1800
+~/.claude/scripts/flow-wave-mailbox.sh watch --role 1 --wave cpp --timeout 1800 --consume
 ~/.claude/scripts/flow-wave-mailbox.sh list  --wave cpp
 ```
 
@@ -560,10 +568,14 @@ orchestrator's own watch as a BACKGROUND Bash call, so a worker's hello or
 report wakes this session instead of waiting for the next time a human looks:
 
 ```bash
-~/.claude/scripts/flow-wave-mailbox.sh watch --role orchestrator --wave cpp --timeout 1800
+~/.claude/scripts/flow-wave-mailbox.sh watch --role orchestrator --wave cpp --timeout 1800 --consume
 ```
 
 It covers every `inbox-*.md` at once. Re-arm after handling each wake.
+`--consume` is required (issue #792); if the wake's first line is
+`flow-wave-mailbox: NOTE - mail was already unread when this watch armed`,
+this is a backlog that predates this arm, not a fresh report - check `list`
+before assuming this is the only thing waiting.
 
 **Declare the wave policy before assigning anything (#699).** Run `policy set`
 once (see "Declaring the policy" above). It is what makes the ack below a

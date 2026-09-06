@@ -129,13 +129,24 @@ class TestAddressing:
         assert "--from" in proc.stderr
 
     def test_orchestrator_reads_every_worker_inbox_at_once(self, tmp_path: Path):
+        """A full drain requires an explicit destination non-interactively
+        (issue #792 item 7) - --out keeps the durable copy this test asserts
+        against, in addition to the stdout body.
+        """
         _send(tmp_path, "orchestrator", "report from 1", frm="1")
         _send(tmp_path, "orchestrator", "report from 2", frm="2")
-        proc = _run(tmp_path, "read", "--role", "orchestrator", "--wave", WAVE)
+        out_file = tmp_path / "drain.txt"
+        proc = _run(
+            tmp_path, "read", "--role", "orchestrator", "--wave", WAVE,
+            "--out", str(out_file),
+        )
         assert _verdict(proc) == "read"
         body = _body(proc)
         assert "report from 1" in body
         assert "report from 2" in body
+        saved = out_file.read_text()
+        assert "report from 1" in saved
+        assert "report from 2" in saved
 
     def test_worker_reads_only_its_own_outbox(self, tmp_path: Path):
         _send(tmp_path, "1", "for worker one")
@@ -339,6 +350,7 @@ class TestWatchIsTheWake:
                 "30",
                 "--interval",
                 "1",
+                "--consume",
             ],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -361,6 +373,10 @@ class TestWatchIsTheWake:
         assert watcher.returncode == 0
         assert "ASSIGNMENT issue 676" in out
         assert "FLOW_MAILBOX: mail" in out
+        # This is a FRESH wake - mail arrived after the watch was already
+        # blocking - so the #792 "already unread when armed" note must NOT
+        # appear (it would misreport a fresh wake as a stale backlog).
+        assert "NOTE - mail was already unread" not in out
 
     def test_watch_times_out_with_a_distinct_exit_code(self, tmp_path: Path):
         proc = _run(
@@ -374,6 +390,7 @@ class TestWatchIsTheWake:
             "0",
             "--interval",
             "1",
+            "--consume",
         )
         assert proc.returncode == 5, "a timeout must be distinguishable from mail"
         assert _verdict(proc) == "timeout"
@@ -385,14 +402,16 @@ class TestWatchIsTheWake:
         wave gets torn down; the helper says so rather than leaving it implied.
         """
         proc = _run(
-            tmp_path, "watch", "--role", "1", "--wave", WAVE, "--timeout", "0"
+            tmp_path, "watch", "--role", "1", "--wave", WAVE, "--timeout", "0",
+            "--consume",
         )
         assert "NOT proof" in proc.stderr
         assert "flow-wave-registry.sh list" in proc.stderr
 
     def test_watch_returns_mail_already_waiting(self, tmp_path: Path):
         """A watch armed after the send still delivers - the race a worker hits
-        when it re-arms between wakes.
+        when it re-arms between wakes. Because the mail was ALREADY unread the
+        instant this watch armed, #792 requires the NOTE line up front too.
         """
         _send(tmp_path, "1", "sent before the watch was armed")
         proc = _run(
@@ -406,23 +425,46 @@ class TestWatchIsTheWake:
             "5",
             "--interval",
             "1",
+            "--consume",
         )
         assert proc.returncode == 0
         assert _verdict(proc) == "mail"
         assert "sent before the watch was armed" in _body(proc)
+        assert "NOTE - mail was already unread" in proc.stdout
 
     def test_watch_consumes_so_a_re_armed_watch_does_not_re_fire(
         self, tmp_path: Path
     ):
         _send(tmp_path, "1", "handled once")
         first = _run(
-            tmp_path, "watch", "--role", "1", "--wave", WAVE, "--timeout", "5"
+            tmp_path, "watch", "--role", "1", "--wave", WAVE, "--timeout", "5",
+            "--consume",
         )
         assert _verdict(first) == "mail"
         second = _run(
-            tmp_path, "watch", "--role", "1", "--wave", WAVE, "--timeout", "0"
+            tmp_path, "watch", "--role", "1", "--wave", WAVE, "--timeout", "0",
+            "--consume",
         )
         assert _verdict(second) == "timeout"
+
+    def test_peek_does_not_consume_so_a_re_armed_watch_re_fires(
+        self, tmp_path: Path
+    ):
+        """The other half of #792 item 1: --peek must NOT advance the cursor,
+        or a re-armed peek watch would spin-fire on the very message it just
+        showed - which is exactly the ordering hazard item 2 describes.
+        """
+        _send(tmp_path, "1", "still unread")
+        first = _run(
+            tmp_path, "watch", "--role", "1", "--wave", WAVE, "--timeout", "5",
+            "--peek",
+        )
+        assert _verdict(first) == "mail"
+        second = _run(
+            tmp_path, "watch", "--role", "1", "--wave", WAVE, "--timeout", "0",
+            "--peek",
+        )
+        assert _verdict(second) == "mail", "peek must not consume the message"
 
     def test_orchestrator_watch_covers_every_inbox(self, tmp_path: Path):
         _send(tmp_path, "orchestrator", "pushback from worker 3", frm="3")
@@ -435,9 +477,35 @@ class TestWatchIsTheWake:
             WAVE,
             "--timeout",
             "5",
+            "--consume",
         )
         assert _verdict(proc) == "mail"
         assert "pushback from worker 3" in _body(proc)
+
+
+# --------------------------------------------------------------------------
+# Explicit --peek/--consume (issue #792 item 1) - no more silent default
+# --------------------------------------------------------------------------
+
+
+@requires_bash
+class TestWatchRequiresExplicitChoice:
+    def test_watch_without_peek_or_consume_is_a_usage_error(self, tmp_path: Path):
+        """A bare `watch` used to consume by default, which marked mail read
+        that the caller never saw. There is no default left.
+        """
+        proc = _run(tmp_path, "watch", "--role", "1", "--wave", WAVE, "--timeout", "0")
+        assert proc.returncode == 2
+        assert "--peek" in proc.stderr
+        assert "--consume" in proc.stderr
+
+    def test_watch_with_both_peek_and_consume_is_a_usage_error(self, tmp_path: Path):
+        proc = _run(
+            tmp_path, "watch", "--role", "1", "--wave", WAVE, "--timeout", "0",
+            "--peek", "--consume",
+        )
+        assert proc.returncode == 2
+        assert "mutually exclusive" in proc.stderr
 
 
 # --------------------------------------------------------------------------
@@ -586,7 +654,7 @@ class TestWatchHeartbeat:
     def test_watch_stamps_a_heartbeat_on_arm(self, tmp_path: Path) -> None:
         wf = _watch_file(tmp_path, WAVE, "1")
         assert not wf.exists()  # precondition: nothing armed yet
-        _run(tmp_path, "watch", "--role", "1", "--wave", WAVE, "--timeout", "0")
+        _run(tmp_path, "watch", "--role", "1", "--wave", WAVE, "--timeout", "0", "--consume")
         assert wf.exists()
         assert wf.read_text().strip().isdigit()
 
@@ -595,7 +663,7 @@ class TestWatchHeartbeat:
         its first poll still leaves the trace.
         """
         _run(tmp_path, "send", "--wave", WAVE, "--to", "1", "--body", "waiting")
-        proc = _run(tmp_path, "watch", "--role", "1", "--wave", WAVE, "--timeout", "0")
+        proc = _run(tmp_path, "watch", "--role", "1", "--wave", WAVE, "--timeout", "0", "--consume")
         assert _verdict(proc) == "mail"
         assert _watch_file(tmp_path, WAVE, "1").exists()
 
@@ -608,7 +676,7 @@ class TestWatchHeartbeat:
         proc = subprocess.Popen(
             [
                 "bash", str(MAILBOX), "watch", "--role", "1", "--wave", WAVE,
-                "--timeout", "30", "--interval", "1",
+                "--timeout", "30", "--interval", "1", "--consume",
             ],
             env={**os.environ, "FLOW_WAVE_MAILBOX_DIR": str(tmp_path / "mb")},
             stdout=subprocess.PIPE,
@@ -635,7 +703,7 @@ class TestWatchHeartbeat:
         stamp is deliberately NOT removed on exit - erasing it would flatten
         them back into the one state #778 exists to split apart.
         """
-        _run(tmp_path, "watch", "--role", "1", "--wave", WAVE, "--timeout", "0")
+        _run(tmp_path, "watch", "--role", "1", "--wave", WAVE, "--timeout", "0", "--consume")
         assert _watch_file(tmp_path, WAVE, "1").exists()
 
 
@@ -648,18 +716,18 @@ class TestListWatchState:
         assert "never armed" in proc.stdout
 
     def test_list_reports_armed_after_a_recent_watch(self, tmp_path: Path) -> None:
-        _run_at(tmp_path, "1700000000", "watch", "--role", "1", "--wave", WAVE, "--timeout", "0")
+        _run_at(tmp_path, "1700000000", "watch", "--role", "1", "--wave", WAVE, "--timeout", "0", "--consume")
         proc = _run_at(tmp_path, "1700000010", "list", "--wave", WAVE)
         assert _watch_states(proc) == {"1": "armed"}
 
     def test_list_reports_stale_past_the_threshold(self, tmp_path: Path) -> None:
-        _run_at(tmp_path, "1700000000", "watch", "--role", "1", "--wave", WAVE, "--timeout", "0")
+        _run_at(tmp_path, "1700000000", "watch", "--role", "1", "--wave", WAVE, "--timeout", "0", "--consume")
         # 2520s later - past the 300s default.
         proc = _run_at(tmp_path, "1700002520", "list", "--wave", WAVE)
         assert _watch_states(proc) == {"1": "stale"}
 
     def test_stale_threshold_is_configurable(self, tmp_path: Path) -> None:
-        _run_at(tmp_path, "1700000000", "watch", "--role", "1", "--wave", WAVE, "--timeout", "0")
+        _run_at(tmp_path, "1700000000", "watch", "--role", "1", "--wave", WAVE, "--timeout", "0", "--consume")
         env = os.environ.copy()
         env["FLOW_WAVE_MAILBOX_DIR"] = str(tmp_path / "mb")
         env["FLOW_WAVE_NOW"] = "1700002520"
@@ -676,7 +744,7 @@ class TestListWatchState:
         """
         _run(tmp_path, "send", "--wave", WAVE, "--to", "1", "--body", "assignment")
         _run(tmp_path, "send", "--wave", WAVE, "--to", "orchestrator", "--from", "1", "--body", "hello")
-        _run_at(tmp_path, "1700000000", "watch", "--role", "1", "--wave", WAVE, "--timeout", "0")
+        _run_at(tmp_path, "1700000000", "watch", "--role", "1", "--wave", WAVE, "--timeout", "0", "--consume")
         proc = _run_at(tmp_path, "1700000000", "list", "--wave", WAVE, "--json")
         payload = json.loads(proc.stdout.split("FLOW_MAILBOX")[0])
         by_box = {b["box"]: b for b in payload["boxes"]}
@@ -696,7 +764,246 @@ class TestListWatchState:
         (worker step 4 runs at registration), so a box-only scan would miss
         exactly the roles doing it right.
         """
-        _run(tmp_path, "watch", "--role", "1", "--wave", WAVE, "--timeout", "0")
+        _run(tmp_path, "watch", "--role", "1", "--wave", WAVE, "--timeout", "0", "--consume")
         proc = _run(tmp_path, "list", "--wave", WAVE)
         assert "No mailboxes" in proc.stdout  # precondition: no box exists yet
         assert _watch_states(proc) == {"1": "armed"}
+
+
+# --------------------------------------------------------------------------
+# `watch --status` (issue #792 item 3) - a one-shot watch makes a bare
+# unread count undiagnosable; --status reports the heartbeat plus whether a
+# live watcher process currently holds the role.
+# --------------------------------------------------------------------------
+
+
+@requires_bash
+class TestWatchStatus:
+    def test_status_before_any_watch_is_absent_and_not_rearmed(
+        self, tmp_path: Path
+    ) -> None:
+        proc = _run(tmp_path, "watch", "--status", "--role", "1", "--wave", WAVE)
+        assert proc.returncode == 0
+        assert _verdict(proc) == "status"
+        assert _detail(proc, "FLOW_MAILBOX_WATCH_STATE") == "absent"
+        assert _detail(proc, "FLOW_MAILBOX_REARMED") == "no"
+        assert _detail(proc, "FLOW_MAILBOX_WATCHER_COUNT") == "0"
+        assert "never armed" in proc.stdout
+
+    def test_status_reports_rearmed_yes_while_a_watcher_is_live(
+        self, tmp_path: Path
+    ) -> None:
+        env = os.environ.copy()
+        env["FLOW_WAVE_MAILBOX_DIR"] = str(tmp_path / "mb")
+        watcher = subprocess.Popen(
+            [
+                "bash", str(MAILBOX), "watch", "--role", "1", "--wave", WAVE,
+                "--timeout", "30", "--interval", "1", "--consume",
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=env,
+        )
+        try:
+            wf = _watch_file(tmp_path, WAVE, "1")
+            deadline = time.time() + 10
+            while not wf.exists() and time.time() < deadline:
+                time.sleep(0.1)
+            assert wf.exists(), "watch never armed"
+
+            proc = _run(tmp_path, "watch", "--status", "--role", "1", "--wave", WAVE)
+            assert _detail(proc, "FLOW_MAILBOX_REARMED") == "yes"
+            assert int(_detail(proc, "FLOW_MAILBOX_WATCHER_COUNT")) >= 1
+            assert _detail(proc, "FLOW_MAILBOX_WATCH_STATE") == "armed"
+        finally:
+            watcher.kill()
+            watcher.communicate(timeout=10)
+
+    def test_status_reports_rearmed_no_after_the_watcher_exits(
+        self, tmp_path: Path
+    ) -> None:
+        """Zero used to be undiagnosable: both a healthy transient (just woke,
+        re-arm pending) and the failure state (blind) read the same. Status
+        distinguishes them via the live watcher count, not the heartbeat alone.
+        """
+        _run(tmp_path, "watch", "--role", "1", "--wave", WAVE, "--timeout", "0", "--consume")
+        proc = _run(tmp_path, "watch", "--status", "--role", "1", "--wave", WAVE)
+        assert _detail(proc, "FLOW_MAILBOX_REARMED") == "no"
+        assert _detail(proc, "FLOW_MAILBOX_WATCHER_COUNT") == "0"
+        # The heartbeat itself is still there (armed, not absent) - the two
+        # facts together are what make "re-armed: no" diagnosable rather than
+        # just another confident-looking zero.
+        assert _detail(proc, "FLOW_MAILBOX_WATCH_STATE") == "armed"
+
+
+# --------------------------------------------------------------------------
+# Duplicate watchers (issue #792 item 4) - a role is single-owner, so a
+# second live watcher on the same role+wave is always a mistake.
+# --------------------------------------------------------------------------
+
+
+@requires_bash
+class TestDuplicateWatchers:
+    def _start_watcher(self, tmp_path: Path, role: str, wave: str):
+        env = os.environ.copy()
+        env["FLOW_WAVE_MAILBOX_DIR"] = str(tmp_path / "mb")
+        proc = subprocess.Popen(
+            [
+                "bash", str(MAILBOX), "watch", "--role", role, "--wave", wave,
+                "--timeout", "30", "--interval", "1", "--consume",
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=env,
+        )
+        wf = _watch_file(tmp_path, wave, role)
+        deadline = time.time() + 10
+        while not wf.exists() and time.time() < deadline:
+            time.sleep(0.1)
+        assert wf.exists(), "watcher never armed"
+        return proc
+
+    def test_second_watch_on_the_same_role_and_wave_is_refused(
+        self, tmp_path: Path
+    ) -> None:
+        watcher = self._start_watcher(tmp_path, "1", WAVE)
+        try:
+            proc = _run(
+                tmp_path, "watch", "--role", "1", "--wave", WAVE, "--timeout", "0",
+                "--consume",
+            )
+            assert proc.returncode == 4
+            assert _verdict(proc) == "duplicate"
+            assert "already hold role '1'" in proc.stderr
+        finally:
+            watcher.kill()
+            watcher.communicate(timeout=10)
+
+    def test_watch_on_a_different_wave_is_not_a_duplicate(
+        self, tmp_path: Path
+    ) -> None:
+        watcher = self._start_watcher(tmp_path, "1", "alpha")
+        try:
+            proc = _run(
+                tmp_path, "watch", "--role", "1", "--wave", "beta", "--timeout", "0",
+                "--consume",
+            )
+            assert proc.returncode == 5  # a plain timeout, not a duplicate refusal
+            assert _verdict(proc) == "timeout"
+        finally:
+            watcher.kill()
+            watcher.communicate(timeout=10)
+
+    def test_watch_for_a_different_role_is_not_a_duplicate(
+        self, tmp_path: Path
+    ) -> None:
+        watcher = self._start_watcher(tmp_path, "1", WAVE)
+        try:
+            proc = _run(
+                tmp_path, "watch", "--role", "2", "--wave", WAVE, "--timeout", "0",
+                "--consume",
+            )
+            assert proc.returncode == 5
+            assert _verdict(proc) == "timeout"
+        finally:
+            watcher.kill()
+            watcher.communicate(timeout=10)
+
+    def test_after_the_watcher_dies_a_new_one_may_start(
+        self, tmp_path: Path
+    ) -> None:
+        watcher = self._start_watcher(tmp_path, "1", WAVE)
+        watcher.kill()
+        watcher.communicate(timeout=10)
+        proc = _run(
+            tmp_path, "watch", "--role", "1", "--wave", WAVE, "--timeout", "0",
+            "--consume",
+        )
+        assert proc.returncode == 5
+        assert _verdict(proc) == "timeout"
+
+
+# --------------------------------------------------------------------------
+# `read --from` and the non-interactive destination requirement
+# (issue #792 item 7).
+# --------------------------------------------------------------------------
+
+
+@requires_bash
+class TestReadFromAndDestination:
+    def test_from_narrows_to_one_correspondents_inbox(self, tmp_path: Path) -> None:
+        _send(tmp_path, "orchestrator", "from worker 1", frm="1")
+        _send(tmp_path, "orchestrator", "from worker 2", frm="2")
+        proc = _run(
+            tmp_path, "read", "--role", "orchestrator", "--wave", WAVE, "--from", "1",
+        )
+        assert _verdict(proc) == "read"
+        body = _body(proc)
+        assert "from worker 1" in body
+        assert "from worker 2" not in body
+
+        # The OTHER inbox is untouched - --from must not consume it too.
+        other = _run(
+            tmp_path, "read", "--role", "orchestrator", "--wave", WAVE, "--from", "2",
+        )
+        assert "from worker 2" in _body(other)
+
+    def test_from_on_a_non_orchestrator_role_is_a_usage_error(
+        self, tmp_path: Path
+    ) -> None:
+        proc = _run(
+            tmp_path, "read", "--role", "1", "--wave", WAVE, "--from", "2",
+        )
+        assert proc.returncode == 2
+        assert "--from" in proc.stderr
+
+    def test_from_with_an_invalid_role_name_is_refused(self, tmp_path: Path) -> None:
+        proc = _run(
+            tmp_path, "read", "--role", "orchestrator", "--wave", WAVE,
+            "--from", "../escape",
+        )
+        assert proc.returncode == 2
+        assert "invalid" in proc.stderr
+
+    def test_full_drain_non_interactively_without_a_destination_is_refused(
+        self, tmp_path: Path
+    ) -> None:
+        """The undiscoverable hazard itself: draining every inbox at once with
+        no copy anywhere but the terminal has destroyed message content when
+        piped through a filter. subprocess-captured stdout is never a tty, so
+        this exercises the same non-interactive path a real pipeline hits.
+        """
+        _send(tmp_path, "orchestrator", "one", frm="1")
+        proc = _run(tmp_path, "read", "--role", "orchestrator", "--wave", WAVE)
+        assert proc.returncode == 2
+        assert "--out" in proc.stderr
+        assert "--from" in proc.stderr
+        assert "--peek" in proc.stderr
+        # Refused before consuming: the mail must still be there afterward.
+        proc2 = _run(tmp_path, "list", "--wave", WAVE)
+        assert _detail(proc2, "FLOW_MAILBOX_UNREAD") == "1"
+
+    def test_full_drain_with_peek_does_not_require_a_destination(
+        self, tmp_path: Path
+    ) -> None:
+        _send(tmp_path, "orchestrator", "one", frm="1")
+        proc = _run(
+            tmp_path, "read", "--role", "orchestrator", "--wave", WAVE, "--peek",
+        )
+        assert _verdict(proc) == "read"
+        assert "one" in _body(proc)
+
+    def test_worker_read_is_unaffected_by_the_destination_requirement(
+        self, tmp_path: Path
+    ) -> None:
+        """Only the orchestrator's multi-box drain is destructive-and-wide; a
+        worker has exactly one box, so its everyday `read --role 1` must keep
+        working non-interactively with no new flag, or #792 breaks scripts
+        that never had this hazard in the first place.
+        """
+        _send(tmp_path, "1", "assignment")
+        proc = _run(tmp_path, "read", "--role", "1", "--wave", WAVE)
+        assert _verdict(proc) == "read"
+        assert "assignment" in _body(proc)

@@ -1807,7 +1807,7 @@ class TestWatchColumn:
     def test_armed_watch_reads_armed_and_warns_about_nothing(self, tmp_path: Path) -> None:
         _run(tmp_path, "register", "worker-H", "--wave", "cpp", "--socket", "uds:/tmp/h.sock")
         _mailbox(tmp_path, "send", "--wave", "cpp", "--to", "worker-H", "--body", "your lane")
-        _mailbox(tmp_path, "watch", "--role", "worker-H", "--wave", "cpp", "--timeout", "0")
+        _mailbox(tmp_path, "watch", "--role", "worker-H", "--wave", "cpp", "--timeout", "0", "--consume")
         p = _run(tmp_path, "list", "--wave", "cpp", live=SELF_PID)
         assert "watch=armed" in _row(p, "worker-H")
         assert _detail(p, "FLOW_WAVE_WATCH_UNARMED") == "0"
@@ -1822,7 +1822,7 @@ class TestWatchColumn:
         _mailbox(tmp_path, "send", "--wave", "cpp", "--to", "worker-H", "--body", "your lane")
         # Armed 42 minutes before the registry's pinned "now" of 1700000000.
         _mailbox(tmp_path, "watch", "--role", "worker-H", "--wave", "cpp",
-                 "--timeout", "0", now="1699997480")
+                 "--timeout", "0", "--consume", now="1699997480")
         p = _run(tmp_path, "list", "--wave", "cpp", live=SELF_PID)
         assert "watch=stale(42m)" in _row(p, "worker-H")
         assert _detail(p, "FLOW_WAVE_WATCH_UNARMED") == "1"
