@@ -795,12 +795,28 @@ Report: `Step 6/9: Finish complete - PR #XX created`
      The PR is left open and untouched. Review the paths in the
      `GH_PR_MERGE_DELETIONS:` marker line; if the deletions are intended,
      re-run without strict mode. Flow itself never sets this variable.
+   - **Helper exit 5 is also a CLEAN STOP (issue #726):** the squash title,
+     body, or a commit subject on the branch has a NEGATED close/fix/resolve
+     keyword ("does not close #N") that GitHub would still honor. The PR is
+     left open and untouched - report the printed context, reword the
+     offending text, and re-run (or re-run the helper with
+     `--allow-negated-close` only after the user consciously confirms).
    - **Helper exit 6 is also a CLEAN STOP, not a failure (issue #767):** the
      base advanced while required checks were running, so the tree that was
      gated is not the tree that would land. Leave the worktree, branch, and PR
      intact. Do not retry the merge and do not self-escalate to `--admin`.
      Re-run Step 7 from sub-step 1: sync with `origin/main`, re-run the quality
      gate on the merged tree, push, then invoke the merge again.
+   - **Helper exit 7 is also a CLEAN STOP (issue #794):** same shape as 5, but
+     the keyword is not negated - it is merely adjacent to `#N` (not
+     clause-initial, or `#N` is immediately followed by a possessive/
+     slash-compound) and reads as incidental rather than a directive. The PR
+     is left open and untouched - report the printed context, reword the
+     clause, and re-run (or re-run with `--allow-incidental-close` only after
+     the user consciously confirms).
+   - **Helper exit 8 means the incidental-close guard's own self-check failed
+     (issue #794):** a BROKEN CHECK, not a clean scan - never read it as "no
+     hazard found". Report it and investigate the guard; there is no override.
    - The helper also prints greppable markers per run (issues #657/#767, every
      one fail-open where it reports `skipped`):
      `GH_PR_MERGE_BASE_MOVED: <old-sha> -> <new-sha>|0|skipped` around the
