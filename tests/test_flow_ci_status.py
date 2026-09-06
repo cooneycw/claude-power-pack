@@ -533,3 +533,83 @@ def test_flow_auto_step_8_calls_the_helper():
     auto = (ROOT / ".claude" / "commands" / "flow" / "auto.md").read_text(encoding="utf-8")
     assert "flow-ci-status.sh" in auto
     assert "FLOW_CI_STATUS" in auto
+
+
+# --------------------------------------------------------------------------- #
+# jq preflight (issue #789)
+# --------------------------------------------------------------------------- #
+def _jq_free_path(tmp_path: Path, *extra: str) -> Path:
+    """A PATH with everything the script needs EXCEPT jq (precondition asserted)."""
+    fake_path = tmp_path / "bin"
+    fake_path.mkdir(exist_ok=True)
+    for tool in ("bash", "sed", "date", "cat", "printf", "tr", "grep", "sort", "head", *extra):
+        real = shutil.which(tool)
+        if real and not (fake_path / tool).exists():
+            (fake_path / tool).symlink_to(real)
+    assert shutil.which("jq", path=str(fake_path)) is None, (
+        "precondition: this fixture must construct a PATH without jq (#697)"
+    )
+    assert shutil.which("bash", path=str(fake_path)) is not None, (
+        "precondition: the absence must be jq ALONE - a PATH missing bash proves nothing (#697)"
+    )
+    return fake_path
+
+
+@requires_bash
+def test_missing_jq_names_itself_instead_of_reporting_a_bare_unknown(tmp_path):
+    """Without jq the verdict was `unknown` - identical to "no credentials" (#789).
+
+    Step 8 proceeds on `unknown`, so a missing formatter used to be indistinguishable
+    from a CI result. It must now say which it is.
+    """
+    fake_path = _jq_free_path(tmp_path)
+    result = subprocess.run(
+        ["bash", str(SCRIPT), SHA, "--repo", "o/r", "--path", str(tmp_path)],
+        capture_output=True,
+        text=True,
+        env={
+            "PATH": str(fake_path),
+            "FLOW_CI_CURL": "/nonexistent/curl",
+            "FLOW_CI_AWS": "/nonexistent/aws",
+            "FLOW_CI_WPCLI": "/nonexistent/woodpecker-cli",
+            "FLOW_CI_GH": "/nonexistent/gh",
+            "FLOW_CI_SLEEP": "/bin/true",
+            "WOODPECKER_SERVER": "https://wp.example.invalid",
+            "WOODPECKER_API_TOKEN": "test-token-canary",
+        },
+    )
+    assert result.returncode == 0, "fail-open: a missing tool must never block the flow"
+    markers = _markers(result.stdout)
+    assert markers["FLOW_CI_STATUS"] == ["unknown"], result.stdout
+    assert "jq not found" in result.stderr
+    assert "MISSING TOOL" in result.stderr, "the reason must be legible, not inferred"
+    assert "test-token-canary" not in result.stdout + result.stderr
+
+
+@requires_bash
+def test_the_wpcli_lane_still_answers_without_jq(tmp_path):
+    """The jq check is per-lane, not an early exit: woodpecker-cli needs no jq (#768).
+
+    Hoisting the preflight to the top of the script would have disabled the one
+    provider lane that still works on a jq-less host.
+    """
+    fake_path = _jq_free_path(tmp_path)
+    argv_log = tmp_path / "wpcli-argv.log"
+    wpcli = _write_fake_wpcli(tmp_path, [f"1249|success|{SHA}|push"], [], argv_log)
+    result = subprocess.run(
+        ["bash", str(SCRIPT), SHA, "--repo", "o/r", "--path", str(tmp_path)],
+        capture_output=True,
+        text=True,
+        env={
+            "PATH": str(fake_path),
+            "FLOW_CI_CURL": "/nonexistent/curl",
+            "FLOW_CI_AWS": "/nonexistent/aws",
+            "FLOW_CI_WPCLI": str(wpcli),
+            "FLOW_CI_GH": "/nonexistent/gh",
+            "FLOW_CI_SLEEP": "/bin/true",
+        },
+    )
+    markers = _markers(result.stdout)
+    assert markers["FLOW_CI_STATUS"] == ["success"], result.stdout + result.stderr
+    assert markers["FLOW_CI_PIPELINE"] == ["1249"]
+    assert markers["FLOW_CI_PROVIDER"] == ["woodpecker"]

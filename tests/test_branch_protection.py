@@ -190,7 +190,11 @@ def test_explicit_repo_overrides_the_owner_repo_placeholder(tmp_path: Path):
     assert any("someone/elsewhere/branches/main/protection" in c for c in _calls(stubs))
 
 
-def test_unknown_argument_is_usage_error(tmp_path: Path):
+def test_unknown_argument_is_usage_error(tmp_path: Path):  # binary-guard: allow exits before the jq preflight
+    # `--wat` hits the arg-parse `case` default and exits 2 at
+    # branch-protection.sh:53 - five lines ABOVE the `command -v jq` preflight,
+    # so this path never reaches jq. (If it ever did, the assertion below would
+    # catch it: the preflight exits 1, not 2.)
     stubs = _make_stub(tmp_path, LIVE_IN_SYNC)
     result = _run(tmp_path, stubs, "--wat")
     assert result.returncode == 2
