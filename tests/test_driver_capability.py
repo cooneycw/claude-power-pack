@@ -282,6 +282,16 @@ def test_driver_names_are_accepted_as_actually_written(spelling: str) -> None:
 
 @requires_bash
 def test_list_covers_every_declared_driver() -> None:
+    """The text lane needs no jq, so it is the one that must always answer."""
+    proc = _run("list")
+    assert proc.returncode == 0, proc.stderr
+    for driver in ("flow:auto", "codex:auto", "qwen:auto", "gemma:auto"):
+        assert driver in proc.stdout, proc.stdout
+
+
+@requires_bash
+@requires_jq
+def test_json_list_covers_every_declared_driver() -> None:
     proc = _run("list", "--json")
     assert proc.returncode == 0, proc.stderr
     rows = json.loads(proc.stdout)
@@ -291,6 +301,49 @@ def test_list_covers_every_declared_driver() -> None:
         "qwen:auto",
         "gemma:auto",
     }
+
+
+@requires_bash
+def test_json_list_refuses_loudly_without_jq(tmp_path: Path) -> None:
+    """Silent-empty-success is a worse failure than the one this helper fixes.
+
+    Found by CI, whose container ships no jq: `list --json` returned empty stdout
+    and exited 0 while the local run passed. A scripted consumer would read that
+    as "no drivers are declared" - a capability claim, made by an absent formatter.
+
+    The other three lanes need no jq and must keep answering, so the check is
+    scoped to --json rather than hoisted to the top of the script.
+    """
+    fake_path = tmp_path / "bin"
+    fake_path.mkdir()
+    for tool in ("bash", "sed", "tr", "printf", "dirname", "readlink"):
+        real = shutil.which(tool)
+        if real:
+            (fake_path / tool).symlink_to(real)
+
+    env = {"PATH": str(fake_path)}
+    proc = subprocess.run(
+        ["bash", str(CAP), "list", "--json"],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert shutil.which("jq", path=str(fake_path)) is None, (
+        "precondition: this fixture must construct a PATH without jq (#697)"
+    )
+    assert proc.returncode == 2, f"expected a loud refusal, got {proc.returncode}"
+    assert "jq is required" in proc.stderr
+    assert proc.stdout == "", "nothing may reach stdout when the answer is unavailable"
+
+    # ...and the lanes that do not need jq still answer on that same PATH.
+    text = subprocess.run(
+        ["bash", str(CAP), "check", "gemma:auto", "--needs", "web"],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert text.returncode == 1, text.stderr
+    assert "FLOW_DRIVER_CHECK: mismatch" in text.stdout
 
 
 # ---------------------------------------------------------------------------

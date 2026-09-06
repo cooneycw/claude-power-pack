@@ -267,6 +267,20 @@ case "$CMD" in
   list)
     [ -z "$DRIVER" ] || usage_fail "list takes no driver argument"
     if [ "$JSON_OUT" -eq 1 ]; then
+      # `--json` is the ONLY path that needs jq, so the check lives here rather
+      # than at the top: `show`, `check` and plain `list` must keep working on a
+      # host without it - and a capability check that refuses to answer because a
+      # JSON formatter is missing would be a worse failure than the one this
+      # helper exists to fix. Refuse LOUDLY though: emitting empty stdout and a
+      # `known` verdict would be a silent lie to a scripted consumer, and it was
+      # exactly that - CI has no jq, so `list --json` returned nothing and exited
+      # 0 while the local run passed.
+      command -v jq >/dev/null 2>&1 || {
+        echo "flow-driver-capability: jq is required for --json (see .claude/bootstrap.yaml)" >&2
+        echo "  The text 'list', 'show' and 'check' need no jq and still work." >&2
+        echo "FLOW_DRIVER: error" >&2
+        exit 2
+      }
       out=""
       for d in $DRIVERS; do
         rec="$(driver_record "$d")"
