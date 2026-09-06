@@ -142,12 +142,29 @@ fi
   worktree, branch, and PR intact - skip Steps 4-6, do not retry, and never
   re-invoke with `--admin` yourself; the review override is the owner's
   explicit, human-typed call. Do not treat this stop as something to fix.
+- **`MERGE_RC` = 5 is a CLEAN STOP (issue #726):** the squash title, body, or a
+  commit subject on the branch has a NEGATED close/fix/resolve keyword
+  ("does not close #N") that GitHub would still honor. Leave the worktree,
+  branch, and PR intact - report the printed context, reword the offending
+  text, and re-run `/flow-merge` (or re-run the helper with
+  `--allow-negated-close` only after the user consciously confirms).
 - **`MERGE_RC` = 6 is a FIRST-CLASS CLEAN STOP, not a failure (issue #767):**
   the base advanced while required checks were running, so the gated tree is
   not the tree that would land. Leave the worktree, branch, and PR intact -
   skip Steps 4-6, do not retry, and never self-escalate to `--admin`. Sync the
   branch with the base, re-run the quality gate on that merged tree, push, and
   re-run `/flow-merge`.
+- **`MERGE_RC` = 7 is a CLEAN STOP (issue #794):** same shape as 5, but the
+  keyword is not negated - it is merely adjacent to `#N` (not clause-initial,
+  or `#N` is immediately followed by a possessive/slash-compound) and reads as
+  incidental rather than a directive. Leave the worktree, branch, and PR
+  intact - report the printed context, reword the clause, and re-run
+  `/flow-merge` (or re-run with `--allow-incidental-close` only after the user
+  consciously confirms).
+- **`MERGE_RC` = 8 means the incidental-close guard's own self-check failed
+  (issue #794):** this is a BROKEN CHECK, not a clean scan of the PR, and must
+  never be read as "no hazard found" - report it and investigate the guard
+  before re-running; there is no override.
 - If the merge genuinely failed (`MERGE_RC` non-zero - conflicts, checks failing,
   PR not `MERGED`), report and stop. A non-zero `gh` exit whose PR is nonetheless
   `MERGED` is not a failure - the helper treats it as success and cleanup proceeds

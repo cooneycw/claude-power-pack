@@ -104,7 +104,7 @@
 #   * Either way, verify the PR actually reached MERGED before returning non-zero,
 #     so a stray local post-merge error is never mistaken for a merge failure.
 #
-# Usage:  gh-pr-merge.sh [--admin] [--allow-negated-close] [--allow-base-move] <pr-number> <branch-name>
+# Usage:  gh-pr-merge.sh [--admin] [--allow-negated-close] [--allow-incidental-close] [--allow-base-move] <pr-number> <branch-name>
 #           --admin  force `gh pr merge --admin` from the first attempt - the
 #                    conscious, HUMAN-TYPED branch-protection override (issues
 #                    #517/#579). It skips the required-check wait AND the review
@@ -117,6 +117,11 @@
 #           --allow-negated-close  consciously bypass the issue #726 refusal
 #                    after the detected trigger and surrounding text are printed;
 #                    this is a loud, per-merge override, never persistent config.
+#           --allow-incidental-close  consciously bypass the issue #794 refusal
+#                    (a close/fix/resolve keyword adjacent to #N that reads as
+#                    incidental, not a directive) after the detected trigger and
+#                    surrounding text are printed; loud, per-merge, never
+#                    persistent config.
 #           --allow-base-move  consciously bypass the issue #767 clean stop when
 #                    the base advances during the required-check wait; the moved
 #                    tips and an override-consumed audit line are still printed.
@@ -155,6 +160,28 @@
 #   merge attempt. The per-invocation --allow-negated-close escape hatch stays
 #   loud: it prints every detected issue/context plus an audit line before
 #   deliberately proceeding.
+#
+# Incidental proximity also closes issues, and every PR commit is a surface
+# (issue #794): GitHub matches close/fix/resolve + #N by proximity, ignoring
+# grammar - a keyword that is not a directive at all, merely adjacent, still
+# closes on squash. Two real near-misses: a commit subject where the keyword was
+# an ADJECTIVE ("...with the resolved #N/topic finding") and a PR body where the
+# keyword governed a different noun ("closes #N's investigation against..."),
+# neither negated so #726's guard does not see them. A closing directive is
+# conventionally the whole clause (`Closes #N` at a line/clause start); flag
+# instead when the keyword is NOT clause-initial, or when #N is immediately
+# followed by a possessive or a slash-compound modifier (the two concrete shapes
+# above), on the title, body, AND every commit subject on the PR branch - the
+# squash composes its message from the PR's own commits whenever neither
+# --subject nor --body is supplied (issue #716 above), so a `git commit -m`
+# typed inline is exactly as much a closing surface as the PR description, and
+# never passes through whatever review the body gets. Same CLEAN STOP shape as
+# #726, and its own --allow-incidental-close escape hatch. The guard verifies
+# its own classifier against a fixed, unreachable-numbered self-check pair
+# before trusting a clean scan - a scan that silently cannot run must never
+# read the same as a scan that ran and found nothing (this repo has hit exactly
+# that failure mode before: a regex that could not compile printed no output
+# and was indistinguishable from a clean result).
 #
 # Squash-commit trailer carries the tested tree hash (issue #716):
 #   poker-measure's CI throughput on its single shared Woodpecker agent
@@ -226,14 +253,26 @@
 #            is set and the PR deletes files vs its base. The PR is left open and
 #            untouched - review the surfaced paths, then re-run without strict
 #            mode (or fix the branch) once the deletions are confirmed intended.
-#         5  CLEAN STOP, not a failure (issue #726): the squash title or body has
-#            a negated close/fix/resolve keyword that GitHub would still honor.
-#            The PR is left open and untouched - reword it or consciously re-run
-#            with --allow-negated-close after reviewing the printed context.
+#         5  CLEAN STOP, not a failure (issue #726): the squash title, body, or a
+#            commit subject on the branch has a negated close/fix/resolve
+#            keyword that GitHub would still honor. The PR is left open and
+#            untouched - reword it or consciously re-run with
+#            --allow-negated-close after reviewing the printed context.
 #         6  CLEAN STOP, not a failure (issue #767): the base advanced during the
 #            required-check wait and its new tip is not contained in HEAD. The PR
 #            is left open and untouched - sync the base, re-run the quality gate,
 #            push, and re-run the merge (or consciously use --allow-base-move).
+#         7  CLEAN STOP, not a failure (issue #794): the squash title, body, or a
+#            commit subject on the branch has a close/fix/resolve keyword
+#            adjacent to #N that is not actually a directive (not clause-
+#            initial, or #N is immediately followed by a possessive or a
+#            slash-compound). The PR is left open and untouched - reword it or
+#            consciously re-run with --allow-incidental-close after reviewing
+#            the printed context.
+#         8  the incidental-close classifier (issue #794) failed its own
+#            self-check - this is a BROKEN CHECK, not a clean scan, and is
+#            never conflated with "no hazard found". Investigate the guard
+#            itself before re-running; there is no override for this one.
 #
 # Env (test hooks - unset in normal use):
 #   GH_PR_MERGE_GH             override the `gh` binary (default: gh)
@@ -264,6 +303,7 @@ set -uo pipefail
 # positional args (pr-number, branch-name) backward-compatible for every caller.
 ADMIN_OPT_IN=0
 ALLOW_NEGATED_CLOSE=0
+ALLOW_INCIDENTAL_CLOSE=0
 ALLOW_BASE_MOVE=0
 POSITIONAL=()
 while [[ $# -gt 0 ]]; do
@@ -276,6 +316,10 @@ while [[ $# -gt 0 ]]; do
             ALLOW_NEGATED_CLOSE=1
             shift
             ;;
+        --allow-incidental-close)
+            ALLOW_INCIDENTAL_CLOSE=1
+            shift
+            ;;
         --allow-base-move)
             ALLOW_BASE_MOVE=1
             shift
@@ -286,7 +330,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         -*)
             echo "gh-pr-merge.sh: unknown option '$1'" >&2
-            echo "Usage: gh-pr-merge.sh [--admin] [--allow-negated-close] [--allow-base-move] <pr-number> <branch-name>" >&2
+            echo "Usage: gh-pr-merge.sh [--admin] [--allow-negated-close] [--allow-incidental-close] [--allow-base-move] <pr-number> <branch-name>" >&2
             exit 2
             ;;
         *)
@@ -300,7 +344,7 @@ PR_NUMBER="${POSITIONAL[0]:-}"
 BRANCH="${POSITIONAL[1]:-}"
 
 if [[ -z "$PR_NUMBER" || -z "$BRANCH" ]]; then
-    echo "Usage: gh-pr-merge.sh [--admin] [--allow-negated-close] [--allow-base-move] <pr-number> <branch-name>" >&2
+    echo "Usage: gh-pr-merge.sh [--admin] [--allow-negated-close] [--allow-incidental-close] [--allow-base-move] <pr-number> <branch-name>" >&2
     exit 2
 fi
 
@@ -807,6 +851,40 @@ retarget_stacked_children() {
     return 0
 }
 
+# Every close/fix/resolve-keyword surface for this squash (issue #794): the
+# title and body this script sends as --subject/--body, PLUS every commit
+# subject on the PR branch. The squash composes its message from the PR's own
+# commits whenever neither --subject nor --body is supplied (issue #716 above),
+# and GitHub's own closing-issue linking already reads every commit in the PR
+# independently of that - so a `git commit -m` typed inline is exactly as much
+# a closing surface as the PR description, and it never passes through
+# whatever review the body gets. Populates the parallel global arrays
+# CLOSE_SCAN_SOURCES (a label per entry: title, body, commit:<short-sha>) and
+# CLOSE_SCAN_TEXTS (that entry's text) for both close-keyword guards to share.
+# Fail-open on an unreadable commit list (network hiccup, PR closed mid-run):
+# title/body are always scanned regardless.
+CLOSE_SCAN_SOURCES_LOADED=0
+close_keyword_scan_sources() {
+    # Memoized: both guards call this, and the commit-list fetch is a real
+    # gh API round trip - do it once per run, not once per guard.
+    (( CLOSE_SCAN_SOURCES_LOADED )) && return 0
+    CLOSE_SCAN_SOURCES=(title body)
+    CLOSE_SCAN_TEXTS=("$SQUASH_TITLE" "${SQUASH_BODY:-}")
+    local commit_out sha subject
+    # \037 (unit separator), never a whitespace char, is this repo's field
+    # separator for exactly this reason (issues #698/#700): a tab- or
+    # space-delimited `read` shifts fields silently - never an error - the
+    # instant a commit subject happens to contain that same whitespace char.
+    commit_out=$("$GH_BIN" pr view "$PR_NUMBER" --json commits \
+        --jq '.commits[] | (.oid // "") + "" + (.messageHeadline // "")' 2>/dev/null) || commit_out=""
+    while IFS=$'\037' read -r sha subject; do
+        [[ -z "$sha" && -z "$subject" ]] && continue
+        CLOSE_SCAN_SOURCES+=("commit:${sha:0:7}")
+        CLOSE_SCAN_TEXTS+=("$subject")
+    done <<< "$commit_out"
+    CLOSE_SCAN_SOURCES_LOADED=1
+}
+
 # Negated issue-closing keywords (issues #726 and #772): GitHub's matcher sees
 # the literal trigger even in "does not close #N", so a disclaimer silently
 # closes the issue after merge. Trim each prefix at sentence and clause
@@ -816,7 +894,7 @@ retarget_stacked_children() {
 # audit trail.
 guard_negated_close_keywords() {
     local keyword_re auxiliary_re negation_re source text line entry offset match issue
-    local after prefix suffix context found=0
+    local after prefix suffix context found=0 idx
     local en_dash=$'\xE2\x80\x93' em_dash=$'\xE2\x80\x94' apostrophe=$'\xE2\x80\x99'
     # grep -b reports byte offsets, so keep Bash and the grep children byte-oriented.
     local -x LC_ALL=C
@@ -824,12 +902,10 @@ guard_negated_close_keywords() {
     auxiliary_re='does|do|did|will|would|shall|should|can|could|must|may|might|is|are|was|were|be|been|has|have|had'
     negation_re="(?i)(?:\\b(?:(?:${auxiliary_re})\\h+not|not|never|no)\\b|\\b[[:alpha:]]+n(?:'|${apostrophe})t\\b)(?:\\h+[[:alpha:]]+){0,2}\\h*$"
 
-    for source in title body; do
-        if [[ "$source" == "title" ]]; then
-            text="$SQUASH_TITLE"
-        else
-            text="${SQUASH_BODY:-}"
-        fi
+    close_keyword_scan_sources
+    for idx in "${!CLOSE_SCAN_SOURCES[@]}"; do
+        source="${CLOSE_SCAN_SOURCES[$idx]}"
+        text="${CLOSE_SCAN_TEXTS[$idx]}"
         while IFS= read -r line || [[ -n "$line" ]]; do
             while IFS= read -r entry; do
                 [[ -z "$entry" ]] && continue
@@ -863,6 +939,126 @@ guard_negated_close_keywords() {
     echo "  The PR is left open and untouched. Reword without the literal trigger pattern," >&2
     echo "  e.g. '#N remains open for T0xx' instead of 'does not close #N', then re-run." >&2
     exit 5
+}
+
+# Classify one close/fix/resolve + #N match as incidental (issue #794): flag
+# when #N is immediately followed by a possessive or a slash-compound modifier
+# ("closes #N's investigation...", "...the resolved #N/topic finding" -
+# checked first and unconditionally, since it stands regardless of what
+# precedes the keyword), OR when the keyword is not clause-initial (other
+# words precede it in its sentence/clause) AND those words are not a
+# recognized adjacent NEGATION - that shape is issue #726's guard's hazard,
+# not this one's, and the two must never both fire off the same text asking
+# for two different overrides of what is, to a human, one decision. A plain
+# "Closes #N" / "Fixes #N" at a line or clause start, with nothing but
+# punctuation or another reference after the digits, is a legitimate directive
+# and is NOT flagged. $1 = prefix (already trimmed to the nearest clause
+# boundary, as guard_negated_close_keywords also does), $2 = the up-to-4-byte
+# text immediately following the matched digits. Echoes 1 (incidental) or 0.
+_is_incidental_close_match() {
+    local prefix="$1" immediate_suffix="$2" apostrophe=$'\xE2\x80\x99'
+    local clause_initial_re='^[[:space:]]*(?:[-*+]|[0-9]+[.)])?[[:space:]]*$'
+    local bad_suffix_re="(?i)^(?:'s|${apostrophe}s|/[[:alpha:]])"
+    local auxiliary_re='does|do|did|will|would|shall|should|can|could|must|may|might|is|are|was|were|be|been|has|have|had'
+    local negation_re="(?i)(?:\\b(?:(?:${auxiliary_re})\\h+not|not|never|no)\\b|\\b[[:alpha:]]+n(?:'|${apostrophe})t\\b)(?:\\h+[[:alpha:]]+){0,2}\\h*$"
+    # grep sees ZERO lines - never a match, regardless of anchors - on a
+    # zero-byte stream, so an empty $prefix/$immediate_suffix (the common,
+    # legitimate case) must still be handed to grep AS one empty line, not as
+    # no input at all: printf '%s\n' (never bare '%s') makes that distinction
+    # for every check below.
+    if printf '%s\n' "$immediate_suffix" | grep -Pq "$bad_suffix_re"; then
+        echo 1
+        return
+    fi
+    if printf '%s\n' "$prefix" | grep -Pq "$clause_initial_re"; then
+        echo 0
+        return
+    fi
+    if printf '%s\n' "$prefix" | grep -Pqi "$negation_re"; then
+        echo 0
+        return
+    fi
+    echo 1
+}
+
+# A scan that silently cannot run must never read the same as a scan that ran
+# and found nothing (this repo has hit exactly that failure mode: a regex that
+# failed to compile printed no output and was indistinguishable from a clean
+# result). Before trusting a clean guard_incidental_close_keywords pass, prove
+# the classifier still recognizes each concrete shape it exists to catch - the
+# not-clause-initial case AND the bad-suffix case, both independently, plus a
+# known-legitimate case it must NOT flag. These are calls to the classifier
+# directly, never text sent to GitHub, so no real issue number is at risk.
+# Exits 8 (a distinct code from every merge-refusal exit) and refuses to
+# proceed if the classifier's own answer ever changes.
+_incidental_close_selfcheck() {
+    local hit_position hit_suffix miss
+    hit_position=$(_is_incidental_close_match "note: the resolved " "")
+    hit_suffix=$(_is_incidental_close_match "" "'s inv")
+    miss=$(_is_incidental_close_match "" "")
+    if [[ "$hit_position" != 1 || "$hit_suffix" != 1 || "$miss" != 0 ]]; then
+        echo "GH_PR_MERGE_INCIDENTAL_CLOSE_SELFCHECK: broken - classifier answered" \
+             "position=$hit_position suffix=$hit_suffix miss=$miss (expected 1, 1, 0)" >&2
+        echo "CLEAN STOP: the incidental-close classifier failed its own self-check - refusing to" >&2
+        echo "  trust a clean scan rather than silently merging (issue #794)." >&2
+        exit 8
+    fi
+}
+
+# Incidental proximity still closes issues (issue #794): a close/fix/resolve
+# keyword adjacent to #N that is not actually a directive - not negated, #726's
+# guard does not see it, but GitHub's proximity matcher does not care that the
+# keyword is an adjective or governs a different noun. Same sources as the
+# negated guard (title, body, every commit subject), same CLEAN STOP shape, own
+# escape hatch.
+guard_incidental_close_keywords() {
+    local keyword_re source text line entry offset match issue idx
+    local after prefix suffix display_suffix context found=0 immediate_suffix
+    local en_dash=$'\xE2\x80\x93' em_dash=$'\xE2\x80\x94'
+    local -x LC_ALL=C
+    keyword_re='(?i)\b(?:close(?:s|d)?|fix(?:es|ed)?|resolve(?:s|d)?)\b:?\s*#[[:digit:]]+'
+
+    _incidental_close_selfcheck
+
+    close_keyword_scan_sources
+    for idx in "${!CLOSE_SCAN_SOURCES[@]}"; do
+        source="${CLOSE_SCAN_SOURCES[$idx]}"
+        text="${CLOSE_SCAN_TEXTS[$idx]}"
+        while IFS= read -r line || [[ -n "$line" ]]; do
+            while IFS= read -r entry; do
+                [[ -z "$entry" ]] && continue
+                offset=${entry%%:*}
+                match=${entry#*:}
+                prefix=${line:0:offset}
+                prefix=${prefix##*[.!?,;:()]}
+                prefix=${prefix##*"$en_dash"}
+                prefix=${prefix##*"$em_dash"}
+                issue=${match##*#}
+                after=$(( offset + ${#match} ))
+                immediate_suffix=${line:after:4}
+                if [[ "$(_is_incidental_close_match "$prefix" "$immediate_suffix")" != 1 ]]; then
+                    continue
+                fi
+                suffix=${line:after:30}
+                display_suffix=${suffix%%[.!?]*}
+                context="${prefix}${match}${display_suffix}"
+                printf 'GH_PR_MERGE_INCIDENTAL_CLOSE: %s matched #%s in "%s"\n' \
+                    "$source" "$issue" "$context" >&2
+                found=1
+            done < <(printf '%s\n' "$line" | grep -Pob "$keyword_re" || true)
+        done <<< "$text"
+    done
+
+    (( found == 0 )) && return 0
+    if (( ALLOW_INCIDENTAL_CLOSE )); then
+        echo "override consumed: --allow-incidental-close bypassed the issue #794 incidental-close-keyword refusal." >&2
+        return 0
+    fi
+    echo "CLEAN STOP: incidental issue-closing keyword detected - not merging (issue #794)." >&2
+    echo "  The PR is left open and untouched. The matched keyword reads as adjacent to #N," >&2
+    echo "  not a directive - reword the clause, or consciously re-run with" >&2
+    echo "  --allow-incidental-close after reviewing the printed context." >&2
+    exit 7
 }
 
 surface_deletions
@@ -1017,6 +1213,7 @@ elif [[ -n "$TESTED_TREE_TRAILER" ]]; then
 fi
 
 guard_negated_close_keywords
+guard_incidental_close_keywords
 
 run_squash ${BASE_FLAGS+"${BASE_FLAGS[@]}"}
 

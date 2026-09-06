@@ -69,6 +69,8 @@ def _make_stubs(
     review_decision: str = "",
     pr_title: str = "",
     pr_body: str = "",
+    pr_commits: list[str] | None = None,
+    commits_ok: bool = True,
     title_ok: bool = True,
     pr_deletions: list[str] | None = None,
     deletions_ok: bool = True,
@@ -132,6 +134,14 @@ def _make_stubs(
     hiccup the fail-open exists for. Each ``gh pr merge`` call also dumps its
     exact argv (NUL-separated) to ``merge_argv_<n>`` so tests can assert arg
     BOUNDARIES - a multiline --body must arrive as one argument.
+
+    ``pr_commits`` scripts ``gh pr view --json commits`` - the commit-subject
+    close-keyword scan (issue #794): every entry becomes one commit's headline
+    (a synthetic short sha is generated per entry so ``commit:<sha>`` source
+    labels stay distinct). Empty (the default) means the branch has no commits
+    to add to the scan, so every pre-#794 test exercises its original behavior
+    unchanged. ``commits_ok=False`` makes that fetch FAIL (exit 1), the
+    fail-open case where title/body are still scanned regardless.
 
     ``pr_deletions`` scripts the pre-squash ``git diff --diff-filter=D`` read
     (issue #657); ``deletions_ok=False`` makes that diff FAIL (exit 1), the
@@ -218,6 +228,16 @@ def _make_stubs(
     title_file.write_text(pr_title)
     body_file = tmp_path / "pr_body"
     body_file.write_text(pr_body)
+
+    # Issue #794: one synthetic short sha + subject per commit, separated by
+    # \037 (unit separator) - the exact shape close_keyword_scan_sources()'s
+    # --jq filter produces (never tab/space: issues #698/#700 forbid an
+    # IFS-whitespace `read`, since a delimiter that can appear in real text
+    # shifts fields silently instead of erroring).
+    commits_file = tmp_path / "pr_commits"
+    commits_file.write_text(
+        "".join(f"c0mmit{i:02d}\x1f{subject}\n" for i, subject in enumerate(pr_commits or []))
+    )
 
     # Issue #657: the deletion-surfacing and completeness reads.
     deletions_file = tmp_path / "pr_deletions"
@@ -307,7 +327,9 @@ def _make_stubs(
         + (f'    cat "{title_file}"; echo\n' if title_ok else "    exit 1\n")
         + '  elif [[ "$*" == *"--json body"* ]]; then\n'
         f'    cat "{body_file}"; echo\n'
-        '  elif [[ "$*" == *mergeCommit* ]]; then\n'
+        '  elif [[ "$*" == *"--json commits"* ]]; then\n'
+        + (f'    cat "{commits_file}"\n' if commits_ok else "    exit 1\n")
+        + '  elif [[ "$*" == *mergeCommit* ]]; then\n'
         f'    echo "{merge_commit}"\n'
         '  elif [[ "$*" == *"--json files"* ]]; then\n'
         f'    cat "{files_file}"\n'
@@ -1631,7 +1653,13 @@ def test_no_with_intervening_word_negated_close_keyword_refuses(tmp_path: Path):
 
 def test_negated_close_override_flag_bypasses_guard(tmp_path: Path):
     # The per-merge override proceeds, but detection and consumption stay loud
-    # so the exceptional decision remains visible in the merge transcript.
+    # so the exceptional decision remains visible in the merge transcript. Also
+    # pins issue #794's negation-exclusion: "Does not close #99" is not
+    # clause-initial ("Does not " precedes the keyword), which would otherwise
+    # ALSO trip the incidental guard right after the negated guard is bypassed
+    # - two refusals, under two different codes, for what a human experiences
+    # as one decision. The incidental guard must recognize the adjacent
+    # negation as #726's hazard, not its own, and stay out of the way.
     stubs = _make_stubs(
         tmp_path,
         merge_exit=0,
@@ -1651,6 +1679,9 @@ def test_negated_close_override_flag_bypasses_guard(tmp_path: Path):
     assert "#99" in result.stderr
     assert "Does not close #99" in result.stderr
     assert "override consumed: --allow-negated-close bypassed" in result.stderr
+    assert "GH_PR_MERGE_INCIDENTAL_CLOSE" not in result.stderr, (
+        "the incidental guard must not also flag a negation the sibling guard already owns"
+    )
     assert any(c.startswith("gh pr merge") for c in _calls(stubs))
 
 
@@ -1686,6 +1717,176 @@ def test_plain_close_colon_form_passes(tmp_path: Path):
     assert result.returncode == 0, result.stderr
     assert "merged" in result.stdout
     assert any(c.startswith("gh pr merge") for c in _calls(stubs))
+
+
+# --- incidental close-keyword guard (issue #794) ----------------------------
+#
+# GitHub matches close/fix/resolve + #N by proximity, ignoring grammar, so a
+# keyword that is not negated but also is not a directive - an adjective, or
+# one governing a different noun - still closes the issue on squash. These pin
+# the two real near-misses verbatim, the plain-directive companions that must
+# NOT be refused, and that every source (title, body, commit subject) is
+# scanned.
+
+
+def test_incidental_close_keyword_refuses_adjective_in_commit_subject(tmp_path: Path):
+    # Real near-miss #1: "resolved" is an adjective modifying "finding", not a
+    # directive - and it originated in a COMMIT SUBJECT, never the PR body.
+    subject = "Amend section 4 with the resolved #509/terms-risk finding"
+    stubs = _make_stubs(
+        tmp_path,
+        pr_state="OPEN",
+        pr_title="docs: amend terms",
+        pr_body="Summary.",
+        pr_commits=[subject],
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-794-fix")
+    assert result.returncode == 7, result.stderr
+    assert "CLEAN STOP" in result.stderr
+    assert "#509" in result.stderr
+    assert "resolved" in result.stderr
+    merge_calls = [c for c in _calls(stubs) if c.startswith("gh pr merge")]
+    assert merge_calls == [], "incidental-close stop must leave the PR untouched"
+
+
+def test_incidental_close_keyword_refuses_governs_different_noun_in_body(tmp_path: Path):
+    # Real near-miss #2: "closes" governs "investigation", not the issue - and
+    # it is clause-initial, so only the possessive-suffix check catches it.
+    body = "...closes #643's investigation against something it does not reproduce"
+    stubs = _make_stubs(
+        tmp_path,
+        pr_state="OPEN",
+        pr_title="docs: clarify follow-up scope",
+        pr_body=body,
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-794-fix")
+    assert result.returncode == 7, result.stderr
+    assert "CLEAN STOP" in result.stderr
+    assert "#643" in result.stderr
+    merge_calls = [c for c in _calls(stubs) if c.startswith("gh pr merge")]
+    assert merge_calls == [], "incidental-close stop must leave the PR untouched"
+
+
+def test_plain_close_keyword_in_commit_subject_passes(tmp_path: Path):
+    # Acceptance: a plain directive in a COMMIT SUBJECT (not the body) merges
+    # normally - the scan must not over-trigger on the shape it exists to allow.
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        pr_title="fix: complete issue work",
+        pr_body="Summary.",
+        pr_commits=["fix: tighten validation", "Closes #99"],
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-794-fix")
+    assert result.returncode == 0, result.stderr
+    assert "merged" in result.stdout
+    assert any(c.startswith("gh pr merge") for c in _calls(stubs))
+
+
+def test_plain_close_keyword_in_body_passes_incidental_guard(tmp_path: Path):
+    # Companion in the PR body: "Closes #99" alone, clause-initial, with
+    # nothing but end-of-string after the digits, is not incidental.
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        pr_title="fix: complete issue work",
+        pr_body="Closes #99",
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-794-fix")
+    assert result.returncode == 0, result.stderr
+    assert "merged" in result.stdout
+
+
+def test_close_keyword_in_parenthetical_title_suffix_passes(tmp_path: Path):
+    # This repo's own PR-title convention: "<summary> (Closes #N)". The "("
+    # immediately preceding the keyword is a clause boundary and ")" right
+    # after the digits is not a possessive/slash suffix - must not be flagged.
+    title = "fix(gate): tighten the binary guard (Closes #789)"
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        pr_title=title,
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-794-fix")
+    assert result.returncode == 0, result.stderr
+    assert "merged" in result.stdout
+
+
+def test_negated_close_keyword_in_commit_subject_refuses(tmp_path: Path):
+    # The #726 guard now shares the same source list (issue #794): a negated
+    # close keyword hidden only in a commit subject must not sail through.
+    stubs = _make_stubs(
+        tmp_path,
+        pr_state="OPEN",
+        pr_title="docs: clarify follow-up scope",
+        pr_body="Summary.",
+        pr_commits=["does not close #99, still WIP"],
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-794-fix")
+    assert result.returncode == 5, result.stderr
+    assert "#99" in result.stderr
+    merge_calls = [c for c in _calls(stubs) if c.startswith("gh pr merge")]
+    assert merge_calls == [], "negated-close stop must leave the PR untouched"
+
+
+def test_incidental_close_override_flag_bypasses_guard(tmp_path: Path):
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        pr_title="docs: amend terms",
+        pr_body="Summary.",
+        pr_commits=["Amend section 4 with the resolved #509/terms-risk finding"],
+    )
+    result = _run(
+        _linked_worktree(tmp_path),
+        stubs,
+        "--allow-incidental-close",
+        "42",
+        "issue-794-fix",
+    )
+    assert result.returncode == 0, result.stderr
+    assert "merged" in result.stdout
+    assert "#509" in result.stderr
+    assert "override consumed: --allow-incidental-close bypassed" in result.stderr
+    assert any(c.startswith("gh pr merge") for c in _calls(stubs))
+
+
+def test_unreadable_commit_list_fails_open_to_title_and_body_scan(tmp_path: Path):
+    # commits_ok=False models an unreadable `gh pr view --json commits` (network
+    # hiccup, PR closed mid-run): title/body are still scanned regardless, and
+    # the run must not hard-error just because the commit list was unreadable.
+    stubs = _make_stubs(
+        tmp_path,
+        pr_state="OPEN",
+        pr_title="docs: clarify follow-up scope",
+        pr_body="Does not close #99",
+        commits_ok=False,
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-794-fix")
+    assert result.returncode == 5, result.stderr
+    assert "#99" in result.stderr
+
+
+def test_commit_list_fetched_once_for_both_guards(tmp_path: Path):
+    # close_keyword_scan_sources() is called by BOTH guards; it must memoize
+    # the commit-list fetch rather than making the same gh API round trip
+    # twice on every single merge.
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        pr_title="fix: complete issue work",
+        pr_body="Closes #99",
+        pr_commits=["fix: tighten validation"],
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-794-fix")
+    assert result.returncode == 0, result.stderr
+    commit_fetch_calls = [c for c in _calls(stubs) if "--json commits" in c]
+    assert len(commit_fetch_calls) == 1, commit_fetch_calls
 
 
 def test_unreadable_deletion_diff_fails_open_as_skipped(tmp_path: Path):
