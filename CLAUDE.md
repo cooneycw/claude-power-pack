@@ -13,7 +13,7 @@ helpers own deterministic behavior.
 - **Python 3.11+, uv for dependencies.** Each component owns its dependency configuration.
 - **When fixing errors, fix BOTH the application code AND the CI/CD process.** Never bypass quality gates.
 - Before debugging manually, run `make lint` and `make test`.
-- A test that shells out to a real binary must use a `shutil.which` skip guard. `scripts/check-test-binary-guards.py` enforces the detailed contract.
+- A test that shells out to a real binary must use a `shutil.which` skip guard - including when it reaches that binary by running a repo shell script. `scripts/check-test-binary-guards.py` enforces the detailed contract.
 - A fixture that constructs a NEGATIVE condition must assert that precondition before exercising the code. `scripts/check-negative-fixture-preconditions.py` owns the detectable contract.
 - A pattern-matching fixture must not interpolate an absolute path it does not control; use a fixture-owned relative value and assert the intended classification.
 - After any fix, verify through the full pipeline with `make verify`.

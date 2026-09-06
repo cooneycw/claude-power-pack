@@ -162,6 +162,27 @@ if [[ -z "$REPO" ]]; then
     emit
 fi
 
+# ── jq preflight (issue #789) ──────────────────────────────────────────────
+# The Woodpecker API lane and the GitHub Actions lane both parse JSON with jq;
+# the `woodpecker-cli` lane (issue #768) does not - it asks for go-template
+# output precisely so it needs no formatter. So this is a per-lane flag, NOT an
+# early exit: short-circuiting here would disable the one lane that still works.
+#
+# Without the flag a missing jq was silent: every `jq ... 2>/dev/null` yielded
+# empty, the lookup found no REPO_ID, and the script emitted
+# `FLOW_CI_STATUS: unknown` and exited 0 - indistinguishable from "no
+# credentials" or "no network", which is the reading Step 8 acts on by
+# proceeding. Name the real reason instead. It DEGRADES rather than exiting:
+# `unknown` is this helper's documented fail-open verdict and Step 8 is built on
+# it, so a missing formatter must never be the thing that stops a merge.
+HAVE_JQ=1
+if ! command -v jq >/dev/null 2>&1; then
+    HAVE_JQ=0
+    echo "flow-ci-status: jq not found - the Woodpecker API and GitHub Actions lanes need it" >&2
+    echo "  Trying the woodpecker-cli lane, which does not. If that is unavailable the" >&2
+    echo "  verdict is 'unknown' because of a MISSING TOOL, not because of a CI result." >&2
+fi
+
 # ── Woodpecker credentials ─────────────────────────────────────────────────
 # Prefer an exported token; otherwise pull host+token from AWS Secrets Manager.
 # The secret is read ONCE into shell variables and never printed or argv-passed.
@@ -172,7 +193,8 @@ if [[ -z "$AWS_BIN" ]]; then
     if [[ -x "$HOME/.local/bin/aws" ]]; then AWS_BIN="$HOME/.local/bin/aws"; else AWS_BIN="aws"; fi
 fi
 
-if [[ -z "$WP_TOKEN" || -z "$WP_SERVER" ]]; then
+if [[ "$HAVE_JQ" -eq 1 && ( -z "$WP_TOKEN" || -z "$WP_SERVER" ) ]]; then
+    # The secret is JSON, so this resolution path needs jq too (issue #789).
     if command -v "$AWS_BIN" >/dev/null 2>&1; then
         SECRET_JSON="$("$AWS_BIN" secretsmanager get-secret-value \
             --secret-id "$SECRET_NAME" --region "$AWS_REGION" \
@@ -193,7 +215,7 @@ wp_api() {
 }
 
 # ── Woodpecker lookup ──────────────────────────────────────────────────────
-if [[ -n "$WP_TOKEN" && -n "$WP_SERVER" ]]; then
+if [[ "$HAVE_JQ" -eq 1 && -n "$WP_TOKEN" && -n "$WP_SERVER" ]]; then
     REPO_ID="$(wp_api "/api/repos/lookup/$REPO" | jq -r '.id // empty' 2>/dev/null)"
     if [[ -n "$REPO_ID" ]]; then
         PROVIDER="woodpecker"
@@ -312,7 +334,7 @@ if command -v "$WPCLI_BIN" >/dev/null 2>&1; then
 fi
 
 # ── GitHub Actions fallback ────────────────────────────────────────────────
-if command -v "$GH_BIN" >/dev/null 2>&1; then
+if [[ "$HAVE_JQ" -eq 1 ]] && command -v "$GH_BIN" >/dev/null 2>&1; then
     RUN_JSON="$("$GH_BIN" run list --repo "$REPO" --commit "$SHA" \
         --json status,conclusion,databaseId,url --jq '.[0]' 2>/dev/null)"
     if [[ -n "$RUN_JSON" && "$RUN_JSON" != "null" ]]; then
