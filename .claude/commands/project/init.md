@@ -459,8 +459,9 @@ process and escalate only when analysis reveals the need.
 
 ### Governance Tiers
 
-- **Tier 1 (Surgical):** 1-3 files, single concern. Branch, implement+test,
-  PR. No spec, ELI5 auto-approves.
+- **Tier 1 (Surgical):** 1-3 files, single concern. Branch, ELI5+approval,
+  implement+test, PR. No spec. The tier dials down spec ceremony, not the
+  approval gate - ELI5 is never auto-approved at any tier (issue #775).
 - **Tier 2 (Considered):** 4-10 files, new model/endpoint. Branch, ELI5+
   approval, implement+test, PR.
 - **Tier 3 (Architectural):** New subsystem, security boundary, multi-issue.
