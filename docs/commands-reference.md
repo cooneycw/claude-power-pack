@@ -228,14 +228,15 @@ qualifiers such as `/qa:test` being single-session) are not lost.
 - `/cicd:infra-pipeline` - Generate per-tier CI/CD pipelines with approval gates
 ### Codex Orchestration
 
-- `/codex:auto <ISSUE>` - Full issue lifecycle delegated to Codex CLI (worktree, implement, review, quality gates, PR)
+- `/codex:auto <ISSUE>` - Full issue lifecycle delegated to Codex CLI (8 steps: worktree, approve, implement, review, quality gates, PR)
 - `/codex:exec <PROMPT>` - One-shot Codex execution in current directory with JSONL monitoring
 - `/codex:ask <QUESTION>` - Delegate a read-only question to Codex and relay its answer (read-only by default; network opt-in on explicit request)
 - `/codex:status` - Check Codex CLI installation, config, and readiness
 - `/codex:help` - Codex commands overview
+- Pre-implementation gate (issue #774): all three delegated drivers - `/codex:auto`, `/qwen:auto`, `/gemma:auto` - STOP at `Step 3/8: Approve` after reporting the plan and wait for approval before invoking the model CLI. Before #774 each printed a plan that read exactly like a checkpoint and then delegated in the same turn; because their Review step inspects a diff, that boundary is the only point at which anything can be caught before code exists. Found on a six-worker kyle orchestration wave where three workers described the boundary as a halt it did not have. `--yes` (alias `--auto-approve`) is the only bypass, and it is deliberately flag-only: no `eli5: auto-approve`-style trailer is honored, since a marker in an issue body or commit message is written by the filer rather than the invoker (the #775 hazard, not propagated). `tests/test_delegated_driver_gates.py` pins the gate, the ordering, the escape hatch, and the absence of a trailer bypass in all three drivers.
 ### Local Qwen Orchestration (Tier 6, optional)
 
-- `/qwen:auto <ISSUE>` - Full issue lifecycle delegated to a locally hosted Qwen model (Ollama-served, driven through the Qwen Code CLI harness in headless stream-json mode; no cloud API key or per-token cost)
+- `/qwen:auto <ISSUE>` - Full issue lifecycle (8 steps, gated at Step 3/8) delegated to a locally hosted Qwen model (Ollama-served, driven through the Qwen Code CLI harness in headless stream-json mode; no cloud API key or per-token cost)
 - `/qwen:exec <PROMPT>` - One-shot local Qwen execution in current directory with JSONL monitoring (Seatbelt/Docker sandbox, yolo approval, wall-time budget)
 - `/qwen:status` - Check the Ollama server, model presence, network exposure, and Qwen Code harness readiness
 - `/qwen:help` - Qwen commands overview, serving-stack recipe, thinking-token guidance, and remote-access setup
@@ -243,7 +244,7 @@ qualifiers such as `/qa:test` being single-session) are not lost.
 
 ### Local Gemma Orchestration (Tier 7, optional)
 
-- `/gemma:auto <ISSUE>` - Full issue lifecycle delegated to a locally hosted Gemma 4 model (Ollama-served on a GPU box, driven through the OpenCode harness in headless `--format json` mode; no cloud API key or per-token cost)
+- `/gemma:auto <ISSUE>` - Full issue lifecycle (8 steps, gated at Step 3/8) delegated to a locally hosted Gemma 4 model (Ollama-served on a GPU box, driven through the OpenCode harness in headless `--format json` mode; no cloud API key or per-token cost)
 - `/gemma:exec <PROMPT>` - One-shot local Gemma execution in the current directory with JSONL monitoring (explicit `--dir`, `--auto` approval, wall-time budget)
 - `/gemma:status` - Check the Ollama server, model presence and GPU residency, OpenCode harness, provider resolution, the `gemma-implementer` agent profile, and a real tool-calling smoke test
 - `/gemma:help` - Gemma commands overview, serving-stack recipe, the native-API rationale, the mechanical-fence design, and remote-access setup

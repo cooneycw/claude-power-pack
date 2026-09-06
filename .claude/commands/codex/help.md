@@ -24,12 +24,13 @@ Cross-model implementation and review - Claude manages the workflow, Codex write
 Claude Code (supervisor)            Codex CLI (implementer)
   1. Read GH issue
   2. Create worktree + branch
-  3. Build prompt from issue     --> 4. codex exec --json -C <worktree>
-  5. Monitor JSONL stream        <-- 6. Plan, code, test
-  7. Review Codex's diff
-  8. Run quality gates (lint/test/security)
-  9. If gates fail, re-prompt   --> 10. Fix with error context (max 2 retries)
-  11. Commit, push, create PR
+  3. Build prompt from issue
+  4. GATE: stop for approval     --> 5. codex exec --json -C <worktree>
+  6. Monitor JSONL stream        <-- 7. Plan, code, test
+  8. Review Codex's diff
+  9. Run quality gates (lint/test/security)
+  10. If gates fail, re-prompt  --> 11. Fix with error context (max 2 retries)
+  12. Commit, push, create PR
 ```
 
 ## Quick Start
@@ -38,6 +39,8 @@ Choose by precondition, not task size:
 
 - `/codex:auto <ISSUE>` - an EXISTING repo with a FILED issue. Creates a
   worktree and runs the full lifecycle through review, quality gates, and PR.
+  It STOPS after the Step 2 plan report and waits for approval before Codex
+  writes anything (Step 3/8); pass `--yes` to skip that pause (issue #774).
 - `/codex:exec <PROMPT>` - anything else, including a brand-new empty
   directory. Runs in the current directory with no repo or issue required and
   no automatic commit.

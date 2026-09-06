@@ -1,11 +1,11 @@
 ---
-description: Full issue lifecycle delegated to a local Gemma model - worktree, implement, review, quality gates, PR
+description: Full issue lifecycle delegated to a local Gemma model - worktree, approve, implement, review, quality gates, PR
 allowed-tools: Bash(opencode:*), Bash(ollama:*), Bash(git:*), Bash(gh:*), Bash(ls:*), Bash(cat:*), Bash(grep:*), Bash(curl:*), Bash(python3:*), Bash(PYTHONPATH=*), Bash(mkdir:*), Bash(cd:*), Bash(pwd), Bash(head:*), Bash(tail:*), Bash(wc:*), Bash(test:*), Bash(make:*), Bash(sleep:*)
 ---
 
 # Gemma Auto: Full Issue Lifecycle via Local Gemma Model
 
-Mirrors `/qwen:auto` but delegates implementation (Step 3) to a locally hosted
+Mirrors `/qwen:auto` but delegates implementation (Step 4) to a locally hosted
 Gemma 4 model served by Ollama, driven through the OpenCode harness
 (`opencode run` in headless mode). Claude Code acts as supervisor/reviewer while
 the local Gemma model writes the code. No cloud API key or per-token cost is
@@ -20,6 +20,9 @@ lane's M1 Max, and prefill 1,390 tok/s against 86 tok/s.
 ## Arguments
 
 - `ISSUE` (required): GitHub issue number (e.g., `42`)
+- `--yes` (optional, alias `--auto-approve`): skip the Step 3 approval pause for
+  unattended runs. The Step 2 plan report is still printed and approval is
+  recorded as auto-granted. There is no trailer-based equivalent (issue #775).
 
 ## Environment
 
@@ -40,13 +43,14 @@ Report at the start:
 ```
 Gemma Auto: Issue #<ISSUE> - Full Lifecycle
 
-Step 1/7: Start (create worktree and branch)
-Step 2/7: Analyze (understand issue, build Gemma prompt)
-Step 3/7: Execute Gemma (delegate implementation to local Gemma via OpenCode)
-Step 4/7: Review (Claude reviews Gemma's diff)
-Step 5/7: Quality Gates (lint, test, security - with fix loop)
-Step 6/7: Finish (commit, push, create PR)
-Step 7/7: Cleanup (optional merge + worktree removal)
+Step 1/8: Start (create worktree and branch)
+Step 2/8: Analyze (understand issue, build Gemma prompt)
+Step 3/8: Approve (pre-implementation gate - stop and wait)
+Step 4/8: Execute Gemma (delegate implementation to local Gemma via OpenCode)
+Step 5/8: Review (Claude reviews Gemma's diff)
+Step 6/8: Quality Gates (lint, test, security - with fix loop)
+Step 7/8: Finish (commit, push, create PR)
+Step 8/8: Cleanup (optional merge + worktree removal)
 
 Proceeding...
 ```
@@ -109,10 +113,10 @@ echo "Verified: on branch '$CURRENT_BRANCH' in $(pwd)"
 WORKTREE_ROOT=$(git rev-parse --show-toplevel)
 ```
 
-Capture `WORKTREE_ROOT` here: Step 3 passes it to `opencode --dir` explicitly
+Capture `WORKTREE_ROOT` here: Step 4 passes it to `opencode --dir` explicitly
 rather than trusting the inherited shell cwd, which drifts across tool calls.
 
-Report: `Step 1/7: Start complete - worktree at {path}, on branch {branch}`
+Report: `Step 1/8: Start complete - worktree at {path}, on branch {branch}`
 
 ---
 
@@ -153,11 +157,48 @@ Working from the worktree, analyze the issue and build a comprehensive prompt fo
 
 4. **Report the prompt to the user** (same format as `/qwen:auto` Step 2).
 
-Report: `Step 2/7: Analyze complete - Gemma prompt built ({N} files referenced)`
+Report: `Step 2/8: Analyze complete - Gemma prompt built ({N} files referenced)`
 
 ---
 
-### Step 3: Execute Gemma - Delegate Implementation
+### Step 3: Approve - Pre-Implementation Gate
+
+**STOP HERE. This step ends the turn.**
+
+Step 2 printed the plan: the issue, its acceptance criteria, the files in scope,
+and the testing expectations. That report is not a checkpoint on its own - a
+report becomes a checkpoint only when something waits on it. Present it, then
+WAIT. Do not run `opencode run`, do not begin Step 4, and do not read "the
+plan looks right" as approval you are entitled to grant yourself.
+
+This is the only gate before code exists. Step 5 (Review) inspects a diff, which
+means Gemma has already written it - a plan corrected here costs nothing, while
+a plan corrected there costs a rewrite. `/flow:auto` pauses at the equivalent
+boundary (its Step 3/9 ELI5 gate); this driver now matches it.
+
+Ask the reviewer for one of:
+
+- **approve** - proceed to Step 4 and invoke Gemma.
+- **revise** - amend the plan or the prompt, re-report, and gate again.
+- **abandon** - stop the run; the worktree is left in place for inspection.
+
+**This is not OpenCode's `--auto`.** That flag, in Step 4, governs tool approval
+INSIDE Gemma's own run. This gate is an orchestrator-level stop before that run
+begins: passing `--auto` never satisfies it, and `--yes` never changes how the
+model behaves once started.
+
+**Unattended runs.** `--yes` (alias `--auto-approve`) on the invocation skips the
+pause. Print the Step 2 report anyway and record that approval was auto-granted.
+Only the caller who typed the command can pass it: there is deliberately NO
+trailer-based bypass here. A marker in an issue body or a commit message is
+written by whoever filed the issue, not by whoever is running the command, so it
+can never stand in for the reviewer's approval (issue #775).
+
+Report: `Step 3/8: Approve - {approved|auto-approved (--yes)|revised|abandoned}`
+
+---
+
+### Step 4: Execute Gemma - Delegate Implementation
 
 Run the local Gemma model through the OpenCode harness against the worktree.
 
@@ -218,7 +259,7 @@ fi
 ```
 
 **Build the prompt with the mandatory execution fence.** The fence MUST appear
-at the TOP of every prompt sent to the model in this step and in the Step 5 fix
+at the TOP of every prompt sent to the model in this step and in the Step 6 fix
 loop - before the issue context, before the codebase summary, before any
 implementation instructions. It is non-negotiable and never omitted, even for
 trivial issues. A local model is MORE likely than Codex to wander into workflow
@@ -301,7 +342,7 @@ if [ "$GEMMA_EXIT" -ne 0 ]; then
 fi
 ```
 
-**Post-execution overrun verification.** Same checks as `/qwen:auto` Step 3
+**Post-execution overrun verification.** Same checks as `/qwen:auto` Step 4
 (issue #735). The permission profile should make these no-ops - run them anyway.
 They are the layer that catches a profile that was not loaded, a rule pattern
 that did not match what the model actually typed, or an OpenCode change to how
@@ -355,11 +396,11 @@ events and no `tool_use` events is the signature of the `/v1` tool-call-drop
 bug (ollama/ollama#14958) - run `/gemma:status`, whose Step 4 smoke test tests
 exactly that, before blaming the prompt.
 
-Report: `Step 3/7: Execute Gemma complete - {N} files changed (+{added} -{removed})`
+Report: `Step 4/8: Execute Gemma complete - {N} files changed (+{added} -{removed})`
 
 ---
 
-### Step 4: Review - Claude Reviews Gemma's Diff
+### Step 5: Review - Claude Reviews Gemma's Diff
 
 Cross-model review: Claude Code reviews what the local Gemma model wrote.
 **This step carries more weight than in `/codex:auto`** - a local 31B model
@@ -377,17 +418,17 @@ Review the diff line by line, not just structurally.
    - Completeness: Are all acceptance criteria addressed?
    - Test coverage: Are tests updated or added?
 
-3. **Report review findings** (same format as `/qwen:auto` Step 4).
+3. **Report review findings** (same format as `/qwen:auto` Step 5).
 
 If review finds CRITICAL issues that a re-prompt cannot fix (fundamentally
 wrong approach), STOP and report. Offer to re-prompt Gemma, escalate to
 `/qwen:auto` or `/codex:auto`, or hand off to manual implementation.
 
-Report: `Step 4/7: Review complete - {PASS|N issues found}`
+Report: `Step 5/8: Review complete - {PASS|N issues found}`
 
 ---
 
-### Step 5: Quality Gates - Lint, Test, Security (with Fix Loop)
+### Step 6: Quality Gates - Lint, Test, Security (with Fix Loop)
 
 Run the deterministic quality gate runner:
 
@@ -414,7 +455,7 @@ If quality gates fail:
 
 1. **Extract the error output** from the failed step.
 2. **Build a fix prompt** with the error context. **The execution fence from
-   Step 3 MUST appear at the top of every fix prompt.** After the fence:
+   Step 4 MUST appear at the top of every fix prompt.** After the fence:
    ```
    The following quality gate failed after your implementation:
 
@@ -423,18 +464,18 @@ If quality gates fail:
    Fix the issues while preserving the original implementation intent.
    Only change what is necessary to make the quality gates pass.
    ```
-3. **Re-execute** with the same invocation as Step 3 (same `--agent`, `--dir`,
+3. **Re-execute** with the same invocation as Step 4 (same `--agent`, `--dir`,
    and provider flags), teeing to `/tmp/gemma-fix-${ISSUE_NUM}-${RETRY}.jsonl`.
 4. **Re-run quality gates.**
 5. If still failing after 2 retries, STOP and report. Offer escalation:
    re-run the remaining fix loop under `/codex:auto` (frontier model) or fix
    manually.
 
-Report: `Step 5/7: Quality gates passed (attempt {N}/{MAX})`
+Report: `Step 6/8: Quality gates passed (attempt {N}/{MAX})`
 
 ---
 
-### Step 6: Finish - Commit, Push, Create PR
+### Step 7: Finish - Commit, Push, Create PR
 
 ```bash
 BRANCH=$(git branch --show-current)
@@ -455,11 +496,11 @@ ISSUE_NUM=$(echo "$BRANCH" | grep -oP 'issue-\K[0-9]+' || echo "")
    - Test plan
    - `Closes #N`
 
-Report: `Step 6/7: Finish complete - PR #{N} created`
+Report: `Step 7/8: Finish complete - PR #{N} created`
 
 ---
 
-### Step 7: Cleanup (Optional)
+### Step 8: Cleanup (Optional)
 
 Ask the user if they want to merge and clean up now, or leave the PR for review.
 If merge now, follow the same merge/cleanup pattern as `/flow:auto` Step 7:
@@ -470,7 +511,7 @@ If merge now, follow the same merge/cleanup pattern as `/flow:auto` Step 7:
 4. Remove worktree and branch
 5. Close issue if still open
 
-Report: `Step 7/7: Cleanup complete - PR merged, worktree removed` or `Step 7/7: PR #{N} left for review`
+Report: `Step 8/8: Cleanup complete - PR merged, worktree removed` or `Step 8/8: PR #{N} left for review`
 
 ---
 
@@ -497,7 +538,7 @@ Gemma Auto Complete
 At each step, if something fails:
 
 ```
-Gemma Auto stopped at Step N/7: {Step Name}
+Gemma Auto stopped at Step N/8: {Step Name}
 
   Failed: [description of what failed]
   Fix:    [actionable suggestion]
@@ -505,11 +546,12 @@ Gemma Auto stopped at Step N/7: {Step Name}
   To resume manually:
     /flow:start {ISSUE}      (if step 1 failed)
     [investigate]            (if step 2 failed)
-    /gemma:exec "<prompt>"   (if step 3 failed)
-    [review diff manually]   (if step 4 failed)
-    /flow:check              (if step 5 failed)
-    /flow:finish             (if step 6 failed)
-    /flow:merge              (if step 7 failed)
+    [approve or revise]      (if step 3 failed)
+    /gemma:exec "<prompt>"   (if step 4 failed)
+    [review diff manually]   (if step 5 failed)
+    /flow:check              (if step 6 failed)
+    /flow:finish             (if step 7 failed)
+    /flow:merge              (if step 8 failed)
 ```
 
 Key failure scenarios:
@@ -517,13 +559,13 @@ Key failure scenarios:
   number, or `gh issue view` fails because the issue does not exist, stop. This
   is not a repair of `/gemma:auto`; run
   `/gemma:exec "<what you wanted to build>"` in the target directory instead
-- **OpenCode CLI not installed:** Stop at step 3; it is required as the harness (no cloud API key is used)
-- **Agent profile missing:** Stop at step 3; the mechanical fence is mandatory, install it from `templates/opencode-gemma.json` or via `/cpp:init` Tier 7
-- **Ollama unreachable / model missing:** Stop at step 3; run `/gemma:status` to diagnose. On the reference server this can mean another VM holds the GPU claim
-- **Execution fails or stalls:** Stop at step 3, show last 20 lines of JSONL output
-- **Model makes no changes:** Stop at step 3; if the stream has no `tool_use` events at all, suspect the `/v1` tool-call-drop bug before the prompt - `/gemma:status` Step 4 tests for it
-- **Review finds critical issues:** Stop at step 4; offer re-prompt, escalation, or manual hand-off
-- **Quality gates fail after retries:** Stop at step 5; offer escalation to `/codex:auto`
+- **OpenCode CLI not installed:** Stop at step 4; it is required as the harness (no cloud API key is used)
+- **Agent profile missing:** Stop at step 4; the mechanical fence is mandatory, install it from `templates/opencode-gemma.json` or via `/cpp:init` Tier 7
+- **Ollama unreachable / model missing:** Stop at step 4; run `/gemma:status` to diagnose. On the reference server this can mean another VM holds the GPU claim
+- **Execution fails or stalls:** Stop at step 4, show last 20 lines of JSONL output
+- **Model makes no changes:** Stop at step 4; if the stream has no `tool_use` events at all, suspect the `/v1` tool-call-drop bug before the prompt - `/gemma:status` Step 4 tests for it
+- **Review finds critical issues:** Stop at step 5; offer re-prompt, escalation, or manual hand-off
+- **Quality gates fail after retries:** Stop at step 6; offer escalation to `/codex:auto`
 
 ## Notes
 
