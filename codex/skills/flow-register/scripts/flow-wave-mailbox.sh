@@ -20,6 +20,7 @@
 #     outbox-<role>.md   messages TO worker <role>       (orchestrator writes)
 #     inbox-<role>.md    messages FROM worker <role>     (that worker writes)
 #     .cursor-<box>      last rev the box's reader consumed
+#     .watch-<role>      heartbeat: epoch of that role's last watch poll (#778)
 #     .mailbox.lock      flock for every read-modify-write
 #
 # One file per WRITER in each direction, so two workers reporting at once never
@@ -64,7 +65,31 @@
 #          timeout. THIS IS THE WAKE - launch it as a background call and the
 #          harness re-invokes the session when it exits. Bounded by default
 #          (30m) so a wave can never leave watchers spinning after it ends.
-#   list   Box inventory for the wave: box, rev, cursor, unread, mtime.
+#          STAMPS A HEARTBEAT (#778) - see below.
+#   list   Box inventory for the wave: box, reader, rev, cursor, unread, mtime,
+#          plus the WATCH state of every role known to read here (#778).
+#
+# The watch heartbeat (issue #778). Arming the watch was the one element of
+# participation that left NO trace: a worker could be live, address-verified and
+# brief-current in the #638 roster and still be completely DEAF, because an
+# unarmed watch looks identical to an armed one from outside. Observed in the
+# `kyle-completion` wave on 2026-09-05 - a worker skipped step 4 of
+# /flow:register, sat `[live, verified] brief=current` for over an hour, and its
+# six-issue assignment was never read; the only tell was `CURSOR 0 / UNREAD 2`
+# here, found by accident. So `watch` now stamps `.watch-<role>` in the wave dir
+# with the current epoch, ON ARM AND ON EVERY POLL - not just on arm, because a
+# watch that was KILLED must decay while one that is merely blocking stays
+# fresh, and only a refreshing stamp separates those two. Three states follow:
+#   armed   stamped within FLOW_WAVE_WATCH_STALE_SECS (default 300)
+#   stale   stamped longer ago - the watch died, or its session is busy between
+#           wakes; either way the role is deaf RIGHT NOW, and the age is always
+#           printed so the reader can judge which
+#   absent  no stamp at all - the watch was NEVER armed. The unambiguous case,
+#           and the one actually observed.
+# The heartbeat is deliberately NOT removed on exit: "died" and "never armed"
+# are operationally different answers and erasing the file would flatten them
+# back into one. `read` does not stamp - the heartbeat is about the WAKE, and a
+# cursor that is advancing is separately visible in `list`.
 #
 # The lexicon gate (issue #701). `send` runs the message through
 # `flow-wave-lexicon.sh validate` first, so a reserved TRANSITION token that does
@@ -87,10 +112,15 @@
 # Exit codes: 0 normal, 2 usage error, 3 lock/IO failure, 5 watch timeout,
 # 6 lexicon refusal (#701 - the message was NOT delivered; nothing was written).
 #
+# Env:
+#   FLOW_WAVE_WATCH_STALE_SECS  heartbeat age past which a watch reads `stale`
+#                               rather than `armed` (#778, default 300)
 # Env (test hooks - unset in normal use):
 #   FLOW_WAVE_MAILBOX_DIR   wave-root override (most precise)
 #   FLOW_WAVE_REGISTRY_DIR  shared wave-root override, honored so the mailbox
 #                           and the #638 registry always co-locate
+#   FLOW_WAVE_NOW           override "now" as epoch seconds, so heartbeat ages
+#                           are deterministic (same hook name the registry uses)
 
 set -uo pipefail
 
@@ -99,6 +129,12 @@ WAVE_ROOT="${FLOW_WAVE_MAILBOX_DIR:-${FLOW_WAVE_REGISTRY_DIR:-${XDG_RUNTIME_DIR:
 
 WATCH_TIMEOUT_DEFAULT=1800
 WATCH_INTERVAL_DEFAULT=3
+# A watch refreshes its heartbeat every --interval (3s by default), so anything
+# past this is either a dead watch or a session busy between wakes - deaf either
+# way (#778). Generous enough that a worker handling a message is not routinely
+# flagged, short enough that the roster answers "is it listening RIGHT NOW".
+WATCH_STALE_SECS="${FLOW_WAVE_WATCH_STALE_SECS:-300}"
+NOW="${FLOW_WAVE_NOW:-$(date +%s)}"
 
 usage_fail() { echo "flow-wave-mailbox: $1" >&2; exit 2; }
 
@@ -143,6 +179,81 @@ max_rev() {
 }
 
 cursor_file() { echo "$WAVE_DIR/.cursor-$(basename "$1")"; }
+
+# --- The watch heartbeat (#778) ------------------------------------------------
+# `.watch-<role>` holds one epoch integer, exactly the shape of `.cursor-<box>`.
+watch_file() { echo "$WAVE_DIR/.watch-$1"; }
+
+# Stamp the current time for <role>. Called on arm and on every poll, so a
+# KILLED watch decays while a blocking one stays fresh. Deliberately NOT under
+# the mailbox flock: it is a single-writer, whole-file, last-write-wins stamp
+# with no read-modify-write, and taking the lock 600 times over a 30m watch
+# would make the wake path contend with every send for no correctness gain. A
+# torn or unwritable stamp degrades to `unknown`, never to a wrong verdict.
+watch_stamp() {
+  local wf tmp now
+  # Re-read the clock EVERY call rather than reusing the start-of-script $NOW:
+  # a watch blocks for up to 30m, so a stamp frozen at arm time would age out
+  # underneath a perfectly healthy watch and report exactly the false `stale`
+  # this heartbeat exists to distinguish from a real one.
+  now="${FLOW_WAVE_NOW:-$(date +%s)}"
+  wf="$(watch_file "$1")"
+  tmp="$(mktemp "$WAVE_DIR/.wstamp.XXXXXX" 2>/dev/null)" || return 0
+  printf '%s\n' "$now" > "$tmp" 2>/dev/null && mv -f "$tmp" "$wf" 2>/dev/null || rm -f "$tmp"
+  return 0
+}
+
+# Age in seconds of <role>'s heartbeat; '-' when there is none or it is
+# unreadable. Clamped at 0: FLOW_WAVE_NOW and a real stamp can disagree, and a
+# negative age would render as a nonsense future timestamp.
+watch_age() {
+  local wf v
+  wf="$(watch_file "$1")"
+  [ -s "$wf" ] || { echo '-'; return; }
+  v="$(tr -dc '0-9' < "$wf" 2>/dev/null | head -c 20)"
+  [ -n "$v" ] || { echo '-'; return; }
+  local age=$((NOW - v))
+  [ "$age" -lt 0 ] && age=0
+  echo "$age"
+}
+
+# armed | stale | absent for <role>.
+watch_state() {
+  local age
+  age="$(watch_age "$1")"
+  if [ "$age" = "-" ]; then
+    echo absent
+  elif [ "$age" -le "$WATCH_STALE_SECS" ]; then
+    echo armed
+  else
+    echo stale
+  fi
+}
+
+# The role that READS a box: its own outbox for a worker, every inbox for the
+# orchestrator. The heartbeat is keyed by reader, so this is the join.
+reader_of_box() {
+  local b
+  b="$(basename "$1")"
+  case "$b" in
+    outbox-*.md) echo "${b#outbox-}" | sed 's/\.md$//' ;;
+    inbox-*.md)  echo orchestrator ;;
+    *)           echo '-' ;;
+  esac
+}
+
+# Every role this wave dir knows a watch state for: each box's reader, plus any
+# role that stamped a heartbeat without a box (a worker that armed before the
+# orchestrator sent it anything - the healthy order, and the one a box-only
+# scan would miss).
+watch_roles() {
+  {
+    find "$WAVE_DIR" -maxdepth 1 -type f \( -name 'outbox-*.md' -o -name 'inbox-*.md' \) 2>/dev/null |
+      while IFS= read -r b; do [ -n "$b" ] && reader_of_box "$b"; done
+    find "$WAVE_DIR" -maxdepth 1 -type f -name '.watch-*' 2>/dev/null |
+      while IFS= read -r w; do [ -n "$w" ] && basename "$w" | sed 's/^\.watch-//'; done
+  } | grep -v '^-$' | sort -u
+}
 
 cursor_of() {
   local c
@@ -433,6 +544,9 @@ case "$VERB" in
 
     WAITED=0
     while :; do
+      # Stamp BEFORE the check, so an arm that fires on its very first poll -
+      # mail already waiting - still leaves the trace #778 exists to leave.
+      watch_stamp "$ROLE"
       UNREAD="$(unread_for_role "$ROLE")"
       if [ "$UNREAD" -gt 0 ]; then
         drain_role "$ROLE" "$PEEK" 0
@@ -456,19 +570,35 @@ case "$VERB" in
 
   list)
     BOXES="$(find "$WAVE_DIR" -maxdepth 1 -type f \( -name 'outbox-*.md' -o -name 'inbox-*.md' \) 2>/dev/null | sort)"
+    WROLES="$(watch_roles)"
     TOTAL_UNREAD=0
     if [ "$JSON_OUT" -eq 1 ]; then
+      # `reader` and `mtime` join a box to the role whose watch decides whether
+      # anything in it will ever be noticed - that join is what the #638 roster
+      # consumes to render `watch=`/`unread=` per role (#778).
       ROWS=""
       while IFS= read -r b; do
         [ -n "$b" ] || continue
         n="$(unread_in "$b")"; r="$(max_rev "$b")"; c="$(cursor_of "$b")"
         TOTAL_UNREAD=$((TOTAL_UNREAD + n))
-        ROWS="$ROWS$(printf '{"box":"%s","rev":%s,"cursor":%s,"unread":%s}' \
-          "$(basename "$b")" "$r" "$c" "$n"),"
+        mt="$(date -r "$b" '+%Y-%m-%dT%H:%M:%S' 2>/dev/null || echo '-')"
+        ROWS="$ROWS$(printf '{"box":"%s","reader":"%s","rev":%s,"cursor":%s,"unread":%s,"mtime":"%s"}' \
+          "$(basename "$b")" "$(reader_of_box "$b")" "$r" "$c" "$n" "$mt"),"
       done <<EOF
 $BOXES
 EOF
-      printf '{"wave":"%s","dir":"%s","boxes":[%s]}\n' "$WAVE" "$WAVE_DIR" "${ROWS%,}"
+      WATCHES=""
+      while IFS= read -r wr; do
+        [ -n "$wr" ] || continue
+        wa="$(watch_age "$wr")"
+        if [ "$wa" = "-" ]; then wa_json=null; else wa_json="$wa"; fi
+        WATCHES="$WATCHES$(printf '{"role":"%s","state":"%s","age_secs":%s}' \
+          "$wr" "$(watch_state "$wr")" "$wa_json"),"
+      done <<EOF
+$WROLES
+EOF
+      printf '{"wave":"%s","dir":"%s","boxes":[%s],"watches":[%s]}\n' \
+        "$WAVE" "$WAVE_DIR" "${ROWS%,}" "${WATCHES%,}"
     else
       if [ -z "$BOXES" ]; then
         echo "No mailboxes in wave '$WAVE' yet ($WAVE_DIR)."
@@ -482,6 +612,21 @@ EOF
           printf '%-24s %6s %7s %7s  %s\n' "$(basename "$b")" "$r" "$c" "$n" "$mt"
         done <<EOF
 $BOXES
+EOF
+      fi
+      # The watch table (#778), separate from the box table because a box says
+      # what was DELIVERED and this says whether anyone is listening - the half
+      # that used to be invisible everywhere.
+      if [ -n "$WROLES" ]; then
+        echo
+        printf '%-24s %8s  %s\n' ROLE WATCH LAST
+        while IFS= read -r wr; do
+          [ -n "$wr" ] || continue
+          wa="$(watch_age "$wr")"
+          if [ "$wa" = "-" ]; then last="never armed"; else last="${wa}s ago"; fi
+          printf '%-24s %8s  %s\n' "$wr" "$(watch_state "$wr")" "$last"
+        done <<EOF
+$WROLES
 EOF
       fi
     fi
