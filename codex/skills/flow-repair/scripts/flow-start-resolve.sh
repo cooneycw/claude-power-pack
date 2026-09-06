@@ -37,7 +37,7 @@
 #                  OPEN (pass only after the user has confirmed).
 #
 #   Prints a key=value contract (stdout), one value per line:
-#     LANE=current-branch|fresh|resume|remote-pickup|cross-repo
+#     LANE=current-branch|fresh|resume|remote-pickup|local-pickup|cross-repo
 #     CROSS_REPO=0|1        1 = the target repo is not the session repo (#578)
 #     GIT_LANE=0|1          1 = ride the git lane end-to-end: enter with `cd`,
 #                           never EnterWorktree, git cleanup at Step 7. Since
@@ -61,6 +61,14 @@
 #     DEFAULT_BRANCH=<default branch name>
 #     REMOTE_BRANCH=origin/<...>       (remote-pickup lane only)
 #     WT_CREATED=0|1        1 = this run already ran `git worktree add`
+#     WT_BASE=<ref, or a note naming a reused branch>       (WT_CREATED=1 only)
+#                           what the checkout actually stands on: BASE_REF (or
+#                           REMOTE_BRANCH) for a newly created branch, or a note
+#                           naming the pre-existing local branch that was reused
+#                           instead. LANE alone must not be read as a promise
+#                           the checkout came from BASE_REF (issue #793) - a
+#                           fresh/cross-repo/local-pickup lane that reused an
+#                           already-existing branch says so here.
 #     LIVE_DRIVER=clear|suspected|unknown|skipped  (#503 guard, resume lane)
 #     CLAIM=none|free|self|held|stale|foreign|unsupported|unknown
 #                           cross-session ownership of issue-N (issue #597),
@@ -130,12 +138,31 @@ resolve_primary() {
 # create_worktree PATH BRANCH START_REF - reuse an existing local branch if
 # one is left over from earlier work, else branch from START_REF. git worktree
 # chatter goes to stderr so the stdout contract stays clean.
+#
+# issue #793: a left-over local branch of the derived name used to be reused
+# UNCONDITIONALLY, silently discarding START_REF - a worktree could land on
+# another worker's unmerged branch tip while the caller still believed (and
+# reported, via LANE=fresh) that it had branched cleanly from START_REF. Before
+# reusing an existing branch, verify its tip is an ancestor of START_REF: if it
+# is, reuse is content-safe (everything on the branch is already in START_REF's
+# history) and WT_BASE_USED notes the reuse for the contract; if it is not, the
+# branch carries commits START_REF does not have - possibly someone else's
+# in-flight work, or content already merged elsewhere via a squash that gives
+# it a different SHA - and this refuses rather than guessing.
 create_worktree() {
+  local path="$1" branch="$2" start_ref="$3"
   [ -n "${FLOW_WORKTREE_BASE:-}" ] && mkdir -p "$FLOW_WORKTREE_BASE"
-  if "$GIT" -C "$TARGET_REPO" show-ref --verify --quiet "refs/heads/$2"; then
-    "$GIT" -C "$TARGET_REPO" worktree add "$1" "$2" >&2
+  if "$GIT" -C "$TARGET_REPO" show-ref --verify --quiet "refs/heads/$branch"; then
+    if ! "$GIT" -C "$TARGET_REPO" merge-base --is-ancestor "$branch" "$start_ref" 2>/dev/null; then
+      local tip
+      tip=$("$GIT" -C "$TARGET_REPO" rev-parse --short "refs/heads/$branch" 2>/dev/null) || tip="unknown"
+      fail "local branch '$branch' already exists at $tip and is unmerged - it is not an ancestor of '$start_ref', so it may carry another worker's or earlier in-flight work; refusing to check it out silently (issue #793). Delete or rename the branch, or rebase it onto $start_ref, then retry."
+    fi
+    WT_BASE_USED="pre-existing branch '$branch' (ancestor of $start_ref), not freshly branched from it"
+    "$GIT" -C "$TARGET_REPO" worktree add "$path" "$branch" >&2
   else
-    "$GIT" -C "$TARGET_REPO" worktree add -b "$2" "$1" "$3" >&2
+    WT_BASE_USED="$start_ref"
+    "$GIT" -C "$TARGET_REPO" worktree add -b "$branch" "$path" "$start_ref" >&2
   fi
 }
 
@@ -410,6 +437,7 @@ LANE=""
 WT_PATH=""
 REMOTE_BRANCH=""
 WT_CREATED=0
+WT_BASE_USED=""
 LIVE_DRIVER=skipped
 PR_HEAD=none
 
@@ -469,7 +497,16 @@ if [ "$LANE" = resume ]; then
   probe_pr_head "$BRANCH"
 fi
 
-# 3. A remote branch exists but no local worktree (cross-machine pickup).
+# 3. A remote branch exists but no local worktree (cross-machine pickup); or,
+#    lacking that, a LOCAL branch matching the issue's pattern already exists
+#    with no worktree attached (case 2 above only catches a branch WITH one).
+#    Matching by pattern rather than requiring the exact current-title-derived
+#    slug is deliberate (issue #793): the issue's title may have changed since
+#    that branch was created, and only a pattern match keeps a differently-
+#    slugged leftover branch from being invisible here and sailing through to
+#    the fresh lane below, where it would either collide under the exact-slug
+#    case (now refused by create_worktree's own guard) or, worse, be silently
+#    ignored while a second branch is created alongside it for the same issue.
 if [ -z "$LANE" ]; then
   REMOTE_BRANCH=$("$GIT" -C "$TARGET_REPO" branch -r --list "origin/issue-${ISSUE_NUM}-*" 2>/dev/null | head -1 | sed 's/^[ *+]*//;s/ .*$//')
   if [ -n "$REMOTE_BRANCH" ]; then
@@ -484,6 +521,25 @@ if [ -z "$LANE" ]; then
       create_worktree "$WT_PATH" "$BRANCH" "$REMOTE_BRANCH" ||
         fail "git worktree add for '$BRANCH' from '$REMOTE_BRANCH' failed in $TARGET_REPO"
       WT_CREATED=1
+    fi
+  else
+    LOCAL_MATCH=$("$GIT" -C "$TARGET_REPO" branch --list "issue-${ISSUE_NUM}-*" 2>/dev/null | sed 's/^[ *+]*//' | head -1)
+    if [ -n "$LOCAL_MATCH" ]; then
+      LANE=local-pickup
+      BRANCH="$LOCAL_MATCH"
+      WT_PATH=$(wt_path_for "$BRANCH")
+      # Same shipped-PR hazard as remote-pickup: the branch could have been
+      # pushed under this name by an earlier run even though it has no
+      # remote-tracking ref locally right now.
+      probe_pr_head "$BRANCH"
+      if [ "$CREATE_OK" -eq 1 ]; then
+        # BRANCH already exists locally, so create_worktree's own ancestor
+        # guard decides this: reused if BASE_REF contains it, refused (naming
+        # the branch and its tip) otherwise - never a silent checkout.
+        create_worktree "$WT_PATH" "$BRANCH" "$BASE_REF" ||
+          fail "git worktree add for '$BRANCH' from '$BASE_REF' failed in $TARGET_REPO"
+        WT_CREATED=1
+      fi
     fi
   fi
 fi
@@ -536,6 +592,9 @@ if [ -n "$REMOTE_BRANCH" ]; then
   echo "REMOTE_BRANCH=$REMOTE_BRANCH"
 fi
 echo "WT_CREATED=$WT_CREATED"
+if [ -n "$WT_BASE_USED" ]; then
+  echo "WT_BASE=$WT_BASE_USED"
+fi
 echo "LIVE_DRIVER=$LIVE_DRIVER"
 echo "CLAIM=$CLAIM"
 echo "CLAIM_PID=$CLAIM_PID"

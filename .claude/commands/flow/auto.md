@@ -165,7 +165,7 @@ a CPP checkout plus `/flow:repair` (the symlink tier returns in issue #663).
 
 The helper prints a `key=value` contract ending in `FLOW_START_RESOLVE: ok`.
 On `FLOW_START_RESOLVE: error` (with an `ERROR=` line): **STOP** and report it.
-Contract keys: `LANE` (`current-branch|fresh|resume|remote-pickup|cross-repo`),
+Contract keys: `LANE` (`current-branch|fresh|resume|remote-pickup|local-pickup|cross-repo`),
 `CROSS_REPO` (1 = the target repo is not the session repo, issue #578),
 `GIT_LANE` (ALWAYS 1 now - worktrees are created outside the repo by default
 (issue #627), so every run rides the git lane: enter with `cd`, never
@@ -178,9 +178,12 @@ for the whole run, issue #626 - see the compose-safety rule below), `ISSUE_STATE
 `ISSUE_TITLE`, `BRANCH` (the enforced issue-anchored name), `WT_PATH` (created
 outside the repo: `$FLOW_WORKTREE_BASE/<repo>-<branch>` when set, else a visible
 sibling `<parent>/<repo>-<branch>`, issue #627), `DEFAULT_BRANCH`, `REMOTE_BRANCH`
-(pickup lane), `WT_CREATED` (1 = the helper already ran `git worktree add`),
-`LIVE_DRIVER` / `PR_HEAD` (the #503 resume hazards - the helper wraps its
-sibling `scripts/flow-live-driver-guard.sh`), `CLAIM` / `CLAIM_PID` /
+(remote-pickup lane), `WT_CREATED` (1 = the helper already ran `git worktree add`),
+`WT_BASE` (present only when `WT_CREATED=1`; names a reused pre-existing branch
+instead of the base ref when the lane did not actually branch fresh off it -
+`LANE` alone is not a promise of that, issue #793), `LIVE_DRIVER` / `PR_HEAD`
+(the #503 resume hazards - the helper wraps its sibling
+`scripts/flow-live-driver-guard.sh`), `CLAIM` / `CLAIM_PID` /
 `CLAIM_SESSION` (the #597 cross-session claim on issue-N, read BEFORE any
 worktree is created), `CONFIRM_REQUIRED`.
 
@@ -204,11 +207,19 @@ the git cleanup fallback.
 
 - `LANE=current-branch`: already on the issue's branch in the session cwd - use
   the current directory (nothing to enter).
-- `LANE=fresh` / `LANE=cross-repo` / `LANE=remote-pickup`: the helper already
-  created (or added) the worktree at `WT_PATH` (`WT_CREATED=1`) - a visible
-  sibling `../<repo>-<branch>`, or under `FLOW_WORKTREE_BASE` when set, branched
-  from `origin/<DEFAULT_BRANCH>` (or the remote issue branch for pickup). `cd
-  <WT_PATH>`.
+- `LANE=fresh` / `LANE=cross-repo` / `LANE=remote-pickup` / `LANE=local-pickup`:
+  the helper already created (or added) the worktree at `WT_PATH`
+  (`WT_CREATED=1`) - a visible sibling `../<repo>-<branch>`, or under
+  `FLOW_WORKTREE_BASE` when set, branched from `origin/<DEFAULT_BRANCH>` (or
+  the remote/local issue branch for pickup). `cd <WT_PATH>`. Check `WT_BASE`
+  (issue #793): when it names a reused branch rather than the base ref, the
+  checkout did not freshly branch off `origin/<DEFAULT_BRANCH>` - it reused an
+  existing branch whose tip was verified to already be contained in it.
+- `FLOW_START_RESOLVE: error` naming a branch as unmerged/not-an-ancestor
+  (issue #793): a pre-existing branch for this issue carries commits the base
+  does not have - possibly another worker's in-flight work. **STOP** and
+  report it; do not retry blindly. The user may need to delete/rename the
+  branch, or rebase it onto the base themselves.
 - `LANE=resume`: a prior session's worktree exists at `WT_PATH`. If
   `CONFIRM_REQUIRED=1` (`LIVE_DRIVER=suspected` - a dirty file touched within
   ~30m, another live session may own this checkout (issue #503) - and/or

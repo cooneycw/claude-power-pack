@@ -531,6 +531,115 @@ def test_remote_pickup_existing_pr_requires_confirmation(tmp_path: Path):
     assert "already has PR 211:OPEN" in res.stderr
 
 
+# --- resolve: existing-branch reuse guard (issue #793) -----------------------
+#
+# `create_worktree` used to reuse a pre-existing local branch of the derived
+# name UNCONDITIONALLY, silently discarding the base ref it was told to branch
+# from, while still reporting LANE=fresh. These pin the ancestor-of-base guard
+# and the broadened local-branch probe that closes that hole.
+
+
+@requires_git
+def test_fresh_lane_refuses_diverged_existing_local_branch(tmp_path: Path):
+    """The exact #793 regression: a local branch matching the DERIVED slug
+    already exists and carries unmerged commits (not an ancestor of the base).
+    The resolver must refuse - not silently check it out - and must not print
+    LANE=fresh (or any LANE at all, since this is a hard error)."""
+    _, clone = _make_origin_and_clone(tmp_path)
+    _git(clone, "switch", "-q", "-c", "issue-42-fix-the-frobnicator")
+    (clone / "wip.txt").write_text("someone else's unmerged work\n")
+    _git(clone, "add", "-A")
+    _git(clone, "commit", "-q", "-m", "wip, never merged")
+    _git(clone, "switch", "-q", "main")
+
+    res = _run("42", "--session-cwd", str(clone), cwd=clone, gh=_fake_gh(tmp_path))
+    assert res.returncode == 1
+    assert "FLOW_START_RESOLVE: error" in res.stdout
+    assert "LANE=" not in res.stdout, "must not report any LANE on refusal"
+    assert "issue-42-fix-the-frobnicator" in res.stdout, "must name the branch"
+    assert "unmerged" in res.stdout, "must say the branch is unmerged"
+    tip = _git(clone, "rev-parse", "--short", "issue-42-fix-the-frobnicator").strip()
+    assert tip in res.stdout, "must name the branch's tip"
+    # The worktree must not have been created.
+    assert not any(p.name.endswith("-issue-42-fix-the-frobnicator") for p in tmp_path.iterdir())
+
+
+@requires_git
+def test_fresh_lane_reuses_ancestor_existing_local_branch_without_lying(tmp_path: Path):
+    """A pre-existing local branch of the derived name whose tip IS an ancestor
+    of the base (here: identical to it) is safe to reuse - but the contract
+    must not claim LANE=fresh for a checkout that did not freshly branch from
+    the base; WT_BASE must say what actually happened instead."""
+    _, clone = _make_origin_and_clone(tmp_path)
+    _git(clone, "branch", "issue-42-fix-the-frobnicator")  # at the same tip as main
+
+    res = _run("42", "--session-cwd", str(clone), cwd=clone, gh=_fake_gh(tmp_path))
+    assert res.returncode == 0, res.stderr
+    c = _contract(res)
+    assert c["WT_CREATED"] == "1"
+    assert c["LANE"] != "fresh", "reused an existing branch - not a fresh branch-off"
+    assert "issue-42-fix-the-frobnicator" in c["WT_BASE"]
+    assert Path(c["WT_PATH"]).is_dir()
+
+
+@requires_git
+def test_local_pickup_lane_finds_differently_slugged_branch(tmp_path: Path):
+    """Issue #793 item 3: the pickup probe used to look only at remote-tracking
+    refs, so a LOCAL leftover branch whose slug no longer matches the CURRENT
+    issue title (it was renamed since the branch was cut) was invisible to it
+    and fell through to the fresh lane under a brand-new branch name, leaving
+    two branches for one issue. Matching by issue-number pattern catches it."""
+    _, clone = _make_origin_and_clone(tmp_path)
+    _git(clone, "switch", "-q", "-c", "issue-42-old-slug-before-rename")
+    (clone / "wip.txt").write_text("in-progress work\n")
+    _git(clone, "add", "-A")
+    _git(clone, "commit", "-q", "-m", "wip")
+    _git(clone, "switch", "-q", "main")
+
+    res = _run(
+        "42",
+        "--session-cwd",
+        str(clone),
+        cwd=clone,
+        gh=_fake_gh(tmp_path),
+        extra_env={"FAKE_GH_TITLE": "Brand new title after rename"},
+    )
+    # The found branch is unmerged relative to the base, so create_worktree's
+    # own guard refuses it rather than silently entering someone's WIP - this
+    # proves the probe SAW it (as local-pickup would have) instead of missing
+    # it and quietly branching a second, differently-named branch off main.
+    assert res.returncode == 1
+    assert "issue-42-old-slug-before-rename" in res.stdout
+    assert "unmerged" in res.stdout
+
+
+@requires_git
+def test_local_pickup_lane_reuses_ancestor_local_branch(tmp_path: Path):
+    """The positive path for the same probe: a local branch matching the issue
+    number (but not the current title's slug) whose tip IS an ancestor of the
+    base is picked up cleanly under LANE=local-pickup - not silently entered
+    under a lie of LANE=fresh, and not left an orphan either."""
+    _, clone = _make_origin_and_clone(tmp_path)
+    _git(clone, "branch", "issue-42-old-slug-before-rename")  # at main's tip
+
+    res = _run(
+        "42",
+        "--session-cwd",
+        str(clone),
+        cwd=clone,
+        gh=_fake_gh(tmp_path),
+        extra_env={"FAKE_GH_TITLE": "Brand new title after rename"},
+    )
+    assert res.returncode == 0, res.stderr
+    c = _contract(res)
+    assert c["LANE"] == "local-pickup"
+    assert c["BRANCH"] == "issue-42-old-slug-before-rename"
+    assert "REMOTE_BRANCH" not in c, "this branch was never remote-tracked"
+    assert c["WT_CREATED"] == "1"
+    assert Path(c["WT_PATH"]).is_dir()
+    assert c["CONFIRM_REQUIRED"] == "0"
+
+
 # --- resolve: FLOW_WORKTREE_BASE override (issue #584) -----------------------
 
 
