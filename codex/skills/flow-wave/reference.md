@@ -522,6 +522,33 @@ the worktree HEAD against `origin/main` yourself (`git -C <wt> rev-list
 discipline**: with N workers merging, main moves under everyone; three of four
 workers were caught behind at least once in the reference run.
 
+**Then WATCH the run your clearance starts (issue #788).** Clearing a PR's queue
+position starts its next pipeline, and until #788 nothing watched the result: on
+the `kyle-completion` wave (2026-09-05) the owner spotted a red pipeline on a
+cleared PR before the orchestrator did, and the clearance stood unrevised over a
+red. Arm the watch as a BACKGROUND call the moment you issue the clearance - it
+blocks until the pipeline is terminal and then exits, so the harness re-invokes
+you with the verdict, exactly like the mailbox watch:
+
+```bash
+~/.claude/scripts/flow-pr-watch.sh <PR> --repo <owner/name> --baseline <wave-flake-baseline>
+```
+
+It returns one of `green` / `cancelled` / `flake` / `red`, because the three
+reds want opposite responses and confusing them is expensive: `cancelled` (a
+superseding push killed the run) is not a defect and re-pushing it only
+lengthens the single-agent queue; `flake` is a test the wave has already
+declared, and treating it as the PR's defect stalls a clean merge; `red` is real
+and the worker must hear the failing ids before it retries, or retrying until it
+wins hides the defect. On anything but `green`, REVISE the clearance explicitly -
+a stale `CLEAR` standing over a red is the failure this closes.
+
+The baseline is the wave's own list of declared-flaky test ids; the helper never
+decides what a flake is, it only reports whether every failure is inside the set
+you declared. Keep it current - an entry left in after its flake is fixed
+silently downgrades a real regression, which is why the verdict always prints
+the ids it excused.
+
 ### 5. Release the next issue
 
 On ledger acceptance the worker proceeds to merge (Step 7-9), then gets its
@@ -611,6 +638,15 @@ Report all six returned fields: `seed_count`, `recorded`, `duplicates`,
   said free, and the only tell was a cursor at 0 spotted by accident. Treat
   `watch=ABSENT` on a role you are about to assign as a BLOCKER: tell it to arm
   the watch before you send, because nothing you send will wake it.
+- **A clearance is not a merge, and nothing watches the run it starts (#788).**
+  Issuing the clearance is where attention ends, but the pipeline it triggers is
+  where the answer arrives - minutes later, on a PR you have stopped looking at.
+  On 2026-09-05 the owner found the red before the orchestrator did. Arm
+  `flow-pr-watch.sh` as a background call on every clearance (step 4 above) and
+  treat its `cancelled` / `flake` / `red` verdict as the trigger to revise the
+  clearance. Do not triage a red by hand and do not retry it blind: re-pushing a
+  cancelled run lengthens the queue, retrying a real failure until it passes
+  hides a defect, and blaming a declared flake on the PR stalls a clean merge.
 - **The orchestrator is the unreliable component.** Verify before ruling,
   expect verified pushback, and record who was right.
 
