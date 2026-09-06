@@ -24,12 +24,13 @@ and available to every machine on the tailnet/LAN.
 Claude Code (supervisor)            Local Qwen via Qwen Code CLI harness
   1. Read GH issue
   2. Create worktree + branch
-  3. Build prompt from issue     --> 4. qwen --output-format stream-json
-  5. Monitor JSONL stream        <--    -m qwen3.8-code:latest (served by Ollama)
-  7. Review Qwen's diff                6. Plan, code, test (~15-20 tok/s locally)
-  8. Run quality gates (lint/test/security)
-  9. If gates fail, re-prompt   --> 10. Fix with error context (max 2 retries)
-  11. Commit, push, create PR
+  3. Build prompt from issue
+  4. GATE: stop for approval     --> 5. qwen --output-format stream-json
+  6. Monitor JSONL stream        <--    -m qwen3.8-code:latest (served by Ollama)
+  8. Review Qwen's diff                7. Plan, code, test (~15-20 tok/s locally)
+  9. Run quality gates (lint/test/security)
+  10. If gates fail, re-prompt  --> 11. Fix with error context (max 2 retries)
+  12. Commit, push, create PR
 ```
 
 ## Serving Stack
@@ -143,6 +144,8 @@ Choose by precondition, not task size:
 
 - `/qwen:auto <ISSUE>` - an EXISTING repo with a FILED issue. Creates a
   worktree and runs the full lifecycle through review, quality gates, and PR.
+  It STOPS after the Step 2 plan report and waits for approval before the model
+  writes anything (Step 3/8); pass `--yes` to skip that pause (issue #774).
 - `/qwen:exec <PROMPT>` - anything else, including a brand-new empty
   directory. Runs in the current directory with no repo or issue required and
   no automatic commit.
