@@ -4,6 +4,31 @@
 
 ### Fixed
 
+- **2026-09-05 - the delegated drivers' Step 3/8 gate has no bypass either**
+  (issue #784) - `/codex:auto`, `/qwen:auto` and `/gemma:auto` kept the
+  invoker-typed `--yes` / `--auto-approve` that #774 shipped their gate with,
+  hours before #775 removed every bypass from `/flow:auto`'s equivalent gate.
+  That left a split standard across four gates in one repo, not a design.
+
+  #774's flag was the right call at the time: it shipped a gate where there had
+  been none, and a flag the caller chooses is strictly better than the trailer
+  channel it declined to propagate. #775 then established that invoker-typed is
+  not the bar - a flag is passed *before* the Step 2 plan report exists, so it is
+  standing consent to whatever plan the run later produces rather than an
+  approval of the plan. That argument is not specific to ELI5, so it now applies
+  here: the flags are recognized and refused out loud, the trailer channel stays
+  unread, and `auto-approved (--yes)` leaves the Step 3/8 report line.
+
+  `/gemma:auto`'s OpenCode `--auto` flag is untouched and stays - it governs tool
+  approval *inside* Gemma's own run, which #774 was careful to distinguish from
+  the orchestrator-level gate and which this change preserves.
+
+  `tests/test_delegated_driver_gates.py` now forbids the escape hatch it used to
+  require, importing the block splitter and grant/refusal vocabulary from
+  `tests/test_eli5_gate_not_bypassable.py` so there is one implementation of
+  "named, but not honored" rather than two that drift silently. Verified
+  non-vacuous: 9 cases fail against the pre-change drivers.
+
 - **2026-09-05 - the ELI5 gate has no bypass** (issue #775) - `/flow:auto`'s
   Step 3 is the only checkpoint between reading an issue and writing code, and
   it could be skipped three ways: `--yes`, its `--auto-approve` alias, and an

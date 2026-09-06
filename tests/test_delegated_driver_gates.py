@@ -16,9 +16,14 @@ running `/codex:auto` under a policy that assumed one.
 
 These are prompt documents, so the document is the enforceable layer - which is
 what makes this test the mechanism rather than the discipline it replaces. A
-future editor cannot delete the halt, reorder it after the delegation, drop the
-invoker-controlled escape hatch, or introduce the trailer-shaped bypass that
-issue #775 is open about, without turning one of these red.
+future editor cannot delete the halt, reorder it after the delegation, or
+reinstate a bypass of it, without turning one of these red.
+
+Issue #784 closed the last gap: #774 shipped these gates with an invoker-typed
+`--yes`, and #775 then removed every bypass from `/flow:auto`'s equivalent gate
+on an argument that applies here verbatim - a flag is passed before the Step 2
+plan report exists, so it is standing consent rather than approval of a plan.
+The escape hatch this file once required is now the thing it forbids.
 """
 
 from __future__ import annotations
@@ -27,6 +32,17 @@ import re
 from pathlib import Path
 
 import pytest
+
+# One implementation of "named, but not honored" for both gates. The ELI5 pin
+# (issue #775) owns the block splitter and the grant/refusal vocabulary; #784
+# holds these drivers to the same rule, so it imports rather than restates it -
+# two copies of this guard would drift, and the drift would be silent.
+from tests.test_eli5_gate_not_bypassable import (
+    BYPASS_TOKENS,
+    GRANT,
+    REFUSAL,
+    _blocks,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 COMMANDS = ROOT / ".claude" / "commands"
@@ -105,16 +121,60 @@ def test_the_plan_report_no_longer_promises_to_proceed(family: str) -> None:
 
 
 @pytest.mark.parametrize("family", sorted(DRIVERS), ids=sorted(DRIVERS))
-def test_only_an_invoker_typed_flag_skips_the_gate(family: str) -> None:
+@pytest.mark.parametrize("token", BYPASS_TOKENS)
+def test_the_gate_has_no_bypass(family: str, token: str) -> None:
+    """Issue #784: this gate holds to the same standard as `/flow:auto`'s.
+
+    #774 shipped these gates with an invoker-typed `--yes`, which was the right
+    call at the time - a flag the caller chooses is strictly better than the
+    trailer channel it declined to propagate. #775 then established that
+    invoker-typed is not the bar: a flag is passed BEFORE the Step 2 plan report
+    exists, so it is standing consent to whatever plan the run later produces
+    rather than an approval of the plan. That argument is not specific to ELI5,
+    and leaving it applied to only one of four gates in this repo was a split
+    standard, not a design.
+
+    Naming a removed channel is still allowed - both are named on purpose, so a
+    future editor reinstates one deliberately rather than by accident - so this
+    reuses the grant/refusal guard from the ELI5 pin rather than a second
+    implementation of it.
+    """
+    text = _driver(family)
+    for block in _blocks(text):
+        if token not in block:
+            continue
+        grant = GRANT.search(block)
+        assert not grant, (
+            f"{family}/auto.md: '{token}' is described as working ({grant.group(0)!r}) - that is "
+            f"a live bypass of the Step 3/8 gate (issue #784):\n\n{block}"
+        )
+        assert REFUSAL.search(block), (
+            f"{family}/auto.md: '{token}' appears in a block that does not refuse it, so it "
+            f"reads as a live bypass of the Step 3/8 gate (issue #784):\n\n{block}"
+        )
+
+
+@pytest.mark.parametrize("family", sorted(DRIVERS), ids=sorted(DRIVERS))
+def test_the_trailer_bypass_was_never_propagated_here(family: str) -> None:
     text = _driver(family)
 
-    assert "`--yes` (optional, alias `--auto-approve`)" in text, (
-        f"{family}/auto.md: the gate needs an invoker-controlled escape hatch, or unattended "
-        "callers are broken by it"
-    )
-    assert not TRAILER_BYPASS.search(text) or "no trailer-based" in text.casefold() or "NO\ntrailer-based" in text, (
+    lowered = text.casefold()
+    refused = "never read" in lowered or "no trailer-based" in lowered
+    assert not TRAILER_BYPASS.search(text) or refused, (
         f"{family}/auto.md: a trailer bypass would let the issue filer approve on the "
         "invoker's behalf (the #775 hazard) - do not propagate it here"
+    )
+
+
+@pytest.mark.parametrize("family", sorted(DRIVERS), ids=sorted(DRIVERS))
+def test_no_auto_approved_outcome_in_the_report_line(family: str) -> None:
+    """A producible `auto-approved` value means a reachable bypass (issue #784)."""
+    report = [
+        line for line in _driver(family).splitlines() if line.startswith("Report: `Step 3/8: Approve")
+    ]
+    assert len(report) == 1, f"{family}/auto.md: expected exactly one Step 3/8 report line"
+    assert "auto-approved" not in report[0], (
+        f"{family}/auto.md: the Step 3/8 report line still offers an auto-approved outcome: {report[0]}"
     )
 
 
