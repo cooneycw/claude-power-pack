@@ -152,6 +152,14 @@ register) rather than as a sentence in a message - the roster checks declared
 file lanes for overlap, and the reference wave's every real collision was
 file-level while the orchestrator held the paths in prose.
 
+Say `--repo <path>` in the same breath as `--files` (#800). Overlap detection is
+scoped to same-repo pairs, and `--repo` is REWRITTEN by every re-register while
+`--files` is PRESERVED - so a worker who re-registers with only `--files` to
+take a lane extension keeps the lane and loses the key that makes it comparable.
+Two workers held the same two files for ~40 minutes that way. The roster now
+reports such a role as UNKNOWN rather than clean (`FLOW_WAVE_OVERLAP_UNSCOPED`),
+so read that line before treating a quiet roster as a clear one.
+
 ## Setup: the delivery lane (consume #676, do not reimplement)
 
 The roster says WHERE a worker is. It does not deliver, and on 2026-08-11 that
@@ -350,8 +358,10 @@ For each idle registered worker, pick the next startable issue subject to:
   authority model, merge authority) is not retyped here - it is declared wave
   policy (#699), and the worker re-reads it by re-registering.
 - **Declare the lane, do not just describe it** (#699). Give the file lane as
-  `--files a,b,c` for the worker's next register, so the roster can warn when
-  two lanes overlap. The reference wave's worst orchestrator error was a message
+  `--files a,b,c` for the worker's next register - with `--repo <path>` on the
+  same call, since overlap detection compares same-repo pairs and `--repo` is
+  rewritten by every re-register while `--files` is preserved (#800) - so the
+  roster can warn when two lanes overlap. The reference wave's worst orchestrator error was a message
   that fenced a worker's file lane out of one file and, three paragraphs later,
   assigned it the issue whose fix lived in that file - a contradiction nothing
   could check because the lane existed only as prose.

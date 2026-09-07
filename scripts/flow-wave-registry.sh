@@ -132,6 +132,21 @@
 #             cwd. Narrow on purpose: a declared branch or a real nested worktree
 #             is a lane even with no issue number. The exemption is announced,
 #             not silent, and lapses the moment a lane is declared.
+#             A lane that could not be CHECKED is reported as UNKNOWN, never as
+#             clean (#800). The same-issue and FILE-LANE arms are scoped to
+#             same-repo pairs, so a live role holding a declared lane with an
+#             EMPTY repo matches nothing and falls out of the report in silence -
+#             a re-register that omits --repo CLEARS it while --files is
+#             preserved, so extending a lane was the act that stopped it being
+#             checked. Such roles are NAMED, counted in
+#             FLOW_WAVE_OVERLAP_UNSCOPED, and said aloud on stderr; `register`
+#             and `get` answer the same question per role as
+#             FLOW_WAVE_LANE_SCOPED=yes|no|-. NOT fixed by preserving `repo`
+#             across a re-register: `repo` is a LANE fact and lane facts go
+#             stale (the #683 trap), so preserving it would make a worker that
+#             moved repos cry wolf, and would still leave a never-declared repo
+#             silent. Fail loud, so an unscoped role is visible rather than
+#             invisible.
 #             ALSO reconciles `flow-claim` worktree locks (#687): a session that
 #             went straight to /flow:auto never registered, so its issue, branch
 #             and worktree were invisible to the roster while it held a real
@@ -742,6 +757,31 @@ report_overlap() {
   elif [ -n "$ra" ] && [ "$ra" = "$rb" ]; then
     echo "  info: '$al' and '$bl' share repo $ra (separate worktrees - the normal wave shape)."
   fi
+}
+
+# lane_unscoped REPO FILES ISSUE -> 0 when this role declares a lane fact whose
+# overlap arm is SCOPED TO SAME-REPO PAIRS while carrying NO repo (#800).
+#
+# Two of report_overlap's four arms - same-issue and FILE LANE - test `$ra` =
+# `$rb` before they test anything else, because the same relative path (or the
+# same issue number) in two different repos is not a collision. An EMPTY repo
+# therefore matches NOTHING: the arm cannot fire, the shared-repo `info:` arm
+# below it cannot fire either, and the pair drops out of the report entirely.
+# Silence there is indistinguishable from "checked, and clean" - which is the
+# one reading it must never have.
+#
+# The branch and same/nested-worktree arms are repo-INDEPENDENT and unaffected.
+# This predicate is deliberately about the two that are not.
+#
+# Found in a live wave: a worker re-registered passing only `--files` to extend
+# its lane. `files` is PRESERVED across a re-register that omits it while `repo`
+# is REWRITTEN, so the lane survived and its scoping key did not - two workers
+# held the same two files for ~40 minutes against a roster that read clean. The
+# act of declaring a lane was the act that stopped the lane being checked.
+lane_unscoped() {
+  local repo="$1" files="$2" issue="$3"
+  [ -z "$repo" ] || return 1
+  [ -n "$files" ] || [ -n "$issue" ]
 }
 
 # ---- wave policy (issue #699) -----------------------------------------------
@@ -1378,6 +1418,38 @@ case "$VERB" in
       echo "  Re-register with --cwd <worktree> once your lane exists, or overlap detection will cry wolf against every worktree under it (#683)." >&2
       echo "  Harmless for bootstrap - the entry is valid and this changes no verdict." >&2
     fi
+    # A declared lane with NO repo is an UNSCOPED lane (#800), reported HERE for
+    # the same reason the shared-parent advisory above is: one re-register fixes
+    # it, and the alternative is an orchestrator never noticing, because there is
+    # nothing to notice - the roster reads clean.
+    #
+    # The stored entry is read BACK rather than judged from the flags, because
+    # the flags are precisely what cannot answer this: `--files` may have been
+    # omitted and PRESERVED from the previous registration while `--repo` was
+    # omitted and REWRITTEN to empty. That asymmetry IS the bug, so the check has
+    # to look at what was actually recorded. Reading the entry also means this
+    # keeps telling the truth if a field ever moves between the two groups.
+    #
+    # The `orchestrator` is skipped because `list` exempts it from the pairwise
+    # checks unconditionally: it holds no lane, so "its lane is unscoped" is not
+    # a fact about anything.
+    NEW_ENTRY="$(entry_json "$WAVE" "$ROLE")"
+    NEW_REPO="$(printf '%s' "$NEW_ENTRY" | jq -r '.repo // ""')"
+    NEW_FILES="$(printf '%s' "$NEW_ENTRY" | jq -r '.files // ""')"
+    NEW_ISSUE="$(printf '%s' "$NEW_ENTRY" | jq -r '.issue // ""')"
+    E_LANE_SCOPED="-"
+    if [ "$ROLE" != "orchestrator" ] && { [ -n "$NEW_FILES" ] || [ -n "$NEW_ISSUE" ]; }; then
+      E_LANE_SCOPED=yes
+      if lane_unscoped "$NEW_REPO" "$NEW_FILES" "$NEW_ISSUE"; then
+        E_LANE_SCOPED=no
+        DECLARED=""
+        [ -n "$NEW_FILES" ] && DECLARED="$DECLARED files=$NEW_FILES"
+        [ -n "$NEW_ISSUE" ] && DECLARED="$DECLARED issue=$NEW_ISSUE"
+        echo "flow-wave-registry: role '$ROLE' declares a lane (${DECLARED# }) but NO repo - overlap detection is UNSCOPED for it (#800)." >&2
+        echo "  The same-issue and FILE-LANE arms compare same-repo pairs only, so an empty repo matches nothing and 'list' reads CLEAN while this lane goes unchecked." >&2
+        echo "  Re-register with --repo <path>. --repo is REWRITTEN by every re-register - unlike --files, which is preserved - so it must be passed EVERY time." >&2
+      fi
+    fi
     # Loud default (#671) - independent of addressing: a silently-defaulted
     # wave and an unaddressed session are separate failures and both advise.
     if implicit_default; then
@@ -1404,6 +1476,7 @@ case "$VERB" in
     emit_policy_lines "$POL"
     echo "FLOW_WAVE_BRIEFED_REV=$POL_REV"
     echo "FLOW_WAVE_BRIEF=$(brief_state "$POL_REV" "$POL_REV")"
+    echo "FLOW_WAVE_LANE_SCOPED=$E_LANE_SCOPED"
     E_SOCKET="$SOCK"; E_PID="$SELF_PID"; E_SESSION="$SELF_SESSION"; E_LIVE=live
     E_VERIFIED="$KEEP_VERIFIED"; E_MISMATCH="$KEEP_MISMATCH"
     E_SOURCE="$SOCK_SOURCE"; E_REASON="$SOCK_REASON"
@@ -1445,6 +1518,22 @@ case "$VERB" in
     echo "FLOW_WAVE_PERMISSION_MODE=$(printf '%s' "$CUR" | jq -r '.permission_mode // "-" | if . == "" then "-" else . end')"
     echo "FLOW_WAVE_FILES=$(printf '%s' "$CUR" | jq -r '.files // "-" | if . == "" then "-" else . end')"
     echo "FLOW_WAVE_CAPACITY=$(printf '%s' "$CUR" | jq -r '.capacity // "-" | if . == "" then "-" else . end')"
+    # Whether this role's lane can be overlap-checked AT ALL (#800). `get` is the
+    # scripting contract, and FLOW_WAVE_REPO / FLOW_WAVE_FILES answer this only
+    # for a caller who already knows the same-repo scoping rule - so the answer
+    # is reported directly rather than left to be re-derived, correctly, by
+    # everyone. `-` means the role declares no repo-scoped lane fact (or is the
+    # orchestrator, which the pairwise checks exempt); `no` means it declares one
+    # that cannot be compared with anybody.
+    GET_REPO="$(printf '%s' "$CUR" | jq -r '.repo // ""')"
+    GET_FILES="$(printf '%s' "$CUR" | jq -r '.files // ""')"
+    GET_ISSUE="$(printf '%s' "$CUR" | jq -r '.issue // ""')"
+    GET_SCOPED="-"
+    if [ "$ROLE" != "orchestrator" ] && { [ -n "$GET_FILES" ] || [ -n "$GET_ISSUE" ]; }; then
+      GET_SCOPED=yes
+      lane_unscoped "$GET_REPO" "$GET_FILES" "$GET_ISSUE" && GET_SCOPED=no
+    fi
+    echo "FLOW_WAVE_LANE_SCOPED=$GET_SCOPED"
     # The role's driver and what it structurally CANNOT take (#783). This is the
     # line an orchestrator reads before routing: a research ticket sent to a role
     # whose FLOW_WAVE_DRIVER_CANNOT names `research` is the mis-route the issue
@@ -1567,6 +1656,35 @@ case "$VERB" in
     done
     BOOTSTRAP_STATE=ok
     [ "$UNADDRESSED" -gt 0 ] && BOOTSTRAP_STATE=deadlock
+    # Overlap that could not be COMPUTED is reported as UNKNOWN, never as clean
+    # (#800). A live role with a declared lane and an empty repo drops out of the
+    # same-issue and FILE-LANE arms silently - they compare same-repo pairs, and
+    # an empty repo matches nothing - so without this the roster's silence about
+    # that role reads exactly like a clean verdict.
+    #
+    # Counted HERE, above the --json branch, so EVERY render path reports it: an
+    # instrument whose blind spot is visible in one output mode and invisible in
+    # another is the same failure one level up. Unconditional per role rather
+    # than gated on a second role existing to collide with - #674's do-not-alarm
+    # rule is about warnings that fire on the NORMAL case, and register.md's own
+    # canonical invocation passes --repo, so this shape is a defective
+    # registration whether or not anyone is currently exposed by it.
+    #
+    # The `orchestrator` is skipped because the pairwise checks below exempt it
+    # unconditionally - it holds no lane, so it has no scoping to lose.
+    UNSCOPED=0
+    UNSCOPED_ROLES=""
+    for r in $ROLES; do
+      e="$(printf '%s' "$REG" | jq -c --arg w "$WAVE" --arg r "$r" '.[$w].roles[$r]')"
+      [ "$(liveness_of "$e")" = "live" ] || continue
+      [ "$r" = "orchestrator" ] && continue
+      lane_unscoped \
+        "$(printf '%s' "$e" | jq -r '.repo // ""')" \
+        "$(printf '%s' "$e" | jq -r '.files // ""')" \
+        "$(printf '%s' "$e" | jq -r '.issue // ""')" || continue
+      UNSCOPED=$((UNSCOPED + 1))
+      UNSCOPED_ROLES="$UNSCOPED_ROLES $r"
+    done
     # Deafness, computed once for every render path below (#778). Scoped to LIVE
     # roles, and gated on the mailbox lane being IN USE in this wave: in a wave
     # that never used it, every role would read ABSENT, and a flag that fires on
@@ -1669,6 +1787,7 @@ $rp"
       echo "FLOW_WAVE_WATCH_UNARMED=$WATCH_UNARMED"
       echo "FLOW_WAVE_UNREAD=$UNREAD_TOTAL"
       echo "FLOW_WAVE_BOOTSTRAP=$BOOTSTRAP_STATE"
+      echo "FLOW_WAVE_OVERLAP_UNSCOPED=$UNSCOPED"
       echo "FLOW_WAVE: listed"
       exit 0
     fi
@@ -1693,6 +1812,7 @@ EOF
       echo "FLOW_WAVE_WATCH_UNARMED=$WATCH_UNARMED"
       echo "FLOW_WAVE_UNREAD=$UNREAD_TOTAL"
       echo "FLOW_WAVE_BOOTSTRAP=$BOOTSTRAP_STATE"
+      echo "FLOW_WAVE_OVERLAP_UNSCOPED=$UNSCOPED"
       echo "FLOW_WAVE: listed"
       exit 0
     fi
@@ -1879,6 +1999,19 @@ EOF
     if [ -n "$EXEMPT_ROLES" ]; then
       echo "  info: overlap checks skipped for lane-less live role(s):${EXEMPT_ROLES} (orchestrator never holds a lane; others declared no issue, no branch, no file lane, and a shared-parent cwd). Applies until they declare one."
     fi
+    # An overlap check that could not RUN is announced too (#800), on exactly the
+    # #683 reasoning that produced the exemption notice above: a skipped check the
+    # reader cannot see is a blind spot, not a quiet win. The two are announced
+    # separately because they are not the same claim - #683 skips roles that
+    # declared NOTHING to collide over, which is safe, while this names roles that
+    # declared a lane and could not be compared, which is not. Folding the second
+    # into the first would file a real gap under a reassuring heading.
+    if [ -n "$UNSCOPED_ROLES" ]; then
+      echo "  UNKNOWN: overlap NOT computed for live role(s) with a declared lane and NO repo:${UNSCOPED_ROLES}"
+      echo "  The same-issue and FILE-LANE arms compare same-repo pairs, so an empty repo matches nothing - these roles are UNCHECKED, not clean."
+      echo "  Each fixes it by re-registering with --repo <path>; --repo is rewritten by every re-register (--files is preserved), so it must be passed every time."
+    fi
+    [ "$UNSCOPED" -gt 0 ] && echo "flow-wave-registry: overlap detection is UNSCOPED for $UNSCOPED live role(s) - this roster CANNOT be read as clean (#800)." >&2
     [ "$WARNED" -eq 1 ] && echo "flow-wave-registry: lane overlap detected - do not co-schedule the flagged pairs." >&2
     # Stale briefs, counted (#699). A policy that was amended after workers
     # registered is the drift a declared-but-unread field would hide, so the
@@ -1918,6 +2051,7 @@ EOF
     echo "FLOW_WAVE_WATCH_UNARMED=$WATCH_UNARMED"
     echo "FLOW_WAVE_UNREAD=$UNREAD_TOTAL"
     echo "FLOW_WAVE_BOOTSTRAP=$BOOTSTRAP_STATE"
+    echo "FLOW_WAVE_OVERLAP_UNSCOPED=$UNSCOPED"
     echo "FLOW_WAVE: listed"
     exit 0
     ;;
