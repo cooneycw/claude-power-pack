@@ -49,6 +49,14 @@ requires_bash = pytest.mark.skipif(
     shutil.which("bash") is None, reason="requires bash on PATH"
 )
 
+# The no-/proc watcher lane shells out to `ps`, which the CI validate container
+# does not ship - and there the helper correctly answers `unknown` rather than
+# guessing, which is the #801 contract, not a failure. Only the test that FORCES
+# that lane needs this guard; the auto-selected /proc lane needs no `ps` at all.
+requires_ps = pytest.mark.skipif(
+    shutil.which("ps") is None, reason="requires ps on PATH (procps)"
+)
+
 WAVE = "testwave"
 
 
@@ -606,7 +614,17 @@ def _watch_states(proc: subprocess.CompletedProcess[str]) -> dict[str, str]:
     the assertion looks for (CPP directive - a pattern-matching fixture must not
     interpolate an absolute path it does not control).
     """
-    states: dict[str, str] = {}
+    return {role: cols[0] for role, cols in _watch_rows(proc).items()}
+
+
+def _watch_rows(proc: subprocess.CompletedProcess[str]) -> dict[str, list[str]]:
+    """``{role: [state, watchers]}`` from the text ``list`` watch table.
+
+    The WATCHERS column arrived with #801, printed beside the state so the
+    derivation is checkable rather than taken on trust; tests read both from one
+    parse for the same reason.
+    """
+    rows: dict[str, list[str]] = {}
     in_table = False
     for line in proc.stdout.splitlines():
         if line.startswith("ROLE") and "WATCH" in line:
@@ -614,19 +632,42 @@ def _watch_states(proc: subprocess.CompletedProcess[str]) -> dict[str, str]:
             continue
         if not in_table:
             continue
-        if line.startswith("FLOW_MAILBOX") or not line.strip():
+        if line.startswith(("FLOW_MAILBOX", "DEAF:", "UNKNOWN:")) or not line.strip():
             break
         parts = line.split()
-        if len(parts) >= 2:
-            states[parts[0]] = parts[1]
-    return states
+        if len(parts) >= 3:
+            rows[parts[0]] = [parts[1], parts[2]]
+    return rows
 
 
-def _run_at(tmp: Path, now: str, *args: str, timeout: int = 60):
+def _live_watcher(tmp: Path, role: str, wave: str, timeout: int = 30):
+    """Start a REAL blocking watcher and wait until its heartbeat exists.
+
+    The #801 state is fused from the live process table, so a test that wants
+    ``armed`` must run an actual process - a stamped heartbeat alone is exactly
+    what no longer means armed.
+    """
+    env = os.environ.copy()
+    env["FLOW_WAVE_MAILBOX_DIR"] = str(tmp / "mb")
+    proc = subprocess.Popen(
+        ["bash", str(MAILBOX), "watch", "--role", role, "--wave", wave,
+         "--timeout", str(timeout), "--interval", "1", "--consume"],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,
+    )
+    wf = _watch_file(tmp, wave, role)
+    deadline = time.time() + 15
+    while not wf.exists() and time.time() < deadline:
+        time.sleep(0.05)
+    assert wf.exists(), "watch never armed"
+    return proc
+
+
+def _run_at(tmp: Path, now: str, *args: str, timeout: int = 60, **envextra: str):
     """``_run`` with the clock pinned, so heartbeat ages are deterministic."""
     env = os.environ.copy()
     env["FLOW_WAVE_MAILBOX_DIR"] = str(tmp / "mb")
     env["FLOW_WAVE_NOW"] = now
+    env.update(envextra)
     return subprocess.run(
         ["bash", str(MAILBOX), *args],
         capture_output=True,
@@ -715,32 +756,124 @@ class TestListWatchState:
         assert _watch_states(proc) == {"1": "absent"}
         assert "never armed" in proc.stdout
 
-    def test_list_reports_armed_after_a_recent_watch(self, tmp_path: Path) -> None:
+    def test_list_reports_armed_while_a_watcher_is_live(self, tmp_path: Path) -> None:
+        """The positive control for the whole #801 fusion.
+
+        A fix that reported `dead` unconditionally would satisfy every negative
+        case in this file, so the direction that must still read `armed` is
+        asserted with a REAL blocking watcher rather than a stamped heartbeat.
+        """
+        watcher = _live_watcher(tmp_path, "1", WAVE)
+        try:
+            proc = _run(tmp_path, "list", "--wave", WAVE)
+            assert _watch_rows(proc)["1"] == ["armed", "1"]
+            assert "DEAF:" not in proc.stdout
+        finally:
+            watcher.kill()
+            watcher.communicate(timeout=10)
+
+    def test_list_reports_dead_once_the_watcher_has_exited(self, tmp_path: Path) -> None:
+        """The #801 regression, at the surface an orchestrator actually sweeps.
+
+        `--timeout 0` arms, stamps, and exits - which is precisely the shape of
+        a one-shot watch that has just delivered. The heartbeat is 10s old and
+        looks perfectly healthy; nothing is listening.
+        """
         _run_at(tmp_path, "1700000000", "watch", "--role", "1", "--wave", WAVE, "--timeout", "0", "--consume")
         proc = _run_at(tmp_path, "1700000010", "list", "--wave", WAVE)
-        assert _watch_states(proc) == {"1": "armed"}
+        assert _watch_rows(proc)["1"] == ["dead", "0"]
+        assert "10s ago" in proc.stdout  # the age is still reported, not hidden
+        assert "DEAF:" in proc.stdout
 
-    def test_list_reports_stale_past_the_threshold(self, tmp_path: Path) -> None:
+    def test_a_fresh_heartbeat_alone_never_reads_armed(self, tmp_path: Path) -> None:
+        """The bug in one assertion: age is not evidence anyone is listening.
+
+        Pinned across the whole freshness range - at 0s, and just inside the
+        stale threshold - because the defect was that ANY sub-threshold age
+        rendered `armed`.
+        """
         _run_at(tmp_path, "1700000000", "watch", "--role", "1", "--wave", WAVE, "--timeout", "0", "--consume")
-        # 2520s later - past the 300s default.
-        proc = _run_at(tmp_path, "1700002520", "list", "--wave", WAVE)
-        assert _watch_states(proc) == {"1": "stale"}
+        for now in ("1700000000", "1700000299"):
+            proc = _run_at(tmp_path, now, "list", "--wave", WAVE)
+            assert _watch_states(proc) == {"1": "dead"}, f"read as armed at {now}"
+
+    def test_stale_needs_a_live_watcher_that_stopped_refreshing(
+        self, tmp_path: Path
+    ) -> None:
+        """`stale` narrowed under #801 and is no longer reachable by age alone.
+
+        A watch refreshes every poll, so an old heartbeat behind a LIVE process
+        means hung or stopped - a different repair from a process that is simply
+        gone, which is why the two words stayed distinct.
+        """
+        watcher = _live_watcher(tmp_path, "1", WAVE)
+        try:
+            # A far-future reader clock ages the live watcher's real stamp past
+            # the 300s threshold without stopping the process.
+            future = str(int(time.time()) + 9000)
+            proc = _run_at(tmp_path, future, "list", "--wave", WAVE)
+            assert _watch_rows(proc)["1"] == ["stale", "1"]
+        finally:
+            watcher.kill()
+            watcher.communicate(timeout=10)
 
     def test_stale_threshold_is_configurable(self, tmp_path: Path) -> None:
+        """The #778 knob still moves the armed/stale line - for a LIVE watcher,
+        the only case where that line still decides anything.
+        """
+        watcher = _live_watcher(tmp_path, "1", WAVE)
+        try:
+            future = str(int(time.time()) + 9000)
+            proc = _run_at(tmp_path, future, "list", "--wave", WAVE,
+                           FLOW_WAVE_WATCH_STALE_SECS="99999")
+            assert _watch_states(proc) == {"1": "armed"}
+        finally:
+            watcher.kill()
+            watcher.communicate(timeout=10)
+
+    def test_unknown_watcher_count_is_never_rendered_as_clean(
+        self, tmp_path: Path
+    ) -> None:
+        """A process table that cannot be read is UNCHECKED, not clean (#800).
+
+        Rounding it to zero would report `dead` for healthy watches - this same
+        bug wearing the opposite sign - so it gets its own state and its own
+        advisory, kept apart from DEAF because it claims nothing either way.
+        """
         _run_at(tmp_path, "1700000000", "watch", "--role", "1", "--wave", WAVE, "--timeout", "0", "--consume")
-        env = os.environ.copy()
-        env["FLOW_WAVE_MAILBOX_DIR"] = str(tmp_path / "mb")
-        env["FLOW_WAVE_NOW"] = "1700002520"
-        env["FLOW_WAVE_WATCH_STALE_SECS"] = "9000"
-        proc = subprocess.run(
-            ["bash", str(MAILBOX), "list", "--wave", WAVE],
-            capture_output=True, text=True, env=env, check=False, timeout=60,
-        )
-        assert _watch_states(proc) == {"1": "armed"}
+        proc = _run_at(tmp_path, "1700000010", "list", "--wave", WAVE,
+                       FLOW_WAVE_WATCHER_SCAN="none")
+        assert _watch_rows(proc)["1"] == ["unknown", "unknown"]
+        assert "UNKNOWN:" in proc.stdout
+        assert "DEAF:" not in proc.stdout
+
+    @requires_ps
+    def test_ps_fallback_lane_reaches_the_same_verdict(self, tmp_path: Path) -> None:
+        """The no-/proc lane is dead code on every host the suite runs on, so it
+        would otherwise ship unexercised. Forced here, it must agree.
+
+        Skipped where `ps` is absent (the CI validate container): there the lane
+        answers `unknown` instead, which is the #801 contract working - the
+        `test_unknown_watcher_count_is_never_rendered_as_clean` case - not a
+        disagreement between the lanes.
+        """
+        watcher = _live_watcher(tmp_path, "1", WAVE)
+        try:
+            proc = _run_at(tmp_path, str(int(time.time())), "list", "--wave", WAVE,
+                           FLOW_WAVE_WATCHER_SCAN="ps")
+            assert _watch_rows(proc)["1"] == ["armed", "1"]
+        finally:
+            watcher.kill()
+            watcher.communicate(timeout=10)
+        proc = _run_at(tmp_path, str(int(time.time())), "list", "--wave", WAVE,
+                       FLOW_WAVE_WATCHER_SCAN="ps")
+        assert _watch_states(proc) == {"1": "dead"}
 
     def test_json_carries_reader_mtime_and_watches(self, tmp_path: Path) -> None:
         """The registry joins on `reader` and reads `watches`, so both are part
-        of the contract rather than incidental output (#778).
+        of the contract rather than incidental output (#778). `watchers` joined
+        them in #801 - the roster renders the state, and a consumer checking the
+        fusion needs the count it was derived from.
         """
         _run(tmp_path, "send", "--wave", WAVE, "--to", "1", "--body", "assignment")
         _run(tmp_path, "send", "--wave", WAVE, "--to", "orchestrator", "--from", "1", "--body", "hello")
@@ -752,10 +885,24 @@ class TestListWatchState:
         assert by_box["inbox-1.md"]["reader"] == "orchestrator"
         assert by_box["outbox-1.md"]["mtime"] != "-"
         watches = {w["role"]: w for w in payload["watches"]}
-        assert watches["1"]["state"] == "armed"
+        assert watches["1"]["state"] == "dead"
         assert watches["1"]["age_secs"] == 0
+        assert watches["1"]["watchers"] == 0
         assert watches["orchestrator"]["state"] == "absent"
         assert watches["orchestrator"]["age_secs"] is None
+        assert watches["orchestrator"]["watchers"] == 0
+
+    def test_json_watchers_is_null_when_unknown(self, tmp_path: Path) -> None:
+        """`null`, never 0 - the JSON consumer must be able to tell "nobody is
+        listening" from "could not look" (#801).
+        """
+        _run_at(tmp_path, "1700000000", "watch", "--role", "1", "--wave", WAVE, "--timeout", "0", "--consume")
+        proc = _run_at(tmp_path, "1700000000", "list", "--wave", WAVE, "--json",
+                       FLOW_WAVE_WATCHER_SCAN="none")
+        payload = json.loads(proc.stdout.split("FLOW_MAILBOX")[0])
+        watches = {w["role"]: w for w in payload["watches"]}
+        assert watches["1"]["watchers"] is None
+        assert watches["1"]["state"] == "unknown"
 
     def test_a_role_that_armed_before_any_box_exists_is_still_reported(
         self, tmp_path: Path
@@ -764,10 +911,14 @@ class TestListWatchState:
         (worker step 4 runs at registration), so a box-only scan would miss
         exactly the roles doing it right.
         """
-        _run(tmp_path, "watch", "--role", "1", "--wave", WAVE, "--timeout", "0", "--consume")
-        proc = _run(tmp_path, "list", "--wave", WAVE)
-        assert "No mailboxes" in proc.stdout  # precondition: no box exists yet
-        assert _watch_states(proc) == {"1": "armed"}
+        watcher = _live_watcher(tmp_path, "1", WAVE)
+        try:
+            proc = _run(tmp_path, "list", "--wave", WAVE)
+            assert "No mailboxes" in proc.stdout  # precondition: no box exists yet
+            assert _watch_states(proc) == {"1": "armed"}
+        finally:
+            watcher.kill()
+            watcher.communicate(timeout=10)
 
 
 # --------------------------------------------------------------------------
@@ -820,21 +971,90 @@ class TestWatchStatus:
             watcher.kill()
             watcher.communicate(timeout=10)
 
-    def test_status_reports_rearmed_no_after_the_watcher_exits(
+    def test_status_reports_dead_after_the_watcher_exits(
         self, tmp_path: Path
     ) -> None:
-        """Zero used to be undiagnosable: both a healthy transient (just woke,
-        re-arm pending) and the failure state (blind) read the same. Status
-        distinguishes them via the live watcher count, not the heartbeat alone.
+        """The #801 regression test, and the exact line from the live wave.
+
+        This assertion previously read ``WATCH_STATE == "armed"`` alongside
+        ``WATCHER_COUNT == 0`` - the contradiction shipped as the contract. On
+        the `docker-list` wave an orchestrator read that word and told three
+        workers to do nothing; all three were deaf, one for ~50 minutes. The
+        state is now fused from the count, so the word cannot disagree with the
+        number beside it.
         """
         _run(tmp_path, "watch", "--role", "1", "--wave", WAVE, "--timeout", "0", "--consume")
         proc = _run(tmp_path, "watch", "--status", "--role", "1", "--wave", WAVE)
         assert _detail(proc, "FLOW_MAILBOX_REARMED") == "no"
         assert _detail(proc, "FLOW_MAILBOX_WATCHER_COUNT") == "0"
-        # The heartbeat itself is still there (armed, not absent) - the two
-        # facts together are what make "re-armed: no" diagnosable rather than
-        # just another confident-looking zero.
-        assert _detail(proc, "FLOW_MAILBOX_WATCH_STATE") == "armed"
+        assert _detail(proc, "FLOW_MAILBOX_WATCH_STATE") == "dead"
+        # The heartbeat age survives the change - it is what separates "died
+        # just now" from "died an hour ago", and it is all the stamp was ever
+        # trustworthy for.
+        assert _detail(proc, "FLOW_MAILBOX_WATCH_AGE").isdigit()
+        # The human line must not bury the verdict behind a reassuring age.
+        assert "DEAD" in proc.stdout
+        assert "NOTHING is listening" in proc.stdout
+
+    def test_status_reports_unknown_when_the_process_table_is_unreadable(
+        self, tmp_path: Path
+    ) -> None:
+        """An unknowable answer is never rendered as a clean one (#800/#801)."""
+        _run(tmp_path, "watch", "--role", "1", "--wave", WAVE, "--timeout", "0", "--consume")
+        proc = _run_at(tmp_path, "1700000000", "watch", "--status", "--role", "1",
+                       "--wave", WAVE, FLOW_WAVE_WATCHER_SCAN="none")
+        assert _detail(proc, "FLOW_MAILBOX_WATCH_STATE") == "unknown"
+        assert _detail(proc, "FLOW_MAILBOX_WATCHER_COUNT") == "unknown"
+        assert _detail(proc, "FLOW_MAILBOX_REARMED") == "unknown"
+        assert _verdict(proc) == "status"
+        assert proc.returncode == 0  # advisory: it reports, it never blocks
+
+    def test_a_status_query_is_not_itself_counted_as_a_watcher(
+        self, tmp_path: Path
+    ) -> None:
+        """`watch --status` shares the watcher argv shape but watches nothing.
+
+        Counting it made the instrument perturb its own reading: a status check
+        running while a real watch armed made that arm refuse as a duplicate
+        against a "watcher" that was only a query. Asserted through the arm
+        guard, which is where the false positive actually bit.
+        """
+        env = os.environ.copy()
+        env["FLOW_WAVE_MAILBOX_DIR"] = str(tmp_path / "mb")
+        # A status query held open for the duration of the arm below.
+        status = subprocess.Popen(
+            ["bash", str(MAILBOX), "watch", "--status", "--role", "1", "--wave", WAVE],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,
+        )
+        try:
+            proc = _run(tmp_path, "watch", "--role", "1", "--wave", WAVE,
+                        "--timeout", "0", "--consume")
+            assert proc.returncode != 4, "a --status query was counted as a live watcher"
+            assert _verdict(proc) != "duplicate"
+        finally:
+            status.kill()
+            status.communicate(timeout=10)
+
+    def test_one_watcher_counts_once_despite_its_own_subshells(
+        self, tmp_path: Path
+    ) -> None:
+        """A command-substitution subshell is FORKED, so it inherits the
+        watcher's argv verbatim and is indistinguishable from it by argv alone.
+
+        One live watcher read as up to four while it ran its own poll - #792
+        item 5's failure arriving by fork instead of by `bash -c`. Sampled
+        repeatedly because the subshells are transient: a single sample can miss
+        the window and pass against a broken count.
+        """
+        watcher = _live_watcher(tmp_path, "1", WAVE)
+        try:
+            for _ in range(12):
+                proc = _run(tmp_path, "watch", "--status", "--role", "1", "--wave", WAVE)
+                assert _detail(proc, "FLOW_MAILBOX_WATCHER_COUNT") == "1"
+                assert _detail(proc, "FLOW_MAILBOX_WATCH_STATE") == "armed"
+        finally:
+            watcher.kill()
+            watcher.communicate(timeout=10)
 
 
 # --------------------------------------------------------------------------

@@ -177,10 +177,25 @@
 #             its six-issue assignment; both sides looked healthy and the only
 #             tell was `flow-wave-mailbox.sh list` showing `CURSOR 0 / UNREAD 2`,
 #             found by accident. So each LIVE role now renders `watch=armed`,
-#             `watch=stale(42m)` or `watch=ABSENT`, plus `unread=N since <ts>`
-#             and a loud `** NEVER READ **` when the cursor is 0 against a
-#             non-zero rev - the unambiguous "has consumed nothing, ever" case,
-#             which a count alone does not say.
+#             `watch=stale(42m)`, `watch=DEAD(0 watchers)`, `watch=ABSENT` or
+#             `watch=UNKNOWN`, plus `unread=N since <ts>` and a loud
+#             `** NEVER READ **` when the cursor is 0 against a non-zero rev -
+#             the unambiguous "has consumed nothing, ever" case, which a count
+#             alone does not say.
+#             `DEAD` and `UNKNOWN` arrived with #801, and the reason is that
+#             #778's own instrument had this same disease. The state it rendered
+#             was derived from the heartbeat STAMP alone, and a stamp is only as
+#             fresh as the last WAKE - while the watch is ONE-SHOT, so it exits
+#             the moment it delivers. For the whole stale window after that, the
+#             roster rendered `watch=armed` about a role that was deaf. On the
+#             `docker-list` wave (2026-09-07) an orchestrator read that word and
+#             told three workers they were fine; all three were deaf, one for
+#             ~50 minutes. The mailbox now FUSES the live watcher count into the
+#             state and this renders the fused verdict, with the count beside it
+#             so the row states the evidence rather than only the conclusion.
+#             `dead` and `unknown` also count into `FLOW_WAVE_WATCH_UNARMED` and
+#             the `WATCH:` summary - a watch that cannot be assessed is not an
+#             armed one (the #800 convention).
 #             TWO BOUNDS, both deliberate. The data comes from ONE call to the
 #             sibling `flow-wave-mailbox.sh list --json`, never from reading box
 #             files here: the mailbox owns that format, and a roster that
@@ -937,13 +952,30 @@ load_mailbox() {
   return 0
 }
 
-# mailbox_watch_state ROLE -> armed | stale | absent | unknown
-# `unknown` covers both "no mailbox data at all" and "this wave does not use the
-# lane", and is the value that renders nothing.
+# mailbox_watch_state ROLE -> armed | stale | dead | absent | unknown
+# The value is the mailbox's FUSED verdict (#801) - the live watcher count
+# folded into the heartbeat stamp - not the raw stamp. Before #801 this rendered
+# `watch=armed` for a role whose watch had already exited, because the stamp is
+# only as fresh as the last wake and the watch is one-shot; the roster was the
+# surface where that misread three workers as healthy.
+#
+# `unknown` covers "no mailbox data at all", "this wave does not use the lane"
+# (both render nothing) and now also the mailbox's own `unknown` - a process
+# table it could not enumerate, which DOES render, because a watch that cannot
+# be assessed is not a watch that is fine.
 mailbox_watch_state() {
   [ -n "$MAILBOX_JSON" ] && [ "$MAILBOX_IN_USE" -eq 1 ] || { echo unknown; return; }
   printf '%s' "$MAILBOX_JSON" |
     jq -r --arg r "$1" '(.watches // []) | map(select(.role == $r)) | (.[0].state // "absent")'
+}
+
+# mailbox_watch_watchers ROLE -> live watcher count, '-' when unknown/absent.
+# Rendered beside the state so the roster shows the fact the verdict rests on
+# rather than asking a reader to trust the word (#801).
+mailbox_watch_watchers() {
+  [ -n "$MAILBOX_JSON" ] && [ "$MAILBOX_IN_USE" -eq 1 ] || { echo '-'; return; }
+  printf '%s' "$MAILBOX_JSON" |
+    jq -r --arg r "$1" '(.watches // []) | map(select(.role == $r)) | (.[0].watchers // "-") | tostring'
 }
 
 # mailbox_watch_age ROLE -> seconds since the last heartbeat, '-' when none.
@@ -1699,14 +1731,22 @@ case "$VERB" in
         e="$(printf '%s' "$REG" | jq -c --arg w "$WAVE" --arg r "$r" '.[$w].roles[$r]')"
         [ "$(liveness_of "$e")" = "live" ] || continue
         ws="$(mailbox_watch_state "$r")"
-        if [ "$ws" = "absent" ] || [ "$ws" = "stale" ]; then
-          WATCH_UNARMED=$((WATCH_UNARMED + 1))
-          if [ "$ws" = "absent" ]; then
-            WATCH_DEAF="$WATCH_DEAF $r(never armed)"
-          else
-            WATCH_DEAF="$WATCH_DEAF $r(stale $(human_age "$(mailbox_watch_age "$r")"))"
-          fi
-        fi
+        # `dead` joins `absent`/`stale` here (#801): a heartbeat with no live
+        # watcher behind it is the case that read `armed` and cost three
+        # workers their wave. `unknown` counts too - an unassessable watch is
+        # not an armed one, and rendering it as clean is this bug's whole
+        # shape (the #800 convention).
+        case "$ws" in
+          absent|stale|dead|unknown)
+            WATCH_UNARMED=$((WATCH_UNARMED + 1))
+            case "$ws" in
+              absent)  WATCH_DEAF="$WATCH_DEAF $r(never armed)" ;;
+              dead)    WATCH_DEAF="$WATCH_DEAF $r(dead - last wake $(human_age "$(mailbox_watch_age "$r")") ago, 0 watchers)" ;;
+              stale)   WATCH_DEAF="$WATCH_DEAF $r(stale $(human_age "$(mailbox_watch_age "$r")"))" ;;
+              unknown) WATCH_DEAF="$WATCH_DEAF $r(UNKNOWN - watcher count unreadable)" ;;
+            esac
+            ;;
+        esac
         mailbox_never_read "$r" && NEVER_READ="$NEVER_READ $r"
         u="$(mailbox_box_field "$r" unread)"
         [ "$u" != "-" ] && UNREAD_TOTAL=$((UNREAD_TOTAL + u)) 2>/dev/null
@@ -1742,16 +1782,17 @@ $rp"
         # promise #687's `unregistered_claims` and #699's `wave_policy` made.
         [ "$MAILBOX_IN_USE" -eq 1 ] || continue
         w_state="$(mailbox_watch_state "$r")"; w_age="$(mailbox_watch_age "$r")"
+        w_watchers="$(mailbox_watch_watchers "$r")"
         m_rev="$(mailbox_box_field "$r" rev)"; m_cur="$(mailbox_box_field "$r" cursor)"
         m_unr="$(mailbox_box_field "$r" unread)"; m_mt="$(mailbox_box_field "$r" mtime)"
         nr=false; mailbox_never_read "$r" && nr=true
         OUT="$(printf '%s' "$OUT" | jq -c \
-          --arg r "$r" --arg ws "$w_state" --arg wa "$w_age" \
+          --arg r "$r" --arg ws "$w_state" --arg wa "$w_age" --arg wc "$w_watchers" \
           --arg rev "$m_rev" --arg cur "$m_cur" --arg unr "$m_unr" --arg mt "$m_mt" \
           --argjson nr "$nr" '
             def num($v): if $v == "-" then null else ($v | tonumber? // null) end;
             .[$r] += {
-              watch: {state: $ws, age_secs: num($wa)},
+              watch: {state: $ws, age_secs: num($wa), watchers: num($wc)},
               mailbox: {rev: num($rev), cursor: num($cur), unread: num($unr),
                         last_delivery: (if $mt == "-" then null else $mt end),
                         never_read: $nr}
@@ -1869,9 +1910,14 @@ EOF
       if [ "$lv" = "live" ] && [ "$MAILBOX_IN_USE" -eq 1 ]; then
         ws="$(mailbox_watch_state "$r")"
         case "$ws" in
-          armed)  extra="$extra watch=armed" ;;
-          stale)  extra="$extra watch=stale($(human_age "$(mailbox_watch_age "$r")"))" ;;
-          absent) extra="$extra watch=ABSENT" ;;
+          armed)   extra="$extra watch=armed" ;;
+          stale)   extra="$extra watch=stale($(human_age "$(mailbox_watch_age "$r")"))" ;;
+          # DEAD is the #801 case: a fresh-looking heartbeat with nothing behind
+          # it. The watcher count rides along so the row states the fact, not
+          # just the verdict.
+          dead)    extra="$extra watch=DEAD($(mailbox_watch_watchers "$r") watchers)" ;;
+          absent)  extra="$extra watch=ABSENT" ;;
+          unknown) extra="$extra watch=UNKNOWN" ;;
         esac
         unr="$(mailbox_box_field "$r" unread)"
         if [ "$unr" != "-" ] && [ "$unr" -gt 0 ] 2>/dev/null; then
@@ -2040,6 +2086,7 @@ EOF
     if [ -n "$WATCH_DEAF" ]; then
       echo "  WATCH: live role(s) with no armed watch:${WATCH_DEAF}"
       echo "  They are registered and addressable, and nothing sent to them will WAKE them - an idle session polls nothing."
+      echo "  A 'dead' role armed a watch and it EXITED (a watch is one-shot); its heartbeat still looks recent, which is exactly what read 'armed' before #801 - do not take the age as evidence it is listening."
       echo "  Each arms it as a BACKGROUND call (step 4 of /flow:register):  flow-wave-mailbox.sh watch --role <role> --wave $WAVE"
     fi
     if [ -n "$NEVER_READ" ]; then

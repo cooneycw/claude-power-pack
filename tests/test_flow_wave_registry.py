@@ -64,6 +64,7 @@ import json
 import os
 import shutil
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -101,6 +102,7 @@ def _run(
     pid: str = SELF_PID,
     session: str = SELF_SESSION,
     live: str = "",
+    now: str = "1700000000",
 ) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     env.update(
@@ -111,7 +113,7 @@ def _run(
             "FLOW_WAVE_SOCK_DIR": str(tmp / "socks"),
             "FLOW_WAVE_HOST": HOST,
             "FLOW_WAVE_LIVE_PIDS": live,
-            "FLOW_WAVE_NOW": "1700000000",
+            "FLOW_WAVE_NOW": now,
         }
     )
     return subprocess.run(
@@ -1980,6 +1982,35 @@ def _mailbox(tmp: Path, *args: str, now: str = "1700000000"):
     )
 
 
+def _live_mailbox_watcher(tmp: Path, role: str, wave: str, timeout: int = 30):
+    """Start a REAL blocking mailbox watcher on the registry's wave root.
+
+    Since #801 the watch state is fused from the live process table, so a
+    stamped heartbeat no longer produces `armed` - the roster's positive control
+    needs an actual process behind it.
+    """
+    env = os.environ.copy()
+    env.update({"FLOW_WAVE_REGISTRY_DIR": str(tmp / "reg")})
+    env.pop("FLOW_WAVE_MAILBOX_DIR", None)
+    env.pop("FLOW_WAVE_NOW", None)
+    proc = subprocess.Popen(
+        ["bash", str(MAILBOX), "watch", "--role", role, "--wave", wave,
+         "--timeout", str(timeout), "--interval", "1", "--consume"],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,
+    )
+    wf = tmp / "reg" / wave / f".watch-{role}"
+    deadline = time.time() + 15
+    while not wf.exists() and time.time() < deadline:
+        time.sleep(0.05)
+    assert wf.exists(), "mailbox watch never armed"
+    # A watch fires and EXITS on unread mail, so arming it against a box that
+    # already has some leaves a heartbeat and no process - which is the very
+    # state these tests use as the negative case. Assert the positive control is
+    # genuinely live, or it would quietly assert nothing.
+    assert proc.poll() is None, "watch exited immediately (unread mail in the box?)"
+    return proc
+
+
 def _row(proc: subprocess.CompletedProcess[str], role: str) -> str:
     """The roster line for one role, or '' when it is absent."""
     for line in proc.stdout.splitlines():
@@ -2012,28 +2043,87 @@ class TestWatchColumn:
         assert _detail(p, "FLOW_WAVE_UNREAD") == "1"
 
     def test_armed_watch_reads_armed_and_warns_about_nothing(self, tmp_path: Path) -> None:
-        _run(tmp_path, "register", "worker-H", "--wave", "cpp", "--socket", "uds:/tmp/h.sock")
-        _mailbox(tmp_path, "send", "--wave", "cpp", "--to", "worker-H", "--body", "your lane")
-        _mailbox(tmp_path, "watch", "--role", "worker-H", "--wave", "cpp", "--timeout", "0", "--consume")
-        p = _run(tmp_path, "list", "--wave", "cpp", live=SELF_PID)
-        assert "watch=armed" in _row(p, "worker-H")
-        assert _detail(p, "FLOW_WAVE_WATCH_UNARMED") == "0"
-        assert "WATCH: live role(s)" not in p.stdout
+        """The positive control for #801 at the roster surface.
 
-    def test_a_decayed_heartbeat_reads_stale_with_its_age(self, tmp_path: Path) -> None:
-        """`stale` and `absent` are different answers - a watch that DIED is not
-        one that was never armed - so the age is always printed for the reader
-        to judge which.
+        A live watcher must still render `armed` and raise nothing - otherwise a
+        fix that reported DEAD unconditionally would pass every other case here.
+        """
+        _run(tmp_path, "register", "worker-H", "--wave", "cpp", "--socket", "uds:/tmp/h.sock")
+        # No mail is sent first: a watch fires and EXITS on unread mail, so
+        # seeding the box would leave a heartbeat with no process - the DEAD
+        # case, not the armed one this test exists to prove.
+        watcher = _live_mailbox_watcher(tmp_path, "worker-H", "cpp")
+        try:
+            p = _run(tmp_path, "list", "--wave", "cpp", live=SELF_PID)
+            assert "watch=armed" in _row(p, "worker-H")
+            assert _detail(p, "FLOW_WAVE_WATCH_UNARMED") == "0"
+            assert "WATCH: live role(s)" not in p.stdout
+        finally:
+            watcher.kill()
+            watcher.communicate(timeout=10)
+
+    def test_an_exited_watch_reads_DEAD_not_armed(self, tmp_path: Path) -> None:
+        """The #801 regression at the surface that misled the orchestrator.
+
+        A watch is one-shot, so this heartbeat - stamped 10s before the
+        registry's pinned now - is what a role looks like moments after it
+        delivered a message and exited. The roster rendered `watch=armed` for
+        the whole 300s stale window; three workers were told they were fine.
         """
         _run(tmp_path, "register", "worker-H", "--wave", "cpp", "--socket", "uds:/tmp/h.sock")
         _mailbox(tmp_path, "send", "--wave", "cpp", "--to", "worker-H", "--body", "your lane")
-        # Armed 42 minutes before the registry's pinned "now" of 1700000000.
         _mailbox(tmp_path, "watch", "--role", "worker-H", "--wave", "cpp",
-                 "--timeout", "0", "--consume", now="1699997480")
+                 "--timeout", "0", "--consume", now="1699999990")
         p = _run(tmp_path, "list", "--wave", "cpp", live=SELF_PID)
-        assert "watch=stale(42m)" in _row(p, "worker-H")
+        row = _row(p, "worker-H")
+        assert "watch=DEAD(0 watchers)" in row
+        assert "watch=armed" not in row
         assert _detail(p, "FLOW_WAVE_WATCH_UNARMED") == "1"
-        assert "worker-H(stale 42m)" in p.stdout
+        assert "worker-H(dead - last wake 10s ago, 0 watchers)" in p.stdout
+
+    def test_a_decayed_heartbeat_behind_a_live_watcher_reads_stale_with_its_age(
+        self, tmp_path: Path
+    ) -> None:
+        """`stale` narrowed under #801: it now means a watcher process EXISTS
+        but has stopped refreshing - hung or stopped, a different repair from
+        one that is simply gone. The age is still printed either way.
+        """
+        _run(tmp_path, "register", "worker-H", "--wave", "cpp", "--socket", "uds:/tmp/h.sock")
+        watcher = _live_mailbox_watcher(tmp_path, "worker-H", "cpp")
+        try:
+            # A reader clock 42m ahead of the live watcher's real stamp ages it
+            # past the threshold without stopping the process.
+            future = str(int(time.time()) + 2520)
+            p = _run(tmp_path, "list", "--wave", "cpp", live=SELF_PID, now=future)
+            assert "watch=stale(42m)" in _row(p, "worker-H")
+            assert _detail(p, "FLOW_WAVE_WATCH_UNARMED") == "1"
+            assert "worker-H(stale 42m)" in p.stdout
+        finally:
+            watcher.kill()
+            watcher.communicate(timeout=10)
+
+    def test_an_unreadable_watcher_count_reads_UNKNOWN_never_clean(
+        self, tmp_path: Path
+    ) -> None:
+        """The #800 convention, inherited: a watch that cannot be assessed is
+        counted as deaf and named as UNKNOWN, never quietly rendered as armed.
+        """
+        _run(tmp_path, "register", "worker-H", "--wave", "cpp", "--socket", "uds:/tmp/h.sock")
+        _mailbox(tmp_path, "send", "--wave", "cpp", "--to", "worker-H", "--body", "your lane")
+        _mailbox(tmp_path, "watch", "--role", "worker-H", "--wave", "cpp",
+                 "--timeout", "0", "--consume", now="1699999990")
+        env_before = os.environ.get("FLOW_WAVE_WATCHER_SCAN")
+        os.environ["FLOW_WAVE_WATCHER_SCAN"] = "none"
+        try:
+            p = _run(tmp_path, "list", "--wave", "cpp", live=SELF_PID)
+        finally:
+            if env_before is None:
+                os.environ.pop("FLOW_WAVE_WATCHER_SCAN", None)
+            else:
+                os.environ["FLOW_WAVE_WATCHER_SCAN"] = env_before
+        assert "watch=UNKNOWN" in _row(p, "worker-H")
+        assert _detail(p, "FLOW_WAVE_WATCH_UNARMED") == "1"
+        assert "worker-H(UNKNOWN - watcher count unreadable)" in p.stdout
 
     def test_a_read_box_is_not_flagged_never_read(self, tmp_path: Path) -> None:
         _run(tmp_path, "register", "worker-H", "--wave", "cpp", "--socket", "uds:/tmp/h.sock")
@@ -2063,7 +2153,9 @@ class TestWatchColumn:
         _mailbox(tmp_path, "send", "--wave", "cpp", "--to", "worker-H", "--body", "your lane")
         p = _run(tmp_path, "list", "--wave", "cpp", "--json", live=SELF_PID)
         entry = _json_payload(p)["worker-H"]
-        assert entry["watch"] == {"state": "absent", "age_secs": None}
+        # `watchers` joined the object in #801: the roster renders the fused
+        # state, and a JSON consumer must be able to check what it rests on.
+        assert entry["watch"] == {"state": "absent", "age_secs": None, "watchers": 0}
         assert entry["mailbox"]["rev"] == 1
         assert entry["mailbox"]["cursor"] == 0
         assert entry["mailbox"]["unread"] == 1
