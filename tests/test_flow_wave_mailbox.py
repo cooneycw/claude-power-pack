@@ -49,6 +49,14 @@ requires_bash = pytest.mark.skipif(
     shutil.which("bash") is None, reason="requires bash on PATH"
 )
 
+# The no-/proc watcher lane shells out to `ps`, which the CI validate container
+# does not ship - and there the helper correctly answers `unknown` rather than
+# guessing, which is the #801 contract, not a failure. Only the test that FORCES
+# that lane needs this guard; the auto-selected /proc lane needs no `ps` at all.
+requires_ps = pytest.mark.skipif(
+    shutil.which("ps") is None, reason="requires ps on PATH (procps)"
+)
+
 WAVE = "testwave"
 
 
@@ -839,9 +847,15 @@ class TestListWatchState:
         assert "UNKNOWN:" in proc.stdout
         assert "DEAF:" not in proc.stdout
 
+    @requires_ps
     def test_ps_fallback_lane_reaches_the_same_verdict(self, tmp_path: Path) -> None:
         """The no-/proc lane is dead code on every host the suite runs on, so it
         would otherwise ship unexercised. Forced here, it must agree.
+
+        Skipped where `ps` is absent (the CI validate container): there the lane
+        answers `unknown` instead, which is the #801 contract working - the
+        `test_unknown_watcher_count_is_never_rendered_as_clean` case - not a
+        disagreement between the lanes.
         """
         watcher = _live_watcher(tmp_path, "1", WAVE)
         try:
