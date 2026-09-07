@@ -1,6 +1,6 @@
 ---
 description: One-shot local Qwen execution in current directory with JSONL monitoring
-allowed-tools: Bash(qwen:*), Bash(ollama:*), Bash(git:*), Bash(ls:*), Bash(cat:*), Bash(grep:*), Bash(curl:*), Bash(head:*), Bash(tail:*), Bash(wc:*), Bash(test:*), Bash(pwd), Bash(tee:*)
+allowed-tools: Bash(qwen:*), Bash(ollama:*), Bash(git:*), Bash(ls:*), Bash(cat:*), Bash(grep:*), Bash(curl:*), Bash(head:*), Bash(tail:*), Bash(wc:*), Bash(test:*), Bash(pwd), Bash(~/.claude/scripts/delegated-run-check.sh:*)
 ---
 
 # Qwen Exec: One-Shot Local Qwen Execution
@@ -88,6 +88,24 @@ run from blocking on an interactive confirmation; bash `timeout` bounds a
 runaway or stalled run (exit code 124 when exceeded - Qwen Code CLI has no
 native wall-time flag).
 
+**The redirect is load-bearing, not a style choice (issue #798).** This was
+`... | tee "$OUTPUT_FILE"`, and `$?` after a pipeline is the status of the LAST
+command - `tee` - not the CLI. With `pipefail` set nowhere, a run killed by the
+1800s `timeout` reported success and the "exit 124 = timeout" branch below was
+unreachable:
+
+```
+$ ( timeout 1 sleep 5 2>&1 | tee /dev/null; echo $? )
+0        # should be 124
+$ ( timeout 1 sleep 5 > /dev/null 2>&1; echo $? )
+124
+```
+
+Writing straight to the file costs nothing - the run is monitored by reading
+the JSONL, not by watching the terminal - and `$?` then belongs to `qwen`.
+Keep the capture in the SAME fenced block as the invocation; in a separate
+block it is a separate shell and reads whatever ran last there instead.
+
 ```bash
 TIMESTAMP=$(date +%Y%m%d-%H%M%S)
 OUTPUT_FILE="/tmp/qwen-exec-${TIMESTAMP}.jsonl"
@@ -100,9 +118,11 @@ timeout 1800 qwen \
     --output-format stream-json \
     --approval-mode yolo \
     $SANDBOX_FLAG \
-    "$PROMPT" < /dev/null 2>&1 | tee "$OUTPUT_FILE"   # </dev/null: non-TTY EOF so the harness never blocks reading stdin
+    "$PROMPT" < /dev/null > "$OUTPUT_FILE" 2>&1   # </dev/null: non-TTY EOF so the harness never blocks reading stdin
 
 QWEN_EXIT=$?
+echo "qwen exited $QWEN_EXIT; output: $OUTPUT_FILE"
+tail -40 "$OUTPUT_FILE"
 ```
 
 (The `--openai-api-key` value is a placeholder; Ollama ignores it. No cloud
@@ -110,15 +130,47 @@ API key is involved.)
 
 ### Step 3: Monitor and Report
 
-**While it runs**, parse the JSONL stream and report progress: each line is a
+Read the JSONL stream from `$OUTPUT_FILE` and report progress: each line is a
 JSON message with a `type` field (system/init metadata, assistant messages,
 tool events, and a final `result` message carrying stats). Report file changes,
-agent messages, and errors as they stream. Expect ~15-20 tok/s generation; a
-substantial task can take several minutes per turn, and a thinking-enabled
-model spends minutes reasoning before its first edit - the stream shows
-liveness either way.
+agent messages, and errors. Expect ~15-20 tok/s generation; a substantial task
+can take several minutes per turn, and a thinking-enabled model spends minutes
+reasoning before its first edit - the stream shows liveness either way.
 
-### Step 4: Summary
+### Step 4: Verdict and Summary
+
+**The exit code is necessary and never sufficient (issue #798).** Verified
+2026-09-07 against an unreachable endpoint (`@qwen-code/qwen-code` 0.15.10),
+the CLI reported `EXIT=0`, `subtype: "success"`, `is_error: false`,
+`num_turns: 1` - with the only evidence of failure being `[API Error: Request
+timeout after 154s]` inside the terminal `result` string. So even a correct
+`$?` check passes a run that did nothing. Hand both the code and the payload to
+the audited helper.
+
+**Invoke it BARE, with LITERAL values (issue #798 review).** Two reasons, and
+both were learned the hard way. This block is a DIFFERENT shell from the one
+above: `$QWEN_EXIT` and the output path are not exported and would arrive
+empty, so the helper would exit 2 without a verdict - the very separate-shell
+defect this document fixes, reproduced one level up. And a helper call carrying
+variable expansions cannot match the `Bash(~/.claude/scripts/...:*)` allowlist
+prefix, so it would prompt on every run. Substitute the exit code and path the
+block above printed, exactly as Step 1's verify gate does:
+
+```bash
+~/.claude/scripts/delegated-run-check.sh /tmp/qwen-exec-20260907-120000.jsonl 124 --lane qwen
+```
+
+(Exit 127 - the helper family is not installed: fall back to
+`${CLAUDE_PLUGIN_ROOT}/scripts/delegated-run-check.sh`, else the CPP-checkout
+copy (either may prompt once); tell the user to run **`/flow:repair`** to
+restore the prompt-free lane. If NO copy exists anywhere, treat the run as
+UNASSESSABLE and stop - do NOT fall back to the exit code alone. On this lane
+a clean exit is the documented shape of a FAILED run, so proceeding on it
+restores the exact false green this check exists to remove.)
+
+The helper prints `DELEGATED_RUN_STATUS: success|failure` and exits 1 on
+failure, naming every signal it found (`timeout`, `api-error`, `output-empty`,
+`no-turns`, ...):
 
 ```bash
 if [ "$QWEN_EXIT" -ne 0 ]; then
@@ -130,7 +182,15 @@ if [ "$QWEN_EXIT" -ne 0 ]; then
     echo "Output saved to: $OUTPUT_FILE"
     exit 1
 fi
+```
 
+On `DELEGATED_RUN_STATUS: failure` report the signals and the
+`DELEGATED_RUN_DETAIL` line verbatim and **STOP** - do not present a diff as
+though the run had produced it. `no-tool-use` alone does not fail an `exec` run
+(a question can legitimately be answered without touching a file); it is
+reported so a silently tool-free run is visible.
+
+```bash
 echo ""
 echo "=== Changes ==="
 git diff --stat 2>/dev/null || echo "(not a git repo or no changes)"

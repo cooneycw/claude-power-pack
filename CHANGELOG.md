@@ -154,6 +154,72 @@
 
 ### Fixed
 
+- **2026-09-07 - delegated-model lanes reported success on failed runs**
+  (issue #798) - every local/delegated lane (`/qwen:*`, `/gemma:*`,
+  `/codex:*`) decided whether a run had failed by testing `$?` against zero,
+  and in all six command documents that test could not observe the CLI's exit
+  status. A dead endpoint, a timeout, or an API error therefore read as a
+  completed task, and `/*:auto` marched on into review, quality gates,
+  `/flow:finish` and `/flow:merge` on an empty diff.
+
+  Three independent causes, and the third is the one no exit-code fix reaches.
+  `... | tee "$OUT"` makes `$?` the status of **tee**, not the CLI; `pipefail`
+  was set nowhere (grepped: zero hits across all three lanes), so the
+  documented `exit 124 = timeout` branch was literally unreachable. In the
+  three `auto` files the invocation and the check sat in **separate fenced
+  blocks with prose between them** - separate shells, so `$?` had no
+  relationship to the run at all and merely reflected whatever ran last in the
+  new shell. And the Qwen CLI reports success on a failed run outright:
+  verified 2026-09-07 against an unreachable endpoint
+  (`@qwen-code/qwen-code` 0.15.10), `EXIT=0`, `subtype: "success"`,
+  `is_error: false`, `num_turns: 1`, with the only evidence of failure being
+  `[API Error: Request timeout after 154s...]` inside the terminal `result`
+  string.
+
+  All six documents now redirect rather than pipe, and capture the exit code
+  in the **same** fenced block as the invocation. `scripts/delegated-run-check.sh`
+  then judges the payload the run produced, because a clean exit is not
+  evidence on these lanes - it reports `timeout`, `api-error`, `output-empty`,
+  `error-payload`, `no-turns` and `no-tool-use` signals with a
+  `DELEGATED_RUN_STATUS: success|failure` verdict. The three `auto` lanes pass
+  `--expect-tools`, which promotes a tool-free run to a failure: they
+  delegated an implementation, so a run that touched nothing wrote no code.
+  They also now fail **closed** on an empty diff, at Step 4 and again at Step 7
+  - counted with `git status --porcelain`, so a model that only added files is
+  not killed as having changed nothing.
+
+  Two decisions are worth stating. The helper is deliberately **not fail-open**,
+  unlike every other advisory in the flow family: it exists because an
+  unassessable run was being reported as a success, so an unreadable stream
+  reports `failure` rather than shrugging. And the `[API Error` check parses
+  JSON per line and anchors to the start of a known payload field - a bare grep
+  would match the model's own prose, turning a guard against false success into
+  a source of false failure.
+
+  `/codex:auto`'s quality-gate fix loop carried the same `| tee` shape and is
+  fixed too, so a silently failed retry can no longer burn both attempts and
+  then report the original gate failure as the diagnosis.
+
+  A cross-model review (Codex `gpt-5.5`) of this change caught six defects in
+  it, three of which would have made the check WORSE than none - failing runs
+  that succeeded. The helper recognized only `tool_use`-shaped events, so every
+  successful `/codex:auto` run (which signals work as `command_execution` /
+  `file_change`) would have failed as tool-free; a recursive error scan made a
+  DENIED tool call fatal, though a denied command is the `/gemma:auto` fence
+  working as designed; and matching `[API Error` anywhere meant a model quoting
+  the banner read as a failed run. Format facts are now verified against
+  redacted slices of five real captures in `tests/fixtures/delegated_runs/` -
+  including the original 2026-09-07 incident - rather than assumed. The review
+  also found the helper invocation itself sitting in a separate fenced block
+  from the variables it referenced: this change's own defect, one level up. The
+  six documents now invoke it bare with literal values, which the pins enforce.
+  Two review suggestions were NOT taken as given: requiring a terminal event
+  unconditionally would have failed 2 of 5 real codex captures, so that signal
+  is gated on `--expect-tools`. Found while
+  diagnosing why `/qwen:*` had been pointed at an offline MacBook: the endpoint
+  had been wrong long enough to matter, and nothing surfaced it, because the
+  harness reported success throughout.
+
 - **2026-09-06 - flow-wave-mailbox: seven ways `watch` reported confidently
   and wrongly** (issue #792, follow-on to #778) - found across the
   `kyle-completion` wave (2026-09-05) by 8 workers and a critic, each hitting

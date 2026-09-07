@@ -49,7 +49,8 @@
       "Bash(~/.claude/scripts/install-drift.sh:*)",
       "Bash(~/.claude/scripts/cpp-commands-link.sh:*)",
       "Bash(~/.claude/scripts/check-ignored-additions.sh:*)",
-      "Bash(~/.claude/scripts/friction-log.sh:*)"
+      "Bash(~/.claude/scripts/friction-log.sh:*)",
+      "Bash(~/.claude/scripts/delegated-run-check.sh:*)"
     ]
   }
 }

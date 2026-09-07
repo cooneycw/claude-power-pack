@@ -1,6 +1,6 @@
 ---
 description: One-shot local Gemma execution in current directory with JSONL monitoring
-allowed-tools: Bash(opencode:*), Bash(ollama:*), Bash(git:*), Bash(ls:*), Bash(cat:*), Bash(grep:*), Bash(curl:*), Bash(head:*), Bash(tail:*), Bash(wc:*), Bash(test:*), Bash(pwd), Bash(tee:*)
+allowed-tools: Bash(opencode:*), Bash(ollama:*), Bash(git:*), Bash(ls:*), Bash(cat:*), Bash(grep:*), Bash(curl:*), Bash(head:*), Bash(tail:*), Bash(wc:*), Bash(test:*), Bash(pwd), Bash(~/.claude/scripts/delegated-run-check.sh:*)
 ---
 
 # Gemma Exec: One-Shot Local Gemma Execution
@@ -93,6 +93,24 @@ an unattended run from blocking on an approval prompt - the profile's `deny`
 rules still apply and are exactly the ones that matter. Bash `timeout` bounds a
 runaway or stalled run (exit code 124 when exceeded).
 
+**The redirect is load-bearing, not a style choice (issue #798).** This was
+`... | tee "$OUTPUT_FILE"`, and `$?` after a pipeline is the status of the LAST
+command - `tee` - not the CLI. With `pipefail` set nowhere, a run killed by the
+1800s `timeout` reported success and the "exit 124 = timeout" branch below was
+unreachable:
+
+```
+$ ( timeout 1 sleep 5 2>&1 | tee /dev/null; echo $? )
+0        # should be 124
+$ ( timeout 1 sleep 5 > /dev/null 2>&1; echo $? )
+124
+```
+
+Writing straight to the file costs nothing - the run is monitored by reading
+the JSONL, not by watching the terminal - and `$?` then belongs to `opencode`.
+Keep the capture in the SAME fenced block as the invocation; in a separate
+block it is a separate shell and reads whatever ran last there instead.
+
 ```bash
 TIMESTAMP=$(date +%Y%m%d-%H%M%S)
 OUTPUT_FILE="/tmp/gemma-exec-${TIMESTAMP}.jsonl"
@@ -103,9 +121,11 @@ GEMMA_OLLAMA_URL="$GEMMA_ENDPOINT" timeout 1800 opencode run \
     --agent gemma-implementer \
     --format json \
     --auto \
-    "$PROMPT" < /dev/null 2>&1 | tee "$OUTPUT_FILE"   # </dev/null: non-TTY EOF so the harness never blocks reading stdin
+    "$PROMPT" < /dev/null > "$OUTPUT_FILE" 2>&1   # </dev/null: non-TTY EOF so the harness never blocks reading stdin
 
 GEMMA_EXIT=$?
+echo "opencode exited $GEMMA_EXIT; output: $OUTPUT_FILE"
+tail -40 "$OUTPUT_FILE"
 ```
 
 (No API key is involved anywhere in this path. The provider talks to Ollama's
@@ -115,7 +135,7 @@ See `/gemma:help`.)
 
 ### Step 3: Monitor and Report
 
-**While it runs**, parse the JSONL stream and report progress. Each line is one
+Read the JSONL stream from `$OUTPUT_FILE` and report progress. Each line is one
 JSON object with a top-level `type`:
 
 | `type` | Meaning |
@@ -125,15 +145,47 @@ JSON object with a top-level `type`:
 | `text` | Model prose addressed to the user |
 | `step_finish` | Turn ended; `part.tokens` carries input/output counts and `part.reason` the stop reason |
 
-Report file changes, agent messages, and errors as they stream. A denied
-command surfaces as a `tool_use` with `state.status: "error"` and a rule-denial
-message - that is the fence working, not a failure.
+Report file changes, agent messages, and errors. A denied command surfaces as a
+`tool_use` with `state.status: "error"` and a rule-denial message - that is the
+fence working, not a failure.
 
 Expect 25-39 tok/s decode on the reference RTX 3090 Ti (roughly triple the Qwen
 lane) with prefill near 1,390 tok/s at a 6K prompt, so a substantial task still
 takes minutes per turn. The stream shows liveness.
 
-### Step 4: Summary
+### Step 4: Verdict and Summary
+
+**The exit code is necessary and never sufficient (issue #798).** The Qwen lane
+was verified reporting `EXIT=0` / `is_error: false` over a run whose only
+evidence of failure was `[API Error: ...]` inside its terminal payload. That
+behaviour was NOT verified for OpenCode, and this check is written defensively
+rather than on the assumption that it is absent here. Hand both the code and
+the payload to the audited helper.
+
+**Invoke it BARE, with LITERAL values (issue #798 review).** Two reasons, and
+both were learned the hard way. This block is a DIFFERENT shell from the one
+above: `$GEMMA_EXIT` and the output path are not exported and would arrive
+empty, so the helper would exit 2 without a verdict - the very separate-shell
+defect this document fixes, reproduced one level up. And a helper call carrying
+variable expansions cannot match the `Bash(~/.claude/scripts/...:*)` allowlist
+prefix, so it would prompt on every run. Substitute the exit code and path the
+block above printed, exactly as Step 1's verify gate does:
+
+```bash
+~/.claude/scripts/delegated-run-check.sh /tmp/gemma-exec-20260907-120000.jsonl 124 --lane gemma
+```
+
+(Exit 127 - the helper family is not installed: fall back to
+`${CLAUDE_PLUGIN_ROOT}/scripts/delegated-run-check.sh`, else the CPP-checkout
+copy (either may prompt once); tell the user to run **`/flow:repair`** to
+restore the prompt-free lane. If NO copy exists anywhere, treat the run as
+UNASSESSABLE and stop - do NOT fall back to the exit code alone. On this lane
+a clean exit is the documented shape of a FAILED run, so proceeding on it
+restores the exact false green this check exists to remove.)
+
+The helper prints `DELEGATED_RUN_STATUS: success|failure` and exits 1 on
+failure, naming every signal it found (`timeout`, `api-error`, `output-empty`,
+`no-tool-use`, ...):
 
 ```bash
 if [ "$GEMMA_EXIT" -ne 0 ]; then
@@ -145,7 +197,16 @@ if [ "$GEMMA_EXIT" -ne 0 ]; then
     echo "Output saved to: $OUTPUT_FILE"
     exit 1
 fi
+```
 
+On `DELEGATED_RUN_STATUS: failure` report the signals and the
+`DELEGATED_RUN_DETAIL` line verbatim and **STOP** - do not present a diff as
+though the run had produced it. A `no-tool-use` signal does not by itself fail
+an `exec` run, but on this lane it is the signature of the ollama/ollama#14958
+`/v1` tool-call-drop bug: run `/gemma:status`, whose Step 4 smoke test tests
+exactly that, before blaming the prompt.
+
+```bash
 echo ""
 echo "=== Changes ==="
 git diff --stat 2>/dev/null || echo "(not a git repo or no changes)"
