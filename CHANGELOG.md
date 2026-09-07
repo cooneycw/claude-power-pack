@@ -154,6 +154,50 @@
 
 ### Fixed
 
+- **2026-09-07 - `flow-wave-mailbox` reported a dead watch as `armed`**
+  (issue #801) - `watch --status` printed
+  `(state: armed); 0 live watcher process(es)`: two halves of one line
+  contradicting each other, with the reassuring half leading. The state came
+  from the `.watch-<role>` heartbeat **stamp** alone, and a stamp is only as
+  fresh as the last **wake** - while the watch is one-shot, delivering one
+  message and exiting. For the whole stale window after a watch fired and died,
+  every surface reported `armed` about a role that was deaf.
+
+  Three sessions went silently deaf in one `docker-list` wave on 2026-09-07.
+  The orchestrator broadcast "check `--status`; if it is still holding, do
+  nothing" to three workers on the strength of that word. Worker-C held a Step-3
+  gate request unheard for ~50 minutes and was found only because a human asked
+  "what about worker C", then went deaf a second time immediately after
+  reporting a PR done - self-reporting "standing by idle" while its next
+  assignment sat unseen in its box. Worker-A sat blocked on a ruling that was
+  already written, and the orchestrator's own watch died repeatedly.
+
+  The state is now **fused** from the live watcher count and the stamp: `armed`
+  (watcher live, stamp fresh), `stale` (watcher live, stamp not refreshing -
+  hung or stopped), `dead` (a stamp with no live watcher - the case that read
+  `armed`), `absent` (never armed), and `unknown` when the process table cannot
+  be enumerated, which is never rounded down to zero. The heartbeat age is still
+  reported in every state: separating "died just now" from "died an hour ago" is
+  what the stamp is genuinely good for, and all it was ever trustworthy for.
+
+  `list` gains a `WATCHERS` column and `watches[].watchers` in `--json` (`null`,
+  never `0`, when unreadable), with separate `DEAF:` and `UNKNOWN:` advisories -
+  kept apart because `unknown` is not a claim that nobody is listening, it is
+  the refusal to make either claim. The `/flow:register` roster renders
+  `watch=DEAD(0 watchers)` and `watch=UNKNOWN`, and counts both into
+  `FLOW_WAVE_WATCH_UNARMED` and the `WATCH:` summary, where only
+  `absent`/`stale` counted before.
+
+  Making the count load-bearing exposed two counting defects, both the #792
+  item-5 failure in new clothes: a `watch --status` query shares the watcher
+  argv shape but watches nothing, so it was counted as a live watcher - enough
+  to make a concurrent real arm refuse as a `duplicate` against a process that
+  was only a question; and a command-substitution subshell is forked, not
+  exec'd, so it inherits the watcher's argv verbatim and one live watcher read
+  as up to four while it ran its own poll. Both are now excluded structurally:
+  `--status` in argv disqualifies, and any match whose parent also matched is a
+  subshell of a watcher rather than a second one.
+
 - **2026-09-07 - delegated-model lanes reported success on failed runs**
   (issue #798) - every local/delegated lane (`/qwen:*`, `/gemma:*`,
   `/codex:*`) decided whether a run had failed by testing `$?` against zero,

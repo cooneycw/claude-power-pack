@@ -185,6 +185,21 @@ read the roster. If a wake's FIRST line is
 that backlog predates this arm - not a fresh wake - so check `list` for how
 much else might be waiting before assuming this is all of it.
 
+**Re-arming is the step that gets dropped, including by this session (#801).**
+The watch is one-shot, so every wake ends with the orchestrator deaf until it
+re-arms - and on the `docker-list` wave the orchestrator's own watch died
+repeatedly, twice leaving a worker blocked on a ruling it had already made.
+Make the re-arm part of handling the wake, not a follow-up task. Verify with
+the live watcher count, never the state word alone:
+
+```bash
+~/.claude/scripts/flow-wave-mailbox.sh watch --status --role orchestrator --wave <WAVE>
+```
+
+`FLOW_MAILBOX_WATCHER_COUNT=0` means nothing is listening, whatever the
+heartbeat age says; the state reads `dead` in that case and `unknown` when the
+count could not be read. Neither is a reason to stand down.
+
 **Route these four over the lane whenever `SendMessage` cannot reach a worker**
 (all of them failed to reach one in the reference run): the registration ack +
 wave brief, each ASSIGNMENT, each gate VERDICT with its conditions, and each
@@ -643,15 +658,32 @@ Report all six returned fields: `seed_count`, `recorded`, `duplicates`,
   REMEMBERING to cross-reference two tools, per worker, continuously, against a
   failure that is silent and has no deadline. `flow-wave-registry.sh list` now
   renders that cross-reference for you - `watch=ABSENT` (never armed),
-  `watch=stale(42m)` (died, or busy between wakes), `unread=N since <ts>`, and
-  `** NEVER READ **` when a role has consumed nothing at all - plus a
-  `WATCH:` summary and the `FLOW_WAVE_WATCH_UNARMED` / `FLOW_WAVE_UNREAD`
-  contract lines. On 2026-09-05 a `kyle-completion` worker was `[live,
-  verified] brief=current` and deaf for over an hour; its six-issue assignment
-  was delivered and never read, your ledger said assigned, its roster entry
-  said free, and the only tell was a cursor at 0 spotted by accident. Treat
-  `watch=ABSENT` on a role you are about to assign as a BLOCKER: tell it to arm
-  the watch before you send, because nothing you send will wake it.
+  `watch=DEAD(0 watchers)` (armed, then exited - nothing is listening NOW),
+  `watch=stale(42m)` (a watcher process exists but has stopped refreshing -
+  hung or stopped), `watch=UNKNOWN` (the watcher count could not be read),
+  `unread=N since <ts>`, and `** NEVER READ **` when a role has consumed
+  nothing at all - plus a `WATCH:` summary and the `FLOW_WAVE_WATCH_UNARMED` /
+  `FLOW_WAVE_UNREAD` contract lines. On 2026-09-05 a `kyle-completion` worker
+  was `[live, verified] brief=current` and deaf for over an hour; its six-issue
+  assignment was delivered and never read, your ledger said assigned, its
+  roster entry said free, and the only tell was a cursor at 0 spotted by
+  accident. Treat `watch=ABSENT`, `watch=DEAD` or `watch=UNKNOWN` on a role you
+  are about to assign as a BLOCKER: tell it to arm the watch before you send,
+  because nothing you send will wake it.
+- **`DEAD` is the state the roster used to render as `armed` (#801), and the
+  reason a heartbeat age is not evidence.** The watch is ONE-SHOT: it delivers
+  one message and exits. Its heartbeat stamp keeps looking fresh for the whole
+  300s stale window afterwards, so a role that just woke, handled its mail and
+  never re-armed read `watch=armed` while it was completely deaf. On the
+  `docker-list` wave (2026-09-07) an orchestrator broadcast "check `--status`;
+  if it is still holding, do nothing" to three workers on the strength of that
+  word. All three were deaf; one held a Step-3 gate request unheard for ~50
+  minutes, and another went deaf again immediately after reporting a PR done,
+  so its next assignment landed in the gap and it self-reported "standing by
+  idle" - which was wrong when it was sent. **Never tell a worker it is fine
+  because a state word says `armed`; the live watcher count beside it is the
+  fact.** A worker that has just reported completion is the highest-risk
+  moment: it woke, so its watch has exited.
 - **A clearance is not a merge, and nothing watches the run it starts (#788).**
   Issuing the clearance is where attention ends, but the pipeline it triggers is
   where the answer arrives - minutes later, on a PR you have stopped looking at.

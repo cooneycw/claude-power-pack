@@ -295,10 +295,21 @@ and is wiped by the OS at reboot - exactly when every session's address dies too
    `[live, verified] brief=current` in the roster and completely deaf, and on
    2026-09-05 one sat that way for over an hour while its six-issue assignment
    went unread. `watch` stamps a heartbeat, so
-   `flow-wave-registry.sh list` now renders `watch=armed`, `watch=stale(42m)` or
-   `watch=ABSENT` against every live role - plus `unread=N` and a loud
+   `flow-wave-registry.sh list` now renders `watch=armed`,
+   `watch=DEAD(0 watchers)`, `watch=stale(42m)`, `watch=ABSENT` or
+   `watch=UNKNOWN` against every live role - plus `unread=N` and a loud
    `** NEVER READ **` when the cursor has never moved. Not arming it no longer
    reads as a healthy worker; it reads as the deaf one it is.
+
+   **Re-arm after EVERY wake (issue #801).** The watch is one-shot: it delivers
+   one message and exits, so handling a wake without re-arming leaves you deaf
+   with a heartbeat that still looks fresh. That state used to render `armed`
+   in both the roster and `--status`. On the `docker-list` wave a worker went
+   deaf for ~50 minutes holding a gate request, then again immediately after
+   reporting a PR done - it self-reported "standing by idle" while an
+   assignment it could not see was already in its box. Re-arming is part of
+   handling the message, not a separate task, and the honest check is
+   `FLOW_MAILBOX_WATCHER_COUNT`, not the state word.
 
 5. Confirm back to the user which orchestrator was registered with once the
    ack arrives - or that the hello is waiting in the mailbox because no
@@ -462,11 +473,15 @@ copy; tell the user to run `/flow-repair`.)
   the session on exit. Where a harness Monitor-style tool is available it works
   equally well - the contract is "something blocks on this box and wakes the
   session", not one specific tool.
-- **An unarmed watch is no longer silent (#778).** `watch` stamps
-  `.watch-<role>` in the wave dir on arm and on every poll, so `list` reports
-  `armed` / `stale` / `absent` per role and the roster joins it onto every live
-  entry. A killed watch decays; one that was never armed reads `absent`, which
-  is the case that cost an hour on 2026-09-05.
+- **An unarmed watch is no longer silent (#778), and neither is an EXITED one
+  (#801).** `watch` stamps `.watch-<role>` in the wave dir on arm and on every
+  poll, and the state fuses that stamp with the live watcher count, so `list`
+  reports `armed` / `stale` / `dead` / `absent` / `unknown` per role and the
+  roster joins it onto every live entry. One that was never armed reads
+  `absent` - the case that cost an hour on 2026-09-05. One that armed and
+  exited reads `dead`, with its heartbeat age still shown: that combination is
+  what read `armed` before #801 and left three sessions deaf in one wave, one
+  of them for ~50 minutes.
 
 The lane is HOST-LOCAL, exactly like the registry. Two sessions on different
 machines still have no transport between them; that is out of scope here.

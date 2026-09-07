@@ -88,13 +88,15 @@
 #          when a live watcher already holds the same role in the same wave
 #          (#792 item 4) - a role is single-owner, so a second watcher is
 #          always a mistake, competing for the same mail rather than
-#          receiving a copy of it. `watch --status` reports the heartbeat
-#          state/age plus the live watcher count and a `re-armed: yes/no`
-#          verdict instead of a bare, undiagnosable zero (#792 item 3),
-#          using the self-excluding, PID-based watcher count that replaces
-#          the old `pgrep -cf` (#792 item 5 - see COUNTING below).
+#          receiving a copy of it. `watch --status` reports the FUSED watch
+#          state (#801 - see STATE below), the raw heartbeat age, the live
+#          watcher count and a `re-armed: yes/no` verdict instead of a bare,
+#          undiagnosable zero (#792 item 3), using the self-excluding,
+#          PID-based watcher count that replaces the old `pgrep -cf`
+#          (#792 item 5 - see COUNTING below).
 #   list   Box inventory for the wave: box, reader, rev, cursor, unread, mtime,
-#          plus the WATCH state of every role known to read here (#778).
+#          plus the WATCH state and live WATCHERS count of every role known to
+#          read here (#778, #801).
 #
 # Counting watchers (issue #792 item 5). `pgrep -af 'flow-wave-mailbox.sh
 # watch' | grep -- "--role X "` double-counts: a background launcher's
@@ -135,17 +137,54 @@
 # here, found by accident. So `watch` now stamps `.watch-<role>` in the wave dir
 # with the current epoch, ON ARM AND ON EVERY POLL - not just on arm, because a
 # watch that was KILLED must decay while one that is merely blocking stays
-# fresh, and only a refreshing stamp separates those two. Three states follow:
-#   armed   stamped within FLOW_WAVE_WATCH_STALE_SECS (default 300)
-#   stale   stamped longer ago - the watch died, or its session is busy between
-#           wakes; either way the role is deaf RIGHT NOW, and the age is always
-#           printed so the reader can judge which
-#   absent  no stamp at all - the watch was NEVER armed. The unambiguous case,
-#           and the one actually observed.
+# fresh, and only a refreshing stamp separates those two.
+#
 # The heartbeat is deliberately NOT removed on exit: "died" and "never armed"
 # are operationally different answers and erasing the file would flatten them
 # back into one. `read` does not stamp - the heartbeat is about the WAKE, and a
 # cursor that is advancing is separately visible in `list`.
+#
+# STATE: the heartbeat alone is not the answer (issue #801). A stamp is only as
+# fresh as the last WAKE, and the watch is one-shot - it delivers one message
+# and exits - so for the whole FLOW_WAVE_WATCH_STALE_SECS window after a watch
+# fires and dies, a heartbeat-only reading says `armed` about a role that is
+# deaf. That is not a hypothetical: on the `docker-list` wave (2026-09-07) a
+# `--status` line read `(state: armed); 0 live watcher process(es)` - the two
+# halves of one line contradicting each other - and the orchestrator broadcast
+# "if it is still holding, do nothing" to three workers on the strength of the
+# WORD. All three were deaf; one held a gate request unheard for ~50 minutes.
+# An instrument whose failure looks identical to its success is worse than no
+# instrument, so the state is now FUSED from both facts - the stamp says when it
+# last lived, the process table says whether it lives NOW:
+#
+#   watchers  heartbeat        state
+#   --------  ---------------  ------------------------------------------------
+#   >0        within STALE     armed    listening right now
+#   >0        older            stale    the process exists but has stopped
+#                                       refreshing - hung, or SIGSTOPped. Deaf
+#                                       in practice, but a different repair
+#                                       from a process that is simply gone
+#   0         any stamp        dead     armed at some point, exited, never
+#                                       re-armed. The heartbeat AGE is still
+#                                       reported, so "died just now" and "died
+#                                       an hour ago" stay distinguishable - that
+#                                       is what the stamp is for, and all it is
+#                                       trustworthy for
+#   0         no stamp         absent   NEVER armed. The unambiguous case
+#   unknown   any              unknown  the host gave us no way to enumerate
+#                                       processes at all - see COUNTING
+#
+# `unknown` is the #800 convention in this helper: an unknowable answer is never
+# rendered as a clean one. Rounding an un-enumerable process table down to 0
+# would report `dead` for healthy watches, which is this same bug wearing the
+# opposite sign - it would drive re-arms that then collide with the live watcher
+# the count could not see (exit 4, duplicate).
+#
+# The two consumers fail in DELIBERATELY OPPOSITE directions. The duplicate-arm
+# guard (#792 item 4) treats `unknown` as 0 and lets the arm proceed, because a
+# wave that cannot start because its duplicate guard is unavailable is worse
+# than an occasional false duplicate. Reporting treats `unknown` as `unknown`
+# and says so loudly, because that is the whole subject of this block.
 #
 # The lexicon gate (issue #701). `send` runs the message through
 # `flow-wave-lexicon.sh validate` first, so a reserved TRANSITION token that does
@@ -171,15 +210,36 @@
 # 5 watch timeout, 6 lexicon refusal (#701 - the message was NOT delivered;
 # nothing was written).
 #
+# `watch --status` detail lines:
+#   FLOW_MAILBOX_WATCH_STATE    armed | stale | dead | absent | unknown - the
+#                               FUSED verdict (#801), never the raw stamp
+#   FLOW_MAILBOX_WATCH_AGE      seconds since the last heartbeat, or '-'. Still
+#                               reported for every state, so "died just now" and
+#                               "died an hour ago" stay distinguishable
+#   FLOW_MAILBOX_WATCHER_COUNT  live watcher processes, or `unknown`
+#   FLOW_MAILBOX_REARMED        yes | no | unknown
+#
+# `list --json` gains `watches[].watchers` (integer, or null when the process
+# table could not be read) beside `state` and `age_secs`, so a consumer can
+# check the fusion rather than take the state word on trust (#801).
+#
 # Env:
-#   FLOW_WAVE_WATCH_STALE_SECS  heartbeat age past which a watch reads `stale`
-#                               rather than `armed` (#778, default 300)
+#   FLOW_WAVE_WATCH_STALE_SECS  heartbeat age past which a REFRESHING watch is
+#                               judged to have stopped refreshing (#778/#801,
+#                               default 300). It no longer decides `armed` on
+#                               its own - the live watcher count does.
 # Env (test hooks - unset in normal use):
 #   FLOW_WAVE_MAILBOX_DIR   wave-root override (most precise)
 #   FLOW_WAVE_REGISTRY_DIR  shared wave-root override, honored so the mailbox
 #                           and the #638 registry always co-locate
 #   FLOW_WAVE_NOW           override "now" as epoch seconds, so heartbeat ages
 #                           are deterministic (same hook name the registry uses)
+#   FLOW_WAVE_WATCHER_SCAN  force the watcher-enumeration lane: `proc`, `ps`, or
+#                           `none` (#801). `none` makes the count unreadable, so
+#                           the `unknown` state is reachable on a host that has
+#                           a perfectly good /proc; `ps` exercises the fallback,
+#                           which is otherwise dead code everywhere the suite
+#                           runs. Unset in normal use - the lane is auto-picked.
 
 set -uo pipefail
 
@@ -276,16 +336,36 @@ watch_age() {
   echo "$age"
 }
 
-# armed | stale | absent for <role>.
-watch_state() {
-  local age
-  age="$(watch_age "$1")"
-  if [ "$age" = "-" ]; then
+# armed | stale | dead | absent | unknown for <role>, given that role's live
+# watcher count (a non-negative integer, or `unknown`). See the STATE table in
+# the header for why the heartbeat alone cannot answer this (#801).
+#
+# The count is a PARAMETER rather than something looked up here, so `list` can
+# tally every role from ONE pass over the process table instead of re-walking
+# /proc once per role.
+watch_state_of() {
+  local role="$1" count="$2" age
+  age="$(watch_age "$role")"
+  case "$count" in
+    ''|*[!0-9]*)
+      # Not a number - the process table could not be enumerated. Never round
+      # this down to "nothing is listening" (#800/#801).
+      echo unknown
+      return
+      ;;
+  esac
+  if [ "$count" -gt 0 ]; then
+    # Something IS listening. The stamp then distinguishes a healthy watch from
+    # a process that exists but has stopped refreshing it.
+    if [ "$age" != "-" ] && [ "$age" -gt "$WATCH_STALE_SECS" ]; then
+      echo stale
+    else
+      echo armed
+    fi
+  elif [ "$age" = "-" ]; then
     echo absent
-  elif [ "$age" -le "$WATCH_STALE_SECS" ]; then
-    echo armed
   else
-    echo stale
+    echo dead
   fi
 }
 
@@ -428,18 +508,57 @@ EOF
 # legitimate: a `bash -c "<text>"` wrapper's argv is exactly three elements
 # (`bash`, `-c`, `<text>`), so argv[1] is `-c`, never our script's path, and
 # it is excluded on that ground alone.
+# Every live watcher on <wave>, one ROLE per line (repeats when a role somehow
+# has two). ONE pass over the process table, so `list` can tally all roles at
+# once rather than re-walking /proc once per role (#801).
+#
+# Exit 1 means the process table could not be enumerated AT ALL - a genuinely
+# unknown answer. Callers must not round that to zero: a zero that means
+# "cannot tell" is precisely the clean-looking wrong answer this helper exists
+# to stop reporting (#800/#801).
+watcher_roles_live() {
+  local wave="$1"
+  case "${FLOW_WAVE_WATCHER_SCAN:-auto}" in
+    # Test hook. `none` simulates a host where the process table cannot be read
+    # at all, which is otherwise unreachable on any machine that runs the suite
+    # - and an untested `unknown` lane would be the guard against confident
+    # wrong answers being itself unverified. `ps` forces the fallback, which is
+    # dead code on Linux and would otherwise ship unexercised.
+    none) return 1 ;;
+    ps)   watcher_roles_ps_fallback "$wave" ;;
+    proc) watcher_roles_proc "$wave" ;;
+    *)
+      if [ -d /proc ]; then
+        watcher_roles_proc "$wave"
+      else
+        watcher_roles_ps_fallback "$wave"
+      fi
+      ;;
+  esac
+}
+
+# watcher_count ROLE WAVE -> a non-negative integer, or `unknown` when the host
+# gives us no way to enumerate processes. The REPORTING view.
+watcher_count() {
+  local role="$1" wave="$2" roles n
+  roles="$(watcher_roles_live "$wave")" || { echo unknown; return; }
+  n="$(printf '%s\n' "$roles" | grep -cxF -- "$role")"
+  echo "$((n))"
+}
+
+# count_watchers ROLE WAVE -> always an integer. The ARM-GUARD view: `unknown`
+# fails OPEN to 0, because a wave that cannot start because its duplicate guard
+# is unavailable is worse than an occasional false duplicate (#792 item 4).
+# Reporting deliberately fails the other way - see watch_state_of.
 count_watchers() {
-  local role="$1" wave="$2"
-  if [ -d /proc ]; then
-    count_watchers_proc "$role" "$wave"
-  else
-    count_watchers_ps_fallback "$role" "$wave"
-  fi
+  local n
+  n="$(watcher_count "$1" "$2")"
+  case "$n" in ''|*[!0-9]*) echo 0 ;; *) echo "$n" ;; esac
 }
 
 # The calling process's own ancestor chain: its subshell, up through every
 # parent, back to PID 1. A single PID ($$ or $BASHPID alone) is not enough
-# to exclude: `count_watchers` runs inside a `$(...)` command substitution,
+# to exclude: the watcher scan runs inside a `$(...)` command substitution,
 # which forks a subshell, and the subshell's PARENT - the real, currently
 # alive top-level process, legitimately blocked waiting on this very check -
 # carries the IDENTICAL argv under a DIFFERENT pid ($$ keeps reporting that
@@ -457,15 +576,23 @@ self_chain_proc() {
   printf '%s' "$chain"
 }
 
-count_watchers_proc() {
-  local role="$1" wave="$2" pid n=0
+watcher_roles_proc() {
+  local wave="$1" pid seen=0
   local self_chain
   self_chain="$(self_chain_proc)"
+  # Phase 1: every process whose REAL argv is a watch on this wave, recorded as
+  # "pid ppid role". Phase 2 needs the whole set before it can decide which of
+  # them are subshells of each other, so nothing is emitted yet.
+  local matched_pids=" " records=() ppid statline strest
   for pid in /proc/[0-9]*; do
+    # An unexpanded glob means /proc is there but exposes no process at all -
+    # not "no watchers", but "cannot tell" (#801).
+    [ "$pid" = '/proc/[0-9]*' ] && break
     pid="${pid#/proc/}"
+    seen=1
     case "$self_chain" in *" $pid "*) continue ;; esac
     [ -r "/proc/$pid/cmdline" ] || continue
-    local argv=() tok i found_role="" found_wave="default"
+    local argv=() tok i found_role="" found_wave="default" is_status=0
     while IFS= read -r -d '' tok; do argv+=("$tok"); done < "/proc/$pid/cmdline" 2>/dev/null
     [ "${#argv[@]}" -ge 3 ] || continue
     case "${argv[0]##*/}" in bash) : ;; *) continue ;; esac
@@ -473,17 +600,49 @@ count_watchers_proc() {
     [ "${argv[2]}" = "watch" ] || continue
     for ((i = 3; i < ${#argv[@]}; i++)); do
       case "${argv[$i]}" in
+        --status) is_status=1 ;;
         --role) found_role="${argv[$((i + 1))]:-}" ;;
         --role=*) found_role="${argv[$i]#--role=}" ;;
         --wave) found_wave="${argv[$((i + 1))]:-default}" ;;
         --wave=*) found_wave="${argv[$i]#--wave=}" ;;
       esac
     done
-    [ "$found_role" = "$role" ] || continue
+    # `watch --status` shares this argv shape but WATCHES NOTHING - it asks a
+    # question and exits. Counting it made the instrument perturb its own
+    # reading: two concurrent status checks inflated each other, and a status
+    # check running while a real watch armed made that arm refuse as a
+    # duplicate (exit 4) against a "watcher" that was only a query (#801).
+    [ "$is_status" -eq 0 ] || continue
+    [ -n "$found_role" ] || continue
     [ "$found_wave" = "$wave" ] || continue
-    n=$((n + 1))
+    ppid=""
+    if read -r statline < "/proc/$pid/stat" 2>/dev/null; then
+      # Skip past "<pid> (<comm>) " - comm can contain spaces and parentheses,
+      # so cut at the LAST ')'. State is then field 1 and ppid field 2.
+      strest="${statline##*') '}"
+      ppid="${strest#* }"
+      ppid="${ppid%% *}"
+    fi
+    case "$ppid" in ''|*[!0-9]*) ppid=0 ;; esac
+    matched_pids="$matched_pids$pid "
+    records+=("$pid $ppid $found_role")
   done
-  echo "$n"
+  [ "$seen" -eq 1 ] || return 1
+  # Phase 2: drop any match whose PARENT also matched. A command-substitution
+  # subshell is FORKED, not exec'd, so it inherits the watcher's argv verbatim
+  # and is indistinguishable from it by argv alone - one logical watcher read as
+  # up to four while it ran its own poll (#801). This is #792 item 5's failure
+  # arriving by fork instead of by `bash -c`, and it is excluded the same way:
+  # structurally. A real watcher's parent is its launcher (a `-c` wrapper or a
+  # shell), which never matches; a subshell's parent is always the watcher.
+  local rec rpid rppid rrole
+  for rec in ${records+"${records[@]}"}; do
+    rpid="${rec%% *}"; rrole="${rec##* }"
+    rppid="${rec#* }"; rppid="${rppid%% *}"
+    case "$matched_pids" in *" $rppid "*) continue ;; esac
+    printf '%s\n' "$rrole"
+  done
+  return 0
 }
 
 # Ancestor chain via `ps` for hosts with no /proc - see self_chain_proc above
@@ -505,29 +664,54 @@ self_chain_ps() {
 # contains the pattern (see above) - it degrades toward the old
 # over-counting failure rather than refusing to run, because a wave that
 # cannot start because its duplicate guard is unavailable is worse than an
-# occasional false "duplicate".
-count_watchers_ps_fallback() {
-  local role="$1" wave="$2" line pid args n=0
-  local self_chain
+# occasional false "duplicate". Over-counting is also the SAFE direction for
+# the #801 state fusion: it can only make a dead watch read `armed` (the
+# pre-#801 status quo on such a host), never a live one read `dead`.
+#
+# `ps` producing NO line at all is the one case it refuses to guess at
+# (exit 1 -> `unknown`): every host has at least the `ps` process itself, so
+# empty output means `ps` is missing or failed, not that nothing is running.
+watcher_roles_ps_fallback() {
+  local wave="$1" line pid ppid args rest found_role seen=0
+  local self_chain matched_pids=" " records=() rec rpid rppid rrole
   self_chain="$(self_chain_ps)"
   while IFS= read -r line; do
+    line="${line#"${line%%[![:space:]]*}"}"   # ps right-aligns the pid columns
     [ -n "$line" ] || continue
+    seen=1
     pid="${line%% *}"
-    args="${line#* }"
+    rest="${line#* }"
+    rest="${rest#"${rest%%[![:space:]]*}"}"
+    ppid="${rest%% *}"
+    args="${rest#* }"
     case "$self_chain" in *" $pid "*) continue ;; esac
+    case "$args" in *flow-wave-mailbox.sh\ watch*) : ;; *) continue ;; esac
+    # A status query is not a watcher - same reason as the /proc lane (#801).
+    case "$args" in *" --status"*) continue ;; esac
+    case "$args" in *" --role "*) rest="${args#*" --role "}" ;; *) continue ;; esac
+    found_role="${rest%% *}"
+    [ -n "$found_role" ] || continue
     case "$args" in
-      *flow-wave-mailbox.sh\ watch*"--role $role "*|*flow-wave-mailbox.sh\ watch*"--role $role")
-        case "$args" in
-          *"--wave $wave "*|*"--wave $wave") n=$((n + 1)) ;;
-          *"--wave "*) : ;; # a different wave - not a duplicate
-          *) [ "$wave" = "default" ] && n=$((n + 1)) ;;
-        esac
-        ;;
+      *"--wave $wave "*|*"--wave $wave") : ;;
+      *"--wave "*) continue ;; # a different wave - not this one's watcher
+      *) [ "$wave" = "default" ] || continue ;;
     esac
+    matched_pids="$matched_pids$pid "
+    records+=("$pid $ppid $found_role")
   done <<EOF
-$(ps -eo pid,args --no-headers 2>/dev/null)
+$(ps -eo pid,ppid,args --no-headers 2>/dev/null)
 EOF
-  echo "$n"
+  # `ps` always sees at least itself, so no output at all means it failed or is
+  # absent - unknown, never zero (#801).
+  [ "$seen" -eq 1 ] || return 1
+  # Same forked-subshell collapse as the /proc lane.
+  for rec in ${records+"${records[@]}"}; do
+    rpid="${rec%% *}"; rrole="${rec##* }"
+    rppid="${rec#* }"; rppid="${rppid%% *}"
+    case "$matched_pids" in *" $rppid "*) continue ;; esac
+    printf '%s\n' "$rrole"
+  done
+  return 0
 }
 
 # Advance a box's read cursor under the wave flock, so a concurrent send cannot
@@ -777,12 +961,36 @@ case "$VERB" in
     # "blind, nobody is listening". Report the heartbeat plus whether a live
     # watcher process currently holds this role instead.
     if [ "$STATUS" -eq 1 ]; then
-      WSTATE="$(watch_state "$ROLE")"
+      # The count comes FIRST and the state is derived from it (#801). Reading
+      # the heartbeat stamp on its own is what let this command answer `armed`
+      # about a role with zero live watchers - the two facts printed on one
+      # line, contradicting each other, with the reassuring one leading.
+      WCOUNT="$(watcher_count "$ROLE" "$WAVE")"
+      WSTATE="$(watch_state_of "$ROLE" "$WCOUNT")"
       WAGE="$(watch_age "$ROLE")"
-      WCOUNT="$(count_watchers "$ROLE" "$WAVE")"
-      if [ "$WAGE" = "-" ]; then WLAST="never armed"; else WLAST="${WAGE}s ago"; fi
-      if [ "$WCOUNT" -gt 0 ]; then REARMED=yes; else REARMED=no; fi
-      echo "flow-wave-mailbox: role '$ROLE' wave '$WAVE': last wake handled $WLAST (state: $WSTATE); $WCOUNT live watcher process(es); re-armed: $REARMED"
+      if [ "$WAGE" = "-" ]; then WLAST="never armed"; else WLAST="last wake handled ${WAGE}s ago"; fi
+      case "$WCOUNT" in
+        ''|*[!0-9]*) REARMED=unknown; WLIVE="live watcher count UNKNOWN" ;;
+        *)           WLIVE="$WCOUNT live watcher process(es)"
+                     if [ "$WCOUNT" -gt 0 ]; then REARMED=yes; else REARMED=no; fi ;;
+      esac
+      echo "flow-wave-mailbox: role '$ROLE' wave '$WAVE': watch is $(printf '%s' "$WSTATE" | tr 'a-z' 'A-Z') - $WLIVE, $WLAST; re-armed: $REARMED"
+      case "$WSTATE" in
+        dead)
+          echo "flow-wave-mailbox: NOTHING is listening for role '$ROLE' - the heartbeat is only as fresh as the last wake, and a watch is one-shot (#801). Mail sent now will not wake anyone. Re-arm as a BACKGROUND call:"
+          echo "  flow-wave-mailbox.sh watch --role $ROLE --wave $WAVE --timeout 1800 --consume"
+          ;;
+        absent)
+          echo "flow-wave-mailbox: role '$ROLE' has NEVER armed a watch in wave '$WAVE' - it cannot be woken. Arm it as a BACKGROUND call:"
+          echo "  flow-wave-mailbox.sh watch --role $ROLE --wave $WAVE --timeout 1800 --consume"
+          ;;
+        stale)
+          echo "flow-wave-mailbox: a watcher process exists for role '$ROLE' but its heartbeat has not refreshed in ${WAGE}s (poll interval is seconds) - it is hung or stopped, not merely between wakes." >&2
+          ;;
+        unknown)
+          echo "flow-wave-mailbox: the process table could not be enumerated, so whether role '$ROLE' is listening is UNKNOWN - do NOT read this as armed (#801)." >&2
+          ;;
+      esac
       E_ROLE="$ROLE"
       echo "FLOW_MAILBOX_WATCH_STATE=$WSTATE"
       echo "FLOW_MAILBOX_WATCH_AGE=$WAGE"
@@ -859,6 +1067,16 @@ case "$VERB" in
     BOXES="$(find "$WAVE_DIR" -maxdepth 1 -type f \( -name 'outbox-*.md' -o -name 'inbox-*.md' \) 2>/dev/null | sort)"
     WROLES="$(watch_roles)"
     TOTAL_UNREAD=0
+    # ONE pass over the process table for the whole table (#801), not one per
+    # role. LIVE_ROLES is the raw role-per-line list; LIVE_OK=0 means it could
+    # not be enumerated, which every row must then render as `unknown` rather
+    # than as zero watchers.
+    LIVE_OK=1
+    LIVE_ROLES="$(watcher_roles_live "$WAVE")" || LIVE_OK=0
+    watchers_for() {
+      [ "$LIVE_OK" -eq 1 ] || { echo unknown; return; }
+      printf '%s\n' "$LIVE_ROLES" | grep -cxF -- "$1"
+    }
     if [ "$JSON_OUT" -eq 1 ]; then
       # `reader` and `mtime` join a box to the role whose watch decides whether
       # anything in it will ever be noticed - that join is what the #638 roster
@@ -879,8 +1097,14 @@ EOF
         [ -n "$wr" ] || continue
         wa="$(watch_age "$wr")"
         if [ "$wa" = "-" ]; then wa_json=null; else wa_json="$wa"; fi
-        WATCHES="$WATCHES$(printf '{"role":"%s","state":"%s","age_secs":%s}' \
-          "$wr" "$(watch_state "$wr")" "$wa_json"),"
+        # `watchers` is part of the contract, not a nicety (#801): the roster
+        # renders the STATE, and a consumer that wants to check the fusion for
+        # itself needs the count the state was derived from. `null` means the
+        # process table could not be read - never 0.
+        wc="$(watchers_for "$wr")"
+        case "$wc" in ''|*[!0-9]*) wc_json=null ;; *) wc_json="$wc" ;; esac
+        WATCHES="$WATCHES$(printf '{"role":"%s","state":"%s","age_secs":%s,"watchers":%s}' \
+          "$wr" "$(watch_state_of "$wr" "$wc")" "$wa_json" "$wc_json"),"
       done <<EOF
 $WROLES
 EOF
@@ -906,15 +1130,34 @@ EOF
       # that used to be invisible everywhere.
       if [ -n "$WROLES" ]; then
         echo
-        printf '%-24s %8s  %s\n' ROLE WATCH LAST
+        # WATCHERS is printed beside WATCH deliberately (#801): the state is
+        # DERIVED from the count, so showing both makes the derivation
+        # checkable instead of asking the reader to trust a word.
+        printf '%-24s %8s %8s  %s\n' ROLE WATCH WATCHERS LAST
+        DEAF_ROLES=""
+        UNKNOWN_ROLES=""
         while IFS= read -r wr; do
           [ -n "$wr" ] || continue
           wa="$(watch_age "$wr")"
           if [ "$wa" = "-" ]; then last="never armed"; else last="${wa}s ago"; fi
-          printf '%-24s %8s  %s\n' "$wr" "$(watch_state "$wr")" "$last"
+          wc="$(watchers_for "$wr")"
+          ws="$(watch_state_of "$wr" "$wc")"
+          case "$ws" in
+            dead|absent) DEAF_ROLES="$DEAF_ROLES $wr($ws)" ;;
+            unknown)     UNKNOWN_ROLES="$UNKNOWN_ROLES $wr" ;;
+          esac
+          printf '%-24s %8s %8s  %s\n' "$wr" "$ws" "$wc" "$last"
         done <<EOF
 $WROLES
 EOF
+        if [ -n "$DEAF_ROLES" ]; then
+          echo "DEAF: no live watcher for role(s):$DEAF_ROLES - mail sent to them will not wake anyone (#801)."
+        fi
+        # Kept separate from DEAF on purpose: `unknown` is not a claim that
+        # nobody is listening, it is the refusal to make either claim.
+        if [ -n "$UNKNOWN_ROLES" ]; then
+          echo "UNKNOWN: the process table could not be read, so the watch state of role(s):$UNKNOWN_ROLES is UNCHECKED, not clean (#801)."
+        fi
       fi
     fi
     E_UNREAD="$TOTAL_UNREAD"
