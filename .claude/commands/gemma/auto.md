@@ -385,17 +385,73 @@ profile does not explicitly deny, which is what keeps an unattended run from
 blocking on an approval prompt; bash `timeout` bounds a stalled run (exit code
 124 when exceeded).
 
+**The invocation and its status check MUST stay in ONE fenced block, and the
+run MUST NOT be piped (issue #798).** Both halves of that sentence were broken
+here, in ways that cancelled the failure check entirely:
+
+- `... | tee <file>` makes `$?` the status of `tee`, not of `opencode`.
+  `pipefail` is set nowhere, so a run killed by the 2700s `timeout` reported
+  success and the `exit 124` branch below was unreachable.
+- Worse, `GEMMA_EXIT=$?` used to live in a SEPARATE fenced block, several
+  paragraphs of monitoring prose below the invocation. Executed as written
+  those are separate shells, so `$?` had no relationship to the run at all - it
+  reflected whatever ran last in the new shell.
+
+A dead endpoint therefore read as a completed task and this driver marched on
+into review, quality gates and `/flow:finish` on an empty diff. Do not split
+this block when editing, and do not reintroduce the pipe.
+
 ```bash
 # GEMMA_OLLAMA_URL must be in the environment of the opencode process itself -
 # the provider baseURL is the literal {env:GEMMA_OLLAMA_URL}.
+GEMMA_OUTPUT="/tmp/gemma-output-${ISSUE_NUM}.jsonl"
+
 GEMMA_OLLAMA_URL="$GEMMA_ENDPOINT" timeout 2700 opencode run \
     --dir "$WORKTREE_ROOT" \
     -m "$GEMMA_MODEL_REF" \
     --agent gemma-implementer \
     --format json \
     --auto \
-    "$GEMMA_PROMPT" < /dev/null 2>&1 | tee /tmp/gemma-output-${ISSUE_NUM}.jsonl   # </dev/null: non-TTY EOF so the harness never blocks reading stdin
+    "$GEMMA_PROMPT" < /dev/null > "$GEMMA_OUTPUT" 2>&1   # </dev/null: non-TTY EOF so the harness never blocks reading stdin
+
+GEMMA_EXIT=$?
+echo "opencode exited $GEMMA_EXIT; output: $GEMMA_OUTPUT"
+if [ "$GEMMA_EXIT" -ne 0 ]; then
+    echo "ERROR: Gemma execution failed (exit code: $GEMMA_EXIT)"
+    if [ "$GEMMA_EXIT" -eq 124 ]; then
+        echo "(exit 124 = timeout exceeded - the run stalled or the task is too big)"
+    fi
+    echo "Last 20 lines of output:"
+    tail -20 "$GEMMA_OUTPUT"
+fi
+tail -40 "$GEMMA_OUTPUT"
 ```
+
+**A clean exit code proves nothing on its own.** The Qwen lane was verified
+reporting `EXIT=0` / `is_error: false` over a run whose only evidence of
+failure was `[API Error: ...]` inside its terminal payload. That behaviour was
+NOT verified for OpenCode, and this check is written defensively rather than on
+the assumption that it is absent here. Hand both the code and the payload to
+the audited helper, invoked BARE with literal values. `--expect-tools` is what
+makes a run that used no tools a failure here: this driver delegated an
+IMPLEMENTATION, so a tool-free run wrote no code.
+
+```bash
+~/.claude/scripts/delegated-run-check.sh "$GEMMA_OUTPUT" "$GEMMA_EXIT" --lane gemma --expect-tools
+```
+
+(Exit 127 - the helper family is not installed: fall back to
+`${CLAUDE_PLUGIN_ROOT}/scripts/delegated-run-check.sh`, else the CPP-checkout
+copy; tell the user to run **`/flow:repair`** to restore the prompt-free lane.
+If no copy exists, fall back to the exit-code check alone and say plainly in
+the run summary that the payload was NOT checked.)
+
+On `DELEGATED_RUN_STATUS: failure` (exit 1): **STOP**. Report every
+`DELEGATED_RUN_SIGNAL` line and the `DELEGATED_RUN_DETAIL` line verbatim, and
+do not proceed to review - there is nothing to review. A `no-tool-use` signal
+on this lane is specifically the ollama/ollama#14958 `/v1` tool-call-drop
+signature: run `/gemma:status`, whose Step 4 smoke test tests exactly that,
+before blaming the prompt.
 
 **Monitor the JSONL stream.** Each line is one JSON object with a top-level
 `type`: `step_start`, `tool_use` (with `part.tool` and
@@ -412,20 +468,6 @@ behaving exactly as designed.
 with prefill around 1,390 tok/s, so large-context turns start fast but long
 generations still take minutes. Do not kill the run for slowness alone; kill it
 if the JSONL stream shows a hard error or no events for 15+ minutes.
-
-```bash
-# After execution, check exit code
-GEMMA_EXIT=$?
-if [ "$GEMMA_EXIT" -ne 0 ]; then
-    echo "ERROR: Gemma execution failed (exit code: $GEMMA_EXIT)"
-    if [ "$GEMMA_EXIT" -eq 124 ]; then
-        echo "(exit 124 = timeout exceeded - the run stalled or the task is too big)"
-    fi
-    echo "Last 20 lines of output:"
-    tail -20 /tmp/gemma-output-${ISSUE_NUM}.jsonl
-    exit 1
-fi
-```
 
 **Post-execution overrun verification.** Same checks as `/qwen:auto` Step 4
 (issue #735). The permission profile should make these no-ops - run them anyway.
@@ -468,18 +510,36 @@ fi
 git -C "$WORKTREE_ROOT" status --porcelain | grep -q . && echo "Changes confined to the worktree (expected)."
 ```
 
-**Summarize changes:**
+**Summarize changes - and fail closed on an empty diff (issue #798):**
+
+An empty diff is the shape every failure in this lane takes by the time it
+reaches here, and "STOP and report" as prose was not enough: the run that
+motivated this issue sailed past it into review, quality gates and
+`/flow:finish` on nothing at all. Make it mechanical - an empty diff is a
+FAILURE of the delegation, never a task that needed no changes. Count staged
+and untracked work too, or a model that only added new files reads as empty:
 
 ```bash
-FILES_CHANGED=$(git diff --name-only | wc -l)
+FILES_CHANGED=$(git status --porcelain | wc -l)
 echo "Gemma made changes to $FILES_CHANGED file(s)"
 git diff --stat | tail -1
+
+if [ "$FILES_CHANGED" -eq 0 ]; then
+    echo "STOP: Gemma produced an EMPTY DIFF - the delegation did not implement anything."
+    echo "This is a failed run, not a completed one. Do NOT advance to review,"
+    echo "quality gates, or /flow:finish."
+    echo "Check the payload verdict above, then /gemma:status for the endpoint."
+    exit 1
+fi
 ```
 
-If the model made no changes, STOP and report. A run that produced only `text`
-events and no `tool_use` events is the signature of the `/v1` tool-call-drop
-bug (ollama/ollama#14958) - run `/gemma:status`, whose Step 4 smoke test tests
-exactly that, before blaming the prompt.
+**This gate is not skippable by narration.** If `FILES_CHANGED` is 0, the run
+ends here; do not proceed to Step 5 on the grounds that the issue "may not have
+needed changes". A delegated implementation that changed nothing failed. A run
+that produced only `text` events and no `tool_use` events is the signature of
+the `/v1` tool-call-drop bug (ollama/ollama#14958) - the helper reports it as
+`no-tool-use`; run `/gemma:status`, whose Step 4 smoke test tests exactly that,
+before blaming the prompt.
 
 Report: `Step 4/8: Execute Gemma complete - {N} files changed (+{added} -{removed})`
 
@@ -550,7 +610,21 @@ If quality gates fail:
    Only change what is necessary to make the quality gates pass.
    ```
 3. **Re-execute** with the same invocation as Step 4 (same `--agent`, `--dir`,
-   and provider flags), teeing to `/tmp/gemma-fix-${ISSUE_NUM}-${RETRY}.jsonl`.
+   and provider flags), REDIRECTING to
+   `/tmp/gemma-fix-${ISSUE_NUM}-${RETRY}.jsonl` - never piping through `tee` -
+   with the exit capture in the SAME block, then checking the payload (issue
+   #798):
+   ```bash
+   GEMMA_FIX_OUTPUT="/tmp/gemma-fix-${ISSUE_NUM}-${RETRY}.jsonl"
+   # ... same opencode invocation as Step 4 ... > "$GEMMA_FIX_OUTPUT" 2>&1
+   GEMMA_FIX_EXIT=$?
+   ```
+   ```bash
+   ~/.claude/scripts/delegated-run-check.sh "$GEMMA_FIX_OUTPUT" "$GEMMA_FIX_EXIT" --lane gemma --expect-tools
+   ```
+   On `DELEGATED_RUN_STATUS: failure`, **STOP** the fix loop and report the
+   signals - the retry did not run, so re-running the gate only re-reports the
+   same failure and consumes a retry that fixed nothing.
 4. **Re-run quality gates.**
 5. If still failing after 2 retries, STOP and report. Offer escalation:
    re-run the remaining fix loop under `/codex:auto` (frontier model) or fix
@@ -562,9 +636,18 @@ Report: `Step 6/8: Quality gates passed (attempt {N}/{MAX})`
 
 ### Step 7: Finish - Commit, Push, Create PR
 
+**Last empty-diff backstop (issue #798).** Step 4 already fails closed on an
+empty diff, and this repeats the check at the boundary that actually ships,
+because the fix loop in Step 6 can also leave the tree unchanged:
+
 ```bash
 BRANCH=$(git branch --show-current)
 ISSUE_NUM=$(echo "$BRANCH" | grep -oP 'issue-\K[0-9]+' || echo "")
+
+if [ -z "$(git status --porcelain)" ] && [ "$(git rev-list --count @{u}..HEAD 2>/dev/null || echo 0)" -eq 0 ]; then
+    echo "STOP: nothing to commit and nothing ahead of upstream - refusing to open a PR on an empty diff."
+    exit 1
+fi
 ```
 
 1. **Commit** the changes:

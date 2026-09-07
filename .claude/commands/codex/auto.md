@@ -312,32 +312,69 @@ Execute Codex with JSONL monitoring. **Use `--sandbox workspace-write`** - this
 mechanically prevents network operations (`git push`, `gh pr create`) even if
 the textual fence is ignored, providing defense in depth:
 
+**The invocation and its status check MUST stay in ONE fenced block, and the
+run MUST NOT be piped (issue #798).** Both halves of that sentence were broken
+here, in ways that cancelled the failure check entirely:
+
+- `... | tee <file>` makes `$?` the status of `tee`, not of `codex`. `pipefail`
+  is set nowhere in this lane, so any non-zero exit read as success.
+- Worse, `CODEX_EXIT=$?` used to live in a SEPARATE fenced block, with
+  monitoring prose between it and the invocation. Executed as written those are
+  separate shells, so `$?` had no relationship to the run at all - it reflected
+  whatever ran last in the new shell. This is the sharper of the two bugs, and
+  it is why this lane needed the fix regardless of how well the Codex CLI
+  reports its own errors.
+
+Do not split this block when editing, and do not reintroduce the pipe.
+
 ```bash
 WORKTREE_PATH=$(pwd)
+CODEX_OUTPUT="/tmp/codex-output-${ISSUE_NUM}.jsonl"
 
 codex exec \
     --json \
     -C "$WORKTREE_PATH" \
     --sandbox workspace-write \
-    "$CODEX_PROMPT" < /dev/null 2>&1 | tee /tmp/codex-output-${ISSUE_NUM}.jsonl   # </dev/null: non-TTY EOF so codex never blocks reading stdin
+    "$CODEX_PROMPT" < /dev/null > "$CODEX_OUTPUT" 2>&1   # </dev/null: non-TTY EOF so codex never blocks reading stdin
+
+CODEX_EXIT=$?
+echo "codex exited $CODEX_EXIT; output: $CODEX_OUTPUT"
+if [ "$CODEX_EXIT" -ne 0 ]; then
+    echo "ERROR: Codex execution failed (exit code: $CODEX_EXIT)"
+    echo "Last 20 lines of output:"
+    tail -20 "$CODEX_OUTPUT"
+fi
+tail -40 "$CODEX_OUTPUT"
 ```
+
+**A clean exit code proves nothing on its own.** The Qwen lane was verified
+reporting `EXIT=0` / `is_error: false` over a run whose only evidence of
+failure was `[API Error: ...]` inside its terminal payload. That behaviour was
+NOT verified for the Codex CLI, and this check is written defensively rather
+than on the assumption that it is absent here. Hand both the code and the
+payload to the audited helper, invoked BARE with literal values.
+`--expect-tools` is what makes a run that used no tools a failure here: this
+driver delegated an IMPLEMENTATION, so a tool-free run wrote no code.
+
+```bash
+~/.claude/scripts/delegated-run-check.sh "$CODEX_OUTPUT" "$CODEX_EXIT" --lane codex --expect-tools
+```
+
+(Exit 127 - the helper family is not installed: fall back to
+`${CLAUDE_PLUGIN_ROOT}/scripts/delegated-run-check.sh`, else the CPP-checkout
+copy; tell the user to run **`/flow:repair`** to restore the prompt-free lane.
+If no copy exists, fall back to the exit-code check alone and say plainly in
+the run summary that the payload was NOT checked.)
+
+On `DELEGATED_RUN_STATUS: failure` (exit 1): **STOP**. Report every
+`DELEGATED_RUN_SIGNAL` line and the `DELEGATED_RUN_DETAIL` line verbatim, and
+do not proceed to review - there is nothing to review.
 
 **Monitor the JSONL stream** - parse and report:
 - Plan steps and progress
 - File changes / diffs
 - Agent messages
 - Errors
-
-```bash
-# After execution, check exit code
-CODEX_EXIT=$?
-if [ "$CODEX_EXIT" -ne 0 ]; then
-    echo "ERROR: Codex execution failed (exit code: $CODEX_EXIT)"
-    echo "Last 20 lines of output:"
-    tail -20 /tmp/codex-output-${ISSUE_NUM}.jsonl
-    exit 1
-fi
-```
 
 **Post-execution overrun verification (issue #735).** Even with the sandbox
 downgrade, verify that Codex did not escape its implementation-only boundary.
@@ -381,18 +418,36 @@ if [ "$UNEXPECTED_COMMITS" -gt 0 ] || [ -n "$NEW_PRS" ]; then
 fi
 ```
 
-**Parse JSONL output** for summary:
+**Parse JSONL output for a summary - and fail closed on an empty diff (issue
+#798):**
+
+An empty diff is the shape every failure in this lane takes by the time it
+reaches here, and "STOP and report" as prose was not enough: the run that
+motivated this issue sailed past it into review, quality gates and
+`/flow:finish` on nothing at all. Make it mechanical - an empty diff is a
+FAILURE of the delegation, never a task that needed no changes. Count staged
+and untracked work too, or a model that only added new files reads as empty:
 
 ```bash
 # Count file changes
-FILES_CHANGED=$(git diff --name-only | wc -l)
+FILES_CHANGED=$(git status --porcelain | wc -l)
 LINES_ADDED=$(git diff --stat | tail -1 | grep -oP '\d+ insertion' | grep -oP '\d+' || echo "0")
 LINES_REMOVED=$(git diff --stat | tail -1 | grep -oP '\d+ deletion' | grep -oP '\d+' || echo "0")
 
 echo "Codex made changes to $FILES_CHANGED file(s): +$LINES_ADDED -$LINES_REMOVED"
+
+if [ "$FILES_CHANGED" -eq 0 ]; then
+    echo "STOP: Codex produced an EMPTY DIFF - the delegation did not implement anything."
+    echo "This is a failed run, not a completed one. Do NOT advance to review,"
+    echo "quality gates, or /flow:finish."
+    echo "Check the payload verdict above, then /codex:status."
+    exit 1
+fi
 ```
 
-If Codex made no changes, STOP and report.
+**This gate is not skippable by narration.** If `FILES_CHANGED` is 0, the run
+ends here; do not proceed to Step 5 on the grounds that the issue "may not have
+needed changes". A delegated implementation that changed nothing failed.
 
 Report: `Step 4/8: Execute Codex complete - {N} files changed (+{added} -{removed})`
 
@@ -488,14 +543,31 @@ If quality gates fail:
    Only change what is necessary to make the quality gates pass.
    ```
 3. **Re-execute Codex** with the fix prompt. **Use `--sandbox workspace-write`**
-   (same as Step 4 - never `danger-full-access` for delegated implementation):
+   (same as Step 4 - never `danger-full-access` for delegated implementation).
+   The retry gets the same treatment as the first run (issue #798): redirect
+   rather than pipe, exit captured in the SAME block, payload checked. A fix
+   attempt that failed silently is exactly how a fix loop burns its two retries
+   on nothing and then reports the ORIGINAL gate failure as the diagnosis:
    ```bash
+   CODEX_FIX_OUTPUT="/tmp/codex-fix-${ISSUE_NUM}-${RETRY}.jsonl"
+
    codex exec \
        --json \
        -C "$WORKTREE_PATH" \
        --sandbox workspace-write \
-       "$FIX_PROMPT" < /dev/null 2>&1 | tee /tmp/codex-fix-${ISSUE_NUM}-${RETRY}.jsonl   # </dev/null: non-TTY EOF so codex never blocks reading stdin
+       "$FIX_PROMPT" < /dev/null > "$CODEX_FIX_OUTPUT" 2>&1   # </dev/null: non-TTY EOF so codex never blocks reading stdin
+
+   CODEX_FIX_EXIT=$?
+   echo "codex fix attempt exited $CODEX_FIX_EXIT; output: $CODEX_FIX_OUTPUT"
+   tail -40 "$CODEX_FIX_OUTPUT"
    ```
+   Then check the payload, bare:
+   ```bash
+   ~/.claude/scripts/delegated-run-check.sh "$CODEX_FIX_OUTPUT" "$CODEX_FIX_EXIT" --lane codex --expect-tools
+   ```
+   On `DELEGATED_RUN_STATUS: failure`, **STOP** the fix loop and report the
+   signals - the retry did not run, so re-running the gate only re-reports the
+   same failure and consumes a retry that fixed nothing.
 4. **Re-run quality gates.**
 5. If still failing after 2 retries, STOP and report.
 
@@ -529,9 +601,18 @@ Report: `Step 6/8: Quality gates passed (attempt {N}/{MAX})`
 
 ### Step 7: Finish - Commit, Push, Create PR
 
+**Last empty-diff backstop (issue #798).** Step 4 already fails closed on an
+empty diff, and this repeats the check at the boundary that actually ships,
+because the fix loop in Step 6 can also leave the tree unchanged:
+
 ```bash
 BRANCH=$(git branch --show-current)
 ISSUE_NUM=$(echo "$BRANCH" | grep -oP 'issue-\K[0-9]+' || echo "")
+
+if [ -z "$(git status --porcelain)" ] && [ "$(git rev-list --count @{u}..HEAD 2>/dev/null || echo 0)" -eq 0 ]; then
+    echo "STOP: nothing to commit and nothing ahead of upstream - refusing to open a PR on an empty diff."
+    exit 1
+fi
 ```
 
 1. **Commit** the changes:
