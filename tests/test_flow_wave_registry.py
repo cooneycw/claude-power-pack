@@ -1702,6 +1702,213 @@ class TestFileLaneOverlap:
 
 
 @requires_tools
+class TestUnscopedLaneIsReportedUnknown:
+    """A lane that cannot be CHECKED is never rendered as clean (issue #800).
+
+    The same-issue and FILE-LANE arms compare same-repo pairs, so a live role
+    holding a declared lane with an EMPTY repo matches nothing and drops out of
+    the report in silence. A re-register that omits ``--repo`` CLEARS it while
+    ``--files`` is PRESERVED, so extending a lane - the documented cheap
+    re-brief - was the act that stopped the lane being checked. Two workers held
+    the same two files for ~40 minutes against a roster that read clean.
+
+    The branch and same/nested-worktree arms are repo-independent and must stay
+    exactly as they were; the negative controls below pin that.
+    """
+
+    def _overlapping_pair(self, tmp: Path, files: str = "core/x.py,core/tests/test_x.py") -> None:
+        """The issue's own reproduction: two live roles, one repo, one lane."""
+        _run(
+            tmp, "register", "worker-A", "--wave", "cpp", "--socket", "uds:/tmp/a.sock",
+            "--repo", "/repo", "--issue", "1", "--branch", "issue-1-a",
+            "--cwd", "/wt/a", "--files", files,
+        )
+        _run(
+            tmp, "register", "worker-B", "--wave", "cpp", "--socket", "uds:/tmp/b.sock",
+            "--repo", "/repo", "--issue", "2", "--branch", "issue-2-b",
+            "--cwd", "/wt/b", "--files", files,
+            pid=OTHER_PID, session=OTHER_SESSION,
+        )
+
+    def test_the_reported_repro_in_both_directions(self, tmp_path: Path) -> None:
+        """The positive control the reporter ran, kept as a control.
+
+        A fix that reported UNSCOPED unconditionally would look identical on the
+        broken direction alone, so the direction that must still WARN is asserted
+        in the same test as the direction that must not read clean.
+        """
+        self._overlapping_pair(tmp_path)
+
+        # Direction 1 - both scoped: the real warning fires, nothing is unknown.
+        scoped = _run(tmp_path, "list", "--wave", "cpp", live=f"{SELF_PID}:{OTHER_PID}")
+        assert "overlapping FILE LANES" in scoped.stdout
+        assert _detail(scoped, "FLOW_WAVE_OVERLAP_UNSCOPED") == "0"
+        assert "UNKNOWN: overlap NOT computed" not in scoped.stdout
+
+        # Direction 2 - worker-B re-registers passing ONLY --files, the lane
+        # extension. `files` survives; `repo` is rewritten to empty.
+        _run(
+            tmp_path, "register", "worker-B", "--wave", "cpp",
+            "--socket", "uds:/tmp/b.sock", "--files", "core/x.py,core/tests/test_x.py,core/new.py",
+            pid=OTHER_PID, session=OTHER_SESSION,
+        )
+        assert _registry_json(tmp_path)["cpp"]["roles"]["worker-B"]["repo"] == ""
+        assert _registry_json(tmp_path)["cpp"]["roles"]["worker-B"]["files"]
+
+        unscoped = _run(tmp_path, "list", "--wave", "cpp", live=f"{SELF_PID}:{OTHER_PID}")
+        assert _detail(unscoped, "FLOW_WAVE_OVERLAP_UNSCOPED") == "1"
+        assert "UNKNOWN: overlap NOT computed" in unscoped.stdout
+        assert "worker-B" in unscoped.stdout.split("UNKNOWN: overlap NOT computed")[1]
+        assert "UNCHECKED, not clean" in unscoped.stdout
+        assert "CANNOT be read as clean" in unscoped.stderr
+
+    def test_registration_says_so_at_the_moment_it_records_the_lane(
+        self, tmp_path: Path
+    ) -> None:
+        """Told to the worker who can fix it, not only to whoever reads `list`.
+
+        Same placement reasoning as the #683 shared-parent advisory: one
+        re-register fixes it, and the alternative is an orchestrator never
+        noticing because there is nothing to notice.
+        """
+        self._overlapping_pair(tmp_path)
+        p = _run(
+            tmp_path, "register", "worker-B", "--wave", "cpp",
+            "--socket", "uds:/tmp/b.sock", "--files", "core/x.py",
+            pid=OTHER_PID, session=OTHER_SESSION,
+        )
+        assert "overlap detection is UNSCOPED for it" in p.stderr
+        assert "--repo is REWRITTEN by every re-register" in p.stderr
+        assert _detail(p, "FLOW_WAVE_LANE_SCOPED") == "no"
+        assert _verdict(p) == "updated"
+        assert p.returncode == 0
+
+    def test_a_declared_repo_is_never_flagged(self, tmp_path: Path) -> None:
+        """Negative control: the normal, correct registration stays silent."""
+        self._overlapping_pair(tmp_path)
+        p = _run(tmp_path, "list", "--wave", "cpp", live=f"{SELF_PID}:{OTHER_PID}")
+        assert _detail(p, "FLOW_WAVE_OVERLAP_UNSCOPED") == "0"
+        assert "UNKNOWN: overlap NOT computed" not in p.stdout
+        assert "CANNOT be read as clean" not in p.stderr
+
+    def test_a_lane_less_role_with_no_repo_is_not_flagged(self, tmp_path: Path) -> None:
+        """This must not widen into the false warnings #683 removed.
+
+        A role that declared NOTHING has no lane to leave unscoped, so it stays
+        in the #683 lane-less EXEMPTION - announced as skipped - rather than
+        being re-reported as an unchecked lane. Same shared-parent cwd shape as
+        ``TestFileLaneOverlap``'s exemption controls (each role gets its own
+        parent holding two checkouts, so neither nests the other), with the
+        --repo deliberately dropped: that is the state under test.
+        """
+        parents = []
+        for name in ("pa", "pb"):
+            parent = tmp_path / name
+            (parent / "one" / ".git").mkdir(parents=True)
+            (parent / "two" / ".git").mkdir(parents=True)
+            parents.append(parent)
+        for (role, pid, session), parent in zip(
+            (("worker-A", SELF_PID, SELF_SESSION), ("worker-B", OTHER_PID, OTHER_SESSION)),
+            parents,
+        ):
+            _run(
+                tmp_path, "register", role, "--wave", "cpp",
+                "--socket", f"uds:/tmp/{role}.sock", "--cwd", str(parent),
+                pid=pid, session=session,
+            )
+        p = _run(tmp_path, "list", "--wave", "cpp", live=f"{SELF_PID}:{OTHER_PID}")
+        assert _detail(p, "FLOW_WAVE_OVERLAP_UNSCOPED") == "0"
+        assert "UNKNOWN: overlap NOT computed" not in p.stdout
+        assert "overlap checks skipped" in p.stdout
+
+    def test_the_orchestrator_is_not_flagged(self, tmp_path: Path) -> None:
+        """It is exempt from the pairwise checks unconditionally, so it has no
+        scoping to lose - saying its lane is unscoped would be a fact about
+        nothing, and a warning nobody can act on is #674's failure."""
+        p = _run(
+            tmp_path, "register", "orchestrator", "--wave", "cpp",
+            "--socket", "uds:/tmp/o.sock", "--files", "docs/plan.md",
+        )
+        assert _detail(p, "FLOW_WAVE_LANE_SCOPED") == "-"
+        assert "UNSCOPED" not in p.stderr
+        lst = _run(tmp_path, "list", "--wave", "cpp", live=SELF_PID)
+        assert _detail(lst, "FLOW_WAVE_OVERLAP_UNSCOPED") == "0"
+
+    def test_the_same_issue_arm_is_covered_too(self, tmp_path: Path) -> None:
+        """The issue reported the FILE-LANE arm; the same-issue arm has the same
+        guard (`same repo AND same issue`) and the same hole, so a role claiming
+        an issue with no repo silently leaves the #597 two-sessions-on-one-issue
+        check as well."""
+        p = _run(
+            tmp_path, "register", "worker-A", "--wave", "cpp",
+            "--socket", "uds:/tmp/a.sock", "--issue", "42",
+        )
+        assert _detail(p, "FLOW_WAVE_LANE_SCOPED") == "no"
+        lst = _run(tmp_path, "list", "--wave", "cpp", live=SELF_PID)
+        assert _detail(lst, "FLOW_WAVE_OVERLAP_UNSCOPED") == "1"
+
+    def test_get_answers_the_same_question_per_role(self, tmp_path: Path) -> None:
+        """`get` is the scripting contract: FLOW_WAVE_REPO and FLOW_WAVE_FILES
+        answer this only for a caller who already knows the same-repo scoping
+        rule, so the answer is reported rather than left to be re-derived."""
+        _run(
+            tmp_path, "register", "scoped", "--wave", "cpp", "--socket", "uds:/tmp/s.sock",
+            "--repo", "/repo", "--files", "a.py",
+        )
+        _run(tmp_path, "register", "bare", "--wave", "cpp", "--socket", "uds:/tmp/n.sock")
+        _run(
+            tmp_path, "register", "unscoped", "--wave", "cpp", "--socket", "uds:/tmp/u.sock",
+            "--files", "a.py",
+        )
+        assert _detail(_run(tmp_path, "get", "scoped", "--wave", "cpp"), "FLOW_WAVE_LANE_SCOPED") == "yes"
+        assert _detail(_run(tmp_path, "get", "bare", "--wave", "cpp"), "FLOW_WAVE_LANE_SCOPED") == "-"
+        assert _detail(_run(tmp_path, "get", "unscoped", "--wave", "cpp"), "FLOW_WAVE_LANE_SCOPED") == "no"
+
+    def test_the_count_is_reported_on_every_render_path(self, tmp_path: Path) -> None:
+        """An instrument whose blind spot is visible in one output mode and
+        invisible in another is the same failure one level up, so the marker is
+        emitted as a VALUE on all three `list` exits - including zero, and
+        including the empty roster, so a consumer can tell 'none' from 'this
+        call does not report it'."""
+        empty = _run(tmp_path, "list", "--wave", "nosuch", live=SELF_PID)
+        assert _detail(empty, "FLOW_WAVE_OVERLAP_UNSCOPED") == "0"
+
+        _run(
+            tmp_path, "register", "worker-A", "--wave", "cpp",
+            "--socket", "uds:/tmp/a.sock", "--files", "a.py",
+        )
+        text = _run(tmp_path, "list", "--wave", "cpp", live=SELF_PID)
+        js = _run(tmp_path, "list", "--wave", "cpp", "--json", live=SELF_PID)
+        assert _detail(text, "FLOW_WAVE_OVERLAP_UNSCOPED") == "1"
+        assert _detail(js, "FLOW_WAVE_OVERLAP_UNSCOPED") == "1"
+        # --json stdout stays parseable: the marker is a trailing contract line.
+        assert "worker-A" in _json_payload(js)
+
+    def test_a_dead_role_is_not_counted(self, tmp_path: Path) -> None:
+        """Overlap detection is LIVE-only, so a stale entry's unscoped lane is
+        not a gap in a check that was never going to run for it."""
+        _run(
+            tmp_path, "register", "worker-A", "--wave", "cpp",
+            "--socket", "uds:/tmp/a.sock", "--files", "a.py",
+        )
+        p = _run(tmp_path, "list", "--wave", "cpp", live="")
+        assert _detail(p, "FLOW_WAVE_OVERLAP_UNSCOPED") == "0"
+
+    def test_a_new_verdict_is_not_a_new_exit_code(self, tmp_path: Path) -> None:
+        """The suite-wide rule (#674): advisories add lines, never exit codes -
+        a `set -euo pipefail` caller would abort mid-script otherwise. An
+        UNSCOPED roster is loud on stdout and stderr and still exits 0."""
+        _run(
+            tmp_path, "register", "worker-A", "--wave", "cpp",
+            "--socket", "uds:/tmp/a.sock", "--files", "a.py",
+        )
+        p = _run(tmp_path, "list", "--wave", "cpp", live=SELF_PID)
+        assert p.returncode == 0
+        assert _verdict(p) == "listed"
+        assert "CANNOT be read as clean" in p.stderr
+
+
+@requires_tools
 class TestPolicyBackCompat:
     """A wave that never declares a policy behaves exactly as it did (#699)."""
 

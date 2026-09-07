@@ -190,9 +190,19 @@ and is wiped by the OS at reboot - exactly when every session's address dies too
 
    The role-level facts are optional and each answers a routing question the
    orchestrator otherwise had to ask (#699). They are PRESERVED across a
-   re-register that omits them - unlike cwd/issue/branch, which a re-register
-   rewrites because they describe a lane that genuinely goes stale. Pass an
-   empty value (`--files ""`) to clear one deliberately.
+   re-register that omits them - unlike cwd/**repo**/issue/branch, which a
+   re-register REWRITES because they describe a lane that genuinely goes stale.
+   Pass an empty value (`--files ""`) to clear one deliberately.
+
+   **`--repo` must be passed on EVERY re-register (#800).** It is in the
+   rewritten group while `--files` is in the preserved one, and file-lane and
+   same-issue overlap detection is scoped to same-repo pairs - so a re-register
+   that omits `--repo` keeps the lane and drops the key that makes the lane
+   comparable. Found in a live wave: a worker re-registered passing only
+   `--files` to extend its lane, and two workers held the same two files for
+   ~40 minutes against a roster that read clean. The registry now says so at
+   registration time and reports the role as UNKNOWN rather than clean in
+   `list` (below), but the fix on your side is one flag.
 
    The helper self-derives this session's address by walking ancestor pids
    against the socket dir. **This step is genuinely uds-specific** and is the
@@ -656,6 +666,19 @@ re-brief for a worker whose compaction dropped more detail than expected.
   and it lapses the moment the role declares a lane. It is narrow on purpose:
   a declared branch, a genuinely nested worktree, or a granted file lane is a
   lane even with no issue number yet.
+- **An overlap check that could not RUN is reported as UNKNOWN, never as
+  clean** (#800). The same-issue and FILE-LANE arms compare same-repo pairs, so
+  a LIVE role holding a declared lane with an EMPTY repo matches nothing and
+  falls out of the report in silence - and silence there is indistinguishable
+  from a clean verdict. Such roles are NAMED in the roster, counted in
+  `FLOW_WAVE_OVERLAP_UNSCOPED`, and said aloud on stderr; `register` and `get`
+  answer the same question per role as `FLOW_WAVE_LANE_SCOPED`. This is
+  deliberately NOT fixed by preserving `repo` across a re-register: `repo` is a
+  lane fact and lane facts go stale (the #683 trap), so preserving it would make
+  a worker that moved repos cry wolf, and would still leave a never-declared
+  repo silent. Fail loud instead - an unscoped role becomes visible rather than
+  invisible. The branch and same/nested-worktree arms are repo-independent and
+  are unaffected.
 - **File-lane overlap is EXACT-MATCH on declared paths** (#699), not glob
   expansion, prefix containment, or realpath resolution. Two lanes that mean the
   same directory but spell it differently do not collide here - declare the same
@@ -757,6 +780,17 @@ from "this call does not report policy":
 | `FLOW_WAVE_POLICY_DRIVER` / `_GATE` / `_LEDGER` / `_MERGE_AUTHORITY` / `_DEPLOY` / `_REPO` / `_TS` | free text as declared |
 | `FLOW_WAVE_BRIEFED_REV` | the rev THIS role was briefed on (`register` / `get`) |
 | `FLOW_WAVE_BRIEF` | `current` / `stale` / `none`. `stale` = the policy was amended after this role registered; re-register to take the re-brief |
+
+Two lane-scoping lines (#800), so an unknowable overlap answer is never read as
+a clean one:
+
+| Line | Values |
+|------|--------|
+| `FLOW_WAVE_LANE_SCOPED` (`register`, `get`) | `yes` (a repo-scoped lane fact is declared and a repo is recorded) / `no` (a lane is declared with NO repo - it cannot be compared with anybody) / `-` (no repo-scoped lane fact declared, or the `orchestrator`, which the pairwise checks exempt) |
+| `FLOW_WAVE_OVERLAP_UNSCOPED` (`list`) | count of LIVE roles whose declared lane could not be overlap-checked. Emitted as a VALUE on every `list` exit - including `0`, the empty roster, and `--json` - so a consumer can tell "none" from "this call does not report it". A non-zero count means the roster is NOT a clean verdict |
+
+Neither changes an exit code: advisories add lines, never exit codes (#674), or
+a `set -euo pipefail` caller aborts mid-script.
 
 `list --json` gains a `wave_policy` sibling key when a policy is declared -
 alongside `unregistered_claims` and for the same reason: roles are top-level
