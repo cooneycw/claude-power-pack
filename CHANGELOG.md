@@ -198,7 +198,24 @@
 
   `/codex:auto`'s quality-gate fix loop carried the same `| tee` shape and is
   fixed too, so a silently failed retry can no longer burn both attempts and
-  then report the original gate failure as the diagnosis. Found while
+  then report the original gate failure as the diagnosis.
+
+  A cross-model review (Codex `gpt-5.5`) of this change caught six defects in
+  it, three of which would have made the check WORSE than none - failing runs
+  that succeeded. The helper recognized only `tool_use`-shaped events, so every
+  successful `/codex:auto` run (which signals work as `command_execution` /
+  `file_change`) would have failed as tool-free; a recursive error scan made a
+  DENIED tool call fatal, though a denied command is the `/gemma:auto` fence
+  working as designed; and matching `[API Error` anywhere meant a model quoting
+  the banner read as a failed run. Format facts are now verified against
+  redacted slices of five real captures in `tests/fixtures/delegated_runs/` -
+  including the original 2026-09-07 incident - rather than assumed. The review
+  also found the helper invocation itself sitting in a separate fenced block
+  from the variables it referenced: this change's own defect, one level up. The
+  six documents now invoke it bare with literal values, which the pins enforce.
+  Two review suggestions were NOT taken as given: requiring a terminal event
+  unconditionally would have failed 2 of 5 real codex captures, so that signal
+  is gated on `--expect-tools`. Found while
   diagnosing why `/qwen:*` had been pointed at an offline MacBook: the endpoint
   had been wrong long enough to matter, and nothing surfaced it, because the
   harness reported success throughout.

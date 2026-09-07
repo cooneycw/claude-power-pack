@@ -432,19 +432,30 @@ reporting `EXIT=0` / `is_error: false` over a run whose only evidence of
 failure was `[API Error: ...]` inside its terminal payload. That behaviour was
 NOT verified for OpenCode, and this check is written defensively rather than on
 the assumption that it is absent here. Hand both the code and the payload to
-the audited helper, invoked BARE with literal values. `--expect-tools` is what
+the audited helper. `--expect-tools` is what
 makes a run that used no tools a failure here: this driver delegated an
 IMPLEMENTATION, so a tool-free run wrote no code.
 
+**Invoke it BARE, with LITERAL values (issue #798 review).** Two reasons, and
+both were learned the hard way. This block is a DIFFERENT shell from the one
+above: `$GEMMA_EXIT` and the output path are not exported and would arrive
+empty, so the helper would exit 2 without a verdict - the very separate-shell
+defect this document fixes, reproduced one level up. And a helper call carrying
+variable expansions cannot match the `Bash(~/.claude/scripts/...:*)` allowlist
+prefix, so it would prompt on every run. Substitute the exit code and path the
+block above printed, exactly as Step 1's verify gate does:
+
 ```bash
-~/.claude/scripts/delegated-run-check.sh "$GEMMA_OUTPUT" "$GEMMA_EXIT" --lane gemma --expect-tools
+~/.claude/scripts/delegated-run-check.sh /tmp/gemma-output-42.jsonl 0 --lane gemma --expect-tools
 ```
 
 (Exit 127 - the helper family is not installed: fall back to
 `${CLAUDE_PLUGIN_ROOT}/scripts/delegated-run-check.sh`, else the CPP-checkout
-copy; tell the user to run **`/flow:repair`** to restore the prompt-free lane.
-If no copy exists, fall back to the exit-code check alone and say plainly in
-the run summary that the payload was NOT checked.)
+copy (either may prompt once); tell the user to run **`/flow:repair`** to
+restore the prompt-free lane. If NO copy exists anywhere, treat the run as
+UNASSESSABLE and stop - do NOT fall back to the exit code alone. On this lane
+a clean exit is the documented shape of a FAILED run, so proceeding on it
+restores the exact false green this check exists to remove.)
 
 On `DELEGATED_RUN_STATUS: failure` (exit 1): **STOP**. Report every
 `DELEGATED_RUN_SIGNAL` line and the `DELEGATED_RUN_DETAIL` line verbatim, and
@@ -618,9 +629,10 @@ If quality gates fail:
    GEMMA_FIX_OUTPUT="/tmp/gemma-fix-${ISSUE_NUM}-${RETRY}.jsonl"
    # ... same opencode invocation as Step 4 ... > "$GEMMA_FIX_OUTPUT" 2>&1
    GEMMA_FIX_EXIT=$?
+   echo "opencode fix attempt exited $GEMMA_FIX_EXIT; output: $GEMMA_FIX_OUTPUT"
    ```
    ```bash
-   ~/.claude/scripts/delegated-run-check.sh "$GEMMA_FIX_OUTPUT" "$GEMMA_FIX_EXIT" --lane gemma --expect-tools
+   ~/.claude/scripts/delegated-run-check.sh /tmp/gemma-fix-42-1.jsonl 0 --lane gemma --expect-tools
    ```
    On `DELEGATED_RUN_STATUS: failure`, **STOP** the fix loop and report the
    signals - the retry did not run, so re-running the gate only re-reports the

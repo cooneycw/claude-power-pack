@@ -292,3 +292,204 @@ def test_quiet_suppresses_prose_but_never_the_contract(clean_run: Path) -> None:
     assert proc.returncode == 0
     assert "DELEGATED_RUN_STATUS: success" in proc.stdout
     assert "looks clean" not in proc.stdout
+
+
+# ---------------------------------------------------------------------------
+# Findings from the cross-model (Codex) review of this change. Each of these
+# was a real defect in the first cut of the helper, and three of them would
+# have made it WORSE than no check at all - failing runs that succeeded.
+# ---------------------------------------------------------------------------
+
+
+def test_codex_command_and_file_events_count_as_tool_use(tmp_path: Path) -> None:
+    """The false-positive that would have broken `/codex:auto` outright.
+
+    The first cut recognized only `tool_use`-shaped events. Real
+    `codex exec --json` streams signal work as `item.completed` wrapping an
+    `item.type` of `command_execution` or `file_change` - verified against five
+    captures in /tmp. None matched, so every SUCCESSFUL Codex implementation
+    scored `no-tool-use` and failed under the `--expect-tools` its own auto
+    lane passes. Format facts get verified against real streams, not guessed.
+    """
+    output = write_jsonl(
+        tmp_path / "codex.jsonl",
+        [
+            {"type": "thread.started", "thread_id": "t1"},
+            {"type": "turn.started"},
+            {"type": "item.completed", "item": {"id": "i1", "type": "agent_message",
+                                                "text": "Editing the file."}},
+            {"type": "item.completed", "item": {"id": "i2", "type": "command_execution",
+                                                "command": "/bin/bash -lc 'pytest -q'",
+                                                "aggregated_output": "5 passed"}},
+            {"type": "item.completed", "item": {"id": "i3", "type": "file_change",
+                                                "changes": [{"path": "a.py", "kind": "modify"}]}},
+            {"type": "turn.completed", "usage": {"input_tokens": 10}},
+        ],
+    )
+    proc = run(str(output), "0", "--lane", "codex", "--expect-tools")
+    assert proc.returncode == 0, proc.stdout
+    assert "DELEGATED_RUN_SIGNAL" not in contract(proc.stdout), proc.stdout
+
+
+def test_agent_message_alone_is_not_tool_use(tmp_path: Path) -> None:
+    """The positive control for the test above: talking is not working."""
+    output = write_jsonl(
+        tmp_path / "talk.jsonl",
+        [
+            {"type": "thread.started"},
+            {"type": "item.completed", "item": {"type": "agent_message",
+                                                "text": "I would change config.py."}},
+            {"type": "turn.completed"},
+        ],
+    )
+    proc = run(str(output), "0", "--lane", "codex", "--expect-tools")
+    assert proc.returncode == 1, proc.stdout
+    assert "no-tool-use" in contract(proc.stdout)["DELEGATED_RUN_SIGNAL"]
+
+
+def test_a_denied_tool_call_is_not_a_failed_run(tmp_path: Path) -> None:
+    """The fence working is not the run failing.
+
+    `/gemma:auto` states in as many words that a denied command comes back as a
+    `tool_use` with `state.status: "error"` and that "a model that tries
+    `git commit` once and moves on is behaving exactly as designed". The first
+    cut scanned every nesting level for `is_error` / a non-empty `error`, so it
+    failed exactly that run - the helper contradicting the document it serves.
+    """
+    output = write_jsonl(
+        tmp_path / "denied.jsonl",
+        [
+            {"type": "step_start"},
+            {"type": "tool_use", "part": {"tool": "bash", "state": {
+                "status": "error",
+                "error": "permission denied by rule: git commit*"}}},
+            {"type": "tool_use", "part": {"tool": "edit", "state": {"status": "completed"}}},
+            {"type": "step_finish", "part": {"reason": "stop"}},
+        ],
+    )
+    proc = run(str(output), "0", "--lane", "gemma", "--expect-tools")
+    assert proc.returncode == 0, proc.stdout
+    assert contract(proc.stdout)["DELEGATED_RUN_STATUS"] == ["success"]
+
+
+def test_api_error_quoted_at_the_start_of_a_message_is_not_a_failure(tmp_path: Path) -> None:
+    """Anchoring alone was not enough - the field has to be terminal too.
+
+    A model whose message BEGINS with the banner (quoting a log it was asked to
+    fix, say) tripped the first cut, because the scan walked every nested
+    `content`. The check now looks only at terminal and error events.
+    """
+    output = write_jsonl(
+        tmp_path / "quote.jsonl",
+        [
+            {"type": "tool_use", "name": "edit_file"},
+            {"type": "assistant", "message": {
+                "content": "[API Error: Request timeout after 154s] is the string to match."}},
+            {"type": "result", "subtype": "success", "is_error": False,
+             "num_turns": 6, "result": "Added the matcher."},
+        ],
+    )
+    proc = run(str(output), "0", "--lane", "qwen", "--expect-tools")
+    assert proc.returncode == 0, proc.stdout
+    assert contract(proc.stdout)["DELEGATED_RUN_STATUS"] == ["success"]
+
+
+def test_a_stream_of_empty_objects_is_not_a_run(tmp_path: Path) -> None:
+    """`{}` parses as JSON; it is not evidence that anything happened."""
+    output = tmp_path / "hollow.jsonl"
+    output.write_text("{}\n{}\n{}\n", encoding="utf-8")
+    proc = run(str(output), "0", "--lane", "qwen")
+    assert proc.returncode == 1, proc.stdout
+    assert "output-unrecognized" in contract(proc.stdout)["DELEGATED_RUN_SIGNAL"]
+
+
+def test_a_truncated_stream_fails_an_auto_lane_but_not_an_exec_lane(tmp_path: Path) -> None:
+    """A run whose stream stops before its terminal event did not finish.
+
+    Gated on `--expect-tools` rather than made absolute, and the reason is
+    empirical: `turn.completed` was absent from 2 of 5 real codex captures, one
+    of them a run still executing when sampled. Failing every lane on a missing
+    terminal event would have broken working runs - the expensive direction.
+    A killed `exec` stream still leaves a usable partial answer; a killed `auto`
+    stream leaves an incomplete implementation.
+    """
+    output = write_jsonl(
+        tmp_path / "cut.jsonl",
+        [
+            {"type": "thread.started"},
+            {"type": "turn.started"},
+            {"type": "item.completed", "item": {"type": "command_execution",
+                                                "command": "pytest"}},
+        ],
+    )
+    lenient = run(str(output), "0", "--lane", "codex")
+    assert lenient.returncode == 0, lenient.stdout
+    assert "no-terminal-event" in contract(lenient.stdout)["DELEGATED_RUN_SIGNAL"]
+
+    strict = run(str(output), "0", "--lane", "codex", "--expect-tools")
+    assert strict.returncode == 1, strict.stdout
+
+
+def test_top_level_error_event_still_fails(tmp_path: Path) -> None:
+    """Narrowing the error scan must not blind it to a real harness error."""
+    output = write_jsonl(
+        tmp_path / "harness-error.jsonl",
+        [
+            {"type": "tool_use", "name": "edit_file"},
+            {"type": "error", "message": "connection refused reaching the model endpoint"},
+            {"type": "step_finish", "part": {"reason": "error"}},
+        ],
+    )
+    proc = run(str(output), "0", "--lane", "gemma", "--expect-tools")
+    assert proc.returncode == 1, proc.stdout
+    assert "error-payload" in contract(proc.stdout)["DELEGATED_RUN_SIGNAL"]
+
+
+# ---------------------------------------------------------------------------
+# Real captures, not hand-written shapes. Every format fact this helper relies
+# on was verified against actual `codex exec --json` / OpenCode / Qwen Code
+# streams; these are redacted slices of those files, so a harness that changes
+# its event vocabulary turns this red instead of silently defeating the check.
+# `qwen-api-error.jsonl` is the ORIGINAL INCIDENT: a real 2026-09-07 run with
+# exit 0, `is_error: false`, `num_turns: 1`, and the endpoint dead.
+# ---------------------------------------------------------------------------
+
+FIXTURES = ROOT / "tests" / "fixtures" / "delegated_runs"
+
+
+@pytest.mark.parametrize(
+    ("name", "lane", "expect_failure", "signal"),
+    [
+        ("codex-complete.jsonl", "codex", False, None),
+        ("gemma-complete.jsonl", "gemma", False, None),
+        ("codex-truncated.jsonl", "codex", True, "no-terminal-event"),
+        ("qwen-api-error.jsonl", "qwen", True, "api-error"),
+    ],
+    ids=["codex-real-success", "gemma-real-success", "codex-real-truncated", "qwen-real-incident"],
+)
+def test_verdicts_on_real_captures(
+    name: str, lane: str, expect_failure: bool, signal: str | None
+) -> None:
+    """The two success cases matter as much as the failures.
+
+    A checker that fails everything would satisfy the incident tests and break
+    every lane. `codex-complete` and `gemma-complete` are real runs that did
+    real work, and they must come back clean.
+    """
+    path = FIXTURES / name
+    assert path.exists(), f"missing fixture {path}"
+
+    proc = run(str(path), "0", "--lane", lane, "--expect-tools")
+    found = contract(proc.stdout)
+
+    if expect_failure:
+        assert proc.returncode == 1, proc.stdout
+        assert found["DELEGATED_RUN_STATUS"] == ["failure"]
+        assert signal in found["DELEGATED_RUN_SIGNAL"], proc.stdout
+    else:
+        assert proc.returncode == 0, proc.stdout
+        assert found["DELEGATED_RUN_STATUS"] == ["success"]
+        assert "no-tool-use" not in found.get("DELEGATED_RUN_SIGNAL", []), (
+            "a real run that edited files must never read as tool-free - this is "
+            "the false positive that would have broken /codex:auto outright"
+        )

@@ -160,17 +160,28 @@ was verified reporting `EXIT=0` / `is_error: false` over a run whose only
 evidence of failure was `[API Error: ...]` inside its terminal payload. That
 behaviour was NOT verified for OpenCode, and this check is written defensively
 rather than on the assumption that it is absent here. Hand both the code and
-the payload to the audited helper, invoked BARE with literal values:
+the payload to the audited helper.
+
+**Invoke it BARE, with LITERAL values (issue #798 review).** Two reasons, and
+both were learned the hard way. This block is a DIFFERENT shell from the one
+above: `$GEMMA_EXIT` and the output path are not exported and would arrive
+empty, so the helper would exit 2 without a verdict - the very separate-shell
+defect this document fixes, reproduced one level up. And a helper call carrying
+variable expansions cannot match the `Bash(~/.claude/scripts/...:*)` allowlist
+prefix, so it would prompt on every run. Substitute the exit code and path the
+block above printed, exactly as Step 1's verify gate does:
 
 ```bash
-~/.claude/scripts/delegated-run-check.sh "$OUTPUT_FILE" "$GEMMA_EXIT" --lane gemma
+~/.claude/scripts/delegated-run-check.sh /tmp/gemma-exec-20260907-120000.jsonl 124 --lane gemma
 ```
 
 (Exit 127 - the helper family is not installed: fall back to
 `${CLAUDE_PLUGIN_ROOT}/scripts/delegated-run-check.sh`, else the CPP-checkout
-copy; tell the user to run **`/flow:repair`** to restore the prompt-free lane.
-If no copy exists, fall back to the exit-code check alone and say plainly that
-the payload was NOT checked.)
+copy (either may prompt once); tell the user to run **`/flow:repair`** to
+restore the prompt-free lane. If NO copy exists anywhere, treat the run as
+UNASSESSABLE and stop - do NOT fall back to the exit code alone. On this lane
+a clean exit is the documented shape of a FAILED run, so proceeding on it
+restores the exact false green this check exists to remove.)
 
 The helper prints `DELEGATED_RUN_STATUS: success|failure` and exits 1 on
 failure, naming every signal it found (`timeout`, `api-error`, `output-empty`,

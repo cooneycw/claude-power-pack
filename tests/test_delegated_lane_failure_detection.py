@@ -32,6 +32,7 @@ only pins that each lane REACHES it, and reaches it with the right arguments.
 from __future__ import annotations
 
 import re
+import textwrap
 from pathlib import Path
 
 import pytest
@@ -58,14 +59,42 @@ def read(family: str, kind: str) -> str:
     return (COMMANDS / family / f"{kind}.md").read_text(encoding="utf-8")
 
 
+#: Any pipeline in a delegated invocation masks `$?`. Excludes `||` (a fallback,
+#: not a pipe) and `|&`-free redirections; a leading `#` line never reaches here.
+_PIPE = re.compile(r"(?<!\|)\|(?!\|)")
+
+#: Any lane-local exit capture, e.g. CODEX_EXIT=$? or CODEX_FIX_EXIT=$?.
+_ANY_CAPTURE = re.compile(r"^[A-Z][A-Z_]*EXIT=\$\?", re.MULTILINE)
+
+
+def _code_lines(block: str) -> list[str]:
+    """Executable lines of a bash block: comments and trailing comments removed."""
+    lines = []
+    for raw in block.splitlines():
+        code = re.sub(r"\s+#.*$", "", raw).strip()
+        if code and not code.startswith("#"):
+            lines.append(code)
+    return lines
+
+
 def bash_blocks(text: str) -> list[str]:
-    """Every ```bash fenced block, in order.
+    """Every ```bash fenced block, in order, INCLUDING indented ones.
 
     Deliberately NOT every fence: a plain ``` block in these documents holds a
     shell TRANSCRIPT demonstrating the bug (`$ ( timeout 1 ... | tee ...)`),
     which must stay readable without tripping the pipe checks below.
+
+    The indentation half is load-bearing and was missed on the first cut: a
+    fence nested in a numbered list (the Step 6 fix loops, where `/codex:auto`
+    re-runs the CLI) is indented, so a column-0 pattern skipped those blocks
+    ENTIRELY - the retry invocation was unpinned and a `| tee` could have been
+    reintroduced there with the suite still green. A scan whose file set is
+    narrower than it looks is the failure this repo has paid for before.
     """
-    return re.findall(r"^```bash\n(.*?)^```", text, re.MULTILINE | re.DOTALL)
+    blocks = re.findall(
+        r"^[ \t]*```bash\n(.*?)^[ \t]*```", text, re.MULTILINE | re.DOTALL
+    )
+    return [textwrap.dedent(block) for block in blocks]
 
 
 def invocation_blocks(text: str, binary: str) -> list[str]:
@@ -85,14 +114,17 @@ def test_the_run_is_never_piped(family: str, kind: str) -> None:
     assert blocks, f"no {binary} invocation block found in {family}/{kind}.md"
 
     for block in blocks:
-        for line in block.splitlines():
-            stripped = line.strip()
-            if stripped.startswith("#"):
+        for line in _code_lines(block):
+            # Reject ANY pipeline, not one spelling of `tee`. `|tee`, `| cat`,
+            # `| jq .` and `| head` all mask `$?` identically, so pinning the
+            # literal text would leave the defect a rename away (Codex review
+            # of this PR raised exactly that evasion).
+            if not _PIPE.search(line):
                 continue
-            assert "| tee" not in stripped, (
-                f"{family}/{kind}.md pipes the delegated run through tee: {stripped!r}. "
-                "`$?` would then be tee's status, not the CLI's - the #798 defect. "
-                "Redirect with `> \"$OUT\" 2>&1` instead."
+            assert False, (
+                f"{family}/{kind}.md pipes the delegated run: {line!r}. "
+                "`$?` after a pipeline is the LAST command's status, not the "
+                "CLI's - the #798 defect. Redirect with `> \"$OUT\" 2>&1` instead."
             )
 
 
@@ -135,6 +167,19 @@ def test_invocation_and_status_check_share_one_shell(family: str, kind: str) -> 
             "capture into the invocation's own block."
         )
 
+    # The converse, which the first cut of this test missed: with several
+    # invocations (Step 4 and the Step 6 fix loop both run the CLI), checking
+    # only that holders are launchers lets ONE launcher quietly lose its check.
+    # Any `*_EXIT=$?` satisfies it - the fix loop's capture is legitimately a
+    # different variable - but SOME capture must share the block.
+    for index in launchers:
+        assert _ANY_CAPTURE.search(blocks[index]), (
+            f"{family}/{kind}.md has a `{binary}` invocation block with no "
+            "exit-status capture in it. Every delegated run needs its own "
+            "capture - an unchecked retry is how a fix loop burns its attempts "
+            "on nothing and then reports the original failure as the diagnosis."
+        )
+
 
 @pytest.mark.parametrize(("family", "kind"), SURFACES, ids=IDS)
 def test_the_capture_immediately_follows_the_invocation(family: str, kind: str) -> None:
@@ -172,10 +217,32 @@ def test_the_payload_is_checked_not_only_the_exit_code(family: str, kind: str) -
     assumption that a CLI reports its own failures.
     """
     text = read(family, kind)
-    assert HELPER in text, (
-        f"{family}/{kind}.md never consults {HELPER}; its failure detection "
-        "rests on `$?` alone, which #798 showed is not evidence on these lanes."
+    # Must be an EXECUTABLE call, not a mention. The first cut asserted only
+    # `HELPER in text`, which the `allowed-tools:` frontmatter line satisfies on
+    # its own - so deleting every real invocation left the test green (Codex
+    # review of this PR).
+    calls = [
+        line.strip()
+        for block in bash_blocks(text)
+        for line in _code_lines(block)
+        if HELPER in line
+    ]
+    assert calls, (
+        f"{family}/{kind}.md never CALLS {HELPER} in a bash block (a frontmatter "
+        "or prose mention does not run it); its failure detection would rest on "
+        "`$?` alone, which #798 showed is not evidence on these lanes."
     )
+
+    # And the call must carry literal values. A `"$VAR"` argument is empty in
+    # the separate shell the call actually runs in - the helper would exit 2
+    # with no verdict, reproducing #798's own defect one level up.
+    for call in calls:
+        assert "$" not in call, (
+            f"{family}/{kind}.md calls the run checker with a variable: {call!r}. "
+            "That block is a different shell, so the value arrives empty and the "
+            "helper exits 2 without a verdict. Substitute literal values, as "
+            "Step 1's verify gate does."
+        )
 
 
 @pytest.mark.parametrize("family", sorted(LANES), ids=sorted(LANES))

@@ -1,0 +1,14 @@
+{"type": "thread.started", "thread_id": "<redacted>"}
+{"type": "turn.started"}
+{"type": "item.completed", "item": {"id": "<redacted>", "type": "agent_message", "text": "<redacted>"}}
+{"type": "item.started", "item": {"id": "<redacted>", "type": "command_execution", "command": "<redacted>", "aggregated_output": "<redacted>", "exit_code": null, "status": "in_progress"}}
+{"type": "item.completed", "item": {"id": "<redacted>", "type": "command_execution", "command": "<redacted>", "aggregated_output": "<redacted>", "exit_code": 0, "status": "completed"}}
+{"type": "item.started", "item": {"id": "<redacted>", "type": "command_execution", "command": "<redacted>", "aggregated_output": "<redacted>", "exit_code": null, "status": "in_progress"}}
+{"type": "item.completed", "item": {"id": "<redacted>", "type": "command_execution", "command": "<redacted>", "aggregated_output": "<redacted>", "exit_code": 0, "status": "completed"}}
+{"type": "item.completed", "item": {"id": "<redacted>", "type": "agent_message", "text": "<redacted>"}}
+{"type": "item.started", "item": {"id": "<redacted>", "type": "file_change", "changes": [{"path": "<redacted>", "kind": "update"}, {"path": "<redacted>", "kind": "update"}], "status": "in_progress"}}
+{"type": "item.completed", "item": {"id": "<redacted>", "type": "file_change", "changes": [{"path": "<redacted>", "kind": "update"}, {"path": "<redacted>", "kind": "update"}], "status": "completed"}}
+{"type": "item.started", "item": {"id": "<redacted>", "type": "command_execution", "command": "<redacted>", "aggregated_output": "<redacted>", "exit_code": null, "status": "in_progress"}}
+{"type": "item.completed", "item": {"id": "<redacted>", "type": "command_execution", "command": "<redacted>", "aggregated_output": "<redacted>", "exit_code": 0, "status": "completed"}}
+{"type": "item.completed", "item": {"id": "<redacted>", "type": "agent_message", "text": "<redacted>"}}
+{"type": "item.started", "item": {"id": "<redacted>", "type": "command_execution", "command": "<redacted>", "aggregated_output": "<redacted>", "exit_code": null, "status": "in_progress"}}

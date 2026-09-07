@@ -66,14 +66,28 @@
 #   timeout          that status was 124 - bash `timeout` killed the run
 #   output-missing   no output file exists (the run never produced a stream)
 #   output-empty     the file exists but holds nothing parseable
-#   api-error        a terminal payload whose text begins `[API Error` - the
-#                    Qwen false-success signature, checked for all lanes
-#   error-payload    the stream carries an explicit error marker
-#                    (is_error true, subtype/type "error", a top-level "error")
+#   output-unrecognized  parsed, but no recognizable event in the whole stream
+#   api-error        a TERMINAL payload whose text begins `[API Error` - the
+#                    Qwen false-success signature, checked for all lanes. Scoped
+#                    to terminal and error events on purpose: matching the
+#                    banner anywhere made a model QUOTING it read as a failed
+#                    run, and a guard against false success that manufactures
+#                    false failure is not an improvement
+#   error-payload    an event announces failure at its TOP level (is_error true,
+#                    type/subtype "error", a top-level "error"). Deliberately
+#                    not recursive: a DENIED tool call is the /gemma:auto fence
+#                    working as designed, not a failed run
 #   no-turns         a result reporting num_turns <= 1 (fails w/ --expect-tools)
 #   no-tool-use      zero tool events in the whole stream (fails w/ --expect-tools).
 #                    On the gemma lane this is also the ollama/ollama#14958
 #                    `/v1` tool-call-drop signature - see /gemma:status Step 4.
+#                    Tool-event names are format facts VERIFIED against real
+#                    captures, never guessed - codex signals work as
+#                    `command_execution` / `file_change`, which an earlier cut
+#                    of this helper did not recognize, so every successful
+#                    /codex:auto run would have failed as tool-free
+#   no-terminal-event  the stream stops before its terminal event: a truncated
+#                    or killed run (fails w/ --expect-tools)
 #
 # Exit codes:
 #   0  the run succeeded (DELEGATED_RUN_STATUS: success)
@@ -182,16 +196,45 @@ import sys
 
 path = sys.argv[1]
 
-# Fields that carry model- or harness-authored text across the three formats:
-# Qwen Code / Codex put the terminal text in `result`; OpenCode nests prose
-# under `part.text`. `message`/`error` are the harness's own error channels.
+# --- Format facts, verified against real streams on disk (issue #798 review) --
+# Guessing these was not an option: the first cut of this helper recognized only
+# `tool_use`-shaped events and would therefore have flagged every SUCCESSFUL
+# `/codex:auto` run as `no-tool-use`, failing the lane outright under
+# --expect-tools. Checked against five real `codex exec --json` captures, four
+# OpenCode captures and the Qwen streams in /tmp:
+#
+#   qwen  (Qwen Code CLI):  system | assistant | result
+#                           terminal `result` carries num_turns + the text
+#   gemma (OpenCode):       step_start | tool_use | text | step_finish
+#   codex (Codex CLI):      thread.started | turn.started | item.started |
+#                           item.completed{item.type} | turn.completed
+#                           item.type in {agent_message, command_execution,
+#                                         file_change, mcp_tool_call}
+#
+# `agent_message` is deliberately NOT a tool marker - it is the model talking.
+TOOL_TYPES = {
+    "tool_use", "tool_call", "tool_result", "function_call", "tool",
+    "command_execution", "file_change", "mcp_tool_call",
+    "patch_apply", "apply_patch", "local_shell_call", "exec_command",
+}
+
+# A stream that stops before its terminal event is a run that did not finish.
+# `turn.completed` was absent from 2 of 5 codex captures - and one of those was
+# a run still executing when it was sampled, which is exactly the truncation
+# this detects. It is reported for every lane but only FAILS under
+# --expect-tools, because a killed `exec` stream still leaves a usable answer
+# while a killed `auto` stream leaves an incomplete implementation.
+TERMINAL_TYPES = {"result", "turn.completed", "thread.completed", "step_finish"}
+
+# Where a harness puts model- or harness-authored text.
 TEXT_FIELDS = ("result", "text", "message", "error", "detail", "content")
-TOOL_MARKERS = ("tool_use", "tool_call", "tool_result", "function_call", "tool")
 
 signals = set()
 detail = ""
 turns = None
 saw_tool = False
+saw_terminal = False
+recognized = 0
 parsed = 0
 
 
@@ -202,48 +245,67 @@ def note(text):
         detail = " ".join(str(text).split())[:300]
 
 
-def strings(node, depth=0):
-    """Yield (key, value) for every string leaf, so a nested payload is seen."""
-    if depth > 8:
+def type_of(node):
+    return str(node.get("type", "")).lower() if isinstance(node, dict) else ""
+
+
+def tool_types_in(node, depth=0):
+    """Every type/tool/name value in the object, so `item.type` is seen too."""
+    if depth > 6:
         return
     if isinstance(node, dict):
         for key, value in node.items():
-            if isinstance(value, str):
-                yield key, value
+            if key.lower() in ("type", "tool", "name") and isinstance(value, str):
+                yield value.lower()
             else:
-                yield from strings(value, depth + 1)
+                yield from tool_types_in(value, depth + 1)
     elif isinstance(node, list):
         for item in node:
-            yield from strings(item, depth + 1)
+            yield from tool_types_in(item, depth + 1)
 
 
-def walk(node, depth=0):
-    """Look for tool events, turn counts, and explicit error flags anywhere."""
-    global turns, saw_tool
-    if depth > 8:
+def texts_of(node, depth=0):
+    """Text leaves under the KNOWN payload fields, at most two levels deep.
+
+    Deliberately shallow. The first cut walked the whole object and matched
+    `[API Error` in any nested `content`, which meant a model quoting the
+    banner - or this repo's own diff - read as a failed run. A guard against
+    false success that manufactures false failure is not an improvement.
+    """
+    if depth > 2 or not isinstance(node, dict):
         return
-    if isinstance(node, dict):
-        for key, value in node.items():
-            lowered = key.lower()
-            if lowered in ("num_turns", "numturns") and isinstance(value, int):
-                turns = value if turns is None else max(turns, value)
-            if lowered in ("type", "subtype", "role", "event", "name", "tool"):
-                if isinstance(value, str):
-                    low = value.lower()
-                    if any(marker in low for marker in TOOL_MARKERS):
-                        saw_tool = True
-                    if low == "error":
-                        signals.add("error-payload")
-            if lowered == "is_error" and value is True:
-                signals.add("error-payload")
-            if lowered in ("error", "errors") and value not in (None, "", [], {}):
-                signals.add("error-payload")
-                if isinstance(value, str):
-                    note(value)
-            walk(value, depth + 1)
-    elif isinstance(node, list):
-        for item in node:
-            walk(item, depth + 1)
+    for key, value in node.items():
+        if key.lower() not in TEXT_FIELDS:
+            continue
+        if isinstance(value, str):
+            yield value
+        elif isinstance(value, dict):
+            yield from texts_of(value, depth + 1)
+        elif isinstance(value, list):
+            for item in value:
+                if isinstance(item, str):
+                    yield item
+                elif isinstance(item, dict):
+                    yield from texts_of(item, depth + 1)
+
+
+def is_fatal(node):
+    """Harness-level failure, judged at the TOP level of an event only.
+
+    Scoped deliberately. Scanning every nesting level for `is_error` or a
+    non-empty `error` key made a DENIED TOOL CALL fatal - and a denied command
+    is the /gemma:auto fence working exactly as designed ("A model that tries
+    `git commit` once and moves on is behaving exactly as designed"). The
+    helper would have contradicted the document it serves.
+    """
+    if node.get("is_error") is True:
+        return True
+    if type_of(node) == "error" or type_of(node).endswith(".error"):
+        return True
+    if str(node.get("subtype", "")).lower() == "error":
+        return True
+    error = node.get("error")
+    return error not in (None, "", [], {}, False)
 
 
 with open(path, "r", encoding="utf-8", errors="replace") as handle:
@@ -255,27 +317,53 @@ with open(path, "r", encoding="utf-8", errors="replace") as handle:
             obj = json.loads(line)
         except (ValueError, TypeError):
             # Not JSON: a harness banner or a stderr line that landed in the
-            # stream. Still worth an api-error scan - that banner is sometimes
-            # exactly where the error surfaces.
+            # stream. That banner is sometimes exactly where the error surfaces.
             if line.lstrip().startswith("[API Error"):
                 signals.add("api-error")
                 note(line)
             continue
         parsed += 1
-        walk(obj)
-        for key, value in strings(obj):
-            stripped = value.lstrip()
-            if key.lower() in TEXT_FIELDS and stripped.startswith("[API Error"):
-                signals.add("api-error")
-                note(value)
+        if not isinstance(obj, dict):
+            continue
 
-if parsed == 0 and not signals:
-    signals.add("output-empty")
+        kind = type_of(obj)
+        if kind:
+            recognized += 1
 
-if not saw_tool:
-    signals.add("no-tool-use")
-if turns is not None and turns <= 1:
-    signals.add("no-turns")
+        if any(value in TOOL_TYPES for value in tool_types_in(obj)):
+            saw_tool = True
+
+        terminal = kind in TERMINAL_TYPES
+        if terminal:
+            saw_terminal = True
+            if isinstance(obj.get("num_turns"), int):
+                turns = obj["num_turns"] if turns is None else max(turns, obj["num_turns"])
+
+        fatal = is_fatal(obj)
+        if fatal:
+            signals.add("error-payload")
+            if isinstance(obj.get("error"), str):
+                note(obj["error"])
+
+        # The Qwen false-success signature lives in the TERMINAL payload; an
+        # explicit error event is the other place a harness announces it.
+        if terminal or fatal:
+            for text in texts_of(obj):
+                if text.lstrip().startswith("[API Error"):
+                    signals.add("api-error")
+                    note(text)
+
+if parsed == 0 or recognized == 0:
+    # Parsed nothing, or parsed only objects with no recognizable event shape
+    # (`{}` repeated is the degenerate case). Neither is a run.
+    signals.add("output-unrecognized")
+else:
+    if not saw_tool:
+        signals.add("no-tool-use")
+    if not saw_terminal:
+        signals.add("no-terminal-event")
+    if turns is not None and turns <= 1:
+        signals.add("no-turns")
 
 print("SIGNALS=" + ",".join(sorted(signals)))
 print("DETAIL=" + detail)
@@ -305,13 +393,15 @@ PYEOF
 fi
 
 # --- Verdict ----------------------------------------------------------------
-# `no-turns` and `no-tool-use` describe a run that did nothing. On an `auto`
-# lane that IS the failure; on an `exec` lane a tool-free answer can be the
-# whole point, so they are reported and not counted unless --expect-tools.
+# `no-turns`, `no-tool-use` and `no-terminal-event` describe a run that did
+# nothing, or did not finish. On an `auto` lane either IS the failure; on an
+# `exec` lane a tool-free answer can be the whole point and a killed stream
+# still leaves a usable partial answer, so all three are reported and not
+# counted unless --expect-tools. Everything else fails on any lane.
 STATUS="success"
 for signal in ${SIGNALS+"${SIGNALS[@]}"}; do
     case "$signal" in
-        no-turns|no-tool-use)
+        no-turns|no-tool-use|no-terminal-event)
             [[ "$EXPECT_TOOLS" -eq 1 ]] && STATUS="failure"
             ;;
         *)
