@@ -214,11 +214,26 @@ class RunState:
                 continue
         return None
 
-    def summary(self) -> dict[str, Any]:
-        """Return a summary suitable for JSON output to the LLM."""
+    def summary(self, executed_from: Optional[int] = None) -> dict[str, Any]:
+        """Return a summary suitable for JSON output to the LLM.
+
+        ``executed_from`` is the step index the CURRENT invocation started at
+        (issue #838 follow-up). Records before it were produced by an earlier
+        invocation and are carried over: their command did not run this time,
+        and the tree may have changed since it did. Without the distinction a
+        carried-over ``success`` renders identically to one just earned, which
+        is how a stale ``lint: SUCCESS`` was reported for a tree whose lint
+        input had been edited between the two runs.
+        """
         steps_summary = []
-        for r in self.step_records:
+        for index, r in enumerate(self.step_records):
             entry: dict[str, Any] = {"id": r.step_id, "status": r.status.value}
+            if executed_from is not None and index < executed_from:
+                # Only meaningful for a record that HAS a result; a pending
+                # step before the resume point has nothing to be stale about.
+                if r.status not in (StepStatus.PENDING, StepStatus.SKIPPED):
+                    entry["executed_in_this_run"] = False
+                    entry["carried_from_previous_run"] = True
             if r.tests:
                 # A green test step whose suite executed nothing is the #621
                 # false green - carry the counts so the summary can say so.

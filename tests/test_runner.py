@@ -1026,3 +1026,103 @@ class TestSkippedGateReporting:
         text = log.getvalue()
         assert "SKIPPED GATES: typecheck" in text
         assert "#621" in text
+
+
+class TestResumedRunReportsWhatActuallyRan:
+    """The runner must record where THIS invocation began (issue #838 f/u).
+
+    ``TestCarriedOverStepsAreMarked`` in test_runner_state.py pins the summary
+    rendering; this pins the half that feeds it. Without ``_executed_from`` the
+    marking has nothing to key on, so both are needed and neither is redundant:
+    a summary that can mark correctly, given a number nobody supplies, marks
+    nothing.
+    """
+
+    def test_a_resumed_run_records_the_step_it_started_at(self, tmp_project: Path):
+        steps = [
+            StepDef(id="lint", command="echo 'lint ok'", timeout_seconds=30),
+            StepDef(id="bad_step", command="exit 1", timeout_seconds=30),
+        ]
+        runner = DeterministicRunner(project_root=tmp_project, output=StringIO())
+        first = runner.run("check", step_defs=steps)
+        assert not first.success
+
+        fixed = [
+            StepDef(id="lint", command="echo 'lint ok'", timeout_seconds=30),
+            StepDef(id="bad_step", command="echo 'fixed'", timeout_seconds=30),
+        ]
+        second = runner.run("check", step_defs=fixed)
+        assert second.success
+
+        # The resume began at step 2 (index 1), so lint did NOT run this time.
+        assert runner._executed_from == 1
+
+        # Read from the RESULT, not from state: a successful run deletes its
+        # state file, which is precisely why this detail has to be captured
+        # before cleanup rather than loaded back afterwards.
+        assert second.carried_from_previous_run == ["lint"]
+        lint = second.step_details[0]
+        assert lint["status"] == "success"
+        assert lint["carried_from_previous_run"] is True, (
+            "lint succeeded in the FIRST invocation and was not re-run here. "
+            "Reporting it identically to a step that just passed is how a "
+            "stale lint result was carried across a tree change (#838 f/u)."
+        )
+
+    def test_the_state_file_is_gone_on_success_so_detail_must_be_captured(
+        self, tmp_project: Path
+    ):
+        """Pins WHY the capture happens before cleanup.
+
+        This is the constraint that made the obvious implementation - read the
+        state back in run_plan and annotate it - a silent no-op on exactly the
+        green resumed run it was written for. Without this test the next person
+        reverts the capture as redundant and the feature quietly stops working
+        on the success path while every unit test still passes.
+        """
+        steps = [StepDef(id="only", command="echo ok", timeout_seconds=30)]
+        runner = DeterministicRunner(project_root=tmp_project, output=StringIO())
+        result = runner.run("check", step_defs=steps)
+        assert result.success
+
+        with pytest.raises(FileNotFoundError):
+            RunState.load(result.run_id, tmp_project)
+        assert result.step_details, (
+            "a successful run must carry its own step detail - there is no "
+            "state file left to read it from"
+        )
+
+    def test_a_fresh_run_starts_at_zero_and_marks_nothing(self, tmp_project: Path):
+        """The guard rail: every step of a from-scratch run really did run."""
+        steps = [StepDef(id="only", command="echo ok", timeout_seconds=30)]
+        runner = DeterministicRunner(project_root=tmp_project, output=StringIO())
+        result = runner.run("check", step_defs=steps)
+        assert result.success
+        assert runner._executed_from == 0
+        assert result.carried_from_previous_run == []
+        for entry in result.step_details:
+            assert "carried_from_previous_run" not in entry
+
+    def test_the_resume_names_the_steps_it_will_not_run(self, tmp_project: Path):
+        """The human half. The JSON marking serves a reader parsing it; the log
+        line serves the far more common reader who is watching the gate scroll
+        past and has no reason to suspect anything."""
+        steps = [
+            StepDef(id="lint", command="echo 'lint ok'", timeout_seconds=30),
+            StepDef(id="bad_step", command="exit 1", timeout_seconds=30),
+        ]
+        log = StringIO()
+        runner = DeterministicRunner(project_root=tmp_project, output=log)
+        runner.run("check", step_defs=steps)
+
+        fixed = [
+            StepDef(id="lint", command="echo 'lint ok'", timeout_seconds=30),
+            StepDef(id="bad_step", command="echo 'fixed'", timeout_seconds=30),
+        ]
+        resume_log = StringIO()
+        runner2 = DeterministicRunner(project_root=tmp_project, output=resume_log)
+        runner2.run("check", step_defs=fixed)
+
+        text = resume_log.getvalue()
+        assert "will NOT run in this invocation" in text
+        assert "lint" in text

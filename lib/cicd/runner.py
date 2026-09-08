@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any, Optional, TextIO
 
 from .outcomes import parse_failed_node_ids
-from .state import RunState
+from .state import RunState, StepStatus
 from .steps import GATE_STEP_IDS, ShellStep, StepDef, get_plan_steps
 
 # Variables the runner launcher injects (or a parent venv leaks) that must NOT
@@ -133,6 +133,17 @@ class RunResult:
     # re-run that passed is a DIFFERENT qualification and must not borrow #621's
     # sentence.
     reruns: list[dict[str, Any]] = field(default_factory=list)
+    # Step ids whose result was earned in an EARLIER invocation and carried
+    # into this one by a resume (issue #838 follow-up). Its own channel and not
+    # a `warning`: nothing is wrong, but the reader must be able to tell a
+    # result just earned from one merely remembered. Captured on the RESULT
+    # rather than read back from state, because the state file is deleted on
+    # success - which is exactly why the old `step_details` block could never
+    # have shown this on the green path it matters most on.
+    carried_from_previous_run: list[str] = field(default_factory=list)
+    # Full per-step detail, captured BEFORE the success cleanup removes the
+    # state file so a green run can report it at all.
+    step_details: list[dict[str, Any]] = field(default_factory=list)
     # Step ids that skip_if-skipped this run (issue #628). A skipped GATE step
     # (lint/test/typecheck) means the gate verified nothing about the change, so
     # flow-finish-gate.sh reads this to report `warn` and NAME the skipped gates
@@ -192,6 +203,7 @@ class DeterministicRunner:
         existing = RunState.find_latest(plan_name, self.project_root)
         if existing:
             self._log(f"Resuming failed run {existing.run_id} from step {existing.current_index + 1}")
+            self._warn_carried_over(existing)
             return self._execute(existing, step_defs)
 
         # Load step definitions
@@ -225,6 +237,7 @@ class DeterministicRunner:
             )
 
         self._log(f"Resuming run {run_id} from step {state.current_index + 1}")
+        self._warn_carried_over(state)
         # Reset state to running for resume
         state.status = "running"
 
@@ -238,8 +251,42 @@ class DeterministicRunner:
         state = RunState.load(run_id, self.project_root)
         return state.summary()
 
+    def _warn_carried_over(self, state: RunState) -> None:
+        """Name the steps this invocation will NOT execute (issue #838 follow-up).
+
+        A resumed run starts at ``current_index``, so every earlier step keeps
+        the result it earned in a previous invocation - against a tree that may
+        since have changed, because the usual reason to resume is that
+        something was fixed. Those results are still reported, and until this
+        warning they were reported in exactly the form of a step that had just
+        run.
+
+        Observed twice on one day: a cached ``test: SUCCESS (103 passed)`` on a
+        run where pytest was never invoked, and a cached ``lint: SUCCESS`` for a
+        tree whose linted source had been edited between the two runs. Both were
+        caught by out-of-band knowledge - grepping for "Resuming" and counting
+        pytest invocations, and remembering a hand-run ``make lint`` - neither of
+        which is a property of the output.
+        """
+        carried = [
+            record.step_id
+            for record in state.step_records[: state.current_index]
+            if record.status not in (StepStatus.PENDING, StepStatus.SKIPPED)
+        ]
+        if not carried:
+            return
+        self._log(
+            f"  NOTE: {len(carried)} step(s) will NOT run in this invocation "
+            f"and keep their earlier result: {', '.join(carried)}. "
+            "If the tree changed since that run, those results are stale - "
+            "they are marked carried_from_previous_run in step_details."
+        )
+
     def _execute(self, state: RunState, step_defs: Optional[list[StepDef]] = None) -> RunResult:
         """Execute steps from the current state index."""
+        # Where THIS invocation began, so the summary can distinguish a result
+        # earned now from one carried over (issue #838 follow-up).
+        executed_from = state.current_index
         if step_defs is None:
             step_defs = get_plan_steps(state.plan_name, project_root=str(self.project_root))
 
@@ -260,6 +307,7 @@ class DeterministicRunner:
         }
 
         completed = state.current_index
+        self._executed_from = executed_from
         tests: dict[str, dict[str, Any]] = {}
         warnings: list[str] = []
         reruns: list[dict[str, Any]] = []
@@ -487,11 +535,32 @@ class DeterministicRunner:
         else:
             self._log(f"Plan '{state.plan_name}' completed successfully ({completed}/{len(step_defs)} steps)")
 
+        # Capture the per-step detail BEFORE cleanup deletes the state file.
+        # Order matters and is the whole point: reading it afterwards raises
+        # FileNotFoundError, which is why `step_details` was previously
+        # failure-only and why a resumed GREEN run could not say which of its
+        # steps had actually run.
+        success_details = state.summary(executed_from=executed_from)["steps"]
+        success_carried = [
+            entry["id"]
+            for entry in success_details
+            if entry.get("carried_from_previous_run")
+        ]
+        if success_carried:
+            self._log(
+                f"  NOTE: this run succeeded, but {len(success_carried)} step(s) "
+                f"kept a result from an earlier invocation: "
+                f"{', '.join(success_carried)}. If the tree changed since, those "
+                "results do not describe it."
+            )
+
         # Clean up state file on success
         state.cleanup(self.project_root)
 
         return RunResult(
             success=True,
+            step_details=success_details,
+            carried_from_previous_run=success_carried,
             run_id=state.run_id,
             plan_name=state.plan_name,
             steps_completed=completed,
@@ -531,13 +600,33 @@ def run_plan(
         # Structured output for LLM consumption
         output = result.to_dict()
 
-        # Include step details from state if run failed
-        if not result.success:
+        # Include step details from state. Emitted on SUCCESS as well as
+        # failure (issue #838 follow-up): the carried-over marking added below
+        # matters most on a GREEN resumed run, which is exactly the case the
+        # old `if not result.success` guard excluded. A resumed success that
+        # cannot show which of its steps actually ran this time is the report
+        # that misleads - a failure is already being read carefully.
+        if result.step_details:
+            # Success path: captured before cleanup removed the state file.
+            output["step_details"] = result.step_details
+        else:
+            # Failure path: the state file survives, so read it back and mark
+            # carried-over steps the same way.
             try:
                 state = RunState.load(result.run_id, root)
-                output["step_details"] = state.summary()["steps"]
+                executed_from = getattr(runner, "_executed_from", None)
+                output["step_details"] = state.summary(
+                    executed_from=executed_from
+                )["steps"]
             except FileNotFoundError:
                 pass
+        carried = [
+            entry["id"]
+            for entry in output.get("step_details", [])
+            if entry.get("carried_from_previous_run")
+        ]
+        if carried:
+            output["carried_from_previous_run"] = carried
 
         print(json.dumps(output, indent=2))
 
