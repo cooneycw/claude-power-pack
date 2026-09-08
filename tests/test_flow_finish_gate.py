@@ -657,3 +657,109 @@ def test_runner_skipped_non_gate_still_ok(tmp_path: Path) -> None:
     assert proc.returncode == 0
     assert "FLOW_FINISH_GATE: ok" in proc.stdout
     assert "warn" not in proc.stdout
+
+
+# ── Naming what ran, and seeing a larger gate (issue #808) ──────────────────
+#
+# The fallback runs lint/test/typecheck. A repo whose real gate is a larger
+# aggregate target - this repository's own `make verify` is nine - gets three
+# of nine run and reported `ok`: a true statement about a fraction of the gate,
+# presented as a verdict on the tree. That is the same shape as the `skipped`
+# case above, one level in, and it sits inside the instrument everything else
+# trusts.
+#
+# The threshold is deliberately unchanged. `skipped` keeps its exit code and a
+# repo where the fallback IS the gate still reports `ok`; what changes is that
+# the report now says which targets ran and which the repo expected.
+
+
+@requires_bash
+def test_fallback_names_the_gates_it_ran(tmp_path: Path) -> None:
+    """Coverage should be readable, not inferred from an absence of complaint."""
+    (tmp_path / "Makefile").write_text(
+        "lint:\n\ttrue\ntest:\n\ttrue\ntypecheck:\n\ttrue\n"
+    )
+    proc, _ = _run(tmp_path, cpp_dir="", uv_exit=None, make_exit=0)
+    assert proc.returncode == 0
+    assert "gates executed: make lint make test make typecheck" in proc.stdout
+
+
+@requires_bash
+def test_an_aggregate_gate_the_fallback_cannot_run_is_a_warn(tmp_path: Path) -> None:
+    (tmp_path / "Makefile").write_text(
+        "lint:\n\ttrue\n"
+        "test:\n\ttrue\n"
+        "typecheck:\n\ttrue\n"
+        "extra-check:\n\ttrue\n"
+        "verify: lint test typecheck extra-check\n"
+    )
+    proc, bindir = _run(tmp_path, cpp_dir="", uv_exit=None, make_exit=0)
+    assert proc.returncode == 0
+    assert "FLOW_FINISH_GATE: warn" in proc.stdout
+    assert "FLOW_FINISH_GATE: ok" not in proc.stdout
+    assert "extra-check" in proc.stdout
+    assert "make verify" in proc.stdout
+    # The three it knows still ran - this is a reporting change, not a refusal.
+    argv = (bindir / "make.log").read_text().splitlines()
+    assert argv == ["lint", "test", "typecheck"]
+
+
+@requires_bash
+def test_a_repo_where_the_fallback_is_the_gate_is_still_ok(tmp_path: Path) -> None:
+    """The guard rail. Without it, "warn on an aggregate" is satisfiable by
+    warning on everything, which would train readers to ignore the warning -
+    strictly worse than not having it."""
+    (tmp_path / "Makefile").write_text(
+        "lint:\n\ttrue\ntest:\n\ttrue\ntypecheck:\n\ttrue\n"
+    )
+    proc, _ = _run(tmp_path, cpp_dir="", uv_exit=None, make_exit=0)
+    assert "FLOW_FINISH_GATE: ok" in proc.stdout
+    assert "not run by fallback" not in proc.stdout
+
+
+@requires_bash
+def test_a_phony_declaration_is_not_mistaken_for_an_aggregate(tmp_path: Path) -> None:
+    """.PHONY lists gate names as DATA, not as prerequisites.
+
+    Found by running the detector against this repository rather than a
+    fixture: .PHONY names every phony target, so it trivially 'depends on'
+    lint, test and typecheck and matched before `verify` did. A synthetic
+    Makefile without a .PHONY line would never have shown it.
+    """
+    (tmp_path / "Makefile").write_text(
+        ".PHONY: lint test typecheck docs clean\n"
+        "lint:\n\ttrue\ntest:\n\ttrue\ntypecheck:\n\ttrue\n"
+    )
+    proc, _ = _run(tmp_path, cpp_dir="", uv_exit=None, make_exit=0)
+    assert "FLOW_FINISH_GATE: ok" in proc.stdout
+    assert "docs" not in proc.stdout
+    assert "clean" not in proc.stdout
+
+
+@requires_bash
+def test_a_multi_line_aggregate_is_detected(tmp_path: Path) -> None:
+    """This repo's own `verify` spans four continuation lines, so a
+    line-at-a-time scan would see one prerequisite and miss five."""
+    (tmp_path / "Makefile").write_text(
+        "lint:\n\ttrue\n"
+        "test:\n\ttrue\n"
+        "typecheck:\n\ttrue\n"
+        "alpha-check:\n\ttrue\n"
+        "beta-check:\n\ttrue\n"
+        "verify: lint test typecheck \\\n\talpha-check \\\n\tbeta-check\n"
+    )
+    proc, _ = _run(tmp_path, cpp_dir="", uv_exit=None, make_exit=0)
+    assert "FLOW_FINISH_GATE: warn" in proc.stdout
+    assert "alpha-check" in proc.stdout
+    assert "beta-check" in proc.stdout
+
+
+@requires_bash
+def test_the_skipped_threshold_is_unchanged(tmp_path: Path) -> None:
+    """Explicitly pinned, because this ticket's scope excluded it: a repo with
+    no gate targets still reports `skipped` at exit 0. Changing that is the
+    oscillation-prone class and was ruled out, so a later reader should see it
+    asserted rather than assume it drifted."""
+    proc, _ = _run(tmp_path, cpp_dir="", uv_exit=None, make_exit=None)
+    assert proc.returncode == 0
+    assert "FLOW_FINISH_GATE: skipped" in proc.stdout
