@@ -851,6 +851,17 @@ class TestSkippedSuiteReporting:
         silent - while half the gate proved nothing. Summing the summaries
         alone does not fix it: the honest total is still 102 and still not
         zero. The guard has to know that an INVOCATION was empty.
+
+        DO NOT DELETE THIS AS REDUNDANT WITH THE AGGREGATION TESTS. It is the
+        only thing separating this fix from the simplification a reviewer
+        would reasonably propose - "just sum the summaries". It was observed
+        red TWICE during development: once against the old last-wins parser,
+        and again after aggregation was working correctly, where the counts
+        were already right (`invocations: 2, empty_invocations: 1`) and
+        `warnings` was still empty. That second red is the whole point. An
+        aggregate-only implementation reports 4,218 honestly, passes every
+        other test in this file, looks complete, and ships #621's guard as
+        blind as it was before any of this.
         """
         log = StringIO()
         runner = DeterministicRunner(project_root=tmp_project, output=log)
