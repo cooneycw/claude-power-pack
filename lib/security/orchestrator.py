@@ -7,7 +7,7 @@ Provides quick, standard, and deep scan modes.
 from __future__ import annotations
 
 from .config import SecurityConfig
-from .models import ScanResult
+from .models import Finding, ScanResult
 from .modules import debug_flags, env_files, gitignore, gitleaks, npm_audit, permissions, pip_audit, secrets
 
 
@@ -84,6 +84,26 @@ def scan_deep(project_root: str, config: SecurityConfig | None = None) -> ScanRe
     return result
 
 
+def _gate_message(finding: Finding) -> str:
+    """One gate line for *finding*, with enough to act on it (kyle #838).
+
+    Severity and title alone cannot be triaged: five identical HIGH lines for
+    "Hardcoded password in source code" leave a reader unable to tell a real
+    one from a known-ignorable one without re-deriving the scan, so a genuine
+    finding hides among them. The location was never missing - ``Finding``
+    carries ``file_path``/``line_number`` and the scanners populate them - it
+    was simply not printed.
+
+    ``raw_match`` is deliberately NOT included. It may be the secret itself,
+    which is why the model carries ``mask_secret``, and these messages land in
+    shared logs and PR bodies. The location is enough to go and look.
+    """
+    parts = [f"{finding.severity.icon} {finding.severity.label}: {finding.title}"]
+    if finding.location:
+        parts.append(f"at {finding.location}")
+    return " ".join(parts) + f" [{finding.id}]"
+
+
 def check_gate(result: ScanResult, gate_name: str, config: SecurityConfig | None = None) -> tuple[bool, list[str]]:
     """Check if scan results pass a flow gate.
 
@@ -109,14 +129,10 @@ def check_gate(result: ScanResult, gate_name: str, config: SecurityConfig | None
 
     for finding in result.findings:
         if finding.severity in gate.block_on:
-            messages.append(
-                f"BLOCKED: {finding.severity.icon} {finding.severity.label}: {finding.title}"
-            )
+            messages.append(f"BLOCKED: {_gate_message(finding)}")
             blocked = True
         elif finding.severity in gate.warn_on:
-            messages.append(
-                f"WARNING: {finding.severity.icon} {finding.severity.label}: {finding.title}"
-            )
+            messages.append(f"WARNING: {_gate_message(finding)}")
 
     return not blocked, messages
 

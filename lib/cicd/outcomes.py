@@ -30,6 +30,15 @@ class SuiteOutcome:
     skipped: int = 0
     errors: int = 0
     framework: str = "unknown"
+    # How many summaries were aggregated into these counts, and how many of
+    # them executed nothing (kyle issue #838). A step whose command runs the
+    # runner more than once - `make test` invoking pytest for two disjoint
+    # suites - produces one summary per invocation, and the TOTAL can look
+    # healthy while one invocation collected zero. Summing without these would
+    # report an honest number and leave #621's guard exactly as blind as the
+    # last-wins behaviour did.
+    invocations: int = 1
+    empty_invocations: int = 0
 
     @property
     def executed(self) -> int:
@@ -45,6 +54,18 @@ class SuiteOutcome:
         nothing at all, so even the skip count is zero).
         """
         return self.executed == 0
+
+    @property
+    def any_invocation_empty(self) -> bool:
+        """True when some invocation executed nothing, even if others did.
+
+        ``nothing_ran`` asks about the total, which is the right question for
+        a single invocation and the wrong one for several: two suites where
+        the first collects zero and the second passes 102 total 102, so the
+        total ran something and the #621 warning stays silent about a half of
+        the gate that proved nothing (kyle issue #838).
+        """
+        return self.empty_invocations > 0
 
     def summary(self) -> str:
         """Human-readable count summary, e.g. ``312 passed, 66 skipped``."""
@@ -64,6 +85,8 @@ class SuiteOutcome:
             "errors": self.errors,
             "executed": self.executed,
             "framework": self.framework,
+            "invocations": self.invocations,
+            "empty_invocations": self.empty_invocations,
         }
 
 
@@ -115,25 +138,61 @@ def parse_suite_outcome(text: str) -> Optional[SuiteOutcome]:
     """Parse a test runner's summary out of captured step output.
 
     Returns None when no recognizable summary is present - the caller then
-    reports exactly what it reported before this module existed. The LAST
-    matching summary wins, so a ``make test`` target that runs several suites
-    reports its final one rather than an early partial.
+    reports exactly what it reported before this module existed.
+
+    EVERY recognized summary is aggregated, not just the last one. This used
+    to keep the last, reasoning that a target running several suites should
+    report its final one "rather than an early partial" - which is right for a
+    partial or a re-run of a subset, and wrong for two DISJOINT suites, a
+    shape that reasoning did not cover. kyle's ``make test`` runs pytest twice
+    (non-Playwright, then Playwright), so a gate over 4,153 executed tests
+    reported 103 and discarded 97.5% of the run (kyle issue #838).
+
+    The #769 failed-id re-run is unaffected: it runs as a SEPARATE
+    ``step.execute`` with its own captured output, so it is never in the same
+    text as the run it re-runs and cannot be double-counted here.
     """
     if not text:
         return None
     lines = text.splitlines()
-    # Order matters only in that each parser scans independently; the last
-    # recognized summary across all of them (by line position) is returned.
-    best: Optional[tuple[int, SuiteOutcome]] = None
+    # Each parser scans independently; per line the last recognized summary
+    # wins, which preserves the previous precedence for a single summary.
+    parsed: list[SuiteOutcome] = []
     for idx, line in enumerate(lines):
-        for parsed in (
+        found: Optional[SuiteOutcome] = None
+        for candidate in (
             _parse_pytest_line(line),
             _parse_jest_line(line),
             _parse_unittest_line(line, lines, idx),
         ):
-            if parsed is not None:
-                best = (idx, parsed)
-    return best[1] if best else None
+            if candidate is not None:
+                found = candidate
+        if found is not None:
+            parsed.append(found)
+    if not parsed:
+        return None
+    return _aggregate(parsed)
+
+
+def _aggregate(outcomes: list[SuiteOutcome]) -> SuiteOutcome:
+    """Sum several summaries into one, keeping how many ran nothing.
+
+    A single summary passes through with its counts untouched; it simply
+    reports ``invocations=1``, and ``empty_invocations=1`` when it is #621's
+    original "exited 0 having executed nothing" case.
+    """
+    frameworks = {outcome.framework for outcome in outcomes}
+    return SuiteOutcome(
+        passed=sum(outcome.passed for outcome in outcomes),
+        failed=sum(outcome.failed for outcome in outcomes),
+        skipped=sum(outcome.skipped for outcome in outcomes),
+        errors=sum(outcome.errors for outcome in outcomes),
+        # One framework per step is the norm; "mixed" is honest rather than
+        # silently attributing a jest run's tests to pytest.
+        framework=outcomes[-1].framework if len(frameworks) == 1 else "mixed",
+        invocations=len(outcomes),
+        empty_invocations=sum(1 for outcome in outcomes if outcome.nothing_ran),
+    )
 
 
 def _parse_pytest_line(line: str) -> Optional[SuiteOutcome]:

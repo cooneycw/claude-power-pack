@@ -315,6 +315,26 @@ class DeterministicRunner:
                         f"  [{idx + 1}/{len(step_defs)}] {step.id}: "
                         f"SUCCESS - NO TESTS RAN{qualifier}"
                     )
+                elif outcome is not None and outcome.any_invocation_empty:
+                    # The same hole as above, hidden by an aggregate (kyle
+                    # issue #838). A step running the runner more than once -
+                    # `make test` invoking pytest for two disjoint suites -
+                    # can have one invocation collect nothing while the total
+                    # looks healthy, so `nothing_ran` is False and the warning
+                    # above stays silent about a half of the gate that proved
+                    # nothing. Summing the counts makes the NUMBER honest and
+                    # does not restore the guard; this does.
+                    warnings.append(
+                        f"{step.id}: {outcome.empty_invocations} of "
+                        f"{outcome.invocations} test invocations executed NO tests "
+                        f"({outcome.summary()} across all of them) - part of this "
+                        "gate proved nothing about the change"
+                    )
+                    self._log(
+                        f"  [{idx + 1}/{len(step_defs)}] {step.id}: "
+                        f"SUCCESS - {outcome.empty_invocations} OF "
+                        f"{outcome.invocations} INVOCATIONS RAN NO TESTS{qualifier}"
+                    )
                 else:
                     self._log(f"  [{idx + 1}/{len(step_defs)}] {step.id}: SUCCESS{qualifier}")
                 state.mark_step_success(idx, result.output, tests=outcome_dict)

@@ -207,6 +207,80 @@ class TestCheckGate:
         assert passed is True
         assert len(messages) == 0
 
+    def test_findings_carry_their_location(self) -> None:
+        """A gate message must say WHERE (kyle issue #838).
+
+        The gate emitted five HIGH "Hardcoded password in source code" lines
+        with no file, no line and no id, which cannot be triaged: a reader
+        cannot separate a real finding from a known-ignorable one without
+        re-deriving the whole scan. The location was never missing - `Finding`
+        carries `file_path` and `line_number` and exposes `location`, and the
+        secrets scanner populates both - it was discarded when the message was
+        built.
+
+        Consequence of leaving it: a genuine HIGH arrives in a list of five
+        indistinguishable ones, and the only way to spot it is to already know
+        which five to ignore. That is alert fatigue with a mechanism, on a
+        security gate.
+        """
+        result = ScanResult(findings=[
+            Finding(
+                id="HARDCODED_PASSWORD",
+                severity=Severity.HIGH,
+                title="Hardcoded password in source code",
+                file_path="config/settings.py",
+                line_number=372,
+            ),
+        ])
+        config = SecurityConfig._defaults()
+
+        passed, messages = check_gate(result, "flow_finish", config)
+
+        assert passed is True
+        assert len(messages) == 1
+        assert "config/settings.py:372" in messages[0]
+        assert "HARDCODED_PASSWORD" in messages[0]
+
+    def test_a_finding_without_a_location_still_reads_cleanly(self) -> None:
+        """`location` is empty for a finding with no file - a scanner that
+        reports a project-wide condition. The message must not grow a dangling
+        separator or an empty pair of brackets for it."""
+        result = ScanResult(findings=[
+            Finding(id="NO_GITIGNORE", severity=Severity.HIGH, title="No .gitignore"),
+        ])
+        config = SecurityConfig._defaults()
+
+        _, messages = check_gate(result, "flow_finish", config)
+
+        assert messages == [
+            "WARNING: \U0001f7e1 HIGH: No .gitignore [NO_GITIGNORE]"
+        ]
+
+    def test_the_matched_text_is_never_printed(self) -> None:
+        """Locations yes, secrets no (kyle issue #838).
+
+        `raw_match` may BE the secret - the model carries `mask_secret` for
+        exactly that reason - and gate messages land in shared logs, PR bodies
+        and terminal scrollback. Untriageable-but-safe beats triageable-and-
+        leaked, and the location alone is enough to go and look.
+        """
+        result = ScanResult(findings=[
+            Finding(
+                id="HARDCODED_PASSWORD",
+                severity=Severity.HIGH,
+                title="Hardcoded password in source code",
+                file_path="app/config.py",
+                line_number=9,
+                raw_match='password = "hunter2-actual-secret"',
+            ),
+        ])
+        config = SecurityConfig._defaults()
+
+        _, messages = check_gate(result, "flow_finish", config)
+
+        assert "hunter2-actual-secret" not in messages[0]
+        assert "app/config.py:9" in messages[0]
+
     def test_block_on_critical(self) -> None:
         result = ScanResult(findings=[
             Finding(id="A", severity=Severity.CRITICAL, title="Critical issue"),

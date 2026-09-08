@@ -827,6 +827,11 @@ class TestSkippedSuiteReporting:
             "errors": 0,
             "executed": 312,
             "framework": "pytest",
+            # Additive (kyle issue #838): one summary parsed, none of them
+            # empty. The gate helper reads this dict, so the shape is pinned
+            # here deliberately rather than left to drift.
+            "invocations": 1,
+            "empty_invocations": 0,
         }
         # Some tests DID run, so this is a real green - no warning, no
         # "WITH WARNINGS" banner, but the counts are visible either way.
@@ -834,6 +839,49 @@ class TestSkippedSuiteReporting:
         text = log.getvalue()
         assert "test: SUCCESS (312 passed, 66 skipped)" in text
         assert "completed successfully" in text
+
+    def test_an_empty_invocation_warns_even_when_the_total_ran(
+        self, tmp_project: Path
+    ):
+        """A step running the runner TWICE, where one invocation collected
+        nothing (kyle issue #838).
+
+        This is the case #621's guard exists for and could not see. The total
+        executed 102, so `nothing_ran` is False and the original warning stays
+        silent - while half the gate proved nothing. Summing the summaries
+        alone does not fix it: the honest total is still 102 and still not
+        zero. The guard has to know that an INVOCATION was empty.
+
+        DO NOT DELETE THIS AS REDUNDANT WITH THE AGGREGATION TESTS. It is the
+        only thing separating this fix from the simplification a reviewer
+        would reasonably propose - "just sum the summaries". It was observed
+        red TWICE during development: once against the old last-wins parser,
+        and again after aggregation was working correctly, where the counts
+        were already right (`invocations: 2, empty_invocations: 1`) and
+        `warnings` was still empty. That second red is the whole point. An
+        aggregate-only implementation reports 4,218 honestly, passes every
+        other test in this file, looks complete, and ships #621's guard as
+        blind as it was before any of this.
+        """
+        log = StringIO()
+        runner = DeterministicRunner(project_root=tmp_project, output=log)
+
+        result = runner.run(
+            "check",
+            step_defs=self._steps(
+                "== no tests ran in 0.01s ==\n== 102 passed in 5.00s =="
+            ),
+        )
+
+        assert result.success
+        assert result.tests["test"]["executed"] == 102
+        assert result.tests["test"]["invocations"] == 2
+        assert result.tests["test"]["empty_invocations"] == 1
+        assert result.warnings, (
+            "an invocation that executed nothing must be reported even when "
+            "the step's total is healthy (kyle issue #838)"
+        )
+        assert "1 of 2" in result.warnings[0]
 
     def test_suite_that_skips_nothing_is_unchanged(self, tmp_project: Path):
         log = StringIO()
