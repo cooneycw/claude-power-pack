@@ -160,3 +160,80 @@ class TestRunState:
         assert loaded.step_records[1].status == StepStatus.FAILED
         assert loaded.step_records[1].error == "deploy error"
         assert loaded.current_index == 1  # step 0 succeeded (advancing to 1), step 1 failed
+
+
+class TestCarriedOverStepsAreMarked:
+    """A resumed run must not render a carried-over step like a fresh one.
+
+    Issue #838 follow-up. A resume starts at ``current_index``, so every
+    earlier step keeps the result it earned in a PREVIOUS invocation - against
+    a tree that has usually changed, because fixing something is the normal
+    reason to resume. Until this marking, those results were reported in
+    exactly the form of a step that had just run.
+
+    Observed twice on one day, in opposite registers:
+
+    * a cached ``test: SUCCESS (103 passed)`` on a run where pytest was never
+      invoked at all, and
+    * a cached ``lint: SUCCESS`` for a tree whose linted source had been
+      edited between the two runs - the quieter one, because the suite really
+      did re-execute and only the lint result was stale.
+
+    Both were caught by out-of-band knowledge: grepping line 1 for "Resuming"
+    and counting pytest invocations, and remembering a hand-run ``make lint``.
+    Neither is a property of the output, which is what these tests fix.
+    """
+
+    def _failed_at_second_step(self) -> RunState:
+        state = RunState.create("finish", ["lint", "test", "typecheck"])
+        state.mark_step_success(0, "ruff ok", tests={"passed": 12, "executed": 12})
+        state.mark_step_running(1)
+        state.mark_step_failed(1, error="boom", exit_code=1)
+        return state
+
+    def test_a_carried_step_is_marked_when_the_run_resumed_past_it(self):
+        state = self._failed_at_second_step()
+        lint = state.summary(executed_from=1)["steps"][0]
+        assert lint["carried_from_previous_run"] is True
+        assert lint["executed_in_this_run"] is False
+
+    def test_a_step_executed_in_this_invocation_is_not_marked(self):
+        """The other direction, and the one that keeps the marking meaningful.
+
+        A marking that appeared on every step would be noise, and a reader who
+        learns to ignore it is worse off than one who never had it.
+        """
+        state = self._failed_at_second_step()
+        steps = state.summary(executed_from=1)["steps"]
+        assert "carried_from_previous_run" not in steps[1]
+        assert "executed_in_this_run" not in steps[1]
+
+    def test_a_fresh_run_marks_nothing(self):
+        """executed_from=0 is a run that started at the beginning."""
+        state = self._failed_at_second_step()
+        for entry in state.summary(executed_from=0)["steps"]:
+            assert "carried_from_previous_run" not in entry
+
+    def test_omitting_executed_from_is_unchanged(self):
+        """Callers that do not know where the invocation began keep the old
+        shape exactly - the marking is additive, never a silent rewrite."""
+        state = self._failed_at_second_step()
+        for entry in state.summary()["steps"]:
+            assert "carried_from_previous_run" not in entry
+            assert "executed_in_this_run" not in entry
+
+    def test_a_pending_step_before_the_resume_point_is_not_called_carried(self):
+        """Nothing to be stale about.
+
+        A pending or skipped record before the resume index has no result, so
+        marking it 'carried' would assert a previous execution that never
+        happened - a false claim in the direction of more confidence, which is
+        the direction that matters.
+        """
+        state = RunState.create("finish", ["lint", "test", "typecheck"])
+        state.mark_step_skipped(0)
+        state.mark_step_running(1)
+        state.mark_step_failed(1, error="boom", exit_code=1)
+        entry = state.summary(executed_from=1)["steps"][0]
+        assert entry["status"] == StepStatus.SKIPPED.value
+        assert "carried_from_previous_run" not in entry
