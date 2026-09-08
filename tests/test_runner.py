@@ -1126,3 +1126,116 @@ class TestResumedRunReportsWhatActuallyRan:
         text = resume_log.getvalue()
         assert "will NOT run in this invocation" in text
         assert "lint" in text
+
+
+class TestATimeoutIsNotAFailure:
+    """A step killed by its budget must not report as a step that failed (#812).
+
+    Measured cause: the `test` step's budget was 600s while kyle's `make test`
+    needed ~620s — the first pytest invocation alone took 457s and the
+    Playwright half another ~160s. The step was killed at 91% of the second and
+    reported FAILED, so the gate said a suite was broken when it had simply not
+    finished. Someone triaging that debugs tests that were still running.
+
+    Note the budget is per STEP, not per invocation: one step's command may run
+    pytest several times, and a number sized by watching one of them is wrong by
+    construction. That is how 600 came to be under the real cost.
+
+    Raising the number does not fix this - it only moves the cliff, because a
+    suite grows every merge and no constant tracks that. What fixes it is that
+    the two outcomes are now distinguishable.
+    """
+
+    def test_a_timed_out_step_is_reported_as_a_timeout_not_a_failure(
+        self, tmp_project: Path
+    ):
+        log = StringIO()
+        runner = DeterministicRunner(project_root=tmp_project, output=log)
+        result = runner.run(
+            "check",
+            step_defs=[StepDef(id="test", command="sleep 5", timeout_seconds=1)],
+        )
+        assert not result.success
+        assert result.timed_out_step == "test"
+        assert result.timed_out_after == 1
+
+        text = log.getvalue()
+        assert "TIMED OUT" in text
+        assert "FAILED (exit" not in text, (
+            "reporting a timeout as FAILED is the defect - it sends a reader to "
+            "debug a suite that never finished (#812)"
+        )
+
+    def test_the_timeout_reaches_the_json_the_gate_parses(self, tmp_project: Path):
+        """A field that never reaches the report cannot be acted on, however
+        carefully it was set. `to_dict` is the gate's only view of the run, and
+        omitting it there was a real bug in the first draft of this change."""
+        runner = DeterministicRunner(project_root=tmp_project, output=StringIO())
+        result = runner.run(
+            "check",
+            step_defs=[StepDef(id="test", command="sleep 5", timeout_seconds=1)],
+        )
+        payload = result.to_dict()
+        assert payload["timed_out_step"] == "test"
+        assert payload["timed_out_after"] == 1
+
+    def test_a_genuine_failure_is_still_a_failure(self, tmp_project: Path):
+        """The guard rail. A change that called everything a timeout would pass
+        the assertions above while destroying the distinction they exist for."""
+        log = StringIO()
+        runner = DeterministicRunner(project_root=tmp_project, output=log)
+        result = runner.run(
+            "check",
+            step_defs=[StepDef(id="test", command="exit 1", timeout_seconds=30)],
+        )
+        assert not result.success
+        assert result.timed_out_step is None
+        assert "timed_out_step" not in result.to_dict()
+        assert "FAILED (exit 1)" in log.getvalue()
+        assert "TIMED OUT" not in log.getvalue()
+
+    def test_the_targeted_rerun_does_not_fire_for_a_timeout(self, tmp_project: Path):
+        """#769 re-runs a step against only its FAILED ids. A timed-out step has
+        no failed ids - it has an unfinished run - so re-running it burns the
+        budget again and can only time out a second time."""
+        log = StringIO()
+        runner = DeterministicRunner(
+            project_root=tmp_project, output=log, rerun_failed=True
+        )
+        runner.run(
+            "check",
+            step_defs=[StepDef(id="test", command="sleep 5", timeout_seconds=1)],
+        )
+        assert "RE-RUNNING" not in log.getvalue()
+
+
+class TestTestStepBudgetIsConfigurable:
+    """The budget must be raisable without editing the source (#812).
+
+    Nobody edits a vendored file mid-incident, and an edit does not survive an
+    update. The number will be wrong again as the suite grows, so the escape
+    hatch is part of the fix rather than a convenience.
+    """
+
+    def test_the_env_override_is_used(self, monkeypatch):
+        from lib.cicd.steps import _test_step_timeout
+
+        monkeypatch.setenv("CPP_GATE_TEST_TIMEOUT", "42")
+        assert _test_step_timeout() == 42
+
+    def test_a_nonsense_override_falls_back_rather_than_crashing(self, monkeypatch):
+        """Fail-safe, not fail-closed: a typo'd budget must not stop the gate
+        running, and must not silently become zero (which would time out
+        instantly and look like a hung suite)."""
+        from lib.cicd.steps import DEFAULT_TEST_STEP_TIMEOUT, _test_step_timeout
+
+        for bad in ("not-a-number", "", "0", "-5"):
+            monkeypatch.setenv("CPP_GATE_TEST_TIMEOUT", bad)
+            assert _test_step_timeout() == DEFAULT_TEST_STEP_TIMEOUT
+
+    def test_the_default_exceeds_the_cost_that_caused_this_issue(self):
+        """600s was already under the ~620s the suite needed when #812 was
+        filed. A default that is wrong on the day it ships is the bug."""
+        from lib.cicd.steps import DEFAULT_TEST_STEP_TIMEOUT
+
+        assert DEFAULT_TEST_STEP_TIMEOUT > 620
