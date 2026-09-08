@@ -1077,6 +1077,42 @@ if (( ADMIN_OPT_IN == 0 )); then
             "refs/remotes/origin/${PR_BASE_BRANCH}" 2>/dev/null)
     fi
 
+    # The base can be stale in TWO windows, and until now this guard watched
+    # only one. It compares the base at the start of the check wait to the base
+    # at the end, so a base that was ALREADY behind when the helper was invoked
+    # passes clean - nothing moved during the window being watched.
+    #
+    #   stale at invocation, static during wait   -> no movement seen -> merged
+    #   current at invocation, moves during wait  -> movement seen    -> exit 6
+    #
+    # Between them the two cases cover everything, and one was unchecked: a PR
+    # was merged one commit behind its base while this printed BASE_MOVED: 0.
+    # It also means a merge-queue rule of the form "your branch contains
+    # origin/main" is enforced by nobody - honour-system, and breached by a
+    # session with the number on their own screen.
+    #
+    # HEAD is the same reference the post-wait comparison below uses, so this
+    # inherits that check's assumption (the helper runs from the worktree of the
+    # branch being merged) rather than introducing a second, different one.
+    if [[ -n "$BASE_TIP_BEFORE" && -n "$BASE_WAIT_ROOT" ]] && \
+       ! "$GIT_BIN" -C "$BASE_WAIT_ROOT" merge-base --is-ancestor \
+            "$BASE_TIP_BEFORE" HEAD 2>/dev/null; then
+        echo "GH_PR_MERGE_BASE_STALE: $BASE_TIP_BEFORE"
+        if (( ALLOW_BASE_MOVE )); then
+            echo "warning: override consumed: --allow-base-move bypassed the already-stale base check for PR #$PR_NUMBER." >&2
+        else
+            echo "CLEAN STOP: this branch does not contain '$PR_BASE_BRANCH' - it was ALREADY behind when the merge was invoked, before any check ran (issue #810)." >&2
+            echo "  Nothing has to move for this to be wrong: the tree that would land is not the tree the base is at." >&2
+            echo "  The PR is left open and untouched. Bring the branch current, re-run the quality gate, push, and re-run the merge:" >&2
+            echo "        git fetch origin $PR_BASE_BRANCH" >&2
+            echo "        git merge origin/$PR_BASE_BRANCH" >&2
+            echo "  Conscious override: re-run this helper with --allow-base-move." >&2
+            exit 6
+        fi
+    else
+        echo "GH_PR_MERGE_BASE_STALE: 0"
+    fi
+
     wait_out_woodpecker_queue
     if ! wait_for_required_checks; then
         exit 1

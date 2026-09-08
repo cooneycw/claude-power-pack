@@ -80,6 +80,7 @@ def _make_stubs(
     repo_full: str = "cooneycw/claude-power-pack",
     head_sha: str = "deadfeed0000000000000000000000000000face",
     pr_up_to_date: bool = False,
+    ancestors_in_head: list[str] | None = None,
     base_tips: list[str] | None = None,
     tested_tree: str = "0f00d0f00d0f00d0f00d0f00d0f00d0f00d0f00",
     woodpecker_lookup_ok: bool = True,
@@ -150,6 +151,14 @@ def _make_stubs(
     the PR's merge-commit sha, its file list, and the paths the landed squash
     actually touched. The empty defaults ride the ``skipped`` fail-open path,
     so every pre-#657 test exercises its original behavior unchanged.
+
+    ``ancestors_in_head`` lists the shas that ARE contained in HEAD, answering
+    each ``--is-ancestor`` question on its own merits (issue #810). Prefer it
+    over ``pr_up_to_date`` whenever a test involves both the invocation-time
+    staleness check and the post-wait movement check, because those two ask
+    about DIFFERENT shas and a single boolean makes them agree by construction.
+    When it is None the older boolean applies unchanged, so every pre-#810 test
+    keeps its original behaviour.
 
     ``pr_up_to_date`` scripts the ``git merge-base --is-ancestor`` ancestry
     checks behind the #767 base-move guard and #716 tested-tree trailer;
@@ -374,7 +383,21 @@ def _make_stubs(
             else ""
         )
         + 'elif [[ "$*" == *"merge-base --is-ancestor"* ]]; then\n'
-        + ("  exit 0\n" if pr_up_to_date else "  exit 1\n")
+        + (
+            # Per-SHA ancestry (issue #810). `pr_up_to_date` is one boolean for
+            # every ancestry question, which cannot express the state a normal
+            # in-flight PR is in: it CONTAINS the base it was cut from and does
+            # NOT contain a base that moved after. Both guards ask
+            # `--is-ancestor <sha> HEAD`, so answering them identically forces
+            # a test to choose which guard it can exercise.
+            '  for __a in ' + " ".join(f'"{sha}"' for sha in ancestors_in_head)
+            + '; do\n'
+            '    case "$*" in *"$__a"*) exit 0 ;; esac\n'
+            '  done\n'
+            '  exit 1\n'
+            if ancestors_in_head
+            else ("  exit 0\n" if pr_up_to_date else "  exit 1\n")
+        )
         + 'elif [[ "$*" == "rev-parse HEAD" ]]; then\n'
         f'  echo "{head_sha}"\n'
         'elif [[ "$*" == *"--diff-filter=D"* ]]; then\n'
@@ -955,9 +978,14 @@ def test_unchanged_base_across_check_wait_merges(tmp_path: Path):
         required_contexts=[WOODPECKER],
         check_rollup=[[(WOODPECKER, "PENDING")], [(WOODPECKER, "SUCCESS")]],
         base_tips=[BASE_TIP_OLD, BASE_TIP_OLD],
+        # The branch contains the base it was cut from - the normal state, and
+        # now asserted rather than implied, because the #810 invocation-time
+        # check reads it (previously nothing did).
+        ancestors_in_head=[BASE_TIP_OLD],
     )
     result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-767-fix")
     assert result.returncode == 0, result.stderr
+    assert "GH_PR_MERGE_BASE_STALE: 0" in result.stdout
     assert "GH_PR_MERGE_BASE_MOVED: 0" in result.stdout
     calls = _calls(stubs)
     assert any(c.startswith("gh pr merge") for c in calls), calls
@@ -974,9 +1002,17 @@ def test_base_move_during_check_wait_clean_stops_before_merge(tmp_path: Path):
         required_contexts=[WOODPECKER],
         check_rollup=[[(WOODPECKER, "PENDING")], [(WOODPECKER, "SUCCESS")]],
         base_tips=[BASE_TIP_OLD, BASE_TIP_NEW],
+        # Current at invocation, stale only afterwards - which is the whole
+        # point of this test, and is exactly the state one boolean could not
+        # express: it contains OLD and not NEW.
+        ancestors_in_head=[BASE_TIP_OLD],
     )
     result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-767-fix")
     assert result.returncode == 6, result.stderr
+    assert "GH_PR_MERGE_BASE_STALE: 0" in result.stdout, (
+        "the branch was current when invoked; this must be the post-wait guard "
+        "firing, not the #810 invocation-time one"
+    )
     assert f"GH_PR_MERGE_BASE_MOVED: {BASE_TIP_OLD} -> {BASE_TIP_NEW}" in result.stdout
     assert "CLEAN STOP" in result.stderr
     assert "git fetch origin main" in result.stderr
@@ -2294,3 +2330,104 @@ def test_one_stacked_edit_failure_warns_and_continues(tmp_path: Path):
         "gh pr edit 382 --base main",
         "gh pr edit 390 --base main",
     ]
+
+
+# --- Already stale at invocation (issue #810) -------------------------------
+#
+# The #767 guard above compares the base at the START of the required-check
+# wait to the base at the END. A base that was ALREADY behind when the helper
+# was invoked passes it clean, because nothing moves during the window being
+# watched:
+#
+#   stale at invocation, static during wait   -> no movement seen -> merged
+#   current at invocation, moves during wait  -> movement seen    -> exit 6
+#
+# Between them the two cases cover everything, and only the second was checked.
+# Observed live: a PR merged one commit behind its base while the helper
+# printed GH_PR_MERGE_BASE_MOVED: 0.
+
+
+def test_already_stale_base_clean_stops_before_any_wait(tmp_path: Path):
+    """The mirror of #767, and it stops BEFORE the check wait.
+
+    Refusing early matters beyond correctness: the whole cost of this class is
+    the wait, so a branch that cannot legally merge should not spend nine
+    minutes discovering that.
+    """
+    stubs = _make_stubs(
+        tmp_path,
+        pr_state="OPEN",
+        required_contexts=[WOODPECKER],
+        check_rollup=[[(WOODPECKER, "SUCCESS")]],
+        base_tips=[BASE_TIP_OLD, BASE_TIP_OLD],
+        ancestors_in_head=[],  # HEAD contains neither base tip: already behind
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-810-fix")
+    assert result.returncode == 6, result.stderr
+    assert f"GH_PR_MERGE_BASE_STALE: {BASE_TIP_OLD}" in result.stdout
+    assert "ALREADY behind" in result.stderr
+    assert "git merge origin/main" in result.stderr
+    assert "--allow-base-move" in result.stderr
+    calls = _calls(stubs)
+    assert not any(c.startswith("gh pr merge") for c in calls), "PR must be untouched"
+    assert not any("statusCheckRollup" in c for c in calls), (
+        "the refusal must precede the required-check wait - the wait is the "
+        "expensive part and this branch cannot merge regardless of its result"
+    )
+
+
+def test_already_stale_base_is_overridable_like_a_base_move(tmp_path: Path):
+    """Same override as #767's, deliberately: it is the same judgement call,
+    and a second flag for the same decision is a second thing to remember."""
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        required_contexts=[WOODPECKER],
+        check_rollup=[[(WOODPECKER, "SUCCESS")]],
+        base_tips=[BASE_TIP_OLD, BASE_TIP_OLD],
+        ancestors_in_head=[],
+    )
+    result = _run(
+        _linked_worktree(tmp_path), stubs, "--allow-base-move", "42", "issue-810-fix"
+    )
+    assert result.returncode == 0, result.stderr
+    assert "override consumed" in result.stderr
+    assert any(c.startswith("gh pr merge") for c in _calls(stubs))
+
+
+def test_admin_still_bypasses_the_stale_check(tmp_path: Path):
+    """--admin is a conscious owner override of protection and already skips
+    the wait and the movement guard; it must skip this one too, or the
+    break-glass would be blocked by a check it is meant to override."""
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        required_contexts=[WOODPECKER],
+        check_rollup=[[(WOODPECKER, "FAILURE")]],
+        base_tips=[BASE_TIP_OLD, BASE_TIP_OLD],
+        ancestors_in_head=[],
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "--admin", "42", "issue-810-fix")
+    assert result.returncode == 0, result.stderr
+    assert "GH_PR_MERGE_BASE_STALE" not in result.stdout
+
+
+def test_unreadable_base_tip_still_fails_open(tmp_path: Path):
+    """Fail-open is the standing posture for this guard family: a merge tool
+    that refuses because it could not READ something is worse than the race it
+    is guarding. `base_tips=None` leaves the rev-parse unmatched, so the tip is
+    empty and the check must not fire on an absence."""
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        required_contexts=[WOODPECKER],
+        check_rollup=[[(WOODPECKER, "SUCCESS")]],
+        ancestors_in_head=[],
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-810-fix")
+    assert result.returncode == 0, result.stderr
+    assert "GH_PR_MERGE_BASE_STALE: 0" in result.stdout
+    assert any(c.startswith("gh pr merge") for c in _calls(stubs))
