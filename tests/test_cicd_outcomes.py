@@ -98,8 +98,18 @@ class TestPytestParsing:
         assert out.failed == 1  # xfailed ran and failed as expected
         assert not out.nothing_ran
 
-    def test_last_summary_wins(self) -> None:
-        # A `make test` target that runs two suites reports the final one.
+    def test_summaries_from_two_suites_are_summed(self) -> None:
+        """CONTRACT CHANGE (kyle issue #838). This test previously asserted
+        the opposite - "a `make test` target that runs two suites reports the
+        final one" - and that was the defect, pinned as intent: kyle's target
+        runs pytest twice, so a gate over 4,153 tests reported 103.
+
+        The old docstring in outcomes.py defended last-wins against "an early
+        partial", which is a different scenario from the one this test used.
+        Where a partial genuinely occurs - the #769 failed-id re-run - it runs
+        as a separate `step.execute` with its own output, so it is never in
+        the same text and cannot be double-counted by summing here.
+        """
         text = "\n".join(
             [
                 "=== 10 passed in 1.00s ===",
@@ -109,8 +119,9 @@ class TestPytestParsing:
         )
         out = parse_suite_outcome(text)
         assert out is not None
-        assert out.passed == 4
+        assert out.passed == 14
         assert out.skipped == 2
+        assert out.invocations == 2
 
     def test_summary_embedded_in_full_output(self) -> None:
         text = (
@@ -258,3 +269,124 @@ class TestStepGating:
         step = ShellStep(StepDef(id="test", command="make test"))
         outcome = step._parse_tests("", "== 1 passed, 9 skipped in 1.0s ==")
         assert outcome == SuiteOutcome(passed=1, skipped=9, framework="pytest")
+
+
+class TestMultipleInvocationsInOneStep:
+    """A step whose command runs pytest more than once (kyle issue #838).
+
+    `make test` in kyle runs two disjoint pytest invocations - non-Playwright,
+    then Playwright - inside one Make target. The parser kept only the last
+    summary, so a gate over 4,153 executed tests reported 103: the Playwright
+    half, with the other 97.5% silently discarded.
+
+    The existing last-wins behaviour is NOT an oversight, it is scoped. Its
+    comment reasons about "an early partial", and for a partial or a re-run of
+    a subset last-wins is correct - summing those would double-count. Two
+    DISJOINT suites is a shape that reasoning did not cover.
+
+    The #769 failed-id re-run stays correct for the same reason it always was:
+    it happens in a SEPARATE `step.execute` with its own captured output
+    (`runner.py`), so aggregating within one output cannot absorb it.
+    """
+
+    TWO_SUITES = """Running non-Playwright tests...
+============ 4051 passed, 1 skipped, 954 warnings in 284.73s (0:04:44) ============
+Running Playwright tests...
+============ 102 passed, 1 xpassed in 156.66s (0:02:36) ============
+"""
+
+    ONE_INVOCATION_RAN_NOTHING = """Running non-Playwright tests...
+============ no tests ran in 0.31s ============
+Running Playwright tests...
+============ 102 passed in 156.66s ============
+"""
+
+    def test_disjoint_suites_are_summed_not_replaced(self) -> None:
+        outcome = parse_suite_outcome(self.TWO_SUITES)
+
+        assert outcome is not None
+        # 4051 + 102 + 1 xpassed: xpassed executed and passed (#621's rule).
+        assert outcome.passed == 4154
+        assert outcome.skipped == 1
+        assert outcome.executed == 4154
+        assert outcome.invocations == 2
+
+    def test_an_empty_invocation_is_reported_even_when_the_total_is_healthy(
+        self,
+    ) -> None:
+        """THE criterion for kyle #838, and the reason summing is not enough.
+
+        One invocation collects nothing, the other passes 102. The TOTAL ran
+        something, so `nothing_ran` is False and the #621 warning does not
+        fire - which is exactly the blindness that issue exists to prevent,
+        surviving inside the aggregate that was supposed to fix it.
+
+        This test fails against a correctly-summing implementation, not only
+        against the old last-wins one. That is deliberate: aggregation alone
+        would report the honest total, pass a test asserting the honest total,
+        look complete, and leave the guard as blind as it is today.
+        """
+        outcome = parse_suite_outcome(self.ONE_INVOCATION_RAN_NOTHING)
+
+        assert outcome is not None
+        assert outcome.executed == 102
+        assert outcome.nothing_ran is False
+        assert outcome.invocations == 2
+        assert outcome.empty_invocations == 1
+        assert outcome.any_invocation_empty is True
+
+    def test_a_single_invocation_is_unchanged(self) -> None:
+        """The overwhelmingly common shape must be untouched."""
+        outcome = parse_suite_outcome("==== 312 passed, 66 skipped in 55.69s ====")
+
+        assert outcome is not None
+        assert outcome.passed == 312
+        assert outcome.invocations == 1
+        assert outcome.empty_invocations == 0
+        assert outcome.any_invocation_empty is False
+
+    def test_a_lone_empty_invocation_still_reads_as_nothing_ran(self) -> None:
+        """#621's original case keeps its original answer."""
+        outcome = parse_suite_outcome("==== no tests ran in 0.01s ====")
+
+        assert outcome is not None
+        assert outcome.nothing_ran is True
+        assert outcome.invocations == 1
+        assert outcome.empty_invocations == 1
+
+
+class TestVerdictIsIndependentOfCounts:
+    """The blast-radius guarantee, demonstrated rather than asserted in prose.
+
+    This module's contract is that it "changes what a step REPORTS, never
+    whether it passed". CPP is the tooling every session's gate runs through,
+    so the question a reviewer actually needs answered is whether a parsing
+    change can turn a red green. It cannot: status comes from the exit code
+    and nothing else, and these pin that for the multi-invocation output whose
+    parsing this change alters.
+    """
+
+    TWO_SUITES = (
+        "printf '%s\\n' "
+        "'==== 4051 passed in 284.73s ====' "
+        "'==== 102 passed in 156.66s ===='; exit "
+    )
+
+    def test_zero_exit_is_success_with_counts_parsed(self) -> None:
+        step = ShellStep(StepDef(id="test", command=self.TWO_SUITES + "0"))
+
+        result = step.execute({"project_root": "/tmp"})
+
+        assert result.success
+        assert result.tests is not None
+        assert result.tests.passed == 4153
+
+    def test_nonzero_exit_is_failure_with_the_same_counts_parsed(self) -> None:
+        """Same output, same counts, opposite verdict - decided by exit code."""
+        step = ShellStep(StepDef(id="test", command=self.TWO_SUITES + "1"))
+
+        result = step.execute({"project_root": "/tmp"})
+
+        assert not result.success
+        assert result.tests is not None
+        assert result.tests.passed == 4153
