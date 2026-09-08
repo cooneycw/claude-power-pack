@@ -252,6 +252,13 @@ echo "NOTE: deterministic runner unavailable ($REASON); using Makefile fallback.
 RAN=0
 FAILED=0
 SKIPPED_GATES=""
+# What actually executed, and by which route (issue #808). The marker alone
+# cannot distinguish a repo where this fallback IS the gate from one where it
+# is a fraction of it, and a reader should not have to infer coverage from an
+# absence of complaints.
+RAN_GATES=""
+UNRUN_AGGREGATE=""
+AGGREGATE_TARGET=""
 RERUN_PASSED_IDS=""
 UV_OK=0
 command -v uv >/dev/null 2>&1 && UV_OK=1
@@ -279,6 +286,7 @@ run_fallback_gate() {
     local id="$1" uvargs="$2" token="$3"
     if grep -q "^${id}:" Makefile 2>/dev/null; then
         echo "flow-finish-gate: running fallback gate 'make ${id}'"
+        RAN_GATES="${RAN_GATES:+$RAN_GATES }make ${id}"
         if [[ "$id" == "test" && "$RERUN_ENABLED" == "1" ]]; then
             local first_output gate_exit failed_ids failed_count
             first_output=$(mktemp "${TMPDIR:-/tmp}/flow-finish-gate-test.XXXXXX")
@@ -305,6 +313,7 @@ run_fallback_gate() {
         RAN=1
     elif [[ "$UV_OK" -eq 1 ]] && grep -q "${token}" pyproject.toml 2>/dev/null; then
         echo "flow-finish-gate: running fallback gate 'uv run --extra dev ${uvargs}' (no '${id}' Makefile target)"
+        RAN_GATES="${RAN_GATES:+$RAN_GATES }uv:${id}"
         if [[ "$id" == "test" && "$RERUN_ENABLED" == "1" ]]; then
             local first_output gate_exit failed_ids failed_count
             first_output=$(mktemp "${TMPDIR:-/tmp}/flow-finish-gate-test.XXXXXX")
@@ -337,6 +346,55 @@ run_fallback_gate() {
     fi
 }
 
+# Find a Makefile target whose prerequisites are a SUPERSET of the three gates
+# this fallback knows (issue #808). Such a target is the repo's real gate, and
+# running three of its nine prerequisites while reporting `ok` is a true
+# statement about a fraction of the gate presented as a verdict on the tree.
+#
+# Derived from the Makefile rather than a hardcoded name like `verify` or
+# `check`: a list of names someone has to remember to extend is the enumeration
+# this whole ticket is about. The test is structural - does a target depend on
+# at least two of lint/test/typecheck AND on something else we did not run.
+#
+# Line continuations are joined first: this repo's own `verify` spans four
+# lines, so a line-at-a-time scan would see one prerequisite and miss five.
+detect_aggregate_gate() {
+    [[ -f Makefile ]] || return 0
+    awk '
+        # Join backslash continuations into one logical line.
+        { line = line $0
+          if (line ~ /\\$/) { sub(/\\$/, " ", line); next }
+          print line; line = "" }
+        END { if (line != "") print line }
+    ' Makefile 2>/dev/null | awk -F: '
+        # Special targets (.PHONY, .DEFAULT_GOAL) list gate names as DATA, not
+        # as prerequisites - .PHONY names every phony target in the file, so it
+        # trivially "depends on" lint, test and typecheck and matched first.
+        # Caught by running the detector against this repo rather than a
+        # fixture: the real Makefile has a .PHONY line and a synthetic one
+        # would not have.
+        /^\./ { next }
+        /^[a-zA-Z0-9_-]+[[:space:]]*:[^=]/ {
+            target = $1
+            gsub(/[[:space:]]/, "", target)
+            deps = $2
+            known = 0; extra = ""
+            n = split(deps, parts, /[[:space:]]+/)
+            for (i = 1; i <= n; i++) {
+                d = parts[i]
+                if (d == "") continue
+                if (d == "lint" || d == "test" || d == "typecheck") { known++ }
+                else { extra = extra (extra == "" ? "" : " ") d }
+            }
+            # Two of the three, plus at least one we would not have run.
+            if (known >= 2 && extra != "") {
+                print target "\t" extra
+                exit
+            }
+        }
+    '
+}
+
 if [[ -f Makefile || -f pyproject.toml ]]; then
     run_fallback_gate lint "ruff check ." "ruff"
     run_fallback_gate test "pytest" "pytest"
@@ -344,6 +402,22 @@ if [[ -f Makefile || -f pyproject.toml ]]; then
     # runs it too - otherwise a repo that degrades here gets the same
     # local-green-then-CI-red the runner plan had before #617.
     run_fallback_gate typecheck "mypy ." "mypy"
+fi
+
+# Report what actually executed, before any verdict (issue #808). A reader
+# should be able to see the coverage rather than infer it from the absence of a
+# complaint.
+if [[ -n "$RAN_GATES" ]]; then
+    echo "flow-finish-gate: gates executed: $RAN_GATES"
+fi
+
+# Does this repo define a larger gate we did not run?
+if [[ "$RAN" -gt 0 ]]; then
+    _aggregate="$(detect_aggregate_gate)"
+    if [[ -n "$_aggregate" ]]; then
+        AGGREGATE_TARGET="${_aggregate%%$'\t'*}"
+        UNRUN_AGGREGATE="${_aggregate#*$'\t'}"
+    fi
 fi
 
 if [[ "$RAN" -eq 0 && -z "$SKIPPED_GATES" ]]; then
@@ -366,6 +440,14 @@ fi
 if [[ -n "$SKIPPED_GATES" ]]; then
     echo "WARNING: quality gates did NOT run: $SKIPPED_GATES (no Makefile target and no runnable tool). This gate proved nothing about those checks - do not read as 'safe to merge' (issue #628)." >&2
     verdict "warn (skipped gates: $SKIPPED_GATES)"
+    exit 0
+fi
+if [[ -n "$UNRUN_AGGREGATE" ]]; then
+    # Same sentence as #628's, for the same reason: this gate proved nothing
+    # about those checks. The difference is only how they came to be unrun -
+    # #628's could not run, these were never looked for.
+    echo "WARNING: this repo's 'make $AGGREGATE_TARGET' also runs: $UNRUN_AGGREGATE. Those did NOT run here - the fallback knows only lint/test/typecheck. This gate proved nothing about them; run 'make $AGGREGATE_TARGET' for the repo's full gate (issue #808)." >&2
+    verdict "warn (not run by fallback: $UNRUN_AGGREGATE)"
     exit 0
 fi
 if [[ -n "$RERUN_PASSED_IDS" ]]; then
