@@ -39,13 +39,26 @@ requires_bash = pytest.mark.skipif(
 )
 
 
-def _make_stub(bindir: Path, name: str, exit_code: int = 0) -> Path:
-    """An executable PATH shim that logs its argv and exits ``exit_code``."""
+def _make_stub(
+    bindir: Path, name: str, exit_code: int = 0, stdout: str = ""
+) -> Path:
+    """An executable PATH shim that logs its argv and exits ``exit_code``.
+
+    ``stdout`` lets a stub emit a payload the helper then parses - the runner
+    path reads the runner's JSON from STDOUT via ``tee``, so a test that writes
+    a JSON file somewhere is testing nothing (issue #812).
+    """
     log = bindir / f"{name}.log"
     stub = bindir / name
+    payload = ""
+    if stdout:
+        out_file = bindir / f"{name}.stdout"
+        out_file.write_text(stdout)
+        payload = f'cat "{out_file}"\n'
     stub.write_text(
         "#!/usr/bin/env bash\n"
         f'echo "$@" >> "{log}"\n'
+        f"{payload}"
         f"exit {exit_code}\n"
     )
     stub.chmod(0o755)
@@ -59,12 +72,13 @@ def _run(
     uv_exit: int | None = 0,
     make_exit: int | None = None,
     cwd: Path | None = None,
+    uv_stdout: str = "",
 ) -> tuple[subprocess.CompletedProcess[str], Path]:
     """Run the helper with stubbed uv/make; returns (proc, stub bin dir)."""
     bindir = tmp_path / "bin"
     bindir.mkdir(exist_ok=True)
     if uv_exit is not None:
-        _make_stub(bindir, "uv", uv_exit)
+        _make_stub(bindir, "uv", uv_exit, stdout=uv_stdout)
     if make_exit is not None:
         _make_stub(bindir, "make", make_exit)
     env = os.environ.copy()
@@ -763,3 +777,46 @@ def test_the_skipped_threshold_is_unchanged(tmp_path: Path) -> None:
     proc, _ = _run(tmp_path, cpp_dir="", uv_exit=None, make_exit=None)
     assert proc.returncode == 0
     assert "FLOW_FINISH_GATE: skipped" in proc.stdout
+
+
+# ── A timeout is reported as a timeout (issue #812) ─────────────────────────
+#
+# The runner emits `timed_out_step` / `timed_out_after` at the top level of its
+# JSON; the gate must surface that rather than flattening it into a bare
+# `fail`. Still exit 1 - an unfinished gate has not shown the tree is good -
+# but the reader has to be able to tell "ran out of budget" from "the tree is
+# broken", because only one of those is worth triaging.
+
+
+@requires_bash
+def test_a_runner_timeout_is_surfaced_as_a_timeout(tmp_path: Path) -> None:
+    cpp = _fake_cpp(tmp_path)
+    runner_json = (
+        '{\n'
+        '  "success": false,\n'
+        '  "failed_step": "test",\n'
+        '  "timed_out_step": "test",\n'
+        '  "timed_out_after": 600\n'
+        '}\n'
+    )
+    proc, _ = _run(tmp_path, cpp_dir=str(cpp), uv_exit=1, uv_stdout=runner_json)
+    assert proc.returncode == 1
+    assert "FLOW_FINISH_GATE: fail (timeout: test after 600s)" in proc.stdout
+    assert "did NOT fail, it did not finish" in proc.stdout
+    assert "CPP_GATE_TEST_TIMEOUT" in proc.stdout, (
+        "the message must say how to raise the budget - the number will be "
+        "wrong again as the suite grows, and a reader mid-incident should not "
+        "have to find that out from the source"
+    )
+
+
+@requires_bash
+def test_an_ordinary_failure_is_still_a_bare_fail(tmp_path: Path) -> None:
+    """The guard rail: a change that called every failure a timeout would pass
+    the test above while destroying the distinction it exists for."""
+    cpp = _fake_cpp(tmp_path)
+    runner_json = '{\n  "success": false,\n  "failed_step": "test"\n}\n'
+    proc, _ = _run(tmp_path, cpp_dir=str(cpp), uv_exit=1, uv_stdout=runner_json)
+    assert proc.returncode == 1
+    assert "FLOW_FINISH_GATE: fail" in proc.stdout
+    assert "timeout" not in proc.stdout.lower()

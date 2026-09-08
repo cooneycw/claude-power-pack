@@ -212,6 +212,14 @@ if [[ "$RUNNER_OK" -eq 1 ]]; then
             in_entry = 0
         }
     ' "$RUNNER_JSON" 2>/dev/null | tr '\n' ' ' | sed 's/ *$//')
+    # A step killed by its own budget is NOT a step that failed (issue #812).
+    # The runner emits it as a distinct top-level field; read it before the
+    # JSON is removed. Anchored on the field name rather than on the error
+    # prose, which is the string-matching that would drift.
+    TIMED_OUT_STEP=$(sed -n 's/^  "timed_out_step": "\([^"]*\)",\?$/\1/p' \
+        "$RUNNER_JSON" 2>/dev/null | head -1)
+    TIMED_OUT_AFTER=$(sed -n 's/^  "timed_out_after": \([0-9]*\),\?$/\1/p' \
+        "$RUNNER_JSON" 2>/dev/null | head -1)
     rm -f "$RUNNER_JSON"
     # Print the #769 evidence before verdict precedence is applied: a later
     # failing step or skipped gates are more serious, but must not erase a flake
@@ -238,6 +246,20 @@ if [[ "$RUNNER_OK" -eq 1 ]]; then
         fi
         verdict ok
         exit 0
+    fi
+    if [[ -n "$TIMED_OUT_STEP" ]]; then
+        # Distinguished from a test failure deliberately. A reader told
+        # "FAILED" debugs a suite that never finished; the useful facts are
+        # that the step ran out of budget, that this says NOTHING about
+        # whether it would have passed, and how to give it more. Still exit 1:
+        # an unfinished gate has not shown the tree is good.
+        echo "TIMEOUT: step '$TIMED_OUT_STEP' was killed after ${TIMED_OUT_AFTER:-its}s - it did NOT fail, it did not finish." >&2
+        echo "  This proves nothing about the tree either way. Do not triage the tests; they were still running." >&2
+        echo "  A suite grows every merge and no constant tracks that, so this budget will need raising again:" >&2
+        echo "        CPP_GATE_TEST_TIMEOUT=<seconds> <re-run the gate>" >&2
+        echo "  If it times out at a budget far above the suite's real cost, suspect a hang rather than growth (issue #812)." >&2
+        verdict "fail (timeout: $TIMED_OUT_STEP after ${TIMED_OUT_AFTER:-?}s)"
+        exit 1
     fi
     verdict fail
     exit 1

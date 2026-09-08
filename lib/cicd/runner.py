@@ -27,7 +27,13 @@ from typing import Any, Optional, TextIO
 
 from .outcomes import parse_failed_node_ids
 from .state import RunState, StepStatus
-from .steps import GATE_STEP_IDS, ShellStep, StepDef, get_plan_steps
+from .steps import (
+    GATE_STEP_IDS,
+    TIMEOUT_EXIT_CODE,
+    ShellStep,
+    StepDef,
+    get_plan_steps,
+)
 
 # Variables the runner launcher injects (or a parent venv leaks) that must NOT
 # reach child step processes: PYTHONPATH is added so ``python -m lib.cicd`` can
@@ -133,6 +139,12 @@ class RunResult:
     # re-run that passed is a DIFFERENT qualification and must not borrow #621's
     # sentence.
     reruns: list[dict[str, Any]] = field(default_factory=list)
+    # A step killed by its own budget rather than by failing (issue #812).
+    # exit 124 is already distinguishable and was being flattened into "the
+    # step failed", which sends a reader to debug a suite that never finished.
+    # Carried as its own channel so the difference survives to the report.
+    timed_out_step: Optional[str] = None
+    timed_out_after: Optional[int] = None
     # Step ids whose result was earned in an EARLIER invocation and carried
     # into this one by a resume (issue #838 follow-up). Its own channel and not
     # a `warning`: nothing is wrong, but the reader must be able to tell a
@@ -170,6 +182,13 @@ class RunResult:
             d["reruns"] = self.reruns
         if self.skipped_steps:
             d["skipped"] = self.skipped_steps
+        # The gate parses this JSON, so a field that never reaches it cannot be
+        # acted on however carefully it was set (issue #812). Emitted at the top
+        # level and keyed by name so the shell reader anchors on the field
+        # rather than on error prose, which drifts.
+        if self.timed_out_step:
+            d["timed_out_step"] = self.timed_out_step
+            d["timed_out_after"] = self.timed_out_after
         return d
 
 
@@ -389,13 +408,32 @@ class DeterministicRunner:
                 state.save(self.project_root)
                 completed = idx + 1
             else:
-                self._log(
-                    f"  [{idx + 1}/{len(step_defs)}] {step.id}: "
-                    f"FAILED (exit {result.exit_code}){qualifier}"
-                )
+                # A step killed by its own budget is not a step that failed
+                # (issue #812). Saying FAILED sends the reader to debug a
+                # suite that never finished, and the #769 targeted re-run
+                # below is meaningless for it: there are no failed ids to
+                # re-run, only an unfinished run.
+                timed_out = result.exit_code == TIMEOUT_EXIT_CODE
+                if timed_out:
+                    budget = step_def.timeout_seconds
+                    self._log(
+                        f"  [{idx + 1}/{len(step_defs)}] {step.id}: "
+                        f"TIMED OUT after {budget}s (exit "
+                        f"{TIMEOUT_EXIT_CODE}) - the step did not finish, so "
+                        f"this says NOTHING about whether it would have "
+                        f"passed. Raise the budget with "
+                        f"CPP_GATE_TEST_TIMEOUT=<seconds> if the suite has "
+                        f"simply outgrown it."
+                    )
+                else:
+                    self._log(
+                        f"  [{idx + 1}/{len(step_defs)}] {step.id}: "
+                        f"FAILED (exit {result.exit_code}){qualifier}"
+                    )
                 failed_ids: list[str] = []
                 if (
                     self.rerun_failed
+                    and not timed_out
                     and step.is_test_step()
                     and outcome is not None
                     and outcome.framework == "pytest"
@@ -477,6 +515,10 @@ class DeterministicRunner:
                     steps_completed=completed,
                     steps_total=len(step_defs),
                     failed_step=step.id,
+                    timed_out_step=step.id if timed_out else None,
+                    timed_out_after=(
+                        step_def.timeout_seconds if timed_out else None
+                    ),
                     error=result.error or result.output,
                     tests=tests,
                     warnings=warnings,

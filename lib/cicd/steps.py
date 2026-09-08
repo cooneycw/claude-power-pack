@@ -78,6 +78,11 @@ class StepResult:
         return self.status == StepStatus.SUCCESS
 
 
+#: The exit code a killed-by-timeout step reports. Named rather than repeated
+#: as a bare 124, so the producer here and the consumers in runner.py and
+#: flow-finish-gate.sh agree by reference instead of by coincidence.
+TIMEOUT_EXIT_CODE = 124
+
 @dataclass
 class StepDef:
     """Definition of a step from the task manifest or built-in plan.
@@ -288,7 +293,7 @@ class ShellStep:
             timeout_msg = f"Step timed out after {self.timeout_seconds}s"
             return StepResult(
                 status=StepStatus.FAILED,
-                exit_code=124,  # standard timeout exit code
+                exit_code=TIMEOUT_EXIT_CODE,
                 output=output,
                 error=f"{error}\n{timeout_msg}".strip() if error else timeout_msg,
                 tests=tests,
@@ -359,6 +364,36 @@ class ShellStep:
 GATE_STEP_IDS = frozenset({"lint", "test", "typecheck"})
 
 
+#: Default budget for the whole `test` STEP - not for one pytest invocation.
+#: A step runs a command, and that command may run pytest several times: kyle's
+#: `make test` deliberately runs two (non-Playwright, then Playwright) to avoid
+#: an event-loop leak between pytest-asyncio and pytest-playwright. A budget
+#: sized by watching one invocation is therefore wrong by construction, which is
+#: how 600s came to be under the real cost (issue #812): the first invocation
+#: alone took 457s and the second needed ~160s more, so the step was killed at
+#: 91% of the second and reported FAILED on a suite that would have passed.
+#:
+#: This number WILL be wrong again. A suite grows every merge and no constant
+#: tracks that, which is why the substantive half of #812's fix is that a
+#: timeout is now REPORTED as a timeout rather than flattened into a test
+#: failure - a reader can tell "ran out of budget" from "the tree is broken",
+#: and the message says how to raise it.
+DEFAULT_TEST_STEP_TIMEOUT = 1800
+
+
+def _test_step_timeout() -> int:
+    """Budget for the test step, overridable without a code change (#812).
+
+    Read at plan-construction time so an operator whose suite has outgrown the
+    default can raise it for one run - the alternative is editing this file,
+    which nobody does mid-incident and which does not survive an update.
+    """
+    raw = os.environ.get("CPP_GATE_TEST_TIMEOUT", "").strip()
+    if raw.isdigit() and int(raw) > 0:
+        return int(raw)
+    return DEFAULT_TEST_STEP_TIMEOUT
+
+
 def _gate_step(
     step_id: str, uv_tool: str, pyproject_token: str, timeout_seconds: int
 ) -> "StepDef":
@@ -409,7 +444,7 @@ def _gate_step(
 BUILTIN_PLANS: dict[str, list[StepDef]] = {
     "finish": [
         _gate_step("lint", "ruff check .", "ruff", 300),
-        _gate_step("test", "pytest", "pytest", 600),
+        _gate_step("test", "pytest", "pytest", _test_step_timeout()),
         _gate_step("typecheck", "mypy .", "mypy", 300),
         StepDef(
             id="security_scan",
@@ -423,7 +458,7 @@ BUILTIN_PLANS: dict[str, list[StepDef]] = {
     ],
     "check": [
         _gate_step("lint", "ruff check .", "ruff", 300),
-        _gate_step("test", "pytest", "pytest", 600),
+        _gate_step("test", "pytest", "pytest", _test_step_timeout()),
         _gate_step("typecheck", "mypy .", "mypy", 300),
     ],
     "deploy": [
