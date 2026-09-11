@@ -1721,6 +1721,29 @@ def _pid_alive(pid: int) -> bool:
     return True
 
 
+def _children_of(pid: int) -> list[int]:
+    """Direct child PIDs of ``pid``, read from the kernel - no `pgrep`, no
+    PATH dependency (issue #814: the CI image ships no procps, and this
+    needs no binary guard because it needs no binary at all)."""
+    try:
+        raw = Path(f"/proc/{pid}/task/{pid}/children").read_text()
+    except OSError:
+        return []
+    return [int(p) for p in raw.split()]
+
+
+def _cmdline(pid: int) -> list[str]:
+    """A process's real argv, NUL-separated in /proc - never a flattened
+    command line to `pgrep -f`-style substring-match against, which is the
+    anti-pattern issue #821 documents (a wrapper's own text can contain the
+    pattern it is searching for)."""
+    try:
+        raw = Path(f"/proc/{pid}/cmdline").read_bytes()
+    except OSError:
+        return []
+    return [p.decode(errors="replace") for p in raw.split(b"\0") if p]
+
+
 @requires_bash
 class TestSupervise:
     def _launch(
@@ -1856,14 +1879,23 @@ class TestSupervise:
         pid = _daemon_pid(tmp_path, WAVE, "1")
         try:
             def _inner_watch_pid() -> int | None:
-                try:
-                    out = subprocess.run(
-                        ["pgrep", "-P", str(pid), "-f", "watch"],
-                        capture_output=True, text=True, check=False,
-                    ).stdout.split()
-                    return int(out[0]) if out else None
-                except (ValueError, IndexError):
-                    return None
+                # Read the kernel directly rather than shelling out to
+                # `pgrep` (issue #814 CI fix - the CI image ships no
+                # procps) - and, having learned that lesson once already
+                # for `count_watchers`/#821, do it the SAME way that fix
+                # does: children by PARENTAGE, then confirmed by argv
+                # STRUCTURE (argv[1] is the script, argv[2] is `watch`),
+                # never `pgrep -f`'s flattened-line matching, which is the
+                # exact anti-pattern #821 documents.
+                for child in _children_of(pid):
+                    argv = _cmdline(child)
+                    if (
+                        len(argv) >= 3
+                        and argv[1].endswith("flow-wave-mailbox.sh")
+                        and argv[2] == "watch"
+                    ):
+                        return child
+                return None
 
             first_inner = _wait_for(lambda: _inner_watch_pid() is not None, timeout=10)
             assert first_inner, "the daemon never armed its first inner watch"
