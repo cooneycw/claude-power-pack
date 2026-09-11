@@ -1206,9 +1206,32 @@ self_chain_ps() {
 # `ps` producing NO line at all is the one case it refuses to guess at
 # (exit 1 -> `unknown`): every host has at least the `ps` process itself, so
 # empty output means `ps` is missing or failed, not that nothing is running.
+#
+# A NON-EMPTY match is a second, DIFFERENT case this lane also refuses to
+# guess at, and it is not covered by the "over-counting is safe" paragraph
+# above (issue #845). That paragraph is about a wrapper whose `-c` STRING
+# merely contains the pattern as text - never a real watch invocation at
+# all. This is about a match that IS a real, live `watch --role R --wave W`
+# process - just possibly for a DIFFERENT mailbox. `--wave`/`--role` are
+# name comparisons only; `FLOW_WAVE_MAILBOX_DIR` travels in the process's
+# ENVIRONMENT, which `ps -eo args` cannot see and no portable non-/proc
+# mechanism can read from another process, so nothing here can rule out two
+# WATCHERS on one host with the same wave name and role but different
+# mailbox directories, which is exactly the identity hole #821
+# closed for `watcher_roles_proc()` via `wave_root_of_pid()`. That fix has
+# no fallback-lane equivalent - there is no non-/proc way to read another
+# process's environment - so this lane cannot verify what #821 verifies,
+# and "safe to over-count" does not apply here: #821 already established
+# that this SPECIFIC ambiguity is a real bug, not a tolerable one, for the
+# /proc lane; nothing about running without /proc makes it less real. A
+# match this lane cannot rule out is `unknown`, the same signal an
+# unreadable `/proc/<pid>/environ` already produces one caller up
+# (`wave_root_of_pid`'s own return-1 contract) - not a guessed count in
+# either direction, and not silently treated as "0, nothing to see" either,
+# which would be the opposite wrong answer (a live watcher reading `dead`).
 watcher_roles_ps_fallback() {
   local wave="$1" line pid ppid args rest found_role seen=0
-  local self_chain matched_pids=" " records=() rec rpid rppid rrole
+  local self_chain matched_pids=" " records=() rec rpid rppid rrole surviving=()
   self_chain="$(self_chain_ps)"
   while IFS= read -r line; do
     line="${line#"${line%%[![:space:]]*}"}"   # ps right-aligns the pid columns
@@ -1244,8 +1267,13 @@ EOF
     rpid="${rec%% *}"; rrole="${rec##* }"
     rppid="${rec#* }"; rppid="${rppid%% *}"
     case "$matched_pids" in *" $rppid "*) continue ;; esac
-    printf '%s\n' "$rrole"
+    surviving+=("$rrole")
   done
+  # A genuine (post-collapse) match cannot be verified as OURS - see the
+  # header comment above (issue #845). Zero matches needs no such
+  # verification (there is nothing to disambiguate), and stays a real,
+  # confident empty result.
+  [ "${#surviving[@]}" -eq 0 ] || return 1
   return 0
 }
 
