@@ -1,12 +1,20 @@
 """Tests for scripts/gh-pr-merge.sh - layout-aware PR squash-merge (issue #461).
 
 Contract:
-- In a LINKED worktree (cwd's ``.git`` is a file), merge WITHOUT --delete-branch
-  and delete the remote branch ourselves, so gh never attempts the local branch
-  switch that fails with "fatal: 'main' is already checked out".
-- In the PRIMARY repo (cwd's ``.git`` is a directory), keep --delete-branch.
+- In a LINKED worktree (cwd's ``.git`` is a file), merge WITHOUT --delete-branch,
+  so gh never attempts the local branch switch that fails with "fatal: 'main' is
+  already checked out". Likewise, omit --delete-branch when the branch is
+  checked out in a SIBLING worktree elsewhere in the same repo (issue #848) -
+  git refuses that local delete too, and gh never gets a chance to reach the
+  remote branch either. In the PRIMARY repo with no sibling holding the branch,
+  keep --delete-branch.
 - Verify the PR reached MERGED before returning failure, so a non-zero gh exit on
-  a local post-merge step never masks a successful remote merge.
+  a local post-merge step never masks a successful remote merge. Once MERGED,
+  verify the remote branch is actually gone via `ls-remote --exit-code` rather
+  than predicting it from which worktree invoked us (issue #848) - a definitive
+  "no such ref" (exit 2) skips the cleanup push, but anything else, including an
+  unreachable remote (exit 128), is treated as unknown and the push is attempted
+  anyway, harmlessly, so a transient failure never reads as "already deleted."
 - When the squash fails with "Base branch was modified" (a sibling PR merged in
   the poll->merge race window, issue #502), refetch + retry a bounded number of
   times; any other failure is not retried.
@@ -91,6 +99,8 @@ def _make_stubs(
     pr_list_ok: bool = True,
     default_branch_ok: bool = True,
     pr_edit_failures: list[int] | None = None,
+    sibling_worktree_branch: str | None = None,
+    remote_branch_after_merge: str = "absent",
 ) -> dict:
     """Create fake gh/git that log their args and honour a scripted outcome.
 
@@ -190,6 +200,22 @@ def _make_stubs(
     ``gh repo view --json defaultBranchRef``; ``pr_edit_failures`` names child
     PRs whose otherwise logged ``gh pr edit --base`` call fails. Every failure
     is advisory so the merge path remains fail-open.
+
+    ``sibling_worktree_branch`` scripts ``git worktree list --porcelain``
+    (issue #848): when set, the stub reports a worktree OTHER than the
+    invoking cwd checked out on this branch name, so
+    ``branch_checked_out_in_sibling_worktree`` finds it. The default ``None``
+    reports only the invoking cwd itself, matching the ordinary case (no
+    sibling holds the branch) that every pre-#848 test exercises unchanged -
+    that test surface needs no stubbing to stay correct.
+
+    ``remote_branch_after_merge`` scripts ``git ls-remote --exit-code --heads
+    origin <branch>``, the post-merge verification that decides whether the
+    manual cleanup push fires (issue #848): ``"present"`` (ref still there,
+    exit 0), ``"absent"`` (git's own "no such ref" signal, exit 2 - the
+    default, matching the common case where gh's own --delete-branch already
+    did the work), or ``"unreachable"`` (exit 128, an unreadable remote -
+    treated as unknown, never as absent, so the cleanup push still fires).
     """
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -269,6 +295,17 @@ def _make_stubs(
     stacked_file = tmp_path / "stacked_children"
     stacked_file.write_text("".join(f"{n}\n" for n in (stacked_children or [])))
     edit_failures = " ".join(str(n) for n in (pr_edit_failures or []))
+
+    # Issue #848: a sibling worktree (any path other than the invoking cwd)
+    # holding this branch, reported by `git worktree list --porcelain`. Empty
+    # (the default) means no sibling holds it - the common case.
+    sibling_file = tmp_path / "sibling_worktree_branch"
+    sibling_file.write_text(sibling_worktree_branch or "")
+
+    # Issue #848: the post-merge `ls-remote --exit-code` outcome. Three real
+    # exit codes, not two - see the docstring above for why "unreachable"
+    # must never collapse into "absent".
+    ls_remote_exit = {"present": 0, "absent": 2, "unreachable": 128}[remote_branch_after_merge]
 
     # gh: log argv; `pr merge` honours the next scripted (exit, stderr) outcome;
     # `pr view --json mergeable` echoes the next scripted mergeable value; any
@@ -404,6 +441,18 @@ def _make_stubs(
         + (f'  cat "{deletions_file}"\n' if deletions_ok else "  exit 1\n")
         + 'elif [[ "$*" == *"diff --name-only"* ]]; then\n'
         f'  cat "{landed_file}"\n'
+        # Issue #848: report the invoking cwd as one worktree, plus - only when
+        # scripted - a SIBLING at a different path holding sibling_worktree_branch.
+        # `pwd` here is the actual cwd at run time, matching the "self" the
+        # script's own rev-parse --show-toplevel answers with above.
+        'elif [[ "$*" == *"worktree list --porcelain"* ]]; then\n'
+        '  printf \'worktree %s\\nbranch refs/heads/__self__\\n\\n\' "$(pwd)"\n'
+        f'  sib=$(cat "{sibling_file}" 2>/dev/null || true)\n'
+        '  if [[ -n "$sib" ]]; then\n'
+        f'    printf \'worktree %s\\nbranch refs/heads/%s\\n\\n\' "{tmp_path}/sibling-wt" "$sib"\n'
+        "  fi\n"
+        'elif [[ "$*" == *"ls-remote --exit-code --heads origin"* ]]; then\n'
+        f"  exit {ls_remote_exit}\n"
         "fi\n"
         "exit 0\n",
     )
@@ -544,7 +593,11 @@ def test_usage_error_without_args(tmp_path: Path):
 
 
 def test_linked_worktree_omits_delete_branch_and_deletes_remote(tmp_path: Path):
-    stubs = _make_stubs(tmp_path, merge_exit=0, pr_state="MERGED")
+    # remote_branch_after_merge="present": gh never got --delete-branch, so
+    # (realistically) the branch is still on the remote for us to clean up.
+    stubs = _make_stubs(
+        tmp_path, merge_exit=0, pr_state="MERGED", remote_branch_after_merge="present"
+    )
     result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-461-fix")
     assert result.returncode == 0, result.stderr
     calls = _calls(stubs)
@@ -556,6 +609,8 @@ def test_linked_worktree_omits_delete_branch_and_deletes_remote(tmp_path: Path):
 
 
 def test_primary_repo_keeps_delete_branch(tmp_path: Path):
+    # remote_branch_after_merge default ("absent"): gh's own --delete-branch
+    # already did the work, so the post-merge check must find nothing to do.
     stubs = _make_stubs(tmp_path, merge_exit=0, pr_state="MERGED")
     result = _run(_primary_repo(tmp_path), stubs, "42", "issue-461-fix")
     assert result.returncode == 0, result.stderr
@@ -564,6 +619,61 @@ def test_primary_repo_keeps_delete_branch(tmp_path: Path):
     assert "--delete-branch" in merge, "primary repo must keep --delete-branch"
     # We must NOT issue a manual remote-branch delete in the primary repo.
     assert not any("push origin --delete" in c for c in calls), calls
+
+
+def test_sibling_worktree_omits_delete_branch_and_cleans_up_remote(tmp_path: Path):
+    # Issue #848: invoked from the PRIMARY repo (in_linked_worktree is false),
+    # but a SIBLING worktree elsewhere has the branch checked out - the shape
+    # neither the old guard nor gh's own --delete-branch could see. gh must
+    # never be asked to delete a branch git will refuse to release, and the
+    # post-merge verification must clean up the remote branch itself.
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        sibling_worktree_branch="issue-848-fix",
+        remote_branch_after_merge="present",
+    )
+    result = _run(_primary_repo(tmp_path), stubs, "42", "issue-848-fix")
+    assert result.returncode == 0, result.stderr
+    calls = _calls(stubs)
+    merge = next(c for c in calls if c.startswith("gh pr merge"))
+    assert "--delete-branch" not in merge, (
+        "must not ask gh to delete a branch a sibling worktree holds"
+    )
+    assert "--squash" in merge
+    assert any(c == "git push origin --delete issue-848-fix" for c in calls), calls
+
+
+def test_sibling_worktree_check_is_inert_when_unstubbed(tmp_path: Path):
+    # The additive #848 check must cost nothing in the ordinary case: a linked
+    # worktree with no sibling holding the branch. sibling_worktree_branch is
+    # deliberately left at its default (no porcelain entry beyond "self"), so
+    # this also proves branch_checked_out_in_sibling_worktree does not error
+    # when the awk script finds nothing to match.
+    stubs = _make_stubs(
+        tmp_path, merge_exit=0, pr_state="MERGED", remote_branch_after_merge="present"
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-461-fix")
+    assert result.returncode == 0, result.stderr
+    calls = _calls(stubs)
+    merge = next(c for c in calls if c.startswith("gh pr merge"))
+    assert "--delete-branch" not in merge
+
+
+def test_unreachable_remote_still_attempts_cleanup_delete(tmp_path: Path):
+    # Issue #848 review (quinn): ls-remote --exit-code has THREE outcomes, not
+    # two. A remote that is merely unreachable (exit 128 - a network blip, an
+    # auth hiccup) must never be read as "branch already gone" (exit 2) - that
+    # would silently reintroduce the orphan this fix exists to close. Only a
+    # DEFINITIVE absence skips the cleanup push; "unknown" still attempts it.
+    stubs = _make_stubs(
+        tmp_path, merge_exit=0, pr_state="MERGED", remote_branch_after_merge="unreachable"
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-461-fix")
+    assert result.returncode == 0, result.stderr
+    calls = _calls(stubs)
+    assert any(c == "git push origin --delete issue-461-fix" for c in calls), calls
 
 
 def test_nonzero_gh_but_merged_is_success(tmp_path: Path):
@@ -811,7 +921,9 @@ def test_admin_flag_passthrough_primary_repo(tmp_path: Path):
 def test_admin_flag_passthrough_linked_worktree(tmp_path: Path):
     # --admin in a linked worktree carries --admin but NOT --delete-branch (the
     # #461 guard still applies); the remote branch is deleted by us.
-    stubs = _make_stubs(tmp_path, merge_exit=0, pr_state="MERGED")
+    stubs = _make_stubs(
+        tmp_path, merge_exit=0, pr_state="MERGED", remote_branch_after_merge="present"
+    )
     result = _run(_linked_worktree(tmp_path), stubs, "--admin", "42", "issue-517-fix")
     assert result.returncode == 0, result.stderr
     calls = _calls(stubs)
