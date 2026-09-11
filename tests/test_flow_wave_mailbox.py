@@ -41,6 +41,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import signal
 import subprocess
 import threading
 import time
@@ -1550,3 +1551,391 @@ class TestAckMigrationIsConservative:
         assert not (ack_dir / ".ack-outbox-1.md").exists()  # precondition
         proc = _run(tmp_path, "list", "--wave", WAVE)
         assert _detail(proc, "FLOW_MAILBOX_UNREAD") == "1"
+
+
+# --------------------------------------------------------------------------
+# Route readiness (issue #814)
+#
+# "Is a watcher process polling" (#801's fused state) answers a different
+# question from "has anything actually been received" - and #821 already
+# proved the first cannot be trusted as a proxy for the second. `route`
+# answers the second from ack evidence (#815) instead: FOUR states, not
+# three, because an empty box must never read as `confirmed` - that would be
+# reporting success by checking nothing, the same defect found the same day
+# in #816/#821/#828.
+# --------------------------------------------------------------------------
+
+
+def _routes(proc: subprocess.CompletedProcess[str]) -> dict[str, str]:
+    """``{role: route_state}`` from the text ``list`` ROUTE table."""
+    lines = proc.stdout.splitlines()
+    try:
+        header = [line for line in lines if line.startswith("ROLE") and "ROUTE" in line][0]
+        start = lines.index(header) + 1
+    except IndexError:
+        return {}
+    out: dict[str, str] = {}
+    for line in lines[start:]:
+        if not line.strip() or line.startswith(("DEAF", "UNKNOWN", "UNCONFIRMED", "FLOW_MAILBOX")):
+            break
+        parts = line.split()
+        if len(parts) >= 2:
+            out[parts[0]] = parts[1]
+    return out
+
+
+@requires_bash
+class TestRouteReadiness:
+    def test_a_box_with_no_messages_is_unknown_never_confirmed(
+        self, tmp_path: Path
+    ) -> None:
+        """The core #814 correction: an empty box is not evidence the route
+        works, only evidence nothing has tested it."""
+        _send(tmp_path, "1", "for role 1")
+        _run(tmp_path, "ack", "--role", "1", "--wave", WAVE, "--all-unacked")
+        # role "2" has never been sent to at all.
+        proc = _run(tmp_path, "list", "--wave", WAVE)
+        routes = _routes(proc)
+        assert routes.get("1") == "confirmed"
+        assert "2" not in routes  # never sent to - not even a row, let alone confirmed
+
+    def test_an_unacked_message_younger_than_the_bound_is_pending(
+        self, tmp_path: Path
+    ) -> None:
+        _send(tmp_path, "1", "fresh")
+        proc = _run(tmp_path, "list", "--wave", WAVE)
+        assert _routes(proc)["1"] == "pending"
+
+    def test_an_unacked_message_older_than_the_bound_is_unconfirmed(
+        self, tmp_path: Path
+    ) -> None:
+        _send(tmp_path, "1", "stale")
+        env = os.environ.copy()
+        env["FLOW_WAVE_MAILBOX_DIR"] = str(tmp_path / "mb")
+        env["FLOW_WAVE_NOW"] = str(int(time.time()) + 1000)
+        env["FLOW_WAVE_ROUTE_UNCONFIRMED_SECS"] = "900"
+        proc = subprocess.run(
+            ["bash", str(MAILBOX), "list", "--wave", WAVE],
+            capture_output=True, text=True, env=env, check=False,
+        )
+        assert _routes(proc)["1"] == "unconfirmed"
+        assert "UNCONFIRMED" in proc.stdout
+
+    def test_a_fully_acked_box_is_confirmed(self, tmp_path: Path) -> None:
+        _send(tmp_path, "1", "received")
+        _run(tmp_path, "ack", "--role", "1", "--wave", WAVE, "--all-unacked")
+        proc = _run(tmp_path, "list", "--wave", WAVE)
+        assert _routes(proc)["1"] == "confirmed"
+
+    def test_the_bound_is_env_overridable(self, tmp_path: Path) -> None:
+        """Testable without sleeping - the same pattern
+        FLOW_WAVE_WATCH_STALE_SECS already uses for the watch heartbeat."""
+        _send(tmp_path, "1", "borderline")
+        env = os.environ.copy()
+        env["FLOW_WAVE_MAILBOX_DIR"] = str(tmp_path / "mb")
+        env["FLOW_WAVE_NOW"] = str(int(time.time()) + 5)
+        env["FLOW_WAVE_ROUTE_UNCONFIRMED_SECS"] = "1"
+        proc = subprocess.run(
+            ["bash", str(MAILBOX), "list", "--wave", WAVE],
+            capture_output=True, text=True, env=env, check=False,
+        )
+        assert _routes(proc)["1"] == "unconfirmed"
+
+    def test_orchestrator_route_is_the_worst_across_every_inbox(
+        self, tmp_path: Path
+    ) -> None:
+        """A role reading multiple boxes (the orchestrator) needs the box
+        that is FAILING, not the box that is not."""
+        _send(tmp_path, "orchestrator", "from A - will be acked", frm="A")
+        _run(
+            tmp_path, "ack", "--role", "orchestrator", "--wave", WAVE,
+            "--from", "A", "--all-unacked",
+        )
+        _send(tmp_path, "orchestrator", "from B - stays unacked", frm="B")
+        env = os.environ.copy()
+        env["FLOW_WAVE_MAILBOX_DIR"] = str(tmp_path / "mb")
+        env["FLOW_WAVE_NOW"] = str(int(time.time()) + 1000)
+        proc = subprocess.run(
+            ["bash", str(MAILBOX), "list", "--wave", WAVE],
+            capture_output=True, text=True, env=env, check=False,
+        )
+        assert _routes(proc)["orchestrator"] == "unconfirmed"
+
+    def test_json_carries_route_as_a_sibling_of_watch_not_merged_into_it(
+        self, tmp_path: Path
+    ) -> None:
+        """The #801 lesson enforced in the schema: watch.state answers 'is a
+        process polling', route.state answers 'has anything been
+        acknowledged since' - fusing them reproduces #801's contradictory
+        one-liner in a new shape."""
+        _send(tmp_path, "1", "one")
+        proc = _run(tmp_path, "list", "--wave", WAVE, "--json")
+        payload = json.loads(_body(proc))
+        assert "routes" in payload
+        assert "watches" in payload
+        route_row = next(r for r in payload["routes"] if r["role"] == "1")
+        assert route_row["state"] == "pending"
+        assert "state" in route_row and set(route_row.keys()) == {"role", "state"}
+
+
+# --------------------------------------------------------------------------
+# Supervision (issue #814)
+#
+# A detached daemon that keeps a `watch` listening for a role continuously,
+# so nothing conversational has to remember to re-arm it after every wake -
+# the "forgotten re-arm" failure (documented on issue #815's own incident
+# comment: a 25-minute deafness, caught only because a DIFFERENT session
+# noticed the silence from outside) becomes structurally impossible for
+# whatever owns this process.
+# --------------------------------------------------------------------------
+
+
+def _supervise_pidfile(tmp: Path, wave: str, role: str) -> Path:
+    return tmp / "mb" / wave / f".supervise-{role}.pid"
+
+
+def _supervise_log(tmp: Path, wave: str, role: str) -> Path:
+    return tmp / "mb" / wave / f".supervise-{role}.log"
+
+
+def _wait_for(predicate, timeout: float = 10.0, interval: float = 0.1) -> bool:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if predicate():
+            return True
+        time.sleep(interval)
+    return predicate()
+
+
+def _daemon_pid(tmp: Path, wave: str, role: str) -> int:
+    pf = _supervise_pidfile(tmp, wave, role)
+    assert _wait_for(pf.exists, timeout=10), "supervise never wrote a pidfile"
+    return int(pf.read_text().strip())
+
+
+def _pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except (OSError, ProcessLookupError):
+        return False
+    return True
+
+
+@requires_bash
+class TestSupervise:
+    def _launch(
+        self, tmp_path: Path, role: str = "1", wave: str = WAVE,
+        timeout: str = "10", interval: str = "1", extra_env: dict | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        env = os.environ.copy()
+        env["FLOW_WAVE_MAILBOX_DIR"] = str(tmp_path / "mb")
+        if extra_env:
+            env.update(extra_env)
+        return subprocess.run(
+            [
+                "bash", str(MAILBOX), "supervise", "--role", role, "--wave", wave,
+                "--timeout", timeout, "--interval", interval,
+            ],
+            capture_output=True, text=True, env=env, check=False, timeout=30,
+        )
+
+    def _kill_daemon(self, pid: int) -> None:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except (OSError, ProcessLookupError):
+            return
+        _wait_for(lambda: not _pid_alive(pid), timeout=10)
+
+    def test_supervise_returns_promptly_with_its_own_verdict_line(
+        self, tmp_path: Path
+    ) -> None:
+        """The invocation must exit and report, like every other verb - the
+        DAEMON is what persists, not this process (ratified requirement)."""
+        proc = self._launch(tmp_path)
+        try:
+            assert proc.returncode == 0
+            assert _verdict(proc) == "supervising"
+        finally:
+            self._kill_daemon(_daemon_pid(tmp_path, WAVE, "1"))
+
+    def test_a_delivered_message_is_acknowledged_without_any_conversational_rearm(
+        self, tmp_path: Path
+    ) -> None:
+        """The acceptance property, minus the live-harness half that only a
+        real fleet exercise can prove (see the PR's explicit non-promises):
+        once `supervise` is armed, a message sent afterward is received and
+        acknowledged with NO further command issued by this test."""
+        self._launch(tmp_path)
+        pid = _daemon_pid(tmp_path, WAVE, "1")
+        try:
+            _send(tmp_path, "1", "assignment issue 814")
+            assert _wait_for(
+                lambda: _detail(_run(tmp_path, "list", "--wave", WAVE), "FLOW_MAILBOX_UNREAD") == "0",
+                timeout=10,
+            ), "supervise never acknowledged the delivered message"
+        finally:
+            self._kill_daemon(pid)
+
+    def test_a_second_supervise_for_the_same_role_is_refused_while_the_first_lives(
+        self, tmp_path: Path
+    ) -> None:
+        self._launch(tmp_path)
+        pid = _daemon_pid(tmp_path, WAVE, "1")
+        try:
+            second = self._launch(tmp_path)
+            assert second.returncode == 4
+            assert _verdict(second) == "duplicate"
+        finally:
+            self._kill_daemon(pid)
+
+    def test_ownership_is_the_flock_not_the_pid_file(self, tmp_path: Path) -> None:
+        """Required correction from review: a PID-file + kill -0 guard
+        reintroduces #821 one layer up (PIDs are reused by the kernel). This
+        pins the actual mechanism - overwriting the pidfile with a bogus,
+        unrelated value must NOT let a second supervise through, and must
+        not block it either once the real daemon is gone: the LOCK, not the
+        file, decides."""
+        self._launch(tmp_path)
+        pid = _daemon_pid(tmp_path, WAVE, "1")
+        pidfile = _supervise_pidfile(tmp_path, WAVE, "1")
+        pidfile.write_text("999999999\n")  # a PID that (almost certainly) never existed
+        try:
+            still_refused = self._launch(tmp_path)
+            assert still_refused.returncode == 4, (
+                "a corrupted pidfile must not let a duplicate through - "
+                "the flock, held by the real daemon, is what refuses this"
+            )
+        finally:
+            self._kill_daemon(pid)
+
+    def test_after_the_daemon_dies_a_new_supervise_may_start(
+        self, tmp_path: Path
+    ) -> None:
+        """The kernel releases a flock the instant its holder dies - no
+        stale-PID reclaim logic needed or present."""
+        self._launch(tmp_path)
+        pid = _daemon_pid(tmp_path, WAVE, "1")
+        self._kill_daemon(pid)
+        assert not _pid_alive(pid)
+        second = self._launch(tmp_path)
+        try:
+            assert second.returncode == 0
+            assert _verdict(second) == "supervising"
+        finally:
+            self._kill_daemon(_daemon_pid(tmp_path, WAVE, "1"))
+
+    def test_evidence_log_never_carries_a_message_body(self, tmp_path: Path) -> None:
+        self._launch(tmp_path)
+        pid = _daemon_pid(tmp_path, WAVE, "1")
+        try:
+            secret_body = "SECRET-PAYLOAD-MUST-NOT-LEAK-INTO-THE-LOG"
+            _send(tmp_path, "1", secret_body)
+            assert _wait_for(
+                lambda: _detail(_run(tmp_path, "list", "--wave", WAVE), "FLOW_MAILBOX_UNREAD") == "0",
+                timeout=10,
+            )
+            log_text = _supervise_log(tmp_path, WAVE, "1").read_text()
+            assert secret_body not in log_text
+            assert "delivered rc=0" in log_text
+        finally:
+            self._kill_daemon(pid)
+
+    def test_a_killed_inner_watch_gets_a_replacement_after_backoff(
+        self, tmp_path: Path
+    ) -> None:
+        """Crash-restart, not a tight loop: killing the daemon's OWN inner
+        `watch` child (not the daemon) must produce a NEW inner watch after
+        a bounded backoff, recorded in the sanitized log."""
+        self._launch(
+            tmp_path, timeout="30",
+            extra_env={
+                "FLOW_WAVE_SUPERVISE_BACKOFF_BASE": "1",
+                "FLOW_WAVE_SUPERVISE_BACKOFF_CAP": "2",
+            },
+        )
+        pid = _daemon_pid(tmp_path, WAVE, "1")
+        try:
+            def _inner_watch_pid() -> int | None:
+                try:
+                    out = subprocess.run(
+                        ["pgrep", "-P", str(pid), "-f", "watch"],
+                        capture_output=True, text=True, check=False,
+                    ).stdout.split()
+                    return int(out[0]) if out else None
+                except (ValueError, IndexError):
+                    return None
+
+            first_inner = _wait_for(lambda: _inner_watch_pid() is not None, timeout=10)
+            assert first_inner, "the daemon never armed its first inner watch"
+            inner_pid = _inner_watch_pid()
+            os.kill(inner_pid, signal.SIGKILL)
+
+            assert _wait_for(
+                lambda: "backing off" in _supervise_log(tmp_path, WAVE, "1").read_text(),
+                timeout=10,
+            ), "no backoff was recorded after the inner watch was killed"
+            assert _wait_for(lambda: _pid_alive(pid), timeout=1), "the daemon itself must survive"
+        finally:
+            self._kill_daemon(pid)
+
+    def test_invalid_role_name_exits_immediately_without_a_restart_loop(
+        self, tmp_path: Path
+    ) -> None:
+        """Argument validation happens ONCE, at start - a bad role/wave name
+        must be a clean, immediate failure, never a restart storm."""
+        env = os.environ.copy()
+        env["FLOW_WAVE_MAILBOX_DIR"] = str(tmp_path / "mb")
+        proc = subprocess.run(
+            ["bash", str(MAILBOX), "supervise", "--role", "../escape", "--wave", WAVE],
+            capture_output=True, text=True, env=env, check=False, timeout=10,
+        )
+        assert proc.returncode == 2
+        time.sleep(1)
+        # No daemon was ever launched for this role - no pidfile, no log.
+        assert not _supervise_pidfile(tmp_path, WAVE, "../escape").exists()
+        assert not _supervise_log(tmp_path, WAVE, "../escape").exists()
+
+    @pytest.mark.skipif(
+        shutil.which("jq") is None, reason="requires jq (flow-wave-registry.sh)"
+    )
+    def test_shuts_down_when_the_role_is_released(self, tmp_path: Path) -> None:
+        registry = ROOT / "scripts" / "flow-wave-registry.sh"
+        env = os.environ.copy()
+        env["FLOW_WAVE_MAILBOX_DIR"] = str(tmp_path / "mb")
+        env["FLOW_WAVE_REGISTRY_DIR"] = str(tmp_path / "mb")
+        subprocess.run(
+            ["bash", str(registry), "register", "1", "--wave", WAVE, "--socket", "uds:/tmp/x.sock"],
+            capture_output=True, text=True, env=env, check=False,
+        )
+        self._launch(tmp_path, timeout="2", extra_env={"FLOW_WAVE_REGISTRY_DIR": str(tmp_path / "mb")})
+        pid = _daemon_pid(tmp_path, WAVE, "1")
+        try:
+            subprocess.run(
+                ["bash", str(registry), "release", "1", "--wave", WAVE, "--force"],
+                capture_output=True, text=True, env=env, check=False,
+            )
+            assert _wait_for(lambda: not _pid_alive(pid), timeout=15), (
+                "the daemon must shut down once the role is released"
+            )
+            log_text = _supervise_log(tmp_path, WAVE, "1").read_text()
+            assert "released" in log_text.lower() or "shutting down" in log_text.lower()
+        finally:
+            if _pid_alive(pid):
+                self._kill_daemon(pid)
+
+    def test_registry_sibling_unavailable_fails_open_and_keeps_supervising(
+        self, tmp_path: Path
+    ) -> None:
+        """A supervisor that cannot check for release is not worse than
+        none - it just keeps supervising (matches the #701 lexicon-gate
+        precedent for a helper this script depends on but does not own)."""
+        self._launch(
+            tmp_path, timeout="2",
+            extra_env={"FLOW_WAVE_REGISTRY_DIR": str(tmp_path / "definitely-missing-xyz")},
+        )
+        pid = _daemon_pid(tmp_path, WAVE, "1")
+        try:
+            time.sleep(3)
+            assert _pid_alive(pid), "an unreadable registry sibling must not be treated as release"
+        finally:
+            self._kill_daemon(pid)
