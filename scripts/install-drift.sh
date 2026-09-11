@@ -3,10 +3,40 @@
 # state left on a host (issues #622/#662/#823).
 #
 # Three independent, read-only jobs survive the marketplace retirement:
-#   1. Compare installed ~/.claude/scripts/*.sh helpers with the same basenames
-#      under <checkout>/scripts. Only basenames the checkout ships are judged; a
-#      host's own scripts are none of this check's business. This remains the
-#      symlink-era drift guard through issue #663.
+#   1. Compare installed ~/.claude/scripts/ files with the same basenames under
+#      <checkout>/scripts (not .sh-restricted - see the #828 note below). Only
+#      basenames the checkout ships are judged; a host's own scripts are none
+#      of this check's business. This remains the symlink-era drift guard
+#      through issue #663. Extended by issue #828: the
+#      loop above only ever asks "of what IS installed, does it match" - a
+#      checkout helper with NO installed counterpart at all never enters it,
+#      so a fully-absent helper was structurally invisible (this session hit
+#      exactly that: delegated-run-check.sh missing, exit 127, found by
+#      tripping over it rather than by this detector). "What should be
+#      installed" already has a canonical answer - flow-helpers-install.sh's
+#      own HELPERS array, documented there as THE STABLE-PATH INSTALL SET -
+#      so this reuses it via subprocess (`flow-helpers-install.sh --check`)
+#      rather than duplicating it as a second list that must stay in sync
+#      forever. `--check` is provably read-only: every path through its check
+#      branch exits before its install branch's first write. Only its
+#      MISSING lines are read; its STALE verdicts are discarded so this
+#      script's own (broader - matches ANY installed name, not just the
+#      curated set) stale judgment stays the single source of truth for
+#      staleness. A `.sh` under <checkout>/scripts NOT in that array
+#      (dev-only, opt-in, or installed by a different mechanism) is never
+#      judged missing - the same ownership-boundary shape as job 3's
+#      `.system/` exclusion, against a different noise source (36 scripts
+#      shipped, 21 in the install set). HELPERS_MISSING_CHECKED distinguishes
+#      "flow-helpers-install.sh absent or produced no recognisable output"
+#      from "ran and found zero missing" - the same membership-floor shape
+#      as job 3, because a subprocess whose output format silently changed
+#      must never read as a clean scan either. One more asymmetry the same
+#      review found and closed in the same PR: the stale/current loop was
+#      still *.sh-globbed, so flow-wave-plan.py - the array's one non-.sh
+#      entry, and the exact file a 20-vs-21 membership-count reconcile
+#      surfaced - could be checked for absence but never for content. The
+#      glob widened to `*` (filtered to regular files only, `-f`) so every
+#      HELPERS-array entry gets both properties judged, not just one.
 #   2. Name CPP cache families and the marketplace clone retired by issue #662 /
 #      ADR 0005 so the operator can migrate them with
 #      `/plugin uninstall <family>@cpp`.
@@ -34,8 +64,9 @@
 #          have no repo counterpart and carry no GENERATED marker, so the
 #          rule above already leaves them untouched even without it.
 #
-# Combined verdicts give any judged drift priority: a stale helper or a stale
-# Codex skill package makes the whole result `drift`, even when retired
+# Combined verdicts give any judged drift priority: a stale or missing
+# helper, or a stale Codex skill package, makes the whole result `drift`,
+# even when retired
 # marketplace state or orphaned-but-current Codex skills also exist. Orphaned
 # Codex skills are reported but not content-judged (there is nothing installed
 # to compare against) and, like retired marketplace state, read as
@@ -74,7 +105,7 @@ for arg in "$@"; do
         --quiet) MODE="quiet" ;;
         --json) MODE="json" ;;
         -h|--help)
-            sed -n '2,62p' "$SELF" | sed 's/^# \{0,1\}//'
+            sed -n '2,93p' "$SELF" | sed 's/^# \{0,1\}//'
             exit 0 ;;
         *)
             echo "install-drift: unknown argument '$arg' (use --quiet, --json, --list)" >&2
@@ -146,17 +177,24 @@ if [ "${#FAMILIES[@]}" -gt 0 ]; then
 fi
 
 # --- Installed helper parity (#622, retained through #663) -----------------
+# Glob widened from *.sh to * (issue #828 review): flow-helpers-install.sh's
+# own HELPERS array - the canonical install set the MISSING check below
+# already judges in full - has exactly one non-.sh entry, flow-wave-plan.py.
+# A *.sh-only glob could detect that file's ABSENCE (via the MISSING check)
+# but never its CONTENT drifting once installed - the same membership defect
+# one column over, and it landed on the exact file the missing-check's own
+# 20-vs-21 count reconcile had just surfaced. -f (not -e) both excludes a
+# dangling symlink, as the original *.sh-only loop already relied on, and
+# now also excludes a directory, which the widened glob can otherwise match.
 HELPERS_CURRENT=0
 HELPERS_STALE=0
 STALE_HELPERS=()
 if [ -n "$SCRIPTS_DIR" ] && [ -d "$SCRIPTS_DIR" ]; then
-    for installed in "$SCRIPTS_DIR"/*.sh; do
-        # -e is false for a dangling symlink; that is /flow:doctor's report to
-        # make, not this one's.
-        [ -e "$installed" ] || continue
+    for installed in "$SCRIPTS_DIR"/*; do
+        [ -f "$installed" ] || continue
         base="${installed##*/}"
         source_helper="$CHECKOUT/scripts/$base"
-        # A script the host owns is none of this check's business. Judge only
+        # A file the host owns is none of this check's business. Judge only
         # installed basenames that exist in the checkout.
         [ -f "$source_helper" ] || continue
         if cmp -s "$source_helper" "$installed"; then
@@ -168,6 +206,45 @@ if [ -n "$SCRIPTS_DIR" ] && [ -d "$SCRIPTS_DIR" ]; then
     done
 fi
 HELPERS_TOTAL=$(( HELPERS_CURRENT + HELPERS_STALE ))
+
+# --- Installed helper MISSING detection (#828) ------------------------------
+# See the extended job-1 header comment above for the full rationale. Shells
+# out to flow-helpers-install.sh --check (read-only - see its own header) and
+# keeps only its MISSING lines.
+FLOW_HELPERS_INSTALLER="$CHECKOUT/scripts/flow-helpers-install.sh"
+HELPERS_MISSING_CHECKED=0
+HELPERS_MISSING_UNAVAILABLE_REASON=""
+MISSING_HELPERS=()
+if [ -f "$FLOW_HELPERS_INSTALLER" ]; then
+    flow_helpers_check_output="$(FLOW_HELPERS_HOME="$HOME_DIR" FLOW_HELPERS_SOURCE="$CHECKOUT/scripts" \
+        bash "$FLOW_HELPERS_INSTALLER" --check 2>/dev/null)"
+    judged_lines=0
+    while IFS= read -r line; do
+        case "$line" in
+            "OK "*|"STALE "*)
+                judged_lines=$(( judged_lines + 1 ))
+                ;;
+            "MISSING "*)
+                judged_lines=$(( judged_lines + 1 ))
+                name="${line#MISSING }"
+                name="${name%% *}"
+                MISSING_HELPERS+=("$name")
+                ;;
+        esac
+    done <<< "$flow_helpers_check_output"
+    # A subprocess that runs but produces no recognisable OK/STALE/MISSING
+    # line (format change, empty output, stderr/stdout drift) must never
+    # read as "ran, found 0 missing" - that is "ran and parsed nothing", a
+    # different answer (issue #828 review).
+    if [ "$judged_lines" -gt 0 ]; then
+        HELPERS_MISSING_CHECKED=1
+    else
+        HELPERS_MISSING_UNAVAILABLE_REASON="flow-helpers-install.sh --check produced no recognisable output"
+    fi
+else
+    HELPERS_MISSING_UNAVAILABLE_REASON="flow-helpers-install.sh not found in checkout"
+fi
+HELPERS_MISSING=${#MISSING_HELPERS[@]}
 
 # --- Installed Codex skill parity (#823) ------------------------------------
 # A skill dir is OURS (managed by codex-skill-sync.py) when its SKILL.md
@@ -230,17 +307,17 @@ if [ "$CODEX_SKILLS_TOTAL" -gt 0 ] || [ "$CODEX_SKILLS_ORPHANED" -gt 0 ]; then
     CODEX_SKILLS_CHECKED=1
 fi
 
-if [ "$RETIRED" -eq 0 ] && [ "$HELPERS_TOTAL" -eq 0 ] && [ "$CODEX_SKILLS_CHECKED" -eq 0 ]; then
+if [ "$RETIRED" -eq 0 ] && [ "$HELPERS_TOTAL" -eq 0 ] && [ "$HELPERS_MISSING" -eq 0 ] && [ "$CODEX_SKILLS_CHECKED" -eq 0 ]; then
     emit_skip "no retired CPP marketplace surface, installed checkout helpers, or installed Codex skills found"
 fi
 
 SPLIT=0
-if [ "$RETIRED" -eq 1 ] && [ "$HELPERS_CURRENT" -gt 0 ] && [ "$HELPERS_STALE" -eq 0 ]; then
+if [ "$RETIRED" -eq 1 ] && [ "$HELPERS_CURRENT" -gt 0 ] && [ "$HELPERS_STALE" -eq 0 ] && [ "$HELPERS_MISSING" -eq 0 ]; then
     SPLIT=1
 fi
 
 VERDICT="ok"
-if [ "$HELPERS_STALE" -gt 0 ] || [ "$CODEX_SKILLS_STALE" -gt 0 ]; then
+if [ "$HELPERS_STALE" -gt 0 ] || [ "$HELPERS_MISSING" -gt 0 ] || [ "$CODEX_SKILLS_STALE" -gt 0 ]; then
     VERDICT="drift"
 elif [ "$RETIRED" -eq 1 ] || [ "$CODEX_SKILLS_ORPHANED" -gt 0 ]; then
     VERDICT="skipped"
@@ -269,6 +346,9 @@ if [ "$MODE" = "quiet" ]; then
     clauses=()
     if [ "$HELPERS_STALE" -gt 0 ]; then
         clauses+=("${HELPERS_STALE} helper(s) stale - run /cpp:update")
+    fi
+    if [ "$HELPERS_MISSING" -gt 0 ]; then
+        clauses+=("${HELPERS_MISSING} helper(s) missing - run /cpp:update")
     fi
     if [ "$CODEX_SKILLS_STALE" -gt 0 ]; then
         clauses+=("${CODEX_SKILLS_STALE} Codex skill(s) stale - run codex-skill-sync.py --install")
@@ -308,6 +388,13 @@ if [ "$MODE" = "json" ]; then
         printf '%s"%s"' "$separator" "$helper"
         separator=,
     done
+    printf '],"helpers_missing":%s,"helpers_missing_checked":%s,"missing_helpers":[' \
+        "$HELPERS_MISSING" "$([ "$HELPERS_MISSING_CHECKED" -eq 1 ] && echo true || echo false)"
+    separator=""
+    for helper in "${MISSING_HELPERS[@]}"; do
+        printf '%s"%s"' "$separator" "$helper"
+        separator=,
+    done
     printf '],"split":%s,"codex_skills_checked":%s,"codex_skills_current":%s,' \
         "$([ "$SPLIT" -eq 1 ] && echo true || echo false)" \
         "$([ "$CODEX_SKILLS_CHECKED" -eq 1 ] && echo true || echo false)" \
@@ -330,10 +417,18 @@ fi
 
 echo "install-drift: checkout $CHECKOUT"
 echo "  host helpers       ${SCRIPTS_DIR:-<none>}"
-echo "    ${HELPERS_CURRENT} current, ${HELPERS_STALE} stale"
+echo "    ${HELPERS_CURRENT} current, ${HELPERS_STALE} stale, ${HELPERS_MISSING} missing"
 if [ "${#STALE_HELPERS[@]}" -gt 0 ]; then
     echo ""
     echo "  Stale helpers: ${STALE_HELPERS[*]}"
+fi
+if [ "${#MISSING_HELPERS[@]}" -gt 0 ]; then
+    echo ""
+    echo "  Missing helpers: ${MISSING_HELPERS[*]}"
+fi
+if [ "$HELPERS_MISSING_CHECKED" -eq 0 ]; then
+    echo ""
+    echo "  (missing-helper check unavailable: $HELPERS_MISSING_UNAVAILABLE_REASON)"
 fi
 
 echo ""
@@ -380,8 +475,8 @@ fi
 
 case "$VERDICT" in
     drift)
-        if [ "$HELPERS_STALE" -gt 0 ]; then
-            echo "Reconcile stale helpers with /cpp:update."
+        if [ "$HELPERS_STALE" -gt 0 ] || [ "$HELPERS_MISSING" -gt 0 ]; then
+            echo "Reconcile stale or missing helpers with /cpp:update."
         fi
         if [ "$CODEX_SKILLS_STALE" -gt 0 ]; then
             echo "Reconcile stale Codex skills with codex-skill-sync.py --install."

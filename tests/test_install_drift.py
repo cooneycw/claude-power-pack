@@ -54,6 +54,22 @@ def _make_helpers(home: Path) -> Path:
     return scripts
 
 
+def _install_real_flow_helpers_installer(checkout: Path) -> Path:
+    """Copy the REAL scripts/flow-helpers-install.sh into a fake checkout.
+
+    It is a general-purpose, self-contained script (env-seamed via
+    FLOW_HELPERS_HOME/FLOW_HELPERS_SOURCE) with no install-drift-specific
+    coupling, so tests exercise the actual HELPERS membership list - the
+    same one production install-drift.sh shells out to - rather than a
+    fabricated one (issue #828).
+    """
+    real = ROOT / "scripts" / "flow-helpers-install.sh"
+    dest = checkout / "scripts" / "flow-helpers-install.sh"
+    dest.write_bytes(real.read_bytes())
+    dest.chmod(0o755)
+    return dest
+
+
 # codex-skill-sync.py's own marker, byte-for-byte (issue #823): a real
 # installed skill only ever carries this exact prefix, and the ownership
 # boundary depends on the script matching it precisely.
@@ -496,3 +512,186 @@ def test_json_reports_codex_skills_fields(tmp_path: Path):
     assert payload["codex_skills_orphaned"] == 1
     assert payload["orphaned_codex_skills"] == ["cpp-retired-thing"]
     assert payload["verdict"] == "drift"  # stale takes priority over the orphan
+
+
+def test_missing_helper_is_drift_in_every_output_mode(tmp_path: Path):
+    # The actual #828 incident: delegated-run-check.sh shipped by the
+    # checkout, never installed at all.
+    checkout = _make_checkout(tmp_path / "checkout")
+    _install_real_flow_helpers_installer(checkout)
+    (checkout / "scripts" / "delegated-run-check.sh").write_text(
+        "#!/usr/bin/env bash\necho check\n", encoding="utf-8"
+    )
+    home = tmp_path / "home"
+    scripts = _make_helpers(home)  # the pre-existing HELPER stays installed and current
+    # The installer is itself in HELPERS; keep it installed for this scenario.
+    shutil.copy2(checkout / "scripts" / "flow-helpers-install.sh", scripts)
+
+    report = _run(checkout, home)
+    quiet = _run(checkout, home, "--quiet")
+    payload = json.loads(_run(checkout, home, "--json").stdout)
+
+    assert report.returncode == 0, report.stdout + report.stderr
+    assert "Missing helpers: delegated-run-check.sh" in report.stdout
+    assert "Reconcile stale or missing helpers" in report.stdout
+    assert "INSTALL_DRIFT: drift" in report.stdout
+    assert quiet.returncode == 0
+    assert "1 helper(s) missing" in quiet.stdout
+    assert payload["verdict"] == "drift"
+    assert payload["helpers_missing"] == 1
+    assert payload["missing_helpers"] == ["delegated-run-check.sh"]
+    assert payload["helpers_missing_checked"] is True
+
+
+def test_missing_and_stale_coexist_both_named_separately(tmp_path: Path):
+    checkout = _make_checkout(tmp_path / "checkout")
+    _install_real_flow_helpers_installer(checkout)
+    (checkout / "scripts" / "delegated-run-check.sh").write_text(
+        "#!/usr/bin/env bash\necho check\n", encoding="utf-8"
+    )
+    home = tmp_path / "home"
+    scripts = _make_helpers(home)
+    # The installer is itself in HELPERS; keep it installed for this scenario.
+    shutil.copy2(checkout / "scripts" / "flow-helpers-install.sh", scripts)
+    (scripts / HELPER).write_text("#!/bin/sh\necho stale\n", encoding="utf-8")
+
+    payload = json.loads(_run(checkout, home, "--json").stdout)
+
+    assert payload["verdict"] == "drift"
+    assert payload["helpers_stale"] == 1
+    assert payload["stale_helpers"] == [HELPER]
+    assert payload["helpers_missing"] == 1
+    assert payload["missing_helpers"] == ["delegated-run-check.sh"]
+
+
+def test_non_helpers_array_checkout_script_is_never_reported_missing(tmp_path: Path):
+    # secrets-mask.sh is a real scripts/*.sh file NOT in flow-helpers-install.sh's
+    # HELPERS array (opt-in/dev-only) - never installed here, must never be
+    # flagged as missing. This is the ownership-boundary regression guard.
+    checkout = _make_checkout(tmp_path / "checkout")
+    _install_real_flow_helpers_installer(checkout)
+    (checkout / "scripts" / "secrets-mask.sh").write_text(
+        "#!/usr/bin/env bash\necho mask\n", encoding="utf-8"
+    )
+    home = tmp_path / "home"
+    scripts = _make_helpers(home)
+    # The installer is itself in HELPERS; keep it installed for this scenario.
+    shutil.copy2(checkout / "scripts" / "flow-helpers-install.sh", scripts)
+
+    report = _run(checkout, home)
+    payload = json.loads(_run(checkout, home, "--json").stdout)
+
+    assert report.returncode == 0
+    assert "secrets-mask.sh" not in report.stdout
+    assert payload["helpers_missing"] == 0
+    assert payload["verdict"] == "ok"
+
+
+def test_missing_check_unavailable_when_installer_absent(tmp_path: Path):
+    # Every EXISTING test's fixture (no flow-helpers-install.sh copied in) -
+    # proves every pre-#828 test stays valid: fails open, never "0 missing".
+    checkout = _make_checkout(tmp_path / "checkout")
+    home = tmp_path / "home"
+    _make_helpers(home)
+
+    report = _run(checkout, home)
+    payload = json.loads(_run(checkout, home, "--json").stdout)
+
+    assert report.returncode == 0
+    assert "missing-helper check unavailable" in report.stdout
+    assert "not found in checkout" in report.stdout
+    assert payload["helpers_missing_checked"] is False
+    assert payload["helpers_missing"] == 0
+    assert payload["verdict"] == "ok"
+
+
+def test_missing_check_unavailable_when_installer_output_unparseable(tmp_path: Path):
+    # The installer is present but its --check output format is unrecognised
+    # (a future format change, or something else entirely) - must read as
+    # "ran and parsed nothing", not "ran, found 0 missing" (issue #828 review).
+    checkout = _make_checkout(tmp_path / "checkout")
+    stub = checkout / "scripts" / "flow-helpers-install.sh"
+    stub.write_text(
+        "#!/usr/bin/env bash\necho 'SOMETHING WEIRD'\nexit 0\n", encoding="utf-8"
+    )
+    stub.chmod(0o755)
+    home = tmp_path / "home"
+    _make_helpers(home)
+
+    report = _run(checkout, home)
+    payload = json.loads(_run(checkout, home, "--json").stdout)
+
+    assert report.returncode == 0
+    assert "missing-helper check unavailable" in report.stdout
+    assert "no recognisable output" in report.stdout
+    assert payload["helpers_missing_checked"] is False
+    assert payload["helpers_missing"] == 0
+    assert payload["verdict"] == "ok"
+
+
+def test_wholly_uninstalled_helper_family_avoids_the_terse_skip(tmp_path: Path):
+    # The sharpest case: nothing installed AT ALL. The old compound skip
+    # would have read this as "nothing to report" - the worst case of
+    # missing, at 100% rather than 1-of-36, invisible by the same gap.
+    checkout = _make_checkout(tmp_path / "checkout")
+    _install_real_flow_helpers_installer(checkout)
+    (checkout / "scripts" / "delegated-run-check.sh").write_text(
+        "#!/usr/bin/env bash\necho check\n", encoding="utf-8"
+    )
+    home = tmp_path / "home"
+    home.mkdir()  # nothing installed anywhere
+
+    report = _run(checkout, home)
+    payload = json.loads(_run(checkout, home, "--json").stdout)
+
+    assert report.returncode == 0
+    assert "install-drift: checkout" in report.stdout  # full report, not emit_skip
+    assert "Missing helpers:" in report.stdout
+    assert "delegated-run-check.sh" in report.stdout
+    assert "INSTALL_DRIFT: drift" in report.stdout
+    assert payload["verdict"] == "drift"
+    assert payload["helpers_missing"] >= 1
+
+
+def test_split_install_requires_no_missing_helpers(tmp_path: Path):
+    checkout = _make_checkout(tmp_path / "checkout")
+    _install_real_flow_helpers_installer(checkout)
+    (checkout / "scripts" / "delegated-run-check.sh").write_text(
+        "#!/usr/bin/env bash\necho check\n", encoding="utf-8"
+    )
+    home = tmp_path / "home"
+    _make_helpers(home)
+    _make_cache(home, "flow")
+
+    payload = json.loads(_run(checkout, home, "--json").stdout)
+
+    # A missing helper means the SPLIT claim ("helpers match the checkout")
+    # would be false - SPLIT must not fire.
+    assert payload["split"] is False
+
+
+def test_modified_non_sh_helper_is_reported_stale(tmp_path: Path):
+    # flow-wave-plan.py is the one non-.sh entry in flow-helpers-install.sh's
+    # HELPERS array - the stale/current loop's glob widened from *.sh to *
+    # (filtered to regular files) so it is judged for content too, not just
+    # presence. This is exactly the file a 20-vs-21 membership-count
+    # reconcile surfaced as having asymmetric coverage (issue #828 review).
+    # A .sh control sits alongside it so the pre-existing behaviour is pinned
+    # too, not just assumed to still work.
+    checkout = _make_checkout(tmp_path / "checkout")
+    _install_real_flow_helpers_installer(checkout)
+    (checkout / "scripts" / "flow-wave-plan.py").write_text(
+        "# current\n", encoding="utf-8"
+    )
+    home = tmp_path / "home"
+    scripts = _make_helpers(home)
+    shutil.copy2(checkout / "scripts" / "flow-helpers-install.sh", scripts)
+    (scripts / "flow-wave-plan.py").write_text("# STALE\n", encoding="utf-8")
+    (scripts / HELPER).write_text("#!/bin/sh\necho stale\n", encoding="utf-8")
+
+    payload = json.loads(_run(checkout, home, "--json").stdout)
+
+    assert payload["verdict"] == "drift"
+    assert set(payload["stale_helpers"]) == {"flow-wave-plan.py", HELPER}
+    assert payload["helpers_missing"] == 0
+    assert payload["verdict"] == "drift"
