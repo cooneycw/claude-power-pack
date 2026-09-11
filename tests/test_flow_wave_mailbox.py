@@ -857,26 +857,43 @@ class TestListWatchState:
         assert "DEAF:" not in proc.stdout
 
     @requires_ps
-    def test_ps_fallback_lane_reaches_the_same_verdict(self, tmp_path: Path) -> None:
+    def test_ps_fallback_lane_agrees_only_where_it_can_verify(self, tmp_path: Path) -> None:
         """The no-/proc lane is dead code on every host the suite runs on, so it
-        would otherwise ship unexercised. Forced here, it must agree.
+        would otherwise ship unexercised. Forced here.
 
-        Skipped where `ps` is absent (the CI validate container): there the lane
-        answers `unknown` instead, which is the #801 contract working - the
-        `test_unknown_watcher_count_is_never_rendered_as_clean` case - not a
-        disagreement between the lanes.
+        This test used to assert the two lanes ALWAYS "reach the same
+        verdict" - the name issue #845 singled out as the assumption that
+        made its own gap invisible: while a real watcher is armed, the
+        `ps` lane cannot verify the match belongs to THIS mailbox
+        (`FLOW_WAVE_MAILBOX_DIR` travels in the environment, which `ps -eo
+        args` cannot see), so it now honestly answers `unknown` rather than
+        a count it cannot back up - a DIFFERENT, correct verdict from the
+        `/proc` lane's verified `armed`/`1`, not an agreement. The two
+        lanes agree only in the one case that needs no verification: no
+        match at all, which stays a confident `dead`.
+
+        Skipped where `ps` is absent (the CI validate container): there the
+        lane answers `unknown` for a different reason (`seen` never becomes
+        1 - the `test_unknown_watcher_count_is_never_rendered_as_clean`
+        case), not this one.
         """
         watcher = _live_watcher(tmp_path, "1", WAVE)
         try:
             proc = _run_at(tmp_path, str(int(time.time())), "list", "--wave", WAVE,
                            FLOW_WAVE_WATCHER_SCAN="ps")
-            assert _watch_rows(proc)["1"] == ["armed", "1"]
+            assert _watch_rows(proc)["1"] == ["unknown", "unknown"], (
+                "a real watcher's match cannot be verified as OURS by this lane - "
+                "it must not be reported as a confident 'armed' (issue #845)"
+            )
         finally:
             watcher.kill()
             watcher.communicate(timeout=10)
         proc = _run_at(tmp_path, str(int(time.time())), "list", "--wave", WAVE,
                        FLOW_WAVE_WATCHER_SCAN="ps")
-        assert _watch_states(proc) == {"1": "dead"}
+        assert _watch_states(proc) == {"1": "dead"}, (
+            "zero matches needs no verification - the one case where the lanes "
+            "genuinely agree"
+        )
 
     def test_json_carries_reader_mtime_and_watches(self, tmp_path: Path) -> None:
         """The registry joins on `reader` and reads `watches`, so both are part
@@ -2109,3 +2126,105 @@ class TestWatcherIdentityAcrossDirectories:
                 os.kill(int(marker.read_text().strip()), signal.SIGKILL)
             except (OSError, ValueError, FileNotFoundError):
                 pass
+
+
+# --------------------------------------------------------------------------
+# The SAME identity hole, in the OTHER watcher-enumeration lane (issue #845)
+#
+# #821 closed this for watcher_roles_proc() by keying on the resolved wave
+# DIRECTORY, read from each candidate's own /proc/<pid>/environ. That fix
+# landed in the /proc lane only - watcher_roles_ps_fallback() (used on hosts
+# with no /proc) still matches on wave NAME and role alone, because
+# FLOW_WAVE_MAILBOX_DIR travels in the environment and `ps -eo args` cannot
+# see it, and there is no portable non-/proc way to read another process's
+# environment at all. The fix here is not "port #821's mechanism" - it
+# cannot be ported - it is to admit the ambiguity: this lane now answers
+# `unknown` rather than a count it cannot verify, deliberately NOT trying to
+# force the two lanes to "reach the same verdict" (the assumption issue #845
+# names as what made this gap invisible in the first place).
+# --------------------------------------------------------------------------
+
+
+@requires_bash
+@requires_ps
+class TestPsFallbackWatcherIdentityAcrossDirectories:
+    def test_a_live_watcher_in_a_different_directory_is_unknown_not_a_false_count(
+        self, tmp_path: Path
+    ) -> None:
+        """The deterministic reproduction issue #845 asked for, mirroring
+        `TestWatcherIdentityAcrossDirectories` above but forcing the `ps`
+        fallback lane specifically: same role, same literal wave NAME, two
+        different `FLOW_WAVE_MAILBOX_DIR` values, one real watcher process
+        in directory B only.
+
+        Before the fix, A's query saw B's process and reported
+        `FLOW_MAILBOX_WATCHER_COUNT=1` / `armed` - a real live watcher, just
+        for the WRONG mailbox, exactly the collision #821 fixed for the
+        `/proc` lane. After the fix, A's query cannot verify the match and
+        reports `unknown` - not a false `1` (over-claims a watcher A does
+        not have), and not a false `0` either (the opposite wrong answer:
+        silently discarding the ambiguity and claiming nothing is there,
+        which the module docstring is explicit is NOT what `unknown` means -
+        `unknown` is "cannot tell", never rounded to zero).
+        """
+        dir_a = tmp_path / "a"
+        dir_b = tmp_path / "b"
+        env_b = os.environ.copy()
+        env_b["FLOW_WAVE_MAILBOX_DIR"] = str(dir_b)
+        watcher = subprocess.Popen(
+            [
+                "bash", str(MAILBOX), "watch", "--role", "1", "--wave", WAVE,
+                "--timeout", "30", "--interval", "5", "--peek",
+            ],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env_b,
+        )
+        try:
+            wf = dir_b / WAVE / ".watch-1"
+            assert _wait_for(wf.exists, timeout=10), "watcher never armed"
+
+            env_a = os.environ.copy()
+            env_a["FLOW_WAVE_MAILBOX_DIR"] = str(dir_a)
+            env_a["FLOW_WAVE_WATCHER_SCAN"] = "ps"
+            from_a = subprocess.run(
+                ["bash", str(MAILBOX), "watch", "--status", "--role", "1", "--wave", WAVE],
+                capture_output=True, text=True, env=env_a, check=False,
+            )
+            assert _detail(from_a, "FLOW_MAILBOX_WATCHER_COUNT") == "unknown", (
+                "the ps-fallback lane cannot verify a matched process belongs to "
+                "THIS mailbox and must say so - not falsely claim B's watcher as "
+                "A's (the pre-#845 bug), and not silently claim 0 either"
+            )
+            assert _detail(from_a, "FLOW_MAILBOX_WATCH_STATE") == "unknown"
+
+            # B's OWN scan cannot verify identity via this lane either - the
+            # fix does not selectively trust the mailbox that happens to be
+            # right; it withholds confidence from every candidate equally,
+            # because nothing observable tells B's scan it is the OWNER of
+            # the match rather than another bystander.
+            env_b_query = os.environ.copy()
+            env_b_query["FLOW_WAVE_MAILBOX_DIR"] = str(dir_b)
+            env_b_query["FLOW_WAVE_WATCHER_SCAN"] = "ps"
+            from_b = subprocess.run(
+                ["bash", str(MAILBOX), "watch", "--status", "--role", "1", "--wave", WAVE],
+                capture_output=True, text=True, env=env_b_query, check=False,
+            )
+            assert _detail(from_b, "FLOW_MAILBOX_WATCHER_COUNT") == "unknown"
+        finally:
+            watcher.kill()
+            watcher.communicate(timeout=10)
+
+    def test_no_match_at_all_still_reads_a_confident_dead(self, tmp_path: Path) -> None:
+        """The one case that needs no verification: nothing in the process
+        table matches this wave and role at all, so there is no candidate to
+        be ambiguous ABOUT. This must stay a real `dead`/`0`, not `unknown` -
+        the fix narrows confidence only where an actual unverifiable match
+        exists, it does not make the whole lane universally unknown."""
+        env = os.environ.copy()
+        env["FLOW_WAVE_MAILBOX_DIR"] = str(tmp_path / "mb")
+        env["FLOW_WAVE_WATCHER_SCAN"] = "ps"
+        proc = subprocess.run(
+            ["bash", str(MAILBOX), "watch", "--status", "--role", "1", "--wave", WAVE],
+            capture_output=True, text=True, env=env, check=False,
+        )
+        assert _detail(proc, "FLOW_MAILBOX_WATCHER_COUNT") == "0"
+        assert _detail(proc, "FLOW_MAILBOX_WATCH_STATE") in ("absent", "dead")
