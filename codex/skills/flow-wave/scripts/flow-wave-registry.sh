@@ -179,9 +179,11 @@
 #             found by accident. So each LIVE role now renders `watch=armed`,
 #             `watch=stale(42m)`, `watch=DEAD(0 watchers)`, `watch=ABSENT` or
 #             `watch=UNKNOWN`, plus `unread=N since <ts>` and a loud
-#             `** NEVER READ **` when the cursor is 0 against a non-zero rev -
-#             the unambiguous "has consumed nothing, ever" case, which a count
-#             alone does not say.
+#             `** NEVER READ **` when the mailbox's ACKED count is 0 against a
+#             non-zero rev (issue #815 - was the read cursor before the
+#             mailbox retired it in favor of explicit acknowledgement) - the
+#             unambiguous "has never confirmed receipt of anything" case,
+#             which a count alone does not say.
 #             `DEAD` and `UNKNOWN` arrived with #801, and the reason is that
 #             #778's own instrument had this same disease. The state it rendered
 #             was derived from the heartbeat STAMP alone, and a stamp is only as
@@ -921,7 +923,7 @@ brief_state() {
 # what turns a deaf worker from a lucky cross-reference into one look.
 #
 # The join goes through the sibling helper's own `list --json`, never through
-# reading `outbox-*.md` / `.cursor-*` / `.watch-*` here. The mailbox OWNS that
+# reading `outbox-*.md` / `.ack-*` / `.watch-*` here. The mailbox OWNS that
 # format - it has already changed twice - and a roster that reimplemented the
 # parse would drift silently into reporting a healthy wave that is not one,
 # which is the failure class this whole join exists to remove.
@@ -996,7 +998,7 @@ mailbox_box_field() {
     case "$field" in
       unread) printf '%s' "$MAILBOX_JSON" | jq -r '[(.boxes // [])[] | select(.reader == "orchestrator") | .unread] | add // "-"' ;;
       rev)    printf '%s' "$MAILBOX_JSON" | jq -r '[(.boxes // [])[] | select(.reader == "orchestrator") | .rev] | add // "-"' ;;
-      cursor) printf '%s' "$MAILBOX_JSON" | jq -r '[(.boxes // [])[] | select(.reader == "orchestrator") | .cursor] | add // "-"' ;;
+      acked)  printf '%s' "$MAILBOX_JSON" | jq -r '[(.boxes // [])[] | select(.reader == "orchestrator") | .acked] | add // "-"' ;;
       mtime)  printf '%s' "$MAILBOX_JSON" | jq -r '[(.boxes // [])[] | select(.reader == "orchestrator") | .mtime] | max // "-"' ;;
     esac
     return
@@ -1006,14 +1008,16 @@ mailbox_box_field() {
       '(.boxes // []) | map(select(.reader == $r)) | (.[0][$f] // "-") | tostring'
 }
 
-# A role that has NEVER consumed anything, against a box that holds something.
-# Its own marker rather than a count, because "cursor 0 with a non-zero rev" is
-# the unambiguous statement that nothing has EVER been read - which is what the
-# 2026-09-05 worker's roster entry could not say (#778).
+# A role that has NEVER acknowledged anything, against a box that holds
+# something. Its own marker rather than a count, because "acked 0 with a
+# non-zero rev" (issue #815 - was "cursor 0" before the mailbox retired the
+# read cursor for explicit acknowledgement) is the unambiguous statement that
+# nothing has EVER been confirmed received - which is what the 2026-09-05
+# worker's roster entry could not say (#778).
 mailbox_never_read() {
-  local rev cur
-  rev="$(mailbox_box_field "$1" rev)"; cur="$(mailbox_box_field "$1" cursor)"
-  [ "$rev" != "-" ] && [ "$cur" != "-" ] && [ "$rev" -gt 0 ] && [ "$cur" -eq 0 ] 2>/dev/null
+  local rev acked
+  rev="$(mailbox_box_field "$1" rev)"; acked="$(mailbox_box_field "$1" acked)"
+  [ "$rev" != "-" ] && [ "$acked" != "-" ] && [ "$rev" -gt 0 ] && [ "$acked" -eq 0 ] 2>/dev/null
 }
 
 # Render a heartbeat age the way a sweeping human reads it: stale(42m), not
@@ -1783,17 +1787,17 @@ $rp"
         [ "$MAILBOX_IN_USE" -eq 1 ] || continue
         w_state="$(mailbox_watch_state "$r")"; w_age="$(mailbox_watch_age "$r")"
         w_watchers="$(mailbox_watch_watchers "$r")"
-        m_rev="$(mailbox_box_field "$r" rev)"; m_cur="$(mailbox_box_field "$r" cursor)"
+        m_rev="$(mailbox_box_field "$r" rev)"; m_acked="$(mailbox_box_field "$r" acked)"
         m_unr="$(mailbox_box_field "$r" unread)"; m_mt="$(mailbox_box_field "$r" mtime)"
         nr=false; mailbox_never_read "$r" && nr=true
         OUT="$(printf '%s' "$OUT" | jq -c \
           --arg r "$r" --arg ws "$w_state" --arg wa "$w_age" --arg wc "$w_watchers" \
-          --arg rev "$m_rev" --arg cur "$m_cur" --arg unr "$m_unr" --arg mt "$m_mt" \
+          --arg rev "$m_rev" --arg acked "$m_acked" --arg unr "$m_unr" --arg mt "$m_mt" \
           --argjson nr "$nr" '
             def num($v): if $v == "-" then null else ($v | tonumber? // null) end;
             .[$r] += {
               watch: {state: $ws, age_secs: num($wa), watchers: num($wc)},
-              mailbox: {rev: num($rev), cursor: num($cur), unread: num($unr),
+              mailbox: {rev: num($rev), acked: num($acked), unread: num($unr),
                         last_delivery: (if $mt == "-" then null else $mt end),
                         never_read: $nr}
             }')"
@@ -2091,7 +2095,7 @@ EOF
     fi
     if [ -n "$NEVER_READ" ]; then
       echo "  UNREAD: role(s) that have consumed NOTHING from their box:${NEVER_READ}"
-      echo "  A cursor at 0 against a delivered message is not a worker holding - it is a worker that has never looked."
+      echo "  An acked count of 0 against a delivered message (issue #815) is not a worker holding - it is a worker that has never acknowledged anything."
     fi
     cross_wave_notes
     emit_policy_lines "$POL"

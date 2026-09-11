@@ -214,10 +214,12 @@ re-plan notice that changes a worker's lane.
 Sends append, so an assignment already waiting is never overwritten by the
 verdict that follows it. Confirm delivery from the roster's side rather than
 assuming: `flow-wave-mailbox.sh list --wave <WAVE>` shows each box's rev,
-cursor and unread count, so an assignment a worker has NOT consumed is visible
-as a nonzero `UNREAD` instead of being invisible until someone asks. A worker
-with unread mail and no progress is a worker whose watch is not armed - fix
-that rather than relaying by hand.
+acked and unread count (issue #815 - `acked` replaced `cursor`: it is the
+count of revs that box's reader has explicitly acknowledged, not a read
+position), so an assignment a worker has NOT acknowledged is visible as a
+nonzero `UNREAD` instead of being invisible until someone asks. A worker with
+unread mail and no progress is a worker whose watch is not armed - fix that
+rather than relaying by hand.
 
 ## Setup: the transition lexicon (consume #701, do not reimplement)
 

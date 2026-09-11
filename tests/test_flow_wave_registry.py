@@ -2157,7 +2157,10 @@ class TestWatchColumn:
         # state, and a JSON consumer must be able to check what it rests on.
         assert entry["watch"] == {"state": "absent", "age_secs": None, "watchers": 0}
         assert entry["mailbox"]["rev"] == 1
-        assert entry["mailbox"]["cursor"] == 0
+        # "cursor" retired in favor of "acked" (issue #815) - the read cursor
+        # advanced as a side effect of printing output, which is the defect
+        # #815 fixes; nothing has been explicitly acknowledged here yet.
+        assert entry["mailbox"]["acked"] == 0
         assert entry["mailbox"]["unread"] == 1
         assert entry["mailbox"]["never_read"] is True
         assert entry["mailbox"]["last_delivery"] is not None

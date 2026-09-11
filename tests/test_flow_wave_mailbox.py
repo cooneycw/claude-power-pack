@@ -15,12 +15,20 @@ Contract:
   BUMPS the rev, so a replaced box can never read as already-consumed.
 - Revs are per-box and monotonic under flock: concurrent senders each get a
   distinct rev and no message is lost.
-- ``read`` yields only what is newer than the box's cursor and then advances it;
-  ``--all`` re-reads history, ``--peek`` reads without consuming so an armed
-  watch still fires.
+- ``read`` yields every message not yet ACKNOWLEDGED (issue #815); ``--all``
+  additionally re-shows already-acknowledged history; ``--peek`` reads without
+  acknowledging anything, so an armed watch still fires AND a dropped response
+  leaves the message recoverable through the next ordinary read.
 - ``watch`` is the WAKE, and is the half that makes this a lane rather than the
   ad-hoc 2026-08-11 workaround: it BLOCKS until mail lands, prints it, exits 0.
   A timeout is exit 5 and is explicitly not evidence the counterpart is gone.
+- ``ack`` (issue #815) is the durable receipt, bound to exact rev identities -
+  not a watermark, so an out-of-order or partial batch cannot silently imply
+  an earlier, unseen message was received. Surfacing output (``read``/``watch``
+  printing a message) and acknowledging it are two different events; only
+  ``ack`` - and the named legacy ``read``/``watch --consume`` convenience that
+  still does both at once - ever records a receipt. Refuses to acknowledge a
+  rev that does not exist yet in the box.
 - Role and wave names are validated, not merely quoted: they become path
   components, so ``../`` must be refused rather than addressed.
 
@@ -1227,3 +1235,318 @@ class TestReadFromAndDestination:
         proc = _run(tmp_path, "read", "--role", "1", "--wave", WAVE)
         assert _verdict(proc) == "read"
         assert "assignment" in _body(proc)
+
+
+# --------------------------------------------------------------------------
+# Explicit acknowledgement (issue #815)
+#
+# Cursor-on-output conflated SURFACING a message (printing it) with a
+# recipient's confirmed RECEIPT of it - the same instant, driven by the same
+# read/watch call. A dropped tool response, a truncated batch, or a `--out`
+# destination that failed to write all silently and permanently lost the
+# message: printing had already "consumed" it. These tests pin the fix:
+# `--peek` never acknowledges anything, the durable receipt is the separate
+# explicit `ack` verb bound to exact rev identities, and `--out` writes its
+# destination BEFORE anything is acknowledged.
+# --------------------------------------------------------------------------
+
+
+@requires_bash
+class TestAckIsSeparateFromSurfacing:
+    def test_peek_never_acknowledges_so_a_dropped_response_still_replays(
+        self, tmp_path: Path
+    ) -> None:
+        """The core #815 regression pin. A peek shows the message - simulating
+        a tool call whose OUTPUT reached this test process - but the durable
+        receipt (`ack`) is never called, simulating the response being lost
+        before the calling agent acted on it. The message must still be
+        recoverable through perfectly normal, repeated delivery - not through
+        any special recovery path.
+        """
+        _send(tmp_path, "1", "assignment issue 815")
+        first_peek = _run(tmp_path, "read", "--role", "1", "--wave", WAVE, "--peek")
+        assert "assignment issue 815" in _body(first_peek)
+
+        second_peek = _run(tmp_path, "read", "--role", "1", "--wave", WAVE, "--peek")
+        assert _verdict(second_peek) == "read"
+        assert "assignment issue 815" in _body(second_peek), (
+            "a peeked-but-never-acked message must still be there - "
+            "surfacing output must not itself be a receipt"
+        )
+
+        third_peek = _run(
+            tmp_path, "watch", "--role", "1", "--wave", WAVE, "--timeout", "0",
+            "--peek",
+        )
+        assert _verdict(third_peek) == "mail"
+        assert "assignment issue 815" in _body(third_peek)
+
+    def test_explicit_ack_after_a_peek_makes_the_message_stop_replaying(
+        self, tmp_path: Path
+    ) -> None:
+        """The other half: once the caller genuinely has the content and acks
+        it BY REV, it stops being replayed - the safe pattern this issue asks
+        for (peek, confirm receipt, then ack)."""
+        _send(tmp_path, "1", "assignment")
+        peek = _run(tmp_path, "read", "--role", "1", "--wave", WAVE, "--peek")
+        rev = _detail(_run(tmp_path, "list", "--wave", WAVE), "FLOW_MAILBOX_UNREAD")
+        assert rev == "1"
+        assert "assignment" in _body(peek)
+
+        ack = _run(tmp_path, "ack", "--role", "1", "--wave", WAVE, "--revs", "1")
+        assert _verdict(ack) == "acked"
+        assert _detail(ack, "FLOW_MAILBOX_ACKED") == "1"
+
+        again = _run(tmp_path, "read", "--role", "1", "--wave", WAVE, "--peek")
+        assert _verdict(again) == "empty"
+
+    def test_bare_read_still_acknowledges_as_the_named_legacy_mode(
+        self, tmp_path: Path
+    ) -> None:
+        """Unchanged from before #815: a bare (non-peek) read is the
+        documented legacy convenience and keeps acknowledging what it prints,
+        so routine callers that never adopt explicit ack are not broken."""
+        _send(tmp_path, "1", "routine")
+        first = _run(tmp_path, "read", "--role", "1", "--wave", WAVE)
+        assert "routine" in _body(first)
+        second = _run(tmp_path, "read", "--role", "1", "--wave", WAVE)
+        assert _verdict(second) == "empty"
+
+    def test_watch_consume_still_acknowledges_as_the_named_legacy_mode(
+        self, tmp_path: Path
+    ) -> None:
+        _send(tmp_path, "1", "routine")
+        first = _run(
+            tmp_path, "watch", "--role", "1", "--wave", WAVE, "--timeout", "0",
+            "--consume",
+        )
+        assert _verdict(first) == "mail"
+        second = _run(
+            tmp_path, "watch", "--role", "1", "--wave", WAVE, "--timeout", "0",
+            "--consume",
+        )
+        assert _verdict(second) == "timeout"
+
+
+@requires_bash
+class TestAckBindsToExactIdentity:
+    def test_ack_a_middle_rev_leaves_the_others_unread(self, tmp_path: Path) -> None:
+        """Out-of-order / partial-batch receipt (#815 acceptance item 2): a
+        later ack must not be able to silently imply an earlier, unseen one."""
+        _send(tmp_path, "1", "one")
+        _send(tmp_path, "1", "two")
+        _send(tmp_path, "1", "three")
+
+        ack = _run(tmp_path, "ack", "--role", "1", "--wave", WAVE, "--revs", "2")
+        assert _verdict(ack) == "acked"
+
+        remaining = _body(_run(tmp_path, "read", "--role", "1", "--wave", WAVE, "--peek"))
+        assert "one" in remaining
+        assert "three" in remaining
+        assert "two" not in remaining
+
+    def test_ack_accepts_a_comma_separated_list(self, tmp_path: Path) -> None:
+        _send(tmp_path, "1", "one")
+        _send(tmp_path, "1", "two")
+        _send(tmp_path, "1", "three")
+        ack = _run(tmp_path, "ack", "--role", "1", "--wave", WAVE, "--revs", "1,3")
+        assert _detail(ack, "FLOW_MAILBOX_ACKED") == "2"
+        remaining = _body(_run(tmp_path, "read", "--role", "1", "--wave", WAVE, "--peek"))
+        assert "two" in remaining
+        assert "one" not in remaining
+        assert "three" not in remaining
+
+    def test_ack_is_idempotent(self, tmp_path: Path) -> None:
+        _send(tmp_path, "1", "one")
+        first = _run(tmp_path, "ack", "--role", "1", "--wave", WAVE, "--revs", "1")
+        assert _verdict(first) == "acked"
+        second = _run(tmp_path, "ack", "--role", "1", "--wave", WAVE, "--revs", "1")
+        assert _verdict(second) == "acked"
+        # Still exactly one entry recorded, not two - re-acking must not
+        # grow the ack set or otherwise misbehave on repetition.
+        ack_file = tmp_path / "mb" / WAVE / ".ack-outbox-1.md"
+        assert ack_file.read_text().split() == ["1"]
+
+    def test_ack_refuses_a_rev_that_does_not_exist_yet(self, tmp_path: Path) -> None:
+        """Acknowledging a message you could not have received is refused,
+        not silently accepted and ignored (#815 acceptance item 1's mirror:
+        an ack must correspond to something that was actually sent)."""
+        _send(tmp_path, "1", "only message")
+        proc = _run(tmp_path, "ack", "--role", "1", "--wave", WAVE, "--revs", "99")
+        assert proc.returncode == 2
+        assert "99" in proc.stderr
+        # Refused, not partially applied: rev 1 must remain unaffected either.
+        still_there = _body(_run(tmp_path, "read", "--role", "1", "--wave", WAVE, "--peek"))
+        assert "only message" in still_there
+
+    def test_ack_refuses_when_the_batch_contains_one_bad_rev(
+        self, tmp_path: Path
+    ) -> None:
+        """A batch ack is all-or-nothing: one invalid rev in the list must not
+        silently apply the valid ones and drop the bad one."""
+        _send(tmp_path, "1", "one")
+        proc = _run(tmp_path, "ack", "--role", "1", "--wave", WAVE, "--revs", "1,99")
+        assert proc.returncode == 2
+        remaining = _body(_run(tmp_path, "read", "--role", "1", "--wave", WAVE, "--peek"))
+        assert "one" in remaining, "rev 1 must not have been acked by a refused batch"
+
+    def test_ack_all_unacked_acks_everything_currently_unread(
+        self, tmp_path: Path
+    ) -> None:
+        _send(tmp_path, "1", "one")
+        _send(tmp_path, "1", "two")
+        proc = _run(tmp_path, "ack", "--role", "1", "--wave", WAVE, "--all-unacked")
+        assert _detail(proc, "FLOW_MAILBOX_ACKED") == "2"
+        assert _verdict(_run(tmp_path, "read", "--role", "1", "--wave", WAVE, "--peek")) == "empty"
+
+    def test_ack_with_no_box_yet_is_empty_not_an_error(self, tmp_path: Path) -> None:
+        proc = _run(tmp_path, "ack", "--role", "9", "--wave", WAVE, "--all-unacked")
+        assert proc.returncode == 0
+        assert _verdict(proc) == "empty"
+
+    def test_ack_requires_revs_or_all_unacked(self, tmp_path: Path) -> None:
+        _send(tmp_path, "1", "one")
+        proc = _run(tmp_path, "ack", "--role", "1", "--wave", WAVE)
+        assert proc.returncode == 2
+        assert "--revs" in proc.stderr
+        assert "--all-unacked" in proc.stderr
+
+
+@requires_bash
+class TestAckOnOrchestratorMultiBox:
+    def test_revs_without_disambiguation_is_a_usage_error(
+        self, tmp_path: Path
+    ) -> None:
+        _send(tmp_path, "orchestrator", "from A", frm="A")
+        proc = _run(
+            tmp_path, "ack", "--role", "orchestrator", "--wave", WAVE, "--revs", "1",
+        )
+        assert proc.returncode == 2
+        assert "--from" in proc.stderr
+
+    def test_from_disambiguates_which_inbox(self, tmp_path: Path) -> None:
+        _send(tmp_path, "orchestrator", "from A", frm="A")
+        _send(tmp_path, "orchestrator", "from B", frm="B")
+        ack = _run(
+            tmp_path, "ack", "--role", "orchestrator", "--wave", WAVE,
+            "--from", "A", "--revs", "1",
+        )
+        assert _verdict(ack) == "acked"
+        a_peek = _body(_run(
+            tmp_path, "read", "--role", "orchestrator", "--wave", WAVE,
+            "--from", "A", "--peek",
+        ))
+        b_peek = _body(_run(
+            tmp_path, "read", "--role", "orchestrator", "--wave", WAVE,
+            "--from", "B", "--peek",
+        ))
+        assert "from A" not in a_peek
+        assert "from B" in b_peek
+
+    def test_box_disambiguates_which_inbox(self, tmp_path: Path) -> None:
+        _send(tmp_path, "orchestrator", "from A", frm="A")
+        ack = _run(
+            tmp_path, "ack", "--role", "orchestrator", "--wave", WAVE,
+            "--box", "inbox-A.md", "--revs", "1",
+        )
+        assert _verdict(ack) == "acked"
+
+    def test_all_unacked_spans_every_inbox(self, tmp_path: Path) -> None:
+        _send(tmp_path, "orchestrator", "from A", frm="A")
+        _send(tmp_path, "orchestrator", "from B", frm="B")
+        ack = _run(
+            tmp_path, "ack", "--role", "orchestrator", "--wave", WAVE, "--all-unacked",
+        )
+        assert _detail(ack, "FLOW_MAILBOX_ACKED") == "2"
+        proc = _run(tmp_path, "read", "--role", "orchestrator", "--wave", WAVE, "--peek")
+        assert _verdict(proc) == "empty"
+
+
+@requires_bash
+class TestOutWriteBeforeAck:
+    def test_a_failed_out_destination_leaves_mail_unacknowledged(
+        self, tmp_path: Path
+    ) -> None:
+        """Reproduces the exact #815 evidence: a --out destination that
+        cannot be written must not consume the message it failed to durably
+        copy. Using an existing directory as the destination path forces the
+        write to fail the same way the issue's repro did.
+        """
+        _send(tmp_path, "1", "must survive a failed --out")
+        bad_dest = tmp_path / "not_a_file"
+        bad_dest.mkdir()
+        proc = _run(
+            tmp_path, "read", "--role", "1", "--wave", WAVE, "--out", str(bad_dest),
+        )
+        assert proc.returncode == 2
+        assert "--out" in proc.stderr
+
+        still_unread = _run(tmp_path, "list", "--wave", WAVE)
+        assert _detail(still_unread, "FLOW_MAILBOX_UNREAD") == "1"
+        recovered = _body(_run(tmp_path, "read", "--role", "1", "--wave", WAVE, "--peek"))
+        assert "must survive a failed --out" in recovered
+
+    def test_a_successful_out_destination_does_acknowledge(
+        self, tmp_path: Path
+    ) -> None:
+        """The positive control - --out is not disabled, it is reordered: a
+        SUCCESSFUL write still lets a non-peek read acknowledge afterward."""
+        _send(tmp_path, "1", "goes to disk")
+        dest = tmp_path / "copy.md"
+        proc = _run(tmp_path, "read", "--role", "1", "--wave", WAVE, "--out", str(dest))
+        assert _verdict(proc) == "read"
+        assert "goes to disk" in dest.read_text()
+        assert _verdict(_run(tmp_path, "read", "--role", "1", "--wave", WAVE)) == "empty"
+
+    def test_orchestrator_wide_out_write_failure_leaves_all_boxes_unacknowledged(
+        self, tmp_path: Path
+    ) -> None:
+        _send(tmp_path, "orchestrator", "from A", frm="A")
+        _send(tmp_path, "orchestrator", "from B", frm="B")
+        bad_dest = tmp_path / "not_a_file2"
+        bad_dest.mkdir()
+        proc = _run(
+            tmp_path, "read", "--role", "orchestrator", "--wave", WAVE,
+            "--out", str(bad_dest),
+        )
+        assert proc.returncode == 2
+        listing = _run(tmp_path, "list", "--wave", WAVE)
+        assert _detail(listing, "FLOW_MAILBOX_UNREAD") == "2"
+
+
+@requires_bash
+class TestListReportsAcked:
+    def test_list_shows_acked_count_distinct_from_unread(self, tmp_path: Path) -> None:
+        _send(tmp_path, "1", "one")
+        _send(tmp_path, "1", "two")
+        _run(tmp_path, "ack", "--role", "1", "--wave", WAVE, "--revs", "1")
+        proc = _run(tmp_path, "list", "--wave", WAVE, "--json")
+        payload = json.loads(_body(proc))
+        box = next(b for b in payload["boxes"] if b["box"] == "outbox-1.md")
+        assert box["acked"] == 1
+        assert box["unread"] == 1
+        assert box["rev"] == 2
+
+    def test_acked_count_survives_across_processes(self, tmp_path: Path) -> None:
+        """Acknowledgement is durable state, not per-invocation - a later,
+        independent process must see what an earlier one acked."""
+        _send(tmp_path, "1", "one")
+        _run(tmp_path, "ack", "--role", "1", "--wave", WAVE, "--revs", "1")
+        proc = _run(tmp_path, "list", "--wave", WAVE)
+        assert _detail(proc, "FLOW_MAILBOX_UNREAD") == "0"
+
+
+@requires_bash
+class TestAckMigrationIsConservative:
+    def test_a_wave_dir_with_no_ack_file_yet_treats_everything_as_unacknowledged(
+        self, tmp_path: Path
+    ) -> None:
+        """A box that predates #815 has no `.ack-<box>` file at all. Its
+        absence must mean 'nothing acknowledged', never 'everything up to
+        some old cursor was implicitly acknowledged' - the compatible,
+        non-silent migration direction the issue requires."""
+        _send(tmp_path, "1", "pre-existing message")
+        ack_dir = tmp_path / "mb" / WAVE
+        assert not (ack_dir / ".ack-outbox-1.md").exists()  # precondition
+        proc = _run(tmp_path, "list", "--wave", WAVE)
+        assert _detail(proc, "FLOW_MAILBOX_UNREAD") == "1"

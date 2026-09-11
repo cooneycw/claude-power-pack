@@ -53,6 +53,8 @@
 #   flow-wave-mailbox.sh watch --role <role> [--wave W] [--timeout SEC]
 #                              [--interval SEC] (--peek | --consume)
 #   flow-wave-mailbox.sh watch --status --role <role> [--wave W]
+#   flow-wave-mailbox.sh ack   --role <role> [--wave W] [--from <role> | --box NAME]
+#                              (--revs R[,R...] | --all-unacked)
 #   flow-wave-mailbox.sh list  [--wave W] [--json]
 #
 #   send   Deliver a message. `--to orchestrator` writes inbox-<from>.md and
@@ -60,43 +62,112 @@
 #          outbox-<to>.md and --from defaults to 'orchestrator'. Body comes from
 #          --body, --body-file, or stdin. Rev is per-box, monotonic, assigned
 #          under flock.
-#   read   Print messages addressed to <role> that are newer than its read
-#          cursor, then advance the cursor. --all re-prints the whole box
-#          history; --peek prints without advancing (so a watch still fires).
+#   read   Print every message addressed to <role> that is not yet ACKNOWLEDGED
+#          (issue #815 - see ACKNOWLEDGEMENT below), regardless of whether it was
+#          shown before. --all additionally re-prints already-acknowledged
+#          history. --peek prints without acknowledging anything (so a watch
+#          still fires, and the message is still there on the NEXT read if this
+#          one is lost). Without --peek, `read` acknowledges every message it
+#          prints as part of the same call - the pre-#815 convenience, kept as a
+#          named legacy mode, not the safe default: pair --peek with an explicit
+#          `ack` once you have confirmed you actually have the content, for
+#          anything a dropped response must not silently lose.
 #          `--from <role>` (orchestrator only) narrows to one correspondent's
 #          inbox instead of draining all of them (#792 item 7). A CONSUMING
 #          orchestrator-wide read (no --from, no --peek) run non-interactively
-#          refuses without `--out FILE` - a durable copy taken before the
-#          drain - because piping that output through a filter has silently
-#          destroyed message content before (#792).
-#   watch  BLOCK until <role> has unread mail, print it, exit 0. Exit 5 on
-#          timeout. THIS IS THE WAKE - launch it as a background call and the
-#          harness re-invokes the session when it exits. Bounded by default
-#          (30m) so a wave can never leave watchers spinning after it ends.
-#          STAMPS A HEARTBEAT (#778) - see below. REQUIRES an explicit
-#          `--peek` or `--consume` (#792 item 1): a bare `watch` used to
-#          consume-by-default, which silently marked mail read the caller
+#          refuses without `--out FILE` - a durable copy taken BEFORE
+#          acknowledging anything - because piping that output through a
+#          filter has silently destroyed message content before (#792); the
+#          write happens before the acknowledgement so a failed write leaves
+#          every message unacknowledged (#815), never the reverse.
+#   watch  BLOCK until <role> has unread (unacknowledged) mail, print it, exit
+#          0. Exit 5 on timeout. THIS IS THE WAKE - launch it as a background
+#          call and the harness re-invokes the session when it exits. Bounded
+#          by default (30m) so a wave can never leave watchers spinning after
+#          it ends. STAMPS A HEARTBEAT (#778) - see below. REQUIRES an
+#          explicit `--peek` or `--consume` (#792 item 1): a bare `watch` used
+#          to consume-by-default, which silently marked mail read the caller
 #          never saw when many messages were already waiting. There is no
-#          default now - the caller must say which it means. Ordering
-#          (#792 item 2): with `--peek`, read the box THEN arm the watch
-#          (the cursor never moves, so an unread backlog would otherwise
-#          spin-fire on the very message the caller just read); with
-#          `--consume`, arm THEN read. If a watch fires on its very first
-#          poll - mail was already unread the moment it armed, not a fresh
-#          wake - it prints a `flow-wave-mailbox: NOTE -` line ahead of the
-#          message body saying so. Refuses to start (exit 4, `duplicate`)
-#          when a live watcher already holds the same role in the same wave
-#          (#792 item 4) - a role is single-owner, so a second watcher is
-#          always a mistake, competing for the same mail rather than
-#          receiving a copy of it. `watch --status` reports the FUSED watch
-#          state (#801 - see STATE below), the raw heartbeat age, the live
-#          watcher count and a `re-armed: yes/no` verdict instead of a bare,
-#          undiagnosable zero (#792 item 3), using the self-excluding,
+#          default now - the caller must say which it means, and (#815)
+#          neither ever risks losing mail to a dropped response: `--peek`
+#          acknowledges nothing (call `ack` once you truly have it), and
+#          `--consume` is the same named legacy convenience `read` offers. If
+#          a watch fires on its very first poll - mail was already unread the
+#          moment it armed, not a fresh wake - it prints a `flow-wave-mailbox:
+#          NOTE -` line ahead of the message body saying so. Refuses to start
+#          (exit 4, `duplicate`) when a live watcher already holds the same
+#          role in the same wave (#792 item 4) - a role is single-owner, so a
+#          second watcher is always a mistake, competing for the same mail
+#          rather than receiving a copy of it. `watch --status` reports the
+#          FUSED watch state (#801 - see STATE below), the raw heartbeat age,
+#          the live watcher count and a `re-armed: yes/no` verdict instead of
+#          a bare, undiagnosable zero (#792 item 3), using the self-excluding,
 #          PID-based watcher count that replaces the old `pgrep -cf`
 #          (#792 item 5 - see COUNTING below).
-#   list   Box inventory for the wave: box, reader, rev, cursor, unread, mtime,
+#   ack    Explicit receipt (issue #815). Record that <role> has genuinely
+#          received specific messages, by REV - the identity printed in each
+#          message's `<!-- cc-flow-wave-msg rev=N ... -->` marker - so an ack
+#          binds to exactly what was received rather than a blanket "up to
+#          here" watermark that could claim an unseen gap. `--revs 3,5` acks
+#          those two revs and leaves 4 (never received, or received but not
+#          yet confirmed) unread; out-of-order and partial-batch receipt are
+#          both safe this way. `--all-unacked` acks every currently-unread rev
+#          in the target box(es) as a convenience after a `--peek`. Refuses
+#          (exit 2) a rev that does not exist yet in the box - acknowledging a
+#          message you could not have received is refused, not accepted and
+#          ignored. Idempotent: re-acking an already-acked rev is a no-op.
+#          Acknowledging is a receipt, nothing more - it is not task
+#          completion and answering a later message must never be inferred
+#          from it alone. A worker's target box is implicit (its own outbox);
+#          the orchestrator must disambiguate with `--from <role>` or
+#          `--box NAME` for `--revs`, or may span every inbox at once with
+#          `--all-unacked` alone.
+#   list   Box inventory for the wave: box, reader, rev, acked, unread, mtime,
 #          plus the WATCH state and live WATCHERS count of every role known to
-#          read here (#778, #801).
+#          read here (#778, #801). `acked` is the count of revs that role has
+#          explicitly acknowledged in that box (#815) - `rev` is what was
+#          SENT, `unread` is what remains UNACKNOWLEDGED, and neither implies
+#          the other was ever surfaced to the recipient.
+#
+# Acknowledgement (issue #815). `read`/`watch` used to advance a read cursor
+# as a side effect of PRINTING output - the instant a message was shown, it
+# was unrecoverable through normal delivery, whether or not the caller ever
+# actually saw that output. A dropped tool response, a truncated batch, or a
+# `--out` destination that failed to write all silently and permanently lost
+# the message: the next ordinary read reported empty while the caller had
+# never received anything. Surfacing and receiving are different events and
+# must not share one state transition.
+#
+# `.ack-<box>` (parallel to the retired `.cursor-<box>`) now holds the set of
+# revs that role has explicitly acknowledged - not a watermark, an actual set,
+# so acknowledging rev 7 out of a batch that also delivered 5 and 6 leaves 5
+# and 6 genuinely unread rather than silently implying them. `read --peek` and
+# `watch --peek` print without touching this set at all: a dropped response
+# after a peek leaves the message exactly as unread as if it had never been
+# shown, recoverable by the very next `read`/`peek`/`watch`. The durable
+# receipt is the explicit `ack` verb, called only once the caller has
+# genuinely confirmed it holds the content - a step no script can perform on
+# the caller's behalf, because the caller's receipt of the TOOL OUTPUT is
+# exactly the event that can be dropped.
+#
+# `read` (bare) and `watch --consume` keep printing-acknowledges-immediately
+# as a NAMED legacy convenience (issue #815's "explicit legacy consuming mode
+# may remain"), unchanged from the pre-#815 behavior and carrying the same
+# best-effort caveat it always silently had: fine for routine traffic, not the
+# path to reach for when a dropped response must not lose an assignment or a
+# verdict. Prefer `--peek` + a later `ack` for anything that matters.
+#
+# Migration: wave directories are ephemeral ($XDG_RUNTIME_DIR, wiped at
+# reboot - see WAVE_ROOT below), so there is no cross-boot state to migrate.
+# Within one boot, a wave dir touched before this fix simply has no
+# `.ack-<box>` file yet; its absence means "nothing acknowledged", never
+# "everything up to the old cursor was acknowledged" - the safe direction,
+# recoverable mail rather than silently-declared-received mail. A caller
+# who has already durably processed such a backlog by other means can
+# `ack --all-unacked` once to close the gap explicitly, which is the
+# "compatible migration... without silently declaring historical mail
+# acknowledged" this issue asks for: an action the caller takes on purpose,
+# never one this script infers.
 #
 # Counting watchers (issue #792 item 5). `pgrep -af 'flow-wave-mailbox.sh
 # watch' | grep -- "--role X "` double-counts: a background launcher's
@@ -200,15 +271,19 @@
 #
 # Output ends with a machine-readable verdict line:
 #   FLOW_MAILBOX: sent | read | empty | mail | timeout | listed | status |
-#                 duplicate | refused | error
+#                 acked | duplicate | refused | error
 # preceded by FLOW_MAILBOX_*= detail lines ('-' when not applicable). Message
 # BODIES are printed before the detail block, so a caller can split on the first
-# FLOW_MAILBOX_ line.
+# FLOW_MAILBOX_ line. `ack` additionally prints FLOW_MAILBOX_ACKED=<n>, the
+# count of revs it just recorded as acknowledged (already-acked revs in the
+# same call still count - the call is idempotent, not a no-op report of 0).
 #
-# Exit codes: 0 normal, 2 usage error, 3 lock/IO failure, 4 duplicate watcher
-# (#792 - a live watcher already holds this role+wave; nothing was started),
-# 5 watch timeout, 6 lexicon refusal (#701 - the message was NOT delivered;
-# nothing was written).
+# Exit codes: 0 normal, 2 usage error - INCLUDING `ack` naming a rev that does
+# not exist yet in the box (#815: acknowledging a message you could not have
+# received is refused, not silently accepted) - 3 lock/IO failure, 4 duplicate
+# watcher (#792 - a live watcher already holds this role+wave; nothing was
+# started), 5 watch timeout, 6 lexicon refusal (#701 - the message was NOT
+# delivered; nothing was written).
 #
 # `watch --status` detail lines:
 #   FLOW_MAILBOX_WATCH_STATE    armed | stale | dead | absent | unknown - the
@@ -221,7 +296,10 @@
 #
 # `list --json` gains `watches[].watchers` (integer, or null when the process
 # table could not be read) beside `state` and `age_secs`, so a consumer can
-# check the fusion rather than take the state word on trust (#801).
+# check the fusion rather than take the state word on trust (#801). Each box
+# entry's `cursor` key from before #815 is now `acked` - the count of revs
+# that box's reader has explicitly acknowledged, replacing a read-cursor
+# position that no longer exists (#815).
 #
 # Env:
 #   FLOW_WAVE_WATCH_STALE_SECS  heartbeat age past which a REFRESHING watch is
@@ -264,6 +342,7 @@ emit() {
   echo "FLOW_MAILBOX_BOX=${E_BOX:--}"
   echo "FLOW_MAILBOX_REV=${E_REV:--}"
   echo "FLOW_MAILBOX_UNREAD=${E_UNREAD:--}"
+  echo "FLOW_MAILBOX_ACKED=${E_ACKED:--}"
   echo "FLOW_MAILBOX_DIR=${E_DIR:--}"
   echo "FLOW_MAILBOX: $1"
 }
@@ -297,10 +376,132 @@ max_rev() {
   ' "$f"
 }
 
-cursor_file() { echo "$WAVE_DIR/.cursor-$(basename "$1")"; }
+# --- Acknowledgement (issue #815) ----------------------------------------------
+# `.ack-<box>` holds the SET of revs that box's reader has explicitly
+# acknowledged, one integer per line, sorted and deduped on every write. This
+# replaces the retired `.cursor-<box>` read-cursor: a cursor advanced as a side
+# effect of PRINTING output, which is precisely the defect #815 exists to fix -
+# see the header comment above (ACKNOWLEDGEMENT) for the full argument.
+ack_file() { echo "$WAVE_DIR/.ack-$(basename "$1")"; }
+
+# Every rev NOT in <box>'s ack set, one per line, for revs that actually exist
+# (1..max_rev present as markers) - so a message never sent is never listed as
+# "unread" and a torn/missing ack file degrades to "nothing acknowledged" (the
+# safe direction: recoverable, not silently-declared-received). Reads the ack
+# file once via awk's own `getline`, not a shell loop, so this stays cheap for
+# a box with hundreds of messages.
+unacked_revs_in() {
+  local f="$1" afile
+  [ -s "$f" ] || return 0
+  afile="$(ack_file "$f")"
+  awk -v ackfile="$afile" '
+    BEGIN {
+      while ((getline line < ackfile) > 0) {
+        if (line ~ /^[0-9]+$/) acked[line + 0] = 1
+      }
+      close(ackfile)
+    }
+    /^<!-- cc-flow-wave-msg / {
+      if (match($0, /rev=[0-9]+/)) {
+        r = substr($0, RSTART + 4, RLENGTH - 4) + 0
+        if (!(r in acked)) print r
+      }
+    }
+  ' "$f"
+}
+
+# Print the message blocks of a box whose rev is NOT yet acknowledged - the
+# ack-based sibling of extract_since (which stays cursor/rev-based, used only
+# by --all's "show literal full history" request, an orthogonal concept from
+# acknowledgement).
+extract_unacked() {
+  local f="$1" afile
+  [ -s "$f" ] || return 0
+  afile="$(ack_file "$f")"
+  awk -v ackfile="$afile" '
+    BEGIN {
+      while ((getline line < ackfile) > 0) {
+        if (line ~ /^[0-9]+$/) acked[line + 0] = 1
+      }
+      close(ackfile)
+    }
+    /^<!-- cc-flow-wave-msg / {
+      rev = 0
+      if (match($0, /rev=[0-9]+/)) rev = substr($0, RSTART + 4, RLENGTH - 4) + 0
+      show = !(rev in acked)
+    }
+    show { print }
+  ' "$f"
+}
+
+# Count of revs <box>'s reader has ever explicitly acknowledged (for `list`'s
+# ACKED column - #815). Distinct from "unread": acked + unread need not equal
+# rev, because a rev can be neither shown nor acked yet at all.
+acked_count() {
+  local afile
+  afile="$(ack_file "$1")"
+  [ -s "$afile" ] || { echo 0; return; }
+  grep -c '^[0-9]' "$afile" 2>/dev/null || echo 0
+}
+
+# Record REVS (space-separated, already validated non-empty positive integers)
+# as acknowledged for <box>, under the same flock every other read-modify-write
+# in this file uses. Refuses (return 2) any rev that does not exist in the box
+# yet - "acknowledging a message you could not have received" - WITHOUT
+# recording any of the batch, so a bad rev in a batch cannot partially commit.
+# Idempotent: a rev already in the set is silently fine to re-list.
+ack_add() {
+  local box="$1"; shift
+  local afile top rev bad=""
+  afile="$(ack_file "$box")"
+  top="$(max_rev "$box")"
+  for rev in "$@"; do
+    case "$rev" in
+      ''|*[!0-9]*) bad="$bad $rev" ;;
+      *) [ "$rev" -ge 1 ] && [ "$rev" -le "$top" ] || bad="$bad $rev" ;;
+    esac
+  done
+  if [ -n "$bad" ]; then
+    echo "flow-wave-mailbox: refusing to ack unseen/invalid rev(s):$bad in $(basename "$box") (it holds $top message(s))" >&2
+    return 2
+  fi
+  [ "$#" -gt 0 ] || return 0
+  (
+    flock -w 10 9 || { echo "flow-wave-mailbox: could not lock $WAVE_DIR" >&2; exit 3; }
+    tmp="$(mktemp "$WAVE_DIR/.mack.XXXXXX")" || exit 3
+    {
+      [ -s "$afile" ] && cat "$afile"
+      for rev in "$@"; do echo "$rev"; done
+    } | sort -un > "$tmp"
+    mv -f "$tmp" "$afile" || { rm -f "$tmp"; exit 3; }
+  ) 9>"$LOCK_FILE"
+}
+
+# Ack everything currently unacked in one box. Used by `ack --all-unacked`,
+# by drain_role's own --consume path, and by `read --out` to defer
+# acknowledgement until AFTER a successful destination write (#815) without
+# duplicating the "what's unacked right now" computation at each call site.
+ack_all_unacked_in() {
+  local b="$1" revs
+  revs="$(unacked_revs_in "$b")"
+  [ -n "$revs" ] || return 0
+  # shellcheck disable=SC2086
+  ack_add "$b" $revs
+}
+
+# Same, across every box a role reads.
+ack_all_unacked_for_role() {
+  local role="$1" b
+  while IFS= read -r b; do
+    [ -n "$b" ] || continue
+    ack_all_unacked_in "$b"
+  done <<EOF
+$(boxes_for_role "$role")
+EOF
+}
 
 # --- The watch heartbeat (#778) ------------------------------------------------
-# `.watch-<role>` holds one epoch integer, exactly the shape of `.cursor-<box>`.
+# `.watch-<role>` holds one epoch integer, exactly the shape of `.ack-<box>`.
 watch_file() { echo "$WAVE_DIR/.watch-$1"; }
 
 # Stamp the current time for <role>. Called on arm and on every poll, so a
@@ -394,32 +595,13 @@ watch_roles() {
   } | grep -v '^-$' | sort -u
 }
 
-cursor_of() {
-  local c
-  c="$(cursor_file "$1")"
-  if [ -s "$c" ]; then
-    local v
-    v="$(tr -dc '0-9' < "$c")"
-    echo "${v:-0}"
-  else
-    echo 0
-  fi
-}
-
-# Count of messages in a box newer than its cursor.
+# Count of messages in a box that are not yet acknowledged (issue #815 - was
+# "newer than its read cursor" before the cursor's retirement; see
+# unacked_revs_in for why this must be a set, not a watermark).
 unread_in() {
-  local f="$1" cur
+  local f="$1"
   [ -s "$f" ] || { echo 0; return; }
-  cur="$(cursor_of "$f")"
-  awk -v min="$cur" '
-    /^<!-- cc-flow-wave-msg / {
-      if (match($0, /rev=[0-9]+/)) {
-        r = substr($0, RSTART + 4, RLENGTH - 4) + 0
-        if (r > min) n++
-      }
-    }
-    END { print n + 0 }
-  ' "$f"
+  unacked_revs_in "$f" | grep -c '^[0-9]'
 }
 
 # Print the message blocks of a box with rev > MIN (-1 prints everything). A
@@ -462,26 +644,36 @@ EOF
   echo "$total"
 }
 
-# Print every unread message for a role and (unless peeking) advance each box's
-# cursor. Cursor writes go through the lock so a concurrent send cannot have its
-# rev skipped by a half-written cursor.
+# Print every unacknowledged message for a role (issue #815) and, unless
+# peeking, acknowledge exactly the revs just printed - the same NAMED legacy
+# convenience `read`/`watch --consume` have always offered, now explicit and
+# opt-in rather than the only option a cursor gave you. --all additionally
+# shows the box's FULL history (including already-acked revs) via the
+# rev-based extract_since, but never changes what gets acknowledged: `--all`
+# is a display request, not a receipt.
+#
+# The rev list to ack is captured BEFORE printing/acking, from the same
+# unacked_revs_in() pass extract_unacked() itself reads - so a message that
+# arrives in the gap between "decide what's unacked" and "record the ack" is
+# simply not in either, and stays unread for the next call. No lock spans the
+# read+ack pair; ack_add() takes its own lock only for the write.
 drain_role() {
-  local role="$1" peek="$2" all="$3" b min top printed=0
+  local role="$1" peek="$2" all="$3" b body revs
   while IFS= read -r b; do
     [ -n "$b" ] || continue
-    if [ "$all" -eq 1 ]; then min=-1; else min="$(cursor_of "$b")"; fi
-    top="$(max_rev "$b")"
-    if [ "$top" -gt "$min" ] || [ "$all" -eq 1 ]; then
-      local body
-      body="$(extract_since "$b" "$min")"
-      if [ -n "$body" ]; then
-        echo "=== $(basename "$b") ==="
-        echo "$body"
-        printed=$((printed + 1))
-      fi
+    if [ "$all" -eq 1 ]; then
+      body="$(extract_since "$b" -1)"
+    else
+      revs="$(unacked_revs_in "$b")"
+      body="$(extract_unacked "$b")"
     fi
-    if [ "$peek" -eq 0 ] && [ "$top" -gt 0 ]; then
-      cursor_set "$b" "$top"
+    if [ -n "$body" ]; then
+      echo "=== $(basename "$b") ==="
+      echo "$body"
+    fi
+    if [ "$peek" -eq 0 ] && [ "$all" -eq 0 ] && [ -n "$revs" ]; then
+      # shellcheck disable=SC2086
+      ack_add "$b" $revs
     fi
   done <<EOF
 $(boxes_for_role "$role")
@@ -714,23 +906,12 @@ EOF
   return 0
 }
 
-# Advance a box's read cursor under the wave flock, so a concurrent send cannot
-# interleave with a half-written cursor and have its rev skipped.
-cursor_set() {
-  local cfile
-  cfile="$(cursor_file "$1")"
-  (
-    flock -w 10 9 || { echo "flow-wave-mailbox: could not lock $WAVE_DIR" >&2; exit 3; }
-    printf '%s\n' "$2" > "$cfile"
-  ) 9>"$LOCK_FILE"
-}
-
 VERB="${1:-}"
-[ -n "$VERB" ] || usage_fail "usage: flow-wave-mailbox.sh send|read|watch|list ..."
+[ -n "$VERB" ] || usage_fail "usage: flow-wave-mailbox.sh send|read|watch|ack|list ..."
 shift
 
 case "$VERB" in
-  send | read | watch | list) : ;;
+  send | read | watch | ack | list) : ;;
   --help | -h)
     # Self-terminating range, not a hand-counted one: a fixed `2,NNp` silently
     # truncates mid-sentence the moment the header grows, which is #686 - and it
@@ -745,6 +926,7 @@ esac
 WAVE="default"; ROLE=""; A_TO=""; A_FROM=""; A_BODY=""; A_BODY_FILE=""; A_OUT=""
 REPLACE=0; PEEK=0; CONSUME=0; ALL=0; JSON_OUT=0; NO_LEXICON=0; STATUS=0
 TIMEOUT="$WATCH_TIMEOUT_DEFAULT"; INTERVAL="$WATCH_INTERVAL_DEFAULT"
+A_BOX=""; A_REVS=""; ALL_UNACKED=0
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -773,6 +955,11 @@ while [ "$#" -gt 0 ]; do
     --status) STATUS=1 ;;
     --all) ALL=1 ;;
     --json) JSON_OUT=1 ;;
+    --box) [ "$#" -ge 2 ] || usage_fail "--box requires a name"; A_BOX="$2"; shift ;;
+    --box=*) A_BOX="${1#--box=}" ;;
+    --revs) [ "$#" -ge 2 ] || usage_fail "--revs requires a comma- or space-separated list"; A_REVS="$2"; shift ;;
+    --revs=*) A_REVS="${1#--revs=}" ;;
+    --all-unacked) ALL_UNACKED=1 ;;
     --*) usage_fail "unknown option: $1" ;;
     *)
       # Bare positional: the role, for the verbs that take one.
@@ -789,7 +976,7 @@ LOCK_FILE="$WAVE_DIR/.mailbox.lock"
 mkdir -p "$WAVE_DIR" 2>/dev/null || usage_fail "cannot create $WAVE_DIR"
 
 E_WAVE="$WAVE"; E_DIR="$WAVE_DIR"
-E_ROLE=""; E_BOX=""; E_REV=""; E_UNREAD=""
+E_ROLE=""; E_BOX=""; E_REV=""; E_UNREAD=""; E_ACKED=""
 
 case "$VERB" in
   send)
@@ -914,20 +1101,24 @@ case "$VERB" in
         emit empty
         exit 0
       fi
-      if [ "$ALL" -eq 1 ]; then MIN=-1; else MIN="$(cursor_of "$BOX")"; fi
-      TOP="$(max_rev "$BOX")"
       BODY_OUT=""
-      if [ "$TOP" -gt "$MIN" ] || [ "$ALL" -eq 1 ]; then
-        BODY_OUT="$(extract_since "$BOX" "$MIN")"
+      if [ "$ALL" -eq 1 ]; then
+        BODY_OUT="$(extract_since "$BOX" -1)"
+      else
+        BODY_OUT="$(extract_unacked "$BOX")"
       fi
       if [ -n "$BODY_OUT" ]; then
         printf '=== %s ===\n%s\n' "$(basename "$BOX")" "$BODY_OUT"
       fi
-      if [ "$PEEK" -eq 0 ] && [ "$TOP" -gt 0 ]; then
-        cursor_set "$BOX" "$TOP"
-      fi
+      # #815: the durable copy is written BEFORE anything is acknowledged, so
+      # a failed write (usage_fail exits here) leaves every message
+      # unacknowledged - never the reverse, which is how a write failure used
+      # to consume mail it never actually preserved anywhere.
       if [ -n "$A_OUT" ]; then
         printf '%s\n' "$BODY_OUT" > "$A_OUT" || usage_fail "cannot write --out: $A_OUT"
+      fi
+      if [ "$PEEK" -eq 0 ] && [ "$ALL" -eq 0 ]; then
+        ack_all_unacked_in "$BOX"
       fi
       E_ROLE="$ROLE"; E_BOX="inbox-$A_FROM.md"; E_UNREAD="$UNREAD"
       emit read
@@ -941,9 +1132,15 @@ case "$VERB" in
       exit 0
     fi
     if [ -n "$A_OUT" ]; then
-      BODY_OUT="$(drain_role "$ROLE" "$PEEK" "$ALL")"
+      # Print without acknowledging (peek=1 regardless of the caller's own
+      # $PEEK) so the write can be attempted first; ack afterward, only on
+      # success, only if the caller actually asked to consume (#815).
+      BODY_OUT="$(drain_role "$ROLE" 1 "$ALL")"
       [ -n "$BODY_OUT" ] && echo "$BODY_OUT"
       printf '%s\n' "$BODY_OUT" > "$A_OUT" || usage_fail "cannot write --out: $A_OUT"
+      if [ "$PEEK" -eq 0 ] && [ "$ALL" -eq 0 ]; then
+        ack_all_unacked_for_role "$ROLE"
+      fi
     else
       drain_role "$ROLE" "$PEEK" "$ALL"
     fi
@@ -1063,6 +1260,82 @@ case "$VERB" in
     exit 5
     ;;
 
+  ack)
+    # Explicit receipt (issue #815). See the ACKNOWLEDGEMENT section of the
+    # header for the full argument; this verb is the durable half of it -
+    # `read --peek` / `watch --peek` surface mail without touching this at
+    # all, and this is the ONLY thing that ever does.
+    [ -n "$ROLE" ] || usage_fail "ack requires --role <role>"
+    valid_name "$ROLE" || usage_fail "invalid role: '$ROLE'"
+    if [ -n "$A_FROM" ]; then
+      [ "$ROLE" = "orchestrator" ] || usage_fail "ack: --from is only meaningful with --role orchestrator (a worker has exactly one box: its own outbox)"
+      valid_name "$A_FROM" || usage_fail "invalid --from role: '$A_FROM'"
+    fi
+    if [ -n "$A_BOX" ] && [ "$ROLE" != "orchestrator" ]; then
+      usage_fail "ack: --box is only meaningful with --role orchestrator (a worker has exactly one box: its own outbox)"
+    fi
+    if [ -n "$A_FROM" ] && [ -n "$A_BOX" ]; then
+      usage_fail "ack: --from and --box both name the target box - use one"
+    fi
+    if [ -z "$A_REVS" ] && [ "$ALL_UNACKED" -eq 0 ]; then
+      usage_fail "ack requires --revs R[,R...] or --all-unacked"
+    fi
+    if [ -n "$A_REVS" ] && [ "$ALL_UNACKED" -eq 1 ]; then
+      usage_fail "ack: --revs and --all-unacked are mutually exclusive"
+    fi
+
+    # Resolve the target box(es), one absolute path per line.
+    if [ "$ROLE" = "orchestrator" ]; then
+      if [ -n "$A_FROM" ]; then
+        TARGET_BOXES="$WAVE_DIR/inbox-$A_FROM.md"
+      elif [ -n "$A_BOX" ]; then
+        case "$A_BOX" in
+          inbox-*.md) : ;;
+          *) usage_fail "ack: --box must name an inbox-*.md the orchestrator reads: '$A_BOX'" ;;
+        esac
+        TARGET_BOXES="$WAVE_DIR/$A_BOX"
+      elif [ "$ALL_UNACKED" -eq 1 ]; then
+        TARGET_BOXES="$(boxes_for_role orchestrator)"
+      else
+        usage_fail "ack: the orchestrator reads more than one box - disambiguate with --from <role>, --box NAME, or ack across all of them with --all-unacked"
+      fi
+    else
+      TARGET_BOXES="$WAVE_DIR/outbox-$ROLE.md"
+    fi
+
+    TOTAL_ACKED=0
+    SAW_A_BOX=0
+    while IFS= read -r b; do
+      [ -n "$b" ] || continue
+      [ -f "$b" ] || continue
+      SAW_A_BOX=1
+      if [ "$ALL_UNACKED" -eq 1 ]; then
+        N_BEFORE="$(unread_in "$b")"
+        ack_all_unacked_in "$b" || exit $?
+        TOTAL_ACKED=$((TOTAL_ACKED + N_BEFORE))
+      else
+        REVLIST="$(printf '%s' "$A_REVS" | tr ',' ' ')"
+        # shellcheck disable=SC2086
+        ack_add "$b" $REVLIST || exit $?
+        # shellcheck disable=SC2086
+        N_GIVEN="$(printf '%s\n' $REVLIST | grep -c '[0-9]')"
+        TOTAL_ACKED=$((TOTAL_ACKED + N_GIVEN))
+      fi
+    done <<EOF
+$TARGET_BOXES
+EOF
+    if [ "$SAW_A_BOX" -eq 0 ]; then
+      # No box exists yet to ack against - e.g. a worker nobody has sent to.
+      # Not an error: there is nothing unacknowledged, by construction.
+      E_ROLE="$ROLE"; E_ACKED=0
+      emit empty
+      exit 0
+    fi
+    E_ROLE="$ROLE"; E_ACKED="$TOTAL_ACKED"
+    emit acked
+    exit 0
+    ;;
+
   list)
     BOXES="$(find "$WAVE_DIR" -maxdepth 1 -type f \( -name 'outbox-*.md' -o -name 'inbox-*.md' \) 2>/dev/null | sort)"
     WROLES="$(watch_roles)"
@@ -1084,10 +1357,14 @@ case "$VERB" in
       ROWS=""
       while IFS= read -r b; do
         [ -n "$b" ] || continue
-        n="$(unread_in "$b")"; r="$(max_rev "$b")"; c="$(cursor_of "$b")"
+        n="$(unread_in "$b")"; r="$(max_rev "$b")"; c="$(acked_count "$b")"
         TOTAL_UNREAD=$((TOTAL_UNREAD + n))
         mt="$(date -r "$b" '+%Y-%m-%dT%H:%M:%S' 2>/dev/null || echo '-')"
-        ROWS="$ROWS$(printf '{"box":"%s","reader":"%s","rev":%s,"cursor":%s,"unread":%s,"mtime":"%s"}' \
+        # "acked" (issue #815) replaces the retired "cursor" - the count of
+        # revs that box's reader has EXPLICITLY acknowledged, not a read
+        # position. rev=SENT, unread=NOT YET ACKNOWLEDGED, acked=CONFIRMED
+        # RECEIVED; none of the three implies either of the others.
+        ROWS="$ROWS$(printf '{"box":"%s","reader":"%s","rev":%s,"acked":%s,"unread":%s,"mtime":"%s"}' \
           "$(basename "$b")" "$(reader_of_box "$b")" "$r" "$c" "$n" "$mt"),"
       done <<EOF
 $BOXES
@@ -1114,10 +1391,10 @@ EOF
       if [ -z "$BOXES" ]; then
         echo "No mailboxes in wave '$WAVE' yet ($WAVE_DIR)."
       else
-        printf '%-24s %6s %7s %7s  %s\n' BOX REV CURSOR UNREAD MTIME
+        printf '%-24s %6s %7s %7s  %s\n' BOX REV ACKED UNREAD MTIME
         while IFS= read -r b; do
           [ -n "$b" ] || continue
-          n="$(unread_in "$b")"; r="$(max_rev "$b")"; c="$(cursor_of "$b")"
+          n="$(unread_in "$b")"; r="$(max_rev "$b")"; c="$(acked_count "$b")"
           TOTAL_UNREAD=$((TOTAL_UNREAD + n))
           mt="$(date -r "$b" '+%Y-%m-%dT%H:%M:%S' 2>/dev/null || echo '-')"
           printf '%-24s %6s %7s %7s  %s\n' "$(basename "$b")" "$r" "$c" "$n" "$mt"
