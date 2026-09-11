@@ -26,6 +26,24 @@
 #   fail-open (attempt the merge anyway) if it never resolves - the post-merge
 #   MERGED-state check below stays the final backstop.
 #
+# Stale CONFLICTING treated as transient too (issue #805):
+#   The #485 poll trusted `CONFLICTING` as authoritative on the first read, but
+#   after a push both UNKNOWN and CONFLICTING can be stale - a session hit this
+#   live: the helper refused twice with `mergeable: CONFLICTING` on a branch
+#   with nothing conflicting, while a direct `gh pr view` moments earlier still
+#   read UNKNOWN (GitHub had not finished recomputing); waiting ~10s and
+#   re-reading gave MERGEABLE. Two reads a few seconds apart inside the same
+#   recompute window are one cached value read twice, not independent
+#   corroboration, so the hard stop now requires a decisive read taken at
+#   least GH_PR_MERGE_CONFLICT_SETTLE real seconds (default 10) after the
+#   first CONFLICTING sighting - a window that is topped up explicitly before
+#   the decisive read if the normal attempts x delay budget would otherwise
+#   exhaust first, so a CONFLICTING seen late in the poll still gets a genuine
+#   chance to be corroborated. A sighting that is never corroborated fails
+#   open, consistent with the existing UNKNOWN fail-open; the refusal and
+#   fail-open messages both name the measured interval and observed value
+#   rather than asserting a conclusion the helper cannot prove.
+#
 # Base moved at squash time (issue #502):
 #   The pre-merge poll structurally cannot catch a sibling PR that merges in the
 #   poll->merge race window: the squash then fails with "Base branch was
@@ -279,6 +297,7 @@
 #   GH_PR_MERGE_GIT            override the `git` binary (default: git)
 #   GH_PR_MERGE_POLL_ATTEMPTS  mergeability poll attempts (default: 5)
 #   GH_PR_MERGE_POLL_DELAY     seconds between poll attempts (default: 2)
+#   GH_PR_MERGE_CONFLICT_SETTLE  seconds a CONFLICTING read must be corroborated after (default: 10, issue #805)
 #   GH_PR_MERGE_BASE_RETRY_ATTEMPTS  squash retries on "Base branch was modified" (default: 2)
 #   GH_PR_MERGE_BASE_RETRY_DELAY     seconds before each such retry (default: 2)
 #   GH_PR_MERGE_CHECK_ATTEMPTS       required-check poll attempts (default: 60)
@@ -430,12 +449,24 @@ is_repo_admin() {
 }
 
 # Wait out a transient `mergeable=UNKNOWN` before attempting the squash (issue
-# #485). Returns 0 to proceed (MERGEABLE, or fail-open after the poll never
-# resolved), 1 to stop (genuine CONFLICTING).
+# #485). A `CONFLICTING` read gets the same distrust before it is acted on
+# (issue #805): after a push, both values can be stale, and two reads a few
+# seconds apart inside the same recompute window are one cached value read
+# twice, not independent corroboration. The hard stop fires only once a
+# CONFLICTING sighting is corroborated by a decisive read taken at least
+# GH_PR_MERGE_CONFLICT_SETTLE real seconds later (default 10 - the interval
+# the issue's own observation outlasted); that settle window is GUARANTEED,
+# never squeezed into the remaining attempts x delay budget, by topping up to
+# it explicitly before the decisive read. Returns 0 to proceed (MERGEABLE, or
+# fail-open when a CONFLICTING sighting was never corroborated), 1 to stop
+# (CONFLICTING confirmed by a read taken at least $settle seconds after the
+# first sighting).
 poll_mergeable() {
     local attempts="${GH_PR_MERGE_POLL_ATTEMPTS:-5}"
     local delay="${GH_PR_MERGE_POLL_DELAY:-2}"
-    local i mergeable
+    local settle="${GH_PR_MERGE_CONFLICT_SETTLE:-10}"
+    local i mergeable elapsed
+    local conflict_first_at=-1  # $SECONDS at the first CONFLICTING read; -1 = not seen yet
     for ((i = 1; i <= attempts; i++)); do
         mergeable=$("$GH_BIN" pr view "$PR_NUMBER" --json mergeable --jq '.mergeable' 2>/dev/null)
         case "$mergeable" in
@@ -443,9 +474,14 @@ poll_mergeable() {
                 return 0
                 ;;
             CONFLICTING)
-                echo "error: PR #$PR_NUMBER is not mergeable (mergeable: CONFLICTING) -" \
-                     "resolve the conflicts, then re-run." >&2
-                return 1
+                # Record the first sighting only; the decisive corroboration read
+                # happens once, in the tail below, after the settle window has
+                # genuinely elapsed - not here, so there is exactly one hard-stop
+                # decision point (issue #805 review).
+                (( conflict_first_at < 0 )) && conflict_first_at=$SECONDS
+                if [[ $i -lt $attempts ]]; then
+                    sleep "$delay"
+                fi
                 ;;
             *)
                 # UNKNOWN or empty: GitHub is still computing mergeability. Wait and
@@ -457,11 +493,29 @@ poll_mergeable() {
                 ;;
         esac
     done
-    # Never resolved - fail open: attempt the merge and let the post-merge
-    # MERGED-state verification be the arbiter, rather than STOP on a transient.
-    echo "note: mergeability still UNKNOWN for PR #$PR_NUMBER after $attempts" \
-         "check(s); attempting the merge anyway (post-merge state check is the" \
-         "backstop)." >&2
+    if (( conflict_first_at >= 0 )); then
+        # Saw CONFLICTING at least once. The settle window is guaranteed, not
+        # optional (issue #805): top up to it before the one decisive read, so a
+        # CONFLICTING seen late in the poll still gets a genuine chance to be
+        # corroborated (or not) rather than being squeezed out by however much
+        # of attempts x delay remained.
+        elapsed=$(( SECONDS - conflict_first_at ))
+        (( elapsed < settle )) && sleep "$(( settle - elapsed ))"
+        mergeable=$("$GH_BIN" pr view "$PR_NUMBER" --json mergeable --jq '.mergeable' 2>/dev/null)
+        if [[ "$mergeable" == "CONFLICTING" ]]; then
+            echo "error: PR #$PR_NUMBER is not mergeable (mergeable: CONFLICTING on reads" \
+                 "$(( SECONDS - conflict_first_at ))s apart) - resolve the conflicts, then" \
+                 "re-run." >&2
+            return 1
+        fi
+        echo "note: PR #$PR_NUMBER read CONFLICTING but a read $(( SECONDS - conflict_first_at ))s" \
+             "later did not corroborate it (mergeable: ${mergeable:-<empty>}); attempting the" \
+             "merge anyway (post-merge state check is the backstop)." >&2
+    else
+        echo "note: mergeability still UNKNOWN for PR #$PR_NUMBER after $attempts" \
+             "check(s); attempting the merge anyway (post-merge state check is the" \
+             "backstop)." >&2
+    fi
     return 0
 }
 
