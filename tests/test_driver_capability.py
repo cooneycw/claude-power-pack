@@ -207,6 +207,120 @@ def test_qwen_web_basis_does_not_overstate_the_block() -> None:
 
 
 # ---------------------------------------------------------------------------
+# The third axis: container-runtime access (issue #835)
+#
+# Unlike scope and web, this axis does NOT track the implementation-only fence
+# - qwen:auto is implementation-only and web=no, yet its shell commands reach
+# docker unconfined. Every value here was measured by actually running the
+# command through each driver's real harness (gemma via `/gemma:exec`, codex
+# via `codex exec --sandbox workspace-write`, qwen via the CPP lane's real
+# remote-endpoint condition), not inferred from a permission file and assumed -
+# reading gemma's config and running the docker call through it gave different
+# confidence, which is the entire reason this suite pins the MEASURED value.
+# ---------------------------------------------------------------------------
+
+#: Expected FLOW_DRIVER_CONTAINER per driver, measured empirically (#835).
+CONTAINER_EXPECTED = {
+    "flow:auto": "yes",
+    "codex:auto": "no",
+    "qwen:auto": "yes",
+    "gemma:auto": "no",
+}
+
+
+@requires_bash
+@pytest.mark.parametrize(
+    ("driver", "expected"), sorted(CONTAINER_EXPECTED.items()), ids=list(CONTAINER_EXPECTED)
+)
+def test_declared_container_matches_the_measurement(driver: str, expected: str) -> None:
+    fields = _fields(_run("show", driver).stdout)
+    assert fields["FLOW_DRIVER_CONTAINER"] == expected, (
+        f"{driver}'s declared container access ({fields['FLOW_DRIVER_CONTAINER']!r}) no "
+        f"longer matches the measured value ({expected!r}, issue #835) - re-measure "
+        "before changing the declared data, do not infer from config alone"
+    )
+    assert fields["FLOW_DRIVER_CONTAINER_BASIS"], (
+        f"{driver} must record HOW its container verdict was reached, mirroring web_basis"
+    )
+
+
+def test_codex_container_basis_is_still_the_same_sandbox_flag() -> None:
+    """codex's `container: no` rests on the identical flag as `web: no`.
+
+    Pinned separately from the web test so a reader sees both claims trace to
+    one mechanism rather than assuming two independent findings.
+    """
+    doc = _driver_doc("codex")
+    assert "--sandbox workspace-write" in doc, (
+        "codex/auto.md no longer specifies `--sandbox workspace-write`, which is also "
+        "the basis for flow-driver-capability.sh's `container: no` for codex:auto "
+        "(issue #835)"
+    )
+
+
+@requires_bash
+def test_codex_container_basis_names_the_sandbox() -> None:
+    fields = _fields(_run("show", "codex:auto").stdout)
+    assert fields["FLOW_DRIVER_CONTAINER"] == "no"
+    assert "sandbox" in fields["FLOW_DRIVER_CONTAINER_BASIS"]
+
+
+def test_gemma_container_basis_is_still_the_profile_denial() -> None:
+    """The same mechanical denial that grounds `web: no` also denies docker."""
+    profile = json.loads(GEMMA_PROFILE.read_text(encoding="utf-8"))
+    blob = json.dumps(profile).replace("\\", "")
+    assert '"docker*": "deny"' in blob, (
+        "templates/opencode-gemma.json no longer denies `docker*`; gemma:auto's "
+        "`container: no` rests on this rule (issue #752/#835)"
+    )
+
+
+@requires_bash
+def test_qwen_container_basis_does_not_overstate_to_an_untested_condition() -> None:
+    """Honesty check, mirrored from the web one: a `yes` must not overstate either.
+
+    qwen's container access was measured for the CPP lane's real condition (a
+    remote Ollama endpoint, sandbox skipped per #749) - not for a local endpoint,
+    where the Docker/Seatbelt sandbox is active and was never tested. The basis
+    must say so, or a reader could assume the `yes` generalizes to a condition
+    nobody measured.
+    """
+    fields = _fields(_run("show", "qwen:auto").stdout)
+    assert fields["FLOW_DRIVER_CONTAINER"] == "yes"
+    basis = fields["FLOW_DRIVER_CONTAINER_BASIS"]
+    assert "untested" in basis or "not tested" in basis, (
+        f"qwen's container basis must name the untested local-endpoint condition, got {basis!r}"
+    )
+
+
+@requires_bash
+def test_check_refuses_container_work_for_the_two_sandboxed_drivers() -> None:
+    """The #831 mis-route, pinned: codex and gemma cannot take container work."""
+    for driver in ("codex:auto", "gemma:auto"):
+        proc = _run("check", driver, "--needs", "container")
+        assert proc.returncode == 1, f"{driver}: {proc.stdout}"
+        assert _verdict(proc.stdout, "FLOW_DRIVER_CHECK") == "mismatch"
+        assert "container" in _fields(proc.stdout)["FLOW_DRIVER_UNMET"]
+        assert "FLOW_DRIVER_BLOCKED: container - " in proc.stdout
+
+
+@requires_bash
+def test_check_fits_container_work_for_qwen_and_flow() -> None:
+    """The positive case: without it, `container` could only ever mismatch."""
+    for driver in ("qwen:auto", "flow:auto"):
+        proc = _run("check", driver, "--needs", "container")
+        assert proc.returncode == 0, f"{driver}: {proc.stdout}"
+        assert _verdict(proc.stdout, "FLOW_DRIVER_CHECK") == "fit"
+
+
+@requires_bash
+def test_container_need_is_a_valid_need() -> None:
+    """`container` must be accepted by the enum this helper validates against."""
+    proc = _run("check", "gemma:auto", "--needs", "container")
+    assert "unknown need" not in proc.stderr, proc.stderr
+
+
+# ---------------------------------------------------------------------------
 # The helper's own contract
 # ---------------------------------------------------------------------------
 
@@ -373,7 +487,7 @@ def test_roster_annotates_a_role_with_its_driver_fence(tmp_path: Path) -> None:
 
     reg("register", "worker-2", "--wave", "w", "--driver", "gemma:auto")
     listing = reg("list", "--wave", "w").stdout
-    assert "driver=gemma:auto[impl-only,no-web]" in listing, listing
+    assert "driver=gemma:auto[impl-only,no-web,no-container]" in listing, listing
 
     got = reg("get", "worker-2", "--wave", "w").stdout
     fields = dict(
@@ -382,7 +496,41 @@ def test_roster_annotates_a_role_with_its_driver_fence(tmp_path: Path) -> None:
     assert fields["FLOW_WAVE_DRIVER"] == "gemma:auto"
     assert fields["FLOW_WAVE_DRIVER_SCOPE"] == "implementation-only"
     assert fields["FLOW_WAVE_DRIVER_WEB"] == "no"
+    assert fields["FLOW_WAVE_DRIVER_CONTAINER"] == "no"
     assert "research" in fields["FLOW_WAVE_DRIVER_CANNOT"]
+    assert "container" in fields["FLOW_WAVE_DRIVER_CANNOT"]
+
+
+@requires_bash
+@requires_jq
+def test_roster_does_not_mark_a_container_capable_delegated_driver(tmp_path: Path) -> None:
+    """qwen is the case that proves container is a real third axis, not scope/web
+    relabelled: implementation-only, web=no, and STILL no `no-container` marker.
+    """
+    env = {
+        "FLOW_WAVE_REGISTRY_DIR": str(tmp_path / "reg"),
+        "FLOW_WAVE_SOCK_DIR": str(tmp_path / "socks"),
+    }
+    reg = lambda *a: subprocess.run(  # noqa: E731
+        ["bash", str(REGISTRY), *a],
+        capture_output=True,
+        text=True,
+        env={**os.environ, **env},
+    )
+    reg("register", "worker-3", "--wave", "w", "--driver", "qwen:auto")
+    listing = reg("list", "--wave", "w").stdout
+    assert "driver=qwen:auto[impl-only,no-web]" in listing, listing
+    assert "no-container" not in listing, (
+        "qwen:auto can reach docker (issue #835) - a `no-container` marker here "
+        "would overstate a block it does not have"
+    )
+
+    got = reg("get", "worker-3", "--wave", "w").stdout
+    fields = dict(
+        line.split("=", 1) for line in got.splitlines() if line.startswith("FLOW_WAVE_DRIVER")
+    )
+    assert fields["FLOW_WAVE_DRIVER_CONTAINER"] == "yes"
+    assert "container" not in fields["FLOW_WAVE_DRIVER_CANNOT"].split()
 
 
 @requires_bash

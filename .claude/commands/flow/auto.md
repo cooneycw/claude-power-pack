@@ -20,6 +20,7 @@ Complete end-to-end workflow: start worktree → analyze issue → ELI5 plan + n
 |---|---|
 | **Scope** | **general** - Claude implements directly, so the deliverable can be a diff, a written finding, a recommendation, or a decision |
 | **Web** | **yes** - WebFetch / WebSearch are available for live sources |
+| **Container** | **yes** - the Bash tool reaches docker/kubectl/terraform directly, no sandbox denial (issue #835) |
 | **Cannot take** | nothing on these axes |
 
 This is the unconstrained driver, and stating that is the point: the three

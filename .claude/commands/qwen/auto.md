@@ -39,6 +39,7 @@ work at all?"*, and for two whole classes of issue the answer here is no:
 |---|---|
 | **Scope** | **implementation-only** - the deliverable is a source diff |
 | **Web** | **no** - a local code model with no web tool configured in this lane; the Docker sandbox is skipped entirely for a remote endpoint (issue #749) |
+| **Container** | **yes** - unlike scope/web, this does NOT track the fence: with the sandbox skipped for a remote endpoint (#749), this driver's shell commands reach docker unconfined (verified: `docker version` succeeded, exit 0, no denial). Untested against a local endpoint, where the Docker/Seatbelt sandbox is active (issue #835) |
 | **Cannot take** | `research`, `web` |
 
 - **Research tickets.** Work whose product is a finding, a recommendation, or a
