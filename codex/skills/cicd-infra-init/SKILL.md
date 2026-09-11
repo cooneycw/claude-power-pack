@@ -13,7 +13,7 @@ Generate a tiered IaC directory structure for your project.
 1. **Check for existing IaC** by running detection:
 
 ```bash
-PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -m lib.cicd infra-init --path "$(pwd)" --json
+PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd infra-init --path "$(pwd)" --json
 ```
 
 2. **If no `.claude/cicd.yml` exists**, ask the user for:
@@ -27,7 +27,7 @@ PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -m lib.cicd infra-init --path "$(p
 4. **Generate the scaffold:**
 
 ```bash
-PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -m lib.cicd infra-init --path "$(pwd)" --write
+PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd infra-init --path "$(pwd)" --write
 ```
 
 5. **Report what was created** and suggest next steps.

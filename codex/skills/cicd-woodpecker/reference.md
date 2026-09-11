@@ -22,7 +22,7 @@ cat "$HOME/Projects/claude-power-pack/docs/skills/woodpecker-ci.md" 2>/dev/null 
 2. **Detect framework**:
 
 ```bash
-PYTHONPATH="$PWD/lib:$HOME/Projects/claude-power-pack/lib:$PYTHONPATH" python3 -m lib.cicd detect --quiet
+PYTHONPATH="$PWD:$HOME/Projects/claude-power-pack:$PYTHONPATH" uv run --project "$HOME/Projects/claude-power-pack" python -m lib.cicd detect --quiet
 ```
 
 3. **Set the provider and hardening flags** in `.claude/cicd.yml`. Ask the user
@@ -54,7 +54,7 @@ For deploy secrets, prefer AWS Secrets Manager over the Woodpecker secret store:
 4. **Generate the pipeline** (dry run first):
 
 ```bash
-PYTHONPATH="$PWD/lib:$HOME/Projects/claude-power-pack/lib:$PYTHONPATH" python3 -m lib.cicd pipeline
+PYTHONPATH="$PWD:$HOME/Projects/claude-power-pack:$PYTHONPATH" uv run --project "$HOME/Projects/claude-power-pack" python -m lib.cicd pipeline
 ```
 
 5. **Review output** with the user. Confirm the stage order is
@@ -66,7 +66,7 @@ PYTHONPATH="$PWD/lib:$HOME/Projects/claude-power-pack/lib:$PYTHONPATH" python3 -
 7. **Write the pipeline** if approved:
 
 ```bash
-PYTHONPATH="$PWD/lib:$HOME/Projects/claude-power-pack/lib:$PYTHONPATH" python3 -m lib.cicd pipeline --write
+PYTHONPATH="$PWD:$HOME/Projects/claude-power-pack:$PYTHONPATH" uv run --project "$HOME/Projects/claude-power-pack" python -m lib.cicd pipeline --write
 ```
 
 8. **Scaffold the server/agent (optional)** - if the user needs to stand up

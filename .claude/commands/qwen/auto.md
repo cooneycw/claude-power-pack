@@ -572,7 +572,7 @@ for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-p
 done
 
 if [ -n "$CPP_DIR" ]; then
-    PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -m lib.cicd run --plan finish
+    PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd run --plan finish
     RUNNER_EXIT=$?
 fi
 ```

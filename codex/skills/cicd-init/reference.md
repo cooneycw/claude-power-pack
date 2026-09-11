@@ -31,7 +31,7 @@ echo "CPP source: $CPP_DIR"
 Run the framework detector:
 
 ```bash
-PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -m lib.cicd detect
+PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd detect
 ```
 
 Report the detection results to the user:
@@ -49,7 +49,7 @@ If framework is "Unknown", ask the user which framework to use via AskUserQuesti
 ```bash
 if [ -f "Makefile" ]; then
   echo "Existing Makefile found - running validation..."
-  PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -m lib.cicd check
+  PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd check
 else
   echo "No Makefile found - will generate one."
 fi
@@ -92,7 +92,7 @@ If `.claude/cicd.yml` does not exist, generate it from detected defaults:
 ```bash
 if [ ! -f ".claude/cicd.yml" ]; then
   # Get detection result as JSON
-  DETECT_JSON=$(PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -m lib.cicd detect --json)
+  DETECT_JSON=$(PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd detect --json)
 fi
 ```
 

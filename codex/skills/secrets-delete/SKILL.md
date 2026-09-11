@@ -18,12 +18,12 @@ to the audit log (never the value).
 When the user invokes `/secrets-delete KEY`, run:
 
 ```bash
-PYTHONPATH="${HOME}/Projects/claude-power-pack/lib:${PYTHONPATH}" python3 -m lib.creds delete "$KEY" --force
+PYTHONPATH="${HOME}/Projects/claude-power-pack:${PYTHONPATH}" uv run --project "${HOME}/Projects/claude-power-pack" python -m lib.creds delete "$KEY" --force
 ```
 
 If `--project` is specified, add it:
 ```bash
-PYTHONPATH="${HOME}/Projects/claude-power-pack/lib:${PYTHONPATH}" python3 -m lib.creds delete "$KEY" --force --project "$PROJECT"
+PYTHONPATH="${HOME}/Projects/claude-power-pack:${PYTHONPATH}" uv run --project "${HOME}/Projects/claude-power-pack" python -m lib.creds delete "$KEY" --force --project "$PROJECT"
 ```
 
 **Note:** `--force` skips the interactive confirmation prompt since Claude Code is non-interactive.

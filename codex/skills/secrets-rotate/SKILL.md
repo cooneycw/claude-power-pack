@@ -19,12 +19,12 @@ to the audit log (never the value).
 When the user invokes `/secrets-rotate KEY [VALUE]`, run:
 
 ```bash
-PYTHONPATH="${HOME}/Projects/claude-power-pack/lib:${PYTHONPATH}" python3 -m lib.creds rotate "$KEY" "$VALUE"
+PYTHONPATH="${HOME}/Projects/claude-power-pack:${PYTHONPATH}" uv run --project "${HOME}/Projects/claude-power-pack" python -m lib.creds rotate "$KEY" "$VALUE"
 ```
 
 Without value (interactive prompt):
 ```bash
-PYTHONPATH="${HOME}/Projects/claude-power-pack/lib:${PYTHONPATH}" python3 -m lib.creds rotate "$KEY"
+PYTHONPATH="${HOME}/Projects/claude-power-pack:${PYTHONPATH}" uv run --project "${HOME}/Projects/claude-power-pack" python -m lib.creds rotate "$KEY"
 ```
 
 **IMPORTANT:** Never echo or display the secret value in output.

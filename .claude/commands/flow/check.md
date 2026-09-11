@@ -104,7 +104,7 @@ fi
 ```bash
 if [[ "$HAS_SECURITY" == "true" ]]; then
     echo "Running: security gate (flow_finish)"
-    PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -m lib.security gate flow_finish
+    PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.security gate flow_finish
     SEC_EXIT=$?
     CHECKS_RUN=$((CHECKS_RUN + 1))
     if [[ $SEC_EXIT -eq 0 ]]; then
