@@ -377,8 +377,26 @@ LAST_MERGE_ERR=""
 # A linked worktree has a `.git` FILE (a gitdir pointer); the primary repo has a
 # `.git` DIRECTORY. This is the exact condition under which --delete-branch trips.
 # Checks the INVOKING worktree only - a sibling worktree elsewhere in the same
-# repo is not examined here.
+# repo is not examined here (see branch_checked_out_in_sibling_worktree below).
 in_linked_worktree() { [[ -f .git ]]; }
+
+# True when $1 is checked out in a worktree OTHER than the one this script was
+# invoked from (issue #848). in_linked_worktree() above covers the invoking
+# worktree only; a sibling worktree holding the same branch is invisible to a
+# `.git`-file-vs-directory check by construction, whichever side of it we're
+# on. Kept as a SEPARATE, additive check rather than folded into one - the
+# common case (no sibling holds the branch) still costs nothing but the
+# original `[[ -f .git ]]`, and every existing test that doesn't care about
+# siblings keeps working without stubbing a worktree listing at all.
+branch_checked_out_in_sibling_worktree() {
+    local branch="$1" self
+    self=$("$GIT_BIN" rev-parse --show-toplevel 2>/dev/null) || return 1
+    "$GIT_BIN" worktree list --porcelain 2>/dev/null | awk -v self="$self" -v want="refs/heads/$branch" '
+        /^worktree / { path = $2; is_self = (path == self) }
+        /^branch /   { if (!is_self && $2 == want) found = 1 }
+        END          { exit !found }
+    '
+}
 
 # A squash rejected by branch protection (issue #517) vs. any other failure.
 # Matches the required-review / required-status-check / protected-branch families
@@ -1248,11 +1266,17 @@ run_squash() {
 }
 
 # Assemble the squash flags once: --admin if explicitly opted in, plus
-# --delete-branch in the primary repo (a linked worktree deletes the remote
-# branch itself below, to avoid the #461 local branch-switch failure).
+# --delete-branch unless the branch is checked out somewhere `gh` can't
+# delete it from - either the invoking worktree itself (avoiding the #461
+# local branch-switch failure) or a SIBLING worktree holding the same
+# branch (issue #848: git refuses the local delete either way, and gh's own
+# --delete-branch never gets a chance to reach the remote branch at all).
+# Either case is cleaned up below via a post-merge verification instead.
 BASE_FLAGS=()
 (( ADMIN_OPT_IN )) && BASE_FLAGS+=(--admin)
-in_linked_worktree || BASE_FLAGS+=(--delete-branch)
+if ! in_linked_worktree && ! branch_checked_out_in_sibling_worktree "$BRANCH"; then
+    BASE_FLAGS+=(--delete-branch)
+fi
 
 # Explicit squash subject + body, derived from the PR (issue #655): with no
 # --subject, GitHub may title the squash commit from the branch's FIRST commit
@@ -1334,13 +1358,6 @@ elif [[ $merge_exit -ne 0 && $ADMIN_OPT_IN -eq 0 ]] && is_protection_block && is
     run_squash --admin ${BASE_FLAGS+"${BASE_FLAGS[@]}"}
 fi
 
-# In a linked worktree, delete the remote branch ourselves once the squash has
-# landed - what --delete-branch would have done, minus the local branch switch
-# that fails there (issue #461).
-if in_linked_worktree && [[ $merge_exit -eq 0 ]]; then
-    "$GIT_BIN" push origin --delete "$BRANCH" >/dev/null 2>&1 || true
-fi
-
 # Post-merge completeness verification (issue #657): the landed squash commit
 # must touch ONLY paths in the PR's own file list. A violation is LOUD but never
 # flips the exit code - the merge already landed, so this is a signal to
@@ -1388,11 +1405,32 @@ if [[ "$state" == "MERGED" ]]; then
     if [[ $merge_exit -ne 0 ]]; then
         echo "note: gh exited $merge_exit but PR #$PR_NUMBER is MERGED - a local" \
              "post-merge step failed, not the merge itself. Continuing." >&2
-        # Ensure the remote branch is gone even if the failure preceded our push.
-        if in_linked_worktree; then
-            "$GIT_BIN" push origin --delete "$BRANCH" >/dev/null 2>&1 || true
-        fi
     fi
+
+    # Verify the remote branch is actually gone rather than predicting it from
+    # which worktree invoked us (issue #848) - --delete-branch silently can't
+    # reach it from a sibling worktree holding the same branch, and a local
+    # post-merge failure above can mask our own manual delete too. One check
+    # replaces both the old in_linked_worktree-gated sites; it runs whenever
+    # the PR actually merged, regardless of exit code or invoking worktree.
+    #
+    # `ls-remote --exit-code` has THREE outcomes, not two, and they must NOT
+    # collapse into one branch: exit 0 means the ref is still there (delete
+    # it); exit 2 is git's own signal for "no such ref" (already gone,
+    # nothing to do); anything else (128 for an unreachable remote, a
+    # transient auth failure, ...) means we don't actually know - and reading
+    # "unknown" as "already gone" would silently reintroduce the very orphan
+    # this fix exists to close. So only a DEFINITIVE absence (rc == 2) skips
+    # the delete; every other outcome attempts it, and the attempt is
+    # harmless (`|| true`) if the branch really was already gone. Do not
+    # simplify this to `-eq 0` or `! ... ; then` - that puts 2 and 128 back
+    # on the same branch, which is the bug.
+    rc=0
+    "$GIT_BIN" ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1 || rc=$?
+    if [[ $rc -ne 2 ]]; then
+        "$GIT_BIN" push origin --delete "$BRANCH" >/dev/null 2>&1 || true
+    fi
+
     verify_completeness
     echo "merged"
     exit 0
