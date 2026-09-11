@@ -1,10 +1,11 @@
 # Claude Power Pack
 
-**v7.3.0** - A productivity toolkit for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) that adds workflow automation, MCP servers, security scanning, secrets management, and CI/CD integration.
+**v7.5.0** - A productivity toolkit for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) that adds workflow automation, MCP servers, security scanning, secrets management, and CI/CD integration.
 
 ## What It Does
 
 - **Workflow commands** (`/flow:auto`, `/flow:start`, `/flow:eli5`, `/flow:finish`) - Issue-driven development with worktrees, a pre-implementation ELI5 plan/necessity approval gate that cannot be bypassed (#775), quality gates, automated PR lifecycle, and CI verification. The necessity gate also ships standalone as [eli5-gate](https://github.com/cooneycw/eli5-gate) - installable without CPP via `/plugin marketplace add cooneycw/eli5-gate` or `npx skills add cooneycw/eli5-gate`; CPP vendors its canonical core (file gate improvements there)
+- **Wave orchestration** (`/flow:wave`, `/flow:register`, `/flow:sync`) - dependency-ordered issue waves fanned out across worker sessions, coordinated through a durable mailbox with an armed/stale/dead watch status visible on the roster (#778, #801), and per-driver capability declarations (scope, web access) so an orchestrator can check whether a driver can do the work before assigning it, not after a worker refuses (#783)
 - **MCP servers** extending Claude Code's capabilities:
   - **Second Opinion** - Multi-model code review via external LLMs (Gemini, OpenAI, Anthropic), served by the external `cooneycw/mcp-second-opinion` repo and wired in through the root `.mcp.json` (streamable-http)
   - **Browser automation** - upstream `@playwright/mcp` server (npx/stdio, no container), registered by `/cpp:init`
@@ -97,6 +98,7 @@ claude-power-pack/
 | Workflow | `/flow:start 42` | Create worktree for an issue |
 | Workflow | `/flow:eli5 42` | Plain-language intent + necessity verdict + plan approval gate |
 | Workflow | `/flow:finish` | Lint, test, typecheck, commit, push, create PR |
+| Workflow | `/flow:wave` | Orchestrate a dependency-ordered issue wave across worker sessions |
 | Improve | `/self-improvement:retro` | Post-run friction retro: capture -> codify durable fixes (the grill-me cycle) |
 | Project | `/project:init myapp` | Scaffold a new project |
 | Security | `/security:scan` | Full vulnerability scan |
@@ -133,6 +135,17 @@ The image-build, CVE-scan, SBOM, compose-policy, and runtime-smoke stages were r
 Architecture: Woodpecker server on a dedicated VM, agent on the dev workstation, connected via gRPC over Tailscale. Web UI at `woodpecker.essent-ai.com` via Cloudflare tunnel.
 
 ## Changelog
+
+### v7.5.0 (2026-09-07)
+
+- **Wave reliability fixes** - `/flow:wave` mailbox watch state is now fused from the live watcher count and its heartbeat stamp so a dead watch can no longer be reported as `armed` (#801); a post-clearance PR pipeline watch (`flow-pr-watch.sh`) classifies a cleared PR's next CI run as green/cancelled/flake/red/timeout instead of leaving it unwatched (#788); delegated driver lanes (`/codex:auto`, `/qwen:auto`, `/gemma:auto`) now judge run success from the payload rather than a misleading `$?`, after the Qwen CLI was found reporting `is_error: false` on a dead endpoint (#798); seven other confidently-wrong `flow-wave-mailbox watch` reports fixed (#792)
+- **Driver capability declarations** (#783) - `scripts/flow-driver-capability.sh` declares each delegated driver's scope (general vs. implementation-only) and web access so an orchestrator can check fit before assignment instead of after a worker refuses
+- **Wave roster shows who's actually listening** (#778) - `flow-wave-mailbox.sh watch` stamps a heartbeat so the roster can tell an armed watch apart from one that died silently
+- **No-bypass gates extended to the delegated drivers** (#784, #775) - the ELI5 plan/necessity approval gate and its delegated-driver equivalent now have no invoker-typed or trailer-based bypass on any of the four drivers
+
+### v7.4.0 (2026-07-18)
+
+- **Top-level commands folded into families + discovery-completeness gate** (#582) - `/project-next` / `/project-lite` became `/project:next` / `/project:lite`; `/dockers`, `/happy-check`, `/load-best-practices`, `/load-mcp-docs` moved into the `cpp` family; a new gate fails CI on any command left outside `.claude/commands/<family>/*.md`, since that path is what both the plugin and Codex-skill generators discover from
 
 ### v7.3.0 (2026-07-04)
 
