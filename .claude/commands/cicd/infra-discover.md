@@ -7,6 +7,25 @@ allowed-tools: Bash(PYTHONPATH=*), Bash(python3:*), Bash(bash:*), Bash(ls:*), Re
 
 Generate a discovery script that audits existing cloud resources and outputs them in a format suitable for IaC import (`terraform import`, etc.).
 
+## Step 1: Locate CPP Source
+
+```bash
+CPP_DIR=""
+for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-pack; do
+  if [ -d "$dir" ] && [ -f "$dir/CLAUDE.md" ]; then
+    CPP_DIR="$dir"
+    break
+  fi
+done
+
+if [ -z "$CPP_DIR" ]; then
+  echo "ERROR: claude-power-pack not found"
+  exit 1
+fi
+```
+
+---
+
 ## Instructions
 
 1. **Detect cloud provider** from `.claude/cicd.yml` or ask the user (aws/azure/gcp).
