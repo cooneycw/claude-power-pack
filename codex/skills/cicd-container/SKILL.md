@@ -13,13 +13,13 @@ Generate Dockerfile, docker-compose.yml, and .dockerignore for the current proje
 1. **Detect framework** using `lib/cicd`:
 
 ```bash
-PYTHONPATH="$PWD/lib:$HOME/Projects/claude-power-pack/lib:$PYTHONPATH" python3 -m lib.cicd detect --quiet
+PYTHONPATH="$PWD:$HOME/Projects/claude-power-pack:$PYTHONPATH" uv run --project "$HOME/Projects/claude-power-pack" python -m lib.cicd detect --quiet
 ```
 
 2. **Generate container files** (dry run first):
 
 ```bash
-PYTHONPATH="$PWD/lib:$HOME/Projects/claude-power-pack/lib:$PYTHONPATH" python3 -m lib.cicd container
+PYTHONPATH="$PWD:$HOME/Projects/claude-power-pack:$PYTHONPATH" uv run --project "$HOME/Projects/claude-power-pack" python -m lib.cicd container
 ```
 
 3. **Review output** with the user. Show what will be generated.
@@ -32,7 +32,7 @@ PYTHONPATH="$PWD/lib:$HOME/Projects/claude-power-pack/lib:$PYTHONPATH" python3 -
 5. **Write files** if approved:
 
 ```bash
-PYTHONPATH="$PWD/lib:$HOME/Projects/claude-power-pack/lib:$PYTHONPATH" python3 -m lib.cicd container --write
+PYTHONPATH="$PWD:$HOME/Projects/claude-power-pack:$PYTHONPATH" uv run --project "$HOME/Projects/claude-power-pack" python -m lib.cicd container --write
 ```
 
 6. **Report results**:

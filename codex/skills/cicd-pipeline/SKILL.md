@@ -33,13 +33,13 @@ When a manifest is present, the generated pipeline YAML should:
 2. **Detect framework** using `lib/cicd`:
 
 ```bash
-PYTHONPATH="$PWD/lib:$HOME/Projects/claude-power-pack/lib:$PYTHONPATH" python3 -m lib.cicd detect --quiet
+PYTHONPATH="$PWD:$HOME/Projects/claude-power-pack:$PYTHONPATH" uv run --project "$HOME/Projects/claude-power-pack" python -m lib.cicd detect --quiet
 ```
 
 3. **Generate pipeline** (dry run first):
 
 ```bash
-PYTHONPATH="$PWD/lib:$HOME/Projects/claude-power-pack/lib:$PYTHONPATH" python3 -m lib.cicd pipeline
+PYTHONPATH="$PWD:$HOME/Projects/claude-power-pack:$PYTHONPATH" uv run --project "$HOME/Projects/claude-power-pack" python -m lib.cicd pipeline
 ```
 
 4. **Review output** with the user. Show the generated workflow YAML.
@@ -50,7 +50,7 @@ PYTHONPATH="$PWD/lib:$HOME/Projects/claude-power-pack/lib:$PYTHONPATH" python3 -
 6. **Write files** if approved:
 
 ```bash
-PYTHONPATH="$PWD/lib:$HOME/Projects/claude-power-pack/lib:$PYTHONPATH" python3 -m lib.cicd pipeline --write
+PYTHONPATH="$PWD:$HOME/Projects/claude-power-pack:$PYTHONPATH" uv run --project "$HOME/Projects/claude-power-pack" python -m lib.cicd pipeline --write
 ```
 
 7. **Report results**:

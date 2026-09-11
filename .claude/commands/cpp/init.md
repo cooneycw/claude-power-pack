@@ -1060,7 +1060,7 @@ echo "Then verify with: /browser:session pool"
 ```bash
 # Detect framework
 echo "Detecting project framework..."
-DETECT_JSON=$(PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -m lib.cicd detect --json 2>/dev/null || echo "{}")
+DETECT_JSON=$(PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd detect --json 2>/dev/null || echo "{}")
 FRAMEWORK=$(echo "$DETECT_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('framework','unknown'))" 2>/dev/null || echo "unknown")
 PKG_MGR=$(echo "$DETECT_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('package_manager','unknown'))" 2>/dev/null || echo "unknown")
 echo "Detected: $FRAMEWORK ($PKG_MGR)"
@@ -1074,7 +1074,7 @@ if [ ! -f "Makefile" ]; then
   echo "No Makefile found. Generate one from the detected framework template?"
   # Use AskUserQuestion to confirm
   # If yes:
-  PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -m lib.cicd detect --generate-makefile
+  PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd detect --generate-makefile
   echo "✓ Makefile generated"
 else
   echo "→ Makefile already exists"
@@ -1088,7 +1088,7 @@ If Makefile exists, run a quick check:
 if [ -f "Makefile" ]; then
   echo ""
   echo "Validating Makefile..."
-  PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -m lib.cicd check --summary 2>/dev/null || echo "  (validation skipped)"
+  PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd check --summary 2>/dev/null || echo "  (validation skipped)"
 fi
 ```
 
@@ -1162,7 +1162,7 @@ Generate CI pipeline? [y/N]
 If yes:
 
 ```bash
-PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -m lib.cicd pipeline --write 2>/dev/null
+PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd pipeline --write 2>/dev/null
 if [ -f ".github/workflows/ci.yml" ]; then
   echo "✓ .github/workflows/ci.yml generated"
 else
@@ -1187,7 +1187,7 @@ Generate container files? [y/N]
 If yes:
 
 ```bash
-PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -m lib.cicd container --write 2>/dev/null
+PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd container --write 2>/dev/null
 echo "✓ Container files generated"
 ```
 

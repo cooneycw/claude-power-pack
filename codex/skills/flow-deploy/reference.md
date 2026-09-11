@@ -155,7 +155,7 @@ for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-p
 done
 
 if [ -n "$CPP_DIR" ]; then
-    PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -m lib.cicd run --plan deploy
+    PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd run --plan deploy
     RUNNER_EXIT=$?
 fi
 ```
@@ -169,7 +169,7 @@ fi
 Run security scan before deploying:
 
 ```bash
-PYTHONPATH="${HOME}/Projects/claude-power-pack/lib" python3 -m lib.security gate flow_deploy
+PYTHONPATH="${HOME}/Projects/claude-power-pack" uv run --project "${HOME}/Projects/claude-power-pack" python -m lib.security gate flow_deploy
 ```
 
 - If the gate **fails** (critical or high findings): **stop and report**. Show findings.
@@ -253,14 +253,14 @@ If `CPP_DIR` is found and `.claude/cicd.yml` exists:
 2. **Run health checks:**
    ```bash
    echo "Running post-deploy health checks..."
-   PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -m lib.cicd health --summary
+   PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd health --summary
    HEALTH_EXIT=$?
    ```
 
 3. **Run smoke tests:**
    ```bash
    echo "Running post-deploy smoke tests..."
-   PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -m lib.cicd smoke --summary
+   PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd smoke --summary
    SMOKE_EXIT=$?
    ```
 

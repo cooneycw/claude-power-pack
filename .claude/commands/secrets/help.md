@@ -25,8 +25,8 @@ Tiered Architecture:
   Tier 2: AWS Secrets Manager (requires boto3 + AWS credentials)
 
 CLI Usage:
-  PYTHONPATH="$HOME/Projects/claude-power-pack/lib:$PYTHONPATH"
-  python3 -m lib.creds <command> [options]
+  PYTHONPATH="$HOME/Projects/claude-power-pack:$PYTHONPATH"
+  uv run --project "$HOME/Projects/claude-power-pack" python -m lib.creds <command> [options]
 
 Configuration:
   Project-level: .claude/secrets.yml

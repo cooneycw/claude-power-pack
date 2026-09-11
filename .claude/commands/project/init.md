@@ -336,7 +336,7 @@ if [ -z "$CPP_DIR" ]; then
 else
     # Generate Makefile from detected framework
     if [ ! -f "Makefile" ]; then
-        PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -c "
+        PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -c "
 from lib.cicd.makefile import generate_makefile
 content = generate_makefile('.')
 print(content)

@@ -57,7 +57,7 @@ If `.claude/cicd.yml` exists but has no `health:` section, the CLI will report "
 ## Step 3: Run Health Checks
 
 ```bash
-PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -m lib.cicd health
+PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd health
 ```
 
 ---

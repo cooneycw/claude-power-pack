@@ -56,5 +56,5 @@ Connection String: postgresql://developer:****@localhost:5432/myapp_dev
 ## Run Command
 
 ```bash
-PYTHONPATH="${HOME}/Projects/claude-power-pack/lib" python -m lib.creds get "$@"
+PYTHONPATH="${HOME}/Projects/claude-power-pack" uv run --project "${HOME}/Projects/claude-power-pack" python -m lib.creds get "$@"
 ```
