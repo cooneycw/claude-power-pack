@@ -598,7 +598,7 @@ def _widened_checker(tmp_path: Path, binaries: frozenset[str]):
 
 def _ps_uses_in_mailbox_script(widened) -> list:
     text = MAILBOX_SCRIPT.read_text(encoding="utf-8")
-    source = widened.SHELL_COMMENT_RE.sub("", text)
+    source = widened._mask_noncode(text)
     lines = source.splitlines()
     return [use for use in widened._script_uses(source, lines) if use.binary == "ps"]
 
@@ -697,13 +697,203 @@ def test_real_bare_command_substitutions_in_tree_still_count(tmp_path: Path) -> 
     hook_mask = ROOT / "scripts" / "hook-mask-output.sh"
     text = hook_mask.read_text(encoding="utf-8")
     assert "INPUT=$(cat)" in text  # precondition
-    source = widened.SHELL_COMMENT_RE.sub("", text)
+    source = widened._mask_noncode(text)
     uses = [u for u in widened._script_uses(source, source.splitlines()) if u.binary == "cat"]
     assert len(uses) >= 1, "a real bare $(cat) must still be detected"
 
     bash_prep = ROOT / "scripts" / "bash-prep.sh"
     text = bash_prep.read_text(encoding="utf-8")
     assert 'warn "bash-prep is designed for Linux. Detected: $(uname)"' in text  # precondition
-    source = widened.SHELL_COMMENT_RE.sub("", text)
+    source = widened._mask_noncode(text)
     uses = [u for u in widened._script_uses(source, source.splitlines()) if u.binary == "uname"]
     assert len(uses) >= 1, "a real bare $(uname) must still be detected"
+
+
+# --------------------------------------------------------------------------- #
+# Issue #838: an assignment (rev=0), an arithmetic expansion (rev=$((rev+1))),
+# and text inside a quoted string ("fail (timeout: ...)", an AWK program
+# embedded in `awk '...'`) are all read as command invocations for the same
+# underlying reason CASE_LABEL_RE exists - each SITS AT the shape
+# SHELL_BINARY_RE treats as command position without being one. Quoting and
+# arithmetic both require STATE (is the current position inside such a
+# region), unlike a case label or an assignment, which are answered by what
+# is immediately adjacent to the match - see _mask_noncode's own header
+# comment for why that distinction decided the fix's shape (a state-tracking
+# pass for the two stateful mechanisms, a narrow positional regex,
+# ASSIGNMENT_RE, for the one that is not).
+# --------------------------------------------------------------------------- #
+
+WAVE_MAILBOX = ROOT / "scripts" / "flow-wave-mailbox.sh"
+FINISH_GATE = ROOT / "scripts" / "flow-finish-gate.sh"
+
+
+def _rev_uses(widened, source: str) -> list:
+    """`_script_uses` on already-masked source - the same order production
+    code always runs them in (`binaries_in_script` masks before scanning)."""
+    masked = widened._mask_noncode(source)
+    return [u for u in widened._script_uses(masked, masked.splitlines()) if u.binary == "rev"]
+
+
+def test_a_bash_assignment_is_not_read_as_an_invocation(tmp_path: Path) -> None:
+    """`rev=0` and `rev="$(...)"` are assignment TARGETS, not invocations -
+    the minimal constructed shapes, isolating the mechanism before the real
+    in-tree test below pins it against actual code."""
+    widened = _widened_checker(tmp_path, frozenset({"git", "docker", "gitleaks", "jq", "rev"}))
+    source = 'rev=0\nrev="$(some_helper)"\n'
+    assert _rev_uses(widened, source) == []
+
+
+def test_the_real_assignment_sites_in_tree_are_not_uses(tmp_path: Path) -> None:
+    """The real bash assignments cited in issue #838:
+    `flow-wave-mailbox.sh:1381,1383,1393` - `rev=0`, `rev="$(awk ...)"`, and
+    `rev=$((rev + 1))` (the last one is ALSO the arithmetic-expansion
+    mechanism below; fixing only the assignment-target half of that line is
+    not enough on its own, which the end-to-end oracle further down proves)."""
+    text = WAVE_MAILBOX.read_text(encoding="utf-8")
+    assert "        rev=0\n" in text  # precondition: :1381
+    assert '          rev="$(awk \'\n' in text  # precondition: :1383
+    assert "        rev=$((rev + 1))\n" in text  # precondition: :1393
+
+    widened = _widened_checker(tmp_path, frozenset({"git", "docker", "gitleaks", "jq", "rev"}))
+    uses = _rev_uses(widened, text)
+    assert uses == [], f"expected no assignment target read as a use, got {uses}"
+
+
+def test_an_arithmetic_expansion_identifier_is_not_read_as_an_invocation(
+    tmp_path: Path,
+) -> None:
+    """A bare identifier inside `$(( ... ))` is a variable reference, not a
+    command - `$((rev + 1))`'s second `(` satisfies SHELL_BINARY_RE's bare
+    `(` separator the same way a real subshell opener would."""
+    widened = _widened_checker(tmp_path, frozenset({"git", "docker", "gitleaks", "jq", "rev"}))
+    source = "rev=$((rev + 1))\n"
+    assert _rev_uses(widened, source) == []
+
+
+def test_arithmetic_expansion_nesting_is_not_read_as_an_invocation(tmp_path: Path) -> None:
+    """Every `(` inside `$(( ... ))` is arithmetic grouping, at ANY nesting
+    depth - not only the outermost one. A fix that only recognises the
+    literal two-character `$((` sequence (e.g. "is the char two back `$(`")
+    would stop working the moment the expression groups a sub-term, which is
+    exactly why this needs paren-depth TRACKING inside the region rather
+    than a fixed-width lookbehind at its entrance."""
+    widened = _widened_checker(tmp_path, frozenset({"git", "docker", "gitleaks", "jq", "rev"}))
+    source = "x=$(( (rev) + 1 ))\n"
+    assert _rev_uses(widened, source) == []
+
+
+def test_text_inside_a_double_quoted_string_is_not_read_as_an_invocation(
+    tmp_path: Path,
+) -> None:
+    """The real site: `verdict "fail (timeout: ...)"` at
+    `flow-finish-gate.sh:306` - the `(` inside the string satisfies
+    SHELL_BINARY_RE's separator class the same way a real subshell opener
+    would, even though it is plain text data, never executed."""
+    text = FINISH_GATE.read_text(encoding="utf-8")
+    assert 'verdict "fail (timeout: $TIMED_OUT_STEP after' in text  # precondition
+
+    widened = _widened_checker(
+        tmp_path, frozenset({"git", "docker", "gitleaks", "jq", "timeout"})
+    )
+    source = widened._mask_noncode(text)
+    uses = [u for u in widened._script_uses(source, source.splitlines()) if u.binary == "timeout"]
+    assert uses == [], f"expected the quoted text to produce no use, got {uses}"
+
+
+def test_text_inside_a_single_quoted_string_is_not_read_as_an_invocation(
+    tmp_path: Path,
+) -> None:
+    """The real site: an AWK program's own `rev = 0` embedded in
+    `awk '...'` at `flow-wave-mailbox.sh:634` (and 729, 900, identically) -
+    AWK assignment syntax that is not bash at all, sitting inside a
+    single-quoted shell string the checker previously had no way to tell
+    from real command-position code."""
+    text = WAVE_MAILBOX.read_text(encoding="utf-8")
+    assert "      rev = 0\n" in text  # precondition: the awk-embedded shape
+
+    widened = _widened_checker(tmp_path, frozenset({"git", "docker", "gitleaks", "jq", "rev"}))
+    # None of the awk-body sites (634, 729, 900) may surface as a use.
+    uses = _rev_uses(widened, text)
+    assert uses == [], f"expected the awk-embedded text to produce no use, got {uses}"
+
+
+def test_a_live_command_substitution_inside_a_double_quoted_string_still_counts(
+    tmp_path: Path,
+) -> None:
+    """The undercount direction, for quoting: a double-quoted string MAY
+    contain a real, executed command substitution - `"...$(git status)..."` -
+    and that must stay detected even though it is textually inside quotes,
+    because it still runs regardless of what encloses it."""
+    widened = _widened_checker(tmp_path, frozenset({"git", "docker", "gitleaks", "jq"}))
+    source = 'echo "state is $(git status --short)"\n'
+    source = widened._mask_noncode(source)
+    uses = [u for u in widened._script_uses(source, source.splitlines()) if u.binary == "git"]
+    assert len(uses) == 1, "a live $(...) nested in a double-quoted string must still count"
+
+
+def test_a_live_command_substitution_inside_arithmetic_still_counts(tmp_path: Path) -> None:
+    """The undercount direction, for arithmetic: `$(( ... ))` MAY itself
+    contain a real command substitution - `$(( $(count_git) + 1 ))` - which
+    must stay detected even though it sits inside an otherwise-masked
+    arithmetic region."""
+    widened = _widened_checker(tmp_path, frozenset({"git", "docker", "gitleaks", "jq"}))
+    source = "n=$(( $(git rev-list --count HEAD) + 1 ))\n"
+    source = widened._mask_noncode(source)
+    uses = [u for u in widened._script_uses(source, source.splitlines()) if u.binary == "git"]
+    assert len(uses) == 1, "a live $(...) nested in arithmetic must still count"
+
+
+def test_comment_and_quote_ordering_do_not_misread_each_other(tmp_path: Path) -> None:
+    """Comments and quoting are resolved TOGETHER, not as two independent
+    passes (see `_mask_noncode`'s own header comment): an apostrophe inside a
+    `#` comment must not be read as opening a single-quoted string (which
+    would swallow everything up to the NEXT apostrophe anywhere later in the
+    file - exactly the regression caught while building this fix, against
+    this repo's own scripts), and a `#` inside a real quoted string must not
+    truncate the real code that follows it on the same line."""
+    widened = _widened_checker(tmp_path, frozenset({"git", "docker", "gitleaks", "jq"}))
+
+    # An apostrophe in a comment must not open a fake single-quoted region
+    # that then swallows the real `git` invocation several lines later.
+    source = "# the orchestrator's state\necho ok\ngit status\n"
+    masked = widened._mask_noncode(source)
+    uses = [u for u in widened._script_uses(masked, masked.splitlines()) if u.binary == "git"]
+    assert len(uses) == 1, "an apostrophe in a comment swallowed real code after it"
+
+    # A `#` inside a real double-quoted string must not start a comment that
+    # eats the `git status` which follows on the same line.
+    source = 'echo "value # not a comment" && git status\n'
+    masked = widened._mask_noncode(source)
+    uses = [u for u in widened._script_uses(masked, masked.splitlines()) if u.binary == "git"]
+    assert len(uses) == 1, "a `#` inside a quoted string ate real code after it"
+
+
+def test_rev_widening_reaches_zero_findings(tmp_path: Path) -> None:
+    """The end-to-end oracle issue #838 measured: widening `GUARDED_BINARIES`
+    to `rev` produced 234 findings before this fix, all traced to the six
+    sites above. After it, none of the six real sites are uses, and no
+    OTHER script in the tree needs `rev` either, so the tree-wide finding
+    count must be exactly zero - not merely "the six sites are excluded",
+    which a narrower assertion could satisfy while missing a seventh."""
+    widened = _widened_checker(tmp_path, frozenset({"git", "docker", "gitleaks", "jq", "rev"}))
+    findings = widened.check_tree(ROOT / "tests")
+    assert findings == [], f"expected zero findings widening to rev, got {findings}"
+
+
+def test_timeout_widening_reaches_exactly_the_one_genuine_finding(tmp_path: Path) -> None:
+    """The other half of #838's oracle: widening to `timeout` produced 42
+    findings before this fix. 41 are the SAME quoted-text false positive
+    (`flow-finish-gate.sh:306`, transitively reaching every test that runs
+    the gate via the script hop) - those must all be gone. The 42nd is a
+    genuine, correct finding: `test_a_real_forced_timeout_reaches_the_helper_as_124`
+    in `tests/test_delegated_run_check.py` shells out to the real `timeout`
+    binary directly, with no guard, and is not a false positive of any
+    mechanism this issue is about - it must NOT also disappear, which would
+    be the undercount direction this whole issue is about avoiding."""
+    widened = _widened_checker(
+        tmp_path, frozenset({"git", "docker", "gitleaks", "jq", "timeout"})
+    )
+    findings = widened.check_tree(ROOT / "tests")
+    assert len(findings) == 1, f"expected exactly the one genuine finding, got {findings}"
+    assert findings[0].test == "test_a_real_forced_timeout_reaches_the_helper_as_124"
+    assert findings[0].via_scripts == (), "the genuine finding is a direct call, not via a script"

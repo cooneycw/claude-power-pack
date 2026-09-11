@@ -154,10 +154,6 @@ SHELL_STDIN_FLAGS = frozenset({"-c", "-s"})
 
 ALLOW_RE = re.compile(r"#\s*binary-guard:\s*allow\b")
 
-#: A ``#`` comment: at line start, or preceded by whitespace. ``$#`` and ``s/#//``
-#: keep their ``#`` because neither is preceded by whitespace.
-SHELL_COMMENT_RE = re.compile(r"(?:^|(?<=\s))#.*$", re.MULTILINE)
-
 #: A guarded binary at COMMAND POSITION inside a shell script: line start, or
 #: after a separator that begins a new command. This is what keeps ``gh --jq``,
 #: ``"jq"`` inside a string list, ``$GIT_DIR`` and ``.git/config`` from matching.
@@ -216,6 +212,225 @@ STDERR_SILENCED_RE = re.compile(r"2>\s*/dev/null|2>&-|&>\s*/dev/null|>&\s*/dev/n
 CASE_LABEL_RE = re.compile(
     r"^[ \t]*(?P<labels>[\w./*?+-]+(?:[ \t]*\|[ \t]*[\w./*?+-]+)*)\)"
 )
+
+#: A guarded name immediately followed by ``=`` (and not ``==``) is a bash
+#: variable ASSIGNMENT target - ``rev=0``, ``rev="$(...)"`` - not an
+#: invocation (issue #838). The assignment sits at exactly the same
+#: command-position shape a real command's name would, which is why
+#: SHELL_BINARY_RE matches it at all. Unlike the #833 naive fix (rejecting a
+#: match followed by ``)``, which was wrong because ``ps)`` and ``$(ps)`` are
+#: textually identical), THIS shape has no such ambiguity: ``word=`` glued
+#: together with no separator between them is unconditional bash assignment
+#: grammar - it is never how a real command's own first argument attaches,
+#: because SHELL_BINARY_RE already requires at least the separator/anchor
+#: that precedes ``bin`` to open a new word, and nothing a real invocation
+#: does puts ``=`` directly against its own name. ``==`` is excluded so a
+#: (structurally unreachable here, but cheap to rule out) ``[[ rev == x ]]``
+#: shape is never misread as an assignment.
+ASSIGNMENT_RE = re.compile(r"=(?!=)")
+
+#: The other two constructs #838 found sitting in "looks like command
+#: position" without being one - and, discovered while verifying them, a
+#: fourth mechanism neither #838's own title nor issue named:
+#:
+#: - a single- or double-quoted STRING LITERAL's own text (``"fail (timeout:
+#:   ...)"`` at ``flow-finish-gate.sh:306``; an AWK program's ``rev = 0``
+#:   embedded in ``awk '...'`` at ``flow-wave-mailbox.sh:634,729,900`` - the
+#:   name is not code at all there, it is DATA the shell never interprets).
+#: - an ARITHMETIC EXPANSION, ``$(( ... ))`` (``rev=$((rev + 1))`` at
+#:   ``flow-wave-mailbox.sh:1393``) - a bare identifier inside one is a
+#:   variable reference, and every ``(`` inside it is arithmetic grouping,
+#:   never a subshell/command-list opener, AT ANY NESTING DEPTH - so a fix
+#:   that only recognises the outermost ``$((`` (e.g. "is the char two back
+#:   literally ``$(``") stops working the moment the expression nests a
+#:   group: ``$(( (rev) + 1 ))``.
+#:
+#: Both require knowing whether the CURRENT position sits inside such a
+#: region, and that is not decidable from a fixed-width window the way a case
+#: label or ``ASSIGNMENT_RE`` is (both are answered by what is immediately
+#: adjacent to the match) - it depends on everything since the region opened,
+#: possibly many characters or lines earlier. That is a genuinely different
+#: kind of check, which is why it is a small STATE-TRACKING PASS -
+#: ``_mask_noncode`` - applied to the whole source before any of the regexes
+#: above ever run, rather than a fifth positional discriminator context could
+#: not resolve. It is deliberately the minimum "knows about quoting and
+#: arithmetic" step short of a full shell tokenizer: no command boundaries, no
+#: redirection, no glob expansion, and explicitly no here-doc awareness (a
+#: known, separate, unaddressed gap - a here-doc body is not masked).
+#:
+#: A quoted string or an arithmetic expansion MAY itself contain a LIVE
+#: command substitution (``"...$(git status)..."``, ``$(( $(count) + 1 ))``)
+#: - that inner text is real, executed code regardless of what encloses it,
+#: so it is carved out and scanned normally rather than masked, recursively:
+#: it can itself contain further quotes or arithmetic, handled the same way.
+#:
+#: ``#`` comments are handled in this SAME pass rather than by the separate
+#: ``SHELL_COMMENT_RE.sub()`` this replaces, and the ordering is not
+#: incidental - the two questions are mutually dependent. A ``#`` inside a
+#: real quote is not a comment (``"fail #1"``), so comment detection needs to
+#: know the quote state first; an apostrophe inside a `#` comment is not a
+#: real quote open (this docstring's own "caller's" would misfire), so quote
+#: detection needs to know the comment state first. Running them as two
+#: independent passes in either order gets one of those two wrong - the
+#: second attempt at this function (running comment-stripping first, quoting
+#: second) is exactly what caught it: "the orchestrator's side" in this
+#: script's own comments read the apostrophe as opening a single-quoted
+#: string that would not close until the NEXT apostrophe anywhere later in
+#: the file, corrupting everything in between. `make verify`'s own 2753-test
+#: run against this repo's own scripts is what surfaced it.
+def _mask_noncode(source: str) -> str:
+    """Blank the LITERAL content of shell comments, quoting, and arithmetic
+    expansion, preserving length and newlines so every caller's line/column
+    arithmetic stays correct, while leaving live code - nested command
+    substitutions - unmasked. See the module-level comment above for why
+    this needs to be one state-tracking pass rather than a positional regex,
+    and why comments and quoting cannot be two independent passes.
+    """
+    out = list(source)
+    n = len(source)
+
+    def blank(start: int, end: int) -> None:
+        for k in range(start, end):
+            if out[k] != "\n":
+                out[k] = " "
+
+    # Stack frames, innermost last:
+    #   ("D",)              double-quoted string: masking ON
+    #   ("A", paren_depth)  $(( ... )): masking ON; tracks nested (
+    #   ("S", closer, depth) a $(...)/`...` substitution carved out of a D or
+    #                        A frame above (or, with an empty stack beneath
+    #                        it, one reached from true top level): masking
+    #                        OFF; depth tracks nested unquoted ( for a ")"
+    #                        -closed substitution (irrelevant for "`")
+    # An empty stack is true top level: masking OFF, nothing to close.
+    stack: list[tuple] = []
+    i = 0
+    while i < n:
+        ch = source[i]
+        top = stack[-1] if stack else None
+        masking = top is not None and top[0] in ("D", "A")
+
+        # A backslash escapes exactly the next character in every state
+        # reached here (single-quoted and $'...' text are handled in their
+        # own self-contained scans below and never reach this branch).
+        if ch == "\\" and i + 1 < n:
+            if masking:
+                blank(i, i + 2)
+            i += 2
+            continue
+
+        if top is not None and top[0] == "D":
+            if ch == '"':
+                stack.pop()
+                i += 1
+                continue
+            if ch == "$" and source[i + 1 : i + 2] == "(":
+                if source[i + 2 : i + 3] == "(":
+                    stack.append(("A", 0))
+                    i += 3
+                else:
+                    stack.append(("S", ")", 0))
+                    i += 2
+                continue
+            if ch == "`":
+                stack.append(("S", "`", 0))
+                i += 1
+                continue
+            blank(i, i + 1)
+            i += 1
+            continue
+
+        if top is not None and top[0] == "A":
+            depth = top[1]
+            if ch == "(":
+                stack[-1] = ("A", depth + 1)
+                i += 1
+                continue
+            if ch == ")":
+                if depth > 0:
+                    stack[-1] = ("A", depth - 1)
+                    i += 1
+                    continue
+                # depth == 0: this is the arithmetic region's own closing
+                # "))" (or a single stray ")" for malformed/incomplete input -
+                # pop rather than loop forever on text that cannot close).
+                stack.pop()
+                i += 2 if source[i + 1 : i + 2] == ")" else 1
+                continue
+            if ch == "$" and source[i + 1 : i + 2] == "(":
+                stack.append(("S", ")", 0))
+                i += 2
+                continue
+            if ch == "`":
+                stack.append(("S", "`", 0))
+                i += 1
+                continue
+            blank(i, i + 1)
+            i += 1
+            continue
+
+        # Not masking: true top level, or inside an "S" substitution frame -
+        # both scan live CODE the same way; an "S" frame additionally watches
+        # for its own closer so it can pop back to the D/A frame it carved a
+        # hole in (or, from true top level, simply keeps going).
+        if top is not None and top[0] == "S":
+            closer, depth = top[1], top[2]
+            if closer == ")" and ch == "(":
+                stack[-1] = ("S", closer, depth + 1)
+                i += 1
+                continue
+            if closer == ")" and ch == ")":
+                if depth > 0:
+                    stack[-1] = ("S", closer, depth - 1)
+                else:
+                    stack.pop()
+                i += 1
+                continue
+            if closer == "`" and ch == "`":
+                stack.pop()
+                i += 1
+                continue
+
+        # A `#` at line start, or preceded by whitespace, starts a comment
+        # that runs to end of line - the same rule SHELL_COMMENT_RE used, so
+        # `$#` and `s/#//` still keep their `#`.
+        if ch == "#" and (i == 0 or source[i - 1] in " \t\n"):
+            end = source.find("\n", i)
+            end = end if end != -1 else n
+            blank(i, end)
+            i = end
+            continue
+
+        if ch == "'":
+            j = source.find("'", i + 1)
+            end = j + 1 if j != -1 else n
+            blank(i, end)
+            i = end
+            continue
+        if ch == "$" and source[i + 1 : i + 2] == "'":
+            j = i + 2
+            while j < n:
+                if source[j] == "\\" and j + 1 < n:
+                    j += 2
+                    continue
+                if source[j] == "'":
+                    j += 1
+                    break
+                j += 1
+            blank(i, j)
+            i = j
+            continue
+        if ch == '"':
+            stack.append(("D",))
+            i += 1
+            continue
+        if ch == "$" and source[i + 1 : i + 2] == "(" and source[i + 2 : i + 3] == "(":
+            stack.append(("A", 0))
+            i += 3
+            continue
+        i += 1
+
+    return "".join(out)
 
 #: Scanned shell scripts, keyed by (path, mtime, size) so an edited script is
 #: re-read rather than served stale within one process.
@@ -403,6 +618,8 @@ def _script_uses(source: str, lines: list[str]) -> list[_ScriptUse]:
         col = match.start("bin") - line_start
         if _is_case_label(line, col, len(match.group("bin"))):
             continue  # a case ARM, not an invocation (#833)
+        if ASSIGNMENT_RE.match(source, match.end("bin")):
+            continue  # `rev=0` / `rev="$(...)"` - an assignment target (#838)
         command, indent = _logical_command(lines, index)
         failsoft = bool(
             match.group("bang")
@@ -434,7 +651,10 @@ def binaries_in_script(path: Path) -> frozenset[str]:
         text = path.read_text(encoding="utf-8", errors="replace")
     except OSError:  # pragma: no cover - defensive
         return frozenset()
-    source = SHELL_COMMENT_RE.sub("", text)
+    # Comments and quoting are resolved together, not as two passes - see
+    # _mask_noncode's own header comment for why running SHELL_COMMENT_RE
+    # before or after quote-masking each get a real case wrong.
+    source = _mask_noncode(text)
     lines = source.splitlines()
     degrades, scoped = _preflight_declarations(lines)
     required = {
