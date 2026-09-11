@@ -59,8 +59,8 @@ provider.put_bundle(update, mode="merge")
 Run commands with secrets as environment variables (never in CLI args):
 
 ```bash
-python -m lib.creds run -- make deploy
-python -m lib.creds run -- ansible-playbook deploy.yaml
+PYTHONPATH="$HOME/Projects/claude-power-pack" uv run --project "$HOME/Projects/claude-power-pack" python -m lib.creds run -- make deploy
+PYTHONPATH="$HOME/Projects/claude-power-pack" uv run --project "$HOME/Projects/claude-power-pack" python -m lib.creds run -- ansible-playbook deploy.yaml
 ```
 
 ## Usage Patterns
@@ -98,8 +98,7 @@ safe = mask_output("password=secret123")  # "password=****"
 ## CLI Usage
 
 ```bash
-PYTHONPATH="$HOME/Projects/claude-power-pack:$PYTHONPATH"
-uv run --project "$HOME/Projects/claude-power-pack" python -m lib.creds <command> [options]
+PYTHONPATH="$HOME/Projects/claude-power-pack:$PYTHONPATH" uv run --project "$HOME/Projects/claude-power-pack" python -m lib.creds <command> [options]
 ```
 
 ## Best Practices

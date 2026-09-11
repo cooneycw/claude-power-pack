@@ -7,6 +7,25 @@ allowed-tools: Bash(PYTHONPATH=*), Bash(python3:*), Bash(ls:*), Read, AskUserQue
 
 Generate separate CI/CD pipelines for each infrastructure tier with appropriate approval gates.
 
+## Step 1: Locate CPP Source
+
+```bash
+CPP_DIR=""
+for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-pack; do
+  if [ -d "$dir" ] && [ -f "$dir/CLAUDE.md" ]; then
+    CPP_DIR="$dir"
+    break
+  fi
+done
+
+if [ -z "$CPP_DIR" ]; then
+  echo "ERROR: claude-power-pack not found"
+  exit 1
+fi
+```
+
+---
+
 ## Instructions
 
 1. **Read configuration** from `.claude/cicd.yml` infrastructure section.

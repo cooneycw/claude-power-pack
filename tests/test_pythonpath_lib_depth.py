@@ -24,6 +24,46 @@ silently returns no files) passes every real-file assertion below for a
 reason that has nothing to do with the code being correct, and that failure
 mode looks identical to success. Proving each detector CAN fire, on a fixture
 held in this file, is what makes a later false negative unlikely to hide.
+
+## What DEPTH_DEFECT and BARE_INTERPRETER cannot see (issue #819)
+
+Both anchor on a `PYTHONPATH="..."` token. A `-m lib.<pkg>` invocation with
+no `PYTHONPATH=` anywhere in the file to inherit from - `.claude/skills/
+secrets/SKILL.md`'s old `## Secret Injection` examples were exactly this -
+is structurally invisible to them: not a gap in the regex, a gap in what the
+regex is anchored to. UNGUARDED_LIB_INVOCATION below is a deliberately
+separate assertion for that shape, not a widened DEPTH_DEFECT/BARE_INTERPRETER
+- folding it into either would make both harder to reason about and would be
+exactly how the next silent pass gets built. A detector that knows what it
+cannot see is worth more than one that appears to see everything.
+
+## What all three of the above cannot see, and BARE_ASSIGNMENT_THEN_INVOKE
+
+#816's fix shipped three sites where the `PYTHONPATH=` assignment and the
+`uv run`/`python` invocation that depends on it are on separate lines
+(`self-improvement/deployment.md`, both `SKILL.md` "CLI Usage" blocks). A
+bare `PYTHONPATH="..."` assignment - no `export`, nothing else on the line -
+sets a local shell variable, not an exported one, so the child process
+`uv run` spawns on the following line never sees it: `ModuleNotFoundError`
+for anyone who does not already have `PYTHONPATH` exported from elsewhere.
+Assignment and invocation on separate lines is what made these three
+invisible to a same-line regex, and it is what makes them fail - one
+structural property, two consequences. DEPTH_DEFECT, BARE_INTERPRETER, and
+UNGUARDED_LIB_INVOCATION all inspect one line at a time and are blind to
+this shape by construction; BARE_ASSIGNMENT_THEN_INVOKE is the one detector
+here that reasons about the relationship between two lines instead.
+
+## The limit every detector in this file shares
+
+For an invocation, the only sufficient verification is an execution. A
+detector proves a line has the right *shape*; nothing but running it proves
+it *works* - `uv run --project DIR python -m lib.X` looks identical whether
+or not `PYTHONPATH` reaches the child process, and UNGUARDED_LIB_INVOCATION
+cannot tell those two apart by construction (issue #819's original fix
+proposal passed it and still failed at runtime). These tests are a fast,
+git-independent floor against known-bad *shapes* recurring, not a substitute
+for exercising a corrected invocation from a fresh directory outside the CPP
+root with PYTHONPATH unset.
 """
 
 from __future__ import annotations
@@ -50,6 +90,28 @@ DEPTH_DEFECT = re.compile(r'PYTHONPATH="[^"]*/lib(?=[:"])')
 # `PYTHONPATH="..."` token the way every real #816 site does.
 BARE_INTERPRETER = re.compile(r'PYTHONPATH="[^"]*"\s+python3?\s+-m\s+lib\.')
 
+# A `-m lib.<pkg>` invocation reached through a bare interpreter with no
+# `uv run` anywhere on the line - the #819 defect, unanchored to any
+# PYTHONPATH token (there may be none at all). Restricted to lines inside a
+# fenced ```bash/```sh/```shell/``` code block, and excludes bash comment
+# lines (`#...`), because the unqualified pattern also matches: prose that
+# quotes an invocation in backticks (`cicd/init.md`'s "Run `python3 -m
+# lib.cicd check`..."), and comments that reference the pattern while
+# explaining it (`flow/auto.md`, `flow/deploy.md`). None of those are actual
+# invocations, and #819 is explicit that widening scope here has to be
+# reasoned about on its own terms rather than assumed safe.
+UNGUARDED_LIB_INVOCATION = re.compile(r'\bpython3?\s+-m\s+lib\.')
+_FENCE = re.compile(r'^\s*```(\w*)')
+_BASH_LANGS = ("bash", "sh", "shell", "")
+
+# A PYTHONPATH assignment that is bare - no `export`, nothing else on the
+# line - immediately followed by a line that invokes `uv run` or a bare
+# `python`/`python3`. See "What all three of the above cannot see" above:
+# this is the one detector here that inspects a *pair* of lines rather than
+# one, because the defect is a relationship, not a token.
+BARE_ASSIGNMENT_THEN_INVOKE = re.compile(r'^PYTHONPATH="[^"]*"\s*$')
+_INVOKES_ON_NEXT_LINE = re.compile(r'^\s*(uv run\b|python3?\s)')
+
 
 def _markdown_files() -> list[Path]:
     files: list[Path] = []
@@ -58,8 +120,40 @@ def _markdown_files() -> list[Path]:
     return files
 
 
+def _unguarded_lib_invocations(text: str) -> list[str]:
+    hits: list[str] = []
+    fence_open = False
+    fence_lang: str | None = None
+    for line in text.splitlines():
+        m = _FENCE.match(line)
+        if m:
+            if fence_open:
+                fence_open = False
+                fence_lang = None
+            else:
+                fence_open = True
+                fence_lang = m.group(1)
+            continue
+        if not (fence_open and fence_lang in _BASH_LANGS):
+            continue
+        if line.strip().startswith("#"):
+            continue
+        if UNGUARDED_LIB_INVOCATION.search(line) and "uv run" not in line:
+            hits.append(line)
+    return hits
+
+
+def _bare_assignment_then_invoke_pairs(text: str) -> list[tuple[str, str]]:
+    lines = text.splitlines()
+    hits: list[tuple[str, str]] = []
+    for i in range(len(lines) - 1):
+        if BARE_ASSIGNMENT_THEN_INVOKE.match(lines[i]) and _INVOKES_ON_NEXT_LINE.match(lines[i + 1]):
+            hits.append((lines[i], lines[i + 1]))
+    return hits
+
+
 def test_markdown_file_enumeration_is_non_empty():
-    """Guards the silent-pass failure mode of the two tests below: an rglob
+    """Guards the silent-pass failure mode of the tests below: an rglob
     that returns nothing (wrong base dir, wrong extension) would pass every
     per-file assertion for a reason that has nothing to do with correctness."""
     files = _markdown_files()
@@ -83,6 +177,49 @@ def test_interpreter_detector_can_fire():
     )
 
 
+def test_unguarded_detector_can_fire():
+    fixture = "```bash\npython3 -m lib.creds run -- make deploy\n```\n"
+    assert _unguarded_lib_invocations(fixture), (
+        "UNGUARDED_LIB_INVOCATION no longer matches the #819 shape it exists to catch"
+    )
+
+
+def test_unguarded_detector_ignores_prose_and_comments():
+    """The precision this detector needs, proven directly: without fence- and
+    comment-awareness it also matches a backtick-quoted reference in prose and
+    a bash comment explaining the defect - neither is an invocation."""
+    prose = "1. Run `python3 -m lib.cicd check` to validate against CPP standards\n"
+    comment_in_fence = "```bash\n# bare `python3 -m lib.cicd` uses the system interpreter\n```\n"
+    assert not _unguarded_lib_invocations(prose)
+    assert not _unguarded_lib_invocations(comment_in_fence)
+
+
+def test_bare_assignment_then_invoke_detector_can_fire():
+    fixture = (
+        'PYTHONPATH="$HOME/Projects/claude-power-pack:$PYTHONPATH"\n'
+        'uv run --project "$HOME/Projects/claude-power-pack" python -m lib.cicd check\n'
+    )
+    assert _bare_assignment_then_invoke_pairs(fixture), (
+        "BARE_ASSIGNMENT_THEN_INVOKE no longer matches the #819 export shape it exists to catch"
+    )
+
+
+def test_bare_assignment_then_invoke_detector_allows_export_and_single_line():
+    """Positive controls, matching the #819 review matrix's rows B and C:
+    both actually work at runtime (verified by execution, not just by this
+    detector), so both must pass here too."""
+    exported = (
+        'export PYTHONPATH="$HOME/Projects/claude-power-pack:$PYTHONPATH"\n'
+        'uv run --project "$HOME/Projects/claude-power-pack" python -m lib.cicd check\n'
+    )
+    single_line = (
+        'PYTHONPATH="$HOME/Projects/claude-power-pack:$PYTHONPATH" '
+        'uv run --project "$HOME/Projects/claude-power-pack" python -m lib.cicd check\n'
+    )
+    assert not _bare_assignment_then_invoke_pairs(exported)
+    assert not _bare_assignment_then_invoke_pairs(single_line)
+
+
 @pytest.mark.parametrize("path", _markdown_files(), ids=lambda p: str(p.relative_to(ROOT)))
 def test_no_pythonpath_points_at_lib_itself(path: Path):
     text = path.read_text(encoding="utf-8")
@@ -101,6 +238,28 @@ def test_no_bare_interpreter_invokes_lib(path: Path):
         f"{path.relative_to(ROOT)} invokes `-m lib.` through a bare python "
         f"interpreter instead of `uv run --project ... python` (issue #816): "
         f"{hits!r}"
+    )
+
+
+@pytest.mark.parametrize("path", _markdown_files(), ids=lambda p: str(p.relative_to(ROOT)))
+def test_no_unguarded_lib_invocation(path: Path):
+    text = path.read_text(encoding="utf-8")
+    hits = _unguarded_lib_invocations(text)
+    assert not hits, (
+        f"{path.relative_to(ROOT)} invokes `-m lib.` through a bare python "
+        f"interpreter with no `uv run` on the line at all (issue #819): {hits!r}"
+    )
+
+
+@pytest.mark.parametrize("path", _markdown_files(), ids=lambda p: str(p.relative_to(ROOT)))
+def test_no_bare_assignment_feeds_a_following_invocation(path: Path):
+    text = path.read_text(encoding="utf-8")
+    hits = _bare_assignment_then_invoke_pairs(text)
+    assert not hits, (
+        f"{path.relative_to(ROOT)} has a bare PYTHONPATH assignment whose "
+        f"value never reaches the invocation on the following line - it is a "
+        f"local shell variable, not an exported one, so the uv run/python "
+        f"child process does not see it (issue #819): {hits!r}"
     )
 
 

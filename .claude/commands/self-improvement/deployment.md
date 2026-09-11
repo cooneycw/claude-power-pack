@@ -82,8 +82,7 @@ Before analyzing the current session, check historical failure patterns:
 
 ```bash
 cd "$(git rev-parse --show-toplevel 2>/dev/null || echo .)"
-PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}$HOME/Projects/claude-power-pack"
-uv run --project "$HOME/Projects/claude-power-pack" python -c "
+PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}$HOME/Projects/claude-power-pack" uv run --project "$HOME/Projects/claude-power-pack" python -c "
 from pathlib import Path
 from lib.cicd.failure_patterns import analyze_failure_patterns
 report = analyze_failure_patterns(Path('.'))
