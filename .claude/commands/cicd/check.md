@@ -48,7 +48,7 @@ fi
 If `.claude/cicd.yml` exists, it overrides default required/recommended targets:
 
 ```bash
-PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -m lib.cicd check
+PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd check
 ```
 
 ---

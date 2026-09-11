@@ -36,7 +36,7 @@ Get a detailed explanation of a specific security finding type.
 ## Run Command
 
 ```bash
-PYTHONPATH="${HOME}/Projects/claude-power-pack/lib" python3 -m lib.security explain "$@"
+PYTHONPATH="${HOME}/Projects/claude-power-pack" uv run --project "${HOME}/Projects/claude-power-pack" python -m lib.security explain "$@"
 ```
 
 > These finding IDs cover CPP's *deterministic* checks (secrets, dependencies,

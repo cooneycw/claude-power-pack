@@ -12,12 +12,12 @@ Launch a local web interface for managing project secrets.
 When the user invokes `/secrets:ui`, run:
 
 ```bash
-PYTHONPATH="${HOME}/Projects/claude-power-pack/lib:${PYTHONPATH}" python3 -m lib.creds ui
+PYTHONPATH="${HOME}/Projects/claude-power-pack:${PYTHONPATH}" uv run --project "${HOME}/Projects/claude-power-pack" python -m lib.creds ui
 ```
 
 With options:
 ```bash
-PYTHONPATH="${HOME}/Projects/claude-power-pack/lib:${PYTHONPATH}" python3 -m lib.creds ui --port 8090
+PYTHONPATH="${HOME}/Projects/claude-power-pack:${PYTHONPATH}" uv run --project "${HOME}/Projects/claude-power-pack" python -m lib.creds ui --port 8090
 ```
 
 **Requirements:**

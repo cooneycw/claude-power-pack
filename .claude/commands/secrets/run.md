@@ -12,12 +12,12 @@ Secrets never appear in CLI arguments, logs, or output.
 When the user invokes `/secrets:run -- COMMAND`, run:
 
 ```bash
-PYTHONPATH="${HOME}/Projects/claude-power-pack/lib:${PYTHONPATH}" python3 -m lib.creds run -- $COMMAND
+PYTHONPATH="${HOME}/Projects/claude-power-pack:${PYTHONPATH}" uv run --project "${HOME}/Projects/claude-power-pack" python -m lib.creds run -- $COMMAND
 ```
 
 With provider override:
 ```bash
-PYTHONPATH="${HOME}/Projects/claude-power-pack/lib:${PYTHONPATH}" python3 -m lib.creds run --provider aws -- $COMMAND
+PYTHONPATH="${HOME}/Projects/claude-power-pack:${PYTHONPATH}" uv run --project "${HOME}/Projects/claude-power-pack" python -m lib.creds run --provider aws -- $COMMAND
 ```
 
 **IMPORTANT:**

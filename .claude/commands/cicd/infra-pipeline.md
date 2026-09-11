@@ -14,7 +14,7 @@ Generate separate CI/CD pipelines for each infrastructure tier with appropriate 
 2. **Generate pipelines:**
 
 ```bash
-PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -m lib.cicd infra-pipeline --path "$(pwd)" --write
+PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd infra-pipeline --path "$(pwd)" --write
 ```
 
 3. **Report what was generated** and explain the approval model:

@@ -15,7 +15,7 @@ Generate a discovery script that audits existing cloud resources and outputs the
 2. **Generate the discovery script:**
 
 ```bash
-PYTHONPATH="$CPP_DIR/lib:$PYTHONPATH" python3 -m lib.cicd infra-discover --path "$(pwd)" --cloud aws --write
+PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd infra-discover --path "$(pwd)" --cloud aws --write
 ```
 
 3. **Optionally run the script** if the user has CLI tools configured:

@@ -34,5 +34,5 @@ Fast security scan using only built-in native scanners. No external tools requir
 ## Run Command
 
 ```bash
-PYTHONPATH="${HOME}/Projects/claude-power-pack/lib" python3 -m lib.security quick
+PYTHONPATH="${HOME}/Projects/claude-power-pack" uv run --project "${HOME}/Projects/claude-power-pack" python -m lib.security quick
 ```

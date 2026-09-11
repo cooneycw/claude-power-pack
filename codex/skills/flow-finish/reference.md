@@ -122,7 +122,7 @@ The helper ends with a machine-readable marker:
 Only run manually if the runner was unavailable:
 
 ```bash
-PYTHONPATH="${HOME}/Projects/claude-power-pack/lib" python3 -m lib.security gate flow_finish
+PYTHONPATH="${HOME}/Projects/claude-power-pack" uv run --project "${HOME}/Projects/claude-power-pack" python -m lib.security gate flow_finish
 ```
 
 - If the gate **fails** (critical findings): **stop and report**. Show findings and remediation.

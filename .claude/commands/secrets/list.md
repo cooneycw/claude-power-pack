@@ -11,12 +11,12 @@ List all secret keys for the current project (values masked).
 When the user invokes `/secrets:list`, run:
 
 ```bash
-PYTHONPATH="${HOME}/Projects/claude-power-pack/lib:${PYTHONPATH}" python3 -m lib.creds list
+PYTHONPATH="${HOME}/Projects/claude-power-pack:${PYTHONPATH}" uv run --project "${HOME}/Projects/claude-power-pack" python -m lib.creds list
 ```
 
 With project override:
 ```bash
-PYTHONPATH="${HOME}/Projects/claude-power-pack/lib:${PYTHONPATH}" python3 -m lib.creds list --project "$PROJECT"
+PYTHONPATH="${HOME}/Projects/claude-power-pack:${PYTHONPATH}" uv run --project "${HOME}/Projects/claude-power-pack" python -m lib.creds list --project "$PROJECT"
 ```
 
 Report the result showing key names with masked values.

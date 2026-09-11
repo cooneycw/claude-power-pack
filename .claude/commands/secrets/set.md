@@ -12,12 +12,12 @@ Set or update a secret value in the project's global config store.
 When the user invokes `/secrets:set KEY VALUE`, run:
 
 ```bash
-PYTHONPATH="${HOME}/Projects/claude-power-pack/lib:${PYTHONPATH}" python3 -m lib.creds set "$KEY" "$VALUE"
+PYTHONPATH="${HOME}/Projects/claude-power-pack:${PYTHONPATH}" uv run --project "${HOME}/Projects/claude-power-pack" python -m lib.creds set "$KEY" "$VALUE"
 ```
 
 If `--project` is specified, add it:
 ```bash
-PYTHONPATH="${HOME}/Projects/claude-power-pack/lib:${PYTHONPATH}" python3 -m lib.creds set "$KEY" "$VALUE" --project "$PROJECT"
+PYTHONPATH="${HOME}/Projects/claude-power-pack:${PYTHONPATH}" uv run --project "${HOME}/Projects/claude-power-pack" python -m lib.creds set "$KEY" "$VALUE" --project "$PROJECT"
 ```
 
 **IMPORTANT:** Never echo or display the secret value in output. Only confirm the key name was set.
