@@ -376,6 +376,8 @@ LAST_MERGE_ERR=""
 
 # A linked worktree has a `.git` FILE (a gitdir pointer); the primary repo has a
 # `.git` DIRECTORY. This is the exact condition under which --delete-branch trips.
+# Checks the INVOKING worktree only - a sibling worktree elsewhere in the same
+# repo is not examined here.
 in_linked_worktree() { [[ -f .git ]]; }
 
 # A squash rejected by branch protection (issue #517) vs. any other failure.
