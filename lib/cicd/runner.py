@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any, Optional, TextIO
 
 from .outcomes import parse_failed_node_ids
-from .state import RunState, StepStatus
+from .state import RunState, StepStatus, compute_tree_signature
 from .steps import (
     GATE_STEP_IDS,
     TIMEOUT_EXIT_CODE,
@@ -153,6 +153,15 @@ class RunResult:
     # success - which is exactly why the old `step_details` block could never
     # have shown this on the green path it matters most on.
     carried_from_previous_run: list[str] = field(default_factory=list)
+    # True when carried_from_previous_run is non-empty AND the carry was
+    # backed by a tree_signature match rather than assumed (issue #804): the
+    # tree was hashed at persist time and again at resume time, and the two
+    # were equal, so this is a genuine crash-resume and the carried results
+    # still describe the tree. False (the default) covers both "nothing was
+    # carried" and "something was carried but we could not verify the tree
+    # hadn't changed" - flow-finish-gate.sh tells those apart by also
+    # checking carried_from_previous_run, and warns only on the second.
+    tree_verified: bool = False
     # Full per-step detail, captured BEFORE the success cleanup removes the
     # state file so a green run can report it at all.
     step_details: list[dict[str, Any]] = field(default_factory=list)
@@ -216,14 +225,45 @@ class DeterministicRunner:
     def run(self, plan_name: str, step_defs: Optional[list[StepDef]] = None) -> RunResult:
         """Execute a named plan from scratch or resume a failed run.
 
-        If a failed run exists for this plan, it will be resumed automatically.
+        If a failed run exists for this plan, it is resumed automatically -
+        UNLESS the working tree changed since that run failed (issue #804).
+        Resume is correct for a crash (the tree the failure left behind is
+        still the tree we're about to skip re-testing); it is wrong for a
+        repair (the tree changed - usually because the failure was fixed -
+        so the results we'd carry describe a tree that no longer exists).
+        Which one this is gets decided by comparing tree_signature, not by
+        guessing: a match resumes exactly as before this fix, a mismatch
+        discards the stale state and starts fresh so every step actually
+        runs against the current tree.
         """
         # Check for existing failed run to resume
         existing = RunState.find_latest(plan_name, self.project_root)
+        current_sig: Optional[str] = None
         if existing:
-            self._log(f"Resuming failed run {existing.run_id} from step {existing.current_index + 1}")
-            self._warn_carried_over(existing)
-            return self._execute(existing, step_defs)
+            current_sig = compute_tree_signature(self.project_root)
+            if (
+                existing.tree_signature is not None
+                and current_sig is not None
+                and existing.tree_signature != current_sig
+            ):
+                self._log(
+                    f"Discarding resumable run {existing.run_id}: the tree "
+                    f"changed since step {existing.current_index + 1} failed "
+                    "(issue #804) - starting fresh so every step re-runs "
+                    "against the current tree."
+                )
+                existing.discard(self.project_root)
+                existing = None
+            else:
+                # Verified only when BOTH signatures were available and equal.
+                # Either side being None means "can't tell" - resume anyway
+                # (the pre-#804 behavior, so a non-git target project doesn't
+                # regress) but the result must say the carry is unverified so
+                # flow-finish-gate.sh's fallback check can still catch it.
+                tree_verified = existing.tree_signature is not None and current_sig is not None
+                self._log(f"Resuming failed run {existing.run_id} from step {existing.current_index + 1}")
+                self._warn_carried_over(existing, tree_verified)
+                return self._execute(existing, step_defs, tree_verified=tree_verified)
 
         # Load step definitions
         if step_defs is None:
@@ -232,6 +272,11 @@ class DeterministicRunner:
         # Create new run state
         step_ids = [s.id for s in step_defs]
         state = RunState.create(plan_name, step_ids)
+        # Reuse the signature already computed above when a stale run was
+        # just discarded, rather than shelling out to git a second time.
+        state.tree_signature = current_sig if current_sig is not None else compute_tree_signature(
+            self.project_root
+        )
 
         # Set max_attempts from step definitions
         for i, step_def in enumerate(step_defs):
@@ -270,7 +315,7 @@ class DeterministicRunner:
         state = RunState.load(run_id, self.project_root)
         return state.summary()
 
-    def _warn_carried_over(self, state: RunState) -> None:
+    def _warn_carried_over(self, state: RunState, tree_verified: bool = False) -> None:
         """Name the steps this invocation will NOT execute (issue #838 follow-up).
 
         A resumed run starts at ``current_index``, so every earlier step keeps
@@ -286,6 +331,12 @@ class DeterministicRunner:
         caught by out-of-band knowledge - grepping for "Resuming" and counting
         pytest invocations, and remembering a hand-run ``make lint`` - neither of
         which is a property of the output.
+
+        ``tree_verified`` (issue #804): true when this resume's tree_signature
+        was compared against the current tree and matched, so "the tree may
+        since have changed" is no longer a maybe - it's checked. The message
+        softens accordingly; callers that can't verify (no git, old state
+        file) get the original, more cautious wording.
         """
         carried = [
             record.step_id
@@ -294,15 +345,34 @@ class DeterministicRunner:
         ]
         if not carried:
             return
-        self._log(
-            f"  NOTE: {len(carried)} step(s) will NOT run in this invocation "
-            f"and keep their earlier result: {', '.join(carried)}. "
-            "If the tree changed since that run, those results are stale - "
-            "they are marked carried_from_previous_run in step_details."
-        )
+        if tree_verified:
+            self._log(
+                f"  NOTE: {len(carried)} step(s) will NOT run in this invocation "
+                f"and keep their earlier result: {', '.join(carried)}. "
+                "The tree is verified unchanged since then (issue #804) - "
+                "those results still describe it."
+            )
+        else:
+            self._log(
+                f"  NOTE: {len(carried)} step(s) will NOT run in this invocation "
+                f"and keep their earlier result: {', '.join(carried)}. "
+                "If the tree changed since that run, those results are stale - "
+                "they are marked carried_from_previous_run in step_details."
+            )
 
-    def _execute(self, state: RunState, step_defs: Optional[list[StepDef]] = None) -> RunResult:
-        """Execute steps from the current state index."""
+    def _execute(
+        self,
+        state: RunState,
+        step_defs: Optional[list[StepDef]] = None,
+        tree_verified: bool = False,
+    ) -> RunResult:
+        """Execute steps from the current state index.
+
+        ``tree_verified`` (issue #804): passed through from run() when this
+        is a resume whose tree_signature matched - see RunResult.tree_verified.
+        False on a fresh run (nothing carried, so it's meaningless) and on a
+        resume that couldn't be verified.
+        """
         # Where THIS invocation began, so the summary can distinguish a result
         # earned now from one carried over (issue #838 follow-up).
         executed_from = state.current_index
@@ -524,6 +594,7 @@ class DeterministicRunner:
                     warnings=warnings,
                     reruns=reruns,
                     skipped_steps=skipped,
+                    tree_verified=tree_verified,
                 )
 
         # All steps completed successfully
@@ -589,12 +660,20 @@ class DeterministicRunner:
             if entry.get("carried_from_previous_run")
         ]
         if success_carried:
-            self._log(
-                f"  NOTE: this run succeeded, but {len(success_carried)} step(s) "
-                f"kept a result from an earlier invocation: "
-                f"{', '.join(success_carried)}. If the tree changed since, those "
-                "results do not describe it."
-            )
+            if tree_verified:
+                self._log(
+                    f"  NOTE: this run succeeded, and {len(success_carried)} step(s) "
+                    f"kept a result from an earlier invocation: "
+                    f"{', '.join(success_carried)}. The tree is verified unchanged "
+                    "since then (issue #804) - those results still describe it."
+                )
+            else:
+                self._log(
+                    f"  NOTE: this run succeeded, but {len(success_carried)} step(s) "
+                    f"kept a result from an earlier invocation: "
+                    f"{', '.join(success_carried)}. If the tree changed since, those "
+                    "results do not describe it."
+                )
 
         # Clean up state file on success
         state.cleanup(self.project_root)
@@ -603,6 +682,7 @@ class DeterministicRunner:
             success=True,
             step_details=success_details,
             carried_from_previous_run=success_carried,
+            tree_verified=tree_verified,
             run_id=state.run_id,
             plan_name=state.plan_name,
             steps_completed=completed,
@@ -669,6 +749,14 @@ def run_plan(
         ]
         if carried:
             output["carried_from_previous_run"] = carried
+            # Only meaningful alongside a non-empty carry (issue #804):
+            # whether the carry was backed by a tree_signature match
+            # (RunResult.tree_verified) or merely assumed, as it was before
+            # this field existed. flow-finish-gate.sh warns on carried-but-
+            # unverified and stays quiet on carried-and-verified - the
+            # distinction between "the mechanism proved this is safe" and
+            # "we don't know, so we're telling you".
+            output["tree_verified"] = result.tree_verified
 
         print(json.dumps(output, indent=2))
 

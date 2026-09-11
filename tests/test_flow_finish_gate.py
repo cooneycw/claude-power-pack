@@ -673,6 +673,83 @@ def test_runner_skipped_non_gate_still_ok(tmp_path: Path) -> None:
     assert "warn" not in proc.stdout
 
 
+# --- #804: a resumed run carrying an unverified stale result -----------------
+#
+# The runner emits a top-level "carried_from_previous_run" array whenever a
+# resumed run kept a step's result rather than re-running it (issue #838
+# follow-up), and, since #804, a "tree_verified" flag saying whether that
+# carry was backed by a tree_signature match. This helper must warn on the
+# first WITHOUT the second - and stay silent when both are present, or every
+# ordinary crash-resume in this fleet would warn and train readers to stop
+# reading the line.
+
+
+@requires_bash
+def test_carried_unverified_is_warn(tmp_path: Path) -> None:
+    """No tree_verified key at all - e.g. a runner too old to set it, or one
+    that could not compute a signature (no git). The helper cannot prove the
+    carried step still describes the tree, so it must not say `ok`."""
+    cpp = _fake_cpp(tmp_path)
+    payload = (
+        '{\n  "success": true,\n  "steps_completed": 3,\n  "steps_total": 3,\n'
+        '  "carried_from_previous_run": [\n    "lint"\n  ]\n}'
+    )
+    proc = _run_with_uv_stub(tmp_path, cpp, payload)
+    assert proc.returncode == 0
+    assert "FLOW_FINISH_GATE: warn (carried, unverified: lint)" in proc.stdout
+    assert "FLOW_FINISH_GATE: ok" not in proc.stdout
+    assert "issue #804" in proc.stdout
+
+
+@requires_bash
+def test_carried_verified_stays_ok(tmp_path: Path) -> None:
+    """tree_verified: true means the runner hashed the tree at persist time
+    and again at resume time and they matched - a proven crash-resume, not an
+    assumption. This must NOT warn: it is the case option 3 exists to make
+    silent, and warning on it anyway would fire on every ordinary
+    killed-and-resumed run."""
+    cpp = _fake_cpp(tmp_path)
+    payload = (
+        '{\n  "success": true,\n  "steps_completed": 3,\n  "steps_total": 3,\n'
+        '  "carried_from_previous_run": [\n    "lint"\n  ],\n'
+        '  "tree_verified": true\n}'
+    )
+    proc = _run_with_uv_stub(tmp_path, cpp, payload)
+    assert proc.returncode == 0
+    assert "FLOW_FINISH_GATE: ok" in proc.stdout
+    assert "warn" not in proc.stdout
+
+
+@requires_bash
+def test_multiple_carried_steps_are_all_named(tmp_path: Path) -> None:
+    cpp = _fake_cpp(tmp_path)
+    payload = (
+        '{\n  "success": true,\n  "steps_completed": 3,\n  "steps_total": 3,\n'
+        '  "carried_from_previous_run": [\n    "lint",\n    "typecheck"\n  ]\n}'
+    )
+    proc = _run_with_uv_stub(tmp_path, cpp, payload)
+    assert proc.returncode == 0
+    assert "FLOW_FINISH_GATE: warn (carried, unverified: lint typecheck)" in proc.stdout
+
+
+@requires_bash
+def test_skipped_gates_still_win_over_unverified_carry(tmp_path: Path) -> None:
+    """Same precedence question #769 answered against #628: two true things can
+    be wrong about a run at once, and the verdict has to pick the more serious
+    one rather than let either erase the other. A gate that never ran at all
+    is more serious than a step whose result merely lacks proof, so skipped
+    wins - matching test_skipped_gates_win_but_rerun_ids_are_still_printed."""
+    cpp = _fake_cpp(tmp_path)
+    payload = (
+        '{\n  "success": true,\n  "steps_completed": 3,\n  "steps_total": 4,\n'
+        '  "carried_from_previous_run": [\n    "lint"\n  ],\n'
+        '  "skipped": [\n    "typecheck"\n  ]\n}'
+    )
+    proc = _run_with_uv_stub(tmp_path, cpp, payload)
+    assert proc.returncode == 0
+    assert "FLOW_FINISH_GATE: warn (skipped gates: typecheck)" in proc.stdout
+
+
 # ── Naming what ran, and seeing a larger gate (issue #808) ──────────────────
 #
 # The fallback runs lint/test/typecheck. A repo whose real gate is a larger
