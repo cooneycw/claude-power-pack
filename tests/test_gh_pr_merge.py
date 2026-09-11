@@ -453,9 +453,8 @@ def _run(
     # instead of the stub (issue #716/#717 test isolation).
     env.pop("WOODPECKER_API_TOKEN", None)
     env.pop("WOODPECKER_SERVER", None)
-    env["GH_PR_MERGE_GH"] = stubs["GH_PR_MERGE_GH"]
-    env["GH_PR_MERGE_GIT"] = stubs["GH_PR_MERGE_GIT"]
-    env["GH_PR_MERGE_CURL"] = stubs["GH_PR_MERGE_CURL"]
+    # Defaults (overridable via extra_env): timing/attempt knobs a specific
+    # test may want to tune.
     env["GH_PR_MERGE_POLL_DELAY"] = "0"  # keep the mergeability poll instant in tests
     env["GH_PR_MERGE_CONFLICT_SETTLE"] = "0"  # keep the CONFLICTING settle window instant in tests
     env["GH_PR_MERGE_POLL_ATTEMPTS"] = "5"  # pinned, same convention as *_ATTEMPTS below
@@ -465,12 +464,27 @@ def _run(
     env["GH_PR_MERGE_QUEUE_WAIT_DELAY"] = "0"  # and the #717 queue-wait budget
     env["GH_PR_MERGE_QUEUE_WAIT_ATTEMPTS"] = "3"  # bounded, so the timeout path is testable
     if extra_env:
-        # Applied LAST so a caller's override always wins over the fixed
-        # defaults above - previously this ran first and was silently
-        # clobbered for any key this function also sets a default for
-        # (issue #805 review: this is exactly what happened to the one test
-        # that overrides GH_PR_MERGE_CONFLICT_SETTLE).
+        # Applied LAST so a caller's override always wins over the defaults
+        # above - previously this ran first and was silently clobbered for
+        # any key this function also sets a default for (issue #805 review:
+        # this is exactly what happened to the one test that overrides
+        # GH_PR_MERGE_CONFLICT_SETTLE). The three stub-path keys are NOT
+        # defaults, though - see the invariants block below - so an attempt
+        # to override one of those is rejected here rather than silently
+        # allowed to win.
+        assert not (
+            set(extra_env) & {"GH_PR_MERGE_GH", "GH_PR_MERGE_GIT", "GH_PR_MERGE_CURL"}
+        ), "the stub binary paths are invariants, not overridable via extra_env"
         env.update(extra_env)
+
+    # Invariants (never overridable, not even via extra_env): the stub binary
+    # paths. Set AFTER extra_env so nothing can point a test at the real
+    # gh/git/curl on the host - this is what keeps the suite hermetic (issue
+    # #805 review: pulling extra_env earlier for the defaults above must not
+    # also loosen this).
+    env["GH_PR_MERGE_GH"] = stubs["GH_PR_MERGE_GH"]
+    env["GH_PR_MERGE_GIT"] = stubs["GH_PR_MERGE_GIT"]
+    env["GH_PR_MERGE_CURL"] = stubs["GH_PR_MERGE_CURL"]
     return subprocess.run(
         ["bash", str(SCRIPT), *args],
         check=False,
@@ -690,6 +704,19 @@ def test_conflicting_never_corroborated_fails_open(tmp_path: Path):
     assert result.returncode == 0, result.stderr
     assert "merged" in result.stdout
     assert "did not corroborate" in result.stderr
+
+
+def test_run_helper_rejects_stub_path_override_via_extra_env(tmp_path: Path):
+    # GH_PR_MERGE_GH/GIT/CURL are invariants, never overridable defaults - the
+    # #805 review flagged that moving extra_env to apply last (so a caller's
+    # timing-knob override wins over this function's own defaults) would, if
+    # left unguarded, also let a caller point a test at the REAL gh/git/curl
+    # on the host. Guard it loudly rather than rely on nobody doing it.
+    stubs = _make_stubs(tmp_path)
+    cwd = _linked_worktree(tmp_path)  # never actually exec'd - the assert raises first
+    for key in ("GH_PR_MERGE_GH", "GH_PR_MERGE_GIT", "GH_PR_MERGE_CURL"):
+        with pytest.raises(AssertionError):
+            _run(cwd, stubs, "42", "issue-805-fix", extra_env={key: "/usr/bin/env"})
 
 
 # The exact stderr GitHub returns when a sibling PR merged in the poll->merge
