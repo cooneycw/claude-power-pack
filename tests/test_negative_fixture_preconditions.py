@@ -262,6 +262,24 @@ def test_cli_is_silent_success_on_a_clean_tree(
     assert "ok" in capsys.readouterr().out
 
 
-def test_cli_tolerates_a_missing_tests_dir(tmp_path: Path) -> None:
-    """Fail-open on a repo with no tests/ - the gate has nothing to say, not a verdict."""
-    assert checker.main(["--root", str(tmp_path)]) == 0
+def test_cli_fails_when_the_root_has_no_tests_directory(
+    tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
+    """#840: a missing tests/ must not read the same as a clean scan - the
+    exit code is what `make verify` reads, and the message alone (already
+    present, previously on stderr) was a silent pass through that gate."""
+    assert checker.main(["--root", str(tmp_path)]) == 1
+    out = capsys.readouterr().out
+    assert "no tests/ directory" in out
+
+
+def test_cli_fails_when_tests_directory_has_no_test_files(
+    tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
+    """#840: a present-but-empty tests/ is worse than a missing one - the old
+    code printed a clean "ok" for a population of zero, a false positive
+    rather than a missed report."""
+    (tmp_path / "tests").mkdir()
+    assert checker.main(["--root", str(tmp_path)]) == 1
+    out = capsys.readouterr().out
+    assert "no test files" in out
