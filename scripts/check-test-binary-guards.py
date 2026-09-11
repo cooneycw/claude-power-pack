@@ -189,6 +189,34 @@ EXIT_RE = re.compile(r"\bexit\b")
 #: by an emptiness test. You do not silence a command you cannot do without.
 STDERR_SILENCED_RE = re.compile(r"2>\s*/dev/null|2>&-|&>\s*/dev/null|>&\s*/dev/null")
 
+#: A shell ``case`` PATTERN LABEL - ``ps)``, or the pipe-joined ``a|ps|b)`` - at
+#: line start (issue #833). ``SHELL_BINARY_RE``'s leading-separator alternation
+#: includes bare newline, ``|`` and line-start, which is exactly what makes a
+#: label read as a command: ``ps)`` sits right where a real invocation after a
+#: pipe would. The label's closing ``)`` satisfies ``\b`` the same way a real
+#: command's argument list would, so nothing in SHELL_BINARY_RE itself can tell
+#: "the next token is a case arm" from "the next token is this command's first
+#: argument" - that distinction lives in what comes AFTER the matched word, not
+#: in the word or its surroundings, which is why this is a second, separate
+#: regex rather than a tweak to the first one's lookbehind.
+#:
+#: The "obvious" fix - reject a bin token immediately followed by ``)`` - was
+#: considered and MEASURED wrong, in the unsafe (undercount) direction: ``ps)``
+#: (a label) and ``$(ps)`` (a real zero-argument invocation) are TEXTUALLY
+#: IDENTICAL, a bare binary name followed immediately by ``)``. Only what
+#: PRECEDES the name tells them apart - a line start versus a literal ``$(`` -
+#: never what follows it. A naive "reject on trailing )" fix would have
+#: silently stopped seeing every real ``$(cat)``/``$(uname)``-shaped bare
+#: substitution in this repo (both real, both live today) the moment either
+#: binary were ever guarded, and a checker that finds nothing looks exactly
+#: like a clean tree - the same "undercount is the unsafe direction" lesson
+#: issue #832 drew from an unreadable ``/proc/<pid>/environ``. That is why
+#: this discriminates on the LEFT (does the token sit at the start of a
+#: case-label-shaped line) rather than the right (what character follows it).
+CASE_LABEL_RE = re.compile(
+    r"^[ \t]*(?P<labels>[\w./*?+-]+(?:[ \t]*\|[ \t]*[\w./*?+-]+)*)\)"
+)
+
 #: Scanned shell scripts, keyed by (path, mtime, size) so an edited script is
 #: re-read rather than served stale within one process.
 _SCRIPT_SCAN_CACHE: dict[tuple[str, int, int], frozenset[str]] = {}
@@ -343,6 +371,26 @@ def _preflight_declarations(lines: list[str]) -> tuple[set[str], set[str]]:
     return degrades, nested - top_level
 
 
+def _is_case_label(line: str, col: int, bin_len: int) -> bool:
+    """Is the guarded-binary match at column ``col`` of ``line`` actually a
+    ``case`` pattern label rather than an invocation (issue #833)?
+
+    ``ps)   watcher_roles_ps_fallback ...`` matches SHELL_BINARY_RE because the
+    label's own closing ``)`` satisfies the same ``\\b`` a real command's first
+    argument would - the regex answers "does a guarded name appear at command
+    position", and a case label IS a command-position-shaped piece of text, it
+    just is not a command. Checked structurally against CASE_LABEL_RE (which
+    also covers a pipe-joined label, e.g. ``a|ps|b)``, not only the single-
+    pattern case actually in the tree today) rather than the narrower "is the
+    very next character a `)`" - that narrower check would miss the pipe-joined
+    shape and would need re-deriving the moment one is added.
+    """
+    label_match = CASE_LABEL_RE.match(line)
+    if not label_match:
+        return False
+    return label_match.start("labels") <= col and col + bin_len <= label_match.end("labels")
+
+
 def _script_uses(source: str, lines: list[str]) -> list[_ScriptUse]:
     """Every command-position use of a guarded binary, classified fail-soft or not."""
     uses: list[_ScriptUse] = []
@@ -351,6 +399,10 @@ def _script_uses(source: str, lines: list[str]) -> list[_ScriptUse]:
         line = lines[index] if index < len(lines) else ""
         if PREFLIGHT_RE.search(line):
             continue  # `command -v jq` is a probe, not a use
+        line_start = source.rfind("\n", 0, match.start("bin")) + 1
+        col = match.start("bin") - line_start
+        if _is_case_label(line, col, len(match.group("bin"))):
+            continue  # a case ARM, not an invocation (#833)
         command, indent = _logical_command(lines, index)
         failsoft = bool(
             match.group("bang")
