@@ -55,6 +55,8 @@
 #   flow-wave-mailbox.sh watch --status --role <role> [--wave W]
 #   flow-wave-mailbox.sh ack   --role <role> [--wave W] [--from <role> | --box NAME]
 #                              (--revs R[,R...] | --all-unacked)
+#   flow-wave-mailbox.sh supervise --role <role> [--wave W] [--timeout SEC]
+#                              [--interval SEC]
 #   flow-wave-mailbox.sh list  [--wave W] [--json]
 #
 #   send   Deliver a message. `--to orchestrator` writes inbox-<from>.md and
@@ -122,12 +124,20 @@
 #          the orchestrator must disambiguate with `--from <role>` or
 #          `--box NAME` for `--revs`, or may span every inbox at once with
 #          `--all-unacked` alone.
+#   supervise (issue #814) Own a re-arm LOOP for <role> so nothing conversational
+#          has to remember to re-arm `watch` after every wake. The invocation
+#          itself returns promptly with a `FLOW_MAILBOX: supervising` verdict
+#          (or `duplicate`, exit 4, if one already runs); the DAEMON it detaches
+#          is what persists, repeatedly arming `watch --consume` for <role>
+#          until role release or the wave ends. See SUPERVISION below for what
+#          this does and, as importantly, does not promise.
 #   list   Box inventory for the wave: box, reader, rev, acked, unread, mtime,
-#          plus the WATCH state and live WATCHERS count of every role known to
-#          read here (#778, #801). `acked` is the count of revs that role has
-#          explicitly acknowledged in that box (#815) - `rev` is what was
-#          SENT, `unread` is what remains UNACKNOWLEDGED, and neither implies
-#          the other was ever surfaced to the recipient.
+#          plus the WATCH state, live WATCHERS count, and ROUTE readiness
+#          (#814 - see ROUTE READINESS below) of every role known to read here
+#          (#778, #801). `acked` is the count of revs that role has explicitly
+#          acknowledged in that box (#815) - `rev` is what was SENT, `unread`
+#          is what remains UNACKNOWLEDGED, and neither implies the other was
+#          ever surfaced to the recipient.
 #
 # Acknowledgement (issue #815). `read`/`watch` used to advance a read cursor
 # as a side effect of PRINTING output - the instant a message was shown, it
@@ -168,6 +178,131 @@
 # "compatible migration... without silently declaring historical mail
 # acknowledged" this issue asks for: an action the caller takes on purpose,
 # never one this script infers.
+#
+# Supervision (issue #814). `watch` delivers ONE message (or a timeout) and
+# exits - it was always meant to, so the harness has something to notify on
+# (see the module docstring's "MAILBOX IS NOT A LANE" note). That means every
+# wake needs a NEW `watch` armed by whoever is listening, and "whoever" was
+# always the conversational agent, which is exactly the failure: a forgotten
+# re-arm leaves assignments waiting indefinitely with nothing watching for
+# them, and the session that forgot is the one that would have to notice.
+# Observed three times in ~90 minutes building #814 and #815 themselves - see
+# the incident comment on issue #815 - including a 25-minute deafness caught
+# only because a DIFFERENT session noticed the silence from outside.
+#
+# `supervise` makes "a watcher process for this role exists" independent of
+# any agent remembering anything, by moving the re-arm loop into a DETACHED
+# DAEMON rather than a conversational habit. It is deliberately NOT
+# `while true; do watch ...; done` run as the backgrounded call itself - that
+# command never exits, so the harness would have nothing to notify on and the
+# one mechanism this whole lane depends on would be defeated. Instead the
+# `supervise` INVOCATION forks a daemon and returns immediately with its own
+# verdict line, like every other verb; the daemon repeatedly shells out to
+# `watch --role <role> --wave <wave> --consume`, letting EACH inner watch
+# still exit and still be the harness's notification trigger for whichever
+# session is separately listening for it - `supervise` guarantees a listener
+# always EXISTS, it is not a replacement for arming one.
+#
+# Single ownership without inheriting #821. The obvious guard - record the
+# daemon's PID, check it with `kill -0` - reintroduces #821 one layer up:
+# PIDs are reused by the kernel, so a dead daemon's PID recycled to an
+# unrelated process makes `kill -0` report "alive", a second `supervise`
+# refuses as a duplicate, and the role goes deaf - #814's own failure,
+# produced by #814's own guard, the identical shape as #821's argv-collision
+# (an identity check that distinguishes "a process" from "no process" but not
+# "MY process" from "some process"). `supervise` instead holds an exclusive,
+# NON-BLOCKING `flock` on `.supervise-<role>.lock` for the daemon's entire
+# life: the kernel releases a flock the instant the holding process dies, by
+# construction, so "the lock is free" and "the previous holder is dead" are
+# the SAME fact with no separate liveness check, no stale state, and no
+# reclaim logic to get wrong. `.supervise-<role>.pid` still records the PID,
+# but only for a human to read "who holds this" - never as the test for
+# whether to proceed.
+#
+# Shutdown and the tight-loop guard. The daemon polls the sibling
+# `flow-wave-registry.sh get <role> --wave <wave>` and exits cleanly -
+# releasing the flock - the moment that role's `FLOW_WAVE_LIVENESS` reads
+# `released`. Fails OPEN, TWICE over: if the registry sibling is unavailable
+# at all (a supervisor that cannot check for release is not worse than none,
+# it just keeps supervising), and if the role was simply never registered
+# (`get`'s `free` verdict) - the registry is a separate, optional companion
+# system, not a dependency of the mailbox lane (#814's own stated boundary),
+# so `supervise` used standalone without ever registering must not shut
+# itself down on its very first loop check. Only the positive, unambiguous
+# `released` state - set once `release` has actually run against a role that
+# WAS registered - triggers shutdown. Role/wave names are validated ONCE at
+# daemon start, not re-checked every loop iteration, so a bad argument is a
+# clean, immediate failure rather than a restart storm. A crash of the
+# inner `watch` child for any reason OTHER than a clean delivery (exit 0) or
+# timeout (exit 5) gets exponential backoff before the next re-arm, capped, so
+# a persistently failing cause (a missing dependency, a corrupted box) cannot
+# spin the daemon at full speed forever. `.supervise-<role>.log` records only
+# structured, sanitized evidence - timestamp, event kind, exit code/signal -
+# NEVER message bodies, which stay exactly where the mailbox already keeps
+# them with their own access boundary; the inner `watch` child's stdout
+# (which DOES carry bodies on delivery) is discarded by the daemon, not
+# relayed anywhere new, because the daemon's job is re-arming, not reading.
+#
+# What this does not, and cannot, promise. No script here can make the
+# HARNESS re-invoke a specific agent's conversation on a background process's
+# completion - that wiring belongs to the harness, not to anything in this
+# repo. `supervise` guarantees a listener keeps existing; it cannot guarantee
+# the agent behind it is told. See ROUTE READINESS below for the honest
+# alternative to promising that: making a silent failure of THAT link
+# observable, with a bound, instead of claiming to have fixed it.
+#
+# Route readiness (issue #814). "Is a watcher process polling" (#801's fused
+# state, and #814's `supervise`) answers a DIFFERENT question from "has
+# anything actually been received" - and #821 already proved the first
+# cannot be trusted as a proxy for the second: an orphaned command-substitution
+# subshell of a dead watcher has exactly the right argv to look alive.
+# `route_state()` answers the second question instead, from evidence #815
+# already made possible: an explicit acknowledgement, bound to an identity,
+# that only happens when something genuinely received a message. It is
+# FOUR states, not three - the third being the trap:
+#
+#   confirmed    an ack was recorded since the last message was surfaced -
+#                POSITIVE evidence the route works
+#   pending      an unacked message exists, younger than the readiness bound -
+#                no verdict yet; a busy recipient is not a broken route
+#   unconfirmed  an unacked message exists, OLDER than the bound - the alarm
+#   unknown      no messages at all, or the box could not be read - NOTHING
+#                to check, and therefore NEVER `confirmed`
+#
+# The `unknown` / `confirmed` split is the whole point: an empty box is not
+# evidence the route works, only evidence nothing has tested it, and
+# reporting `confirmed` for a box nobody has ever sent to would be exactly the
+# "reports success by checking nothing" defect found the same day in #816's
+# tripwire, #821's counter and #828's helper loop. `pending` similarly must
+# not collapse into `unconfirmed`'s alarm OR `confirmed`'s all-clear - it is
+# its own fact, "being exercised, no answer yet".
+#
+# T, the readiness clock, is each message's own `ts=` from its send marker
+# (#676) - not a new "first surfaced" timestamp this script would otherwise
+# have to persist. This slightly OVERSTATES the unconfirmed window for a
+# message nobody looked at until well after it was sent, and that is the
+# deliberately conservative direction: it can only flag a route unconfirmed
+# EARLIER than a stricter "time since first peek" clock would, never later,
+# so it cannot hide a genuinely stuck route behind an unmeasured gap.
+# `FLOW_WAVE_ROUTE_UNCONFIRMED_SECS` (default 900) is the bound - generous
+# enough that ordinary handling time is never flagged (with #815, acking is a
+# receipt, not task completion, so normal latency is seconds to a couple of
+# minutes), short enough to answer "is this route working" rather than "is
+# this wave abandoned"; a 25-minute real lapse building this issue would have
+# tripped it at 15.
+#
+# Reported as its OWN `route` object in `list`, a SIBLING of `watch`, never
+# merged into it - the #801 lesson enforced in the schema, not only the prose:
+# `(state: armed); 0 live watcher process(es)` was one line contradicting
+# itself because two different facts were fused with the reassuring one
+# leading. `watch.state` still answers "is a process polling" and stays
+# exactly as #821-affected as it always was; `route.state` answers "has
+# anything been acknowledged since" and never touches the watcher count, so it
+# carries none of that defect. A reader gets both facts and is not handed a
+# verdict that already decided which one mattered. `flow-wave-registry.sh`'s
+# existing mailbox join carries a matching `route` field for the same reason
+# `acked` joined it in #815 - so this is visible from a roster sweep, not only
+# from asking one mailbox directly.
 #
 # Counting watchers (issue #792 item 5). `pgrep -af 'flow-wave-mailbox.sh
 # watch' | grep -- "--role X "` double-counts: a background launcher's
@@ -498,6 +633,87 @@ ack_all_unacked_for_role() {
   done <<EOF
 $(boxes_for_role "$role")
 EOF
+}
+
+# --- Route readiness (issue #814) ----------------------------------------------
+# See the header's ROUTE READINESS section for the four-state contract and why
+# an empty box must never read as `confirmed`.
+
+# Send-time (`ts=`, issue #676) of the OLDEST unacked message in a box, or ''
+# when there is none - either because the box is empty or because everything
+# sent so far has been acknowledged. Deliberately reuses each message's own
+# send timestamp rather than persisting a new "first surfaced" one - see the
+# header for why that is the conservative direction, not a shortcut.
+oldest_unacked_ts() {
+  local f="$1" afile
+  [ -s "$f" ] || return 0
+  afile="$(ack_file "$f")"
+  awk -v ackfile="$afile" '
+    BEGIN {
+      while ((getline line < ackfile) > 0) {
+        if (line ~ /^[0-9]+$/) acked[line + 0] = 1
+      }
+      close(ackfile)
+    }
+    /^<!-- cc-flow-wave-msg / {
+      rev = 0
+      if (match($0, /rev=[0-9]+/)) rev = substr($0, RSTART + 4, RLENGTH - 4) + 0
+      ts = ""
+      if (match($0, /ts=[^ ]+/)) ts = substr($0, RSTART + 3, RLENGTH - 3)
+      if (rev > 0 && !(rev in acked)) print rev, ts
+    }
+  ' "$f" | sort -n | head -1 | cut -d' ' -f2-
+}
+
+# route_state BOX -> confirmed | pending | unconfirmed | unknown (issue #814).
+# The bound is env-overridable (`FLOW_WAVE_ROUTE_UNCONFIRMED_SECS`, default
+# 900s - see the header for how that default was chosen) so it is testable
+# without sleeping, matching how `FLOW_WAVE_WATCH_STALE_SECS` already works
+# for the watch heartbeat.
+route_state() {
+  local box="$1" bound ts epoch age
+  bound="${FLOW_WAVE_ROUTE_UNCONFIRMED_SECS:-900}"
+  [ -s "$box" ] || { echo unknown; return; }
+  ts="$(oldest_unacked_ts "$box")"
+  if [ -z "$ts" ]; then
+    # No unacked message. An empty box is NOT evidence the route works - it
+    # is evidence nothing has tested it. Only a box that has actually sent
+    # something, and had everything sent so far acknowledged, earns
+    # `confirmed`.
+    if [ "$(max_rev "$box")" -gt 0 ]; then echo confirmed; else echo unknown; fi
+    return
+  fi
+  epoch="$(date -d "$ts" +%s 2>/dev/null)"
+  if [ -z "$epoch" ]; then
+    # A real, unacked message whose timestamp could not be parsed - cannot
+    # verify freshness, so this does not get to claim a clean state either.
+    echo unconfirmed
+    return
+  fi
+  age=$((NOW - epoch))
+  [ "$age" -lt 0 ] && age=0
+  if [ "$age" -gt "$bound" ]; then echo unconfirmed; else echo pending; fi
+}
+
+# route_state_for_role ROLE -> the WORST route_state across every box that
+# role reads (unconfirmed > pending > confirmed > unknown when a role reads
+# more than one box, e.g. the orchestrator) - a reader deciding whether to
+# trust a role's route needs the box that is failing, not the box that is
+# not.
+route_state_for_role() {
+  local role="$1" b s worst=unknown
+  while IFS= read -r b; do
+    [ -n "$b" ] || continue
+    s="$(route_state "$b")"
+    case "$s" in
+      unconfirmed) worst=unconfirmed ;;
+      pending) [ "$worst" != unconfirmed ] && worst=pending ;;
+      confirmed) [ "$worst" != unconfirmed ] && [ "$worst" != pending ] && worst=confirmed ;;
+    esac
+  done <<EOF
+$(boxes_for_role "$role")
+EOF
+  echo "$worst"
 }
 
 # --- The watch heartbeat (#778) ------------------------------------------------
@@ -907,11 +1123,11 @@ EOF
 }
 
 VERB="${1:-}"
-[ -n "$VERB" ] || usage_fail "usage: flow-wave-mailbox.sh send|read|watch|ack|list ..."
+[ -n "$VERB" ] || usage_fail "usage: flow-wave-mailbox.sh send|read|watch|ack|supervise|list ..."
 shift
 
 case "$VERB" in
-  send | read | watch | ack | list) : ;;
+  send | read | watch | ack | supervise | __supervise_daemon | list) : ;;
   --help | -h)
     # Self-terminating range, not a hand-counted one: a fixed `2,NNp` silently
     # truncates mid-sentence the moment the header grows, which is #686 - and it
@@ -1336,6 +1552,148 @@ EOF
     exit 0
     ;;
 
+  supervise)
+    # Own a re-arm loop for <role> so nothing conversational has to remember
+    # to re-arm `watch` after every wake (issue #814 - see SUPERVISION in the
+    # header for the full argument). This case handles only the LAUNCH: it
+    # returns promptly with its own verdict line, like every other verb. The
+    # loop itself runs in `__supervise_daemon` below, in a detached process.
+    [ -n "$ROLE" ] || usage_fail "supervise requires --role <role>"
+    valid_name "$ROLE" || usage_fail "invalid role: '$ROLE'"
+    case "$TIMEOUT" in ''|*[!0-9]*) usage_fail "--timeout must be whole seconds" ;; esac
+    case "$INTERVAL" in ''|*[!0-9]*) usage_fail "--interval must be whole seconds" ;; esac
+    [ "$INTERVAL" -ge 1 ] || usage_fail "--interval must be at least 1 second"
+
+    SUP_LOCK="$WAVE_DIR/.supervise-$ROLE.lock"
+    SUP_PIDFILE="$WAVE_DIR/.supervise-$ROLE.pid"
+    SUP_LOG="$WAVE_DIR/.supervise-$ROLE.log"
+
+    # A lifetime flock, not a PID file, decides ownership (issue #814,
+    # required correction from #821: a recorded PID can be reused by the
+    # kernel, so `kill -0` would eventually report a DEAD daemon's replacement
+    # as alive and refuse a real one - the same defect as #821's argv
+    # collision, one layer up). The lock is opened in THIS process (not a
+    # subshell) so it survives past this `if`, ready to be inherited by the
+    # detached daemon below.
+    exec 8>"$SUP_LOCK"
+    if ! flock -n 8; then
+      E_ROLE="$ROLE"
+      echo "flow-wave-mailbox: refusing to supervise - a live supervisor already holds role '$ROLE' in wave '$WAVE' (issue #814). Check $SUP_PIDFILE / $SUP_LOG for who; the lock, not that file, is what decided this." >&2
+      emit duplicate
+      exit 4
+    fi
+    # We hold the lock on fd 8. A normal backgrounded child inherits every
+    # open fd from its parent shell, so it needs no explicit redirection to
+    # keep fd 8 - detaching it (setsid, when available - falls back to a
+    # plain background+disown on a host without it, still correct, just less
+    # isolated from this shell's session) is what makes the lock outlive
+    # THIS invocation: this process's own copy of fd 8 closes at exit, but
+    # the daemon's independent copy keeps the flock held for as long as the
+    # daemon lives - which is exactly the property #814 needs, since the
+    # kernel releasing a flock on process death is what lets the NEXT
+    # `supervise` tell "dead" from "alive" without asking anything else.
+    if command -v setsid >/dev/null 2>&1; then
+      setsid bash "$0" __supervise_daemon --role "$ROLE" --wave "$WAVE" \
+        --timeout "$TIMEOUT" --interval "$INTERVAL" >>"$SUP_LOG" 2>&1 &
+    else
+      bash "$0" __supervise_daemon --role "$ROLE" --wave "$WAVE" \
+        --timeout "$TIMEOUT" --interval "$INTERVAL" >>"$SUP_LOG" 2>&1 &
+    fi
+    DAEMON_PID=$!
+    disown 2>/dev/null || true
+    # Diagnostics only - who a human should look at - never the liveness
+    # test itself (that is the flock, above).
+    echo "$DAEMON_PID" > "$SUP_PIDFILE" 2>/dev/null || true
+    E_ROLE="$ROLE"
+    echo "flow-wave-mailbox: supervising role '$ROLE' in wave '$WAVE' as PID $DAEMON_PID (issue #814) - it re-arms watch continuously until role release or the wave ends; see $SUP_LOG for sanitized evidence (timestamps and exit codes only, never message bodies)." >&2
+    emit supervising
+    exit 0
+    ;;
+
+  __supervise_daemon)
+    # INTERNAL. Launched by `supervise` above via setsid; never invoke this
+    # directly. Runs until role release, an unreadable registry sibling that
+    # stops looking free, or a TERM/INT signal - its own exit is what
+    # releases the lifetime flock `supervise` opened and handed it.
+    [ -n "$ROLE" ] || usage_fail "__supervise_daemon requires --role <role>"
+    SUP_LOG_SELF_DIR="$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")"
+    SUP_REGISTRY="$SUP_LOG_SELF_DIR/flow-wave-registry.sh"
+    BACKOFF_BASE="${FLOW_WAVE_SUPERVISE_BACKOFF_BASE:-2}"
+    BACKOFF_CAP="${FLOW_WAVE_SUPERVISE_BACKOFF_CAP:-60}"
+    BACKOFF=0
+
+    # Structured, sanitized evidence ONLY - a timestamp and a short event
+    # description (event kind, exit code, backoff seconds). NEVER message
+    # bodies: the inner `watch` child's stdout, which DOES carry bodies on
+    # delivery, is discarded below (redirected to /dev/null), not relayed
+    # into this log or anywhere else - the daemon's job is re-arming, not
+    # reading (issue #814).
+    log_event() {
+      printf '%s %s\n' "$(date -Iseconds 2>/dev/null || date +%Y-%m-%dT%H:%M:%S%z)" "$*"
+    }
+
+    log_event "daemon started role=$ROLE wave=$WAVE pid=$$ timeout=$TIMEOUT interval=$INTERVAL"
+    trap 'log_event "daemon exiting on signal"; exit 0' TERM INT
+
+    while :; do
+      # Shutdown check (issue #814): fails OPEN if the registry sibling is
+      # missing or errors - a supervisor that cannot check for release is
+      # not worse than none, it just keeps supervising, matching #701's
+      # lexicon-gate precedent for a helper another script depends on.
+      # Also fails open (keeps supervising) on `get`'s `free` verdict - a
+      # role can be `free` simply because it was never registered at all,
+      # which is a LEGITIMATE, independent way to use `supervise` (the
+      # registry is a separate, optional companion system, not a
+      # dependency - #814's own boundary). Only the POSITIVE, unambiguous
+      # signal shuts this daemon down: `FLOW_WAVE_LIVENESS=released`, set
+      # only once `release` has actually run against a role that WAS
+      # registered. `stale` (owning session looks dead, never explicitly
+      # released) deliberately does NOT shut down either - that can be a
+      # respawn in progress, and #814 asks for shutdown on RELEASE, not a
+      # guess about liveness this daemon has no way to confirm.
+      if [ -r "$SUP_REGISTRY" ]; then
+        # flow-wave-registry.sh takes the role as a bare positional, not a
+        # --role flag - its own parser has no such option.
+        REL_LIVENESS="$(bash "$SUP_REGISTRY" get "$ROLE" --wave "$WAVE" 2>/dev/null | sed -n 's/^FLOW_WAVE_LIVENESS=//p')"
+        if [ "$REL_LIVENESS" = "released" ]; then
+          log_event "role released - shutting down"
+          exit 0
+        fi
+      fi
+
+      bash "$0" watch --role "$ROLE" --wave "$WAVE" --consume \
+        --timeout "$TIMEOUT" --interval "$INTERVAL" >/dev/null 2>&1
+      INNER_RC=$?
+
+      case "$INNER_RC" in
+        0)
+          # Delivered and acknowledged (the daemon uses --consume - the
+          # named legacy convenience, matching the file's own default
+          # elsewhere; the delivered CONTENT is safely durable in the box
+          # already, the daemon does not need to relay it anywhere new).
+          log_event "delivered rc=0"
+          BACKOFF=0
+          ;;
+        5)
+          # A plain, expected timeout - the daemon re-arms silently, this is
+          # the normal steady state of a persistent listener.
+          BACKOFF=0
+          ;;
+        *)
+          # Anything else is a crash-class exit (killed, duplicate-refused
+          # against something outside this daemon's own control, or an
+          # error). Exponential backoff, capped, so a persistently failing
+          # cause cannot spin this loop at full speed forever (issue #814's
+          # explicit "no tight restart loop" requirement).
+          if [ "$BACKOFF" -eq 0 ]; then BACKOFF="$BACKOFF_BASE"; else BACKOFF=$((BACKOFF * 2)); fi
+          [ "$BACKOFF" -gt "$BACKOFF_CAP" ] && BACKOFF="$BACKOFF_CAP"
+          log_event "inner watch exited rc=$INNER_RC - backing off ${BACKOFF}s"
+          sleep "$BACKOFF"
+          ;;
+      esac
+    done
+    ;;
+
   list)
     BOXES="$(find "$WAVE_DIR" -maxdepth 1 -type f \( -name 'outbox-*.md' -o -name 'inbox-*.md' \) 2>/dev/null | sort)"
     WROLES="$(watch_roles)"
@@ -1385,8 +1743,21 @@ EOF
       done <<EOF
 $WROLES
 EOF
-      printf '{"wave":"%s","dir":"%s","boxes":[%s],"watches":[%s]}\n' \
-        "$WAVE" "$WAVE_DIR" "${ROWS%,}" "${WATCHES%,}"
+      # `routes` is a SIBLING array, not folded into `watches` (issue #814) -
+      # `watch.state` answers "is a process polling" and stays exactly as
+      # #821-affected as it always was; `route.state` answers "has anything
+      # been acknowledged since" and never touches the watcher count. Fusing
+      # them is the #801 mistake in new clothes.
+      ROUTES=""
+      while IFS= read -r wr; do
+        [ -n "$wr" ] || continue
+        rs="$(route_state_for_role "$wr")"
+        ROUTES="$ROUTES$(printf '{"role":"%s","state":"%s"}' "$wr" "$rs"),"
+      done <<EOF
+$WROLES
+EOF
+      printf '{"wave":"%s","dir":"%s","boxes":[%s],"watches":[%s],"routes":[%s]}\n' \
+        "$WAVE" "$WAVE_DIR" "${ROWS%,}" "${WATCHES%,}" "${ROUTES%,}"
     else
       if [ -z "$BOXES" ]; then
         echo "No mailboxes in wave '$WAVE' yet ($WAVE_DIR)."
@@ -1434,6 +1805,24 @@ EOF
         # nobody is listening, it is the refusal to make either claim.
         if [ -n "$UNKNOWN_ROLES" ]; then
           echo "UNKNOWN: the process table could not be read, so the watch state of role(s):$UNKNOWN_ROLES is UNCHECKED, not clean (#801)."
+        fi
+        # The route table (issue #814), separate from WATCH on purpose (see
+        # the header's ROUTE READINESS section): WATCH says a process is
+        # polling, ROUTE says whether anything has actually been received.
+        ROUTE_BOUND="${FLOW_WAVE_ROUTE_UNCONFIRMED_SECS:-900}"
+        echo
+        printf '%-24s %s\n' ROLE ROUTE
+        UNCONFIRMED_ROLES=""
+        while IFS= read -r wr; do
+          [ -n "$wr" ] || continue
+          rs="$(route_state_for_role "$wr")"
+          [ "$rs" = unconfirmed ] && UNCONFIRMED_ROLES="$UNCONFIRMED_ROLES $wr"
+          printf '%-24s %s\n' "$wr" "$rs"
+        done <<EOF
+$WROLES
+EOF
+        if [ -n "$UNCONFIRMED_ROLES" ]; then
+          echo "UNCONFIRMED: no acknowledgement seen in over ${ROUTE_BOUND}s for role(s):$UNCONFIRMED_ROLES - a process may be polling (see WATCH above) without anyone actually receiving anything (issue #814)."
         fi
       fi
     fi

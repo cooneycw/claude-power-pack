@@ -987,6 +987,21 @@ mailbox_watch_age() {
     jq -r --arg r "$1" '(.watches // []) | map(select(.role == $r)) | (.[0].age_secs // "-") | tostring'
 }
 
+# mailbox_route_state ROLE -> confirmed | pending | unconfirmed | unknown
+# (issue #814). Read directly from the mailbox's own `routes` array - a
+# ROLE-level fact, unlike `acked`/`unread`/`rev` which are BOX-level and
+# aggregated above - so this needs no per-box summing. A sibling of
+# `mailbox_watch_state`, deliberately never combined with it: `watch` answers
+# "is a process polling" (#821-affected, unchanged), `route` answers "has
+# anything been acknowledged since" (#821-immune, from ack evidence). Fusing
+# them into one word is the #801 mistake this file already tells the story
+# of, one issue later.
+mailbox_route_state() {
+  [ -n "$MAILBOX_JSON" ] && [ "$MAILBOX_IN_USE" -eq 1 ] || { echo unknown; return; }
+  printf '%s' "$MAILBOX_JSON" |
+    jq -r --arg r "$1" '(.routes // []) | map(select(.role == $r)) | (.[0].state // "unknown")'
+}
+
 # mailbox_box_field ROLE FIELD -> that field of the role's OWN box, '-' when the
 # role has none. A worker reads outbox-<role>.md; the orchestrator reads every
 # inbox-*.md, so its figures are AGGREGATED (summed unread, and 'never read'
@@ -1787,16 +1802,19 @@ $rp"
         [ "$MAILBOX_IN_USE" -eq 1 ] || continue
         w_state="$(mailbox_watch_state "$r")"; w_age="$(mailbox_watch_age "$r")"
         w_watchers="$(mailbox_watch_watchers "$r")"
+        r_state="$(mailbox_route_state "$r")"
         m_rev="$(mailbox_box_field "$r" rev)"; m_acked="$(mailbox_box_field "$r" acked)"
         m_unr="$(mailbox_box_field "$r" unread)"; m_mt="$(mailbox_box_field "$r" mtime)"
         nr=false; mailbox_never_read "$r" && nr=true
         OUT="$(printf '%s' "$OUT" | jq -c \
           --arg r "$r" --arg ws "$w_state" --arg wa "$w_age" --arg wc "$w_watchers" \
+          --arg rs "$r_state" \
           --arg rev "$m_rev" --arg acked "$m_acked" --arg unr "$m_unr" --arg mt "$m_mt" \
           --argjson nr "$nr" '
             def num($v): if $v == "-" then null else ($v | tonumber? // null) end;
             .[$r] += {
               watch: {state: $ws, age_secs: num($wa), watchers: num($wc)},
+              route: {state: $rs},
               mailbox: {rev: num($rev), acked: num($acked), unread: num($unr),
                         last_delivery: (if $mt == "-" then null else $mt end),
                         never_read: $nr}
@@ -1922,6 +1940,18 @@ EOF
           dead)    extra="$extra watch=DEAD($(mailbox_watch_watchers "$r") watchers)" ;;
           absent)  extra="$extra watch=ABSENT" ;;
           unknown) extra="$extra watch=UNKNOWN" ;;
+        esac
+        # The route column (issue #814), a SIBLING of watch, never fused into
+        # it: `watch=` answers "is a process polling" (#821-affected),
+        # `route=` answers "has anything been acknowledged since" - ack
+        # evidence, #821-immune by construction. UNCONFIRMED is the only
+        # state worth a reader's eye at a glance, so it renders in caps like
+        # the other alarms on this row; the quiet states render lowercase.
+        rs="$(mailbox_route_state "$r")"
+        case "$rs" in
+          unconfirmed) extra="$extra route=UNCONFIRMED" ;;
+          pending)     extra="$extra route=pending" ;;
+          confirmed)   extra="$extra route=confirmed" ;;
         esac
         unr="$(mailbox_box_field "$r" unread)"
         if [ "$unr" != "-" ] && [ "$unr" -gt 0 ] 2>/dev/null; then

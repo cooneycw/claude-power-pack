@@ -169,10 +169,33 @@ written assignment sat undelivered ~2h while both sessions correctly stood by.
 Follow the delivery preference order in `register.md` - `SendMessage` first,
 then the mailbox, and a human relay only as a named last resort.
 
-**Arm the inbox watch at setup, before the first assignment.** One background
-Bash call covers every `inbox-*.md` in the wave, so a hello, a status report, or
-a worker's pushback wakes this session instead of waiting for the next time
-somebody looks:
+**Arm supervision over the inbox at setup, before the first assignment
+(issues #676, #814).** One call covers every `inbox-*.md` in the wave, so a
+hello, a status report, or a worker's pushback wakes this session instead of
+waiting for the next time somebody looks - and, since `supervise` re-arms
+itself, instead of waiting for THIS session to remember to re-arm it:
+
+```bash
+~/.claude/scripts/flow-wave-mailbox.sh supervise --role orchestrator --wave <WAVE> --timeout 300 --interval 3
+```
+
+**Why not a re-armed `watch` (issue #814).** The orchestrator's own watch died
+repeatedly on the `docker-list` wave, twice leaving a worker blocked on a
+ruling already made - and while designing #814 itself, an orchestrator went
+deaf for 25 minutes after a forgotten re-arm, missing seven messages
+including three from its own master, caught only because that master noticed
+the silence from outside. `supervise` detaches a daemon that keeps re-arming
+`watch --consume` on its own until this role is released or the wave ends -
+it removes the step that kept getting dropped, it does not merely warn about
+it. It still cannot force the harness to tell THIS session when mail
+arrives; see `route=` below for how that residual gap stays visible instead
+of assumed away. A live supervisor already holding this role refuses a
+second one (exit 4, `duplicate`); check
+`flow-wave-mailbox.sh watch --status --role orchestrator --wave <WAVE>`
+before assuming none is running.
+
+**Fallback: a bare, manually re-armed `watch` remains documented and
+supported:**
 
 ```bash
 ~/.claude/scripts/flow-wave-mailbox.sh watch --role orchestrator --wave <WAVE> --timeout 1800 --consume
@@ -180,19 +203,20 @@ somebody looks:
 
 `--consume` is required (issue #792): a bare `watch` used to consume by
 default, so a backlog already waiting could be marked read while only the
-first message was ever shown. Re-arm after each wake, for as long as the wave
-runs. Exit 5 is a plain timeout, never evidence a worker died - re-arm and
-read the roster. If a wake's FIRST line is
+first message was ever shown. **Re-arm after each wake, for as long as the
+wave runs** - exactly the discipline `supervise` exists to stop needing. Exit
+5 is a plain timeout, never evidence a worker died - re-arm and read the
+roster. If a wake's FIRST line is
 `flow-wave-mailbox: NOTE - mail was already unread when this watch armed`,
 that backlog predates this arm - not a fresh wake - so check `list` for how
 much else might be waiting before assuming this is all of it.
 
-**Re-arming is the step that gets dropped, including by this session (#801).**
-The watch is one-shot, so every wake ends with the orchestrator deaf until it
-re-arms - and on the `docker-list` wave the orchestrator's own watch died
-repeatedly, twice leaving a worker blocked on a ruling it had already made.
-Make the re-arm part of handling the wake, not a follow-up task. Verify with
-the live watcher count, never the state word alone:
+**Re-arming a bare `watch` is the step that gets dropped, including by this
+session (#801) - see #814 above for why `supervise` is preferred.** The watch
+is one-shot, so every wake ends with the orchestrator deaf until it re-arms.
+If using the fallback, make the re-arm part of handling the wake, not a
+follow-up task. Verify with the live watcher count, never the state word
+alone:
 
 ```bash
 ~/.claude/scripts/flow-wave-mailbox.sh watch --status --role orchestrator --wave <WAVE>
@@ -200,7 +224,14 @@ the live watcher count, never the state word alone:
 
 `FLOW_MAILBOX_WATCHER_COUNT=0` means nothing is listening, whatever the
 heartbeat age says; the state reads `dead` in that case and `unknown` when the
-count could not be read. Neither is a reason to stand down.
+count could not be read. Neither is a reason to stand down. This answers "is a
+process polling", not "is anything getting through" - `flow-wave-registry.sh
+list`'s separate `route=` column (issue #814) answers the second, from
+acknowledgement evidence rather than the process table: `route=UNCONFIRMED`
+means no ack has landed in over `FLOW_WAVE_ROUTE_UNCONFIRMED_SECS` (default
+900s) even though a supervisor may well be polling. A worker can be
+`watch=armed route=UNCONFIRMED` at the same time - that combination IS the
+signal, not a contradiction to explain away.
 
 **Route these four over the lane whenever `SendMessage` cannot reach a worker**
 (all of them failed to reach one in the reference run): the registration ack +
