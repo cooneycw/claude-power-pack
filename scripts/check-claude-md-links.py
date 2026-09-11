@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import re
 import sys
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import unquote
@@ -57,16 +58,29 @@ def _normalize_target(raw: str) -> str | None:
     return target
 
 
-def find_broken_links(root: Path, source: str) -> list[Finding]:
-    findings: set[Finding] = set()
+def _iter_examined_targets(source: str) -> Iterator[tuple[str, str]]:
+    """Every repository-local pointer this gate considers, as (target, kind).
+
+    The population find_broken_links checks for existence - shared so a
+    "nothing to check" count can never drift from what the gate actually
+    examines (issue #841, the #840/#842 lesson applied from the start: one
+    enumeration, two callers, not two copies of one).
+    """
     for match in MARKDOWN_LINK_RE.finditer(source):
         target = _normalize_target(match.group(1))
-        if target is not None and not (root / target).exists():
-            findings.add(Finding(target, "markdown link"))
+        if target is not None:
+            yield target, "markdown link"
     for match in BACKTICK_RE.finditer(source):
         target = match.group(1).strip()
-        if target.startswith(PATH_PREFIXES) and not (root / target).exists():
-            findings.add(Finding(target, "backtick path"))
+        if target.startswith(PATH_PREFIXES):
+            yield target, "backtick path"
+
+
+def find_broken_links(root: Path, source: str) -> list[Finding]:
+    findings: set[Finding] = set()
+    for target, kind in _iter_examined_targets(source):
+        if not (root / target).exists():
+            findings.add(Finding(target, kind))
     return sorted(findings, key=lambda finding: (finding.target, finding.kind))
 
 
@@ -84,7 +98,21 @@ def main(argv: list[str] | None = None) -> int:
     if not path.is_file():
         print(f"claude-md-links: missing {path}", file=sys.stderr)
         return 1
-    findings = find_broken_links(root, path.read_text(encoding="utf-8"))
+    source = path.read_text(encoding="utf-8")
+    examined = sum(1 for _ in _iter_examined_targets(source))
+    if not examined:
+        # Issue #841: a present CLAUDE.md with zero link-shaped tokens must not
+        # read the same as a clean scan. This script has exactly one caller
+        # (Makefile:74, no --root), so it only ever runs against CPP's own
+        # checkout - a CPP CLAUDE.md with no repository-local pointers is not a
+        # legitimate state, the file IS the project map, so this cannot fire on
+        # a real input.
+        print(
+            f"claude-md-links: {path} contains no repository-local pointers - nothing was checked",
+            file=sys.stderr,
+        )
+        return 1
+    findings = find_broken_links(root, source)
     if not findings:
         print("claude-md-links: ok - every repository-local pointer resolves")
         return 0
