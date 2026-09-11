@@ -1971,3 +1971,141 @@ class TestSupervise:
             assert _pid_alive(pid), "an unreadable registry sibling must not be treated as release"
         finally:
             self._kill_daemon(pid)
+
+
+# --------------------------------------------------------------------------
+# Watcher identity across wave directories (issue #821)
+#
+# count_watchers() could not distinguish a live watcher from an orphaned
+# command-substitution subshell of a dead one - measured, not inferred: one
+# killed watcher leaves 4-5 orphaned forks, byte-identical argv, unreached
+# by a signal to the parent, alive until their own --timeout. This suite's
+# own shape is what surfaced it: every test shares the literal wave name
+# "testwave" while getting a fresh FLOW_WAVE_MAILBOX_DIR per test, so an
+# orphan from one test's watcher has exactly the right argv to be counted
+# as a live watcher in the NEXT test.
+#
+# The fix keys the scan on the resolved wave DIRECTORY (read from each
+# candidate's own /proc/<pid>/environ), not the wave name string. This is a
+# CROSS-context fix, verified as exactly that - both halves are pinned
+# below, not just the one that looks good.
+# --------------------------------------------------------------------------
+
+
+@requires_bash
+class TestWatcherIdentityAcrossDirectories:
+    def test_a_live_watcher_in_a_different_directory_is_not_counted(
+        self, tmp_path: Path
+    ) -> None:
+        """The actual fix, demonstrated directly with two real processes
+        rather than a timing-dependent race: same role, same literal wave
+        NAME, two different FLOW_WAVE_MAILBOX_DIR values. B's scan must not
+        see A's process - and A's own scan must still see it, so the fix
+        does not overcorrect into hiding a genuinely live watcher from
+        itself."""
+        dir_a = tmp_path / "a"
+        dir_b = tmp_path / "b"
+        env_a = os.environ.copy()
+        env_a["FLOW_WAVE_MAILBOX_DIR"] = str(dir_a)
+        watcher = subprocess.Popen(
+            [
+                "bash", str(MAILBOX), "watch", "--role", "1", "--wave", WAVE,
+                "--timeout", "30", "--interval", "5", "--peek",
+            ],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env_a,
+        )
+        try:
+            wf = dir_a / WAVE / ".watch-1"
+            assert _wait_for(wf.exists, timeout=10), "watcher never armed"
+
+            env_b = os.environ.copy()
+            env_b["FLOW_WAVE_MAILBOX_DIR"] = str(dir_b)
+            from_b = subprocess.run(
+                ["bash", str(MAILBOX), "watch", "--status", "--role", "1", "--wave", WAVE],
+                capture_output=True, text=True, env=env_b, check=False,
+            )
+            assert _detail(from_b, "FLOW_MAILBOX_WATCHER_COUNT") == "0", (
+                "a live watcher in a DIFFERENT wave directory must not be "
+                "counted, even sharing the same wave name - the identity "
+                "hole issue #821 is about"
+            )
+            assert _detail(from_b, "FLOW_MAILBOX_WATCH_STATE") in ("absent", "dead")
+
+            from_a = subprocess.run(
+                ["bash", str(MAILBOX), "watch", "--status", "--role", "1", "--wave", WAVE],
+                capture_output=True, text=True, env=env_a, check=False,
+            )
+            assert _detail(from_a, "FLOW_MAILBOX_WATCHER_COUNT") == "1", (
+                "the fix must not ALSO hide a watcher from its own wave's scan"
+            )
+            assert _detail(from_a, "FLOW_MAILBOX_WATCH_STATE") == "armed"
+        finally:
+            watcher.kill()
+            watcher.communicate(timeout=10)
+
+    def test_a_same_wave_orphan_would_not_be_excluded_by_directory_alone(
+        self, tmp_path: Path
+    ) -> None:
+        """Required experiment before this fix shipped (see the PR/issue):
+        IF an orphan forms on the SAME wave directory as the process it was
+        forked from, does directory-keying exclude it? No - environment
+        inheritance at fork time has no mechanism to diverge, so such an
+        orphan is indistinguishable from a live watcher on that wave by
+        this measure alone.
+
+        This pins the MECHANISM as a proven fact, deliberately independent
+        of whether same-wave orphans have been OBSERVED in any specific
+        consumer's kill path - they have not, in real-process trials
+        targeting `supervise`'s own crash-restart kill (16 combined trials,
+        0 occurrences, considered-and-not-observed rather than a known
+        gap - see the PR). A minimal, DETERMINISTIC model of environment
+        inheritance across orphaning (real orphan-timing is at best a
+        2-in-12 race per the issue's own measurement, useless for a
+        reliable CI assertion): fork a child that itself backgrounds a
+        grandchild sharing its environment, kill only the middle process,
+        and confirm the grandchild - now reparented, exactly like a real
+        orphaned subshell would be - still carries the identical
+        `FLOW_WAVE_MAILBOX_DIR` its dead parent had.
+        """
+        wave_dir = tmp_path / "w"
+        env = os.environ.copy()
+        env["FLOW_WAVE_MAILBOX_DIR"] = str(wave_dir)
+        # Precondition: this fixture is only a valid demonstration if the
+        # directory it asserts inheritance for is the one actually in use.
+        assert env["FLOW_WAVE_MAILBOX_DIR"] == str(wave_dir)
+
+        marker = tmp_path / "child.pid"
+        parent = subprocess.Popen(
+            ["bash", "-c", f'exec bash -c "sleep 100" & echo $! > {marker}; sleep 100'],
+            env=env,
+        )
+        try:
+            assert _wait_for(marker.exists, timeout=10), "child never forked"
+            child_pid = int(marker.read_text().strip())
+            assert _pid_alive(child_pid)  # precondition: the child is actually alive
+
+            parent.kill()
+            _wait_for(lambda: not _pid_alive(parent.pid), timeout=10)
+            assert _pid_alive(child_pid), (
+                "the orphaned grandchild must survive its parent's death - "
+                "this is the mechanism issue #821 documents, reproduced "
+                "deterministically rather than raced for"
+            )
+
+            child_env = Path(f"/proc/{child_pid}/environ").read_bytes()
+            assert f"FLOW_WAVE_MAILBOX_DIR={wave_dir}".encode() in child_env, (
+                "an orphan inherits its dead parent's environment byte for "
+                "byte - it did not lose FLOW_WAVE_MAILBOX_DIR by being "
+                "orphaned, so directory-keying computes the SAME resolved "
+                "wave directory for it as for a live watcher on that wave. "
+                "This is the stated residual: a cross-context fix, not a "
+                "within-wave one."
+            )
+        finally:
+            if _pid_alive(parent.pid):
+                parent.kill()
+                parent.wait(timeout=10)
+            try:
+                os.kill(int(marker.read_text().strip()), signal.SIGKILL)
+            except (OSError, ValueError, FileNotFoundError):
+                pass
