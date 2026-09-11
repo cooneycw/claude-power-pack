@@ -45,7 +45,7 @@
 # its own lexicon - and the answer is the same one: it must be READ BACK by a
 # mechanism, not merely published.
 #
-# ---- The two axes, and why only two --------------------------------------
+# ---- The three axes --------------------------------------------------------
 #
 #   scope: general | implementation-only
 #     Whether the driver's deliverable can be anything (a written finding, a
@@ -58,10 +58,29 @@
 #     gemma:auto refusal on a terms-research issue - "a hard block, not a
 #     judgment call".
 #
-# `web_basis` records HOW a `no` is enforced, because three drivers say `no` for
-# three materially different reasons and collapsing them would overstate two of
-# them (see the qwen note below). It changes no verdict; it exists so a reader
-# can tell a mechanical denial from an unconfigured lane.
+#   container: yes | no
+#     Whether the driver's shell commands can reach a container/orchestration
+#     runtime (docker/kubectl/terraform) DIRECTLY, as opposed to through a `make`
+#     target the fence still permits. Added by issue #835: #783 declared scope
+#     and web and had no way to say "this driver cannot touch a container
+#     runtime", so a caller could route container-shaped work to a driver
+#     structurally incapable of it and get a clean-looking result back - which is
+#     exactly what happened assigning a CI-image docker inventory to gemma:auto
+#     (#831's groundwork). UNLIKE scope and web, this axis does NOT track scope:
+#     qwen:auto's shell commands reach docker unconfined even though it is
+#     implementation-only, because #749 already skips its sandbox for a remote
+#     Ollama endpoint - the same conditional #749 recorded for its `web_basis`.
+#
+# `web_basis` / `container_basis` record HOW a `no` (or a conditional `yes`) is
+# enforced, because the drivers reach these verdicts for materially different
+# reasons and collapsing them would overstate some of them (see the qwen notes
+# below). A basis changes no verdict; it exists so a reader can tell a
+# mechanical denial from an unconfigured lane, or a verified allowance from an
+# inferred one - EVERY value below was measured by actually running the command
+# through each driver's real harness, not read off its config and assumed (#835:
+# reading gemma's `opencode.json` and running the docker call through it gave
+# different confidence, which is the reason this whole axis was measured rather
+# than inferred).
 #
 # Nothing else is declared. Preconditions - `auto` needs a filed issue and an
 # existing checkout, which is why greenfield work routes to `exec` - are a
@@ -91,11 +110,13 @@
 #   driver string carrying a trailing annotation (`flow:auto (Opus)`, as a wave
 #   policy may well declare) matches on its leading token.
 #
-#   NEED is one of: implementation | research | web
+#   NEED is one of: implementation | research | web | container
 #     implementation  produces a source diff. Every driver meets this.
 #     research        produces a finding or recommendation rather than a diff.
 #                     Needs scope=general.
 #     web             must consult a live source during the run. Needs web=yes.
+#     container       must reach docker/kubectl/terraform directly from the
+#                     driver's own shell commands. Needs container=yes (#835).
 #
 # Output ends with a machine-readable verdict line:
 #   FLOW_DRIVER: known | unknown              (show / list)
@@ -123,18 +144,27 @@ usage_fail() { echo "flow-driver-capability: $1" >&2; exit 2; }
 # each basis against that file rather than against this table.
 DRIVERS="flow:auto codex:auto qwen:auto gemma:auto"
 
-driver_record() { # driver_record CANONICAL -> "scope|web|web_basis|scope_basis"
+driver_record() { # driver_record CANONICAL -> "scope|web|web_basis|scope_basis|container|container_basis"
   case "$1" in
     flow:auto)
       # Claude Code drives directly: the full tool surface, WebFetch/WebSearch
       # included, and no implementation-only fence anywhere in the document.
-      echo "general|yes|native (Claude Code WebFetch/WebSearch)|none (Claude implements directly)"
+      # Container: verified directly - the Bash tool ran `docker run`/`docker
+      # ps`/`docker inspect` against a real image with no sandbox denial (#831
+      # groundwork, #835).
+      echo "general|yes|native (Claude Code WebFetch/WebSearch)|none (Claude implements directly)|yes|native (Claude Code Bash tool, no sandbox denial; verified #831/#835)"
       ;;
     codex:auto)
       # .claude/commands/codex/auto.md - the fence at "IMPLEMENTATION-ONLY
       # agent", the sandbox at `--sandbox workspace-write` (issue #735), which
       # blocks network for the shell commands Codex runs.
-      echo "implementation-only|no|sandbox-blocked (codex --sandbox workspace-write, #735)|execution fence: IMPLEMENTATION-ONLY agent"
+      # Container: measured, not inferred from the network-block claim alone
+      # (issue #835) - `codex exec --sandbox workspace-write` ran `docker
+      # version` and got "permission denied while trying to connect to the
+      # docker API at unix:///var/run/docker.sock"; the identical command
+      # unsandboxed, same user, same host, succeeded (exit 0). So the sandbox
+      # blocks the socket connection specifically, not merely network egress.
+      echo "implementation-only|no|sandbox-blocked (codex --sandbox workspace-write, #735)|execution fence: IMPLEMENTATION-ONLY agent|no|sandbox-blocked (codex --sandbox workspace-write denies the docker socket connection; verified against an unsandboxed control, #835)"
       ;;
     qwen:auto)
       # .claude/commands/qwen/auto.md - same textual fence. The web answer is
@@ -145,12 +175,29 @@ driver_record() { # driver_record CANONICAL -> "scope|web|web_basis|scope_basis"
       # blocked by either profile"). So this is an absence of provision, not a
       # denial. Recorded honestly, because a matrix that overstates a block is
       # worse than one that admits a soft edge.
-      echo "implementation-only|no|lane-unconfigured (local code model, no web tool in the CPP lane; sandbox skipped for a remote endpoint, #749)|execution fence: IMPLEMENTATION-ONLY agent"
+      # Container: measured against the CPP lane's real condition, a remote
+      # Ollama endpoint (#749 skips the Docker/Seatbelt sandbox there) - `docker
+      # version` ran through the harness with no `--sandbox` flag and succeeded
+      # (exit 0, no permission_denials). Unlike scope/web, container does NOT
+      # track this driver's implementation-only fence: the fence constrains the
+      # MODEL's deliverable, not what its shell tool can reach. NOT verified
+      # against a local endpoint, where the sandbox is active and may behave
+      # like codex's - declared for the lane CPP actually runs, not assumed to
+      # generalize (#835).
+      echo "implementation-only|no|lane-unconfigured (local code model, no web tool in the CPP lane; sandbox skipped for a remote endpoint, #749)|execution fence: IMPLEMENTATION-ONLY agent|yes|unconfined for a remote Ollama endpoint (Docker sandbox skipped, #749; verified: 'docker version' succeeded, exit 0, no denial - untested against a local endpoint, #835)"
       ;;
     gemma:auto)
       # .claude/commands/gemma/auto.md + templates/opencode-gemma.json - the
       # hardest of the three: the permission profile denies the tools by name.
-      echo "implementation-only|no|profile-denied (gemma-implementer denies webfetch and websearch, #752)|execution fence: IMPLEMENTATION-ONLY agent"
+      # Container: same mechanism, same file - `docker*` is denied in the same
+      # permission tier as `git commit*`/`gh *`/`kubectl*`/`terraform*`. Verified
+      # empirically via a real `/gemma:exec` run, not by reading the config alone
+      # (#831 groundwork, #835): exit 0, a passing `delegated-run-check.sh`
+      # verdict, but the `docker run` tool call itself came back
+      # `"state":{"status":"error"}` naming the deny rule, and the model's own
+      # next line was "I cannot run docker commands." That gap - a clean process
+      # verdict sitting over a denied tool call - is #836.
+      echo "implementation-only|no|profile-denied (gemma-implementer denies webfetch and websearch, #752)|execution fence: IMPLEMENTATION-ONLY agent|no|profile-denied (gemma-implementer denies docker*/kubectl*/terraform*, #752/#835; verified via a real run, #831)"
       ;;
     *) return 1 ;;
   esac
@@ -175,45 +222,56 @@ canonicalize() {
   return 0
 }
 
-# fence_of SCOPE WEB -> the compact roster annotation, e.g. "impl-only,no-web".
+# fence_of SCOPE WEB CONTAINER -> the compact roster annotation, e.g.
+# "impl-only,no-web,no-container".
 #
 # This is the string flow-wave-registry.sh renders beside a role. It is derived
 # here rather than typed there: two copies of a capability claim drift, and the
 # drift is silent because both look like documentation.
 fence_of() {
-  local scope="$1" web="$2" parts=""
+  local scope="$1" web="$2" container="$3" parts=""
   [ "$scope" = "implementation-only" ] && parts="impl-only"
   if [ "$web" = "no" ]; then
     [ -n "$parts" ] && parts="$parts,no-web" || parts="no-web"
+  fi
+  if [ "$container" = "no" ]; then
+    [ -n "$parts" ] && parts="$parts,no-container" || parts="no-container"
   fi
   [ -n "$parts" ] || parts="general,web"
   printf '%s' "$parts"
 }
 
-# cannot_of SCOPE WEB -> space-separated needs this driver cannot meet.
+# cannot_of SCOPE WEB CONTAINER -> space-separated needs this driver cannot meet.
 cannot_of() {
-  local scope="$1" web="$2" out=""
+  local scope="$1" web="$2" container="$3" out=""
   [ "$scope" = "implementation-only" ] && out="research"
   if [ "$web" = "no" ]; then
     [ -n "$out" ] && out="$out web" || out="web"
+  fi
+  if [ "$container" = "no" ]; then
+    [ -n "$out" ] && out="$out container" || out="container"
   fi
   printf '%s' "$out"
 }
 
 # emit_driver CANONICAL - the FLOW_DRIVER_*= detail block for one driver.
 emit_driver() {
-  local key="$1" rec scope web web_basis scope_basis cannot
+  local key="$1" rec scope web web_basis scope_basis container container_basis cannot
   rec="$(driver_record "$key")"
   scope="${rec%%|*}"; rec="${rec#*|}"
   web="${rec%%|*}"; rec="${rec#*|}"
-  web_basis="${rec%%|*}"; scope_basis="${rec#*|}"
-  cannot="$(cannot_of "$scope" "$web")"
+  web_basis="${rec%%|*}"; rec="${rec#*|}"
+  scope_basis="${rec%%|*}"; rec="${rec#*|}"
+  container="${rec%%|*}"; container_basis="${rec#*|}"
+  cannot="$(cannot_of "$scope" "$web" "$container")"
   echo "FLOW_DRIVER=$key"
   echo "FLOW_DRIVER_SCOPE=$scope"
   echo "FLOW_DRIVER_SCOPE_BASIS=$scope_basis"
   echo "FLOW_DRIVER_WEB=$web"
   echo "FLOW_DRIVER_WEB_BASIS=$web_basis"
-  echo "FLOW_DRIVER_FENCE=$(fence_of "$scope" "$web")"
+  echo "FLOW_DRIVER_CONTAINER=$container"
+  echo "FLOW_DRIVER_CONTAINER_BASIS=$container_basis"
+  echo "FLOW_DRIVER_FENCE=$(fence_of "$scope" "$web" "$container")"
   echo "FLOW_DRIVER_CANNOT=${cannot:--}"
 }
 
@@ -223,6 +281,8 @@ emit_unknown() {
   echo "FLOW_DRIVER_SCOPE_BASIS=-"
   echo "FLOW_DRIVER_WEB=-"
   echo "FLOW_DRIVER_WEB_BASIS=-"
+  echo "FLOW_DRIVER_CONTAINER=-"
+  echo "FLOW_DRIVER_CONTAINER_BASIS=-"
   echo "FLOW_DRIVER_FENCE=-"
   echo "FLOW_DRIVER_CANNOT=-"
 }
@@ -286,12 +346,16 @@ case "$CMD" in
         rec="$(driver_record "$d")"
         scope="${rec%%|*}"; rest="${rec#*|}"
         web="${rest%%|*}"; rest="${rest#*|}"
-        web_basis="${rest%%|*}"; scope_basis="${rest#*|}"
+        web_basis="${rest%%|*}"; rest="${rest#*|}"
+        scope_basis="${rest%%|*}"; rest="${rest#*|}"
+        container="${rest%%|*}"; container_basis="${rest#*|}"
         row="$(jq -n --arg d "$d" --arg s "$scope" --arg w "$web" \
                      --arg wb "$web_basis" --arg sb "$scope_basis" \
-                     --arg f "$(fence_of "$scope" "$web")" \
-                     --arg c "$(cannot_of "$scope" "$web")" \
+                     --arg cnt "$container" --arg cntb "$container_basis" \
+                     --arg f "$(fence_of "$scope" "$web" "$container")" \
+                     --arg c "$(cannot_of "$scope" "$web" "$container")" \
               '{driver:$d, scope:$s, web:$w, web_basis:$wb, scope_basis:$sb,
+                container:$cnt, container_basis:$cntb,
                 fence:$f, cannot:($c | if . == "" then [] else split(" ") end)}')"
         out="$out$row"
       done
@@ -306,10 +370,12 @@ case "$CMD" in
       for d in $DRIVERS; do
         rec="$(driver_record "$d")"
         scope="${rec%%|*}"; rest="${rec#*|}"
-        web="${rest%%|*}"
-        cannot="$(cannot_of "$scope" "$web")"
-        printf '  %-12s %-20s web=%-4s cannot=%s\n' \
-          "$d" "$scope" "$web" "${cannot:--}"
+        web="${rest%%|*}"; rest="${rest#*|}"
+        rest="${rest#*|}"; rest="${rest#*|}"
+        container="${rest%%|*}"
+        cannot="$(cannot_of "$scope" "$web" "$container")"
+        printf '  %-12s %-20s web=%-4s container=%-4s cannot=%s\n' \
+          "$d" "$scope" "$web" "$container" "${cannot:--}"
       done
     fi
     echo "FLOW_DRIVER: known"
@@ -318,13 +384,13 @@ case "$CMD" in
 
   check)
     [ -n "$DRIVER" ] || usage_fail "check requires a driver name"
-    [ -n "$NEEDS" ] || usage_fail "check requires --needs <implementation|research|web>[,...]"
+    [ -n "$NEEDS" ] || usage_fail "check requires --needs <implementation|research|web|container>[,...]"
 
     NEED_LIST="$(printf '%s' "$NEEDS" | tr ',' ' ')"
     for n in $NEED_LIST; do
       case "$n" in
-        implementation|research|web) : ;;
-        *) usage_fail "unknown need '$n' - one of: implementation, research, web" ;;
+        implementation|research|web|container) : ;;
+        *) usage_fail "unknown need '$n' - one of: implementation, research, web, container" ;;
       esac
     done
 
@@ -342,7 +408,9 @@ case "$CMD" in
     rec="$(driver_record "$KEY")"
     scope="${rec%%|*}"; rest="${rec#*|}"
     web="${rest%%|*}"; rest="${rest#*|}"
-    web_basis="${rest%%|*}"; scope_basis="${rest#*|}"
+    web_basis="${rest%%|*}"; rest="${rest#*|}"
+    scope_basis="${rest%%|*}"; rest="${rest#*|}"
+    container="${rest%%|*}"; container_basis="${rest#*|}"
 
     UNMET=""; BLOCKED=""
     for n in $NEED_LIST; do
@@ -359,6 +427,13 @@ FLOW_DRIVER_BLOCKED: research - $KEY is $scope ($scope_basis); its deliverable i
             UNMET="$UNMET web"
             BLOCKED="$BLOCKED
 FLOW_DRIVER_BLOCKED: web - $KEY has no live-source access ($web_basis); it would answer from training data."
+          fi
+          ;;
+        container)
+          if [ "$container" != "yes" ]; then
+            UNMET="$UNMET container"
+            BLOCKED="$BLOCKED
+FLOW_DRIVER_BLOCKED: container - $KEY cannot reach a container runtime directly ($container_basis)."
           fi
           ;;
         implementation) : ;;   # every declared driver writes source files

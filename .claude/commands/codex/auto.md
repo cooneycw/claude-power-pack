@@ -21,13 +21,14 @@ Approve" for why the gate holds no bypass at all (issue #784).
 
 **Read this before accepting an assignment, not at Step 2.** The Step 3 gate
 answers *"is this the right plan?"*. It cannot answer *"can this driver do this
-work at all?"*, and for two whole classes of issue the answer here is no:
+work at all?"*, and for three whole classes of issue the answer here is no:
 
 | | |
 |---|---|
 | **Scope** | **implementation-only** - the deliverable is a source diff |
 | **Web** | **no** - `codex exec --sandbox workspace-write` blocks network for the shell commands Codex runs (issue #735) |
-| **Cannot take** | `research`, `web` |
+| **Container** | **no** - the same sandbox denies the `docker` socket connection directly (verified: `docker version` returned "permission denied while trying to connect to the docker API", against an unsandboxed control that succeeded for the same user, issue #835) |
+| **Cannot take** | `research`, `web`, `container` |
 
 - **Research tickets.** Work whose product is a finding, a recommendation, or a
   written comparison is not work Codex can do here: its execution fence (Step 4)
@@ -40,12 +41,18 @@ work at all?"*, and for two whole classes of issue the answer here is no:
   to Codex's shell commands, so it would answer from training data and report it
   with the same confidence as a verified fact. `/flow:auto` (Claude, with
   WebFetch/WebSearch) is the driver for that work.
+- **Anything needing docker/kubectl/terraform directly.** The same
+  `--sandbox workspace-write` that blocks network also denies the `docker`
+  socket connection - measured, not assumed: `docker version` under the
+  sandbox returned "permission denied while trying to connect to the docker
+  API", and the identical command unsandboxed, same user, succeeded (issue
+  #835). Route it to `/flow:auto`, or do it in-session.
 
-Both failures were observed on the `kyle-completion` wave, 2026-09-05, and both
-were caught only because a worker read the fence and refused. This section exists
-so the check reads a **stated contract** rather than inferring one from a fence
-written for a different purpose (#735's job is stopping Codex self-directing into
-the lifecycle, not describing what work suits it).
+The first two failures were observed on the `kyle-completion` wave, 2026-09-05,
+and both were caught only because a worker read the fence and refused. This
+section exists so the check reads a **stated contract** rather than inferring
+one from a fence written for a different purpose (#735's job is stopping Codex
+self-directing into the lifecycle, not describing what work suits it).
 
 The same contract is declared as machine-readable data - one source of truth for
 this table, the roster annotation, and the tests:

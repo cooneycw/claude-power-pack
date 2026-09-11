@@ -40,13 +40,14 @@ Approve" for why the gate holds no bypass at all (issue #784).
 
 **Read this before accepting an assignment, not at Step 2.** The Step 3 gate
 answers *"is this the right plan?"*. It cannot answer *"can this driver do this
-work at all?"*, and for two whole classes of issue the answer here is no:
+work at all?"*, and for three whole classes of issue the answer here is no:
 
 | | |
 |---|---|
 | **Scope** | **implementation-only** - the deliverable is a source diff |
 | **Web** | **no, mechanically** - the `gemma-implementer` profile DENIES `webfetch` and `websearch` by name (`templates/opencode-gemma.json`, issue #752) |
-| **Cannot take** | `research`, `web` |
+| **Container** | **no, mechanically** - the same profile DENIES `docker*`/`kubectl*`/`terraform*` by name, same tier as `git commit*`/`gh *`. Verified via a real run, not read off the config alone: exit 0, a clean `delegated-run-check.sh` verdict, but the `docker run` tool call itself came back denied and the model said "I cannot run docker commands" (issue #831/#835) |
+| **Cannot take** | `research`, `web`, `container` |
 
 - **Research tickets.** Work whose product is a finding, a recommendation, or a
   written comparison is not work this driver can do: its execution fence (Step 4)
@@ -60,6 +61,13 @@ work at all?"*, and for two whole classes of issue the answer here is no:
   cannot reach a source even if it tries, and a live-source question comes back
   answered from a local model's training data. `/flow:auto` is the driver for
   that work.
+- **Anything needing docker/kubectl/terraform directly.** Same permission
+  layer, same mechanism: `docker*`/`kubectl*`/`terraform*` are denied in
+  `gemma-implementer`'s profile at the same tier as `git commit*`/`gh *`. A
+  denied call still exits the run cleanly, so a caller reading only the exit
+  code or `delegated-run-check.sh`'s verdict would see success - it takes the
+  tool-call payload to see the denial (issue #831/#835). Route it to
+  `/flow:auto`, or do it in-session.
 
 Observed on the `kyle-completion` wave, 2026-09-05, and caught only because the
 worker read the profile and refused. This section exists so the check reads a
