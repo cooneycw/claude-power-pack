@@ -77,7 +77,6 @@ from __future__ import annotations
 import argparse
 import ast
 import re
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -265,10 +264,21 @@ def check_paths(paths: list[Path]) -> list[Finding]:
     return sorted(findings, key=lambda f: (str(f.path), f.assign_lineno))
 
 
+def test_files(tests_dir: Path) -> list[Path]:
+    """The modules this gate scans - the single definition of its population.
+
+    Issue #840: main()'s empty-scan check and check_tree()'s self-check caller
+    (tests/test_negative_fixture_preconditions.py:102) both need this exact
+    set, and a second copy of the glob is a second population to keep in sync -
+    change what counts as a test file in one and the gate scans a different set
+    than the repo's own self-check asserts against, both staying green.
+    """
+    return [p for p in tests_dir.rglob("*.py") if p.name.startswith(("test_", "conftest"))]
+
+
 def check_tree(tests_dir: Path) -> list[Finding]:
     """Check every ``test_*.py`` (and ``conftest.py``) under ``tests_dir``."""
-    paths = [p for p in tests_dir.rglob("*.py") if p.name.startswith(("test_", "conftest"))]
-    return check_paths(paths)
+    return check_paths(test_files(tests_dir))
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -284,10 +294,21 @@ def main(argv: list[str] | None = None) -> int:
     root: Path = args.root.resolve()
     tests_dir = root / "tests"
     if not tests_dir.is_dir():
-        print(f"negative-fixture: no tests/ directory under {root}", file=sys.stderr)
-        return 0
+        print(f"negative-fixture: no tests/ directory under {root} - nothing was scanned")
+        return 1
 
-    findings = check_tree(tests_dir)
+    # Keyed on files scanned, not directory existence (issue #840): a tests/
+    # that exists but holds no test_*.py/conftest.py is the same "examined
+    # nothing" condition as a missing directory, and un-keyed on it the "ok"
+    # message below would claim every precondition is asserted for a
+    # population of zero - a false clean bill of health, not merely a missed
+    # report.
+    paths = test_files(tests_dir)
+    if not paths:
+        print(f"negative-fixture: tests/ under {root} contains no test files - nothing was scanned")
+        return 1
+
+    findings = check_paths(paths)
     if not findings:
         print("negative-fixture: ok - every constructed absence asserts its precondition")
         return 0
