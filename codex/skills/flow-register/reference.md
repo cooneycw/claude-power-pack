@@ -463,9 +463,17 @@ copy; tell the user to run `/flow-repair`.)
 - Sends APPEND a rev-stamped block; nothing already unread is ever overwritten.
   (`--replace` exists for a box that holds current state rather than a log, and
   still bumps the rev so a replace can never read as already-consumed.)
-- `read` prints only what is newer than this role's cursor, then advances it;
-  `--all` re-reads history (useful after a compaction), `--peek` reads without
-  consuming so an armed watch still fires.
+- `read` prints every message this role has not yet ACKNOWLEDGED (issue
+  #815); `--all` additionally re-shows already-acknowledged history, `--peek`
+  reads without acknowledging anything so an armed watch still fires - AND a
+  dropped tool response leaves the message recoverable through the very next
+  read or watch, instead of silently gone. A bare `read` / `watch --consume`
+  still acknowledge what they print in the same call, same as before #815 -
+  fine for routine traffic. For an assignment or a verdict a dropped response
+  must not lose, prefer `--peek` and then a separate, explicit
+  `flow-wave-mailbox.sh ack --role <role> --wave cpp --revs <the rev(s) you
+  just confirmed you have>` once you actually hold the content - never ack
+  before you have genuinely seen it.
 - **A mailbox with no watch is not a lane.** The wake is the half that makes
   this different from the ad-hoc 2026-08-11 workaround, which still needed a
   human to say "go read your outbox". Arm the watch (worker step 4 above;
