@@ -45,7 +45,12 @@
 #           or a test step exited 0 having executed no tests
 #           (issue #621), OR a failed test was re-run against only
 #           its failed ids and PASSED (issue #769 - `warn (rerun
-#           passed: ...)`). Every qualification names the reason.
+#           passed: ...)`), OR a resumed run carried a step's result
+#           from an earlier invocation WITHOUT proof the tree was
+#           unchanged since (issue #804 - `warn (carried, unverified:
+#           ...)`). A carry the runner verified via tree_signature is
+#           NOT a warning - see the #804 note below. Every
+#           qualification names the reason.
 #   skipped no runner AND no Makefile/pyproject gates to run     -> exit 0
 #
 # The #621/#628/#769 qualification exists because this helper is the layer the flow
@@ -61,6 +66,22 @@
 # because this helper invokes whatever CPP checkout is installed. That checkout
 # may predate #769: an unknown env var is ignored, while an unknown argparse flag
 # is a hard error that prevents the quality gate from running at all.
+#
+# #804 - a resumed run and the bare `ok` it must not print silently:
+#   The runner can auto-resume a failed run from its last completed step. That
+#   is correct for a crash (the tree is unchanged) and wrong for a repair (the
+#   fix changed the tree, so the step that would exercise it is exactly the
+#   one the resume skips). The runner now hashes the tree at persist time and
+#   again before honoring a resume: a mismatch discards the stale state and
+#   starts fresh, so a repair-resume can no longer print a bare `ok` while
+#   carrying a stale result. This helper's job is the case the runner cannot
+#   close on its own - no git, or a state file older than this field - where
+#   it still resumes (so a non-git target project does not regress) but marks
+#   the carry unverified. This helper turns that into `warn`, never a bare
+#   `ok`, and warns ONLY on "carried AND NOT verified" - a verified carry
+#   (`tree_verified: true`) is a proven-safe crash-resume, not a warning, and
+#   must stay silent: this fleet's runs get killed and resumed often, and
+#   warning on every legitimate one trains readers to stop reading the line.
 #
 # Env (test hooks - unset in normal use):
 #   FLOW_GATE_CPP_DIR   override the CPP checkout path (set empty to force
@@ -86,7 +107,7 @@ for arg in "$@"; do
         --plan=*) PLAN="${arg#--plan=}" ;;
         --check-summary) MODE="check-summary" ;;
         --help|-h)
-            sed -n '2,69p' "$0" | sed 's/^# \{0,1\}//'
+            sed -n '2,90p' "$0" | sed 's/^# \{0,1\}//'
             exit 0
             ;;
         *)
@@ -220,6 +241,18 @@ if [[ "$RUNNER_OK" -eq 1 ]]; then
         "$RUNNER_JSON" 2>/dev/null | head -1)
     TIMED_OUT_AFTER=$(sed -n 's/^  "timed_out_after": \([0-9]*\),\?$/\1/p' \
         "$RUNNER_JSON" 2>/dev/null | head -1)
+    # A resumed run may carry a step's result from an earlier invocation
+    # (issue #838 follow-up) - fine when the runner PROVED the tree hadn't
+    # changed since (issue #804, tree_verified), unverifiable otherwise. Same
+    # bracket-anchored array pull as SKIPPED_GATES above; step ids are free-
+    # form (not limited to lint/test/typecheck the way gates are), so match
+    # any quoted token instead of the fixed alternation.
+    CARRIED=$(sed -n '/"carried_from_previous_run": \[/,/\]/p' "$RUNNER_JSON" 2>/dev/null \
+        | grep -v ':' | grep -oE '"[^"]+"' | tr -d '"' | tr '\n' ' ' | sed 's/ *$//')
+    TREE_VERIFIED=0
+    if grep -q '"tree_verified": true' "$RUNNER_JSON" 2>/dev/null; then
+        TREE_VERIFIED=1
+    fi
     rm -f "$RUNNER_JSON"
     # Print the #769 evidence before verdict precedence is applied: a later
     # failing step or skipped gates are more serious, but must not erase a flake
@@ -231,6 +264,18 @@ if [[ "$RUNNER_OK" -eq 1 ]]; then
         if [[ -n "$SKIPPED_GATES" ]]; then
             echo "WARNING: quality gates did NOT run: $SKIPPED_GATES (no Makefile target and no configured tool). This gate proved nothing about those checks - do not read as 'safe to merge' (issue #628)." >&2
             verdict "warn (skipped gates: $SKIPPED_GATES)"
+            exit 0
+        fi
+        # A carried step is fine when the runner PROVED the tree hadn't
+        # changed (tree_verified) - that is a genuine crash-resume, and
+        # warning on it would fire on every ordinary killed-and-resumed run
+        # in this fleet, training readers to ignore the line (issue #804).
+        # Warn ONLY when something was carried AND that proof is missing -
+        # no git, or a state file older than the tree_signature field - which
+        # is exactly the case this helper, not the runner, has to catch.
+        if [[ -n "$CARRIED" && "$TREE_VERIFIED" -ne 1 ]]; then
+            echo "WARNING: step(s) carried a result from an earlier invocation WITHOUT proof the tree was unchanged since: $CARRIED. This gate did not verify those steps against the current tree - do not read as 'safe to merge' until you know why verification was unavailable (issue #804)." >&2
+            verdict "warn (carried, unverified: $CARRIED)"
             exit 0
         fi
         if [[ -n "$RERUN_PASSED_IDS" ]]; then

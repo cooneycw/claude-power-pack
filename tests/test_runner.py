@@ -3,6 +3,7 @@
 import os
 import re
 import shutil
+import subprocess
 from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
@@ -18,7 +19,7 @@ from lib.cicd.runner import (
     _project_python_floor,
     run_plan,
 )
-from lib.cicd.state import RunState, StepRecord
+from lib.cicd.state import RunState, StepRecord, compute_tree_signature
 from lib.cicd.steps import _CPP_ROOT, BUILTIN_PLANS, GATE_STEP_IDS, ShellStep, StepDef
 
 
@@ -26,6 +27,22 @@ from lib.cicd.steps import _CPP_ROOT, BUILTIN_PLANS, GATE_STEP_IDS, ShellStep, S
 def tmp_project(tmp_path: Path) -> Path:
     """Create a temporary project directory for runner tests."""
     return tmp_path
+
+
+requires_git = pytest.mark.skipif(
+    shutil.which("git") is None, reason="git not available (e.g. Woodpecker validate container)"
+)
+
+
+def _git_repo(root: Path) -> Path:
+    """Init a git repo at ``root`` with one commit, so write-tree has a base."""
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+    subprocess.run(
+        ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "--allow-empty", "-q", "-m", "init"],
+        cwd=root,
+        check=True,
+    )
+    return root
 
 
 class TestDeterministicRunner:
@@ -1239,3 +1256,132 @@ class TestTestStepBudgetIsConfigurable:
         from lib.cicd.steps import DEFAULT_TEST_STEP_TIMEOUT
 
         assert DEFAULT_TEST_STEP_TIMEOUT > 620
+
+
+@requires_git
+class TestResumeDiscardsWhenTreeChanged:
+    """Issue #804: resume is correct for a crash (tree unchanged) and wrong
+    for a repair (tree changed - the usual reason to resume at all). The
+    runner now tells them apart by comparing compute_tree_signature() at
+    persist time and at resume time, rather than assuming a resume is always
+    a crash.
+    """
+
+    def _steps(self, test_cmd: str) -> list[StepDef]:
+        return [
+            StepDef(id="lint", command="echo 'lint ok'", timeout_seconds=30),
+            StepDef(id="test", command=test_cmd, timeout_seconds=30),
+        ]
+
+    def test_discards_and_reruns_every_step_when_the_tree_changed(
+        self, tmp_project: Path
+    ):
+        """The core #804 regression pin.
+
+        Proving invalidation alone is not enough - a test that only checks
+        the state file is gone would pass against an implementation that
+        discards the state and then somehow still skips a step. This asserts
+        three things: the signatures actually differ (negative-fixture
+        precondition), the resumable state was discarded rather than
+        resumed, and 'lint' - step 1, the one a real repair loop almost
+        always edits - actually RE-EXECUTED in the second invocation.
+        """
+        _git_repo(tmp_project)
+        (tmp_project / "src.py").write_text("x = 1\n")
+
+        log = StringIO()
+        runner = DeterministicRunner(project_root=tmp_project, output=log)
+        before_sig = compute_tree_signature(tmp_project)
+        first = runner.run("finish", step_defs=self._steps("exit 1"))
+        assert not first.success
+
+        # The "fix": edit the same tracked file a repair loop would touch,
+        # and make the failing step pass - the same observable facts a real
+        # source-level fix produces.
+        (tmp_project / "src.py").write_text("x = 2  # fixed\n")
+        after_sig = compute_tree_signature(tmp_project)
+        # Precondition: this fixture is only a valid negative case if the
+        # tree actually changed. Assert that BEFORE trusting anything the
+        # discard logic does with it.
+        assert before_sig is not None and after_sig is not None
+        assert before_sig != after_sig
+
+        runner2 = DeterministicRunner(project_root=tmp_project, output=log)
+        second = runner2.run("finish", step_defs=self._steps("echo 'test ok'"))
+
+        assert second.success
+        assert second.carried_from_previous_run == [], (
+            "lint must NOT be carried - the tree changed since it last ran"
+        )
+        lint_entry = next(s for s in second.step_details if s["id"] == "lint")
+        assert lint_entry.get("carried_from_previous_run") is not True
+        assert "executed_in_this_run" not in lint_entry, (
+            "a step that genuinely re-ran this invocation carries neither "
+            "marking - see TestCarriedOverStepsAreMarked in test_runner_state.py"
+        )
+        first_line = log.getvalue().splitlines()[0]
+        assert first_line.startswith("Starting plan"), (
+            f"first line must read 'Starting plan', never 'Resuming failed "
+            f"run' - a resumed-looking first line on a run that actually "
+            f"re-ran everything is the exact false signal #804 is about; "
+            f"got: {first_line!r}"
+        )
+        assert "Discarding resumable run" in log.getvalue()
+
+    def test_resumes_and_carries_lint_when_the_tree_is_unchanged(
+        self, tmp_project: Path
+    ):
+        """The crash-safety regression guard - the mirror of the test above.
+
+        If this stops passing, the #804 fix removed the feature the issue
+        explicitly says not to break: a genuine crash (nothing about the
+        tree changed) must still resume, still carry the untouched step's
+        result, and must NOT re-run it.
+        """
+        _git_repo(tmp_project)
+
+        log = StringIO()
+        runner = DeterministicRunner(project_root=tmp_project, output=log)
+        before_sig = compute_tree_signature(tmp_project)
+        first = runner.run("finish", step_defs=self._steps("exit 1"))
+        assert not first.success
+
+        # Simulated crash: NOTHING about the tree changes between attempts.
+        after_sig = compute_tree_signature(tmp_project)
+        # Precondition: this fixture is only a valid positive case if the
+        # tree genuinely did not change.
+        assert before_sig is not None and after_sig is not None
+        assert before_sig == after_sig
+
+        runner2 = DeterministicRunner(project_root=tmp_project, output=log)
+        second = runner2.run("finish", step_defs=self._steps("echo 'test ok'"))
+
+        assert second.success
+        assert second.carried_from_previous_run == ["lint"]
+        assert second.tree_verified is True
+        lint_entry = next(s for s in second.step_details if s["id"] == "lint")
+        assert lint_entry["carried_from_previous_run"] is True
+        assert lint_entry["executed_in_this_run"] is False
+        assert "Resuming failed run" in log.getvalue()
+        assert "Discarding resumable run" not in log.getvalue()
+
+    def test_falls_back_to_unconditional_resume_when_unverifiable(
+        self, tmp_project: Path
+    ):
+        """No git repo -> compute_tree_signature() returns None on both
+        sides -> today's pre-#804 behavior (resume unconditionally), so a
+        non-git target project does not regress. tree_verified=False is the
+        signal flow-finish-gate.sh's fallback check depends on."""
+        # Deliberately NOT a git repo.
+        log = StringIO()
+        runner = DeterministicRunner(project_root=tmp_project, output=log)
+        first = runner.run("finish", step_defs=self._steps("exit 1"))
+        assert not first.success
+
+        runner2 = DeterministicRunner(project_root=tmp_project, output=log)
+        second = runner2.run("finish", step_defs=self._steps("echo 'test ok'"))
+
+        assert second.success
+        assert second.carried_from_previous_run == ["lint"]
+        assert second.tree_verified is False
+        assert "Discarding resumable run" not in log.getvalue()

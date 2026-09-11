@@ -7,6 +7,10 @@ failed runs can be resumed from the last successful step.
 from __future__ import annotations
 
 import json
+import os
+import shutil
+import subprocess
+import tempfile
 import time
 import uuid
 from dataclasses import asdict, dataclass, field, fields
@@ -57,6 +61,94 @@ class StepRecord:
         return cls(**{k: v for k, v in data.items() if k in known})
 
 
+def compute_tree_signature(project_root: Path) -> Optional[str]:
+    """Content signature of the working tree, or None when it can't be trusted.
+
+    Used to tell a genuine crash-resume (the tree a failed run left behind is
+    still the tree we're about to resume against) apart from a repair-resume
+    (the tree changed - usually because the failure was fixed - so any step
+    result earned against the OLD tree no longer describes the one we're
+    about to skip re-running it against). Issue #804.
+
+    Deliberately a CONTENT hash (via a scratch git index + ``git write-tree``,
+    scoped to tracked + untracked-but-not-gitignored files), not a cheaper
+    ``git status`` (paths + M/A/D codes, no content). A status-only signature
+    was considered and rejected: it cannot distinguish a file that was
+    modified once from one modified TWICE between the two runner invocations
+    - both show the identical status line ``M path``, so the signature would
+    match and the stale result would be carried anyway. That is not a rare
+    edge case, it is this fleet's most common repair loop: a gate fails on an
+    uncommitted change, the SAME file is edited again to fix it, nothing is
+    committed until the gate goes green. A status-only signature would have
+    shipped as a fix for #804 and fixed nothing in exactly the case #804 was
+    filed for.
+
+    The scratch index is created via ``GIT_INDEX_FILE`` so this never touches
+    the caller's real index or working tree - safe to call from inside a live
+    ``run()`` without side effects on the checkout it's inspecting.
+
+    ``.claude/runs/`` - this runner's OWN state directory - is excluded
+    unconditionally, not left to the target project's ``.gitignore``. It
+    lives inside ``project_root`` and a failed run writes its state file
+    there before this function is ever asked to verify a resume, so without
+    the exclusion the file `find_latest()` is about to read back would
+    itself be new input to the hash: signature-at-persist-time computed
+    before the file existed, signature-at-resume-time computed after -
+    mismatched on every single resume regardless of whether the TREE changed
+    at all, silently deleting the crash-safety this feature exists for. CPP's
+    own ``.gitignore`` happens to cover this path, which is exactly why this
+    bug did not show up testing against a CPP checkout and only surfaced
+    against a bare scratch repo with no ``.gitignore`` - a target project
+    cannot be trusted to have made the same choice, so the exclusion does not
+    depend on it.
+
+    Returns None - "cannot verify" - rather than raising, on any of: no
+    ``git`` binary, ``project_root`` is not a git repository, or any
+    subprocess/OS failure (timeout, permissions). Callers MUST treat None as
+    unverifiable and fall back to the pre-#804 unconditional-resume behavior;
+    this function never turns "I don't know" into "nothing changed".
+    """
+    if shutil.which("git") is None:
+        return None
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            env = {**os.environ, "GIT_INDEX_FILE": str(Path(tmp) / "index")}
+            subprocess.run(
+                ["git", "-C", str(project_root), "add", "-A"],
+                env=env,
+                check=True,
+                capture_output=True,
+                timeout=30,
+            )
+            # Drop the runner's own bookkeeping from the scratch index before
+            # hashing it - see the docstring above. --ignore-unmatch so a run
+            # with no .claude/runs/ yet (nothing has failed here before) is
+            # not an error.
+            subprocess.run(
+                [
+                    "git", "-C", str(project_root),
+                    "rm", "-r", "--cached", "--ignore-unmatch", "-q",
+                    "--", ".claude/runs",
+                ],
+                env=env,
+                check=True,
+                capture_output=True,
+                timeout=30,
+            )
+            result = subprocess.run(
+                ["git", "-C", str(project_root), "write-tree"],
+                env=env,
+                check=True,
+                capture_output=True,
+                timeout=30,
+                text=True,
+            )
+    except (subprocess.SubprocessError, OSError):
+        return None
+    signature = result.stdout.strip()
+    return signature or None
+
+
 @dataclass
 class RunState:
     """Persistent state for a runner execution.
@@ -72,6 +164,17 @@ class RunState:
     started_at: Optional[str] = None
     finished_at: Optional[str] = None
     status: str = "running"  # running, success, failed
+    # Content signature of the working tree at the moment this run first
+    # became resumable (issue #804), from compute_tree_signature(). Compared
+    # against a freshly computed signature before a resume is honored: equal
+    # means a genuine crash left the tree untouched, so carried-over step
+    # results are still valid; different means the tree changed - the usual
+    # reason to resume is that something was fixed - so those results
+    # describe a tree that no longer exists. None on a state file written
+    # before this field existed, or when the signature could not be computed
+    # (no git, not a repo); either way the caller must treat it as
+    # unverifiable and fall back to the pre-#804 unconditional resume.
+    tree_signature: Optional[str] = None
 
     @classmethod
     def create(cls, plan_name: str, step_ids: list[str]) -> RunState:
@@ -108,6 +211,17 @@ class RunState:
         state_file = root / ".claude" / "runs" / f"{self.run_id}.json"
         if state_file.exists():
             state_file.unlink()
+
+    def discard(self, project_root: Optional[Path] = None) -> None:
+        """Remove state file because it was invalidated, not because it succeeded.
+
+        Same file operation as cleanup() - both just delete the state file -
+        but a different name at the call site (issue #804): the runner calls
+        this when a resumable failed run's tree_signature no longer matches
+        the current tree, so a reader of runner.py sees WHY the file is gone
+        without following cleanup()'s docstring into the wrong story.
+        """
+        self.cleanup(project_root)
 
     def mark_step_running(self, index: int) -> None:
         """Mark a step as running."""
@@ -180,6 +294,7 @@ class RunState:
             "started_at": self.started_at,
             "finished_at": self.finished_at,
             "status": self.status,
+            "tree_signature": self.tree_signature,
         }
 
     @classmethod

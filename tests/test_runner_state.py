@@ -1,16 +1,34 @@
 """Tests for CI/CD runner state persistence."""
 
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
 
-from lib.cicd.state import RunState, StepRecord, StepStatus
+from lib.cicd.state import RunState, StepRecord, StepStatus, compute_tree_signature
 
 
 @pytest.fixture
 def tmp_project(tmp_path: Path) -> Path:
     """Create a temporary project directory."""
     return tmp_path
+
+
+requires_git = pytest.mark.skipif(
+    shutil.which("git") is None, reason="git not available (e.g. Woodpecker validate container)"
+)
+
+
+def _git_repo(root: Path) -> Path:
+    """Init a git repo at ``root`` with one commit, so write-tree has a base."""
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+    subprocess.run(
+        ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "--allow-empty", "-q", "-m", "init"],
+        cwd=root,
+        check=True,
+    )
+    return root
 
 
 class TestStepRecord:
@@ -237,3 +255,74 @@ class TestCarriedOverStepsAreMarked:
         entry = state.summary(executed_from=1)["steps"][0]
         assert entry["status"] == StepStatus.SKIPPED.value
         assert "carried_from_previous_run" not in entry
+
+
+@requires_git
+class TestComputeTreeSignature:
+    """compute_tree_signature() is the crash-vs-repair discriminator for
+    issue #804: a resume is only honored when this value, taken at persist
+    time and again at resume time, matches.
+    """
+
+    def test_stable_when_nothing_changed(self, tmp_project: Path):
+        _git_repo(tmp_project)
+        (tmp_project / "a.py").write_text("x = 1\n")
+        first = compute_tree_signature(tmp_project)
+        second = compute_tree_signature(tmp_project)
+        assert first is not None
+        assert first == second
+
+    def test_changes_on_a_tracked_file_edit(self, tmp_project: Path):
+        _git_repo(tmp_project)
+        target = tmp_project / "a.py"
+        target.write_text("x = 1\n")
+        before = compute_tree_signature(tmp_project)
+        target.write_text("x = 2  # fixed\n")
+        after = compute_tree_signature(tmp_project)
+        assert before is not None and after is not None
+        assert before != after
+
+    def test_changes_on_a_new_untracked_not_gitignored_file(self, tmp_project: Path):
+        """A new file lint would pick up must count as a tree change even
+        though git has never seen it before - that's the point of scoping
+        to tracked + untracked-but-not-gitignored, not tracked alone."""
+        _git_repo(tmp_project)
+        before = compute_tree_signature(tmp_project)
+        (tmp_project / "new_module.py").write_text("y = 1\n")
+        after = compute_tree_signature(tmp_project)
+        assert before is not None and after is not None
+        assert before != after
+
+    def test_ignores_a_gitignored_file(self, tmp_project: Path):
+        _git_repo(tmp_project)
+        (tmp_project / ".gitignore").write_text("ignored.log\n")
+        before = compute_tree_signature(tmp_project)
+        (tmp_project / "ignored.log").write_text("noise\n")
+        after = compute_tree_signature(tmp_project)
+        assert before is not None and after is not None
+        assert before == after
+
+    def test_ignores_the_runners_own_state_directory(self, tmp_project: Path):
+        """.claude/runs/ is the runner's own bookkeeping, written by the
+        very run whose resume this signature is meant to gate - it must
+        never be able to invalidate itself. Regression guard: without the
+        exclusion, this signature changes on every resume regardless of
+        whether the TREE changed, because the failed run's own state file
+        did not exist yet when the first signature was taken."""
+        _git_repo(tmp_project)
+        before = compute_tree_signature(tmp_project)
+        runs_dir = tmp_project / ".claude" / "runs"
+        runs_dir.mkdir(parents=True)
+        (runs_dir / "finish-deadbeef.json").write_text('{"run_id": "finish-deadbeef"}\n')
+        after = compute_tree_signature(tmp_project)
+        assert before is not None and after is not None
+        assert before == after
+
+    def test_none_outside_a_git_repository(self, tmp_project: Path):
+        # tmp_project is a bare directory - never git-init'd.
+        assert compute_tree_signature(tmp_project) is None
+
+    def test_none_when_git_is_unavailable(self, tmp_project: Path, monkeypatch: pytest.MonkeyPatch):
+        _git_repo(tmp_project)
+        monkeypatch.setattr(shutil, "which", lambda _cmd: None)
+        assert compute_tree_signature(tmp_project) is None
