@@ -388,6 +388,14 @@ in_linked_worktree() { [[ -f .git ]]; }
 # common case (no sibling holds the branch) still costs nothing but the
 # original `[[ -f .git ]]`, and every existing test that doesn't care about
 # siblings keeps working without stubbing a worktree listing at all.
+#
+# Known, accepted limitation: awk's $2 splits on whitespace, so a worktree
+# path containing a space is truncated and can miss the is_self comparison -
+# that worktree then reads as a stranger even when it's the one we're in.
+# This is safe, not silent: over-detection only omits --delete-branch, and
+# the unconditional post-merge ls-remote verification below still cleans up
+# the remote branch either way. Under-detection - the dangerous direction -
+# cannot happen from this, so it is priced in rather than worked around.
 branch_checked_out_in_sibling_worktree() {
     local branch="$1" self
     self=$("$GIT_BIN" rev-parse --show-toplevel 2>/dev/null) || return 1
