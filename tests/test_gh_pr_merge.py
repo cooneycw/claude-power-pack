@@ -453,17 +453,24 @@ def _run(
     # instead of the stub (issue #716/#717 test isolation).
     env.pop("WOODPECKER_API_TOKEN", None)
     env.pop("WOODPECKER_SERVER", None)
-    if extra_env:
-        env.update(extra_env)
     env["GH_PR_MERGE_GH"] = stubs["GH_PR_MERGE_GH"]
     env["GH_PR_MERGE_GIT"] = stubs["GH_PR_MERGE_GIT"]
     env["GH_PR_MERGE_CURL"] = stubs["GH_PR_MERGE_CURL"]
     env["GH_PR_MERGE_POLL_DELAY"] = "0"  # keep the mergeability poll instant in tests
+    env["GH_PR_MERGE_CONFLICT_SETTLE"] = "0"  # keep the CONFLICTING settle window instant in tests
+    env["GH_PR_MERGE_POLL_ATTEMPTS"] = "5"  # pinned, same convention as *_ATTEMPTS below
     env["GH_PR_MERGE_BASE_RETRY_DELAY"] = "0"  # keep the base-modified retry instant too
     env["GH_PR_MERGE_CHECK_DELAY"] = "0"  # and the #577 required-check wait
     env["GH_PR_MERGE_CHECK_ATTEMPTS"] = "3"  # bounded, so the timeout path is testable
     env["GH_PR_MERGE_QUEUE_WAIT_DELAY"] = "0"  # and the #717 queue-wait budget
     env["GH_PR_MERGE_QUEUE_WAIT_ATTEMPTS"] = "3"  # bounded, so the timeout path is testable
+    if extra_env:
+        # Applied LAST so a caller's override always wins over the fixed
+        # defaults above - previously this ran first and was silently
+        # clobbered for any key this function also sets a default for
+        # (issue #805 review: this is exactly what happened to the one test
+        # that overrides GH_PR_MERGE_CONFLICT_SETTLE).
+        env.update(extra_env)
     return subprocess.run(
         ["bash", str(SCRIPT), *args],
         check=False,
@@ -590,11 +597,13 @@ def test_transient_unknown_then_mergeable_proceeds(tmp_path: Path):
 
 def test_conflicting_stops_before_merge(tmp_path: Path):
     # A genuinely CONFLICTING PR must stop with a clear message and never attempt
-    # the merge.
+    # the merge. The stub repeats "CONFLICTING" for every poll, so the decisive
+    # settle-window read (issue #805) is corroborated too.
     stubs = _make_stubs(tmp_path, mergeable="CONFLICTING")
     result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-485-fix")
     assert result.returncode == 1
     assert "CONFLICTING" in result.stderr
+    assert "apart" in result.stderr, "must name the measured interval, not just assert staleness"
     calls = _calls(stubs)
     assert not any(c.startswith("gh pr merge") for c in calls), "must not merge a CONFLICTING PR"
 
@@ -612,6 +621,75 @@ def test_persistent_unknown_fails_open_and_merges(tmp_path: Path):
     poll_calls = [c for c in calls if c.startswith("gh pr view") and "mergeable" in c]
     assert len(poll_calls) == 5, poll_calls
     assert any(c.startswith("gh pr merge") for c in calls), calls
+
+
+def test_transient_conflicting_then_mergeable_proceeds(tmp_path: Path):
+    # Issue #805: a CONFLICTING read right after a push can be exactly as stale
+    # as UNKNOWN - the very next read resolving to MERGEABLE must still proceed,
+    # the same as the #485 UNKNOWN case.
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        mergeable=["CONFLICTING", "MERGEABLE"],
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-805-fix")
+    assert result.returncode == 0, result.stderr
+    assert "merged" in result.stdout
+    calls = _calls(stubs)
+    assert any(c.startswith("gh pr merge") for c in calls), calls
+
+
+def test_conflicting_survives_settle_window_then_mergeable_proceeds(tmp_path: Path):
+    # The regression #805 actually reports: a CONFLICTING read that is STILL
+    # CONFLICTING on every read inside the normal poll budget (all landing
+    # inside the same stale window) must not be trusted until a decisive read
+    # taken after the full settle window has genuinely elapsed - which here
+    # reveals MERGEABLE. GH_PR_MERGE_CONFLICT_SETTLE=2 (not the test-default 0,
+    # and not 1) is required to make this deterministic: $SECONDS has
+    # one-second granularity, so settle=1 can cross a single tick boundary from
+    # the ~100ms of real work five stub spawns take and hard-stop early
+    # (flaky); settle=2 needs two tick boundaries, which that work cannot
+    # reach. Costs ~2s of real wall time - the price of the one test that
+    # actually proves the property.
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        mergeable=["CONFLICTING"] * 5 + ["MERGEABLE"],
+    )
+    result = _run(
+        _linked_worktree(tmp_path),
+        stubs,
+        "42",
+        "issue-805-fix",
+        extra_env={
+            "GH_PR_MERGE_CONFLICT_SETTLE": "2",
+            "GH_PR_MERGE_POLL_ATTEMPTS": "5",
+        },
+    )
+    assert result.returncode == 0, result.stderr
+    assert "merged" in result.stdout
+    calls = _calls(stubs)
+    poll_calls = [c for c in calls if c.startswith("gh pr view") and "mergeable" in c]
+    assert len(poll_calls) == 6, calls  # 5 main-loop reads + 1 decisive settle-window read
+    assert any(c.startswith("gh pr merge") for c in calls), calls
+
+
+def test_conflicting_never_corroborated_fails_open(tmp_path: Path):
+    # A single CONFLICTING sighting that is never corroborated - the decisive
+    # settle-window read comes back UNKNOWN, not CONFLICTING - fails open and
+    # still attempts the merge, same shape as the persistent-UNKNOWN case.
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        mergeable=["CONFLICTING", "UNKNOWN"],
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-805-fix")
+    assert result.returncode == 0, result.stderr
+    assert "merged" in result.stdout
+    assert "did not corroborate" in result.stderr
 
 
 # The exact stderr GitHub returns when a sibling PR merged in the poll->merge
