@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import ast
 import importlib.util
+import re
 import sys
 from pathlib import Path
 
@@ -539,3 +540,170 @@ def test_cli_is_silent_success_on_a_clean_tree(
     (tests_dir / "test_ok.py").write_text("def test_thing():\n    assert True\n", encoding="utf-8")
     assert checker.main(["--root", str(tmp_path)]) == 0
     assert "ok" in capsys.readouterr().out
+
+
+# --------------------------------------------------------------------------- #
+# A `case` pattern label is read as a command invocation (issue #833)
+#
+# `SHELL_BINARY_RE` matches a guarded name at "command position" - after a
+# newline, `;`, `&`, `|`, `(`, backtick, `$(`, `&&`, `||`, or an anchor
+# keyword. A `case` label sits at exactly that position too (`ps)` follows a
+# newline the same way a real command would), and its closing `)` satisfies
+# the trailing `\b` the same way a real command's argument list would - so
+# nothing in the regex's surroundings distinguishes the two. Latent today
+# because none of the four currently-guarded binaries (git/docker/gitleaks/
+# jq) is a label anyone writes; `ps`, `timeout` and `rev` all are, in this
+# repo's own scripts, and widening `GUARDED_BINARIES` to include any of them
+# was what surfaced it (101 findings, all one label, per the issue).
+#
+# Per review: the regression fixture is the REAL line from
+# scripts/flow-wave-mailbox.sh, not a constructed one - a real in-tree
+# instance is evidence, a hand-written case block is illustration. And the
+# fix must be tested in BOTH directions: it must stop reading the label as a
+# use, and it must NOT also stop seeing the genuine invocations a few lines
+# later - the undercount direction is the unsafe one (same principle as the
+# unreadable-`/proc/<pid>/environ` note on issue #832).
+# --------------------------------------------------------------------------- #
+
+MAILBOX_SCRIPT = ROOT / "scripts" / "flow-wave-mailbox.sh"
+
+
+def _widened_checker(tmp_path: Path, binaries: frozenset[str]):
+    """A second checker instance with `GUARDED_BINARIES` widened - the exact
+    sed-substitution technique issue #833 used to produce its 101-finding
+    oracle, so this reproduces that measurement rather than a different one.
+    A separate module object (not the shared `checker` used elsewhere in
+    this file) so widening here cannot leak into any other test's import.
+    """
+    text = SCRIPT.read_text(encoding="utf-8")
+    widened_source, n = re.subn(
+        r"^GUARDED_BINARIES = .*$",
+        f"GUARDED_BINARIES = frozenset({sorted(binaries)!r})",
+        text,
+        count=1,
+        flags=re.MULTILINE,
+    )
+    assert n == 1, "GUARDED_BINARIES assignment line not found - checker source shape changed"
+    widened_path = tmp_path / "check_test_binary_guards_widened.py"
+    widened_path.write_text(widened_source, encoding="utf-8")
+    spec = importlib.util.spec_from_file_location(
+        "check_test_binary_guards_widened", widened_path
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module  # dataclass() needs the module registered before exec
+    spec.loader.exec_module(module)
+    return module
+
+
+def _ps_uses_in_mailbox_script(widened) -> list:
+    text = MAILBOX_SCRIPT.read_text(encoding="utf-8")
+    source = widened.SHELL_COMMENT_RE.sub("", text)
+    lines = source.splitlines()
+    return [use for use in widened._script_uses(source, lines) if use.binary == "ps"]
+
+
+def test_the_case_label_at_720_is_not_read_as_a_use(tmp_path: Path) -> None:
+    text = MAILBOX_SCRIPT.read_text(encoding="utf-8")
+    # Precondition: the exact reproduction line from issue #833 is still
+    # there, so this test is checking the real defect, not a stale line
+    # number that happens to still pass.
+    assert 'ps)   watcher_roles_ps_fallback "$wave" ;;' in text
+
+    widened = _widened_checker(tmp_path, frozenset({"git", "docker", "gitleaks", "jq", "ps"}))
+    uses = _ps_uses_in_mailbox_script(widened)
+    assert all(use.indent != 4 or use.failsoft for use in uses)
+    # The label produces NO use at all (not even a fail-soft one) - it is
+    # not a command, so it must not appear in the use list in any form.
+    assert len(uses) == 2, (
+        f"expected exactly the two real `ps` invocations (845, 894), got {uses} - "
+        "either the label at 720 is still being read as a use, or a real "
+        "invocation was lost"
+    )
+
+
+def test_the_real_invocations_at_845_and_894_are_still_detected(tmp_path: Path) -> None:
+    """The undercount direction is the unsafe one (per review): confirms the
+    fix narrows what counts as a case label, not what counts as `ps` at all."""
+    text = MAILBOX_SCRIPT.read_text(encoding="utf-8")
+    assert 'ppid="$(ps -o ppid= -p "$pid" 2>/dev/null' in text  # precondition: :845
+    assert "$(ps -eo pid,ppid,args --no-headers 2>/dev/null)" in text  # precondition: :894
+
+    widened = _widened_checker(tmp_path, frozenset({"git", "docker", "gitleaks", "jq", "ps"}))
+    uses = _ps_uses_in_mailbox_script(widened)
+    assert len(uses) == 2, f"expected both real invocations, got {uses}"
+    # Both are fail-soft in the source (stderr silenced) - that classification
+    # is unaffected by this fix and is asserted here so a future change that
+    # breaks IT is caught by this test too, not only a change that breaks
+    # detection outright.
+    assert all(use.failsoft for use in uses)
+
+
+def test_ps_is_not_a_hard_requirement_of_the_real_script(tmp_path: Path) -> None:
+    """The end-to-end shape of issue #833's oracle: with `ps` added to
+    GUARDED_BINARIES, `binaries_in_script()` on the real file must not
+    report `ps` as a MANDATORY requirement - it never was one; both real
+    uses are fail-soft and the label was never a use."""
+    widened = _widened_checker(tmp_path, frozenset({"git", "docker", "gitleaks", "jq", "ps"}))
+    assert "ps" not in widened.binaries_in_script(MAILBOX_SCRIPT)
+
+
+def test_a_pipe_joined_case_label_is_also_not_a_use(tmp_path: Path) -> None:
+    """CASE_LABEL_RE covers `a|ps|b)`, not only the single-pattern shape
+    actually in the tree today (issue #833's own scope note: 22 distinct
+    case labels exist across scripts/*.sh; only the single-pattern shape
+    happens to be real today, but the fix should not need re-deriving the
+    moment a pipe-joined one is added). A constructed fixture is fine here -
+    unlike the two tests above, there is no real in-tree instance to point
+    at yet."""
+    widened = _widened_checker(tmp_path, frozenset({"git", "docker", "gitleaks", "jq", "ps"}))
+    source = 'case "$x" in\n  proc|ps|none) do_thing ;;\nesac\n'
+    lines = source.splitlines()
+    uses = [u for u in widened._script_uses(source, lines) if u.binary == "ps"]
+    assert uses == []
+
+
+def test_a_real_command_immediately_followed_by_a_close_paren_still_counts(
+    tmp_path: Path,
+) -> None:
+    """The narrow "next char is `)`" heuristic issue #833 also considered -
+    and a reviewer then measured, not just warned about - would misfire on a
+    genuine zero-argument invocation closed immediately: `ps)` (a case
+    label) and `$(ps)` (a real invocation) are TEXTUALLY IDENTICAL, a bare
+    binary name followed immediately by `)`; only what PRECEDES the name
+    tells them apart (a line start vs. a literal `$(`), which is exactly why
+    CASE_LABEL_RE anchors on line start rather than rejecting on the
+    trailing `)` alone. A synthetic minimal case, kept alongside the real
+    in-tree ones below because it isolates the exact textual collision a
+    reviewer's reproduction named."""
+    widened = _widened_checker(tmp_path, frozenset({"git", "docker", "gitleaks", "jq", "ps"}))
+    source = "count=$(ps)\n"
+    lines = source.splitlines()
+    uses = [u for u in widened._script_uses(source, lines) if u.binary == "ps"]
+    assert len(uses) == 1, "a genuine zero-argument invocation must still be detected"
+
+
+def test_real_bare_command_substitutions_in_tree_still_count(tmp_path: Path) -> None:
+    """The same collision, pinned against REAL in-tree instances rather than
+    only the synthetic one above (per review): `$(cat)` and `$(uname)` are
+    both bare, zero-argument command substitutions actually in this repo's
+    scripts, and both must stay detected once their binary is guarded -
+    `cat`/`uname` are not in `GUARDED_BINARIES` today, but the fix must not
+    depend on that; it must hold structurally, the same way #832 pinned the
+    unreadable-`environ` failure direction rather than trusting today's
+    binary list to never change."""
+    widened = _widened_checker(tmp_path, frozenset({"git", "docker", "gitleaks", "jq", "cat", "uname"}))
+
+    hook_mask = ROOT / "scripts" / "hook-mask-output.sh"
+    text = hook_mask.read_text(encoding="utf-8")
+    assert "INPUT=$(cat)" in text  # precondition
+    source = widened.SHELL_COMMENT_RE.sub("", text)
+    uses = [u for u in widened._script_uses(source, source.splitlines()) if u.binary == "cat"]
+    assert len(uses) >= 1, "a real bare $(cat) must still be detected"
+
+    bash_prep = ROOT / "scripts" / "bash-prep.sh"
+    text = bash_prep.read_text(encoding="utf-8")
+    assert 'warn "bash-prep is designed for Linux. Detected: $(uname)"' in text  # precondition
+    source = widened.SHELL_COMMENT_RE.sub("", text)
+    uses = [u for u in widened._script_uses(source, source.splitlines()) if u.binary == "uname"]
+    assert len(uses) >= 1, "a real bare $(uname) must still be detected"
