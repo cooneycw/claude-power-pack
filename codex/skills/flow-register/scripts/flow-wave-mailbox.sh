@@ -318,6 +318,76 @@
 # top-level process, legitimately blocked waiting on this very check -
 # carries the identical argv under a different PID.
 #
+# Watcher identity (issue #821). The #792 item 5 fix above answers WHO IS
+# ASKING - it makes the scanner unable to count its own launcher, however
+# that launcher's command text reads - and it is correct and untouched by
+# this section. It does not answer WHAT IS IDENTIFIED, and that turned out
+# to be a separate, deeper hole: `watcher.kill()` genuinely reaps the direct
+# child, but that child's own command-substitution subshells are FORKED, not
+# exec'd, so they carry byte-identical argv, a SIGKILL to the parent never
+# reaches them, and they reparent to init and live until their own
+# `--timeout` expires - one killed watcher measured leaving four to five
+# survivors (12-run correlation: 10 clean, 2 runs at 4 and 5 orphans, no
+# exceptions). Phase 2's "drop any match whose parent also matched" cannot
+# catch this: its own invariant - a subshell's parent is always the watcher
+# - holds only while the watcher is alive, and an orphan's parent is init,
+# which matches nothing, so it survives the filter BY VIRTUE of having been
+# orphaned. An orphan has exactly the right argv structure to look like a
+# live watcher, because it was forked from a process that had it - no
+# amount of argv rigor separates the two, because by every argv-visible
+# property they are identical.
+#
+# The fix moves the key off argv entirely and onto the resolved wave
+# DIRECTORY: `wave_root_of_pid()` reads a candidate's OWN environment
+# (`/proc/<pid>/environ`, mirroring `WAVE_ROOT`'s own precedence chain) and
+# `watcher_roles_proc()` only counts a candidate whose resolved wave
+# directory matches this invocation's - the wave NAME match stays as a
+# cheap pre-filter, never the decision. This closes the hole ACROSS
+# contexts: this repo's own test suite gives every test a fresh
+# `FLOW_WAVE_MAILBOX_DIR` under a shared literal wave name ("testwave"), so
+# an orphan surviving from one test now resolves to a directory the next
+# test's scan does not share, and is excluded.
+#
+# The mechanism does NOT close the hole WITHIN one wave, and this half is
+# verified, not assumed: an orphaned subshell is forked from its parent
+# watcher AFTER that parent's own environment was already set, so it
+# inherits the IDENTICAL `FLOW_WAVE_MAILBOX_DIR` - confirmed by forking a
+# child from a process holding that variable, killing only the parent, and
+# reading the reparented child's own `/proc/<pid>/environ` afterward:
+# unchanged. IF a same-wave orphan forms, it resolves to the SAME directory
+# as a live watcher and would still be counted.
+#
+# Whether that actually HAPPENS in `supervise`'s (#814) own kill-and-restart
+# path - the one place in this codebase that kills a watch on its OWN wave
+# directory by design - was tested directly rather than assumed either way:
+# 15 trials arming `supervise`, SIGKILLing its real inner watch child
+# (identified structurally, not by a flattened-line match), and rescanning
+# structurally for survivors. Zero orphans in 15/15. `master:kyle`'s
+# original 12-run measurement (2 failures, 4-5 orphans each) was a DIFFERENT
+# scenario - `TestWatchStatus`, embedded in a large concurrent suite under
+# heavier host contention - and the two results do not contradict each
+# other: an orphan forms when a SIGKILL lands while the watcher is mid-fork
+# inside a command substitution, and that window may simply need contention
+# an isolated 15-trial run does not reproduce. So: the same-wave mechanism
+# is real (proven deterministically); its occurrence in `supervise`'s kill
+# path specifically is CONSIDERED AND NOT OBSERVED, not a confirmed gap -
+# stated at exactly this precision, neither stronger nor weaker.
+# `count_watchers()` (the arm-guard view) already treats an unenumerable
+# process table as 0 and proceeds - a wave that cannot start because its
+# duplicate guard is unavailable is worse than an occasional false
+# duplicate (#792 item 4) - and IF this residual ever fires, it fails the
+# same direction: a false REFUSAL, recoverable (#814's own exponential
+# backoff, or a human re-arming), never a false SILENCE.
+#
+# No second discriminator is proposed here. PPID checks are explicitly
+# rejected: a watch legitimately reparented by a harness (`/flow:register`
+# step 4 does exactly this) is not thereby an orphan, so "parent is init"
+# cannot mean "orphaned". Nobody has a verified model of why these
+# subshells live as long as they do, either - the 12-run correlation
+# establishes the relationship, not the mechanism - and a second
+# discriminator should start from measuring that lifetime, not from a
+# theory about it.
+#
 # A watcher launched from a since-removed worktree (#792 item 6). Some
 # harnesses run a trailing `pwd -P` (or similar) after a background command
 # to re-anchor the session's directory; if the watch was launched from a
@@ -984,10 +1054,54 @@ self_chain_proc() {
   printf '%s' "$chain"
 }
 
+# wave_root_of_pid PID -> the wave ROOT that process would resolve
+# ($FLOW_WAVE_MAILBOX_DIR / $FLOW_WAVE_REGISTRY_DIR / $XDG_RUNTIME_DIR
+# fallback, mirroring WAVE_ROOT's own precedence above - including that the
+# first two are used AS-IS, with only the XDG/default branch getting a
+# `/cc-flow-wave` suffix, since every test fixture sets
+# FLOW_WAVE_MAILBOX_DIR directly to the wave root, not a directory above
+# it). Read from that PID's OWN environment (/proc/<pid>/environ,
+# NUL-separated - same idiom already used for /proc/<pid>/cmdline above),
+# not this process's - two processes on the same host can have started
+# with different overrides. Returns 1 - "cannot tell" - when environ is
+# unreadable (permission, or the process already exited mid-scan); callers
+# must treat that as "not a match", never as a match by default (issue
+# #821 follow-up: see the header's IDENTITY section for why this exists).
+wave_root_of_pid() {
+  local pid="$1" entry env_mb="" env_reg="" env_xdg=""
+  [ -r "/proc/$pid/environ" ] || return 1
+  while IFS= read -r -d '' entry; do
+    case "$entry" in
+      FLOW_WAVE_MAILBOX_DIR=*)  env_mb="${entry#FLOW_WAVE_MAILBOX_DIR=}" ;;
+      FLOW_WAVE_REGISTRY_DIR=*) env_reg="${entry#FLOW_WAVE_REGISTRY_DIR=}" ;;
+      XDG_RUNTIME_DIR=*)        env_xdg="${entry#XDG_RUNTIME_DIR=}" ;;
+    esac
+  done < "/proc/$pid/environ" 2>/dev/null
+  if [ -n "$env_mb" ]; then
+    printf '%s' "$env_mb"
+  elif [ -n "$env_reg" ]; then
+    printf '%s' "$env_reg"
+  elif [ -n "$env_xdg" ]; then
+    printf '%s/cc-flow-wave' "$env_xdg"
+  else
+    printf '/run/user/%s/cc-flow-wave' "$UID_NUM"
+  fi
+}
+
 watcher_roles_proc() {
   local wave="$1" pid seen=0
   local self_chain
   self_chain="$(self_chain_proc)"
+  # This invocation's OWN resolved wave directory, canonicalized once (issue
+  # #821 follow-up - see the header's IDENTITY section). $WAVE_DIR is always
+  # "$WAVE_ROOT/$wave" for the $wave this function was called with - every
+  # caller in this file threads the same --wave value through unchanged, so
+  # there is no second wave root to derive here. `readlink -f` resolves
+  # symlinks and returns a canonical string even for a path that no longer
+  # exists (an orphan's original tmp dir may already be gone) - that string
+  # is still exactly what a comparison needs.
+  local this_wave_dir
+  this_wave_dir="$(readlink -f "$WAVE_DIR" 2>/dev/null || printf '%s' "$WAVE_DIR")"
   # Phase 1: every process whose REAL argv is a watch on this wave, recorded as
   # "pid ppid role". Phase 2 needs the whole set before it can decide which of
   # them are subshells of each other, so nothing is emitted yet.
@@ -1001,6 +1115,7 @@ watcher_roles_proc() {
     case "$self_chain" in *" $pid "*) continue ;; esac
     [ -r "/proc/$pid/cmdline" ] || continue
     local argv=() tok i found_role="" found_wave="default" is_status=0
+    local cand_root cand_wave_dir
     while IFS= read -r -d '' tok; do argv+=("$tok"); done < "/proc/$pid/cmdline" 2>/dev/null
     [ "${#argv[@]}" -ge 3 ] || continue
     case "${argv[0]##*/}" in bash) : ;; *) continue ;; esac
@@ -1023,6 +1138,18 @@ watcher_roles_proc() {
     [ "$is_status" -eq 0 ] || continue
     [ -n "$found_role" ] || continue
     [ "$found_wave" = "$wave" ] || continue
+    # The wave NAME matching above is a cheap pre-filter, not the decision
+    # (issue #821 follow-up - see the header's IDENTITY section). Two
+    # processes calling themselves "testwave" can be serving two entirely
+    # different mailboxes - every test in this suite does exactly that, one
+    # fresh tmp-path wave root per test, same literal wave name every time.
+    # The actual identity check is the resolved DIRECTORY: a candidate whose
+    # own environment resolves to a different wave root than THIS invocation
+    # is not the same wave, whatever it calls itself, and a candidate whose
+    # environment cannot be read at all is excluded rather than guessed at.
+    cand_root="$(wave_root_of_pid "$pid")" || continue
+    cand_wave_dir="$(readlink -f "$cand_root/$found_wave" 2>/dev/null || printf '%s' "$cand_root/$found_wave")"
+    [ "$cand_wave_dir" = "$this_wave_dir" ] || continue
     ppid=""
     if read -r statline < "/proc/$pid/stat" 2>/dev/null; then
       # Skip past "<pid> (<comm>) " - comm can contain spaces and parentheses,
