@@ -42,6 +42,15 @@ def test_missing_named_prefix_backtick_path_fails(tmp_path: Path) -> None:
     ]
 
 
+def test_cli_fails_when_claude_md_has_no_local_pointers(tmp_path: Path, capsys) -> None:
+    """#841: zero link-shaped tokens in a present CLAUDE.md must not read the
+    same as a clean scan - the exit code is what make verify reads."""
+    (tmp_path / "CLAUDE.md").write_text("# Title\n\nNo pointers here.\n", encoding="utf-8")
+    assert links.main(["--root", str(tmp_path)]) == 1
+    err = capsys.readouterr().err
+    assert "no repository-local pointers" in err
+
+
 def test_external_and_anchor_links_are_not_local_paths(tmp_path: Path) -> None:
     source = "[web](https://example.com/a) [section](#section) [mail](mailto:a@example.com)"
 

@@ -191,6 +191,15 @@ def _codes(report) -> list[str]:
     return [finding.code for finding in report.findings]
 
 
+def test_present_but_empty_skills_directory_is_invalid(tmp_path):
+    """#841: a canonical skills/ that exists with nothing in it must not read
+    the same as a clean pass - it is not a legitimate state for this repo."""
+    (tmp_path / ".claude" / "skills").mkdir(parents=True)
+    report = skills_check.check_repository(tmp_path, tmp_path / "no-managed-installs")
+    assert _codes(report) == ["INVALID_SURFACE"]
+    assert "no packages" in report.findings[0].detail
+
+
 def test_conversion_preserves_enumerated_loading_metadata():
     """Every known flat skill became the same-slug package losslessly.
 

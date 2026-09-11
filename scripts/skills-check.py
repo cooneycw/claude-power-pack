@@ -343,6 +343,15 @@ def _validate_canonical(report: Report, root: Path) -> None:
         return
 
     entries = sorted(skills_root.iterdir(), key=lambda path: path.name.casefold())
+    if not entries:
+        # Issue #841: a canonical skills/ that exists but is empty must not read
+        # the same as a clean pass - CPP's own docs/skills/ is never legitimately
+        # empty in a real checkout. Reuses the same Finding mechanism as the
+        # missing-directory case above: report.ok is `not report.findings`, so
+        # main() needs no special case once this fires.
+        _add(report, "INVALID_SURFACE", skills_root, "canonical skills directory has no packages")
+        return
+
     names: dict[str, Path] = {}
     slugs: dict[str, Path] = {}
     for entry in entries:
