@@ -1229,6 +1229,18 @@ self_chain_ps() {
 # (`wave_root_of_pid`'s own return-1 contract) - not a guessed count in
 # either direction, and not silently treated as "0, nothing to see" either,
 # which would be the opposite wrong answer (a live watcher reading `dead`).
+#
+# `unknown` now surfaces from THIS lane more often than before - worth
+# saying plainly, because on its own that reads as a regression. It is not
+# one: the two watcher_count consumers fail in DELIBERATELY OPPOSITE
+# directions (see the block above watcher_roles_live), and this moves the
+# failure OUT of the disfavoured one. Before this fix, a cross-mailbox
+# match returned a wrong POSITIVE count, which the duplicate-arm guard
+# would read as "already covered" and refuse to arm - deafness, the
+# explicitly worse outcome. After it, the guard sees `unknown`, fails open,
+# and arms - an occasional false duplicate at worst, the explicitly
+# preferred outcome. The reporting consumer's higher `unknown` frequency is
+# the visible cost of that trade, not an unrelated new weakness.
 watcher_roles_ps_fallback() {
   local wave="$1" line pid ppid args rest found_role seen=0
   local self_chain matched_pids=" " records=() rec rpid rppid rrole surviving=()
