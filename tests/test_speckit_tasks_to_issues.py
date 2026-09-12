@@ -760,6 +760,99 @@ class TestDependencies:
         assert "- Blocked by" not in _issues(state)[0]["body"]
 
 
+SPEC_FIXTURE = """# Feature Specification: Exports
+
+## User Stories
+
+### US1: Responsive exports [P1]
+
+**As a** analyst,
+**I want** the page to stay usable while an export runs,
+**So that** I can keep working.
+
+**Acceptance Criteria:**
+- [ ] The page responds within 200ms while an export of 50k rows runs
+
+### US2: Scheduled exports [P2]
+
+**Acceptance Criteria:**
+- [ ] A schedule can be set per report
+
+## Requirements
+
+### Functional Requirements
+
+| ID | Requirement | Priority | User Story |
+|----|-------------|----------|------------|
+| R1 | Export runs without holding a request thread | Must | US1 |
+| R3 | Schedules persist across restarts | Could | US2 |
+"""
+
+
+class TestGeneratedContext:
+    """Issue #858: a generated issue carries its declared context, or says it cannot."""
+
+    def test_context_block_is_attached_when_a_spec_resolves(self, project) -> None:
+        repo, bindir, state = project(
+            {
+                ".specify/specs/exports/tasks.md": (
+                    "- [ ] **T001** [US1] Use a background queue\n"
+                ),
+                ".specify/specs/exports/spec.md": SPEC_FIXTURE,
+            }
+        )
+
+        result = _run(repo, bindir, state, "--tasks", ".specify/specs/exports/tasks.md")
+
+        assert result.returncode == 0, result.stderr
+        body = _issues(state)[0]["body"]
+        assert "speckit-context:v1" in body
+        assert "The page responds within 200ms" in body
+        assert "R1" in body
+        assert "A schedule can be set per report" not in body, (
+            "another story's acceptance must not be carried into this task"
+        )
+        assert "R3" not in body, "R3 is declared against US2"
+
+    def test_no_spec_still_produces_a_usable_issue(self, project) -> None:
+        """The lightweight path is untouched: no spec, no block, no failure."""
+        repo, bindir, state = project({"a/tasks.md": BOLD_TASKS})
+        assert not (repo / "a" / "spec.md").exists(), "fixture must have no sibling spec"
+
+        result = _run(repo, bindir, state, "--tasks", "a/tasks.md")
+
+        assert result.returncode == 0, result.stderr
+        body = _issues(state)[0]["body"]
+        assert "Auto-created from" in body
+        assert "speckit-context:v1" in body, (
+            "the block is still attached and should disclose that no source resolved"
+        )
+        assert "no spec.md beside" in body
+
+
+def test_every_packaged_converter_ships_its_context_helper() -> None:
+    """Packaging tripwire (#858).
+
+    `scripts/codex-skill-sync.py` bundles a script into a generated skill when the
+    COMMAND BODY names `scripts/<file>`. It does not follow what a bundled script
+    calls at runtime, so the converter can be packaged without the helper it
+    invokes - and byte parity against the source checkout still looks clean while
+    every generated skill carries a converter that cannot render context.
+    """
+    bundles = sorted((ROOT / "codex" / "skills").glob("*/scripts/speckit-tasks-to-issues.sh"))
+    assert bundles, "no packaged converter found; this tripwire is stale"
+
+    missing = [
+        str(path.parent.relative_to(ROOT))
+        for path in bundles
+        if not (path.parent / "speckit-context.py").is_file()
+    ]
+
+    assert not missing, (
+        "packaged converter without its runtime helper in: " + ", ".join(missing)
+    )
+
+
 def test_no_whitespace_ifs_read_remains_in_scripts() -> None:
     """Class guard: no shell reader in scripts/ splits on an IFS-whitespace delimiter.
 

@@ -165,6 +165,16 @@ normalize_source_path() {
     printf '%s' "$path"
 }
 
+# scripts/speckit-context.py renders the task-context cache (#858). It ships in the
+# same directory as this script, including inside a generated Codex skill bundle, so
+# it is resolved relative to THIS file rather than to the caller's cwd. Absent or
+# unusable, the converter keeps working and simply writes no context block.
+CONTEXT_HELPER=""
+_self_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "$_self_dir/speckit-context.py" ] && command -v python3 > /dev/null 2>&1; then
+    CONTEXT_HELPER="$_self_dir/speckit-context.py"
+fi
+
 TASKS_NORM="$(normalize_source_path "$TASKS")"
 TASKS_REL_NORM="$(normalize_source_path "$TASKS_REL")"
 
@@ -467,6 +477,19 @@ for i in "${!TIDS[@]}"; do
     issue_body="$(provenance_for "$tid")"$'\n\n'"$(marker_for "$tid")"
     if [ -n "${DEPS[$i]}" ]; then
         issue_body+=$'\n\n'"Depends on: $(printf '%s' "${DEPS[$i]}" | sed 's/ /, /g')"
+    fi
+    # Task context (issue #857 -> #858). A generated issue used to carry its
+    # provenance, its marker and its dependencies, and nothing about the behaviour
+    # it was meant to produce - so the receiving agent had only the title, and no
+    # pointer to the document that governs the work. The helper renders a bounded,
+    # fingerprinted cache of the task's DECLARED context; the spec stays
+    # authoritative. Conditional by design: with no helper and no resolvable spec
+    # the issue body is the whole contract, exactly as before.
+    if [ -n "$CONTEXT_HELPER" ]; then
+        context_block="$(python3 "$CONTEXT_HELPER" render --tasks "$TASKS" --task "$tid" --feature "$FEATURE" 2>/dev/null || true)"
+        if [ -n "$context_block" ]; then
+            issue_body+=$'\n\n'"$context_block"
+        fi
     fi
 
     if [ "$DRY_RUN" -eq 1 ]; then

@@ -387,6 +387,9 @@ Next steps:
   3. Use /flow-start <issue> to begin implementation
 ```
 
+> Dependency: `scripts/speckit-tasks-to-issues.sh` calls `scripts/speckit-context.py` at runtime to render each issue's task-context block (#858). Both ship together; the converter still runs without the helper and simply writes no context block.
+
+
 ---
 
 ## Domain-Specific Guidance

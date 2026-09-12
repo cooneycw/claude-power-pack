@@ -582,6 +582,9 @@ Then ask: "Sync tasks to GitHub issues now?"
 - **Yes** → run `./scripts/speckit-tasks-to-issues.sh`
 - **Skip** → sync later
 
+> Dependency: `scripts/speckit-tasks-to-issues.sh` calls `scripts/speckit-context.py` at runtime to render each issue's task-context block (#858). Both ship together; the converter still runs without the helper and simply writes no context block.
+
+
 Report: `Step 5/6: Initial spec created` or `Step 5/6: Skipped`
 
 ---

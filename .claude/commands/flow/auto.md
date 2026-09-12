@@ -287,6 +287,37 @@ Working from the worktree, analyze the issue and codebase to form an implementat
    - Identify referenced files, components, or areas
    - Note any dependencies or constraints mentioned
 
+   **If the body carries a `speckit-context` block** (issue #858), it is a generated
+   issue and the block is a bounded CACHE of the task's declared context - not the
+   authority. Before forming a plan:
+
+   ```bash
+   scripts/speckit-context.py check --body-file <(gh issue view "$ISSUE_NUM" --json body --jq .body)
+   ```
+
+   Act on `SPECKIT_CONTEXT_STATE`:
+   - `current` - the cache matches its source; read the **Authoritative source** named
+     in the block, including the cross-cutting sections it lists, then plan.
+   - `changed-in-scope` / `changed-outside-scope` - bytes changed in the source since
+     the issue was written. That is a byte difference, NOT a ruling that acceptance
+     changed. Read the source, decide whether it matters under the existing authority
+     model, and say so in the Step 3 report. It is not a new approval gate, and it is
+     not permission to overwrite an accepted decision.
+   - `block-edited` / `block-damaged` - someone edited inside the block or its
+     boundaries are broken. Treat the block as unreliable, read the source directly,
+     and do not refresh it as a side effect of this run.
+   - `source-missing` / `source-unresolved` - plan from the issue body and say plainly
+     that the governing source could not be read.
+   - `absent` - an ordinary issue. Its body IS the contract (see
+     [the issue contract](../../../docs/agents/issue-contract.md)); no spec, story tag
+     or digest is required and none is owed.
+
+   The block's **Task wording** line is the task's own sentence, not a ruling: resolve
+   whether it proposes an approach you may replace or restates a binding constraint
+   against the sections the block names. An **Unresolved** or **Capped** note means the
+   context is incomplete and must be resolved before planning - never that the task has
+   no constraints.
+
 2. **Explore the codebase:**
    - Read files referenced in the issue
    - Understand existing patterns and conventions

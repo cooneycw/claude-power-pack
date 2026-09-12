@@ -323,10 +323,13 @@ the escape when a prose line happens to open with a reserved word.
 
 ## Phase 1: Scaffold the issue set
 
-- **Spec-kit repo:** run `scripts/speckit-tasks-to-issues.sh` (dedup-safe) to
-  emit one issue per task, then add the dependency edges - that script emits no
-  `- Blocked by #N` lines itself. Derive edges from `tasks.md` ordering/notes
-  and write them with `gh issue edit`.
+- **Spec-kit repo:** run `scripts/speckit-tasks-to-issues.sh` (dedup-safe) to emit
+  one issue per task. It ALSO writes the dependency edges itself: a task's
+  `(depends on T00N)` clause becomes a `Depends on:` line plus `- Blocked by #N`
+  bullets, and every filed task is reconciled on each run, so a forward reference
+  or an edge whose write failed earlier is completed rather than lost (#607, #857).
+  It also attaches a `speckit-context` block carrying the task's declared context
+  (#858). Add edges by hand only for relationships `tasks.md` does not declare.
 - **Edge edits are ADDITIVE and IDEMPOTENT** (#637 gate condition): read the
   current body, append a `- Blocked by #N` line ONLY when no equivalent edge
   line is already present, and never rewrite or reflow the surrounding body
@@ -336,6 +339,9 @@ the escape when a prose line happens to open with a reserved word.
   body plus the appended line - no other diff.)
 - **No spec:** take the `--issues` label/milestone/list as the set; edges are
   whatever `- Blocked by #N` lines the bodies already carry.
+
+> Dependency: `scripts/speckit-tasks-to-issues.sh` calls `scripts/speckit-context.py` at runtime to render each issue's task-context block (#858). Both ship together; the converter still runs without the helper and simply writes no context block.
+
 
 ## Phase 2: The orchestration loop
 
