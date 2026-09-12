@@ -490,3 +490,191 @@ def test_install_drops_files_removed_from_a_skill_dir(tmp_repo, tmp_home):
     stale.write_text("#!/bin/bash\necho stale\n")
     codex_skill_sync.main(["--install"])
     assert not stale.exists(), "a file removed upstream survived inside the installed skill"
+
+
+# ---------------------------------------------------------------------------
+# Bundled canonical guidance (issue #861)
+#
+# The bundler discovered `scripts/<name>` references but not documentation, so
+# a command routing to `[the issue contract](../../../docs/agents/issue-contract.md)`
+# published that link verbatim into its generated skill. Inside this checkout it
+# happens to resolve, because `codex/skills/<skill>/` sits exactly three levels
+# below the repo root - which is why the defect was invisible from the repo. From
+# `~/.codex/skills/flow-auto/reference.md` the same link resolves to
+# `~/docs/agents/issue-contract.md`, i.e. to nothing, and the installed workflow
+# cannot reach the canonical rule it is told to follow without borrowing a CPP
+# checkout it may not have.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def tmp_repo_docs(tmp_path, monkeypatch):
+    """A source tree whose command links canonical docs. Separate from tmp_repo
+    so the doc cases cannot perturb the adaptation/description pins above."""
+    src = tmp_path / ".claude" / "commands"
+    (src / "flow").mkdir(parents=True)
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
+    docs = tmp_path / "docs" / "agents"
+    docs.mkdir(parents=True)
+    out = tmp_path / "codex" / "skills"
+    out.mkdir(parents=True)
+
+    # contract -> lifecycle is a BARE SIBLING link, which is why bundling both at
+    # the same relative path makes it resolve with no rewriting of doc contents.
+    (docs / "contract.md").write_text(
+        "# Contract\n\nSee the [lifecycle](lifecycle.md) for what happens after.\n"
+    )
+    (docs / "lifecycle.md").write_text("# Lifecycle\n\nGraduation policy.\n")
+    (docs / "unlinked.md").write_text("# Unlinked\n\nNobody links this.\n")
+    (src / "flow" / "auto.md").write_text(
+        "# Flow Auto\n\n"
+        "The canonical rule is [the contract](../../../docs/agents/contract.md).\n"
+        "A stale pointer to [nothing](../../../docs/agents/gone.md) too.\n"
+        "Prose mentions docs/agents/unlinked.md without linking it.\n"
+    )
+
+    monkeypatch.setattr(codex_skill_sync, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(codex_skill_sync, "SOURCE_ROOT", src)
+    monkeypatch.setattr(codex_skill_sync, "SCRIPTS_ROOT", scripts)
+    monkeypatch.setattr(codex_skill_sync, "DOCS_ROOT", tmp_path / "docs")
+    monkeypatch.setattr(codex_skill_sync, "OUTPUT_ROOT", out)
+    monkeypatch.setattr(codex_skill_sync, "FAMILIES", ["flow"])
+    monkeypatch.setattr(codex_skill_sync, "EXCLUDE", {})
+    return tmp_path
+
+
+def _flow_auto_body(repo: Path) -> str:
+    skill = repo / "codex" / "skills" / "flow-auto"
+    ref = skill / "reference.md"
+    return (ref if ref.is_file() else skill / "SKILL.md").read_text()
+
+
+def test_linked_doc_is_bundled_byte_identical(tmp_repo_docs):
+    codex_skill_sync.main(["--write"])
+    bundled = tmp_repo_docs / "codex/skills/flow-auto/docs/agents/contract.md"
+    source = tmp_repo_docs / "docs/agents/contract.md"
+
+    assert bundled.read_bytes() == source.read_bytes(), (
+        "the bundled copy must be byte-identical: docs/ stays the only writable "
+        "source and a drift check has to be able to compare them"
+    )
+
+
+def test_the_published_link_points_at_the_bundled_copy(tmp_repo_docs):
+    codex_skill_sync.main(["--write"])
+    body = _flow_auto_body(tmp_repo_docs)
+
+    assert "](docs/agents/contract.md)" in body
+    assert "../../../docs/agents/contract.md" not in body, (
+        "a source-relative link survived into the generated skill"
+    )
+
+
+def test_closure_follows_sibling_links_between_bundled_docs(tmp_repo_docs):
+    """flow/auto.md never names lifecycle.md; contract.md does."""
+    codex_skill_sync.main(["--write"])
+    skill = tmp_repo_docs / "codex/skills/flow-auto"
+
+    assert (skill / "docs/agents/lifecycle.md").is_file(), (
+        "a bundled doc's own sibling link dangles unless the closure follows it"
+    )
+
+
+def test_closure_does_not_sweep_the_docs_tree(tmp_repo_docs):
+    """Bounded closure, not a crawler: unreferenced docs stay out."""
+    codex_skill_sync.main(["--write"])
+    skill = tmp_repo_docs / "codex/skills/flow-auto"
+
+    assert not (skill / "docs/agents/unlinked.md").exists()
+
+
+def test_prose_mention_is_neither_bundled_nor_rewritten(tmp_repo_docs):
+    """Only source-relative LINKS are the demonstrated defect.
+
+    A bare `docs/agents/x.md` in prose was never resolvable from a skill
+    directory and is not a link; rewriting it would invent a meaning it never
+    had, and bundling every such mention pulled in 241KB across the tree.
+    """
+    codex_skill_sync.main(["--write"])
+    body = _flow_auto_body(tmp_repo_docs)
+
+    assert "Prose mentions docs/agents/unlinked.md without linking it." in body
+
+
+def test_a_broken_doc_link_stays_visible(tmp_repo_docs):
+    """A typo must not be silently repointed at a file that does not exist."""
+    codex_skill_sync.main(["--write"])
+    body = _flow_auto_body(tmp_repo_docs)
+
+    assert "](../../../docs/agents/gone.md)" in body
+    assert not (tmp_repo_docs / "codex/skills/flow-auto/docs/agents/gone.md").exists()
+
+
+def test_a_command_linking_no_docs_gets_no_docs_dir(tmp_repo_docs):
+    (tmp_repo_docs / ".claude/commands/flow/plain.md").write_text(
+        "# Plain\n\nNo documentation references at all.\n"
+    )
+    codex_skill_sync.main(["--write"])
+
+    assert not (tmp_repo_docs / "codex/skills/flow-plain/docs").exists()
+
+
+def test_real_repo_bundled_docs_byte_identical():
+    bundled = sorted((ROOT / "codex" / "skills").glob("*/docs/**/*.md"))
+    assert bundled, "no bundled docs found; this pin is stale"
+    for path in bundled:
+        rel = path.relative_to(path.parents[len(path.relative_to(ROOT).parts) - 4])
+        source = ROOT / "docs" / path.relative_to(path.parent.parent.parent / "docs")
+        assert source.is_file(), path
+        assert path.read_bytes() == source.read_bytes(), path
+
+
+def test_real_repo_no_generated_body_publishes_a_source_relative_doc_link():
+    """Tripwire over the whole generated surface, not the skills I happened to find.
+
+    Modelled on test_every_packaged_converter_ships_its_context_helper: the
+    bundler cannot see a dependency that is not a `scripts/<name>` reference, so
+    the property has to be asserted across every generated body rather than
+    fixed at the one call site that surfaced it.
+    """
+    offenders = [
+        str(path.relative_to(ROOT))
+        for path in sorted((ROOT / "codex" / "skills").rglob("*.md"))
+        if "](../" in path.read_text() and "/docs/" in path.read_text().split("](../")[1][:40]
+    ]
+    assert not offenders, (
+        "these generated bodies still publish a link that resolves only inside "
+        "a CPP checkout: " + ", ".join(offenders)
+    )
+
+
+def test_real_repo_doc_links_resolve_and_read_in_an_isolated_skill(tmp_path):
+    """The acceptance check: no CPP checkout anywhere above the skill.
+
+    Resolution alone is not enough - the file is opened and its content checked,
+    because a zero-byte or wrong-file copy resolves exactly as well as the real
+    one (broken-and-working-look-alike).
+    """
+    import re
+    import shutil
+
+    skills = sorted(p.parent for p in (ROOT / "codex" / "skills").glob("*/docs"))
+    assert skills, "no skill bundles docs; this pin is stale"
+
+    for skill in skills:
+        iso = tmp_path / skill.name
+        shutil.copytree(skill, iso)
+        for body_path in [p for p in (iso / "SKILL.md", iso / "reference.md") if p.is_file()]:
+            body = body_path.read_text()
+            for rel in set(re.findall(r"\]\((docs/[^)]+\.md)\)", body)):
+                target = (body_path.parent / rel).resolve()
+                assert target.is_file(), f"{skill.name}: {rel} does not resolve in isolation"
+                content = target.read_text()
+                assert content.strip(), f"{skill.name}: {rel} resolved but is empty"
+                assert content.startswith("#"), f"{skill.name}: {rel} is not the document"
+                # the bundled doc's OWN links must resolve from where it now lives
+                for sib in set(re.findall(r"\]\(([A-Za-z0-9._-]+\.md)\)", content)):
+                    assert (target.parent / sib).is_file(), (
+                        f"{skill.name}: {rel} -> {sib} dangles in isolation"
+                    )

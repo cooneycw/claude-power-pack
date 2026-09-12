@@ -170,7 +170,7 @@ When this target exists, check documentation freshness:
 **This step never blocks the flow** - it is purely informational.
 
 When this PR closes a specification's last task, treat it as a graduation
-candidate. Follow the canonical [knowledge lifecycle](../../../docs/agents/knowledge-lifecycle.md)
+candidate. Follow the canonical [knowledge lifecycle](docs/agents/knowledge-lifecycle.md)
 and run `scripts/knowledge-graduation-check.py` with the reviewed mapping and
 this PR's URL before removing the spec. This is an explicit close-out step, not
 an automatic network-coupled quality gate.
@@ -239,7 +239,7 @@ Read the closing references there yourself rather than grepping for one spelling
 the merge helper rejects negated and incidental forms too, and a narrow pattern
 misses exactly the ones that surprise you.
 
-The canonical rule is [the issue contract](../../../docs/agents/issue-contract.md);
+The canonical rule is [the issue contract](docs/agents/issue-contract.md);
 this is where it is executed. Partial delivery stays reviewable and mergeable - the
 disposition changes what CLOSES, not what may merge.
 
