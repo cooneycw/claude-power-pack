@@ -103,6 +103,9 @@ if argv[:2] == ["issue", "create"]:
     sys.exit(0)
 
 if argv[:2] == ["issue", "view"]:
+    if os.environ.get("GH_STUB_VIEW_FAIL") == "1":
+        sys.stderr.write("gh: could not read issue\n")
+        sys.exit(1)
     for issue in load()["issues"]:
         if str(issue["number"]) == argv[2]:
             print(issue["body"])
@@ -179,6 +182,7 @@ def _run(
     *args: str,
     list_fails: bool = False,
     edit_fails: bool = False,
+    view_fails: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     env = {
         "PATH": f"{bindir}:{os.environ['PATH']}",
@@ -189,6 +193,8 @@ def _run(
         env["GH_STUB_LIST_FAIL"] = "1"
     if edit_fails:
         env["GH_STUB_EDIT_FAIL"] = "1"
+    if view_fails:
+        env["GH_STUB_VIEW_FAIL"] = "1"
     return subprocess.run(
         ["bash", str(SCRIPT), *args],
         cwd=repo,
@@ -1082,3 +1088,153 @@ class TestExistingIssueRefreshWorkflow:
 
         assert retried is not None and retried.returncode == 0
         assert "within 100ms" in _issues(state)[0]["body"]
+
+
+class TestDriftCheckFailuresAreNotAbsence:
+    """A read or checker failure is not "this issue has no context block" (#858 rev27).
+
+    The first drift report collapsed fetch, check and parse into one pipeline ending
+    in `2>/dev/null ... || true`, so an unreadable issue produced the same quiet
+    nothing as a healthy block-free one - the failure-as-absence defect this change
+    exists to remove, reintroduced in the code that reports drift.
+    """
+
+    TASKS = "- [ ] **T001** [US1] Use a background queue\n"
+
+    def test_an_unreadable_issue_is_reported_not_swallowed(self, project) -> None:
+        repo, bindir, state = project(
+            {
+                ".specify/specs/exports/tasks.md": self.TASKS,
+                ".specify/specs/exports/spec.md": SPEC_FIXTURE,
+            }
+        )
+        first = _run(repo, bindir, state, "--tasks", ".specify/specs/exports/tasks.md")
+        assert first.returncode == 0, first.stderr
+
+        again = _run(
+            repo, bindir, state, "--tasks", ".specify/specs/exports/tasks.md", view_fails=True
+        )
+
+        assert again.returncode == 8, again.stdout + again.stderr
+        assert "could not read issue" in again.stderr
+        assert "could not read issue" in again.stderr and "gh: could not read issue" in again.stderr, (
+            "the underlying diagnostic must be preserved, not just a summary"
+        )
+
+    def test_a_genuinely_block_free_issue_stays_normal(self, project) -> None:
+        """The control: a successful lookup of an issue with no block is not an error."""
+        repo, bindir, state = project(
+            {
+                ".specify/specs/exports/tasks.md": self.TASKS,
+                ".specify/specs/exports/spec.md": SPEC_FIXTURE,
+            },
+            issues=[
+                {
+                    "number": 7,
+                    "title": "T001 (.specify/specs/exports/tasks.md): Use a background queue",
+                    "body": "<!-- speckit-task:v1:.specify/specs/exports/tasks.md:T001 -->\n",
+                    "state": "OPEN",
+                }
+            ],
+        )
+
+        result = _run(repo, bindir, state, "--tasks", ".specify/specs/exports/tasks.md")
+
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert "stale T001" not in result.stdout
+        assert "WARN" not in result.stderr
+
+
+class TestDocumentedRefreshGuardIsExecutable:
+    """Run the shell `flow:wave` Phase 1 actually publishes, not a paraphrase of it.
+
+    The guard shipped as a trailing COMMENT, so following the example literally wrote
+    the empty redirect output back over the issue body after a refused refresh - the
+    documented workflow destroying what it was meant to protect.
+    """
+
+    def _documented_script(self) -> str:
+        doc = (ROOT / ".claude" / "commands" / "flow" / "wave.md").read_text(encoding="utf-8")
+        marker = 'CUR="$(mktemp'
+        start = doc.index(marker)
+        end = doc.index("```", start)
+        return doc[start:end]
+
+    def test_a_refused_refresh_does_not_edit_the_issue(self, project) -> None:
+        repo, bindir, state = project(
+            {
+                ".specify/specs/exports/tasks.md": "- [ ] **T001** [US1] Use a background queue\n",
+                ".specify/specs/exports/spec.md": SPEC_FIXTURE,
+            }
+        )
+        _run(repo, bindir, state, "--tasks", ".specify/specs/exports/tasks.md")
+        # Edit inside the managed block: the refresh must refuse.
+        issues = json.loads(state.read_text())
+        issues["issues"][0]["body"] = issues["issues"][0]["body"].replace("200ms", "500ms")
+        state.write_text(json.dumps(issues))
+        original = _issues(state)[0]["body"]
+        assert "500ms" in original, "fixture must carry the in-block edit that forces a refusal"
+
+        script = (
+            self._documented_script()
+            .replace("~/.claude/scripts/speckit-context.py", f"{sys.executable} {ROOT}/scripts/speckit-context.py")
+            .replace("<feature>", "exports")
+            .replace('"$N"', '"100"')
+        )
+        result = subprocess.run(
+            ["bash", "-c", script],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            env={
+                "PATH": f"{bindir}:{os.environ['PATH']}",
+                "HOME": str(repo.parent),
+                "GH_STUB_STATE": str(state),
+                "N": "100",
+            },
+        )
+
+        assert "REFUSED" in result.stdout, result.stdout + result.stderr
+        assert result.returncode != 0, "a refusal must not report success"
+        assert _issues(state)[0]["body"] == original, (
+            "the documented example edited the issue after a refused refresh"
+        )
+
+    def test_a_failed_write_is_not_masked_by_cleanup(self, project) -> None:
+        """`rm -f` succeeds, so ending on it reported a failed write as success."""
+        repo, bindir, state = project(
+            {
+                ".specify/specs/exports/tasks.md": "- [ ] **T001** [US1] Use a background queue\n",
+                ".specify/specs/exports/spec.md": SPEC_FIXTURE,
+            }
+        )
+        _run(repo, bindir, state, "--tasks", ".specify/specs/exports/tasks.md")
+        (repo / ".specify/specs/exports/spec.md").write_text(
+            SPEC_FIXTURE.replace("within 200ms", "within 100ms"), encoding="utf-8"
+        )
+        original = _issues(state)[0]["body"]
+
+        script = (
+            self._documented_script()
+            .replace("~/.claude/scripts/speckit-context.py", f"{sys.executable} {ROOT}/scripts/speckit-context.py")
+            .replace("<feature>", "exports")
+            .replace('"$N"', '"100"')
+        )
+        result = subprocess.run(
+            ["bash", "-c", script],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            env={
+                "PATH": f"{bindir}:{os.environ['PATH']}",
+                "HOME": str(repo.parent),
+                "GH_STUB_STATE": str(state),
+                "GH_STUB_EDIT_FAIL": "1",
+                "N": "100",
+            },
+        )
+
+        assert result.returncode != 0, (
+            "the documented script reported success after `gh issue edit` failed"
+        )
+        assert _issues(state)[0]["body"] == original, "a failed write must change nothing"

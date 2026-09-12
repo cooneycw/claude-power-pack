@@ -41,6 +41,7 @@
 #   6  issues were created but a dependency edge could not be written; re-run to
 #      reconcile
 #   7  the task-context helper is missing or failed (use --no-context to opt out)
+#   8  an existing issue's context could not be read or checked on a re-run
 set -euo pipefail
 
 DRY_RUN=0
@@ -173,7 +174,8 @@ normalize_source_path() {
 # scripts/speckit-context.py renders the task-context cache (#858). It ships in the
 # same directory as this script, including inside a generated Codex skill bundle, so
 # it is resolved relative to THIS file rather than to the caller's cwd. Absent or
-# unusable, the converter keeps working and simply writes no context block.
+# unusable, the run STOPS: a packaging fault that silently produced context-free
+# issues would look exactly like a successful conversion. `--no-context` opts out.
 CONTEXT_HELPER=""
 _self_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [ "$NO_CONTEXT" -eq 0 ]; then
@@ -475,7 +477,7 @@ if [ "${#AMBIGUOUS[@]}" -gt 0 ]; then
 fi
 
 # --- Create pass -----------------------------------------------------------------
-created=0; skipped=0; adopted=0
+created=0; skipped=0; adopted=0; context_checks_failed=0
 for i in "${!TIDS[@]}"; do
     tid="${TIDS[$i]}"
     title="${tid} (${FEATURE}): ${DESCS[$i]}"
@@ -485,13 +487,29 @@ for i in "${!TIDS[@]}"; do
         # invisible until somebody happened to re-read it. Reporting only: this
         # never edits an issue, and a refresh is the explicit documented workflow.
         if [ "$NO_CONTEXT" -eq 0 ] && [ -n "${FILED_NUM[$tid]:-}" ]; then
-            ctx_state="$(gh issue view "${FILED_NUM[$tid]}" "${GH_REPO_ARGS[@]}" --json body --jq '.body' 2>/dev/null \
-                | python3 "$CONTEXT_HELPER" check --body-file - --root . 2>/dev/null \
-                | sed -n 's/^SPECKIT_CONTEXT_STATE: //p' || true)"
-            case "$ctx_state" in
-                ""|current|absent) : ;;
-                *) echo "stale ${tid} (context: ${ctx_state}) - see flow:wave Phase 1 for the refresh workflow" ;;
-            esac
+            ctx_read_status=0
+            ctx_body="$(gh issue view "${FILED_NUM[$tid]}" "${GH_REPO_ARGS[@]}" --json body --jq '.body' 2>&1)" || ctx_read_status=$?
+            if [ "$ctx_read_status" -ne 0 ]; then
+                echo "WARN: could not read issue #${FILED_NUM[$tid]} to check ${tid}'s context (gh exited ${ctx_read_status})." >&2
+                printf '  %s\n' "$ctx_body" >&2
+                context_checks_failed=$((context_checks_failed + 1))
+            else
+                ctx_check_status=0
+                ctx_report="$(printf '%s' "$ctx_body" | python3 "$CONTEXT_HELPER" check --body-file - --root . 2>&1)" || ctx_check_status=$?
+                ctx_state="$(printf '%s' "$ctx_report" | sed -n 's/^SPECKIT_CONTEXT_STATE: //p')"
+                # `check` exits 3 for any state other than current/absent; anything
+                # else is a broken checker, not a verdict.
+                if { [ "$ctx_check_status" -ne 0 ] && [ "$ctx_check_status" -ne 3 ]; } || [ -z "$ctx_state" ]; then
+                    echo "WARN: the context check for ${tid} (issue #${FILED_NUM[$tid]}) failed (exit ${ctx_check_status})." >&2
+                    printf '  %s\n' "$ctx_report" >&2
+                    context_checks_failed=$((context_checks_failed + 1))
+                else
+                    case "$ctx_state" in
+                        current|absent) : ;;
+                        *) echo "stale ${tid} (context: ${ctx_state}) - see flow:wave Phase 1 for the refresh workflow" ;;
+                    esac
+                fi
+            fi
         fi
         if [ "${FILED_VIA[$tid]}" = "provenance" ]; then
             echo "skip  ${tid} (issue #${FILED_NUM[$tid]}, matched by recorded source path;" \
@@ -513,8 +531,9 @@ for i in "${!TIDS[@]}"; do
     # it was meant to produce - so the receiving agent had only the title, and no
     # pointer to the document that governs the work. The helper renders a bounded,
     # fingerprinted cache of the task's DECLARED context; the spec stays
-    # authoritative. Conditional by design: with no helper and no resolvable spec
-    # the issue body is the whole contract, exactly as before.
+    # authoritative. Conditional on the INPUT, not on the installation: a tasks file
+    # with no resolvable spec still gets a block disclosing what did not resolve,
+    # while a missing or failing helper is an error rather than a quiet omission.
     if [ "$NO_CONTEXT" -eq 0 ]; then
         context_status=0
         context_block="$(python3 "$CONTEXT_HELPER" render --tasks "$TASKS" --task "$tid" --feature "$FEATURE" 2>&1)" || context_status=$?
@@ -611,6 +630,12 @@ done
 echo "---"
 echo "Done. ${created} $([ "$DRY_RUN" -eq 1 ] && echo 'to create' || echo 'created'), ${skipped} skipped (already exist), ${edges_written} dependency edge(s) written."
 [ "$adopted" -gt 0 ] && echo "${adopted} issue(s) were matched by recorded source path; add their markers to make the identity explicit."
+if [ "$context_checks_failed" -gt 0 ]; then
+    echo "ERROR: ${context_checks_failed} context check(s) could not be completed; their" >&2
+    echo "diagnostics are above. An unreadable issue or a broken checker is not the same" >&2
+    echo "as an issue with no context block, and is not reported as one." >&2
+    exit 8
+fi
 if [ "$edges_failed" -gt 0 ]; then
     echo "ERROR: ${edges_failed} dependency edge update(s) failed. The issues exist; re-run this" >&2
     echo "command to reconcile the missing edges - it will not create duplicates." >&2

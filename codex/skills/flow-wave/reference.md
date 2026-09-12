@@ -336,13 +336,26 @@ the escape when a prose line happens to open with a reserved word.
   issue untouched:
 
   ```bash
-  gh issue view "$N" --json body --jq .body > /tmp/body.md || exit 1   # never skip this check
-  ~/.claude/scripts/speckit-context.py refresh --body-file /tmp/body.md \
-      --tasks .specify/specs/<feature>/tasks.md --task T001 \
-      --feature .specify/specs/<feature>/tasks.md --root . > /tmp/new-body.md
-  # exit 0: write it back.   exit 4: REFUSED - read the message, change nothing.
-  gh issue edit "$N" --body-file /tmp/new-body.md
+  CUR="$(mktemp -t wave-body-XXXXXX.md)"; NEW="$(mktemp -t wave-new-XXXXXX.md)"
+  status=0
+  if ! gh issue view "$N" --json body --jq .body > "$CUR"; then
+      echo "STOP: could not fetch issue #$N; nothing was changed."
+      status=1
+  elif ~/.claude/scripts/speckit-context.py refresh --body-file "$CUR" \
+           --tasks .specify/specs/<feature>/tasks.md --task T001 \
+           --feature .specify/specs/<feature>/tasks.md --root . > "$NEW"; then
+      gh issue edit "$N" --body-file "$NEW" || status=$?
+  else
+      echo "REFUSED: $N was not changed. Read the reason above and resolve it by hand."
+      status=4
+  fi
+  rm -f "$CUR" "$NEW"
+  exit "$status"   # cleanup succeeds; it must not report a failed write as success
   ```
+
+  Every retry starts from a freshly fetched body in its own scratch files: reusing a
+  stale copy would write back a body that has moved on, and a shared path collides
+  between concurrent workers.
 
   It refuses when the block's text or metadata was edited after generation, when the
   boundaries are damaged or duplicated, and when the replacement names a different
@@ -361,7 +374,7 @@ the escape when a prose line happens to open with a reserved word.
 - **No spec:** take the `--issues` label/milestone/list as the set; edges are
   whatever `- Blocked by #N` lines the bodies already carry.
 
-> Dependency: `scripts/speckit-tasks-to-issues.sh` calls `scripts/speckit-context.py` at runtime to render each issue's task-context block (#858). Both ship together; the converter still runs without the helper and simply writes no context block.
+> Dependency: `scripts/speckit-tasks-to-issues.sh` calls `scripts/speckit-context.py` at runtime to render each issue's task-context block (#858). Both ship together: if the helper is missing or fails, the converter stops with an error before creating anything, because a packaging fault is not a context-free installation. `--no-context` is the explicit opt-out.
 
 
 ## Phase 2: The orchestration loop

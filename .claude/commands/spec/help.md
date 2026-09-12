@@ -81,7 +81,7 @@ the tracker.
    > Upstream `/speckit-taskstoissues` requires github-mcp-server (which CPP does not
    > run); the bundled gh-CLI script is the CPP-supported substitute.
 
-> Dependency: `scripts/speckit-tasks-to-issues.sh` calls `scripts/speckit-context.py` at runtime to render each issue's task-context block (#858). Both ship together; the converter still runs without the helper and simply writes no context block.
+> Dependency: `scripts/speckit-tasks-to-issues.sh` calls `scripts/speckit-context.py` at runtime to render each issue's task-context block (#858). Both ship together: if the helper is missing or fails, the converter stops with an error before creating anything, because a packaging fault is not a context-free installation. `--no-context` is the explicit opt-out.
 
 
 4. **Ship each issue** through CPP's gate policy:
