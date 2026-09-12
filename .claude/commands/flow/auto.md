@@ -582,6 +582,15 @@ reason is something to surface, never grounds to drop it.
 not manufacture an alternative, an experiment or a challenge for work that does not
 need one.
 
+**If the change adds or modifies a check, gate, guard, tripwire or allowlist**, ask
+the two questions from
+[the detector contracts](../../../docs/agents/detector-contracts.md) before you
+call it done - does its success message claim more than its input population
+supports, and can a finding tell our thing from a neighbour's - and write the
+answer in as a test rather than a comment. Where the narrow answer is deliberately
+correct, widening is not the remedy: say where the larger question is answered
+instead.
+
 If implementation hits a blocker that cannot be resolved:
 - **STOP** and report the blocker.
 - Suggest manual intervention.
