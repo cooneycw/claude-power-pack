@@ -4,7 +4,7 @@ A check, gate, guard, tripwire or allowlist makes a claim. This document is the
 canonical statement of what that claim has to be able to say, and of the two
 questions a reviewer asks of any diff that adds or changes one.
 
-It exists because the pattern below was diagnosed twenty-two times across two
+It exists because the pattern below was diagnosed twenty-three times across two
 repositories and written down in exactly one place: issue #834. A shape that
 lives in one issue cannot be applied in review, so the next instance has nothing
 to reference. Other surfaces point here; they do not restate it.
@@ -224,7 +224,7 @@ conducted *for* this pattern.
 
 ## The instance index
 
-The twenty-two instances this contract was derived from. Kept here, in the guidance,
+The twenty-three instances this contract was derived from. Kept here, in the guidance,
 rather than in the issue that indexed them - a finding that lives only in a closed
 issue is the condition #834 was filed to end. Link new instances here.
 
@@ -249,7 +249,8 @@ issue is the condition #834 was filed to end. Link new instances here.
 | #867 | has *anything* acknowledged this message | did the agent behind this role receive it | open |
 | #869 | is there a socket file at this path | is that session alive | open |
 | #877 | is this deliverable a code change | can this driver do *this issue* (fence-forbidden paths) | open |
-| this change | does a process match `pgrep -f <pattern>` | does a process OTHER THAN ME match it | fixed in flight |
+| this change (pkill) | does a process match `pgrep -f <pattern>` | does a process OTHER THAN ME match it | fixed in flight |
+| this change (base sync) | are the ADDED LINES byte-identical | is the change still what was approved | fixed in flight |
 | kyle#994 | is this variable one of the nine safe ones | is this variable safe to forward | fixed |
 | kyle#997 | what did the task *wrapper* exit with | what did the *watch* exit with | fixed |
 
@@ -257,8 +258,7 @@ Three further instances are not in the table at all: they were found in
 instruments and in relays rather than in shipped checks, so there is no detector
 to name in the columns. They are described under "Seven properties" above.
 
-The `this change` row is the sharpest evidence in the table, and it is here
-deliberately. Writing this document, its author ran
+The `this change (pkill)` row is here deliberately. Writing this document, its author ran
 `pkill -f "issue-834/.venv/bin/pytest"` to clear a stale test process. The shell
 executing that command had the pattern inside its own command line, so the
 pattern matched the process doing the matching and the shell killed itself
@@ -268,6 +268,27 @@ recurrence under field conditions is stronger evidence about the class than the
 original finding, because it shows the pattern survives being known - which is
 the claim "Knowing the pattern confers no immunity" makes, now with a second
 witness.
+
+The `this change (base sync)` row is the same story with a better ending, because
+the check was caught before anyone relied on it. Landing this document required a
+base sync, and the question was whether the approved change had survived it. The
+answer given was a comparison of the two diffs' **added lines**: 925 both sides,
+byte-identical, zero deletions. True, and it was offered as evidence that "the
+change is still what was approved".
+
+It cannot support that. Its population is added lines, and it excludes the context
+those lines land in. The sibling PR in the same wave had edited the same file, and
+had this change also added a `### Step 5` heading, the added lines would have been
+byte-identical **and** the merged document would have carried two Step 5 sections.
+Git auto-merges that without a conflict; the check reports byte-identical with
+exactly the same confidence. What actually settled the question was reading the
+merged file's heading structure - one Step 5, at line 130 - which is a different
+measurement entirely.
+
+So "the added lines are unchanged" and "the change still does what was approved"
+are two questions with the same reassuring answer, and only the second was being
+asked. The reviewer who caught it is the one who went and read the merged file
+rather than accepting the byte comparison.
 
 Three of these (#867, #869, #877) were filed after the index was written, and #877
 was found while routing the work that produced this document. That is the standing
