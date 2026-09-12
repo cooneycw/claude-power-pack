@@ -162,7 +162,15 @@ while IFS= read -r line || [ -n "$line" ]; do
         SEEN_TID["$tid"]=1
         dep_list=""
         if [[ "$desc" =~ \(depends\ on\ ([^\)]*)\) ]]; then
-            dep_list="$(printf '%s' "${BASH_REMATCH[1]}" | grep -oE 'T[0-9]{3}' | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
+            dep_clause="${BASH_REMATCH[1]}"
+            # `|| true`: grep exits 1 when a clause names no valid task id, and
+            # under `set -e` that killed the whole run with no diagnostic at all -
+            # the same silence this change exists to remove, in the error path.
+            dep_list="$(printf '%s' "$dep_clause" | grep -oE 'T[0-9]{3}' | tr '\n' ' ' | sed 's/[[:space:]]*$//' || true)"
+            if [ -z "$dep_list" ]; then
+                MALFORMED+=("${TASKS}:${lineno}: dependency clause '(depends on ${dep_clause})' names no valid task id (expected T001..T999): ${line}")
+                continue
+            fi
         fi
         TIDS+=("$tid"); DESCS+=("$desc"); DEPS+=("$dep_list")
     elif [[ "$body" =~ (^|[^A-Za-z0-9])T[0-9]+([^A-Za-z0-9]|$) ]]; then
@@ -274,16 +282,24 @@ while IFS="$ISSUE_FS" read -r number marker prov ltid refs; do
     inventory_count=$((inventory_count + 1))
     if [ -n "$marker" ]; then
         # Exact identity. A marker naming a DIFFERENT feature is a known other
-        # task, not a claim on this one, so it is simply not this feature's.
-        case "$marker" in
-            "speckit-task:v1:${FEATURE}:"*)
-                tid="${marker##*:}"
+        # task, not a claim on this one.
+        #
+        # The comparison is EXACT, never a prefix: a feature may legitimately
+        # contain a colon (`--feature f:other`), so testing `speckit-task:v1:f:*`
+        # accepts `speckit-task:v1:f:other:T001` and hands one feature's task to
+        # another. Split the last field off as the task id and compare what
+        # remains to this feature in full.
+        marker_rest="${marker#speckit-task:v1:}"
+        if [ "$marker_rest" != "$marker" ]; then
+            tid="${marker_rest##*:}"
+            marker_feature="${marker_rest%:*}"
+            if [[ "$tid" =~ ^T[0-9]{3}$ ]] && [ "$marker_feature" = "$FEATURE" ]; then
                 MARKER_CLAIMS["$tid"]="${MARKER_CLAIMS[$tid]:-}#${number} "
                 FILED_NUM["$tid"]="$number"
                 FILED_VIA["$tid"]="marker"
                 EXISTING_REFS["$tid"]="$refs"
-                ;;
-        esac
+            fi
+        fi
         continue
     fi
     [ -n "$ltid" ] || continue
@@ -324,14 +340,16 @@ echo "Inventory:  ${inventory_count} issue(s) scanned (limit ${LIMIT})"
 declare -a AMBIGUOUS=()
 for i in "${!TIDS[@]}"; do
     tid="${TIDS[$i]}"
-    claims="$(printf '%s' "${MARKER_CLAIMS[$tid]:-}" | wc -w)"
-    provs="$(printf '%s' "${PROV_CLAIMS[$tid]:-}" | wc -w)"
-    if [ "$claims" -gt 1 ]; then
-        AMBIGUOUS+=("${tid}: competing markers for this feature: ${MARKER_CLAIMS[$tid]}")
-        continue
-    fi
-    if [ "$claims" -eq 0 ] && [ "$provs" -gt 1 ]; then
-        AMBIGUOUS+=("${tid}: competing issues record this tasks file as their source: ${PROV_CLAIMS[$tid]}")
+    # Count DISTINCT issues claiming this feature's task, whatever kind of claim
+    # they carry. Counting each bucket separately misses the mixed case - one
+    # issue with the marker and a different issue whose recorded source is this
+    # tasks file - which is two issues claiming one task and is exactly as
+    # ambiguous as two of either kind. The same issue appearing in both buckets
+    # cannot happen (a marker short-circuits the provenance read), so a repeat
+    # number here is always two different records.
+    claimants="$(printf '%s %s' "${MARKER_CLAIMS[$tid]:-}" "${PROV_CLAIMS[$tid]:-}" | tr ' ' '\n' | grep -c '^#[0-9]' || true)"
+    if [ "$claimants" -gt 1 ]; then
+        AMBIGUOUS+=("${tid}: ${claimants} issues claim this feature's task: marker ${MARKER_CLAIMS[$tid]:-none} / recorded source ${PROV_CLAIMS[$tid]:-none}")
         continue
     fi
     # An identified task is not made ambiguous by somebody else's untraceable

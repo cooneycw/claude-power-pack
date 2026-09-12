@@ -69,7 +69,15 @@ if argv[:2] == ["issue", "list"]:
         sys.exit(1)
     state = load()
     limit = int(argv[argv.index("--limit") + 1]) if "--limit" in argv else 30
-    rows = [{k: i[k] for k in ("number", "title", "body")} for i in state["issues"][:limit]]
+    # Model --state the way gh does: without it, only OPEN issues come back. A
+    # dedup scan that forgot `--state all` would therefore stop seeing closed
+    # tasks here, exactly as it would against real gh.
+    wanted = argv[argv.index("--state") + 1].upper() if "--state" in argv else "OPEN"
+    issues = [
+        i for i in state["issues"]
+        if wanted == "ALL" or i.get("state", "OPEN").upper() == wanted
+    ]
+    rows = [{k: i[k] for k in ("number", "title", "body")} for i in issues[:limit]]
     jq_filter = argv[argv.index("--jq") + 1] if "--jq" in argv else "."
     done = subprocess.run(
         ["jq", "-r", jq_filter], input=json.dumps(rows), capture_output=True, text=True
@@ -238,6 +246,25 @@ class TestParsing:
         assert "malformed T-number" in result.stderr
         assert "0 to create" not in result.stdout
 
+    def test_malformed_dependency_clause_is_diagnosed_not_a_bare_failure(
+        self, project
+    ) -> None:
+        """`(depends on T1)` used to abort the run with exit 1 and no message.
+
+        `grep` exits 1 when a clause names no valid id, and under `set -e` that
+        killed the script mid-parse - a silent failure in the code path added to
+        remove silent failures.
+        """
+        repo, bindir, state = project(
+            {"a/tasks.md": "- [ ] **T001** [US1] Build A (depends on T1)\n"}
+        )
+
+        result = _run(repo, bindir, state, "--dry-run", "--tasks", "a/tasks.md")
+
+        assert result.returncode == 3, result.stdout + result.stderr
+        assert "a/tasks.md:1" in result.stderr
+        assert "names no valid task id" in result.stderr
+
     def test_file_with_no_tasks_is_an_error_not_a_success(self, project) -> None:
         repo, bindir, state = project({"a/tasks.md": "# Tasks\n\nNothing here yet.\n"})
 
@@ -286,7 +313,13 @@ class TestFeatureScopedIdentity:
         assert len(_issues(state)) == 1
 
     def test_closed_issues_still_count_as_filed(self, project) -> None:
-        """`--state all` has always been the query; the marker must work there too."""
+        """A finished task stays filed: the scan must ask for closed issues too.
+
+        The stub returns only OPEN issues unless the caller passes `--state all`,
+        so this fixture fails if that flag is ever dropped - which is the whole
+        claim the test makes. A fixture with no state would pass either way and
+        prove nothing.
+        """
         repo, bindir, state = project(
             {"a/tasks.md": BOLD_TASKS},
             issues=[
@@ -294,15 +327,19 @@ class TestFeatureScopedIdentity:
                     "number": 7,
                     "title": "T001 (a/tasks.md): Build the widget",
                     "body": _marker("a/tasks.md", "T001"),
+                    "state": "CLOSED",
                 }
             ],
+        )
+        assert _issues(state)[0]["state"] == "CLOSED", (
+            "fixture must be CLOSED, or it does not exercise the --state all query"
         )
 
         result = _run(repo, bindir, state, "--tasks", "a/tasks.md")
 
         assert result.returncode == 0, result.stderr
         assert "skip  T001 (issue #7" in result.stdout
-        assert len(_issues(state)) == 1
+        assert len(_issues(state)) == 1, "a closed task must not be filed again"
 
     def test_explicit_feature_flag_overrides_the_path(self, project) -> None:
         repo, bindir, state = project({"a/tasks.md": BOLD_TASKS})
@@ -375,7 +412,7 @@ class TestLegacyIdentity:
         assert "#50" in result.stderr
         assert len(_issues(state)) == 1, "an unresolved identity must create nothing"
 
-    def test_competing_claims_for_the_same_feature_are_ambiguous(self, project) -> None:
+    def test_two_markers_for_the_same_task_are_ambiguous(self, project) -> None:
         repo, bindir, state = project(
             {"a/tasks.md": BOLD_TASKS},
             issues=[
@@ -387,7 +424,78 @@ class TestLegacyIdentity:
         result = _run(repo, bindir, state, "--tasks", "a/tasks.md")
 
         assert result.returncode == 5
-        assert "competing markers" in result.stderr
+        assert "claim this feature's task" in result.stderr
+        assert "#50" in result.stderr and "#51" in result.stderr
+
+    def test_a_marker_and_a_provenance_claim_on_different_issues_are_ambiguous(
+        self, project
+    ) -> None:
+        """Two claims of DIFFERENT kinds are still two claims.
+
+        Counting each kind separately reads one marker and one recorded-source
+        issue as "one of each, no conflict" and silently picks the marker, which
+        is the guess this criterion forbids. The claimants are counted across
+        both kinds instead.
+        """
+        repo, bindir, state = project(
+            {"a/tasks.md": BOLD_TASKS},
+            issues=[
+                {"number": 7, "title": "T001 (f): x", "body": _marker("f", "T001")},
+                {
+                    "number": 8,
+                    "title": "T001: legacy",
+                    "body": _provenance("a/tasks.md", "T001"),
+                },
+            ],
+        )
+
+        result = _run(repo, bindir, state, "--tasks", "a/tasks.md", "--feature", "f")
+
+        assert result.returncode == 5, result.stdout + result.stderr
+        assert "#7" in result.stderr and "#8" in result.stderr
+        assert len(_issues(state)) == 2, "an unresolved identity must create nothing"
+
+    def test_a_feature_name_that_is_a_prefix_of_another_does_not_match(
+        self, project
+    ) -> None:
+        """`--feature f` must not adopt `f:other`'s task.
+
+        A prefix test on `speckit-task:v1:<feature>:` accepts any feature whose
+        name starts with this one and contains a colon, handing one feature's
+        issue to another - the identity collision this change exists to remove,
+        reintroduced by the matching rule itself.
+        """
+        repo, bindir, state = project(
+            {"a/tasks.md": BOLD_TASKS},
+            issues=[
+                {"number": 7, "title": "T001 (f:other): x", "body": _marker("f:other", "T001")}
+            ],
+        )
+        assert "f:other" in _issues(state)[0]["body"], (
+            "fixture marker must name a DIFFERENT feature that extends this one"
+        )
+
+        result = _run(repo, bindir, state, "--dry-run", "--tasks", "a/tasks.md", "--feature", "f")
+
+        assert result.returncode == 0, result.stderr
+        assert "would create: T001 (f): Build the widget" in result.stdout
+        assert "skip  T001" not in result.stdout
+
+    def test_exact_feature_with_a_colon_still_matches_its_own_task(self, project) -> None:
+        """Control: the colon-bearing feature name is not simply rejected."""
+        repo, bindir, state = project(
+            {"a/tasks.md": BOLD_TASKS},
+            issues=[
+                {"number": 7, "title": "T001 (f:other): x", "body": _marker("f:other", "T001")}
+            ],
+        )
+
+        result = _run(
+            repo, bindir, state, "--dry-run", "--tasks", "a/tasks.md", "--feature", "f:other"
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert "skip  T001 (issue #7" in result.stdout
 
 
 class TestInventoryHonesty:
