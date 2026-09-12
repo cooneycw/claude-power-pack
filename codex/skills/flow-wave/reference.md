@@ -200,9 +200,11 @@ ruling already made - and while designing #814 itself, an orchestrator went
 deaf for 25 minutes after a forgotten re-arm, missing seven messages
 including three from its own master, caught only because that master noticed
 the silence from outside. `supervise` detaches a daemon that keeps re-arming
-`watch --consume` on its own until this role is released or the wave ends -
+`watch --peek` on its own until this role is released or the wave ends -
 it removes the step that kept getting dropped, it does not merely warn about
-it. It still cannot force the harness to tell THIS session when mail
+it. It never ACKNOWLEDGES (#867, #873): a daemon printing into a log is not a
+recipient, and while it consumed, every deafness tell on this page read clean
+over a worker that had seen nothing. It still cannot force the harness to tell THIS session when mail
 arrives; see `route=` below for how that residual gap stays visible instead
 of assumed away. A live supervisor already holding this role refuses a
 second one (exit 4, `duplicate`); check
@@ -263,9 +265,22 @@ assuming: `flow-wave-mailbox.sh list --wave <WAVE>` shows each box's rev,
 acked and unread count (issue #815 - `acked` replaced `cursor`: it is the
 count of revs that box's reader has explicitly acknowledged, not a read
 position), so an assignment a worker has NOT acknowledged is visible as a
-nonzero `UNREAD` instead of being invisible until someone asks. A worker with
-unread mail and no progress is a worker whose watch is not armed - fix that
-rather than relaying by hand.
+nonzero `UNREAD` instead of being invisible until someone asks.
+
+**A worker with unread mail and no progress now has TWO possible causes, and
+they need different fixes (#867, #873).** This used to read "a worker whose
+watch is not armed", which was a sound inference only because an armed
+supervisor CONSUMED - so unread mail implied nothing was listening. The
+supervisor no longer acknowledges, so unread mail is the ordinary resting
+state of anything the worker has not yet acked, and a nonzero `UNREAD` is no
+longer evidence about the watch at all. Read the two columns instead:
+
+- `watch=DEAD`/`ABSENT`/`stale` - nothing is listening. Get a supervisor
+  armed; that is the old diagnosis and it still applies when the column says so.
+- `watch=armed` **and** `route=UNCONFIRMED` - something is polling and
+  surfacing, and the agent behind it still has not acknowledged anything. That
+  is #814's residual gap showing, not a dead watch, and arming another watcher
+  will not touch it. Ask the worker directly.
 
 ## Setup: the transition lexicon (consume #701, do not reimplement)
 

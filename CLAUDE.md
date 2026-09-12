@@ -14,6 +14,7 @@ helpers own deterministic behavior.
 - **When fixing errors, fix BOTH the application code AND the CI/CD process.** Never bypass quality gates.
 - Before debugging manually, run `make lint` and `make test`.
 - A test that shells out to a real binary must use a `shutil.which` skip guard - including when it reaches that binary by running a repo shell script. `scripts/check-test-binary-guards.py` enforces the detailed contract.
+- A check, gate, guard, tripwire, or allowlist must be able to represent the state it cannot currently see: its success message must not claim more than its input population supports, and a finding must distinguish our thing from a neighbour's. [The detector contracts](docs/agents/detector-contracts.md) own the two review questions and the test shapes that pin them.
 - A fixture that constructs a NEGATIVE condition must assert that precondition before exercising the code. `scripts/check-negative-fixture-preconditions.py` owns the detectable contract.
 - A pattern-matching fixture must not interpolate an absolute path it does not control; use a fixture-owned relative value and assert the intended classification.
 - After any fix, verify through the full pipeline with `make verify`.
@@ -35,6 +36,7 @@ these rules remain in [commands-reference.md](docs/commands-reference.md) and
 - `docs/commands-reference.md` - command decisions, histories, and workflow detail.
 - `docs/scripts.md` - script inventory and per-script behavioral history.
 - `docs/agents/issue-contract.md` - canonical issue contract and proportional spec routing.
+- `docs/agents/detector-contracts.md` - canonical detector-claim contract and its instance index.
 - `docs/agents/knowledge-lifecycle.md` - canonical completed-spec graduation policy.
 - `ISSUE_DRIVEN_DEVELOPMENT.md` - issue-driven development source.
 - `PROGRESSIVE_DISCLOSURE_GUIDE.md` - context-loading guidance.
