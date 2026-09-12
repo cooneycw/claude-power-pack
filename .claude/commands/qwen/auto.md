@@ -499,6 +499,21 @@ do not proceed to review - there is nothing to review. An `api-error` or
 `output-empty` signal on a reachable-looking endpoint usually means the model
 endpoint is wrong or down; run `/qwen:status` before re-prompting.
 
+**And on `success`, read `DELEGATED_RUN_TOOL_ERRORS` before you believe it
+(issue #836).** The verdict answers *"did the delegated process run cleanly?"*
+It is routinely read as *"did the delegated work happen?"*, and those come apart
+exactly here: a tool call denied by a permission fence still counts as
+`tool_use`, leaves the payload well formed and the exit code 0, so a run whose
+every command was refused reports `success`. One did, and returned a fabricated
+empty inventory that nothing downstream could have questioned.
+
+A non-zero count is **not** a failed run - a denied call is the fence working as
+designed, and making it fatal is a defect that was already shipped and reverted.
+It is the one fact that tells you to go and look: read the payload, or check the
+postcondition the work was supposed to establish, before reporting the result as
+done. The line is always emitted, `0` included, so `0` means "checked, none"
+rather than "not checked".
+
 **Monitor the JSONL stream** - each line is a JSON message with a `type` field
 (system/init metadata, assistant messages, tool events, and a final `result`
 message with run stats). Parse and report plan steps, file changes, agent
