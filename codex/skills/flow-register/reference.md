@@ -814,6 +814,16 @@ gets the same primary evidence and the asymmetry has no remaining cause.
 The socket file survives as CORROBORATION only, reported in
 `FLOW_WAVE_LIVENESS_BASIS` and never changing a verdict.
 
+**On a host with no `/proc`, the errno is read from `kill`'s message text.**
+That is prose, not a fact, and `strerror()` is translated: the lookup pins
+`LC_ALL=C` so the common case is deterministic, but a message this code does not
+recognise resolves to `unknown` rather than to a wrong answer. The corner is
+narrow - `/proc` is consulted first, so this runs only where there is none - and
+it degrades in the safe direction, since `unknown` refuses a takeover instead of
+inventing life. Stated here because a documented contract that silently depends
+on the operator's locale is the same species of unstated assumption #869 exists
+to remove.
+
 **`unknown` is a third state, not a polite `stale`.** A host that can neither
 read `/proc` nor classify `kill`'s errno has an UNENUMERABLE process table, and
 rounding that down to "dead" is the mistake the sibling mailbox refused when it

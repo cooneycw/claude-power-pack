@@ -623,7 +623,11 @@ class TestLeftoverSocketIsNotProofOfLife:
         with EPERM exactly as it would for a session owned by another user. The
         old code reached this only via a socket file; there is no socket here.
         """
-        assert subprocess.run(["kill", "-0", "1"], capture_output=True).returncode != 0
+        # Asserted through os.kill rather than a `kill` BINARY: this test's
+        # claim is about the errno, and a minimal container without procps
+        # would turn a missing binary into an ERROR rather than a skip.
+        with pytest.raises(PermissionError):
+            os.kill(1, 0)
         _run(tmp_path, "register", "1", "--socket", "uds:/nonexistent/none.sock", pid="1")
         p = _run(tmp_path, "get", "1", pid="1")
         assert _detail(p, "FLOW_WAVE_LIVENESS") == "live"

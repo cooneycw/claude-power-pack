@@ -455,7 +455,16 @@ pid_state() {
   fi
 
   if kill -0 "$pid" 2>/dev/null; then echo alive; return; fi
-  err="$(kill -0 "$pid" 2>&1 >/dev/null)"
+  # LAST RESORT, and the only branch in this function that reads PROSE rather
+  # than a fact. There is no portable way to get an errno out of the `kill`
+  # builtin except its message, and that message is `strerror()`, which glibc
+  # TRANSLATES. `LC_ALL=C` pins it - a temporary assignment on a builtin does
+  # reach bash's own setlocale - but it cannot help if the message shape itself
+  # differs, so an unrecognised message falls to `unknown` rather than guessing.
+  # That is the safe direction: `unknown` refuses a takeover, it never invents
+  # life. Reachable only on a host with no /proc, since /proc is consulted
+  # first, and never in the tests, which pin the table.
+  err="$(LC_ALL=C kill -0 "$pid" 2>&1 >/dev/null)"
   case "$err" in
     *"o such process"*)                     echo gone ;;
     *"ot permitted"*|*"ermission denied"*)  echo alive ;;
