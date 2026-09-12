@@ -2,6 +2,21 @@
 
 *From Claude Code Best Practices - r/ClaudeCode community wisdom*
 
+## How this repository applies it
+
+The community material below argues for writing the specification before the code.
+CPP takes the principle and sizes it: every change states its **contract** first, and
+a full specification is how that contract is expressed when the work warrants one.
+Tier 1 and Tier 2 work carries the same contract in a few sentences in the issue body,
+with no spec.md, plan.md, or tasks.md; Tier 3 work gets the full pipeline and the issue
+references the spec instead of copying it.
+
+What the contract must make legible either way - the intended outcome, constraints with
+their rationale, observable acceptance, a proposed approach marked as revisable, and
+assumptions worth checking - is defined once in
+[the issue contract](../agents/issue-contract.md). Read that before applying the
+templates below, which are the Tier 3 shape.
+
 ## Why Spec-Driven Development? (107 upvotes)
 
 **From "Why we shifted to Spec-Driven Development":**
@@ -12,10 +27,11 @@
 
 ## The SDD Approach
 
-1. **Write Detailed Specs First**
-   - Before any code
+1. **Agree the Contract First**
+   - Before any code, at a size proportional to the work
    - Include edge cases
-   - Define success criteria
+   - Define success criteria as observable outcomes
+   - Keep a proposed design labelled as a proposal, so a better one can replace it
 
 2. **Review Specs, Not Just Code**
    - Easier to fix design issues before coding
@@ -102,11 +118,23 @@ One-sentence description
 
 ## Integration with Claude Code
 
-1. Create spec in `specs/` directory
-2. Reference spec in prompts: "Implement according to specs/feature.md"
-3. Ask Claude to verify implementation against spec
-4. Update spec with learnings
+For Tier 1 and Tier 2 work:
+
+1. State the contract in the issue body per
+   [the issue contract](../agents/issue-contract.md)
+2. Ship it with `/flow:auto <issue>`
+3. Verify the implementation against the issue's acceptance examples
+
+For Tier 3 work:
+
+1. Create the spec under `.specify/specs/{feature}/` with `/spec:adopt` and the
+   upstream `/speckit-*` skills
+2. Reference the spec and its governing sections from each issue, rather than
+   copying them
+3. Ask Claude to verify implementation against the spec
+4. Update the spec with learnings, then graduate its durable facts on delivery
+   ([knowledge lifecycle](../agents/knowledge-lifecycle.md))
 
 ---
 
-*Triggers: spec driven, specification, SDD, planning, requirements*
+*Triggers: spec driven, specification, SDD, planning, requirements, issue contract*

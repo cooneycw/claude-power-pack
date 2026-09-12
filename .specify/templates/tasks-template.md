@@ -55,7 +55,7 @@
 
 ## Issue Sync
 
-> Use `/spec:sync` to create GitHub issues from these tasks.
+> Use `scripts/speckit-tasks-to-issues.sh` to create GitHub issues from these tasks.
 
 | Task | Issue | Status |
 |------|-------|--------|

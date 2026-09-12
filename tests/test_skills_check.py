@@ -151,8 +151,14 @@ EXPECTED_LOADING_METADATA = {
     },
     "spec-driven-dev": {
         "name": "Spec-Driven Development",
-        "description": "Specification-first development workflow and planning",
-        "trigger": "spec driven, specification, SDD, planning, requirements",
+        # Revised by #856: the description and trigger are the skill's ACTIVE
+        # guidance (the line every session's skill listing shows), and
+        # "Specification-first" contradicted the proportional contract-first
+        # policy the constitution now states. The fixture still pins the
+        # post-conversion shape against silent loss; this is a reviewed edit to
+        # one entry, not a relaxation of the check.
+        "description": "Contract-first development, proportional spec routing, and planning",
+        "trigger": "spec driven, specification, SDD, planning, requirements, issue contract",
     },
 }
 

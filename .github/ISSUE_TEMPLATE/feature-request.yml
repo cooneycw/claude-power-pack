@@ -34,8 +34,8 @@ body:
   - type: textarea
     id: problem
     attributes:
-      label: Problem/Use case
-      description: What problem does this solve? What's the use case?
+      label: Problem and intended outcome
+      description: What problem does this solve, and what should be true once it is solved? This is the part that is binding.
       placeholder: |
         As a [type of user], I want to [do something]
         so that [benefit/outcome].
@@ -43,17 +43,27 @@ body:
       required: true
 
   - type: textarea
+    id: constraints
+    attributes:
+      label: Constraints (optional)
+      description: Boundaries any solution must respect, each with the reason behind it. A reason is what lets someone challenge a constraint on the merits instead of guessing.
+      placeholder: |
+        - Must not add a new runtime service - we run a single container and intend to keep it that way.
+    validations:
+      required: false
+
+  - type: textarea
     id: solution
     attributes:
-      label: Proposed solution
-      description: How should this feature work?
+      label: Proposed approach (optional)
+      description: If you have a design in mind, describe it here. This is recorded as a revisable suggestion, not a requirement - an implementer may deliver the outcome above a different way and will say why. Leave it blank if you would rather not prescribe one.
       placeholder: |
-        Describe the feature:
+        Describe the approach you have in mind:
         - What would the user do?
         - What would happen?
         - What output would they see?
     validations:
-      required: true
+      required: false
 
   - type: textarea
     id: alternatives
