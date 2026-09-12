@@ -125,6 +125,43 @@ is the caller's decision (`/flow:auto_codex` Step 5 does exactly that).
 If `CODEX_EXIT` is non-zero, report the failure honestly and do not fabricate
 findings; a calling workflow treats it like the exit-3 unavailable case.
 
+### Step 5: Route Deferred Findings to the Nit Store
+
+A finding you triaged **defer** - real, but out of scope for this branch - is a
+supplemental finding. This command does not fix it, and the triage line is not a
+record: it scrolls out of the caller's context and is gone. Do not widen the
+change to fix it, and do not drop it. Record it.
+
+Resolve the repository's nit store:
+
+```bash
+case "$(basename "$(git rev-parse --show-toplevel)")" in
+    kyle)              NIT_STORE=1004 ;;
+    claude-power-pack) NIT_STORE=864 ;;
+    codex-power-pack)  NIT_STORE=227 ;;
+    *) NIT_STORE=$(gh issue list --search "Nit Store" --state open \
+                     --json number --jq '.[0].number' 2>/dev/null) ;;
+esac
+gh issue comment "$NIT_STORE" --body "<one finding>"
+```
+
+If the repository has no nit store, file the finding as a normal issue instead.
+
+- **One finding per comment.** State the file and line (or the command), what is
+  wrong, why it matters, and which issue or PR you were reviewing when you found
+  it. The comment is the whole record; it is read later without your context.
+- **Attribute it.** The finding is Codex's; say so in the comment, exactly as the
+  relay above does. A later reader weighs a cross-model finding differently from
+  your own.
+- **The store is an inbox, not a backlog.** A comment is a disposition, not a fix.
+- **It is not a place to hide a defect that warrants its own ticket now.** A live
+  correctness, security, or data-loss finding gets its own issue, whatever its
+  scope - `defer` is a scope judgement, not a severity one.
+- **Name what you stored, with the comment link, in your closing report.**
+
+A review with nothing deferred stores nothing. That is an ordinary outcome, not a
+gap to fill.
+
 ## Notes
 
 - Uses the user's **Codex account** (real quota/billing per call). One review
