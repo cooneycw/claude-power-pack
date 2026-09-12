@@ -343,8 +343,10 @@ Working from the worktree, analyze the issue and codebase to form an implementat
    The block's **Task wording** line is the task's own sentence, not a ruling: resolve
    whether it proposes an approach you may replace or restates a binding constraint
    against the sections the block names. An **Unresolved** or **Capped** note means the
-   context is incomplete and must be resolved before planning - never that the task has
-   no constraints.
+   context is incomplete - never that the task has no constraints. Apply the same
+   material-ambiguity standard as everywhere else: resolve what would change the work,
+   surface the rest in the Step 3 report, and plan from what you have. Missing optional
+   structure is not a gate.
 
 2. **Explore the codebase:**
    - Read files referenced in the issue
