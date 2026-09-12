@@ -1071,7 +1071,9 @@ Report: `Step 6/9: Finish complete - PR #XX created`
    # parsed out of the report: a quoted example or a truncated read must never be able
    # to authorise a close. "yes" only when every material item is demonstrated, revised
    # WITH evidence, or resolved by a recorded transfer/withdrawal; unset cannot close.
-   ACCEPTANCE_COMPLETE="${ACCEPTANCE_COMPLETE:-}"
+   # Restate the judgement you reached in Step 6 for THIS issue. It is set here
+   # rather than inherited, so a value left over from earlier work cannot decide it.
+   ACCEPTANCE_COMPLETE=""
 
    if [[ -n "$ISSUE_NUM" ]]; then
        ISSUE_STATE=$(gh issue view "$ISSUE_NUM" --json state --jq '.state' 2>/dev/null)

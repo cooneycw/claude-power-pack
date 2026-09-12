@@ -241,6 +241,21 @@ not print a closing keyword beside an issue number even to illustrate what to re
 to an issue number (exits 5 and 7), and it cannot tell an example from an instruction.
 A report that demonstrates the mistake interrupts the merge it was trying to protect.
 
+```bash
+# Reference selection (issue #860). Default to a NON-closing reference; a closing one
+# is used only after your own acceptance accounting for THIS issue. Reset it here
+# rather than inheriting a value from an earlier run.
+ACCEPTANCE_COMPLETE=""     # "yes" only when every material item is demonstrated,
+                           # revised with evidence, or resolved by a recorded transfer
+ISSUE_REF="Refs #${ISSUE_NUM}"
+if [[ "$ACCEPTANCE_COMPLETE" == "yes" ]]; then
+    ISSUE_REF="Closes #${ISSUE_NUM}"
+fi
+```
+
+`$ISSUE_REF` then feeds the commit message, the PR title and the PR body, so an
+incomplete accounting cannot publish a closing reference anywhere.
+
 ### Step 3: Check for Changes
 
 ```bash
@@ -291,21 +306,6 @@ EXISTING_PR=$(gh pr list --head "$BRANCH" --json number,url --jq '.[0]' 2>/dev/n
 
 ### Step 6: Create PR
 
-```bash
-# Reference selection (issue #860). Default to a NON-closing reference; a closing one
-# is used only after your own acceptance accounting for THIS issue. Reset it here
-# rather than inheriting a value from an earlier run.
-ACCEPTANCE_COMPLETE=""     # "yes" only when every material item is demonstrated,
-                           # revised with evidence, or resolved by a recorded transfer
-ISSUE_REF="Refs #${ISSUE_NUM}"
-if [[ "$ACCEPTANCE_COMPLETE" == "yes" ]]; then
-    ISSUE_REF="Closes #${ISSUE_NUM}"
-fi
-```
-
-`$ISSUE_REF` then feeds the commit message, the PR title and the PR body, so an
-incomplete accounting cannot publish a closing reference anywhere.
-
 Use standard PR creation:
 
 ```bash
@@ -344,7 +344,7 @@ PR created: https://github.com/owner/repo/pull/78
 - **Lint/test failure:** Stop, show output, ask user to fix
 - **Push failure:** Report error (likely needs `git pull --rebase`)
 - **PR already exists:** Report URL, offer to update
-- **No issue number in branch:** Create PR without `Closes #N` reference
+- **No issue number in branch:** Create PR with no issue reference at all
 - **No Makefile:** Skip quality gates, warn user
 
 ## Notes

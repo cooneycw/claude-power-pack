@@ -211,11 +211,11 @@ class TestPublishedClosureShell:
         state = tmp_path / "state.json"
         state.write_text(json.dumps({"issue_state": "OPEN", "calls": []}))
 
-        preamble = 'ISSUE_NUM=42\nPR_NUMBER=100\n'
+        block = _closure_block(rel)
         if decision is not None:
-            preamble += f'export ACCEPTANCE_COMPLETE={decision!r}\n'
+            block = _inject_decision(block, decision)
         result = subprocess.run(
-            ["bash", "-c", preamble + _closure_block(rel)],
+            ["bash", "-c", 'ISSUE_NUM=42\nPR_NUMBER=100\n' + block],
             capture_output=True,
             text=True,
             env={"PATH": f"{bindir}:{os.environ['PATH']}", "GH_STUB_STATE": str(state)},
@@ -300,26 +300,31 @@ def _selection_block(rel: str) -> str:
     return blocks[0]
 
 
+def _inject_decision(block: str, decision: str) -> str:
+    """Set the decision at its DOCUMENTED assignment, changing nothing else.
+
+    Earlier versions of these tests executed the published block and then overwrote
+    its result with a handwritten copy of the same logic - so they passed on my
+    replacement rather than on what ships. Only the input is injected now; the
+    published source decides the outcome.
+    """
+    patched, count = re.subn(
+        r'^ACCEPTANCE_COMPLETE=""', f'ACCEPTANCE_COMPLETE={decision!r}', block, count=1, flags=re.M
+    )
+    assert count == 1, "the published block no longer resets ACCEPTANCE_COMPLETE"
+    return patched
+
+
 @pytest.mark.parametrize("rel", LIFECYCLE_SURFACES[:2] + LIFECYCLE_SURFACES[3:], ids=lambda r: r)
 def test_the_reference_selection_defaults_to_non_closing(rel: str) -> None:
-    """Executable selection, not an explanatory comment.
+    """Execute the PUBLISHED selection; inject only the decision value."""
+    block = _selection_block(rel)
 
-    The first attempt published a closing title with a note saying to choose
-    otherwise - and in finish.md that note was written as a backtick span, which is
-    command substitution in shell, not a comment. What publishes has to BE the
-    decision.
-    """
     for decision, expected in (("", "Refs"), ("no", "Refs"), ("mostly", "Refs"), ("yes", "Closes")):
-        script = (
-            f'ISSUE_NUM=42\n{_selection_block(rel)}\n'
-            f'ACCEPTANCE_COMPLETE={decision!r}\n'
-            'ISSUE_REF="Refs #${ISSUE_NUM}"\n'
-            'if [[ "$ACCEPTANCE_COMPLETE" == "yes" ]]; then ISSUE_REF="Closes #${ISSUE_NUM}"; fi\n'
-            'echo "$ISSUE_REF"'
-        )
+        script = "ISSUE_NUM=42\n" + _inject_decision(block, decision) + '\necho "$ISSUE_REF"'
         result = subprocess.run(["bash", "-c", script], capture_output=True, text=True)
         assert result.returncode == 0, result.stderr
-        assert result.stdout.strip().startswith(expected), (
+        assert result.stdout.strip() == f"{expected} #42", (
             f"{rel}: decision {decision!r} produced {result.stdout.strip()!r}"
         )
 
@@ -345,14 +350,41 @@ def test_the_acceptance_variable_is_reset_not_inherited(rel: str) -> None:
     )
 
 
-def test_pr_create_with_an_incomplete_judgement_publishes_no_closing_reference(
-    tmp_path: Path,
+def _all_bash_blocks(rel: str) -> list[str]:
+    """Every fenced bash block, placeholders included."""
+    text = _read(rel)
+    return [
+        re.sub(r"^ {0,3}", "", block, flags=re.MULTILINE)
+        for block in re.findall(r"^[ \t]*```bash\n(.*?)^[ \t]*```", text, re.S | re.M)
+    ]
+
+
+def _published_pr_create(rel: str) -> str:
+    """The `gh pr create` invocation exactly as the document publishes it.
+
+    Searched over ALL blocks: the syntax check filters out template blocks carrying
+    `<placeholders>`, and finish.md's create call is one of them - filtering here too
+    would have quietly skipped the very command under test.
+    """
+    for block in _all_bash_blocks(rel):
+        if "gh pr create" in block:
+            return block
+    raise AssertionError(f"{rel} publishes no gh pr create block")
+
+
+@pytest.mark.parametrize("rel", ["flow/finish.md", "flow/auto.md"], ids=lambda r: r)
+def test_the_published_create_path_publishes_no_closing_reference_when_incomplete(
+    rel: str, tmp_path: Path
 ) -> None:
-    """Bounded stub-gh run of the PUBLISHED create path, not just the close block."""
+    """Run the document's OWN selection and its OWN create command.
+
+    Nothing here re-implements either: if the shipped snippets reverted to an
+    unconditional closing reference, this fails.
+    """
     bindir = tmp_path / "bin"
-    bindir.mkdir()
+    bindir.mkdir(exist_ok=True)
     (bindir / "gh").write_text(
-        "#!/usr/bin/env bash\nprintf '%s\\n' \"$@\" >> \"$GH_CALLS\"\n", encoding="utf-8"
+        '#!/usr/bin/env bash\nprintf "%s\\n" "$@" >> "$GH_CALLS"\n', encoding="utf-8"
     )
     (bindir / "gh").chmod(0o755)
     calls = tmp_path / "calls.txt"
@@ -360,11 +392,10 @@ def test_pr_create_with_an_incomplete_judgement_publishes_no_closing_reference(
     for decision, forbidden in (("", "Closes"), ("yes", "Refs")):
         calls.write_text("")
         script = (
-            'ISSUE_NUM=42\n'
-            f'ACCEPTANCE_COMPLETE={decision!r}\n'
-            'ISSUE_REF="Refs #${ISSUE_NUM}"\n'
-            'if [[ "$ACCEPTANCE_COMPLETE" == "yes" ]]; then ISSUE_REF="Closes #${ISSUE_NUM}"; fi\n'
-            'gh pr create --title "fix(x): thing (${ISSUE_REF})" --body "summary\n\n${ISSUE_REF}"'
+            "ISSUE_NUM=42\nISSUE_TITLE=thing\n"
+            + _inject_decision(_selection_block(rel), decision)
+            + "\n"
+            + _published_pr_create(rel)
         )
         result = subprocess.run(
             ["bash", "-c", script],
@@ -374,6 +405,36 @@ def test_pr_create_with_an_incomplete_judgement_publishes_no_closing_reference(
         )
         assert result.returncode == 0, result.stderr
         published = calls.read_text()
+        assert published.strip(), f"{rel}: the published create block invoked no gh"
         assert forbidden not in published, (
-            f"decision {decision!r} published {forbidden!r}: {published!r}"
+            f"{rel}: decision {decision!r} published {forbidden!r}:\n{published}"
         )
+
+
+@pytest.mark.parametrize("rel", ["flow/finish.md", "flow/auto.md"], ids=lambda r: r)
+def test_the_selection_precedes_every_use_of_the_reference(rel: str) -> None:
+    """Control data, not just prose: the variable must be set before it is read."""
+    text = _read(rel)
+    assignment = text.index('ISSUE_REF="Refs #${ISSUE_NUM}"')
+    first_use = text.index("${ISSUE_REF}")
+
+    assert assignment < first_use, (
+        f"{rel} uses ${{ISSUE_REF}} before the block that selects it"
+    )
+
+
+def test_merge_resets_the_decision_for_this_issue() -> None:
+    """/flow:merge runs standalone; an exported yes must not decide the next issue."""
+    block = _selection_or_close_block("flow/merge.md")
+
+    assert 'ACCEPTANCE_COMPLETE=""' in block
+    assert "${ACCEPTANCE_COMPLETE:-}" not in block, (
+        "flow/merge.md inherits the decision instead of resetting it"
+    )
+
+
+def _selection_or_close_block(rel: str) -> str:
+    for block in _all_bash_blocks(rel):
+        if "ACCEPTANCE_COMPLETE" in block:
+            return block
+    raise AssertionError(f"{rel} publishes no acceptance decision")

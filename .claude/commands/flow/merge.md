@@ -259,7 +259,9 @@ Carry that judgement into the one place it has to act:
 # revised behaviour, or resolved by a transfer/withdrawal that recorded its authority
 # and destination. Anything else - including "not sure" - leaves it unset, and unset
 # cannot close.
-ACCEPTANCE_COMPLETE="${ACCEPTANCE_COMPLETE:-}"
+# Reset for THIS issue: /flow:merge can run standalone, and an exported "yes" from
+# earlier work in the same shell must not decide this one.
+ACCEPTANCE_COMPLETE=""
 
 if [[ -n "$ISSUE_NUM" ]]; then
     ISSUE_STATE=$(gh issue view "$ISSUE_NUM" --json state --jq '.state' 2>/dev/null)
