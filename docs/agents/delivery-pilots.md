@@ -249,6 +249,18 @@ model being measured.
   change - a real ordering flaw, not a test bug.
 - Bytecode from the runner's own check was counted as files the agent added, which
   reads exactly like the unasked-for ceremony pilot B is supposed to measure.
+- **The full gate caught what targeted linting missed.** `make verify` went red on
+  a dead variable in `tests/test_codex_skill_sync.py`, shipped in the criterion 7
+  commit. The worker had run `ruff` only over the files edited in the most recent
+  step, so an earlier commit's defect was never in scope. Reading the line to fix
+  it surfaced a second, latent problem beside it: the bundled document's source was
+  resolved by counting a fixed number of parent directories, which happens to be
+  right for `docs/agents/x.md` and would silently resolve a top-level `docs/x.md`
+  to the wrong file rather than failing. Both fixed; the byte-identity assertion was
+  then mutation-checked to confirm it is not vacuous.
+- The same run is a reminder that `make verify | tail` reports a RED pipeline as
+  exit 0, because the pipe discards the verdict. The failure was visible only in the
+  text.
 
 ## Observed zero versus unmeasured
 

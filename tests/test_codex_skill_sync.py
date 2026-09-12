@@ -623,9 +623,14 @@ def test_a_command_linking_no_docs_gets_no_docs_dir(tmp_repo_docs):
 def test_real_repo_bundled_docs_byte_identical():
     bundled = sorted((ROOT / "codex" / "skills").glob("*/docs/**/*.md"))
     assert bundled, "no bundled docs found; this pin is stale"
+    skills = ROOT / "codex" / "skills"
     for path in bundled:
-        rel = path.relative_to(path.parents[len(path.relative_to(ROOT).parts) - 4])
-        source = ROOT / "docs" / path.relative_to(path.parent.parent.parent / "docs")
+        # Anchor on the skill's own docs/ root rather than counting parents: a
+        # doc bundled at the top level (docs/x.md) has one fewer level than
+        # docs/agents/x.md, and a fixed parent count silently resolves it to the
+        # wrong source instead of failing.
+        skill_docs = skills / path.relative_to(skills).parts[0] / "docs"
+        source = ROOT / "docs" / path.relative_to(skill_docs)
         assert source.is_file(), path
         assert path.read_bytes() == source.read_bytes(), path
 
