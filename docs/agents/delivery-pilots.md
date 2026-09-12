@@ -134,10 +134,18 @@ would have supported a conclusion the evidence does not:
 | `open` | no such prohibition | no | 3 | kept `time.sleep` inline, ADDED A TEST that mocks it |
 | `guided` | no such prohibition | yes, pinned | 3 | kept `time.sleep` inline, ADDED A TEST that mocks it |
 
-**`open` and `guided` are indistinguishable, so the difference is caused by the
-task's file prohibition, not by CPP's guidance.** With no route to a test file, the
-only way to keep the suite fast was to change the API; given a test file, the agent
-took the more idiomatic route instead. Both satisfy the stated outcome.
+**`open` and `guided` were indistinguishable across those runs, while `baseline`
+differed.** The plausible reading is that the file prohibition is what mattered: with
+no route to a test file the only way to keep the suite fast was to change the API,
+and given a test file the agent took the more idiomatic route. On three runs a cell
+that is a claim about what was observed, not a demonstrated cause; a sample this size
+cannot establish that the prohibition explains the whole difference.
+
+**These are historical observations, not retained artifacts.** Each run replaced its
+output directory, so the counts above are what was seen during development. The one
+retained guided pilot A run adds NO file, unlike the earlier guided runs that added a
+test - so even within a cell the behaviour varied, and the retained bundle does not
+reproduce the table. Re-run a cell rather than reading the counts as evidence on disk.
 
 Without the `open` cell I would have attributed a prohibition effect to this
 series' guidance - two variables moved at once between `baseline` and `guided`, and
@@ -177,14 +185,19 @@ unit test. That is an observation about ceremony; the baseline one was not.
 raw JSON event stream, final account, diff and check result - in
 `~/Downloads/cpp-861-pilots-guided/`. The event stream is what makes this reviewable:
 a final message is a summary the model wrote about itself, while the stream is what it
-actually did. It reads: read the file, edit it, verify with four inline assertions,
-report. No request for approval, clarification or confirmation appears anywhere in it.
+actually did. It reads: read `src/slugify.py`, make the one-line edit, then verify inline - three
+assertions covering the reported example, a leading separator, and an all-separator
+input - with a `python` invocation that was not present, retried as `python3`, and a
+closing report. It recovered from the missing interpreter itself. No request for
+approval, clarification or confirmation appears anywhere in the stream, and no
+specification artifact was created.
 
-That is an observation about THIS AGENT'S BEHAVIOUR on an authorized small fix. It is
-not evidence about interactive harness permission handling - `codex exec` cannot
-surface a permission prompt - and not about the whole-host lifecycle. What it rules
-out is the other reading: that the model proceeded silently only because it had no way
-to ask. It had a way to ask, in its own response, and did not use it.
+That is an observation about THIS AGENT'S BEHAVIOUR on an authorized small fix, and it
+is worth separating from the harness limitation. **Observed: zero requests from the
+agent in this trace** - it had a way to ask, in its own response, and did not use it,
+including when a tool it reached for was missing. **Unmeasured: native harness
+permission prompts**, which `codex exec` cannot surface at all. The first is evidence;
+the second is a gap, and neither substitutes for the other.
 
 **The behavioural check establishes that the outcome was preserved. It does not
 establish that the approach was replaced**; that is read from the diff and the agent's
@@ -466,6 +479,23 @@ output scores as "no `Closes`", which reads exactly like a correct `Refs` result
 | `~/Downloads/cpp-861-completion-cases/` | this issue's 3 completion decisions | supplied facts, one model; the bundle holds ONE run |
 | `~/Downloads/cpp-861-pilots/` | pilot `baseline` cell | the bundle holds ONE run |
 | `~/Downloads/cpp-861-pilots-guided/` | pilot `guided` cell | the bundle holds ONE run |
+
+**Provenance of the retained small-fix trace.** It executed at commit
+`d115bd8b66eaba9b3ecf8f8d88af0c718cb23bb3`, a working commit that was later squashed
+and is NOT reachable from the published branch. That is the commit it ran at and the
+record says so; it is not relabelled as having run somewhere else.
+
+For reproduction, the published head `067477e1fcb08d68da43a42e3b7c1d00696f1004` carries byte-identical
+inputs, verified by object hash rather than asserted:
+
+| Input | at `d115bd8` | at the published head |
+|---|---|---|
+| `tests/fixtures/delivery_pilots/pilots` (tree) | `0b478ec80661` | `0b478ec80661` |
+| `.claude/commands/codex/auto.md` (blob) | `ae6c73a3b640` | `ae6c73a3b640` |
+
+So the run is reproducible from the published head, and the observed commit remains
+recorded as what actually produced the trace. Those are two different statements and
+the bundle keeps both.
 
 **Retained evidence versus runs performed.** Each re-run replaces its output
 directory, so a bundle always holds exactly one run - the last. The counts in this
