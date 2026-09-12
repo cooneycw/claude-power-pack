@@ -57,6 +57,20 @@
 
 > Use `scripts/speckit-tasks-to-issues.sh` to create GitHub issues from these tasks.
 
+Task IDs restart at T001 in every feature, so they identify a task only WITHIN one
+tasks file. Each issue the converter creates therefore carries a feature-scoped
+identity marker in its body:
+
+```
+<!-- speckit-task:v1:<feature>:T001 -->
+```
+
+`<feature>` defaults to this file's repository-relative path; pass `--feature SLUG`
+to pin an identity that survives the file being moved. Re-runs match on that marker,
+so two features' T001 stay distinct and a re-run files nothing twice. Issues created
+before the marker existed are matched by the `Auto-created from <path>` line in their
+body; one with neither is reported for resolution rather than guessed at.
+
 | Task | Issue | Status |
 |------|-------|--------|
 | T001-T003 (Wave 1) | #{N} | pending |
