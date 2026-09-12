@@ -59,7 +59,39 @@
 #   DELEGATED_RUN_EXIT:   <the exit code as passed>
 #   DELEGATED_RUN_SIGNAL: <one line per signal found; omitted when none>
 #   DELEGATED_RUN_DETAIL: <the first error text found, truncated; omitted when none>
+#   DELEGATED_RUN_TOOL_ERRORS: <count of tool calls whose own state.status was
+#                         "error"; ALWAYS emitted, including 0 - see below>
 #   DELEGATED_RUN_STATUS: success | failure
+#
+# Two conventions live in that block, and the difference is deliberate rather
+# than stylistic. SIGNAL and DETAIL are omitted when there is nothing to say.
+# LANE, FILE, EXIT, TOOL_ERRORS and STATUS are always emitted.
+#
+# TOOL_ERRORS is in the second family because it is a COUNT, and a count that
+# appears only when non-zero cannot distinguish "I looked and found none" from
+# "this version of the helper does not look". A caller that has to tell those
+# apart - which is the whole reason the line exists - would be back to the gap
+# it was added to close. An always-present `0` says the first thing plainly.
+# (`SIGNAL` and `DETAIL` carry that same gap today; see #836's nit-store entry.)
+#
+# What TOOL_ERRORS is FOR (issue #836):
+#   DELEGATED_RUN_STATUS answers "did the delegated PROCESS run cleanly?" Its
+#   readers take it for "did the delegated WORK happen?" A denied tool call
+#   satisfies every signal this helper has - tool_use occurred, the payload is
+#   well formed, the exit code is 0 - so a run whose every command was refused
+#   reports `success`. The worked example returned a fabricated empty docker
+#   inventory that way, and nothing downstream could have told.
+#
+#   Widening `is_fatal` is NOT the remedy and must not be attempted: the
+#   recursive version existed, made every fenced `git commit` a failed run, and
+#   was reverted for a reason that still holds. The larger question gets its own
+#   channel instead. A non-zero TOOL_ERRORS is not a failure - it is the one
+#   fact a caller needs in order to go and look.
+#
+#   The name is the honest one. Telling a DENIED call from a tool that failed on
+#   its own means matching each harness's deny-rule wording, which is a guess
+#   about format; this script commits to verified format facts instead. So the
+#   count says TOOL_ERRORS, and means exactly that.
 #
 # Signals:
 #   exit-nonzero     the CLI's own status was not 0
@@ -232,6 +264,7 @@ TEXT_FIELDS = ("result", "text", "message", "error", "detail", "content")
 signals = set()
 detail = ""
 turns = None
+tool_errors = 0
 saw_tool = False
 saw_terminal = False
 recognized = 0
@@ -289,6 +322,42 @@ def texts_of(node, depth=0):
                     yield from texts_of(item, depth + 1)
 
 
+def errored_tool_calls(node, depth=0):
+    """Count tool calls whose own `state.status` is "error" (issue #836).
+
+    This is a COUNT and nothing else. It never reaches `is_fatal`, never enters
+    `signals`, and never changes the verdict - the scoping below was litigated
+    once already and is correct: a denied call is the fence working, not a
+    failed run. The defect #836 reports is not that these calls are missed, it
+    is that NOTHING reports them, so a caller reading only the verdict cannot
+    tell a run that did the work from one whose every tool call was refused.
+
+    Named for what it counts. A denied call and a tool that failed for its own
+    reasons are indistinguishable at this level, because separating them means
+    matching each harness's deny-rule WORDING - a guess about format, and the
+    header above commits this script to verified format facts instead. So the
+    line says `TOOL_ERRORS`, not `DENIED`: the narrower name would claim more
+    than the input supports.
+
+    Scoped to tool-ish events on purpose. A `state.status` of "error" nested
+    under something that is not a tool call would inflate the count, which is
+    this counter's own ownership boundary; `test_a_non_tool_error_state_is_not_
+    counted_as_a_tool_error` pins it.
+    """
+    if depth > 6 or not isinstance(node, (dict, list)):
+        return 0
+    if isinstance(node, list):
+        return sum(errored_tool_calls(item, depth + 1) for item in node)
+    found = 0
+    state = node.get("state")
+    if isinstance(state, dict) and str(state.get("status", "")).lower() == "error":
+        found += 1
+    for value in node.values():
+        if isinstance(value, (dict, list)):
+            found += errored_tool_calls(value, depth + 1)
+    return found
+
+
 def is_fatal(node):
     """Harness-level failure, judged at the TOP level of an event only.
 
@@ -332,6 +401,8 @@ with open(path, "r", encoding="utf-8", errors="replace") as handle:
 
         if any(value in TOOL_TYPES for value in tool_types_in(obj)):
             saw_tool = True
+            # Only within a tool event: see errored_tool_calls' ownership note.
+            tool_errors += errored_tool_calls(obj)
 
         terminal = kind in TERMINAL_TYPES
         if terminal:
@@ -367,10 +438,12 @@ else:
 
 print("SIGNALS=" + ",".join(sorted(signals)))
 print("DETAIL=" + detail)
+print("TOOL_ERRORS=%d" % tool_errors)
 PYEOF
 )
     PY_STATUS=$?
 
+    TOOL_ERRORS=0
     if [[ "$PY_STATUS" -ne 0 || -z "$PY_OUT" ]]; then
         # python3 is a hard dependency of the repo (3.11+), so this is a real
         # anomaly rather than a portability case. Report it as a signal instead
@@ -380,8 +453,12 @@ PYEOF
     else
         PY_SIGNALS="${PY_OUT%%$'\n'*}"
         PY_SIGNALS="${PY_SIGNALS#SIGNALS=}"
-        PY_DETAIL="${PY_OUT#*$'\n'}"
+        PY_REST="${PY_OUT#*$'\n'}"
+        PY_DETAIL="${PY_REST%%$'\n'*}"
         PY_DETAIL="${PY_DETAIL#DETAIL=}"
+        PY_TOOL_ERRORS="${PY_REST#*$'\n'}"
+        PY_TOOL_ERRORS="${PY_TOOL_ERRORS#TOOL_ERRORS=}"
+        [[ "$PY_TOOL_ERRORS" =~ ^[0-9]+$ ]] && TOOL_ERRORS="$PY_TOOL_ERRORS"
         if [[ -n "$PY_SIGNALS" ]]; then
             IFS=',' read -r -a found <<< "$PY_SIGNALS"
             for signal in "${found[@]}"; do
@@ -416,7 +493,15 @@ if [[ "$QUIET" -eq 0 ]]; then
         [[ -n "$DETAIL" ]] && echo "  detail: $DETAIL"
         echo "  output: $OUTPUT_FILE"
     else
-        echo "delegated-run-check: the $LANE run looks clean (exit $EXIT_CODE, payload checked)."
+        # This sentence is the fix for #836. "looks clean" was read as "the
+        # work happened"; it only ever meant "no harness-level failure".
+        echo "delegated-run-check: the $LANE run had no harness-level failure (exit $EXIT_CODE, payload checked)."
+        if [[ "$TOOL_ERRORS" -gt 0 ]]; then
+            echo "  NOTE: $TOOL_ERRORS tool call(s) reported an error state - denied by a fence, or failed on their own."
+            echo "  That is not a failed run, and this check cannot tell you whether the requested work happened."
+        else
+            echo "  This does not establish that the requested work happened - no tool call reported an error, which is a different claim."
+        fi
     fi
 fi
 
@@ -427,6 +512,7 @@ for signal in ${SIGNALS+"${SIGNALS[@]}"}; do
     echo "DELEGATED_RUN_SIGNAL: $signal"
 done
 [[ -n "$DETAIL" ]] && echo "DELEGATED_RUN_DETAIL: $DETAIL"
+echo "DELEGATED_RUN_TOOL_ERRORS: $TOOL_ERRORS"
 echo "DELEGATED_RUN_STATUS: $STATUS"
 
 [[ "$STATUS" == "success" ]] && exit 0
