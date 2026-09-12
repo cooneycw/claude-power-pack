@@ -26,6 +26,8 @@
 #                    or they are no longer recognised and get filed again. A new
 #                    slug does not prevent that; only the original identity does.
 #   --limit N        Issues to scan for the existing-work inventory (default 1000).
+#   --no-context     Do not render task-context blocks. The deliberate opt-out; a
+#                    helper that is missing or fails is an ERROR, not a silent skip.
 #   -h, --help       Show this help.
 #
 # Exit codes:
@@ -38,6 +40,7 @@
 #   5  one or more tasks have an ambiguous legacy identity awaiting resolution
 #   6  issues were created but a dependency edge could not be written; re-run to
 #      reconcile
+#   7  the task-context helper is missing or failed (use --no-context to opt out)
 set -euo pipefail
 
 DRY_RUN=0
@@ -45,6 +48,7 @@ TASKS=""
 REPO=""
 FEATURE=""
 LIMIT=1000
+NO_CONTEXT=0
 
 usage() { sed -n '2,32p' "$0" | sed 's/^# \{0,1\}//'; }
 
@@ -55,6 +59,7 @@ while [ $# -gt 0 ]; do
         --repo) REPO="${2:?--repo needs OWNER/NAME}"; shift 2 ;;
         --feature) FEATURE="${2:?--feature needs a slug}"; shift 2 ;;
         --limit) LIMIT="${2:?--limit needs a number}"; shift 2 ;;
+        --no-context) NO_CONTEXT=1; shift ;;
         -h|--help) usage; exit 0 ;;
         *) echo "Unknown argument: $1" >&2; usage >&2; exit 2 ;;
     esac
@@ -171,7 +176,19 @@ normalize_source_path() {
 # unusable, the converter keeps working and simply writes no context block.
 CONTEXT_HELPER=""
 _self_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [ -f "$_self_dir/speckit-context.py" ] && command -v python3 > /dev/null 2>&1; then
+if [ "$NO_CONTEXT" -eq 0 ]; then
+    if ! command -v python3 > /dev/null 2>&1; then
+        echo "ERROR: python3 is required to render task context and was not found." >&2
+        echo "Install python3, or pass --no-context to convert without context blocks." >&2
+        exit 7
+    fi
+    if [ ! -f "$_self_dir/speckit-context.py" ]; then
+        echo "ERROR: speckit-context.py is missing from $_self_dir." >&2
+        echo "It ships beside this script, including inside a generated skill bundle; a" >&2
+        echo "packaging that separates them is broken, not a context-free installation." >&2
+        echo "Reinstall, or pass --no-context to convert without context blocks." >&2
+        exit 7
+    fi
     CONTEXT_HELPER="$_self_dir/speckit-context.py"
 fi
 
@@ -485,11 +502,20 @@ for i in "${!TIDS[@]}"; do
     # fingerprinted cache of the task's DECLARED context; the spec stays
     # authoritative. Conditional by design: with no helper and no resolvable spec
     # the issue body is the whole contract, exactly as before.
-    if [ -n "$CONTEXT_HELPER" ]; then
-        context_block="$(python3 "$CONTEXT_HELPER" render --tasks "$TASKS" --task "$tid" --feature "$FEATURE" 2>/dev/null || true)"
-        if [ -n "$context_block" ]; then
-            issue_body+=$'\n\n'"$context_block"
+    if [ "$NO_CONTEXT" -eq 0 ]; then
+        context_status=0
+        context_block="$(python3 "$CONTEXT_HELPER" render --tasks "$TASKS" --task "$tid" --feature "$FEATURE" 2>&1)" || context_status=$?
+        if [ "$context_status" -ne 0 ] || [ -z "$context_block" ]; then
+            # A broken helper is not a lightweight issue. Swallowing this produced a
+            # context-free issue that looked like a successful conversion, which is
+            # the failure this whole change exists to remove - so it stops here,
+            # before any further write. `--no-context` is the deliberate opt-out.
+            echo "ERROR: could not render the task context for ${tid} (helper exited ${context_status})." >&2
+            printf '  %s\n' "$context_block" >&2
+            echo "Fix the helper or pass --no-context to convert without context blocks." >&2
+            exit 7
         fi
+        issue_body+=$'\n\n'"$context_block"
     fi
 
     if [ "$DRY_RUN" -eq 1 ]; then

@@ -830,6 +830,68 @@ class TestGeneratedContext:
         assert "no spec.md beside" in body
 
 
+class TestContextFailuresAreNotSilent:
+    """A broken installation is not an ordinary lightweight issue (#858)."""
+
+    def test_a_missing_helper_stops_before_any_write(self, project, tmp_path: Path) -> None:
+        """Copy the converter WITHOUT its helper and run it: no issues, loud error."""
+        lone = tmp_path / "lone"
+        lone.mkdir()
+        (lone / "speckit-tasks-to-issues.sh").write_text(
+            SCRIPT.read_text(encoding="utf-8"), encoding="utf-8"
+        )
+        assert not (lone / "speckit-context.py").exists(), (
+            "fixture must separate the converter from its helper"
+        )
+        repo, bindir, state = project({"a/tasks.md": BOLD_TASKS})
+
+        result = subprocess.run(
+            ["bash", str(lone / "speckit-tasks-to-issues.sh"), "--tasks", "a/tasks.md"],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            env={
+                "PATH": f"{bindir}:{os.environ['PATH']}",
+                "HOME": str(repo.parent),
+                "GH_STUB_STATE": str(state),
+            },
+        )
+
+        assert result.returncode == 7, result.stdout + result.stderr
+        assert "speckit-context.py is missing" in result.stderr
+        assert _issues(state) == [], "nothing may be created on a broken installation"
+
+    def test_no_context_is_the_documented_opt_out(self, project, tmp_path: Path) -> None:
+        lone = tmp_path / "lone2"
+        lone.mkdir()
+        (lone / "speckit-tasks-to-issues.sh").write_text(
+            SCRIPT.read_text(encoding="utf-8"), encoding="utf-8"
+        )
+        repo, bindir, state = project({"a/tasks.md": BOLD_TASKS})
+
+        result = subprocess.run(
+            [
+                "bash",
+                str(lone / "speckit-tasks-to-issues.sh"),
+                "--tasks",
+                "a/tasks.md",
+                "--no-context",
+            ],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            env={
+                "PATH": f"{bindir}:{os.environ['PATH']}",
+                "HOME": str(repo.parent),
+                "GH_STUB_STATE": str(state),
+            },
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert len(_issues(state)) == 1
+        assert "speckit-context:v1" not in _issues(state)[0]["body"]
+
+
 def test_every_packaged_converter_ships_its_context_helper() -> None:
     """Packaging tripwire (#858).
 

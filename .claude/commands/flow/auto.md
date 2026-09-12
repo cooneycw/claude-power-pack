@@ -291,9 +291,21 @@ Working from the worktree, analyze the issue and codebase to form an implementat
    issue and the block is a bounded CACHE of the task's declared context - not the
    authority. Before forming a plan:
 
+   Fetch the body to a FILE first and check that the fetch succeeded. A process
+   substitution hides a failed `gh` behind an empty body, and an empty body reads
+   as `absent` - a successful-looking "this issue has no context block" produced by
+   a network error. Resolve the helper from CPP's own tooling, not from a
+   `scripts/` directory in the target project, which may not have one:
+
    ```bash
-   scripts/speckit-context.py check --body-file <(gh issue view "$ISSUE_NUM" --json body --jq .body)
+   gh issue view "$ISSUE_NUM" --json body --jq .body > /tmp/issue-body.md
+   ~/.claude/scripts/speckit-context.py check --body-file /tmp/issue-body.md --root .
    ```
+
+   (Exit 127 - helper not installed at the stable path: fall back to
+   `${CLAUDE_PLUGIN_ROOT}/scripts/speckit-context.py`, else the CPP-checkout copy;
+   tell the user to run **`/flow:repair`**. If the `gh` fetch fails, STOP and report
+   it - do not run the check against an empty file.)
 
    Act on `SPECKIT_CONTEXT_STATE`:
    - `current` - the cache matches its source; read the **Authoritative source** named

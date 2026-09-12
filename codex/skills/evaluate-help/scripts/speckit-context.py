@@ -61,6 +61,11 @@ STORY_HEADING_RE = re.compile(r"^###\s+(US\d+)\s*:\s*(.+?)\s*$", re.IGNORECASE)
 ANY_HEADING_RE = re.compile(r"^#{1,6}\s")
 ACCEPTANCE_HEADING_RE = re.compile(r"^\*\*Acceptance Criteria:?\*\*\s*$", re.IGNORECASE)
 BULLET_RE = re.compile(r"^\s*-\s*(?:\[[ xX]\]\s*)?(.+?)\s*$")
+# `---` under an acceptance list is a horizontal rule, and `- -` is how a naive
+# bullet regex reads it: the real shipped template produced a phantom acceptance
+# item of "--". Rules end a list, they are never items in it.
+HRULE_RE = re.compile(r"^\s*([-*_])\s*(?:\1\s*){2,}$")
+FENCE_RE = re.compile(r"^(?:```|~~~)")
 TABLE_ROW_RE = re.compile(r"^\s*\|(.+)\|\s*$")
 # A structured, reviewable record that a requirements revision was accepted. The
 # helper REPORTS it; it never decides that it is authorised, and a free-text
@@ -75,6 +80,9 @@ CROSS_CUTTING_HEADINGS = ("Non-Functional Requirements", "Out of Scope")
 # of copying, and says that it did (an incomplete extract is never silence).
 MAX_ITEMS = 12
 MAX_ITEM_CHARS = 300
+MAX_PROSE_CHARS = 600
+MAX_BLOCK_CHARS = 8000
+REQUIRED_META = ("feature", "task", "tasks", "source", "integrity")
 
 
 def digest(text: str) -> str:
@@ -97,6 +105,9 @@ class Resolution:
     truncated: list[str] = field(default_factory=list)
     scope_text: str = ""
     source_text: str = ""
+    task_text: str = ""
+    tasks_rel: str | None = None
+    source_rel: str | None = None
 
 
 def _sections(lines: list[str]) -> dict[str, tuple[int, int]]:
@@ -115,15 +126,19 @@ def _sections(lines: list[str]) -> dict[str, tuple[int, int]]:
     return spans
 
 
-def _story_span(lines: list[str], story_id: str) -> tuple[int, int] | None:
+def _story_spans(lines: list[str], story_id: str) -> list[tuple[int, int]]:
+    """Every span declaring this story. More than one is ambiguity, not a choice."""
+    spans: list[tuple[int, int]] = []
     for index, line in enumerate(lines):
         match = STORY_HEADING_RE.match(line)
         if match and match.group(1).upper() == story_id.upper():
-            for end in range(index + 1, len(lines)):
-                if ANY_HEADING_RE.match(lines[end]):
-                    return (index, end)
-            return (index, len(lines))
-    return None
+            end = len(lines)
+            for candidate in range(index + 1, len(lines)):
+                if ANY_HEADING_RE.match(lines[candidate]):
+                    end = candidate
+                    break
+            spans.append((index, end))
+    return spans
 
 
 def _story_outcome(block: list[str]) -> str:
@@ -141,6 +156,19 @@ def _story_outcome(block: list[str]) -> str:
     return " ".join(parts).strip()
 
 
+def _strip_fences(lines: list[str]) -> list[str]:
+    """Blank out fenced blocks: a sample inside a fence is an example, not a declaration."""
+    out: list[str] = []
+    inside = False
+    for line in lines:
+        if FENCE_RE.match(line):
+            inside = not inside
+            out.append("")
+            continue
+        out.append("" if inside else line)
+    return out
+
+
 def _story_acceptance(block: list[str]) -> list[str]:
     items: list[str] = []
     collecting = False
@@ -149,6 +177,8 @@ def _story_acceptance(block: list[str]) -> list[str]:
             collecting = True
             continue
         if collecting:
+            if HRULE_RE.match(line):
+                break
             if line.strip().startswith("**") or ANY_HEADING_RE.match(line):
                 break
             bullet = BULLET_RE.match(line)
@@ -200,8 +230,36 @@ def _requirements_for(lines: list[str], story_ids: list[str]) -> list[tuple[str,
     return rows
 
 
-def resolve(tasks_path: Path, task_id: str) -> Resolution:
+def project_root(start: Path, explicit: Path | None = None) -> Path:
+    """The root every persisted path is relative to.
+
+    Persisting the path as GIVEN was a defect: an absolute source recorded by the
+    producer's checkout kept resolving back to that checkout, so a consumer in a
+    different clone checked the wrong tree and was told `current` while its own
+    spec had changed. Paths are stored relative to this root and re-resolved
+    against the consumer's `--root`.
+    """
+    if explicit is not None:
+        return explicit.resolve()
+    here = start.resolve()
+    here = here if here.is_dir() else here.parent
+    for candidate in [here, *here.parents]:
+        if (candidate / ".git").exists():
+            return candidate
+    return here
+
+
+def relative_to_root(path: Path, root: Path) -> str | None:
+    """Project-relative spelling, or None when the path escapes the root."""
+    try:
+        return path.resolve().relative_to(root).as_posix()
+    except ValueError:
+        return None
+
+
+def resolve(tasks_path: Path, task_id: str, root: Path | None = None) -> Resolution:
     """Resolve one task's declared context, disclosing whatever does not resolve."""
+    base = project_root(tasks_path, root)
     tasks_text = tasks_path.read_text(encoding="utf-8")
     wording = ""
     story_ids: list[str] = []
@@ -218,6 +276,16 @@ def resolve(tasks_path: Path, task_id: str) -> Resolution:
         break
 
     resolution = Resolution(task_id=task_id.upper(), task_wording=wording)
+    resolution.tasks_rel = relative_to_root(tasks_path, base)
+    if resolution.tasks_rel is None:
+        resolution.unresolved.append(
+            f"{tasks_path} lies outside the project root {base}; its location cannot be "
+            "recorded portably, so a consumer in another checkout cannot re-resolve it"
+        )
+    # The task line is a governing input in its own right: its wording can carry a
+    # constraint, and its [USn] tag decides which requirements apply. A digest over
+    # the spec alone left a re-tagged or re-worded task reading as unchanged.
+    resolution.task_text = f"{task_id.upper()}|{','.join(sorted(set(story_ids)))}|{wording}"
     if not found:
         resolution.unresolved.append(f"{task_id} is not a task line in {tasks_path}")
         return resolution
@@ -229,8 +297,9 @@ def resolve(tasks_path: Path, task_id: str) -> Resolution:
         )
         return resolution
     resolution.source = source
+    resolution.source_rel = relative_to_root(source, base)
     resolution.source_text = source.read_text(encoding="utf-8")
-    lines = resolution.source_text.splitlines()
+    lines = _strip_fences(resolution.source_text.splitlines())
 
     if not story_ids:
         resolution.unresolved.append(
@@ -240,13 +309,20 @@ def resolve(tasks_path: Path, task_id: str) -> Resolution:
 
     scope_parts: list[str] = []
     for story_id in dict.fromkeys(story_ids):
-        span = _story_span(lines, story_id)
-        if span is None:
+        spans = _story_spans(lines, story_id)
+        if not spans:
             resolution.unresolved.append(
                 f"{story_id} is tagged on the task but has no '### {story_id}:' "
                 f"section in {source.name}"
             )
             continue
+        if len(spans) > 1:
+            resolution.unresolved.append(
+                f"{story_id} is declared {len(spans)} times in {source.name}; the "
+                "ambiguity is reported rather than resolved here - read the source"
+            )
+            continue
+        span = spans[0]
         block = lines[span[0] : span[1]]
         scope_parts.append("\n".join(block))
         heading = STORY_HEADING_RE.match(block[0])
@@ -282,6 +358,24 @@ def _cap(items: list[tuple[str, str]], label: str, truncated: list[str]) -> list
     return capped
 
 
+def _clip(text: str, limit: int, label: str, truncated: list[str]) -> str:
+    if len(text) <= limit:
+        return text
+    truncated.append(f"{label}: shortened to {limit} characters - read the source")
+    return text[:limit].rstrip() + " [...]"
+
+
+def _meta_digest(meta: dict[str, str], content: str) -> str:
+    """Integrity over the MANAGED METADATA and the content, minus the field itself.
+
+    Covering only the visible text left `task:`, `source:` and the other digests
+    editable in place: the block could be re-pointed at another task's source and
+    a refresh would accept it as its own.
+    """
+    payload = "\n".join(f"{k}={meta[k]}" for k in sorted(meta) if k != "integrity")
+    return digest(payload + "\n--\n" + content)
+
+
 def render(resolution: Resolution, feature: str) -> str:
     """The managed block: bounded, sourced, fingerprinted, and honest about gaps."""
     truncated: list[str] = list(resolution.truncated)
@@ -291,7 +385,7 @@ def render(resolution: Resolution, feature: str) -> str:
     body: list[str] = ["### Governing context (generated cache)", ""]
     if resolution.source is not None:
         body.append(
-            f"**Authoritative source:** `{resolution.source}` - read the sections named "
+            f"**Authoritative source:** `{resolution.source_rel or resolution.source}` - read the sections named "
             "below there before planning. This block is a task-scoped extract kept for "
             "convenience; where the two differ, the source governs."
         )
@@ -302,7 +396,10 @@ def render(resolution: Resolution, feature: str) -> str:
     body.append("")
 
     for story_id, outcome in resolution.outcomes:
-        body.append(f"**Outcome ({story_id}):** {outcome}")
+        body.append(
+            f"**Outcome ({story_id}):** "
+            + _clip(outcome, MAX_PROSE_CHARS, f"outcome {story_id}", truncated)
+        )
     if resolution.outcomes:
         body.append("")
 
@@ -325,7 +422,8 @@ def render(resolution: Resolution, feature: str) -> str:
         body.append("")
 
     if resolution.task_wording:
-        body.append(f'**Task wording (from tasks.md):** "{resolution.task_wording}"')
+        wording = _clip(resolution.task_wording, MAX_PROSE_CHARS, "task wording", truncated)
+        body.append(f'**Task wording (from tasks.md):** "{wording}"')
         body.append(
             "  Resolve its authority against the sections above before acting on it. It "
             "may propose an approach you are free to replace, or it may restate a binding "
@@ -352,17 +450,26 @@ def render(resolution: Resolution, feature: str) -> str:
         body.append("")
 
     content = "\n".join(body).rstrip() + "\n"
-    header = [
-        BLOCK_BEGIN,
-        f"feature: {feature}",
-        f"task: {resolution.task_id}",
-        f"source: {resolution.source if resolution.source else '-'}",
-        f"stories: {','.join(s for s, _ in resolution.outcomes) or '-'}",
-        f"scope-digest: {digest(resolution.scope_text)}",
-        f"source-digest: {digest(resolution.source_text)}",
-        f"block-digest: {digest(content)}",
-        "-->",
-    ]
+    if len(content) > MAX_BLOCK_CHARS:
+        keep = content[:MAX_BLOCK_CHARS].rstrip()
+        content = (
+            keep
+            + "\n\n**Capped for size - this extract is INCOMPLETE.** Read the "
+            "authoritative source named above before planning; the constraints that "
+            "make the decision are not guaranteed to be among the lines kept here.\n"
+        )
+    meta = {
+        "feature": feature,
+        "task": resolution.task_id,
+        "tasks": resolution.tasks_rel or "-",
+        "source": resolution.source_rel or "-",
+        "stories": ",".join(story for story, _ in resolution.outcomes) or "-",
+        "task-digest": digest(resolution.task_text),
+        "scope-digest": digest(resolution.scope_text),
+        "source-digest": digest(resolution.source_text),
+    }
+    meta["integrity"] = _meta_digest(meta, content)
+    header = [BLOCK_BEGIN] + [f"{k}: {meta[k]}" for k in meta] + ["-->"]
     return "\n".join(header) + "\n" + content + BLOCK_END + "\n"
 
 
@@ -392,9 +499,16 @@ def find_block(body: str) -> tuple[ParsedBlock | None, str | None]:
         return None, "damaged context block: header is unterminated"
     meta: dict[str, str] = {}
     for line in body[start + len(BLOCK_BEGIN) : header_end].splitlines():
-        if ":" in line:
-            key, _, value = line.partition(":")
-            meta[key.strip()] = value.strip()
+        if ":" not in line:
+            continue
+        key, _, value = line.partition(":")
+        key = key.strip()
+        if key in meta:
+            return None, f"damaged context block: duplicate metadata field '{key}'"
+        meta[key] = value.strip()
+    missing = [name for name in REQUIRED_META if name not in meta]
+    if missing:
+        return None, "damaged context block: missing metadata " + ", ".join(missing)
     content = body[header_end + len("-->") : end].lstrip("\n")
     return ParsedBlock(start, end + len(BLOCK_END), meta, content), None
 
@@ -420,10 +534,11 @@ def check(body: str, root: Path) -> tuple[str, list[str]]:
         return "absent", ["this issue carries no generated context block"]
 
     detail.append(f"task={block.meta.get('task', '-')} source={block.meta.get('source', '-')}")
-    if digest(block.content) != block.meta.get("block-digest", ""):
+    if _meta_digest(block.meta, block.content) != block.meta.get("integrity", ""):
         detail.append(
-            "the block's own text has been edited since it was generated; a refresh "
-            "would overwrite that edit and is refused"
+            "the block has been edited since it was generated - its text, or the "
+            "metadata naming its task and source. A refresh would overwrite that edit "
+            "and is refused"
         )
         return "block-edited", detail
 
@@ -435,6 +550,28 @@ def check(body: str, root: Path) -> tuple[str, list[str]]:
     source = root / source_name
     if not source.is_file():
         return "source-missing", detail + [f"{source_name} is no longer present"]
+
+    # The task line is a governing input too: a re-tagged or re-worded task changes
+    # which requirements apply, without touching the spec at all.
+    tasks_name = block.meta.get("tasks", "-")
+    task_id = block.meta.get("task", "")
+    tasks_path = root / tasks_name if tasks_name not in ("-", "") else None
+    task_state: str | None = None
+    if tasks_path is None or not tasks_path.is_file():
+        detail.append(
+            f"the tasks file recorded for this block ({tasks_name}) is not present under "
+            "this root, so the task side of the mapping cannot be re-checked"
+        )
+        task_state = "tasks-missing"
+    else:
+        current = resolve(tasks_path, task_id, root)
+        if digest(current.task_text) != block.meta.get("task-digest", ""):
+            detail.append(
+                "the task line itself changed - its wording, or the [USn] tag that "
+                "decides which requirements apply. The mapping this block was built "
+                "from no longer matches the plan."
+            )
+            task_state = "changed-task"
 
     source_text = source.read_text(encoding="utf-8")
     source_now = digest(source_text)
@@ -448,16 +585,15 @@ def check(body: str, root: Path) -> tuple[str, list[str]]:
         if recorded == source_now:
             detail.append("that record names the CURRENT source version")
 
-    if source_now == source_then:
-        return "current", detail + ["source bytes are unchanged since generation"]
+    if task_state is not None:
+        return task_state, detail
 
-    stories = [s for s in block.meta.get("stories", "").split(",") if s and s != "-"]
-    task_id = block.meta.get("task", "")
+    if source_now == source_then:
+        return "current", detail + ["source and task bytes are unchanged since generation"]
+
     scope_now = ""
-    if task_id and stories:
-        tasks_path = source.parent / "tasks.md"
-        if tasks_path.is_file():
-            scope_now = digest(resolve(tasks_path, task_id).scope_text)
+    if tasks_path is not None and tasks_path.is_file():
+        scope_now = digest(resolve(tasks_path, task_id, root).scope_text)
     if scope_now and scope_now != block.meta.get("scope-digest", ""):
         return "changed-in-scope", detail + [
             "bytes changed inside the sections this task maps to. That is a byte "
@@ -478,12 +614,23 @@ def refresh(body: str, block_text: str) -> tuple[str | None, str]:
         return None, f"refused: {fault}. The body is unchanged; repair the block by hand."
     if block is None:
         return body.rstrip("\n") + "\n\n" + block_text, "attached: the issue had no block"
-    if digest(block.content) != block.meta.get("block-digest", ""):
+    if _meta_digest(block.meta, block.content) != block.meta.get("integrity", ""):
         return None, (
             "refused: the block's text was edited after it was generated. The body is "
             "unchanged. Move the edit outside the block, or delete the block to have it "
             "regenerated, if you want the cache refreshed."
         )
+    incoming, fault = find_block(block_text)
+    if incoming is None:
+        return None, f"refused: the replacement block is unusable ({fault})"
+    for key in ("feature", "task"):
+        if block.meta.get(key) != incoming.meta.get(key):
+            return None, (
+                f"refused: identity mismatch - this block is {key}="
+                f"{block.meta.get(key)} and the replacement is {key}="
+                f"{incoming.meta.get(key)}. The body is unchanged; refreshing one "
+                "task's context with another's is never a refresh."
+            )
     updated = body[: block.start] + block_text.rstrip("\n") + body[block.end :]
     if updated == body:
         return updated, "unchanged: the regenerated block is identical"
@@ -498,6 +645,7 @@ def main(argv: list[str] | None = None) -> int:
     p_render.add_argument("--tasks", type=Path, required=True)
     p_render.add_argument("--task", required=True)
     p_render.add_argument("--feature", default="")
+    p_render.add_argument("--root", type=Path, default=None)
 
     p_check = sub.add_parser("check", help="report cache freshness for an issue body")
     p_check.add_argument("--body-file", type=Path, required=True)
@@ -508,11 +656,12 @@ def main(argv: list[str] | None = None) -> int:
     p_refresh.add_argument("--tasks", type=Path, required=True)
     p_refresh.add_argument("--task", required=True)
     p_refresh.add_argument("--feature", default="")
+    p_refresh.add_argument("--root", type=Path, default=None)
 
     args = parser.parse_args(argv)
 
     if args.command == "render":
-        resolution = resolve(args.tasks, args.task)
+        resolution = resolve(args.tasks, args.task, args.root)
         sys.stdout.write(render(resolution, args.feature or str(args.tasks)))
         return 0
 
@@ -525,7 +674,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if state in ("current", "absent") else 3
 
     body = args.body_file.read_text(encoding="utf-8")
-    resolution = resolve(args.tasks, args.task)
+    resolution = resolve(args.tasks, args.task, args.root)
     block_text = render(resolution, args.feature or str(args.tasks))
     updated, message = refresh(body, block_text)
     print(f"SPECKIT_CONTEXT_REFRESH: {message}", file=sys.stderr)

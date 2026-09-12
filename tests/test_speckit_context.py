@@ -110,8 +110,12 @@ def feature(tmp_path: Path) -> Path:
     return directory
 
 
-def _block(feature: Path, task: str = "T001") -> str:
-    return CTX.render(CTX.resolve(feature / "tasks.md", task), "specs/exports/tasks.md")
+def _block(feature: Path, task: str = "T001", root: Path | None = None) -> str:
+    """Render with an explicit project root, the contract `check --root` relies on."""
+    base = root if root is not None else feature.parent.parent
+    return CTX.render(
+        CTX.resolve(feature / "tasks.md", task, base), "specs/exports/tasks.md"
+    )
 
 
 class TestDeclaredMappingOnly:
@@ -357,3 +361,198 @@ class TestRefreshSafety:
 
         assert second is not None, message
         assert "A human note moved outside." in second
+
+
+class TestPortableAcrossCheckouts:
+    """The cache must be re-resolvable by whoever RECEIVES the issue."""
+
+    def test_a_consumer_checks_its_own_checkout_not_the_producers(
+        self, tmp_path: Path
+    ) -> None:
+        """Persisting the producer's path made the consumer check the wrong tree.
+
+        Producer A renders, B is a separate clone of the same project, and B's
+        acceptance then changes. Reported against B, the answer must describe B -
+        even though A still exists on disk with its original content.
+        """
+        producer = tmp_path / "A"
+        (producer / "specs" / "exports").mkdir(parents=True)
+        (producer / "specs" / "exports" / "spec.md").write_text(SPEC, encoding="utf-8")
+        (producer / "specs" / "exports" / "tasks.md").write_text(TASKS, encoding="utf-8")
+        body = CTX.render(
+            CTX.resolve(producer / "specs" / "exports" / "tasks.md", "T001", producer),
+            "specs/exports/tasks.md",
+        )
+
+        consumer = tmp_path / "B"
+        (consumer / "specs" / "exports").mkdir(parents=True)
+        (consumer / "specs" / "exports" / "spec.md").write_text(
+            SPEC.replace("within 200ms", "within 100ms"), encoding="utf-8"
+        )
+        (consumer / "specs" / "exports" / "tasks.md").write_text(TASKS, encoding="utf-8")
+        assert (producer / "specs" / "exports" / "spec.md").read_text().count("200ms") == 1, (
+            "the producer checkout must still hold the ORIGINAL text, or this proves nothing"
+        )
+
+        state, _ = CTX.check(body, consumer)
+
+        assert state == "changed-in-scope", (
+            "the check followed the producer's path instead of the consumer's root"
+        )
+
+    def test_a_path_outside_the_root_is_disclosed(self, tmp_path: Path) -> None:
+        outside = tmp_path / "elsewhere" / "exports"
+        outside.mkdir(parents=True)
+        (outside / "spec.md").write_text(SPEC, encoding="utf-8")
+        (outside / "tasks.md").write_text(TASKS, encoding="utf-8")
+        root = tmp_path / "project"
+        root.mkdir()
+
+        block = CTX.render(CTX.resolve(outside / "tasks.md", "T001", root), "f")
+
+        assert "lies outside the project root" in block
+
+
+class TestTaskSideChanges:
+    """The task line is a governing input, not just an index into the spec."""
+
+    def test_a_changed_story_tag_is_not_reported_as_current(self, feature: Path, tmp_path: Path) -> None:
+        body = "Top.\n\n" + _block(feature, "T001")
+        (feature / "tasks.md").write_text(
+            TASKS.replace(
+                "- [ ] **T001** [US1] Use a background queue",
+                "- [ ] **T001** [US2] Use a background queue",
+            ),
+            encoding="utf-8",
+        )
+        assert "spec.md" in [p.name for p in feature.iterdir()], "spec is untouched here"
+
+        state, detail = CTX.check(body, tmp_path)
+
+        assert state == "changed-task"
+        assert any("[USn] tag" in line for line in detail)
+
+    def test_changed_task_wording_is_not_reported_as_current(
+        self, feature: Path, tmp_path: Path
+    ) -> None:
+        body = "Top.\n\n" + _block(feature, "T005")
+        (feature / "tasks.md").write_text(
+            TASKS.replace("Must use PostgreSQL", "May use any database"), encoding="utf-8"
+        )
+
+        state, _ = CTX.check(body, tmp_path)
+
+        assert state == "changed-task", (
+            "a task line that stopped carrying its constraint must not read as current"
+        )
+
+    def test_a_missing_tasks_file_is_named(self, feature: Path, tmp_path: Path) -> None:
+        body = "Top.\n\n" + _block(feature, "T001")
+        (feature / "tasks.md").unlink()
+        assert not (feature / "tasks.md").exists(), "fixture must remove the tasks file"
+
+        state, _ = CTX.check(body, tmp_path)
+
+        assert state == "tasks-missing"
+
+
+class TestMetadataIntegrity:
+    def test_editing_the_task_field_is_detected(self, feature: Path, tmp_path: Path) -> None:
+        """Covering only visible text left the identity metadata rewritable."""
+        body = _block(feature, "T001").replace("task: T001", "task: T999")
+        assert "task: T999" in body, "fixture must carry the metadata edit under test"
+
+        state, _ = CTX.check(body, tmp_path)
+        updated, message = CTX.refresh(body, _block(feature, "T001"))
+
+        assert state == "block-edited"
+        assert updated is None and "edited" in message
+
+    def test_a_missing_required_field_refuses(self, feature: Path) -> None:
+        body = "\n".join(
+            line for line in _block(feature).splitlines() if not line.startswith("source:")
+        )
+        assert "\nsource: " not in body, "fixture must omit the header field under test"
+
+        updated, message = CTX.refresh(body, _block(feature))
+
+        assert updated is None and "missing metadata" in message
+
+    def test_refreshing_with_another_tasks_block_refuses(self, feature: Path) -> None:
+        body = "Top.\n\n" + _block(feature, "T001")
+
+        updated, message = CTX.refresh(body, _block(feature, "T002"))
+
+        assert updated is None
+        assert "identity mismatch" in message
+
+
+class TestRealTemplateShape:
+    """The simplified fixture hid a defect the shipped template exposes."""
+
+    def test_a_horizontal_rule_is_not_an_acceptance_item(self, tmp_path: Path) -> None:
+        real = ROOT / ".specify" / "specs" / "wave-6-polish-quality-dx"
+        if not (real / "tasks.md").is_file():
+            pytest.skip("the in-tree reference spec is no longer present")
+
+        resolution = CTX.resolve(real / "tasks.md", "T001", ROOT)
+
+        assert resolution.acceptance, "the reference task should resolve some acceptance"
+        assert all(
+            item.strip(" -*_") for _, item in resolution.acceptance
+        ), f"a separator was read as an acceptance item: {resolution.acceptance}"
+
+    def test_a_fenced_example_does_not_declare_a_story(self, tmp_path: Path) -> None:
+        directory = tmp_path / "specs" / "fenced"
+        directory.mkdir(parents=True)
+        (directory / "tasks.md").write_text(
+            "- [ ] **T001** [US1] Real task\n", encoding="utf-8"
+        )
+        (directory / "spec.md").write_text(
+            "# S\n\n```\n### US1: Example inside a fence\n\n"
+            "**Acceptance Criteria:**\n- [ ] Sample only\n```\n",
+            encoding="utf-8",
+        )
+
+        block = CTX.render(CTX.resolve(directory / "tasks.md", "T001", tmp_path), "f")
+
+        assert "Sample only" not in block
+        assert "has no '### US1:' section" in block
+
+    def test_a_duplicated_story_is_disclosed_not_chosen(self, tmp_path: Path) -> None:
+        directory = tmp_path / "specs" / "dup"
+        directory.mkdir(parents=True)
+        (directory / "tasks.md").write_text(
+            "- [ ] **T001** [US1] Real task\n", encoding="utf-8"
+        )
+        (directory / "spec.md").write_text(
+            "# S\n\n### US1: First\n\n**Acceptance Criteria:**\n- [ ] One\n\n"
+            "### US1: Second\n\n**Acceptance Criteria:**\n- [ ] Two\n",
+            encoding="utf-8",
+        )
+
+        block = CTX.render(CTX.resolve(directory / "tasks.md", "T001", tmp_path), "f")
+
+        assert "declared 2 times" in block
+        assert "One" not in block and "Two" not in block
+
+
+class TestBounded:
+    def test_a_huge_outcome_does_not_produce_an_unbounded_block(
+        self, tmp_path: Path
+    ) -> None:
+        directory = tmp_path / "specs" / "big"
+        directory.mkdir(parents=True)
+        (directory / "tasks.md").write_text(
+            "- [ ] **T001** [US1] Do it\n", encoding="utf-8"
+        )
+        (directory / "spec.md").write_text(
+            "# S\n\n### US1: Huge\n\n" + ("padding " * 4000) + "\n\n"
+            "**Acceptance Criteria:**\n- [ ] Something\n",
+            encoding="utf-8",
+        )
+
+        block = CTX.render(CTX.resolve(directory / "tasks.md", "T001", tmp_path), "f")
+
+        assert len(block) <= CTX.MAX_BLOCK_CHARS + 1000, f"block is {len(block)} chars"
+        assert "shortened" in block or "INCOMPLETE" in block
