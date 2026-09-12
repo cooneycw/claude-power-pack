@@ -26,6 +26,7 @@ text and file state.
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 import sys
 from pathlib import Path
 
@@ -173,7 +174,7 @@ class TestUnresolvedIsDisclosed:
         block = CTX.render(CTX.resolve(directory / "tasks.md", "T001"), "f")
 
         assert "no spec.md beside" in block
-        assert "Authoritative source:** none resolved" in block
+        assert "Reference source:** none resolved" in block
 
 
 class TestTaskWordingAuthority:
@@ -556,3 +557,157 @@ class TestBounded:
 
         assert len(block) <= CTX.MAX_BLOCK_CHARS + 1000, f"block is {len(block)} chars"
         assert "shortened" in block or "INCOMPLETE" in block
+
+
+class TestRefreshWorkflowCli:
+    """The documented existing-issue workflow, driven through the real CLI.
+
+    `flow:wave` Phase 1 tells an orchestrator to fetch the body, run `refresh`, and
+    write back only on exit 0. These pin that contract at the process boundary: a
+    success prints a complete replacement body on stdout, and a refusal prints
+    nothing to stdout and exits non-zero, so a `gh issue edit` guarded on exit status
+    cannot write a half-formed body.
+    """
+
+    def _run(self, *args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, str(SCRIPT), *args], capture_output=True, text=True
+        )
+
+    def test_a_pre_858_issue_gains_its_block_and_keeps_its_body(
+        self, feature: Path, tmp_path: Path
+    ) -> None:
+        body_file = tmp_path / "body.md"
+        body_file.write_text(
+            "Auto-created from specs/exports/tasks.md (T001).\n\nDepends on: T002\n",
+            encoding="utf-8",
+        )
+        assert "speckit-context" not in body_file.read_text(), "fixture must have no block"
+
+        result = self._run(
+            "refresh",
+            "--body-file", str(body_file),
+            "--tasks", str(feature / "tasks.md"),
+            "--task", "T001",
+            "--feature", "specs/exports/tasks.md",
+            "--root", str(tmp_path),
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert "Depends on: T002" in result.stdout
+        assert "speckit-context:v1" in result.stdout
+        assert "attached" in result.stderr
+
+    def test_a_refusal_writes_nothing_to_stdout(self, feature: Path, tmp_path: Path) -> None:
+        body_file = tmp_path / "edited.md"
+        body_file.write_text(_block(feature, "T001", tmp_path).replace("200ms", "500ms"))
+        assert "500ms" in body_file.read_text(), "fixture must carry the in-block edit"
+
+        result = self._run(
+            "refresh",
+            "--body-file", str(body_file),
+            "--tasks", str(feature / "tasks.md"),
+            "--task", "T001",
+            "--feature", "specs/exports/tasks.md",
+            "--root", str(tmp_path),
+        )
+
+        assert result.returncode == 4
+        assert result.stdout == "", (
+            "a refusal that still printed a body could be written back by a caller "
+            "that checked only for output"
+        )
+        assert "refused" in result.stderr
+
+
+class TestFencedTasksAndDuplicates:
+    """Finding 4's boundary: tasks.md needs the same fence handling as the spec."""
+
+    def test_a_fenced_example_task_does_not_outrank_the_real_one(
+        self, tmp_path: Path
+    ) -> None:
+        directory = tmp_path / "specs" / "fencedtasks"
+        directory.mkdir(parents=True)
+        (directory / "spec.md").write_text(SPEC, encoding="utf-8")
+        (directory / "tasks.md").write_text(
+            "# Tasks\n\n```markdown\n- [ ] **T001** [US2] Example from the docs\n```\n\n"
+            + TASKS,
+            encoding="utf-8",
+        )
+
+        resolution = CTX.resolve(directory / "tasks.md", "T001", tmp_path)
+
+        assert "Use a background queue" in resolution.task_wording, (
+            f"the fenced sample won: {resolution.task_wording!r}"
+        )
+        assert resolution.outcomes and resolution.outcomes[0][0] == "US1"
+
+    def test_an_indented_fence_is_still_a_fence(self, tmp_path: Path) -> None:
+        directory = tmp_path / "specs" / "indented"
+        directory.mkdir(parents=True)
+        (directory / "spec.md").write_text(SPEC, encoding="utf-8")
+        (directory / "tasks.md").write_text(
+            "# Tasks\n\n  ```\n  - [ ] **T001** [US2] Indented example\n  ```\n\n" + TASKS,
+            encoding="utf-8",
+        )
+
+        resolution = CTX.resolve(directory / "tasks.md", "T001", tmp_path)
+
+        assert "Use a background queue" in resolution.task_wording
+
+    def test_a_task_declared_twice_is_disclosed(self, tmp_path: Path) -> None:
+        directory = tmp_path / "specs" / "duptask"
+        directory.mkdir(parents=True)
+        (directory / "spec.md").write_text(SPEC, encoding="utf-8")
+        (directory / "tasks.md").write_text(
+            "- [ ] **T001** [US1] First declaration\n"
+            "- [ ] **T001** [US2] Second declaration\n",
+            encoding="utf-8",
+        )
+
+        block = CTX.render(CTX.resolve(directory / "tasks.md", "T001", tmp_path), "f")
+
+        assert "declared 2 times" in block
+
+
+class TestSourceIsReferenceNotOverride:
+    """Finding 8: newer bytes do not silently supersede an accepted decision."""
+
+    def test_the_block_does_not_claim_the_source_governs(self, feature: Path) -> None:
+        block = _block(feature)
+
+        assert "the source governs" not in block
+        assert "does not by itself override" in block
+
+    def test_a_decision_naming_the_cached_version_is_flagged_as_predating(
+        self, feature: Path, tmp_path: Path
+    ) -> None:
+        block = _block(feature)
+        cached = [
+            line.split(": ", 1)[1]
+            for line in block.splitlines()
+            if line.startswith("source-digest: ")
+        ][0]
+        body = block + f"\n\nAcceptance-revision: source-digest={cached} ref=#42\n"
+        (feature / "spec.md").write_text(
+            SPEC.replace("within 200ms", "within 100ms"), encoding="utf-8"
+        )
+
+        _, detail = CTX.check(body, tmp_path)
+
+        joined = " ".join(detail)
+        assert "THIS BLOCK CACHED" in joined
+        assert "predates the change" in joined
+
+    def test_a_decision_record_survives_a_refresh(self, feature: Path) -> None:
+        record = "Acceptance-revision: source-digest=abc123def456 ref=#42"
+        body = _block(feature) + f"\n\n{record}\n"
+        (feature / "spec.md").write_text(
+            SPEC.replace("within 200ms", "within 100ms"), encoding="utf-8"
+        )
+
+        updated, message = CTX.refresh(body, _block(feature))
+
+        assert updated is not None, message
+        assert record in updated, "a refresh must not drop the decision record"
+        assert "within 100ms" in updated

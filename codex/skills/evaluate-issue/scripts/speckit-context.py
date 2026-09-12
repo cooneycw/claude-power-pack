@@ -65,7 +65,7 @@ BULLET_RE = re.compile(r"^\s*-\s*(?:\[[ xX]\]\s*)?(.+?)\s*$")
 # bullet regex reads it: the real shipped template produced a phantom acceptance
 # item of "--". Rules end a list, they are never items in it.
 HRULE_RE = re.compile(r"^\s*([-*_])\s*(?:\1\s*){2,}$")
-FENCE_RE = re.compile(r"^(?:```|~~~)")
+FENCE_RE = re.compile(r"^\s*(?:```|~~~)")
 TABLE_ROW_RE = re.compile(r"^\s*\|(.+)\|\s*$")
 # A structured, reviewable record that a requirements revision was accepted. The
 # helper REPORTS it; it never decides that it is authorised, and a free-text
@@ -263,19 +263,30 @@ def resolve(tasks_path: Path, task_id: str, root: Path | None = None) -> Resolut
     tasks_text = tasks_path.read_text(encoding="utf-8")
     wording = ""
     story_ids: list[str] = []
+    duplicates = 0
     found = False
-    for line in tasks_text.splitlines():
+    # A task line inside a fence is an EXAMPLE. Reading declarations out of fenced
+    # samples let a documentation snippet outrank the real task and supply the wrong
+    # story mapping, so tasks.md gets the same fence handling as the spec.
+    for line in _strip_fences(tasks_text.splitlines()):
         match = TASK_LINE_RE.match(line)
         if not match or match.group(1).upper() != task_id.upper():
+            continue
+        if found:
+            duplicates += 1
             continue
         found = True
         rest = match.group(2)
         for tag in STORY_TAG_RE.findall(rest):
             story_ids.extend(s.upper() for s in STORY_ID_RE.findall(tag))
         wording = STORY_TAG_RE.sub("", rest).replace("[P]", "").strip(" :\t")
-        break
 
     resolution = Resolution(task_id=task_id.upper(), task_wording=wording)
+    if duplicates:
+        resolution.unresolved.append(
+            f"{task_id.upper()} is declared {duplicates + 1} times in {tasks_path.name}; "
+            "the first was used and the ambiguity is reported rather than resolved here"
+        )
     resolution.tasks_rel = relative_to_root(tasks_path, base)
     if resolution.tasks_rel is None:
         resolution.unresolved.append(
@@ -385,13 +396,15 @@ def render(resolution: Resolution, feature: str) -> str:
     body: list[str] = ["### Governing context (generated cache)", ""]
     if resolution.source is not None:
         body.append(
-            f"**Authoritative source:** `{resolution.source_rel or resolution.source}` - read the sections named "
-            "below there before planning. This block is a task-scoped extract kept for "
-            "convenience; where the two differ, the source governs."
+            f"**Reference source:** `{resolution.source_rel or resolution.source}` - read "
+            "the sections named below there before planning. This block is a task-scoped "
+            "extract taken at the version recorded above. A difference between the two is "
+            "a CHANGED VERSION to resolve under the existing authority model - it does not "
+            "by itself override a constraint or plan already accepted on this issue."
         )
     else:
         body.append(
-            "**Authoritative source:** none resolved. See the unresolved notes below."
+            "**Reference source:** none resolved. See the unresolved notes below."
         )
     body.append("")
 
@@ -584,6 +597,17 @@ def check(body: str, root: Path) -> tuple[str, list[str]]:
         )
         if recorded == source_now:
             detail.append("that record names the CURRENT source version")
+        elif recorded == source_then:
+            detail.append(
+                "that record names the version THIS BLOCK CACHED, not the current source - "
+                "so the decision it records predates the change below and must be resolved, "
+                "not assumed to cover it"
+            )
+        else:
+            detail.append(
+                "that record names neither the current source nor the cached version; it "
+                "refers to some third version and cannot be matched automatically"
+            )
 
     if task_state is not None:
         return task_state, detail
@@ -648,7 +672,7 @@ def main(argv: list[str] | None = None) -> int:
     p_render.add_argument("--root", type=Path, default=None)
 
     p_check = sub.add_parser("check", help="report cache freshness for an issue body")
-    p_check.add_argument("--body-file", type=Path, required=True)
+    p_check.add_argument("--body-file", type=Path, required=True, help="'-' reads stdin")
     p_check.add_argument("--root", type=Path, default=Path("."))
 
     p_refresh = sub.add_parser("refresh", help="replace only the managed block")
@@ -666,7 +690,11 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "check":
-        body = args.body_file.read_text(encoding="utf-8")
+        body = (
+            sys.stdin.read()
+            if str(args.body_file) == "-"
+            else args.body_file.read_text(encoding="utf-8")
+        )
         state, detail = check(body, args.root)
         for line in detail:
             print(f"  {line}")

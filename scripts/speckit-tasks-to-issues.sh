@@ -480,6 +480,19 @@ for i in "${!TIDS[@]}"; do
     tid="${TIDS[$i]}"
     title="${tid} (${FEATURE}): ${DESCS[$i]}"
     if [ -n "${FILED_NUM[$tid]:-}" ]; then
+        # Drift visibility on a re-run (#858). An already-filed task used to skip
+        # straight past its context, so a spec that moved under a filed issue was
+        # invisible until somebody happened to re-read it. Reporting only: this
+        # never edits an issue, and a refresh is the explicit documented workflow.
+        if [ "$NO_CONTEXT" -eq 0 ] && [ -n "${FILED_NUM[$tid]:-}" ]; then
+            ctx_state="$(gh issue view "${FILED_NUM[$tid]}" "${GH_REPO_ARGS[@]}" --json body --jq '.body' 2>/dev/null \
+                | python3 "$CONTEXT_HELPER" check --body-file - --root . 2>/dev/null \
+                | sed -n 's/^SPECKIT_CONTEXT_STATE: //p' || true)"
+            case "$ctx_state" in
+                ""|current|absent) : ;;
+                *) echo "stale ${tid} (context: ${ctx_state}) - see flow:wave Phase 1 for the refresh workflow" ;;
+            esac
+        fi
         if [ "${FILED_VIA[$tid]}" = "provenance" ]; then
             echo "skip  ${tid} (issue #${FILED_NUM[$tid]}, matched by recorded source path;" \
                  "add '$(marker_for "$tid")' to its body to make the identity explicit)"

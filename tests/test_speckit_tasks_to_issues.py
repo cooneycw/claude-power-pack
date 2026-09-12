@@ -31,6 +31,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -946,3 +947,138 @@ def test_no_whitespace_ifs_read_remains_in_scripts() -> None:
     assert not offenders, (
         "whitespace-IFS read(s) reintroduced (#698/#700):\n" + "\n".join(offenders)
     )
+
+
+class TestExistingIssueRefreshWorkflow:
+    """The documented existing-issue path, end to end against the stub (#858 finding 7).
+
+    Finding 7 was that the refresh existed only as a pure function: nothing surfaced
+    stale context on a re-run, and nothing exercised the fetch-refresh-write cycle
+    against GitHub. These drive the workflow `flow:wave` Phase 1 documents, including
+    its failure and retry.
+    """
+
+    SPEC = SPEC_FIXTURE
+    TASKS = "- [ ] **T001** [US1] Use a background queue\n"
+
+    def _feature(self, project, spec: str | None = None):
+        return project(
+            {
+                ".specify/specs/exports/tasks.md": self.TASKS,
+                ".specify/specs/exports/spec.md": spec or self.SPEC,
+            }
+        )
+
+    def _refresh(self, repo: Path, number: int, state: Path, bindir: Path, *, edit_fails=False):
+        """The documented cycle: fetch, refresh, write back only on success."""
+        env = {
+            "PATH": f"{bindir}:{os.environ['PATH']}",
+            "HOME": str(repo.parent),
+            "GH_STUB_STATE": str(state),
+        }
+        if edit_fails:
+            env["GH_STUB_EDIT_FAIL"] = "1"
+        fetched = subprocess.run(
+            ["gh", "issue", "view", str(number), "--json", "body", "--jq", ".body"],
+            cwd=repo, capture_output=True, text=True, env=env,
+        )
+        assert fetched.returncode == 0, fetched.stderr
+        body_file = repo / f"body-{number}.md"
+        body_file.write_text(fetched.stdout, encoding="utf-8")
+        refreshed = subprocess.run(
+            [
+                sys.executable, str(ROOT / "scripts" / "speckit-context.py"), "refresh",
+                "--body-file", str(body_file),
+                "--tasks", ".specify/specs/exports/tasks.md",
+                "--task", "T001",
+                "--feature", ".specify/specs/exports/tasks.md",
+                "--root", ".",
+            ],
+            cwd=repo, capture_output=True, text=True, env=env,
+        )
+        if refreshed.returncode != 0:
+            return refreshed, None
+        new_body = repo / f"new-{number}.md"
+        new_body.write_text(refreshed.stdout, encoding="utf-8")
+        written = subprocess.run(
+            ["gh", "issue", "edit", str(number), "--body-file", str(new_body)],
+            cwd=repo, capture_output=True, text=True, env=env,
+        )
+        return refreshed, written
+
+    def test_a_pre_858_issue_gains_its_block_through_the_workflow(self, project) -> None:
+        repo, bindir, state = self._feature(project)
+        json.loads(state.read_text())
+        issues = {"next": 101, "issues": [{
+            "number": 100,
+            "title": "T001 (.specify/specs/exports/tasks.md): Use a background queue",
+            "body": "Auto-created from .specify/specs/exports/tasks.md (T001) by CPP "
+                    "speckit-tasks-to-issues.\n\n"
+                    "<!-- speckit-task:v1:.specify/specs/exports/tasks.md:T001 -->\n\n"
+                    "A human decision recorded here.\n",
+            "state": "OPEN",
+        }]}
+        state.write_text(json.dumps(issues))
+        assert "speckit-context" not in _issues(state)[0]["body"], "fixture predates the block"
+
+        _, written = self._refresh(repo, 100, state, bindir)
+
+        assert written is not None and written.returncode == 0, "the write back must succeed"
+        body = _issues(state)[0]["body"]
+        assert "speckit-context:v1" in body
+        assert "A human decision recorded here." in body, "the existing body must survive"
+
+    def test_a_rerun_reports_stale_context_without_editing(self, project) -> None:
+        repo, bindir, state = self._feature(project)
+        first = _run(repo, bindir, state, "--tasks", ".specify/specs/exports/tasks.md")
+        assert first.returncode == 0, first.stderr
+        before = _issues(state)[0]["body"]
+        (repo / ".specify/specs/exports/spec.md").write_text(
+            self.SPEC.replace("within 200ms", "within 100ms"), encoding="utf-8"
+        )
+
+        again = _run(repo, bindir, state, "--tasks", ".specify/specs/exports/tasks.md")
+
+        assert again.returncode == 0, again.stderr
+        assert "stale T001 (context: changed-in-scope)" in again.stdout
+        assert _issues(state)[0]["body"] == before, "a re-run reports drift; it never edits"
+
+    def test_the_refresh_carries_the_new_acceptance_and_keeps_the_decision(
+        self, project
+    ) -> None:
+        repo, bindir, state = self._feature(project)
+        _run(repo, bindir, state, "--tasks", ".specify/specs/exports/tasks.md")
+        issues = json.loads(state.read_text())
+        issues["issues"][0]["body"] += "\nAcceptance-revision: source-digest=abc123def456 ref=#7\n"
+        state.write_text(json.dumps(issues))
+        (repo / ".specify/specs/exports/spec.md").write_text(
+            self.SPEC.replace("within 200ms", "within 100ms"), encoding="utf-8"
+        )
+
+        _, written = self._refresh(repo, 100, state, bindir)
+
+        assert written is not None and written.returncode == 0
+        body = _issues(state)[0]["body"]
+        assert "within 100ms" in body, "the refreshed acceptance must be carried forward"
+        assert "Acceptance-revision: source-digest=abc123def456" in body, (
+            "the decision record lives outside the block and must survive"
+        )
+
+    def test_a_failed_github_write_leaves_the_issue_and_retries_cleanly(
+        self, project
+    ) -> None:
+        repo, bindir, state = self._feature(project)
+        _run(repo, bindir, state, "--tasks", ".specify/specs/exports/tasks.md")
+        original = _issues(state)[0]["body"]
+        (repo / ".specify/specs/exports/spec.md").write_text(
+            self.SPEC.replace("within 200ms", "within 100ms"), encoding="utf-8"
+        )
+
+        _, failed = self._refresh(repo, 100, state, bindir, edit_fails=True)
+        assert failed is not None and failed.returncode != 0, "the stubbed write must fail"
+        assert _issues(state)[0]["body"] == original, "a failed write must change nothing"
+
+        _, retried = self._refresh(repo, 100, state, bindir)
+
+        assert retried is not None and retried.returncode == 0
+        assert "within 100ms" in _issues(state)[0]["body"]

@@ -330,6 +330,27 @@ the escape when a prose line happens to open with a reserved word.
   or an edge whose write failed earlier is completed rather than lost (#607, #857).
   It also attaches a `speckit-context` block carrying the task's declared context
   (#858). Add edges by hand only for relationships `tasks.md` does not declare.
+- **Refreshing an EXISTING issue's context block** (#858), including attaching one
+  to an issue filed before the block existed. Fetch, refresh, and write back only
+  on success - the helper refuses rather than guessing, and a refusal must leave the
+  issue untouched:
+
+  ```bash
+  gh issue view "$N" --json body --jq .body > /tmp/body.md || exit 1   # never skip this check
+  ~/.claude/scripts/speckit-context.py refresh --body-file /tmp/body.md \
+      --tasks .specify/specs/<feature>/tasks.md --task T001 \
+      --feature .specify/specs/<feature>/tasks.md --root . > /tmp/new-body.md
+  # exit 0: write it back.   exit 4: REFUSED - read the message, change nothing.
+  gh issue edit "$N" --body-file /tmp/new-body.md
+  ```
+
+  It refuses when the block's text or metadata was edited after generation, when the
+  boundaries are damaged or duplicated, and when the replacement names a different
+  feature or task. An issue with NO block gains one additively with its existing body
+  preserved; that legitimate first attachment is not permission to repair a truncated
+  block by rewriting it. A refresh updates the cached extract - it is NOT a record
+  that a requirements change was acknowledged by anyone.
+
 - **Edge edits are ADDITIVE and IDEMPOTENT** (#637 gate condition): read the
   current body, append a `- Blocked by #N` line ONLY when no equivalent edge
   line is already present, and never rewrite or reflow the surrounding body

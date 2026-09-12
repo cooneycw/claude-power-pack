@@ -92,8 +92,10 @@ the exception only by staying all four of these:
 
 - **Bounded.** Only what the task's own `[USn]` tag and the spec's declared
   requirement-to-story mapping select, capped in size. Never the whole spec.
-- **Sourced.** It names the authoritative file and the sections to read there, and
-  says that the source governs where the two differ.
+- **Sourced.** It names the reference file and the sections to read there, and
+  records the source version it was taken at. A difference between cache and source
+  is a changed VERSION to resolve under the existing authority model - newer bytes do
+  not by themselves override a constraint or plan already accepted on the issue.
 - **Drift-detectable.** It records digests of the mapped sections and of the source
   file, so a reader can be told the bytes changed rather than discovering it later.
 - **Honest about its gaps.** An unresolved mapping or a capped extract is stated as
