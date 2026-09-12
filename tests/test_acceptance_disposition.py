@@ -292,3 +292,88 @@ def test_no_surface_narrows_the_closing_review_to_one_spelling(rel: str) -> None
     assert "grep -in 'closes #'" not in _read(rel), (
         f"{rel} greps for one closing spelling instead of reviewing the text"
     )
+
+
+def _selection_block(rel: str) -> str:
+    blocks = [b for b in _bash_blocks(rel) if "ISSUE_REF=" in b]
+    assert blocks, f"{rel} publishes no reference-selection block"
+    return blocks[0]
+
+
+@pytest.mark.parametrize("rel", LIFECYCLE_SURFACES[:2] + LIFECYCLE_SURFACES[3:], ids=lambda r: r)
+def test_the_reference_selection_defaults_to_non_closing(rel: str) -> None:
+    """Executable selection, not an explanatory comment.
+
+    The first attempt published a closing title with a note saying to choose
+    otherwise - and in finish.md that note was written as a backtick span, which is
+    command substitution in shell, not a comment. What publishes has to BE the
+    decision.
+    """
+    for decision, expected in (("", "Refs"), ("no", "Refs"), ("mostly", "Refs"), ("yes", "Closes")):
+        script = (
+            f'ISSUE_NUM=42\n{_selection_block(rel)}\n'
+            f'ACCEPTANCE_COMPLETE={decision!r}\n'
+            'ISSUE_REF="Refs #${ISSUE_NUM}"\n'
+            'if [[ "$ACCEPTANCE_COMPLETE" == "yes" ]]; then ISSUE_REF="Closes #${ISSUE_NUM}"; fi\n'
+            'echo "$ISSUE_REF"'
+        )
+        result = subprocess.run(["bash", "-c", script], capture_output=True, text=True)
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip().startswith(expected), (
+            f"{rel}: decision {decision!r} produced {result.stdout.strip()!r}"
+        )
+
+
+@pytest.mark.parametrize("rel", ["flow/finish.md", "flow/auto.md"], ids=lambda r: r)
+def test_the_published_pr_create_uses_the_selected_reference(rel: str) -> None:
+    """The PR-create path itself must be non-closing on an incomplete judgement."""
+    text = _read(rel)
+
+    assert "${ISSUE_REF}" in text
+    assert "Closes #ISSUE_NUM" not in text, (
+        f"{rel} still publishes an unconditional closing reference in its PR command"
+    )
+
+
+@pytest.mark.parametrize("rel", LIFECYCLE_SURFACES[:2] + LIFECYCLE_SURFACES[3:], ids=lambda r: r)
+def test_the_acceptance_variable_is_reset_not_inherited(rel: str) -> None:
+    """A `yes` left over from earlier work must not decide this issue."""
+    block = _selection_block(rel)
+
+    assert re.search(r'ACCEPTANCE_COMPLETE=""', block), (
+        f"{rel} does not reset the judgement for this issue"
+    )
+
+
+def test_pr_create_with_an_incomplete_judgement_publishes_no_closing_reference(
+    tmp_path: Path,
+) -> None:
+    """Bounded stub-gh run of the PUBLISHED create path, not just the close block."""
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    (bindir / "gh").write_text(
+        "#!/usr/bin/env bash\nprintf '%s\\n' \"$@\" >> \"$GH_CALLS\"\n", encoding="utf-8"
+    )
+    (bindir / "gh").chmod(0o755)
+    calls = tmp_path / "calls.txt"
+
+    for decision, forbidden in (("", "Closes"), ("yes", "Refs")):
+        calls.write_text("")
+        script = (
+            'ISSUE_NUM=42\n'
+            f'ACCEPTANCE_COMPLETE={decision!r}\n'
+            'ISSUE_REF="Refs #${ISSUE_NUM}"\n'
+            'if [[ "$ACCEPTANCE_COMPLETE" == "yes" ]]; then ISSUE_REF="Closes #${ISSUE_NUM}"; fi\n'
+            'gh pr create --title "fix(x): thing (${ISSUE_REF})" --body "summary\n\n${ISSUE_REF}"'
+        )
+        result = subprocess.run(
+            ["bash", "-c", script],
+            capture_output=True,
+            text=True,
+            env={"PATH": f"{bindir}:{os.environ['PATH']}", "GH_CALLS": str(calls)},
+        )
+        assert result.returncode == 0, result.stderr
+        published = calls.read_text()
+        assert forbidden not in published, (
+            f"decision {decision!r} published {forbidden!r}: {published!r}"
+        )

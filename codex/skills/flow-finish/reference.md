@@ -266,7 +266,8 @@ discipline; on exit 127 skip it):
   rule) and re-stage before committing.
 
 - If there are uncommitted changes, help the user commit them using standard git commit workflow.
-- Use conventional commit format: `type(scope): Description (Closes #N)`
+- Conventional commit format, using the selected reference:
+  `type(scope): Description (${ISSUE_REF})`
 - Include `Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>` if Claude helped write the code.
 - **An already-clean tree here is a LEGITIMATE state, not a failure** (issue
   #635): when the Step-1 stale-base merge ran, the work is already on the
@@ -292,12 +293,26 @@ EXISTING_PR=$(gh pr list --head "$BRANCH" --json number,url --jq '.[0]' 2>/dev/n
 
 ### Step 6: Create PR
 
+```bash
+# Reference selection (issue #860). Default to a NON-closing reference; a closing one
+# is used only after your own acceptance accounting for THIS issue. Reset it here
+# rather than inheriting a value from an earlier run.
+ACCEPTANCE_COMPLETE=""     # "yes" only when every material item is demonstrated,
+                           # revised with evidence, or resolved by a recorded transfer
+ISSUE_REF="Refs #${ISSUE_NUM}"
+if [[ "$ACCEPTANCE_COMPLETE" == "yes" ]]; then
+    ISSUE_REF="Closes #${ISSUE_NUM}"
+fi
+```
+
+`$ISSUE_REF` then feeds the commit message, the PR title and the PR body, so an
+incomplete accounting cannot publish a closing reference anywhere.
+
 Use standard PR creation:
 
 ```bash
 gh pr create \
-  --title "type(scope): Description (Closes #ISSUE_NUM)" \
-  `# use (Refs #ISSUE_NUM) instead when the acceptance accounting is not complete` \
+  --title "type(scope): Description (${ISSUE_REF})" \
   --body "## Summary
 - <bullet points>
 
@@ -305,13 +320,11 @@ gh pr create \
 - [ ] Tests pass
 - [ ] Linting passes
 
-Closes #ISSUE_NUM"
-# When the accounting is not complete, reference the issue without a closing
-# keyword instead, in the title, the body and the commit message alike.
+${ISSUE_REF}"
 ```
 
 - Title: Conventional commit style, derived from changes
-- Body: Summary of changes + test plan + `Closes #N`
+- Body: Summary of changes + test plan + `${ISSUE_REF}`
 - Analyze all commits on the branch to draft the summary
 
 ### Step 7: Output

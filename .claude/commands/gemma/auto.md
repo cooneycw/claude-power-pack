@@ -725,9 +725,23 @@ fi
 ```
 
 1. **Commit** the changes:
-   - Conventional commit format, with the closing reference decided by the
-     accounting below: `type(scope): Description (Closes #N)` when complete,
-     `type(scope): Description (Refs #N)` when it is not.
+   - Conventional commit format using the selected reference:
+     `type(scope): Description (${ISSUE_REF})`
+   ```bash
+   # Reference selection (issue #860). Default to a NON-closing reference; a closing one
+   # is used only after your own acceptance accounting for THIS issue. Reset it here
+   # rather than inheriting a value from an earlier run.
+   ACCEPTANCE_COMPLETE=""     # "yes" only when every material item is demonstrated,
+                              # revised with evidence, or resolved by a recorded transfer
+   ISSUE_REF="Refs #${ISSUE_NUM}"
+   if [[ "$ACCEPTANCE_COMPLETE" == "yes" ]]; then
+       ISSUE_REF="Closes #${ISSUE_NUM}"
+   fi
+   ```
+   
+   `$ISSUE_REF` then feeds the commit message, the PR title and the PR body, so an
+   incomplete accounting cannot publish a closing reference anywhere.
+
    The closing reference follows the acceptance accounting: use it only when every
    material item is demonstrated, revised with evidence, or resolved by a recorded
    transfer. Otherwise reference the issue without a closing keyword (`Refs #N`), in
@@ -752,7 +766,8 @@ fi
    - Note that implementation was delegated to a local Gemma model
    - Claude Code review findings
    - Test plan
-   - `Closes #N` when the accounting is complete, otherwise `Refs #N`
+   - `${ISSUE_REF}` - the selected reference, non-closing unless the
+     accounting is complete
 
 Report: `Step 7/8: Finish complete - PR #{N} created`
 

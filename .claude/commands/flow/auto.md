@@ -714,6 +714,21 @@ The canonical rule is [the issue contract](../../../docs/agents/issue-contract.m
 this is where it is executed. Partial delivery stays reviewable and mergeable - the
 disposition changes what CLOSES, not what may merge.
 
+```bash
+# Reference selection (issue #860). Default to a NON-closing reference; a closing one
+# is used only after your own acceptance accounting for THIS issue. Reset it here
+# rather than inheriting a value from an earlier run.
+ACCEPTANCE_COMPLETE=""     # "yes" only when every material item is demonstrated,
+                           # revised with evidence, or resolved by a recorded transfer
+ISSUE_REF="Refs #${ISSUE_NUM}"
+if [[ "$ACCEPTANCE_COMPLETE" == "yes" ]]; then
+    ISSUE_REF="Closes #${ISSUE_NUM}"
+fi
+```
+
+`$ISSUE_REF` then feeds the commit message, the PR title and the PR body, so an
+incomplete accounting cannot publish a closing reference anywhere.
+
 **Collapsing the branch to one commit - the SAFE recipe (issue #657).** Prefer
 NO collapse at all: since #655 the merge helper passes an explicit
 `--subject`/`--body` derived from the PR, so a WIP-first branch squashes with
@@ -729,8 +744,7 @@ merged 2,085-line feature to exactly this on 2026-08-11). The safe shape:
 git reset --soft "$(git merge-base HEAD origin/main)"
 # Before committing, prove the collapse deletes nothing you did not delete:
 git diff --staged --diff-filter=D --name-only   # MUST be empty unless intended
-git commit -m "type(scope): Description (Closes #N)"   # (Refs #N) if the
-                                                      # accounting is not complete
+git commit -m "type(scope): Description (${ISSUE_REF})"
 # THEN bring the moved base in:
 git merge --no-edit origin/main
 ```
@@ -800,7 +814,8 @@ git merge --no-edit origin/main
    cannot block what it cannot run).
 
 2. **Commit** - if there are uncommitted changes:
-   - Use conventional commit format: `type(scope): Description (Closes #N)`
+   - Conventional commit format, using the selected reference:
+     `type(scope): Description (${ISSUE_REF})`
    - Include `Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>`
    - **An already-clean tree here is a LEGITIMATE state, not a failure** (issue
      #635): when the stale-base merge above ran, the Step-4 work is already on
@@ -816,11 +831,10 @@ git merge --no-edit origin/main
 
 4. **Create PR** - if no PR exists:
    ```bash
-   gh pr create --title "type(scope): Description (Closes #ISSUE_NUM)" --body "..."
-   # ... or (Refs #ISSUE_NUM) when the acceptance accounting is not complete.
+   gh pr create --title "type(scope): Description (${ISSUE_REF})" --body "..."
    ```
    - If PR already exists, report its URL and continue.
-   - PR body: Summary of changes + test plan + `Closes #N`
+   - PR body: Summary of changes + test plan + `${ISSUE_REF}`
    - Analyze all commits on the branch to draft the summary.
 
 Report: `Step 6/9: Finish complete - PR #XX created`
