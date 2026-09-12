@@ -1798,21 +1798,29 @@ class TestSupervise:
         finally:
             self._kill_daemon(_daemon_pid(tmp_path, WAVE, "1"))
 
-    def test_a_delivered_message_is_acknowledged_without_any_conversational_rearm(
+    def test_a_message_is_surfaced_without_any_conversational_rearm(
         self, tmp_path: Path
     ) -> None:
-        """The acceptance property, minus the live-harness half that only a
-        real fleet exercise can prove (see the PR's explicit non-promises):
-        once `supervise` is armed, a message sent afterward is received and
-        acknowledged with NO further command issued by this test."""
+        """#814's acceptance property, restated after #867/#873 removed the
+        half of it that was never true.
+
+        What `supervise` guarantees is that a LISTENER keeps existing with no
+        further command from this test - that half stands and is what this
+        asserts. The old name and body claimed the message was "acknowledged",
+        which was the defect: the daemon wrote a receipt on behalf of an agent
+        that had received nothing, and every deafness tell went quiet with it.
+        Renamed rather than merely re-bodied, because a name that states the
+        wrong contract is read long before the body is."""
         self._launch(tmp_path)
         pid = _daemon_pid(tmp_path, WAVE, "1")
         try:
             _send(tmp_path, "1", "assignment issue 814")
             assert _wait_for(
-                lambda: _detail(_run(tmp_path, "list", "--wave", WAVE), "FLOW_MAILBOX_UNREAD") == "0",
-                timeout=10,
-            ), "supervise never acknowledged the delivered message"
+                lambda: "surfaced" in _supervise_log(tmp_path, WAVE, "1").read_text(),
+                timeout=20,
+            ), "supervise never surfaced the message"
+            # And it stays the agent's to receive.
+            assert _detail(_run(tmp_path, "list", "--wave", WAVE), "FLOW_MAILBOX_UNREAD") == "1"
         finally:
             self._kill_daemon(pid)
 
@@ -1870,13 +1878,21 @@ class TestSupervise:
         try:
             secret_body = "SECRET-PAYLOAD-MUST-NOT-LEAK-INTO-THE-LOG"
             _send(tmp_path, "1", secret_body)
+            # Wait on the SURFACED marker, not on unread reaching 0 - the
+            # daemon no longer consumes (#867/#873), so the old wait condition
+            # would never be met and the body assertion below - the actual
+            # point of this test - would never be reached.
             assert _wait_for(
-                lambda: _detail(_run(tmp_path, "list", "--wave", WAVE), "FLOW_MAILBOX_UNREAD") == "0",
-                timeout=10,
+                lambda: "surfaced" in _supervise_log(tmp_path, WAVE, "1").read_text(),
+                timeout=20,
             )
             log_text = _supervise_log(tmp_path, WAVE, "1").read_text()
+            # Still the binding claim, and it matters MORE now: the surfacing
+            # drain prints bodies to the inner watch's stdout, which the daemon
+            # discards. This is what pins that discard.
             assert secret_body not in log_text
-            assert "delivered rc=0" in log_text
+            assert "surfaced rc=0" in log_text
+            assert "NOT acknowledged" in log_text
         finally:
             self._kill_daemon(pid)
 
@@ -2228,3 +2244,191 @@ class TestPsFallbackWatcherIdentityAcrossDirectories:
         )
         assert _detail(proc, "FLOW_MAILBOX_WATCHER_COUNT") == "0"
         assert _detail(proc, "FLOW_MAILBOX_WATCH_STATE") in ("absent", "dead")
+
+
+def _ack_file(tmp: Path, wave: str, box: str) -> Path:
+    return tmp / "mb" / wave / f".ack-{box}"
+
+
+def _surfaced_file(tmp: Path, wave: str, role: str) -> Path:
+    return tmp / "mb" / wave / f".supervise-{role}.surfaced"
+
+
+@requires_bash
+class TestSupervisorNeverAcknowledges:
+    """The ack must not be producible by the watcher (issues #867, #873).
+
+    `supervise` armed `watch --consume`, so the daemon acknowledged every
+    message it printed - into a log, from a detached process that is not the
+    recipient. Measured on a live wave: 7 of 7 assignments acked, 0 delivered,
+    for most of a working session (#873).
+
+    The damage was not the delivery gap, which #814 documented as a residual.
+    It was that all four tells an orchestrator is told to steer by went quiet
+    at once, so a worker that had received nothing rendered as a healthy row -
+    and a wrong receipt is worse than no receipt, because it removes the reason
+    to check.
+
+    It also inverted the separation #814 built deliberately: `route_state`
+    reads ack evidence precisely so it fails INDEPENDENTLY of `watch`'s process
+    check. The polling process became the source of the ack evidence, so one
+    instrument manufactured the other's.
+    """
+
+    def _launch(self, tmp_path: Path, role: str = "1", timeout: str = "2",
+                interval: str = "1") -> None:
+        env = os.environ.copy()
+        env["FLOW_WAVE_MAILBOX_DIR"] = str(tmp_path / "mb")
+        subprocess.run(
+            ["bash", str(MAILBOX), "supervise", "--role", role, "--wave", WAVE,
+             "--timeout", timeout, "--interval", interval],
+            capture_output=True, text=True, env=env, check=False, timeout=30,
+        )
+
+    def _teardown(self, tmp_path: Path, role: str = "1") -> None:
+        pf = _supervise_pidfile(tmp_path, WAVE, role)
+        if pf.exists():
+            try:
+                pid = int(pf.read_text().strip())
+            except (ValueError, OSError):
+                return
+            if _pid_alive(pid):
+                os.kill(pid, signal.SIGTERM)
+                _wait_for(lambda: not _pid_alive(pid), timeout=10)
+
+    def test_supervised_mail_stays_unread_until_the_agent_acks(
+        self, tmp_path: Path
+    ) -> None:
+        """#867's probe, end to end. It used to end with `empty`."""
+        self._launch(tmp_path)
+        try:
+            _run(tmp_path, "send", "--to", "1", "--wave", WAVE, "--body", "ASSIGNMENT: take #999")
+            # Give the daemon several re-arm cycles to do its worst.
+            assert _wait_for(
+                lambda: "surfaced" in _supervise_log(tmp_path, WAVE, "1").read_text(),
+                timeout=20,
+            ), "the supervisor never surfaced the message"
+
+            listed = _run(tmp_path, "list", "--wave", WAVE)
+            assert _detail(listed, "FLOW_MAILBOX_UNREAD") == "1"
+
+            # The ack set is the agent's alone. Not merely empty of this rev -
+            # the supervisor had no reason to create the file at all.
+            assert not _ack_file(tmp_path, WAVE, "outbox-1.md").exists()
+
+            # And the content is still there for the agent to actually read.
+            peeked = _run(tmp_path, "read", "--role", "1", "--wave", WAVE, "--peek")
+            assert "ASSIGNMENT: take #999" in peeked.stdout
+        finally:
+            self._teardown(tmp_path)
+
+    def test_route_does_not_read_confirmed_on_a_supervisor_ack(
+        self, tmp_path: Path
+    ) -> None:
+        """`route=confirmed` is documented as positive evidence the route
+        works. Under the old daemon it was positive evidence that *something*
+        acknowledged, and #814 introduced the something."""
+        self._launch(tmp_path)
+        try:
+            _run(tmp_path, "send", "--to", "1", "--wave", WAVE, "--body", "hello")
+            assert _wait_for(
+                lambda: "surfaced" in _supervise_log(tmp_path, WAVE, "1").read_text(),
+                timeout=20,
+            )
+            listed = _run(tmp_path, "list", "--wave", WAVE)
+            assert "confirmed" not in listed.stdout
+
+            # Positive control: an AGENT ack does confirm it, so this test
+            # cannot pass on a route_state that never says `confirmed`.
+            _run(tmp_path, "ack", "--role", "1", "--wave", WAVE, "--revs", "1")
+            after = _run(tmp_path, "list", "--wave", WAVE)
+            assert "confirmed" in after.stdout
+        finally:
+            self._teardown(tmp_path)
+
+    def test_the_supervisor_does_not_spin_on_mail_it_has_surfaced(
+        self, tmp_path: Path
+    ) -> None:
+        """The failure mode #867 names in its own proposed approach: with
+        `--peek` nothing moves, so a naive daemon re-fires on the same mail
+        forever. The watermark is what makes peeking viable."""
+        self._launch(tmp_path, timeout="1", interval="1")
+        try:
+            _run(tmp_path, "send", "--to", "1", "--wave", WAVE, "--body", "one")
+            assert _wait_for(
+                lambda: "surfaced" in _supervise_log(tmp_path, WAVE, "1").read_text(),
+                timeout=20,
+            )
+            time.sleep(6)  # many re-arm cycles on the same unread message
+            surfaced = [
+                ln for ln in _supervise_log(tmp_path, WAVE, "1").read_text().splitlines()
+                if "surfaced" in ln
+            ]
+            assert len(surfaced) == 1, f"spun: {len(surfaced)} surfaces for one message"
+
+            # A HIGHER rev must still wake it - the watermark suppresses
+            # repeats, never new mail.
+            _run(tmp_path, "send", "--to", "1", "--wave", WAVE, "--body", "two")
+            assert _wait_for(
+                lambda: len([
+                    ln for ln in
+                    _supervise_log(tmp_path, WAVE, "1").read_text().splitlines()
+                    if "surfaced" in ln
+                ]) == 2,
+                timeout=20,
+            ), "a second message did not wake the supervisor"
+        finally:
+            self._teardown(tmp_path)
+
+    def test_the_watermark_is_daemon_local_and_never_the_ack_set(
+        self, tmp_path: Path
+    ) -> None:
+        """The two files must stay distinct. If the watermark were ever read
+        by the reporting side, this whole fix would be the original defect
+        wearing a different filename."""
+        self._launch(tmp_path)
+        try:
+            _run(tmp_path, "send", "--to", "1", "--wave", WAVE, "--body", "x")
+            assert _wait_for(_surfaced_file(tmp_path, WAVE, "1").exists, timeout=20)
+            assert _surfaced_file(tmp_path, WAVE, "1").read_text().strip() == "outbox-1.md 1"
+            assert not _ack_file(tmp_path, WAVE, "outbox-1.md").exists()
+            assert _detail(_run(tmp_path, "list", "--wave", WAVE), "FLOW_MAILBOX_UNREAD") == "1"
+        finally:
+            self._teardown(tmp_path)
+
+    def test_surfaced_state_requires_peek(self, tmp_path: Path) -> None:
+        """Refused, not ignored: the two flags express opposite intentions
+        about who may acknowledge."""
+        p = _run(tmp_path, "watch", "--role", "1", "--wave", WAVE, "--consume",
+                 "--surfaced-state", str(tmp_path / "s"), "--timeout", "0")
+        assert p.returncode == 2
+        assert "requires --peek" in p.stderr
+
+    def test_the_daemon_never_arms_a_consuming_watch(self) -> None:
+        """A structural guard on the regression path itself.
+
+        Every behavioural test above needs a running daemon and real timing.
+        This one reads the source, because the defect was a single word - the
+        daemon armed `--consume` - and it survived review, shipped, and ran a
+        whole live wave before anyone noticed. A one-word regression deserves a
+        check that cannot be flaky.
+
+        Asserted on the daemon's OWN invocation only: `--consume` remains a
+        valid, documented option for a caller who is genuinely the recipient.
+        """
+        src = MAILBOX.read_text()
+        start = src.index("__supervise_daemon)")
+        daemon = src[start:]
+        arm = [
+            ln for ln in daemon.splitlines()
+            if 'bash "$0" watch' in ln
+        ]
+        assert len(arm) == 1, f"expected exactly one inner-watch arm, found {len(arm)}"
+        block = daemon[daemon.index(arm[0]):]
+        block = block[: block.index("INNER_RC=")]
+        assert "--peek" in block, "the daemon must peek"
+        assert "--surfaced-state" in block, "peeking without a watermark spins (#867)"
+        assert "--consume" not in block, (
+            "the supervisor daemon must never acknowledge on an agent's behalf "
+            "(#867, #873) - an ack is a receipt, and a detached daemon is not a recipient"
+        )

@@ -287,10 +287,18 @@ and is wiped by the OS at reboot - exactly when every session's address dies too
    master session - waiting unheard, caught only because a DIFFERENT session
    noticed the silence from outside. `supervise` makes "a listener for this
    role exists" independent of any agent remembering anything: it re-arms
-   `watch --consume` in a detached loop, on its own, until this role is
+   `watch --peek` in a detached loop, on its own, until this role is
    released or the wave ends. **It does not, and cannot, guarantee the
    harness tells YOU** - no script can force that; see `route=` below for how
    that residual gap is made visible instead of silently assumed away.
+
+   **The supervisor never acknowledges your mail (#867, #873).** It surfaces
+   into its own log and raises a daemon-local watermark; the ack set stays
+   yours alone. That is what keeps `unread`, `route=`, and `** NEVER READ **`
+   measuring what they claim to - until it was fixed, the prescribed listener
+   silenced all three, and a worker that had received nothing rendered as a
+   healthy row. **So mail waiting for you stays visibly waiting.** Reading it
+   is still your job, and `ack` is still the only thing that clears it.
 
    A live supervisor already holding this role refuses a second one (exit 4,
    `duplicate`); check

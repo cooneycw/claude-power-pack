@@ -128,9 +128,11 @@
 #          has to remember to re-arm `watch` after every wake. The invocation
 #          itself returns promptly with a `FLOW_MAILBOX: supervising` verdict
 #          (or `duplicate`, exit 4, if one already runs); the DAEMON it detaches
-#          is what persists, repeatedly arming `watch --consume` for <role>
-#          until role release or the wave ends. See SUPERVISION below for what
-#          this does and, as importantly, does not promise.
+#          is what persists, repeatedly arming `watch --peek` for <role> until
+#          role release or the wave ends. It never ACKNOWLEDGES: a detached
+#          daemon is not a recipient, and a receipt it writes is a lie about
+#          an agent (#867, #873). See SUPERVISION below for what this does
+#          and, as importantly, does not promise.
 #   list   Box inventory for the wave: box, reader, rev, acked, unread, mtime,
 #          plus the WATCH state, live WATCHERS count, and ROUTE readiness
 #          (#814 - see ROUTE READINESS below) of every role known to read here
@@ -198,10 +200,25 @@
 # one mechanism this whole lane depends on would be defeated. Instead the
 # `supervise` INVOCATION forks a daemon and returns immediately with its own
 # verdict line, like every other verb; the daemon repeatedly shells out to
-# `watch --role <role> --wave <wave> --consume`, letting EACH inner watch
-# still exit and still be the harness's notification trigger for whichever
-# session is separately listening for it - `supervise` guarantees a listener
-# always EXISTS, it is not a replacement for arming one.
+# `watch --role <role> --wave <wave> --peek --surfaced-state <file>`, letting
+# EACH inner watch still exit - `supervise` guarantees a listener always
+# EXISTS, it is not a replacement for arming one.
+#
+# `--peek`, emphatically not `--consume` (issues #867, #873). The daemon used
+# to consume, which acknowledged every message it printed while sending that
+# print to a log. Mail was therefore recorded as RECEIVED by a process that is
+# not the recipient, and all four of the tells an orchestrator is told to steer
+# by went quiet at once: `UNREAD` returned to 0 seconds after every send,
+# `route` read `confirmed`, the `watch=armed route=UNCONFIRMED` combination
+# became unreachable, and `** NEVER READ **` could not fire. Measured on a live
+# wave: 7 of 7 assignments acked, 0 delivered, for most of a working session,
+# with the roster agreeing throughout (#873).
+#
+# That is worse than having no receipts, because a wrong receipt removes the
+# reason to check. It also inverted the one separation #814 was careful to
+# build: `route_state` reads ack evidence precisely so it fails INDEPENDENTLY
+# of `watch`'s process check - and the polling process became the source of the
+# ack evidence, so one instrument manufactured the other's.
 #
 # Single ownership without inheriting #821. The obvious guard - record the
 # daemon's PID, check it with `kill -0` - reintroduces #821 one layer up:
@@ -917,6 +934,96 @@ boxes_for_role() {
   return 0
 }
 
+# --- The supervisor's SURFACED watermark (issues #867, #873) ------------------
+#
+# A supervisor must never acknowledge. An ack is a receipt, and #815 separated
+# surfacing from receiving precisely so that one event could not stand in for
+# the other; `supervise` re-joined them by arming `watch --consume`, so a
+# detached daemon printing to a log recorded mail as RECEIVED by an agent that
+# had not seen it. Measured on a live wave: 7 of 7 assignments acked, 0
+# delivered (#873).
+#
+# So the daemon peeks. The obvious version of that spins - with `--peek`
+# nothing moves, so the next arm re-fires on the same mail immediately - and
+# the fix is a watermark that is the daemon's OWN, recording what it has
+# SURFACED rather than what anybody has received.
+#
+# Three properties make this safe where the ack set would not be:
+#
+#   1. `route_state`, `unread`, and `** NEVER READ **` never consult it. They
+#      read the ack set, which only an agent's explicit `ack` writes. So the
+#      four deafness tells keep measuring what they claim to measure, which is
+#      the whole of #867's acceptance.
+#   2. It is PER BOX, not per role. Revs are allocated per box, so one global
+#      high-water mark for a role reading several boxes (the orchestrator) would
+#      silence a lower rev arriving later in a different box.
+#   3. Losing it is harmless in the safe direction: an absent or torn file reads
+#      as 0, which re-surfaces mail rather than hiding it. The failure mode is a
+#      duplicate log line, never a silent drop.
+surfaced_file() { echo "$WAVE_DIR/.supervise-$1.surfaced"; }
+
+# The rev this supervisor has already surfaced for one box (0 when unknown).
+surfaced_rev_for() {
+  local sfile="$1" base="$2"
+  [ -s "$sfile" ] || { echo 0; return; }
+  awk -v b="$base" '$1 == b { r = $2 + 0 } END { print r + 0 }' "$sfile"
+}
+
+# Record that everything up to REV in BASE has been surfaced. Same lock and
+# same write-to-temp-then-rename as ack_add, so a reader never sees a half file.
+surfaced_set() {
+  local sfile="$1" base="$2" rev="$3"
+  (
+    flock -w 10 9 || { echo "flow-wave-mailbox: could not lock $WAVE_DIR" >&2; exit 3; }
+    tmp="$(mktemp "$WAVE_DIR/.msurf.XXXXXX")" || exit 3
+    {
+      [ -s "$sfile" ] && awk -v b="$base" '$1 != b' "$sfile"
+      echo "$base $rev"
+    } | sort -u > "$tmp"
+    mv -f "$tmp" "$sfile" || { rm -f "$tmp"; exit 3; }
+  ) 9>"$LOCK_FILE"
+}
+
+# Count unacked revs ABOVE this supervisor's watermark, across a role's boxes.
+# Unacked AND above - both halves matter. Above-only would re-surface mail the
+# agent has since acknowledged; unacked-only is the spin.
+unread_above_for_role() {
+  local role="$1" sfile="$2" total=0 b base w n
+  while IFS= read -r b; do
+    [ -n "$b" ] || continue
+    base="$(basename "$b")"
+    w="$(surfaced_rev_for "$sfile" "$base")"
+    n="$(unacked_revs_in "$b" | awk -v w="$w" '$1 + 0 > w' | grep -c '^[0-9]' || true)"
+    total=$((total + n))
+  done <<EOF
+$(boxes_for_role "$role")
+EOF
+  echo "$total"
+}
+
+# Print what is above the watermark and raise it. NEVER touches the ack set -
+# that is the property #867 and #873 both name as binding, and the reason this
+# is a separate function rather than another flag on drain_role: there is no
+# code path from here to ack_add to get wrong later.
+drain_role_surfaced() {
+  local role="$1" sfile="$2" b base w body top
+  while IFS= read -r b; do
+    [ -n "$b" ] || continue
+    base="$(basename "$b")"
+    w="$(surfaced_rev_for "$sfile" "$base")"
+    body="$(extract_since "$b" "$w")"
+    if [ -n "$body" ]; then
+      echo "=== $base (surfaced, NOT acknowledged) ==="
+      echo "$body"
+    fi
+    top="$(max_rev "$b")"
+    [ "$top" -gt "$w" ] && surfaced_set "$sfile" "$base" "$top"
+  done <<EOF
+$(boxes_for_role "$role")
+EOF
+  return 0
+}
+
 # Total unread across every box a role reads.
 unread_for_role() {
   local total=0 b n
@@ -1308,6 +1415,7 @@ esac
 
 WAVE="default"; ROLE=""; A_TO=""; A_FROM=""; A_BODY=""; A_BODY_FILE=""; A_OUT=""
 REPLACE=0; PEEK=0; CONSUME=0; ALL=0; JSON_OUT=0; NO_LEXICON=0; STATUS=0
+SURFACED_STATE=""
 TIMEOUT="$WATCH_TIMEOUT_DEFAULT"; INTERVAL="$WATCH_INTERVAL_DEFAULT"
 A_BOX=""; A_REVS=""; ALL_UNACKED=0
 
@@ -1335,6 +1443,7 @@ while [ "$#" -gt 0 ]; do
     --no-lexicon) NO_LEXICON=1 ;;
     --peek) PEEK=1 ;;
     --consume) CONSUME=1 ;;
+    --surfaced-state) SURFACED_STATE="${2:-}"; shift ;;
     --status) STATUS=1 ;;
     --all) ALL=1 ;;
     --json) JSON_OUT=1 ;;
@@ -1593,6 +1702,13 @@ case "$VERB" in
     if [ "$PEEK" -eq 1 ] && [ "$CONSUME" -eq 1 ]; then
       usage_fail "watch: --peek and --consume are mutually exclusive"
     fi
+    # --surfaced-state is the supervisor lane (#867/#873). It is refused with
+    # --consume rather than ignored: the two express opposite intentions about
+    # who may acknowledge, and silently honouring one while accepting the other
+    # is how the defect being fixed here got in.
+    if [ -n "$SURFACED_STATE" ] && [ "$PEEK" -eq 0 ]; then
+      usage_fail "watch: --surfaced-state requires --peek (it exists so a watcher can wake on new mail WITHOUT acknowledging it - #867)"
+    fi
     if [ "$PEEK" -eq 0 ] && [ "$CONSUME" -eq 0 ]; then
       usage_fail "watch requires an explicit --peek or --consume (issue #792) - silent default consumption has marked mail read that was never shown. Use --consume to arm-then-read (mail is marked read on wake), or --peek to read-then-arm (mail is NOT consumed, so re-arming immediately would spin-fire on it)."
     fi
@@ -1615,7 +1731,11 @@ case "$VERB" in
       # Stamp BEFORE the check, so an arm that fires on its very first poll -
       # mail already waiting - still leaves the trace #778 exists to leave.
       watch_stamp "$ROLE"
-      UNREAD="$(unread_for_role "$ROLE")"
+      if [ -n "$SURFACED_STATE" ]; then
+        UNREAD="$(unread_above_for_role "$ROLE" "$SURFACED_STATE")"
+      else
+        UNREAD="$(unread_for_role "$ROLE")"
+      fi
       if [ "$UNREAD" -gt 0 ]; then
         # #792 item 2: this fired on the very first poll, i.e. the mail was
         # already unread the instant this watch armed - not a fresh wake.
@@ -1623,7 +1743,11 @@ case "$VERB" in
         if [ "$FIRST_POLL" -eq 1 ]; then
           echo "flow-wave-mailbox: NOTE - mail was already unread when this watch armed; this is not a fresh wake (issue #792)."
         fi
-        drain_role "$ROLE" "$PEEK" 0
+        if [ -n "$SURFACED_STATE" ]; then
+          drain_role_surfaced "$ROLE" "$SURFACED_STATE"
+        else
+          drain_role "$ROLE" "$PEEK" 0
+        fi
         E_ROLE="$ROLE"; E_UNREAD="$UNREAD"
         emit mail
         exit 0
@@ -1788,6 +1912,10 @@ EOF
     BACKOFF_BASE="${FLOW_WAVE_SUPERVISE_BACKOFF_BASE:-2}"
     BACKOFF_CAP="${FLOW_WAVE_SUPERVISE_BACKOFF_CAP:-60}"
     BACKOFF=0
+    # This daemon's own record of what it has SURFACED (#867/#873) - never a
+    # receipt, and never read by anything that reports on deafness. It exists
+    # only so a non-consuming watch does not re-fire on the same mail forever.
+    SUP_SURFACED="$(surfaced_file "$ROLE")"
 
     # Structured, sanitized evidence ONLY - a timestamp and a short event
     # description (event kind, exit code, backoff seconds). NEVER message
@@ -1828,17 +1956,24 @@ EOF
         fi
       fi
 
-      bash "$0" watch --role "$ROLE" --wave "$WAVE" --consume \
+      # --peek, never --consume (#867, #873). A detached daemon printing to a
+      # log is not a recipient, so it must not write the receipt. The watermark
+      # below is what keeps a non-consuming watch from re-firing on the same
+      # mail forever; it is the daemon's own record of what it SURFACED and
+      # nothing that reports on deafness ever reads it.
+      bash "$0" watch --role "$ROLE" --wave "$WAVE" --peek \
+        --surfaced-state "$SUP_SURFACED" \
         --timeout "$TIMEOUT" --interval "$INTERVAL" >/dev/null 2>&1
       INNER_RC=$?
 
       case "$INNER_RC" in
         0)
-          # Delivered and acknowledged (the daemon uses --consume - the
-          # named legacy convenience, matching the file's own default
-          # elsewhere; the delivered CONTENT is safely durable in the box
-          # already, the daemon does not need to relay it anywhere new).
-          log_event "delivered rc=0"
+          # SURFACED, not delivered and not acknowledged. The old wording here
+          # said "delivered rc=0", which meant only that the inner watch exited
+          # zero - i.e. that a print succeeded - and an orchestrator reading
+          # this log took it for evidence a model had read something (#873).
+          # It is not, it never was, and the log now says which fact it holds.
+          log_event "surfaced rc=0 (NOT acknowledged - mail stays unread until the agent acks it)"
           BACKOFF=0
           ;;
         5)
