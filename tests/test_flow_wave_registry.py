@@ -30,9 +30,15 @@ Contract:
   ``orchestrator`` and any role with no issue claimed - and the exemption is
   ANNOUNCED, never silent; ``register`` advises when ``--cwd`` looks like a
   shared parent rather than a lane.
-- The socket-file liveness fallback is uds-only and says so (#689); on other
-  transports liveness rests on ``kill -0`` alone rather than on a test that
-  cannot pass.
+- A leftover socket file never resurrects a dead pid (#869). ``kill -0`` has two
+  failure modes behind one return code - ESRCH (gone) and EPERM (exists, not
+  ours) - and the registry now separates them, so the case #675 introduced the
+  socket fallback for (a pid the helper cannot signal) is answered by positive
+  evidence instead. ``liveness_of`` returns a third state, ``unknown``, for a
+  host whose process table cannot be enumerated at all; the socket file survives
+  only in ``FLOW_WAVE_LIVENESS_BASIS``, where it corroborates and decides
+  nothing. Supersedes the uds-only fallback of #689, whose one-factor asymmetry
+  on non-uds transports is gone rather than documented.
 - ``verified``/``address_filled``/``address_mismatch`` share ONE lifecycle
   (#691/#692): preserved together across a same-owner re-register at a
   byte-identical address, cleared together on a takeover or an address change.
@@ -102,6 +108,7 @@ def _run(
     pid: str = SELF_PID,
     session: str = SELF_SESSION,
     live: str = "",
+    unknown: str = "",
     now: str = "1700000000",
 ) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
@@ -113,6 +120,7 @@ def _run(
             "FLOW_WAVE_SOCK_DIR": str(tmp / "socks"),
             "FLOW_WAVE_HOST": HOST,
             "FLOW_WAVE_LIVE_PIDS": live,
+            "FLOW_WAVE_UNKNOWN_PIDS": unknown,
             "FLOW_WAVE_NOW": now,
         }
     )
@@ -515,36 +523,245 @@ class TestLaneLessRolesExemptFromOverlap:
 
 
 @requires_tools
-class TestLivenessSecondaryProofIsUdsOnly:
-    """The socket-file fallback states its precondition (#689).
+class TestLeftoverSocketIsNotProofOfLife:
+    """A socket file corroborates; it never proves (#869).
 
-    It used to strip `uds:` unconditionally and stat the remainder, so on a
-    `bridge:` address it tested for a file literally named `bridge:session_...`
-    - always false, so the fallback was silently inert rather than absent.
-    Behaviour is preserved for uds; the non-uds gap becomes explicit.
+    The kernel does not unlink a unix domain socket when its owner dies, so the
+    file outlives the process. The old fallback consulted it AFTER the pid had
+    already been reported dead and returned `live` on the strength of it, which
+    made the WEAKER evidence override the STRONGER one: a SIGKILLed session read
+    `live` for as long as its socket sat on disk.
+
+    #675's stated purpose survives intact. It wanted to cover "a pid the helper
+    cannot signal" - the EPERM case - and that is now answered by classifying
+    `kill -0`'s two failure modes rather than by stat-ing a path. What is removed
+    is only the socket's power to override a definite ESRCH, which #675 never
+    claimed. #689's uds-only asymmetry is gone rather than documented, because
+    errno needs no socket and so works on every transport.
     """
 
-    def test_uds_socket_file_still_proves_liveness_for_a_dead_pid(self, tmp_path: Path) -> None:
+    def test_leftover_uds_socket_does_not_resurrect_a_dead_pid(self, tmp_path: Path) -> None:
+        """The exact defect: dead pid + socket file still on disk -> stale."""
         import socket as _socket
 
-        sock_path = tmp_path / "live.sock"
+        sock_path = tmp_path / "leftover.sock"
         s = _socket.socket(_socket.AF_UNIX)
         try:
             s.bind(str(sock_path))
         except OSError as exc:  # path too long for AF_UNIX on this box
             pytest.skip(f"cannot bind AF_UNIX socket here: {exc}")
         try:
+            assert sock_path.is_socket()  # the file the old branch trusted
             _run(tmp_path, "register", "1", "--socket", f"uds:{sock_path}", pid="999999")
-            p = _run(tmp_path, "list", live="none")
-            assert "[live," in p.stdout
+
+            dead = _run(tmp_path, "get", "1", live="none")
+            assert _detail(dead, "FLOW_WAVE_LIVENESS") == "stale"
+            assert _detail(dead, "FLOW_WAVE_LIVENESS_BASIS") == "pid-gone"
+
+            # Positive control: the SAME socket file, with the pid pinned alive,
+            # must read live - otherwise this test could pass on a registry that
+            # simply never returns `live` at all.
+            alive = _run(tmp_path, "get", "1", live="999999")
+            assert _detail(alive, "FLOW_WAVE_LIVENESS") == "live"
+            assert _detail(alive, "FLOW_WAVE_LIVENESS_BASIS") == "pid-present"
         finally:
             s.close()
 
-    def test_non_uds_address_reads_stale_without_consulting_a_file(self, tmp_path: Path) -> None:
+    @pytest.mark.skipif(not Path("/proc/self").is_dir(), reason="needs /proc")
+    def test_sigkilled_owner_reads_stale_against_the_real_process_table(
+        self, tmp_path: Path
+    ) -> None:
+        """The issue's own positive control, end to end, with no liveness hook.
+
+        `FLOW_WAVE_LIVE_PIDS` is left EMPTY so the real prober runs. A pinned
+        list would prove only that the hook works.
+        """
+        import signal
+
+        sock_path = tmp_path / "victim.sock"
+        code = (
+            "import socket,time;s=socket.socket(socket.AF_UNIX);"
+            f"s.bind({str(sock_path)!r});print('up',flush=True);time.sleep(300)"
+        )
+        proc = subprocess.Popen(["python3", "-c", code], stdout=subprocess.PIPE, text=True)
+        try:
+            assert proc.stdout is not None
+            if proc.stdout.readline().strip() != "up":
+                pytest.skip("helper could not bind an AF_UNIX socket here")
+            pid = str(proc.pid)
+            _run(tmp_path, "register", "1", "--socket", f"uds:{sock_path}", pid=pid)
+
+            # Bound, owner alive -> file exists, and the roster agrees.
+            assert _detail(_run(tmp_path, "get", "1", pid=pid), "FLOW_WAVE_LIVENESS") == "live"
+
+            proc.send_signal(signal.SIGKILL)
+            proc.wait(timeout=10)
+            deadline = time.monotonic() + 10
+            while Path(f"/proc/{pid}").exists() and time.monotonic() < deadline:
+                time.sleep(0.01)
+            assert not Path(f"/proc/{pid}").exists(), "death not confirmed"
+
+            # SIGKILL owner, death confirmed -> file STILL on disk, still a socket.
+            assert sock_path.is_socket()
+
+            p = _run(tmp_path, "get", "1", pid=pid)
+            assert _detail(p, "FLOW_WAVE_LIVENESS") == "stale"
+            assert _detail(p, "FLOW_WAVE_LIVENESS_BASIS") == "pid-gone"
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait(timeout=10)
+
+    @pytest.mark.skipif(
+        not Path("/proc/1").is_dir() or os.geteuid() == 0,
+        reason="needs /proc and a non-root euid, so that pid 1 is unsignalable",
+    )
+    def test_a_pid_we_may_not_signal_still_reads_live(self, tmp_path: Path) -> None:
+        """#675's actual case, served by the better instrument.
+
+        pid 1 exists and a non-root user may not signal it, so `kill -0` fails
+        with EPERM exactly as it would for a session owned by another user. The
+        old code reached this only via a socket file; there is no socket here.
+        """
+        assert subprocess.run(["kill", "-0", "1"], capture_output=True).returncode != 0
+        _run(tmp_path, "register", "1", "--socket", "uds:/nonexistent/none.sock", pid="1")
+        p = _run(tmp_path, "get", "1", pid="1")
+        assert _detail(p, "FLOW_WAVE_LIVENESS") == "live"
+        assert _detail(p, "FLOW_WAVE_LIVENESS_BASIS") == "pid-present"
+
+    def test_non_uds_address_gets_the_same_primary_evidence(self, tmp_path: Path) -> None:
+        """#689's asymmetry is removed, not documented: errno needs no socket."""
         _run(tmp_path, "register", "1", "--socket", "bridge:session_01RLEabc", pid="999998")
-        p = _run(tmp_path, "list", live="none")
-        assert p.returncode == 0
-        assert "[stale," in p.stdout
+        dead = _run(tmp_path, "list", live="none")
+        assert dead.returncode == 0
+        assert "[stale," in dead.stdout
+        alive = _run(tmp_path, "get", "1", live="999998")
+        assert _detail(alive, "FLOW_WAVE_LIVENESS") == "live"
+
+
+@requires_tools
+class TestUndeterminableLivenessIsItsOwnState:
+    """`unknown` is a third answer, not a polite `stale` (#869).
+
+    A host that cannot enumerate its process table has not reported a death, and
+    rounding that down to one is the mistake the sibling mailbox refused when it
+    moved off pid liveness (#814). Never checked and checked-but-undecidable are
+    different facts.
+    """
+
+    def test_undeterminable_pid_reads_unknown_not_live(self, tmp_path: Path) -> None:
+        import socket as _socket
+
+        sock_path = tmp_path / "corroborating.sock"
+        s = _socket.socket(_socket.AF_UNIX)
+        try:
+            s.bind(str(sock_path))
+        except OSError as exc:
+            pytest.skip(f"cannot bind AF_UNIX socket here: {exc}")
+        try:
+            _run(tmp_path, "register", "1", "--socket", f"uds:{sock_path}", pid="999999")
+            p = _run(tmp_path, "get", "1", live="none", unknown="999999")
+            # Present socket + undeterminable pid is the case the OLD code
+            # called `live`. It corroborates, and it still decides nothing.
+            assert _detail(p, "FLOW_WAVE_LIVENESS") == "unknown"
+            assert _detail(p, "FLOW_WAVE_LIVENESS_BASIS") == "pid-undeterminable-socket-present"
+        finally:
+            s.close()
+
+    def test_basis_distinguishes_a_missing_socket_from_a_present_one(
+        self, tmp_path: Path
+    ) -> None:
+        _run(tmp_path, "register", "1", "--socket", "uds:/nonexistent/gone.sock", pid="999999")
+        p = _run(tmp_path, "get", "1", live="none", unknown="999999")
+        assert _detail(p, "FLOW_WAVE_LIVENESS") == "unknown"
+        assert _detail(p, "FLOW_WAVE_LIVENESS_BASIS") == "pid-undeterminable-socket-absent"
+
+    def test_unknown_owner_is_not_taken_over_without_force(self, tmp_path: Path) -> None:
+        """Only a PROVEN death frees a role - #638's guarantee, unchanged."""
+        _run(tmp_path, "register", "1", "--socket", "uds:/tmp/x.sock",
+             pid=OTHER_PID, session=OTHER_SESSION)
+        p = _run(tmp_path, "register", "1", "--socket", "uds:/tmp/y.sock",
+                 live="none", unknown=OTHER_PID)
+        assert _verdict(p) == "refused"
+        assert p.returncode == 1
+        assert _detail(p, "FLOW_WAVE_LIVENESS") == "unknown"
+        assert "UNDETERMINABLE" in p.stderr
+
+    def test_force_takes_over_an_unknown_owner_and_says_it_was_not_confirmed(
+        self, tmp_path: Path
+    ) -> None:
+        _run(tmp_path, "register", "1", "--socket", "uds:/tmp/x.sock",
+             pid=OTHER_PID, session=OTHER_SESSION)
+        p = _run(tmp_path, "register", "1", "--socket", "uds:/tmp/y.sock", "--force",
+                 live="none", unknown=OTHER_PID)
+        assert _verdict(p) == "registered"
+        assert "NOT confirmed gone" in p.stderr
+
+    def test_a_proven_dead_owner_is_still_taken_over_silently(self, tmp_path: Path) -> None:
+        """The `unknown` refusal must not wedge the ordinary stale takeover."""
+        _run(tmp_path, "register", "1", "--socket", "uds:/tmp/x.sock",
+             pid=OTHER_PID, session=OTHER_SESSION)
+        p = _run(tmp_path, "register", "1", "--socket", "uds:/tmp/y.sock", live="none")
+        assert _verdict(p) == "registered"
+        assert "taking over stale role" in p.stderr
+
+    def test_release_refuses_an_unknown_owner(self, tmp_path: Path) -> None:
+        _run(tmp_path, "register", "1", "--socket", "uds:/tmp/x.sock",
+             pid=OTHER_PID, session=OTHER_SESSION)
+        p = _run(tmp_path, "release", "1", live="none", unknown=OTHER_PID)
+        assert _verdict(p) == "refused"
+        assert p.returncode == 1
+
+    def test_unknown_is_rendered_with_its_basis_in_the_roster(self, tmp_path: Path) -> None:
+        _run(tmp_path, "register", "1", "--socket", "uds:/nonexistent/gone.sock", pid="999999")
+        p = _run(tmp_path, "list", live="none", unknown="999999")
+        assert "[unknown:pid-undeterminable-socket-absent," in p.stdout
+
+    def test_ordinary_roster_lines_are_unchanged(self, tmp_path: Path) -> None:
+        """Only `unknown` carries a basis, so a normal wave reads as before."""
+        _run(tmp_path, "register", "1", "--socket", "uds:/tmp/x.sock")
+        live = _run(tmp_path, "list", live=SELF_PID)
+        assert "[live, " in live.stdout and "live:" not in live.stdout
+        stale = _run(tmp_path, "list", live="none")
+        assert "[stale, " in stale.stdout and "stale:" not in stale.stdout
+
+    def test_roster_counts_roles_whose_liveness_could_not_be_determined(
+        self, tmp_path: Path
+    ) -> None:
+        """The receipt for a role every `= live` consumer skips.
+
+        Skipping an `unknown` role is correct - but it leaves that role neither
+        overlap-checked nor counted as unchecked, so without this counter the
+        roster reports a clean verdict over a role nobody examined. Same reason
+        #800 emits `FLOW_WAVE_OVERLAP_UNSCOPED`.
+        """
+        _run(tmp_path, "register", "1", "--socket", "uds:/tmp/a.sock",
+             pid="200", session="s-a")
+        _run(tmp_path, "register", "2", "--socket", "uds:/tmp/b.sock",
+             pid="300", session="s-b")
+        p = _run(tmp_path, "list", live="200", unknown="300")
+        assert _detail(p, "FLOW_WAVE_LIVENESS_UNDETERMINED") == "1"
+        # Emitted as a VALUE even when zero, so a consumer can tell "none" from
+        # "this call does not report it".
+        clean = _run(tmp_path, "list", live="200:300")
+        assert _detail(clean, "FLOW_WAVE_LIVENESS_UNDETERMINED") == "0"
+
+    def test_the_counter_is_reported_on_every_list_render_path(
+        self, tmp_path: Path
+    ) -> None:
+        """Including --json and the empty roster - the #800 promise, kept."""
+        empty = _run(tmp_path, "list")
+        assert _detail(empty, "FLOW_WAVE_LIVENESS_UNDETERMINED") == "0"
+        _run(tmp_path, "register", "1", "--socket", "uds:/tmp/a.sock", pid="300")
+        js = _run(tmp_path, "list", "--json", live="none", unknown="300")
+        assert _detail(js, "FLOW_WAVE_LIVENESS_UNDETERMINED") == "1"
+
+    def test_list_json_carries_the_basis_beside_the_liveness(self, tmp_path: Path) -> None:
+        _run(tmp_path, "register", "1", "--socket", "uds:/nonexistent/gone.sock", pid="999999")
+        p = _run(tmp_path, "list", "--json", live="none", unknown="999999")
+        entry = _json_payload(p)["1"]
+        assert entry["liveness"] == "unknown"
+        assert entry["liveness_basis"] == "pid-undeterminable-socket-absent"
 
 
 @requires_tools

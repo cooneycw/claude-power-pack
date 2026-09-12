@@ -697,7 +697,9 @@ re-brief for a worker whose compaction dropped more detail than expected.
   `brief=STALE` and summarized in a `BRIEF:` line - it is running on older
   rules until it re-registers, and re-registering is the whole fix.
 - Dead entries read `stale` and are kept, not deleted - a dead worker mid-issue
-  is information, and its worktree claim outlives it.
+  is information, and its worktree claim outlives it. A role whose liveness could
+  not be DETERMINED reads `unknown:<basis>` instead, which is a different fact
+  and is not taken over without `--force` (#869).
 - **Unregistered `flow-claim` locks are reconciled in (#687).** Registration is
   opt-in and orthogonal to `/flow-auto`, so a session doing ordinary
   single-issue work holds a real worktree lock while appearing nowhere on the
@@ -783,15 +785,43 @@ Run on leaving the wave. Sessions that die without releasing are caught by
 staleness detection; their entries persist as `stale`. Releasing a role owned by
 another LIVE session refuses without `--force`.
 
-**Liveness is two-factor only where sockets exist** (#675). The primary proof is
-the recorded pid, signalled on the recorded host. A live socket FILE is a
-SECOND, independent proof, covering a pid the helper cannot signal - but reading
-it means stat-ing a path, so it can only ever apply to a `uds:` address. On a
-transport that stamps something else there is no file to stat and liveness rests
-on the pid alone. That is a property of the design, not an oversight: sockets
-are what the second factor reads, so a transport without them has one factor.
-(#689 makes the scheme test explicit rather than relying on a prefix-strip that
-silently no-ops; it exposes the asymmetry, it does not remove it.)
+**Liveness is decided by the process table, on every transport** (#675, #689,
+#869). The proof is the recorded pid on the recorded host - but `kill -0` has
+TWO failure modes behind ONE return code, and they are opposite answers rather
+than degrees of one:
+
+| errno | meaning | verdict |
+|-------|---------|---------|
+| `ESRCH` | no such process | **gone**. Definite. |
+| `EPERM` | not permitted | the process **exists**; we merely may not signal it. Positive evidence of life. |
+
+`/proc/<pid>` is consulted first where it exists, because it answers directly:
+the kernel keeps an entry for every live process whoever owns it.
+
+This SERVES #675's purpose with a correct instrument rather than reversing it.
+#675 introduced a socket-file second factor to cover "a pid the helper cannot
+signal" - that is the EPERM row above, now answered by evidence about the
+process itself. What is retired is only the mechanism: a socket FILE could
+override a definite `ESRCH`, because the kernel does not unlink a unix socket
+when its owner dies, so a SIGKILLed session read `live` for as long as the file
+sat on disk. #675 never claimed that; it was a bug in the mechanism.
+
+**The #689 asymmetry is gone, not documented.** #689 recorded that only `uds:`
+addresses have a file to stat, so other transports got one factor - "a property
+of the design, not an oversight". Errno needs no socket, so every transport now
+gets the same primary evidence and the asymmetry has no remaining cause.
+
+The socket file survives as CORROBORATION only, reported in
+`FLOW_WAVE_LIVENESS_BASIS` and never changing a verdict.
+
+**`unknown` is a third state, not a polite `stale`.** A host that can neither
+read `/proc` nor classify `kill`'s errno has an UNENUMERABLE process table, and
+rounding that down to "dead" is the mistake the sibling mailbox refused when it
+moved off pid liveness (#814): never checked and checked-but-undecidable are
+different facts. A role whose owner reads `unknown` is **not** taken over
+without `--force` - only a PROVEN death frees a role, because not knowing an
+owner is gone is not the same as knowing it is. The refusal and the forced
+takeover both name the basis.
 
 ## Output contract
 
@@ -844,6 +874,8 @@ from "this call does not report policy":
 | `FLOW_WAVE_POLICY_DRIVER` / `_GATE` / `_LEDGER` / `_MERGE_AUTHORITY` / `_DEPLOY` / `_REPO` / `_TS` | free text as declared |
 | `FLOW_WAVE_BRIEFED_REV` | the rev THIS role was briefed on (`register` / `get`) |
 | `FLOW_WAVE_BRIEF` | `current` / `stale` / `none`. `stale` = the policy was amended after this role registered; re-register to take the re-brief |
+| `FLOW_WAVE_LIVENESS` | `live` / `stale` / `unknown` / `released` |
+| `FLOW_WAVE_LIVENESS_BASIS` (#869) | WHICH RULE decided the liveness, so a proven death is never read as an undecidable one: `pid-present`, `pid-gone`, `other-host`, `released`, `self`, or `pid-undeterminable-{socket-present,socket-absent,no-socket-proof,no-address}`. The socket-file terms record CORROBORATION of an already-undeterminable pid - they never promote it to `live` |
 
 Two lane-scoping lines (#800), so an unknowable overlap answer is never read as
 a clean one:
