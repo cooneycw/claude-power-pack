@@ -4,7 +4,7 @@ A check, gate, guard, tripwire or allowlist makes a claim. This document is the
 canonical statement of what that claim has to be able to say, and of the two
 questions a reviewer asks of any diff that adds or changes one.
 
-It exists because the pattern below was diagnosed twenty-three times across two
+It exists because the pattern below was diagnosed twenty-four times across two
 repositories and written down in exactly one place: issue #834. A shape that
 lives in one issue cannot be applied in review, so the next instance has nothing
 to reference. Other surfaces point here; they do not restate it.
@@ -224,7 +224,7 @@ conducted *for* this pattern.
 
 ## The instance index
 
-The twenty-three instances this contract was derived from. Kept here, in the guidance,
+The twenty-four instances this contract was derived from. Kept here, in the guidance,
 rather than in the issue that indexed them - a finding that lives only in a closed
 issue is the condition #834 was filed to end. Link new instances here.
 
@@ -251,6 +251,7 @@ issue is the condition #834 was filed to end. Link new instances here.
 | #877 | is this deliverable a code change | can this driver do *this issue* (fence-forbidden paths) | open |
 | this change (pkill) | does a process match `pgrep -f <pattern>` | does a process OTHER THAN ME match it | fixed in flight |
 | this change (base sync) | are the ADDED LINES byte-identical | is the change still what was approved | fixed in flight |
+| this change (index rule) | does this diff delete any FILE | does this change delete anything | fixed in flight |
 | kyle#994 | is this variable one of the nine safe ones | is this variable safe to forward | fixed |
 | kyle#997 | what did the task *wrapper* exit with | what did the *watch* exit with | fixed |
 
@@ -289,6 +290,35 @@ So "the added lines are unchanged" and "the change still does what was approved"
 are two questions with the same reassuring answer, and only the second was being
 asked. The reviewer who caught it is the one who went and read the merged file
 rather than accepting the byte comparison.
+
+The `this change (index rule)` row is the third from this one change, and it is
+the one to read if you only read one. Governing how this document may be edited,
+its author proposed a rule with a condition - *the change deletes nothing* - and a
+verification for it: `git diff <base> HEAD --diff-filter=D --name-only` must be
+empty.
+
+`--diff-filter=D` selects **deleted files**. It cannot see a deleted **line**. So
+the verification answers "does this diff remove a file?" while the condition it
+was offered for is "does this diff remove anything?", and a change that rewrote
+the document line for line would satisfy the check while violating the rule.
+
+Then the sharper half. Run against the very commit that proposed it:
+
+```
+git diff 3327cb2 a8dc13c --diff-filter=D --name-only   ->  (empty)      passes
+git diff 3327cb2 a8dc13c --numstat                     ->  26  5  ...   five deletions
+```
+
+The condition was not merely unenforced - it was **wrong**. Every genuine row
+addition edits the count line in this section, and editing a line is a deletion
+plus an addition, so *deletes nothing* voids exactly the changes the rule exists
+to permit.
+
+Two errors that cancelled: a condition too strict to be met, and a check too weak
+to notice. Each concealed the other and the proposal read as coherent. The lesson
+is not that either mistake is exotic - it is that a check and the condition it
+enforces are two claims, and agreeing with each other is not evidence that either
+is right.
 
 Three of these (#867, #869, #877) were filed after the index was written, and #877
 was found while routing the work that produced this document. That is the standing
