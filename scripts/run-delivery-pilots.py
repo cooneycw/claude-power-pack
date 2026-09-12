@@ -14,13 +14,14 @@ was produced from can be reconstructed from the commit recorded beside it, rathe
 than from whatever the tree happened to contain that afternoon.
 
 WHAT IT MEASURES, AND WHAT IT DOES NOT. It records mechanical facts only: the
-process status, the output size, and which issue reference the model selected. The
-selected reference is the decision that acts - it is what the closing step publishes
-- so it is a real observation, not a proxy. Everything else is left to a reader of
-the transcripts. In particular the `mentions` column is PHRASE PRESENCE and nothing
-more: it says a string occurs, never that the report understood it. No completion
-parser is built here and none is wanted; a scorer that decides whether a report is
-"good" is just a second model nobody reviewed.
+process status, the output size, and a regex match for the issue reference the model
+appears to have selected. That regex is PHRASE DETECTION over the text - it is a
+pointer into the transcript, not a finding about what the closing step would publish.
+The evidence for that is the raw body, read by a person, together with the real
+`gh-pr-merge.sh` guard this runner invokes over the produced bodies. The `mentions`
+column is weaker still: it says a string occurs, never that the report understood it.
+No completion parser is built here and none is wanted; a scorer that decides whether
+a report is "good" is just a second model nobody reviewed.
 
 An empty output scores as "no Closes", which reads exactly like a correct Refs
 result - so the returncode and the character count are recorded on every run and a
@@ -163,10 +164,11 @@ def extract_rule(guidance: str) -> str:
     return rule
 
 
-def build_issue(root: Path, commit: str, workdir: Path) -> tuple[int, str, str, str]:
+def build_issue(root: Path, commit: str, workdir: Path) -> tuple[int, str, str, str, Path]:
     """Generate the issue with the REAL converter, then record a revision on it.
 
-    Returns (issue number, body, the checker's report on that body, v2 source digest).
+    Returns (issue number, body, the checker's report, v2 source digest, and the
+    PINNED fixture directory every completion input must be read from).
 
     The body is not written by hand anywhere. It is what the shipped converter
     produces from the fixture spec and tasks file, which is the point: criteria 2
@@ -247,7 +249,7 @@ def build_issue(root: Path, commit: str, workdir: Path) -> tuple[int, str, str, 
             f"the context check failed (exit {check.returncode}); refusing to present "
             f"its output as a verified revision state:\n{check.stdout}{check.stderr}"
         )
-    return number, body, (check.stdout + check.stderr).strip(), digest
+    return number, body, (check.stdout + check.stderr).strip(), digest, fixtures
 
 
 def build_prompt(rule: str, number: int, issue: str, check: str, work: str) -> str:
@@ -286,8 +288,13 @@ def codex_config() -> dict[str, str]:
     return found
 
 
-def codex(prompt: str, cwd: Path, timeout: int, sandbox: str = "read-only") -> tuple[int, str]:
+def codex(prompt: str, cwd: Path, timeout: int, sandbox: str = "read-only",
+          events_path: Path | None = None) -> tuple[int, str]:
     """Returns (status, final message). A timeout is reported, never raised.
+
+    `events_path` retains the RAW event stream. The final message is a summary the
+    model wrote about itself; the stream is what it actually did, and it is the only
+    way a reader can see whether it stopped to ask for anything on the way.
 
     An exception here would lose every observation recorded before it, which is the
     opposite of what an evidence runner should do under failure.
@@ -299,7 +306,11 @@ def codex(prompt: str, cwd: Path, timeout: int, sandbox: str = "read-only") -> t
             stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=timeout,
         )
     except subprocess.TimeoutExpired:
+        if events_path is not None:
+            events_path.write_text("", encoding="utf-8")
         return -1, ""
+    if events_path is not None:
+        events_path.write_text(done.stdout, encoding="utf-8")
     messages = []
     for line in done.stdout.splitlines():
         try:
@@ -372,7 +383,8 @@ def run_pilots(root: Path, commit: str, out: Path, timeout: int, dry_run: bool,
         started = time.time()
         # One codex() for both suites, so a timeout is recorded the same way here as
         # in the completion cases rather than aborting the run.
-        code, account = codex(task, workspace, timeout, sandbox="workspace-write")
+        code, account = codex(task, workspace, timeout, sandbox="workspace-write",
+                              events_path=out / f"{name}.events.jsonl")
         (out / f"{name}.account.txt").write_text(account, encoding="utf-8")
 
         # The behavioural check, brought in only now. Each pilot names its check
@@ -413,6 +425,7 @@ def run_pilots(root: Path, commit: str, out: Path, timeout: int, dry_run: bool,
             "check_returncode": check.returncode,
             "diff_lines": len(diff.stdout.splitlines()),
             "files_added": added,
+            "events": f"{name}.events.jsonl",
             "seconds": round(time.time() - started, 1),
         }
         row = results[name]
@@ -551,12 +564,17 @@ def main() -> int:
         return pilots_exit_status(pilot_results)
 
     rule = extract_rule(show(root, resolved, GUIDANCE_PATH))
-    cases = json.loads(
-        (root / FIXTURES / args.suite / "cases.json").read_text()
-    )["cases"]
 
     with tempfile.TemporaryDirectory() as tmp:
-        number, issue, check, digest = build_issue(root, resolved, Path(tmp))
+        # The case wording is an INPUT, and it comes from the pinned snapshot like
+        # every other one. Reading it from the working tree let an uncommitted edit
+        # reach a prompt built from a named commit while `commit` and `fixtures_tree`
+        # in results.json still claimed that commit - a result nobody could reproduce
+        # from what those fields named.
+        number, issue, check, digest, pinned = build_issue(root, resolved, Path(tmp))
+        cases = json.loads(
+            (pinned / "cases.json").read_text(encoding="utf-8")
+        )["cases"]
         (args.out / "issue.md").write_text(issue, encoding="utf-8")
         (args.out / "context-check.txt").write_text(check + "\n", encoding="utf-8")
 

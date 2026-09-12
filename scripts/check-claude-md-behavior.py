@@ -64,10 +64,18 @@ LIFECYCLE_BOUNDARY_FILES = frozenset(
 # The allowance is therefore VERIFIED, never granted by appearance. A file under
 # codex/skills/<skill>/docs/ is treated as distribution only when all three hold:
 #
-#   1. the enclosing skill is an actual managed output of the bundler, decided by the
-#      bundler's own `is_managed` marker check rather than by this file guessing;
+#   1. the enclosing skill CARRIES THE GENERATED MARKER, decided by the bundler's own
+#      `is_managed` rather than by this file restating it. That is a marker check, not
+#      proof of generation history: it says the directory is declared generated, and a
+#      marker can be written by hand;
 #   2. the canonical source exists at the matching docs/ path;
 #   3. the bytes are identical to it.
+#
+# The boundary is the COMPOSITION of those, not any one of them. Byte identity is what
+# carries the weight - an edited copy is reported however it is marked - and whether
+# the generated output is actually present and current is owned by the separate
+# packaging checks (`make codex-skills` drift and the bundled-docs byte-identity test),
+# not by this file.
 #
 # Anything else - an altered copy, a copy in a hand-curated skill, a copy whose
 # canonical source is gone - is still authored policy in the wrong place and is still

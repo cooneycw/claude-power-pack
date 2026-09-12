@@ -170,8 +170,21 @@ generalised.
 **Ceremony, measured where it could actually appear.** In the `baseline` cell the
 prompt forbade extra files, so "no spec, no plan document" was task-instructed and
 establishes nothing about CPP policy. The `open` and `guided` cells remove that
-prohibition, and across six runs the only file either pilot added was a unit test.
-That is an observation about ceremony; the baseline one was not.
+prohibition, and the only file either pilot has ever added across those cells was a
+unit test. That is an observation about ceremony; the baseline one was not.
+
+**The retained small-fix trace.** One guided pilot B run is kept in full - prompt,
+raw JSON event stream, final account, diff and check result - in
+`~/Downloads/cpp-861-pilots-guided/`. The event stream is what makes this reviewable:
+a final message is a summary the model wrote about itself, while the stream is what it
+actually did. It reads: read the file, edit it, verify with four inline assertions,
+report. No request for approval, clarification or confirmation appears anywhere in it.
+
+That is an observation about THIS AGENT'S BEHAVIOUR on an authorized small fix. It is
+not evidence about interactive harness permission handling - `codex exec` cannot
+surface a permission prompt - and not about the whole-host lifecycle. What it rules
+out is the other reading: that the model proceeded silently only because it had no way
+to ask. It had a way to ask, in its own response, and did not use it.
 
 **The behavioural check establishes that the outcome was preserved. It does not
 establish that the approach was replaced**; that is read from the diff and the agent's
@@ -322,6 +335,18 @@ model being measured.
   from a reviewed commit; the fixtures were read from the working tree the whole time.
   Both suites now materialise their inputs with `git archive` and record the input
   tree's hash.
+- **The pinning fix was incomplete, and the metadata still claimed otherwise.** After
+  moving the spec, tasks and scripts onto `git archive`, the case wording was still
+  read from the working tree - so an uncommitted edit reached a prompt built from a
+  named commit while `commit` and `fixtures_tree` in the results file went on naming
+  that commit. Review proved it with a sentinel; I reproduced it before fixing it, and
+  the sentinel is now kept as a regression test. A pin is only as strong as its weakest
+  input, and "I pinned it" was true of four inputs out of five.
+- **`git reset --hard` took a new file with it.** Undoing a mutation commit deleted the
+  regression test I had written inside it, because the file was new to that commit. I
+  had snapshotted the script I was mutating but not the file I had just created;
+  recovered from the reflog. Snapshot what you are about to lose, not only what you are
+  about to change.
 - **My wait loops could never exit.** `pgrep -f "make verify"` matches its own command
   line, so three monitor shells matched each other and outlived the build they were
   waiting on. The harness task result is the authority; process text is not.
@@ -360,9 +385,16 @@ checker sits outside this issue's lane; the ruling took neither and approved a
 VERIFIED generated-copy allowance instead.
 
 A copy under `codex/skills/<skill>/docs/` is treated as DISTRIBUTION of a canonical
-document only when three things hold: the enclosing skill is a real bundler output,
-decided by the bundler's own `is_managed` predicate imported rather than restated; the
-canonical source exists; and the bytes match. Nothing is exempt for looking generated.
+document only when three things hold: the enclosing skill CARRIES THE GENERATED MARKER,
+decided by the bundler's own `is_managed` imported rather than restated; the canonical
+source exists; and the bytes match. Nothing is exempt for looking generated.
+
+**That first leg is a marker check, not proof of generation history.** `is_managed`
+reads a marker, and a marker can be written by hand. The boundary is the composition:
+byte identity is what carries the weight, since an edited copy is reported however it
+is marked, and whether the generated output is actually present and current is owned
+by the separate packaging checks - the `make codex-skills` drift gate and the
+bundled-docs byte-identity test - not by the locality checker.
 
 Proven from both sides, because an allowance that cannot reject is just an exclusion:
 
