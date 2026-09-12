@@ -717,7 +717,9 @@ fi
    record the accounting in the PR body as ordinary prose. When it is unresolved, use `Refs #N` in the commit
    message, the PR title and the PR body instead of `Closes #N`, and check the earlier
    branch commits too (read `git log origin/main..HEAD --format=%B` and the PR text yourself),
-   since the squash text is derived from them. A delegated run that delivered part of
+   since the squash text may be derived from them - `gh-pr-merge.sh`
+   passes an explicit subject and body from the PR (#655), so check which sources are
+   actually in play rather than assuming a rewrite is needed. A delegated run that delivered part of
    the work is still mergeable; it just must not close the promise. The canonical rule
    is docs/agents/issue-contract.md.
    - Include `Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>`

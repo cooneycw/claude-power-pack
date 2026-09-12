@@ -104,10 +104,14 @@ tree before squashing:
 git push origin "$BRANCH"
 ```
 
-**Before merging: make the closing text agree with the accounting.** The squash
-message is derived from the branch commits and the PR, so a stale closing reference in
-an earlier commit still closes the issue - and once the merge has run, the branch is
-gone and the close has already happened. Check while it can still be changed:
+**Before merging: make the closing text agree with the accounting.** Review whatever
+will actually become the merge text. `gh-pr-merge.sh` passes an explicit subject and
+body derived from the PR (#655), so on that path an older commit's wording does not
+reach the squash; a plain `gh pr merge --squash` can compose it from the commits, and
+there a stale closing reference still closes the issue. Once the merge has run the
+branch is gone and the close has already happened, so check while it can still be
+changed - and check the sources in play rather than rewriting history on the
+assumption that the commits always feed it:
 
 ```bash
 git log origin/main..HEAD --format=%B
