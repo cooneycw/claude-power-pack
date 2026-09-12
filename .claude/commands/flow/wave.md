@@ -183,9 +183,11 @@ ruling already made - and while designing #814 itself, an orchestrator went
 deaf for 25 minutes after a forgotten re-arm, missing seven messages
 including three from its own master, caught only because that master noticed
 the silence from outside. `supervise` detaches a daemon that keeps re-arming
-`watch --consume` on its own until this role is released or the wave ends -
+`watch --peek` on its own until this role is released or the wave ends -
 it removes the step that kept getting dropped, it does not merely warn about
-it. It still cannot force the harness to tell THIS session when mail
+it. It never ACKNOWLEDGES (#867, #873): a daemon printing into a log is not a
+recipient, and while it consumed, every deafness tell on this page read clean
+over a worker that had seen nothing. It still cannot force the harness to tell THIS session when mail
 arrives; see `route=` below for how that residual gap stays visible instead
 of assumed away. A live supervisor already holding this role refuses a
 second one (exit 4, `duplicate`); check
