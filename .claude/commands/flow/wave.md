@@ -161,11 +161,26 @@ so read that line before treating a quiet roster as a clear one.
 ## Setup: the delivery lane (consume #676, do not reimplement)
 
 The roster says WHERE a worker is. It does not deliver, and on 2026-08-11 that
-was the whole failure: the harness rejected every orchestrator->worker
-`SendMessage` (it routes only to subagents the calling session spawned), so a
-written assignment sat undelivered ~2h while both sessions correctly stood by.
-Follow the delivery preference order in `register.md` - `SendMessage` first,
-then the mailbox, and a human relay only as a named last resort.
+gap cost ~2h: a written assignment sat undelivered while both sessions correctly
+stood by, and the incident was written up as the harness rejecting every
+orchestrator->worker `SendMessage`. **That premise expired in v2.1.224 and the
+text did not know.** On 2.1.266 a send between two independent sessions resolves
+and delivers, measured 2026-09-12; the one-directional restriction is retired,
+and the directional framing with it, since nothing describes an asymmetric
+routing mechanism (issue #870).
+
+Follow the delivery preference order in `register.md`, which now carries a
+harness version against every claim: `SendMessage` as a FAST PATH, the mailbox
+as the DURABLE record, and a human relay only as a named last resort. Two things
+there decide whether lane 1 is available to you at all, and both are stated with
+their evidence rather than repeated here - the container boundary (a
+containerised session and a host session cannot see each other, so lane 1 does
+not exist for that pair), and a background-task hazard whose status is
+version-dependent.
+
+The lesson of 2026-08-11 is not the routing verdict, which expired. It is that
+this document stated a harness behaviour with no version attached, so nothing
+could tell the next reader it had gone stale. Stamp what you write here.
 
 **Arm supervision over the inbox at setup, before the first assignment
 (issues #676, #814).** One call covers every `inbox-*.md` in the wave, so a
