@@ -485,15 +485,20 @@ output scores as "no `Closes`", which reads exactly like a correct `Refs` result
 and is NOT reachable from the published branch. That is the commit it ran at and the
 record says so; it is not relabelled as having run somewhere else.
 
-For reproduction, the published head `067477e1fcb08d68da43a42e3b7c1d00696f1004` carries byte-identical
-inputs, verified by object hash rather than asserted:
+For reproduction, what matters is not a particular commit but whether the two inputs
+a guided pilot actually reads are the same bytes. Verified by object hash rather
+than asserted:
 
 | Input | at `d115bd8` | at the published head |
 |---|---|---|
 | `tests/fixtures/delivery_pilots/pilots` (tree) | `0b478ec80661` | `0b478ec80661` |
 | `.claude/commands/codex/auto.md` (blob) | `ae6c73a3b640` | `ae6c73a3b640` |
 
-So the run is reproducible from the published head, and the observed commit remains
+`067477e1fcb08d68da43a42e3b7c1d00696f1004` on this branch is a verified example, and
+any commit carrying those two hashes reproduces the same prompt. Check with
+`git rev-parse <commit>:<path>` rather than trusting this paragraph to stay current.
+
+So the run is reproducible from a published commit, and the observed commit remains
 recorded as what actually produced the trace. Those are two different statements and
 the bundle keeps both.
 
