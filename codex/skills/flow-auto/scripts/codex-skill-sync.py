@@ -48,6 +48,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SOURCE_ROOT = REPO_ROOT / ".claude" / "commands"
 SCRIPTS_ROOT = REPO_ROOT / "scripts"
+DOCS_ROOT = REPO_ROOT / "docs"
 OUTPUT_ROOT = REPO_ROOT / "codex" / "skills"
 
 # Claude command families exposed to Codex, minus `codex`: those commands
@@ -147,6 +148,14 @@ BUNDLED_SCRIPTS_BULLET = (
     " `scripts/` in this skill directory (byte-identical copies from the"
     " claude-power-pack checkout); some expect sibling repo resources, so"
     " prefer a full checkout when one is available."
+)
+
+BUNDLED_DOCS_BULLET = (
+    "Canonical guidance linked as `docs/<path>` is bundled under `docs/` in"
+    " this skill directory (byte-identical copies from the claude-power-pack"
+    " checkout). The source-relative `../../../docs/...` link in the command"
+    " body resolves outside an installed skill, so the generated copy points"
+    " at the bundled path instead. docs/ remains the only writable source."
 )
 
 
@@ -270,6 +279,60 @@ def find_bundled_scripts(body: str) -> list[str]:
     return sorted(found)
 
 
+# Only SOURCE-RELATIVE markdown links (`](../../../docs/x.md)`) are in scope: those
+# resolve against the command's location in this checkout and therefore resolve to
+# nothing once the skill is installed elsewhere. A bare `docs/x.md` mentioned in
+# prose is not a link, was never resolvable from a skill dir, and is left alone
+# rather than silently given a new meaning.
+_DOC_REF = re.compile(r"\]\((?:\.\./)+docs/((?:[A-Za-z0-9._-]+/)*[A-Za-z0-9._-]+\.md)\)")
+_MD_LINK = re.compile(r"\]\(([A-Za-z0-9._-]+\.md)\)")
+
+
+def find_bundled_docs(body: str) -> list[str]:
+    """Docs-relative paths the body links, plus the docs THOSE docs link.
+
+    The bundler discovers `scripts/<name>` references but not documentation, so
+    a command routing to `../../../docs/agents/issue-contract.md` published a
+    link that resolves to `<install-parent>/docs/...` once the skill is
+    installed anywhere but this checkout - i.e. to nothing (#861).
+
+    Sibling links BETWEEN bundled docs are followed so a bundled document's own
+    references resolve too (issue-contract.md -> knowledge-lifecycle.md). That
+    expansion is a closure over already-bundled files, not a crawl of docs/: it
+    starts from what the command body actually names and stops when no new file
+    is reached.
+    """
+    pending = [
+        rel for rel in {m.group(1) for m in _DOC_REF.finditer(body)}
+        if (DOCS_ROOT / rel).is_file()
+    ]
+    found: set[str] = set()
+    while pending:
+        rel = pending.pop()
+        if rel in found:
+            continue
+        found.add(rel)
+        parent = Path(rel).parent
+        for match in _MD_LINK.finditer((DOCS_ROOT / rel).read_text()):
+            sibling = (parent / match.group(1)).as_posix()
+            if sibling not in found and (DOCS_ROOT / sibling).is_file():
+                pending.append(sibling)
+    return sorted(found)
+
+
+def rewrite_doc_refs(body: str) -> str:
+    """Point source-relative docs links at the copy bundled with the skill.
+
+    Only references that actually resolve in this checkout are rewritten, so a
+    typo stays visible rather than being silently repointed at a missing file.
+    """
+    def sub(match: re.Match[str]) -> str:
+        rel = match.group(1)
+        return f"](docs/{rel})" if (DOCS_ROOT / rel).is_file() else match.group(0)
+
+    return _DOC_REF.sub(sub, body)
+
+
 def generated_names(selected: list[str]) -> dict[tuple[str, str], str]:
     """Map (family, stem) -> skill dir name for every command being generated."""
     names: dict[tuple[str, str], str] = {}
@@ -307,6 +370,12 @@ def generate_skill(
     """Map of skill-dir-relative path -> content for one command."""
     meta, body = parse_frontmatter(source_file.read_text())
     body = rewrite_slash_refs(body, names).rstrip("\n") + "\n"
+    # Rewrite doc links BEFORE deriving the description: the description is cut
+    # from the opening paragraphs, so a later rewrite leaves the broken
+    # source-relative path advertised in the skill's own frontmatter.
+    docs = find_bundled_docs(body)
+    if docs:
+        body = rewrite_doc_refs(body)
     name = f"{family}-{source_file.stem}"
     description = derive_description(meta, body)
     marker = marker_for(family, source_file.name)
@@ -314,6 +383,8 @@ def generate_skill(
     scripts = find_bundled_scripts(body)
     if scripts:
         bullets.append(BUNDLED_SCRIPTS_BULLET)
+    if docs:
+        bullets.append(BUNDLED_DOCS_BULLET)
 
     parts: list[str] = [
         "---",
@@ -357,6 +428,10 @@ def generate_skill(
         files["reference.md"] = f"{marker}\n\n{body.rstrip(chr(10))}\n"
     for script in scripts:
         files[f"scripts/{script}"] = (SCRIPTS_ROOT / script).read_text()
+    for doc in docs:
+        # Bundled verbatim, at the same relative path, so sibling links between
+        # bundled docs keep resolving without rewriting their contents.
+        files[f"docs/{doc}"] = (DOCS_ROOT / doc).read_text()
     return files
 
 

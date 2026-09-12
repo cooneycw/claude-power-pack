@@ -16,6 +16,15 @@ The canonical knowledge-lifecycle table is also locality-gated: command and
 skill files may carry compact rules and pointers, but must not duplicate the
 normative table from ``docs/agents/knowledge-lifecycle.md``.
 
+One narrow exception, verified per file rather than granted by path (#861): a
+byte-identical copy of a canonical document, written into a managed generated
+skill by ``scripts/codex-skill-sync.py``, is DISTRIBUTION of that source rather
+than a second policy. It is recognised only when the enclosing skill is a real
+bundler output (decided by the bundler's own ``is_managed``), the canonical
+source exists, and the bytes match. An altered copy, a copy in a hand-curated
+skill, a copy whose source is gone, and policy pasted into a command body are
+all still reported, and an unverifiable copy fails closed.
+
 Usage:
     python3 scripts/check-claude-md-behavior.py
     python3 scripts/check-claude-md-behavior.py --root DIR
@@ -24,6 +33,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import re
 import sys
@@ -44,6 +54,87 @@ LIFECYCLE_BOUNDARY_FILES = frozenset(
         "codex/skills/project-init/reference.md",
     }
 )
+# --- Generated documentation distribution (issue #861) -----------------------------
+#
+# `scripts/codex-skill-sync.py` bundles a canonical document into a generated skill so
+# the link a command body publishes still resolves once that skill is installed
+# somewhere with no claude-power-pack checkout above it. That copy is DISTRIBUTION of
+# the canonical source, not a second policy: docs/ remains the one writable authority.
+#
+# The allowance is therefore VERIFIED, never granted by appearance. A file under
+# codex/skills/<skill>/docs/ is treated as distribution only when all three hold:
+#
+#   1. the enclosing skill CARRIES THE GENERATED MARKER, decided by the bundler's own
+#      `is_managed` rather than by this file restating it. That is a marker check, not
+#      proof of generation history: it says the directory is declared generated, and a
+#      marker can be written by hand;
+#   2. the canonical source exists at the matching docs/ path;
+#   3. the bytes are identical to it.
+#
+# The boundary is the COMPOSITION of those, not any one of them. Byte identity is what
+# carries the weight - an edited copy is reported however it is marked - and whether
+# the generated output is actually present and current is owned by the separate
+# packaging checks (`make codex-skills` drift and the bundled-docs byte-identity test),
+# not by this file.
+#
+# Anything else - an altered copy, a copy in a hand-curated skill, a copy whose
+# canonical source is gone - is still authored policy in the wrong place and is still
+# reported. Nothing here exempts a path for looking generated, and policy pasted into a
+# command body is untouched by this: it does not live under <skill>/docs/.
+SKILLS_ROOT = ("codex", "skills")
+GENERATED_DOCS_DIR = "docs"
+BUNDLER = "scripts/codex-skill-sync.py"
+
+
+def _bundler_is_managed(root: Path):
+    """The bundler's own managed-skill predicate, imported rather than restated.
+
+    A second copy of that rule here could drift from the one that actually writes the
+    files. If it cannot be imported, every candidate fails closed: an unverifiable
+    copy is reported, never waved through.
+    """
+    script = root / BUNDLER
+    if not script.is_file():
+        return None
+    spec = importlib.util.spec_from_file_location("_cpp_codex_skill_sync", script)
+    if spec is None or spec.loader is None:
+        return None
+    module = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(module)
+    except Exception:
+        return None
+    return getattr(module, "is_managed", None)
+
+
+def _canonical_source(path: Path, root: Path) -> Path | None:
+    """The docs/ document a bundled copy claims to distribute, or None."""
+    try:
+        relative = path.relative_to(root.joinpath(*SKILLS_ROOT))
+    except ValueError:
+        return None
+    parts = relative.parts
+    if len(parts) < 3 or parts[1] != GENERATED_DOCS_DIR:
+        return None
+    return root.joinpath("docs", *parts[2:])
+
+
+def is_verified_generated_doc(path: Path, root: Path, is_managed) -> bool:
+    """True only for a byte-identical copy of a real canonical doc in a managed skill."""
+    if is_managed is None:
+        return False
+    source = _canonical_source(path, root)
+    if source is None or not source.is_file():
+        return False
+    skill_dir = root.joinpath(*SKILLS_ROOT, path.relative_to(root.joinpath(*SKILLS_ROOT)).parts[0])
+    if not is_managed(skill_dir):
+        return False
+    try:
+        return path.read_bytes() == source.read_bytes()
+    except OSError:
+        return False
+
+
 COMMAND_RE = re.compile(r"(?<![\w/])/(?:[a-z0-9-]+):(?:[a-z0-9_-]+)")
 
 
@@ -121,10 +212,14 @@ def check_tree(root: Path) -> list[Finding]:
     ]
 
     policy_roots = (root / ".claude" / "commands", root / ".claude" / "skills", root / "codex" / "skills")
+    is_managed = _bundler_is_managed(root)
     for policy_root in policy_roots:
         if not policy_root.is_dir():
             continue
         for path in sorted(policy_root.rglob("*.md")):
+            # Verified distribution of a canonical document, not a second policy.
+            if is_verified_generated_doc(path, root, is_managed):
+                continue
             source = path.read_text(encoding="utf-8").casefold()
             relative = str(path.relative_to(root))
             if NORMATIVE_TABLE_MARKER.casefold() in source:

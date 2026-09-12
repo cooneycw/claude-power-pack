@@ -337,7 +337,7 @@ Working from the worktree, analyze the issue and codebase to form an implementat
      ambiguity that is material to the work rather than trying to resolve everything
      first.
    - `absent` - an ordinary issue. Its body IS the contract (see
-     [the issue contract](../../../docs/agents/issue-contract.md)); no spec, story tag
+     [the issue contract](docs/agents/issue-contract.md)); no spec, story tag
      or digest is required and none is owed.
 
    The block's **Task wording** line is the task's own sentence, not a ruling: resolve
@@ -577,7 +577,7 @@ two:
      intended outcome. Only consequential deviations earn a record.
 
 An explicit constraint remains binding even when no rationale is recorded for it
-(see [the issue contract](../../../docs/agents/issue-contract.md)): a missing
+(see [the issue contract](docs/agents/issue-contract.md)): a missing
 reason is something to surface, never grounds to drop it.
 
 **"No material concern found" is a complete answer.** Most fixes are routine. Do
@@ -719,7 +719,7 @@ Read the closing references there yourself rather than grepping for one spelling
 the merge helper rejects negated and incidental forms too, and a narrow pattern
 misses exactly the ones that surprise you.
 
-The canonical rule is [the issue contract](../../../docs/agents/issue-contract.md);
+The canonical rule is [the issue contract](docs/agents/issue-contract.md);
 this is where it is executed. Partial delivery stays reviewable and mergeable - the
 disposition changes what CLOSES, not what may merge.
 

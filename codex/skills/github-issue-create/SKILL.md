@@ -10,6 +10,7 @@ Generated from a Claude Code command. Where the procedure references these Claud
 
 - MCP tools: use the MCP servers configured in `~/.codex/config.toml`, or fall back to the referenced repo scripts and CLI entry points.
 - `CLAUDE.md` references: Codex reads `AGENTS.md`; treat them as the target repo's agent-context file.
+- Canonical guidance linked as `docs/<path>` is bundled under `docs/` in this skill directory (byte-identical copies from the claude-power-pack checkout). The source-relative `../../../docs/...` link in the command body resolves outside an installed skill, so the generated copy points at the bundled path instead. docs/ remains the only writable source.
 
 # Create GitHub Issue
 

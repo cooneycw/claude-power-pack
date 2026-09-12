@@ -28,7 +28,7 @@ holds. Keep a suggested fix phrased as a suggestion, so an implementer who finds
 better one is free to use it and report the substitution.
 
 The canonical definition, the outcome-versus-proposal test, and worked examples are
-in [the issue contract](../../../docs/agents/issue-contract.md). For work large
+in [the issue contract](docs/agents/issue-contract.md). For work large
 enough to warrant a specification, reference the spec and the sections that govern
 the issue rather than copying them.
 

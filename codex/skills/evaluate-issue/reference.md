@@ -267,7 +267,7 @@ Options:
 
 Run this step when, and only when, the user chose **Issue contract** at Checkpoint #3.
 It creates no directories and writes no spec files. Emit one issue body, following
-[the issue contract](../../../docs/agents/issue-contract.md):
+[the issue contract](docs/agents/issue-contract.md):
 
 - **Outcome** from the Phase 1 synthesis and the user description, stated as the
   observable result wanted and why it matters

@@ -251,7 +251,7 @@ git branch -D "$BRANCH" 2>/dev/null || true
 Closing is a decision, not a formality: an issue closes when its promises were kept.
 Account for the material acceptance items first - demonstrated, revised WITH evidence
 for the revised behaviour, or deferred - per
-[the issue contract](../../../docs/agents/issue-contract.md). The report itself stays
+[the issue contract](docs/agents/issue-contract.md). The report itself stays
 ordinary prose; nothing is parsed out of it.
 
 Carry that judgement into the one place it has to act:
