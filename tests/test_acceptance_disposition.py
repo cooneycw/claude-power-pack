@@ -135,26 +135,35 @@ class TestCanonicalPolicy:
             assert word in text
 
     def test_a_revision_record_is_not_delivery_evidence(self) -> None:
-        text = _flat((ROOT / "docs/agents/issue-contract.md").read_text(encoding="utf-8"))
+        """Property, not phrasing: a revision must not read as delivery."""
+        text = _flat((ROOT / "docs/agents/issue-contract.md").read_text(encoding="utf-8")).lower()
 
-        assert "revised-but-unproven is still unresolved" in text
+        assert "revision record" in text
+        assert "never delivery evidence" in text or "not delivery evidence" in text
+
+    def test_revised_evidence_is_reassessed_rather_than_voided(self) -> None:
+        """Older evidence is judged against the new promise, not discarded by rule."""
+        text = _flat((ROOT / "docs/agents/issue-contract.md").read_text(encoding="utf-8")).lower()
+
+        assert "re-read the existing evidence" in text
+        assert "sometimes it still suffices" in text
 
     def test_silence_is_not_delivery(self) -> None:
         text = _flat((ROOT / "docs/agents/issue-contract.md").read_text(encoding="utf-8"))
 
-        assert "an item nobody mentions is unresolved, never delivered by default" in text
+        assert "nobody mentions is unresolved" in text
 
     def test_a_small_change_needs_no_artifact_or_checkbox_gate(self) -> None:
         """Criterion 5: the accounting must not become a mandatory form."""
         text = _flat((ROOT / "docs/agents/issue-contract.md").read_text(encoding="utf-8"))
 
-        assert "no required per-item line, no separate" in text
+        assert "no required per-item line" in text
 
     def test_transfer_needs_authority_and_a_destination(self) -> None:
         text = _flat((ROOT / "docs/agents/issue-contract.md").read_text(encoding="utf-8"))
 
         assert "durable destination" in text
-        assert 'writing the word "deferred" is none of those' in text
+        assert "is none of those" in text
 
 
 @pytest.mark.parametrize("rel", LIFECYCLE_SURFACES, ids=lambda r: r)
@@ -244,3 +253,42 @@ def test_partial_delivery_is_not_blocked() -> None:
     text = _flat(_read("flow/finish.md"))
 
     assert "changes what CLOSES, not what may merge" in text
+
+
+@pytest.mark.parametrize("rel", ["flow/finish.md", "flow/auto.md"], ids=lambda r: r)
+def test_the_accounting_precedes_the_commands_it_governs(rel: str) -> None:
+    """Ordering, not presence.
+
+    Twice the accounting landed BELOW the commit and PR commands it is supposed to
+    decide, where an adjacent paragraph cannot change what those commands do.
+    """
+    text = _read(rel)
+    accounting = text.index("**Acceptance accounting (issue #860).**")
+
+    for marker in ("git commit -m \"type(scope)", "gh pr create"):
+        position = text.find(marker)
+        if position == -1:
+            continue
+        assert accounting < position, (
+            f"{rel}: the accounting appears after `{marker}`, which it is meant to govern"
+        )
+
+
+@pytest.mark.parametrize("rel", LIFECYCLE_SURFACES, ids=lambda r: r)
+def test_no_surface_requires_a_machine_field(rel: str) -> None:
+    """The report is ordinary prose; the decision is an execution variable.
+
+    A mandatory field was introduced once and removed from merge.md only, leaving the
+    tree contradicting itself - the partial-propagation failure this wave keeps hitting.
+    """
+    assert "Acceptance-disposition" not in _read(rel), (
+        f"{rel} still requires a machine-readable field in the report"
+    )
+
+
+@pytest.mark.parametrize("rel", LIFECYCLE_SURFACES, ids=lambda r: r)
+def test_no_surface_narrows_the_closing_review_to_one_spelling(rel: str) -> None:
+    """The merge guard rejects negated and incidental forms a literal grep misses."""
+    assert "grep -in 'closes #'" not in _read(rel), (
+        f"{rel} greps for one closing spelling instead of reviewing the text"
+    )

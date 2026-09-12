@@ -702,10 +702,9 @@ fi
    squash that carries one incidentally (exits 5 and 7).
    **Acceptance disposition before closing (issue #860).** Account for the material
    acceptance items first - demonstrated, revised with evidence, or deferred - and
-   record `Acceptance-disposition: complete` or `Acceptance-disposition: unresolved -
-   <what remains>` in the PR body. When it is unresolved, use `Refs #N` in the commit
+   record the accounting in the PR body as ordinary prose. When it is unresolved, use `Refs #N` in the commit
    message, the PR title and the PR body instead of `Closes #N`, and check the earlier
-   branch commits too (`git log origin/main..HEAD --format=%B | grep -in 'closes #'`),
+   branch commits too (read `git log origin/main..HEAD --format=%B` and the PR text yourself),
    since the squash text is derived from them. A delegated run that delivered part of
    the work is still mergeable; it just must not close the promise. The canonical rule
    is docs/agents/issue-contract.md.
@@ -719,7 +718,7 @@ fi
    - Note that implementation was delegated to a local Qwen model
    - Claude Code review findings
    - Test plan
-   - `Closes #N`
+   - `Closes #N` when the accounting is complete, otherwise `Refs #N`
 
 Report: `Step 7/8: Finish complete - PR #{N} created`
 

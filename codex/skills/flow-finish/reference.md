@@ -205,19 +205,18 @@ change - there is no required per-item line and no separate artifact. Silence is
 delivery: an item nobody mentions is unresolved.
 
 Assess the evidence against the CURRENT agreed behaviour. After a #859 revision,
-evidence that satisfied the earlier promise no longer demonstrates the new one, and
+evidence that satisfied the earlier promise has to be reassessed against the new
+one - sometimes it still suffices, often it does not, and that judgement belongs in
+the report rather than being assumed either way. A revision record on its own is
+never delivery evidence, and
 a revision record on its own is not delivery evidence.
 
-Record the outcome as one line the later steps can act on:
-
-```
-Acceptance-disposition: complete
-Acceptance-disposition: unresolved - <what remains, in a few words>
-```
-
-`complete` means every material item is demonstrated, or revised WITH evidence for
-the revised behaviour, or resolved by a transfer/withdrawal that recorded its
-authority and destination. Anything else is `unresolved`, including "mostly done".
+The report stays ordinary prose - there is no field to fill in, and nothing is
+parsed out of it. Carry the judgement into the one place it has to act: the closing
+step sets `ACCEPTANCE_COMPLETE=yes` ONLY when every material item is demonstrated,
+revised with evidence for the revised behaviour, or resolved by a transfer or
+withdrawal that recorded its authority and destination. Anything else - including
+"mostly done" - leaves it unset, and unset cannot close.
 
 **Closing must agree with that line.** When the disposition is `unresolved`, use
 `Refs #N` in the commit message, the PR title and the PR body - never `Closes #N` -
@@ -225,9 +224,13 @@ so the merge cannot close a promise the report says was not kept. Check the earl
 commits on the branch too, since the squash text comes from them:
 
 ```bash
-git log origin/main..HEAD --format=%B | grep -in 'closes #' && \
-    echo "NOTE: a branch commit still says Closes - reword it if the disposition is unresolved"
+git log origin/main..HEAD --format=%B
+gh pr view "$PR_NUMBER" --json title,body --jq '.title, .body' 2>/dev/null
 ```
+
+Read the closing references there yourself rather than grepping for one spelling -
+the merge helper rejects negated and incidental forms too, and a narrow pattern
+misses exactly the ones that surprise you.
 
 The canonical rule is [the issue contract](../../../docs/agents/issue-contract.md);
 this is where it is executed. Partial delivery stays reviewable and mergeable - the
@@ -294,6 +297,7 @@ Use standard PR creation:
 ```bash
 gh pr create \
   --title "type(scope): Description (Closes #ISSUE_NUM)" \
+  `# use (Refs #ISSUE_NUM) instead when the acceptance accounting is not complete` \
   --body "## Summary
 - <bullet points>
 
@@ -302,6 +306,8 @@ gh pr create \
 - [ ] Linting passes
 
 Closes #ISSUE_NUM"
+# When the accounting is not complete, reference the issue without a closing
+# keyword instead, in the title, the body and the commit message alike.
 ```
 
 - Title: Conventional commit style, derived from changes

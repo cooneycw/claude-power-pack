@@ -141,8 +141,10 @@ states:
 | Deferred | Deliberately not done | Stays visibly incomplete and is not counted as delivered |
 
 **Assess evidence against the CURRENT agreed behaviour.** After a revision (see the
-revision-authority table above), evidence that satisfied the earlier promise does not
-carry over; it demonstrated something the project no longer asks for.
+revision-authority table above), re-read the existing evidence against what is now
+agreed rather than assuming either way: sometimes it still suffices, often it covers
+only the superseded promise. The judgement - and which way it went - belongs in the
+report. A revision record by itself is never delivery evidence.
 
 **Material, not exhaustive.** This is about promises a reader would care about, not
 every line of a plan. A small fix can discharge the whole accounting in a couple of

@@ -674,6 +674,46 @@ if [ "$(git rev-list --count HEAD..origin/main)" -gt 0 ]; then
 fi
 ```
 
+**Acceptance accounting (issue #860).** The quality gates above are evidence about
+CHECKS. Before opening the PR, account for what was actually delivered: every
+material acceptance item is demonstrated (name the behavioural test, experiment or
+reviewed observation), revised (give the reason and the agreement it needed), or
+deferred (and still owed). A couple of sentences of prose is enough for a small
+change - there is no required per-item line and no separate artifact. Silence is not
+delivery: an item nobody mentions is unresolved.
+
+Assess the evidence against the CURRENT agreed behaviour. After a #859 revision,
+evidence that satisfied the earlier promise has to be reassessed against the new
+one - sometimes it still suffices, often it does not, and that judgement belongs in
+the report rather than being assumed either way. A revision record on its own is
+never delivery evidence, and
+a revision record on its own is not delivery evidence.
+
+The report stays ordinary prose - there is no field to fill in, and nothing is
+parsed out of it. Carry the judgement into the one place it has to act: the closing
+step sets `ACCEPTANCE_COMPLETE=yes` ONLY when every material item is demonstrated,
+revised with evidence for the revised behaviour, or resolved by a transfer or
+withdrawal that recorded its authority and destination. Anything else - including
+"mostly done" - leaves it unset, and unset cannot close.
+
+**Closing must agree with that line.** When the disposition is `unresolved`, use
+`Refs #N` in the commit message, the PR title and the PR body - never `Closes #N` -
+so the merge cannot close a promise the report says was not kept. Check the earlier
+commits on the branch too, since the squash text comes from them:
+
+```bash
+git log origin/main..HEAD --format=%B
+gh pr view "$PR_NUMBER" --json title,body --jq '.title, .body' 2>/dev/null
+```
+
+Read the closing references there yourself rather than grepping for one spelling -
+the merge helper rejects negated and incidental forms too, and a narrow pattern
+misses exactly the ones that surprise you.
+
+The canonical rule is [the issue contract](../../../docs/agents/issue-contract.md);
+this is where it is executed. Partial delivery stays reviewable and mergeable - the
+disposition changes what CLOSES, not what may merge.
+
 **Collapsing the branch to one commit - the SAFE recipe (issue #657).** Prefer
 NO collapse at all: since #655 the merge helper passes an explicit
 `--subject`/`--body` derived from the PR, so a WIP-first branch squashes with
@@ -689,7 +729,8 @@ merged 2,085-line feature to exactly this on 2026-08-11). The safe shape:
 git reset --soft "$(git merge-base HEAD origin/main)"
 # Before committing, prove the collapse deletes nothing you did not delete:
 git diff --staged --diff-filter=D --name-only   # MUST be empty unless intended
-git commit -m "type(scope): Description (Closes #N)"
+git commit -m "type(scope): Description (Closes #N)"   # (Refs #N) if the
+                                                      # accounting is not complete
 # THEN bring the moved base in:
 git merge --no-edit origin/main
 ```
@@ -773,46 +814,10 @@ git merge --no-edit origin/main
    git push -u origin "$BRANCH"
    ```
 
-**Acceptance accounting (issue #860).** The quality gates above are evidence about
-CHECKS. Before opening the PR, account for what was actually delivered: every
-material acceptance item is demonstrated (name the behavioural test, experiment or
-reviewed observation), revised (give the reason and the agreement it needed), or
-deferred (and still owed). A couple of sentences of prose is enough for a small
-change - there is no required per-item line and no separate artifact. Silence is not
-delivery: an item nobody mentions is unresolved.
-
-Assess the evidence against the CURRENT agreed behaviour. After a #859 revision,
-evidence that satisfied the earlier promise no longer demonstrates the new one, and
-a revision record on its own is not delivery evidence.
-
-Record the outcome as one line the later steps can act on:
-
-```
-Acceptance-disposition: complete
-Acceptance-disposition: unresolved - <what remains, in a few words>
-```
-
-`complete` means every material item is demonstrated, or revised WITH evidence for
-the revised behaviour, or resolved by a transfer/withdrawal that recorded its
-authority and destination. Anything else is `unresolved`, including "mostly done".
-
-**Closing must agree with that line.** When the disposition is `unresolved`, use
-`Refs #N` in the commit message, the PR title and the PR body - never `Closes #N` -
-so the merge cannot close a promise the report says was not kept. Check the earlier
-commits on the branch too, since the squash text comes from them:
-
-```bash
-git log origin/main..HEAD --format=%B | grep -in 'closes #' && \
-    echo "NOTE: a branch commit still says Closes - reword it if the disposition is unresolved"
-```
-
-The canonical rule is [the issue contract](../../../docs/agents/issue-contract.md);
-this is where it is executed. Partial delivery stays reviewable and mergeable - the
-disposition changes what CLOSES, not what may merge.
-
 4. **Create PR** - if no PR exists:
    ```bash
    gh pr create --title "type(scope): Description (Closes #ISSUE_NUM)" --body "..."
+   # ... or (Refs #ISSUE_NUM) when the acceptance accounting is not complete.
    ```
    - If PR already exists, report its URL and continue.
    - PR body: Summary of changes + test plan + `Closes #N`
