@@ -25,20 +25,26 @@ Every implementation starts with a GitHub issue and follows IDD workflow.
 - Branch naming: `issue-{N}-{description}`
 - Commits reference issues: `type(scope): Description (Closes #N)`
 
-### P3: Spec-First Implementation
+### P3: Contract-First Implementation
 
-No code without specification. Specifications become the source of truth.
+No code without an agreed contract. The contract states the intended outcome, the
+constraints that bound it and why, and what observable result counts as done.
 
-- Write spec.md before any implementation
-- Create plan.md after spec review
-- Generate tasks.md from plan
-- Sync tasks to GitHub issues before coding
+- Express the contract in the issue body for Tier 1 and Tier 2 work
+- Escalate to a full `.specify/` specification when uncertainty or coordination
+  warrants it, and for all Tier 3 work; the issue then references that spec
+  rather than copying it
+- Separate the intended outcome from a proposed approach: the outcome is
+  binding, the approach is a revisable hypothesis
+- Constraints remain binding without a stated rationale; challenge one with
+  evidence and record the decision, never silently reclassify it
+- The canonical definition is [the issue contract](../../docs/agents/issue-contract.md)
 
 ### P4: Test-Driven Quality
 
-Tests validate specifications, not just implementations.
+Tests validate the agreed outcome, not just implementations.
 
-- Write tests from acceptance criteria in spec
+- Write tests from the acceptance criteria in the issue contract or its spec
 - Tests must pass independently per feature
 - Use pytest with descriptive test names
 - No merge without passing tests
@@ -71,29 +77,34 @@ process and escalate only when analysis reveals the need.
 
 ## Development Workflow
 
-### Specification Phase
-1. Create feature spec using `/spec:create`
-2. Define user stories with acceptance criteria
-3. Review spec for completeness
-4. Clarify any ambiguities
+### Contract Phase (all tiers)
+1. State the intended outcome and why it matters
+2. Record material constraints with their rationale
+3. Give observable acceptance examples
+4. Mark any proposed approach as revisable, and name assumptions worth checking
 
-### Planning Phase
-1. Create technical plan from spec
-2. Define architecture and dependencies
-3. Identify risks and mitigations
-4. Get plan approval
+The issue body carries this for Tier 1 and Tier 2 work. See
+[the issue contract](../../docs/agents/issue-contract.md).
+
+### Specification Phase (Tier 3, or when uncertainty warrants it)
+1. Author with `/spec:adopt` and the upstream `/speckit-*` skills
+2. Define user stories with acceptance criteria
+3. De-risk ambiguity and check cross-artifact consistency
+4. Create the technical plan, architecture, dependencies, risks, and mitigations
+5. Get plan approval
 
 ### Task Breakdown
 1. Generate tasks from plan
 2. Organize by wave/phase
 3. Mark dependencies and parallel tasks
-4. Sync to GitHub issues with `/spec:sync`
+4. Create GitHub issues with `scripts/speckit-tasks-to-issues.sh`
 
 ### Implementation Phase
 1. Create worktree for issue
 2. Implement following TDD
 3. Submit PR with tests
-4. Reference spec in PR description
+4. Reference the governing contract in the PR description - the issue, or the
+   spec it points to
 
 ---
 
@@ -108,6 +119,10 @@ process and escalate only when analysis reveals the need.
   approval, implement+test, PR.
 - **Tier 3 (Architectural):** New subsystem, security boundary, multi-issue.
   Full .specify/ pipeline + ELI5 + implement + PR.
+
+Dialing spec ceremony down does not dial the contract down: work at every tier
+states its outcome, constraints, and acceptance. Only where that contract lives
+changes. See [the issue contract](../../docs/agents/issue-contract.md).
 
 ### Compliance
 - All PRs must verify alignment with constitution
@@ -129,4 +144,4 @@ Adapted for Claude Code workflows with Issue-Driven Development integration.
 
 ---
 
-*Last updated: 2025-12-24*
+*Last updated: 2026-09-12*

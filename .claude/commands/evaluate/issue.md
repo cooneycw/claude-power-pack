@@ -5,7 +5,7 @@ allowed-tools: mcp__second-opinion__get_multi_model_second_opinion, mcp__second-
 
 # Evaluate Issue
 
-Orchestrate a four-phase evaluation flow using multi-model consultation and structured reasoning to produce a spec-ready artifact.
+Orchestrate a four-phase evaluation flow using multi-model consultation and structured reasoning to produce a contract-ready artifact: an issue contract for Tier 1 and Tier 2 work, a full specification for Tier 3.
 
 ARGUMENTS: $ARGUMENTS
 
@@ -22,7 +22,7 @@ Phase 2: Sequential Reasoning (12-15 steps)
   -> Human Checkpoint #2
 Phase 3: Multi-Model Validation
   -> Human Checkpoint #3
-Phase 4: Spec Output
+Phase 4: Issue Contract (Step 8a) or Spec Output (Step 8b)
 ```
 
 Each phase builds on the previous. Human checkpoints let the user steer.
@@ -65,7 +65,9 @@ Ask the user to select the domain type:
 Ask:
 > "What should the output feature be named? Use kebab-case (e.g., `user-authentication`, `caching-strategy`)"
 
-This determines the output path: `.specify/specs/{feature-name}/`
+This names the evaluation. It determines the output path
+`.specify/specs/{feature-name}/` only if Checkpoint #3 selects a spec output; an
+issue-contract output writes no files.
 
 **Question 4: Artifacts (Optional)**
 
@@ -195,7 +197,7 @@ Use AskUserQuestion:
 Options:
 - **Accept and validate** (Recommended) -- Proceed to Phase 3 multi-model validation
 - **Redirect** -- Provide new constraints or change focus, then re-run Phase 2
-- **Skip validation** -- Go directly to spec output (Phase 4)
+- **Skip validation** -- Go directly to the Phase 4 output choice
 
 If user provides additional constraints, re-run Phase 2 with the new context appended.
 
@@ -229,17 +231,32 @@ Display:
 
 Use AskUserQuestion:
 
-> "Validation complete. What type of spec output should be generated?"
+> "Validation complete. What output should be generated?"
 
 **Question 1: Output Type**
 
+Recommend proportionally, by the governance tier the evaluation actually revealed -
+not by what the pipeline can produce. Tier 3 work (new subsystem, security boundary,
+multi-issue effort) warrants the full spec; Tier 1 and Tier 2 work warrants an issue
+contract, and generating spec.md + plan.md + tasks.md for a two-file change is the
+ceremony P7 exists to prevent. Present the tier-appropriate option first and say why
+it is the recommendation.
+
 Options:
-- **Full spec** (Recommended) -- Generate spec.md + plan.md + tasks.md
+- **Issue contract** -- A short contract for one issue body: outcome, constraints
+  with rationale, acceptance examples, revisable proposed approach, assumptions.
+  No spec.md, plan.md, or tasks.md. Recommended for Tier 1 and Tier 2.
+- **Full spec** -- Generate spec.md + plan.md + tasks.md. Recommended for Tier 3.
 - **Spec only** -- Generate just spec.md (requirements and user stories)
 - **Plan only** -- Generate just plan.md (technical approach)
 - **Tasks only** -- Generate just tasks.md (actionable items)
 
-**Question 2: Confirm Feature Name**
+**If the user chose Issue contract, this checkpoint is finished.** Do not ask Question
+2, do not create any directory, and go straight to Step 8a. The lightweight path writes
+no `.specify/specs/` tree, so a question about where that tree goes is a question about
+files that will never exist.
+
+**Question 2: Confirm Feature Name** (spec outputs only)
 
 > "Output will be written to `.specify/specs/{feature-name}/`. Confirm or change?"
 
@@ -249,7 +266,55 @@ Options:
 
 ---
 
-## Step 8: Phase 4 -- Spec Output
+## Step 8a: Phase 4 -- Issue Contract Output
+
+Run this step when, and only when, the user chose **Issue contract** at Checkpoint #3.
+It creates no directories and writes no spec files. Emit one issue body, following
+[the issue contract](../../../docs/agents/issue-contract.md):
+
+- **Outcome** from the Phase 1 synthesis and the user description, stated as the
+  observable result wanted and why it matters
+- **Constraints** surfaced by the evaluation, each with the rationale that makes it
+  challengeable on the merits
+- **Acceptance** from the Phase 3 validation gaps, written as observable examples
+- **Proposed approach** from the Phase 2 recommendation, explicitly marked revisable
+- **Assumptions** from the Phase 1 divergence points and Phase 2 open questions
+
+These are distinctions, not required headings. Omit anything the evaluation did not
+actually produce rather than inventing content to fill a slot: a two-sentence contract
+that states the outcome and what counts as done is a complete result here, not a
+degraded one.
+
+### Report Output (issue contract)
+
+```
+Phase 4: Issue Contract Complete
+
+  Output:   one issue body (no spec.md, plan.md, or tasks.md written)
+  Tier:     {tier the evaluation revealed}
+  Dropped:  {evaluation findings that did not fit the contract, or "none"}
+
+Evaluation Summary:
+  Models consulted: {count} ({model names})
+  Reasoning steps: {N}
+  Total cost: ${cost}
+
+Next steps:
+  1. Review the contract above
+  2. File it with /github:issue-create
+  3. Ship it with /flow:auto <issue>
+```
+
+Report which evaluation findings did not fit the contract, so they are dropped
+knowingly rather than silently. **End the run here.** The prerequisites, spec
+generation, and spec report below apply to the spec outputs only.
+
+---
+
+## Step 8b: Phase 4 -- Spec Output
+
+Run this step for the **Full spec**, **Spec only**, **Plan only**, and **Tasks only**
+outputs.
 
 ### Check Prerequisites
 
@@ -300,7 +365,10 @@ Fill from the evaluation:
 - **Checkpoints**: At wave boundaries
 - **Status**: `Ready`
 
-### Report Output
+### Report Output (spec outputs)
+
+List only the files this run actually wrote - a **Spec only**, **Plan only**, or
+**Tasks only** run creates one of the three, not all of them.
 
 ```
 Phase 4: Spec Output Complete

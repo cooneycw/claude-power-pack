@@ -1,5 +1,10 @@
 # Feature Specification: {FEATURE_NAME}
 
+> Use this template when the work warrants a specification - Tier 3, or Tier 2 work
+> whose uncertainty or coordination needs one. Smaller work states the same contract
+> in the issue body instead; see `docs/agents/issue-contract.md`. Issues reference the
+> sections of this spec that govern them rather than copying them.
+
 > **Branch:** `issue-{N}-{feature-slug}`
 > **Created:** {DATE}
 > **Status:** Draft | In Review | Approved

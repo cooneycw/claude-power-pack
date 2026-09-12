@@ -13,11 +13,18 @@ community-iterated and its plugin ships verification stages CPP lacked
 
 ## Overview
 
-Spec-Driven Development (SDD) ensures quality by requiring specifications before implementation:
+Spec-Driven Development (SDD) is the heavyweight end of one proportional policy:
+every change states its contract, and a full specification is how that contract is
+expressed when uncertainty or coordination warrants it.
 
 ```
 Constitution (principles) → Spec (what) → Plan (how) → Tasks (work) → Issues → Code
 ```
+
+For work that does not warrant a spec, the same contract lives in the issue body.
+The canonical definition of what it must make legible - outcome, constraints with
+their rationale, acceptance examples, revisable proposed approach, assumptions - is
+[the issue contract](../../../docs/agents/issue-contract.md).
 
 ## Available Commands
 
@@ -35,6 +42,17 @@ The full spec→plan→tasks pipeline is for **Tier 3 (Architectural)** work: ne
 subsystems, security boundaries, or multi-issue efforts. Tier 1 (Surgical) and
 Tier 2 (Considered) work should skip the spec pipeline and go directly to
 issue → `/flow:auto`.
+
+Skipping the pipeline is not skipping the contract. A Tier 1 or Tier 2 issue still
+states its outcome, its material constraints and why they hold, and what observable
+result counts as done - in a few sentences, with no spec.md, plan.md, or tasks.md.
+See [the issue contract](../../../docs/agents/issue-contract.md) for the
+distinctions and worked examples, including how a prescriptive proposed solution
+stays revisable.
+
+When work IS specified, the issue references the spec and the sections that govern
+it instead of copying them, so amending the spec cannot leave a stale duplicate in
+the tracker.
 
 ## Supported Workflow
 

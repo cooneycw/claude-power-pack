@@ -35,7 +35,7 @@ body:
     id: description
     attributes:
       label: Bug description
-      description: What happened? What did you expect to happen?
+      description: What happened? What did you expect to happen? The expected behavior is the outcome being asked for; if you also suggest a fix, it is read as a suggestion, and an implementer may fix the cause a different way.
       placeholder: |
         **What happened:**
         [describe the bug]

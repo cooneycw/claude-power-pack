@@ -34,6 +34,7 @@ these rules remain in [commands-reference.md](docs/commands-reference.md) and
 - `docs/reference/CLAUDE_CODE_BEST_PRACTICES_FULL.md` - full best-practices guide.
 - `docs/commands-reference.md` - command decisions, histories, and workflow detail.
 - `docs/scripts.md` - script inventory and per-script behavioral history.
+- `docs/agents/issue-contract.md` - canonical issue contract and proportional spec routing.
 - `docs/agents/knowledge-lifecycle.md` - canonical completed-spec graduation policy.
 - `ISSUE_DRIVEN_DEVELOPMENT.md` - issue-driven development source.
 - `PROGRESSIVE_DISCLOSURE_GUIDE.md` - context-loading guidance.
