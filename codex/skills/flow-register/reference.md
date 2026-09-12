@@ -501,8 +501,11 @@ that is a new measurement and it belongs in this table with its own stamp.
 **Delivery preference order. Follow it in order; do not skip to the end.**
 
 1. **Direct session messaging** (`SendMessage` to the `ListAgents` name) -
-   available in both directions on 2.1.266; the August one-directional
-   restriction is retired. It is a FAST PATH, not a record: nothing is stored,
+   routes between independent sessions on 2.1.266, measured
+   worker->orchestrator 2026-09-12. The reverse is no longer believed blocked
+   (the v2.1.224 expiry, and the current contract) but was NOT re-measured;
+   ceasing to believe a direction is blocked is not the same as establishing it
+   works. It is a FAST PATH, not a record: nothing is stored,
    there is no receipt, and a message delivered to a session that never acts on
    it leaves no trace either end can audit. Use it to make something already
    written arrive sooner.
@@ -548,12 +551,16 @@ procedure mandates the vulnerable shape.
 
 **What was observed here, and why it does not settle the question.** On
 2.1.266, 2026-09-12, a worker->orchestrator send was delivered to a receiver
-holding a watch in exactly that vulnerable shape. The watch survived: alive on
-`pgrep` after delivery, and it later exited **0** - the normal mail-arrived
-exit, where a reaped task reports killed with no exit code.
+holding a watch in exactly that vulnerable shape. The watch survived, and the
+evidence is its **exit code 0** on mail arrival: a task that exits 0 having
+delivered its payload cannot have been reaped, whenever the kill window fell. A
+liveness check taken at delivery time was also run and is deliberately NOT
+recorded - the 2.1.258 report puts the kill 0-13s after the TURN ends, so a
+process alive during the turn samples the wrong window and implies a rigour it
+does not have.
 
 That is one observation and it does NOT generalize, for three separate reasons,
-each of which alone would be enough:
+of which the first and third are each sufficient alone:
 
 1. **This host is not in the default configuration.** It sets
    `CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP=1` (in the environment and in
@@ -561,10 +568,13 @@ each of which alone would be enough:
    sessions booted. If the kill path runs through background-shell pressure
    reaping, the mechanism is disabled here and survival is a property of this
    host rather than of 2.1.266.
-2. **The upstream discriminator was not controlled for.** The second report
-   puts the kill at turn end, not delivery, and only when the task is the
-   session's sole live background task. Neither condition was established for
-   the receiver.
+2. **The upstream discriminator was not deliberately controlled for.** The
+   second report puts the kill at turn end, not delivery, and only when the task
+   is the session's sole live background task. The receiver reports that its
+   watch WAS its sole live background task, so that condition held - but it held
+   by circumstance rather than by design, which is weaker evidence than an
+   experiment and is recorded as such. This reason alone would not disqualify
+   the observation; 1 and 3 do.
 3. **It may simply be fixed.** The same reporter stopped reproducing at 2.1.263,
    and this host runs 2.1.266.
 

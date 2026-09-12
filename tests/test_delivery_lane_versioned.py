@@ -157,3 +157,39 @@ def test_the_hazard_reports_are_each_stamped() -> None:
         f"expected several distinct harness versions beside the hazard reports, got {versions}"
     )
     assert "91139" in section, "the upstream issue is not cited"
+
+
+def test_the_guidance_does_not_claim_more_than_the_evidence_records() -> None:
+    """The lane list must not assert a direction the evidence section says was not measured.
+
+    This one is a regression, and of the worst kind: the first draft of this change
+    stated in its evidence section that "only one direction was re-measured here"
+    and, four paragraphs later in the numbered lane list, that `SendMessage` was
+    "available in both directions on 2.1.266". Same file, contradictory, and the
+    half an agent acts from is the lane list - nobody reads an evidence table before
+    sending a message.
+
+    The version stamp made it worse rather than better. A stamp asserts WHEN a fact
+    was established, so stamping a direction that was never exercised manufactures
+    provenance for the half that has none. That is not a milder form of #870's
+    defect; it is #870's defect, inside #870's own remedy.
+
+    The distinction that has to hold: retiring a one-directional RESTRICTION is
+    justified by the v2.1.224 expiry plus one measured direction - ceasing to
+    believe a negative is cheap. Claiming both directions WORK is a positive claim
+    about an unexercised path, and costs a measurement.
+    """
+    section = _delivery_section(REGISTER.read_text())
+    says_one = re.search(
+        r"only one direction was re-measured|was NOT re-measured", section, re.I
+    )
+    assert says_one, "the evidence section no longer records how many directions were measured"
+    claims_both = re.search(
+        r"available in both directions|works in both directions|both directions on \d",
+        section,
+        re.I,
+    )
+    assert not claims_both, (
+        "the lane guidance asserts both directions while the evidence section "
+        "records only one as measured - the claim must not outrun its evidence"
+    )
