@@ -258,9 +258,98 @@ def codex(prompt: str, cwd: Path, timeout: int) -> tuple[int, str]:
     return done.returncode, (messages[-1] if messages else "")
 
 
+def run_pilots(root: Path, out: Path, timeout: int, dry_run: bool) -> dict:
+    """Bounded implementation pilots: real edits, then a check the agent never saw.
+
+    The agent gets `task.md` and `src/`. It does NOT get `check.py` - a check visible
+    to the implementer measures whether it can satisfy a test it can read, which is a
+    different and much easier question. The check is copied in afterwards.
+    """
+    fixtures = root / FIXTURES / "pilots"
+    results: dict[str, dict] = {}
+    for pilot in sorted(d for d in fixtures.iterdir() if d.is_dir()):
+        name = pilot.name
+        workspace = out / name
+        if workspace.exists():
+            shutil.rmtree(workspace)
+        shutil.copytree(
+            pilot / "src", workspace / "src",
+            ignore=shutil.ignore_patterns("__pycache__"),
+        )
+        shutil.copy2(pilot / "task.md", workspace / "task.md")
+        task = (pilot / "task.md").read_text(encoding="utf-8")
+
+        if dry_run:
+            print(f"{name:28} prompt prepared in {workspace}")
+            continue
+
+        started = time.time()
+        done = subprocess.run(
+            ["codex", "exec", "--json", "--sandbox", "workspace-write",
+             "--skip-git-repo-check", "-C", str(workspace), task],
+            stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=timeout,
+        )
+        messages = []
+        for line in done.stdout.splitlines():
+            try:
+                event = json.loads(line)
+            except ValueError:
+                continue
+            item = event.get("item") or {}
+            if item.get("type") == "agent_message" and item.get("text"):
+                messages.append(item["text"])
+        account = messages[-1] if messages else ""
+        (out / f"{name}.account.txt").write_text(account, encoding="utf-8")
+
+        # The behavioural check, brought in only now.
+        shutil.copy2(pilot / "check.py", workspace / "check.py")
+        check = run(["python3", str(workspace / "check.py")], cwd=workspace)
+        (out / f"{name}.check.txt").write_text(
+            check.stdout + check.stderr, encoding="utf-8"
+        )
+
+        # Bytecode is excluded throughout: running the check compiles the module in
+        # place, so a .pyc this runner created would otherwise be reported as a file
+        # the agent added - noise that reads exactly like unasked-for ceremony.
+        diff = run([
+            "diff", "-ru", "-x", "__pycache__",
+            str(pilot / "src"), str(workspace / "src"),
+        ])
+        (out / f"{name}.diff").write_text(diff.stdout, encoding="utf-8")
+        # Files the agent added beside the ones it was given. Ceremony a task did not
+        # ask for (a plan, a spec, a notes file) shows up here rather than in prose.
+        given = {q.name for q in (pilot / "src").iterdir()} | {"task.md"}
+        added = sorted(
+            q.name for q in workspace.rglob("*")
+            if q.is_file()
+            and q.name not in given
+            and q.name != "check.py"
+            and "__pycache__" not in q.parts
+        )
+
+        results[name] = {
+            "returncode": done.returncode,
+            "account_chars": len(account),
+            "check_passed": check.returncode == 0,
+            "check_returncode": check.returncode,
+            "diff_lines": len(diff.stdout.splitlines()),
+            "files_added": added,
+            "seconds": round(time.time() - started, 1),
+        }
+        row = results[name]
+        if done.returncode != 0 or not account:
+            print(f"{name:28} FAILED rc={done.returncode} account_chars={len(account)}")
+            continue
+        print(
+            f"{name:28} rc=0 check={'pass' if row['check_passed'] else 'FAIL'} "
+            f"diff_lines={row['diff_lines']:<4} added={added or 'none'}"
+        )
+    return results
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--suite", choices=["completion"], default="completion")
+    parser.add_argument("--suite", choices=["completion", "pilots"], default="completion")
     parser.add_argument("--out", required=True, type=Path, help="directory for transcripts")
     parser.add_argument("--commit", default="HEAD", help="commit the guidance is read from")
     parser.add_argument("--timeout", type=int, default=600)
@@ -272,12 +361,32 @@ def main() -> int:
     resolved = run(["git", "-C", str(root), "rev-parse", args.commit]).stdout.strip()
     if not resolved:
         sys.exit(f"could not resolve --commit {args.commit}")
+    args.out.mkdir(parents=True, exist_ok=True)
+    if args.suite == "pilots":
+        if not args.dry_run and shutil.which("codex") is None:
+            sys.exit("codex is not on PATH; use --dry-run to stage the workspaces")
+        results = run_pilots(root, args.out, args.timeout, args.dry_run)
+        if not args.dry_run:
+            (args.out / "results.json").write_text(
+                json.dumps(
+                    {
+                        "commit": resolved,
+                        "runner": run(["codex", "--version"]).stdout.strip(),
+                        "config": codex_config(),
+                        "pilots": results,
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            print(f"\nworkspaces, diffs and results.json in {args.out}")
+        return 0
+
     rule = extract_rule(show(root, resolved, GUIDANCE_PATH))
     cases = json.loads(
         (root / FIXTURES / args.suite / "cases.json").read_text()
     )["cases"]
 
-    args.out.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory() as tmp:
         number, issue, check, digest = build_issue(root, resolved, Path(tmp))
         (args.out / "issue.md").write_text(issue, encoding="utf-8")
