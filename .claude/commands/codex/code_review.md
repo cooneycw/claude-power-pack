@@ -135,15 +135,33 @@ change to fix it, and do not drop it. Record it.
 Resolve the repository's nit store:
 
 ```bash
-case "$(basename "$(git rev-parse --show-toplevel)")" in
+# Key on the REMOTE, never the directory name. This step always runs from a
+# per-issue worktree (`.../claude-power-pack-issue-865`), so a basename test
+# falls through every time and the explicit mapping below never fires - leaving
+# a full-text search as the only path, which is the opposite of the intent.
+REPO=$(basename -s .git "$(git remote get-url origin 2>/dev/null)")
+[ -n "$REPO" ] || REPO=$(gh repo view --json name -q .name 2>/dev/null)
+
+case "$REPO" in
     kyle)              NIT_STORE=1004 ;;
     claude-power-pack) NIT_STORE=864 ;;
     codex-power-pack)  NIT_STORE=227 ;;
     *) NIT_STORE=$(gh issue list --search "Nit Store" --state open \
                      --json number --jq '.[0].number' 2>/dev/null) ;;
 esac
+
+# Never post into an empty number. A finding silently posted nowhere is the
+# exact failure this step exists to prevent, so fail loudly instead.
+if [ -z "$NIT_STORE" ]; then
+    echo "No nit store for '${REPO:-unknown}' - file the finding as a normal issue." >&2
+    exit 1
+fi
 gh issue comment "$NIT_STORE" --body "<one finding>"
 ```
+
+`--search` is full text, not an exact title match, so it can select any open
+issue merely mentioning the phrase. It is the last resort, not the normal path;
+if it is what resolved the number, say so in the closing report.
 
 If the repository has no nit store, file the finding as a normal issue instead.
 

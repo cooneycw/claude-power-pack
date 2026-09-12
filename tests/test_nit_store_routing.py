@@ -24,12 +24,28 @@ is what keeps the first claim honest - it strips the section and requires every
 probe to fail, so a rename or a move cannot leave this file passing on prose that
 no longer says anything.
 
-Verified non-vacuous: stashed against the pre-change tree, all 30 tests here fail.
+**Two kinds of test live here, and they establish different things.** The
+structural probes prove the instruction is PRESENT and reachable in each surface
+and in the generated bundle. They cannot prove the shell it publishes works - and
+that gap was not hypothetical: the first version of this step resolved the nit
+store with `basename "$(git rev-parse --show-toplevel)"`, which never matches,
+because `/flow:finish` always runs from a per-issue worktree (`.../repo-issue-865`).
+All three named repositories fell through to the full-text search on every real
+invocation, and 30 green structural tests saw nothing. The executing tests below
+run the published block from a path with that suffix, which is the only path it
+ever has.
+
+Verified non-vacuous: stashed against the pre-change tree, all 30 structural tests
+here fail.
 """
 
 from __future__ import annotations
 
+import json
+import os
 import re
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -153,3 +169,149 @@ def test_probes_are_not_vacuous() -> None:
             f"{surface.name}: probes match outside the nit-store section, so they "
             f"prove nothing about it: {survivors}"
         )
+
+
+# --------------------------------------------------------------------------
+# Executing tests: run the published resolver, do not merely read it.
+# --------------------------------------------------------------------------
+
+#: These run the block for real, so they need the binaries it calls (#577).
+requires_shell = pytest.mark.skipif(
+    shutil.which("bash") is None or shutil.which("git") is None,
+    reason="requires bash and git on PATH",
+)
+
+GH_STUB = r"""#!/usr/bin/env python3
+# Stub gh: records every call, answers from a JSON fixture.
+import json, os, sys
+from pathlib import Path
+
+state = Path(os.environ["GH_STUB_STATE"])
+data = json.loads(state.read_text())
+argv = sys.argv[1:]
+data.setdefault("calls", []).append(argv)
+state.write_text(json.dumps(data))
+
+if argv[:2] == ["repo", "view"]:
+    print(data.get("repo_view", ""), end="")
+elif argv[:2] == ["issue", "list"]:
+    print(data.get("issue_list", ""), end="")
+elif argv[:2] == ["issue", "comment"]:
+    pass
+else:
+    sys.exit(1)
+"""
+
+
+def _resolver_block(surface: Path) -> str:
+    """The first bash block of the nit-store section - the published resolver."""
+    section = _section(surface.read_text())
+    match = re.search(r"```bash\n(.*?)```", section, re.S)
+    assert match, f"no bash block in {surface.name}'s nit-store section"
+    return match.group(1)
+
+
+def _run_resolver(
+    tmp_path: Path,
+    surface: Path,
+    *,
+    origin: str | None,
+    repo_view: str = "",
+    issue_list: str = "",
+    dirname: str = "claude-power-pack-issue-865",
+) -> tuple[int, str, list[list[str]]]:
+    """Execute the published block from a per-issue worktree-shaped path."""
+    workdir = tmp_path / dirname
+    workdir.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=workdir, check=True)
+    if origin is not None:
+        subprocess.run(
+            ["git", "remote", "add", "origin", origin], cwd=workdir, check=True
+        )
+
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    gh = bindir / "gh"
+    gh.write_text(GH_STUB)
+    gh.chmod(0o755)
+
+    state = tmp_path / "state.json"
+    state.write_text(json.dumps({"repo_view": repo_view, "issue_list": issue_list}))
+
+    env = {
+        **os.environ,
+        "PATH": f"{bindir}:{os.environ['PATH']}",
+        "GH_STUB_STATE": str(state),
+    }
+    proc = subprocess.run(
+        ["bash", "-c", _resolver_block(surface) + '\necho "RESOLVED=$NIT_STORE"'],
+        cwd=workdir,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    calls = json.loads(state.read_text()).get("calls", [])
+    return proc.returncode, proc.stdout + proc.stderr, calls
+
+
+@requires_shell
+@pytest.mark.parametrize("surface", SURFACES, ids=lambda p: p.name)
+def test_resolver_matches_from_a_per_issue_worktree(tmp_path: Path, surface: Path) -> None:
+    """The real case: the directory is `<repo>-issue-NNN`, never `<repo>`.
+
+    This is the regression. Keying on the directory basename fell through here on
+    every single invocation, making the last-resort search the only live path.
+    """
+    code, output, calls = _run_resolver(
+        tmp_path,
+        surface,
+        origin="https://github.com/cooneycw/claude-power-pack.git",
+    )
+    assert code == 0, output
+    assert "RESOLVED=864" in output, output
+    assert not [c for c in calls if c[:2] == ["issue", "list"]], (
+        f"fell through to the search despite a known remote: {calls}"
+    )
+
+
+@requires_shell
+@pytest.mark.parametrize("surface", SURFACES, ids=lambda p: p.name)
+def test_resolver_handles_an_ssh_remote(tmp_path: Path, surface: Path) -> None:
+    code, output, _ = _run_resolver(
+        tmp_path, surface, origin="git@github.com:cooneycw/kyle.git"
+    )
+    assert code == 0, output
+    assert "RESOLVED=1004" in output, output
+
+
+@requires_shell
+@pytest.mark.parametrize("surface", SURFACES, ids=lambda p: p.name)
+def test_resolver_refuses_to_post_into_an_empty_number(tmp_path: Path, surface: Path) -> None:
+    """No remote, no `gh repo view`, no search hit - it must fail, not post nowhere.
+
+    `gh issue comment "" --body ...` is the silent-loss failure the whole feature
+    exists to prevent, so the guard is the load-bearing part of the block.
+    """
+    code, output, calls = _run_resolver(tmp_path, surface, origin=None)
+    assert code != 0, f"expected a loud failure, got 0:\n{output}"
+    assert not [c for c in calls if c[:2] == ["issue", "comment"]], (
+        f"posted a comment with no resolved nit store: {calls}"
+    )
+    assert "normal issue" in output, output
+
+
+@requires_shell
+@pytest.mark.parametrize("surface", SURFACES, ids=lambda p: p.name)
+def test_resolver_falls_back_to_the_search_for_an_unknown_repo(
+    tmp_path: Path, surface: Path
+) -> None:
+    code, output, calls = _run_resolver(
+        tmp_path,
+        surface,
+        origin="https://github.com/cooneycw/some-other-repo.git",
+        issue_list="4242\n",
+        dirname="some-other-repo-issue-7",
+    )
+    assert code == 0, output
+    assert "RESOLVED=4242" in output, output
+    assert [c for c in calls if c[:2] == ["issue", "list"]], calls
