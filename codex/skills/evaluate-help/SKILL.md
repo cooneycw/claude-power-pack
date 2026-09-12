@@ -87,6 +87,9 @@ Generates spec artifacts in `.specify/specs/{feature-name}/`:
 
 Use `./scripts/speckit-tasks-to-issues.sh` to create GitHub issues from the generated tasks.
 
+> Dependency: `scripts/speckit-tasks-to-issues.sh` calls `scripts/speckit-context.py` at runtime to render each issue's task-context block (#858). Both ship together: if the helper is missing or fails, the converter stops with an error before creating anything, because a packaging fault is not a context-free installation. `--no-context` is the explicit opt-out.
+
+
 ## Cost
 
 Typical evaluation costs $0.10-0.30 depending on model selection and depth. Phase 1 and 3 use multi-model calls; Phase 2 uses sequential reasoning (no external LLM cost if using Sequential Thinking MCP).

@@ -321,10 +321,47 @@ the escape when a prose line happens to open with a reserved word.
 
 ## Phase 1: Scaffold the issue set
 
-- **Spec-kit repo:** run `scripts/speckit-tasks-to-issues.sh` (dedup-safe) to
-  emit one issue per task, then add the dependency edges - that script emits no
-  `- Blocked by #N` lines itself. Derive edges from `tasks.md` ordering/notes
-  and write them with `gh issue edit`.
+- **Spec-kit repo:** run `scripts/speckit-tasks-to-issues.sh` (dedup-safe) to emit
+  one issue per task. It ALSO writes the dependency edges itself: a task's
+  `(depends on T00N)` clause becomes a `Depends on:` line plus `- Blocked by #N`
+  bullets, and every filed task is reconciled on each run, so a forward reference
+  or an edge whose write failed earlier is completed rather than lost (#607, #857).
+  It also attaches a `speckit-context` block carrying the task's declared context
+  (#858). Add edges by hand only for relationships `tasks.md` does not declare.
+- **Refreshing an EXISTING issue's context block** (#858), including attaching one
+  to an issue filed before the block existed. Fetch, refresh, and write back only
+  on success - the helper refuses rather than guessing, and a refusal must leave the
+  issue untouched:
+
+  ```bash
+  CUR="$(mktemp -t wave-body-XXXXXX.md)"; NEW="$(mktemp -t wave-new-XXXXXX.md)"
+  status=0
+  if ! gh issue view "$N" --json body --jq .body > "$CUR"; then
+      echo "STOP: could not fetch issue #$N; nothing was changed."
+      status=1
+  elif ~/.claude/scripts/speckit-context.py refresh --body-file "$CUR" \
+           --tasks .specify/specs/<feature>/tasks.md --task T001 \
+           --feature .specify/specs/<feature>/tasks.md --root . > "$NEW"; then
+      gh issue edit "$N" --body-file "$NEW" || status=$?
+  else
+      echo "REFUSED: $N was not changed. Read the reason above and resolve it by hand."
+      status=4
+  fi
+  rm -f "$CUR" "$NEW"
+  exit "$status"   # cleanup succeeds; it must not report a failed write as success
+  ```
+
+  Every retry starts from a freshly fetched body in its own scratch files: reusing a
+  stale copy would write back a body that has moved on, and a shared path collides
+  between concurrent workers.
+
+  It refuses when the block's text or metadata was edited after generation, when the
+  boundaries are damaged or duplicated, and when the replacement names a different
+  feature or task. An issue with NO block gains one additively with its existing body
+  preserved; that legitimate first attachment is not permission to repair a truncated
+  block by rewriting it. A refresh updates the cached extract - it is NOT a record
+  that a requirements change was acknowledged by anyone.
+
 - **Edge edits are ADDITIVE and IDEMPOTENT** (#637 gate condition): read the
   current body, append a `- Blocked by #N` line ONLY when no equivalent edge
   line is already present, and never rewrite or reflow the surrounding body
@@ -334,6 +371,9 @@ the escape when a prose line happens to open with a reserved word.
   body plus the appended line - no other diff.)
 - **No spec:** take the `--issues` label/milestone/list as the set; edges are
   whatever `- Blocked by #N` lines the bodies already carry.
+
+> Dependency: `scripts/speckit-tasks-to-issues.sh` calls `scripts/speckit-context.py` at runtime to render each issue's task-context block (#858). Both ship together: if the helper is missing or fails, the converter stops with an error before creating anything, because a packaging fault is not a context-free installation. `--no-context` is the explicit opt-out.
+
 
 ## Phase 2: The orchestration loop
 

@@ -26,6 +26,8 @@
 #                    or they are no longer recognised and get filed again. A new
 #                    slug does not prevent that; only the original identity does.
 #   --limit N        Issues to scan for the existing-work inventory (default 1000).
+#   --no-context     Do not render task-context blocks. The deliberate opt-out; a
+#                    helper that is missing or fails is an ERROR, not a silent skip.
 #   -h, --help       Show this help.
 #
 # Exit codes:
@@ -38,6 +40,8 @@
 #   5  one or more tasks have an ambiguous legacy identity awaiting resolution
 #   6  issues were created but a dependency edge could not be written; re-run to
 #      reconcile
+#   7  the task-context helper is missing or failed (use --no-context to opt out)
+#   8  an existing issue's context could not be read or checked on a re-run
 set -euo pipefail
 
 DRY_RUN=0
@@ -45,6 +49,7 @@ TASKS=""
 REPO=""
 FEATURE=""
 LIMIT=1000
+NO_CONTEXT=0
 
 usage() { sed -n '2,32p' "$0" | sed 's/^# \{0,1\}//'; }
 
@@ -55,6 +60,7 @@ while [ $# -gt 0 ]; do
         --repo) REPO="${2:?--repo needs OWNER/NAME}"; shift 2 ;;
         --feature) FEATURE="${2:?--feature needs a slug}"; shift 2 ;;
         --limit) LIMIT="${2:?--limit needs a number}"; shift 2 ;;
+        --no-context) NO_CONTEXT=1; shift ;;
         -h|--help) usage; exit 0 ;;
         *) echo "Unknown argument: $1" >&2; usage >&2; exit 2 ;;
     esac
@@ -164,6 +170,29 @@ normalize_source_path() {
     esac
     printf '%s' "$path"
 }
+
+# scripts/speckit-context.py renders the task-context cache (#858). It ships in the
+# same directory as this script, including inside a generated Codex skill bundle, so
+# it is resolved relative to THIS file rather than to the caller's cwd. Absent or
+# unusable, the run STOPS: a packaging fault that silently produced context-free
+# issues would look exactly like a successful conversion. `--no-context` opts out.
+CONTEXT_HELPER=""
+_self_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ "$NO_CONTEXT" -eq 0 ]; then
+    if ! command -v python3 > /dev/null 2>&1; then
+        echo "ERROR: python3 is required to render task context and was not found." >&2
+        echo "Install python3, or pass --no-context to convert without context blocks." >&2
+        exit 7
+    fi
+    if [ ! -f "$_self_dir/speckit-context.py" ]; then
+        echo "ERROR: speckit-context.py is missing from $_self_dir." >&2
+        echo "It ships beside this script, including inside a generated skill bundle; a" >&2
+        echo "packaging that separates them is broken, not a context-free installation." >&2
+        echo "Reinstall, or pass --no-context to convert without context blocks." >&2
+        exit 7
+    fi
+    CONTEXT_HELPER="$_self_dir/speckit-context.py"
+fi
 
 TASKS_NORM="$(normalize_source_path "$TASKS")"
 TASKS_REL_NORM="$(normalize_source_path "$TASKS_REL")"
@@ -448,11 +477,40 @@ if [ "${#AMBIGUOUS[@]}" -gt 0 ]; then
 fi
 
 # --- Create pass -----------------------------------------------------------------
-created=0; skipped=0; adopted=0
+created=0; skipped=0; adopted=0; context_checks_failed=0
 for i in "${!TIDS[@]}"; do
     tid="${TIDS[$i]}"
     title="${tid} (${FEATURE}): ${DESCS[$i]}"
     if [ -n "${FILED_NUM[$tid]:-}" ]; then
+        # Drift visibility on a re-run (#858). An already-filed task used to skip
+        # straight past its context, so a spec that moved under a filed issue was
+        # invisible until somebody happened to re-read it. Reporting only: this
+        # never edits an issue, and a refresh is the explicit documented workflow.
+        if [ "$NO_CONTEXT" -eq 0 ] && [ -n "${FILED_NUM[$tid]:-}" ]; then
+            ctx_read_status=0
+            ctx_body="$(gh issue view "${FILED_NUM[$tid]}" "${GH_REPO_ARGS[@]}" --json body --jq '.body' 2>&1)" || ctx_read_status=$?
+            if [ "$ctx_read_status" -ne 0 ]; then
+                echo "WARN: could not read issue #${FILED_NUM[$tid]} to check ${tid}'s context (gh exited ${ctx_read_status})." >&2
+                printf '  %s\n' "$ctx_body" >&2
+                context_checks_failed=$((context_checks_failed + 1))
+            else
+                ctx_check_status=0
+                ctx_report="$(printf '%s' "$ctx_body" | python3 "$CONTEXT_HELPER" check --body-file - --root . 2>&1)" || ctx_check_status=$?
+                ctx_state="$(printf '%s' "$ctx_report" | sed -n 's/^SPECKIT_CONTEXT_STATE: //p')"
+                # `check` exits 3 for any state other than current/absent; anything
+                # else is a broken checker, not a verdict.
+                if { [ "$ctx_check_status" -ne 0 ] && [ "$ctx_check_status" -ne 3 ]; } || [ -z "$ctx_state" ]; then
+                    echo "WARN: the context check for ${tid} (issue #${FILED_NUM[$tid]}) failed (exit ${ctx_check_status})." >&2
+                    printf '  %s\n' "$ctx_report" >&2
+                    context_checks_failed=$((context_checks_failed + 1))
+                else
+                    case "$ctx_state" in
+                        current|absent) : ;;
+                        *) echo "stale ${tid} (context: ${ctx_state}) - see flow:wave Phase 1 for the refresh workflow" ;;
+                    esac
+                fi
+            fi
+        fi
         if [ "${FILED_VIA[$tid]}" = "provenance" ]; then
             echo "skip  ${tid} (issue #${FILED_NUM[$tid]}, matched by recorded source path;" \
                  "add '$(marker_for "$tid")' to its body to make the identity explicit)"
@@ -467,6 +525,29 @@ for i in "${!TIDS[@]}"; do
     issue_body="$(provenance_for "$tid")"$'\n\n'"$(marker_for "$tid")"
     if [ -n "${DEPS[$i]}" ]; then
         issue_body+=$'\n\n'"Depends on: $(printf '%s' "${DEPS[$i]}" | sed 's/ /, /g')"
+    fi
+    # Task context (issue #857 -> #858). A generated issue used to carry its
+    # provenance, its marker and its dependencies, and nothing about the behaviour
+    # it was meant to produce - so the receiving agent had only the title, and no
+    # pointer to the document that governs the work. The helper renders a bounded,
+    # fingerprinted cache of the task's DECLARED context; the spec stays
+    # authoritative. Conditional on the INPUT, not on the installation: a tasks file
+    # with no resolvable spec still gets a block disclosing what did not resolve,
+    # while a missing or failing helper is an error rather than a quiet omission.
+    if [ "$NO_CONTEXT" -eq 0 ]; then
+        context_status=0
+        context_block="$(python3 "$CONTEXT_HELPER" render --tasks "$TASKS" --task "$tid" --feature "$FEATURE" 2>&1)" || context_status=$?
+        if [ "$context_status" -ne 0 ] || [ -z "$context_block" ]; then
+            # A broken helper is not a lightweight issue. Swallowing this produced a
+            # context-free issue that looked like a successful conversion, which is
+            # the failure this whole change exists to remove - so it stops here,
+            # before any further write. `--no-context` is the deliberate opt-out.
+            echo "ERROR: could not render the task context for ${tid} (helper exited ${context_status})." >&2
+            printf '  %s\n' "$context_block" >&2
+            echo "Fix the helper or pass --no-context to convert without context blocks." >&2
+            exit 7
+        fi
+        issue_body+=$'\n\n'"$context_block"
     fi
 
     if [ "$DRY_RUN" -eq 1 ]; then
@@ -549,6 +630,12 @@ done
 echo "---"
 echo "Done. ${created} $([ "$DRY_RUN" -eq 1 ] && echo 'to create' || echo 'created'), ${skipped} skipped (already exist), ${edges_written} dependency edge(s) written."
 [ "$adopted" -gt 0 ] && echo "${adopted} issue(s) were matched by recorded source path; add their markers to make the identity explicit."
+if [ "$context_checks_failed" -gt 0 ]; then
+    echo "ERROR: ${context_checks_failed} context check(s) could not be completed; their" >&2
+    echo "diagnostics are above. An unreadable issue or a broken checker is not the same" >&2
+    echo "as an issue with no context block, and is not reported as one." >&2
+    exit 8
+fi
 if [ "$edges_failed" -gt 0 ]; then
     echo "ERROR: ${edges_failed} dependency edge update(s) failed. The issues exist; re-run this" >&2
     echo "command to reconcile the missing edges - it will not create duplicates." >&2

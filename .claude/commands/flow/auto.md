@@ -287,6 +287,65 @@ Working from the worktree, analyze the issue and codebase to form an implementat
    - Identify referenced files, components, or areas
    - Note any dependencies or constraints mentioned
 
+   **If the body carries a `speckit-context` block** (issue #858), it is a generated
+   issue and the block is a bounded CACHE of the task's declared context - not the
+   authority. Fetch the body to a UNIQUE file, check that the fetch succeeded, and
+   only then run the checker: a failed `gh` leaves an empty body, and an empty body
+   reports `absent`, which reads exactly like a healthy issue that simply has no
+   block. A fixed `/tmp` name also collides between concurrent wave workers.
+
+   ```bash
+   BODY_FILE="$(mktemp -t flow-auto-body-XXXXXX.md)"
+   if ! gh issue view "$ISSUE_NUM" --json body --jq .body > "$BODY_FILE"; then
+       echo "STOP: could not fetch issue #$ISSUE_NUM; not checking context against an empty body."
+       exit 1
+   fi
+   ~/.claude/scripts/speckit-context.py check --body-file "$BODY_FILE" --root .
+   ```
+
+   Helper resolution: `~/.claude/scripts/speckit-context.py` is the stable path
+   (`/flow:repair` installs it). On exit 127 fall back to
+   `${CLAUDE_PLUGIN_ROOT}/scripts/speckit-context.py`, else the CPP-checkout copy.
+   Running inside a generated Codex skill, use the copy bundled in that skill's own
+   `scripts/` directory - never a `scripts/` directory in the target project, which
+   has no reason to contain CPP tooling.
+
+   Act on `SPECKIT_CONTEXT_STATE`:
+   - `current` - the cache matches its source. Read the **Reference source** named in
+     the block, including the cross-cutting sections it lists, then plan.
+   - `changed-in-scope` / `changed-outside-scope` - source bytes changed since the
+     issue was written. That is a byte difference, NOT a ruling that acceptance
+     changed. Read the source, decide whether it matters under the existing authority
+     model, and say so in the Step 3 report. Newer bytes do not by themselves override
+     a constraint or plan already accepted on the issue; a recorded
+     `Acceptance-revision:` line is reported with the version it names, and whether it
+     predates the change is part of what you must resolve.
+   - `changed-task` - the task line itself changed: its wording, or the `[USn]` tag
+     that decides which requirements apply. The cached mapping no longer matches the
+     plan, so re-read the task line and its story before planning, and treat the
+     block's requirement list as provisional.
+   - `tasks-missing` - the tasks file the block was built from is not present under
+     this root. Plan from the issue body and the source if one resolves, and report
+     that the task-side mapping could not be re-checked.
+   - `block-edited` / `block-damaged` - someone edited inside the block, or its
+     boundaries are broken. Treat the block as unreliable, read the source directly,
+     and do not refresh it as a side effect of this run.
+   - `source-missing` / `source-unresolved` - no governing source could be read. Plan
+     from the issue body, which is the contract in that case, and surface any
+     ambiguity that is material to the work rather than trying to resolve everything
+     first.
+   - `absent` - an ordinary issue. Its body IS the contract (see
+     [the issue contract](../../../docs/agents/issue-contract.md)); no spec, story tag
+     or digest is required and none is owed.
+
+   The block's **Task wording** line is the task's own sentence, not a ruling: resolve
+   whether it proposes an approach you may replace or restates a binding constraint
+   against the sections the block names. An **Unresolved** or **Capped** note means the
+   context is incomplete - never that the task has no constraints. Apply the same
+   material-ambiguity standard as everywhere else: resolve what would change the work,
+   surface the rest in the Step 3 report, and plan from what you have. Missing optional
+   structure is not a gate.
+
 2. **Explore the codebase:**
    - Read files referenced in the issue
    - Understand existing patterns and conventions

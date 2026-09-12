@@ -84,6 +84,27 @@ them.** A copied spec becomes a second, drifting description of the same
 requirement - the same failure the
 [knowledge lifecycle](knowledge-lifecycle.md) prevents after delivery.
 
+**The one exception is a machine-generated cache, and it is narrow.** An issue
+created by `scripts/speckit-tasks-to-issues.sh` carries a `speckit-context` block:
+a bounded extract of the task's declared context, produced by
+`scripts/speckit-context.py`. That is a CACHE, not a second authority, and it earns
+the exception only by staying all four of these:
+
+- **Bounded.** Only what the task's own `[USn]` tag and the spec's declared
+  requirement-to-story mapping select, capped in size. Never the whole spec.
+- **Sourced.** It names the reference file and the sections to read there, and
+  records the source version it was taken at. A difference between cache and source
+  is a changed VERSION to resolve under the existing authority model - newer bytes do
+  not by themselves override a constraint or plan already accepted on the issue.
+- **Drift-detectable.** It records digests of the mapped sections and of the source
+  file, so a reader can be told the bytes changed rather than discovering it later.
+- **Honest about its gaps.** An unresolved mapping or a capped extract is stated as
+  incomplete context to resolve, never as an absence of constraints.
+
+A human writing an issue still does not copy the spec: this exception exists because
+a generated issue has no author to make the judgement, not because copying became
+acceptable.
+
 **Existing issues remain usable.** Read an older issue by inferring these
 distinctions from what it says, and surface material ambiguity instead of guessing.
 There is no migration: do not reformat issues into this shape, and do not reject work

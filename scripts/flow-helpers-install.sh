@@ -62,6 +62,7 @@ HELPERS=(
     flow-wave-mailbox.sh
     flow-wave-lexicon.sh
     flow-wave-plan.py
+    speckit-context.py
     flow-driver-capability.sh
     flow-finish-gate.sh
     flow-ci-status.sh

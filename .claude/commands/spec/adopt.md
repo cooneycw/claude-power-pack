@@ -81,6 +81,9 @@ Spec-kit installed. Supported CPP workflow:
   --> then create issues:  scripts/speckit-tasks-to-issues.sh
   7. /flow:auto <issue>      - ship each issue through CPP's gate policy
 
+> Dependency: `scripts/speckit-tasks-to-issues.sh` calls `scripts/speckit-context.py` at runtime to render each issue's task-context block (#858). Both ship together: if the helper is missing or fails, the converter stops with an error before creating anything, because a packaging fault is not a context-free installation. `--no-context` is the explicit opt-out.
+
+
 Note: upstream /speckit-taskstoissues requires github-mcp-server (which CPP does
 not run). Use the bundled gh-CLI sync instead:
 
