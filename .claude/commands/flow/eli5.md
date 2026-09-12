@@ -221,6 +221,24 @@ however terse the surrounding style. Reports below this density fail the gate.
 - Verdicts **Still needed / Partially addressed / Needs reframing** -> `/flow:auto` pauses for approval - unconditionally - then proceeds to Implement using the approved plan.
 - `/flow:auto` has no bypass for that pause, and neither does `/flow:auto_codex`. `--yes` / `--auto-approve` are recognized only to report that the gate is not skippable; an `eli5: auto-approve` trailer in the issue body or HEAD commit message is not read at all (issue #775). The Step 3 report line therefore has no `auto-granted` value - `granted` or `close recommended` are the only outcomes.
 
+## CPP integration: challenge the plan, not just its freshness (issue #859)
+
+This section is CPP-owned and sits OUTSIDE the vendored core above. The core asks
+whether the issue is still NEEDED; CPP additionally asks whether it is still RIGHT.
+
+When this gate runs inside `/flow:auto`, Section C also answers: could this
+requirement, or this proposed approach, undermine the intended outcome? Name the
+concern and a concrete alternative if there is one. **"No material concern found"
+is a complete answer** and is expected for most work - this is a question to
+consider, not a quota of objections to fill.
+
+This is the INITIAL approval point. What happens when implementation later surfaces
+evidence the review did not anticipate is Step 4's revision path in
+[auto.md](auto.md). That path adds no blanket gate for ordinary implementation
+choices - those never return here - but it does NOT remove the existing route for a
+consequential change: altering promised behaviour or crossing a deliberate boundary
+still needs agreement from the authority that already holds it.
+
 ## Notes
 
 - This command is the communication and approval checkpoint: intent in the reviewer's language, an honest necessity verdict, and the plan that is about to be executed.

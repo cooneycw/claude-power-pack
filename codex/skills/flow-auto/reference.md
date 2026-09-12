@@ -545,6 +545,45 @@ Execute the approved plan from the Step 3 ELI5 gate:
    `<basename>_*` orphans - the run-wide rule from Step 1, at the point it bites.
 4. **Verify the changes** address all acceptance criteria from the issue.
 
+**When the plan turns out to be wrong (issue #859).** Step 2 explored the codebase
+and Step 3 reviewed the plan against it, so the approval is informed - but writing
+the change can still surface evidence the review did not anticipate. The approval
+fixes the intended OUTCOME, not every detail of how to reach it. Three endings, not
+two:
+
+1. **Revise within the agreed outcome and constraints - no new approval.** A better
+   implementation that reaches the same outcome and respects the same constraints
+   is an ordinary implementation choice, not a deviation. Choosing a different
+   function, structure or library within what was agreed needs no checkpoint and no
+   deviation record; say what you did in the Step 6 summary like any other work.
+2. **Investigate an uncertain assumption, bounded and reversible.** Inside the tool
+   and environment permissions you already have: read the source, run the local
+   checks, prototype on a scratch branch or behind a flag. Bounded and reversible
+   does not mean disposable - a prototype that works may become the implementation,
+   and there is no rule that useful work must be deleted and rewritten because it
+   started as an experiment. Remove the unsafe and provisional parts, not the
+   result.
+3. **Consequential conflict - return to the existing authority.** A change is
+   consequential when it alters promised behaviour, breaks compatibility, or
+   crosses a constraint someone set deliberately. Do NOT implement a flaw you have
+   evidence against, and do NOT quietly redefine success to fit what worked.
+   Present the evidence and a concrete alternative to whoever can agree to it.
+   - Prior approval, or a standing delegation that actually covers this change,
+     IS agreement - re-asking for it is the repeated-checkpoint failure this
+     avoids.
+   - Knowing that an approver exists is not agreement. An authority who has not
+     approved THIS change has not approved it.
+   - Record it briefly once agreed: what changed, why, and what it does to the
+     intended outcome. Only consequential deviations earn a record.
+
+An explicit constraint remains binding even when no rationale is recorded for it
+(see [the issue contract](../../../docs/agents/issue-contract.md)): a missing
+reason is something to surface, never grounds to drop it.
+
+**"No material concern found" is a complete answer.** Most fixes are routine. Do
+not manufacture an alternative, an experiment or a challenge for work that does not
+need one.
+
 If implementation hits a blocker that cannot be resolved:
 - **STOP** and report the blocker.
 - Suggest manual intervention.

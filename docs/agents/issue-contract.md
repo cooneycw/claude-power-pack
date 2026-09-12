@@ -110,6 +110,24 @@ distinctions from what it says, and surface material ambiguity instead of guessi
 There is no migration: do not reformat issues into this shape, and do not reject work
 because its issue predates this document.
 
+## Who may revise what, once work is under way
+
+The five distinctions decide this. An implementer discovering something new mid-way
+does not need the same permission for every kind of change:
+
+| Distinction | Revising it during implementation |
+|-------------|-----------------------------------|
+| Proposed approach | Yours. Substitute a better one that reaches the same outcome while respecting the stated constraints and the permissions you already have, and say what you did. Not a deviation, and not a checkpoint. |
+| Assumption | Yours to test. Investigate it within the permissions you already have; report what you found if it changes anything. |
+| Acceptance | Needs agreement. Narrowing what counts as done is redefining success. |
+| Constraint | Needs agreement, on evidence. Binding even with no rationale recorded - a missing reason is something to surface, never grounds to drop it. |
+| Outcome | Needs agreement. Changing it is changing the job. |
+
+"Needs agreement" means the existing decision authority, not a new one. Prior
+approval or a standing delegation that actually covers the change IS agreement;
+knowing an approver exists is not. `/flow:auto` Step 4 is where this is executed,
+including the bounded investigation and the record a consequential change earns.
+
 ## Worked examples
 
 ### A routine bug, Tier 1
