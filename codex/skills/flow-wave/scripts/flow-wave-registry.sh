@@ -322,7 +322,12 @@
 #   FLOW_WAVE_SOCK_DIR      socket dir override (default /run/user/<uid>/cc-socks)
 #   FLOW_WAVE_NOW           override "now" as epoch seconds
 #   FLOW_WAVE_HOST          override this host's name
-#   FLOW_WAVE_LIVE_PIDS     ':'-separated pids treated as alive (bypasses kill -0)
+#   FLOW_WAVE_LIVE_PIDS     ':'-separated pids treated as alive; when set the
+#                           list is AUTHORITATIVE, so a pid absent from it reads
+#                           gone (bypasses the /proc + errno probe entirely)
+#   FLOW_WAVE_UNKNOWN_PIDS  ':'-separated pids whose liveness is undeterminable.
+#                           The only way to exercise that branch on a /proc host,
+#                           where the real probe can always decide (#869)
 #   FLOW_WAVE_MAILBOX_DIR   mailbox wave-root override, passed through to the
 #                           sibling helper so the two always co-locate (#778)
 #   FLOW_WAVE_SELF_PID      starting pid for the self-address ancestor walk
@@ -392,24 +397,86 @@ emit() {
   echo "FLOW_WAVE_PID=${E_PID:--}"
   echo "FLOW_WAVE_SESSION=${E_SESSION:--}"
   echo "FLOW_WAVE_LIVENESS=${E_LIVE:--}"
+  echo "FLOW_WAVE_LIVENESS_BASIS=${E_BASIS:--}"
   echo "FLOW_WAVE_VERIFIED=${E_VERIFIED:--}"
   echo "FLOW_WAVE_MISMATCH=${E_MISMATCH:--}"
   echo "FLOW_WAVE_BOOTSTRAP=${E_BOOTSTRAP:--}"
   echo "FLOW_WAVE: $1"
 }
 
+# pid_state PID -> alive | gone | unknown, for a pid on THIS host.
+#
+# `kill -0` has TWO failure modes behind ONE return code, and collapsing them is
+# what #869 fixes. They are not degrees of the same answer; they are opposite
+# answers:
+#   ESRCH  no such process   - the process is GONE. Definite.
+#   EPERM  not permitted     - the process EXISTS, we merely may not signal it.
+#                              This is POSITIVE evidence of life.
+# EPERM is precisely the case #675 introduced the socket-file fallback to rescue
+# ("covering a pid the helper cannot signal"). Reading the errno serves that
+# stated purpose with a correct instrument, so the fallback no longer has to
+# stand in for evidence that was available all along - and, unlike stat-ing a
+# socket path, it works on EVERY transport rather than only `uds:`.
+#
+# `/proc/<pid>` is consulted first where it exists because it answers directly
+# and without ambiguity: the kernel keeps an entry for every live process on the
+# host regardless of who owns it, so presence is existence and absence is death.
+#
+# `unknown` is a real third answer, not a polite `gone`: a host with no /proc
+# whose `kill` reports something we do not recognise has an UNENUMERABLE process
+# table, and rounding that down to "dead" is the mistake the sibling mailbox
+# refused when it moved off pid liveness (#814). Never checked and
+# checked-but-undecidable are different facts.
+pid_state() {
+  local pid="$1" err
+  [ -n "$pid" ] && [ "$pid" != "-" ] && [ "$pid" != "null" ] || { echo gone; return; }
+  case "$pid" in ''|*[!0-9]*) echo gone; return ;; esac
+
+  # Test hooks pin the process table so no test depends on a pid that happens
+  # to exist. FLOW_WAVE_UNKNOWN_PIDS is checked first: it is the narrower
+  # statement, and it is the only way to reach the undeterminable branch on a
+  # /proc host, where the real prober can never return `unknown`.
+  if [ -n "${FLOW_WAVE_UNKNOWN_PIDS:-}" ]; then
+    case ":$FLOW_WAVE_UNKNOWN_PIDS:" in *":$pid:"*) echo unknown; return ;; esac
+  fi
+  if [ -n "${FLOW_WAVE_LIVE_PIDS:-}" ]; then
+    case ":$FLOW_WAVE_LIVE_PIDS:" in
+      *":$pid:"*) echo alive ;;
+      # The pinned list is AUTHORITATIVE when set, so absence from it is death,
+      # not undeterminability - otherwise every test would read `unknown`.
+      *) echo gone ;;
+    esac
+    return
+  fi
+
+  if [ -d /proc/self ]; then
+    if [ -d "/proc/$pid" ]; then echo alive; else echo gone; fi
+    return
+  fi
+
+  if kill -0 "$pid" 2>/dev/null; then echo alive; return; fi
+  # LAST RESORT, and the only branch in this function that reads PROSE rather
+  # than a fact. There is no portable way to get an errno out of the `kill`
+  # builtin except its message, and that message is `strerror()`, which glibc
+  # TRANSLATES. `LC_ALL=C` pins it - a temporary assignment on a builtin does
+  # reach bash's own setlocale - but it cannot help if the message shape itself
+  # differs, so an unrecognised message falls to `unknown` rather than guessing.
+  # That is the safe direction: `unknown` refuses a takeover, it never invents
+  # life. Reachable only on a host with no /proc, since /proc is consulted
+  # first, and never in the tests, which pin the table.
+  err="$(LC_ALL=C kill -0 "$pid" 2>&1 >/dev/null)"
+  case "$err" in
+    *"o such process"*)                     echo gone ;;
+    *"ot permitted"*|*"ermission denied"*)  echo alive ;;
+    *)                                      echo unknown ;;
+  esac
+}
+
 # is_alive PID HOST -> 0 when the owning session still runs on THIS host.
 is_alive() {
   local pid="$1" host="$2"
-  [ -n "$pid" ] && [ "$pid" != "-" ] && [ "$pid" != "null" ] || return 1
   [ "$host" = "$SELF_HOST" ] || return 1
-  if [ -n "${FLOW_WAVE_LIVE_PIDS:-}" ]; then
-    case ":$FLOW_WAVE_LIVE_PIDS:" in
-      *":$pid:"*) return 0 ;;
-      *) return 1 ;;
-    esac
-  fi
-  kill -0 "$pid" 2>/dev/null
+  [ "$(pid_state "$pid")" = "alive" ]
 }
 
 # Best-effort self-address: walk this process's ancestors and match each pid
@@ -502,41 +569,78 @@ entry_json() { # entry_json WAVE ROLE -> the entry object or 'null'
   read_registry | jq -c --arg w "$1" --arg r "$2" '.[$w].roles[$r] // null'
 }
 
-# liveness_of ENTRY_JSON -> live | stale | released
-liveness_of() {
-  local e="$1" pid host sock released
+# _liveness_compute ENTRY_JSON -> "STATE BASIS"
+#
+# STATE is live | stale | unknown | released. BASIS names WHICH RULE decided it,
+# so a reader can tell a proven death from an undecidable one without inferring
+# it from the state alone (#869 acceptance: the two `kill -0` failure modes are
+# distinguishable, and the code says which one it saw).
+#
+# THE SOCKET FILE IS CORROBORATION, NEVER PROOF (#869). It used to be sufficient
+# on its own, and evaluated AFTER the pid had already been reported dead:
+#
+#     uds:*) [ -S "${sock#uds:}" ] && { echo live; return; } ;;
+#
+# The kernel does not unlink a unix domain socket when its owner dies, so the
+# file outlives the process and the WEAKER evidence overrode the STRONGER one: a
+# SIGKILLed session kept reading `live` for as long as its socket sat on disk.
+#
+# What #675 actually asked for is preserved. Its words are that the socket file
+# is "a SECOND, independent proof, covering a pid the helper cannot signal" -
+# that is the EPERM case, and `pid_state` now answers it directly and correctly.
+# What is removed is only the socket's power to override a DEFINITE ESRCH, which
+# #675 never claimed and which was a bug in the mechanism rather than in the
+# intent. #689 then made the branch uds-only and recorded that transports
+# without sockets get one factor, "a property of the design, not an oversight".
+# That asymmetry is now GONE rather than documented: errno needs no socket, so
+# every transport gets the same primary evidence. The socket survives only in
+# the BASIS, where it corroborates an already-undeterminable pid and changes no
+# verdict.
+_liveness_compute() {
+  local e="$1" pid host sock released st
   released="$(printf '%s' "$e" | jq -r '.released // false')"
-  [ "$released" = "true" ] && { echo released; return; }
+  [ "$released" = "true" ] && { echo "released released"; return; }
   pid="$(printf '%s' "$e" | jq -r '.pid // "-"')"
   host="$(printf '%s' "$e" | jq -r '.host // "-"')"
   sock="$(printf '%s' "$e" | jq -r '.socket // "unknown"')"
-  if is_alive "$pid" "$host"; then echo live; return; fi
-  # A live socket file on this host also proves liveness (covers a pid the
-  # helper cannot signal but whose session socket clearly exists).
-  #
-  # This secondary proof is UDS-ONLY and now says so (#689). It used to strip a
-  # `uds:` prefix unconditionally and stat the remainder, which on any other
-  # transport - `bridge:session_01RLE...` - stripped nothing and tested whether a
-  # file literally named `bridge:session_...` existed. Always false, so the
-  # fallback was silently inert rather than absent, and register.md's two-factor
-  # staleness rule ("socket gone + pid dead") was one-factor on those transports.
-  #
-  # Deliberately EXPOSES the gap rather than closing it: whether another
-  # transport can offer its own secondary proof is a separate question (#676).
-  # On a non-uds address liveness rests on `kill -0` alone - the registry is
-  # host-local by construction, so that is sound today, but it is one mechanism
-  # and not two, and the code should state that instead of implying otherwise.
-  if [ "$host" = "$SELF_HOST" ] && [ "$sock" != "unknown" ]; then
-    case "$sock" in
-      uds:*) [ -S "${sock#uds:}" ] && { echo live; return; } ;;
-      # Any other scheme: no socket-file proof exists. Fall through to stale on
-      # the strength of `kill -0` alone rather than running a test that cannot
-      # pass (#689).
-      *) : ;;
-    esac
-  fi
-  echo stale
+
+  # Unchanged, and deliberately so: the registry is host-local by construction,
+  # so an entry from another host has always read `stale` and every reader is
+  # built on that. It is arguably the same shape of defect as the one above - we
+  # cannot determine a remote pid's liveness either - but promoting it to
+  # `unknown` would change takeover semantics for every cross-host entry, which
+  # is a separate decision and out of scope here. The BASIS says which rule
+  # fired, so the two never look alike to a reader.
+  if [ "$host" != "$SELF_HOST" ]; then echo "stale other-host"; return; fi
+
+  st="$(pid_state "$pid")"
+  case "$st" in
+    alive) echo "live pid-present"; return ;;
+    # A leftover socket file is NOT evidence against a confirmed death, so it is
+    # not consulted on this branch at all.
+    gone)  echo "stale pid-gone"; return ;;
+  esac
+
+  # pid_state could not decide. Report the socket as corroboration - it raises
+  # confidence that something is still there, and it settles nothing.
+  case "$sock" in
+    unknown) echo "unknown pid-undeterminable-no-address" ;;
+    uds:*)
+      if [ -S "${sock#uds:}" ]; then
+        echo "unknown pid-undeterminable-socket-present"
+      else
+        echo "unknown pid-undeterminable-socket-absent"
+      fi
+      ;;
+    *) echo "unknown pid-undeterminable-no-socket-proof" ;;
+  esac
 }
+
+# liveness_of ENTRY_JSON -> live | stale | unknown | released
+liveness_of() { local r; r="$(_liveness_compute "$1")"; echo "${r%% *}"; }
+
+# liveness_basis_of ENTRY_JSON -> the rule that decided it
+liveness_basis_of() { local r; r="$(_liveness_compute "$1")"; echo "${r#* }"; }
 
 # cwd_is_shared_parent CWD REPO -> 0 when CWD looks like a shared projects
 # parent rather than a lane (#683).
@@ -1182,7 +1286,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 E_WAVE="$WAVE"; E_ROLE="$ROLE"; E_SOCKET=""; E_PID=""; E_SESSION=""
-E_LIVE=""; E_VERIFIED=""; E_MISMATCH=""; E_SOURCE=""; E_REASON=""; E_BOOTSTRAP=""
+E_LIVE=""; E_BASIS=""; E_VERIFIED=""; E_MISMATCH=""; E_SOURCE=""; E_REASON=""; E_BOOTSTRAP=""
 
 case "$VERB" in
   self-address)
@@ -1345,20 +1449,44 @@ case "$VERB" in
       CUR_PID="$(printf '%s' "$CUR" | jq -r '.pid // "-"')"
       CUR_SESSION="$(printf '%s' "$CUR" | jq -r '.session // "-"')"
       CUR_LIVE="$(liveness_of "$CUR")"
+      CUR_BASIS="$(liveness_basis_of "$CUR")"
       SAME_OWNER=0
       [ "$CUR_SESSION" != "-" ] && [ "$CUR_SESSION" = "$SELF_SESSION" ] && SAME_OWNER=1
       [ "$CUR_PID" = "$SELF_PID" ] && SAME_OWNER=1
-      if [ "$SAME_OWNER" -eq 0 ] && [ "$CUR_LIVE" = "live" ] && [ "$FORCE" -eq 0 ]; then
-        echo "flow-wave-registry: role '$ROLE' (wave '$WAVE') is held by a LIVE session (pid $CUR_PID, session $CUR_SESSION)." >&2
+      # An ALLOW-LIST of states that release the role, never a deny-list of
+      # states that hold it (#869). `!= stale` would read a brand-new state as
+      # takeable, which is this issue's own defect - weaker evidence beating
+      # stronger - reproduced one layer up. Only a PROVEN death frees a role:
+      # `unknown` means we could not determine the owner is gone, and that is
+      # not the same as determining it is.
+      case "$CUR_LIVE" in
+        stale|released) HELD=0 ;;
+        *)              HELD=1 ;;
+      esac
+      if [ "$SAME_OWNER" -eq 0 ] && [ "$HELD" -eq 1 ] && [ "$FORCE" -eq 0 ]; then
+        if [ "$CUR_LIVE" = "live" ]; then
+          echo "flow-wave-registry: role '$ROLE' (wave '$WAVE') is held by a LIVE session (pid $CUR_PID, session $CUR_SESSION)." >&2
+        else
+          echo "flow-wave-registry: role '$ROLE' (wave '$WAVE') is held by a session whose liveness is UNDETERMINABLE (pid $CUR_PID, session $CUR_SESSION, basis $CUR_BASIS)." >&2
+          echo "  This host cannot enumerate its process table, so the owner is not known to be gone - which is not the same as knowing it is alive." >&2
+        fi
         echo "  Two sessions both believing they are '$ROLE' is the failure this command exists to prevent (#638)." >&2
         echo "  Pick another role, or re-run with --force if you are certain that session is gone." >&2
         E_SOCKET="$(printf '%s' "$CUR" | jq -r '.socket // "unknown"')"
-        E_PID="$CUR_PID"; E_SESSION="$CUR_SESSION"; E_LIVE="$CUR_LIVE"
+        E_PID="$CUR_PID"; E_SESSION="$CUR_SESSION"; E_LIVE="$CUR_LIVE"; E_BASIS="$CUR_BASIS"
         emit refused
         exit 1
       fi
-      [ "$SAME_OWNER" -eq 0 ] && [ "$CUR_LIVE" = "stale" ] &&
-        echo "flow-wave-registry: taking over stale role '$ROLE' (owner pid $CUR_PID is gone)." >&2
+      if [ "$SAME_OWNER" -eq 0 ]; then
+        case "$CUR_LIVE" in
+          stale)
+            echo "flow-wave-registry: taking over stale role '$ROLE' (owner pid $CUR_PID is gone)." >&2 ;;
+          unknown)
+            # Only reachable under --force, and the loudest line here: the
+            # operator is overriding an unanswered question, not a known death.
+            echo "flow-wave-registry: --force taking over role '$ROLE' whose owner (pid $CUR_PID) was NOT confirmed gone (basis $CUR_BASIS)." >&2 ;;
+        esac
+      fi
       # Trust model, the reverse direction (#638 gate condition 1 / #672): a
       # FAILED self-derivation must never downgrade a recorded address to
       # 'unknown'. You cannot address 'unknown', so any known address outranks
@@ -1535,7 +1663,7 @@ case "$VERB" in
     echo "FLOW_WAVE_BRIEFED_REV=$POL_REV"
     echo "FLOW_WAVE_BRIEF=$(brief_state "$POL_REV" "$POL_REV")"
     echo "FLOW_WAVE_LANE_SCOPED=$E_LANE_SCOPED"
-    E_SOCKET="$SOCK"; E_PID="$SELF_PID"; E_SESSION="$SELF_SESSION"; E_LIVE=live
+    E_SOCKET="$SOCK"; E_PID="$SELF_PID"; E_SESSION="$SELF_SESSION"; E_LIVE=live; E_BASIS=self
     E_VERIFIED="$KEEP_VERIFIED"; E_MISMATCH="$KEEP_MISMATCH"
     E_SOURCE="$SOCK_SOURCE"; E_REASON="$SOCK_REASON"
     emit "$VERDICT"
@@ -1552,6 +1680,7 @@ case "$VERB" in
     E_PID="$(printf '%s' "$CUR" | jq -r '.pid // "-"')"
     E_SESSION="$(printf '%s' "$CUR" | jq -r '.session // "-"')"
     E_LIVE="$(liveness_of "$CUR")"
+    E_BASIS="$(liveness_basis_of "$CUR")"
     E_VERIFIED="$(printf '%s' "$CUR" | jq -r '.verified // false')"
     E_MISMATCH="$(printf '%s' "$CUR" | jq -r '.address_mismatch // false')"
     # `get` is what a session runs to answer "where do I send to this role?".
@@ -1680,9 +1809,19 @@ case "$VERB" in
     [ "$CUR_SESSION" != "-" ] && [ "$CUR_SESSION" = "$SELF_SESSION" ] && SAME_OWNER=1
     [ "$CUR_PID" = "$SELF_PID" ] && SAME_OWNER=1
     CUR_LIVE="$(liveness_of "$CUR")"
-    if [ "$SAME_OWNER" -eq 0 ] && [ "$CUR_LIVE" = "live" ] && [ "$FORCE" -eq 0 ]; then
-      echo "flow-wave-registry: role '$ROLE' belongs to a LIVE session (pid $CUR_PID) - not releasing. Pass --force to override." >&2
-      E_PID="$CUR_PID"; E_SESSION="$CUR_SESSION"; E_LIVE="$CUR_LIVE"
+    CUR_BASIS="$(liveness_basis_of "$CUR")"
+    # Allow-list, for the same reason as `register` above (#869).
+    case "$CUR_LIVE" in
+      stale|released) HELD=0 ;;
+      *)              HELD=1 ;;
+    esac
+    if [ "$SAME_OWNER" -eq 0 ] && [ "$HELD" -eq 1 ] && [ "$FORCE" -eq 0 ]; then
+      if [ "$CUR_LIVE" = "live" ]; then
+        echo "flow-wave-registry: role '$ROLE' belongs to a LIVE session (pid $CUR_PID) - not releasing. Pass --force to override." >&2
+      else
+        echo "flow-wave-registry: role '$ROLE' belongs to a session whose liveness is UNDETERMINABLE (pid $CUR_PID, basis $CUR_BASIS) - not releasing. Pass --force to override." >&2
+      fi
+      E_PID="$CUR_PID"; E_SESSION="$CUR_SESSION"; E_LIVE="$CUR_LIVE"; E_BASIS="$CUR_BASIS"
       emit refused
       exit 1
     fi
@@ -1733,9 +1872,22 @@ case "$VERB" in
     # unconditionally - it holds no lane, so it has no scoping to lose.
     UNSCOPED=0
     UNSCOPED_ROLES=""
+    # Roles whose LIVENESS could not be determined (#869). Counted here for the
+    # same reason #800 counts unscoped lanes: an unknowable answer must never be
+    # read as a clean one. Every `= "live"` consumer below correctly SKIPS an
+    # `unknown` role - but skipping it means its lane is neither overlap-checked
+    # nor counted as unchecked, so a roster would otherwise report a clean
+    # verdict over a role nobody examined. This counter is that role's receipt.
+    UNDETERMINED=0
+    UNDETERMINED_ROLES=""
     for r in $ROLES; do
       e="$(printf '%s' "$REG" | jq -c --arg w "$WAVE" --arg r "$r" '.[$w].roles[$r]')"
-      [ "$(liveness_of "$e")" = "live" ] || continue
+      LV_R="$(liveness_of "$e")"
+      if [ "$LV_R" = "unknown" ]; then
+        UNDETERMINED=$((UNDETERMINED + 1))
+        UNDETERMINED_ROLES="$UNDETERMINED_ROLES $r"
+      fi
+      [ "$LV_R" = "live" ] || continue
       [ "$r" = "orchestrator" ] && continue
       lane_unscoped \
         "$(printf '%s' "$e" | jq -r '.repo // ""')" \
@@ -1802,7 +1954,8 @@ $rp"
       for r in $ROLES; do
         e="$(printf '%s' "$REG" | jq -c --arg w "$WAVE" --arg r "$r" '.[$w].roles[$r]')"
         lv="$(liveness_of "$e")"
-        OUT="$(printf '%s' "$OUT" | jq -c --arg r "$r" --argjson e "$e" --arg lv "$lv" '.[$r] = ($e + {liveness: $lv})')"
+        lb="$(liveness_basis_of "$e")"
+        OUT="$(printf '%s' "$OUT" | jq -c --arg r "$r" --argjson e "$e" --arg lv "$lv" --arg lb "$lb" '.[$r] = ($e + {liveness: $lv, liveness_basis: $lb})')"
         # `watch` and `mailbox` are computed keys like `liveness`, and appear
         # ONLY when this wave actually uses the mailbox lane (#778) - so a wave
         # that never touched it emits byte-identical JSON to pre-#778, the same
@@ -1859,6 +2012,7 @@ $rp"
       echo "FLOW_WAVE_UNREAD=$UNREAD_TOTAL"
       echo "FLOW_WAVE_BOOTSTRAP=$BOOTSTRAP_STATE"
       echo "FLOW_WAVE_OVERLAP_UNSCOPED=$UNSCOPED"
+      echo "FLOW_WAVE_LIVENESS_UNDETERMINED=$UNDETERMINED"
       echo "FLOW_WAVE: listed"
       exit 0
     fi
@@ -1884,6 +2038,7 @@ EOF
       echo "FLOW_WAVE_UNREAD=$UNREAD_TOTAL"
       echo "FLOW_WAVE_BOOTSTRAP=$BOOTSTRAP_STATE"
       echo "FLOW_WAVE_OVERLAP_UNSCOPED=$UNSCOPED"
+      echo "FLOW_WAVE_LIVENESS_UNDETERMINED=$UNDETERMINED"
       echo "FLOW_WAVE: listed"
       exit 0
     fi
@@ -1900,6 +2055,7 @@ EOF
     for r in $ROLES; do
       e="$(printf '%s' "$REG" | jq -c --arg w "$WAVE" --arg r "$r" '.[$w].roles[$r]')"
       lv="$(liveness_of "$e")"
+      lb="$(liveness_basis_of "$e")"
       sock="$(printf '%s' "$e" | jq -r '.socket // "unknown"')"
       iss="$(printf '%s' "$e" | jq -r '.issue // "" | if . == "" then "-" else . end')"
       # `filled` is a verified state, not a lesser one (#674): the address was
@@ -1969,7 +2125,13 @@ EOF
         fi
         mailbox_never_read "$r" && extra="$extra ** NEVER READ **"
       fi
-      echo "  $r -> $sock [$lv, $ver] issue=$iss$extra"
+      # The basis is rendered ONLY for `unknown`, so a roster of ordinary live
+      # and stale roles is byte-identical to pre-#869 - the same promise #778
+      # and #699 made about their own additions. `unknown` is the one state a
+      # reader cannot act on without knowing WHY it could not be decided.
+      lvs="$lv"
+      [ "$lv" = "unknown" ] && lvs="$lv:$lb"
+      echo "  $r -> $sock [$lvs, $ver] issue=$iss$extra"
     done
     # Claim-derived rows (#687), rendered AFTER the roles and visibly not roles.
     # An orchestrator scanning the issue column now sees a lane held by a
@@ -2141,6 +2303,7 @@ EOF
     echo "FLOW_WAVE_UNREAD=$UNREAD_TOTAL"
     echo "FLOW_WAVE_BOOTSTRAP=$BOOTSTRAP_STATE"
     echo "FLOW_WAVE_OVERLAP_UNSCOPED=$UNSCOPED"
+    echo "FLOW_WAVE_LIVENESS_UNDETERMINED=$UNDETERMINED"
     echo "FLOW_WAVE: listed"
     exit 0
     ;;
