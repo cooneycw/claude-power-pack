@@ -320,6 +320,32 @@ class TestParsing:
         ]
         assert edges == expected
 
+    def test_a_matching_filename_cannot_validate_a_dependency_token(
+        self, project
+    ) -> None:
+        """Validation must read the clause, not the working directory.
+
+        An unquoted `$(...)` in a `for` list is glob-expanded as well as
+        word-split, so `(depends on T00?)` became a VALID token in any directory
+        that happened to contain a file called T002 - the filesystem supplied the
+        answer and an undeclared edge was written. The same input must be
+        rejected identically whether or not that file exists.
+        """
+        tasks = (
+            "- [ ] **T001** Build A (depends on T00?)\n"
+            "- [ ] **T002** Build B\n"
+        )
+        repo, bindir, state = project({"a/tasks.md": tasks})
+        decoy = repo / "T002"
+        decoy.write_text("", encoding="utf-8")
+        assert decoy.exists(), "fixture must provide the filename the glob would match"
+
+        result = _run(repo, bindir, state, "--tasks", "a/tasks.md")
+
+        assert result.returncode == 3, result.stdout + result.stderr
+        assert "T00?" in result.stderr
+        assert _issues(state) == [], "no issue may be created from a rejected clause"
+
     def test_file_with_no_tasks_is_an_error_not_a_success(self, project) -> None:
         repo, bindir, state = project({"a/tasks.md": "# Tasks\n\nNothing here yet.\n"})
 
@@ -428,6 +454,35 @@ class TestLegacyIdentity:
         assert "skip  T001 (issue #50" in result.stdout
         assert "recorded source path" in result.stdout
         assert len(_issues(state)) == 1
+
+    def test_legacy_provenance_written_as_dot_slash_is_the_same_file(
+        self, project
+    ) -> None:
+        """`./a/tasks.md` and `a/tasks.md` are one file, so one identity.
+
+        A raw string comparison read the dot-slash spelling as another feature's
+        source and filed the task a second time - the duplicate this change
+        exists to prevent, produced by the comparison rather than by the identity.
+        """
+        repo, bindir, state = project(
+            {"a/tasks.md": BOLD_TASKS},
+            issues=[
+                {
+                    "number": 7,
+                    "title": "T001: Build the widget",
+                    "body": _provenance("./a/tasks.md", "T001"),
+                }
+            ],
+        )
+        assert "./a/tasks.md" in _issues(state)[0]["body"], (
+            "fixture must record the dot-slash spelling under test"
+        )
+
+        result = _run(repo, bindir, state, "--tasks", "a/tasks.md")
+
+        assert result.returncode == 0, result.stderr
+        assert "skip  T001 (issue #7" in result.stdout
+        assert len(_issues(state)) == 1, "the dot-slash spelling must not create a duplicate"
 
     def test_legacy_issue_from_another_tasks_file_does_not_block_this_one(
         self, project

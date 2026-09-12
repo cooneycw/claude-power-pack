@@ -132,6 +132,42 @@ echo "Remote:     $REMOTE_URL"
 marker_for() { printf '<!-- speckit-task:v1:%s:%s -->' "$FEATURE" "$1"; }
 provenance_for() { printf 'Auto-created from %s (%s) by CPP speckit-tasks-to-issues.' "$TASKS" "$1"; }
 
+# Two spellings of the SAME file must compare equal, or a legacy issue recorded
+# as `./a/tasks.md` reads as another feature's and its task is filed a second
+# time - the duplicate this whole change exists to prevent, caused by the
+# comparison rather than by the identity.
+#
+# Deliberately conservative: leading `./`, repeated slashes, and a trailing
+# slash are noise and are removed, and an ABSOLUTE path is made
+# repository-relative only when it is genuinely inside THIS repository. Nothing
+# else is inferred - `..` segments are left alone and an absolute path from
+# another checkout or machine stays absolute, so it correctly fails to match
+# rather than being guessed equal.
+normalize_source_path() {
+    local path="$1"
+    if [ -n "${_repo_root:-}" ]; then
+        case "$path" in
+            "$_repo_root"/*) path="${path#"$_repo_root"/}" ;;
+        esac
+    fi
+    while :; do
+        case "$path" in
+            ./*) path="${path#./}" ;;
+            *) break ;;
+        esac
+    done
+    while [[ "$path" == *//* ]]; do
+        path="${path//\/\//\/}"
+    done
+    case "$path" in
+        */) path="${path%/}" ;;
+    esac
+    printf '%s' "$path"
+}
+
+TASKS_NORM="$(normalize_source_path "$TASKS")"
+TASKS_REL_NORM="$(normalize_source_path "$TASKS_REL")"
+
 # --- Pass 1: parse tasks.md ------------------------------------------------------
 # Parsing runs to completion BEFORE any issue is created: a file this script cannot
 # read is a failure to report, not a zero-task success to celebrate (issue #857).
@@ -178,8 +214,17 @@ while IFS= read -r line || [ -n "$line" ]; do
             # `and` tolerated as a connector (the same separator the planner's
             # own edge grammar accepts). Anything else is reported with its line
             # rather than quietly dropped.
+            # Split WITHOUT pathname expansion. An unquoted `$(...)` in a `for`
+            # list is glob-expanded as well as word-split, so `(depends on T00?)`
+            # became a valid token in any directory that happened to contain a
+            # file called T002 - the validation passed because the filesystem
+            # supplied the answer. `IFS= read` takes each token literally.
+            dep_tokens=()
+            while IFS= read -r dep_token; do
+                [ -n "$dep_token" ] && dep_tokens+=("$dep_token")
+            done < <(printf '%s\n' "$dep_clause" | tr ', \t' '\n\n\n')
             dep_bad=""
-            for dep_token in $(printf '%s' "$dep_clause" | tr ',' ' '); do
+            for dep_token in ${dep_tokens+"${dep_tokens[@]}"}; do
                 case "$dep_token" in
                     and|AND|And) continue ;;
                 esac
@@ -334,7 +379,8 @@ while IFS="$ISSUE_FS" read -r number marker prov ltid refs; do
     fi
     [ -n "$ltid" ] || continue
     if [ -n "$prov" ]; then
-        if [ "$prov" = "$TASKS" ] || [ "$prov" = "$TASKS_REL" ]; then
+        prov_norm="$(normalize_source_path "$prov")"
+        if [ "$prov_norm" = "$TASKS_NORM" ] || [ "$prov_norm" = "$TASKS_REL_NORM" ]; then
             # A pre-#857 issue this script created from THIS tasks file. The
             # recorded source path is real feature provenance, so adopting it is
             # evidence, not a guess.
