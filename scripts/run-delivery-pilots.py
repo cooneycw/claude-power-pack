@@ -50,6 +50,14 @@ GUIDANCE_PATH = ".claude/commands/flow/finish.md"
 CONVERTER_PATH = "scripts/speckit-tasks-to-issues.sh"
 HELPER_PATH = "scripts/speckit-context.py"
 FIXTURES = "tests/fixtures/delivery_pilots"
+GUARD_PATH = "scripts/gh-pr-merge.sh"
+GUARD_CHECK_PATH = f"{FIXTURES}/completion/guard-check.sh"
+# The guidance THIS SERIES introduced (#859): the execution fence plus the plan
+# revision block. The guided pilots run with it so the question stops being "can a
+# generic agent do this" and becomes "does our guidance preserve that freedom".
+DELEGATED_GUIDANCE_PATH = ".claude/commands/codex/auto.md"
+GUIDANCE_START = "EXECUTION FENCE - MANDATORY CONSTRAINTS"
+GUIDANCE_END = "<the rest of the Codex prompt"
 
 # The agreement the revision record points at. It is a REFERENCE to an authority
 # decision, not the decision itself - this runner cannot and does not establish that
@@ -111,6 +119,36 @@ def show(root: Path, commit: str, path: str) -> str:
     return done.stdout
 
 
+def export_tree(root: Path, commit: str, path: str, dest: Path) -> Path:
+    """Materialise a fixture tree AS OF a reviewed commit, not from the working tree.
+
+    `--commit` used to pin only the guidance and the scripts; the fixtures - the
+    spec, the tasks file, the case wording, the pilot sources - were read live. A
+    result was therefore reproducible only if nobody had edited a fixture since, and
+    nothing said so. Now the whole named input set comes from the commit.
+    """
+    dest.mkdir(parents=True, exist_ok=True)
+    archive = subprocess.run(
+        ["git", "-C", str(root), "archive", commit, path], capture_output=True
+    )
+    if archive.returncode != 0:
+        sys.exit(
+            f"could not export {path} at {commit}: "
+            f"{archive.stderr.decode(errors='replace').strip()}"
+        )
+    unpack = subprocess.run(["tar", "-x", "-C", str(dest)], input=archive.stdout,
+                            capture_output=True)
+    if unpack.returncode != 0:
+        sys.exit(f"could not unpack {path}: {unpack.stderr.decode(errors='replace')}")
+    return dest / path
+
+
+def tree_hash(root: Path, commit: str, path: str) -> str:
+    """The content hash of the pinned input set, recorded beside every result."""
+    done = run(["git", "-C", str(root), "rev-parse", f"{commit}:{path}"])
+    return done.stdout.strip() or "unknown"
+
+
 def extract_rule(guidance: str) -> str:
     try:
         rule = guidance[guidance.index(RULE_START) : guidance.index(RULE_END)].strip()
@@ -152,7 +190,7 @@ def build_issue(root: Path, commit: str, workdir: Path) -> tuple[int, str, str, 
     run(["git", "-C", str(project), "remote", "add", "origin",
          "https://github.com/acme/exports.git"])
 
-    fixtures = root / FIXTURES / "completion"
+    fixtures = export_tree(root, commit, f"{FIXTURES}/completion", workdir / "pinned")
     (feature / "tasks.md").write_text((fixtures / "tasks.md").read_text(), encoding="utf-8")
     spec = feature / "spec.md"
     spec.write_text((fixtures / "spec-v1.md").read_text(), encoding="utf-8")
@@ -201,6 +239,14 @@ def build_issue(root: Path, commit: str, workdir: Path) -> tuple[int, str, str, 
          "--root", "."],
         cwd=project, input=body,
     )
+    # `check` exits 3 for any state other than current/absent - a verdict. Anything
+    # else is a broken checker, and presenting its output as a verified revision
+    # state would be reporting an instrument failure as a measurement.
+    if check.returncode not in (0, 3):
+        sys.exit(
+            f"the context check failed (exit {check.returncode}); refusing to present "
+            f"its output as a verified revision state:\n{check.stdout}{check.stderr}"
+        )
     return number, body, (check.stdout + check.stderr).strip(), digest
 
 
@@ -240,12 +286,20 @@ def codex_config() -> dict[str, str]:
     return found
 
 
-def codex(prompt: str, cwd: Path, timeout: int) -> tuple[int, str]:
-    done = subprocess.run(
-        ["codex", "exec", "--json", "--sandbox", "read-only",
-         "--skip-git-repo-check", "-C", str(cwd), prompt],
-        stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=timeout,
-    )
+def codex(prompt: str, cwd: Path, timeout: int, sandbox: str = "read-only") -> tuple[int, str]:
+    """Returns (status, final message). A timeout is reported, never raised.
+
+    An exception here would lose every observation recorded before it, which is the
+    opposite of what an evidence runner should do under failure.
+    """
+    try:
+        done = subprocess.run(
+            ["codex", "exec", "--json", "--sandbox", sandbox,
+             "--skip-git-repo-check", "-C", str(cwd), prompt],
+            stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        return -1, ""
     messages = []
     for line in done.stdout.splitlines():
         try:
@@ -258,14 +312,33 @@ def codex(prompt: str, cwd: Path, timeout: int) -> tuple[int, str]:
     return done.returncode, (messages[-1] if messages else "")
 
 
-def run_pilots(root: Path, out: Path, timeout: int, dry_run: bool) -> dict:
+def delegated_guidance(root: Path, commit: str) -> str:
+    """The fence and plan-revision block CPP actually sends, from a pinned commit."""
+    doc = show(root, commit, DELEGATED_GUIDANCE_PATH)
+    try:
+        block = doc[doc.index(GUIDANCE_START) : doc.index(GUIDANCE_END)].rstrip()
+    except ValueError:
+        sys.exit(
+            f"the guidance markers were not found in {DELEGATED_GUIDANCE_PATH}; "
+            "re-point this runner rather than silently running an unguided pilot"
+        )
+    if "PLAN REVISION" not in block:
+        sys.exit("the extracted guidance is missing the plan-revision block")
+    return block
+
+
+def run_pilots(root: Path, commit: str, out: Path, timeout: int, dry_run: bool,
+               variant: str = "baseline") -> dict:
     """Bounded implementation pilots: real edits, then a check the agent never saw.
 
     The agent gets `task.md` and `src/`. It does NOT get `check.py` - a check visible
     to the implementer measures whether it can satisfy a test it can read, which is a
     different and much easier question. The check is copied in afterwards.
     """
-    fixtures = root / FIXTURES / "pilots"
+    # Pinned, like the completion inputs: a pilot result names the commit its task
+    # wording, starting source and check came from.
+    fixtures = export_tree(root, commit, f"{FIXTURES}/pilots", out / ".pinned")
+    guidance = delegated_guidance(root, commit) if variant == "guided" else ""
     results: dict[str, dict] = {}
     for pilot in sorted(d for d in fixtures.iterdir() if d.is_dir()):
         name = pilot.name
@@ -276,29 +349,30 @@ def run_pilots(root: Path, out: Path, timeout: int, dry_run: bool) -> dict:
             pilot / "src", workspace / "src",
             ignore=shutil.ignore_patterns("__pycache__"),
         )
-        shutil.copy2(pilot / "task.md", workspace / "task.md")
-        task = (pilot / "task.md").read_text(encoding="utf-8")
+        # The guided variant uses the task that does NOT pre-forbid extra files, so
+        # an absence of ceremony is an observation rather than something the prompt
+        # instructed. The baseline task forbids them, and its result is read that way.
+        task_file = pilot / ("task.md" if variant == "baseline" else "task-open.md")
+        if not task_file.is_file():
+            sys.exit(f"{name}: {task_file.name} is missing for variant {variant}")
+        task = task_file.read_text(encoding="utf-8")
+        if variant == "guided":
+            task = guidance + "\n\n" + task
+        # The workspace carries the SAME task the prompt used. Copying task.md
+        # regardless left the guided runs looking at a file that forbids extra
+        # files while their prompt did not - contradictory inputs, and exactly
+        # the variable this variant exists to control.
+        shutil.copy2(task_file, workspace / "task.md")
+        (out / f"{name}.prompt.txt").write_text(task, encoding="utf-8")
 
         if dry_run:
             print(f"{name:28} prompt prepared in {workspace}")
             continue
 
         started = time.time()
-        done = subprocess.run(
-            ["codex", "exec", "--json", "--sandbox", "workspace-write",
-             "--skip-git-repo-check", "-C", str(workspace), task],
-            stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=timeout,
-        )
-        messages = []
-        for line in done.stdout.splitlines():
-            try:
-                event = json.loads(line)
-            except ValueError:
-                continue
-            item = event.get("item") or {}
-            if item.get("type") == "agent_message" and item.get("text"):
-                messages.append(item["text"])
-        account = messages[-1] if messages else ""
+        # One codex() for both suites, so a timeout is recorded the same way here as
+        # in the completion cases rather than aborting the run.
+        code, account = codex(task, workspace, timeout, sandbox="workspace-write")
         (out / f"{name}.account.txt").write_text(account, encoding="utf-8")
 
         # The behavioural check, brought in only now. Each pilot names its check
@@ -333,7 +407,7 @@ def run_pilots(root: Path, out: Path, timeout: int, dry_run: bool) -> dict:
         )
 
         results[name] = {
-            "returncode": done.returncode,
+            "returncode": code,
             "account_chars": len(account),
             "check_passed": check.returncode == 0,
             "check_returncode": check.returncode,
@@ -342,9 +416,12 @@ def run_pilots(root: Path, out: Path, timeout: int, dry_run: bool) -> dict:
             "seconds": round(time.time() - started, 1),
         }
         row = results[name]
-        if done.returncode != 0 or not account:
-            print(f"{name:28} FAILED rc={done.returncode} account_chars={len(account)}")
+        if code != 0 or not account:
+            row["instrument_failed"] = True
+            print(f"{name:28} FAILED rc={code} account_chars={len(account)}"
+                  + ("  (TIMEOUT)" if code == -1 else ""))
             continue
+        row["instrument_failed"] = False
         print(
             f"{name:28} rc=0 check={'pass' if row['check_passed'] else 'FAIL'} "
             f"diff_lines={row['diff_lines']:<4} added={added or 'none'}"
@@ -352,9 +429,90 @@ def run_pilots(root: Path, out: Path, timeout: int, dry_run: bool) -> dict:
     return results
 
 
+def run_guard_check(root: Path, commit: str, out: Path, names: list[str]) -> dict:
+    """Run the repository's real incidental-close guard over the produced bodies.
+
+    The harness proves its own positive control first: a body that must be refused
+    with exit 7. A clean result reported by a harness that is not actually reaching
+    the guard is worth nothing, and looks identical to a real pass.
+    """
+    bodies = [str(out / f"{name}.txt") for name in names]
+    if not bodies:
+        return {"ran": False, "reason": "no bodies produced"}
+    with tempfile.TemporaryDirectory() as tmp:
+        pinned = export_tree(root, commit, GUARD_PATH, Path(tmp))
+        harness = export_tree(root, commit, GUARD_CHECK_PATH, Path(tmp))
+        done = run(["bash", str(harness), str(pinned), *bodies])
+    report = (done.stdout + done.stderr).strip()
+    (out / "guard-check.txt").write_text(report + "\n", encoding="utf-8")
+    print("\n" + report)
+    return {
+        "ran": True,
+        "returncode": done.returncode,
+        "all_bodies_pass": done.returncode == 0,
+        "control_refused_with_7": "positive control: exit=7" in report,
+        # Distinguish "a body would interrupt the merge" from "the harness could not
+        # run": both exit 1, and reporting the first when it was the second names a
+        # mechanism that was never checked.
+        "a_body_tripped": "TRIPPED:" in report,
+    }
+
+
+def pilots_exit_status(results: dict) -> int:
+    """Nonzero when the RUN is unusable, not when an agent surprised us.
+
+    An instrument failure and a disappointing result are different things, and a
+    runner that returns 0 for both hands a reader a clean summary of nothing.
+    """
+    broken = [n for n, r in results.items() if r.get("instrument_failed")]
+    failed = [n for n, r in results.items() if not r.get("instrument_failed")
+              and not r.get("check_passed")]
+    for name in broken:
+        print(f"INSTRUMENT FAILURE: {name} produced no usable run")
+    for name in failed:
+        print(f"BEHAVIOURAL CHECK FAILED: {name} ran, but its outcome check did not pass")
+    return 1 if (broken or failed) else 0
+
+
+def completion_exit_status(results: dict, guard: dict) -> int:
+    broken = [n for n, r in results.items() if r.get("instrument_failed")]
+    for name in broken:
+        print(f"INSTRUMENT FAILURE: {name} produced no usable decision")
+    if guard.get("ran") and not guard.get("all_bodies_pass"):
+        if guard.get("a_body_tripped"):
+            print("OBSERVED: a produced body trips the real closing guard "
+                  "(see guard-check.txt)")
+        else:
+            print("INSTRUMENT FAILURE: the real-guard harness did not complete "
+                  "(see guard-check.txt)")
+    if guard.get("ran") and not guard.get("control_refused_with_7"):
+        print("INSTRUMENT FAILURE: the guard harness never proved its positive control")
+    # A disposition differing from `expect_closes` is an OBSERVATION, not a broken
+    # run: it is reported loudly and does not change the exit status.
+    differed = [n for n, r in results.items()
+                if not r.get("instrument_failed") and r["closes"] != r["expect_closes"]]
+    for name in differed:
+        print(f"OBSERVED DIFFERENCE (not a failure): {name} chose the other reference")
+    if broken:
+        return 1
+    if guard.get("ran") and not (guard.get("all_bodies_pass")
+                                 and guard.get("control_refused_with_7")):
+        return 1
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--suite", choices=["completion", "pilots"], default="completion")
+    parser.add_argument("--variant", choices=["baseline", "open", "guided"],
+                        default="baseline",
+                        help="pilots only. baseline: the task that forbids extra "
+                             "files, no guidance. open: the same task WITHOUT that "
+                             "prohibition, still no guidance. guided: the open task "
+                             "plus the pinned CPP delegated guidance. `open` is the "
+                             "cell that separates the two variables - without it, a "
+                             "baseline/guided difference cannot be attributed to "
+                             "either one."),
     parser.add_argument("--out", required=True, type=Path, help="directory for transcripts")
     parser.add_argument("--commit", default="HEAD", help="commit the guidance is read from")
     parser.add_argument("--timeout", type=int, default=600)
@@ -370,7 +528,8 @@ def main() -> int:
     if args.suite == "pilots":
         if not args.dry_run and shutil.which("codex") is None:
             sys.exit("codex is not on PATH; use --dry-run to stage the workspaces")
-        pilot_results = run_pilots(root, args.out, args.timeout, args.dry_run)
+        pilot_results = run_pilots(root, resolved, args.out, args.timeout,
+                                   args.dry_run, args.variant)
         if not args.dry_run:
             (args.out / "results.json").write_text(
                 json.dumps(
@@ -378,6 +537,10 @@ def main() -> int:
                         "commit": resolved,
                         "runner": run(["codex", "--version"]).stdout.strip(),
                         "config": codex_config(),
+                        "fixtures_tree": tree_hash(root, resolved, f"{FIXTURES}/pilots"),
+                        "variant": args.variant,
+                        "guidance": (DELEGATED_GUIDANCE_PATH
+                                     if args.variant == "guided" else "none (baseline)"),
                         "pilots": pilot_results,
                     },
                     indent=2,
@@ -385,7 +548,7 @@ def main() -> int:
                 encoding="utf-8",
             )
             print(f"\nworkspaces, diffs and results.json in {args.out}")
-        return 0
+        return pilots_exit_status(pilot_results)
 
     rule = extract_rule(show(root, resolved, GUIDANCE_PATH))
     cases = json.loads(
@@ -433,19 +596,32 @@ def main() -> int:
             }
             row = results[name]
             if code != 0 or not body:
-                print(f"{name:36} FAILED rc={code} chars={len(body)}")
+                # Instrument failure, kept separate from a decision we disagree with.
+                # An empty body scores as "no Closes", which reads exactly like a
+                # correct Refs result, so it must never be folded into the totals.
+                row["instrument_failed"] = True
+                print(f"{name:36} FAILED rc={code} chars={len(body)}"
+                      + ("  (TIMEOUT)" if code == -1 else ""))
                 continue
+            row["instrument_failed"] = False
             agrees = "ok " if row["closes"] == case["expect_closes"] else "DIFFERS"
             print(
                 f"{name:36} rc=0 chars={len(body):<5} "
                 f"Closes={row['closes']!s:<5} Refs={row['refs']!s:<5} {agrees}"
             )
 
+        # The selected reference is checked by the guard that actually runs at merge,
+        # not only by a regex over the text. Extracting `Closes #N` says what the model
+        # chose; it does not say what the merge helper would do with it.
+        produced = [n for n, r in results.items() if not r.get("instrument_failed")]
+        guard = run_guard_check(root, resolved, args.out, produced)
         (args.out / "results.json").write_text(
             json.dumps(
                 {
                     "commit": resolved,
                     "guidance": GUIDANCE_PATH,
+                    "fixtures_tree": tree_hash(root, resolved, f"{FIXTURES}/completion"),
+                    "real_guard": guard,
                     "runner": version,
                     "config": effective,
                     "issue_number": number,
@@ -457,7 +633,7 @@ def main() -> int:
             encoding="utf-8",
         )
     print(f"\ntranscripts and results.json in {args.out}")
-    return 0
+    return completion_exit_status(results, guard)
 
 
 if __name__ == "__main__":
