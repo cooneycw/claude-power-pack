@@ -376,6 +376,7 @@ class TestSpecDeclaredDeps:
         # The unresolvable dep creates no edge - #60 stays startable.
         assert 60 in plan["startable"]
 
+
     def test_speckit_emitted_body_parses_end_to_end(self, tmp_path) -> None:
         # The exact body shape scripts/speckit-tasks-to-issues.sh now writes
         # (#607): the T-id line alone creates no edge; the Blocked-by bullets
@@ -410,3 +411,70 @@ class TestSpecDeclaredDeps:
         assert proc.returncode == 0, proc.stderr
         plan = json.loads(proc.stdout)
         assert plan["spec_drift"] == {"52": [56]}
+
+
+# The spelling `.specify/templates/tasks-template.md` actually writes, and that
+# every tasks.md in this repo's own .specify/specs/ uses. Identical in content to
+# TASKS_MD above; only the task-id emphasis differs.
+TASKS_MD_BOLD = """# Tasks
+
+- [ ] **T031** [US1] Add visual regression tests (depends on T027, T033)
+- [x] **T027** [US1] Base harness
+- [ ] **T033** Watchdog groundwork
+
+## Issue Sync
+
+| Task | Issue |
+|------|-------|
+| T031 | #52 |
+| T027 | #40 |
+| T033 | #56 |
+"""
+
+
+class TestBoldTaskIdsDeclareTheSameEdges:
+    """Issue #857: an emphasised task id must not silently erase its edges.
+
+    The planner read only the bare `T031` spelling, so a tasks.md written in the
+    shipped template's BOLD form parsed as zero tasks. That is worse than a parse
+    error: `parse_specs` reports what it cannot resolve, but a line it never
+    recognised as a task has nothing to report - the dependency simply was not
+    there, and the plan looked healthy.
+
+    The assertion is therefore about EDGES, not about the regex: the bold file
+    must produce the same graph as the plain one.
+    """
+
+    def _specs(self, tmp_path, text):
+        d = tmp_path / "specs" / "feature-x"
+        d.mkdir(parents=True)
+        (d / "tasks.md").write_text(text)
+        return tmp_path / "specs"
+
+    def test_bold_ids_produce_the_same_edges_as_plain_ids(self, tmp_path) -> None:
+        bold_edges, _ = MOD.parse_specs(self._specs(tmp_path / "bold", TASKS_MD_BOLD))
+        plain_edges, _ = MOD.parse_specs(
+            self._specs(
+                tmp_path / "plain",
+                TASKS_MD_BOLD.replace("**", ""),
+            )
+        )
+
+        assert bold_edges == {52: {40, 56}}, (
+            "bold task ids produced no spec edges - the #857 representation defect"
+        )
+        assert bold_edges == plain_edges
+
+    def test_bold_dependency_reaches_the_plan_and_blocks_startability(self, tmp_path) -> None:
+        """End to end: the edge changes the answer `/flow:wave` acts on."""
+        spec_edges, unresolved = MOD.parse_specs(self._specs(tmp_path, TASKS_MD_BOLD))
+        plan = MOD.build_plan(
+            MOD.parse_issues([_issue(52), _issue(40, state="CLOSED"), _issue(56)]),
+            spec_edges,
+            unresolved,
+        )
+
+        assert plan["issues"]["52"]["blocked_by"] == [40, 56]
+        # #56 is OPEN, so #52 is blocked. Before the fix it read as startable,
+        # and a wave would have handed out an issue whose dependency was open.
+        assert 52 not in plan["startable"]

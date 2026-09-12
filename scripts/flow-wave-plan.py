@@ -173,7 +173,15 @@ def _strip_code_for_edges(body: str) -> str:
 REF_RE = re.compile(r"#(\d+)")
 # tasks.md shapes (#607): a checkbox task line with an optional depends clause,
 # and the Issue Sync join of task IDs to issue numbers.
-TASK_LINE_RE = re.compile(r"^\s*-\s*\[[ xX]\]\s*(?:\[[^\]]+\]\s*)*(T\d{3})\b(.*)$")
+# The task id may be emphasised: `.specify/templates/tasks-template.md` writes
+# `- [ ] **T001** [US1] ...`, and the specs in this repo use that form. Reading
+# only the bare spelling made every such file parse as zero tasks, so the spec
+# `(depends on ...)` edges below were silently absent rather than reported
+# missing - the same representation defect #857 fixed in the issue converter.
+TASK_LINE_RE = re.compile(
+    r"^\s*-\s*\[[ xX]\]\s*(?:\[[^\]]+\]\s*)*"
+    r"(?:\*\*|__)?(T\d{3})(?:\*\*|__)?(?![0-9A-Za-z])(.*)$"
+)
 DEPENDS_CLAUSE_RE = re.compile(r"\(depends on\s+([^)]*)\)", re.IGNORECASE)
 TASK_ID_RE = re.compile(r"T\d{3}")
 ISSUE_SYNC_HEADING_RE = re.compile(r"^#{2,}\s*Issue Sync\b", re.IGNORECASE)
