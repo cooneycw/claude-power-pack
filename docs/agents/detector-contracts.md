@@ -4,7 +4,7 @@ A check, gate, guard, tripwire or allowlist makes a claim. This document is the
 canonical statement of what that claim has to be able to say, and of the two
 questions a reviewer asks of any diff that adds or changes one.
 
-It exists because the pattern below was diagnosed twenty-one times across two
+It exists because the pattern below was diagnosed twenty-two times across two
 repositories and written down in exactly one place: issue #834. A shape that
 lives in one issue cannot be applied in review, so the next instance has nothing
 to reference. Other surfaces point here; they do not restate it.
@@ -224,7 +224,7 @@ conducted *for* this pattern.
 
 ## The instance index
 
-The twenty-one instances this contract was derived from. Kept here, in the guidance,
+The twenty-two instances this contract was derived from. Kept here, in the guidance,
 rather than in the issue that indexed them - a finding that lives only in a closed
 issue is the condition #834 was filed to end. Link new instances here.
 
@@ -249,12 +249,25 @@ issue is the condition #834 was filed to end. Link new instances here.
 | #867 | has *anything* acknowledged this message | did the agent behind this role receive it | open |
 | #869 | is there a socket file at this path | is that session alive | open |
 | #877 | is this deliverable a code change | can this driver do *this issue* (fence-forbidden paths) | open |
+| this change | does a process match `pgrep -f <pattern>` | does a process OTHER THAN ME match it | fixed in flight |
 | kyle#994 | is this variable one of the nine safe ones | is this variable safe to forward | fixed |
 | kyle#997 | what did the task *wrapper* exit with | what did the *watch* exit with | fixed |
 
-Three further instances have no issue number because they were found in
-instruments and in relays rather than in shipped checks; they are described under
-"Seven properties" above.
+Three further instances are not in the table at all: they were found in
+instruments and in relays rather than in shipped checks, so there is no detector
+to name in the columns. They are described under "Seven properties" above.
+
+The `this change` row is the sharpest evidence in the table, and it is here
+deliberately. Writing this document, its author ran
+`pkill -f "issue-834/.venv/bin/pytest"` to clear a stale test process. The shell
+executing that command had the pattern inside its own command line, so the
+pattern matched the process doing the matching and the shell killed itself
+(exit 144). That is #821's identity defect exactly, committed live, by someone
+who had spent the preceding hour writing #821's row into this table. A
+recurrence under field conditions is stronger evidence about the class than the
+original finding, because it shows the pattern survives being known - which is
+the claim "Knowing the pattern confers no immunity" makes, now with a second
+witness.
 
 Three of these (#867, #869, #877) were filed after the index was written, and #877
 was found while routing the work that produced this document. That is the standing

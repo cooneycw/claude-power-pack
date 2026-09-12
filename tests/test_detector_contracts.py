@@ -286,3 +286,28 @@ def test_the_properties_heading_matches_its_population() -> None:
     assert claimed == actual, (
         f"the heading claims {claimed} properties; the section lists {actual}"
     )
+def test_the_index_heading_matches_its_population() -> None:
+    """The index says how many instances it carries; the number must be the count.
+
+    Same shape as the properties-heading test, on the other numeric claim in the
+    document. Both exist because the first draft shipped a heading that counted
+    six over a population of seven.
+    """
+    words = {
+        "eighteen": 18, "nineteen": 19, "twenty": 20, "twenty-one": 21,
+        "twenty-two": 22, "twenty-three": 23, "twenty-four": 24, "twenty-five": 25,
+    }
+    text = (REPO / CANONICAL).read_text(encoding="utf-8")
+    heading = re.search(r"^The ([a-z-]+) instances this contract was derived from\.", text, re.M)
+    assert heading, "the instance-index lead sentence has been reworded"
+    claimed = words.get(heading.group(1))
+    assert claimed is not None, f"unrecognised count word: {heading.group(1)}"
+
+    section = text.split("## The instance index", 1)[1].split("\n## ", 1)[0]
+    rows = [
+        line for line in section.splitlines()
+        if line.startswith("| ") and not line.startswith("| instance ") and "---" not in line
+    ]
+    assert claimed == len(rows), (
+        f"the index claims {claimed} instances; the table has {len(rows)} rows"
+    )
