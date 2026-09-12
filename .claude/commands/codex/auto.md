@@ -689,7 +689,24 @@ fi
 ```
 
 1. **Commit** the changes:
-   - Use conventional commit format: `type(scope): Description (Closes #N)`
+   - Conventional commit format, with the closing reference decided by the
+     accounting below: `type(scope): Description (Closes #N)` when complete,
+     `type(scope): Description (Refs #N)` when it is not.
+   The closing reference follows the acceptance accounting: use it only when every
+   material item is demonstrated, revised with evidence, or resolved by a recorded
+   transfer. Otherwise reference the issue without a closing keyword (`Refs #N`), in
+   the commit message, the PR title and the PR body alike. Do not print a closing
+   keyword beside an issue number even as an illustration - the merge helper refuses a
+   squash that carries one incidentally (exits 5 and 7).
+   **Acceptance disposition before closing (issue #860).** Account for the material
+   acceptance items first - demonstrated, revised with evidence, or deferred - and
+   record `Acceptance-disposition: complete` or `Acceptance-disposition: unresolved -
+   <what remains>` in the PR body. When it is unresolved, use `Refs #N` in the commit
+   message, the PR title and the PR body instead of `Closes #N`, and check the earlier
+   branch commits too (`git log origin/main..HEAD --format=%B | grep -in 'closes #'`),
+   since the squash text is derived from them. A delegated run that delivered part of
+   the work is still mergeable; it just must not close the promise. The canonical rule
+   is docs/agents/issue-contract.md.
    - Include `Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>`
    - Note Codex as implementer in the commit body
 

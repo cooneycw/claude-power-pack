@@ -104,6 +104,24 @@ tree before squashing:
 git push origin "$BRANCH"
 ```
 
+**Before merging: make the closing text agree with the accounting.** The squash
+message is derived from the branch commits and the PR, so a stale closing reference in
+an earlier commit still closes the issue - and once the merge has run, the branch is
+gone and the close has already happened. Check while it can still be changed:
+
+```bash
+git log origin/main..HEAD --format=%B
+gh pr view "$PR_NUMBER" --json title,body --jq '.title, .body'
+```
+
+If the acceptance accounting is not complete, reword any closing reference to a plain
+mention - `Refs #N`, or "part of #N" - in the commit messages, the PR title and the PR
+body, so nothing in the merge text can close the promise. Do not write a closing
+keyword next to an issue number even as an illustration: `gh-pr-merge.sh` refuses a
+squash whose text carries a negated or incidental closing keyword beside an issue
+number (exits 5 and 7), and that guard cannot tell an example from an instruction. It
+is a backstop, not this decision.
+
 Then merge the PR:
 
 ```bash
@@ -226,12 +244,34 @@ git branch -D "$BRANCH" 2>/dev/null || true
 
 ### Step 6: Close Issue (if linked)
 
+Closing is a decision, not a formality: an issue closes when its promises were kept.
+Account for the material acceptance items first - demonstrated, revised WITH evidence
+for the revised behaviour, or deferred - per
+[the issue contract](../../../docs/agents/issue-contract.md). The report itself stays
+ordinary prose; nothing is parsed out of it.
+
+Carry that judgement into the one place it has to act:
+
 ```bash
+# Set this from YOUR acceptance accounting. There is no machine field in the report
+# and nothing is read out of prose - a quoted example or a truncated fetch must never
+# be able to authorise a close.
+#
+# "yes" ONLY when every material item is demonstrated, revised with evidence for the
+# revised behaviour, or resolved by a transfer/withdrawal that recorded its authority
+# and destination. Anything else - including "not sure" - leaves it unset, and unset
+# cannot close.
+ACCEPTANCE_COMPLETE="${ACCEPTANCE_COMPLETE:-}"
+
 if [[ -n "$ISSUE_NUM" ]]; then
-    # Check if issue is still open (gh pr merge with Closes # may have closed it)
     ISSUE_STATE=$(gh issue view "$ISSUE_NUM" --json state --jq '.state' 2>/dev/null)
-    if [[ "$ISSUE_STATE" == "OPEN" ]]; then
-        gh issue close "$ISSUE_NUM" --comment "Closed via /flow-merge - PR #${PR_NUMBER} merged."
+    if [[ "$ACCEPTANCE_COMPLETE" == "yes" ]]; then
+        if [[ "$ISSUE_STATE" == "OPEN" ]]; then
+            gh issue close "$ISSUE_NUM" --comment "Closed via /flow-merge - PR #${PR_NUMBER} merged."
+        fi
+    else
+        echo "Acceptance not recorded complete - leaving #${ISSUE_NUM} open."
+        echo "Say what remains in a comment on the issue if it is not already clear."
     fi
 fi
 ```

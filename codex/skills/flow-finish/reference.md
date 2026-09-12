@@ -196,6 +196,50 @@ BARE (#581 discipline):
 
 **This step never blocks the flow** - it is purely informational.
 
+**Acceptance accounting (issue #860).** The quality gates above are evidence about
+CHECKS. Before opening the PR, account for what was actually delivered: every
+material acceptance item is demonstrated (name the behavioural test, experiment or
+reviewed observation), revised (give the reason and the agreement it needed), or
+deferred (and still owed). A couple of sentences of prose is enough for a small
+change - there is no required per-item line and no separate artifact. Silence is not
+delivery: an item nobody mentions is unresolved.
+
+Assess the evidence against the CURRENT agreed behaviour. After a #859 revision,
+evidence that satisfied the earlier promise no longer demonstrates the new one, and
+a revision record on its own is not delivery evidence.
+
+Record the outcome as one line the later steps can act on:
+
+```
+Acceptance-disposition: complete
+Acceptance-disposition: unresolved - <what remains, in a few words>
+```
+
+`complete` means every material item is demonstrated, or revised WITH evidence for
+the revised behaviour, or resolved by a transfer/withdrawal that recorded its
+authority and destination. Anything else is `unresolved`, including "mostly done".
+
+**Closing must agree with that line.** When the disposition is `unresolved`, use
+`Refs #N` in the commit message, the PR title and the PR body - never `Closes #N` -
+so the merge cannot close a promise the report says was not kept. Check the earlier
+commits on the branch too, since the squash text comes from them:
+
+```bash
+git log origin/main..HEAD --format=%B | grep -in 'closes #' && \
+    echo "NOTE: a branch commit still says Closes - reword it if the disposition is unresolved"
+```
+
+The canonical rule is [the issue contract](../../../docs/agents/issue-contract.md);
+this is where it is executed. Partial delivery stays reviewable and mergeable - the
+disposition changes what CLOSES, not what may merge.
+
+**Wording an unresolved report.** Reword closing references to a plain mention -
+`Refs #N`, or "part of #N" - in the commit messages, the PR title and the PR body. Do
+not print a closing keyword beside an issue number even to illustrate what to remove:
+`gh-pr-merge.sh` refuses a squash carrying a negated or incidental closing keyword next
+to an issue number (exits 5 and 7), and it cannot tell an example from an instruction.
+A report that demonstrates the mistake interrupts the merge it was trying to protect.
+
 ### Step 3: Check for Changes
 
 ```bash
