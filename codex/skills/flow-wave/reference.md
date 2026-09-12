@@ -265,9 +265,22 @@ assuming: `flow-wave-mailbox.sh list --wave <WAVE>` shows each box's rev,
 acked and unread count (issue #815 - `acked` replaced `cursor`: it is the
 count of revs that box's reader has explicitly acknowledged, not a read
 position), so an assignment a worker has NOT acknowledged is visible as a
-nonzero `UNREAD` instead of being invisible until someone asks. A worker with
-unread mail and no progress is a worker whose watch is not armed - fix that
-rather than relaying by hand.
+nonzero `UNREAD` instead of being invisible until someone asks.
+
+**A worker with unread mail and no progress now has TWO possible causes, and
+they need different fixes (#867, #873).** This used to read "a worker whose
+watch is not armed", which was a sound inference only because an armed
+supervisor CONSUMED - so unread mail implied nothing was listening. The
+supervisor no longer acknowledges, so unread mail is the ordinary resting
+state of anything the worker has not yet acked, and a nonzero `UNREAD` is no
+longer evidence about the watch at all. Read the two columns instead:
+
+- `watch=DEAD`/`ABSENT`/`stale` - nothing is listening. Get a supervisor
+  armed; that is the old diagnosis and it still applies when the column says so.
+- `watch=armed` **and** `route=UNCONFIRMED` - something is polling and
+  surfacing, and the agent behind it still has not acknowledged anything. That
+  is #814's residual gap showing, not a dead watch, and arming another watcher
+  will not touch it. Ask the worker directly.
 
 ## Setup: the transition lexicon (consume #701, do not reimplement)
 
