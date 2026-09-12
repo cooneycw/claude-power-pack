@@ -603,14 +603,33 @@ whose wake mechanism you have not confirmed.
 no `isolatePeerMachines`, no `dialogExpiry`).
 
 - **`crossSessionInbound`** - unset, so delivery falls to a default computed
-  from both sessions' permission classes. Kyle spawns sessions with
-  `--dangerously-skip-permissions`, so fleet-internal traffic is bypass-to-
-  bypass and delivers today. A message from a *prompting* sender - an
-  interactive terminal not in bypass, a session on another surface - is held for
-  an approval dialog nobody is watching and dropped after `dialogExpiry`
-  (five minutes by default). **Recommended: `accept`.** It removes a working
-  lane's dependence on both ends happening to land in the same permission class,
-  which is a property no one declared and nothing checks.
+  from both sessions' permission classes. **Recommended: `accept`**, so that
+  delivery does not depend on a default nobody declared and nothing checks.
+
+  **The MECHANISM behind that default is CONTESTED as of 2026-09-12, and the
+  justification below should not be relied on until it is settled** (#871
+  sweep). Two readings state opposite triggers:
+
+  | Source | Which side triggers holding |
+  |---|---|
+  | this document, until now | a *prompting* SENDER is held; a bypass receiver delivers |
+  | changelog 2.1.224 | a message sent TO a session with BYPASSED permissions is held for approval; messages to other sessions auto-deliver |
+
+  What is NOT in doubt is that the lane works: a bypass-to-bypass message
+  between two fleet sessions was received under default settings on 2.1.266
+  (2026-09-12). What is in doubt is why, and the reason it stays in doubt is
+  worth more than the datum - **neither end can measure it alone.** The sender
+  sees `success=true` immediately, which a message queued for approval would
+  also produce. The receiver sees a message appear, which an approved message
+  would also produce. The discriminator is the approval dialog, which is shown
+  to the OPERATOR and to neither session, so a plan of the form "send one and
+  see" returns a confident answer from one end and settles nothing. Do not
+  attempt it in that shape.
+
+  Until it is settled, treat the held case as possible in BOTH directions and
+  do not rely on a permission class to guarantee delivery - which is the same
+  practical advice either reading produces, and is why `accept` is still the
+  recommendation while its stated reason is suspended.
 - **`isolatePeerMachines`** - unset, so a send beyond this machine leaves
   without approval. Same-machine messages never touch Anthropic servers;
   cross-machine and cloud ones do. `ListAgents` on this host resolves 43 peers,

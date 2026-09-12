@@ -193,3 +193,35 @@ def test_the_guidance_does_not_claim_more_than_the_evidence_records() -> None:
         "the lane guidance asserts both directions while the evidence section "
         "records only one as measured - the claim must not outrun its evidence"
     )
+
+
+def test_a_contested_mechanism_is_marked_completely_or_not_at_all() -> None:
+    """If the document flags a mechanism as contested, it must carry the whole finding.
+
+    CONDITIONAL by design: it says nothing about whether a contested marker should
+    be there, so settling the contradiction and deleting the block is a clean pass,
+    not a test to edit. What it refuses is a HALF marker - "contested" with the
+    reader left to guess what against, or without the reason the contradiction
+    stands.
+
+    That reason is the load-bearing part and the easiest to drop when trimming:
+    neither end can measure this alone. The sender sees `success=true`, which a
+    message queued for approval also produces; the receiver sees a message appear,
+    which an approved message also produces; the discriminator is shown to the
+    operator and to neither session. A reader who takes "contested" as merely
+    "unverified" will go and verify it by sending one, and get a confident answer
+    from one end - which is worse than the ambiguity, because it looks settled.
+    """
+    section = _delivery_section(REGISTER.read_text())
+    if not re.search(r"CONTESTED|contested", section):
+        return
+    assert re.search(r"2\.1\.224", section), (
+        "a contested mechanism must name the source it is contested against"
+    )
+    assert re.search(r"neither end can measure it alone", section, re.I), (
+        "the contested block does not say WHY it stays unresolved - a reader will "
+        "try to settle it with a single send and report a one-ended answer"
+    )
+    assert re.search(r"operator", section, re.I), (
+        "the contested block does not say where the discriminator actually lives"
+    )
