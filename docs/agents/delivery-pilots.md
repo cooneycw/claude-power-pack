@@ -345,6 +345,40 @@ model being measured.
   renamed instead and the gate kept its coverage. It immediately earned that: with the
   runner now in scope, mypy found a second binding of `results` shadowing the first.
 
+### The criterion 7 fix collided with a governance gate
+
+`make verify` reached `claude-md-behavior-check` and failed with 11 findings, all
+caused by the doc bundling: six copies of the canonical lifecycle policy, and five
+bundled contracts carrying its pointer. The check was right. It treats every markdown
+file below `codex/skills` as authored policy, and the policy half has no allowlist at
+all, because the rule is that the policy lives in `docs/` and nowhere else.
+
+This was not a false positive to suppress. The available moves were to stop bundling
+the policy and leave the installed contract's dependency unreadable, or to exclude the
+generated tree and weaken the gate. Both were put to the orchestrator, since the
+checker sits outside this issue's lane; the ruling took neither and approved a
+VERIFIED generated-copy allowance instead.
+
+A copy under `codex/skills/<skill>/docs/` is treated as DISTRIBUTION of a canonical
+document only when three things hold: the enclosing skill is a real bundler output,
+decided by the bundler's own `is_managed` predicate imported rather than restated; the
+canonical source exists; and the bytes match. Nothing is exempt for looking generated.
+
+Proven from both sides, because an allowance that cannot reject is just an exclusion:
+
+| Case | Result |
+|---|---|
+| the shipped copies, against the real tree | recognised as distribution |
+| a copy with one line appended | still reported |
+| a copy in a hand-curated skill | still reported |
+| a copy whose canonical source is gone | still reported |
+| the bundler unavailable, so nothing can be verified | fails closed, still reported |
+| policy pasted into a generated command body | still reported |
+
+And mutation-checked in both directions: an allowance that never allows fails the two
+positive tests, and one that never rejects fails six negative tests plus a pre-existing
+locality test - so the older guard is still load-bearing too.
+
 ## Observed zero versus unmeasured
 
 This distinction is where a report like this usually overreaches.

@@ -6,6 +6,15 @@ delivery, every durable fact graduates to the narrowest maintained source that
 can enforce or explain it. A completed spec must not become a second, drifting
 description of the shipped system.
 
+**Distribution is not a second home.** This document is the one writable
+authority for the policy below. `scripts/codex-skill-sync.py` bundles a
+byte-identical copy of it into generated skills so the link a command body
+publishes still resolves once that skill is installed with no claude-power-pack
+checkout above it. Those copies are distribution of this file, never a place to
+edit: change this document and run `make codex-skills`. The locality check
+verifies each copy against this source rather than trusting its path, so an
+edited or unowned copy is still reported as duplicated policy.
+
 ## Durable homes
 
 | Knowledge in the completed spec | Durable home |
