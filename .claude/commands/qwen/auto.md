@@ -704,7 +704,7 @@ fi
        ISSUE_REF="Closes #${ISSUE_NUM}"
    fi
    ```
-   
+
    `$ISSUE_REF` then feeds the commit message, the PR title and the PR body, so an
    incomplete accounting cannot publish a closing reference anywhere.
 
