@@ -433,6 +433,21 @@ On `DELEGATED_RUN_STATUS: failure` (exit 1): **STOP**. Report every
 `DELEGATED_RUN_SIGNAL` line and the `DELEGATED_RUN_DETAIL` line verbatim, and
 do not proceed to review - there is nothing to review.
 
+**And on `success`, read `DELEGATED_RUN_TOOL_ERRORS` before you believe it
+(issue #836).** The verdict answers *"did the delegated process run cleanly?"*
+It is routinely read as *"did the delegated work happen?"*, and those come apart
+exactly here: a tool call denied by a permission fence still counts as
+`tool_use`, leaves the payload well formed and the exit code 0, so a run whose
+every command was refused reports `success`. One did, and returned a fabricated
+empty inventory that nothing downstream could have questioned.
+
+A non-zero count is **not** a failed run - a denied call is the fence working as
+designed, and treating it as a failure is a defect that was already shipped and
+reverted. It is the one fact that tells you to go and look: read the payload, or
+check the postcondition the work was supposed to establish, before reporting the
+result as done. The line is always emitted, `0` included, so `0` means "checked,
+none" rather than "not checked".
+
 **Monitor the JSONL stream** - parse and report:
 - Plan steps and progress
 - File changes / diffs

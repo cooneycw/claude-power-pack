@@ -288,10 +288,42 @@ def test_usage_errors_exit_2(args: tuple[str, ...]) -> None:
 
 
 def test_quiet_suppresses_prose_but_never_the_contract(clean_run: Path) -> None:
+    """--quiet drops the human summary and keeps every contract line.
+
+    This used to assert `"looks clean" not in proc.stdout`, naming the exact
+    prose string of the day. #836 rewrote that sentence, which would have left
+    the assertion permanently true and covering nothing - green forever, testing
+    nothing, the vacuous pass this repo keeps finding. It now pins the PROPERTY:
+    no human-readable line survives --quiet, whatever that line currently says.
+    Every prose line the helper prints begins with `delegated-run-check:` or is
+    indented beneath one, so absence of both is the durable form of the claim.
+    """
     proc = run(str(clean_run), "0", "--lane", "qwen", "--quiet")
     assert proc.returncode == 0
     assert "DELEGATED_RUN_STATUS: success" in proc.stdout
-    assert "looks clean" not in proc.stdout
+    assert "DELEGATED_RUN_TOOL_ERRORS: 0" in proc.stdout
+    prose = [
+        line
+        for line in proc.stdout.splitlines()
+        if line.startswith("delegated-run-check:") or line.startswith("  ")
+    ]
+    assert prose == [], f"--quiet left prose behind: {prose}"
+
+
+def test_the_quiet_assertion_can_fail(clean_run: Path) -> None:
+    """Positive control for the test above.
+
+    Without --quiet the helper DOES print prose, so the filter that test relies
+    on must find something here. If this ever goes empty, the assertion above has
+    stopped meaning anything regardless of what the helper does.
+    """
+    proc = run(str(clean_run), "0", "--lane", "qwen")
+    prose = [
+        line
+        for line in proc.stdout.splitlines()
+        if line.startswith("delegated-run-check:") or line.startswith("  ")
+    ]
+    assert prose, "the prose detector matched nothing even without --quiet"
 
 
 # ---------------------------------------------------------------------------
@@ -493,3 +525,134 @@ def test_verdicts_on_real_captures(
             "a real run that edited files must never read as tool-free - this is "
             "the false positive that would have broken /codex:auto outright"
         )
+
+
+# ---------------------------------------------------------------------------
+# Issue #836: the verdict answers "did the PROCESS run cleanly", and its reader
+# takes it for "did the WORK happen". A denied tool call satisfies every signal
+# this helper has, so a run whose every command was refused reports `success`.
+#
+# The remedy is deliberately NOT a wider `is_fatal` - that version existed and
+# was reverted because it made every fenced `git commit` a failed run. The
+# larger question gets its own channel: a count the caller can act on.
+#
+# These pins run the helper against crafted streams rather than reading its
+# source, because the claim under test is behavioural. A structural assertion
+# would pass against a script that no longer does any of this.
+# ---------------------------------------------------------------------------
+
+
+def test_a_run_whose_tool_call_was_denied_reports_success_and_says_so(tmp_path: Path) -> None:
+    """The #836 scenario end to end, both halves.
+
+    Either half alone is the bug: reporting `failure` would re-introduce the
+    reverted defect, and reporting `success` with nothing else would leave the
+    caller exactly as blind as before.
+    """
+    output = write_jsonl(
+        tmp_path / "denied-docker.jsonl",
+        [
+            {"type": "step_start"},
+            {"type": "tool_use", "part": {"tool": "bash", "state": {
+                "status": "error",
+                "error": "permission denied by rule: docker*"}}},
+            {"type": "text", "part": {"text": "I cannot run docker commands."}},
+            {"type": "step_finish", "part": {"reason": "stop"}},
+        ],
+    )
+    proc = run(str(output), "0", "--lane", "gemma", "--expect-tools")
+    found = contract(proc.stdout)
+    assert proc.returncode == 0, proc.stdout
+    assert found["DELEGATED_RUN_STATUS"] == ["success"], "the fence working is not a failed run"
+    assert found["DELEGATED_RUN_TOOL_ERRORS"] == ["1"], "the refusal must be reported somewhere"
+
+
+def test_tool_errors_is_emitted_as_zero_on_a_clean_run(clean_run: Path) -> None:
+    """The membership floor, which is why this line is always emitted.
+
+    A count that appeared only when non-zero could not tell "I looked and found
+    none" from "this version does not look", and telling those apart is the
+    entire reason the line exists.
+    """
+    proc = run(str(clean_run), "0", "--lane", "qwen", "--expect-tools")
+    assert contract(proc.stdout)["DELEGATED_RUN_TOOL_ERRORS"] == ["0"]
+
+
+def test_the_tool_error_counter_can_fire(tmp_path: Path) -> None:
+    """Positive control: a zero from the test above must mean something.
+
+    Two errored calls, so this also pins that the line carries a COUNT rather
+    than a boolean - a caller distinguishing one refusal from a wholly refused
+    run needs the number.
+    """
+    output = write_jsonl(
+        tmp_path / "two-errors.jsonl",
+        [
+            {"type": "tool_use", "part": {"tool": "bash", "state": {"status": "error"}}},
+            {"type": "tool_use", "part": {"tool": "bash", "state": {"status": "error"}}},
+            {"type": "tool_use", "part": {"tool": "edit", "state": {"status": "completed"}}},
+            {"type": "step_finish", "part": {"reason": "stop"}},
+        ],
+    )
+    assert contract(run(str(output), "0", "--lane", "gemma").stdout)["DELEGATED_RUN_TOOL_ERRORS"] == ["2"]
+
+
+def test_a_non_tool_error_state_is_not_counted_as_a_tool_error(tmp_path: Path) -> None:
+    """The counter's own ownership boundary, pinned rather than left as a TODO.
+
+    `state.status: "error"` is not proof of a TOOL error - it is only that when
+    it sits inside a tool event. Counting it anywhere would make an unrelated
+    neighbour inflate the number, which is the defect this whole cluster is
+    about, one level down in the fix for it.
+    """
+    output = write_jsonl(
+        tmp_path / "non-tool.jsonl",
+        [
+            {"type": "text", "part": {"state": {"status": "error"}}},
+            {"type": "tool_use", "part": {"tool": "edit", "state": {"status": "completed"}}},
+            {"type": "step_finish", "part": {"reason": "stop"}},
+        ],
+    )
+    assert contract(run(str(output), "0", "--lane", "gemma").stdout)["DELEGATED_RUN_TOOL_ERRORS"] == ["0"]
+
+
+def test_the_success_prose_no_longer_claims_the_work_happened(clean_run: Path) -> None:
+    """The sentence was the defect, so the sentence is pinned.
+
+    "the run looks clean" is what got read as "the work happened". This asserts
+    the narrower claim is stated and the broader one is explicitly disclaimed -
+    a caller who reads only the prose must not come away with the wrong
+    question answered.
+    """
+    proc = run(str(clean_run), "0", "--lane", "qwen")
+    assert "looks clean" not in proc.stdout
+    assert "no harness-level failure" in proc.stdout
+    assert "does not establish that the requested work happened" in proc.stdout
+
+
+def test_the_contract_carries_every_always_emitted_line(clean_run: Path) -> None:
+    """An enumeration of the contract goes stale silently; this one cannot.
+
+    Adopted from w1's #884 finding: the dangerous sentence after a change is not
+    one that mentions what you changed, it is one that never names it and simply
+    assumed it. `docs/scripts.md` enumerated the contract lines and, on adding
+    `_TOOL_ERRORS`, that list quietly stopped being complete while reading
+    perfectly. No grep for the new name finds an omission of the new name.
+
+    So the always-emitted family is pinned here instead of described anywhere.
+    A line added to the helper without being added here fails; a line dropped
+    from the helper fails too.
+    """
+    proc = run(str(clean_run), "0", "--lane", "qwen")
+    always = {
+        "DELEGATED_RUN_LANE",
+        "DELEGATED_RUN_FILE",
+        "DELEGATED_RUN_EXIT",
+        "DELEGATED_RUN_TOOL_ERRORS",
+        "DELEGATED_RUN_STATUS",
+    }
+    emitted = set(contract(proc.stdout))
+    assert emitted == always, (
+        f"contract drift: missing {sorted(always - emitted)}, "
+        f"unexpected {sorted(emitted - always)}"
+    )

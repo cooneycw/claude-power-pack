@@ -206,6 +206,21 @@ an `exec` run, but on this lane it is the signature of the ollama/ollama#14958
 `/v1` tool-call-drop bug: run `/gemma:status`, whose Step 4 smoke test tests
 exactly that, before blaming the prompt.
 
+**And on `success`, read `DELEGATED_RUN_TOOL_ERRORS` before you believe it
+(issue #836).** The verdict answers *"did the delegated process run cleanly?"*
+It is routinely read as *"did the delegated work happen?"*, and those come apart
+exactly here: a tool call denied by a permission fence still counts as
+`tool_use`, leaves the payload well formed and the exit code 0, so a run whose
+every command was refused reports `success`. One did, and returned a fabricated
+empty inventory that nothing downstream could have questioned.
+
+A non-zero count is **not** a failed run - a denied call is the fence working as
+designed, and making it fatal is a defect that was already shipped and reverted.
+It is the one fact that tells you to go and look: read the payload, or check the
+postcondition the work was supposed to establish, before reporting the result as
+done. The line is always emitted, `0` included, so `0` means "checked, none"
+rather than "not checked".
+
 ```bash
 echo ""
 echo "=== Changes ==="
