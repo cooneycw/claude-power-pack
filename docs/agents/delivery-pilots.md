@@ -107,17 +107,18 @@ ran.**
 
 Pilot A states an outcome - exponential backoff, and a suite that must not spend real
 seconds waiting - and proposes an approach that contradicts it: `time.sleep(2 **
-attempt)` at the end of the except block. Across three runs the agent replaced it
-every time, departing from the proposal twice: it made the sleep injectable, and it
-skips the wait after the final failure, which the proposal would have spent eight
-seconds on before giving up. The three runs chose different designs for the injection
-point, and all three passed. The check confirms the outcome survived: five attempts,
+attempt)` at the end of the except block. Across FOUR runs the agent replaced it every
+time, departing from the proposal twice: it made the sleep injectable, and it skips
+the wait after the final failure, which the proposal would have spent eight seconds on
+before giving up. The four runs chose between two designs for the injection point - a
+default argument bound at definition, or a `None` sentinel resolved at call time - and
+all four passed. The check confirms the outcome survived: five attempts,
 delays exactly `[1, 2, 4, 8]`, the last error re-raised, zero real seconds elapsed.
 
-Only the LAST of those three runs is preserved in the evidence bundle - each run
-replaced the output directory. The earlier two are described from the session record
-and differed only in where the injection point was placed. Three observations, one
-retained artifact, and the distinction matters to anyone re-checking the claim.
+Only the LAST of those four runs is preserved in the evidence bundle - each run
+replaced the output directory. The earlier three are described from the session record
+and differed only in the injection design. Four observations, one retained artifact,
+and the distinction matters to anyone re-checking the claim.
 
 The check replaces `time.sleep` BEFORE importing the module, so a design that binds it
 as a default argument is caught too. Without that ordering the check would sit through
@@ -267,6 +268,13 @@ model being measured.
 - The same run is a reminder that `make verify | tail` reports a RED pipeline as
   exit 0, because the pipe discards the verdict. The failure was visible only in the
   text.
+- **Naming two fixtures the same thing broke the typecheck gate.** Each pilot carried
+  a `check.py`, which mypy reads as two modules with one name; `make verify` exited 2
+  on it after the whole 3040-test suite had passed. The repo already excludes
+  `codex/skills` for exactly this collision, so excluding the fixture tree was the
+  available precedent - but only the check scripts actually collided, so they were
+  renamed instead and the gate kept its coverage. It immediately earned that: with the
+  runner now in scope, mypy found a second binding of `results` shadowing the first.
 
 ## Observed zero versus unmeasured
 
@@ -321,7 +329,7 @@ output scores as "no `Closes`", which reads exactly like a correct `Refs` result
 | `~/Downloads/cpp-859-decision-cases/` | 6 direct Codex prompt/execution samples | one model, one runtime, implementer-authored fixtures; prompt payload only, never the host lifecycle. Return codes ARE recorded |
 | `~/Downloads/cpp-860-report-cases/` | 5 supplied-fact report decisions plus the real-guard harness | its runner did not capture process return codes; that gap stays explicit and is NOT the same limit as #859's |
 | `~/Downloads/cpp-861-completion-cases/` | this issue's 3 completion decisions | 3 cases, 2 runs, one model |
-| `~/Downloads/cpp-861-pilots/` | this issue's 2 implementation pilots | 2 pilots, one model. Pilot A was run 3 times; only the last run's artifacts are retained |
+| `~/Downloads/cpp-861-pilots/` | this issue's 2 implementation pilots | 2 pilots, one model. Pilot A was run 4 times; only the last run's artifacts are retained |
 
 Both older runners were repaired under this issue: each read its prompt source from a
 worktree that has since been deleted, so the bundle documented a run nobody could

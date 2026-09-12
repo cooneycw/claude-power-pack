@@ -301,9 +301,14 @@ def run_pilots(root: Path, out: Path, timeout: int, dry_run: bool) -> dict:
         account = messages[-1] if messages else ""
         (out / f"{name}.account.txt").write_text(account, encoding="utf-8")
 
-        # The behavioural check, brought in only now.
-        shutil.copy2(pilot / "check.py", workspace / "check.py")
-        check = run(["python3", str(workspace / "check.py")], cwd=workspace)
+        # The behavioural check, brought in only now. Each pilot names its check
+        # distinctly (check_<thing>.py): two files both called check.py are two
+        # modules with one name, which the repo's typecheck gate rejects.
+        checks = sorted(pilot.glob("check_*.py"))
+        if len(checks) != 1:
+            sys.exit(f"{name}: expected exactly one check_*.py, found {len(checks)}")
+        shutil.copy2(checks[0], workspace / checks[0].name)
+        check = run(["python3", str(workspace / checks[0].name)], cwd=workspace)
         (out / f"{name}.check.txt").write_text(
             check.stdout + check.stderr, encoding="utf-8"
         )
@@ -323,7 +328,7 @@ def run_pilots(root: Path, out: Path, timeout: int, dry_run: bool) -> dict:
             q.name for q in workspace.rglob("*")
             if q.is_file()
             and q.name not in given
-            and q.name != "check.py"
+            and not q.name.startswith("check_")
             and "__pycache__" not in q.parts
         )
 
@@ -365,7 +370,7 @@ def main() -> int:
     if args.suite == "pilots":
         if not args.dry_run and shutil.which("codex") is None:
             sys.exit("codex is not on PATH; use --dry-run to stage the workspaces")
-        results = run_pilots(root, args.out, args.timeout, args.dry_run)
+        pilot_results = run_pilots(root, args.out, args.timeout, args.dry_run)
         if not args.dry_run:
             (args.out / "results.json").write_text(
                 json.dumps(
@@ -373,7 +378,7 @@ def main() -> int:
                         "commit": resolved,
                         "runner": run(["codex", "--version"]).stdout.strip(),
                         "config": codex_config(),
-                        "pilots": results,
+                        "pilots": pilot_results,
                     },
                     indent=2,
                 ),
