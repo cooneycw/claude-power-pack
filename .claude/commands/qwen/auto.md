@@ -593,6 +593,11 @@ Review the diff line by line, not just structurally.
    - Security: Any injection, XSS, or other vulnerabilities?
    - Completeness: Are all acceptance criteria addressed?
    - Test coverage: Are tests updated or added?
+   - Detector claims: if the diff adds or changes a check, gate, guard, tripwire
+     or allowlist, ask the two questions from
+     [the detector contracts](../../../docs/agents/detector-contracts.md) - does
+     its success message claim more than its input population supports, and can a
+     finding tell our thing from a neighbour's - and require the answer as a test.
 
 3. **Report review findings** (same format as `/codex:auto` Step 5).
 

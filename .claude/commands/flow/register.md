@@ -466,24 +466,162 @@ with a reserved word, `send --no-lexicon` is the per-message escape.
 ### The delivery lane - mailbox + wake (issue #676)
 
 Everything above is the ADDRESS BOOK: who a role is, where it lives, whether
-the address can be trusted. None of it delivers anything, and on 2026-08-11
-that gap cost ~2 hours - the harness rejected every orchestrator->worker
-`SendMessage` (it routes only to subagents the calling session spawned), so a
-fully-written assignment sat undelivered while both sessions correctly stood
-by. The only transport that moved a message was the user typing a pointer into
-the worker's terminal by hand.
+the address can be trusted. None of it delivers anything.
+
+**Every claim in this section carries the harness version it was established
+on, next to the claim.** That is not housekeeping. The order this section used
+to give rested on a single incident of 2026-08-11, written as a property of
+"the harness" with no version anywhere near it: the harness rejected every
+orchestrator->worker `SendMessage`, reportedly routing only to subagents the
+calling session spawned, and an assignment sat undelivered ~2h while both
+sessions correctly stood by. Cross-session messaging between independent
+sessions then shipped in **v2.1.224**, and the premise expired without anything
+in the text able to say so (issue #870). An unversioned claim about harness
+behaviour is the defect that produced this section; do not add one.
+
+**Established on 2.1.266, 2026-09-12** (`claude --version`), on this host:
+
+| Claim | How established |
+|---|---|
+| A cross-session message ENQUEUES and drains at the receiver's next tool round | installed tool contract, read 2026-09-12 |
+| The address is any peer name from `ListAgents` - "subagent, another local Claude session" - with no spawn relationship required | installed tool contract, read 2026-09-12 |
+| `ListAgents` resolves independent sessions on this machine, by name, including their tmux pane | run 2026-09-12 |
+| worker->orchestrator `SendMessage` between two independent sessions RESOLVED and DELIVERED | **measured** 2026-09-12, `success=true`, target reported as "another Claude session on this machine" |
+
+The first two are CONTRACT facts - what the installed harness documents about
+itself - and they are labelled that way because they are not measurements. They
+contradict the August premise directly (enqueue is not reject; any listed peer
+is not only-my-subagents), which is enough to retire it, and is NOT enough to
+tell you what a send does in the field. The fourth row is the field check, and
+it is the one that actually retires the premise. Keep the two kinds apart when
+you update this: replacing an expired reading with a fresher reading repeats the
+mistake at a later date.
+
+The August claim was DIRECTIONAL - worker->orchestrator reliable,
+orchestrator->worker not - and only one direction was re-measured here. Nothing
+in the contract, in the upstream thread, or in the original incident describes
+an asymmetric routing mechanism, so the directional framing is dropped rather
+than re-asserted for the untested direction. If you find a direction that fails,
+that is a new measurement and it belongs in this table with its own stamp.
 
 **Delivery preference order. Follow it in order; do not skip to the end.**
 
-1. **Direct session messaging** (`SendMessage` to the registry address) - use
-   it wherever the harness supports it. Worker->orchestrator has been reliable
-   in the field; orchestrator->worker has not.
-2. **Mailbox + watch** - the host-local lane below. This is the fallback for
-   every direction the harness cannot route, and it is a REAL lane: it wakes
-   the counterpart.
+1. **Direct session messaging** (`SendMessage` to the `ListAgents` name) -
+   routes between independent sessions on 2.1.266, measured
+   worker->orchestrator 2026-09-12. The reverse is no longer believed blocked
+   (the v2.1.224 expiry, and the current contract) but was NOT re-measured;
+   ceasing to believe a direction is blocked is not the same as establishing it
+   works. It is a FAST PATH, not a record: nothing is stored,
+   there is no receipt, and a message delivered to a session that never acts on
+   it leaves no trace either end can audit. Use it to make something already
+   written arrive sooner.
+2. **Mailbox + watch** - the host-local lane below, and the DURABLE one. It
+   holds a record, survives the receiver being dead at send time, and gives an
+   explicit ack. Lane 1 going first does not demote it: anything that must
+   still be true in an hour belongs here, and for the container boundary below
+   this is the only lane that exists at all.
 3. **User relay** - the DOCUMENTED LAST RESORT. On 2026-08-11 it was the first
    resort, which is the bug. Reaching for a human means lanes 1 and 2 both
    failed, and that is worth saying out loud rather than doing quietly.
+
+**The container boundary, stated here because it decides lane 1.** Native
+session discovery is filesystem-based, so a containerised session and a host
+session cannot see each other at all - not a permissions failure and not
+something a setting fixes: there is no path between them. Two sessions inside
+one container can. If either end is containerised, lane 1 does not exist and
+the mailbox is not a fallback but the only transport. Check before routing, not
+after silence.
+
+**A hazard on lane 1 whose status is version-dependent - read the stamps.**
+Cross-session message delivery has been observed to kill the receiver's
+in-flight *harness background Bash tasks* (upstream
+anthropics/claude-code#91139, open; thread read 2026-09-12). Two independent
+reports, and they do not describe the same trigger:
+
+| Report | Harness | Finding |
+|---|---|---|
+| original | 2.1.252, macOS | six kill events across four sessions in ~90 min; only harness-TRACKED tasks die, `nohup`-detached survive |
+| second | 2.1.258, Linux | sharper discriminator: the kill lands at the END OF THE TURN the message started, not at delivery, and only when that task is the session's ONLY live background task or subagent; a `setsid` grandchild survives every time |
+| same reporter | 2.1.263, Linux | no longer reproducing |
+
+**The `setsid` exemption does not cover the common case in this fleet.**
+`/kyle:boot` instructs every Kyle session to arm its mailbox watch *as the
+background call itself*, and explicitly forbids appending `&`, because a
+detached watch leaves the harness recording the task complete and nothing
+re-invokes the session when mail lands (boot skill, line 146, read 2026-09-12).
+So a session booted that way has its ONLY wake mechanism in precisely the object
+the original report describes as dying - and a deafened session looks identical
+to a quiet one from outside. Anyone reading the upstream issue and concluding
+the fleet is covered by the `setsid` exemption has it backwards: the boot
+procedure mandates the vulnerable shape.
+
+**What was observed here, and why it does not settle the question.** On
+2.1.266, 2026-09-12, a worker->orchestrator send was delivered to a receiver
+holding a watch in exactly that vulnerable shape. The watch survived, and the
+evidence is its **exit code 0** on mail arrival: a task that exits 0 having
+delivered its payload cannot have been reaped, whenever the kill window fell. A
+liveness check taken at delivery time was also run and is deliberately NOT
+recorded - the 2.1.258 report puts the kill 0-13s after the TURN ends, so a
+process alive during the turn samples the wrong window and implies a rigour it
+does not have.
+
+That is one observation and it does NOT generalize, for three separate reasons,
+of which the first and third are each sufficient alone:
+
+1. **This host is not in the default configuration.** It sets
+   `CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP=1` (in the environment and in
+   `~/.claude/settings.json`), which was already there before any of these
+   sessions booted. If the kill path runs through background-shell pressure
+   reaping, the mechanism is disabled here and survival is a property of this
+   host rather than of 2.1.266.
+2. **The upstream discriminator was not deliberately controlled for.** The
+   second report puts the kill at turn end, not delivery, and only when the task
+   is the session's sole live background task. The receiver reports that its
+   watch WAS its sole live background task, so that condition held - but it held
+   by circumstance rather than by design, which is weaker evidence than an
+   experiment and is recorded as such. This reason alone would not disqualify
+   the observation; 1 and 3 do.
+3. **It may simply be fixed.** The same reporter stopped reproducing at 2.1.263,
+   and this host runs 2.1.266.
+
+**So: routing generalizes, no-kill does not.** That lane 1 resolves and delivers
+between independent sessions is a property of the harness and retires the August
+premise. That it does not deafen the receiver is, on the evidence available
+here, **not measurable on this host** - the most plausible mechanism is disabled
+in this configuration. Recording it as "safe on 2.1.266" would be the exact
+defect this section exists to correct, one version later.
+
+Practical consequence meanwhile: prefer `supervise` where it is available;
+after receiving a cross-session message, assume your watch may be gone and
+re-arm rather than checking; and do not increase lane 1 traffic to a session
+whose wake mechanism you have not confirmed.
+
+**Two settings decide whether lane 1 works, and neither is set on this host**
+(read 2026-09-12; `~/.claude/settings.json` carries no `crossSessionInbound`,
+no `isolatePeerMachines`, no `dialogExpiry`).
+
+- **`crossSessionInbound`** - unset, so delivery falls to a default computed
+  from both sessions' permission classes. Kyle spawns sessions with
+  `--dangerously-skip-permissions`, so fleet-internal traffic is bypass-to-
+  bypass and delivers today. A message from a *prompting* sender - an
+  interactive terminal not in bypass, a session on another surface - is held for
+  an approval dialog nobody is watching and dropped after `dialogExpiry`
+  (five minutes by default). **Recommended: `accept`.** It removes a working
+  lane's dependence on both ends happening to land in the same permission class,
+  which is a property no one declared and nothing checks.
+- **`isolatePeerMachines`** - unset, so a send beyond this machine leaves
+  without approval. Same-machine messages never touch Anthropic servers;
+  cross-machine and cloud ones do. `ListAgents` on this host resolves 43 peers,
+  most of them Remote Control sessions on other machines, so the set of
+  addresses a typo can reach is large and mostly off-box.
+  **Recommended: `true`**, making an off-box send a deliberate act rather than
+  the default outcome of picking the wrong name from a long list.
+
+These are recommendations recorded for a human to apply, deliberately not
+applied by any session. `~/.claude/settings.json` is host state shared by every
+session on the machine: a value written there takes effect for all of them, is
+not reviewable as a diff, and does not arrive through the change that reviewed
+the reasoning. The artifact is fine; the delivery path is what bypasses review.
 
 **The lane.** Beside the registry, same lifetime, same host-local scope
 (`$XDG_RUNTIME_DIR/cc-flow-wave/<wave>/`), one audited helper invoked BARE

@@ -90,6 +90,8 @@ cat "$DIFF_FILE" | codex exec \
 
 Review for: correctness bugs, security issues, missed edge cases, broken or missing tests, and meaningful simplifications. Do NOT restyle working code or comment on formatting.
 
+If the diff adds or changes a check, gate, guard, tripwire or allowlist, ask two further questions of it and report a failure of either as a finding: (1) does its success message claim more than its input population supports - can a zero distinguish 'I looked and found nothing' from 'there was nothing to look at'; and (2) can a non-zero distinguish 'our thing changed' from 'a neighbour changed'. Widening the detector is not always the remedy: where the narrow answer is deliberately correct, say so and say where the larger question should be answered instead.
+
 Return ONLY a findings report in exactly this format:
 
 ## Findings
@@ -182,6 +184,13 @@ gap to fill.
 
 ## Notes
 
+- The review prompt above carries the two detector questions inline rather than
+  linking them, because the reviewing model runs `--sandbox read-only` against a
+  diff and cannot be relied on to go and read a repository document. The
+  canonical statement, with the instance index and the test shapes a finding
+  should ask for, is
+  [the detector contracts](../../../docs/agents/detector-contracts.md); read it
+  when triaging a detector finding in Step 4.
 - Uses the user's **Codex account** (real quota/billing per call). One review
   pass plus at most one re-review is the intended cadence - never loop.
 - Read-only sandbox: safe to run inside a live repo; Codex cannot write or reach
