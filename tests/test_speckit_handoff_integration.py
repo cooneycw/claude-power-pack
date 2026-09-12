@@ -330,8 +330,11 @@ class TestEachFeatureCarriesItsOwnPromise:
         handoff.convert(BILLING_TASKS)
 
         def digest_line(body: str, field: str) -> str:
-            line = next(l for l in body.splitlines() if l.startswith(f"{field}: "))
-            return line.split(": ", 1)[1]
+            return next(
+                row.split(": ", 1)[1]
+                for row in body.splitlines()
+                if row.startswith(f"{field}: ")
+            )
 
         exports_body = handoff.body_for(EXPORTS_TASKS)
         billing_body = handoff.body_for(BILLING_TASKS)
