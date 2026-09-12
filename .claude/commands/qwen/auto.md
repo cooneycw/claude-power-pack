@@ -691,7 +691,39 @@ fi
 ```
 
 1. **Commit** the changes:
-   - Use conventional commit format: `type(scope): Description (Closes #N)`
+   - Conventional commit format using the selected reference:
+     `type(scope): Description (${ISSUE_REF})`
+   ```bash
+   # Reference selection (issue #860). Default to a NON-closing reference; a closing one
+   # is used only after your own acceptance accounting for THIS issue. Reset it here
+   # rather than inheriting a value from an earlier run.
+   ACCEPTANCE_COMPLETE=""     # "yes" only when every material item is demonstrated,
+                              # revised with evidence, or resolved by a recorded transfer
+   ISSUE_REF="Refs #${ISSUE_NUM}"
+   if [[ "$ACCEPTANCE_COMPLETE" == "yes" ]]; then
+       ISSUE_REF="Closes #${ISSUE_NUM}"
+   fi
+   ```
+
+   `$ISSUE_REF` then feeds the commit message, the PR title and the PR body, so an
+   incomplete accounting cannot publish a closing reference anywhere.
+
+   The closing reference follows the acceptance accounting: use it only when every
+   material item is demonstrated, revised with evidence, or resolved by a recorded
+   transfer. Otherwise reference the issue without a closing keyword (`Refs #N`), in
+   the commit message, the PR title and the PR body alike. Do not print a closing
+   keyword beside an issue number even as an illustration - the merge helper refuses a
+   squash that carries one incidentally (exits 5 and 7).
+   **Acceptance disposition before closing (issue #860).** Account for the material
+   acceptance items first - demonstrated, revised with evidence, or deferred - and
+   record the accounting in the PR body as ordinary prose. When it is unresolved, use `Refs #N` in the commit
+   message, the PR title and the PR body instead of `Closes #N`, and check the earlier
+   branch commits too (read `git log origin/main..HEAD --format=%B` and the PR text yourself),
+   since the squash text may be derived from them - `gh-pr-merge.sh`
+   passes an explicit subject and body from the PR (#655), so check which sources are
+   actually in play rather than assuming a rewrite is needed. A delegated run that delivered part of
+   the work is still mergeable; it just must not close the promise. The canonical rule
+   is docs/agents/issue-contract.md.
    - Note the Qwen model tag as implementer in the commit body
      (e.g., `Implemented-By: qwen3.8-code:latest via Qwen Code CLI (headless)`)
 
@@ -702,7 +734,8 @@ fi
    - Note that implementation was delegated to a local Qwen model
    - Claude Code review findings
    - Test plan
-   - `Closes #N`
+   - `${ISSUE_REF}` - the selected reference, non-closing unless the
+     accounting is complete
 
 Report: `Step 7/8: Finish complete - PR #{N} created`
 

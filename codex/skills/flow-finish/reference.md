@@ -196,6 +196,75 @@ BARE (#581 discipline):
 
 **This step never blocks the flow** - it is purely informational.
 
+**Acceptance accounting (issue #860).** The quality gates above are evidence about
+CHECKS. Before opening the PR, account for what was actually delivered: every
+material acceptance item is demonstrated (name the behavioural test, experiment or
+reviewed observation), revised (give the reason and the agreement it needed), or
+deferred (and still owed). A couple of sentences of prose is enough for a small
+change - there is no required per-item line and no separate artifact. Silence is not
+delivery: an item nobody mentions is unresolved.
+
+Assess the evidence against the CURRENT agreed behaviour. After a #859 revision,
+evidence that satisfied the earlier promise has to be reassessed against the new
+one - sometimes it still suffices, often it does not, and that judgement belongs in
+the report rather than being assumed either way. A revision record on its own is
+never delivery evidence, and
+a revision record on its own is not delivery evidence.
+
+The report stays ordinary prose - there is no field to fill in, and nothing is
+parsed out of it. Carry the judgement into the one place it has to act: the closing
+step sets `ACCEPTANCE_COMPLETE=yes` ONLY when every material item is demonstrated,
+revised with evidence for the revised behaviour, or resolved by a transfer or
+withdrawal that recorded its authority and destination. Anything else - including
+"mostly done" - leaves it unset, and unset cannot close.
+
+**Closing must agree with that judgement.** When the accounting is not complete, the
+selected reference is the non-closing `Refs #N` - in the commit message, the PR title
+and the PR body alike, never `Closes #N` - so the merge cannot close a promise the
+report says was not kept.
+
+Then review whatever will actually become the merge text: the PR title and body, and
+the branch commits where they feed the squash. `gh-pr-merge.sh` passes an explicit
+subject and body derived from the PR (#655), so on that path an older commit's wording
+does not reach the squash - but a plain `gh pr merge --squash` can compose it from the
+commits, and that is when a stale closing reference still matters. Check the sources in
+play rather than rewriting history on the assumption that they always feed it:
+
+```bash
+git log origin/main..HEAD --format=%B
+gh pr view "$PR_NUMBER" --json title,body --jq '.title, .body' 2>/dev/null
+```
+
+Read the closing references there yourself rather than grepping for one spelling -
+the merge helper rejects negated and incidental forms too, and a narrow pattern
+misses exactly the ones that surprise you.
+
+The canonical rule is [the issue contract](../../../docs/agents/issue-contract.md);
+this is where it is executed. Partial delivery stays reviewable and mergeable - the
+disposition changes what CLOSES, not what may merge.
+
+**Wording an unresolved report.** Reword closing references to a plain mention -
+`Refs #N`, or "part of #N" - in the commit messages, the PR title and the PR body. Do
+not print a closing keyword beside an issue number even to illustrate what to remove:
+`gh-pr-merge.sh` refuses a squash carrying a negated or incidental closing keyword next
+to an issue number (exits 5 and 7), and it cannot tell an example from an instruction.
+A report that demonstrates the mistake interrupts the merge it was trying to protect.
+
+```bash
+# Reference selection (issue #860). Default to a NON-closing reference; a closing one
+# is used only after your own acceptance accounting for THIS issue. Reset it here
+# rather than inheriting a value from an earlier run.
+ACCEPTANCE_COMPLETE=""     # "yes" only when every material item is demonstrated,
+                           # revised with evidence, or resolved by a recorded transfer
+ISSUE_REF="Refs #${ISSUE_NUM}"
+if [[ "$ACCEPTANCE_COMPLETE" == "yes" ]]; then
+    ISSUE_REF="Closes #${ISSUE_NUM}"
+fi
+```
+
+`$ISSUE_REF` then feeds the commit message, the PR title and the PR body, so an
+incomplete accounting cannot publish a closing reference anywhere.
+
 ### Step 3: Check for Changes
 
 ```bash
@@ -219,7 +288,8 @@ discipline; on exit 127 skip it):
   rule) and re-stage before committing.
 
 - If there are uncommitted changes, help the user commit them using standard git commit workflow.
-- Use conventional commit format: `type(scope): Description (Closes #N)`
+- Conventional commit format, using the selected reference:
+  `type(scope): Description (${ISSUE_REF})`
 - Include `Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>` if Claude helped write the code.
 - **An already-clean tree here is a LEGITIMATE state, not a failure** (issue
   #635): when the Step-1 stale-base merge ran, the work is already on the
@@ -249,7 +319,7 @@ Use standard PR creation:
 
 ```bash
 gh pr create \
-  --title "type(scope): Description (Closes #ISSUE_NUM)" \
+  --title "type(scope): Description (${ISSUE_REF})" \
   --body "## Summary
 - <bullet points>
 
@@ -257,11 +327,11 @@ gh pr create \
 - [ ] Tests pass
 - [ ] Linting passes
 
-Closes #ISSUE_NUM"
+${ISSUE_REF}"
 ```
 
 - Title: Conventional commit style, derived from changes
-- Body: Summary of changes + test plan + `Closes #N`
+- Body: Summary of changes + test plan + `${ISSUE_REF}`
 - Analyze all commits on the branch to draft the summary
 
 ### Step 7: Output
@@ -283,7 +353,7 @@ PR created: https://github.com/owner/repo/pull/78
 - **Lint/test failure:** Stop, show output, ask user to fix
 - **Push failure:** Report error (likely needs `git pull --rebase`)
 - **PR already exists:** Report URL, offer to update
-- **No issue number in branch:** Create PR without `Closes #N` reference
+- **No issue number in branch:** Create PR with no issue reference at all
 - **No Makefile:** Skip quality gates, warn user
 
 ## Notes

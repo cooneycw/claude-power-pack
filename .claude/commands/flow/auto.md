@@ -674,6 +674,68 @@ if [ "$(git rev-list --count HEAD..origin/main)" -gt 0 ]; then
 fi
 ```
 
+**Acceptance accounting (issue #860).** The quality gates above are evidence about
+CHECKS. Before opening the PR, account for what was actually delivered: every
+material acceptance item is demonstrated (name the behavioural test, experiment or
+reviewed observation), revised (give the reason and the agreement it needed), or
+deferred (and still owed). A couple of sentences of prose is enough for a small
+change - there is no required per-item line and no separate artifact. Silence is not
+delivery: an item nobody mentions is unresolved.
+
+Assess the evidence against the CURRENT agreed behaviour. After a #859 revision,
+evidence that satisfied the earlier promise has to be reassessed against the new
+one - sometimes it still suffices, often it does not, and that judgement belongs in
+the report rather than being assumed either way. A revision record on its own is
+never delivery evidence, and
+a revision record on its own is not delivery evidence.
+
+The report stays ordinary prose - there is no field to fill in, and nothing is
+parsed out of it. Carry the judgement into the one place it has to act: the closing
+step sets `ACCEPTANCE_COMPLETE=yes` ONLY when every material item is demonstrated,
+revised with evidence for the revised behaviour, or resolved by a transfer or
+withdrawal that recorded its authority and destination. Anything else - including
+"mostly done" - leaves it unset, and unset cannot close.
+
+**Closing must agree with that judgement.** When the accounting is not complete, the
+selected reference is the non-closing `Refs #N` - in the commit message, the PR title
+and the PR body alike, never `Closes #N` - so the merge cannot close a promise the
+report says was not kept.
+
+Then review whatever will actually become the merge text: the PR title and body, and
+the branch commits where they feed the squash. `gh-pr-merge.sh` passes an explicit
+subject and body derived from the PR (#655), so on that path an older commit's wording
+does not reach the squash - but a plain `gh pr merge --squash` can compose it from the
+commits, and that is when a stale closing reference still matters. Check the sources in
+play rather than rewriting history on the assumption that they always feed it:
+
+```bash
+git log origin/main..HEAD --format=%B
+gh pr view "$PR_NUMBER" --json title,body --jq '.title, .body' 2>/dev/null
+```
+
+Read the closing references there yourself rather than grepping for one spelling -
+the merge helper rejects negated and incidental forms too, and a narrow pattern
+misses exactly the ones that surprise you.
+
+The canonical rule is [the issue contract](../../../docs/agents/issue-contract.md);
+this is where it is executed. Partial delivery stays reviewable and mergeable - the
+disposition changes what CLOSES, not what may merge.
+
+```bash
+# Reference selection (issue #860). Default to a NON-closing reference; a closing one
+# is used only after your own acceptance accounting for THIS issue. Reset it here
+# rather than inheriting a value from an earlier run.
+ACCEPTANCE_COMPLETE=""     # "yes" only when every material item is demonstrated,
+                           # revised with evidence, or resolved by a recorded transfer
+ISSUE_REF="Refs #${ISSUE_NUM}"
+if [[ "$ACCEPTANCE_COMPLETE" == "yes" ]]; then
+    ISSUE_REF="Closes #${ISSUE_NUM}"
+fi
+```
+
+`$ISSUE_REF` then feeds the commit message, the PR title and the PR body, so an
+incomplete accounting cannot publish a closing reference anywhere.
+
 **Collapsing the branch to one commit - the SAFE recipe (issue #657).** Prefer
 NO collapse at all: since #655 the merge helper passes an explicit
 `--subject`/`--body` derived from the PR, so a WIP-first branch squashes with
@@ -689,7 +751,7 @@ merged 2,085-line feature to exactly this on 2026-08-11). The safe shape:
 git reset --soft "$(git merge-base HEAD origin/main)"
 # Before committing, prove the collapse deletes nothing you did not delete:
 git diff --staged --diff-filter=D --name-only   # MUST be empty unless intended
-git commit -m "type(scope): Description (Closes #N)"
+git commit -m "type(scope): Description (${ISSUE_REF})"
 # THEN bring the moved base in:
 git merge --no-edit origin/main
 ```
@@ -759,7 +821,8 @@ git merge --no-edit origin/main
    cannot block what it cannot run).
 
 2. **Commit** - if there are uncommitted changes:
-   - Use conventional commit format: `type(scope): Description (Closes #N)`
+   - Conventional commit format, using the selected reference:
+     `type(scope): Description (${ISSUE_REF})`
    - Include `Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>`
    - **An already-clean tree here is a LEGITIMATE state, not a failure** (issue
      #635): when the stale-base merge above ran, the Step-4 work is already on
@@ -775,10 +838,10 @@ git merge --no-edit origin/main
 
 4. **Create PR** - if no PR exists:
    ```bash
-   gh pr create --title "type(scope): Description (Closes #ISSUE_NUM)" --body "..."
+   gh pr create --title "type(scope): Description (${ISSUE_REF})" --body "..."
    ```
    - If PR already exists, report its URL and continue.
-   - PR body: Summary of changes + test plan + `Closes #N`
+   - PR body: Summary of changes + test plan + `${ISSUE_REF}`
    - Analyze all commits on the branch to draft the summary.
 
 Report: `Step 6/9: Finish complete - PR #XX created`
@@ -1011,10 +1074,22 @@ Report: `Step 6/9: Finish complete - PR #XX created`
 
 6. **Close issue** (if still open):
    ```bash
+   # Set from YOUR acceptance accounting (docs/agents/issue-contract.md). Nothing is
+   # parsed out of the report: a quoted example or a truncated read must never be able
+   # to authorise a close. "yes" only when every material item is demonstrated, revised
+   # WITH evidence, or resolved by a recorded transfer/withdrawal; unset cannot close.
+   # Restate the judgement you reached in Step 6 for THIS issue. It is set here
+   # rather than inherited, so a value left over from earlier work cannot decide it.
+   ACCEPTANCE_COMPLETE=""
+
    if [[ -n "$ISSUE_NUM" ]]; then
        ISSUE_STATE=$(gh issue view "$ISSUE_NUM" --json state --jq '.state' 2>/dev/null)
-       if [[ "$ISSUE_STATE" == "OPEN" ]]; then
-           gh issue close "$ISSUE_NUM" --comment "Closed via /flow:auto - PR #${PR_NUMBER} merged."
+       if [[ "$ACCEPTANCE_COMPLETE" == "yes" ]]; then
+           if [[ "$ISSUE_STATE" == "OPEN" ]]; then
+               gh issue close "$ISSUE_NUM" --comment "Closed via /flow:auto - PR #${PR_NUMBER} merged."
+           fi
+       else
+           echo "Acceptance not recorded complete - leaving #${ISSUE_NUM} open."
        fi
    fi
    ```

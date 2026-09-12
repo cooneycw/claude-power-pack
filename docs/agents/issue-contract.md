@@ -128,6 +128,52 @@ approval or a standing delegation that actually covers the change IS agreement;
 knowing an approver exists is not. `/flow:auto` Step 4 is where this is executed,
 including the bounded investigation and the record a consequential change earns.
 
+## Accounting for what was delivered
+
+A green suite answers "did the checks pass", never "did we build what was promised".
+When work is reported, every MATERIAL acceptance item ends in one of three honest
+states:
+
+| Disposition | What it claims | What it needs |
+|-------------|----------------|---------------|
+| Demonstrated | This behaviour exists now | The specific behavioural test, experiment or reviewed observation - not the suite as a whole |
+| Revised | The promise changed | The reason, and the agreement that change required. A revision record is NOT delivery evidence: revised-but-unproven is still unresolved |
+| Deferred | Deliberately not done | Stays visibly incomplete and is not counted as delivered |
+
+**Assess evidence against the CURRENT agreed behaviour.** After a revision (see the
+revision-authority table above), re-read the existing evidence against what is now
+agreed rather than assuming either way: sometimes it still suffices, often it covers
+only the superseded promise. The judgement - and which way it went - belongs in the
+report. A revision record by itself is never delivery evidence.
+
+**Material, not exhaustive.** This is about promises a reader would care about, not
+every line of a plan. A small fix can discharge the whole accounting in a couple of
+sentences of ordinary prose - there is no required per-item line, no separate
+artifact, no schema and no checkbox gate. What is not allowed is silence: an item
+nobody mentions is unresolved, never delivered by default.
+
+**Say which claims are machine-checked.** "lint and tests pass" is evidence about
+checks. Whether the intended behaviour arrived is a judgement, by an agent or a
+person, and the report should not let the first stand in for the second.
+
+### Closing has to agree with the accounting
+
+An issue closes when its promises were kept. If any material item is revised without
+evidence, deferred, or unmet, the issue stays OPEN and the work carries a
+non-closing reference instead - and that has to hold everywhere the lifecycle can
+close something: the commit messages, the PR title and body, the squash text derived
+from them, and any explicit post-merge `gh issue close`. Changing the final PR body
+alone can leave closing text behind in an earlier commit on the branch.
+
+Partial delivery is still reviewable and mergeable under existing authority. The
+point is not to block it; the point is that merging it must not silently close a
+promise the report says was not kept.
+
+**Transfer or withdrawal can resolve the original issue** - but only with recorded
+authority that actually covers the change, plus a durable destination for the
+remaining work or an explicit agreed withdrawal. Naming an approver, suggesting a
+follow-up, or writing the word "deferred" is none of those.
+
 ## Worked examples
 
 ### A routine bug, Tier 1
