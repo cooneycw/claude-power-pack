@@ -216,16 +216,17 @@ revised with evidence for the revised behaviour, or resolved by a transfer or
 withdrawal that recorded its authority and destination. Anything else - including
 "mostly done" - leaves it unset, and unset cannot close.
 
-**Closing must agree with that line.** When the disposition is `unresolved`, use
-`Refs #N` in the commit message, the PR title and the PR body - never `Closes #N` -
-so the merge cannot close a promise the report says was not kept. Check the earlier
-review whatever will actually become the
-merge text: the PR title and body, and the branch commits where they feed the squash.
-`gh-pr-merge.sh` passes an explicit subject and body derived from the PR (#655), so on
-that path an older commit's wording does not reach the squash - but a plain
-`gh pr merge --squash` can compose it from the commits, and that is when a stale
-closing reference still matters. Check the sources in play rather than rewriting
-history on the assumption that it always does:
+**Closing must agree with that judgement.** When the accounting is not complete, the
+selected reference is the non-closing `Refs #N` - in the commit message, the PR title
+and the PR body alike, never `Closes #N` - so the merge cannot close a promise the
+report says was not kept.
+
+Then review whatever will actually become the merge text: the PR title and body, and
+the branch commits where they feed the squash. `gh-pr-merge.sh` passes an explicit
+subject and body derived from the PR (#655), so on that path an older commit's wording
+does not reach the squash - but a plain `gh pr merge --squash` can compose it from the
+commits, and that is when a stale closing reference still matters. Check the sources in
+play rather than rewriting history on the assumption that they always feed it:
 
 ```bash
 git log origin/main..HEAD --format=%B
