@@ -65,8 +65,11 @@ identity marker in its body:
 <!-- speckit-task:v1:<feature>:T001 -->
 ```
 
-`<feature>` defaults to this file's repository-relative path; pass `--feature SLUG`
-to pin an identity that survives the file being moved. Re-runs match on that marker,
+`<feature>` defaults to this file's repository-relative path. Moving this file
+therefore changes the identity: to keep the issues already filed, pass
+`--feature <the original path>` from then on. Any other slug declares a NEW
+identity and files every task again, so the pin only helps when it carries the
+value the existing issues were created under. Re-runs match on that marker,
 so two features' T001 stay distinct and a re-run files nothing twice. Issues created
 before the marker existed are matched by the `Auto-created from <path>` line in their
 body; one with neither is reported for resolution rather than guessed at.

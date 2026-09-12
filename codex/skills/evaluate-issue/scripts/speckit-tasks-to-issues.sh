@@ -21,8 +21,10 @@
 #                    .specify/specs/*/tasks.md, else error.
 #   --repo OWNER/NM  Target repo for gh (default: the origin remote's repo).
 #   --feature SLUG   Feature identity for these tasks. Default: the tasks file's
-#                    repository-relative path. Pass it explicitly to keep identity
-#                    stable if the file moves.
+#                    repository-relative path. If the file MOVES, pass the value
+#                    the existing issues were filed under - the ORIGINAL path -
+#                    or they are no longer recognised and get filed again. A new
+#                    slug does not prevent that; only the original identity does.
 #   --limit N        Issues to scan for the existing-work inventory (default 1000).
 #   -h, --help       Show this help.
 #
@@ -101,7 +103,9 @@ fi
 # across re-runs, and derivable without asking. A human heading is deliberately NOT
 # used - two specs may both be titled "# Tasks: Reporting", and the collision would
 # be silent. `--feature` overrides it, which is also how identity survives the file
-# being moved or renamed later.
+# being moved or renamed later - but only when it carries the value those issues
+# were filed under. Passing some other slug after a move does not preserve
+# anything: it declares a new identity, and every task is filed a second time.
 TASKS_REL="$TASKS"
 if _repo_root="$(git rev-parse --show-toplevel 2>/dev/null)" && [ -n "$_repo_root" ]; then
     _tasks_abs="$(cd "$(dirname "$TASKS")" && pwd)/$(basename "$TASKS")"
@@ -163,12 +167,38 @@ while IFS= read -r line || [ -n "$line" ]; do
         dep_list=""
         if [[ "$desc" =~ \(depends\ on\ ([^\)]*)\) ]]; then
             dep_clause="${BASH_REMATCH[1]}"
-            # `|| true`: grep exits 1 when a clause names no valid task id, and
-            # under `set -e` that killed the whole run with no diagnostic at all -
-            # the same silence this change exists to remove, in the error path.
-            dep_list="$(printf '%s' "$dep_clause" | grep -oE 'T[0-9]{3}' | tr '\n' ' ' | sed 's/[[:space:]]*$//' || true)"
+            # Validate WHOLE tokens, never substrings. Extracting `T[0-9]{3}` out
+            # of the clause silently accepted two corruptions: `T002, T1` dropped
+            # the invalid half and wrote a partial edge, and `T0020` matched its
+            # own first four characters and wrote an edge to T002 - a dependency
+            # that was never declared. A fabricated edge is worse than a missing
+            # one, because the planner treats it as a real constraint.
+            #
+            # Supported syntax is comma- and/or space-separated task ids, with
+            # `and` tolerated as a connector (the same separator the planner's
+            # own edge grammar accepts). Anything else is reported with its line
+            # rather than quietly dropped.
+            dep_bad=""
+            for dep_token in $(printf '%s' "$dep_clause" | tr ',' ' '); do
+                case "$dep_token" in
+                    and|AND|And) continue ;;
+                esac
+                if [[ "$dep_token" =~ ^T[0-9]{3}$ ]]; then
+                    case " $dep_list" in
+                        *" $dep_token "*) continue ;;
+                    esac
+                    dep_list+="$dep_token "
+                else
+                    dep_bad+="'${dep_token}' "
+                fi
+            done
+            dep_list="${dep_list%"${dep_list##*[![:space:]]}"}"
+            if [ -n "$dep_bad" ]; then
+                MALFORMED+=("${TASKS}:${lineno}: dependency clause '(depends on ${dep_clause})' has unreadable token(s) ${dep_bad}(expected T001..T999): ${line}")
+                continue
+            fi
             if [ -z "$dep_list" ]; then
-                MALFORMED+=("${TASKS}:${lineno}: dependency clause '(depends on ${dep_clause})' names no valid task id (expected T001..T999): ${line}")
+                MALFORMED+=("${TASKS}:${lineno}: dependency clause '(depends on ${dep_clause})' names no task id (expected T001..T999): ${line}")
                 continue
             fi
         fi

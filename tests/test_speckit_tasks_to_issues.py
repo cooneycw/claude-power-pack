@@ -246,24 +246,79 @@ class TestParsing:
         assert "malformed T-number" in result.stderr
         assert "0 to create" not in result.stdout
 
-    def test_malformed_dependency_clause_is_diagnosed_not_a_bare_failure(
-        self, project
+    @pytest.mark.parametrize(
+        "clause, offending",
+        [
+            ("T002, T1", "T1"),        # partly invalid: the bad half used to vanish
+            ("T0020", "T0020"),        # over-long: used to match its own first four chars
+            ("T1", "T1"),              # nothing valid at all
+            ("nothing", "nothing"),    # not a task id in any spelling
+        ],
+    )
+    def test_unreadable_dependency_tokens_are_diagnosed(
+        self, project, clause: str, offending: str
     ) -> None:
-        """`(depends on T1)` used to abort the run with exit 1 and no message.
+        """Whole tokens are validated, never substrings.
 
-        `grep` exits 1 when a clause names no valid id, and under `set -e` that
-        killed the script mid-parse - a silent failure in the code path added to
-        remove silent failures.
+        Extracting `T[0-9]{3}` out of the clause accepted two corruptions in
+        silence: `T002, T1` wrote a partial edge and dropped the invalid half,
+        and `T0020` matched its own first four characters and wrote an edge to
+        T002 - a dependency nobody declared. A fabricated edge is worse than a
+        missing one, because the planner treats it as a real constraint.
+
+        These inputs also cover the earlier failure this replaced: `grep` exits 1
+        when a clause names nothing valid, and under `set -e` that took the run
+        down with exit 1 and no message at all. Every case here must exit 3 WITH
+        a source line.
         """
         repo, bindir, state = project(
-            {"a/tasks.md": "- [ ] **T001** [US1] Build A (depends on T1)\n"}
+            {
+                "a/tasks.md": (
+                    f"- [ ] **T001** Build A (depends on {clause})\n"
+                    "- [ ] **T002** Build B\n"
+                )
+            }
         )
 
-        result = _run(repo, bindir, state, "--dry-run", "--tasks", "a/tasks.md")
+        result = _run(repo, bindir, state, "--tasks", "a/tasks.md")
 
         assert result.returncode == 3, result.stdout + result.stderr
         assert "a/tasks.md:1" in result.stderr
-        assert "names no valid task id" in result.stderr
+        assert offending in result.stderr
+        assert _issues(state) == [], "a parse failure must happen before any write"
+
+    @pytest.mark.parametrize(
+        "clause, expected",
+        [
+            ("T002", ["#101"]),
+            ("T002, T003", ["#101", "#102"]),
+            ("T002 T003", ["#101", "#102"]),
+            ("T002 and T003", ["#101", "#102"]),
+            ("T002, T002", ["#101"]),
+        ],
+    )
+    def test_supported_dependency_spellings_still_write_their_edges(
+        self, project, clause: str, expected: list[str]
+    ) -> None:
+        """Control: tightening the parse must not narrow what already worked."""
+        repo, bindir, state = project(
+            {
+                "a/tasks.md": (
+                    f"- [ ] **T001** Build A (depends on {clause})\n"
+                    "- [ ] **T002** Build B\n"
+                    "- [ ] **T003** Build C\n"
+                )
+            }
+        )
+
+        result = _run(repo, bindir, state, "--tasks", "a/tasks.md")
+
+        assert result.returncode == 0, result.stderr
+        body = {i["number"]: i["body"] for i in _issues(state)}[100]
+        edges = [
+            line.split()[-1] for line in body.splitlines() if line.startswith("- Blocked by")
+        ]
+        assert edges == expected
 
     def test_file_with_no_tasks_is_an_error_not_a_success(self, project) -> None:
         repo, bindir, state = project({"a/tasks.md": "# Tasks\n\nNothing here yet.\n"})
