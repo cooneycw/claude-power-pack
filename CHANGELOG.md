@@ -4,6 +4,55 @@
 
 ### Added
 
+- **2026-09-13 - `/qwen:auto` and `/gemma:auto` check that the model can be
+  SERVED, not merely registered** (issue #895) - both preflights gated delegation
+  on `GET /api/version` plus `GET /api/tags`. Those answer *is the daemon up* and
+  *is the model in the manifest*; neither asks whether the weights can be loaded,
+  and the qwen serving host sat exactly between those facts. Both checks passed in
+  ~13ms, the run proceeded, and it died ~18s later inside the delegated call with
+  `llama-server process has terminated: signal: killed` - an error naming an
+  internal process rather than a lane. `/gemma:auto` carried the identical gate
+  and therefore the identical latent defect; it had not fired only because that
+  host was healthy.
+
+  `scripts/lane-serveability-check.sh` is the discriminating probe - one
+  single-token `POST /api/generate` - and emits
+  `LANE_SERVE_STATUS: serving|dead|unreachable|unknown`. Both preflights refuse on
+  `dead` AND on `unreachable`, which is not a stylistic pairing: the failure shape
+  is not deterministic. Six probes at the same endpoint with the same request
+  bytes produced three shapes - HTTP 500 carrying the server's error text, HTTP
+  000 with an empty body at ~17s, and an immediate HTTP 000 when a probe landed
+  right after a prior failure. A helper keyed on the 500 alone would have cleared
+  that host on a third of the samples.
+
+  **The timeout is deliberately not the discriminator.** Measured across both
+  hosts: warm and GPU-resident 0.067-0.085s; cold reload 7.0s and 12.2s; healthy
+  but with 7.18 GB spilled from VRAM to CPU 18.5-67.3s; broken 17.4-18.6s. The
+  last two overlap completely, so no deadline separates a degraded-but-working
+  lane from a dead one - only the response does. The 120s ceiling is a
+  hung-socket backstop, and a "fail fast" deadline would have condemned a lane
+  that was serving real work slowly, which is the mirror-image bug the issue
+  named in advance.
+
+  `/qwen:status` is fixed in the same change, because its handoff was broken in a
+  way the issue half-recorded. It already ran a real generation probe - and then
+  discarded the verdict, computing `READY` from `command -v qwen` plus
+  `/api/version` alone. On the broken host it printed `(probe failed or timed
+  out)` and `Status: READY` underneath it, while `/qwen:auto` told a user whose
+  run had just died to come there and look. It now consumes the shared helper's
+  exit, and carries a third state, `UNVERIFIED`, for a probe that could not run -
+  which may only ever weaken a `true`, never soften a decided NOT READY.
+
+  Out of scope and unchanged: the qwen host itself. `signal: killed` is SIGKILL
+  from outside the process at a constant ~17-18s, independent of GPU or CPU
+  target - the loader being reaped by a host memory ceiling. Eliminated while
+  diagnosing: the baked `num_ctx 131072` (the parent `qwen3.8:27b`, which bakes
+  none, dies identically), VRAM, model size (gemma serves a larger model on the
+  same ollama 0.33.3), and ollama's memory preflight (a control on the healthy
+  host showed it does not reject an impossible context either, so its silence
+  carries no signal). Tracked as kyle#1179; kyle#1178 puts both hosts on the
+  health page with the same registered-versus-serveable requirement.
+
 - **2026-09-06 - post-clearance PR pipeline watch with a classified verdict**
   (issue #788) - in a wave the merge-queue critic clears a PR's queue position,
   the PR's next pipeline runs, and nothing watches the result. On the

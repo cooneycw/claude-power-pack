@@ -1141,3 +1141,45 @@ def test_a_fail_soft_script_use_is_a_known_blind_spot(tmp_path: Path) -> None:
         "Update this test to assert the new behaviour and remove the note in "
         "docs/scripts.md rather than deleting the test."
     )
+
+
+# --------------------------------------------------------------------------- #
+# curl, the binary that turned #895's first pipeline red (issue #895)
+# --------------------------------------------------------------------------- #
+# Deliberately NOT asserting `"curl" in checker.GUARDED_BINARIES`. #831 made
+# `CI_IMAGE_BINARIES` the default lane - a binary the CI image lacks is guarded
+# because it is absent from the image, not because it is in the explicit
+# override list - so pinning that membership would forbid a later correct
+# removal. What is worth pinning is the BEHAVIOUR: that the gate fires on an
+# unguarded curl and clears a guarded one. Membership without a firing test is
+# exactly how curl stayed invisible while the comment above the set had named it
+# as absent from the image since #716/#717.
+def test_fires_on_an_unguarded_curl(tmp_path: Path) -> None:
+    """Positive control for the binary that cost #895 a red `validate` step."""
+    findings = _findings(
+        tmp_path,
+        PREAMBLE
+        + """\
+def test_probe():
+    subprocess.run("curl -sf http://127.0.0.1:1/api/tags", shell=True, check=False)
+""",
+    )
+    assert len(findings) == 1, findings
+    assert "curl" in str(findings[0])
+
+
+def test_a_guarded_curl_clears(tmp_path: Path) -> None:
+    """The negative half: a correctly guarded test must NOT be flagged."""
+    findings = _findings(
+        tmp_path,
+        PREAMBLE
+        + """\
+requires_curl = pytest.mark.skipif(shutil.which("curl") is None, reason="needs curl")
+
+
+@requires_curl
+def test_probe():
+    subprocess.run("curl -sf http://127.0.0.1:1/api/tags", shell=True, check=False)
+""",
+    )
+    assert findings == [], findings
