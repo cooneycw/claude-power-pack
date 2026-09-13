@@ -110,6 +110,7 @@ def _run(
     live: str = "",
     unknown: str = "",
     now: str = "1700000000",
+    cwd: Path | None = None,
 ) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     env.update(
@@ -124,11 +125,16 @@ def _run(
             "FLOW_WAVE_NOW": now,
         }
     )
+    # `cwd` defaults to None (inherit pytest's own cwd, as before every #891
+    # call site below started passing it) so every existing call is unaffected.
+    # #891 needs it to prove the registry answers the SAME way regardless of
+    # which directory a caller happens to run `list`/`register` from.
     return subprocess.run(
         ["bash", str(REGISTRY), *args],
         capture_output=True,
         text=True,
         env=env,
+        cwd=cwd,
         check=False,
     )
 
@@ -2021,15 +2027,22 @@ class TestUnscopedLaneIsReportedUnknown:
     """
 
     def _overlapping_pair(self, tmp: Path, files: str = "core/x.py,core/tests/test_x.py") -> None:
-        """The issue's own reproduction: two live roles, one repo, one lane."""
+        """The issue's own reproduction: two live roles, one repo, one lane.
+
+        The repo value must be a REAL directory (issue #891): lane_unscoped()
+        now also flags a non-resolving repo as unchecked, so a bogus fixed
+        string like "/repo" would make both roles read UNSCOPED here even
+        though this class is exercising report_overlap's STRING comparison,
+        which never needed a real directory and is untouched by #891.
+        """
         _run(
             tmp, "register", "worker-A", "--wave", "cpp", "--socket", "uds:/tmp/a.sock",
-            "--repo", "/repo", "--issue", "1", "--branch", "issue-1-a",
+            "--repo", str(tmp), "--issue", "1", "--branch", "issue-1-a",
             "--cwd", "/wt/a", "--files", files,
         )
         _run(
             tmp, "register", "worker-B", "--wave", "cpp", "--socket", "uds:/tmp/b.sock",
-            "--repo", "/repo", "--issue", "2", "--branch", "issue-2-b",
+            "--repo", str(tmp), "--issue", "2", "--branch", "issue-2-b",
             "--cwd", "/wt/b", "--files", files,
             pid=OTHER_PID, session=OTHER_SESSION,
         )
@@ -2157,7 +2170,7 @@ class TestUnscopedLaneIsReportedUnknown:
         rule, so the answer is reported rather than left to be re-derived."""
         _run(
             tmp_path, "register", "scoped", "--wave", "cpp", "--socket", "uds:/tmp/s.sock",
-            "--repo", "/repo", "--files", "a.py",
+            "--repo", str(tmp_path), "--files", "a.py",
         )
         _run(tmp_path, "register", "bare", "--wave", "cpp", "--socket", "uds:/tmp/n.sock")
         _run(
@@ -2210,6 +2223,108 @@ class TestUnscopedLaneIsReportedUnknown:
         assert p.returncode == 0
         assert _verdict(p) == "listed"
         assert "CANNOT be read as clean" in p.stderr
+
+
+@requires_tools
+class TestNonResolvingRepoIsUnscoped:
+    """A --repo that does not resolve to a directory is as unchecked as an
+    EMPTY one, and the registry stops depending on the READER's cwd (#891).
+
+    #800 only covered an empty repo. `report_overlap`'s exact-STRING
+    comparison never needed a real directory and stays untouched; the gap
+    was `collect_unregistered_claims`, which requires `[ -d "$repo" ]` and
+    silently skipped anything that failed it - so a bare value like `kyle`
+    satisfied the string comparison while going invisible to claim
+    reconciliation, and the same stored value resolved differently depending
+    on which directory the READER of `list` happened to be in.
+    """
+
+    def test_non_resolving_repo_is_unchecked_at_register(self, tmp_path: Path) -> None:
+        missing = str(tmp_path / "does-not-exist")
+        p = _run(
+            tmp_path, "register", "worker-A", "--wave", "cpp",
+            "--socket", "uds:/tmp/a.sock", "--repo", missing, "--files", "a.py",
+        )
+        assert _detail(p, "FLOW_WAVE_LANE_SCOPED") == "no"
+        assert f"repo '{missing}' does not resolve to a directory" in p.stderr
+        assert "but NO repo" not in p.stderr  # the empty-repo wording, not this one
+
+    def test_non_resolving_repo_counts_toward_overlap_unscoped(self, tmp_path: Path) -> None:
+        _run(
+            tmp_path, "register", "worker-A", "--wave", "cpp",
+            "--socket", "uds:/tmp/a.sock",
+            "--repo", str(tmp_path / "does-not-exist"), "--issue", "1",
+        )
+        p = _run(tmp_path, "list", "--wave", "cpp", live=SELF_PID)
+        assert int(_detail(p, "FLOW_WAVE_OVERLAP_UNSCOPED")) >= 1
+
+    def test_a_resolving_repo_is_not_flagged(self, tmp_path: Path) -> None:
+        """Negative control: a repo that IS a real directory stays scoped."""
+        p = _run(
+            tmp_path, "register", "worker-A", "--wave", "cpp",
+            "--socket", "uds:/tmp/a.sock", "--repo", str(tmp_path), "--issue", "1",
+        )
+        assert _detail(p, "FLOW_WAVE_LANE_SCOPED") == "yes"
+        lst = _run(tmp_path, "list", "--wave", "cpp", live=SELF_PID)
+        assert _detail(lst, "FLOW_WAVE_OVERLAP_UNSCOPED") == "0"
+
+    def test_list_names_a_skipped_repo_and_counts_it_on_every_render_path(
+        self, tmp_path: Path
+    ) -> None:
+        """The other half of the fix: claim reconciliation's OWN silent skip
+        (`collect_unregistered_claims`'s `[ -d ]` gate) becomes visible,
+        exactly the same convention as FLOW_WAVE_OVERLAP_UNSCOPED - reported
+        as a value on every exit path, including zero, so 'none' is
+        distinguishable from 'not reported' (test style matches
+        TestUnscopedLaneIsReportedUnknown.test_the_count_is_reported_on_every_render_path)."""
+        missing = str(tmp_path / "does-not-exist")
+
+        empty = _run(tmp_path, "list", "--wave", "nosuch", live=SELF_PID)
+        assert _detail(empty, "FLOW_WAVE_CLAIM_SCAN_SKIPPED") == "0"
+
+        p = _run(tmp_path, "list", "--wave", "cpp", "--repo", missing, live=SELF_PID)
+        assert f"repo '{missing}' does not resolve to a directory" in p.stderr
+        assert int(_detail(p, "FLOW_WAVE_CLAIM_SCAN_SKIPPED")) >= 1
+
+        js = _run(tmp_path, "list", "--wave", "cpp", "--json", "--repo", missing, live=SELF_PID)
+        assert int(_detail(js, "FLOW_WAVE_CLAIM_SCAN_SKIPPED")) >= 1
+
+    def test_a_scanned_repo_does_not_count_as_skipped(self, tmp_path: Path) -> None:
+        """Negative control: a real directory is never reported as skipped."""
+        p = _run(tmp_path, "list", "--wave", "cpp", "--repo", str(tmp_path), live=SELF_PID)
+        assert _detail(p, "FLOW_WAVE_CLAIM_SCAN_SKIPPED") == "0"
+
+    def test_repo_is_resolved_to_an_absolute_path_at_register(self, tmp_path: Path) -> None:
+        """THE SHARP EDGE (issue #891's own headline): a bare/relative --repo
+        resolves differently depending on which directory happens to read it
+        later. `register` now resolves it to an absolute path ONCE, from the
+        registering call's own cwd, so every later reader - regardless of
+        its own cwd - evaluates the identical value.
+
+        Same registry, same role, `list` run from two different directories:
+        the answer must be IDENTICAL in both, never "depends on who asks".
+        """
+        (tmp_path / "myrepo").mkdir()
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+
+        # Registered with a bare relative name, from a cwd where it resolves.
+        reg = _run(
+            tmp_path, "register", "worker-A", "--wave", "cpp",
+            "--socket", "uds:/tmp/a.sock", "--repo", "myrepo", "--issue", "1",
+            cwd=tmp_path,
+        )
+        assert _detail(reg, "FLOW_WAVE_LANE_SCOPED") == "yes"
+
+        stored = _registry_json(tmp_path)["cpp"]["roles"]["worker-A"]["repo"]
+        assert Path(stored).is_absolute()
+        assert Path(stored) == tmp_path / "myrepo"
+
+        # `list`, run from a cwd where the bare name "myrepo" does NOT exist,
+        # must still read the role as scoped - the stored value no longer
+        # depends on the reader's cwd.
+        lst = _run(tmp_path, "list", "--wave", "cpp", live=SELF_PID, cwd=elsewhere)
+        assert _detail(lst, "FLOW_WAVE_OVERLAP_UNSCOPED") == "0"
 
 
 @requires_tools
