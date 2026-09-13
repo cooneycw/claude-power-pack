@@ -199,8 +199,18 @@ if [[ "$RUNNER_OK" -eq 1 ]]; then
     # the array-opening bracket so the scalar "skipped": <n> INSIDE the #621
     # "tests" object is not mistaken for the array (json.dumps(indent=2) always
     # multi-lines the array).
+    #
+    # The alternation below IS the gate list for this helper, and it decides the
+    # reported verdict - the "skipped" array carries every skipped step, gate or
+    # not, so it has to be filtered to gates here. That makes it a SECOND copy of
+    # lib/cicd/steps.py's GATE_STEP_IDS, in a language that cannot import it, and
+    # the copies drifted (issue #890): `security_scan` was added to the Python
+    # set while this regex still listed three names, so the id reached the JSON
+    # array, was filtered out here, and the marker still said `ok`. Keep them
+    # equal; tests/test_flow_finish_gate.py::test_gate_filter_matches_GATE_STEP_IDS
+    # parses this line and fails when they differ.
     SKIPPED_GATES=$(sed -n '/"skipped": \[/,/\]/p' "$RUNNER_JSON" 2>/dev/null \
-        | grep -oE '"(lint|test|typecheck)"' | tr -d '"' | tr '\n' ' ' | sed 's/ *$//')
+        | grep -oE '"(lint|test|typecheck|security_scan)"' | tr -d '"' | tr '\n' ' ' | sed 's/ *$//')
     # Pull ids only from #769 entries whose outcome is "passed". The runner's
     # json.dumps(indent=2) shape gives the top-level array and each entry stable
     # indentation, so this small state machine stays readable without jq (which
