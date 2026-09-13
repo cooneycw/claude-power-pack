@@ -11,13 +11,31 @@
 # motivated the claim. A self-owned or stale claim is released and removed as
 # usual, and --steal is the deliberate override.
 #
+# A claim only protects a worktree where one was staked, though, and `free`,
+# `unsupported` and `unknown` are not claims. So a worktree that no claim names
+# is checked a second way (issue #888): if a live process has its working
+# directory inside it AND it holds uncommitted work, removal is refused (exit
+# 5). --force does NOT suppress that refusal - --force is what every /flow:auto
+# Step 7 passes, so a guard it silences never fires where the damage happens.
+# --steal overrides it as usual. On a host with no readable /proc the check
+# reports `unknown` and falls open, rather than reporting a clean result it did
+# not establish.
+#
 # Usage:
 #   worktree-remove.sh <worktree-path> [--force] [--delete-branch] [--steal]
 #
 # Options:
 #   --force          Remove even if worktree has uncommitted changes
+#                    (does not override the #888 in-use refusal)
 #   --delete-branch  Also delete the associated branch after removal
-#   --steal          Remove even when another live session claims it (#597)
+#   --steal          Remove even when another live session claims it (#597),
+#                    or when it is in use with uncommitted work (#888)
+#
+# Exit codes:
+#   0  removed (or already absent - stale refs pruned)
+#   1  usage error, not a worktree, or uncommitted changes without --force
+#   4  claimed by another live /flow session (#597)
+#   5  in use by a live process AND holding uncommitted work (#888)
 #
 # Examples:
 #   worktree-remove.sh /home/user/Projects/nhl-api-issue-42
@@ -182,6 +200,7 @@ BRANCH_NAME=$(git -C "$WORKTREE_PATH" rev-parse --abbrev-ref HEAD 2>/dev/null ||
 # Fail-open in both directions: a missing helper, an unreadable lock, or a git
 # too old to report one leaves the previous behavior exactly as it was.
 SELF_SCRIPT_DIR="$(dirname "$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")")"
+CLAIM_OWNED_BY_US=false
 CLAIM_HELPER=""
 for cand in "$SELF_SCRIPT_DIR/flow-worktree-claim.sh" "$HOME/.claude/scripts/flow-worktree-claim.sh"; do
     if [[ -f "$cand" ]]; then
@@ -213,11 +232,133 @@ if [[ -n "$CLAIM_HELPER" ]]; then
             echo -e "${YELLOW}Warning: --steal given; removing a worktree claimed by pid ${CLAIM_PID:--}.${NC}" >&2
             bash "$CLAIM_HELPER" release "$WORKTREE_PATH" --force >/dev/null 2>&1 || true
             ;;
-        self | stale)
-            # Ours, or abandoned - drop the lock so the removal below can proceed.
+        self)
+            # Ours - drop the lock so the removal below can proceed.
+            bash "$CLAIM_HELPER" release "$WORKTREE_PATH" >/dev/null 2>&1 || true
+            CLAIM_OWNED_BY_US=true
+            ;;
+        stale)
+            # The claiming session died. Drop its lock, but do NOT treat that as
+            # proof the checkout is idle: a test run or server it started can
+            # outlive it, reparented and still writing here (issue #888).
             bash "$CLAIM_HELPER" release "$WORKTREE_PATH" >/dev/null 2>&1 || true
             ;;
+        *)
+            # free | unsupported | unknown | empty. NONE of these is a claim, and
+            # none is evidence of an idle checkout - `free` is simply what any
+            # worktree created before claiming existed, or outside the /flow
+            # lane, reports. The old code fell through here silently and removed
+            # it; the occupancy check below is what now stands in that gap.
+            :
+            ;;
     esac
+fi
+
+# --- Live-occupancy check (issue #888) ---------------------------------------
+# The claim above protects a worktree only where one was actually staked. Three
+# states leave it unprotected - `free` (no claim ever filed), `unsupported` (git
+# too old to lock) and `unknown` (the lock could not be read) - and an unclaimed
+# worktree is indistinguishable from an idle one, so it was removed.
+#
+# That is how a LIVE session loses unsaved work. On 2026-09-13 a session sitting
+# in `flow-finish-gate` held a 21KB staged file in a worktree reporting
+# CLAIM=free; the only thing between it and deletion was the #503 mtime
+# heuristic, whose 30-minute window that session had already outlived by being
+# in a long test run. Both guards read "clear" on a checkout that was plainly
+# occupied.
+#
+# So when the claim did not positively name THIS session as owner, ask a second
+# question no time window can blind: is a live process sitting in it? A worktree
+# someone is standing in, holding work that exists nowhere else, is not ours to
+# delete. Unlike the dirty-tree check below, --force does NOT suppress this one:
+# --force is precisely what every /flow:auto Step 7 passes, so a guard it
+# silences is a guard that never fires where the damage happens. --steal remains
+# the deliberate override.
+
+# /proc/<pid>/cwd is fully resolved, so compare against a resolved path.
+WT_REAL="$(readlink -f "$WORKTREE_PATH" 2>/dev/null || echo "$WORKTREE_PATH")"
+
+# This script plus its ancestors. /flow:auto invokes us from a shell whose cwd
+# may still be the worktree, so without this the guard trips over its own caller
+# and every removal blocks.
+occupancy_self_pids() {
+    local pid=$$ depth=0 ppid
+    while [[ -n "$pid" && "$pid" != "0" && "$depth" -lt 64 ]]; do
+        printf '%s\n' "$pid"
+        ppid="$(awk '/^PPid:/{print $2}' "/proc/$pid/status" 2>/dev/null || true)"
+        pid="$ppid"
+        depth=$((depth + 1))
+    done
+}
+
+# Prints "<pid> <comm>" per live process whose cwd is at or under $1.
+# Exit 0 = the scan RAN (whether or not it found anything).
+# Exit 2 = the scan could NOT run. That must read as "unknown", never as
+# "clear": a host that cannot look reporting a clean result is exactly the
+# false reassurance this guard exists to remove.
+# WORKTREE_REMOVE_PROC_ROOT is a test seam, not a tuning knob: it exists so the
+# "cannot scan" branch below can be exercised on a host that has a perfectly good
+# /proc. Nothing in normal operation sets it.
+PROC_ROOT="${WORKTREE_REMOVE_PROC_ROOT:-/proc}"
+
+occupancy_scan() {
+    local wt="$1" entry pid cwd comm
+    [[ -r "$PROC_ROOT/self/cwd" ]] || return 2
+    local skip_pids
+    skip_pids=" $(occupancy_self_pids | tr '\n' ' ') "
+    for entry in "$PROC_ROOT"/[0-9]*; do
+        if [[ "$entry" == "$PROC_ROOT/[0-9]*" ]]; then
+            return 2   # a proc tree exposing no process - we learned nothing
+        fi
+        pid="${entry##*/}"
+        case "$skip_pids" in *" $pid "*) continue ;; esac
+        cwd="$(readlink "$entry/cwd" 2>/dev/null)" || continue
+        [[ -n "$cwd" ]] || continue
+        # Exact path, or a genuine child of it. A bare prefix test would make
+        # `<wt>-2` look like it lives inside `<wt>`; on the host where this bug
+        # was found `kyle-issue-1142` is a real prefix of
+        # `kyle-issue-1142-container-spec-superseded`, so that is not a
+        # hypothetical collision.
+        if [[ "$cwd" == "$wt" || "${cwd#"$wt"/}" != "$cwd" ]]; then
+            comm="$(tr -d '\0' < "$entry/comm" 2>/dev/null || echo '?')"
+            printf '%s %s\n' "$pid" "$comm"
+        fi
+    done
+    return 0
+}
+
+if [[ "$CLAIM_OWNED_BY_US" != true && "$STEAL" != true ]]; then
+    OCC_RC=0
+    OCC_OUT="$(occupancy_scan "$WT_REAL")" || OCC_RC=$?
+    if [[ "$OCC_RC" -eq 2 ]]; then
+        # Say so rather than implying a clean result.
+        echo "WORKTREE_REMOVE_OCCUPANCY: unknown" >&2
+        echo -e "${YELLOW}Note: no readable /proc - could not check whether a live process is using this worktree.${NC}" >&2
+    elif [[ -n "$OCC_OUT" ]]; then
+        OCC_DIRTY="$(git -C "$WORKTREE_PATH" status --porcelain 2>/dev/null || echo "")"
+        if [[ -n "$OCC_DIRTY" ]]; then
+            echo "WORKTREE_REMOVE_OCCUPANCY: occupied-dirty" >&2
+            echo -e "${RED}Error: refusing to remove a worktree that is in use and holds uncommitted work${NC}" >&2
+            echo "" >&2
+            echo "  Worktree: $WORKTREE_PATH" >&2
+            echo "  Claim:    ${CLAIM_STATE:-none} (no claim naming this session)" >&2
+            echo "" >&2
+            echo "  Live processes with their working directory inside it:" >&2
+            printf '    %s\n' "$OCC_OUT" >&2
+            echo "" >&2
+            echo "  Uncommitted work that removal would destroy:" >&2
+            printf '    %s\n' "$OCC_DIRTY" >&2
+            echo "" >&2
+            echo "  Another session is driving this checkout without having staked a claim" >&2
+            echo "  (issue #888). --force does not override this; wait for that session, or" >&2
+            echo "  pass --steal if you are certain those processes can be killed." >&2
+            exit 5
+        fi
+        # Occupied but clean: nothing unrecoverable to lose, so removal stands.
+        echo "WORKTREE_REMOVE_OCCUPANCY: occupied-clean" >&2
+    else
+        echo "WORKTREE_REMOVE_OCCUPANCY: clear" >&2
+    fi
 fi
 
 # Check for uncommitted changes (unless --force)
