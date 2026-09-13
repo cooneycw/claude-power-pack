@@ -175,10 +175,18 @@ Follow the delivery preference order in `register.md`, which now carries a
 harness version against every claim: `SendMessage` as a FAST PATH, the mailbox
 as the DURABLE record, and a human relay only as a named last resort. Two things
 there decide whether lane 1 is available to you at all, and both are stated with
-their evidence rather than repeated here - the container boundary (a
-containerised session and a host session cannot see each other, so lane 1 does
-not exist for that pair), and a background-task hazard whose status is
-version-dependent.
+their evidence rather than repeated here - the container boundary, and a
+background-task hazard whose status is version-dependent.
+
+**If this wave has a containerised worker in it, read the boundary before you
+route anything.** Measured from inside a container on 2.1.266, 2026-09-13: local
+session discovery is empty there, so no host session and no other container is
+addressable - but `ListAgents` still answers, with 49 names, every one of them a
+`Remote Control` session on another machine. Lane 1 is not missing for that
+worker; it is populated entirely with peers that cannot be it. An orchestrator
+that treats a resolvable name as a reachable worker will send into that set and
+see `success=true`. For any containerised participant the mailbox is lane 1 and
+`SendMessage` is not a fallback at all.
 
 The lesson of 2026-08-11 is not the routing verdict, which expired. It is that
 this document stated a harness behaviour with no version attached, so nothing
