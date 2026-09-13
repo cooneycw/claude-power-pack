@@ -211,7 +211,14 @@ if [[ "$RUNNER_OK" -eq 1 ]]; then
     # parses this line and fails when they differ.
     SKIPPED_GATES=$(sed -n '/"skipped": \[/,/\]/p' "$RUNNER_JSON" 2>/dev/null \
         | grep -oE '"(lint|test|typecheck|security_scan)"' | tr -d '"' | tr '\n' ' ' | sed 's/ *$//')
-    # Pull ids only from #769 entries whose outcome is "passed". The runner's
+    # Pull ids only from #769 entries whose outcome is "passed-in-isolation" -
+    # the token the runner records for a re-run that greened when the failed ids
+    # ran alone. It was "passed" until issue #900; the rename is the point, since
+    # passing alone is the signature of a flake AND of an order-dependent real
+    # failure, so the record must not claim the first. This match is ANCHORED, so
+    # it does not silently keep working on the old token: a drift between the two
+    # stops RERUN_PASSED being emitted and the marker reverts to `ok`, which is
+    # #900's exact symptom. tests/test_runner.py pins both directions. The runner's
     # json.dumps(indent=2) shape gives the top-level array and each entry stable
     # indentation, so this small state machine stays readable without jq (which
     # is absent from the validate container). Failed/inconclusive entries are
@@ -235,7 +242,7 @@ if [[ "$RUNNER_OK" -eq 1 ]]; then
             ids = ids (ids ? " " : "") id
             next
         }
-        in_entry && /^      "outcome": "passed"[,]?$/ { passed = 1; next }
+        in_entry && /^      "outcome": "passed-in-isolation"[,]?$/ { passed = 1; next }
         in_entry && /^    \}[,]?$/ {
             if (passed && ids) {
                 print ids
