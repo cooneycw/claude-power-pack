@@ -1183,3 +1183,278 @@ def test_probe():
 """,
     )
     assert findings == [], findings
+
+
+# --------------------------------------------------------------------------- #
+# Issue #906: a test that runs a repo script DIRECTLY bypassed the one-hop scan.
+#
+# The #789 hop required argv[0] to be `bash` or `sh`. Every helper in `scripts/`
+# is executable and carries `#!/usr/bin/env bash`, so running one directly is the
+# NATURAL spelling - and it entered no hop at all, so the script was never
+# scanned. A test author following the repo's own conventions got no coverage;
+# one writing the less natural `["bash", SCRIPT]` did.
+#
+# This widens only the TRIGGER. The scan it feeds is the same
+# `binaries_in_script()` against the same explicit `GUARDED_BINARIES`, so the
+# function-versus-binary collision that made inverting the hop unworkable (#831)
+# stays out of reach - a shell function is only mistakable for a binary when
+# scanning for arbitrary tokens, and nothing here does that.
+# --------------------------------------------------------------------------- #
+
+
+def _direct_tree(tmp_path: Path, *, body: str, script: str, executable: bool = True) -> Path:
+    root = tmp_path / "repo"
+    (root / "tests").mkdir(parents=True)
+    (root / "scripts").mkdir()
+    helper = root / "scripts" / "hard.sh"
+    helper.write_text(script, encoding="utf-8")
+    if executable:
+        helper.chmod(0o755)
+    (root / "tests" / "test_sample.py").write_text(body, encoding="utf-8")
+    return root
+
+
+#: A script that HARD-requires jq: a bare command substitution, no preflight,
+#: no fail-soft fallback. Chosen so these tests exercise the trigger rather than
+#: the separate hard-requires judgement.
+_HARD_JQ = "#!/usr/bin/env bash\nset -euo pipefail\nB=$(jq -r '.b' \"$1\")\necho \"$B\"\n"
+
+_DIRECT_BODY = (
+    "import subprocess\n"
+    "from pathlib import Path\n\n"
+    "ROOT = Path(__file__).resolve().parents[1]\n"
+    "HELPER = ROOT / 'scripts' / 'hard.sh'\n\n\n"
+    "def test_x():\n"
+    "    subprocess.run([str(HELPER), 'x.json'])\n"
+)
+
+
+def test_a_directly_invoked_script_is_scanned(tmp_path: Path) -> None:
+    """#906's acceptance criterion 1, and the positive control it asks for.
+
+    The issue is explicit that a membership-only assertion is not enough here -
+    "the 1-of-12 result above is what a membership-only assertion looks like when
+    it passes". So this asserts the finding, and
+    `test_the_direct_trigger_is_what_makes_the_difference` asserts that the
+    PREVIOUS behaviour would not have produced it.
+    """
+    root = _direct_tree(tmp_path, body=_DIRECT_BODY, script=_HARD_JQ)
+    findings = checker.check_tree(root / "tests")
+    assert [f.binaries for f in findings] == [("jq",)], (
+        f"a directly-invoked repo script was not scanned (issue #906): {findings}"
+    )
+    assert findings[0].via_scripts, "this is a via-script finding, not a direct one"
+
+
+def test_a_bare_path_object_argv0_is_scanned(tmp_path: Path) -> None:
+    """`subprocess.run([HELPER, ...])` without `str()` is the same shape."""
+    body = _DIRECT_BODY.replace("str(HELPER)", "HELPER")
+    root = _direct_tree(tmp_path, body=body, script=_HARD_JQ)
+    assert [f.binaries for f in checker.check_tree(root / "tests")] == [("jq",)]
+
+
+def test_the_direct_trigger_is_what_makes_the_difference(tmp_path: Path) -> None:
+    """Control: the same tree is INVISIBLE to a checker without the #906 trigger.
+
+    Without this, every assertion above could pass for some unrelated reason and
+    the change would look effective while covering nothing - which is exactly the
+    1-of-12 the issue warns about.
+    """
+    root = _direct_tree(tmp_path, body=_DIRECT_BODY, script=_HARD_JQ)
+    # The hop's trigger, as it was: argv[0] must be bash/sh.
+    assert "bash" in checker.SHELL_RUNNERS and "sh" in checker.SHELL_RUNNERS
+    resolver_used = checker.check_tree(root / "tests")
+    assert resolver_used, "precondition: the new trigger finds it"
+    # And the bash spelling still works - the widening is additive, not a swap.
+    bash_body = _DIRECT_BODY.replace(
+        "subprocess.run([str(HELPER), 'x.json'])",
+        "subprocess.run(['bash', str(HELPER), 'x.json'])",
+    )
+    root2 = _direct_tree(tmp_path / "two", body=bash_body, script=_HARD_JQ)
+    assert [f.binaries for f in checker.check_tree(root2 / "tests")] == [("jq",)], (
+        "the #789 bash hop regressed"
+    )
+
+
+def test_a_guarded_direct_invocation_is_not_flagged(tmp_path: Path) -> None:
+    """#906 acceptance: the negative half."""
+    body = (
+        "import shutil\n"
+        "import subprocess\n"
+        "from pathlib import Path\n\n"
+        "import pytest\n\n"
+        "ROOT = Path(__file__).resolve().parents[1]\n"
+        "HELPER = ROOT / 'scripts' / 'hard.sh'\n"
+        "requires_jq = pytest.mark.skipif(shutil.which('jq') is None, reason='jq')\n\n\n"
+        "@requires_jq\n"
+        "def test_x():\n"
+        "    subprocess.run([str(HELPER), 'x.json'])\n"
+    )
+    root = _direct_tree(tmp_path, body=body, script=_HARD_JQ)
+    assert checker.check_tree(root / "tests") == []
+
+
+def test_a_script_that_does_not_reach_the_binary_is_not_flagged(tmp_path: Path) -> None:
+    """#906 acceptance: a script with no guarded requirement stays silent."""
+    root = _direct_tree(
+        tmp_path,
+        body=_DIRECT_BODY,
+        script="#!/usr/bin/env bash\nset -euo pipefail\necho \"$1\"\n",
+    )
+    assert checker.check_tree(root / "tests") == []
+
+
+def test_an_argv0_outside_the_repo_is_ignored(tmp_path: Path) -> None:
+    """Ownership boundary (#906 acceptance): a system script is not ours to scan.
+
+    A path that resolves to a real, executable file OUTSIDE the checkout must not
+    be read. Findings about a neighbour's code are the #834 ownership half, and a
+    checker that reports them cannot be trusted about its own.
+    """
+    outside = tmp_path / "elsewhere"
+    outside.mkdir()
+    stranger = outside / "hard.sh"
+    stranger.write_text(_HARD_JQ, encoding="utf-8")
+    stranger.chmod(0o755)
+
+    root = tmp_path / "repo"
+    (root / "tests").mkdir(parents=True)
+    (root / "tests" / "test_sample.py").write_text(
+        "import subprocess\n"
+        "from pathlib import Path\n\n"
+        f"HELPER = Path({str(stranger)!r})\n\n\n"
+        "def test_x():\n"
+        "    subprocess.run([str(HELPER), 'x.json'])\n",
+        encoding="utf-8",
+    )
+    assert stranger.is_file(), "precondition: the outside script exists and is real"
+    assert checker.check_tree(root / "tests") == [], (
+        "a script outside the checkout was scanned (issue #906 ownership boundary)"
+    )
+
+
+def test_a_non_executable_argv0_is_ignored(tmp_path: Path) -> None:
+    """The shape covered is "run on its shebang", which needs the x bit.
+
+    A non-executable path in argv[0] cannot run at all, so scanning it would be
+    reading a file the test never executes.
+    """
+    root = _direct_tree(tmp_path, body=_DIRECT_BODY, script=_HARD_JQ, executable=False)
+    assert checker.check_tree(root / "tests") == []
+
+
+# --------------------------------------------------------------------------- #
+# Issue #906, second half: a quoted heredoc body is another language's source.
+#
+# Widening the trigger above took the tree from `ok` to 31 findings, ALL false,
+# ALL from one line of prose. `scripts/delegated-run-check.sh` embeds a Python
+# program via `python3 - <<'PYEOF'`, and a docstring inside it says a model that
+# tries `git commit` once is behaving as designed. Those are MARKDOWN backticks -
+# but a backtick opens a command substitution in shell, and SHELL_BINARY_RE
+# counts one as a command-position separator, so the sentence read as an
+# invocation of git.
+#
+# It could not fire before #906: that script is only ever invoked DIRECTLY by its
+# tests, the exact shape the hop could not see. The gap masked the bug. Same
+# sequence as #831's widening exposing #833's `case` label - each widening
+# exposes the next latent false positive, invisible until its predecessor closed.
+# --------------------------------------------------------------------------- #
+
+DELEGATED_RUN_CHECK = ROOT / "scripts" / "delegated-run-check.sh"
+
+
+def test_the_real_embedded_python_docstring_is_not_read_as_shell() -> None:
+    """The regression fixture is the REAL in-tree instance, not a constructed one.
+
+    #833's own note: a real in-tree instance is evidence, a hand-written block is
+    illustration. This is the file and the line that produced the 31 findings.
+    """
+    assert DELEGATED_RUN_CHECK.is_file(), "the fixture script is gone - test is stale"
+    text = DELEGATED_RUN_CHECK.read_text(encoding="utf-8")
+    assert "<<'PYEOF'" in text, (
+        "precondition: the script no longer embeds a quoted heredoc, so this test "
+        "is not exercising the shape it claims to pin"
+    )
+    assert "`git commit`" in text, (
+        "precondition: the backticked prose that caused the false positive is "
+        "gone - re-point this test at whatever instance remains, or retire it"
+    )
+    assert checker.binaries_in_script(DELEGATED_RUN_CHECK) == frozenset(), (
+        "prose inside an embedded-Python heredoc is being read as a shell "
+        "invocation (issue #906)"
+    )
+
+
+def test_masking_a_heredoc_does_not_hide_a_genuine_use(tmp_path: Path) -> None:
+    """The other direction, and the one that matters.
+
+    Blanking heredoc bodies is the safe-looking move, and the undercount is the
+    unsafe direction - the same asymmetry #838 pinned for its own fix. A real
+    `jq` invocation in the surrounding shell, and one on the heredoc's own
+    opening line, must both still be seen.
+    """
+    script = tmp_path / "mixed.sh"
+    script.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        "B=$(jq -r '.b' \"$1\")\n"            # genuine, before the heredoc
+        "python3 - <<'PY'\n"
+        "import sys\n"
+        '"""a docstring mentioning `jq` and `git` in prose"""\n'
+        "PY\n"
+        "echo \"$B\"\n",
+        encoding="utf-8",
+    )
+    found = checker.binaries_in_script(script)
+    assert "jq" in found, "masking the heredoc also hid the real invocation above it"
+    assert "git" not in found, "prose inside the heredoc is still being read as shell"
+
+
+def test_an_unterminated_heredoc_does_not_swallow_the_rest_of_the_file(
+    tmp_path: Path,
+) -> None:
+    """A named residual, pinned rather than left to be discovered.
+
+    The mask runs to the closing delimiter. A script whose delimiter never
+    appears - a truncated file, or a delimiter written differently than opened -
+    masks everything after it, and every binary below goes UNSEEN. That is the
+    undercount direction, so it is worth knowing it is the behaviour rather than
+    assuming the parser is total.
+
+    Not defended against here: a real heredoc parser is the fix, and this file
+    states outright that it is not one. Bash itself rejects an unterminated
+    heredoc, so a script in this shape is already broken and would not run.
+    """
+    script = tmp_path / "unterminated.sh"
+    script.write_text(
+        "#!/usr/bin/env bash\n"
+        "python3 - <<'PY'\n"
+        "print('no closing delimiter')\n"
+        "B=$(jq -r '.b' \"$1\")\n",          # below the unterminated heredoc
+        encoding="utf-8",
+    )
+    assert checker.binaries_in_script(script) == frozenset(), (
+        "if this now finds jq the residual is closed - assert the new behaviour "
+        "and update docs/scripts.md rather than deleting the test"
+    )
+
+
+def test_an_unquoted_heredoc_is_still_scanned(tmp_path: Path) -> None:
+    """Only a QUOTED delimiter means "literal text for another program".
+
+    An unquoted `<<EOF` body is parameter-expanded and command-substituted by the
+    shell itself, so a `$(...)` in it really is this script running a command.
+    Masking those too would be the undercount direction again.
+    """
+    script = tmp_path / "unquoted.sh"
+    script.write_text(
+        "#!/usr/bin/env bash\n"
+        "cat <<EOF\n"
+        "value: $(jq -r '.b' \"$1\")\n"
+        "EOF\n",
+        encoding="utf-8",
+    )
+    assert "jq" in checker.binaries_in_script(script), (
+        "an unquoted heredoc is expanded by the shell - its command "
+        "substitutions are real invocations and must still be seen"
+    )
