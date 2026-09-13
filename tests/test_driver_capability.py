@@ -487,7 +487,7 @@ def test_roster_annotates_a_role_with_its_driver_fence(tmp_path: Path) -> None:
 
     reg("register", "worker-2", "--wave", "w", "--driver", "gemma:auto")
     listing = reg("list", "--wave", "w").stdout
-    assert "driver=gemma:auto[impl-only,no-web,no-container]" in listing, listing
+    assert "driver=gemma:auto[impl-only,no-web,no-container,no-meta]" in listing, listing
 
     got = reg("get", "worker-2", "--wave", "w").stdout
     fields = dict(
@@ -497,8 +497,13 @@ def test_roster_annotates_a_role_with_its_driver_fence(tmp_path: Path) -> None:
     assert fields["FLOW_WAVE_DRIVER_SCOPE"] == "implementation-only"
     assert fields["FLOW_WAVE_DRIVER_WEB"] == "no"
     assert fields["FLOW_WAVE_DRIVER_CONTAINER"] == "no"
+    assert fields["FLOW_WAVE_DRIVER_META"] == "no"
     assert "research" in fields["FLOW_WAVE_DRIVER_CANNOT"]
     assert "container" in fields["FLOW_WAVE_DRIVER_CANNOT"]
+    assert "meta" in fields["FLOW_WAVE_DRIVER_CANNOT"], (
+        "a fenced driver's inability to touch .claude/commands/** must reach the "
+        "roster an orchestrator reads at assignment time (issue #877)"
+    )
 
 
 @requires_bash
@@ -519,7 +524,7 @@ def test_roster_does_not_mark_a_container_capable_delegated_driver(tmp_path: Pat
     )
     reg("register", "worker-3", "--wave", "w", "--driver", "qwen:auto")
     listing = reg("list", "--wave", "w").stdout
-    assert "driver=qwen:auto[impl-only,no-web]" in listing, listing
+    assert "driver=qwen:auto[impl-only,no-web,no-meta]" in listing, listing
     assert "no-container" not in listing, (
         "qwen:auto can reach docker (issue #835) - a `no-container` marker here "
         "would overstate a block it does not have"
@@ -531,6 +536,9 @@ def test_roster_does_not_mark_a_container_capable_delegated_driver(tmp_path: Pat
     )
     assert fields["FLOW_WAVE_DRIVER_CONTAINER"] == "yes"
     assert "container" not in fields["FLOW_WAVE_DRIVER_CANNOT"].split()
+    # qwen is container-capable and STILL meta-fenced: the two axes are
+    # independent, which is the same point this test makes about scope/web.
+    assert fields["FLOW_WAVE_DRIVER_META"] == "no"
 
 
 @requires_bash
@@ -696,4 +704,206 @@ def test_wave_routes_on_declared_capability() -> None:
     assert "impl-only" in section and "no-web" in section, (
         "the roster annotation the orchestrator actually reads must appear where it "
         "is read"
+    )
+
+
+# ---------------------------------------------------------------------------
+# The fourth axis: this repository's own orchestration documents (issue #877)
+#
+# The #735 execution fence forbids a delegated driver from READING
+# `.claude/commands/**` and `.claude/skills/**`. A large share of CPP's own open
+# work is an edit to exactly those files, so for CPP-meta issues the three
+# delegated drivers are structurally inapplicable - and the matrix had no way to
+# say so. #834 was routed to codex:auto and got `fit` back while the fence
+# forbade the driver from touching five of its nine files; three workers hit the
+# same wall in one wave, each rediscovering it independently at Step 3/4, after
+# a worktree, a branch, a full read of the issue and a complete plan.
+#
+# Derived from the driver documents, like every other axis here: the claim
+# `meta: no` is only true while clause 3 is really in the fence, so the clause
+# is asserted against the document rather than against the helper.
+#
+# The axis is NOT a codex quirk. The fence block is byte-identical in all three
+# delegated documents, which is why this is parametrized over DELEGATED rather
+# than written about codex alone.
+# ---------------------------------------------------------------------------
+
+#: The fence clause that closes `.claude/commands/**` and `.claude/skills/**`.
+FENCED_PATHS_CLAUSE = (
+    "Read, open, or follow instructions in .claude/commands/**, .claude/skills/**"
+)
+
+#: Expected FLOW_DRIVER_META per driver, derived from the fence (#877).
+META_EXPECTED = {
+    "flow:auto": "yes",
+    "codex:auto": "no",
+    "qwen:auto": "no",
+    "gemma:auto": "no",
+}
+
+
+@pytest.mark.parametrize("family", DELEGATED, ids=DELEGATED)
+def test_delegated_drivers_still_fence_off_the_orchestration_documents(family: str) -> None:
+    """`meta: no` is only true while clause 3 is really in the fence.
+
+    The precondition IS the evidence (#697), and it is asserted per-family
+    because the generalisation is the finding: this is not a codex-only rule.
+    """
+    assert FENCED_PATHS_CLAUSE in _driver_doc(family), (
+        f"{family}/auto.md no longer fences off .claude/commands/** and "
+        ".claude/skills/**, so flow-driver-capability.sh's `meta: no` for it is now "
+        "a false claim (issue #877). Either restore the clause or change the "
+        "declared data - and if the clause was removed deliberately, read #877 "
+        "first: thinning this fence is the repair it exists to argue against."
+    )
+
+
+def test_flow_auto_carries_no_fence_at_all() -> None:
+    """The positive control for the axis: flow:auto's `meta: yes` needs a basis too.
+
+    Without this, every driver could be fenced and `meta` would be an axis with
+    one value - which is how an axis becomes decoration.
+    """
+    doc = _driver_doc("flow")
+    assert FENCE_SENTENCE not in doc, (
+        "flow/auto.md has acquired an IMPLEMENTATION-ONLY fence; flow:auto's "
+        "`meta: yes` (and `scope: general`) are no longer true (issue #877)"
+    )
+    assert FENCED_PATHS_CLAUSE not in doc, (
+        "flow/auto.md now fences off .claude/commands/**, so flow:auto can no "
+        "longer be the driver CPP-meta work routes to (issue #877)"
+    )
+
+
+@requires_bash
+@pytest.mark.parametrize(
+    ("driver", "expected"), sorted(META_EXPECTED.items()), ids=list(META_EXPECTED)
+)
+def test_declared_meta_matches_the_fence(driver: str, expected: str) -> None:
+    fields = _fields(_run("show", driver).stdout)
+    assert fields["FLOW_DRIVER_META"] == expected, (
+        f"{driver}'s declared meta access ({fields['FLOW_DRIVER_META']!r}) no longer "
+        f"matches the fence in its document (expected {expected!r}, issue #877)"
+    )
+    assert fields["FLOW_DRIVER_META_BASIS"] not in ("", "-"), (
+        f"{driver} must record HOW its meta verdict was reached, mirroring web_basis"
+    )
+
+
+@requires_bash
+@pytest.mark.parametrize("family", DELEGATED, ids=DELEGATED)
+def test_meta_basis_names_the_fence_and_the_document_that_carries_it(family: str) -> None:
+    """A reader who doubts the claim must have a file to open."""
+    basis = _fields(_run("show", f"{family}:auto").stdout)["FLOW_DRIVER_META_BASIS"]
+    assert f".claude/commands/{family}/auto.md" in basis, (
+        f"{family}'s meta basis must name its own fence document, got {basis!r}"
+    )
+    assert "735" in basis, (
+        f"{family}'s meta basis must cite the fence's issue, got {basis!r}"
+    )
+
+
+@requires_bash
+@pytest.mark.parametrize("family", DELEGATED, ids=DELEGATED)
+def test_check_refuses_meta_work_for_every_delegated_driver(family: str) -> None:
+    """The #877 mis-route, pinned: a CPP-meta issue cannot go to a fenced lane."""
+    proc = _run("check", f"{family}:auto", "--needs", "implementation,meta")
+    assert proc.returncode == 1, proc.stdout
+    assert _verdict(proc.stdout, "FLOW_DRIVER_CHECK") == "mismatch"
+    assert "meta" in _fields(proc.stdout)["FLOW_DRIVER_UNMET"]
+    assert "FLOW_DRIVER_BLOCKED: meta - " in proc.stdout
+
+
+@requires_bash
+def test_check_fits_meta_work_for_flow() -> None:
+    """Without the positive case, `meta` could only ever mismatch."""
+    proc = _run("check", "flow:auto", "--needs", "implementation,meta")
+    assert proc.returncode == 0, proc.stderr
+    assert _verdict(proc.stdout, "FLOW_DRIVER_CHECK") == "fit"
+    assert _fields(proc.stdout)["FLOW_DRIVER_UNMET"] == "-"
+
+
+@requires_bash
+def test_meta_need_is_a_valid_need() -> None:
+    """`meta` must be accepted by the enum this helper validates against."""
+    proc = _run("check", "gemma:auto", "--needs", "meta")
+    assert proc.returncode == 1, proc.stdout
+    assert "unknown need" not in proc.stderr
+
+
+# ---------------------------------------------------------------------------
+# The honesty half: a `fit` must not read wider than the question it answered
+# ---------------------------------------------------------------------------
+
+
+@requires_bash
+def test_a_narrow_fit_names_the_incapacities_it_did_not_cover() -> None:
+    """#877's actual complaint, pinned.
+
+    `check codex:auto --needs implementation` answers "is this deliverable a
+    code change". Its reader supplies "can this driver do this issue". Those two
+    came apart on #834 and the output gave the reader nothing to notice it with.
+
+    Needs stay DECLARED, never inferred - this does not guess what the work
+    requires. It states which of THIS DRIVER'S known incapacities the call left
+    unasked, which is a fact about the driver and the call, not about the issue.
+    """
+    proc = _run("check", "codex:auto", "--needs", "implementation")
+    assert proc.returncode == 0, proc.stderr
+    assert _verdict(proc.stdout, "FLOW_DRIVER_CHECK") == "fit"
+
+    undeclared = _fields(proc.stdout)["FLOW_DRIVER_UNDECLARED"].split()
+    assert "meta" in undeclared, (
+        "a bare implementation check against a fenced driver must say that `meta` "
+        "was never asked about - otherwise this `fit` is indistinguishable from "
+        "one computed against every axis (issue #877)"
+    )
+    assert {"research", "web", "container"} <= set(undeclared)
+    assert "is not a judgement that this" in proc.stderr, (
+        "a narrow fit must say so in words, not only in a field a machine reads"
+    )
+
+
+@requires_bash
+def test_undeclared_is_empty_once_every_incapacity_was_asked_about() -> None:
+    """The membership floor from the other side.
+
+    If UNDECLARED were non-empty even when the caller covered everything, it
+    would be noise, and a line that is always non-empty is one nobody reads.
+    """
+    proc = _run(
+        "check", "codex:auto", "--needs", "implementation,research,web,container,meta"
+    )
+    assert proc.returncode == 1, proc.stdout
+    assert _fields(proc.stdout)["FLOW_DRIVER_UNDECLARED"] == "-"
+
+
+@requires_bash
+def test_a_fully_capable_driver_has_nothing_undeclared() -> None:
+    proc = _run("check", "flow:auto", "--needs", "implementation")
+    assert proc.returncode == 0, proc.stderr
+    assert _fields(proc.stdout)["FLOW_DRIVER_UNDECLARED"] == "-"
+    assert "is not a judgement" not in proc.stderr, (
+        "flow:auto has no incapacities, so the narrow-fit advisory must stay quiet "
+        "- an advisory that fires on every call is decoration"
+    )
+
+
+@pytest.mark.parametrize("family", DELEGATED, ids=DELEGATED)
+def test_each_delegated_preflight_asks_the_meta_question(family: str) -> None:
+    """The axis must be DECLARED by a caller or it is decoration (#701's rule).
+
+    flow-driver-capability.sh takes needs from its caller and never infers them,
+    so an axis nothing declares can never fire. The delegated preflights are the
+    callers that would route a CPP-meta issue wrongly, so they are where the
+    question has to be asked.
+    """
+    doc = _driver_doc(family)
+    assert "--needs implementation,meta" in doc, (
+        f"{family}/auto.md's preflight no longer shows how to declare `meta`, so "
+        "the axis cannot fire from the one caller that needs it (issue #877)"
+    )
+    assert ".claude/skills/**" in doc and "carve-out" in doc, (
+        f"{family}/auto.md must still name the fenced paths in its preflight and "
+        "still refuse the carve-out repair (issue #877)"
     )
