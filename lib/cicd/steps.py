@@ -100,6 +100,12 @@ class StepDef:
     skip_if: Optional[str] = None  # shell expression; step skipped if exits 0
     depends_on: list[str] = field(default_factory=list)
     env: dict[str, str] = field(default_factory=dict)
+    # Does skipping this step mean the run verified nothing about some dimension
+    # of the change? That question - not "is this one of the three #617 quality
+    # gates" - is what the #628 warn reporting needs, so it is declared HERE on
+    # the step rather than in a list kept somewhere else (issue #890). See
+    # GATE_STEP_IDS, which is derived from these declarations.
+    gate: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -357,11 +363,8 @@ class ShellStep:
         return last_result
 
 
-# The three quality gates every shipped CI template runs (issue #617). A plan
-# that reports success while ANY of these was SKIPPED is the #628 false green - a
-# gate that verified nothing. The runner names skipped gates and
-# flow-finish-gate.sh reports `warn`, never `ok`, for them.
-GATE_STEP_IDS = frozenset({"lint", "test", "typecheck"})
+# GATE_STEP_IDS is DERIVED from the plans, below BUILTIN_PLANS - see the comment
+# there. It used to be a hand-written literal here and drifted (issue #890).
 
 
 #: Default budget for the whole `test` STEP - not for one pytest invocation.
@@ -411,6 +414,7 @@ def _gate_step(
     """
     return StepDef(
         id=step_id,
+        gate=True,
         command=(
             f'if grep -q "^{step_id}:" Makefile 2>/dev/null; then make {step_id}; '
             f"else uv run --extra dev {uv_tool}; fi"
@@ -448,6 +452,7 @@ BUILTIN_PLANS: dict[str, list[StepDef]] = {
         _gate_step("typecheck", "mypy .", "mypy", 300),
         StepDef(
             id="security_scan",
+            gate=True,
             command="python3 -m lib.security gate flow_finish",
             description="Run security quick scan",
             timeout_seconds=120,
@@ -496,6 +501,7 @@ BUILTIN_PLANS: dict[str, list[StepDef]] = {
         ),
         StepDef(
             id="security_scan",
+            gate=True,
             command="python3 -m lib.security gate flow_deploy",
             description="Run security scan before deploy",
             timeout_seconds=120,
@@ -512,6 +518,55 @@ BUILTIN_PLANS: dict[str, list[StepDef]] = {
             idempotent=False,
         ),
     ],
+}
+
+
+# A quality gate is a step whose SKIP means the run verified nothing about some
+# dimension of the change. A plan that reports success while one was SKIPPED is
+# the #628 false green, so the runner names skipped gates and
+# flow-finish-gate.sh reports `warn` rather than flattening the run to `ok`.
+#
+# DERIVED from the step declarations above, never hand-written (issue #890).
+# The literal it replaces said {"lint", "test", "typecheck"} and omitted
+# `security_scan` for three releases. That omission was not a typo - it was a
+# CATEGORICAL reading of the word "gate" (the three #617 quality gates) rather
+# than an answer to the question the set is actually consulted for. The two
+# readings agree for lint/test/typecheck and disagree for security_scan, whose
+# skip_if is `! python3 -c 'import lib.security'`: it skips exactly when the
+# scanner is not installed, which is precisely when a warn is warranted. A
+# containerised session has no CPP checkout, so it could run its gate, skip the
+# security scan and report a bare `ok`.
+#
+# Deriving it is what makes a repeat impossible rather than merely corrected:
+# there is no second place to update, so a gate cannot be declared and left out
+# of the set. What deriving CANNOT catch is a new step that never declares
+# `gate=` at all and silently takes the default - so that is pinned separately,
+# by an exhaustive classification test over the verification plans
+# (tests/test_runner.py::TestGateDeclarationIsExhaustive), which fails on a step
+# in neither bucket AND on an exemption for a step that no longer exists.
+GATE_STEP_IDS: frozenset[str] = frozenset(
+    step.id for steps in BUILTIN_PLANS.values() for step in steps if step.gate
+)
+
+# Gates the Makefile-fallback lane in scripts/flow-finish-gate.sh cannot run, with
+# the reason it cannot. This exists because GATE_STEP_IDS is read by two
+# consumers that want different things (issue #890): runner.py asks "did skipping
+# this prove nothing?", while the #617 fallback-parity test asks "must the
+# degraded lane run this?". Those agreed until `security_scan` became a gate, and
+# conflating them is what made a one-line fix red a test about something else.
+#
+# An entry here is a claim that the fallback CANNOT cover the gate, not a licence
+# to leave it out: tests/test_runner.py asserts every finish-plan gate is either
+# invoked by the fallback or named here, so a new gate has to land in one bucket
+# on purpose.
+FALLBACK_UNRUNNABLE_GATES: dict[str, str] = {
+    "security_scan": (
+        "the scanner is `python3 -m lib.security`, which lives in the CPP "
+        "checkout. The fallback lane exists precisely when uv or that checkout "
+        "is unavailable - the same condition that skips the step - so there is "
+        "no degraded form of it to run. A skipped scan is surfaced as a #628 "
+        "warn instead, which is the honest report rather than a substitute."
+    ),
 }
 
 

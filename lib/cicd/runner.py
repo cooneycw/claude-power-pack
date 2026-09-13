@@ -166,9 +166,12 @@ class RunResult:
     # state file so a green run can report it at all.
     step_details: list[dict[str, Any]] = field(default_factory=list)
     # Step ids that skip_if-skipped this run (issue #628). A skipped GATE step
-    # (lint/test/typecheck) means the gate verified nothing about the change, so
-    # flow-finish-gate.sh reads this to report `warn` and NAME the skipped gates
-    # rather than flatten the run to a bare `ok`.
+    # means the gate verified nothing about the change, so flow-finish-gate.sh
+    # reads this to report `warn` and NAME the skipped gates rather than flatten
+    # the run to a bare `ok`. Which steps those are is DECLARED on the step and
+    # derived into GATE_STEP_IDS - it was the literal {lint, test, typecheck}
+    # until #890, which is how `security_scan` sat outside it for three
+    # releases.
     skipped_steps: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -605,8 +608,9 @@ class DeterministicRunner:
         # reviewer trusts as "safe to merge", so it must never be printed when the
         # run proved less than it appears to. Three ways it can:
         #   - a test step exited 0 having executed no tests (issue #621), and
-        #   - a quality gate (lint/test/typecheck) was SKIPPED, so it verified
-        #     nothing about the change (issue #628), and
+        #   - a quality gate was SKIPPED, so it verified nothing about the
+        #     change (issue #628; which steps are gates is declared on the step
+        #     and derived into GATE_STEP_IDS, issue #890), and
         #   - a first-attempt test failure passed its one targeted re-run, which
         #     is green but explicitly not a clean pass (issue #769).
         skipped_gates = [s for s in skipped if s in GATE_STEP_IDS]

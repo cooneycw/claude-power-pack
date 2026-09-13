@@ -2,7 +2,7 @@
 
 # Flow: Cleanup - Prune Stale Worktrees and Branches
 
-Remove orphaned worktree references, delete local branches already merged to main, and prune stale remote tracking branches.
+Retire worktrees whose work has landed, remove orphaned worktree references, delete local branches already merged to main, and prune stale remote tracking branches.
 
 Worktrees are visible siblings created outside the repo on the git lane (issue
 #627: `<parent>/<repo>-<branch>`, or `$FLOW_WORKTREE_BASE` when set). `git
@@ -31,7 +31,69 @@ fi
 REPO=$(basename "$MAIN_REPO")
 ```
 
-### Step 2: Prune Stale Worktree References
+### Step 2: Sweep Worktrees Whose Work Has Landed (issue #887)
+
+Run this FIRST, before anything below prunes or fetches. Ordering is
+load-bearing and the reason is in Step 5: `git fetch --prune` destroys one of the
+two signals this step needs.
+
+Until #887 this command removed worktree *references* and protected every branch
+that had a worktree, so nothing removed a worktree at all. That was not an
+oversight in this command - it is that nobody owned teardown. `gh pr merge
+--delete-branch` deletes the remote branch and then fails `git branch -d`,
+because git refuses while a worktree holds the branch and `gh` has no notion of
+worktrees. The error is correct to ignore, which is exactly why the worktrees
+pile up: 33 of them and 3.1G after a single wave on cooneycw/kyle.
+
+```bash
+~/.claude/scripts/flow-worktree-sweep.sh --repo "$MAIN_REPO"
+```
+
+That is a **dry run** and removes nothing. Read the report, then apply:
+
+```bash
+~/.claude/scripts/flow-worktree-sweep.sh --repo "$MAIN_REPO" --apply
+```
+
+`--apply` re-derives every condition itself. The dry-run output is a report, not
+a manifest to execute - the state moves while a wave runs, which is why #887
+specifies verification at removal time.
+
+Read the contract lines rather than the prose:
+
+| line | meaning |
+|---|---|
+| `SWEEP_WORKTREE: <path> removable\|removed ...` | all five conditions passed |
+| `SWEEP_WORKTREE: <path> skip <reason>` | checked, and it stays. Normal |
+| `SWEEP_WORKTREE: <path> undecidable <reason>` | could NOT be classified |
+| `SWEEP_WORKTREE: <path> refused <reason>` | the removal helper said no |
+| `FLOW_WORKTREE_SWEEP: ok` | every candidate classified |
+| `FLOW_WORKTREE_SWEEP: nothing-to-do` | all classified, none removable |
+| `FLOW_WORKTREE_SWEEP: no-candidates` | there are no linked worktrees. NOT the same |
+| `FLOW_WORKTREE_SWEEP: partial` (exit 3) | something was undecidable or refused |
+
+`partial` is not a failure and needs no retry - it means the sweep is telling you
+it could not classify everything it examined, most often because `gh` was
+unreachable (`pr-unknown`). Report it; do not re-run with different flags to make
+it go away.
+
+**`refused` is information, never an obstacle.** The sweep removes nothing
+itself: every removal is handed to `scripts/worktree-remove.sh`, and the exit
+codes here are that helper's. Exit 4 is a live #597 claim and exit 5 is #888's
+in-use-with-uncommitted-work refusal. The sweep already declines
+to pass `--force` or `--steal`, and you must not add them: overriding either in a
+loop across every worktree on the host is the data-loss path #889 closed, applied
+everywhere at once. If a refusal is wrong, that is the user's call on that one
+path, not this command's.
+
+A worktree with **no PR is always skipped** - a preserved WIP branch and a
+wayfinder research branch both look like that permanently, and both were live on
+the measured host.
+
+Who owns teardown and why it is a sweep rather than the merging session:
+[ADR 0006](docs/decisions/0006-worktree-teardown-ownership.md).
+
+### Step 3: Prune Stale Worktree References
 
 When worktree folders are deleted manually, git still tracks them. This cleans those references.
 
@@ -47,12 +109,14 @@ Report what was pruned (or "No stale worktree references found").
 
 Note: `git worktree prune` deliberately skips a LOCKED entry, so a worktree
 still carrying a live `/flow` claim (issue #597) is never pruned even if its
-directory is gone. That is the intended asymmetry - a claim outranks cleanup.
+directory is gone. Step 2's sweep skips a locked entry for the
+same reason and never passes `--steal`, so the two agree: a claim outranks both
+of them. That is the intended asymmetry - a claim outranks cleanup.
 Inspect one with `~/.claude/scripts/flow-worktree-claim.sh check --issue <N>`;
 a claim whose owning process is gone reports `stale` and is released by the
 next run that needs the worktree.
 
-### Step 3: Find and Delete Merged Local Branches
+### Step 4: Find and Delete Merged Local Branches
 
 Delete local `issue-*` branches that have been merged to main. Protect `main`, `master`, and any branch with an active worktree.
 
@@ -98,7 +162,7 @@ For branches where the remote was deleted (PR merged + `--delete-branch`), use `
 
 Report each branch deleted and the reason (merged to main, or remote branch deleted).
 
-### Step 4: Prune Stale Remote Tracking Branches
+### Step 5: Prune Stale Remote Tracking Branches
 
 ```bash
 git -C "$MAIN_REPO" fetch --prune
@@ -106,9 +170,17 @@ git -C "$MAIN_REPO" fetch --prune
 
 This removes `remotes/origin/issue-*` references for branches already deleted on the remote.
 
+**This step must stay after Step 2.** Pruning drops
+`refs/remotes/origin/<branch>`, and that ref is what `git log @{u}..` needs to
+answer "is anything unpushed here". The sweep carries a second, independent
+answer for that question (the PR's own head commit, which survives the prune), so
+running it after a prune still works - but it then has one signal where it could
+have had two, and #888's lesson was precisely that two guards sharing one input
+degrade to one.
+
 Report how many remote tracking branches were pruned.
 
-### Step 5: Summary Output
+### Step 6: Summary Output
 
 ```markdown
 ## Flow Cleanup - {repo}
@@ -135,10 +207,16 @@ Report how many remote tracking branches were pruned.
 - **Uncommitted changes on a branch:** Never delete - skip and warn
 - **Protected branches:** Never delete `main` or `master`
 - **Active worktree branches:** Never delete branches with active worktrees
+- **Sweep reports `partial` (exit 3):** not a failure. Report which worktrees
+  were `undecidable` or `refused` and why; never re-run with `--force`/`--steal`
+  to clear it
 
 ## Notes
 
 - Safe to run multiple times (fully idempotent)
+- Step 2 removes worktrees; every other step removes only references and
+  branches. It is the only step that can delete uncommitted work, which is why it
+  is a dry run unless `--apply` is passed and why it never passes `--force`
 - Only deletes `issue-*` pattern branches in the squash-merge detection path (other branches require `--merged` confirmation)
 - Use `git branch -d` (safe delete) for merged branches, `git branch -D` (force) only for branches whose remote was deleted
 - Run automatically after `/flow-merge` or manually anytime
