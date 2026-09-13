@@ -575,10 +575,13 @@ def _recording_helper(bindir: Path, exit_code: int = 0) -> tuple[Path, Path]:
 
 @requires_git
 @requires_proc
-def test_the_sweep_passes_neither_force_nor_steal(tmp_path: Path) -> None:
-    """--force would disarm the helper's own uncommitted-changes check; --steal
-    would override the #597 claim and the #888 in-use refusal. The sweep's
-    largest contribution to safety is what it does not pass."""
+def test_the_sweep_passes_only_the_flag_it_needs(tmp_path: Path) -> None:
+    """Every flag but `--delete-branch` overrides a refusal, so the sweep passes none.
+
+    The sweep's largest contribution to safety is what it does NOT pass. That
+    used to be stated as an enumeration of two flags; it is now an allowlist,
+    for the reason recorded inline below.
+    """
     main = _repo(tmp_path)
     wt = _add_worktree(main, tmp_path / "widget-issue-14", "issue-14")
     ghbin = tmp_path / "bin"
@@ -592,11 +595,34 @@ def test_the_sweep_passes_neither_force_nor_steal(tmp_path: Path) -> None:
 
     recorded = log.read_text()
     assert str(wt) in recorded, f"helper was never invoked:\n{res.stdout}{res.stderr}"
-    assert "--force" not in recorded, f"sweep passed --force: {recorded!r}"
-    assert "--steal" not in recorded, f"sweep passed --steal: {recorded!r}"
     assert "--delete-branch" in recorded, (
         "the branch must go with the worktree, or #887's orphaned-branch half is "
         "left behind"
+    )
+
+    # INVERTED, and the inversion is the point. This test enumerated the
+    # forbidden flags - `--force` and `--steal` - which were the only two that
+    # existed when #887 landed. #899 then split `--force` into `--force`,
+    # `--allow-dirty` and `--allow-unpushed`, and the two NEW ones are precisely
+    # the flags that now disarm the data-loss guards. The enumeration did not
+    # know about them, so the sweep could have started passing `--allow-dirty`
+    # and all 25 tests here would still have passed - in a loop over every
+    # worktree on the host, which is the exact path #889 and #899 exist to close.
+    #
+    # Measured, not hypothetical: adding `--allow-dirty` to the invocation left
+    # this file fully green before this assertion replaced the enumeration.
+    #
+    # An allowlist cannot go stale the way that enumeration did. A sixth flag
+    # added to the helper tomorrow is covered on the day it lands, because the
+    # question is no longer "is it one of the two we thought of" but "is it
+    # anything other than the one flag the sweep needs".
+    flags = {tok for tok in recorded.split() if tok.startswith("--")}
+    assert flags == {"--delete-branch"}, (
+        f"the sweep passed {sorted(flags - {'--delete-branch'})} to "
+        f"worktree-remove.sh. It must pass NO flag but --delete-branch: every "
+        f"other flag the helper accepts overrides a refusal, and the sweep is "
+        f"the one caller that applies them to every worktree on the host "
+        f"(issues #887, #889, #899)."
     )
 
 
