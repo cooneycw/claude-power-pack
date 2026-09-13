@@ -56,6 +56,11 @@ WORKTREE_PATH=""
 FORCE=""
 DELETE_BRANCH=false
 STEAL=false
+# Issue #899. Each data-loss refusal gets its OWN override, never --force and
+# never each other's: three distinct refusals that one flag silences is one flag
+# away from being no refusals, which is how #888's guard was lost.
+ALLOW_DIRTY=false
+ALLOW_UNPUSHED=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -71,6 +76,14 @@ while [[ $# -gt 0 ]]; do
             STEAL=true
             shift
             ;;
+        --allow-dirty)
+            ALLOW_DIRTY=true
+            shift
+            ;;
+        --allow-unpushed)
+            ALLOW_UNPUSHED=true
+            shift
+            ;;
         -h|--help)
             echo "Usage: worktree-remove.sh <worktree-path> [--force] [--delete-branch]"
             echo ""
@@ -79,11 +92,20 @@ while [[ $# -gt 0 ]]; do
             echo "first to prevent breaking your shell session."
             echo ""
             echo "Options:"
-            echo "  --force          Remove even if worktree has uncommitted changes"
+            echo "  --force          Pass --force to 'git worktree remove' (the worktree is"
+            echo "                   busy). It does NOT override the data-loss refusals below"
+            echo "                   - being busy is not the same as being expendable (#899)"
             echo "  --delete-branch  Also delete the associated branch after removal"
             echo "                   (force-deletes a squash-merged branch non-interactively)"
             echo "  --steal          Remove even when another live /flow session claims it"
             echo "                   (issue #597; without it a live claim is a hard stop)"
+            echo "  --allow-dirty    Remove even though uncommitted work would be destroyed"
+            echo "                   (issue #899; exit 6 without it)"
+            echo "  --allow-unpushed Remove even though commits exist on no remote ref"
+            echo "                   (issue #899; exit 7 without it)"
+            echo ""
+            echo "Each refusal has its own override on purpose: one flag that silenced all"
+            echo "three would be one flag away from silencing everything."
             echo ""
             echo "Examples:"
             echo "  worktree-remove.sh /home/user/Projects/nhl-api-issue-42"
@@ -361,16 +383,122 @@ if [[ "$CLAIM_OWNED_BY_US" != true && "$STEAL" != true ]]; then
     fi
 fi
 
-# Check for uncommitted changes (unless --force)
-if [[ -z "$FORCE" ]]; then
+# --- Uncommitted-work check (issue #899) -------------------------------------
+# This used to be gated on `--force` being ABSENT, which meant --force deleted
+# uncommitted work on any worktree with no live process. "Idle" is not
+# "abandoned": an agent session between tool calls has NO process running while
+# its worktree may hold hours of work, and #888's observed case was a STAGED
+# 21KB spec file. #889's occupancy guard catches that only while a process is
+# live, so --force plus an idle worktree was an unguarded delete.
+#
+# --force no longer suppresses it. --allow-dirty does, and nothing else:
+# `--force` means "the worktree is busy, make git remove it anyway", which is a
+# different assertion from "I accept losing the contents".
+#
+# ANY porcelain entry counts, including untracked files - deliberately, and
+# measured rather than assumed. The concern was that ignored build artifacts
+# would make this fire constantly on the ordinary post-merge path and train
+# people to pass the override reflexively, destroying the guard exactly as #888
+# destroyed the last one. Measured on three worktrees that had each run the full
+# suite and built a .venv: `.venv` present, 41 `__pycache__` directories,
+# `status --porcelain --ignored` showing 15 entries - and `status --porcelain`
+# reporting ZERO. .gitignore already suppresses them, so they never reach this
+# check and the false-refusal surface is not there.
+#
+# Untracked-but-not-ignored was also zero, which is what decides the simple form
+# over splitting tracked from untracked: an untracked file that .gitignore does
+# NOT cover is a source file somebody created and never staged, which is exactly
+# the work an agent produces and exactly what a split would have deleted.
+if [[ "$ALLOW_DIRTY" != true ]]; then
     CHANGES=$(git -C "$WORKTREE_PATH" status --porcelain 2>/dev/null || echo "")
     if [[ -n "$CHANGES" ]]; then
-        echo -e "${RED}Error: Worktree has uncommitted changes${NC}" >&2
+        echo "WORKTREE_REMOVE_DIRTY: refused" >&2
+        echo -e "${RED}Error: refusing to remove a worktree that holds uncommitted work${NC}" >&2
         echo "" >&2
         git -C "$WORKTREE_PATH" status --short >&2
         echo "" >&2
-        echo "Use --force to remove anyway, or commit/stash changes first." >&2
-        exit 1
+        echo "  Removing it would destroy the above (issue #899). --force does NOT" >&2
+        echo "  override this: it says the worktree is busy, not that its contents are" >&2
+        echo "  expendable. Commit or stash first, or pass --allow-dirty if you are" >&2
+        echo "  certain none of it is wanted." >&2
+        exit 6
+    fi
+fi
+echo "WORKTREE_REMOVE_DIRTY: clean" >&2
+
+# --- Unpushed-commits check (issue #899) -------------------------------------
+# Nothing in this helper looked at commits at all. `git status --porcelain`
+# reports CLEAN for a tree whose commits were never pushed, so the occupancy
+# guard saw occupied-clean and proceeded; with --delete-branch the ref then went
+# too and the commits survived only via `git fsck --lost-found` until gc.
+#
+# NOT `git log @{u}..`, which the issue suggested and which cannot work here.
+# Measured - it fails IDENTICALLY in the two cases it would have to separate:
+#
+#   merged, remote branch pruned (THE ORDINARY PATH)  fatal: no upstream configured
+#   committed, never pushed (THE DATA-LOSS CASE)      fatal: no upstream configured
+#
+# So anything built on it must refuse both, breaking every ordinary removal, or
+# allow both, leaving the gap where it was. `gh pr merge --delete-branch` makes
+# the no-upstream state the NORMAL one, which is why this is not an edge case.
+#
+# `HEAD --not --remotes` asks the question that actually matters - are there
+# commits here that exist on no remote ref - and separates them: empty for a
+# merged branch (its commits are reachable from origin/main) and non-empty for
+# work that was never pushed. It is git-native, offline, and needs no PR lookup,
+# which the sweep's second mechanism does.
+#
+# Also measured against a STALE origin/main, the ordering most likely to produce
+# a false refusal: a server-side merge this clone has not fetched still reports
+# empty, because the local origin/<branch> ref covers HEAD before a prune and
+# origin/main covers it after. Safe in both directions.
+if [[ "$ALLOW_UNPUSHED" != true ]]; then
+    # A repo with NO remote-tracking refs at all is the trap here, and it is not
+    # hypothetical - `git init` with no remote is a legitimate repo and is what
+    # every fixture in this suite builds. `HEAD --not --remotes` reports EVERY
+    # commit there, because there is no remote for anything to be on, so a naive
+    # reading refuses every removal in any local-only repo. "This repo has no
+    # remotes" and "these commits are on no remote" are different facts and only
+    # the second is data loss; conflating them is the same membership-floor
+    # mistake as reading a blank state as a clean one.
+    if [[ -z "$(git -C "$WORKTREE_PATH" for-each-ref --count=1 refs/remotes 2>/dev/null)" ]]; then
+        echo "WORKTREE_REMOVE_UNPUSHED: unknown" >&2
+        echo -e "${YELLOW}Note: no remote-tracking refs in this repository - cannot tell whether commits are pushed.${NC}" >&2
+        UNPUSHED_RC=0
+        UNPUSHED=""
+        UNPUSHED_SKIP=true
+    else
+        UNPUSHED_SKIP=false
+    fi
+    UNPUSHED_RC=0
+    if [[ "${UNPUSHED_SKIP}" != true ]]; then
+        UNPUSHED=$(git -C "$WORKTREE_PATH" log --oneline HEAD --not --remotes 2>/dev/null) || UNPUSHED_RC=$?
+    fi
+    if [[ "${UNPUSHED_SKIP}" == true ]]; then
+        :
+    elif [[ "$UNPUSHED_RC" -ne 0 ]]; then
+        # Undecidable, and said so rather than implied clean (#569): an unborn
+        # HEAD or an unreadable repo lands here, and in both there is nothing to
+        # lose, so this falls open exactly as OCCUPANCY: unknown above does.
+        # The sweep makes the opposite choice because a sweep that skips costs
+        # nothing, while a helper that refuses blocks a merge that must complete
+        # - the same asymmetry #887 recorded.
+        echo "WORKTREE_REMOVE_UNPUSHED: unknown" >&2
+        echo -e "${YELLOW}Note: could not determine whether this worktree holds unpushed commits.${NC}" >&2
+    elif [[ -n "$UNPUSHED" ]]; then
+        echo "WORKTREE_REMOVE_UNPUSHED: refused" >&2
+        echo -e "${RED}Error: refusing to remove a worktree holding commits that are on no remote${NC}" >&2
+        echo "" >&2
+        printf '    %s
+' "$UNPUSHED" >&2
+        echo "" >&2
+        echo "  These commits exist nowhere else (issue #899). With --delete-branch the" >&2
+        echo "  branch ref goes too, leaving them reachable only by 'git fsck --lost-found'" >&2
+        echo "  until gc runs. Push the branch, or pass --allow-unpushed if you are" >&2
+        echo "  certain the commits are unwanted." >&2
+        exit 7
+    else
+        echo "WORKTREE_REMOVE_UNPUSHED: pushed" >&2
     fi
 fi
 

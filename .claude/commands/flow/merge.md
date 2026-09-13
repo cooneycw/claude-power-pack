@@ -227,10 +227,30 @@ pwd  # Verify you are in the main repo, NOT the worktree
 if [[ -f ~/.claude/scripts/worktree-remove.sh ]]; then
     ~/.claude/scripts/worktree-remove.sh "$WORKTREE_PATH" --force --delete-branch
 else
-    git worktree remove "$WORKTREE_PATH" --force
-    git branch -D "$BRANCH" 2>/dev/null || true
+    echo "REFUSING: worktree-remove.sh is missing; not removing $WORKTREE_PATH by hand." >&2
+    echo "  Every guard this lane relies on lives in that helper (issue #899)." >&2
+    echo "  Install it with /flow:repair, then re-run this step." >&2
 fi
 ```
+
+**Why the fallback refuses instead of removing (issue #899).** It used to run
+`git worktree remove --force` plus `git branch -D` directly - no claim check, no
+occupancy check, no uncommitted-work check, no unpushed-commits check. Every
+protection this series built is conditional on a file existing at a fixed path,
+and a guard that is absent is indistinguishable from a guard that passed (the
+#823 shape).
+
+This is lower PROBABILITY, not lower SEVERITY, and the two are different axes:
+the consequence is identical to removing a live worktree by hand, and unlike the
+guarded path it applied unconditionally rather than only to unclaimed worktrees.
+
+It is also not hypothetical. In a Kyle session container `~/.claude/scripts` is a
+PER-ENTRY mount, so whether the helper is present depends on the host checkout
+and the mount rather than on anything in this repository - a containerised
+session is exactly where this branch runs.
+
+A leftover worktree is cheap and visible; `/flow:cleanup` and the #887 sweep both
+collect them. Destroyed work is neither.
 
 **Step 5c - Verify working directory is valid:**
 ```bash
