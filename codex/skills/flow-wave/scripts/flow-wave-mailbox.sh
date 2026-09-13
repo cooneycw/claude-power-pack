@@ -361,9 +361,14 @@
 # directory matches this invocation's - the wave NAME match stays as a
 # cheap pre-filter, never the decision. This closes the hole ACROSS
 # contexts: this repo's own test suite gives every test a fresh
-# `FLOW_WAVE_MAILBOX_DIR` under a shared literal wave name ("testwave"), so
-# an orphan surviving from one test now resolves to a directory the next
-# test's scan does not share, and is excluded.
+# `FLOW_WAVE_MAILBOX_DIR` while every test in one file shares that file's
+# wave NAME (`tests/wave_namespace.py`), so an orphan surviving from one test
+# resolves to a directory the next test's scan does not share, and is
+# excluded. That wave name is per pytest INVOCATION since #881/#882 - it was
+# the literal "testwave" in every checkout, which left this pre-filter
+# matching OTHER runs' watchers on the same host. The directory check below
+# already excluded them for THIS lane; the `ps` lane has no such check, which
+# is why the namespace itself had to become unique.
 #
 # The mechanism does NOT close the hole WITHIN one wave, and this half is
 # verified, not assumed: an orphaned subshell is forked from its parent
@@ -1247,9 +1252,11 @@ watcher_roles_proc() {
     [ "$found_wave" = "$wave" ] || continue
     # The wave NAME matching above is a cheap pre-filter, not the decision
     # (issue #821 follow-up - see the header's IDENTITY section). Two
-    # processes calling themselves "testwave" can be serving two entirely
+    # processes claiming the same wave name can be serving two entirely
     # different mailboxes - every test in this suite does exactly that, one
-    # fresh tmp-path wave root per test, same literal wave name every time.
+    # fresh tmp-path wave root per test, one wave name per test file. (That
+    # name is per pytest invocation since #881/#882; it used to be the literal
+    # "testwave", shared by every checkout on the host.)
     # The actual identity check is the resolved DIRECTORY: a candidate whose
     # own environment resolves to a different wave root than THIS invocation
     # is not the same wave, whatever it calls itself, and a candidate whose

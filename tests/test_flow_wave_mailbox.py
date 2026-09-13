@@ -49,6 +49,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.wave_namespace import unique_wave
+
 ROOT = Path(__file__).resolve().parents[1]
 MAILBOX = ROOT / "scripts" / "flow-wave-mailbox.sh"
 
@@ -66,7 +68,13 @@ requires_ps = pytest.mark.skipif(
     shutil.which("ps") is None, reason="requires ps on PATH (procps)"
 )
 
-WAVE = "testwave"
+#: Unique per pytest INVOCATION, not the shared literal it used to be (#881,
+#: #882). The `ps` fallback lane filters whole-host scan results by this exact
+#: string, so a concurrent worktree's watcher used to match and turn "no
+#: watcher for this mailbox" into "a match I cannot verify" - a correct
+#: `unknown` from the lane, against an assertion expecting `dead`. See
+#: `tests/wave_namespace.py` for why the fix belongs here and not in the lane.
+WAVE = unique_wave()
 
 
 def _run(tmp: Path, *args: str, stdin: str | None = None, timeout: int = 60):

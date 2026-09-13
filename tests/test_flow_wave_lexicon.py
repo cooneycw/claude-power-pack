@@ -38,6 +38,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.wave_namespace import unique_wave
+
 ROOT = Path(__file__).resolve().parents[1]
 LEXICON = ROOT / "scripts" / "flow-wave-lexicon.sh"
 MAILBOX = ROOT / "scripts" / "flow-wave-mailbox.sh"
@@ -52,7 +54,10 @@ requires_jq = pytest.mark.skipif(
     shutil.which("jq") is None, reason="requires jq on PATH"
 )
 
-WAVE = "testwave"
+#: Unique per pytest INVOCATION (#881, #882). This file spawns no watchers, so
+#: it was not a source of the collision - it shares the definition so the
+#: literal has exactly one home and a third copy is not typed by hand.
+WAVE = unique_wave("testlex")
 
 
 def _run(tmp: Path, *args: str, stdin: str | None = None, timeout: int = 60):
