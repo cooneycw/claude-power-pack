@@ -660,8 +660,47 @@ def test_runner_skipped_gates_report_warn_named(tmp_path: Path) -> None:
 
 @requires_bash
 def test_runner_skipped_non_gate_still_ok(tmp_path: Path) -> None:
-    """A skipped NON-gate step (e.g. security_scan) is a legitimate skip - the
-    runner would not list it as a gate, so the marker stays `ok`."""
+    """A skipped NON-gate step is a legitimate skip - the marker stays `ok`.
+
+    THE EXEMPLAR CHANGED HERE, AND WHY IS THE POINT (#628 -> #890). This test
+    used `security_scan` as its non-gate, on #628's categorical reading that a
+    gate is one of the three #617 quality gates. #890 reversed that: the question
+    is what a SKIP MEANS, and `security_scan` skips exactly when the scanner is
+    not installed - so it is a gate, and a skipped one must warn.
+
+    `stale_commit_check` is the non-gate now. Its skip_if is "not on main, or
+    offline", so the skip reports a situation rather than an unverified
+    dimension. The assertion this test makes - that a non-gate skip does not
+    manufacture a warning - is unchanged and still worth having: an over-correction
+    that warned on every skip would be the everyday-blocker failure, and is what
+    the widened filter in flow-finish-gate.sh could have caused.
+    """
+    cpp = _fake_cpp(tmp_path)
+    payload = (
+        '{\n  "success": true,\n  "steps_completed": 4,\n  "steps_total": 4,\n'
+        '  "skipped": [\n    "stale_commit_check"\n  ]\n}'
+    )
+    proc = _run_with_uv_stub(tmp_path, cpp, payload)
+    assert proc.returncode == 0
+    assert "FLOW_FINISH_GATE: ok" in proc.stdout
+    assert "warn" not in proc.stdout
+
+
+@requires_bash
+def test_runner_skipped_security_scan_reports_warn(tmp_path: Path) -> None:
+    """The #890 symptom, asserted end to end - and the half the issue's own fix
+    would have missed.
+
+    Adding `security_scan` to GATE_STEP_IDS changes what the RUNNER logs and puts
+    in its JSON. It does not change this helper, which filters that array through
+    its own hardcoded name list before deciding the verdict. With the Python set
+    fixed and this script untouched, the id reached the array, was filtered out
+    here, and `FLOW_FINISH_GATE: ok` was still printed - the exact symptom #890
+    reports, surviving #890's suggested fix.
+
+    This is the test that would have caught that, because it asserts the marker
+    rather than the set.
+    """
     cpp = _fake_cpp(tmp_path)
     payload = (
         '{\n  "success": true,\n  "steps_completed": 4,\n  "steps_total": 4,\n'
@@ -669,8 +708,43 @@ def test_runner_skipped_non_gate_still_ok(tmp_path: Path) -> None:
     )
     proc = _run_with_uv_stub(tmp_path, cpp, payload)
     assert proc.returncode == 0
-    assert "FLOW_FINISH_GATE: ok" in proc.stdout
-    assert "warn" not in proc.stdout
+    assert "FLOW_FINISH_GATE: warn (skipped gates: security_scan)" in proc.stdout
+    assert "FLOW_FINISH_GATE: ok" not in proc.stdout
+    assert "issue #628" in proc.stdout
+
+
+def test_gate_filter_matches_GATE_STEP_IDS() -> None:
+    """The shell filter and the Python set are one list in two languages (#890).
+
+    flow-finish-gate.sh cannot import lib.cicd, so the gate names are duplicated
+    into a `grep -oE` alternation. Duplicated state drifts - that is the whole
+    defect this issue is about, and it had already happened once between
+    GATE_STEP_IDS and this regex. Parse the alternation out of the script and
+    require set EQUALITY, so drift in either direction fails:
+
+      * a gate added in Python and not here -> the marker keeps saying `ok` for a
+        gate that proved nothing, which is #890 itself;
+      * a name here that is not a gate in Python -> the marker warns about a
+        legitimate skip, the over-correction that makes the warning noise.
+    """
+    import re
+
+    from lib.cicd.steps import GATE_STEP_IDS
+
+    body = (ROOT / "scripts" / "flow-finish-gate.sh").read_text()
+    m = re.search(r"grep -oE '\"\(([^)]+)\)\"'", body)
+    assert m, (
+        "could not find the skipped-gate grep alternation in flow-finish-gate.sh - "
+        "if the extraction was rewritten, update this parser; do NOT drop the "
+        "assertion, which is the only thing keeping the two lists equal (#890)"
+    )
+    shell_gates = set(m.group(1).split("|"))
+    assert shell_gates, "parsed an empty alternation - the parser is broken"
+    assert shell_gates == set(GATE_STEP_IDS), (
+        f"flow-finish-gate.sh filters skipped steps to {sorted(shell_gates)} but "
+        f"GATE_STEP_IDS is {sorted(GATE_STEP_IDS)}. These are one list in two "
+        f"languages and must be equal (issue #890)."
+    )
 
 
 # --- #804: a resumed run carrying an unverified stale result -----------------
