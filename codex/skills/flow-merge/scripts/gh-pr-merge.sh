@@ -121,6 +121,12 @@
 #     switch to the default branch is safe there.
 #   * Either way, verify the PR actually reached MERGED before returning non-zero,
 #     so a stray local post-merge error is never mistaken for a merge failure.
+#   * Either way, report whether the cleanup COMPLETED, as `GH_PR_MERGE_CLEANUP:
+#     ok|incomplete|unknown` (issue #852). Exit 0 answers "did the merge happen";
+#     it has never answered "did the cleanup finish", and a caller reading only
+#     the exit code cannot tell a clean merge from one that left a branch behind.
+#     This marker NEVER changes the exit code - the merge landed either way, and
+#     `/flow:auto` Step 7's "0 means proceed" contract is deliberately intact.
 #
 # Usage:  gh-pr-merge.sh [--admin] [--allow-negated-close] [--allow-incidental-close] [--allow-base-move] <pr-number> <branch-name>
 #           --admin  force `gh pr merge --admin` from the first attempt - the
@@ -1373,6 +1379,46 @@ fi
 # Honestly scoped: it catches base-race/squash contamination, NOT a collapse
 # whose damage is inside the file list - that guard lives at collapse time.
 # Fail-open per component: any unreadable input prints `skipped`, never silence.
+# Issue #852: say whether the post-merge CLEANUP completed, as a marker a
+# caller can read, because `MERGE_EXIT=0` answers "did the merge happen" and
+# not "did the merge complete". #851 closed the one known cause of an
+# incomplete cleanup (a sibling worktree holding the branch); it did not give
+# anyone a way to notice a DIFFERENT cause, and until now the delete's result
+# was discarded by `|| true` and printed nothing at all - so a second cause
+# would have been found the way the first was, by accident.
+#
+# That is also the answer to "measure before designing": you cannot wait for a
+# second observation using an instrument that cannot observe. This adds the
+# instrument, not a fix for a cause nobody has seen.
+#
+# NEVER flips the exit code. The merge has already landed and is not undone by
+# a leftover branch, so turning this into a failure would make callers treat a
+# successful merge as a failed one - the same judgement `GH_PR_MERGE_COMPLETENESS`
+# already makes one function below, and `/flow:auto` Step 7's "0 means proceed"
+# contract stays intact.
+#
+# Deliberately NOT named GH_PR_MERGE_COMPLETENESS: that marker exists and means
+# something else (did the landed squash touch only paths in the PR's file list).
+# Two different questions under one marker name would make both unreadable.
+report_branch_cleanup() {
+    echo "GH_PR_MERGE_CLEANUP: $1"
+    case "$1" in
+        incomplete)
+            echo "warning: PR #$PR_NUMBER MERGED but its remote branch '$BRANCH' is STILL" >&2
+            echo "         PRESENT after the delete attempt (issue #852) - the merge landed," >&2
+            echo "         the cleanup did not. Nothing is broken; a stale branch is left:" >&2
+            echo "         git push origin --delete $BRANCH" >&2
+            ;;
+        unknown)
+            echo "warning: PR #$PR_NUMBER MERGED but whether its remote branch '$BRANCH' was" >&2
+            echo "         deleted could NOT be established (issue #852) - the delete failed" >&2
+            echo "         and the remote was unreadable on re-check. Do not assume either:" >&2
+            echo "         git ls-remote --heads origin $BRANCH" >&2
+            ;;
+    esac
+    return 0
+}
+
 verify_completeness() {
     local root merge_sha files landed extras path
     root=$("$GIT_BIN" rev-parse --show-toplevel 2>/dev/null)
@@ -1435,9 +1481,27 @@ if [[ "$state" == "MERGED" ]]; then
     # on the same branch, which is the bug.
     rc=0
     "$GIT_BIN" ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1 || rc=$?
+    cleanup="ok"
     if [[ $rc -ne 2 ]]; then
-        "$GIT_BIN" push origin --delete "$BRANCH" >/dev/null 2>&1 || true
+        if ! "$GIT_BIN" push origin --delete "$BRANCH" >/dev/null 2>&1; then
+            # The delete did not succeed. Do NOT infer from that what is on the
+            # remote - ask it, for the same reason the check above does: a
+            # failed push and an absent branch are different facts, and one of
+            # the ways a push "fails" is racing someone who deleted it first.
+            # Re-checked ONLY here, never on the success path: `push --delete`
+            # returning 0 is the remote's own answer, while an ls-remote taken
+            # immediately after a successful delete can still observe the ref
+            # and would report a false `incomplete`.
+            vrc=0
+            "$GIT_BIN" ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1 || vrc=$?
+            case $vrc in
+                2) cleanup="ok" ;;
+                0) cleanup="incomplete" ;;
+                *) cleanup="unknown" ;;
+            esac
+        fi
     fi
+    report_branch_cleanup "$cleanup"
 
     verify_completeness
     echo "merged"

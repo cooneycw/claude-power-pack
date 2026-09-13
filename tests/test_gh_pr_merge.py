@@ -101,6 +101,19 @@ def _make_stubs(
     pr_edit_failures: list[int] | None = None,
     sibling_worktree_branch: str | None = None,
     remote_branch_after_merge: str = "absent",
+    # Issue #852. The cleanup marker needs two things the old harness could not
+    # say, for the same reason #811 had to widen `pr_up_to_date`: one value
+    # answering every question makes the questions agree by construction.
+    #   push_delete_ok         - whether `git push origin --delete` succeeds.
+    #                            It always did before, so the failure path -
+    #                            the only path that can report anything but
+    #                            `ok` - was unreachable from a test.
+    #   remote_branch_on_recheck - the SECOND `ls-remote` outcome, taken only
+    #                            after a failed delete. Defaults to None,
+    #                            meaning "same as the first", which is what
+    #                            every pre-existing test already assumed.
+    push_delete_ok: bool = True,
+    remote_branch_on_recheck: str | None = None,
 ) -> dict:
     """Create fake gh/git that log their args and honour a scripted outcome.
 
@@ -305,7 +318,13 @@ def _make_stubs(
     # Issue #848: the post-merge `ls-remote --exit-code` outcome. Three real
     # exit codes, not two - see the docstring above for why "unreachable"
     # must never collapse into "absent".
-    ls_remote_exit = {"present": 0, "absent": 2, "unreachable": 128}[remote_branch_after_merge]
+    _LS_EXIT = {"present": 0, "absent": 2, "unreachable": 128}
+    ls_remote_exit = _LS_EXIT[remote_branch_after_merge]
+    # Issue #852: the re-check after a failed delete. A file-backed counter makes
+    # the two calls answerable differently - the first ls-remote decides whether
+    # to attempt a delete at all, the second decides what the marker reports.
+    ls_recheck_exit = _LS_EXIT[remote_branch_on_recheck or remote_branch_after_merge]
+    ls_ctr_file = tmp_path / "ls_remote_ctr"
 
     # gh: log argv; `pr merge` honours the next scripted (exit, stderr) outcome;
     # `pr view --json mergeable` echoes the next scripted mergeable value; any
@@ -452,8 +471,12 @@ def _make_stubs(
         f'    printf \'worktree %s\\nbranch refs/heads/%s\\n\\n\' "{tmp_path}/sibling-wt" "$sib"\n'
         "  fi\n"
         'elif [[ "$*" == *"ls-remote --exit-code --heads origin"* ]]; then\n'
-        f"  exit {ls_remote_exit}\n"
-        "fi\n"
+        f'  n=$(cat "{ls_ctr_file}" 2>/dev/null || echo 0)\n'
+        f'  echo $(( n + 1 )) > "{ls_ctr_file}"\n'
+        f'  if [[ $n -eq 0 ]]; then exit {ls_remote_exit}; else exit {ls_recheck_exit}; fi\n'
+        'elif [[ "$*" == *"push origin --delete"* ]]; then\n'
+        + ("  exit 0\n" if push_delete_ok else "  exit 1\n")
+        + "fi\n"
         "exit 0\n",
     )
 
@@ -2648,3 +2671,127 @@ def test_unreadable_base_tip_still_fails_open(tmp_path: Path):
     assert result.returncode == 0, result.stderr
     assert "GH_PR_MERGE_BASE_STALE: 0" in result.stdout
     assert any(c.startswith("gh pr merge") for c in _calls(stubs))
+
+
+# --------------------------------------------------------------------------
+# Issue #852: cleanup completeness is reported as its own marker.
+#
+# `MERGE_EXIT=0` answers "did the merge happen", never "did the merge
+# complete". #851 closed the one KNOWN cause of an incomplete cleanup; it gave
+# nobody a way to notice a different one. Until this marker the delete's result
+# was discarded by `|| true` and printed nothing, so a second cause would have
+# been found the way the first was - by accident.
+#
+# These pin the marker's VALUES and, separately, that it never moves the exit
+# code. The second is the load-bearing half: `/flow:auto` Step 7 trusts the
+# exit code alone, so a cleanup warning that flipped it would turn every
+# successful merge with a leftover branch into a failed run.
+# --------------------------------------------------------------------------
+
+
+def test_cleanup_marker_reports_ok_when_the_delete_succeeds(tmp_path: Path):
+    stubs = _make_stubs(
+        tmp_path, merge_exit=0, pr_state="MERGED", remote_branch_after_merge="present"
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-852-fix")
+    assert result.returncode == 0, result.stderr
+    assert "GH_PR_MERGE_CLEANUP: ok" in result.stdout
+
+
+def test_cleanup_marker_reports_ok_when_the_branch_was_already_gone(tmp_path: Path):
+    """Definitive absence needs no delete, and is not an incomplete cleanup.
+
+    Guards the `rc == 2` short-circuit: reporting anything but `ok` here would
+    make the ordinary primary-repo path (where `--delete-branch` already
+    removed the branch) look permanently broken.
+    """
+    stubs = _make_stubs(
+        tmp_path, merge_exit=0, pr_state="MERGED", remote_branch_after_merge="absent"
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-852-fix")
+    assert result.returncode == 0, result.stderr
+    assert "GH_PR_MERGE_CLEANUP: ok" in result.stdout
+    calls = _calls(stubs)
+    assert not any("push origin --delete" in c for c in calls), calls
+
+
+def test_cleanup_marker_reports_incomplete_when_the_branch_survives(tmp_path: Path):
+    """The case #852 exists for: merged, cleanup did not finish, exit still 0."""
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        remote_branch_after_merge="present",
+        push_delete_ok=False,
+        remote_branch_on_recheck="present",
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-852-fix")
+    assert result.returncode == 0, (
+        "a leftover branch must NOT fail the run - the merge landed, and "
+        "/flow:auto Step 7 reads this exit code alone"
+    )
+    assert "GH_PR_MERGE_CLEANUP: incomplete" in result.stdout
+    assert "STILL" in result.stderr and "issue-852-fix" in result.stderr
+
+
+def test_a_delete_that_lost_a_race_is_ok_not_incomplete(tmp_path: Path):
+    """A failed push whose branch is definitively GONE is a completed cleanup.
+
+    One of the ways `push --delete` fails is racing something that deleted the
+    branch first. Reading the push's exit code as the answer would report that
+    as `incomplete` and send someone to delete a branch that is not there -
+    which is why the failure path re-asks the remote instead of inferring.
+    """
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        remote_branch_after_merge="present",
+        push_delete_ok=False,
+        remote_branch_on_recheck="absent",
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-852-fix")
+    assert result.returncode == 0, result.stderr
+    assert "GH_PR_MERGE_CLEANUP: ok" in result.stdout
+    assert "GH_PR_MERGE_CLEANUP: incomplete" not in result.stdout
+
+
+def test_cleanup_marker_reports_unknown_when_the_remote_cannot_be_read(tmp_path: Path):
+    """Third outcome, kept separate from both others for the #848 reason.
+
+    `unknown` is not `incomplete` (we did not observe a leftover branch) and it
+    is emphatically not `ok` (we did not observe an absent one). Collapsing it
+    either way is the mistake the surrounding code's own comment forbids.
+    """
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        remote_branch_after_merge="present",
+        push_delete_ok=False,
+        remote_branch_on_recheck="unreachable",
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-852-fix")
+    assert result.returncode == 0, result.stderr
+    assert "GH_PR_MERGE_CLEANUP: unknown" in result.stdout
+    assert "could NOT be established" in result.stderr
+
+
+def test_the_cleanup_marker_never_collides_with_the_completeness_marker(tmp_path: Path):
+    """Two different questions, two different marker names.
+
+    `GH_PR_MERGE_COMPLETENESS` already means "did the landed squash touch only
+    paths in the PR's file list". A caller grepping for one must not match the
+    other, so this pins that both appear and that neither name is a prefix
+    match for the other's line.
+    """
+    stubs = _make_stubs(
+        tmp_path, merge_exit=0, pr_state="MERGED", remote_branch_after_merge="present"
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-852-fix")
+    assert result.returncode == 0, result.stderr
+    lines = result.stdout.splitlines()
+    cleanup = [ln for ln in lines if ln.startswith("GH_PR_MERGE_CLEANUP:")]
+    completeness = [ln for ln in lines if ln.startswith("GH_PR_MERGE_COMPLETENESS:")]
+    assert len(cleanup) == 1, lines
+    assert len(completeness) == 1, lines
