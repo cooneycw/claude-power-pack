@@ -45,7 +45,7 @@
 # its own lexicon - and the answer is the same one: it must be READ BACK by a
 # mechanism, not merely published.
 #
-# ---- The three axes --------------------------------------------------------
+# ---- The four axes ---------------------------------------------------------
 #
 #   scope: general | implementation-only
 #     Whether the driver's deliverable can be anything (a written finding, a
@@ -71,7 +71,36 @@
 #     implementation-only, because #749 already skips its sandbox for a remote
 #     Ollama endpoint - the same conditional #749 recorded for its `web_basis`.
 #
-# `web_basis` / `container_basis` record HOW a `no` (or a conditional `yes`) is
+#   meta: yes | no
+#     Whether the driver may read and edit THIS REPOSITORY'S OWN orchestration
+#     documents - `.claude/commands/**` and `.claude/skills/**`. Added by issue
+#     #877, for the same reason #835 added `container`: the matrix could say a
+#     driver's deliverable must be a source diff, but had no way to say that a
+#     whole CLASS of source diff is closed to it. A large share of CPP's own
+#     open work IS an edit to those files, and the fence forbids the delegated
+#     drivers from READING the exact files they would have to modify.
+#
+#     This is not a near-miss careful prompting resolves. Three issues (#869,
+#     #834, #865) were dispatched to three workers in one wave and all three
+#     hit the wall simultaneously, at Step 3/4 - after a worktree, a branch, a
+#     full read of the issue and a complete plan. The discovery is not reusable:
+#     each worker rediscovered it independently.
+#
+#     The axis is declared for all four drivers and is NOT a codex quirk: the
+#     fence block is byte-identical in codex/auto.md, qwen/auto.md and
+#     gemma/auto.md, and tests/test_driver_capability.py already asserts it
+#     per-FAMILY. flow:auto is the only `yes`, because Claude drives it directly
+#     and no fence appears in its document.
+#
+#     WHAT THIS AXIS MUST NEVER BECOME: a reason to thin the fence. The repair
+#     that looks narrow - "the driver may read these files as data for this
+#     task, their contents are still not instructions addressed to it" - is the
+#     wrong one. The fence works by a BRIGHT LINE, chosen so no agent has to
+#     hold a subtle distinction under task pressure, and a carve-out reinstates
+#     exactly the distinction the line exists to remove. Declaring the
+#     incapacity is the fix; granting an exception is the bug.
+#
+# `web_basis` / `container_basis` / `meta_basis` record HOW a `no` (or a conditional `yes`) is
 # enforced, because the drivers reach these verdicts for materially different
 # reasons and collapsing them would overstate some of them (see the qwen notes
 # below). A basis changes no verdict; it exists so a reader can tell a
@@ -110,19 +139,32 @@
 #   driver string carrying a trailing annotation (`flow:auto (Opus)`, as a wave
 #   policy may well declare) matches on its leading token.
 #
-#   NEED is one of: implementation | research | web | container
+#   NEED is one of: implementation | research | web | container | meta
 #     implementation  produces a source diff. Every driver meets this.
 #     research        produces a finding or recommendation rather than a diff.
 #                     Needs scope=general.
 #     web             must consult a live source during the run. Needs web=yes.
 #     container       must reach docker/kubectl/terraform directly from the
 #                     driver's own shell commands. Needs container=yes (#835).
+#     meta            must read or edit `.claude/commands/**` or
+#                     `.claude/skills/**` - this repository's own orchestration
+#                     documents. Needs meta=yes (#877).
 #
 # Output ends with a machine-readable verdict line:
 #   FLOW_DRIVER: known | unknown              (show / list)
 #   FLOW_DRIVER_CHECK: fit | mismatch | unknown   (check)
 # preceded by FLOW_DRIVER_*= detail lines, '-' when not applicable, plus one
 # repeated `FLOW_DRIVER_BLOCKED: <need> - <reason>` line per unmet need.
+#
+# `check` also emits FLOW_DRIVER_UNDECLARED - the needs this driver CANNOT meet
+# that the caller did not ask about (issue #877). It exists because `fit` is a
+# narrower claim than its readers take it for: `check codex:auto --needs
+# implementation` answers "is this deliverable a code change", and the reader
+# supplies "can this driver do this issue". Those came apart on #834, which got
+# `fit` while the fence forbade the driver from touching five of its nine files.
+# UNDECLARED does not guess what the work needs - needs stay DECLARED, never
+# inferred. It states which of this driver's KNOWN incapacities the call left
+# unasked, so a narrow `fit` cannot be read as a broad one.
 #
 # Exit codes: 0 normal, 1 mismatch, 2 usage error.
 #
@@ -152,7 +194,7 @@ driver_record() { # driver_record CANONICAL -> "scope|web|web_basis|scope_basis|
       # Container: verified directly - the Bash tool ran `docker run`/`docker
       # ps`/`docker inspect` against a real image with no sandbox denial (#831
       # groundwork, #835).
-      echo "general|yes|native (Claude Code WebFetch/WebSearch)|none (Claude implements directly)|yes|native (Claude Code Bash tool, no sandbox denial; verified #831/#835)"
+      echo "general|yes|native (Claude Code WebFetch/WebSearch)|none (Claude implements directly)|yes|native (Claude Code Bash tool, no sandbox denial; verified #831/#835)|yes|none (no execution fence in .claude/commands/flow/auto.md; Claude reads and edits these documents directly)"
       ;;
     codex:auto)
       # .claude/commands/codex/auto.md - the fence at "IMPLEMENTATION-ONLY
@@ -164,7 +206,7 @@ driver_record() { # driver_record CANONICAL -> "scope|web|web_basis|scope_basis|
       # docker API at unix:///var/run/docker.sock"; the identical command
       # unsandboxed, same user, same host, succeeded (exit 0). So the sandbox
       # blocks the socket connection specifically, not merely network egress.
-      echo "implementation-only|no|sandbox-blocked (codex --sandbox workspace-write, #735)|execution fence: IMPLEMENTATION-ONLY agent|no|sandbox-blocked (codex --sandbox workspace-write denies the docker socket connection; verified against an unsandboxed control, #835)"
+      echo "implementation-only|no|sandbox-blocked (codex --sandbox workspace-write, #735)|execution fence: IMPLEMENTATION-ONLY agent|no|sandbox-blocked (codex --sandbox workspace-write denies the docker socket connection; verified against an unsandboxed control, #835)|no|execution fence clause 3 (#735), .claude/commands/codex/auto.md: may not read .claude/commands/** or .claude/skills/**"
       ;;
     qwen:auto)
       # .claude/commands/qwen/auto.md - same textual fence. The web answer is
@@ -184,7 +226,7 @@ driver_record() { # driver_record CANONICAL -> "scope|web|web_basis|scope_basis|
       # against a local endpoint, where the sandbox is active and may behave
       # like codex's - declared for the lane CPP actually runs, not assumed to
       # generalize (#835).
-      echo "implementation-only|no|lane-unconfigured (local code model, no web tool in the CPP lane; sandbox skipped for a remote endpoint, #749)|execution fence: IMPLEMENTATION-ONLY agent|yes|unconfined for a remote Ollama endpoint (Docker sandbox skipped, #749; verified: 'docker version' succeeded, exit 0, no denial - untested against a local endpoint, #835)"
+      echo "implementation-only|no|lane-unconfigured (local code model, no web tool in the CPP lane; sandbox skipped for a remote endpoint, #749)|execution fence: IMPLEMENTATION-ONLY agent|yes|unconfined for a remote Ollama endpoint (Docker sandbox skipped, #749; verified: 'docker version' succeeded, exit 0, no denial - untested against a local endpoint, #835)|no|execution fence clause 3 (#735), .claude/commands/qwen/auto.md: may not read .claude/commands/** or .claude/skills/**"
       ;;
     gemma:auto)
       # .claude/commands/gemma/auto.md + templates/opencode-gemma.json - the
@@ -197,7 +239,7 @@ driver_record() { # driver_record CANONICAL -> "scope|web|web_basis|scope_basis|
       # `"state":{"status":"error"}` naming the deny rule, and the model's own
       # next line was "I cannot run docker commands." That gap - a clean process
       # verdict sitting over a denied tool call - is #836.
-      echo "implementation-only|no|profile-denied (gemma-implementer denies webfetch and websearch, #752)|execution fence: IMPLEMENTATION-ONLY agent|no|profile-denied (gemma-implementer denies docker*/kubectl*/terraform*, #752/#835; verified via a real run, #831)"
+      echo "implementation-only|no|profile-denied (gemma-implementer denies webfetch and websearch, #752)|execution fence: IMPLEMENTATION-ONLY agent|no|profile-denied (gemma-implementer denies docker*/kubectl*/terraform*, #752/#835; verified via a real run, #831)|no|execution fence clause 3 (#735), .claude/commands/gemma/auto.md: may not read .claude/commands/** or .claude/skills/**"
       ;;
     *) return 1 ;;
   esac
@@ -229,7 +271,7 @@ canonicalize() {
 # here rather than typed there: two copies of a capability claim drift, and the
 # drift is silent because both look like documentation.
 fence_of() {
-  local scope="$1" web="$2" container="$3" parts=""
+  local scope="$1" web="$2" container="$3" meta="$4" parts=""
   [ "$scope" = "implementation-only" ] && parts="impl-only"
   if [ "$web" = "no" ]; then
     [ -n "$parts" ] && parts="$parts,no-web" || parts="no-web"
@@ -237,13 +279,16 @@ fence_of() {
   if [ "$container" = "no" ]; then
     [ -n "$parts" ] && parts="$parts,no-container" || parts="no-container"
   fi
+  if [ "$meta" = "no" ]; then
+    [ -n "$parts" ] && parts="$parts,no-meta" || parts="no-meta"
+  fi
   [ -n "$parts" ] || parts="general,web"
   printf '%s' "$parts"
 }
 
 # cannot_of SCOPE WEB CONTAINER -> space-separated needs this driver cannot meet.
 cannot_of() {
-  local scope="$1" web="$2" container="$3" out=""
+  local scope="$1" web="$2" container="$3" meta="$4" out=""
   [ "$scope" = "implementation-only" ] && out="research"
   if [ "$web" = "no" ]; then
     [ -n "$out" ] && out="$out web" || out="web"
@@ -251,19 +296,24 @@ cannot_of() {
   if [ "$container" = "no" ]; then
     [ -n "$out" ] && out="$out container" || out="container"
   fi
+  if [ "$meta" = "no" ]; then
+    [ -n "$out" ] && out="$out meta" || out="meta"
+  fi
   printf '%s' "$out"
 }
 
 # emit_driver CANONICAL - the FLOW_DRIVER_*= detail block for one driver.
 emit_driver() {
-  local key="$1" rec scope web web_basis scope_basis container container_basis cannot
+  local key="$1" rec scope web web_basis scope_basis container container_basis meta meta_basis cannot
   rec="$(driver_record "$key")"
   scope="${rec%%|*}"; rec="${rec#*|}"
   web="${rec%%|*}"; rec="${rec#*|}"
   web_basis="${rec%%|*}"; rec="${rec#*|}"
   scope_basis="${rec%%|*}"; rec="${rec#*|}"
-  container="${rec%%|*}"; container_basis="${rec#*|}"
-  cannot="$(cannot_of "$scope" "$web" "$container")"
+  container="${rec%%|*}"; rec="${rec#*|}"
+  container_basis="${rec%%|*}"; rec="${rec#*|}"
+  meta="${rec%%|*}"; meta_basis="${rec#*|}"
+  cannot="$(cannot_of "$scope" "$web" "$container" "$meta")"
   echo "FLOW_DRIVER=$key"
   echo "FLOW_DRIVER_SCOPE=$scope"
   echo "FLOW_DRIVER_SCOPE_BASIS=$scope_basis"
@@ -271,7 +321,9 @@ emit_driver() {
   echo "FLOW_DRIVER_WEB_BASIS=$web_basis"
   echo "FLOW_DRIVER_CONTAINER=$container"
   echo "FLOW_DRIVER_CONTAINER_BASIS=$container_basis"
-  echo "FLOW_DRIVER_FENCE=$(fence_of "$scope" "$web" "$container")"
+  echo "FLOW_DRIVER_META=$meta"
+  echo "FLOW_DRIVER_META_BASIS=$meta_basis"
+  echo "FLOW_DRIVER_FENCE=$(fence_of "$scope" "$web" "$container" "$meta")"
   echo "FLOW_DRIVER_CANNOT=${cannot:--}"
 }
 
@@ -283,6 +335,8 @@ emit_unknown() {
   echo "FLOW_DRIVER_WEB_BASIS=-"
   echo "FLOW_DRIVER_CONTAINER=-"
   echo "FLOW_DRIVER_CONTAINER_BASIS=-"
+  echo "FLOW_DRIVER_META=-"
+  echo "FLOW_DRIVER_META_BASIS=-"
   echo "FLOW_DRIVER_FENCE=-"
   echo "FLOW_DRIVER_CANNOT=-"
 }
@@ -384,13 +438,13 @@ case "$CMD" in
 
   check)
     [ -n "$DRIVER" ] || usage_fail "check requires a driver name"
-    [ -n "$NEEDS" ] || usage_fail "check requires --needs <implementation|research|web|container>[,...]"
+    [ -n "$NEEDS" ] || usage_fail "check requires --needs <implementation|research|web|container|meta>[,...]"
 
     NEED_LIST="$(printf '%s' "$NEEDS" | tr ',' ' ')"
     for n in $NEED_LIST; do
       case "$n" in
-        implementation|research|web|container) : ;;
-        *) usage_fail "unknown need '$n' - one of: implementation, research, web, container" ;;
+        implementation|research|web|container|meta) : ;;
+        *) usage_fail "unknown need '$n' - one of: implementation, research, web, container, meta" ;;
       esac
     done
 
@@ -410,7 +464,9 @@ case "$CMD" in
     web="${rest%%|*}"; rest="${rest#*|}"
     web_basis="${rest%%|*}"; rest="${rest#*|}"
     scope_basis="${rest%%|*}"; rest="${rest#*|}"
-    container="${rest%%|*}"; container_basis="${rest#*|}"
+    container="${rest%%|*}"; rest="${rest#*|}"
+    container_basis="${rest%%|*}"; rest="${rest#*|}"
+    meta="${rest%%|*}"; meta_basis="${rest#*|}"
 
     UNMET=""; BLOCKED=""
     for n in $NEED_LIST; do
@@ -436,14 +492,38 @@ FLOW_DRIVER_BLOCKED: web - $KEY has no live-source access ($web_basis); it would
 FLOW_DRIVER_BLOCKED: container - $KEY cannot reach a container runtime directly ($container_basis)."
           fi
           ;;
+        meta)
+          if [ "$meta" != "yes" ]; then
+            UNMET="$UNMET meta"
+            BLOCKED="$BLOCKED
+FLOW_DRIVER_BLOCKED: meta - $KEY may not read or edit this repository's own orchestration documents ($meta_basis)."
+          fi
+          ;;
         implementation) : ;;   # every declared driver writes source files
       esac
     done
     UNMET="${UNMET# }"
 
+    # UNDECLARED: needs this driver CANNOT meet that the caller did not ask
+    # about (issue #877). The needs are still declared, never inferred - this
+    # line does not guess what the work requires, it states which of THIS
+    # DRIVER'S known incapacities this call did not cover. Without it a `fit`
+    # computed from `--needs implementation` alone is indistinguishable from
+    # one computed against every axis, which is precisely how #834 was routed
+    # to a driver the fence forbade and got `fit` back.
+    UNDECLARED=""
+    for c in $(cannot_of "$scope" "$web" "$container" "$meta"); do
+      case " $NEED_LIST " in
+        *" $c "*) : ;;
+        *) UNDECLARED="$UNDECLARED $c" ;;
+      esac
+    done
+    UNDECLARED="${UNDECLARED# }"
+
     emit_driver "$KEY"
     echo "FLOW_DRIVER_NEEDS=$NEED_LIST"
     echo "FLOW_DRIVER_UNMET=${UNMET:--}"
+    echo "FLOW_DRIVER_UNDECLARED=${UNDECLARED:--}"
     [ -n "$BLOCKED" ] && printf '%s\n' "${BLOCKED#$'\n'}"
 
     if [ -n "$UNMET" ]; then
@@ -451,6 +531,12 @@ FLOW_DRIVER_BLOCKED: container - $KEY cannot reach a container runtime directly 
       echo "  Route it to a driver that can (see 'flow-driver-capability.sh list'), or do it in-session." >&2
       echo "FLOW_DRIVER_CHECK: mismatch"
       exit 1
+    fi
+    if [ -n "$UNDECLARED" ]; then
+      echo "flow-driver-capability: '$KEY' is fit for the needs you DECLARED ($NEED_LIST)." >&2
+      echo "  You did not declare: $UNDECLARED - and it cannot meet those." >&2
+      echo "  'fit' answers only the needs given. It is not a judgement that this" >&2
+      echo "  driver can do this issue (issue #877)." >&2
     fi
     echo "FLOW_DRIVER_CHECK: fit"
     exit 0

@@ -282,12 +282,17 @@
 #                            terraform directly? issue #835 - does NOT track
 #                            scope/web; qwen:auto is implementation-only and
 #                            web=no yet container=yes)
+#   FLOW_WAVE_DRIVER_META    yes | no (may it read/edit this repo's own
+#                            .claude/commands/** and .claude/skills/**? issue
+#                            #877 - `no` for all three delegated drivers, whose
+#                            #735 fence forbids reading them, and the reason a
+#                            CPP-meta issue must not be routed to one)
 #   FLOW_WAVE_DRIVER_CANNOT  the needs it structurally cannot meet, e.g.
 #                            `research web`. THE routing line: an issue whose
 #                            deliverable is a finding rather than a diff, handed
 #                            to a role naming `research` here, is the mis-route
 #                            #783 was filed about - now visible at assignment.
-#   FLOW_WAVE_POLICY_DRIVER_SCOPE / _WEB / _CONTAINER / _CANNOT  the same, for
+#   FLOW_WAVE_POLICY_DRIVER_SCOPE / _WEB / _CONTAINER / _META / _CANNOT  the same, for
 #                            the wave-level default driver (register/get/list/
 #                            policy)
 #   FLOW_WAVE_BRIEF          current | stale | none. `stale` means the policy was
@@ -951,6 +956,7 @@ emit_policy_lines() {
     echo "FLOW_WAVE_POLICY_DRIVER_SCOPE=-"
     echo "FLOW_WAVE_POLICY_DRIVER_WEB=-"
     echo "FLOW_WAVE_POLICY_DRIVER_CONTAINER=-"
+    echo "FLOW_WAVE_POLICY_DRIVER_META=-"
     echo "FLOW_WAVE_POLICY_DRIVER_CANNOT=-"
     echo "FLOW_WAVE_POLICY_AUTHORITY=-"
     echo "FLOW_WAVE_POLICY_AUTHORITY_MODEL=-"
@@ -973,6 +979,7 @@ emit_policy_lines() {
   echo "FLOW_WAVE_POLICY_DRIVER_SCOPE=$(driver_cap_dash "$pd" SCOPE)"
   echo "FLOW_WAVE_POLICY_DRIVER_WEB=$(driver_cap_dash "$pd" WEB)"
   echo "FLOW_WAVE_POLICY_DRIVER_CONTAINER=$(driver_cap_dash "$pd" CONTAINER)"
+  echo "FLOW_WAVE_POLICY_DRIVER_META=$(driver_cap_dash "$pd" META)"
   echo "FLOW_WAVE_POLICY_DRIVER_CANNOT=$(driver_cap_dash "$pd" CANNOT)"
   echo "FLOW_WAVE_POLICY_AUTHORITY=$(policy_field "$p" authority)"
   echo "FLOW_WAVE_POLICY_AUTHORITY_MODEL=$(policy_field "$p" authority_model)"
@@ -1730,6 +1737,7 @@ case "$VERB" in
     echo "FLOW_WAVE_DRIVER_SCOPE=$(driver_cap_dash "$GET_DRIVER" SCOPE)"
     echo "FLOW_WAVE_DRIVER_WEB=$(driver_cap_dash "$GET_DRIVER" WEB)"
     echo "FLOW_WAVE_DRIVER_CONTAINER=$(driver_cap_dash "$GET_DRIVER" CONTAINER)"
+    echo "FLOW_WAVE_DRIVER_META=$(driver_cap_dash "$GET_DRIVER" META)"
     echo "FLOW_WAVE_DRIVER_CANNOT=$(driver_cap_dash "$GET_DRIVER" CANNOT)"
     GET_POL="$(policy_json "$WAVE")"
     GET_POL_REV="$(policy_rev_of "$GET_POL")"
