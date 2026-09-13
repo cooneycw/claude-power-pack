@@ -575,10 +575,13 @@ def _recording_helper(bindir: Path, exit_code: int = 0) -> tuple[Path, Path]:
 
 @requires_git
 @requires_proc
-def test_the_sweep_passes_neither_force_nor_steal(tmp_path: Path) -> None:
-    """--force would disarm the helper's own uncommitted-changes check; --steal
-    would override the #597 claim and the #888 in-use refusal. The sweep's
-    largest contribution to safety is what it does not pass."""
+def test_the_sweep_passes_only_the_flag_it_needs(tmp_path: Path) -> None:
+    """Every flag but `--delete-branch` overrides a refusal, so the sweep passes none.
+
+    The sweep's largest contribution to safety is what it does NOT pass. That
+    used to be stated as an enumeration of two flags; it is now an allowlist,
+    for the reason recorded inline below.
+    """
     main = _repo(tmp_path)
     wt = _add_worktree(main, tmp_path / "widget-issue-14", "issue-14")
     ghbin = tmp_path / "bin"
@@ -592,11 +595,34 @@ def test_the_sweep_passes_neither_force_nor_steal(tmp_path: Path) -> None:
 
     recorded = log.read_text()
     assert str(wt) in recorded, f"helper was never invoked:\n{res.stdout}{res.stderr}"
-    assert "--force" not in recorded, f"sweep passed --force: {recorded!r}"
-    assert "--steal" not in recorded, f"sweep passed --steal: {recorded!r}"
     assert "--delete-branch" in recorded, (
         "the branch must go with the worktree, or #887's orphaned-branch half is "
         "left behind"
+    )
+
+    # INVERTED, and the inversion is the point. This test enumerated the
+    # forbidden flags - `--force` and `--steal` - which were the only two that
+    # existed when #887 landed. #899 then split `--force` into `--force`,
+    # `--allow-dirty` and `--allow-unpushed`, and the two NEW ones are precisely
+    # the flags that now disarm the data-loss guards. The enumeration did not
+    # know about them, so the sweep could have started passing `--allow-dirty`
+    # and all 25 tests here would still have passed - in a loop over every
+    # worktree on the host, which is the exact path #889 and #899 exist to close.
+    #
+    # Measured, not hypothetical: adding `--allow-dirty` to the invocation left
+    # this file fully green before this assertion replaced the enumeration.
+    #
+    # An allowlist cannot go stale the way that enumeration did. A sixth flag
+    # added to the helper tomorrow is covered on the day it lands, because the
+    # question is no longer "is it one of the two we thought of" but "is it
+    # anything other than the one flag the sweep needs".
+    flags = {tok for tok in recorded.split() if tok.startswith("--")}
+    assert flags == {"--delete-branch"}, (
+        f"the sweep passed {sorted(flags - {'--delete-branch'})} to "
+        f"worktree-remove.sh. It must pass NO flag but --delete-branch: every "
+        f"other flag the helper accepts overrides a refusal, and the sweep is "
+        f"the one caller that applies them to every worktree on the host "
+        f"(issues #887, #889, #899)."
     )
 
 
@@ -884,6 +910,76 @@ def test_gitignored_state_is_invisible_to_every_condition(tmp_path: Path) -> Non
 # --------------------------------------------------------------------------
 # The helper the sweep delegates to must still be the real one.
 # --------------------------------------------------------------------------
+
+
+@requires_git
+@requires_proc
+def test_the_sweep_is_currently_inert_on_a_real_post_merge_worktree(
+    tmp_path: Path,
+) -> None:
+    """CHARACTERIZATION. Pins what happens today, which is not what should.
+
+    The sweep's whole population is worktrees whose PR merged and whose remote
+    branch is therefore gone. Against that state, `worktree-remove.sh`'s #905
+    unpushed check refuses with exit 7: it reads "no remote ref" as "these
+    commits exist nowhere", when in fact they are on main, squashed. Filed as
+    #916.
+
+    So the sweep classifies correctly, concludes correctly, and removes NOTHING -
+    `removable=1, removed=0`. #887 is inert in production and has been since #905
+    landed.
+
+    This asserts the BROKEN behaviour on purpose. Asserting the correct behaviour
+    would land a red test for a defect in another file; asserting nothing would
+    leave the inertness invisible, which is how it got here - the rest of this
+    file builds its worktrees with `git worktree add -b` and never pushes, so no
+    branch has a `branch.<name>.remote` at all and the check takes a different
+    path than it ever does in production. A fixture that never pushes cannot
+    exercise a check whose entire subject is a branch's relationship to its
+    remote.
+
+    WHEN #916 LANDS THIS TEST GOES RED. That is the point: flip it to assert
+    `removed` and `ok`, and delete the note in docs/scripts.md. Do not delete the
+    test - it is the only one here that builds the state the sweep actually meets.
+    """
+    main = _repo(tmp_path)
+    # Reproduce `gh pr merge --squash --delete-branch`: the branch was pushed,
+    # carries the merged commits, and its remote ref is then deleted. The origin
+    # URL is restored to the GitHub-shaped one afterwards so the PR lookup still
+    # resolves - production loses the remote-tracking REF, not the remote.
+    bare = tmp_path / "remote.git"
+    _git(main, "init", "-q", "--bare", str(bare))
+    _git(main, "remote", "set-url", "origin", str(bare))
+    _git(main, "push", "-q", "origin", "HEAD:main")
+    wt = _add_worktree(main, tmp_path / "widget-issue-99", "issue-99")
+    (wt / "work.txt").write_text("the work that got merged\n")
+    _git(wt, "add", "-A")
+    _git(wt, "commit", "-qm", "the merged work")
+    _git(wt, "push", "-q", "-u", "origin", "issue-99")
+    _git(main, "push", "-q", "origin", "--delete", "issue-99")
+    _git(main, "fetch", "-q", "--prune", "origin")
+    _git(main, "remote", "set-url", "origin", "https://github.com/acme/widget.git")
+
+    # Preconditions - without these the test could pass for the wrong reason.
+    assert _git(wt, "status", "--porcelain") == "", "precondition: clean"
+    assert "fatal" in subprocess.run(
+        ["git", "-C", str(wt), "rev-parse", "--abbrev-ref", "@{u}"],
+        capture_output=True, text=True,
+    ).stderr, "precondition: the upstream ref is gone, as after --delete-branch"
+
+    bindir = tmp_path / "bin"
+    _fake_gh(bindir)
+    res = _run_sweep(
+        main, "--apply", bindir=bindir,
+        env={"FAKE_GH_ROWS": f"issue-99=MERGED|{_tip(wt)}|99"},
+    )
+
+    assert "removable=1 removed=0" in res.stdout, (
+        "if this now reads removed=1 then #916 is fixed - flip this test to "
+        f"assert success rather than deleting it:\n{res.stdout}"
+    )
+    assert _dispositions(res.stdout)[str(wt)] == "refused helper-exit-7", res.stdout
+    assert wt.exists()
 
 
 @requires_git

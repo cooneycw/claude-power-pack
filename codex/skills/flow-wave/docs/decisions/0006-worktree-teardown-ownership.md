@@ -130,9 +130,27 @@ enumerated in the script's header rather than summarised.
 caller, a worktree that is occupied **and** dirty is exit 5, and `--force` does
 not suppress it. The sweep's relationship to that guard is deliberate:
 
-- It calls the helper **without `--force`**, which leaves the helper's own
-  uncommitted-changes check armed. The sweep's largest contribution to safety is
-  what it does not pass.
+- It passes the helper **no flag but `--delete-branch`**. Every other flag
+  `worktree-remove.sh` accepts overrides a refusal, and the sweep is the one
+  caller that would apply such a flag to every worktree on the host. The sweep's
+  largest contribution to safety is what it does not pass.
+
+  **This was stated as "without `--force`" and that has been overtaken by
+  #899**, which split `--force` into `--force`, `--allow-dirty` and
+  `--allow-unpushed`. The uncommitted-changes check is now armed unconditionally
+  and `--allow-dirty` is what disarms it, so the original sentence described a
+  coupling that no longer exists. The decision it justified is unchanged - the
+  sweep passed none of those flags then and passes none now - but the reasoning
+  was stale, and a reader following it would have looked for a `--force`-gated
+  check that is not there.
+
+  The test was stale in a way that mattered more. It ENUMERATED the two flags
+  that existed when this ADR was written, so the sweep could have begun passing
+  `--allow-dirty` with the whole suite green. Measured, not hypothetical. It now
+  asserts an ALLOWLIST - the flag set must equal `{--delete-branch}` - which
+  covers a sixth flag on the day it lands rather than on the day someone
+  remembers. That is the same hand-maintained-enumeration defect this repository
+  has been closing all week, found in the pin guarding this decision.
 - It calls the helper **without `--steal`**, so exit 4 (#597) and exit 5 (#888)
   are final. Each is recorded as a refusal against that worktree and the sweep
   moves to the next one. Nothing is retried and nothing is overridden. Doing

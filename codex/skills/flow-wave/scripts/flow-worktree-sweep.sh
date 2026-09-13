@@ -26,9 +26,15 @@
 # THIS SCRIPT NEVER DELETES ANYTHING ITSELF. Every removal goes through
 # worktree-remove.sh, and deliberately WITHOUT --force and WITHOUT --steal:
 #
-#   - No --force means worktree-remove.sh's own uncommitted-changes check is
-#     ARMED (it is skipped only when --force is passed). The sweep's contribution
-#     to safety is largely what it does not pass.
+#   - The sweep passes NO flag but --delete-branch. Every other flag the helper
+#     accepts overrides a refusal, and the sweep is the one caller that would
+#     apply one to every worktree on the host. Its contribution to safety is
+#     largely what it does not pass.
+#     (This read "no --force means the uncommitted-changes check is ARMED" until
+#     issue #899 split --force into --force/--allow-dirty/--allow-unpushed and
+#     armed that check unconditionally. The flag the sweep must never pass is now
+#     --allow-dirty; the test asserts an allowlist rather than naming any of
+#     them, so the next flag is covered on the day it lands.)
 #   - No --steal means the #597 claim (exit 4) and the #888 in-use refusal
 #     (exit 5) are both final here. A non-zero exit is recorded as a skip with its
 #     code and the sweep continues to the next worktree. It is never retried, and
