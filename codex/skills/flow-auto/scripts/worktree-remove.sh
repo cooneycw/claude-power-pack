@@ -464,41 +464,33 @@ if [[ "$ALLOW_UNPUSHED" != true ]]; then
     if [[ -z "$(git -C "$WORKTREE_PATH" for-each-ref --count=1 refs/remotes 2>/dev/null)" ]]; then
         echo "WORKTREE_REMOVE_UNPUSHED: unknown" >&2
         echo -e "${YELLOW}Note: no remote-tracking refs in this repository - cannot tell whether commits are pushed.${NC}" >&2
+    else
         UNPUSHED_RC=0
-        UNPUSHED=""
-        UNPUSHED_SKIP=true
-    else
-        UNPUSHED_SKIP=false
-    fi
-    UNPUSHED_RC=0
-    if [[ "${UNPUSHED_SKIP}" != true ]]; then
         UNPUSHED=$(git -C "$WORKTREE_PATH" log --oneline HEAD --not --remotes 2>/dev/null) || UNPUSHED_RC=$?
-    fi
-    if [[ "${UNPUSHED_SKIP}" == true ]]; then
-        :
-    elif [[ "$UNPUSHED_RC" -ne 0 ]]; then
-        # Undecidable, and said so rather than implied clean (#569): an unborn
-        # HEAD or an unreadable repo lands here, and in both there is nothing to
-        # lose, so this falls open exactly as OCCUPANCY: unknown above does.
-        # The sweep makes the opposite choice because a sweep that skips costs
-        # nothing, while a helper that refuses blocks a merge that must complete
-        # - the same asymmetry #887 recorded.
-        echo "WORKTREE_REMOVE_UNPUSHED: unknown" >&2
-        echo -e "${YELLOW}Note: could not determine whether this worktree holds unpushed commits.${NC}" >&2
-    elif [[ -n "$UNPUSHED" ]]; then
-        echo "WORKTREE_REMOVE_UNPUSHED: refused" >&2
-        echo -e "${RED}Error: refusing to remove a worktree holding commits that are on no remote${NC}" >&2
-        echo "" >&2
-        printf '    %s
-' "$UNPUSHED" >&2
-        echo "" >&2
-        echo "  These commits exist nowhere else (issue #899). With --delete-branch the" >&2
-        echo "  branch ref goes too, leaving them reachable only by 'git fsck --lost-found'" >&2
-        echo "  until gc runs. Push the branch, or pass --allow-unpushed if you are" >&2
-        echo "  certain the commits are unwanted." >&2
-        exit 7
-    else
-        echo "WORKTREE_REMOVE_UNPUSHED: pushed" >&2
+        if [[ "$UNPUSHED_RC" -ne 0 ]]; then
+            # Undecidable, and said so rather than implied clean (#569): an unborn
+            # HEAD or an unreadable repo lands here, and in both there is nothing to
+            # lose, so this falls open exactly as OCCUPANCY: unknown above does.
+            # The sweep makes the opposite choice because a sweep that skips costs
+            # nothing, while a helper that refuses blocks a merge that must complete
+            # - the same asymmetry #887 recorded.
+            echo "WORKTREE_REMOVE_UNPUSHED: unknown" >&2
+            echo -e "${YELLOW}Note: could not determine whether this worktree holds unpushed commits.${NC}" >&2
+        elif [[ -n "$UNPUSHED" ]]; then
+            echo "WORKTREE_REMOVE_UNPUSHED: refused" >&2
+            echo -e "${RED}Error: refusing to remove a worktree holding commits that are on no remote${NC}" >&2
+            echo "" >&2
+            printf '    %s
+    ' "$UNPUSHED" >&2
+            echo "" >&2
+            echo "  These commits exist nowhere else (issue #899). With --delete-branch the" >&2
+            echo "  branch ref goes too, leaving them reachable only by 'git fsck --lost-found'" >&2
+            echo "  until gc runs. Push the branch, or pass --allow-unpushed if you are" >&2
+            echo "  certain the commits are unwanted." >&2
+            exit 7
+        else
+            echo "WORKTREE_REMOVE_UNPUSHED: pushed" >&2
+        fi
     fi
 fi
 
