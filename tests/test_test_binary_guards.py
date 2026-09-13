@@ -920,3 +920,224 @@ def test_timeout_widening_reaches_exactly_the_one_genuine_finding(tmp_path: Path
     assert len(findings) == 1, f"expected exactly the one genuine finding, got {findings}"
     assert findings[0].test == "test_a_real_forced_timeout_reaches_the_helper_as_124"
     assert findings[0].via_scripts == (), "the genuine finding is a direct call, not via a script"
+
+
+# --------------------------------------------------------------------------- #
+# Issue #831: the DIRECT lane is inverted - the CI image supplies the default.
+#
+# Before this, the gate answered "is a GUARDED binary unguarded?" and its reader
+# took it for "is ANY binary unguarded?". Both are true of the code; only the
+# first was true of the check. #830 is what the gap cost: `pgrep` was outside
+# what the check examined, `make verify` passed, and CI went red.
+#
+# The first test below is the one that matters, because the obvious fix - adding
+# names to `GUARDED_BINARIES` - is INERT for the case that actually failed if the
+# binary is reached through a script that degrades gracefully. Measured while
+# writing this: widening the set to {pgrep, ps, tmux, flock, curl} and then
+# DELETING the `@requires_ps` guards from tests/test_flow_wave_mailbox.py still
+# produced zero findings. See `test_a_fail_soft_script_use_is_a_known_blind_spot`.
+# --------------------------------------------------------------------------- #
+
+
+def _tree(tmp_path: Path, body: str) -> Path:
+    root = tmp_path / "repo"
+    (root / "tests").mkdir(parents=True)
+    (root / "tests" / "test_sample.py").write_text(body, encoding="utf-8")
+    return root
+
+
+def test_an_unlisted_binary_now_needs_a_guard(tmp_path: Path) -> None:
+    """The membership floor: a binary nobody put on any list.
+
+    `rsync` is on no list in the checker and never has been. Before #831 it was
+    invisible; the point of inverting is that "nobody thought of this one" stops
+    being indistinguishable from "this one is fine".
+    """
+    root = _tree(
+        tmp_path,
+        "import subprocess\n\n\n"
+        "def test_x():\n"
+        "    subprocess.run(['rsync', '-a', 'a', 'b'])\n",
+    )
+    findings = checker.check_tree(root / "tests")
+    assert len(findings) == 1, f"expected the unlisted binary to be found: {findings}"
+    assert findings[0].binaries == ("rsync",)
+
+
+def test_the_830_shape_is_found(tmp_path: Path) -> None:
+    """The exact call that reddened #830, as a regression pin.
+
+    `tests/test_flow_wave_mailbox.py:1861` ran this with no guard. The binary has
+    since been removed from that test entirely (the #814 fix reads /proc instead),
+    so this reconstructs the shape rather than pointing at a live site - stated
+    plainly because a regression test whose original is gone can otherwise read as
+    covering something it no longer touches.
+    """
+    root = _tree(
+        tmp_path,
+        "import subprocess\n\n\n"
+        "def test_supervise():\n"
+        "    subprocess.run(['pgrep', '-P', '1', '-f', 'watch'])\n",
+    )
+    findings = checker.check_tree(root / "tests")
+    assert [f.binaries for f in findings] == [("pgrep",)]
+
+
+def test_a_binary_the_ci_image_provides_needs_no_guard(tmp_path: Path) -> None:
+    """The other direction, and the one that decides whether this is usable.
+
+    An inversion that flagged `sed` would flag most of the suite and be turned
+    off within a week. The exempt list is what keeps the gate proportionate, and
+    is the thing to correct if a finding looks silly - not the inversion.
+    """
+    root = _tree(
+        tmp_path,
+        "import subprocess\n\n\n"
+        "def test_x():\n"
+        "    subprocess.run(['sed', '-n', '1p', 'f'])\n"
+        "    subprocess.run(['grep', '-q', 'x', 'f'])\n"
+        "    subprocess.run(['python3', '-c', 'pass'])\n",
+    )
+    assert checker.check_tree(root / "tests") == []
+
+
+def test_a_guarded_unlisted_binary_is_accepted(tmp_path: Path) -> None:
+    """A guard may now name a binary that appears on no list in the checker."""
+    root = _tree(
+        tmp_path,
+        "import shutil\n"
+        "import subprocess\n\n"
+        "import pytest\n\n"
+        "requires_rsync = pytest.mark.skipif(\n"
+        "    shutil.which('rsync') is None, reason='needs rsync'\n"
+        ")\n\n\n"
+        "@requires_rsync\n"
+        "def test_x():\n"
+        "    subprocess.run(['rsync', '-a', 'a', 'b'])\n",
+    )
+    assert checker.check_tree(root / "tests") == []
+
+
+def test_a_shell_command_string_is_covered_by_the_inversion(tmp_path: Path) -> None:
+    """`shell=True` takes the same lane, so the inversion must reach it too."""
+    root = _tree(
+        tmp_path,
+        "import subprocess\n\n\n"
+        "def test_x():\n"
+        "    subprocess.run('tmux list-sessions', shell=True)\n",
+    )
+    assert [f.binaries for f in checker.check_tree(root / "tests")] == [("tmux",)]
+
+
+def test_bash_is_not_flagged_but_its_script_is_still_followed(tmp_path: Path) -> None:
+    """`bash` is provided by the image, so it must not become a finding itself -
+    and making it exempt must not cost the #789 script hop, which is the only
+    reason argv[0] of `bash` is interesting at all."""
+    root = tmp_path / "repo"
+    (root / "tests").mkdir(parents=True)
+    (root / "scripts").mkdir()
+    script = root / "scripts" / "needs-jq.sh"
+    script.write_text("#!/bin/bash\nBRANCH=$(jq -r '.b' \"$CONFIG\")\necho \"$BRANCH\"\n")
+    (root / "tests" / "test_sample.py").write_text(
+        "import subprocess\n"
+        "from pathlib import Path\n\n"
+        "ROOT = Path(__file__).resolve().parents[1]\n"
+        "SCRIPT = ROOT / 'scripts' / 'needs-jq.sh'\n\n\n"
+        "def test_x():\n"
+        "    subprocess.run(['bash', str(SCRIPT)])\n",
+        encoding="utf-8",
+    )
+    findings = checker.check_tree(root / "tests")
+    assert [f.binaries for f in findings] == [("jq",)], (
+        f"the hop must still resolve through an exempt bash: {findings}"
+    )
+    assert findings[0].via_scripts, "this is a via-script finding, not a direct one"
+
+
+def test_ci_image_constant_matches_the_pipeline(tmp_path: Path) -> None:
+    """`CI_IMAGE_BINARIES` is a claim about ONE image, and claims go stale.
+
+    The exempt list is only as true as the image it describes. Nothing else in
+    this repository would notice the pipeline moving to a different base, and the
+    failure would be silent in exactly the way #830 was: the gate keeps saying ok
+    while the premise underneath it has changed.
+    """
+    pipeline = (ROOT / ".woodpecker.yml").read_text(encoding="utf-8")
+    assert checker.CI_IMAGE in pipeline, (
+        f"check-test-binary-guards.py describes {checker.CI_IMAGE!r}, which "
+        f".woodpecker.yml no longer uses. The exempt list is a statement about "
+        f"the image's contents - re-derive it before changing this constant "
+        f"(issue #831)."
+    )
+
+
+def test_the_two_lists_do_not_silently_overlap() -> None:
+    """A name in both lists is an always-guard override of the image default.
+
+    Legal, and today empty. Asserting it is empty keeps the override from being
+    used by accident: if a future change puts a name in both, that is a decision
+    worth making on purpose rather than discovering from a finding nobody
+    expected.
+    """
+    overlap = checker.GUARDED_BINARIES & checker.CI_IMAGE_BINARIES
+    assert overlap == frozenset(), (
+        f"{sorted(overlap)} are declared both always-guarded and provided by the "
+        f"image. That combination means 'guard it anyway'; if that is intended, "
+        f"say so here rather than leaving it to be inferred."
+    )
+
+
+def test_a_fail_soft_script_use_is_a_known_blind_spot(tmp_path: Path) -> None:
+    """A NAMED RESIDUAL, pinned as a property rather than left as a TODO.
+
+    The hop drops a binary when the script's every use is fail-soft - stderr
+    silenced, in a condition, or with a `||` fallback - because such a script
+    genuinely survives the binary's absence. That is the right answer to the
+    question the hop asks: *can the SCRIPT do its job without this binary?*
+
+    A reader takes it for a different question: *can the TEST pass without this
+    binary?* Those diverge exactly when a script degrades gracefully and a test
+    asserts the DEGRADED-versus-not distinction, which is a growing pattern here -
+    every `unknown`-vs-`clear` lane produces one.
+
+    It is live in this repository: `scripts/flow-wave-mailbox.sh` reaches `ps`
+    only as `$(ps -eo pid,ppid,args --no-headers 2>/dev/null)`, so the hop drops
+    it; `tests/test_flow_wave_mailbox.py` nonetheless needs `ps` to exercise that
+    lane and carries a hand-written `requires_ps` for it. Measured: widening
+    `GUARDED_BINARIES` to include `ps` AND deleting those guards still yields zero
+    findings, so the inversion this issue asked for does not close this.
+
+    Not fixed here on purpose. Believing the fail-soft declaration is what keeps
+    the hop from crying wolf (scanning for mere mentions produced 266 findings,
+    ~250 of them false), so the remedy is a separate channel rather than a wider
+    one - the shape docs/agents/detector-contracts.md calls "when widening is not
+    the remedy". This test exists so the gap is a recorded property, not a
+    surprise the next person rediscovers from a red pipeline.
+    """
+    root = tmp_path / "repo"
+    (root / "tests").mkdir(parents=True)
+    (root / "scripts").mkdir()
+    script = root / "scripts" / "degrades.sh"
+    # The real shape, copied from scripts/flow-wave-mailbox.sh.
+    script.write_text(
+        "#!/bin/bash\nROWS=$(ps -eo pid,ppid,args --no-headers 2>/dev/null)\n"
+        'echo "${ROWS:-unknown}"\n'
+    )
+    (root / "tests" / "test_sample.py").write_text(
+        "import subprocess\n"
+        "from pathlib import Path\n\n"
+        "ROOT = Path(__file__).resolve().parents[1]\n"
+        "SCRIPT = ROOT / 'scripts' / 'degrades.sh'\n\n\n"
+        "def test_forces_the_ps_lane():\n"
+        "    subprocess.run(['bash', str(SCRIPT)])\n",
+        encoding="utf-8",
+    )
+    assert "ps" in checker.GUARDED_BINARIES, (
+        "precondition: `ps` must be on the hop's scan list, or this test proves "
+        "only that an unlisted binary is unlisted"
+    )
+    assert checker.check_tree(root / "tests") == [], (
+        "if this now reports a finding the residual has been closed - good. "
+        "Update this test to assert the new behaviour and remove the note in "
+        "docs/scripts.md rather than deleting the test."
+    )

@@ -3,8 +3,23 @@
 
 CLAUDE.md carries the rule:
 
-    A test that shells out to a real binary (`git`, `docker`, `gitleaks`, `jq`) MUST
-    guard with `@pytest.mark.skipif(shutil.which("<tool>") is None, ...)`.
+    A test that shells out to a real binary must use a `shutil.which` skip guard -
+    including when it reaches that binary by running a repo shell script.
+    `scripts/check-test-binary-guards.py` enforces the detailed contract.
+
+The quoted rule says "a real binary". Until issue #831 this file enforced it for
+FOUR - `git`, `docker`, `gitleaks`, `jq` - and every other binary was not
+under-detected but OUTSIDE what the check examined. That is the whole gap: the
+DIRECTIVE was broad, the GATE was narrow, and the gate is what a reader trusts.
+#830 is the bill: a test ran `subprocess.run(["pgrep", ...])`, the gate said ok,
+and CI went red on `FileNotFoundError` because `pgrep` ships in procps and
+bookworm-slim omits it. The tell that this was a defect rather than a missing
+entry is that `ps` was not on the list either, yet a `requires_ps` guard existed -
+it was there because someone remembered, not because anything checked.
+
+The DIRECT lane is now inverted: a bare argv[0] the CI image does not provide
+needs a guard (see `CI_IMAGE_BINARIES`). The SCRIPT-HOP lane keeps an explicit
+list, for a measured reason recorded beside that constant.
 
 The Woodpecker ``validate`` container (``uv:python3.11-bookworm-slim``) ships
 none of those binaries, so an unguarded test does not fail politely - it raises
@@ -139,7 +154,90 @@ from pathlib import Path
 #: hand-added skipif is what the hop cannot statically resolve - a runtime-built
 #: argv, a `bash -c` command string, a script path held in a local variable, or
 #: a binary reached through a SECOND script the first one sources.
-GUARDED_BINARIES = frozenset({"git", "docker", "gitleaks", "jq"})
+GUARDED_BINARIES = frozenset({"git", "docker", "gitleaks", "jq", "pgrep", "ps", "tmux", "flock", "curl"})  # noqa: E501 - single line: the #833 widening harness substitutes this whole line
+
+#: What the Woodpecker ``validate`` image PROVIDES - the inverse list, and the
+#: one the DIRECT lane is judged against since issue #831.
+#:
+#: The direct lane used to ask "is argv[0] one of the four names on the guarded
+#: list?", so every other binary was not under-detected but OUTSIDE what the
+#: check examined. #830 is what that costs: a test ran
+#: ``subprocess.run(["pgrep", ...])``, ``pgrep`` was not one of the four, the
+#: gate said ok, and CI went red on ``FileNotFoundError`` because ``pgrep`` ships
+#: in procps and bookworm-slim omits it. The tell that this was a defect rather
+#: than a missing entry: ``ps`` was not on the list either, yet a ``requires_ps``
+#: guard existed - because someone REMEMBERED, not because anything checked.
+#:
+#: So the default is inverted here. A bare-name argv[0] that is not in this set
+#: needs a guard, which makes "a binary nobody thought about" a state the check
+#: can represent. This list states the real dependency - what the image has -
+#: rather than what someone remembered to type, so a change to the image is a
+#: change to one list instead of a silent behaviour change across the suite.
+#:
+#: THE INVERSION IS DELIBERATELY NOT APPLIED TO THE SCRIPT HOP, and the reason is
+#: measured rather than assumed. In shell text a binary and a shell FUNCTION sit
+#: at the same "command position", and so do many variable and heredoc fragments:
+#: scanning this repo's own ``scripts/*.sh`` for any command-position token and
+#: subtracting a generous exempt list leaves 141 uses of ``jq`` alongside 107 of
+#: ``usage_fail``, 116 of ``s`` and 75 of ``issue``. Telling those apart needs a
+#: shell parser, which this file states outright that it is not, so the hop keeps
+#: an explicit list - ``GUARDED_BINARIES`` above, now widened past the original
+#: four. A guess that cries wolf costs more than the false negative it removes.
+#:
+#: KEEP THIS EQUAL TO THE IMAGE. ``tests/test_test_binary_guards.py`` pins
+#: ``CI_IMAGE`` against the image named in ``.woodpecker.yml``, so the list
+#: cannot go on describing an image the pipeline stopped using.
+CI_IMAGE = "ghcr.io/astral-sh/uv:python3.11-bookworm-slim"
+
+CI_IMAGE_BINARIES = frozenset(
+    # Shell builtins and keywords - never a PATH lookup at all.
+    """
+    bash sh echo printf cd exit return local export readonly set unset shift eval
+    exec source test true false read declare typeset let trap wait kill umask
+    alias unalias command type hash times ulimit getopts pwd continue break
+    """.split()
+    # coreutils and the base utilities bookworm-slim ships.
+    + """
+    cat ls cp mv rm mkdir rmdir ln touch chmod chown chgrp head tail sort uniq
+    tr cut paste join comm split nl od base64 md5sum sha1sum sha256sum sha512sum
+    seq yes env printenv date sleep basename dirname readlink realpath stat du
+    df sync truncate mkfifo nohup nice timeout tee mktemp install id whoami
+    uname hostname tty which dd expr wc find xargs grep egrep fgrep sed awk gawk
+    mawk diff cmp tar gzip gunzip
+    """.split()
+    # What this specific image adds on top of bookworm-slim.
+    + "python python3 pip uv".split()
+)
+
+
+def _needs_direct_guard(name: str) -> bool:
+    """Does a bare argv[0] of ``name`` require a skipif guard? (issue #831)
+
+    The inverted question: anything the CI image does not provide does, which
+    includes binaries nobody has thought of yet - the case a fixed allowlist of
+    four could not express.
+
+    Two lists, and the union is what decides:
+
+    - ``CI_IMAGE_BINARIES`` supplies the DEFAULT. Not listed there -> guard it.
+      This is the half that makes "a binary nobody put on a list" representable.
+    - ``GUARDED_BINARIES`` is an explicit ALWAYS-GUARD override, and it also
+      drives the script-hop scan. Nothing is in both today, so the override is
+      currently inert for the direct lane in ordinary operation - but it is what
+      lets a name be forced even where the image provides it.
+
+    The override is not decoration. ``tests/test_test_binary_guards.py``'s
+    ``_widened_checker`` builds its oracle by substituting ``GUARDED_BINARIES``
+    (the #833 technique), and #838's oracle widens it to ``timeout`` and requires
+    the one genuine DIRECT finding to survive. Without the union, that widening
+    would move only the hop lane and the direct finding would vanish - the
+    undercount direction those tests exist to forbid.
+    """
+    if not name:
+        return False
+    if name in GUARDED_BINARIES:
+        return True
+    return name not in CI_IMAGE_BINARIES
 
 SUBPROCESS_FUNCS = frozenset({"run", "Popen", "call", "check_call", "check_output"})
 OS_SHELL_FUNCS = frozenset({"system", "popen"})
@@ -485,12 +583,16 @@ def _dotted(node: ast.expr) -> str:
 
 
 def _first_token_binary(command: str) -> str | None:
-    """The binary a literal command string invokes, if it is a guarded one."""
+    """The binary a literal command string invokes, if it needs a guard.
+
+    Inverted at issue #831: anything the CI image does not provide, rather than
+    one of four names.
+    """
     tokens = command.strip().split()
     if not tokens:
         return None
     name = tokens[0].rsplit("/", 1)[-1]
-    return name if name in GUARDED_BINARIES else None
+    return name if _needs_direct_guard(name) else None
 
 
 def _literal_str(node: ast.expr) -> str | None:
@@ -837,14 +939,17 @@ class _ShellOutFinder(ast.NodeVisitor):
             if head is None:
                 return set(), None
             name = head.rsplit("/", 1)[-1]
-            if name in GUARDED_BINARIES:
-                return {name}, None
             if name in SHELL_RUNNERS and self.resolver is not None:
+                # Checked BEFORE the direct test on purpose: `bash` and `sh` are
+                # provided by the image, so they never need a guard themselves,
+                # and what matters is what the script they run reaches.
                 script = self.resolver.script_for_argv(list(first.elts[1:]))
                 if script is None:
                     return set(), None
                 binaries = set(binaries_in_script(script))
                 return (binaries, script) if binaries else (set(), None)
+            if _needs_direct_guard(name):
+                return {name}, None
             return set(), None
 
         literal = _literal_str(first)
@@ -882,7 +987,9 @@ def _which_binaries(node: ast.AST) -> set[str]:
         if dotted.rsplit(".", 1)[-1] != "which" or not child.args:
             continue
         literal = _literal_str(child.args[0])
-        if literal is not None and literal in GUARDED_BINARIES:
+        if literal:
+            # Any name, not only a listed one: since #831 a test can legitimately
+            # guard a binary that appears on no list in this file.
             found.add(literal)
     return found
 
