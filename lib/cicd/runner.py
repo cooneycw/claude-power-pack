@@ -43,6 +43,24 @@ from .steps import (
 # child must re-resolve the project venv from scratch (issue #534).
 RUNNER_STRIP_VARS = frozenset({"PYTHONPATH", "VIRTUAL_ENV", "PYTHONHOME"})
 
+#: What the #769 re-run records when the failed ids pass on their own.
+#:
+#: NOT "passed" (issue #900). The re-run changes two variables at once - WHEN it
+#: ran, and WHAT ran before it - so passing alone is the signature of a flake AND
+#: of an order-dependent real failure. The token names what the experiment
+#: established: isolation, and nothing about the cause.
+#:
+#: The narration fix beside it closes what a HUMAN reads in the moment. This
+#: closes what a LATER READER greps, which is a different population at a
+#: different time - #900's own evidence is a defect that survived WEEKS, by which
+#: point nobody is reading terminal output and the record is all there is.
+#:
+#: `scripts/flow-finish-gate.sh` matches this string with an ANCHORED awk regex,
+#: so the two must stay equal. A drift that misses the shell side does not fail
+#: loudly - the gate stops emitting RERUN_PASSED and silently reports `ok`, which
+#: is #900's exact symptom restored. `tests/test_runner.py` pins both directions.
+RERUN_PASSED_IN_ISOLATION = "passed-in-isolation"
+
 # A flake is a handful of tests. A hundred failures is a regression, and
 # re-running it just doubles the wall clock before reporting the same red
 # (issue #769).
@@ -540,10 +558,37 @@ class DeterministicRunner:
                             "failure stands"
                         )
                     elif rerun_result.success and rerun_outcome is not None:
-                        rerun_verdict = "passed"
+                        rerun_verdict = RERUN_PASSED_IN_ISOLATION
+                        # Say what the re-run ESTABLISHED, which is narrower than
+                        # what it used to claim (issue #900).
+                        #
+                        # The re-run changes TWO variables at once: when it ran,
+                        # and what ran before it. A flake is explained by the
+                        # first; an order-dependent real failure is explained by
+                        # the second. Passing alone is the signature of BOTH, so
+                        # the experiment cannot separate them and its result
+                        # cannot support the word "flake".
+                        #
+                        # This line used to say "first attempt was a flake", and
+                        # that is the sentence that did the damage rather than the
+                        # SUCCESS status. flow-finish-gate.sh has reported
+                        # `warn (rerun passed: ...)` since #769 landed, offering
+                        # both causes - but this line printed FIRST, named one
+                        # cause confidently, and so read as the explanation for
+                        # the warning underneath it. The warn was not missing; it
+                        # was DEFUSED. An order-dependent failure in kyle survived
+                        # weeks of this, cleared every time it fired.
+                        #
+                        # `flow-pr-watch.sh` already states the principle this
+                        # restores: it "does not decide what is a flake. That
+                        # stays a human/critic judgment."
                         self._log(
                             f"  [{idx + 1}/{len(step_defs)}] {step.id}: "
-                            f"RE-RUN PASSED - first attempt was a flake ({id_count} id(s))"
+                            f"RE-RUN PASSED IN ISOLATION - {id_count} id(s) pass "
+                            "when run alone. That is NOT evidence of a flake: an "
+                            "order-dependent real failure passes alone too, and "
+                            "this re-run cannot tell the two apart (issue #900). "
+                            "NOT a clean pass - do not summarize as 'tests passed'"
                         )
                     elif rerun_result.success:
                         rerun_verdict = "inconclusive"
@@ -567,7 +612,7 @@ class DeterministicRunner:
                             "rerun": rerun_outcome.to_dict() if rerun_outcome else None,
                         }
                     )
-                    if rerun_verdict == "passed":
+                    if rerun_verdict == RERUN_PASSED_IN_ISOLATION:
                         # Keep the clean invocation's counts as the primary test
                         # record; the targeted counts live in the rerun channel.
                         state.mark_step_success(
@@ -625,7 +670,7 @@ class DeterministicRunner:
         passed_rerun_ids = [
             node_id
             for rerun in reruns
-            if rerun["outcome"] == "passed"
+            if rerun["outcome"] == RERUN_PASSED_IN_ISOLATION
             for node_id in rerun["ids"]
         ]
         if passed_rerun_ids:
