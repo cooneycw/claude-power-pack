@@ -1479,6 +1479,38 @@ if [[ "$state" == "MERGED" ]]; then
     # harmless (`|| true`) if the branch really was already gone. Do not
     # simplify this to `-eq 0` or `! ... ; then` - that puts 2 and 128 back
     # on the same branch, which is the bug.
+    # Record that this exact commit LANDED, before the delete below destroys the
+    # only other evidence (issue #916).
+    #
+    # THE DEFECT THIS CLOSES. `worktree-remove.sh`'s #905 unpushed check asks
+    # `git log HEAD --not --remotes`. After a SQUASH merge the branch's commits
+    # are rewritten onto main under a different sha, so they are ancestors of
+    # nothing; the verdict then rests entirely on `refs/remotes/origin/<branch>`
+    # surviving, and the `push --delete` three lines below removes it. This
+    # repository squash-merges exclusively, so every merged worktree read as
+    # holding unreachable commits and #887's sweep removed NOTHING.
+    #
+    # WHY HERE. Offline git holds no evidence after the delete and no wider ref
+    # pattern recovers it, so the answer has to come from the one caller that
+    # both KNOWS the branch landed and destroys the proof. That is this block.
+    #
+    # WHAT MAKES IT SAFE IS THE OID, NOT THE CLEANUP. `git branch -D` does clear
+    # `branch.<name>.*`, but `git update-ref -d refs/heads/<name>` does NOT -
+    # measured - so a record CAN outlive the ref it describes. It is harmless
+    # anyway because the reader accepts it only when it equals HEAD exactly: a
+    # surviving record names an OID that genuinely landed, so if HEAD matches
+    # the claim is true, and if HEAD differs it is refused. Do not "simplify"
+    # this to a boolean or key it on the branch name - the OID is the whole
+    # guarantee, and the cleanup is a convenience that does not always happen.
+    #
+    # Fails open in both directions: an unreadable ref writes nothing, and a
+    # failed write never fails the merge. A missing record means the reader
+    # falls through to today's refusal, which is the safe direction.
+    if merged_head=$("$GIT_BIN" rev-parse --verify --quiet "refs/heads/$BRANCH" 2>/dev/null) \
+       && [[ -n "$merged_head" ]]; then
+        "$GIT_BIN" config "branch.${BRANCH}.cpp-merged-head" "$merged_head" 2>/dev/null || true
+    fi
+
     rc=0
     "$GIT_BIN" ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1 || rc=$?
     cleanup="ok"

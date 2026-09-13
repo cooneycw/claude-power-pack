@@ -423,8 +423,36 @@ if [[ "$ALLOW_DIRTY" != true ]]; then
         echo "  certain none of it is wanted." >&2
         exit 6
     fi
+    # Reached only when the check RAN and found nothing (issue #916).
+    echo "WORKTREE_REMOVE_DIRTY: clean" >&2
+else
+    # A check that was SKIPPED must not print the word a check that PASSED
+    # prints. This echo used to sit outside the guard, so `--allow-dirty` on a
+    # tree holding uncommitted work announced `clean` - and the tree was never
+    # measured. Same membership floor the UNPUSHED states already observe:
+    # never-checked and checked-and-empty are different facts.
+    echo "WORKTREE_REMOVE_DIRTY: overridden" >&2
 fi
-echo "WORKTREE_REMOVE_DIRTY: clean" >&2
+
+# Did the merge helper record THIS commit as landed? (issue #916)
+#
+# Accepts ONLY an exact match against HEAD. The record is written by
+# gh-pr-merge.sh inside its MERGED block, so an OID that appears here is one
+# that genuinely landed; requiring equality is what makes a stale record
+# harmless rather than dangerous. `git branch -D` clears the record, but
+# `git update-ref -d` does not (measured), so records CAN survive their branch -
+# the equality check, not the cleanup, is the guarantee.
+#
+# Deliberately offline. A network lookup here would put a call that can fail on
+# the refusal path of a helper whose job is DELETING, and the sweep one level up
+# already performs exactly that lookup.
+landed_record_matches() {
+    local recorded head
+    recorded=$(git -C "$WORKTREE_PATH" config --get "branch.${BRANCH_NAME}.cpp-merged-head" 2>/dev/null) || return 1
+    [[ -n "$recorded" ]] || return 1
+    head=$(git -C "$WORKTREE_PATH" rev-parse HEAD 2>/dev/null) || return 1
+    [[ -n "$head" && "$recorded" == "$head" ]]
+}
 
 # --- Unpushed-commits check (issue #899) -------------------------------------
 # Nothing in this helper looked at commits at all. `git status --porcelain`
@@ -476,6 +504,14 @@ if [[ "$ALLOW_UNPUSHED" != true ]]; then
             # - the same asymmetry #887 recorded.
             echo "WORKTREE_REMOVE_UNPUSHED: unknown" >&2
             echo -e "${YELLOW}Note: could not determine whether this worktree holds unpushed commits.${NC}" >&2
+        elif [[ -n "$UNPUSHED" ]] && landed_record_matches; then
+            # The commits are on no remote REF, and they do not need to be: the
+            # merge helper recorded this exact commit as landed before it deleted
+            # the ref (issue #916). A squash rewrites the branch onto main under a
+            # different sha, so `--not --remotes` is answering "reachable from a
+            # remote ref", while the reader wants "did this land" - the same place
+            # #566 records those two parting company.
+            echo "WORKTREE_REMOVE_UNPUSHED: landed" >&2
         elif [[ -n "$UNPUSHED" ]]; then
             echo "WORKTREE_REMOVE_UNPUSHED: refused" >&2
             echo -e "${RED}Error: refusing to remove a worktree holding commits that are on no remote${NC}" >&2
@@ -492,6 +528,12 @@ if [[ "$ALLOW_UNPUSHED" != true ]]; then
             echo "WORKTREE_REMOVE_UNPUSHED: pushed" >&2
         fi
     fi
+else
+    # Silence is not a verdict (issue #916). `--allow-unpushed` emitted NO
+    # marker at all, so a consumer parsing this output could not tell an
+    # overridden check from a helper too old to have one - which is exactly the
+    # version every container on this host is currently running.
+    echo "WORKTREE_REMOVE_UNPUSHED: overridden" >&2
 fi
 
 # Remove the worktree

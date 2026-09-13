@@ -511,3 +511,178 @@ def test_each_override_silences_only_its_own_refusal(tmp_path: Path) -> None:
     )
     assert both.returncode == 0, both.stderr
     assert not wt.exists()
+
+
+# ---------------------------------------------------------------------------
+# Issue #916: a SQUASH-merged branch read as unpushed once its ref was pruned.
+#
+# #905's check asks `git log HEAD --not --remotes`. A squash rewrites the
+# branch onto main under a different sha, so its commits are ancestors of
+# NOTHING and the verdict rests entirely on `refs/remotes/origin/<branch>`
+# surviving - which `gh-pr-merge.sh` deletes on the ordinary path. This
+# repository squash-merges exclusively, so every merged worktree read as
+# holding unreachable commits and #887's sweep removed nothing.
+#
+# WHY #905's OWN REGRESSION GUARD MISSED IT, and it is the reason these
+# fixtures squash: `test_a_merged_branch_whose_remote_ref_was_pruned_is_not_
+# refused` builds the merge with `git merge --no-ff`. Under --no-ff the branch
+# commits ARE ancestors of origin/main and the check reads empty. Right
+# property, wrong merge strategy, in a repo that never uses that strategy - a
+# guard that passes on a case which cannot occur here.
+# ---------------------------------------------------------------------------
+
+
+def _squash_merged(tmp_path: Path, *, record: bool) -> tuple[Path, Path]:
+    """Reproduce `gh pr merge --squash --delete-branch` exactly.
+
+    `record` writes the `branch.<name>.cpp-merged-head` entry that
+    `gh-pr-merge.sh` writes inside its MERGED block, before the delete. Passing
+    False is the branch merged some OTHER way - a web-UI squash - which no
+    helper recorded.
+    """
+    main = _repo_with_remote(tmp_path)
+    wt = _add_worktree(main, tmp_path / "wt", "issue-1")
+    (wt / "work.txt").write_text("the work\n")
+    _git(wt, "add", "-A")
+    _git(wt, "commit", "-qm", "the work")
+    _git(wt, "push", "-q", "-u", "origin", "issue-1")
+    oid = _git(wt, "rev-parse", "HEAD").strip()
+    # SQUASH, not --no-ff: the commits land on main under a different sha.
+    _git(main, "merge", "-q", "--squash", "issue-1")
+    _git(main, "commit", "-qm", "the work (#1)")
+    _git(main, "push", "-q", "origin", "main")
+    if record:
+        _git(main, "config", "branch.issue-1.cpp-merged-head", oid)
+    _git(main, "push", "-q", "origin", "--delete", "issue-1")
+    return main, wt
+
+
+@requires_git
+def test_a_squash_merged_branch_with_the_merge_record_is_removed(
+    tmp_path: Path,
+) -> None:
+    """The #916 defect, fixed: the record says this exact commit landed."""
+    main, wt = _squash_merged(tmp_path, record=True)
+
+    # Precondition, or this could pass for the wrong reason.
+    assert _git(wt, "log", "--oneline", "HEAD", "--not", "--remotes").strip(), (
+        "precondition: the commits must be on no remote ref, which is the "
+        "state that used to be refused"
+    )
+
+    res = _run_remove(main, str(wt), "--delete-branch")
+    assert res.returncode == 0, f"a landed branch must be removable:\n{res.stderr}"
+    assert "WORKTREE_REMOVE_UNPUSHED: landed" in res.stderr
+    assert not wt.exists()
+
+
+@requires_git
+def test_a_squash_merged_branch_without_a_record_is_still_refused(
+    tmp_path: Path,
+) -> None:
+    """The residual, asserted rather than hidden.
+
+    A branch squash-merged some other way - the web UI, another tool - and later
+    pruned has no record, and is indistinguishable offline from work that was
+    never pushed. It stays refused, which is the safe direction, and the message
+    must point at the missing record rather than claim the commits are lost.
+
+    This is also why the fix is future-only: nothing can retroactively record a
+    merge that already happened without asking the network which merges happened.
+    """
+    main, wt = _squash_merged(tmp_path, record=False)
+
+    res = _run_remove(main, str(wt), "--delete-branch")
+    assert res.returncode == 7, res.stderr
+    assert "WORKTREE_REMOVE_UNPUSHED: refused" in res.stderr
+    assert wt.exists()
+
+
+@requires_git
+def test_a_record_that_does_not_match_head_is_refused(tmp_path: Path) -> None:
+    """The OID keying, which is what actually makes a stale record harmless.
+
+    The issue states the safety as "`git branch -D` removes the section, so the
+    record cannot outlive the ref". MEASURED, that is only true of `branch -D`:
+    `git update-ref -d refs/heads/<name>` deletes the branch and LEAVES the
+    record. So records CAN survive their branch, and the cleanup is not the
+    guarantee.
+
+    The guarantee is that the reader accepts the record ONLY when it equals HEAD
+    exactly. A surviving record names an OID that genuinely landed, so a match
+    means the claim is true; anything else is refused. Here the branch has moved
+    on to new, unpushed work and must be protected.
+    """
+    main = _repo_with_remote(tmp_path)
+    wt = _add_worktree(main, tmp_path / "wt", "issue-2")
+    (wt / "a.txt").write_text("landed work\n")
+    _git(wt, "add", "-A")
+    _git(wt, "commit", "-qm", "landed")
+    landed = _git(wt, "rev-parse", "HEAD").strip()
+    _git(main, "config", "branch.issue-2.cpp-merged-head", landed)
+    # the branch moves on: this commit is NOT the one that landed
+    (wt / "b.txt").write_text("new work nobody has\n")
+    _git(wt, "add", "-A")
+    _git(wt, "commit", "-qm", "new unpushed work")
+
+    res = _run_remove(main, str(wt), "--delete-branch")
+    assert res.returncode == 7, (
+        f"a record naming a DIFFERENT commit must not license removal:\n{res.stderr}"
+    )
+    assert "WORKTREE_REMOVE_UNPUSHED: refused" in res.stderr
+    assert wt.exists(), "the new work must survive"
+
+
+# ---------------------------------------------------------------------------
+# Issue #916: a skipped check must not print what a passed check prints.
+# ---------------------------------------------------------------------------
+
+
+@requires_git
+def test_the_dirty_marker_says_overridden_when_the_check_was_skipped(
+    tmp_path: Path,
+) -> None:
+    """`--allow-dirty` used to print `WORKTREE_REMOVE_DIRTY: clean`.
+
+    The echo sat outside the guard, so a tree holding uncommitted work announced
+    `clean` - and it was never measured. Our own membership floor, in our own
+    output: never-checked and checked-and-empty are different facts.
+    """
+    main = _repo_with_remote(tmp_path)
+    wt = _add_worktree(main, tmp_path / "wt", "issue-3")
+    (wt / "uncommitted.txt").write_text("not committed\n")
+
+    # BOTH flags, and the pairing is the #899 separation working rather than an
+    # inconvenience: `--allow-dirty` says the CONTENTS are expendable, while
+    # `--force` is what `git worktree remove` itself requires to remove a tree
+    # holding modified files. Neither implies the other, which is the whole
+    # point of splitting them.
+    res = _run_remove(
+        main, str(wt), "--force", "--allow-dirty", "--allow-unpushed", "--delete-branch"
+    )
+    assert res.returncode == 0, res.stderr
+    assert "WORKTREE_REMOVE_DIRTY: overridden" in res.stderr
+    assert "WORKTREE_REMOVE_DIRTY: clean" not in res.stderr, (
+        "the tree was NOT measured clean - it held uncommitted work"
+    )
+
+
+@requires_git
+def test_the_unpushed_marker_says_overridden_rather_than_nothing(
+    tmp_path: Path,
+) -> None:
+    """`--allow-unpushed` used to emit NO marker at all.
+
+    Silence is not a verdict. A consumer parsing this output could not tell an
+    overridden check from a helper too old to have one - which is precisely the
+    pre-#899 copy every container on this host is currently running.
+    """
+    main = _repo_with_remote(tmp_path)
+    wt = _add_worktree(main, tmp_path / "wt", "issue-4")
+    (wt / "a.txt").write_text("committed, never pushed\n")
+    _git(wt, "add", "-A")
+    _git(wt, "commit", "-qm", "unpushed")
+
+    res = _run_remove(main, str(wt), "--allow-unpushed", "--delete-branch")
+    assert res.returncode == 0, res.stderr
+    assert "WORKTREE_REMOVE_UNPUSHED: overridden" in res.stderr
