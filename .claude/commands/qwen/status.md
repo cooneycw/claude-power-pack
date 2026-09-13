@@ -101,21 +101,43 @@ if [ -n "$QWEN_CODEX_PROFILE" ]; then
 fi
 ```
 
-### Step 4: Latency Probe (optional, serving machine only)
+### Step 4: Serveability Probe (the check that decides READY)
 
-If the server and model are present, offer a quick generation probe:
+**This step is not optional, and its result is load-bearing (issue #895).** The
+checks above prove the daemon answers and the model is in the catalogue.
+Registration and serveability are different facts, and a host can satisfy both
+checks while being unable to load the model at all - which is where the qwen
+host sat on 2026-09-13.
+
+The probe that separates them is a real single-token generation. It lives in one
+audited helper so that this command and the `/qwen:auto` preflight ask the same
+question and cannot drift apart. Invoke it BARE at the stable path:
 
 ```bash
-echo ""
-echo "=== Latency Probe ==="
-curl -s "$QWEN_ENDPOINT/api/generate" \
-  -d "{\"model\":\"$QWEN_MODEL\",\"prompt\":\"Say OK.\",\"think\":false,\"stream\":false}" \
-  --max-time 120 | grep -o '"eval_count":[0-9]*\|"eval_duration":[0-9]*' || echo "(probe failed or timed out)"
+~/.claude/scripts/lane-serveability-check.sh --endpoint "$QWEN_ENDPOINT" --model "$QWEN_MODEL" --lane qwen
+SERVE_EXIT=$?
 ```
 
-Report tokens/second if the probe succeeds (eval_count / (eval_duration / 1e9)).
-(`"think": false` keeps the probe fast on thinking-enabled models; it is the
-native-API hard switch, more reliable than the `/no_think` soft prompt.)
+(Exit 127 - not installed: fall back to
+`${CLAUDE_PLUGIN_ROOT}/scripts/lane-serveability-check.sh`, else the
+CPP-checkout copy, and tell the user to run **`/flow:repair`**. If no copy
+exists, leave `SERVE_EXIT` unset: Step 5 then reports the lane as UNVERIFIED
+rather than READY, because a probe that did not run is unchecked, not clean.)
+
+Report the verdict, and on `serving` also report throughput from the elapsed
+time. `LANE_SERVE_DETAIL` carries the server's own words on a failure - print
+them verbatim rather than paraphrasing, because they are what distinguishes a
+reaped loader (`signal: killed`, a host memory ceiling) from a model name that
+does not exist.
+
+**Why this replaced the previous hand-rolled latency probe.** That probe ran the
+right request and then discarded its verdict: it piped the response through
+`grep -o '"eval_count"...'` and printed `(probe failed or timed out)` on
+failure, but Step 5's `READY` was computed from `command -v qwen` and
+`/api/version` alone. So on the broken host this command printed the failure and
+then printed `Status: READY` underneath it - and `/qwen:auto` tells a user whose
+run just died to come here and look. The diagnostic surface has to be able to
+say no, or the handoff lands on a green light.
 
 ### Step 5: Summary
 
@@ -127,16 +149,45 @@ READY=true
 command -v qwen &>/dev/null || READY=false
 curl -sf --max-time 5 "$QWEN_ENDPOINT/api/version" > /dev/null 2>&1 || READY=false
 
+# The Step 4 serveability verdict decides READY (issue #895). Three states, not
+# two: 0 is serving, any other exit is a lane that cannot run, and an UNSET
+# SERVE_EXIT means the probe never ran - which is unchecked, not clean, and so
+# must not be allowed to report READY either.
+#
+# `unverified` may only ever WEAKEN a true. A missing harness or an unreachable
+# daemon above is a definite NOT READY, and an absent probe cannot soften it
+# into a maybe - uncertainty is the weaker claim, so it must never overwrite a
+# verdict that was already decided.
+if [ "$READY" = "true" ]; then
+    if [ -z "${SERVE_EXIT:-}" ]; then
+        READY=unverified
+    elif [ "$SERVE_EXIT" -ne 0 ]; then
+        READY=false
+    fi
+fi
+
 if [ "$READY" = "true" ]; then
     echo "Status: READY"
     echo ""
     echo "Commands available:"
     echo "  /qwen:auto <ISSUE>   - Full issue lifecycle via local Qwen"
     echo "  /qwen:exec <PROMPT>  - One-shot local Qwen execution"
+elif [ "$READY" = "unverified" ]; then
+    echo "Status: UNVERIFIED"
+    echo ""
+    echo "The server answers and the model is registered, but the serveability"
+    echo "probe could not be run, so whether this lane can actually serve is"
+    echo "UNKNOWN. Install the helper family with /flow:repair and re-run."
 else
     echo "Status: NOT READY"
     echo ""
-    if [ -z "${QWEN_OLLAMA_URL:-}" ]; then
+    if [ "${SERVE_EXIT:-0}" -ne 0 ]; then
+        echo "The model is registered but could NOT be served - see the Step 4"
+        echo "verdict above. Registration and serveability are different facts,"
+        echo "and this host satisfies only the first. A 'signal: killed' there"
+        echo "means the loader was reaped by the host (a memory ceiling), which"
+        echo "is fixed on the serving machine, not in this repo."
+    elif [ -z "${QWEN_OLLAMA_URL:-}" ]; then
         echo "Likely cause: QWEN_OLLAMA_URL is unset; /cpp:init Tier 6 can persist it"
     else
         echo "To set up: /cpp:init (select Tier 6 - Local Qwen), or see /qwen:help"

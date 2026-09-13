@@ -318,7 +318,59 @@ if ! curl -sf --max-time 5 "$QWEN_ENDPOINT/api/tags" 2>/dev/null | grep -q "${QW
     echo "ERROR: model '$QWEN_MODEL' not found on the server."
     exit 1
 fi
+```
 
+**The two checks above prove the model is REGISTERED, not that it can be SERVED
+(issue #895).** `/api/tags` reports the manifest; it says nothing about whether
+the weights can be loaded into memory. On 2026-09-13 the qwen host sat exactly
+between those facts - both checks passed in ~13ms, the run proceeded, and it died
+~18s later inside the delegated call with `llama-server process has terminated:
+signal: killed`. So run the discriminating probe: one single-token generation,
+which is the only check that separates the two. Invoke it BARE at the stable path
+(the #581 discipline - a wrapped or chained call cannot match the allowlist and
+prompts on every run):
+
+```bash
+~/.claude/scripts/lane-serveability-check.sh --endpoint "$QWEN_ENDPOINT" --model "$QWEN_MODEL" --lane qwen
+```
+
+Act on `LANE_SERVE_STATUS`:
+
+- `serving` -> proceed to delegation.
+- `dead` -> **STOP.** The server answered and cannot load this model. Report
+  `LANE_SERVE_DETAIL` verbatim - it is the server's own diagnosis - and say
+  plainly that the **qwen lane is down**, naming the lane rather than the
+  process. A `signal: killed` is the loader being reaped by the host (a memory
+  ceiling: the kernel OOM killer or a cgroup cap), which is a host-side fix and
+  not a setting in this repo or in `$QWEN_MODEL`. Do not retry: every attempt
+  costs ~18s and fails identically.
+- `unreachable` -> **STOP**, the same way. This is not a milder verdict: the
+  same broken host produced it on two of six probes (a dropped connection at
+  ~17s, and an immediate reset when a probe landed right after a prior failure).
+  Treating it as a transient network blip and delegating anyway is the exact
+  mistake this gate exists to prevent.
+- `unknown` -> the probe could not be PERFORMED (no `curl`). That is
+  **unchecked, not clean** - say so, and do not report the lane as ready.
+
+(Exit 127 - the helper family is not installed: fall back to
+`${CLAUDE_PLUGIN_ROOT}/scripts/lane-serveability-check.sh`, else the
+CPP-checkout copy; either may prompt once. Tell the user to run **`/flow:repair`**
+to restore the prompt-free lane. If no copy exists at all, say the lane was NOT
+verified as serveable rather than proceeding silently.)
+
+The probe costs ~70-90ms against a warm, GPU-resident lane. Its 120s ceiling is a
+hung-socket backstop, not a deadline the healthy path approaches - and
+deliberately generous, because a cold load takes seconds and a lane spilled to
+CPU legitimately takes 18-67s while still serving correctly. Dead and slow are
+not separable by the clock; only the response separates them.
+
+What this probe does **not** cover is tool calling - a model can serve a token
+and still drop tool calls once a system prompt passes ~1,600 tokens
+(ollama/ollama#14958). That question is answered by `/gemma:status`'s
+tool-calling pre-flight, which runs a real harness invocation past the threshold;
+on this lane `/v1` is verified safe for `qwen3.8-code`.
+
+```bash
 # Sandbox detection (issue #749): Docker sandbox containers cannot reach
 # Tailscale or other host-only network interfaces. When the Ollama endpoint
 # is remote, skip --sandbox and rely on the execution fence + overrun

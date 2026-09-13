@@ -338,6 +338,67 @@ if ! curl -sf --max-time 5 "$GEMMA_ENDPOINT/api/tags" 2>/dev/null | grep -q "${G
 fi
 ```
 
+**The two checks above prove the model is REGISTERED, not that it can be SERVED
+(issue #895).** `/api/tags` reports the manifest; it says nothing about whether
+the weights can be loaded into memory. This lane inherited the gate from
+`/qwen:auto` and therefore inherited the defect - it simply had not fired here,
+because this host was healthy while the qwen host was not. On 2026-09-13 that
+host passed both checks in ~13ms and then died ~18s into the delegated call with
+`llama-server process has terminated: signal: killed`. **A latent defect on a
+healthy host is still a defect**, and fixing it only where it has already cost
+someone a debugging session is how the sibling gets fixed late. So run the
+discriminating probe: one single-token generation, the only check that separates
+registration from serveability. Invoke it BARE at the stable path (the #581
+discipline - a wrapped or chained call cannot match the allowlist and prompts on
+every run):
+
+```bash
+~/.claude/scripts/lane-serveability-check.sh --endpoint "$GEMMA_ENDPOINT" --model "$GEMMA_MODEL" --lane gemma
+```
+
+Act on `LANE_SERVE_STATUS`:
+
+- `serving` -> proceed to delegation.
+- `dead` -> **STOP.** The server answered and cannot load this model. Report
+  `LANE_SERVE_DETAIL` verbatim - it is the server's own diagnosis - and say
+  plainly that the **gemma lane is down**, naming the lane rather than the
+  process. A `signal: killed` is the loader being reaped by the host (a memory
+  ceiling: the kernel OOM killer or a cgroup cap), which is a host-side fix and
+  not a setting in this repo or in `$GEMMA_MODEL`. On the reference server the
+  GPU claim is shared with other VMs, so also consider that another VM currently
+  holds the card. Do not retry: each attempt costs ~18s and fails identically.
+- `unreachable` -> **STOP**, the same way. This is not a milder verdict: the
+  broken qwen host produced it on two of six probes (a dropped connection at
+  ~17s, and an immediate reset when a probe landed right after a prior failure).
+  Treating it as a transient network blip and delegating anyway is the exact
+  mistake this gate exists to prevent.
+- `unknown` -> the probe could not be PERFORMED (no `curl`). That is
+  **unchecked, not clean** - say so, and do not report the lane as ready.
+
+(Exit 127 - the helper family is not installed: fall back to
+`${CLAUDE_PLUGIN_ROOT}/scripts/lane-serveability-check.sh`, else the
+CPP-checkout copy; either may prompt once. Tell the user to run **`/flow:repair`**
+to restore the prompt-free lane. If no copy exists at all, say the lane was NOT
+verified as serveable rather than proceeding silently.)
+
+The probe costs ~70-90ms against a warm, GPU-resident lane. Its 120s ceiling is a
+hung-socket backstop, not a deadline the healthy path approaches - and
+deliberately generous for a reason this host demonstrates: when 7.18 GB had
+spilled from VRAM to CPU, a single-token generation legitimately took 18-67s
+while still serving correctly, and a cold load costs 7-12s. Dead and slow are not
+separable by the clock; only the response separates them, which is why a tight
+"fail fast" deadline would condemn a lane that is merely degraded.
+
+What this probe does **not** cover is tool calling, and on this lane that gap is
+the one that matters most: gemma4 on ollama's `/v1` silently drops tool calls
+once a system prompt passes ~1,600 tokens (ollama/ollama#14958), and OpenCode's
+own prompt is ~6,900. A model can therefore serve a token here and still produce
+prose instead of edits on every run. That question is answered by
+`/gemma:status`'s tool-calling pre-flight, which runs a real `opencode run`
+invocation past the threshold - do not widen this probe toward it, because a raw
+curl smoke test passes on both `/v1` and native `/api/chat` and would prove
+nothing.
+
 **The two fences.** `/qwen:auto` has three safety layers (textual fence, OS
 sandbox, overrun verification) and issue #749 knocked the middle one out for
 remote endpoints, because a Docker sandbox cannot reach a Tailscale-served

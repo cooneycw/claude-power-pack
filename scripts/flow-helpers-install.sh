@@ -72,6 +72,7 @@ HELPERS=(
     friction-log.sh
     check-ignored-additions.sh
     delegated-run-check.sh
+    lane-serveability-check.sh
     cpp-commands-link.sh
     install-drift.sh
     flow-helpers-install.sh
