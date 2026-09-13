@@ -770,6 +770,42 @@ Report all six returned fields: `seed_count`, `recorded`, `duplicates`,
 `promoted`, `amplification`, and `promotion_rate`. With zero seeds,
 `amplification` is the string `not-applicable`, never a numeric ratio.
 
+### Sweep the worktrees the wave left behind (#887)
+
+The wave is where they accumulate, and this is the point at which teardown has an
+owner. Every worker created a worktree and finished; the merging session could
+not remove them, because `gh pr merge --delete-branch` deletes the remote branch
+and then fails `git branch -d` while a worktree holds it, and `gh` has no notion
+of worktrees. That error is correct to ignore on every merge, which is why nobody
+acts on it: after one wave on cooneycw/kyle, 33 worktrees and 3.1G, 25 of them
+holding merged branches.
+
+```bash
+~/.claude/scripts/flow-worktree-sweep.sh --repo "$MAIN_REPO"          # report
+~/.claude/scripts/flow-worktree-sweep.sh --repo "$MAIN_REPO" --apply  # remove
+```
+
+Report the `FLOW_WORKTREE_SWEEP_COUNTS:` line in the wave close summary. Three
+things to know before reading the result:
+
+- **`partial` (exit 3) is not a failure.** It means at least one worktree could
+  not be classified - usually `pr-unknown` from an unreachable `gh`. Report it and
+  move on; a worktree left standing costs a directory, and this is the sweep
+  being honest about what it could not establish.
+- **`refused` is the #597 claim (exit 4) or #888's in-use refusal (exit 5).**
+  The sweep deletes nothing itself - it hands each target to
+  `scripts/worktree-remove.sh`, and these are that helper's exit codes. A
+  wave is exactly when a sibling session is still working, so this is expected
+  rather than exceptional. Never clear it with `--force` or `--steal` - in a loop
+  over every worktree on the host that is #889's data-loss path reopened at scale.
+- **A worktree with no PR is always skipped.** A preserved WIP branch and a
+  wayfinder research branch both look like that by design, and both were live on
+  the measured host.
+
+Run it *before* any `git fetch --prune`, and see
+[ADR 0006](../../../docs/decisions/0006-worktree-teardown-ownership.md) for why
+teardown is a sweep rather than a step on the merge path.
+
 ## Hazards (confront, do not assume away)
 
 - **One CI agent serializes the wave.** N workers produce N queued Woodpecker
