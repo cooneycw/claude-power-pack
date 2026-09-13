@@ -245,7 +245,7 @@ conducted *for* this pattern.
 
 ## The instance index
 
-The twenty-four instances this contract was derived from. Kept here, in the guidance,
+The twenty-five instances this contract was derived from. Kept here, in the guidance,
 rather than in the issue that indexed them - a finding that lives only in a closed
 issue is the condition #834 was filed to end. Link new instances here.
 
@@ -258,7 +258,8 @@ issue is the condition #834 was filed to end. Link new instances here.
 | #821 | is there watcher-shaped argv | is there a watcher on *my* mailbox | fixed |
 | #823 | is the repo clean | is what sessions execute clean | fixed |
 | #828 | does each installed helper match | is every helper installed | fixed |
-| #831 | is a *guarded* binary unguarded | is *any* binary unguarded | open |
+| #831 | is a *guarded* binary unguarded | is *any* binary unguarded | fixed (direct lane; the fail-soft hop residual is a new instance below) |
+| #831 residual | can the SCRIPT run without this binary | can the TEST pass without this binary | open |
 | #833 | is this name at command position | is this binary invoked | fixed |
 | #835 | can this driver do implementation-scope / web work | can this driver do *this* task | fixed |
 | #836 | did the delegated process exit clean | did the delegated work happen | open |
