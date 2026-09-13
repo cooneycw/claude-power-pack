@@ -1063,6 +1063,18 @@ Report: `Step 6/9: Finish complete - PR #XX created`
    A claim owned by THIS session, or left by a dead one, is released
    automatically and the removal proceeds normally.
 
+   **Exit 5 is the same kind of clean STOP (issue #888):** no claim named this
+   session, but a live process has its working directory inside the worktree AND
+   the worktree holds uncommitted work. A claim only protects a checkout where
+   one was staked - `free`, `unsupported` and `unknown` are not claims - so this
+   is the guard for a session that is genuinely driving the tree without having
+   claimed it. `--force` does NOT override it (Step 7 always passes `--force`, so
+   a guard it silenced would never fire here). Report the printed PIDs and dirty
+   paths and stop; do NOT retry with `--steal`, which kills that session's work -
+   that is the user's call, not the run's. A host with no readable `/proc` prints
+   `WORKTREE_REMOVE_OCCUPANCY: unknown` and falls open, which means unchecked,
+   not clean.
+
    If the helper is not installed (exit 127), fall back to:
    ```bash
    git worktree remove "$WORKTREE_PATH" --force

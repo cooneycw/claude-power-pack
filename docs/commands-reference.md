@@ -117,7 +117,10 @@ on an issue another LIVE session holds (`CLAIM=held` -> `CONFIRM_REQUIRED=1`),
 `worktree-remove.sh` refuses (exit 4) to delete a worktree claimed by a live
 sibling, and Step 4 re-runs the #503 live-driver guard immediately before the
 first edit, since the Step-1 check goes stale across the analysis and approval
-pause. Separately, Step 9 skips `make deploy` when `.claude/deploy.log` already
+pause. A claim only covers a checkout where one was staked, so `worktree-remove.sh`
+additionally refuses (exit 5, issue #888) to delete a worktree that a live process
+is sitting in AND that holds uncommitted work - `--force` does not suppress that
+one, because Step 7 always passes `--force`. Separately, Step 9 skips `make deploy` when `.claude/deploy.log` already
 records a SUCCESSFUL deploy of the current HEAD sha, so a commit a concurrent
 session just shipped is not deployed twice. Ownership is pid + session with
 host-scoped `kill -0` liveness; an owner that is gone reads as `stale` and is
