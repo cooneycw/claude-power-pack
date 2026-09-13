@@ -114,6 +114,9 @@ def _make_stubs(
     #                            every pre-existing test already assumed.
     push_delete_ok: bool = True,
     remote_branch_on_recheck: str | None = None,
+    #: Issue #916. What `git rev-parse --verify --quiet refs/heads/<branch>`
+    #: answers - the commit the MERGED block records as landed.
+    branch_head: str = "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
 ) -> dict:
     """Create fake gh/git that log their args and honour a scripted outcome.
 
@@ -424,6 +427,11 @@ def _make_stubs(
         f'echo "git $*" >> "{call_log}"\n'
         'if [[ "$*" == *"rev-parse --show-toplevel"* ]]; then\n'
         "  pwd\n"
+        # Issue #916: the local branch tip, which the MERGED block records as
+        # landed before it deletes the remote ref. Unmatched here before, so the
+        # record was never written and the write path went unexercised.
+        'elif [[ "$*" == *"rev-parse --verify --quiet refs/heads/"* ]]; then\n'
+        f'  echo "{branch_head}"\n'
         'elif [[ "$*" == *"rev-parse"*"HEAD^{tree}"* ]]; then\n'
         f'  echo "{tested_tree}"\n'
         + (
@@ -2795,3 +2803,74 @@ def test_the_cleanup_marker_never_collides_with_the_completeness_marker(tmp_path
     completeness = [ln for ln in lines if ln.startswith("GH_PR_MERGE_COMPLETENESS:")]
     assert len(cleanup) == 1, lines
     assert len(completeness) == 1, lines
+
+
+# --------------------------------------------------------------------------
+# Issue #916: record the landed commit BEFORE destroying the evidence.
+# --------------------------------------------------------------------------
+
+#: The stub's answer for `rev-parse --verify --quiet refs/heads/<branch>`.
+BRANCH_HEAD = "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678"
+
+
+def test_the_landed_commit_is_recorded_before_the_remote_ref_is_deleted(
+    tmp_path: Path,
+):
+    """Ordering IS the property, so it is asserted as ordering.
+
+    `worktree-remove.sh`'s unpushed check asks `git log HEAD --not --remotes`.
+    A squash rewrites the branch onto main under a different sha, so its commits
+    are ancestors of nothing and the verdict rests entirely on
+    `refs/remotes/origin/<branch>` surviving - which the delete below removes.
+    Offline git then holds no evidence at all, which is why the record has to be
+    written by the one caller that both knows the branch landed and destroys the
+    proof, and why it has to happen FIRST.
+
+    A record written after the delete would still be correct, but a merge that
+    died between the two would leave the ref gone and no record - the exact
+    state #916 is about.
+    """
+    stubs = _make_stubs(
+        tmp_path, merge_exit=0, pr_state="MERGED", remote_branch_after_merge="present"
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-916-fix")
+    assert result.returncode == 0, result.stderr
+
+    calls = _calls(stubs)
+    record = next(
+        (i for i, c in enumerate(calls) if "cpp-merged-head" in c), None
+    )
+    delete = next(
+        (i for i, c in enumerate(calls) if c == "git push origin --delete issue-916-fix"),
+        None,
+    )
+    assert record is not None, f"the landed commit was never recorded:\n{calls}"
+    assert delete is not None, f"the remote ref was never deleted:\n{calls}"
+    assert record < delete, (
+        "the record must be written BEFORE the delete - after it, a merge that "
+        f"dies between the two leaves neither ref nor record:\n{calls}"
+    )
+    assert BRANCH_HEAD in calls[record], (
+        f"the record must name the branch tip, not a placeholder:\n{calls[record]}"
+    )
+
+
+def test_no_record_is_written_when_the_branch_tip_cannot_be_read(tmp_path: Path):
+    """Fails open: an unreadable ref writes nothing and never fails the merge.
+
+    A missing record is not a hazard - the reader falls through to today's
+    refusal, which is the safe direction. A WRONG record would be, which is why
+    nothing is written rather than something approximate.
+    """
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        remote_branch_after_merge="present",
+        branch_head="",
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-916-fix")
+    assert result.returncode == 0, result.stderr
+    assert not any("cpp-merged-head" in c for c in _calls(stubs)), (
+        "a record was written from an unreadable ref"
+    )
