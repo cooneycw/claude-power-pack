@@ -564,3 +564,65 @@ def test_preflight_probes_the_lane_model_and_endpoint(lane):
     assert "--model" in invocation and "_MODEL" in invocation, (
         "must probe the lane's own configured model, not a hardcoded name"
     )
+
+
+# --------------------------------------------------------------------------
+# /gemma:status must not disagree with itself
+#
+# The sibling of the two tests above, and the surface #903 did not reach: #895
+# closed with `gemma/status.md`'s verdict still computed from a NARROWER
+# question than its own display asserts.
+# --------------------------------------------------------------------------
+GEMMA_STATUS_DOC = COMMANDS / "gemma" / "status.md"
+
+
+def test_gemma_status_verdict_uses_the_payload_assertions_its_display_makes():
+    """A run can print FAILED and READY at once, and that is the #752 case.
+
+    `gemma/status.md`'s smoke branch requires three things - exit 0, a
+    `"type":"tool_use"` event, and `"status":"completed"` - and prints
+    `[ ] FAILED: no tool call observed` when any is missing. Its verdict tested
+    only `$SMOKE_EXIT`.
+
+    So a run that exits 0 with the tool call SILENTLY DROPPED printed the
+    failure and then printed `Status: READY` underneath it. That dropped tool
+    call is the exact #752 `/v1` failure this smoke test was BUILT to catch, so
+    the check detected its own founding defect, displayed it, and passed the run
+    anyway.
+
+    Same shape as `test_qwen_status_ready_verdict_consumes_the_probe` above - a
+    verdict computed from less than the display asserts - which is why it lives
+    beside it rather than in a file of its own.
+    """
+    text = GEMMA_STATUS_DOC.read_text()
+    summary = text[text.index("### Step 5: Summary"):]
+
+    assert not re.search(r'\[ "\$SMOKE_EXIT" = "0" \]\s*\|\|\s*READY=false', summary), (
+        "the verdict consults only the exit status again - a dropped tool call "
+        "reports READY while the smoke output above says FAILED"
+    )
+    assert re.search(r'\[ "\$SMOKE_OK" = "true" \]\s*\|\|\s*READY=false', summary), (
+        "the verdict must consume the same three-part result the display asserts"
+    )
+
+
+def test_gemma_smoke_result_is_computed_once_for_display_and_verdict():
+    """One variable, so the two cannot drift apart again.
+
+    The defect was not that the verdict was wrong in isolation - it was that two
+    places computed "did the smoke test pass" from different inputs. Deriving
+    both from a single `SMOKE_OK` is what makes the agreement structural rather
+    than something a future editor has to remember.
+    """
+    text = GEMMA_STATUS_DOC.read_text()
+    assert text.count("SMOKE_OK=true") == 1, (
+        "SMOKE_OK must be decided in exactly one place"
+    )
+    assert re.search(
+        r'SMOKE_OK=false\s*\n\s*if \[ "\$SMOKE_EXIT" -eq 0 \].*tool_use.*completed',
+        text,
+        re.S,
+    ), "SMOKE_OK must default to false and be set only by the full three-part check"
+    assert 'if [ "$SMOKE_OK" = "true" ]; then' in text, (
+        "the display branch must read the same variable the verdict does"
+    )

@@ -161,7 +161,21 @@ if command -v opencode &>/dev/null && echo "$PROVIDER_LIST" | grep -q "^gemma-ol
 
     rm -rf "$SMOKE_DIR"
 
+    # ONE variable for the display AND the verdict, because they disagreed.
+    # This branch requires exit 0 AND a tool_use AND completed; the verdict at
+    # the end of Step 5 tested only $SMOKE_EXIT. So a run that exited 0 with the
+    # tool call SILENTLY DROPPED printed "[ ] FAILED: no tool call observed" and
+    # then printed "Status: READY" underneath it.
+    #
+    # That dropped tool call is the exact #752 /v1 failure this smoke test was
+    # BUILT to catch - so the check detected its own founding defect, displayed
+    # it, and passed the run anyway. A verdict computed from a narrower question
+    # than the display asserts is the #895 shape, one file over.
+    SMOKE_OK=false
     if [ "$SMOKE_EXIT" -eq 0 ] && echo "$SMOKE_OUTPUT" | grep -q '"type":"tool_use"' && echo "$SMOKE_OUTPUT" | grep -q '"status":"completed"'; then
+        SMOKE_OK=true
+    fi
+    if [ "$SMOKE_OK" = "true" ]; then
         INPUT_TOKENS=$(echo "$SMOKE_OUTPUT" | grep -o '"input":[0-9]*' | head -1 | grep -o '[0-9]*')
         echo "[x] Forced tool call succeeded through the full harness (input ~${INPUT_TOKENS:-unknown} tokens - past the /v1 drop threshold)"
     else
@@ -189,7 +203,11 @@ command -v opencode &>/dev/null || READY=false
 curl -sf --max-time 5 "$GEMMA_ENDPOINT/api/version" > /dev/null 2>&1 || READY=false
 echo "$PROVIDER_LIST" | grep -q "^gemma-ollama/" || READY=false
 grep -q '"gemma-implementer"' ~/.config/opencode/opencode.json 2>/dev/null || READY=false
-[ "$SMOKE_EXIT" = "0" ] || READY=false
+# Was `[ "$SMOKE_EXIT" = "0" ]`, which ignored the payload assertions the smoke
+# branch above makes (issue #895 follow-up). Unset - the smoke block was skipped
+# entirely because the harness or provider was absent - still fails CLOSED,
+# which is the behaviour the old form had and which must be preserved.
+[ "$SMOKE_OK" = "true" ] || READY=false
 
 if [ "$READY" = "true" ]; then
     echo "Status: READY"
