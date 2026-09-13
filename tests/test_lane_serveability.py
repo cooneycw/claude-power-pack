@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import subprocess
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -37,6 +38,21 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "scripts" / "lane-serveability-check.sh"
 COMMANDS = ROOT / ".claude" / "commands"
+
+#: CLAUDE.md: a test that shells out to a real binary needs a `shutil.which`
+#: guard, INCLUDING when it reaches that binary by running a repo shell script.
+#: The Woodpecker `validate` image (`uv:python3.11-bookworm-slim`) ships no
+#: `curl`, and this dev box does, so an unguarded probe test is invisible
+#: locally and red only in CI - which is exactly how it was found here, on the
+#: first pipeline run of this change.
+#:
+#: The tests that synthesize an ABSENT curl are deliberately NOT guarded: they
+#: assert the `unknown` verdict, need no curl to do it, and are the ones worth
+#: having run on an image that genuinely lacks it.
+requires_curl = pytest.mark.skipif(
+    shutil.which("curl") is None,
+    reason="needs curl: the probe shells out to it (CLAUDE.md binary-guard directive)",
+)
 
 #: The observed error text from the broken host. Kept verbatim: the point of the
 #: DETAIL field is that the server's own words reach the operator, and a
@@ -141,6 +157,7 @@ def contract(stdout: str) -> dict:
 # --------------------------------------------------------------------------
 # The issue's claim, executed
 # --------------------------------------------------------------------------
+@requires_curl
 def test_old_gate_passes_while_the_new_probe_fails(stub):
     """Registration and serveability are separately observable (issue #895).
 
@@ -173,6 +190,7 @@ def test_old_gate_passes_while_the_new_probe_fails(stub):
 # --------------------------------------------------------------------------
 # Positive control: the detector can fire, and can also clear
 # --------------------------------------------------------------------------
+@requires_curl
 def test_detector_can_report_serving(stub):
     """A clean verdict is reachable - otherwise `dead` above proves nothing."""
     result = run_helper(stub("serving"))
@@ -183,6 +201,7 @@ def test_detector_can_report_serving(stub):
     assert "detail" not in c, "DETAIL is omitted when there is nothing to say"
 
 
+@requires_curl
 def test_detector_can_report_dead(stub):
     result = run_helper(stub("killed"))
     assert result.returncode == 1
@@ -192,6 +211,7 @@ def test_detector_can_report_dead(stub):
 # --------------------------------------------------------------------------
 # All three real failure shapes, and the states a status code cannot express
 # --------------------------------------------------------------------------
+@requires_curl
 def test_dropped_connection_is_unreachable_not_serving(stub):
     """curl exit 52 - one of the three shapes the broken host actually produced.
 
@@ -207,6 +227,7 @@ def test_dropped_connection_is_unreachable_not_serving(stub):
     assert c["detail"], "an absent body still owes the operator a reason"
 
 
+@requires_curl
 def test_refused_connection_is_unreachable():
     """Nothing listening at all. Port 1 on loopback is reliably refused."""
     result = run_helper("http://127.0.0.1:1")
@@ -216,6 +237,7 @@ def test_refused_connection_is_unreachable():
     assert "refused" in c["detail"].lower()
 
 
+@requires_curl
 def test_http_200_carrying_an_error_is_not_serving(stub):
     """A status code is not serveability.
 
@@ -228,6 +250,7 @@ def test_http_200_carrying_an_error_is_not_serving(stub):
     assert contract(result.stdout)["status"] == "dead"
 
 
+@requires_curl
 def test_http_200_with_no_generated_token_is_not_serving(stub):
     """Serveability is asserted from the positive artifact, not from its absence."""
     result = run_helper(stub("ok_but_empty"))
@@ -235,6 +258,7 @@ def test_http_200_with_no_generated_token_is_not_serving(stub):
     assert contract(result.stdout)["status"] == "dead"
 
 
+@requires_curl
 def test_absent_model_is_distinguishable_from_an_unloadable_one(stub):
     """Detector contract Q2, the ownership boundary.
 
@@ -306,6 +330,7 @@ def test_unknown_prose_does_not_read_as_clean(path_without_curl, tmp_path):
     assert "unchecked, not clean" in result.stdout
 
 
+@requires_curl
 def test_success_message_does_not_overclaim(stub):
     """Contract Q1, the membership floor.
 
@@ -328,6 +353,7 @@ def test_success_message_does_not_overclaim(stub):
     ("killed", "dead"),
     ("drop", "unreachable"),
 ])
+@requires_curl
 def test_always_emitted_keys_are_always_emitted(stub, behaviour, expected):
     """LANE, ENDPOINT, MODEL, HTTP, ELAPSED and STATUS on every path."""
     c = contract(run_helper(stub(behaviour)).stdout)
@@ -336,6 +362,7 @@ def test_always_emitted_keys_are_always_emitted(stub, behaviour, expected):
         assert key in c, f"{key} must be emitted on the {expected} path"
 
 
+@requires_curl
 def test_endpoint_is_reported_as_probed(stub):
     """A trailing slash must not make the reported endpoint differ from the probed one."""
     endpoint = stub("serving")
@@ -343,6 +370,7 @@ def test_endpoint_is_reported_as_probed(stub):
     assert c["endpoint"] == endpoint
 
 
+@requires_curl
 def test_quiet_suppresses_prose_but_not_the_contract(stub):
     result = run_helper(stub("killed"), "qwen3.8-code:latest", "--quiet")
     assert contract(result.stdout)["status"] == "dead"

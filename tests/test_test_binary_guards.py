@@ -920,3 +920,55 @@ def test_timeout_widening_reaches_exactly_the_one_genuine_finding(tmp_path: Path
     assert len(findings) == 1, f"expected exactly the one genuine finding, got {findings}"
     assert findings[0].test == "test_a_real_forced_timeout_reaches_the_helper_as_124"
     assert findings[0].via_scripts == (), "the genuine finding is a direct call, not via a script"
+
+
+# --------------------------------------------------------------------------- #
+# curl is in the set it was already documented as belonging to (issue #895)
+# --------------------------------------------------------------------------- #
+def test_curl_is_guarded() -> None:
+    """The set must contain every binary its own comment says the CI image lacks.
+
+    `curl` was named in the comment above `GUARDED_BINARIES` as absent from
+    `uv:python3.11-bookworm-slim` from #716/#717 onward, and was never actually
+    in the set - so the gate could not see a curl-dependent test at all. That is
+    the gate's own failure mode one level up: a list that documents a member it
+    does not contain. It cost a red `validate` step on #895's first pipeline,
+    where 13 tests that probe an HTTP endpoint passed locally and failed in CI
+    with "curl is not installed".
+    """
+    assert "curl" in checker.GUARDED_BINARIES
+
+
+def test_fires_on_an_unguarded_curl(tmp_path: Path) -> None:
+    """Positive control: membership is not enough, the gate must actually fire.
+
+    Without this, `curl` could sit in the set while every curl-reaching shape
+    stayed invisible, and the assertion above would still pass.
+    """
+    findings = _findings(
+        tmp_path,
+        PREAMBLE
+        + """\
+def test_probe():
+    subprocess.run("curl -sf http://127.0.0.1:1/api/tags", shell=True, check=False)
+""",
+    )
+    assert len(findings) == 1, findings
+    assert "curl" in str(findings[0])
+
+
+def test_a_guarded_curl_clears(tmp_path: Path) -> None:
+    """The negative half: a correctly guarded test must NOT be flagged."""
+    findings = _findings(
+        tmp_path,
+        PREAMBLE
+        + """\
+requires_curl = pytest.mark.skipif(shutil.which("curl") is None, reason="needs curl")
+
+
+@requires_curl
+def test_probe():
+    subprocess.run("curl -sf http://127.0.0.1:1/api/tags", shell=True, check=False)
+""",
+    )
+    assert findings == [], findings

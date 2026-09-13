@@ -139,7 +139,14 @@ from pathlib import Path
 #: hand-added skipif is what the hop cannot statically resolve - a runtime-built
 #: argv, a `bash -c` command string, a script path held in a local variable, or
 #: a binary reached through a SECOND script the first one sources.
-GUARDED_BINARIES = frozenset({"git", "docker", "gitleaks", "jq"})
+#: `curl` joined the set on issue #895, having been NAMED in the comment above
+#: as absent from the CI image since #716/#717 while never actually being in the
+#: set - so the gate could not see a curl-dependent test at all. That cost a red
+#: `validate` step on #895's first pipeline: 13 tests that probe an HTTP endpoint
+#: through a repo script passed locally and failed in CI with "curl is not
+#: installed". A list that documents a member it does not contain is the failure
+#: this gate exists to catch, one level up.
+GUARDED_BINARIES = frozenset({"git", "docker", "gitleaks", "jq", "curl"})
 
 SUBPROCESS_FUNCS = frozenset({"run", "Popen", "call", "check_call", "check_output"})
 OS_SHELL_FUNCS = frozenset({"system", "popen"})
