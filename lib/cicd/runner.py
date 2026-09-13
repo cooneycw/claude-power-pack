@@ -598,11 +598,61 @@ class DeterministicRunner:
                             "the original failure stands"
                         )
                     else:
-                        rerun_verdict = "failed"
-                        self._log(
-                            f"  [{idx + 1}/{len(step_defs)}] {step.id}: "
-                            "RE-RUN FAILED - the failure reproduces"
-                        )
+                        # Grade on the NAMED IDS, not the invocation (issue #915).
+                        #
+                        # This branch fires on `rerun_result.success` being false,
+                        # which is the re-run INVOCATION's exit code. The re-run
+                        # re-executes the whole test target, so any unrelated
+                        # failure anywhere in it made the gate announce "the
+                        # failure reproduces" and name the retried id - an id that
+                        # had PASSED. Worse than a plain false negative: it points
+                        # a person at an innocent test while hiding the failure
+                        # that is genuinely there.
+                        #
+                        # Observed (kyle #1176): the retried id passed on re-run,
+                        # a DIFFERENT test failed in the OTHER phase because a
+                        # commit landed in another repository between the two
+                        # invocations, and the verdict named the innocent id.
+                        #
+                        # The third state is the one the two-way answer threw
+                        # away, and it is the most informative of the three: a
+                        # test that passes and then fails inside one gate run,
+                        # with no edit to the tree, points OUTSIDE the tree.
+                        rerun_failed_ids = parse_failed_node_ids(
+                            rerun_result.output
+                        ) or parse_failed_node_ids(rerun_result.error)
+                        retried = set(failed_ids)
+                        reproduced = [i for i in failed_ids if i in set(rerun_failed_ids)]
+                        appeared = [i for i in rerun_failed_ids if i not in retried]
+                        if reproduced:
+                            rerun_verdict = "failed"
+                            self._log(
+                                f"  [{idx + 1}/{len(step_defs)}] {step.id}: "
+                                f"RE-RUN FAILED - the failure reproduces: "
+                                f"{', '.join(reproduced)}"
+                            )
+                        elif appeared:
+                            rerun_verdict = "new-failures"
+                            self._log(
+                                f"  [{idx + 1}/{len(step_defs)}] {step.id}: "
+                                f"RE-RUN: the retried id(s) did NOT reproduce, but "
+                                f"{len(appeared)} new failure(s) appeared: "
+                                f"{', '.join(appeared)}. The original failure is "
+                                "unexplained and these are a SEPARATE finding - a "
+                                "test that changed verdict inside one run, with no "
+                                "edit to the tree, points outside it (issue #915)"
+                            )
+                        else:
+                            # The invocation failed and no ids could be attributed
+                            # to it. Distinct from both above, and NOT a claim that
+                            # anything reproduced.
+                            rerun_verdict = "failed-unattributed"
+                            self._log(
+                                f"  [{idx + 1}/{len(step_defs)}] {step.id}: "
+                                "RE-RUN FAILED - but no failing id could be read "
+                                "from its output, so whether the original failure "
+                                "reproduced is UNKNOWN; the original failure stands"
+                            )
                     reruns.append(
                         {
                             "step": step.id,
