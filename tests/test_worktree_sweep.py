@@ -913,6 +913,76 @@ def test_gitignored_state_is_invisible_to_every_condition(tmp_path: Path) -> Non
 
 
 @requires_git
+@requires_proc
+def test_the_sweep_is_currently_inert_on_a_real_post_merge_worktree(
+    tmp_path: Path,
+) -> None:
+    """CHARACTERIZATION. Pins what happens today, which is not what should.
+
+    The sweep's whole population is worktrees whose PR merged and whose remote
+    branch is therefore gone. Against that state, `worktree-remove.sh`'s #905
+    unpushed check refuses with exit 7: it reads "no remote ref" as "these
+    commits exist nowhere", when in fact they are on main, squashed. Filed as
+    #916.
+
+    So the sweep classifies correctly, concludes correctly, and removes NOTHING -
+    `removable=1, removed=0`. #887 is inert in production and has been since #905
+    landed.
+
+    This asserts the BROKEN behaviour on purpose. Asserting the correct behaviour
+    would land a red test for a defect in another file; asserting nothing would
+    leave the inertness invisible, which is how it got here - the rest of this
+    file builds its worktrees with `git worktree add -b` and never pushes, so no
+    branch has a `branch.<name>.remote` at all and the check takes a different
+    path than it ever does in production. A fixture that never pushes cannot
+    exercise a check whose entire subject is a branch's relationship to its
+    remote.
+
+    WHEN #916 LANDS THIS TEST GOES RED. That is the point: flip it to assert
+    `removed` and `ok`, and delete the note in docs/scripts.md. Do not delete the
+    test - it is the only one here that builds the state the sweep actually meets.
+    """
+    main = _repo(tmp_path)
+    # Reproduce `gh pr merge --squash --delete-branch`: the branch was pushed,
+    # carries the merged commits, and its remote ref is then deleted. The origin
+    # URL is restored to the GitHub-shaped one afterwards so the PR lookup still
+    # resolves - production loses the remote-tracking REF, not the remote.
+    bare = tmp_path / "remote.git"
+    _git(main, "init", "-q", "--bare", str(bare))
+    _git(main, "remote", "set-url", "origin", str(bare))
+    _git(main, "push", "-q", "origin", "HEAD:main")
+    wt = _add_worktree(main, tmp_path / "widget-issue-99", "issue-99")
+    (wt / "work.txt").write_text("the work that got merged\n")
+    _git(wt, "add", "-A")
+    _git(wt, "commit", "-qm", "the merged work")
+    _git(wt, "push", "-q", "-u", "origin", "issue-99")
+    _git(main, "push", "-q", "origin", "--delete", "issue-99")
+    _git(main, "fetch", "-q", "--prune", "origin")
+    _git(main, "remote", "set-url", "origin", "https://github.com/acme/widget.git")
+
+    # Preconditions - without these the test could pass for the wrong reason.
+    assert _git(wt, "status", "--porcelain") == "", "precondition: clean"
+    assert "fatal" in subprocess.run(
+        ["git", "-C", str(wt), "rev-parse", "--abbrev-ref", "@{u}"],
+        capture_output=True, text=True,
+    ).stderr, "precondition: the upstream ref is gone, as after --delete-branch"
+
+    bindir = tmp_path / "bin"
+    _fake_gh(bindir)
+    res = _run_sweep(
+        main, "--apply", bindir=bindir,
+        env={"FAKE_GH_ROWS": f"issue-99=MERGED|{_tip(wt)}|99"},
+    )
+
+    assert "removable=1 removed=0" in res.stdout, (
+        "if this now reads removed=1 then #916 is fixed - flip this test to "
+        f"assert success rather than deleting it:\n{res.stdout}"
+    )
+    assert _dispositions(res.stdout)[str(wt)] == "refused helper-exit-7", res.stdout
+    assert wt.exists()
+
+
+@requires_git
 def test_the_real_remove_helper_exists_where_the_sweep_looks(tmp_path: Path) -> None:
     """Guards the resolution above: every behavioural test that uses a recording
     stub proves nothing about the shipped pairing."""
