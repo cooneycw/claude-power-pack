@@ -563,6 +563,108 @@ class TestRerunFailedTests:
         assert result.reruns[0]["outcome"] == "inconclusive"
         assert result.reruns[0]["rerun"]["executed"] == 0
 
+    # --- issue #915: grade the retry on the NAMED IDS, not the invocation ----
+    #
+    # The retry re-runs the whole test target, so ANY unrelated failure in it
+    # made the gate announce "the failure reproduces" and name the retried id -
+    # an id that had passed. Observed in kyle #1176: the retried id passed, a
+    # different test failed in the other phase because a commit landed in
+    # another repository between the two invocations, and the verdict named the
+    # innocent test while the real breakage went unnamed.
+
+    @staticmethod
+    def _first_fails_then_other_fails() -> str:
+        """First attempt fails on t1; the re-run passes t1 and fails t2 instead.
+
+        This is the shape #915 describes: the retried id did NOT reproduce, and
+        the invocation still exited non-zero for an unrelated reason.
+        """
+        return (
+            "if [ -f rerun-marker ]; then "
+            "printf '=== 1 failed, 1 passed in 0.01s ===\\n'; "
+            "printf 'FAILED tests/b.py::t2 - AssertionError: different test\\n'; "
+            "exit 1; "
+            "else : > rerun-marker; "
+            "printf '=== 1 failed, 2 passed in 0.01s ===\\n'; "
+            "printf 'FAILED tests/a.py::t1 - AssertionError: first attempt\\n'; "
+            "exit 1; fi"
+        )
+
+    def test_a_different_failure_is_not_reported_as_the_original_reproducing(
+        self, tmp_project: Path
+    ) -> None:
+        """The #915 defect: an innocent id named as reproducing."""
+        step = StepDef(
+            id="test", command=self._first_fails_then_other_fails(), timeout_seconds=30
+        )
+        log = StringIO()
+        result = DeterministicRunner(
+            project_root=tmp_project, output=log, rerun_failed=True
+        ).run("check", step_defs=[step])
+
+        assert not result.success, "a new failure is still a failure"
+        assert result.reruns[0]["outcome"] == "new-failures", result.reruns
+        text = log.getvalue()
+        assert "did NOT reproduce" in text, text
+        assert "tests/b.py::t2" in text, "the ACTUAL failure must be named"
+        assert "the failure reproduces" not in text, (
+            "the retried id passed - claiming it reproduced points a reader at "
+            f"an innocent test while hiding the real one:\n{text}"
+        )
+
+    def test_the_retried_id_reproducing_is_still_reported_as_reproducing(
+        self, tmp_project: Path
+    ) -> None:
+        """The narrowing must not swallow the true positive it sits next to."""
+        step = StepDef(
+            id="test",
+            command=(
+                "printf '=== 1 failed in 0.01s ===\\n'; "
+                "printf 'FAILED tests/a.py::t1 - AssertionError\\n'; exit 1"
+            ),
+            timeout_seconds=30,
+        )
+        log = StringIO()
+        result = DeterministicRunner(
+            project_root=tmp_project, output=log, rerun_failed=True
+        ).run("check", step_defs=[step])
+
+        assert not result.success
+        assert result.reruns[0]["outcome"] == "failed", result.reruns
+        assert "the failure reproduces: tests/a.py::t1" in log.getvalue()
+
+    def test_a_rerun_failure_with_no_readable_ids_is_not_called_reproduced(
+        self, tmp_project: Path
+    ) -> None:
+        """Third state, kept apart from both others.
+
+        The invocation failed and nothing could be attributed to it. That is not
+        evidence the original reproduced, and it is not a new-failure finding
+        either - it is UNKNOWN, and says so. Same membership floor the rest of
+        this codebase applies: could-not-tell is its own answer.
+        """
+        step = StepDef(
+            id="test",
+            command=(
+                "if [ -f rerun-marker ]; then "
+                "printf 'make: *** [test] Error 2\\n'; exit 2; "
+                "else : > rerun-marker; "
+                "printf '=== 1 failed, 2 passed in 0.01s ===\\n'; "
+                "printf 'FAILED tests/a.py::t1 - AssertionError\\n'; "
+                "exit 1; fi"
+            ),
+            timeout_seconds=30,
+        )
+        log = StringIO()
+        result = DeterministicRunner(
+            project_root=tmp_project, output=log, rerun_failed=True
+        ).run("check", step_defs=[step])
+
+        assert not result.success
+        assert result.reruns[0]["outcome"] == "failed-unattributed", result.reruns
+        assert "UNKNOWN" in log.getvalue()
+        assert "the failure reproduces" not in log.getvalue()
+
     def test_non_test_step_is_never_rerun(self, tmp_project: Path) -> None:
         step = StepDef(
             id="lint",
