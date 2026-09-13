@@ -1358,6 +1358,43 @@ self_chain_ps() {
 watcher_roles_ps_fallback() {
   local wave="$1" line pid ppid args rest found_role seen=0
   local self_chain matched_pids=" " records=() rec rpid rppid rrole surviving=()
+  # Issue #904. `ps` truncates the `args` column to the OUTPUT WIDTH when stdout
+  # is not a terminal, and inside tmux that width is the pane's - whatever `-x`
+  # the session was spawned with. So a watcher's visibility is decided by the
+  # product of two incidental facts: how long the checkout path is, and how wide
+  # someone's terminal is. Measured: the same process rendered 121 bytes under
+  # `ps -eo` and 1340 under `ps -eww -o`, and the cut landed mid-token in the
+  # `--wave` value - the exact field this filter reads.
+  #
+  # The dangerous part is the DIRECTION. A truncated view matches nothing, so
+  # `surviving` stays empty and the lane returns a confident ZERO rather than
+  # `unknown`. `watch=DEAD(0 watchers)` is a blocker signal in /flow:wave, so a
+  # live, correctly-armed worker reads as deaf. The guard that exists for
+  # unverifiable matches is BYPASSED rather than triggered, because truncation
+  # removes the very candidate that would have raised the ambiguity.
+  #
+  # `unreadable` below makes the DETECTABLE half of that reportable, and the
+  # split is deliberate. Widening the `ps` invocation is a separate decision -
+  # this lane exists for hosts without `/proc`, which is exactly the non-Linux
+  # case where `-ww` semantics differ - and the reporting bug is independent of
+  # the reading bug: even where the view cannot be widened, a lane that cannot
+  # read the field must say so rather than answer zero.
+  #
+  # WHAT THIS DOES NOT CLOSE, stated because a half-fix that reads as a whole
+  # one is worse than none. A cut landing BEFORE `flow-wave-mailbox.sh watch`
+  # leaves a line this scan never recognises as watcher-shaped at all, so there
+  # is nothing to flag and the lane still answers a confident zero. Only a cut
+  # that lands AFTER the script name and role - severing or shortening the
+  # `--wave` value - is caught here.
+  #
+  # A general truncation detector was tried and REMOVED: flagging the view when
+  # two or more lines end at exactly the longest length fires on any ordinary
+  # host where two processes happen to share their longest argv length, which
+  # turned the confident `dead` verdict into a routine `unknown`. That is the
+  # mirror of this defect and the issue is explicit that the fix must narrow
+  # confidence only where an actual ambiguity exists. Detecting the general case
+  # needs the view widened, which is the `-ww` decision, not this one.
+  local unreadable=0
   self_chain="$(self_chain_ps)"
   while IFS= read -r line; do
     line="${line#"${line%%[![:space:]]*}"}"   # ps right-aligns the pid columns
@@ -1372,13 +1409,27 @@ watcher_roles_ps_fallback() {
     case "$args" in *flow-wave-mailbox.sh\ watch*) : ;; *) continue ;; esac
     # A status query is not a watcher - same reason as the /proc lane (#801).
     case "$args" in *" --status"*) continue ;; esac
-    case "$args" in *" --role "*) rest="${args#*" --role "}" ;; *) continue ;; esac
+    # Past this point the line IS watcher-shaped, so anything we cannot read on
+    # it is an ambiguity rather than a non-match. That distinction is the whole
+    # fix: a field we could not read is not a field that said "not you".
+    case "$args" in *" --role "*) rest="${args#*" --role "}" ;; *) unreadable=1; continue ;; esac
     found_role="${rest%% *}"
-    [ -n "$found_role" ] || continue
+    [ -n "$found_role" ] || { unreadable=1; continue; }
     case "$args" in
       *"--wave $wave "*|*"--wave $wave") : ;;
-      *"--wave "*) continue ;; # a different wave - not this one's watcher
-      *) [ "$wave" = "default" ] || continue ;;
+      # A wave name that is a strict PREFIX of ours, with nothing after it, is
+      # what a mid-token cut looks like: `--wave testwave-abc` clipped to
+      # `--wave testwave-a`. Indistinguishable from a genuinely different wave
+      # by content, so it is reported as undecidable rather than guessed at.
+      *"--wave "*)
+        rest="${args#*"--wave "}"
+        rest="${rest%% *}"
+        case "$wave" in
+          "$rest"*) [ "$rest" = "$wave" ] || unreadable=1 ;;
+        esac
+        continue
+        ;;
+      *) [ "$wave" = "default" ] || { unreadable=1; continue ; } ;;
     esac
     matched_pids="$matched_pids$pid "
     records+=("$pid $ppid $found_role")
@@ -1400,6 +1451,12 @@ EOF
   # verification (there is nothing to disambiguate), and stays a real,
   # confident empty result.
   [ "${#surviving[@]}" -eq 0 ] || return 1
+  # ...but ONLY when the scan could actually see. "Scanned and matched nothing"
+  # and "scanned a view that was cut" are different facts, and just one of them
+  # justifies a zero (#904). Checked here rather than earlier so a real match
+  # still outranks it: a verified watcher is a stronger statement than a
+  # suspicion about the view that found it.
+  [ "$unreadable" -eq 0 ] || return 1
   return 0
 }
 

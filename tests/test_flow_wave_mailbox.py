@@ -2440,3 +2440,131 @@ class TestSupervisorNeverAcknowledges:
             "the supervisor daemon must never acknowledge on an agent's behalf "
             "(#867, #873) - an ack is a receipt, and a detached daemon is not a recipient"
         )
+
+
+# ---------------------------------------------------------------------------
+# Issue #904: `ps` truncates argv, and the lane answered a confident ZERO.
+#
+# `ps` clips the `args` column to the OUTPUT WIDTH when stdout is not a
+# terminal - inside tmux, the pane's width, i.e. whatever `-x` the session was
+# spawned with. So whether a watcher is visible depends on the product of two
+# incidental facts: how long the checkout path is, and how wide someone's
+# terminal is. Neither is a property of the watcher, the mailbox or the wave.
+#
+# The direction is what makes it dangerous. A truncated view matches nothing,
+# `surviving` stays empty, and the lane returns a confident zero rather than
+# `unknown`. `watch=DEAD(0 watchers)` is a blocker signal in /flow:wave, so a
+# live, correctly-armed worker reads as deaf - and #845's guard for
+# unverifiable matches is BYPASSED rather than triggered, because truncation
+# removes the candidate that would have raised the ambiguity.
+#
+# These drive the lane with a STUB `ps` on PATH rather than a real long-argv
+# process, because the truncation width is the terminal's and a test cannot
+# rely on the harness running at any particular one. The stub reproduces the
+# shape the real tool produces; the width it would have chosen is not the
+# property under test.
+# ---------------------------------------------------------------------------
+
+
+def _stub_ps(tmp: Path, lines: str) -> Path:
+    """A `ps` that prints exactly `lines` for a full-table query.
+
+    ARGUMENT-AWARE, and it has to be: `self_chain_ps()` walks the ancestry with
+    `ps -o ppid= -p <pid>` until it reaches pid 1, so a stub that answers every
+    invocation with the same table never terminates that walk. The first draft
+    of this helper did exactly that and hung all four tests to their 60s
+    timeout - the stub, not the lane. Answering the ancestry query with `1` ends
+    the walk on its first step.
+    """
+    bin_dir = tmp / "stubbin"
+    bin_dir.mkdir(exist_ok=True)
+    stub = bin_dir / "ps"
+    stub.write_text(
+        "#!/bin/bash\n"
+        "case \"$*\" in\n"
+        "  *'-o ppid='*) echo 1 ;;\n"
+        "  *) cat <<'PSEOF'\n" + lines + "\nPSEOF\n"
+        "  ;;\n"
+        "esac\n"
+    )
+    stub.chmod(0o755)
+    return bin_dir
+
+
+def _run_with_ps(tmp: Path, bin_dir: Path, *args: str):
+    env = os.environ.copy()
+    env["FLOW_WAVE_MAILBOX_DIR"] = str(tmp / "mb")
+    env["FLOW_WAVE_WATCHER_SCAN"] = "ps"
+    env["PATH"] = f"{bin_dir}:{env['PATH']}"
+    return subprocess.run(
+        ["bash", str(MAILBOX), *args],
+        capture_output=True, text=True, env=env, check=False, timeout=60,
+    )
+
+
+@requires_bash
+def test_a_wave_value_severed_mid_token_reads_unknown_not_zero(tmp_path: Path) -> None:
+    """The measured failure: the cut lands inside the `--wave` value.
+
+    `--wave testwave-abc` clipped to `--wave testwave-a` is a watcher-shaped
+    line whose wave this scan cannot read. It used to fall through the
+    "different wave" branch and be discarded silently, leaving a confident
+    zero. A field that could not be READ is not a field that said "not you".
+    """
+    wave = "testwave-abcdef"
+    bin_dir = _stub_ps(
+        tmp_path,
+        f"    1     0 /sbin/init\n"
+        f"  999     1 bash /a/very/long/checkout/path/scripts/flow-wave-mailbox.sh watch --role 1 --wave {wave[:10]}",
+    )
+    proc = _run_with_ps(tmp_path, bin_dir, "watch", "--status", "--role", "1", "--wave", wave)
+    assert _detail(proc, "FLOW_MAILBOX_WATCHER_COUNT") == "unknown", (
+        "a wave value severed mid-token must be undecidable, never a confident "
+        f"zero - a live worker reads as deaf:\n{proc.stdout}"
+    )
+
+
+@requires_bash
+def test_a_watcher_shaped_line_with_no_wave_field_reads_unknown(tmp_path: Path) -> None:
+    """Cut before `--wave` entirely: still watcher-shaped, still unreadable.
+
+    The `--wave`-absent branch legitimately means "the default wave" for a
+    watcher that passed no `--wave`. It cannot also mean "I could not see the
+    one it passed" while we are asking about a NAMED wave.
+    """
+    bin_dir = _stub_ps(
+        tmp_path,
+        "    1     0 /sbin/init\n"
+        "  999     1 bash /a/long/path/scripts/flow-wave-mailbox.sh watch --role 1",
+    )
+    proc = _run_with_ps(tmp_path, bin_dir, "watch", "--status", "--role", "1", "--wave", "testwave-x")
+    assert _detail(proc, "FLOW_MAILBOX_WATCHER_COUNT") == "unknown", proc.stdout
+
+
+@requires_bash
+def test_a_genuinely_different_wave_is_still_a_confident_zero(tmp_path: Path) -> None:
+    """The narrowing must not swallow the `dead` verdict it sits next to.
+
+    This is the mirror failure, and the issue is explicit about it: the fix
+    narrows confidence only where an ambiguity actually exists. A wave name
+    that is not a prefix of ours was READ, and it said "not you" - that is a
+    real answer and must stay a confident zero.
+    """
+    bin_dir = _stub_ps(
+        tmp_path,
+        "    1     0 /sbin/init\n"
+        "  999     1 bash /p/scripts/flow-wave-mailbox.sh watch --role 1 --wave someoneelse --consume",
+    )
+    proc = _run_with_ps(tmp_path, bin_dir, "watch", "--status", "--role", "1", "--wave", "testwave-x")
+    assert _detail(proc, "FLOW_MAILBOX_WATCHER_COUNT") == "0", (
+        "a wave name that was READ and differs is a real answer, not an "
+        f"ambiguity - this must stay a confident zero:\n{proc.stdout}"
+    )
+
+
+@requires_bash
+def test_an_empty_process_table_is_still_a_confident_zero(tmp_path: Path) -> None:
+    """No watcher-shaped line at all: nothing to be ambiguous about."""
+    bin_dir = _stub_ps(tmp_path, "    1     0 /sbin/init\n  500     1 sshd: /usr/sbin/sshd")
+    proc = _run_with_ps(tmp_path, bin_dir, "watch", "--status", "--role", "1", "--wave", "testwave-x")
+    assert _detail(proc, "FLOW_MAILBOX_WATCHER_COUNT") == "0", proc.stdout
