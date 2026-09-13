@@ -174,10 +174,26 @@ capability contract above. Two questions, both answerable from the issue:
   upstream changelog, a present-day API or price? That is `web`, and this lane
   provides no retrieval tool.
 
+- Does the deliverable include editing **this repository's own orchestration
+  documents** - `.claude/commands/**` or `.claude/skills/**`? That is `meta`, and
+  this driver's execution fence forbids it from even READING those files, which
+  is a harder block than the others: it cannot be prompted around, because
+  editing such a document correctly requires understanding it (issue #877).
+  You are the ORCHESTRATING session, not the fenced model, so answering this
+  question is something you can do and it is not.
+
+  **If the answer is yes, this issue does not belong to this driver at all.** Do
+  not seek a carve-out that lets the model read the files "as data for this
+  task" - the fence works by a bright line precisely so no agent has to hold a
+  subtle distinction under task pressure, and an exception reinstates the
+  distinction the line exists to remove. Route it to `/flow:auto`.
+
 ```bash
 # Declare what the work needs; the helper judges the fit. Needs are DECLARED,
 # never inferred from the issue text - a guess at prose would invent mismatches.
 ~/.claude/scripts/flow-driver-capability.sh check qwen:auto --needs implementation
+#   ...and add `,meta` when the answer above was yes:
+#   ...check qwen:auto --needs implementation,meta   -> mismatch, exit 1
 ```
 
 `FLOW_DRIVER_CHECK: fit` -> continue. `mismatch` (exit 1) -> **STOP before

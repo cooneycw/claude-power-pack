@@ -111,6 +111,27 @@ There is no axis for "the planned file list intersects the fence", so the check
 cannot represent the state that decides the answer - and `fit` therefore claims
 more than its population supports.
 
+**Resolved, and how it was resolved matters (#877).** The axis now exists: `meta`
+(yes | no) declares whether a driver may read and edit `.claude/commands/**` and
+`.claude/skills/**`, and all three delegated drivers declare `no` with the fence
+clause as their basis. Asked the same question today with the need declared,
+`check codex:auto --needs implementation,meta` returns `mismatch`.
+
+Note what was NOT done. The check still takes its needs from the CALLER and never
+infers them from issue prose - a classifier guessing at text would invent
+mismatches nobody declared (#683). So the axis alone does not save a caller who
+forgets to declare it, and a bare `--needs implementation` would still return
+`fit`. That half is addressed differently: `check` now emits
+`FLOW_DRIVER_UNDECLARED` naming the incapacities this call did NOT ask about, and
+says so in words on a narrow fit. The verdict stayed `fit`, because the declared
+needs genuinely are met; what changed is that it can no longer be read as a
+broader claim than it is.
+
+The general lesson survives the fix: **the remedy for a detector whose answer is
+narrower than its reader's question is to make the gap visible, not to widen the
+answer by guessing.**
+
+
 It is the specimen worth remembering because both halves are inside this
 repository's own tooling, and because the detector that mis-routed the issue about
 detectors saying too little was the detector choosing that issue's driver. The
