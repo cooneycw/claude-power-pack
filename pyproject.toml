@@ -22,7 +22,11 @@ timeout = 120
 python_version = "3.11"
 # codex/skills holds byte-identical bundled copies of scripts/*.py (issue
 # #555); checking them re-checks the originals and collides on module names.
-exclude = ["mcp-second-opinion", "mcp-evaluate", "codex/skills"]
+# `controls/` holds negative-control FIXTURES (issue #924): deliberately
+# near-identical bad/good pairs, so their module names collide by
+# construction, and frozen historical ANCHORS that must stay byte-identical to
+# the commit they are vendored from - type-checking either is meaningless.
+exclude = ["mcp-second-opinion", "mcp-evaluate", "codex/skills", "controls"]
 ignore_missing_imports = true
 explicit_package_bases = true
 mypy_path = "."
@@ -31,6 +35,10 @@ disable_error_code = ["var-annotated", "assignment", "arg-type", "attr-defined"]
 [tool.ruff]
 target-version = "py311"
 line-length = 120
+# A negative-control ANCHOR is a frozen copy of a historical commit (issue
+# #924). `ruff --fix` would rewrite it and break the byte-identity that is the
+# only thing making it evidence, so anchors are not linted. Fixtures are.
+exclude = ["controls/*/anchors"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I"]

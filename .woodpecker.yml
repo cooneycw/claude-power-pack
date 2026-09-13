@@ -89,6 +89,24 @@ steps:
     commands:
       - python3 scripts/tool-risk-drift.py --strict
 
+  # Negative controls (issue #924). Every registered gate must still DISCRIMINATE -
+  # report BAD on a known-bad input and GOOD on a known-good one - and each control
+  # must be demonstrated against an anchor that MISSES the known-bad input, which is
+  # what proves the control would notice the gate regressing. A control carrying no
+  # anchor is UNPROVEN and fails here: forgetting to prove a control can fail
+  # produces a red rather than a silence, which is the whole point.
+  #
+  # Its own step, not folded into `validate`, so a gate that stops discriminating
+  # fails on its own line - the same reason #556 and #591 each got one. Stdlib-only
+  # and GIT-FREE: the anchor is vendored precisely because git is absent from this
+  # image (the #451/#489/#577 trap), so provenance reports `unverified` here and is
+  # byte-verified against git history on a dev box and in the pre-push hook.
+  negative-controls:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
+    depends_on: [secret-scan]
+    commands:
+      - python3 scripts/check-negative-controls.py --strict
+
   dockerfile-lint:
     image: ghcr.io/hadolint/hadolint:v2.14.0-debian
     pull: true

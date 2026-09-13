@@ -136,7 +136,6 @@ from __future__ import annotations
 
 import argparse
 import ast
-import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -151,35 +150,10 @@ from pathlib import Path
 #: Since issue #789 the gate no longer stops at a LITERAL `["jq", ...]` argv: it
 #: follows one static hop through `subprocess.run(["bash", SCRIPT])` and scans
 #: SCRIPT for these binaries, which is the transitive case #716/#717 documented
-#: as a known blind spot and #783 then walked straight into. Since issue #906 the
-#: hop also fires when argv[0] ITSELF resolves to an executable script inside the
-#: checkout - `subprocess.run([str(HELPER), ...])`, run on its shebang, which is
-#: the natural spelling here since every script in `scripts/` is executable.
-#: That shape entered no hop at all and so was never scanned.
-#:
-#: What still needs a hand-added skipif, kept current because a list that drifts
-#: is worse than none:
-#:
-#:   * what the hop cannot statically RESOLVE - a runtime-built argv, a
-#:     `bash -c` command string, a script path held in a local variable, or a
-#:     binary reached through a SECOND script the first one sources;
-#:   * argv[0] resolving OUTSIDE the checkout, which is deliberate: a system
-#:     script is not ours to scan (#906 ownership boundary);
-#:   * a script that reaches the binary only FAIL-SOFT while the test needs it
-#:     anyway. The hop asks "can the SCRIPT do its job without this binary?" and
-#:     drops the binary when the script declares it degrades. A test that FORCES
-#:     the degraded lane needs the binary regardless, and that divergence is
-#:     invisible here. `scripts/lane-serveability-check.sh` is the live instance:
-#:     it preflights `command -v curl` and reports `unknown`, so the hop
-#:     correctly drops curl, while its twelve tests stub a server and assert real
-#:     HTTP outcomes. Those twelve carry a hand-written `requires_curl`. This is
-#:     the #831 residual and it is why #906's own 11-of-12 measurement is NOT
-#:     closed by the trigger fix alone - two independent gaps were stacked, and
-#:     only the first is closed here.
-#: NEGATIVE-CONTROL: controls/check-test-binary-guards
-#:     Registered per issue #924. The control is executable and is run by
-#:     `scripts/check-negative-controls.py`; it fails the build if this gate stops
-#:     discriminating, or if nothing has demonstrated that the control can fail.
+#: as a known blind spot and #783 then walked straight into. What still needs a
+#: hand-added skipif is what the hop cannot statically resolve - a runtime-built
+#: argv, a `bash -c` command string, a script path held in a local variable, or
+#: a binary reached through a SECOND script the first one sources.
 GUARDED_BINARIES = frozenset({"git", "docker", "gitleaks", "jq", "pgrep", "ps", "tmux", "flock", "curl"})  # noqa: E501 - single line: the #833 widening harness substitutes this whole line
 
 #: What the Woodpecker ``validate`` image PROVIDES - the inverse list, and the
@@ -401,67 +375,6 @@ ASSIGNMENT_RE = re.compile(r"=(?!=)")
 #: string that would not close until the NEXT apostrophe anywhere later in
 #: the file, corrupting everything in between. `make verify`'s own 2753-test
 #: run against this repo's own scripts is what surfaced it.
-#: `<<'EOF'` / `<<"EOF"` / `<<-'EOF'` - a heredoc whose delimiter is QUOTED, so
-#: the body is literal text the shell hands to another program rather than shell
-#: it executes itself.
-HEREDOC_OPEN_RE = re.compile(r"<<-?\s*(?:'(?P<sq>[A-Za-z_][A-Za-z0-9_]*)'|\"(?P<dq>[A-Za-z_][A-Za-z0-9_]*)\")")
-
-
-def _mask_heredocs(source: str) -> str:
-    """Blank the BODY of every quoted-delimiter heredoc (issue #906).
-
-    A quoted heredoc is literal text. The shell performs no expansion on it and
-    does not execute it - it is handed to whatever the opening command is, which
-    in this repository is `python3 - <<'PYEOF'` five times over. Scanning it as
-    shell reads another language's source as this script's commands.
-
-    The instance that forced this: `scripts/delegated-run-check.sh` embeds a
-    Python program at lines 225-442, and inside a docstring there it says
-    "a model that tries `git commit` once and moves on is behaving exactly as
-    designed". Those are MARKDOWN backticks around prose - but a backtick opens a
-    command substitution in shell, and `SHELL_BINARY_RE` counts a backtick as a
-    command-position separator, so the sentence read as an invocation of `git`.
-    That one line of prose made every test running that script a finding.
-
-    It could not fire before #906: the script is only ever invoked DIRECTLY by
-    its tests, which is precisely the shape the hop could not see, so the latent
-    false positive was masked by the gap #906 closes. Widening the trigger made
-    it reachable - the same sequence as #831's widening exposing #833's `case`
-    label, one step further along that cascade.
-
-    Masking the body is not a loss of coverage. A quoted heredoc's contents are
-    not this script's shell, and a NESTED interpreter's needs are a second hop,
-    which this checker states outright it does not follow.
-
-    Length and newlines are preserved, as `_mask_noncode` requires, so every
-    caller's line arithmetic still holds.
-    """
-    lines = source.split("\n")
-    out: list[str] = []
-    pending: list[str] = []        # delimiters opened on the current line
-    active: str | None = None
-    for line in lines:
-        if active is not None:
-            if line.strip() == active:
-                active = None
-                out.append(line)
-            else:
-                # Preserve width so column arithmetic downstream is unaffected.
-                out.append(" " * len(line))
-            continue
-        out.append(line)
-        pending = [
-            m.group("sq") or m.group("dq")
-            for m in HEREDOC_OPEN_RE.finditer(line)
-        ]
-        if pending:
-            # Only the FIRST delimiter can be tracked without a real parser; a
-            # line opening two heredocs is not a shape this repository writes,
-            # and guessing at the second would be the crying-wolf direction.
-            active = pending[0]
-    return "\n".join(out)
-
-
 def _mask_noncode(source: str) -> str:
     """Blank the LITERAL content of shell comments, quoting, and arithmetic
     expansion, preserving length and newlines so every caller's line/column
@@ -842,10 +755,7 @@ def binaries_in_script(path: Path) -> frozenset[str]:
     # Comments and quoting are resolved together, not as two passes - see
     # _mask_noncode's own header comment for why running SHELL_COMMENT_RE
     # before or after quote-masking each get a real case wrong.
-    # Heredoc bodies first: they are another language's source, and masking them
-    # before the shell-quoting pass keeps `_mask_noncode` reading only shell
-    # (issue #906).
-    source = _mask_noncode(_mask_heredocs(text))
+    source = _mask_noncode(text)
     lines = source.splitlines()
     degrades, scoped = _preflight_declarations(lines)
     required = {
@@ -860,25 +770,6 @@ def binaries_in_script(path: Path) -> frozenset[str]:
     return found
 
 
-def _repo_root_for(module_path: Path) -> Path | None:
-    """The checkout a test module belongs to, or None.
-
-    Used only as an OWNERSHIP BOUNDARY (issue #906): a directly-invoked argv[0]
-    is scanned only when it resolves inside this tree. A system binary that
-    happens to be a shell script - `/usr/bin/something` - is not ours to read,
-    and scanning it would report findings about a neighbour's code.
-
-    Derived by walking up to the `tests` directory rather than guessing from a
-    marker file, because the synthetic trees this checker is tested against have
-    no pyproject.toml and a marker-based rule would silently stop resolving there
-    - the check would pass its own tests while covering nothing.
-    """
-    for parent in module_path.parents:
-        if parent.name == "tests":
-            return parent.parent
-    return None
-
-
 class _ScriptResolver:
     """Resolve a test module's ``Path`` constants, so ``bash SCRIPT`` can be followed.
 
@@ -890,45 +781,7 @@ class _ScriptResolver:
 
     def __init__(self, module_path: Path, tree: ast.Module) -> None:
         self.module_path = module_path.resolve()
-        self.repo_root = _repo_root_for(self.module_path)
         self.constants = self._constants(tree)
-
-    def direct_script_for(self, node: ast.expr) -> Path | None:
-        """The repo script an argv[0] runs directly, if it resolves to one (#906).
-
-        The #789 hop requires argv[0] to be `bash`/`sh`, so a test that runs an
-        executable helper on its shebang - `subprocess.run([str(HELPER), ...])`,
-        the natural spelling, since every script in `scripts/` is executable and
-        carries one - never entered the hop and its script was never scanned.
-        Measured on `tests/test_lane_serveability.py`: 11 of its 12 `curl` tests
-        were invisible, and they are the eleven that turned CI red.
-
-        This widens only the TRIGGER. The scan it feeds is the same
-        `binaries_in_script()` against the same explicit `GUARDED_BINARIES`, so
-        the function-versus-binary collision that made inverting the hop
-        unworkable (#831) stays out of reach: a shell function is only mistakable
-        for a binary when scanning for arbitrary tokens, and nothing here does.
-        """
-        if self.repo_root is None:
-            return None
-        path = self._expr(node)
-        if path is None:
-            return None
-        try:
-            resolved = path.resolve()
-            if not resolved.is_file():
-                return None
-            # Ownership boundary: only this checkout's own scripts.
-            if not resolved.is_relative_to(self.repo_root):
-                return None
-            # Executable, because the shape being covered is "run on its
-            # shebang". A non-executable path in argv[0] cannot run at all, so
-            # scanning it would be reading a file the test never executes.
-            if not os.access(resolved, os.X_OK):
-                return None
-            return resolved
-        except OSError:  # pragma: no cover - defensive
-            return None
 
     # -- constant map ------------------------------------------------------ #
     def _constants(self, tree: ast.Module) -> dict[str, Path]:
@@ -1084,14 +937,6 @@ class _ShellOutFinder(ast.NodeVisitor):
                 return set(), None
             head = _literal_str(first.elts[0])
             if head is None:
-                # argv[0] is not a literal - it may still be a repo script run
-                # directly on its shebang (issue #906). Before this, the branch
-                # returned here and the script was never scanned.
-                if self.resolver is not None:
-                    script = self.resolver.direct_script_for(first.elts[0])
-                    if script is not None:
-                        binaries = set(binaries_in_script(script))
-                        return (binaries, script) if binaries else (set(), None)
                 return set(), None
             name = head.rsplit("/", 1)[-1]
             if name in SHELL_RUNNERS and self.resolver is not None:
@@ -1105,15 +950,6 @@ class _ShellOutFinder(ast.NodeVisitor):
                 return (binaries, script) if binaries else (set(), None)
             if _needs_direct_guard(name):
                 return {name}, None
-            # A literal path to a repo script - subprocess.run(["scripts/x.sh"])
-            # or an absolute one - is the same #906 shape as the non-literal
-            # above. Reached only after SHELL_RUNNERS and the direct-guard check,
-            # so a bare binary name is never treated as a path.
-            if "/" in head and self.resolver is not None:
-                script = self.resolver.direct_script_for(first.elts[0])
-                if script is not None:
-                    binaries = set(binaries_in_script(script))
-                    return (binaries, script) if binaries else (set(), None)
             return set(), None
 
         literal = _literal_str(first)
