@@ -10,6 +10,7 @@ Generated from a Claude Code command. Where the procedure references these Claud
 
 - Claude subagent/skill dispatch: do the work inline in this session, or shell out to `codex exec` when isolation is needed.
 - Helper scripts referenced as `scripts/<name>` are bundled under `scripts/` in this skill directory (byte-identical copies from the claude-power-pack checkout); some expect sibling repo resources, so prefer a full checkout when one is available.
+- Canonical guidance linked as `docs/<path>` is bundled under `docs/` in this skill directory (byte-identical copies from the claude-power-pack checkout). The source-relative `../../../docs/...` link in the command body resolves outside an installed skill, so the generated copy points at the bundled path instead. docs/ remains the only writable source.
 
 # Flow: Wave - Orchestrate a Dependency-Ordered Issue Wave Across Worker Sessions
 

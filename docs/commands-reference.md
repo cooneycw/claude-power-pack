@@ -120,7 +120,12 @@ first edit, since the Step-1 check goes stale across the analysis and approval
 pause. A claim only covers a checkout where one was staked, so `worktree-remove.sh`
 additionally refuses (exit 5, issue #888) to delete a worktree that a live process
 is sitting in AND that holds uncommitted work - `--force` does not suppress that
-one, because Step 7 always passes `--force`. Separately, Step 9 skips `make deploy` when `.claude/deploy.log` already
+one, because Step 7 always passes `--force`. Both refusals are what
+`/flow:cleanup` Step 2 and `/flow:wave` Phase 3 delegate to: the #887 sweep
+(`scripts/flow-worktree-sweep.sh`) selects targets and hands each to
+`worktree-remove.sh` with neither `--force` nor `--steal`, so a refusal ends that
+worktree's turn rather than being retried - overriding either in a loop over every
+worktree on a host would be #889's data-loss path reopened at scale. Separately, Step 9 skips `make deploy` when `.claude/deploy.log` already
 records a SUCCESSFUL deploy of the current HEAD sha, so a commit a concurrent
 session just shipped is not deployed twice. Ownership is pid + session with
 host-scoped `kill -0` liveness; an owner that is gone reads as `stale` and is
