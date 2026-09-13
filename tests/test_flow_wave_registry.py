@@ -522,6 +522,73 @@ class TestLaneLessRolesExemptFromOverlap:
         assert "both claim branch 'b1'" in p.stdout
 
 
+def _pid1_is_unsignalable() -> bool:
+    """Can this process NOT signal pid 1?
+
+    Asked by DOING it rather than by reasoning about uids. Whether a signal is
+    permitted depends on real and effective uids, on privileges, on user
+    namespaces and on the LSM - so any predicate built from `geteuid()` and
+    `stat()` is a model of the kernel's rules that can disagree with the kernel.
+    `kill(pid, 0)` delivers no signal and performs exactly the permission check
+    the test's premise is about.
+
+    Any other `OSError` (notably `ProcessLookupError`, which would mean no pid 1
+    at all) answers False: the test needs a pid that EXISTS and is unsignalable,
+    and a missing one is not that.
+    """
+    try:
+        os.kill(1, 0)
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return False
+
+
+class TestPid1SignalProbe:
+    """`_pid1_is_unsignalable` must DISCRIMINATE, not just answer False.
+
+    A skip guard that is always true deletes the coverage it guards while
+    reporting green, which is worse than the failure it replaced - and the
+    failure it replaced (#881/#882 root: a test assuming it owns the host) was
+    at least visible. These pin that the probe still says yes where the premise
+    holds, so "skipped" in a container cannot quietly become "skipped
+    everywhere".
+
+    The probe is exercised through a substituted `os.kill` rather than against
+    real pids: the three outcomes it must separate cannot all be produced on one
+    machine, which is the whole reason the original proxy went unnoticed.
+    """
+
+    def test_eperm_means_unsignalable(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def _kill(pid: int, sig: int) -> None:
+            raise PermissionError(1, "Operation not permitted")
+
+        monkeypatch.setattr(os, "kill", _kill)
+        assert _pid1_is_unsignalable() is True
+
+    def test_a_signalable_pid1_means_the_premise_does_not_hold(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The container case: pid 1 runs as our own uid, so the signal lands.
+
+        This is the one that used to produce a hard failure on every branch.
+        """
+        monkeypatch.setattr(os, "kill", lambda pid, sig: None)
+        assert _pid1_is_unsignalable() is False
+
+    def test_a_missing_pid1_is_not_an_unsignalable_one(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """ESRCH is not EPERM. The test needs a pid that exists AND is refused."""
+
+        def _kill(pid: int, sig: int) -> None:
+            raise ProcessLookupError(3, "No such process")
+
+        monkeypatch.setattr(os, "kill", _kill)
+        assert _pid1_is_unsignalable() is False
+
+
 @requires_tools
 class TestLeftoverSocketIsNotProofOfLife:
     """A socket file corroborates; it never proves (#869).
@@ -613,15 +680,29 @@ class TestLeftoverSocketIsNotProofOfLife:
                 proc.wait(timeout=10)
 
     @pytest.mark.skipif(
-        not Path("/proc/1").is_dir() or os.geteuid() == 0,
-        reason="needs /proc and a non-root euid, so that pid 1 is unsignalable",
+        not _pid1_is_unsignalable(),
+        reason="needs a pid 1 this process may not signal (see _pid1_is_unsignalable)",
     )
     def test_a_pid_we_may_not_signal_still_reads_live(self, tmp_path: Path) -> None:
         """#675's actual case, served by the better instrument.
 
-        pid 1 exists and a non-root user may not signal it, so `kill -0` fails
-        with EPERM exactly as it would for a session owned by another user. The
-        old code reached this only via a socket file; there is no socket here.
+        pid 1 exists and this process may not signal it, so `kill -0` fails with
+        EPERM exactly as it would for a session owned by another user. The old
+        code reached this only via a socket file; there is no socket here.
+
+        The skip condition used to be `geteuid() != 0`, which INFERS the property
+        from a proxy: on an ordinary host pid 1 is root's `init`, so a non-root
+        euid cannot signal it. That proxy is false in a container with an
+        unprivileged entrypoint - a Kyle session container runs pid 1
+        (`kyle-entrypoint`) as the SAME uid 1000 the suite runs as, so
+        `os.kill(1, 0)` succeeds, `pytest.raises(PermissionError)` gets nothing,
+        and the test fails on every branch for a reason no branch caused. It now
+        probes the property directly instead (issues #881, #882 - same root,
+        different host resource).
+
+        The `pytest.raises` below is therefore a restatement of the skip
+        condition rather than an independent check. It is kept deliberately: if
+        someone later loosens the guard back to a proxy, this is what fails.
         """
         # Asserted through os.kill rather than a `kill` BINARY: this test's
         # claim is about the errno, and a minimal container without procps

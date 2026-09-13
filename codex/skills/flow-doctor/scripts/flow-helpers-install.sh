@@ -69,6 +69,7 @@ HELPERS=(
     flow-pr-watch.sh
     gh-pr-merge.sh
     worktree-remove.sh
+    flow-worktree-sweep.sh
     friction-log.sh
     check-ignored-additions.sh
     delegated-run-check.sh
