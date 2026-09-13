@@ -481,7 +481,8 @@ sessions then shipped in **v2.1.224**, and the premise expired without anything
 in the text able to say so (issue #870). An unversioned claim about harness
 behaviour is the defect that produced this section; do not add one.
 
-**Established on 2.1.266, 2026-09-12** (`claude --version`), on this host:
+**Established on 2.1.266, 2026-09-12** (`claude --version`), from a session
+running **on the host**:
 
 | Claim | How established |
 |---|---|
@@ -506,6 +507,34 @@ an asymmetric routing mechanism, so the directional framing is dropped rather
 than re-asserted for the untested direction. If you find a direction that fails,
 that is a new measurement and it belongs in this table with its own stamp.
 
+**Vantage is the second stamp, and the rows above shipped without it.** A
+version says WHEN a claim was established. It does not say FROM WHERE, and the
+two stop being interchangeable the moment the fleet stops being one population.
+Every row above was taken from a session running on the host. Kyle's target
+placement for every managed session is a per-session container (its ADR 0004),
+so the host vantage is the shrinking half of the fleet this section advises. The
+rows below were taken on the SAME harness version, one day later, from inside a
+container - so any difference between the two tables is vantage and cannot be
+version.
+
+**Established on 2.1.266, 2026-09-13**, from inside a per-session Kyle container:
+
+| Claim | How established |
+|---|---|
+| `ListAgents` resolves NO local peer at all - zero sessions on this machine | **measured** 2026-09-13 |
+| The same call resolves 49 peers, and EVERY one is a `Remote Control` session - which is to say off-box | **measured** 2026-09-13, same call |
+| `~/.claude/sessions/`, the local discovery directory, is NOT a mount and holds exactly one record inside a container: the session's own | **measured** 2026-09-13, `/proc/self/mountinfo` and `ls` |
+| Five sessions independently known alive - same group, same host, one of which had just delivered mail to the measuring session - are ABSENT from that list | **measured** 2026-09-13, boot roster + delivered message |
+| `~/.claude/settings.json` inside the container is a READ-ONLY bind mount of the host's file | **measured** 2026-09-13, `/proc/self/mountinfo` |
+
+**These are decidable from one end, which is the only reason they are stated as
+measurements.** The `crossSessionInbound` mechanism below is contested precisely
+because delivered and queued look identical from either end alone. Absence of an
+ADDRESS is not that kind of question: a name that does not resolve cannot be
+sent to, and the sender establishes that by itself, with no cooperating observer
+and no dialog it cannot see. Keep the distinction when adding rows here - it is
+what separates these from a one-ended report dressed as a measurement.
+
 **Delivery preference order. Follow it in order; do not skip to the end.**
 
 1. **Direct session messaging** (`SendMessage` to the `ListAgents` name) -
@@ -520,19 +549,47 @@ that is a new measurement and it belongs in this table with its own stamp.
 2. **Mailbox + watch** - the host-local lane below, and the DURABLE one. It
    holds a record, survives the receiver being dead at send time, and gives an
    explicit ack. Lane 1 going first does not demote it: anything that must
-   still be true in an hour belongs here, and for the container boundary below
-   this is the only lane that exists at all.
+   still be true in an hour belongs here, and past the container boundary below
+   this is the only lane that reaches a fleet peer at all.
 3. **User relay** - the DOCUMENTED LAST RESORT. On 2026-08-11 it was the first
    resort, which is the bug. Reaching for a human means lanes 1 and 2 both
    failed, and that is worth saying out loud rather than doing quietly.
 
-**The container boundary, stated here because it decides lane 1.** Native
-session discovery is filesystem-based, so a containerised session and a host
-session cannot see each other at all - not a permissions failure and not
-something a setting fixes: there is no path between them. Two sessions inside
-one container can. If either end is containerised, lane 1 does not exist and
-the mailbox is not a fallback but the only transport. Check before routing, not
-after silence.
+**The container boundary, stated here because it decides lane 1. Re-measured
+from inside a container on 2026-09-13, and half of what this paragraph said was
+wrong.**
+
+The mechanism holds, and is now confirmed rather than inferred. Native session
+discovery is filesystem-based; `~/.claude/sessions/` is container-private - not
+a mount - and inside a container it holds exactly one record, the session's own.
+So a containerised session and a host session cannot see each other at all: not
+a permissions failure, not something a setting fixes, no path between them.
+
+Two sessions inside one container should be able to, and that half is carried
+over from the previous text UNMEASURED - this fleet runs one session per
+container, so the case did not arise and no honest stamp can be put on it. It is
+left in because it follows from the mechanism, and flagged because a paragraph
+headed "re-measured" is exactly where an inherited claim would go unnoticed.
+
+What does NOT follow - and what this document asserted until now - is that lane
+1 "does not exist" for a containerised session. It exists, and it is populated.
+From inside a container `ListAgents` returned 49 live peer names, and EVERY one
+was a `Remote Control` session, which is to say on another machine. The local
+set was empty; the remote set was not, because Remote Control is an
+account-level path over the network and owes nothing to the filesystem.
+
+That is worse than absence, and it is why the wording mattered rather than being
+a quibble. A session told "lane 1 does not exist for you" which nonetheless
+calls `ListAgents` - to check, or out of habit - gets a long list of plausible
+running names, not one of which can be the groupmate it is trying to reach, and
+all of which are off-box. A lane that is missing gets noticed. A lane that
+answers with the wrong population gets used.
+
+**So past this boundary the order inverts: for a containerised session the
+mailbox is lane 1, and `SendMessage` is not a degraded fallback but an address
+space containing no fleet peer whatsoever.** That is a decision this measurement
+makes, not a caution it adds. Check your own vantage before routing - `ls
+~/.claude/sessions/` answers it in one call - not after the silence.
 
 **A hazard on lane 1 whose status is version-dependent - read the stamps.**
 Cross-session message delivery has been observed to kill the receiver's
@@ -638,11 +695,25 @@ no `isolatePeerMachines`, no `dialogExpiry`).
   **Recommended: `true`**, making an off-box send a deliberate act rather than
   the default outcome of picking the wrong name from a long list.
 
+  **From inside a container this stops being about typos** (measured
+  2026-09-13). The host vantage above is "large and mostly off-box"; the
+  container vantage is 49 of 49, because the local half of the address book is
+  empty there. Every lane-1 send a containerised session can physically make
+  leaves the machine. So this setting is not tidiness for that population - it
+  is the only thing standing between a mis-addressed fleet message and
+  Anthropic's servers, and it is unset.
+
 These are recommendations recorded for a human to apply, deliberately not
 applied by any session. `~/.claude/settings.json` is host state shared by every
 session on the machine: a value written there takes effect for all of them, is
 not reviewable as a diff, and does not arrive through the change that reviewed
 the reasoning. The artifact is fine; the delivery path is what bypasses review.
+
+A containerised session could not apply them in any case: the file is bind
+mounted READ-ONLY into the container (measured 2026-09-13). That is a
+convenience, not the reason - the reason above is about review, and it would
+stand if the mount were writable tomorrow. Noted only so nobody reads the
+refusal as a limitation being dressed up as a principle.
 
 **The lane.** Beside the registry, same lifetime, same host-local scope
 (`$XDG_RUNTIME_DIR/cc-flow-wave/<wave>/`), one audited helper invoked BARE

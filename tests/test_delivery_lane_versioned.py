@@ -118,12 +118,30 @@ def test_register_states_the_container_boundary_where_the_lanes_are_chosen() -> 
 
 
 def test_register_gives_both_settings_a_value_and_a_reason() -> None:
-    """#870 acceptance: chosen values with a recorded reason, not absence."""
+    """#870 acceptance: chosen values with a recorded reason, not absence.
+
+    Anchored on the BULLET that defines each setting, not on the first place its
+    name appears. The earlier version took a fixed window from the first mention,
+    which made it fail the moment unrelated prose referred to `crossSessionInbound`
+    further up - a true statement about the document moved the anchor off the
+    bullet and the probe reported a missing recommendation that was still there.
+
+    Worth recording because the repair is not "widen the window". A window that
+    has to be widened whenever the document grows is measuring distance, and this
+    probe is meant to measure whether a setting was given a value. The bullet is
+    the thing the acceptance criterion is about, so the bullet is what to find.
+    """
     section = _delivery_section(REGISTER.read_text())
     for setting in ("crossSessionInbound", "isolatePeerMachines"):
         assert setting in section, f"{setting} is not discussed"
-        window = section[section.index(setting) : section.index(setting) + 900]
-        assert re.search(r"Recommended:", window), (
+        bullet = re.search(
+            rf"^- \*\*`{setting}`\*\*(.*?)(?=^- \*\*`|\Z)", section, re.M | re.S
+        )
+        assert bullet, (
+            f"{setting} is mentioned but has no bullet defining it - the acceptance "
+            "criterion is a chosen value, which needs somewhere to be chosen"
+        )
+        assert re.search(r"Recommended:", bullet.group(1)), (
             f"{setting} has no recommended value"
         )
 
@@ -224,4 +242,104 @@ def test_a_contested_mechanism_is_marked_completely_or_not_at_all() -> None:
     )
     assert re.search(r"operator", section, re.I), (
         "the contested block does not say where the discriminator actually lives"
+    )
+
+
+#: The claim this section made about containers until 2026-09-13, which measurement refuted.
+CONTAINER_ABSENCE_CLAIM = re.compile(
+    r"lane 1 \"?(?:does not exist|is not available)\"?", re.I
+)
+
+
+def test_the_container_absence_claim_is_not_asserted_bare() -> None:
+    """"No local peer" and "no lane 1" are different claims. Do not re-collapse them.
+
+    Measured from inside a container on 2.1.266, 2026-09-13: local discovery is
+    empty, AND `ListAgents` still returns 49 names - every one of them a Remote
+    Control session on another machine. The mechanism this document gave was right
+    and the conclusion it drew from it was wrong, because Remote Control is an
+    account-level path that owes nothing to the filesystem.
+
+    The collapse is worth a guard rather than a fix-and-forget because the wrong
+    version is the one that sounds more careful, and it reads as a stronger warning
+    than the truth. A lane that is MISSING gets noticed when it fails. A lane that
+    answers with a population containing no fleet peer gets used, and returns
+    `success=true` when it is.
+
+    Shaped like `test_the_expired_premise_is_not_asserted_bare`: the claim may be
+    quoted as the thing that was corrected; it may not stand as current fact.
+    """
+    section = _delivery_section(REGISTER.read_text())
+    for match in CONTAINER_ABSENCE_CLAIM.finditer(section):
+        window = section[max(0, match.start() - 600) : match.end() + 600]
+        assert re.search(
+            r"does NOT follow|was wrong|it exists|exists, and it is populated", window
+        ), (
+            "the delivery section asserts lane 1 is absent inside a container with "
+            "nothing marking that as the claim measurement refuted"
+        )
+
+
+def test_the_container_finding_keeps_the_population_it_qualifies() -> None:
+    """A resolvable address set is only good news if it contains someone you want.
+
+    Same discipline as the no-kill caveat: the result must not be separable from
+    what limits it. "Lane 1 resolves peers inside a container" on its own is a
+    strictly worse statement than the one it replaced - it invites exactly the send
+    that cannot arrive. The off-box population is the whole content of the finding.
+    """
+    section = _delivery_section(REGISTER.read_text())
+    if not re.search(r"Remote Control", section):
+        return
+    assert re.search(r"off-box|another machine|other machines", section, re.I), (
+        "the container measurement records that peers resolve without recording "
+        "that none of them is on this machine"
+    )
+    assert re.search(r"no fleet peer|cannot be the groupmate|cannot be it", section, re.I), (
+        "the container measurement does not say the resolvable set contains no "
+        "fleet peer - which is the only reason the finding changes any behaviour"
+    )
+
+
+def test_a_result_that_differs_by_vantage_says_so() -> None:
+    """Two measurements, one harness version, different answers - name the variable.
+
+    The section now carries results taken on 2.1.266 from the host and results
+    taken on 2.1.266 from inside a container, and they disagree. A version stamp
+    cannot explain that, and a reader who assumes it can will take whichever table
+    is nearer and treat the other as stale.
+
+    This is #870's own defect at one remove. The original was a claim outliving its
+    evidence in TIME; this is a claim outrunning its evidence in POPULATION, and
+    the stamp discipline as written does not catch it - which is why it needs its
+    own probe rather than a wider version regex.
+    """
+    section = _delivery_section(REGISTER.read_text())
+    if not re.search(r"from inside a (?:per-session )?(?:Kyle )?container", section, re.I):
+        return
+    assert re.search(r"vantage", section, re.I), (
+        "the section reports a container-vantage result without ever naming vantage "
+        "as the thing that distinguishes it from the host-vantage rows"
+    )
+    assert re.search(r"on the host|running \*\*on the host\*\*", section, re.I), (
+        "the host-vantage rows are not labelled as host-vantage, so the container "
+        "rows read as a correction rather than a different population"
+    )
+
+
+def test_both_surfaces_agree_on_the_container_lane_order() -> None:
+    """register.md and wave.md must not give a containerised session opposite orders.
+
+    #883 shipped an intra-file contradiction (evidence section said one direction
+    measured, lane list claimed both) and it took a dedicated probe to catch. The
+    same class is likelier across files than within one, because the container
+    boundary is now stated in both and only one of them is where a router looks.
+    """
+    register = _delivery_section(REGISTER.read_text())
+    wave = WAVE.read_text()
+    inverted = re.compile(r"mailbox is lane 1", re.I)
+    assert bool(inverted.search(register)) == bool(inverted.search(wave)), (
+        "only one of register.md / wave.md states the container lane inversion - "
+        "an orchestrator reads wave.md and a worker reads register.md, so a split "
+        "here routes the two ends differently"
     )
