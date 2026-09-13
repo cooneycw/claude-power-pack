@@ -1058,6 +1058,22 @@ Report: `Step 6/9: Finish complete - PR #XX created`
    destroyed uncommitted work on `flow:auto #5`). Do NOT retry with `--steal` -
    report it and stop, so the user can decide. Almost always it means Step 1
    resumed someone else's checkout; the claim caught it late but correctly.
+
+   **Two further refusals, and `--force` does NOT override either (issue #899).**
+   `--force` says the worktree is busy; it does not say its contents are
+   expendable, and those were the same flag until now:
+
+   | exit | meaning | override |
+   |---|---|---|
+   | 6 | uncommitted work would be destroyed | `--allow-dirty` |
+   | 7 | commits here are on no remote ref | `--allow-unpushed` |
+
+   Both are CORRECT refusals, not flow failures, and neither should be retried
+   with its override reflexively - that is how the #888 guard was lost. Exit 7 in
+   particular means the commits exist nowhere else: push the branch and re-run.
+   Your worktree should be clean and pushed by this point in the run, so either
+   refusal means something earlier did not finish - find that, do not silence
+   this.
    A claim owned by THIS session, or left by a dead one, is released
    automatically and the removal proceeds normally.
 
