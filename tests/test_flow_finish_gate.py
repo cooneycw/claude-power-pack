@@ -368,7 +368,7 @@ def test_runner_rerun_passed_reports_warn_and_ids(tmp_path: Path) -> None:
       "ids": [
         "tests/a.py::t1"
       ],
-      "outcome": "passed",
+      "outcome": "passed-in-isolation",
       "first_attempt": null,
       "rerun": null
     }
@@ -475,7 +475,7 @@ def test_runner_rerun_reports_multiple_ids(tmp_path: Path) -> None:
         "tests/a.py::t1",
         "tests/b.py::TestB::t2[param]"
       ],
-      "outcome": "passed",
+      "outcome": "passed-in-isolation",
       "first_attempt": null,
       "rerun": null
     }
@@ -560,7 +560,7 @@ def test_skipped_gates_win_but_rerun_ids_are_still_printed(tmp_path: Path) -> No
       "ids": [
         "tests/a.py::t1"
       ],
-      "outcome": "passed",
+      "outcome": "passed-in-isolation",
       "first_attempt": null,
       "rerun": null
     }

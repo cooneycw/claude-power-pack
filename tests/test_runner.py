@@ -12,6 +12,7 @@ import pytest
 
 from lib.cicd.runner import (
     MAX_RERUN_IDS,
+    RERUN_PASSED_IN_ISOLATION,
     DeterministicRunner,
     RunResult,
     _build_step_env,
@@ -373,7 +374,9 @@ class TestRerunFailedTests:
         ).run("check", step_defs=[step])
 
         assert result.success
-        assert result.to_dict()["reruns"][0]["outcome"] == "passed"
+        assert (
+            result.to_dict()["reruns"][0]["outcome"] == "passed-in-isolation"
+        ), "the record must name what was established, not a cause (issue #900)"
         assert result.reruns[0]["ids"] == ["tests/a.py::t1"]
         assert result.tests["test"]["failed"] == 1
         assert result.tests["test"]["passed"] == 2
@@ -381,6 +384,125 @@ class TestRerunFailedTests:
         assert result.reruns[0]["rerun"]["passed"] == 1
         assert "RE-RAN AND PASSED: tests/a.py::t1 (1 id)" in log.getvalue()
         assert "completed successfully" not in log.getvalue()
+
+    def test_a_passing_rerun_does_not_claim_a_flake(
+        self, tmp_project: Path
+    ) -> None:
+        """Issue #900: the re-run cannot establish the cause, so it must not name one.
+
+        The re-run changes TWO variables at once - when it ran, and what ran
+        before it. A flake is explained by the first, an order-dependent real
+        failure by the second, and passing alone is the signature of both. The
+        line used to read "first attempt was a flake", which is a conclusion the
+        experiment cannot support and the one that did the damage: an
+        order-dependent failure in kyle survived weeks of being cleared by it.
+        """
+        step = StepDef(
+            id="test",
+            command=self._first_fails_then("=== 1 passed in 0.01s ==="),
+            timeout_seconds=30,
+        )
+        log = StringIO()
+        DeterministicRunner(
+            project_root=tmp_project, output=log, rerun_failed=True
+        ).run("check", step_defs=[step])
+        text = log.getvalue()
+
+        assert "first attempt was a flake" not in text, (
+            "the runner is asserting a cause its experiment cannot establish "
+            "(issue #900)"
+        )
+        # The narrower claim it CAN support.
+        assert "pass when run alone" in text
+        # And the alternative it must not exclude.
+        assert "order-dependent" in text
+
+    def test_the_runner_line_does_not_defuse_the_gate_warning(self) -> None:
+        """The two surfaces must agree that the cause is undetermined (#900).
+
+        `flow-finish-gate.sh` has reported `warn (rerun passed: ...)` since #769
+        landed, and its wording already offers both causes - so the gate was never
+        the problem. The runner's line printed FIRST, named one cause
+        confidently, and therefore read as the explanation for the warning below
+        it. The warn was not missing; it was defused.
+
+        This asserts the property across both surfaces rather than in one, so a
+        future edit that makes either of them confident again fails here. It reads
+        source text on purpose: the runner line is only reachable by executing a
+        re-run, the shell line only by driving the gate, and the defect is that
+        the two DISAGREE - which is a property of the pair, not of either run.
+
+        What it does not prove: that any human read either line, or that the
+        orderings are as described at a terminal. It pins the wording, which is
+        the part that regressed.
+        """
+        runner_src = (Path(_CPP_ROOT) / "lib" / "cicd" / "runner.py").read_text()
+        gate = Path(_CPP_ROOT) / "scripts" / "flow-finish-gate.sh"
+        if not gate.is_file():
+            pytest.skip("flow-finish-gate.sh not present in this checkout")
+        gate_src = gate.read_text()
+
+        assert "RE-RUN PASSED IN ISOLATION" in runner_src, (
+            "the runner's re-run message has been reworded - update this test, "
+            "but keep it: it is the only thing pinning the two surfaces together"
+        )
+        # Deliberately NO `"first attempt was a flake" not in runner_src` here.
+        # It was written, and it failed on its first run - against the COMMENT
+        # above the fix, which quotes the old claim to explain what changed. That
+        # is #821's self-matching shape occurring inside the guard written for
+        # #900: the pattern was inside the text doing the matching.
+        #
+        # Scoping the search to non-comment lines would work and is the wrong
+        # trade: it buys a weaker version of a check that already exists in the
+        # right place. `test_a_passing_rerun_does_not_claim_a_flake` asserts the
+        # phrase is absent from the EMITTED LOG, which is what actually reaches a
+        # reader - source prose does not. Absence-in-source and absence-in-output
+        # are two questions, and only the second one matters here.
+        # Each surface must offer the alternative rather than settle on one cause.
+        assert "order-dependent" in runner_src
+        assert "real intermittent failure" in gate_src, (
+            "flow-finish-gate.sh no longer offers the non-flake cause"
+        )
+
+    def test_the_rerun_token_matches_what_the_gate_greps(self) -> None:
+        """One token in two languages, pinned in BOTH directions (issue #900).
+
+        `flow-finish-gate.sh` cannot import `lib.cicd`, so the token is duplicated
+        into an awk regex. That regex is ANCHORED - `/^      "outcome": "..."$/` -
+        which makes the drift silent in the worst direction: the gate stops
+        emitting `RERUN_PASSED`, the warning never prints, and the marker reverts
+        to `ok` for a run that failed and was rescued. That is #900's exact
+        symptom restored by a rename that only half-landed.
+
+        Both directions fail here:
+
+          * the runner records a token the gate does not match -> rescued runs
+            silently report `ok`;
+          * the gate matches a token the runner never emits -> the same, and the
+            matcher looks maintained while matching nothing.
+
+        Deliberately parsed from each source rather than compared to a literal
+        third copy: a test holding its own copy of the value under test proves
+        only that the copy matches itself, which is how the 9-entry HELPERS copy
+        sat green beside a 13-entry array (#677).
+        """
+        gate = Path(_CPP_ROOT) / "scripts" / "flow-finish-gate.sh"
+        if not gate.is_file():
+            pytest.skip("flow-finish-gate.sh not present in this checkout")
+
+        matched = re.findall(
+            r'"outcome": "([a-z-]+)"\[,\]\?\$/', gate.read_text()
+        )
+        assert matched, (
+            "could not find the rerun-outcome match in flow-finish-gate.sh's awk "
+            "block - if it was rewritten, update this parser; do NOT drop the "
+            "assertion, which is the only thing keeping the two equal (#900)"
+        )
+        assert set(matched) == {RERUN_PASSED_IN_ISOLATION}, (
+            f"flow-finish-gate.sh greps for {sorted(set(matched))} but the runner "
+            f"records {RERUN_PASSED_IN_ISOLATION!r}. A mismatch makes the gate "
+            f"report `ok` for a run that was rescued by a re-run (issue #900)."
+        )
 
     def test_rerun_sees_pytest_addopts(
         self, tmp_project: Path, monkeypatch: pytest.MonkeyPatch
