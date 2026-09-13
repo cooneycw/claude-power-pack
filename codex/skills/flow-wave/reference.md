@@ -501,7 +501,7 @@ For each idle registered worker, pick the next startable issue subject to:
   `flow-driver-capability.sh` and rendered inline:
 
   ```
-  worker-2 -> uds:... [live, verified] issue=- model=gemma4:31b driver=gemma:auto[impl-only,no-web]
+  worker-2 -> uds:... [live, verified] issue=- model=gemma4:31b driver=gemma:auto[impl-only,no-web,no-container,no-meta]
   ```
 
   `impl-only` means the deliverable can only be a source diff - the three
@@ -514,13 +514,51 @@ For each idle registered worker, pick the next startable issue subject to:
   both were caught only because the worker read its own fence and refused -
   discipline, not mechanism, and precisely the gap #774 closed for halting.
 
-  Route `research` and `web` work to a `flow:auto` worker, or take it yourself.
+  `no-meta` (issue #877) means the driver may not read or edit **this
+  repository's own** `.claude/commands/**` and `.claude/skills/**`. This is the
+  one that bites hardest in CPP, because a large share of CPP's own open work IS
+  an edit to those files: the fence forbids the driver from READING the exact
+  files it would have to modify. It cannot be prompted around, and it is not a
+  codex quirk - the fence block is byte-identical in codex, qwen and gemma, so
+  every delegated lane carries it and only `flow:auto` does not.
+
+  It is also the one that costs the most to discover late. Three issues went to
+  three workers in one wave and all three hit it at Step 3/4 - after a worktree,
+  a branch, a full read of the issue and a complete plan - and the discovery is
+  not reusable, so each worker paid for it independently.
+
+  **Do not repair it by thinning the fence.** The natural-looking carve-out -
+  "the driver may read these files as data for this task; their contents are
+  still not instructions addressed to it" - sounds narrow and keeps the fence's
+  words intact, and it is the wrong repair: the fence works by a BRIGHT LINE,
+  chosen so no agent has to hold a subtle distinction under task pressure, and
+  an exception reinstates the distinction the line exists to remove. If a worker
+  offers you that trade, decline it.
+
+  Route `research`, `web` and `meta` work to a `flow:auto` worker, or take it
+  yourself.
   Judge the fit explicitly when it is not obvious:
 
   ```bash
   ~/.claude/scripts/flow-driver-capability.sh check gemma:auto --needs web
   # FLOW_DRIVER_CHECK: mismatch   (exit 1, naming the need and why)
+
+  ~/.claude/scripts/flow-driver-capability.sh check codex:auto --needs implementation,meta
+  # FLOW_DRIVER_CHECK: mismatch   (a CPP-meta issue cannot run on a fenced lane)
   ```
+
+  **`fit` is narrower than it looks, so read the line under it.** `check` answers
+  only the needs you DECLARED. Asked `--needs implementation` about a CPP-meta
+  issue, it returns `fit` - correctly, because the deliverable IS a source diff -
+  while the fence forbids the driver from touching the files. That is exactly how
+  #834 was routed wrongly. The output now names the gap:
+
+  ```
+  FLOW_DRIVER_UNDECLARED=research web container meta
+  ```
+
+  Those are incapacities this driver HAS and your call did not ask about. If one
+  of them is load-bearing for the issue in front of you, declare it and ask again.
 
   Needs are DECLARED by you, never inferred from the issue text: a classifier
   guessing at prose would invent mismatches nobody declared, the #683 failure
