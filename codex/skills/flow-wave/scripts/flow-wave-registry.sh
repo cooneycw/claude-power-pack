@@ -911,7 +911,7 @@ report_overlap() {
 # act of declaring a lane was the act that stopped the lane being checked.
 lane_unscoped() {
   local repo="$1" files="$2" issue="$3"
-  [ -z "$repo" ] || return 1
+  [ -z "$repo" ] || [ ! -d "$repo" ] || return 1
   [ -n "$files" ] || [ -n "$issue" ]
 }
 
@@ -1431,6 +1431,10 @@ case "$VERB" in
 
   register)
     [ -n "$ROLE" ] || usage_fail "register requires a role"
+    if [ -n "$A_REPO" ]; then
+      abs_repo="$(cd "$A_REPO" 2>/dev/null && pwd -P)"
+      [ -n "$abs_repo" ] && A_REPO="$abs_repo"
+    fi
     SOCK="$A_SOCKET"
     SOCK_SOURCE=explicit
     SOCK_REASON="-"
@@ -1638,8 +1642,12 @@ case "$VERB" in
         DECLARED=""
         [ -n "$NEW_FILES" ] && DECLARED="$DECLARED files=$NEW_FILES"
         [ -n "$NEW_ISSUE" ] && DECLARED="$DECLARED issue=$NEW_ISSUE"
-        echo "flow-wave-registry: role '$ROLE' declares a lane (${DECLARED# }) but NO repo - overlap detection is UNSCOPED for it (#800)." >&2
-        echo "  The same-issue and FILE-LANE arms compare same-repo pairs only, so an empty repo matches nothing and 'list' reads CLEAN while this lane goes unchecked." >&2
+        if [ -z "$NEW_REPO" ]; then
+          echo "flow-wave-registry: role '$ROLE' declares a lane (${DECLARED# }) but NO repo - overlap detection is UNSCOPED for it (#800)." >&2
+        else
+          echo "flow-wave-registry: role '$ROLE' declares a lane (${DECLARED# }) but repo '$NEW_REPO' does not resolve to a directory - overlap detection is UNSCOPED for it (#891)." >&2
+        fi
+        echo "  The same-issue and FILE-LANE arms compare same-repo pairs only, so an empty or non-resolving repo matches nothing and 'list' reads CLEAN while this lane goes unchecked." >&2
         echo "  Re-register with --repo <path>. --repo is REWRITTEN by every re-register - unlike --files, which is preserved - so it must be passed EVERY time." >&2
       fi
     fi
@@ -1955,6 +1963,16 @@ case "$VERB" in
       [ -n "$rp" ] && SCAN_REPOS="$SCAN_REPOS
 $rp"
     done
+    CLAIM_SCAN_SKIPPED=0
+    while IFS= read -r rp; do
+      [ -z "$rp" ] && continue
+      if [ ! -d "$rp" ]; then
+        echo "flow-wave-registry: repo '$rp' does not resolve to a directory - unregistered claim scan is BLIND to it (#891)." >&2
+        CLAIM_SCAN_SKIPPED=$((CLAIM_SCAN_SKIPPED + 1))
+      fi
+    done <<EOF
+$SCAN_REPOS
+EOF
     CLAIMS="$(collect_unregistered_claims "$REG" "$WAVE" "$SCAN_REPOS")"
     if [ "$JSON_OUT" -eq 1 ]; then
       # Enriched JSON: each entry plus computed liveness.
@@ -2021,6 +2039,7 @@ $rp"
       echo "FLOW_WAVE_BOOTSTRAP=$BOOTSTRAP_STATE"
       echo "FLOW_WAVE_OVERLAP_UNSCOPED=$UNSCOPED"
       echo "FLOW_WAVE_LIVENESS_UNDETERMINED=$UNDETERMINED"
+      echo "FLOW_WAVE_CLAIM_SCAN_SKIPPED=$CLAIM_SCAN_SKIPPED"
       echo "FLOW_WAVE: listed"
       exit 0
     fi
@@ -2047,6 +2066,7 @@ EOF
       echo "FLOW_WAVE_BOOTSTRAP=$BOOTSTRAP_STATE"
       echo "FLOW_WAVE_OVERLAP_UNSCOPED=$UNSCOPED"
       echo "FLOW_WAVE_LIVENESS_UNDETERMINED=$UNDETERMINED"
+      echo "FLOW_WAVE_CLAIM_SCAN_SKIPPED=$CLAIM_SCAN_SKIPPED"
       echo "FLOW_WAVE: listed"
       exit 0
     fi
@@ -2312,6 +2332,7 @@ EOF
     echo "FLOW_WAVE_BOOTSTRAP=$BOOTSTRAP_STATE"
     echo "FLOW_WAVE_OVERLAP_UNSCOPED=$UNSCOPED"
     echo "FLOW_WAVE_LIVENESS_UNDETERMINED=$UNDETERMINED"
+    echo "FLOW_WAVE_CLAIM_SCAN_SKIPPED=$CLAIM_SCAN_SKIPPED"
     echo "FLOW_WAVE: listed"
     exit 0
     ;;
