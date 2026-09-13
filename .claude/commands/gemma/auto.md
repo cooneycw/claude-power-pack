@@ -336,6 +336,49 @@ if ! curl -sf --max-time 5 "$GEMMA_ENDPOINT/api/tags" 2>/dev/null | grep -q "${G
     echo "ERROR: model '$GEMMA_MODEL' not found on the server. See /gemma:help."
     exit 1
 fi
+
+# Registration is not serveability (issue #895). `/api/tags` reports what is in
+# the MANIFEST; it cannot report whether the weights load. The failure this
+# closes sits exactly between them: the model is registered and the
+# `llama-server` worker is SIGKILLed during weight load, so both checks above
+# pass in ~13ms and the run dies ~18s later inside the delegated call with an
+# opaque HTTP 500. A single-token generate is the only check that discriminates.
+#
+# TIMEOUT: 90s, and it is deliberately GENEROUS rather than tight.
+#   * It must exceed ~18s, which is when the broken host reports its OWN cause
+#     (`llama-server process has terminated: signal: killed`). A timeout below
+#     that converts a named, specific error into an anonymous client-side
+#     timeout - indistinguishable from a healthy cold load, which recreates
+#     this issue's exact ambiguity one layer down.
+#   * It is not a tax on the healthy path: a GPU-resident model answers in
+#     ~0.11s (measured), and a cold model pays a load the first real call would
+#     have paid anyway - this MOVES the cost, it does not add it.
+#   * The ceiling is therefore only ever reached by a lane that is hung with no
+#     response at all, which is itself a failure worth stopping on.
+GEMMA_PROBE=$(curl -s --max-time 90 "$GEMMA_ENDPOINT/api/generate" \
+    -H 'Content-Type: application/json' \
+    -d "{\"model\":\"$GEMMA_MODEL\",\"prompt\":\"OK\",\"think\":false,\"stream\":false,\"options\":{\"num_predict\":1}}" \
+    -w '\n%{http_code}' 2>/dev/null)
+GEMMA_PROBE_CODE=$(printf '%s' "$GEMMA_PROBE" | tail -n1)
+if [ "$GEMMA_PROBE_CODE" != "200" ]; then
+    echo "ERROR: the gemma lane is DOWN - '$GEMMA_MODEL' is registered but cannot serve."
+    echo "  HTTP ${GEMMA_PROBE_CODE:-no-response} from $GEMMA_ENDPOINT/api/generate"
+    GEMMA_PROBE_ERR=$(printf '%s' "$GEMMA_PROBE" | sed '$d' \
+        | sed -n 's/.*"error"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
+    # Print the label only when there is something under it. An empty
+    # "the server's own error:" heading is a blank where the diagnosis should
+    # be, which is the failure mode this whole check exists to remove.
+    if [ -n "$GEMMA_PROBE_ERR" ]; then
+        echo "  The server's own error:"
+        echo "    $GEMMA_PROBE_ERR"
+    elif [ "$GEMMA_PROBE_CODE" = "000" ]; then
+        echo "  No response at all: the endpoint refused the connection or did not"
+        echo "  answer within 90s. The server did not get far enough to have an opinion."
+    fi
+    echo "  This is a SERVING-HOST problem, not a repo problem - retrying the lane"
+    echo "  will fail the same way. Fix the host, or use a different driver."
+    exit 1
+fi
 ```
 
 **The two fences.** `/qwen:auto` has three safety layers (textual fence, OS

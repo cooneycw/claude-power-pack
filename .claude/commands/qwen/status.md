@@ -107,10 +107,38 @@ If the server and model are present, offer a quick generation probe:
 
 ```bash
 echo ""
-echo "=== Latency Probe ==="
-curl -s "$QWEN_ENDPOINT/api/generate" \
+echo "=== Serveability Probe ==="
+# This probe used to be a REPORT, not an assertion: `curl -s` (no -f), its
+# failure swallowed by `|| echo "(probe failed or timed out)"`, and its result
+# never reaching the verdict below. Against a host whose `llama-server` is
+# SIGKILLed during weight load it printed "(probe failed or timed out)" and then
+# printed "Status: READY" underneath - and `auto.md` sends users HERE after a
+# failed run, so the remediation path carried the same defect it was meant to
+# diagnose (issue #895). It now asserts, and feeds `READY`.
+QWEN_PROBE=$(curl -s --max-time 90 "$QWEN_ENDPOINT/api/generate" \
+  -H 'Content-Type: application/json' \
   -d "{\"model\":\"$QWEN_MODEL\",\"prompt\":\"Say OK.\",\"think\":false,\"stream\":false}" \
-  --max-time 120 | grep -o '"eval_count":[0-9]*\|"eval_duration":[0-9]*' || echo "(probe failed or timed out)"
+  -w '\n%{http_code}' 2>/dev/null)
+QWEN_PROBE_CODE=$(printf '%s' "$QWEN_PROBE" | tail -n1)
+QWEN_PROBE_BODY=$(printf '%s' "$QWEN_PROBE" | sed '$d')
+if [ "$QWEN_PROBE_CODE" = "200" ]; then
+    QWEN_SERVES=true
+    echo "[x] '$QWEN_MODEL' SERVES (HTTP 200)"
+    # Whitespace-tolerant: emitters differ on `"k":v` vs `"k": v`, and the
+    # tight pattern printed a bare `"eval_count":` with no number against one
+    # of them - the same defect as the error extraction above, one line over.
+    echo "$QWEN_PROBE_BODY" | grep -oE '"(eval_count|eval_duration)"[[:space:]]*:[[:space:]]*[0-9]+'
+else
+    QWEN_SERVES=false
+    echo "[ ] FAILED: '$QWEN_MODEL' is REGISTERED but cannot SERVE"
+    echo "    HTTP ${QWEN_PROBE_CODE:-no-response} from $QWEN_ENDPOINT/api/generate"
+    QWEN_PROBE_ERR=$(printf '%s' "$QWEN_PROBE_BODY" \
+        | sed -n 's/.*"error"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
+    if [ -n "$QWEN_PROBE_ERR" ]; then
+        echo "    The server's own error: $QWEN_PROBE_ERR"
+    fi
+    echo "    This is a serving-host problem. /qwen:auto will fail the same way."
+fi
 ```
 
 Report tokens/second if the probe succeeds (eval_count / (eval_duration / 1e9)).
@@ -126,6 +154,10 @@ echo "==================================="
 READY=true
 command -v qwen &>/dev/null || READY=false
 curl -sf --max-time 5 "$QWEN_ENDPOINT/api/version" > /dev/null 2>&1 || READY=false
+# Serveability is part of the verdict, not a footnote above it (issue #895).
+# Unset - the probe block never ran - fails CLOSED, which is the same posture
+# gemma/status.md takes with SMOKE_EXIT.
+[ "$QWEN_SERVES" = "true" ] || READY=false
 
 if [ "$READY" = "true" ]; then
     echo "Status: READY"

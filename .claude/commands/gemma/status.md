@@ -161,7 +161,17 @@ if command -v opencode &>/dev/null && echo "$PROVIDER_LIST" | grep -q "^gemma-ol
 
     rm -rf "$SMOKE_DIR"
 
+    # One variable for the display AND the verdict. They used to disagree: this
+    # branch required exit 0 AND a tool_use AND completed, while the verdict
+    # below tested only $SMOKE_EXIT - so a run that exited 0 with the tool call
+    # silently dropped printed "FAILED: no tool call observed" and then printed
+    # "Status: READY" underneath it (issue #895). That dropped tool call is the
+    # exact #752 failure this smoke test exists to catch.
+    SMOKE_OK=false
     if [ "$SMOKE_EXIT" -eq 0 ] && echo "$SMOKE_OUTPUT" | grep -q '"type":"tool_use"' && echo "$SMOKE_OUTPUT" | grep -q '"status":"completed"'; then
+        SMOKE_OK=true
+    fi
+    if [ "$SMOKE_OK" = "true" ]; then
         INPUT_TOKENS=$(echo "$SMOKE_OUTPUT" | grep -o '"input":[0-9]*' | head -1 | grep -o '[0-9]*')
         echo "[x] Forced tool call succeeded through the full harness (input ~${INPUT_TOKENS:-unknown} tokens - past the /v1 drop threshold)"
     else
@@ -189,7 +199,10 @@ command -v opencode &>/dev/null || READY=false
 curl -sf --max-time 5 "$GEMMA_ENDPOINT/api/version" > /dev/null 2>&1 || READY=false
 echo "$PROVIDER_LIST" | grep -q "^gemma-ollama/" || READY=false
 grep -q '"gemma-implementer"' ~/.config/opencode/opencode.json 2>/dev/null || READY=false
-[ "$SMOKE_EXIT" = "0" ] || READY=false
+# Was `[ "$SMOKE_EXIT" = "0" ]`, which ignored the payload assertions the smoke
+# branch above makes - a dropped tool call reported READY (issue #895). Unset,
+# because the smoke block was skipped entirely, still fails CLOSED.
+[ "$SMOKE_OK" = "true" ] || READY=false
 
 if [ "$READY" = "true" ]; then
     echo "Status: READY"
