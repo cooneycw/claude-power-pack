@@ -20,7 +20,14 @@ from lib.cicd.runner import (
     run_plan,
 )
 from lib.cicd.state import RunState, StepRecord, compute_tree_signature
-from lib.cicd.steps import _CPP_ROOT, BUILTIN_PLANS, GATE_STEP_IDS, ShellStep, StepDef
+from lib.cicd.steps import (
+    _CPP_ROOT,
+    BUILTIN_PLANS,
+    FALLBACK_UNRUNNABLE_GATES,
+    GATE_STEP_IDS,
+    ShellStep,
+    StepDef,
+)
 
 
 @pytest.fixture
@@ -779,6 +786,16 @@ class TestFinishGateFallbackParity:
     (warn) only when neither exists."""
 
     def test_fallback_runs_every_finish_plan_gate(self):
+        """Every finish gate is either run by the fallback or NAMED as unrunnable.
+
+        Until #890 this read "every gate is run by the fallback", which was true
+        only because the two questions GATE_STEP_IDS is consulted for happened to
+        agree. They are different questions - "did skipping this prove nothing?"
+        (runner.py, #628) and "must the degraded lane run this?" (here, #617) -
+        and `security_scan` is the first without being the second. Absence is no
+        longer a passing state: a gate the fallback does not invoke has to be
+        declared unrunnable, with a reason.
+        """
         gate = Path(_CPP_ROOT) / "scripts" / "flow-finish-gate.sh"
         if not gate.is_file():
             pytest.skip("flow-finish-gate.sh not present in this checkout")
@@ -790,8 +807,27 @@ class TestFinishGateFallbackParity:
         assert 'make "${id}" || FAILED=1' in body
         assert "uv run --extra dev ${uvargs} || FAILED=1" in body
         for gid in gate_ids:
-            assert f"run_fallback_gate {gid} " in body, (
-                f"fallback never runs the '{gid}' gate (#617/#628)"
+            if f"run_fallback_gate {gid} " in body:
+                continue
+            reason = FALLBACK_UNRUNNABLE_GATES.get(gid, "")
+            assert reason.strip(), (
+                f"the fallback never runs the '{gid}' gate and nothing says why "
+                f"(#617/#628/#890). Either add `run_fallback_gate {gid} ` to "
+                f"flow-finish-gate.sh, or add {gid!r} to FALLBACK_UNRUNNABLE_GATES "
+                f"with the reason no degraded form of it exists."
+            )
+
+    def test_no_stale_fallback_exemption(self):
+        """An exemption for a gate that no longer exists is a claim about nothing.
+
+        The mirror of the assertion above: without this, deleting a gate would
+        leave its exemption behind, quietly widening what the next reader thinks
+        the fallback is allowed not to run.
+        """
+        for gid in FALLBACK_UNRUNNABLE_GATES:
+            assert gid in GATE_STEP_IDS, (
+                f"FALLBACK_UNRUNNABLE_GATES names {gid!r}, which is not a gate in "
+                f"any plan - remove the stale exemption"
             )
 
 
@@ -952,13 +988,170 @@ class TestSkippedSuiteReporting:
         assert record.tests is None
 
 
+class TestGateDeclarationIsExhaustive:
+    """Every builtin step declares whether skipping it proves nothing (issue #890).
+
+    Deriving GATE_STEP_IDS from the step definitions makes one failure mode
+    impossible - a gate cannot be declared and then left out of the set, because
+    there is no second place to update. It does NOT make the other one
+    impossible: `StepDef.gate` defaults to False, so a new step that never
+    mentions `gate=` is silently a non-gate, which is exactly the shape that hid
+    `security_scan` for three releases.
+
+    Deriving cannot close that; only an exhaustive classification can. This class
+    is it. A step in neither bucket fails, and so does an exemption for a step
+    that no longer exists - so the set of things this repository has decided
+    about stays equal to the set of things there are to decide about.
+
+    Per docs/agents/detector-contracts.md, what a green run here does NOT prove:
+
+      * It does not prove a classification is CORRECT, only that one was made
+        deliberately. `DECLARED_NON_GATES` is a record of judgements, and a wrong
+        judgement recorded with a reason still passes. That is the honest limit:
+        a test can force the question to be asked, not answer it.
+      * It covers BUILTIN_PLANS only. A step from a task manifest is classified
+        by whatever the manifest says and is invisible here.
+    """
+
+    #: Steps whose skip proves nothing was missed, with the reason. A step is in
+    #: this dict or it declares `gate=True`; being in neither is a failure, not a
+    #: default. Reasons are load-bearing - an entry without one is a bare
+    #: assertion that the next reader cannot check.
+    DECLARED_NON_GATES: dict[str, str] = {
+        "bootstrap_check": (
+            "advisory. It reports on dependency and bootstrap advisories rather "
+            "than verifying the change, and its skip_if fires when the repo has "
+            "no recognisable dependency manifest at all - a repo shape, not a "
+            "missing verification."
+        ),
+        "stale_commit_check": (
+            "skipping is designed-normal, and the design is the point: skip_if is "
+            "'not on main, or CPP_OFFLINE'. Off main there is nothing to be stale "
+            "against, and offline the git fetch cannot reach the remote, so the "
+            "skip reports a situation rather than an unverified dimension (#534)."
+        ),
+        "deploy": (
+            "the action the plan exists to perform, not a check on it. It has no "
+            "skip_if at all, so a 'skipped deploy' is not a state the runner can "
+            "reach - and if it ever became one, that is a failed deploy to report, "
+            "not a gate that proved nothing."
+        ),
+    }
+
+    def _all_builtin_steps(self):
+        return [(plan, step) for plan, steps in BUILTIN_PLANS.items() for step in steps]
+
+    def test_every_builtin_step_is_classified(self):
+        unclassified = sorted(
+            {
+                f"{plan}:{step.id}"
+                for plan, step in self._all_builtin_steps()
+                if not step.gate and step.id not in self.DECLARED_NON_GATES
+            }
+        )
+        assert not unclassified, (
+            "these builtin steps declare neither `gate=True` nor a reason for not "
+            f"being one: {unclassified}. A step that skips silently while the run "
+            "reports success is the #628 false green; decide which it is and say "
+            "so (issue #890). `gate=` defaults to False, so omitting it is not a "
+            "decision - it is the absence of one."
+        )
+
+    def test_no_stale_non_gate_declaration(self):
+        """The mirror: an exemption for a step nobody runs any more.
+
+        Without this the dict only grows, and a reader cannot tell a live
+        judgement from a fossil.
+        """
+        live = {step.id for _, step in self._all_builtin_steps()}
+        stale = sorted(set(self.DECLARED_NON_GATES) - live)
+        assert not stale, (
+            f"DECLARED_NON_GATES names steps no builtin plan defines: {stale}"
+        )
+
+    def test_every_non_gate_declaration_carries_a_reason(self):
+        for step_id, reason in self.DECLARED_NON_GATES.items():
+            assert reason.strip(), f"{step_id} is exempted with no reason given"
+
+    def test_the_classifier_can_fire(self):
+        """Positive control: an unclassified step IS detected.
+
+        Without this the exhaustiveness assertion could be green because the
+        check never fires, which is the defect it exists to prevent, one level up.
+        """
+        rogue = StepDef(id="a_new_unclassified_step", command="true")
+        assert not rogue.gate, "the default must remain False, or this proves nothing"
+        unclassified = [
+            step.id
+            for step in [rogue]
+            if not step.gate and step.id not in self.DECLARED_NON_GATES
+        ]
+        assert unclassified == ["a_new_unclassified_step"]
+
+    def test_no_step_id_is_declared_both_ways(self):
+        """GATE_STEP_IDS is keyed by ID, and ids repeat across plans.
+
+        `security_scan` is in both `finish` and `deploy`. A derived set keyed on
+        id would silently resolve a disagreement between two declarations of the
+        same id - "gate here, not there" becomes "gate everywhere" with nobody
+        told. Make the disagreement fail instead of resolving it.
+        """
+        by_id: dict[str, set[bool]] = {}
+        for _, step in self._all_builtin_steps():
+            by_id.setdefault(step.id, set()).add(step.gate)
+        conflicted = sorted(sid for sid, vals in by_id.items() if len(vals) > 1)
+        assert not conflicted, (
+            f"these ids are declared a gate in one plan and not in another: "
+            f"{conflicted}. GATE_STEP_IDS is keyed by id, so one of the two "
+            f"declarations would be silently ignored."
+        )
+
+    def test_security_scan_is_a_gate(self):
+        """The #890 pin, written as a LITERAL rather than derived from the set.
+
+        The test this replaces asked "are the ids in GATE_STEP_IDS handled?" and
+        derived its expectations from the same set whose contents were the
+        defect, so a missing gate was invisible to it. Naming the id here is the
+        point: this assertion cannot be satisfied by the set agreeing with itself.
+        """
+        assert "security_scan" in GATE_STEP_IDS
+        assert {"lint", "test", "typecheck", "security_scan"} <= GATE_STEP_IDS
+
+
 class TestSkippedGateReporting:
-    """A quality gate (lint/test/typecheck) that skip_if-skipped verified nothing
-    about the change, so the runner must not print a bare `completed
-    successfully` - it names the skipped gates and carries them in
-    RunResult.skipped_steps for flow-finish-gate.sh to surface as `warn`
-    (issue #628). A skipped NON-gate step (security_scan) is a legitimate skip
-    and must NOT trip the warning."""
+    """A quality gate that skip_if-skipped verified nothing about the change, so
+    the runner must not print a bare `completed successfully` - it names the
+    skipped gates and carries them in RunResult.skipped_steps for
+    flow-finish-gate.sh to surface as `warn` (issue #628). A skipped NON-gate
+    step is a legitimate skip and must NOT trip the warning.
+
+    THE RULE CHANGED HERE, AND THE OLD ONE IS WORTH KNOWING (#628 -> #890).
+
+    This docstring used to read "A skipped NON-gate step (security_scan) is a
+    legitimate skip and must NOT trip the warning", and the test below used
+    `security_scan` by name as its worked example. That was a deliberate #628
+    exemption, not an oversight, and it rested on a CATEGORICAL reading: a gate
+    is one of the three #617 quality gates, and the security scan is not one of
+    them.
+
+    #890 reverses it, on the ground that the category is not the question this
+    set is consulted for. The question is what a SKIP MEANS, and
+    `security_scan`'s skip_if is `! python3 -c 'import lib.security'` - it skips
+    exactly when the scanner is NOT INSTALLED. That is the same thing #628 says
+    about a skipped lint or test: the gate verified nothing. A containerised
+    session has no CPP checkout, so before this it could run its finish gate,
+    skip the security scan, and report a bare `ok` with no mention of it.
+
+    The two readings agree for lint/test/typecheck and disagree only here, which
+    is why the exemption looked right for three releases.
+
+    It does not make the warn permanent noise: PYTHONPATH points at the CPP
+    checkout wherever it is, so the step RUNS for any target repo while CPP is
+    reachable and skips only when it is not.
+
+    `stale_commit_check` is the non-gate exemplar now - its skip_if is "not on
+    main, or offline", so skipping it is designed-normal and proves nothing was
+    missed. That is what a legitimate non-gate skip looks like."""
 
     @staticmethod
     def _always_skip(step_id: str) -> StepDef:
@@ -1011,15 +1204,40 @@ class TestSkippedGateReporting:
         runner = DeterministicRunner(project_root=tmp_project, output=log)
         result = runner.run(
             "finish",
-            step_defs=[self._always_run("lint"), self._always_skip("security_scan")],
+            step_defs=[
+                self._always_run("lint"),
+                self._always_skip("stale_commit_check"),
+            ],
         )
         assert result.success
-        # The skip is recorded, but security_scan is not a gate - no false green.
-        assert result.skipped_steps == ["security_scan"]
+        # The skip is recorded, but this step is not a gate - no false green.
+        assert result.skipped_steps == ["stale_commit_check"]
 
         text = log.getvalue()
         assert "completed successfully" in text
         assert "SKIPPED GATES" not in text
+
+    def test_a_skipped_security_scan_now_qualifies_the_run(self, tmp_project: Path):
+        """The #890 regression, asserted on BEHAVIOUR rather than on set membership.
+
+        A containerised session has no CPP checkout, so `import lib.security`
+        fails and the step skips. Before #890 that run printed a bare `completed
+        successfully`: the gate had verified nothing about the change's security
+        and said nothing about it.
+        """
+        log = StringIO()
+        runner = DeterministicRunner(project_root=tmp_project, output=log)
+        result = runner.run(
+            "finish",
+            step_defs=[self._always_run("lint"), self._always_skip("security_scan")],
+        )
+        assert result.success, "a skip is exit 0 - this surfaces the hole, it does not invent a failure"
+        assert result.skipped_steps == ["security_scan"]
+
+        text = log.getvalue()
+        assert "completed WITH WARNINGS" in text
+        assert "SKIPPED GATES: security_scan" in text
+        assert "completed successfully" not in text
 
     def test_skipped_gate_and_no_tests_both_named(self, tmp_project: Path):
         """When a gate skips AND a test step ran nothing (#621), the closing line
