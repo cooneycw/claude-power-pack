@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Keep the Harness, Bound the Discipline</title>
+<style>
+:root{
+  --bg:#fafbfc; --surface:#fff; --surface-2:#eef1f4; --ink:#16191d; --ink-2:#454b53;
+  --ink-3:#767d87; --rule:#dde2e8; --accent:#1d5f70; --accent-soft:#e6f1f3;
+  --green:#22664a; --green-soft:#e7f2ec; --amber:#8a6516; --amber-soft:#f9f1de;
+  --red:#93302f; --red-soft:#f9eae9; --violet:#4b3d7a; --violet-soft:#eeebf7;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#111417; --surface:#191d21; --surface-2:#212730; --ink:#e8ebee; --ink-2:#b6bcc4;
+    --ink-3:#868d96; --rule:#2c333b; --accent:#6fc0d2; --accent-soft:#15272c;
+    --green:#79c6a2; --green-soft:#17251e; --amber:#dbb464; --amber-soft:#272014;
+    --red:#e28c8a; --red-soft:#2a1a1a; --violet:#a396dd; --violet-soft:#1f1b2e;
+  }
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:16.5px;
+  line-height:1.62;-webkit-font-smoothing:antialiased}
+.wrap{max-width:880px;margin:0 auto;padding:0 24px 120px}
+header.mast{border-bottom:2px solid var(--ink);margin-bottom:40px;padding:60px 0 26px}
+.kicker{font-family:var(--mono);font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--accent);margin:0 0 16px}
+h1{font-family:var(--serif);font-size:clamp(30px,5.3vw,48px);line-height:1.1;margin:0 0 16px;
+  letter-spacing:-.02em;font-weight:600}
+.stand{font-size:19px;line-height:1.55;color:var(--ink-2);margin:0 0 24px;max-width:62ch}
+.meta{font-family:var(--mono);font-size:12px;color:var(--ink-3);line-height:1.9}
+.meta b{color:var(--ink-2);font-weight:600}
+h2{font-family:var(--serif);font-size:28px;line-height:1.2;margin:62px 0 6px;font-weight:600;
+  letter-spacing:-.012em;scroll-margin-top:20px}
+h2 .num{font-family:var(--mono);font-size:12px;color:var(--accent);display:block;
+  letter-spacing:.14em;margin-bottom:8px;font-weight:400}
+h3{font-size:19px;margin:36px 0 8px;font-weight:650;letter-spacing:-.005em}
+h4{font-size:15px;margin:24px 0 6px;font-weight:650;color:var(--ink-2)}
+p{margin:0 0 16px}
+a{color:var(--accent);text-decoration:none;border-bottom:1px solid color-mix(in srgb,var(--accent) 32%,transparent)}
+a:hover{border-bottom-color:var(--accent)}
+ul,ol{margin:0 0 16px;padding-left:22px} li{margin-bottom:9px} li>ul,li>ol{margin-top:9px}
+code{font-family:var(--mono);font-size:.86em;background:var(--surface-2);padding:1.5px 5px;
+  border-radius:4px;border:1px solid var(--rule)}
+.lede{font-size:17.5px;color:var(--ink-2)}
+nav.toc{background:var(--surface);border:1px solid var(--rule);border-radius:10px;padding:22px 26px}
+nav.toc h2{font-size:12px;font-family:var(--mono);letter-spacing:.14em;text-transform:uppercase;
+  color:var(--ink-3);margin:0 0 12px;font-weight:500}
+nav.toc ol{list-style:none;padding:0;margin:0;column-count:2;column-gap:34px}
+@media(max-width:620px){nav.toc ol{column-count:1}}
+nav.toc li{margin-bottom:7px;font-size:14.5px;break-inside:avoid}
+nav.toc a{border:0;color:var(--ink-2)} nav.toc a:hover{color:var(--accent)}
+nav.toc .n{font-family:var(--mono);font-size:11px;color:var(--ink-3);margin-right:8px}
+.box{border-radius:10px;padding:20px 24px;margin:26px 0;border:1px solid var(--rule);background:var(--surface)}
+.box .label{font-family:var(--mono);font-size:11px;letter-spacing:.13em;text-transform:uppercase;
+  font-weight:600;margin-bottom:10px;display:block}
+.box p:last-child,.box ul:last-child,.box ol:last-child{margin-bottom:0}
+.box.v{background:var(--green-soft);border-color:color-mix(in srgb,var(--green) 30%,transparent)}
+.box.v .label{color:var(--green)}
+.box.c{background:var(--amber-soft);border-color:color-mix(in srgb,var(--amber) 34%,transparent)}
+.box.c .label{color:var(--amber)}
+.box.r{background:var(--red-soft);border-color:color-mix(in srgb,var(--red) 30%,transparent)}
+.box.r .label{color:var(--red)}
+.box.i{background:var(--accent-soft);border-color:color-mix(in srgb,var(--accent) 30%,transparent)}
+.box.i .label{color:var(--accent)}
+.box.x{background:var(--violet-soft);border-color:color-mix(in srgb,var(--violet) 30%,transparent)}
+.box.x .label{color:var(--violet)}
+blockquote{margin:22px 0;padding:4px 0 4px 22px;border-left:3px solid var(--accent);
+  font-family:var(--serif);font-size:18px;line-height:1.5;color:var(--ink-2)}
+blockquote p{margin-bottom:10px}
+blockquote cite{display:block;font-family:var(--sans);font-size:13px;font-style:normal;
+  color:var(--ink-3);margin-top:8px}
+.tw{overflow-x:auto;margin:26px 0;border:1px solid var(--rule);border-radius:10px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:14.5px;min-width:580px}
+th{text-align:left;padding:12px 15px;font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--ink-3);border-bottom:1px solid var(--rule);font-weight:600;
+  background:var(--surface-2);vertical-align:bottom}
+td{padding:12px 15px;border-bottom:1px solid var(--rule);vertical-align:top;line-height:1.5}
+tr:last-child td{border-bottom:0}
+.pill{display:inline-block;font-family:var(--mono);font-size:10.5px;padding:2px 8px;border-radius:20px;
+  letter-spacing:.04em;font-weight:600;white-space:nowrap}
+.pill.y{background:var(--green-soft);color:var(--green)}
+.pill.m{background:var(--amber-soft);color:var(--amber)}
+.pill.n{background:var(--red-soft);color:var(--red)}
+.bignum{display:flex;flex-wrap:wrap;gap:14px;margin:26px 0}
+.bignum div{flex:1 1 150px;background:var(--surface);border:1px solid var(--rule);border-radius:10px;
+  padding:16px 18px}
+.bignum .k{font-family:var(--serif);font-size:30px;font-weight:600;line-height:1;letter-spacing:-.02em}
+.bignum .l{font-size:12.5px;color:var(--ink-3);margin-top:6px;line-height:1.4}
+.step{border:1px solid var(--rule);border-radius:10px;background:var(--surface);margin:18px 0;
+  padding:18px 22px;border-left:4px solid var(--accent)}
+.step .sn{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--accent);font-weight:600;margin-bottom:6px}
+.step h3{margin:0 0 8px;font-size:17.5px}
+.step p:last-child{margin-bottom:0}
+.step.later{border-left-color:var(--ink-3)}
+.step.later .sn{color:var(--ink-3)}
+footer{margin-top:70px;padding-top:24px;border-top:1px solid var(--rule);font-size:13px;color:var(--ink-3)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="mast">
+  <p class="kicker">Recommendation Memo · Tooling Strategy</p>
+  <h1>Keep the harness. Bound the discipline. Move the diversity earlier.</h1>
+  <p class="stand">On whether to abandon Claude Power Pack for a maintained skills framework — and what to change instead. Written against the September 2026 spec-driven-development research, your issue-quality assessment, and the current state of both repos.</p>
+  <p class="meta">
+    <b>Date</b> 14 September 2026<br>
+    <b>Basis</b> CPP and CxPP source inspection · 16 open / 469 closed CPP issues · issue-quality-assessment-2026-09-14 · spec-driven-development-2026 research<br>
+    <b>Bottom line</b> Do not discard CPP. You already made the shift you are asking whether to make.
+  </p>
+</header>
+
+<nav class="toc">
+  <h2>Contents</h2>
+  <ol>
+    <li><span class="n">01</span><a href="#answer">The answer, first</a></li>
+    <li><span class="n">02</span><a href="#backlog">What your backlog actually says</a></li>
+    <li><span class="n">03</span><a href="#superpowers">Is Superpowers a harness?</a></li>
+    <li><span class="n">04</span><a href="#cost">The cost nobody has priced</a></li>
+    <li><span class="n">05</span><a href="#codex">Your Codex-at-test-design idea</a></li>
+    <li><span class="n">06</span><a href="#cxpp">What changes in Codex Power Pack</a></li>
+    <li><span class="n">07</span><a href="#dont">What I would not do</a></li>
+    <li><span class="n">08</span><a href="#plan">Sequence</a></li>
+    <li><span class="n">09</span><a href="#wrong">Where I could be wrong</a></li>
+  </ol>
+</nav>
+
+<!-- 1 -->
+<h2 id="answer"><span class="num">Section 01</span>The answer, first</h2>
+
+<p class="lede">You asked whether to shift to harness thinking. You have been doing harness engineering for at least a month; what is missing is not the concept, it is a bound on how far the concept is allowed to spread.</p>
+
+<p>Three claims, in order of confidence.</p>
+
+<div class="box v">
+  <span class="label">1 · Do not discard CPP — the swap would be a downgrade</span>
+  <p>Superpowers is a <strong>methodology inside the agent session</strong>: brainstorm, worktree, plan, TDD, subagent review, finish. CPP is that <em>plus</em> the feedback half of a harness — CI, secret scanning, secrets management, deploy verification, cross-model review, an unbypassable necessity gate, wave orchestration with a durable mailbox, and three delegation lanes. In Böckeler's and Weng's sense of the word, Superpowers supplies feedforward controls and delegates every feedback control to you. Switching would trade roughly 80% of your harness for a methodology you already have an equivalent of.</p>
+</div>
+
+<div class="box v">
+  <span class="label">2 · Your open backlog <em>is</em> harness engineering, already</span>
+  <p>Twelve of your sixteen open CPP issues are the same defect class: an instrument returning a confident verdict it is not entitled to. Not twelve unrelated bugs — one pattern, correctly identified, with <a href="https://github.com/cooneycw/claude-power-pack/issues/924">#924</a> already filed as the machinery to end it. That issue is better specified than anything in the published literature on this subject. It is the thing you are asking whether to start.</p>
+</div>
+
+<div class="box c">
+  <span class="label">3 · The real risk is the opposite of the one you are worried about</span>
+  <p>You are not behind on harness thinking. You are at risk of <strong>applying it to everything</strong>. Your Negative Control directive defines an instrument as "a test, a gate, a CI job, a pre-push hook, an acceptance check, a verification command in docs, a report, a probe, a monitor." Under that definition, all <strong>2,365</strong> of your test functions are instruments, and each needs a committed red case. That is unaffordable, and an unaffordable rule gets quietly dropped — which is worse than a narrower rule that holds. <a href="#cost">Section 04</a> proposes the bound.</p>
+</div>
+
+<p>On your own proposal — Codex review at the test-development phase — I think it is the strongest idea in your message, it is already half-endorsed by your own issue-quality assessment (<em>"move those discriminating checks earlier"</em>), and it needs one structural correction to actually deliver the diversity you want. That is <a href="#codex">Section 05</a>.</p>
+
+<!-- 2 -->
+<h2 id="backlog"><span class="num">Section 02</span>What your backlog actually says</h2>
+
+<div class="bignum">
+  <div><div class="k">16</div><div class="l">CPP issues open</div></div>
+  <div><div class="k">469</div><div class="l">CPP issues closed</div></div>
+  <div><div class="k">12 / 16</div><div class="l">open issues that are instrument-blindness defects</div></div>
+  <div><div class="k">2,365</div><div class="l">test functions across 133 files</div></div>
+  <div><div class="k">3</div><div class="l">test files with explicit negative-control language</div></div>
+</div>
+
+<p>The first thing to say plainly: <strong>16 open against 469 closed is not a debt problem.</strong> Your issue-quality assessment put CPP's 28-day flow balance at +15 with 16 open at snapshot, against Kyle's +114 with 112 open. Whatever is wrong, it is not that CPP is drowning. If you were choosing a repo to rescue on backlog grounds, you would not choose this one.</p>
+
+<p>The second thing is more interesting. Here is what those open issues actually are — the table is lifted from your own #924 plus the ones filed after it:</p>
+
+<div class="tw">
+<table>
+<thead><tr><th style="width:9%">Issue</th><th style="width:30%">The instrument</th><th style="width:61%">What it cannot distinguish</th></tr></thead>
+<tbody>
+<tr><td>#927</td><td><code>/flow:repair</code></td><td>a repaired installer vs. a stale installer resolving through the artifact it repairs — reports <code>FLOW_HELPERS: ok</code> and fixes nothing</td></tr>
+<tr><td>#926</td><td>fail-soft decorator</td><td>protected vs. unprotected — the only mitigation is one hand-written decorator that nothing enforces</td></tr>
+<tr><td>#921</td><td>preflight serveability</td><td>serveable now vs. serveable at some point in the past</td></tr>
+<tr><td>#916</td><td><code>worktree-remove</code> #905 check</td><td>an unpushed commit vs. a squash-merged branch whose remote ref was deleted</td></tr>
+<tr><td>#915</td><td><code>flow-finish-gate</code> #769 retry</td><td>the retried id reproducing vs. the invocation exiting nonzero for any reason</td></tr>
+<tr><td>#910</td><td>model-presence preflight</td><td>the right model vs. any model sharing its name prefix</td></tr>
+<tr><td>#904</td><td><code>flow-wave-mailbox</code> ps lane</td><td>no watcher vs. <code>ps</code> truncating argv in a long checkout path</td></tr>
+<tr><td>#898</td><td><code>flow-wave-mailbox.sh:263</code></td><td>asserts the harness cannot re-invoke on background completion; it can</td></tr>
+<tr><td>#892</td><td><code>delegated-run-check</code></td><td>a clean lane vs. one whose execution tool never started</td></tr>
+<tr><td>#870</td><td>delivery preference order</td><td>a current measurement vs. one that expired at v2.1.224</td></tr>
+<tr><td>#871</td><td>inter-agent messaging assumptions</td><td>— standing evergreen re-check of exactly this class</td></tr>
+<tr><td>#924</td><td><em>the class itself</em></td><td>the proposed machinery to make every gate's red case executable</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>Read that column top to bottom. It is a single sentence repeated twelve ways: <em>a green from a blind instrument and a green from a working one are the same bytes.</em> You wrote that sentence into your global directive and then your repo produced twelve worked examples of it in a fortnight.</p>
+
+<blockquote>
+  <p>"Every one of these is green today. That is the property that matters… And these gates gate every repo, so a blind one passes bad work in kyle and codex-power-pack too, not only here."</p>
+  <cite>claude-power-pack #924</cite>
+</blockquote>
+
+<p>#924's acceptance criteria deserve specific credit, because they contain a step that neither the published research nor the maintained frameworks require. Microsoft's skill-evaluation procedure says measure with and without. Superpowers' skill pressure-testing says test under realistic stress. #924 says: register the control, show it failing against the broken gate, fix the gate, show it passing — <strong>and then revert the fix and show the control fails again.</strong> Step four is the only one that proves the control is load-bearing rather than decorative, and it is the one everybody skips.</p>
+
+<div class="box i">
+  <span class="label">The finding that should settle the strategic question</span>
+  <p>You are not evaluating whether to adopt a discipline the ecosystem has and you lack. You are further along on this specific discipline than the frameworks you are considering switching to. Superpowers ships pressure-tested skills; it does not ship a revert-and-reconfirm requirement. Spec Kit ships a constitution; it ships no negative control at all. The published 2026 consensus reached "verification &gt; generation" as a slogan. #924 is the executable version.</p>
+</div>
+
+<h3>The one caveat on that backlog</h3>
+<p>Your own issue-quality assessment is more sceptical than I am being, and it is worth honouring rather than skating past. It found CPP <em>"has supplied misleading success signals and a cleanup regression,"</em> and judged that the portfolio is <em>"overproducing locally convincing changes relative to demonstrated integrated outcomes."</em> Its recurring-mismatch table names four families — execution-succeeded→work-succeeded, recorded→received, skipped→clean, correct-source→corrected-installation — which is the same pattern at a different altitude. Its conclusion was not "add governance"; it was <em>"adopt the proportional issue contracts already delivered rather than building another governance layer."</em> I agree with that, and Section 04 is written to comply with it.</p>
+
+<!-- 3 -->
+<h2 id="superpowers"><span class="num">Section 03</span>Is Superpowers a harness?</h2>
+
+<p>You asked this directly, and it deserves a direct answer rather than a hedge: <strong>partly, and specifically the half you already have.</strong></p>
+
+<p>Superpowers has unmistakably absorbed harness thinking. Two pieces of evidence, both strong. The <code>v6.3.0</code> release note (12 Aug 2026) reads: <em>"Ceremony now scales to the task. Requests are classified as spike, bounded, or architectural; small tasks skip the two-document ritual. Every path still stops for your approval before implementation."</em> And every delegation skill now carries a context-isolation principle, with Jesse Vincent's stated reason being harness-shaped rather than parallelism-shaped: <em>"I don't want to pollute the orchestrator context with lots and lots of file reads that it doesn't need."</em></p>
+
+<p>But map the two against Böckeler's split — feedforward controls anticipate what the agent needs; feedback controls detect and correct after the fact — and the gap is structural, not incidental.</p>
+
+<div class="tw">
+<table>
+<thead><tr><th style="width:34%">Harness capability</th><th style="width:22%">Superpowers</th><th style="width:44%">Claude Power Pack</th></tr></thead>
+<tbody>
+<tr><td><strong>Feedforward</strong> — design gate before code</td><td><span class="pill y">yes</span> brainstorming, hard gate</td><td><span class="pill y">yes</span> ELI5 gate, unbypassable (#775)</td></tr>
+<tr><td>Plan decomposition into sized units</td><td><span class="pill y">yes</span> writing-plans</td><td><span class="pill y">yes</span> spec-kit tasks → issues</td></tr>
+<tr><td>Isolated workspace per task</td><td><span class="pill y">yes</span> worktrees</td><td><span class="pill y">yes</span> worktrees + sweeper</td></tr>
+<tr><td>TDD enforcement</td><td><span class="pill y">yes</span> red-green-refactor</td><td><span class="pill m">partial</span> convention + gates, not enforced in-loop</td></tr>
+<tr><td>Necessity / staleness check</td><td><span class="pill n">no</span></td><td><span class="pill y">yes</span> ELI5 necessity verdict</td></tr>
+<tr><td><strong>Feedback</strong> — lint / typecheck / test gates</td><td><span class="pill n">delegated to you</span></td><td><span class="pill y">yes</span> <code>make verify</code>, pre-push hook</td></tr>
+<tr><td>CI pipeline</td><td><span class="pill n">no</span></td><td><span class="pill y">yes</span> Woodpecker, self-hosted</td></tr>
+<tr><td>Cross-model review</td><td><span class="pill n">no</span></td><td><span class="pill y">yes</span> Codex stage + second-opinion MCP</td></tr>
+<tr><td>Security scanning / secret scanning</td><td><span class="pill n">no</span></td><td><span class="pill y">yes</span> <code>/security:*</code>, gitleaks, secret-masking hook</td></tr>
+<tr><td>Secrets management</td><td><span class="pill n">no</span></td><td><span class="pill y">yes</span> tiered, AWS Secrets Manager</td></tr>
+<tr><td>Deploy + post-deploy verification</td><td><span class="pill n">no</span></td><td><span class="pill y">yes</span> <code>/cicd:verify</code> against a baseline</td></tr>
+<tr><td>Multi-session orchestration</td><td><span class="pill m">parallel subagents</span></td><td><span class="pill y">yes</span> waves, durable mailbox, roster</td></tr>
+<tr><td>Multi-model delegation lanes</td><td><span class="pill m">runs on many harnesses</span></td><td><span class="pill y">yes</span> Codex, Qwen, Gemma</td></tr>
+<tr><td>Executable negative controls</td><td><span class="pill m">pressure-tests skills only</span></td><td><span class="pill m">one narrow gate today; #924 generalizes</span></td></tr>
+<tr><td>Maintained by many contributors</td><td><span class="pill y">yes</span> ~283k stars, v6.3.0</td><td><span class="pill n">single owner</span></td></tr>
+</tbody>
+</table>
+</div>
+
+<p>The last row is the only one that favours switching, and it is a real advantage — shared maintenance is worth something, and you are one person. But note what Thoughtworks attached to it in Vol.34: they rate Agent Skills <em>Trial</em> while explicitly cautioning <em>"against unreviewed reuse of third-party skills, as they introduce serious supply chain security risks."</em> Adopting a 283k-star markdown corpus wholesale converts a maintenance burden into a review burden. For a repo that already runs secret scanning and a tool-risk drift gate, that trade is not obviously positive.</p>
+
+<div class="box v">
+  <span class="label">What to take from Superpowers without taking Superpowers</span>
+  <p><strong>The pressure-test technique.</strong> Vincent's first attempt at testing skills failed instructively: he quizzed subagents gameshow-style, they scored perfectly, and it told him nothing — a blind instrument for testing instruments. Realistic pressure (time pressure, sunk cost, simulated incidents) was what made the test able to fail. Your ELI5 gate has a no-bypass property asserted by <code>tests/test_eli5_gate_not_bypassable.py</code>. Has that property been tested against an agent under pressure to ship, rather than against a direct call? That is a cheap, high-value experiment and it does not require installing anything.</p>
+</div>
+
+<!-- 4 -->
+<h2 id="cost"><span class="num">Section 04</span>The cost nobody has priced</h2>
+
+<p>This is the part of the recommendation I would defend hardest, because it is the one that decides whether the discipline survives contact with the calendar.</p>
+
+<p>Your Negative Control directive is correct and its scope is unbounded. Taken literally it applies to every one of 2,365 test functions, 61 scripts, 9 <code>make verify</code> sub-gates, every CI step, every probe in every wave helper, and every verification command in every docs file. Nobody has that much time. What happens to an unaffordable rule is not that it gets debated — it gets applied to whatever is in front of you and silently skipped everywhere else, which produces exactly the condition the rule exists to prevent: <strong>a population of instruments where some have controls and some do not, and no way to tell which from the outside.</strong></p>
+
+<p>#924 already senses this and scopes itself to "gates." But "gate" is not defined, and the seven consumers it names are the seven that happened to fail recently. That is a list that narrows, not a rule that generalizes — and by your own <em>Tripwire vs Coverage Enumeration</em> distinction, a list that narrows should be converted into a rule.</p>
+
+<div class="box i">
+  <span class="label">The bounding rule I would propose</span>
+  <p><strong>An instrument needs a committed negative control when its verdict is consumed by a decision that will not independently re-derive the fact.</strong></p>
+  <p>Three consequences, each testable:</p>
+  <ul>
+    <li>A unit test whose failure would be caught by the next test in the same file <strong>does not</strong> need one. Its green is not load-bearing; the suite is.</li>
+    <li>A gate that lets work <em>through</em> — <code>flow-finish-gate</code>, <code>delegated-run-check</code>, the preflights, the drift checks, <code>make verify</code> itself — <strong>does</strong> need one. Nothing downstream re-derives what it asserted; that is the entire reason it exists.</li>
+    <li>A check whose green is read by a <em>different session or a different repo</em> <strong>always</strong> needs one, because the consumer cannot see the conditions that produced it. This is the case #924 makes about blind CPP gates passing bad work in kyle and CxPP.</li>
+  </ul>
+</div>
+
+<p>Applied to your tree, that bound is affordable. It captures the nine sub-gates in <code>make verify</code>, the drift and currency checks, the wave-helper probes, the preflights, and the delegated-run checks — order tens, not thousands. It excludes the bulk of the 2,365 unit tests, which is the right answer: those are covered by whether the suite as a whole discriminates, which is a mutation-testing question, not a per-test one.</p>
+
+<p>And it gives you a coverage denominator you can actually report, which today you cannot. Right now the honest statement is "3 of 133 test files contain explicit negative-control language." With the bound, the statement becomes "N of N load-bearing instruments have a registered, reverted-and-reconfirmed control" — a number that can be red.</p>
+
+<div class="box c">
+  <span class="label">A live example of why the bound matters</span>
+  <p>You already ship <code>make negative-fixture-check</code>, and it is genuinely good: it enforces that a fixture constructing an absence asserts the precondition, and it was born from a real defect (#695, where emptying <code>PATH</code> to remove <code>git</code> also removed <code>ln</code>, <code>mkdir</code> and <code>bash</code>, and the fail-open assertions still passed). But its detection is <em>statically visible PATH replacement only</em> — it says so in its own docstring. It reports <code>ok - every constructed absence asserts its precondition</code>. That sentence is broader than what the check can see. An absence constructed by chmod, by a stub that returns nonzero, by a container without a binary, or by a monkeypatched import is invisible to it and reports the same green. <strong>The negative-control gate is itself an instrument that overstates its own scope.</strong> It should be the first consumer of #924, ahead of #904.</p>
+</div>
+
+<!-- 5 -->
+<h2 id="codex"><span class="num">Section 05</span>Your Codex-at-test-design idea</h2>
+
+<p class="lede">Endorsed, with one structural correction that decides whether it delivers diversity or just a second opinion about work already done.</p>
+
+<h3>Where the Codex stage sits today</h3>
+<p><code>/flow:auto_codex</code> runs ten steps. Step 4 is Implement — where the code <em>and its tests</em> are written, both by Claude. Step 5 is Codex Review, cross-model, on the branch. Step 7 is Finish, where lint and tests actually run.</p>
+
+<p>So Codex already sees the tests. The reason that is not enough is subtler than "too late," and it is the thing worth naming:</p>
+
+<div class="box r">
+  <span class="label">The actual defect in the current arrangement</span>
+  <p><strong>The same model writes the code and the tests, so the tests inherit the code's blind spots — and then the reviewer is shown a passing suite.</strong></p>
+  <p>A reviewer handed green tests is anchored by them. The cases Claude did not think to write are invisible at Step 5 precisely because nothing marks their absence; there is no failing test pointing at the gap. This is your own <em>Test Supplies What It Verifies</em> failure mode operating one level up: not a fixture supplying the value under test, but a <em>model</em> supplying the case list that defines what "covered" means. Cross-model review after the fact catches wrong assertions well and missing assertions badly.</p>
+</div>
+
+<h3>The correction: don't move the review — split it</h3>
+
+<p>Moving Step 5 earlier gives you a review of an unfinished branch, which is worse. What you want is a <em>different artifact</em> from Codex, produced before Claude writes the tests.</p>
+
+<div class="step">
+  <div class="sn">New — Step 4a, before tests are written</div>
+  <h3>Codex proposes the discriminating cases</h3>
+  <p>Given the issue, the ELI5-approved plan, and the list of instruments the change introduces or modifies, Codex returns <strong>only a case list</strong>: for each instrument, the input that should make it report the <em>other</em> verdict. No code, no tests, no review of Claude's work — there is nothing to review yet. This is exactly the artifact your Negative Control directive demands ("name the input that makes it report the OTHER verdict") sourced from a model that did not author the design.</p>
+</div>
+
+<div class="step">
+  <div class="sn">Then — Step 4, unchanged in shape</div>
+  <h3>Claude implements against a case list it did not author</h3>
+  <p>The red cases are inputs to the TDD loop rather than an audit of its output. Claude must either cover each case or record why it does not apply — and "does not apply" is a claim a reviewer can check, unlike a case nobody ever wrote down.</p>
+</div>
+
+<div class="step later">
+  <div class="sn">Unchanged — Step 5</div>
+  <h3>Codex reviews the branch as it does today</h3>
+  <p>Now with a useful property: the reviewer can compare the shipped tests against the case list <em>it</em> produced, which converts a subjective review into a diff.</p>
+</div>
+
+<div class="box v">
+  <span class="label">Why this is worth doing even if it fails</span>
+  <p>It is self-measuring, which almost nothing else in this space is. Run it on ten issues and count: <strong>how many of Codex's proposed red cases were already covered by Claude's tests?</strong></p>
+  <ul>
+    <li><strong>Nearly all covered</strong> → the diversity hypothesis is false for your workload. You have learned something real and cheap, and you delete the stage. That is a good outcome, not a failed experiment.</li>
+    <li><strong>A meaningful minority uncovered</strong> → you have a measured diversity yield, and the uncovered cases are immediately actionable as tests.</li>
+    <li><strong>Codex proposes cases that are wrong or inapplicable</strong> → you have measured its false-positive rate, which tells you whether to make the stage advisory or blocking.</li>
+  </ul>
+  <p>Note the shape: this stage has a red case of its own. It can report the verdict "no diversity added." A stage that could only ever report "here are some cases" would be one more blind instrument, and you would be entitled to reject it on your own directive.</p>
+</div>
+
+<div class="box c">
+  <span class="label">Two cautions</span>
+  <p><strong>Do not make it blocking on day one.</strong> Your assessment already warns against competing transitions. Advisory first, with the count recorded; promote to blocking only if the measured yield justifies it.</p>
+  <p><strong>Watch the independence assumption.</strong> Cross-model diversity counts only if the two models can fail independently. They share training corpora and both have read your repo's conventions. If Codex's case lists turn out to be highly correlated with Claude's tests, that is not a bug in the stage — it is the measurement telling you the independence assumption is weaker than assumed, and it is the single most valuable thing this experiment can surface.</p>
+</div>
+
+<!-- 6 -->
+<h2 id="cxpp"><span class="num">Section 06</span>What changes in Codex Power Pack</h2>
+
+<p>Less than you might expect, and the reason is structural rather than a matter of priority.</p>
+
+<p>CxPP is downstream. Your 6 September comparison found the inspected CxPP HEAD at 2026-08-07 with <code>make codex-skills-currency-check</code> failing on <strong>59 changed or missing files across 20 skills</strong> — and noted that the drift was broader than the two missing wave commands: <code>start</code>, <code>auto</code>, <code>finish</code>, <code>merge</code>, <code>check</code>, <code>doctor</code> and their helpers had all moved. CxPP's 28-day flow balance is +19 with 21 open, most of that program scaffolding rather than defects.</p>
+
+<p>So the recommendation is a constraint on <em>where</em> the negative-control machinery lands, not a separate CxPP workstream:</p>
+
+<ul>
+  <li><strong>Build the #924 helper in <code>scripts/</code>, so it symlinks into <code>~/.claude/scripts</code> with no install step</strong> — as #924 already specifies — and so it flows to CxPP through the existing generation bridge rather than being reimplemented there. A negative-control framework that exists in two hand-maintained copies is a framework with a drift problem, which is the defect class it was built to end.</li>
+  <li><strong>Register controls for the shared helpers first.</strong> The gates that fail in CPP are the same gates CxPP runs, because CxPP's skills are generated from CPP's commands. #924 makes this point about kyle; it applies equally here and the fix is free if the helper lives in the right directory.</li>
+  <li><strong>Refresh the currency drift before adding anything.</strong> Adding a new gate family to a surface that is 59 files behind means the generated CxPP copies will be the second thing that is stale. Close the currency gap, then generate.</li>
+  <li><strong>The Codex case-list stage is CPP-side only.</strong> It calls Codex as a reviewer; it does not need a CxPP skill. Do not build a mirror of it until the yield measurement says it is worth having.</li>
+</ul>
+
+<!-- 7 -->
+<h2 id="dont"><span class="num">Section 07</span>What I would not do</h2>
+
+<ul>
+  <li><strong>Do not migrate to Superpowers, Spec Kit-as-primary, or any other framework as a replacement.</strong> You would lose CI, secrets, security scanning, deploy verification, wave orchestration, delegation lanes and the necessity gate, to gain a methodology you have. If you want a component, take the component.</li>
+  <li><strong>Do not add a governance layer.</strong> Your own assessment's closing recommendation was <em>"adopt the proportional issue contracts already delivered rather than building another governance layer."</em> The bounding rule in Section 04 is deliberately a <em>narrowing</em> of an existing directive, not a new one. If the recommendation in this memo grows a new tier system, I have got it wrong.</li>
+  <li><strong>Do not treat the 12 blind gates as a burn-down.</strong> #924 is explicit that the framework must not be bundled with the fixes it validates, <em>"because the framework's evidence would be produced by the thing it is meant to check."</em> That constraint is correct and it means the gates get fixed one at a time, after the machinery lands, not in a sprint.</li>
+  <li><strong>Do not prune command families on instinct.</strong> The skillmaxxing evidence is real — 18 families plus a generated Codex mirror carries a metadata tax in every session — but Microsoft's own procedure is <em>measure first</em>: run the scenarios without the artifact, score them, let the measured failures define the scope. Pruning without that measurement is guessing with extra confidence. If you want the surface smaller, measure it; do not eyeball it.</li>
+  <li><strong>Do not start this in Kyle.</strong> Kyle is at +114 flow balance with 112 open. A new discipline introduced into the repo with the most churn will be evaluated against the noisiest possible background. CPP is the right pilot precisely because it is quiet.</li>
+</ul>
+
+<!-- 8 -->
+<h2 id="plan"><span class="num">Section 08</span>Sequence</h2>
+
+<p>Ordered so that each step's evidence does not depend on the step after it.</p>
+
+<div class="step">
+  <div class="sn">First</div>
+  <h3>Land #924's machinery against <code>negative-fixture-check</code>, not #904</h3>
+  <p>#924 nominates #904 as the cleanest first consumer. I would use <code>check-negative-fixture-preconditions.py</code> instead, for one reason: it is the instrument whose blindness is most consequential, because it is the one currently certifying that your other instruments are honest, and its <code>ok</code> message claims a scope wider than its detection. Registering a control that fails against a chmod-constructed or stub-constructed absence — then widening the check, then reverting and reconfirming — proves the framework on the instrument whose failure would hide the most. #904 becomes the second consumer.</p>
+</div>
+
+<div class="step">
+  <div class="sn">Second</div>
+  <h3>Write the bounding rule into the directive, with its exclusions</h3>
+  <p>Add the "consumed by a decision that will not independently re-derive the fact" test to the Negative Control section, together with the explicit carve-out for unit tests whose green is not individually load-bearing. Without the carve-out the rule is unaffordable; with it you get a denominator. This is a narrowing edit, not a new layer.</p>
+</div>
+
+<div class="step">
+  <div class="sn">Third</div>
+  <h3>Run the Codex case-list stage advisory on ten issues and count</h3>
+  <p>Do not wire it into <code>/flow:auto_codex</code> yet. Run it by hand or behind a flag, record the yield — proposed cases, already-covered, newly-covered, rejected-as-inapplicable — and let the number decide whether it becomes Step 4a. Ten issues is enough to distinguish "meaningful minority uncovered" from "nearly all covered," and cheap enough that a null result costs you nothing.</p>
+</div>
+
+<div class="step later">
+  <div class="sn">Then, and only then</div>
+  <h3>Refresh CxPP currency and generate the controls downstream</h3>
+  <p>Close the 59-file drift, regenerate, and let CxPP inherit the registered controls through the bridge. If the Codex stage earned its place in step three, mirror it; if it did not, do not.</p>
+</div>
+
+<div class="step later">
+  <div class="sn">Deferred</div>
+  <h3>Measure the command surface before deciding whether to shrink it</h3>
+  <p>The skillmaxxing question is real but it is not urgent, and answering it badly is worse than answering it late. It also becomes much easier once the negative-control framework exists, because "does removing this change an outcome" is the same shape of question.</p>
+</div>
+
+<!-- 9 -->
+<h2 id="wrong"><span class="num">Section 09</span>Where I could be wrong</h2>
+
+<p>Stated so you can weigh the recommendation rather than accept it.</p>
+
+<ul>
+  <li><strong>The single-owner maintenance argument is the strongest case against me,</strong> and I have not fully answered it. 95 command files, 61 scripts, 133 test files, 2,365 tests, a generated Codex mirror and three delegation lanes is a large surface for one person, and every surface is itself subject to the blindness this memo is about. A reasonable person could read "12 of 16 open issues are blind instruments" as <em>the harness is too big to keep honest</em> rather than <em>the review culture is working</em>. I read it the second way because all twelve were found, and found fast — but that is a judgement, not a measurement, and I did not find a way to test it.</li>
+  <li><strong>I did not run your test suite.</strong> Every claim about test quality here is structural — file counts, grep for negative-control language, reading the fixture gate's own docstring. "3 of 133 files contain explicit negative-control language" is a fact about vocabulary, not about whether those tests discriminate. A mutation run would tell you far more than this memo does about the 2,365, and I would trust it over my inference.</li>
+  <li><strong>The bounding rule in Section 04 is untested.</strong> I believe it is affordable and I have not enumerated the instruments it captures. If the real count comes out in the hundreds rather than the tens, the rule needs another narrowing and my "affordable" claim was wrong.</li>
+  <li><strong>The Codex case-list stage may be redundant with what Step 5 already catches.</strong> That is precisely why Section 05 is built as a measurement rather than a proposal. If the yield is near zero I would expect you to delete it, and I would not regard that as a failure of the idea.</li>
+  <li><strong>I have not inspected Superpowers' source.</strong> The capability table is built from its README, release notes, the maintainer's own interviews, and Thoughtworks' assessment — not from reading the skills. If it has grown CI or deploy integration that those sources do not mention, the comparison understates it.</li>
+  <li><strong>Kyle is out of scope here and it is where your actual problem is.</strong> +114 flow balance, 112 open, 259 openings against 183 mainline commits in a week. Nothing in this memo addresses that, and if you only have appetite for one initiative, the evidence says Kyle's integration and acceptance practices deserve it more than CPP's instrument controls do.</li>
+</ul>
+
+<footer>
+  <p>Prepared 14 September 2026. Companion to <em>spec-driven-development-2026.html</em> (research basis) and <em>issue-quality-assessment-2026-09-14.html</em> (your delivery-quality review). Repo facts current as of inspection on 14 September; issue counts and drift figures move.</p>
+</footer>
+
+</div>
+</body>
+</html>
