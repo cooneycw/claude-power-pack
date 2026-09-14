@@ -4,6 +4,43 @@
 
 ### Added
 
+- **2026-09-14 - `instrument` is a defined term, and the Negative Control rule
+  is bounded so it can be kept** (issue #932, ADR 0008) - the global directive
+  defined an instrument as "anything whose output is read as evidence" and
+  required every one to ship with a committed case that makes it report the
+  other verdict. Taken literally that is 2,408 test functions, 62 scripts, nine
+  `make verify` sub-gates and every probe in every wave helper. An unaffordable
+  rule is applied to whatever is in front of you and skipped everywhere else,
+  which is the exact population the rule exists to prevent: some instruments
+  with controls, some without, and no way to tell which from outside.
+
+  `docs/decisions/0008-instrument-negative-control-bound.md` records the bound
+  (a committed negative control is owed when the verdict is consumed by a
+  decision that will not independently re-derive the fact), the carve-out (a
+  unit test the suite would catch is not individually load-bearing), and the
+  escalation (a green read by another session or another repo always needs
+  one). Its body is the enumeration the issue put first: against a hardcoded
+  universe (62 scripts, 39 make targets, 7 CI steps, 2 hooks, the `lib/` entry
+  points, the suite as one instrument) the bound captures **61 distinct
+  verdict contracts**, each with the consumer that acts on it named - tens,
+  not hundreds, so the count is below the rejection threshold the issue set
+  and the bound stands. The count measures rows, not the effort of writing
+  the controls; that is stated rather than claimed. The Codex counter-model
+  review of the branch (Step 5 of the run) found seven omissions and
+  mis-attributions in the first enumeration and three more on its second pass - among them that the lifecycle
+  security gate never runs gitleaks, that `/project:next` declares the
+  engine's verdict authoritative, and that Step 7 does not re-derive the
+  stale-check's file-overlap verdict - and the corrected table is what landed.
+
+  `docs/agents/glossary.md` defines `instrument`, `harness` in the systems
+  sense - naming the collision with the friction ledger's `harness` tag in
+  `lib/cpp_memory/harness.py` (#557) rather than overloading the word - and
+  `counter-model` as a property of a review rather than a tool name. `spec` is
+  deliberately not renamed. The Negative Control section of the host's global
+  directive carries the same bound as a narrowing edit; it lives outside the
+  repository, so the ADR quotes it. ADR 0007 is reserved for #934 and lands
+  after this one. Nothing here adds a tier, a process or a checker.
+
 - **2026-09-13 - `/qwen:auto` and `/gemma:auto` check that the model can be
   SERVED, not merely registered** (issue #895) - both preflights gated delegation
   on `GET /api/version` plus `GET /api/tags`. Those answer *is the daemon up* and

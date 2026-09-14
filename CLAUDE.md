@@ -38,6 +38,7 @@ these rules remain in [commands-reference.md](docs/commands-reference.md) and
 - `docs/agents/issue-contract.md` - canonical issue contract and proportional spec routing.
 - `docs/agents/detector-contracts.md` - canonical detector-claim contract and its instance index.
 - `docs/agents/knowledge-lifecycle.md` - canonical completed-spec graduation policy.
+- `docs/agents/glossary.md` - defined terms: instrument (with the ADR 0008 bound), harness, counter-model.
 - `ISSUE_DRIVEN_DEVELOPMENT.md` - issue-driven development source.
 - `PROGRESSIVE_DISCLOSURE_GUIDE.md` - context-loading guidance.
 - `MCP_TOKEN_AUDIT_CHECKLIST.md` - MCP context-efficiency checklist.
