@@ -154,7 +154,7 @@ footer{margin-top:70px;padding-top:24px;border-top:1px solid var(--rule);font-si
   <p>You are not behind on harness thinking. You are at risk of <strong>applying it to everything</strong>. Your Negative Control directive defines an instrument as "a test, a gate, a CI job, a pre-push hook, an acceptance check, a verification command in docs, a report, a probe, a monitor." Under that definition, all <strong>2,365</strong> of your test functions are instruments, and each needs a committed red case. That is unaffordable, and an unaffordable rule gets quietly dropped — which is worse than a narrower rule that holds. <a href="#cost">Section 04</a> proposes the bound.</p>
 </div>
 
-<p>On your own proposal — Codex review at the test-development phase — I think it is the strongest idea in your message, it is already half-endorsed by your own issue-quality assessment (<em>"move those discriminating checks earlier"</em>), and it needs one structural correction to actually deliver the diversity you want. That is <a href="#codex">Section 05</a>.</p>
+<p>On your own proposal — a symmetric counter-model, Codex against Claude in CPP and Claude against Codex in CxPP — it is the strongest idea in your message and it is better founded than I first credited. Both halves already exist and neither has ever run routinely: <strong>0 of the last 200 merged CPP PRs carry the Codex review marker</strong>, and CxPP's Claude review is reachable only as an escalation after two failed attempts. You are not proposing a new capability; you are proposing to stop leaving two built ones switched off. That is <a href="#codex">Section 05</a>.</p>
 
 <!-- 2 -->
 <h2 id="backlog"><span class="num">Section 02</span>What your backlog actually says</h2>
@@ -277,58 +277,81 @@ footer{margin-top:70px;padding-top:24px;border-top:1px solid var(--rule);font-si
 </div>
 
 <!-- 5 -->
-<h2 id="codex"><span class="num">Section 05</span>Your Codex-at-test-design idea</h2>
-
-<p class="lede">Endorsed, with one structural correction that decides whether it delivers diversity or just a second opinion about work already done.</p>
-
-<h3>Where the Codex stage sits today</h3>
-<p><code>/flow:auto_codex</code> runs ten steps. Step 4 is Implement — where the code <em>and its tests</em> are written, both by Claude. Step 5 is Codex Review, cross-model, on the branch. Step 7 is Finish, where lint and tests actually run.</p>
-
-<p>So Codex already sees the tests. The reason that is not enough is subtler than "too late," and it is the thing worth naming:</p>
+<h2 id="codex"><span class="num">Section 05</span>The counter-model, symmetric and routine</h2>
 
 <div class="box r">
-  <span class="label">The actual defect in the current arrangement</span>
-  <p><strong>The same model writes the code and the tests, so the tests inherit the code's blind spots — and then the reviewer is shown a passing suite.</strong></p>
-  <p>A reviewer handed green tests is anchored by them. The cases Claude did not think to write are invisible at Step 5 precisely because nothing marks their absence; there is no failing test pointing at the gap. This is your own <em>Test Supplies What It Verifies</em> failure mode operating one level up: not a fixture supplying the value under test, but a <em>model</em> supplying the case list that defines what "covered" means. Cross-model review after the fact catches wrong assertions well and missing assertions badly.</p>
+  <span class="label">Correction to the first draft of this memo</span>
+  <p>I wrote Section 05 as if the Codex review were part of the lifecycle. It is not. <code>/flow:auto</code> is <strong>nine</strong> steps and contains no cross-model stage at all; <code>/flow:auto_codex</code> is a <strong>separate, opt-in</strong> command that adds one. My claim that "Codex already sees the tests" was true only of runs that explicitly opted in — and the measurement below shows that is none of them. Your correction was right, and the evidence is stronger than you put it.</p>
 </div>
 
-<h3>The correction: don't move the review — split it</h3>
+<h3>The measurement</h3>
 
-<p>Moving Step 5 earlier gives you a review of an unfinished branch, which is worse. What you want is a <em>different artifact</em> from Codex, produced before Claude writes the tests.</p>
+<p><code>/flow:auto_codex</code> appends a <code>## Codex pre-PR review</code> block to the PR body at Finish. That makes adoption countable.</p>
+
+<div class="bignum">
+  <div><div class="k">0 / 200</div><div class="l">merged CPP PRs carrying the Codex review marker</div></div>
+  <div><div class="k">199 / 200</div><div class="l">positive control — same query, a marker known to be present</div></div>
+  <div><div class="k">5 / 102</div><div class="l">merged CxPP PRs mentioning a Claude review (loose regex, likely over-counts)</div></div>
+</div>
+
+<p>The positive control matters: a zero from a broken query and a zero from a real absence look identical. Running the same extractor against a marker known to be in the bodies returns 199 of 200, so the bodies are populated and the regex works. <strong>The zero is real.</strong> The cross-model review stage has existed in CPP for months and has never once run on a merged PR.</p>
+
+<h3>The other half already exists too</h3>
+
+<p>CxPP ships <code>claude-code-review</code> — <em>"Launch a bounded, read-only Claude Code session through the Claude Agent SDK to review the current issue-branch diff and advise Codex."</em> The ownership boundary is drawn correctly: <em>"Claude advises; Codex retains ownership of edits, tests, and lifecycle decisions."</em></p>
+
+<p>But read its trigger clause:</p>
+
+<blockquote>
+  <p>"Use when the user requests a Claude or cross-model code review, <strong>or when flow-auto remains stuck after two materially distinct attempts</strong> and needs implementation support."</p>
+  <cite>codex-power-pack · plugins/claude/skills/claude-code-review/SKILL.md</cite>
+</blockquote>
+
+<p>That is a <strong>rescue mechanism</strong>, not a standing adversary. It fires when the primary model is already failing — which is the one situation where it is least likely to be independent, because it arrives pre-loaded with the primary's framing of the blocker. And <code>grep</code> finds no reference to it anywhere in CxPP's <code>flow-auto</code>: it is not in the lifecycle either.</p>
+
+<div class="box i">
+  <span class="label">So your proposal is not "add a capability"</span>
+  <p>Both halves of the symmetric pair are already built. CPP has <code>/codex:code_review</code> wired into an opt-in lifecycle nobody invokes; CxPP has <code>claude-code-review</code> wired into nothing, reachable only as an escalation. What you are proposing is <strong>promotion</strong>: take two existing, unexercised capabilities and make them routine and reciprocal. That is a much smaller build than it sounds, and a much better-evidenced one — you are not betting that cross-model review works, you are ending a situation where you cannot possibly know, because it has never run.</p>
+</div>
+
+<h3>Four design points, in order of how much they matter</h3>
 
 <div class="step">
-  <div class="sn">New — Step 4a, before tests are written</div>
-  <h3>Codex proposes the discriminating cases</h3>
-  <p>Given the issue, the ELI5-approved plan, and the list of instruments the change introduces or modifies, Codex returns <strong>only a case list</strong>: for each instrument, the input that should make it report the <em>other</em> verdict. No code, no tests, no review of Claude's work — there is nothing to review yet. This is exactly the artifact your Negative Control directive demands ("name the input that makes it report the OTHER verdict") sourced from a model that did not author the design.</p>
+  <div class="sn">1 · The decisive one</div>
+  <h3>Default, not opt-in — but proportional</h3>
+  <p>0 of 200 is the whole argument. An opt-in quality stage in a single-owner repo is a stage that does not exist; the moment there is a faster command next to it, the faster one wins every time. Fold the counter-model into the default lifecycle rather than keeping a parallel command.</p>
+  <p>Proportionally, though. Your tiering already says Tier 1 surgical work skips the spec pipeline; the same logic applies here — a counter-model pass on a one-line fix is the ceremony tax Superpowers removed in v6.3.0 and Spec Kit's critics complain about. Bind it to tier, not to a separate command name. <strong>The failure mode of <code>auto_codex</code> was not that it was heavy; it was that opting in was a decision, and decisions made per-invocation default to no.</strong></p>
 </div>
 
 <div class="step">
-  <div class="sn">Then — Step 4, unchanged in shape</div>
-  <h3>Claude implements against a case list it did not author</h3>
-  <p>The red cases are inputs to the TDD loop rather than an audit of its output. Claude must either cover each case or record why it does not apply — and "does not apply" is a claim a reviewer can check, unlike a case nobody ever wrote down.</p>
+  <div class="sn">2 · Your framing, and it is the right one</div>
+  <h3>The counter-model is whichever model did not write the code</h3>
+  <p>Codex counters Claude in CPP; Claude counters Codex in CxPP. This is correct and it is a stronger principle than "add a Codex review," because it survives the repos changing hands. The rule should be stated as a property, not as a tool name: <em>the reviewing model must not be the implementing model</em>. Then Qwen or Gemma can serve the role in a lane where one of them implements, and the rule still holds without an edit.</p>
+  <p>One thing to verify before relying on it: in CxPP, confirm Codex is genuinely the implementer and not an orchestrator delegating to a Claude session. Your 6 September comparison noted that CPP's <code>codex:auto</code> workers are <em>"Claude sessions with a delegated implementation driver"</em> — if any CxPP lane has the same shape, then "Claude reviews Codex" is Claude reviewing Claude's own output through a wrapper, and the independence the design depends on is not there.</p>
 </div>
 
-<div class="step later">
-  <div class="sn">Unchanged — Step 5</div>
-  <h3>Codex reviews the branch as it does today</h3>
-  <p>Now with a useful property: the reviewer can compare the shipped tests against the case list <em>it</em> produced, which converts a subjective review into a diff.</p>
+<div class="step">
+  <div class="sn">3 · Where the diversity is load-bearing</div>
+  <h3>Have the counter-model produce red cases, not only diff findings</h3>
+  <p>This is the part of my earlier section that survives your correction, reframed. A reviewer handed a finished branch and a green suite reviews what is there; it is poorly placed to notice what is absent, because nothing marks a missing case. Reviewing the diff catches wrong assertions well and missing assertions badly.</p>
+  <p>So give the counter-model a second, cheaper product: for each instrument the change introduces or modifies, <strong>the input that should make it report the other verdict</strong>. That is verbatim what your Negative Control directive demands, sourced from a model that did not author the design — and it feeds <a href="https://github.com/cooneycw/claude-power-pack/issues/924">#924</a> directly, since those cases are what gets registered as controls. The review stage and the control-generation stage are the same invocation with two outputs, not two stages.</p>
 </div>
 
-<div class="box v">
-  <span class="label">Why this is worth doing even if it fails</span>
-  <p>It is self-measuring, which almost nothing else in this space is. Run it on ten issues and count: <strong>how many of Codex's proposed red cases were already covered by Claude's tests?</strong></p>
-  <ul>
-    <li><strong>Nearly all covered</strong> → the diversity hypothesis is false for your workload. You have learned something real and cheap, and you delete the stage. That is a good outcome, not a failed experiment.</li>
-    <li><strong>A meaningful minority uncovered</strong> → you have a measured diversity yield, and the uncovered cases are immediately actionable as tests.</li>
-    <li><strong>Codex proposes cases that are wrong or inapplicable</strong> → you have measured its false-positive rate, which tells you whether to make the stage advisory or blocking.</li>
-  </ul>
-  <p>Note the shape: this stage has a red case of its own. It can report the verdict "no diversity added." A stage that could only ever report "here are some cases" would be one more blind instrument, and you would be entitled to reject it on your own directive.</p>
+<div class="step">
+  <div class="sn">4 · The trap in the current design</div>
+  <h3>The primary model must not be the sole judge of the counter-model</h3>
+  <p><code>auto_codex</code> reports <code>X accepted (fixed), Y rejected, Z deferred</code> — and Claude decides the split. The adversary's findings pass through the author's judgement before anything happens. A counter-model whose every finding can be rejected by the model it is checking is a counter-model that can be silently no-opped, and the run still reports as having had cross-model review.</p>
+  <p>You do not need to remove the judgement — the primary usually <em>is</em> right about a false positive. You need the ratio to be visible and to be a thing you can look at across runs. If <code>Y</code> is consistently near <code>X+Y</code>, the stage is decorative. That is a measurement you currently cannot take, because the denominator is zero.</p>
 </div>
 
 <div class="box c">
-  <span class="label">Two cautions</span>
-  <p><strong>Do not make it blocking on day one.</strong> Your assessment already warns against competing transitions. Advisory first, with the count recorded; promote to blocking only if the measured yield justifies it.</p>
-  <p><strong>Watch the independence assumption.</strong> Cross-model diversity counts only if the two models can fail independently. They share training corpora and both have read your repo's conventions. If Codex's case lists turn out to be highly correlated with Claude's tests, that is not a bug in the stage — it is the measurement telling you the independence assumption is weaker than assumed, and it is the single most valuable thing this experiment can surface.</p>
+  <span class="label">The counter-model stage is itself an instrument</span>
+  <p>By your own directive it does not get to ship without a red case. The question to answer before promoting it: <strong>what input makes this stage report "findings"?</strong> A stage that has only ever returned clean is indistinguishable from a stage that cannot return anything else — and with 0 of 200, you have no observation either way. The cheapest control is a seeded branch with a known defect of a class the reviewer should catch; assert the stage reports it, then assert it reports clean on the same branch with the defect removed. Both directions, because a reviewer wedged at "findings" is equally useless.</p>
+</div>
+
+<div class="box v">
+  <span class="label">And it stays self-measuring</span>
+  <p>Once it runs by default, count on each run: how many of the counter-model's proposed red cases were <em>already</em> covered by the implementer's tests. Near-total overlap means the two models are not failing independently on your workload — and that is not a disappointing result, it is the single most valuable thing this design can tell you, because the whole premise rests on an independence assumption that nobody has tested. Both models have read your conventions and share training corpora; correlation is the expected failure, not an exotic one.</p>
 </div>
 
 <!-- 6 -->
@@ -377,8 +400,15 @@ footer{margin-top:70px;padding-top:24px;border-top:1px solid var(--rule);font-si
 
 <div class="step">
   <div class="sn">Third</div>
-  <h3>Run the Codex case-list stage advisory on ten issues and count</h3>
-  <p>Do not wire it into <code>/flow:auto_codex</code> yet. Run it by hand or behind a flag, record the yield — proposed cases, already-covered, newly-covered, rejected-as-inapplicable — and let the number decide whether it becomes Step 4a. Ten issues is enough to distinguish "meaningful minority uncovered" from "nearly all covered," and cheap enough that a null result costs you nothing.</p>
+  <h3>Give the counter-model stage a red case, then promote it to the default lifecycle</h3>
+  <p>In that order. Seed a branch with a known defect, prove the stage reports it, prove it reports clean without it — then fold it into <code>/flow:auto</code> bound to tier, and retire <code>/flow:auto_codex</code> as a separate command. Keeping the opt-in variant alongside a default is how you get back to 0 of 200.</p>
+  <p>Record per run: findings raised, accepted, rejected, and how many proposed red cases the implementer's tests already covered. Ten issues is enough to tell "the models fail independently" from "the counter-model is agreeing with itself."</p>
+</div>
+
+<div class="step">
+  <div class="sn">Fourth</div>
+  <h3>Mirror it in CxPP with the roles reversed</h3>
+  <p><code>claude-code-review</code> already exists and already draws the ownership boundary correctly. The change is its trigger: promote it from escalation-on-stuck to a routine stage in <code>flow-auto</code>, bound to tier, with Claude as the counter-model because Codex is the implementer there. Verify first that no CxPP lane is a Claude session wearing a Codex label — if one is, that lane has no counter-model and the symmetry is nominal.</p>
 </div>
 
 <div class="step later">
