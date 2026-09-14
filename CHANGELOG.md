@@ -203,6 +203,52 @@
 
 ### Fixed
 
+- **2026-09-13 - the finish gate's #769 retry graded the RE-RUN INVOCATION, not
+  the retried id** (issue #915) - when a test failed, the gate re-ran it once and
+  then decided "the failure reproduces" from whether the re-run *process* exited
+  non-zero. The re-run executes the whole test target, so any unrelated failure
+  anywhere in it made the gate name the retried id as reproducing - an id that
+  had PASSED. Worse than a plain false negative: it pointed a reader at an
+  innocent test while the failure that was genuinely there went unnamed.
+
+  Observed on kyle #1176's third gate cycle: the retried Playwright id passed on
+  re-run; a different non-Playwright test failed in the same invocation because
+  a commit landed in *another repository* between the two runs (kyle's surface
+  test reads `~/.claude/commands` through a symlink into claude-power-pack); the
+  verdict line named the innocent id.
+
+  `lib/cicd/runner.py` now parses the re-run's failed ids and grades three ways:
+  `failed` only when a retried id is in the re-run's failed set;
+  `new-failures` when it is not but other ids failed - naming them, because a
+  test that changes verdict inside one run with no edit to the tree points
+  *outside* the tree; and `failed-unattributed` when the invocation failed and no
+  id could be read, which is UNKNOWN and says so rather than claiming a
+  reproduction. `flow-finish-gate.sh` clears only on an exact
+  `passed-in-isolation`, so both new verdicts stay `fail` by construction, and
+  `tests/test_flow_finish_gate.py` pins that. The red case - an innocent id
+  retried while a different test fails - is committed in `tests/test_runner.py`
+  and fails against the pre-fix runner.
+
+  The first cut went through a two-pass cross-model review (Codex, via
+  `/flow:auto_codex` - the first PR in this repo to carry one) and five of its
+  six findings were accepted and fixed before the PR existed: failed ids are now
+  read from **both** stdout and stderr on both attempts, not `parse(out) or
+  parse(err)`, which discarded a reproduction sitting on the other stream; a
+  retried id absent from the re-run's failed set is recorded as **unobserved**
+  with its reproduction status UNKNOWN, never as "did not reproduce" - a
+  collection error in another module leaves it unexecuted; newly appearing ids
+  are named and recorded (`reproduced` / `appeared` / `unobserved` on the rerun
+  record) even when a retried id also reproduces, where the mixed case had
+  dropped them; the log no longer asserts that a changed failing set "points
+  outside the tree", a cause the detector never measured; and
+  `parse_failed_node_ids` now reads a node id up to pytest's ` - <reason>`
+  separator rather than to the first space, because `\S+` collapsed
+  `test_v[hello world]` and `test_v[hello there]` onto one truncated id - cosmetic
+  while ids only labelled a re-run, a false "reproduced" once sets are compared.
+  Each fix carries a regression that fails against the code before it. The sixth
+  finding - the suite-summary parser in `steps.py` has the same `or` shape - is
+  deferred to #939 because its fix changes the #621 / #900 semantics.
+
 - **2026-09-07 - `flow-wave-mailbox` reported a dead watch as `armed`**
   (issue #801) - `watch --status` printed
   `(state: armed); 0 live watcher process(es)`: two halves of one line

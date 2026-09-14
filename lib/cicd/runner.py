@@ -35,6 +35,26 @@ from .steps import (
     get_plan_steps,
 )
 
+
+def _failed_ids_from_both_streams(output: str | None, error: str | None) -> list[str]:
+    """Failed/errored node ids from stdout AND stderr, first-seen order, deduped.
+
+    Not `parse(output) or parse(error)`: that reads one stream and discards the
+    other the moment the first yields anything. pytest writes its FAILED summary
+    to stdout, but a wrapper (make, a tee, a plugin) can route lines to either
+    stream, and a retry that reports a new id on stdout and the retried id on
+    stderr would be graded as "did not reproduce" with the reproduction sitting
+    unread on the other stream (issue #915, cross-model review).
+    """
+    seen: set[str] = set()
+    ids: list[str] = []
+    for text in (output, error):
+        for node_id in parse_failed_node_ids(text or ""):
+            if node_id not in seen:
+                seen.add(node_id)
+                ids.append(node_id)
+    return ids
+
 # Variables the runner launcher injects (or a parent venv leaks) that must NOT
 # reach child step processes: PYTHONPATH is added so ``python -m lib.cicd`` can
 # import itself but would shadow the target project's imports; VIRTUAL_ENV /
@@ -530,9 +550,9 @@ class DeterministicRunner:
                     and outcome.framework == "pytest"
                     and outcome.failed + outcome.errors > 0
                 ):
-                    failed_ids = parse_failed_node_ids(
-                        result.output
-                    ) or parse_failed_node_ids(result.error)
+                    failed_ids = _failed_ids_from_both_streams(
+                        result.output, result.error
+                    )
                 if failed_ids and len(failed_ids) <= MAX_RERUN_IDS:
                     id_count = len(failed_ids)
                     self._log(
@@ -550,6 +570,12 @@ class DeterministicRunner:
                     # attempt; #769 permits exactly one targeted extra execution.
                     rerun_result = step.execute(rerun_context)
                     rerun_outcome = rerun_result.tests
+                    # Attribution of the re-run's failures to the retried ids.
+                    # Populated only on the invocation-failed path below; empty
+                    # on the others, and recorded either way (issue #915).
+                    reproduced: list[str] = []
+                    appeared: list[str] = []
+                    unobserved: list[str] = []
                     if rerun_outcome is not None and rerun_outcome.nothing_ran:
                         rerun_verdict = "inconclusive"
                         self._log(
@@ -618,29 +644,50 @@ class DeterministicRunner:
                         # away, and it is the most informative of the three: a
                         # test that passes and then fails inside one gate run,
                         # with no edit to the tree, points OUTSIDE the tree.
-                        rerun_failed_ids = parse_failed_node_ids(
-                            rerun_result.output
-                        ) or parse_failed_node_ids(rerun_result.error)
+                        rerun_failed_ids = _failed_ids_from_both_streams(
+                            rerun_result.output, rerun_result.error
+                        )
                         retried = set(failed_ids)
-                        reproduced = [i for i in failed_ids if i in set(rerun_failed_ids)]
+                        rerun_set = set(rerun_failed_ids)
+                        reproduced = [i for i in failed_ids if i in rerun_set]
+                        unobserved = [i for i in failed_ids if i not in rerun_set]
                         appeared = [i for i in rerun_failed_ids if i not in retried]
+                        # Three facts, reported independently (cross-model review
+                        # on #915 found the first cut collapsed them):
+                        #  - a retried id in the re-run's failed set REPRODUCED;
+                        #  - an id that failed on re-run but was not retried
+                        #    APPEARED, and is named whether or not anything
+                        #    reproduced - the mixed case used to drop it;
+                        #  - a retried id ABSENT from the failed set is
+                        #    UNOBSERVED, not passed: a collection error in another
+                        #    module, or fail-fast, leaves it unexecuted, and its
+                        #    absence proves nothing about it.
+                        # A changed failing set is a changed failing set. Its
+                        # cause - a move in the tree, in another repo, or an
+                        # order/race inside this one - is not something the
+                        # detector measured, so it is not something it says.
+                        appeared_note = (
+                            f"; and {len(appeared)} failure(s) not retried "
+                            f"appeared: {', '.join(appeared)} - a SEPARATE "
+                            "finding, cause undetermined"
+                            if appeared else ""
+                        )
                         if reproduced:
                             rerun_verdict = "failed"
                             self._log(
                                 f"  [{idx + 1}/{len(step_defs)}] {step.id}: "
                                 f"RE-RUN FAILED - the failure reproduces: "
-                                f"{', '.join(reproduced)}"
+                                f"{', '.join(reproduced)}{appeared_note}"
                             )
                         elif appeared:
                             rerun_verdict = "new-failures"
                             self._log(
                                 f"  [{idx + 1}/{len(step_defs)}] {step.id}: "
-                                f"RE-RUN: the retried id(s) did NOT reproduce, but "
-                                f"{len(appeared)} new failure(s) appeared: "
-                                f"{', '.join(appeared)}. The original failure is "
-                                "unexplained and these are a SEPARATE finding - a "
-                                "test that changed verdict inside one run, with no "
-                                "edit to the tree, points outside it (issue #915)"
+                                f"RE-RUN: the retried id(s) were not among the "
+                                f"re-run's reported failures ({', '.join(unobserved)}) "
+                                "- their reproduction status is UNKNOWN, not "
+                                f"established as passing{appeared_note}. The "
+                                "original failure stands (issue #915)"
                             )
                         else:
                             # The invocation failed and no ids could be attributed
@@ -658,6 +705,9 @@ class DeterministicRunner:
                             "step": step.id,
                             "ids": failed_ids,
                             "outcome": rerun_verdict,
+                            "reproduced": reproduced,
+                            "appeared": appeared,
+                            "unobserved": unobserved,
                             "first_attempt": outcome_dict,
                             "rerun": rerun_outcome.to_dict() if rerun_outcome else None,
                         }

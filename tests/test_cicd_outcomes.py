@@ -52,6 +52,25 @@ FAILED tests/a.py::test_one - AssertionError: repeated
     def test_prose_is_not_a_summary_line(self) -> None:
         assert parse_failed_node_ids("The request failed tests/a.py::test_one\n") == []
 
+    def test_parametrized_ids_with_spaces_stay_distinct(self) -> None:
+        """Codex review on #915: `\\S+` cut `test_v[hello world]` at the space,
+        so two different parametrized failures collapsed onto one id - and the
+        #915 membership comparison then called the second a reproduction of the
+        first."""
+        text = """FAILED tests/a.py::test_value[hello world] - AssertionError: one
+FAILED tests/a.py::test_value[hello there] - AssertionError: two
+"""
+        assert parse_failed_node_ids(text) == [
+            "tests/a.py::test_value[hello world]",
+            "tests/a.py::test_value[hello there]",
+        ]
+
+    def test_a_parameter_containing_the_separator_is_rejoined(self) -> None:
+        """The lazy ` - ` split lands inside the brackets; the unclosed `[`
+        says so and the id is extended to its `]`."""
+        text = "ERROR tests/x.py::t[a - b] - RuntimeError: boom\n"
+        assert parse_failed_node_ids(text) == ["tests/x.py::t[a - b]"]
+
 
 class TestPytestParsing:
     def test_passed_and_skipped(self) -> None:
