@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spec-Driven Development in 2026 — A Conference-Grounded Review</title>
+<style>
+:root{
+  --bg:#fbfaf8; --surface:#ffffff; --surface-2:#f4f2ee; --ink:#1c1b19; --ink-2:#4a4843;
+  --ink-3:#767268; --rule:#e2ded6; --accent:#8a4b2a; --accent-soft:#f6ede6;
+  --green:#2f6b45; --green-soft:#ebf3ed; --amber:#8a6a1f; --amber-soft:#f8f1dd;
+  --red:#8f3134; --red-soft:#f8eae9; --blue:#2d5580; --blue-soft:#eaf0f7;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#161513; --surface:#1e1d1a; --surface-2:#26241f; --ink:#eae7e1; --ink-2:#bdb8ad;
+    --ink-3:#8d887d; --rule:#34312b; --accent:#d99a6c; --accent-soft:#2b211a;
+    --green:#7bc094; --green-soft:#1c2820; --amber:#d9b463; --amber-soft:#2a2418;
+    --red:#e08a8c; --red-soft:#2b1c1c; --blue:#8fb6dd; --blue-soft:#1a2230;
+  }
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+  font-size:16.5px;line-height:1.62;-webkit-font-smoothing:antialiased}
+.wrap{max-width:860px;margin:0 auto;padding:0 24px 120px}
+header.masthead{border-bottom:2px solid var(--ink);margin-bottom:44px;padding:64px 0 28px}
+.kicker{font-family:var(--mono);font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--accent);margin:0 0 18px}
+h1{font-family:var(--serif);font-size:clamp(30px,5.2vw,46px);line-height:1.12;margin:0 0 16px;
+  letter-spacing:-.015em;font-weight:600}
+.standfirst{font-size:19px;line-height:1.55;color:var(--ink-2);margin:0 0 26px;max-width:64ch}
+.meta{font-family:var(--mono);font-size:12px;color:var(--ink-3);line-height:1.9}
+.meta b{color:var(--ink-2);font-weight:600}
+h2{font-family:var(--serif);font-size:28px;line-height:1.2;margin:64px 0 6px;font-weight:600;
+  letter-spacing:-.01em;scroll-margin-top:20px}
+h2 .num{font-family:var(--mono);font-size:12px;color:var(--accent);display:block;
+  letter-spacing:.14em;margin-bottom:8px;font-weight:400}
+h3{font-size:18.5px;margin:38px 0 8px;font-weight:650;letter-spacing:-.005em}
+h4{font-size:15px;margin:26px 0 6px;font-weight:650;color:var(--ink-2)}
+p{margin:0 0 16px}
+a{color:var(--accent);text-decoration:none;border-bottom:1px solid color-mix(in srgb,var(--accent) 32%,transparent)}
+a:hover{border-bottom-color:var(--accent)}
+ul,ol{margin:0 0 16px;padding-left:22px}
+li{margin-bottom:9px}
+li>ul,li>ol{margin-top:9px}
+code{font-family:var(--mono);font-size:.87em;background:var(--surface-2);padding:1.5px 5px;
+  border-radius:4px;border:1px solid var(--rule)}
+hr{border:0;border-top:1px solid var(--rule);margin:44px 0}
+.lede{font-size:17.5px;color:var(--ink-2)}
+/* --- TOC --- */
+nav.toc{background:var(--surface);border:1px solid var(--rule);border-radius:10px;padding:22px 26px;margin:0 0 12px}
+nav.toc h2{font-size:12px;font-family:var(--mono);letter-spacing:.14em;text-transform:uppercase;
+  color:var(--ink-3);margin:0 0 12px;font-weight:500}
+nav.toc ol{list-style:none;padding:0;margin:0;column-count:2;column-gap:34px}
+@media(max-width:620px){nav.toc ol{column-count:1}}
+nav.toc li{margin-bottom:7px;font-size:14.5px;break-inside:avoid}
+nav.toc a{border:0;color:var(--ink-2)}
+nav.toc a:hover{color:var(--accent)}
+nav.toc .n{font-family:var(--mono);font-size:11px;color:var(--ink-3);margin-right:8px}
+/* --- callouts --- */
+.box{border-radius:10px;padding:20px 24px;margin:26px 0;border:1px solid var(--rule);background:var(--surface)}
+.box .label{font-family:var(--mono);font-size:11px;letter-spacing:.13em;text-transform:uppercase;
+  font-weight:600;margin-bottom:10px;display:block}
+.box p:last-child,.box ul:last-child,.box ol:last-child{margin-bottom:0}
+.box.verdict{background:var(--green-soft);border-color:color-mix(in srgb,var(--green) 30%,transparent)}
+.box.verdict .label{color:var(--green)}
+.box.contested{background:var(--amber-soft);border-color:color-mix(in srgb,var(--amber) 34%,transparent)}
+.box.contested .label{color:var(--amber)}
+.box.correction{background:var(--red-soft);border-color:color-mix(in srgb,var(--red) 30%,transparent)}
+.box.correction .label{color:var(--red)}
+.box.note{background:var(--blue-soft);border-color:color-mix(in srgb,var(--blue) 30%,transparent)}
+.box.note .label{color:var(--blue)}
+blockquote{margin:22px 0;padding:4px 0 4px 22px;border-left:3px solid var(--accent);
+  font-family:var(--serif);font-size:18px;line-height:1.5;color:var(--ink-2)}
+blockquote p{margin-bottom:10px}
+blockquote cite{display:block;font-family:var(--sans);font-size:13px;font-style:normal;
+  color:var(--ink-3);margin-top:8px}
+/* --- tables --- */
+.tw{overflow-x:auto;margin:26px 0;border:1px solid var(--rule);border-radius:10px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:14.5px;min-width:560px}
+th{text-align:left;padding:12px 16px;font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--ink-3);border-bottom:1px solid var(--rule);font-weight:600;
+  background:var(--surface-2);vertical-align:bottom}
+td{padding:13px 16px;border-bottom:1px solid var(--rule);vertical-align:top;line-height:1.5}
+tr:last-child td{border-bottom:0}
+td strong{font-weight:650}
+.pill{display:inline-block;font-family:var(--mono);font-size:10.5px;padding:2px 8px;border-radius:20px;
+  letter-spacing:.05em;font-weight:600;white-space:nowrap}
+.pill.yes{background:var(--green-soft);color:var(--green)}
+.pill.mixed{background:var(--amber-soft);color:var(--amber)}
+.pill.no{background:var(--red-soft);color:var(--red)}
+.pill.info{background:var(--blue-soft);color:var(--blue)}
+/* --- forum cards --- */
+.forum{border:1px solid var(--rule);border-radius:10px;background:var(--surface);
+  padding:24px 26px;margin:26px 0}
+.forum .fhead{display:flex;flex-wrap:wrap;gap:10px;align-items:baseline;
+  border-bottom:1px solid var(--rule);padding-bottom:12px;margin-bottom:16px}
+.forum .fname{font-family:var(--serif);font-size:21px;font-weight:600;margin:0;flex:1 1 auto}
+.forum .fdate{font-family:var(--mono);font-size:11.5px;color:var(--ink-3);white-space:nowrap}
+.forum h4:first-of-type{margin-top:0}
+/* --- source list --- */
+.srcgroup{margin-bottom:30px}
+.srcgroup h3{font-size:14px;font-family:var(--mono);letter-spacing:.1em;text-transform:uppercase;
+  color:var(--ink-3);border-bottom:1px solid var(--rule);padding-bottom:7px;margin:0 0 14px;font-weight:600}
+ol.src{list-style:none;counter-reset:s;padding:0;font-size:14.5px}
+ol.src li{counter-increment:s;position:relative;padding-left:36px;margin-bottom:11px;line-height:1.5}
+ol.src li::before{content:"[" counter(s) "]";position:absolute;left:0;top:1px;font-family:var(--mono);
+  font-size:11px;color:var(--ink-3)}
+ol.src .t{font-family:var(--mono);font-size:10.5px;padding:1px 6px;border-radius:3px;margin-left:6px;
+  background:var(--surface-2);color:var(--ink-3);border:1px solid var(--rule);white-space:nowrap}
+.tag-pri{color:var(--green)!important;background:var(--green-soft)!important}
+.tag-sec{color:var(--blue)!important;background:var(--blue-soft)!important}
+.tag-ter{color:var(--amber)!important;background:var(--amber-soft)!important}
+footer{margin-top:70px;padding-top:24px;border-top:1px solid var(--rule);font-size:13px;color:var(--ink-3)}
+.ladder{margin:26px 0;border:1px solid var(--rule);border-radius:10px;overflow:hidden}
+.rung{padding:16px 22px;border-bottom:1px solid var(--rule);background:var(--surface)}
+.rung:last-child{border-bottom:0}
+.rung .rname{font-weight:650;font-size:15.5px;margin-bottom:3px}
+.rung .rname span{font-family:var(--mono);font-size:11px;color:var(--ink-3);font-weight:400;margin-left:8px}
+.rung p{margin:0;font-size:14.5px;color:var(--ink-2)}
+.rung.r1{border-left:4px solid var(--green)}
+.rung.r2{border-left:4px solid var(--blue)}
+.rung.r3{border-left:4px solid var(--red)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="masthead">
+  <p class="kicker">Research Report · Agentic Development Practice</p>
+  <h1>Spec-Driven Development in 2026: what the conference circuit actually concluded</h1>
+  <p class="standfirst">A review of AI Dev / AI Native DevCon, the AI Engineer World's Fair, AIware, and the GitHub Universe&nbsp;/ Microsoft Build axis — against the tooling question: do Spec Kit, Superpowers, and Claude Power Pack guide the process, or interfere with it?</p>
+  <p class="meta">
+    <b>Prepared</b> 14 September 2026<br>
+    <b>Method</b> Tavily web search, extraction and crawl over conference programmes, talk transcripts, peer-reviewed proceedings and practitioner write-ups<br>
+    <b>Coverage window</b> September 2025 – September 2026
+  </p>
+</header>
+
+<div class="box note">
+  <span class="label">How to read the citations</span>
+  <p>Sources are graded. <span class="t tag-pri" style="font-family:var(--mono);font-size:10.5px;padding:1px 6px;border-radius:3px">primary</span> means the conference programme, the speaker's own words (transcript, slides, repo), or a peer-reviewed paper. <span class="t tag-sec" style="font-family:var(--mono);font-size:10.5px;padding:1px 6px;border-radius:3px">secondary</span> means a named analyst or publication reporting on it. <span class="t tag-ter" style="font-family:var(--mono);font-size:10.5px;padding:1px 6px;border-radius:3px">tertiary</span> means an attendee recap or vendor blog — directionally useful, individually unverified. Where a number comes only from a tertiary source, the report says so in the sentence, not just the footnote.</p>
+</div>
+
+<nav class="toc">
+  <h2>Contents</h2>
+  <ol>
+    <li><span class="n">01</span><a href="#summary">What the evidence supports</a></li>
+    <li><span class="n">02</span><a href="#ladder">The frame everyone now uses</a></li>
+    <li><span class="n">03</span><a href="#forums">The four forums, one by one</a></li>
+    <li><span class="n">04</span><a href="#martinelli">Martinelli: correcting the record</a></li>
+    <li><span class="n">05</span><a href="#pocock">The counter-current: Pocock</a></li>
+    <li><span class="n">06</span><a href="#tooling">Spec Kit, Superpowers, CPP</a></li>
+    <li><span class="n">07</span><a href="#scoreboard">Consensus vs. contested</a></li>
+    <li><span class="n">08</span><a href="#recommend">What this implies for your setup</a></li>
+    <li><span class="n">09</span><a href="#gaps">What I could not establish</a></li>
+    <li><span class="n">10</span><a href="#sources">Sources</a></li>
+  </ol>
+</nav>
+
+<!-- ================= 1 ================= -->
+<h2 id="summary"><span class="num">Section 01</span>What the evidence supports</h2>
+
+<p class="lede">Six findings, each of which survived a search for its counter-evidence.</p>
+
+<ol>
+  <li><strong>The 2026 consensus is <em>spec-anchored</em>, not <em>spec-as-source</em>.</strong> Every forum endorses writing structured intent before code. None of the four endorses the strong claim that humans should stop reading the code. The strong claim is now the actively contested one <a href="#s1">[1]</a><a href="#s12">[12]</a>.</li>
+  <li><strong>The centre of gravity moved from "spec" to "harness."</strong> The single most-repeated 2026 word across AIEWF, AIware and Thoughtworks is not <em>specification</em> — it is <em>harness</em>: the context, tools, sandbox, gates and feedback loops around the model. Specs became one feedforward control inside that harness, not the organising principle above it <a href="#s5">[5]</a><a href="#s13">[13]</a><a href="#s24">[24]</a>.</li>
+  <li><strong>Skills displaced specs as the hot artifact — and immediately acquired their own backlash.</strong> Skills were the dominant AIEWF 2026 theme <a href="#s5">[5]</a>. Within weeks, Thoughtworks filed "agent instruction bloat" under <em>Caution</em> <a href="#s14">[14]</a> and Microsoft's own dev blog ran "Stop skillmaxxing, save your tokens" <a href="#s22">[22]</a>. The pendulum on process artifacts swung and came back inside one year.</li>
+  <li><strong>Simon Martinelli does use agentic coders to write the code.</strong> This is a direct correction to the premise in the brief. His published workflow ends at "Application Code (AI-generated, reviewed by developer)," and his Developer Summit talk is a live demo generating a full-stack Java application <a href="#s16">[16]</a><a href="#s18">[18]</a>. What he refuses is hand-<em>editing</em> generated code — a different claim. See <a href="#martinelli">§4</a>.</li>
+  <li><strong>Matt Pocock's position is sharper than "destroy the specs," and better supported.</strong> He does not oppose specs; he writes them and ships a skill that produces them. He opposes (a) spec-as-source, on entropy grounds, and (b) keeping a spec alive after the work ships, on doc-rot grounds. His own words: <em>"Treat it as throwaway once the work ships"</em> <a href="#s20">[20]</a>. See <a href="#pocock">§5</a>.</li>
+  <li><strong>The empirical literature is more cautious than the conference stages.</strong> The one peer-reviewed repository study of agentic configuration found Skills and subagents only <em>shallowly</em> adopted, with most Skills being static prose rather than executable workflow — i.e. the practice the stages celebrate is not yet the practice in the wild <a href="#s12">[12]</a>.</li>
+</ol>
+
+<div class="box verdict">
+  <span class="label">Direct answer to the brief</span>
+  <p>The four forums <strong>concur on the weak form</strong> of spec-driven development — write structured intent first, gate the phases, keep a human verifying — and have <strong>quietly abandoned the strong form</strong>. Meanwhile a genuinely new theory has emerged and it is not Pocock's: it is <em>harness engineering</em>, which reframes the spec as one control among several rather than the source of truth. Pocock's "throw the spec away" is best read as a corollary of that reframing, not as an opposing school.</p>
+</div>
+
+<!-- ================= 2 ================= -->
+<h2 id="ladder"><span class="num">Section 02</span>The frame everyone now uses</h2>
+
+<p>Almost every serious 2026 treatment of SDD inherits one taxonomy: Birgitta Böckeler's three levels, published on martinfowler.com in October 2025 after she tested Kiro, Spec Kit and Tessl side by side <a href="#s1">[1]</a>. It is worth restating precisely, because most disagreements in this field turn out to be people arguing across two different rungs.</p>
+
+<div class="ladder">
+  <div class="rung r1">
+    <div class="rname">Spec-first <span>consensus — safe to adopt</span></div>
+    <p>A considered spec is written first and used for the task at hand. Nothing is claimed about its afterlife. This is what nearly everyone actually practises, and no serious critic objects to it.</p>
+  </div>
+  <div class="rung r2">
+    <div class="rname">Spec-anchored <span>the 2026 mainstream — with caveats</span></div>
+    <p>The spec is kept after the task completes and used to evolve and maintain the feature. Spec Kit and Kiro live here. The open problem is drift: nothing keeps the spec and the code in sync, and Spec Kit has no native drift detection <a href="#s10">[10]</a>.</p>
+  </div>
+  <div class="rung r3">
+    <div class="rname">Spec-as-source <span>contested — the thing under attack</span></div>
+    <p>The spec is the only file a human edits; the human never touches code. Tessl pushes hardest here. This is the rung Pocock attacks, the rung Martinelli explicitly warns is <em>not</em> model-driven development, and the rung no major conference endorsed in 2026.</p>
+  </div>
+</div>
+
+<p>Böckeler's own conclusion after the tool comparison was deliberately unglamorous: the terminology is in flux, there is no shared understanding of what a "spec" even is or how it differs from an instruction file or a prompt, and the workflows "remain elaborate and opinionated," with some tools generating spec files that are hard to review. She closed with a warning that has aged well: <em>"We may be relearning a bitter lesson — that handcrafting detailed rules for AI ultimately doesn't scale"</em> <a href="#s1">[1]</a><a href="#s2">[2]</a>.</p>
+
+<p>A February 2026 arXiv survey independently arrived at the same three-level split, which is decent evidence the taxonomy is real rather than one author's framing <a href="#s3">[3]</a>.</p>
+
+<!-- ================= 3 ================= -->
+<h2 id="forums"><span class="num">Section 03</span>The four forums, one by one</h2>
+
+<div class="box note">
+  <span class="label">Disambiguation</span>
+  <p>"AI Dev Con" resolves to two distinct events in 2026, and they say different things. <strong>AI Dev</strong> is Andrew Ng / DeepLearning.AI's conference (SF, 28–29 April 2026; NYC, 30 Nov–1 Dec 2026). <strong>AI Native DevCon</strong> is a separate London event run by Tessl (June 2026). Both are covered below, because the contrast between them is one of the more informative data points in this report.</p>
+</div>
+
+<div class="forum">
+  <div class="fhead">
+    <p class="fname">AI Dev 26 × SF — DeepLearning.AI</p>
+    <span class="fdate">28–29 Apr 2026 · Pier 48, SF</span>
+  </div>
+  <h4>The headline was the opposite of spec-driven caution</h4>
+  <p>Andrew Ng's keynote, <a href="https://www.youtube.com/watch?v=g8um2AEf5ZA">The Future of Software Engineering</a>, argued that for "frontier teams" the trend is toward <strong>100% AI-written code</strong>, and that line-by-line human review has itself become the primary friction point — if a developer must inspect every generated line, they remain the bottleneck and the velocity gain is neutralised <a href="#s6">[6]</a><a href="#s7">[7]</a>. He announced <strong>Context Hub</strong>, a tool to feed agents current documentation so they stop reaching for deprecated APIs, and an interactive learning environment for practising with modern coding agents <a href="#s6">[6]</a>.</p>
+  <h4>What the framing was, underneath</h4>
+  <p>Ng's own words point at <em>parallel skill development</em>: as coding agents get more capable, humans need complementary skills to drive them. Notably, his answer to agent reliability was <strong>better context supply</strong>, not better specifications. That is a harness argument dressed as a tooling announcement.</p>
+  <div class="box contested" style="margin-bottom:0">
+    <span class="label">Contested</span>
+    <p>The "100% AI-written code, review is the bottleneck" position is the most aggressive claim from any of the four forums, and it sits in direct tension with the AI Engineer World's Fair consensus that <em>verification is becoming more valuable than generation</em> <a href="#s4">[4]</a> and with AWS's Erik Hanchett telling an AIE audience plainly: <em>"if something goes wrong, you are the person that are going to be blamed for it, not the agent"</em> <a href="#s9">[9]</a>.</p>
+  </div>
+</div>
+
+<div class="forum">
+  <div class="fhead">
+    <p class="fname">AI Native DevCon — London (Tessl)</p>
+    <span class="fdate">June 2026</span>
+  </div>
+  <h4>The most candid account of where Skills actually are</h4>
+  <p>Böckeler gave her rolling "State of play: AI coding" talk here <a href="#s2">[2]</a>. Her post-event summary of what teams are struggling with is the single most useful list I found on the subject, and it is a list of failure modes, not benefits: <strong>overlap, drift, lack of activation, rot, overload</strong> — "so much to figure out still" <a href="#s23">[23]</a>.</p>
+  <p>An attendee-reported line from the same talk that recurs in the write-ups: the risk is not that AI gets things wrong, it is that <strong>we stop noticing when it does</strong> — reported under the label "cognitive surrender" <a href="#s23">[23]</a>. That is a tertiary attribution and I would not put it in a slide as a direct quote, but the theme is consistent with her published work.</p>
+  <p>Context for her scepticism: her widely cited arithmetic puts realistic net cycle-time impact from coding assistants at roughly <strong>8–13%</strong>, not the 50% that marketing implies, and her core observation is that <em>"GenAI amplifies indiscriminately. When you ask it to generate code, it doesn't distinguish between good and bad"</em> <a href="#s25">[25]</a>.</p>
+</div>
+
+<div class="forum">
+  <div class="fhead">
+    <p class="fname">AI Engineer World's Fair 2026</p>
+    <span class="fdate">29 Jun – 2 Jul 2026 · Moscone, SF</span>
+  </div>
+  <h4>Five trends, and where SDD landed among them</h4>
+  <p>Latent Space's synthesis <a href="#s5">[5]</a> is the best single summary. The two trends that matter here:</p>
+  <ul>
+    <li><strong>Focus shifted from agents to the systems around them.</strong> Lilian Weng's 2026 essay <em>Harness Engineering for Self-Improvement</em> is the reference point: the harness — workflows, context, permissions, evaluation, persistent state, continuous improvement — has become as important as the model.</li>
+    <li><strong>Every agent platform is building around skills.</strong> Google DeepMind's Philipp Schmid: <em>"Agents are just files. We write markdown files to extend capabilities. Agents can learn from those, can create their own files."</em> Vercel's Andrew Qu called skills "portable, on-demand knowledge." The most oversubscribed workshop at the conference, by queue vote, was on writing SKILL.md files.</li>
+  </ul>
+  <h4>Spec-driven development had exactly one named talk</h4>
+  <p>That is itself a finding. <a href="https://www.youtube.com/watch?v=IddXPepIAS4">Using Spec-Driven Development for Production Workflows</a> by Erik Hanchett (AWS) <a href="#s9">[9]</a> is the SDD slot on the programme. Its content is notably moderate: SDD is positioned as the answer for <em>complex codebases and in-depth features needing upfront planning</em> — not as a universal default — and Hanchett is explicit that the tool is incidental (<em>"you can do this process spec-driven development without Kiro"</em>) and that the human remains the accountable reviewer of every generated line.</p>
+  <h4>The verification theme</h4>
+  <p>An attendee synthesis that matches the programme well: the job is moving up a level, and <strong>verification is becoming more valuable than generation</strong> — human review is vulnerable to "borrowed confidence," and the model that wrote the code should not be the only thing checking it <a href="#s4">[4]</a>. Independent tools, different models, static analysis, evals against real production behaviour.</p>
+  <div class="box note" style="margin-bottom:0">
+    <span class="label">Adoption stat — handle with care</span>
+    <p>Widely repeated from Barr Yaron's talk: 95% of teams have adopted AI agents and <strong>89% have agents with write access to production systems, up from 52% a year earlier</strong> <a href="#s8">[8]</a>. I could only source this to an attendee recap, not to the survey instrument. Treat the direction as solid and the decimal as unverified.</p>
+  </div>
+</div>
+
+<div class="forum">
+  <div class="fhead">
+    <p class="fname">AIware 2026 — 3rd ACM Intl. Conf. on AI-Powered Software</p>
+    <span class="fdate">6–7 Jul 2026 · Montreal, co-located with FSE 2026</span>
+  </div>
+  <h4>The academic read is the most sceptical, and the most useful</h4>
+  <p>AIware frames a generational sequence — Codeware → Neuralware → Promptware → <strong>Agentware</strong> → Mindware — under the banner "software for all and by all" <a href="#s11">[11]</a>. Three keynotes set the tone:</p>
+  <ul>
+    <li><strong>Thomas Cottenier (Arm)</strong>, <em>When Implementation Stops Being the Bottleneck: Design in AI-Native Software Engineering</em>. The provocation that matters most for your question: what does meaningful <strong>modularity</strong> look like when the cost of cross-boundary reasoning approaches zero — and how should refactoring, testing and performance validation be reconceived <em>when the artifact being maintained is as much a set of agent instructions as a codebase</em> <a href="#s11">[11]</a>?</li>
+    <li><strong>Lin Tan (Purdue)</strong>, <em>From Features to Data and Domain Knowledge</em>: across two decades the bottleneck has moved from features to data, and <strong>from implementation to validation and verification</strong> <a href="#s11">[11]</a>.</li>
+    <li><strong>Dickson Tsai (Anthropic)</strong> gave a retrospective on Claude Code's harness design, framing each agent session as a <em>trajectory</em> — a search through the user's environment that accumulates knowledge and enacts change — with the year's releases sorting into "let trajectories run further per unit of human attention" versus "manage what each trajectory carries" <a href="#s26">[26]</a>.</li>
+  </ul>
+  <h4>The paper that speaks directly to your tooling question</h4>
+  <p><strong>Galster, Mohsenimofidi, Lulla, Abubakar, Treude &amp; Baltes, <em>Configuring Agentic AI Coding Tools: An Exploratory Study</em></strong> <a href="#s12">[12]</a> — the first systematic repository-level analysis of agent configuration, across Claude Code, Copilot, Cursor, Gemini and Codex, over ~2,850–2,930 GitHub repositories. Three findings:</p>
+  <ol>
+    <li><strong>Context files dominate</strong> and are often the <em>sole</em> mechanism in a repository, with <code>AGENTS.md</code> emerging as an interoperable standard by bottom-up convergence, not vendor mandate. <code>CLAUDE.md</code> typically appears first, <code>AGENTS.md</code> is added later and receives far more incoming references than any other file type; hundreds of repos use <code>AGENTS.md</code> with no tool-specific config at all.</li>
+    <li><strong>Skills and subagents are only shallowly adopted.</strong> Most repos define one or two artifacts, and <em>Skills predominantly rely on static instructions rather than executable workflows.</em> The authors found <em>no</em> repositories using persistent memory on Claude Code subagents.</li>
+    <li><strong>Distinct configuration cultures are forming per tool</strong>, with Claude Code users employing the broadest range of mechanisms.</li>
+  </ol>
+  <p>Also on the programme and directly relevant: <em>From Code Review to Spec-Driven Contracts: A Vision for Auditable AIware Systems</em> (Hamdaqa &amp; Chouchen) <a href="#s11">[11]</a>, which pushes specs toward auditability rather than generation; and <em>Deterministic vs. LLM-Controlled Orchestration for COBOL-to-Python Modernization</em>, an honourable-mention paper testing exactly the question of how much orchestration should be non-deterministic.</p>
+  <div class="box verdict" style="margin-bottom:0">
+    <span class="label">Why this matters to you</span>
+    <p>The paper's practitioner recommendation is unusually direct: <strong><code>AGENTS.md</code> is the natural starting point</strong>, especially in multi-tool environments; where multiple context files coexist, structure them hierarchically with tool-specific files acting as <em>adapters</em> that reference a shared core. And it names the untapped opportunity: Skills used for <em>executable</em> recurring workflows rather than static prose.</p>
+  </div>
+</div>
+
+<div class="forum">
+  <div class="fhead">
+    <p class="fname">GitHub Universe / Microsoft Build</p>
+    <span class="fdate">Build: 2–3 Jun 2026 · Universe: 28–29 Oct 2026 (upcoming)</span>
+  </div>
+  <div class="box note">
+    <span class="label">Timing note</span>
+    <p><strong>GitHub Universe 2026 has not happened yet</strong> — it runs 28–29 October 2026 at Fort Mason, after this report's date. Everything below marked "Universe" is from <em>Universe 2025</em>. The 2026 session catalogue is live and its shape is informative, but its content is not yet evidence.</p>
+  </div>
+  <h4>Universe 2025: Agent HQ</h4>
+  <p>The platform bet. <a href="https://github.blog/news-insights/company-news/welcome-home-agents">Agent HQ</a> made agents native to the GitHub flow rather than bolted on — coding agents from Anthropic, OpenAI, Google, Cognition and xAI available inside GitHub under a paid Copilot subscription, with a "mission control" across GitHub, VS Code, CLI and mobile, plus Plan Mode, agentic code review, and org-level house rules via <code>AGENTS.md</code> <a href="#s27">[27]</a><a href="#s28">[28]</a>. Eficode's read is the clearest framing: the competition moved <strong>from IDE to platform</strong> and <strong>from individual to team</strong> <a href="#s28">[28]</a>.</p>
+  <h4>Build 2026: the governance turn</h4>
+  <p>The GitHub Copilot app (agent-native desktop, parallel sessions via <strong>git worktrees</strong>, Interactive / Plan / Autopilot modes, Agent Merge); local and cloud <strong>sandboxes</strong>; Copilot SDK GA across six languages; canvases as bidirectional human/agent work surfaces; and MXC, a policy-driven execution layer declaring what an agent may access with containment enforced at runtime <a href="#s29">[29]</a><a href="#s30">[30]</a>. The DevOps read: this is GitHub moving from "AI writes code" to "AI participates in the delivery workflow" <a href="#s31">[31]</a>.</p>
+  <h4>Where spec-driven development sits in Microsoft's own messaging</h4>
+  <p>Two posts published on the same day — <strong>10 June 2026</strong> — capture the whole tension in one publication calendar: <em>"Spec-Driven Development: A Spec-First Approach to AI-Native Engineering"</em> and <em>"Stop skillmaxxing, save your tokens"</em> <a href="#s21">[21]</a><a href="#s22">[22]</a>. Microsoft is simultaneously promoting structured up-front intent and warning that the artifacts implementing it have a token cost that must be earned.</p>
+  <p>The skillmaxxing post is the sharper of the two and gives a testable procedure: define the scenarios developers actually ask for, <strong>run them without your skill and score the outcomes</strong>, identify where the model fails — <em>those failures are your scope</em> — build a skill addressing only the gaps, then measure again. Its criterion is exact: <em>"lift at 3x the tokens is a net loss"</em> <a href="#s22">[22]</a>. Visual Studio 2026 now backs this with a public evaluation dashboard comparing agent quality and efficiency with and without individual .NET skills <a href="#s32">[32]</a>.</p>
+  <p>Universe 2026's published sessions to bookmark, for when it lands: <em>Stop prompting, start delegating</em>; <em>Inside Copilot's coding harness — reproducible benchmarks and LLM-graded evaluation</em>; and the <a href="https://github.com/github/gh-aw">GitHub Agentic Workflows</a> line, where a markdown file plus one command launches an Actions-hosted agent to triage issues, fix CI failures and open a reviewable PR <a href="#s33">[33]</a>.</p>
+</div>
+
+<!-- ================= 4 ================= -->
+<h2 id="martinelli"><span class="num">Section 04</span>Martinelli: correcting the record</h2>
+
+<div class="box correction">
+  <span class="label">Correction to the brief's premise</span>
+  <p>Martinelli <strong>does</strong> use agentic coders to write the code — Claude Code specifically, and by name. The final step of his published workflow is <em>"Application Code (AI-generated, reviewed by developer)"</em> <a href="#s16">[16]</a>, and his Developer Summit session is titled <a href="https://www.youtube.com/watch?v=82lCQdG6CsU">From Use Case to Running Java Code</a> — a live demo generating a full-stack Java application from a system use case <a href="#s18">[18]</a>. The claim you likely heard is a different one, and it is the interesting one.</p>
+</div>
+
+<h3>What he actually says</h3>
+<p>From the Spring I/O 2026 talk <a href="#s17">[17]</a>:</p>
+<blockquote>
+  <p>"Specs should be source of truth. So, we don't change the code. That doesn't mean that you don't touch the code, but we really don't change the code if we think something is wrong. We always go back to the specs and figure out why the code doesn't reflect the specs."</p>
+  <cite>Simon Martinelli, Spring I/O 2026, Barcelona</cite>
+</blockquote>
+<p>"We don't change the code" is about the <em>repair path</em>, not about authorship. The AI writes the code; the human reviews it; when it is wrong, the fix goes into the spec rather than into the file. That is textbook spec-anchored practice at the ambitious end — and Martinelli himself positions his role as <em>"more like an enabler and not like someone that really does something"</em> <a href="#s17">[17]</a>, which is probably the line that produced the impression in the brief.</p>
+
+<h3>On PlantUML — a nuance worth having</h3>
+<p>He does use PlantUML, and the reasoning is sound: diagrams as source code give you visual diffs, audit trails, branchable specifications alongside the app code <a href="#s16">[16]</a>. But he does <em>not</em> hand-author the PlantUML. He prompts for it:</p>
+<blockquote>
+  <p>"Here I do diagrams-as-code and say, okay, create use case diagram with PlantUML… I didn't say much, so I have no big prompt, because… AI knows, okay, that's PlantUML, that has that syntax."</p>
+  <cite>Simon Martinelli, Developer Summit 2026</cite>
+</blockquote>
+<p>Everything textual — system use cases, entity model — is Markdown, chosen deliberately over Word/PowerPoint/PDF <em>because it goes into version control and diffs</em>, not because agents cannot read the alternatives. He notes the agent can parse Word, Excel, PDFs and screenshots perfectly well <a href="#s18">[18]</a>.</p>
+
+<h3>The full AI Unified Process chain</h3>
+<ol>
+  <li>Business Requirements Catalog — <strong>manual</strong>, with business stakeholders</li>
+  <li>Business Use Case Diagrams — AI-generated, reviewed with the business</li>
+  <li>Entity Models — AI-derived from the requirements catalog, reviewed by the business</li>
+  <li>System Use Case Diagrams — AI-generated, revised by developer and/or business</li>
+  <li>System Use Case Specifications — AI-generated detailed Markdown, revised</li>
+  <li>Application Code — <strong>AI-generated, reviewed by developer</strong></li>
+</ol>
+<p>Exactly one step is manual. Every other step is AI-generated with a human review gate. His stated key: the <em>business team</em> validates not only the business artifacts but the entity models and system use cases too — catching domain modelling errors before they become expensive code problems <a href="#s16">[16]</a>.</p>
+
+<h3>His own warning, which cuts against the strong reading</h3>
+<blockquote>
+  <p>"The warning here is it's not model-driven. Model-driven, you could remove the code, regenerate the code from the model and you get the same outcome every time. But AI is non-deterministic… it may do it a bit differently. And that's the same as you would have two developers and you give an assignment to one developer. One will create it like this and the other will create it like that."</p>
+  <cite>Simon Martinelli, Spring I/O 2026</cite>
+</blockquote>
+<p>This is the most intellectually honest thing said by any SDD advocate in the corpus, and it matters: <strong>a non-deterministic generator cannot support spec-as-source in the MDA sense.</strong> Martinelli is arguing for spec-anchored with unusual rigour, not for the spec-as-compiler model that Pocock attacks. On this point the two men are closer than the discourse suggests.</p>
+
+<p>Further reading: the AI Unified Process site <a href="https://unifiedprocess.ai/book.html">unifiedprocess.ai</a>, the Apress pocket guide <em>Spec-Driven Development: From Specs to Code with AI Agents</em> (12 Aug 2026), and the free companion guide <em>Writing Use Cases for AI</em> <a href="#s19">[19]</a>.</p>
+
+<!-- ================= 5 ================= -->
+<h2 id="pocock"><span class="num">Section 05</span>The counter-current: Pocock</h2>
+
+<p>The brief's paraphrase — "destroy the specs after you've used them, they keep you locked into bad patterns" — is close, but it merges two separate arguments Pocock makes, and the merge weakens both. Here they are apart.</p>
+
+<h3>Argument one: spec-as-source produces entropy</h3>
+<p>From <a href="https://www.youtube.com/watch?v=v4F1gFy-hqg">"Software Fundamentals Matter More Than Ever"</a> <a href="#s34">[34]</a>:</p>
+<blockquote>
+  <p>"Everything inside the specs-to-code idea — that you just run the compiler again and again — was making worse code. Now, there's an idea that drives the specs-to-code movement, which is that <em>code is cheap</em>. I don't think this is right."</p>
+  <p>"Because specs-to-code, we are not investing in the design of the system. We are divesting from it."</p>
+  <cite>Matt Pocock, AI Engineer</cite>
+</blockquote>
+<p>The mechanism he names is entropy: every change made without thinking about the design of the whole system degrades it, and a loop that regenerates from spec without anyone looking at the result runs that degradation at machine speed. His countermeasure is Ousterhout's deep modules and Kent Beck's "invest in the design of the system every day" — with module boundaries written explicitly into the PRD <a href="#s35">[35]</a>. Note that this is an argument against <em>rung three</em> specifically. AI Engineer's own speaker profile states it carefully: he "rejects specification-to-code workflows that encourage developers to ignore the resulting system" <a href="#s36">[36]</a>.</p>
+
+<h3>Argument two: a kept spec rots and then poisons the context</h3>
+<p>This is the one the brief was reaching for, and it is well documented in his own words. From the <em>/to-spec</em> skill page <a href="#s20">[20]</a>:</p>
+<blockquote>
+  <p>"Nothing keeps it in sync, so in practice it is a snapshot of what you knew at that moment, and it goes stale the first time implementation teaches you something. <strong>Treat it as throwaway once the work ships.</strong> The artifacts meant to outlive it are your CONTEXT.md and your ADRs; if something learned during implementation deserves to last, it belongs there, not in an edited spec."</p>
+</blockquote>
+<p>And from the full workflow walkthrough, on finding an old PRD whose code had drifted beyond recognition <a href="#s37">[37]</a>:</p>
+<blockquote>
+  <p>"This is doc rot, where the documentation for something is rotting away in your repo and influencing Claude badly… So I tend to not keep it around. I tend to get rid of it."</p>
+</blockquote>
+
+<div class="box verdict">
+  <span class="label">The precise version of the claim</span>
+  <p>Not "specs are bad." Pocock's position is: <strong>the spec is a handoff artifact with a defined lifespan.</strong> It exists because context windows end and multi-session work needs a home outside the session. Once the work ships, its half-life is over and keeping it around actively degrades future agent runs by competing with the code as a source of truth. <em>Durable</em> knowledge belongs in a different artifact class: <code>CONTEXT.md</code> and ADRs. In his own dictionary: the spec is "a handoff artifact describing a multi-session piece of work… Mutates as work progresses. Made of tickets" <a href="#s38">[38]</a> — and a secondary source, at that: "the last session wrote down what it believed, not what's true."</p>
+</div>
+
+<h3>Where he does not disagree with anyone</h3>
+<p>His 7-phase workflow <a href="#s39">[39]</a> is, structurally, a spec-driven workflow: refine → research → prototype → <strong>PRD</strong> → implementation planning (Kanban of dependency-aware tickets) → implementation → review. He ships <code>/write-a-prd</code> and <code>/to-spec</code> skills. His <em>Grill Me</em> technique — making the agent interrogate the human until a shared design concept exists before any artifact is written — is the same move as Superpowers' <code>brainstorming</code> and Spec Kit's <code>/speckit.clarify</code>.</p>
+<p>The disagreement is entirely about <strong>lifespan and authority</strong>, not about whether to write the thing. That should lower the temperature of this debate considerably.</p>
+
+<div class="box contested">
+  <span class="label">The unsettled question underneath</span>
+  <p>Pocock's rule ("throw it away") and Martinelli's rule ("it is the source of truth forever") are both coherent — for different work. Martinelli's context is Swiss enterprise brownfield: insurance, government, modernisation, where the <em>business</em> reviews the entity model and the spec is a contract between business and AI. Pocock's context is product engineering where the spec's only reader is the next agent session. <strong>Neither has demonstrated that their rule transfers to the other's context</strong>, and I found no study that tests it. If you want one prediction from this report: that is where the next real argument happens.</p>
+</div>
+
+<!-- ================= 6 ================= -->
+<h2 id="tooling"><span class="num">Section 06</span>Spec Kit, Superpowers, Claude Power Pack</h2>
+
+<p>These three are commonly listed together and are not the same kind of thing. Spec Kit produces <em>planning artifacts committed to your repo</em>; Superpowers installs <em>execution habits inside the agent session</em>; CPP is a <em>delivery harness</em> with gates, worktrees and CI. They compose better than they compete — but only if you know which layer each occupies.</p>
+
+<div class="tw">
+<table>
+<thead><tr><th style="width:15%">Layer</th><th style="width:28%">Spec Kit</th><th style="width:28%">Superpowers</th><th style="width:29%">Claude Power Pack</th></tr></thead>
+<tbody>
+<tr><td><strong>Kind</strong></td><td>Artifact scaffolding (Python CLI)</td><td>Skills framework + methodology</td><td>Delivery harness + command surface</td></tr>
+<tr><td><strong>Böckeler rung</strong></td><td>Spec-anchored</td><td>Spec-first (spec is per-feature, not kept authoritative)</td><td>Proportional — the rung is chosen per change</td></tr>
+<tr><td><strong>Primary output</strong></td><td><code>spec.md</code>, <code>plan.md</code>, <code>tasks.md</code>, <code>constitution.md</code></td><td>Design doc → plan → TDD'd commits, reviewed by subagents</td><td>Issue → worktree → gated PR → CI verdict</td></tr>
+<tr><td><strong>Scale (Sep 2026)</strong></td><td>v1.0.5, ~133k stars, 30+ agent integrations <a href="#s40">[40]</a></td><td>v6.3.0, ~283k stars <a href="#s41">[41]</a></td><td>v7.5.0, single-owner</td></tr>
+<tr><td><strong>Radar position</strong></td><td><span class="pill mixed">Assess</span> Apr 2026 <a href="#s13">[13]</a></td><td>Named as an exemplar skills catalog <a href="#s13">[13]</a></td><td><span class="pill info">n/a</span></td></tr>
+<tr><td><strong>Known failure</strong></td><td>Token burn; waterfall feel; instruction bloat; no drift detection</td><td>Ceremony on small tasks (fixed in v6.3); skill overlap/rot</td><td>Gate friction if the tier is misjudged</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>Spec Kit — where it earns its cost, and where it doesn't</h3>
+<p>Spec Kit reached <strong>1.0 on 21 August 2026</strong>, a year after launch, crossing ~132k stars in the same month; 1.0.5 shipped 8 September <a href="#s40">[40]</a>. Two changes worth knowing: <code>specify init --integration copilot</code> now installs <em>skills</em> by default rather than commands, and a <code>feature-assess</code> agentic workflow was added <a href="#s42">[42]</a>.</p>
+<p>Wavect's production review, checked 2 September 2026, lands where the evidence points: worth piloting for <strong>consequential feature work, existing systems, and teams needing a shared decision trail</strong>; <em>"usually too much process for a disposable prototype, a tiny bug fix or a task already expressed by a precise failing test"</em> <a href="#s10">[10]</a>. They explicitly declined to claim a defect-reduction percentage because no independent production benchmark establishes one.</p>
+<p>The critical voices are worth reading in full because they are specific rather than generic. From the repo's own discussions: a functional feature not delivered despite a good spec; 5× token usage over a plain implementation; and the arrival of Claude Code's native plan mode eroding the value proposition <a href="#s43">[43]</a>. The sharpest design complaint, from a user who subsequently abandoned it: <em>"There is no workflow that shows how to go from specifications to debugging code; is the issue an issue in the specifications or an issue in the implementation? I should not have to re-write the specifications to fix a bug — or maybe I do?"</em> <a href="#s44">[44]</a>. That is the spec-anchored drift problem stated precisely by someone hitting it.</p>
+<p>Thoughtworks' Vol.34 entry is measured and gives one concrete, reusable finding: the <strong>constitution</strong> is the load-bearing concept, and a useful one captures project scope, domain context, technology versions, coding standards and repository structure. They also report teams hitting instruction bloat, with one team's fix being <em>extract reusable guidance into skills, keep agent instructions lean, load detail only when needed</em> <a href="#s13">[13]</a>.</p>
+
+<h3>Superpowers — the strongest contribution is the gate, not the skills</h3>
+<p>Jesse Vincent's framing of the implementer is the design constraint the whole system is built around: <em>"a gifted engineer, but they've got really bad judgment. They've got no taste, they don't know anything about our code base, and they tend to get distracted"</em> <a href="#s45">[45]</a>. The seven stages — brainstorming → worktree → plan → subagent-driven execution → TDD → review → finish — all follow from assuming that.</p>
+<p>Two ideas here are genuinely transferable regardless of whether you install it:</p>
+<ul>
+  <li><strong>TDD for skills.</strong> Write the skill, then have subagents test it under <em>pressure</em> scenarios (time pressure, sunk cost, simulated incidents), observe whether they comply, iterate. Vincent's origin story is instructive: his first attempt "quizzed the subagents like a gameshow" and they scored perfectly — a blind instrument. Realistic pressure scenarios were what made it a real test <a href="#s46">[46]</a>.</li>
+  <li><strong>Subagents for review to protect the orchestrator's context</strong>, not merely for parallelism — <em>"I don't want to pollute the orchestrator context with lots and lots of file reads that it doesn't need"</em> <a href="#s45">[45]</a>.</li>
+</ul>
+<p>The v6.3.0 release note (12 Aug 2026) is the most telling artifact in the whole corpus about where this field is going: <strong>"Ceremony now scales to the task. Requests are classified as spike, bounded, or architectural; small tasks skip the two-document ritual. Every path still stops for your approval before implementation"</strong> <a href="#s41">[41]</a>. The most-starred process framework in the ecosystem shipped proportionality as a headline feature. That is the whole 2026 arc in one changelog entry.</p>
+
+<h3>Claude Power Pack — where it already sits, and what that's worth</h3>
+<p>Read against the above, CPP's positioning is unusually well-calibrated, and two of its choices are ahead of the published consensus:</p>
+<ul>
+  <li><strong>It delegates authoring to upstream rather than vendoring it.</strong> <code>/spec:adopt</code> installs the official <code>specify</code> CLI and stops there; CPP's home-grown pipeline (<code>/spec:create</code>, <code>/spec:sync</code>, <code>/spec:status</code>) was retired in favour of it. The stated reason — upstream prompts are community-iterated and ship verification stages CPP lacked (<code>clarify</code>, <code>analyze</code>, <code>checklist</code>) — is exactly the right reason, and it sidesteps the staleness trap that catches every vendored copy.</li>
+  <li><strong>It made proportionality explicit before Superpowers did.</strong> CPP's spec help text already states that the full spec→plan→tasks pipeline is for Tier 3 architectural work only, that Tier 1 and Tier 2 go straight to issue → <code>/flow:auto</code>, and — the part that matters — that <em>"skipping the pipeline is not skipping the contract."</em> Superpowers reached the same conclusion in v6.3.0 in August 2026. Spec Kit's critics are still complaining about the absence of this.</li>
+  <li><strong>The ELI5 necessity gate answers a failure mode nobody else covers.</strong> Checking whether an issue is <em>still worth doing</em> given code merged since it was filed is not addressed by Spec Kit, Superpowers, Kiro or Tessl. All of them assume the spec is valid and proceed. With agents opening PRs at 2026 volumes, staleness is a first-order problem.</li>
+  <li><strong>The one-spec-per-feature reference discipline</strong> — issues reference the spec and its governing sections rather than copying them, "so amending the spec cannot leave a stale duplicate in the tracker" — is a structural answer to the drift complaint that Spec Kit users hit head-on.</li>
+</ul>
+
+<div class="box verdict">
+  <span class="label">Where CPP is already ahead of the published consensus</span>
+  <p>I went looking for gaps and found that two of the three I expected were already closed. Worth recording, because both are places where CPP arrived early rather than late.</p>
+  <p><strong>Progressive disclosure was in CPP before the Radar blipped it.</strong> Thoughtworks moved "progressive context disclosure" to <em>Trial</em> in April 2026 <a href="#s14">[14]</a>, describing a lightweight discovery phase that loads detail only when relevant. CPP's <code>PROGRESSIVE_DISCLOSURE_GUIDE.md</code> already documents a three-tier loading pattern — metadata only (~100 tokens) &rarr; full instructions (&lt;5K) &rarr; executable assets — with the explicit motivation that a five-server MCP setup burns ~55K tokens before any conversation starts. There is a <code>context-efficiency</code> skill and an <code>MCP_TOKEN_AUDIT_CHECKLIST.md</code> behind it. This is the same doctrine the Radar and the skillmaxxing post arrived at independently.</p>
+  <p><strong><code>AGENTS.md</code> is handled for target repos.</strong> The generated Codex skills state it directly: <em>"Codex reads <code>AGENTS.md</code>; treat them as the target repo's agent-context file."</em> The adapter pattern the AIware study recommends is effectively already in place — Claude commands as the single source of truth, Codex skills generated from them.</p>
+</div>
+
+<div class="box contested">
+  <span class="label">Where CPP is genuinely exposed</span>
+  <p><strong>The spec has no declared lifespan after ship.</strong> This one I verified rather than assumed. <code>/spec:help</code> documents the chain through step 4 — <code>/flow:auto &lt;issue&gt;</code> &rarr; worktree &rarr; ELI5 gate &rarr; implement &rarr; PR &rarr; merge — and stops. <code>docs/agents/issue-contract.md</code> contains no rule about the spec once the work merges. Nothing in the command surface governs <code>.specify/specs/{feature}/</code> after the issue closes.</p>
+  <p>Why it matters mechanically rather than stylistically: agents read the repo, and a shipped spec left in <code>.specify/</code> is indistinguishable at read time from a live one. That is precisely the doc-rot failure Pocock describes — <em>"rotting away in your repo and influencing Claude badly"</em> <a href="#s37">[37]</a> — and it is the drift complaint Spec Kit users hit head-on <a href="#s44">[44]</a>. The current default is "keep forever," which is Martinelli's rule adopted by inaction rather than on purpose. CPP's reference discipline (issues cite the spec's governing sections rather than copying them) solves duplication but not staleness: a stale spec referenced by a closed issue is still a stale spec an agent will read.</p>
+  <p><strong>Two narrower open questions</strong>, which I could not settle from the repo and which may already be answered: whether any individual CPP skill has been through the Microsoft before/after measurement — scored <em>without</em> the skill first, then with, token count included <a href="#s22">[22]</a> — as opposed to being designed under good token doctrine; and whether CPP's own repository should carry a root <code>AGENTS.md</code>, given that it now runs Claude, Codex, Qwen and Gemma lanes and the study's finding is that <code>CLAUDE.md</code>-first repos add one later <a href="#s12">[12]</a>.</p>
+</div>
+
+<!-- ================= 7 ================= -->
+<h2 id="scoreboard"><span class="num">Section 07</span>Consensus vs. contested</h2>
+
+<div class="tw">
+<table>
+<thead><tr><th style="width:34%">Proposition</th><th style="width:14%">Status</th><th style="width:52%">Evidence and dissent</th></tr></thead>
+<tbody>
+<tr>
+  <td><strong>Write structured intent before code on non-trivial work</strong></td>
+  <td><span class="pill yes">Consensus</span></td>
+  <td>Endorsed at all four forums. Even Pocock does it (PRD, <code>/to-spec</code>). No credible dissent found.</td>
+</tr>
+<tr>
+  <td><strong>A human remains accountable for reviewing generated code</strong></td>
+  <td><span class="pill mixed">Near-consensus</span></td>
+  <td>AIEWF, AIware, Hanchett, Böckeler, Thoughtworks all yes. <strong>Andrew Ng dissents</strong> — argues frontier teams trend to 100% AI-written code and that review is the bottleneck <a href="#s7">[7]</a>. This is the sharpest live disagreement in the corpus.</td>
+</tr>
+<tr>
+  <td><strong>Spec-as-source (human never touches code)</strong></td>
+  <td><span class="pill no">Rejected</span></td>
+  <td>Attacked by Pocock on entropy grounds; disclaimed by Martinelli on non-determinism grounds; rated Assess-not-Adopt by Thoughtworks; endorsed by no 2026 forum. Tessl is the main commercial advocate.</td>
+</tr>
+<tr>
+  <td><strong>Verification &gt; generation as the scarce skill</strong></td>
+  <td><span class="pill yes">Consensus</span></td>
+  <td>Lin Tan's AIware keynote (implementation → V&amp;V) <a href="#s11">[11]</a>; AIEWF attendee synthesis <a href="#s4">[4]</a>; the adversarial-agent pattern <a href="#s47">[47]</a>. Independently corroborated by incident data <a href="#s48">[48]</a>.</td>
+</tr>
+<tr>
+  <td><strong>The harness matters as much as the model</strong></td>
+  <td><span class="pill yes">Consensus</span> <em>new</em></td>
+  <td>Weng, Böckeler, Tsai, Cottenier, Thoughtworks Vol.34, GitHub's own Universe '26 session titles. This is the genuinely new theory of 2026.</td>
+</tr>
+<tr>
+  <td><strong>Skills are the right packaging for process</strong></td>
+  <td><span class="pill mixed">Endorsed, then qualified</span></td>
+  <td>Dominant AIEWF theme <a href="#s5">[5]</a>; Radar <em>Trial</em> <a href="#s13">[13]</a>. Qualified by: instruction bloat = <em>Caution</em> <a href="#s14">[14]</a>; "stop skillmaxxing" <a href="#s22">[22]</a>; third-party skills flagged as a supply-chain risk <a href="#s13">[13]</a>; and only shallow real-world adoption <a href="#s12">[12]</a>.</td>
+</tr>
+<tr>
+  <td><strong><code>AGENTS.md</code> is the interoperable baseline</strong></td>
+  <td><span class="pill yes">Empirically supported</span></td>
+  <td>The strongest evidence-backed practical finding in this report. Bottom-up convergence across ~2,900 repos, driven by developers rather than vendors <a href="#s12">[12]</a>.</td>
+</tr>
+<tr>
+  <td><strong>Process ceremony should scale to the task</strong></td>
+  <td><span class="pill yes">Emerging consensus</span></td>
+  <td>Superpowers v6.3.0 shipped it <a href="#s41">[41]</a>; Wavect and Spec Kit's critics demand it <a href="#s10">[10]</a><a href="#s43">[43]</a>; CPP's tiering already encodes it. New in 2026 and hardening fast.</td>
+</tr>
+<tr>
+  <td><strong>Keep the spec after the work ships</strong></td>
+  <td><span class="pill no">Genuinely contested</span></td>
+  <td>Martinelli: yes, it is the source of truth. Pocock: no, "treat it as throwaway once the work ships" <a href="#s20">[20]</a>. Böckeler: notes Kiro specs are "usually" discarded in practice anyway. <strong>No study tests which rule wins in which context.</strong></td>
+</tr>
+<tr>
+  <td><strong>AI-assisted delivery is net-positive on quality</strong></td>
+  <td><span class="pill no">Not established</span></td>
+  <td>Faros AI telemetry (22,000 developers) reports epics/developer up 66% <em>and</em> incidents-to-PR up 242.7%, review times up ~440%, PRs merged without review up ~31% <a href="#s48">[48]</a>. Throughput and quality are moving in opposite directions.</td>
+</tr>
+</tbody>
+</table>
+</div>
+
+<!-- ================= 8 ================= -->
+<h2 id="recommend"><span class="num">Section 08</span>What this implies for your setup</h2>
+
+<p>Five things the evidence supports doing, ordered by how much they change.</p>
+
+<h3>1. Decide the spec's lifespan explicitly, and encode it</h3>
+<p>This is the one live decision the corpus hands you and CPP has not yet made. The defensible middle — and the one that fits a single-owner, issue-driven repo — is closer to Pocock than to Martinelli: on ship, the spec's authority ends. What survives goes to a durable artifact (an ADR, or the issue's closing record), and the shipped spec is marked superseded rather than left looking current. The reason is mechanical, not stylistic: agents read the repo, and a stale <code>.specify/</code> spec is indistinguishable from a live one at read time. Whatever you choose, choose it — the default of "keep forever" is Martinelli's rule adopted by accident.</p>
+
+<h3>2. Name the shared core, adapters around it</h3>
+<p>You already run the pattern the AIware paper recommends (Claude commands as source of truth, generated Codex skills as a second surface). What the paper adds is that <code>AGENTS.md</code> is where the cross-tool baseline should live, and that layering context files without a declared hierarchy is what produces conflict. With Codex, Qwen and Gemma lanes in play, a named core with thin per-harness adapters is cheaper than reconciling four drifting descriptions of the same repo.</p>
+
+<h3>3. Apply a negative control to your own instruction surface</h3>
+<p>CPP already has the <em>doctrine</em> — three-tier loading, the MCP token audit checklist, the context-efficiency skill. What Microsoft adds is the <em>measurement</em>: run the scenario without the artifact first, score it, and let the measured failures define the skill's scope. A skill that cannot be shown to change an outcome is one you pay metadata tax on in every session. Their threshold — lift at 3× the tokens is a net loss — gives a pass/fail, and Visual Studio now publishes such a dashboard for its own skills <a href="#s32">[32]</a>. This is a negative control applied to instruction artifacts: the same reasoning that says a test which cannot fail is not evidence says a skill whose removal changes nothing is not doing work.</p>
+
+<h3>4. Steal Superpowers' pressure-testing, whether or not you install it</h3>
+<p>Vincent's "TDD for skills" failed the first time in an instructive way: quizzing subagents gameshow-style produced a perfect score and told him nothing. Realistic pressure — time pressure, sunk cost, simulated incidents — was what made the test able to fail <a href="#s46">[46]</a>. Any gate whose compliance you have not tested under pressure is a gate you are assuming rather than measuring. That applies squarely to the ELI5 gate's no-bypass property.</p>
+
+<h3>5. Keep the tier judgment; it is the thing you are ahead on</h3>
+<p>The single clearest trend across Spec Kit's critics, Wavect's review, Thoughtworks Vol.34 and Superpowers v6.3.0 is that <strong>uniform process ceremony is the failure mode of 2026</strong>. CPP's three tiers plus "skipping the pipeline is not skipping the contract" is the position the rest of the ecosystem converged on over the following six months. The risk is not that the tiering is wrong; it is tier inflation — routing Tier 1 work through Tier 3 machinery because the machinery exists.</p>
+
+<!-- ================= 9 ================= -->
+<h2 id="gaps"><span class="num">Section 09</span>What I could not establish</h2>
+
+<p>Stated so the report can be relied on where it is solid.</p>
+<ul>
+  <li><strong>GitHub Universe 2026 is not evidence yet.</strong> It runs 28–29 October 2026, six weeks after this report. Everything attributed to "Universe" here is Universe 2025. If spec-driven development gets a keynote position this October, that changes the picture and this section is where you would revisit it.</li>
+  <li><strong>No production benchmark for SDD exists.</strong> Wavect declined to publish a defect-reduction figure for Spec Kit specifically because none is established across teams <a href="#s10">[10]</a>. Anyone quoting one to you is extrapolating.</li>
+  <li><strong>The Barr Yaron adoption figures</strong> (95% / 89% / 52%) come only from an attendee recap <a href="#s8">[8]</a>. I did not locate the underlying survey.</li>
+  <li><strong>The "cognitive surrender" phrasing</strong> attributed to Böckeler's AI Native DevCon talk comes from an attendee's comment, not a transcript <a href="#s23">[23]</a>. The theme is consistent with her published work; the exact words are not confirmed.</li>
+  <li><strong>Two martinfowler.com URLs in the SDD series returned 404</strong> during extraction. The tool-comparison article <a href="#s1">[1]</a> resolved and is quoted directly; the others are cited via Böckeler's own index at <a href="https://birgitta.info">birgitta.info</a> rather than from the pages themselves.</li>
+  <li><strong>Star counts and version numbers</strong> for Spec Kit and Superpowers are accurate as of early-to-mid September 2026 and move weekly. They are included for magnitude, not precision.</li>
+  <li><strong>No source tests Pocock's rule against Martinelli's</strong> in a controlled way. The context-dependence hypothesis in <a href="#pocock">§5</a> is my reading of their differing domains, not a finding.</li>
+</ul>
+
+<!-- ================= 10 ================= -->
+<h2 id="sources"><span class="num">Section 10</span>Sources</h2>
+
+<div class="srcgroup">
+<h3>Framing and taxonomy</h3>
+<ol class="src">
+<li id="s1"><a href="https://martinfowler.com/articles/exploring-gen-ai/sdd-3-tools.html">Understanding Spec-Driven-Development: Kiro, spec-kit, and Tessl</a> — Birgitta Böckeler, martinfowler.com, Oct 2025 <span class="t tag-pri">primary</span></li>
+<li id="s2"><a href="https://birgitta.info">birgitta.info</a> — Böckeler's talk and memo index (State of Play series, harness engineering, TDD inside the agent loop) <span class="t tag-pri">primary</span></li>
+<li id="s3"><a href="https://arxiv.org/html/2602.00180v1">Spec-Driven Development: From Code to Contract in the Age of AI</a> — arXiv 2602.00180 <span class="t tag-pri">primary</span></li>
+</ol>
+</div>
+
+<div class="srcgroup">
+<h3>AI Engineer World's Fair 2026 · AI Dev · AI Native DevCon</h3>
+<ol class="src" start="4">
+<li id="s4"><a href="https://www.linkedin.com/pulse/lessons-from-ai-engineer-world-fair-2026-dagmar-timler-veryf">Lessons from the AI Engineer World's Fair 2026</a> — Dagmar Timler <span class="t tag-ter">tertiary</span></li>
+<li id="s5"><a href="https://www.latent.space/p/aiewf26trends">5 Trends That Defined AI Engineering at World's Fair 2026</a> — Latent Space <span class="t tag-sec">secondary</span></li>
+<li id="s6"><a href="https://www.youtube.com/watch?v=g8um2AEf5ZA">AI Dev 26 × SF: Andrew Ng — The Future of Software Engineering</a> <span class="t tag-pri">primary</span></li>
+<li id="s7"><a href="https://medium.com/@avikumart_/thoughts-and-learnings-from-the-ai-dev-2026-by-the-deeplearningai-fd9bea6f017e">Thoughts and learnings from AI Dev 2026</a> — Avikumar Talaviya <span class="t tag-ter">tertiary</span></li>
+<li id="s8"><a href="https://www.linkedin.com/posts/herrera-melissa_ai-engineer-worlds-fair-2026-is-a-wrap-activity-7480683780899229696-mfGS">AIEWF 2026 recap (Barr Yaron adoption figures)</a> — Melissa Herrera <span class="t tag-ter">tertiary</span></li>
+<li id="s9"><a href="https://www.youtube.com/watch?v=IddXPepIAS4">Using Spec-Driven Development for Production Workflows</a> — Erik Hanchett, AWS · <a href="https://gitnation.com/contents/using-spec-driven-development-for-production-workflows-3454">transcript</a> <span class="t tag-pri">primary</span></li>
+<li id="s23"><a href="https://www.linkedin.com/posts/birgittaboeckeler_birgitta-b%C3%B6ckeler-state-of-play-ai-coding-activity-7470452277506510849-gzWZ">State of Play: AI Coding Assistants — AI Native DevCon London, June 2026</a> — Böckeler's own post-event notes <span class="t tag-pri">primary</span></li>
+<li id="s24"><a href="https://ai.engineer">The 10 Themes Defining AI Engineering in 2026</a> — AI Engineer, 68-page report from 750+ talks across 6 conferences <span class="t tag-sec">secondary</span></li>
+<li id="s25"><a href="https://mikemason.ca/writing/ai-coding-agents-jan-2026">AI Coding Agents in 2026: Coherence Through Orchestration, Not Autonomy</a> — Mike Mason (collects Böckeler's 8–13% estimate and "amplifies indiscriminately") <span class="t tag-sec">secondary</span></li>
+</ol>
+</div>
+
+<div class="srcgroup">
+<h3>AIware 2026 (ACM, co-located with FSE 2026)</h3>
+<ol class="src" start="11">
+<li id="s11"><a href="https://2026.aiwareconf.org">AIware 2026 conference site</a> · <a href="https://2026.aiwareconf.org/track/aiware-2026-keynotes">keynotes</a> · <a href="https://2026.aiwareconf.org/track/aiware-2026-papers">main track</a> · <a href="https://dl.acm.org/doi/proceedings/10.1145/3805760">ACM proceedings</a> <span class="t tag-pri">primary</span></li>
+<li id="s12"><a href="https://arxiv.org/abs/2602.14690">Configuring Agentic AI Coding Tools: An Exploratory Study</a> — Galster, Mohsenimofidi, Lulla, Abubakar, Treude, Baltes · <a href="https://openreview.net/forum?id=cqmx1MLZCq">OpenReview</a> · <a href="https://arxiv.org/pdf/2602.14690">PDF</a> <span class="t tag-pri">primary</span></li>
+<li id="s26"><a href="https://conf.researchr.org/info/fse-2026/keynotes">Dickson Tsai (Anthropic) — Claude Code harness retrospective, FSE+AIware 2026 keynote abstract</a> <span class="t tag-pri">primary</span></li>
+</ol>
+</div>
+
+<div class="srcgroup">
+<h3>Thoughtworks Technology Radar Vol. 34 (April 2026)</h3>
+<ol class="src" start="13">
+<li id="s13"><a href="https://www.thoughtworks.com/content/dam/thoughtworks/documents/radar/2026/04/tr_technology_radar_vol_34_en.pdf">Technology Radar Vol. 34 (PDF)</a> · <a href="https://www.thoughtworks.com/en-us/radar/languages-and-frameworks/github-spec-kit">GitHub Spec Kit blip</a> · <a href="https://www.thoughtworks.com/en-us/radar/techniques/agent-skills">Agent Skills</a> <span class="t tag-pri">primary</span></li>
+<li id="s14"><a href="https://www.thoughtworks.com/radar/techniques/agent-instruction-bloat">Agent instruction bloat — Caution</a> · <a href="https://www.thoughtworks.com/en-us/radar/techniques/progressive-context-disclosure">Progressive context disclosure — Trial</a> <span class="t tag-pri">primary</span></li>
+<li id="s15"><a href="https://www.youtube.com/watch?v=2pr044UENbQ">Key themes in Vol.34</a> — Thoughtworks Technology Podcast (Mugrage, Ferri, Gumbley) <span class="t tag-pri">primary</span></li>
+</ol>
+</div>
+
+<div class="srcgroup">
+<h3>Simon Martinelli / AI Unified Process</h3>
+<ol class="src" start="16">
+<li id="s16"><a href="https://martinelli.ch/spec-driven-development-with-ai-a-new-approach-and-a-journey-into-the-past">Spec-Driven Development with AI: A New Approach and a Journey into the Past</a> — the six-step workflow · also on <a href="https://foojay.io/today/spec-driven-development-with-ai-a-new-approach-and-a-journey-into-the-past">foojay.io</a> <span class="t tag-pri">primary</span></li>
+<li id="s17"><a href="https://www.youtube.com/watch?v=35dH6q18UtI">Spec-driven Development: How AI Changed Everything (And Nothing)</a> — Spring I/O 2026, Barcelona <span class="t tag-pri">primary</span></li>
+<li id="s18"><a href="https://www.youtube.com/watch?v=82lCQdG6CsU">Spec-Driven Development with AI: From Use Case to Running Java Code</a> — Developer Summit 2026 (PlantUML demo) <span class="t tag-pri">primary</span></li>
+<li id="s19"><a href="https://unifiedprocess.ai/book.html">The AI Unified Process — book &amp; free guide</a> · <a href="https://books.google.com/books/about/Spec_Driven_Development.html?id=BkgBEgAAQBAJ">Apress pocket guide</a> · <a href="https://spring.io/blog/2026/05/04/spring-office-hours-podcast-S5E14">Spring Office Hours S5E14</a> · <a href="https://www.youtube.com/watch?v=kQj-_2JdLiU">Jfokus 2026</a> <span class="t tag-pri">primary</span></li>
+</ol>
+</div>
+
+<div class="srcgroup">
+<h3>Matt Pocock</h3>
+<ol class="src" start="20">
+<li id="s20"><a href="https://www.aihero.dev/skills-to-spec">The /to-spec Skill</a> — "Treat it as throwaway once the work ships" <span class="t tag-pri">primary</span></li>
+<li id="s34"><a href="https://www.youtube.com/watch?v=v4F1gFy-hqg">"Software Fundamentals Matter More Than Ever"</a> — AI Engineer <span class="t tag-pri">primary</span></li>
+<li id="s35"><a href="https://ai.engineer/talks/software-fundamentals-for-ai-coding">Talk page: Why Software Fundamentals Matter More in the Age of AI Coding</a> <span class="t tag-pri">primary</span></li>
+<li id="s36"><a href="https://ai.engineer/speakers/matt-pocock">Matt Pocock — AI Engineer speaker profile</a> <span class="t tag-sec">secondary</span></li>
+<li id="s37"><a href="https://www.youtube.com/watch?v=-QFHIoCo-Ko">Full Walkthrough: Workflow for AI Coding</a> — the doc-rot passage <span class="t tag-pri">primary</span></li>
+<li id="s38"><a href="https://github.com/mattpocock/dictionary-of-ai-coding/blob/main/dictionary/Spec.md">Dictionary of AI Coding — "Spec"</a> · <a href="https://github.com/mattpocock/dictionary-of-ai-coding">full dictionary</a> <span class="t tag-pri">primary</span></li>
+<li id="s39"><a href="https://www.aihero.dev/my-7-phases-of-ai-development">My 7 Phases of AI Development</a> · <a href="https://ai.engineer/talks/ai-coding-workflow">AI Coding Workflow (AI Engineer Europe 2026)</a> · <a href="https://ai.engineer/talks/building-great-agent-skills">Building Great Agent Skills</a> <span class="t tag-pri">primary</span></li>
+</ol>
+</div>
+
+<div class="srcgroup">
+<h3>Spec Kit</h3>
+<ol class="src" start="40">
+<li id="s40"><a href="https://github.com/github/spec-kit">github/spec-kit</a> — v1.0.5, 8 Sep 2026 <span class="t tag-pri">primary</span></li>
+<li id="s42"><a href="https://vibecoding.app/blog/spec-kit-review">GitHub Spec Kit Review (2026)</a> — 1.0 milestone, skills-by-default change <span class="t tag-ter">tertiary</span></li>
+<li id="s10"><a href="https://wavect.io/blog/github-spec-kit-production-guide">GitHub Spec Kit Review for Production Teams</a> — Wavect, reviewed 2 Sep 2026 <span class="t tag-sec">secondary</span></li>
+<li id="s43"><a href="https://github.com/github/spec-kit/discussions/1482">Is SpecKit really maintained?</a> — token burn, plan-mode overlap <span class="t tag-pri">primary</span></li>
+<li id="s44"><a href="https://github.com/github/spec-kit/discussions/1686">High Level Design Concerns</a> — the spec-vs-implementation debugging gap <span class="t tag-pri">primary</span></li>
+<li id="s21"><a href="https://github.blog/ai-and-ml/generative-ai/spec-driven-development-with-ai-get-started-with-a-new-open-source-toolkit">Spec-driven development with AI — GitHub Blog</a>, Den Delimarsky · <a href="https://developer.microsoft.com/blog/spec-driven-development-spec-kit">Diving Into SDD With Spec Kit</a> <span class="t tag-pri">primary</span></li>
+<li id="s47"><a href="https://www.augmentcode.com/guides/what-is-spec-driven-development">What Is Spec-Driven Development? (adversarial agent pattern)</a> <span class="t tag-ter">tertiary</span></li>
+</ol>
+</div>
+
+<div class="srcgroup">
+<h3>Superpowers</h3>
+<ol class="src" start="41">
+<li id="s41"><a href="https://github.com/obra/superpowers">obra/superpowers</a> · <a href="https://github.com/obra/superpowers/blob/main/RELEASE-NOTES.md">RELEASE-NOTES.md</a> — v6.3.0 "ceremony now scales to the task" <span class="t tag-pri">primary</span></li>
+<li id="s45"><a href="https://home.mlops.community/public/videos/the-creator-of-superpowers-why-real-agentic-engineering-beats-vibe-coding">The Creator of Superpowers: Why Real Agentic Engineering Beats Vibe Coding</a> — Agentic AI Foundation <span class="t tag-pri">primary</span></li>
+<li id="s46"><a href="https://blog.fsck.com/2025/10/09/superpowers">Superpowers: How I'm using coding agents</a> — Jesse Vincent · <a href="https://simonwillison.net/2025/Oct/10/superpowers">Simon Willison's notes</a> · <a href="https://www.heavybit.com/library/podcasts/open-source-ready/ep-36-managing-ai-coding-agents-with-jesse-vincent">Heavybit Ep.36</a> <span class="t tag-pri">primary</span></li>
+</ol>
+</div>
+
+<div class="srcgroup">
+<h3>GitHub Universe · Microsoft Build · skills economics</h3>
+<ol class="src" start="27">
+<li id="s27"><a href="https://github.blog/news-insights/company-news/welcome-home-agents">Introducing Agent HQ: Any agent, any way you work</a> — GitHub (Universe 2025) <span class="t tag-pri">primary</span></li>
+<li id="s28"><a href="https://www.eficode.com/insights/blog/why-github-agent-hq-matters-for-engineering-teams-in-2026">Why GitHub Agent HQ matters for engineering teams in 2026</a> — Eficode <span class="t tag-sec">secondary</span></li>
+<li id="s29"><a href="https://news.microsoft.com/build-2026-live-blog/microsoft-build-2026-live">Microsoft Build 2026 live blog</a> · <a href="https://github.com/microsoft/Build26-news/blob/main/news.md">Build26 news repo</a> · <a href="https://blogs.microsoft.com/blog/2026/06/02/microsoft-build-2026-be-yourself-at-work">Build 2026 keynote post</a> <span class="t tag-pri">primary</span></li>
+<li id="s30"><a href="https://github.com/orgs/community/discussions/197336">Microsoft Build 2026 Community Recap</a> — GitHub Community <span class="t tag-pri">primary</span></li>
+<li id="s31"><a href="https://dev.to/pwd9000/microsoft-build-2026-top-announcements-from-a-devops-lens-419k">Microsoft Build 2026: Top announcements from a DevOps lens</a> <span class="t tag-ter">tertiary</span></li>
+<li id="s22"><a href="https://developer.microsoft.com/blog/stop-skillmaxxing-save-your-tokens">Stop skillmaxxing, save your tokens</a> · <a href="https://developer.microsoft.com/blog/stop-overloading-your-skills">Stop overloading your skills</a> — Waldek Mastykarz, 10 &amp; 18 Jun 2026 <span class="t tag-pri">primary</span></li>
+<li id="s32"><a href="https://visualstudiomagazine.com/articles/2026/07/21/visual-studio-2026-gives-copilot-built-in-skills--and-makes-them-prove-their-worth.aspx">Visual Studio 2026 Gives Copilot Built-In Skills — and Makes Them Prove Their Worth</a> <span class="t tag-sec">secondary</span></li>
+<li id="s33"><a href="https://githubuniverse.com">GitHub Universe 2026</a> (28–29 Oct 2026) · <a href="https://github.blog/news-insights/company-news/github-universe-is-back-all-together-now-in-the-agentic-era">announcement</a> · <a href="https://github.com/github/gh-aw">gh-aw: GitHub Agentic Workflows</a> <span class="t tag-pri">primary</span></li>
+</ol>
+</div>
+
+<div class="srcgroup">
+<h3>Outcome data</h3>
+<ol class="src" start="48">
+<li id="s48"><a href="https://www.faros.ai/blog/ai-acceleration-whiplash-takeaways">The AI Engineering Report 2026: The AI Acceleration Whiplash</a> — Faros AI, telemetry from ~22,000 developers <span class="t tag-sec">secondary</span></li>
+<li><a href="https://resources.anthropic.com/hubfs/2026%20Agentic%20Coding%20Trends%20Report.pdf">2026 Agentic Coding Trends Report (PDF)</a> — Anthropic <span class="t tag-pri">primary</span></li>
+<li><a href="https://www.michaelagreiler.com/codereview-surrender-exploitation">When Agentic Coding Breaks Code Review</a> — Dr. Michaela Greiler <span class="t tag-sec">secondary</span></li>
+<li><a href="https://www.forrester.com/blogs/agentic-software-development-takes-the-lead-from-code-assistants-to-orchestrated-sdlc-agents">The State of Agentic Software Development, 2026</a> — Forrester <span class="t tag-sec">secondary</span></li>
+</ol>
+</div>
+
+<footer>
+  <p>Compiled 14 September 2026 via Tavily search, extraction and crawl. Every claim above is traceable to a numbered source; where a claim rests only on a tertiary source, the sentence says so. Section 09 lists what the research could not establish.</p>
+</footer>
+
+</div>
+</body>
+</html>
