@@ -203,6 +203,57 @@
 
 ### Fixed
 
+- **2026-09-13 - `worktree-remove.sh` read every squash-merged branch as
+  unpushed once the merge helper deleted its remote ref** (issue #916) - #905's
+  unpushed check asks `git log HEAD --not --remotes`: "reachable from a remote
+  ref". After a SQUASH the branch's commits are rewritten onto main under a
+  different sha, so they are ancestors of nothing and the verdict rests entirely
+  on `refs/remotes/origin/<branch>` surviving - which `gh-pr-merge.sh` deletes on
+  the ordinary path. This repository squash-merges exclusively, so every merged
+  worktree read as holding commits that "exist nowhere" and refused with exit 7.
+  #887's sweep - whose entire population is exactly that state - classified
+  correctly, concluded correctly, and removed nothing; it was inert in production
+  from #905 landing until this. Same shape as #566: the check answers
+  "reachable" and the reader takes it for "landed", and squash is where they
+  part. Reproduced live on this repo's own main at `6b39af8` the morning this
+  merged.
+
+  Offline git holds no evidence after the delete and no wider ref pattern
+  recovers it, so the answer comes from the one caller that both knows the
+  branch landed and destroys the proof: `gh-pr-merge.sh` now writes
+  `branch.<name>.cpp-merged-head <oid>` inside its MERGED block, **before** the
+  `push --delete`, and `worktree-remove.sh` accepts that record as a second,
+  offline signal - `WORKTREE_REMOVE_UNPUSHED: landed` - **only when it equals
+  HEAD exactly**. The OID equality is the guarantee, not the cleanup: measured,
+  `git branch -D` clears the `branch.<name>.*` section but `git update-ref -d`
+  does not, so a record can outlive its branch and is harmless anyway because a
+  surviving record names an OID that genuinely landed. The fix is future-only by
+  nature - nothing can retroactively record a merge that already happened
+  without asking the network which merges happened - so a branch squash-merged
+  some other way, or before this landed, still reads `unpushed` and stays
+  refused; that residual is asserted by a test rather than hidden. Two markers
+  stop lying by omission in the same change: `--allow-dirty` printed
+  `WORKTREE_REMOVE_DIRTY: clean` for a tree it never measured (the echo sat
+  outside the guard) and `--allow-unpushed` printed nothing at all; both now say
+  `overridden`, because never-checked and checked-and-empty are different facts.
+  `tests/test_worktree_sweep.py`'s characterization test that pinned the inert
+  sweep is flipped to assert removal.
+
+  One HIGH finding from the cross-model review (Codex, via `/flow:auto_codex`)
+  changed WHICH commit is recorded. The first cut recorded the local branch tip;
+  `MERGED` only proves the PR's **remote** head landed, and the local branch can
+  be ahead of it - a commit made after the push, or one that landed while the
+  merge waited on checks. Recording the local tip would mark that unmerged
+  commit as landed, the reader would find an exact HEAD match, and the worktree
+  holding the only copy would be deleted - the #899 data-loss path reopened by
+  the fix for its false refusal. The helper now records the PR's `headRefOid`,
+  and only when the PR's `headRefName` is this branch, so a wrong PR number
+  records nothing rather than a foreign OID; a branch that has moved past the
+  recorded head no longer equals it and is refused, which is the protection
+  working. Regressions on both sides: the writer records the PR head and not the
+  local tip, and refuses to record for another branch; the reader refuses a
+  squash-merged branch that gained one unpushed commit after its head landed.
+
 - **2026-09-13 - the finish gate's #769 retry graded the RE-RUN INVOCATION, not
   the retried id** (issue #915) - when a test failed, the gate re-ran it once and
   then decided "the failure reproduces" from whether the re-run *process* exited

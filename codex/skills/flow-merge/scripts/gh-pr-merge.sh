@@ -1479,8 +1479,8 @@ if [[ "$state" == "MERGED" ]]; then
     # harmless (`|| true`) if the branch really was already gone. Do not
     # simplify this to `-eq 0` or `! ... ; then` - that puts 2 and 128 back
     # on the same branch, which is the bug.
-    # Record that this exact commit LANDED, before the delete below destroys the
-    # only other evidence (issue #916).
+    # Record that the PR's head commit LANDED, before the delete below destroys
+    # the only other evidence (issue #916).
     #
     # THE DEFECT THIS CLOSES. `worktree-remove.sh`'s #905 unpushed check asks
     # `git log HEAD --not --remotes`. After a SQUASH merge the branch's commits
@@ -1503,12 +1503,30 @@ if [[ "$state" == "MERGED" ]]; then
     # this to a boolean or key it on the branch name - the OID is the whole
     # guarantee, and the cleanup is a convenience that does not always happen.
     #
-    # Fails open in both directions: an unreadable ref writes nothing, and a
-    # failed write never fails the merge. A missing record means the reader
-    # falls through to today's refusal, which is the safe direction.
-    if merged_head=$("$GIT_BIN" rev-parse --verify --quiet "refs/heads/$BRANCH" 2>/dev/null) \
-       && [[ -n "$merged_head" ]]; then
-        "$GIT_BIN" config "branch.${BRANCH}.cpp-merged-head" "$merged_head" 2>/dev/null || true
+    # RECORD THE PR'S HEAD, NOT THE LOCAL TIP (cross-model review on #916).
+    # `MERGED` establishes that the PR's REMOTE head landed. The local branch
+    # can be ahead of it - a commit made after the push, or one that landed
+    # while the merge waited on checks - and recording the local tip would
+    # mark that unmerged commit as landed. The reader then finds an exact HEAD
+    # match, says `landed`, and deletes the worktree holding the only copy:
+    # the #899 data-loss path, reopened by the fix for its false refusal.
+    #
+    # So the OID comes from GitHub, and it is accepted only if the PR's head
+    # branch IS this branch - a wrong PR number must record nothing rather
+    # than a foreign OID under this branch's name. A local branch that has
+    # moved past the recorded head will not equal it, and the reader refuses:
+    # that is the protection working, not a gap.
+    #
+    # Fails open in both directions: unreadable or mismatched metadata writes
+    # nothing, and a failed write never fails the merge. A missing record means
+    # the reader falls through to today's refusal, which is the safe direction.
+    pr_head=$("$GH_BIN" pr view "$PR_NUMBER" --json headRefName,headRefOid \
+        --jq '.headRefName + " " + .headRefOid' 2>/dev/null) || pr_head=""
+    pr_head_name="${pr_head%% *}"
+    pr_head_oid="${pr_head#* }"
+    if [[ -n "$pr_head" && "$pr_head_name" == "$BRANCH" \
+          && "$pr_head_oid" =~ ^[0-9a-f]{40}$ ]]; then
+        "$GIT_BIN" config "branch.${BRANCH}.cpp-merged-head" "$pr_head_oid" 2>/dev/null || true
     fi
 
     rc=0

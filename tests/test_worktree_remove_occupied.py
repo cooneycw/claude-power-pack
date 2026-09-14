@@ -633,6 +633,38 @@ def test_a_record_that_does_not_match_head_is_refused(tmp_path: Path) -> None:
     assert wt.exists(), "the new work must survive"
 
 
+@requires_git
+def test_a_branch_that_advanced_past_the_merged_head_is_refused(
+    tmp_path: Path,
+) -> None:
+    """Cross-model review on #916, HIGH - the end-to-end shape of the hazard.
+
+    The PR's head landed and was recorded. The developer then made ONE more
+    commit locally and never pushed it. The record names the merged head; HEAD
+    is one past it; the two differ, so the reader must refuse - that unpushed
+    commit exists nowhere else. This is the case a record of the LOCAL tip would
+    have got wrong, and why `gh-pr-merge.sh` records the PR's head instead.
+    """
+    main, wt = _squash_merged(tmp_path, record=True)
+    # Precondition: the recorded oid IS the current HEAD (the landed state).
+    landed = _git(main, "config", "--get", "branch.issue-1.cpp-merged-head").strip()
+    assert landed == _git(wt, "rev-parse", "HEAD").strip()
+
+    # The branch moves on, unpushed.
+    (wt / "after.txt").write_text("committed after the merge, pushed nowhere\n")
+    _git(wt, "add", "-A")
+    _git(wt, "commit", "-qm", "post-merge work")
+    assert _git(wt, "rev-parse", "HEAD").strip() != landed
+
+    res = _run_remove(main, str(wt), "--delete-branch")
+    assert res.returncode == 7, (
+        f"a branch one commit past its merged head holds unpushed work:\n{res.stderr}"
+    )
+    assert "WORKTREE_REMOVE_UNPUSHED: refused" in res.stderr
+    assert "WORKTREE_REMOVE_UNPUSHED: landed" not in res.stderr
+    assert wt.exists(), "the post-merge commit must survive"
+
+
 # ---------------------------------------------------------------------------
 # Issue #916: a skipped check must not print what a passed check prints.
 # ---------------------------------------------------------------------------
