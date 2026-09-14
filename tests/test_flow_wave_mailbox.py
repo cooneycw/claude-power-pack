@@ -2392,15 +2392,39 @@ class TestPsFallbackWatcherIdentityAcrossDirectories:
         table matches this wave and role at all, so there is no candidate to
         be ambiguous ABOUT. This must stay a real `dead`/`0`, not `unknown` -
         the fix narrows confidence only where an actual unverifiable match
-        exists, it does not make the whole lane universally unknown."""
-        env = os.environ.copy()
-        env["FLOW_WAVE_MAILBOX_DIR"] = str(tmp_path / "mb")
-        env["FLOW_WAVE_WATCHER_SCAN"] = "ps"
-        proc = subprocess.run(
-            ["bash", str(MAILBOX), "watch", "--status", "--role", "1", "--wave", WAVE],
-            capture_output=True, text=True, env=env, check=False,
+        exists, it does not make the whole lane universally unknown.
+
+        STUBBED, and it has to be (#904 / PR #923). The first version ran the
+        real `ps` against the host process table and asserted a confident zero
+        - a property of the whole machine, which a test cannot control. It
+        passed on a developer host and failed in CI, because the `*)` branch of
+        the wave match sets `unreadable=1` for ANY watcher-shaped line carrying
+        `--role` and no `--wave` while we ask about a named wave. One such
+        process anywhere on the box - a default-wave watcher, or a leaked one
+        from an earlier suite - turns this lane's answer into `unknown` for
+        reasons that have nothing to do with the code under test.
+
+        Reproduced deliberately: planting `bash <dir>/flow-wave-mailbox.sh
+        watch --role 9` and re-running the original produced exactly the CI
+        failure, `assert 'unknown' == '0'`. So the stub is not tidiness - it is
+        the difference between asserting something about this lane and
+        asserting something about whoever else is on the host.
+
+        The table below is the truest statement of the docstring's claim: a
+        watcher-shaped line that WAS read and says "not you" (a different,
+        non-prefix wave), plus an unrelated process. Nothing matches, nothing
+        is ambiguous, so the verdict must be a confident zero."""
+        bin_dir = _stub_ps(
+            tmp_path,
+            "    1     0 /sbin/init\n"
+            "  500     1 sshd: /usr/sbin/sshd\n"
+            "  999     1 bash /a/long/path/scripts/flow-wave-mailbox.sh watch"
+            " --role 7 --wave someoneelse-entirely",
         )
-        assert _detail(proc, "FLOW_MAILBOX_WATCHER_COUNT") == "0"
+        proc = _run_with_ps(
+            tmp_path, bin_dir, "watch", "--status", "--role", "1", "--wave", WAVE,
+        )
+        assert _detail(proc, "FLOW_MAILBOX_WATCHER_COUNT") == "0", proc.stdout
         assert _detail(proc, "FLOW_MAILBOX_WATCH_STATE") in ("absent", "dead")
 
 
