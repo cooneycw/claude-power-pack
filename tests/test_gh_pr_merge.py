@@ -114,6 +114,20 @@ def _make_stubs(
     #                            every pre-existing test already assumed.
     push_delete_ok: bool = True,
     remote_branch_on_recheck: str | None = None,
+    #: Issue #916. What `gh pr view --json headRefName,headRefOid` answers -
+    #: the PR's REMOTE head, which is the commit the MERGED block records as
+    #: landed. NOT the local tip (cross-model review): the local branch can be
+    #: ahead of the merged head, and recording it would mark unmerged work as
+    #: landed. ``pr_head_ref_name`` defaults to the branch the #916 tests run
+    #: under; a mismatch (any other branch) makes the helper write nothing,
+    #: which is how every pre-#916 test keeps its byte-identical behaviour.
+    pr_head_oid: str = "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
+    pr_head_ref_name: str = "issue-916-fix",
+    #: What `git rev-parse --verify --quiet refs/heads/<branch>` answers: the
+    #: LOCAL tip. Deliberately a different oid from ``pr_head_oid`` so that a
+    #: helper recording the local tip is caught recording the WRONG commit,
+    #: rather than recording nothing (which the fail-open path also does).
+    local_tip: str = "10ca1710ca1710ca1710ca1710ca1710ca1710ca",
 ) -> dict:
     """Create fake gh/git that log their args and honour a scripted outcome.
 
@@ -394,7 +408,11 @@ def _make_stubs(
         f'    cat "{body_file}"; echo\n'
         '  elif [[ "$*" == *"--json commits"* ]]; then\n'
         + (f'    cat "{commits_file}"\n' if commits_ok else "    exit 1\n")
-        + '  elif [[ "$*" == *mergeCommit* ]]; then\n'
+        + '  elif [[ "$*" == *headRefOid* ]]; then\n'
+        # Issue #916: `.headRefName + " " + .headRefOid` as the helper's --jq
+        # renders it. An empty oid models an unreadable head.
+        f'    echo "{pr_head_ref_name} {pr_head_oid}"\n'
+        '  elif [[ "$*" == *mergeCommit* ]]; then\n'
         f'    echo "{merge_commit}"\n'
         '  elif [[ "$*" == *"--json files"* ]]; then\n'
         f'    cat "{files_file}"\n'
@@ -424,6 +442,8 @@ def _make_stubs(
         f'echo "git $*" >> "{call_log}"\n'
         'if [[ "$*" == *"rev-parse --show-toplevel"* ]]; then\n'
         "  pwd\n"
+        'elif [[ "$*" == *"rev-parse --verify --quiet refs/heads/"* ]]; then\n'
+        f'  echo "{local_tip}"\n'
         'elif [[ "$*" == *"rev-parse"*"HEAD^{tree}"* ]]; then\n'
         f'  echo "{tested_tree}"\n'
         + (
@@ -2795,3 +2815,128 @@ def test_the_cleanup_marker_never_collides_with_the_completeness_marker(tmp_path
     completeness = [ln for ln in lines if ln.startswith("GH_PR_MERGE_COMPLETENESS:")]
     assert len(cleanup) == 1, lines
     assert len(completeness) == 1, lines
+
+
+# --------------------------------------------------------------------------
+# Issue #916: record the landed commit BEFORE destroying the evidence.
+# --------------------------------------------------------------------------
+
+#: The stub's answer for `rev-parse --verify --quiet refs/heads/<branch>`.
+BRANCH_HEAD = "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678"
+
+
+def test_the_landed_commit_is_recorded_before_the_remote_ref_is_deleted(
+    tmp_path: Path,
+):
+    """Ordering IS the property, so it is asserted as ordering.
+
+    `worktree-remove.sh`'s unpushed check asks `git log HEAD --not --remotes`.
+    A squash rewrites the branch onto main under a different sha, so its commits
+    are ancestors of nothing and the verdict rests entirely on
+    `refs/remotes/origin/<branch>` surviving - which the delete below removes.
+    Offline git then holds no evidence at all, which is why the record has to be
+    written by the one caller that both knows the branch landed and destroys the
+    proof, and why it has to happen FIRST.
+
+    A record written after the delete would still be correct, but a merge that
+    died between the two would leave the ref gone and no record - the exact
+    state #916 is about.
+    """
+    stubs = _make_stubs(
+        tmp_path, merge_exit=0, pr_state="MERGED", remote_branch_after_merge="present"
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-916-fix")
+    assert result.returncode == 0, result.stderr
+
+    calls = _calls(stubs)
+    record = next(
+        (i for i, c in enumerate(calls) if "cpp-merged-head" in c), None
+    )
+    delete = next(
+        (i for i, c in enumerate(calls) if c == "git push origin --delete issue-916-fix"),
+        None,
+    )
+    assert record is not None, f"the landed commit was never recorded:\n{calls}"
+    assert delete is not None, f"the remote ref was never deleted:\n{calls}"
+    assert record < delete, (
+        "the record must be written BEFORE the delete - after it, a merge that "
+        f"dies between the two leaves neither ref nor record:\n{calls}"
+    )
+    assert BRANCH_HEAD in calls[record], (
+        f"the record must name the branch tip, not a placeholder:\n{calls[record]}"
+    )
+
+
+def test_no_record_is_written_when_the_pr_head_cannot_be_read(tmp_path: Path):
+    """Fails open: an unreadable PR head writes nothing and never fails the merge.
+
+    A missing record is not a hazard - the reader falls through to today's
+    refusal, which is the safe direction. A WRONG record would be, which is why
+    nothing is written rather than something approximate.
+    """
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        remote_branch_after_merge="present",
+        pr_head_oid="",
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-916-fix")
+    assert result.returncode == 0, result.stderr
+    assert not any("cpp-merged-head" in c for c in _calls(stubs)), (
+        "a record was written from an unreadable PR head"
+    )
+
+
+def test_the_record_names_the_pr_head_not_the_local_tip(tmp_path: Path):
+    """Cross-model review on #916, HIGH: the first cut recorded the LOCAL tip.
+
+    `MERGED` proves the PR's remote head landed. The local branch can be ahead
+    of it - a commit made after the push, or one landing while the merge waited
+    on checks. Recording the local tip marks that unmerged commit as landed;
+    `worktree-remove.sh` then finds an exact HEAD match, says `landed`, and
+    deletes the worktree holding the only copy of that work - the #899
+    data-loss path, reopened by the fix for its false refusal.
+
+    The stub answers the PR head with a DIFFERENT oid from anything a local
+    `rev-parse` would say; the record must carry that one.
+    """
+    pr_head = "feedfacefeedfacefeedfacefeedfacefeedface"
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        remote_branch_after_merge="present",
+        pr_head_oid=pr_head,
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-916-fix")
+    assert result.returncode == 0, result.stderr
+    record = [c for c in _calls(stubs) if "cpp-merged-head" in c]
+    assert record, "the landed commit was never recorded"
+    assert pr_head in record[0], (
+        f"the record must name the PR's merged head, not the local tip:\n{record[0]}"
+    )
+    assert "10ca1710ca1710ca1710ca1710ca1710ca1710ca" not in record[0], (
+        f"the LOCAL tip was recorded - an unpushed commit would read as landed:\n{record[0]}"
+    )
+
+
+def test_no_record_is_written_when_the_pr_head_is_another_branch(tmp_path: Path):
+    """Identity: a wrong PR number must record nothing, not a foreign oid.
+
+    The record is keyed under THIS branch's name. If the PR's head branch is
+    some other branch, its oid says nothing about this one, and writing it here
+    would let a same-named local commit read as landed.
+    """
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        remote_branch_after_merge="present",
+        pr_head_ref_name="some-other-branch",
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-916-fix")
+    assert result.returncode == 0, result.stderr
+    assert not any("cpp-merged-head" in c for c in _calls(stubs)), (
+        "a record was written for a PR whose head is a different branch"
+    )
