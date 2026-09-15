@@ -563,7 +563,37 @@ The mechanism holds, and is now confirmed rather than inferred. Native session
 discovery is filesystem-based; `~/.claude/sessions/` is container-private - not
 a mount - and inside a container it holds exactly one record, the session's own.
 So a containerised session and a host session cannot see each other at all: not
-a permissions failure, not something a setting fixes, no path between them.
+a permissions failure, and not something a setting fixes.
+
+It is, however, a CHOSEN configuration, not a limit of the harness - and this
+paragraph said "no path between them" until 2026-09-15 as if it were a law.
+The path exists and was measured: kyle #1008 (2026-09-12) relocated the socket
+directory with `XDG_RUNTIME_DIR`, bind-mounted it, and connected to a container's
+socket from the host. It then found that every session container runs as uid
+1000, so in a shared directory any container can list, write into, and delete a
+sibling's socket - mode 700 separates nothing between the same user. The Kyle
+owner decided (kyle #1008, option b): **the substrate brokers the wake**; a
+shared socket directory and pairwise mounts between peers are REJECTED. What
+runs today is that decision: each container's `/run/user/1000/cc-socks` is a
+per-session host directory (`/dev/shm/kyle-socks-1000/<session pk>`, measured
+2026-09-15 from `docker inspect` and the container's `/proc/self/mountinfo`), so
+the substrate outside every container can knock, and no sibling has a path to
+it. Do not "fix" this by sharing the mount: that reverses a recorded decision
+and re-opens the deletion hazard it closed. The wake itself - the substrate
+ringing a containerised worker - is kyle #1008's remaining work, not this
+document's.
+
+One more fact makes the obvious fix not a fix even if that decision were
+reversed. A session record carries a `pidDomain` field naming the machine and
+pid namespace its `pid` is meaningful in. Measured 2026-09-15, harness 2.1.266,
+one container (kyle session 48), one vantage: the host's records read
+`linux:<machine-id>:pid:[4026531836]`; the container's own record reads
+`linux::pid:[4026533495]` - a different namespace inode and an EMPTY machine-id,
+because the kyle-session image has no `/etc/machine-id`. A shared records
+directory would hand each side a pid from a domain it cannot verify, and the
+harness reads the peer pid from the connection (`SO_PEERCRED`), never from the
+payload. So even with the mounts shared, discovery would list peers that
+delivery cannot vouch for.
 
 Two sessions inside one container should be able to, and that half is carried
 over from the previous text UNMEASURED - this fleet runs one session per
@@ -714,6 +744,21 @@ mounted READ-ONLY into the container (measured 2026-09-13). That is a
 convenience, not the reason - the reason above is about review, and it would
 stand if the mount were writable tomorrow. Noted only so nobody reads the
 refusal as a limitation being dressed up as a principle.
+
+**Withdrawn as host-wide values on 2026-09-15 (#870 closed).** The owner's
+objection stands on its own: `~/.claude/settings.json` is one file for every
+session on the machine, host and container alike, so a single value cannot
+express a per-placement choice - `accept` would change interactive host
+sessions on a justification the contested-mechanism block above suspends, and
+`true` happens to be right in both placements by luck rather than design. The
+two recommendations stay recorded here with their reasons; neither is owed as
+an edit to that file. Where each now lives: `isolatePeerMachines` is held on
+kyle #1008 (its recommendation 4 - containers are already reachable off-box
+over Remote Control, and whether they should be is a decision with no home
+yet); `crossSessionInbound` for containers is kyle #1161, which measured that a
+container loads `--settings session-settings.json` carrying exactly two keys,
+`hooks` and `statusLine`, so the scope a container actually reads has nowhere
+this value could go today.
 
 **The lane.** Beside the registry, same lifetime, same host-local scope
 (`$XDG_RUNTIME_DIR/cc-flow-wave/<wave>/`), one audited helper invoked BARE
