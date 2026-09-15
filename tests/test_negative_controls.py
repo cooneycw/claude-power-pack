@@ -604,3 +604,202 @@ def test_the_vendored_anchor_is_byte_identical_to_its_recorded_commit() -> None:
         pytest.skip("commit not present in this checkout (shallow clone)")
     vendored = (REAL_CONTROL / anchor_spec["path"]).read_bytes()
     assert out.stdout == vendored, "the vendored anchor is not what its recorded sha contains"
+
+
+# --------------------------------------------------------------------------- #
+# The harness's own registration (issue #964).
+#
+# ADR 0008 hands the living list of instruments to the controls/ register, so the
+# tool that MAINTAINS the register being absent from it made the register
+# unreadable as a coverage map. Registering it closes that, and introduces a
+# self-reference whose exact boundary is pinned by the three tests below rather
+# than argued in prose.
+# --------------------------------------------------------------------------- #
+
+SELF_CONTROL = ROOT / "controls" / "check-negative-controls"
+SELF_ANCHOR = SELF_CONTROL / "anchors" / "3a90f96-check-negative-controls.py"
+
+
+
+def _verdicts_by_gate(out: str) -> dict[str, str]:
+    """Pair each NEGATIVE_CONTROL_GATE with the VERDICT that follows it."""
+    pairs: dict[str, str] = {}
+    gate = None
+    for line in out.splitlines():
+        if line.startswith("NEGATIVE_CONTROL_GATE: "):
+            gate = line.split(": ", 1)[1]
+        elif line.startswith("NEGATIVE_CONTROL_VERDICT: ") and gate is not None:
+            pairs[gate] = line.split(": ", 1)[1]
+            gate = None
+    return pairs
+
+
+@requires_git
+def test_every_file_of_the_self_registration_is_tracked() -> None:
+    """The control is only real in a CLEAN CHECKOUT, and .gitignore hides it.
+
+    `.gitignore` carries a blanket `*.json` with a `!controls/*/control.json`
+    negation that is ONE level deep. The nested case trees put their manifests
+    at `controls/<x>/cases/<y>/controls/toy/control.json`, which that negation
+    does not reach, so they were silently untracked and every local run passed
+    on files a clean checkout would not have. Codex found it; a clean clone
+    reported the self-registration BLIND.
+
+    This asserts every file under the control directory is tracked, so a future
+    nested case added and forgotten fails loudly here rather than in CI, or
+    worse, passes locally forever.
+    """
+    tracked = set(subprocess.run(
+        ["git", "-C", str(ROOT), "ls-files", "controls/check-negative-controls"],
+        capture_output=True, text=True, check=True,
+    ).stdout.split())
+    on_disk = {
+        str(p.relative_to(ROOT))
+        for p in SELF_CONTROL.rglob("*")
+        if p.is_file()
+    }
+    assert on_disk, "the control directory is empty; this test is vacuous"
+    missing = sorted(on_disk - tracked)
+    assert not missing, (
+        "these files exist locally but are NOT tracked, so a clean checkout "
+        f"gets a broken control: {missing}"
+    )
+
+def test_discover_is_not_recursive_so_nested_case_trees_are_not_double_discovered() -> None:
+    """The self-registration nests whole repos under controls/.
+
+    `discover()` walks `<root>/scripts` with `iterdir()`, which is not
+    recursive, so the toy gates inside the nested case trees are never picked up
+    by the outer run. #964 asked for this to be asserted rather than assumed,
+    because if it were ever made recursive the outer run would start evaluating
+    the fixtures as though they were real repository instruments.
+    """
+    nested_gates = sorted(SELF_CONTROL.glob("cases/*/scripts/toy-gate.sh"))
+    assert nested_gates, "the nested fixtures moved; this test is now vacuous"
+    for gate in nested_gates:
+        assert "#: NEGATIVE-CONTROL:" in gate.read_text(encoding="utf-8"), (
+            f"{gate} must carry a directive, or it cannot demonstrate the hazard"
+        )
+
+    result = run_harness(ROOT, "--quiet")
+    discovered = [
+        line.split(": ", 1)[1]
+        for line in result.stdout.splitlines()
+        if line.startswith("NEGATIVE_CONTROL_GATE: ")
+    ]
+    assert discovered, result.stdout
+    assert "scripts/check-negative-controls.py" in discovered, (
+        "the harness is not in its own register - deleting the directive must "
+        f"fail this test, not pass it quietly. discovered={discovered}"
+    )
+    for gate in discovered:
+        assert "/cases/" not in gate, (
+            f"discover() reached a nested fixture ({gate}); it is no longer "
+            "confined to <root>/scripts and the register now contains fixtures"
+        )
+
+
+def test_the_self_registration_anchor_is_blind_rather_than_crashing() -> None:
+    """#964 condition: an anchor that CRASHES also differs from the current
+    harness, and only one of those two differences is a control.
+
+    A traceback and a blind PASS both produce "not what the current gate says",
+    so an anchor that errored on the fixture would satisfy a naive difference
+    check while demonstrating nothing. This asserts the anchor's PASS is its
+    BLINDNESS: a real verdict, exit 0, no traceback. It is #963's "a crash is
+    not a detection" applied to the anchor side.
+    """
+    bad_case = SELF_CONTROL / "cases" / "bad-crashing-gate"
+    anchor_run = subprocess.run(
+        [sys.executable, str(SELF_ANCHOR), "--root", str(bad_case), "--strict"],
+        capture_output=True, text=True, timeout=120, check=False,
+    )
+    assert anchor_run.returncode == 0, (
+        "the anchor must MISS the known-bad input cleanly; a non-zero exit means "
+        f"it errored rather than being blind:\n{anchor_run.stderr}"
+    )
+    assert "Traceback" not in anchor_run.stderr, anchor_run.stderr
+    assert verdict_of(anchor_run.stdout) == "PASS", anchor_run.stdout
+
+    # and the current harness must NOT agree, or there is no discrimination
+    current = run_harness(bad_case, "--strict")
+    assert verdict_of(current.stdout) == "UNSIGNALLED", current.stdout
+    assert current.returncode == 1
+
+
+def _forced_pass_harness(tmp_path: Path) -> Path:
+    """The harness with every verdict assignment forced to PASS.
+
+    This is the breakage the self-registration is structurally blind to: not a
+    detection failure, but the harness losing the ability to say anything except
+    'fine'.
+    """
+    src = HARNESS.read_text(encoding="utf-8")
+    mutated = re.sub(r"res\.verdict = [A-Z_]+", "res.verdict = PASS", src)
+    mutated = mutated.replace("verdict=UNRESOLVED", "verdict=PASS")
+    assert mutated != src, "the mutation matched nothing; this test is vacuous"
+    out = tmp_path / "mutant-check-negative-controls.py"
+    out.write_text(mutated, encoding="utf-8")
+    return out
+
+
+def test_self_registration_is_blind_to_a_verdict_assignment_breakage(tmp_path: Path) -> None:
+    """HALF ONE of #964's mutation demonstration, and the uncomfortable half.
+
+    A harness that emits PASS unconditionally reports PASS about its OWN
+    control, because the thing doing the reporting is the thing that is broken.
+    The register row therefore keeps saying the harness is covered while the
+    harness has stopped being able to disagree with anything.
+    """
+    mutant = _forced_pass_harness(tmp_path)
+    run = subprocess.run(
+        [sys.executable, str(mutant), "--root", str(ROOT), "--strict"],
+        capture_output=True, text=True, timeout=180, check=False,
+    )
+    by_gate = _verdicts_by_gate(run.stdout)
+    assert by_gate, run.stdout
+    assert by_gate.get("scripts/check-negative-controls.py") == "PASS", (
+        "the demonstration must be about the harness's OWN row; if the "
+        f"self-registration is gone this is vacuous. rows={by_gate}"
+    )
+    assert set(by_gate.values()) == {"PASS"}, run.stdout
+    assert run.returncode == 0, (
+        "a harness that cannot say anything but PASS exits 0 under --strict, "
+        "including about itself: the self-registration cannot see this"
+    )
+
+
+def test_pytest_catches_the_breakage_the_self_registration_cannot(tmp_path: Path) -> None:
+    """HALF TWO, and this is the load-bearing one.
+
+    The external control is this file, run by pytest in the `validate` CI step:
+    a different process, a different entry point, asserting on exit codes and
+    stdout rather than on the harness's judgement of itself.
+
+    Here that independence is exercised directly. On a tree where the real
+    harness reports BLIND, the mutant reports PASS - so the assertion in
+    `test_a_gate_that_stopped_discriminating_reports_blind` FAILS against the
+    mutant while the self-registration above stays green.
+
+    IF THIS TEST EVER STOPS FAILING AGAINST THE MUTANT, the external control has
+    become decoration and the self-registration is all that is left, which is
+    the state #964's design exists to prevent.
+    """
+    tree = tmp_path / "tree"
+    tree.mkdir()
+    root = build_tree(tree, BLIND_GATE)
+    real = run_harness(root, "--strict")
+    assert verdict_of(real.stdout) == "BLIND", real.stdout
+    assert real.returncode == 1
+
+    mutant = _forced_pass_harness(tmp_path)
+    mutated_run = subprocess.run(
+        [sys.executable, str(mutant), "--root", str(root), "--strict"],
+        capture_output=True, text=True, timeout=120, check=False,
+    )
+    assert verdict_of(mutated_run.stdout) == "PASS", mutated_run.stdout
+    assert mutated_run.returncode == 0
+    assert verdict_of(real.stdout) != verdict_of(mutated_run.stdout), (
+        "the mutant and the real harness agree, so this control no longer "
+        "distinguishes a working harness from one that cannot disagree"
+    )
