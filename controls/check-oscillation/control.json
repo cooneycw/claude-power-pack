@@ -1,0 +1,54 @@
+{
+  "_comment": [
+    "Registration for scripts/check-oscillation.py (issue #936).",
+    "",
+    "The cases are BARE GIT REPOSITORIES, because this gate reads HISTORY",
+    "rather than a tree of files - the only framework consumer so far that",
+    "does. A bare repo is ordinary files under a directory not named .git,",
+    "so it commits cleanly and carries the exact revision sequence each case",
+    "is about.",
+    "",
+    "The invocation passes --exit-on-finding. That flag exists ONLY for this",
+    "registration: the framework decides a case from the exit code, and the",
+    "detector deliberately exits 0 for BOTH verdicts so a finding can never",
+    "fail the build. Without the adapter the known-BAD case would score GOOD",
+    "and this control would be blind - the exact defect the framework exists",
+    "to catch, arriving in its own registration."
+  ],
+  "gate": "scripts/check-oscillation.py",
+  "invocation": [
+    "python3",
+    "{gate}",
+    "--root",
+    "{case}/repo.git",
+    "--range",
+    "HEAD",
+    "--exit-on-finding"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^OSCILLATION_FINDING: ",
+  "cases": [
+    {
+      "name": "bad-reversed",
+      "input": "cases/bad-reversed",
+      "expect": "BAD",
+      "why": "timeout 30 -> 60 -> 30. Loosened, then put back: the signature. If this scores GOOD the detector cannot see an oscillation at all."
+    },
+    {
+      "name": "good-monotonic",
+      "input": "cases/good-monotonic",
+      "expect": "GOOD",
+      "why": "timeout 60 -> 30 -> 10. Three edits to one threshold, never reversed. THE HALF THAT MATTERS (#936 acceptance item 2): a detector that flags this flags every threshold edit, becomes noise, and gets disabled - which is itself an oscillation, performed by the control built to prevent oscillation."
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "n/a",
+      "origin": "scripts/check-oscillation.py",
+      "path": "anchors/constructed-single-commit-check-oscillation.py",
+      "sha256": "58a146a50811ffcac7f11fa0b1e2b15e85671e2d6ee56bc617c7d83edc3e8734",
+      "why": "CONSTRUCTED rather than historical, and the distinction is stated because every other anchor in this repo is a real past commit. This gate is new, so there is no previous blind version to vendor - the honest 'before' is 'no detector at all', which cannot be run. This variant reads only the NEWEST commit, so it observes at most one move and can never see a sequence reverse, which is exactly the insight the real gate encodes. It MISSES the known-bad input and AGREES with the current gate on the known-good one."
+    }
+  ]
+}
