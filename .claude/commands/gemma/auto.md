@@ -889,6 +889,23 @@ Report: `Step 8/8: Cleanup complete - PR merged, worktree removed` or `Step 8/8:
 
 ### Final Summary
 
+<!-- closing-report-surface -->
+
+**This report follows [the closing-report contract](../../../docs/agents/closing-report-contract.md).**
+Three sections, in this order, and the order is the content:
+
+1. `## TO-DO (owner)` - FIRST and always present. Numbered; each item names the
+   DECISION, not its background. When there is nothing, say `Nothing blocking.`
+   explicitly - an omitted block reads as forgotten, not as none. An FYI is not
+   a TO-DO. The qualifying test and the deliberate exclusions live in the
+   contract; do not restate them here.
+2. `## In plain language` - what was wrong, why it mattered, what is better now,
+   under `/flow:eli5` Section A's EXISTING depth floor. One plain-language
+   standard in this repo, applied at the other end of the run.
+3. `## Evidence` - the status lines below, plus red-case results, gate output,
+   review dispositions and CI. Demoted, never deleted.
+
+
 ```
 Gemma Auto Complete
 

@@ -361,6 +361,28 @@ Friction retro: this run recorded N friction signal(s). Run /self-improvement-re
 to codify fixes? [y/N]
 ```
 
+## Closing report
+
+<!-- closing-report-surface -->
+
+`/flow-merge` ends a run standalone, so it owes the owner a closing report just as the
+lifecycle drivers do. **Follow [the closing-report contract](docs/agents/closing-report-contract.md)** -
+canonical there, not restated here.
+
+Three sections, in this order:
+
+1. `## TO-DO (owner)` - FIRST and always present. Numbered; each item names the
+   DECISION, not its background. `Nothing blocking.` stated explicitly when
+   there is nothing, because an omitted block reads as forgotten rather than as
+   none. An FYI is not a TO-DO.
+2. `## In plain language` - what was wrong, why it mattered, what is better now,
+   under `/flow-eli5` Section A's existing depth floor.
+3. `## Evidence` - the merge marker, CI verdict on the merge commit, branch and worktree cleanup results, and the issue's closing state. Demoted, never deleted.
+
+This run ends at the merge, which is often the LAST thing the owner sees on an issue. A deploy or promotion the merge does not perform is a TO-DO item, not an FYI - it is an action reserved to the owner's authority.
+
+---
+
 ## Error Handling
 
 - **PR not found:** Direct user to `/flow-finish`

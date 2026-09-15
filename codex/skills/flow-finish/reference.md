@@ -406,6 +406,28 @@ Supplemental findings: 1 stored in the nit store (#864)
     https://github.com/owner/repo/issues/864#issuecomment-123456789
 ```
 
+## Closing report
+
+<!-- closing-report-surface -->
+
+`/flow-finish` ends a run standalone, so it owes the owner a closing report just as the
+lifecycle drivers do. **Follow [the closing-report contract](docs/agents/closing-report-contract.md)** -
+canonical there, not restated here.
+
+Three sections, in this order:
+
+1. `## TO-DO (owner)` - FIRST and always present. Numbered; each item names the
+   DECISION, not its background. `Nothing blocking.` stated explicitly when
+   there is nothing, because an omitted block reads as forgotten rather than as
+   none. An FYI is not a TO-DO.
+2. `## In plain language` - what was wrong, why it mattered, what is better now,
+   under `/flow-eli5` Section A's existing depth floor.
+3. `## Evidence` - quality-gate output, the security scan verdict, the commit and push results, the PR URL, and any nit-store comment links. Demoted, never deleted.
+
+This run ends at the PR, so a TO-DO item here is typically a review request, a deferred finding, or a gate that was relaxed to get the branch pushed - not the merge decision, which `/flow-merge` closes.
+
+---
+
 ## Error Handling
 
 - **Lint/test failure:** Stop, show output, ask user to fix
