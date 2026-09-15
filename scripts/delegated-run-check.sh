@@ -194,6 +194,20 @@ case "$LANE" in
 esac
 
 SIGNALS=()
+#: The denominator. A helper whose whole defect was "reports success when
+#: nothing ran" must be able to say how much it actually looked at: EVENTS is
+#: the JSON lines parsed, RECOGNIZED the subset carrying a recognizable event
+#: shape. 0 here means the verdict was computed over nothing, which is UNKNOWN
+#: rather than clean - and `output-unrecognized` is the signal that says so.
+EVENTS=0
+RECOGNIZED=0
+#: Initialized HERE, not inside the parse branch. It used to be set only on the
+#: path that runs the JSONL parser, so an empty output file skipped it and the
+#: script died on `TOOL_ERRORS: unbound variable` PART WAY THROUGH the contract
+#: - after SIGNAL and DETAIL, before STATUS - and on main that exits 0. A run
+#: that produced no stream at all reported success, which is this issue's own
+#: failure class in a second code path. Found while adding the denominator.
+TOOL_ERRORS=0
 DETAIL=""
 
 add_signal() { SIGNALS+=("$1"); }
@@ -241,7 +255,15 @@ path = sys.argv[1]
 #   codex (Codex CLI):      thread.started | turn.started | item.started |
 #                           item.completed{item.type} | turn.completed
 #                           item.type in {agent_message, command_execution,
-#                                         file_change, mcp_tool_call}
+#                                         file_change, mcp_tool_call, error}
+#
+# `error` was ABSENT from that list until #892, and the reason is worth keeping:
+# these facts were "verified against real streams on disk" - five captures of
+# runs that WORKED. An enumeration derived only from successful runs cannot
+# contain the failure item, and nothing about the list looks incomplete. So
+# `item.type: "error"` went unlooked-for, and a lane whose execution tool never
+# started reported success. Treat this enumeration as a floor, not a census:
+# a membership list is only as complete as the population it was drawn from.
 #
 # `agent_message` is deliberately NOT a tool marker - it is the model talking.
 TOOL_TYPES = {
@@ -377,6 +399,65 @@ def is_fatal(node):
     return error not in (None, "", [], {}, False)
 
 
+def is_fatal_item(node):
+    """An ITEM whose OWN type is "error".
+
+    NOT sufficient for failure on its own, and that is the whole subtlety.
+
+    Deliberately NOT recursive, and deliberately not part of `is_fatal`. The
+    distinction that makes this safe is structural rather than a matter of
+    degree:
+
+      - a `state.status == "error"` NESTED INSIDE a tool call is a denied or
+        failed call. That is the /gemma:auto fence working as designed, it is
+        `TOOL_ERRORS` business, and making `is_fatal` recursive to catch the
+        case below would re-break it (see `is_fatal`'s note).
+      - an ITEM whose own `type` is "error" is not a tool call at all. It is
+        the harness talking about itself.
+
+    BUT the harness uses that same item for benign things. Read from codex's
+    own `event_processor_with_jsonl_output.rs`, `ThreadItemDetails::Error` is
+    emitted for `ConfigWarning`, `DeprecationNotice` and `ModelRerouted` - all
+    of which then return `CodexStatus::Running` and the run continues normally.
+    A genuinely critical error takes a DIFFERENT shape, `ThreadEvent::Error`, a
+    TOP-LEVEL `{"type":"error"}` event, which `is_fatal` already catches and
+    which this function does not touch.
+
+    So an error item alone means "the harness said something about itself",
+    which is worth SURFACING and is not worth failing a run over. What makes
+    the #892 case a failure is the CONJUNCTION: the harness announced an error
+    AND nothing ever ran. That is the difference between "the run did nothing"
+    and "the run could not do anything", which is the difference the issue is
+    actually about.
+
+    This reads exactly `node["item"]["type"]` and no other depth, so a denied
+    tool call - which carries its error under `part.state` and has no `item`
+    key - cannot reach it.
+    """
+    item = node.get("item")
+    if not isinstance(item, dict):
+        return False
+    return str(item.get("type", "")).lower() == "error"
+
+
+def item_error_message(node):
+    """The item's own message, so the operator sees WHY and not only THAT.
+
+    Without this the only signal is `no-tool-use`, which this helper's own
+    documentation gives a benign reading ("a question can legitimately be
+    answered without touching a file"). That is the difference between "the run
+    did nothing" and "the run could not do anything" - between re-running the
+    prompt and installing a missing binary.
+    """
+    item = node.get("item")
+    if not isinstance(item, dict):
+        return ""
+    message = item.get("message")
+    return message if isinstance(message, str) else ""
+
+
+saw_item_error = False
+
 with open(path, "r", encoding="utf-8", errors="replace") as handle:
     for line in handle:
         line = line.strip()
@@ -410,6 +491,15 @@ with open(path, "r", encoding="utf-8", errors="replace") as handle:
             if isinstance(obj.get("num_turns"), int):
                 turns = obj["num_turns"] if turns is None else max(turns, obj["num_turns"])
 
+        item_error = is_fatal_item(obj)
+        if item_error:
+            # Always surfaced, never fatal by itself: see is_fatal_item. The
+            # message is the point - without it the only signal is
+            # `no-tool-use`, which this helper documents as benign.
+            signals.add("error-item")
+            saw_item_error = True
+            note(item_error_message(obj))
+
         fatal = is_fatal(obj)
         if fatal:
             signals.add("error-payload")
@@ -431,6 +521,12 @@ if parsed == 0 or recognized == 0:
 else:
     if not saw_tool:
         signals.add("no-tool-use")
+        if saw_item_error:
+            # The harness announced an error AND nothing ever ran. Neither half
+            # is a failure alone: an error item can be a deprecation notice,
+            # and a no-tool run can be a question legitimately answered without
+            # touching a file. Together they are a run that COULD NOT act.
+            signals.add("error-payload")
     if not saw_terminal:
         signals.add("no-terminal-event")
     if turns is not None and turns <= 1:
@@ -439,11 +535,14 @@ else:
 print("SIGNALS=" + ",".join(sorted(signals)))
 print("DETAIL=" + detail)
 print("TOOL_ERRORS=%d" % tool_errors)
+print("EVENTS=%d" % parsed)
+print("RECOGNIZED=%d" % recognized)
 PYEOF
 )
     PY_STATUS=$?
 
-    TOOL_ERRORS=0
+    TOOL_ERRORS=0   # reset per parse; the global default above covers the
+                    # paths that never reach the parser at all.
     if [[ "$PY_STATUS" -ne 0 || -z "$PY_OUT" ]]; then
         # python3 is a hard dependency of the repo (3.11+), so this is a real
         # anomaly rather than a portability case. Report it as a signal instead
@@ -451,14 +550,19 @@ PYEOF
         add_signal "output-unreadable"
         [[ -z "$DETAIL" ]] && DETAIL="could not parse $OUTPUT_FILE as a JSONL stream"
     else
-        PY_SIGNALS="${PY_OUT%%$'\n'*}"
-        PY_SIGNALS="${PY_SIGNALS#SIGNALS=}"
-        PY_REST="${PY_OUT#*$'\n'}"
-        PY_DETAIL="${PY_REST%%$'\n'*}"
-        PY_DETAIL="${PY_DETAIL#DETAIL=}"
-        PY_TOOL_ERRORS="${PY_REST#*$'\n'}"
-        PY_TOOL_ERRORS="${PY_TOOL_ERRORS#TOOL_ERRORS=}"
+        # Parsed BY NAME, not by position. The previous form read line 1, 2
+        # and 3, so adding a field below would have silently left TOOL_ERRORS
+        # at its 0 default while looking exactly the same - the same class of
+        # confident-wrong zero this issue is about.
+        py_field() { printf '%s\n' "$PY_OUT" | sed -n "s/^$1=//p" | head -n 1; }
+        PY_SIGNALS="$(py_field SIGNALS)"
+        PY_DETAIL="$(py_field DETAIL)"
+        PY_TOOL_ERRORS="$(py_field TOOL_ERRORS)"
+        PY_EVENTS="$(py_field EVENTS)"
+        PY_RECOGNIZED="$(py_field RECOGNIZED)"
         [[ "$PY_TOOL_ERRORS" =~ ^[0-9]+$ ]] && TOOL_ERRORS="$PY_TOOL_ERRORS"
+        [[ "$PY_EVENTS" =~ ^[0-9]+$ ]] && EVENTS="$PY_EVENTS"
+        [[ "$PY_RECOGNIZED" =~ ^[0-9]+$ ]] && RECOGNIZED="$PY_RECOGNIZED"
         if [[ -n "$PY_SIGNALS" ]]; then
             IFS=',' read -r -a found <<< "$PY_SIGNALS"
             for signal in "${found[@]}"; do
@@ -480,6 +584,19 @@ for signal in ${SIGNALS+"${SIGNALS[@]}"}; do
     case "$signal" in
         no-turns|no-tool-use|no-terminal-event)
             [[ "$EXPECT_TOOLS" -eq 1 ]] && STATUS="failure"
+            ;;
+        error-item)
+            # INFORMATIONAL, never fatal on its own, and not counted by
+            # --expect-tools either. codex emits an error ITEM for
+            # ConfigWarning, DeprecationNotice and ModelRerouted, all of which
+            # continue the run (CodexStatus::Running). A deprecation notice in
+            # a run that did its work is not a failed run.
+            #
+            # The #892 failure is the CONJUNCTION - an error item AND nothing
+            # ever ran - and that raises `error-payload` separately, which
+            # falls through to the catch-all below. Keeping the two signals
+            # apart is what lets the operator see the harness's own message on
+            # a run that succeeded.
             ;;
         *)
             STATUS="failure"
@@ -512,6 +629,8 @@ for signal in ${SIGNALS+"${SIGNALS[@]}"}; do
     echo "DELEGATED_RUN_SIGNAL: $signal"
 done
 [[ -n "$DETAIL" ]] && echo "DELEGATED_RUN_DETAIL: $DETAIL"
+echo "DELEGATED_RUN_EVENTS: $EVENTS"
+echo "DELEGATED_RUN_RECOGNIZED: $RECOGNIZED"
 echo "DELEGATED_RUN_TOOL_ERRORS: $TOOL_ERRORS"
 echo "DELEGATED_RUN_STATUS: $STATUS"
 
