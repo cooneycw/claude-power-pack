@@ -221,6 +221,28 @@ however terse the surrounding style. Reports below this density fail the gate.
 - Verdicts **Still needed / Partially addressed / Needs reframing** -> `/flow:auto` pauses for approval - unconditionally - then proceeds to Implement using the approved plan.
 - `/flow:auto` has no bypass for that pause, and neither does `/flow:auto_codex`. `--yes` / `--auto-approve` are recognized only to report that the gate is not skippable; an `eli5: auto-approve` trailer in the issue body or HEAD commit message is not read at all (issue #775). The Step 3 report line therefore has no `auto-granted` value - `granted` or `close recommended` are the only outcomes.
 
+## CPP integration: the same floor governs the CLOSING report (issue #965)
+
+This section is CPP-owned and sits OUTSIDE the vendored core above, like its
+sibling below. It adds no rule to the gate and changes nothing inside the
+markers.
+
+Section A's depth floor - motivation before mechanics, every technical term
+glossed on first use, and the bar that someone who has never seen the codebase
+finishes understanding what is wrong today and what will be better afterward -
+is **the repository's only plain-language standard**, and it governs the
+`## In plain language` section of every closing report as well as this gate.
+
+[The closing-report contract](../../../docs/agents/closing-report-contract.md)
+is canonical for what a run emits when it ENDS. It cites this floor; it does
+not re-author one. Two plain-language standards in one repository would be a
+convention collision, and the point of pointing here is that there is only one.
+
+Note the asymmetry this closes, because it is the whole of #965: the bar below
+applies when an agent wants a **yes**, and until #965 nothing applied when it
+hands the work **back** - the moment the context is largest and the reader's
+attention thinnest.
+
 ## CPP integration: challenge the plan, not just its freshness (issue #859)
 
 This section is CPP-owned and sits OUTSIDE the vendored core above. The core asks
