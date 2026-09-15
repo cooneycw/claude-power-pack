@@ -563,6 +563,13 @@ def test_missing_jq_names_itself_instead_of_reporting_a_bare_unknown(tmp_path):
     from a CI result. It must now say which it is.
     """
     fake_path = _jq_free_path(tmp_path)
+    # The absence this test rests on, asserted in the function that builds the
+    # environment rather than only inside _jq_free_path (#933). The helper's own
+    # assert is real, but nothing couples it to THIS call: a future test could
+    # take the path without the helper, or the helper without the path, and the
+    # fail-open assertions below would still pass on a fixture that never
+    # removed jq at all - which is the #695 failure exactly.
+    assert shutil.which("jq", path=str(fake_path)) is None, "fixture must lack jq"
     result = subprocess.run(
         ["bash", str(SCRIPT), SHA, "--repo", "o/r", "--path", str(tmp_path)],
         capture_output=True,
@@ -594,6 +601,7 @@ def test_the_wpcli_lane_still_answers_without_jq(tmp_path):
     provider lane that still works on a jq-less host.
     """
     fake_path = _jq_free_path(tmp_path)
+    assert shutil.which("jq", path=str(fake_path)) is None, "fixture must lack jq"
     argv_log = tmp_path / "wpcli-argv.log"
     wpcli = _write_fake_wpcli(tmp_path, [f"1249|success|{SHA}|push"], [], argv_log)
     result = subprocess.run(

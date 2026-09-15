@@ -1,0 +1,26 @@
+{
+  "gate": "scripts/check-negative-fixture-preconditions.py",
+  "invocation": [
+    "python3",
+    "{gate}",
+    "--root",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^negative-fixture: (?:[0-9]+ of [0-9]+ wholesale|.*nothing was scanned)",
+  "cases": [
+    {"name": "bad-dictliteral", "input": "cases/bad-dictliteral", "expect": "BAD"},
+    {"name": "bad-empty", "input": "cases/bad-empty", "expect": "BAD"},
+    {"name": "good-asserted", "input": "cases/good-asserted", "expect": "GOOD"},
+    {"name": "good-prepend", "input": "cases/good-prepend", "expect": "GOOD"}
+  ],
+  "anchors": [
+    {
+      "kind": "historical",
+      "sha": "eae94b5",
+      "origin": "scripts/check-negative-fixture-preconditions.py",
+      "path": "anchors/eae94b5-check-negative-fixture-preconditions.py",
+      "sha256": "a843ad46dceebe53c31e6179b0e65f07b577a562dbfbf90deddf2d758e26f010"
+    }
+  ]
+}
