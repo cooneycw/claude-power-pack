@@ -1937,12 +1937,38 @@ class TestFileLaneOverlap:
         p = _run(tmp_path, "list", "--wave", "cpp", live=f"{SELF_PID}:{OTHER_PID}")
         assert "overlapping FILE LANES" not in p.stdout
 
-    def test_comparison_is_exact_not_prefix_containment(self, tmp_path: Path) -> None:
-        """Deliberately narrow: a comparison that guesses invents collisions
-        nobody declared, and this warning has to be believed."""
+    def test_a_declared_directory_contains_the_paths_under_it(self, tmp_path: Path) -> None:
+        """REVERSED BY #985, deliberately, and the intent below is unchanged.
+
+        This asserted that `docs/` does NOT collide with `docs/y.md`, on the
+        grounds that a guessing comparison invents collisions nobody declared.
+        That grounds is right about GUESSING and wrong about a declared
+        DIRECTORY: `docs/` contains `docs/y.md` by definition, and that is what
+        declaring a directory means rather than an inference about intent.
+
+        It stopped being hypothetical - a role declared the bare `codex/skills`
+        and thereby claimed three other roles' live mirror trees while this
+        predicate reported no overlap at all. The sibling test below still pins
+        the original intent: prefix GUESSING remains refused.
+
+        Reversal trigger, recorded beside the predicate too: if containment
+        warnings fire on pairs the roles consider disjoint, revert to exact-match
+        and record the directory case as known-unhandled.
+        """
         self._pair(tmp_path, "docs/", "docs/y.md")
         p = _run(tmp_path, "list", "--wave", "cpp", live=f"{SELF_PID}:{OTHER_PID}")
-        assert "overlapping FILE LANES" not in p.stdout
+        assert "overlapping FILE LANES" in p.stdout, p.stdout
+
+    def test_comparison_is_still_not_prefix_guessing(self, tmp_path: Path) -> None:
+        """The half of the original rule that #985 did NOT change.
+
+        Containment is tested against a separator, so a path that merely SHARES A
+        PREFIX is not contained: `docs/foo` does not contain `docs/foobar`. This
+        is the case the original warning existed to avoid, and it still holds.
+        """
+        self._pair(tmp_path, "docs/foo", "docs/foobar")
+        p = _run(tmp_path, "list", "--wave", "cpp", live=f"{SELF_PID}:{OTHER_PID}")
+        assert "overlapping FILE LANES" not in p.stdout, p.stdout
 
     def test_a_stronger_lane_signal_still_wins_the_precedence(self, tmp_path: Path) -> None:
         """A shared branch says more about the pair than a shared file, and the
@@ -2805,3 +2831,227 @@ def test_a_mistyped_merge_strict_is_refused_not_stored(tmp_path: Path) -> None:
     """A typo must be exit 2, not a stored value nobody can act on."""
     out = _run(tmp_path, "policy", "set", "--wave", "zz", "--merge-strict", "ture")
     assert out.returncode == 2, out.stdout + out.stderr
+
+
+# --------------------------------------------------------------------------- #
+# #985 - a worker's diff versus its declared lane
+# --------------------------------------------------------------------------- #
+
+
+def _lane_repo(tmp: Path) -> Path:
+    """A repo whose working tree has diverged from its own `origin/main`.
+
+    Built with git rather than a fixture file so the gate reads exactly what git
+    emits. The gate uses `git diff --name-only` - git's own accounting - rather
+    than parsing patch text, because a gate that re-implements diff parsing
+    inherits every edge case git already handles, and the edge cases are where a
+    revert hides.
+    """
+    repo = tmp / "repo"
+    subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True, capture_output=True)
+    git = ["git", "-C", str(repo)]
+    subprocess.run([*git, "config", "user.email", "t@example.com"], check=True, capture_output=True)
+    subprocess.run([*git, "config", "user.name", "t"], check=True, capture_output=True)
+    (repo / "mine.sh").write_text("#!/bin/sh\necho a\n")
+    (repo / "theirs.md").write_text("theirs\n")
+    subprocess.run([*git, "add", "-A"], check=True, capture_output=True)
+    subprocess.run([*git, "commit", "-qm", "init"], check=True, capture_output=True)
+    subprocess.run([*git, "update-ref", "refs/remotes/origin/main", "HEAD"], check=True, capture_output=True)
+    return repo
+
+
+@requires_git_tools
+def test_a_path_outside_the_declared_lane_refuses(tmp_path: Path) -> None:
+    """The #985 red case: the incident itself, reduced.
+
+    A stale payload reverts another worker's merged files, and every
+    content-based gate is blind to it - a suite cannot object to work that is not
+    there, and the stale tree is a previously-green commit. A file the role never
+    claimed appearing in its own diff is the whole signal.
+    """
+    repo = _lane_repo(tmp_path)
+    (repo / "mine.sh").write_text("#!/bin/sh\necho b\n")
+    (repo / "theirs.md").write_text("clobbered\n")
+    _run(tmp_path, "register", "w", "--wave", "zz", "--repo", str(repo), "--files", "mine.sh")
+    out = _run(tmp_path, "lane-check", "w", "--wave", "zz", cwd=repo)
+    assert out.returncode == 1, (out.returncode, out.stdout, out.stderr)
+    assert "FLOW_WAVE_LANE_CHECK=extra" in out.stdout, out.stdout
+    assert "theirs.md" in out.stdout + out.stderr, "the offending path must be NAMED"
+
+
+@requires_git_tools
+def test_the_same_diff_without_that_path_passes(tmp_path: Path) -> None:
+    """The mirror of the case above - or the refusal proves nothing."""
+    repo = _lane_repo(tmp_path)
+    (repo / "mine.sh").write_text("#!/bin/sh\necho b\n")
+    _run(tmp_path, "register", "w", "--wave", "zz", "--repo", str(repo), "--files", "mine.sh")
+    out = _run(tmp_path, "lane-check", "w", "--wave", "zz", cwd=repo)
+    assert out.returncode == 0, (out.returncode, out.stdout, out.stderr)
+    assert "FLOW_WAVE_LANE_CHECK=ok" in out.stdout, out.stdout
+    assert "FLOW_WAVE_LANE_TOUCHED=1" in out.stdout, out.stdout
+
+
+@requires_git_tools
+def test_no_declared_lane_is_unknown_never_a_pass(tmp_path: Path) -> None:
+    """A role with nothing declared has nothing to compare against.
+
+    Reporting that as clean makes the gate go quiet exactly when it has nothing
+    to check, which is the shape where unclaimed, released and over-claimed all
+    render identically.
+    """
+    repo = _lane_repo(tmp_path)
+    _run(tmp_path, "register", "w", "--wave", "zz", "--repo", str(repo))
+    out = _run(tmp_path, "lane-check", "w", "--wave", "zz", cwd=repo)
+    assert out.returncode == 2, (out.returncode, out.stdout)
+    assert "FLOW_WAVE_LANE_CHECK=unknown" in out.stdout, out.stdout
+
+
+@requires_git_tools
+def test_a_wide_lane_is_data_and_a_contended_one_is_a_finding(tmp_path: Path) -> None:
+    """The third state, deliberately not graded.
+
+    An unused lane entry is common and usually innocent, so a report that always
+    has content gets read as noise and then not read at all. Declared-but-
+    untouched is emitted as DATA; the rare actionable subset - also claimed by
+    another LIVE role - is named separately, because that pair is how a lane
+    silently takes a file somebody else is working in.
+    """
+    repo = _lane_repo(tmp_path)
+    (repo / "mine.sh").write_text("#!/bin/sh\necho b\n")
+    _run(tmp_path, "register", "w", "--wave", "zz", "--repo", str(repo),
+         "--files", "mine.sh,unused.md", live=SELF_PID)
+    quiet = _run(tmp_path, "lane-check", "w", "--wave", "zz", cwd=repo, live=SELF_PID)
+    assert quiet.returncode == 0, (quiet.returncode, quiet.stdout)
+    assert "FLOW_WAVE_LANE_UNUSED=1" in quiet.stdout, quiet.stdout
+    assert "FLOW_WAVE_LANE_CONTESTED=0" in quiet.stdout, quiet.stdout
+    assert "OVER-CLAIM" not in quiet.stdout + quiet.stderr, "a wide lane alone is not a finding"
+
+    _run(tmp_path, "register", "rival", "--wave", "zz", "--repo", str(repo),
+         "--files", "unused.md", live=SELF_PID)
+    loud = _run(tmp_path, "lane-check", "w", "--wave", "zz", cwd=repo, live=SELF_PID)
+    assert "FLOW_WAVE_LANE_CONTESTED=1" in loud.stdout, loud.stdout
+    assert "OVER-CLAIM" in loud.stdout + loud.stderr, loud.stdout
+
+
+@requires_git_tools
+def test_a_newline_in_a_filename_cannot_split_into_two_in_lane_paths(tmp_path: Path) -> None:
+    """Codex pass 2. The NUL-safety fix reintroduced the hazard it removed.
+
+    Command substitution strips NUL, so the enumeration writes `git diff -z` to a
+    temp file - and then converted the NULs to newlines to read it back. That
+    hands the splitting right back to any filename CONTAINING a newline: one
+    out-of-lane path named `mine.sh\ntheirs.md` splits into two paths that are
+    BOTH in the lane, and the gate reports ok. The delimiter has to stay NUL all
+    the way to the reader.
+    """
+    repo = _lane_repo(tmp_path)
+    evil = repo / "mine.sh\ntheirs.md"
+    evil.write_text("out of lane\n")
+    #: `git diff` cannot see an UNTRACKED path, so the payload has to be staged
+    #: or the gate is being asked about a file it structurally cannot observe.
+    subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True, capture_output=True)
+    _run(tmp_path, "register", "w", "--wave", "zz", "--repo", str(repo),
+         "--files", "mine.sh,theirs.md")
+    out = _run(tmp_path, "lane-check", "w", "--wave", "zz", cwd=repo)
+    assert "FLOW_WAVE_LANE_TOUCHED=1" in out.stdout, (
+        "one file was created, so one path must be counted", out.stdout)
+    assert out.returncode == 1, (out.returncode, out.stdout, out.stderr)
+    assert "FLOW_WAVE_LANE_CHECK=extra" in out.stdout, out.stdout
+
+
+@requires_git_tools
+def test_an_ok_verdict_names_the_population_it_could_not_see(tmp_path: Path) -> None:
+    """A zero must distinguish "I looked" from "there was nothing to look at".
+
+    `git diff` observes TRACKED paths only, so an untracked out-of-lane file is
+    invisible to the whole check. That scope is deliberate - an untracked file is
+    not part of what a push delivers - but a bare `TOUCHED=0 ... ok` reads as a
+    clean bill of health over a tree the gate never examined, which is how the
+    ABSENCE of a warning gets taken for the PRESENCE of a check. The uncovered
+    population is reported beside the verdict instead.
+    """
+    repo = _lane_repo(tmp_path)
+    (repo / "not-my-lane.md").write_text("untracked, unseen\n")
+    _run(tmp_path, "register", "w", "--wave", "zz", "--repo", str(repo), "--files", "mine.sh")
+    out = _run(tmp_path, "lane-check", "w", "--wave", "zz", cwd=repo)
+    assert "FLOW_WAVE_LANE_TOUCHED=0" in out.stdout, out.stdout
+    assert "FLOW_WAVE_LANE_UNTRACKED=1" in out.stdout, (
+        "the file the diff structurally cannot see must still be counted", out.stdout)
+    assert out.returncode == 0, "an untracked file is not part of the payload, so it is not a finding"
+
+
+@requires_git_tools
+def test_a_glob_in_a_declaration_is_never_pathname_expanded(tmp_path: Path) -> None:
+    """Codex pass 2. `set +f` restores globbing ON, not the caller's state.
+
+    lane_covers disables pathname expansion around its own CSV split and then
+    turns it back on unconditionally - so the unused-lane loop, which splits the
+    same CSV the same way, runs with globbing ENABLED. A literal declaration like
+    `*.md` then expands against the working directory into files the role never
+    declared, and those invented paths are what get reported as unused, and can
+    be reported as CONTESTED against another role. A gate must not manufacture
+    the paths it grades.
+    """
+    repo = _lane_repo(tmp_path)
+    (repo / "other.md").write_text("other\n")
+    subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-qm", "other"], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(repo), "update-ref", "refs/remotes/origin/main", "HEAD"],
+                   check=True, capture_output=True)
+    (repo / "mine.sh").write_text("#!/bin/sh\necho b\n")
+    _run(tmp_path, "register", "w", "--wave", "zz", "--repo", str(repo),
+         "--files", "mine.sh,*.md", live=SELF_PID)
+    out = _run(tmp_path, "lane-check", "w", "--wave", "zz", cwd=repo, live=SELF_PID)
+    blob = out.stdout + out.stderr
+    assert "theirs.md" not in blob, ("a declaration was expanded into a real path", blob)
+    assert "other.md" not in blob, ("a declaration was expanded into a real path", blob)
+    assert "FLOW_WAVE_LANE_UNUSED=1" in out.stdout, (
+        "the literal '*.md' is one unused entry, not one per matching file", out.stdout)
+
+
+# --------------------------------------------------------------------------- #
+# #985 - a declared DIRECTORY contains the paths under it
+# --------------------------------------------------------------------------- #
+
+
+def _two_lanes(tmp: Path, a: str, b: str) -> subprocess.CompletedProcess[str]:
+    _run(tmp, "register", "wide", "--wave", "zz", "--repo", "/same", "--cwd", "/wt/a",
+         "--files", a, live=SELF_PID)
+    _run(tmp, "register", "inner", "--wave", "zz", "--repo", "/same", "--cwd", "/wt/b",
+         "--files", b, live=SELF_PID)
+    return _run(tmp, "list", "--wave", "zz", live=SELF_PID)
+
+
+@requires_tools
+def test_a_declared_directory_collides_with_a_path_inside_it(tmp_path: Path) -> None:
+    """The live case: a bare `codex/skills` claimed three other roles' mirrors.
+
+    Exact-match reported no overlap at all. A declared directory containing the
+    paths under it is not a prefix guess - it is what declaring a directory means.
+    """
+    out = _two_lanes(tmp_path, "codex/skills", "codex/skills/flow-repair/reference.md")
+    assert "overlapping FILE LANES" in out.stdout, out.stdout
+
+
+@requires_tools
+def test_containment_is_not_prefix_guessing(tmp_path: Path) -> None:
+    """The control that keeps containment from becoming the #683 false positive.
+
+    The test is anchored on a separator, so `scripts/foo` does NOT contain
+    `scripts/foobar`. Only a real path boundary counts.
+    """
+    out = _two_lanes(tmp_path, "scripts/foo", "scripts/foobar")
+    assert "overlapping FILE LANES" not in out.stdout, out.stdout
+
+
+@requires_tools
+def test_disjoint_lanes_still_warn_about_nothing(tmp_path: Path) -> None:
+    out = _two_lanes(tmp_path, "scripts/alpha.sh", "scripts/beta.sh")
+    assert "overlapping FILE LANES" not in out.stdout, out.stdout
+
+
+@requires_tools
+def test_identical_lanes_still_collide(tmp_path: Path) -> None:
+    """Exact-match must be unregressed: containment ADDED a case, it replaced none."""
+    out = _two_lanes(tmp_path, "scripts/same.sh", "scripts/same.sh")
+    assert "overlapping FILE LANES" in out.stdout, out.stdout

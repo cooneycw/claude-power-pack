@@ -167,6 +167,10 @@
 #             declared paths, deliberately - a glob-expanding or prefix-guessing
 #             comparison would invent collisions the roles never declared, and an
 #             overlap warning nobody believes is the #683 failure repeating.
+#             ONE EXCEPTION (#985): a declared DIRECTORY contains the paths under
+#             it. That is not a guess about intent, it is what declaring a
+#             directory means, and without it a role claiming a whole mirror tree
+#             collides with nobody. Reversal trigger recorded at the predicate.
 #             ALSO joins the #676 MAILBOX so a role's WATCH state is visible
 #             (#778). A role could be `live`, address-`verified` and
 #             `brief=current` and still be completely DEAF: arming the mailbox
@@ -840,7 +844,38 @@ shared_files() {
     while IFS= read -r pb; do
       pb="$(norm_path "$pb")"
       [ -n "$pb" ] || continue
-      [ "$pa" = "$pb" ] && out="$out$pa "
+      #: EXACT MATCH, PLUS CONTAINMENT FOR A DECLARED DIRECTORY (#985).
+      #:
+      #: The exact-match rule above it exists to stop prefix-GUESSING inventing
+      #: collisions the roles never declared (#683). A declared DIRECTORY is not a
+      #: guess: `codex/skills/` contains `codex/skills/flow-repair/reference.md`
+      #: by definition, and that is what declaring a directory means. Live case:
+      #: a role declared the bare `codex/skills` and thereby claimed three other
+      #: roles' mirror trees while this predicate reported no overlap at all.
+      #:
+      #: The same file already does containment for CWD comparison (`case "$ca/"
+      #: in "$cb"/*`) and refused it here, so the codebase had decided both ways
+      #: in one file. A rule applied to one half of a comparison and refused for
+      #: the other is not a policy, it is an accident.
+      #:
+      #: TWO-SIDED, so the REVERSAL TRIGGER lives here rather than in a PR nobody
+      #: will read: if containment warnings start firing on pairs the roles
+      #: consider disjoint, revert to exact-match and record the directory case as
+      #: known-unhandled. Everything that is not a declared directory stays exact.
+      #: Containment is tested with an EXPLICIT SEPARATOR, and that is what keeps
+      #: it from being the prefix-guessing the rule above forbids: `scripts/foo`
+      #: does NOT contain `scripts/foobar`, because the test is against
+      #: `scripts/foo/`. Only a real path boundary counts. A trailing slash on the
+      #: declaration is optional - the live over-claim was a bare `codex/skills`,
+      #: and requiring the slash would have missed the case this exists for.
+      _ca="${pa%/}"; _cb="${pb%/}"
+      if [ "$_ca" = "$_cb" ]; then
+        out="$out$_ca "
+      elif [ "${_cb#"$_ca"/}" != "$_cb" ]; then
+        out="$out$_cb "
+      elif [ "${_ca#"$_cb"/}" != "$_ca" ]; then
+        out="$out$_ca "
+      fi
     done <<EOF
 $(printf '%s' "$b" | tr ',' '\n')
 EOF
@@ -1200,6 +1235,117 @@ likely_wave() {
 #: STARVE_OBSERVED (live roles carrying a COMPARABLE baseline), STARVE_LIVE
 #: (live roles). The last two exist so a zero can be read: `0 of 0 observed` is
 #: "nothing to compare" and `0 of 5 observed` is "looked and found nothing".
+#: Does the declared lane cover this path? (#985)
+#:
+#: MIRRORS ARE DERIVED FROM THE SOURCE, NEVER ENUMERATED. `codex-skills-check` is
+#: a CI gate, so regenerating `codex/skills/**` is not optional work a worker
+#: chose to do - editing a command document or a bundled script REQUIRES it. Yet
+#: no lane in this wave has ever declared a mirror path, so the whole file family
+#: sits in nobody lane and the roster overlap report is structurally blind to it:
+#: two roles editing DIFFERENT sources that mirror into the same file collide
+#: while the roster reads clean. Hand-enumerating mirrors into every lane is the
+#: failure this repo keeps filing, so a lane granting a source grants its mirrors.
+#:
+#: The two derivations, both deterministic from the sync tool contract:
+#:   scripts/<name>                     -> codex/skills/*/scripts/<name>
+#:   .claude/commands/<fam>/<cmd>.md    -> codex/skills/<fam>-<cmd>/**
+#:
+#: BOUND, stated rather than discovered: a mirror whose source is neither of those
+#: shapes is NOT derived, and such a path reads as outside the lane. That is the
+#: safe direction - it refuses and names the file rather than waving it through -
+#: but it means a new mirror shape needs this function updated, not a lane edited.
+#: Does any entry of LANE_CSV lie UNDER this declaration? (#985)
+#: The mirror of `lane_covers`, needed because containment is asymmetric: an
+#: untouched `codex/skills` is not covered BY `codex/skills/x/y.md`, yet it is
+#: exactly the broad over-claim that contends with it.
+lane_split() { # lane_split ARRAY_NAME CSV
+  #: Split a declared lane on commas WITHOUT pathname expansion.
+  #:
+  #: `for _e in $csv` under IFS=',' also PATHNAME-EXPANDS each word, so a
+  #: declared `docs/*.md` silently becomes whatever the caller's cwd happens to
+  #: contain: a different lane on every machine, and a gate MANUFACTURING the
+  #: paths it grades.
+  #:
+  #: The previous guard was `set -f` around each loop with an unconditional
+  #: `set +f` on the way out. That restores globbing ON rather than to the
+  #: caller's state, so the first lane_covers call re-enabled expansion for
+  #: every loop after it, and the unused-lane scan expanded `*.md` into real
+  #: filenames and reported those invented paths as unused - and could report
+  #: them CONTESTED against another role (Codex pass 2 on #985).
+  #:
+  #: `read -ra` splits on IFS and never globs, so the hazard cannot return by
+  #: someone adding another CSV loop. `-d ''` so a lane entry containing a
+  #: NEWLINE cannot truncate the rest of the lane.
+  #:
+  #: REVERSAL TRIGGER (#936): this is the one splitter. If a future caller needs
+  #: a lane entry to be a PATTERN rather than a literal, that is a new verb with
+  #: its own matcher - do not restore pathname expansion here, because expansion
+  #: resolves against the caller's cwd and a gate cannot grade what its own cwd
+  #: invented.
+  local -n _out="$1"
+  local _raw _i
+  _out=()
+  IFS=',' read -r -d '' -a _out < <(printf '%s\0' "$2") || true
+  for _i in "${!_out[@]}"; do
+    #: Inline trim: this script has no `trim` helper, and calling an undefined
+    #: function returns 127 with EMPTY output, so every comparison would
+    #: silently be made against "" and every path would read as outside the lane.
+    _raw="${_out[$_i]}"
+    _raw="${_raw#"${_raw%%[![:space:]]*}"}"
+    _raw="${_raw%"${_raw##*[![:space:]]}"}"
+    _out[$_i]="$_raw"
+  done
+}
+
+_lane_contains_any() { # _lane_contains_any DECL LANE_CSV
+  local _d="${1%/}" _e; local -a _arr=()
+  lane_split _arr "$2"
+  for _e in ${_arr[@]+"${_arr[@]}"}; do
+    _e="${_e%/}"
+    [ -n "$_e" ] || continue
+    [ "$_e" = "$_d" ] && return 0
+    case "$_e" in "$_d"/*) return 0 ;; esac
+  done
+  return 1
+}
+
+lane_covers() { # lane_covers PATH LANE_CSV
+  local _p="$1" _e _base _fam _cmd _skill; local -a _arr=()
+  lane_split _arr "$2"
+  for _e in ${_arr[@]+"${_arr[@]}"}; do
+    [ -n "$_e" ] || continue
+    # exact file, or a directory prefix when the entry names one
+    [ "$_p" = "$_e" ] && return 0
+    case "$_e" in
+      */) case "$_p" in "$_e"*) return 0 ;; esac ;;
+      *)  case "$_p" in "$_e"/*) return 0 ;; esac ;;
+    esac
+    # derived: a bundled script mirrors under every skill that references it
+    case "$_e" in
+      scripts/*)
+        _base="${_e#scripts/}"
+        case "$_p" in codex/skills/*/scripts/"$_base") return 0 ;; esac
+        ;;
+      .claude/commands/*/*.md)
+        #: A command document grants its GENERATED skill files, but NOT the
+        #: scripts bundled under that skill: those derive from `scripts/<name>`,
+        #: which is a separately owned lane. Granting them here would let a
+        #: worker holding only `register.md` ship a stale bundled copy of another
+        #: worker's script while this gate reported ok - the exact revert this
+        #: check exists to refuse, arriving through the check.
+        _fam="${_e#.claude/commands/}"; _fam="${_fam%%/*}"
+        _cmd="${_e##*/}"; _cmd="${_cmd%.md}"
+        _skill="codex/skills/${_fam}-${_cmd}"
+        case "$_p" in
+          "$_skill"/scripts/*) ;;
+          "$_skill"/*) return 0 ;;
+        esac
+        ;;
+    esac
+  done
+  return 1
+}
+
 starvation_scan() { # starvation_scan REG WAVE ROLES
   local _reg="$1" _wave="$2" _roles="$3" _r _e _lv _ov _pr
   STARVED=""; STARVE_N=0; STARVE_OBSERVED=0; STARVE_LIVE=0
@@ -1244,11 +1390,11 @@ cross_wave_notes() {
 
 # ---- argument parsing -------------------------------------------------------
 VERB="${1:-}"
-[ -n "$VERB" ] || usage_fail "usage: flow-wave-registry.sh register|policy|list|get|verify|release|self-address ..."
+[ -n "$VERB" ] || usage_fail "usage: flow-wave-registry.sh register|policy|list|get|verify|release|lane-check|self-address ..."
 shift
 
 case "$VERB" in
-  register | list | get | verify | release | self-address | policy) : ;;
+  register | list | get | verify | release | self-address | policy | lane-check) : ;;
   --help | -h)
     # Print the whole comment header rather than a hand-counted line range: the
     # old fixed `2,96p` silently truncated the moment the header grew, so --help
@@ -1938,6 +2084,204 @@ case "$VERB" in
       .[$w].roles[$r].released_ts = ($now | tonumber)' \
       --arg w "$WAVE" --arg r "$ROLE" --arg now "$NOW"
     emit released
+    exit 0
+    ;;
+
+  #: LANE CHECK (#985). Compare what this change ACTUALLY touches against the
+  #: file lane this role declared, and refuse a path the role never claimed.
+  #:
+  #: WHY A NAME LIST AND NOT A DIFF RANGE. Two mechanisms produce a stale payload
+  #: and only one is a range problem. If the branch is old-base plus your work,
+  #: `git diff origin/main` renders a sibling's merged additions as your
+  #: deletions, and three-dot fixes it. But `git reset --soft origin/main` moves
+  #: HEAD to the NEW main while the index still holds the OLD tree: the commit
+  #: then has new main as its PARENT and old content as its TREE, the merge base
+  #: IS origin/main, and EVERY diff form agrees with every other. Agreement reads
+  #: as confirmation. There is no range that reveals it because nothing is wrong
+  #: with the range - the content is wrong.
+  #:
+  #: So this compares NAMES against a declared lane. A file the role never claimed
+  #: appearing in its own diff is the whole signal, and it is the only signal that
+  #: survives both mechanisms. Every content-based gate is structurally blind
+  #: here: a suite cannot object to work that is not there, and `make verify`
+  #: passed on a tree with a merged PR simply absent from it.
+  #:
+  #: NO DECLARED LANE IS UNKNOWN, NEVER PASS. A role that declared no `files=` has
+  #: nothing to compare against, and reporting that as clean would make the gate
+  #: go quiet exactly when it has nothing to check.
+  lane-check)
+    REG="$(read_registry)"
+    CUR="$(printf '%s' "$REG" | jq -c --arg w "$WAVE" --arg r "$ROLE" '.[$w].roles[$r] // empty')"
+    [ -n "$CUR" ] || { echo "flow-wave-registry: role '$ROLE' is not registered in wave '$WAVE'" >&2; emit error; exit 2; }
+    LANE="$(printf '%s' "$CUR" | jq -r '.files // ""')"
+    BASE_REF="${A_BASE:-origin/main}"
+
+    #: A declaration carrying `..` or `./` cannot be compared lexically - both
+    #: containment and exact-match would answer about the literal string rather
+    #: than the path it resolves to, so `docs/foo` and `docs/foo/../bar.md` would
+    #: read as overlapping. Refused rather than normalised: the registry does not
+    #: own path resolution, and a silently rewritten lane is a lane nobody
+    #: declared (#985).
+    case ",$LANE," in
+      *,*/../*,*|*,../*,*|*,*/..,*|*,./*,*|*,*/./*,*)
+        echo "FLOW_WAVE_LANE_CHECK=unknown"
+        echo "flow-wave-registry: UNKNOWN - the declared lane contains a non-canonical path ('.' or '..'), which cannot be compared lexically. Re-register with repository-relative paths." >&2
+        emit error; exit 2 ;;
+    esac
+
+    if [ -z "$LANE" ]; then
+      echo "FLOW_WAVE_LANE_CHECK=unknown"
+      echo "FLOW_WAVE_LANE_EXTRA=0"
+      echo "flow-wave-registry: UNKNOWN - role '$ROLE' declared no file lane, so its diff cannot be compared to anything." >&2
+      echo "flow-wave-registry: this is NOT a pass. Re-register with --files (and --repo on the same call, #800)." >&2
+      emit error
+      exit 2
+    fi
+    command -v git >/dev/null 2>&1 || { echo "FLOW_WAVE_LANE_CHECK=unknown"; echo "flow-wave-registry: UNKNOWN - git is absent, so nothing was compared." >&2; emit error; exit 2; }
+    git rev-parse --verify "$BASE_REF" >/dev/null 2>&1 || { echo "FLOW_WAVE_LANE_CHECK=unknown"; echo "flow-wave-registry: UNKNOWN - base ref '$BASE_REF' does not resolve." >&2; emit error; exit 2; }
+
+    #: THE BASE IS THE MERGE BASE, not the base ref (#985).
+    #:
+    #: `git diff origin/main` compares the working tree to the CURRENT TIP, so a
+    #: branch that is merely behind main reports every neighbour's merged file as
+    #: this worker's change. That is the ordinary state of every branch between a
+    #: sibling merge and a rebase, so the gate would fire constantly on waves
+    #: where nothing is wrong - the cry-wolf this repo keeps filing.
+    #:
+    #: The merge base removes that false positive AND KEEPS THE REAL ONE.
+    #: Measured on both mechanisms: behind-main gives `mine.sh` alone against the
+    #: merge base and `mine.sh theirs.md` against the tip, while a soft-reset
+    #: stale payload gives `mine.sh theirs.md` against BOTH - because there the
+    #: merge base IS origin/main. The defect survives the correction; the noise
+    #: does not.
+    MERGE_BASE="$(git merge-base HEAD "$BASE_REF" 2>/dev/null)"
+    [ -n "$MERGE_BASE" ] || { echo "FLOW_WAVE_LANE_CHECK=unknown"; echo "flow-wave-registry: UNKNOWN - no merge base between HEAD and '$BASE_REF'; nothing was compared." >&2; emit error; exit 2; }
+
+    #: -z, and the exit status CHECKED. A failed diff printing nothing is
+    #: indistinguishable from a clean tree, and this gate exists to refuse exactly
+    #: that equivalence. `--no-renames` because `--name-only` reports only a
+    #: rename's DESTINATION: moving an unclaimed file onto a claimed path would
+    #: otherwise pass while deleting somebody else's file.
+    #: Via a FILE, not command substitution: `$(...)` strips NUL bytes, so a
+    #: `-z` list collapses into one concatenated string and every path but the
+    #: first disappears. Caught by the count - the gate reported 1 touched file
+    #: for a diff of ten - which is why the denominator is worth printing.
+    TOUCHED_TMP="${TMPDIR:-/tmp}/flow-lane.$$"
+    UNTRACKED_TMP="${TMPDIR:-/tmp}/flow-lane-untracked.$$"
+    trap 'rm -f "$TOUCHED_TMP" "$UNTRACKED_TMP"' EXIT INT TERM
+    if ! git diff -z --no-renames --name-only "$MERGE_BASE" > "$TOUCHED_TMP" 2>/dev/null; then
+      echo "FLOW_WAVE_LANE_CHECK=unknown"
+      echo "flow-wave-registry: UNKNOWN - git diff failed against '$MERGE_BASE'; TOUCHED=0 here would be a failed observation, not a clean one." >&2
+      emit error; exit 2
+    fi
+    EXTRA=""; EXTRA_N=0; TOUCHED_N=0; TOUCHED_ARR=()
+    #: NUL ALL THE WAY TO THE READER. Command substitution strips NUL, which is
+    #: why the enumeration goes to a temp file at all - but converting those NULs
+    #: back to newlines to read them hands the splitting straight back to any
+    #: filename CONTAINING a newline. One out-of-lane path named `a.sh\nb.md`
+    #: then splits into two paths that can BOTH be in the lane, and the gate
+    #: reports ok on the exact payload it exists to refuse (Codex pass 2, #985).
+    while IFS= read -r -d '' f; do
+      [ -n "$f" ] || continue
+      TOUCHED_N=$((TOUCHED_N + 1))
+      TOUCHED_ARR+=("$f")
+      lane_covers "$f" "$LANE" || { EXTRA="$EXTRA
+    $f"; EXTRA_N=$((EXTRA_N + 1)); }
+    done < "$TOUCHED_TMP"
+
+    #: WHAT THIS GATE STRUCTURALLY CANNOT SEE (CLAUDE.md detector contract).
+    #: `git diff` observes TRACKED paths only, so an untracked file is invisible
+    #: to every branch above. That is the CORRECT scope - an untracked file is
+    #: not part of what a push delivers, so grading it would refuse work that
+    #: cannot reach anybody - but a bare `TOUCHED=0 ... ok` cannot be told from
+    #: "there was nothing to look at", and that is the reading that turns the
+    #: ABSENCE of a warning into the PRESENCE of a check. So the population this
+    #: verdict did NOT cover is reported beside it, as ungraded data.
+    UNTRACKED_N=0
+    if git ls-files -z --others --exclude-standard > "$UNTRACKED_TMP" 2>/dev/null; then
+      while IFS= read -r -d '' f; do
+        [ -n "$f" ] || continue
+        UNTRACKED_N=$((UNTRACKED_N + 1))
+      done < "$UNTRACKED_TMP"
+    else
+      UNTRACKED_N=unknown
+    fi
+
+    #: THE THIRD STATE (#985). Unclaimed, released and over-claimed all render as
+    #: "clean", so the roster reports the ABSENCE of a warning and a reader takes
+    #: it for the PRESENCE of a check. The two detectors see different things and
+    #: neither subsumes the other:
+    #:   - the CONTAINMENT check compares declarations against EACH OTHER. It
+    #:     needs two claimants and fires at declaration time. It cannot see an
+    #:     over-claim nobody has contended yet.
+    #:   - THIS compares one declaration against one DIFF. It needs only one role,
+    #:     fires at push time, and is the only thing that can see a path claimed
+    #:     but never touched when no other role has declared it - a collision that
+    #:     has not happened yet.
+    #: A live over-claim in this wave was invisible to both: too wide for the diff
+    #: check to have run on, and invisible to exact-match.
+    #:
+    #: DELIBERATELY NOT GRADED. An unused lane entry is common and usually
+    #: innocent - a worker may hold a file it did not need this run - so a report
+    #: that always has content gets read as noise and then not read at all. It is
+    #: emitted as DATA, and the rare actionable subset is named separately:
+    #: declared-but-untouched AND also claimed by another live role. That pair is
+    #: what silently takes someone else's file.
+    UNUSED=""; UNUSED_N=0; CONTESTED=""; CONTESTED_N=0
+    LANE_ARR=(); lane_split LANE_ARR "$LANE"
+    for _le in ${LANE_ARR[@]+"${LANE_ARR[@]}"}; do
+      [ -n "$_le" ] || continue
+      _hit=0
+      for f in ${TOUCHED_ARR[@]+"${TOUCHED_ARR[@]}"}; do
+        lane_covers "$f" "$_le" && { _hit=1; break; }
+      done
+      if [ "$_hit" -eq 0 ]; then
+        UNUSED="$UNUSED $_le"; UNUSED_N=$((UNUSED_N + 1))
+        _myrepo="$(printf '%s' "$CUR" | jq -r '.repo // ""')"
+        for _other in $(printf '%s' "$REG" | jq -r --arg w "$WAVE" --arg me "$ROLE" \
+              '(.[$w].roles // {}) | to_entries[] | select(.key != $me and (.value.released != true)) | .key' 2>/dev/null); do
+          _oe="$(printf '%s' "$REG" | jq -c --arg w "$WAVE" --arg r "$_other" '.[$w].roles[$r]')"
+          #: LIVE and SAME REPO, or the finding asserts something it did not check.
+          #: A dead-but-unreleased role, or one working in another repository,
+          #: is not contending for this path.
+          [ "$(liveness_of "$_oe")" = "live" ] || continue
+          [ "$(printf '%s' "$_oe" | jq -r '.repo // ""')" = "$_myrepo" ] || continue
+          _ol="$(printf '%s' "$_oe" | jq -r '.files // ""')"
+          [ -n "$_ol" ] || continue
+          #: SYMMETRIC. Asking only "does their lane cover mine" misses the
+          #: broad-directory over-claim this feature exists for: an untouched
+          #: `codex/skills` is not covered BY `codex/skills/x/y.md`, but it
+          #: certainly contends with it.
+          if lane_covers "$_le" "$_ol" || lane_covers "${_le%/}" "$_ol" || _lane_contains_any "$_le" "$_ol"; then
+            CONTESTED="$CONTESTED $_le($_other)"; CONTESTED_N=$((CONTESTED_N + 1)); break
+          fi
+        done
+      fi
+    done
+
+    echo "FLOW_WAVE_LANE_BASE=$BASE_REF"
+    echo "FLOW_WAVE_LANE_TOUCHED=$TOUCHED_N"
+    echo "FLOW_WAVE_LANE_UNTRACKED=$UNTRACKED_N"
+    echo "FLOW_WAVE_LANE_EXTRA=$EXTRA_N"
+    echo "FLOW_WAVE_LANE_UNUSED=$UNUSED_N"
+    echo "FLOW_WAVE_LANE_CONTESTED=$CONTESTED_N"
+    [ "$UNUSED_N" -gt 0 ] && echo "flow-wave-registry: declared but not touched by this diff (data, not a finding):$UNUSED"
+    if [ "$CONTESTED_N" -gt 0 ]; then
+      echo "flow-wave-registry: OVER-CLAIM - declared, untouched, and claimed by another LIVE role:$CONTESTED" >&2
+      echo "flow-wave-registry: that pair is how a lane silently takes a file somebody else is working in." >&2
+    fi
+    if [ "$EXTRA_N" -gt 0 ]; then
+      echo "FLOW_WAVE_LANE_CHECK=extra"
+      echo "flow-wave-registry: $EXTRA_N path(s) in this diff are OUTSIDE the declared lane of '$ROLE':" >&2
+      for f in $EXTRA; do echo "    $f" >&2; done
+      echo "flow-wave-registry: a path you never claimed appearing in your own diff is the stale-payload signature." >&2
+      echo "flow-wave-registry: verify the two changes are DISJOINT before repairing; if they overlap it is a real merge." >&2
+      emit refused
+      exit 1
+    fi
+    echo "FLOW_WAVE_LANE_CHECK=ok"
+    echo "flow-wave-registry: ok - $TOUCHED_N path(s) touched, all inside the declared lane of '$ROLE'."
+    emit listed
     exit 0
     ;;
 

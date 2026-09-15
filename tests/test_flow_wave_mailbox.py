@@ -53,6 +53,7 @@ from tests.wave_namespace import unique_wave
 
 ROOT = Path(__file__).resolve().parents[1]
 MAILBOX = ROOT / "scripts" / "flow-wave-mailbox.sh"
+REGISTRY = ROOT / "scripts" / "flow-wave-registry.sh"
 
 # Drives a real `bash` subprocess; the CI validate container may not ship one,
 # so skip there (CPP core directive, same shape as the other flow suites).
@@ -66,6 +67,23 @@ requires_bash = pytest.mark.skipif(
 # that lane needs this guard; the auto-selected /proc lane needs no `ps` at all.
 requires_ps = pytest.mark.skipif(
     shutil.which("ps") is None, reason="requires ps on PATH (procps)"
+)
+
+# The escalate FIRE path resolves a target through `jq` (the session record) and
+# claims under `flock`. Without both, resolution correctly answers "cannot
+# resolve" and the fire path is never reached - so these tests would pass having
+# exercised nothing, which is the vacuous green the #970 battery exists to catch.
+# Spelled as explicit `shutil.which(...)` calls rather than a loop over a tuple:
+# check-test-binary-guards.py reads the guard with an AST matcher, and a
+# comprehension it cannot read is indistinguishable from no guard at all. The
+# generator form skipped correctly and still failed the check, which is the
+# check doing its job - the binary it cannot see named is the one nobody
+# thought about.
+requires_escalate_tools = pytest.mark.skipif(
+    shutil.which("bash") is None
+    or shutil.which("jq") is None
+    or shutil.which("flock") is None,
+    reason="requires bash, jq and flock on PATH",
 )
 
 #: Unique per pytest INVOCATION, not the shared literal it used to be (#881,
@@ -2753,3 +2771,217 @@ def test_an_empty_process_table_is_still_a_confident_zero(tmp_path: Path) -> Non
     bin_dir = _stub_ps(tmp_path, "    1     0 /sbin/init\n  500     1 sshd: /usr/sbin/sshd")
     proc = _run_with_ps(tmp_path, bin_dir, "watch", "--status", "--role", "1", "--wave", "testwave-x")
     assert _detail(proc, "FLOW_MAILBOX_WATCHER_COUNT") == "0", proc.stdout
+
+
+# --------------------------------------------------------------------------- #
+# #971 - out-of-band acknowledgement, and escalating an unanswered message
+# --------------------------------------------------------------------------- #
+
+
+def test_an_ordinary_ack_records_no_channel(tmp_path: Path) -> None:
+    _run(tmp_path, "send", "--to", "w1", "--from", "orchestrator", "--wave", "zz", "--body", "x")
+    _run(tmp_path, "ack", "--role", "w1", "--wave", "zz", "--revs", "1")
+    assert not (tmp_path / "mb" / "zz" / ".ackob-outbox-w1.md").exists()
+
+
+def test_answered_elsewhere_records_the_channel(tmp_path: Path) -> None:
+    """Half one of #971, and the reason half two is safe.
+
+    `/flow:wave` recommends lane 1 as the fast path, so an orchestrator answering
+    in real time while the durable copies sit unacked is the ORDINARY healthy
+    shape - measured in this wave as `route=UNCONFIRMED unread=8` on a row that
+    was replying to everything. An escalation keyed on `unconfirmed` without this
+    would fire spuriously all day on a wave where nothing is wrong.
+    """
+    _run(tmp_path, "send", "--to", "w2", "--from", "orchestrator", "--wave", "zz", "--body", "x")
+    out = _run(tmp_path, "ack", "--role", "w2", "--wave", "zz", "--revs", "1", "--answered-elsewhere")
+    assert _verdict(out) == "acked", out.stdout
+    rec = tmp_path / "mb" / "zz" / ".ackob-outbox-w2.md"
+    assert rec.exists() and rec.read_text(encoding="utf-8").strip() == "1"
+
+
+def test_escalate_does_not_fire_when_nothing_was_sent(tmp_path: Path) -> None:
+    out = _run(tmp_path, "escalate", "--role", "w1", "--wave", "zz")
+    assert "FLOW_MAILBOX_ESCALATE=none" in out.stdout, out.stdout
+    # The verdict must say what it EXAMINED. "nothing to escalate" and "nothing to
+    # escalate, having examined 0 messages" are different claims, and only the
+    # second can be told from a check that looked at nothing at all.
+    assert "FLOW_MAILBOX_ESCALATE_EXAMINED=0" in out.stdout, out.stdout
+
+
+def test_escalate_does_not_fire_inside_the_bound(tmp_path: Path) -> None:
+    _run(tmp_path, "send", "--to", "orchestrator", "--from", "w1", "--wave", "zz", "--body", "recent")
+    out = _run(tmp_path, "escalate", "--role", "w1", "--wave", "zz")
+    assert "FLOW_MAILBOX_ESCALATE=pending" in out.stdout, out.stdout
+    assert "FLOW_MAILBOX_ESCALATE_EXAMINED=1" in out.stdout, out.stdout
+
+
+def test_escalate_does_not_fire_when_acknowledged(tmp_path: Path) -> None:
+    """Aged well past the bound, but answered. Silence ALONE never escalates."""
+    _run(tmp_path, "send", "--to", "orchestrator", "--from", "w1", "--wave", "zz", "--body", "x")
+    _run(tmp_path, "ack", "--role", "orchestrator", "--wave", "zz", "--from", "w1", "--revs", "1")
+    out = _run_at(tmp_path, str(int(time.time()) + 99999), "escalate", "--role", "w1", "--wave", "zz")
+    assert "FLOW_MAILBOX_ESCALATE=acked" in out.stdout, out.stdout
+    assert "FLOW_MAILBOX_ESCALATE_EXAMINED=1" in out.stdout, out.stdout
+
+
+def test_escalate_fires_once_then_refuses_the_same_rev(tmp_path: Path) -> None:
+    """The firing case, and the guard that keeps it from becoming a timer.
+
+    All three conditions hold: unacked, past the bound, never escalated. The
+    second call has the identical state and must refuse - one wake per
+    outstanding rev, or the reminder becomes the periodic ping the ticket
+    excludes, and a signal that fires when nothing is new is how a signal dies.
+    """
+    _run(tmp_path, "send", "--to", "orchestrator", "--from", "w1", "--wave", "zz", "--body", "x")
+    later = str(int(time.time()) + 99999)
+
+    # The prior escalation is SEEDED rather than produced by a first call.
+    #
+    # An earlier version of this test called escalate twice and guarded the second
+    # assertion behind `if the first fired`. Resolution needs a live session
+    # record, which a bare test environment has not got, so the first call
+    # returned `unresolved`, the guard never ran, and the test passed having
+    # exercised nothing. The #970 mutation battery caught it: disabling the
+    # already-escalated check left every test green.
+    #
+    # Seeding makes the guard reachable with no dependency on resolution - and the
+    # guard runs BEFORE resolution, so this is the real code path.
+    (tmp_path / "mb" / "zz" / ".esc-inbox-w1.md").write_text("1\n", encoding="utf-8")
+    out = _run_at(tmp_path, later, "escalate", "--role", "w1", "--wave", "zz")
+    assert "FLOW_MAILBOX_ESCALATE=already" in out.stdout, out.stdout
+    assert "FLOW_MAILBOX_ESCALATE_REV=1" in out.stdout, out.stdout
+
+
+def _resolvable(tmp: Path, target: str = "orchestrator", pid: str = "4242") -> dict[str, str]:
+    """Make `escalate` able to RESOLVE a target, so the fire path is reachable.
+
+    Resolution runs before the lock and needs a registry socket plus a matching
+    session record, neither of which a bare environment has - so every escalate
+    test until now stopped at `unresolved` and the whole firing path, the printed
+    instruction included, was never executed by anything.
+    """
+    home = tmp / "home"
+    (home / ".claude" / "sessions").mkdir(parents=True, exist_ok=True)
+    sock = f"/run/fake/{pid}.sock"
+    (home / ".claude" / "sessions" / f"{pid}.json").write_text(
+        json.dumps({"name": "peer-session", "messagingSocketPath": sock}), encoding="utf-8")
+    env = {
+        "HOME": str(home),
+        "FLOW_WAVE_MAILBOX_DIR": str(tmp / "mb"),
+        "FLOW_WAVE_REGISTRY_DIR": str(tmp / "reg"),
+        "FLOW_WAVE_SOCK_DIR": str(tmp / "socks"),
+        "FLOW_WAVE_HOST": "testhost",
+    }
+    subprocess.run(
+        ["bash", str(REGISTRY), "register", target, "--wave", "zz", "--socket", f"uds:{sock}"],
+        capture_output=True, text=True, env={**os.environ, **env}, check=False)
+    return env
+
+
+def _esc(tmp: Path, env: dict[str, str], *args: str, now: str | None = None):
+    e = {**os.environ, **env}
+    if now is not None:
+        e["FLOW_WAVE_NOW"] = now
+    return subprocess.run(["bash", str(MAILBOX), *args], capture_output=True,
+                          text=True, env=e, check=False, timeout=60)
+
+
+@requires_escalate_tools
+def test_the_printed_ack_command_actually_clears_the_message(tmp_path: Path) -> None:
+    """Run the instruction verbatim instead of asserting on its text.
+
+    The escalation's whole value is the command it prints: if that command does
+    not clear the message, the loop only LOOKS closed, which is worse than no
+    instruction at all. Asserting on the wording cannot tell the difference, so
+    this executes the printed line exactly as a reader would paste it.
+    """
+    env = _resolvable(tmp_path)
+    _esc(tmp_path, env, "send", "--to", "orchestrator", "--from", "w1", "--wave", "zz", "--body", "x")
+    later = str(int(time.time()) + 99999)
+    fired = _esc(tmp_path, env, "escalate", "--role", "w1", "--wave", "zz", now=later)
+    assert "FLOW_MAILBOX_ESCALATE=fire" in fired.stdout, (fired.stdout, fired.stderr)
+
+    printed = [ln for ln in fired.stdout.splitlines() if "flow-wave-mailbox.sh ack " in ln]
+    assert len(printed) == 1, printed
+    argv = printed[0].split("flow-wave-mailbox.sh ", 1)[1].split()
+    acked = _esc(tmp_path, env, *argv)
+    assert acked.returncode == 0, (acked.returncode, acked.stdout, acked.stderr)
+    assert "FLOW_MAILBOX_ACKED=1" in acked.stdout, acked.stdout
+
+    after = _esc(tmp_path, env, "escalate", "--role", "w1", "--wave", "zz", now=later)
+    assert "FLOW_MAILBOX_ESCALATE=acked" in after.stdout, (
+        "the printed command must actually clear the thing it names", after.stdout)
+
+
+@requires_escalate_tools
+def test_the_ack_names_the_box_reader_not_the_escalation_target(tmp_path: Path) -> None:
+    """Codex pass 2. `--to reviewer` printed an ack against the wrong box.
+
+    The durable copy lives in `inbox-<role>.md` and only the orchestrator reads
+    inbox boxes. `ack` accepts `--from` for the orchestrator alone, so
+    `ack --role reviewer --from w2` is REJECTED (exit 2). It fails loudly, which
+    is the good case - but the reader who pastes the printed line gets an error
+    instead of an ack, and the message stays unacked while the escalation has
+    already reported the loop closed. Who we WOKE never changes who must ack.
+    """
+    env = _resolvable(tmp_path, target="reviewer")
+    _esc(tmp_path, env, "send", "--to", "orchestrator", "--from", "w2", "--wave", "zz", "--body", "y")
+    later = str(int(time.time()) + 99999)
+    out = _esc(tmp_path, env, "escalate", "--role", "w2", "--wave", "zz", "--to", "reviewer", now=later)
+    assert "FLOW_MAILBOX_ESCALATE=fire" in out.stdout, (out.stdout, out.stderr)
+    line = [ln for ln in out.stdout.splitlines() if "flow-wave-mailbox.sh ack " in ln][0]
+    assert "--role orchestrator" in line, (line,)
+    assert "--role reviewer" not in line, ("the woken session is not the box reader", line)
+
+
+@requires_escalate_tools
+def test_an_ack_landing_during_the_claim_cancels_the_escalation(tmp_path: Path) -> None:
+    """Codex pass 2. The claim re-validates under the lock, not just dedup.
+
+    Everything before the lock is read unlocked, so an `ack` can land between
+    deciding and claiming. Re-checking only "have I escalated this rev" still
+    fires, waking somebody about a message that was answered while we looked.
+    Held deterministically: the lock is taken from outside, escalate blocks on
+    it, the ack lands underneath, and only then is the lock released.
+    """
+    env = _resolvable(tmp_path)
+    _esc(tmp_path, env, "send", "--to", "orchestrator", "--from", "w1", "--wave", "zz", "--body", "z")
+    later = str(int(time.time()) + 99999)
+    lock = tmp_path / "mb" / "zz" / ".mailbox.lock"
+    lock.touch()
+
+    holder = subprocess.Popen(["flock", str(lock), "sleep", "4"])
+    try:
+        time.sleep(0.4)
+        esc = subprocess.Popen(
+            ["bash", str(MAILBOX), "escalate", "--role", "w1", "--wave", "zz"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            env={**os.environ, **env, "FLOW_WAVE_NOW": later})
+        time.sleep(0.6)
+        #: The ack lands while escalate is blocked on the lock. Written directly
+        #: because `ack` would contend for the same lock and deadlock the test.
+        ackfile = tmp_path / "mb" / "zz" / ".ack-inbox-w1.md"
+        ackfile.write_text("1\n", encoding="utf-8")
+    finally:
+        holder.wait()
+    out, err = esc.communicate(timeout=30)
+    assert "FLOW_MAILBOX_ESCALATE=fire" not in out, (
+        "an escalation claimed after the message was acked wakes someone for nothing", out, err)
+    assert "FLOW_MAILBOX_ESCALATE=acked" in out, (out, err)
+
+
+def test_escalate_refuses_to_guess_an_unresolvable_target(tmp_path: Path) -> None:
+    """A send to a plausible neighbour succeeds against the WRONG session.
+
+    That is worse than a refusal by exactly the amount a false success is worse
+    than an error, so an address with no matching session record fails loudly.
+    """
+    # The message must land in inbox-w1.md, which is where escalate looks, so it
+    # is addressed to the orchestrator. The UNRESOLVABLE thing is the escalation
+    # TARGET, which is what this test is about.
+    _run(tmp_path, "send", "--to", "orchestrator", "--from", "w1", "--wave", "zz", "--body", "x")
+    out = _run_at(tmp_path, str(int(time.time()) + 99999),
+                  "escalate", "--role", "w1", "--wave", "zz", "--to", "ghost")
+    assert "FLOW_MAILBOX_ESCALATE=unresolved" in out.stdout, out.stdout
+    assert out.returncode == 3, (out.returncode, out.stdout, out.stderr)

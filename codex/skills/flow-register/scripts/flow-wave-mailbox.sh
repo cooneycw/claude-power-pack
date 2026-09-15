@@ -54,7 +54,7 @@
 #                              [--interval SEC] (--peek | --consume)
 #   flow-wave-mailbox.sh watch --status --role <role> [--wave W]
 #   flow-wave-mailbox.sh ack   --role <role> [--wave W] [--from <role> | --box NAME]
-#                              (--revs R[,R...] | --all-unacked)
+#                              (--revs R[,R...] | --all-unacked) [--answered-elsewhere]
 #   flow-wave-mailbox.sh supervise --role <role> [--wave W] [--timeout SEC]
 #                              [--interval SEC]
 #   flow-wave-mailbox.sh list  [--wave W] [--json]
@@ -722,6 +722,83 @@ acked_count() {
   grep -c '^[0-9]' "$afile" 2>/dev/null || echo 0
 }
 
+#: OUT-OF-BAND ACKNOWLEDGEMENT (#971, half one).
+#:
+#: `.ackob-<box>` records which acked revs were answered on ANOTHER CHANNEL
+#: rather than read out of the box. It is a strict subset of `.ack-<box>`: an
+#: out-of-band ack is still an ack, and this file only says HOW.
+#:
+#: WHY IT HAS TO EXIST BEFORE ESCALATION DOES. `/flow:wave` recommends lane 1
+#: (SendMessage) as the fast path, so the ordinary healthy shape is an
+#: orchestrator answering every message in real time while the durable copies sit
+#: unacked. Measured in this wave: the orchestrator row read `route=UNCONFIRMED
+#: unread=8` for most of a working session while it was replying to all of them.
+#: An escalation keyed on `unconfirmed` would have fired spuriously, repeatedly,
+#: all day, on a wave where nothing was wrong - a boy-who-cried-wolf by
+#: construction, which is the failure the escalation exists to prevent, built
+#: into the remedy for it.
+#:
+#: So answering elsewhere gets a verb. `ack --answered-elsewhere` records the
+#: receipt AND the channel, which is what makes the later silence meaningful.
+#: Resolve a wave ROLE to the address the registry holds for it (#971).
+#: Read through the sibling registry's own `get`, never by parsing registry.json
+#: here - two readers of one file drift, and the registry owns that shape.
+registry_socket_for() {
+  local reg out
+  reg="$HOME/.claude/scripts/flow-wave-registry.sh"
+  [ -x "$reg" ] || reg="$(dirname "$0")/flow-wave-registry.sh"
+  [ -x "$reg" ] || return 0
+  out="$(bash "$reg" get "$1" --wave "$WAVE" 2>/dev/null | awk -F= '/^FLOW_WAVE_SOCKET=/{print $2}')"
+  case "$out" in unknown|"") return 0 ;; esac
+  printf '%s' "$out"
+}
+
+#: Turn a transport address into the name SendMessage accepts (#971).
+#:
+#: The registry addresses roles by socket; SendMessage takes a ListAgents display
+#: name. `~/.claude/sessions/` is keyed by PID and carries both, so the socket's
+#: pid resolves to the name with no guessing. FAILS EMPTY rather than guessing:
+#: display labels mutate mid-session and a send to a plausible neighbour returns
+#: success against the WRONG session, which is worse than not escalating.
+session_name_for_socket() {
+  local addr="$1" pid rec
+  case "$addr" in
+    uds:*) pid="${addr##*/}"; pid="${pid%.sock}" ;;
+    *) return 0 ;;
+  esac
+  case "$pid" in ''|*[!0-9]*) return 0 ;; esac
+  rec="$HOME/.claude/sessions/$pid.json"
+  [ -r "$rec" ] || return 0
+  command -v jq >/dev/null 2>&1 || return 0
+  #: EXACT EQUALITY, not mere presence. A pid-named record whose
+  #: messagingSocketPath points somewhere else is a DIFFERENT session that
+  #: happens to share a pid number - across a reboot, a namespace, or a reused
+  #: pid. Returning its name would be precisely the plausible-neighbour send this
+  #: function exists to refuse, dressed as a successful resolution.
+  jq -r --arg want "$addr" \
+    'if (.messagingSocketPath // "") == "" then ""
+     elif ("uds:" + (.messagingSocketPath)) != $want then ""
+     else (.name // "") end' "$rec" 2>/dev/null | grep -v '^$' || return 0
+}
+
+ackob_file() { echo "$WAVE_DIR/.ackob-$(basename "$1")"; }
+
+ackob_add() {
+  local box="$1"; shift
+  local f rev
+  f="$(ackob_file "$box")"
+  for rev in "$@"; do
+    grep -qx "$rev" "$f" 2>/dev/null || printf '%s\n' "$rev" >> "$f"
+  done
+}
+
+ackob_count() {
+  local f
+  f="$(ackob_file "$1")"
+  [ -s "$f" ] || { echo 0; return; }
+  grep -c '^[0-9]' "$f" 2>/dev/null || echo 0
+}
+
 # Record REVS (space-separated, already validated non-empty positive integers)
 # as acknowledged for <box>, under the same flock every other read-modify-write
 # in this file uses. Refuses (return 2) any rev that does not exist in the box
@@ -764,7 +841,15 @@ ack_all_unacked_in() {
   revs="$(unacked_revs_in "$b")"
   [ -n "$revs" ] || return 0
   # shellcheck disable=SC2086
-  ack_add "$b" $revs
+  ack_add "$b" $revs || return $?
+  #: `--all-unacked --answered-elsewhere` must record the CHANNEL for the revs it
+  #: acked, or the flag is silently ignored on the bulk path and the combination
+  #: the header advertises does nothing. Recording a receipt while dropping how it
+  #: was answered is the state #971 exists to remove.
+  if [ "${ANSWERED_ELSEWHERE:-0}" -eq 1 ]; then
+    # shellcheck disable=SC2086
+    ackob_add "$b" $revs
+  fi
 }
 
 # Same, across every box a role reads.
@@ -787,6 +872,26 @@ EOF
 # sent so far has been acknowledged. Deliberately reuses each message's own
 # send timestamp rather than persisting a new "first surfaced" one - see the
 # header for why that is the conservative direction, not a shortcut.
+oldest_unacked_rev() { # oldest_unacked_rev BOX
+  #: The rev whose AGE oldest_unacked_ts measured - the OLDEST unacked message,
+  #: not the highest rev. Taking the highest named a message that might be recent
+  #: or already acknowledged as the overdue one, and let a new message reset
+  #: deduplication while the genuinely stuck message sat there.
+  #:
+  #: A function because `escalate` must select it TWICE: once to decide, and
+  #: again inside the lock to claim. Two copies of this awk would be two things
+  #: to keep in step, and the claim silently disagreeing with the decision is
+  #: precisely the defect the second selection exists to prevent.
+  local f="$1"
+  [ -s "$f" ] || return 0
+  awk -v ackfile="$(ack_file "$f")" '
+    BEGIN { while ((getline l < ackfile) > 0) if (l ~ /^[0-9]+$/) acked[l+0]=1; close(ackfile) }
+    /^<!-- cc-flow-wave-msg / {
+      r = 0; if (match($0, /rev=[0-9]+/)) r = substr($0, RSTART+4, RLENGTH-4) + 0
+      if (r > 0 && !(r in acked)) print r
+    }' "$f" | sort -n | head -1
+}
+
 oldest_unacked_ts() {
   local f="$1" afile
   [ -s "$f" ] || return 0
@@ -1537,11 +1642,11 @@ EOF
 }
 
 VERB="${1:-}"
-[ -n "$VERB" ] || usage_fail "usage: flow-wave-mailbox.sh send|read|watch|ack|supervise|list ..."
+[ -n "$VERB" ] || usage_fail "usage: flow-wave-mailbox.sh send|read|watch|ack|escalate|supervise|list ..."
 shift
 
 case "$VERB" in
-  send | read | watch | ack | supervise | __supervise_daemon | list) : ;;
+  send | read | watch | ack | escalate | supervise | __supervise_daemon | list) : ;;
   --help | -h)
     # Self-terminating range, not a hand-counted one: a fixed `2,NNp` silently
     # truncates mid-sentence the moment the header grows, which is #686 - and it
@@ -1557,7 +1662,7 @@ WAVE="default"; ROLE=""; A_TO=""; A_FROM=""; A_BODY=""; A_BODY_FILE=""; A_OUT=""
 REPLACE=0; PEEK=0; CONSUME=0; ALL=0; JSON_OUT=0; NO_LEXICON=0; STATUS=0
 SURFACED_STATE=""
 TIMEOUT="$WATCH_TIMEOUT_DEFAULT"; INTERVAL="$WATCH_INTERVAL_DEFAULT"
-A_BOX=""; A_REVS=""; ALL_UNACKED=0
+A_BOX=""; A_REVS=""; ALL_UNACKED=0; ANSWERED_ELSEWHERE=0
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -1592,6 +1697,7 @@ while [ "$#" -gt 0 ]; do
     --revs) [ "$#" -ge 2 ] || usage_fail "--revs requires a comma- or space-separated list"; A_REVS="$2"; shift ;;
     --revs=*) A_REVS="${1#--revs=}" ;;
     --all-unacked) ALL_UNACKED=1 ;;
+    --answered-elsewhere) ANSWERED_ELSEWHERE=1 ;;
     --*) usage_fail "unknown option: $1" ;;
     *)
       # Bare positional: the role, for the verbs that take one.
@@ -1964,6 +2070,9 @@ case "$VERB" in
         REVLIST="$(printf '%s' "$A_REVS" | tr ',' ' ')"
         # shellcheck disable=SC2086
         ack_add "$b" $REVLIST || exit $?
+        # An out-of-band ack is still an ack; this only records the CHANNEL, so a
+        # later `route=` reading can tell "answered on lane 1" from "never seen".
+        [ "$ANSWERED_ELSEWHERE" -eq 1 ] && ackob_add "$b" $REVLIST
         # shellcheck disable=SC2086
         N_GIVEN="$(printf '%s\n' $REVLIST | grep -c '[0-9]')"
         TOTAL_ACKED=$((TOTAL_ACKED + N_GIVEN))
@@ -1980,6 +2089,179 @@ EOF
     fi
     E_ROLE="$ROLE"; E_ACKED="$TOTAL_ACKED"
     emit acked
+    exit 0
+    ;;
+
+  #: ESCALATE (#971). Convert an observation the wave already computes into a
+  #: wake the agent can actually deliver.
+  #:
+  #: `route=unconfirmed` has existed since #778 and NOTHING acts on it. A worker
+  #: can see its message has sat past the bound and has no verb that turns that
+  #: into a turn on the other side. `supervise` cannot: a daemon printing into a
+  #: log is not a recipient, and it cannot cause the agent behind it to take a
+  #: turn. The only lane that wakes a session is cross-session SendMessage - and
+  #: a reminder delivered by the channel that is already failing is not a reminder.
+  #:
+  #: THIS SCRIPT CANNOT SEND. SendMessage is a harness tool, not something a shell
+  #: script can invoke. So the split is: the script owns RESOLUTION, which is the
+  #: error-prone half - a registry socket is not an address SendMessage accepts,
+  #: and the pid-keyed session record is what turns one into the other - and the
+  #: AGENT owns the send, which only it can do. Printing a ready payload is the
+  #: honest shape; pretending to deliver would be worse than not having the verb.
+  #:
+  #: TRIGGERS ON EVIDENCE, NEVER ON A TIMER. All three must hold: an unacked
+  #: message exists, it is older than the bound, and this rev has not already been
+  #: escalated. A periodic ping fires constantly on a healthy wave, and a signal
+  #: that fires when nothing is wrong is how a signal dies. Dead-man-switch shape:
+  #: silence PLUS outstanding work escalates; silence alone does not.
+  escalate)
+    [ -n "$ROLE" ] || usage_fail "escalate requires --role <role>"
+    valid_name "$ROLE" || usage_fail "invalid role: '$ROLE'"
+    TARGET="${A_TO:-orchestrator}"
+    valid_name "$TARGET" || usage_fail "invalid --to role: '$TARGET'"
+    BOX="$WAVE_DIR/inbox-$ROLE.md"
+    BOUND="${FLOW_WAVE_ROUTE_UNCONFIRMED_SECS:-900}"
+    NOW="${FLOW_WAVE_NOW:-$(date +%s)}"
+
+    #: Every outcome carries WHAT IT EXAMINED, not only its verdict. "nothing to
+    #: escalate" and "nothing to escalate, having examined 7 messages of which 7
+    #: are acked" are different claims, and only the second can be told apart from
+    #: a check that looked at nothing at all.
+    MSG_N=0
+    [ -s "$BOX" ] && MSG_N="$(grep -c '^<!-- cc-flow-wave-msg ' "$BOX" 2>/dev/null || echo 0)"
+    echo "FLOW_MAILBOX_ESCALATE_EXAMINED=$MSG_N"
+    if [ ! -s "$BOX" ]; then
+      echo "FLOW_MAILBOX_ESCALATE=none"
+      echo "flow-wave-mailbox: nothing to escalate - '$ROLE' has sent nothing to '$TARGET' in wave '$WAVE' (0 messages examined)."
+      emit escalated; exit 0
+    fi
+    OLDEST_TS="$(oldest_unacked_ts "$BOX")"
+    if [ -z "$OLDEST_TS" ]; then
+      echo "FLOW_MAILBOX_ESCALATE=acked"
+      echo "flow-wave-mailbox: nothing to escalate - all $MSG_N message(s) '$ROLE' sent to '$TARGET' are acknowledged."
+      emit escalated; exit 0
+    fi
+    OLDEST_EPOCH="$(date -d "$OLDEST_TS" +%s 2>/dev/null || echo "")"
+    if [ -z "$OLDEST_EPOCH" ]; then
+      echo "FLOW_MAILBOX_ESCALATE=unknown"
+      echo "flow-wave-mailbox: UNKNOWN - could not parse the send time '$OLDEST_TS', so age cannot be established. Not a pass." >&2
+      emit error; exit 2
+    fi
+    AGE=$((NOW - OLDEST_EPOCH))
+    if [ "$AGE" -lt "$BOUND" ]; then
+      echo "FLOW_MAILBOX_ESCALATE=pending"
+      echo "FLOW_MAILBOX_ESCALATE_AGE=$AGE"
+      echo "flow-wave-mailbox: nothing to escalate - of $MSG_N message(s), the oldest unacked is ${AGE}s old, inside the ${BOUND}s bound."
+      emit escalated; exit 0
+    fi
+    #: The rev reported must be the one whose AGE was measured - the oldest
+    #: UNACKED message. Taking the highest rev instead named a message that might
+    #: be recent, or already acknowledged, as the overdue one; and it let a new
+    #: message reset deduplication while the genuinely stuck message sat there.
+    ESC_REV="$(oldest_unacked_rev "$BOX")"
+    [ -n "$ESC_REV" ] || { echo "FLOW_MAILBOX_ESCALATE=acked"; echo "flow-wave-mailbox: nothing unacked to escalate."; emit escalated; exit 0; }
+    #: Emitted as soon as it is known, not only on the fire path: which rev was
+    #: judged overdue is the fact a reader needs on EVERY outcome, including the
+    #: ones that decline to wake anybody.
+    echo "FLOW_MAILBOX_ESCALATE_REV=$ESC_REV"
+    ESC_FILE="$WAVE_DIR/.esc-inbox-$ROLE.md"
+    if grep -qx "$ESC_REV" "$ESC_FILE" 2>/dev/null; then
+      echo "FLOW_MAILBOX_ESCALATE=already"
+      echo "flow-wave-mailbox: already escalated for rev $ESC_REV - not escalating again. One wake per outstanding rev."
+      emit escalated; exit 0
+    fi
+
+    #: Resolution FAILS LOUDLY. A socket with no matching session record must not
+    #: fall back to name similarity: a send to a plausible neighbour returns
+    #: success against the wrong session, which is worse than no escalation.
+    ADDR="$(registry_socket_for "$TARGET")"
+    if [ -z "$ADDR" ]; then
+      echo "FLOW_MAILBOX_ESCALATE=unresolved"
+      echo "flow-wave-mailbox: UNRESOLVED - '$TARGET' has no address in the registry, so there is nobody to wake." >&2
+      emit error; exit 3
+    fi
+    NAME="$(session_name_for_socket "$ADDR")"
+    if [ -z "$NAME" ]; then
+      echo "FLOW_MAILBOX_ESCALATE=unresolved"
+      echo "flow-wave-mailbox: UNRESOLVED - no session record matches $ADDR." >&2
+      echo "flow-wave-mailbox: REFUSING to guess a name. A send to a plausible neighbour succeeds against the WRONG session." >&2
+      emit error; exit 3
+    fi
+
+    #: CLAIMED UNDER THE LOCK, and re-validated inside it. Two callers could both
+    #: pass the membership test above and both emit `fire`, which is two wakes for
+    #: one outstanding message - the periodic ping this verb exists to avoid.
+    #: RE-DERIVED INSIDE THE LOCK, not merely re-checked for deduplication.
+    #: Every read above happened without the lock, so between deciding and
+    #: claiming, an `ack` can clear the rev or a `send --replace` can replace it -
+    #: and the old code would still fire, waking somebody about a message that is
+    #: answered or gone. Worse, age and rev were selected in two separate passes,
+    #: so an ack landing between them could pin an OLD message's age onto a
+    #: RECENT rev and report it overdue when it was not. Selecting both together,
+    #: under the lock, is what makes the claim describe the state that holds at
+    #: claim time rather than the state that held when we started looking.
+    ESC_CLAIM="${TMPDIR:-/tmp}/flow-esc-claim.$$"
+    trap 'rm -f "$ESC_CLAIM"' EXIT INT TERM
+    (
+      flock -w 10 9 || { echo "flow-wave-mailbox: could not lock $WAVE_DIR" >&2; exit 3; }
+      _ts="$(oldest_unacked_ts "$BOX")"
+      [ -n "$_ts" ] || exit 5
+      _rev="$(oldest_unacked_rev "$BOX")"
+      [ -n "$_rev" ] || exit 5
+      _ep="$(date -d "$_ts" +%s 2>/dev/null || echo "")"
+      [ -n "$_ep" ] || exit 2
+      _age=$((NOW - _ep))
+      [ "$_age" -ge "$BOUND" ] || exit 6
+      grep -qx "$_rev" "$ESC_FILE" 2>/dev/null && exit 4
+      printf '%s\n' "$_rev" >> "$ESC_FILE"
+      printf '%s %s\n' "$_rev" "$_age" > "$ESC_CLAIM"
+    ) 9>"$LOCK_FILE"
+    case "$?" in
+      0) ESC_CLAIMED="$(cut -d' ' -f1 "$ESC_CLAIM")"
+         AGE="$(cut -d' ' -f2 "$ESC_CLAIM")"
+         #: The REV line above was emitted before the lock, so if the state moved
+         #: under us the CLAIMED rev is the authoritative one. Re-emit it rather
+         #: than leave a reader parsing a value we have since superseded.
+         [ "$ESC_CLAIMED" = "$ESC_REV" ] || echo "FLOW_MAILBOX_ESCALATE_REV=$ESC_CLAIMED"
+         ESC_REV="$ESC_CLAIMED" ;;
+      4) echo "FLOW_MAILBOX_ESCALATE=already"
+         echo "flow-wave-mailbox: another caller claimed rev $ESC_REV first - one wake per outstanding rev."
+         emit escalated; exit 0 ;;
+      5) echo "FLOW_MAILBOX_ESCALATE=acked"
+         echo "flow-wave-mailbox: nothing to escalate - rev $ESC_REV was acknowledged while this check was running."
+         emit escalated; exit 0 ;;
+      6) echo "FLOW_MAILBOX_ESCALATE=pending"
+         echo "flow-wave-mailbox: nothing to escalate - the oldest unacked message is inside the ${BOUND}s bound as of the claim."
+         emit escalated; exit 0 ;;
+      *) echo "FLOW_MAILBOX_ESCALATE=unknown"
+         echo "flow-wave-mailbox: UNKNOWN - could not claim the escalation record; not reporting a wake that may not be recorded." >&2
+         emit error; exit 2 ;;
+    esac
+    echo "FLOW_MAILBOX_ESCALATE=fire"
+    echo "FLOW_MAILBOX_ESCALATE_AGE=$AGE"
+    echo "FLOW_MAILBOX_ESCALATE_TARGET=$NAME"
+    echo "flow-wave-mailbox: ESCALATE - send this over lane 1 now (this script cannot send):"
+    echo "---"
+    echo "SendMessage to: $NAME"
+    echo "$TARGET: rev $ESC_REV from '$ROLE' has been unacknowledged for ${AGE}s (bound ${BOUND}s) in wave '$WAVE'."
+    echo "This is an automated escalation from flow-wave-mailbox, fired on evidence: an unacked message older than the bound, not previously escalated."
+    #: THE ACK NAMES THE READER OF THE BOX, NOT THE ESCALATION TARGET (Codex
+    #: pass 2). The durable copy lives in `inbox-$ROLE.md`, and by construction
+    #: the orchestrator is the role that reads every inbox-*.md - whoever we
+    #: happened to WAKE does not change that. Interpolating $TARGET here broke
+    #: `escalate --to <anyone-else>`: `ack` accepts `--from` only for the
+    #: orchestrator, so the printed command was rejected outright (exit 2). It
+    #: fails loudly, which is the good case - but a reader who pastes it gets an
+    #: error instead of an ack, and the message stays unacked. An instruction
+    #: that does not work is worse than no instruction, because the escalation
+    #: reports the loop closed while the durable copy is still outstanding.
+    #:
+    #: `--from $ROLE` is still REQUIRED: the orchestrator has many boxes and
+    #: `ack` refuses to guess which.
+    echo "If you answered on lane 1, ack the durable copy with: flow-wave-mailbox.sh ack --role orchestrator --wave $WAVE --from $ROLE --revs $ESC_REV --answered-elsewhere"
+    [ "$TARGET" = "orchestrator" ] || echo "(that ack is the orchestrator's to run - '$TARGET' was woken, but only the orchestrator reads inbox-$ROLE.md)"
+    echo "---"
+    emit escalated
     exit 0
     ;;
 
