@@ -169,19 +169,37 @@ def discover(root: Path) -> list[tuple[Path, str]]:
     return found
 
 
-def _run(argv: list[str], cwd: Path) -> int:
+#: Stands in for an exit code when the invocation could not be executed AT ALL -
+#: a missing interpreter, a permissions error, a timeout. It is not a verdict.
+#: Collapsing it into an exit code (it was -1, and every code but `good_exit`
+#: means BAD) made an unrunnable control score as DETECTION on the known-bad case
+#: and raise a GATE ALARM on the known-good one - an environment failure reported
+#: as "the gate stopped discriminating", which is exactly the UNRESOLVED-versus-
+#: BLIND collapse this file's verdict vocabulary exists to prevent.
+UNRUNNABLE = None
+
+
+def _run(argv: list[str], cwd: Path) -> tuple[int | None, str]:
+    """`(exit code, diagnostic)`, or `(UNRUNNABLE, why)` when it never ran.
+
+    The diagnostic is kept rather than discarded: a caller reading a verdict has
+    no other way to tell a gate that reported something from one that fell over.
+    """
     try:
         proc = subprocess.run(argv, cwd=cwd, capture_output=True, text=True, timeout=120, check=False)
-    except (OSError, subprocess.SubprocessError):
-        return -1
-    return proc.returncode
+    except subprocess.TimeoutExpired:
+        return UNRUNNABLE, f"timed out after 120s: {' '.join(argv)}"
+    except (OSError, subprocess.SubprocessError) as exc:
+        return UNRUNNABLE, f"{type(exc).__name__}: {exc}"
+    stderr = (proc.stderr or "").strip()
+    return proc.returncode, stderr.splitlines()[-1] if stderr else ""
 
 
 def _verdict_of(exit_code: int, good_exit: int) -> str:
     return GOOD if exit_code == good_exit else BAD
 
 
-def _invoke(spec: list[str], gate: Path, case: Path, root: Path) -> int:
+def _invoke(spec: list[str], gate: Path, case: Path, root: Path) -> tuple[int | None, str]:
     argv = [part.replace("{gate}", str(gate)).replace("{case}", str(case)) for part in spec]
     return _run(argv, root)
 
@@ -234,6 +252,23 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
         res.details.append("control.json names no invocation or no cases")
         return res
 
+    # A one-sided control tests nothing, so it may not reach PASS. This was only
+    # DOCUMENTED before, and the code required a non-empty list: a GOOD-only
+    # control passed against a gate that was genuinely blind, and a BAD-only one
+    # passed against a gate wedged at "fail". Both printed the summary line "N
+    # control(s) discriminate", which is a claim neither population supported.
+    expects = {case.get("expect") for case in cases}
+    unknown = expects - {GOOD, BAD}
+    if unknown:
+        res.details.append(f"control.json has case(s) with an unknown expect value: {sorted(map(str, unknown))}")
+        return res
+    if BAD not in expects:
+        res.details.append("control.json registers no BAD case, so nothing exercises the blindness")
+        return res
+    if GOOD not in expects:
+        res.details.append("control.json registers no GOOD case, so a gate wedged at 'fail' would pass")
+        return res
+
     # -- DISCRIMINATION ---------------------------------------------------- #
     bad_cases: list[Path] = []
     for case in cases:
@@ -242,8 +277,15 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
             res.details.append(f"case input missing: {case['input']}")
             return res
         expected = case["expect"]
-        observed = _verdict_of(_invoke(invocation, gate, case_path, root), good_exit)
-        res.details.append(f"case {case['name']}: expected={expected} observed={observed}")
+        code, diag = _invoke(invocation, gate, case_path, root)
+        if code is UNRUNNABLE:
+            res.details.append(f"case {case['name']}: the gate could not be executed - {diag}")
+            return res
+        observed = _verdict_of(code, good_exit)
+        res.details.append(
+            f"case {case['name']}: expected={expected} observed={observed} (exit {code})"
+            + (f" [stderr: {diag}]" if diag else "")
+        )
         if observed != expected:
             res.verdict = BLIND
             res.details.append(
@@ -261,6 +303,7 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
         return res
 
     good_cases = [control_dir / c["input"] for c in cases if c["expect"] == GOOD]
+    provenances: list[str] = []
     for anchor in anchors:
         anchor_path = control_dir / anchor["path"]
         if not anchor_path.is_file():
@@ -268,8 +311,22 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
             res.details.append(f"anchor missing: {anchor['path']}")
             return res
 
+        # Record provenance BEFORE the behavioural checks below, and re-aggregate
+        # on every anchor. All of those checks can return early, and aggregating
+        # only on the success path discarded a MISMATCH already measured on an
+        # EARLIER anchor - printing the default `unverified` instead. Verdict and
+        # provenance are separate axes: a failing verdict must not quietly soften
+        # what provenance had already established.
+        provenances.append(_provenance(anchor, anchor_path, root, verify_provenance))
+        res.provenance = _aggregate_provenance(provenances)
+
         for case_path in bad_cases:
-            observed = _verdict_of(_invoke(invocation, anchor_path, case_path, root), good_exit)
+            code, diag = _invoke(invocation, anchor_path, case_path, root)
+            if code is UNRUNNABLE:
+                res.verdict = UNRESOLVED
+                res.details.append(f"anchor {anchor['sha']} could not be executed - {diag}")
+                return res
+            observed = _verdict_of(code, good_exit)
             if observed != GOOD:
                 res.verdict = INERT
                 res.details.append(
@@ -280,7 +337,12 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
             res.details.append(f"anchor {anchor['sha']}: missed the known-bad input (blind, as required)")
 
         for case_path in good_cases:
-            observed = _verdict_of(_invoke(invocation, anchor_path, case_path, root), good_exit)
+            code, diag = _invoke(invocation, anchor_path, case_path, root)
+            if code is UNRUNNABLE:
+                res.verdict = UNRESOLVED
+                res.details.append(f"anchor {anchor['sha']} could not be executed - {diag}")
+                return res
+            observed = _verdict_of(code, good_exit)
             if observed != GOOD:
                 res.verdict = INERT
                 res.details.append(
@@ -289,10 +351,24 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
                 )
                 return res
 
-        res.provenance = _provenance(anchor, anchor_path, root, verify_provenance)
-
     res.verdict = PASS
     return res
+
+
+def _aggregate_provenance(values: list[str]) -> str:
+    """Conservative: a `MISMATCH` anywhere survives, and `ok` needs EVERY anchor.
+
+    Assigning per anchor into the single result field let the LAST anchor win, so
+    a `MISMATCH` on an earlier one disappeared and the reported provenance
+    depended on list order rather than on evidence. Provenance may be strengthened
+    only by verification, never by position - the same rule that keeps
+    `unverified` from printing as `ok`.
+    """
+    if not values:
+        return "unverified"
+    if "MISMATCH" in values:
+        return "MISMATCH"
+    return "ok" if all(value == "ok" for value in values) else "unverified"
 
 
 def _provenance(anchor: dict[str, str], anchor_path: Path, root: Path, verify: bool) -> str:

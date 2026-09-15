@@ -76,7 +76,12 @@ sys.exit(1)
 """
 
 
-def build_tree(tmp_path: Path, gate_src: str, anchor_src: str | None = BLIND_GATE) -> Path:
+def build_tree(
+    tmp_path: Path,
+    gate_src: str,
+    anchor_src: str | None = BLIND_GATE,
+    cases: list[dict[str, str]] | None = None,
+) -> Path:
     (tmp_path / "scripts").mkdir()
     (tmp_path / "scripts" / "toy-gate.py").write_text(gate_src, encoding="utf-8")
     ctl = tmp_path / "controls" / "toy"
@@ -98,7 +103,7 @@ def build_tree(tmp_path: Path, gate_src: str, anchor_src: str | None = BLIND_GAT
         "gate": "scripts/toy-gate.py",
         "invocation": [sys.executable, "{gate}", "--root", "{case}"],
         "good_exit": 0,
-        "cases": [
+        "cases": cases if cases is not None else [
             {"name": "bad", "input": "cases/bad", "expect": "BAD"},
             {"name": "good", "input": "cases/good", "expect": "GOOD"},
         ],
@@ -195,6 +200,123 @@ def test_provenance_is_unverified_when_not_asked_for(tmp_path: Path) -> None:
     root = build_tree(tmp_path, SEEING_GATE)
     result = run_harness(root)
     assert provenance_of(result.stdout) == "unverified", result.stdout
+
+
+# --------------------------------------------------------------------------- #
+# A one-sided control tests nothing, and must not be able to say PASS (#924,
+# Codex pre-PR review). Both of these produced PASS with exit 0 before the fix:
+# the harness required only a NON-EMPTY case list, so its summary line - "N
+# control(s) discriminate" - claimed more than its input population supported.
+# That is this issue's own defect class occurring inside the tool built for it.
+# --------------------------------------------------------------------------- #
+def test_a_control_with_no_bad_case_cannot_pass(tmp_path: Path) -> None:
+    """A GOOD-only control never exercises the blindness, so it proves nothing.
+
+    The gate here is GENUINELY BLIND and the control still reported PASS.
+    """
+    root = build_tree(
+        tmp_path, BLIND_GATE,
+        cases=[{"name": "good", "input": "cases/good", "expect": "GOOD"}],
+    )
+    result = run_harness(root, "--strict")
+    assert verdict_of(result.stdout) == "UNRESOLVED", result.stdout
+    assert "no BAD case" in result.stdout
+    assert result.returncode == 1
+
+
+def test_a_control_with_no_good_case_cannot_pass(tmp_path: Path) -> None:
+    """A BAD-only control cannot tell a working gate from one wedged at "fail".
+
+    The gate here is WEDGED AT FAIL and the control still reported PASS.
+    """
+    root = build_tree(
+        tmp_path, WEDGED_GATE,
+        cases=[{"name": "bad", "input": "cases/bad", "expect": "BAD"}],
+    )
+    result = run_harness(root, "--strict")
+    assert verdict_of(result.stdout) == "UNRESOLVED", result.stdout
+    assert "no GOOD case" in result.stdout
+    assert result.returncode == 1
+
+
+def test_an_unrunnable_invocation_is_unresolved_not_a_gate_alarm(tmp_path: Path) -> None:
+    """"The control could not run" must not present as "the gate is broken".
+
+    A launch failure returned the same sentinel as a real BAD verdict, so an
+    unrunnable invocation was scored as detection on the bad case and reported
+    BLIND on the good one - an environment failure attributed to the gate, which
+    is the precise UNRESOLVED-versus-BLIND collapse this file exists to prevent.
+    """
+    root = build_tree(tmp_path, SEEING_GATE)
+    control = json.loads((root / "controls" / "toy" / "control.json").read_text(encoding="utf-8"))
+    control["invocation"] = ["definitely-not-an-interpreter-924", "{gate}", "--root", "{case}"]
+    (root / "controls" / "toy" / "control.json").write_text(json.dumps(control), encoding="utf-8")
+    result = run_harness(root, "--strict")
+    assert verdict_of(result.stdout) == "UNRESOLVED", result.stdout
+    assert "could not be executed" in result.stdout
+    assert result.returncode == 1
+
+
+def test_a_mismatched_anchor_is_not_erased_by_a_later_verified_one(tmp_path: Path) -> None:
+    """Provenance may never be SOFTENED, and a second anchor is not a pardon.
+
+    Provenance was assigned per anchor into one field, so the last anchor won and
+    a MISMATCH on an earlier one vanished. Reversing the list changed the reported
+    provenance on identical evidence.
+    """
+    root = build_tree(tmp_path, SEEING_GATE)
+    ctl = root / "controls" / "toy"
+    good_anchor = json.loads((ctl / "control.json").read_text(encoding="utf-8"))["anchors"][0]
+
+    tampered_path = ctl / "anchors" / "c0ffee-toy.py"
+    tampered_path.write_text(BLIND_GATE, encoding="utf-8")
+    tampered = dict(good_anchor, sha="c0ffee", path="anchors/c0ffee-toy.py",
+                    sha256="0" * 64)  # a digest that cannot match
+
+    for order, label in (([tampered, good_anchor], "mismatch first"),
+                         ([good_anchor, tampered], "mismatch last")):
+        control = json.loads((ctl / "control.json").read_text(encoding="utf-8"))
+        control["anchors"] = order
+        (ctl / "control.json").write_text(json.dumps(control), encoding="utf-8")
+        result = run_harness(root)
+        assert provenance_of(result.stdout) == "MISMATCH", f"{label}: {result.stdout}"
+
+
+def test_a_mismatch_survives_an_early_return_later_in_the_anchor_loop(tmp_path: Path) -> None:
+    """The first provenance fix was itself incomplete (#924, Codex re-review).
+
+    Aggregating only on the success path meant that any early exit from the anchor
+    loop - a later anchor that is missing, unrunnable, or not actually blind -
+    reported the default `unverified` and threw away a MISMATCH already measured
+    on an earlier anchor. The verdict and the provenance are separate axes, so a
+    failing verdict must not silently downgrade what provenance had established.
+    """
+    import hashlib
+
+    root = build_tree(tmp_path, SEEING_GATE)
+    ctl = root / "controls" / "toy"
+    good_anchor = json.loads((ctl / "control.json").read_text(encoding="utf-8"))["anchors"][0]
+
+    (ctl / "anchors" / "c0ffee-toy.py").write_text(BLIND_GATE, encoding="utf-8")
+    tampered = dict(good_anchor, sha="c0ffee", path="anchors/c0ffee-toy.py", sha256="0" * 64)
+
+    missing = dict(good_anchor, sha="absent0", path="anchors/absent0-toy.py")
+
+    seeing = ctl / "anchors" / "beefbee-toy.py"
+    seeing.write_text(SEEING_GATE, encoding="utf-8")
+    not_blind = dict(good_anchor, sha="beefbee", path="anchors/beefbee-toy.py",
+                     sha256=hashlib.sha256(seeing.read_bytes()).hexdigest())
+
+    for anchors, expected, label in (
+        ([tampered, missing], "UNRESOLVED", "second anchor absent from the checkout"),
+        ([tampered, not_blind], "INERT", "second anchor catches the known-bad input"),
+    ):
+        control = json.loads((ctl / "control.json").read_text(encoding="utf-8"))
+        control["anchors"] = anchors
+        (ctl / "control.json").write_text(json.dumps(control), encoding="utf-8")
+        result = run_harness(root)
+        assert verdict_of(result.stdout) == expected, f"{label}: {result.stdout}"
+        assert provenance_of(result.stdout) == "MISMATCH", f"{label}: {result.stdout}"
 
 
 # --------------------------------------------------------------------------- #

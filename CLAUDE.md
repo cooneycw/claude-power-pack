@@ -47,6 +47,7 @@ these rules remain in [commands-reference.md](docs/commands-reference.md) and
 - `.claude/skills/` - canonical topic-skill packages and provenance.
 - `codex/skills/` - generated Codex command-skill mirrors; regenerate with `make codex-skills`.
 - `scripts/` - deterministic helpers and repository checks.
+- `controls/` - registered negative controls: per-gate known-bad/known-good fixtures and the vendored blind anchors that prove each control can fail.
 - `lib/cicd/` - CI/CD configuration, runner, health, smoke, and deployment verification.
 - `lib/security/` - deterministic secret, dependency, and policy scanning.
 - `lib/creds/` - secret retrieval, injection, UI, and audit support.
