@@ -17,7 +17,7 @@ and behaviour is unchanged.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Optional
 
 
@@ -39,6 +39,19 @@ class SuiteOutcome:
     # last-wins behaviour did.
     invocations: int = 1
     empty_invocations: int = 0
+    # WHICH streams this outcome was derived from (issue #939/#952). A verdict
+    # without its denominator cannot be audited: `3 passed` read from stdout
+    # alone and `3 passed` read from both streams are different claims, and
+    # before #939 the parser could not tell them apart because it stopped at
+    # the first stream that said anything.
+    #
+    # Deliberately NOT the same question as `invocations`, which counts how
+    # many times the RUNNER ran. One invocation echoed to both streams sums to
+    # `invocations=2` with `streams_read=("stdout", "stderr")`; two genuinely
+    # disjoint invocations split across the streams produce the same pair. The
+    # counts alone cannot separate those, so recording the streams is what
+    # leaves the shape legible to a reader instead of merely trusted.
+    streams_read: tuple[str, ...] = ()
 
     @property
     def executed(self) -> int:
@@ -87,6 +100,7 @@ class SuiteOutcome:
             "framework": self.framework,
             "invocations": self.invocations,
             "empty_invocations": self.empty_invocations,
+            "streams_read": list(self.streams_read),
         }
 
 
@@ -152,7 +166,7 @@ def parse_failed_node_ids(text: str) -> list[str]:
     return ids
 
 
-def parse_suite_outcome(text: str) -> Optional[SuiteOutcome]:
+def parse_suite_outcome(text: str, stream: str = "") -> Optional[SuiteOutcome]:
     """Parse a test runner's summary out of captured step output.
 
     Returns None when no recognizable summary is present - the caller then
@@ -189,7 +203,11 @@ def parse_suite_outcome(text: str) -> Optional[SuiteOutcome]:
             parsed.append(found)
     if not parsed:
         return None
-    return _aggregate(parsed)
+    outcome = _aggregate(parsed)
+    # Attribution happens here rather than inside `_aggregate` because this is
+    # the only layer that knows which stream the text came from; everything
+    # `_aggregate` sees is already from one stream.
+    return replace(outcome, streams_read=(stream,)) if stream else outcome
 
 
 def _aggregate(outcomes: list[SuiteOutcome]) -> SuiteOutcome:
@@ -210,6 +228,57 @@ def _aggregate(outcomes: list[SuiteOutcome]) -> SuiteOutcome:
         framework=outcomes[-1].framework if len(frameworks) == 1 else "mixed",
         invocations=len(outcomes),
         empty_invocations=sum(1 for outcome in outcomes if outcome.nothing_ran),
+    )
+
+
+def merge_stream_outcomes(
+    outcomes: list[Optional[SuiteOutcome]],
+) -> Optional[SuiteOutcome]:
+    """Merge summaries parsed from the DIFFERENT streams of one step (issue #939).
+
+    The rule is the one `_aggregate` already applies within a stream: sum. The
+    parser used to read ``parse(output) or parse(error)``, which scanned the
+    second stream only when the first returned ``None`` - so whichever stream
+    spoke first silently won, and a passing or empty stdout summary hid the
+    failures reported on stderr. Answering "several summaries in one stream"
+    and "several summaries across two streams" by different rules would leave
+    a caller unable to predict which it was getting.
+
+    The rejected alternative was "prefer whichever stream reports failures".
+    It makes precedence depend on the VALUE parsed rather than on provenance,
+    so it cannot be stated as a rule about streams at all - only about
+    outcomes - and it silently discards the other stream's passed count. A
+    gate that wants pessimism should apply it at the gate, where it is visible
+    and reviewable, not inside the thing reporting the facts.
+
+    `invocations` is SUMMED rather than recomputed: each input has already
+    aggregated its own stream, so it carries a real count of runner
+    invocations. Recounting here (``len(present)``) would silently replace
+    "how many times the runner ran" with "how many streams spoke" and discard
+    kyle #838's field, which #621's guard reads.
+    """
+    present = [outcome for outcome in outcomes if outcome is not None]
+    if not present:
+        return None
+    if len(present) == 1:
+        return present[0]
+
+    streams: list[str] = []
+    for outcome in present:
+        for name in outcome.streams_read:
+            if name not in streams:
+                streams.append(name)
+
+    frameworks = {outcome.framework for outcome in present}
+    return SuiteOutcome(
+        passed=sum(outcome.passed for outcome in present),
+        failed=sum(outcome.failed for outcome in present),
+        skipped=sum(outcome.skipped for outcome in present),
+        errors=sum(outcome.errors for outcome in present),
+        framework=present[-1].framework if len(frameworks) == 1 else "mixed",
+        invocations=sum(outcome.invocations for outcome in present),
+        empty_invocations=sum(outcome.empty_invocations for outcome in present),
+        streams_read=tuple(streams),
     )
 
 

@@ -13,6 +13,7 @@ import pytest
 
 from lib.cicd.outcomes import (
     SuiteOutcome,
+    merge_stream_outcomes,
     parse_failed_node_ids,
     parse_suite_outcome,
 )
@@ -285,9 +286,173 @@ class TestStepGating:
         assert step._parse_tests("== 1 passed, 9 skipped in 1.0s ==", "") is None
 
     def test_test_step_parses_from_stderr_too(self) -> None:
+        """A summary on stderr alone is read - and the outcome SAYS so (issue #939).
+
+        The counts assertion is unchanged; this case always passed, including
+        against the `parse(out) or parse(err)` code #939 replaced, because an
+        empty stdout returns None and the `or` falls through. It is NOT a
+        regression test for #939 and must not be mistaken for one: the
+        discriminating case is stdout reporting PASSED while stderr reports
+        failures, which lives in TestBothStreamsAreMerged below.
+
+        What is new here is `streams_read`. Pinning it turns an assertion that
+        cannot see the stream question into one that can - the outcome now has
+        to name stderr as its denominator rather than merely carry the right
+        counts (issue #952).
+        """
         step = ShellStep(StepDef(id="test", command="make test"))
         outcome = step._parse_tests("", "== 1 passed, 9 skipped in 1.0s ==")
-        assert outcome == SuiteOutcome(passed=1, skipped=9, framework="pytest")
+        assert outcome == SuiteOutcome(
+            passed=1, skipped=9, framework="pytest", streams_read=("stderr",)
+        )
+
+
+class TestBothStreamsAreMerged:
+    """Issue #939: the summary parser read ONE stream and called it both.
+
+    `parse(output) or parse(error)` scans the second stream only when the first
+    returns None, and `SuiteOutcome` is a frozen dataclass with no `__bool__`,
+    so even an all-zeros "no tests ran" outcome is truthy and short-circuits
+    the stderr scan. The docstring said "both streams are scanned"; the code
+    did "the first stream that says anything wins".
+
+    THE DISCRIMINATING INPUT IS STDOUT REPORTING PASSED WHILE STDERR REPORTS
+    FAILURES. Read that twice before adding a case here: "failures on stderr"
+    alone does NOT discriminate, because an empty stdout returns None and the
+    old `or` fell through correctly. A red case built on the stdout-empty shape
+    passes against the unfixed parser, which makes it not a regression test
+    whatever its name says. That mistake was caught before this fix was
+    written, and this note exists so it is not made again.
+    """
+
+    def _step(self) -> ShellStep:
+        return ShellStep(StepDef(id="test", command="make test"))
+
+    def test_failures_on_stderr_survive_a_passing_stdout_summary(self) -> None:
+        """THE #939 red case. Fails against the pre-fix parser.
+
+        Pre-fix this returned `passed=3, failed=0` - the stdout summary alone -
+        so `failed + errors > 0` was False and the failures on stderr were
+        never retried. Measured on 1ba44cb before the fix: retry-eligible
+        False; after: True.
+        """
+        outcome = self._step()._parse_tests(
+            "=== 3 passed in 1.0s ===", "=== 1 failed in 1.0s ==="
+        )
+        assert outcome is not None
+        assert outcome.failed == 1, "the stderr failures must not be discarded"
+        assert outcome.passed == 3, "the stdout passes must not be discarded either"
+        assert outcome.failed + outcome.errors > 0, (
+            "this is the exact expression runner.py gates retry eligibility on; "
+            "it was False pre-fix and that is the whole defect"
+        )
+
+    def test_the_outcome_names_the_streams_it_read(self) -> None:
+        """#952's denominator: a verdict must say what it was derived FROM."""
+        outcome = self._step()._parse_tests(
+            "=== 3 passed in 1.0s ===", "=== 1 failed in 1.0s ==="
+        )
+        assert outcome is not None
+        assert outcome.streams_read == ("stdout", "stderr")
+
+    def test_a_stream_that_says_nothing_is_not_claimed_as_read(self) -> None:
+        """The denominator has to be honest in the other direction too.
+
+        Claiming both streams whenever both were LOOKED AT would make the field
+        decoration: it would read the same for a step whose stderr carried a
+        summary and one whose stderr was empty, which is the distinction it
+        exists to draw.
+        """
+        outcome = self._step()._parse_tests("=== 3 passed in 1.0s ===", "")
+        assert outcome is not None
+        assert outcome.streams_read == ("stdout",)
+
+    def test_an_empty_invocation_on_the_other_stream_still_counts(self) -> None:
+        """#621's guard, extended to the stream dimension (issue #939).
+
+        Pre-fix the stdout "no tests ran" outcome was truthy and won outright,
+        so the whole step read `nothing_ran` and the re-run reported RE-RUN
+        INCONCLUSIVE while a readable 5-passed summary sat on stderr. Merged,
+        the total ran something - and `any_invocation_empty` is what keeps
+        #621's warning alive rather than letting the merge silence it.
+        """
+        outcome = self._step()._parse_tests(
+            "=== no tests ran in 0.1s ===", "=== 5 passed in 1.0s ==="
+        )
+        assert outcome is not None
+        assert not outcome.nothing_ran
+        assert outcome.any_invocation_empty, (
+            "merging must not silence #621 - one invocation still executed nothing"
+        )
+        assert outcome.empty_invocations == 1
+
+    def test_invocations_counts_runner_runs_not_streams(self) -> None:
+        """`invocations` is kyle #838's field and means "how many times the runner ran".
+
+        The tempting implementation - reuse `_aggregate` on the two per-stream
+        outcomes - recomputes it as `len(present)`, i.e. how many STREAMS
+        spoke, and silently caps a three-invocation step at 2. Two invocations
+        on stdout plus one on stderr is three.
+        """
+        outcome = self._step()._parse_tests(
+            "=== 1 passed in 1.0s ===\n=== 2 passed in 1.0s ===",
+            "=== 3 passed in 1.0s ===",
+        )
+        assert outcome is not None
+        assert outcome.invocations == 3, "streams spoke: 2; runner ran: 3"
+        assert outcome.passed == 6
+
+    def test_the_denominator_never_overclaims(self) -> None:
+        """The merge must UNION the streams its inputs name, never assume both.
+
+        CAUGHT BY MUTATION, not by review. Hardcoding `("stdout", "stderr")` in
+        `merge_stream_outcomes` survived the entire battery: `_parse_tests` is
+        its only caller today and always passes exactly those two, so the union
+        was never exercised and every case still passed. The protection existed
+        and was not load-bearing, which is indistinguishable from a working one
+        by inspection.
+
+        The property is worth having on its own terms rather than only to kill
+        a mutant: a denominator that can claim a stream it never read is the
+        same defect class as the one this ticket fixes, one level down. Here
+        both summaries came from stdout, so stderr must not appear.
+        """
+        merged = merge_stream_outcomes(
+            [
+                SuiteOutcome(passed=1, framework="pytest", streams_read=("stdout",)),
+                SuiteOutcome(passed=2, framework="pytest", streams_read=("stdout",)),
+            ]
+        )
+        assert merged is not None
+        assert merged.streams_read == ("stdout",), "stderr was never read"
+        assert merged.passed == 3
+        assert merged.invocations == 2
+
+    def test_an_unattributed_outcome_contributes_no_stream(self) -> None:
+        """`parse_suite_outcome` without a stream name yields no attribution.
+
+        It must contribute its COUNTS without inventing a provenance for them.
+        """
+        merged = merge_stream_outcomes(
+            [
+                SuiteOutcome(passed=1, framework="pytest", streams_read=("stdout",)),
+                SuiteOutcome(passed=2, framework="pytest"),
+            ]
+        )
+        assert merged is not None
+        assert merged.streams_read == ("stdout",)
+        assert merged.passed == 3
+
+    def test_merge_of_nothing_is_none(self) -> None:
+        assert merge_stream_outcomes([None, None]) is None
+
+    def test_mixed_frameworks_across_streams_are_named_mixed(self) -> None:
+        """Honest rather than attributing a jest run's tests to pytest."""
+        outcome = self._step()._parse_tests(
+            "=== 1 passed in 1.0s ===", "Tests:       2 passed, 2 total"
+        )
+        assert outcome is not None
+        assert outcome.framework == "mixed"
 
 
 class TestMultipleInvocationsInOneStep:

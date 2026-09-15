@@ -1209,6 +1209,168 @@ class TestFinishGateFallbackParity:
             )
 
 
+class TestBothStreamsReachTheRunnerDecisions:
+    """Issue #939 end to end: the merged summary drives three real decisions.
+
+    `_parse_tests` fed retry eligibility, #621's `nothing_ran` guard and #900's
+    re-run verdict from ONE stream while claiming both. These cases pin the
+    decisions rather than the parser - the parser's own cases live in
+    tests/test_cicd_outcomes.py::TestBothStreamsAreMerged.
+
+    Every case here puts a REAL summary on stdout and the contradicting one on
+    stderr. A case with an empty stdout would pass against the pre-fix code,
+    because `parse(out) or parse(err)` fell through correctly when stdout said
+    nothing at all - it is not a regression test for this defect.
+    """
+
+    def test_failures_on_stderr_are_retried_despite_a_passing_stdout_summary(
+        self, tmp_project: Path
+    ) -> None:
+        """THE #939 red case at the decision it breaks: retry eligibility.
+
+        runner.py gates the #769 targeted re-run on
+        `outcome.failed + outcome.errors > 0`. Pre-fix the outcome was the
+        stdout summary alone - 3 passed, 0 failed - so this step failed, had a
+        readable failing id on stderr, and was never re-run.
+        """
+        step = StepDef(
+            id="test",
+            command=(
+                "printf '=== 3 passed in 0.01s ===\\n'; "
+                "printf '=== 1 failed in 0.01s ===\\n' >&2; "
+                "printf 'FAILED tests/a.py::t1 - AssertionError\\n' >&2; "
+                "exit 1"
+            ),
+            timeout_seconds=30,
+        )
+        log = StringIO()
+        result = DeterministicRunner(
+            project_root=tmp_project, output=log, rerun_failed=True
+        ).run("check", step_defs=[step])
+
+        assert not result.success
+        assert result.reruns, (
+            "the failing id was readable on stderr and the step was eligible "
+            "for the #769 re-run; pre-fix the stdout summary hid it and "
+            "result.reruns was empty"
+        )
+        assert result.reruns[0]["ids"] == ["tests/a.py::t1"]
+        assert result.tests["test"]["failed"] == 1
+        assert result.tests["test"]["passed"] == 3
+        assert result.tests["test"]["streams_read"] == ["stdout", "stderr"]
+
+    def test_a_rerun_summary_on_stderr_is_not_read_as_nothing_ran(
+        self, tmp_project: Path
+    ) -> None:
+        """#900's verdict, extended to the stream dimension (issue #939).
+
+        The re-run prints "no tests ran" on stdout and its real summary on
+        stderr. Pre-fix the truthy all-zeros stdout outcome won, so the re-run
+        reported RE-RUN INCONCLUSIVE and #900's `passed-in-isolation` verdict
+        was never reached although a readable result existed.
+        """
+        step = StepDef(
+            id="test",
+            command=(
+                "if [ -f rerun-marker ]; then "
+                "printf '=== no tests ran in 0.01s ===\\n'; "
+                "printf '=== 1 passed in 0.01s ===\\n' >&2; "
+                "else : > rerun-marker; "
+                "printf '=== 1 failed in 0.01s ===\\n'; "
+                "printf 'FAILED tests/a.py::t1 - AssertionError\\n'; "
+                "exit 1; fi"
+            ),
+            timeout_seconds=30,
+        )
+        log = StringIO()
+        result = DeterministicRunner(
+            project_root=tmp_project, output=log, rerun_failed=True
+        ).run("check", step_defs=[step])
+
+        assert result.reruns[0]["outcome"] == RERUN_PASSED_IN_ISOLATION, (
+            "the re-run's summary was readable on stderr; reporting "
+            "inconclusive would be the #939 defect wearing #621's hat"
+        )
+        assert "RE-RUN INCONCLUSIVE" not in log.getvalue()
+
+    def test_an_empty_invocation_on_the_other_stream_still_warns(
+        self, tmp_project: Path
+    ) -> None:
+        """#621's guard, extended to the stream dimension (issue #939).
+
+        One invocation collected nothing and the other passed 5, split across
+        the streams. The merge must not silence #621: the total ran something,
+        so `nothing_ran` is False, and `any_invocation_empty` is what keeps the
+        warning alive.
+        """
+        step = StepDef(
+            id="test",
+            command=(
+                "printf '=== no tests ran in 0.01s ===\\n'; "
+                "printf '=== 5 passed in 0.01s ===\\n' >&2"
+            ),
+            timeout_seconds=30,
+        )
+        log = StringIO()
+        result = DeterministicRunner(project_root=tmp_project, output=log).run(
+            "check", step_defs=[step]
+        )
+
+        assert result.success
+        assert result.warnings, "#621's guard must survive the merge"
+        assert "executed NO tests" in " ".join(result.warnings)
+        assert result.tests["test"]["empty_invocations"] == 1
+        assert result.tests["test"]["invocations"] == 2
+
+
+class TestUnparsedTestOutcomeReadsUnknown:
+    """Issue #952 via #939: a parse that examined nothing is UNKNOWN, not clean.
+
+    A test step that exited 0 and whose output yielded no recognizable summary
+    used to log a bare SUCCESS and add no `tests` entry at all. Silence and a
+    clean result were indistinguishable to flow-finish-gate.sh, which reads
+    `warnings`.
+    """
+
+    def test_unparseable_test_output_is_reported_as_unknown(
+        self, tmp_project: Path
+    ) -> None:
+        step = StepDef(
+            id="test",
+            command="printf 'ok 1 - something\\nok 2 - something else\\n'",
+            timeout_seconds=30,
+        )
+        log = StringIO()
+        result = DeterministicRunner(project_root=tmp_project, output=log).run(
+            "check", step_defs=[step]
+        )
+
+        assert result.success
+        assert result.warnings
+        assert "UNKNOWN, not clean" in " ".join(result.warnings)
+        assert "completed successfully" not in log.getvalue()
+
+    def test_a_test_step_that_printed_nothing_is_still_a_bare_success(
+        self, tmp_project: Path
+    ) -> None:
+        """The bound on the warning above, pinned so it cannot quietly widen.
+
+        A step that produced NO output is not a suite whose result is unknown -
+        there is nothing to be unknown about - and #628/#890 pinned that shape
+        as a bare success. A warning that fires on the normal case is one
+        nobody reads, so this is the negative half of the pair.
+        """
+        step = StepDef(id="test", command="true", timeout_seconds=30)
+        log = StringIO()
+        result = DeterministicRunner(project_root=tmp_project, output=log).run(
+            "check", step_defs=[step]
+        )
+
+        assert result.success
+        assert not result.warnings
+        assert "UNKNOWN" not in log.getvalue()
+
+
 class TestSkippedSuiteReporting:
     """A test step that exits 0 having executed nothing must not be reported as a
     bare SUCCESS (issue #621). pytest exits 0 when every test skips, so the plan
@@ -1263,6 +1425,12 @@ class TestSkippedSuiteReporting:
             # here deliberately rather than left to drift.
             "invocations": 1,
             "empty_invocations": 0,
+            # The denominator (issue #939/#952). The gate helper reads this
+            # dict, and `312 passed` derived from stdout alone is a different
+            # claim from `312 passed` derived from both streams - so the
+            # streams that produced the counts are pinned beside them rather
+            # than left for a reader to assume.
+            "streams_read": ["stdout"],
         }
         # Some tests DID run, so this is a real green - no warning, no
         # "WITH WARNINGS" banner, but the counts are visible either way.

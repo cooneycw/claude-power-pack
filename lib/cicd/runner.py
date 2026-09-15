@@ -513,6 +513,45 @@ class DeterministicRunner:
                         f"SUCCESS - {outcome.empty_invocations} OF "
                         f"{outcome.invocations} INVOCATIONS RAN NO TESTS{qualifier}"
                     )
+                elif (
+                    outcome is None
+                    and step.is_test_step()
+                    and (result.output.strip() or result.error.strip())
+                ):
+                    # A parse that examined nothing reads UNKNOWN, not clean
+                    # (issue #952, first implementation ticket #939). Silence
+                    # here used to be indistinguishable from a healthy result:
+                    # the step logged a bare SUCCESS, `tests` gained no entry,
+                    # and a reader could not tell "the suite reported 312
+                    # passed" from "nothing in either stream was recognizable
+                    # as a summary". Those are different facts and only one of
+                    # them is evidence.
+                    #
+                    # Both streams were examined and neither yielded a
+                    # summary, so the denominator is stated rather than left
+                    # to inference.
+                    #
+                    # SCOPED to a step that actually PRODUCED output, and the
+                    # bound is deliberate. A test step that printed nothing at
+                    # all (`command: true`) is not a suite whose result is
+                    # unknown - there is no result to be unknown about - and
+                    # #628/#890 pinned that shape as a bare success. Warning
+                    # there would fire on the normal case, which is how a
+                    # warning stops being read.
+                    #
+                    # The bound does NOT cover a runner CPP cannot parse (Go,
+                    # Rust, a shell harness): that produces output, so it warns
+                    # on every run. That is a policy question wider than #939
+                    # and is flagged as a residual rather than settled here.
+                    warnings.append(
+                        f"{step.id}: exited 0 but NO test summary could be parsed "
+                        "from stdout or stderr - this gate's result is UNKNOWN, "
+                        "not clean"
+                    )
+                    self._log(
+                        f"  [{idx + 1}/{len(step_defs)}] {step.id}: "
+                        "SUCCESS - NO TEST OUTCOME PARSED (UNKNOWN, not clean)"
+                    )
                 else:
                     self._log(f"  [{idx + 1}/{len(step_defs)}] {step.id}: SUCCESS{qualifier}")
                 state.mark_step_success(idx, result.output, tests=outcome_dict)
