@@ -92,9 +92,9 @@ while [[ $# -gt 0 ]]; do
         --repo=*)      REPO="${1#*=}"; shift ;;
         --event)       PREFER_EVENT="${2:-}"; [[ -n "$PREFER_EVENT" ]] || die_usage "--event needs a value"; shift 2 ;;
         --event=*)     PREFER_EVENT="${1#*=}"; shift ;;
-        --secret-name) SECRET_NAME="${2:-}"; shift 2 ;;
+        --secret-name) SECRET_NAME="${2:-}"; [[ -n "$SECRET_NAME" ]] || die_usage "--secret-name needs a value"; shift 2 ;;
         --secret-name=*) SECRET_NAME="${1#*=}"; shift ;;
-        --region)      AWS_REGION="${2:-}"; shift 2 ;;
+        --region)      AWS_REGION="${2:-}"; [[ -n "$AWS_REGION" ]] || die_usage "--region needs a value"; shift 2 ;;
         --region=*)    AWS_REGION="${1#*=}"; shift ;;
         --exit-code)   WANT_EXIT_CODE=1; shift ;;
         --wait)

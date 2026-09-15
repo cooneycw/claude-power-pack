@@ -901,3 +901,80 @@ def test_an_untracked_control_file_refuses_the_green() -> None:
         sneaky.unlink(missing_ok=True)
     restored = run_harness(ROOT, "--strict")
     assert restored.returncode == 0, f"the tree must be clean again\n{restored.stdout}"
+
+
+# --------------------------------------------------------------------------- #
+# A value-taking flag as the FINAL argument (issue #992)
+# --------------------------------------------------------------------------- #
+# `shift 2` fails when only one positional remains and shifts NOTHING. `${2:-}`
+# made the missing value benign, so nothing errored - and `$#` never decreased,
+# so `while [ $# -gt 0 ]` spun forever on the same argument. The script did not
+# crash, print, or exit; it burned a core until something killed it.
+#
+# THE `timeout=` BELOW IS THE ASSERTION. On the unfixed script this test does not
+# fail, it never returns - so an assertion about the exit STATUS would be
+# unfalsifiable there, and "exit is 2" would hang the suite rather than red it.
+# A hanging suite is not a red run, it is no run at all.
+
+
+#: The harness's own known-good and known-bad fixtures.
+_TOY_GATES = [
+    "controls/check-negative-controls/cases/good-discriminating-gate/scripts/toy-gate.sh",
+    "controls/check-negative-controls/cases/bad-crashing-gate/scripts/toy-gate.sh",
+]
+
+
+@pytest.mark.parametrize("rel", _TOY_GATES)
+@pytest.mark.parametrize("interpreter", ["sh", "bash"])
+@pytest.mark.skipif(
+    shutil.which("sh") is None or shutil.which("bash") is None,
+    reason="shells out to sh and bash",
+)
+def test_a_toy_gate_refuses_a_dangling_root_under_either_shell(rel: str, interpreter: str) -> None:
+    """These two are the fixtures of the harness that proves gates can fail.
+
+    Invoked with `sh`, not `bash`: the files are `#!/bin/sh` and control.json
+    invokes them as `["sh", "{gate}", "--root", "{case}"]`. The exit status of
+    `${2:?}` differs between shells (2 under dash, 1 under bash), so this asserts
+    NON-ZERO rather than a number - the property is "refuses and returns", and
+    pinning a shell-specific code would make the test lie on another host.
+
+    REACH, stated rather than implied: the harness always supplies `{case}` to
+    `--root`, so this was never reachable from the control battery. It was a trap
+    for a hand-invocation. This file should not be read as evidence that the
+    battery was at risk.
+
+    BOTH SHELLS, because the old behaviour was HOST-DEPENDENT and that is worse
+    than uniformly broken. Measured on the unfixed fixture: under `bash` the
+    parse loop spun forever, while under `dash` - what `/bin/sh` is here, and
+    what the shebang declares - `shift 2` with one positional is a fatal error
+    and the script exited 2. So on a host whose `/bin/sh` is bash the same file
+    hangs, and on this one it does not. Parametrising the interpreter is what
+    stops the test agreeing with whichever host happens to run it.
+    """
+    result = subprocess.run(
+        [interpreter, str(ROOT / rel), "--root"],
+        capture_output=True, text=True, timeout=15,
+    )
+    assert result.returncode != 0, f"a dangling --root must refuse: {result!r}"
+    assert "--root needs a value" in result.stderr, (
+        f"{interpreter}: the refusal must NAME the flag, not merely be non-zero - "
+        f"dash's own 'shift: can't shift that many' is also non-zero and says "
+        f"nothing a caller can act on: {result.stderr!r}"
+    )
+
+
+@pytest.mark.parametrize("rel", _TOY_GATES)
+@pytest.mark.skipif(shutil.which("sh") is None, reason="shells out to sh")
+def test_a_toy_gate_still_accepts_a_normal_root(rel: str, tmp_path: Path) -> None:
+    """The other side: the guard must not refuse the invocation the harness makes.
+
+    `${2:?}` fires on unset OR NULL, so this is also the case that would catch it
+    becoming stricter than intended for a real path.
+    """
+    result = subprocess.run(
+        ["sh", str(ROOT / rel), "--root", str(tmp_path)],
+        capture_output=True, text=True, timeout=15,
+    )
+    assert result.returncode == 0, f"a normal --root must be accepted: {result!r}"
+    assert "toy-gate: clean" in result.stdout, result.stdout
