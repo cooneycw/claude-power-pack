@@ -85,6 +85,28 @@ desktop.ini
 # ignored path with no error - so the framework shipped with its only control
 # inert. The `*` glob covers the next consumer, not just the first.
 !controls/*/control.json
+# The #953 forced-claim prototype's manifest, claims and anchors (issue #953) -
+# same trap, one directory over. Its cases/*/claim.json and cases/*/anchor.log
+# ARE the fixture inputs: without them `--selftest` crashes on a fresh checkout,
+# and before this line it reported "14/14 cases behaved as registered" against
+# files that were not in the repository at all. `git add -A` skipped every one
+# and reported success.
+# NOT UNCHECKED - checked elsewhere: `forced-claim-check.py --selftest` runs all
+# seventeen cases against their registered verdicts and exit codes.
+# WHAT WOULD MOVE THIS BACK (issue #936): these negations hold only while that
+# directory is prototype fixture data. If it is promoted into controls/ the
+# `!controls/*/control.json` line above already covers the manifest and these
+# entries should be removed rather than left behind.
+# THIS IS THE LESSER HALF OF THE FIX. A negation list is a hand-maintained
+# enumeration of places where the blanket rule is wrong, and the line above
+# proves how that ages: its own comment says the glob "covers the next
+# consumer", and it did not cover this one, because this one is outside
+# controls/. Extending the list by one leaves the next location just as
+# exposed. The fail-loud half lives in the prototype: --selftest refuses to
+# report any result until every input it depends on is tracked by git. That
+# covers locations nobody has enumerated yet; this line only covers today's.
+!docs/research/forced-claim-prototype-2026-09-15/control.json
+!docs/research/forced-claim-prototype-2026-09-15/cases/*/claim.json
 node_modules/
 .claude/settings*.json
 .claude/plans/
@@ -119,6 +141,20 @@ node_modules/
 # Logs
 *.log
 logs/
+# #953 forced-claim prototype anchors (issue #953) - tracked despite *.log
+# above. An anchor.log is a fixture INPUT, not output: it is the
+# non-claimant-authored record the amendment counter reads, and the
+# empty-anchor and anchor-with-noise cases exist precisely to exercise its
+# contents. Placed AFTER *.log deliberately - gitignore takes the LAST matching
+# rule, so the companion negation for these fixtures' *.json (up beside
+# `!controls/*/control.json`) works where it sits only because *.json precedes
+# it. The first cut of this line sat there too and was silently inert; a
+# two-sided `git check-ignore -v` probe caught it.
+# NOT UNCHECKED - checked elsewhere: `forced-claim-check.py --selftest`, which
+# refuses to report any case result until these inputs are tracked.
+# WHAT WOULD MOVE THIS BACK (issue #936): holds only while that directory is
+# prototype fixture data.
+!docs/research/forced-claim-prototype-2026-09-15/cases/*/anchor.log
 
 # Testing
 .pytest_cache/

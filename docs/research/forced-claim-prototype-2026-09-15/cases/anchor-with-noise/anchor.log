@@ -1,0 +1,4 @@
+CI job started
+{"tests_added": 1, "tests": ["test_calc.py::test_add"]}
+CI job finished
+not json at all
