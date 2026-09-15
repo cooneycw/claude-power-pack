@@ -1,4 +1,4 @@
-.PHONY: test lint format typecheck verify secret-scan update_docs clean \
+.PHONY: test lint format typecheck verify shellcheck secret-scan update_docs clean \
        bootstrap-check drift-check deploy setup-woodpecker-cli \
        codex-init codex-skills codex-skills-check codex-install \
        eli5-check eli5-drift eli5-revendor \
@@ -24,6 +24,17 @@ test:
 typecheck:
 	uv run --extra dev mypy .
 
+## Lint every shell script in the tree (issue #960). Membership is DERIVED,
+## not globbed: `git ls-files '*.sh'` cannot see `scripts/cpp-memory`, a tracked
+## bash script with no .sh suffix, and a tracked-only list cannot see untracked
+## scripts at all. The helper reports the denominator it examined on every run.
+##
+## Absence of shellcheck is UNKNOWN and exits non-zero. It is NOT a pass: a
+## `command -v shellcheck || exit 0` guard would go green on every machine that
+## lacks the tool, which is the failure class this repo keeps finding.
+shellcheck:
+	sh scripts/shellcheck-gate.sh
+
 secret-scan:
 	@if command -v gitleaks > /dev/null 2>&1; then \
 		gitleaks detect --source . --config .gitleaks.toml --no-git --verbose; \
@@ -37,7 +48,7 @@ secret-scan:
 
 ## Pre-deploy gate (runs all quality checks)
 
-verify: lint test typecheck binary-guards-check negative-fixture-check \
+verify: lint test typecheck shellcheck binary-guards-check negative-fixture-check \
 	claude-md-budget-check claude-md-links-check claude-md-behavior-check \
 	project-next-check
 

@@ -2110,7 +2110,7 @@ EOF
       dv="$(printf '%s' "$e" | jq -r '.driver // ""')"
       if [ -n "$dv" ]; then
         dvf="$(driver_cap "$dv" FENCE)"
-        [ -n "$dvf" ] && extra="$extra driver=$dv[$dvf]" || extra="$extra driver=$dv"
+        [ -n "$dvf" ] && extra="$extra driver=${dv}[${dvf}]" || extra="$extra driver=$dv"
       fi
       # Brief staleness is shown for LIVE roles only: a stale or released entry
       # is not running on anything, so calling its brief superseded would be

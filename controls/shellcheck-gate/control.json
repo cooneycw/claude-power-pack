@@ -1,0 +1,33 @@
+{
+  "gate": "scripts/shellcheck-gate.sh",
+  "invocation": [
+    "sh",
+    "{gate}",
+    "--root",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^shellcheck-gate: [0-9]+ file\\(s\\) scanned at severity=.*findings reported",
+  "cases": [
+    {
+      "name": "bad-extensionless",
+      "input": "cases/bad-extensionless",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-extensionless",
+      "input": "cases/good-extensionless",
+      "expect": "GOOD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "historical",
+      "sha": "ed5349c",
+      "origin": "scripts/shellcheck-gate.sh",
+      "path": "anchors/ed5349c-shellcheck-gate.sh",
+      "sha256": "078cd27f9a2d668e3c401c57ee62ce565bc5641e9b898fb86633418aad39308e",
+      "note": "PERMANENTLY UNRESOLVABLE AFTER SQUASH, BY DESIGN. This is a pre-squash commit on the #960 branch; squash-merging orphans it, so `git show` can never resolve it on main. That does NOT weaken the control: the operative check is the sha256 of this VENDORED file, which is git-independent, and CI runs --strict WITHOUT --verify-provenance because git is not in the CI image. What it means is that --verify-provenance reads `unverified` here for a TERMINAL reason (unresolvable anywhere, forever) rather than the ordinary temporary one (git absent on this machine). Same word, two causes. Integrity is established; historicity is not. The anchor itself is deliberately git-FREE so its blindness is demonstrable in the CI image too - a git-dependent anchor reports UNKNOWN there and cannot be told from a crash, which is this issue's own defect class inside the tool built for it."
+    }
+  ]
+}

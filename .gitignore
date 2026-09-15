@@ -190,3 +190,6 @@ mcp-second-opinion/src/tools/__pycache__/
 woodpecker/agent.env
 woodpecker/docker.env
 woodpecker/wp-cli-env.sh
+
+# Staged CI binaries (shellcheck pinned copy, issue #960)
+.ci-bin/
