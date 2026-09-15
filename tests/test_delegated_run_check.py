@@ -648,6 +648,11 @@ def test_the_contract_carries_every_always_emitted_line(clean_run: Path) -> None
         "DELEGATED_RUN_LANE",
         "DELEGATED_RUN_FILE",
         "DELEGATED_RUN_EXIT",
+        # The denominator (#892). A helper whose defect was "reports success
+        # when nothing ran" must say how much it looked at, or a zero cannot be
+        # told from "did not look".
+        "DELEGATED_RUN_EVENTS",
+        "DELEGATED_RUN_RECOGNIZED",
         "DELEGATED_RUN_TOOL_ERRORS",
         "DELEGATED_RUN_STATUS",
     }
@@ -656,3 +661,278 @@ def test_the_contract_carries_every_always_emitted_line(clean_run: Path) -> None
         f"contract drift: missing {sorted(always - emitted)}, "
         f"unexpected {sorted(emitted - always)}"
     )
+
+
+# --------------------------------------------------------------------------- #
+# A codex item whose own type is "error" (issue #892).
+#
+# #836 made errored tool CALLS visible. This is the next layer: when the Codex
+# CLI cannot START its execution tool it announces that as an item whose own
+# `type` is "error". Nothing ran, and the helper reported success over it.
+# --------------------------------------------------------------------------- #
+
+#: The real stream shape, from a Kyle session container on 2026-09-13 where
+#: `codex-code-mode-host` is absent from the image.
+CODEX_HOST_MISSING = (
+    "Code Mode is unavailable because failed to spawn code-mode host "
+    "/usr/local/bin/codex-code-mode-host: host executable was not found. "
+    "Code mode will fail closed."
+)
+
+
+def _codex_error_item_stream(tmp_path: Path) -> Path:
+    return write_jsonl(
+        tmp_path / "codex-error-item.jsonl",
+        [
+            {"type": "thread.started", "thread_id": "t1"},
+            {"type": "turn.started"},
+            {"type": "item.completed", "item": {
+                "id": "item_0", "type": "error", "message": CODEX_HOST_MISSING}},
+            {"type": "item.completed", "item": {
+                "id": "item_1", "type": "agent_message",
+                "text": "I couldn't run the read-only commands because the "
+                        "execution tool failed to start."}},
+            {"type": "turn.completed"},
+        ],
+    )
+
+
+def test_a_codex_error_item_is_a_failure_without_expect_tools(tmp_path: Path) -> None:
+    """The #892 red case, and it must NOT need `--expect-tools` to be caught.
+
+    Against the pre-fix helper this exact payload reported
+    `DELEGATED_RUN_STATUS: success` at exit 0. `--expect-tools` did reach
+    `failure`, but for the wrong reason and with no diagnosis: the only signal
+    was `no-tool-use`, which this helper's own documentation reads benignly as
+    the model choosing not to act. The execution tool never started.
+    """
+    output = _codex_error_item_stream(tmp_path)
+    proc = run(str(output), "0", "--lane", "codex")
+    fields = contract(proc.stdout)
+    assert fields["DELEGATED_RUN_STATUS"] == ["failure"], proc.stdout
+    assert proc.returncode == 1, proc.stdout
+    assert "error-payload" in fields["DELEGATED_RUN_SIGNAL"], proc.stdout
+
+
+def test_the_error_item_message_reaches_the_operator(tmp_path: Path) -> None:
+    """`that` is not enough; the run is unrecoverable without `why`.
+
+    The difference between "the run did nothing" and "the run could not do
+    anything" is the difference between re-running the prompt and installing a
+    missing binary, and the message naming the binary was in the payload and
+    was being discarded.
+    """
+    output = _codex_error_item_stream(tmp_path)
+    proc = run(str(output), "0", "--lane", "codex")
+    assert "codex-code-mode-host" in proc.stdout, proc.stdout
+    assert "host executable was not found" in proc.stdout, proc.stdout
+
+
+def test_the_item_error_check_is_scoped_and_does_not_become_recursive(
+    tmp_path: Path,
+) -> None:
+    """The guard on the fix, not on the defect.
+
+    `is_fatal`'s note records a litigated decision: scanning every nesting
+    level made a DENIED TOOL CALL fatal, and a denied command is the
+    /gemma:auto fence working as designed. The item-error check reads exactly
+    `node["item"]["type"]`, so an "item" carried INSIDE a tool call's `part` is
+    not reached.
+
+    If someone later makes the check recursive to catch "one more case", this
+    fails - which is the whole point of pinning it.
+    """
+    output = write_jsonl(
+        tmp_path / "nested-item-error.jsonl",
+        [
+            {"type": "step_start"},
+            {"type": "tool_use", "part": {
+                "tool": "bash",
+                "item": {"type": "error", "message": "denied by rule: git commit*"},
+                "state": {"status": "error", "error": "permission denied"}}},
+            {"type": "step_finish", "part": {"reason": "stop"}},
+        ],
+    )
+    proc = run(str(output), "0", "--lane", "gemma")
+    fields = contract(proc.stdout)
+    assert fields["DELEGATED_RUN_STATUS"] == ["success"], (
+        "a tool call carrying a nested item.type=error is the fence working, "
+        f"not a harness failure:\n{proc.stdout}"
+    )
+    assert proc.returncode == 0, proc.stdout
+
+
+def test_the_denominator_says_how_much_was_examined(tmp_path: Path) -> None:
+    """A verdict that cannot say what it looked at is the defect one level up.
+
+    This helper's whole failure mode was reporting success over a run where
+    nothing happened. `EVENTS`/`RECOGNIZED` make the input population part of
+    the contract, so `TOOL_ERRORS: 0` can be told apart from "examined nothing".
+    """
+    output = _codex_error_item_stream(tmp_path)
+    fields = contract(run(str(output), "0", "--lane", "codex").stdout)
+    assert fields["DELEGATED_RUN_EVENTS"] == ["5"], fields
+    assert fields["DELEGATED_RUN_RECOGNIZED"] == ["5"], fields
+
+    empty = tmp_path / "empty.jsonl"
+    empty.write_text("", encoding="utf-8")
+    empty_fields = contract(run(str(empty), "0", "--lane", "codex").stdout)
+    assert empty_fields["DELEGATED_RUN_EVENTS"] == ["0"], empty_fields
+    # The helper distinguishes an empty stream (`output-empty`) from one that
+    # parsed but carried no recognizable event (`output-unrecognized`). Either
+    # way a zero denominator must not read as clean, which is what the failure
+    # status below pins.
+    assert empty_fields["DELEGATED_RUN_SIGNAL"] == ["output-empty"], empty_fields
+    assert empty_fields["DELEGATED_RUN_STATUS"] == ["failure"], empty_fields
+
+
+def test_an_empty_stream_finishes_its_contract_instead_of_dying_mid_report(
+    tmp_path: Path,
+) -> None:
+    """A SECOND instance of this issue's class, found while fixing the first.
+
+    `TOOL_ERRORS=0` used to be initialized only inside the branch that runs the
+    JSONL parser. An empty output file never reaches that branch, so the script
+    died on `TOOL_ERRORS: unbound variable` PART WAY THROUGH the contract -
+    after SIGNAL and DETAIL, before STATUS - and on `origin/main` that path
+    exits 0.
+
+    So a run that produced no stream whatsoever reported success, which is
+    exactly "reports success when nothing ran" in a different code path from
+    the one #892 is about. Measured on the pre-fix helper, not inferred.
+
+    Both halves are load-bearing: a truncated contract is how the caller loses
+    STATUS, and exit 0 is how it proceeds as though work happened.
+    """
+    empty = tmp_path / "nothing.jsonl"
+    empty.write_text("", encoding="utf-8")
+    proc = run(str(empty), "0", "--lane", "codex")
+    fields = contract(proc.stdout)
+
+    assert "DELEGATED_RUN_STATUS" in fields, (
+        f"the contract stops before STATUS:\n{proc.stdout}\n{proc.stderr}"
+    )
+    assert fields["DELEGATED_RUN_STATUS"] == ["failure"], proc.stdout
+    assert proc.returncode == 1, (
+        f"a run that produced no stream must not exit 0:\n{proc.stdout}"
+    )
+    assert "unbound variable" not in proc.stderr, proc.stderr
+
+
+# --------------------------------------------------------------------------- #
+# The benign half, and it is why `item.type == "error"` is not enough.
+#
+# Found by the cross-model review and confirmed against codex's own
+# `event_processor_with_jsonl_output.rs`: `ThreadItemDetails::Error` is emitted
+# for ConfigWarning, DeprecationNotice and ModelRerouted, each of which returns
+# `CodexStatus::Running` and continues. A genuinely critical error is a
+# DIFFERENT shape - a top-level `{"type":"error"}` event, `ThreadEvent::Error` -
+# which `is_fatal` already handled and this change does not touch.
+#
+# So the first cut of this fix would have failed every run carrying a
+# deprecation notice. These pin the other side of the line.
+# --------------------------------------------------------------------------- #
+
+
+def _benign_notice_stream(tmp_path: Path, message: str, name: str) -> Path:
+    """An error ITEM alongside work that actually happened."""
+    return write_jsonl(
+        tmp_path / name,
+        [
+            {"type": "thread.started", "thread_id": "t1"},
+            {"type": "turn.started"},
+            {"type": "item.completed", "item": {
+                "id": "item_0", "type": "error", "message": message}},
+            {"type": "item.completed", "item": {
+                "id": "item_1", "type": "command_execution",
+                "command": "ls", "exit_code": 0}},
+            {"type": "turn.completed"},
+        ],
+    )
+
+
+@pytest.mark.parametrize(
+    "message, name",
+    [
+        ("model rerouted: gpt-5.5-codex -> gpt-5.5", "reroute.jsonl"),
+        ("`foo` is deprecated and will be removed in a future release",
+         "deprecation.jsonl"),
+        ("config warning: unknown key `experimental` ignored", "configwarn.jsonl"),
+    ],
+)
+def test_a_benign_error_item_alongside_real_work_is_not_a_failure(
+    tmp_path: Path, message: str, name: str
+) -> None:
+    """A notice in a run that DID its work is not a failed run."""
+    output = _benign_notice_stream(tmp_path, message, name)
+    proc = run(str(output), "0", "--lane", "codex")
+    fields = contract(proc.stdout)
+    assert fields["DELEGATED_RUN_STATUS"] == ["success"], proc.stdout
+    assert proc.returncode == 0, proc.stdout
+
+
+def test_a_benign_error_item_is_still_surfaced_to_the_operator(tmp_path: Path) -> None:
+    """Not fatal is not the same as not worth saying.
+
+    The point of reading the item at all is that the operator sees what the
+    harness said about itself. Dropping the message on the benign path would
+    reintroduce half the original complaint - `that` without `why` - on every
+    run that continued.
+    """
+    output = _benign_notice_stream(
+        tmp_path, "model rerouted: gpt-5.5-codex -> gpt-5.5", "surfaced.jsonl")
+    proc = run(str(output), "0", "--lane", "codex")
+    fields = contract(proc.stdout)
+    assert "error-item" in fields["DELEGATED_RUN_SIGNAL"], proc.stdout
+    assert "model rerouted" in proc.stdout, proc.stdout
+    assert fields["DELEGATED_RUN_STATUS"] == ["success"], proc.stdout
+
+
+def test_a_benign_error_item_does_not_fail_under_expect_tools_either(
+    tmp_path: Path,
+) -> None:
+    """`error-item` is informational on BOTH paths.
+
+    Grouping it with `no-tool-use` would have made it fatal whenever a caller
+    passed --expect-tools, which is most callers that care.
+    """
+    output = _benign_notice_stream(
+        tmp_path, "config warning: unknown key ignored", "expect.jsonl")
+    proc = run(str(output), "0", "--lane", "codex", "--expect-tools")
+    assert contract(proc.stdout)["DELEGATED_RUN_STATUS"] == ["success"], proc.stdout
+    assert proc.returncode == 0, proc.stdout
+
+
+def test_the_failure_is_the_conjunction_not_either_half(tmp_path: Path) -> None:
+    """Neither half alone is a failure; together they are.
+
+    This is the discriminator the whole fix rests on, so it is pinned directly
+    rather than left implicit across the cases above:
+
+      error item + work happened   -> success   (a notice)
+      no error item + no tool use  -> success   (a question answered in prose)
+      error item + no tool use     -> FAILURE   (the run could not act)
+    """
+    notice_only = _benign_notice_stream(
+        tmp_path, "model rerouted: a -> b", "conj-notice.jsonl")
+    assert contract(run(str(notice_only), "0", "--lane", "codex").stdout
+                    )["DELEGATED_RUN_STATUS"] == ["success"]
+
+    quiet_run = write_jsonl(
+        tmp_path / "conj-quiet.jsonl",
+        [
+            {"type": "thread.started", "thread_id": "t1"},
+            {"type": "turn.started"},
+            {"type": "item.completed", "item": {
+                "id": "item_0", "type": "agent_message",
+                "text": "Yes, that file is generated by the build."}},
+            {"type": "turn.completed"},
+        ],
+    )
+    assert contract(run(str(quiet_run), "0", "--lane", "codex").stdout
+                    )["DELEGATED_RUN_STATUS"] == ["success"]
+
+    both = _codex_error_item_stream(tmp_path)
+    both_fields = contract(run(str(both), "0", "--lane", "codex").stdout)
+    assert both_fields["DELEGATED_RUN_STATUS"] == ["failure"], both_fields
+    assert "error-payload" in both_fields["DELEGATED_RUN_SIGNAL"], both_fields
