@@ -2679,3 +2679,129 @@ class TestWiring:
     def test_helper_is_allowlisted_in_permissions_template(self) -> None:
         template = (ROOT / "templates" / "claude-settings-permissions.json").read_text()
         assert "Bash(~/.claude/scripts/flow-wave-registry.sh:*)" in template
+
+
+# --------------------------------------------------------------------------- #
+# #989 - merge starvation under branch protection strict:true
+# --------------------------------------------------------------------------- #
+#
+# Every test below runs against FLOW_WAVE_REGISTRY_DIR under tmp_path and a
+# throwaway wave name. The live wave's registry is the state this session's own
+# addressability depends on; a test that wrote there would corrupt the wave in
+# flight, so isolation is belt AND braces rather than either alone.
+
+
+def _overtaken(tmp: Path, wave: str, role: str) -> int:
+    data = json.loads((tmp / "reg" / "registry.json").read_text(encoding="utf-8"))
+    return int(data[wave]["roles"][role].get("overtaken", 0))
+
+
+@requires_tools
+def test_a_pr_overtaken_four_times_counts_exactly_four(tmp_path: Path) -> None:
+    """The FIRING case, and it must count rather than merely fire.
+
+    The counter IS the instrument here, so a detector that fires correctly while
+    miscounting is the one nobody can calibrate. Four base moves with an
+    unchanged diff must read 4 - not "some", not saturated at 1.
+    """
+    for base in ("b1", "b2", "b3", "b4", "b5"):
+        _run(tmp_path, "register", "w", "--wave", "zz", "--repo", "/tmp",
+             "--pr", "982", "--base", base, "--diff", "SAME")
+    assert _overtaken(tmp_path, "zz", "w") == 4
+
+
+@requires_tools
+def test_a_changed_diff_is_review_not_starvation(tmp_path: Path) -> None:
+    """Required non-firing control: overtaken four times, diff changed each time.
+
+    That is a worker responding to review. A detector that counts it fires on
+    ordinary traffic, and a starvation signal that lights up on every wave is
+    the defect this feature exists to fix, one level up.
+    """
+    for i, base in enumerate(("c1", "c2", "c3", "c4", "c5")):
+        _run(tmp_path, "register", "w", "--wave", "zz", "--repo", "/tmp",
+             "--pr", "700", "--base", base, "--diff", f"d{i}")
+    assert _overtaken(tmp_path, "zz", "w") == 0
+
+
+@requires_tools
+def test_merges_in_readiness_order_report_no_starvation(tmp_path: Path) -> None:
+    """Required non-firing control: no PR loses its base twice.
+
+    One rebase is ordinary - somebody merged while you were verifying. The COUNT
+    is still recorded, because it is data; the SIGNAL starts at two, which is
+    why this wave reports no starvation while the row still shows what happened.
+    """
+    _run(tmp_path, "register", "a", "--wave", "zz", "--repo", "/tmp",
+         "--pr", "801", "--base", "m0", "--diff", "x1")
+    _run(tmp_path, "register", "b", "--wave", "zz", "--repo", "/tmp",
+         "--pr", "802", "--base", "m0", "--diff", "y1")
+    _run(tmp_path, "register", "a", "--wave", "zz", "--repo", "/tmp",
+         "--pr", "801", "--base", "m1", "--diff", "x1")
+    assert _overtaken(tmp_path, "zz", "a") == 1
+    assert _overtaken(tmp_path, "zz", "b") == 0
+    out = _run(tmp_path, "list", "--wave", "zz", live=SELF_PID)
+    # The roles ARE live here, so the quiet verdict is caused by one-rebase
+    # being below the threshold rather than by nothing being observable.
+    assert "overtaken=1" in out.stdout, out.stdout
+    assert "STARVATION:" not in out.stdout, out.stdout
+    assert "FLOW_WAVE_STARVATION=0" in out.stdout, out.stdout
+
+
+@requires_tools
+def test_a_new_pr_number_resets_the_count(tmp_path: Path) -> None:
+    """The count is a property of ONE pull request's queue position."""
+    _run(tmp_path, "register", "w", "--wave", "zz", "--repo", "/tmp",
+         "--pr", "900", "--base", "e1", "--diff", "z1")
+    _run(tmp_path, "register", "w", "--wave", "zz", "--repo", "/tmp",
+         "--pr", "900", "--base", "e2", "--diff", "z1")
+    assert _overtaken(tmp_path, "zz", "w") == 1
+    _run(tmp_path, "register", "w", "--wave", "zz", "--repo", "/tmp",
+         "--pr", "901", "--base", "e3", "--diff", "z2")
+    assert _overtaken(tmp_path, "zz", "w") == 0
+
+
+@requires_tools
+def test_undeclared_merge_strict_resolves_to_unknown_never_to_no(tmp_path: Path) -> None:
+    """A wave whose orchestrator never declared it must not acquire a clean bill.
+
+    `unknown` and `no` differ: `no` says protection was read and is not strict;
+    `unknown` says nobody read it. Silence resolving to `no` is the scan-silence
+    trap, so the default is the honest one and the signal still reports.
+    """
+    for base in ("a", "b", "c"):
+        _run(tmp_path, "register", "w", "--wave", "zz", "--repo", "/tmp",
+             "--pr", "5", "--base", base, "--diff", "same", live=SELF_PID)
+    out = _run(tmp_path, "list", "--wave", "zz", live=SELF_PID)
+    assert "FLOW_WAVE_MERGE_STRICT=unknown" in out.stdout, out.stdout
+    assert "STARVATION:" in out.stdout, out.stdout
+
+
+@requires_tools
+def test_merge_strict_no_means_there_is_no_starvation_to_report(tmp_path: Path) -> None:
+    """A repo without strict:true gets no hold, and the key agrees with the prose.
+
+    Losing a base without strict does not cost a merge slot, so the observation
+    is an ordinary rebase. The machine key must read 0 too - a consumer acting on
+    a number the roster declines to explain is the same defect in a new place.
+    """
+    for base in ("a", "b", "c"):
+        _run(tmp_path, "register", "w", "--wave", "zz", "--repo", "/tmp",
+             "--pr", "5", "--base", base, "--diff", "same", live=SELF_PID)
+    # PRECONDITION, because the assertion below is an ABSENCE: prove the signal
+    # fires here FIRST, so that its later absence is caused by the policy and
+    # not by a role that was never live enough to report anything.
+    before = _run(tmp_path, "list", "--wave", "zz", live=SELF_PID)
+    assert "STARVATION:" in before.stdout, before.stdout
+    _run(tmp_path, "policy", "set", "--wave", "zz", "--merge-strict", "no")
+    out = _run(tmp_path, "list", "--wave", "zz", live=SELF_PID)
+    assert "FLOW_WAVE_MERGE_STRICT=no" in out.stdout, out.stdout
+    assert "FLOW_WAVE_STARVATION=0" in out.stdout, out.stdout
+    assert "STARVATION:" not in out.stdout, out.stdout
+
+
+@requires_tools
+def test_a_mistyped_merge_strict_is_refused_not_stored(tmp_path: Path) -> None:
+    """A typo must be exit 2, not a stored value nobody can act on."""
+    out = _run(tmp_path, "policy", "set", "--wave", "zz", "--merge-strict", "ture")
+    assert out.returncode == 2, out.stdout + out.stderr

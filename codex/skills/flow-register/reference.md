@@ -108,6 +108,7 @@ role:**
 | cwd, repo, issue, branch | `--cwd` etc. | already recorded |
 | **file lane** | `--files` | the largest gap. `list` warned on repo/issue/branch/worktree overlap; every real collision in the reference wave was file-level |
 | capacity | `--capacity` | whether this session can take a second issue |
+| PR + base + diff | `--pr` / `--base` / `--diff` | merge starvation (#989). Under branch protection `strict: true` every merge invalidates every other open PR, so a long-verifying PR is overtaken during its own push and never reaches the front - #982 four times in one wave, each after a full green run. Pass all three when you push: if the BASE moved and the DIFF did not, `overtaken` increments and the roster shows it |
 
 **Four anti-patterns this deliberately designs against**, because a template
 that violates them trains people to paste anything:
@@ -125,6 +126,25 @@ that violates them trains people to paste anything:
    `absent` rather than passing silently; a role briefed on a superseded rev
    reads `brief=STALE`; and declared file lanes participate in overlap
    detection like branches do.
+
+**Merge starvation, and why one rebase is not it (#989).** The roster renders
+`pr=#N` and `overtaken=N` once a PR is declared, and prints a `STARVATION:` line
+only at **two** or more. Losing a base once is ordinary - somebody merged while
+you were verifying. A warning that fired on that would fire on every wave, which
+is the defect this signal exists to surface, one level up. The count is data and
+is always shown; the threshold is the signal (`FLOW_WAVE_STARVATION_MIN`).
+
+Scoped by `policy set --merge-strict yes|no|unknown`. **Undeclared resolves to
+`unknown`, never to `no`**: `no` says branch protection was read and is not
+strict, `unknown` says nobody read it, and a wave whose orchestrator never
+declared it must not silently acquire a clean bill. Under `no` the signal reports
+zero by definition rather than by suppression - without `strict` losing a base
+does not cost a merge slot, so the observation is a rebase and not starvation.
+
+*Residual (#989):* the field is declared once, and branch protection can be
+changed mid-wave by someone outside the wave. It is a measurement with a shelf
+life and nothing re-reads it. Named here so the next reader knows the bound
+rather than discovering it.
 
 ### Declaring the policy (orchestrator, once)
 

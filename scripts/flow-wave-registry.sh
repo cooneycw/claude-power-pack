@@ -1190,6 +1190,36 @@ likely_wave() {
 # waves are invisible to this roster - name them, so a worker that omitted
 # --wave (stranded in 'default') costs seconds to spot instead of a raw-JSON
 # dig. liveness_of is already host-scoped, so remote entries never appear.
+#: MERGE-STARVATION SCAN (#989), shared by the text and --json renderings.
+#: It lived inside the text loop and `--json` exits before that loop, so a
+#: machine consumer got no starvation assessment at all and would have had to
+#: reconstruct the threshold and the policy rule itself. Computed once, here,
+#: and emitted by both.
+#:
+#: Sets: STARVED (label list), STARVE_N (count at/over threshold),
+#: STARVE_OBSERVED (live roles carrying a COMPARABLE baseline), STARVE_LIVE
+#: (live roles). The last two exist so a zero can be read: `0 of 0 observed` is
+#: "nothing to compare" and `0 of 5 observed` is "looked and found nothing".
+starvation_scan() { # starvation_scan REG WAVE ROLES
+  local _reg="$1" _wave="$2" _roles="$3" _r _e _lv _ov _pr
+  STARVED=""; STARVE_N=0; STARVE_OBSERVED=0; STARVE_LIVE=0
+  STARVE_MIN="${FLOW_WAVE_STARVATION_MIN:-2}"
+  for _r in $_roles; do
+    _e="$(printf '%s' "$_reg" | jq -c --arg w "$_wave" --arg r "$_r" '.[$w].roles[$r]')"
+    _lv="$(liveness_of "$_e")"
+    [ "$_lv" = "live" ] || continue
+    STARVE_LIVE=$((STARVE_LIVE + 1))
+    _pr="$(printf '%s' "$_e" | jq -r '.pr // ""')"
+    [ -n "$_pr" ] || continue
+    STARVE_OBSERVED=$((STARVE_OBSERVED + 1))
+    _ov="$(printf '%s' "$_e" | jq -r '.overtaken // 0')"
+    if [ "$_ov" -ge "$STARVE_MIN" ] 2>/dev/null; then
+      STARVED="$STARVED $_r:#$_pr:$_ov"
+      STARVE_N=$((STARVE_N + 1))
+    fi
+  done
+}
+
 cross_wave_notes() {
   local reg other r e pid detail n
   reg="$(read_registry)"
@@ -1235,13 +1265,15 @@ A_CWD=""; A_REPO=""; A_ISSUE=""; A_BRANCH=""; A_SOCKET=""; A_FROM=""
 # so a re-register that omits one never blanks what a fuller one recorded.
 A_MODEL=""; A_PERMMODE=""; A_FILES=""; A_CAPACITY=""
 A_MODEL_SET=0; A_PERMMODE_SET=0; A_FILES_SET=0; A_CAPACITY_SET=0
+A_PR=""; A_BASE=""; A_DIFF=""
+A_PR_SET=0; A_BASE_SET=0; A_DIFF_SET=0
 # Wave-level policy fields (#699). Same rule: `policy set` is a MERGE, so an
 # amendment names one flag rather than restating the whole policy - restating it
 # is how a field gets silently dropped.
 P_DRIVER=""; P_AUTHORITY=""; P_AUTHORITY_MODEL=""; P_GATE=""; P_LEDGER=""
-P_MERGE_AUTHORITY=""; P_DEPLOY=""
+P_MERGE_AUTHORITY=""; P_DEPLOY=""; P_MERGE_STRICT=""
 P_DRIVER_SET=0; P_AUTHORITY_SET=0; P_AUTHORITY_MODEL_SET=0; P_GATE_SET=0
-P_LEDGER_SET=0; P_MERGE_AUTHORITY_SET=0; P_DEPLOY_SET=0
+P_LEDGER_SET=0; P_MERGE_AUTHORITY_SET=0; P_DEPLOY_SET=0; P_MERGE_STRICT_SET=0
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -1267,6 +1299,12 @@ while [ "$#" -gt 0 ]; do
     --permission-mode=*) A_PERMMODE="${1#--permission-mode=}"; A_PERMMODE_SET=1 ;;
     --files) [ "$#" -ge 2 ] || usage_fail "--files requires a comma-separated path list"; A_FILES="$2"; A_FILES_SET=1; shift ;;
     --files=*) A_FILES="${1#--files=}"; A_FILES_SET=1 ;;
+    --pr) [ "$#" -ge 2 ] || usage_fail "--pr requires a value"; A_PR="$2"; A_PR_SET=1; shift ;;
+    --pr=*) A_PR="${1#--pr=}"; A_PR_SET=1 ;;
+    --base) [ "$#" -ge 2 ] || usage_fail "--base requires a value"; A_BASE="$2"; A_BASE_SET=1; shift ;;
+    --base=*) A_BASE="${1#--base=}"; A_BASE_SET=1 ;;
+    --diff) [ "$#" -ge 2 ] || usage_fail "--diff requires a value"; A_DIFF="$2"; A_DIFF_SET=1; shift ;;
+    --diff=*) A_DIFF="${1#--diff=}"; A_DIFF_SET=1 ;;
     --capacity) [ "$#" -ge 2 ] || usage_fail "--capacity requires a value"; A_CAPACITY="$2"; A_CAPACITY_SET=1; shift ;;
     --capacity=*) A_CAPACITY="${1#--capacity=}"; A_CAPACITY_SET=1 ;;
     --driver) [ "$#" -ge 2 ] || usage_fail "--driver requires a value"; P_DRIVER="$2"; P_DRIVER_SET=1; shift ;;
@@ -1281,6 +1319,8 @@ while [ "$#" -gt 0 ]; do
     --ledger=*) P_LEDGER="${1#--ledger=}"; P_LEDGER_SET=1 ;;
     --merge-authority) [ "$#" -ge 2 ] || usage_fail "--merge-authority requires a value"; P_MERGE_AUTHORITY="$2"; P_MERGE_AUTHORITY_SET=1; shift ;;
     --merge-authority=*) P_MERGE_AUTHORITY="${1#--merge-authority=}"; P_MERGE_AUTHORITY_SET=1 ;;
+    --merge-strict) [ "$#" -ge 2 ] || usage_fail "--merge-strict requires a value"; P_MERGE_STRICT="$2"; P_MERGE_STRICT_SET=1; shift ;;
+    --merge-strict=*) P_MERGE_STRICT="${1#--merge-strict=}"; P_MERGE_STRICT_SET=1 ;;
     --deploy-policy) [ "$#" -ge 2 ] || usage_fail "--deploy-policy requires a value"; P_DEPLOY="$2"; P_DEPLOY_SET=1; shift ;;
     --deploy-policy=*) P_DEPLOY="${1#--deploy-policy=}"; P_DEPLOY_SET=1 ;;
     --*) usage_fail "unknown option: $1" ;;
@@ -1362,9 +1402,15 @@ case "$VERB" in
         *) usage_fail "--authority-model must be 'orchestrator-only' or 'user-and-orchestrator' (got '$P_AUTHORITY_MODEL')" ;;
       esac
     fi
+    if [ "$P_MERGE_STRICT_SET" -eq 1 ]; then
+      case "$P_MERGE_STRICT" in
+        yes | no | unknown) : ;;
+        *) usage_fail "--merge-strict must be 'yes', 'no' or 'unknown' (got '$P_MERGE_STRICT'). 'unknown' is a real value and the correct one when branch protection could not be READ - a failure to read must never resolve to 'no'" ;;
+      esac
+    fi
     if [ "$P_DRIVER_SET" -eq 0 ] && [ "$P_AUTHORITY_SET" -eq 0 ] &&
        [ "$P_AUTHORITY_MODEL_SET" -eq 0 ] && [ "$P_GATE_SET" -eq 0 ] &&
-       [ "$P_LEDGER_SET" -eq 0 ] && [ "$P_MERGE_AUTHORITY_SET" -eq 0 ] &&
+       [ "$P_LEDGER_SET" -eq 0 ] && [ "$P_MERGE_AUTHORITY_SET" -eq 0 ] && [ "$P_MERGE_STRICT_SET" -eq 0 ] &&
        [ "$P_DEPLOY_SET" -eq 0 ] && [ -z "$A_REPO" ]; then
       usage_fail "policy set needs at least one field (--driver/--authority/--authority-model/--gate/--ledger/--merge-authority/--deploy-policy/--repo)"
     fi
@@ -1389,6 +1435,7 @@ case "$VERB" in
         | (if $ledger_set  == "1" then .ledger          = $ledger  else . end)
         | (if $merge_set   == "1" then .merge_authority = $merge   else . end)
         | (if $deploy_set  == "1" then .deploy_policy   = $deploy  else . end)
+        | (if $mstrict_set == "1" then .merge_strict = $mstrict else . end)
         | (if $repo        == ""  then . else .repo     = $repo    end)
         | .rev           = ((.rev // 0) + 1)
         | .ts            = ($now | tonumber)
@@ -1402,6 +1449,7 @@ case "$VERB" in
       --arg gate "$P_GATE" --arg gate_set "$P_GATE_SET" \
       --arg ledger "$P_LEDGER" --arg ledger_set "$P_LEDGER_SET" \
       --arg merge "$P_MERGE_AUTHORITY" --arg merge_set "$P_MERGE_AUTHORITY_SET" \
+      --arg mstrict "$P_MERGE_STRICT" --arg mstrict_set "$P_MERGE_STRICT_SET" \
       --arg deploy "$P_DEPLOY" --arg deploy_set "$P_DEPLOY_SET" \
       --arg repo "$A_REPO" --arg now "$NOW" --arg by "${CLAUDE_CODE_SESSION_ID:-$SELF_PID}" \
       --arg pid "$SELF_PID" --arg session "$SELF_SESSION"
@@ -1542,6 +1590,24 @@ case "$VERB" in
     # The rev this registration is briefed on (#699). Recorded at register time
     # so a later amendment can be told apart from one this session has seen -
     # which is what makes `brief=stale` a fact rather than a guess.
+    #: A merge observation is ATOMIC: (repo, pr, base, diff) or nothing (#989).
+    #: Recording the three parts independently let a partial update corrupt the
+    #: baseline - a base-only write made the NEXT complete observation miss its
+    #: overtake, and a diff-only write made it fire although the diff had moved.
+    #: An observation is a baseline only if all of it was measured at once.
+    A_OBS=0
+    if [ "$A_PR_SET" -eq 1 ] || [ "$A_BASE_SET" -eq 1 ] || [ "$A_DIFF_SET" -eq 1 ]; then
+      case "$A_PR" in
+        "" ) usage_fail "--pr needs a value: an observation with no PR identity cannot be compared to anything" ;;
+        *[!0-9]* ) usage_fail "--pr must be the PR NUMBER (got: $A_PR). A free-form value cannot be compared across observations and corrupts the aggregate count" ;;
+      esac
+      [ -n "$A_BASE" ] || usage_fail "--base needs a value: an empty base is a MISSING measurement, not an unchanged one"
+      [ -n "$A_DIFF" ] || usage_fail "--diff needs a value: an empty diff is a MISSING measurement, and counting it as unchanged invents overtakes that never happened"
+      if [ "$A_PR_SET" -ne 1 ] || [ "$A_BASE_SET" -ne 1 ] || [ "$A_DIFF_SET" -ne 1 ]; then
+        usage_fail "--pr, --base and --diff must be given TOGETHER: a partial observation cannot serve as a comparison baseline"
+      fi
+      A_OBS=1
+    fi
     POL="$(policy_json "$WAVE")"
     POL_REV="$(policy_rev_of "$POL")"
     # Role-level facts are PRESERVED when their flag is omitted, unlike
@@ -1567,6 +1633,31 @@ case "$VERB" in
         files:           (if $files_set == "1" then $files else ($prev.files // "") end),
         capacity:        (if $cap_set   == "1" then $cap   else ($prev.capacity // "") end),
         driver:          (if $drv_set   == "1" then $drv   else ($prev.driver // "") end),
+        #: Written only as a COMPLETE observation, and identity is (repo, pr) -
+        #: not pr alone, or repository B #5 would increment repository A #5.
+        pr:       (if $obs == "1" then $pr   else ($prev.pr // "") end),
+        base:     (if $obs == "1" then $base else ($prev.base // "") end),
+        diff:     (if $obs == "1" then $diff else ($prev.diff // "") end),
+        obs_repo: (if $obs == "1" then $repo else ($prev.obs_repo // "") end),
+        #: MERGE STARVATION (#989). Increments ONLY when the same (repo, pr) is
+        #: seen again with a CHANGED base and an UNCHANGED diff: the signature of
+        #: losing a queue place without doing any work. A changed diff is a worker
+        #: responding to review and must not count, or the signal fires on ordinary
+        #: rebase traffic and becomes one nobody reads.
+        #:
+        #: A CHANGE OF IDENTITY RESETS to 0 and carries the new baseline with it,
+        #: including a role taken over by another session - which would otherwise
+        #: inherit a stranger PR and make an old warning live again for unrelated
+        #: work. A re-register carrying NO observation preserves, so the cheap
+        #: re-brief never destroys a baseline.
+        overtaken: (
+          if $obs != "1" then ($prev.overtaken // 0)
+          elif ($prev.pr // "") != $pr or ($prev.obs_repo // "") != $repo then 0
+          elif ($prev.base // "") == "" or ($prev.diff // "") == "" then 0
+          elif ($prev.base // "") != $base and ($prev.diff // "") == $diff
+          then (($prev.overtaken // 0) + 1)
+          else ($prev.overtaken // 0) end
+        ),
         policy_rev:      ($polrev | tonumber)
       }' \
       --arg w "$WAVE" --arg r "$ROLE" --arg sock "$SOCK" --arg pid "$SELF_PID" \
@@ -1578,6 +1669,7 @@ case "$VERB" in
       --arg perm "$A_PERMMODE" --arg perm_set "$A_PERMMODE_SET" \
       --arg files "$A_FILES" --arg files_set "$A_FILES_SET" \
       --arg cap "$A_CAPACITY" --arg cap_set "$A_CAPACITY_SET" \
+      --arg pr "$A_PR" --arg base "$A_BASE" --arg diff "$A_DIFF" --arg obs "$A_OBS" \
       --arg drv "$P_DRIVER" --arg drv_set "$P_DRIVER_SET" \
       --arg polrev "$POL_REV" \
       --arg now "$NOW"
@@ -2030,10 +2122,23 @@ EOF
       if [ "$POL" != "null" ]; then
         OUT="$(printf '%s' "$OUT" | jq -c --argjson p "$POL" '. + {wave_policy: $p}')"
       fi
+      MERGE_STRICT="$(policy_field "$POL" merge_strict)"
+      [ -n "$MERGE_STRICT" ] || MERGE_STRICT="unknown"
+      starvation_scan "$REG" "$WAVE" "$ROLES"
+      [ "$MERGE_STRICT" = "no" ] && STARVE_N=0
+      OUT="$(printf '%s' "$OUT" | jq -c \
+        --arg ms "$MERGE_STRICT" --argjson n "$STARVE_N" \
+        --argjson obs "$STARVE_OBSERVED" --argjson live "$STARVE_LIVE" \
+        --argjson min "$STARVE_MIN" \
+        '. + {merge_starvation: {merge_strict: $ms, starving: $n, observed: $obs, live_roles: $live, threshold: $min}}')"
       printf '%s\n' "$OUT" | jq .
       # Keep --json stdout parseable: cross-wave notes go to stderr (#671).
       cross_wave_notes >&2
       emit_policy_lines "$POL"
+      echo "FLOW_WAVE_MERGE_STRICT=$MERGE_STRICT"
+      echo "FLOW_WAVE_STARVATION=$STARVE_N"
+      echo "FLOW_WAVE_STARVATION_OBSERVED=$STARVE_OBSERVED"
+      echo "FLOW_WAVE_STARVATION_LIVE=$STARVE_LIVE"
       echo "FLOW_WAVE_WATCH_UNARMED=$WATCH_UNARMED"
       echo "FLOW_WAVE_UNREAD=$UNREAD_TOTAL"
       echo "FLOW_WAVE_BOOTSTRAP=$BOOTSTRAP_STATE"
@@ -2070,6 +2175,14 @@ EOF
       echo "FLOW_WAVE: listed"
       exit 0
     fi
+    #: Losing a base ONCE is ordinary: somebody merged while you were verifying.
+    #: The ticket's own non-firing control is "no PR losing its base twice", so
+    #: the signal starts at two. A starvation warning that fires on every wave is
+    #: the defect this feature is about, one level up (#989).
+    MERGE_STRICT="$(policy_field "$POL" merge_strict)"
+    [ -n "$MERGE_STRICT" ] || MERGE_STRICT="unknown"
+    starvation_scan "$REG" "$WAVE" "$ROLES"
+    [ "$MERGE_STRICT" = "no" ] && STARVE_N=0 && STARVED=""
     echo "Wave '$WAVE' roster ($REG_FILE):"
     # The policy header (#699). Printed above the roles because it is what the
     # whole roster is operating under - and because a wave with no declared
@@ -2102,6 +2215,15 @@ EOF
       [ -n "$pm" ] && extra="$extra perm=$pm"
       cp="$(printf '%s' "$e" | jq -r '.capacity // ""')"
       [ -n "$cp" ] && extra="$extra capacity=$cp"
+      ov="$(printf '%s' "$e" | jq -r '.overtaken // 0')"
+      pr_n="$(printf '%s' "$e" | jq -r '.pr // ""')"
+      if [ -n "$pr_n" ]; then
+        extra="$extra pr=#$pr_n"
+        # The COUNT is data and is always shown once a PR is declared. The
+        # SIGNAL is the threshold below, because one rebase is ordinary traffic
+        # and a warning that fires on it is one nobody reads (#989).
+        [ "$ov" != "0" ] && extra="$extra overtaken=$ov"
+      fi
       # Driver + its capability fence (#783), rendered together so routing reads
       # as one fact. `worker-2 -> ... driver=gemma:auto[impl-only,no-web]` is the
       # whole feature: the mismatch is visible when the orchestrator ASSIGNS,
@@ -2325,8 +2447,28 @@ EOF
       echo "  UNREAD: role(s) that have consumed NOTHING from their box:${NEVER_READ}"
       echo "  An acked count of 0 against a delivered message (issue #815) is not a worker holding - it is a worker that has never acknowledged anything."
     fi
+    if [ -n "$STARVED" ]; then
+      echo "  STARVATION: PR(s) whose base moved $STARVE_MIN+ times with an unchanged diff:${STARVED}"
+      echo "  Under branch protection strict:true every merge invalidates every other open PR, so a long-verifying PR"
+      echo "  can be overtaken indefinitely while shorter ones merge past it. Each count is an observed base change"
+      echo "  with no diff change - a lost queue position. What it cost is not measured here: this records the"
+      echo "  observations it was given, not any verification run. merge-strict=$MERGE_STRICT ('unknown' means nobody"
+      echo "  has read branch protection, which is NOT the same as no protection)."
+    fi
     cross_wave_notes
     emit_policy_lines "$POL"
+    echo "FLOW_WAVE_MERGE_STRICT=$MERGE_STRICT"
+    #: Reported as 0 under merge-strict=no, and that is a definition rather than
+    #: a suppression: without `strict: true` losing your base does not cost you
+    #: your place in the merge queue, so the observation is an ordinary rebase
+    #: and not starvation at all. The human line and this key must agree, or a
+    #: consumer acts on a number the roster declines to explain.
+    echo "FLOW_WAVE_STARVATION=$STARVE_N"
+    #: A zero must be readable: `0 of 0 observed` is "nothing to compare" and
+    #: `0 of 5 observed` is "looked and found nothing" (#989). Without these the
+    #: success value claims more than its input population supports.
+    echo "FLOW_WAVE_STARVATION_OBSERVED=$STARVE_OBSERVED"
+    echo "FLOW_WAVE_STARVATION_LIVE=$STARVE_LIVE"
     echo "FLOW_WAVE_WATCH_UNARMED=$WATCH_UNARMED"
     echo "FLOW_WAVE_UNREAD=$UNREAD_TOTAL"
     echo "FLOW_WAVE_BOOTSTRAP=$BOOTSTRAP_STATE"
