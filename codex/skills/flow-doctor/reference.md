@@ -181,9 +181,20 @@ If that exits 127, the family is not installed at all - try the bundled copy
 ${CLAUDE_PLUGIN_ROOT}/scripts/flow-helpers-install.sh --check
 ```
 
-Verdict line: `FLOW_HELPERS: ok` (nothing to do) | `missing` | `stale`
-(installed copies differ from the bundled source - a plugin upgrade landed).
-Both non-ok verdicts are repaired by `/flow-repair`. If both invocations exit
+Verdict line: `FLOW_HELPERS: ok` (a comparison happened and found nothing to
+do) | `missing` | `stale` (installed copies differ from the bundled source - a
+plugin upgrade landed) | `unverifiable`.
+
+`missing` and `stale` are repaired by `/flow-repair`. **`unverifiable` is NOT**
+(issue #927): it means the helpers are installed and no source of truth was
+reachable, so nothing was compared - and `/flow-repair` has nothing to repair
+FROM. Running it will produce the same verdict again. Report that the install
+cannot be checked from here and that a CPP checkout must be brought within
+reach; inside a session container that is a mount question, not a repair one.
+
+Read the `FLOW_HELPERS_ALLOWLIST:` line alongside any verdict. An `ok` from a
+22-entry allowlist is not the same fact as an `ok` from a 24-entry one, and
+until #927 they printed identically. If both invocations exit
 127, this is neither a plugin nor a clone install - report that flow has no
 helper source at all.
 
