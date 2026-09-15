@@ -223,6 +223,22 @@ another repo (the escalation clause); a row can be both.
 | 60 | `lib.security scan` / `quick` / `deep` | findings by severity | `/security:*` in any repo | X |
 | 61 | `lib.security gate` (quick scan only) | two policies: `flow_finish` blocks CRITICAL and warns HIGH; `flow_deploy` blocks CRITICAL and HIGH and warns MEDIUM (`lib/security/config.py`) | `/flow:finish` and `/flow:deploy` in any repo; a control has to cover the HIGH case that passes finish and blocks deploy | G, X |
 | 62 | `shellcheck-gate.sh` (`make shellcheck`, CI `shellcheck`) | `shellcheck-gate: ok - N file(s) scanned at severity=S, 0 findings (source=git\|find)`, or non-zero; `UNKNOWN` (exit 2) when it could not look | `make verify` and the CI pipeline, which let work through on its verdict (#960) | G |
+| 63 | `check-negative-controls.py` (`--strict`, CI `negative-controls`) | per-gate `PASS\|BLIND\|INERT\|UNRESOLVED\|UNPROVEN\|UNSIGNALLED`, then `negative-controls: ok - N control(s) discriminate` or a non-zero refusal | CI at `.woodpecker.yml`, and `make verify`, both of which let work through on its verdict; read by other sessions and other repos without re-derivation (#964, #981) | G, X |
+
+> **Row 63 closes an ACCOUNTING gap, not a verification one.** The harness that
+> checks whether instruments carry controls was itself missing from the list of
+> instruments that need one, which is the omission #964 names. Registering it in
+> `controls/` (#974) and enumerating it here (#981) means it is counted and it
+> carries a control like any other row.
+>
+> It does **not** make the harness self-verifying, and the distinction matters
+> because the opposite reading is available and wrong. A control is executed BY
+> the harness, so a harness mutated to emit `PASS` unconditionally would report
+> its own control passing. Nothing in this table catches that. What catches it is
+> `tests/test_negative_controls.py` under pytest - a DIFFERENT runner, which
+> drives the register and asserts the verdicts rather than accepting them. The
+> instrument and the thing that can falsify it have to be separable, and here
+> they are separable only because the test suite is not the harness.
 
 ### A control must be valid WHERE THE HARNESS RUNS (#960, #964)
 
