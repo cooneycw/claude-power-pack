@@ -144,6 +144,69 @@ changed mid-wave by someone outside the wave. It is a measurement with a shelf
 life and nothing re-reads it. Named here so the next reader knows the bound
 rather than discovering it.
 
+**Check your diff against your own lane before you push (#985).**
+
+```bash
+~/.claude/scripts/flow-wave-registry.sh lane-check worker-B --wave cpp-completion
+```
+
+A stale payload silently reverts another worker's merged work, and **every
+content-based gate is blind to it**: `make verify` passes, the controls pass, the
+suite passes, because the stale tree is a previously-green commit and a suite
+cannot object to work that is not there. Two mechanisms produce it and only one
+is a diff-range problem - `git reset --soft origin/main` with a stale index makes
+the merge base BE `origin/main`, so every diff form agrees with every other and
+agreement reads as confirmation. So this compares NAMES against your declared
+lane, which is the only signal that survives both.
+
+Three outcomes, and the third is why it exists:
+
+| verdict | meaning |
+|---|---|
+| `ok` | every touched path is inside the declared lane |
+| `extra` | a path you never claimed is in your diff - the stale-payload signature. Verify the two changes are DISJOINT before repairing; if they overlap it is a real merge |
+| `unknown` | no lane declared, so there is nothing to compare against. **Not a pass** |
+
+It also reports `LANE_UNUSED` - paths declared but not touched - as **data, not a
+finding**, because a wide lane is common and usually innocent. The rare
+actionable subset is named separately: declared, untouched, and claimed by
+another LIVE role. That pair is how a lane silently takes a file somebody else is
+working in.
+
+**A declared directory contains the paths under it** in overlap detection. That
+is not prefix guessing - containment is anchored on a separator, so `scripts/foo`
+does not contain `scripts/foobar` - it is what declaring a directory means. A
+role declaring a bare `codex/skills` claimed three other roles' live mirror trees
+while the roster reported no overlap at all.
+
+**Escalating an unanswered message (#971).**
+
+```bash
+~/.claude/scripts/flow-wave-mailbox.sh escalate --role worker-B --wave cpp-completion
+```
+
+`route=unconfirmed` has been computed since #778 and nothing acted on it.
+`escalate` fires only when ALL THREE hold: an unacked message exists, it is older
+than `FLOW_WAVE_ROUTE_UNCONFIRMED_SECS`, and this rev has not already been
+escalated. Silence alone never escalates - silence PLUS outstanding work does.
+
+**It cannot send.** `SendMessage` is a harness tool, so the script resolves the
+target (registry socket to pid to the name `SendMessage` accepts) and prints a
+ready payload; you perform the send. A target with no matching session record
+FAILS LOUDLY rather than guessing: a send to a plausible neighbour returns
+success against the wrong session.
+
+**Ack what you answered elsewhere**, or the escalation cries wolf by
+construction:
+
+```bash
+~/.claude/scripts/flow-wave-mailbox.sh ack --role orchestrator --wave W --revs N --answered-elsewhere
+```
+
+Lane 1 is the documented fast path, so answering there while the durable copy
+sits unacked is the ORDINARY healthy shape - this wave ran most of a session with
+`route=UNCONFIRMED unread=8` on a row that was replying to everything.
+
 ### Declaring the policy (orchestrator, once)
 
 ```bash
