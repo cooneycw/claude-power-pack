@@ -38,6 +38,27 @@ def run_harness(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
+def control_block(out: str, gate: str) -> str:
+    """The harness output for ONE control, from its GATE line to its VERDICT.
+
+    Added for the coupling fix: several tests asserted WHOLE-BATTERY PASS as a
+    proxy for a claim about one control, so a single absent binary (gitleaks,
+    2026-09-15) broke three tests that had nothing to do with it, and the failure
+    named the wrong subject. Scoping the assertion to the control under test is
+    what stops any future UNSIGNALLED control breaking tests that do not care
+    about it.
+    """
+    block, collecting = [], False
+    for line in out.splitlines():
+        if line.startswith("NEGATIVE_CONTROL_GATE: "):
+            collecting = line.split(": ", 1)[1] == gate
+        if collecting:
+            block.append(line)
+            if line.startswith("NEGATIVE_CONTROL_VERDICT: "):
+                break
+    return "\n".join(block)
+
+
 def verdict_of(out: str) -> str:
     for line in out.splitlines():
         if line.startswith("NEGATIVE_CONTROL_VERDICT: "):
@@ -538,10 +559,16 @@ def test_the_real_control_discriminates_and_its_anchor_is_blind() -> None:
     fixture GOOD, and the vendored c6df826 artifact must MISS the known-bad one -
     which is what makes this control load-bearing rather than decorative.
     """
-    result = run_harness(ROOT, "--strict")
-    assert verdict_of(result.stdout) == "PASS", result.stdout
-    assert "missed the known-bad input" in result.stdout
-    assert result.returncode == 0
+    # Scoped to THIS control rather than the whole battery (see `control_block`).
+    # The docstring's claim is about check-test-binary-guards and its c6df826
+    # anchor; asserting battery-wide PASS made an unrelated control's UNSIGNALLED
+    # read as a failure of this one. No `--strict`: the exit code is a property of
+    # every control, not of this one.
+    result = run_harness(ROOT)
+    block = control_block(result.stdout, "scripts/check-test-binary-guards.py")
+    assert block, f"this control is not in the register at all\n{result.stdout}"
+    assert verdict_of(block) == "PASS", block
+    assert "missed the known-bad input" in block, block
 
 
 def test_the_real_anchor_is_blind_to_the_fixture_the_current_gate_catches() -> None:
@@ -842,9 +869,26 @@ def test_a_gate_declaring_several_controls_contributes_every_one(tmp_path: Path)
 
 def test_the_summary_states_the_universe_it_is_a_fraction_of() -> None:
     """`2 of 61` and `61 of 61` must not print the identical string."""
+    # "enumerated instruments" appears only in the all-PASS summary, so asserting
+    # it coupled this test to every control's health - and its subject is the
+    # DENOMINATOR (#979), not battery health. The universe line is emitted
+    # regardless of any control's verdict, which is what this actually needs.
     out = run_harness(ROOT)
-    assert "NEGATIVE_CONTROL_UNIVERSE:" in out.stdout, out.stdout
-    assert "enumerated instruments" in out.stdout, out.stdout
+    universe = [
+        line for line in out.stdout.splitlines()
+        if line.startswith("NEGATIVE_CONTROL_UNIVERSE:")
+    ]
+    assert universe, out.stdout
+    value = universe[0].split(": ", 1)[1].strip()
+    assert value.isdigit() and int(value) > 0, (
+        f"the universe must be a COUNT, not a word - a bare numerator is what "
+        f"#979 removed: {universe[0]!r}"
+    )
+    registered = [
+        line for line in out.stdout.splitlines()
+        if line.startswith("NEGATIVE_CONTROL_REGISTERED:")
+    ]
+    assert registered, f"a numerator with no denominator is the #979 defect\n{out.stdout}"
 
 
 def test_an_unparseable_adr_reports_UNKNOWN_rather_than_a_bare_numerator(tmp_path: Path) -> None:
@@ -871,8 +915,19 @@ def test_an_unparseable_adr_reports_UNKNOWN_rather_than_a_bare_numerator(tmp_pat
 
 
 @requires_git
+@pytest.mark.skipif(
+    shutil.which("gitleaks") is None,
+    reason="needs gitleaks: this test requires a GREEN battery in order to refuse it, "
+           "and the secret-scan control cannot run without it",
+)
 def test_an_untracked_control_file_refuses_the_green() -> None:
     """The red case for #978, run against the REAL register.
+
+    GUARDED, unlike the two above, because the coupling here is INHERENT: the
+    precondition is `before.returncode == 0` - it needs a green battery in order
+    to prove an untracked file refuses one. Narrowing it is not available; the
+    whole battery IS its subject. `tests/conftest.py` names the resulting skip
+    (#926), so the lane is visibly unexercised rather than silently so.
 
     A control is exercised from the working tree, so an untracked case file
     discriminates correctly and reports PASS while the same commit in a clean
