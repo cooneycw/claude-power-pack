@@ -1,6 +1,6 @@
 # Claude Power Pack
 
-**v7.5.0** - A productivity toolkit for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) that adds workflow automation, MCP servers, security scanning, secrets management, and CI/CD integration.
+**v8.0.0** - A productivity toolkit for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) that adds workflow automation, MCP servers, security scanning, secrets management, and CI/CD integration - and, from 8.0, a verification discipline: a check whose output is read as evidence ships with a committed input that makes it report the other verdict, and a second model reviews every change by default.
 
 ## What It Does
 
@@ -137,6 +137,126 @@ The image-build, CVE-scan, SBOM, compose-policy, and runtime-smoke stages were r
 Architecture: Woodpecker server on a dedicated VM, agent on the dev workstation, connected via gRPC over Tailscale. Web UI at `woodpecker.essent-ai.com` via Cloudflare tunnel.
 
 ## Changelog
+
+### v8.0.0 (2026-09-15)
+
+**A major bump because it changes how work is ACCEPTED, not what commands
+exist.** An instrument without a negative control stops being shippable, and
+cross-model review moves from an opt-in command to a default stage. Both change
+the contract with anyone building on CPP.
+
+**Three ADRs, and 0008 and 0009 are siblings.**
+
+- [ADR 0008](docs/decisions/0008-instrument-negative-control-bound.md) - before
+  you ship an instrument, name the input that makes it report the **other
+  verdict**. An instrument that cannot fail is not evidence: a green from a
+  blind one and a green from a working one look identical. Bounded so it is
+  affordable - the rule is owed where a verdict is consumed by a decision that
+  will not independently re-derive it.
+- [ADR 0009](docs/decisions/0009-oscillation-control.md) - before you ship a
+  two-sided change, name the observation that would **move the setting back**,
+  and commit it beside the setting. **Same epistemics, different object:** 0008
+  governs instruments, 0009 governs the knobs those instruments are set with.
+  If you cannot name one, it is not a decision - it is a preference, and it will
+  oscillate.
+- [ADR 0007](docs/decisions/0007-counter-model-review.md) - a second model reads
+  the branch before the PR exists, by default, stated as a property rather than
+  a tool name: *the reviewing model must not be the implementing model.*
+
+**Registered negative controls went from nothing to six.** At the end of
+2026-09-14 the `controls/` directory did not exist. The machinery itself landed
+the next morning (#924), and by the end of 2026-09-15 six controls were
+registered - `check-negative-controls`, `check-negative-fixture-preconditions`,
+`check-oscillation`, `check-test-binary-guards`, `secret-scan`,
+`shellcheck-gate`. The framework is registered in its own framework, which is
+the point: a control battery nothing checks is the defect it exists to find.
+
+**Deliberately not stated as a coverage fraction over the 63-row census, because
+the two numbers are counted independently.** Five of the six register against a
+row in [ADR 0008](docs/decisions/0008-instrument-negative-control-bound.md)'s
+census; `check-oscillation` is a **new** instrument that the census does not yet
+enumerate, so the registration count is not a subset of the census and "6 of 63"
+would be a fraction whose numerator and denominator do not describe the same
+set. `secret-scan` also covers only the working-tree half of its row - the CI
+step scans git history as well - and its manifest says so. The gate's own
+summary line does print `N of 63`; **that line has the same defect** and is
+recorded rather than quietly worked around.
+
+**Two counts, both honest, and neither is the other:** six registered controls,
+and 63 enumerated instruments. Of the 63, discovery can currently find a
+registration marker only in a top-level `scripts/` file, which is 48 of them -
+the other 15 are external binaries and module entry points (`make verify`,
+`ruff`, `mypy`, `pytest`, `gitleaks`, `hadolint`, `lib.cicd` x7,
+`lib.security` x2). That is a limit of where the scan looks, not a hard ceiling:
+`secret-scan` registers a control for `gitleaks` precisely by wrapping it in
+`scripts/secret-scan-check.sh`, so a wrapper is the available route for the
+other fourteen.
+
+**The six is the gate's own output** (`NEGATIVE_CONTROL_REGISTERED: 6`), not a
+file count. A recursive search **under `controls/`** returns **eight** - the two
+extras are toy fixtures inside `check-negative-controls`' own test cases - and a
+**repository-wide** search returns **nine**, the ninth being an unrelated
+prototype manifest under `docs/research/`. Neither file count is the figure, and
+both look like an inflated headline.
+
+**Counting the six needs nothing; seeing all six PASS needs the CI
+dependencies.** Registration is a discovery count and reports `6` regardless of
+whether each control can run. The verdicts are what depend on tooling:
+`controls/secret-scan` needs `gitleaks`, which CI stages into the
+negative-controls step and a typical developer host does not have, and there it
+reports `UNSIGNALLED` rather than passing. It is the inverse of the usual trap -
+load-bearing where it gates, unrunnable where it was written - so a clone that
+sees `UNSIGNALLED` is missing a tool, not reading a wrong figure.
+
+**What the counter-model stage measured on its first run.** 16 red cases
+proposed, **3 already covered** by the implementer's tests - 13 novel. Taken on
+an **adversarial workload**: the change was authored by a session that had spent
+that day on this exact defect class, with ADR 0008 merged the previous afternoon
+(2026-09-14) and ADR 0009 that same afternoon (2026-09-15), the latter by the
+same author. If the two models were agreeing by shared training
+corpus rather than reviewing, that is the run where it would have shown. Stated
+with the number, because a favourable measurement whose conditions are not
+recorded gets discounted later by a reader assuming they were easy.
+
+**A measurement corrected in flight, recorded rather than quietly replaced.**
+The harness-strategy research below reports **0 of the last 200 merged PRs** ran
+cross-model review, against a positive control of 199/200. Re-derived on
+2026-09-15 that is **superseded**: 21 of 200, positive control 197, and the
+shape is the finding - **0 of 170 across two months, then 21 of 30 in two days**,
+because a wave orchestrator declared the driver in policy. The number moved
+because of an intervention by the party doing the measuring, so the thesis is
+not "an opt-in stage does not exist" but **"it exists exactly as long as someone
+with authority keeps re-imposing it, and that mandate dies with the wave"** -
+which is why 8.0 makes the stage a default rather than a command. The research
+document is left as written; it was true when written.
+
+**Those are MARKER counts, not execution counts, and the distinction is one of
+8.0's own findings.** They count PR bodies containing a heading the run was
+instructed to write - so a review that happened under a different heading is
+counted as not having happened. PR #1000 is exactly that case, inside the
+measured window: two review passes, eleven findings fixed, no marker. The
+positive control shows the query works; it cannot detect this class of false
+negative. ADR 0007 replaces the marker with a receipt written by the run, which
+fixes it going forward; the historical count is not recoverable.
+
+**The reasoning, not marketing.** Why an instrument now needs a red case is a
+question with an evidence-based answer, and these are the documents that carry
+it:
+
+- [`docs/research/spec-driven-development-2026.html`](docs/research/spec-driven-development-2026.html) -
+  the conference-grounded review (AI Dev / AI Native DevCon, AI Engineer World's
+  Fair 2026, AIware 2026, GitHub Universe / Microsoft Build) that established
+  the position 8.0 implements: the 2026 consensus is *spec-anchored*, not
+  spec-as-source; the centre of gravity moved from "spec" to "harness"; and
+  **verification outranks generation**.
+- [`docs/research/harness-strategy-recommendation-2026-09-14.html`](docs/research/harness-strategy-recommendation-2026-09-14.html) -
+  the strategy: keep CPP rather than migrate to a skills framework, bound the
+  negative-control discipline so it is affordable, and make the counter-model
+  routine.
+- [`docs/research/issue-quality-assessment-2026-09-14.html`](docs/research/issue-quality-assessment-2026-09-14.html) -
+  the delivery-quality review that set the constraint on how 8.0 was scoped:
+  *"adopt the proportional issue contracts already delivered rather than
+  building another governance layer."*
 
 ### v7.5.0 (2026-09-07)
 

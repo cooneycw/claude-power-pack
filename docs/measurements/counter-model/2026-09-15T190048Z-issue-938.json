@@ -1,0 +1,19 @@
+{
+  "branch": "issue-938-release-v8-0-0-once-the-instrument-counter-model-w",
+  "counts": {
+    "accepted": 7,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "implementer": "claude/opus-5",
+  "issue": "938",
+  "passes": 2,
+  "recorded_at": "2026-09-15T19:00:48Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 0
+  },
+  "reviewer": "codex/gpt-5.5",
+  "schema": 1,
+  "status": "ran"
+}
