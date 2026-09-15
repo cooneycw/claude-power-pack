@@ -155,6 +155,21 @@ logs/
 # WHAT WOULD MOVE THIS BACK (issue #936): holds only while that directory is
 # prototype fixture data.
 !docs/research/forced-claim-prototype-2026-09-15/cases/*/anchor.log
+# #936 oscillation control cases (issue #936) - tracked despite *.log above, and
+# for the same reason: a history.log is a fixture INPUT, the captured `git log
+# -p` the control feeds the detector. It is a capture rather than a bare repo
+# because GIT IS NOT IN THE CI IMAGE, so a control invoking the gate against a
+# real repository crashes where it gates and passes where it was written.
+# Untracked, the control does not exist in a clean clone at all - the framework
+# says so (NEGATIVE_CONTROL_TRACKING) and said so here, which is how this line
+# came to be written. Placed AFTER *.log for the same last-matching-rule reason
+# as the line above, whose first cut sat before it and was silently inert.
+# NOT UNCHECKED - checked elsewhere: `check-negative-controls.py` reports
+# TRACKING for every registered control and refuses to call an untracked one
+# clean.
+# WHAT WOULD MOVE THIS BACK (issue #936): git arriving in the CI image, which
+# would let the cases be repositories again and make these captures redundant.
+!controls/*/cases/*/history.log
 
 # Testing
 .pytest_cache/

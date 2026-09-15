@@ -129,6 +129,17 @@ reversed (must be found) and one tightened monotonically (must *not* be). The
 second is the one that matters - a detector flagging every threshold edit is
 noise, and noise gets disabled.
 
+**The cases are captured `git log -p` output, not repositories, and that is not
+a convenience.** git is not in the CI image. The first cut invoked the gate
+against committed bare repositories; it passed every local check and then, in
+CI, crashed with `FileNotFoundError: 'git'`, scored UNSIGNALLED, and failed the
+whole negative-control framework - a new control breaking the gate that every
+*other* control is read through. Same shape as the anchors, which are vendored
+rather than fetched with `git show` for exactly this reason: a control that
+needs git works where it was written and is inert where it gates. The detector
+itself now reports `git-unavailable` UNKNOWN rather than throwing, because a
+traceback and a detection are the same exit code to anything reading one.
+
 **What it cannot see, stated rather than discovered later.** Knob extraction is
 regex over diff hunks, and the scope is numeric settings and whole-line exit
 codes. Every limit below is a MISS, never a wrong attribution - the standing

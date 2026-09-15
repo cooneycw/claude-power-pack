@@ -1,6 +1,0 @@
-[core]
-	repositoryformatversion = 0
-	filemode = true
-	bare = true
-[remote "origin"]
-	url = /home/cooneycw/Projects/claude-power-pack-issue-936-oscillation-control-a-two-sided-change-must-name-w/controls/check-oscillation/cases/bad-reversed/work/.

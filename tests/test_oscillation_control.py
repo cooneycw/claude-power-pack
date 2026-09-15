@@ -575,6 +575,108 @@ def test_an_empty_population_is_UNKNOWN_and_not_none(tmp_path: Path) -> None:
     )
 
 
+def test_a_captured_log_gives_the_SAME_answer_as_the_live_repo(tmp_path: Path) -> None:
+    """--from-log is the control's input, so it must not be a second detector.
+
+    GIT IS NOT IN THE CI IMAGE. The first cut of controls/check-oscillation
+    invoked the gate against committed BARE REPOSITORIES: green locally, and in
+    CI a FileNotFoundError traceback that scored UNSIGNALLED and failed the
+    whole negative-control framework - a new control breaking the gate every
+    other control is read through. The cases are captured logs now.
+
+    That buys a hazard: if the captured path and the live path could disagree,
+    the control would demonstrate something other than what ships. Both go
+    through one `parse_log`, and this asserts it on BOTH verdicts - a parity
+    test on the reversed case alone passes for a parser that finds everything.
+    """
+    env = _env(tmp_path)
+    for name, revisions, expected in [
+        ("bad", ["timeout = 30\n", "timeout = 60\n", "timeout = 30\n"], ["config.py:timeout"]),
+        ("good", ["timeout = 60\n", "timeout = 30\n", "timeout = 10\n"], []),
+    ]:
+        repo = _repo(tmp_path / name, revisions)
+        captured = subprocess.run([*CHECK.GIT_LOG_ARGS, "HEAD"], cwd=repo,
+                                  capture_output=True, text=True, env=env).stdout
+        assert captured.strip(), f"{name}: the capture is empty, so this proves nothing"
+
+        log = tmp_path / f"{name}.log"
+        log.write_text(captured, encoding="utf-8")
+
+        live, _ = CHECK.collect_moves(repo, "HEAD")
+        from_log, _ = CHECK.parse_log(captured)
+        assert [(m.path, m.key, m.before, m.after) for m in live] == \
+               [(m.path, m.key, m.before, m.after) for m in from_log], name
+
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPT), "--from-log", str(log)],
+            capture_output=True, text=True,
+        )
+        found = [ln.split("  ")[0].removeprefix("OSCILLATION_FINDING: ")
+                 for ln in proc.stdout.splitlines()
+                 if ln.startswith("OSCILLATION_FINDING: ")]
+        assert found == expected, f"{name}: captured log disagreed with the live repo"
+        assert proc.returncode == CHECK.EXIT_REPORTED
+
+
+def test_git_ABSENT_is_unknown_and_not_a_traceback(tmp_path: Path) -> None:
+    """The failure that broke CI, pinned.
+
+    An unhandled FileNotFoundError exits 1 with a traceback, which reads to the
+    negative-control framework as a gate that THREW - indistinguishable from a
+    gate that detected something, which is what UNSIGNALLED exists to say. git
+    being absent is just another way of being unable to look: UNKNOWN, exit 3,
+    and its own reason.
+
+    The stderr assertion is the load-bearing half. Exit 3 could be reached by a
+    crash handler that still dumps a traceback, and the point is that this
+    prints a VERDICT.
+    """
+    bindir = tmp_path / "nogit"
+    bindir.mkdir()
+    assert shutil.which("git", path=str(bindir)) is None, (
+        "the stub PATH somehow has git, so this test constructs no absence"
+    )
+
+    proc = subprocess.run(
+        [sys.executable, str(SCRIPT), "--root", str(tmp_path), "--range", "HEAD"],
+        capture_output=True, text=True,
+        env={"PATH": str(bindir), "HOME": str(tmp_path)},
+    )
+    assert "OSCILLATION: unknown" in proc.stdout, proc.stdout
+    assert "OSCILLATION_REASON: git-unavailable" in proc.stdout, proc.stdout
+    assert proc.returncode == CHECK.EXIT_UNKNOWN, (
+        f"git absent must be UNKNOWN (3), not a crash: got {proc.returncode}"
+    )
+    assert "Traceback" not in proc.stderr, (
+        f"the gate threw instead of reporting; a traceback cannot be told from "
+        f"a detection by anything reading exit codes:\n{proc.stderr}"
+    )
+
+
+def test_collect_moves_does_not_RAISE_when_git_is_absent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The same guard one layer down, tested where it is actually reachable.
+
+    Through the CLI the `git rev-parse` probe catches git-absence first, so
+    collect_moves' own guard is never reached that way - narrowing it to a
+    different exception type killed no test at all. It is reachable by a DIRECT
+    call, which is how this file's other tests use it and how any future caller
+    will, so the contract it owns is "returns (no moves, no commits)", never
+    "raises FileNotFoundError at the call site".
+
+    Written after a mutation survived. An unreachable guard is not defence in
+    depth, it is an untested claim.
+    """
+    bindir = tmp_path / "nogit"
+    bindir.mkdir()
+    assert shutil.which("git", path=str(bindir)) is None, "the stub PATH has git"
+    monkeypatch.setenv("PATH", str(bindir))
+
+    moves, commits = CHECK.collect_moves(tmp_path, "HEAD")
+    assert (moves, commits) == ([], 0)
+
+
 def test_the_FOUR_ways_of_not_looking_are_told_apart(tmp_path: Path) -> None:
     """One verdict, one exit code, four distinguishable REASONS (#953).
 

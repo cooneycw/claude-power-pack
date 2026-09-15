@@ -206,6 +206,10 @@ def _knobs(line: str) -> dict[str, float]:
     return out
 
 
+GIT_LOG_ARGS = ["git", "log", "--reverse", "--unified=0", "--first-parent",
+                "--diff-merges=first-parent", "--format=%x00%H%x00%s", "-p"]
+
+
 def collect_moves(root: Path, rev_range: str) -> tuple[list[Move], int]:
     """Walk history and derive every knob move. Returns (moves, commits_seen)."""
     # --first-parent IS THE LINEAGE, and it is not a performance flag.
@@ -235,14 +239,37 @@ def collect_moves(root: Path, rev_range: str) -> tuple[list[Move], int]:
     # behaviourally from this box. tests/test_oscillation_control.py asserts its
     # PRESENCE instead and says outright that an argv assertion is a guard on
     # intent, not on behaviour.
-    proc = subprocess.run(
-        ["git", "log", "--reverse", "--unified=0", "--first-parent",
-         "--diff-merges=first-parent", "--format=%x00%H%x00%s", "-p", rev_range],
-        cwd=root, capture_output=True, text=True,
-    )
+    try:
+        proc = subprocess.run([*GIT_LOG_ARGS, rev_range], cwd=root,
+                              capture_output=True, text=True)
+    except OSError:
+        # git ABSENT, not git failing. The CI image ships without it - a fact
+        # this repository has recorded as forgotten three times - and an
+        # unhandled FileNotFoundError here exits 1 with a traceback, which reads
+        # to the negative-control framework as a gate that threw. It did exactly
+        # that on the first push of this branch, and took the framework's own
+        # verdict down with it. Absent is UNKNOWN, like every other way of being
+        # unable to look.
+        return [], 0
     if proc.returncode != 0:
         return [], 0
 
+    return parse_log(proc.stdout)
+
+
+def parse_log(text: str) -> tuple[list[Move], int]:
+    """Derive knob moves from `git log -p` output. Returns (moves, commits).
+
+    Split out from collect_moves so the same parser serves a LIVE repository and
+    a CAPTURED log. controls/check-oscillation feeds it a captured one, because
+    GIT IS NOT IN THE CI IMAGE: a control invoking the gate against a bare repo
+    crashed there with FileNotFoundError, scored UNSIGNALLED, and failed the
+    whole negative-control framework - a new control breaking the gate that
+    every other control is read through. The capture is the committed fixture
+    this repository keeps concluding it needs; the live git path stays covered
+    by tests that carry a `shutil.which` skip guard and therefore do not run in
+    CI either, which is stated rather than papered over.
+    """
     moves: list[Move] = []
     sha = subject = ""
     path = ""
@@ -268,7 +295,7 @@ def collect_moves(root: Path, rev_range: str) -> tuple[list[Move], int]:
         removed.clear()
         added.clear()
 
-    for raw in proc.stdout.splitlines():
+    for raw in text.splitlines():
         if raw.startswith("\x00"):
             flush()
             _, sha, subject = raw.split("\x00", 2)
@@ -368,11 +395,89 @@ def _reversals_in(chain: list[Move], window: int) -> list[Finding]:
     return findings
 
 
+def report_unknown(source: str, reason: str, explain: str, commits: int = 0) -> int:
+    """Every way this run can fail to LOOK, reported identically.
+
+    ONE VERDICT, ONE EXIT CODE, and a REASON field to tell the causes apart -
+    the #953 convention: a different CONCLUSION earns a new verdict, the same
+    conclusion reached for a different cause earns a reason. They were folded
+    together at first, so a range git REFUSED ("HEAD~200" on a 90-commit repo)
+    printed the same line as a range that resolved and held no knob edits. Both
+    are "could not look", and a reader chasing the first goes looking for knobs
+    that were never the problem.
+    """
+    print(f"check-oscillation: {explain} This is UNKNOWN, not clean.", file=sys.stderr)
+    print(f"OSCILLATION_SOURCE: {source}")
+    print(f"OSCILLATION_COMMITS: {commits}")
+    print("OSCILLATION_EXAMINED: 0")
+    print(f"OSCILLATION_REASON: {reason}")
+    print("OSCILLATION: unknown")
+    return EXIT_UNKNOWN
+
+
+def _report(args: argparse.Namespace, source: str, moves: list[Move], commits: int) -> int:
+    """The verdict, shared by the live-repo and captured-log paths.
+
+    Shared deliberately: two copies of this would let the control's path and the
+    real path disagree about what `none` means, and the control would then be
+    demonstrating something other than what ships.
+    """
+    if commits == 0:
+        return report_unknown(source, "range-empty",
+                              f"{source} resolved but contains no commits.")
+    if not moves:
+        return report_unknown(
+            source, "no-knob-changes",
+            f"examined {commits} commit(s) in {source} and found NO knob changes "
+            f"at all, so nothing was compared.", commits=commits)
+
+    findings = find_oscillations(moves, args.window)
+    knobs = len({(m.path, m.key) for m in moves})
+
+    if args.json:
+        print(json.dumps({
+            "source": source, "commits": commits, "examined": len(moves),
+            "knobs": knobs, "window": args.window,
+            "findings": [
+                {"path": f.path, "key": f.key,
+                 "values": [f.moves[0].before] + [m.after for m in f.moves],
+                 "commits": [m.sha for m in f.moves]}
+                for f in findings
+            ],
+        }, indent=2))
+        return EXIT_REPORTED
+
+    print(f"OSCILLATION_SOURCE: {source}")
+    print(f"OSCILLATION_COMMITS: {commits}")
+    print(f"OSCILLATION_EXAMINED: {len(moves)}")
+    print(f"OSCILLATION_KNOBS: {knobs}")
+    print(f"OSCILLATION_WINDOW: {args.window}")
+    print("OSCILLATION_REASON: -")
+    for f in findings:
+        print(f.render())
+    print(f"OSCILLATION: {'found' if findings else 'none'}")
+    if findings and args.exit_on_finding:
+        return 1
+    if findings:
+        print(f"\ncheck-oscillation: {len(findings)} knob(s) moved BACK. This is a "
+              f"REPORT, not a failure - see docs/decisions/0009-oscillation-control.md.\n"
+              f"Each one wants a committed reversal trigger beside the setting.",
+              file=sys.stderr)
+    return EXIT_REPORTED
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     ap.add_argument("--root", default=".", help="repository to examine")
+    # A CAPTURED `git log -p` instead of a live repository. Needed because git
+    # is absent from the CI image, so the registered control has no other way to
+    # run where it gates. The capture must be produced with GIT_LOG_ARGS; a log
+    # taken with different flags parses to different moves, which is why the
+    # flags are a module constant rather than written out at each site.
+    ap.add_argument("--from-log", dest="from_log", default=None,
+                    help="parse a captured `git log -p` file instead of running git")
     ap.add_argument("--range", dest="rev_range", default="HEAD~200..HEAD",
                     help="git revision range (default: HEAD~200..HEAD)")
     ap.add_argument("--window", type=int, default=DEFAULT_WINDOW,
@@ -395,37 +500,39 @@ def main() -> int:
                     help="exit 1 when a finding exists (for the control framework only)")
     args = ap.parse_args()
 
+    if args.from_log:
+        log_path = Path(args.from_log)
+        try:
+            captured = log_path.read_text(encoding="utf-8")
+        except OSError as exc:
+            print(f"check-oscillation: cannot read {log_path}: {exc}", file=sys.stderr)
+            print(f"OSCILLATION_SOURCE: {log_path}")
+            print("OSCILLATION_COMMITS: 0")
+            print("OSCILLATION_EXAMINED: 0")
+            print("OSCILLATION_REASON: log-unreadable")
+            print("OSCILLATION: unknown")
+            return EXIT_UNKNOWN
+        moves, commits = parse_log(captured)
+        return _report(args, str(log_path), moves, commits)
+
     root = Path(args.root).resolve()
     # Ask git, rather than looking for a `.git` entry. A bare repository has no
-    # `.git` at all, and the control fixtures are bare repos - a hardcoded path
-    # assumption would have reported them UNKNOWN and the control would have
-    # been unregistrable for a reason that had nothing to do with the gate.
-    probe = subprocess.run(["git", "rev-parse", "--git-dir"], cwd=root if root.is_dir() else ".",
-                           capture_output=True, text=True)
-    def unknown(reason: str, explain: str, commits: int = 0) -> int:
-        """Every way this run can fail to LOOK, reported identically.
-
-        FOUR CAUSES, ONE VERDICT, ONE EXIT CODE, and a REASON field to tell them
-        apart - the #953 convention: a different CONCLUSION earns a new verdict,
-        the same conclusion reached for a different cause earns a reason. They
-        were folded together at first, so a range git REFUSED ("HEAD~200" on a
-        90-commit repo) printed the same line as a range that resolved and held
-        no knob edits. Both are "could not look", and a reader chasing the
-        first goes looking for knobs that were never the problem.
-        """
-        print(f"check-oscillation: {explain} This is UNKNOWN, not clean.", file=sys.stderr)
-        print(f"OSCILLATION_SOURCE: {args.rev_range}")
-        print(f"OSCILLATION_COMMITS: {commits}")
-        print("OSCILLATION_EXAMINED: 0")
-        print(f"OSCILLATION_REASON: {reason}")
-        print("OSCILLATION: unknown")
-        return EXIT_UNKNOWN
+    # `.git` at all - a hardcoded path assumption would report one UNKNOWN for a
+    # reason that has nothing to do with the gate.
+    try:
+        probe = subprocess.run(["git", "rev-parse", "--git-dir"],
+                               cwd=root if root.is_dir() else ".",
+                               capture_output=True, text=True)
+    except OSError:
+        return report_unknown(
+            args.rev_range, "git-unavailable",
+            "git is not on PATH, so no history could be read. The CI image ships "
+            "without it; use --from-log with a captured log there.")
 
     if not root.is_dir() or probe.returncode != 0:
-        return unknown(
-            "not-a-git-repository",
-            f"{root} is not a git repository, so no history could be read.",
-        )
+        return report_unknown(
+            args.rev_range, "not-a-git-repository",
+            f"{root} is not a git repository, so no history could be read.")
 
     # Does the RANGE resolve at all? `HEAD~200..HEAD` on a younger repository is
     # refused by git, and that is a different fact from a range that resolves to
@@ -434,64 +541,17 @@ def main() -> int:
     resolved = subprocess.run(["git", "rev-list", "--count", args.rev_range],
                               cwd=root, capture_output=True, text=True)
     if resolved.returncode != 0:
-        return unknown(
-            "range-unresolvable",
+        detail = (resolved.stderr.strip().splitlines()[-1]
+                  if resolved.stderr.strip() else "no detail")
+        return report_unknown(
+            args.rev_range, "range-unresolvable",
             f"git could not resolve the range {args.rev_range} in {root} "
-            f"({resolved.stderr.strip().splitlines()[-1] if resolved.stderr.strip() else 'no detail'}); "
-            f"a range naming a commit this history does not have examines nothing.",
-        )
+            f"({detail}); a range naming a commit this history does not have "
+            f"examines nothing.")
 
+    # SCANNED NOTHING IS NOT CLEAN (#952).
     moves, commits = collect_moves(root, args.rev_range)
-
-    # SCANNED NOTHING IS NOT CLEAN (#952). A range that resolves to no commits,
-    # or a history with no knob edits in it, has not established that nothing
-    # oscillated - it has established that this run could not look.
-    if commits == 0:
-        return unknown(
-            "range-empty",
-            f"the range {args.rev_range} resolved but contains no commits.",
-        )
-    if not moves:
-        return unknown(
-            "no-knob-changes",
-            f"examined {commits} commit(s) in {args.rev_range} and found NO knob "
-            f"changes at all, so nothing was compared.",
-            commits=commits,
-        )
-
-    findings = find_oscillations(moves, args.window)
-    knobs = len({(m.path, m.key) for m in moves})
-
-    if args.json:
-        print(json.dumps({
-            "source": args.rev_range, "commits": commits, "examined": len(moves),
-            "knobs": knobs, "window": args.window,
-            "findings": [
-                {"path": f.path, "key": f.key,
-                 "values": [f.moves[0].before] + [m.after for m in f.moves],
-                 "commits": [m.sha for m in f.moves]}
-                for f in findings
-            ],
-        }, indent=2))
-        return EXIT_REPORTED
-
-    print(f"OSCILLATION_SOURCE: {args.rev_range}")
-    print(f"OSCILLATION_COMMITS: {commits}")
-    print(f"OSCILLATION_EXAMINED: {len(moves)}")
-    print(f"OSCILLATION_KNOBS: {knobs}")
-    print(f"OSCILLATION_WINDOW: {args.window}")
-    print("OSCILLATION_REASON: -")
-    for f in findings:
-        print(f.render())
-    print(f"OSCILLATION: {'found' if findings else 'none'}")
-    if findings and args.exit_on_finding:
-        return 1
-    if findings:
-        print(f"\ncheck-oscillation: {len(findings)} knob(s) moved BACK. This is a "
-              f"REPORT, not a failure - see docs/decisions/0009-oscillation-control.md.\n"
-              f"Each one wants a committed reversal trigger beside the setting.",
-              file=sys.stderr)
-    return EXIT_REPORTED
+    return _report(args, args.rev_range, moves, commits)
 
 
 if __name__ == "__main__":
