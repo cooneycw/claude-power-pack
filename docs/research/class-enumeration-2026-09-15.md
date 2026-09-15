@@ -106,6 +106,8 @@ Writing that self-test immediately found one more hole: the `cmdpos` protection 
 
 Nine cases are committed, each a real line, each naming the protection it holds.
 
+**The generalizable result, and it reaches well past this ticket.** A negative control proves an instrument *can* beep. **Mutation proves each protection is load-bearing.** These are different properties, and the gap between them is invisible to inspection: this battery was read at a review gate, judged correct, and called load-bearing, and it was decoration. Inspection is exactly what a gate does, so a gate cannot close this gap. The confirmation is that writing the mutation harness found one more uncovered protection on its first run.
+
 ### Coverage, because a zero must not read as clean
 
 Per #952, the sweep prints a denominator per root set (discovered, scanned, missing, unreadable) and **refuses to report buckets if any root set could not be fully examined**. Without that, making test and document files unreadable produced `AGENT-DOC-ONLY = 0` with every control passing and exit 0: absence of invocation and failure to look were indistinguishable.
@@ -142,7 +144,17 @@ Anyone quoting a dormancy count from this table alone would be wrong, which is w
 | CI | none | `eli5-vendor-check`, `eli5-upstream-drift` |
 | Makefile | none | `eli5-check`, `eli5-drift`, `eli5-revendor` |
 
-A **dormant** guard leaves an invariant unchecked. A **superseded** one does not. The remedy differs completely: wire the first, delete the second. **No automated sweep can distinguish them, including this one** - both present as present-but-unrun. Raised as a question for the map, not ruled on here.
+A **dormant** guard leaves an invariant unchecked. A **superseded** one does not. The remedy differs completely: wire the first, delete the second. **No automated sweep can distinguish them, including this one** - both present as present-but-unrun.
+
+### The reframing that may sharpen the map's question
+
+Raised here as an open question rather than a ruling, and it came out of reviewing this ticket rather than from the ticket itself:
+
+> **"Is this script dormant" may be the wrong subject.** A dormant guard leaves an *invariant* unchecked; a superseded one does not, because something else checks it. So the question belongs to the **invariant**, not the file: *is invariant X checked by anything?*
+
+That reframing explains the `eli5-core-drift.sh` case exactly - unrun, with its own issue, and still not an instance, because `eli5-vendor.py` holds the invariant. It also explains why every sweep in this document struggled: **a script-rooted sweep structurally cannot answer an invariant-rooted question**, however good its detection rule gets. No amount of fixing the extractor reaches it.
+
+It is a much harder question, because it requires enumerating invariants rather than files, and nothing in this repository currently does. Recorded as a sharper *unsharp* question for #950 rather than an answer.
 
 ## Classification
 
