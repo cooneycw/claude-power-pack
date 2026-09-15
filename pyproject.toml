@@ -26,7 +26,30 @@ python_version = "3.11"
 # near-identical bad/good pairs, so their module names collide by
 # construction, and frozen historical ANCHORS that must stay byte-identical to
 # the commit they are vendored from - type-checking either is meaningless.
-exclude = ["mcp-second-opinion", "mcp-evaluate", "codex/skills", "controls"]
+# The #953 forced-claim prototype's `cases/` is the same situation one
+# directory over (issue #953): each case is a PAIRED tree - `base/` is the
+# pre-fix code, `head/` the post-fix code - and its tier-2 match test runs the
+# same named test against both, so `base/calc.py` and `head/calc.py` MUST
+# share a module name or the fixture stops modelling what it exists to model.
+# It sits outside the `controls` entry only because a prototype is not a
+# shipped gate; if it is ever promoted into `controls/`, this entry is
+# redundant and should be removed rather than left behind.
+# NOT UNCHECKED - checked elsewhere: these fixtures are exercised by
+# `forced-claim-check.py --selftest`, which runs all nine against their
+# registered verdicts (9/9, with a demonstrated red at 3/9 when the checker is
+# wedged at VERIFIED). mypy is not the instrument that covers them.
+# WHAT WOULD MOVE THIS BACK (issue #936): this exclusion holds only while
+# those paths remain deliberately-colliding paired fixture trees. If that
+# directory ever holds ordinary library code - anything meant to be imported
+# rather than materialized into a temp tree and run - the exclusion has
+# widened past its reason and must be narrowed or dropped, not inherited.
+exclude = [
+    "mcp-second-opinion",
+    "mcp-evaluate",
+    "codex/skills",
+    "controls",
+    "docs/research/forced-claim-prototype-2026-09-15/cases",
+]
 ignore_missing_imports = true
 explicit_package_bases = true
 mypy_path = "."

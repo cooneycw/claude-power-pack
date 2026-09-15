@@ -1,0 +1,157 @@
+{
+  "_comment": [
+    "Registration for the #953 forced-claim prototype, written in the shape",
+    "controls/<gate>/control.json uses (issue #924/#948/#963) so that adopting",
+    "it later is a move, not a rewrite. It is NOT discovered by",
+    "scripts/check-negative-controls.py, which scans controls/ - this lives",
+    "under docs/research/ because the prototype is a design, not a shipped",
+    "gate. Run it with: forced-claim-check.py --selftest",
+    "",
+    "Every verdict the checker can emit has at least one case, and the",
+    "verdicts that matter have a case on BOTH sides. A checker wedged at",
+    "DISAGREE and a working one are indistinguishable without honest-claim;",
+    "a counter wedged at UNKNOWN and a working one are indistinguishable",
+    "without amendment-anchored."
+  ],
+  "gate": "forced-claim-check.py",
+  "invocation": [
+    "python3",
+    "{gate}",
+    "--case",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^FORCED_CLAIM_VERDICT: (DISAGREE|ABSENT|UNKNOWN)",
+  "cases": [
+    {
+      "name": "inflated-claim",
+      "input": "cases/inflated-claim",
+      "expect": "DISAGREE(inflated)",
+      "why": "Required negative control 1: a claim of 3 tests where the diff contains 1. If this reports VERIFIED the whole design is decoration.",
+      "expect_exit": 1
+    },
+    {
+      "name": "honest-claim",
+      "input": "cases/honest-claim",
+      "expect": "VERIFIED",
+      "expect_tier2_executed": 1,
+      "expect_amendment_state": "anchored",
+      "why": "POSITIVE CONTROL, and load-bearing: without an input that must report VERIFIED, a checker wedged permanently at DISAGREE looks exactly like a working one.",
+      "expect_exit": 0
+    },
+    {
+      "name": "passes-on-unfixed",
+      "input": "cases/passes-on-unfixed",
+      "expect": "DISAGREE(no-match)",
+      "expect_tier2_executed": 1,
+      "why": "Required negative control 2: a named test that PASSES on the pre-fix tree. It discriminates nothing, so tier 2 must refuse it.",
+      "expect_exit": 1
+    },
+    {
+      "name": "no-claim",
+      "input": "cases/no-claim",
+      "expect": "ABSENT(no-claim)",
+      "why": "#951's state. The checker ran and observed silence - which is why this is ABSENT and not UNKNOWN, and why it is not the same as the step never running.",
+      "expect_exit": 3
+    },
+    {
+      "name": "empty-diff",
+      "input": "cases/empty-diff",
+      "expect": "UNKNOWN(no-denominator)",
+      "why": "#952's amendment: a denominator of ZERO carries the same ambiguity as a missing one and must not read clean.",
+      "expect_exit": 3
+    },
+    {
+      "name": "unsignalled-importerror",
+      "input": "cases/unsignalled-importerror",
+      "expect": "UNKNOWN(unsignalled)",
+      "why": "#963's lesson translated to pytest: the pre-fix run exits non-zero via ImportError. A crash is not a match, and scoring it VERIFIED would be a check passing for the wrong reason.",
+      "expect_exit": 3
+    },
+    {
+      "name": "absent-claim-tier2-disabled",
+      "input": "cases/absent-claim-tier2-disabled",
+      "expect": "ABSENT(no-claim)",
+      "expect_tier2_executed": 0,
+      "why": "The cost regression, which is silent by construction. The fixture holds 6 tests across 3 files; tier 2 must execute ZERO of them rather than falling back to the whole suite. Without this case, 'disabled on ABSENT' is a sentence in a doc.",
+      "expect_exit": 3
+    },
+    {
+      "name": "amendment-reset-unanchored",
+      "input": "cases/amendment-reset-unanchored",
+      "expect": "UNKNOWN(unanchored)",
+      "expect_amendment_state": "unanchored",
+      "why": "The iterate-until-green hole. With no record the claimant does not author, a discarded-and-refiled claim is indistinguishable from a first filing, so the counter must read UNKNOWN and never 0. A counter that cannot detect its own reset is this design's failure class inside its own remedy.",
+      "expect_exit": 3
+    },
+    {
+      "name": "amendment-anchored",
+      "input": "cases/amendment-anchored",
+      "expect": "VERIFIED",
+      "expect_tier2_executed": 1,
+      "expect_amendment_state": "anchored",
+      "expect_amendments": 2,
+      "why": "The counter's POSITIVE CONTROL. Given an anchor carrying 3 distinct claims it must report 2 amendments - a real number. Without this, 'always UNKNOWN' and a working counter are the same instrument.",
+      "expect_exit": 0
+    },
+    {
+      "name": "runtime-importerror",
+      "input": "cases/runtime-importerror",
+      "expect": "UNKNOWN(unsignalled)",
+      "expect_exit": 3,
+      "why": "Codex, HIGH. pytest reports an exception raised INSIDE the test body as FAILED, not ERROR - only a COLLECTION failure is an ERROR. The first cut read 'is FAILED present' and scored a runtime ImportError as a clean assertion match, and unsignalled-importerror hid it by putting the bad import at module scope. This case puts it in the function body."
+    },
+    {
+      "name": "empty-claim-population",
+      "input": "cases/empty-claim-population",
+      "expect": "UNKNOWN(empty-population)",
+      "expect_exit": 3,
+      "why": "Codex, HIGH. A claim naming zero tests walked the tier-2 loop zero times and printed 'all 0 failed by assertion' as VERIFIED - scanned 0, clean. #952's amendment violated inside the tool written to enforce it."
+    },
+    {
+      "name": "fails-on-both-trees",
+      "input": "cases/fails-on-both-trees",
+      "expect": "DISAGREE(no-discrimination)",
+      "expect_exit": 1,
+      "why": "Codex, MEDIUM. `assert False` fails on the pre-fix tree, so a one-sided check credited it the moment any non-test file changed. Failing before the fix proves nothing unless the test also PASSES on the fix - the same both-sides argument #963 makes for gates, which this design quoted and then applied to one side."
+    },
+    {
+      "name": "empty-anchor",
+      "input": "cases/empty-anchor",
+      "expect": "UNKNOWN(anchor-incomplete)",
+      "expect_exit": 3,
+      "expect_amendment_state": "anchor-incomplete",
+      "why": "Codex, MEDIUM. An anchor that exists and records nothing yielded '0 amendment(s)' and an anchored VERIFIED row, so a record establishing nothing scored like one establishing a clean first filing. A zero-length denominator, one level further in."
+    },
+    {
+      "name": "malformed-claim",
+      "input": "cases/malformed-claim",
+      "expect": "UNKNOWN(claim-unreadable)",
+      "expect_exit": 3,
+      "why": "Codex, MEDIUM. Only json.JSONDecodeError was caught, so valid JSON of the wrong shape raised out of the checker and produced NO BLOCK - indistinguishable from a step that never ran, which is the exact ambiguity this design exists to remove."
+    },
+    {
+      "name": "head-skips",
+      "input": "cases/head-skips",
+      "expect": "UNKNOWN(head-unsignalled)",
+      "expect_exit": 3,
+      "why": "Codex pass 2, HIGH. pytest exits 0 for a SKIPPED test as well as a passing one, so a conditional skip on the fixed tree completed a discrimination that never ran. Exit 0 is not 'it passed'; the test must report PASSED. Registered first as UNKNOWN(unsignalled) and corrected: a skip on the FIXED tree reaches the head-run path, so head-unsignalled is the more precise reason. The expectation was wrong, not the behaviour - recorded because adjusting a registration to match observed output is exactly how a control gets laundered into agreement."
+    },
+    {
+      "name": "head-collection-error",
+      "input": "cases/head-collection-error",
+      "expect": "UNKNOWN(head-unsignalled)",
+      "expect_exit": 3,
+      "why": "Codex pass 2, MEDIUM. Every non-pass fixed-tree outcome collapsed into DISAGREE(no-discrimination), so an uninterpretable fixed-tree run was reported as an affirmative contradiction - the same collapse this file refuses for pre-fix crashes, in the other direction."
+    },
+    {
+      "name": "anchor-with-noise",
+      "input": "cases/anchor-with-noise",
+      "expect": "VERIFIED",
+      "expect_exit": 0,
+      "expect_amendment_state": "anchored",
+      "expect_amendments": 0,
+      "why": "Codex pass 2, MEDIUM. The counter counted distinct non-empty LINES, so an unrelated log line became an amendment. Records are parsed and shape-checked now; this anchor carries two log lines and a non-JSON line beside one real claim and must still report 0 amendments."
+    }
+  ]
+}
