@@ -556,3 +556,61 @@ class TestUsage:
         proc = _run(tmp_path, "record", "--wave", "../escape", stdin="GATE: GO #1 x\n")
         assert proc.returncode == 2
         assert "invalid wave name" in proc.stderr
+
+
+# --------------------------------------------------------------------------- #
+# #989 - MERGE: PRIORITY, and the verbs refused because they read as inverses
+# --------------------------------------------------------------------------- #
+
+
+def test_merge_priority_records_the_pr_that_goes_first(tmp_path: Path) -> None:
+    out = _validate(tmp_path, "MERGE: PRIORITY #982 overtaken four times, oldest PR in the wave\n")
+    assert "FLOW_LEXICON: ok" in out.stdout, out.stdout
+    assert "MERGE: PRIORITY #982" in out.stdout, out.stdout
+
+
+def test_merge_priority_without_an_argument_is_refused(tmp_path: Path) -> None:
+    """The argument is mandatory for the same reason PUSHBACK's is.
+
+    This preempts every other worker's merge in the wave. A scheduling decision
+    with that blast radius must not be skimmable as a bare token.
+    """
+    out = _validate(tmp_path, "MERGE: PRIORITY #982\n")
+    assert "FLOW_LEXICON: invalid" in out.stdout, out.stdout
+    assert "must state WHY" in out.stdout + out.stderr
+
+
+def test_merge_hold_is_refused_because_it_reads_as_its_own_inverse(tmp_path: Path) -> None:
+    """The READING control, not a parsing one.
+
+    `MERGE: AUTHORIZED #N` names its subject, so by exact parallel a reader meets
+    `MERGE: HOLD #982` and derives "hold #982" - the precise inverse, since #982
+    is the one PR NOT held. This repo already owns that specimen: a lane fence
+    written as "explicitly NOT yours" was read as its own grant, which is why
+    `LANE: GRANT` must name the paths it grants.
+
+    Refused BY NAME rather than falling through to "unknown verb", because the
+    author of such a line has the right intent and the wrong token, and a generic
+    refusal would not tell them which.
+    """
+    for verb in ("HOLD", "BLOCK", "FREEZE"):
+        out = _validate(tmp_path, f"MERGE: {verb} #982 until it lands\n")
+        assert "FLOW_LEXICON: invalid" in out.stdout, (verb, out.stdout)
+        assert "reads as its own inverse" in out.stdout + out.stderr, (verb, out.stdout)
+        assert "MERGE: PRIORITY" in out.stdout + out.stderr, (verb, out.stdout)
+
+
+def test_merge_authorized_is_unchanged(tmp_path: Path) -> None:
+    """The existing verb must not regress: this added a sibling, not a rewrite."""
+    out = _validate(
+        tmp_path,
+        "MERGE: AUTHORIZED #701 when ci/woodpecker/pr/woodpecker reports success\n",
+    )
+    assert "FLOW_LEXICON: ok" in out.stdout, out.stdout
+    assert "MERGE: AUTHORIZED #701" in out.stdout, out.stdout
+
+
+def test_an_unknown_merge_verb_names_both_transitions(tmp_path: Path) -> None:
+    out = _validate(tmp_path, "MERGE: SOMETHING #1 whatever\n")
+    assert "FLOW_LEXICON: invalid" in out.stdout, out.stdout
+    assert "AUTHORIZED and PRIORITY" in out.stdout + out.stderr, out.stdout

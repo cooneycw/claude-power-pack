@@ -67,6 +67,7 @@
 #   LANE: GRANT|EXTEND <role> <path> [<path>...]
 #   LANE: REVOKE <role> [<path>...]
 #   MERGE: AUTHORIZED #N when <predicate>
+#   MERGE: PRIORITY #N <argument>
 #   STATE: as-of <commit-ish>
 #   RATIFY #N <reason>
 #   OVERRULE #N <reason>
@@ -329,16 +330,68 @@ parse_lane() { # parse_lane LINENO REST
   add_tr "LANE" "$verb $role${paths:+ $paths}"
 }
 
+#: `MERGE: PRIORITY #N <argument>` - #N merges before every other open PR in the
+#: wave (issue #989).
+#:
+#: WHY IT EXISTS. Under branch protection `strict: true` a PR must be up to date
+#: with base to merge, so every merge invalidates every other open PR. `main` is
+#: a serialized resource and the PR with the longest verify keeps losing its
+#: place: #982 was overtaken four times in one wave, each time after a full green
+#: run, burning four suite runs on rebases that changed not one line of its diff.
+#: The remedy that worked was a merge hold declared in PROSE, which means it was
+#: unvalidated, absent from `verdicts.json`, and invisible to the planner. This
+#: is that remedy as a transition.
+#:
+#: WHY THE VERB IS `PRIORITY` AND NOT `HOLD`. #N must denote the same referent it
+#: denotes in `MERGE: AUTHORIZED #N` - the thing being acted on favourably. Under
+#: `HOLD` it would denote the single PR that is NOT held, so a competent reader
+#: derives the exact inverse from the token alone. Rejected on the same grounds:
+#: `BLOCK` and `FREEZE` (identical inversion), `EXCLUSIVE` (names the property
+#: but not the beneficiary, so "#N merges exclusively" and "only #N may merge"
+#: are both available readings), and enumerating the held set (`HOLD #990 #991
+#: until #982`) which is correct but goes stale the moment another PR opens, so
+#: the token would be wrong without anyone editing it.
+#:
+#: The ARGUMENT is mandatory for the same reason PUSHBACK's is: a scheduling
+#: decision that preempts every other worker's merge should not be skimmable.
+parse_merge_priority() { # parse_merge_priority LINENO ARGS
+  local ln="$1" args="$2" issue why
+  if [[ ! "$args" =~ ^#([0-9]+)([[:space:]]|$) ]]; then
+    add_err "$ln" "MERGE: PRIORITY must name the PR that merges FIRST (e.g. 'MERGE: PRIORITY #982 overtaken four times, oldest PR in the wave')"
+    return
+  fi
+  issue="${BASH_REMATCH[1]}"
+  why="$(trim "${args#"#$issue"}")"
+  if [ -z "$why" ]; then
+    add_err "$ln" "MERGE: PRIORITY #$issue must state WHY it goes first - this preempts every other open PR in the wave, so the reason is the record"
+    return
+  fi
+  add_tr "MERGE" "PRIORITY #$issue $why"
+}
+
 parse_merge() { # parse_merge LINENO REST
   local ln="$1" rest="$2" verb args issue pred
   rest="$(trim "$rest")"
   verb="${rest%%[[:space:]]*}"
   args="$(trim "${rest#"$verb"}")"
 
-  if [ "$verb" != "AUTHORIZED" ]; then
-    add_err "$ln" "unknown MERGE verb '${verb:-<empty>}' (the only merge transition is AUTHORIZED)"
-    return
-  fi
+  case "$verb" in
+    AUTHORIZED) : ;;
+    PRIORITY)   parse_merge_priority "$ln" "$args"; return ;;
+    HOLD|BLOCK|FREEZE)
+      # Refused BY NAME rather than as an unknown verb, because each reads as
+      # its own inverse: `MERGE: HOLD #982` parses as "hold #982" while the
+      # declaration it is reaching for holds everything EXCEPT #982. This repo
+      # has that specimen already - a lane fence written as "explicitly NOT
+      # yours" was read as its own grant in the reference wave, which is why
+      # `LANE: GRANT` must name the paths it GRANTS. #N denotes the same
+      # referent under every MERGE verb: the thing being acted on favourably.
+      add_err "$ln" "MERGE: $verb #N reads as its own inverse - it names the one PR that is NOT held. Use 'MERGE: PRIORITY #N <argument>', where #N is the PR that merges FIRST, the same referent as in MERGE: AUTHORIZED #N"
+      return ;;
+    *)
+      add_err "$ln" "unknown MERGE verb '${verb:-<empty>}' (the merge transitions are AUTHORIZED and PRIORITY)"
+      return ;;
+  esac
   if [[ ! "$args" =~ ^#([0-9]+)([[:space:]]|$) ]]; then
     add_err "$ln" "MERGE: AUTHORIZED must name the issue or PR it authorizes (e.g. 'MERGE: AUTHORIZED #701 when ci/woodpecker/pr/woodpecker reports success')"
     return

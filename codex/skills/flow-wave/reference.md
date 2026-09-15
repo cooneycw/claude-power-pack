@@ -314,6 +314,7 @@ vocabulary is deliberately tiny - only the speech acts with a wrong-answer cost:
 | `LANE: GRANT\|EXTEND <role> <paths>` | a file lane | names role AND paths |
 | `LANE: REVOKE <role> [paths]` | withdrawing a lane | names the role |
 | `MERGE: AUTHORIZED #N when <check>` | conditional merge authority | a NAMED check - "when CI passes" is refused |
+| `MERGE: PRIORITY #N <argument>` | #N merges before every other open PR | an ARGUMENT - this preempts every other worker's merge, so the reason is the record |
 | `STATE: as-of <commit>` | any wave-state assertion | the stamp is mandatory |
 | `RATIFY \| OVERRULE #N <reason>` | answer to a reported deviation | issue + reason |
 | `PUSHBACK <argument>` | a refutation | must carry its argument |
