@@ -35,11 +35,25 @@ typecheck:
 shellcheck:
 	sh scripts/shellcheck-gate.sh
 
+## The SAME digest .woodpecker.yml pins. Three paths could reach this gate - CI's
+## pinned image, a `gitleaks` on PATH, and this docker fallback - and two of them
+## were unpinned. A control proving "gitleaks detects this shape" is meaningless
+## without saying WHICH gitleaks, and detection here is measurably ruleset- and
+## length-sensitive, so a tag that moves changes the verdict with no commit
+## anywhere. `.woodpecker.yml` already carries this reasoning for shellcheck:
+## "running the gate under two different linters would make the control's verdict
+## depend on which container reached it." It applies here and nobody had applied it.
+##
+## `:latest` resolved to v8.30.1 on 2026-09-15 - the same version CI pins - which
+## is exactly why the divergence went unnoticed. An instrument that is
+## accidentally correct today is the hardest kind to retire.
+GITLEAKS_IMAGE := zricethezav/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
+
 secret-scan:
 	@if command -v gitleaks > /dev/null 2>&1; then \
 		gitleaks detect --source . --config .gitleaks.toml --no-git --verbose; \
 	elif command -v docker > /dev/null 2>&1; then \
-		docker run --rm -v "$$(pwd):/repo" zricethezav/gitleaks:latest detect --source /repo --config /repo/.gitleaks.toml --no-git --verbose; \
+		docker run --rm -v "$$(pwd):/repo" $(GITLEAKS_IMAGE) detect --source /repo --config /repo/.gitleaks.toml --no-git --verbose; \
 	else \
 		echo "ERROR: gitleaks not found. Install via: brew install gitleaks / go install github.com/gitleaks/gitleaks/v8@latest"; \
 		echo "       Or use Docker: docker run --rm -v \$$(pwd):/repo zricethezav/gitleaks:latest detect --source /repo"; \

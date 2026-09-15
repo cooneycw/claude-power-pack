@@ -1,0 +1,9 @@
+# KNOWN-GOOD, and it is the same shape as cases/bad-private-key with a SHORT
+# body. gitleaks does not flag it, measured on v8.30.1.
+#
+# This case exists so that shortening the bad fixture is a FAILING case rather
+# than a silent disarm. A comment saying "detection is length-sensitive" is
+# exactly what a later tidy-up edits away; a committed case is not.
+-----BEGIN RSA PRIVATE KEY-----
+NOT-A-KEY
+-----END RSA PRIVATE KEY-----

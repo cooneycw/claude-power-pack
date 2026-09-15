@@ -10,6 +10,24 @@ useDefault = true
 # Global allowlist - paths and patterns that are known false positives
 [allowlist]
   paths = [
+    # CONSTITUTIVE, not reactive - the one entry here that is different in kind
+    # (issue #935). Every other entry below is REACTIVE: production content
+    # tripped a heuristic and the gate was made more permissive about it. This
+    # one covers a finding that exists ONLY because we planted it, as the
+    # negative control proving this gate can fail at all.
+    #
+    # That distinction erodes - "it's a fixture" becomes "it's test data" becomes
+    # "it's a doc" - so guards carry it rather than this comment:
+    #   controls/secret-scan/ scans the SAME BYTES relocated off this path and
+    #   requires DETECTION, so the entry cannot be blinding the gate generally;
+    #   tests/test_secret_scan.py requires that REMOVING this entry turns the
+    #   repo-wide scan RED, so the entry cannot be decorative.
+    #
+    # REVERSAL TRIGGER (#936): if a SECOND allowlist entry ever points into
+    # controls/, this carve-out has stopped being constitutive and become a
+    # habit. Checkable by reading this file - no report needed. Then the fixture
+    # moves out of the scanned population, or the control is rebuilt.
+    '''controls/secret-scan/cases/''',
     # Virtual environments and caches
     '''\.venv/''',
     '''__pycache__/''',
