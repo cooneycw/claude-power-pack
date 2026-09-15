@@ -156,8 +156,22 @@ another repo (the escalation clause); a row can be both.
 > adopted. The prose figures are deliberately NOT renumbered: they are analyses
 > of the original 61, and incrementing them would silently restate conclusions
 > nobody re-derived - `shellcheck-gate.sh` is not a lifecycle helper and does not
-> belong to any of the groupings those sentences describe. A row added later is
-> appended and noted here; the census figures stay attached to the census.
+> belong to any of the groupings those sentences describe. The census figures
+> stay attached to the census.
+>
+> **The live row count is DERIVED, not written here.** The original clause said
+> "a row added later is appended and noted here", and that upkeep rule was
+> followed once - for row 62 - and then not: row 63
+> (`check-negative-controls.py`, appended by #988) went unnoted, so a reader
+> checking the note against the table found the note already behind. A count
+> written in prose is stale from the next append onward, which is the same
+> hand-maintained-number failure this ADR's own subject is about.
+>
+> So the note no longer carries one. `scripts/check-negative-controls.py` parses
+> this table and prints `NEGATIVE_CONTROL_UNIVERSE: <n>` on every run; that
+> number is the live census size, and it cannot drift from the table because it
+> is read from it. **Frozen prose figures above, derived count below, and
+> nothing in between that has to be remembered.**
 
 | # | instrument | verdict | consumed by, without re-derivation | class |
 |---|---|---|---|---|
