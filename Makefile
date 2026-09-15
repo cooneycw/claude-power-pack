@@ -1,4 +1,5 @@
-.PHONY: test lint format typecheck verify shellcheck secret-scan update_docs clean \
+.PHONY: test lint format typecheck verify shellcheck secret-scan tools-check \
+       oscillation update_docs clean \
        bootstrap-check drift-check deploy setup-woodpecker-cli \
        codex-init codex-skills codex-skills-check codex-install \
        eli5-check eli5-drift eli5-revendor \
@@ -9,6 +10,69 @@
        binary-guards-check negative-fixture-check claude-md-budget-check \
        claude-md-links-check claude-md-behavior-check skills-check \
        install-drift-check install-drift-list
+
+## `make` with no target ran `lint` because lint was the first target. Adding
+## tools-check above it silently made THAT the default - bare `make` would print
+## a diagnostic and succeed without linting anything. Declared explicitly so the
+## default stops depending on file order (issue #987 review).
+.DEFAULT_GOAL := lint
+
+## DECLARE WHAT `verify` NEEDS, AND NAME EVERYTHING ABSENT (issue #987).
+##
+## Two undeclared hard dependencies landed in one day - shellcheck at 07:00
+## (#960) and gitleaks at 19:00 (#935, reached through `make test` ->
+## test_negative_controls -> controls/secret-scan). Neither was declared
+## anywhere: not README Requirements, not /cpp:init, not .pre-commit-config.
+## A clean clone could not pass the repository's own documented gate, while CI
+## stayed green because the pipeline images supply the tools.
+##
+## The failure mode this target removes is not "a tool is missing" - make
+## already said that. It is that make says it about the FIRST missing tool and
+## stops, so a developer installs one, re-runs five minutes of gate, and meets
+## the next one. This reports the whole set in one pass, with what each is for,
+## and never fails on a tool that has a working fallback.
+##
+## It does not gate: absence is reported and `verify` continues to the target
+## that actually needs the tool, which is where the honest verdict lives (the
+## shellcheck gate's own `unknown`, exit 2). Naming a missing tool early is
+## diagnosis; deciding what it means belongs to the instrument.
+## TWO CLASSES, because docker does not substitute equally (issue #987 review).
+## `make shellcheck` and `make secret-scan` fall back to a pinned image, so
+## docker covers them. `make test` does NOT: it runs registered controls that
+## invoke scripts/shellcheck-gate.sh and scripts/secret-scan-check.sh directly,
+## and those need the scanner on PATH. Reporting "available via docker" for the
+## test path would be the overclaim this target exists to remove.
+TOOLS_HARD := git python3 uv
+TOOLS_NATIVE := shellcheck gitleaks
+
+tools-check:
+	@missing=""; \
+	for t in $(TOOLS_HARD); do \
+		command -v $$t > /dev/null 2>&1 || missing="$$missing\n  $$t - required, no fallback"; \
+	done; \
+	native=""; \
+	for t in $(TOOLS_NATIVE); do \
+		command -v $$t > /dev/null 2>&1 || native="$$native $$t"; \
+	done; \
+	if [ -n "$$missing" ]; then \
+		printf 'tools-check: NOT on PATH and with no fallback:%b\n' "$$missing"; \
+	fi; \
+	if [ -n "$$native" ]; then \
+		printf 'tools-check: NOT on PATH:%s\n' "$$native"; \
+		if command -v docker > /dev/null 2>&1; then \
+			printf '  docker is present, so `make shellcheck` and `make secret-scan` still run, pinned:\n'; \
+			printf '    %s\n    %s\n' '$(SHELLCHECK_IMAGE)' '$(GITLEAKS_IMAGE)'; \
+			printf '  but `make test` runs controls that invoke these scanners DIRECTLY and has no such fallback,\n'; \
+			printf '  so controls/shellcheck-gate and controls/secret-scan will report UNSIGNALLED there.\n'; \
+		else \
+			printf '  docker is absent too, so the shellcheck and secret-scan targets cannot run either.\n'; \
+		fi; \
+	fi; \
+	if [ -z "$$missing" ] && [ -z "$$native" ]; then \
+		printf 'tools-check: ok - every external tool verify needs is on PATH.\n'; \
+	else \
+		printf 'tools-check: verify continues; each target reports its own verdict.\n'; \
+	fi
 
 ## Quality gates (used by /flow:finish)
 
@@ -32,8 +96,30 @@ typecheck:
 ## Absence of shellcheck is UNKNOWN and exits non-zero. It is NOT a pass: a
 ## `command -v shellcheck || exit 0` guard would go green on every machine that
 ## lacks the tool, which is the failure class this repo keeps finding.
+## THE SAME DIGEST .woodpecker.yml PINS (issue #987). `secret-scan` below has
+## carried this shape since #935; `shellcheck` did not, so a clean clone hit a
+## hard undeclared dependency at verify's fourth target. A docker fallback is
+## strictly better than an install instruction here: apt supplies 0.9.0 and CI
+## pins 0.10.0, and .woodpecker.yml already records why that matters - "running
+## the gate under two different linters would make the control's verdict depend
+## on which container reached it". An install instruction would reintroduce the
+## exact skew #960 designed around; this gets version parity for free.
+##
+## The gate's own `command -v shellcheck || unknown` (exit 2) is NOT touched.
+## Absence must stay UNKNOWN rather than become a pass - the fix is to SUPPLY
+## the tool, never to soften the gate.
+SHELLCHECK_IMAGE := koalaman/shellcheck-alpine:v0.10.0@sha256:5921d946dac740cbeec2fb1c898747b6105e585130cc7f0602eec9a10f7ddb63
+
 shellcheck:
-	sh scripts/shellcheck-gate.sh
+	@if command -v shellcheck > /dev/null 2>&1; then \
+		sh scripts/shellcheck-gate.sh; \
+	elif command -v docker > /dev/null 2>&1; then \
+		docker run --rm -v "$$(pwd):/repo" -w /repo \
+			-e SHELLCHECK_SEVERITY="$${SHELLCHECK_SEVERITY:-error}" \
+			--entrypoint sh $(SHELLCHECK_IMAGE) scripts/shellcheck-gate.sh; \
+	else \
+		sh scripts/shellcheck-gate.sh; \
+	fi
 
 ## The SAME digest .woodpecker.yml pins. Three paths could reach this gate - CI's
 ## pinned image, a `gitleaks` on PATH, and this docker fallback - and two of them
@@ -62,7 +148,34 @@ secret-scan:
 
 ## Pre-deploy gate (runs all quality checks)
 
-verify: lint test typecheck shellcheck binary-guards-check negative-fixture-check \
+## Report knobs that have been moved BACK (issue #936, ADR 0009). It REPORTS:
+## `found` and `none` both exit 0, and only `unknown` - this run could not look -
+## is non-zero. A blocking detector that flags every threshold edit gets switched
+## off, and switching it off is itself an oscillation.
+##
+## REVERSAL TRIGGER 1 (issue #936): `--exit-on-finding` must NEVER appear in a
+## build target. That flag exists solely so controls/check-oscillation can
+## register a two-sided case, because the control framework decides a case from
+## the exit code. If it ever appears below, the detector has become blocking,
+## which the owner ruled against. tests/test_oscillation_control.py asserts the
+## build does not use it.
+##
+## REVERSAL TRIGGER 2 (issue #987, pre-committed): this target is in `verify` and
+## NOT in CI because the detector needs git and the CI image has none - verify is
+## a LOCAL gate and .woodpecker.yml runs no make targets at all. Check with
+## `grep -c 'make verify' .woodpecker.yml`, which is 0 today. IF THAT EVER
+## BECOMES NON-ZERO, this target's git dependency becomes a CI failure, and it
+## then needs a git-bearing image or it comes out of verify.
+##
+## Absent from CI ON PURPOSE, not forgotten: the CONTROL runs there instead.
+## controls/check-oscillation feeds the gate committed `git log` captures
+## (`--from-log`), which need no git, so CI proves the detector CAN discriminate
+## while these local runs prove it IS used. Neither alone is enough.
+oscillation:
+	@python3 scripts/check-oscillation.py
+
+verify: tools-check lint test typecheck shellcheck oscillation \
+	binary-guards-check negative-fixture-check \
 	claude-md-budget-check claude-md-links-check claude-md-behavior-check \
 	project-next-check
 

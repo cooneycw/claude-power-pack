@@ -395,6 +395,89 @@ def _reversals_in(chain: list[Move], window: int) -> list[Finding]:
     return findings
 
 
+DEFAULT_DEPTH = 200
+
+
+def head_history_is_truncated(root: Path) -> bool:
+    """Is HEAD's OWN ancestry cut short, rather than the repository being
+    shallow in some way that does not touch it?
+
+    `git rev-parse --is-shallow-repository` is the tempting question and it is
+    the wrong one: it is repository-wide. A complete branch can sit in a
+    repository made shallow by an unrelated fetch, and a shallow boundary can
+    coincide with a genuine root that has no missing parents. Refusing on that
+    answer reports UNKNOWN - and, since `oscillation` is in `verify`, FAILS THE
+    BUILD - for histories that are perfectly examinable. The first cut of this
+    refusal did exactly that: an over-correction for an over-claim.
+
+    The precise question is whether a commit HEAD calls a ROOT is actually a
+    GRAFT. `git rev-list --max-parents=0 HEAD` yields the parentless commits
+    reachable from HEAD; a genuine root is parentless because history begins
+    there, a graft because the rest was never fetched. The shallow file lists
+    the grafts. An intersection means HEAD's history stops at an artificial
+    edge.
+    """
+    try:
+        roots = subprocess.run(["git", "rev-list", "--max-parents=0", "HEAD"],
+                               cwd=root, capture_output=True, text=True)
+        where = subprocess.run(["git", "rev-parse", "--git-path", "shallow"],
+                               cwd=root, capture_output=True, text=True)
+    except OSError:
+        return False
+    if roots.returncode != 0 or where.returncode != 0:
+        return False
+
+    shallow_file = Path(where.stdout.strip())
+    if not shallow_file.is_absolute():
+        shallow_file = root / shallow_file
+    try:
+        grafts = set(shallow_file.read_text(encoding="utf-8").split())
+    except OSError:
+        # No shallow file: nothing was grafted, so nothing is truncated.
+        return False
+    return bool(grafts & set(roots.stdout.split()))
+
+
+def default_range(root: Path) -> str | None:
+    """`HEAD~200..HEAD` where that exists, otherwise the whole history.
+
+    NOT A SOFTENING, and the distinction matters because this script refuses
+    softenings everywhere else. A repository with 40 commits HAS history; walking
+    all of it is LOOKING. Reporting `range-unresolvable` UNKNOWN there would say
+    "this run could not examine anything", which is false - and it would say it
+    on every fresh clone, young project and shallow CI checkout, which is how a
+    reporting detector becomes a thing people switch off.
+
+    The UNKNOWN verdicts stay exactly as they were for the cases that really are
+    unexaminable: no git, not a repository, a range the user asked for that does
+    not resolve, a range holding no commits, a history with no knob edits.
+
+    The range actually used is printed as OSCILLATION_SOURCE on every run, so a
+    reader never has to infer which one was taken.
+
+    THE FALLBACK IS REFUSED ON A SHALLOW CLONE, and this is the correction that
+    matters. `HEAD~200` failing to resolve has two causes that look identical
+    from here: a repository with fewer than 200 commits, and one whose earlier
+    commits were never fetched. Walking "everything" is honest for the first and
+    a lie for the second - a depth-2 clone of `30 -> 60 -> 30` sees ONE move and
+    reports `none`, exit 0, for a history that reversed. That is exactly the
+    softening this script refuses everywhere else, and the first cut of this
+    fallback shipped it. Shallow plus no bounded range is UNKNOWN; returns None
+    to say so.
+    """
+    try:
+        probe = subprocess.run(
+            ["git", "rev-parse", "--verify", "--quiet", f"HEAD~{DEFAULT_DEPTH}"],
+            cwd=root, capture_output=True, text=True)
+    except OSError:
+        # git absent; main()'s probe reports it properly a moment later.
+        return f"HEAD~{DEFAULT_DEPTH}..HEAD"
+    if probe.returncode == 0:
+        # The bounded window is fully present, shallow or not.
+        return f"HEAD~{DEFAULT_DEPTH}..HEAD"
+    return None if head_history_is_truncated(root) else "HEAD"
+
+
 def report_unknown(source: str, reason: str, explain: str, commits: int = 0) -> int:
     """Every way this run can fail to LOOK, reported identically.
 
@@ -478,8 +561,13 @@ def main() -> int:
     # flags are a module constant rather than written out at each site.
     ap.add_argument("--from-log", dest="from_log", default=None,
                     help="parse a captured `git log -p` file instead of running git")
-    ap.add_argument("--range", dest="rev_range", default="HEAD~200..HEAD",
-                    help="git revision range (default: HEAD~200..HEAD)")
+    # Resolved at run time rather than fixed here - see default_range(). A
+    # literal HEAD~200..HEAD default reports `range-unresolvable` UNKNOWN on any
+    # checkout with fewer than 200 commits, which is a young repository, not an
+    # unexaminable one.
+    ap.add_argument("--range", dest="rev_range", default=None,
+                    help="git revision range (default: HEAD~200..HEAD, or the "
+                         "whole history when HEAD~200 does not exist)")
     ap.add_argument("--window", type=int, default=DEFAULT_WINDOW,
                     help=f"max commits between opposing moves (default: {DEFAULT_WINDOW})")
     ap.add_argument("--json", action="store_true", help="machine-readable findings")
@@ -531,8 +619,21 @@ def main() -> int:
 
     if not root.is_dir() or probe.returncode != 0:
         return report_unknown(
-            args.rev_range, "not-a-git-repository",
+            args.rev_range or f"HEAD~{DEFAULT_DEPTH}..HEAD", "not-a-git-repository",
             f"{root} is not a git repository, so no history could be read.")
+
+    # Only NOW can the default be resolved: it asks git a question, and until
+    # the two checks above have passed there is no git to ask.
+    if args.rev_range is None:
+        args.rev_range = default_range(root)
+        if args.rev_range is None:
+            return report_unknown(
+                f"HEAD~{DEFAULT_DEPTH}..HEAD", "shallow-history",
+                f"HEAD's history in {root} stops at a GRAFT rather than a real "
+                f"root - the commits before it were never fetched - and there "
+                f"are fewer than {DEFAULT_DEPTH} of them, so no bounded range "
+                f"is available either. Deepen the clone, or pass an explicit "
+                f"--range you know is complete.")
 
     # Does the RANGE resolve at all? `HEAD~200..HEAD` on a younger repository is
     # refused by git, and that is a different fact from a range that resolves to
