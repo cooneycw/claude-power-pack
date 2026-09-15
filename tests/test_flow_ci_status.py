@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -621,3 +622,89 @@ def test_the_wpcli_lane_still_answers_without_jq(tmp_path):
     assert markers["FLOW_CI_STATUS"] == ["success"], result.stdout + result.stderr
     assert markers["FLOW_CI_PIPELINE"] == ["1249"]
     assert markers["FLOW_CI_PROVIDER"] == ["woodpecker"]
+
+
+# --------------------------------------------------------------------------- #
+# A value-taking flag as the FINAL argument (issue #992)
+# --------------------------------------------------------------------------- #
+# `shift 2` fails when only one positional remains and shifts NOTHING. `${2:-}`
+# made the missing value benign, so nothing errored - and `$#` never decreased,
+# so `while [ $# -gt 0 ]` spun forever on the same argument. The script did not
+# crash, print, or exit; it burned a core until something killed it.
+#
+# THE `timeout=` BELOW IS THE ASSERTION. On the unfixed script this test does not
+# fail, it never returns - so an assertion about the exit STATUS would be
+# unfalsifiable there, and "exit is 2" would hang the suite rather than red it.
+# A hanging suite is not a red run, it is no run at all.
+
+
+@pytest.mark.parametrize("flag", ["--secret-name", "--region"])
+@pytest.mark.skipif(shutil.which("bash") is None, reason="shells out to bash")
+def test_a_dangling_value_flag_is_a_usage_error_not_a_hang(flag: str) -> None:
+    """Both flags HUNG before #992, three lines below three that were guarded.
+
+    `--path`, `--repo` and `--event` all carried `[[ -n "$X" ]] || die_usage`;
+    these two did not. The fix is this file's own idiom applied twice, not a new
+    mechanism - two spellings of one rule inside a single `case` statement is
+    the defect #933 was about, one level down.
+    """
+    result = subprocess.run(
+        ["bash", str(SCRIPT), flag], capture_output=True, text=True, timeout=15,
+    )
+    assert result.returncode == 2, f"{flag} with no value -> {result.returncode}"
+    assert "needs a value" in result.stderr, result.stderr
+
+
+#: Flags DERIVED from the script's own `case` arms, not a list written here.
+#:
+#: The first version of this hardcoded five flag names and its docstring claimed
+#: a flag added later without a guard would fail here. It would not: a name not
+#: in the list is not exercised, so the test claimed coverage of a population it
+#: could never see - the #933 defect, in the test written for #992. Review
+#: caught it with an in-memory counterexample: adding an unguarded `--new-value`
+#: left all five cases green while the new flag hung.
+#:
+#: Deriving the members means the universe is the parser itself.
+def _value_taking_flags() -> list[str]:
+    """Every `--flag)` arm of flow-ci-status.sh that consumes a value."""
+    flags = []
+    for line in SCRIPT.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        m = re.match(r"^(--[a-z][a-z-]*)\)", stripped)
+        if m and "shift 2" in stripped:
+            flags.append(m.group(1))
+    return sorted(set(flags))
+
+
+#: `--wait` takes an OPTIONAL value - `--wait` alone means the default - so it is
+#: the one arm for which a bare flag is a correct call, not a usage error. Named
+#: with its reason rather than silently filtered, so the exclusion is auditable.
+_OPTIONAL_VALUE_FLAGS = {"--wait"}
+
+
+def test_the_flag_derivation_can_actually_see_the_parser() -> None:
+    """An empty derived list would make the test below pass over nothing.
+
+    The population is derived, so its extractor needs its own control: a regex
+    that silently matches no arms yields an empty parametrisation, zero cases
+    run, and the suite reports green for a parser it never examined.
+    """
+    flags = _value_taking_flags()
+    assert len(flags) >= 5, f"derivation found too few arms to be working: {flags}"
+    for known in ("--path", "--repo", "--event", "--secret-name", "--region"):
+        assert known in flags, f"{known} is a value-taking arm and must be derived: {flags}"
+
+
+@pytest.mark.parametrize("flag", [f for f in _value_taking_flags() if f not in _OPTIONAL_VALUE_FLAGS])
+@pytest.mark.skipif(shutil.which("bash") is None, reason="shells out to bash")
+def test_every_value_flag_refuses_a_missing_value_the_same_way(flag: str) -> None:
+    """The guard is a property of the PARSER, not of the two flags that were noticed.
+
+    Because the list is derived from the script's own `case` arms, a flag added
+    later without a guard is exercised the moment it exists - which is what the
+    previous hardcoded version only claimed.
+    """
+    result = subprocess.run(
+        ["bash", str(SCRIPT), flag], capture_output=True, text=True, timeout=15,
+    )
+    assert result.returncode == 2, f"{flag} -> {result.returncode}"

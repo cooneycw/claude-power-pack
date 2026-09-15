@@ -207,3 +207,66 @@ def test_missing_config_fails_clearly(tmp_path: Path):
     result = _run(tmp_path, stubs, config=tmp_path / "nope.json")
     assert result.returncode == 1
     assert "not found" in result.stderr
+
+
+# --------------------------------------------------------------------------- #
+# A value-taking flag as the FINAL argument (issue #992)
+# --------------------------------------------------------------------------- #
+# `shift 2` fails when only one positional remains and shifts NOTHING. `${2:-}`
+# made the missing value benign, so nothing errored - and `$#` never decreased,
+# so `while [ $# -gt 0 ]` spun forever on the same argument. The script did not
+# crash, print, or exit; it burned a core until something killed it.
+#
+# THE `timeout=` BELOW IS THE ASSERTION. On the unfixed script this test does not
+# fail, it never returns - so an assertion about the exit STATUS would be
+# unfalsifiable there, and "exit is 2" would hang the suite rather than red it.
+# A hanging suite is not a red run, it is no run at all.
+
+
+@pytest.mark.parametrize("flag,expected", [
+    ("--config", "--config needs a path"),
+    ("--repo", "--repo needs owner/name"),
+])
+@requires_jq
+@pytest.mark.skipif(shutil.which("bash") is None, reason="shells out to bash")
+def test_a_dangling_value_flag_is_a_usage_error_not_a_hang(flag: str, expected: str) -> None:
+    """Each flag's own wording, not a shared substring.
+
+    `@requires_jq` because the script reaches jq, even though these calls exit in
+    argument parsing before any jq runs: the CLAUDE.md contract is about what a
+    test SHELLS OUT TO, including indirectly through a repo script, and
+    check-test-binary-guards.py enforces the reachable shape rather than the
+    path a particular invocation happens to take.
+
+    The first version asserted `"needs a" in stderr`, which passes for
+    `--config needs a path` and fails for `--repo needs owner/name` - a loose
+    substring that happened to match one message and not the other. Pinning the
+    exact text per flag says what the script should SAY, not merely that it said
+    something.
+    """
+    result = subprocess.run(
+        ["bash", str(SCRIPT), flag], capture_output=True, text=True, timeout=15,
+    )
+    assert result.returncode == 2, f"{flag} with no value -> {result.returncode}"
+    assert expected in result.stderr, result.stderr
+
+
+@requires_jq
+@pytest.mark.skipif(shutil.which("bash") is None, reason="shells out to bash")
+def test_extracting_die_usage_did_not_change_what_the_script_says() -> None:
+    """The unknown-argument arm is an instrument; extracting its text must not edit it.
+
+    `die_usage()` was factored OUT of this arm so the two new guards could share
+    it. An extraction that silently reworded the usage line or moved the exit
+    status would be a change to what the script reports, wearing the costume of a
+    refactor - so the arm's exact output is pinned here.
+    """
+    result = subprocess.run(
+        ["bash", str(SCRIPT), "--bogus"], capture_output=True, text=True, timeout=15,
+    )
+    assert result.returncode == 2
+    assert result.stdout == ""
+    assert result.stderr == (
+        "branch-protection.sh: unknown argument '--bogus'\n"
+        "Usage: branch-protection.sh [check|--apply|--show] [--config <path>] [--repo <owner/name>]\n"
+    ), repr(result.stderr)

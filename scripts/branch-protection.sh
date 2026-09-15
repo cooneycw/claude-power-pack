@@ -36,21 +36,30 @@ CONFIG=".claude/branch-protection.json"
 REPO=""
 MODE="check"
 
+# `shift 2` fails when a value-taking flag is the LAST argument and shifts
+# nothing, so the parse loop span forever on the same argument. A missing value
+# is a usage error, not a hang. The text below is the one the unknown-argument
+# arm already printed, extracted verbatim so this is an extraction rather than a
+# change to what the script says.
+die_usage() {
+    echo "branch-protection.sh: $1" >&2
+    echo "Usage: branch-protection.sh [check|--apply|--show] [--config <path>] [--repo <owner/name>]" >&2
+    exit 2
+}
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
         check)    MODE="check"; shift ;;
         --apply)  MODE="apply"; shift ;;
         --show)   MODE="show"; shift ;;
-        --config) CONFIG="${2:-}"; shift 2 ;;
-        --repo)   REPO="${2:-}"; shift 2 ;;
+        --config) CONFIG="${2:-}"; [ -n "$CONFIG" ] || die_usage "--config needs a path"; shift 2 ;;
+        --repo)   REPO="${2:-}"; [ -n "$REPO" ] || die_usage "--repo needs owner/name"; shift 2 ;;
         -h|--help)
             sed -n '2,30p' "$0"
             exit 0
             ;;
         *)
-            echo "branch-protection.sh: unknown argument '$1'" >&2
-            echo "Usage: branch-protection.sh [check|--apply|--show] [--config <path>] [--repo <owner/name>]" >&2
-            exit 2
+            die_usage "unknown argument '$1'"
             ;;
     esac
 done
