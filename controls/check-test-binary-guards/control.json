@@ -7,6 +7,7 @@
     "{case}"
   ],
   "good_exit": 0,
+  "detect_signal": "^binary-guards: [0-9]+ unguarded test",
   "cases": [
     {
       "name": "bad-direct-invocation",

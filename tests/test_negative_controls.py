@@ -13,6 +13,7 @@ The REAL anchor is exercised separately, against the real gate.
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -55,12 +56,20 @@ def provenance_of(out: str) -> str:
 # A synthetic gate whose blindness is switchable, so every verdict is reachable
 # without depending on repo history.
 # --------------------------------------------------------------------------- #
+#: The pattern the toy manifests declare as the toy gates' detection signal.
+#: Since #946 a BAD verdict needs the gate to have SAID something, so the
+#: synthetic gates print a finding line rather than only setting an exit code.
+TOY_SIGNAL = r"^toy-gate: [0-9]+ finding"
+
 SEEING_GATE = """#!/usr/bin/env python3
 import sys
 from pathlib import Path
 #: NEGATIVE-CONTROL: controls/toy
 root = Path(sys.argv[sys.argv.index("--root") + 1])
-sys.exit(1 if (root / "tests" / "BAD").exists() else 0)
+if (root / "tests" / "BAD").exists():
+    print("toy-gate: 1 finding(s)")
+    sys.exit(1)
+sys.exit(0)
 """
 
 BLIND_GATE = """#!/usr/bin/env python3
@@ -69,10 +78,59 @@ import sys
 sys.exit(0)
 """
 
+#: Wedged at "fail": it reports a finding on EVERY input, the known-good one
+#: included. It prints the signal because that is what a stuck gate does - the
+#: good case is what separates it from a working one, not the signal.
 WEDGED_GATE = """#!/usr/bin/env python3
 import sys
 #: NEGATIVE-CONTROL: controls/toy
+print("toy-gate: 1 finding(s)")
 sys.exit(1)
+"""
+
+#: Issue #946, reproduced: it FALLS OVER on the known-bad input instead of
+#: reporting it, and Python exits 1 on an uncaught exception - the same code the
+#: seeing gate uses for detection. Scored on the exit code alone this is
+#: indistinguishable from a working gate, and the harness printed PASS.
+CRASHING_GATE = """#!/usr/bin/env python3
+import sys
+from pathlib import Path
+#: NEGATIVE-CONTROL: controls/toy
+root = Path(sys.argv[sys.argv.index("--root") + 1])
+if (root / "tests" / "BAD").exists():
+    raise FileNotFoundError("the gate fell over instead of reporting a finding")
+sys.exit(0)
+"""
+
+#: The other half of the same blindness: it detects correctly, then falls over on
+#: the known-GOOD input. On the exit code alone that reads as "flagged a
+#: known-good input" - a false-alarm diagnosis for a gate that is crashing.
+CRASH_ON_GOOD_GATE = """#!/usr/bin/env python3
+import sys
+from pathlib import Path
+#: NEGATIVE-CONTROL: controls/toy
+root = Path(sys.argv[sys.argv.index("--root") + 1])
+if (root / "tests" / "BAD").exists():
+    print("toy-gate: 1 finding(s)")
+    sys.exit(1)
+raise RuntimeError("the gate fell over on the known-good input")
+"""
+
+
+#: Reports on BOTH runs, as most real gates do - `binary-guards: ok - ...` on a
+#: clean tree and `binary-guards: N unguarded test(s)` on a dirty one. A signal
+#: anchored on the shared prefix alone matches the clean run too, and therefore
+#: identifies nothing.
+CHATTY_GATE = """#!/usr/bin/env python3
+import sys
+from pathlib import Path
+#: NEGATIVE-CONTROL: controls/toy
+root = Path(sys.argv[sys.argv.index("--root") + 1])
+if (root / "tests" / "BAD").exists():
+    print("toy-gate: 1 finding(s)")
+    sys.exit(1)
+print("toy-gate: ok - nothing found")
+sys.exit(0)
 """
 
 
@@ -81,6 +139,7 @@ def build_tree(
     gate_src: str,
     anchor_src: str | None = BLIND_GATE,
     cases: list[dict[str, str]] | None = None,
+    detect_signal: str | None = TOY_SIGNAL,
 ) -> Path:
     (tmp_path / "scripts").mkdir()
     (tmp_path / "scripts" / "toy-gate.py").write_text(gate_src, encoding="utf-8")
@@ -99,7 +158,7 @@ def build_tree(
             "path": "anchors/deadbee-toy.py",
             "sha256": hashlib.sha256(anchor.read_bytes()).hexdigest(),
         }]
-    (ctl / "control.json").write_text(json.dumps({
+    manifest: dict[str, object] = {
         "gate": "scripts/toy-gate.py",
         "invocation": [sys.executable, "{gate}", "--root", "{case}"],
         "good_exit": 0,
@@ -108,7 +167,10 @@ def build_tree(
             {"name": "good", "input": "cases/good", "expect": "GOOD"},
         ],
         "anchors": anchors,
-    }), encoding="utf-8")
+    }
+    if detect_signal is not None:
+        manifest["detect_signal"] = detect_signal
+    (ctl / "control.json").write_text(json.dumps(manifest), encoding="utf-8")
     return tmp_path
 
 
@@ -129,7 +191,15 @@ def test_a_gate_that_stopped_discriminating_reports_blind(tmp_path: Path) -> Non
 
 def test_a_gate_wedged_at_fail_reports_blind_too(tmp_path: Path) -> None:
     """The known-good half is not decoration: a gate stuck at FAIL passes the
-    known-bad check on its own, and only the good case separates the two."""
+    known-bad check on its own, and only the good case separates the two.
+
+    This also pins an ownership boundary the #946 signal checks could blur. A
+    wedged gate prints its finding line on the known-GOOD input, which is
+    exactly what "the declared signal also matches a clean run" looks like - and
+    the first cut of that refusal fired here, blaming a correct manifest for a
+    broken gate. The gate's CLEAN EXIT is what separates them, and this test is
+    what catches the day someone drops that condition.
+    """
     root = build_tree(tmp_path, WEDGED_GATE)
     result = run_harness(root, "--strict")
     assert verdict_of(result.stdout) == "BLIND", result.stdout
@@ -320,6 +390,145 @@ def test_a_mismatch_survives_an_early_return_later_in_the_anchor_loop(tmp_path: 
 
 
 # --------------------------------------------------------------------------- #
+# A CRASH IS NOT A DETECTION (#946). The harness scored a case on the exit code
+# alone, so a gate that fell over on the known-bad input was scored identically
+# to one that reported it - provided the crash exited with anything but
+# `good_exit`. `check-test-binary-guards` exits 1 when it finds something and 1
+# when it raises, so for the one control that existed the two were not separable
+# at all, and the harness printed PASS plus "1 control(s) discriminate" for a
+# gate that discriminated nothing. The first four tests below are the committed
+# negative control this instrument owes its own rule.
+# --------------------------------------------------------------------------- #
+def test_a_gate_that_crashes_on_the_known_bad_input_is_not_a_pass(tmp_path: Path) -> None:
+    """The issue's own reproduction, executed.
+
+    Before the fix this printed `NEGATIVE_CONTROL_VERDICT: PASS` and exited 0.
+    """
+    root = build_tree(tmp_path, CRASHING_GATE)
+    result = run_harness(root, "--strict")
+    assert verdict_of(result.stdout) == "UNSIGNALLED", result.stdout
+    assert result.returncode == 1
+    assert "FileNotFoundError" in result.stdout, result.stdout
+
+
+def test_a_crash_on_the_known_good_input_is_not_reported_as_a_false_alarm(tmp_path: Path) -> None:
+    """A crashing gate must not be diagnosed as one that flagged a good input.
+
+    Both send a reader to the wrong place: "it flagged a known-good input" is a
+    hunt through the detection logic, and the gate is simply throwing.
+    """
+    root = build_tree(tmp_path, CRASH_ON_GOOD_GATE)
+    result = run_harness(root, "--strict")
+    assert verdict_of(result.stdout) == "UNSIGNALLED", result.stdout
+    assert "flagged a known-good input" not in result.stdout, result.stdout
+    assert result.returncode == 1
+
+
+def test_an_anchor_that_crashes_is_unresolved_not_inert(tmp_path: Path) -> None:
+    """The same misscore on the other side of the loop.
+
+    An anchor is required to MISS the known-bad input. One that CRASHES on it
+    exits non-zero and was therefore read as having CAUGHT it - INERT, which
+    accuses a healthy anchor of not being blind. It is still a red, but it is
+    the wrong red: the anchor cannot be confirmed to have missed anything.
+    """
+    root = build_tree(tmp_path, SEEING_GATE, anchor_src=CRASHING_GATE)
+    result = run_harness(root, "--strict")
+    assert verdict_of(result.stdout) == "UNRESOLVED", result.stdout
+    assert "CAUGHT the known-bad input" not in result.stdout, result.stdout
+    assert result.returncode == 1
+
+
+def test_a_control_with_no_detect_signal_cannot_pass(tmp_path: Path) -> None:
+    """The field is REQUIRED, and its absence is a red rather than a fallback.
+
+    An optional signal would leave every control that omits it scored exactly as
+    it was before the fix, which is the fail-open this issue exists to close.
+    The gate here DISCRIMINATES perfectly - the refusal is about the manifest.
+    """
+    root = build_tree(tmp_path, SEEING_GATE, detect_signal=None)
+    result = run_harness(root, "--strict")
+    assert verdict_of(result.stdout) == "UNRESOLVED", result.stdout
+    assert "detect_signal" in result.stdout, result.stdout
+    assert result.returncode == 1
+
+
+def test_an_unusable_detect_signal_is_unresolved_not_a_silent_never_match(tmp_path: Path) -> None:
+    """A regex that does not compile must not degrade into "nothing matched".
+
+    Silently treating it as a pattern that never matches turns every BAD case
+    into UNSIGNALLED - a red with an unrelated diagnosis - and an empty string
+    matches everything, which restores the exit-code-only scoring wholesale.
+    """
+    for signal, label in ((r"(unclosed", "uncompilable"), ("", "empty")):
+        (tmp_path / label).mkdir()
+        root = build_tree(tmp_path / label, SEEING_GATE, detect_signal=signal)
+        result = run_harness(root, "--strict")
+        assert verdict_of(result.stdout) == "UNRESOLVED", f"{label}: {result.stdout}"
+        assert "detect_signal" in result.stdout, f"{label}: {result.stdout}"
+
+
+def test_a_signal_that_matches_the_empty_string_is_refused(tmp_path: Path) -> None:
+    """`.*` and a trailing `|` compile fine and match ANYTHING, silence included.
+
+    Rejecting only the empty STRING left the empty-MATCHING patterns, which make
+    every non-zero exit a detection again - the pre-#946 scoring restored
+    wholesale, wearing the fix's own field name. Both were measured producing
+    `PASS` with a gate that crashed on the known-bad input and said nothing.
+    Found by the Codex cross-model review of this change.
+    """
+    for signal, label in ((r".*", "dot-star"), (r"toy-gate: [0-9]+ finding|", "empty-alternation")):
+        (tmp_path / label).mkdir()
+        root = build_tree(tmp_path / label, CRASHING_GATE, detect_signal=signal)
+        result = run_harness(root, "--strict")
+        assert verdict_of(result.stdout) == "UNRESOLVED", f"{label}: {result.stdout}"
+        assert "detect_signal" in result.stdout, f"{label}: {result.stdout}"
+        assert result.returncode == 1, f"{label}: {result.stdout}"
+
+
+def test_a_signal_that_also_matches_the_known_good_run_is_refused(tmp_path: Path) -> None:
+    """The structural check has a floor; this is the one grounded in real output.
+
+    A pattern can miss the empty string and still identify nothing - `^toy-gate`
+    against a gate that prints `toy-gate: ok - nothing found` on a clean run.
+    The harness already executes the known-GOOD case, so it can check the signal
+    against that output instead of trusting the manifest's author, which is the
+    same two-sided property the real control asserts for its own regex.
+    """
+    root = build_tree(tmp_path, CHATTY_GATE, detect_signal=r"^toy-gate")
+    result = run_harness(root, "--strict")
+    assert verdict_of(result.stdout) == "UNRESOLVED", result.stdout
+    assert "known-GOOD" in result.stdout, result.stdout
+    assert result.returncode == 1
+
+
+def test_a_chatty_gate_with_a_specific_signal_still_passes(tmp_path: Path) -> None:
+    """The positive half: the refusal above must not reject a correct manifest.
+
+    Same gate, same clean-run chatter, a signal that names what only a finding
+    prints. Without this, "refuse a loose signal" and "refuse every signal" look
+    identical from the outside.
+    """
+    root = build_tree(tmp_path, CHATTY_GATE, detect_signal=r"^toy-gate: [0-9]+ finding")
+    result = run_harness(root, "--strict")
+    assert verdict_of(result.stdout) == "PASS", result.stdout
+    assert result.returncode == 0
+
+
+def test_the_summary_line_states_the_signal_it_checked(tmp_path: Path) -> None:
+    """The green may not claim only what it used to claim (detector contracts).
+
+    The success message asserts what the run established; after #946 that
+    includes the gate having reported its declared signal, so the message says
+    so rather than leaving a reader to assume the old, weaker check.
+    """
+    root = build_tree(tmp_path, SEEING_GATE)
+    result = run_harness(root, "--strict")
+    assert verdict_of(result.stdout) == "PASS", result.stdout
+    assert "signal" in result.stdout.rsplit("negative-controls: ok", 1)[-1], result.stdout
+
+
+# --------------------------------------------------------------------------- #
 # The load-bearing test: the real #906 demonstration, executed.
 # --------------------------------------------------------------------------- #
 def test_the_real_control_discriminates_and_its_anchor_is_blind() -> None:
@@ -352,6 +561,34 @@ def test_the_real_anchor_is_blind_to_the_fixture_the_current_gate_catches() -> N
     )
     assert current.returncode == 1, f"current gate should flag the fixture: {current.stdout}"
     assert historical.returncode == 0, f"c6df826 should MISS it: {historical.stdout}"
+
+
+def test_the_real_detect_signal_fires_on_the_bad_fixture_and_not_on_the_good_one() -> None:
+    """The declared signal, measured against the real gate on both fixtures.
+
+    One-sided is not enough in either direction. A pattern that never matches
+    makes every detection an UNSIGNALLED red; a pattern that matches everything
+    (`.`, or an accidental empty alternation) restores the exit-code-only
+    scoring while looking like a fix. So the regex is asserted to be present in
+    the bad-case output AND absent from the good-case output.
+    """
+    control = json.loads((REAL_CONTROL / "control.json").read_text(encoding="utf-8"))
+    signal = re.compile(control["detect_signal"], re.MULTILINE)
+
+    outputs = {}
+    for name in ("bad-direct-invocation", "good-direct-invocation"):
+        proc = subprocess.run(
+            [sys.executable, str(REAL_GATE), "--root", str(REAL_CONTROL / "cases" / name)],
+            capture_output=True, text=True, timeout=120, check=False,
+        )
+        outputs[name] = proc.stdout + proc.stderr
+
+    assert signal.search(outputs["bad-direct-invocation"]), (
+        f"the declared signal never fires: {outputs['bad-direct-invocation']}"
+    )
+    assert not signal.search(outputs["good-direct-invocation"]), (
+        f"the declared signal matches a clean run too: {outputs['good-direct-invocation']}"
+    )
 
 
 @requires_git
