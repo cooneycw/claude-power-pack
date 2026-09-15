@@ -23,17 +23,34 @@
 #   which is the only check that separates "registered" from "serveable".
 #
 # Usage:
-#   lane-serveability-check.sh --endpoint URL --model NAME
-#                              [--lane qwen|gemma] [--timeout SECONDS] [--quiet]
+#   Probe mode - take an observation:
+#     lane-serveability-check.sh --endpoint URL --model NAME
+#                                [--lane qwen|gemma] [--timeout SECONDS]
+#                                [--valid-for SECONDS] [--quiet]
 #
-#   --endpoint  Ollama base URL, e.g. http://127.0.0.1:11434. REQUIRED.
-#   --model     The model to probe, e.g. qwen3.8-code:latest. REQUIRED.
+#   Age mode - is an observation ALREADY TAKEN still current? Probes nothing:
+#     lane-serveability-check.sh --check-age EPOCH --recorded STATUS
+#                                [--valid-for SECONDS] [--lane qwen|gemma]
+#                                [--quiet]
+#
+#   --endpoint  Ollama base URL, e.g. http://127.0.0.1:11434. REQUIRED in probe
+#               mode; ignored in age mode, which probes nothing.
+#   --model     The model to probe, e.g. qwen3.8-code:latest. REQUIRED in probe
+#               mode; ignored in age mode.
 #               Probing a DIFFERENT model than the lane will run proves nothing
 #               about the lane, so the caller passes the lane's own model.
 #   --lane      Which lane is asking. Advisory: it is reported and tunes
 #               nothing. An unnamed lane is probed identically.
 #   --timeout   Ceiling in seconds (default 120). See "Why 120s" below - this
 #               is a hung-socket backstop, NOT the discriminator.
+#   --valid-for How long a probe result may be READ AS CURRENT, in seconds
+#               (default 120). See "Why 120s for the validity window" below.
+#               In probe mode it only sets the emitted LANE_SERVE_VALID_FOR; it
+#               changes no verdict. In age mode it is the bound being applied.
+#   --check-age The LANE_SERVE_AT value from an earlier probe. Switches to age
+#               mode: no request is made and no serveability verdict is formed.
+#   --recorded  The LANE_SERVE_STATUS that earlier probe reported. REQUIRED in
+#               age mode - see "Why the age answer needs the verdict" below.
 #   --quiet     Contract lines only; suppress the human-readable summary.
 #
 # Output ends with a machine-readable contract:
@@ -42,15 +59,27 @@
 #   LANE_SERVE_MODEL:    <model as given>
 #   LANE_SERVE_HTTP:     <status code, or 000 when no response arrived>
 #   LANE_SERVE_ELAPSED:  <seconds, as curl measured them>
+#   LANE_SERVE_AT:       <epoch seconds when the observation was taken, or -
+#                         when this host has no `date`>
+#   LANE_SERVE_VALID_FOR: <seconds this result may be read as current>
 #   LANE_SERVE_DETAIL:   <the server's own error text; omitted when there is none>
 #   LANE_SERVE_STATUS:   serving | dead | unreachable | unknown
 #
-# LANE, ENDPOINT, MODEL, HTTP, ELAPSED and STATUS are always emitted. DETAIL is
-# omitted when there is nothing to say, following the convention
-# `delegated-run-check.sh` established for the same reason: a DETAIL line that
-# is always present teaches readers to ignore it.
+# LANE, ENDPOINT, MODEL, HTTP, ELAPSED, AT, VALID_FOR and STATUS are always
+# emitted in probe mode. DETAIL is omitted when there is nothing to say,
+# following the convention `delegated-run-check.sh` established for the same
+# reason: a DETAIL line that is always present teaches readers to ignore it.
 #
-# Exit codes:
+# Age mode emits a DIFFERENT block, and deliberately emits NO LANE_SERVE_STATUS:
+#   LANE_SERVE_LANE:      <as given>
+#   LANE_SERVE_AT:        <the --check-age value, echoed>
+#   LANE_SERVE_AGE:       <seconds since that observation, or - when undecidable>
+#   LANE_SERVE_VALID_FOR: <the window applied>
+#   LANE_SERVE_RECORDED:  <the --recorded verdict, echoed>
+#   LANE_SERVE_DETAIL:    <why, when the answer is not a plain `fresh`>
+#   LANE_SERVE_FRESHNESS: fresh | stale | unknown
+#
+# Exit codes (probe mode):
 #   0  serving      - the model produced a token
 #   1  dead         - the server answered and CANNOT serve this model
 #   2  usage error
@@ -59,6 +88,16 @@
 #                     the reason is transport, not the model
 #   4  unknown      - the probe could not be PERFORMED (no curl). Distinct from
 #                     every verdict above; see "Why unknown exists" below
+#
+# Exit codes (age mode). A FRESH recording exits exactly as that recording did;
+# anything else is exit 4, because the honest answer is "re-probe":
+#   0  the recorded `serving` is still current
+#   1  the recorded `dead` is still current
+#   2  usage error
+#   3  the recorded `unreachable` is still current
+#   4  the recording is STALE, or its age is UNDECIDABLE, or the recorded
+#      verdict was itself `unknown`. All three mean: this says nothing, probe
+#      again. They are separated in DETAIL, never in the exit code
 #
 # ---------------------------------------------------------------------------
 # One failure, THREE shapes - why this helper cannot key on any single one
@@ -130,6 +169,69 @@
 # that was merely degraded, which is the mirror-image bug #895 named in advance.
 #
 # ---------------------------------------------------------------------------
+# Why the age answer needs the verdict, and why `fresh` is not a STATUS
+# ---------------------------------------------------------------------------
+# `serving|dead|unreachable|unknown` all answer ONE question: can this lane
+# serve? Freshness answers a different one: is my answer still current? They are
+# orthogonal - a recorded verdict can be fresh AND dead - so they live in
+# separate variables. Putting `fresh` into LANE_SERVE_STATUS would make one
+# variable carry two questions, which is the precise mechanism by which a caller
+# reads one and believes the other.
+#
+# Age mode therefore emits NO LANE_SERVE_STATUS at all. It takes no observation,
+# so it has no serveability verdict to report, and a caller reading only that
+# variable gets nothing rather than something it can misread as a pass. This is
+# the same refusal as `unknown` for the no-curl case, applied once more: a mode
+# that observes nothing must not emit anything readable as go.
+#
+# `--recorded` is REQUIRED for the same reason, structurally. It is not possible
+# to ask this script "is my answer still current?" without telling it which
+# answer, so it is not possible to get a go out of it without having the verdict
+# in hand. `LANE_SERVE_FRESHNESS: fresh` beside `LANE_SERVE_RECORDED: dead`
+# exits 1, not 0 - freshness never launders a verdict.
+#
+# Two kinds of bad input, deliberately given two different exits:
+#   --recorded outside serving|dead|unreachable|unknown is exit 2. That set is
+#   this script's OWN output; a value outside it means the caller is not reading
+#   this script, which is a wiring error.
+#   --check-age that is not an epoch is exit 4, NOT exit 2. That value is DATA -
+#   a caller extracts it from a cached probe result, and an extraction that
+#   comes back empty or garbled is a runtime condition whose correct handling is
+#   "re-probe", not "abort the preflight".
+#
+# ---------------------------------------------------------------------------
+# Why 120s for the validity window
+# ---------------------------------------------------------------------------
+# 120s IS A POLICY CHOICE BOUNDED BY ONE MEASUREMENT, NOT A DERIVED VALUE.
+#
+# The evidence is the six probes of one host recorded above. The closest
+# healthy-to-broken transition observed there was on the order of minutes. That
+# supports "the window must be well under minutes" and supports nothing finer.
+# It is one host, one day, one failure mode; it is NOT a general property of
+# ollama, and the next host may transition faster.
+#
+# So this number is pre-committed on both sides, because a threshold with only
+# one named direction of travel gets moved by whoever finds it inconvenient:
+#
+#   SHORTEN it on evidence of faster transitions - any observation of a lane
+#   going from serving to dead inside the current window.
+#   LENGTHEN it only on evidence that transitions are genuinely slower than
+#   minutes, gathered across more than one host.
+#
+#   NOT a reason to lengthen it: that UNKNOWN is inconvenient on long runs.
+#
+# That last line is the one that matters. A 30-minute run against a 120s window
+# spends most of itself UNKNOWN, and that is the finding rather than a defect: a
+# preflight cannot vouch for a long run, and the window is what makes it admit
+# that instead of implying otherwise. The answer to that pressure is a re-probe
+# trigger, which this change deliberately does not decide - not a wider window,
+# which would hide the gap rather than close it.
+#
+# The window bounds how long a pass may be READ AS CURRENT. It does not schedule
+# anything and does not probe. When to re-probe stays the caller's decision, and
+# issue #921 leaves it open on purpose.
+#
+# ---------------------------------------------------------------------------
 # Why `unknown` exists (detector contract, docs/agents/detector-contracts.md)
 # ---------------------------------------------------------------------------
 # Question 1, the membership floor: this check's success message must not claim
@@ -158,59 +260,236 @@ MODEL=""
 LANE="unknown"
 TIMEOUT=120
 QUIET=0
+VALID_FOR=120
+CHECK_AGE=""
+AGE_MODE=0
+RECORDED=""
+
+# A value-taking flag given as the LAST argument used to hang the script.
+# `shift 2` fails when only one argument remains, `|| true` swallowed that
+# failure without consuming anything, and the loop spun on the same argument
+# forever. Every value-taking flag was affected, including the four that predate
+# the freshness work. A missing value is a usage error, not a hang.
+require_value() {
+    # $1 flag, $2 the caller's argument count at the point of the call
+    if [ "$2" -lt 2 ]; then
+        echo "lane-serveability-check: $(flatten "$1") requires a value" >&2
+        exit 2
+    fi
+}
+
+# `printf ... | grep -Eq '^[0-9]+$'` tests a LINE, not the whole argument, so a
+# multiline value whose first line happened to be digits passed validation. It
+# then reached `[ ... -gt ... ]` as a multiline string, the comparison errored,
+# the guard fell through, and the value was echoed into the contract - which let
+# a second line be INJECTED into the output block. `case` matches the entire
+# string, so an embedded newline lands in `*[!0-9]*` and is rejected.
+#
+# The digit cap is load-bearing, not decoration. Bash arithmetic is 64-bit and
+# WRAPS, so a long enough digit string yields a small, plausible and wrong
+# result rather than an error. 11 digits reaches the year 5138, which is past
+# any timestamp this helper will ever be handed.
+# Every user-supplied value that reaches OUTPUT goes through this first. A
+# newline inside an echoed value can otherwise begin a line that a caller reads
+# as part of the contract - including a verdict line the helper never emitted.
+# Applied at the point of output rather than to the values themselves, so what
+# is probed is unchanged and only what is REPORTED is made safe to parse.
+flatten() {
+    printf '%s' "$1" | tr '\n\r' '  ' | cut -c1-80
+}
+
+is_bounded_decimal() {
+    # $1 value, $2 maximum digits
+    case "$1" in
+        ""|*[!0-9]*) return 1 ;;
+    esac
+    [ "${#1}" -le "$2" ]
+}
 
 while [ $# -gt 0 ]; do
     case "$1" in
         --endpoint)
-            ENDPOINT="${2:-}"; shift 2 || true ;;
+            require_value "$1" $#; ENDPOINT="$2"; shift 2 ;;
         --model)
-            MODEL="${2:-}"; shift 2 || true ;;
+            require_value "$1" $#; MODEL="$2"; shift 2 ;;
         --lane)
-            LANE="${2:-}"; shift 2 || true ;;
+            require_value "$1" $#; LANE="$2"; shift 2 ;;
         --timeout)
-            TIMEOUT="${2:-}"; shift 2 || true ;;
+            require_value "$1" $#; TIMEOUT="$2"; shift 2 ;;
+        --valid-for)
+            require_value "$1" $#; VALID_FOR="$2"; shift 2 ;;
+        --check-age)
+            require_value "$1" $#; CHECK_AGE="$2"; AGE_MODE=1; shift 2 ;;
+        --recorded)
+            require_value "$1" $#; RECORDED="$2"; shift 2 ;;
         --quiet)
             QUIET=1; shift ;;
         --help|-h)
-            sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'
+            # Print the header down to the first divider rather than a fixed
+            # line range: the usage block grows, and a stale `sed -n '2,40p'`
+            # silently truncates the help instead of failing.
+            sed -n '2,/^# ---------/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'
             exit 0 ;;
         *)
-            echo "lane-serveability-check: unknown argument: $1" >&2
+            echo "lane-serveability-check: unknown argument: $(flatten "$1")" >&2
             exit 2 ;;
     esac
 done
 
-if [ -z "$ENDPOINT" ] || [ -z "$MODEL" ]; then
-    echo "lane-serveability-check: usage: lane-serveability-check.sh --endpoint URL --model NAME [--lane L] [--timeout S] [--quiet]" >&2
+if [ "$AGE_MODE" -eq 0 ] && { [ -z "$ENDPOINT" ] || [ -z "$MODEL" ]; }; then
+    echo "lane-serveability-check: usage: lane-serveability-check.sh --endpoint URL --model NAME [--lane L] [--timeout S] [--valid-for S] [--quiet]" >&2
+    echo "lane-serveability-check:        lane-serveability-check.sh --check-age EPOCH --recorded STATUS [--valid-for S] [--lane L] [--quiet]" >&2
     exit 2
 fi
 
 case "$LANE" in
     qwen|gemma|unknown) ;;
     *)
-        echo "lane-serveability-check: unknown lane '$LANE' (expected qwen|gemma)" >&2
+        echo "lane-serveability-check: unknown lane '$(flatten "$LANE")' (expected qwen|gemma)" >&2
         exit 2 ;;
 esac
 
-if ! printf '%s' "$TIMEOUT" | grep -Eq '^[0-9]+$' || [ "$TIMEOUT" -eq 0 ]; then
-    echo "lane-serveability-check: --timeout must be a positive integer, got: $TIMEOUT" >&2
+if ! is_bounded_decimal "$TIMEOUT" 9 || [ "$((10#$TIMEOUT))" -eq 0 ]; then
+    echo "lane-serveability-check: --timeout must be a positive integer, got: $(flatten "$TIMEOUT")" >&2
     exit 2
+fi
+# Normalised so a leading zero cannot reach arithmetic as an octal literal, and
+# so the value echoed into the contract is the one actually applied.
+TIMEOUT=$((10#$TIMEOUT))
+
+if ! is_bounded_decimal "$VALID_FOR" 9 || [ "$((10#$VALID_FOR))" -eq 0 ]; then
+    echo "lane-serveability-check: --valid-for must be a positive integer, got: $(flatten "$VALID_FOR")" >&2
+    exit 2
+fi
+VALID_FOR=$((10#$VALID_FOR))
+
+# The closed set is this script's own output, so a value outside it is wiring,
+# not data. Absent and unrecognised are the same error and get the same exit.
+if [ "$AGE_MODE" -eq 1 ]; then
+    case "$RECORDED" in
+        serving|dead|unreachable|unknown) ;;
+        "")
+            echo "lane-serveability-check: --check-age requires --recorded STATUS (serving|dead|unreachable|unknown)." >&2
+            echo "  Freshness alone is not a verdict: an age says whether an answer is current, never what that answer was." >&2
+            exit 2 ;;
+        *)
+            echo "lane-serveability-check: --recorded must be one of serving|dead|unreachable|unknown, got: $(flatten "$RECORDED")" >&2
+            exit 2 ;;
+    esac
 fi
 
 # Trailing slashes would produce `//api/generate`, which ollama serves but which
 # makes the reported endpoint disagree with the one probed.
 ENDPOINT="${ENDPOINT%/}"
 
+# The moment the observation was taken. A host without `date` reports `-`
+# rather than an empty value or a fabricated zero: an unknown time must read as
+# unknown, and `-` is what age mode then correctly refuses to age.
+now_epoch() {
+    date +%s 2>/dev/null || printf '%s' '-'
+}
+
 emit() {
     # $1 status, $2 http, $3 elapsed, $4 detail (may be empty)
     echo "LANE_SERVE_LANE: $LANE"
-    echo "LANE_SERVE_ENDPOINT: $ENDPOINT"
-    echo "LANE_SERVE_MODEL: $MODEL"
+    echo "LANE_SERVE_ENDPOINT: $(flatten "$ENDPOINT")"
+    echo "LANE_SERVE_MODEL: $(flatten "$MODEL")"
     echo "LANE_SERVE_HTTP: $2"
     echo "LANE_SERVE_ELAPSED: $3"
+    echo "LANE_SERVE_AT: $(now_epoch)"
+    echo "LANE_SERVE_VALID_FOR: $VALID_FOR"
     [ -n "$4" ] && echo "LANE_SERVE_DETAIL: $4"
     echo "LANE_SERVE_STATUS: $1"
 }
+
+emit_age() {
+    # $1 freshness, $2 age, $3 detail (may be empty). Deliberately NO
+    # LANE_SERVE_STATUS: this mode took no observation, so it has no
+    # serveability verdict, and must emit nothing a caller can read as one.
+    echo "LANE_SERVE_LANE: $LANE"
+    echo "LANE_SERVE_AT: $CHECK_AGE"
+    echo "LANE_SERVE_AGE: $2"
+    echo "LANE_SERVE_VALID_FOR: $VALID_FOR"
+    echo "LANE_SERVE_RECORDED: $RECORDED"
+    [ -n "$3" ] && echo "LANE_SERVE_DETAIL: $3"
+    echo "LANE_SERVE_FRESHNESS: $1"
+}
+
+# --- Age mode: is an observation ALREADY TAKEN still current? ---------------
+# No request is made. The window bounds how long a recorded answer may be read
+# as current; it does not decide when to re-probe, which is the caller's call.
+if [ "$AGE_MODE" -eq 1 ]; then
+    NOW=$(now_epoch)
+
+    # This value is DATA - a caller extracts it from a cached probe result - and
+    # it is echoed back into the contract block, so a garbled cache carrying a
+    # newline could otherwise FORGE the verdict this mode exists to withhold.
+    # A value with a newline in it is not an epoch either way, so this costs no
+    # legitimate input.
+    CHECK_AGE=$(flatten "$CHECK_AGE")
+
+    # Bounded, not merely digit-shaped. `08` used to pass this check and then
+    # blow up inside `$(( ))` as an invalid octal literal - which did not stop
+    # age mode, it fell out of it and ran the PROBE, emitting the
+    # `LANE_SERVE_STATUS` this mode must never produce. A digit string longer
+    # than an epoch would instead wrap 64-bit arithmetic into a small, plausible
+    # and wrong age.
+    if ! is_bounded_decimal "$CHECK_AGE" 11; then
+        [ "$QUIET" -eq 1 ] || echo "lane-serveability-check: the recorded timestamp is not readable, so its age is UNKNOWN - probe again rather than trusting it."
+        emit_age "unknown" "-" "recorded timestamp is not an epoch: '${CHECK_AGE}'"
+        exit 4
+    fi
+
+    if [ "$NOW" = "-" ]; then
+        [ "$QUIET" -eq 1 ] || echo "lane-serveability-check: this host cannot read the clock, so the age is UNKNOWN - probe again rather than trusting it."
+        emit_age "unknown" "-" "no clock available on this host to age the recording against"
+        exit 4
+    fi
+
+    # `10#` forces base 10: without it a zero-padded timestamp is read as octal.
+    AGE=$(( NOW - 10#$CHECK_AGE ))
+
+    # A negative age means the writing clock and the reading clock disagree.
+    # No tolerance is allowed, because every current caller writes and reads
+    # this timestamp on the SAME host, where skew is an anomaly rather than NTP
+    # jitter. A cross-host caller would make a tolerance a real question, and it
+    # would need its own measurement before a number is picked - so if one ever
+    # appears, this branch is where it must be answered rather than widened.
+    if [ "$AGE" -lt 0 ]; then
+        [ "$QUIET" -eq 1 ] || echo "lane-serveability-check: the recorded timestamp is in the FUTURE, so the age is UNKNOWN - probe again rather than trusting it."
+        emit_age "unknown" "$AGE" "recorded timestamp is $(( -AGE ))s in the future (clock skew)"
+        exit 4
+    fi
+
+    # Inclusive: a recording exactly at the bound has not yet exceeded it.
+    if [ "$AGE" -gt "$VALID_FOR" ]; then
+        [ "$QUIET" -eq 1 ] || echo "lane-serveability-check: the ${LANE} lane's recorded '${RECORDED}' is STALE (${AGE}s old, window ${VALID_FOR}s) - it says nothing now; probe again."
+        emit_age "stale" "$AGE" "recorded ${AGE}s ago, beyond the ${VALID_FOR}s window"
+        exit 4
+    fi
+
+    # Fresh. The exit code is the RECORDED verdict's own, never a bare pass:
+    # freshness says the answer is current, not that the answer was yes.
+    case "$RECORDED" in
+        serving)
+            [ "$QUIET" -eq 1 ] || echo "lane-serveability-check: the ${LANE} lane's recorded 'serving' is ${AGE}s old, within the ${VALID_FOR}s window."
+            emit_age "fresh" "$AGE" ""
+            exit 0 ;;
+        dead)
+            [ "$QUIET" -eq 1 ] || echo "lane-serveability-check: the ${LANE} lane's recorded 'dead' is still current (${AGE}s old). Do NOT delegate."
+            emit_age "fresh" "$AGE" "the recorded verdict was 'dead'; being recent does not make it usable"
+            exit 1 ;;
+        unreachable)
+            [ "$QUIET" -eq 1 ] || echo "lane-serveability-check: the ${LANE} lane's recorded 'unreachable' is still current (${AGE}s old). Do NOT delegate."
+            emit_age "fresh" "$AGE" "the recorded verdict was 'unreachable'; being recent does not make it usable"
+            exit 3 ;;
+        *)
+            # `unknown` recorded: a recent NON-observation. Fresh and useless.
+            [ "$QUIET" -eq 1 ] || echo "lane-serveability-check: the recorded verdict was 'unknown' - a recent non-observation is still unchecked, not clean."
+            emit_age "fresh" "$AGE" "the recorded verdict was itself 'unknown'; there is nothing to keep fresh"
+            exit 4 ;;
+    esac
+fi
 
 # --- The unperformable case -------------------------------------------------
 # No curl means no observation. This is reported as its own state rather than
