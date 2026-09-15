@@ -11,6 +11,7 @@ Contract:
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -28,6 +29,7 @@ INSTALLER = ROOT / "scripts" / "flow-helpers-install.sh"
 # matched itself, and stayed green while two required helpers were missing from
 # the array. Parsing the array is what makes these tests cover the real family.
 HELPERS = installer_helper_names()
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 def _run(
@@ -212,3 +214,251 @@ def test_help_stops_at_the_doc_block(tmp_path: Path):
             f"--help leaked {leaked!r} - the sed range extends past the doc "
             f"block, which ends at the last `# Env:` entry (issue #686)"
         )
+
+
+# --------------------------------------------------------------------------- #
+# #927: `unverifiable` is not a lesser `ok`
+#
+# The installer already DETECTED that no source of truth was reachable - it
+# printed "cannot compare" - and then emitted `FLOW_HELPERS: ok`. The honest
+# sentence went to a human channel and the machine-readable verdict said
+# success, which is the same shape as a refusal that exits 0. These tests pin
+# the distinction from BOTH sides: a test that only checks the new word appears
+# cannot tell you the old one stopped being emitted.
+# --------------------------------------------------------------------------- #
+
+
+def _stale_installed_copy(home: Path, drop: int = 2) -> Path:
+    """An installed installer whose own allowlist is short by `drop` names.
+
+    This is the container shape: `~/.claude/scripts/flow-helpers-install.sh` as
+    a COPY rather than a symlink, so it can fall behind. On a host where it is a
+    symlink into the checkout it cannot, which is why this is constructed rather
+    than observed.
+    """
+    target = home / ".claude" / "scripts"
+    target.mkdir(parents=True, exist_ok=True)
+    text = INSTALLER.read_text(encoding="utf-8")
+    for name in list(HELPERS)[-drop:]:
+        line = f"    {name}\n"
+        assert text.count(line) == 1, f"allowlist entry {name!r} appears {text.count(line)}x"
+        text = text.replace(line, "")
+    copy = target / "flow-helpers-install.sh"
+    copy.write_text(text, encoding="utf-8")
+    copy.chmod(0o755)
+    return copy
+
+
+def _run_installed(copy: Path, home: Path) -> subprocess.CompletedProcess[str]:
+    """Run the INSTALLED copy with nothing else reachable - the container case.
+
+    PRECONDITION ASSERTED (the #697 rule, landed as #933/#995 while this branch
+    was open). This fixture's entire premise is that NO upstream is reachable -
+    that is what makes it the container case rather than an ordinary run. The
+    premise was never checked: had any of the searched locations existed under
+    the fake HOME, the installer would have found a checkout and this would have
+    been measuring something else while still passing. The absence is the
+    fixture, so the absence gets asserted.
+    """
+    for candidate in ("Projects/claude-power-pack", ".claude-power-pack"):
+        assert not (home / candidate).exists(), (
+            f"{candidate} exists under the fake HOME, so an upstream IS reachable "
+            f"and this is no longer the no-upstream case"
+        )
+    return subprocess.run(
+        ["bash", str(copy)], check=False, capture_output=True, text=True,
+        # negative-fixture: allow absence is a missing checkout, asserted above
+        env={"HOME": str(home), "PATH": "/usr/bin:/bin",
+             "FLOW_HELPERS_HOME": str(home)},
+    )
+
+
+def test_no_reachable_source_reports_unverifiable_and_not_ok(tmp_path: Path) -> None:
+    """Both sides of the word, in one assertion pair.
+
+    `unverifiable` must APPEAR and `ok` must be ABSENT. Asserting only the first
+    would still pass if the installer emitted both, or if `ok` were left on a
+    later line - and "the new word shows up" is not the claim. The claim is that
+    this state no longer reports success.
+    """
+    home = tmp_path / "home"
+    proc = _run_installed(_stale_installed_copy(home), home)
+    verdicts = [ln for ln in proc.stdout.splitlines() if ln.startswith("FLOW_HELPERS:")]
+    assert verdicts == ["FLOW_HELPERS: unverifiable"], (
+        f"expected exactly the unverifiable verdict, got {verdicts}\n{proc.stdout}"
+    )
+    assert proc.returncode == 0, (
+        "exit stays 0: a container that cannot reach a checkout is not an error, "
+        "and this verdict is read by a person deciding whether to repair rather "
+        "than by a gate letting work through"
+    )
+
+
+def test_a_reachable_source_still_reports_ok(tmp_path: Path) -> None:
+    """The other side. Without this, an installer wedged at `unverifiable`
+    passes the test above and nothing notices that `ok` has stopped existing."""
+    home = tmp_path / "home"
+    _run(home=home)  # install everything current
+    proc = _run(home=home)
+    assert _verdict(proc) == "ok", f"a current install must still report ok: {proc.stdout}"
+
+
+def test_every_verdict_carries_its_allowlist_length(tmp_path: Path) -> None:
+    """The denominator (#952) applied to this script's own output.
+
+    `ok` from a 22-entry allowlist and `ok` from a 24-entry one were the same
+    line. A verdict that cannot be read against what produced it is the defect
+    #927 was measured through.
+    """
+    home = tmp_path / "home"
+    proc = _run(home=home)
+    lines = dict(
+        ln.split(":", 1) for ln in proc.stdout.splitlines() if ln.startswith("FLOW_HELPERS_")
+    )
+    assert "FLOW_HELPERS_ALLOWLIST" in lines, f"no allowlist length reported:\n{proc.stdout}"
+    assert int(lines["FLOW_HELPERS_ALLOWLIST"].strip()) == len(HELPERS)
+    assert "FLOW_HELPERS_INSTALLER" in lines, "the verdict does not say which installer ran"
+
+
+def test_a_stale_installed_copy_reports_a_SHORTER_allowlist(tmp_path: Path) -> None:
+    """The provenance line must actually discriminate, not merely exist.
+
+    This is the positive control on the denominator: a 22 where main has 24 is
+    what makes a stale install legible to a reader. Without it, asserting the
+    line is present cannot tell a real count from a constant.
+    """
+    home = tmp_path / "home"
+    proc = _run_installed(_stale_installed_copy(home, drop=2), home)
+    reported = [ln for ln in proc.stdout.splitlines() if ln.startswith("FLOW_HELPERS_ALLOWLIST")]
+    assert reported, f"no allowlist length on the unverifiable path:\n{proc.stdout}"
+    assert int(reported[0].split(":", 1)[1]) == len(HELPERS) - 2, (
+        f"the stale copy should report {len(HELPERS) - 2}, not {reported[0]}"
+    )
+
+
+def test_an_empty_source_reports_unverifiable_not_ok(tmp_path: Path) -> None:
+    """Codex, MEDIUM: scanned nothing, reported clean - inside this change.
+
+    A source directory holding none of the helper names skipped all 24 and
+    emitted `ok` with `FLOW_HELPERS_ALLOWLIST: 24`. The allowlist length says
+    what the installer KNOWS, not what it COMPARED, and only the first was
+    printed. That directly contradicted the guarantee this same change added,
+    that `ok` means a comparison happened.
+    """
+    home = tmp_path / "home"
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "unrelated.txt").write_text("not a helper\n", encoding="utf-8")
+    proc = _run(home=home, source=src)
+    assert _verdict(proc) == "unverifiable", proc.stdout
+    lines = dict(
+        ln.split(":", 1) for ln in proc.stdout.splitlines() if ln.startswith("FLOW_HELPERS_")
+    )
+    assert int(lines["FLOW_HELPERS_EXAMINED"].strip()) == 0
+    assert lines["FLOW_HELPERS_REASON"].strip() == "empty-source"
+
+
+def test_a_populated_source_reports_a_NONZERO_examined_count(tmp_path: Path) -> None:
+    """The other side of the examined denominator.
+
+    Without this, an installer wedged at EXAMINED=0 passes the test above and
+    nothing notices that real comparisons stopped happening.
+    """
+    home = tmp_path / "home"
+    proc = _run(home=home)
+    lines = dict(
+        ln.split(":", 1) for ln in proc.stdout.splitlines() if ln.startswith("FLOW_HELPERS_")
+    )
+    assert int(lines["FLOW_HELPERS_EXAMINED"].strip()) == len(HELPERS), (
+        f"a full source must examine all {len(HELPERS)} helpers: {proc.stdout}"
+    )
+
+
+@pytest.mark.parametrize("verdict_case", ["missing", "error"])
+def test_provenance_is_present_on_the_non_success_verdicts(
+    verdict_case: str, tmp_path: Path
+) -> None:
+    """Codex, MEDIUM: `emit_provenance` was defined BELOW the error exit.
+
+    So "provenance on every verdict" held for the paths I was looking at and
+    not for the ones I was not - the missing-source error fired before the
+    function existed. Both non-success verdicts are checked here rather than
+    trusting the claim.
+    """
+    home = tmp_path / "home"
+    if verdict_case == "missing":
+        proc = _run("--check", home=home)          # nothing installed yet
+    else:
+        proc = _run(home=home, source=tmp_path / "does-not-exist")
+    assert _verdict(proc) == verdict_case, proc.stdout
+    assert "FLOW_HELPERS_INSTALLER" in proc.stdout, (
+        f"the {verdict_case} verdict carries no provenance:\n{proc.stdout}"
+    )
+    assert "FLOW_HELPERS_REASON" in proc.stdout
+
+
+def test_repair_resolves_a_checkout_by_known_location_not_only_by_cwd() -> None:
+    """Codex, MEDIUM: `scripts/...` is cwd-relative.
+
+    Preferring a source of truth only works if one can be FOUND. Invoked from
+    any repository other than the CPP checkout, the relative path misses, the
+    chain falls through to the installed copy, and the stale installer then
+    finds the checkout by its own upstream search and processes it with its own
+    shortened allowlist - mechanism B, reproduced through the fix for it.
+    """
+    text = (REPO_ROOT / ".claude" / "commands" / "flow" / "repair.md").read_text(encoding="utf-8")
+    assert "~/Projects/claude-power-pack/scripts/flow-helpers-install.sh" in text, (
+        "repair.md resolves a checkout only relative to the cwd"
+    )
+    # The installed copy must remain LAST - that is the whole ordering fix.
+    checkout_at = text.index("scripts/flow-helpers-install.sh")
+    installed_at = text.index("~/.claude/scripts/flow-helpers-install.sh\n```")
+    assert checkout_at < installed_at, (
+        "the installed copy is no longer last in the chain; a repair must not "
+        "prefer the artifact it repairs"
+    )
+
+
+def test_every_error_exit_in_the_script_is_preceded_by_provenance() -> None:
+    """Codex pass 2: THREE error exits still bypassed it after the first fix.
+
+    Moving `emit_provenance` above the exits made it AVAILABLE everywhere; it
+    did not make it CALLED everywhere, and my error-path test exercised only
+    the one branch I had looked at. This counts the population instead of
+    sampling it, so a new error exit added without provenance fails here
+    rather than being found by the next reviewer.
+    """
+    text = INSTALLER.read_text(encoding="utf-8")
+    lines = text.splitlines()
+    exits = [i for i, ln in enumerate(lines) if ln.strip() == 'echo "FLOW_HELPERS: error"']
+    assert exits, "no error verdict found - this test has stopped measuring anything"
+    unguarded = [
+        i + 1 for i in exits
+        if not any("emit_provenance" in lines[j] for j in range(max(0, i - 3), i))
+    ]
+    assert not unguarded, (
+        f"error verdicts at line(s) {unguarded} emit no provenance, so a reader "
+        f"cannot tell which installer failed or what its allowlist was"
+    )
+
+
+def test_repair_lists_every_upstream_location_the_installer_searches() -> None:
+    """Codex pass 2: I documented TWO of the installer's three locations.
+
+    And the prose said "the same three locations", so the text asserted a
+    completeness it did not deliver. This derives the list from the installer
+    rather than restating it, which is the only version that cannot drift.
+    """
+    installer = INSTALLER.read_text(encoding="utf-8")
+    search = [ln for ln in installer.splitlines() if "for dir in" in ln and "claude-power-pack" in ln]
+    assert len(search) == 1, f"the upstream search line has moved: {search}"
+    locations = re.findall(r'(?:\$HOME_DIR/|/)([A-Za-z0-9_.-]*claude-power-pack)', search[0])
+    assert locations, "could not derive the searched locations from the installer"
+
+    repair = (REPO_ROOT / ".claude" / "commands" / "flow" / "repair.md").read_text(encoding="utf-8")
+    missing = [loc for loc in locations if loc not in repair]
+    assert not missing, (
+        f"repair.md does not offer every checkout location the installer itself "
+        f"searches: {missing}. A chain that finds fewer checkouts than the stale "
+        f"installer does falls through to the stale installer."
+    )

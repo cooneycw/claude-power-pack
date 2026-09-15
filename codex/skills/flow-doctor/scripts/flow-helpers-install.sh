@@ -21,13 +21,58 @@
 #   flow-helpers-install.sh --force    # overwrite even when content already matches
 #
 # Output ends with a machine-readable verdict line:
-#   FLOW_HELPERS: ok | installed | missing | stale | error
+#   FLOW_HELPERS: ok | installed | unverifiable | missing | stale | error
+#
+#   `unverifiable` (issue #927) is NOT a lesser `ok`. It means the helpers are
+#   installed and NO SOURCE OF TRUTH was reachable, so this run could not tell
+#   "current" from "a version behind". `ok` asserts a comparison happened;
+#   `unverifiable` asserts one did not. They were the same word until #927, and
+#   the honest sentence ("cannot compare") was printed to a human while the
+#   machine-readable verdict said success.
+#
+#   EXIT STAYS 0 for `unverifiable`, deliberately. This verdict is consumed by a
+#   READER deciding whether to repair, not by a gate letting work through - the
+#   opposite of shellcheck-gate, whose exit 2 on an absent tool is correct
+#   because `make verify` consumes it. A container that genuinely cannot reach a
+#   checkout is not a failure, and making it one would fail every container
+#   repair.
+#
+#   REVERSAL TRIGGER (issue #936, pre-committed rather than left to judgement):
+#   exit 0 holds only while `unverifiable` is a CONTAINER condition. If it is
+#   ever observed on a HOST - where a checkout IS reachable and something else
+#   went wrong - exit 0 is hiding a real failure and this becomes non-zero.
 #
 # Env (test hooks - unset in normal use):
 #   FLOW_HELPERS_HOME      override $HOME (install target root)
 #   FLOW_HELPERS_SOURCE    override the source dir (skips detection)
 
 set -uo pipefail
+
+# PROVENANCE, on EVERY verdict (issue #927). An `ok` from a 22-entry allowlist
+# and an `ok` from a 24-entry one were the same line, so a verdict could not be
+# read against what produced it - the denominator convention (#952) applied to
+# this script's own output.
+#
+# Defined HERE, above every exit, because the first cut defined it below the
+# missing-source error path: that verdict fired before the function existed, so
+# "provenance on every verdict" was true of the paths I was looking at and false
+# of the ones I was not. Codex found it.
+#
+# EXAMINED is the denominator that matters. FLOW_HELPERS_ALLOWLIST says how many
+# names this installer KNOWS; it does not say how many it actually compared. A
+# source directory containing none of them skipped all 24 and still reported
+# `ok` - scanned nothing, reported clean, inside the change that documents `ok`
+# as meaning a comparison happened.
+EXAMINED=0
+REASON="-"
+emit_provenance() {
+    echo "FLOW_HELPERS_INSTALLER: ${BASH_SOURCE[0]}"
+    echo "FLOW_HELPERS_ALLOWLIST: ${#HELPERS[@]}"
+    echo "FLOW_HELPERS_EXAMINED: $EXAMINED"
+    echo "FLOW_HELPERS_SOURCE_KIND: ${SOURCE_KIND:-unknown}"
+    echo "FLOW_HELPERS_SOURCE_DIR: ${SOURCE_DIR:-unknown}"
+    echo "FLOW_HELPERS_REASON: $REASON"
+}
 
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HOME_DIR="${FLOW_HELPERS_HOME:-$HOME}"
@@ -91,7 +136,14 @@ for arg in "$@"; do
             # assignments and two stray comment lines into --help output (#686).
             # tests/test_flow_helpers_install.py pins the boundary so the range
             # cannot silently re-drift when the header grows.
-            sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'
+            # DERIVED, not hardcoded (issue #927). The range was `2,28p` and
+            # my own header growth pushed the Env block past line 28, so
+            # --help stopped printing it - the exact re-drift the comment
+            # above predicted and the test below pins. A literal number here
+            # is a coverage list of one, and it goes stale on the next edit
+            # of the thing it measures. Print from line 2 until the first
+            # line that is not a comment instead: the header IS the block.
+            awk 'NR>1 { if ($0 !~ /^#/) exit; sub(/^# ?/, ""); print }' "$0"
             exit 0
             ;;
         *)
@@ -138,6 +190,8 @@ fi
 
 if [[ ! -d "$SOURCE_DIR" ]]; then
     echo "flow-helpers-install: source dir not found: $SOURCE_DIR" >&2
+    REASON="source-dir-missing"
+    emit_provenance
     echo "FLOW_HELPERS: error"
     exit 2
 fi
@@ -145,7 +199,11 @@ fi
 if [[ "$NO_UPSTREAM" -eq 1 ]]; then
     echo "flow-helpers-install: helpers are installed at $TARGET_DIR, but no upstream"
     echo "source (plugin bundle or CPP checkout) is reachable from here - cannot compare."
-    echo "FLOW_HELPERS: ok"
+    echo "flow-helpers-install: this run cannot tell a CURRENT install from a STALE"
+    echo "one. Bring a CPP checkout within reach and re-run to get a real verdict."
+    REASON="no-upstream"
+    emit_provenance
+    echo "FLOW_HELPERS: unverifiable"
     exit 0
 fi
 
@@ -162,6 +220,7 @@ if [[ "$MODE" == "check" ]]; then
             echo "SKIP $name (not present in source)"
             continue
         fi
+        EXAMINED=$((EXAMINED + 1))
         if [[ ! -e "$dest" ]]; then
             # A dangling symlink is -L but not -e: report it as missing, which is
             # what it behaves like (exit 127 on invocation).
@@ -181,16 +240,33 @@ if [[ "$MODE" == "check" ]]; then
             echo "OK $name"
         fi
     done
+    # SCANNED NOTHING IS NOT CLEAN (#952, and this script's own new promise that
+    # `ok` means a comparison happened). A source directory holding none of the
+    # helper names skipped all of them and reported ok - the allowlist length
+    # said 24 while the examined count was 0, and only one of those was printed.
+    if [[ "$EXAMINED" -eq 0 ]]; then
+        echo "flow-helpers-install: $SOURCE_DIR holds none of the ${#HELPERS[@]} known" >&2
+        echo "helper names, so nothing was compared. This is UNVERIFIABLE, not ok." >&2
+        REASON="empty-source"
+        emit_provenance
+        echo "FLOW_HELPERS: unverifiable"
+        exit 0
+    fi
     if [[ "$missing" -gt 0 ]]; then
         echo "flow-helpers-install: $missing helper(s) missing - run /flow:repair" >&2
+        REASON="missing-helpers"
+        emit_provenance
         echo "FLOW_HELPERS: missing"
         exit 1
     fi
     if [[ "$stale" -gt 0 ]]; then
         echo "flow-helpers-install: $stale helper(s) stale - run /flow:repair" >&2
+        REASON="stale-helpers"
+        emit_provenance
         echo "FLOW_HELPERS: stale"
         exit 1
     fi
+    emit_provenance
     echo "FLOW_HELPERS: ok"
     exit 0
 fi
@@ -198,6 +274,8 @@ fi
 # --- Install mode -----------------------------------------------------------
 if ! mkdir -p "$TARGET_DIR"; then
     echo "flow-helpers-install: cannot create $TARGET_DIR" >&2
+    REASON="target-dir-uncreatable"
+    emit_provenance
     echo "FLOW_HELPERS: error"
     exit 2
 fi
@@ -210,6 +288,7 @@ for name in "${HELPERS[@]}"; do
         echo "skip $name (not present in source)"
         continue
     fi
+    EXAMINED=$((EXAMINED + 1))
     if [[ "$SOURCE_KIND" == "checkout" ]]; then
         # Symlink: follows `git pull`, same as /cpp:init Tier 2.
         if [[ "$FORCE" -eq 0 && "$(readlink "$dest" 2>/dev/null)" == "$src" ]]; then
@@ -221,6 +300,8 @@ for name in "${HELPERS[@]}"; do
             changed=$((changed + 1))
         else
             echo "flow-helpers-install: failed to link $name" >&2
+            REASON="link-failed"
+            emit_provenance
             echo "FLOW_HELPERS: error"
             exit 2
         fi
@@ -239,12 +320,23 @@ for name in "${HELPERS[@]}"; do
             changed=$((changed + 1))
         else
             echo "flow-helpers-install: failed to copy $name" >&2
+            REASON="copy-failed"
+            emit_provenance
             echo "FLOW_HELPERS: error"
             exit 2
         fi
     fi
 done
 
+if [[ "$EXAMINED" -eq 0 ]]; then
+    echo "flow-helpers-install: $SOURCE_DIR holds none of the ${#HELPERS[@]} known" >&2
+    echo "helper names, so nothing was installed or compared. UNVERIFIABLE, not ok." >&2
+    REASON="empty-source"
+    emit_provenance
+    echo "FLOW_HELPERS: unverifiable"
+    exit 0
+fi
+emit_provenance
 if [[ "$changed" -eq 0 ]]; then
     echo "flow-helpers-install: all helpers already current ($TARGET_DIR)"
     echo "FLOW_HELPERS: ok"

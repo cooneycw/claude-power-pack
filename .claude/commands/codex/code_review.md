@@ -60,8 +60,37 @@ BASE="${BASE:-origin/$(git remote show origin 2>/dev/null | grep -oP 'HEAD branc
 git fetch origin --quiet || true
 
 DIFF_FILE=$(mktemp /tmp/codex-review-diff.XXXXXX.patch)
-git diff "$BASE" > "$DIFF_FILE"
-git diff --stat "$BASE"
+# MERGE BASE, not the moving tip (issue #927, nit-stored S1). `$BASE` is
+# refreshed by the `git fetch` two lines up, so it is the tip AT REVIEW TIME,
+# not the point this branch was cut. Two-dot `git diff origin/main` therefore
+# compares the working tree against a tip that may carry commits this branch
+# never had - and a sibling PR's ADDITIONS render as this author's DELETIONS.
+# Measured: a reviewer handed such a diff returned three confident findings
+# against a file the author had never touched, all of them accurate
+# descriptions of reverting someone else's merged work.
+#
+# THIS CORRECTS THE REVIEWER'S RANGE. It cannot see a commit whose TREE
+# PREDATES ITS PARENT - for that, compare `git diff --name-only origin/main`
+# to your own file set before pushing. Do not read agreement between diff
+# forms as confirmation that no revert is present; where the merge base IS
+# origin/main, every form agrees and all of them are wrong together.
+# A FAILED RESOLUTION MUST NOT BECOME AN EMPTY CLEAN REVIEW. In a shallow
+# checkout, HEAD and $BASE can both be valid and share no locally discoverable
+# ancestor: `git merge-base` then fails, MERGE_BASE is empty, both diffs fail,
+# and $DIFF_FILE is left EMPTY - which the next step reads as "nothing to
+# review" and exits 0. A review that never ran would report clean, which is
+# this command's own failure class pointed at its own input.
+if ! MERGE_BASE="$(git merge-base HEAD "$BASE")" || [ -z "$MERGE_BASE" ]; then
+    echo "CODEX_REVIEW: unavailable (no common ancestor between HEAD and $BASE -" >&2
+    echo "  a shallow clone cannot be reviewed against a base it cannot reach." >&2
+    echo "  Deepen with: git fetch --unshallow, then re-run.)" >&2
+    exit 3
+fi
+if ! git diff "$MERGE_BASE" > "$DIFF_FILE"; then
+    echo "CODEX_REVIEW: unavailable (diff against $MERGE_BASE failed)" >&2
+    exit 3
+fi
+git diff --stat "$MERGE_BASE"
 wc -l "$DIFF_FILE"
 ```
 
