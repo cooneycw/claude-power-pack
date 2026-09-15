@@ -1257,23 +1257,34 @@ class TestBothStreamsReachTheRunnerDecisions:
         assert result.reruns[0]["ids"] == ["tests/a.py::t1"]
         assert result.tests["test"]["failed"] == 1
         assert result.tests["test"]["passed"] == 3
-        assert result.tests["test"]["streams_read"] == ["stdout", "stderr"]
+        assert result.tests["test"]["summary_streams"] == ["stdout", "stderr"]
 
-    def test_a_rerun_summary_on_stderr_is_not_read_as_nothing_ran(
+    def test_a_rerun_reads_its_counts_from_both_streams(
         self, tmp_project: Path
     ) -> None:
-        """#900's verdict, extended to the stream dimension (issue #939).
+        """#900's verdict path, reading the merged re-run counts (issue #939).
 
-        The re-run prints "no tests ran" on stdout and its real summary on
-        stderr. Pre-fix the truthy all-zeros stdout outcome won, so the re-run
-        reported RE-RUN INCONCLUSIVE and #900's `passed-in-isolation` verdict
-        was never reached although a readable result existed.
+        The re-run reports 2 passed on stdout and 1 passed on stderr - three
+        real executions, no empty invocation, so the verdict is legitimately
+        `passed-in-isolation` and the only question is whether the COUNTS are
+        complete. Pre-fix the stdout summary won and the record said 2,
+        discarding a third of the re-run.
+
+        THIS CASE REPLACES an earlier one that put "no tests ran" on stdout and
+        a passing summary on stderr and expected `passed-in-isolation`. That
+        expectation was wrong and Codex caught it: when one invocation executed
+        nothing, the retried id cannot be shown to be among those that ran, so
+        the honest verdict is inconclusive. That scenario now lives in
+        test_an_unrelated_passing_suite_cannot_clear_the_original_failure,
+        asserting inconclusive - which is also why this case deliberately has
+        no empty invocation, or it would assert the merge through a path that
+        stops before the counts matter.
         """
         step = StepDef(
             id="test",
             command=(
                 "if [ -f rerun-marker ]; then "
-                "printf '=== no tests ran in 0.01s ===\\n'; "
+                "printf '=== 2 passed in 0.01s ===\\n'; "
                 "printf '=== 1 passed in 0.01s ===\\n' >&2; "
                 "else : > rerun-marker; "
                 "printf '=== 1 failed in 0.01s ===\\n'; "
@@ -1287,11 +1298,50 @@ class TestBothStreamsReachTheRunnerDecisions:
             project_root=tmp_project, output=log, rerun_failed=True
         ).run("check", step_defs=[step])
 
-        assert result.reruns[0]["outcome"] == RERUN_PASSED_IN_ISOLATION, (
-            "the re-run's summary was readable on stderr; reporting "
-            "inconclusive would be the #939 defect wearing #621's hat"
+        assert result.reruns[0]["outcome"] == RERUN_PASSED_IN_ISOLATION
+        assert result.reruns[0]["rerun"]["passed"] == 3, (
+            "pre-fix the stdout summary won and the record said 2"
         )
-        assert "RE-RUN INCONCLUSIVE" not in log.getvalue()
+        assert result.reruns[0]["rerun"]["summary_streams"] == ["stdout", "stderr"]
+
+    def test_an_unrelated_passing_suite_cannot_clear_the_original_failure(
+        self, tmp_project: Path
+    ) -> None:
+        """A re-run that executed none of the retried ids must stay inconclusive.
+
+        Found by Codex reviewing this change, and it is a regression THIS
+        change introduced. The re-run reports pytest "no tests ran" on stdout
+        and an unrelated passing jest suite on stderr. Merged, the total looks
+        healthy - `nothing_ran` is False - so the runner would record
+        `passed-in-isolation` against a pytest id that was never executed and
+        return success. Before the merge the empty pytest summary won outright
+        and the run read inconclusive: the right verdict for the wrong reason.
+
+        `any_invocation_empty` is what keeps it right for the right reason.
+        """
+        step = StepDef(
+            id="test",
+            command=(
+                "if [ -f rerun-marker ]; then "
+                "printf '=== no tests ran in 0.01s ===\\n'; "
+                "printf 'Tests:       2 passed, 2 total\\n' >&2; "
+                "else : > rerun-marker; "
+                "printf '=== 1 failed in 0.01s ===\\n'; "
+                "printf 'FAILED tests/a.py::t1 - AssertionError\\n'; "
+                "exit 1; fi"
+            ),
+            timeout_seconds=30,
+        )
+        log = StringIO()
+        result = DeterministicRunner(
+            project_root=tmp_project, output=log, rerun_failed=True
+        ).run("check", step_defs=[step])
+
+        assert result.reruns[0]["outcome"] == "inconclusive", (
+            "an unrelated suite passing says nothing about the retried id"
+        )
+        assert result.reruns[0]["outcome"] != RERUN_PASSED_IN_ISOLATION
+        assert "RE-RUN INCONCLUSIVE" in log.getvalue()
 
     def test_an_empty_invocation_on_the_other_stream_still_warns(
         self, tmp_project: Path
@@ -1349,6 +1399,65 @@ class TestUnparsedTestOutcomeReadsUnknown:
         assert result.warnings
         assert "UNKNOWN, not clean" in " ".join(result.warnings)
         assert "completed successfully" not in log.getvalue()
+
+    def test_unparseable_output_on_stderr_alone_is_also_unknown(
+        self, tmp_project: Path
+    ) -> None:
+        """The stdout case above passed while this one was blind (Codex, #939).
+
+        `ShellStep.execute` dropped `error` from a SUCCESS StepResult, so an
+        exit-0 step that wrote only to stderr reached the guard with BOTH
+        fields empty and was reported as a clean bare success - while the
+        byte-identical output on stdout was correctly reported UNKNOWN. The
+        guard's own blind spot, in the same shape as the defect this ticket
+        fixes, and the stdout-only case could not see it.
+        """
+        step = StepDef(
+            id="test",
+            command="printf 'ok 1 - something\\n' >&2",
+            timeout_seconds=30,
+        )
+        log = StringIO()
+        result = DeterministicRunner(project_root=tmp_project, output=log).run(
+            "check", step_defs=[step]
+        )
+
+        assert result.success
+        assert result.warnings, "stderr-only output must reach the guard too"
+        assert "UNKNOWN, not clean" in " ".join(result.warnings)
+
+    def test_an_unknown_result_is_not_reported_as_executed_no_tests(
+        self, tmp_project: Path
+    ) -> None:
+        """The plan summary must not convert UNKNOWN into a #621 claim.
+
+        `warnings` now carries three different findings and the summary line
+        used to assert #621's - "a test step executed no tests" - for any of
+        them. For unparseable output that is simply false: the suite may have
+        executed thousands. Failing to RECOGNISE a summary cannot establish
+        that nothing ran.
+
+        Found by Codex reviewing this change. The string was pinned by no test
+        at all, which is why #838 had already falsified it without anyone
+        noticing.
+        """
+        step = StepDef(
+            id="test",
+            command="printf 'ok 1 - something\\nok 2 - another\\n'",
+            timeout_seconds=30,
+        )
+        log = StringIO()
+        result = DeterministicRunner(project_root=tmp_project, output=log).run(
+            "check", step_defs=[step]
+        )
+
+        text = log.getvalue()
+        assert result.warnings
+        assert "executed no tests" not in text, (
+            "the runner did not establish that - it failed to parse a summary"
+        )
+        assert "UNKNOWN, not clean" in " ".join(result.warnings)
+        assert "WITH WARNINGS" in text
 
     def test_a_test_step_that_printed_nothing_is_still_a_bare_success(
         self, tmp_project: Path
@@ -1430,7 +1539,7 @@ class TestSkippedSuiteReporting:
             # claim from `312 passed` derived from both streams - so the
             # streams that produced the counts are pinned beside them rather
             # than left for a reader to assume.
-            "streams_read": ["stdout"],
+            "summary_streams": ["stdout"],
         }
         # Some tests DID run, so this is a real green - no warning, no
         # "WITH WARNINGS" banner, but the counts are visible either way.
@@ -1806,7 +1915,24 @@ class TestSkippedGateReporting:
         assert result.warnings  # the #621 no-tests warning
         text = log.getvalue()
         assert "SKIPPED GATES: typecheck" in text
-        assert "#621" in text
+
+        # Assert on the CLOSING LINE rather than anywhere in the log (#939).
+        # This read `"#621" in text`, which the issue tag in the warning body
+        # satisfies from somewhere else entirely - so it could pass while the
+        # closing line had dropped the qualifier the test exists to protect.
+        closing = next(
+            line for line in text.splitlines() if "completed WITH WARNINGS" in line
+        )
+        assert "SKIPPED GATES: typecheck" in closing
+        assert "qualification" in closing, (
+            "the closing line must still name the test-step qualifier "
+            "alongside the skipped gate, not drop one of the two"
+        )
+        # The CAUSE is named by the warning itself, not asserted generically by
+        # the closing line: `warnings` carries #621, #838 and #939 findings and
+        # only #621 means "executed no tests" (issue #939).
+        assert "executed NO tests" in " ".join(result.warnings)
+        assert "#621" in " ".join(result.warnings)
 
 
 class TestResumedRunReportsWhatActuallyRan:

@@ -39,7 +39,7 @@ class SuiteOutcome:
     # last-wins behaviour did.
     invocations: int = 1
     empty_invocations: int = 0
-    # WHICH streams this outcome was derived from (issue #939/#952). A verdict
+    # WHICH streams carried a summary (issue #939/#952). A verdict
     # without its denominator cannot be audited: `3 passed` read from stdout
     # alone and `3 passed` read from both streams are different claims, and
     # before #939 the parser could not tell them apart because it stopped at
@@ -47,11 +47,20 @@ class SuiteOutcome:
     #
     # Deliberately NOT the same question as `invocations`, which counts how
     # many times the RUNNER ran. One invocation echoed to both streams sums to
-    # `invocations=2` with `streams_read=("stdout", "stderr")`; two genuinely
+    # `invocations=2` with `summary_streams=("stdout", "stderr")`; two genuinely
     # disjoint invocations split across the streams produce the same pair. The
     # counts alone cannot separate those, so recording the streams is what
     # leaves the shape legible to a reader instead of merely trusted.
-    streams_read: tuple[str, ...] = ()
+    #
+    # NAMED FOR WHAT IT HOLDS. `_parse_tests` always EXAMINES both streams, so
+    # a stream missing here was read and carried no recognizable summary - it
+    # was not skipped. An earlier name, `streams_read`, said the other thing
+    # and would have let a reader conclude the parser had gone back to
+    # examining one stream, which is the exact misreading #939 exists to end.
+    # The denominator is therefore "both, always"; this field is which of them
+    # spoke, and the pair is what separates "nothing there" from "did not
+    # look" (#952).
+    summary_streams: tuple[str, ...] = ()
 
     @property
     def executed(self) -> int:
@@ -100,7 +109,7 @@ class SuiteOutcome:
             "framework": self.framework,
             "invocations": self.invocations,
             "empty_invocations": self.empty_invocations,
-            "streams_read": list(self.streams_read),
+            "summary_streams": list(self.summary_streams),
         }
 
 
@@ -207,7 +216,7 @@ def parse_suite_outcome(text: str, stream: str = "") -> Optional[SuiteOutcome]:
     # Attribution happens here rather than inside `_aggregate` because this is
     # the only layer that knows which stream the text came from; everything
     # `_aggregate` sees is already from one stream.
-    return replace(outcome, streams_read=(stream,)) if stream else outcome
+    return replace(outcome, summary_streams=(stream,)) if stream else outcome
 
 
 def _aggregate(outcomes: list[SuiteOutcome]) -> SuiteOutcome:
@@ -265,7 +274,7 @@ def merge_stream_outcomes(
 
     streams: list[str] = []
     for outcome in present:
-        for name in outcome.streams_read:
+        for name in outcome.summary_streams:
             if name not in streams:
                 streams.append(name)
 
@@ -278,7 +287,7 @@ def merge_stream_outcomes(
         framework=present[-1].framework if len(frameworks) == 1 else "mixed",
         invocations=sum(outcome.invocations for outcome in present),
         empty_invocations=sum(outcome.empty_invocations for outcome in present),
-        streams_read=tuple(streams),
+        summary_streams=tuple(streams),
     )
 
 

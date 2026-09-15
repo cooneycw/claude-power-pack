@@ -487,7 +487,7 @@ class DeterministicRunner:
                 if outcome is not None and outcome.nothing_ran:
                     warnings.append(
                         f"{step.id}: exited 0 but executed NO tests ({outcome.summary()}) "
-                        "- this gate proved nothing about the change"
+                        "- this gate proved nothing about the change (issue #621)"
                     )
                     self._log(
                         f"  [{idx + 1}/{len(step_defs)}] {step.id}: "
@@ -620,6 +620,33 @@ class DeterministicRunner:
                         self._log(
                             f"  [{idx + 1}/{len(step_defs)}] {step.id}: "
                             "RE-RUN INCONCLUSIVE - no tests ran; the original "
+                            "failure stands"
+                        )
+                    elif (
+                        rerun_outcome is not None
+                        and rerun_outcome.any_invocation_empty
+                    ):
+                        # The merge across streams (issue #939) made this
+                        # reachable and it must not be allowed to clear a real
+                        # failure. A re-run whose pytest invocation collected
+                        # nothing while an UNRELATED suite passed now totals a
+                        # healthy count - `nothing_ran` is False - so without
+                        # this branch the runner would record
+                        # `passed-in-isolation` against ids that were never
+                        # executed. Before the merge the empty pytest summary
+                        # won outright and the run read inconclusive, which was
+                        # the correct verdict for the wrong reason.
+                        #
+                        # #900's rule, one layer down: the experiment cannot
+                        # support the conclusion, so the conclusion is not
+                        # drawn.
+                        rerun_verdict = "inconclusive"
+                        self._log(
+                            f"  [{idx + 1}/{len(step_defs)}] {step.id}: "
+                            f"RE-RUN INCONCLUSIVE - {rerun_outcome.empty_invocations} "
+                            f"of {rerun_outcome.invocations} re-run invocations "
+                            "executed NO tests, so the retried ids were not "
+                            "necessarily among those that ran; the original "
                             "failure stands"
                         )
                     elif rerun_result.success and rerun_outcome is not None:
@@ -805,7 +832,20 @@ class DeterministicRunner:
                 "(no Makefile target and no configured tool)"
             )
         if warnings:
-            qualifiers.append("a test step executed no tests (#621)")
+            # Do NOT name a cause here (issue #939). `warnings` carries three
+            # distinct findings and only the first is "executed no tests":
+            # #621's "exited 0 having executed nothing", #838's "SOME
+            # invocation executed nothing while the total looked healthy", and
+            # #939's "no summary could be parsed from either stream, so this
+            # is UNKNOWN". Asserting the #621 sentence for all of them makes
+            # this line false for the other two - an instrument claiming more
+            # than its input supports, which is the defect #939 fixes one
+            # layer down.
+            #
+            # #838 already falsified it before #939 widened the collection;
+            # nothing pinned the string, so nothing said so.
+            word = "qualification" if len(warnings) == 1 else "qualifications"
+            qualifiers.append(f"{len(warnings)} test step {word} (see warnings)")
         passed_rerun_ids = [
             node_id
             for rerun in reruns

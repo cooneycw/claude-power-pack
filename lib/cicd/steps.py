@@ -330,6 +330,14 @@ class ShellStep:
                 status=StepStatus.SUCCESS,
                 exit_code=0,
                 output=output,
+                # Carried on the SUCCESS path too (issue #939). It was dropped
+                # here while the failure path kept it, so anything a passing
+                # step wrote to stderr was discarded before any caller could
+                # look at it - including #939's own UNKNOWN guard, which asks
+                # whether the step produced output at all and could therefore
+                # see only half the answer. The parse itself was never
+                # affected: `_parse_tests` runs on the local streams above.
+                error=error,
                 tests=tests,
             )
         return StepResult(

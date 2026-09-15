@@ -295,7 +295,7 @@ class TestStepGating:
         discriminating case is stdout reporting PASSED while stderr reports
         failures, which lives in TestBothStreamsAreMerged below.
 
-        What is new here is `streams_read`. Pinning it turns an assertion that
+        What is new here is `summary_streams`. Pinning it turns an assertion that
         cannot see the stream question into one that can - the outcome now has
         to name stderr as its denominator rather than merely carry the right
         counts (issue #952).
@@ -303,7 +303,7 @@ class TestStepGating:
         step = ShellStep(StepDef(id="test", command="make test"))
         outcome = step._parse_tests("", "== 1 passed, 9 skipped in 1.0s ==")
         assert outcome == SuiteOutcome(
-            passed=1, skipped=9, framework="pytest", streams_read=("stderr",)
+            passed=1, skipped=9, framework="pytest", summary_streams=("stderr",)
         )
 
 
@@ -353,7 +353,7 @@ class TestBothStreamsAreMerged:
             "=== 3 passed in 1.0s ===", "=== 1 failed in 1.0s ==="
         )
         assert outcome is not None
-        assert outcome.streams_read == ("stdout", "stderr")
+        assert outcome.summary_streams == ("stdout", "stderr")
 
     def test_a_stream_that_says_nothing_is_not_claimed_as_read(self) -> None:
         """The denominator has to be honest in the other direction too.
@@ -365,7 +365,7 @@ class TestBothStreamsAreMerged:
         """
         outcome = self._step()._parse_tests("=== 3 passed in 1.0s ===", "")
         assert outcome is not None
-        assert outcome.streams_read == ("stdout",)
+        assert outcome.summary_streams == ("stdout",)
 
     def test_an_empty_invocation_on_the_other_stream_still_counts(self) -> None:
         """#621's guard, extended to the stream dimension (issue #939).
@@ -419,12 +419,12 @@ class TestBothStreamsAreMerged:
         """
         merged = merge_stream_outcomes(
             [
-                SuiteOutcome(passed=1, framework="pytest", streams_read=("stdout",)),
-                SuiteOutcome(passed=2, framework="pytest", streams_read=("stdout",)),
+                SuiteOutcome(passed=1, framework="pytest", summary_streams=("stdout",)),
+                SuiteOutcome(passed=2, framework="pytest", summary_streams=("stdout",)),
             ]
         )
         assert merged is not None
-        assert merged.streams_read == ("stdout",), "stderr was never read"
+        assert merged.summary_streams == ("stdout",), "stderr was never read"
         assert merged.passed == 3
         assert merged.invocations == 2
 
@@ -435,12 +435,12 @@ class TestBothStreamsAreMerged:
         """
         merged = merge_stream_outcomes(
             [
-                SuiteOutcome(passed=1, framework="pytest", streams_read=("stdout",)),
+                SuiteOutcome(passed=1, framework="pytest", summary_streams=("stdout",)),
                 SuiteOutcome(passed=2, framework="pytest"),
             ]
         )
         assert merged is not None
-        assert merged.streams_read == ("stdout",)
+        assert merged.summary_streams == ("stdout",)
         assert merged.passed == 3
 
     def test_merge_of_nothing_is_none(self) -> None:
