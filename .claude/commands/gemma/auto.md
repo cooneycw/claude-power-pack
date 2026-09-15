@@ -332,7 +332,7 @@ if ! curl -sf --max-time 5 "$GEMMA_ENDPOINT/api/version" > /dev/null; then
     echo "unreachable endpoint can mean another VM currently holds the card."
     exit 1
 fi
-if ! curl -sf --max-time 5 "$GEMMA_ENDPOINT/api/tags" 2>/dev/null | grep -q "${GEMMA_MODEL%%:*}"; then
+if ! curl -sf --max-time 5 "$GEMMA_ENDPOINT/api/tags" 2>/dev/null | grep -qF "\"$GEMMA_MODEL\""; then
     echo "ERROR: model '$GEMMA_MODEL' not found on the server. See /gemma:help."
     exit 1
 fi

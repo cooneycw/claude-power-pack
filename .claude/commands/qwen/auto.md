@@ -314,7 +314,7 @@ if ! curl -sf --max-time 5 "$QWEN_ENDPOINT/api/version" > /dev/null; then
     echo "Consumer machine: set QWEN_OLLAMA_URL=http://<serving-ip>:11434"
     exit 1
 fi
-if ! curl -sf --max-time 5 "$QWEN_ENDPOINT/api/tags" 2>/dev/null | grep -q "${QWEN_MODEL%%:*}"; then
+if ! curl -sf --max-time 5 "$QWEN_ENDPOINT/api/tags" 2>/dev/null | grep -qF "\"$QWEN_MODEL\""; then
     echo "ERROR: model '$QWEN_MODEL' not found on the server."
     exit 1
 fi

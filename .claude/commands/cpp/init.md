@@ -1400,7 +1400,7 @@ else
   echo "    Consumer machine: set QWEN_OLLAMA_URL=http://<serving-ip>:11434"
 fi
 
-if curl -sf --max-time 5 "$QWEN_ENDPOINT/api/tags" 2>/dev/null | grep -q "${QWEN_MODEL%%:*}"; then
+if curl -sf --max-time 5 "$QWEN_ENDPOINT/api/tags" 2>/dev/null | grep -qF "\"$QWEN_MODEL\""; then
   echo "[x] Model present: $QWEN_MODEL"
 else
   echo "[ ] Model '$QWEN_MODEL' missing"
@@ -1543,7 +1543,7 @@ else
   echo "    Shared-GPU host: another VM may currently hold the card."
 fi
 
-if curl -sf --max-time 5 "$GEMMA_ENDPOINT/api/tags" 2>/dev/null | grep -q "${GEMMA_MODEL%%:*}"; then
+if curl -sf --max-time 5 "$GEMMA_ENDPOINT/api/tags" 2>/dev/null | grep -qF "\"$GEMMA_MODEL\""; then
   echo "[x] Model present: $GEMMA_MODEL"
 else
   echo "[ ] Model '$GEMMA_MODEL' missing"

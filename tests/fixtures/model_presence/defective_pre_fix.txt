@@ -1,0 +1,40 @@
+# COMMITTED PRE-FIX FIXTURE (issue #910). Captured once from the tree as it
+# was before the fix, so this control does not depend on a MOVING git ref.
+# An earlier cut read the merge base, which stops being a pre-fix reference
+# the moment the fix lands on main - a control that destroys itself on
+# merge. Codex caught it.
+#
+# EVERY defective site: a ${VAR%%:*} used as a grep PATTERN.
+#
+# from .claude/commands/qwen/auto.md:317
+if ! curl -sf --max-time 5 "$QWEN_ENDPOINT/api/tags" 2>/dev/null | grep -q "${QWEN_MODEL%%:*}"; then
+
+# from .claude/commands/gemma/auto.md:335
+if ! curl -sf --max-time 5 "$GEMMA_ENDPOINT/api/tags" 2>/dev/null | grep -q "${GEMMA_MODEL%%:*}"; then
+
+# from .claude/commands/qwen/status.md:58
+if echo "$TAGS" | grep -q "${QWEN_MODEL%%:*}"; then
+
+# from .claude/commands/gemma/status.md:50
+if echo "$TAGS" | grep -q "${GEMMA_MODEL%%:*}"; then
+
+# from .claude/commands/gemma/status.md:65
+if echo "$OLLAMA_PS" | grep "${GEMMA_MODEL%%:*}" | grep -qv "100% GPU"; then
+
+# from .claude/commands/cpp/init.md:1403
+if curl -sf --max-time 5 "$QWEN_ENDPOINT/api/tags" 2>/dev/null | grep -q "${QWEN_MODEL%%:*}"; then
+
+# from .claude/commands/cpp/init.md:1546
+if curl -sf --max-time 5 "$GEMMA_ENDPOINT/api/tags" 2>/dev/null | grep -q "${GEMMA_MODEL%%:*}"; then
+
+# from .claude/commands/cpp/status.md:490
+if curl -sf --max-time 5 "$QWEN_ENDPOINT/api/tags" 2>/dev/null | grep -q "${QWEN_MODEL%%:*}"; then
+
+# from .claude/commands/cpp/status.md:539
+if curl -sf --max-time 5 "$GEMMA_ENDPOINT/api/tags" 2>/dev/null | grep -q "${GEMMA_MODEL%%:*}"; then
+
+# from .claude/commands/cpp/update.md:655
+if curl -sf --max-time 5 "$QWEN_ENDPOINT/api/tags" 2>/dev/null | grep -q "${QWEN_MODEL%%:*}"; then
+
+# from .claude/commands/cpp/update.md:710
+if curl -sf --max-time 5 "$GEMMA_ENDPOINT/api/tags" 2>/dev/null | grep -q "${GEMMA_MODEL%%:*}"; then

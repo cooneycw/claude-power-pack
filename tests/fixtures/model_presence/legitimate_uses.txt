@@ -1,0 +1,35 @@
+# COMMITTED PRE-FIX FIXTURE (issue #910). Captured once from the tree as it
+# was before the fix, so this control does not depend on a MOVING git ref.
+# An earlier cut read the merge base, which stops being a pre-fix reference
+# the moment the fix lands on main - a control that destroys itself on
+# merge. Codex caught it.
+#
+# EVERY legitimate use: a ${VAR%%:*} used as a PATH DERIVATION.
+# The detector must never flag one of these.
+#
+# from .claude/commands/gemma/auto.md:32
+The OpenCode model reference is derived as `gemma-ollama/${GEMMA_MODEL%%:*}`.
+
+# from .claude/commands/gemma/auto.md:324
+GEMMA_MODEL_REF="gemma-ollama/${GEMMA_MODEL%%:*}"
+
+# from .claude/commands/gemma/status.md:158
+-m "gemma-ollama/${GEMMA_MODEL%%:*}" --agent gemma-implementer \
+
+# from .claude/commands/cpp/init.md:1282
+NAME="${entry%%:*}"
+
+# from .claude/commands/cpp/init.md:1669
+-m "gemma-ollama/${GEMMA_MODEL%%:*}" \
+
+# from .claude/commands/cpp/init.md:1835
+NAME="${entry%%:*}"
+
+# from .claude/commands/gemma/exec.md:24
+`gemma-ollama/${GEMMA_MODEL%%:*}`.
+
+# from .claude/commands/gemma/exec.md:46
+GEMMA_MODEL_REF="gemma-ollama/${GEMMA_MODEL%%:*}"
+
+# from .claude/commands/gemma/help.md:264
+derived from it as `gemma-ollama/${GEMMA_MODEL%%:*}`, so a new tag needs a
