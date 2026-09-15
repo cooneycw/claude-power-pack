@@ -215,6 +215,18 @@ class Result:
     control_dir: str
     verdict: str
     provenance: str = "unverified"
+    #: Whether this control's files are IN THE REPOSITORY (issue #978).
+    #: `tracked` / `UNTRACKED` / `unverified` when git is absent - the same
+    #: three-state shape as `provenance`, and a separate axis from `verdict` for
+    #: the same reason: a control exercised from the working tree behaves
+    #: correctly and reports PASS, while the same commit in a CLEAN CLONE has no
+    #: cases at all. Observed twice on 2026-09-15 (#964, #953), both times from
+    #: a `.gitignore` blanket that a one-level negation did not reach.
+    #: `unverified` is NOT a pass and NOT a failure: git is absent from the CI
+    #: image by design, so this axis is checked on a dev box and in the pre-push
+    #: hook. `UNTRACKED` IS a failure - it is a green that does not survive a
+    #: clone, which is the defect itself.
+    tracking: str = "unverified"
     details: list[str] = field(default_factory=list)
 
 
@@ -243,8 +255,54 @@ def _source_stamp(root: Path) -> str:
     return "worktree-at-unknown"
 
 
+#: The universe a control count is a fraction OF (issue #979).
+#: ADR 0008 enumerates the instruments whose verdicts are consumed without
+#: re-derivation - the ones its bound says need a committed control. That table
+#: is the honest denominator, and it is DERIVED here rather than hardcoded: a
+#: literal would be wrong within a day (it moved 61 -> 62 -> 63 in one morning)
+#: and would be "fixed" by whoever adds the next gate, who is the person least
+#: motivated to check it. Unreadable or unparseable reports UNKNOWN, never a
+#: bare numerator: "2 of 61" and "61 of 61" printing the identical string is the
+#: defect, and so is a denominator invented to fill the slot.
+ADR_0008 = Path("docs/decisions/0008-instrument-negative-control-bound.md")
+ADR_ROW_RE = re.compile(r"^\|\s*\d+\s*\|", re.MULTILINE)
+
+
+def instrument_universe(root: Path) -> tuple[int | None, str]:
+    """(count, provenance-phrase) for ADR 0008's enumerated instruments."""
+    adr = root / ADR_0008
+    try:
+        text = adr.read_text(encoding="utf-8")
+    except OSError:
+        return None, f"{ADR_0008} is unreadable"
+    rows = len(ADR_ROW_RE.findall(text))
+    if rows == 0:
+        return None, f"{ADR_0008} parsed to 0 enumerated rows"
+    return rows, f"{ADR_0008}"
+
+
 def discover(root: Path) -> list[tuple[Path, str]]:
-    """Every gate in `scripts/` carrying a registration directive."""
+    """Every REGISTRATION in `scripts/`, not every gate (issue #986).
+
+    This used to call `REGISTRATION_RE.search`, which returns the FIRST match
+    and stops. The pattern carries `re.MULTILINE` and so anticipates several
+    registrations in one file, but the call could only ever yield one, and the
+    docstring said "every gate carrying a registration directive" - accurate
+    about gates and silent about the thing a reader wants, which is controls.
+
+    A gate declaring three controls contributed one pair; the other two were
+    never executed, never scored, and never reported as unregistered. The
+    register's whole purpose is answering "is this instrument controlled", so a
+    gate with one weak control and two strong ones scored as its weak one, and
+    an author adding a second control to close a known blind spot got no credit
+    and no warning.
+
+    LATENT when this was fixed - three gates registered, each declaring exactly
+    one, so `.search` and `.finditer` agreed. That is the reason to fix it now
+    rather than after: it must land WITH or BEFORE the denominator (#979),
+    because a count over an incomplete population is an undercount wearing an
+    authoritative number.
+    """
     found: list[tuple[Path, str]] = []
     scripts_dir = root / "scripts"
     if not scripts_dir.is_dir():
@@ -256,8 +314,7 @@ def discover(root: Path) -> list[tuple[Path, str]]:
             text = path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             continue
-        match = REGISTRATION_RE.search(text)
-        if match:
+        for match in REGISTRATION_RE.finditer(text):
             found.append((path, match.group("path")))
     return found
 
@@ -314,9 +371,67 @@ def _invoke(spec: list[str], gate: Path, case: Path, root: Path) -> tuple[int | 
     return _run(argv, root)
 
 
+def _tracking(control_dir: Path, root: Path) -> tuple[str, list[str]]:
+    """Are this control's files IN THE REPOSITORY? (issue #978)
+
+    A control is exercised from the WORKING TREE. So a control whose case files
+    are untracked behaves correctly, discriminates, and reports PASS - while the
+    same commit in a clean clone has no cases at all. A green from a control that
+    does not exist downstream is indistinguishable from a green from one that
+    does, and that is the whole defect.
+
+    Observed twice on 2026-09-15 from one root cause: `.gitignore` carries a
+    blanket `*.json` negated only by `!controls/*/control.json`, one level deep,
+    so nested manifests under `controls/*/cases/**` were silently skipped by
+    `git add -A`. #964 shipped that way; #953's selftest reported 14/14 against
+    files that were not in the repository.
+
+    Returns `unverified` when git is absent - which is the CI image, by design
+    (see the vendored-anchor note above). `unverified` is neither a pass nor a
+    failure; `UNTRACKED` is a failure, because it names a green that will not
+    survive a clone.
+    """
+    if not shutil.which("git"):
+        return "unverified", []
+    if not control_dir.is_dir():
+        return "unverified", []
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(root), "ls-files", "-z", "--", str(control_dir)],
+            capture_output=True, timeout=30, check=False,
+        )
+    except (OSError, subprocess.SubprocessError):  # pragma: no cover - defensive
+        return "unverified", []
+    if out.returncode != 0:
+        return "unverified", []
+    tracked = {
+        (root / p).resolve()
+        for p in out.stdout.decode("utf-8", "replace").split("\0")
+        if p
+    }
+    on_disk = {p.resolve() for p in control_dir.rglob("*") if p.is_file()}
+    missing = sorted(str(p.relative_to(root)) for p in (on_disk - tracked))
+    if missing:
+        shown = missing[:5]
+        detail = [
+            f"{len(missing)} file(s) under {control_dir.relative_to(root)} are NOT tracked, "
+            "so this control does not exist in a clean clone: " + ", ".join(shown)
+            + ("..." if len(missing) > len(shown) else "")
+        ]
+        return "UNTRACKED", detail
+    return "tracked", []
+
+
 def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenance: bool) -> Result:
     control_dir = (root / control_rel).resolve()
     res = Result(gate=str(directive_file.relative_to(root)), control_dir=control_rel, verdict=UNRESOLVED)
+
+    # Computed FIRST so it survives every early return below. evaluate() exits at
+    # ~20 points, and a tracking axis recorded late would be absent from exactly
+    # the results that failed for another reason - which are the ones most likely
+    # to be under-built.
+    res.tracking, tracking_details = _tracking(control_dir, root)
+    res.details.extend(tracking_details)
 
     manifest = control_dir / "control.json"
     if not manifest.is_file():
@@ -612,14 +727,26 @@ def main(argv: list[str] | None = None) -> int:
     stamp = _source_stamp(root)
     registrations = discover(root)
 
+    # The universe is a property of the TREE, not of the results, so it is stated
+    # on every exit including the ones that found nothing (#979). A run that
+    # reports no denominator is the defect whatever its verdict.
+    universe, whence = instrument_universe(root)
+    universe_line = f"NEGATIVE_CONTROL_UNIVERSE: {universe if universe is not None else 'unknown'}"
+
     if not registrations:
         print("NEGATIVE_CONTROL_SOURCE: " + stamp)
         print("NEGATIVE_CONTROL_REGISTERED: 0")
+        print(universe_line)
         print("negative-controls: no gate carries a registration - nothing was checked. "
               "This is UNCHECKED, not clean.")
         return 1 if args.strict else 0
 
     results = [evaluate(gate, rel, root, args.verify_provenance) for gate, rel in registrations]
+    # Emitted HERE rather than in the success branch, so a FAILING run states its
+    # denominator too. `REGISTERED` keeps the meaning it already had - how many
+    # registrations were discovered - and is not re-purposed.
+    print(f"NEGATIVE_CONTROL_REGISTERED: {len(registrations)}")
+    print(universe_line)
 
     for res in results:
         print(f"NEGATIVE_CONTROL_GATE: {res.gate}")
@@ -627,9 +754,12 @@ def main(argv: list[str] | None = None) -> int:
         for line in res.details:
             print(f"NEGATIVE_CONTROL_DETAIL: {line}")
         print(f"NEGATIVE_CONTROL_PROVENANCE: {res.provenance}")
+        print(f"NEGATIVE_CONTROL_TRACKING: {res.tracking}")
         print(f"NEGATIVE_CONTROL_VERDICT: {res.verdict}")
 
-    failing = [r for r in results if r.verdict != PASS]
+    # UNTRACKED fails alongside a bad verdict (#978). A control can discriminate
+    # perfectly and still not exist downstream, so PASS alone is not sufficient.
+    failing = [r for r in results if r.verdict != PASS or r.tracking == "UNTRACKED"]
     if not args.quiet:
         print()
         if failing:
@@ -640,7 +770,17 @@ def main(argv: list[str] | None = None) -> int:
         else:
             # The message states what this run actually established, including the
             # #946 half: every claim here has an input population behind it.
-            print(f"negative-controls: ok - {len(results)} control(s) discriminate, "
+            if universe is None:
+                scope = (
+                    f"{len(results)} control(s) of an UNKNOWN universe "
+                    f"({whence}) - this is a sample, and how large a sample cannot be said"
+                )
+            else:
+                scope = (
+                    f"{len(results)} of {universe} enumerated instruments "
+                    f"({whence}) carry a control that discriminates"
+                )
+            print(f"negative-controls: ok - {scope}, "
                   "each reporting its declared detection signal on the known-bad input "
                   "and demonstrated against an anchor that misses it")
     return 1 if (failing and args.strict) else 0

@@ -803,3 +803,101 @@ def test_pytest_catches_the_breakage_the_self_registration_cannot(tmp_path: Path
         "the mutant and the real harness agree, so this control no longer "
         "distinguishes a working harness from one that cannot disagree"
     )
+
+
+# --------------------------------------------------------------------------- #
+# #986 - discover() registers every REGISTRATION, not the first one per gate
+# --------------------------------------------------------------------------- #
+
+
+def test_a_gate_declaring_several_controls_contributes_every_one(tmp_path: Path) -> None:
+    """The red case for #986: `.search` returns one, `.finditer` returns all.
+
+    LATENT when fixed - the three registered gates each declare exactly one, so
+    the old and new calls agreed on the real tree. This fixture is the input that
+    tells them apart, and it is committed because a defect nothing can reproduce
+    is a defect that comes back.
+    """
+    (tmp_path / "scripts").mkdir()
+    gate = tmp_path / "scripts" / "two-control-gate.sh"
+    gate.write_text(
+        "#!/bin/sh\n"
+        "#: NEGATIVE-CONTROL: controls/alpha\n"
+        "#: NEGATIVE-CONTROL: controls/beta\n"
+        "exit 0\n",
+        encoding="utf-8",
+    )
+    out = run_harness(tmp_path)
+    declared = [ln for ln in out.stdout.splitlines() if ln.startswith("NEGATIVE_CONTROL_GATE:")]
+    assert len(declared) == 2, f"both registrations must be discovered, got {len(declared)}:\n{out.stdout}"
+    # Each is EVALUATED, not merely counted: both report their own missing manifest.
+    assert "no control.json at controls/alpha" in out.stdout
+    assert "no control.json at controls/beta" in out.stdout
+
+
+# --------------------------------------------------------------------------- #
+# #979 - a numerator without its denominator
+# --------------------------------------------------------------------------- #
+
+
+def test_the_summary_states_the_universe_it_is_a_fraction_of() -> None:
+    """`2 of 61` and `61 of 61` must not print the identical string."""
+    out = run_harness(ROOT)
+    assert "NEGATIVE_CONTROL_UNIVERSE:" in out.stdout, out.stdout
+    assert "enumerated instruments" in out.stdout, out.stdout
+
+
+def test_an_unparseable_adr_reports_UNKNOWN_rather_than_a_bare_numerator(tmp_path: Path) -> None:
+    """The red case for #979.
+
+    The failure this guards is not "the number is wrong" - it is a count printed
+    with no universe, which reads as coverage. So when the universe cannot be
+    established the output must SAY so, and must not fall back to the bare count
+    that was the defect.
+    """
+    (tmp_path / "scripts").mkdir()
+    adr = tmp_path / "docs" / "decisions"
+    adr.mkdir(parents=True)
+    (adr / "0008-instrument-negative-control-bound.md").write_text(
+        "a document with no enumerated rows\n", encoding="utf-8"
+    )
+    out = run_harness(tmp_path)
+    assert "NEGATIVE_CONTROL_UNIVERSE: unknown" in out.stdout, out.stdout
+
+
+# --------------------------------------------------------------------------- #
+# #978 - a control whose files are untracked does not exist in a clean clone
+# --------------------------------------------------------------------------- #
+
+
+@requires_git
+def test_an_untracked_control_file_refuses_the_green() -> None:
+    """The red case for #978, run against the REAL register.
+
+    A control is exercised from the working tree, so an untracked case file
+    discriminates correctly and reports PASS while the same commit in a clean
+    clone has no cases at all. Observed twice on 2026-09-15 (#964, #953).
+
+    The file is created and removed inside the test rather than committed,
+    because a committed untracked file is a contradiction: committing it would
+    make it tracked and the case would stop reproducing.
+    """
+    sneaky = REAL_CONTROL / "cases" / "untracked-probe.sh"
+    assert not sneaky.exists(), "fixture would clobber a real file"
+    before = run_harness(ROOT, "--strict")
+    assert before.returncode == 0, f"precondition: the tree is clean\n{before.stdout}"
+    sneaky.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    try:
+        tracked = subprocess.run(
+            ["git", "-C", str(ROOT), "ls-files", "--error-unmatch", str(sneaky)],
+            capture_output=True, check=False,
+        )
+        assert tracked.returncode != 0, "precondition: the probe must be UNTRACKED"
+        after = run_harness(ROOT, "--strict")
+        assert after.returncode == 1, f"an untracked control file must refuse the green\n{after.stdout}"
+        assert "NEGATIVE_CONTROL_TRACKING: UNTRACKED" in after.stdout, after.stdout
+        assert "untracked-probe.sh" in after.stdout, "the offending path must be NAMED"
+    finally:
+        sneaky.unlink(missing_ok=True)
+    restored = run_harness(ROOT, "--strict")
+    assert restored.returncode == 0, f"the tree must be clean again\n{restored.stdout}"
