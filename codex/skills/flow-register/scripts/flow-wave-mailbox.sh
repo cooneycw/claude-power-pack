@@ -297,9 +297,20 @@
 # writer cannot tell whether its message landed, so a successful write is not
 # evidence of delivery even where delivery works. And the measurement has one
 # vantage - inside a container, against the measuring session's OWN socket.
-# Delivery ACROSS pid namespaces is UNMEASURED, and lineage verification is
-# exactly the mechanism expected to break there, since a pid a sender presents
-# names a different process, or none, in the receiver's namespace (#945).
+#
+# Do not read the lineage result as "so share the mounts and it works". Across
+# containers the identity problem is upstream of lineage: a session record
+# carries a `pidDomain` naming the machine and pid namespace its pid is
+# meaningful in, and the harness reads the peer pid from the CONNECTION
+# (`SO_PEERCRED`), never from the payload - so a shared records directory would
+# hand each side a pid from a domain it cannot verify, and discovery would list
+# peers delivery cannot vouch for (measured 2026-09-15, 2.1.266, one container,
+# one vantage; #945, closed on it). Sharing the socket directory was REJECTED on
+# separate grounds - every session container runs as uid 1000, so mode 700
+# separates nothing between siblings. The wake across that boundary belongs to
+# the substrate, which is where kyle #1008 puts it. See register.md's container
+# boundary for the decision and its evidence; this comment only borrows it to
+# say that the daemon's problem is not the one a mount would fix.
 #
 # So: `supervise` guarantees a listener keeps existing; it does not guarantee
 # the agent behind it is told. See ROUTE READINESS below for the honest
