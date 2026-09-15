@@ -41,6 +41,38 @@
   repository, so the ADR quotes it. ADR 0007 is reserved for #934 and lands
   after this one. Nothing here adds a tier, a process or a checker.
 
+- **2026-09-13 - every gate can carry an executable negative control, and the
+  control must prove it can fail** (issue #924) - seven open issues are one defect
+  in different gates: an instrument returning a confident verdict it is not
+  entitled to. A green from a blind gate and a green from a working gate are the
+  same bytes, so each instance was found by the next person to rely on the gate
+  rather than by its author.
+
+  The catching practice already existed - a hand-run mutation at review time, on
+  every merge of 2026-09-13 - and left no artifact. `scripts/check-negative-controls.py`
+  makes it durable: a one-line `#: NEGATIVE-CONTROL:` registration in the gate
+  itself, a declarative control directory, and a CI step. Each control asserts
+  DISCRIMINATION in both directions, and is demonstrated against a vendored ANCHOR
+  that must MISS the known-bad input - acceptance step 4 executed on every run.
+
+  Five verdicts, because collapsing any of them loses a distinction that has
+  already cost someone work: `PASS`, `BLIND` (the gate stopped discriminating),
+  `INERT` (the anchor was not actually blind), `UNRESOLVED` (the control points at
+  something not in this checkout - identical in appearance to `BLIND`, opposite in
+  response), and `UNPROVEN` (registered but nothing has shown it can fail).
+  `UNPROVEN is not PASS` is what makes step 4 mechanical rather than remembered:
+  forgetting produces a red, not a silence.
+
+  Anchors are VENDORED rather than fetched with `git show`, because git is absent
+  from the CI image - a git-based anchor would have worked where it was written
+  and been inert where it gates, which is this issue's own defect class inside the
+  tool built for it. Provenance is a separate axis (`ok` / `unverified` /
+  `MISMATCH`) and `unverified` never prints as `ok`.
+
+  First consumer: `check-test-binary-guards` against #906. Demonstrated red -
+  the control reports `BLIND` against the pre-fix gate (c6df826), `PASS` against
+  60f7242, and `BLIND` again on revert.
+
 - **2026-09-13 - `/qwen:auto` and `/gemma:auto` check that the model can be
   SERVED, not merely registered** (issue #895) - both preflights gated delegation
   on `GET /api/version` plus `GET /api/tags`. Those answer *is the daemon up* and

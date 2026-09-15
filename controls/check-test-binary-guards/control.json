@@ -1,0 +1,31 @@
+{
+  "gate": "scripts/check-test-binary-guards.py",
+  "invocation": [
+    "python3",
+    "{gate}",
+    "--root",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "cases": [
+    {
+      "name": "bad-direct-invocation",
+      "input": "cases/bad-direct-invocation",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-direct-invocation",
+      "input": "cases/good-direct-invocation",
+      "expect": "GOOD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "historical",
+      "sha": "c6df826",
+      "origin": "scripts/check-test-binary-guards.py",
+      "path": "anchors/c6df826-check-test-binary-guards.py",
+      "sha256": "041819ac9fca4a44ce9ffb8f17975e90e0785b7a7d0b49916b4da19a2a7d0400"
+    }
+  ]
+}

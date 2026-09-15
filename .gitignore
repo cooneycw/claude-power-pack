@@ -78,6 +78,13 @@ desktop.ini
 !plugins/**/.claude-plugin/plugin.json
 # Plugin-bundled hook configs (issue #479, Phase B3) - tracked despite *.json.
 !plugins/**/hooks/hooks.json
+# Negative-control manifests (issue #924) - tracked despite *.json above. A
+# control.json IS the executable half of a registration: without it the gate's
+# `#: NEGATIVE-CONTROL:` directive resolves to UNRESOLVED and the control never
+# runs. The blanket rule already swallowed one silently - `git add` no-ops on an
+# ignored path with no error - so the framework shipped with its only control
+# inert. The `*` glob covers the next consumer, not just the first.
+!controls/*/control.json
 node_modules/
 .claude/settings*.json
 .claude/plans/
