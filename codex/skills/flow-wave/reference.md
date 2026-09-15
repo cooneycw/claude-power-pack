@@ -186,7 +186,13 @@ addressable - but `ListAgents` still answers, with 49 names, every one of them a
 worker; it is populated entirely with peers that cannot be it. An orchestrator
 that treats a resolvable name as a reachable worker will send into that set and
 see `success=true`. For any containerised participant the mailbox is lane 1 and
-`SendMessage` is not a fallback at all.
+`SendMessage` is not a fallback at all. That isolation is a CHOSEN configuration,
+not a harness limit: kyle #1008 measured the socket bridge, found a shared
+directory lets any uid-1000 container delete a sibling's socket, and decided the
+substrate brokers the wake instead (2026-09-12). Do not share the socket or
+sessions mounts to "fix" it; `register.md` carries the decision, the measured
+`pidDomain` fact that would defeat the fix anyway, and where the remaining work
+lives.
 
 The lesson of 2026-08-11 is not the routing verdict, which expired. It is that
 this document stated a harness behaviour with no version attached, so nothing

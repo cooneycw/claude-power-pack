@@ -343,3 +343,77 @@ def test_both_surfaces_agree_on_the_container_lane_order() -> None:
         "an orchestrator reads wave.md and a worker reads register.md, so a split "
         "here routes the two ends differently"
     )
+
+
+def _container_boundary_block(section: str) -> str:
+    """The boundary paragraph group, from its bold heading to the next bold heading.
+
+    Anchored on the heading the paragraph introduces itself with, so the probes
+    below read THAT block and not the settings bullets further down, which also
+    happen to cite kyle #1008 and also contain the word "decision" - Codex's
+    review of the first version showed the whole-section search passing with the
+    decision paragraph deleted outright.
+
+    Terminated by the NEXT bold-led paragraph, whatever it says. The first version
+    named the hazard heading that happens to follow, so renaming that unrelated
+    section would have failed this test - a neighbour's change reading as ours,
+    which is the second detector question. The block owns its own start; its end
+    is "where the next block starts", not a particular neighbour.
+    """
+    match = re.search(
+        r"^\*\*The container boundary, stated here.*?(?=^\*\*[A-Z])",
+        section,
+        re.M | re.S,
+    )
+    assert match, "the container-boundary block has lost its heading or its terminator"
+    return match.group(0)
+
+
+def test_the_container_boundary_names_the_decision_it_rests_on() -> None:
+    """The isolation is a CHOSEN configuration; the paragraph must cite the choice.
+
+    Until 2026-09-15 the boundary paragraph read "not something a setting fixes,
+    no path between them" - a mechanism stated as a law. The owner objected that it
+    is a configuration outcome, and it is: kyle #1008 measured that the socket
+    directory bridges and then DECIDED (option b, the substrate brokers the wake;
+    pairwise mounts and a shared directory rejected) to keep containers unable to
+    reach each other. A reader who is not told that will file the same issue again
+    (CPP #945 was that reader), or worse, share the mount to "fix" it.
+
+    Two things must travel with the boundary: the decision it rests on, and the
+    one fact that makes the obvious fix not a fix even if the decision were
+    reversed - the session record's `pidDomain` differs inside a container, so a
+    shared records directory hands each side a pid it cannot verify. That fact is
+    a measurement and carries its date, IN THE PARAGRAPH THAT STATES IT: the first
+    version accepted any date within 600 characters, and the socket-mount
+    measurement two sentences away supplied one.
+
+    Conditional like the contested-mechanism probe: it fires only while the
+    section states a container boundary at all. It pins that the decision is
+    CITED, never what the decision is - reversing #1008 changes the citation,
+    not this test.
+
+    Verified non-vacuous, both halves separately: deleting the decision paragraph
+    fails the first assertion; deleting the date from the pidDomain paragraph
+    while leaving every other date in the block fails the last.
+    """
+    section = _delivery_section(REGISTER.read_text())
+    if not re.search(r"container boundary", section, re.I):
+        return
+    block = _container_boundary_block(section)
+    assert re.search(r"kyle ?#1008", block), (
+        "the container boundary is stated without the decision it rests on "
+        "(kyle #1008) - a reader will take a chosen isolation for a harness limit"
+    )
+    assert re.search(r"chosen|decided|decision", block, re.I), (
+        "the boundary names #1008 but never says the isolation was chosen"
+    )
+    paragraphs = [para for para in re.split(r"\n\s*\n", block) if "pidDomain" in para]
+    assert paragraphs, (
+        "the boundary does not record why sharing the records directory would "
+        "not verify peers anyway (the pidDomain field)"
+    )
+    assert any(re.search(r"2026-\d{2}-\d{2}", para) for para in paragraphs), (
+        "the pidDomain fact is stated without the date it was measured, in the "
+        "paragraph that states it"
+    )
