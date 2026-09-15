@@ -155,7 +155,7 @@ quietly re-framed afterwards:
 
 Neither tail of the acceptance ratio is actionable without the diversity number.
 
-### The first diversity reading, and the conditions it was taken under
+### Reading 1 (adversarial change): 13 of 16 red cases novel
 
 The first recorded run is this ADR's own change: **16 red cases proposed, 3
 already covered** by the implementer's tests. 81% novel.
@@ -177,6 +177,52 @@ If the counter-model were agreeing by shared corpus and shared conventions
 rather than reviewing, **this is the run where that would have shown.** It did
 not. A later reader comparing their own number against this one should know the
 baseline was set under those conditions, not on a routine change.
+
+### Reading 2 (ordinary change): 0 red cases, and 7 factual corrections
+
+The second recorded run is the **v8.0.0 release cut** (#938) - a version bump,
+about as ordinary a change as this repository produces, and deliberately chosen
+because Reading 1's conditions were adversarial.
+
+| | |
+|---|---|
+| red cases proposed | **0** |
+| red cases already covered | 0 |
+| findings accepted | 7 |
+| findings rejected | 0 |
+
+**The zero is a CONSIDERED zero, and that is the distinction this ADR asked
+for.** No instrument changed in a version bump, so no instrument needs a red
+case, and the reviewer said so in the prescribed words - *"None - no instrument
+changed."* A missing section and a reasoned zero are different facts; the
+receipt records the count, the transcript records that it was reached on
+purpose.
+
+**The value showed up somewhere else entirely.** All seven accepted findings
+were **false claims about the tree in the release notes** - a document meant to
+be read for the life of 8.x. Among them: a coverage fraction whose numerator was
+not a subset of its denominator; two figures presented as execution counts that
+are marker counts, restating this repository's own finding incorrectly; two
+wrong ADR merge dates; and a "ceiling" that the tree's own `secret-scan` control
+disproves.
+
+**So the two readings measure different things, and both are the stage working.**
+Reading 1 says the models fail independently on *implementation*. Reading 2 says
+that on a change with no implementation to review, the stage still caught seven
+assertions nobody would have re-derived. **A run that proposes zero red cases is
+not a run that found nothing**, and a stage judged only by its red-case count
+would have been switched off after this one.
+
+The conditions of Reading 2 are worth stating too, in the other direction: it
+was the PR where skipping the stage was most defensible - version-only, no code,
+already reviewed subject matter. That is exactly why it ran.
+
+Both readings are re-derivable from the committed receipts rather than from this
+paragraph:
+
+```bash
+jq -s 'map({issue, status, counts, red_cases})' docs/measurements/counter-model/*.json
+```
 
 ## Advisory on day one, with both triggers committed
 
