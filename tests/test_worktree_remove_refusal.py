@@ -347,6 +347,15 @@ def test_the_shipped_block_behaves_both_ways(
         helper.chmod(0o755)
 
     env = {"HOME": str(home), "PATH": "/usr/bin:/bin", "LC_ALL": "C"}
+    # The absence this test rests on (#933). The block under test must locate
+    # the helper through HOME; if `worktree-remove.sh` were also resolvable on
+    # the constructed PATH, the block could find it there and this would pass
+    # without ever exercising the HOME derivation it exists to prove.
+    # Keyed on env["PATH"] rather than the literal so the check follows the
+    # value actually used.
+    assert shutil.which(Path(HELPER_REL).name, path=env["PATH"]) is None, (
+        "the helper must not be reachable via PATH, or the HOME lookup is untested"
+    )
 
     # --- SHELL 1: cleanup. Only WORKTREE_PATH is supplied; MAIN_REPO must be
     # derived by the block itself from the cwd.
@@ -405,6 +414,15 @@ def test_a_concurrent_run_does_not_erase_a_pending_refusal(tmp_path: Path) -> No
     (home / ".claude" / "scripts").mkdir(parents=True)
     main_repo = _fake_repo(tmp_path)
     env = {"HOME": str(home), "PATH": "/usr/bin:/bin", "LC_ALL": "C"}
+    # The absence this test rests on (#933). The block under test must locate
+    # the helper through HOME; if `worktree-remove.sh` were also resolvable on
+    # the constructed PATH, the block could find it there and this would pass
+    # without ever exercising the HOME derivation it exists to prove.
+    # Keyed on env["PATH"] rather than the literal so the check follows the
+    # value actually used.
+    assert shutil.which(Path(HELPER_REL).name, path=env["PATH"]) is None, (
+        "the helper must not be reachable via PATH, or the HOME lookup is untested"
+    )
     marker_dir = main_repo / ".git" / "flow-cleanup-refused.d"
 
     for name in ("repo-issue-1-a", "repo-issue-2-b"):

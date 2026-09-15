@@ -315,6 +315,13 @@ def path_without_curl(tmp_path):
 
 
 def _run_without_curl(path_without_curl, tmp_path):
+    # Asserted here, not only in the fixture (#933). `shutil.which` rather than
+    # `.exists()` on purpose: a file that is present but not executable, or a
+    # PATH assembled with the wrong separator, passes an existence check and
+    # fails a lookup - and it is the LOOKUP the helper under test performs.
+    assert shutil.which("curl", path=str(path_without_curl)) is None, (
+        "fixture must lack curl or this proves nothing about the unperformable case"
+    )
     return subprocess.run(
         [str(HELPER), "--endpoint", "http://127.0.0.1:1", "--model", "m"],
         capture_output=True, text=True, timeout=60,
@@ -778,6 +785,13 @@ def fixed_clock(tmp_path):
     shim.chmod(0o755)
 
     assert (bin_dir / "bash").exists(), "the shim needs bash or the helper cannot start"
+    # The positive half: `date` must RESOLVE to this shim on the constructed
+    # PATH. Asserting the file exists would not say that - a real `date` earlier
+    # on the path would win the lookup and every age below would be measured
+    # against the wall clock while this fixture looked healthy.
+    assert shutil.which("date", path=str(bin_dir)) == str(shim), (
+        "the frozen clock must be the `date` that resolves, not merely present"
+    )
     result = subprocess.run(
         [str(shim), "+%s"], capture_output=True, text=True, timeout=10,
         env={"PATH": str(bin_dir)},
@@ -791,6 +805,12 @@ def fixed_clock(tmp_path):
 
 def run_age_at(clock_bin, age_seconds: int, recorded: str = "serving", *extra: str):
     """Age mode against the frozen clock, so `age_seconds` is EXACT."""
+    # Without this, a caller passing the wrong directory silently measures
+    # against the real clock and the exact-age assertions become a race again -
+    # the flake this fixture exists to remove, reintroduced invisibly (#933).
+    assert shutil.which("date", path=str(clock_bin)) is not None, (
+        "the frozen clock must resolve on the PATH this run will use"
+    )
     return subprocess.run(
         [str(HELPER), "--check-age", str(FROZEN_NOW - age_seconds),
          "--recorded", recorded, "--quiet", *extra],
@@ -1028,6 +1048,9 @@ def test_a_host_without_a_clock_cannot_call_anything_fresh(path_without_date, tm
     every recording look ancient - or to let the subtraction produce an empty
     value that compares as fresh. Neither is an observation.
     """
+    assert shutil.which("date", path=str(path_without_date)) is None, (
+        "fixture must lack date, or `unknown` below is produced by something else"
+    )
     result = subprocess.run(
         [str(HELPER), "--check-age", "1789000000", "--recorded", "serving", "--quiet"],
         capture_output=True, text=True, timeout=60,

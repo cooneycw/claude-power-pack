@@ -28,11 +28,23 @@ The shipped fixture is the shape this gate looks for::
 
 What counts as a negative-condition fixture
 -------------------------------------------
-A function that REPLACES ``PATH`` wholesale - ``env["PATH"] = str(stub)``,
-``os.environ["PATH"] = ""``, ``monkeypatch.setenv("PATH", x)`` - where the new
-value does not derive from the existing ``PATH``. Replacing the search path is
-how a test makes a *tool* absent, and it is the one shape of "constructed
-absence" that is statically visible.
+A function that REPLACES ``PATH`` wholesale, where the new value does not
+derive from the existing ``PATH``. Three syntactic shapes, all equally visible
+to a parser:
+
+- ``env["PATH"] = str(stub)`` / ``os.environ["PATH"] = ""`` - subscript assign
+- ``monkeypatch.setenv("PATH", x)``
+- ``subprocess.run(..., env={"PATH": str(stub)})`` - a DICT LITERAL carrying a
+  ``PATH`` key, added for issue #933
+
+Replacing the search path is how a test makes a *tool* absent, and these are
+the shapes of "constructed absence" that are statically visible.
+
+The dict literal was missing until #933 and is the reason this gate's success
+message used to overclaim past its own stated scope. Six live sites used it,
+two of them fail-open tests of the exact #695 class this gate was built from -
+a blind spot inside the shape the gate already claimed to cover, not one of the
+acknowledged out-of-scope shapes below.
 
 What is deliberately NOT flagged
 --------------------------------
@@ -58,7 +70,16 @@ so. Two known limits, both deliberate:
 - the precondition assertion must live in the SAME function as the
   replacement; one lifted into a helper reads as missing here,
 - assertion ORDER is not checked - presence is. A precondition asserted after
-  the exercise still satisfies this gate, though not the directive's intent.
+  the exercise still satisfies this gate, though not the directive's intent,
+- only an assertion whose test CALLS ``which`` counts. ``assert not
+  (bindir / "curl").exists()`` does not satisfy this gate, and deliberately so:
+  a file that exists but is not executable, or a PATH assembled with the wrong
+  separator, passes an existence check and fails a lookup. The gate wants the
+  lookup.
+
+Both limits are now STATED IN THE SUCCESS MESSAGE rather than only here (#933).
+A scope that lives only in a docstring is a scope the reader of the green line
+never sees.
 
 Escape hatch: ``# negative-fixture: allow <reason>`` on the ``def`` line, the
 assignment line, or the line above it.
@@ -84,6 +105,8 @@ from pathlib import Path
 #: Deliberately just PATH: replacing HOME or a config var wholesale is ordinary
 #: test setup, not a constructed negative condition, and flagging it would be
 #: exactly the over-application issue #697 warns against.
+#: NEGATIVE-CONTROL: controls/check-negative-fixture-preconditions
+
 TARGET_ENV_VAR = "PATH"
 
 ALLOW_RE = re.compile(r"#\s*negative-fixture:\s*allow\b")
@@ -157,26 +180,65 @@ def _reads_target_var(node: ast.expr) -> bool:
     return False
 
 
-def _replacement_lineno(stmt: ast.stmt) -> int | None:
-    """The line at which ``stmt`` replaces the target var wholesale, else None.
+def _statement_sites(stmt: ast.stmt) -> list[int]:
+    """EVERY line at which ``stmt`` replaces the target var wholesale.
+
+    A list, not a single line (#933, found by review). `envs = [{"PATH": "/a"},
+    {"PATH": "/b"}]` is one statement carrying two replacements; returning the
+    first meant the denominator undercounted, and - worse - an ``allow`` comment
+    on the first line could suppress the statement while the second replacement
+    vanished from the population entirely.
 
     Covers both idioms in this suite:
       - ``env["PATH"] = <value>`` / ``os.environ["PATH"] = <value>``
       - ``monkeypatch.setenv("PATH", <value>)``
     """
+    sites: list[int] = []
+
     if isinstance(stmt, ast.Assign):
         for target in stmt.targets:
             if isinstance(target, ast.Subscript) and _subscript_key(target) == TARGET_ENV_VAR:
                 if not _reads_target_var(stmt.value):
-                    return target.lineno
-        return None
+                    sites.append(target.lineno)
+        # No `return None` here. `env = {"PATH": str(stub)}` is an Assign whose
+        # target is a plain Name, so an early return on this branch would skip
+        # the dict-literal scan below for that statement.
+        #
+        # MEASURED CORRECTION (#933): restoring the early return changes no
+        # verdict, because `_function_sites` walks with `ast.walk(func)` and a
+        # FunctionDef IS an `ast.stmt` - so the function node itself reaches the
+        # dict scan and finds every dict in the body anyway. A mutation proved
+        # that; the first draft of this comment asserted the removal was
+        # load-bearing and it is not. It stays out because relying on the
+        # FunctionDef-as-statement coincidence is a worse thing to depend on
+        # than an explicit fall-through, but the honest claim is redundancy,
+        # not necessity.
 
     if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call):
         call = stmt.value
         if _dotted(call.func).rsplit(".", 1)[-1] == "setenv" and len(call.args) >= 2:
             if _literal_str(call.args[0]) == TARGET_ENV_VAR and not _reads_target_var(call.args[1]):
-                return call.lineno
-    return None
+                sites.append(call.lineno)
+
+    # A dict literal carrying PATH, in ANY statement shape - passed inline to
+    # subprocess.run, assigned, returned. The derived test is the same one the
+    # other shapes use, so `{"PATH": f"{stub}:{env['PATH']}"}` stays a prepend
+    # and is still never flagged.
+    for node in ast.walk(stmt):
+        if not isinstance(node, ast.Dict):
+            continue
+        for key, value in zip(node.keys, node.values):
+            # `key is None` is the `{**base, ...}` unpacking entry, which has a
+            # value and no key. It is not a PATH write in its own right - what
+            # `base` contains is not statically knowable - so it is skipped, and
+            # an explicit `"PATH":` entry in the same literal is still caught on
+            # its own iteration. mypy found this: `_literal_str` tolerates None,
+            # `key.lineno` does not.
+            if key is None:
+                continue
+            if _literal_str(key) == TARGET_ENV_VAR and not _reads_target_var(value):
+                sites.append(key.lineno)
+    return sites
 
 
 def _has_precondition_assert(func: ast.AST) -> bool:
@@ -218,23 +280,93 @@ def _nested_function_linenos(func: FunctionDef) -> set[int]:
     return lines
 
 
-def _check_function(path: Path, func: FunctionDef, allow_lines: set[int]) -> Finding | None:
+def _function_sites(func: FunctionDef, allow_lines: set[int]) -> list[int]:
+    """Every wholesale replacement line in ``func`` - the inspected population.
+
+    Split out of ``_check_function`` (#933) so the count the success message
+    reports and the findings it reports come from ONE walk. A second traversal
+    written to produce the denominator would be a second population to keep in
+    sync, which is the #840 lesson one level up: the number would drift from the
+    verdict and both would stay green.
+    """
     if func.lineno in allow_lines:
-        return None
+        return []
 
     nested = _nested_function_linenos(func)
+
+    # Pass 1: every replacement line, BEFORE any exclusion. The allow-hatch
+    # below needs to know whether the preceding line is itself a replacement,
+    # which cannot be decided while still discovering them.
+    raw: list[int] = []
     for stmt in ast.walk(func):
         if not isinstance(stmt, ast.stmt):
             continue
-        lineno = _replacement_lineno(stmt)
-        if lineno is None or lineno in nested:
+        for lineno in _statement_sites(stmt):
+            if lineno in nested:
+                continue
+            if lineno not in raw:
+                raw.append(lineno)
+
+    # Pass 2: apply the escape hatch.
+    sites: list[int] = []
+    for lineno in raw:
+        if lineno in allow_lines:
             continue
-        if lineno in allow_lines or (lineno - 1) in allow_lines:
+        # `# negative-fixture: allow` is also honoured on the line ABOVE, so the
+        # comment can sit on its own line. That allowance must NOT fire when the
+        # line above is another replacement (#933, found by review): an allow on
+        # one site was silently deleting its NEIGHBOUR from the population - not
+        # merely unreporting it, but removing it from the denominator, so the
+        # gate printed "0 replacements" for a file holding two. A hatch that
+        # suppresses a site nobody exempted is the overclaim this change exists
+        # to remove, arriving through the exemption mechanism instead.
+        if (lineno - 1) in allow_lines and (lineno - 1) not in raw:
             continue
-        if _has_precondition_assert(func):
-            return None
-        return Finding(path=path, lineno=func.lineno, func=func.name, assign_lineno=lineno)
-    return None
+        sites.append(lineno)
+    return sorted(sites)
+
+
+def _check_function(path: Path, func: FunctionDef, allow_lines: set[int]) -> Finding | None:
+    sites = _function_sites(func, allow_lines)
+    if not sites:
+        return None
+    if _has_precondition_assert(func):
+        return None
+    return Finding(path=path, lineno=func.lineno, func=func.name, assign_lineno=sites[0])
+
+
+@dataclass(frozen=True)
+class Survey:
+    """What the gate INSPECTED, alongside what it found (issue #933).
+
+    The success message used to read "every constructed absence asserts its
+    precondition". "Every" is a claim about a class; this gate inspects three
+    syntactic shapes of one of them. A reader had no way to tell a green that
+    means "I looked at eight sites and all eight assert" from a green that
+    means "I could not see any of them", and those are different facts -
+    detector-contracts.md question 1, on this gate's own output.
+
+    So the denominator ships with the verdict. Counted from the same walk that
+    produces the findings, never a second traversal.
+    """
+
+    files_scanned: int
+    sites: int
+    unasserted_sites: int
+    files_with_sites: int
+    findings: list[Finding]
+
+
+#: What this gate cannot see. Named in the OUTPUT, not only in the docstring:
+#: a scope that lives only in the source is a scope the reader of the green
+#: line never encounters.
+NOT_INSPECTED = (
+    "absences built by chmod, a stub's exit status, a container image or "
+    "import patching; an assertion lifted into a fixture; assertion ORDER; "
+    "WHICH path an assertion covers - one `which` assert clears every "
+    "replacement in its function; and two replacements on ONE source line "
+    "count as one, because a site is identified by its line"
+)
 
 
 def _check_module(path: Path, source: str) -> list[Finding]:
@@ -256,12 +388,50 @@ def _check_module(path: Path, source: str) -> list[Finding]:
     return findings
 
 
+def survey_paths(paths: list[Path]) -> Survey:
+    """Findings AND the population they were drawn from, from one traversal."""
+    findings: list[Finding] = []
+    sites = 0
+    unasserted = 0
+    files_with_sites = 0
+    for path in sorted(paths):
+        source = path.read_text(encoding="utf-8")
+        findings.extend(_check_module(path, source))
+
+        tree = ast.parse(source)
+        allow_lines = {
+            i for i, line in enumerate(source.splitlines(), start=1) if ALLOW_RE.search(line)
+        }
+        module_sites = 0
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            func_sites = _function_sites(node, allow_lines)
+            module_sites += len(func_sites)
+            # The numerator must be in the same UNIT as the denominator (#933,
+            # found by review). `len(findings)` counts FUNCTIONS - one finding
+            # per function however many replacements it holds - so "1 of 2" was
+            # reported for a function whose two replacements BOTH lacked an
+            # assertion. A ratio whose halves count different things is a
+            # specific, checkable-looking number that is wrong.
+            if func_sites and not _has_precondition_assert(node):
+                unasserted += len(func_sites)
+        sites += module_sites
+        if module_sites:
+            files_with_sites += 1
+
+    return Survey(
+        files_scanned=len(paths),
+        sites=sites,
+        unasserted_sites=unasserted,
+        files_with_sites=files_with_sites,
+        findings=sorted(findings, key=lambda f: (str(f.path), f.assign_lineno)),
+    )
+
+
 def check_paths(paths: list[Path]) -> list[Finding]:
     """Check the given test modules; returns findings sorted by location."""
-    findings: list[Finding] = []
-    for path in sorted(paths):
-        findings.extend(_check_module(path, path.read_text(encoding="utf-8")))
-    return sorted(findings, key=lambda f: (str(f.path), f.assign_lineno))
+    return survey_paths(paths).findings
 
 
 def test_files(tests_dir: Path) -> list[Path]:
@@ -308,12 +478,31 @@ def main(argv: list[str] | None = None) -> int:
         print(f"negative-fixture: tests/ under {root} contains no test files - nothing was scanned")
         return 1
 
-    findings = check_paths(paths)
+    survey = survey_paths(paths)
+    findings = survey.findings
     if not findings:
-        print("negative-fixture: ok - every constructed absence asserts its precondition")
+        # The denominator, not a quantifier (#933, the #952 form). "every" was a
+        # claim about a class this gate inspects three syntactic shapes of; a
+        # reader could not tell "eight sites, all assert" from "I saw none".
+        # "assert their precondition" was itself an overclaim (#933, found by
+        # review). The gate knows only that the ENCLOSING FUNCTION contains a
+        # `which` assertion; it does not check that the assertion covers the
+        # path this replacement built. Two replacements and one assertion read
+        # as both asserted. So the message says what was actually established.
+        print(
+            f"negative-fixture: ok - {survey.sites} wholesale {TARGET_ENV_VAR} "
+            f"replacement(s) in {survey.files_with_sites} of {survey.files_scanned} "
+            f"test file(s) are in functions that assert a precondition"
+        )
+        print(f"  not inspected: {NOT_INSPECTED}")
         return 0
 
-    print(f"negative-fixture: {len(findings)} unasserted precondition(s)\n")
+    print(
+        f"negative-fixture: {survey.unasserted_sites} of {survey.sites} wholesale "
+        f"{TARGET_ENV_VAR} replacement(s) lack a precondition assertion, in "
+        f"{len(findings)} function(s) "
+        f"({survey.files_scanned} test file(s) scanned)\n"
+    )
     for finding in findings:
         print(f"  {finding.render(root)}")
     print(
