@@ -85,8 +85,9 @@ claude-power-pack/
   woodpecker/           Woodpecker CI server + agent deployment configs
   templates/            Makefile, workflow, and container templates
   scripts/              Shell utilities
+  controls/             Registered negative controls: per-gate fixtures + blind anchors (#924)
   tests/                Unit tests
-  .woodpecker.yml       CI pipeline (secret-scan, lint, test, typecheck, drift gates, Dockerfile lint)
+  .woodpecker.yml       CI pipeline (secret-scan, lint, test, typecheck, drift gates, negative controls, Dockerfile lint)
   Makefile              Build interface for all operations
 ```
 
@@ -127,6 +128,7 @@ Woodpecker CI runs on every push and PR via a self-hosted agent:
 
 - **Secret scan:** gitleaks over the tree before anything else runs
 - **Validate:** lint (ruff) + test (pytest) + typecheck (mypy) in a single consolidated step
+- **Negative controls:** every registered gate must still report BAD on its known-bad fixture and GOOD on its known-good one, and each control must be demonstrated against a vendored anchor that MISSES the known-bad input - a control with no anchor is `UNPROVEN` and fails the step (#924)
 - **Dockerfile lint:** hadolint over any remaining Dockerfile
 - **CI verification:** `flow:auto` polls the Woodpecker API after merge to confirm the pipeline passes
 
