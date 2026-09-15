@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Extensionless on purpose: this is the shape `scripts/cpp-memory` has, and the
+# shape every `*.sh` glob is blind to. The SC1087 below is error severity.
+set -eu
+prefix=build
+echo "$prefix[release]"

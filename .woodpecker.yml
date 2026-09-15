@@ -22,11 +22,15 @@ steps:
 
   validate:
     image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
-    depends_on: [secret-scan]
+    depends_on: [secret-scan, shellcheck]
     commands:
       - uv sync --extra dev --frozen
       - uv run ruff check .
-      - uv run pytest
+      # `.ci-bin` carries the pinned shellcheck staged by the shellcheck step.
+      # test_the_real_control_discriminates_and_its_anchor_is_blind drives the
+      # WHOLE control register, so this image needs every registered control's
+      # tool - not just the ones whose own step happens to run here (#960).
+      - PATH="$PWD/.ci-bin:$PATH" uv run pytest
       - uv run mypy .
 
   # Explicit Codex-skill drift gate (issue #556): the pytest suite already checks
@@ -108,9 +112,31 @@ steps:
   # byte-verified against git history on a dev box and in the pre-push hook.
   negative-controls:
     image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
+    depends_on: [secret-scan, shellcheck]
+    commands:
+      # `.ci-bin` carries the PINNED shellcheck staged by the shellcheck step.
+      # The harness refuses to SKIP a control it cannot run - it reports
+      # UNSIGNALLED and fails - so a registered control's tool must be present
+      # HERE, not merely somewhere in the pipeline.
+      - PATH="$PWD/.ci-bin:$PATH" python3 scripts/check-negative-controls.py --strict
+
+  shellcheck:
+    image: koalaman/shellcheck-alpine:v0.10.0@sha256:5921d946dac740cbeec2fb1c898747b6105e585130cc7f0602eec9a10f7ddb63
+    pull: true
     depends_on: [secret-scan]
     commands:
-      - python3 scripts/check-negative-controls.py --strict
+      # The gate derives its own file list and prints the denominator it
+      # examined. This image has no git, so it falls back to a pruned find and
+      # says `source=find` - which is also the blind spot worth naming: a CI
+      # clone has no untracked files, so untracked scripts are visible ONLY to
+      # `make shellcheck` locally. Neither surface sees the whole universe.
+      # Stage the PINNED binary into the shared workspace so the
+      # negative-controls step exercises this control with the SAME shellcheck
+      # this step ran. apt in that image supplies 0.9.0; running the gate under
+      # two different linters would make the control's verdict depend on which
+      # container reached it.
+      - mkdir -p .ci-bin && cp /bin/shellcheck .ci-bin/shellcheck
+      - sh scripts/shellcheck-gate.sh
 
   dockerfile-lint:
     image: ghcr.io/hadolint/hadolint:v2.14.0-debian

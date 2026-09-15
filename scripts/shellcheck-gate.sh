@@ -5,6 +5,8 @@
 # find and the linter itself, but NO bash and NO git. (A comment opening with
 # the literal word after '#' would be parsed as a directive - hence the wording.)
 #
+#: NEGATIVE-CONTROL: controls/shellcheck-gate
+#
 # CONTRACT
 #   exit 0  every examined file clean at SEVERITY; prints the denominator
 #   exit 1  findings at SEVERITY  (linter exit 1 ONLY)
@@ -13,6 +15,15 @@
 # The success line always names what was examined and how it was derived, per
 # #952 as amended: a zero is a denominator and reads UNKNOWN unless the
 # instrument can show it was looking in the right place.
+#
+# MEMBERSHIP IS DERIVED, NOT GLOBBED. Two universe errors are live here:
+#   - extension-only misses `scripts/cpp-memory`, a tracked bash script with no
+#     .sh suffix. Every `*.sh` glob is blind to it.
+#   - tracked-only misses untracked scripts. Those exist in a working checkout
+#     and never in a fresh worktree or CI clone, so that blind spot belongs to
+#     CI and is only visible locally.
+# So: prefer git (tracked PLUS untracked-not-ignored) and fall back to a pruned
+# find where git is absent, and say which was used.
 #
 # EVERY PATH IS CARRIED NUL-DELIMITED and held in the positional parameters, so
 # a filename containing a space, a tab or a glob character is one argument and
@@ -41,19 +52,38 @@ unknown() {
 [ -d "$ROOT" ] || unknown "root '$ROOT' is not a directory."
 command -v shellcheck >/dev/null 2>&1 || unknown "shellcheck is not installed, so nothing was examined."
 
-# --- derive the candidate set -------------------------------------------------
+# --- derive the candidate set, NUL-delimited ----------------------------------
+# An enumeration that fails PARTWAY yields a short list and a clean verdict, so
+# its exit status is checked rather than assumed.
 CAND="${TMPDIR:-/tmp}/shellcheck-gate.$$"
 trap 'rm -f "$CAND"' EXIT INT TERM
 
-# #960 states the population as "96 tracked .sh files" and offers "scan the
-# working tree" as the alternative, so this globs the working tree for *.sh.
-SOURCE="find-glob"
-( cd "$ROOT" && find . \
-    \( -name .git -o -name .venv -o -name node_modules \) -prune -o \
-    -name '*.sh' -type f -print0 ) > "$CAND" \
-    || unknown "find enumeration failed; the file list is incomplete."
+if command -v git >/dev/null 2>&1 && git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+    SOURCE="git"
+    git -C "$ROOT" ls-files -z --cached --others --exclude-standard > "$CAND" \
+        || unknown "git enumeration failed; the file list is incomplete."
+else
+    SOURCE="find"
+    # The prune list is the OWNERSHIP BOUNDARY: a nested checkout or an installed
+    # dependency is not this repository's code to lint, and answers its own
+    # linting question through its own gate.
+    ( cd "$ROOT" && find . \
+        \( -name .git -o -name .venv -o -name venv -o -name node_modules \
+           -o -name .mypy_cache -o -name .tox -o -name .worktrees \
+           -o -name site-packages -o -name vendor \) -prune -o \
+        -type f -print0 ) > "$CAND" \
+        || unknown "find enumeration failed; the file list is incomplete."
+fi
 
-# --- collect ------------------------------------------------------------------
+# A path containing a NEWLINE cannot survive the NUL-to-newline conversion the
+# read loop below needs, and POSIX sh has no NUL-safe read. Silently mangling one
+# would BOTH skip that file and double-count a same-named neighbour, so detect the
+# case and refuse. Comparing the NUL count against the line count is exact.
+NULS=$(tr -cd '\0' < "$CAND" | wc -c | tr -d ' ')
+LINES=$(tr '\0' '\n' < "$CAND" | grep -c '' || true)
+[ "$NULS" = "$LINES" ] || unknown "a path contains a newline ($LINES lines vs $NULS entries); this gate cannot enumerate it safely."
+
+# --- filter to shell: extension OR interpreter --------------------------------
 set --
 COUNT=0
 while IFS= read -r f <&3; do
@@ -61,10 +91,41 @@ while IFS= read -r f <&3; do
     f="${f#./}"
     [ -f "$ROOT/$f" ] || continue
     case "$f" in
-        controls/*/cases/*) continue ;;
-        controls/*/anchors/*) continue ;;
+        controls/*/cases/*) continue ;;    # deliberately-bad fixtures, linted by the control itself
+        controls/*/anchors/*) continue ;;  # frozen byte-identical history; its sha256 IS the provenance
     esac
-    set -- "$@" "$f"; COUNT=$((COUNT + 1))
+    case "$f" in
+        *.sh) set -- "$@" "$f"; COUNT=$((COUNT + 1)); continue ;;
+    esac
+    # Extensionless shell scripts are real here. Identify the INTERPRETER rather
+    # than accepting any shebang ending in "sh" - `wish` and `osascript` do too.
+    # An UNREADABLE file is not a non-shell file. Distinguish it from an empty
+    # one: a failed open means the population was not fully classified.
+    [ -r "$ROOT/$f" ] || unknown "cannot read '$f'; the population was not fully classified."
+    shebang=""
+    IFS= read -r shebang < "$ROOT/$f" 2>/dev/null || true
+    case "$shebang" in '#!'*) ;; *) continue ;; esac
+    interp=$(printf '%s' "$shebang" | sed -e 's|^#!*[[:space:]]*||' -e 's|[[:space:]].*$||')
+    case "${interp##*/}" in
+        env)
+            # `env` may carry options before the interpreter; `-S "bash -eu"` is
+            # the common one. Strip leading option words, then take the first
+            # remaining token as the interpreter.
+            rest=$(printf '%s' "$shebang" | sed -e 's|^#!*[[:space:]]*[^[:space:]]*env[[:space:]][[:space:]]*||')
+            rest=$(printf '%s' "$rest" | sed -e 's|^-S[[:space:]]*||' -e 's|^--split-string[= ]*||')
+            while :; do
+                case "$rest" in
+                    -*) rest=$(printf '%s' "$rest" | sed -e 's|^[^[:space:]]*[[:space:]]*||') ;;
+                    *) break ;;
+                esac
+                [ -n "$rest" ] || break
+            done
+            interp=$(printf '%s' "$rest" | sed -e "s|^[\"']||" -e 's|[[:space:]].*$||')
+            ;;
+    esac
+    case "${interp##*/}" in
+        sh|bash|dash|ksh|ksh93|mksh|zsh|ash|busybox) set -- "$@" "$f"; COUNT=$((COUNT + 1)) ;;
+    esac
 done 3<<EOF
 $(tr '\0' '\n' < "$CAND")
 EOF

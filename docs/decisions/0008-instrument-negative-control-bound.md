@@ -149,6 +149,16 @@ another repo (the escalation clause); a row can be both.
 
 ### Captured
 
+> **Row count versus the prose figures.** The original census enumerated **61**
+> instruments, and every count in the analysis below ("twenty-five of the 61",
+> "nine are library entry points", "which of the 61 have a control") is a
+> statement about that census. Row 62 was appended by #960 when `shellcheck` was
+> adopted. The prose figures are deliberately NOT renumbered: they are analyses
+> of the original 61, and incrementing them would silently restate conclusions
+> nobody re-derived - `shellcheck-gate.sh` is not a lifecycle helper and does not
+> belong to any of the groupings those sentences describe. A row added later is
+> appended and noted here; the census figures stay attached to the census.
+
 | # | instrument | verdict | consumed by, without re-derivation | class |
 |---|---|---|---|---|
 | 1 | `flow-finish-gate.sh` + `lib.cicd run` / `resume` | `FLOW_FINISH_GATE: ok\|warn\|fail` | the Step-6 commit, push and PR; the Step-7 re-gate; the same gate in kyle and CxPP | G, X |
@@ -212,6 +222,94 @@ another repo (the escalation clause); a row can be both.
 | 59 | `lib.cicd verify` | baseline and `proceed\|rollback` | `/cicd:verify` and `/flow:auto` Step 9 in any repo (#603: CPP cannot dogfood it) | X |
 | 60 | `lib.security scan` / `quick` / `deep` | findings by severity | `/security:*` in any repo | X |
 | 61 | `lib.security gate` (quick scan only) | two policies: `flow_finish` blocks CRITICAL and warns HIGH; `flow_deploy` blocks CRITICAL and HIGH and warns MEDIUM (`lib/security/config.py`) | `/flow:finish` and `/flow:deploy` in any repo; a control has to cover the HIGH case that passes finish and blocks deploy | G, X |
+| 62 | `shellcheck-gate.sh` (`make shellcheck`, CI `shellcheck`) | `shellcheck-gate: ok - N file(s) scanned at severity=S, 0 findings (source=git\|find)`, or non-zero; `UNKNOWN` (exit 2) when it could not look | `make verify` and the CI pipeline, which let work through on its verdict (#960) | G |
+
+### A control must be valid WHERE THE HARNESS RUNS (#960, #964)
+
+A control is not a file; it is a thing that executes. So its dependencies have to
+be satisfied **in the environment the harness runs in**, not merely in the
+environment its own subject runs in. `check-negative-controls.py` deliberately
+refuses a SKIP concept - a registration it cannot exercise reports `UNRESOLVED`
+or `UNSIGNALLED` and fails, rather than passing quietly - so an unsatisfiable
+dependency is a red, and correctly so.
+
+**Dependency means environment, not just image.** All of these are dependencies,
+and each can be present on the author's machine and absent where the verdict is
+consumed:
+
+- a **binary** the gate shells out to (#960: the negative-controls step runs in
+  the `uv` image, which has no `shellcheck`, so the control reported
+  `UNSIGNALLED` while the author's box passed with the tool on `PATH` from a
+  scratch directory);
+- a **tracked file** the control reads (#964: a control was green locally and
+  BLIND in a clean clone, because its nested manifests fell outside a
+  one-level-deep `.gitignore` negation and were never committed);
+- a **tool the gate itself needs to enumerate**, such as `git`, which is absent
+  from the CI image by design.
+
+Two independent derivations reached this within an hour, from different tickets
+and different mechanisms, neither aware of the other. That is the reason it is a
+clause here rather than a note in a CI file: the common factor is not the image
+or the gitignore, it is that **the control was verified somewhere other than
+where it gates.**
+
+Practical consequences:
+
+- Enumerate every registered control's dependencies against **each** image that
+  runs the harness. In this repo that is more than one step: the dedicated
+  negative-controls step AND `validate`, whose pytest suite drives the whole
+  register.
+- Where a tool must be shared across steps, stage **one pinned copy** rather than
+  installing per-step. `apt` in the `uv` image supplies shellcheck 0.9.0 against
+  the 0.10.0 pinned for the gate, and one gate running under two linters makes
+  the control's verdict depend on which container reached it.
+- A local green says the control works **here**. Only a run in the harness's own
+  environment says it works where its verdict is read.
+
+### Adopting a third-party linter as an instrument (#960, and the pattern #961/#962 inherit)
+
+`shellcheck` was the first standard tool adopted under this ADR. The shape it
+settled, stated here because `pip-audit` (#961) and `bandit` (#962) are the same
+ticket with a different binary:
+
+- **Derive the file population; never glob it.** `git ls-files '*.sh'` misses
+  `scripts/cpp-memory`, a tracked bash script with no suffix, and a tracked-only
+  list misses untracked files entirely. Filter on extension OR content, and
+  report which derivation ran.
+- **Print the denominator on every run, including the clean one.** `0 findings`
+  is only meaningful beside `N examined`. A zero-file scan is `UNKNOWN`.
+- **A missing binary is `UNKNOWN` and exits non-zero, never a pass.** The
+  tempting `command -v <tool> || exit 0` goes green on every machine that lacks
+  the tool, which is the dormant-instrument failure this ADR exists to prevent.
+- **Suppressions are visible or they do not happen.** Adopt at a severity the
+  tree can actually hold, and record the findings below that severity as a
+  counted residual with a filed issue. A disabled check is invisible; an issue
+  is not. `shellcheck` shipped with **zero** suppressions and no `.shellcheckrc`
+  at all - the day one is needed, the file appears with the reason in the same
+  commit.
+- **An anchor for a BRAND NEW gate cannot be historical on main, and that is
+  accepted rather than worked around.** A control for a pre-existing gate anchors
+  to a real commit in main's history (row 1's `c6df826` does). A gate introduced
+  by its own PR has no such ancestor: its anchor commit lives on the branch, and
+  squash-merging orphans it, so `--verify-provenance` will read `unverified`
+  permanently. This costs nothing operationally - the operative check is the
+  sha256 of the vendored anchor, which is git-independent, and CI deliberately
+  runs `--strict` WITHOUT `--verify-provenance` because git is not in the CI
+  image. What it costs is the distinction: `unverified` then means "unresolvable
+  anywhere, forever" rather than the ordinary "git is absent here", and nothing
+  in the output separates those two causes. Record the terminal cause in the
+  anchor entry so a reader chasing it does not hunt for an object that was never
+  going to exist. **Integrity is established; historicity is not.**
+  - *What would move this back (#936):* if provenance ever becomes CI-checked, or
+    an audit needs to establish historicity rather than integrity, then landing
+    the naive implementation as its own merged PR and anchoring to ITS squash
+    commit becomes correct, and this ruling should be revisited. Named here so
+    #961 and #962 inherit the decision rather than re-litigating it.
+- **Excluding a fixture DIRECTORY is not suppressing a check.** The gate skips
+  `controls/*/cases/**` (deliberately-bad inputs, still linted by the control
+  itself with `--root`) and `controls/*/anchors/**` (frozen byte-identical
+  historical copies whose sha256 is the provenance - editing one to satisfy a
+  linter destroys what the control rests on).
 
 ### Excluded, with the reason
 

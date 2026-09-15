@@ -410,7 +410,7 @@ parse_ledger() { # parse_ledger LINENO BLOCK_START
   block="$(lower "$(block_lines "$start")")"
   local sect
   for sect in delivered in-scope residual; do
-    printf '%s\n' "$block" | grep -Eq "^[[:space:]]*[-*]?[[:space:]]*$sect[[:space:]]*:" || missing="$missing $sect"
+    printf '%s\n' "$block" | grep -Eq "^[[:space:]]*[-*]?[[:space:]]*${sect}[[:space:]]*:" || missing="$missing $sect"
   done
   missing="$(trim "$missing")"
   if [ -n "$missing" ]; then

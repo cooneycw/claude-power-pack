@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Same shape as the bad case - extensionless, discovered only by shebang - but
+# with the braces shellcheck asks for. Proves the gate is not wedged at "fail".
+set -eu
+prefix=build
+echo "${prefix}[release]"
