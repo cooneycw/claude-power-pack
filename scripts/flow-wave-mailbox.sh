@@ -1434,8 +1434,33 @@ watcher_roles_ps_fallback() {
     matched_pids="$matched_pids$pid "
     records+=("$pid $ppid $found_role")
   done <<EOF
-$(ps -eo pid,ppid,args --no-headers 2>/dev/null)
+$(ps -ww -eo pid,ppid,args --no-headers 2>/dev/null)
 EOF
+  # -ww is load-bearing, not tidiness (issue #904). Without it `ps` caps every
+  # line at the terminal width - or at \$COLUMNS, which is SET AND EXPORTED in a
+  # Claude Code session (120 here). A watcher's argv carries the absolute path of
+  # this script, so whether the `--role` and `--wave` fields survive the cut
+  # depends on HOW LONG THE CHECKOUT PATH IS.
+  #
+  # Measured on this host, same moment, same processes:
+  #   ps -eo pid,ppid,args --no-headers        max line 120, 2 watchers found
+  #   ps -ww -eo pid,ppid,args --no-headers    max line 2576, 5 watchers found
+  #
+  # The failure direction is the dangerous one. A cut landing before `--role`
+  # leaves a line this loop never recognises as watcher-shaped, so it `continue`s
+  # - and the lane reports a CONFIDENT lower count rather than `unknown`. #917
+  # reports `unknown` when the `--wave` field is unreadable, which cannot help
+  # here: there is nothing left to flag. An armed worker reads as deaf, and
+  # `watch=DEAD(0 watchers)` is a BLOCKER signal in /flow:wave's own hazards.
+  #
+  # -ww overrides \$COLUMNS outright, so the scan stops depending on the
+  # environment it happens to run in. It widens no portability surface either:
+  # `--no-headers` is already a procps-ng long option, absent from BSD, macOS and
+  # busybox, so this invocation was procps-ng-only before -ww was added.
+  #
+  # NOT applied to the `ps -o ppid= -p <pid>` ancestry walk above. Measured:
+  # that prints one ppid and is byte-identical at COLUMNS=20 with and without
+  # -ww. It has no argv to widen and gains nothing.
   # `ps` always sees at least itself, so no output at all means it failed or is
   # absent - unknown, never zero (#801).
   [ "$seen" -eq 1 ] || return 1

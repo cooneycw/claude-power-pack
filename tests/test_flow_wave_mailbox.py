@@ -2171,6 +2171,156 @@ class TestWatcherIdentityAcrossDirectories:
 
 @requires_bash
 @requires_ps
+@requires_bash
+@requires_ps
+class TestPsLaneArgvTruncation:
+    """`ps` truncates argv, so a watcher can be invisible to the lane (issue #904).
+
+    Without `-ww`, `ps` caps every line at the terminal width - or at ``$COLUMNS``,
+    which a Claude Code session SETS AND EXPORTS (120 on the host this was found
+    on). A watcher's argv carries the absolute path of `flow-wave-mailbox.sh`, so
+    whether the `--role` and `--wave` fields survive the cut depends on how long
+    the checkout path is.
+
+    The failure direction is the dangerous one. A cut landing before `--role`
+    leaves a line the scan never recognises as watcher-shaped, so it is skipped
+    and the lane reports a CONFIDENT zero rather than `unknown`. #917 reports
+    `unknown` when the `--wave` field is unreadable, and cannot help here: there
+    is nothing left to flag. An armed worker reads as deaf, and
+    ``watch=DEAD(0 watchers)`` is a BLOCKER signal in /flow:wave's own hazards.
+
+    DETERMINISM, which is the hard part of testing this. The cut width is not a
+    property of the runner's terminal that a test must hope for - it is
+    ``$COLUMNS``, and a test can set it. These force ``COLUMNS=60``, far below any
+    realistic path length, so the cut lands before `--role` on every host and the
+    result does not depend on where the suite runs or how long ``tmp_path`` is.
+    A test that relied on the ambient width would be INERT wherever ``COLUMNS`` is
+    unset, because `ps` then does not truncate at all - measured: max line 2576
+    with ``COLUMNS`` unset versus 120 with it set to 120.
+
+    REAL `ps`, NOT A STUB, and that is a reasoned choice rather than convenience.
+    `self_chain_ps()` walks the ancestry with ``ps -o ppid= -p <pid>`` until pid 1,
+    so a stub answering every invocation identically never terminates - the script
+    calls `ps` in two different SHAPES and a stub would have to be
+    argument-aware to avoid testing itself. Driving the real binary with a
+    controlled ``COLUMNS`` tests the actual truncation rather than a model of it.
+    """
+
+    @staticmethod
+    def _without_ww(tmp: Path) -> Path:
+        """A copy of the script with `-ww` removed - the pre-fix behaviour.
+
+        The control has to be the REAL script minus the one token, not a
+        reimplementation: the claim is about this scan, and a hand-written
+        equivalent would only prove the copy agrees with itself.
+        """
+        src = MAILBOX.read_text(encoding="utf-8")
+        assert "ps -ww -eo pid,ppid,args" in src, (
+            "the -ww invocation is gone from flow-wave-mailbox.sh - if the scan "
+            "was rewritten, update this control; do NOT delete it (issue #904)"
+        )
+        copy = tmp / "mailbox-without-ww.sh"
+        copy.write_text(
+            src.replace("ps -ww -eo pid,ppid,args", "ps -eo pid,ppid,args", 1),
+            encoding="utf-8",
+        )
+        copy.chmod(0o755)
+        return copy
+
+    def test_a_narrow_COLUMNS_cuts_the_watcher_line_before_role(
+        self, tmp_path: Path
+    ) -> None:
+        """Precondition for the two tests below, asserted rather than assumed.
+
+        If the cut did not land before `--role`, both would pass for the wrong
+        reason and the control would prove nothing (CLAUDE.md: a fixture that
+        constructs a NEGATIVE condition must assert that precondition).
+        """
+        watcher = _live_watcher(tmp_path, "1", WAVE)
+        try:
+            env = os.environ.copy()
+            env["COLUMNS"] = "60"
+            out = subprocess.run(
+                ["ps", "-eo", "pid,ppid,args", "--no-headers"],
+                capture_output=True, text=True, env=env, check=False,
+            ).stdout
+            lines = [ln for ln in out.splitlines()
+                     if ln.split()[:1] == [str(watcher.pid)]]
+            assert lines, "the watcher was not in the process table at all"
+            assert "--role" not in lines[0], (
+                f"COLUMNS=60 did not cut before --role; this host does not "
+                f"reproduce the #904 condition and the control below is inert: "
+                f"{lines[0]!r}"
+            )
+            # And with -ww the same process IS fully visible.
+            wide = subprocess.run(
+                ["ps", "-ww", "-eo", "pid,ppid,args", "--no-headers"],
+                capture_output=True, text=True, env=env, check=False,
+            ).stdout
+            wide_lines = [ln for ln in wide.splitlines()
+                          if ln.split()[:1] == [str(watcher.pid)]]
+            assert wide_lines and "--role" in wide_lines[0], (
+                "-ww did not restore the full argv"
+            )
+        finally:
+            watcher.kill()
+            watcher.communicate(timeout=10)
+
+    def test_without_ww_a_live_watcher_reads_as_a_confident_zero(
+        self, tmp_path: Path
+    ) -> None:
+        """THE CONTROL: the pre-fix script, and the answer it gives is wrong.
+
+        Not merely a lower count - a CONFIDENT one. The watcher is live and
+        armed, and the lane says nothing is there.
+        """
+        watcher = _live_watcher(tmp_path, "1", WAVE)
+        try:
+            env = os.environ.copy()
+            env["FLOW_WAVE_MAILBOX_DIR"] = str(tmp_path / "mb")
+            env["FLOW_WAVE_NOW"] = str(int(time.time()))
+            env["FLOW_WAVE_WATCHER_SCAN"] = "ps"
+            env["COLUMNS"] = "60"
+            proc = subprocess.run(
+                ["bash", str(self._without_ww(tmp_path)),
+                 "list", "--wave", WAVE],
+                capture_output=True, text=True, env=env, check=False, timeout=60,
+            )
+            row = _watch_rows(proc)["1"]
+            assert row[1] == "0", (
+                f"expected the pre-fix confident zero that #904 is about, got "
+                f"{row!r}:\n{proc.stdout}"
+            )
+        finally:
+            watcher.kill()
+            watcher.communicate(timeout=10)
+
+    def test_with_ww_the_same_watcher_is_seen(self, tmp_path: Path) -> None:
+        """The fix: the same live watcher, the same narrow COLUMNS, now matched.
+
+        The lane answers `unknown` rather than a count, and that is CORRECT and
+        unrelated to #904: a real watcher's match cannot be verified as OURS by
+        this lane, because `FLOW_WAVE_MAILBOX_DIR` travels in the environment and
+        `ps -eo args` cannot see it (issue #845). The point here is that the
+        watcher is SEEN at all - `unknown` means "matched, cannot attribute",
+        where the control's `0` means "nothing is there".
+        """
+        watcher = _live_watcher(tmp_path, "1", WAVE)
+        try:
+            proc = _run_at(
+                tmp_path, str(int(time.time())), "list", "--wave", WAVE,
+                FLOW_WAVE_WATCHER_SCAN="ps", COLUMNS="60",
+            )
+            row = _watch_rows(proc)["1"]
+            assert row[1] == "unknown", (
+                f"the watcher was not seen even with -ww, so #904 is not fixed "
+                f"or this lane changed: got {row!r}\n{proc.stdout}"
+            )
+        finally:
+            watcher.kill()
+            watcher.communicate(timeout=10)
+
+
 class TestPsFallbackWatcherIdentityAcrossDirectories:
     def test_a_live_watcher_in_a_different_directory_is_unknown_not_a_false_count(
         self, tmp_path: Path
@@ -2242,15 +2392,39 @@ class TestPsFallbackWatcherIdentityAcrossDirectories:
         table matches this wave and role at all, so there is no candidate to
         be ambiguous ABOUT. This must stay a real `dead`/`0`, not `unknown` -
         the fix narrows confidence only where an actual unverifiable match
-        exists, it does not make the whole lane universally unknown."""
-        env = os.environ.copy()
-        env["FLOW_WAVE_MAILBOX_DIR"] = str(tmp_path / "mb")
-        env["FLOW_WAVE_WATCHER_SCAN"] = "ps"
-        proc = subprocess.run(
-            ["bash", str(MAILBOX), "watch", "--status", "--role", "1", "--wave", WAVE],
-            capture_output=True, text=True, env=env, check=False,
+        exists, it does not make the whole lane universally unknown.
+
+        STUBBED, and it has to be (#904 / PR #923). The first version ran the
+        real `ps` against the host process table and asserted a confident zero
+        - a property of the whole machine, which a test cannot control. It
+        passed on a developer host and failed in CI, because the `*)` branch of
+        the wave match sets `unreadable=1` for ANY watcher-shaped line carrying
+        `--role` and no `--wave` while we ask about a named wave. One such
+        process anywhere on the box - a default-wave watcher, or a leaked one
+        from an earlier suite - turns this lane's answer into `unknown` for
+        reasons that have nothing to do with the code under test.
+
+        Reproduced deliberately: planting `bash <dir>/flow-wave-mailbox.sh
+        watch --role 9` and re-running the original produced exactly the CI
+        failure, `assert 'unknown' == '0'`. So the stub is not tidiness - it is
+        the difference between asserting something about this lane and
+        asserting something about whoever else is on the host.
+
+        The table below is the truest statement of the docstring's claim: a
+        watcher-shaped line that WAS read and says "not you" (a different,
+        non-prefix wave), plus an unrelated process. Nothing matches, nothing
+        is ambiguous, so the verdict must be a confident zero."""
+        bin_dir = _stub_ps(
+            tmp_path,
+            "    1     0 /sbin/init\n"
+            "  500     1 sshd: /usr/sbin/sshd\n"
+            "  999     1 bash /a/long/path/scripts/flow-wave-mailbox.sh watch"
+            " --role 7 --wave someoneelse-entirely",
         )
-        assert _detail(proc, "FLOW_MAILBOX_WATCHER_COUNT") == "0"
+        proc = _run_with_ps(
+            tmp_path, bin_dir, "watch", "--status", "--role", "1", "--wave", WAVE,
+        )
+        assert _detail(proc, "FLOW_MAILBOX_WATCHER_COUNT") == "0", proc.stdout
         assert _detail(proc, "FLOW_MAILBOX_WATCH_STATE") in ("absent", "dead")
 
 

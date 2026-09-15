@@ -914,33 +914,34 @@ def test_gitignored_state_is_invisible_to_every_condition(tmp_path: Path) -> Non
 
 @requires_git
 @requires_proc
-def test_the_sweep_is_currently_inert_on_a_real_post_merge_worktree(
+def test_the_sweep_removes_a_real_post_merge_worktree(
     tmp_path: Path,
 ) -> None:
-    """CHARACTERIZATION. Pins what happens today, which is not what should.
+    """The sweep's whole population, end to end: merged PR, pruned remote ref.
 
-    The sweep's whole population is worktrees whose PR merged and whose remote
-    branch is therefore gone. Against that state, `worktree-remove.sh`'s #905
-    unpushed check refuses with exit 7: it reads "no remote ref" as "these
-    commits exist nowhere", when in fact they are on main, squashed. Filed as
+    WAS A CHARACTERIZATION TEST, flipped by #916. It pinned the broken state on
+    purpose - `removable=1, removed=0`, `refused helper-exit-7` - because
+    asserting the correct behaviour would have landed a red test for a defect in
+    another file. That defect is fixed, so this now asserts what should happen.
+
+    What was wrong: `worktree-remove.sh`'s #905 unpushed check read "no remote
+    ref" as "these commits exist nowhere", when a squash had put them on main
+    under a different sha. The sweep classified correctly, concluded correctly,
+    and removed NOTHING - #887 was inert in production from #905 landing until
     #916.
 
-    So the sweep classifies correctly, concludes correctly, and removes NOTHING -
-    `removable=1, removed=0`. #887 is inert in production and has been since #905
-    landed.
+    The fixture simulates `gh pr merge --squash --delete-branch` in full, INCLUDING
+    the `branch.<name>.cpp-merged-head` record that helper writes before deleting
+    the ref. That record is what the removal now turns on, so a fixture without
+    it would be testing a merge that never happened. Note the work never reaches
+    `main` here - this asserts that a recorded landing is TRUSTED, which is the
+    property, rather than re-deriving reachability the helper deliberately cannot
+    see offline.
 
-    This asserts the BROKEN behaviour on purpose. Asserting the correct behaviour
-    would land a red test for a defect in another file; asserting nothing would
-    leave the inertness invisible, which is how it got here - the rest of this
-    file builds its worktrees with `git worktree add -b` and never pushes, so no
-    branch has a `branch.<name>.remote` at all and the check takes a different
-    path than it ever does in production. A fixture that never pushes cannot
-    exercise a check whose entire subject is a branch's relationship to its
-    remote.
-
-    WHEN #916 LANDS THIS TEST GOES RED. That is the point: flip it to assert
-    `removed` and `ok`, and delete the note in docs/scripts.md. Do not delete the
-    test - it is the only one here that builds the state the sweep actually meets.
+    Keep building the state this way. The rest of this file uses `git worktree
+    add -b` and never pushes, so no branch has a `branch.<name>.remote` at all and
+    the check takes a path it never takes in production - which is how the
+    inertness stayed invisible through two green PRs.
     """
     main = _repo(tmp_path)
     # Reproduce `gh pr merge --squash --delete-branch`: the branch was pushed,
@@ -956,6 +957,9 @@ def test_the_sweep_is_currently_inert_on_a_real_post_merge_worktree(
     _git(wt, "add", "-A")
     _git(wt, "commit", "-qm", "the merged work")
     _git(wt, "push", "-q", "-u", "origin", "issue-99")
+    # What gh-pr-merge.sh writes inside its MERGED block, BEFORE the delete
+    # below destroys the only other evidence (#916).
+    _git(main, "config", "branch.issue-99.cpp-merged-head", _tip(wt))
     _git(main, "push", "-q", "origin", "--delete", "issue-99")
     _git(main, "fetch", "-q", "--prune", "origin")
     _git(main, "remote", "set-url", "origin", "https://github.com/acme/widget.git")
@@ -974,12 +978,11 @@ def test_the_sweep_is_currently_inert_on_a_real_post_merge_worktree(
         env={"FAKE_GH_ROWS": f"issue-99=MERGED|{_tip(wt)}|99"},
     )
 
-    assert "removable=1 removed=0" in res.stdout, (
-        "if this now reads removed=1 then #916 is fixed - flip this test to "
-        f"assert success rather than deleting it:\n{res.stdout}"
+    assert "removable=1 removed=1" in res.stdout, (
+        f"the sweep must now clear its own population (#916):\n{res.stdout}"
     )
-    assert _dispositions(res.stdout)[str(wt)] == "refused helper-exit-7", res.stdout
-    assert wt.exists()
+    assert _dispositions(res.stdout)[str(wt)].startswith("removed"), res.stdout
+    assert not wt.exists()
 
 
 @requires_git

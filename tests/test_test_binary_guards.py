@@ -649,8 +649,13 @@ def test_the_real_invocations_at_845_and_894_are_still_detected(tmp_path: Path) 
     """The undercount direction is the unsafe one (per review): confirms the
     fix narrows what counts as a case label, not what counts as `ps` at all."""
     text = MAILBOX_SCRIPT.read_text(encoding="utf-8")
-    assert 'ppid="$(ps -o ppid= -p "$pid" 2>/dev/null' in text  # precondition: :845
-    assert "$(ps -eo pid,ppid,args --no-headers 2>/dev/null)" in text  # precondition: :894
+    assert 'ppid="$(ps -o ppid= -p "$pid" 2>/dev/null' in text  # precondition: the walk
+    # The argv scan gained `-ww` in issue #904: without it procps caps each line
+    # at $COLUMNS, so a watcher whose argv carries a long script path lost its
+    # `--role`/`--wave` fields and the lane reported a confident zero. The text is
+    # pinned rather than pattern-matched precisely so a change like that one shows
+    # up here as a precondition failure instead of passing silently.
+    assert "$(ps -ww -eo pid,ppid,args --no-headers 2>/dev/null)" in text
 
     widened = _widened_checker(tmp_path, frozenset({"git", "docker", "gitleaks", "jq", "ps"}))
     uses = _ps_uses_in_mailbox_script(widened)

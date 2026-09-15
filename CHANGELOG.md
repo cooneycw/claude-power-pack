@@ -4,6 +4,43 @@
 
 ### Added
 
+- **2026-09-14 - `instrument` is a defined term, and the Negative Control rule
+  is bounded so it can be kept** (issue #932, ADR 0008) - the global directive
+  defined an instrument as "anything whose output is read as evidence" and
+  required every one to ship with a committed case that makes it report the
+  other verdict. Taken literally that is 2,408 test functions, 62 scripts, nine
+  `make verify` sub-gates and every probe in every wave helper. An unaffordable
+  rule is applied to whatever is in front of you and skipped everywhere else,
+  which is the exact population the rule exists to prevent: some instruments
+  with controls, some without, and no way to tell which from outside.
+
+  `docs/decisions/0008-instrument-negative-control-bound.md` records the bound
+  (a committed negative control is owed when the verdict is consumed by a
+  decision that will not independently re-derive the fact), the carve-out (a
+  unit test the suite would catch is not individually load-bearing), and the
+  escalation (a green read by another session or another repo always needs
+  one). Its body is the enumeration the issue put first: against a hardcoded
+  universe (62 scripts, 39 make targets, 7 CI steps, 2 hooks, the `lib/` entry
+  points, the suite as one instrument) the bound captures **61 distinct
+  verdict contracts**, each with the consumer that acts on it named - tens,
+  not hundreds, so the count is below the rejection threshold the issue set
+  and the bound stands. The count measures rows, not the effort of writing
+  the controls; that is stated rather than claimed. The Codex counter-model
+  review of the branch (Step 5 of the run) found seven omissions and
+  mis-attributions in the first enumeration and three more on its second pass - among them that the lifecycle
+  security gate never runs gitleaks, that `/project:next` declares the
+  engine's verdict authoritative, and that Step 7 does not re-derive the
+  stale-check's file-overlap verdict - and the corrected table is what landed.
+
+  `docs/agents/glossary.md` defines `instrument`, `harness` in the systems
+  sense - naming the collision with the friction ledger's `harness` tag in
+  `lib/cpp_memory/harness.py` (#557) rather than overloading the word - and
+  `counter-model` as a property of a review rather than a tool name. `spec` is
+  deliberately not renamed. The Negative Control section of the host's global
+  directive carries the same bound as a narrowing edit; it lives outside the
+  repository, so the ADR quotes it. ADR 0007 is reserved for #934 and lands
+  after this one. Nothing here adds a tier, a process or a checker.
+
 - **2026-09-13 - every gate can carry an executable negative control, and the
   control must prove it can fail** (issue #924) - seven open issues are one defect
   in different gates: an instrument returning a confident verdict it is not
@@ -234,6 +271,103 @@
   pre-#778.
 
 ### Fixed
+
+- **2026-09-13 - `worktree-remove.sh` read every squash-merged branch as
+  unpushed once the merge helper deleted its remote ref** (issue #916) - #905's
+  unpushed check asks `git log HEAD --not --remotes`: "reachable from a remote
+  ref". After a SQUASH the branch's commits are rewritten onto main under a
+  different sha, so they are ancestors of nothing and the verdict rests entirely
+  on `refs/remotes/origin/<branch>` surviving - which `gh-pr-merge.sh` deletes on
+  the ordinary path. This repository squash-merges exclusively, so every merged
+  worktree read as holding commits that "exist nowhere" and refused with exit 7.
+  #887's sweep - whose entire population is exactly that state - classified
+  correctly, concluded correctly, and removed nothing; it was inert in production
+  from #905 landing until this. Same shape as #566: the check answers
+  "reachable" and the reader takes it for "landed", and squash is where they
+  part. Reproduced live on this repo's own main at `6b39af8` the morning this
+  merged.
+
+  Offline git holds no evidence after the delete and no wider ref pattern
+  recovers it, so the answer comes from the one caller that both knows the
+  branch landed and destroys the proof: `gh-pr-merge.sh` now writes
+  `branch.<name>.cpp-merged-head <oid>` inside its MERGED block, **before** the
+  `push --delete`, and `worktree-remove.sh` accepts that record as a second,
+  offline signal - `WORKTREE_REMOVE_UNPUSHED: landed` - **only when it equals
+  HEAD exactly**. The OID equality is the guarantee, not the cleanup: measured,
+  `git branch -D` clears the `branch.<name>.*` section but `git update-ref -d`
+  does not, so a record can outlive its branch and is harmless anyway because a
+  surviving record names an OID that genuinely landed. The fix is future-only by
+  nature - nothing can retroactively record a merge that already happened
+  without asking the network which merges happened - so a branch squash-merged
+  some other way, or before this landed, still reads `unpushed` and stays
+  refused; that residual is asserted by a test rather than hidden. Two markers
+  stop lying by omission in the same change: `--allow-dirty` printed
+  `WORKTREE_REMOVE_DIRTY: clean` for a tree it never measured (the echo sat
+  outside the guard) and `--allow-unpushed` printed nothing at all; both now say
+  `overridden`, because never-checked and checked-and-empty are different facts.
+  `tests/test_worktree_sweep.py`'s characterization test that pinned the inert
+  sweep is flipped to assert removal.
+
+  One HIGH finding from the cross-model review (Codex, via `/flow:auto_codex`)
+  changed WHICH commit is recorded. The first cut recorded the local branch tip;
+  `MERGED` only proves the PR's **remote** head landed, and the local branch can
+  be ahead of it - a commit made after the push, or one that landed while the
+  merge waited on checks. Recording the local tip would mark that unmerged
+  commit as landed, the reader would find an exact HEAD match, and the worktree
+  holding the only copy would be deleted - the #899 data-loss path reopened by
+  the fix for its false refusal. The helper now records the PR's `headRefOid`,
+  and only when the PR's `headRefName` is this branch, so a wrong PR number
+  records nothing rather than a foreign OID; a branch that has moved past the
+  recorded head no longer equals it and is refused, which is the protection
+  working. Regressions on both sides: the writer records the PR head and not the
+  local tip, and refuses to record for another branch; the reader refuses a
+  squash-merged branch that gained one unpushed commit after its head landed.
+
+- **2026-09-13 - the finish gate's #769 retry graded the RE-RUN INVOCATION, not
+  the retried id** (issue #915) - when a test failed, the gate re-ran it once and
+  then decided "the failure reproduces" from whether the re-run *process* exited
+  non-zero. The re-run executes the whole test target, so any unrelated failure
+  anywhere in it made the gate name the retried id as reproducing - an id that
+  had PASSED. Worse than a plain false negative: it pointed a reader at an
+  innocent test while the failure that was genuinely there went unnamed.
+
+  Observed on kyle #1176's third gate cycle: the retried Playwright id passed on
+  re-run; a different non-Playwright test failed in the same invocation because
+  a commit landed in *another repository* between the two runs (kyle's surface
+  test reads `~/.claude/commands` through a symlink into claude-power-pack); the
+  verdict line named the innocent id.
+
+  `lib/cicd/runner.py` now parses the re-run's failed ids and grades three ways:
+  `failed` only when a retried id is in the re-run's failed set;
+  `new-failures` when it is not but other ids failed - naming them, because a
+  test that changes verdict inside one run with no edit to the tree points
+  *outside* the tree; and `failed-unattributed` when the invocation failed and no
+  id could be read, which is UNKNOWN and says so rather than claiming a
+  reproduction. `flow-finish-gate.sh` clears only on an exact
+  `passed-in-isolation`, so both new verdicts stay `fail` by construction, and
+  `tests/test_flow_finish_gate.py` pins that. The red case - an innocent id
+  retried while a different test fails - is committed in `tests/test_runner.py`
+  and fails against the pre-fix runner.
+
+  The first cut went through a two-pass cross-model review (Codex, via
+  `/flow:auto_codex` - the first PR in this repo to carry one) and five of its
+  six findings were accepted and fixed before the PR existed: failed ids are now
+  read from **both** stdout and stderr on both attempts, not `parse(out) or
+  parse(err)`, which discarded a reproduction sitting on the other stream; a
+  retried id absent from the re-run's failed set is recorded as **unobserved**
+  with its reproduction status UNKNOWN, never as "did not reproduce" - a
+  collection error in another module leaves it unexecuted; newly appearing ids
+  are named and recorded (`reproduced` / `appeared` / `unobserved` on the rerun
+  record) even when a retried id also reproduces, where the mixed case had
+  dropped them; the log no longer asserts that a changed failing set "points
+  outside the tree", a cause the detector never measured; and
+  `parse_failed_node_ids` now reads a node id up to pytest's ` - <reason>`
+  separator rather than to the first space, because `\S+` collapsed
+  `test_v[hello world]` and `test_v[hello there]` onto one truncated id - cosmetic
+  while ids only labelled a re-run, a false "reproduced" once sets are compared.
+  Each fix carries a regression that fails against the code before it. The sixth
+  finding - the suite-summary parser in `steps.py` has the same `or` shape - is
+  deferred to #939 because its fix changes the #621 / #900 semantics.
 
 - **2026-09-07 - `flow-wave-mailbox` reported a dead watch as `armed`**
   (issue #801) - `watch --status` printed

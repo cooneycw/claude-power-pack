@@ -384,7 +384,14 @@ def test_runner_rerun_passed_reports_warn_and_ids(tmp_path: Path) -> None:
 
 
 @requires_bash
-@pytest.mark.parametrize("rerun_outcome", ["failed", "inconclusive"])
+# `new-failures` and `failed-unattributed` are #915's two new verdicts. The gate
+# clears ONLY on an exact `passed-in-isolation` match, so neither can produce a
+# RERUN_PASSED line - but that is a property of the awk pattern rather than of
+# these names, and a future edit could widen it. Pinned here so it cannot.
+@pytest.mark.parametrize(
+    "rerun_outcome",
+    ["failed", "inconclusive", "new-failures", "failed-unattributed"],
+)
 def test_uncleared_rerun_has_no_rerun_passed_line(
     tmp_path: Path, rerun_outcome: str
 ) -> None:

@@ -115,7 +115,17 @@ _UNITTEST_DETAIL = re.compile(r"(failures|errors|skipped|expected failures)=(\d+
 # in the #769 report. They are NOT the selection mechanism: ``--last-failed``
 # narrows the re-run from pytest's own cache, so this best-effort parse is never
 # load-bearing for whether the gate is correct.
-_PYTEST_FAILED_NODE_ID = re.compile(r"^\s*(?:FAILED|ERROR)\s+(\S+)", re.MULTILINE)
+# The node id runs to the ` - <reason>` separator pytest prints in its short
+# summary, NOT to the first whitespace: a parametrized id may contain spaces
+# (`test_v[hello world]`), and `\S+` cut it at the space, so two DIFFERENT
+# parametrized failures collapsed onto one truncated id. That was cosmetic while
+# ids only labelled a re-run; it became a wrong verdict once the #915 retry
+# compares failed sets by membership - a false "reproduced" with no newly
+# appeared failure recorded. Lazy up to the FIRST ` - `; an id whose own
+# parameter text contains ` - ` is re-joined by the bracket check below.
+_PYTEST_FAILED_NODE_ID = re.compile(
+    r"^\s*(?:FAILED|ERROR)\s+(.+?)(?:\s+-\s.*)?$", re.MULTILINE
+)
 
 
 def parse_failed_node_ids(text: str) -> list[str]:
@@ -126,7 +136,15 @@ def parse_failed_node_ids(text: str) -> list[str]:
     ids: list[str] = []
     seen: set[str] = set()
     for match in _PYTEST_FAILED_NODE_ID.finditer(text):
-        node_id = match.group(1)
+        node_id = match.group(1).strip()
+        # A parameter id containing ` - ` was split by the lazy separator match;
+        # an unclosed `[` says so, and the rest of the line up to its `]` is the
+        # remainder of the id, not the reason.
+        if "[" in node_id and "]" not in node_id:
+            rest = match.group(0)[match.end(1) - match.start(0):]
+            close = rest.find("]")
+            if close != -1:
+                node_id = (node_id + rest[: close + 1]).strip()
         if ("::" not in node_id and not node_id.endswith(".py")) or node_id in seen:
             continue
         seen.add(node_id)
