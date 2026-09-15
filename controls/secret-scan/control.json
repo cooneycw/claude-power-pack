@@ -1,0 +1,26 @@
+{
+  "gate": "scripts/secret-scan-check.sh",
+  "invocation": [
+    "sh",
+    "{gate}",
+    "--root",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^RuleID:",
+  "limits": "Covers the WORKING-TREE population only. The gate script passes --no-git, the flag `make secret-scan` uses; CI runs gitleaks WITHOUT --no-git and therefore scans git HISTORY, which this control does not exercise. detect_signal keys on gitleaks' finding output rather than on its exit status because gitleaks exits 1 BOTH for findings and for a config-load failure - a malformed .gitleaks.toml would otherwise report a successful detection while scanning nothing (#946, on the secret gate). A config failure prints FTL on stderr with no RuleID line, so it lands in UNSIGNALLED, which is crash-distinct rather than 'detected'.",
+  "cases": [
+    {"name": "bad-private-key", "input": "cases/bad-private-key", "expect": "BAD"},
+    {"name": "good-short-body", "input": "cases/good-short-body", "expect": "GOOD"},
+    {"name": "good-clean", "input": "cases/good-clean", "expect": "GOOD"}
+  ],
+  "anchors": [
+    {
+      "kind": "synthetic",
+      "sha": "0000000",
+      "origin": "the scan-in-place design proposed and refuted for #935",
+      "path": "anchors/0000000-scan-in-place.sh",
+      "sha256": "18d1403c47dd4c2fa8f1eec7e6d55695c49de831b5a08bcde99b339d91c21e42"
+    }
+  ]
+}

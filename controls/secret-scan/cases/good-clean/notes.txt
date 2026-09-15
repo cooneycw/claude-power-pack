@@ -1,0 +1,7 @@
+# KNOWN-GOOD: ordinary content, no credential shape at all.
+#
+# The half that catches a scanner wedged at "findings". A gate that fires on
+# everything is as useless as one that fires on nothing, and only this case
+# tells them apart.
+
+hello world

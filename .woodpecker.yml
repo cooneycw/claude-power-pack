@@ -19,6 +19,16 @@ steps:
     image: zricethezav/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
     commands:
       - gitleaks detect --source . --config .gitleaks.toml --verbose
+      # Stage the PINNED binary for the negative-controls step, exactly as the
+      # shellcheck step does (#935). `scripts/secret-scan-check.sh` is a
+      # registered control, and the harness REFUSES to skip a control it cannot
+      # run - it reports UNSIGNALLED and fails - so gitleaks must be present in
+      # `validate`, not merely somewhere in the pipeline.
+      #
+      # Note this step scans WITHOUT `--no-git` (git history) while
+      # `make secret-scan` and the control pass it (working tree). Two
+      # populations; the control covers the second and says so.
+      - mkdir -p .ci-bin && cp "$(command -v gitleaks)" .ci-bin/gitleaks
 
   validate:
     image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36

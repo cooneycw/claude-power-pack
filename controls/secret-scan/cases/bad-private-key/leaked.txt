@@ -1,0 +1,23 @@
+# NEGATIVE-CONTROL FIXTURE for issue #935. This is NOT a credential.
+#
+# The body below is plain ASCII prose, not base64: `openssl rsa -in this -check`
+# fails to parse it, and a reader can see at a glance that it decodes to nothing.
+# It is valid against no system, was never issued, and cannot be revoked because
+# it never existed.
+#
+# WHY THE .txt EXTENSION, and do not "fix" it: .gitignore carries *.key, *.pem,
+# *.env and *.json. Every filename that looks RIGHT for a planted credential is
+# ignored by this repository, so the fixture would be untracked - `git status`
+# says nothing, the control discriminates locally, reports PASS, and DOES NOT
+# EXIST in a clean clone (#978). The safer a filename looks for a secret, the
+# more likely it is swallowed. It was caught here only because a file count came
+# back zero when it should have been one.
+#
+# WHY THE BODY IS LONG, and do not shorten it: gitleaks private-key detection is
+# LENGTH-SENSITIVE. Measured on the CI-pinned v8.30.1 - a 42-character body is
+# detected, a 9-character body is not. `cases/good-short-body/` is the committed
+# case that pins the other side, so shortening this body flips a committed case
+# rather than silently disarming the control.
+-----BEGIN RSA PRIVATE KEY-----
+NOT-A-KEY-negative-control-fixture-cpp-935
+-----END RSA PRIVATE KEY-----
