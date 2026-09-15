@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import textwrap
 from pathlib import Path
 
@@ -132,3 +133,99 @@ def sample_spec_md(tmp_path: Path) -> Path:
     spec_file = tmp_path / "spec.md"
     spec_file.write_text(content)
     return spec_file
+
+
+# --------------------------------------------------------------------------- #
+# Missing-binary skips are REPORTED, not merely correct (issue #926)
+# --------------------------------------------------------------------------- #
+# A guard turns a vacuous PASS into a SKIP. That is strictly better and it is not
+# sufficient: `make test` sits inside `make verify`, the gate a worker reads
+# before pushing, and pytest's summary is read as "N passed" while M skipped goes
+# uncounted. So an unexercised lane still ships behind a green - the same defect
+# one level up, in the aggregate the reader actually sees.
+#
+# MEASURED, which is why this exists rather than a comment saying "remember to
+# check skips": `TestPsFallbackWatcherIdentityAcrossDirectories` forces the `ps`
+# lane and asserts it reports `unknown`. With `ps` absent the lane reports
+# `unknown` for an unrelated reason, so the class PASSED on a host without the
+# binary it forces. Guarding it makes it SKIP. Without this hook, that skip is
+# invisible in `make verify`, and "the ps lane is unexercised on this host" and
+# "the ps lane works" render identically.
+#
+# The binary set is IMPORTED from the gate rather than restated here. A second
+# list is a second population to keep in sync, and this one would drift silently
+# the moment `GUARDED_BINARIES` grows.
+def _guarded_binaries() -> frozenset[str]:
+    import importlib.util
+    import sys
+
+    gate = Path(__file__).resolve().parents[1] / "scripts" / "check-test-binary-guards.py"
+    try:
+        spec = importlib.util.spec_from_file_location("_cpp_binary_guards", gate)
+        if spec is None or spec.loader is None:
+            return frozenset()
+        module = importlib.util.module_from_spec(spec)
+        sys.modules["_cpp_binary_guards"] = module
+        spec.loader.exec_module(module)
+        return frozenset(module.GUARDED_BINARIES)
+    except Exception:
+        # Reporting must never be the reason a suite fails. An unreadable gate
+        # means no attribution, and the header below says so rather than
+        # printing a confident zero.
+        return frozenset()
+
+
+def attribute_missing_binary_skips(
+    reasons: list[str], binaries: frozenset[str]
+) -> dict[str, int]:
+    r"""Count skip reasons naming an absent binary. Pure, so it is testable.
+
+    Extracted from the hook rather than left inline: a hook that reports
+    "missing-binary skips" and actually counts EVERY skip is indistinguishable
+    from a correct one on any run where all skips happen to be binary-related,
+    which is most runs. The negative case needs a committed test, and a committed
+    test needs a function to call.
+
+    The boundary is `[\w-]` on both sides rather than `\b`, because `\b` treats a
+    hyphen as a boundary: "no-ps-here" would count as naming `ps`. Both cases are
+    pinned by test rather than left to this comment.
+    """
+    counts: dict[str, int] = {}
+    for reason in reasons:
+        for name in binaries:
+            if re.search(rf"(?<![\w-]){re.escape(name)}(?![\w-])", reason):
+                counts[name] = counts.get(name, 0) + 1
+    return counts
+
+
+def pytest_terminal_summary(terminalreporter, exitstatus, config) -> None:  # noqa: ARG001
+    """Name and count the skips caused by a binary being absent."""
+    skipped = terminalreporter.stats.get("skipped", [])
+    if not skipped:
+        return
+
+    binaries = _guarded_binaries()
+    if not binaries:
+        terminalreporter.write_line(
+            "missing-binary skips: UNKNOWN - could not read GUARDED_BINARIES from "
+            "scripts/check-test-binary-guards.py, so skips were not attributed",
+            yellow=True,
+        )
+        return
+
+    reasons = []
+    for report in skipped:
+        longrepr = getattr(report, "longrepr", None)
+        if isinstance(longrepr, tuple) and len(longrepr) == 3:
+            reasons.append(str(longrepr[2]))
+    counts = attribute_missing_binary_skips(reasons, binaries)
+
+    if not counts:
+        return
+    total = sum(counts.values())
+    detail = ", ".join(f"{name}={counts[name]}" for name in sorted(counts))
+    terminalreporter.write_line(
+        f"missing-binary skips: {total} test(s) did not run because a binary is "
+        f"absent ({detail}). Those lanes are UNEXERCISED here, not verified.",
+        yellow=True,
+    )

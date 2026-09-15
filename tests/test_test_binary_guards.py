@@ -1105,19 +1105,35 @@ def test_a_fail_soft_script_use_is_a_known_blind_spot(tmp_path: Path) -> None:
     asserts the DEGRADED-versus-not distinction, which is a growing pattern here -
     every `unknown`-vs-`clear` lane produces one.
 
-    It is live in this repository: `scripts/flow-wave-mailbox.sh` reaches `ps`
-    only as `$(ps -eo pid,ppid,args --no-headers 2>/dev/null)`, so the hop drops
-    it; `tests/test_flow_wave_mailbox.py` nonetheless needs `ps` to exercise that
-    lane and carries a hand-written `requires_ps` for it. Measured: widening
-    `GUARDED_BINARIES` to include `ps` AND deleting those guards still yields zero
-    findings, so the inversion this issue asked for does not close this.
+    It is live in this repository, and NOT in one place. This docstring used to
+    name a single instance - `scripts/flow-wave-mailbox.sh` reaching `ps` only as
+    `$(ps -eo pid,ppid,args --no-headers 2>/dev/null)`. Derived by this gate's own
+    predicates (`--fail-soft-report`, issue #926): FOURTEEN (script, binary) pairs
+    across `scripts/*.sh`, thirteen of them named by a test module, of which six
+    carry a hand-written guard and SEVEN do not. A hand-maintained example in a
+    docstring stayed at one while the tree held thirteen, which is why the
+    population is now derived and printed rather than described here.
 
-    Not fixed here on purpose. Believing the fail-soft declaration is what keeps
-    the hop from crying wolf (scanning for mere mentions produced 266 findings,
-    ~250 of them false), so the remedy is a separate channel rather than a wider
-    one - the shape docs/agents/detector-contracts.md calls "when widening is not
-    the remedy". This test exists so the gap is a recorded property, not a
-    surprise the next person rediscovers from a red pipeline.
+    Measured: widening `GUARDED_BINARIES` to include `ps` AND deleting those
+    guards still yields zero findings, so the inversion this issue asked for does
+    not close this.
+
+    THE REMEDY IS A SEPARATE CHANNEL, NOT A WIDER ONE. Believing the fail-soft
+    declaration is what keeps the hop from crying wolf (scanning for mere mentions
+    produced 266 findings, ~250 of them false) - the shape
+    docs/agents/detector-contracts.md calls "when widening is not the remedy". So
+    the hop still drops these, and #926 added the two things that make that
+    survivable: `--fail-soft-report` lists the population with its bound, and
+    `tests/conftest.py` names and counts skips caused by an absent binary so an
+    unexercised lane is visible in `make verify` rather than absorbed into
+    "N passed".
+
+    WHAT THIS TEST PINS IS THE DROP, AND IT IS STILL DELIBERATE. What it no longer
+    claims is that the drop is harmless: on 2026-09-15
+    `TestPsFallbackWatcherIdentityAcrossDirectories` was found PASSING on a host
+    without the `ps` it forces, asserting an `unknown` the absent binary produced
+    for an unrelated reason. That was a green carrying no information, not the red
+    pipeline #926 records, and it is fixed.
     """
     root = tmp_path / "repo"
     (root / "tests").mkdir(parents=True)
@@ -1462,4 +1478,239 @@ def test_an_unquoted_heredoc_is_still_scanned(tmp_path: Path) -> None:
     assert "jq" in checker.binaries_in_script(script), (
         "an unquoted heredoc is expanded by the shell - its command "
         "substitutions are real invocations and must still be seen"
+    )
+
+
+# --------------------------------------------------------------------------- #
+# --fail-soft-report: the population, derived (issue #926)
+# --------------------------------------------------------------------------- #
+# The blind spot was described by a docstring naming ONE instance while the tree
+# held thirteen. A hand-maintained list is right the day it is written; these
+# assert the DERIVATION instead, so the list re-derives as the tree moves.
+def test_the_report_derives_a_nonempty_population() -> None:
+    """An empty population would make every assertion below vacuous.
+
+    The extractor's own control: if `_script_uses` or the failsoft predicate ever
+    stops matching, this reports zero pairs and a reader sees "no blind spot"
+    rather than "the derivation is broken". Those are different facts.
+    """
+    rows = checker.fail_soft_population(ROOT)
+    assert len(rows) >= 10, f"derivation looks blind, found {len(rows)} pairs"
+    scripts = {script for script, _binary, _naming, _guarded in rows}
+    assert "flow-wave-mailbox.sh" in scripts, (
+        "the instance this issue was filed about must appear in its own population"
+    )
+    binaries = {binary for _script, binary, _naming, _guarded in rows}
+    assert binaries <= set(checker.GUARDED_BINARIES), (
+        f"the report must not invent binaries outside the gate's own set: {binaries}"
+    )
+
+
+def test_the_report_separates_guarded_from_candidate() -> None:
+    """Both classifications must occur, or the split is not doing any work.
+
+    A report where everything is `guarded` and one where everything is
+    `CANDIDATE` are both consistent with a broken classifier; only the presence
+    of both shows it discriminates.
+    """
+    rows = checker.fail_soft_population(ROOT)
+    named = [r for r in rows if r[2]]
+    guarded = [r for r in named if r[3]]
+    candidates = [r for r in named if not r[3]]
+    assert guarded, "no pair classified as guarded - the guard detection is blind"
+    assert candidates, "no pair classified as a candidate - the split is inert"
+
+    by_pair = {(script, binary): is_guarded for script, binary, _n, is_guarded in rows}
+    assert by_pair.get(("flow-wave-mailbox.sh", "ps")) is True, (
+        "the ps instance carries a hand-written requires_ps and must read as guarded"
+    )
+
+
+def test_the_report_never_fails_the_build(capsys: pytest.CaptureFixture) -> None:
+    """It REPORTS. Making it a gate would flag candidates as defects.
+
+    The evidence cannot support that: "a test module names the script" is coarse,
+    and a gate whose findings are mostly unconfirmed is the crying-wolf failure
+    the hop exists to avoid - 266 findings, ~250 false, per the module docstring.
+    """
+    assert checker.main(["--fail-soft-report"]) == 0
+    out = capsys.readouterr().out
+    assert "fail-soft blind spot:" in out, out
+    assert "not inspected:" in out, (
+        "the report must name what it did NOT establish - whether a candidate's "
+        "test actually needs the binary"
+    )
+
+
+def test_the_report_does_not_change_the_gate_verdict(capsys: pytest.CaptureFixture) -> None:
+    """Adding a mode must not move what the default invocation says."""
+    assert checker.main([]) == 0
+    assert "binary-guards: ok" in capsys.readouterr().out
+
+
+# --------------------------------------------------------------------------- #
+# The missing-binary skip reporter (issue #926, tests/conftest.py)
+# --------------------------------------------------------------------------- #
+# A guard turns a vacuous PASS into a SKIP, and a skip inside `make verify` is
+# still a green carrying no information. The hook names and counts them. These
+# pin BOTH directions, because a hook that reports "missing-binary skips" while
+# actually counting EVERY skip is indistinguishable from a correct one on any run
+# where all skips happen to be binary-related - which is most runs.
+def _load_conftest():
+    """Load tests/conftest.py by PATH.
+
+    `import conftest` raises ModuleNotFoundError under this repo's import mode -
+    pytest does not put tests/ on sys.path here. Mirrors `_load_checker` above
+    rather than inventing a second mechanism.
+    """
+    path = ROOT / "tests" / "conftest.py"
+    spec = importlib.util.spec_from_file_location("cpp_tests_conftest", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def _attribute(reasons: list[str], binaries: set[str] | None = None) -> dict[str, int]:
+    conf = _load_conftest()
+    return conf.attribute_missing_binary_skips(
+        reasons, frozenset(binaries if binaries is not None else {"ps", "git", "jq", "curl"})
+    )
+
+
+def test_a_missing_binary_skip_is_attributed_to_its_binary() -> None:
+    counts = _attribute([
+        "needs ps: the fallback lane shells out to it",
+        "requires git on PATH",
+        "needs ps for the watcher scan",
+    ])
+    assert counts == {"ps": 2, "git": 1}, counts
+
+
+def test_an_unrelated_skip_is_NOT_attributed() -> None:
+    """The half most people skip, and the one that makes the count mean anything.
+
+    Without it, a hook that counted every skip and labelled the total
+    "missing-binary" would pass every test above.
+    """
+    assert _attribute([
+        "not implemented yet",
+        "needs a slow network fixture",
+        "flaky on this platform",
+    ]) == {}
+
+
+def test_a_binary_name_inside_a_longer_word_is_not_a_match() -> None:
+    """`ps` must not match "steps", and a hyphen is not a word boundary here.
+
+    `\\b` would treat "no-ps-here" as naming `ps`; the boundary is `[\\w-]` on both
+    sides for exactly that reason, and this is what pins it rather than the
+    comment saying so.
+    """
+    assert _attribute(["skipped between steps", "https only", "no-ps-here"]) == {}
+    assert _attribute(["needs ps"]) == {"ps": 1}
+
+
+def test_an_unreadable_binary_set_attributes_nothing_rather_than_guessing() -> None:
+    """An empty set must produce no attribution, not a confident zero-labelled count."""
+    assert _attribute(["needs ps", "requires git"], binaries=set()) == {}
+
+
+# --------------------------------------------------------------------------- #
+# The displacement hazard itself (issue #926, #923)
+# --------------------------------------------------------------------------- #
+# Fixing the un-guarded class was NOT enough, and a mutation is what showed it:
+# deleting the restored `@requires_ps` left the whole suite green. That is the
+# condition #923 happened under and survived in for months - the fix was as
+# uncontrolled as the defect. These two catch the MECHANISM rather than the one
+# instance, so the next displacement fails here instead of in someone's pipeline.
+_MAILBOX_TESTS = ROOT / "tests" / "test_flow_wave_mailbox.py"
+
+
+def _classes_with_decorators(path: Path) -> list[tuple[str, int, list[str]]]:
+    """(class name, line, decorators) for every top-level test class."""
+    lines = path.read_text(encoding="utf-8").splitlines()
+    out = []
+    for i, line in enumerate(lines):
+        if not line.startswith("class Test"):
+            continue
+        deco, j = [], i - 1
+        while j >= 0 and (lines[j].startswith("@") or lines[j].startswith("#") or not lines[j].strip()):
+            if lines[j].startswith("@"):
+                deco.append(lines[j].strip())
+            j -= 1
+        out.append((line.split("(")[0].removeprefix("class ").rstrip(":"), i + 1, list(reversed(deco))))
+    return out
+
+
+def test_no_test_class_carries_a_duplicated_decorator() -> None:
+    """A doubled stack is the TELL of a displaced edit, and it is harmless at runtime.
+
+    #923 pasted a class directly above a decorated one; Python applied the
+    existing pair to whichever class came next, and the original was displaced out
+    from under its own guards. The only signal was the same decorator appearing
+    twice - no linter, gate or test flagged it, because two identical `skipif`
+    marks do nothing. Cheap to detect, and it catches the mechanism rather than
+    any one victim.
+    """
+    offenders = [
+        (name, line, deco)
+        for name, line, deco in _classes_with_decorators(_MAILBOX_TESTS)
+        if len(deco) != len(set(deco))
+    ]
+    assert not offenders, (
+        f"duplicated decorators - the signature of a displaced edit: {offenders}"
+    )
+
+
+def test_every_test_forcing_the_ps_lane_is_guarded_for_ps() -> None:
+    """Derived from what each TEST does, at the granularity the guard can sit.
+
+    A test that sets FLOW_WAVE_WATCHER_SCAN to "ps" forces the ps lane and needs
+    ps to exercise anything. Measured 2026-09-15: unguarded, such a test PASSED on
+    a host without ps - it asserts the lane reports `unknown`, and an absent
+    binary produces `unknown` for an unrelated reason.
+
+    PER TEST, NOT PER CLASS, because the guard legitimately sits in either place -
+    `TestListWatchState` guards one METHOD rather than the whole class, and a
+    class-level check would have called that a defect. The first draft did exactly
+    that, and it also missed the `FLOW_WAVE_WATCHER_SCAN="ps"` keyword form while
+    matching only the subscript form, so it reported the wrong classes for two
+    reasons at once.
+
+    Keyed on behaviour so a renamed or newly added test is covered the moment it
+    exists - the same reason #926's population is derived rather than listed.
+    """
+    import ast
+
+    tree = ast.parse(_MAILBOX_TESTS.read_text(encoding="utf-8"))
+    source = _MAILBOX_TESTS.read_text(encoding="utf-8")
+
+    def decorator_names(node: ast.AST) -> set[str]:
+        out = set()
+        for dec in getattr(node, "decorator_list", []):
+            out.add(ast.unparse(dec))
+        return out
+
+    def forces_ps(node: ast.AST) -> bool:
+        seg = ast.get_source_segment(source, node) or ""
+        return 'FLOW_WAVE_WATCHER_SCAN="ps"' in seg or 'FLOW_WAVE_WATCHER_SCAN"] = "ps"' in seg
+
+    forcing, unguarded = [], []
+    for cls in [n for n in ast.walk(tree) if isinstance(n, ast.ClassDef)]:
+        cls_decs = decorator_names(cls)
+        for fn in [n for n in cls.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]:
+            if not forces_ps(fn):
+                continue
+            forcing.append(f"{cls.name}.{fn.name}")
+            if "requires_ps" not in (cls_decs | decorator_names(fn)):
+                unguarded.append(f"{cls.name}.{fn.name}:{fn.lineno}")
+
+    assert forcing, (
+        "no test forces the ps lane - either the derivation broke or the lane "
+        "moved, and both mean this test is watching nothing"
+    )
+    assert not unguarded, (
+        f"these force the ps lane and would PASS vacuously without ps: {unguarded}"
     )
