@@ -2171,8 +2171,6 @@ class TestWatcherIdentityAcrossDirectories:
 
 @requires_bash
 @requires_ps
-@requires_bash
-@requires_ps
 class TestPsLaneArgvTruncation:
     """`ps` truncates argv, so a watcher can be invisible to the lane (issue #904).
 
@@ -2321,6 +2319,19 @@ class TestPsLaneArgvTruncation:
             watcher.communicate(timeout=10)
 
 
+# Guarded HERE rather than inherited from above. #923 inserted a class directly
+# above this one, Python applied the decorator pair to whichever class came next,
+# and this one was displaced out from under its own guards. The tell was a
+# DOUBLED decorator stack three lines up - harmless at runtime, so no linter,
+# gate or test flagged it, and it survived until someone measured.
+#
+# Measured cost, which is worse than the red pipeline #926 records: with `ps`
+# absent this class PASSED. It forces the ps lane via FLOW_WAVE_WATCHER_SCAN and
+# asserts the lane reports `unknown`; without ps the lane reports `unknown` for
+# an unrelated reason, so its green established nothing about the collision it
+# exists to reproduce.
+@requires_bash
+@requires_ps
 class TestPsFallbackWatcherIdentityAcrossDirectories:
     def test_a_live_watcher_in_a_different_directory_is_unknown_not_a_false_count(
         self, tmp_path: Path

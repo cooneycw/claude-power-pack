@@ -809,6 +809,34 @@ def _script_uses(source: str, lines: list[str]) -> list[_ScriptUse]:
         if ASSIGNMENT_RE.match(source, match.end("bin")):
             continue  # `rev=0` / `rev="$(...)"` - an assignment target (#838)
         command, indent = _logical_command(lines, index)
+        # BOTH DIRECTIONS OF THIS DECISION ARE RECORDED (#926, ratified #936),
+        # because believing the fail-soft declaration is a two-sided choice and a
+        # trigger phrased in only one direction gets moved by whoever finds the
+        # current side painful.
+        #
+        # IF WE STOP BELIEVING IT (fail closed, flag fail-soft-only uses), what
+        # says that was wrong: the false-positive rate returns. Scanning for mere
+        # MENTIONS produced 266 findings, ~250 of them false (module docstring).
+        # Checkable by COUNTING `# binary-guard: allow` comments in the tree - if
+        # closing this needs more than a handful of new ones to silence scripts
+        # that genuinely survive the binary's absence, the widening has become the
+        # crying-wolf failure the hop exists to avoid, and those comments are the
+        # measurement rather than the remedy.
+        #
+        # IF WE KEEP BELIEVING IT, what says THAT was wrong: a test passing
+        # vacuously without the binary it needs. Checkable by running
+        # `--fail-soft-report` and testing each CANDIDATE on a PATH lacking its
+        # binary - a PASS rather than a SKIP is the trigger.
+        #
+        # THAT SECOND TRIGGER HAS ALREADY FIRED. Measured 2026-09-15:
+        # `TestPsFallbackWatcherIdentityAcrossDirectories` forces the `ps` lane
+        # and asserts it reports `unknown`; with `ps` absent the lane reports
+        # `unknown` for an unrelated reason, and the class PASSED. Guarding it
+        # makes it SKIP, and `tests/conftest.py` now names and counts such skips
+        # so they are visible in `make verify` rather than absorbed into "N
+        # passed". So "keep believing it" is NOT the neutral option - it is a
+        # position with one known casualty already in the tree, and a reader
+        # meeting this in a year will not reconstruct that from a conditional.
         failsoft = bool(
             match.group("bang")
             or match.group("anchor") in CONDITION_ANCHORS
@@ -1402,6 +1430,92 @@ def check_tree(tests_dir: Path) -> list[Finding]:
     return check_paths(test_files(tests_dir))
 
 
+# --------------------------------------------------------------------------- #
+# The fail-soft blind spot, DERIVED (issue #926)
+# --------------------------------------------------------------------------- #
+def fail_soft_population(root: Path) -> list[tuple[str, str, list[str], bool]]:
+    """Every (script, binary) pair the hop DROPS because every use is fail-soft.
+
+    Derived from this module's own predicates - `_script_uses`, the failsoft
+    classification, `_preflight_declarations` - rather than restated. A second
+    definition is a second population to keep in sync, and #926's whole finding
+    was that the hand-maintained list in a docstring named ONE instance where the
+    tree held thirteen.
+
+    Returns (script, binary, test modules naming that script, whether one of them
+    carries a hand-written `which("<binary>")` guard).
+
+    BOUND, and it is why this REPORTS rather than fails: "a test module names the
+    script" is coarse. A module can reference a script without exercising the lane
+    that needs the binary, so an entry without a guard is a CANDIDATE, not a
+    defect. Confirming one needs the per-site measurement #926 ran on `ps`: run
+    the test on a PATH lacking the binary and see whether it PASSES rather than
+    skips. This list is where that work starts, not its conclusion.
+    """
+    scripts_dir = root / "scripts"
+    tests_dir = root / "tests"
+    if not scripts_dir.is_dir() or not tests_dir.is_dir():
+        return []
+
+    test_sources = {p.name: p.read_text(encoding="utf-8", errors="replace")
+                    for p in sorted(tests_dir.glob("test_*.py"))}
+    rows: list[tuple[str, str, list[str], bool]] = []
+    for script in sorted(p for p in scripts_dir.iterdir() if p.is_file() and p.suffix == ".sh"):
+        source = _mask_noncode(_mask_heredocs(script.read_text(encoding="utf-8", errors="replace")))
+        lines = source.splitlines()
+        degrades, _scoped = _preflight_declarations(lines)
+        required = binaries_in_script(script)
+        by_binary: dict[str, list[_ScriptUse]] = {}
+        for use in _script_uses(source, lines):
+            by_binary.setdefault(use.binary, []).append(use)
+        for binary, uses in sorted(by_binary.items()):
+            if binary in required or binary in degrades:
+                continue
+            if not all(use.failsoft for use in uses):
+                continue
+            naming = [name for name, text in test_sources.items() if script.name in text]
+            guarded = any(
+                re.search(rf"which\(\s*[\"']{re.escape(binary)}[\"']", test_sources[name])
+                for name in naming
+            )
+            rows.append((script.name, binary, naming, guarded))
+    return rows
+
+
+def print_fail_soft_report(root: Path) -> int:
+    """Print the derived population with its denominator. Always exit 0.
+
+    REPORTS, never fails. Making this a gate would flag the seven candidates as
+    defects on evidence that cannot support it, and a gate whose findings are
+    mostly unconfirmed is the crying-wolf failure the hop was built to avoid -
+    the module docstring records that scanning for mere mentions produced 266
+    findings, ~250 of them false.
+    """
+    rows = fail_soft_population(root)
+    scripts_scanned = sum(1 for p in (root / "scripts").iterdir()
+                          if p.is_file() and p.suffix == ".sh") if (root / "scripts").is_dir() else 0
+    referenced = [r for r in rows if r[2]]
+    guarded = [r for r in referenced if r[3]]
+
+    print(
+        f"fail-soft blind spot: {len(rows)} (script, binary) pair(s) in {scripts_scanned} "
+        f"scripts/*.sh are dropped by the hop because EVERY use is fail-soft"
+    )
+    print(
+        f"  of those, {len(referenced)} are named by a test module; "
+        f"{len(guarded)} carry a hand-written guard, {len(referenced) - len(guarded)} do not"
+    )
+    print("  not inspected: whether an unguarded pair's test actually NEEDS the binary - "
+          "that needs a run on a PATH lacking it (a PASS rather than a SKIP is the defect)")
+    for script, binary, naming, is_guarded in rows:
+        if not naming:
+            print(f"    {binary:<8} {script:<34} no test module names this script")
+            continue
+        mark = "guarded" if is_guarded else "CANDIDATE"
+        print(f"    {binary:<8} {script:<34} {mark:<10} {', '.join(naming)}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
@@ -1410,9 +1524,16 @@ def main(argv: list[str] | None = None) -> int:
         default=Path(__file__).resolve().parents[1],
         help="repo root (default: the checkout this script lives in)",
     )
+    parser.add_argument(
+        "--fail-soft-report",
+        action="store_true",
+        help="list the (script, binary) pairs the hop drops as fail-soft, and exit 0",
+    )
     args = parser.parse_args(argv)
 
     root: Path = args.root.resolve()
+    if args.fail_soft_report:
+        return print_fail_soft_report(root)
     tests_dir = root / "tests"
     if not tests_dir.is_dir():
         print(f"binary-guards: no tests/ directory under {root} - nothing was scanned")
