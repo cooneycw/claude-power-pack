@@ -1,0 +1,66 @@
+{
+  "_comment": [
+    "Registration for scripts/check-oscillation.py (issue #936).",
+    "",
+    "THE CASES ARE CAPTURED `git log -p` OUTPUT, NOT REPOSITORIES, AND THAT IS",
+    "NOT A CONVENIENCE. GIT IS NOT IN THE CI IMAGE - check-test-binary-guards.py",
+    "carries the machine-checked CI_IMAGE_BINARIES list and git is absent from",
+    "it, a fact this repository's own notes record as forgotten three times",
+    "(#451, #489, #577) and structurally invisible locally, because the dev box",
+    "HAS git and `make verify` can never reproduce the failure.",
+    "",
+    "The first cut of this control invoked the gate against committed BARE",
+    "REPOSITORIES. It passed every local check and then, in CI, crashed with",
+    "FileNotFoundError: 'git', scored UNSIGNALLED, and failed the whole",
+    "negative-control framework - a NEW control breaking the gate that every",
+    "OTHER control is read through. The same shape as the anchors, which are",
+    "vendored rather than fetched with `git show` for exactly this reason: a",
+    "control that needs git works where it was written and is inert where it",
+    "gates.",
+    "",
+    "The capture is produced with GIT_LOG_ARGS from the gate itself. A log taken",
+    "with different flags parses to different moves, which is why those flags",
+    "are a module constant rather than written out at each call site.",
+    "",
+    "The invocation passes --exit-on-finding. That flag exists ONLY for this",
+    "registration: the framework decides a case from the exit code, and the",
+    "detector deliberately exits 0 for BOTH verdicts so a finding can never",
+    "fail the build. Without the adapter the known-BAD case would score GOOD",
+    "and this control would be blind - the exact defect the framework exists",
+    "to catch, arriving in its own registration."
+  ],
+  "gate": "scripts/check-oscillation.py",
+  "invocation": [
+    "python3",
+    "{gate}",
+    "--from-log",
+    "{case}/history.log",
+    "--exit-on-finding"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^OSCILLATION_FINDING: ",
+  "cases": [
+    {
+      "name": "bad-reversed",
+      "input": "cases/bad-reversed",
+      "expect": "BAD",
+      "why": "timeout 30 -> 60 -> 30. Loosened, then put back: the signature. If this scores GOOD the detector cannot see an oscillation at all."
+    },
+    {
+      "name": "good-monotonic",
+      "input": "cases/good-monotonic",
+      "expect": "GOOD",
+      "why": "timeout 60 -> 30 -> 10. Three edits to one threshold, never reversed. THE HALF THAT MATTERS (#936 acceptance item 2): a detector that flags this flags every threshold edit, becomes noise, and gets disabled - which is itself an oscillation, performed by the control built to prevent oscillation."
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "n/a",
+      "origin": "scripts/check-oscillation.py",
+      "path": "anchors/constructed-single-commit-check-oscillation.py",
+      "sha256": "19dccf8744a39a08ae967b8532a9d0ae1b65945fbafc52846e2dd9c1da960d12",
+      "why": "CONSTRUCTED rather than historical, and the distinction is stated because every other anchor in this repo is a real past commit. This gate is new, so there is no previous blind version to vendor - the honest 'before' is 'no detector at all', which cannot be run. This variant keeps only the NEWEST commit of the log, so it observes at most one move per knob and can never see a sequence reverse, which is exactly the insight the real gate encodes. It MISSES the known-bad input and AGREES with the current gate on the known-good one."
+    }
+  ]
+}
