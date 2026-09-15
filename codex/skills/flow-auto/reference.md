@@ -767,7 +767,129 @@ git commit -m "type(scope): Description (${ISSUE_REF})"
 git merge --no-edit origin/main
 ```
 
-1. **Quality gates** - ONE audited helper owns the deterministic-runner
+1. **Counter-model review** - a second model reads the branch, BEFORE the
+   quality gates below (issue #934,
+   [ADR 0007](docs/decisions/0007-counter-model-review.md)).
+
+   **THE RULE IS A PROPERTY, NOT A TOOL NAME: the reviewing model must not be
+   the implementing model.** Stated that way, a `qwen:auto` or `gemma:auto`
+   lane inherits the requirement with no edit here, and the rule survives the
+   lane topology changing. `/codex:code_review` is the implementation that
+   satisfies it today, not the rule itself.
+
+   **IT RUNS BY DEFAULT. A SKIP IS A RECORDED STATE, NEVER AN OMISSION.** This
+   stage previously lived in a separate command and ran on **0 of 170** merged
+   PRs across two months; it then ran on 21 of 30 in two days, because a wave
+   orchestrator declared it in policy. Adoption tracked an external mandate that
+   dies with the wave, not anyone's judgement per run - so the default is now
+   "runs", and not running requires a reason that lands in the receipt.
+
+   **IT COMES BEFORE THE QUALITY GATES, deliberately.** Accepted findings are
+   fixed in the worktree, and those fixes are code: a review placed after the
+   gates lets a fix that breaks lint, types or tests ride to the PR ungated.
+
+   **1a. Resolve the helper FIRST, then ask whether there is anything to
+   review.** `/flow-auto` runs against OTHER repositories too, and they do not
+   contain CPP's scripts - so a bare `python3 scripts/counter-model-receipt.py`
+   resolves inside the target worktree and simply is not there. Same resolution
+   order as every other flow helper (#581/#590):
+
+   ```bash
+   CM_RECEIPT=~/.claude/scripts/counter-model-receipt.py
+   [ -f "$CM_RECEIPT" ] || CM_RECEIPT="${CLAUDE_PLUGIN_ROOT}/scripts/counter-model-receipt.py"
+   [ -f "$CM_RECEIPT" ] || CM_RECEIPT="$CPP_DIR/scripts/counter-model-receipt.py"
+   [ -f "$CM_RECEIPT" ] || { echo "NOTE: counter-model-receipt.py not installed - \
+       the run will be reported in the PR body and NOT recorded in a receipt."; CM_RECEIPT=""; }
+   ```
+
+   A missing helper is a stated gap, not a silent one. Resolution happens here
+   because step 1c parses the transcript with it - the first cut assigned
+   `$CM_RECEIPT` further down in 1d, so the parse ran against an empty command
+   name in a fresh shell.
+
+   ```bash
+   BASE="origin/${DEFAULT_BRANCH:-main}"
+   git fetch origin --quiet || true
+   if [ -z "$(git diff "$BASE" --name-only)" ]; then
+       : # record skipped / no-diff (1d) and go to the quality gates
+   fi
+   ```
+
+   An empty diff is `skipped` with reason `no-diff` - NOT a `ran` receipt with
+   zero findings. A reviewer handed nothing to read and a reviewer that read the
+   change and found nothing wrong are opposite facts.
+
+   **1b. Run the review.** Invoke `/codex:code_review` with that BASE and
+   `CONTEXT` = `"issue #<N>: <issue title>"`, and **capture the transcript to a
+   file** - the receipt in 1d is derived from it, not from memory.
+
+   Ask for BOTH outputs in the same invocation. `/codex:code_review`'s own
+   prompt ends "Return ONLY a findings report"; this stage needs a second
+   section, so say so explicitly when invoking it:
+
+   ```
+   After the findings, add a section '## Red cases' listing, for each instrument
+   this change adds or modifies, the concrete input that should make that
+   instrument report the OTHER verdict. Name the input, not the intention. If
+   the change modifies no instrument, say '## Red cases' followed by
+   'None - no instrument changed.' so an absent section is distinguishable from
+   a considered zero.
+   ```
+
+   That is verbatim what the Negative Control directive demands, sourced from a
+   model that did not author the design, and it feeds the control registration
+   directly. One invocation, two outputs - not two stages.
+
+   **1c. Read the transcript's verdict before believing it:**
+
+   ```bash
+   python3 "$CM_RECEIPT" parse /path/to/transcript.md
+   ```
+
+   - `COUNTER_MODEL_REVIEW: findings` - triage each as accepted (fix it now, in
+     this worktree, under the Step-4 rules), rejected (one-line reason), or
+     deferred (real but out of scope - route it to the nit store). If anything
+     was accepted and fixed, re-review **once** more, never a third time.
+   - `COUNTER_MODEL_REVIEW: clean` - the reviewer said so in the prescribed
+     words. Record `ran` with zero counts.
+   - `COUNTER_MODEL_REVIEW: unparseable` (non-zero) - the reviewer produced
+     nothing, was cut off, or answered in another shape. **This is not a clean
+     review.** Record `skipped` with reason `reviewer-unavailable`; never a
+     `ran` receipt with zeros, which would enter the measurement as a review
+     that happened and found nothing.
+
+   **1d. Write the receipt - ALWAYS, including on a skip** (helper resolved in
+   1a):
+
+   ```bash
+   python3 "$CM_RECEIPT" write --dir "$(git rev-parse --show-toplevel)/docs/measurements/counter-model" \
+       --issue "$ISSUE_NUM" --branch "$BRANCH" \
+       --status ran --reviewer "codex/gpt-5.5" --implementer "claude/opus-5" \
+       --passes 2 --accepted 3 --rejected 1 --deferred 0 \
+       --red-cases-proposed 4 --red-cases-already-covered 3
+   ```
+
+   A skip with a receipt is a state; a skip without one is indistinguishable
+   from a stage that was never wired in. The receipts are the record - **the PR
+   body block below is a RENDERING of the receipt, never the source.** PR #1000
+   ran two review passes, fixed eleven findings, and is counted as having had no
+   cross-model review, because its author hand-wrote a different heading. A
+   marker written by the thing being measured is defeated by whoever writes it.
+
+   Then append the rendered block to the PR body in item 5:
+
+   ```
+   ## Counter-model review
+
+   Reviewer: <model> (must not be the implementing model), N pass(es)
+   Findings: X accepted (fixed), Y rejected, Z deferred
+   Red cases proposed: P, already covered by our tests: Q
+   Receipt: docs/measurements/counter-model/<file>.json
+   ```
+
+   A skipped stage appends the one-line skip note and its receipt path instead.
+
+2. **Quality gates** - ONE audited helper owns the deterministic-runner
    invocation (issue #613, the #581 pattern): CPP-checkout resolution, the `uv`
    check, the documented `PYTHONPATH` / `uv run --project` contract (#430), and
    the `make lint` + `make test` + `make typecheck` fallback all live in
@@ -831,7 +953,7 @@ git merge --no-edit origin/main
    the CPP-checkout copy; if no copy exists, note it and continue (the guard
    cannot block what it cannot run).
 
-2. **Commit** - if there are uncommitted changes:
+3. **Commit** - if there are uncommitted changes:
    - Conventional commit format, using the selected reference:
      `type(scope): Description (${ISSUE_REF})`
    - Include `Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>`
@@ -842,12 +964,12 @@ git merge --no-edit origin/main
      branch history and the PR title/body carry the conventional message, so
      the WIP message never reaches `main`. Do NOT add a STOP for this state.
 
-3. **Push** the branch:
+4. **Push** the branch:
    ```bash
    git push -u origin "$BRANCH"
    ```
 
-4. **Create PR** - if no PR exists:
+5. **Create PR** - if no PR exists:
    ```bash
    gh pr create --title "type(scope): Description (${ISSUE_REF})" --body "..."
    ```

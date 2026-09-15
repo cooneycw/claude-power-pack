@@ -85,6 +85,22 @@ desktop.ini
 # ignored path with no error - so the framework shipped with its only control
 # inert. The `*` glob covers the next consumer, not just the first.
 !controls/*/control.json
+# Counter-model review receipts (issue #934) - tracked despite *.json above, and
+# for the same reason as every negation above it: the receipt IS the record.
+# Untracked, the measurement does not exist in a clean clone, the validator
+# reports `unknown`, and the whole point of #934 - that nothing anywhere
+# recorded whether the stage ran - comes straight back. This was the THIRD time
+# in one day the blanket-rule trap fired (controls' *.log on #936, the #953
+# anchors before it); the tell each time was a gate reporting clean against
+# files that were not in the repository.
+# NOT UNCHECKED - checked elsewhere: `counter-model-receipt.py validate` refuses
+# to report `ok` on an empty directory, and tests/test_counter_model_review.py
+# asserts the committed receipts are TRACKED, not merely present on disk.
+# WHAT WOULD MOVE THIS BACK (issue #936): receipts growing past what a
+# repository should carry - at 21 runs in two days, pruning becomes a real
+# question, and the answer would be a summarised ledger rather than un-ignoring
+# these.
+!docs/measurements/counter-model/*.json
 # The #953 forced-claim prototype's manifest, claims and anchors (issue #953) -
 # same trap, one directory over. Its cases/*/claim.json and cases/*/anchor.log
 # ARE the fixture inputs: without them `--selftest` crashes on a fresh checkout,
