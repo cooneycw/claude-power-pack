@@ -343,3 +343,116 @@ def test_both_surfaces_agree_on_the_container_lane_order() -> None:
         "an orchestrator reads wave.md and a worker reads register.md, so a split "
         "here routes the two ends differently"
     )
+
+
+# ---------------------------------------------------------------------------
+# The same stamp discipline, applied to flow-wave-mailbox.sh (issue #898).
+#
+# #870's defect was a harness claim with no version on it, in a document a
+# reader routes from. The identical defect was still standing in the mailbox
+# script's own design comment: "No script here can make the HARNESS re-invoke a
+# specific agent's conversation on a background process's completion", written
+# as an absolute, undated, and load-bearing - it is the stated justification for
+# the `route_state()` four-state model directly below it.
+#
+# It was wrong on the harness we run. #868's closing measurement (2.1.266,
+# 2026-09-13) established that a correctly-formed write to a session's inbox
+# socket DOES render as a turn (5/5 with a live parent chain), and that what
+# actually gates delivery is process lineage (0/4 reparented to init) - so the
+# conclusion "this daemon cannot wake the session" survived, but its stated
+# reason did not.
+#
+# What these pin is the STAMP, not the verdict, exactly as the tests above do.
+# Whether lineage still gates delivery, whether the socket stays fire-and-forget,
+# whether a cross-namespace write lands - all of that is expected to move, and a
+# test asserting today's answer would have to be edited by whoever next
+# re-measures, which is how a guard becomes a formality. These fail when a claim
+# loses its stamp, or when the retracted absolute comes back unmarked.
+# ---------------------------------------------------------------------------
+
+#: Every copy of the mailbox script - the source and its generated Codex mirrors.
+#: Derived by glob rather than listed, so a mirror added later is covered without
+#: anyone remembering to add it here.
+MAILBOX_COPIES = sorted(ROOT.glob("**/flow-wave-mailbox.sh"))
+
+#: The retracted absolute, in the shape the comment asserted it.
+RETRACTED_ABSOLUTE = re.compile(
+    r"No script here can make the\s*#?\s*HARNESS re-invoke", re.I
+)
+
+
+def _harness_capability_comment(text: str) -> str:
+    """The design comment about waking a session, up to the ROUTE READINESS section.
+
+    Anchored on "What this does not" (which both the old and the corrected
+    heading start with) and terminated by the next section, which the comment
+    itself cross-references by name. Raises rather than returning "" when the
+    block cannot be found: an extractor that silently yields nothing would make
+    every assertion below vacuously true, which is the failure these are for.
+    """
+    match = re.search(
+        r"^# What this does not.*?(?=^# Route readiness)", text, re.M | re.S
+    )
+    if not match:
+        raise AssertionError(
+            "the 'What this does not ...' comment block was not found - the "
+            "extractor is broken, or the block was renamed; either way these "
+            "probes cannot report on it"
+        )
+    return match.group(0)
+
+
+def test_the_mailbox_copies_are_all_discovered() -> None:
+    """The glob above must actually find the copies it is meant to guard.
+
+    Without this, a glob that matched nothing would make every parametrized test
+    below collect zero cases and the file would report green having checked
+    nothing - a scan whose silence is indistinguishable from a clean result.
+    """
+    names = {p.relative_to(ROOT).as_posix() for p in MAILBOX_COPIES}
+    assert "scripts/flow-wave-mailbox.sh" in names, (
+        f"the source copy was not discovered by the glob; found {sorted(names)}"
+    )
+    assert len(MAILBOX_COPIES) >= 3, (
+        "expected the source plus its two generated Codex mirrors, found "
+        f"{sorted(names)}"
+    )
+
+
+@pytest.mark.parametrize(
+    "surface", MAILBOX_COPIES, ids=lambda p: p.parent.parent.name + "/" + p.name
+)
+def test_the_wake_comment_carries_a_harness_version(surface: Path) -> None:
+    """A claim about what the harness can or cannot do needs the version it holds on.
+
+    This is #870's rule, and the mailbox script asserted harness behaviour for
+    months without one.
+    """
+    block = _harness_capability_comment(surface.read_text())
+    assert VERSION.search(block), (
+        f"{surface.name}: the comment states what the harness can or cannot do "
+        "with no version anywhere in it - the #870 defect, in the file that "
+        "justifies route_state()"
+    )
+
+
+@pytest.mark.parametrize(
+    "surface", MAILBOX_COPIES, ids=lambda p: p.parent.parent.name + "/" + p.name
+)
+def test_the_retracted_absolute_is_not_asserted_bare(surface: Path) -> None:
+    """The "no script here can" absolute may be quoted as history, not stated as fact.
+
+    #868 measured the capability working 5/5 from a writer with a live parent
+    chain, so the absolute is false on the installed harness. If the sentence
+    reappears it must sit beside a word marking it as corrected - that is what
+    stops the next reader acting on it.
+    """
+    text = surface.read_text()
+    for match in RETRACTED_ABSOLUTE.finditer(text):
+        window = text[max(0, match.start() - 700) : match.end() + 700]
+        assert re.search(
+            r"used to|wrong|retracted|corrected|no longer|refuted", window, re.I
+        ), (
+            f"{surface.name}: the retracted absolute is asserted with nothing "
+            "marking it as superseded by measurement"
+        )
