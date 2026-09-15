@@ -302,7 +302,26 @@ if [[ "$RUNNER_OK" -eq 1 ]]; then
             exit 0
         fi
         if [[ "$QUALIFIED" -eq 1 ]]; then
-            echo "WARNING: the gate passed but the runner QUALIFIED it (see \"warnings\" above) - a test step exited 0 without executing any tests (issue #621). Do not read this as 'safe to merge' until you know why." >&2
+            # Do NOT name a single cause here (issue #939). QUALIFIED is set by
+            # the mere PRESENCE of "warnings" in the runner JSON, and that
+            # collection carries three different findings: #621 "exited 0 having
+            # executed no tests", #838 "SOME invocation executed nothing while
+            # the total looked healthy", and #939 "no summary could be parsed
+            # from either stream, so the result is UNKNOWN" - and any kind
+            # added later. Only the first means no tests executed; the list is
+            # illustrative and deliberately NOT repeated in the message, since
+            # a message that enumerates causes goes stale the moment a fourth
+            # is added. For #939 the suite may have run
+            # thousands, and failing to RECOGNIZE a summary establishes nothing
+            # about what ran. This line asserted #621 for all of them - a gate
+            # stating a fact it had not established, which is the defect class
+            # the runner-side fix addresses one layer down.
+            #
+            # #838 already falsified it before #939 widened the collection. The
+            # reason that went unnoticed for the whole life of #838 is that no
+            # test asserted anything about this sentence; the property is now
+            # pinned in tests/test_flow_finish_gate.py rather than the wording.
+            echo "WARNING: the gate passed but the runner QUALIFIED it (see \"warnings\" above) - at least one test step's result is not a clean pass, and the warnings state which. Do not read this as 'safe to merge' until you know why." >&2
             verdict warn
             exit 0
         fi

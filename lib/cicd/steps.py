@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional, Protocol
 
-from .outcomes import SuiteOutcome, parse_suite_outcome
+from .outcomes import SuiteOutcome, merge_stream_outcomes, parse_suite_outcome
 from .state import StepStatus
 
 # Root of the CPP checkout (the parent of ``lib/``), derived from this file's
@@ -197,14 +197,34 @@ class ShellStep:
         )
 
     def _parse_tests(self, output: str, error: str) -> Optional[SuiteOutcome]:
-        """Parse a test summary from this step's captured output, if it is a test step.
+        """Parse a test summary from BOTH captured streams, if it is a test step.
 
-        Both streams are scanned: pytest prints its tail to stdout, but a
-        ``make`` recipe (or a wrapper that redirects) can land it on stderr.
+        Both streams are scanned and their summaries MERGED. pytest prints its
+        tail to stdout, but a ``make`` recipe (or a wrapper that redirects) can
+        land it on stderr, and a target running two suites can produce one of
+        each.
+
+        This read ``parse(output) or parse(error)`` until issue #939. ``or``
+        scans the second stream only when the first returns ``None``, and
+        ``SuiteOutcome`` is a frozen dataclass with no ``__bool__`` - so even
+        the all-zeros "no tests ran" outcome is truthy and short-circuits the
+        stderr scan. "Both streams are scanned" was what this docstring said;
+        "the first stream that says anything wins" was what the code did. The
+        consequence was not cosmetic: a passing stdout summary drove
+        ``failed + errors > 0`` to False and failures reported on stderr were
+        never retried, then read as ``nothing_ran`` on the re-run.
+
+        The result records which streams it was derived from, so a caller
+        reports what its verdict came FROM rather than a bare one (issue #952).
         """
         if not self.is_test_step():
             return None
-        return parse_suite_outcome(output) or parse_suite_outcome(error)
+        return merge_stream_outcomes(
+            [
+                parse_suite_outcome(output, "stdout"),
+                parse_suite_outcome(error, "stderr"),
+            ]
+        )
 
     def should_skip(self, context: dict[str, Any]) -> bool:
         """Check if this step should be skipped."""
@@ -310,6 +330,14 @@ class ShellStep:
                 status=StepStatus.SUCCESS,
                 exit_code=0,
                 output=output,
+                # Carried on the SUCCESS path too (issue #939). It was dropped
+                # here while the failure path kept it, so anything a passing
+                # step wrote to stderr was discarded before any caller could
+                # look at it - including #939's own UNKNOWN guard, which asks
+                # whether the step produced output at all and could therefore
+                # see only half the answer. The parse itself was never
+                # affected: `_parse_tests` runs on the local streams above.
+                error=error,
                 tests=tests,
             )
         return StepResult(

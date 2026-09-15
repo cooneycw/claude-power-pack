@@ -487,7 +487,7 @@ class DeterministicRunner:
                 if outcome is not None and outcome.nothing_ran:
                     warnings.append(
                         f"{step.id}: exited 0 but executed NO tests ({outcome.summary()}) "
-                        "- this gate proved nothing about the change"
+                        "- this gate proved nothing about the change (issue #621)"
                     )
                     self._log(
                         f"  [{idx + 1}/{len(step_defs)}] {step.id}: "
@@ -512,6 +512,45 @@ class DeterministicRunner:
                         f"  [{idx + 1}/{len(step_defs)}] {step.id}: "
                         f"SUCCESS - {outcome.empty_invocations} OF "
                         f"{outcome.invocations} INVOCATIONS RAN NO TESTS{qualifier}"
+                    )
+                elif (
+                    outcome is None
+                    and step.is_test_step()
+                    and (result.output.strip() or result.error.strip())
+                ):
+                    # A parse that examined nothing reads UNKNOWN, not clean
+                    # (issue #952, first implementation ticket #939). Silence
+                    # here used to be indistinguishable from a healthy result:
+                    # the step logged a bare SUCCESS, `tests` gained no entry,
+                    # and a reader could not tell "the suite reported 312
+                    # passed" from "nothing in either stream was recognizable
+                    # as a summary". Those are different facts and only one of
+                    # them is evidence.
+                    #
+                    # Both streams were examined and neither yielded a
+                    # summary, so the denominator is stated rather than left
+                    # to inference.
+                    #
+                    # SCOPED to a step that actually PRODUCED output, and the
+                    # bound is deliberate. A test step that printed nothing at
+                    # all (`command: true`) is not a suite whose result is
+                    # unknown - there is no result to be unknown about - and
+                    # #628/#890 pinned that shape as a bare success. Warning
+                    # there would fire on the normal case, which is how a
+                    # warning stops being read.
+                    #
+                    # The bound does NOT cover a runner CPP cannot parse (Go,
+                    # Rust, a shell harness): that produces output, so it warns
+                    # on every run. That is a policy question wider than #939
+                    # and is flagged as a residual rather than settled here.
+                    warnings.append(
+                        f"{step.id}: exited 0 but NO test summary could be parsed "
+                        "from stdout or stderr - this gate's result is UNKNOWN, "
+                        "not clean"
+                    )
+                    self._log(
+                        f"  [{idx + 1}/{len(step_defs)}] {step.id}: "
+                        "SUCCESS - NO TEST OUTCOME PARSED (UNKNOWN, not clean)"
                     )
                 else:
                     self._log(f"  [{idx + 1}/{len(step_defs)}] {step.id}: SUCCESS{qualifier}")
@@ -581,6 +620,33 @@ class DeterministicRunner:
                         self._log(
                             f"  [{idx + 1}/{len(step_defs)}] {step.id}: "
                             "RE-RUN INCONCLUSIVE - no tests ran; the original "
+                            "failure stands"
+                        )
+                    elif (
+                        rerun_outcome is not None
+                        and rerun_outcome.any_invocation_empty
+                    ):
+                        # The merge across streams (issue #939) made this
+                        # reachable and it must not be allowed to clear a real
+                        # failure. A re-run whose pytest invocation collected
+                        # nothing while an UNRELATED suite passed now totals a
+                        # healthy count - `nothing_ran` is False - so without
+                        # this branch the runner would record
+                        # `passed-in-isolation` against ids that were never
+                        # executed. Before the merge the empty pytest summary
+                        # won outright and the run read inconclusive, which was
+                        # the correct verdict for the wrong reason.
+                        #
+                        # #900's rule, one layer down: the experiment cannot
+                        # support the conclusion, so the conclusion is not
+                        # drawn.
+                        rerun_verdict = "inconclusive"
+                        self._log(
+                            f"  [{idx + 1}/{len(step_defs)}] {step.id}: "
+                            f"RE-RUN INCONCLUSIVE - {rerun_outcome.empty_invocations} "
+                            f"of {rerun_outcome.invocations} re-run invocations "
+                            "executed NO tests, so the retried ids were not "
+                            "necessarily among those that ran; the original "
                             "failure stands"
                         )
                     elif rerun_result.success and rerun_outcome is not None:
@@ -766,7 +832,20 @@ class DeterministicRunner:
                 "(no Makefile target and no configured tool)"
             )
         if warnings:
-            qualifiers.append("a test step executed no tests (#621)")
+            # Do NOT name a cause here (issue #939). `warnings` carries three
+            # distinct findings and only the first is "executed no tests":
+            # #621's "exited 0 having executed nothing", #838's "SOME
+            # invocation executed nothing while the total looked healthy", and
+            # #939's "no summary could be parsed from either stream, so this
+            # is UNKNOWN". Asserting the #621 sentence for all of them makes
+            # this line false for the other two - an instrument claiming more
+            # than its input supports, which is the defect #939 fixes one
+            # layer down.
+            #
+            # #838 already falsified it before #939 widened the collection;
+            # nothing pinned the string, so nothing said so.
+            word = "qualification" if len(warnings) == 1 else "qualifications"
+            qualifiers.append(f"{len(warnings)} test step {word} (see warnings)")
         passed_rerun_ids = [
             node_id
             for rerun in reruns

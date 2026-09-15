@@ -103,6 +103,111 @@ def _fake_cpp(tmp_path: Path) -> Path:
     return cpp
 
 
+_UNKNOWN_WARNING = (
+    "test: exited 0 but NO test summary could be parsed from stdout or stderr "
+    "- this gate's result is UNKNOWN, not clean"
+)
+_NO_TESTS_WARNING = (
+    "test: exited 0 but executed NO tests (0 passed, 66 skipped) - this gate "
+    "proved nothing about the change (issue #621)"
+)
+
+# Claims the gate's own QUALIFIED line must never make on its own authority.
+# Asserted as a FORBIDDEN SET rather than by pinning the sentence: a reword is
+# free, reintroducing the false claim is not (issue #939).
+_UNESTABLISHED_CLAIMS = (
+    "without executing any tests",
+    "executed no tests",
+    "no tests ran",
+)
+
+
+def _qualified_line(output: str) -> str:
+    """The gate's OWN warning line, not the runner JSON it tee'd through.
+
+    Scoping matters: the runner's warnings are echoed in the tee'd JSON, and a
+    #621 warning legitimately contains "executed NO tests". Asserting over the
+    whole output would read the runner's honest sentence as the gate's
+    unestablished one and fail for the wrong reason.
+    """
+    return next(
+        line
+        for line in output.splitlines()
+        if "the gate passed but the runner QUALIFIED it" in line
+    )
+
+
+def _runner_json(warning: str) -> str:
+    return (
+        '{\n  "success": true,\n  "plan": "finish",\n'
+        '  "warnings": [\n    "' + warning + '"\n  ]\n}\n'
+    )
+
+
+@requires_bash
+def test_qualified_gate_does_not_assert_a_cause_it_did_not_establish(
+    tmp_path: Path,
+) -> None:
+    """The gate must not convert ANY warning into "no tests executed" (issue #939).
+
+    `QUALIFIED` is set by the mere presence of a "warnings" key, and that
+    collection carries three findings of which only #621 means no tests ran.
+    For unparseable output the suite may have executed thousands: failing to
+    RECOGNIZE a summary establishes nothing about what ran.
+
+    THE PROPERTY, NOT THE PROSE. This asserts a forbidden set rather than the
+    replacement wording, so a later reword stays green and a reintroduced false
+    claim - or a FOURTH warning kind flattened into the #621 sentence - goes
+    red. The reason this went unnoticed for the whole life of #838, which had
+    already falsified the old sentence, is that no test asserted anything about
+    it at all.
+    """
+    cpp = _fake_cpp(tmp_path)
+    proc, _ = _run(
+        tmp_path,
+        cpp_dir=str(cpp),
+        uv_exit=0,
+        uv_stdout=_runner_json(_UNKNOWN_WARNING),
+    )
+
+    assert proc.returncode == 0
+    assert "FLOW_FINISH_GATE: warn" in proc.stdout
+
+    line = _qualified_line(proc.stdout)
+    for claim in _UNESTABLISHED_CLAIMS:
+        assert claim not in line, (
+            f"the gate asserted {claim!r} from a warning that says the result "
+            "is UNKNOWN - it did not establish that"
+        )
+
+
+@requires_bash
+def test_the_qualified_line_still_fires_for_a_real_no_tests_warning(
+    tmp_path: Path,
+) -> None:
+    """The negative half: the guard above must not be satisfied by silence.
+
+    A gate that stopped emitting the QUALIFIED line entirely would pass the
+    forbidden-claim assertion perfectly while losing the warning that matters.
+    Both warning kinds must still reach `warn`, so the property under test is
+    "does not overclaim", never "says less".
+    """
+    cpp = _fake_cpp(tmp_path)
+    proc, _ = _run(
+        tmp_path,
+        cpp_dir=str(cpp),
+        uv_exit=0,
+        uv_stdout=_runner_json(_NO_TESTS_WARNING),
+    )
+
+    assert proc.returncode == 0
+    assert "FLOW_FINISH_GATE: warn" in proc.stdout
+    # The line is emitted; the CAUSE is carried by the runner's own warning,
+    # which is tee'd through and does say it executed no tests.
+    assert _qualified_line(proc.stdout)
+    assert "executed NO tests" in proc.stdout
+
+
 # --- Runner path -------------------------------------------------------------
 
 
@@ -322,7 +427,14 @@ def test_qualified_run_reports_warn_not_ok(tmp_path: Path) -> None:
     payload = (
         '{\n  "success": true,\n  "steps_completed": 3,\n'
         '  "tests": {"test": {"passed": 0, "skipped": 66, "executed": 0}},\n'
-        '  "warnings": ["test: exited 0 but executed NO tests (0 passed, 66 skipped)"]\n}'
+        # Matches what the runner ACTUALLY emits (issue #939): the "(issue
+        # #621)" tag now rides on the specific warning rather than on the
+        # gate's generic QUALIFIED line, which no longer names a cause because
+        # three different findings reach it. The assertion below is unchanged -
+        # the reader must still be able to see this is the #621 case - only the
+        # fixture is brought back in line with its real producer.
+        '  "warnings": ["test: exited 0 but executed NO tests (0 passed, 66 '
+        'skipped) - this gate proved nothing about the change (issue #621)"]\n}'
     )
     proc = _run_with_uv_stub(tmp_path, cpp, payload)
     assert proc.returncode == 0
