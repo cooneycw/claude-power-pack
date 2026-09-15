@@ -1,0 +1,14 @@
+diff --git a/greet.py b/greet.py
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/greet.py
+@@ -0,0 +1,9 @@
++"""Return a greeting for a name."""
++
++
++def greet(name: str) -> str:
++    """Return "Hello, <name>!" for a non-empty name."""
++    if not name:
++        raise ValueError("name must not be empty")
++    return f"Hello, {name}!"

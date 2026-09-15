@@ -1,0 +1,19 @@
+{
+  "branch": "issue-934-counter-model-review-is-opt-in-and-has-never-run-0",
+  "counts": {
+    "accepted": 14,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "implementer": "claude/opus-5",
+  "issue": "934",
+  "passes": 2,
+  "recorded_at": "2026-09-15T17:38:25Z",
+  "red_cases": {
+    "already_covered": 3,
+    "proposed": 16
+  },
+  "reviewer": "codex/gpt-5.5",
+  "schema": 1,
+  "status": "ran"
+}
