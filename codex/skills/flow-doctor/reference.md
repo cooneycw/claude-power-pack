@@ -125,15 +125,19 @@ done
 
 # worktree-remove.sh is the git-lane cleanup path: worktrees are created OUTSIDE
 # the repo and removed with `git worktree remove` (issue #627, native
-# EnterWorktree/ExitWorktree lane retired, #440 superseded). Missing is a WARN,
-# not a FAIL - the inline `git worktree remove` fallback still works, it just
-# lacks the #597 claim check.
+# EnterWorktree/ExitWorktree lane retired, #440 superseded). Missing is a WARN
+# rather than a FAIL because /flow-doctor reports posture and does not run
+# cleanup - but it is NOT a benign warning. There is no inline fallback any
+# more: #899 made /flow-merge refuse and #973 made /flow-auto refuse, so a
+# missing helper means worktrees accumulate and each run hands the owner a
+# TO-DO. The old text here claimed the fallback "still works", which stopped
+# being true for merge at #899 and for auto at #973.
 if [ -x "$HOME/.claude/scripts/worktree-remove.sh" ]; then
   echo "PASS worktree-remove.sh (git-lane cleanup)"
 elif [ -f "$HOME/.claude/scripts/worktree-remove.sh" ]; then
   echo "WARN worktree-remove.sh (not executable)"
 else
-  echo "WARN worktree-remove.sh (not installed; inline 'git worktree remove' fallback covers cleanup without the #597 claim check)"
+  echo "WARN worktree-remove.sh (not installed; /flow-auto and /flow-merge will REFUSE to remove a worktree and record an owner TO-DO instead - cleanup does NOT happen, and no inline fallback exists since #899/#973)"
 fi
 
 # Flow helper family (issue #581): the zero-prompt lane invokes these BARE at

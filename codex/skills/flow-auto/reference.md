@@ -1091,13 +1091,91 @@ Report: `Step 6/9: Finish complete - PR #XX created`
    `WORKTREE_REMOVE_OCCUPANCY: unknown` and falls open, which means unchecked,
    not clean.
 
-   If the helper is not installed (exit 127), fall back to:
-   ```bash
-   git worktree remove "$WORKTREE_PATH" --force
-   git branch -D "$BRANCH" 2>/dev/null || true
-   ```
-   With no worktree (a feature branch in the main repo), just delete the
-   branch: `git branch -D <branch>`.
+   If the helper is not installed, REFUSE rather than removing by hand. The
+   raw `git worktree remove --force` this used to run bypassed the claim check,
+   the occupancy check, the uncommitted-work check and the unpushed-commits
+   check in one line - and a guard that is absent is indistinguishable from a
+   guard that passed (the #823 shape). #899 fixed this in `/flow-merge` and not
+   here, leaving the raw form on the lane almost every run takes (issue #973).
+
+```bash
+# The marker is a FILE, not a shell variable (issue #973). Each step here is a
+# separate Bash call, so a variable set in this one is gone by the time the
+# closing report runs - a refusal recorded only in `$cleanup_refused` would be
+# an owner item that never reaches the owner, which is the failure #965 exists
+# to fix. `$MAIN_REPO/.git` survives the worktree this is removing.
+#
+# DERIVE the paths in THIS call rather than inheriting them. A block that works
+# because an earlier call happened to export something works by accident; shell
+# state does not survive between Bash calls, and this one may be re-run alone.
+MAIN_REPO="$(git rev-parse --show-toplevel)"   # Step 5a already cd'd here
+# WORKTREE_PATH is this step's subject and must be set in THIS call too.
+
+# ONE MARKER PER WORKTREE, not one per repo. A single shared path meant a
+# concurrent run's `rm -f` erased a sibling's pending owner item before the
+# report consumed it - a shared mutable output path, which is a race rather
+# than a handoff.
+CLEANUP_REFUSED_DIR="$MAIN_REPO/.git/flow-cleanup-refused.d"
+CLEANUP_REFUSED_MARKER="$CLEANUP_REFUSED_DIR/$(basename "$WORKTREE_PATH")"
+mkdir -p "$CLEANUP_REFUSED_DIR"
+rm -f "$CLEANUP_REFUSED_MARKER"   # only THIS worktree's entry; a sibling's survives
+cleanup_refused=0
+if [[ -x ~/.claude/scripts/worktree-remove.sh ]]; then
+    ~/.claude/scripts/worktree-remove.sh "$WORKTREE_PATH" --force --delete-branch
+else
+    # Refuse - and make the refusal LEGIBLE (issue #973). Three echoes to
+    # stderr are not a channel the closing report consumes, so a refusal that
+    # only prints is an owner item nobody receives. Two things are required:
+    #
+    #   - a NON-ZERO status, EXPLICITLY tolerated by the `||` below. A block
+    #     that continues merely because no `set -e` is in scope is one `set -e`
+    #     away from silently becoming an abort, and nothing would announce it.
+    #   - explicit STATE the report step reads deterministically. Without it
+    #     the TO-DO entry depends on someone noticing text scroll past, which
+    #     is the failure #965 exists to fix.
+    {
+        echo "REFUSING: worktree-remove.sh is missing; not removing $WORKTREE_PATH by hand." >&2
+        echo "  Every guard this lane relies on lives in that helper (issue #899)." >&2
+        echo "  Install it with /flow-repair, then re-run this step." >&2
+        false
+    } || cleanup_refused=1
+[[ "$cleanup_refused" -eq 1 ]] && printf '%s\n' "$WORKTREE_PATH" > "$CLEANUP_REFUSED_MARKER"
+fi
+```
+
+**The refusal is an OWNER ITEM, not a log line (issues #965, #973).** The
+closing-report step reads the marker DIRECTORY, in its own Bash call, deriving
+the location the same way rather than inheriting it:
+
+```bash
+MAIN_REPO="$(git rev-parse --show-toplevel)"
+for m in "$MAIN_REPO"/.git/flow-cleanup-refused.d/*; do
+    [[ -e "$m" ]] || continue          # glob with no matches: nothing refused
+    echo "TO-DO: worktree $(cat "$m") was NOT removed (worktree-remove.sh missing)"
+    rm -f "$m"                          # consumed - do not re-report next run
+done
+```
+
+The path comes from the file's CONTENTS, so the report names the worktree even
+though it never saw this call's `$WORKTREE_PATH`.
+The run CONTINUES - the PR is already merged by this point, and turning a
+cleanup problem into a run failure produces a guard people route around, which
+is strictly worse than the exit-0 refusal it replaces: absent, and everyone
+knows how. So the closing report's `## TO-DO (owner)` block carries, verbatim:
+
+> Worktree `$WORKTREE_PATH` was NOT removed - `worktree-remove.sh` is missing,
+> so every guard this lane relies on was unavailable. Install it with
+> `/flow-repair` and re-run this step, or remove the worktree yourself after
+> checking it holds no unpushed work.
+
+A leftover worktree is cheap and visible. Destroyed work is neither, and a
+refusal nobody is told about is a third thing: invisible and indistinguishable
+from success.
+
+With no worktree (a feature branch in the main repo) there is nothing for the
+helper to guard, so just delete the branch: `git branch -D <branch>`. That case
+is unchanged by #973 and is not the fallback above - the branch is merged by
+this point, and no worktree means no uncommitted work to destroy.
 
 5. **Update local main:**
    ```bash
