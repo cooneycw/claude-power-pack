@@ -1,0 +1,34 @@
+{
+  "gate": "scripts/check-negative-controls.py",
+  "invocation": [
+    "python3",
+    "{gate}",
+    "--root",
+    "{case}",
+    "--strict"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^negative-controls: \\S+ -> (BLIND|INERT|UNPROVEN|UNSIGNALLED|UNRESOLVED)$",
+  "limits": "SELF-REGISTERED, and a weaker member of this register than the other rows. It demonstrates that the harness still tells a crashing gate from a detecting one - the #946 property - because the anchor is a frozen copy of a DIFFERENT program and carries the discrimination. It CANNOT detect a breakage in the harness's own verdict assignment: a harness mutated to emit PASS unconditionally reports PASS about itself. What detects that is tests/test_negative_controls.py, run by pytest in the 'validate' CI step - a different process asserting on exit codes rather than on this harness's judgement of itself. Do not read this row as the harness verifying itself.",
+  "cases": [
+    {
+      "name": "bad-crashing-gate",
+      "input": "cases/bad-crashing-gate",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-discriminating-gate",
+      "input": "cases/good-discriminating-gate",
+      "expect": "GOOD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "historical",
+      "sha": "3a90f96",
+      "origin": "scripts/check-negative-controls.py",
+      "path": "anchors/3a90f96-check-negative-controls.py",
+      "sha256": "82b15e534b25d7d43bf418206f195c9f80a19b623a7a0a5288191d8835a7c8dd"
+    }
+  ]
+}

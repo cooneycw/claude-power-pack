@@ -25,9 +25,6 @@ DISCRIMINATION   gate(known-bad) == BAD *and* gate(known-good) == GOOD.
                  half on its own, so the good case is what separates a working
                  gate from a stuck one.
 
-                 A verdict is read from the gate's OUTPUT as well as its exit
-                 code - see the next section, which is the whole of issue #946.
-
 ANCHOR           the same control, run against a VENDORED BLIND ARTIFACT, must
                  FAIL - the artifact must MISS the known-bad input. This is
                  acceptance step 4 ("show the control still failing if the fix
@@ -38,58 +35,6 @@ ANCHOR           the same control, run against a VENDORED BLIND ARTIFACT, must
 ANCHOR SANITY    the anchor must agree with the current gate on the known-GOOD
                  input. If it disagrees there too, it differs for reasons beyond
                  the blindness under test and the demonstration is not isolated.
-
----------------------------------------------------------------------------
-A CRASH IS NOT A DETECTION - why `detect_signal` is required (issue #946)
----------------------------------------------------------------------------
-The first cut decided a case from the exit code alone: `good_exit` meant GOOD
-and anything else meant BAD. A gate that FELL OVER on the known-bad input
-therefore scored exactly like one that REPORTED it, because an uncaught Python
-exception also exits 1. `check-test-binary-guards.py` - this framework's first
-consumer - exits 1 when it finds something and 1 when it raises, so for the one
-control that existed the two were not separable at all, and no reordering of
-this file made them so.
-
-What that produced is this issue's own defect class occurring inside the tool
-built for it: `PASS`, exit 0, and the summary "1 control(s) discriminate" for a
-gate that discriminated nothing and died. The CI step was green while it
-happened.
-
-So the manifest DECLARES the signal: `detect_signal`, a regex the gate's own
-output (stdout and stderr together) must carry when it genuinely reports a
-finding. A BAD verdict now needs the gate to have SAID something, not merely to
-have exited non-zero. Three observations replace two:
-
-    GOOD         exit == good_exit                    - reported nothing
-    BAD          exit != good_exit AND signal present - reported a finding
-    UNSIGNALLED  exit != good_exit AND signal absent  - exited like a finding
-                                                        and said nothing that
-                                                        identifies one
-
-A declared signal is not automatically a usable one, and two ways of getting it
-wrong put the old blindness straight back. A pattern that matches EMPTY output
-(`.*`, a trailing `|`, a bare `^`) makes every non-zero exit a detection again;
-one that matches the gate's CLEAN-run message (`^binary-guards` against a gate
-that prints `binary-guards: ok - ...`) identifies a clean run as readily as a
-finding. Both are refused - the first structurally, the second against the
-known-GOOD run's actual output, which this harness already has in hand. Anchor
-the pattern on something only a finding prints; the count in
-`^binary-guards: [0-9]+ unguarded test` is there for exactly that reason.
-
-The field is REQUIRED, and that is the load-bearing half. An OPTIONAL signal
-would leave every control that omits it scored exactly as it was before this
-fix, which is the fail-open being closed here - the same reason a control with
-no anchor is UNPROVEN rather than quietly PASS. What would move this back is a
-consumer whose detection has no stable textual marker at all; the answer there
-is to give that gate a marker, not to make the field optional again.
-
-Note the narrowing this accepts deliberately: an anchor that legitimately
-CAUGHT the known-bad input while printing a message the CURRENT signal does not
-match is reported UNRESOLVED ("cannot be confirmed to have missed it") rather
-than INERT. That is still a red and it is a narrower claim than the old one,
-which is the right direction - but it IS a change of diagnosis, and a reader
-chasing an UNRESOLVED anchor should check the historical artifact's wording
-before assuming it crashed.
 
 ---------------------------------------------------------------------------
 Why the anchor is VENDORED and not fetched with `git show`
@@ -107,28 +52,22 @@ blind artifact is checked in, and git is used only to VERIFY its provenance,
 where git happens to exist.
 
 ---------------------------------------------------------------------------
-Six verdicts, because collapsing any of them loses a distinction that has
+Five verdicts, because collapsing any of them loses a distinction that has
 already cost someone work
 ---------------------------------------------------------------------------
 PASS        discrimination holds and the anchor demonstrates the blindness.
 BLIND       the gate did not discriminate. A real alarm about the GATE.
 INERT       the anchor did not miss the known-bad input, so the control is not
             load-bearing - it would not notice the gate regressing.
-UNRESOLVED  a path named by the registration is missing or unreadable, the
-            manifest is incomplete, or an anchor cannot be confirmed to have
-            missed the known-bad input. NOT a failure of the gate: it is the
-            control pointed at something that is not here or not usable, which
-            presents identically to BLIND and needs the opposite response.
+UNRESOLVED  a path named by the registration is missing or unreadable. NOT a
+            failure of the gate: it is the control pointed at something that is
+            not here, which presents identically to BLIND and needs the opposite
+            response.
 UNPROVEN    registered, discriminating, but carrying NO anchor - so nothing has
             demonstrated it can fail. Not PASS. `--strict` exits non-zero.
-UNSIGNALLED the gate exited like a finding and said nothing that identifies
-            one (issue #924's Codex review, tracked and closed as #946). Also
-            an alarm about the GATE, but a DIFFERENT one from BLIND: "it missed
-            the input" sends a reader into the detection logic, and this gate is
-            throwing. Keeping them apart is the same rule as UNRESOLVED-vs-BLIND.
 
-PROVENANCE is a SEPARATE AXIS, never folded into the verdict and never a verdict
-of its own: `ok` when the vendored anchor was byte-compared against its recorded sha,
+PROVENANCE is a SEPARATE AXIS, never folded into the verdict and never a sixth
+state: `ok` when the vendored anchor was byte-compared against its recorded sha,
 `unverified` when git was unavailable to check. `unverified` must never print as
 `ok` - the same rule as "unknown is not 0".
 
@@ -160,33 +99,6 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
-#: NEGATIVE-CONTROL: controls/check-negative-controls
-#:     Registered per issue #964. ADR 0008 hands the living list of instruments
-#:     to this register, so the tool that MAINTAINS the register being absent
-#:     from it made the register unreadable as a coverage map: "which
-#:     instruments have controls?" returned an answer that silently excluded the
-#:     thing computing it, and the exclusion looked exactly like completeness.
-#:
-#:     WHAT THIS ROW DOES AND DOES NOT ESTABLISH. It is a weaker member of this
-#:     register than the others and the row says so in `limits` too. The
-#:     discrimination is carried by the ANCHOR - a frozen, sha256-pinned copy of
-#:     the pre-#946 harness, which is a different program - so a regression in
-#:     THIS harness's detection logic would make it agree with the anchor and
-#:     fail the control. That part is not circular.
-#:
-#:     It is structurally blind to a breakage in this harness's own VERDICT
-#:     ASSIGNMENT: a harness mutated to emit PASS unconditionally reports PASS
-#:     about itself, and the coverage claim becomes self-certifying - a stronger
-#:     false statement than the accounting gap it replaced. What detects that is
-#:     `tests/test_negative_controls.py`, invoked by PYTEST in the `validate` CI
-#:     step: a different process, a different entry point, asserting on exit
-#:     codes and stdout rather than on this harness's judgement of itself. A
-#:     second opinion from the same program is not one.
-#:
-#:     If that pytest control ever stops failing under the verdict-assignment
-#:     mutation, the external control has become decoration and this
-#:     self-registration is all that remains, which is the state this design
-#:     exists to prevent.
 #: The registration directive, read out of the GATE file itself so the control
 #: cannot outlive the instrument it covers. Deleting the gate deletes the
 #: registration with it; a directive naming a directory that is not there is an
@@ -196,11 +108,6 @@ REGISTRATION_RE = re.compile(r"^#:?\s*NEGATIVE-CONTROL:\s*(?P<path>\S+)\s*$", re
 
 GOOD = "GOOD"
 BAD = "BAD"
-
-#: A third OBSERVATION, not a fourth expectation: `cases[].expect` still takes
-#: only GOOD or BAD. A manifest cannot ask for UNSIGNALLED, because "I expect
-#: this gate to fall over" is not a property anyone should be able to register.
-UNSIGNALLED = "UNSIGNALLED"
 
 PASS = "PASS"
 BLIND = "BLIND"
@@ -272,44 +179,27 @@ def discover(root: Path) -> list[tuple[Path, str]]:
 UNRUNNABLE = None
 
 
-def _run(argv: list[str], cwd: Path) -> tuple[int | None, str, str]:
-    """`(exit code, output, diagnostic)`, or `(UNRUNNABLE, "", why)` when it never ran.
+def _run(argv: list[str], cwd: Path) -> tuple[int | None, str]:
+    """`(exit code, diagnostic)`, or `(UNRUNNABLE, why)` when it never ran.
 
-    `output` is stdout and stderr TOGETHER, newline-joined, because that is what
-    `detect_signal` is matched against: a gate is free to report its findings on
-    either stream, and which one it picked is not a property a control should
-    have to know. The joining newline matters - a `^`-anchored pattern would
-    otherwise miss the first stderr line whenever stdout ended without one.
-
-    The diagnostic (the LAST stderr line) is kept as well, and printed on every
-    case line: it is what puts `FileNotFoundError: ...` in front of a reader
-    rather than leaving them with a bare exit code.
+    The diagnostic is kept rather than discarded: a caller reading a verdict has
+    no other way to tell a gate that reported something from one that fell over.
     """
     try:
         proc = subprocess.run(argv, cwd=cwd, capture_output=True, text=True, timeout=120, check=False)
     except subprocess.TimeoutExpired:
-        return UNRUNNABLE, "", f"timed out after 120s: {' '.join(argv)}"
+        return UNRUNNABLE, f"timed out after 120s: {' '.join(argv)}"
     except (OSError, subprocess.SubprocessError) as exc:
-        return UNRUNNABLE, "", f"{type(exc).__name__}: {exc}"
-    output = "\n".join(part for part in (proc.stdout, proc.stderr) if part)
+        return UNRUNNABLE, f"{type(exc).__name__}: {exc}"
     stderr = (proc.stderr or "").strip()
-    return proc.returncode, output, stderr.splitlines()[-1] if stderr else ""
+    return proc.returncode, stderr.splitlines()[-1] if stderr else ""
 
 
-def _observe(exit_code: int, good_exit: int, output: str, signal: re.Pattern[str]) -> str:
-    """What the run SAYS happened - three answers, not two (issue #946).
-
-    The exit code alone cannot separate "I found the planted problem" from "I
-    fell over", because a crash exits non-zero too. So a non-zero exit is only
-    read as detection when the gate also emitted its declared signal; without it
-    the honest answer is UNSIGNALLED, which is neither verdict.
-    """
-    if exit_code == good_exit:
-        return GOOD
-    return BAD if signal.search(output) else UNSIGNALLED
+def _verdict_of(exit_code: int, good_exit: int) -> str:
+    return GOOD if exit_code == good_exit else BAD
 
 
-def _invoke(spec: list[str], gate: Path, case: Path, root: Path) -> tuple[int | None, str, str]:
+def _invoke(spec: list[str], gate: Path, case: Path, root: Path) -> tuple[int | None, str]:
     argv = [part.replace("{gate}", str(gate)).replace("{case}", str(case)) for part in spec]
     return _run(argv, root)
 
@@ -362,41 +252,6 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
         res.details.append("control.json names no invocation or no cases")
         return res
 
-    # A REQUIRED field, refused on absence rather than defaulted (issue #946).
-    # Defaulting it - to a pattern that matches everything, or to "no signal
-    # declared means score on the exit code" - would leave every control that
-    # omits it exactly as blind to a crashing gate as before the fix, and the
-    # omission would be invisible. An UNUSABLE pattern is refused for the
-    # mirror-image reason: an uncompilable regex silently treated as "never
-    # matches" turns every genuine detection into an UNSIGNALLED red with an
-    # unrelated diagnosis, and an EMPTY pattern matches every output, which
-    # restores exit-code-only scoring while looking like a fix.
-    raw_signal = spec.get("detect_signal", "")
-    if not isinstance(raw_signal, str) or not raw_signal.strip():
-        res.details.append(
-            "control.json declares no detect_signal, so a non-zero exit from this gate "
-            "cannot be told from a crash (issue #946)"
-        )
-        return res
-    try:
-        signal = re.compile(raw_signal, re.MULTILINE)
-    except re.error as exc:
-        res.details.append(f"control.json detect_signal is not a usable regex: {exc}")
-        return res
-    # Refusing the empty STRING is not enough: `.*`, a trailing `|`, `(?:)` and
-    # `^` all compile fine and match ANY output, silence included. A signal that
-    # matches nothing-at-all cannot separate a finding from a crash by
-    # construction, so every non-zero exit becomes BAD again - the pre-#946
-    # scoring restored wholesale, wearing this field's own name. Measured: `.*`
-    # and `toy-gate: [0-9]+ finding|` each produced PASS for a gate that crashed
-    # on the known-bad input (found by the Codex review of this change).
-    if signal.search(""):
-        res.details.append(
-            f"control.json detect_signal /{raw_signal}/ matches empty output, so it cannot "
-            "separate a finding from a crash (issue #946)"
-        )
-        return res
-
     # A one-sided control tests nothing, so it may not reach PASS. This was only
     # DOCUMENTED before, and the code required a non-empty list: a GOOD-only
     # control passed against a gate that was genuinely blind, and a BAD-only one
@@ -422,48 +277,15 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
             res.details.append(f"case input missing: {case['input']}")
             return res
         expected = case["expect"]
-        code, output, diag = _invoke(invocation, gate, case_path, root)
+        code, diag = _invoke(invocation, gate, case_path, root)
         if code is UNRUNNABLE:
             res.details.append(f"case {case['name']}: the gate could not be executed - {diag}")
             return res
-        observed = _observe(code, good_exit, output, signal)
+        observed = _verdict_of(code, good_exit)
         res.details.append(
             f"case {case['name']}: expected={expected} observed={observed} (exit {code})"
             + (f" [stderr: {diag}]" if diag else "")
         )
-        # Checked BEFORE the expected/observed comparison, on EVERY case rather
-        # than only the known-bad one. A gate that falls over on the known-GOOD
-        # input would otherwise be reported as having "flagged a known-good
-        # input" - a false-alarm diagnosis that sends a reader into detection
-        # logic for a gate that is simply throwing.
-        if observed is UNSIGNALLED:
-            res.verdict = UNSIGNALLED
-            res.details.append(
-                f"the gate exited {code} without emitting its declared detection signal "
-                f"/{raw_signal}/, so this run cannot be told from a crash"
-            )
-            return res
-        # The structural check above is a floor, not the discriminator. A pattern
-        # can miss the empty string and still identify nothing - `^binary-guards`
-        # against a gate that prints `binary-guards: ok - ...` on a clean tree.
-        # The known-GOOD run is already executed here, so the signal is checked
-        # against REAL output rather than against the manifest author's
-        # intention. This is the same two-sided property the control's own test
-        # asserts for its regex, enforced for every control instead of one.
-        # `observed == GOOD` is load-bearing, not redundant: a gate WEDGED at
-        # "fail" prints its finding line on the known-good input too, so without
-        # it this refusal fires on a perfectly good regex and blames the manifest
-        # for a broken gate - a non-zero that cannot tell our thing from a
-        # neighbour's. The distinguishing condition is a CLEAN EXIT whose output
-        # still matches: the gate said "nothing here" and the pattern matched
-        # anyway. A wedged gate exits non-zero and stays BLIND, where it belongs.
-        if expected == GOOD and observed == GOOD and signal.search(output):
-            res.verdict = UNRESOLVED
-            res.details.append(
-                f"control.json detect_signal /{raw_signal}/ also matches this gate's known-GOOD "
-                f"output, so it identifies a clean run as readily as a finding"
-            )
-            return res
         if observed != expected:
             res.verdict = BLIND
             res.details.append(
@@ -498,29 +320,13 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
         provenances.append(_provenance(anchor, anchor_path, root, verify_provenance))
         res.provenance = _aggregate_provenance(provenances)
 
-        # The SAME misscore lives on this side of the loop (issue #946). An
-        # anchor is required to MISS the known-bad input; one that CRASHES on it
-        # also exits non-zero, and was therefore reported as having CAUGHT it -
-        # INERT, which accuses a healthy anchor of not being blind and sends
-        # someone to replace a perfectly good artifact. It is UNRESOLVED
-        # instead: the required property could not be CONFIRMED, which is a
-        # narrower and honest claim.
         for case_path in bad_cases:
-            code, output, diag = _invoke(invocation, anchor_path, case_path, root)
+            code, diag = _invoke(invocation, anchor_path, case_path, root)
             if code is UNRUNNABLE:
                 res.verdict = UNRESOLVED
                 res.details.append(f"anchor {anchor['sha']} could not be executed - {diag}")
                 return res
-            observed = _observe(code, good_exit, output, signal)
-            if observed is UNSIGNALLED:
-                res.verdict = UNRESOLVED
-                res.details.append(
-                    f"anchor {anchor['sha']} exited {code} on the known-bad input without the "
-                    f"declared detection signal, so it cannot be confirmed to have MISSED it "
-                    f"(it may have crashed)"
-                    + (f" [stderr: {diag}]" if diag else "")
-                )
-                return res
+            observed = _verdict_of(code, good_exit)
             if observed != GOOD:
                 res.verdict = INERT
                 res.details.append(
@@ -531,21 +337,12 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
             res.details.append(f"anchor {anchor['sha']}: missed the known-bad input (blind, as required)")
 
         for case_path in good_cases:
-            code, output, diag = _invoke(invocation, anchor_path, case_path, root)
+            code, diag = _invoke(invocation, anchor_path, case_path, root)
             if code is UNRUNNABLE:
                 res.verdict = UNRESOLVED
                 res.details.append(f"anchor {anchor['sha']} could not be executed - {diag}")
                 return res
-            observed = _observe(code, good_exit, output, signal)
-            if observed is UNSIGNALLED:
-                res.verdict = UNRESOLVED
-                res.details.append(
-                    f"anchor {anchor['sha']} exited {code} on a known-GOOD input without the "
-                    f"declared detection signal, so the anchor-sanity check cannot be resolved "
-                    f"(it may have crashed)"
-                    + (f" [stderr: {diag}]" if diag else "")
-                )
-                return res
+            observed = _verdict_of(code, good_exit)
             if observed != GOOD:
                 res.verdict = INERT
                 res.details.append(
@@ -638,11 +435,8 @@ def main(argv: list[str] | None = None) -> int:
                 for line in res.details:
                     print(f"    {line}")
         else:
-            # The message states what this run actually established, including the
-            # #946 half: every claim here has an input population behind it.
             print(f"negative-controls: ok - {len(results)} control(s) discriminate, "
-                  "each reporting its declared detection signal on the known-bad input "
-                  "and demonstrated against an anchor that misses it")
+                  "each demonstrated against an anchor that misses the known-bad input")
     return 1 if (failing and args.strict) else 0
 
 
