@@ -55,7 +55,7 @@ echo ""
 QWEN_MODEL="${QWEN_MODEL:-qwen3.8-code:latest}"
 
 TAGS=$(curl -sf --max-time 5 "$QWEN_ENDPOINT/api/tags" 2>/dev/null)
-if echo "$TAGS" | grep -q "${QWEN_MODEL%%:*}"; then
+if echo "$TAGS" | grep -qF "\"$QWEN_MODEL\""; then
     echo "[x] Model available: $QWEN_MODEL"
 else
     echo "[ ] Model '$QWEN_MODEL' not found on the server"

@@ -47,7 +47,7 @@ echo ""
 GEMMA_MODEL="${GEMMA_MODEL:-gemma4-code:latest}"
 
 TAGS=$(curl -sf --max-time 5 "$GEMMA_ENDPOINT/api/tags" 2>/dev/null)
-if echo "$TAGS" | grep -q "${GEMMA_MODEL%%:*}"; then
+if echo "$TAGS" | grep -qF "\"$GEMMA_MODEL\""; then
     echo "[x] Model available: $GEMMA_MODEL"
 else
     echo "[ ] Model '$GEMMA_MODEL' not found on the server"
@@ -62,11 +62,35 @@ if command -v ollama &>/dev/null; then
     echo "Loaded models:"
     OLLAMA_PS=$(ollama ps 2>/dev/null)
     echo "$OLLAMA_PS"
-    if echo "$OLLAMA_PS" | grep "${GEMMA_MODEL%%:*}" | grep -qv "100% GPU"; then
+    # THREE outcomes, not two (issue #910). Two defects lived in one line here:
+    #
+    #   - it matched a PREFIX, so a prefix-sharing sibling's row answered for
+    #     the configured model - `gemma4` matches `gemma4-code:latest`;
+    #   - `grep X | grep -qv "100% GPU"` returns 1 when NO row matched and also
+    #     when every matching row is resident, so "not loaded at all" and
+    #     "perfectly resident" produced IDENTICAL SILENCE - in the command that
+    #     exists to report exactly that difference.
+    #
+    # Absence and health must not share an output.
+    # EXACT first column, not a substring (Codex review). `grep -F "$MODEL"`
+    # still matches `gemma4:31b-it-qat-extra` and `someone/gemma4:31b-it-qat`,
+    # so a longer tag or a namespaced sibling would answer for the configured
+    # model - the same wrong-row defect as the prefix, one narrowing later.
+    GEMMA_ROW=$(echo "$OLLAMA_PS" | awk -v m="$GEMMA_MODEL" '$1 == m')
+    if [ -z "$GEMMA_ROW" ]; then
         echo ""
-        echo "[!] WARNING: model is not 100% GPU resident - a layer has spilled to"
-        echo "    CPU. Throughput will collapse from ~30 tok/s to unusable. Check"
-        echo "    VRAM headroom (nvidia-smi) or lower num_ctx (see /gemma:help)."
+        echo "[ ] $GEMMA_MODEL is NOT LOADED - no row in 'ollama ps'. The lane"
+        echo "    will pay a cold-start load on first use, or fail if the tag is"
+        echo "    absent from the server entirely (see the manifest check above)."
+    elif echo "$GEMMA_ROW" | grep -qv "100% GPU"; then
+        echo ""
+        echo "[!] WARNING: $GEMMA_MODEL is not 100% GPU resident - a layer has"
+        echo "    spilled to CPU. Throughput will collapse from ~30 tok/s to"
+        echo "    unusable. Check VRAM headroom (nvidia-smi) or lower num_ctx"
+        echo "    (see /gemma:help)."
+    else
+        echo ""
+        echo "[x] $GEMMA_MODEL is loaded and 100% GPU resident."
     fi
 fi
 ```

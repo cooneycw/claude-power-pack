@@ -487,7 +487,7 @@ fi
 if curl -sf --max-time 5 "$QWEN_ENDPOINT/api/version" > /dev/null 2>&1; then
   echo "  [x] Ollama server reachable at $QWEN_ENDPOINT"
   # Model
-  if curl -sf --max-time 5 "$QWEN_ENDPOINT/api/tags" 2>/dev/null | grep -q "${QWEN_MODEL%%:*}"; then
+  if curl -sf --max-time 5 "$QWEN_ENDPOINT/api/tags" 2>/dev/null | grep -qF "\"$QWEN_MODEL\""; then
     echo "  [x] Model present: $QWEN_MODEL"
   else
     echo "  [ ] Model '$QWEN_MODEL' not on server"
@@ -536,7 +536,7 @@ fi
 if curl -sf --max-time 5 "$GEMMA_ENDPOINT/api/version" > /dev/null 2>&1; then
   echo "  [x] Ollama server reachable at $GEMMA_ENDPOINT"
   # Model
-  if curl -sf --max-time 5 "$GEMMA_ENDPOINT/api/tags" 2>/dev/null | grep -q "${GEMMA_MODEL%%:*}"; then
+  if curl -sf --max-time 5 "$GEMMA_ENDPOINT/api/tags" 2>/dev/null | grep -qF "\"$GEMMA_MODEL\""; then
     echo "  [x] Model present: $GEMMA_MODEL"
   else
     echo "  [ ] Model '$GEMMA_MODEL' not on server"
