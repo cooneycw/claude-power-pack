@@ -1,6 +1,17 @@
 # Changelog
 
-## [Unreleased]
+## [8.0.0] - 2026-09-15
+
+> **Scope note.** This section is everything accumulated **since the previous
+> version heading**, `[7.3.0]` (2026-07-04) - so it spans 7.4.0 through 8.0.0 and
+> includes work released as 7.4.0 (2026-07-18) and 7.5.0 (2026-09-07). Entry
+> dates inside it start at 2026-07-04, not at 7.4.0's release date: some entries
+> describe work committed before 7.3.0 shipped. The per-release split for those
+> two versions lives in the README's version notes. The boundaries are **not**
+> reconstructed here:
+> assigning entries to releases after the fact would be inference presented as
+> record, and a wrong split is worse than an unsplit one that says so.
+
 
 ### Added
 
