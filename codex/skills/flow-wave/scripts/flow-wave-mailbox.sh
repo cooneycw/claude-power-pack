@@ -260,13 +260,64 @@
 # (which DOES carry bodies on delivery) is discarded by the daemon, not
 # relayed anywhere new, because the daemon's job is re-arming, not reading.
 #
-# What this does not, and cannot, promise. No script here can make the
-# HARNESS re-invoke a specific agent's conversation on a background process's
-# completion - that wiring belongs to the harness, not to anything in this
-# repo. `supervise` guarantees a listener keeps existing; it cannot guarantee
+# What this does not promise, and why that is a CHOICE rather than an
+# impossibility (issue #898; measurements #868 and #871, harness 2.1.266).
+# This paragraph used to say that no script here COULD make the harness
+# re-invoke a session on a background process's completion, stated as a
+# property of the world with no version attached. The conclusion was right and
+# the reason was wrong - and the unstamped absolute was the worse half, because
+# a sentence that reads as a law gives a reader no cause to re-check it.
+#
+# What the harness actually exposes. Every session has an inbox socket and
+# token (`CLAUDE_CODE_MESSAGING_SOCKET`, `CLAUDE_CODE_MESSAGING_TOKEN`), and a
+# correctly-formed write to that socket DOES render as a turn - measured 5/5 on
+# **2.1.266**, 2026-09-13, from inside a per-session container. So the wiring is
+# not missing, and "belongs to the harness, not to anything in this repo" was
+# never the reason this lane stops here.
+#
+# Why `supervise`'s daemon nonetheless cannot use it. Delivery is gated on
+# PROCESS LINEAGE, not on holding the credential. Writers reparented to init
+# were ACCEPTED by the socket and never delivered - 0/4, each confirmed by its
+# own log to have run and written - while writers whose parent chain still
+# reached the session delivered 5/5 (2.1.266, 2026-09-13, interleaved in time
+# and run in both orderings). That matches `verifiedPeerPid` /
+# `expectPeerProcStart` in the installed binary. Inheriting the two variables is
+# NOT sufficient and was never the question: both survive into a
+# `setsid`-detached grandchild and the write is still dropped. `setsid` is not
+# the discriminator either - a `setsid` writer with a live parent chain
+# delivers fine.
+#
+# `supervise`'s daemon detaches precisely so it outlives the launching turn
+# (#814), which makes it the orphaned shape BY CONSTRUCTION. So the one process
+# that would do the waking is the one process that cannot be delivered from.
+# That is this lane's own design in tension with itself - a consequence of
+# detaching that we accept - not a capability the harness withholds.
+#
+# Two bounds on the above, both load-bearing. The socket RETURNS NOTHING: a
+# writer cannot tell whether its message landed, so a successful write is not
+# evidence of delivery even where delivery works. And the measurement has one
+# vantage - inside a container, against the measuring session's OWN socket.
+#
+# Do not read the lineage result as "so share the mounts and it works". Across
+# containers the identity problem is upstream of lineage: a session record
+# carries a `pidDomain` naming the machine and pid namespace its pid is
+# meaningful in, and the harness reads the peer pid from the CONNECTION
+# (`SO_PEERCRED`), never from the payload - so a shared records directory would
+# hand each side a pid from a domain it cannot verify, and discovery would list
+# peers delivery cannot vouch for (measured 2026-09-15, 2.1.266, one container,
+# one vantage; #945, closed on it). Sharing the socket directory was REJECTED on
+# separate grounds - every session container runs as uid 1000, so mode 700
+# separates nothing between siblings. The wake across that boundary belongs to
+# the substrate, which is where kyle #1008 puts it. See register.md's container
+# boundary for the decision and its evidence; this comment only borrows it to
+# say that the daemon's problem is not the one a mount would fix.
+#
+# So: `supervise` guarantees a listener keeps existing; it does not guarantee
 # the agent behind it is told. See ROUTE READINESS below for the honest
 # alternative to promising that: making a silent failure of THAT link
-# observable, with a bound, instead of claiming to have fixed it.
+# observable, with a bound, instead of claiming to have fixed it. The
+# returns-nothing property is why that alternative would still be required even
+# if the lineage constraint were lifted tomorrow.
 #
 # Route readiness (issue #814). "Is a watcher process polling" (#801's fused
 # state, and #814's `supervise`) answers a DIFFERENT question from "has

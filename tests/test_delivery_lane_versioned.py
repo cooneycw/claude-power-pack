@@ -417,3 +417,271 @@ def test_the_container_boundary_names_the_decision_it_rests_on() -> None:
         "the pidDomain fact is stated without the date it was measured, in the "
         "paragraph that states it"
     )
+
+
+# ---------------------------------------------------------------------------
+# The same stamp discipline, applied to flow-wave-mailbox.sh (issue #898).
+#
+# #870's defect was a harness claim with no version on it, in a document a
+# reader routes from. The identical defect was still standing in the mailbox
+# script's own design comment: "No script here can make the HARNESS re-invoke a
+# specific agent's conversation on a background process's completion", written
+# as an absolute, undated, and load-bearing - it is the stated justification for
+# the `route_state()` four-state model directly below it.
+#
+# It was wrong on the harness we run. #868's closing measurement (2.1.266,
+# 2026-09-13) established that a correctly-formed write to a session's inbox
+# socket DOES render as a turn (5/5 with a live parent chain), and that what
+# actually gates delivery is process lineage (0/4 reparented to init) - so the
+# conclusion "this daemon cannot wake the session" survived, but its stated
+# reason did not.
+#
+# What these pin is the STAMP, not the verdict, exactly as the tests above do.
+# Whether lineage still gates delivery, whether the socket stays fire-and-forget,
+# whether a cross-namespace write lands - all of that is expected to move, and a
+# test asserting today's answer would have to be edited by whoever next
+# re-measures, which is how a guard becomes a formality. These fail when a claim
+# loses its stamp, or when the retracted absolute comes back unmarked.
+# ---------------------------------------------------------------------------
+
+#: Every copy of the mailbox script - the source and its generated Codex mirrors.
+#: Derived by glob rather than listed, so a mirror added later is covered without
+#: anyone remembering to add it here.
+MAILBOX_COPIES = sorted(ROOT.glob("**/flow-wave-mailbox.sh"))
+
+#: The retracted absolute. Both spellings it shipped in: the script comment said
+#: "No script HERE can make the HARNESS re-invoke", docs/scripts.md said "no script
+#: can make the harness re-invoke". A pattern matching only the first left the
+#: second asserting the opposite of the corrected comment, one file away - which is
+#: how this was actually found, so the pattern covers both.
+RETRACTED_ABSOLUTE = re.compile(
+    r"no script (?:here )?(?:can|could) make the\s*#?\s*harness re-invoke", re.I
+)
+
+#: Prose surfaces that restate the same claim about the same daemon. The mailbox
+#: script is the primary site; docs/scripts.md describes it to a reader who will
+#: never open the script, so an uncorrected copy there is the one that gets read.
+PROSE_SURFACES = [ROOT / "docs" / "scripts.md"]
+
+
+#: The block's own bounds. BOTH are sentences this correction owns, so the extent
+#: of the guarded region never depends on a neighbouring section keeping its name.
+#:
+#: Two earlier shapes were wrong and a reviewer's mutations showed why. Terminating
+#: on the next section's heading made a NEIGHBOUR's rename fail our probes. Adding
+#: an 80-line cap as a fallback traded that for something worse: the block is 59
+#: lines, so the cap over-ran 21 lines INTO the neighbour, and a version appearing
+#: there would have satisfied our stamp check with a stamp that is not this claim's.
+#: The control written for it could not catch that, because it stripped versions
+#: from the whole extracted window - the neighbour's included - which is a control
+#: shaped so the defect it was written for cannot reach it.
+BLOCK_START = re.compile(r"^# What this does not", re.M)
+BLOCK_END = re.compile(r"^# if the lineage constraint were lifted tomorrow\.", re.M)
+
+
+def _harness_capability_comment(text: str) -> str:
+    """The design comment about waking a session, delimited by its own first and
+    last sentences.
+
+    The opening anchor is deliberately the words BOTH the old absolute and the
+    correction begin with ("What this does not"), so the probes read the same
+    region before and after the fix - that is what lets them serve as their own
+    red case against the pre-fix file.
+
+    Raises when either bound is missing. An extractor that returns "" instead
+    would make every assertion below vacuously true, which is precisely the
+    failure these probes exist to catch; and a missing bound genuinely is OUR
+    block changing, unlike a neighbour's heading, which is not our business.
+    """
+    start = BLOCK_START.search(text)
+    if not start:
+        raise AssertionError(
+            "the 'What this does not ...' comment block was not found - the "
+            "extractor is broken, or the block was renamed; either way these "
+            "probes cannot report on it"
+        )
+    end = BLOCK_END.search(text, start.end())
+    if not end:
+        raise AssertionError(
+            "the wake comment's closing sentence was not found after its opening - "
+            "the block was rewritten without updating BLOCK_END, so these probes "
+            "no longer know what region they are reporting on"
+        )
+    return text[start.start() : end.end()]
+
+
+def test_the_mailbox_copies_are_all_discovered() -> None:
+    """The glob above must actually find the copies it is meant to guard.
+
+    Without this, a glob that matched nothing would make every parametrized test
+    below collect zero cases and the file would report green having checked
+    nothing - a scan whose silence is indistinguishable from a clean result.
+    """
+    names = {p.relative_to(ROOT).as_posix() for p in MAILBOX_COPIES}
+    assert "scripts/flow-wave-mailbox.sh" in names, (
+        f"the source copy was not discovered by the glob; found {sorted(names)}"
+    )
+    assert len(MAILBOX_COPIES) >= 3, (
+        "expected the source plus its two generated Codex mirrors, found "
+        f"{sorted(names)}"
+    )
+
+
+@pytest.mark.parametrize(
+    "surface", MAILBOX_COPIES, ids=lambda p: p.parent.parent.name + "/" + p.name
+)
+def test_the_wake_comment_carries_a_harness_version(surface: Path) -> None:
+    """A claim about what the harness can or cannot do needs the version it holds on.
+
+    This is #870's rule, and the mailbox script asserted harness behaviour for
+    months without one.
+    """
+    block = _harness_capability_comment(surface.read_text())
+    assert VERSION.search(block), (
+        f"{surface.name}: the comment states what the harness can or cannot do "
+        "with no version anywhere in it - the #870 defect, in the file that "
+        "justifies route_state()"
+    )
+
+
+#: A reporting verb, immediately before the quoted absolute. The correction quotes
+#: the old sentence as reported speech ("this paragraph used to say that ..."), so
+#: a legitimate occurrence always has one of these within a few words to its left.
+REPORTED_SPEECH = re.compile(
+    r"(?:used to say|used to state|said|says|stated|asserted|claimed|both said)"
+    r"[^.]{0,80}$",
+    re.I,
+)
+
+
+@pytest.mark.parametrize(
+    "surface", MAILBOX_COPIES, ids=lambda p: p.parent.parent.name + "/" + p.name
+)
+def test_the_retracted_absolute_is_absent_from_the_script(surface: Path) -> None:
+    """In the script the absolute must be GONE, not merely surrounded by caveats.
+
+    The first version of this probe took a +/-700 character window and accepted any
+    of "used to / wrong / corrected" inside it. That is the trap this very file
+    documents one probe up: the corrected paragraph opens with "the reason was
+    wrong", so ANY reinserted absolute within 700 characters of the heading would
+    have inherited that word and passed. A reviewer's mutation probe - reinsert the
+    bare sentence directly above "What the harness actually exposes" - is what
+    surfaced it.
+
+    The correction does not quote the old sentence here, so the honest assertion is
+    the strict one: zero occurrences. It needs no window, and neighbouring prose
+    cannot supply its evidence. `docs/scripts.md` DOES quote it, and is guarded by
+    the reported-speech probe below instead.
+    """
+    text = surface.read_text()
+    found = [m.group(0) for m in RETRACTED_ABSOLUTE.finditer(text)]
+    assert not found, (
+        f"{surface.name}: the retracted absolute is present in the script "
+        f"({found!r}). #868 measured it false on 2.1.266 (5/5 delivered with a live "
+        "parent chain). If it must be quoted here, quote it as reported speech and "
+        "extend the prose-surface probe to cover this file."
+    )
+
+
+def test_the_absence_probe_catches_a_reinserted_absolute() -> None:
+    """The control for the probe above: prove it can still say FAIL.
+
+    A probe asserting an absence passes trivially the moment its pattern stops
+    matching - a typo in the regex, or a reworded sentence, and it reports clean
+    forever while the claim walks back in. This mutates the real file in memory,
+    reinserting the sentence exactly where the corrected prose would have supplied
+    the marking words the old windowed probe accepted, and requires a failure.
+    """
+    text = (ROOT / "scripts" / "flow-wave-mailbox.sh").read_text()
+    anchor = "# What the harness actually exposes."
+    assert anchor in text, "the mutation anchor is gone; this control cannot run"
+    mutated = text.replace(
+        anchor,
+        "# No script here can make the HARNESS re-invoke a specific agent's\n"
+        "# conversation on a background process's completion.\n#\n" + anchor,
+    )
+    assert RETRACTED_ABSOLUTE.search(mutated), (
+        "the pattern does not match the sentence it exists to catch - the probe "
+        "above is blind and its green means nothing"
+    )
+    assert not RETRACTED_ABSOLUTE.search(text), (
+        "the unmutated file already matches, so this control proves nothing"
+    )
+
+
+@pytest.mark.parametrize(
+    "surface", PROSE_SURFACES, ids=lambda p: p.name
+)
+def test_prose_surfaces_do_not_restate_the_retracted_absolute(surface: Path) -> None:
+    """The correction has to reach the doc a reader consults instead of the script.
+
+    `docs/scripts.md` carried its own copy of the absolute, in slightly different
+    words, and was missed by the issue that catalogued "three copies" because those
+    three were the generated mirrors of one file. Correcting the comment and leaving
+    this one makes the repo contradict itself about the exact fact under repair, and
+    the reader who loses is the one who trusted the doc.
+    """
+    text = surface.read_text()
+    for match in RETRACTED_ABSOLUTE.finditer(text):
+        before = text[max(0, match.start() - 120) : match.start()]
+        assert REPORTED_SPEECH.search(before), (
+            f"{surface.name}: the retracted absolute is restated as fact rather than "
+            "quoted as something the document used to say - the mailbox comment and "
+            "this document now disagree about what the harness can do. Attribution "
+            "must be adjacent to the sentence; a caveat elsewhere in the paragraph "
+            "is what the windowed version of this probe wrongly accepted."
+        )
+    assert VERSION.search(text), (
+        f"{surface.name}: describes harness behaviour with no version anywhere in it"
+    )
+
+
+def test_a_neighbour_rename_is_not_read_as_our_change() -> None:
+    """Control C: someone else's edit must not surface as a failure of ours.
+
+    Renaming the ROUTE READINESS section says nothing about whether the wake
+    comment carries a harness version, so every probe here stays green through it.
+    The rename is applied to an in-memory copy and the control does NOT require the
+    production heading to still be called that - an earlier version asserted exactly
+    that, which reproduced the dependency it was written to retire, one test over.
+    """
+    text = (ROOT / "scripts" / "flow-wave-mailbox.sh").read_text()
+    renamed = re.sub(r"^# Route readiness", "# Delivery readiness", text, flags=re.M)
+    block = _harness_capability_comment(renamed)
+    assert VERSION.search(block), (
+        "renaming the neighbouring section broke this block's version probe - a "
+        "neighbour's change is reading as ours"
+    )
+
+
+def test_the_block_cannot_borrow_a_neighbours_version_stamp() -> None:
+    """The stamp must come from THIS claim, never from prose that follows it.
+
+    The mutation is the one that defeated the previous design: strip every version
+    from the capability block, and plant an explicit version in the NEIGHBOURING
+    section. A probe whose region stops where this block stops cannot see the
+    planted stamp and must report the missing one. A probe that over-runs finds the
+    neighbour's and reports green.
+
+    Note what this control does NOT do: it does not strip the planted stamp. The
+    control it replaces stripped versions from the whole extracted window, which
+    removed the very evidence the defect needed to show itself - a control shaped by
+    the reader rather than by the failure.
+    """
+    text = (ROOT / "scripts" / "flow-wave-mailbox.sh").read_text()
+    block = _harness_capability_comment(text)
+    assert VERSION.search(block), "the real block has no version; control is moot"
+
+    stripped = text.replace(block, VERSION.sub("<version removed>", block))
+    planted = re.sub(
+        r"^# Route readiness",
+        "# Route readiness (harness 2.1.999)",
+        stripped,
+        flags=re.M,
+    )
+    assert VERSION.search(planted), "the planted neighbour stamp did not take"
+
+    assert not VERSION.search(_harness_capability_comment(planted)), (
+        "the block reports a version after its own were removed - it is reading the "
+        "neighbouring section's stamp, so the guard would pass an unstamped claim"
+    )
