@@ -155,6 +155,29 @@ quietly re-framed afterwards:
 
 Neither tail of the acceptance ratio is actionable without the diversity number.
 
+### The first diversity reading, and the conditions it was taken under
+
+The first recorded run is this ADR's own change: **16 red cases proposed, 3
+already covered** by the implementer's tests. 81% novel.
+
+**Taken on an adversarial workload, and that has to be stated or it gets
+discounted later by someone assuming the conditions were easy.** This was the
+least favourable possible run for the hypothesis that the two models fail
+independently:
+
+- the change was authored by a session that had spent the entire day on this
+  exact defect class - blind instruments, denominators, negative controls;
+- two ADRs on that subject ([0008](0008-instrument-negative-control-bound.md)
+  and [0009](0009-oscillation-control.md)) had merged that same afternoon, by
+  the same author;
+- the implementer was therefore primed, specifically and recently, on the kinds
+  of gap a reviewer would look for.
+
+If the counter-model were agreeing by shared corpus and shared conventions
+rather than reviewing, **this is the run where that would have shown.** It did
+not. A later reader comparing their own number against this one should know the
+baseline was set under those conditions, not on a routine change.
+
 ## Advisory on day one, with both triggers committed
 
 Advisory-vs-blocking is an exit-code policy, which is one of ADR 0009's own
