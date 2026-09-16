@@ -94,8 +94,21 @@ git diff --stat "$MERGE_BASE"
 wc -l "$DIFF_FILE"
 ```
 
-If the diff is empty, report "nothing to review vs $BASE" and stop (exit 0) - an
-empty review is a success, not a failure.
+**An empty diff is still handed to the reviewer (issue #1015).** This used to
+stop here - exit 0, "nothing to review vs $BASE" - and that early exit produced
+no findings report at all. A caller parsing the transcript therefore read
+`unparseable` and recorded the run as `skipped / reviewer-unavailable`: a skip
+whose reason names an inability that did not happen. The reviewer was available
+and was never asked.
+
+So do not stop. Pass the empty diff to Step 3 and let the reviewer answer in the
+prescribed words, which parses as `clean` and records an ordinary `ran` receipt.
+Add to the prompt's context line that the diff is empty, so the reviewer is not
+left guessing why it received nothing.
+
+The rule this serves is `/flow:auto`'s: the ONLY condition that skips a review
+is the inability to run codex. "There was nothing to look at" is not one, and a
+silent exit here is how it would have become one anyway.
 
 For very large diffs (thousands of lines), note it and proceed - Codex can also
 open files itself in the read-only sandbox - but name the most important files in
