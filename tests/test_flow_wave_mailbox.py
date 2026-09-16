@@ -2734,6 +2734,18 @@ def test_a_watcher_shaped_line_with_no_wave_field_reads_unknown(tmp_path: Path) 
     The `--wave`-absent branch legitimately means "the default wave" for a
     watcher that passed no `--wave`. It cannot also mean "I could not see the
     one it passed" while we are asking about a NAMED wave.
+
+    KEPT DELIBERATELY by the #937 ruling (owner, 2026-09-16), not left
+    untouched by omission. That issue asked whether #904's `-ww` retires this
+    conservatism; the answer is no, because `-ww` is a procps-ng guarantee and
+    this lane runs only where `/proc` is absent - i.e. where `ps` is not
+    procps-ng. The decision and its reversal trigger are recorded beside the
+    branch in `scripts/flow-wave-mailbox.sh`.
+
+    This is the load-bearing assertion that issue names: deleting the
+    `unreadable=1` on that branch turns this direction into a confident zero,
+    and `watch=DEAD(0 watchers)` is a blocker signal in /flow:wave. Its
+    sibling below pins the other direction.
     """
     bin_dir = _stub_ps(
         tmp_path,
@@ -2742,6 +2754,53 @@ def test_a_watcher_shaped_line_with_no_wave_field_reads_unknown(tmp_path: Path) 
     )
     proc = _run_with_ps(tmp_path, bin_dir, "watch", "--status", "--role", "1", "--wave", "testwave-x")
     assert _detail(proc, "FLOW_MAILBOX_WATCHER_COUNT") == "unknown", proc.stdout
+
+
+@requires_bash
+def test_a_no_wave_watcher_on_the_default_wave_is_also_unknown(tmp_path: Path) -> None:
+    """The OTHER direction of the same branch - uncommitted until #937.
+
+    A watcher-shaped line with no `--wave`, asked about while WE are on the
+    default wave, takes the opposite route: it falls through as a match
+    candidate rather than raising `unreadable`. Measured output is `unknown`
+    all the same, because #845's guard turns any surviving match into
+    `unknown` - this lane cannot verify that a genuine match is OURS, since
+    `FLOW_WAVE_MAILBOX_DIR` travels in the environment and `ps` cannot read it.
+
+    Two routes, one answer, and only one of them was pinned before this test.
+
+    THE RED CASE, run rather than asserted (2026-09-16). Change the branch at
+    `scripts/flow-wave-mailbox.sh` to take the default-wave direction as a
+    confident non-match while leaving the named-wave conservatism intact::
+
+        *) if [ "$wave" = "default" ]; then continue; else unreadable=1; continue; fi ;;
+
+    That reds THIS test and nothing else in the ps-lane battery - measured: 1
+    failed, 4 passed. Before this case existed it reded nothing at all, which
+    is the gap being closed: "resolve the asymmetry" is the obvious edit for
+    the next reader to make, and the suite had no way to answer back.
+
+    The coarser mutation - dropping the branch to a bare `continue`, so
+    absence never matches in either direction - reds this and its named-wave
+    sibling together (2 failed, 3 passed), and deleting only the named-wave
+    `unreadable=1` reds the sibling alone (1 failed, 4 passed). Three
+    mutations, three distinct signatures: the battery discriminates between
+    them rather than merely going red.
+
+    It also pins the lane's two-valued shape: `0` or `unknown`, never a
+    positive count.
+    """
+    bin_dir = _stub_ps(
+        tmp_path,
+        "    1     0 /sbin/init\n"
+        "  999     1 bash /a/long/path/scripts/flow-wave-mailbox.sh watch --role 1",
+    )
+    proc = _run_with_ps(tmp_path, bin_dir, "watch", "--status", "--role", "1")
+    assert _detail(proc, "FLOW_MAILBOX_WATCHER_COUNT") == "unknown", (
+        "a no-`--wave` watcher seen while we are on the default wave must not "
+        "read as a confident zero - the ps lane cannot verify the match is "
+        f"ours (#845), so `unknown` is the only honest answer:\n{proc.stdout}"
+    )
 
 
 @requires_bash
