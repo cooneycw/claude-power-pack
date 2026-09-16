@@ -16,7 +16,7 @@ Run `/flow:auto` with the same arguments. That is the entire behaviour:
 
 Everything this command used to describe - the review, its triage, the bounded
 second pass, the summary appended to the PR body - is in `/flow:auto` Step 6
-item 2, plus a receipt this command never wrote. Load
+item 1 (subitems 1a-1d), plus a receipt this command never wrote. Load
 `.claude/commands/flow/auto.md` and execute it exactly. Do NOT re-derive a
 lifecycle from this file: it no longer contains one.
 
