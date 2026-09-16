@@ -68,6 +68,22 @@ steps:
     commands:
       - python3 scripts/delegated-core-vendor.py check
 
+  # docs/scripts.md population gate (issue #1013). The inventory of `scripts/`
+  # was hand-maintained and derived from nothing, so a script could be added and
+  # its entry never written - 17 of 68 were in that state - while six test
+  # modules quoted sentences out of the file as if it were complete. This step
+  # fails loudly on its own line when the population stops matching the tree,
+  # in either direction: a script with no entry, or an entry for a script that
+  # no longer exists. Stdlib-only and git-free, like the two steps above, so it
+  # runs directly under the slim image. Same command `make scripts-inventory-check`
+  # wraps. Its ability to FAIL is proven separately by controls/scripts-inventory,
+  # which the `validate` pytest run drives.
+  scripts-inventory-check:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
+    depends_on: [secret-scan]
+    commands:
+      - python3 scripts/scripts-inventory-check.py
+
   # Vendored eli5-gate core gates (issue #591). The canonical home of the
   # /flow:eli5 necessity gate is cooneycw/eli5-gate; CPP vendors its core
   # between the eli5-core markers. The drift script for that link existed and

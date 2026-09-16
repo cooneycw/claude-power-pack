@@ -1,4 +1,5 @@
 .PHONY: test lint format typecheck verify shellcheck secret-scan tools-check \
+	scripts-inventory-check \
        oscillation update_docs clean \
        bootstrap-check drift-check deploy setup-woodpecker-cli \
        codex-init codex-skills codex-skills-check codex-install \
@@ -178,7 +179,8 @@ oscillation:
 verify: tools-check lint test typecheck shellcheck oscillation \
 	binary-guards-check negative-fixture-check \
 	claude-md-budget-check claude-md-links-check claude-md-behavior-check \
-	project-next-check delegated-core-check
+	project-next-check delegated-core-check \
+	scripts-inventory-check
 
 ## Vendored delegated-driver core (issue #1011)
 ## `/codex:auto`, `/qwen:auto` and `/gemma:auto` describe ONE lifecycle, rendered
@@ -200,6 +202,20 @@ delegated-core-check:
 
 delegated-core-write:
 	@python3 scripts/delegated-core-vendor.py --write
+
+## Derive the docs/scripts.md entry POPULATION from scripts/ (issue #1013).
+## The inventory was hand-maintained and unchecked, so a script could be added
+## and its entry simply never written - 17 of 68 were in that state - while six
+## test modules quoted sentences out of the file as if it were complete. Only
+## the SET is mechanical; the prose per entry stays hand-written.
+##
+## In `verify` AND in CI `validate` (unlike `oscillation`, which needs git):
+## stdlib-only, offline, git-free, so the slim CI image gives the same verdict.
+## controls/scripts-inventory registers the committed BAD/GOOD cases, since a
+## gate that lets work through cannot be trusted on a clean tree alone.
+
+scripts-inventory-check:
+	@python3 scripts/scripts-inventory-check.py
 
 ## Enforce the CLAUDE.md "guard tests that shell out to git/docker/gitleaks"
 ## directive (issue #602). It failed three times as prose (#451, #489, #577)

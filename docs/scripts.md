@@ -7,12 +7,24 @@ verbatim moves - nothing was reworded or dropped.
 
 See also `docs/commands-reference.md` (the command-surface half of the same move).
 
+The **population** of this file is derived and checked - `make scripts-inventory-check`
+(`scripts/scripts-inventory-check.py`, issue #1013) fails when a file in `scripts/`
+has no entry here, or when a section names no file in `scripts/`. The prose per
+entry stays hand-written; only the set is mechanical. A section that is
+legitimately about something other than one script is declared on the marker
+below, and an undeclared one turns the gate red rather than passing quietly.
+
+<!-- scripts-inventory: non-script-sections: hooks, tools-check -->
+
+`hooks` groups the harness hook scripts; `tools-check` is a Makefile target
+(the declared external-tool set `make verify` needs), not a file in `scripts/`.
+
 ## Persistent-context checks and knowledge graduation
 
-- check-claude-md-budget - enforces the 2,000-word ceiling for the always-loaded `CLAUDE.md`; `make claude-md-budget-check`, folded into `make verify`
-- check-claude-md-links - resolves relative Markdown links and backtick paths under an explicit prefix list, avoiding false positives from inline commands and flags; `make claude-md-links-check`, folded into `make verify`
-- check-claude-md-behavior - checks the committed pre-#724 obligation slugs remain findable across the compact root file, docs, and referenced skills; named-reason retirements permit deliberate future removal, and a locality rule rejects a duplicated normative lifecycle table; `make claude-md-behavior-check`, folded into `make verify`
-- knowledge-graduation-check - validates every completed-spec acceptance criterion, durable artifact, and task resolution; refuses deletion of independently valuable contracts; writes reader-compatible version-1 entries to `.specify/graduation-ledger.json` through a per-path flock and atomic replacement
+- `check-claude-md-budget` - enforces the 2,000-word ceiling for the always-loaded `CLAUDE.md`; `make claude-md-budget-check`, folded into `make verify`
+- `check-claude-md-links` - resolves relative Markdown links and backtick paths under an explicit prefix list, avoiding false positives from inline commands and flags; `make claude-md-links-check`, folded into `make verify`
+- `check-claude-md-behavior` - checks the committed pre-#724 obligation slugs remain findable across the compact root file, docs, and referenced skills; named-reason retirements permit deliberate future removal, and a locality rule rejects a duplicated normative lifecycle table; `make claude-md-behavior-check`, folded into `make verify`
+- `knowledge-graduation-check` - validates every completed-spec acceptance criterion, durable artifact, and task resolution; refuses deletion of independently valuable contracts; writes reader-compatible version-1 entries to `.specify/graduation-ledger.json` through a per-path flock and atomic replacement
 
 ## `prompt-context`
 
@@ -281,6 +293,9 @@ See also `docs/commands-reference.md` (the command-surface half of the same move
 ## `hooks`
 
 - hooks
+- `hook-mask-output` - PostToolUse hook that masks secrets in tool output before it reaches Claude's context, so a credential printed by a command does not become conversation history. Reads the hook JSON on stdin and filters `tool_output` through the sibling `secrets-mask.sh`; emits nothing when there is no change
+- `hook-permission-census` - PermissionRequest hook and the ONLY honest source for the `permission-prompt` friction class (#482). The model cannot tell a manually approved tool call from an auto-allowed one - they are identical in the transcript - so model-driven capture for this class never fired; the hook fires at the moment the dialog is shown, across every session rather than only flow runs. Records one friction entry per prompt via `friction-log.sh`, carrying a risk tier from CPP's permission taxonomy and a narrowest candidate allow rule. The candidate is emitted ONLY for the safe tiers (read-only and reversible local writes); a risky prompt is recorded with its tier and NO rule, so a command approved once under pressure never becomes a blind allowlist entry
+- `hook-pending-retro` - SessionStart hook that surfaces counts of pending retro material and points at `/self-improvement:retro`; it never codifies, applies or blocks. OPT-IN by design and deliberately absent from the `.claude/hooks.json` that `/cpp:init` copies into user projects - shipping it there would turn it on for everyone, which is the imposition the feature exists to avoid (PR #527/#529); `/cpp:init` and `/cpp:update` instead OFFER to register it, default N. Reads only: the durable friction buffer (same precedence as `friction-log.sh`, so it works from inside a `/flow:auto` worktree), the `.claude/learnings.md` entries still awaiting a decision, and installed-helper drift reported by `install-drift.sh`
 
 ## `drift-detect`
 
@@ -372,3 +387,63 @@ See also `docs/commands-reference.md` (the command-surface half of the same move
 ## `skills-check`
 
 - skills-check - read-only skill-surface gate added for issue #720 after three independent ownership hazards became visible: a broken untracked `.claude/skills/pptx` symlink could exist only on one host, gitignored `.agents/skills/` copies could drift without any repository signal, and the generated Codex command-family skills were being mistaken for the separate Claude topic-knowledge surface. The stdlib-only scanner validates canonical `.claude/skills/<slug>/SKILL.md` metadata, provenance, local references, and duplicate surfaces, then byte-compares only `.agents/skills` packages carrying an explicit `metadata.source` link to CPP. Missing `.agents/skills` is the normal clean-checkout state; marked stale or orphaned installs fail without repair, while unmarked user-authored neighbors are ignored and never modified. Vendored and adapted provenance must name the upstream author, exact source URL, license, pinned revision, and local-change summary; CPP self-sourcing is rejected as false attribution. `make skills-check` is standalone like `codex-skills-check`, while `tests/test_skills_check.py` supplies the CI gate in the git-less validate image
+
+## `scripts-inventory-check`
+
+- scripts-inventory-check - derives the ENTRY POPULATION of this file from `scripts/` and checks it both ways (#1013): `MISSING` is a script with no entry, `UNDECLARED` a section naming no script and not declared above. Only the SET is mechanical - the prose per entry stays hand-written, because the prose is the valuable part. The matching rule is the document's own, the backticked STEM, not the basename: #1013 as filed measured 44-of-67 by grepping for `.sh`/`.py` names that appear in no heading here, and adopting that rule would have demanded every heading be rewritten to carry an extension. Re-measured against the real convention the gap was 17. One script may own several sections (`check-test-binary-guards` owns three), so the rule asks whether at least one entry exists, never that exactly one does. Stdlib-only, git-free and offline, so `make verify` and the slim CI image agree; registered in `controls/scripts-inventory`, because a gate that lets work through cannot be trusted on a clean tree alone
+
+## `friction-log`
+
+- friction-log - the capture half of the grill-me cycle (#426): appends one JSON object per friction event to an append-only buffer, which `/self-improvement:retro` later drains. The buffer resolves to the MAIN repo's `.claude/friction.jsonl` via `git-common-dir`, so signals captured inside a `/flow:auto` worktree survive its removal at cleanup (#471). Fail-open by construction - it NEVER exits non-zero and NEVER blocks a run, even on bad input or an unwritable path, because a flow must not break because its flight recorder could not write. Called on every step of every run, success OR failure, since the richest friction is on the runs that fail partway
+
+## `flow-helpers-install`
+
+- flow-helpers-install - installs the stable-path helper family into `~/.claude/scripts/` (#590), the lane behind `/flow:repair`. Flow commands call ~24 helpers at paths the #581 permission allowlist matches by prefix, so a helper the template blesses but nothing installs leaves the rule pointing at a path that does not exist (#677). From a CPP checkout it SYMLINKS, so helpers follow `git pull`; from a legacy plugin cache it COPIES, since a symlink into a retired cache would dangle. `--check` is read-only. Its `HELPERS` array is the canonical stable-path install set - not a flow-only list - and `tests/test_permissions_template_link_parity.py` parses it rather than keeping a copy, because a test holding its own copy of the list under test can only prove the copy matches itself. Verdict `FLOW_HELPERS: ok | installed | unverifiable | missing | stale | error`, where `unverifiable` is NOT a lesser `ok` (#927): it means no source of truth was reachable, so this run could not tell "current" from "a version behind"
+
+## `speckit-context`
+
+- speckit-context - resolves, renders and refreshes the task-context cache in a generated issue (#858). A generated issue used to carry its provenance and dependencies and nothing about the behaviour it was meant to produce, so a receiving agent could not tell which words were the goal and which were somebody's suggested mechanism. The rendered block is a CACHE, not a second authority: the spec it names stays authoritative, every part traces to a source section and carries a digest, so drift is visible instead of silent. `check` emits `SPECKIT_CONTEXT_STATE`, whose values separate facts a consumer must act on differently - `changed-in-scope`/`changed-outside-scope` are a byte difference and NOT a ruling that acceptance changed, `changed-task` means the task line or its story tag moved so the cached mapping no longer holds, `block-edited`/`block-damaged` mean the block is unreliable, and `absent` is an ordinary issue whose body is the contract. A failed `gh` leaves an empty body and an empty body reports `absent`, which is why `/flow:auto` Step 2 checks the fetch succeeded before believing the verdict
+
+## `run-delivery-pilots`
+
+- run-delivery-pilots - runs the bounded delivery pilots for #861 and records what was observed. CHECKED IN deliberately: the #859 and #860 evidence bundles were runnable only from the author's machine, their runners pointing at a worktree path that no longer existed, so a reviewer could read the transcripts but re-run nothing and the claims rested on a path nobody else had. The guidance handed to the model and the scripts building the input are read from a REVIEWED COMMIT with `git show`, never the working tree (`--commit` pins one, default HEAD), so the prompt a result came from can be reconstructed from the commit recorded beside it rather than from whatever the tree held that afternoon. It records mechanical facts only - process status, output size, and a regex match for the issue reference the model appears to have selected - and that regex is PHRASE DETECTION, a pointer into the transcript, not a finding about what the closing step would publish
+
+## `secret-scan-check`
+
+- secret-scan-check - the gate of the secret-scan negative control (#935), and the relocation is the whole design. `.gitleaks.toml`'s allowlist is PATH-SCOPED and the committed fixture sits at an exempt path so repo-wide `make secret-scan` stays green, so scanning the fixture WHERE IT LIVES finds nothing: the carve-out that keeps the repo clean would blind the control the carve-out exists to make honest. Measured on the CI-pinned v8.30.1 - same bytes at the exempt path, 0 findings; relocated to a scratch path, 1 finding. It therefore copies the case OUT and scans the copy with the SHIPPED config, proving the gate the repository actually runs catches this shape, and proving more than a removal check would: that the carve-out is real AND that it is narrowly scoped rather than blinding the gate generally. Population stated rather than assumed - it passes `--no-git`, the flag `make secret-scan` uses, so it speaks for the WORKING-TREE population
+
+## `secrets-mask`
+
+- secrets-mask - pipe filter that masks common secret patterns with sed, usable standalone or from a hook (it is what `hook-mask-output.sh` filters tool output through). Additional patterns come from `~/.claude/secrets-mask.conf`, one `sed_pattern|replacement` per line
+
+## `classify-tool-risk`
+
+- classify-tool-risk - CANONICAL taxonomy: this file is CPP's source of truth for permission risk tiers. It sorts observed Bash/MCP tool calls from Claude Code transcripts into graded tiers rather than the binary read-only/skip split the native `/fewer-permission-prompts` skill makes, so a safe reversible local write (`git add`) is distinguishable from arbitrary code execution (`python3`) and from a destructive op (`rm -rf`). Tiers run READONLY-AUTO, READONLY-ADDABLE, WRITE-LOCAL, WRITE-OUTWARD, DUAL-USE-NET, CODE-EXEC, SCRIPT-EXEC, DESTRUCTIVE, SHELL-CTL/OTHER. `hook-permission-census.sh` carries a vendored inline copy for fail-open self-containment and `tool-risk-drift.py` guards the safety-critical sets (`DESTRUCTIVE_TOKENS`, `CODE_EXEC`) between the two, so a newly dangerous command cannot be known to one and missed by the other
+
+## `c4-mermaid`
+
+- c4-mermaid - the rendering engine behind `/documentation:c4` (#411), a zero-dependency pure-Python replacement for the removed `nano-banana` MCP server. L1-L3 are emitted as Mermaid `flowchart` diagrams with `subgraph` boundaries and `classDef` C4 colours, and L4 as a `classDiagram` - both chosen because they render inline on GitHub, unlike the Mermaid C4 extension, which GitHub does not bundle and shows as raw text. It also restores the edge-validity QA gate the old renderer provided: every edge endpoint must reference a defined node, and dense diagrams are flagged for splitting. Input is a JSON C4 model, output one `.mmd` per level plus `index.md` and `c4-manifest.json`
+
+## `cpp-memory`
+
+- cpp-memory - portable, harness-neutral entry point to the CPP common-memory ledger, callable identically from Claude Code, Codex or a plain shell and from ANY cwd. It resolves its own location THROUGH SYMLINKS to find the repo - which is what lets `~/.local/bin/cpp-memory` be a link rather than a copy - then runs `lib.cpp_memory` with the best available Python (`$CPP_MEMORY_PYTHON`, else `uv`, else system python3). Fail-open by design: a missing psycopg driver degrades to a local `.claude/learnings.md` rather than crashing
+
+## `install-memory-harness`
+
+- install-memory-harness - installs the harness-neutral common-memory surfaces so both Claude Code and Codex can reach the store: `~/.local/bin/cpp-memory` symlinked at the checkout's `scripts/cpp-memory`, and `~/.codex/prompts/cpp-memory.md` copied from `codex/cpp-memory.md` to give Codex its `/cpp-memory`. Claude Code already discovers the in-repo command, so only these two need installing. Idempotent, and re-run by `/cpp:update`
+
+## `memories-db-setup`
+
+- memories-db-setup - provisions the CPP common-memory Postgres store on a host, idempotently; intended for a dedicated lab VM. Run as root with a schema file and a password file holding only the `cpp_memory` role password. Access is restricted to the LAN and Tailscale CIDRs with scram-sha-256; the ledger holds bucket-2 knowledge only and no secrets, which is what keeps the blast radius low
+
+## `bootstrap-check`
+
+- bootstrap-check - thin wrapper over the Python bootstrap checker, run before a deploy. Projects declare dependencies in `.claude/bootstrap.yaml`; BLOCKING checks must exit 0 for the deploy to proceed while advisory findings are reported and never block, and the exit codes keep the two apart (1 for an unsatisfied blocking prerequisite, 2 for usage error)
+
+## `bash-prep`
+
+- bash-prep - Linux workstation tuning for Claude Code: swappiness, VFS cache pressure and the inotify watch/instance limits, the last being what a large checkout under a file-watching editor actually exhausts. Idempotent, needs sudo for the system changes, and `--check` reports current values without touching anything
+
+## `setup-woodpecker-cli`
+
+- setup-woodpecker-cli - installs the Woodpecker CLI when missing, fetches credentials from AWS Secrets Manager and creates a `woodpecker-cli` context for the default server. It exists because the token lives in an AWS secret rather than a shell profile, which is the gap that made `flow-ci-status.sh`'s predecessor improvise a `curl` lookup gated on an env var that was usually unset (#516)
