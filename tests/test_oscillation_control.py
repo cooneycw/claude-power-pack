@@ -677,6 +677,141 @@ def test_collect_moves_does_not_RAISE_when_git_is_absent(
     assert (moves, commits) == ([], 0)
 
 
+def test_a_YOUNG_repository_is_examined_not_reported_unknown(tmp_path: Path) -> None:
+    """The default range resolves; it is not a fixed string (#987 wiring).
+
+    `HEAD~200..HEAD` written as a literal default reports `range-unresolvable`
+    UNKNOWN on any checkout with fewer than 200 commits - a fresh clone, a young
+    project, a shallow CI checkout. That is false: a repository with three
+    commits HAS history, and walking all of it is LOOKING.
+
+    Not a softening, and the pair below is what says so: the young repo is
+    EXAMINED, while a range the caller actually asked for and that does not
+    resolve is still UNKNOWN.
+    """
+    repo = _repo(tmp_path, ["timeout = 30\n", "timeout = 60\n", "timeout = 30\n"])
+
+    proc = subprocess.run(
+        [sys.executable, str(SCRIPT), "--root", str(repo)],
+        capture_output=True, text=True,
+    )
+    assert proc.returncode == CHECK.EXIT_REPORTED, proc.stdout + proc.stderr
+    assert "OSCILLATION: found" in proc.stdout, proc.stdout
+    # The range actually taken is REPORTED, so a reader never infers which.
+    assert "OSCILLATION_SOURCE: HEAD" in proc.stdout, proc.stdout
+    assert "OSCILLATION_REASON: -" in proc.stdout
+
+    # ...and an EXPLICIT unresolvable range is still UNKNOWN. The fallback
+    # applies to the default only; it does not answer for the caller.
+    explicit = subprocess.run(
+        [sys.executable, str(SCRIPT), "--root", str(repo), "--range", "HEAD~200..HEAD"],
+        capture_output=True, text=True,
+    )
+    assert explicit.returncode == CHECK.EXIT_UNKNOWN, explicit.stdout
+    assert "OSCILLATION_REASON: range-unresolvable" in explicit.stdout
+
+
+def test_a_DEEP_repository_still_uses_the_bounded_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The green half: the fallback must not become the default everywhere.
+
+    Walking all history on a large repository is the cost the 200-commit bound
+    exists to avoid, so the bound has to survive its own fallback.
+
+    CONSTRUCTED, not asserted about this checkout. The first cut called
+    `default_range(ROOT)` and asserted the bounded answer - which is a claim
+    about how deep the clone happens to be, so it fails on a shallow CI checkout
+    where the function is behaving CORRECTLY. Monkeypatching the depth tests the
+    same branch without building 201 commits.
+    """
+    monkeypatch.setattr(CHECK, "DEFAULT_DEPTH", 2)
+    deep = _repo(tmp_path / "deep", ["a = 1\n", "a = 2\n", "a = 3\n"])
+    assert CHECK.default_range(deep) == "HEAD~2..HEAD", (
+        "a history deeper than the bound must still use the bounded range"
+    )
+
+    shallow_enough = _repo(tmp_path / "small", ["a = 1\n"])
+    assert CHECK.default_range(shallow_enough) == "HEAD", (
+        "a complete history shorter than the bound must fall back to all of it"
+    )
+
+
+def test_a_SHALLOW_clone_refuses_the_fallback(tmp_path: Path) -> None:
+    """The fallback's dangerous half, and the first cut shipped it.
+
+    `HEAD~200` failing to resolve has two causes that look identical from
+    inside: a repository with fewer than 200 commits, and one whose earlier
+    commits were never fetched. Walking "everything" is honest for the first and
+    a LIE for the second - a depth-2 clone of `30 -> 60 -> 30` sees one move and
+    reports `none`, exit 0, for a history that reversed.
+
+    Measured, not imagined: that is exactly what this change did before the
+    review caught it.
+    """
+    if shutil.which("git") is None:
+        pytest.skip("git builds and clones the fixture")
+    source = _repo(tmp_path / "src", ["timeout = 30\n", "timeout = 60\n", "timeout = 30\n"])
+
+    clone = tmp_path / "shallow"
+    env = _env(tmp_path)
+    made = subprocess.run(["git", "clone", "-q", "--depth", "2",
+                           f"file://{source}", str(clone)],
+                          capture_output=True, text=True, env=env)
+    if made.returncode != 0:
+        pytest.skip(f"shallow clone unavailable here: {made.stderr.strip()[:80]}")
+    is_shallow = subprocess.run(["git", "rev-parse", "--is-shallow-repository"],
+                                cwd=clone, capture_output=True, text=True, env=env)
+    assert is_shallow.stdout.strip() == "true", (
+        "the fixture is not actually shallow, so this test proves nothing"
+    )
+
+    proc = subprocess.run(
+        [sys.executable, str(SCRIPT), "--root", str(clone)],
+        capture_output=True, text=True,
+    )
+    assert "OSCILLATION_REASON: shallow-history" in proc.stdout, proc.stdout
+    assert "OSCILLATION: unknown" in proc.stdout, proc.stdout
+    assert proc.returncode == CHECK.EXIT_UNKNOWN
+
+    # ...and the COMPLETE history of the same content is still examined.
+    full = subprocess.run(
+        [sys.executable, str(SCRIPT), "--root", str(source)],
+        capture_output=True, text=True,
+    )
+    assert "OSCILLATION: found" in full.stdout, full.stdout
+
+
+def test_truncation_is_about_HEAD_not_the_whole_repository(tmp_path: Path) -> None:
+    """The over-correction, pinned.
+
+    The first refusal asked `git rev-parse --is-shallow-repository`, which is
+    REPOSITORY-wide: a complete branch can sit in a repository made shallow by
+    an unrelated fetch, and a shallow boundary can coincide with a genuine root.
+    Refusing on that answer reports UNKNOWN - and, because `oscillation` is in
+    `verify`, FAILS THE BUILD - for histories that are perfectly examinable.
+
+    The question is whether a commit HEAD calls a ROOT is actually a GRAFT.
+    """
+    if shutil.which("git") is None:
+        pytest.skip("git builds and clones the fixture")
+    source = _repo(tmp_path / "src", ["timeout = 30\n", "timeout = 60\n", "timeout = 30\n"])
+
+    # A complete history, however young, is NOT truncated.
+    assert CHECK.head_history_is_truncated(source) is False
+
+    clone = tmp_path / "shallow"
+    env = _env(tmp_path)
+    made = subprocess.run(["git", "clone", "-q", "--depth", "2",
+                           f"file://{source}", str(clone)],
+                          capture_output=True, text=True, env=env)
+    if made.returncode != 0:
+        pytest.skip(f"shallow clone unavailable here: {made.stderr.strip()[:80]}")
+
+    # ...and a grafted one IS, which is the only case that may refuse.
+    assert CHECK.head_history_is_truncated(clone) is True
+
+
 def test_the_FOUR_ways_of_not_looking_are_told_apart(tmp_path: Path) -> None:
     """One verdict, one exit code, four distinguishable REASONS (#953).
 
