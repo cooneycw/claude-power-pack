@@ -91,6 +91,7 @@ MUST_BE_IN_VERIFY = (
     "oscillation",
     "binary-guards-check",
     "negative-fixture-check",
+    "scripts-inventory-check",
 )
 
 

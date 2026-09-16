@@ -1,0 +1,91 @@
+{
+  "_comment": [
+    "Registration for scripts/scripts-inventory-check.py (issue #1013).",
+    "",
+    "WHY THIS GATE NEEDS A COMMITTED CASE (ADR 0008): it is a gate that lets work",
+    "THROUGH. `make verify` and the CI `scripts-inventory-check` step both read its",
+    "green as 'docs/scripts.md covers every script in scripts/', and nothing",
+    "downstream re-derives that fact. A blind version would print the same clean",
+    "line over the pre-#1013 state, where 17 of 68 scripts had no entry and the",
+    "file was nonetheless quoted sentence-by-sentence by six test modules as if it",
+    "were complete.",
+    "",
+    "THE CASES ARE WHOLE FIXTURE TREES, not the real repository. The gate takes",
+    "--root, so a case is a miniature repo: a one- or two-script `scripts/` and a",
+    "small `docs/scripts.md`. Deliberately tiny - the question is whether the gate",
+    "can tell a covered tree from an uncovered one, not whether it can read 400",
+    "lines.",
+    "",
+    "THREE BAD CASES, because the gate draws three distinctions and a control that",
+    "exercises one leaves the others unproven:",
+    "",
+    "  bad-unlisted-script  a script with no entry - the case issue #1013 demands,",
+    "                       and the shape that accumulated 17 times unnoticed.",
+    "  bad-stale-entry      a SECTION for tooling deleted from the tree - how an",
+    "                       inventory lies when the tree shrinks rather than grows.",
+    "  bad-stale-bullet     the same lie carried by a BULLET instead of a section.",
+    "                       Its own case because the first cut of this gate read",
+    "                       only headings on the reverse side and scored that tree",
+    "                       clean; the counter-model review found it, the author did",
+    "                       not. Seven scripts in the real inventory are carried by",
+    "                       a bullet alone, so this is the direction covering them.",
+    "",
+    "The GOOD case deliberately exercises the bullet path and the declaration path",
+    "as well as the heading path: `beta-tool` is entered as a bullet under a",
+    "declared non-script section, which is how the real inventory carries the seven",
+    "scripts with no section of their own. A GOOD case that only ever used headings",
+    "would leave the bullet rule unproven in the half that matters - the half where",
+    "it must NOT fire. With this gate in `make verify`, a false red blocks every",
+    "merge in the repository.",
+    "",
+    "Stdlib-only and git-free, like the gate: no binary this fixture needs is",
+    "absent from the slim CI image, so the control gives the same verdict there as",
+    "here."
+  ],
+  "gate": "scripts/scripts-inventory-check.py",
+  "invocation": [
+    "python3",
+    "{gate}",
+    "check",
+    "--root",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^(MISSING|UNDECLARED): ",
+  "cases": [
+    {
+      "name": "bad-unlisted-script",
+      "input": "cases/bad-unlisted-script",
+      "expect": "BAD",
+      "why": "A second script in `scripts/` with no entry in the inventory - the exact case issue #1013 requires committed, and the shape that accumulated 17 times unnoticed. If this scores GOOD the gate cannot see an uncovered script at all, which is the only thing it exists to see."
+    },
+    {
+      "name": "bad-stale-entry",
+      "input": "cases/bad-stale-entry",
+      "expect": "BAD",
+      "why": "The population is complete but a section survives for `gamma-tool`, deleted from the tree. The forward check alone reports this tree clean, so without this case the reverse direction ships unexercised and an inventory could keep describing tooling that no longer exists."
+    },
+    {
+      "name": "bad-stale-bullet",
+      "input": "cases/bad-stale-bullet",
+      "expect": "BAD",
+      "why": "A BULLET entry for a script that no longer exists. The first cut of this gate read only headings on the reverse side, so this tree scored clean - found by the counter-model review, not by the author. Seven scripts in the real inventory are carried by a bullet alone, so without this case the direction that covers them ships unexercised."
+    },
+    {
+      "name": "good-complete",
+      "input": "cases/good-complete",
+      "expect": "GOOD",
+      "why": "A tree whose inventory matches it exactly, covering one script by heading and one by bullet under a declared non-script section. THE HALF THAT MATTERS for a gate wedged at 'fail': a check that refuses every tree is indistinguishable from a working one on the bad cases alone, and this gate is in `make verify`, so a false red blocks every merge in the repository."
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "n/a",
+      "origin": "scripts/scripts-inventory-check.py",
+      "path": "anchors/constructed-headings-only-scripts-inventory-check.py",
+      "sha256": "d85102b9b372d3a668051f79ed24ab0e3c84e259c42ce35c3c9beb4ff757c998",
+      "why": "CONSTRUCTED: the gate is new, so there is no previous blind version to vendor. This is the weaker check the OTHER framing of the problem produces - confirm the document exists, is non-empty, and repeats no heading - and that framing is on the record, since an exploration pass reported duplicate headings as this file's defect and issue #1013 had to carry a correction saying there are none. It never compares the document against `scripts/` at all, so it MISSES all three known-bad inputs and AGREES with the real gate on the known-good one."
+    }
+  ]
+}
