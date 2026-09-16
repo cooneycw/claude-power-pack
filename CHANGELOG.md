@@ -15,6 +15,22 @@
 
 ### Added
 
+- **2026-09-16 - a per-advisory disposition register for the root lockfile**
+  (issue #922) - a scanner reporting `pygments 2.19.2` and `pytest 9.0.2` says
+  nothing about whether this repository can be hurt by them, so the same two
+  findings were rediscovered on every scan with no record of the last person who
+  worked them out. `docs/security/dependency-advisory-dispositions.md` records
+  the verdict for each advisory - keyed by GHSA/PYSEC/CVE id, so a scan result
+  can be looked up rather than re-derived - with the evidence, the as-of date,
+  and the condition that would move it. Both were assessed **not exposed**:
+  pygments' vulnerable lexer is unreachable (pytest selects from a
+  `Literal["python", "diff"]`, and a `sys.modules` probe that can say "yes"
+  says no), and pytest's predictable-tmpdir path is live on every run but is
+  blocked by `fs.protected_symlinks=1` on the dev host and by CI's single-tenant
+  `/tmp` - the kernel sysctl is the control, not a count of login accounts.
+  Dispositions are recorded per advisory, not per package - `urllib3 2.6.3`
+  carried two bugs of different classes at once. Scope, blind spots and the
+  absence of automation (issue #961) are stated in the file rather than implied.
 - **2026-09-16 - one vendor module for the two external-repo cores** (issue
   #1012) - `scripts/eli5-vendor.py` (282 lines) and
   `scripts/project-next-vendor.py` (298 lines) were separately-written solutions
@@ -318,6 +334,20 @@
 
 ### Fixed
 
+- **2026-09-16 - root lockfile clears its last two advisories** (issue #922) -
+  `uv lock --upgrade-package pygments --upgrade-package pytest` moves
+  `pygments 2.19.2 -> 2.21.0` (CVE-2026-4539) and `pytest 9.0.2 -> 9.1.1`
+  (CVE-2025-71176). No `pyproject.toml` change: pygments is transitive through
+  pytest and pinning it would create a direct dependency this project does not
+  carry - the reasoning PR #925 recorded when it declined the analogous urllib3
+  pin. OSV now reads **0 of 22** packages with advisories, with `urllib3 2.6.3`
+  appended to the same batch as a positive control so the zero is checked
+  rather than blind. The bump was made despite both verdicts being "not
+  exposed", because a low-exposure assessment is not a reason to leave a line
+  every future scanner re-reports. Note the resolved versions are not the
+  advisories' minimum fixing versions (2.20.0 / 9.0.3): an unbounded
+  requirement resolves to latest, so this crosses a pytest MINOR - verified by
+  the full suite and the negative-control register running under the new pytest.
 - **2026-09-13 - `worktree-remove.sh` read every squash-merged branch as
   unpushed once the merge helper deleted its remote ref** (issue #916) - #905's
   unpushed check asks `git log HEAD --not --remotes`: "reachable from a remote
