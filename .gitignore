@@ -85,6 +85,15 @@ desktop.ini
 # ignored path with no error - so the framework shipped with its only control
 # inert. The `*` glob covers the next consumer, not just the first.
 !controls/*/control.json
+# Negative-control CASE data that is itself JSON (issue #1012) - tracked despite
+# *.json above. The negation on the line before it is ONE level deep and cannot
+# reach a case tree, and the vendor controls put a manifest at
+# `controls/<gate>/cases/<case>/.claude/<link>-vendor.json`: that manifest holds
+# the PIN the case exists to drift from, so without it the bad case and the good
+# case are the same tree and the control reports BLIND in a clean clone while
+# passing on every dev box. The `**` is load-bearing - a case tree nests as deep
+# as the repository it models. Same trap as #964/#953, third location.
+!controls/*/cases/**/*.json
 # Counter-model review receipts (issue #934) - tracked despite *.json above, and
 # for the same reason as every negation above it: the receipt IS the record.
 # Untracked, the measurement does not exist in a clean clone, the validator

@@ -1,0 +1,1 @@
+RANK = 'fixture placeholder'

@@ -50,6 +50,7 @@ these rules remain in [commands-reference.md](docs/commands-reference.md) and
 - `scripts/` - deterministic helpers and repository checks.
 - `controls/` - registered negative controls: per-gate known-bad/known-good fixtures and the vendored blind anchors that prove each control can fail.
 - `lib/cicd/` - CI/CD configuration, runner, health, smoke, and deployment verification.
+- `lib/vendor.py` - shared fetch, pin, drift, and re-vendor core for external-repo links.
 - `lib/security/` - deterministic secret, dependency, and policy scanning.
 - `lib/creds/` - secret retrieval, injection, UI, and audit support.
 - `lib/cpp_memory/` - fail-open local or federated friction-knowledge ledger.

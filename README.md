@@ -79,6 +79,7 @@ claude-power-pack/
   lib/creds/            Secrets management library
   lib/security/         Security scanning library
   lib/cicd/             CI/CD framework detection and generation
+  lib/vendor.py         Shared fetch/pin/drift core for external-repo links (#1012)
   docs/skills/          Topic-focused best practices (~3K tokens each)
   docs/scripts.md       Per-script history for the scripts/ inventory (#711)
   docs/commands-reference.md  Per-command detail beyond the skill listing (#711)

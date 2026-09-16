@@ -15,6 +15,41 @@
 
 ### Added
 
+- **2026-09-16 - one vendor module for the two external-repo cores** (issue
+  #1012) - `scripts/eli5-vendor.py` (282 lines) and
+  `scripts/project-next-vendor.py` (298 lines) were separately-written solutions
+  to one job: fetch a core from another repository, compare it against a
+  recorded fingerprint, report drift, and re-copy on demand. A third external
+  core meant a third ~290-line script. That job now lives once in
+  `lib/vendor.py` - manifest IO, hashing, ONE network-error classification
+  point, the three modes (`check` / `--upstream` / `--revendor`) and the CLI -
+  and each link is a declaration over it. The issue's premise that the two
+  differed "mainly in constants" held for the machinery and not for the content:
+  eli5 pins one marker-delimited slice of one text file, project-next pins 16
+  whole files with two invariants eli5 has no analogue for, so a declaration
+  carries a LAYOUT (`MarkerSectionLayout` / `FileSetLayout`) alongside its
+  constants. Every CLI, exit code and Makefile/CI invocation is unchanged;
+  `Makefile` and `.woodpecker.yml` are untouched.
+- **2026-09-16 - both vendor gates are now provable, and carry committed
+  negative controls** (issue #1012, ADR 0008) - each script hardcoded its
+  manifest path and repository root at module level, so neither could be aimed
+  at a known-bad tree. Neither had ever been shown able to fail, and its green
+  was the same bytes a blind gate's would be - on two gates that let work
+  through (`make verify` for row 31, CI `eli5-vendor-check` for row 34). Both
+  now take `--root DIR`, and `controls/eli5-vendor` and
+  `controls/project-next-vendor` hold miniature repositories: one pinned, one
+  drifted. The registered coverage moves 7 -> 9 of 63 enumerated instruments.
+  Both anchors are `constructed` - the honest "before" is a gate that could not
+  be aimed at a case at all, which cannot be run against one - and are the
+  plausible weaker check written instead: confirm the copy is PRESENT and call
+  that vendored. Measured: with the hash comparison removed both controls report
+  BLIND and seven tests go red; widening the advisory half's fail-open to
+  swallow local defects reddens the one negative-membership test written for it.
+  `.gitignore` gained `!controls/*/cases/**/*.json`, because the blanket `*.json`
+  rule would otherwise leave the case manifests untracked - discriminating on
+  every dev box and absent from a clean clone, the #964/#953 trap in a third
+  location.
+
 - **2026-09-14 - `instrument` is a defined term, and the Negative Control rule
   is bounded so it can be kept** (issue #932, ADR 0008) - the global directive
   defined an instrument as "anything whose output is read as evidence" and

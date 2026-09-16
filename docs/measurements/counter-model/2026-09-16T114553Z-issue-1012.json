@@ -1,0 +1,19 @@
+{
+  "branch": "issue-1012-one-vendor-module-for-the-two-external-repo-cores",
+  "counts": {
+    "accepted": 4,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "implementer": "claude/opus-5",
+  "issue": "1012",
+  "passes": 2,
+  "recorded_at": "2026-09-16T11:45:53Z",
+  "red_cases": {
+    "already_covered": 7,
+    "proposed": 10
+  },
+  "reviewer": "codex/gpt-5.5",
+  "schema": 1,
+  "status": "ran"
+}
