@@ -1,0 +1,42 @@
+{
+  "files": [
+    {
+      "path": "uv.lock",
+      "report": {
+        "dependencies": [
+          {
+            "name": "pygments",
+            "version": "2.19.2",
+            "vulns": [
+              {
+                "aliases": [],
+                "description": "",
+                "fix_versions": [],
+                "id": "PYSEC-2026-2987"
+              }
+            ]
+          },
+          {
+            "name": "pytest",
+            "version": "9.0.2",
+            "vulns": [
+              {
+                "aliases": [],
+                "description": "",
+                "fix_versions": [],
+                "id": "PYSEC-2026-1845"
+              }
+            ]
+          },
+          {
+            "name": "pydantic",
+            "version": "2.12.5",
+            "vulns": []
+          }
+        ],
+        "fixes": []
+      }
+    }
+  ],
+  "schema": 1
+}

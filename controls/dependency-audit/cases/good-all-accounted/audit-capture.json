@@ -1,0 +1,68 @@
+{
+  "files": [
+    {
+      "path": "uv.lock",
+      "report": {
+        "dependencies": [
+          {
+            "name": "pygments",
+            "version": "2.19.2",
+            "vulns": [
+              {
+                "aliases": [],
+                "description": "",
+                "fix_versions": [],
+                "id": "PYSEC-2026-2987"
+              }
+            ]
+          },
+          {
+            "name": "pytest",
+            "version": "9.0.2",
+            "vulns": [
+              {
+                "aliases": [],
+                "description": "",
+                "fix_versions": [],
+                "id": "PYSEC-2026-1845"
+              }
+            ]
+          },
+          {
+            "name": "pydantic",
+            "version": "2.12.5",
+            "vulns": []
+          }
+        ],
+        "fixes": []
+      }
+    },
+    {
+      "path": "mcp-evaluate/uv.lock",
+      "report": {
+        "dependencies": [
+          {
+            "name": "starlette",
+            "version": "0.52.1",
+            "vulns": [
+              {
+                "aliases": [],
+                "description": "",
+                "fix_versions": [],
+                "id": "PYSEC-2026-161"
+              },
+              {
+                "aliases": [],
+                "description": "",
+                "fix_versions": [],
+                "id": "PYSEC-2026-248"
+              }
+            ]
+          }
+        ],
+        "fixes": []
+      }
+    }
+  ],
+  "schema": 1
+}

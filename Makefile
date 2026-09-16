@@ -1,5 +1,5 @@
 .PHONY: test lint format typecheck verify shellcheck secret-scan tools-check \
-	scripts-inventory-check \
+	scripts-inventory-check dep-audit dep-audit-selftest dep-audit-capture \
        oscillation update_docs clean \
        bootstrap-check drift-check deploy setup-woodpecker-cli \
        codex-init codex-skills codex-skills-check codex-install \
@@ -147,6 +147,52 @@ secret-scan:
 		echo "       Or use Docker: docker run --rm -v \$$(pwd):/repo zricethezav/gitleaks:latest detect --source /repo"; \
 		exit 1; \
 	fi
+
+## Dependency vulnerability audit (issue #961)
+## CPP ran no dependency audit at all. Both sets of advisories it carries today
+## were found by a person looking - #922 on the root lock ("tracked by no
+## issue"), #943 on mcp-evaluate - which is a practice, not a gate. Advisories
+## arrive whether or not anything is watching.
+##
+## DELIBERATELY NOT IN `verify`, and this is the mirror image of `oscillation`
+## above rather than an oversight. That detector is in `verify` and NOT in CI
+## because it needs git and the CI image has none. This one is in CI and NOT in
+## `verify` because it needs the NETWORK: `verify` is the gate a developer runs
+## on a plane, and a target that turns UNKNOWN without connectivity would make
+## the whole aggregate unrunnable offline. Its verdict is consumed by the CI
+## `dependency-audit` step, which is where it gates.
+##
+## REVERSAL TRIGGER (ADR 0009, pre-committed): this holds only while `verify` is
+## an offline-capable local gate. If `verify` ever acquires another target that
+## REQUIRES the network, the reason for this exclusion is gone and `dep-audit`
+## should join it. Check with `grep -c 'curl\|--upstream' Makefile` inside the
+## `verify` prerequisite list, which names nothing today.
+##
+## The posture is decided, not defaulted (issue #961 asks for it explicitly):
+## a finding exits 1, a stale suppression exits 1, and UNKNOWN - pip-audit
+## absent, `uv` absent, the feed unreachable, or a zero-file population - exits
+## 2 with `DEP-AUDIT-UNKNOWN:`. Unknown is never a pass, the same rule the
+## shellcheck gate holds for a missing binary, and the two outcomes never print
+## the same sentence. `pip-audit` is NOT added to TOOLS_NATIVE above: that list
+## drives a message about controls in `make test` reporting UNSIGNALLED without
+## the tool, and this gate's control replays committed captures offline, so it
+## needs neither pip-audit nor the network. Saying otherwise there would be an
+## overclaim in the one target that exists to state dependencies honestly.
+
+dep-audit: dep-audit-selftest
+	@python3 scripts/dependency-audit.py
+
+## The LIVE positive control, run BEFORE the audit above on purpose. A scan that
+## cannot see prints the same clean line as a clean tree, so this audits two
+## committed fixtures first - a 2019 PyYAML pin that must report, a clean pin
+## that must not - and the real verdict is only issued afterwards.
+dep-audit-selftest:
+	@python3 scripts/dependency-audit.py --selftest
+
+## Record this tree's raw pip-audit reports, for building or refreshing the
+## offline control fixtures under controls/dependency-audit/cases/.
+dep-audit-capture:
+	@python3 scripts/dependency-audit.py --capture dependency-audit-capture.json
 
 ## Pre-deploy gate (runs all quality checks)
 
