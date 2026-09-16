@@ -1,0 +1,109 @@
+{
+  "_comment": [
+    "Registration for scripts/dependency-audit.py (issue #961).",
+    "",
+    "WHY THIS GATE NEEDS A COMMITTED CASE (ADR 0008): it is a gate that lets work",
+    "THROUGH. The CI `dependency-audit` step reads its green as 'the locked",
+    "dependency set carries no advisory nothing accounts for', and nothing",
+    "downstream re-derives that. A blind version prints the same clean line over",
+    "this tree's actual state - four advisories on the root lock and 32 in",
+    "mcp-evaluate - which is the pre-#961 state, where both sets were found by a",
+    "person looking rather than by a standing check (#922, #943).",
+    "",
+    "THE CASES REPLAY COMMITTED CAPTURES, NOT LIVE AUDITS, AND THAT IS THE WHOLE",
+    "DESIGN DECISION HERE. A control whose invocation reached the advisory feed",
+    "would report UNSIGNALLED on a network blip - an environment failure wearing",
+    "the diagnosis 'the gate stopped discriminating', which is the exact collapse",
+    "this harness's verdict vocabulary exists to prevent, and which it has no",
+    "word for. So each case is a capture of pip-audit's own JSON plus a fixture",
+    "allowlist: stdlib-only, offline, needing neither `uv` nor `pip-audit` nor",
+    "the network, and therefore valid in BOTH environments that run this harness",
+    "- the negative-controls step and `validate`'s pytest, per ADR 0008's clause",
+    "'a control must be valid WHERE THE HARNESS RUNS'. The precedent is",
+    "controls/check-oscillation, which feeds its detector committed `git log`",
+    "captures because git is absent from the CI image.",
+    "",
+    "WHAT THESE CASES DO NOT ESTABLISH, SAID PLAINLY: that pip-audit is invoked",
+    "at all, or invoked against the file we meant. A capture is replayed, not",
+    "produced. That half is covered by `dependency-audit.py --selftest`, which",
+    "audits two committed requirements fixtures live - a 2019 PyYAML pin that",
+    "must report, a clean pin that must not - and which the CI step runs BEFORE",
+    "the real audit, so no clean verdict is issued by a scan that was never shown",
+    "able to find something. Neither half is sufficient alone; naming which one",
+    "covers which is the point.",
+    "",
+    "FOUR CASES, because the gate draws three distinctions and a control that",
+    "exercises one leaves the others unproven:",
+    "",
+    "  bad-new-advisory            an advisory no allowlist line accounts for -",
+    "                              the case issue #961 requires committed, and",
+    "                              the only thing this gate exists to see.",
+    "  bad-stale-suppression       a suppression that suppresses NOTHING. The",
+    "                              reverse direction, and the one that keeps the",
+    "                              residual honest: without it an allowlist line",
+    "                              outlives the advisory it records and becomes a",
+    "                              permanent blindfold nobody re-reads. It is",
+    "                              also what forces this repository's own two",
+    "                              lines out when #922 lands.",
+    "  bad-deferral-does-not-leak  a `deferred` line for mcp-evaluate/uv.lock",
+    "                              while uv.lock carries an unaccounted advisory.",
+    "                              A deferral is the widest thing in the ledger,",
+    "                              so the case that matters is the one where it",
+    "                              must NOT fire - testing what is outside the",
+    "                              exemption, not what is inside it.",
+    "",
+    "The GOOD case exercises BOTH suppression mechanisms at once on the side",
+    "where they must not fire - two exact `advisory` lines and one `deferred`",
+    "file, all clean. THE HALF THAT MATTERS for a gate wedged at 'fail': a check",
+    "that refuses every input is indistinguishable from a working one on the bad",
+    "cases alone, and this gate reddens CI, so a false red blocks every merge in",
+    "the repository."
+  ],
+  "gate": "scripts/dependency-audit.py",
+  "invocation": [
+    "python3",
+    "{gate}",
+    "--from-capture",
+    "{case}/audit-capture.json",
+    "--allow-file",
+    "{case}/.dependency-audit-allow"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^DEP-AUDIT-(FINDING|STALE): ",
+  "cases": [
+    {
+      "name": "bad-new-advisory",
+      "input": "cases/bad-new-advisory",
+      "expect": "BAD",
+      "why": "Two advisories in the report, one of them covered by an exact allowlist line and the other covered by nothing. If this scores GOOD the gate cannot see an unaccounted advisory at all, which is the only thing it exists to see. The covered one is present deliberately: a gate that reported every finding regardless of the ledger would also pass this case, so the suppressed half is what makes the finding attributable."
+    },
+    {
+      "name": "bad-stale-suppression",
+      "input": "cases/bad-stale-suppression",
+      "expect": "BAD",
+      "why": "A clean report beside an allowlist line for `pygments 2.19.2`, which the report no longer carries - the state the repository enters the moment #922 bumps the package. The forward check alone scores this tree clean, so without this case the suppression ledger could accumulate lines that account for nothing and nobody would be told."
+    },
+    {
+      "name": "bad-deferral-does-not-leak",
+      "input": "cases/bad-deferral-does-not-leak",
+      "expect": "BAD",
+      "why": "`mcp-evaluate/uv.lock` is deferred to #943 and carries advisories; `uv.lock` carries one that nothing accounts for. If this scores GOOD the deferral is not file-scoped, and one `deferred` line silences the whole repository - the widest possible failure of this ledger, and invisible from the passing side."
+    },
+    {
+      "name": "good-all-accounted",
+      "input": "cases/good-all-accounted",
+      "expect": "GOOD",
+      "why": "Every finding accounted for, by both mechanisms at once: two exact `advisory` lines on uv.lock and a `deferred` line on mcp-evaluate/uv.lock, each matching something. THE HALF THAT MATTERS for a gate wedged at 'fail'. A GOOD case using only one mechanism would leave the other unproven in the half where it must NOT fire, and this gate reddens CI, so a false red blocks every merge in the repository."
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "n/a",
+      "origin": "scripts/dependency-audit.py",
+      "path": "anchors/constructed-report-parses-only-dependency-audit.py",
+      "sha256": "cc453630fac938929dbe2a8b13699f59613801348427313709c1baaac5da4b9e",
+      "why": "CONSTRUCTED, not historical, and PERMANENTLY so. ADR 0008 pre-ruled this for #961: a gate introduced by its own pull request has no blind ancestor on main, its anchor commit dies with the squash, and `--verify-provenance` will therefore read `unverified` forever rather than 'git is absent here'. Recording the terminal cause here is the ADR's own instruction, so a reader chasing the provenance does not hunt for an object that was never going to exist - integrity is established by the sha256 above, historicity is not. WHAT IT IS: confirm the audit produced a report with a `dependencies` list, and treat that as coverage. Not a strawman - `lib/security/modules/pip_audit.py` has that shape one door down, where an absent binary appends to `skipped` and the scan passes anyway. It never reads `vulns` and never reads the allowlist, so it MISSES all three known-bad inputs and AGREES with the real gate on the known-good one."
+    }
+  ]
+}

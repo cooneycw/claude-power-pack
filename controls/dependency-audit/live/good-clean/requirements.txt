@@ -1,0 +1,22 @@
+# The LIVE positive control's known-good input (issue #961).
+#
+# `--selftest` audits this file and requires NO finding. THE HALF THAT MATTERS
+# for a gate that could be wedged at "fail": a scan that reports every input is
+# indistinguishable from a working one on the bad fixture alone, and this gate
+# reddens CI, so a false red blocks every merge in the repository.
+#
+# WHY THESE PINS: three pure-Python packages with essentially no runtime attack
+# surface and no advisory history - `iniconfig` is an INI parser, `packaging`
+# implements version comparison, `six` is a compatibility shim. Verified clean
+# 2026-09-16.
+#
+# THIS HALF CAN ROT, AND THAT IS ACCEPTED RATHER THAN DESIGNED AROUND. The bad
+# fixture is immune - a 2019 advisory is not going to be withdrawn - but any
+# package can acquire an advisory tomorrow, and this file would then fail the
+# selftest for a reason outside the repository. That failure is HONEST and its
+# remedy is to re-pin here, in this file, with the date re-measured. It is never
+# to soften the selftest, which would remove the only thing showing this gate is
+# not wedged.
+iniconfig==2.3.0
+packaging==26.0
+six==1.17.0

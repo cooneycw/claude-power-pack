@@ -1,0 +1,3 @@
+# Fixture allowlist for the negative control (issue #961). Whole-line
+# comments only - `#` also opens every issue reference below.
+advisory uv.lock pygments 2.19.2 PYSEC-2026-2987 #922
