@@ -1585,6 +1585,140 @@ watcher_roles_ps_fallback() {
         esac
         continue
         ;;
+      # ISSUE #937 - DECIDED: `unreadable=1` STAYS. Two-sided call under ADR
+      # 0009, escalated rather than settled by whoever hit the pain, and ruled
+      # by the owner on 2026-09-16. Recorded here rather than in a PR body the
+      # next person to touch this line will not read.
+      #
+      # The question was whether #904's `-ww` retires this conservatism: if
+      # `ps` can no longer cut the argv, a missing `--wave` can only mean the
+      # watcher passed none, and flagging it as unreadable is a mitigation
+      # outliving its cause. THE PREMISE DOES NOT HOLD, and the reason is that
+      # `-ww`'s protection and this lane's reachability are DISJOINT:
+      #
+      #   - `watcher_roles_live` picks this lane only when `[ -d /proc ]` is
+      #     false. On every Linux host the /proc lane runs and this one is,
+      #     in docs/scripts.md's own words, "dead code on Linux".
+      #   - A host with no /proc is a host where `ps` is not procps-ng - and
+      #     `-ww` (like the `--no-headers` in this very invocation, see the
+      #     note below the loop) is a procps-ng guarantee. Where this lane
+      #     actually runs, `-ww` guarantees nothing.
+      #
+      # So `-ww` retires the ambiguity only on the hosts where the branch
+      # never executes. Measured 2026-09-16, one planted watcher
+      # (`watch --role 9 --peek`, no `--wave`), same host, same instant, same
+      # question about the NAMED wave `testwave-x`:
+      #
+      #   FLOW_WAVE_WATCHER_SCAN=auto (/proc)  ->  COUNT=0
+      #   FLOW_WAVE_WATCHER_SCAN=ps (forced)   ->  COUNT=unknown
+      #
+      # The `unknown`-floods-the-fleet cost that argued for removal is paid
+      # only on the forced lane. The fleet pays nothing, so removal buys
+      # nothing real and spends a safety property.
+      #
+      # REVERSAL TRIGGER. Deliberately NOT the rate the issue proposed ("if
+      # the ps lane reports unknown on more than some share of real arms") -
+      # that keys on a population which is currently EMPTY, and a trigger that
+      # cannot fire is the blind instrument one level up. Instead:
+      #
+      #   If this lane ever becomes reachable on a host that actually runs
+      #   waves - `watcher_roles_live` selecting it WITHOUT
+      #   `FLOW_WAVE_WATCHER_SCAN=ps` - measure, on real `/flow:wave` arms
+      #   there, the share of `unknown` verdicts THIS BRANCH CAUSES. If that
+      #   share is a meaningful fraction of arms, the conservatism is costing
+      #   more than it protects and this comes back.
+      #
+      #   ATTRIBUTION IS PART OF THE TRIGGER, not a detail of measuring it
+      #   (counter-model review, #937). The lane emits `unknown` from at least
+      #   five places - this branch, a mid-token `--wave` cut, a missing
+      #   `--role`, an empty `ps`, and #845's unverifiable-match guard - so a
+      #   rate over the lane's unknowns AS A WHOLE cannot say which one is
+      #   responsible, and #845's guard alone will produce unknowns on any
+      #   host with a live watcher. A trigger keyed on that aggregate fires on
+      #   a neighbour's signal and would move this setting on evidence about a
+      #   different mechanism entirely.
+      #
+      #   The discriminator is an A/B on the setting itself: re-run the same
+      #   queries with this `unreadable=1` deleted. The unknowns attributable
+      #   here are exactly those that become a confident answer under that
+      #   deletion; the rest were never this branch's doing and are evidence
+      #   about mailbox-identity verification or scanner availability, which
+      #   is a separate question with a separate home.
+      #
+      # THE ASYMMETRY IS DELIBERATE, and this is the other half of #937. A
+      # missing `--wave` is read as a FACT in one direction (our wave is
+      # `default`, so this line falls through as a match candidate) and as an
+      # AMBIGUITY in the other (our wave is named, so it is `unreadable`).
+      # That looks like an oversight. It is not, and the argument has two
+      # parts: the directions carry OPPOSITE error costs, and what they
+      # actually emit today is not what reading the branch suggests.
+      #
+      #   - Our wave is `default`: erring here OVER-counts. The header above
+      #     states the standing policy - over-counting can only make a dead
+      #     watch read `armed`, never a live one read `dead`.
+      #   - Our wave is NAMED: erring here UNDER-counts, to a confident zero.
+      #     `watch=DEAD(0 watchers)` is a blocker signal in /flow:wave, so a
+      #     live worker reads as deaf. That is the direction #904 exists to
+      #     stop.
+      #
+      # WHAT THE TWO DIRECTIONS ACTUALLY OUTPUT, measured rather than read off
+      # the branch (2026-09-16, forced lane, one planted no-`--wave` watcher):
+      #
+      #   asking about the DEFAULT wave (falls through as a match) -> unknown
+      #   asking about a NAMED wave     (this `unreadable=1`)      -> unknown
+      #   no watcher-shaped line at all (the control)              -> 0
+      #
+      # They COINCIDE, by two different routes. The match route reaches
+      # `unknown` through #845's guard below - `[ ${#surviving[@]} -eq 0 ] ||
+      # return 1` - because this lane cannot verify that a genuine match is
+      # OURS. Which means the lane is two-valued: it answers `0` or `unknown`
+      # and can never return a positive count at all.
+      #
+      # So the asymmetry is a difference in ROUTE, not in answer, and the
+      # behavioural stake sits entirely on the named-wave side: delete this
+      # `unreadable=1` and that direction becomes a CONFIDENT ZERO, which is
+      # #904's defect returning. That is what was weighed and kept.
+      #
+      # WHICH INVITES THE OBVIOUS TIDY-UP - "if both routes answer `unknown`,
+      # make the branch unconditionally `unreadable=1` and the asymmetry
+      # #937 complains about simply stops, for free." It is not free, and the
+      # reason is worth writing down because the cost is invisible from here.
+      #
+      # The fall-through is what makes a default-wave no-`--wave` line a MATCH
+      # CANDIDATE: it enters `matched_pids` and `records`, and takes part in
+      # the subshell collapse below. It reaches `unknown` only because #845's
+      # guard turns EVERY surviving match into `unknown` - this lane cannot
+      # verify a match is ours. That guard is a statement about today's lane,
+      # not a law. Give this lane a portable way to read another process's
+      # mailbox directory and #845's guard lifts, at which point the two
+      # spellings diverge: the fall-through yields a real count (correct - the
+      # watcher IS a default-wave watcher), while an unconditional
+      # `unreadable=1` still yields `unknown` (needlessly blind).
+      #
+      # The asymmetry is therefore FORWARD-COMPATIBLE and the symmetric
+      # spelling silently depends on #845 staying put. Keeping it costs a
+      # paragraph; removing it buys a tidier-looking branch and a coupling
+      # nothing would announce when it breaks.
+      #
+      # The /proc lane differs here on the same input, and that is also
+      # correct rather than an inconsistency to reconcile:
+      # `/proc/<pid>/cmdline` is NUL-separated and cannot be truncated, so an
+      # absent `--wave` there IS a fact, and `watcher_roles_proc` defaults
+      # `found_wave=default` and treats a mismatch as a confident non-match.
+      # One lane can read the field; the other cannot. Different evidence,
+      # different confidence - not two implementations of one contract
+      # drifting apart (#845 made exactly that correction already).
+      #
+      # BOTH directions are committed as cases, so neither can be changed
+      # quietly: `test_a_watcher_shaped_line_with_no_wave_field_reads_unknown`
+      # pins the named-wave ambiguity, and
+      # `test_a_no_wave_watcher_on_the_default_wave_is_also_unknown` pins the
+      # match route. Before #937 only the first existed, so a change making
+      # this branch a confident zero on the default wave would have passed the
+      # whole suite in silence - demonstrated, not assumed: that mutation reds
+      # the new case alone (1 failed, 4 passed), deleting the named-wave
+      # `unreadable=1` reds its sibling alone, and a bare `continue` reds both.
+      # The second test's docstring carries the three mutations verbatim.
       *) [ "$wave" = "default" ] || { unreadable=1; continue ; } ;;
     esac
     matched_pids="$matched_pids$pid "
