@@ -249,6 +249,32 @@ def findings_from_report(path: str, report: dict) -> tuple[list[Finding], int]:
     deps = report.get("dependencies")
     if not isinstance(deps, list):
         raise Unknown(f"pip-audit report for {path} carries no `dependencies` list")
+
+    # A SKIPPED DEPENDENCY WAS NOT AUDITED, AND MUST NOT BE COUNTED AS ONE.
+    # pip-audit emits `{"name": ..., "skip_reason": ...}` for a record it could
+    # not resolve - a package absent from the advisory service, an editable or
+    # local install - with no `version` and no `vulns`. Read naively that is
+    # indistinguishable from a package audited and found clean, and it inflates
+    # the denominator this gate prints: measured on the first cut of this file,
+    # a report containing ONE skipped dependency and nothing else produced
+    # `ok - ... 1 package(s), 0 gating finding(s)` and exit 0. A package nobody
+    # looked at, reported as examined. Found by the counter-model review, not by
+    # the author.
+    #
+    # UNKNOWN rather than a counted residual, because unlike a platform
+    # exclusion below this is not a decision anyone made - it is the audit
+    # failing on part of its own population, and the reasons belong in front of
+    # a reader rather than in a count.
+    skipped = [dep for dep in deps if isinstance(dep, dict) and dep.get("skip_reason")]
+    if skipped:
+        detail = "; ".join(
+            f"{dep.get('name', '<unnamed>')}: {dep.get('skip_reason')}" for dep in skipped
+        )
+        raise Unknown(
+            f"pip-audit could not audit {len(skipped)} of {len(deps)} package(s) in {path} "
+            f"and this run therefore examined less than it was asked to - {detail}"
+        )
+
     seen: set[Finding] = set()
     for dep in deps:
         name = str(dep.get("name", "")).strip()
@@ -290,7 +316,7 @@ def resolve_pip_audit() -> list[str]:
     )
 
 
-def export_requirements(lock: Path, out: Path) -> None:
+def export_requirements(lock: Path, out: Path) -> list[tuple[str, str, str]]:
     """`uv export` one lock into a requirements file, without touching the lock.
 
     `--all-extras` IS LOAD-BEARING. The default export omits dev dependencies,
@@ -298,6 +324,12 @@ def export_requirements(lock: Path, out: Path) -> None:
     live there - so the narrower export reports the root lock clean while the
     tree carries two known advisories. A gate answering a narrower question than
     the one asked is the failure this flag exists to avoid.
+
+    `--all-groups` is the same argument one level over, and was missing from the
+    first cut: extras and PEP 735 dependency GROUPS are different namespaces, so
+    `--all-extras` alone silently omits every non-default group. CPP declares
+    none today, which is exactly why it would have gone unnoticed - the gate
+    would start under-reporting the first time anyone adds one.
 
     `--frozen` is equally load-bearing in the other direction: without it
     `uv export` may re-resolve and REWRITE `uv.lock`, and an instrument that
@@ -307,7 +339,7 @@ def export_requirements(lock: Path, out: Path) -> None:
     if not uv:
         raise Unknown(f"`uv` is not on PATH, so {lock} could not be exported - this run examined nothing")
     cmd = [uv, "export", "--format", "requirements-txt", "--no-hashes",
-           "--no-emit-project", "--all-extras", "--frozen"]
+           "--no-emit-project", "--all-extras", "--all-groups", "--frozen"]
     try:
         proc = subprocess.run(
             cmd, cwd=lock.parent, capture_output=True, text=True,
@@ -319,6 +351,30 @@ def export_requirements(lock: Path, out: Path) -> None:
         tail = (proc.stderr or "").strip().splitlines()
         raise Unknown(f"`uv export` for {lock} failed: {tail[-1] if tail else 'no diagnostic'}")
     out.write_text(proc.stdout, encoding="utf-8")
+    return parse_requirements(proc.stdout)
+
+
+def parse_requirements(text: str) -> list[tuple[str, str, str]]:
+    """`[(package, version, full requirement line)]` for every pinned entry in an export.
+
+    Only what the export DECLARED - the comparison against what pip-audit
+    actually reported is what turns this into a coverage statement.
+    """
+    declared: list[tuple[str, str, str]] = []
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or line.startswith("-"):
+            continue
+        head = line.split(";", 1)[0].strip()
+        if "==" not in head:
+            continue
+        name, version = head.split("==", 1)
+        declared.append((normalize(name), version.strip(), line))
+    return declared
+
+
+def normalize(name: str) -> str:
+    return name.strip().lower().replace("_", "-")
 
 
 def audit_requirements(requirements: Path, prefix: list[str]) -> dict:
@@ -373,9 +429,49 @@ def collect_live(root: Path) -> list[dict]:
         for index, lock in enumerate(locks):
             rel = lock.relative_to(root).as_posix()
             requirements = Path(tmp) / f"{index}-requirements.txt"
-            export_requirements(lock, requirements)
-            files.append({"path": rel, "report": audit_requirements(requirements, prefix)})
+            declared = export_requirements(lock, requirements)
+            report = audit_requirements(requirements, prefix)
+            files.append({
+                "path": rel,
+                "report": report,
+                "not_audited": uncovered(declared, report),
+            })
     return files
+
+
+def audited_pins(report: dict) -> set[tuple[str, str]]:
+    """The `(package, version)` pairs pip-audit actually reported on."""
+    return {
+        (normalize(str(dep.get("name", ""))), str(dep.get("version", "")).strip())
+        for dep in report.get("dependencies", [])
+        if isinstance(dep, dict) and not dep.get("skip_reason")
+    }
+
+
+def uncovered(declared: list[tuple[str, str, str]], report: dict) -> list[str]:
+    """Requirement lines the export DECLARED and the audit never reported on.
+
+    pip-audit resolves environment markers against the host it runs on, so a
+    locked `colorama==0.4.6 ; sys_platform == 'win32'` is dropped before the
+    advisory lookup and never appears in the report. Measured 2026-09-16: a
+    two-line requirements file pinning colorama under that marker and `six`
+    came back with `six` alone. The root lock carries exactly that entry.
+
+    THE NARROW ANSWER IS DELIBERATE AND THE CLAIM IS BOUNDED RATHER THAN
+    WIDENED. This repository's CI is Linux; auditing the Windows and PyPy
+    resolutions needs a lane per environment, which is a different ticket. What
+    is NOT acceptable is a verdict that silently speaks for packages it never
+    looked at, so every dropped entry is NAMED in the summary and the platform
+    is stated on every run, clean ones included.
+    """
+    # KEYED ON (package, VERSION), not on the package name. A lock can pin two
+    # conditional versions of one package - `pyyaml==5.1 ; python_version <
+    # "3.12"` beside `pyyaml==6.0.3 ; python_version >= "3.12"` - and a
+    # name-only comparison finds `pyyaml` in the report and drops the unaudited
+    # 5.1 line silently, which is this function's own failure mode occurring
+    # inside the fix for it (counter-model review pass 2).
+    audited = audited_pins(report)
+    return sorted({line for name, version, line in declared if (name, version) not in audited})
 
 
 # --------------------------------------------------------------------------- #
@@ -395,6 +491,12 @@ def read_capture(path: Path) -> list[dict]:
     for entry in files:
         if not isinstance(entry, dict) or "path" not in entry or "report" not in entry:
             raise Unknown(f"capture {path} carries an entry with no `path` or no `report`")
+        # `not_audited` is OPTIONAL and absent means empty. A capture is a
+        # replay, and `source=capture` is already on every line it produces, so
+        # a reader is never told a replayed verdict measured this tree's
+        # platform coverage. The live collector always writes the key.
+        if entry.get("not_audited") is not None and not isinstance(entry["not_audited"], list):
+            raise Unknown(f"capture {path} carries a `not_audited` that is not a list")
     return files
 
 
@@ -416,6 +518,11 @@ def adjudicate(files: list[dict], allow: list[AllowEntry], source: str) -> tuple
     an allowlist line that accounted for nothing this run.
     """
     deferred_paths = {e.path: e for e in allow if e.kind == "deferred"}
+    # Per path, the `(package, version)` pins this run never looked at. An
+    # allowlist entry for one of them cannot be judged: the advisory did not go
+    # away, the AUDIT did not reach the package.
+    unaudited_pins: dict[str, set[tuple[str, str]]] = {}
+    audited_counts: dict[str, int] = {}
     advisory_index: dict[str, AllowEntry] = {
         f"{e.path} {e.package} {e.version} {e.advisory}": e for e in allow if e.kind == "advisory"
     }
@@ -424,6 +531,7 @@ def adjudicate(files: list[dict], allow: list[AllowEntry], source: str) -> tuple
     suppressed = 0
     deferred_count = 0
     packages = 0
+    not_audited: list[str] = []
     seen_paths: set[str] = set()
 
     for entry in files:
@@ -431,6 +539,11 @@ def adjudicate(files: list[dict], allow: list[AllowEntry], source: str) -> tuple
         seen_paths.add(path)
         found, dep_count = findings_from_report(path, entry["report"])
         packages += dep_count
+        lines = entry.get("not_audited") or []
+        not_audited.extend(f"{path}: {line}" for line in lines)
+        unaudited_pins[path] = {(name, version)
+                                for name, version, _ in parse_requirements("\n".join(lines))}
+        audited_counts[path] = dep_count
         deferral = deferred_paths.get(path)
         for finding in found:
             match = advisory_index.get(finding.line())
@@ -454,7 +567,25 @@ def adjudicate(files: list[dict], allow: list[AllowEntry], source: str) -> tuple
     # same rule - it stopped suppressing something - and they differ only in the
     # sentence printed, because "the file is gone" and "the file is clean now"
     # send a reader to different places.
-    stale = [entry for entry in allow if not entry.used]
+    # UNVERIFIED IS NOT STALE, and collapsing them destroys evidence. A residual
+    # for a Windows-only package is never matched by a Linux audit, so the
+    # first cut called it stale and told the reader to REMOVE it - a legitimate
+    # suppression deleted on the strength of a run that never looked at its
+    # package (counter-model review pass 2). "The advisory is gone" and "this
+    # run could not see it" need opposite responses, so they get different
+    # words and different exit codes: stale exits 1, unverified reports and
+    # exits 0, exactly like the platform exclusion it descends from.
+    stale: list[AllowEntry] = []
+    unverified: list[AllowEntry] = []
+    for entry in allow:
+        if entry.used:
+            continue
+        if entry.kind == "advisory" and (entry.package, entry.version) in unaudited_pins.get(entry.path, set()):
+            unverified.append(entry)
+        elif entry.kind == "deferred" and entry.path in seen_paths and audited_counts.get(entry.path) == 0:
+            unverified.append(entry)
+        else:
+            stale.append(entry)
     for entry in stale:
         if entry.kind == "advisory":
             lines.append(
@@ -468,6 +599,19 @@ def adjudicate(files: list[dict], allow: list[AllowEntry], source: str) -> tuple
                 f"{STALE}: {ALLOW_FILE} line {entry.source_line} defers {entry.path} "
                 f"({entry.issue}), which {why} - remove the line."
             )
+
+    # NAMED, not merely counted. "1 not audited" sends a reader nowhere; the
+    # requirement line says which package and under which marker, which is the
+    # difference between a bounded claim and an admission of a gap.
+    for line in not_audited:
+        print(f"{SUMMARY}: not audited on this platform ({sys.platform}) - {line}", file=sys.stderr)
+    for entry in unverified:
+        print(
+            f"{SUMMARY}: unverified residual - {ALLOW_FILE} line {entry.source_line} ({entry.issue}) "
+            f"covers {entry.path} {entry.package or '(whole file)'} {entry.version}, which this "
+            f"platform ({sys.platform}) never audited - keep the line; it is not stale",
+            file=sys.stderr,
+        )
 
     residual = []
     if suppressed:
@@ -483,9 +627,14 @@ def adjudicate(files: list[dict], allow: list[AllowEntry], source: str) -> tuple
     # `source=` names the DERIVATION, not just the count (ADR 0008's shape). A
     # `walk` verdict is about the tree as it is now; a `capture` verdict is about
     # the reports someone recorded earlier, and the two must never read alike.
+    if not_audited:
+        tail += f", {len(not_audited)} not audited on this platform"
+    if unverified:
+        tail += f", {len(unverified)} unverified residual line(s)"
     print(
-        f"{SUMMARY}: {verdict}{len(files)} file(s) examined (source={source}), {packages} package(s), "
-        f"{len(gating)} gating finding(s), {len(stale)} stale allowlist line(s){tail}"
+        f"{SUMMARY}: {verdict}{len(files)} file(s) examined (source={source}, platform={sys.platform}), "
+        f"{packages} package(s), {len(gating)} gating finding(s), "
+        f"{len(stale)} stale allowlist line(s){tail}"
     )
     return lines, EXIT_FINDING if lines else EXIT_OK
 
@@ -512,8 +661,31 @@ def selftest(root: Path) -> int:
             return EXIT_UNKNOWN
 
     prefix = resolve_pip_audit()
-    bad_found, _ = findings_from_report(str(bad), audit_requirements(bad, prefix))
-    good_found, _ = findings_from_report(str(good), audit_requirements(good, prefix))
+    bad_report = audit_requirements(bad, prefix)
+    good_report = audit_requirements(good, prefix)
+
+    # EXAMINED, BEFORE ADJUDICATED - the positive control's own positive
+    # control. Checking findings alone cannot separate "audited the clean
+    # fixture and found nothing" from "audited nothing": a pip-audit returning
+    # `{"dependencies": []}` for the good fixture passed this selftest and
+    # printed its success message, which is the defect this whole file exists to
+    # prevent, sitting inside the thing built to prevent it (counter-model
+    # review pass 2). So the pins the fixtures DECLARE must appear in the
+    # reports before any verdict is read off them.
+    for path, report in ((bad, bad_report), (good, good_report)):
+        declared = parse_requirements(path.read_text(encoding="utf-8"))
+        missing = sorted(line for name, version, line in declared
+                         if (name, version) not in audited_pins(report))
+        if missing:
+            print(
+                f"{UNKNOWN}: the selftest fixture {path.relative_to(root)} declares pin(s) the audit "
+                f"never reported on, so this run proved nothing: {'; '.join(missing)}",
+                file=sys.stderr,
+            )
+            return EXIT_UNKNOWN
+
+    bad_found, _ = findings_from_report(str(bad), bad_report)
+    good_found, _ = findings_from_report(str(good), good_report)
 
     problems: list[str] = []
     if not bad_found:

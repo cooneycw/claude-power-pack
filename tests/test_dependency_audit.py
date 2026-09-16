@@ -23,6 +23,8 @@ registered control structurally cannot:
 
 from __future__ import annotations
 
+import ast
+import importlib.util
 import json
 import subprocess
 import sys
@@ -36,6 +38,28 @@ GATE = REPO / "scripts" / "dependency-audit.py"
 CASES = REPO / "controls" / "dependency-audit" / "cases"
 LIVE = REPO / "controls" / "dependency-audit" / "live"
 ALLOW = REPO / ".dependency-audit-allow"
+
+
+def _load_gate():
+    """Import the gate for the functions no CLI path reaches.
+
+    `uncovered()` and the selftest's coverage predicate run only on the LIVE
+    lane, which needs `uv`, pip-audit and the network - so a subprocess test
+    cannot reach them at all, and the alternative to importing is leaving the
+    two defects the counter-model review found in pass 2 covered by nothing.
+    """
+    spec = importlib.util.spec_from_file_location("dependency_audit", GATE)
+    module = importlib.util.module_from_spec(spec)
+    # Registered BEFORE execution: the gate carries `from __future__ import
+    # annotations`, so its dataclasses resolve their field types by looking the
+    # module up in `sys.modules` at class-creation time, and an unregistered
+    # module makes that lookup return None.
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+GATE_MODULE = _load_gate()
 
 EXIT_OK = 0
 EXIT_FINDING = 1
@@ -119,6 +143,97 @@ def test_a_run_that_could_not_look_is_unknown_and_never_prints_as_clean(
     assert proc.returncode == EXIT_UNKNOWN, f"{name}: expected exit 2, got {proc.returncode}: {output}"
     assert "DEP-AUDIT-UNKNOWN: " in output, f"{name}: no UNKNOWN marker: {output}"
     assert "dependency-audit: ok" not in output, f"{name}: printed a clean verdict as well: {output}"
+
+
+def test_a_dependency_pip_audit_skipped_is_not_counted_as_one_it_examined(tmp_path: Path) -> None:
+    """REGRESSION (counter-model review of #961, HIGH).
+
+    pip-audit emits `{"name": ..., "skip_reason": ...}` for a record it could
+    not resolve - a package absent from the advisory service, an editable or
+    local install - with no `version` and no `vulns`. The first cut read that
+    as a package audited and found clean AND counted it in the denominator:
+    measured, a report containing one skipped dependency and nothing else
+    produced `ok - ... 1 package(s), 0 gating finding(s)` and exit 0. Run
+    against that code this test fails with exit 0.
+    """
+    files = [{"path": "uv.lock", "report": {"dependencies": [
+        {"name": "private-pkg", "skip_reason": "Dependency not found on PyPI and could not be audited"},
+    ]}}]
+    proc = run("--from-capture", str(capture_file(tmp_path, files)),
+               "--allow-file", str(tmp_path / "absent"))
+    output = both(proc)
+    assert proc.returncode == EXIT_UNKNOWN, output
+    assert "dependency-audit: ok" not in output, output
+    assert "private-pkg" in output, "the reader must be told WHICH package went unaudited: " + output
+    assert "could not be audited" in output, "and why: " + output
+
+
+def test_one_skipped_dependency_among_audited_ones_still_refuses(tmp_path: Path) -> None:
+    """The mixed case, which is the one that actually happens.
+
+    A wholly-skipped report is conspicuous; one skipped package among ninety-one
+    audited ones is what a real lock produces, and it is the shape where a count
+    alone reads as coverage.
+    """
+    files = [{"path": "uv.lock", "report": {"dependencies": [
+        dep("pydantic", "2.12.5"),
+        {"name": "private-pkg", "skip_reason": "could not be audited"},
+    ]}}]
+    proc = run("--from-capture", str(capture_file(tmp_path, files)),
+               "--allow-file", str(tmp_path / "absent"))
+    assert proc.returncode == EXIT_UNKNOWN, both(proc)
+    assert "1 of 2 package(s)" in both(proc), both(proc)
+
+
+# --------------------------------------------------------------------------- #
+# What the verdict does NOT cover, said on the verdict
+# --------------------------------------------------------------------------- #
+
+def test_the_verdict_names_the_platform_it_was_taken_on(tmp_path: Path) -> None:
+    """pip-audit evaluates environment markers against the host it runs on.
+
+    Measured 2026-09-16: a requirements file pinning
+    `colorama==0.4.6 ; sys_platform == 'win32'` and `six` came back with `six`
+    alone, and the root lock carries exactly that colorama entry. A verdict that
+    does not say which platform it speaks for claims more than it looked at.
+    """
+    proc = run("--from-capture", str(capture_file(tmp_path, one_file([dep("x", "1.0")]))),
+               "--allow-file", str(tmp_path / "absent"))
+    assert "platform=" in both(proc), both(proc)
+
+
+def test_an_entry_the_audit_never_reached_is_named_not_merely_counted(tmp_path: Path) -> None:
+    """"1 not audited" sends a reader nowhere; the requirement line says which."""
+    files = [{"path": "uv.lock",
+              "report": {"dependencies": [dep("six", "1.17.0")]},
+              "not_audited": ["colorama==0.4.6 ; sys_platform == 'win32'"]}]
+    proc = run("--from-capture", str(capture_file(tmp_path, files)),
+               "--allow-file", str(tmp_path / "absent"))
+    output = both(proc)
+    assert proc.returncode == EXIT_OK, output
+    assert "colorama==0.4.6" in output, output
+    assert "1 not audited on this platform" in output, output
+
+
+def test_the_export_asks_for_extras_and_groups_both() -> None:
+    """A TRIPWIRE on two flags whose absence is silent.
+
+    `--all-extras` is why the root lock's two advisories (#922) are seen at all:
+    both live in the dev extra, and the default export omits it. `--all-groups`
+    is the same argument in the PEP 735 namespace, which is a DIFFERENT one -
+    CPP declares no groups today, so its omission would go unnoticed until
+    someone adds the first and the gate quietly stopped covering it.
+
+    Read with `ast` rather than grep: this file's own docstring names both
+    flags, so a text search matches the documentation whether or not the
+    command still carries them.
+    """
+    tree = ast.parse(GATE.read_text(encoding="utf-8"))
+    export = next(n for n in ast.walk(tree)
+                  if isinstance(n, ast.FunctionDef) and n.name == "export_requirements")
+    literals = {c.value for c in ast.walk(export) if isinstance(c, ast.Constant) and isinstance(c.value, str)}
+    for flag in ("--all-extras", "--all-groups", "--frozen"):
+        assert flag in literals, f"`uv export` no longer passes {flag}: {sorted(literals)}"
 
 
 def test_an_unreadable_allowlist_is_unknown_rather_than_an_empty_one(tmp_path: Path) -> None:
@@ -294,14 +409,149 @@ def test_the_live_selftest_fixtures_are_present_and_exactly_pinned() -> None:
             assert "==" in pin, f"{path} must pin exactly, got {pin!r}"
 
 
-def test_the_repository_residual_names_an_issue_on_every_line() -> None:
-    """A suppression with no issue is an exemption. The gate's own ledger, checked."""
-    records = [ln.strip() for ln in ALLOW.read_text(encoding="utf-8").splitlines()
-               if ln.strip() and not ln.strip().startswith("#")]
-    assert records, ".dependency-audit-allow has no records; this test would be vacuous"
-    for record in records:
-        fields = record.split()
-        assert fields[0] in {"advisory", "deferred"}, record
-        assert fields[-1].startswith("#") and fields[-1][1:].isdigit(), (
-            f"every residual line must end in the issue tracking it: {record!r}"
-        )
+def _names_an_issue(record: str) -> bool:
+    """The rule: a residual line ends in the issue tracking it."""
+    fields = record.split()
+    return (
+        len(fields) >= 3
+        and fields[0] in {"advisory", "deferred"}
+        and fields[-1].startswith("#")
+        and fields[-1][1:].isdigit()
+    )
+
+
+@pytest.mark.parametrize(
+    "record, accepted",
+    [
+        ("advisory uv.lock pygments 2.19.2 PYSEC-2026-2987 #922", True),
+        ("deferred mcp-evaluate/uv.lock #943", True),
+        ("advisory uv.lock pygments 2.19.2 PYSEC-2026-2987 untracked", False),
+        ("deferred mcp-evaluate/uv.lock later", False),
+        ("deferred mcp-evaluate/uv.lock #", False),
+    ],
+)
+def test_the_residual_rule_tells_a_tracked_line_from_an_exemption(record: str, accepted: bool) -> None:
+    """A suppression with no issue is an exemption, and the two must be separable.
+
+    The DISCRIMINATING half of the ledger check, driven by fixtures rather than
+    by whatever the repository happens to owe today - so it keeps its force
+    after the residual is eliminated.
+    """
+    assert _names_an_issue(record) is accepted
+
+
+def test_the_repository_residual_obeys_that_rule() -> None:
+    """The APPLICATION half, and it is legitimately vacuous on an empty ledger.
+
+    The first cut asserted the ledger was non-empty, to keep this test from
+    going quiet. That made a correctly remediated repository fail: once #922 and
+    #943 land and the last line comes out, the gate's own parser accepts an
+    empty or absent ledger and this test would have been the only thing
+    objecting - a check that forbids its subject from being fixed (found by the
+    counter-model review of #961). The force lives in the parametrized test
+    above instead, which cannot go vacuous.
+    """
+    if not ALLOW.exists():
+        return
+    for record in ALLOW.read_text(encoding="utf-8").splitlines():
+        record = record.strip()
+        if not record or record.startswith("#"):
+            continue
+        assert _names_an_issue(record), f"residual line names no issue: {record!r}"
+
+
+# --------------------------------------------------------------------------- #
+# The live lane's two blind spots, found by the counter-model review in pass 2
+# --------------------------------------------------------------------------- #
+
+def test_coverage_is_keyed_on_the_version_not_just_the_package() -> None:
+    """REGRESSION (counter-model review pass 2, MEDIUM).
+
+    A lock can pin two conditional versions of ONE package. Keyed on the name
+    alone, `pyyaml` is found in the report and the unaudited 5.1 line vanishes
+    from the output - the coverage gap disappearing inside the fix written for
+    coverage gaps. Run against a name-only comparison this test fails with an
+    empty list.
+    """
+    declared = GATE_MODULE.parse_requirements(
+        "pyyaml==5.1 ; python_version < '3.12'\n"
+        "pyyaml==6.0.3 ; python_version >= '3.12'\n"
+    )
+    report = {"dependencies": [{"name": "pyyaml", "version": "6.0.3", "vulns": []}]}
+    missed = GATE_MODULE.uncovered(declared, report)
+    assert missed == ["pyyaml==5.1 ; python_version < '3.12'"], missed
+
+
+def test_a_skipped_record_never_counts_as_a_pin_the_audit_covered() -> None:
+    """The two pass-2 fixes must not undo each other.
+
+    `audited_pins` feeds both the coverage comparison and the selftest's
+    examined-check, so a `skip_reason` record leaking into it would restore the
+    pass-1 HIGH finding through a different door.
+    """
+    report = {"dependencies": [
+        {"name": "six", "version": "1.17.0", "vulns": []},
+        {"name": "private-pkg", "skip_reason": "could not be audited"},
+    ]}
+    assert GATE_MODULE.audited_pins(report) == {("six", "1.17.0")}
+
+
+def test_the_selftest_predicate_notices_a_fixture_that_was_never_examined() -> None:
+    """REGRESSION (counter-model review pass 2, MEDIUM).
+
+    The positive control's own positive control. Checking findings alone cannot
+    separate "audited the clean fixture and found nothing" from "audited
+    nothing": a pip-audit returning `{"dependencies": []}` passed the selftest
+    and printed its success message. This asserts the predicate the selftest now
+    runs first - the fixture's declared pins must appear in the report.
+
+    It does NOT cover the subprocess call itself; that is the live lane, and
+    what covers it is the CI step running `--selftest` against the real feed.
+    """
+    declared = GATE_MODULE.parse_requirements(LIVE.joinpath("good-clean", "requirements.txt").read_text())
+    assert declared, "the clean fixture declares nothing; this test would be vacuous"
+    examined_nothing = {"dependencies": []}
+    missing = [line for name, version, line in declared
+               if (name, version) not in GATE_MODULE.audited_pins(examined_nothing)]
+    assert len(missing) == len(declared), missing
+    real = {"dependencies": [{"name": n, "version": v, "vulns": []} for n, v, _ in declared]}
+    assert not [line for name, version, line in declared
+                if (name, version) not in GATE_MODULE.audited_pins(real)]
+
+
+def test_a_residual_this_platform_never_audited_is_unverified_not_stale(tmp_path: Path) -> None:
+    """REGRESSION (counter-model review pass 2, MEDIUM).
+
+    A suppression for a Windows-only package is never matched by a Linux audit.
+    Collapsed into "stale", the gate exits 1 and tells the reader to REMOVE a
+    legitimate suppression on the strength of a run that never looked at its
+    package. "The advisory is gone" and "this run could not see it" need
+    opposite responses, so they must not share a word or an exit code.
+    """
+    files = [{"path": "uv.lock",
+              "report": {"dependencies": [dep("six", "1.17.0")]},
+              "not_audited": ["pywin32==311 ; sys_platform == 'win32'"]}]
+    proc = run("--from-capture", str(capture_file(tmp_path, files)),
+               "--allow-file", str(allow_file(tmp_path, "advisory uv.lock pywin32 311 PYSEC-9999-1 #1\n")))
+    output = both(proc)
+    assert proc.returncode == EXIT_OK, output
+    assert "DEP-AUDIT-STALE" not in output, "a legitimate suppression was called stale: " + output
+    assert "unverified residual" in output, output
+    assert "1 unverified residual line(s)" in output, output
+
+
+def test_a_residual_this_platform_DID_audit_is_still_stale(tmp_path: Path) -> None:
+    """The half that keeps the fix above from becoming an amnesty.
+
+    If `unverified` swallowed every unmatched entry, the stale rule - the only
+    thing forcing the residual to shrink - would be gone. An entry for a package
+    the audit DID reach, with no matching advisory, is stale exactly as before.
+    """
+    files = [{"path": "uv.lock",
+              "report": {"dependencies": [dep("pygments", "2.20.0")]},
+              "not_audited": ["pywin32==311 ; sys_platform == 'win32'"]}]
+    proc = run("--from-capture", str(capture_file(tmp_path, files)),
+               "--allow-file", str(allow_file(tmp_path, "advisory uv.lock pygments 2.19.2 PYSEC-1 #1\n")))
+    output = both(proc)
+    assert proc.returncode == EXIT_FINDING, output
+    assert "DEP-AUDIT-STALE: " in output, output
