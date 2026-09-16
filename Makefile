@@ -9,7 +9,8 @@
        host-surfaces-check host-surfaces-plan host-surfaces-prune memory-harness \
        binary-guards-check negative-fixture-check claude-md-budget-check \
        claude-md-links-check claude-md-behavior-check skills-check \
-       install-drift-check install-drift-list
+       install-drift-check install-drift-list \
+       delegated-core-check delegated-core-write
 
 ## `make` with no target ran `lint` because lint was the first target. Adding
 ## tools-check above it silently made THAT the default - bare `make` would print
@@ -177,7 +178,28 @@ oscillation:
 verify: tools-check lint test typecheck shellcheck oscillation \
 	binary-guards-check negative-fixture-check \
 	claude-md-budget-check claude-md-links-check claude-md-behavior-check \
-	project-next-check
+	project-next-check delegated-core-check
+
+## Vendored delegated-driver core (issue #1011)
+## `/codex:auto`, `/qwen:auto` and `/gemma:auto` describe ONE lifecycle, rendered
+## from templates/delegated-driver-core.md into each driver between the
+## delegated-core markers. The three used to carry three copies, which is how
+## #774's "the Step 2 report reads like a checkpoint and is not one" existed in
+## all three at once - and codex's copy had already drifted ~60 lines ahead of
+## the other two by the time this landed.
+##
+## In `verify` AND in CI `validate` (unlike `oscillation`, which needs git):
+## stdlib-only, offline, git-free, so the slim CI image gives the same verdict.
+## Reconcile drift by editing the template or the per-driver values file and
+## re-running `make delegated-core-write` - never by editing a rendered region.
+## controls/delegated-core-vendor registers the committed BAD/GOOD pair, since a
+## gate that lets work through cannot be trusted on a clean tree alone.
+
+delegated-core-check:
+	@python3 scripts/delegated-core-vendor.py check
+
+delegated-core-write:
+	@python3 scripts/delegated-core-vendor.py --write
 
 ## Enforce the CLAUDE.md "guard tests that shell out to git/docker/gitleaks"
 ## directive (issue #602). It failed three times as prose (#451, #489, #577)

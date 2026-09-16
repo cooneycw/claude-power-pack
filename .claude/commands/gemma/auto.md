@@ -91,6 +91,7 @@ Distinct from the `/gemma:auto` vs `/gemma:exec` **precondition** split (issue
 #758): that one is about needing a filed issue and an existing checkout. This one
 is about what kind of work the driver can produce once it has both.
 
+<!-- delegated-core:begin A (canonical: templates/delegated-driver-core.md) -->
 ## Instructions
 
 When the user invokes `/gemma:auto <ISSUE>`, perform these steps sequentially. Stop immediately if any step fails.
@@ -250,7 +251,25 @@ mis-route is paid before the gate is ever reached.
      but it is not a code-specialized tag the way `qwen3-coder` is. Prefer
      naming the edit sites over describing them.
 
-4. **Report the prompt to the user** (same format as `/qwen:auto` Step 2).
+4. **Report the prompt to the user:**
+
+```
+Step 2/8: Analysis Complete
+
+Issue #42: "Fix login redirect loop"
+
+Acceptance Criteria:
+  - [ ] Login redirects to dashboard after auth
+  - [ ] Invalid sessions redirect to /login
+  - [ ] Tests pass
+
+Gemma Prompt Summary:
+  - Context: 3 files referenced, CLAUDE.md conventions included
+  - Scope: Modify src/auth/login.py, tests/test_auth.py, config/routes.py
+  - Testing: make lint + make test available
+
+Awaiting approval (Step 3/8) - reply approve, revise, or abandon.
+```
 
 Report: `Step 2/8: Analyze complete - Gemma prompt built ({N} files referenced)`
 
@@ -304,6 +323,8 @@ that gate, and #784 closes the split standard this left behind.
 Report: `Step 3/8: Approve - {approved|revised|abandoned}`
 
 There is deliberately no auto-approved outcome: a value that can still be produced means something can still skip the gate (issue #784).
+
+<!-- delegated-core:end A -->
 
 ---
 
@@ -701,6 +722,7 @@ Report: `Step 4/8: Execute Gemma complete - {N} files changed (+{added} -{remove
 
 ---
 
+<!-- delegated-core:begin B (canonical: templates/delegated-driver-core.md) -->
 ### Step 5: Review - Claude Reviews Gemma's Diff
 
 Cross-model review: Claude Code reviews what the local Gemma model wrote.
@@ -708,7 +730,10 @@ Cross-model review: Claude Code reviews what the local Gemma model wrote.
 produces plausible-but-wrong code at a higher rate than a frontier model.
 Review the diff line by line, not just structurally.
 
-1. **Read the full diff:** `git diff`
+1. **Read the full diff:**
+   ```bash
+   git diff
+   ```
 
 2. **Review for:**
    - Correctness: Does the implementation match the issue requirements?
@@ -724,7 +749,22 @@ Review the diff line by line, not just structurally.
      its success message claim more than its input population supports, and can a
      finding tell our thing from a neighbour's - and require the answer as a test.
 
-3. **Report review findings** (same format as `/qwen:auto` Step 5).
+3. **Report review findings:**
+
+```
+Step 5/8: Review Complete
+
+Gemma Diff Review:
+  Files changed: 3
+  Correctness: PASS - all acceptance criteria addressed
+  Conventions: PASS - matches existing code style
+  Security: PASS - no vulnerabilities detected
+  Completeness: PASS - tests included
+
+Issues found: 0
+
+Proceeding to quality gates...
+```
 
 If review finds CRITICAL issues that a re-prompt cannot fix (fundamentally
 wrong approach), STOP and report. Offer to re-prompt Gemma, escalate to
@@ -760,9 +800,23 @@ fi
 If quality gates fail:
 
 1. **Extract the error output** from the failed step.
-2. **Build a fix prompt** with the error context. **The execution fence from
-   Step 4 MUST appear at the top of every fix prompt.** After the fence:
+2. **Build a fix prompt** for Gemma with the error context. **The execution
+   fence from Step 4 MUST appear at the top of every fix prompt** (issue #735):
    ```
+   EXECUTION FENCE - MANDATORY CONSTRAINTS
+   ========================================
+   You are an IMPLEMENTATION-ONLY agent. Your SOLE job is to write and modify
+   source files in the working tree. You MUST NOT:
+   1. Run git commit, git push, or any git command that modifies history or refs.
+   2. Run gh pr create, gh pr merge, or any GitHub CLI command.
+   3. Read, open, or follow instructions in .claude/commands/**, .claude/skills/**,
+      or any repository workflow/automation files.
+   4. Attempt to run CI, deploy, merge, or perform any lifecycle operation.
+   5. Run make deploy, make docker-up, or any infrastructure command.
+   You MAY: create files, modify files, delete files, read source code and tests,
+   run linters or formatters locally.
+   ========================================
+
    The following quality gate failed after your implementation:
 
    [ERROR OUTPUT]
@@ -797,9 +851,31 @@ If quality gates fail:
    signals - the retry did not run, so re-running the gate only re-reports the
    same failure and consumes a retry that fixed nothing.
 4. **Re-run quality gates.**
-5. If still failing after 2 retries, STOP and report. Offer escalation:
-   re-run the remaining fix loop under `/codex:auto` (frontier model) or fix
-   manually.
+5. If still failing after 2 retries, STOP and report. Offer escalation: re-run the remaining fix loop under `/codex:auto` (frontier model) or fix manually.
+
+```
+RETRY_COUNT=0
+MAX_RETRIES=2
+
+while [ "$RUNNER_EXIT" -ne 0 ] && [ "$RETRY_COUNT" -lt "$MAX_RETRIES" ]; do
+    RETRY_COUNT=$((RETRY_COUNT + 1))
+    echo "Quality gates failed. Re-prompting Gemma (attempt $RETRY_COUNT/$MAX_RETRIES)..."
+
+    # Build fix prompt with error context
+    # Re-execute Gemma
+    # Re-run quality gates
+
+    if [ "$RUNNER_EXIT" -eq 0 ]; then
+        echo "Quality gates passed after $RETRY_COUNT fix attempt(s)."
+    fi
+done
+
+if [ "$RUNNER_EXIT" -ne 0 ]; then
+    echo "ERROR: Quality gates still failing after $MAX_RETRIES retries."
+    echo "Manual intervention required."
+    exit 1
+fi
+```
 
 Report: `Step 6/8: Quality gates passed (attempt {N}/{MAX})`
 
@@ -855,18 +931,26 @@ fi
    actually in play rather than assuming a rewrite is needed. A delegated run that delivered part of
    the work is still mergeable; it just must not close the promise. The canonical rule
    is docs/agents/issue-contract.md.
+   - Include `Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>`
    - Note the Gemma model tag as implementer in the commit body
      (e.g., `Implemented-By: gemma4-code:latest via OpenCode (headless)`)
 
-2. **Push** the branch: `git push -u origin "$BRANCH"`
+2. **Push** the branch:
+   ```bash
+   git push -u origin "$BRANCH"
+   ```
 
-3. **Create PR** if no PR exists. The PR body includes:
-   - Summary of changes
-   - Note that implementation was delegated to a local Gemma model
-   - Claude Code review findings
-   - Test plan
-   - `${ISSUE_REF}` - the selected reference, non-closing unless the
-     accounting is complete
+3. **Create PR** if no PR exists:
+   ```bash
+   gh pr create --title "type(scope): Description (${ISSUE_REF})" --body "..."
+   ```
+   - PR body includes:
+     - Summary of changes
+     - Note that implementation was delegated to a local Gemma model
+     - Claude Code review findings
+     - Test plan
+     - `${ISSUE_REF}` - the selected reference, non-closing unless the
+       accounting is complete
 
 Report: `Step 7/8: Finish complete - PR #{N} created`
 
@@ -874,7 +958,15 @@ Report: `Step 7/8: Finish complete - PR #{N} created`
 
 ### Step 8: Cleanup (Optional)
 
-Ask the user if they want to merge and clean up now, or leave the PR for review.
+Ask the user if they want to merge and clean up now, or leave the PR for review:
+
+```
+PR #{N} created. What would you like to do?
+
+  1. Merge now (squash-merge, clean up worktree)
+  2. Leave for review (keep worktree, manual merge later)
+```
+
 If merge now, follow the same merge/cleanup pattern as `/flow:auto` Step 7:
 
 1. Squash-merge the PR
@@ -882,6 +974,8 @@ If merge now, follow the same merge/cleanup pattern as `/flow:auto` Step 7:
 3. **cd to main repo BEFORE removing worktree** (critical)
 4. Remove worktree and branch
 5. Close issue if still open
+
+If leave for review, report the PR URL and worktree location.
 
 Report: `Step 8/8: Cleanup complete - PR merged, worktree removed` or `Step 8/8: PR #{N} left for review`
 
@@ -918,6 +1012,7 @@ Gemma Auto Complete
   PR:          #{N} (created / squash-merged)
   Branch:      issue-{N}-{slug} (active / deleted)
   Worktree:    {path} (active / removed)
+  Location:    {current working directory}
 ```
 
 ---
@@ -955,6 +1050,7 @@ Key failure scenarios:
 - **Model makes no changes:** Stop at step 4; if the stream has no `tool_use` events at all, suspect the `/v1` tool-call-drop bug before the prompt - `/gemma:status` Step 4 tests for it
 - **Review finds critical issues:** Stop at step 5; offer re-prompt, escalation, or manual hand-off
 - **Quality gates fail after retries:** Stop at step 6; offer escalation to `/codex:auto`
+<!-- delegated-core:end B -->
 
 ## Notes
 

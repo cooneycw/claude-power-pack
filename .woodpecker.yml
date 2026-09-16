@@ -3,7 +3,8 @@
 #
 # Pipeline:
 #   PR/push -> secret-scan -> validate (lint+test+typecheck) + codex-skills-check
-#              + eli5-vendor-check + eli5-upstream-drift (advisory)
+#              + delegated-core-check + eli5-vendor-check
+#              + eli5-upstream-drift (advisory)
 #              + tool-risk-drift -> Dockerfile lint
 #
 # The Docker MCP runtime (second-opinion + aws-secrets-agent images, compose
@@ -53,6 +54,19 @@ steps:
     depends_on: [secret-scan]
     commands:
       - python3 scripts/codex-skill-sync.py --check
+
+  # Vendored delegated-driver core (issue #1011). `/codex:auto`, `/qwen:auto` and
+  # `/gemma:auto` render one shared lifecycle from
+  # templates/delegated-driver-core.md; this step fails loudly on its own line
+  # when a rendered region stops matching, rather than leaving the drift to be
+  # noticed the next time someone fixes the same bug three times (#774).
+  # Stdlib-only and git-free, like codex-skills-check above, so it runs directly
+  # under the slim image. Same command `make delegated-core-check` wraps.
+  delegated-core-check:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
+    depends_on: [secret-scan]
+    commands:
+      - python3 scripts/delegated-core-vendor.py check
 
   # Vendored eli5-gate core gates (issue #591). The canonical home of the
   # /flow:eli5 necessity gate is cooneycw/eli5-gate; CPP vendors its core

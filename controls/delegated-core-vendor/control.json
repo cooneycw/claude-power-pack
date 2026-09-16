@@ -1,0 +1,60 @@
+{
+  "_comment": [
+    "Registration for scripts/delegated-core-vendor.py (issue #1011).",
+    "",
+    "WHY THIS GATE NEEDS A COMMITTED CASE (ADR 0008): it is a gate that lets",
+    "work THROUGH. `make verify` and the CI `delegated-core-check` step both",
+    "read its green as 'the three delegated drivers still carry one lifecycle',",
+    "and nothing downstream re-derives that fact. A blind version of this check",
+    "would report exactly the same clean line while a driver's rendered region",
+    "quietly diverged - which is the pre-#1011 state, where three hand-kept",
+    "copies drifted ~60 lines apart and nobody was told.",
+    "",
+    "THE CASES ARE WHOLE FIXTURE TREES, not the real repository. The gate takes",
+    "--root, so a case is a miniature repo: a tiny core template, three values",
+    "files, three driver documents. Deliberately small - the question is whether",
+    "the gate can tell a matching rendered region from a drifted one, not",
+    "whether it can render 540 lines. The fixture also exercises the",
+    "empty-block-slot path (codex and qwen leave STEP_EXTRA empty, gemma does",
+    "not), because 'the placeholder line disappears' is the rendering rule most",
+    "likely to break silently.",
+    "",
+    "Stdlib-only and git-free, like the gate: no binary this fixture needs is",
+    "absent from the slim CI image, so the control gives the same verdict there",
+    "as here."
+  ],
+  "gate": "scripts/delegated-core-vendor.py",
+  "invocation": [
+    "python3",
+    "{gate}",
+    "check",
+    "--root",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^(MISSING|DRIFT|UNRESOLVED|ORPHAN|MISORDERED): ",
+  "cases": [
+    {
+      "name": "bad-drifted",
+      "input": "cases/bad-drifted",
+      "expect": "BAD",
+      "why": "One line of qwen's rendered region B edited in place, markers intact - the exact shape of someone fixing a lifecycle bug in a driver file instead of in the core. If this scores GOOD the gate cannot see drift at all, which is the only thing it exists to see."
+    },
+    {
+      "name": "good-matching",
+      "input": "cases/good-matching",
+      "expect": "GOOD",
+      "why": "The same tree with every region rendered from the core. THE HALF THAT MATTERS for a gate wedged at 'fail': a check that refuses every tree is indistinguishable from a working one on the bad case alone, and would block every merge until someone disabled it."
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "n/a",
+      "origin": "scripts/delegated-core-vendor.py",
+      "path": "anchors/constructed-markers-only-delegated-core-vendor.py",
+      "sha256": "bbc653f400faabdb0640b8242a75dfc60c6d2eca2e7f7e3e55db6d7a21fd134a",
+      "why": "CONSTRUCTED, not historical: this gate is new, so there is no previous blind version to vendor and the honest 'before' is 'no check at all', which cannot be run against a case. This is the plausible weaker check someone would write instead - confirm the marker pair is present and call that vendored. It catches deleted markers, and is blind to the failure that actually happens: a region edited in place with its markers intact. It MISSES the known-bad input and AGREES with the current gate on the known-good one."
+    }
+  ]
+}
