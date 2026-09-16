@@ -1,0 +1,13 @@
+#!/usr/bin/env sh
+# fixture: a real upgrade - the install changes what the harness reports.
+STATE="${NPM_UPGRADE_FIXTURE_STATE:-/nonexistent}"
+case "${1:-}" in
+    install) [ -d "$STATE" ] && : > "$STATE/installed"; exit 0 ;;
+    view)
+        case "${3:-}" in
+            version) echo "1.5.0" ;;
+            engines.node) echo ">=20.0.0" ;;
+        esac
+        exit 0 ;;
+esac
+exit 0

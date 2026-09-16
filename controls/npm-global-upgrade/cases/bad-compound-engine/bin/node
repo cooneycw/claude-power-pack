@@ -1,0 +1,4 @@
+#!/usr/bin/env sh
+# fixture: the node runtime this host runs.
+[ "${1:-}" = "--version" ] && { echo "v20.20.2"; exit 0; }
+exit 0

@@ -1,0 +1,186 @@
+{
+  "_comment": [
+    "Registration for scripts/npm-global-upgrade.sh (issue #1022).",
+    "",
+    "WHY THIS INSTRUMENT NEEDS A COMMITTED CASE (ADR 0008): its verdict is read",
+    "by a person and by later sessions, neither of which re-derives the installed",
+    "version. `/cpp:update` composes `Local-Model Lanes: Tier 6 refreshed` from it",
+    "and nothing downstream checks that sentence against the host. The blind",
+    "version of this instrument is not hypothetical - it is what shipped: the step",
+    "ran `npm install -g @qwen-code/qwen-code`, read the exit code, and reported",
+    "the lane refreshed. On node 20 npm resolves `latest` down to the newest",
+    "engine-compatible release, installs the version that was already there, and",
+    "exits 0. A host sat nine minor versions behind while every update run said it",
+    "was refreshed.",
+    "",
+    "WHAT THE INVOCATION PINS: which `npm`, `node` and harness binaries exist, by",
+    "prepending the case's `bin/` to PATH. The REAL scripts/npm-global-upgrade.sh",
+    "runs unmodified over that environment - version parsing, the latest",
+    "comparison, and the engine evaluation are all derived by the code that",
+    "derives them in production. Nothing about the verdict is pinned. The shared",
+    "runner (`run-case.sh`) also hands the fixtures a `mktemp -d` scratch path, so",
+    "the one case that needs state between two stub programs does not write into",
+    "the repository (UNTRACKED files make a green that does not survive a clone)",
+    "and two concurrent runs never share a path.",
+    "",
+    "WHAT THIS DOES NOT ESTABLISH: that the verdict is correct about any real",
+    "host. That is answered by running it there, and its answer is a fact about",
+    "that host at that moment. On the box where #1022 was filed the gate reports",
+    "`capped` for @qwen-code/qwen-code and `current` for opencode-ai - two",
+    "different verdicts from one host, which is evidence the instrument reads its",
+    "subject rather than its environment.",
+    "",
+    "ELEVEN BAD CASES, because the gate draws eleven distinctions and a control that",
+    "exercises one leaves the others unproven. SIX OF THEM CAME FROM THE",
+    "COUNTER-MODEL REVIEW, which reproduced each before reporting it - said here",
+    "because a control whose coverage came from a second reader is stronger",
+    "evidence than one whose author chose all its own inputs:",
+    "",
+    "  bad-capped-by-engines   node 20 against `engines.node >=22.0.0` - the input",
+    "                          the issue names, and this repository's own host.",
+    "  bad-silent-noop         behind latest with the engine constraint SATISFIED.",
+    "                          Without it, a gate that reported `capped` whenever",
+    "                          the version did not move would pass.",
+    "  bad-unevaluable-engine  `^22 || ^20`, which node 20 actually satisfies. The",
+    "                          direction where a plausible reason would be FALSE.",
+    "  bad-compound-engine     `>=22.0.0 || >=20.0.0` on node 20 (counter-model).",
+    "                          It BEGINS with `>=`, so a prefix match condemns a",
+    "                          host the disjunction admits.",
+    "  bad-minor-engine-gap    node v22.1.0 against `>=22.12.0` (counter-model).",
+    "                          Equal majors, so a major-only comparison misses the",
+    "                          constraint that is the entire reason.",
+    "  bad-downgraded          1.6.0 replaced by 1.5.0 (counter-model). A MOVE IS",
+    "                          NOT AN UPGRADE.",
+    "  bad-major-only-engine   `>=22` on node v22.1.0 (counter-model, 2nd pass).",
+    "                          `cut` prints the whole line when it holds no",
+    "                          delimiter, so the requirement read as 22.22.22.",
+    "  bad-prerelease-forward  1.5.0 -> 1.5.0-beta.1 (counter-model, 2nd pass).",
+    "                          Equal cores fell through to `upgraded`.",
+    "  bad-prerelease-backward 1.5.0-rc1 -> 1.5.0 (counter-model, 2nd pass). The",
+    "                          suffix's DIGITS survived, so patch read as 01 and",
+    "                          this scored as a downgrade. Both directions are",
+    "                          committed: fixing one half of a two-sided parsing",
+    "                          error silently ships the other.",
+    "  bad-install-failed      npm exited 7. The pre-fix step did not read the exit",
+    "                          code at all, so this is a live blind spot, not a",
+    "                          hypothetical one.",
+    "  bad-unreadable-latest   no registry. `current` and `capped` are genuinely",
+    "                          indistinguishable, so the verdict must be `unknown`",
+    "                          and must not be exit 0.",
+    "",
+    "TWO GOOD CASES, and the second is the one that is easy to omit:",
+    "",
+    "  good-upgraded           the version moves. A gate wedged at a finding passes",
+    "                          all eleven bad cases on its own.",
+    "  good-already-current    the version does NOT move, because the host is",
+    "                          already on the published latest. A check that reads",
+    "                          `did the string change` reports this healthy host as",
+    "                          a problem, and an instrument that cries wolf on every",
+    "                          up-to-date box is switched off within a week.",
+    "",
+    "Stdlib-only and git-free, like the gate: sh, grep, cut, tr, head and mktemp,",
+    "all present in the uv/python3.11-bookworm-slim image the negative-controls CI",
+    "step runs in. No real npm or node is needed anywhere - the fixtures ARE the",
+    "npm and node - which is why this control gives the same verdict in CI, where",
+    "neither is installed."
+  ],
+  "gate": "scripts/npm-global-upgrade.sh",
+  "invocation": [
+    "sh",
+    "controls/npm-global-upgrade/run-case.sh",
+    "{gate}",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^NPM_UPGRADE: (capped|not-upgraded|downgraded|failed|unknown)\\b",
+  "cases": [
+    {
+      "name": "bad-capped-by-engines",
+      "input": "cases/bad-capped-by-engines",
+      "expect": "BAD",
+      "why": "node v20.20.2, installed 0.15.10, latest 0.24.0 declaring `engines.node >=22.0.0`. npm exits 0 having installed nothing. This is the exact input issue #1022 names as the available negative control, and the host it was filed from is still in this state. If this scores GOOD the instrument cannot see the only failure it was built for."
+    },
+    {
+      "name": "bad-silent-noop",
+      "input": "cases/bad-silent-noop",
+      "expect": "BAD",
+      "why": "Behind latest and the engine constraint is satisfied, so nothing in the machine-readable evidence explains the no-op. The verdict must be `not-upgraded` WITHOUT an invented reason. Without this case a gate that blamed engines for every stall would pass, and its reason would end an investigation it should have started."
+    },
+    {
+      "name": "bad-unevaluable-engine",
+      "input": "cases/bad-unevaluable-engine",
+      "expect": "BAD",
+      "why": "`engines.node` is `^22 || ^20` - not the bare dotted-numeric shape after `>=` that the gate evaluates, and node 20 SATISFIES it. The verdict must report the constraint verbatim and say it was not evaluated. This is the direction where fabricated specificity would also be factually wrong, which is the version of the error nobody catches by reading the message."
+    },
+    {
+      "name": "bad-compound-engine",
+      "input": "cases/bad-compound-engine",
+      "expect": "BAD",
+      "why": "`>=22.0.0 || >=20.0.0` on node 20. The constraint BEGINS with `>=`, so a prefix match reads the first major and condemns a host the second branch plainly admits. Found by the counter-model review and reproduced there, not by the author. The verdict must be `not-upgraded` with the constraint quoted and labelled unevaluated - never `capped`."
+    },
+    {
+      "name": "bad-minor-engine-gap",
+      "input": "cases/bad-minor-engine-gap",
+      "expect": "BAD",
+      "why": "node v22.1.0 against `>=22.12.0`. The majors are EQUAL, so a major-only comparison reports that no engine constraint explains the stall when the constraint is the entire reason. The mirror image of bad-compound-engine, and the other half of the same counter-model finding: an instrument wrong in both directions needs a case in both."
+    },
+    {
+      "name": "bad-downgraded",
+      "input": "cases/bad-downgraded",
+      "expect": "BAD",
+      "why": "The install replaces 1.6.0 with 1.5.0. `after != before` was the entire upgrade test, so a backward move reported `upgraded` and exit 0 - this issue's own defect class sitting inside its fix. A MOVE IS NOT AN UPGRADE, and the summary that quotes this verdict is the one nobody re-derives."
+    },
+    {
+      "name": "bad-major-only-engine",
+      "input": "cases/bad-major-only-engine",
+      "expect": "BAD",
+      "why": "`>=22` on node v22.1.0, which SATISFIES it. `cut -d. -f2` prints the ENTIRE line when it contains no delimiter, so the first comparator read this requirement as 22.22.22 and condemned a host that meets it. Second counter-model pass, reproduced there. The verdict must be `not-upgraded` - the constraint is evaluable and is met, so it explains nothing."
+    },
+    {
+      "name": "bad-prerelease-forward",
+      "input": "cases/bad-prerelease-forward",
+      "expect": "BAD",
+      "why": "1.5.0 replaced by 1.5.0-beta.1. The numeric cores are equal, so the direction check fell through to `upgraded` at exit 0 - a stable harness replaced by a prerelease, reported as a successful upgrade. The verdict must be `unknown`: the version moved and this helper does not implement semver prerelease ordering, so it may not claim a direction."
+    },
+    {
+      "name": "bad-prerelease-backward",
+      "input": "cases/bad-prerelease-backward",
+      "expect": "BAD",
+      "why": "1.5.0-rc1 replaced by 1.5.0. `tr -cd '0-9'` stripped a suffix's letters and KEPT its digits, so the patch field `0-rc1` read as 01 and a prerelease becoming its own stable release scored as a DOWNGRADE. The other direction of the same parsing defect, and the reason both are committed: fixing one of a two-sided error silently ships the other."
+    },
+    {
+      "name": "bad-install-failed",
+      "input": "cases/bad-install-failed",
+      "expect": "BAD",
+      "why": "npm exits 7 (EACCES on the global prefix). The pre-fix step ignored the exit code entirely, so `failed` is a distinction that did not exist before this change. Without the case, a gate that read only versions would report `not-upgraded` for a command that never ran - true, but it sends the operator to the wrong question."
+    },
+    {
+      "name": "bad-unreadable-latest",
+      "input": "cases/bad-unreadable-latest",
+      "expect": "BAD",
+      "why": "The registry is unreachable, so the published version cannot be read and `current` cannot be told from `capped`. The verdict must be `unknown` and the exit must not be 0: an unscanned host has to read as unknown, never as clean. This is also the case most likely to be relaxed later for being noisy, which is why it is committed rather than described."
+    },
+    {
+      "name": "good-upgraded",
+      "input": "cases/good-upgraded",
+      "expect": "GOOD",
+      "why": "The install genuinely moves the harness 1.2.0 -> 1.5.0. THE HALF THAT MATTERS for an instrument that reports problems: a gate wedged at `not-upgraded` passes every bad case above and is indistinguishable from a working one without this."
+    },
+    {
+      "name": "good-already-current",
+      "input": "cases/good-already-current",
+      "expect": "GOOD",
+      "why": "The version does not move BECAUSE the host is already on the published latest - the healthy no-move. A check phrased as `did the version change` fails this tree, and an instrument that reports every up-to-date machine as a problem gets ignored, which returns the whole lane to the state #1022 describes by a different route."
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "n/a",
+      "origin": ".claude/commands/cpp/update.md",
+      "path": "anchors/constructed-exit-code-only-npm-global-upgrade.sh",
+      "sha256": "5ee231ea7f1bd8972ef056a767a22188e8152582e234e40af8397ab1dff69de9",
+      "why": "CONSTRUCTED: the blind version was never a script, so there is nothing to vendor with a sha. It was inline bash in `/cpp:update` Step 5d.2 - `npm install -g <pkg>` followed unconditionally by `Tier 6 refreshed` - and this file is that logic given the gate's argument interface so the control can invoke both identically. It never reads the installed version, never asks the registry for latest, and never looks at node, so it MISSES all five known-bad inputs and AGREES with the real gate on both known-good ones."
+    }
+  ]
+}

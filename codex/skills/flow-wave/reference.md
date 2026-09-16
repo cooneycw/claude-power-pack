@@ -194,6 +194,35 @@ sessions mounts to "fix" it; `register.md` carries the decision, the measured
 `pidDomain` fact that would defeat the fix anyway, and where the remaining work
 lives.
 
+**Establish which side of that boundary a participant is on before you route to
+it - and do not establish it by counting.** This paragraph stated the inversion
+with no basis for applying it at all until 2026-09-16, which left an
+orchestrator deciding on nothing. The basis, measured on the host on harness
+2.1.266, 2026-09-16 against the container rows of 2.1.266, 2026-09-13 (#947),
+and carried in full in `register.md`:
+
+- **What does NOT discriminate:** the number of records in
+  `~/.claude/sessions/`. A container holds one because discovery is
+  filesystem-based and container-private - but **a host session that is the only
+  session on the box holds one too**, so the record count conflates "I am
+  containerised" with "I am alone" and fails toward the inversion. It is not
+  stable either (6 on 2026-09-15, 5 on 2026-09-16, no fleet change), and
+  `~/.claude/sessions/` is absent from `/proc/self/mountinfo` on BOTH sides, so
+  that signal separates nothing.
+- **What does:** the pid-namespace inode - `readlink /proc/self/ns/pid` reads
+  `pid:[4026531836]` on the host and `pid:[4026533495]` in the container -
+  leaning on the Linux convention that `4026531836` is the initial pid
+  namespace, which is a convention and not a definition. The empty machine-id
+  half of a record's `pidDomain` also separates the two, but only because the
+  kyle-session image ships no `/etc/machine-id`; it is evidence for this fleet,
+  not a general test of containerisation.
+
+An orchestrator routing to a participant it did not place itself has no vantage
+on that participant at all, and neither signal is remotely readable. Ask, or use
+the roster - never infer it from how many peers `ListAgents` returns, which is
+the same counting mistake one namespace further out. The derived contract that
+would remove this reading step is CPP #959.
+
 The lesson of 2026-08-11 is not the routing verdict, which expired. It is that
 this document stated a harness behaviour with no version attached, so nothing
 could tell the next reader it had gone stale. Stamp what you write here.

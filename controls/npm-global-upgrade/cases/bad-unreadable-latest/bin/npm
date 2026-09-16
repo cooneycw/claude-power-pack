@@ -1,0 +1,7 @@
+#!/usr/bin/env sh
+# fixture: no registry. `install` exits 0 from cache; `view` cannot answer.
+case "${1:-}" in
+    install) exit 0 ;;
+    view) echo "npm ERR! network request failed" >&2; exit 1 ;;
+esac
+exit 0

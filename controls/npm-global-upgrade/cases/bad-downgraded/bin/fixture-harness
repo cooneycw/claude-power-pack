@@ -1,0 +1,9 @@
+#!/usr/bin/env sh
+# fixture: 1.6.0 until the install, then 1.5.0 - a dist-tag that moved back, or a
+# prerelease replaced by an older stable. It MOVED, and that is not an upgrade.
+STATE="${NPM_UPGRADE_FIXTURE_STATE:-/nonexistent}"
+if [ "${1:-}" = "--version" ]; then
+    if [ -f "$STATE/installed" ]; then echo "1.5.0"; else echo "1.6.0"; fi
+    exit 0
+fi
+exit 0

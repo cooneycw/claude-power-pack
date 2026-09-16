@@ -420,6 +420,233 @@ def test_the_container_boundary_names_the_decision_it_rests_on() -> None:
 
 
 # ---------------------------------------------------------------------------
+# A vantage check that cannot establish vantage (issue #958).
+#
+# The three probes above pin that the container boundary is STATED, with its
+# decision, its date and its population. None of them asks whether a reader can
+# establish WHICH SIDE OF IT THEY ARE ON - and until 2026-09-16 neither surface
+# could tell them. `register.md` offered `ls ~/.claude/sessions/` as answering it
+# "in one call"; a container holds one record, and so does a host session that
+# happens to be the only session on the box. `wave.md` stated the inversion for
+# an orchestrator and offered no check at all.
+#
+# This is the #870 defect in a third dimension. The original was a claim
+# outliving its evidence in TIME; `test_a_result_that_differs_by_vantage_says_so`
+# covers a claim outrunning its evidence in POPULATION. This is an INSTRUCTION
+# that cannot produce the fact it is asked for - and it fails toward the
+# dangerous verdict, silently, because a lone host session that wrongly concludes
+# "container" routes to the mailbox and the mailbox works.
+#
+# Pinned here is the PROPERTY, not the signal. Which signal discriminates is
+# expected to move - the pid-namespace inode leans on a Linux convention and the
+# machine-id one is a property of the kyle-session image. What must not move is
+# that a surface telling a reader to establish vantage says what does NOT
+# establish it, and that a surface stating the inversion gives a basis for
+# applying it.
+# ---------------------------------------------------------------------------
+
+#: A surface that directs its reader to establish vantage before routing.
+VANTAGE_INSTRUCTION = re.compile(r"\bvantage\b", re.I)
+
+#: The refutation that has to travel with any vantage guidance: counting the
+#: session records cannot separate "I am containerised" from "I am alone".
+COUNT_RULED_OUT = re.compile(
+    r"holds one (?:record )?too"
+    r"|record count (?:conflates|does not discriminate)"
+    r"|conflates \"I am containerised\" with",
+    re.I,
+)
+
+#: A signal that actually separates the two vantages.
+DISCRIMINATING_SIGNAL = re.compile(
+    r"/proc/self/ns/pid|pid-namespace inode|pid namespace", re.I
+)
+
+
+@pytest.mark.parametrize("surface", (REGISTER, WAVE), ids=lambda p: p.name)
+def test_a_vantage_instruction_says_what_does_not_establish_vantage(
+    surface: Path,
+) -> None:
+    """Telling a reader to check their vantage obliges you to rule the count out.
+
+    The record count is the signal that looks decisive and is not, and it is the
+    one a reader reaches for unprompted because it is a single `ls` away. A
+    surface that raises vantage without ruling it out has left the most available
+    wrong answer standing, which is worse than raising nothing - the reader acts,
+    gets a number, and the number is meaningless.
+
+    CONDITIONAL, like the contested-mechanism probe: a surface that never mentions
+    vantage says nothing this test can be wrong about. It fires only once the
+    surface has taken on the obligation.
+
+    Reds, both measured rather than predicted. `register.md`: fails on the
+    pre-change tree, which instructed the check and ruled nothing out - the
+    defect this was written for. `wave.md`: the pre-change tree does NOT red it,
+    because the word `vantage` appeared nowhere there and the condition never
+    fired; its red is a mutation of the corrected text - delete the "what does
+    NOT discriminate" bullet, keep the vantage instruction and the working
+    signal, and it fails. That mutation is the realistic regression, someone
+    trimming the caveat as redundant and leaving the actionable half.
+    """
+    text = surface.read_text()
+    if not VANTAGE_INSTRUCTION.search(text):
+        return
+    assert COUNT_RULED_OUT.search(text), (
+        f"{surface.name}: tells a reader to establish vantage without saying that "
+        "the session-record count cannot - a lone host session reads the same "
+        "one record a container does, and routes itself into the inversion"
+    )
+
+
+@pytest.mark.parametrize("surface", (REGISTER, WAVE), ids=lambda p: p.name)
+def test_a_surface_stating_the_inversion_gives_a_basis_for_it(surface: Path) -> None:
+    """Stating a rule whose antecedent the reader cannot evaluate is not guidance.
+
+    `test_both_surfaces_agree_on_the_container_lane_order` pins that both
+    documents state the inversion, and that was the whole of the coverage: it
+    passed throughout the period in which `wave.md` stated the inversion and gave
+    an orchestrator no way whatsoever to know whether a participant was on the
+    container side of it. Agreement about a rule is not the same as either end
+    being able to apply it.
+
+    The basis must be a NAMED signal, not the word "vantage". A surface that says
+    "check your vantage" and stops has moved the problem, not solved it.
+
+    Red: fails for `wave.md` on the pre-change tree, which stated the inversion
+    with no signal named anywhere in the file.
+
+    It does NOT red for `register.md` on either tree, and that is worth stating
+    rather than leaving for someone to discover: `register.md` already named the
+    pid namespace in its `pidDomain` paragraph while its vantage instruction was
+    still the broken one, so for that surface this probe was green throughout the
+    defect. The `wave.md` parametrization is the load-bearing one here;
+    `register.md`'s defect is caught by the probe above, not by this one.
+    """
+    text = surface.read_text()
+    if not re.search(r"mailbox is lane 1", text, re.I):
+        return
+    assert DISCRIMINATING_SIGNAL.search(text), (
+        f"{surface.name}: states the container lane inversion without naming any "
+        "signal that establishes which side of it the reader is on"
+    )
+
+
+def test_the_machine_id_signal_keeps_its_image_caveat() -> None:
+    """A signal that works because of one image must not read as a general test.
+
+    Same discipline as `test_the_container_finding_keeps_the_population_it_qualifies`
+    and the no-kill caveat: the limit travels with the result. The empty machine-id
+    separates host from container here only because the kyle-session image ships no
+    `/etc/machine-id`. On an image that ships one, `pidDomain` reads
+    `linux:<id>:pid:[...]` on both sides and the signal says nothing at all - it
+    does not weaken, it stops discriminating, while still looking like a check that
+    ran.
+
+    CONDITIONAL on the signal being offered at all, so dropping it entirely is a
+    clean pass rather than a test to edit.
+
+    Non-vacuous by MUTATION rather than against the pre-change tree, and that
+    distinction is the point: pre-change, `register.md` did mention the image, but
+    as the reason a shared records directory would not verify peers - not as a
+    vantage check - so this probe's condition did not fire there and its green
+    would have proved nothing.
+
+    The mutation had to be run three times to be worth anything, and the third
+    run is the useful part of the record because it failed.
+
+    1. Deleting the prose caveat alone - "not a general test of containerisation"
+       and "It is evidence for this fleet only" - leaves this GREEN, because the
+       table row still reads `yes - for THIS image only`. Correct behaviour: the
+       caveat must survive somewhere beside the signal, and the row is a
+       perfectly good place for it.
+    2. Stripping it from the prose AND the row reds it.
+    3. Stripping the machine-id caveat while leaving a PID-ONLY caveat standing
+       ALSO left it green, and that one was a genuine blind spot - found by the
+       counter-model reviewer, not by the two mutations above. The first version
+       searched the whole delivery section, so any caveat anywhere satisfied it:
+       a green could not distinguish "the machine-id qualification is present"
+       from "some neighbouring signal's qualification is present". That is
+       detector question 2 - can a verdict tell our thing from a neighbour's -
+       failed by the test written to enforce the answer to question 1.
+
+    4. Anchoring to the PARAGRAPH was still not enough, and the same reviewer
+       said so on the second pass: a caution paragraph mentioning both signals
+       lets a PID-only qualification satisfy the guard, because the paragraph
+       matches on one sentence and qualifies on another.
+
+    So the unit is a SENTENCE (a table row being its own unit), the same
+    narrowing `test_the_container_boundary_names_the_decision_it_rests_on`
+    applies when it anchors its date check to the paragraph containing
+    `pidDomain`. A qualification must sit in a sentence that names the
+    machine-id; one about the pid namespace no longer speaks for it.
+
+    Where this stops, deliberately: a regex cannot establish that a qualifier
+    GOVERNS a subject, only that they are close. A sentence is the smallest unit
+    where co-occurrence is decent evidence of aboutness, and tightening past it
+    buys false failures on legitimate rewording rather than real coverage. The
+    larger question - is this caveat true, and does it still hold on the image
+    we run - is not answerable here at all; it belongs to whoever next
+    re-measures the boundary.
+
+    Characterized on six inputs after the fix - three greens and three reds,
+    because a probe with only reds is one false-failure away from being deleted:
+
+      shipped text                                          green
+      prose caveat stripped, table row kept                 green
+      table row stripped, prose caveat kept                 green
+      caveat gone from both                                 RED
+      caveat replaced by a PID-only one                     RED
+      PID-only caveat sharing a paragraph with machine-id   RED
+
+    One more thing this cost, worth leaving behind. The first attempt at the fix
+    also WIDENED the accepted vocabulary to the bare phrase `kyle-session image`,
+    and that made the probe green on all six - because the container-boundary
+    paragraph further up has always said "because the kyle-session image has no
+    /etc/machine-id", so the pattern matched a pre-existing true sentence and
+    never read the new one at all. Every input agreeing is the tell; it indicts
+    the instrument, not the inputs. Do not widen this pattern.
+    """
+    section = _delivery_section(REGISTER.read_text())
+    if not re.search(r"machine-id.{0,400}Discriminates|machine-id half", section, re.I | re.S):
+        return
+    # A table row is its own unit; prose splits into sentences. Splitting only on
+    # blank lines made the whole table one unit, so the pid row re-supplied the
+    # caveat; splitting prose only into paragraphs let a two-signal paragraph do
+    # the same thing one level down.
+    units: list[str] = []
+    for block in re.split(r"\n\s*\n", section):
+        if block.lstrip().startswith("|"):
+            units.extend(block.splitlines())
+        else:
+            units.extend(re.split(r"(?<=[.;])\s+", block))
+    named = [unit for unit in units if re.search(r"machine-id", unit, re.I)]
+    assert named, (
+        "the machine-id signal is offered but no sentence or row mentions it - "
+        "the anchor this probe reads has moved"
+    )
+    assert any(
+        # NARROW deliberately. An earlier version also accepted the bare phrase
+        # `kyle-session image`, which made this green on every mutation: the
+        # container-boundary paragraph further up has always said "because the
+        # kyle-session image has no /etc/machine-id", so the widened pattern
+        # matched a pre-existing true sentence and stopped reading the new one.
+        # Widening a detector's vocabulary is how it stops detecting.
+        re.search(
+            r"not a general test|evidence for this fleet|THIS image only",
+            unit,
+            re.I,
+        )
+        for unit in named
+    ), (
+        "register.md offers the machine-id as a vantage discriminator without "
+        "recording, IN A SENTENCE OR ROW THAT NAMES IT, that it works only "
+        "because the kyle-session image ships none - on another image the signal "
+        "silently stops separating anything, and a caveat attached to a "
+        "different signal does not say so"
+    )
+
+
+# ---------------------------------------------------------------------------
 # The same stamp discipline, applied to flow-wave-mailbox.sh (issue #898).
 #
 # #870's defect was a harness claim with no version on it, in a document a
