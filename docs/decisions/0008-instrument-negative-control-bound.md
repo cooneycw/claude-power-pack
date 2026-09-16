@@ -238,6 +238,7 @@ another repo (the escalation clause); a row can be both.
 | 61 | `lib.security gate` (quick scan only) | two policies: `flow_finish` blocks CRITICAL and warns HIGH; `flow_deploy` blocks CRITICAL and HIGH and warns MEDIUM (`lib/security/config.py`) | `/flow:finish` and `/flow:deploy` in any repo; a control has to cover the HIGH case that passes finish and blocks deploy | G, X |
 | 62 | `shellcheck-gate.sh` (`make shellcheck`, CI `shellcheck`) | `shellcheck-gate: ok - N file(s) scanned at severity=S, 0 findings (source=git\|find)`, or non-zero; `UNKNOWN` (exit 2) when it could not look | `make verify` and the CI pipeline, which let work through on its verdict (#960) | G |
 | 63 | `check-negative-controls.py` (`--strict`, CI `negative-controls`) | per-gate `PASS\|BLIND\|INERT\|UNRESOLVED\|UNPROVEN\|UNSIGNALLED`, then `negative-controls: ok - N control(s) discriminate` or a non-zero refusal | CI at `.woodpecker.yml`, and `make verify`, both of which let work through on its verdict; read by other sessions and other repos without re-derivation (#964, #981) | G, X |
+| 64 | `npm-global-upgrade.sh` | `NPM_UPGRADE: upgraded\|current\|downgraded\|capped\|not-upgraded\|failed\|unknown` | `/cpp:update` Step 5d.2 and 5d.3 compose the Step 10 `Local-Model Lanes` line from it, and neither the operator reading that line nor a later session re-derives the installed version (#1022) | X |
 
 > **Row 63 closes an ACCOUNTING gap, not a verification one.** The harness that
 > checks whether instruments carry controls was itself missing from the list of

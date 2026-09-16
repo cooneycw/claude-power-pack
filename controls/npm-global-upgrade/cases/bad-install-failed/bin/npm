@@ -1,0 +1,12 @@
+#!/usr/bin/env sh
+# fixture: EACCES on the global prefix - the install did not run at all.
+case "${1:-}" in
+    install) echo "npm ERR! code EACCES" >&2; exit 7 ;;
+    view)
+        case "${3:-}" in
+            version) echo "1.5.0" ;;
+            engines.node) echo ">=20.0.0" ;;
+        esac
+        exit 0 ;;
+esac
+exit 0

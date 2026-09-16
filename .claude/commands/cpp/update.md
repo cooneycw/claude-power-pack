@@ -616,10 +616,13 @@ if $QWEN_LANE_PRESENT; then
   echo ""
 
   QWEN_CLI_VERSION=$(qwen --version 2>/dev/null || echo "unknown")
+  QWEN_LANE_VERDICT="checked (no upgrade offered)"
   echo "[x] Qwen Code CLI harness: $QWEN_CLI_VERSION"
   if ! qwen --help 2>&1 | grep -q -- "--output-format"; then
     echo "[!] This Qwen Code version lacks headless stream-json support"
-    echo "    Upgrade: npm install -g @qwen-code/qwen-code"
+    echo "    Upgrade below - and read its verdict: on a host whose node is too"
+    echo "    old for the current release, the upgrade cannot deliver the feature"
+    echo "    this probe is asking for (issue #1022)."
   fi
 
   # Flag the retired Codex-harness env var if still set (issue #745)
@@ -631,8 +634,55 @@ fi
 ```
 
 When `QWEN_LANE_PRESENT=true`, OFFER to upgrade the already-installed harness.
-Ask the user, then run `npm install -g @qwen-code/qwen-code` only if the answer
-is yes. Never offer or run the command when `qwen` was absent.
+Ask the user, then upgrade only if the answer is yes. Never offer or run the
+upgrade when `qwen` was absent.
+
+**Do NOT run `npm install -g` directly and read its exit code (issue #1022).**
+That is what this step used to do, and it is why it reported upgrades that never
+happened: on a host running node 20, `npm install -g @qwen-code/qwen-code` exits
+0 and installs the version that was already there, because npm resolves `latest`
+down to the newest ENGINE-COMPATIBLE release and 0.24.0 declares
+`engines.node >=22.0.0`. A real upgrade and a silently-capped one are the same
+bytes on stdout. `scripts/npm-global-upgrade.sh` reads the installed version
+before and after and reports the TRANSITION, with the reason taken from
+`npm view <pkg>@latest engines.node` and `node --version` when there is one:
+
+```bash
+if $QWEN_LANE_PRESENT && [ "$QWEN_UPGRADE_CONFIRMED" = "yes" ]; then
+  # Same resolution order as every other CPP helper: the stable installed path
+  # first (Step 5 has already refreshed those symlinks), then the checkout.
+  NPM_UPGRADE_SH="$HOME/.claude/scripts/npm-global-upgrade.sh"
+  [ -f "$NPM_UPGRADE_SH" ] || NPM_UPGRADE_SH="$CPP_DIR/scripts/npm-global-upgrade.sh"
+
+  # A global install needs sudo wherever the npm prefix is root-owned. Decide it
+  # once rather than discovering it from an EACCES the verdict then has to
+  # explain.
+  QWEN_UPGRADE_ARGS=(--package @qwen-code/qwen-code --binary qwen --label "Tier 6 Qwen Code")
+  NPM_PREFIX=$(npm config get prefix 2>/dev/null)
+  if [ -n "$NPM_PREFIX" ] && [ ! -w "$NPM_PREFIX/lib/node_modules" ]; then
+    QWEN_UPGRADE_ARGS+=(--sudo)
+  fi
+
+  if [ -f "$NPM_UPGRADE_SH" ]; then
+    # The exit code is deliberately NOT the verdict here: `capped` exits 1 and is
+    # a truthful report about this host, not a broken update run. Read the marker
+    # line, report it, and carry on.
+    QWEN_UPGRADE_OUT=$(sh "$NPM_UPGRADE_SH" "${QWEN_UPGRADE_ARGS[@]}" 2>&1) || true
+    printf '%s\n' "$QWEN_UPGRADE_OUT"
+    QWEN_LANE_VERDICT=$(printf '%s\n' "$QWEN_UPGRADE_OUT" | sed -n 's/^NPM_UPGRADE: //p' | head -1)
+    # An absent marker means the helper produced no verdict at all. That is not
+    # an upgrade; it is an unmeasured host, and it must not read like one that
+    # was measured and found fine.
+    [ -n "$QWEN_LANE_VERDICT" ] || QWEN_LANE_VERDICT="unknown (the upgrade helper emitted no verdict)"
+  else
+    QWEN_LANE_VERDICT="unknown (npm-global-upgrade.sh is not installed; upgrade NOT attempted)"
+    echo "[!] $QWEN_LANE_VERDICT - run /flow:repair or re-run /cpp:update after the pull."
+  fi
+fi
+```
+
+Set `QWEN_UPGRADE_CONFIRMED` from the user's answer before this block; leave it
+unset or `no` and the lane keeps its `checked (no upgrade offered)` verdict.
 
 Then mirror the Tier 6 Ollama reachability and model checks from `/cpp:init`.
 The environment variable names and defaults must stay identical so serving and
@@ -661,8 +711,14 @@ if $QWEN_LANE_PRESENT; then
     echo "      printf 'FROM qwen3.8:27b\nPARAMETER num_ctx 65536\nPARAMETER temperature 0.7\nPARAMETER top_p 0.8\n' | ollama create qwen3.8-code -f -"
   fi
 
-  echo "✓ Tier 6 Qwen lane refreshed: harness and Ollama/model checked"
-  LOCAL_MODEL_LANE_STATUS_PARTS+=("Tier 6 refreshed")
+  # The lane verdict CARRIES the harness verdict rather than asserting
+  # "refreshed" over it (issue #1022). `Tier 6 refreshed` was composed from an
+  # exit code, so it said the same thing whether the harness moved, stalled at a
+  # node-engine ceiling, or was never touched at all - and the Step 10 summary is
+  # read by the operator and by later sessions, none of which re-derive the
+  # version.
+  echo "✓ Tier 6 Qwen lane checked: Ollama/model above; harness $QWEN_LANE_VERDICT"
+  LOCAL_MODEL_LANE_STATUS_PARTS+=("Tier 6 harness $QWEN_LANE_VERDICT")
 fi
 ```
 
@@ -679,17 +735,51 @@ if $GEMMA_LANE_PRESENT; then
   echo "=== Tier 7: Local Gemma Orchestration ==="
   echo ""
 
+  GEMMA_HARNESS_VERDICT="checked (no upgrade offered)"
   if $OPENCODE_HARNESS_PRESENT; then
     echo "[x] OpenCode harness: $(opencode --version 2>/dev/null)"
   else
+    GEMMA_HARNESS_VERDICT="absent (install/upgrade skipped; config refresh only)"
     echo "[~] OpenCode harness absent - install/upgrade skipped; config refresh only"
   fi
 fi
 ```
 
 When `OPENCODE_HARNESS_PRESENT=true`, OFFER to upgrade the already-installed
-harness. Ask the user, then run `npm install -g opencode-ai` only if the answer
-is yes. Never run the command without explicit confirmation.
+harness. Ask the user, then upgrade only if the answer is yes. Never upgrade
+without explicit confirmation.
+
+**Through the same helper, for the same reason (issue #1022).** This offer is
+not exempt because it happens to upgrade cleanly today: `opencode-ai` and
+`@qwen-code/qwen-code` were run back to back on the same host, one moved and one
+silently did not, and their output was indistinguishable. Whichever package hits
+an engine ceiling next, the report has to be able to say so:
+
+```bash
+if $OPENCODE_HARNESS_PRESENT && [ "$GEMMA_UPGRADE_CONFIRMED" = "yes" ]; then
+  NPM_UPGRADE_SH="$HOME/.claude/scripts/npm-global-upgrade.sh"
+  [ -f "$NPM_UPGRADE_SH" ] || NPM_UPGRADE_SH="$CPP_DIR/scripts/npm-global-upgrade.sh"
+
+  GEMMA_UPGRADE_ARGS=(--package opencode-ai --binary opencode --label "Tier 7 OpenCode")
+  NPM_PREFIX=$(npm config get prefix 2>/dev/null)
+  if [ -n "$NPM_PREFIX" ] && [ ! -w "$NPM_PREFIX/lib/node_modules" ]; then
+    GEMMA_UPGRADE_ARGS+=(--sudo)
+  fi
+
+  if [ -f "$NPM_UPGRADE_SH" ]; then
+    GEMMA_UPGRADE_OUT=$(sh "$NPM_UPGRADE_SH" "${GEMMA_UPGRADE_ARGS[@]}" 2>&1) || true
+    printf '%s\n' "$GEMMA_UPGRADE_OUT"
+    GEMMA_HARNESS_VERDICT=$(printf '%s\n' "$GEMMA_UPGRADE_OUT" | sed -n 's/^NPM_UPGRADE: //p' | head -1)
+    [ -n "$GEMMA_HARNESS_VERDICT" ] || GEMMA_HARNESS_VERDICT="unknown (the upgrade helper emitted no verdict)"
+  else
+    GEMMA_HARNESS_VERDICT="unknown (npm-global-upgrade.sh is not installed; upgrade NOT attempted)"
+    echo "[!] $GEMMA_HARNESS_VERDICT - run /flow:repair or re-run /cpp:update after the pull."
+  fi
+fi
+```
+
+Set `GEMMA_UPGRADE_CONFIRMED` from the user's answer before this block; leave it
+unset or `no` and the harness keeps its `checked (no upgrade offered)` verdict.
 
 Mirror the Tier 7 Ollama checks for either Tier 7 presence signal:
 
@@ -772,8 +862,10 @@ and eligible profile checks have run:
 
 ```bash
 if $GEMMA_LANE_PRESENT; then
-  echo "✓ Tier 7 Gemma lane refreshed: harness and Ollama/model checked"
-  LOCAL_MODEL_LANE_STATUS_PARTS+=("Tier 7 refreshed ($GEMMA_PROFILE_STATUS)")
+  # Carries the harness verdict for the same reason Tier 6 does (issue #1022):
+  # the profile status alone said nothing about whether the harness moved.
+  echo "✓ Tier 7 Gemma lane checked: harness $GEMMA_HARNESS_VERDICT; $GEMMA_PROFILE_STATUS"
+  LOCAL_MODEL_LANE_STATUS_PARTS+=("Tier 7 harness $GEMMA_HARNESS_VERDICT ($GEMMA_PROFILE_STATUS)")
 fi
 ```
 
@@ -1537,9 +1629,14 @@ Host Surfaces:
    or "clean"}
 
 Local-Model Lanes:
-  {LOCAL_MODEL_LANES_STATUS - e.g. "Tier 6 refreshed; Tier 7 refreshed
-   (gemma-ollama provider refreshed; gemma-implementer mechanical fence already
-   current)" or "not installed (Tier 6/7 not selected)"}
+  {LOCAL_MODEL_LANES_STATUS - carries each harness's OWN verdict, e.g. "Tier 6
+   harness capped @qwen-code/qwen-code 0.15.10 (latest 0.24.0 requires node
+   >=22.0.0; this host has v20.20.2); Tier 7 harness upgraded opencode-ai
+   1.18.29 -> 1.18.31 (gemma-ollama provider refreshed; gemma-implementer
+   mechanical fence already current)" or "not installed (Tier 6/7 not selected)".
+   There is deliberately no unqualified "Tier 6 refreshed" value any more
+   (issue #1022): it was composed from an exit code and read identically whether
+   the harness moved or npm silently installed the version already present}
 
 Run /cpp:status for full installation details.
 =================================
@@ -1563,6 +1660,13 @@ Run /cpp:status for full installation details.
 - Step 5d refreshes already-present Tier 6/7 harnesses and re-merges the Gemma
   provider and agent profile, but never installs an absent tier. The re-merge
   keeps the `gemma-implementer` mechanical fence from going stale (issue #754)
+- A harness upgrade reports the VERSION TRANSITION, never the install command's
+  exit code (issue #1022), through `scripts/npm-global-upgrade.sh`. npm resolves
+  `latest` down to the newest engine-compatible release and exits 0, so a host
+  whose node is too old installs the version it already had and the old step
+  called that "Tier 6 refreshed". The helper's five findings - `capped`,
+  `not-upgraded`, `failed`, `unknown`, and the two clean verdicts `upgraded` and
+  `current` - each carry a committed case in `controls/npm-global-upgrade/`
 - Retired-surface teardown is per-surface, user-confirmed, marker-gated, and
   REVERSIBLE - files are moved to a timestamped sibling directory, never deleted
 - Step 7.10 names retired CPP marketplace cache families (#622/#662) and points
