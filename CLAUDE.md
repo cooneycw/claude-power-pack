@@ -40,6 +40,9 @@ these rules remain in [commands-reference.md](docs/commands-reference.md) and
 - `docs/agents/knowledge-lifecycle.md` - canonical completed-spec graduation policy.
 - `docs/agents/glossary.md` - defined terms: instrument (with the ADR 0008 bound), harness, counter-model.
 - `docs/agents/closing-report-contract.md` - canonical closing-report contract: owner TO-DO first, then plain language, then evidence.
+- `docs/agents/issue-tracker.md` - tracker mechanics for the mattpocock engineering skills; issue shape stays in the issue contract.
+- `docs/agents/triage-labels.md` - canonical triage-role to label-string mapping.
+- `docs/agents/domain.md` - domain-doc consumer rules; names the glossary and `docs/decisions/` for those skills.
 - `ISSUE_DRIVEN_DEVELOPMENT.md` - issue-driven development source.
 - `PROGRESSIVE_DISCLOSURE_GUIDE.md` - context-loading guidance.
 - `MCP_TOKEN_AUDIT_CHECKLIST.md` - MCP context-efficiency checklist.
@@ -106,6 +109,27 @@ the smallest applicable workflow and load its command document for execution:
 Detailed arguments, recovery states, delegation decisions, and incident history
 live in [commands-reference.md](docs/commands-reference.md). The permanent
 workflow sources live under `.claude/commands/`.
+
+## Agent skills
+
+Configuration the `mattpocock/skills` engineering skills read. Each line points
+at the file that owns the detail; do not restate it here.
+
+### Issue tracker
+
+GitHub issues on `cooneycw/claude-power-pack` through the `gh` CLI. See
+[docs/agents/issue-tracker.md](docs/agents/issue-tracker.md).
+
+### Triage labels
+
+The five canonical triage roles, label strings unchanged. See
+[docs/agents/triage-labels.md](docs/agents/triage-labels.md).
+
+### Domain docs
+
+Single-context. Defined terms live in `docs/agents/glossary.md` and ADRs in
+`docs/decisions/`; there is deliberately no root `CONTEXT.md`. See
+[docs/agents/domain.md](docs/agents/domain.md).
 
 ## Makefile Integration
 
