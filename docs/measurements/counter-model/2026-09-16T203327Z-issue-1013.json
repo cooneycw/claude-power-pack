@@ -1,0 +1,19 @@
+{
+  "branch": "issue-1013-derive-the-docs-scripts-md-population-from-scripts",
+  "counts": {
+    "accepted": 6,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "implementer": "claude/opus-5",
+  "issue": "1013",
+  "passes": 2,
+  "recorded_at": "2026-09-16T20:33:27Z",
+  "red_cases": {
+    "already_covered": 9,
+    "proposed": 10
+  },
+  "reviewer": "codex/gpt-5.5",
+  "schema": 1,
+  "status": "ran"
+}

@@ -81,7 +81,8 @@ claude-power-pack/
   lib/cicd/             CI/CD framework detection and generation
   lib/vendor.py         Shared fetch/pin/drift core for external-repo links (#1012)
   docs/skills/          Topic-focused best practices (~3K tokens each)
-  docs/scripts.md       Per-script history for the scripts/ inventory (#711)
+  docs/scripts.md       Per-script history for the scripts/ inventory (#711);
+                        population derived + gated by make scripts-inventory-check (#1013)
   docs/commands-reference.md  Per-command detail beyond the skill listing (#711)
   woodpecker/           Woodpecker CI server + agent deployment configs
   templates/            Makefile, workflow, and container templates
