@@ -21,12 +21,22 @@
 #       dependency set. Scoped to the named path and nothing else.
 
 # --------------------------------------------------------------------------- #
-# Root lock - #922: "tracked by no issue" until someone looked. This gate is the
-# standing check that was missing; remediating the two findings stays with #922,
-# which is the scope line issue #961 draws.
+# Root lock - NOTHING. It carried two advisories while this gate was being
+# written (#922: pygments 2.19.2, pytest 9.0.2, "tracked by no issue" until
+# someone looked) and they were suppressed here with that issue number. #922
+# then landed and upgraded both packages, so the two lines accounted for
+# nothing and this gate reported them STALE - which is the rule doing its work
+# on its first real occasion, against a change made by someone else. They were
+# removed rather than carried.
+#
+# WHERE THE ASSESSMENTS LIVE. `docs/security/dependency-advisory-dispositions.md`
+# (#922) records, per advisory id, whether this repository is actually exposed.
+# That register and this ledger answer different questions and neither replaces
+# the other: it says WHY an advisory does or does not matter here, this says
+# WHICH findings the gate is currently not failing on. A disposition of "not
+# exposed" is a reason to write a line here, never a substitute for one - the
+# gate reports what it found, and an unrecorded finding still reddens.
 # --------------------------------------------------------------------------- #
-advisory uv.lock pygments 2.19.2 PYSEC-2026-2987 #922
-advisory uv.lock pytest 9.0.2 PYSEC-2026-1845 #922
 
 # --------------------------------------------------------------------------- #
 # mcp-evaluate - #943 owns this project's whole dependency set: 32 advisories
