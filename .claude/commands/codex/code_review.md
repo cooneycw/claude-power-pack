@@ -19,9 +19,10 @@ This is the reviewer counterpart to the other Codex commands:
 - **`/codex:auto`** - full issue lifecycle delegated to Codex, with Claude reviewing.
 - **`/second-opinion:start`** - review via *other* external LLMs through the MCP server.
 
-The primary consumer is `/flow:auto_codex`, which inserts this review between
-Implement and Finish so findings are fixed before the PR exists. It is equally
-usable standalone from any branch or worktree.
+The primary consumer is `/flow:auto` Step 6 item 1, which runs this review at
+the START of Finish - ahead of the quality gates, so a finding accepted from it
+is linted and tested like any other change - and therefore before the PR exists.
+It is equally usable standalone from any branch or worktree.
 
 ## Arguments
 
@@ -164,7 +165,7 @@ Present the findings **attributed to Codex** - never silently merged into your
 own assessment. Then, standalone, add your own labeled triage: for each finding,
 agree (worth fixing), disagree (with the reason), or defer (real but out of
 scope). Do not apply fixes in this command - it is read-only by design; fixing
-is the caller's decision (`/flow:auto_codex` Step 5 does exactly that).
+is the caller's decision (`/flow:auto` Step 6 item 1c does exactly that).
 
 If `CODEX_EXIT` is non-zero, report the failure honestly and do not fabricate
 findings; a calling workflow treats it like the exit-3 unavailable case.
@@ -237,6 +238,8 @@ gap to fill.
   pass plus at most one re-review is the intended cadence - never loop.
 - Read-only sandbox: safe to run inside a live repo; Codex cannot write or reach
   the network. Codex always reaches OpenAI to run the model itself.
-- The findings format above is the contract `/flow:auto_codex` parses for its
-  triage table - keep the prompt's format block intact if you adjust the prompt.
+- The findings format above is the contract `/flow:auto` Step 6 item 1c parses,
+  via `scripts/counter-model-receipt.py parse`. It keys on the `## Findings`
+  heading and, for a clean review, the `None - no defects found.` sentinel - so
+  keep the prompt's format block intact if you adjust the prompt.
 - For a review by non-OpenAI models, use `/second-opinion:start` instead.

@@ -87,8 +87,8 @@ reviews, and a new lane inherits the term without an edit here.
 The test: *did this model write the diff it is reviewing?* If yes, it is the
 implementer reviewing itself, whatever it is called. If no, it is the
 counter-model. A Claude session reviewing a Codex diff is the counter-model in
-codex-power-pack; a Codex review of a Claude diff (`/codex:code_review`,
-`/flow:auto_codex` Step 5) is the counter-model here. The reciprocal stage in
+codex-power-pack; a Codex review of a Claude diff (`/codex:code_review`, run at
+`/flow:auto` Step 6 item 1) is the counter-model here. The reciprocal stage in
 codex-power-pack is native to that repo and no CPP edit reaches it
 (cooneycw/codex-power-pack#228).
 

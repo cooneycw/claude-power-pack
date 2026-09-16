@@ -162,7 +162,7 @@ offline. Reconcile drift by editing the canonical repo first, then
 
 - `/cicd:woodpecker` - Generate a hardened self-hosted Woodpecker pipeline (opt-in secret-scan + image-security + runtime-smoke stages) and scaffold the server/agent from `templates/woodpecker/`; see `docs/skills/woodpecker-ci.md`
 
-- `/codex:code_review [BASE] [CONTEXT]` - Codex reviews the current branch's diff vs base (read-only) and returns structured findings (severity, file:line, suggestion); consumed by `/flow:auto_codex` as the pre-PR review stage, usable standalone from any branch (#611)
+- `/codex:code_review [BASE] [CONTEXT]` - Codex reviews the current branch's diff vs base (read-only) and returns structured findings (severity, file:line, suggestion); consumed by `/flow:auto` Step 6 as the pre-PR review stage (#934), usable standalone from any branch (#611)
 
 - `/documentation:c4` - Generate C4 architecture diagrams as GitHub-renderable Mermaid via `scripts/c4-mermaid.py` (all 4 levels, per-container L3, per-component L4; flowchart L1-L3 + classDiagram L4; edge-validity QA gate, density-split hints, `index.md` + manifest)
 
