@@ -1,0 +1,13 @@
+#!/usr/bin/env sh
+# fixture: node v22.1.0 against `>=22.12.0`. Majors are equal, so a major-only
+# comparison says the engine does not explain it - and it is the whole reason.
+case "${1:-}" in
+    install) exit 0 ;;
+    view)
+        case "${3:-}" in
+            version) echo "1.5.0" ;;
+            engines.node) echo ">=22.12.0" ;;
+        esac
+        exit 0 ;;
+esac
+exit 0

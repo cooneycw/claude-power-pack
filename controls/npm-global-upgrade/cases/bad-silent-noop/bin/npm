@@ -1,0 +1,14 @@
+#!/usr/bin/env sh
+# fixture: the install no-ops for a reason the engine field does NOT explain -
+# a stale cache, a pinned dist-tag, a registry mirror. The verdict must say so
+# rather than inventing the reason it has to hand.
+case "${1:-}" in
+    install) exit 0 ;;
+    view)
+        case "${3:-}" in
+            version) echo "1.5.0" ;;
+            engines.node) echo ">=20.0.0" ;;
+        esac
+        exit 0 ;;
+esac
+exit 0
