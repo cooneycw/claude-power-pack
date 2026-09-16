@@ -1,0 +1,19 @@
+{
+  "branch": "issue-937-does-ww-retire-the-ps-lane-s-unreadable-conservati",
+  "counts": {
+    "accepted": 2,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "implementer": "claude/opus-5",
+  "issue": "937",
+  "passes": 2,
+  "recorded_at": "2026-09-16T20:58:50Z",
+  "red_cases": {
+    "already_covered": 1,
+    "proposed": 2
+  },
+  "reviewer": "codex/gpt-5.5",
+  "schema": 1,
+  "status": "ran"
+}
