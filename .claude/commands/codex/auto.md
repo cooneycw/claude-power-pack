@@ -70,6 +70,7 @@ Distinct from the `/codex:auto` vs `/codex:exec` **precondition** split (issue
 #758): that one is about needing a filed issue and an existing checkout. This one
 is about what kind of work the driver can produce once it has both.
 
+<!-- delegated-core:begin A (canonical: templates/delegated-driver-core.md) -->
 ## Instructions
 
 When the user invokes `/codex:auto <ISSUE>`, perform these steps sequentially. Stop immediately if any step fails.
@@ -280,6 +281,8 @@ that gate, and #784 closes the split standard this left behind.
 Report: `Step 3/8: Approve - {approved|revised|abandoned}`
 
 There is deliberately no auto-approved outcome: a value that can still be produced means something can still skip the gate (issue #784).
+
+<!-- delegated-core:end A -->
 
 ---
 
@@ -547,6 +550,7 @@ Report: `Step 4/8: Execute Codex complete - {N} files changed (+{added} -{remove
 
 ---
 
+<!-- delegated-core:begin B (canonical: templates/delegated-driver-core.md) -->
 ### Step 5: Review - Claude Reviews Codex's Diff
 
 Cross-model review: Claude Code reviews what Codex wrote.
@@ -829,15 +833,15 @@ Three sections, in this order, and the order is the content:
 ```
 Codex Auto Complete
 
-  Issue:      #{N} - {title}
+  Issue:       #{N} - {title}
   Implementer: Codex CLI (codex exec)
   Reviewer:    Claude Code (cross-model review)
-  Changes:    Modified {N} files ({summary})
-  Fix Loop:   {N} retry(s) needed / no retries needed
-  PR:         #{N} (created / squash-merged)
-  Branch:     issue-{N}-{slug} (active / deleted)
-  Worktree:   {path} (active / removed)
-  Location:   {current working directory}
+  Changes:     Modified {N} files ({summary})
+  Fix Loop:    {N} retry(s) needed / no retries needed
+  PR:          #{N} (created / squash-merged)
+  Branch:      issue-{N}-{slug} (active / deleted)
+  Worktree:    {path} (active / removed)
+  Location:    {current working directory}
 ```
 
 ---
@@ -853,7 +857,7 @@ Codex Auto stopped at Step N/8: {Step Name}
   Fix:    [actionable suggestion]
 
   To resume manually:
-    /flow:start {ISSUE}     (if step 1 failed)
+    /flow:start {ISSUE}      (if step 1 failed)
     [investigate]            (if step 2 failed)
     [approve or revise]      (if step 3 failed)
     /codex:exec "<prompt>"   (if step 4 failed)
@@ -874,6 +878,7 @@ Key failure scenarios:
 - **Review finds critical issues:** Stop at step 5, offer to re-prompt or hand off
 - **Quality gates fail after retries:** Stop at step 6, show error output
 - **Push/PR fails:** Stop at step 7, suggest manual resolution
+<!-- delegated-core:end B -->
 
 ## Notes
 

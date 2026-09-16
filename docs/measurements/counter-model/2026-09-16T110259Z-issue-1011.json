@@ -1,0 +1,19 @@
+{
+  "branch": "issue-1011-vendor-a-shared-core-for-the-delegated-drivers-cod",
+  "counts": {
+    "accepted": 2,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "implementer": "claude/opus-5",
+  "issue": "1011",
+  "passes": 2,
+  "recorded_at": "2026-09-16T11:02:59Z",
+  "red_cases": {
+    "already_covered": 14,
+    "proposed": 15
+  },
+  "reviewer": "codex/gpt-5.5",
+  "schema": 1,
+  "status": "ran"
+}

@@ -158,6 +158,23 @@ subsumes the other: the manifest cannot see upstream move, the fetch cannot run
 offline. Reconcile drift by editing the canonical repo first, then
 `make eli5-revendor` (which re-pins the manifest in the same step).
 
+The same vendor-with-markers shape is used INTRA-repo for the three delegated
+drivers (issue #1011). `/codex:auto`, `/qwen:auto` and `/gemma:auto` describe one
+eight-step lifecycle, and used to describe it three times - which is how #774's
+"the Step 2 plan report reads exactly like a checkpoint and was not one" came to
+be present in all three at once, and how codex's Steps 6-8 drifted ~60 lines
+ahead of the other two without anyone being told. The lifecycle now lives in
+`templates/delegated-driver-core.md` and is rendered into each driver between
+`delegated-core:begin`/`end` markers, with the genuinely per-model text supplied
+by `templates/delegated-driver-values/<driver>.md`; Step 4 (the model
+invocation), Environment, the capability contract and Notes stay per-driver and
+are never generated. Unlike the eli5 link there is no upstream to fall behind, so
+there is one check rather than two: `scripts/delegated-core-vendor.py`
+(`make delegated-core-check`, the `delegated-core-check` CI step, and
+`tests/test_delegated_core_vendor.py`), with `make delegated-core-write` as the
+repair path. Reconcile drift by editing the template or the values file - never
+the rendered region, which is the drift the gate exists to catch.
+
 ## `/cicd:woodpecker`, `/codex:code_review`, `/documentation:c4`, `/browser:session`
 
 - `/cicd:woodpecker` - Generate a hardened self-hosted Woodpecker pipeline (opt-in secret-scan + image-security + runtime-smoke stages) and scaffold the server/agent from `templates/woodpecker/`; see `docs/skills/woodpecker-ci.md`
