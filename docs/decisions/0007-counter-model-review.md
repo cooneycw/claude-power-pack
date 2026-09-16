@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-09-15
+- Amended: 2026-09-16 (#1015 - the skip-reason set narrowed to the inability class)
 - Issue: #934
 - Supersedes: the separate `/flow:auto_codex` review stage
 - Related: [ADR 0008](0008-instrument-negative-control-bound.md) (this stage's
@@ -62,6 +63,18 @@ themselves inside a footnote.
    edit, and the rule survives the lane topology changing.
 3. **A skip is a recorded state**, with one of a closed set of reasons. Not an
    omission.
+
+   **Amended 2026-09-16 (issue #1015).** Owner ruling: *"the only condition for
+   skipping a codex review is the inability to run codex."* The set is now
+   `codex-absent` and `reviewer-unavailable` - two ways the reviewer could not
+   be run, kept apart because "not installed on this host" and "invoked, and
+   returned nothing usable" say different things about whether the stage is
+   healthy. `no-diff` and `explicit-opt-out` were removed. An empty diff now
+   gets an ordinary review and an ordinary `ran` receipt, and there is no
+   discretionary skip at all - which is the half that matters, since a
+   discretionary skip is the mechanism that produced 0 of 170. The reversal
+   trigger is committed beside `SKIP_REASONS` in
+   `scripts/counter-model-receipt.py`, per ADR 0009.
 4. **It is advisory.** No finding fails a run. See the triggers below.
 5. **One invocation, two outputs**: findings, and - for every instrument the
    change adds or modifies - the input that should make that instrument report

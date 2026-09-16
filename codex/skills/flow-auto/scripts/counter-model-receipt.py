@@ -56,10 +56,35 @@ STATUSES = ("ran", "skipped")
 #: A skip must say WHICH skip. An open-ended reason string would let
 #: "not today" and "the reviewer binary is missing" share a bucket, and those
 #: two say opposite things about whether the stage is working.
+#:
+#: OWNER RULING 2026-09-16 (issue #1015): "the only condition for skipping a
+#: codex review is the inability to run codex." Both members below ARE that
+#: inability; they differ in WHICH one, which is the #953 convention applied
+#: one level down - the same conclusion reached for a different cause earns a
+#: reason field, not a new verdict.
+#:
+#: `no-diff` and `explicit-opt-out` were REMOVED. Neither is an inability to
+#: run the reviewer. `explicit-opt-out` had no producer anywhere in
+#: .claude/commands/, so removing it changed no behaviour - but a
+#: discretionary skip is precisely the mechanism that produced 0 of 170
+#: (ADR 0007), and leaving the door in the wall invites someone to open it.
+#:
+#: REVERSAL TRIGGER (#936, committed here rather than in a PR body the next
+#: person to touch this line will not read). This change makes a check
+#: STRICTER without changing what it measures, which is one of that issue's
+#: own tells:
+#:
+#:   If runs begin stalling or failing because the reviewer is invoked on
+#:   changes it cannot usefully review - an empty or near-empty diff
+#:   producing `unparseable` often enough that `reviewer-unavailable` stops
+#:   meaning what it says - then `no-diff` returns as a distinct reason.
+#:
+#:   `explicit-opt-out` does NOT return on that trigger. It was removed for a
+#:   different reason (no producer), and re-adding a discretionary skip is the
+#:   swing this trigger exists to catch, not one it authorises.
 SKIP_REASONS = (
+    "codex-absent",           # the reviewer binary is not installed on this host
     "reviewer-unavailable",   # the second model could not be reached or run
-    "no-diff",                # nothing to review against the base
-    "explicit-opt-out",       # a human decided; the receipt records that it WAS a decision
 )
 
 COUNTS = ("accepted", "rejected", "deferred")
