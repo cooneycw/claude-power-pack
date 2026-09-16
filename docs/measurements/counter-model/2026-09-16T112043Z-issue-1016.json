@@ -1,0 +1,19 @@
+{
+  "branch": "issue-1016-repoint-the-four-stale-flow-auto-codex-consumer-re",
+  "counts": {
+    "accepted": 1,
+    "deferred": 1,
+    "rejected": 0
+  },
+  "implementer": "claude/opus-5",
+  "issue": "1016",
+  "passes": 2,
+  "recorded_at": "2026-09-16T11:20:43Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 0
+  },
+  "reviewer": "codex/gpt-5.5",
+  "schema": 1,
+  "status": "ran"
+}

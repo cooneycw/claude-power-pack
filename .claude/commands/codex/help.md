@@ -14,7 +14,7 @@ Cross-model implementation and review - Claude manages the workflow, Codex write
 | `/codex:auto <ISSUE>` | Full lifecycle for an existing repo with a filed issue - worktree, implement, review, quality gates, PR |
 | `/codex:exec <PROMPT>` | Any task in the current directory - no repo or issue needed, and no automatic commit |
 | `/codex:ask <QUESTION>` | Delegate a read-only question to Codex and relay its answer (network opt-in on request) |
-| `/codex:code_review [BASE]` | Codex reviews the current branch (read-only) and returns structured findings - used by `/flow:auto_codex` as the pre-PR review stage |
+| `/codex:code_review [BASE]` | Codex reviews the current branch (read-only) and returns structured findings - used by `/flow:auto` Step 6 as the pre-PR review stage |
 | `/codex:status` | Check Codex CLI installation, config, and readiness |
 | `/codex:help` | This help overview |
 
