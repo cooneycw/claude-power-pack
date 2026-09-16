@@ -539,10 +539,10 @@ def adjudicate(files: list[dict], allow: list[AllowEntry], source: str) -> tuple
         seen_paths.add(path)
         found, dep_count = findings_from_report(path, entry["report"])
         packages += dep_count
-        lines = entry.get("not_audited") or []
-        not_audited.extend(f"{path}: {line}" for line in lines)
+        uncovered_lines = entry.get("not_audited") or []
+        not_audited.extend(f"{path}: {line}" for line in uncovered_lines)
         unaudited_pins[path] = {(name, version)
-                                for name, version, _ in parse_requirements("\n".join(lines))}
+                                for name, version, _ in parse_requirements("\n".join(uncovered_lines))}
         audited_counts[path] = dep_count
         deferral = deferred_paths.get(path)
         for finding in found:
