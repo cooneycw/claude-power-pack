@@ -1,0 +1,61 @@
+{
+  "_comment": [
+    "Registration for scripts/project-next-vendor.py (issues #723, #1012).",
+    "",
+    "WHY THIS GATE NEEDS A COMMITTED CASE (ADR 0008): it is a gate that lets",
+    "work THROUGH - ADR 0008 row 31, a prerequisite of `make verify`, whose",
+    "green is read by sessions and by other repos as 'the vendored engine is",
+    "the one upstream published'. Nothing downstream re-derives it. A blind",
+    "version prints the same '16 files match' line over a drifted tree.",
+    "",
+    "WHY IT COULD NOT BE REGISTERED BEFORE #1012: VENDOR_ROOT and",
+    "MANIFEST_PATH were module-level constants, so the gate could only ever",
+    "read THIS repository and could not be aimed at a known-bad tree.",
+    "`--root` is what made a committed case possible.",
+    "",
+    "THE CASES CARRY ALL 16 CONTRACT PATHS, and must: the manifest file set is",
+    "checked against the hardcoded vendoring contract BEFORE any hash is",
+    "compared, so a case with fewer paths is refused for the wrong reason and",
+    "never reaches the comparison under test. Their CONTENT is a placeholder",
+    "of a few bytes each - the question is whether the gate can tell matching",
+    "bytes from drifted bytes, not whether it can host 176K of real engine",
+    "source.",
+    "",
+    "Stdlib-only, network-free and git-free, like the gate."
+  ],
+  "gate": "scripts/project-next-vendor.py",
+  "invocation": [
+    "python3",
+    "{gate}",
+    "check",
+    "--root",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^DRIFT: .* does not match the manifest pin\\.$",
+  "limits": "Covers the OFFLINE per-file hash comparison. It says nothing about whether the REAL vendored tree is correct - that is the gate's own run under `make verify`, over the real tree - and nothing about the advisory `--upstream` half (ADR 0008 row 32), which needs a network. The manifest-validation and contract-version paths are exercised by tests/test_project_next_vendor.py rather than by a committed case, because each needs a differently-malformed manifest and a case can only carry one.",
+  "cases": [
+    {
+      "name": "bad-drifted-file",
+      "input": "cases/bad-drifted-file",
+      "expect": "BAD",
+      "why": "One line appended to lib/project_next/models.py with its pin untouched - a local edit to the vendored engine instead of a fix upstream in codex-power-pack. Per-file pins exist so a failure names the exact file; if this scores GOOD they name nothing."
+    },
+    {
+      "name": "good-pinned-files",
+      "input": "cases/good-pinned-files",
+      "expect": "GOOD",
+      "why": "The same 16-file tree with every file matching its pin. Separates a working gate from one wedged at 'fail', which the bad case alone cannot do - and this gate is a prerequisite of `make verify`, so a wedged one blocks every merge."
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "n/a",
+      "origin": "scripts/project-next-vendor.py",
+      "path": "anchors/constructed-presence-only-project-next-vendor.py",
+      "sha256": "93232164418aa418ad3211e7148a95e6c453d516bf8cb349d887b02821287dd2",
+      "why": "CONSTRUCTED, not historical: the pre-#1012 gate hardcoded its vendor root, so pointed at a case it would have read the real repository rather than answering blindly. This is the plausible weaker check written instead: confirm every pinned path is present under the subtree and call that vendored - 'complete' mistaken for 'correct'. It catches a deleted file and is blind to one edited in place. It MISSES the known-bad input and AGREES with the current gate on the known-good one."
+    }
+  ]
+}

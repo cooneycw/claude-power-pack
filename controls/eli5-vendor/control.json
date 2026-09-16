@@ -1,0 +1,64 @@
+{
+  "_comment": [
+    "Registration for scripts/eli5-vendor.py (issues #591, #1012).",
+    "",
+    "WHY THIS GATE NEEDS A COMMITTED CASE (ADR 0008): it is a gate that lets",
+    "work THROUGH. The CI `eli5-vendor-check` step reads its green as 'the",
+    "vendored core is still what cooneycw/eli5-gate published', and nothing",
+    "downstream re-derives that fact. A blind version prints the identical",
+    "clean line while the core diverges - which is the pre-#591 state, where",
+    "the drift script existed and was invoked by no step, no target and no",
+    "test.",
+    "",
+    "WHY IT COULD NOT BE REGISTERED BEFORE #1012: the manifest path and the",
+    "repository root were module-level constants, so the gate could only ever",
+    "read THIS repository. There was no way to aim it at a known-bad tree, so",
+    "its green had never been shown to be falsifiable at all. `--root` is what",
+    "changed that, which is why the control lands with the refactor.",
+    "",
+    "THE CASES ARE MINIATURE REPOS, not the real one: a tiny document with a",
+    "marker pair and a manifest pinning its core. Deliberately small - the",
+    "question is whether the gate can tell a pinned core from an edited one,",
+    "not whether it can hash 187 real lines. The fixture document also",
+    "MENTIONS a marker mid-line in prose, because the real eli5.md does and",
+    "line-start anchoring is the rule most likely to break silently.",
+    "",
+    "Stdlib-only, network-free and git-free, like the gate: the fixture",
+    "manifest points at example.invalid, so a runner with connectivity and one",
+    "without give the same verdict."
+  ],
+  "gate": "scripts/eli5-vendor.py",
+  "invocation": [
+    "python3",
+    "{gate}",
+    "--root",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^DRIFT: .* does not match the manifest pin\\.$",
+  "limits": "Covers the OFFLINE half only - the manifest pin. The advisory `--upstream` half (ADR 0008 row 35) fetches the canonical copy and is deliberately fail-open, so a case cannot be committed for it without a network; its fail-open behaviour is asserted in tests/test_eli5_vendor.py instead. This control also says nothing about whether the REAL vendored core is correct - that is the gate's own run in CI, over the real tree.",
+  "cases": [
+    {
+      "name": "bad-drifted-core",
+      "input": "cases/bad-drifted-core",
+      "expect": "BAD",
+      "why": "One sentence of the marker-delimited core edited in place, markers intact and the manifest pin untouched - the exact shape of someone fixing the gate text in CPP instead of in cooneycw/eli5-gate. If this scores GOOD the gate cannot see a local edit at all, which is the only thing the offline half exists to see."
+    },
+    {
+      "name": "good-pinned-core",
+      "input": "cases/good-pinned-core",
+      "expect": "GOOD",
+      "why": "The same tree with the core matching its pin. THE HALF THAT MATTERS for a gate wedged at 'fail': a check that refuses every tree is indistinguishable from a working one on the bad case alone, and would redden CI until someone deleted the step."
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "n/a",
+      "origin": "scripts/eli5-vendor.py",
+      "path": "anchors/constructed-presence-only-eli5-vendor.py",
+      "sha256": "499794e3b6df827c8d4aa83281f9ace2658595de41635cfc17998d2e7add1a36",
+      "why": "CONSTRUCTED, not historical: the pre-#1012 gate hardcoded its repository root, so pointed at a case it would have read the real repository and answered a different question rather than answering this one blindly - which disqualifies it as an anchor. This is the plausible weaker check written instead: confirm the document is present and still carries its marker pair, and call that vendored. It catches a deleted file or a broken marker pair, and is blind to the failure that actually happens - a core edited in place. It MISSES the known-bad input and AGREES with the current gate on the known-good one."
+    }
+  ]
+}

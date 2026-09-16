@@ -1,0 +1,25 @@
+{
+  "_comment": [
+    "Fixture manifest for controls/eli5-vendor (issue #1012).",
+    "core_sha256 pins the GOOD case's core. The bad case carries this same",
+    "manifest over an edited core, which is the whole known-bad input: a",
+    "local edit that bypassed re-vendoring, markers intact."
+  ],
+  "source": {
+    "repo": "cooneycw/eli5-gate",
+    "path": "commands/eli5.md",
+    "raw_url": "https://example.invalid/eli5-gate/commands/eli5.md",
+    "commits_api": "https://example.invalid/eli5-gate/commits",
+    "upstream_commit": "0000000000000000000000000000000000000000"
+  },
+  "vendored": {
+    "file": ".claude/commands/flow/eli5.md",
+    "markers": [
+      "eli5-core:begin",
+      "eli5-core:end"
+    ],
+    "core_sha256": "1cd8c3800ef35f5b9f389a5962fdbe53f19f199e4fce2eebfe3da60644700c5f",
+    "core_lines": 4,
+    "vendored_at": "2026-09-16"
+  }
+}
