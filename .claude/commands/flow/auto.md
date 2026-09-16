@@ -805,17 +805,31 @@ git merge --no-edit origin/main
    `$CM_RECEIPT` further down in 1d, so the parse ran against an empty command
    name in a fresh shell.
 
+   **Then probe the reviewer (issue #1015).** The ONLY condition that skips a
+   review is the inability to run codex, so that inability is established
+   BEFORE the invocation rather than inferred from its wreckage:
+
    ```bash
    BASE="origin/${DEFAULT_BRANCH:-main}"
    git fetch origin --quiet || true
-   if [ -z "$(git diff "$BASE" --name-only)" ]; then
-       : # record skipped / no-diff (1d) and go to the quality gates
+   if ! command -v codex >/dev/null 2>&1; then
+       : # record skipped / codex-absent (1d) and go to the quality gates
    fi
    ```
 
-   An empty diff is `skipped` with reason `no-diff` - NOT a `ran` receipt with
-   zero findings. A reviewer handed nothing to read and a reviewer that read the
-   change and found nothing wrong are opposite facts.
+   **The probe is ADDITIVE, never a replacement.** `command -v codex` answers
+   "is the binary on PATH", not "can it review". A codex that is installed and
+   whose API is unreachable passes this probe and must still land in
+   `reviewer-unavailable` via 1c. The probe may only move a run FROM
+   `reviewer-unavailable` TO `codex-absent`; it must never suppress a review
+   that would otherwise have been attempted, and presence on PATH is never
+   evidence of a working lane.
+
+   **An empty diff is NOT a skip (owner ruling, 2026-09-16).** The review runs
+   against whatever the branch holds, including nothing, and records an
+   ordinary `ran` receipt. `no-diff` left the reason set because it is not an
+   inability to run codex. The reversal trigger that would bring it back is
+   committed beside `SKIP_REASONS` in `scripts/counter-model-receipt.py`.
 
    **1b. Run the review.** Invoke `/codex:code_review` with that BASE and
    `CONTEXT` = `"issue #<N>: <issue title>"`, and **capture the transcript to a
@@ -852,9 +866,11 @@ git merge --no-edit origin/main
      words. Record `ran` with zero counts.
    - `COUNTER_MODEL_REVIEW: unparseable` (non-zero) - the reviewer produced
      nothing, was cut off, or answered in another shape. **This is not a clean
-     review.** Record `skipped` with reason `reviewer-unavailable`; never a
-     `ran` receipt with zeros, which would enter the measurement as a review
-     that happened and found nothing.
+     review.** Record `skipped` with reason `reviewer-unavailable` - codex was
+     reachable enough to invoke and did not return a usable review, which is a
+     DIFFERENT inability from `codex-absent` above; never a `ran` receipt with
+     zeros, which would enter the measurement as a review that happened and
+     found nothing.
 
    **1d. Write the receipt - ALWAYS, including on a skip** (helper resolved in
    1a):

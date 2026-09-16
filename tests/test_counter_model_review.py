@@ -184,12 +184,138 @@ def test_a_SKIP_is_recorded_not_omitted(tmp_path: Path) -> None:
 
 
 def test_a_skip_must_say_WHICH_skip(tmp_path: Path) -> None:
-    """"Unavailable" and "someone decided not to" say opposite things about
-    whether the stage works. A free-text reason would let them share a bucket."""
+    """"Not installed" and "invoked, returned nothing usable" say different
+    things about whether the stage works. A free-text reason would let them
+    share a bucket.
+
+    (#1015 removed "someone decided not to" from the set entirely - it is no
+    longer one of the things a reason has to distinguish.)"""
     proc = _write(tmp_path, "--issue", "934", "--branch", "b", "--status", "skipped",
                   "--reviewer", "codex/gpt-5.5", "--implementer", "claude/opus-5")
     assert proc.returncode == CM.EXIT_USAGE, proc.stderr
     assert list(tmp_path.glob("*.json")) == []
+
+
+def test_codex_absent_is_a_DISTINCT_skip_reason(tmp_path: Path) -> None:
+    """#1015's green half: the reason the probe exists to record is accepted."""
+    proc = _write(tmp_path, "--issue", "1015", "--branch", "b", "--status", "skipped",
+                  "--reason", "codex-absent",
+                  "--reviewer", "codex/gpt-5.5", "--implementer", "claude/opus-5")
+    assert proc.returncode == 0, proc.stderr
+    written = list(tmp_path.glob("*.json"))
+    assert len(written) == 1, "a codex-absent skip wrote no receipt"
+    assert json.loads(written[0].read_text(encoding="utf-8"))["skip_reason"] == "codex-absent"
+
+
+@pytest.mark.parametrize("removed", ["no-diff", "explicit-opt-out"])
+def test_a_removed_reason_is_REFUSED_at_the_write_path(tmp_path: Path, removed: str) -> None:
+    """#1015's red half at the CLI: the reasons that left the set cannot re-enter
+    through the front door."""
+    proc = _write(tmp_path, "--issue", "1015", "--branch", "b", "--status", "skipped",
+                  "--reason", removed,
+                  "--reviewer", "codex/gpt-5.5", "--implementer", "claude/opus-5")
+    assert proc.returncode != 0, f"{removed!r} was accepted as a skip reason"
+    assert list(tmp_path.glob("*.json")) == [], "a refused receipt was written anyway"
+
+
+@pytest.mark.parametrize("removed", ["no-diff", "explicit-opt-out"])
+def test_a_removed_reason_is_REFUSED_on_a_receipt_ALREADY_ON_DISK(
+    tmp_path: Path, removed: str
+) -> None:
+    """The load-bearing case, and the reason the two above are not enough.
+
+    Deleting a member from a tuple and commenting it out look identical in a
+    diff, and both leave every OTHER test green. What distinguishes them is
+    whether a receipt that already carries the removed reason - written before
+    #1015, or by hand - is now REJECTED rather than validated.
+
+    The receipt is produced by the tool itself and then mutated, so the fixture
+    cannot drift out of schema and pass for the wrong reason: every field but
+    `skip_reason` is one the current writer emits.
+    """
+    proc = _write(tmp_path, "--issue", "1015", "--branch", "b", "--status", "skipped",
+                  "--reason", "reviewer-unavailable",
+                  "--reviewer", "codex/gpt-5.5", "--implementer", "claude/opus-5")
+    assert proc.returncode == 0, proc.stderr
+    receipt_path = next(iter(tmp_path.glob("*.json")))
+
+    # Control the control: it validates clean BEFORE the mutation.
+    clean = subprocess.run(
+        [sys.executable, str(SCRIPT), "validate", "--dir", str(tmp_path)],
+        capture_output=True, text=True,
+    )
+    assert clean.returncode == 0, f"the unmutated receipt already fails: {clean.stderr}"
+
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt["skip_reason"] = removed
+    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+
+    proc = subprocess.run(
+        [sys.executable, str(SCRIPT), "validate", "--dir", str(tmp_path)],
+        capture_output=True, text=True,
+    )
+    assert proc.returncode == CM.EXIT_INVALID, (
+        f"validate accepted a receipt carrying the removed reason {removed!r}; "
+        "the member was taken out of SKIP_REASONS without being enforced"
+    )
+    assert removed in (proc.stdout + proc.stderr)
+
+
+def test_the_CAPABILITY_PROBE_precedes_the_invocation(tmp_path: Path) -> None:
+    """#1015: the inability to run codex is established BEFORE the invocation,
+    not inferred from its wreckage.
+
+    Without the probe, an absent codex is discovered by invoking it and reading
+    the debris, which lands in `reviewer-unavailable` - the reason that means
+    "invoked, returned nothing usable". Two different facts, one label.
+
+    Doc-level, because the probe lives in a prompt document: the enforceable
+    artifact IS the text. The probe must appear in Step 6 item 1a, and it must
+    be stated as additive so a present-but-dead codex still reaches
+    `reviewer-unavailable`.
+    """
+    text = _flat(_auto())
+    assert "command -v codex" in text, (
+        "Step 6 never probes for codex, so an absent binary is still "
+        "discovered by invoking it and reading the failure"
+    )
+    assert "codex-absent" in text
+    assert "ADDITIVE, never a replacement" in text, (
+        "the probe is not stated as additive; a present-but-dead codex could "
+        "be recorded as codex-absent, which is the wrong inability"
+    )
+
+
+def test_the_REVIEWER_COMMAND_does_not_skip_an_empty_diff_either() -> None:
+    """Codex, MEDIUM, on this very change: the caller was fixed and the callee
+    was not.
+
+    `/flow:auto` Step 6 now says an empty diff gets an ordinary review. But
+    `/codex:code_review` carried its own early exit - "If the diff is empty,
+    report 'nothing to review vs $BASE' and stop (exit 0)" - which returns no
+    findings report at all. Step 1c parses that as `unparseable` and records
+    `skipped / reviewer-unavailable`: a skip whose reason names an inability
+    that never happened, reached through the callee rather than the caller.
+
+    Removing a skip from one document and leaving it in the one that document
+    delegates to is not a removal. This holds both halves together.
+
+    The shallow-clone guard above it is UNAFFECTED and must stay: an
+    unresolvable merge base still exits 3 before this path, which is what
+    test_a_failed_merge_base_does_not_become_an_empty_clean_review pins.
+    """
+    review = (COMMANDS / "codex" / "code_review.md").read_text(encoding="utf-8")
+    stop_instruction = 'report "nothing to review vs $BASE" and stop'
+    assert stop_instruction not in review, (
+        "code_review.md still stops on an empty diff, so /flow:auto's promise "
+        "that an empty diff is reviewed is defeated by its own reviewer command"
+    )
+    assert "An empty diff is still handed to the reviewer" in review
+    # The shallow-clone guard is a DIFFERENT exit and must survive this change.
+    assert "no common ancestor" in review, (
+        "the merge-base guard was removed along with the empty-diff exit; an "
+        "unresolvable base must still exit 3, not reach the reviewer"
+    )
 
 
 def test_the_PROPERTY_is_enforced_not_just_documented(tmp_path: Path) -> None:
@@ -431,16 +557,23 @@ def test_the_review_runs_BEFORE_the_quality_gates() -> None:
     )
 
 
-def test_an_empty_diff_and_an_unparseable_review_are_SKIPS_not_clean_runs() -> None:
-    """Two ways to record a review that never happened as one that found nothing.
+def test_an_UNPARSEABLE_review_is_a_SKIP_not_a_clean_run() -> None:
+    """Recording a review that never happened as one that found nothing.
 
-    A reviewer handed an empty diff, and a reviewer whose transcript is absent
-    or truncated, both yield zero findings - and a `ran` receipt with zero
-    counts enters the measurement as "examined, nothing wrong".
+    A reviewer whose transcript is absent or truncated yields zero findings,
+    and a `ran` receipt with zero counts enters the measurement as "examined,
+    nothing wrong".
+
+    NARROWED BY #1015. This test used to cover an empty diff too, on the
+    reasoning that "a reviewer handed nothing to read and a reviewer that read
+    the change and found nothing wrong are opposite facts". The owner ruled on
+    2026-09-16 that the ONLY condition for skipping is the inability to run
+    codex, so an empty diff now gets an ordinary review and an ordinary `ran`
+    receipt. The empty-diff half is therefore GONE, not relaxed - and
+    `test_a_removed_reason_is_REFUSED_on_a_receipt_ALREADY_ON_DISK` below holds
+    the removal in place so it cannot drift back in as prose.
     """
     text = _flat(_auto())
-    assert "skipped` with reason `no-diff" in text or "no-diff" in text
-    assert "NOT a `ran` receipt with zero findings" in text
     assert "unparseable" in text
     assert "never a `ran` receipt with zeros" in text
 

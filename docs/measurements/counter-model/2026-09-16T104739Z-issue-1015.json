@@ -1,0 +1,19 @@
+{
+  "branch": "issue-1015-skip-a-codex-review-only-when-codex-cannot-run-col",
+  "counts": {
+    "accepted": 1,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "implementer": "claude/opus-5",
+  "issue": "1015",
+  "passes": 2,
+  "recorded_at": "2026-09-16T10:47:39Z",
+  "red_cases": {
+    "already_covered": 4,
+    "proposed": 4
+  },
+  "reviewer": "codex/gpt-5.5",
+  "schema": 1,
+  "status": "ran"
+}
