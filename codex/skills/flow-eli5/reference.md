@@ -221,7 +221,7 @@ however terse the surrounding style. Reports below this density fail the gate.
 
 - Verdict **No longer needed** -> `/flow-auto` stops and surfaces the close-issue recommendation instead of implementing.
 - Verdicts **Still needed / Partially addressed / Needs reframing** -> `/flow-auto` pauses for approval - unconditionally - then proceeds to Implement using the approved plan.
-- `/flow-auto` has no bypass for that pause, and neither does `/flow-auto_codex`. `--yes` / `--auto-approve` are recognized only to report that the gate is not skippable; an `eli5: auto-approve` trailer in the issue body or HEAD commit message is not read at all (issue #775). The Step 3 report line therefore has no `auto-granted` value - `granted` or `close recommended` are the only outcomes.
+- `/flow-auto` has no bypass for that pause, and neither do the delegated drivers. `--yes` / `--auto-approve` are recognized only to report that the gate is not skippable; an `eli5: auto-approve` trailer in the issue body or HEAD commit message is not read at all (issue #775). The Step 3 report line therefore has no `auto-granted` value - `granted` or `close recommended` are the only outcomes.
 
 ## CPP integration: the same floor governs the CLOSING report (issue #965)
 
