@@ -155,7 +155,7 @@ quietly re-framed afterwards:
 
 Neither tail of the acceptance ratio is actionable without the diversity number.
 
-### The first diversity reading, and the conditions it was taken under
+### Reading 1 (adversarial change): 13 of 16 red cases novel
 
 The first recorded run is this ADR's own change: **16 red cases proposed, 3
 already covered** by the implementer's tests. 81% novel.
@@ -177,6 +177,90 @@ If the counter-model were agreeing by shared corpus and shared conventions
 rather than reviewing, **this is the run where that would have shown.** It did
 not. A later reader comparing their own number against this one should know the
 baseline was set under those conditions, not on a routine change.
+
+### Reading 2 (ordinary change): 0 red cases, and 7 factual corrections
+
+The second recorded run is the **v8.0.0 release cut** (#938) - a version bump,
+about as ordinary a change as this repository produces, and deliberately chosen
+because Reading 1's conditions were adversarial.
+
+| | |
+|---|---|
+| red cases proposed | **0** |
+| red cases already covered | 0 |
+| findings accepted | 7 |
+| findings rejected | 0 |
+
+**The zero is a CONSIDERED zero, and that is the distinction this ADR asked
+for.** No instrument changed in a version bump, so no instrument needs a red
+case, and the reviewer said so in the prescribed words - *"None - no instrument
+changed."* A missing section and a reasoned zero are different facts; the
+receipt records the count, the transcript records that it was reached on
+purpose.
+
+**The value showed up somewhere else entirely.** All seven accepted findings
+were **false claims about the tree in the release notes** - a document meant to
+be read for the life of 8.x. Among them: a coverage fraction whose numerator was
+not a subset of its denominator; two figures presented as execution counts that
+are marker counts, restating this repository's own finding incorrectly; two
+wrong ADR merge dates; and a "ceiling" that the tree's own `secret-scan` control
+disproves.
+
+**So the two readings measure different things, and both are the stage working.**
+Reading 1 says the models fail independently on *implementation*. Reading 2 says
+that on a change with no implementation to review, the stage still caught seven
+assertions nobody would have re-derived. **A run that proposes zero red cases is
+not a run that found nothing**, and a stage judged only by its red-case count
+would have been switched off after this one.
+
+The conditions of Reading 2 are worth stating too, in the other direction: it
+was the PR where skipping the stage was most defensible - version-only, no code,
+already reviewed subject matter. That is exactly why it ran.
+
+Both readings are re-derivable from the committed receipts rather than from this
+paragraph:
+
+```bash
+jq -s 'map({issue, status, counts, red_cases})' docs/measurements/counter-model/*.json
+```
+
+### When the stage earns its keep: the correction, not the original
+
+Both readings above measure HOW MUCH a counter-model finds. A third kind of
+evidence turned up across the same day, and it is about WHEN.
+
+On three separate tickets, the second review pass caught a defect **introduced
+by the first pass's own fix**:
+
+| ticket | pass 1 found | pass 2 found in the FIX |
+|---|---|---|
+| #934 | the transcript parser scanned the whole document | scoping it to the Findings section let a fenced `## Example` truncate the section and drop every finding after it |
+| #936 | four findings, including `(path, key)` is not an identity | **all four** of pass 2's findings were defects in pass 1's fixes - the annotation regex crossing a parameter separator, the value boundary accepting `60 * 60`, `--first-parent` paired with `--no-merges` dropping merge-delivered changes, and continuity checked between ADJACENT moves silencing a real reversal whenever an unrelated move landed between its halves |
+| #987 | the default range reported UNKNOWN on a young repository | falling back to full history made a **shallow** clone report `none` for a history that reversed; refusing on `--is-shallow-repository` then failed the build for repositories shallow somewhere other than HEAD's ancestry |
+
+Each correction created a defect the original did not have, and each was caught
+only because someone looked again **after** the fix. On #936 that was not one
+finding among several - it was every finding pass 2 produced.
+
+Read the transcripts rather than this table: they are the evidence, and the
+counts above were taken from them rather than from recollection.
+
+**Why it is pass 2 every time rather than pass 1.** A correction is written under
+more pressure than the original, because **the author already believes they
+understand the problem.** The first pass reviews code written by someone still
+forming a model of it; the second reviews code written by someone convinced they
+have one. That is the worst possible state in which to review your own work, and
+it is exactly the state a fix is authored in.
+
+The practical consequence for this ADR's `/flow:auto` stage: **the bounded second
+pass is not a re-check of the same thing.** It is the first review of the
+correction, and a correction is a change like any other. A stage that reviewed
+only original work would have shipped all three defects above - with the
+original findings correctly fixed, and the fixes unexamined.
+
+It also explains the cap. Two passes, never three: the second pass is the one
+that reviews something nobody has reviewed, and a third would be re-reviewing
+work that has already had that treatment.
 
 ## Advisory on day one, with both triggers committed
 
