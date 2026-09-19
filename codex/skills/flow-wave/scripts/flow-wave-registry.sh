@@ -79,6 +79,11 @@
 #                         [--deploy-policy D] [--repo P]
 #   flow-wave-registry.sh policy show [--wave W] [--json]
 #   flow-wave-registry.sh list    [--wave W] [--json]
+#   flow-wave-registry.sh list    --wave W --any-live   (#1095: cheap poll-loop
+#                         check - prints `FLOW_WAVE_ANY_LIVE=yes|no-roles-ended|
+#                         no-roles-registered|undeterminable` and exits 0/1/1/2
+#                         respectively; skips the mailbox join and claim scan
+#                         `list` otherwise does)
 #   flow-wave-registry.sh get     <role> [--wave W]
 #   flow-wave-registry.sh lane-check <role> [--wave W] [--base REF]
 #                         [--granted A,B]   (#1026: compare the recorded lane
@@ -1687,7 +1692,7 @@ case "$VERB" in
   *) usage_fail "unknown verb: $VERB" ;;
 esac
 
-ROLE=""; WAVE="default"; WAVE_EXPLICIT=0; FORCE=0; JSON_OUT=0
+ROLE=""; WAVE="default"; WAVE_EXPLICIT=0; FORCE=0; JSON_OUT=0; ANY_LIVE_ONLY=0
 A_CWD=""; A_REPO=""; A_ISSUE=""; A_BRANCH=""; A_SOCKET=""; A_FROM=""
 # Role-level facts (#699). Each is unset-by-default and only written when given,
 # so a re-register that omits one never blanks what a fuller one recorded.
@@ -1712,6 +1717,7 @@ while [ "$#" -gt 0 ]; do
     --wave=*) WAVE="${1#--wave=}"; WAVE_EXPLICIT=1 ;;
     --force) FORCE=1 ;;
     --json) JSON_OUT=1 ;;
+    --any-live) ANY_LIVE_ONLY=1 ;;
     --cwd) [ "$#" -ge 2 ] || usage_fail "--cwd requires a path"; A_CWD="$2"; shift ;;
     --cwd=*) A_CWD="${1#--cwd=}" ;;
     --repo) [ "$#" -ge 2 ] || usage_fail "--repo requires a path"; A_REPO="$2"; shift ;;
@@ -2803,7 +2809,51 @@ case "$VERB" in
 
   list)
     REG="$(read_registry)"
-    ROLES="$(printf '%s' "$REG" | jq -r --arg w "$WAVE" '(.[$w].roles // {}) | keys[]' 2>/dev/null)"
+    ROLES_JQ_STATUS=0
+    ROLES="$(printf '%s' "$REG" | jq -r --arg w "$WAVE" '(.[$w].roles // {}) | keys[]' 2>/dev/null)" || ROLES_JQ_STATUS=$?
+    # --any-live (issue #1095): a purpose-built, cheap answer to "does this
+    # WAVE have any live role left", for a poller that must ask it every few
+    # seconds (flow-wave-mailbox.sh's `__supervise_daemon`). Deliberately
+    # short-circuits BEFORE `load_mailbox` and the unregistered-claims
+    # filesystem scan below - those exist to render a human-facing roster and
+    # cost a cross-repo directory walk and a shell-out to a sibling script;
+    # a daemon polling in a tight loop must not pay either on every cycle.
+    #
+    # THREE answers, not two, because "no live roles" has two different
+    # causes that a shutdown decision must not conflate (orchestrator
+    # review, #1095): a wave that had roles and they all ended is a
+    # supervisor whose work is done; a wave that never had any roles at all
+    # is one pointed at the wrong wave id, or a registry that failed to
+    # record anything - a bug that would otherwise look exactly like
+    # success in every log. `no-roles-ended` and `no-roles-registered` are
+    # kept as two distinct words for exactly that reason - the same
+    # discipline #1026's `claimed=unknown` vs `claimed=0` review applied to
+    # the reconciler.
+    #
+    # `undeterminable` (never a shutdown signal) covers a registry file that
+    # is readable but not valid JSON, so a corrupt file cannot be
+    # misread as "genuinely empty" and drive a live wave's daemon to
+    # self-terminate - only a version of "zero roles" that jq itself
+    # affirmatively computed counts as `no-roles-registered`.
+    if [ "$ANY_LIVE_ONLY" -eq 1 ]; then
+      if [ "$ROLES_JQ_STATUS" -ne 0 ]; then
+        echo "FLOW_WAVE_ANY_LIVE=undeterminable"
+        exit 2
+      fi
+      for r in $ROLES; do
+        e="$(printf '%s' "$REG" | jq -c --arg w "$WAVE" --arg r "$r" '.[$w].roles[$r]')"
+        if [ "$(liveness_of "$e")" = "live" ]; then
+          echo "FLOW_WAVE_ANY_LIVE=yes"
+          exit 0
+        fi
+      done
+      if [ -z "$ROLES" ]; then
+        echo "FLOW_WAVE_ANY_LIVE=no-roles-registered"
+      else
+        echo "FLOW_WAVE_ANY_LIVE=no-roles-ended"
+      fi
+      exit 1
+    fi
     POL="$(policy_json "$WAVE")"
     POL_REV="$(policy_rev_of "$POL")"
     # One call to the sibling mailbox, cached for every render below (#778).

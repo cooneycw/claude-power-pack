@@ -998,6 +998,51 @@ class TestPidRecyclingWitness:
 
 
 @requires_tools
+class TestAnyLive:
+    """`list --wave W --any-live` (issue #1095): a purpose-built, cheap
+    answer for a poller (flow-wave-mailbox.sh's `__supervise_daemon`) that
+    must distinguish "something is still live" from the TWO different
+    causes of "nothing is" - a wave whose roles all ended, and a wave that
+    never had any roles at all - without paying for the mailbox join or the
+    unregistered-claims filesystem scan `list` otherwise does."""
+
+    def test_a_live_role_reads_yes(self, tmp_path: Path) -> None:
+        _run(tmp_path, "register", "1", "--socket", "uds:/tmp/a.sock", pid="1", live="1")
+        p = _run(tmp_path, "list", "--any-live", live="1")
+        assert p.returncode == 0
+        assert _detail(p, "FLOW_WAVE_ANY_LIVE") == "yes"
+
+    def test_every_registered_role_ended_reads_no_roles_ended(self, tmp_path: Path) -> None:
+        _run(tmp_path, "register", "1", "--socket", "uds:/tmp/a.sock", pid="1", live="1")
+        p = _run(tmp_path, "list", "--any-live", live="none")
+        assert p.returncode == 1
+        assert _detail(p, "FLOW_WAVE_ANY_LIVE") == "no-roles-ended"
+
+    def test_no_roles_at_all_reads_no_roles_registered(self, tmp_path: Path) -> None:
+        p = _run(tmp_path, "list", "--any-live")
+        assert p.returncode == 1
+        assert _detail(p, "FLOW_WAVE_ANY_LIVE") == "no-roles-registered"
+
+    def test_a_malformed_registry_reads_undeterminable_not_no_roles_registered(
+        self, tmp_path: Path
+    ) -> None:
+        """A registry file that exists but cannot be parsed must not read
+        the same as a genuinely empty one - a corrupt file demoted to
+        'no roles registered' would look identical to a real
+        misconfiguration to anything consuming this, when it is really an
+        I/O or storage fault with no bearing on what is actually running.
+        RED against a version that skips the jq-status check entirely (it
+        would read `no-roles-registered` here, exactly like the case
+        above); GREEN with the check in place."""
+        _run(tmp_path, "register", "1", "--socket", "uds:/tmp/a.sock", pid="1", live="1")
+        reg_file = tmp_path / "reg" / "registry.json"
+        reg_file.write_text("{not valid json")
+        p = _run(tmp_path, "list", "--any-live", live="1")
+        assert p.returncode == 2
+        assert _detail(p, "FLOW_WAVE_ANY_LIVE") == "undeterminable"
+
+
+@requires_tools
 class TestUndeterminableLivenessIsItsOwnState:
     """`unknown` is a third answer, not a polite `stale` (#869).
 
