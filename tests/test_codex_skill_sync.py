@@ -683,3 +683,90 @@ def test_real_repo_doc_links_resolve_and_read_in_an_isolated_skill(tmp_path):
                     assert (target.parent / sib).is_file(), (
                         f"{skill.name}: {rel} -> {sib} dangles in isolation"
                     )
+
+
+# ---------------------------------------------------------------------------
+# The success line names the compared trees (issue #1029, specimen 4).
+#
+# `--check` printed "N skill(s) in sync", which is the line a session reaches
+# for when it wants to know whether its INSTALLED skills are current - and it
+# answers a different question, because both sides of the comparison live inside
+# the checkout. It is a generation-parity check, and `--check` is the DEFAULT
+# mode, so the wrong reading was the easy one. Measured twice, four days apart on
+# two hosts: this printed its green in the same session `install-drift` reported
+# `65 current, 10 stale`, and the staleness was real.
+#
+# A string change owes no negative control. The PAIRING TEST is that the two
+# instruments' success lines can no longer be read as answering the same
+# question, and that is what these pin.
+# ---------------------------------------------------------------------------
+
+
+def test_check_success_line_names_both_compared_trees(tmp_repo, capsys):
+    codex_skill_sync.main(["--write"])
+    capsys.readouterr()
+
+    assert codex_skill_sync.main(["--check"]) == 0
+    out = capsys.readouterr().out
+
+    assert "in sync" in out
+    assert "commands/<family>/" in out, "the source side must be named"
+    assert "codex/skills/" in out, "the generated side must be named"
+    assert "IN-CHECKOUT" in out, "the boundary is the point of the line"
+
+
+def test_check_success_line_disclaims_the_install_tree(tmp_repo, capsys):
+    """It must say what it did NOT look at, and send the reader somewhere real."""
+    codex_skill_sync.main(["--write"])
+    capsys.readouterr()
+
+    codex_skill_sync.main(["--check"])
+    out = capsys.readouterr().out
+
+    assert "NOTHING about the installed copies" in out
+    assert str(codex_skill_sync.install_dest_root()) in out
+    assert "install-drift" in out, "a disclaimer with no destination is a dead end"
+
+
+def test_write_success_line_does_not_claim_the_install_tree(tmp_repo, capsys):
+    """`--write` regenerates the in-checkout mirror and touches no install root."""
+    assert codex_skill_sync.main(["--write"]) == 0
+    out = capsys.readouterr().out
+
+    assert "codex/skills/" in out
+    assert "UNCHANGED" in out
+    assert "--install" in out, "name the mode that would actually update them"
+
+
+def test_the_two_success_lines_cannot_be_read_as_the_same_question(
+    tmp_repo, capsys
+):
+    """The pairing test #1029 asks for, as an assertion rather than a claim.
+
+    `--check`'s subject is the checkout; `--install`'s subject is the host. If a
+    future edit collapses them back to interchangeable wording, this reds.
+    """
+    codex_skill_sync.main(["--write"])
+    capsys.readouterr()
+
+    codex_skill_sync.main(["--check"])
+    check_line = next(
+        line
+        for line in capsys.readouterr().out.splitlines()
+        if "skill(s) in sync" in line
+    )
+
+    codex_skill_sync.main(["--install"])
+    install_line = next(
+        line
+        for line in capsys.readouterr().out.splitlines()
+        if "installed" in line and "skill(s)" in line
+    )
+
+    install_root = str(codex_skill_sync.install_dest_root())
+    assert install_root not in check_line, (
+        "the in-checkout parity line must not name the install root as its subject"
+    )
+    assert install_root in install_line, (
+        "the one mode whose subject IS the install tree must say so"
+    )
