@@ -386,6 +386,48 @@ exactly what a considered one prints. Two mechanisms make a token load-bearing:
    to the next re-plan, which in the reference wave was caught only by a worker's
    status report.
 
+**Quoting a token is not issuing it (#980).** The scan used to trim each line
+and then match, so a token QUOTED in prose was indistinguishable from one
+ISSUED - and the channel could not express the thing an authority channel most
+needs to: a reference to a past transition that is not itself one. Retracting a
+bad gate re-issued it; a draft written to WITHDRAW a merge authorisation parsed
+as a fresh `MERGE: AUTHORIZED #243` under the exact predicate being withdrawn.
+Four contexts, three dispositions:
+
+| where the token sits | what it means |
+|---|---|
+| at column 0, outside a fence | **ISSUED** - a transition. Unchanged. |
+| inside a ``` or `~~~` fence | **CITED** - inert, and reported |
+| behind a `>` blockquote prefix | **CITED** - inert, and reported |
+| indented, no fence, no `>` | **REFUSED** - ambiguous, and the refusal names both remedies |
+
+The indented case refuses rather than picking a side because both silent
+readings are wrong: read as issued it is the defect above, and read as cited it
+silently DROPS a real transition typed with a stray leading space - which fails
+OPEN, letting a wave start an issue somebody is holding. A refusal is the only
+disposition that cannot fail open either way, and it is the one that teaches the
+rule at the moment it is needed.
+
+**Inert as a transition is not inert as a FIELD.** The `- <condition>` and
+`serializes: <marker>` lines beneath a token become its recorded reason and its
+`adds_serialized`, so quoted content has to be excluded from those too, or a
+quoted example silently supplies a live ruling's fields. Two rules: a quoted
+TOKEN ends the block - the lines under a quoted ruling belong to that ruling -
+and fenced or `>`-quoted CONTENT is skipped, so a condition shown inside a fence
+is a specimen, not a condition. A fence with nothing reserved in it does not
+truncate what follows it. Every failure this can produce is loud: conditions
+that land outside the block make a `GO-WITH-CONDITIONS` refuse for carrying
+none.
+
+**A citation is inert, never silent.** Each one is reported -
+`FLOW_LEXICON_CITATIONS=<n>` plus a `FLOW_LEXICON_CITATION=` line naming its
+line number and context - and `send` prints those to the sender on a SUCCESSFUL
+delivery, not only on a refusal. So a `GATE: HOLD` you fenced but meant to issue
+is named back at you at send time. That report is why skipping is safe; without
+it, inert and dropped would look identical. (`--no-lexicon` remains the
+whole-message escape, which is exactly what a message that both cites a past
+ruling and issues a new one cannot use.)
+
 Validate a draft before sending it (`validate` is read-only):
 
 ```bash
