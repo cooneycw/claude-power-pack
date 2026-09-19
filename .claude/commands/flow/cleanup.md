@@ -82,8 +82,11 @@ it go away.
 
 **`refused` is information, never an obstacle.** The sweep removes nothing
 itself: every removal is handed to `scripts/worktree-remove.sh`, and the exit
-codes here are that helper's. Exit 4 is a live #597 claim and exit 5 is #888's
-in-use-with-uncommitted-work refusal. The sweep already declines
+codes here are that helper's. Exit 4 is a live #597 claim, exit 5 is #888's
+in-use refusal, and exit 8 (#1032) means the worktree's directory name and its
+checked-out branch name different issues - the sweep passes `--delete-branch`,
+and the branch that would be deleted is not the one the path refers to. The
+sweep already declines
 to pass `--force` or `--steal`, and you must not add them: overriding either in a
 loop across every worktree on the host is the data-loss path #889 closed, applied
 everywhere at once. If a refusal is wrong, that is the user's call on that one

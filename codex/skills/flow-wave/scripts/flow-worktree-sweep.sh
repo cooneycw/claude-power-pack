@@ -113,6 +113,9 @@
 
 set -euo pipefail
 
+# Exit status on stderr, last thing written, so it survives `| tail` (issue #1031).
+trap 'printf "FLOW_WORKTREE_SWEEP_EXIT=%d\n" "$?" >&2' EXIT
+
 RED='\033[0;31m'
 YELLOW='\033[1;33m'
 GREEN='\033[0;32m'
