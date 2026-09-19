@@ -45,7 +45,8 @@
 #
 # Usage:
 #   flow-pr-watch.sh <pr-number> [--repo <owner/name>] [--timeout <s>]
-#                    [--interval <s>] [--baseline <file>] [--path <checkout>]
+#                    [--interval <s>] [--context <ctx>] [--baseline <file>]
+#                    [--path <checkout>]
 #
 #   <pr-number>     The PR to watch (required).
 #   --repo          owner/name override; default resolved from `gh`, else the
@@ -53,6 +54,8 @@
 #   --timeout <s>   Give up after S seconds (default 1800). `--timeout 0` reads
 #                   once and reports whatever state it finds - no blocking.
 #   --interval <s>  Poll interval (default 15).
+#   --context <ctx> Select the exact GitHub status context to watch. Default:
+#                   ci/woodpecker/pr/woodpecker (the PR lane).
 #   --baseline <f>  Declared-flaky test ids, one per line; `#` comments and blank
 #                   lines ignored. Default:
 #                   <checkout>/.claude/flow-flake-baseline.txt when it exists.
@@ -105,6 +108,7 @@ PR_NUMBER=""
 REPO=""
 TIMEOUT=1800
 INTERVAL=15
+CONTEXT="ci/woodpecker/pr/woodpecker"
 BASELINE=""
 CHECK_PATH=""
 
@@ -114,7 +118,7 @@ SLEEP_BIN="${FLOW_PR_WATCH_SLEEP:-sleep}"
 
 die_usage() {
     echo "flow-pr-watch: $1" >&2
-    echo "usage: flow-pr-watch.sh <pr-number> [--repo <owner/name>] [--timeout <s>] [--interval <s>] [--baseline <file>] [--path <dir>]" >&2
+    echo "usage: flow-pr-watch.sh <pr-number> [--repo <owner/name>] [--timeout <s>] [--interval <s>] [--context <ctx>] [--baseline <file>] [--path <dir>]" >&2
     exit 2
 }
 
@@ -126,11 +130,13 @@ while [[ $# -gt 0 ]]; do
         --timeout=*)  TIMEOUT="${1#*=}"; [[ "$TIMEOUT" =~ ^[0-9]+$ ]] || die_usage "--timeout needs seconds"; shift ;;
         --interval)   INTERVAL="${2:-}"; [[ "$INTERVAL" =~ ^[0-9]+$ ]] || die_usage "--interval needs seconds"; shift 2 ;;
         --interval=*) INTERVAL="${1#*=}"; [[ "$INTERVAL" =~ ^[0-9]+$ ]] || die_usage "--interval needs seconds"; shift ;;
+        --context)    CONTEXT="${2:-}"; [[ -n "$CONTEXT" ]] || die_usage "--context needs a status context"; shift 2 ;;
+        --context=*)  CONTEXT="${1#*=}"; [[ -n "$CONTEXT" ]] || die_usage "--context needs a status context"; shift ;;
         --baseline)   BASELINE="${2:-}"; [[ -n "$BASELINE" ]] || die_usage "--baseline needs a file"; shift 2 ;;
         --baseline=*) BASELINE="${1#*=}"; shift ;;
         --path)       CHECK_PATH="${2:-}"; [[ -n "$CHECK_PATH" ]] || die_usage "--path needs a directory"; shift 2 ;;
         --path=*)     CHECK_PATH="${1#*=}"; shift ;;
-        -h|--help)    sed -n '2,100p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help)    sed -n '2,103p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         -*)           die_usage "unknown argument: $1" ;;
         *)
             [[ -z "$PR_NUMBER" ]] || die_usage "unexpected argument: $1"
@@ -209,16 +215,19 @@ gh_pr_json() { # gh_pr_json <json-fields> <jq-filter>
 # The pipeline number and its web URL, read off the PR head's status-check
 # rollup. The rollup mixes two node shapes - a commit STATUS (context/state/
 # targetUrl, what Woodpecker posts) and a GitHub CHECK RUN (name/status/
-# conclusion/detailsUrl) - so both are flattened to `url|state`. Only URLs
-# shaped like a Woodpecker pipeline permalink are considered; the highest
-# pipeline number wins, so a re-run's status is preferred over a stale one.
+# conclusion/detailsUrl) - so both are flattened to `context|url|state`. Only
+# rows whose context exactly matches the named context and whose URL is shaped
+# like a Woodpecker pipeline permalink are considered. The highest pipeline
+# number within that one context wins, safely preferring a re-run in the same
+# lane over a stale one without crossing into another lane.
 rollup_pipeline() { # -> "<number>|<state>|<url>" or empty
     gh_pr_json statusCheckRollup \
-        '.statusCheckRollup[]? | "\(.targetUrl // .detailsUrl // "")|\(.state // .conclusion // .status // "PENDING")"' \
+        '.statusCheckRollup[]? | "\(.context // .name // "")|\(.targetUrl // .detailsUrl // "")|\(.state // .conclusion // .status // "PENDING")"' \
     | {
         best_num=-1
         best=""
-        while IFS='|' read -r url state; do
+        while IFS='|' read -r ctx url state; do
+            [[ "$ctx" == "$CONTEXT" ]] || continue
             [[ "$url" =~ /pipeline/([0-9]+) ]] || continue
             num="${BASH_REMATCH[1]}"
             if [[ "$num" -gt "$best_num" ]]; then
@@ -235,16 +244,17 @@ have_wpcli() { command -v "$WPCLI_BIN" >/dev/null 2>&1; }
 
 wp_rows() {
     "$WPCLI_BIN" pipeline ls --output-no-headers \
-        --output 'go-template={{range .}}{{.Number}}|{{.Status}}|{{.Commit}}{{"\n"}}{{end}}' \
+        --output 'go-template={{range .}}{{.Number}}|{{.Status}}|{{.Commit}}|{{.Event}}{{"\n"}}{{end}}' \
         --limit 50 "$REPO" 2>/dev/null
 }
 
 # Highest-numbered pipeline whose commit is exactly $1 - anchored on the SHA,
 # never on list position, because that shared list is mostly other sessions' runs.
 wp_pipeline_for_sha() { # -> "<number>|<status>" or empty
-    local sha="$1" best="" best_num=-1 number status commit
-    while IFS='|' read -r number status commit; do
+    local sha="$1" best="" best_num=-1 number status commit event
+    while IFS='|' read -r number status commit event; do
         [[ "$commit" == "$sha" ]] || continue
+        [[ -z "$WP_EVENT" || "$event" == "$WP_EVENT" ]] || continue
         [[ "$number" =~ ^[0-9]+$ ]] || continue
         if [[ "$number" -gt "$best_num" ]]; then
             best_num="$number"
@@ -255,8 +265,8 @@ wp_pipeline_for_sha() { # -> "<number>|<status>" or empty
 }
 
 wp_status_of() { # wp_status_of <pipeline-number> -> "<status>" or empty
-    local want="$1" number status commit
-    while IFS='|' read -r number status commit; do
+    local want="$1" number status commit event
+    while IFS='|' read -r number status commit event; do
         if [[ "$number" == "$want" ]]; then
             echo "$status"
             return 0
@@ -272,6 +282,23 @@ wp_steps() { # -> "<name>|<state>|<stopped>" lines
 
 wp_log() { "$WPCLI_BIN" pipeline log show "$REPO" "$1" 2>/dev/null; }
 
+# Map the named GH status context to Woodpecker's own `.Event`
+# vocabulary, so the woodpecker-cli lane (which has no context field)
+# stays scoped to the same lane instead of reintroducing the bug
+# through its own cross-check. Woodpecker composes GitHub contexts as
+# `ci/woodpecker/<short-event>/<name>`; only the two observed short
+# forms are mapped - an unrecognized context leaves this lane
+# unfiltered, exactly like the pre-fix behavior, rather than guessing.
+resolve_wp_event() { # resolve_wp_event <context> -> event name, or empty
+    local ctx="$1" short
+    [[ "$ctx" =~ ^ci/woodpecker/([^/]+)/ ]] || return 0
+    short="${BASH_REMATCH[1]}"
+    case "$short" in
+        pr)   echo "pull_request" ;;
+        push) echo "push" ;;
+    esac
+}
+
 # ── State mapping ──────────────────────────────────────────────────────────
 # Woodpecker states and GitHub rollup states/conclusions land in one of three
 # buckets. Anything unrecognized is pending, so an unknown state makes the watch
@@ -283,6 +310,8 @@ outcome_of() {
         *)                                                  echo "pending" ;;
     esac
 }
+
+WP_EVENT="$(resolve_wp_event "$CONTEXT")"
 
 # ── Watch loop ─────────────────────────────────────────────────────────────
 WATCH_HEAD="$(gh_pr_json headRefOid '.headRefOid')"
