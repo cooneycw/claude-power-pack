@@ -283,7 +283,8 @@ verify: tools-check lint test typecheck shellcheck oscillation \
 	binary-guards-check negative-fixture-check \
 	claude-md-budget-check claude-md-links-check claude-md-behavior-check \
 	project-next-check delegated-core-check \
-	scripts-inventory-check instrument-census-check
+	scripts-inventory-check instrument-census-check \
+	consolidation-ledger-check
 
 ## Vendored delegated-driver core (issue #1011)
 ## `/codex:auto`, `/qwen:auto` and `/gemma:auto` describe ONE lifecycle, rendered
@@ -335,6 +336,9 @@ scripts-inventory-check:
 
 instrument-census-check:
 	@python3 scripts/instrument-census-check.py
+
+consolidation-ledger-check:
+	@python3 scripts/check-consolidation-ledger.py
 
 ## Enforce the CLAUDE.md "guard tests that shell out to git/docker/gitleaks"
 ## directive (issue #602). It failed three times as prose (#451, #489, #577)
