@@ -45,6 +45,9 @@
 
 set -uo pipefail
 
+# Exit status on stderr, last thing written, so it survives `| tail` (issue #1031).
+trap 'printf "FLOW_STALE_EXIT=%d\n" "$?" >&2' EXIT
+
 BASE_REF=""
 CHECK_PATH=""
 DO_FETCH=1

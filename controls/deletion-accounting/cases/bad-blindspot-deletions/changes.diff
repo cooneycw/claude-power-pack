@@ -1,0 +1,11 @@
+diff --git a/example.md b/example.md
+index 1792a26..e7b3aac 100644
+--- a/example.md
++++ b/example.md
+@@ -1,6 +1,4 @@
+ # Example
+ 
+ Guidance that stays:
+-- never pop a stash you did not push
+-
+ Trailing text that stays.

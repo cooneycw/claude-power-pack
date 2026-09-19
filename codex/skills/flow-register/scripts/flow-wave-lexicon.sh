@@ -196,6 +196,9 @@
 
 set -uo pipefail
 
+# Exit status on stderr, last thing written, so it survives `| tail` (issue #1031).
+trap 'printf "FLOW_LEXICON_EXIT=%d\n" "$?" >&2' EXIT
+
 UID_NUM="$(id -u)"
 WAVE_ROOT="${FLOW_WAVE_LEXICON_DIR:-${FLOW_WAVE_MAILBOX_DIR:-${FLOW_WAVE_REGISTRY_DIR:-${XDG_RUNTIME_DIR:-/run/user/$UID_NUM}/cc-flow-wave}}}"
 

@@ -118,6 +118,9 @@
 
 set -uo pipefail
 
+# Exit status on stderr, last thing written, so it survives `| tail` (issue #1031).
+trap 'printf "FLOW_START_RESOLVE_EXIT=%d\n" "$?" >&2' EXIT
+
 GH="${FLOW_START_RESOLVE_GH:-gh}"
 PROJECTS_DIR="${FLOW_START_RESOLVE_PROJECTS_DIR:-$HOME/Projects}"
 

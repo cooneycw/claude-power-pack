@@ -104,6 +104,9 @@
 
 set -uo pipefail
 
+# Exit status on stderr, last thing written, so it survives `| tail` (issue #1031).
+trap 'printf "FLOW_PR_WATCH_EXIT=%d\n" "$?" >&2' EXIT
+
 PR_NUMBER=""
 REPO=""
 TIMEOUT=1800

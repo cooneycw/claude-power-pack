@@ -175,6 +175,9 @@
 
 set -uo pipefail
 
+# Exit status on stderr, last thing written, so it survives `| tail` (issue #1031).
+trap 'printf "FLOW_DRIVER_EXIT=%d\n" "$?" >&2' EXIT
+
 usage_fail() { echo "flow-driver-capability: $1" >&2; exit 2; }
 
 # ---- The declared matrix ---------------------------------------------------
