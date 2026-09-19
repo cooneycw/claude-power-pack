@@ -1298,6 +1298,24 @@ Report: `Step 6/9: Finish complete - PR #XX created`
    A claim owned by THIS session, or left by a dead one, is released
    automatically and the removal proceeds normally.
 
+   **`worktree-remove.sh` exit 8 is a CLEAN STOP too (issue #1032).** Note this
+   is the REMOVAL helper's 8, not `gh-pr-merge.sh`'s - that one is a broken
+   self-check and has no override; these two codes are unrelated and the helper
+   name is what tells them apart. Here it means: the worktree's DIRECTORY NAME
+   and its CHECKED-OUT BRANCH name different issues, and `--delete-branch` was
+   asked for. A directory is named for the issue it was created for, but the
+   name is a string - observed here, `...-issue-971-...` (closed, merged)
+   holding branch `issue-980-...` (open). The branch is authoritative; the path
+   you named refers to the other issue, so deleting the branch would silently
+   destroy work you did not mean to touch. Removing the DIRECTORY is local and
+   recoverable, which is why this refusal is scoped to the branch alone and is
+   the LAST check reached - every refusal above it means "do not remove this at
+   all". Report the printed `WORKTREE_REMOVE_ATTRIBUTION:` line, which names the
+   issue this checkout actually holds. Re-run without `--delete-branch` to
+   remove just the directory, or rename the worktree first. `--force` does not
+   override it; `--steal` does, and is the user's call, not the run's.
+
+
    **Exit 5 is the same kind of clean STOP (issue #888):** no claim named this
    session, but a live process has its working directory inside the worktree AND
    the worktree holds uncommitted work. A claim only protects a checkout where

@@ -23,6 +23,16 @@
 # /proc the check reports `unknown` and falls open, rather than reporting a clean
 # result it did not establish.
 #
+# THE BRANCH IDENTIFIES THE WORK, NOT THE DIRECTORY NAME (issue #1032). A
+# worktree folder is named for the issue it was created for, but the name is a
+# string and nothing keeps it in step with what is checked out inside. Observed
+# here: a folder named `...-issue-971-...` (CLOSED, merged) holding the branch
+# `issue-980-...` (OPEN). This script therefore reports
+# `WORKTREE_REMOVE_ATTRIBUTION:` naming the branch as authoritative, and when
+# the two disagree it REFUSES --delete-branch (exit 8): removing a directory is
+# recoverable, deleting the wrong issue's branch is not. --force does not
+# override it; --steal does.
+#
 # Usage:
 #   worktree-remove.sh <worktree-path> [--force] [--delete-branch] [--steal] [--allow-dirty] [--allow-unpushed]
 #
@@ -42,6 +52,8 @@
 #   5  in use by a live process (#888, #1032)
 #   6  holds uncommitted work without --allow-dirty (#899)
 #   7  holds commits on no remote ref without --allow-unpushed (#899)
+#   8  --delete-branch asked for, but the directory name and the checked-out
+#      branch name different issues (#1032)
 #
 # Examples:
 #   worktree-remove.sh /home/user/Projects/nhl-api-issue-42
@@ -115,6 +127,16 @@ while [[ $# -gt 0 ]]; do
             echo ""
             echo "Each refusal has its own override on purpose: one flag that silenced all"
             echo "three would be one flag away from silencing everything."
+            echo ""
+            echo "Exit codes:"
+            echo "  0  removed (or already absent - stale refs pruned)"
+            echo "  1  usage, path, or repository validation error"
+            echo "  4  claimed by another live /flow session (#597)"
+            echo "  5  in use by a live process (#888, #1032)"
+            echo "  6  holds uncommitted work without --allow-dirty (#899)"
+            echo "  7  holds commits on no remote ref without --allow-unpushed (#899)"
+            echo "  8  --delete-branch asked for, but the directory name and the"
+            echo "     checked-out branch name different issues (#1032)"
             echo ""
             echo "Examples:"
             echo "  worktree-remove.sh /home/user/Projects/nhl-api-issue-42"
@@ -222,6 +244,77 @@ fi
 # Get the branch name before removing
 BRANCH_NAME=$(git -C "$WORKTREE_PATH" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
 
+# --- Attribution: the BRANCH says whose work this is, never the path (#1032) --
+# A worktree directory is named after the issue it was created for, but the name
+# is just a string and nothing keeps it in step with what is checked out inside.
+# Observed on this host: a directory named `...-issue-971-...` (CLOSED, PR #1004
+# merged) holding the branch `issue-980-lexicon-quoted-token` (OPEN). Anything
+# deciding "safe to delete" from the directory name would have read "closed and
+# merged, safe" and destroyed an open lane's checkout. It survived only because
+# #980 happened to have no commits of its own yet.
+#
+# So: derive the issue from BOTH, report which one is authoritative, and refuse
+# the one operation whose blast radius reaches beyond this directory.
+#
+# Matching is on the issue NUMBER alone, never the slug. A branch legitimately
+# keeps an older title's slug while the issue is renamed (#793), so comparing
+# full names would fire on the ordinary case - and a guard that fires on the
+# normal case is one everybody learns to pass with the override flag.
+ATTRIBUTION_MISMATCH=false
+issue_of() {  # issue_of <string> -> the N in the FIRST `issue-<N>` segment
+    # FIRST, not last. A greedy `.*issue-\([0-9]*\)` takes the LAST match, and
+    # slugs quote other issues all the time: branch `issue-980-fix-issue-971`
+    # then parses as 971, agrees with directory `repo-issue-971-old`, and the
+    # guard waves through exactly the deletion it exists to stop. It failed the
+    # other way too - `issue-42-fix-issue-99` read as 99 and disagreed with its
+    # own directory. Both were found by the counter-model review of this change.
+    # The issue-anchored name puts the owning issue FIRST in both spellings:
+    # `issue-<N>-<slug>` for a branch, `<repo>-issue-<N>-<slug>` for a
+    # directory. Requiring a digit after `issue-` keeps a repo named e.g.
+    # `my-issue-tracker` from matching its own name.
+    # `|| true` is load-bearing: this script runs under `set -euo pipefail`, so
+    # a grep that matches NOTHING - the ordinary case for a worktree whose name
+    # encodes no issue - fails the pipeline and aborts the whole run. "No issue
+    # in this name" is an answer, not an error.
+    printf '%s' "$1" | grep -o 'issue-[0-9][0-9]*' | head -1 | sed 's/^issue-//' || true
+}
+# Strip the repository prefix before parsing the DIRECTORY (#1032, second
+# counter-model pass). Worktree directories are `<repo>-<branch>` by
+# construction, so a repository whose own NAME contains `issue-<N>` puts that
+# number ahead of the branch's: for repo `tool-issue-971`, the perfectly
+# ordinary directory `tool-issue-971-issue-980-fix` parses as 971 and both
+# failure directions return - a false refusal against branch `issue-980-fix`,
+# and a false `agree` against `issue-971-old` that permits deleting the wrong
+# branch. Taking the FIRST match fixed slugs quoting other issues; it could not
+# fix this, because here the foreign number genuinely comes first.
+#
+# When the basename does not carry the prefix (a hand-made checkout), the strip
+# is a no-op and parsing falls back to the whole name, exactly as before.
+DIR_BASENAME="$(basename "$WORKTREE_PATH")"
+REPO_BASENAME="$(basename "$MAIN_REPO")"
+DIRNAME_ISSUE="$(issue_of "${DIR_BASENAME#"$REPO_BASENAME"-}")"
+BRANCH_ISSUE="$(issue_of "$BRANCH_NAME")"
+
+if [[ -z "$DIRNAME_ISSUE" || -z "$BRANCH_ISSUE" ]]; then
+    # A path under FLOW_WORKTREE_BASE, a hand-made checkout, or a detached HEAD.
+    # There is nothing to disagree about, and an unkeyed name is NOT a mismatch:
+    # reporting it as one would make the refusal fire on every non-flow worktree.
+    echo "WORKTREE_REMOVE_ATTRIBUTION: branch=${BRANCH_NAME:--} dirname-unkeyed"
+elif [[ "$DIRNAME_ISSUE" == "$BRANCH_ISSUE" ]]; then
+    echo "WORKTREE_REMOVE_ATTRIBUTION: branch=${BRANCH_NAME} issue=${BRANCH_ISSUE} agree"
+else
+    echo "WORKTREE_REMOVE_ATTRIBUTION: branch=${BRANCH_NAME} issue=${BRANCH_ISSUE} dirname-issue=${DIRNAME_ISSUE} DISAGREE"
+    echo -e "${YELLOW}Warning: this worktree's directory name does not match the work inside it.${NC}" >&2
+    echo "" >&2
+    echo "  Directory: ${DIR_BASENAME}  -> says issue #${DIRNAME_ISSUE}" >&2
+    echo "  Branch:    ${BRANCH_NAME}  -> IS issue #${BRANCH_ISSUE}" >&2
+    echo "" >&2
+    echo "  The branch is authoritative: this checkout holds issue #${BRANCH_ISSUE}'s work" >&2
+    echo "  (issue #1032). Anything that judged this tree by its directory name has" >&2
+    echo "  been reasoning about the wrong issue's state." >&2
+    ATTRIBUTION_MISMATCH=true
+fi
+
 # --- Cross-session claim check (issue #597) ----------------------------------
 # Another LIVE /flow session may be driving this checkout right now. Removing it
 # out from under that session is the silent-data-loss failure this guard exists
@@ -248,6 +341,11 @@ if [[ -n "$CLAIM_HELPER" ]]; then
     CLAIM_PID=$(printf '%s\n' "$CLAIM_OUT" | sed -n 's/^FLOW_CLAIM_OWNER_PID=//p' | tail -1)
     CLAIM_SESSION=$(printf '%s\n' "$CLAIM_OUT" | sed -n 's/^FLOW_CLAIM_OWNER_SESSION=//p' | tail -1)
     CLAIM_ISSUE=$(printf '%s\n' "$CLAIM_OUT" | sed -n 's/^FLOW_CLAIM_ISSUE=//p' | tail -1)
+    # How liveness was decided, not just what it decided (issue #1032). "the
+    # owner exited" and "that pid belongs to somebody else now" are different
+    # facts, and only the second explains why a claim that looked live is gone.
+    CLAIM_WITNESS=$(printf '%s\n' "$CLAIM_OUT" | sed -n 's/^FLOW_CLAIM_OWNER_WITNESS=//p' | tail -1)
+    CLAIM_STALE_REASON=$(printf '%s\n' "$CLAIM_OUT" | sed -n 's/^FLOW_CLAIM_STALE_REASON=//p' | tail -1)
 
     case "${CLAIM_STATE:-unknown}" in
         held)
@@ -255,7 +353,7 @@ if [[ -n "$CLAIM_HELPER" ]]; then
                 echo -e "${RED}Error: refusing to remove a worktree claimed by another session${NC}" >&2
                 echo "" >&2
                 echo "  Worktree: $WORKTREE_PATH" >&2
-                echo "  Claim:    ${CLAIM_STATE} (issue #${CLAIM_ISSUE:--}, pid ${CLAIM_PID:--}, session ${CLAIM_SESSION:--})" >&2
+                echo "  Claim:    ${CLAIM_STATE} (issue #${CLAIM_ISSUE:--}, pid ${CLAIM_PID:--}, session ${CLAIM_SESSION:--}, identity ${CLAIM_WITNESS:--})" >&2
                 echo "" >&2
                 echo "  Another /flow session is driving this checkout. Removing it would destroy" >&2
                 echo "  its uncommitted work - the failure this claim exists to prevent (issue #597)." >&2
@@ -281,9 +379,26 @@ if [[ -n "$CLAIM_HELPER" ]]; then
             CLAIM_OWNED_BY_US=true
             ;;
         stale)
-            # The claiming session died. Drop its lock, but do NOT treat that as
-            # proof the checkout is idle: a test run or server it started can
+            # The claiming session is gone. Drop its lock, but do NOT treat that
+            # as proof the checkout is idle: a test run or server it started can
             # outlive it, reparented and still writing here (issue #888).
+            case "$CLAIM_STALE_REASON" in
+                recycled-pid)
+                    echo -e "${YELLOW}Note: the claim's pid ${CLAIM_PID:--} exists but is a DIFFERENT process${NC}" >&2
+                    echo "  (its start-time does not match the one recorded in the claim), so the" >&2
+                    echo "  owning session is gone and its pid was recycled. Before issue #1032" >&2
+                    echo "  this read as a LIVE owner and the worktree was unremovable without" >&2
+                    echo "  --steal." >&2
+                    ;;
+                aged-out-unverified | aged-out-remote-host)
+                    # Say what expired. The process may well still be running -
+                    # claiming it is gone would assert something never checked.
+                    echo -e "${YELLOW}Note: this claim EXPIRED rather than its owner exiting${NC}" >&2
+                    echo "  (reason: ${CLAIM_STALE_REASON}). The recorded owner could not be" >&2
+                    echo "  identified, so the age bound released it. The occupancy check below" >&2
+                    echo "  is what actually establishes whether anything is working here." >&2
+                    ;;
+            esac
             bash "$CLAIM_HELPER" release "$WORKTREE_PATH" >/dev/null 2>&1 || true
             ;;
         *)
@@ -572,6 +687,31 @@ else
 fi
 
 # Remove the worktree
+# --- Attribution refusal (issue #1032) - deliberately the LAST check ---------
+# Every refusal above means "do not remove this worktree at all". This one means
+# only "do not also delete the branch": its remedy is to re-run without
+# --delete-branch, which still removes the directory. Running it earlier would
+# hand that remedy to a caller whose tree is live-claimed or occupied, telling
+# them to proceed with a removal the stronger guards had already refused. The
+# weakest refusal must therefore be the last one reached, so it can only ever
+# speak about a tree everything else has already cleared.
+if [[ "$ATTRIBUTION_MISMATCH" == true && "$DELETE_BRANCH" == true && "$STEAL" != true ]]; then
+    echo -e "${RED}Error: refusing --delete-branch on a worktree whose name disagrees with its branch${NC}" >&2
+    echo "" >&2
+    echo "  Directory: ${DIR_BASENAME}  -> says issue #${DIRNAME_ISSUE}" >&2
+    echo "  Branch:    ${BRANCH_NAME}  -> IS issue #${BRANCH_ISSUE}" >&2
+    echo "" >&2
+    echo "  Removing the DIRECTORY is local and recoverable. Deleting the BRANCH is" >&2
+    echo "  neither, and the branch that would be deleted - '${BRANCH_NAME}' - is not" >&2
+    echo "  the one the path you named refers to. A caller who asked for issue" >&2
+    echo "  #${DIRNAME_ISSUE} by path would silently lose issue #${BRANCH_ISSUE}'s branch." >&2
+    echo "" >&2
+    echo "  Re-run WITHOUT --delete-branch to remove just the directory, or rename the" >&2
+    echo "  worktree to match its branch first. --force does not override this;" >&2
+    echo "  --steal does, if you have confirmed which issue you mean." >&2
+    exit 8
+fi
+
 echo -e "${BLUE}Removing worktree: ${WORKTREE_PATH}${NC}"
 if [[ "${CLAIM_STATE:-unknown}" == foreign ]]; then
     git -C "$WORKTREE_PATH" worktree unlock "$WORKTREE_PATH" >/dev/null 2>&1 || true
