@@ -547,6 +547,14 @@
 # cannot deliver because its linter is unavailable is precisely the 2026-08-11
 # failure this lane was built to remove. `--no-lexicon` is the per-send escape.
 #
+# A token read as a CITATION rather than a transition (fenced, or behind a `>`
+# prefix - issue #980) delivers normally, and its FLOW_LEXICON_CITATION= line is
+# printed to the sender anyway. That is deliberate: `--no-lexicon` is a
+# WHOLE-MESSAGE escape, useless for the message that both cites a past ruling
+# and issues a new one, and an inert token is indistinguishable from a dropped
+# one unless somebody says so. This is the only point at which a sender sees the
+# validator's answer on a successful send.
+#
 # Output ends with a machine-readable verdict line:
 #   FLOW_MAILBOX: sent | read | empty | mail | timeout | listed | status |
 #                 acked | duplicate | refused | error
@@ -1899,6 +1907,18 @@ case "$VERB" in
           exit 6
         elif [ "$LEX_RC" -ne 0 ]; then
           echo "flow-wave-mailbox: NOTE - lexicon validator exited $LEX_RC (not a refusal); delivering unvalidated." >&2
+        fi
+        # Surface CITATIONS on the DELIVERING path, not only on a refusal
+        # (issue #980). A reserved token that is fenced or `>`-quoted is inert
+        # by design - but "inert" and "dropped" produce the same silence, and
+        # this is the only moment a sender sees the validator's answer at all:
+        # LEX_OUT is discarded on exit 0, so without this a `GATE: HOLD` you
+        # fenced but meant to ISSUE leaves with the message and is never
+        # mentioned again. The skip is only safe because this line exists.
+        LEX_CITED="$(printf '%s\n' "$LEX_OUT" | grep '^FLOW_LEXICON_CITATION=' || true)"
+        if [ -n "$LEX_CITED" ]; then
+          printf '%s\n' "$LEX_CITED" >&2
+          echo "flow-wave-mailbox: NOTE - the line(s) above were read as CITATIONS, not transitions (issue #980). Delivering. If one was a transition you meant to ISSUE, it did NOT take effect: move it to column 0, outside any fence and with no '>' prefix, and re-send." >&2
         fi
       fi
     fi
