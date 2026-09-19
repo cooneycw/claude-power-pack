@@ -267,6 +267,44 @@ def _source_stamp(root: Path) -> str:
 ADR_0008 = Path("docs/decisions/0008-instrument-negative-control-bound.md")
 ADR_ROW_RE = re.compile(r"^\|\s*\d+\s*\|", re.MULTILINE)
 
+#: A fenced example and a commented-out row are not the census speaking, and
+#: counting them INFLATES this denominator (issue #1060). The raw regex counted
+#: both: add one illustrative `| 1 | ... |` to the ADR's prose and the coverage
+#: line silently reads `14 of 74` over a 73-row census. That is the same class as
+#: #979 - a denominator that does not describe what it claims to - arriving by a
+#: different route, and it also split this parser from the one
+#: `instrument-census-check.py` uses to check the table's membership, so the two
+#: readers of one table would have been counting different documents.
+#:
+#: Found by the counter-model review (codex, gpt-6-astra) on the #1060 branch,
+#: second pass. Matched by character and length per CommonMark; comments are
+#: removed AFTER fences, so a fenced `<!--` cannot pair with a real one further
+#: down and delete the rows between them.
+ADR_FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})\s*(.*)$")
+ADR_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
+
+
+def _census_text(text: str) -> str:
+    """The ADR's own table rows: fenced examples, then HTML comments, removed."""
+    out: list[str] = []
+    fence: str | None = None
+    for line in text.splitlines():
+        marker = ADR_FENCE_RE.match(line)
+        if fence is None:
+            if marker:
+                fence = marker.group(1)
+            else:
+                out.append(line)
+            continue
+        if (
+            marker
+            and marker.group(1)[0] == fence[0]
+            and len(marker.group(1)) >= len(fence)
+            and not marker.group(2).strip()
+        ):
+            fence = None
+    return ADR_COMMENT_RE.sub("", "\n".join(out))
+
 
 def instrument_universe(root: Path) -> tuple[int | None, str]:
     """(count, provenance-phrase) for ADR 0008's enumerated instruments."""
@@ -275,7 +313,7 @@ def instrument_universe(root: Path) -> tuple[int | None, str]:
         text = adr.read_text(encoding="utf-8")
     except OSError:
         return None, f"{ADR_0008} is unreadable"
-    rows = len(ADR_ROW_RE.findall(text))
+    rows = len(ADR_ROW_RE.findall(_census_text(text)))
     if rows == 0:
         return None, f"{ADR_0008} parsed to 0 enumerated rows"
     return rows, f"{ADR_0008}"

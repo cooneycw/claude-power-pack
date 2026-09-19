@@ -108,6 +108,22 @@ steps:
     commands:
       - python3 scripts/scripts-inventory-check.py
 
+  # ADR 0008's census MEMBERSHIP, derived from scripts/ (issue #1060). Its own
+  # line for the reason every gate above got one: "an instrument was added and
+  # nobody enumerated it" is a different diagnosis from a lint failure, and this
+  # one is upstream of every coverage number the repository quotes - the
+  # denominator `negative-controls` prints is this table's row count.
+  #
+  # Stdlib-only, offline and git-free, so it runs directly under the slim image.
+  # Same command `make instrument-census-check` wraps. Its ability to FAIL is
+  # proven separately by controls/instrument-census, which the `negative-controls`
+  # step and the `validate` pytest run both drive.
+  instrument-census-check:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
+    depends_on: [secret-scan]
+    commands:
+      - python3 scripts/instrument-census-check.py
+
   # Dependency vulnerability audit (issue #961). CPP ran none: both sets of
   # advisories it carries today were found by a person looking - #922 on the
   # root lock, #943 on mcp-evaluate - and the only variable was whether anyone

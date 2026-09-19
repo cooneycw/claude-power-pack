@@ -1,0 +1,19 @@
+{
+  "branch": "issue-1060-an-instrument-can-ship-unenumerated-with-no-red-de",
+  "counts": {
+    "accepted": 3,
+    "deferred": 1,
+    "rejected": 0
+  },
+  "implementer": "claude/opus-5",
+  "issue": "1060",
+  "passes": 2,
+  "recorded_at": "2026-09-19T11:32:48Z",
+  "red_cases": {
+    "already_covered": 2,
+    "proposed": 2
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}
