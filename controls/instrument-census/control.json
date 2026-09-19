@@ -1,0 +1,91 @@
+{
+  "_comment": [
+    "Registration for scripts/instrument-census-check.py (issue #1060).",
+    "",
+    "WHY THIS GATE NEEDS A COMMITTED CASE (ADR 0008): it is a gate that lets work",
+    "THROUGH. `make verify` and the CI `instrument-census-check` step both read its",
+    "green as 'ADR 0008's census describes this tree', and nothing downstream",
+    "re-derives that. It is also the gate every OTHER coverage number rests on: the",
+    "denominator `check-negative-controls.py` prints is this table's row count, so a",
+    "blind version here makes the coverage fraction quietly wrong everywhere it is",
+    "quoted, including in release notes.",
+    "",
+    "A blind version would print the same clean line over the pre-#1060 state, where",
+    "eight instruments were in neither table - among them counter-model-receipt.py,",
+    "which then shipped carrying #1047 and #1048, the exact defect class this table",
+    "exists to bound.",
+    "",
+    "THE CASES ARE WHOLE FIXTURE TREES, not the real repository. The gate takes",
+    "--root, so a case is a miniature repo: a two- or three-script `scripts/` and a",
+    "small ADR with the real document's shape (numbered census rows, an 'Excluded,",
+    "with the reason' section, an external-subjects marker). Deliberately tiny - the",
+    "question is whether the gate can tell an accounted tree from an unaccounted one.",
+    "",
+    "EACH BAD CASE FIRES EXACTLY ONE FINDING, and that cost a rewrite. The first cut",
+    "left an exclusion row naming `sandbox-trial.sh`, a file absent from the fixture",
+    "tree, so BOTH bad cases also reported an incidental STALE. Each would then have",
+    "scored BAD even with the direction it exists to prove completely removed - a case",
+    "that cannot fail for its own reason is not evidence about that reason.",
+    "",
+    "TWO BAD CASES, because the gate draws two distinctions:",
+    "",
+    "  bad-unaccounted    a script in neither table - the drift #1060 is about, and",
+    "                     the shape that accumulated eight times unnoticed. The",
+    "                     fixture NAMES it in the document's prose, which is what",
+    "                     makes the anchor miss it rather than merely differ.",
+    "  bad-stale-subject  a census row for a script that is not in the tree. The",
+    "                     forward check alone scores this clean, so without this case",
+    "                     the reverse direction ships unexercised and the denominator",
+    "                     can inflate silently - in the flattering direction.",
+    "",
+    "The GOOD case exercises all three accounting paths, not just the census one:",
+    "`alpha-tool.sh` by a census row, `delta-tool.sh` by an exclusion, and `ruff` by",
+    "the external-subjects declaration. THE HALF THAT MATTERS for a gate wedged at",
+    "'fail': a check that refuses every tree is indistinguishable from a working one",
+    "on the bad cases alone, and this gate is in `make verify`, so a false red blocks",
+    "every merge in the repository.",
+    "",
+    "Stdlib-only and git-free, like the gate: no binary this fixture needs is absent",
+    "from the slim CI image, so the control gives the same verdict there as here."
+  ],
+  "gate": "scripts/instrument-census-check.py",
+  "invocation": [
+    "python3",
+    "{gate}",
+    "check",
+    "--root",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^(UNACCOUNTED|STALE): ",
+  "cases": [
+    {
+      "name": "bad-unaccounted",
+      "input": "cases/bad-unaccounted",
+      "expect": "BAD",
+      "why": "`beta-tool.sh` is named by no census row and no exclusion - the exact case issue #1060 requires committed. It IS named in the document's prose, so the rejected extraction rule (any backticked token anywhere) scores this tree clean. If this scores GOOD the gate cannot see an unenumerated instrument at all, which is the only thing it exists to see."
+    },
+    {
+      "name": "bad-stale-subject",
+      "input": "cases/bad-stale-subject",
+      "expect": "BAD",
+      "why": "The population is fully accounted for, but a census row survives for `gamma-tool.sh`, which is not in the tree. The forward check alone reports this tree clean. Without this case the reverse direction ships unexercised, and a census that keeps rows for deleted tooling inflates the denominator every coverage figure is quoted against."
+    },
+    {
+      "name": "good-accounted",
+      "input": "cases/good-accounted",
+      "expect": "GOOD",
+      "why": "A tree whose census matches it exactly, exercising all three accounting paths - a census row, an exclusion row, and a declared external subject. THE HALF THAT MATTERS for a gate wedged at 'fail': a check that refuses every tree passes both bad cases on its own, and this gate is in `make verify`, so a false red blocks every merge in the repository. The external path is here deliberately - it is a list that NARROWS, and a good case that never exercised it would leave the direction where it must NOT fire unproven."
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "constructed-loose-tokens-forward-only",
+      "origin": "scripts/instrument-census-check.py",
+      "path": "anchors/constructed-loose-tokens-forward-only-instrument-census-check.py",
+      "sha256": "64dba620af1f76c1ac3db6e95c58b7515893d366d1e3a15a6da7ede36a9a3ff0",
+      "why": "CONSTRUCTED: the gate is new and never shipped blind, so there is no revision to vendor - `--verify-provenance` therefore reports `unverified`, which is correct and must never be read as `ok`. This is the FIRST FRAMING of the problem, on the record: #1060 as filed described the forward direction and said nothing about the extraction rule, and written straight from that sentence you get this file - every backticked token anywhere in the document counts, and there is no STALE check. It misses `bad-unaccounted` because the prose names the script, misses `bad-stale-subject` because it never looks in that direction, and agrees with the real gate on `good-accounted`, which is what makes the demonstration isolated."
+    }
+  ]
+}
