@@ -149,10 +149,12 @@ secret-scan:
 	fi
 
 ## Dependency vulnerability audit (issue #961)
-## CPP ran no dependency audit at all. Both sets of advisories it carries today
-## were found by a person looking - #922 on the root lock ("tracked by no
-## issue"), #943 on mcp-evaluate - which is a practice, not a gate. Advisories
-## arrive whether or not anything is watching.
+## CPP ran no dependency audit at all. Both sets of advisories it carried were
+## found by a person looking - #922 on the root lock ("tracked by no issue"),
+## #943 on mcp-evaluate - which is a practice, not a gate. Advisories arrive
+## whether or not anything is watching. Both are resolved now (#922 by upgrading,
+## #943 by retiring the subproject), so the ledger is empty - which is a reading
+## this gate takes, not a reason to stop taking it.
 ##
 ## DELIBERATELY NOT IN `verify`, and this is the mirror image of `oscillation`
 ## above rather than an oversight. That detector is in `verify` and NOT in CI

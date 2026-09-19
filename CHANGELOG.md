@@ -13,6 +13,66 @@
 > record, and a wrong split is worse than an unsplit one that says so.
 
 
+### Removed
+
+- **2026-09-19 - the `mcp-evaluate/` subproject, and with it 34 CVEs** (issue
+  #943) - #943 asked which of three paths to take on 11 locked packages carrying
+  34 advisories: migrate across major versions, add per-package ceilings, or
+  accept a residue after assessing exposure. The exposure assessment answered a
+  different question. `mcp-evaluate` was **deprecated in CPP's own documentation**
+  ("absorbed into /evaluate:issue skill", drift status `LEGACY DEPRECATED`, a
+  class defined as *teardown only*), registered in no scope, listening on no
+  port, carrying no systemd unit, with `/cpp:init` already scanning for and
+  flagging its unit as legacy - and its replacement `/evaluate:issue` declares
+  "No separate MCP server required". kyle referenced it zero times across 935
+  files (positive control: the same search returns 30 hits for `second-opinion`),
+  and codex-power-pack had already listed it under "Removed entirely" and
+  executed the deletion. So the advisories were cleared by removing what carried
+  them rather than by bumping a server nothing runs.
+
+  **The issue's premise was also measurably wrong, and is recorded as such rather
+  than quietly dropped.** #943 argued the remedy "is not free" - that clearing
+  `mcp`'s CVEs might need mcp 2.x, which fastmcp 3.x rejects, and that reaching
+  zero meant crossing three major boundaries. Measured on 2026-09-19:
+  `uv lock --upgrade-package` over the eleven, with `pyproject.toml` untouched
+  and fastmcp pinned at 3.2.4, resolves `mcp 1.30.0` and `starlette 1.6.0` and
+  reaches **0 of 77 vulnerable**. The subproject was retired because it was
+  unused, not because it was hard to patch.
+
+- **2026-09-19 - the CI `dockerfile-lint` step** (issue #943) - retired in the
+  same change and for a reason worth separating from the deletion.
+  `mcp-evaluate/deploy/Dockerfile` was the **last Dockerfile in the tree**
+  (#469 stopped CPP building images but left this one behind), and the step ran
+  `find . -name Dockerfile -print0 | xargs -0 -r hadolint`. `xargs -r` does not
+  run on empty input, so from the moment the file left, the step would have
+  exited 0 having linted nothing - printing a green indistinguishable from a tree
+  whose Dockerfiles all passed. A zero-file population is UNKNOWN, not clean
+  (ADR 0008), so the step was deleted rather than left standing: an absent
+  instrument is visible in the census, a blind one is not. ADR 0008 row 45
+  (`hadolint`) is removed, its CI-step population annotated rather than
+  backdated, and `hadolint` dropped from the `external-subjects` declaration.
+  **Anyone adding a Dockerfile to CPP must restore this step with it; nothing
+  will notice its absence for them.**
+
+- **2026-09-19 - `test_convention_parity_with_mcp_evaluate`** (issue #943) - the
+  test asserted that `mcp-evaluate/src/config.py` and `.mcp.json` declared the
+  same `SECOND_OPINION_URL` default. Its premise was "one variable, two
+  consumers"; the second consumer is gone, so there is nothing left to diverge
+  from. Removed rather than made tolerant of a missing file - a version that
+  skipped when the path was absent would pass unconditionally while still
+  reading as a parity check.
+
+- **2026-09-19 - the dependency audit's only allowlist line** (issues #943, #961)
+  - `.dependency-audit-allow` carried exactly one entry,
+    `deferred mcp-evaluate/uv.lock #943`, and it came out because the gate made
+    it: a line accounting for nothing reports `DEP-AUDIT-STALE` and exits 1.
+    Demonstrated on this branch rather than asserted - the old allowlist against
+    the post-deletion tree exits **1** naming line 55, the new one exits **0**,
+    same tree and same command. That is the second time the stale-suppression
+    rule has fired on a change its author did not make (the first was #922). The
+    ledger is now empty, and its count is still printed on every run so that
+    empty never reads as unexamined.
+
 ### Added
 
 - **2026-09-16 - a per-advisory disposition register for the root lockfile**
