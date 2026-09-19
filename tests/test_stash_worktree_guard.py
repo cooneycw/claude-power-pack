@@ -442,6 +442,234 @@ def test_a_non_executable_hook_really_is_ignored_by_git(tmp_path: Path) -> None:
     assert "unguarded-because-not-executable" in _git(wt, "stash", "list").stdout
 
 
+# ---------------------------------------------------------------------------
+# On by default, with a PERSISTED opt-out (owner decision, 2026-09-19).
+#
+# The property that matters is not "there is a flag". It is that turning the
+# guard OFF survives the next automatic install - `/cpp:init`, `/cpp:update` and
+# the flow worktree lane all call `--install`, so an opt-out they overwrite is a
+# question the user answers again every update rather than a decision.
+# ---------------------------------------------------------------------------
+
+
+def _admin(guard: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["bash", str(guard), *args], capture_output=True, text=True, check=False
+    )
+
+
+@requires_git
+def test_uninstall_records_the_optout(tmp_path: Path) -> None:
+    main, _wt = _make_repo(tmp_path)
+    assert _install(GUARD, main).returncode == 0
+
+    result = _admin(GUARD, "--uninstall", str(main))
+
+    assert "STASH_GUARD: absent" in result.stdout
+    assert _git(main, "config", "--get", "cpp.stashGuard").stdout.strip() == "false"
+
+
+@requires_git
+def test_install_honours_the_recorded_optout(tmp_path: Path) -> None:
+    """THE load-bearing assertion: an automatic install must not undo the choice."""
+    main, _wt = _make_repo(tmp_path)
+    _git(main, "config", "cpp.stashGuard", "false")
+
+    result = _admin(GUARD, "--install", str(main))
+
+    assert "STASH_GUARD: disabled" in result.stdout
+    assert result.returncode == 0, "an opt-out is a settled state, not a fault to repair"
+    hooks = main / ".git" / "hooks" / "reference-transaction"
+    assert not hooks.exists(), "reinstalled over the user's recorded opt-out"
+
+
+@requires_git
+def test_a_disabled_repo_really_is_unguarded(tmp_path: Path) -> None:
+    """The opt-out must actually turn the behaviour off, not just the verdict."""
+    main, wt = _make_repo(tmp_path)
+    _git(main, "config", "cpp.stashGuard", "false")
+    _admin(GUARD, "--install", str(main))
+
+    (wt / "f.txt").write_text("base\nworktree-work\n")
+    result = _stash_push(wt, "opted-out")
+
+    assert result.returncode == 0
+    assert "opted-out" in _git(wt, "stash", "list").stdout
+
+
+@requires_git
+def test_enable_clears_the_optout_and_installs(tmp_path: Path) -> None:
+    """The deliberate way back on - the other half of the opt-out control."""
+    main, wt = _make_repo(tmp_path)
+    _git(main, "config", "cpp.stashGuard", "false")
+
+    result = _admin(GUARD, "--enable", str(main))
+
+    assert "STASH_GUARD: installed" in result.stdout
+    assert _git(main, "config", "--get", "cpp.stashGuard", check=False).stdout.strip() == ""
+    (wt / "f.txt").write_text("base\nworktree-work\n")
+    assert NULL_TREE_MARKER in _stash_push(wt, "should-refuse").stderr
+
+
+@requires_git
+def test_check_reports_disabled_rather_than_absent(tmp_path: Path) -> None:
+    """`absent` and `disabled` are opposite facts and must not render alike.
+
+    `absent` says nobody installed it; `disabled` says somebody turned it off.
+    A caller repairs the first and must not touch the second.
+    """
+    main, _wt = _make_repo(tmp_path)
+    _git(main, "config", "cpp.stashGuard", "false")
+
+    result = _admin(GUARD, "--check", str(main))
+
+    assert "STASH_GUARD: disabled" in result.stdout
+    assert "STASH_GUARD: absent" not in result.stdout
+
+
+@requires_git
+def test_quiet_is_silent_on_a_noop_and_loud_on_a_change(tmp_path: Path) -> None:
+    """The automatic callers run this on every flow worktree - a no-op must not spam.
+
+    Both directions: a `current`/`disabled` run says nothing, and a run that
+    actually installed still announces itself. A --quiet that swallowed the
+    install too would make the automatic lane invisible.
+    """
+    main, _wt = _make_repo(tmp_path)
+
+    first = _admin(GUARD, "--install", str(main), "--quiet")
+    assert "STASH_GUARD: installed" in first.stdout, "a real install must not be silent"
+
+    # A no-op suppresses the PROSE and keeps the verdict: the marker is the
+    # machine contract every automatic caller parses, and silencing it made a
+    # real `disabled` read as `unknown` in flow-start-resolve.
+    second = _admin(GUARD, "--install", str(main), "--quiet")
+    assert second.stdout.strip() == "STASH_GUARD: current", (
+        f"a no-op must emit the verdict and nothing else, got: {second.stdout!r}"
+    )
+
+    _admin(GUARD, "--uninstall", str(main))
+    third = _admin(GUARD, "--install", str(main), "--quiet")
+    assert third.stdout.strip() == "STASH_GUARD: disabled", (
+        f"a recorded opt-out must still report its verdict, got: {third.stdout!r}"
+    )
+
+
+@requires_git
+def test_quiet_never_swallows_a_refusal(tmp_path: Path) -> None:
+    """`foreign` is a refusal, not a no-op - quiet mode must still report it."""
+    main, _wt = _make_repo(tmp_path)
+    hooks = main / ".git" / "hooks"
+    hooks.mkdir(parents=True, exist_ok=True)
+    (hooks / "reference-transaction").write_text("#!/bin/sh\nexit 0\n")
+    (hooks / "reference-transaction").chmod(0o755)
+
+    result = _admin(GUARD, "--install", str(main), "--quiet")
+
+    assert "STASH_GUARD: foreign" in result.stdout
+    assert result.returncode != 0
+
+
+@requires_git
+def test_uninstall_records_the_optout_even_with_no_hook_installed(tmp_path: Path) -> None:
+    """Turning it off BEFORE the first automatic install is the ordinary case now.
+
+    The early "nothing to remove" return wrote no preference, so the next flow
+    run installed the guard over a choice the user had already made and been told
+    was accepted (counter-model finding).
+    """
+    main, _wt = _make_repo(tmp_path)
+    assert not (main / ".git" / "hooks" / "reference-transaction").exists()
+
+    result = _admin(GUARD, "--uninstall", str(main))
+
+    assert "STASH_GUARD: absent" in result.stdout
+    assert _git(main, "config", "--get", "cpp.stashGuard").stdout.strip() == "false"
+    # ... and the next automatic install must honour it.
+    assert "STASH_GUARD: disabled" in _admin(GUARD, "--install", str(main)).stdout
+    assert not (main / ".git" / "hooks" / "reference-transaction").exists()
+
+
+@requires_git
+def test_a_failed_optout_write_is_not_reported_as_recorded(tmp_path: Path) -> None:
+    """A preference that was NOT saved must not be announced as saved.
+
+    `git config ... || true` claimed success while a `.git/config.lock`
+    discarded the write; the next automatic install then reinstalled over a
+    choice the user was told had been kept (counter-model finding).
+    """
+    main, _wt = _make_repo(tmp_path)
+    assert _install(GUARD, main).returncode == 0
+    lock = main / ".git" / "config.lock"
+    lock.write_text("")
+    try:
+        result = _admin(GUARD, "--uninstall", str(main))
+    finally:
+        lock.unlink()
+
+    assert "STASH_GUARD: error" in result.stdout
+    assert result.returncode != 0
+    assert "STASH_GUARD: absent" not in result.stdout
+
+
+@requires_git
+def test_a_failed_enable_does_not_install_an_enforcing_hook(tmp_path: Path) -> None:
+    """The mirror image: never install while the config still says 'off'.
+
+    That state is incoherent - `--check` reports `disabled` about a repository
+    whose hook refuses stashes.
+    """
+    main, _wt = _make_repo(tmp_path)
+    _git(main, "config", "cpp.stashGuard", "false")
+    lock = main / ".git" / "config.lock"
+    lock.write_text("")
+    try:
+        result = _admin(GUARD, "--enable", str(main))
+    finally:
+        lock.unlink()
+
+    assert "STASH_GUARD: error" in result.stdout
+    assert not (main / ".git" / "hooks" / "reference-transaction").exists()
+    assert _git(main, "config", "--get", "cpp.stashGuard").stdout.strip() == "false"
+
+
+@requires_git
+def test_a_neighbour_repo_cannot_reactivate_a_disabled_guard(tmp_path: Path) -> None:
+    """THE finding that made the preference authoritative (counter-model).
+
+    An absolute `core.hooksPath` can be shared across independent repositories.
+    If A opts out and B then installs, the hook FILE exists for A too. The hook
+    must read A's own `cpp.stashGuard` before refusing, or A is guarded against
+    its recorded choice while `--check` cheerfully reports `disabled`.
+    """
+    shared = tmp_path / "shared-hooks"
+    shared.mkdir()
+
+    (tmp_path / "A").mkdir()
+    (tmp_path / "B").mkdir()
+    a_main, a_wt = _make_repo(tmp_path / "A")
+    b_main, b_wt = _make_repo(tmp_path / "B")
+    for repo in (a_main, b_main):
+        _git(repo, "config", "core.hooksPath", str(shared))
+
+    # A opts out; B installs into the SAME hooks directory.
+    _admin(GUARD, "--uninstall", str(a_main))
+    assert "STASH_GUARD: installed" in _admin(GUARD, "--install", str(b_main)).stdout
+    assert (shared / "reference-transaction").exists()
+
+    # A must be unguarded - its recorded choice wins over the shared file.
+    (a_wt / "f.txt").write_text("base\nA-work\n")
+    a_result = _stash_push(a_wt, "A-opted-out")
+    assert a_result.returncode == 0, (
+        "a neighbour's install reactivated a repository that opted out"
+    )
+    assert "A-opted-out" in _git(a_wt, "stash", "list").stdout
+
+    # ... and B, which did not opt out, must still be guarded.
+    (b_wt / "f.txt").write_text("base\nB-work\n")
+    assert NULL_TREE_MARKER in _stash_push(b_wt, "B-should-refuse").stderr
+
+
 @requires_git
 def test_uninstall_removes_only_our_hook(tmp_path: Path) -> None:
     main, _wt = _make_repo(tmp_path)

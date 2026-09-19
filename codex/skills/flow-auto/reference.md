@@ -247,7 +247,25 @@ This enforces the moat every later step relies on: it fails
 (`FLOW_START_VERIFY: fail`, exit 1) when the checkout is still on main/master,
 and renames a non-conforming branch to the issue-anchored `issue-<N>-<slug>`
 name so downstream steps can parse the issue number. On success it prints the
-final `BRANCH=`, `WT_ROOT=` and `CLAIM=`.
+final `BRANCH=`, `WT_ROOT=`, `CLAIM=` and `STASH_GUARD=`.
+
+It also ARMS the shared-stash guard for the repository (issue #1056), on by
+default. Creating a linked worktree is the moment `refs/stash` becomes shared
+across checkouts, so this is where the hazard starts - and it is the reason the
+#635 commit-first rule below is not the whole answer: that rule binds a caller
+reading this document, and the guard binds every caller. `STASH_GUARD=` reports
+`installed|current|disabled|foreign|unsupported|unknown`; `disabled` means the
+repository recorded `cpp.stashGuard=false`. Like `CLAIM`, it is ADVISORY -
+reported, never a precondition, and it can never fail the gate. See
+`docs/agents/shared-stash-stack.md`.
+
+The verify gate also arms the shared-stash guard, `scripts/stash-worktree-guard.sh`
+(issue #1056), which the resolver calls as a sibling - so that script is bundled
+alongside it here. Without the bundle the resolver finds no helper, reports
+`STASH_GUARD=unknown`, and the advertised default protection is simply absent
+(counter-model finding). It is advisory and fail-open, and it honours a
+repository's recorded `cpp.stashGuard=false` opt-out.
+
 
 The verify gate also STAKES this run's claim on the worktree (issue #597) - it
 is the only hook point that runs inside the checkout on every lane, since the

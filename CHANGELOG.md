@@ -15,6 +15,70 @@
 
 ### Added
 
+- **2026-09-19 - `/project:next` had no engine on a fresh install** (issue
+  #1066) - `.claude/commands/project/next.md` states that
+  `~/.claude/scripts/project-next.py` "is always present with this command" and
+  invokes it there, but both loops that create that symlink - `/cpp:init` Tier 2
+  and `/cpp:update` Step 5b - skip non-executable files, and
+  `scripts/project-next.py` was committed `100644`. On a fresh host the symlink
+  was never created and the command failed at the path its own document calls
+  always-present. Invisible on an established host, where the symlink predates
+  the current loop, so `make verify`, CI and every existing box looked healthy.
+  Fixed by committing the mode, and pinned by
+  `tests/test_stable_path_scripts_installable.py`, which DERIVES its population
+  from the command documents rather than listing files - the question is "does
+  every path a document promises actually install", and a hardcoded list would
+  have to be maintained by the same person who forgets the mode bit. It carries
+  a positive control (the scan must find its known consumer, since a broken
+  extractor's empty result is indistinguishable from a pass) and asserts the
+  installer gate is still executability, so the pin cannot outlive the condition
+  it exists for. Verified red on the pre-fix mode and green after.
+  **How it was found:** inspecting the orphaned `/cpp:update` stash that #1056
+  asked someone to decide about. Its entire content was the `644 -> 755` mode
+  change on this file, zero content lines - somebody hit this on 2026-09-03,
+  fixed it, and `/cpp:update`'s auto-stash swallowed the fix into an entry it
+  never restored. The orphan was not junk; it was the repair, eaten by the
+  defect #1056 is about.
+
+- **2026-09-19 - the shared-stash guard is ON BY DEFAULT, with an opt-out that
+  persists** (issue #1056, owner decision) - shipping the guard and leaving
+  installation to the user meant the hazard stayed documented rather than
+  prevented: `.git/hooks` is untracked, so a merge cannot place a hook and
+  nothing armed it. Three callers now install it, and the first is the one that
+  matters: `flow-start-resolve.sh --verify` arms it on **every worktree of every
+  lane**, because creating a linked worktree is the exact moment `refs/stash`
+  becomes shared across checkouts. `/cpp:init` Tier 1 and `/cpp:update`
+  Step 5b.1 install it too - the latter refreshes it, since a hook is a COPY in
+  `.git/hooks` and does not follow `git pull` the way the script symlinks do.
+  All three are ADVISORY and FAIL-OPEN: the verdict is reported and never
+  consumed as a precondition, so a guard that cannot be installed can never turn
+  a healthy Step 1, init or update into a failure.
+  **The opt-out persists, and that is what makes it an opt-out.** `--uninstall`
+  removes the hook AND records `cpp.stashGuard=false` in the repository config;
+  `--install` then reports the new `disabled` verdict and changes nothing;
+  `--enable` is the deliberate way back on. Without the record, the next
+  automatic install would silently undo the user's choice and the prompt would
+  return on every update - the oscillation ADR 0009 predicts, arriving as the
+  remedy rather than the problem. `disabled` and `absent` are separate verdicts
+  because they are opposite facts (nobody installed it, versus somebody turned
+  it off), and `disabled` exits 0 so an automatic caller treats it as settled.
+  `--install` is now idempotent - it reports `current` rather than claiming a
+  fresh install on every run - and `--quiet` suppresses the prose on a no-op but
+  NEVER the `STASH_GUARD:` marker: silencing that turned a real `disabled` into
+  `unknown` inside the resolver, caught by
+  `test_verify_honours_the_stash_guard_optout` rather than by review.
+  A counter-model pass (codex/gpt-6-astra) raised four more, all accepted: the
+  generated Codex skill bundles shipped the resolver without the guard beside
+  it, so a bundled run reported `unknown` and installed nothing; `--uninstall`
+  on a repository with no hook yet returned early and recorded nothing, so
+  opting out BEFORE the first automatic install silently failed; a `git config`
+  write that failed was announced as a recorded opt-out; and the HOOK ITSELF
+  never consulted `cpp.stashGuard`, so with an absolute `core.hooksPath` shared
+  between repositories a neighbour's install re-armed a repository that had
+  opted out while `--check` reported `disabled`. The last one moved the source
+  of truth: the recorded PREFERENCE is authoritative, not the hook file's
+  presence, and the hook reads it before refusing anything.
+
 - **2026-09-19 - refuse `git stash push` from a linked worktree, and stop
   `/cpp:update` orphaning work on the shared stack** (issue #1056) - a worktree
   isolates the working tree and NOT the refs. `refs/stash` lives in the
