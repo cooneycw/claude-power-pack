@@ -1,0 +1,17 @@
+{
+  "lanes": {
+    "cpp-w1": [1099],
+    "cpp-w2": [1094],
+    "cpp-w3": []
+  },
+  "buckets": {
+    "owner-decision": [1033],
+    "blocked": [],
+    "deferred": [],
+    "backlog": [864, 871, 921, 959, 962, 970, 972, 977, 1014, 1028, 1034, 1035, 1036, 1037, 1041, 1047, 1048, 1061, 1067, 1068, 1069, 1070, 1071, 1072, 1073, 1074, 1075, 1076, 1079, 1080, 1081, 1082, 1083, 1084, 1085, 1092, 1095]
+  },
+  "notes": {
+    "1030": "Closed via PR #1100. Previously w3's lane (defect 3 only; items 1, 2, 4 shipped in PR #1097) - removed on closure, since a closed issue is no longer open and must not be claimed.",
+    "1033": "items 1, 2, 4 shipped in PR #1096; remaining item 3 is tracked at #1094, which is why #1033 sits in owner-decision - whether it closes is the owner's call, not the reconciler's."
+  }
+}

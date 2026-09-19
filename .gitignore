@@ -128,6 +128,14 @@ desktop.ini
 # question, and the answer would be a summarised ledger rather than un-ignoring
 # these.
 !docs/measurements/counter-model/*.json
+# The slate reconciler's hand-maintained claimed-lanes file (issue #1099) -
+# tracked despite *.json above. It IS the declared side of the reconciliation
+# (docs/slate-lanes.md states plainly that it is hand-maintained, not derived),
+# so the blanket rule silently swallowing it would leave the instrument with
+# nothing to check the open set against - `git add` no-ops on an ignored path
+# with no error, the same failure mode #924's control.json negation above
+# already names.
+!docs/slate-lanes.json
 # The #953 forced-claim prototype's manifest, claims and anchors (issue #953) -
 # same trap, one directory over. Its cases/*/claim.json and cases/*/anchor.log
 # ARE the fixture inputs: without them `--selftest` crashes on a fresh checkout,
