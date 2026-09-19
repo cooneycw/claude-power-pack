@@ -1359,9 +1359,9 @@ mailbox's `supervise`, which can because it explicitly forks one.
 
 **A blank witness is never read as a match.** Every registry entry that
 predates #1094 has no `pid_started` field at all, and treating "never
-recorded" the same as "recorded and equal" would report the strongest verdict
-this instrument can give - `live`, `pid-present` - for every one of them, on no
-evidence at all. `FLOW_WAVE_LIVENESS_BASIS` therefore carries three distinct
+recorded" the same as "recorded and equal" would report the strongest basis
+this instrument can give - `pid-present` - for every one of them, on no
+evidence at all. `FLOW_WAVE_LIVENESS_BASIS` therefore carries four distinct
 values for a pid that currently exists, not two:
 
 | basis | meaning |
@@ -1371,10 +1371,18 @@ values for a pid that currently exists, not two:
 | `pid-present-witness-undeterminable` | exists, but the CURRENT start time could not be read - identity not confirmed |
 | `pid-recycled` | exists, but its start time does NOT match what was recorded - a different process now holds this number |
 
-Only `pid-present` reads `live`; the other three read `unknown` (the first two)
-or `stale` (`pid-recycled`) - the same "only a proven fact promotes to `live`
-or `stale`, everything else stays `unknown`" discipline the errno table above
-already uses, applied one layer deeper.
+Only `pid-recycled` reads `stale`; the other three all read `live` -
+deliberately, not by the errno table's "only a proven fact promotes" default.
+The witness can only ever ADD a positive finding (a proven mismatch); it never
+subtracts one. `pid-present-witness-absent` and `pid-present-witness-undeterminable`
+are both "no evidence either way", and no evidence of recycling is not evidence
+of anything - reporting `unknown` for them would not give any reader a new
+decision to make, since every consumer of `liveness_of` (five call sites, as of
+#1094) tests it as a plain `= "live"` binary; it would only silently reclassify
+every entry written before this field existed, fleet-wide, from live to
+not-live. The basis still carries the distinction for anyone who reads it,
+exactly as `ManagedSession.credential_state` does - the careful reader consults
+the field, the binary reader consumes the word.
 
 ## Output contract
 

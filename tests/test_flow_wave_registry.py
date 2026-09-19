@@ -789,15 +789,25 @@ class TestPidRecyclingWitness:
     independent of what was recorded for it at registration.
     """
 
-    def test_a_never_recorded_witness_is_unknown_not_a_silent_live(
+    def test_a_never_recorded_witness_reads_live_with_a_weaker_basis(
         self, tmp_path: Path
     ) -> None:
-        """BLANK IS NOT A MATCH. Every registry entry that predates issue
-        #1094 has no `pid_started` field at all - falling through to "the
-        comparison passed" for one would report the strongest verdict this
-        instrument can give, for every pre-existing entry in the fleet, on
-        no evidence at all. Never-recorded and recorded-and-equal must stay
-        different facts in the output, not just internally."""
+        """BLANK IS NOT A MATCH (orchestrator ruling, #1094 msg 1039/1041).
+        Every registry entry that predates issue #1094 has no `pid_started`
+        field at all - falling through to "the comparison passed" for one
+        would report the strongest BASIS this instrument can give
+        (`pid-present`) for every pre-existing entry in the fleet, on no
+        evidence at all. Never-recorded and recorded-and-equal must stay
+        different facts in the BASIS.
+
+        But the VERDICT stays `live`, deliberately not `unknown`: the
+        witness can only ever ADD a positive finding (a proven mismatch),
+        never subtract one, and every consumer of `liveness_of` (five call
+        sites, as of #1094) tests it as a plain `= "live"` binary - a third
+        verdict value here would reclassify every pre-#1094 entry from live
+        to not-live fleet-wide, with no reader able to act on the new
+        distinction. The basis still carries it for anyone who reads that
+        field instead of the summary word."""
         _run(tmp_path, "register", "1", "--socket", "uds:/tmp/legacy.sock", pid="31337", live="")
         entry_path = tmp_path / "reg" / "registry.json"
         data = json.loads(entry_path.read_text())
@@ -807,8 +817,34 @@ class TestPidRecyclingWitness:
         entry_path.write_text(json.dumps(data))
 
         p = _run(tmp_path, "get", "1", pid="31337", live="31337")
-        assert _detail(p, "FLOW_WAVE_LIVENESS") == "unknown"
+        assert _detail(p, "FLOW_WAVE_LIVENESS") == "live"
         assert _detail(p, "FLOW_WAVE_LIVENESS_BASIS") == "pid-present-witness-absent"
+
+    def test_an_unreadable_current_witness_also_reads_live_with_a_weaker_basis(
+        self, tmp_path: Path
+    ) -> None:
+        """Same ruling, the other blank: this time the entry HAS a recorded
+        witness, but the CURRENT one cannot be read (`pid_started_of`
+        returns `-`). Passing `starttimes=""` on the `get` call disables the
+        test helper's default witness derivation, and pointing
+        `FLOW_WAVE_PROC_ROOT` at an empty directory guarantees the
+        script's real-`/proc` fallback finds no `stat` file to read -
+        deterministic, rather than relying on a fake pid number happening
+        not to be a real process on the machine running the test. Not
+        evidence of recycling either, so it reads `live` too, with its own
+        distinct basis."""
+        _run(
+            tmp_path, "register", "1", "--socket", "uds:/tmp/a.sock",
+            pid="55009", live="55009", starttimes="55009=1000",
+        )
+        empty_proc_root = tmp_path / "no-such-proc"
+        empty_proc_root.mkdir()
+        p = _run(
+            tmp_path, "get", "1", pid="55009", live="55009", starttimes="",
+            extra_env={"FLOW_WAVE_PROC_ROOT": str(empty_proc_root)},
+        )
+        assert _detail(p, "FLOW_WAVE_LIVENESS") == "live"
+        assert _detail(p, "FLOW_WAVE_LIVENESS_BASIS") == "pid-present-witness-undeterminable"
 
     def test_a_differing_witness_reads_recycled_not_live(self, tmp_path: Path) -> None:
         """The positive control: register with one witness, then read the
