@@ -373,6 +373,17 @@
 #   FLOW_WAVE_MAILBOX_DIR   mailbox wave-root override, passed through to the
 #                           sibling helper so the two always co-locate (#778)
 #   FLOW_WAVE_SELF_PID      starting pid for the self-address ancestor walk
+#   FLOW_WAVE_PID_STARTTIMES  'pid=starttime:pid=starttime' pairs (issue #1094)
+#                           - when a pid appears, its recorded/looked-up start
+#                           time is this value rather than /proc's; the only
+#                           way to construct a chosen pid+starttime pairing for
+#                           a test without depending on real kernel pid reuse,
+#                           which cannot be forced on demand
+#   FLOW_WAVE_PROC_ROOT     '/proc' root override (issue #1094) - lets a test
+#                           feed pid_started_of() a CRAFTED stat line (a comm
+#                           containing a space or a parenthesis) through the
+#                           real parser, rather than asserting the parser is
+#                           correct without ever exercising it
 
 set -uo pipefail
 
@@ -517,6 +528,60 @@ pid_state() {
   esac
 }
 
+# pid_started_of PID -> that process's start time (field 22 of
+# /proc/<pid>/stat, clock ticks since boot), or "-" if it cannot be
+# determined (issue #1094).
+#
+# `pid_state` alone answers "does a process with this number exist", never
+# "is it the SAME process a registry entry recorded" - a registered pid that
+# exits and is later reused by the kernel for an unrelated process reads
+# `alive` either way. A process's start time is a second, independent fact
+# about THAT SPECIFIC instance: a pid recycled to an unrelated process will
+# have a start time from after the original one exited, so comparing the
+# CURRENT start time against the one recorded at registration distinguishes
+# recycling from genuine survival, without a lifetime flock or a persistent
+# process to hold one - `register` is a one-shot invocation with nothing
+# that could hold a lock for the life of the session it is recording.
+#
+# NEVER a positional `awk '{print $22}'` on the raw line. `comm` (field 2) is
+# parenthesised and MAY ITSELF CONTAIN SPACES OR PARENTHESES - a process can
+# set its own name to anything - so a naive positional split silently shifts
+# every field after it. Measured directly: this read a start time from BEFORE
+# the process could have existed, for exactly this reason. The kernel's own
+# convention (and every tool that gets this right, `ps` included) is to split
+# on the LAST `)` in the line - `${stat##*)}` removes the longest matching
+# prefix ending in `)`, so any parens embedded in `comm` are consumed as part
+# of it - and index the fields AFTER that split, where starttime is the 20th
+# (state ppid pgrp session tty_nr tpgid flags minflt cminflt majflt cmajflt
+# utime stime cutime cstime priority nice num_threads itrealvalue starttime).
+pid_started_of() {
+  local pid="$1" entry proc_root stat rest
+  [ -n "$pid" ] && [ "$pid" != "-" ] && [ "$pid" != "null" ] || { echo -; return; }
+  case "$pid" in ''|*[!0-9]*) echo -; return ;; esac
+
+  if [ -n "${FLOW_WAVE_PID_STARTTIMES:-}" ]; then
+    for entry in $(printf '%s' "$FLOW_WAVE_PID_STARTTIMES" | tr ':' ' '); do
+      case "$entry" in
+        "$pid="*) printf '%s\n' "${entry#*=}"; return ;;
+      esac
+    done
+    echo -
+    return
+  fi
+
+  proc_root="${FLOW_WAVE_PROC_ROOT:-/proc}"
+  stat="$(cat "$proc_root/$pid/stat" 2>/dev/null)" || { echo -; return; }
+  rest="${stat##*\)}"
+  # Deliberate word-splitting to index fields positionally.
+  # shellcheck disable=SC2086
+  set -- $rest
+  if [ "$#" -ge 20 ]; then
+    printf '%s\n' "${20}"
+  else
+    echo -
+  fi
+}
+
 # is_alive PID HOST -> 0 when the owning session still runs on THIS host.
 is_alive() {
   local pid="$1" host="$2"
@@ -642,7 +707,7 @@ entry_json() { # entry_json WAVE ROLE -> the entry object or 'null'
 # the BASIS, where it corroborates an already-undeterminable pid and changes no
 # verdict.
 _liveness_compute() {
-  local e="$1" pid host sock released st
+  local e="$1" pid host sock released st recorded_started current_started
   released="$(printf '%s' "$e" | jq -r '.released // false')"
   [ "$released" = "true" ] && { echo "released released"; return; }
   pid="$(printf '%s' "$e" | jq -r '.pid // "-"')"
@@ -660,7 +725,45 @@ _liveness_compute() {
 
   st="$(pid_state "$pid")"
   case "$st" in
-    alive) echo "live pid-present"; return ;;
+    alive)
+      # pid EXISTENCE alone is not pid IDENTITY (issue #1094): a recycled pid
+      # reads `alive` here just as genuinely as the process that originally
+      # registered it. `pid_started` closes that gap - but a BLANK recorded
+      # witness must never be read as a MATCH: every entry this repo already
+      # holds predates this field, and treating "never recorded" the same as
+      # "recorded and equal" would report the strongest basis this instrument
+      # can give, for every pre-existing entry, on no evidence at all.
+      # Never-recorded, recorded-and-equal, recorded-and-different, and
+      # current-unreadable are four different facts and stay four different
+      # basis values - see `.claude/commands/flow/register.md` for the table.
+      #
+      # All four still resolve to only two VERDICTS (orchestrator ruling,
+      # #1094): the witness can only ever ADD a positive finding (a proven
+      # mismatch, `pid-recycled`), never subtract one. Absence of a witness
+      # to compare, or an unreadable current witness, is not evidence of
+      # recycling - it is the absence of evidence either way - so both read
+      # `live`, exactly as they did before this pid existed. This is also
+      # the only choice consistent with every downstream reader: `liveness_of`
+      # is consumed as a plain `= "live"` binary at every call site (:808,
+      # :1342, :1556, :1806, :1849 via CUR_LIVE), so a THIRD verdict value
+      # here would not add a distinction any reader can act on - it would
+      # only silently reclassify every entry written before this field
+      # existed from live to not-live, fleet-wide, in the name of a fix. A
+      # future change that wants that distinction ACTED ON needs its own
+      # call-site changes, not just a basis rename here.
+      recorded_started="$(printf '%s' "$e" | jq -r '.pid_started // "-"')"
+      if [ -z "$recorded_started" ] || [ "$recorded_started" = "-" ]; then
+        echo "live pid-present-witness-absent"; return
+      fi
+      current_started="$(pid_started_of "$pid")"
+      if [ -z "$current_started" ] || [ "$current_started" = "-" ]; then
+        echo "live pid-present-witness-undeterminable"; return
+      fi
+      if [ "$recorded_started" = "$current_started" ]; then
+        echo "live pid-present"; return
+      fi
+      echo "stale pid-recycled"; return
+      ;;
     # A leftover socket file is NOT evidence against a confirmed death, so it is
     # not consulted on this branch at all.
     gone)  echo "stale pid-gone"; return ;;
@@ -1958,11 +2061,17 @@ case "$VERB" in
     # worker re-registered to re-read the protocol would delete the very thing
     # overlap detection reads. Passing an empty value (`--files ""`) clears a
     # field explicitly - the flag was given, so intent is unambiguous.
+    # The witness against pid recycling (#1094): THIS pid's own start time,
+    # captured now while it is unambiguously the registering session's own
+    # process, never re-derived later against whatever the kernel currently
+    # has that number pointing at.
+    SELF_PID_STARTED="$(pid_started_of "$SELF_PID")"
     with_lock '
       .[$w] //= {"roles": {}} |
       (.[$w].roles[$r] // {}) as $prev |
       .[$w].roles[$r] = {
         socket: $sock, self_socket: $selfsock, pid: ($pid | tonumber? // $pid),
+        pid_started: $pidstarted,
         session: $session, host: $host, cwd: $cwd, repo: $repo,
         issue: $issue, branch: $branch, registered_ts: ($now | tonumber),
         verified: ($verified == "true"), address_mismatch: ($mismatch == "true"),
@@ -2000,6 +2109,7 @@ case "$VERB" in
         policy_rev:      ($polrev | tonumber)
       }' \
       --arg w "$WAVE" --arg r "$ROLE" --arg sock "$SOCK" --arg pid "$SELF_PID" \
+      --arg pidstarted "$SELF_PID_STARTED" \
       --arg selfsock "$SELF_SOCK" --arg verified "$KEEP_VERIFIED" \
       --arg filled "$KEEP_FILLED" --arg mismatch "$KEEP_MISMATCH" \
       --arg session "$SELF_SESSION" --arg host "$SELF_HOST" --arg cwd "$A_CWD" \
