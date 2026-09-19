@@ -1,0 +1,19 @@
+{
+  "branch": "issue-961-no-dependency-vulnerability-audit-adopt-pip-audit",
+  "counts": {
+    "accepted": 6,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "implementer": "claude/opus-5",
+  "issue": "961",
+  "passes": 2,
+  "recorded_at": "2026-09-16T21:39:32Z",
+  "red_cases": {
+    "already_covered": 10,
+    "proposed": 13
+  },
+  "reviewer": "codex/gpt-5.5",
+  "schema": 1,
+  "status": "ran"
+}

@@ -1,0 +1,19 @@
+{
+  "branch": "issue-922-pygments-2-19-2-and-pytest-9-0-2-carry-osv-advisor",
+  "counts": {
+    "accepted": 2,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "implementer": "claude/opus-5",
+  "issue": "922",
+  "passes": 2,
+  "recorded_at": "2026-09-16T21:29:11Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 0
+  },
+  "reviewer": "codex/gpt-5.5",
+  "schema": 1,
+  "status": "ran"
+}

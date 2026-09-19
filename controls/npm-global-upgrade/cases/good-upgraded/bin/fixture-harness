@@ -1,0 +1,9 @@
+#!/usr/bin/env sh
+# fixture: reports 1.2.0 until this case's npm records an install, then 1.5.0.
+# The scratch path comes from the runner, so two concurrent runs never share it.
+STATE="${NPM_UPGRADE_FIXTURE_STATE:-/nonexistent}"
+if [ "${1:-}" = "--version" ]; then
+    if [ -f "$STATE/installed" ]; then echo "1.5.0"; else echo "1.2.0"; fi
+    exit 0
+fi
+exit 0

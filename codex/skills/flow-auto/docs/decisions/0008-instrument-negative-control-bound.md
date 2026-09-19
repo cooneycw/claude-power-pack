@@ -238,6 +238,8 @@ another repo (the escalation clause); a row can be both.
 | 61 | `lib.security gate` (quick scan only) | two policies: `flow_finish` blocks CRITICAL and warns HIGH; `flow_deploy` blocks CRITICAL and HIGH and warns MEDIUM (`lib/security/config.py`) | `/flow:finish` and `/flow:deploy` in any repo; a control has to cover the HIGH case that passes finish and blocks deploy | G, X |
 | 62 | `shellcheck-gate.sh` (`make shellcheck`, CI `shellcheck`) | `shellcheck-gate: ok - N file(s) scanned at severity=S, 0 findings (source=git\|find)`, or non-zero; `UNKNOWN` (exit 2) when it could not look | `make verify` and the CI pipeline, which let work through on its verdict (#960) | G |
 | 63 | `check-negative-controls.py` (`--strict`, CI `negative-controls`) | per-gate `PASS\|BLIND\|INERT\|UNRESOLVED\|UNPROVEN\|UNSIGNALLED`, then `negative-controls: ok - N control(s) discriminate` or a non-zero refusal | CI at `.woodpecker.yml`, and `make verify`, both of which let work through on its verdict; read by other sessions and other repos without re-derivation (#964, #981) | G, X |
+| 64 | `npm-global-upgrade.sh` | `NPM_UPGRADE: upgraded\|current\|downgraded\|capped\|not-upgraded\|failed\|unknown` | `/cpp:update` Step 5d.2 and 5d.3 compose the Step 10 `Local-Model Lanes` line from it, and neither the operator reading that line nor a later session re-derives the installed version (#1022) | X |
+| 65 | `dependency-audit.py` (`make dep-audit`, CI `dependency-audit`) | `dependency-audit: ok - N file(s) examined (source=walk\|capture), M package(s), G gating finding(s), S stale allowlist line(s)`, or `DEP-AUDIT-FINDING:` / `DEP-AUDIT-STALE:` (exit 1) / `DEP-AUDIT-UNKNOWN:` (exit 2) | CI at `.woodpecker.yml`, which lets work through on its verdict and does not re-derive it. NOT `lib/security/modules/pip_audit.py`, which is a different instrument with a different consumer: that adapter runs only inside `/security:scan`, skips silently when the binary is absent, and reads a `requirements.txt` this repository does not have (#961) | G |
 
 > **Row 63 closes an ACCOUNTING gap, not a verification one.** The harness that
 > checks whether instruments carry controls was itself missing from the list of
@@ -253,6 +255,25 @@ another repo (the escalation clause); a row can be both.
 > drives the register and asserts the verdicts rather than accepting them. The
 > instrument and the thing that can falsify it have to be separable, and here
 > they are separable only because the test suite is not the harness.
+
+> **Row 65 is the first row added under the third-party-tool shape below**, and
+> the reason it is a separate row from 60/61 is the part worth keeping. CPP
+> already had a pip-audit consumer - `lib/security/modules/pip_audit.py`, reached
+> by `scan_full` and `scan_deep` - so the tempting reading was that the tool was
+> adopted and #961 was a shopping decision about a second copy.
+> `docs/research/class-enumeration-2026-09-15.md` took that reading explicitly
+> ("an unadopted tool is *absent*, not dormant"). It is wrong about this ticket:
+> the adapter appends to `skipped` when the binary is missing and passes, reads a
+> `requirements.txt` CPP does not have - so with pip-audit installed it audits the
+> ambient environment rather than the project's lock - and `lib.security gate`
+> runs only the quick scan, which never reaches it (row 61 records that half
+> already). A tool wired into a path no gate reads is the dormant shape, not the
+> absent one.
+>
+> The distinction the two rows draw is the one the bound cares about: row 60's
+> consumer is a person reading `/security:scan` output in any repo, and row 65's
+> is this repository's CI, which merges or refuses on the verdict. Same binary,
+> different decisions, and only the second one lets work through unexamined.
 
 ### A control must be valid WHERE THE HARNESS RUNS (#960, #964)
 

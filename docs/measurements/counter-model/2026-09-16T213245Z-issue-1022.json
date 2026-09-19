@@ -1,0 +1,19 @@
+{
+  "branch": "issue-1022-cpp-update-step-5d-2-reports-a-qwen-harness-upgrad",
+  "counts": {
+    "accepted": 5,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "implementer": "claude/opus-5",
+  "issue": "1022",
+  "passes": 2,
+  "recorded_at": "2026-09-16T21:32:45Z",
+  "red_cases": {
+    "already_covered": 4,
+    "proposed": 15
+  },
+  "reviewer": "codex/gpt-5.5",
+  "schema": 1,
+  "status": "ran"
+}

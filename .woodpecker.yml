@@ -3,7 +3,7 @@
 #
 # Pipeline:
 #   PR/push -> secret-scan -> validate (lint+test+typecheck) + codex-skills-check
-#              + delegated-core-check + eli5-vendor-check
+#              + delegated-core-check + dependency-audit + eli5-vendor-check
 #              + eli5-upstream-drift (advisory)
 #              + tool-risk-drift -> Dockerfile lint
 #
@@ -107,6 +107,38 @@ steps:
     depends_on: [secret-scan]
     commands:
       - python3 scripts/scripts-inventory-check.py
+
+  # Dependency vulnerability audit (issue #961). CPP ran none: both sets of
+  # advisories it carries today were found by a person looking - #922 on the
+  # root lock, #943 on mcp-evaluate - and the only variable was whether anyone
+  # was looking that week.
+  #
+  # Its own step, not folded into `validate`, for the reason #556 and #591 each
+  # got one: an advisory lands on its own line rather than inside a lint
+  # failure. Unlike the three steps above it this one is NOT stdlib-only and NOT
+  # offline - it needs `uv` (present in this image) and the OSV advisory feed -
+  # which is exactly why `make verify` does not carry it and why its negative
+  # control replays committed captures instead of auditing live.
+  #
+  # `--selftest` RUNS FIRST, AND THAT ORDER IS THE POINT. A broken scan's zeros
+  # look exactly like real ones, so before any clean verdict is issued the same
+  # live path is pointed at a 2019 PyYAML pin it must report and a clean pin it
+  # must not. Its ability to DISCRIMINATE on replayed input is proven separately
+  # by controls/dependency-audit, which the `validate` pytest run and the
+  # negative-controls step both drive.
+  #
+  # HARD, with no `failure: ignore`: a finding exits 1, a suppression that
+  # suppresses nothing exits 1, and UNKNOWN - pip-audit unreachable, `uv`
+  # missing, the feed down, or a zero-file population - exits 2. Unknown is not
+  # a pass (the shellcheck gate's rule for a missing binary), and "no advisories
+  # found" and "could not reach the feed" never print the same sentence, which
+  # is what issue #961 asks to be decided explicitly.
+  dependency-audit:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
+    depends_on: [secret-scan]
+    commands:
+      - python3 scripts/dependency-audit.py --selftest
+      - python3 scripts/dependency-audit.py
 
   # Vendored eli5-gate core gates (issue #591). The canonical home of the
   # /flow:eli5 necessity gate is cooneycw/eli5-gate; CPP vendors its core

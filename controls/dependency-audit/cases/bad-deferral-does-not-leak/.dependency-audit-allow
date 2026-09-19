@@ -1,0 +1,3 @@
+# Fixture allowlist for the negative control (issue #961). Whole-line
+# comments only - `#` also opens every issue reference below.
+deferred mcp-evaluate/uv.lock #943

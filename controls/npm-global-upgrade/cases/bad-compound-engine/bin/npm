@@ -1,0 +1,13 @@
+#!/usr/bin/env sh
+# fixture: `>=22.0.0 || >=20.0.0` begins with `>=`, so a prefix match reads the
+# first major and condemns node 20 - which the second branch plainly admits.
+case "${1:-}" in
+    install) exit 0 ;;
+    view)
+        case "${3:-}" in
+            version) echo "1.5.0" ;;
+            engines.node) echo ">=22.0.0 || >=20.0.0" ;;
+        esac
+        exit 0 ;;
+esac
+exit 0

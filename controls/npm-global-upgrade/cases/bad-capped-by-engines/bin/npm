@@ -1,0 +1,13 @@
+#!/usr/bin/env sh
+# fixture: npm resolves `latest` DOWN to the newest engine-compatible release,
+# which is the one already installed, and exits 0 saying nothing about it.
+case "${1:-}" in
+    install) exit 0 ;;
+    view)
+        case "${3:-}" in
+            version) echo "0.24.0" ;;
+            engines.node) echo ">=22.0.0" ;;
+        esac
+        exit 0 ;;
+esac
+exit 0

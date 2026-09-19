@@ -84,6 +84,9 @@ claude-power-pack/
   docs/scripts.md       Per-script history for the scripts/ inventory (#711);
                         population derived + gated by make scripts-inventory-check (#1013)
   docs/commands-reference.md  Per-command detail beyond the skill listing (#711)
+  docs/security/dependency-advisory-dispositions.md
+                        Per-advisory verdicts for the root uv.lock: look a scanner's
+                        GHSA/PYSEC/CVE id up here before re-deriving it (#922)
   woodpecker/           Woodpecker CI server + agent deployment configs
   templates/            Makefile, workflow, and container templates
   scripts/              Shell utilities

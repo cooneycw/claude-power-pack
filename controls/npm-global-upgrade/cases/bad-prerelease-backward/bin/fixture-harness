@@ -1,0 +1,9 @@
+#!/usr/bin/env sh
+# fixture: a prerelease replaced by its stable. `tr -cd '0-9'` kept the suffix's
+# digits, so patch "0-rc1" read as 01 and this scored as a DOWNGRADE.
+STATE="${NPM_UPGRADE_FIXTURE_STATE:-/nonexistent}"
+if [ "${1:-}" = "--version" ]; then
+    if [ -f "$STATE/installed" ]; then echo "1.5.0"; else echo "1.5.0-rc1"; fi
+    exit 0
+fi
+exit 0

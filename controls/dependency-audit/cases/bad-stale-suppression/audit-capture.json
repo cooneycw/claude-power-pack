@@ -1,0 +1,23 @@
+{
+  "files": [
+    {
+      "path": "uv.lock",
+      "report": {
+        "dependencies": [
+          {
+            "name": "pygments",
+            "version": "2.20.0",
+            "vulns": []
+          },
+          {
+            "name": "pydantic",
+            "version": "2.12.5",
+            "vulns": []
+          }
+        ],
+        "fixes": []
+      }
+    }
+  ],
+  "schema": 1
+}

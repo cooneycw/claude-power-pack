@@ -1,0 +1,4 @@
+#!/usr/bin/env sh
+# fixture: the installed harness. Version is FIXED - this case never upgrades.
+[ "${1:-}" = "--version" ] && { echo "1.5.0"; exit 0; }
+exit 0

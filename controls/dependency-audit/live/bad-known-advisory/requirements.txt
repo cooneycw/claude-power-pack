@@ -1,0 +1,16 @@
+# The LIVE positive control's known-bad input (issue #961).
+#
+# `scripts/dependency-audit.py --selftest` audits this file and REQUIRES a
+# finding. It runs before the real audit in CI, so every clean verdict is
+# preceded by a demonstration that this run could have reported something. A
+# broken scan's zeros look exactly like real ones; this is what separates them.
+#
+# WHY THIS PIN. Issue #961 asks for "a historical advisory that will not be
+# withdrawn, so the control does not silently go green when an advisory is
+# rescinded". PyYAML 5.1 is from 2019 and carries three settled advisories -
+# PYSEC-2020-176 (CVE-2019-20477), PYSEC-2020-96 (CVE-2020-1747) and
+# PYSEC-2021-142 (CVE-2020-14343), all arbitrary-code-execution through
+# `full_load` - reported by pip-audit as six vulnerabilities across its two
+# feeds. Measured 2026-09-16. Nothing is ever installed from this file; it is
+# read, resolved against the advisory database, and discarded.
+pyyaml==5.1

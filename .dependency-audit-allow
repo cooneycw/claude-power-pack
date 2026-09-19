@@ -1,0 +1,55 @@
+# The dependency audit's RESIDUAL (issue #961, ADR 0008).
+#
+# Every line here is an advisory this repository knows about and has decided not
+# to act on yet. The ledger exists because ADR 0008 requires that "suppressions
+# are visible or they do not happen": a disabled check is invisible, a filed
+# issue is not. `scripts/dependency-audit.py` prints the count of suppressed and
+# deferred findings on EVERY run, including the clean one, so a green from this
+# gate never reads as "there is nothing here".
+#
+# A line that accounts for NOTHING is a RED (`DEP-AUDIT-STALE:`), not a quiet
+# no-op. So when the issue named on a line is fixed, this gate fails until the
+# line comes out, and the residual cannot outlive the thing it records. Nothing
+# here stops the list GROWING - that side is not solved, only named.
+#
+#   advisory <path> <package> <version> <advisory-id> <issue>
+#       ONE finding, pinned to the exact version. A version bump or a NEW
+#       advisory on the same package does not match and is reported.
+#
+#   deferred <path> <issue>
+#       every finding in ONE file, while a filed issue owns that file's whole
+#       dependency set. Scoped to the named path and nothing else.
+
+# --------------------------------------------------------------------------- #
+# Root lock - NOTHING. It carried two advisories while this gate was being
+# written (#922: pygments 2.19.2, pytest 9.0.2, "tracked by no issue" until
+# someone looked) and they were suppressed here with that issue number. #922
+# then landed and upgraded both packages, so the two lines accounted for
+# nothing and this gate reported them STALE - which is the rule doing its work
+# on its first real occasion, against a change made by someone else. They were
+# removed rather than carried.
+#
+# WHERE THE ASSESSMENTS LIVE. `docs/security/dependency-advisory-dispositions.md`
+# (#922) records, per advisory id, whether this repository is actually exposed.
+# That register and this ledger answer different questions and neither replaces
+# the other: it says WHY an advisory does or does not matter here, this says
+# WHICH findings the gate is currently not failing on. A disposition of "not
+# exposed" is a reason to write a line here, never a substitute for one - the
+# gate reports what it found, and an unrecorded finding still reddens.
+# --------------------------------------------------------------------------- #
+
+# --------------------------------------------------------------------------- #
+# mcp-evaluate - #943 owns this project's whole dependency set: 32 advisories
+# across 10 packages, measured 2026-09-16. Deferred rather than enumerated
+# because a gate that blocks every pull request in the repository on day one is
+# a gate that gets switched off, and switching it off is itself an oscillation
+# (ADR 0009). The findings are NOT hidden: they are counted and printed on every
+# run beside this issue number.
+#
+# WHAT WOULD MOVE THIS BACK (ADR 0009): #943 landing, or mcp-evaluate's residual
+# falling to a handful. Either makes per-advisory lines affordable, and this
+# blanket should then be replaced by them rather than inherited. The gate forces
+# the conversation on its own: once this file reports nothing, the deferral is
+# STALE and reddens until it is removed.
+# --------------------------------------------------------------------------- #
+deferred mcp-evaluate/uv.lock #943

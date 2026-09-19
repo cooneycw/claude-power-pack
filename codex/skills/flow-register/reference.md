@@ -701,8 +701,56 @@ answers with the wrong population gets used.
 **So past this boundary the order inverts: for a containerised session the
 mailbox is lane 1, and `SendMessage` is not a degraded fallback but an address
 space containing no fleet peer whatsoever.** That is a decision this measurement
-makes, not a caution it adds. Check your own vantage before routing - `ls
-~/.claude/sessions/` answers it in one call - not after the silence.
+makes, not a caution it adds. Check your own vantage before routing - not after
+the silence. The next block says how, and says which check cannot.
+
+**Establishing vantage - and the check that cannot, which this paragraph
+recommended until 2026-09-16.** It said `ls ~/.claude/sessions/` "answers it in
+one call". It does not answer it at all, and it fails toward the dangerous
+verdict, so the correction is recorded here rather than made quietly - the same
+reason the refuted lane-1 absence claim above is kept beside its refutation.
+
+**Measured on the host, harness 2.1.266, 2026-09-16**, against the container rows
+established on 2.1.266, 2026-09-13 (issue #947; one container, kyle session 48):
+
+| Signal | Host | Container | Discriminates? |
+|---|---|---|---|
+| `~/.claude/sessions/` in `/proc/self/mountinfo` | no - 0 matches | no | **NO - identical both sides** |
+| Number of `.json` records | 5 | 1 | **NO - conflates with "I am alone"** |
+| `readlink /proc/self/ns/pid` | `pid:[4026531836]` | `pid:[4026533495]` | yes, by convention |
+| machine-id half of the record's `pidDomain` | 32 chars, same in all 5 records | EMPTY | yes - for THIS image only |
+
+**Record count is the signal that looks decisive and is not.** A container holds
+one record because discovery is filesystem-based and container-private. **A host
+session that is the only session on the box holds one record too** - and those
+are different facts with opposite routing consequences, so the record count does
+not discriminate and no amount of counting more carefully rescues it. It is not
+even stable on one vantage: 6 records on 2026-09-15, 5 on 2026-09-16, with no
+fleet change between; and that 2026-09-15 reading was 6 records against 16 live
+`claude` processes, so it does not track live sessions either. A lone host
+session that counts records concludes container, inverts to the mailbox, and
+never finds out - because the mailbox works. That is the shape stated just
+above: a lane that is missing gets noticed; a lane that answers with the wrong
+population gets used.
+
+**Both working signals carry a caution, and neither is a general test of
+containerisation.** The pid-namespace inode discriminates because `4026531836`
+is the conventional initial pid namespace on Linux - a convention being leaned
+on, written down as one here rather than passed off as a definition. The empty
+machine-id is evidence for this fleet only and not a general test, because it is
+a property of the **kyle-session image**, which ships no `/etc/machine-id`.
+Another image ships one, `pidDomain` then reads `linux:<id>:pid:[...]` on both
+sides, and the signal says nothing at all.
+
+**The command also does not print what it is read as printing.** Records are
+PAIRS - `<pid>.json` and `<pid>.<hash>.key` - so `ls ~/.claude/sessions/` emits
+2N lines: measured 2026-09-16, 10 raw lines for 5 records. A reader who
+calibrated on the `holds exactly one record` row above, which counts sessions
+correctly, then runs `ls` and sees 2 inside a container, with nothing saying
+which number was meant.
+
+A derived contract that removes the prose-reading step from this decision
+entirely is CPP #959, deliberately not built here.
 
 **A hazard on lane 1 whose status is version-dependent - read the stamps.**
 Cross-session message delivery has been observed to kill the receiver's
