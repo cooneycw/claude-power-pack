@@ -9,9 +9,15 @@ Contract:
   (exit 1) mirrors the runner's exit.
 - With no runner (no checkout, or no uv), it degrades to ``make lint`` +
   ``make test`` when those targets exist; with neither, verdict ``skipped``
-  (exit 0) with a loud warning.
+  (exit 4) with a loud warning.
 - ``--check-summary`` runs ``lib.cicd check --summary`` as an ADVISORY: verdict
-  ``ok``/``warn``/``skipped``, always exit 0.
+  ``ok`` (exit 0), ``warn`` (exit 3) or ``skipped`` (exit 4).
+- Every verdict carries its OWN exit code (issue #1027): ``ok`` 0, ``fail`` 1,
+  usage error 2, ``warn`` 3, ``skipped`` 4. Before that, ``ok``/``warn``/
+  ``skipped`` all exited 0, so the documented ``if gate; then proceed; fi``
+  grading shape could not see a gate that proved nothing or did not run.
+- A gate that RAN but examined nothing reports ``warn (zero coverage: ...)``
+  (issue #1027): a stage with no input produces a green that is not evidence.
 - The flow command docs invoke the helper BARE at the stable path and no longer
   carry the inline ``PYTHONPATH=... uv run ...`` gate shape that could never
   match a permission prefix rule.
@@ -1096,3 +1102,115 @@ def test_an_ordinary_failure_is_still_a_bare_fail(tmp_path: Path) -> None:
     assert proc.returncode == 1
     assert "FLOW_FINISH_GATE: fail" in proc.stdout
     assert "timeout" not in proc.stdout.lower()
+
+
+@requires_bash
+def test_runner_zero_coverage_reports_warn_named(tmp_path: Path) -> None:
+    """A gate that RAN and examined NOTHING must not read as a clean pass (#1027).
+
+    The #628 array above answers "did the gate run?". This answers the question
+    one step further in, which had no channel at all: the gate ran, exited 0,
+    and had no input. `ruff check .` on a tree with no Python files warns on
+    stderr, prints "All checks passed!" on stdout and exits 0 - so before this,
+    a stage with nothing to examine and a stage that examined the whole tree
+    produced byte-identical step details and the same `ok`.
+
+    Demonstrated end to end before this test was written: the same tree against
+    origin/main 967c098 exits 0 with `FLOW_FINISH_GATE: ok`, and against this
+    branch exits 3 with `warn (zero coverage: security_scan)`.
+    """
+    cpp = _fake_cpp(tmp_path)
+    payload = (
+        '{\n  "success": true,\n  "steps_completed": 4,\n  "steps_total": 4,\n'
+        '  "coverage": {\n'
+        '    "security_scan": {\n'
+        '      "state": "zero",\n'
+        '      "units": 0,\n'
+        '      "tool": "security-gate"\n'
+        "    }\n"
+        "  }\n}"
+    )
+    proc = _run_with_uv_stub(tmp_path, cpp, payload)
+    assert proc.returncode == 3
+    assert "FLOW_FINISH_GATE: warn (zero coverage: security_scan)" in proc.stdout
+    assert "FLOW_FINISH_GATE: ok" not in proc.stdout
+    assert "issue #1027" in proc.stdout
+
+
+@requires_bash
+def test_runner_covered_stage_stays_ok(tmp_path: Path) -> None:
+    """The other half of the control, and the one that catches a blind gate.
+
+    A parser that reported `zero` for everything would satisfy the test above
+    and be strictly worse than no parser: every run would warn, and the warning
+    would stop being read. A stage that states real coverage must stay `ok`.
+    """
+    cpp = _fake_cpp(tmp_path)
+    payload = (
+        '{\n  "success": true,\n  "steps_completed": 4,\n  "steps_total": 4,\n'
+        '  "coverage": {\n'
+        '    "typecheck": {\n'
+        '      "state": "covered",\n'
+        '      "units": 47,\n'
+        '      "tool": "mypy"\n'
+        "    }\n"
+        "  }\n}"
+    )
+    proc = _run_with_uv_stub(tmp_path, cpp, payload)
+    assert proc.returncode == 0
+    assert "FLOW_FINISH_GATE: ok" in proc.stdout
+    assert "zero coverage" not in proc.stdout
+
+
+@requires_bash
+def test_runner_unknown_coverage_stays_ok(tmp_path: Path) -> None:
+    """`unknown` is RECORDED but never graded on - the deliberate bound (#1027).
+
+    It is the state of every lint harness CPP cannot parse (Go, Rust, a shell
+    wrapper) and of ruff on its clean path, so warning on it would fire on every
+    run of those repos. Recording it still fixes the reported defect - the
+    reader sees an unproven stage rather than a bare `status: "success"` - which
+    is why the field is present in the JSON this test feeds in and the verdict
+    is still `ok`.
+    """
+    cpp = _fake_cpp(tmp_path)
+    payload = (
+        '{\n  "success": true,\n  "steps_completed": 4,\n  "steps_total": 4,\n'
+        '  "coverage": {\n'
+        '    "lint": {\n'
+        '      "state": "unknown",\n'
+        '      "units": null,\n'
+        '      "tool": "unknown"\n'
+        "    }\n"
+        "  }\n}"
+    )
+    proc = _run_with_uv_stub(tmp_path, cpp, payload)
+    assert proc.returncode == 0
+    assert "FLOW_FINISH_GATE: ok" in proc.stdout
+    assert "zero coverage" not in proc.stdout
+
+
+@requires_bash
+def test_skipped_gates_win_over_zero_coverage(tmp_path: Path) -> None:
+    """Precedence, asserted rather than left to source order.
+
+    A gate that did not run at all is the more fundamental fact than one that
+    ran with no input, so `skipped gates` is reported first. Both are exit 3, so
+    only the NAMED verdict distinguishes them - which is exactly the reader-
+    facing distinction #1027 is about.
+    """
+    cpp = _fake_cpp(tmp_path)
+    payload = (
+        '{\n  "success": true,\n  "steps_completed": 4,\n  "steps_total": 4,\n'
+        '  "skipped": [\n    "typecheck"\n  ],\n'
+        '  "coverage": {\n'
+        '    "security_scan": {\n'
+        '      "state": "zero",\n'
+        '      "units": 0,\n'
+        '      "tool": "security-gate"\n'
+        "    }\n"
+        "  }\n}"
+    )
+    proc = _run_with_uv_stub(tmp_path, cpp, payload)
+    assert proc.returncode == 3
+    assert "FLOW_FINISH_GATE: warn (skipped gates: typecheck)" in proc.stdout

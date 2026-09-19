@@ -97,10 +97,34 @@ def cmd_gate(args: argparse.Namespace) -> int:
     else:
         threshold = "no policy for this gate name - nothing blocks or warns"
 
+    # COVERAGE, which the counts above cannot express (issue #1027). `blocked=0
+    # warned=0` is what a clean scan of 575 files reports AND what a scan that
+    # opened nothing reports - the same line for opposite facts.
+    #
+    # `scanned=` is the coverage number and the only one a caller grades on:
+    # source files actually examined, or `unknown` when no check stated a
+    # figure. Not defaulted to 0 - "said nothing" and "said none" are different
+    # claims and only one of them is a measurement.
+    #
+    # `skipped-checks=` is reported BESIDE it, never as its denominator. A
+    # denominator was the first shape tried and it was wrong: `result.passed`
+    # holds checks that passed CLEANLY, so a check that ran and found something
+    # appears in neither `passed` nor `skipped`, and any `ran/total` built from
+    # them silently undercounts exactly when the scan is doing its job. This
+    # number is well defined instead - checks that could not run - and it is
+    # deliberately NOT wired to the warn: skipping is the normal, correct
+    # outcome for a check whose subject is absent (no .env file to inspect),
+    # so grading on it would fire on healthy repos, which is how a warning
+    # stops being read.
+    scanned = (
+        str(result.units_scanned) if result.units_scanned is not None else "unknown"
+    )
+
     verdict = "PASS" if passed else "FAIL"
     print(
         f"SECURITY_GATE: {args.gate_name} {verdict} "
-        f"(blocked={blocked_count} warned={warned_count}; {threshold})"
+        f"(blocked={blocked_count} warned={warned_count}; "
+        f"scanned={scanned} skipped-checks={len(result.skipped)}; {threshold})"
     )
 
     if passed:

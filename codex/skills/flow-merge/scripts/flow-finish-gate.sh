@@ -61,6 +61,11 @@
 #   warn (exit 3) is --check-summary finding gaps (advisory), OR the gate
 #           passed but a gate proved nothing: a quality gate was
 #           SKIPPED (issue #628 - `warn (skipped gates: ...)`),
+#           a gate RAN but examined nothing (issue #1027 -
+#           `warn (zero coverage: ...)`: `ruff check .` on a tree with
+#           no Python files warns on stderr, prints "All checks
+#           passed!" on stdout and exits 0, so a stage with no input
+#           is otherwise indistinguishable from a clean one),
 #           or a test step exited 0 having executed no tests
 #           (issue #621), OR a failed test was re-run against only
 #           its failed ids and PASSED (issue #769 - `warn (rerun
@@ -299,6 +304,29 @@ if [[ "$RUNNER_OK" -eq 1 ]]; then
     if grep -q '"tree_verified": true' "$RUNNER_JSON" 2>/dev/null; then
         TREE_VERIFIED=1
     fi
+    # Gates that ran, exited 0, and examined NOTHING (issue #1027). A step's
+    # exit code says the tool did not error, never that it looked at anything:
+    # `ruff check .` on a tree with no Python files warns on stderr, prints
+    # "All checks passed!" on stdout and exits 0. The runner emits the parsed
+    # evidence as a top-level "coverage" object keyed by step id; pull the ids
+    # whose state is "zero" without needing jq (the validate container has none).
+    #
+    # Only "zero" is collected. "unknown" is present in the JSON and stays out
+    # of the verdict on purpose - it means the tool said nothing measurable,
+    # which is true of every lint harness CPP cannot parse, so grading on it
+    # would warn on every run of those repos. The distinction is the whole
+    # point: "unknown" makes an unproven stage VISIBLE without making it loud.
+    ZERO_COVERAGE_GATES=$(awk '
+        /^  "coverage": \{$/ { in_cov = 1; next }
+        in_cov && /^  \}[,]?$/ { exit }
+        in_cov && /^    "[^"]+": \{$/ {
+            id = $0
+            sub(/^[[:space:]]*"/, "", id)
+            sub(/": \{$/, "", id)
+            next
+        }
+        in_cov && /^      "state": "zero"[,]?$/ { if (id != "") print id; next }
+    ' "$RUNNER_JSON" 2>/dev/null | tr '\n' ' ' | sed 's/ *$//')
     rm -f "$RUNNER_JSON"
     # Print the #769 evidence before verdict precedence is applied: a later
     # failing step or skipped gates are more serious, but must not erase a flake
@@ -310,6 +338,11 @@ if [[ "$RUNNER_OK" -eq 1 ]]; then
         if [[ -n "$SKIPPED_GATES" ]]; then
             echo "WARNING: quality gates did NOT run: $SKIPPED_GATES (no Makefile target and no configured tool). This gate proved nothing about those checks - do not read as 'safe to merge' (issue #628)." >&2
             verdict "warn (skipped gates: $SKIPPED_GATES)"
+            exit 3
+        fi
+        if [[ -n "$ZERO_COVERAGE_GATES" ]]; then
+            echo "WARNING: quality gates RAN but examined NOTHING: $ZERO_COVERAGE_GATES. A green from a stage with no input is not evidence about this change - do not read as 'safe to merge' (issue #1027)." >&2
+            verdict "warn (zero coverage: $ZERO_COVERAGE_GATES)"
             exit 3
         fi
         # A carried step is fine when the runner PROVED the tree hadn't
@@ -384,6 +417,11 @@ echo "NOTE: deterministic runner unavailable ($REASON); using Makefile fallback.
 RAN=0
 FAILED=0
 SKIPPED_GATES=""
+# Initialized explicitly because `set -uo pipefail` is in force above: the
+# fallback verdict below reads this unconditionally, and an unset variable
+# there aborts the gate rather than reporting one. The runner lane assigns it
+# from the JSON before its own read, so the two lanes never share this value.
+ZERO_COVERAGE_GATES=""
 # What actually executed, and by which route (issue #808). The marker alone
 # cannot distinguish a repo where this fallback IS the gate from one where it
 # is a fraction of it, and a reader should not have to infer coverage from an
@@ -394,6 +432,27 @@ AGGREGATE_TARGET=""
 RERUN_PASSED_IDS=""
 UV_OK=0
 command -v uv >/dev/null 2>&1 && UV_OK=1
+
+# Zero-coverage markers a NON-test gate prints when it examined nothing
+# (issue #1027). The runner lane gets this from lib/cicd/coverage.py via the
+# JSON; this fallback lane has no runner and no step_details, and in a
+# container it is the ORDINARY path rather than the degraded one - so the
+# same question has to be answerable here or the container case, which is
+# exactly where #1027 measured the problem, stays blind.
+#
+# Deliberately only the POSITIVE statements of zero. A tool that says nothing
+# about its coverage yields nothing here, matching the Python side's `unknown`:
+# warning on silence would fire on every non-Python gate, on every run.
+detect_zero_coverage() {
+    # $1 = captured combined output of one gate
+    awk '
+        /^[[:space:]]*warning:[[:space:]]*No Python files found under the given path/ { found = 1 }
+        /no issues found in 0 source files/ { found = 1 }
+        /checked 0 source files/ { found = 1 }
+        /SECURITY_GATE:/ && /scanned=0([^0-9]|$)/ { found = 1 }
+        END { exit !found }
+    ' "$1" 2>/dev/null
+}
 
 parse_fallback_failed_ids() {
     # pytest's short summary is enough for the human report; --last-failed uses
@@ -440,7 +499,14 @@ run_fallback_gate() {
             fi
             rm -f "$first_output"
         else
-            make "${id}" || FAILED=1
+            local gate_output
+            gate_output=$(mktemp "${TMPDIR:-/tmp}/flow-finish-gate-cov.XXXXXX")
+            make "${id}" 2>&1 | tee "$gate_output"
+            [[ "${PIPESTATUS[0]}" -eq 0 ]] || FAILED=1
+            if detect_zero_coverage "$gate_output"; then
+                ZERO_COVERAGE_GATES="${ZERO_COVERAGE_GATES:+$ZERO_COVERAGE_GATES }${id}"
+            fi
+            rm -f "$gate_output"
         fi
         RAN=1
     elif [[ "$UV_OK" -eq 1 ]] && grep -q "${token}" pyproject.toml 2>/dev/null; then
@@ -469,8 +535,15 @@ run_fallback_gate() {
             fi
             rm -f "$first_output"
         else
+            local gate_output
+            gate_output=$(mktemp "${TMPDIR:-/tmp}/flow-finish-gate-cov.XXXXXX")
             # shellcheck disable=SC2086
-            uv run --extra dev ${uvargs} || FAILED=1
+            uv run --extra dev ${uvargs} 2>&1 | tee "$gate_output"
+            [[ "${PIPESTATUS[0]}" -eq 0 ]] || FAILED=1
+            if detect_zero_coverage "$gate_output"; then
+                ZERO_COVERAGE_GATES="${ZERO_COVERAGE_GATES:+$ZERO_COVERAGE_GATES }${id}"
+            fi
+            rm -f "$gate_output"
         fi
         RAN=1
     else
@@ -572,6 +645,11 @@ fi
 if [[ -n "$SKIPPED_GATES" ]]; then
     echo "WARNING: quality gates did NOT run: $SKIPPED_GATES (no Makefile target and no runnable tool). This gate proved nothing about those checks - do not read as 'safe to merge' (issue #628)." >&2
     verdict "warn (skipped gates: $SKIPPED_GATES)"
+    exit 3
+fi
+if [[ -n "$ZERO_COVERAGE_GATES" ]]; then
+    echo "WARNING: quality gates RAN but examined NOTHING: $ZERO_COVERAGE_GATES. A green from a stage with no input is not evidence about this change - do not read as 'safe to merge' (issue #1027)." >&2
+    verdict "warn (zero coverage: $ZERO_COVERAGE_GATES)"
     exit 3
 fi
 if [[ -n "$UNRUN_AGGREGATE" ]]; then

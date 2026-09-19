@@ -169,6 +169,12 @@ def scan(project_root: str) -> ScanResult:
                     )
                 )
 
+    # Stated unconditionally, including the zero (issue #1027). The prose below
+    # already distinguished the two cases for a human reader, but only on the
+    # findings-free path and only as English - so nothing downstream could act
+    # on it. This is the same fact as a number.
+    result.units_scanned = files_scanned
+
     if files_scanned and not result.findings:
         result.passed.append(f"No secrets found in {files_scanned} source files")
     elif not files_scanned:

@@ -406,3 +406,82 @@ class TestApplySuppressions:
         config = SecurityConfig()
         _apply_suppressions(result, config)
         assert len(result.findings) == 1
+
+
+class TestGateLineCarriesCoverage:
+    """The gate line must say what the scan EXAMINED, not only what it found.
+
+    `blocked=0 warned=0` is what a clean scan of 575 files reports AND what a
+    scan that opened nothing reports - the same line for opposite facts. That is
+    the #1027 shape at the security layer: a verdict whose passing and no-op
+    renderings are byte-identical.
+
+    Measured before this was written: on a tree with no source files and an
+    otherwise-clean policy, the gate printed
+    `SECURITY_GATE: flow_finish PASS (blocked=0 warned=0; ...)` and exited 0.
+    """
+
+    @staticmethod
+    def _args(gate_name: str = "flow_finish", path: str = ".") -> argparse.Namespace:
+        return argparse.Namespace(gate_name=gate_name, path=path)
+
+    def test_a_scan_that_examined_nothing_says_so(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        result = ScanResult(skipped=["No source files found to scan"])
+        result.units_scanned = 0
+        monkeypatch.setattr(cli, "scan_quick", lambda path, config: result)
+
+        exit_code = cli.cmd_gate(self._args())
+
+        out = capsys.readouterr().out
+        assert exit_code == 0, "the gate PASSES - that is exactly the false green"
+        assert "scanned=0" in out
+
+    def test_a_real_scan_reports_its_count(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """The other half: a covered scan must NOT look like an empty one."""
+        result = ScanResult(passed=["No secrets found in 575 source files"])
+        result.units_scanned = 575
+        monkeypatch.setattr(cli, "scan_quick", lambda path, config: result)
+
+        cli.cmd_gate(self._args())
+
+        out = capsys.readouterr().out
+        assert "scanned=575" in out
+        assert "scanned=0" not in out
+
+    def test_an_unstated_count_is_unknown_not_zero(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """`units_scanned=None` must not render as a zero nobody measured.
+
+        A fabricated 0 here would manufacture a zero-coverage warning in the
+        runner one layer up, on a scan that simply did not report.
+        """
+        monkeypatch.setattr(cli, "scan_quick", lambda path, config: ScanResult())
+
+        cli.cmd_gate(self._args())
+
+        out = capsys.readouterr().out
+        assert "scanned=unknown" in out
+
+    def test_merge_preserves_unknown_and_sums_numbers(self) -> None:
+        """Two modules stating nothing must not add up to a confident 0."""
+        both_silent = ScanResult()
+        both_silent.merge(ScanResult())
+        assert both_silent.units_scanned is None
+
+        one_counts = ScanResult()
+        other = ScanResult()
+        other.units_scanned = 7
+        one_counts.merge(other)
+        assert one_counts.units_scanned == 7
+
+        summed = ScanResult()
+        summed.units_scanned = 3
+        addend = ScanResult()
+        addend.units_scanned = 4
+        summed.merge(addend)
+        assert summed.units_scanned == 7

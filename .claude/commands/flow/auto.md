@@ -990,6 +990,11 @@ git merge --no-edit origin/main
      that needs a live database, a service, a credential), say which prerequisite
      is missing and offer to run the fuller target - the agentic-poker case was
      `make test-pg` sitting unused beside the `make test` the gate ran.
+   - `FLOW_FINISH_GATE: warn (zero coverage: <gates>)` (exit 3, issue #1027):
+     the named gates RAN, exited 0, and examined NOTHING - a stage with no
+     input produces a green that is not evidence about this change. Proceed,
+     but report which gates and say plainly that they proved nothing. Do not
+     summarize such a run as "the gates passed".
    - `FLOW_FINISH_GATE: fail` (exit 1): parse the runner/make output above the
      marker, report the failed step, **STOP**.
    - `FLOW_FINISH_GATE: skipped` (exit 4): no runner AND no Makefile

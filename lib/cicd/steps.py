@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional, Protocol
 
+from .coverage import StageCoverage, merge_stream_coverage, parse_stage_coverage
 from .outcomes import SuiteOutcome, merge_stream_outcomes, parse_suite_outcome
 from .state import StepStatus
 
@@ -72,6 +73,13 @@ class StepResult:
     # exit-code driven; it exists so a SUCCESS whose suite executed nothing can
     # be reported as such instead of as a bare green.
     tests: Optional[SuiteOutcome] = None
+    # What a NON-test stage said about how much it examined (issue #1027).
+    # Same contract as ``tests`` above and for the same reason one layer over:
+    # ``lint``/``typecheck``/``security_scan`` exit 0 whether they inspected
+    # five hundred files or none, so without this a no-op stage and a clean
+    # stage are indistinguishable in the step result. Advisory - it never
+    # changes ``status``.
+    coverage: Optional[StageCoverage] = None
 
     @property
     def success(self) -> bool:
@@ -226,6 +234,27 @@ class ShellStep:
             ]
         )
 
+    def _parse_coverage(self, output: str, error: str) -> Optional[StageCoverage]:
+        """Parse a coverage statement from BOTH streams, for a NON-test step.
+
+        Scoped to non-test steps because ``tests`` already answers this
+        question for a test step, and answering it twice in two shapes would
+        leave a reader unsure which one the gate consults.
+
+        Both streams matter here more than anywhere: ruff prints
+        ``All checks passed!`` to stdout and its "no Python files" warning -
+        the only evidence the stage no-opped - to stderr, so a stdout-only
+        parse would see the cheerful half and miss the whole signal.
+        """
+        if self.is_test_step():
+            return None
+        return merge_stream_coverage(
+            [
+                parse_stage_coverage(output, "stdout"),
+                parse_stage_coverage(error, "stderr"),
+            ]
+        )
+
     def should_skip(self, context: dict[str, Any]) -> bool:
         """Check if this step should be skipped."""
         if not self.skip_if:
@@ -314,6 +343,7 @@ class ShellStep:
         output = "".join(out_chunks)
         error = "".join(err_chunks)
         tests = self._parse_tests(output, error)
+        coverage = self._parse_coverage(output, error)
 
         if timed_out:
             timeout_msg = f"Step timed out after {self.timeout_seconds}s"
@@ -323,6 +353,7 @@ class ShellStep:
                 output=output,
                 error=f"{error}\n{timeout_msg}".strip() if error else timeout_msg,
                 tests=tests,
+                coverage=coverage,
             )
 
         if proc.returncode == 0:
@@ -339,6 +370,7 @@ class ShellStep:
                 # affected: `_parse_tests` runs on the local streams above.
                 error=error,
                 tests=tests,
+                coverage=coverage,
             )
         return StepResult(
             status=StepStatus.FAILED,
@@ -346,6 +378,7 @@ class ShellStep:
             output=output,
             error=error,
             tests=tests,
+            coverage=coverage,
         )
 
     @staticmethod

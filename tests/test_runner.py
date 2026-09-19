@@ -1181,9 +1181,24 @@ class TestFinishGateFallbackParity:
         gate_ids = [s.id for s in BUILTIN_PLANS["finish"] if s.id in GATE_STEP_IDS]
         assert gate_ids, "the finish plan defines no gate steps - test is vacuous"
         # The generic helper prefers the target, falls back to uv, records failure.
+        #
+        # Asserted as TWO facts per lane rather than one literal line: since
+        # issue #1027 the non-test lanes pipe through `tee` so their output can
+        # be inspected for a zero-coverage statement, which means the invocation
+        # and the failure-recording are no longer on the same line. Pinning the
+        # old single literal would now fail for a formatting reason while saying
+        # nothing about whether the lane still runs the gate or still records a
+        # failure - the two properties this test exists for. `PIPESTATUS[0]` is
+        # named explicitly because it is the load-bearing part: with a pipe in
+        # play, a bare `||` would read `tee`'s status and the lane would record
+        # success for every failing gate.
         assert 'grep -q "^${id}:" Makefile 2>/dev/null' in body
-        assert 'make "${id}" || FAILED=1' in body
-        assert "uv run --extra dev ${uvargs} || FAILED=1" in body
+        assert 'make "${id}" 2>&1 | tee' in body
+        assert "uv run --extra dev ${uvargs} 2>&1 | tee" in body
+        assert body.count('[[ "${PIPESTATUS[0]}" -eq 0 ]] || FAILED=1') == 2, (
+            "both non-test fallback lanes must grade on the COMMAND's exit "
+            "status, not the tee's"
+        )
         for gid in gate_ids:
             if f"run_fallback_gate {gid} " in body:
                 continue
@@ -2275,3 +2290,115 @@ class TestResumeDiscardsWhenTreeChanged:
         assert second.carried_from_previous_run == ["lint"]
         assert second.tree_verified is False
         assert "Discarding resumable run" not in log.getvalue()
+
+
+class TestNonTestStageCoverage:
+    """A non-test gate must carry what it examined, not just {id, status} (#1027).
+
+    The reported defect: `lint`, `typecheck` and `security_scan` emitted
+    `{id, status}` and nothing else, so `status: "success"` was returned both by
+    a stage that examined the whole tree and by one that examined nothing. Only
+    the `test` step carried the "it ran and was not empty" assertion.
+
+    The commands below echo REAL tool output - captured from ruff 0.15.4, mypy
+    and `python -m lib.security gate` on this host - rather than a shape written
+    to match the parser.
+    """
+
+    def test_a_stage_that_examined_nothing_warns(self, tmp_project: Path):
+        steps = [
+            StepDef(
+                id="security_scan",
+                command=(
+                    "echo 'SECURITY_GATE: flow_finish PASS (blocked=0 warned=0; "
+                    "scanned=0 skipped-checks=3; blocks-on=CRITICAL warns-on=HIGH)'"
+                ),
+                timeout_seconds=30,
+            ),
+        ]
+        runner = DeterministicRunner(project_root=tmp_project, output=StringIO())
+        result = runner.run("check", step_defs=steps)
+
+        # The step still PASSES - coverage is advisory and never changes status.
+        assert result.success
+        assert result.coverage["security_scan"]["state"] == "zero"
+        assert any(
+            "examined NO" in w and "security_scan" in w for w in result.warnings
+        ), result.warnings
+
+    def test_a_stage_that_examined_something_does_not_warn(self, tmp_project: Path):
+        """The half that catches a blind detector.
+
+        A parser reporting `zero` for everything would satisfy the test above
+        and warn on every real run, which is how a warning stops being read.
+        """
+        steps = [
+            StepDef(
+                id="typecheck",
+                command="echo 'Success: no issues found in 47 source files'",
+                timeout_seconds=30,
+            ),
+        ]
+        runner = DeterministicRunner(project_root=tmp_project, output=StringIO())
+        result = runner.run("check", step_defs=steps)
+
+        assert result.success
+        assert result.coverage["typecheck"]["state"] == "covered"
+        assert result.coverage["typecheck"]["units"] == 47
+        assert not result.warnings, result.warnings
+
+    def test_a_silent_stage_is_unknown_and_does_not_warn(self, tmp_project: Path):
+        """Silence reads UNKNOWN, and UNKNOWN is recorded without being loud.
+
+        This is the deliberate bound: warning here would fire on every lint
+        harness CPP cannot parse, on every run. Recording it is still the fix -
+        the reader sees an unproven stage instead of a bare success.
+        """
+        steps = [
+            StepDef(id="lint", command="echo 'All checks passed!'", timeout_seconds=30),
+        ]
+        runner = DeterministicRunner(project_root=tmp_project, output=StringIO())
+        result = runner.run("check", step_defs=steps)
+
+        assert result.success
+        assert "lint" not in result.coverage
+        assert not result.warnings, result.warnings
+
+    def test_coverage_is_not_parsed_for_a_test_step(self, tmp_project: Path):
+        """`tests` already answers this question for a test step.
+
+        Answering it twice in two shapes would leave a reader unsure which one
+        the gate consults, so coverage is scoped to non-test steps.
+        """
+        steps = [
+            StepDef(
+                id="test",
+                command=(
+                    "echo 'Success: no issues found in 47 source files' && "
+                    "echo '3 passed in 0.01s'"
+                ),
+                timeout_seconds=30,
+            ),
+        ]
+        runner = DeterministicRunner(project_root=tmp_project, output=StringIO())
+        result = runner.run("check", step_defs=steps)
+
+        assert result.success
+        assert result.coverage == {}
+        assert result.tests["test"]["passed"] == 3
+
+    def test_coverage_reaches_step_details_and_the_json(self, tmp_project: Path):
+        """A field the gate cannot read cannot be acted on (the #812 lesson)."""
+        steps = [
+            StepDef(
+                id="typecheck",
+                command="echo 'Success: no issues found in 12 source files'",
+                timeout_seconds=30,
+            ),
+        ]
+        runner = DeterministicRunner(project_root=tmp_project, output=StringIO())
+        result = runner.run("check", step_defs=steps)
+
+        entry = next(e for e in result.step_details if e["id"] == "typecheck")
+        assert entry["coverage"]["units"] == 12
+        assert result.to_dict()["coverage"]["typecheck"]["units"] == 12

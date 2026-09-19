@@ -95,6 +95,13 @@ class ScanResult:
     passed: list[str] = field(default_factory=list)
     skipped: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
+    # How many source files the scan actually examined (issue #1027). Finding
+    # counts cannot answer this: a clean scan of 575 files and a scan that found
+    # no files to open both report zero findings, and the gate line built from
+    # them reads identically. ``None`` means no module stated a number - which
+    # is UNKNOWN, deliberately not 0, so "said nothing" stays distinguishable
+    # from "said none".
+    units_scanned: Optional[int] = None
 
     @property
     def critical_count(self) -> int:
@@ -139,3 +146,9 @@ class ScanResult:
         self.passed.extend(other.passed)
         self.skipped.extend(other.skipped)
         self.errors.extend(other.errors)
+        # Summed, and None-preserving on BOTH sides (issue #1027): a module that
+        # stated no count must not erase one that did, and two modules that both
+        # stated none must not add up to a confident 0. Only an actual number
+        # from some module makes the total a number.
+        if other.units_scanned is not None:
+            self.units_scanned = (self.units_scanned or 0) + other.units_scanned
