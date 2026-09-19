@@ -174,7 +174,7 @@ def test_a_SKIP_is_recorded_not_omitted(tmp_path: Path) -> None:
     """
     proc = _write(tmp_path, "--issue", "934", "--branch", "b", "--status", "skipped",
                   "--reason", "reviewer-unavailable",
-                  "--reviewer", "codex/gpt-5.5", "--implementer", "claude/opus-5")
+                  "--implementer", "claude/opus-5")
     assert proc.returncode == 0, proc.stderr
     written = list(tmp_path.glob("*.json"))
     assert len(written) == 1, "a skip wrote no receipt"
@@ -191,7 +191,7 @@ def test_a_skip_must_say_WHICH_skip(tmp_path: Path) -> None:
     (#1015 removed "someone decided not to" from the set entirely - it is no
     longer one of the things a reason has to distinguish.)"""
     proc = _write(tmp_path, "--issue", "934", "--branch", "b", "--status", "skipped",
-                  "--reviewer", "codex/gpt-5.5", "--implementer", "claude/opus-5")
+                  "--implementer", "claude/opus-5")
     assert proc.returncode == CM.EXIT_USAGE, proc.stderr
     assert list(tmp_path.glob("*.json")) == []
 
@@ -200,11 +200,63 @@ def test_codex_absent_is_a_DISTINCT_skip_reason(tmp_path: Path) -> None:
     """#1015's green half: the reason the probe exists to record is accepted."""
     proc = _write(tmp_path, "--issue", "1015", "--branch", "b", "--status", "skipped",
                   "--reason", "codex-absent",
-                  "--reviewer", "codex/gpt-5.5", "--implementer", "claude/opus-5")
+                  "--implementer", "claude/opus-5")
     assert proc.returncode == 0, proc.stderr
     written = list(tmp_path.glob("*.json"))
     assert len(written) == 1, "a codex-absent skip wrote no receipt"
     assert json.loads(written[0].read_text(encoding="utf-8"))["skip_reason"] == "codex-absent"
+
+
+@pytest.mark.parametrize("reason", ["codex-absent", "reviewer-unavailable"])
+def test_a_skip_without_a_reviewer_records_an_explicit_null(
+    tmp_path: Path, reason: str
+) -> None:
+    proc = _write(tmp_path, "--issue", "1046", "--branch", "b", "--status", "skipped",
+                  "--reason", reason, "--implementer", "claude/opus-5")
+    assert proc.returncode == 0, proc.stderr
+    receipt = json.loads(next(tmp_path.glob("*.json")).read_text(encoding="utf-8"))
+    assert receipt["reviewer"] is None
+
+
+def test_a_skip_naming_a_reviewer_is_REFUSED_at_the_write_path(tmp_path: Path) -> None:
+    proc = _write(tmp_path, "--issue", "1046", "--branch", "b", "--status", "skipped",
+                  "--reason", "reviewer-unavailable",
+                  "--reviewer", "codex/gpt-5.5", "--implementer", "claude/opus-5")
+    assert proc.returncode == CM.EXIT_USAGE, proc.stderr
+    assert list(tmp_path.glob("*.json")) == []
+
+
+def test_a_skip_naming_a_reviewer_is_REFUSED_on_a_receipt_ALREADY_ON_DISK(
+    tmp_path: Path,
+) -> None:
+    proc = _write(tmp_path, "--issue", "1046", "--branch", "b", "--status", "skipped",
+                  "--reason", "reviewer-unavailable", "--implementer", "claude/opus-5")
+    assert proc.returncode == 0, proc.stderr
+    receipt_path = next(tmp_path.glob("*.json"))
+
+    clean = subprocess.run(
+        [sys.executable, str(SCRIPT), "validate", "--dir", str(tmp_path)],
+        capture_output=True, text=True,
+    )
+    assert clean.returncode == 0, f"the unmutated receipt already fails: {clean.stderr}"
+
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt["reviewer"] = "codex/gpt-5.5"
+    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+
+    proc = subprocess.run(
+        [sys.executable, str(SCRIPT), "validate", "--dir", str(tmp_path)],
+        capture_output=True, text=True,
+    )
+    assert proc.returncode == CM.EXIT_INVALID
+    assert "must not carry a reviewer" in (proc.stdout + proc.stderr)
+
+
+def test_a_ran_write_without_a_reviewer_is_REFUSED(tmp_path: Path) -> None:
+    proc = _write(tmp_path, "--issue", "1046", "--branch", "b", "--status", "ran",
+                  "--implementer", "claude/opus-5", "--passes", "1")
+    assert proc.returncode == CM.EXIT_USAGE, proc.stderr
+    assert list(tmp_path.glob("*.json")) == []
 
 
 @pytest.mark.parametrize("removed", ["no-diff", "explicit-opt-out"])
@@ -213,7 +265,7 @@ def test_a_removed_reason_is_REFUSED_at_the_write_path(tmp_path: Path, removed: 
     through the front door."""
     proc = _write(tmp_path, "--issue", "1015", "--branch", "b", "--status", "skipped",
                   "--reason", removed,
-                  "--reviewer", "codex/gpt-5.5", "--implementer", "claude/opus-5")
+                  "--implementer", "claude/opus-5")
     assert proc.returncode != 0, f"{removed!r} was accepted as a skip reason"
     assert list(tmp_path.glob("*.json")) == [], "a refused receipt was written anyway"
 
@@ -235,7 +287,7 @@ def test_a_removed_reason_is_REFUSED_on_a_receipt_ALREADY_ON_DISK(
     """
     proc = _write(tmp_path, "--issue", "1015", "--branch", "b", "--status", "skipped",
                   "--reason", "reviewer-unavailable",
-                  "--reviewer", "codex/gpt-5.5", "--implementer", "claude/opus-5")
+                  "--implementer", "claude/opus-5")
     assert proc.returncode == 0, proc.stderr
     receipt_path = next(iter(tmp_path.glob("*.json")))
 
@@ -505,7 +557,8 @@ def test_an_EMPTY_model_identity_is_refused(tmp_path: Path) -> None:
         proc = _write(tmp_path, "--issue", "934", "--branch", "b", "--status", "ran",
                       "--reviewer", reviewer, "--implementer", implementer,
                       "--passes", "1")
-        assert proc.returncode == CM.EXIT_INVALID, (
+        expected = CM.EXIT_USAGE if not reviewer.strip() else CM.EXIT_INVALID
+        assert proc.returncode == expected, (
             f"reviewer={reviewer!r} implementer={implementer!r} was accepted"
         )
         assert "empty" in proc.stderr
