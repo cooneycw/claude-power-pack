@@ -153,7 +153,12 @@
 set -uo pipefail
 
 # Exit status on stderr, last thing written, so it survives `| tail` (issue #1031).
-trap 'printf "DELEGATED_RUN_EXIT=%d\n" "$?" >&2' EXIT
+# NAMED FOR THE SCRIPT, NOT ITS MARKER NAMESPACE, and deliberately: this helper
+# already prints `DELEGATED_RUN_EXIT: <exit code as passed>` on stdout - the
+# DELEGATED run's status, which the caller hands in. That is a different fact
+# from THIS script's own exit status, and one name for two facts separated only
+# by `:` versus `=` is a finding that cannot tell our thing from a neighbour's.
+trap 'printf "DELEGATED_RUN_CHECK_EXIT=%d\n" "$?" >&2' EXIT
 
 OUTPUT_FILE=""
 EXIT_CODE=""

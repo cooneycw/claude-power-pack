@@ -82,7 +82,7 @@ NAMESPACES = {
     "flow-worktree-sweep.sh": "FLOW_WORKTREE_SWEEP",
     "friction-log.sh": "FRICTION_LOG",
     "check-ignored-additions.sh": "CHECK_IGNORED_ADDITIONS",
-    "delegated-run-check.sh": "DELEGATED_RUN",
+    "delegated-run-check.sh": "DELEGATED_RUN_CHECK",
     "lane-serveability-check.sh": "LANE_SERVE",
     "cpp-commands-link.sh": "CPP_COMMANDS_LINK",
     "install-drift.sh": "INSTALL_DRIFT",
@@ -175,6 +175,26 @@ def test_the_channel_check_rejects_a_marker_moved_to_stdout(tmp_path: Path) -> N
     assert ">&2" in mutated, "the mutation must leave the helper's OTHER stderr writes intact"
     assert not emits_on_stderr(mutated, "FLOW_CI"), (
         "the channel check passed a marker printed to stdout"
+    )
+
+
+@pytest.mark.parametrize("name", sorted(NAMESPACES))
+def test_no_namespace_collides_with_a_marker_the_helper_already_uses(name: str) -> None:
+    """`<NS>_EXIT=` must not be a second meaning for an `<NS>_EXIT:` that exists.
+
+    Missed on the first cut and found by a sibling PR landing mid-run:
+    `delegated-run-check.sh` already printed `DELEGATED_RUN_EXIT: <exit code as
+    passed>` on stdout - the DELEGATED run's status, handed in by the caller -
+    and the derived namespace produced `DELEGATED_RUN_EXIT=` for THIS script's
+    own status. Two facts, one name, told apart only by `:` versus `=`; a grep
+    for either returns both. The namespace is now `DELEGATED_RUN_CHECK`, and
+    this is the check that would have said so.
+    """
+    source = (SCRIPTS / name).read_text(encoding="utf-8")
+    collision = re.compile(rf"\b{re.escape(NAMESPACES[name])}_EXIT:")
+    offenders = [ln.strip() for ln in source.splitlines() if collision.search(ln)]
+    assert not offenders, (
+        f"{name} already uses {NAMESPACES[name]}_EXIT: for something else: {offenders[:2]}"
     )
 
 
