@@ -506,6 +506,62 @@ else
 fi
 ```
 
+**Shared-stash guard (ON BY DEFAULT, issue #1056):**
+
+A linked worktree isolates the working tree and NOT the refs: `refs/stash` lives
+in the repository's common git dir, so every worktree plus the main checkout
+share ONE stack, and `git stash pop` takes whatever is on top rather than what
+you put there. It has swapped sessions' uncommitted work three times in this
+project. The guard is a git `reference-transaction` hook, so it binds every
+caller - a human, Claude, Codex, Qwen, a shell script - rather than only whoever
+is reading the document that states the rule.
+
+Install it into THIS project, bare (resolution order per #581/#590; on exit 127
+fall back to `"$CPP_DIR/scripts/stash-worktree-guard.sh"`):
+
+```bash
+~/.claude/scripts/stash-worktree-guard.sh --install .
+```
+
+Act on `STASH_GUARD:`:
+
+- `installed` / `current` - armed. Say so in the Step 6 summary.
+- `disabled` - this repository recorded `cpp.stashGuard=false` on a previous
+  opt-out. **Leave it off** and do not re-offer: re-asking every install is the
+  oscillation an opt-out exists to end.
+- `foreign` - a different `reference-transaction` hook is already installed.
+  Report it, change nothing. That hook fires on every ref update here; merging
+  the two is the user's call.
+- `unsupported` - git below 2.28 (no `reference-transaction` hook), or a
+  RELATIVE `core.hooksPath` (each worktree resolves it against its own
+  top-level, so no single install could cover the family). Report the reason.
+
+**Then offer the opt-out, once:**
+
+```
+=== Shared-stash guard ===
+
+Installed: `git stash push` from a linked worktree is now refused, because the
+stash stack is shared with every other worktree of this repository.
+
+It guards `push` only. `pop` and `drop` cannot be guarded - git removes the
+entry before a hook can refuse - so its silence there is not approval. See
+docs/agents/shared-stash-stack.md.
+
+Keep it on? [Y/n]
+```
+
+On `n`, turn it off and RECORD the choice, so `/cpp:update` and the flow
+worktree lane do not reinstall it:
+
+```bash
+~/.claude/scripts/stash-worktree-guard.sh --uninstall .
+```
+
+That writes `cpp.stashGuard=false` in the repository config. The way back on is
+`--enable`, and the prompt above must not be shown again while the record
+stands.
+
 ### Tier 2 Execution
 
 ```bash

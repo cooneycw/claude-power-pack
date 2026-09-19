@@ -689,6 +689,72 @@ def test_resume_of_out_of_repo_worktree_forces_git_lane(tmp_path: Path):
 
 
 @requires_git
+def test_verify_arms_the_shared_stash_guard(tmp_path: Path):
+    """The verify gate installs the #1056 guard - ON BY DEFAULT (owner, 2026-09-19).
+
+    Creating a linked worktree is the moment `refs/stash` becomes shared across
+    checkouts, and this gate is the one hook point that runs inside the checkout
+    on every lane - the same reason the #597 claim is staked here.
+    """
+    _, clone = _make_origin_and_clone(tmp_path)
+    _git(clone, "switch", "-q", "-c", "issue-42-good-branch")
+
+    res = _run("--verify", "42", cwd=clone, gh=_fake_gh(tmp_path))
+
+    assert "FLOW_START_VERIFY: ok" in res.stdout
+    assert _contract(res)["STASH_GUARD"] in {"installed", "current"}
+    hook = clone / ".git" / "hooks" / "reference-transaction"
+    assert hook.exists() and os.access(hook, os.X_OK)
+
+
+@requires_git
+def test_verify_honours_the_stash_guard_optout(tmp_path: Path):
+    """A recorded opt-out must survive the flow lane, which runs on every worktree.
+
+    This is the half that makes the opt-out real: without it, the next
+    `/flow:auto` silently reinstalls what the user turned off.
+    """
+    _, clone = _make_origin_and_clone(tmp_path)
+    _git(clone, "switch", "-q", "-c", "issue-42-good-branch")
+    _git(clone, "config", "cpp.stashGuard", "false")
+
+    res = _run("--verify", "42", cwd=clone, gh=_fake_gh(tmp_path))
+
+    assert "FLOW_START_VERIFY: ok" in res.stdout
+    assert _contract(res)["STASH_GUARD"] == "disabled"
+    assert not (clone / ".git" / "hooks" / "reference-transaction").exists()
+
+
+@requires_git
+def test_verify_still_passes_when_the_guard_helper_is_absent(tmp_path: Path):
+    """ADVISORY and FAIL-OPEN: an unavailable guard must never fail the gate.
+
+    The gate's job is to prove we are on the right branch. Run from a copy of
+    the resolver with no sibling helper, verify must still report ok - and must
+    report the guard as `unknown` rather than implying it is armed.
+    """
+    _, clone = _make_origin_and_clone(tmp_path)
+    _git(clone, "switch", "-q", "-c", "issue-42-good-branch")
+    lonely_dir = tmp_path / "lonely"
+    lonely_dir.mkdir()
+    lonely = lonely_dir / "flow-start-resolve.sh"
+    lonely.write_text(SCRIPT.read_text())
+    lonely.chmod(0o755)
+
+    env = os.environ.copy()
+    env.pop("FLOW_WORKTREE_BASE", None)
+    env["FLOW_START_RESOLVE_GH"] = str(_fake_gh(tmp_path))
+    res = subprocess.run(
+        ["bash", str(lonely), "--verify", "42"],
+        cwd=clone, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+
+    assert res.returncode == 0, res.stderr
+    assert "FLOW_START_VERIFY: ok" in res.stdout
+    assert _contract(res)["STASH_GUARD"] == "unknown"
+
+
+@requires_git
 def test_verify_ok_on_issue_branch(tmp_path: Path):
     _, clone = _make_origin_and_clone(tmp_path)
     _git(clone, "switch", "-q", "-c", "issue-42-good-branch")

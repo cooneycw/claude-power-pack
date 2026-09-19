@@ -16,6 +16,14 @@ The flow commands are only half the product: Step 1 of `/flow:start` and
 `/cpp:update` installer put those there. The retired marketplace lane could
 leave commands without those host helpers, producing exit 127 (#590, #662).
 
+The verify gate also arms the shared-stash guard, `scripts/stash-worktree-guard.sh`
+(issue #1056), which the resolver calls as a sibling - so that script is bundled
+alongside it here. Without the bundle the resolver finds no helper, reports
+`STASH_GUARD=unknown`, and the advertised default protection is simply absent
+(counter-model finding). It is advisory and fail-open, and it honours a
+repository's recorded `cpp.stashGuard=false` opt-out.
+
+
 Legacy caches may still bundle the helper family at
 `${CLAUDE_PLUGIN_ROOT}/scripts/` until they are uninstalled. This command copies
 or links helpers to `~/.claude/scripts/`. That stable path matters:

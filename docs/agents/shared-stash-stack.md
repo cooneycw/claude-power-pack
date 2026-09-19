@@ -91,12 +91,47 @@ git stash drop stash@{N}
 `scripts/stash-worktree-guard.sh` - a git `reference-transaction` hook that
 **refuses `git stash push` from a linked worktree**. It binds every caller,
 because it lives in git rather than in a document: a human, Claude, a Codex
-worker, a Qwen worker, a script. Install it per repository:
+worker, a Qwen worker, a script.
+
+**It is on by default.** Three places install it, and you do not have to do
+anything:
+
+| caller | when | scope |
+|---|---|---|
+| `/flow:auto` Step 1 (`flow-start-resolve.sh --verify`) | every worktree, every lane | the repo that just gained a linked worktree |
+| `/cpp:init` Tier 1 | at setup | the project being initialised |
+| `/cpp:update` Step 5b.1 | every update | the CPP checkout |
+
+The flow lane is the one that matters most: creating a linked worktree is the
+moment `refs/stash` becomes shared across checkouts, so it arms the guard at
+exactly the point the hazard appears. All three are advisory and fail-open - a
+guard that could not be installed never fails the step it runs in.
+
+By hand:
 
 ```bash
 ~/.claude/scripts/stash-worktree-guard.sh --install /path/to/repo
 ~/.claude/scripts/stash-worktree-guard.sh --check   /path/to/repo
 ```
+
+### Turning it off
+
+```bash
+~/.claude/scripts/stash-worktree-guard.sh --uninstall /path/to/repo   # off, and stays off
+~/.claude/scripts/stash-worktree-guard.sh --enable    /path/to/repo   # back on
+```
+
+`--uninstall` removes the hook **and records `cpp.stashGuard=false`** in the
+repository config. That record is the whole point: installation is automatic, so
+an opt-out the next install overwrites is not an opt-out - it is a question you
+answer again every update, which is the oscillation ADR 0009 predicts arriving
+as the remedy rather than the problem. `--install` reports `disabled` and
+changes nothing while the record stands, and `/cpp:init` and `/cpp:update` are
+told not to re-offer.
+
+`disabled` and `absent` are deliberately different verdicts: `absent` says
+nobody installed it, `disabled` says somebody turned it off. A caller repairs
+the first and must not touch the second.
 
 One install covers the main checkout and every linked worktree, because hooks
 resolve through the same place the stack does. Two configurations are called out

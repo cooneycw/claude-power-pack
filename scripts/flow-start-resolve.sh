@@ -91,7 +91,16 @@
 #   Fails (FLOW_START_VERIFY: fail, exit 1) when the checkout is still on
 #   main/master or detached; renames a non-issue-anchored branch to
 #   EXPECTED_BRANCH so downstream steps can parse the issue number. On success
-#   prints BRANCH=, WT_ROOT= and CLAIM= then `FLOW_START_VERIFY: ok`.
+#   prints BRANCH=, WT_ROOT=, CLAIM= and STASH_GUARD= then
+#   `FLOW_START_VERIFY: ok`.
+#
+#   Verify mode also ARMS the shared-stash guard (issue #1056), on by default:
+#   creating a linked worktree is the moment `refs/stash` becomes shared across
+#   checkouts, so this is where the hazard starts. STASH_GUARD reports
+#   installed|current|disabled|foreign|unsupported|unknown. Like CLAIM it is
+#   ADVISORY - reported, never consumed as a precondition, and never able to
+#   fail the gate. `disabled` means the repository recorded
+#   `cpp.stashGuard=false` and the guard changed nothing.
 #
 #   Verify mode also STAKES the cross-session claim (issue #597) - it is the one
 #   hook point that runs inside the worktree on every lane, since the native
@@ -257,9 +266,34 @@ if [ "$MODE" = verify ]; then
     fi
   fi
 
+  # Arm the shared-stash guard for this repository (issue #1056). THIS is the
+  # moment the hazard is created: a linked worktree now exists, so `refs/stash`
+  # in the common dir is shared across checkouts and a bare `git stash pop` can
+  # take a sibling session's work. It is the same reason the claim is staked
+  # here - the only hook point that runs inside the checkout on every lane.
+  #
+  # ON BY DEFAULT (owner decision, 2026-09-19), with the opt-out honoured: the
+  # guard reports `disabled` and changes nothing where the repository recorded
+  # `cpp.stashGuard=false`. `--quiet` keeps a no-op silent and a real install,
+  # or a `foreign`/`unsupported` refusal, visible.
+  #
+  # ADVISORY AND FAIL-OPEN, exactly like the claim above: this gate's job is to
+  # prove we are on the right branch. A guard that could not be installed must
+  # never turn a healthy Step 1 into a hard stop, so the verdict is reported and
+  # never consumed as a precondition.
+  STASH_GUARD=unknown
+  GUARD_HELPER=$(sibling stash-worktree-guard.sh)
+  if [ -f "$GUARD_HELPER" ]; then
+    guard_out=$(bash "$GUARD_HELPER" --install "$WT_ROOT" --quiet 2>&1) || true
+    STASH_GUARD=$(printf '%s\n' "$guard_out" | sed -n 's/^STASH_GUARD: //p' | tail -1)
+    STASH_GUARD=${STASH_GUARD:-unknown}
+    printf '%s\n' "$guard_out" | grep -v '^STASH_GUARD' >&2 || true
+  fi
+
   echo "BRANCH=$CURRENT"
   echo "WT_ROOT=$WT_ROOT"
   echo "CLAIM=$CLAIM"
+  echo "STASH_GUARD=$STASH_GUARD"
   echo "FLOW_START_VERIFY: ok"
   exit 0
 fi

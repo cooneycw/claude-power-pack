@@ -20,6 +20,14 @@ inline bash: a multi-line block with variable assignments or control flow can
 never match a permission allowlist rule, so it prompts on every run - the exact
 friction the helper removes.
 
+The verify gate also arms the shared-stash guard, `scripts/stash-worktree-guard.sh`
+(issue #1056), which the resolver calls as a sibling - so that script is bundled
+alongside it here. Without the bundle the resolver finds no helper, reports
+`STASH_GUARD=unknown`, and the advertised default protection is simply absent
+(counter-model finding). It is advisory and fail-open, and it honours a
+repository's recorded `cpp.stashGuard=false` opt-out.
+
+
 ## Arguments
 
 - `ISSUE` (required): GitHub issue number (e.g., `42`)

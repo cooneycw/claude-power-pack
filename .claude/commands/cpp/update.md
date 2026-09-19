@@ -548,6 +548,50 @@ fi
 
 ---
 
+## Step 5b.1: Shared-Stash Guard Refresh (ON BY DEFAULT, issue #1056)
+
+The guard is a git `reference-transaction` hook, so unlike the symlinks above it
+does NOT follow `git pull` - it is a COPY in `.git/hooks/`, deliberately, because
+a symlink into a checkout that is later moved or deleted leaves a dangling hook
+in every worktree of the repository. A copy goes stale instead, which is
+recoverable and reported. So this step refreshes it.
+
+This is also the step that makes the guard true for the repository `/cpp:update`
+runs in, which is exactly where the #1056 orphan was found: `/cpp:update`'s own
+Step 3 pushed to the shared stack and never restored.
+
+Bare (resolution order per #581/#590; on exit 127 fall back to
+`"$CPP_DIR/scripts/stash-worktree-guard.sh"`):
+
+```bash
+~/.claude/scripts/stash-worktree-guard.sh --install "$CPP_DIR"
+```
+
+Act on `STASH_GUARD:`:
+
+- `installed` - it was absent or stale and is now armed. Report it.
+- `current` - nothing to do.
+- `disabled` - the repository recorded `cpp.stashGuard=false`. **Leave it off,
+  and do not re-offer.** An opt-out that is re-asked on every update is not an
+  opt-out; it is the oscillation ADR 0009 predicts, arriving as the remedy.
+  Report it as a state, in one line, so the user can see it is off on purpose:
+  `→ Shared-stash guard: off for this repo (cpp.stashGuard=false; --enable to turn back on)`
+- `foreign` - a different `reference-transaction` hook is installed. Report it
+  and change nothing; merging the two is the user's call.
+- `unsupported` - git below 2.28, or a RELATIVE `core.hooksPath`. Report the
+  reason rather than a bare failure.
+
+**Turning it off from here** is the same one action that records the choice:
+
+```bash
+~/.claude/scripts/stash-worktree-guard.sh --uninstall "$CPP_DIR"
+```
+
+Offer that only if the user asks, or if this run is the FIRST to install it
+here - never as a recurring prompt. See `docs/agents/shared-stash-stack.md`.
+
+---
+
 ## Step 5c: Command-Surface Symlink Check (issue #663)
 
 The user-scope command symlinks (`~/.claude/commands/<family>` -> the
