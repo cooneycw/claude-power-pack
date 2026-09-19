@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "recorded_at": "2026-09-19T00:00:00Z",
+  "issue": "1091",
+  "branch": "synthetic-uniformity-control",
+  "status": "ran",
+  "reviewer": "codex/gpt-5.5",
+  "implementer": "claude/fixture-implementer",
+  "passes": 1,
+  "counts": {
+    "accepted": 0,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "red_cases": {
+    "proposed": 0,
+    "already_covered": 0
+  }
+}
