@@ -478,3 +478,121 @@ class TestBoldTaskIdsDeclareTheSameEdges:
         # #56 is OPEN, so #52 is blocked. Before the fix it read as startable,
         # and a wave would have handed out an issue whose dependency was open.
         assert 52 not in plan["startable"]
+
+
+# --------------------------------------------------------------------------- #
+# #1026 - exit 4 stays, but the two populations behind it become legible
+#
+# A wave carrying standing holds is permanently exit 4. That is the hold WORKING
+# - the ledger entry stands until something explicitly supersedes it, and while
+# it stands it keeps a ready issue out of the assignment pool. The defect was
+# never the firing; it was that the exit code alone cannot tell that quiescent
+# state apart from a worker who is on a held issue RIGHT NOW.
+#
+# The remedy is legibility, not a narrower gate. #645's assertion is that a hold
+# in the active set must RAISE rather than silently supersede, and quieting a
+# correct refusal because it is always on is how that distinction gets lost.
+# --------------------------------------------------------------------------- #
+
+
+class TestVerdictConflictPopulations:
+    HOLD = {"issue": 10, "ruling": "hold", "reason": "waits behind #11", "ts": "t"}
+
+    def _conflicts(self, in_flight=None) -> list[dict]:
+        issues = MOD.parse_issues([_issue(10), _issue(11)])
+        plan = MOD.build_plan(issues, in_flight=in_flight, verdicts={10: self.HOLD})
+        return plan["verdict_conflicts"]
+
+    def test_a_held_candidate_is_startable_not_in_flight(self) -> None:
+        """The quiescent state: nobody is on it, and the hold is why."""
+        (c,) = self._conflicts()
+        assert c["in"] == "startable"
+        assert c["also_startable"] is True
+
+    def test_a_worker_on_a_held_issue_reads_in_flight(self) -> None:
+        """THE RED CASE this classification exists for.
+
+        An assigned issue is very often ALSO startable - nothing stops the graph
+        calling it ready while somebody works on it. Reading ``startable`` first
+        labelled exactly that case "startable", i.e. the hold merely keeping a
+        candidate out of the pool, when it is the opposite: a live contradiction.
+
+        Assignment is caller knowledge and is the stronger, actionable fact;
+        startability is a property of the graph and is kept BESIDE it in
+        ``also_startable`` rather than instead of it, so nothing is lost.
+        """
+        (c,) = self._conflicts(in_flight={10})
+        assert c["in"] == "in-flight", (
+            "an issue the caller declared assigned must not read as a mere candidate"
+        )
+        assert c["also_startable"] is True
+
+    def test_the_gate_still_fires_in_both_populations(self) -> None:
+        """The control on the control: making it legible must not make it quiet.
+
+        If either population stopped raising, #645's DP2b assertion would be gone
+        and this whole group would still pass on the ``in`` values alone.
+        """
+        assert len(self._conflicts()) == 1
+        assert len(self._conflicts(in_flight={10})) == 1
+
+    def test_an_unheld_issue_raises_nothing(self) -> None:
+        """The green case - without it, a planner that flagged everything would
+        satisfy every assertion above."""
+        issues = MOD.parse_issues([_issue(10), _issue(11)])
+        plan = MOD.build_plan(issues, in_flight={10}, verdicts={})
+        assert plan["verdict_conflicts"] == []
+
+
+class TestVerdictConflictReportNamesThePopulation:
+    """The stderr report is what an orchestrator actually reads, so the split has
+    to be there and not only in the JSON."""
+
+    HOLD = [{"issue": 10, "ruling": "hold", "reason": "waits behind #11", "ts": "t"}]
+
+    def _run(self, tmp_path: Path, *extra: str) -> subprocess.CompletedProcess[str]:
+        issues_file = tmp_path / "issues.json"
+        issues_file.write_text(json.dumps([_issue(10), _issue(11)]))
+        ledger = tmp_path / "verdicts.json"
+        ledger.write_text(json.dumps(self.HOLD))
+        return subprocess.run(
+            [sys.executable, str(SCRIPT), str(issues_file), "--verdicts", str(ledger), *extra],
+            capture_output=True, text=True, check=False,
+        )
+
+    def test_startable_only_is_named_as_the_hold_working(self, tmp_path: Path) -> None:
+        """The reassurance requires an INSPECTED assignment population.
+
+        ``--in-flight ''`` is the caller saying "nothing is assigned" - which is
+        knowledge. Only then can the run say the hold is merely doing its job.
+        """
+        proc = self._run(tmp_path, "--in-flight", "")
+        assert proc.returncode == 4, proc.stderr
+        assert "0 in-flight" in proc.stderr, proc.stderr
+        assert "1 startable (#10)" in proc.stderr, proc.stderr
+        assert "standing hold WORKING" in proc.stderr, proc.stderr
+
+    def test_an_unknown_assignment_state_is_never_reassured(self, tmp_path: Path) -> None:
+        """THE RED CASE for the reassurance itself.
+
+        Without ``--in-flight`` every conflict defaults to "startable" - not
+        because nothing is assigned, but because nobody said. A worker sitting on
+        a held issue lands in that same bucket and is invisible. Printing "the
+        hold is working, nothing went wrong" there claims more than the input
+        population supports, and it is precisely the reading that would hide the
+        one case worth acting on.
+        """
+        proc = self._run(tmp_path)
+        assert "--in-flight was NOT passed" in proc.stderr, proc.stderr
+        assert "NOT a report that nothing went wrong" in proc.stderr, proc.stderr
+        assert "standing hold WORKING" not in proc.stderr, (
+            "an uninspected population must not be reassured about"
+        )
+
+    def test_in_flight_is_named_as_the_live_contradiction(self, tmp_path: Path) -> None:
+        proc = self._run(tmp_path, "--in-flight", "10")
+        assert proc.returncode == 4, proc.stderr
+        assert "1 in-flight (#10)" in proc.stderr, proc.stderr
+        assert "live contradiction" in proc.stderr, proc.stderr
+        # ...and it must NOT print the reassurance meant for the other population.
+        assert "standing hold WORKING" not in proc.stderr, proc.stderr

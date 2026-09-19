@@ -93,7 +93,7 @@ role:**
 | driver | `--driver` | `flow:auto` vs `codex:auto` determines the gate shape |
 | **implementation authority** | `--authority` | `implement` or `file-issues-only`. The out-of-band fact above |
 | gate policy | `--gate` | which step, who judges, whether `--yes` is forbidden |
-| **authority model** | `--authority-model` | `orchestrator-only` or `user-and-orchestrator`. Two required signatures is how a wave deadlocks (#676) |
+| **authority model** | `--authority-model` | `orchestrator-only`, `user-and-orchestrator`, or `user-only`. Two required signatures is how a wave deadlocks (#676); `user-only` is the most restrictive answer and exists because every other escape from this enum was PERMISSIVE - an operator declaring a narrower authority than it offered had to leave it empty or store a value granting authority nobody delegated (#1026) |
 | ledger format | `--ledger` | the one structured element that already worked - both workers produced comparable output all day |
 | merge authority | `--merge-authority` | who authorises the merge |
 | deploy policy | `--deploy-policy` | Woodpecker-only, #469 no-op, etc. |
@@ -106,7 +106,7 @@ role:**
 | model | `--model` | routing: do not hand the hardest issue to the smallest model |
 | **permission mode** | `--permission-mode` | a session that will hit permission prompts cannot take unattended work; routing it there wastes a cycle. Previously visible only in message metadata |
 | cwd, repo, issue, branch | `--cwd` etc. | already recorded |
-| **file lane** | `--files` | the largest gap. `list` warned on repo/issue/branch/worktree overlap; every real collision in the reference wave was file-level |
+| **file lane** | `--files` | the largest gap. `list` warned on repo/issue/branch/worktree overlap; every real collision in the reference wave was file-level. It **REPLACES** the lane wholesale - see the drop report below (#1026) |
 | capacity | `--capacity` | whether this session can take a second issue |
 | PR + base + diff | `--pr` / `--base` / `--diff` | merge starvation (#989). Under branch protection `strict: true` every merge invalidates every other open PR, so a long-verifying PR is overtaken during its own push and never reaches the front - #982 four times in one wave, each after a full green run. Pass all three when you push: if the BASE moved and the DIFF did not, `overtaken` increments and the roster shows it |
 
@@ -127,6 +127,39 @@ that violates them trains people to paste anything:
    reads `brief=STALE`; and declared file lanes participate in overlap
    detection like branches do.
 
+**`--files` REPLACES the lane; the drop is now REPORTED (#1026).** A role that
+re-registers for its next issue with a new list loses its claim on everything it
+held - at the moment it is most likely to have just merged the file - and nothing
+said so. After that the roster cannot distinguish *nobody has claimed this path*
+from *nobody is in conflict over it*: both render as silence.
+
+`register` now diffs the incoming lane against the stored one and emits
+`FLOW_WAVE_FILES`, `FLOW_WAVE_FILES_DROPPED` and `FLOW_WAVE_FILES_ADDED` on every
+registration (comma-separated, the same spelling `--files` accepts), with a loud
+stderr line naming each dropped path.
+
+The comparison is containment-aware, and it is ASYMMETRIC on purpose:
+
+- **Re-spelling is not a drop.** `src` and `src/` are one declaration, and
+  WIDENING (`src/a.py` -> `src`) drops nothing. A report that cried wolf on a
+  respelling would be one nobody reads - which is the silence it replaced.
+- **NARROWING is a drop, and is reported.** Replacing a directory claim with only
+  a child path (`src` -> `src/a.py`) gives up the rest of `src`, so
+  `FLOW_WAVE_FILES_DROPPED` names `src`. That is the whole point: the lane you
+  end up with is exactly what you named, never what you named plus what you
+  used to hold.
+
+It is reported rather than prevented, deliberately: merging the lists would make
+a lane only ever grow, so a role could never put a path down and `REVOKE` would
+be the only way back. Replacement is the right mechanism; its silence was the
+defect. **Name the complete lane, not the delta** - which is also why
+`LANE: EXTEND` is refused by name in the wave lexicon.
+
+`register` also echoes the role's own `--driver` back (`FLOW_WAVE_DRIVER` plus the
+`#783` capability fence). It stored the flag and emitted nothing, so a
+silently-accepted flag and a silently-IGNORED one were byte-identical at the one
+moment a caller could still fix a typo.
+
 **Merge starvation, and why one rebase is not it (#989).** The roster renders
 `pr=#N` and `overtaken=N` once a PR is declared, and prints a `STARVATION:` line
 only at **two** or more. Losing a base once is ordinary - somebody merged while
@@ -141,10 +174,26 @@ declared it must not silently acquire a clean bill. Under `no` the signal report
 zero by definition rather than by suppression - without `strict` losing a base
 does not cost a merge slot, so the observation is a rebase and not starvation.
 
-*Residual (#989):* the field is declared once, and branch protection can be
-changed mid-wave by someone outside the wave. It is a measurement with a shelf
-life and nothing re-reads it. Named here so the next reader knows the bound
-rather than discovering it.
+**That shelf life is now BOUNDED (#1026).** Branch protection is repo state
+anyone with admin can change, including from outside the wave, while this
+registry is deliberately offline (it has to run in the CI image), so the reading
+cannot be refreshed here - it can only be dated. `policy set --merge-strict`
+stamps the observation, and **suppression requires a reading that is both stamped
+and fresh**: past `FLOW_WAVE_MERGE_STRICT_TTL` (default 86400s), or with no stamp
+at all, a declared `no` stops suppressing and the starvation signal comes back
+on, loudly, naming what to re-read.
+
+The asymmetry is deliberate. A stale `yes` only leaves a warning switched on,
+which costs nothing; a stale `no` goes silently blind exactly when protection is
+TIGHTENED - the change that makes starvation possible in the first place. Read
+`FLOW_WAVE_MERGE_STRICT` for the DECLARATION and
+`FLOW_WAVE_MERGE_STRICT_SUPPRESSING` for what actually governed the zero; they
+differ precisely when a `no` has expired.
+
+*Reversal trigger (recorded beside the constant in the script):* if waves start
+re-declaring `no` purely to keep the signal quiet, RAISE the TTL. Do not remove
+the expiry - that restores the unbounded staleness this bounds, and a
+re-declaration is cheap where a blind wave is not.
 
 **Check your diff against your own lane before you push (#985).**
 
@@ -168,6 +217,32 @@ Three outcomes, and the third is why it exists:
 | `ok` | every touched path is inside the declared lane |
 | `extra` | a path you never claimed is in your diff - the stale-payload signature. Verify the two changes are DISJOINT before repairing; if they overlap it is a real merge |
 | `unknown` | no lane declared, so there is nothing to compare against. **Not a pass** |
+| `ungranted` | your lane claims a path the grant never handed over (only with `--granted`, below) |
+
+**Check your lane against the grant that authorised it, too (#1026).**
+
+```bash
+~/.claude/scripts/flow-wave-registry.sh lane-check worker-B --wave cpp-completion \
+  --granted 'scripts/flow-wave-registry.sh,tests/test_flow_wave_registry.py'
+```
+
+Everything else here compares a lane against other LANES, or against a DIFF.
+Neither ever compared it against the grant it came from - and the grant is the
+side that changes shape on the way in: a grant is prose in a message, a lane is
+data in the registry, and the hop between them is exactly where a path gets
+dropped or silently widened. Two counts, and they are NOT symmetric:
+
+| Line | Meaning |
+|------|---------|
+| `FLOW_WAVE_LANE_UNGRANTED` | lane entries the grant never covered. **Refuses** (exit 1, `ungranted`) - a lane wider than its grant is how one role quietly takes another's file, and this fires before a line is written |
+| `FLOW_WAVE_LANE_UNCLAIMED` | granted paths missing from the lane. Loud and counted, but **not** a refusal: the registry is not protecting them, yet the worker's diff may be perfectly correct |
+
+Both read `-` when no `--granted` was passed - never `0`, which would claim a
+comparison nobody asked for. The comparison normalises both sides and uses the
+same containment predicate as the rest of the file, so two legitimate spellings
+of one path (`src` and `src/`, or a file inside a granted directory) do not read
+as two different files. It needs no git, so it still answers where the diff
+check cannot.
 
 It also reports `LANE_UNUSED` - paths declared but not touched - as **data, not a
 finding**, because a wide lane is common and usually innocent. The rare
@@ -230,7 +305,12 @@ any live role still carrying the older rev - an amendment nobody re-read is
 exactly the drift a declared-but-unread field would hide.
 
 `--authority` and `--authority-model` are validated against their enums (a typo
-is exit 2, not a stored value nobody can act on). The rest are free text: they
+is exit 2, not a stored value nobody can act on). `--authority-model` takes
+`orchestrator-only`, `user-and-orchestrator` or `user-only`; the last is the
+NARROWEST value and was added because its absence was a one-way hazard (#1026) -
+with only the first two on offer, an operator whose session answers to its own
+user and to nobody else had to either leave the field empty, which reads as
+undeclared, or store a value delegating authority that was never delegated. The rest are free text: they
 are read by humans and the wording is the content. Read it back any time with
 `policy show --wave cpp` (`--json` for the object).
 
@@ -270,7 +350,7 @@ and is wiped by the OS at reboot - exactly when every session's address dies too
    (literal values):
 
    ```bash
-   ~/.claude/scripts/flow-wave-registry.sh register 1 --wave cpp --cwd /path/to/worktree --repo /path/to/repo --issue 42 --branch issue-42-slug --model opus --permission-mode bypassPermissions --files scripts/flow-wave-registry.sh,tests/test_flow_wave_registry.py
+   ~/.claude/scripts/flow-wave-registry.sh register 1 --wave cpp --cwd /path/to/worktree --repo /path/to/repo --issue 42 --branch issue-42-slug --model opus --permission-mode bypassPermissions --driver flow:auto --files scripts/flow-wave-registry.sh,tests/test_flow_wave_registry.py
    ```
 
    The role-level facts are optional and each answers a routing question the
@@ -1292,8 +1372,12 @@ from "this call does not report policy":
 | `FLOW_WAVE_POLICY` | `declared` / `absent` |
 | `FLOW_WAVE_POLICY_REV` | current revision (`0` when absent); every `policy set` bumps it |
 | `FLOW_WAVE_POLICY_AUTHORITY` | `implement` / `file-issues-only` |
-| `FLOW_WAVE_POLICY_AUTHORITY_MODEL` | `orchestrator-only` / `user-and-orchestrator` |
+| `FLOW_WAVE_POLICY_AUTHORITY_MODEL` | `orchestrator-only` / `user-and-orchestrator` / `user-only` (the narrowest, #1026) |
 | `FLOW_WAVE_POLICY_DRIVER` / `_GATE` / `_LEDGER` / `_MERGE_AUTHORITY` / `_DEPLOY` / `_REPO` / `_TS` | free text as declared |
+| `FLOW_WAVE_POLICY_MERGE_STRICT` / `_TS` / `_AGE` / `_STALE` (#1026) | the branch-protection reading, when it was taken, its age in seconds, and whether it has expired (`yes` / `no` / `unknown` = declared but UNSTAMPED, so not datable and therefore not fresh / `-` = nothing declared). The stamp travels with the value everywhere the value does |
+| `FLOW_WAVE_MERGE_STRICT_SUPPRESSING` (`list`, #1026) | `yes` / `no` - whether the declaration was still usable enough to switch starvation detection OFF. Differs from `FLOW_WAVE_MERGE_STRICT` exactly when a `no` has gone stale, which is the case worth seeing |
+| `FLOW_WAVE_FILES` / `_DROPPED` / `_ADDED` (`register`, #1026) | the lane as now recorded, and what this registration dropped from / added to it. `-` for none. `--files` REPLACES, so a drop is the routine hazard this reports |
+| `FLOW_WAVE_DRIVER` / `_SCOPE` / `_WEB` / `_CONTAINER` / `_META` / `_CANNOT` | the role's own driver and its #783 capability fence. Emitted by `get` **and by `register`** (#1026), so a declaration can be read back by whoever made it |
 | `FLOW_WAVE_BRIEFED_REV` | the rev THIS role was briefed on (`register` / `get`) |
 | `FLOW_WAVE_BRIEF` | `current` / `stale` / `none`. `stale` = the policy was amended after this role registered; re-register to take the re-brief |
 | `FLOW_WAVE_LIVENESS` | `live` / `stale` / `unknown` / `released` |
@@ -1306,6 +1390,8 @@ a clean one:
 |------|--------|
 | `FLOW_WAVE_LANE_SCOPED` (`register`, `get`) | `yes` (a repo-scoped lane fact is declared and a repo is recorded) / `no` (a lane is declared with NO repo - it cannot be compared with anybody) / `-` (no repo-scoped lane fact declared, or the `orchestrator`, which the pairwise checks exempt) |
 | `FLOW_WAVE_OVERLAP_UNSCOPED` (`list`) | count of LIVE roles whose declared lane could not be overlap-checked. Emitted as a VALUE on every `list` exit - including `0`, the empty roster, and `--json` - so a consumer can tell "none" from "this call does not report it". A non-zero count means the roster is NOT a clean verdict |
+| `FLOW_WAVE_DRIVER_UNDECLARED` (`list`, #1026) | count of LIVE non-orchestrator roles running an undeclared driver **under a wave that declared one**. `-` when the wave declares no policy driver - not `0`, which would claim a measurement nobody took. A wave-level driver is inherited doctrine, not a stored per-role value, so a worker quietly running something else produces a byte-identical roster row |
+| `FLOW_WAVE_LANE_UNGRANTED` / `_UNCLAIMED` (`lane-check`, #1026) | the declared lane versus the grant that authorised it. `-` when no `--granted` was passed. `UNGRANTED` refuses (exit 1); `UNCLAIMED` is loud and counted but never blocks |
 
 Neither changes an exit code: advisories add lines, never exit codes (#674), or
 a `set -euo pipefail` caller aborts mid-script.

@@ -75,10 +75,15 @@
 #                         [--capacity C] [--driver D]
 #   flow-wave-registry.sh policy set  [--wave W] [--driver D] [--authority A]
 #                         [--authority-model M] [--gate G] [--ledger L]
-#                         [--merge-authority M] [--deploy-policy D] [--repo P]
+#                         [--merge-authority M] [--merge-strict yes|no|unknown]
+#                         [--deploy-policy D] [--repo P]
 #   flow-wave-registry.sh policy show [--wave W] [--json]
 #   flow-wave-registry.sh list    [--wave W] [--json]
 #   flow-wave-registry.sh get     <role> [--wave W]
+#   flow-wave-registry.sh lane-check <role> [--wave W] [--base REF]
+#                         [--granted A,B]   (#1026: compare the recorded lane
+#                         against the GRANT that authorised it, not only against
+#                         other lanes and the diff)
 #   flow-wave-registry.sh verify  <role> --from <uds:...> [--wave W]
 #   flow-wave-registry.sh release <role> [--wave W] [--force]
 #   flow-wave-registry.sh self-address
@@ -272,14 +277,18 @@
 #   FLOW_WAVE_POLICY_REV     the wave policy's current revision (0 when absent)
 #   FLOW_WAVE_POLICY_DRIVER  flow:auto | codex:auto | ... (free text)
 #   FLOW_WAVE_POLICY_AUTHORITY        implement | file-issues-only
-#   FLOW_WAVE_POLICY_AUTHORITY_MODEL  orchestrator-only | user-and-orchestrator
+#   FLOW_WAVE_POLICY_AUTHORITY_MODEL  orchestrator-only | user-and-orchestrator |
+#                                     user-only (the most restrictive, #1026)
 #   FLOW_WAVE_POLICY_GATE / _LEDGER / _MERGE_AUTHORITY / _DEPLOY / _REPO / _TS
 #   FLOW_WAVE_BRIEFED_REV    the policy rev THIS role was briefed on (register/get)
 #
 # Driver capability detail lines (#783), derived from flow-driver-capability.sh
 # and never restated here. Emitted as '-' whenever the driver is undeclared,
 # unknown, or the helper is absent - a missing fence is never a claim of one:
-#   FLOW_WAVE_DRIVER         the lifecycle command THIS role runs (get)
+#   FLOW_WAVE_DRIVER         the lifecycle command THIS role runs (register/get -
+#                            register too since #1026: it stored --driver and
+#                            emitted nothing, so a silently-accepted flag and a
+#                            silently-IGNORED one were byte-identical)
 #   FLOW_WAVE_DRIVER_SCOPE   general | implementation-only
 #   FLOW_WAVE_DRIVER_WEB     yes | no  (can it consult a live source?)
 #   FLOW_WAVE_DRIVER_CONTAINER  yes | no (can its shell reach docker/kubectl/
@@ -299,6 +308,30 @@
 #   FLOW_WAVE_POLICY_DRIVER_SCOPE / _WEB / _CONTAINER / _META / _CANNOT  the same, for
 #                            the wave-level default driver (register/get/list/
 #                            policy)
+#
+# The #1026 read-back lines - each one a declaration that was stored and never
+# reported, so a broken declaration and a working one printed identically:
+#   FLOW_WAVE_FILES          the role's file lane as now recorded (register)
+#   FLOW_WAVE_FILES_DROPPED  paths this registration REMOVED from that lane, or
+#                            '-'. `--files` REPLACES, so the routine re-brief
+#                            silently un-claimed whatever the new list omitted
+#   FLOW_WAVE_FILES_ADDED    paths this registration added, or '-'
+#   FLOW_WAVE_DRIVER_UNDECLARED  (list) count of LIVE non-orchestrator roles with
+#                            no driver, under a wave whose POLICY declares one.
+#                            '-' when the wave declares none: a `0` would claim a
+#                            measurement that was never taken
+#   FLOW_WAVE_POLICY_MERGE_STRICT / _TS / _AGE / _STALE  the branch-protection
+#                            reading, when it was taken, and whether it still
+#                            counts. `_STALE=unknown` means declared but
+#                            UNSTAMPED - undatable is not recent
+#   FLOW_WAVE_MERGE_STRICT_SUPPRESSING  (list) yes|no - whether that reading
+#                            actually switched starvation detection off. Differs
+#                            from FLOW_WAVE_MERGE_STRICT exactly when a `no` has
+#                            expired, which is the case worth seeing
+#   FLOW_WAVE_LANE_UNGRANTED / _UNCLAIMED  (lane-check --granted) the declared
+#                            lane versus the GRANT that authorised it - the one
+#                            comparison nothing made. '-' when no grant was
+#                            supplied. UNGRANTED refuses; UNCLAIMED is loud data
 #   FLOW_WAVE_BRIEF          current | stale | none. `stale` means the policy was
 #                            amended after this role registered - re-register to
 #                            take the re-brief.
@@ -982,6 +1015,84 @@ policy_rev_of() { # policy_rev_of POLICY_JSON -> integer (0 when absent)
 # reported as a value rather than by omitting the lines: a consumer that greps
 # for FLOW_WAVE_POLICY_AUTHORITY must be able to tell "no policy declared" from
 # "this call does not report policy", and a missing line answers neither.
+# --merge-strict IS A MEASUREMENT WITH A SHELF LIFE (#1026).
+#
+# Branch protection is repo state, changeable by anyone with admin - including
+# someone outside the wave - while this registry is deliberately OFFLINE (it must
+# run in the CI image with no network and no `gh`). So the declaration is a
+# reading taken at one moment, and its staleness was previously UNBOUNDED.
+#
+# The dangerous direction is one-way. `merge_strict=no` SUPPRESSES starvation
+# detection outright, so a wave that declared `no` goes silently blind the moment
+# protection is TIGHTENED - the exact change that makes starvation possible. The
+# reverse (a stale `yes`) only leaves the signal switched on, which costs nothing
+# but a warning.
+#
+# So the observation is stamped, its age is reported, and suppression requires a
+# reading that is both STAMPED and FRESH. An unstamped declaration reads
+# `unknown`, never fresh: a policy written before this change cannot be dated,
+# and an undatable reading is not a recent one.
+#
+# OSCILLATION CONTROL - the reversal trigger, recorded here rather than in a PR
+# nobody re-reads. This is a threshold and thresholds are two-sided. If waves
+# start losing legitimate `no` declarations mid-run and re-declaring them purely
+# to keep the signal quiet, RAISE FLOW_WAVE_MERGE_STRICT_TTL. Do NOT remove the
+# expiry: removing it restores the unbounded staleness this exists to bound, and
+# the symptom it would relieve (a re-declaration) is cheap while the failure it
+# would restore (a blind wave) is not.
+MERGE_STRICT_TTL="${FLOW_WAVE_MERGE_STRICT_TTL:-86400}"
+# VALIDATED, because an unvalidated TTL made this guard fail OPEN - the one
+# direction it exists to close (counter-model review, #1026). With a non-numeric
+# value `[ "$age" -gt "$MERGE_STRICT_TTL" ]` is a bash integer-expression ERROR,
+# which returns false, which falls through to "fresh" - so a typo in an
+# environment variable would silently restore the unbounded staleness this
+# bounds, and nothing would say so. A bad TTL is refused into the default and
+# announced; it never becomes a permanent suppression.
+case "$MERGE_STRICT_TTL" in
+  '' | *[!0-9]*)
+    echo "flow-wave-registry: FLOW_WAVE_MERGE_STRICT_TTL='$MERGE_STRICT_TTL' is not a non-negative integer - using 86400." >&2
+    echo "  An unusable TTL must not read as 'never expires': that is the failure this shelf life exists to prevent (#1026)." >&2
+    MERGE_STRICT_TTL=86400 ;;
+esac
+
+# merge_strict_age POLICY_JSON -> seconds since the observation, or '-' when it
+# carries no usable stamp.
+merge_strict_age() {
+  local ts
+  ts="$(policy_field "$1" merge_strict_ts)"
+  case "$ts" in
+    '' | *[!0-9]*) printf '%s' '-'; return 0 ;;
+  esac
+  printf '%s' "$(( NOW - ts ))"
+}
+
+# merge_strict_stale POLICY_JSON -> yes | no | unknown | '-'
+#   '-'      nothing was declared, so there is nothing to go stale
+#   unknown  declared but UNSTAMPED - it cannot be dated, so it is not fresh
+#   yes/no   older / younger than the TTL
+merge_strict_stale() {
+  local age
+  [ -n "$(policy_field "$1" merge_strict)" ] || { printf '%s' '-'; return 0; }
+  age="$(merge_strict_age "$1")"
+  [ "$age" = "-" ] && { printf '%s' 'unknown'; return 0; }
+  # A NEGATIVE age is a stamp from the FUTURE - clock skew, or a registry file
+  # written by a host whose clock disagrees. It is a broken observation, not a
+  # very fresh one, and rounding it down to "fresh" would suppress on the
+  # strength of a reading we have positive evidence against.
+  [ "$age" -lt 0 ] && { printf '%s' 'unknown'; return 0; }
+  [ "$age" -gt "$MERGE_STRICT_TTL" ] && { printf '%s' 'yes'; return 0; }
+  printf '%s' 'no'
+}
+
+# merge_strict_suppressing POLICY_JSON -> yes | no
+# The ONE predicate that decides whether starvation detection is switched off,
+# so the roster and the JSON can never disagree about why it was.
+merge_strict_suppressing() {
+  [ "$(policy_field "$1" merge_strict)" = "no" ] || { printf '%s' 'no'; return 0; }
+  [ "$(merge_strict_stale "$1")" = "no" ] || { printf '%s' 'no'; return 0; }
+  printf '%s' 'yes'
+}
+
 emit_policy_lines() {
   local p="$1"
   if [ "$p" = "null" ]; then
@@ -998,6 +1109,10 @@ emit_policy_lines() {
     echo "FLOW_WAVE_POLICY_GATE=-"
     echo "FLOW_WAVE_POLICY_LEDGER=-"
     echo "FLOW_WAVE_POLICY_MERGE_AUTHORITY=-"
+    echo "FLOW_WAVE_POLICY_MERGE_STRICT=-"
+    echo "FLOW_WAVE_POLICY_MERGE_STRICT_TS=-"
+    echo "FLOW_WAVE_POLICY_MERGE_STRICT_AGE=-"
+    echo "FLOW_WAVE_POLICY_MERGE_STRICT_STALE=-"
     echo "FLOW_WAVE_POLICY_DEPLOY=-"
     echo "FLOW_WAVE_POLICY_REPO=-"
     echo "FLOW_WAVE_POLICY_TS=-"
@@ -1021,6 +1136,13 @@ emit_policy_lines() {
   echo "FLOW_WAVE_POLICY_GATE=$(policy_field "$p" gate)"
   echo "FLOW_WAVE_POLICY_LEDGER=$(policy_field "$p" ledger)"
   echo "FLOW_WAVE_POLICY_MERGE_AUTHORITY=$(policy_field "$p" merge_authority)"
+  # The branch-protection reading, ITS STAMP, and whether it is still usable
+  # (#1026). The stamp travels with the value everywhere the value does, because
+  # a reading quoted without its age is the thing that went unbounded.
+  echo "FLOW_WAVE_POLICY_MERGE_STRICT=$(policy_field "$p" merge_strict)"
+  echo "FLOW_WAVE_POLICY_MERGE_STRICT_TS=$(policy_field "$p" merge_strict_ts)"
+  echo "FLOW_WAVE_POLICY_MERGE_STRICT_AGE=$(merge_strict_age "$p")"
+  echo "FLOW_WAVE_POLICY_MERGE_STRICT_STALE=$(merge_strict_stale "$p")"
   echo "FLOW_WAVE_POLICY_DEPLOY=$(policy_field "$p" deploy_policy)"
   echo "FLOW_WAVE_POLICY_REPO=$(policy_field "$p" repo)"
   echo "FLOW_WAVE_POLICY_TS=$(policy_field "$p" ts)"
@@ -1346,6 +1468,60 @@ lane_covers() { # lane_covers PATH LANE_CSV
   return 1
 }
 
+#: lane_missing FROM_CSV TO_CSV -> the FROM entries NO LONGER covered by TO,
+#: space-separated, empty when none. The lane-lapse predicate (#1026).
+#:
+#: TRAILING SLASHES ARE NORMALISED ON BOTH SIDES FIRST, and that is the whole
+#: reason this is a function rather than a `lane_covers` call at the use site.
+#: `lane_covers` treats a trailing slash as meaningful, so `src` and `src/` -
+#: two legitimate spellings of ONE declaration - compare as different paths in
+#: one direction only: `lane_covers src/ src` is true and `lane_covers src src/`
+#: is false. Used raw, a re-register that merely respells a held path would be
+#: reported as DROPPING it, and a drop report that cries wolf on a respelling is
+#: one nobody reads - which is the failure this exists to fix, one level up.
+#:
+#: Containment is deliberate and asymmetric in the useful direction: narrowing
+#: `src` to `src/a.py` DROPS the rest of `src` and is reported, while widening
+#: `src/a.py` to `src` drops nothing and is not. `lane_covers` owns that
+#: judgement - including the derived mirror paths - so this predicate and the
+#: `lane-check` gate that grades a diff can never disagree about what a
+#: declaration covers.
+#: SERIALIZED WITH COMMAS, and COUNTED separately in LANE_MISSING_N - never by
+#: word-splitting the result (counter-model review, #1026). `norm_path` keeps
+#: inner spaces on purpose, so `docs/My File.md` is ONE valid lane entry that a
+#: space-joined string plus `wc -w` reports as two. Commas are also the lane's
+#: own serialization - it is what `--files` accepts and what `FLOW_WAVE_FILES`
+#: emits - so a caller can feed the result straight back in.
+#: BOTH RESULTS COME BACK AS GLOBALS, and the function is called BARE - never in
+#: a command substitution. `$( ... )` runs the function in a SUBSHELL, so a count
+#: assigned inside it never reaches the caller, and under `set -u` the caller
+#: dies on an unbound variable the moment it reads one. Returning the list on
+#: stdout and the count in a variable is exactly that trap, so neither is on
+#: stdout: `LANE_MISSING` is the comma-joined list, `LANE_MISSING_N` its size.
+LANE_MISSING=""
+LANE_MISSING_N=0
+lane_missing() { # lane_missing FROM_CSV TO_CSV -> sets LANE_MISSING, LANE_MISSING_N
+  local _from="$1" _to="$2" _e _t _out="" _to_norm=""
+  local -a _fa=() _ta=()
+  LANE_MISSING=""
+  LANE_MISSING_N=0
+  lane_split _ta "$_to"
+  for _t in ${_ta[@]+"${_ta[@]}"}; do
+    _t="${_t%/}"
+    [ -n "$_t" ] || continue
+    _to_norm="${_to_norm:+$_to_norm,}$_t"
+  done
+  lane_split _fa "$_from"
+  for _e in ${_fa[@]+"${_fa[@]}"}; do
+    _e="${_e%/}"
+    [ -n "$_e" ] || continue
+    lane_covers "$_e" "$_to_norm" && continue
+    _out="${_out:+$_out,}$_e"
+    LANE_MISSING_N=$((LANE_MISSING_N + 1))
+  done
+  LANE_MISSING="$_out"
+}
+
 starvation_scan() { # starvation_scan REG WAVE ROLES
   local _reg="$1" _wave="$2" _roles="$3" _r _e _lv _ov _pr
   STARVED=""; STARVE_N=0; STARVE_OBSERVED=0; STARVE_LIVE=0
@@ -1413,6 +1589,9 @@ A_MODEL=""; A_PERMMODE=""; A_FILES=""; A_CAPACITY=""
 A_MODEL_SET=0; A_PERMMODE_SET=0; A_FILES_SET=0; A_CAPACITY_SET=0
 A_PR=""; A_BASE=""; A_DIFF=""
 A_PR_SET=0; A_BASE_SET=0; A_DIFF_SET=0
+# `lane-check --granted` (#1026): the grant that AUTHORISED the lane, so the
+# declaration can be compared against it and not only against other lanes.
+A_GRANTED=""; A_GRANTED_SET=0
 # Wave-level policy fields (#699). Same rule: `policy set` is a MERGE, so an
 # amendment names one flag rather than restating the whole policy - restating it
 # is how a field gets silently dropped.
@@ -1445,6 +1624,8 @@ while [ "$#" -gt 0 ]; do
     --permission-mode=*) A_PERMMODE="${1#--permission-mode=}"; A_PERMMODE_SET=1 ;;
     --files) [ "$#" -ge 2 ] || usage_fail "--files requires a comma-separated path list"; A_FILES="$2"; A_FILES_SET=1; shift ;;
     --files=*) A_FILES="${1#--files=}"; A_FILES_SET=1 ;;
+    --granted) [ "$#" -ge 2 ] || usage_fail "--granted requires a comma-separated path list"; A_GRANTED="$2"; A_GRANTED_SET=1; shift ;;
+    --granted=*) A_GRANTED="${1#--granted=}"; A_GRANTED_SET=1 ;;
     --pr) [ "$#" -ge 2 ] || usage_fail "--pr requires a value"; A_PR="$2"; A_PR_SET=1; shift ;;
     --pr=*) A_PR="${1#--pr=}"; A_PR_SET=1 ;;
     --base) [ "$#" -ge 2 ] || usage_fail "--base requires a value"; A_BASE="$2"; A_BASE_SET=1; shift ;;
@@ -1543,9 +1724,17 @@ case "$VERB" in
       esac
     fi
     if [ "$P_AUTHORITY_MODEL_SET" -eq 1 ]; then
+      # `user-only` is the MOST RESTRICTIVE answer, and its absence was a
+      # one-way escape hatch (#1026). The enum offered `orchestrator-only` and
+      # `user-and-orchestrator`, so an operator declaring a NARROWER authority
+      # than the enum contemplated - this session takes direction from its own
+      # user and from nobody else - had to either leave the field empty, which
+      # reads as undeclared, or store a value GRANTING authority the owner never
+      # delegated. Every available escape was permissive, which is the wrong
+      # direction for a field whose whole job is to say who may authorise work.
       case "$P_AUTHORITY_MODEL" in
-        orchestrator-only | user-and-orchestrator) : ;;
-        *) usage_fail "--authority-model must be 'orchestrator-only' or 'user-and-orchestrator' (got '$P_AUTHORITY_MODEL')" ;;
+        orchestrator-only | user-and-orchestrator | user-only) : ;;
+        *) usage_fail "--authority-model must be 'orchestrator-only', 'user-and-orchestrator' or 'user-only' (got '$P_AUTHORITY_MODEL'). 'user-only' is the most restrictive value and the correct one when no orchestrator holds authority over this wave - an operator declaring a narrower authority than the enum offers must never have to store a more permissive one" ;;
       esac
     fi
     if [ "$P_MERGE_STRICT_SET" -eq 1 ]; then
@@ -1582,6 +1771,7 @@ case "$VERB" in
         | (if $merge_set   == "1" then .merge_authority = $merge   else . end)
         | (if $deploy_set  == "1" then .deploy_policy   = $deploy  else . end)
         | (if $mstrict_set == "1" then .merge_strict = $mstrict else . end)
+        | (if $mstrict_set == "1" then .merge_strict_ts = $now else . end)
         | (if $repo        == ""  then . else .repo     = $repo    end)
         | .rev           = ((.rev // 0) + 1)
         | .ts            = ($now | tonumber)
@@ -1872,6 +2062,49 @@ case "$VERB" in
     NEW_REPO="$(printf '%s' "$NEW_ENTRY" | jq -r '.repo // ""')"
     NEW_FILES="$(printf '%s' "$NEW_ENTRY" | jq -r '.files // ""')"
     NEW_ISSUE="$(printf '%s' "$NEW_ENTRY" | jq -r '.issue // ""')"
+    # THE LANE LAPSE (#1026). `--files` REPLACES wholesale, so a role that
+    # re-registers for its next issue with a new list loses its claim on
+    # everything it held - at the moment it is most likely to have just merged
+    # the file. Nothing reported the drop, and after it the roster cannot
+    # distinguish "nobody has claimed this path" from "nobody is in conflict
+    # over it": both render as silence, which is the failure class this whole
+    # file exists to refuse.
+    #
+    # Reported rather than PREVENTED, deliberately. Merging the two lists would
+    # make a lane only ever grow, so a role could never put a path down and
+    # `REVOKE` would be the only way back - and a lane nobody can narrow is how
+    # one role ends up holding the repository. Replacement is the right
+    # mechanism; its SILENCE was the defect.
+    #
+    # Computed from the STORED entry on both sides, never from the flags: with
+    # `--files` omitted the value is PRESERVED, so the flags cannot say what the
+    # lane now is. Reading both entries also means this keeps telling the truth
+    # if the preserve/rewrite grouping ever changes.
+    # A RELEASED prior entry has already given its lane up (counter-model review
+    # pass 2, #1026), so re-using the role is not a drop - `release` was the
+    # withdrawal, and reporting it again at the next registration would fire the
+    # loudest warning here on ordinary role re-use. `.files` survives a release
+    # (the entry is marked, not erased), which is exactly why this has to be
+    # asked rather than inferred from the field being present.
+    PREV_FILES=""
+    if [ "$CUR" != "null" ] && [ "$(printf '%s' "$CUR" | jq -r '.released // false')" != "true" ]; then
+      PREV_FILES="$(printf '%s' "$CUR" | jq -r '.files // ""')"
+    fi
+    lane_missing "$PREV_FILES" "$NEW_FILES"
+    FILES_DROPPED="$LANE_MISSING"; FILES_DROPPED_N="$LANE_MISSING_N"
+    lane_missing "$NEW_FILES" "$PREV_FILES"
+    FILES_ADDED="$LANE_MISSING"; FILES_ADDED_N="$LANE_MISSING_N"
+    if [ "$FILES_DROPPED_N" -gt 0 ]; then
+      echo "flow-wave-registry: role '$ROLE' DROPPED $FILES_DROPPED_N path(s) from its declared lane: $FILES_DROPPED" >&2
+      # SAYS ONLY WHAT THIS COMMAND CHECKED (counter-model review, #1026). The
+      # earlier wording claimed "nothing else holds these paths now" - a
+      # ROSTER-WIDE fact that `register` never looks up, and which another live
+      # role may flatly contradict. The per-role delta is what was measured; who
+      # holds a path now is `list`'s question, so the reader is sent there
+      # rather than handed a fabricated answer.
+      echo "  --files REPLACES the lane; it does not extend it. THIS role no longer holds those paths, and a path it has stopped claiming reads on the roster exactly like an uncontested one (#1026)." >&2
+      echo "  Run 'list --wave $WAVE' for who holds them now; re-register naming the COMPLETE lane if that was not the intent." >&2
+    fi
     E_LANE_SCOPED="-"
     if [ "$ROLE" != "orchestrator" ] && { [ -n "$NEW_FILES" ] || [ -n "$NEW_ISSUE" ]; }; then
       E_LANE_SCOPED=yes
@@ -1916,6 +2149,21 @@ case "$VERB" in
     echo "FLOW_WAVE_BRIEFED_REV=$POL_REV"
     echo "FLOW_WAVE_BRIEF=$(brief_state "$POL_REV" "$POL_REV")"
     echo "FLOW_WAVE_LANE_SCOPED=$E_LANE_SCOPED"
+    echo "FLOW_WAVE_FILES=${NEW_FILES:--}"
+    echo "FLOW_WAVE_FILES_DROPPED=${FILES_DROPPED:--}"
+    echo "FLOW_WAVE_FILES_ADDED=${FILES_ADDED:--}"
+    # The role's OWN driver, read back (#1026). `register` stored `--driver` and
+    # emitted nothing, so a silently-accepted flag and a silently-IGNORED one
+    # were byte-identical at the only moment a caller could still fix a typo.
+    # The block is the one `get` already prints, from the same stored entry -
+    # a second spelling of the same fact is how the two drift.
+    REG_DRIVER="$(printf '%s' "$NEW_ENTRY" | jq -r '.driver // "" | if . == null then "" else . end')"
+    echo "FLOW_WAVE_DRIVER=${REG_DRIVER:--}"
+    echo "FLOW_WAVE_DRIVER_SCOPE=$(driver_cap_dash "$REG_DRIVER" SCOPE)"
+    echo "FLOW_WAVE_DRIVER_WEB=$(driver_cap_dash "$REG_DRIVER" WEB)"
+    echo "FLOW_WAVE_DRIVER_CONTAINER=$(driver_cap_dash "$REG_DRIVER" CONTAINER)"
+    echo "FLOW_WAVE_DRIVER_META=$(driver_cap_dash "$REG_DRIVER" META)"
+    echo "FLOW_WAVE_DRIVER_CANNOT=$(driver_cap_dash "$REG_DRIVER" CANNOT)"
     E_SOCKET="$SOCK"; E_PID="$SELF_PID"; E_SESSION="$SELF_SESSION"; E_LIVE=live; E_BASIS=self
     E_VERIFIED="$KEEP_VERIFIED"; E_MISMATCH="$KEEP_MISMATCH"
     E_SOURCE="$SOCK_SOURCE"; E_REASON="$SOCK_REASON"
@@ -2137,6 +2385,86 @@ case "$VERB" in
       emit error
       exit 2
     fi
+    #: THE LANE VERSUS THE GRANT THAT AUTHORISED IT (#1026).
+    #:
+    #: Everything above compares a lane against other LANES, and the diff check
+    #: below compares it against a DIFF. Neither ever compares it against the
+    #: grant it came from - and the grant is the one side that changes shape on
+    #: the way in: a grant is prose in a message, a lane is data in the registry,
+    #: and the hop between them is exactly where a path gets dropped (#1026's
+    #: own primary defect) or silently widened. Only the second half of that
+    #: journey was ever checked.
+    #:
+    #: This runs BEFORE git, deliberately. It compares two DECLARATIONS and needs
+    #: no repository at all, so a host with no git - or a branch with no merge
+    #: base - still gets the answer. It is also the more fundamental verdict: a
+    #: lane wider than its grant is wrong whatever the diff turns out to be.
+    #:
+    #: `-` WHEN NO GRANT WAS SUPPLIED, never `0`. A zero would claim a comparison
+    #: nobody asked for; `-` says the question was not put. Both counts are
+    #: emitted on every path that reaches a verdict, so an absent grant check is
+    #: distinguishable from a passing one.
+    LANE_UNGRANTED="-"; LANE_UNGRANTED_N="-"
+    LANE_UNCLAIMED="-"; LANE_UNCLAIMED_N="-"
+    if [ "$A_GRANTED_SET" -eq 1 ]; then
+      #: The same refusal the declared lane gets: a grant carrying `.` or `..`
+      #: cannot be compared lexically, and normalising it here would compare
+      #: against a grant nobody wrote.
+      case ",$A_GRANTED," in
+        *,*/../*,*|*,../*,*|*,*/..,*|*,./*,*|*,*/./*,*)
+          echo "FLOW_WAVE_LANE_CHECK=unknown"
+          echo "flow-wave-registry: UNKNOWN - the supplied grant contains a non-canonical path ('.' or '..'), which cannot be compared lexically. Restate it with repository-relative paths." >&2
+          emit error; exit 2 ;;
+      esac
+      #: EMPTINESS IS DECIDED BY THE SAME SPLITTER THAT DOES THE COMPARISON
+      #: (counter-model review pass 2, #1026). A hand-rolled `tr -d ', '` test
+      #: strips only commas and ASCII spaces, so `--granted $'\t'` read as
+      #: non-empty here and then trimmed to NOTHING in `lane_split` - and a grant
+      #: of nothing makes EVERY declared lane entry ungranted, turning a caller's
+      #: unexpanded variable into a wall of findings and an exit 1. Asking the
+      #: splitter means the two can never disagree about what "empty" is.
+      GRANT_ARR=(); lane_split GRANT_ARR "$A_GRANTED"
+      GRANT_N=0
+      for _g in ${GRANT_ARR[@]+"${GRANT_ARR[@]}"}; do
+        [ -n "$_g" ] && GRANT_N=$((GRANT_N + 1))
+      done
+      [ "$GRANT_N" -gt 0 ] || {
+        echo "FLOW_WAVE_LANE_CHECK=unknown"
+        echo "flow-wave-registry: UNKNOWN - --granted resolved to NO paths. An empty grant is a MISSING measurement, not a grant of nothing; omit the flag, or name what was granted." >&2
+        emit error; exit 2; }
+      #: lane_missing NORMALISES both sides and defers containment to
+      #: `lane_covers`, which is why two legitimate spellings of one path - `src`
+      #: and `src/`, or a file inside a granted directory - do not read as two
+      #: different files. String equality here would manufacture a finding out of
+      #: how somebody typed a path.
+      lane_missing "$LANE" "$A_GRANTED"
+      LANE_UNGRANTED="$LANE_MISSING"; LANE_UNGRANTED_N="$LANE_MISSING_N"
+      lane_missing "$A_GRANTED" "$LANE"
+      LANE_UNCLAIMED="$LANE_MISSING"; LANE_UNCLAIMED_N="$LANE_MISSING_N"
+      #: UNCLAIMED IS LOUD BUT NOT A REFUSAL, and the asymmetry is the point.
+      #: A granted path missing from the lane is #1026's lapse seen from the
+      #: other side: the registry is not protecting it, so another role can claim
+      #: it and nothing collides. That is worth saying every time - but the
+      #: worker's DIFF may be perfectly correct, and refusing it would block work
+      #: over a bookkeeping gap. It is reported, counted, and left to the reader.
+      if [ "$LANE_UNCLAIMED_N" != "0" ]; then
+        echo "flow-wave-registry: $LANE_UNCLAIMED_N granted path(s) are NOT in the declared lane of '$ROLE': $LANE_UNCLAIMED" >&2
+        echo "  The registry is not protecting them: another role can claim one and overlap detection will report nothing (#1026)." >&2
+        echo "  Re-register with --files naming the COMPLETE lane if the grant still stands." >&2
+      fi
+      #: UNGRANTED IS A REFUSAL. A lane claiming what nobody granted is how one
+      #: role quietly takes another's file, and unlike the diff check below it
+      #: fires before a single line is written.
+      if [ "$LANE_UNGRANTED_N" != "0" ]; then
+        echo "FLOW_WAVE_LANE_UNGRANTED=$LANE_UNGRANTED_N"
+        echo "FLOW_WAVE_LANE_UNCLAIMED=$LANE_UNCLAIMED_N"
+        echo "FLOW_WAVE_LANE_CHECK=ungranted"
+        echo "flow-wave-registry: $LANE_UNGRANTED_N path(s) in the declared lane of '$ROLE' were NEVER GRANTED: $LANE_UNGRANTED" >&2
+        echo "flow-wave-registry: a lane wider than its grant takes files nobody handed over - fix the lane, or get the grant extended." >&2
+        emit refused
+        exit 1
+      fi
+    fi
     command -v git >/dev/null 2>&1 || { echo "FLOW_WAVE_LANE_CHECK=unknown"; echo "flow-wave-registry: UNKNOWN - git is absent, so nothing was compared." >&2; emit error; exit 2; }
     git rev-parse --verify "$BASE_REF" >/dev/null 2>&1 || { echo "FLOW_WAVE_LANE_CHECK=unknown"; echo "flow-wave-registry: UNKNOWN - base ref '$BASE_REF' does not resolve." >&2; emit error; exit 2; }
 
@@ -2260,6 +2588,8 @@ case "$VERB" in
     done
 
     echo "FLOW_WAVE_LANE_BASE=$BASE_REF"
+    echo "FLOW_WAVE_LANE_UNGRANTED=$LANE_UNGRANTED_N"
+    echo "FLOW_WAVE_LANE_UNCLAIMED=$LANE_UNCLAIMED_N"
     echo "FLOW_WAVE_LANE_TOUCHED=$TOUCHED_N"
     echo "FLOW_WAVE_LANE_UNTRACKED=$UNTRACKED_N"
     echo "FLOW_WAVE_LANE_EXTRA=$EXTRA_N"
@@ -2332,6 +2662,44 @@ case "$VERB" in
     # verdict over a role nobody examined. This counter is that role's receipt.
     UNDETERMINED=0
     UNDETERMINED_ROLES=""
+    # Roles running an UNDECLARED driver under a wave that declared one (#1026).
+    # `policy set --driver` populates no role's `driver=` - it is inherited
+    # doctrine, not a value - so a worker quietly running plain `flow:auto` under
+    # a `codex:auto` wave produces a byte-identical roster row. The structurally
+    # identical "declared at one level, missing at another" case already has a
+    # counter (FLOW_WAVE_OVERLAP_UNSCOPED); this is its sibling.
+    #
+    # GATED ON THE WAVE HAVING DECLARED ONE, and the un-gated value is `-`, NOT
+    # `0`. Two reasons, and the second is the load-bearing one:
+    #   - register.md's canonical invocation does not pass --driver, so counting
+    #     every driverless role would fire on the ordinary shape. A warning that
+    #     fires on the normal case is the #674 defect this repo has paid for.
+    #   - `0` would claim a measurement that was never taken. `-` says the
+    #     question does not arise in this wave, which is a different fact from
+    #     "asked, and nobody is missing one". A counter that silently matches
+    #     nothing renders identically to a working one.
+    # ...and the DENOMINATOR beside it (counter-model review, #1026). Under a
+    # declared policy driver, an empty wave and a wave whose every live worker
+    # declares one BOTH emit `0`, so the zero cannot say whether it inspected
+    # anybody. That is this repo's own detector contract turned on the counter
+    # it just added: a success message must not claim more than its input
+    # population supports.
+    # Computed HERE, above every render branch, for the same reason #800 counts
+    # unscoped lanes above the `--json` split (counter-model review pass 2,
+    # #1026): the empty-roster path returned before reaching the place these
+    # were derived, so `list` on an empty wave omitted
+    # FLOW_WAVE_MERGE_STRICT_SUPPRESSING while `list --json` on the SAME wave
+    # emitted it. A contract line present in one render mode and absent in
+    # another cannot be told from "not suppressing" by anything reading it.
+    MERGE_STRICT="$(policy_field "$POL" merge_strict)"
+    [ -n "$MERGE_STRICT" ] || MERGE_STRICT="unknown"
+    MERGE_STRICT_STALE="$(merge_strict_stale "$POL")"
+    MERGE_STRICT_SUPPRESSING="$(merge_strict_suppressing "$POL")"
+    POL_DRIVER="$(policy_field "$POL" driver)"
+    DRIVER_UNDECLARED="-"
+    DRIVER_POPULATION="-"
+    DRIVER_UNDECLARED_ROLES=""
+    [ -n "$POL_DRIVER" ] && { DRIVER_UNDECLARED=0; DRIVER_POPULATION=0; }
     for r in $ROLES; do
       e="$(printf '%s' "$REG" | jq -c --arg w "$WAVE" --arg r "$r" '.[$w].roles[$r]')"
       LV_R="$(liveness_of "$e")"
@@ -2341,6 +2709,13 @@ case "$VERB" in
       fi
       [ "$LV_R" = "live" ] || continue
       [ "$r" = "orchestrator" ] && continue
+      if [ -n "$POL_DRIVER" ]; then
+        DRIVER_POPULATION=$((DRIVER_POPULATION + 1))
+        if [ -z "$(printf '%s' "$e" | jq -r '.driver // ""')" ]; then
+          DRIVER_UNDECLARED=$((DRIVER_UNDECLARED + 1))
+          DRIVER_UNDECLARED_ROLES="$DRIVER_UNDECLARED_ROLES $r"
+        fi
+      fi
       lane_unscoped \
         "$(printf '%s' "$e" | jq -r '.repo // ""')" \
         "$(printf '%s' "$e" | jq -r '.files // ""')" \
@@ -2466,20 +2841,21 @@ EOF
       if [ "$POL" != "null" ]; then
         OUT="$(printf '%s' "$OUT" | jq -c --argjson p "$POL" '. + {wave_policy: $p}')"
       fi
-      MERGE_STRICT="$(policy_field "$POL" merge_strict)"
-      [ -n "$MERGE_STRICT" ] || MERGE_STRICT="unknown"
       starvation_scan "$REG" "$WAVE" "$ROLES"
-      [ "$MERGE_STRICT" = "no" ] && STARVE_N=0
+      [ "$MERGE_STRICT_SUPPRESSING" = "yes" ] && STARVE_N=0
       OUT="$(printf '%s' "$OUT" | jq -c \
         --arg ms "$MERGE_STRICT" --argjson n "$STARVE_N" \
         --argjson obs "$STARVE_OBSERVED" --argjson live "$STARVE_LIVE" \
         --argjson min "$STARVE_MIN" \
-        '. + {merge_starvation: {merge_strict: $ms, starving: $n, observed: $obs, live_roles: $live, threshold: $min}}')"
+        --arg stale "$MERGE_STRICT_STALE" --arg supp "$MERGE_STRICT_SUPPRESSING" \
+        --arg age "$(merge_strict_age "$POL")" \
+        '. + {merge_starvation: {merge_strict: $ms, merge_strict_age: $age, merge_strict_stale: $stale, suppressing: $supp, starving: $n, observed: $obs, live_roles: $live, threshold: $min}}')"
       printf '%s\n' "$OUT" | jq .
       # Keep --json stdout parseable: cross-wave notes go to stderr (#671).
       cross_wave_notes >&2
       emit_policy_lines "$POL"
       echo "FLOW_WAVE_MERGE_STRICT=$MERGE_STRICT"
+      echo "FLOW_WAVE_MERGE_STRICT_SUPPRESSING=$MERGE_STRICT_SUPPRESSING"
       echo "FLOW_WAVE_STARVATION=$STARVE_N"
       echo "FLOW_WAVE_STARVATION_OBSERVED=$STARVE_OBSERVED"
       echo "FLOW_WAVE_STARVATION_LIVE=$STARVE_LIVE"
@@ -2487,6 +2863,8 @@ EOF
       echo "FLOW_WAVE_UNREAD=$UNREAD_TOTAL"
       echo "FLOW_WAVE_BOOTSTRAP=$BOOTSTRAP_STATE"
       echo "FLOW_WAVE_OVERLAP_UNSCOPED=$UNSCOPED"
+      echo "FLOW_WAVE_DRIVER_UNDECLARED=$DRIVER_UNDECLARED"
+      echo "FLOW_WAVE_DRIVER_POPULATION=$DRIVER_POPULATION"
       echo "FLOW_WAVE_LIVENESS_UNDETERMINED=$UNDETERMINED"
       echo "FLOW_WAVE_CLAIM_SCAN_SKIPPED=$CLAIM_SCAN_SKIPPED"
       echo "FLOW_WAVE: listed"
@@ -2510,10 +2888,14 @@ EOF
       fi
       cross_wave_notes
       emit_policy_lines "$POL"
+      echo "FLOW_WAVE_MERGE_STRICT=$MERGE_STRICT"
+      echo "FLOW_WAVE_MERGE_STRICT_SUPPRESSING=$MERGE_STRICT_SUPPRESSING"
       echo "FLOW_WAVE_WATCH_UNARMED=$WATCH_UNARMED"
       echo "FLOW_WAVE_UNREAD=$UNREAD_TOTAL"
       echo "FLOW_WAVE_BOOTSTRAP=$BOOTSTRAP_STATE"
       echo "FLOW_WAVE_OVERLAP_UNSCOPED=$UNSCOPED"
+      echo "FLOW_WAVE_DRIVER_UNDECLARED=$DRIVER_UNDECLARED"
+      echo "FLOW_WAVE_DRIVER_POPULATION=$DRIVER_POPULATION"
       echo "FLOW_WAVE_LIVENESS_UNDETERMINED=$UNDETERMINED"
       echo "FLOW_WAVE_CLAIM_SCAN_SKIPPED=$CLAIM_SCAN_SKIPPED"
       echo "FLOW_WAVE: listed"
@@ -2523,10 +2905,18 @@ EOF
     #: The ticket's own non-firing control is "no PR losing its base twice", so
     #: the signal starts at two. A starvation warning that fires on every wave is
     #: the defect this feature is about, one level up (#989).
-    MERGE_STRICT="$(policy_field "$POL" merge_strict)"
-    [ -n "$MERGE_STRICT" ] || MERGE_STRICT="unknown"
     starvation_scan "$REG" "$WAVE" "$ROLES"
-    [ "$MERGE_STRICT" = "no" ] && STARVE_N=0 && STARVED=""
+    # SUPPRESSION NEEDS A READING THAT IS STILL USABLE (#1026), not merely a
+    # value that says `no`. A declared `no` whose observation has expired - or
+    # was never stamped - leaves the signal ON, because the change that would
+    # invalidate it (protection being TIGHTENED) is precisely the change that
+    # makes starvation possible.
+    [ "$MERGE_STRICT_SUPPRESSING" = "yes" ] && STARVE_N=0 && STARVED=""
+    if [ "$MERGE_STRICT" = "no" ] && [ "$MERGE_STRICT_SUPPRESSING" != "yes" ]; then
+      echo "flow-wave-registry: wave policy declares merge-strict=no, but that observation is $([ "$MERGE_STRICT_STALE" = "unknown" ] && echo "UNSTAMPED" || echo "older than ${MERGE_STRICT_TTL}s") - starvation detection is NOT suppressed (#1026)." >&2
+      echo "  Branch protection is repo state anyone with admin can change, including from outside this wave, and this registry is offline by design - so the reading cannot be refreshed here." >&2
+      echo "  Re-read protection and re-declare:  flow-wave-registry.sh policy set --wave '$WAVE' --merge-strict <yes|no|unknown>" >&2
+    fi
     echo "Wave '$WAVE' roster ($REG_FILE):"
     # The policy header (#699). Printed above the roles because it is what the
     # whole roster is operating under - and because a wave with no declared
@@ -2756,6 +3146,17 @@ EOF
       echo "  Each fixes it by re-registering with --repo <path>; --repo is rewritten by every re-register (--files is preserved), so it must be passed every time."
     fi
     [ "$UNSCOPED" -gt 0 ] && echo "flow-wave-registry: overlap detection is UNSCOPED for $UNSCOPED live role(s) - this roster CANNOT be read as clean (#800)." >&2
+    # The wave declared a driver and these roles did not (#1026). Named on the
+    # roster for the same reason the unscoped lanes above are: the wave-level
+    # field is inherited DOCTRINE, not a value that lands in a role's entry, so
+    # a worker running something else produces a byte-identical row and the
+    # omission is visible nowhere.
+    if [ -n "$DRIVER_UNDECLARED_ROLES" ]; then
+      echo "  UNKNOWN: wave policy declares driver '$POL_DRIVER' but these live role(s) declare none:${DRIVER_UNDECLARED_ROLES}"
+      echo "  A wave-level driver is inherited doctrine, not a stored per-role value, so nothing here says what these sessions are actually running."
+      echo "  Each fixes it by re-registering with --driver <lifecycle command>; the capability fence (#783) is derived from it."
+      echo "flow-wave-registry: $DRIVER_UNDECLARED live role(s) run an UNDECLARED driver under a wave that declared one (#1026)." >&2
+    fi
     [ "$WARNED" -eq 1 ] && echo "flow-wave-registry: lane overlap detected - do not co-schedule the flagged pairs." >&2
     # Stale briefs, counted (#699). A policy that was amended after workers
     # registered is the drift a declared-but-unread field would hide, so the
@@ -2796,12 +3197,19 @@ EOF
       echo "  Under branch protection strict:true every merge invalidates every other open PR, so a long-verifying PR"
       echo "  can be overtaken indefinitely while shorter ones merge past it. Each count is an observed base change"
       echo "  with no diff change - a lost queue position. What it cost is not measured here: this records the"
-      echo "  observations it was given, not any verification run. merge-strict=$MERGE_STRICT ('unknown' means nobody"
-      echo "  has read branch protection, which is NOT the same as no protection)."
+      echo "  observations it was given, not any verification run. merge-strict=$MERGE_STRICT stale=$MERGE_STRICT_STALE"
+      echo "  ('unknown' means nobody has read branch protection, which is NOT the same as no protection; stale=yes or"
+      echo "  stale=unknown means the reading has expired or was never stamped, so it no longer suppresses - #1026)."
     fi
     cross_wave_notes
     emit_policy_lines "$POL"
     echo "FLOW_WAVE_MERGE_STRICT=$MERGE_STRICT"
+    #: WHAT ACTUALLY DECIDED THE ZERO (#1026). `FLOW_WAVE_MERGE_STRICT` reports
+    #: the DECLARATION; this reports whether that declaration was still usable
+    #: enough to switch the signal off. They differ exactly when a `no` has gone
+    #: stale, which is the case worth seeing, and a consumer reading only the
+    #: first one would take a live signal for a suppressed one.
+    echo "FLOW_WAVE_MERGE_STRICT_SUPPRESSING=$MERGE_STRICT_SUPPRESSING"
     #: Reported as 0 under merge-strict=no, and that is a definition rather than
     #: a suppression: without `strict: true` losing your base does not cost you
     #: your place in the merge queue, so the observation is an ordinary rebase
@@ -2817,6 +3225,8 @@ EOF
     echo "FLOW_WAVE_UNREAD=$UNREAD_TOTAL"
     echo "FLOW_WAVE_BOOTSTRAP=$BOOTSTRAP_STATE"
     echo "FLOW_WAVE_OVERLAP_UNSCOPED=$UNSCOPED"
+    echo "FLOW_WAVE_DRIVER_UNDECLARED=$DRIVER_UNDECLARED"
+    echo "FLOW_WAVE_DRIVER_POPULATION=$DRIVER_POPULATION"
     echo "FLOW_WAVE_LIVENESS_UNDETERMINED=$UNDETERMINED"
     echo "FLOW_WAVE_CLAIM_SCAN_SKIPPED=$CLAIM_SCAN_SKIPPED"
     echo "FLOW_WAVE: listed"

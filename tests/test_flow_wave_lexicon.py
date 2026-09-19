@@ -127,7 +127,7 @@ class TestMalformedTransitionsAreRefused:
                 "conditions left in the paragraph below are the crossed lane/gate message",
             ),
             ("LANE: GRANT worker-a", "a grant with no paths can read as its own inverse"),
-            ("LANE: BLESS worker-a src/x.py", "only GRANT/EXTEND/REVOKE are lane verbs"),
+            ("LANE: BLESS worker-a src/x.py", "only GRANT/SET/REVOKE are lane verbs"),
             ("LANE: GRANT", "a lane must name the role it applies to"),
             (
                 "MERGE: AUTHORIZED #701 when CI passes",
@@ -614,3 +614,63 @@ def test_an_unknown_merge_verb_names_both_transitions(tmp_path: Path) -> None:
     out = _validate(tmp_path, "MERGE: SOMETHING #1 whatever\n")
     assert "FLOW_LEXICON: invalid" in out.stdout, out.stdout
     assert "AUTHORIZED and PRIORITY" in out.stdout + out.stderr, out.stdout
+
+
+# --------------------------------------------------------------------------
+# #1026 - `LANE: EXTEND` named the inverse of the mechanism
+# --------------------------------------------------------------------------
+
+
+@requires_bash
+def test_lane_extend_is_refused_because_the_registry_replaces(tmp_path: Path) -> None:
+    """The NEGATIVE CONTROL for the verb change, and the reading control.
+
+    The registry's ``--files`` REPLACES a role's lane wholesale, so a role
+    re-registered on an "EXTEND" loses every path the new list omits - at the
+    moment it is most likely to have just merged the file. A sender who reads the
+    token as written therefore produces the exact opposite of what they intend.
+    It fired twice in one day, the second time by an orchestrator who had
+    reported the first occurrence two hours earlier.
+
+    Refused BY NAME rather than through the unknown-verb arm, exactly as
+    ``MERGE: HOLD`` is: the author of such a line has the right intent and the
+    wrong token, and a generic "not a verb" would not tell them that the thing
+    they want does not exist. The assertion is on the MESSAGE naming the
+    mechanism, because that is the half that corrects the belief.
+    """
+    out = _validate(tmp_path, "LANE: EXTEND worker-a src/x.py\n")
+    assert "FLOW_LEXICON: invalid" in out.stdout, out.stdout
+    assert out.returncode == 1, out.stdout
+    blob = out.stdout + out.stderr
+    assert "REPLACES" in blob, blob
+    assert "LANE: SET" in blob, blob
+    # NOT the generic arm - if EXTEND ever falls through to it, this is what
+    # notices, and the refusal alone would not.
+    assert "unknown LANE verb" not in blob, blob
+
+
+@requires_bash
+def test_lane_set_is_accepted(tmp_path: Path) -> None:
+    """The other side of the control (ADR 0008).
+
+    A validator that refused every lane verb would satisfy the test above and
+    tell us nothing. ``SET`` is the honest spelling of what the registry does, so
+    it must PASS - and be traced, so the acceptance is observable rather than
+    merely non-fatal.
+    """
+    out = _validate(tmp_path, "LANE: SET worker-a src/x.py,src/y.py\n")
+    assert "FLOW_LEXICON: ok" in out.stdout, out.stdout
+    assert out.returncode == 0, out.stdout
+    assert "SET worker-a" in out.stdout, out.stdout
+
+
+@requires_bash
+def test_lane_grant_is_unchanged(tmp_path: Path) -> None:
+    """``GRANT`` is a published token used across wave.md and the mailbox suite.
+
+    #1026 added a precise spelling; it did not retire the established one, and a
+    wave mid-flight must not start failing on messages it was already sending.
+    """
+    out = _validate(tmp_path, "LANE: GRANT worker-a src/x.py\n")
+    assert "FLOW_LEXICON: ok" in out.stdout, out.stdout
+    assert "GRANT worker-a src/x.py" in out.stdout, out.stdout

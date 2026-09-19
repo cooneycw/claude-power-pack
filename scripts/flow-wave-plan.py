@@ -108,7 +108,18 @@ wave's adversarial fixture):
                          whose unsuperseded ruling is "hold" lands in
                          "verdict_conflicts" and the process exits 4 - plan
                          still emitted, same loud-but-never-obstructive
-                         contract as exit 3; (2) "adds_serialized" markers
+                         contract as exit 3. Each entry carries "in"
+                         ("in-flight" when the caller declared it assigned,
+                         else "startable"; in-flight WINS when it is both) and
+                         "also_startable". The two populations are different
+                         events: in-flight means a worker is on a held issue
+                         NOW, while startable-only means the hold is doing its
+                         job and keeping a ready issue out of the pool. A wave
+                         carrying standing holds is therefore permanently exit
+                         4 - that is the hold working, not an alarm to quiet,
+                         so the exit code stays and the stderr report names
+                         which population each conflict is in (#1026);
+                         (2) "adds_serialized" markers
                          union into "serialized_resources", so a ruling that
                          changes an issue's footprint (an approval condition
                          adding a migration) is visible to the next re-plan
@@ -451,7 +462,17 @@ def build_plan(
                     "ruling": v.get("ruling"),
                     "reason": v.get("reason", ""),
                     "ts": v.get("ts", ""),
-                    "in": "startable" if n in startable else "in-flight",
+                    # IN-FLIGHT TAKES PRECEDENCE, and the order matters (#1026).
+                    # An assigned issue is very often ALSO startable - nothing
+                    # stops the graph calling it ready while a worker is on it -
+                    # and reading `startable` first labelled exactly that case
+                    # "startable", i.e. the hold merely keeping a candidate out
+                    # of the pool. It is the opposite: a worker is on a held
+                    # issue right now. Assignment is caller knowledge and is the
+                    # stronger, actionable fact; startability is a property of
+                    # the graph and is kept beside it rather than instead of it.
+                    "in": "in-flight" if n in (in_flight or set()) else "startable",
+                    "also_startable": n in startable,
                 }
             )
 
@@ -592,6 +613,27 @@ def main(argv: list[str]) -> int:
         )
         return 3
     if plan.get("verdict_conflicts"):
+        # Exit 4 is UNCHANGED and deliberately so (#1026). What changes is that
+        # the two populations behind it are now named, because they are not the
+        # same event and the exit code alone cannot tell them apart:
+        #
+        #   in-flight  a worker is ALREADY ON a held issue. A live contradiction:
+        #              somebody is working against a standing ruling right now.
+        #   startable  a held issue is merely a candidate. This is the hold
+        #              DOING ITS JOB - it is keeping an otherwise-ready issue out
+        #              of the assignment pool, which is the quiescent state of
+        #              every standing hold.
+        #
+        # A wave carrying standing holds is therefore permanently exit 4, and
+        # that is correct rather than a defect: the ledger entry stays until it
+        # is explicitly superseded, and #645's assertion is that a hold in the
+        # active set must RAISE rather than silently supersede. Narrowing the
+        # exit code to the in-flight half would quiet a correct refusal and lose
+        # exactly the distinction the gate exists to draw. So the remedy is
+        # legibility - a reader can see which conflicts are new, without the
+        # gate becoming one that lets work through.
+        in_flight_hits = [c for c in plan["verdict_conflicts"] if c["in"] == "in-flight"]
+        startable_hits = [c for c in plan["verdict_conflicts"] if c["in"] == "startable"]
         sys.stderr.write(
             "flow-wave-plan: VERDICT CONTRADICTION (#645): "
             + "; ".join(
@@ -601,6 +643,35 @@ def main(argv: list[str]) -> int:
             )
             + " - honor the hold, or supersede it with an explicit ledger entry, then re-plan.\n"
         )
+        sys.stderr.write(
+            f"flow-wave-plan: of those, {len(in_flight_hits)} in-flight "
+            f"({', '.join('#' + str(c['issue']) for c in in_flight_hits) or 'none'}) "
+            f"and {len(startable_hits)} startable "
+            f"({', '.join('#' + str(c['issue']) for c in startable_hits) or 'none'}).\n"
+        )
+        if in_flight_hits:
+            sys.stderr.write(
+                "flow-wave-plan: the IN-FLIGHT ones are the live contradiction - a worker is on a held issue now.\n"
+            )
+        # THE REASSURANCE IS GATED ON HAVING INSPECTED THE POPULATION IT
+        # REASSURES ABOUT (counter-model review, #1026). Without --in-flight
+        # every conflict defaults to "startable" - not because nothing is
+        # assigned, but because nobody said. Printing "the hold is working,
+        # nothing went wrong" there claims more than the input supports, and it
+        # is the exact reading a worker sitting on a held issue would be hidden
+        # by. Assignment state is caller knowledge; unsupplied is UNKNOWN, and
+        # unknown must never render as clean.
+        if startable_hits and not in_flight_hits and in_flight is not None:
+            sys.stderr.write(
+                "flow-wave-plan: every conflict is startable-only, which is a standing hold WORKING - "
+                "it is keeping these out of the pool. Do not assign them; nothing here says anything went wrong.\n"
+            )
+        if in_flight is None and startable_hits:
+            sys.stderr.write(
+                "flow-wave-plan: --in-flight was NOT passed, so assignment state is UNKNOWN to this run. "
+                "These conflicts are graph-startable; whether a worker is already on one was not inspected, "
+                "so this is NOT a report that nothing went wrong. Pass --in-flight (it may be empty: '') to get one.\n"
+            )
         return 4
     return 0
 

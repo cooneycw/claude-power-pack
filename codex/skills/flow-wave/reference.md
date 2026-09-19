@@ -340,7 +340,7 @@ vocabulary is deliberately tiny - only the speech acts with a wrong-answer cost:
 | `GATE: GO #N` | approval of a judged gate | names its subject issue |
 | `GATE: HOLD #N behind #M[, #M]` | a hold | names what it waits behind |
 | `GATE: GO-WITH-CONDITIONS #N` | conditional approval | `- <condition>` lines beneath it; optional `serializes: <marker>` |
-| `LANE: GRANT\|EXTEND <role> <paths>` | a file lane | names role AND paths |
+| `LANE: GRANT\|SET <role> <paths>` | a file lane, REPLACING whatever it held | names role AND paths |
 | `LANE: REVOKE <role> [paths]` | withdrawing a lane | names the role |
 | `MERGE: AUTHORIZED #N when <check>` | conditional merge authority | a NAMED check - "when CI passes" is refused |
 | `MERGE: PRIORITY #N <argument>` | #N merges before every other open PR | an ARGUMENT - this preempts every other worker's merge, so the reason is the record |
@@ -354,7 +354,13 @@ separate tokens because one message carrying "you are unblocked for Step 4"
 beside "hard stop at Step 3 stands" nearly passed an unjudged gate - the lane
 was open, the gate was not, and only a worker's caution caught it. `LANE: GRANT`
 must name paths because a fence ("explicitly NOT yours") was read as its own
-inverse. `MERGE` must name the check because `ci/woodpecker/pr/woodpecker` is
+inverse. **`LANE: EXTEND` is refused BY NAME (#1026)** for the same reason
+`MERGE: HOLD` is: the registry's `--files` REPLACES a role's lane wholesale, so
+a role re-registered on an "EXTEND" silently DROPS every path the new list
+omits - the token names the inverse of the mechanism. `SET` is the honest
+spelling and `GRANT` is the same replace semantics under its established name;
+either way, **name the complete lane, not the delta**. The registry now reports
+the drop (`FLOW_WAVE_FILES_DROPPED`) rather than letting it pass in silence. `MERGE` must name the check because `ci/woodpecker/pr/woodpecker` is
 not the push pipeline. `STATE` must be stamped because four broadcasts were true
 when composed and wrong when read.
 
@@ -727,6 +733,24 @@ to assign (or already assigned) contradicts an unsuperseded hold**. Do not
 assign - honor the hold, or append the explicit superseding entry, then
 re-plan. The plan JSON is still emitted on exit 4 (the exit-3 contract's
 loud-but-never-obstructive rule).
+
+**A wave carrying standing holds is permanently exit 4, and that is the hold
+working (#1026).** The ruling stays in the ledger until something explicitly
+supersedes it, so an issue that is held and otherwise ready raises on every
+run - which is precisely what keeps it out of the assignment pool. Read the
+POPULATION, not the exit code, and the planner now prints it:
+
+- **`in-flight`** - a worker is on a held issue *right now*. This is the live
+  contradiction and the only one that means something went wrong.
+- **`startable`** - the hold is keeping a ready issue out of the pool. Nothing
+  is wrong; do not assign it.
+
+Each `verdict_conflicts` entry carries `in` (in-flight wins when an issue is
+both) and `also_startable`. Pass `--in-flight` or the planner says so: without
+it, assignment state is unknown to that run, and a worker already on a held
+issue is invisible rather than absent. The exit code is deliberately NOT
+narrowed to the in-flight half - quieting a correct refusal because it is
+always on is how the distinction gets lost.
 
 ### 4. Verify the PR
 
