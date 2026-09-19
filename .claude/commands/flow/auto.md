@@ -853,22 +853,13 @@ git merge --no-edit origin/main
    `CONTEXT` = `"issue #<N>: <issue title>"`, and **capture the transcript to a
    file** - the receipt in 1d is derived from it, not from memory.
 
-   Ask for BOTH outputs in the same invocation. `/codex:code_review`'s own
-   prompt ends "Return ONLY a findings report"; this stage needs a second
-   section, so say so explicitly when invoking it:
-
-   ```
-   After the findings, add a section '## Red cases' listing, for each instrument
-   this change adds or modifies, the concrete input that should make that
-   instrument report the OTHER verdict. Name the input, not the intention. If
-   the change modifies no instrument, say '## Red cases' followed by
-   'None - no instrument changed.' so an absent section is distinguishable from
-   a considered zero.
-   ```
-
-   That is verbatim what the Negative Control directive demands, sourced from a
-   model that did not author the design, and it feeds the control registration
-   directly. One invocation, two outputs - not two stages.
+   `/codex:code_review`'s own contract already asks for both a findings report
+   and a `## Red cases` section (issue #1030) - the red cases feed the control
+   registration directly and need no separate ask from this call site. This
+   used to be requested here explicitly because the command's own prompt ended
+   "Return ONLY a findings report", which meant a caller reading that document
+   alone would get no red cases; the contract itself now includes them, so
+   every caller does.
 
    **1c. Read the transcript's verdict before believing it:**
 
@@ -1054,6 +1045,68 @@ git merge --no-edit origin/main
    - Analyze all commits on the branch to draft the summary.
 
 Report: `Step 6/9: Finish complete - PR #XX created`
+
+---
+
+### Step 6b: Route Supplemental Findings to the Nit Store
+
+A supplemental finding is anything true and worth fixing that you discovered
+while doing something else: a defect noticed in passing, a rough edge found
+while closing this issue, a contract narrower than its callers assume. Do not
+widen this change to fix it, and do not drop it. Record it.
+
+`flow/finish.md` has carried this step since issue #865; `/flow:auto` inlines
+its own Finish stage rather than delegating to `finish.md` and had no
+equivalent (issue #1030) - a supplemental finding noticed during Step 4
+implementation, or a deferred counter-model finding from item 1c above, had
+nowhere to go.
+
+Resolve the repository's nit store:
+
+```bash
+# Key on the REMOTE, never the directory name. This step always runs from a
+# per-issue worktree (`.../claude-power-pack-issue-865`), so a basename test
+# falls through every time and the explicit mapping below never fires - leaving
+# a full-text search as the only path, which is the opposite of the intent.
+REPO=$(basename -s .git "$(git remote get-url origin 2>/dev/null)")
+[ -n "$REPO" ] || REPO=$(gh repo view --json name -q .name 2>/dev/null)
+
+case "$REPO" in
+    kyle)              NIT_STORE=1004 ;;
+    claude-power-pack) NIT_STORE=864 ;;
+    codex-power-pack)  NIT_STORE=227 ;;
+    *) NIT_STORE=$(gh issue list --search "Nit Store" --state open \
+                     --json number --jq '.[0].number' 2>/dev/null) ;;
+esac
+
+# Never post into an empty number. A finding silently posted nowhere is the
+# exact failure this step exists to prevent, so fail loudly instead.
+if [ -z "$NIT_STORE" ]; then
+    echo "No nit store for '${REPO:-unknown}' - file the finding as a normal issue." >&2
+    exit 1
+fi
+gh issue comment "$NIT_STORE" --body "<one finding>"
+```
+
+`--search` is full text, not an exact title match, so it can select any open
+issue merely mentioning the phrase. It is the last resort, not the normal path;
+if it is what resolved the number, say so in the closing report.
+
+If the repository has no nit store, file the finding as a normal issue instead.
+
+- **One finding per comment.** State the file and line (or the command), what is
+  wrong, why it matters, and which issue or PR you were working when you found
+  it. The comment is the whole record; it is read later without your context.
+- **The store is an inbox, not a backlog.** Comments are reviewed and aggregated
+  into real issues later, so a comment is a disposition, not a fix.
+- **It is not a place to hide a defect that warrants its own ticket now.** A live
+  correctness, security, or data-loss problem gets its own issue, and the closing
+  report says so.
+- **Name what you stored, with the comment link, in the closing report.** A
+  finding recorded but never reported is indistinguishable from one dropped.
+
+Having nothing to store is an ordinary outcome. Do not manufacture a finding to
+fill this step.
 
 ---
 

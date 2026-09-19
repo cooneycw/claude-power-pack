@@ -136,12 +136,35 @@ if ! MERGE_BASE="$(git merge-base HEAD "$BASE")" || [ -z "$MERGE_BASE" ]; then
     echo "  Deepen with: git fetch --unshallow, then re-run.)" >&2
     exit 3
 fi
+# A BRAND-NEW FILE IS INVISIBLE TO `git diff <ref>` UNTIL SOMETHING STAGES IT
+# (issue #1030). `git diff` compares the ref's tree to the INDEX/working tree
+# for paths the index already knows about; an untracked path has no entry to
+# compare, so it is skipped entirely rather than shown as an addition. A
+# change whose whole content is one or more new files therefore hands the
+# reviewer an diff that omits the change - "no findings" then means nothing.
+#
+# `git add -N` (--intent-to-add) marks each untracked, non-ignored path in
+# the index without staging its CONTENT, which is enough for `git diff <ref>`
+# to treat it as a real addition. It is deliberately not undone afterward: the
+# markers are inert until something actually stages content over them, and
+# this command's own caller (`/flow:auto` Step 6) already runs `git add -A`
+# before its commit, which supersedes them harmlessly - a blind `git reset`
+# here would risk discarding unrelated work staged earlier in that same run.
+#
+# The count doubles as a membership floor, not just transparency: `git add -N .`
+# marks EVERY untracked non-ignored path from the worktree root, so a count
+# larger than what this change actually added means the review is about to
+# see files nobody intended to include - worth surfacing before the review
+# runs, not after.
+UNTRACKED_COUNT=$(git ls-files --others --exclude-standard | wc -l | tr -d ' ')
+git add -N . 2>/dev/null || true
 if ! git diff "$MERGE_BASE" > "$DIFF_FILE"; then
     echo "CODEX_REVIEW: unavailable (diff against $MERGE_BASE failed)" >&2
     exit 3
 fi
 git diff --stat "$MERGE_BASE"
 wc -l "$DIFF_FILE"
+echo "Untracked files included in this diff: $UNTRACKED_COUNT (a count higher than expected means files nobody intended to include are about to be reviewed)"
 ```
 
 **An empty diff is still handed to the reviewer (issue #1015).** This used to
@@ -189,7 +212,7 @@ Review for: correctness bugs, security issues, missed edge cases, broken or miss
 
 If the diff adds or changes a check, gate, guard, tripwire or allowlist, ask two further questions of it and report a failure of either as a finding: (1) does its success message claim more than its input population supports - can a zero distinguish 'I looked and found nothing' from 'there was nothing to look at'; and (2) can a non-zero distinguish 'our thing changed' from 'a neighbour changed'. Widening the detector is not always the remedy: where the narrow answer is deliberately correct, say so and say where the larger question should be answered instead.
 
-Return ONLY a findings report in exactly this format:
+Return a findings report AND a red cases section, in exactly this format:
 
 ## Findings
 
@@ -198,7 +221,11 @@ Return ONLY a findings report in exactly this format:
 - Issue: <one-paragraph description of the defect and the failure scenario>
 - Suggestion: <concrete fix>
 
-Severity is one of CRITICAL, HIGH, MEDIUM, LOW. Order findings most severe first. If the change is sound, return '## Findings' followed by 'None - no defects found.' Do not pad with praise or restate the diff." | tee "$STREAM"
+Severity is one of CRITICAL, HIGH, MEDIUM, LOW. Order findings most severe first. If the change is sound, return '## Findings' followed by 'None - no defects found.' Do not pad with praise or restate the diff.
+
+## Red cases
+
+For each instrument this change adds or modifies (a check, gate, guard, tripwire or allowlist), name the concrete input that would make that instrument report the OTHER verdict - name the input, not the intention. If the change modifies no instrument, write exactly 'None - no instrument changed.' so an absent section is distinguishable from a considered zero." | tee "$STREAM"
 
 # `--json` puts the event stream on stdout, so TEE it: the caller still sees the
 # run and $STREAM keeps the thread id Step 4 needs to identify the model.
@@ -307,4 +334,11 @@ gap to fill.
   via `scripts/counter-model-receipt.py parse`. It keys on the `## Findings`
   heading and, for a clean review, the `None - no defects found.` sentinel - so
   keep the prompt's format block intact if you adjust the prompt.
+- The `## Red cases` section is part of this command's own contract (issue
+  #1030), not something a caller has to ask for separately - it was previously
+  supplied only by `/flow:auto`'s call site, which meant a document reading
+  this contract alone and following "Return ONLY a findings report" would
+  silently get no red cases. `None - no instrument changed.` is the explicit
+  empty case, so an absent section stays distinguishable from a considered
+  zero.
 - For a review by non-OpenAI models, use `/second-opinion:start` instead.

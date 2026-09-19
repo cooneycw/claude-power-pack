@@ -53,15 +53,25 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 COMMANDS = ROOT / ".claude" / "commands"
 
-#: Closing surfaces that must carry the routing step.
+#: Closing surfaces that must carry the routing step. `flow/auto.md` inlines
+#: its own Finish stage rather than delegating to `finish.md` and had no
+#: routing step at all until issue #1030 - the same gap #865 closed for
+#: `finish.md` and `code_review.md`.
 SURFACES = (
     COMMANDS / "flow" / "finish.md",
+    COMMANDS / "flow" / "auto.md",
     COMMANDS / "codex" / "code_review.md",
 )
 
-#: The generated bundle a codex-lane session reads instead of the command file.
-#: Only `flow` is mirrored; see the module docstring.
-MIRROR = ROOT / "codex" / "skills" / "flow-finish" / "reference.md"
+#: The generated bundle a codex-lane session reads instead of the command file,
+#: for each surface that has one. Only `flow` is mirrored (see the module
+#: docstring on why `codex/code_review.md` is not, so `code_review.md` is
+#: absent from this mapping on purpose - `test_generated_codex_bundle_carries_
+#: the_step` is parametrized over this dict's keys, not over SURFACES).
+MIRRORS = {
+    COMMANDS / "flow" / "finish.md": ROOT / "codex" / "skills" / "flow-finish" / "reference.md",
+    COMMANDS / "flow" / "auto.md": ROOT / "codex" / "skills" / "flow-auto" / "reference.md",
+}
 
 #: Each probe is (name, pattern). Every one must match every surface, and every
 #: one must FAIL on a document with the section removed - see the control below.
