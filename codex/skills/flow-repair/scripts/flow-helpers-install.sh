@@ -121,6 +121,7 @@ HELPERS=(
     lane-serveability-check.sh
     cpp-commands-link.sh
     install-drift.sh
+    stash-worktree-guard.sh
     flow-helpers-install.sh
 )
 
