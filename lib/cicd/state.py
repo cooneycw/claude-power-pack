@@ -46,6 +46,14 @@ class StepRecord:
     # {"passed": 312, "skipped": 66, ...}. Optional and defaulted so state files
     # written before this field existed still load.
     tests: Optional[dict[str, Any]] = None
+    # Coverage evidence for a NON-test step (issue #1027), e.g.
+    # {"state": "zero", "units": 0, "tool": "ruff", ...}. ``tests`` above gives
+    # the test step an "it ran and was not empty" assertion; this is the same
+    # assertion for lint/typecheck/security_scan, which had only {id, status}
+    # and so reported one identical green for a stage that examined everything
+    # and one that examined nothing. Optional and defaulted for the same reason
+    # ``tests`` is: a state file written before this field existed still loads.
+    coverage: Optional[dict[str, Any]] = None
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
@@ -231,7 +239,11 @@ class RunState:
         record.attempt += 1
 
     def mark_step_success(
-        self, index: int, output: str = "", tests: Optional[dict[str, Any]] = None
+        self,
+        index: int,
+        output: str = "",
+        tests: Optional[dict[str, Any]] = None,
+        coverage: Optional[dict[str, Any]] = None,
     ) -> None:
         """Mark a step as successful and advance the index."""
         record = self.step_records[index]
@@ -240,6 +252,7 @@ class RunState:
         record.finished_at = _now()
         record.exit_code = 0
         record.tests = tests
+        record.coverage = coverage
         self.current_index = index + 1
 
     def mark_step_failed(
@@ -249,6 +262,7 @@ class RunState:
         output: str = "",
         error: str = "",
         tests: Optional[dict[str, Any]] = None,
+        coverage: Optional[dict[str, Any]] = None,
     ) -> None:
         """Mark a step as failed."""
         record = self.step_records[index]
@@ -258,6 +272,7 @@ class RunState:
         record.error = _truncate(error, 5000)
         record.finished_at = _now()
         record.tests = tests
+        record.coverage = coverage
         self.status = "failed"
 
     def mark_step_skipped(self, index: int) -> None:
@@ -353,6 +368,15 @@ class RunState:
                 # A green test step whose suite executed nothing is the #621
                 # false green - carry the counts so the summary can say so.
                 entry["tests"] = r.tests
+            if r.coverage:
+                # The same for a non-test gate (issue #1027). Carried even when
+                # the state is "unknown": the reported defect is that three of
+                # four stages emitted {id, status} and left a reader unable to
+                # tell a stage that examined everything from one that examined
+                # nothing. An explicit "unknown" is the answer to that - it says
+                # the stage is unproven rather than letting "success" imply it
+                # is not.
+                entry["coverage"] = r.coverage
             if r.status == StepStatus.FAILED:
                 entry["error"] = r.error
                 entry["exit_code"] = r.exit_code

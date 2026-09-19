@@ -122,20 +122,28 @@ fi
 
 The audited gate helper owns the `lib.cicd` invocation contract (CPP-checkout
 resolution, the `uv` check, the #430 `PYTHONPATH` / `uv run --project` shape -
-issue #613). Its `--check-summary` mode is advisory and always exits 0; invoke
-it BARE (#581 discipline; on exit 127 the helper is not installed - suggest
+issue #613). Its `--check-summary` mode is advisory - this step never blocks
+the flow regardless of what it exits (issue #1027 gave `ok`/`warn`/`skipped`
+their own exit codes - 0/3/4 - so it no longer always exits 0; count by the
+printed word below, not by treating any exit as failure). Invoke it BARE
+(#581 discipline; on exit 127 the helper is not installed - suggest
 `/flow:repair` and count the check as SKIP):
 
 ```bash
 ~/.claude/scripts/flow-finish-gate.sh --check-summary
 ```
 
-- `FLOW_FINISH_GATE: ok` - count a PASS.
-- `FLOW_FINISH_GATE: warn` - count a WARN (non-blocking); this also means a test
+- `FLOW_FINISH_GATE: ok` (exit 0) - count a PASS.
+- `FLOW_FINISH_GATE: warn (zero coverage: <gates>)` (exit 3, issue #1027) - the named
+  gates ran, exited 0, and a MEASURED PART of them examined NOTHING; count a WARN and
+  repeat the runner's warning verbatim, since a check with no input produces a green that
+  is not evidence - and for a multi-check gate the measurement names that check, not the
+  whole gate.
+- `FLOW_FINISH_GATE: warn` (exit 3) - count a WARN (non-blocking); this also means a test
   failed on the first attempt and PASSED when re-run against only its failed ids
   (issue #769) - the ids are on the `RERUN_PASSED:` line above the marker;
   proceed, but report them and never call the run a clean pass.
-- `FLOW_FINISH_GATE: skipped` - `lib/cicd` or Makefile unavailable: count a SKIP.
+- `FLOW_FINISH_GATE: skipped` (exit 4) - `lib/cicd` or Makefile unavailable: count a SKIP.
 
 ### Step 5b: Guard Against Silently-Ignored New Files (advisory)
 

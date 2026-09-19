@@ -121,13 +121,23 @@ def scan(project_root: str) -> ScanResult:
     result = ScanResult()
     root = Path(project_root)
     files_scanned = 0
+    files_unreadable = 0
 
     for file_path in _find_source_files(root):
-        files_scanned += 1
         try:
             content = file_path.read_text(errors="ignore")
         except OSError:
+            # Counted only AFTER a successful read (issue #1027, cross-model
+            # review). This used to increment above the `try`, so a file the
+            # scanner could not open still counted as examined - and once
+            # `files_scanned` became the exported coverage number, one
+            # unreadable file was enough to report `scanned=1` for a scan that
+            # inspected no content at all. That is precisely the
+            # looked-and-found-nothing / nothing-to-look-at collapse this
+            # field exists to prevent, reintroduced inside the fix for it.
+            files_unreadable += 1
             continue
+        files_scanned += 1
 
         rel_path = str(file_path.relative_to(root))
 
@@ -168,6 +178,21 @@ def scan(project_root: str) -> ScanResult:
                         time_estimate="~5 minutes",
                     )
                 )
+
+    # Stated unconditionally, including the zero (issue #1027). The prose below
+    # already distinguished the two cases for a human reader, but only on the
+    # findings-free path and only as English - so nothing downstream could act
+    # on it. This is the same fact as a number.
+    result.units_scanned = files_scanned
+
+    if files_unreadable:
+        # Reported rather than folded into the count, so a partial scan stays
+        # visible. Silently excluding them would make `scanned=` honest and the
+        # scan's completeness invisible - a different version of the same
+        # collapse.
+        result.skipped.append(
+            f"{files_unreadable} source file(s) could not be read and were NOT scanned"
+        )
 
     if files_scanned and not result.findings:
         result.passed.append(f"No secrets found in {files_scanned} source files")

@@ -68,7 +68,17 @@ def cmd_explain(args: argparse.Namespace) -> int:
 
 
 def cmd_gate(args: argparse.Namespace) -> int:
-    """Check if scan results pass a flow gate."""
+    """Check if scan results pass a flow gate.
+
+    Prints ONE terminal summary line on every exit path (issue #1027, part of
+    the same class as flow-finish-gate's ok/warn/skipped confusion): a passing
+    run with WARN-level findings used to print nothing but the WARNING lines
+    themselves - no verdict, no threshold, no counts - so `... | tail -20`
+    rendered a passing gate as an unbroken wall of warnings indistinguishable
+    from a failing one missing its last line. The summary line is unconditional
+    and always the same shape, so pass and fail differ by a line that SAYS
+    which happened rather than one that has to be counted.
+    """
     config = SecurityConfig.load(args.path)
     result = scan_quick(args.path, config)
     passed, messages = check_gate(result, args.gate_name, config)
@@ -76,9 +86,56 @@ def cmd_gate(args: argparse.Namespace) -> int:
     for msg in messages:
         print(msg)
 
+    blocked_count = sum(1 for m in messages if m.startswith("BLOCKED"))
+    warned_count = sum(1 for m in messages if m.startswith("WARNING"))
+
+    gate = config.gates.get(args.gate_name)
+    if gate is not None:
+        blocks_on = ",".join(s.name for s in gate.block_on) or "none"
+        warns_on = ",".join(s.name for s in gate.warn_on) or "none"
+        threshold = f"blocks-on={blocks_on} warns-on={warns_on}"
+    else:
+        threshold = "no policy for this gate name - nothing blocks or warns"
+
+    # COVERAGE, which the counts above cannot express (issue #1027). `blocked=0
+    # warned=0` is what a clean scan of 575 files reports AND what a scan that
+    # opened nothing reports - the same line for opposite facts.
+    #
+    # `secrets-scanned=` is the coverage number and the only one a caller grades
+    # on: source files the SECRETS scanner actually examined, or `unknown` when
+    # it stated no figure. Not defaulted to 0 - "said nothing" and "said none"
+    # are different claims and only one of them is a measurement.
+    #
+    # NAMED FOR THE CHECK IT MEASURES, not the stage (cross-model review). This
+    # gate runs several checks - secrets, gitignore, file permissions, tracked
+    # .env files, debug flags - and only the secrets scanner counts files. Spelt
+    # `scanned=`, the number invited exactly one wrong conclusion: a repo with a
+    # compliant .gitignore and no source files would report zero and be read as
+    # "the security gate proved nothing", when its gitignore and permissions
+    # checks examined their subjects and passed on that evidence.
+    #
+    # `skipped-checks=` is reported BESIDE it, never as its denominator. A
+    # denominator was the first shape tried and it was wrong: `result.passed`
+    # holds checks that passed CLEANLY, so a check that ran and found something
+    # appears in neither `passed` nor `skipped`, and any `ran/total` built from
+    # them silently undercounts exactly when the scan is doing its job. This
+    # number is well defined instead - checks that could not run - and it is
+    # deliberately NOT wired to the warn: skipping is the normal, correct
+    # outcome for a check whose subject is absent (no .env file to inspect),
+    # so grading on it would fire on healthy repos, which is how a warning
+    # stops being read.
+    scanned = (
+        str(result.units_scanned) if result.units_scanned is not None else "unknown"
+    )
+
+    verdict = "PASS" if passed else "FAIL"
+    print(
+        f"SECURITY_GATE: {args.gate_name} {verdict} "
+        f"(blocked={blocked_count} warned={warned_count}; "
+        f"secrets-scanned={scanned} skipped-checks={len(result.skipped)}; {threshold})"
+    )
+
     if passed:
-        if not messages:
-            print("Security gate passed.")
         return 0
     else:
         print(f"\nSecurity gate '{args.gate_name}' FAILED. Fix critical issues before proceeding.")

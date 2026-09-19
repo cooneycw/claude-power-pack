@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional, TextIO
 
+from .coverage import SCOPE_COMPONENT, ZERO
 from .outcomes import parse_failed_node_ids
 from .state import RunState, StepStatus, compute_tree_signature
 from .steps import (
@@ -34,6 +35,26 @@ from .steps import (
     StepDef,
     get_plan_steps,
 )
+
+
+def _coverage_summary(cover: dict[str, Any]) -> str:
+    """Render a PERSISTED coverage dict the way ``StageCoverage.summary`` does.
+
+    A resumed run reads coverage back from the state file as a plain dict, so
+    the warning it rebuilds has to say the same sentence the live path says.
+    Rehydrating a ``StageCoverage`` would be the tidier shape and is avoided on
+    purpose: the state file may have been written by an older CPP whose field
+    set differs, and a constructor would raise on the extra keys rather than
+    degrade - turning a resume into a crash over a warning string.
+    """
+    units = cover.get("units")
+    unit_name = cover.get("unit_name", "unit")
+    component = cover.get("component") or ""
+    subject = f"the {component} " if component else ""
+    plural = "" if units == 1 else "s"
+    if cover.get("state") == ZERO:
+        return f"{subject}examined NO {unit_name}{plural}".lstrip()
+    return f"{subject}examined {units} {unit_name}{plural}".lstrip()
 
 
 def _failed_ids_from_both_streams(output: str | None, error: str | None) -> list[str]:
@@ -169,6 +190,12 @@ class RunResult:
     # the qualifications that go with them (issue #621). A plan whose test step
     # executed nothing still succeeds - but it never reports a bare SUCCESS.
     tests: dict[str, dict[str, Any]] = field(default_factory=dict)
+    # Coverage evidence per NON-test gate, e.g. {"lint": {"state": "zero", ...}}
+    # (issue #1027). The counterpart of `tests` above for the three gates that
+    # had no such channel: without it `lint`, `typecheck` and `security_scan`
+    # reported {id, status} and one identical green whether they examined the
+    # whole tree or nothing in it.
+    coverage: dict[str, dict[str, Any]] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
     # Test steps that failed, were re-run ONCE against only their failed ids, and
     # the outcome of that re-run (issue #769). This is its own channel, NOT
@@ -226,6 +253,13 @@ class RunResult:
             d["error"] = self.error
         if self.tests:
             d["tests"] = self.tests
+        if self.coverage:
+            # Top level and keyed by step id, for the same reason `timed_out_step`
+            # is (issue #812's note below): the gate reads this JSON, so a field
+            # that never reaches it cannot be acted on however carefully it was
+            # set. It also reaches `step_details`, but that is the per-step
+            # record - this is the roll-up the gate greps.
+            d["coverage"] = self.coverage
         if self.warnings:
             d["warnings"] = self.warnings
         if self.reruns:
@@ -439,6 +473,7 @@ class DeterministicRunner:
         completed = state.current_index
         self._executed_from = executed_from
         tests: dict[str, dict[str, Any]] = {}
+        coverage: dict[str, dict[str, Any]] = {}
         warnings: list[str] = []
         reruns: list[dict[str, Any]] = []
         skipped: list[str] = []
@@ -483,8 +518,73 @@ class DeterministicRunner:
                 tests[step.id] = outcome_dict
             qualifier = f" ({outcome.summary()})" if outcome else ""
 
+            # A non-test gate's exit code says the tool did not error, not that
+            # it looked at anything (issue #1027). `ruff check .` on a tree with
+            # no Python files warns on stderr, prints "All checks passed!" on
+            # stdout and exits 0 - so without this the step result of a stage
+            # that examined NOTHING is identical to one that examined the whole
+            # tree, which is the reported defect.
+            cover = result.coverage
+            cover_dict = cover.to_dict() if cover else None
+            if cover_dict is not None:
+                coverage[step.id] = cover_dict
+            if cover is not None and cover.stated:
+                qualifier = f" ({cover.summary()})"
+
             if result.success:
-                if outcome is not None and outcome.nothing_ran:
+                if cover is not None and cover.examined_nothing:
+                    # Deliberately BEFORE the test branches rather than after:
+                    # they are mutually exclusive (coverage is parsed only for
+                    # non-test steps), so the order is about which reads first,
+                    # and a stage that examined nothing is the more fundamental
+                    # fact - there is no point qualifying findings from a scan
+                    # that had nothing to find them in.
+                    # The CLAIM is bounded by what the measurement covered
+                    # (issue #1027, cross-model review). A stage-wide number
+                    # licenses "this gate proved nothing"; a component number
+                    # does not - `security_scan` runs gitignore, permissions
+                    # and debug-flag checks that have their own subjects and
+                    # were never counted here, so saying the gate proved
+                    # nothing would be a conclusion about checks this number
+                    # never looked at.
+                    if cover.scope == SCOPE_COMPONENT:
+                        scope_clause = (
+                            f"that part of the '{step.id}' gate proved nothing "
+                            "about the change; its other checks are not measured "
+                            "by this number"
+                        )
+                    else:
+                        scope_clause = (
+                            "this gate proved nothing about the change"
+                        )
+                    warnings.append(
+                        f"{step.id}: exited 0 but {cover.summary()} "
+                        f"({cover.tool}) - {scope_clause} (issue #1027)"
+                    )
+                    self._log(
+                        f"  [{idx + 1}/{len(step_defs)}] {step.id}: "
+                        f"SUCCESS - EXAMINED NOTHING{qualifier}"
+                    )
+                elif cover is not None and cover.any_invocation_empty:
+                    # The same hole hidden by an aggregate, the shape kyle #838
+                    # found for test steps: a stage whose command runs the tool
+                    # over two paths can have one run examine nothing while the
+                    # total looks healthy, so `examined_nothing` is False and
+                    # the warning above stays silent about the half that proved
+                    # nothing.
+                    warnings.append(
+                        f"{step.id}: {cover.empty_invocations} of "
+                        f"{cover.invocations} invocations examined NOTHING "
+                        f"({cover.summary()} across all of them) - part of this "
+                        "gate proved nothing about the change"
+                    )
+                    self._log(
+                        f"  [{idx + 1}/{len(step_defs)}] {step.id}: "
+                        f"SUCCESS - {cover.empty_invocations} OF "
+                        f"{cover.invocations} INVOCATIONS EXAMINED NOTHING"
+                        f"{qualifier}"
+                    )
+                elif outcome is not None and outcome.nothing_ran:
                     warnings.append(
                         f"{step.id}: exited 0 but executed NO tests ({outcome.summary()}) "
                         "- this gate proved nothing about the change (issue #621)"
@@ -554,7 +654,9 @@ class DeterministicRunner:
                     )
                 else:
                     self._log(f"  [{idx + 1}/{len(step_defs)}] {step.id}: SUCCESS{qualifier}")
-                state.mark_step_success(idx, result.output, tests=outcome_dict)
+                state.mark_step_success(
+                    idx, result.output, tests=outcome_dict, coverage=cover_dict
+                )
                 state.save(self.project_root)
                 completed = idx + 1
             else:
@@ -782,13 +884,21 @@ class DeterministicRunner:
                         # Keep the clean invocation's counts as the primary test
                         # record; the targeted counts live in the rerun channel.
                         state.mark_step_success(
-                            idx, rerun_result.output, tests=outcome_dict
+                            idx,
+                            rerun_result.output,
+                            tests=outcome_dict,
+                            coverage=cover_dict,
                         )
                         state.save(self.project_root)
                         completed = idx + 1
                         continue
                 state.mark_step_failed(
-                    idx, result.exit_code, result.output, result.error, tests=outcome_dict
+                    idx,
+                    result.exit_code,
+                    result.output,
+                    result.error,
+                    tests=outcome_dict,
+                    coverage=cover_dict,
                 )
                 state.save(self.project_root)
 
@@ -805,6 +915,7 @@ class DeterministicRunner:
                     ),
                     error=result.error or result.output,
                     tests=tests,
+                    coverage=coverage,
                     warnings=warnings,
                     reruns=reruns,
                     skipped_steps=skipped,
@@ -882,6 +993,48 @@ class DeterministicRunner:
         # failure-only and why a resumed GREEN run could not say which of its
         # steps had actually run.
         success_details = state.summary(executed_from=executed_from)["steps"]
+        # Re-derive the coverage roll-up and its warnings from the PERSISTED
+        # records, not only from the steps this invocation executed (issue
+        # #1027, cross-model review). `coverage` and `warnings` start empty on
+        # every invocation, so after a resume a zero-coverage step earned
+        # earlier survived in `step_details` and vanished from both - and the
+        # gate reads the roll-up. A run whose lint examined nothing, failed
+        # later on a transient, and then resumed cleanly on a verified-unchanged
+        # tree therefore reported `ok`/0: the #1027 false green, restored by
+        # resume, for the exact stage #1027 is about.
+        for entry in success_details:
+            carried_cover = entry.get("coverage")
+            if not carried_cover or entry["id"] in coverage:
+                continue
+            coverage[entry["id"]] = carried_cover
+            summary = _coverage_summary(carried_cover)
+            tool = carried_cover.get("tool", "unknown")
+            if carried_cover.get("scope") == SCOPE_COMPONENT:
+                scope_clause = (
+                    f"that part of the '{entry['id']}' gate proved nothing about "
+                    "the change; its other checks are not measured by this number"
+                )
+            else:
+                scope_clause = "this gate proved nothing about the change"
+            if carried_cover.get("state") == ZERO:
+                warnings.append(
+                    f"{entry['id']}: exited 0 but {summary} ({tool}) - "
+                    f"{scope_clause} "
+                    "(issue #1027, result carried from an earlier invocation)"
+                )
+            elif carried_cover.get("empty_invocations", 0) > 0:
+                # The partially-empty carry (cross-model review, second pass).
+                # Rebuilding only the `zero` case dropped this one: a stage with
+                # one empty invocation and one populated invocation is `covered`,
+                # so its warning vanished across a resume while the equivalent
+                # live run kept it - the same roll-up hole, one state over.
+                warnings.append(
+                    f"{entry['id']}: {carried_cover['empty_invocations']} of "
+                    f"{carried_cover.get('invocations', 0)} invocations examined "
+                    f"NOTHING ({summary} across all of them) - part of this gate "
+                    "proved nothing about the change "
+                    "(issue #1027, result carried from an earlier invocation)"
+                )
         success_carried = [
             entry["id"]
             for entry in success_details
@@ -916,6 +1069,7 @@ class DeterministicRunner:
             steps_completed=completed,
             steps_total=len(step_defs),
             tests=tests,
+            coverage=coverage,
             warnings=warnings,
             reruns=reruns,
             skipped_steps=skipped,

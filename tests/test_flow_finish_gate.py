@@ -9,9 +9,15 @@ Contract:
   (exit 1) mirrors the runner's exit.
 - With no runner (no checkout, or no uv), it degrades to ``make lint`` +
   ``make test`` when those targets exist; with neither, verdict ``skipped``
-  (exit 0) with a loud warning.
+  (exit 4) with a loud warning.
 - ``--check-summary`` runs ``lib.cicd check --summary`` as an ADVISORY: verdict
-  ``ok``/``warn``/``skipped``, always exit 0.
+  ``ok`` (exit 0), ``warn`` (exit 3) or ``skipped`` (exit 4).
+- Every verdict carries its OWN exit code (issue #1027): ``ok`` 0, ``fail`` 1,
+  usage error 2, ``warn`` 3, ``skipped`` 4. Before that, ``ok``/``warn``/
+  ``skipped`` all exited 0, so the documented ``if gate; then proceed; fi``
+  grading shape could not see a gate that proved nothing or did not run.
+- A gate that RAN but examined nothing reports ``warn (zero coverage: ...)``
+  (issue #1027): a stage with no input produces a green that is not evidence.
 - The flow command docs invoke the helper BARE at the stable path and no longer
   carry the inline ``PYTHONPATH=... uv run ...`` gate shape that could never
   match a permission prefix rule.
@@ -170,7 +176,7 @@ def test_qualified_gate_does_not_assert_a_cause_it_did_not_establish(
         uv_stdout=_runner_json(_UNKNOWN_WARNING),
     )
 
-    assert proc.returncode == 0
+    assert proc.returncode == 3
     assert "FLOW_FINISH_GATE: warn" in proc.stdout
 
     line = _qualified_line(proc.stdout)
@@ -200,7 +206,7 @@ def test_the_qualified_line_still_fires_for_a_real_no_tests_warning(
         uv_stdout=_runner_json(_NO_TESTS_WARNING),
     )
 
-    assert proc.returncode == 0
+    assert proc.returncode == 3
     assert "FLOW_FINISH_GATE: warn" in proc.stdout
     # The line is emitted; the CAUSE is carried by the runner's own warning,
     # which is tee'd through and does say it executed no tests.
@@ -260,7 +266,7 @@ def test_fallback_missing_gate_reports_warn_named(tmp_path: Path) -> None:
     names it - never a bare `ok` (#628)."""
     (tmp_path / "Makefile").write_text("lint:\n\ttrue\ntest:\n\ttrue\n")
     proc, bindir = _run(tmp_path, cpp_dir="", uv_exit=None, make_exit=0)
-    assert proc.returncode == 0
+    assert proc.returncode == 3
     assert "FLOW_FINISH_GATE: warn" in proc.stdout
     assert "FLOW_FINISH_GATE: ok" not in proc.stdout
     assert "typecheck" in proc.stdout
@@ -297,7 +303,7 @@ def test_fallback_fail(tmp_path: Path) -> None:
 @requires_bash
 def test_skipped_when_no_runner_and_no_makefile(tmp_path: Path) -> None:
     proc, _ = _run(tmp_path, cpp_dir="", uv_exit=None)
-    assert proc.returncode == 0
+    assert proc.returncode == 4
     assert "FLOW_FINISH_GATE: skipped" in proc.stdout
     assert "SKIPPED" in proc.stdout
 
@@ -316,11 +322,11 @@ def test_check_summary_ok(tmp_path: Path) -> None:
 
 
 @requires_bash
-def test_check_summary_warn_is_exit_zero(tmp_path: Path) -> None:
+def test_check_summary_warn_is_exit_three(tmp_path: Path) -> None:
     cpp = _fake_cpp(tmp_path)
     (tmp_path / "Makefile").write_text("lint:\n\ttrue\n")
     proc, _ = _run(tmp_path, "--check-summary", cpp_dir=str(cpp), uv_exit=3)
-    assert proc.returncode == 0
+    assert proc.returncode == 3
     assert "FLOW_FINISH_GATE: warn" in proc.stdout
 
 
@@ -328,7 +334,7 @@ def test_check_summary_warn_is_exit_zero(tmp_path: Path) -> None:
 def test_check_summary_skipped_without_runner(tmp_path: Path) -> None:
     (tmp_path / "Makefile").write_text("lint:\n\ttrue\n")
     proc, _ = _run(tmp_path, "--check-summary", cpp_dir="", uv_exit=None)
-    assert proc.returncode == 0
+    assert proc.returncode == 4
     assert "FLOW_FINISH_GATE: skipped" in proc.stdout
 
 
@@ -336,7 +342,7 @@ def test_check_summary_skipped_without_runner(tmp_path: Path) -> None:
 def test_check_summary_skipped_without_makefile(tmp_path: Path) -> None:
     cpp = _fake_cpp(tmp_path)
     proc, _ = _run(tmp_path, "--check-summary", cpp_dir=str(cpp), uv_exit=0)
-    assert proc.returncode == 0
+    assert proc.returncode == 4
     assert "FLOW_FINISH_GATE: skipped" in proc.stdout
 
 
@@ -422,7 +428,8 @@ def _run_with_uv_stub(
 def test_qualified_run_reports_warn_not_ok(tmp_path: Path) -> None:
     """The runner qualifies an all-skipped test step; this helper is the layer
     the flow commands read, so flattening that back to a bare `ok` would re-hide
-    the #621 false green one level up. Exit status stays 0 - it is a signal."""
+    the #621 false green one level up. Exit status is 3 (issue #1027) - a
+    signal, not a failure, but distinct from a clean `ok`."""
     cpp = _fake_cpp(tmp_path)
     payload = (
         '{\n  "success": true,\n  "steps_completed": 3,\n'
@@ -437,7 +444,7 @@ def test_qualified_run_reports_warn_not_ok(tmp_path: Path) -> None:
         'skipped) - this gate proved nothing about the change (issue #621)"]\n}'
     )
     proc = _run_with_uv_stub(tmp_path, cpp, payload)
-    assert proc.returncode == 0
+    assert proc.returncode == 3
     assert "FLOW_FINISH_GATE: warn" in proc.stdout
     assert "FLOW_FINISH_GATE: ok" not in proc.stdout
     assert "issue #621" in proc.stdout
@@ -488,7 +495,7 @@ def test_runner_rerun_passed_reports_warn_and_ids(tmp_path: Path) -> None:
 }"""
     proc = _run_with_uv_stub(tmp_path, cpp, payload)
 
-    assert proc.returncode == 0
+    assert proc.returncode == 3
     assert "FLOW_FINISH_GATE: warn" in proc.stdout
     assert "FLOW_FINISH_GATE: ok" not in proc.stdout
     assert "RERUN_PASSED: tests/a.py::t1" in proc.stdout
@@ -602,7 +609,7 @@ def test_runner_rerun_reports_multiple_ids(tmp_path: Path) -> None:
 }"""
     proc = _run_with_uv_stub(tmp_path, cpp, payload)
 
-    assert proc.returncode == 0
+    assert proc.returncode == 3
     assert (
         "RERUN_PASSED: tests/a.py::t1 tests/b.py::TestB::t2[param]"
         in proc.stdout
@@ -645,7 +652,7 @@ def test_fallback_rerun_passes_and_warns(tmp_path: Path) -> None:
 
     proc, _ = _run(tmp_path, cpp_dir="", uv_exit=None, cwd=tmp_path)
 
-    assert proc.returncode == 0
+    assert proc.returncode == 3
     assert "FLOW_FINISH_GATE: warn" in proc.stdout
     assert "RERUN_PASSED: tests/a.py::t1" in proc.stdout
     assert "issue #769" in proc.stdout
@@ -690,7 +697,7 @@ def test_skipped_gates_win_but_rerun_ids_are_still_printed(tmp_path: Path) -> No
 }"""
     proc = _run_with_uv_stub(tmp_path, cpp, payload)
 
-    assert proc.returncode == 0
+    assert proc.returncode == 3
     assert "FLOW_FINISH_GATE: warn (skipped gates: typecheck)" in proc.stdout
     assert "RERUN_PASSED: tests/a.py::t1" in proc.stdout
 
@@ -740,7 +747,7 @@ def test_fallback_rerun_appends_to_host_pytest_addopts(tmp_path: Path) -> None:
         text=True,
     )
 
-    assert proc.returncode == 0
+    assert proc.returncode == 3
     assert "PYTEST_ADDOPTS=-p no:randomly --last-failed" in proc.stdout
 
 
@@ -762,14 +769,14 @@ def test_runner_skipped_gates_report_warn_named(tmp_path: Path) -> None:
     """The runner emits a "skipped": [...] array for skip_if-skipped gates. This
     helper is the layer the flow commands read, so it must report `warn` and NAME
     the skipped gates rather than flatten the run to a bare `ok` - the exact
-    false green of #628. Exit stays 0 - it is a signal."""
+    false green of #628. Exit is 3 (issue #1027) - it is a signal."""
     cpp = _fake_cpp(tmp_path)
     payload = (
         '{\n  "success": true,\n  "steps_completed": 4,\n  "steps_total": 4,\n'
         '  "skipped": [\n    "lint",\n    "test",\n    "typecheck"\n  ]\n}'
     )
     proc = _run_with_uv_stub(tmp_path, cpp, payload)
-    assert proc.returncode == 0
+    assert proc.returncode == 3
     assert "FLOW_FINISH_GATE: warn" in proc.stdout
     assert "FLOW_FINISH_GATE: ok" not in proc.stdout
     for gate in ("lint", "test", "typecheck"):
@@ -826,7 +833,7 @@ def test_runner_skipped_security_scan_reports_warn(tmp_path: Path) -> None:
         '  "skipped": [\n    "security_scan"\n  ]\n}'
     )
     proc = _run_with_uv_stub(tmp_path, cpp, payload)
-    assert proc.returncode == 0
+    assert proc.returncode == 3
     assert "FLOW_FINISH_GATE: warn (skipped gates: security_scan)" in proc.stdout
     assert "FLOW_FINISH_GATE: ok" not in proc.stdout
     assert "issue #628" in proc.stdout
@@ -888,7 +895,7 @@ def test_carried_unverified_is_warn(tmp_path: Path) -> None:
         '  "carried_from_previous_run": [\n    "lint"\n  ]\n}'
     )
     proc = _run_with_uv_stub(tmp_path, cpp, payload)
-    assert proc.returncode == 0
+    assert proc.returncode == 3
     assert "FLOW_FINISH_GATE: warn (carried, unverified: lint)" in proc.stdout
     assert "FLOW_FINISH_GATE: ok" not in proc.stdout
     assert "issue #804" in proc.stdout
@@ -921,7 +928,7 @@ def test_multiple_carried_steps_are_all_named(tmp_path: Path) -> None:
         '  "carried_from_previous_run": [\n    "lint",\n    "typecheck"\n  ]\n}'
     )
     proc = _run_with_uv_stub(tmp_path, cpp, payload)
-    assert proc.returncode == 0
+    assert proc.returncode == 3
     assert "FLOW_FINISH_GATE: warn (carried, unverified: lint typecheck)" in proc.stdout
 
 
@@ -939,7 +946,7 @@ def test_skipped_gates_still_win_over_unverified_carry(tmp_path: Path) -> None:
         '  "skipped": [\n    "typecheck"\n  ]\n}'
     )
     proc = _run_with_uv_stub(tmp_path, cpp, payload)
-    assert proc.returncode == 0
+    assert proc.returncode == 3
     assert "FLOW_FINISH_GATE: warn (skipped gates: typecheck)" in proc.stdout
 
 
@@ -952,9 +959,11 @@ def test_skipped_gates_still_win_over_unverified_carry(tmp_path: Path) -> None:
 # case above, one level in, and it sits inside the instrument everything else
 # trusts.
 #
-# The threshold is deliberately unchanged. `skipped` keeps its exit code and a
-# repo where the fallback IS the gate still reports `ok`; what changes is that
-# the report now says which targets ran and which the repo expected.
+# The THRESHOLD is deliberately unchanged: a repo where the fallback IS the
+# gate still reports `ok`, and this issue does not touch when `skipped` fires.
+# What changed (issue #1027) is `skipped`'s own exit code, not this threshold;
+# what #808 changed is that the report now says which targets ran and which
+# the repo expected.
 
 
 @requires_bash
@@ -978,7 +987,7 @@ def test_an_aggregate_gate_the_fallback_cannot_run_is_a_warn(tmp_path: Path) -> 
         "verify: lint test typecheck extra-check\n"
     )
     proc, bindir = _run(tmp_path, cpp_dir="", uv_exit=None, make_exit=0)
-    assert proc.returncode == 0
+    assert proc.returncode == 3
     assert "FLOW_FINISH_GATE: warn" in proc.stdout
     assert "FLOW_FINISH_GATE: ok" not in proc.stdout
     assert "extra-check" in proc.stdout
@@ -1040,12 +1049,15 @@ def test_a_multi_line_aggregate_is_detected(tmp_path: Path) -> None:
 
 @requires_bash
 def test_the_skipped_threshold_is_unchanged(tmp_path: Path) -> None:
-    """Explicitly pinned, because this ticket's scope excluded it: a repo with
-    no gate targets still reports `skipped` at exit 0. Changing that is the
-    oscillation-prone class and was ruled out, so a later reader should see it
-    asserted rather than assume it drifted."""
+    """Pinned by #808/#809, which explicitly excluded exit-code changes from
+    its own scope: a repo with no gate targets reports `skipped`. #1027 is the
+    ticket that DOES change the exit code (0 -> 4, so a caller reading only
+    `$?` can tell "did not run" from a clean `ok`) - see the header table. The
+    THRESHOLD this test's name refers to - when `skipped` fires, not what it
+    exits - is what stays unchanged; a later reader should see the new code
+    asserted rather than assume either half drifted."""
     proc, _ = _run(tmp_path, cpp_dir="", uv_exit=None, make_exit=None)
-    assert proc.returncode == 0
+    assert proc.returncode == 4
     assert "FLOW_FINISH_GATE: skipped" in proc.stdout
 
 
@@ -1090,3 +1102,232 @@ def test_an_ordinary_failure_is_still_a_bare_fail(tmp_path: Path) -> None:
     assert proc.returncode == 1
     assert "FLOW_FINISH_GATE: fail" in proc.stdout
     assert "timeout" not in proc.stdout.lower()
+
+
+@requires_bash
+def test_runner_zero_coverage_reports_warn_named(tmp_path: Path) -> None:
+    """A gate that RAN and examined NOTHING must not read as a clean pass (#1027).
+
+    The #628 array above answers "did the gate run?". This answers the question
+    one step further in, which had no channel at all: the gate ran, exited 0,
+    and had no input. `ruff check .` on a tree with no Python files warns on
+    stderr, prints "All checks passed!" on stdout and exits 0 - so before this,
+    a stage with nothing to examine and a stage that examined the whole tree
+    produced byte-identical step details and the same `ok`.
+
+    Demonstrated end to end before this test was written: the same tree against
+    origin/main 967c098 exits 0 with `FLOW_FINISH_GATE: ok`, and against this
+    branch exits 3 with `warn (zero coverage: security_scan)`.
+    """
+    cpp = _fake_cpp(tmp_path)
+    payload = (
+        '{\n  "success": true,\n  "steps_completed": 4,\n  "steps_total": 4,\n'
+        '  "coverage": {\n'
+        '    "security_scan": {\n'
+        '      "state": "zero",\n'
+        '      "units": 0,\n'
+        '      "tool": "security-gate"\n'
+        "    }\n"
+        "  }\n}"
+    )
+    proc = _run_with_uv_stub(tmp_path, cpp, payload)
+    assert proc.returncode == 3
+    assert "FLOW_FINISH_GATE: warn (zero coverage: security_scan)" in proc.stdout
+    assert "FLOW_FINISH_GATE: ok" not in proc.stdout
+    assert "issue #1027" in proc.stdout
+
+
+@requires_bash
+def test_runner_covered_stage_stays_ok(tmp_path: Path) -> None:
+    """The other half of the control, and the one that catches a blind gate.
+
+    A parser that reported `zero` for everything would satisfy the test above
+    and be strictly worse than no parser: every run would warn, and the warning
+    would stop being read. A stage that states real coverage must stay `ok`.
+    """
+    cpp = _fake_cpp(tmp_path)
+    payload = (
+        '{\n  "success": true,\n  "steps_completed": 4,\n  "steps_total": 4,\n'
+        '  "coverage": {\n'
+        '    "typecheck": {\n'
+        '      "state": "covered",\n'
+        '      "units": 47,\n'
+        '      "tool": "mypy"\n'
+        "    }\n"
+        "  }\n}"
+    )
+    proc = _run_with_uv_stub(tmp_path, cpp, payload)
+    assert proc.returncode == 0
+    assert "FLOW_FINISH_GATE: ok" in proc.stdout
+    assert "zero coverage" not in proc.stdout
+
+
+@requires_bash
+def test_runner_unknown_coverage_stays_ok(tmp_path: Path) -> None:
+    """`unknown` is RECORDED but never graded on - the deliberate bound (#1027).
+
+    It is the state of every lint harness CPP cannot parse (Go, Rust, a shell
+    wrapper) and of ruff on its clean path, so warning on it would fire on every
+    run of those repos. Recording it still fixes the reported defect - the
+    reader sees an unproven stage rather than a bare `status: "success"` - which
+    is why the field is present in the JSON this test feeds in and the verdict
+    is still `ok`.
+    """
+    cpp = _fake_cpp(tmp_path)
+    payload = (
+        '{\n  "success": true,\n  "steps_completed": 4,\n  "steps_total": 4,\n'
+        '  "coverage": {\n'
+        '    "lint": {\n'
+        '      "state": "unknown",\n'
+        '      "units": null,\n'
+        '      "tool": "unknown"\n'
+        "    }\n"
+        "  }\n}"
+    )
+    proc = _run_with_uv_stub(tmp_path, cpp, payload)
+    assert proc.returncode == 0
+    assert "FLOW_FINISH_GATE: ok" in proc.stdout
+    assert "zero coverage" not in proc.stdout
+
+
+@requires_bash
+def test_skipped_gates_win_over_zero_coverage(tmp_path: Path) -> None:
+    """Precedence, asserted rather than left to source order.
+
+    A gate that did not run at all is the more fundamental fact than one that
+    ran with no input, so `skipped gates` is reported first. Both are exit 3, so
+    only the NAMED verdict distinguishes them - which is exactly the reader-
+    facing distinction #1027 is about.
+    """
+    cpp = _fake_cpp(tmp_path)
+    payload = (
+        '{\n  "success": true,\n  "steps_completed": 4,\n  "steps_total": 4,\n'
+        '  "skipped": [\n    "typecheck"\n  ],\n'
+        '  "coverage": {\n'
+        '    "security_scan": {\n'
+        '      "state": "zero",\n'
+        '      "units": 0,\n'
+        '      "tool": "security-gate"\n'
+        "    }\n"
+        "  }\n}"
+    )
+    proc = _run_with_uv_stub(tmp_path, cpp, payload)
+    assert proc.returncode == 3
+    assert "FLOW_FINISH_GATE: warn (skipped gates: typecheck)" in proc.stdout
+
+
+def _zero_coverage_make_stub(bindir: Path, lint_output: str) -> None:
+    """A `make` shim whose lint target emits REAL tool output on stderr."""
+    stub = bindir / "make"
+    stub.write_text(
+        "#!/usr/bin/env bash\n"
+        'case "$1" in\n'
+        f'  lint) printf %s\\\\n "{lint_output}" >&2; echo "All checks passed!";;\n'
+        '  test) echo "3 passed in 0.01s";;\n'
+        '  typecheck) echo "Success: no issues found in 12 source files";;\n'
+        "esac\n"
+        "exit 0\n"
+    )
+    stub.chmod(0o755)
+
+
+@requires_bash
+def test_fallback_lane_detects_a_gate_that_examined_nothing(tmp_path: Path) -> None:
+    """The FALLBACK lane needs this too, and needs it more (#1027).
+
+    The runner lane reads the coverage object out of the runner's JSON. The
+    fallback has no runner and no step_details - and in a container, where
+    there is no CPP checkout, the fallback IS the ordinary path rather than the
+    degraded one. That is precisely where #1027 measured `skipped` and `passed`
+    sharing an exit code, so a runner-only fix would have left the measured
+    case blind.
+    """
+    (tmp_path / "Makefile").write_text("lint:\n\ntest:\n\ntypecheck:\n")
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    _zero_coverage_make_stub(
+        bindir, "warning: No Python files found under the given path(s)"
+    )
+
+    env = os.environ.copy()
+    env["PATH"] = f"{bindir}:{env['PATH']}"
+    env["FLOW_GATE_CPP_DIR"] = ""
+    proc = subprocess.run(
+        ["bash", str(SCRIPT)],
+        cwd=tmp_path,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+
+    assert proc.returncode == 3
+    assert "FLOW_FINISH_GATE: warn (zero coverage: lint)" in proc.stdout
+    assert "FLOW_FINISH_GATE: ok" not in proc.stdout
+
+
+@requires_bash
+def test_fallback_lane_stays_ok_when_the_gates_examined_something(
+    tmp_path: Path,
+) -> None:
+    """The half that catches a fallback detector matching everything."""
+    (tmp_path / "Makefile").write_text("lint:\n\ntest:\n\ntypecheck:\n")
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    _zero_coverage_make_stub(bindir, "checked 40 files")
+
+    env = os.environ.copy()
+    env["PATH"] = f"{bindir}:{env['PATH']}"
+    env["FLOW_GATE_CPP_DIR"] = ""
+    proc = subprocess.run(
+        ["bash", str(SCRIPT)],
+        cwd=tmp_path,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+
+    assert proc.returncode == 0
+    assert "FLOW_FINISH_GATE: ok" in proc.stdout
+    assert "zero coverage" not in proc.stdout
+
+
+@requires_bash
+def test_fallback_lane_still_reports_a_failing_gate(tmp_path: Path) -> None:
+    """The `tee` capture must not swallow the command's exit status.
+
+    The non-test fallback lanes now pipe through `tee` so their output can be
+    inspected, which means a bare `||` would read the TEE's status and record
+    success for every failing gate. They grade on `PIPESTATUS[0]` instead; this
+    is the test that fails if that ever regresses to `$?`.
+    """
+    (tmp_path / "Makefile").write_text("lint:\n\ntest:\n\ntypecheck:\n")
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    stub = bindir / "make"
+    stub.write_text(
+        "#!/usr/bin/env bash\n"
+        'case "$1" in\n'
+        '  lint) echo "E501 line too long"; exit 1;;\n'
+        '  test) echo "3 passed in 0.01s";;\n'
+        '  typecheck) echo "Success: no issues found in 12 source files";;\n'
+        "esac\n"
+        "exit 0\n"
+    )
+    stub.chmod(0o755)
+
+    env = os.environ.copy()
+    env["PATH"] = f"{bindir}:{env['PATH']}"
+    env["FLOW_GATE_CPP_DIR"] = ""
+    proc = subprocess.run(
+        ["bash", str(SCRIPT)],
+        cwd=tmp_path,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+
+    assert proc.returncode == 1
+    assert "FLOW_FINISH_GATE: fail" in proc.stdout

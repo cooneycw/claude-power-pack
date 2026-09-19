@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import os
 import shutil
 import stat
@@ -10,6 +11,7 @@ from pathlib import Path
 
 import pytest
 
+from lib.security import cli
 from lib.security.config import SecurityConfig
 from lib.security.models import Finding, ScanResult, Severity, Suppression
 from lib.security.modules import debug_flags, gitignore, permissions, secrets
@@ -316,6 +318,71 @@ class TestCheckGate:
         assert passed is True
 
 
+class TestCmdGate:
+    """`python -m lib.security gate` must print a verdict on EVERY exit path
+    (issue #1027 - the same class as flow-finish-gate's ok/warn/skipped
+    confusion, one repo layer down).
+
+    Before this: a PASSING gate with WARN-level findings printed nothing but
+    the WARNING lines themselves - no verdict, no threshold, no counts. A
+    measured example from the issue: 22 lines, every one `WARNING: HIGH: ...`,
+    and `... | tail -20` rendered it indistinguishable from a gate one line
+    short of a real failure. `cmd_gate` always re-scans `args.path` from disk
+    (it has no way to accept a pre-built `ScanResult`), so these monkeypatch
+    `scan_quick` at the CLI module boundary rather than driving real scanners.
+    """
+
+    @staticmethod
+    def _args(gate_name: str = "flow_finish", path: str = ".") -> argparse.Namespace:
+        return argparse.Namespace(gate_name=gate_name, path=path)
+
+    def test_passing_gate_with_warnings_prints_verdict_threshold_and_counts(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        result = ScanResult(findings=[
+            Finding(id="A", severity=Severity.HIGH, title="High issue"),
+        ])
+        monkeypatch.setattr(cli, "scan_quick", lambda path, config: result)
+
+        exit_code = cli.cmd_gate(self._args())
+
+        out = capsys.readouterr().out
+        assert exit_code == 0
+        assert "WARNING" in out
+        assert "SECURITY_GATE: flow_finish PASS (blocked=0 warned=1;" in out
+        assert "blocks-on=CRITICAL warns-on=HIGH" in out
+
+    def test_failing_gate_prints_verdict_too(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        result = ScanResult(findings=[
+            Finding(id="A", severity=Severity.CRITICAL, title="Critical issue"),
+        ])
+        monkeypatch.setattr(cli, "scan_quick", lambda path, config: result)
+
+        exit_code = cli.cmd_gate(self._args())
+
+        out = capsys.readouterr().out
+        assert exit_code == 1
+        assert "SECURITY_GATE: flow_finish FAIL (blocked=1 warned=0;" in out
+        assert "FAILED" in out
+
+    def test_clean_gate_prints_the_verdict_line_too(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A gate with NOTHING to report must still print the summary line -
+        the pre-fix code only did this by coincidence, when `messages` was
+        empty; this asserts it as its own property so it cannot regress
+        independently of the warnings case above."""
+        monkeypatch.setattr(cli, "scan_quick", lambda path, config: ScanResult())
+
+        exit_code = cli.cmd_gate(self._args())
+
+        out = capsys.readouterr().out
+        assert exit_code == 0
+        assert "SECURITY_GATE: flow_finish PASS (blocked=0 warned=0;" in out
+
+
 class TestApplySuppressions:
     """Test suppression logic."""
 
@@ -339,3 +406,115 @@ class TestApplySuppressions:
         config = SecurityConfig()
         _apply_suppressions(result, config)
         assert len(result.findings) == 1
+
+
+class TestGateLineCarriesCoverage:
+    """The gate line must say what the scan EXAMINED, not only what it found.
+
+    `blocked=0 warned=0` is what a clean scan of 575 files reports AND what a
+    scan that opened nothing reports - the same line for opposite facts. That is
+    the #1027 shape at the security layer: a verdict whose passing and no-op
+    renderings are byte-identical.
+
+    Measured before this was written: on a tree with no source files and an
+    otherwise-clean policy, the gate printed
+    `SECURITY_GATE: flow_finish PASS (blocked=0 warned=0; ...)` and exited 0.
+    """
+
+    @staticmethod
+    def _args(gate_name: str = "flow_finish", path: str = ".") -> argparse.Namespace:
+        return argparse.Namespace(gate_name=gate_name, path=path)
+
+    def test_a_scan_that_examined_nothing_says_so(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        result = ScanResult(skipped=["No source files found to scan"])
+        result.units_scanned = 0
+        monkeypatch.setattr(cli, "scan_quick", lambda path, config: result)
+
+        exit_code = cli.cmd_gate(self._args())
+
+        out = capsys.readouterr().out
+        assert exit_code == 0, "the gate PASSES - that is exactly the false green"
+        assert "secrets-scanned=0" in out
+
+    def test_a_real_scan_reports_its_count(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """The other half: a covered scan must NOT look like an empty one."""
+        result = ScanResult(passed=["No secrets found in 575 source files"])
+        result.units_scanned = 575
+        monkeypatch.setattr(cli, "scan_quick", lambda path, config: result)
+
+        cli.cmd_gate(self._args())
+
+        out = capsys.readouterr().out
+        assert "secrets-scanned=575" in out
+        assert "secrets-scanned=0" not in out
+
+    def test_an_unstated_count_is_unknown_not_zero(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """`units_scanned=None` must not render as a zero nobody measured.
+
+        A fabricated 0 here would manufacture a zero-coverage warning in the
+        runner one layer up, on a scan that simply did not report.
+        """
+        monkeypatch.setattr(cli, "scan_quick", lambda path, config: ScanResult())
+
+        cli.cmd_gate(self._args())
+
+        out = capsys.readouterr().out
+        assert "secrets-scanned=unknown" in out
+
+    def test_merge_preserves_unknown_and_sums_numbers(self) -> None:
+        """Two modules stating nothing must not add up to a confident 0."""
+        both_silent = ScanResult()
+        both_silent.merge(ScanResult())
+        assert both_silent.units_scanned is None
+
+        one_counts = ScanResult()
+        other = ScanResult()
+        other.units_scanned = 7
+        one_counts.merge(other)
+        assert one_counts.units_scanned == 7
+
+        summed = ScanResult()
+        summed.units_scanned = 3
+        addend = ScanResult()
+        addend.units_scanned = 4
+        summed.merge(addend)
+        assert summed.units_scanned == 7
+
+
+class TestUnreadableFilesAreNotCountedAsExamined:
+    """A file the scanner could not open was NOT examined (#1027 review).
+
+    `files_scanned` incremented above the `try`, so an unreadable file still
+    counted. Harmless while the number was only prose; once it became the
+    exported coverage figure, one unreadable file reported `secrets-scanned=1`
+    for a scan that inspected no content - the same looked-vs-nothing-to-look-at
+    collapse the field exists to prevent, reintroduced inside its own fix.
+    """
+
+    def test_an_unreadable_file_yields_zero_coverage(self, tmp_path: Path) -> None:
+        target = tmp_path / "unreadable.py"
+        target.write_text("api_key = 'placeholder'\n")
+        target.chmod(0o000)
+        try:
+            if os.access(target, os.R_OK):
+                pytest.skip("cannot make a file unreadable here (running as root?)")
+            result = secrets.scan(str(tmp_path))
+        finally:
+            target.chmod(0o644)
+
+        assert result.units_scanned == 0, (
+            "a file that could not be opened was not examined"
+        )
+        assert any("could not be read" in m for m in result.skipped), result.skipped
+
+    def test_a_readable_file_is_counted(self, tmp_path: Path) -> None:
+        """The other half - the count must not become uniformly zero."""
+        (tmp_path / "ok.py").write_text("x = 1\n")
+        result = secrets.scan(str(tmp_path))
+        assert result.units_scanned == 1
