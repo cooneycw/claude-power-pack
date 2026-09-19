@@ -30,18 +30,42 @@
 #   flow-finish-gate.sh                  # run the 'finish' quality-gate plan
 #   flow-finish-gate.sh --plan check     # pass a different plan through
 #   flow-finish-gate.sh --check-summary  # lib.cicd check --summary (Makefile
-#                                        # completeness, advisory: always exit 0)
+#                                        # completeness, advisory - see the
+#                                        # exit-code table below: it no longer
+#                                        # always exits 0 either (issue #1027)
 #
 # Output ends with a machine-readable verdict line:
 #   FLOW_FINISH_GATE: ok | fail | warn | skipped
 # A first-attempt failure cleared by the one targeted re-run also prints:
 #   RERUN_PASSED: <space-separated pytest node ids>
 #
-#   ok      gate passed AND every gate actually executed        -> exit 0
-#   fail    gate failed                                         -> exit 1
-#   warn    --check-summary found gaps (advisory), OR the gate   -> exit 0
+# Exit code (issue #1027 - each verdict gets its OWN code; before this, `ok`,
+# `warn` and `skipped` all exited 0, so a caller reading only `$?` (the
+# documented `if gate; then proceed; fi` / `gate && git push` shape) could not
+# tell "passed cleanly" from "passed but proved nothing" from "did not run at
+# all". `fail` was always distinct and is unchanged; usage errors (`exit 2`,
+# below the option-parsing loop) predate this issue and are ALSO unchanged -
+# do not reuse 2 for `skipped` even though the rest of this repo uses 2 for
+# UNKNOWN (`shellcheck-gate.sh`, `dependency-audit.py`): 2 already means "you
+# typed the flag wrong" in THIS script, and colliding the two would make a
+# usage error indistinguishable from an unrunnable gate.
+#
+#   verdict  exit  meaning
+#   -------  ----  -------
+#   ok         0   ran, every gate passed, every gate actually executed
+#   fail       1   ran, a gate failed
+#   (usage)    2   bad argument or missing --plan value - unchanged, not a verdict
+#   warn       3   ran and passed, but something is soft-bad - proceed, report it
+#   skipped    4   did NOT run - no evidence either way, never a pass
+#
+#   warn (exit 3) is --check-summary finding gaps (advisory), OR the gate
 #           passed but a gate proved nothing: a quality gate was
 #           SKIPPED (issue #628 - `warn (skipped gates: ...)`),
+#           a gate RAN but examined nothing (issue #1027 -
+#           `warn (zero coverage: ...)`: `ruff check .` on a tree with
+#           no Python files warns on stderr, prints "All checks
+#           passed!" on stdout and exits 0, so a stage with no input
+#           is otherwise indistinguishable from a clean one),
 #           or a test step exited 0 having executed no tests
 #           (issue #621), OR a failed test was re-run against only
 #           its failed ids and PASSED (issue #769 - `warn (rerun
@@ -51,7 +75,14 @@
 #           ...)`). A carry the runner verified via tree_signature is
 #           NOT a warning - see the #804 note below. Every
 #           qualification names the reason.
-#   skipped no runner AND no Makefile/pyproject gates to run     -> exit 0
+#   skipped (exit 4) is no runner AND no Makefile/pyproject gates to run.
+#
+# `warn` and `skipped` are deliberately DIFFERENT exit codes from each other,
+# not just from `ok`: "ran, passed, something is soft-bad" and "did not run,
+# no evidence" are different facts a caller must be able to branch on
+# separately - collapsing them into one non-zero code would fix the ok/warn
+# confusion #1027 reports while creating the identical collision one level
+# down.
 #
 # The #621/#628/#769 qualification exists because this helper is the layer the flow
 # commands read: a runner that carefully reports "completed WITH WARNINGS"
@@ -59,8 +90,10 @@
 # level up. Both the runner and the Makefile-less fallback now prefer a gate's
 # Makefile target but fall back to `uv run --extra dev <tool>` when pyproject
 # configures the tool (issue #628), so a gate SKIPS only when it genuinely
-# cannot run - and then it is named, never a silent ok. Exit status is
-# unchanged (0) - the warning is a signal, not a gate.
+# cannot run - and then it is named, never a silent ok. The warning is a
+# signal, not a gate - callers should proceed on it (report it, do not stop),
+# which is exactly why it needs a THIRD exit code rather than folding into
+# `fail`'s 1.
 #
 # The #769 opt-in reaches the runner as an environment variable, not a CLI flag,
 # because this helper invokes whatever CPP checkout is installed. That checkout
@@ -148,20 +181,21 @@ if [[ "$MODE" == "check-summary" ]]; then
     if [[ "$RUNNER_OK" -eq 0 ]]; then
         echo "NOTE: lib.cicd unavailable ($REASON); skipping Makefile completeness check." >&2
         verdict skipped
-        exit 0
+        exit 4
     fi
     if [[ ! -f Makefile ]]; then
         echo "NOTE: no Makefile here; skipping Makefile completeness check." >&2
         verdict skipped
-        exit 0
+        exit 4
     fi
     PYTHONPATH="$CPP_DIR:${PYTHONPATH:-}" uv run --project "$CPP_DIR" python -m lib.cicd check --summary
     if [[ $? -eq 0 ]]; then
         verdict ok
+        exit 0
     else
         verdict warn
+        exit 3
     fi
-    exit 0
 fi
 
 # --- Primary path: the deterministic runner ---------------------------------
@@ -270,6 +304,29 @@ if [[ "$RUNNER_OK" -eq 1 ]]; then
     if grep -q '"tree_verified": true' "$RUNNER_JSON" 2>/dev/null; then
         TREE_VERIFIED=1
     fi
+    # Gates that ran, exited 0, and examined NOTHING (issue #1027). A step's
+    # exit code says the tool did not error, never that it looked at anything:
+    # `ruff check .` on a tree with no Python files warns on stderr, prints
+    # "All checks passed!" on stdout and exits 0. The runner emits the parsed
+    # evidence as a top-level "coverage" object keyed by step id; pull the ids
+    # whose state is "zero" without needing jq (the validate container has none).
+    #
+    # Only "zero" is collected. "unknown" is present in the JSON and stays out
+    # of the verdict on purpose - it means the tool said nothing measurable,
+    # which is true of every lint harness CPP cannot parse, so grading on it
+    # would warn on every run of those repos. The distinction is the whole
+    # point: "unknown" makes an unproven stage VISIBLE without making it loud.
+    ZERO_COVERAGE_GATES=$(awk '
+        /^  "coverage": \{$/ { in_cov = 1; next }
+        in_cov && /^  \}[,]?$/ { exit }
+        in_cov && /^    "[^"]+": \{$/ {
+            id = $0
+            sub(/^[[:space:]]*"/, "", id)
+            sub(/": \{$/, "", id)
+            next
+        }
+        in_cov && /^      "state": "zero"[,]?$/ { if (id != "") print id; next }
+    ' "$RUNNER_JSON" 2>/dev/null | tr '\n' ' ' | sed 's/ *$//')
     rm -f "$RUNNER_JSON"
     # Print the #769 evidence before verdict precedence is applied: a later
     # failing step or skipped gates are more serious, but must not erase a flake
@@ -281,7 +338,12 @@ if [[ "$RUNNER_OK" -eq 1 ]]; then
         if [[ -n "$SKIPPED_GATES" ]]; then
             echo "WARNING: quality gates did NOT run: $SKIPPED_GATES (no Makefile target and no configured tool). This gate proved nothing about those checks - do not read as 'safe to merge' (issue #628)." >&2
             verdict "warn (skipped gates: $SKIPPED_GATES)"
-            exit 0
+            exit 3
+        fi
+        if [[ -n "$ZERO_COVERAGE_GATES" ]]; then
+            echo "WARNING: quality gate(s) RAN but a MEASURED PART of them examined NOTHING: $ZERO_COVERAGE_GATES. A green from a check with no input is not evidence about this change - do not read as 'safe to merge'. The runner warning above names what was measured; for a multi-check gate it is that check, not the whole gate (issue #1027)." >&2
+            verdict "warn (zero coverage: $ZERO_COVERAGE_GATES)"
+            exit 3
         fi
         # A carried step is fine when the runner PROVED the tree hadn't
         # changed (tree_verified) - that is a genuine crash-resume, and
@@ -293,13 +355,13 @@ if [[ "$RUNNER_OK" -eq 1 ]]; then
         if [[ -n "$CARRIED" && "$TREE_VERIFIED" -ne 1 ]]; then
             echo "WARNING: step(s) carried a result from an earlier invocation WITHOUT proof the tree was unchanged since: $CARRIED. This gate did not verify those steps against the current tree - do not read as 'safe to merge' until you know why verification was unavailable (issue #804)." >&2
             verdict "warn (carried, unverified: $CARRIED)"
-            exit 0
+            exit 3
         fi
         if [[ -n "$RERUN_PASSED_IDS" ]]; then
             RERUN_COUNT=$(awk '{ print NF }' <<< "$RERUN_PASSED_IDS")
             echo "WARNING: $RERUN_COUNT test(s) FAILED on the first attempt and PASSED when re-run against only their failed ids (issue #769): $RERUN_PASSED_IDS. The flow is not stopped - but this run is NOT a clean pass: either these are the documented host-state flakes, or you have a real intermittent failure. Never summarize this run as \"tests passed\"." >&2
             verdict "warn (rerun passed: $RERUN_PASSED_IDS)"
-            exit 0
+            exit 3
         fi
         if [[ "$QUALIFIED" -eq 1 ]]; then
             # Do NOT name a single cause here (issue #939). QUALIFIED is set by
@@ -323,7 +385,7 @@ if [[ "$RUNNER_OK" -eq 1 ]]; then
             # pinned in tests/test_flow_finish_gate.py rather than the wording.
             echo "WARNING: the gate passed but the runner QUALIFIED it (see \"warnings\" above) - at least one test step's result is not a clean pass, and the warnings state which. Do not read this as 'safe to merge' until you know why." >&2
             verdict warn
-            exit 0
+            exit 3
         fi
         verdict ok
         exit 0
@@ -355,6 +417,11 @@ echo "NOTE: deterministic runner unavailable ($REASON); using Makefile fallback.
 RAN=0
 FAILED=0
 SKIPPED_GATES=""
+# Initialized explicitly because `set -uo pipefail` is in force above: the
+# fallback verdict below reads this unconditionally, and an unset variable
+# there aborts the gate rather than reporting one. The runner lane assigns it
+# from the JSON before its own read, so the two lanes never share this value.
+ZERO_COVERAGE_GATES=""
 # What actually executed, and by which route (issue #808). The marker alone
 # cannot distinguish a repo where this fallback IS the gate from one where it
 # is a fraction of it, and a reader should not have to infer coverage from an
@@ -365,6 +432,27 @@ AGGREGATE_TARGET=""
 RERUN_PASSED_IDS=""
 UV_OK=0
 command -v uv >/dev/null 2>&1 && UV_OK=1
+
+# Zero-coverage markers a NON-test gate prints when it examined nothing
+# (issue #1027). The runner lane gets this from lib/cicd/coverage.py via the
+# JSON; this fallback lane has no runner and no step_details, and in a
+# container it is the ORDINARY path rather than the degraded one - so the
+# same question has to be answerable here or the container case, which is
+# exactly where #1027 measured the problem, stays blind.
+#
+# Deliberately only the POSITIVE statements of zero. A tool that says nothing
+# about its coverage yields nothing here, matching the Python side's `unknown`:
+# warning on silence would fire on every non-Python gate, on every run.
+detect_zero_coverage() {
+    # $1 = captured combined output of one gate
+    awk '
+        /^[[:space:]]*warning:[[:space:]]*No Python files found under the given path/ { found = 1 }
+        /no issues found in 0 source files/ { found = 1 }
+        /checked 0 source files/ { found = 1 }
+        /SECURITY_GATE:/ && /secrets-scanned=0([^0-9]|$)/ { found = 1 }
+        END { exit !found }
+    ' "$1" 2>/dev/null
+}
 
 parse_fallback_failed_ids() {
     # pytest's short summary is enough for the human report; --last-failed uses
@@ -411,7 +499,14 @@ run_fallback_gate() {
             fi
             rm -f "$first_output"
         else
-            make "${id}" || FAILED=1
+            local gate_output
+            gate_output=$(mktemp "${TMPDIR:-/tmp}/flow-finish-gate-cov.XXXXXX")
+            make "${id}" 2>&1 | tee "$gate_output"
+            [[ "${PIPESTATUS[0]}" -eq 0 ]] || FAILED=1
+            if detect_zero_coverage "$gate_output"; then
+                ZERO_COVERAGE_GATES="${ZERO_COVERAGE_GATES:+$ZERO_COVERAGE_GATES }${id}"
+            fi
+            rm -f "$gate_output"
         fi
         RAN=1
     elif [[ "$UV_OK" -eq 1 ]] && grep -q "${token}" pyproject.toml 2>/dev/null; then
@@ -440,8 +535,15 @@ run_fallback_gate() {
             fi
             rm -f "$first_output"
         else
+            local gate_output
+            gate_output=$(mktemp "${TMPDIR:-/tmp}/flow-finish-gate-cov.XXXXXX")
             # shellcheck disable=SC2086
-            uv run --extra dev ${uvargs} || FAILED=1
+            uv run --extra dev ${uvargs} 2>&1 | tee "$gate_output"
+            [[ "${PIPESTATUS[0]}" -eq 0 ]] || FAILED=1
+            if detect_zero_coverage "$gate_output"; then
+                ZERO_COVERAGE_GATES="${ZERO_COVERAGE_GATES:+$ZERO_COVERAGE_GATES }${id}"
+            fi
+            rm -f "$gate_output"
         fi
         RAN=1
     else
@@ -526,7 +628,7 @@ fi
 if [[ "$RAN" -eq 0 && -z "$SKIPPED_GATES" ]]; then
     echo "WARNING: no deterministic runner and no Makefile/pyproject lint/test/typecheck gates - quality gates SKIPPED." >&2
     verdict skipped
-    exit 0
+    exit 4
 fi
 # Print the #769 evidence BEFORE verdict precedence, exactly as the runner path
 # does: a later gate failing is the more serious verdict, but it must not erase a
@@ -543,7 +645,12 @@ fi
 if [[ -n "$SKIPPED_GATES" ]]; then
     echo "WARNING: quality gates did NOT run: $SKIPPED_GATES (no Makefile target and no runnable tool). This gate proved nothing about those checks - do not read as 'safe to merge' (issue #628)." >&2
     verdict "warn (skipped gates: $SKIPPED_GATES)"
-    exit 0
+    exit 3
+fi
+if [[ -n "$ZERO_COVERAGE_GATES" ]]; then
+    echo "WARNING: quality gate(s) RAN but a MEASURED PART of them examined NOTHING: $ZERO_COVERAGE_GATES. A green from a check with no input is not evidence about this change - do not read as 'safe to merge'. The runner warning above names what was measured; for a multi-check gate it is that check, not the whole gate (issue #1027)." >&2
+    verdict "warn (zero coverage: $ZERO_COVERAGE_GATES)"
+    exit 3
 fi
 if [[ -n "$UNRUN_AGGREGATE" ]]; then
     # Same sentence as #628's, for the same reason: this gate proved nothing
@@ -551,13 +658,13 @@ if [[ -n "$UNRUN_AGGREGATE" ]]; then
     # #628's could not run, these were never looked for.
     echo "WARNING: this repo's 'make $AGGREGATE_TARGET' also runs: $UNRUN_AGGREGATE. Those did NOT run here - the fallback knows only lint/test/typecheck. This gate proved nothing about them; run 'make $AGGREGATE_TARGET' for the repo's full gate (issue #808)." >&2
     verdict "warn (not run by fallback: $UNRUN_AGGREGATE)"
-    exit 0
+    exit 3
 fi
 if [[ -n "$RERUN_PASSED_IDS" ]]; then
     RERUN_COUNT=$(awk '{ print NF }' <<< "$RERUN_PASSED_IDS")
     echo "WARNING: $RERUN_COUNT test(s) FAILED on the first attempt and PASSED when re-run against only their failed ids (issue #769): $RERUN_PASSED_IDS. The flow is not stopped - but this run is NOT a clean pass: either these are the documented host-state flakes, or you have a real intermittent failure. Never summarize this run as \"tests passed\"." >&2
     verdict "warn (rerun passed: $RERUN_PASSED_IDS)"
-    exit 0
+    exit 3
 fi
 verdict ok
 exit 0
