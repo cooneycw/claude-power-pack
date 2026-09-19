@@ -540,9 +540,21 @@ and the box is left untouched, so the message does not arrive late and wrong -
 it does not arrive at all. That is why the shapes belong here rather than only
 in the orchestrator's file: the guard fires correctly, and until it was written
 down it fired at a reader who had never been told the rule. Reserved lines are
-LINE-ANCHORED (the token opens the line, leading whitespace allowed), so a
-mention inside a sentence is never mistaken for a declaration, and a message
-carrying NO reserved token always delivers - prose is not the target.
+LINE-ANCHORED (the token opens the line), so a mention inside a sentence is
+never mistaken for a declaration, and a message carrying NO reserved token
+always delivers - prose is not the target.
+
+**Column 0 issues; quoting must be spelled out (#980).** Leading whitespace used
+to be allowed, which made a token QUOTED in prose indistinguishable from one
+ISSUED - so a report that quoted a ruling back in order to argue with it
+re-performed it. Now: a token at column 0 outside a fence is a TRANSITION; one
+inside a ``` fence or behind a `>` prefix is a CITATION - inert, and reported to
+you as such on a successful send; and one merely INDENTED is REFUSED as
+ambiguous, naming both remedies, because reading it as cited would silently drop
+a transition typed with a stray leading space. Quote the token you are arguing
+with; do not indent it. A quoted token also ENDS the continuation block, and
+fenced content is skipped, so put a `PUSHBACK` argument or a `LEDGER` section
+above the thing you quote, not below it.
 
 **`PUSHBACK <argument>` - refuting an assignment's premise.** The orchestrator
 side of this file already states the rule ("pushback is structural, not
@@ -617,7 +629,10 @@ It prints one `FLOW_LEXICON_TRANSITION=` line per recognized token and ends in
 line number and what is missing. `none` (exit 0) means the body declares no
 transition at all - correct for ordinary prose, and worth a second look on a
 message you MEANT to carry a token, since a token mis-typed out of
-line-anchored position reads as prose rather than as a broken block.
+line-anchored position reads as prose rather than as a broken block. Check
+`FLOW_LEXICON_CITATIONS=` on that second look: a non-zero count means a token
+was read as a CITATION (fenced, or behind a `>`), and the
+`FLOW_LEXICON_CITATION=` lines above name each one's line and context (#980).
 
 (Exit 127 - helper not installed: fall back to
 `${CLAUDE_PLUGIN_ROOT}/scripts/flow-wave-lexicon.sh`, else the CPP-checkout

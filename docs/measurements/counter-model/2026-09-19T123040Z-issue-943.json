@@ -1,0 +1,19 @@
+{
+  "branch": "issue-943-deps-mcp-evaluate-10-packages-carrying-33-cves-rem",
+  "counts": {
+    "accepted": 0,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "implementer": "claude/opus-5",
+  "issue": "943",
+  "passes": 1,
+  "recorded_at": "2026-09-19T12:30:40Z",
+  "red_cases": {
+    "already_covered": 1,
+    "proposed": 4
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}

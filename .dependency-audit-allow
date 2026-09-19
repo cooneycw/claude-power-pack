@@ -39,17 +39,21 @@
 # --------------------------------------------------------------------------- #
 
 # --------------------------------------------------------------------------- #
-# mcp-evaluate - #943 owns this project's whole dependency set: 32 advisories
-# across 10 packages, measured 2026-09-16. Deferred rather than enumerated
-# because a gate that blocks every pull request in the repository on day one is
-# a gate that gets switched off, and switching it off is itself an oscillation
-# (ADR 0009). The findings are NOT hidden: they are counted and printed on every
-# run beside this issue number.
+# mcp-evaluate - GONE, and with it the only `deferred` line this ledger ever
+# carried. It read `deferred mcp-evaluate/uv.lock #943` and covered 34 advisories
+# across 11 packages (re-measured 2026-09-19; the 2026-09-16 figure was 32/10,
+# and the drift in three days is the point that measurement made).
 #
-# WHAT WOULD MOVE THIS BACK (ADR 0009): #943 landing, or mcp-evaluate's residual
-# falling to a handful. Either makes per-advisory lines affordable, and this
-# blanket should then be replaced by them rather than inherited. The gate forces
-# the conversation on its own: once this file reports nothing, the deferral is
-# STALE and reddens until it is removed.
+# #943 resolved it by RETIRING the subproject rather than upgrading it. The
+# server was deprecated in CPP's own docs - "absorbed into /evaluate:issue" -
+# registered in no scope, running nowhere, replaced by a skill that needs no
+# server, and already deleted from codex-power-pack. Its lockfile went with it,
+# so there is no file left to defer and no residual left to enumerate.
+#
+# THE DEFERRAL'S OWN EXIT CONDITION IS WHAT FIRED. The block removed here said:
+# "once this file reports nothing, the deferral is STALE and reddens until it is
+# removed." That is exactly what happened, on the first occasion that could test
+# it. The line is removed rather than carried, and this ledger is now empty - a
+# state the gate still prints a count for on every run, so empty never reads as
+# unexamined.
 # --------------------------------------------------------------------------- #
-deferred mcp-evaluate/uv.lock #943

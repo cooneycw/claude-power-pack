@@ -7,6 +7,13 @@ were found by a person looking and filed as #922 ("tracked by no issue"); the
 or not anything is watching; the only variable is whether a gate finds them or
 someone notices.
 
+Both are resolved: #922 upgraded the root lock, and #943 retired `mcp-evaluate/`
+outright - the server was deprecated in CPP's own docs, registered nowhere and
+run nowhere, so its 34 advisories left with it rather than being bumped. This
+gate's ledger is consequently empty. That is a measurement it still reports a
+count for on every run, because an empty residual and an unexamined one are the
+two states it exists to keep apart.
+
 `lib/security/modules/pip_audit.py` is NOT that gate and this does not replace
 it. That adapter runs only inside `/security:scan` (`scan_full` / `scan_deep`),
 appends to `skipped` when the binary is absent, and reads `requirements.txt` -

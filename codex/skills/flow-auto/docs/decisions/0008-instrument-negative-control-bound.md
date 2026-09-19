@@ -135,6 +135,27 @@ The universe is hardcoded so the enumeration cannot silently narrow itself:
 | the test suite | 102 files, 2,408 `def test_` functions (grep count) | `grep -hE '^\s*(async )?def test_' tests/*.py \| wc -l` |
 | pre-push hook | none in this repository | `.git/hooks` empty; kyle carries one, CPP does not |
 
+**One population has shrunk since that date (issue #943, 2026-09-19): CI steps.**
+The table above is left as measured on 2026-09-14 rather than rewritten, for the
+reason this ADR gives receipts generally - a dated measurement records what was
+true then, and editing it in place asserts a reading nobody took. What changed:
+`dockerfile-lint` was retired, so the pipeline's last Dockerfile lint is gone and
+row 45 (`hadolint`) has been removed from the census below.
+
+The cause is worth stating because it is the failure mode this ADR is about
+rather than a tidy-up. #469 retired CPP's container runtime but left one
+Dockerfile in the tree, so the step kept a population of one. #943 retired
+`mcp-evaluate/`, which owned it. The step's command was
+`find . -name Dockerfile -print0 | xargs -0 -r hadolint`, and `xargs -r` does not
+run on empty input - so from that moment the step would have exited 0 having
+linted nothing, printing a green indistinguishable from a tree whose Dockerfiles
+all passed. A zero-file population is UNKNOWN, not clean. The step was deleted
+rather than left standing, because an absent instrument is visible in this table
+and a blind one is not.
+
+Row 45's number is NOT reused and the rows below it are NOT renumbered: prose in
+this document cites rows by number, and renumbering would silently repoint every
+one of those citations.
 Members were derived by applying the bound to each entry: *name the decision
 that acts on its verdict, and say whether that decision re-derives the fact.*
 **One row per distinct verdict contract.** Wrappers of one verdict are one row
@@ -219,7 +240,6 @@ another repo (the escalation clause); a row can be both.
 | 42 | `mypy` via `make typecheck` / CI `validate` | exit code | `make verify`; CI | G |
 | 43 | the test suite, as one instrument (`pytest` via `make test` / CI) | exit code, and the zero-collected case (#621) | `make verify`; the finish gate; CI | G |
 | 44 | `gitleaks` with `.gitleaks.toml` | findings or none | CI `secret-scan` (git history); `make secret-scan` (`--no-git`, working tree only - a different input population); the `lib.security` full and deep scans via their adapter. NOT the lifecycle gate: `lib.security gate` runs the quick scan, which never invokes gitleaks (#935) | G |
-| 45 | `hadolint` (CI `dockerfile-lint`) | exit code over one Dockerfile (`mcp-evaluate/deploy/Dockerfile`) | CI | G |
 | 46 | `install-drift.sh` | `INSTALL_DRIFT` | `/cpp:update`, `/cpp:status`, the SessionStart message | G |
 | 47 | `drift-detect.sh` | drift / none | `make drift-check`; the deploy path | G |
 | 48 | `bootstrap-check.sh` (`lib.cicd` bootstrap) | blocking checks exit 0 | the deploy path | G |
@@ -432,12 +452,13 @@ fails the pipeline, so registering one would trade a working control for a red
 build. `tests/test_stash_worktree_guard.py` carries both halves issue #1056
 names, plus a blind-hook variant asserting the known-bad outcome flips.
 
-<!-- instrument-census: external-subjects: ruff, mypy, pytest, gitleaks, hadolint, make, lib.cicd, lib.security, lib.creds, pipeline, infra-init, infra-discover, infra-pipeline, init-manifest -->
+<!-- instrument-census: external-subjects: ruff, mypy, pytest, gitleaks, make, lib.cicd, lib.security, lib.creds, pipeline, infra-init, infra-discover, infra-pipeline, init-manifest -->
 
-`ruff`, `mypy`, `pytest`, `gitleaks`, `hadolint`, `make` (the `verify`
+`ruff`, `mypy`, `pytest`, `gitleaks`, `make` (the `verify`
 aggregate, row 40), `lib.cicd`, `lib.security`, `lib.creds`, and the `lib.cicd`
 subcommands `pipeline`, `infra-init`, `infra-discover`, `infra-pipeline` and
-`init-manifest`. Being on this list is a statement about where the instrument
+`init-manifest`. `hadolint` was on this list until issue #943; see the note under
+**Universe and derivation** for why it left. Being on this list is a statement about where the instrument
 LIVES, never that it is out of the bound - `gitleaks` is row 44 and carries a
 control today, reached by wrapping it in `secret-scan-check.sh` (row 72). The
 wrapper is the route for the others.

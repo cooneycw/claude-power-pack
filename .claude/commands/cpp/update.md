@@ -1108,7 +1108,10 @@ orphans by Step 6c/7 + `scripts/mcp-drift.py`):
 - `mcp-nano-banana`, `mcp-woodpecker-ci`, `mcp-coordination` (retired earlier)
 
 **Deprecated servers**:
-- `mcp-evaluate` (deprecated - absorbed into /evaluate:issue skill)
+- `mcp-evaluate` (deprecated - absorbed into /evaluate:issue skill; the
+  subproject itself was REMOVED from CPP in #943. It stays on this list because
+  the list drives host teardown, and a host that installed its systemd unit or
+  registered it still has one to clean up)
 
 **For each expected server**, check:
 1. Is it registered in `claude mcp list`?
@@ -1804,4 +1807,6 @@ Run /cpp:status for full installation details.
   is chosen. Driven by `scripts/mcp-drift.py`; a user's own custom MCP registration
   (and the valid new `second-opinion` registration) is never flagged or removed
 - mcp-evaluate is recognized as deprecated and flagged for legacy teardown if installed
+  (the subproject was removed from CPP in #943; the teardown stays because a host
+  that installed its systemd unit still has one to remove)
 - Use `/cpp:init` instead if you need the full interactive setup wizard
