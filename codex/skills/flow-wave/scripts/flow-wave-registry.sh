@@ -729,19 +729,35 @@ _liveness_compute() {
       # pid EXISTENCE alone is not pid IDENTITY (issue #1094): a recycled pid
       # reads `alive` here just as genuinely as the process that originally
       # registered it. `pid_started` closes that gap - but a BLANK recorded
-      # witness must never be read as a match: every entry this repo already
+      # witness must never be read as a MATCH: every entry this repo already
       # holds predates this field, and treating "never recorded" the same as
-      # "recorded and equal" would report the strongest verdict this
-      # instrument can give, for every pre-existing entry, on no evidence at
-      # all. Never-recorded, recorded-and-equal and recorded-and-different
-      # are three different facts and stay three different basis values.
+      # "recorded and equal" would report the strongest basis this instrument
+      # can give, for every pre-existing entry, on no evidence at all.
+      # Never-recorded, recorded-and-equal, recorded-and-different, and
+      # current-unreadable are four different facts and stay four different
+      # basis values - see `.claude/commands/flow/register.md` for the table.
+      #
+      # All four still resolve to only two VERDICTS (orchestrator ruling,
+      # #1094): the witness can only ever ADD a positive finding (a proven
+      # mismatch, `pid-recycled`), never subtract one. Absence of a witness
+      # to compare, or an unreadable current witness, is not evidence of
+      # recycling - it is the absence of evidence either way - so both read
+      # `live`, exactly as they did before this pid existed. This is also
+      # the only choice consistent with every downstream reader: `liveness_of`
+      # is consumed as a plain `= "live"` binary at every call site (:808,
+      # :1342, :1556, :1806, :1849 via CUR_LIVE), so a THIRD verdict value
+      # here would not add a distinction any reader can act on - it would
+      # only silently reclassify every entry written before this field
+      # existed from live to not-live, fleet-wide, in the name of a fix. A
+      # future change that wants that distinction ACTED ON needs its own
+      # call-site changes, not just a basis rename here.
       recorded_started="$(printf '%s' "$e" | jq -r '.pid_started // "-"')"
       if [ -z "$recorded_started" ] || [ "$recorded_started" = "-" ]; then
-        echo "unknown pid-present-witness-absent"; return
+        echo "live pid-present-witness-absent"; return
       fi
       current_started="$(pid_started_of "$pid")"
       if [ -z "$current_started" ] || [ "$current_started" = "-" ]; then
-        echo "unknown pid-present-witness-undeterminable"; return
+        echo "live pid-present-witness-undeterminable"; return
       fi
       if [ "$recorded_started" = "$current_started" ]; then
         echo "live pid-present"; return
