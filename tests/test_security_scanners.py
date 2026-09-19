@@ -436,7 +436,7 @@ class TestGateLineCarriesCoverage:
 
         out = capsys.readouterr().out
         assert exit_code == 0, "the gate PASSES - that is exactly the false green"
-        assert "scanned=0" in out
+        assert "secrets-scanned=0" in out
 
     def test_a_real_scan_reports_its_count(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
@@ -449,8 +449,8 @@ class TestGateLineCarriesCoverage:
         cli.cmd_gate(self._args())
 
         out = capsys.readouterr().out
-        assert "scanned=575" in out
-        assert "scanned=0" not in out
+        assert "secrets-scanned=575" in out
+        assert "secrets-scanned=0" not in out
 
     def test_an_unstated_count_is_unknown_not_zero(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
@@ -465,7 +465,7 @@ class TestGateLineCarriesCoverage:
         cli.cmd_gate(self._args())
 
         out = capsys.readouterr().out
-        assert "scanned=unknown" in out
+        assert "secrets-scanned=unknown" in out
 
     def test_merge_preserves_unknown_and_sums_numbers(self) -> None:
         """Two modules stating nothing must not add up to a confident 0."""
@@ -485,3 +485,36 @@ class TestGateLineCarriesCoverage:
         addend.units_scanned = 4
         summed.merge(addend)
         assert summed.units_scanned == 7
+
+
+class TestUnreadableFilesAreNotCountedAsExamined:
+    """A file the scanner could not open was NOT examined (#1027 review).
+
+    `files_scanned` incremented above the `try`, so an unreadable file still
+    counted. Harmless while the number was only prose; once it became the
+    exported coverage figure, one unreadable file reported `secrets-scanned=1`
+    for a scan that inspected no content - the same looked-vs-nothing-to-look-at
+    collapse the field exists to prevent, reintroduced inside its own fix.
+    """
+
+    def test_an_unreadable_file_yields_zero_coverage(self, tmp_path: Path) -> None:
+        target = tmp_path / "unreadable.py"
+        target.write_text("api_key = 'placeholder'\n")
+        target.chmod(0o000)
+        try:
+            if os.access(target, os.R_OK):
+                pytest.skip("cannot make a file unreadable here (running as root?)")
+            result = secrets.scan(str(tmp_path))
+        finally:
+            target.chmod(0o644)
+
+        assert result.units_scanned == 0, (
+            "a file that could not be opened was not examined"
+        )
+        assert any("could not be read" in m for m in result.skipped), result.skipped
+
+    def test_a_readable_file_is_counted(self, tmp_path: Path) -> None:
+        """The other half - the count must not become uniformly zero."""
+        (tmp_path / "ok.py").write_text("x = 1\n")
+        result = secrets.scan(str(tmp_path))
+        assert result.units_scanned == 1

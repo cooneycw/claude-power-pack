@@ -35,6 +35,7 @@ REPORTS, never whether it passed.
 from __future__ import annotations
 
 import re
+from collections import Counter
 from dataclasses import dataclass, replace
 from typing import Any, Optional
 
@@ -44,6 +45,19 @@ COVERED = "covered"
 ZERO = "zero"
 #: Nothing recognizable was said about coverage either way.
 UNKNOWN = "unknown"
+
+#: The measurement covers the WHOLE stage - what the stage examined is what this
+#: number counts. True of ruff and mypy, where one tool is the stage.
+SCOPE_STAGE = "stage"
+#: The measurement covers ONE COMPONENT of a multi-check stage (issue #1027,
+#: cross-model review). `security_scan` runs several checks - secrets, gitignore,
+#: file permissions, tracked .env files, debug flags - and only the secrets
+#: scanner reports a file count. Reading that one number as the stage's coverage
+#: says "this gate proved nothing" about a run in which the gitignore and
+#: permissions checks examined their subjects and passed on the evidence. The
+#: number is real; the scope of the conclusion drawn from it was not, so the
+#: scope travels WITH the number and the warning prose branches on it.
+SCOPE_COMPONENT = "component"
 
 
 @dataclass(frozen=True)
@@ -58,6 +72,13 @@ class StageCoverage:
     #: What the tool counts, for the report: "source file", "module".
     unit_name: str = "unit"
     tool: str = "unknown"
+    #: Whether this number measures the whole stage or one component of it.
+    #: A component measurement can say "the secrets scan examined nothing"; it
+    #: cannot say "security_scan proved nothing", because the stage's other
+    #: checks have their own inputs and this number never looked at them.
+    scope: str = SCOPE_STAGE
+    #: What the measurement is OF, when it is narrower than the stage.
+    component: str = ""
     #: The literal line the verdict was read from, so a reader can audit the
     #: parse instead of trusting it.
     evidence: str = ""
@@ -94,9 +115,10 @@ class StageCoverage:
         if self.state == UNKNOWN:
             return "coverage not stated by this tool"
         plural = "" if self.units == 1 else "s"
+        subject = f"the {self.component} " if self.component else ""
         if self.state == ZERO:
-            return f"examined NO {self.unit_name}{plural}"
-        return f"examined {self.units} {self.unit_name}{plural}"
+            return f"{subject}examined NO {self.unit_name}{plural}".lstrip()
+        return f"{subject}examined {self.units} {self.unit_name}{plural}".lstrip()
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -104,6 +126,8 @@ class StageCoverage:
             "units": self.units,
             "unit_name": self.unit_name,
             "tool": self.tool,
+            "scope": self.scope,
+            "component": self.component,
             "evidence": self.evidence,
             "invocations": self.invocations,
             "empty_invocations": self.empty_invocations,
@@ -163,7 +187,7 @@ _MYPY_CHECKED = re.compile(r"\bchecked (\d+) source files?\b", re.IGNORECASE)
 # outcome: the line is recognized, no number is claimed, and the stage reports
 # `unknown` rather than a fabricated zero.
 _SECURITY_GATE = re.compile(r"^\s*SECURITY_GATE:\s")
-_SECURITY_SCANNED = re.compile(r"\bscanned=(\d+)\b")
+_SECURITY_SCANNED = re.compile(r"\bsecrets-scanned=(\d+)\b")
 
 
 def parse_stage_coverage(text: str, stream: str = "") -> Optional[StageCoverage]:
@@ -201,13 +225,16 @@ def merge_stream_coverage(
 ) -> Optional[StageCoverage]:
     """Merge the coverage parsed from a step's DIFFERENT streams.
 
-    Identical evidence lines are counted ONCE. Unlike a test summary - where
-    two streams carrying counts really can be two disjoint invocations - a tool
-    that echoes the same line to stdout and stderr is the ordinary case here
-    (``make`` recipes and wrappers routinely tee), and summing it would report
-    double the files actually examined. Deduplicating on the literal evidence
-    line is what keeps the number a measurement rather than a tally of how many
-    places it was printed.
+    A line echoed to BOTH streams is counted once; a line repeated WITHIN one
+    stream is counted every time. The distinction is the whole difficulty, and
+    a single global "have I seen this string" set gets it wrong in a way that
+    is easy to miss (cross-model review, second pass): two mypy runs over
+    separate 47-file packages print the identical summary twice on stdout, and
+    with such a set the merged result reported 47 units and one invocation
+    whenever the other stream happened to carry anything - so a step's measured
+    coverage changed because an UNRELATED stream had output. Echo suppression
+    is therefore done occurrence-for-occurrence against the first stream, not
+    by flattening every line to a set.
 
     ``zero`` from ANY stream survives the merge, because that is the whole
     signal: ruff prints its "no files" warning to stderr and its cheerful
@@ -226,54 +253,30 @@ def merge_stream_coverage(
             if name not in streams:
                 streams.append(name)
 
-    # Rebuild from deduplicated evidence rather than summing the aggregates,
-    # so an echoed line contributes its units and its invocation exactly once.
-    seen: set[str] = set()
-    units_total = 0
-    invocations = 0
-    empty = 0
-    any_units_stated = False
-    for coverage in present:
-        for line in coverage.evidence.splitlines():
-            if line in seen:
+    per_stream = [
+        [line for line in coverage.evidence.splitlines() if line.strip()]
+        for coverage in present
+    ]
+    kept: list[str] = list(per_stream[0])
+    base = Counter(per_stream[0])
+    for lines in per_stream[1:]:
+        remaining = Counter(base)
+        for line in lines:
+            if remaining[line] > 0:
+                # This occurrence matches one the first stream already carried:
+                # a tee'd echo, not a second invocation.
+                remaining[line] -= 1
                 continue
-            seen.add(line)
-            per_line = _parse_evidence_line(line)
-            if per_line is None:
-                continue
-            invocations += 1
-            if per_line.units is not None:
-                any_units_stated = True
-                units_total += per_line.units
-                if per_line.units == 0:
-                    empty += 1
-            elif per_line.state == ZERO:
-                empty += 1
+            kept.append(line)
 
-    if invocations == 0:
+    records = [r for r in (_parse_evidence_line(line) for line in kept) if r is not None]
+    if not records:
         # Nothing re-parsed cleanly; fall back to the richest single stream
         # rather than inventing a merged number.
         richest = max(present, key=lambda c: (c.stated, c.invocations))
         return replace(richest, streams=tuple(streams))
 
-    tools = {coverage.tool for coverage in present}
-    unit_names = {coverage.unit_name for coverage in present if coverage.stated}
-    if empty > 0 and (not any_units_stated or units_total == 0):
-        state = ZERO
-    elif any_units_stated:
-        state = COVERED
-    else:
-        state = UNKNOWN
-    return StageCoverage(
-        state=state,
-        units=units_total if any_units_stated else None,
-        unit_name=unit_names.pop() if len(unit_names) == 1 else "unit",
-        tool=present[-1].tool if len(tools) == 1 else "mixed",
-        evidence="\n".join(sorted(seen)),
-        invocations=invocations,
-        empty_invocations=empty,
-        streams=tuple(streams),
-    )
+    return replace(_aggregate(records), streams=tuple(streams))
 
 
 def _parse_evidence_line(line: str) -> Optional[StageCoverage]:
@@ -305,11 +308,32 @@ def _aggregate(coverages: list[StageCoverage]) -> StageCoverage:
         state = COVERED
     else:
         state = UNKNOWN
+    # A stage measurement plus a component measurement is a STAGE measurement
+    # only if every part agreed it was one. Mixing them and keeping "stage"
+    # would let one narrow number widen itself by being aggregated with a broad
+    # one, which is the overclaim this field exists to stop.
+    scopes = {c.scope for c in coverages if c.stated}
+    # Attribution is keyed on the (tool, component) IDENTITY, and an EMPTY
+    # component is one of those identities rather than an abstention
+    # (cross-model review, second pass). Collecting only non-empty components
+    # meant mypy's `47 source files` aggregated with `secrets-scanned=0` left
+    # exactly one named component standing, and the summary read "the secrets
+    # scan examined 47 source files" - 47 files the secrets scan never opened,
+    # attributed to it because the only other measurement declined to name
+    # itself. A mixed aggregate names no component, so it can still report a
+    # number and can no longer say whose.
+    identities = {(c.tool, c.component) for c in coverages if c.stated}
+    if len(identities) == 1:
+        agg_tool, agg_component = identities.pop()
+    else:
+        agg_tool, agg_component = "mixed", ""
     return StageCoverage(
         state=state,
         units=units_total if stated else None,
         unit_name=unit_names.pop() if len(unit_names) == 1 else "unit",
-        tool=coverages[-1].tool if len(tools) == 1 else "mixed",
+        tool=agg_tool if stated else (coverages[-1].tool if len(tools) == 1 else "mixed"),
+        scope=SCOPE_COMPONENT if SCOPE_COMPONENT in scopes else SCOPE_STAGE,
+        component=agg_component,
         evidence="\n".join(c.evidence for c in coverages if c.evidence),
         invocations=len(coverages),
         empty_invocations=empty,
@@ -369,6 +393,12 @@ def _parse_security_line(line: str) -> Optional[StageCoverage]:
         units=units,
         unit_name="source file",
         tool="security-gate",
+        # `scanned=` is the SECRETS scanner's file count, and the security stage
+        # runs more than the secrets scanner. Declared narrow at the source so
+        # no consumer has to know which of the stage's checks the number came
+        # from in order to avoid overclaiming with it.
+        scope=SCOPE_COMPONENT,
+        component="secrets scan",
         evidence=line.strip(),
         invocations=1,
         empty_invocations=1 if units == 0 else 0,

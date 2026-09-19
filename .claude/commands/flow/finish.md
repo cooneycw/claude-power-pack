@@ -113,9 +113,13 @@ word, if you are scripting around this helper:
   skips look load-bearing (a live database, a service, a credential) and offer
   the fuller test target if the Makefile has one.
 - `FLOW_FINISH_GATE: warn (zero coverage: <gates>)` (exit 3, issue #1027): the
-  named gates RAN, exited 0, and examined NOTHING. A stage with no input
-  produces a green that is not evidence about this change. Continue as for
-  `ok`, but report which gates and say plainly that they proved nothing.
+  named gates RAN, exited 0, and a MEASURED PART of them examined NOTHING. A
+  check with no input produces a green that is not evidence about this change.
+  Continue as for `ok`, but report which gates and **repeat the runner's
+  warning verbatim rather than paraphrasing it** - for a multi-check gate the
+  measurement is that CHECK, not the whole gate, so "security_scan proved
+  nothing" overclaims about the gitignore and permissions checks the number
+  never looked at.
 - `FLOW_FINISH_GATE: fail` (exit 1): parse the runner/make output above the
   marker, report the failed step, and **stop**. Do not proceed to PR creation.
 - `FLOW_FINISH_GATE: skipped` (exit 4): no runner AND no Makefile lint/test/typecheck

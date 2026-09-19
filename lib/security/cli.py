@@ -101,10 +101,18 @@ def cmd_gate(args: argparse.Namespace) -> int:
     # warned=0` is what a clean scan of 575 files reports AND what a scan that
     # opened nothing reports - the same line for opposite facts.
     #
-    # `scanned=` is the coverage number and the only one a caller grades on:
-    # source files actually examined, or `unknown` when no check stated a
-    # figure. Not defaulted to 0 - "said nothing" and "said none" are different
-    # claims and only one of them is a measurement.
+    # `secrets-scanned=` is the coverage number and the only one a caller grades
+    # on: source files the SECRETS scanner actually examined, or `unknown` when
+    # it stated no figure. Not defaulted to 0 - "said nothing" and "said none"
+    # are different claims and only one of them is a measurement.
+    #
+    # NAMED FOR THE CHECK IT MEASURES, not the stage (cross-model review). This
+    # gate runs several checks - secrets, gitignore, file permissions, tracked
+    # .env files, debug flags - and only the secrets scanner counts files. Spelt
+    # `scanned=`, the number invited exactly one wrong conclusion: a repo with a
+    # compliant .gitignore and no source files would report zero and be read as
+    # "the security gate proved nothing", when its gitignore and permissions
+    # checks examined their subjects and passed on that evidence.
     #
     # `skipped-checks=` is reported BESIDE it, never as its denominator. A
     # denominator was the first shape tried and it was wrong: `result.passed`
@@ -124,7 +132,7 @@ def cmd_gate(args: argparse.Namespace) -> int:
     print(
         f"SECURITY_GATE: {args.gate_name} {verdict} "
         f"(blocked={blocked_count} warned={warned_count}; "
-        f"scanned={scanned} skipped-checks={len(result.skipped)}; {threshold})"
+        f"secrets-scanned={scanned} skipped-checks={len(result.skipped)}; {threshold})"
     )
 
     if passed:

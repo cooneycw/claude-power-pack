@@ -248,12 +248,26 @@ class ShellStep:
         """
         if self.is_test_step():
             return None
-        return merge_stream_coverage(
+        merged = merge_stream_coverage(
             [
                 parse_stage_coverage(output, "stdout"),
                 parse_stage_coverage(error, "stderr"),
             ]
         )
+        if merged is not None:
+            return merged
+        # An EXPLICIT unknown, not None (issue #1027, cross-model review).
+        # Returning None here meant an unrecognized stage carried no coverage
+        # key at all - so `lint` printing only "All checks passed!" kept exactly
+        # the bare `{id, status}` record this change exists to replace, while
+        # the module docstring promised that unmeasurable stages report
+        # `unknown`. The promise and the behaviour disagreed, and the behaviour
+        # was the older one.
+        #
+        # `unknown` is still never graded on: it is recorded so a reader can see
+        # the stage is unproven, and the gate's verdict logic collects only
+        # `zero`.
+        return StageCoverage(streams=("stdout", "stderr"))
 
     def should_skip(self, context: dict[str, Any]) -> bool:
         """Check if this step should be skipped."""

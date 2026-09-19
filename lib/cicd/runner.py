@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional, TextIO
 
+from .coverage import SCOPE_COMPONENT, ZERO
 from .outcomes import parse_failed_node_ids
 from .state import RunState, StepStatus, compute_tree_signature
 from .steps import (
@@ -34,6 +35,26 @@ from .steps import (
     StepDef,
     get_plan_steps,
 )
+
+
+def _coverage_summary(cover: dict[str, Any]) -> str:
+    """Render a PERSISTED coverage dict the way ``StageCoverage.summary`` does.
+
+    A resumed run reads coverage back from the state file as a plain dict, so
+    the warning it rebuilds has to say the same sentence the live path says.
+    Rehydrating a ``StageCoverage`` would be the tidier shape and is avoided on
+    purpose: the state file may have been written by an older CPP whose field
+    set differs, and a constructor would raise on the extra keys rather than
+    degrade - turning a resume into a crash over a warning string.
+    """
+    units = cover.get("units")
+    unit_name = cover.get("unit_name", "unit")
+    component = cover.get("component") or ""
+    subject = f"the {component} " if component else ""
+    plural = "" if units == 1 else "s"
+    if cover.get("state") == ZERO:
+        return f"{subject}examined NO {unit_name}{plural}".lstrip()
+    return f"{subject}examined {units} {unit_name}{plural}".lstrip()
 
 
 def _failed_ids_from_both_streams(output: str | None, error: str | None) -> list[str]:
@@ -518,10 +539,27 @@ class DeterministicRunner:
                     # and a stage that examined nothing is the more fundamental
                     # fact - there is no point qualifying findings from a scan
                     # that had nothing to find them in.
+                    # The CLAIM is bounded by what the measurement covered
+                    # (issue #1027, cross-model review). A stage-wide number
+                    # licenses "this gate proved nothing"; a component number
+                    # does not - `security_scan` runs gitignore, permissions
+                    # and debug-flag checks that have their own subjects and
+                    # were never counted here, so saying the gate proved
+                    # nothing would be a conclusion about checks this number
+                    # never looked at.
+                    if cover.scope == SCOPE_COMPONENT:
+                        scope_clause = (
+                            f"that part of the '{step.id}' gate proved nothing "
+                            "about the change; its other checks are not measured "
+                            "by this number"
+                        )
+                    else:
+                        scope_clause = (
+                            "this gate proved nothing about the change"
+                        )
                     warnings.append(
                         f"{step.id}: exited 0 but {cover.summary()} "
-                        f"({cover.tool}) - this gate proved nothing about the "
-                        "change (issue #1027)"
+                        f"({cover.tool}) - {scope_clause} (issue #1027)"
                     )
                     self._log(
                         f"  [{idx + 1}/{len(step_defs)}] {step.id}: "
@@ -955,6 +993,48 @@ class DeterministicRunner:
         # failure-only and why a resumed GREEN run could not say which of its
         # steps had actually run.
         success_details = state.summary(executed_from=executed_from)["steps"]
+        # Re-derive the coverage roll-up and its warnings from the PERSISTED
+        # records, not only from the steps this invocation executed (issue
+        # #1027, cross-model review). `coverage` and `warnings` start empty on
+        # every invocation, so after a resume a zero-coverage step earned
+        # earlier survived in `step_details` and vanished from both - and the
+        # gate reads the roll-up. A run whose lint examined nothing, failed
+        # later on a transient, and then resumed cleanly on a verified-unchanged
+        # tree therefore reported `ok`/0: the #1027 false green, restored by
+        # resume, for the exact stage #1027 is about.
+        for entry in success_details:
+            carried_cover = entry.get("coverage")
+            if not carried_cover or entry["id"] in coverage:
+                continue
+            coverage[entry["id"]] = carried_cover
+            summary = _coverage_summary(carried_cover)
+            tool = carried_cover.get("tool", "unknown")
+            if carried_cover.get("scope") == SCOPE_COMPONENT:
+                scope_clause = (
+                    f"that part of the '{entry['id']}' gate proved nothing about "
+                    "the change; its other checks are not measured by this number"
+                )
+            else:
+                scope_clause = "this gate proved nothing about the change"
+            if carried_cover.get("state") == ZERO:
+                warnings.append(
+                    f"{entry['id']}: exited 0 but {summary} ({tool}) - "
+                    f"{scope_clause} "
+                    "(issue #1027, result carried from an earlier invocation)"
+                )
+            elif carried_cover.get("empty_invocations", 0) > 0:
+                # The partially-empty carry (cross-model review, second pass).
+                # Rebuilding only the `zero` case dropped this one: a stage with
+                # one empty invocation and one populated invocation is `covered`,
+                # so its warning vanished across a resume while the equivalent
+                # live run kept it - the same roll-up hole, one state over.
+                warnings.append(
+                    f"{entry['id']}: {carried_cover['empty_invocations']} of "
+                    f"{carried_cover.get('invocations', 0)} invocations examined "
+                    f"NOTHING ({summary} across all of them) - part of this gate "
+                    "proved nothing about the change "
+                    "(issue #1027, result carried from an earlier invocation)"
+                )
         success_carried = [
             entry["id"]
             for entry in success_details

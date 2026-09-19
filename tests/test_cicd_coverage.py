@@ -16,6 +16,8 @@ import pytest
 
 from lib.cicd.coverage import (
     COVERED,
+    SCOPE_COMPONENT,
+    SCOPE_STAGE,
     UNKNOWN,
     ZERO,
     StageCoverage,
@@ -31,15 +33,15 @@ MYPY_CLEAN = "Success: no issues found in 47 source files\n"
 MYPY_ERRORS = "Found 3 errors in 2 files (checked 47 source files)\n"
 SECURITY_COVERED = (
     "SECURITY_GATE: flow_finish PASS (blocked=0 warned=0; "
-    "scanned=575 skipped-checks=0; blocks-on=CRITICAL warns-on=HIGH)\n"
+    "secrets-scanned=575 skipped-checks=0; blocks-on=CRITICAL warns-on=HIGH)\n"
 )
 SECURITY_ZERO = (
     "SECURITY_GATE: flow_finish PASS (blocked=0 warned=0; "
-    "scanned=0 skipped-checks=3; blocks-on=CRITICAL warns-on=HIGH)\n"
+    "secrets-scanned=0 skipped-checks=3; blocks-on=CRITICAL warns-on=HIGH)\n"
 )
 SECURITY_UNKNOWN = (
     "SECURITY_GATE: flow_finish PASS (blocked=0 warned=0; "
-    "scanned=unknown skipped-checks=0; blocks-on=CRITICAL warns-on=HIGH)\n"
+    "secrets-scanned=unknown skipped-checks=0; blocks-on=CRITICAL warns-on=HIGH)\n"
 )
 
 
@@ -186,9 +188,133 @@ class TestSkippedChecksIsNotGradedOn:
     def test_a_covered_scan_with_skipped_checks_is_not_zero(self) -> None:
         line = (
             "SECURITY_GATE: flow_finish PASS (blocked=0 warned=0; "
-            "scanned=575 skipped-checks=4; blocks-on=CRITICAL warns-on=HIGH)\n"
+            "secrets-scanned=575 skipped-checks=4; blocks-on=CRITICAL warns-on=HIGH)\n"
         )
         cov = parse_stage_coverage(line, "stdout")
         assert cov is not None
         assert cov.state == COVERED
         assert cov.examined_nothing is False
+
+
+class TestScopeBoundsTheClaim:
+    """A component's number must not license a conclusion about the stage.
+
+    Cross-model review finding (#1027): `security_scan` runs several checks -
+    secrets, gitignore, file permissions, tracked .env files, debug flags - and
+    only the secrets scanner counts files. Reading its zero as the stage's
+    coverage says "this gate proved nothing" about a run whose gitignore and
+    permissions checks examined their subjects and passed on that evidence.
+
+    The remedy is NOT to widen the detector - the narrow number is the true one.
+    It is to carry the scope with it, so the warning says what was measured.
+    """
+
+    def test_the_security_count_declares_itself_narrow(self) -> None:
+        cov = parse_stage_coverage(SECURITY_ZERO, "stdout")
+        assert cov is not None
+        assert cov.scope == SCOPE_COMPONENT
+        assert cov.component == "secrets scan"
+        assert "secrets scan" in cov.summary()
+
+    def test_a_whole_stage_tool_claims_stage_scope(self) -> None:
+        for text in (MYPY_CLEAN, RUFF_NO_FILES):
+            cov = parse_stage_coverage(text, "stdout")
+            assert cov is not None, text
+            assert cov.scope == SCOPE_STAGE, text
+            assert cov.component == "", text
+
+    def test_a_narrow_measurement_cannot_widen_by_aggregation(self) -> None:
+        """Mixing scopes keeps the NARROWER claim.
+
+        Otherwise a component number would widen itself simply by being
+        aggregated with a stage-wide one - the overclaim re-entering through
+        the merge rather than the parse.
+        """
+        cov = merge_stream_coverage(
+            [
+                parse_stage_coverage(MYPY_CLEAN, "stdout"),
+                parse_stage_coverage(SECURITY_COVERED, "stderr"),
+            ]
+        )
+        assert cov is not None
+        assert cov.scope == SCOPE_COMPONENT
+
+    def test_scope_survives_to_the_dict_the_gate_reads(self) -> None:
+        cov = parse_stage_coverage(SECURITY_ZERO, "stdout")
+        assert cov is not None
+        assert cov.to_dict()["scope"] == SCOPE_COMPONENT
+        assert cov.to_dict()["component"] == "secrets scan"
+
+
+class TestAggregationCannotMisattribute:
+    """A neighbour's files must not become this component's coverage.
+
+    Cross-model review, second pass: `_aggregate` summed every tool's units and
+    kept the only NAMED component, so mypy's `47 source files` combined with
+    `secrets-scanned=0` produced the summary "the secrets scan examined 47
+    source files" - 47 files the secrets scan never opened, attributed to it
+    because the other measurement declined to name itself.
+    """
+
+    MIXED = (
+        "Success: no issues found in 47 source files\n"
+        "SECURITY_GATE: flow_finish PASS (blocked=0 warned=0; "
+        "secrets-scanned=0 skipped-checks=1; blocks-on=CRITICAL warns-on=HIGH)\n"
+    )
+
+    def test_a_mixed_aggregate_names_no_component(self) -> None:
+        cov = parse_stage_coverage(self.MIXED, "stdout")
+        assert cov is not None
+        assert cov.component == "", (
+            "with two different measurements present, neither may claim the other's files"
+        )
+        assert cov.tool == "mixed"
+        assert "secrets scan" not in cov.summary()
+
+    def test_the_empty_invocation_still_surfaces(self) -> None:
+        """Losing the attribution must not lose the signal."""
+        cov = parse_stage_coverage(self.MIXED, "stdout")
+        assert cov is not None
+        assert cov.empty_invocations == 1
+        assert cov.any_invocation_empty is True
+
+    def test_a_single_identity_still_attributes(self) -> None:
+        """The other half - attribution must not become uniformly blank."""
+        cov = parse_stage_coverage(SECURITY_ZERO, "stdout")
+        assert cov is not None
+        assert cov.component == "secrets scan"
+
+
+class TestWithinStreamRepeatsAreNotCollapsed:
+    """A line repeated WITHIN a stream is a second invocation; an ECHO is not.
+
+    Cross-model review, second pass: merging used one global set of seen lines,
+    so two identical mypy summaries on stdout collapsed to one as soon as the
+    OTHER stream carried anything - a step's measured coverage changing because
+    an unrelated stream had output.
+    """
+
+    def test_two_identical_runs_on_one_stream_survive_a_second_stream(self) -> None:
+        stdout = MYPY_CLEAN + MYPY_CLEAN          # two real 47-file invocations
+        stderr = RUFF_NO_FILES                    # unrelated evidence
+        cov = merge_stream_coverage(
+            [
+                parse_stage_coverage(stdout, "stdout"),
+                parse_stage_coverage(stderr, "stderr"),
+            ]
+        )
+        assert cov is not None
+        assert cov.invocations == 3, "two mypy runs plus one ruff statement"
+        assert cov.units == 94, "47 + 47; the repeat is a second run, not an echo"
+
+    def test_the_cross_stream_echo_is_still_collapsed(self) -> None:
+        """The behaviour the global set got RIGHT must survive its removal."""
+        cov = merge_stream_coverage(
+            [
+                parse_stage_coverage(MYPY_CLEAN, "stdout"),
+                parse_stage_coverage(MYPY_CLEAN, "stderr"),
+            ]
+        )
+        assert cov is not None
+        assert cov.invocations == 1
+        assert cov.units == 47

@@ -132,8 +132,10 @@ printed word below, not by treating any exit as failure). Invoke it BARE
 
 - `FLOW_FINISH_GATE: ok` (exit 0) - count a PASS.
 - `FLOW_FINISH_GATE: warn (zero coverage: <gates>)` (exit 3, issue #1027) - the named
-  gates ran, exited 0, and examined NOTHING; count a WARN and report which gates, since a
-  stage with no input produces a green that is not evidence.
+  gates ran, exited 0, and a MEASURED PART of them examined NOTHING; count a WARN and
+  repeat the runner's warning verbatim, since a check with no input produces a green that
+  is not evidence - and for a multi-check gate the measurement names that check, not the
+  whole gate.
 - `FLOW_FINISH_GATE: warn` (exit 3) - count a WARN (non-blocking); this also means a test
   failed on the first attempt and PASSED when re-run against only its failed ids
   (issue #769) - the ids are on the `RERUN_PASSED:` line above the marker;

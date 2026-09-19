@@ -341,7 +341,7 @@ if [[ "$RUNNER_OK" -eq 1 ]]; then
             exit 3
         fi
         if [[ -n "$ZERO_COVERAGE_GATES" ]]; then
-            echo "WARNING: quality gates RAN but examined NOTHING: $ZERO_COVERAGE_GATES. A green from a stage with no input is not evidence about this change - do not read as 'safe to merge' (issue #1027)." >&2
+            echo "WARNING: quality gate(s) RAN but a MEASURED PART of them examined NOTHING: $ZERO_COVERAGE_GATES. A green from a check with no input is not evidence about this change - do not read as 'safe to merge'. The runner warning above names what was measured; for a multi-check gate it is that check, not the whole gate (issue #1027)." >&2
             verdict "warn (zero coverage: $ZERO_COVERAGE_GATES)"
             exit 3
         fi
@@ -449,7 +449,7 @@ detect_zero_coverage() {
         /^[[:space:]]*warning:[[:space:]]*No Python files found under the given path/ { found = 1 }
         /no issues found in 0 source files/ { found = 1 }
         /checked 0 source files/ { found = 1 }
-        /SECURITY_GATE:/ && /scanned=0([^0-9]|$)/ { found = 1 }
+        /SECURITY_GATE:/ && /secrets-scanned=0([^0-9]|$)/ { found = 1 }
         END { exit !found }
     ' "$1" 2>/dev/null
 }
@@ -648,7 +648,7 @@ if [[ -n "$SKIPPED_GATES" ]]; then
     exit 3
 fi
 if [[ -n "$ZERO_COVERAGE_GATES" ]]; then
-    echo "WARNING: quality gates RAN but examined NOTHING: $ZERO_COVERAGE_GATES. A green from a stage with no input is not evidence about this change - do not read as 'safe to merge' (issue #1027)." >&2
+    echo "WARNING: quality gate(s) RAN but a MEASURED PART of them examined NOTHING: $ZERO_COVERAGE_GATES. A green from a check with no input is not evidence about this change - do not read as 'safe to merge'. The runner warning above names what was measured; for a multi-check gate it is that check, not the whole gate (issue #1027)." >&2
     verdict "warn (zero coverage: $ZERO_COVERAGE_GATES)"
     exit 3
 fi

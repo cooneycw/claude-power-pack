@@ -1214,3 +1214,120 @@ def test_skipped_gates_win_over_zero_coverage(tmp_path: Path) -> None:
     proc = _run_with_uv_stub(tmp_path, cpp, payload)
     assert proc.returncode == 3
     assert "FLOW_FINISH_GATE: warn (skipped gates: typecheck)" in proc.stdout
+
+
+def _zero_coverage_make_stub(bindir: Path, lint_output: str) -> None:
+    """A `make` shim whose lint target emits REAL tool output on stderr."""
+    stub = bindir / "make"
+    stub.write_text(
+        "#!/usr/bin/env bash\n"
+        'case "$1" in\n'
+        f'  lint) printf %s\\\\n "{lint_output}" >&2; echo "All checks passed!";;\n'
+        '  test) echo "3 passed in 0.01s";;\n'
+        '  typecheck) echo "Success: no issues found in 12 source files";;\n'
+        "esac\n"
+        "exit 0\n"
+    )
+    stub.chmod(0o755)
+
+
+@requires_bash
+def test_fallback_lane_detects_a_gate_that_examined_nothing(tmp_path: Path) -> None:
+    """The FALLBACK lane needs this too, and needs it more (#1027).
+
+    The runner lane reads the coverage object out of the runner's JSON. The
+    fallback has no runner and no step_details - and in a container, where
+    there is no CPP checkout, the fallback IS the ordinary path rather than the
+    degraded one. That is precisely where #1027 measured `skipped` and `passed`
+    sharing an exit code, so a runner-only fix would have left the measured
+    case blind.
+    """
+    (tmp_path / "Makefile").write_text("lint:\n\ntest:\n\ntypecheck:\n")
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    _zero_coverage_make_stub(
+        bindir, "warning: No Python files found under the given path(s)"
+    )
+
+    env = os.environ.copy()
+    env["PATH"] = f"{bindir}:{env['PATH']}"
+    env["FLOW_GATE_CPP_DIR"] = ""
+    proc = subprocess.run(
+        ["bash", str(SCRIPT)],
+        cwd=tmp_path,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+
+    assert proc.returncode == 3
+    assert "FLOW_FINISH_GATE: warn (zero coverage: lint)" in proc.stdout
+    assert "FLOW_FINISH_GATE: ok" not in proc.stdout
+
+
+@requires_bash
+def test_fallback_lane_stays_ok_when_the_gates_examined_something(
+    tmp_path: Path,
+) -> None:
+    """The half that catches a fallback detector matching everything."""
+    (tmp_path / "Makefile").write_text("lint:\n\ntest:\n\ntypecheck:\n")
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    _zero_coverage_make_stub(bindir, "checked 40 files")
+
+    env = os.environ.copy()
+    env["PATH"] = f"{bindir}:{env['PATH']}"
+    env["FLOW_GATE_CPP_DIR"] = ""
+    proc = subprocess.run(
+        ["bash", str(SCRIPT)],
+        cwd=tmp_path,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+
+    assert proc.returncode == 0
+    assert "FLOW_FINISH_GATE: ok" in proc.stdout
+    assert "zero coverage" not in proc.stdout
+
+
+@requires_bash
+def test_fallback_lane_still_reports_a_failing_gate(tmp_path: Path) -> None:
+    """The `tee` capture must not swallow the command's exit status.
+
+    The non-test fallback lanes now pipe through `tee` so their output can be
+    inspected, which means a bare `||` would read the TEE's status and record
+    success for every failing gate. They grade on `PIPESTATUS[0]` instead; this
+    is the test that fails if that ever regresses to `$?`.
+    """
+    (tmp_path / "Makefile").write_text("lint:\n\ntest:\n\ntypecheck:\n")
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    stub = bindir / "make"
+    stub.write_text(
+        "#!/usr/bin/env bash\n"
+        'case "$1" in\n'
+        '  lint) echo "E501 line too long"; exit 1;;\n'
+        '  test) echo "3 passed in 0.01s";;\n'
+        '  typecheck) echo "Success: no issues found in 12 source files";;\n'
+        "esac\n"
+        "exit 0\n"
+    )
+    stub.chmod(0o755)
+
+    env = os.environ.copy()
+    env["PATH"] = f"{bindir}:{env['PATH']}"
+    env["FLOW_GATE_CPP_DIR"] = ""
+    proc = subprocess.run(
+        ["bash", str(SCRIPT)],
+        cwd=tmp_path,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+
+    assert proc.returncode == 1
+    assert "FLOW_FINISH_GATE: fail" in proc.stdout

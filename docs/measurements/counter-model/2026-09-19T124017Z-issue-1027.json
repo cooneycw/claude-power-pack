@@ -1,0 +1,19 @@
+{
+  "branch": "issue-1027-flow-finish-gate-all-six-warn-verdicts-exit-0-so-t",
+  "counts": {
+    "accepted": 8,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "implementer": "claude/opus-5",
+  "issue": "1027",
+  "passes": 2,
+  "recorded_at": "2026-09-19T12:40:17Z",
+  "red_cases": {
+    "already_covered": 7,
+    "proposed": 8
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}

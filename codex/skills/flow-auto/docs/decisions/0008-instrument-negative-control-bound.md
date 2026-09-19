@@ -175,7 +175,7 @@ another repo (the escalation clause); a row can be both.
 
 | # | instrument | verdict | consumed by, without re-derivation | class |
 |---|---|---|---|---|
-| 1 | `flow-finish-gate.sh` + `lib.cicd run` / `resume` | `FLOW_FINISH_GATE: ok\|warn\|fail` | the Step-6 commit, push and PR; the Step-7 re-gate; the same gate in kyle and CxPP | G, X |
+| 1 | `flow-finish-gate.sh` + `lib.cicd run` / `resume` | `FLOW_FINISH_GATE: ok\|warn\|skipped\|fail`, and since #1027 the exit code that carries it (0/3/4/1) | the Step-6 commit, push and PR; the Step-7 re-gate; the same gate in kyle and CxPP | G, X |
 | 2 | `flow-start-resolve.sh` (resolve and `--verify`) | `FLOW_START_RESOLVE`, `FLOW_START_VERIFY`, `CLAIM`, `LIVE_DRIVER`, `PR_HEAD` | whether a checkout is created, entered, or taken over | G, X |
 | 3 | `flow-live-driver-guard.sh` | `FLOW_LIVE_DRIVER: clear\|suspected` | the first edit at Step 4 | G |
 | 4 | `flow-stale-check.sh` | `FLOW_STALE_BASE: current\|moved-clean\|collision` | whether the base is merged in BEFORE editing (Step 4) and before the gate (Step 6); Step 7 re-derives only "behind", not the file-overlap distinction, and git's conflict detection sees textual conflicts, not shared files | G |
