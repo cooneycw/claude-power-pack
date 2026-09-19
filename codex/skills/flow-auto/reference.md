@@ -895,53 +895,32 @@ git merge --no-edit origin/main
    **1d. Write the receipt - ALWAYS, including on a skip** (helper resolved in
    1a):
 
-   **`--reviewer` is a MEASUREMENT, so read it from the run - do not copy the
-   value below.** The counts in this example are illustrative and obviously so;
-   a model name is not, and until 2026-09-19 this example read
-   `codex/gpt-5.5` while the configured model was something else entirely. A run
-   that faithfully copied it recorded, in a durable receipt, a reviewer that did
-   not perform the review - worse than an absent field, because it looks like
-   data.
+   **`--reviewer` no longer exists as a flag you hand a value to (issue
+   #1048).** This document already said "`--reviewer` is a MEASUREMENT, so
+   read it from the run - do not copy the value below" - #1045/#1049 made
+   that instruction correct; #1048 makes it structural. The writer derives
+   the reviewing model itself, straight from the codex exec stream `$STREAM`:
+   it reads the stream's own `thread_id`, finds the matching session
+   rollout - anchored on that thread id, never the newest rollout on the
+   host, because several sessions run concurrently here and the newest one
+   belongs to whoever finished last, or on a SKIP to an unrelated run
+   entirely - and reads that rollout's own `model` field. It REFUSES to
+   write (non-zero exit, no receipt file) when any step of that fails,
+   rather than accepting a value from anywhere else, including
+   `/codex:code_review`'s own `CODEX_REVIEW_MODEL` marker: that marker is
+   itself just a string the caller could get wrong, the same trust problem
+   one level up. The flag through which a wrong value could arrive stops
+   existing.
 
-   `/codex:code_review` prints `CODEX_REVIEW_MODEL: <model|unknown>` in its
-   relay. **Take the value from that marker.** A shell variable set inside that
-   command does not cross the boundary into this one, and the findings
-   transcript deliberately carries no model - so without the marker there is
-   nothing to consume and a run would re-derive it, which is how the fail-open
-   below returns. Only if the marker is absent (an older mirror), re-derive it,
-   and fail closed if anything is missing:
-
-   ```bash
-   CODEX_DIR="${CODEX_HOME:-$HOME/.codex}"
-   THREAD=$(grep -o '"thread_id":"[^"]*"' "$STREAM" | head -1 | cut -d\" -f4)
-   # FAIL CLOSED. With THREAD empty the -name pattern degrades to "*.jsonl",
-   # which matches EVERY rollout on the host - measured 2026-09-19: 394 files,
-   # head -1 returning a confident model name from a session 12 days old and
-   # unrelated. An empty THREAD means UNKNOWN and must never become a name.
-   if [ -z "$THREAD" ]; then
-       REVIEW_MODEL=""
-   else
-       ROLLOUT=$(find "$CODEX_DIR/sessions" -type f -name "*$THREAD.jsonl" | head -1)
-       if [ -n "$ROLLOUT" ]; then
-           REVIEW_MODEL=$(grep -o '"model":"[^"]*"' "$ROLLOUT" | head -1 | cut -d\" -f4)
-       else
-           REVIEW_MODEL=""
-       fi
-   fi
-   ```
-
-   **Anchor on the review's thread id, never on the newest rollout.** Several
-   sessions run concurrently here, so the newest rollout belongs to whoever
-   finished last; and on a SKIP it belongs to an unrelated run entirely, which
-   would fabricate a reviewer for a review that never happened. On
-   `codex-absent` or `reviewer-unavailable` there is no reviewer - the skip
-   receipt records the reason, and the field must not be filled from a
-   neighbouring session.
+   On a skip there is no reviewer to derive - `codex-absent` never invoked
+   codex at all, `reviewer-unavailable` invoked it and got nothing usable -
+   so `--reviewer-exec-log` must not be passed; the writer already refuses a
+   skip that names one (#1046).
 
    ```bash
    python3 "$CM_RECEIPT" write --dir "$(git rev-parse --show-toplevel)/docs/measurements/counter-model" \
        --issue "$ISSUE_NUM" --branch "$BRANCH" \
-       --status ran --reviewer "codex/${REVIEW_MODEL:?refusing to record an unknown reviewer}" --implementer "claude/opus-5" \
+       --status ran --reviewer-exec-log "$STREAM" --implementer "claude/opus-5" \
        --passes 2 --accepted 3 --rejected 1 --deferred 0 \
        --red-cases-proposed 4 --red-cases-already-covered 3
    ```

@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -165,6 +166,33 @@ def _write(tmp_path: Path, *args: str) -> subprocess.CompletedProcess:
     )
 
 
+def _reviewer_derivation_fixture(
+    tmp_path: Path,
+    model: str,
+    thread_id: str = "thread-for-counter-model-test",
+) -> tuple[Path, Path]:
+    exec_log = tmp_path / "reviewer-exec.jsonl"
+    exec_log.write_text(
+        json.dumps({"type": "thread.started", "thread_id": thread_id}) + "\n",
+        encoding="utf-8",
+    )
+    sessions_dir = tmp_path / "sessions"
+    rollout_dir = sessions_dir / "2026" / "09" / "19"
+    rollout_dir.mkdir(parents=True)
+    (rollout_dir / f"rollout-{thread_id}.jsonl").write_text(
+        json.dumps({"model": model}) + "\n",
+        encoding="utf-8",
+    )
+    return exec_log, sessions_dir
+
+
+def _reviewer_evidence_args(exec_log: Path, sessions_dir: Path) -> list[str]:
+    return [
+        "--reviewer-exec-log", str(exec_log),
+        "--codex-sessions-dir", str(sessions_dir),
+    ]
+
+
 def test_a_SKIP_is_recorded_not_omitted(tmp_path: Path) -> None:
     """The orchestrator's condition E, and the issue's whole premise.
 
@@ -221,7 +249,8 @@ def test_a_skip_without_a_reviewer_records_an_explicit_null(
 def test_a_skip_naming_a_reviewer_is_REFUSED_at_the_write_path(tmp_path: Path) -> None:
     proc = _write(tmp_path, "--issue", "1046", "--branch", "b", "--status", "skipped",
                   "--reason", "reviewer-unavailable",
-                  "--reviewer", "codex/gpt-5.5", "--implementer", "claude/opus-5")
+                  "--reviewer-exec-log", str(tmp_path / "unused.jsonl"),
+                  "--implementer", "claude/opus-5")
     assert proc.returncode == CM.EXIT_USAGE, proc.stderr
     assert list(tmp_path.glob("*.json")) == []
 
@@ -257,6 +286,112 @@ def test_a_ran_write_without_a_reviewer_is_REFUSED(tmp_path: Path) -> None:
                   "--implementer", "claude/opus-5", "--passes", "1")
     assert proc.returncode == CM.EXIT_USAGE, proc.stderr
     assert list(tmp_path.glob("*.json")) == []
+
+
+def test_reviewer_is_derived_from_the_matching_rollout(tmp_path: Path) -> None:
+    model = "fixture-review-model"
+    exec_log, sessions_dir = _reviewer_derivation_fixture(tmp_path, model)
+    proc = _write(
+        tmp_path, "--issue", "1048", "--branch", "b", "--status", "ran",
+        *_reviewer_evidence_args(exec_log, sessions_dir),
+        "--implementer", "claude/opus-5", "--passes", "1",
+    )
+    assert proc.returncode == CM.EXIT_OK, proc.stderr
+    receipt = json.loads(next(tmp_path.glob("*.json")).read_text(encoding="utf-8"))
+    assert receipt["reviewer"] == f"codex/{model}"
+
+
+@pytest.mark.parametrize("exec_log_kind", ["missing", "unreadable"])
+def test_a_missing_or_unreadable_exec_log_is_refused(
+    tmp_path: Path, exec_log_kind: str
+) -> None:
+    exec_log = tmp_path / "reviewer-exec.jsonl"
+    if exec_log_kind == "unreadable":
+        exec_log.mkdir()
+    sessions_dir = tmp_path / "sessions"
+    sessions_dir.mkdir()
+    proc = _write(
+        tmp_path, "--issue", "1048", "--branch", "b", "--status", "ran",
+        *_reviewer_evidence_args(exec_log, sessions_dir),
+        "--implementer", "claude/opus-5", "--passes", "1",
+    )
+    assert proc.returncode == CM.EXIT_INVALID
+    assert "cannot read reviewer exec log" in proc.stderr
+    assert list(tmp_path.glob("*.json")) == []
+
+
+def test_an_exec_log_without_a_thread_id_is_refused(tmp_path: Path) -> None:
+    exec_log = tmp_path / "reviewer-exec.jsonl"
+    exec_log.write_text('{"type":"item.completed"}\n', encoding="utf-8")
+    sessions_dir = tmp_path / "sessions"
+    sessions_dir.mkdir()
+    proc = _write(
+        tmp_path, "--issue", "1048", "--branch", "b", "--status", "ran",
+        *_reviewer_evidence_args(exec_log, sessions_dir),
+        "--implementer", "claude/opus-5", "--passes", "1",
+    )
+    assert proc.returncode == CM.EXIT_INVALID
+    assert "contains no thread_id" in proc.stderr
+    assert list(tmp_path.glob("*.json")) == []
+
+
+def test_an_exec_log_without_a_matching_rollout_is_refused(tmp_path: Path) -> None:
+    exec_log = tmp_path / "reviewer-exec.jsonl"
+    exec_log.write_text(
+        '{"type":"thread.started","thread_id":"wanted-thread"}\n',
+        encoding="utf-8",
+    )
+    sessions_dir = tmp_path / "sessions"
+    sessions_dir.mkdir()
+    (sessions_dir / "rollout-other-thread.jsonl").write_text(
+        '{"model":"definitely-not-a-model"}\n', encoding="utf-8"
+    )
+    proc = _write(
+        tmp_path, "--issue", "1048", "--branch", "b", "--status", "ran",
+        *_reviewer_evidence_args(exec_log, sessions_dir),
+        "--implementer", "claude/opus-5", "--passes", "1",
+    )
+    assert proc.returncode == CM.EXIT_INVALID
+    assert "no rollout matching thread_id" in proc.stderr
+    assert list(tmp_path.glob("*.json")) == []
+
+
+def test_a_matching_rollout_without_a_model_is_refused(tmp_path: Path) -> None:
+    exec_log, sessions_dir = _reviewer_derivation_fixture(tmp_path, "discarded")
+    rollout = next(sessions_dir.rglob("*.jsonl"))
+    rollout.write_text('{"type":"session_meta"}\n', encoding="utf-8")
+    proc = _write(
+        tmp_path, "--issue", "1048", "--branch", "b", "--status", "ran",
+        *_reviewer_evidence_args(exec_log, sessions_dir),
+        "--implementer", "claude/opus-5", "--passes", "1",
+    )
+    assert proc.returncode == CM.EXIT_INVALID
+    assert "contains no model field" in proc.stderr
+    assert list(tmp_path.glob("*.json")) == []
+
+
+def test_thread_match_wins_over_a_newer_unrelated_rollout(tmp_path: Path) -> None:
+    thread_id = "wanted-thread"
+    exec_log, sessions_dir = _reviewer_derivation_fixture(
+        tmp_path, "right-model", thread_id
+    )
+    correct_rollout = next(sessions_dir.rglob(f"*{thread_id}.jsonl"))
+    unrelated_rollout = correct_rollout.parent / "zzzz-rollout-other-thread.jsonl"
+    unrelated_rollout.write_text(
+        '{"model":"definitely-not-a-model"}\n', encoding="utf-8"
+    )
+    os.utime(correct_rollout, (1, 1))
+    os.utime(unrelated_rollout, (2, 2))
+
+    proc = _write(
+        tmp_path, "--issue", "1048", "--branch", "b", "--status", "ran",
+        *_reviewer_evidence_args(exec_log, sessions_dir),
+        "--implementer", "claude/opus-5", "--passes", "1",
+    )
+    assert proc.returncode == CM.EXIT_OK, proc.stderr
+    receipt = json.loads(next(tmp_path.glob("*.json")).read_text(encoding="utf-8"))
+    assert receipt["reviewer"] == "codex/right-model"
+    assert receipt["reviewer"] != "codex/definitely-not-a-model"
 
 
 @pytest.mark.parametrize("removed", ["no-diff", "explicit-opt-out"])
@@ -378,9 +513,12 @@ def test_the_PROPERTY_is_enforced_not_just_documented(tmp_path: Path) -> None:
     themselves, recorded as independent evidence - worse than no receipt at all,
     because it is counted.
     """
-    proc = _write(tmp_path, "--issue", "934", "--branch", "b", "--status", "ran",
-                  "--reviewer", "claude/opus-5", "--implementer", "claude/opus-5",
-                  "--passes", "1")
+    exec_log, sessions_dir = _reviewer_derivation_fixture(tmp_path, "fixture-model")
+    proc = _write(
+        tmp_path, "--issue", "934", "--branch", "b", "--status", "ran",
+        *_reviewer_evidence_args(exec_log, sessions_dir),
+        "--implementer", "codex/fixture-model", "--passes", "1",
+    )
     assert proc.returncode == CM.EXIT_INVALID, proc.stdout
     assert "must not be the implementing model" in proc.stderr
     assert list(tmp_path.glob("*.json")) == [], "a refused receipt was written anyway"
@@ -388,10 +526,14 @@ def test_the_PROPERTY_is_enforced_not_just_documented(tmp_path: Path) -> None:
 
 def test_a_DIFFERENT_reviewer_is_accepted(tmp_path: Path) -> None:
     """The green half: the check must reject the violation and nothing else."""
-    proc = _write(tmp_path, "--issue", "934", "--branch", "b", "--status", "ran",
-                  "--reviewer", "codex/gpt-5.5", "--implementer", "claude/opus-5",
-                  "--passes", "2", "--accepted", "3", "--rejected", "1",
-                  "--red-cases-proposed", "4", "--red-cases-already-covered", "3")
+    exec_log, sessions_dir = _reviewer_derivation_fixture(tmp_path, "gpt-5.5")
+    proc = _write(
+        tmp_path, "--issue", "934", "--branch", "b", "--status", "ran",
+        *_reviewer_evidence_args(exec_log, sessions_dir),
+        "--implementer", "claude/opus-5", "--passes", "2", "--accepted", "3",
+        "--rejected", "1", "--red-cases-proposed", "4",
+        "--red-cases-already-covered", "3",
+    )
     assert proc.returncode == 0, proc.stderr
     receipt = json.loads(next(tmp_path.glob("*.json")).read_text(encoding="utf-8"))
     assert receipt["counts"] == {"accepted": 3, "rejected": 1, "deferred": 0}
@@ -402,10 +544,13 @@ def test_coverage_cannot_exceed_what_was_proposed(tmp_path: Path) -> None:
     """The diversity number is already_covered / proposed, and it is the only
     thing that can tell an excellent reviewer from an uncritical author. A ratio
     above 1 corrupts that silently rather than loudly."""
-    proc = _write(tmp_path, "--issue", "934", "--branch", "b", "--status", "ran",
-                  "--reviewer", "codex/gpt-5.5", "--implementer", "claude/opus-5",
-                  "--passes", "1", "--red-cases-proposed", "2",
-                  "--red-cases-already-covered", "5")
+    exec_log, sessions_dir = _reviewer_derivation_fixture(tmp_path, "gpt-5.5")
+    proc = _write(
+        tmp_path, "--issue", "934", "--branch", "b", "--status", "ran",
+        *_reviewer_evidence_args(exec_log, sessions_dir),
+        "--implementer", "claude/opus-5", "--passes", "1",
+        "--red-cases-proposed", "2", "--red-cases-already-covered", "5",
+    )
     assert proc.returncode == CM.EXIT_INVALID
     assert "exceeds proposed" in proc.stderr
 
@@ -548,20 +693,19 @@ def test_a_fenced_FINDING_example_is_still_not_a_finding() -> None:
 
 
 def test_an_EMPTY_model_identity_is_refused(tmp_path: Path) -> None:
-    """`if reviewer and implementer and ...` skipped the comparison when either
-    was empty, so a receipt naming NEITHER model validated clean - recording
-    "two different models reviewed this" on the strength of two empty strings.
-    A missing identity must fail the same check a colliding one does."""
-    for reviewer, implementer in [("", "claude/opus-5"), ("codex/gpt-5.5", ""),
-                                  ("   ", "claude/opus-5")]:
-        proc = _write(tmp_path, "--issue", "934", "--branch", "b", "--status", "ran",
-                      "--reviewer", reviewer, "--implementer", implementer,
-                      "--passes", "1")
-        expected = CM.EXIT_USAGE if not reviewer.strip() else CM.EXIT_INVALID
-        assert proc.returncode == expected, (
-            f"reviewer={reviewer!r} implementer={implementer!r} was accepted"
-        )
-        assert "empty" in proc.stderr
+    """Only the empty-implementer half remains after reviewer derivation.
+
+    An empty reviewer can no longer be supplied as free text; failed reviewer
+    derivation is covered by the refusal tests above.
+    """
+    exec_log, sessions_dir = _reviewer_derivation_fixture(tmp_path, "gpt-5.5")
+    proc = _write(
+        tmp_path, "--issue", "934", "--branch", "b", "--status", "ran",
+        *_reviewer_evidence_args(exec_log, sessions_dir),
+        "--implementer", "", "--passes", "1",
+    )
+    assert proc.returncode == CM.EXIT_INVALID, proc.stderr
+    assert "implementer is empty" in proc.stderr
     assert list(tmp_path.glob("*.json")) == []
 
 
@@ -570,9 +714,13 @@ def test_two_runs_in_the_same_second_both_SURVIVE(tmp_path: Path) -> None:
     write was not exclusive: two runs for one issue inside the same second both
     "succeeded" and left ONE file. A lost run is invisible in a measurement
     whose entire purpose is counting runs."""
-    common = ["--issue", "934", "--status", "ran", "--reviewer", "codex/gpt-5.5",
-              "--implementer", "claude/opus-5", "--passes", "1",
-              "--at", "2026-09-15T12:00:00Z"]
+    exec_log, sessions_dir = _reviewer_derivation_fixture(tmp_path, "gpt-5.5")
+    common = [
+        "--issue", "934", "--status", "ran",
+        *_reviewer_evidence_args(exec_log, sessions_dir),
+        "--implementer", "claude/opus-5", "--passes", "1",
+        "--at", "2026-09-15T12:00:00Z",
+    ]
     a = _write(tmp_path, *common, "--branch", "branch-a", "--accepted", "1")
     b = _write(tmp_path, *common, "--branch", "branch-b", "--accepted", "7")
     assert a.returncode == 0 and b.returncode == 0, (a.stderr, b.stderr)
