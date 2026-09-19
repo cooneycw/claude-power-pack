@@ -1898,6 +1898,112 @@ class TestSupervise:
         finally:
             self._kill_daemon(_daemon_pid(tmp_path, WAVE, "1"))
 
+    @staticmethod
+    def _inner_watch_pid_of(daemon_pid: int) -> int | None:
+        """The daemon's OWN inner `watch` child, identified by parentage
+        then confirmed by argv STRUCTURE (argv[1] is the script, argv[2] is
+        `watch`) - never `pgrep -f`'s flattened-line matching (issue #821's
+        documented anti-pattern)."""
+        for child in _children_of(daemon_pid):
+            argv = _cmdline(child)
+            if (
+                len(argv) >= 3
+                and argv[1].endswith("flow-wave-mailbox.sh")
+                and argv[2] == "watch"
+            ):
+                return child
+        return None
+
+    def test_sigkill_orphans_a_child_but_the_flock_still_releases(
+        self, tmp_path: Path
+    ) -> None:
+        """issue #1033 item 1: a SIGKILLed daemon's still-running inner
+        `watch` child used to inherit the lifetime flock (fd 8) like any
+        other backgrounded subprocess, so it kept the lock held after the
+        daemon itself was already dead - a fresh `supervise` refused as
+        `duplicate` against a lock whose owner no longer existed. Confirmed
+        RED against the pre-fix script: the orphan holds the lock until it
+        exits on its own (up to a full `--timeout` later). The proof here is
+        deliberately the strong one - re-arm succeeds immediately WITH the
+        orphan still alive - showing the orphan no longer MATTERS, not
+        merely that it is eventually gone."""
+        self._launch(tmp_path, timeout="10", interval="1")
+        pid = _daemon_pid(tmp_path, WAVE, "1")
+        assert _wait_for(lambda: self._inner_watch_pid_of(pid) is not None, timeout=10), (
+            "the daemon never armed its first inner watch"
+        )
+        child_pid = self._inner_watch_pid_of(pid)
+        try:
+            os.kill(pid, signal.SIGKILL)
+            assert _wait_for(lambda: not _pid_alive(pid), timeout=5), (
+                "SIGKILL must kill the daemon itself immediately"
+            )
+            assert _pid_alive(child_pid), (
+                "the orphaned inner watch should still be alive here - "
+                "that is the whole point of this test"
+            )
+            second = self._launch(tmp_path)
+            try:
+                assert second.returncode == 0, second.stderr
+                assert _verdict(second) == "supervising"
+            finally:
+                self._kill_daemon(_daemon_pid(tmp_path, WAVE, "1"))
+        finally:
+            if _pid_alive(child_pid):
+                os.kill(child_pid, signal.SIGKILL)
+
+    def test_daemon_pinned_at_the_cap_with_a_constant_rc_exits_and_releases_the_lock(
+        self, tmp_path: Path
+    ) -> None:
+        """issue #1033 item 2 (deliberate behaviour change): a backoff cap
+        reached with a CONSTANT rc, cycle after cycle, cannot self-heal by
+        retrying longer - the #0-relative-path incident this issue reports
+        (rc=127, pinned at the cap, for 13h48m) is exactly this shape.
+        Confirmed RED against the pre-fix script: it loops on this
+        signature forever and never releases the lock. The control asserts
+        BOTH halves the review asked for - the loop stops AND the flock is
+        actually released - because a daemon that stops looping while still
+        holding fd 8 would reproduce item 1 by a different route."""
+        self._launch(
+            tmp_path, timeout="30", interval="1",
+            extra_env={
+                "FLOW_WAVE_SUPERVISE_BACKOFF_BASE": "1",
+                "FLOW_WAVE_SUPERVISE_BACKOFF_CAP": "1",
+                "FLOW_WAVE_SUPERVISE_TERMINAL_STREAK": "2",
+            },
+        )
+        pid = _daemon_pid(tmp_path, WAVE, "1")
+        try:
+            # Force a CONSTANT rc every cycle by SIGKILLing every inner
+            # watch child as soon as it appears - a SIGKILLed child reports
+            # the same rc (128+SIGKILL) every single time, which is the
+            # "unchanging cause" signature the fix looks for.
+            killed = 0
+            deadline = time.time() + 25
+            while time.time() < deadline and _pid_alive(pid) and killed < 8:
+                if _wait_for(lambda: self._inner_watch_pid_of(pid) is not None, timeout=5):
+                    child = self._inner_watch_pid_of(pid)
+                    if child is not None:
+                        os.kill(child, signal.SIGKILL)
+                        killed += 1
+                time.sleep(0.2)
+
+            assert _wait_for(lambda: not _pid_alive(pid), timeout=10), (
+                "a constant rc pinned at the backoff cap must terminate the daemon"
+            )
+            assert "cannot self-heal" in _supervise_log(tmp_path, WAVE, "1").read_text()
+
+            # The lock, not merely the loop, must be released.
+            second = self._launch(tmp_path)
+            try:
+                assert second.returncode == 0, second.stderr
+                assert _verdict(second) == "supervising"
+            finally:
+                self._kill_daemon(_daemon_pid(tmp_path, WAVE, "1"))
+        finally:
+            if _pid_alive(pid):
+                self._kill_daemon(pid)
+
     def test_evidence_log_never_carries_a_message_body(self, tmp_path: Path) -> None:
         self._launch(tmp_path)
         pid = _daemon_pid(tmp_path, WAVE, "1")
@@ -2010,6 +2116,56 @@ class TestSupervise:
             )
             log_text = _supervise_log(tmp_path, WAVE, "1").read_text()
             assert "released" in log_text.lower() or "shutting down" in log_text.lower()
+        finally:
+            if _pid_alive(pid):
+                self._kill_daemon(pid)
+
+    @pytest.mark.skipif(
+        shutil.which("jq") is None, reason="requires jq (flow-wave-registry.sh)"
+    )
+    def test_shutdown_after_release_takes_up_to_one_timeout_not_instant(
+        self, tmp_path: Path
+    ) -> None:
+        """issue #1033 item 4: shutdown-on-release happens WITHIN one
+        `--timeout` of the release, not the moment it happens - the
+        registry check sits at the top of the daemon's loop and the loop
+        body then blocks in the inner watch call. A measurement, not a
+        fixture, per the issue's own framing: release, then confirm the
+        daemon is STILL alive shortly after (the latency genuinely exists,
+        so a documentation fix claiming instant shutdown would be wrong),
+        and confirm it is gone within one timeout of release plus a small
+        margin (the corrected bound actually holds)."""
+        registry = ROOT / "scripts" / "flow-wave-registry.sh"
+        env = os.environ.copy()
+        env["FLOW_WAVE_MAILBOX_DIR"] = str(tmp_path / "mb")
+        env["FLOW_WAVE_REGISTRY_DIR"] = str(tmp_path / "mb")
+        subprocess.run(
+            ["bash", str(registry), "register", "1", "--wave", WAVE, "--socket", "uds:/tmp/x.sock"],
+            capture_output=True, text=True, env=env, check=False,
+        )
+        self._launch(
+            tmp_path, timeout="6", interval="1",
+            extra_env={"FLOW_WAVE_REGISTRY_DIR": str(tmp_path / "mb")},
+        )
+        pid = _daemon_pid(tmp_path, WAVE, "1")
+        try:
+            # Let the daemon settle into its first blocking watch cycle
+            # before releasing, so the release genuinely lands mid-cycle.
+            time.sleep(1)
+            subprocess.run(
+                ["bash", str(registry), "release", "1", "--wave", WAVE, "--force"],
+                capture_output=True, text=True, env=env, check=False,
+            )
+            # The latency: still alive shortly after release.
+            time.sleep(1.5)
+            assert _pid_alive(pid), (
+                "shutdown-on-release is bounded by one --timeout, not instant - "
+                "this pins that the latency is real, not merely documented"
+            )
+            # The bound: gone within one timeout of release, plus a margin.
+            assert _wait_for(lambda: not _pid_alive(pid), timeout=8), (
+                "the daemon must still shut down within one --timeout of release"
+            )
         finally:
             if _pid_alive(pid):
                 self._kill_daemon(pid)
