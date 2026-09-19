@@ -45,7 +45,6 @@ python_version = "3.11"
 # widened past its reason and must be narrowed or dropped, not inherited.
 exclude = [
     "mcp-second-opinion",
-    "mcp-evaluate",
     "codex/skills",
     "controls",
     "docs/research/forced-claim-prototype-2026-09-15/cases",
