@@ -112,8 +112,35 @@ lint:
 format:
 	uv run --extra dev ruff format .
 
+## PARALLEL, WITH AN EXPLICIT CAP - never `-n auto` (issues #640, #1086).
+##
+## 4,342 tests ran one after another here, at 83% of ONE core on a 24-core box,
+## with system time EXCEEDING user time (186.7s user, 227.0s sys) - the signature
+## of a suite that WAITS rather than one that computes; 70 of 119 test modules
+## import `subprocess`.
+##
+## Measured on this tree, four full runs: serial 496.5s, `-n 8` 83.3s (5.96x),
+## `-n 4` 123.0s (4.04x). Total CPU moved by under 6% across all of them
+## (413.7s / 413.3s / 405.1s user+sys), which is what says the wall time was wait
+## and not work - the same work, spent waiting in one process or in eight.
+##
+## The numbers are a FLOOR, not a flattering figure: they were taken on a loaded
+## fleet host (load 8-22), and contention penalises the parallel arm harder than
+## the serial one.
+##
+## `scripts/pytest-workers.sh` owns the number and the refusal, so `make test`
+## and the CI `validate` step resolve it identically instead of each naming one.
+## It prints `pytest-workers: -n N (source: ...)` to stderr, which is what makes
+## the cap visible in this target's output rather than inferable from the file.
+##
+## THE `$$(...)` IS NOT COSMETIC: a resolver that REFUSES (exit 2) must not leave
+## `-n` holding an empty string, because `pytest -n ''` is an argument error whose
+## message is about pytest usage rather than about the cap that was rejected. `set
+## -e` inside the recipe's single shell makes the refusal the failure that stops
+## the target, with the resolver's own diagnosis already on stderr.
 test:
-	uv run --extra dev pytest
+	@set -e; workers="$$(sh scripts/pytest-workers.sh)"; \
+		uv run --extra dev pytest -n "$$workers"
 
 typecheck:
 	uv run --extra dev mypy .

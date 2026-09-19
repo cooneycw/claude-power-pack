@@ -8,7 +8,12 @@ requires-python = ">=3.11"
 dependencies = ["pydantic>=2.0", "pyyaml>=6.0"]
 
 [project.optional-dependencies]
-dev = ["mypy>=1.10", "pytest>=8.0", "pytest-timeout>=2.3", "ruff>=0.4", "types-PyYAML>=6.0", "types-requests>=2.31"]
+# pytest-xdist: the suite is spawn-bound, not CPU-bound (issue #1086) - 70 of 119
+# test modules import `subprocess`, and two serial runs recorded 83% and 77% of ONE
+# core on a 24-core box with system time exceeding user time. `make test` and the CI
+# `validate` step both pass an EXPLICIT `-n`, never `auto`; scripts/pytest-workers.sh
+# owns the cap and refuses `auto` outright.
+dev = ["mypy>=1.10", "pytest>=8.0", "pytest-timeout>=2.3", "pytest-xdist>=3.6", "ruff>=0.4", "types-PyYAML>=6.0", "types-requests>=2.31"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -72,16 +72,27 @@ steps:
 
   validate:
     image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
-    depends_on: [secret-scan, shellcheck, jq-stage]
+    depends_on: [secret-scan, shellcheck-stage, jq-stage]
+    # THE CAP IS DECLARED, NEVER `auto` (issues #640, #1086). `-n auto` means one
+    # worker per core, and `nproc` is 24 on the agent host while flow sessions run
+    # full suites beside the pipeline; multiplied by the invocations actually in
+    # flight, the first symptom is intermittent reds that read as regressions.
+    # 8 is where the 5.34x was measured, and `WOODPECKER_MAX_WORKFLOWS=2` bounds
+    # the agent to two pipelines, so this step can claim at most 16 of 24 cores.
+    # `scripts/pytest-workers.sh` resolves it through the SAME precedence
+    # `lib/cicd/steps.py` implements and prints the number it chose, so the cap is
+    # in this step's log rather than inferred from the yaml by a reader.
+    environment:
+      PYTEST_WORKERS: "8"
     commands:
       - uv sync --extra dev --frozen
       - uv run ruff check .
-      # `.ci-bin` carries the pinned shellcheck staged by the shellcheck step
+      # `.ci-bin` carries the pinned shellcheck staged by shellcheck-stage
       # and the pinned jq staged by jq-stage.
       # test_the_real_control_discriminates_and_its_anchor_is_blind drives the
       # WHOLE control register, so this image needs every registered control's
       # tool - not just the ones whose own step happens to run here (#960).
-      - PATH="$PWD/.ci-bin:$PATH" uv run pytest
+      - PATH="$PWD/.ci-bin:$PATH" uv run pytest -n "$(sh scripts/pytest-workers.sh)"
       - uv run mypy .
 
   # Explicit Codex-skill drift gate (issue #556): the pytest suite already checks
@@ -264,14 +275,48 @@ steps:
   # byte-verified against git history on a dev box and in the pre-push hook.
   negative-controls:
     image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
-    depends_on: [secret-scan, shellcheck, jq-stage]
+    depends_on: [secret-scan, shellcheck-stage, jq-stage]
     commands:
-      # `.ci-bin` carries the PINNED shellcheck staged by the shellcheck step
+      # `.ci-bin` carries the PINNED shellcheck staged by shellcheck-stage
       # and the PINNED jq staged by jq-stage.
       # The harness refuses to SKIP a control it cannot run - it reports
       # UNSIGNALLED and fails - so a registered control's tool must be present
       # HERE, not merely somewhere in the pipeline.
       - PATH="$PWD/.ci-bin:$PATH" python3 scripts/check-negative-controls.py --strict
+
+  # STAGING ONLY, SPLIT OUT OF THE GATE (issue #1086). `validate` depends on the
+  # shellcheck side of the pipeline for exactly one thing - the PINNED binary in
+  # `.ci-bin` - and the copy takes about a second. The gate that produced it in
+  # the same step takes THIRTY, measured directly rather than inferred from the
+  # step time:
+  #
+  #     $ time sh scripts/shellcheck-gate.sh
+  #     shellcheck-gate: ok - 103 file(s) scanned at severity=error, 0 findings.
+  #     real  0m30.381s
+  #
+  # So `pytest` - 84% of this pipeline's wall clock - sat behind a lint whose
+  # OUTPUT it never reads. `jq-stage` above already had the right shape; this is
+  # the same split applied to the tool that predates it. The gate itself keeps
+  # running, unchanged, in the fan-out below where nothing waits on it.
+  #
+  # PINNING IS THE WHOLE POINT OF STAGING, not a detail of it: apt in that image
+  # supplies shellcheck 0.9.0 while this pins 0.10.0, and running the gate under
+  # two different linters would make `controls/shellcheck-gate`'s verdict depend
+  # on which container reached it.
+  #
+  # WHAT HAPPENS IF THIS STEP SILENTLY STOPS STAGING: the consumers do NOT go
+  # quietly green. `scripts/shellcheck-gate.sh` reports UNKNOWN and exits 2 when
+  # the binary is absent - never 0 - and `check-negative-controls.py` refuses to
+  # SKIP a control it cannot run, so `negative-controls` reddens rather than
+  # reporting a shorter battery. `tests/test_shellcheck_stage.py` holds that
+  # refusal as a committed case, because "the tool was there on every run so far"
+  # is not evidence about what happens when it is not.
+  shellcheck-stage:
+    image: koalaman/shellcheck-alpine:v0.10.0@sha256:5921d946dac740cbeec2fb1c898747b6105e585130cc7f0602eec9a10f7ddb63
+    pull: true
+    depends_on: [secret-scan]
+    commands:
+      - mkdir -p .ci-bin && cp /bin/shellcheck .ci-bin/shellcheck
 
   shellcheck:
     image: koalaman/shellcheck-alpine:v0.10.0@sha256:5921d946dac740cbeec2fb1c898747b6105e585130cc7f0602eec9a10f7ddb63
@@ -283,10 +328,8 @@ steps:
       # says `source=find` - which is also the blind spot worth naming: a CI
       # clone has no untracked files, so untracked scripts are visible ONLY to
       # `make shellcheck` locally. Neither surface sees the whole universe.
-      # Stage the PINNED binary into the shared workspace so the
-      # negative-controls step exercises this control with the SAME shellcheck
-      # this step ran. apt in that image supplies 0.9.0; running the gate under
-      # two different linters would make the control's verdict depend on which
-      # container reached it.
-      - mkdir -p .ci-bin && cp /bin/shellcheck .ci-bin/shellcheck
+      #
+      # NOTHING DEPENDS ON THIS STEP since #1086 - the staging moved to
+      # `shellcheck-stage` above - so its 30s is off the critical path. It is
+      # still a HARD gate: a finding here reddens the pipeline on its own line.
       - sh scripts/shellcheck-gate.sh

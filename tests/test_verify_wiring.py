@@ -129,6 +129,16 @@ def test_the_declared_tool_set_cannot_be_quietly_shortened() -> None:
     )
 
 
+#: (step name, a string that must appear in one of its commands). The marker is
+#: what stops a stager being satisfied by an EMPTY step of the right name - a
+#: dependency ordering a step whose product is never produced is a dependency on
+#: nothing, the same reason the PATH assertion below exists on the consumer side.
+STAGERS = (
+    ("jq-stage", "scripts/ci-stage-jq.py"),
+    ("shellcheck-stage", ".ci-bin/shellcheck"),
+)
+
+
 def test_the_steps_that_need_a_staged_tool_still_DEPEND_on_its_stager() -> None:
     """A staged binary is only there if the staging step ran FIRST.
 
@@ -144,6 +154,13 @@ def test_the_steps_that_need_a_staged_tool_still_DEPEND_on_its_stager() -> None:
     `tests/test_flow_driver_retirement.py` silently SKIPPED all 26 of its tests
     while `validate` went green.
 
+    `shellcheck-stage` joined it in #1086, and its arrival is why this is now
+    parametrised over a SET rather than written once for jq. The staging used to
+    be a second command inside the `shellcheck` GATE step, so the consumers
+    depended on a 30-second lint to obtain a one-second copy; splitting them
+    moved the dependency, and a moved dependency is exactly the edit that looks
+    free. A guard written for one stager says nothing about the next one.
+
     PARSED, NOT SPLIT ON TEXT, and that is not a style preference. The first cut
     of this guard did `text.split("  validate:")[1].split("\n  commands:")[0]` -
     and the YAML indents `commands:` by FOUR spaces, so the delimiter never
@@ -154,20 +171,25 @@ def test_the_steps_that_need_a_staged_tool_still_DEPEND_on_its_stager() -> None:
     spec = yaml.safe_load(WOODPECKER.read_text(encoding="utf-8"))
     steps = spec["steps"]
 
-    assert "jq-stage" in steps, (
-        "the jq-stage step is gone; the controls and tests that need jq will "
-        "report BLIND and skip respectively"
-    )
-    assert any("scripts/ci-stage-jq.py" in c for c in steps["jq-stage"]["commands"]), (
-        "jq-stage no longer invokes the stager"
-    )
+    for stager, marker in STAGERS:
+        assert stager in steps, (
+            f"the {stager} step is gone; the controls and tests that need its "
+            f"tool will report BLIND and skip respectively"
+        )
+        # `str(c)`: a YAML command need not be a string - a bare `true` parses
+        # as a bool - and `marker in c` would then raise TypeError. A crash is
+        # still a red, but it names the wrong thing.
+        assert any(marker in str(c) for c in steps[stager]["commands"]), (
+            f"{stager} no longer stages its tool ({marker!r} is not in its commands)"
+        )
 
     for consumer in ("validate", "negative-controls"):
-        assert "jq-stage" in steps[consumer].get("depends_on", []), (
-            f"the `{consumer}` step no longer depends on `jq-stage`, so the "
-            f"staged jq may not exist when it runs - a race whose failure mode "
-            f"is indistinguishable from jq being absent"
-        )
+        for stager, _ in STAGERS:
+            assert stager in steps[consumer].get("depends_on", []), (
+                f"the `{consumer}` step no longer depends on `{stager}`, so the "
+                f"staged tool may not exist when it runs - a race whose failure "
+                f"mode is indistinguishable from the tool being absent"
+            )
         # ...and a dependency ordering a step whose product is never looked at
         # is a dependency on nothing.
         assert any(".ci-bin:$PATH" in c for c in steps[consumer]["commands"]), (

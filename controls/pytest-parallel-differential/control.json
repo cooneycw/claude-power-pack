@@ -1,0 +1,86 @@
+{
+  "_comment": [
+    "Registration for scripts/pytest-parallel-differential.py (issue #1086).",
+    "",
+    "WHY THIS GATE NEEDS A COMMITTED CASE (ADR 0008): its verdict is the acceptance",
+    "evidence for running the test suite in parallel, and nothing downstream",
+    "re-derives it. Once `-n 8` is in `make test` and in CI, every later green is",
+    "read as 'the same tests passed' on the strength of one comparison made once.",
+    "An agreeing verdict from an instrument that has never been shown to DISAGREE is",
+    "not evidence - it is the same bytes a broken comparator prints.",
+    "",
+    "THE CASES ARE PAIRS OF JUNIT REPORTS, which is what the gate consumes, so a",
+    "case directory holds `serial.xml` and `parallel.xml` and the invocation is",
+    "`--pair {case}`. They are hand-written and tiny: the question is whether the",
+    "gate can tell an agreeing pair from a disagreeing one, not whether it can",
+    "handle 4,263 nodes.",
+    "",
+    "BOTH BAD CASES CARRY AN IDENTICAL TALLY ON PURPOSE, and that is the whole",
+    "design rather than a convenience. The anchor below compares how many passed",
+    "and how many failed - the reading issue #1086 names and rejects in one",
+    "sentence, 'the same pass/fail SET, not merely the same colour'. A bad case",
+    "whose totals differ would be caught by that anchor, the control would report",
+    "INERT, and the demonstration would establish nothing about the distinction",
+    "this gate exists to draw.",
+    "",
+    "  bad-substituted-node  3 passes on both sides, and a different test ran. The",
+    "                        MEMBERSHIP FLOOR direction: a worker that collects a",
+    "                        different population prints the same colour and the",
+    "                        same count, and only the node-id SET separates them.",
+    "  bad-dangerous-flip    1 pass and 1 failure on both sides, swapped between",
+    "                        two tests - so one FAILS serially and PASSES in",
+    "                        parallel. That is the direction that must block:",
+    "                        whatever made it pass was not the code under test.",
+    "",
+    "THE GOOD CASE CARRIES A FAILURE PRESENT IN BOTH RUNS, deliberately. The real",
+    "measurement for #1086 had exactly one - an environmental failure reproducing",
+    "identically serially and in parallel - and a good case of all-green would",
+    "leave the gate's ability to accept an AGREEING failure unexercised. THE HALF",
+    "THAT MATTERS for a gate wedged at 'disagree': a comparator that rejects every",
+    "pair passes both bad cases on its own, and this gate's red is what would stop",
+    "a parallelism change from shipping.",
+    "",
+    "Stdlib-only, offline and git-free, like the gate: the slim CI image gives the",
+    "same verdict as a dev box, so `negative-controls` is not a weaker run of this",
+    "control than `make verify` is."
+  ],
+  "gate": "scripts/pytest-parallel-differential.py",
+  "invocation": [
+    "python3",
+    "{gate}",
+    "--pair",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^(BLOCKS - |QUARANTINE - )",
+  "cases": [
+    {
+      "name": "bad-substituted-node",
+      "input": "cases/bad-substituted-node",
+      "expect": "BAD",
+      "why": "Both reports carry three passing tests and zero failures, and `tests.test_beta::test_three` was replaced by `tests.test_beta::test_four`. Every count agrees; the population does not. If this scores GOOD the membership floor is not being checked at all, and a worker that silently collects a different set of tests is indistinguishable here from one that collects the right set."
+    },
+    {
+      "name": "bad-dangerous-flip",
+      "input": "cases/bad-dangerous-flip",
+      "expect": "BAD",
+      "why": "Identical node-id sets, identical tallies (1 pass, 1 failure both times), and the pass and the failure belong to DIFFERENT tests in the two runs - so `test_two` fails serially and passes in parallel. That is the dangerous direction: a real red converted into a silent green for as long as the parallelism holds. If this scores GOOD the gate is comparing colour rather than verdicts."
+    },
+    {
+      "name": "good-matched",
+      "input": "cases/good-matched",
+      "expect": "GOOD",
+      "why": "Identical node-id sets and identical per-node verdicts, INCLUDING one test that fails in both runs - the shape the real #1086 measurement had. THE HALF THAT MATTERS for a comparator wedged at 'disagree': one that rejected every pair would satisfy both bad cases on its own and would block every future parallelism change with a red that means nothing. It also exercises the accept-an-agreeing-failure path, which an all-green good case would leave unproven."
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "constructed-tally-only",
+      "origin": "scripts/pytest-parallel-differential.py",
+      "path": "anchors/constructed-tally-only-pytest-parallel-differential.py",
+      "sha256": "3fa78315b7931e6bfa8377403a3f1242b8bd1dacc4e1a71146f6b1ca0df9bb28",
+      "why": "CONSTRUCTED: the gate is new and never shipped blind, so there is no revision to vendor - `--verify-provenance` therefore reports `unverified`, which is correct and must never be read as `ok`. This is the FIRST FRAMING on the record: 'did the two runs agree' answered by comparing how many passed and how many failed, which is both the obvious thing to write and exactly what a human does glancing at two summary lines. It misses `bad-substituted-node` because the counts match while the population differs, misses `bad-dangerous-flip` because the counts match while the verdicts moved between tests, and agrees with the real gate on `good-matched`, which is what makes the demonstration isolated rather than merely different."
+    }
+  ]
+}
