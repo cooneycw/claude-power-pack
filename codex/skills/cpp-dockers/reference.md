@@ -115,8 +115,7 @@ Based on findings, suggest relevant actions:
   points at `${SECOND_OPINION_URL:-http://127.0.0.1:8080}/mcp` (issue #633):
   the default is localhost 8080, and a host where 8080 is taken exports
   `SECOND_OPINION_URL` with the BASE url, no `/mcp` (e.g.
-  `http://127.0.0.1:8090`, or a Tailscale URL) - the same variable
-  `mcp-evaluate/src/config.py` reads, so one export covers both consumers.
+  `http://127.0.0.1:8090`, or a Tailscale URL).
   Check reachability against the SAME address the client will use - curl the
   URL directly rather than splitting host:port by hand (a naive `cut -d:`
   breaks on no-port and scheme forms):

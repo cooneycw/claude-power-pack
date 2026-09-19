@@ -26,7 +26,7 @@ locks. It does not cover:
 
 | Out of scope | Where it lives |
 |---|---|
-| `mcp-evaluate/uv.lock` (77 packages; 10 carried advisories when last measured) | issue #943 |
+| ~~`mcp-evaluate/uv.lock`~~ - **gone**; the subproject was retired by #943 on 2026-09-19 | see the closed-out section below |
 | Automating this check on every run, rather than by hand when someone asks | issue #961 |
 | Packages imported but declared nowhere, which no lockfile scan can see | see **Blind spots** below |
 
@@ -166,6 +166,107 @@ issue #922 offered a reading - that nothing imports `urllib3` and that `requests
 the carrier that would exercise it, is absent from the root lockfile - and labelled
 itself a reading rather than a finding. It was also corrected once, for covering only
 one of the two CVEs. Treat it as a lead, not a disposition.
+
+## Closed out: mcp-evaluate/uv.lock, retired rather than upgraded (#943)
+
+This register's Scope table used to route a second lockfile to issue #943. That
+lockfile no longer exists: `mcp-evaluate/` was removed from CPP on **2026-09-19**.
+The section is kept because a scan report from before that date, or a reader
+chasing any of the 35 advisory ids below, must land somewhere that explains what
+happened rather than nowhere.
+
+**Measured on 2026-09-19**, method and controls exactly as above (`urllib3 2.6.3`
+reported, `urllib3 2.7.0` did not, both in the same batch as the packages under
+test): **11 of 77 packages carried an advisory - 65 records, 34 distinct CVEs.**
+
+| package | pinned | records | distinct CVEs |
+|---|---|---|---|
+| anyio | 4.12.1 | 2 | 2 |
+| authlib | 1.6.9 | 6 | 3 |
+| click | 8.3.1 | 1 | 1 |
+| cryptography | 46.0.5 | 11 | 5 |
+| idna | 3.11 | 2 | 1 |
+| mcp | 1.26.0 | 6 | 3 |
+| pydantic-settings | 2.13.1 | 1 | 1 |
+| pygments | 2.19.2 | 2 | 1 |
+| pyjwt | 2.11.0 | 12 | 6 |
+| python-multipart | 0.0.22 | 12 | 6 |
+| starlette | 0.52.1 | 10 | 5 |
+| **total** | | **65** | **34 across 11 of 77** |
+
+Two differences from the figures in #943's body, both from re-measuring rather
+than re-reading, and both worth keeping:
+
+- **`anyio 4.12.1` was not on the 2026-09-14 list.** Its two advisories landed in
+  the five days between. This is the ordinary behaviour of a dated count, not a
+  discrepancy.
+- **`cryptography 46.0.5` carries 5 distinct CVEs, not the 6 first reported** -
+  and the eleventh record is the interesting one. `GHSA-537c-gmf6-5ccf`
+  ("Vulnerable OpenSSL included in cryptography wheels") **has no CVE alias at
+  all**. Counting distinct CVEs therefore drops a real advisory, silently. This
+  is a concrete argument for the rule stated above the register table: dispositions
+  are keyed by **advisory id**, not by CVE, because not every advisory has one.
+
+### Disposition for all 35 advisories: not exposed - nothing installed or ran this lockfile
+
+Not the usual form of that verdict. The pygments and pytest rows above argue that a
+*reachable* dependency's vulnerable code path is not reached. This is the stronger
+and cheaper claim: the dependency set was never installed outside a deliberate
+`uv sync` by someone working on the subproject itself.
+
+Evidence, measured on 2026-09-19 before the removal:
+
+1. **Declared deprecated in CPP's own documentation.**
+   `.claude/commands/cpp/update.md` listed it under "Deprecated servers -
+   absorbed into /evaluate:issue skill", with drift-report status
+   `LEGACY DEPRECATED`, a class the same document defines as **"teardown only"**.
+2. **`/cpp:init` actively tore it down**, scanning for an `mcp-evaluate` systemd
+   unit and flagging it as legacy for removal.
+3. **Its replacement needs no server.** `/evaluate:issue` declares
+   `allowed-tools: mcp__second-opinion__*` and states "No separate MCP server
+   required - works entirely with existing `second-opinion`".
+4. **Registered in no scope.** Absent from `claude mcp list`; the repository's
+   `.mcp.json` registers only `second-opinion`; zero `mcp-evaluate` entries in
+   `~/.claude.json`. *Positive control:* the same inspection finds
+   `second-opinion`, `tavily` and `playwright`, so it is able to report a
+   registration and did not.
+5. **Running nowhere.** Port 8083 not listening, no systemd unit installed on the
+   dev host, no container. CPP stopped building and shipping images at #469.
+6. **No behavioural change since `2b51287`.** Every later commit touching
+   `mcp-evaluate/` was a tree-wide sweep that reached it by walking - an 81-error
+   ruff pass, Docker digest pins, a base-image bump, and #918's fastmcp bound.
+7. **Unused outside this repository.** kyle references it **zero** times across 935
+   searched files. *Positive control:* the identical search returns 30 hits for
+   `second-opinion` and 1042 for `mcp`, so the zero is a reading. kyle's own
+   enumeration of what a containerised session loses without second-opinion
+   (`docker/README.md`) names `/evaluate:issue`, the skill - never the server.
+8. **codex-power-pack reached the same verdict and executed it.** Its
+   `plugin-marketplace-modernization` spec lists `mcp-evaluate/` under "Removed
+   entirely". Verified against the tree rather than the document: the directory is
+   absent, as are the four siblings in the same list, while `scripts/` and
+   `.specify/` remain - so the check can distinguish deletion from a bad path.
+
+### What this row does NOT claim
+
+**It is not a finding that any of the 35 advisories is harmless.** Several are in
+code that would sit directly in a live request path if this server ran -
+`starlette` and `mcp` handle requests, `anyio` carries the async plumbing beneath
+them. The claim is about deployment, not about the bugs. Had `mcp-evaluate` been
+registered anywhere, every one of these would have needed the per-advisory
+treatment the pygments and pytest rows received.
+
+**It does not travel with the code.** If `mcp-evaluate/` is ever restored from git
+history it comes back at fastmcp 3.2.4 / mcp 1.26.0 / starlette 0.52.1, carrying
+all 34 CVEs, and this disposition does not apply to the restored copy - the fact it
+rests on (that nothing installs or runs it) would no longer be true. Re-measure
+before relying on anything here.
+
+**The upgrade path existed and was not the reason.** For the record, because #943's
+body argued the opposite and a future reader may need the correction:
+`uv lock --upgrade-package` over the eleven, with `pyproject.toml` untouched and
+fastmcp pinned at 3.2.4, resolved `mcp 1.30.0` and `starlette 1.6.0` and reached
+**0 of 77 vulnerable**. The subproject was retired because it was deprecated and
+unused, not because it was hard to patch.
 
 ## Blind spots
 

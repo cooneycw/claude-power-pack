@@ -1,16 +1,32 @@
 # Claude Power Pack - Woodpecker CI Pipeline
-# Runs quality gates and Dockerfile lint.
+# Runs quality gates.
 #
 # Pipeline:
 #   PR/push -> secret-scan -> validate (lint+test+typecheck) + codex-skills-check
 #              + delegated-core-check + dependency-audit + eli5-vendor-check
 #              + eli5-upstream-drift (advisory)
-#              + tool-risk-drift -> Dockerfile lint
+#              + tool-risk-drift
 #
 # The Docker MCP runtime (second-opinion + aws-secrets-agent images, compose
 # policy checks, image CVE/SBOM scans, and the runtime smoke stage) was retired
 # in issue #469 when mcp-second-opinion moved to its own external repo. CPP no
 # longer builds or ships container images.
+#
+# THE `dockerfile-lint` STEP WAS RETIRED WITH IT (issue #943), one repository
+# state later. #469 stopped BUILDING images but left one Dockerfile in the tree -
+# `mcp-evaluate/deploy/Dockerfile` - so the hadolint step still had a population
+# of one. #943 retired `mcp-evaluate/` entirely, and that was the last Dockerfile
+# CPP carried.
+#
+# The step was DELETED rather than left in place, and the reason is the reason
+# this pipeline has negative controls at all. Its command was
+# `find . -name Dockerfile -print0 | xargs -0 -r hadolint`, and `xargs -r` does
+# not run the command on empty input: over a tree with no Dockerfile it exits 0,
+# having linted nothing, printing the same green as a tree whose Dockerfiles all
+# passed. That is a blind instrument in ADR 0008's exact sense - a zero-file
+# population is UNKNOWN, never clean - and an absent step is strictly more honest
+# than a green one that cannot fail. Anyone adding a Dockerfile to CPP must
+# restore this step with it; nothing here will notice its absence for them.
 
 when:
   - event: [push, pull_request]
@@ -125,9 +141,12 @@ steps:
       - python3 scripts/instrument-census-check.py
 
   # Dependency vulnerability audit (issue #961). CPP ran none: both sets of
-  # advisories it carries today were found by a person looking - #922 on the
-  # root lock, #943 on mcp-evaluate - and the only variable was whether anyone
-  # was looking that week.
+  # advisories it carried were found by a person looking - #922 on the root lock,
+  # #943 on mcp-evaluate - and the only variable was whether anyone was looking
+  # that week. Both are now resolved (#922 by upgrading, #943 by retiring the
+  # subproject), which is why this step's ledger is empty; the step remains
+  # because "nothing to report today" and "nobody is looking" are the two states
+  # it exists to keep apart.
   #
   # Its own step, not folded into `validate`, for the reason #556 and #591 each
   # got one: an advisory lands on its own line rather than inside a lint
@@ -250,10 +269,3 @@ steps:
       # container reached it.
       - mkdir -p .ci-bin && cp /bin/shellcheck .ci-bin/shellcheck
       - sh scripts/shellcheck-gate.sh
-
-  dockerfile-lint:
-    image: ghcr.io/hadolint/hadolint:v2.14.0-debian
-    pull: true
-    depends_on: [validate]
-    commands:
-      - find . -path ./.git -prune -o -name Dockerfile -print0 | xargs -0 -r hadolint --failure-threshold error
