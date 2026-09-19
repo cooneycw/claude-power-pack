@@ -193,6 +193,241 @@ def _reviewer_evidence_args(exec_log: Path, sessions_dir: Path) -> list[str]:
     ]
 
 
+def _implementer_session_fixture(
+    tmp_path: Path,
+    model: str,
+    session_id: str = "session-for-counter-model-test",
+) -> tuple[str, Path]:
+    projects_dir = tmp_path / "projects"
+    project_dir = projects_dir / "fixture-project"
+    project_dir.mkdir(parents=True)
+    (project_dir / f"{session_id}.jsonl").write_text(
+        json.dumps({"type": "assistant", "message": {"model": model}}) + "\n",
+        encoding="utf-8",
+    )
+    return session_id, projects_dir
+
+
+def _implementer_evidence_args(session_id: str, projects_dir: Path) -> list[str]:
+    return [
+        "--implementer-session-id", session_id,
+        "--claude-projects-dir", str(projects_dir),
+    ]
+
+
+def _write_session_receipt(
+    tmp_path: Path, projects_dir: Path, *args: str, status: str = "ran"
+) -> subprocess.CompletedProcess:
+    if status == "ran":
+        exec_log, sessions_dir = _reviewer_derivation_fixture(tmp_path, "gpt-5.5")
+        review_args = _reviewer_evidence_args(exec_log, sessions_dir)
+    else:
+        review_args = ["--reason", "reviewer-unavailable"]
+    return _write(
+        tmp_path, "--issue", "1047", "--branch", "b", "--status", status,
+        *review_args, "--claude-projects-dir", str(projects_dir), *args,
+    )
+
+
+def test_implementer_is_derived_from_the_matching_session(tmp_path: Path) -> None:
+    model = "claude-sonnet-5"
+    session_id, projects_dir = _implementer_session_fixture(tmp_path, model)
+    # A suffix match (as used for Codex rollouts) must not match this decoy.
+    (projects_dir / f"prefix-{session_id}.jsonl").write_text(
+        '{"model":"claude-wrong-model"}\n', encoding="utf-8"
+    )
+    proc = _write_session_receipt(
+        tmp_path, projects_dir, "--implementer-session-id", session_id
+    )
+    assert proc.returncode == CM.EXIT_OK, proc.stderr
+    receipt = json.loads(next(tmp_path.glob("*.json")).read_text(encoding="utf-8"))
+    assert receipt["implementer"] == f"claude/{model}"
+
+
+@pytest.mark.parametrize("environment_id", [None, ""])
+def test_a_missing_implementer_session_id_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, environment_id: str | None
+) -> None:
+    monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
+    if environment_id is not None:
+        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", environment_id)
+    proc = _write_session_receipt(tmp_path, tmp_path / "projects")
+    assert proc.returncode == CM.EXIT_INVALID, proc.stderr
+    assert "missing implementer session id" in proc.stderr
+    assert list(tmp_path.glob("*.json")) == []
+
+
+def test_an_implementer_session_without_a_matching_transcript_is_refused(
+    tmp_path: Path,
+) -> None:
+    session_id, projects_dir = _implementer_session_fixture(tmp_path, "claude-opus-5")
+    transcript = next(projects_dir.rglob("*.jsonl"))
+    # The filename must be EXACTLY the id plus .jsonl, not merely end with it.
+    transcript.rename(transcript.with_name(f"prefix-{session_id}.jsonl"))
+    proc = _write_session_receipt(
+        tmp_path, projects_dir, "--implementer-session-id", session_id
+    )
+    assert proc.returncode == CM.EXIT_INVALID, proc.stderr
+    assert "no transcript matching session_id" in proc.stderr
+    assert list(tmp_path.glob("*.json")) == []
+
+
+def test_multiple_matching_implementer_transcripts_are_refused(tmp_path: Path) -> None:
+    session_id, projects_dir = _implementer_session_fixture(tmp_path, "claude-opus-5")
+    other_project = projects_dir / "another-project"
+    other_project.mkdir()
+    (other_project / f"{session_id}.jsonl").write_text(
+        '{"model":"claude-sonnet-5"}\n', encoding="utf-8"
+    )
+    proc = _write_session_receipt(
+        tmp_path, projects_dir, "--implementer-session-id", session_id
+    )
+    assert proc.returncode == CM.EXIT_INVALID, proc.stderr
+    assert "multiple transcripts matching session_id" in proc.stderr
+    assert list(tmp_path.glob("*.json")) == []
+
+
+@pytest.mark.parametrize("model", ["<synthetic>", "<future-session-placeholder>", "   "])
+def test_non_real_implementer_model_shapes_are_refused(tmp_path: Path, model: str) -> None:
+    # <future-session-placeholder> is deliberately novel, not denylisted in source.
+    session_id, projects_dir = _implementer_session_fixture(tmp_path, model)
+    proc = _write_session_receipt(
+        tmp_path, projects_dir, "--implementer-session-id", session_id
+    )
+    assert proc.returncode == CM.EXIT_INVALID, proc.stderr
+    assert "contains no real-shaped model entry" in proc.stderr
+    assert list(tmp_path.glob("*.json")) == []
+
+
+def test_an_implementer_transcript_without_model_entries_is_refused(tmp_path: Path) -> None:
+    session_id, projects_dir = _implementer_session_fixture(tmp_path, "discarded")
+    next(projects_dir.rglob("*.jsonl")).write_text(
+        '{"type":"user","message":"hello"}\n', encoding="utf-8"
+    )
+    proc = _write_session_receipt(
+        tmp_path, projects_dir, "--implementer-session-id", session_id
+    )
+    assert proc.returncode == CM.EXIT_INVALID, proc.stderr
+    assert "contains no real-shaped model entry" in proc.stderr
+    assert list(tmp_path.glob("*.json")) == []
+
+
+def test_the_latest_real_implementer_model_wins(tmp_path: Path) -> None:
+    session_id, projects_dir = _implementer_session_fixture(tmp_path, "discarded")
+    next(projects_dir.rglob("*.jsonl")).write_text(
+        '{"model":"claude-opus-5"}\n'
+        '{"model":"claude-sonnet-5"}\n'
+        '{"model":"  <future-session-placeholder>  "}\n'
+        '{"model":" "}\n',
+        encoding="utf-8",
+    )
+    proc = _write_session_receipt(
+        tmp_path, projects_dir, "--implementer-session-id", session_id
+    )
+    assert proc.returncode == CM.EXIT_OK, proc.stderr
+    receipt = json.loads(next(tmp_path.glob("*.json")).read_text(encoding="utf-8"))
+    assert receipt["implementer"] == "claude/claude-sonnet-5"
+
+
+def test_a_skip_derives_its_implementer_and_keeps_a_null_reviewer(tmp_path: Path) -> None:
+    session_id, projects_dir = _implementer_session_fixture(tmp_path, "claude-sonnet-5")
+    proc = _write_session_receipt(
+        tmp_path, projects_dir, "--implementer-session-id", session_id, status="skipped"
+    )
+    assert proc.returncode == CM.EXIT_OK, proc.stderr
+    receipt = json.loads(next(tmp_path.glob("*.json")).read_text(encoding="utf-8"))
+    assert receipt["status"] == "skipped"
+    assert receipt["implementer"] == "claude/claude-sonnet-5"
+    assert receipt["reviewer"] is None
+
+
+@pytest.mark.parametrize("missing", ["session-id", "transcript"])
+def test_a_skip_without_a_derivable_implementer_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, missing: str
+) -> None:
+    # #1046 accepted skips with a literal identity; #1047 deliberately fails closed.
+    monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
+    args = [] if missing == "session-id" else ["--implementer-session-id", "missing-session"]
+    proc = _write_session_receipt(tmp_path, tmp_path / "projects", *args, status="skipped")
+    assert proc.returncode == CM.EXIT_INVALID, proc.stderr
+    expected = (
+        "missing implementer session id" if missing == "session-id"
+        else "no transcript matching session_id"
+    )
+    assert expected in proc.stderr
+    assert list(tmp_path.glob("*.json")) == []
+
+
+@pytest.mark.parametrize("flag", [None, "", "explicit-session"])
+def test_implementer_session_id_uses_flag_or_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, flag: str | None
+) -> None:
+    session_id, projects_dir = _implementer_session_fixture(
+        tmp_path, "claude-sonnet-5", flag or "environment-session"
+    )
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "unmatched-session" if flag else session_id)
+    args = [] if flag is None else ["--implementer-session-id", flag]
+    proc = _write_session_receipt(tmp_path, projects_dir, *args)
+    assert proc.returncode == CM.EXIT_OK, proc.stderr
+    receipt = json.loads(next(tmp_path.glob("*.json")).read_text(encoding="utf-8"))
+    assert receipt["implementer"] == "claude/claude-sonnet-5"
+
+
+def test_literal_implementer_flag_is_no_longer_accepted(tmp_path: Path) -> None:
+    proc = _write_session_receipt(tmp_path, tmp_path / "projects", "--implementer", "claude/opus-5")
+    assert proc.returncode == CM.EXIT_USAGE, proc.stderr
+    assert "unrecognized arguments: --implementer" in proc.stderr
+    assert list(tmp_path.glob("*.json")) == []
+
+
+def test_projects_override_never_touches_the_real_claude_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A find/rglob of real ~/.claude/projects reads every session on this host,
+    including other people's live conversations. An override must isolate ALL
+    lookup and transcript reads, even when a populated default directory exists.
+    """
+    session_id, projects_dir = _implementer_session_fixture(tmp_path, "claude-sonnet-5")
+    exec_log, sessions_dir = _reviewer_derivation_fixture(tmp_path, "gpt-5.5")
+    fake_home = tmp_path / "fake-home"
+    forbidden_projects = fake_home / ".claude" / "projects"
+    forbidden_projects.mkdir(parents=True)
+    (forbidden_projects / f"{session_id}.jsonl").write_text(
+        '{"model":"claude-private-conversation"}\n', encoding="utf-8"
+    )
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: fake_home))
+
+    def forbidden_default() -> Path:
+        pytest.fail("explicit override must not even resolve the default projects root")
+
+    original_rglob, original_read = Path.rglob, Path.read_text
+    searched = []
+
+    def isolated_rglob(path: Path, pattern: str):
+        assert path in (projects_dir, sessions_dir), f"unexpected transcript search: {path}"
+        searched.append(path)
+        return original_rglob(path, pattern)
+
+    def isolated_read(path: Path, *args, **kwargs):
+        assert path.is_relative_to(tmp_path), f"read outside fixture: {path}"
+        assert not path.is_relative_to(fake_home), f"read of default projects root: {path}"
+        return original_read(path, *args, **kwargs)
+
+    monkeypatch.setattr(CM, "_default_claude_projects_dir", forbidden_default)
+    monkeypatch.setattr(Path, "rglob", isolated_rglob)
+    monkeypatch.setattr(Path, "read_text", isolated_read)
+    monkeypatch.setattr(sys, "argv", [
+        str(SCRIPT), "write", "--dir", str(tmp_path), "--issue", "1047",
+        "--branch", "b", "--status", "ran",
+        *_reviewer_evidence_args(exec_log, sessions_dir),
+        *_implementer_evidence_args(session_id, projects_dir),
+    ])
+    assert CM.main() == CM.EXIT_OK
+    assert projects_dir in searched
+    receipt = json.loads(next(tmp_path.glob("*.json")).read_text(encoding="utf-8"))
+    assert receipt["implementer"] == "claude/claude-sonnet-5"
+
+
 def test_a_SKIP_is_recorded_not_omitted(tmp_path: Path) -> None:
     """The orchestrator's condition E, and the issue's whole premise.
 
@@ -200,9 +435,10 @@ def test_a_SKIP_is_recorded_not_omitted(tmp_path: Path) -> None:
     from a stage that was never wired in - which is the condition #934 was
     opened about: 0 of 170 merged PRs, with nothing anywhere recording it.
     """
+    session_id, projects_dir = _implementer_session_fixture(tmp_path, 'opus-5')
     proc = _write(tmp_path, "--issue", "934", "--branch", "b", "--status", "skipped",
                   "--reason", "reviewer-unavailable",
-                  "--implementer", "claude/opus-5")
+                  *_implementer_evidence_args(session_id, projects_dir))
     assert proc.returncode == 0, proc.stderr
     written = list(tmp_path.glob("*.json"))
     assert len(written) == 1, "a skip wrote no receipt"
@@ -218,17 +454,19 @@ def test_a_skip_must_say_WHICH_skip(tmp_path: Path) -> None:
 
     (#1015 removed "someone decided not to" from the set entirely - it is no
     longer one of the things a reason has to distinguish.)"""
+    session_id, projects_dir = _implementer_session_fixture(tmp_path, 'opus-5')
     proc = _write(tmp_path, "--issue", "934", "--branch", "b", "--status", "skipped",
-                  "--implementer", "claude/opus-5")
+                  *_implementer_evidence_args(session_id, projects_dir))
     assert proc.returncode == CM.EXIT_USAGE, proc.stderr
     assert list(tmp_path.glob("*.json")) == []
 
 
 def test_codex_absent_is_a_DISTINCT_skip_reason(tmp_path: Path) -> None:
     """#1015's green half: the reason the probe exists to record is accepted."""
+    session_id, projects_dir = _implementer_session_fixture(tmp_path, 'opus-5')
     proc = _write(tmp_path, "--issue", "1015", "--branch", "b", "--status", "skipped",
                   "--reason", "codex-absent",
-                  "--implementer", "claude/opus-5")
+                  *_implementer_evidence_args(session_id, projects_dir))
     assert proc.returncode == 0, proc.stderr
     written = list(tmp_path.glob("*.json"))
     assert len(written) == 1, "a codex-absent skip wrote no receipt"
@@ -239,18 +477,20 @@ def test_codex_absent_is_a_DISTINCT_skip_reason(tmp_path: Path) -> None:
 def test_a_skip_without_a_reviewer_records_an_explicit_null(
     tmp_path: Path, reason: str
 ) -> None:
+    session_id, projects_dir = _implementer_session_fixture(tmp_path, 'opus-5')
     proc = _write(tmp_path, "--issue", "1046", "--branch", "b", "--status", "skipped",
-                  "--reason", reason, "--implementer", "claude/opus-5")
+                  "--reason", reason, *_implementer_evidence_args(session_id, projects_dir))
     assert proc.returncode == 0, proc.stderr
     receipt = json.loads(next(tmp_path.glob("*.json")).read_text(encoding="utf-8"))
     assert receipt["reviewer"] is None
 
 
 def test_a_skip_naming_a_reviewer_is_REFUSED_at_the_write_path(tmp_path: Path) -> None:
+    session_id, projects_dir = _implementer_session_fixture(tmp_path, 'opus-5')
     proc = _write(tmp_path, "--issue", "1046", "--branch", "b", "--status", "skipped",
                   "--reason", "reviewer-unavailable",
                   "--reviewer-exec-log", str(tmp_path / "unused.jsonl"),
-                  "--implementer", "claude/opus-5")
+                  *_implementer_evidence_args(session_id, projects_dir))
     assert proc.returncode == CM.EXIT_USAGE, proc.stderr
     assert list(tmp_path.glob("*.json")) == []
 
@@ -258,8 +498,9 @@ def test_a_skip_naming_a_reviewer_is_REFUSED_at_the_write_path(tmp_path: Path) -
 def test_a_skip_naming_a_reviewer_is_REFUSED_on_a_receipt_ALREADY_ON_DISK(
     tmp_path: Path,
 ) -> None:
+    session_id, projects_dir = _implementer_session_fixture(tmp_path, 'opus-5')
     proc = _write(tmp_path, "--issue", "1046", "--branch", "b", "--status", "skipped",
-                  "--reason", "reviewer-unavailable", "--implementer", "claude/opus-5")
+                  "--reason", "reviewer-unavailable", *_implementer_evidence_args(session_id, projects_dir))
     assert proc.returncode == 0, proc.stderr
     receipt_path = next(tmp_path.glob("*.json"))
 
@@ -282,19 +523,21 @@ def test_a_skip_naming_a_reviewer_is_REFUSED_on_a_receipt_ALREADY_ON_DISK(
 
 
 def test_a_ran_write_without_a_reviewer_is_REFUSED(tmp_path: Path) -> None:
+    session_id, projects_dir = _implementer_session_fixture(tmp_path, 'opus-5')
     proc = _write(tmp_path, "--issue", "1046", "--branch", "b", "--status", "ran",
-                  "--implementer", "claude/opus-5", "--passes", "1")
+                  *_implementer_evidence_args(session_id, projects_dir), "--passes", "1")
     assert proc.returncode == CM.EXIT_USAGE, proc.stderr
     assert list(tmp_path.glob("*.json")) == []
 
 
 def test_reviewer_is_derived_from_the_matching_rollout(tmp_path: Path) -> None:
+    session_id, projects_dir = _implementer_session_fixture(tmp_path, 'opus-5')
     model = "fixture-review-model"
     exec_log, sessions_dir = _reviewer_derivation_fixture(tmp_path, model)
     proc = _write(
         tmp_path, "--issue", "1048", "--branch", "b", "--status", "ran",
         *_reviewer_evidence_args(exec_log, sessions_dir),
-        "--implementer", "claude/opus-5", "--passes", "1",
+        *_implementer_evidence_args(session_id, projects_dir), "--passes", "1",
     )
     assert proc.returncode == CM.EXIT_OK, proc.stderr
     receipt = json.loads(next(tmp_path.glob("*.json")).read_text(encoding="utf-8"))
@@ -305,6 +548,7 @@ def test_reviewer_is_derived_from_the_matching_rollout(tmp_path: Path) -> None:
 def test_a_missing_or_unreadable_exec_log_is_refused(
     tmp_path: Path, exec_log_kind: str
 ) -> None:
+    session_id, projects_dir = _implementer_session_fixture(tmp_path, 'opus-5')
     exec_log = tmp_path / "reviewer-exec.jsonl"
     if exec_log_kind == "unreadable":
         exec_log.mkdir()
@@ -313,7 +557,7 @@ def test_a_missing_or_unreadable_exec_log_is_refused(
     proc = _write(
         tmp_path, "--issue", "1048", "--branch", "b", "--status", "ran",
         *_reviewer_evidence_args(exec_log, sessions_dir),
-        "--implementer", "claude/opus-5", "--passes", "1",
+        *_implementer_evidence_args(session_id, projects_dir), "--passes", "1",
     )
     assert proc.returncode == CM.EXIT_INVALID
     assert "cannot read reviewer exec log" in proc.stderr
@@ -321,6 +565,7 @@ def test_a_missing_or_unreadable_exec_log_is_refused(
 
 
 def test_an_exec_log_without_a_thread_id_is_refused(tmp_path: Path) -> None:
+    session_id, projects_dir = _implementer_session_fixture(tmp_path, 'opus-5')
     exec_log = tmp_path / "reviewer-exec.jsonl"
     exec_log.write_text('{"type":"item.completed"}\n', encoding="utf-8")
     sessions_dir = tmp_path / "sessions"
@@ -328,7 +573,7 @@ def test_an_exec_log_without_a_thread_id_is_refused(tmp_path: Path) -> None:
     proc = _write(
         tmp_path, "--issue", "1048", "--branch", "b", "--status", "ran",
         *_reviewer_evidence_args(exec_log, sessions_dir),
-        "--implementer", "claude/opus-5", "--passes", "1",
+        *_implementer_evidence_args(session_id, projects_dir), "--passes", "1",
     )
     assert proc.returncode == CM.EXIT_INVALID
     assert "contains no thread_id" in proc.stderr
@@ -336,6 +581,7 @@ def test_an_exec_log_without_a_thread_id_is_refused(tmp_path: Path) -> None:
 
 
 def test_an_exec_log_without_a_matching_rollout_is_refused(tmp_path: Path) -> None:
+    session_id, projects_dir = _implementer_session_fixture(tmp_path, 'opus-5')
     exec_log = tmp_path / "reviewer-exec.jsonl"
     exec_log.write_text(
         '{"type":"thread.started","thread_id":"wanted-thread"}\n',
@@ -349,7 +595,7 @@ def test_an_exec_log_without_a_matching_rollout_is_refused(tmp_path: Path) -> No
     proc = _write(
         tmp_path, "--issue", "1048", "--branch", "b", "--status", "ran",
         *_reviewer_evidence_args(exec_log, sessions_dir),
-        "--implementer", "claude/opus-5", "--passes", "1",
+        *_implementer_evidence_args(session_id, projects_dir), "--passes", "1",
     )
     assert proc.returncode == CM.EXIT_INVALID
     assert "no rollout matching thread_id" in proc.stderr
@@ -357,13 +603,14 @@ def test_an_exec_log_without_a_matching_rollout_is_refused(tmp_path: Path) -> No
 
 
 def test_a_matching_rollout_without_a_model_is_refused(tmp_path: Path) -> None:
+    session_id, projects_dir = _implementer_session_fixture(tmp_path, 'opus-5')
     exec_log, sessions_dir = _reviewer_derivation_fixture(tmp_path, "discarded")
     rollout = next(sessions_dir.rglob("*.jsonl"))
     rollout.write_text('{"type":"session_meta"}\n', encoding="utf-8")
     proc = _write(
         tmp_path, "--issue", "1048", "--branch", "b", "--status", "ran",
         *_reviewer_evidence_args(exec_log, sessions_dir),
-        "--implementer", "claude/opus-5", "--passes", "1",
+        *_implementer_evidence_args(session_id, projects_dir), "--passes", "1",
     )
     assert proc.returncode == CM.EXIT_INVALID
     assert "contains no model field" in proc.stderr
@@ -371,6 +618,7 @@ def test_a_matching_rollout_without_a_model_is_refused(tmp_path: Path) -> None:
 
 
 def test_thread_match_wins_over_a_newer_unrelated_rollout(tmp_path: Path) -> None:
+    session_id, projects_dir = _implementer_session_fixture(tmp_path, 'opus-5')
     thread_id = "wanted-thread"
     exec_log, sessions_dir = _reviewer_derivation_fixture(
         tmp_path, "right-model", thread_id
@@ -386,7 +634,7 @@ def test_thread_match_wins_over_a_newer_unrelated_rollout(tmp_path: Path) -> Non
     proc = _write(
         tmp_path, "--issue", "1048", "--branch", "b", "--status", "ran",
         *_reviewer_evidence_args(exec_log, sessions_dir),
-        "--implementer", "claude/opus-5", "--passes", "1",
+        *_implementer_evidence_args(session_id, projects_dir), "--passes", "1",
     )
     assert proc.returncode == CM.EXIT_OK, proc.stderr
     receipt = json.loads(next(tmp_path.glob("*.json")).read_text(encoding="utf-8"))
@@ -398,9 +646,10 @@ def test_thread_match_wins_over_a_newer_unrelated_rollout(tmp_path: Path) -> Non
 def test_a_removed_reason_is_REFUSED_at_the_write_path(tmp_path: Path, removed: str) -> None:
     """#1015's red half at the CLI: the reasons that left the set cannot re-enter
     through the front door."""
+    session_id, projects_dir = _implementer_session_fixture(tmp_path, 'opus-5')
     proc = _write(tmp_path, "--issue", "1015", "--branch", "b", "--status", "skipped",
                   "--reason", removed,
-                  "--implementer", "claude/opus-5")
+                  *_implementer_evidence_args(session_id, projects_dir))
     assert proc.returncode != 0, f"{removed!r} was accepted as a skip reason"
     assert list(tmp_path.glob("*.json")) == [], "a refused receipt was written anyway"
 
@@ -420,9 +669,10 @@ def test_a_removed_reason_is_REFUSED_on_a_receipt_ALREADY_ON_DISK(
     cannot drift out of schema and pass for the wrong reason: every field but
     `skip_reason` is one the current writer emits.
     """
+    session_id, projects_dir = _implementer_session_fixture(tmp_path, 'opus-5')
     proc = _write(tmp_path, "--issue", "1015", "--branch", "b", "--status", "skipped",
                   "--reason", "reviewer-unavailable",
-                  "--implementer", "claude/opus-5")
+                  *_implementer_evidence_args(session_id, projects_dir))
     assert proc.returncode == 0, proc.stderr
     receipt_path = next(iter(tmp_path.glob("*.json")))
 
@@ -505,32 +755,49 @@ def test_the_REVIEWER_COMMAND_does_not_skip_an_empty_diff_either() -> None:
     )
 
 
-def test_the_PROPERTY_is_enforced_not_just_documented(tmp_path: Path) -> None:
+def test_the_PROPERTY_is_enforced_not_just_documented() -> None:
     """"The reviewing model must not be the implementing model" is the rule the
     issue asks for as a PROPERTY rather than a tool name.
 
     A run whose reviewer IS the implementer is the author agreeing with
     themselves, recorded as independent evidence - worse than no receipt at all,
     because it is counted.
+
+    Tests validate() DIRECTLY against a hand-built receipt dict, not via the
+    write CLI (issue #1047, review note): since #1047 made --implementer
+    derive from a Claude session transcript (always "claude/<model>") and
+    #1048 made --reviewer derive from a codex exec log (always
+    "codex/<model>"), the two derivation paths can no longer collide by
+    construction - there is no fixture that makes a normal `write` call
+    produce equal reviewer/implementer strings anymore. The property this
+    test protects is validate()'s own enforcement, independent of whichever
+    path produced the values, so it is exercised directly rather than
+    through a CLI invocation that can no longer reach the case.
     """
-    exec_log, sessions_dir = _reviewer_derivation_fixture(tmp_path, "fixture-model")
-    proc = _write(
-        tmp_path, "--issue", "934", "--branch", "b", "--status", "ran",
-        *_reviewer_evidence_args(exec_log, sessions_dir),
-        "--implementer", "codex/fixture-model", "--passes", "1",
-    )
-    assert proc.returncode == CM.EXIT_INVALID, proc.stdout
-    assert "must not be the implementing model" in proc.stderr
-    assert list(tmp_path.glob("*.json")) == [], "a refused receipt was written anyway"
+    receipt = {
+        "schema": CM.SCHEMA,
+        "recorded_at": "2026-09-19T00:00:00Z",
+        "issue": "934",
+        "branch": "b",
+        "status": "ran",
+        "reviewer": "claude/fixture-model",
+        "implementer": "claude/fixture-model",
+        "passes": 1,
+        "counts": {"accepted": 0, "rejected": 0, "deferred": 0},
+        "red_cases": {"proposed": 0, "already_covered": 0},
+    }
+    problems = CM.validate(receipt, "test receipt")
+    assert any("must not be the implementing model" in p for p in problems), problems
 
 
 def test_a_DIFFERENT_reviewer_is_accepted(tmp_path: Path) -> None:
     """The green half: the check must reject the violation and nothing else."""
+    session_id, projects_dir = _implementer_session_fixture(tmp_path, 'opus-5')
     exec_log, sessions_dir = _reviewer_derivation_fixture(tmp_path, "gpt-5.5")
     proc = _write(
         tmp_path, "--issue", "934", "--branch", "b", "--status", "ran",
         *_reviewer_evidence_args(exec_log, sessions_dir),
-        "--implementer", "claude/opus-5", "--passes", "2", "--accepted", "3",
+        *_implementer_evidence_args(session_id, projects_dir), "--passes", "2", "--accepted", "3",
         "--rejected", "1", "--red-cases-proposed", "4",
         "--red-cases-already-covered", "3",
     )
@@ -544,11 +811,12 @@ def test_coverage_cannot_exceed_what_was_proposed(tmp_path: Path) -> None:
     """The diversity number is already_covered / proposed, and it is the only
     thing that can tell an excellent reviewer from an uncritical author. A ratio
     above 1 corrupts that silently rather than loudly."""
+    session_id, projects_dir = _implementer_session_fixture(tmp_path, 'opus-5')
     exec_log, sessions_dir = _reviewer_derivation_fixture(tmp_path, "gpt-5.5")
     proc = _write(
         tmp_path, "--issue", "934", "--branch", "b", "--status", "ran",
         *_reviewer_evidence_args(exec_log, sessions_dir),
-        "--implementer", "claude/opus-5", "--passes", "1",
+        *_implementer_evidence_args(session_id, projects_dir), "--passes", "1",
         "--red-cases-proposed", "2", "--red-cases-already-covered", "5",
     )
     assert proc.returncode == CM.EXIT_INVALID
@@ -698,14 +966,15 @@ def test_an_EMPTY_model_identity_is_refused(tmp_path: Path) -> None:
     An empty reviewer can no longer be supplied as free text; failed reviewer
     derivation is covered by the refusal tests above.
     """
+    session_id, projects_dir = _implementer_session_fixture(tmp_path, '')
     exec_log, sessions_dir = _reviewer_derivation_fixture(tmp_path, "gpt-5.5")
     proc = _write(
         tmp_path, "--issue", "934", "--branch", "b", "--status", "ran",
         *_reviewer_evidence_args(exec_log, sessions_dir),
-        "--implementer", "", "--passes", "1",
+        *_implementer_evidence_args(session_id, projects_dir), "--passes", "1",
     )
     assert proc.returncode == CM.EXIT_INVALID, proc.stderr
-    assert "implementer is empty" in proc.stderr
+    assert "contains no real-shaped model entry" in proc.stderr
     assert list(tmp_path.glob("*.json")) == []
 
 
@@ -714,11 +983,12 @@ def test_two_runs_in_the_same_second_both_SURVIVE(tmp_path: Path) -> None:
     write was not exclusive: two runs for one issue inside the same second both
     "succeeded" and left ONE file. A lost run is invisible in a measurement
     whose entire purpose is counting runs."""
+    session_id, projects_dir = _implementer_session_fixture(tmp_path, 'opus-5')
     exec_log, sessions_dir = _reviewer_derivation_fixture(tmp_path, "gpt-5.5")
     common = [
         "--issue", "934", "--status", "ran",
         *_reviewer_evidence_args(exec_log, sessions_dir),
-        "--implementer", "claude/opus-5", "--passes", "1",
+        *_implementer_evidence_args(session_id, projects_dir), "--passes", "1",
         "--at", "2026-09-15T12:00:00Z",
     ]
     a = _write(tmp_path, *common, "--branch", "branch-a", "--accepted", "1")
