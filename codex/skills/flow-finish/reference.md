@@ -93,14 +93,18 @@ the inline shape prompts on every run. Invoke it BARE (#581 discipline):
 #590), else the CPP-checkout copy; either may prompt once - tell the user to
 run **`/flow-repair`** to restore the prompt-free lane.)
 
-The helper ends with a machine-readable marker:
+The helper ends with a machine-readable marker. Each verdict now has its OWN
+exit code (issue #1027) - `ok`, `warn` and `skipped` used to share exit 0, so a
+caller reading only `$?` could not tell "passed cleanly" from "passed but
+proved nothing" from "did not run at all". Read the exit code, not just the
+word, if you are scripting around this helper:
 
 - `FLOW_FINISH_GATE: ok` (exit 0): gates passed - via the runner, or its
   documented Makefile fallback when the runner is unavailable (the helper
   prints a NOTE naming which path ran). If the runner ran, skip to Step 2d;
   if the fallback ran, continue with Step 2b (the runner includes the security
   scan, the Makefile fallback does not).
-- `FLOW_FINISH_GATE: warn` (exit 0, issue #621): the gate PASSED but a test step
+- `FLOW_FINISH_GATE: warn` (exit 3, issue #621): the gate PASSED but a test step
   exited 0 having executed no tests (every test skipped, or none collected).
   Continue as for `ok`, but report the counts from the runner's `warnings` array
   verbatim and say plainly that this gate proved nothing about the change - never
@@ -112,8 +116,8 @@ The helper ends with a machine-readable marker:
   the fuller test target if the Makefile has one.
 - `FLOW_FINISH_GATE: fail` (exit 1): parse the runner/make output above the
   marker, report the failed step, and **stop**. Do not proceed to PR creation.
-- `FLOW_FINISH_GATE: skipped` (exit 0): no runner AND no Makefile lint/test/typecheck
-  targets - warn the user, then continue.
+- `FLOW_FINISH_GATE: skipped` (exit 4): no runner AND no Makefile lint/test/typecheck
+  targets - this gate did NOT run and proved nothing; warn the user, then continue.
 
 ### Step 2b: Run Security Quick Scan (fallback only - runner includes this)
 
@@ -186,15 +190,15 @@ BARE (#581 discipline):
 ~/.claude/scripts/flow-finish-gate.sh --check-summary
 ```
 
-- `FLOW_FINISH_GATE: warn` - **missing required targets**: display as a warning but **do NOT block**.
+- `FLOW_FINISH_GATE: warn` (exit 3) - **missing required targets**: display as a warning but **do NOT block**.
   ```
   ⚠️  Makefile check: 1 required target missing (typecheck)
       Run /cicd-check for details or /cicd-init to fix
   ```
-- `FLOW_FINISH_GATE: ok` - report briefly - `"Makefile check: OK (6/6 targets present)"`
-- `FLOW_FINISH_GATE: skipped` - `lib/cicd` unavailable or no Makefile: skip silently (Step 2 already handles the no-Makefile case)
+- `FLOW_FINISH_GATE: ok` (exit 0) - report briefly - `"Makefile check: OK (6/6 targets present)"`
+- `FLOW_FINISH_GATE: skipped` (exit 4) - `lib/cicd` unavailable or no Makefile: skip silently (Step 2 already handles the no-Makefile case)
 
-**This step never blocks the flow** - it is purely informational.
+**This step never blocks the flow** - it is purely informational, regardless of exit code (issue #1027 gave `ok`/`warn`/`skipped` distinct codes; read the word, not the exit status, here).
 
 **Acceptance accounting (issue #860).** The quality gates above are evidence about
 CHECKS. Before opening the PR, account for what was actually delivered: every

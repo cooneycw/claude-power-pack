@@ -970,11 +970,15 @@ git merge --no-edit origin/main
    plugin, #590), else the CPP-checkout copy; either may prompt once - tell the
    user to run **`/flow:repair`** to restore the prompt-free lane.)
 
-   The helper ends with a machine-readable marker:
+   The helper ends with a machine-readable marker. Each verdict now has its OWN
+   exit code (issue #1027) - `ok`, `warn` and `skipped` used to share exit 0,
+   so a caller reading only `$?` could not tell "passed cleanly" from "passed
+   but proved nothing" from "did not run at all". Read the exit code, not just
+   the word, if you are scripting around this helper:
    - `FLOW_FINISH_GATE: ok` (exit 0): gates passed - via the runner, or its
      documented Makefile fallback when the runner is unavailable (the helper
      prints a NOTE naming which path ran). Proceed to commit.
-   - `FLOW_FINISH_GATE: warn` (exit 0, issue #621): the gate PASSED but a test
+   - `FLOW_FINISH_GATE: warn` (exit 3, issue #621): the gate PASSED but a test
      step exited 0 having executed no tests - every test skipped, or none were
      collected. Proceed, but report the counts to the user verbatim (they are in
      the runner's `warnings` array above the marker) and say plainly that this
@@ -988,8 +992,9 @@ git merge --no-edit origin/main
      `make test-pg` sitting unused beside the `make test` the gate ran.
    - `FLOW_FINISH_GATE: fail` (exit 1): parse the runner/make output above the
      marker, report the failed step, **STOP**.
-   - `FLOW_FINISH_GATE: skipped` (exit 0): no runner AND no Makefile
-     lint/test/typecheck targets - warn the user, then proceed.
+   - `FLOW_FINISH_GATE: skipped` (exit 4): no runner AND no Makefile
+     lint/test/typecheck targets - this gate did NOT run and proved nothing;
+     warn the user, then proceed.
 
    **Ignored-additions guard** (issue #430, Finding 1): before committing, warn
    if a blanket `.gitignore` rule silently swallowed a new file you meant to
