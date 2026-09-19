@@ -53,15 +53,25 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 COMMANDS = ROOT / ".claude" / "commands"
 
-#: Closing surfaces that must carry the routing step.
+#: Closing surfaces that must carry the routing step. `flow/auto.md` inlines
+#: its own Finish stage rather than delegating to `finish.md` and had no
+#: routing step at all until issue #1030 - the same gap #865 closed for
+#: `finish.md` and `code_review.md`.
 SURFACES = (
     COMMANDS / "flow" / "finish.md",
+    COMMANDS / "flow" / "auto.md",
     COMMANDS / "codex" / "code_review.md",
 )
 
-#: The generated bundle a codex-lane session reads instead of the command file.
-#: Only `flow` is mirrored; see the module docstring.
-MIRROR = ROOT / "codex" / "skills" / "flow-finish" / "reference.md"
+#: The generated bundle a codex-lane session reads instead of the command file,
+#: for each surface that has one. Only `flow` is mirrored (see the module
+#: docstring on why `codex/code_review.md` is not, so `code_review.md` is
+#: absent from this mapping on purpose - `test_generated_codex_bundle_carries_
+#: the_step` is parametrized over this dict's keys, not over SURFACES).
+MIRRORS = {
+    COMMANDS / "flow" / "finish.md": ROOT / "codex" / "skills" / "flow-finish" / "reference.md",
+    COMMANDS / "flow" / "auto.md": ROOT / "codex" / "skills" / "flow-auto" / "reference.md",
+}
 
 #: Each probe is (name, pattern). Every one must match every surface, and every
 #: one must FAIL on a document with the section removed - see the control below.
@@ -130,6 +140,22 @@ def test_the_step_is_a_closing_step_in_finish() -> None:
     assert create_pr < nit < output
 
 
+def test_the_step_is_a_closing_step_in_auto() -> None:
+    """Same placement rule as finish.md: after the PR exists, before Merge.
+
+    `/flow:auto` inlines its own Finish stage rather than delegating to
+    `finish.md` (issue #1030) - the current `flow/auto.md`, with no routing
+    step at all between PR creation and Step 7, is itself the pre-fix red
+    case for this ordering: there is no "Step 6b" heading to find until this
+    fix adds one.
+    """
+    text = (COMMANDS / "flow" / "auto.md").read_text()
+    create_pr = text.index('5. **Create PR** - if no PR exists:')
+    nit = text.index("### Step 6b: Route Supplemental Findings to the Nit Store")
+    merge = text.index("### Step 7: Merge - Squash-Merge and Clean Up")
+    assert create_pr < nit < merge
+
+
 def test_finish_output_reports_what_was_stored() -> None:
     """A finding recorded but not reported is indistinguishable from one dropped."""
     text = (COMMANDS / "flow" / "finish.md").read_text()
@@ -138,17 +164,24 @@ def test_finish_output_reports_what_was_stored() -> None:
     assert "#issuecomment-" in output, "the example must show a comment link"
 
 
-def test_generated_codex_bundle_carries_the_step() -> None:
+@pytest.mark.parametrize("surface,mirror", MIRRORS.items(), ids=lambda p: p.name)
+def test_generated_codex_bundle_carries_the_step(surface: Path, mirror: Path) -> None:
     """A codex-lane session reads the bundle, not the command file.
 
-    Guards the drift the issue's own note warns about: `make codex-skills` must
-    have been run after editing `flow/finish.md`, or this lane silently keeps the
-    old text.
+    Guards the drift the issue's own note warns about: `codex-skill-sync.py
+    --write` must have been run after editing the surface, or this lane
+    silently keeps the old text. Parametrized over MIRRORS rather than a
+    single path (issue #1030): `flow/auto.md` gained this section and has its
+    own generated bundle at `codex/skills/flow-auto/`, alongside the existing
+    `flow/finish.md` -> `codex/skills/flow-finish/` mirror.
     """
-    assert MIRROR.is_file(), f"{MIRROR} is missing"
-    mirrored = _section(MIRROR.read_text())
+    assert mirror.is_file(), f"{mirror} is missing"
+    mirrored = _section(mirror.read_text())
     for name, pattern in PROBES:
-        assert pattern.search(mirrored), f"generated bundle no longer {name} - run `make codex-skills`"
+        assert pattern.search(mirrored), (
+            f"{mirror.relative_to(ROOT)} no longer {name} - "
+            "run `python3 scripts/codex-skill-sync.py --write`"
+        )
 
 
 def test_probes_are_not_vacuous() -> None:
