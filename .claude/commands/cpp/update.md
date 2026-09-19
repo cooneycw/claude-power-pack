@@ -90,19 +90,98 @@ Report the version comparison to the user.
 
 **Only if behind remote.** Ask user for confirmation before pulling.
 
-If there are uncommitted changes, warn and ask if they want to stash first.
+If there are uncommitted changes, warn and **ask** whether to set them aside.
+Ask for real - this step used to say "ask" in prose and stash unconditionally in
+the code, which is how a user's work was moved without their knowing (issue
+#1056).
+
+**The stash stack is SHARED with every linked worktree** (`refs/stash` lives in
+the repository's common git dir, which a worktree does not get its own copy of).
+So two rules govern the block below, and neither is optional:
+
+1. **Tag the entry and restore it by SHA - never a bare `git stash pop`.** A
+   bare pop takes whatever is on TOP of the stack, which with concurrent
+   sessions is routinely somebody else's entry: on #1032 a worker's pop restored
+   67 lines of a different session's in-progress work and lost its own. The SHA
+   captured at push time names OUR entry and cannot resolve to a stranger's.
+2. **Never leave the entry behind silently.** The version of this step before
+   #1056 pushed and had NO restore step at all, so a `/cpp:update` on 2026-09-03
+   left an entry sitting unclaimed on the shared stack for sixteen days. If the
+   restore cannot run, say the SHA out loud - an orphan nobody is told about is
+   indistinguishable from work that was never set aside.
+
+`/cpp:update` runs in `$CPP_DIR`, the MAIN checkout, so
+`scripts/stash-worktree-guard.sh` does not refuse this push - that guard
+refuses pushes from a linked worktree. The discipline here is what makes the
+main-checkout case safe; nothing enforces it for you. See
+`docs/agents/shared-stash-stack.md`.
 
 ```bash
 cd "$CPP_DIR"
 
-# Stash if needed
+# Set aside only on the user's answer above, and only with an entry we can
+# identify later. $$ disambiguates two /cpp:update runs started in the same
+# second (issue #1056).
+STASH_TAG="cpp-update-$(date +%Y%m%d-%H%M%S)-$$"
+STASH_SHA=""
 if ! git diff --quiet || ! git diff --cached --quiet; then
-  echo "Stashing uncommitted changes..."
-  git stash push -m "cpp-update auto-stash $(date +%Y%m%d-%H%M%S)"
+  echo "Setting uncommitted changes aside as '$STASH_TAG'..."
+  if git stash push -m "$STASH_TAG"; then
+    # Capture the SHA IMMEDIATELY. stash@{0} is a moving target - a sibling
+    # session pushing between here and the restore renumbers every entry, and
+    # the SHA is the only handle that stays ours.
+    #
+    # EXACT match, not a substring. git records the message as "On <branch>:
+    # <tag>", so the tag is an exact SUFFIX; `$0 ~ t` would let the tag
+    # cpp-update-20260919-120000-123 select an entry tagged ...-1234 and restore
+    # a different session's work despite using a SHA afterwards. Require exactly
+    # one match, too: two is ambiguous and picking the first is a guess.
+    STASH_MATCHES=$(git stash list --format='%H%x09%gs' \
+      | awk -F'\t' -v t=": $STASH_TAG" \
+          '{ n=length($2); m=length(t); if (n >= m && substr($2, n-m+1) == t) print $1 }')
+    STASH_COUNT=$(printf '%s' "$STASH_MATCHES" | grep -c . || true)
+    if [ "$STASH_COUNT" = "1" ]; then
+      STASH_SHA="$STASH_MATCHES"
+      echo "  entry: $STASH_SHA"
+    else
+      STASH_SHA=""
+      echo "  WARNING: $STASH_COUNT entries matched '$STASH_TAG' - not restoring automatically."
+      echo "  Your work is on the stash stack; find it with: git stash list"
+    fi
+  else
+    echo "STOP: could not set the changes aside; not pulling over a dirty tree."
+    exit 1
+  fi
 fi
 
 # Pull latest
 git pull origin $CURRENT_BRANCH
+
+# Restore by SHA, never `git stash pop` (issue #1056).
+if [ -n "$STASH_SHA" ]; then
+  if git stash apply "$STASH_SHA"; then
+    # DO NOT DROP IT AUTOMATICALLY. `git stash drop` takes only a stash@{n}
+    # index, and an index is not a stable handle on a shared stack: between
+    # resolving stash@{n} by tag and running the drop, a sibling session's push
+    # renumbers every entry and the drop deletes THEIRS. There is no SHA form of
+    # drop to close that window with, so this step reports the entry instead of
+    # racing for it - the same reasoning that made the restore above use the SHA.
+    # An entry the user is TOLD about is not the #1056 orphan; an entry nobody
+    # mentions is.
+    echo "Restored your uncommitted changes."
+    echo "  The stash entry was kept (dropping it safely needs a stable handle the"
+    echo "  shared stack does not offer). Clear it when no other session is stashing:"
+    echo "    git stash list   # find the entry tagged $STASH_TAG"
+    echo "    git stash drop stash@{N}"
+  else
+    echo ""
+    echo "NOTE: your changes are SAFE but could not be applied cleanly (likely a"
+    echo "      conflict with what was just pulled). They are kept at:"
+    echo "        $STASH_SHA  ($STASH_TAG)"
+    echo "      Recover with:  git stash apply $STASH_SHA"
+    echo "      The entry was NOT dropped."
+  fi
+fi
 
 NEW_COMMIT=$(git rev-parse --short HEAD)
 # Same source-of-truth derivation as Step 2 (issue #544).

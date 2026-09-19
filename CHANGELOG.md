@@ -15,6 +15,60 @@
 
 ### Added
 
+- **2026-09-19 - refuse `git stash push` from a linked worktree, and stop
+  `/cpp:update` orphaning work on the shared stack** (issue #1056) - a worktree
+  isolates the working tree and NOT the refs. `refs/stash` lives in the
+  repository's common git dir, so every worktree plus the main checkout share
+  ONE stack, and `git stash pop` takes whatever is on top rather than what you
+  put there. #635 fixed this for `/flow:auto` and `/flow:finish` by writing
+  "never stash here" into those two command documents, which binds only a caller
+  reading one of them at that moment - so it did not bind the `/codex:auto`
+  worker on #1032 that stashed in its own worktree, popped, and got 67 lines of a
+  different session's in-progress #1027 work while its own entry vanished from
+  the reflog. It also did not bind `/cpp:update`, whose Step 3 pushed
+  unconditionally and had **no restore step at all**, leaving a 2026-09-03 entry
+  unclaimed on the shared stack for sixteen days. New
+  `scripts/stash-worktree-guard.sh` is a git `reference-transaction` hook
+  that refuses the push, so it binds a human, Claude, Codex, Qwen and a shell
+  script equally - the rule stops being advice in documents describing the safe
+  paths and starts being a refusal at the unsafe one. `/cpp:update` now asks for
+  real, tags its entry, captures the SHA at push time and restores with
+  `git stash apply <sha>`, never a bare pop, and says the SHA out loud if the
+  restore cannot run. `docs/agents/shared-stash-stack.md` is the findable home
+  for the mechanism and the three alternatives, since "produce a RED case against
+  pre-fix code" is routine here and stash is the obvious wrong tool for it.
+  **The guard covers `push` only, and the bound is structural rather than
+  unfinished.** Measured on git 2.43.0: on `push` the `refs/stash` transaction
+  reaches `prepared` before the working tree is touched, so refusing aborts
+  cleanly - exit 128, working tree byte-identical, no entry created. On `pop`
+  git applies the stash and prints `Dropped refs/stash@{0}` FIRST and the veto
+  fires afterwards, leaving the tree mutated AND the entry gone, which is
+  strictly worse than not guarding; `drop` has the same shape. So it acts only
+  on entry CREATION, whose signature at `prepared` is unambiguous (`old` is the
+  null OID), and the header, the refusal message, the doc and
+  `test_pop_is_not_guarded` all say that its silence on a pop is not approval.
+  Fail-open everywhere else, because it fires on every ref update in the
+  repository. Installation is explicit and per repository (`--install` /
+  `--check` / `--uninstall`); it COPIES rather than symlinks, since a symlink
+  into a checkout later moved or deleted leaves a dangling hook in every
+  worktree. Its negative control lives in
+  `tests/test_stash_worktree_guard.py` rather than `controls/`, because git
+  is absent from the `negative-controls` CI image by design and a git-dependent
+  control there reports UNSIGNALLED and reds the build; it carries both halves
+  the issue names - a worktree push refused with the tree byte-identical, and the
+  same push from the main checkout succeeding - and verification by mutation
+  before shipping reddened exactly those two refusal tests and left the other
+  twelve green, the correct signature since a blind guard permits everything.
+  Census row 74 of ADR 0008. Two counter-model passes raised eight findings,
+  all accepted and fixed with committed red cases: a racy index-based
+  `git stash drop` in the restore path (there is no SHA form of `drop`, so
+  the entry is now reported rather than raced for), `core.hooksPath` ignored
+  by the installer, `--check` calling a non-executable hook `current`, a
+  substring tag match that could select a longer sibling tag, and four
+  detector defects in the new doc pin - `if git stash pop; then` unmatched,
+  a bare `git stash apply` accepted, and quoted text in `echo` read as
+  execution in both directions.
+
 - **2026-09-16 - a per-advisory disposition register for the root lockfile**
   (issue #922) - a scanner reporting `pygments 2.19.2` and `pytest 9.0.2` says
   nothing about whether this repository can be hurt by them, so the same two
