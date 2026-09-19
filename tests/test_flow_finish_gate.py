@@ -170,7 +170,7 @@ def test_qualified_gate_does_not_assert_a_cause_it_did_not_establish(
         uv_stdout=_runner_json(_UNKNOWN_WARNING),
     )
 
-    assert proc.returncode == 0
+    assert proc.returncode == 3
     assert "FLOW_FINISH_GATE: warn" in proc.stdout
 
     line = _qualified_line(proc.stdout)
@@ -200,7 +200,7 @@ def test_the_qualified_line_still_fires_for_a_real_no_tests_warning(
         uv_stdout=_runner_json(_NO_TESTS_WARNING),
     )
 
-    assert proc.returncode == 0
+    assert proc.returncode == 3
     assert "FLOW_FINISH_GATE: warn" in proc.stdout
     # The line is emitted; the CAUSE is carried by the runner's own warning,
     # which is tee'd through and does say it executed no tests.
@@ -260,7 +260,7 @@ def test_fallback_missing_gate_reports_warn_named(tmp_path: Path) -> None:
     names it - never a bare `ok` (#628)."""
     (tmp_path / "Makefile").write_text("lint:\n\ttrue\ntest:\n\ttrue\n")
     proc, bindir = _run(tmp_path, cpp_dir="", uv_exit=None, make_exit=0)
-    assert proc.returncode == 0
+    assert proc.returncode == 3
     assert "FLOW_FINISH_GATE: warn" in proc.stdout
     assert "FLOW_FINISH_GATE: ok" not in proc.stdout
     assert "typecheck" in proc.stdout
@@ -297,7 +297,7 @@ def test_fallback_fail(tmp_path: Path) -> None:
 @requires_bash
 def test_skipped_when_no_runner_and_no_makefile(tmp_path: Path) -> None:
     proc, _ = _run(tmp_path, cpp_dir="", uv_exit=None)
-    assert proc.returncode == 0
+    assert proc.returncode == 4
     assert "FLOW_FINISH_GATE: skipped" in proc.stdout
     assert "SKIPPED" in proc.stdout
 
@@ -316,11 +316,11 @@ def test_check_summary_ok(tmp_path: Path) -> None:
 
 
 @requires_bash
-def test_check_summary_warn_is_exit_zero(tmp_path: Path) -> None:
+def test_check_summary_warn_is_exit_three(tmp_path: Path) -> None:
     cpp = _fake_cpp(tmp_path)
     (tmp_path / "Makefile").write_text("lint:\n\ttrue\n")
     proc, _ = _run(tmp_path, "--check-summary", cpp_dir=str(cpp), uv_exit=3)
-    assert proc.returncode == 0
+    assert proc.returncode == 3
     assert "FLOW_FINISH_GATE: warn" in proc.stdout
 
 
@@ -328,7 +328,7 @@ def test_check_summary_warn_is_exit_zero(tmp_path: Path) -> None:
 def test_check_summary_skipped_without_runner(tmp_path: Path) -> None:
     (tmp_path / "Makefile").write_text("lint:\n\ttrue\n")
     proc, _ = _run(tmp_path, "--check-summary", cpp_dir="", uv_exit=None)
-    assert proc.returncode == 0
+    assert proc.returncode == 4
     assert "FLOW_FINISH_GATE: skipped" in proc.stdout
 
 
@@ -336,7 +336,7 @@ def test_check_summary_skipped_without_runner(tmp_path: Path) -> None:
 def test_check_summary_skipped_without_makefile(tmp_path: Path) -> None:
     cpp = _fake_cpp(tmp_path)
     proc, _ = _run(tmp_path, "--check-summary", cpp_dir=str(cpp), uv_exit=0)
-    assert proc.returncode == 0
+    assert proc.returncode == 4
     assert "FLOW_FINISH_GATE: skipped" in proc.stdout
 
 
@@ -422,7 +422,8 @@ def _run_with_uv_stub(
 def test_qualified_run_reports_warn_not_ok(tmp_path: Path) -> None:
     """The runner qualifies an all-skipped test step; this helper is the layer
     the flow commands read, so flattening that back to a bare `ok` would re-hide
-    the #621 false green one level up. Exit status stays 0 - it is a signal."""
+    the #621 false green one level up. Exit status is 3 (issue #1027) - a
+    signal, not a failure, but distinct from a clean `ok`."""
     cpp = _fake_cpp(tmp_path)
     payload = (
         '{\n  "success": true,\n  "steps_completed": 3,\n'
@@ -437,7 +438,7 @@ def test_qualified_run_reports_warn_not_ok(tmp_path: Path) -> None:
         'skipped) - this gate proved nothing about the change (issue #621)"]\n}'
     )
     proc = _run_with_uv_stub(tmp_path, cpp, payload)
-    assert proc.returncode == 0
+    assert proc.returncode == 3
     assert "FLOW_FINISH_GATE: warn" in proc.stdout
     assert "FLOW_FINISH_GATE: ok" not in proc.stdout
     assert "issue #621" in proc.stdout
@@ -488,7 +489,7 @@ def test_runner_rerun_passed_reports_warn_and_ids(tmp_path: Path) -> None:
 }"""
     proc = _run_with_uv_stub(tmp_path, cpp, payload)
 
-    assert proc.returncode == 0
+    assert proc.returncode == 3
     assert "FLOW_FINISH_GATE: warn" in proc.stdout
     assert "FLOW_FINISH_GATE: ok" not in proc.stdout
     assert "RERUN_PASSED: tests/a.py::t1" in proc.stdout
@@ -602,7 +603,7 @@ def test_runner_rerun_reports_multiple_ids(tmp_path: Path) -> None:
 }"""
     proc = _run_with_uv_stub(tmp_path, cpp, payload)
 
-    assert proc.returncode == 0
+    assert proc.returncode == 3
     assert (
         "RERUN_PASSED: tests/a.py::t1 tests/b.py::TestB::t2[param]"
         in proc.stdout
@@ -645,7 +646,7 @@ def test_fallback_rerun_passes_and_warns(tmp_path: Path) -> None:
 
     proc, _ = _run(tmp_path, cpp_dir="", uv_exit=None, cwd=tmp_path)
 
-    assert proc.returncode == 0
+    assert proc.returncode == 3
     assert "FLOW_FINISH_GATE: warn" in proc.stdout
     assert "RERUN_PASSED: tests/a.py::t1" in proc.stdout
     assert "issue #769" in proc.stdout
@@ -690,7 +691,7 @@ def test_skipped_gates_win_but_rerun_ids_are_still_printed(tmp_path: Path) -> No
 }"""
     proc = _run_with_uv_stub(tmp_path, cpp, payload)
 
-    assert proc.returncode == 0
+    assert proc.returncode == 3
     assert "FLOW_FINISH_GATE: warn (skipped gates: typecheck)" in proc.stdout
     assert "RERUN_PASSED: tests/a.py::t1" in proc.stdout
 
@@ -740,7 +741,7 @@ def test_fallback_rerun_appends_to_host_pytest_addopts(tmp_path: Path) -> None:
         text=True,
     )
 
-    assert proc.returncode == 0
+    assert proc.returncode == 3
     assert "PYTEST_ADDOPTS=-p no:randomly --last-failed" in proc.stdout
 
 
@@ -762,14 +763,14 @@ def test_runner_skipped_gates_report_warn_named(tmp_path: Path) -> None:
     """The runner emits a "skipped": [...] array for skip_if-skipped gates. This
     helper is the layer the flow commands read, so it must report `warn` and NAME
     the skipped gates rather than flatten the run to a bare `ok` - the exact
-    false green of #628. Exit stays 0 - it is a signal."""
+    false green of #628. Exit is 3 (issue #1027) - it is a signal."""
     cpp = _fake_cpp(tmp_path)
     payload = (
         '{\n  "success": true,\n  "steps_completed": 4,\n  "steps_total": 4,\n'
         '  "skipped": [\n    "lint",\n    "test",\n    "typecheck"\n  ]\n}'
     )
     proc = _run_with_uv_stub(tmp_path, cpp, payload)
-    assert proc.returncode == 0
+    assert proc.returncode == 3
     assert "FLOW_FINISH_GATE: warn" in proc.stdout
     assert "FLOW_FINISH_GATE: ok" not in proc.stdout
     for gate in ("lint", "test", "typecheck"):
@@ -826,7 +827,7 @@ def test_runner_skipped_security_scan_reports_warn(tmp_path: Path) -> None:
         '  "skipped": [\n    "security_scan"\n  ]\n}'
     )
     proc = _run_with_uv_stub(tmp_path, cpp, payload)
-    assert proc.returncode == 0
+    assert proc.returncode == 3
     assert "FLOW_FINISH_GATE: warn (skipped gates: security_scan)" in proc.stdout
     assert "FLOW_FINISH_GATE: ok" not in proc.stdout
     assert "issue #628" in proc.stdout
@@ -888,7 +889,7 @@ def test_carried_unverified_is_warn(tmp_path: Path) -> None:
         '  "carried_from_previous_run": [\n    "lint"\n  ]\n}'
     )
     proc = _run_with_uv_stub(tmp_path, cpp, payload)
-    assert proc.returncode == 0
+    assert proc.returncode == 3
     assert "FLOW_FINISH_GATE: warn (carried, unverified: lint)" in proc.stdout
     assert "FLOW_FINISH_GATE: ok" not in proc.stdout
     assert "issue #804" in proc.stdout
@@ -921,7 +922,7 @@ def test_multiple_carried_steps_are_all_named(tmp_path: Path) -> None:
         '  "carried_from_previous_run": [\n    "lint",\n    "typecheck"\n  ]\n}'
     )
     proc = _run_with_uv_stub(tmp_path, cpp, payload)
-    assert proc.returncode == 0
+    assert proc.returncode == 3
     assert "FLOW_FINISH_GATE: warn (carried, unverified: lint typecheck)" in proc.stdout
 
 
@@ -939,7 +940,7 @@ def test_skipped_gates_still_win_over_unverified_carry(tmp_path: Path) -> None:
         '  "skipped": [\n    "typecheck"\n  ]\n}'
     )
     proc = _run_with_uv_stub(tmp_path, cpp, payload)
-    assert proc.returncode == 0
+    assert proc.returncode == 3
     assert "FLOW_FINISH_GATE: warn (skipped gates: typecheck)" in proc.stdout
 
 
@@ -952,9 +953,11 @@ def test_skipped_gates_still_win_over_unverified_carry(tmp_path: Path) -> None:
 # case above, one level in, and it sits inside the instrument everything else
 # trusts.
 #
-# The threshold is deliberately unchanged. `skipped` keeps its exit code and a
-# repo where the fallback IS the gate still reports `ok`; what changes is that
-# the report now says which targets ran and which the repo expected.
+# The THRESHOLD is deliberately unchanged: a repo where the fallback IS the
+# gate still reports `ok`, and this issue does not touch when `skipped` fires.
+# What changed (issue #1027) is `skipped`'s own exit code, not this threshold;
+# what #808 changed is that the report now says which targets ran and which
+# the repo expected.
 
 
 @requires_bash
@@ -978,7 +981,7 @@ def test_an_aggregate_gate_the_fallback_cannot_run_is_a_warn(tmp_path: Path) -> 
         "verify: lint test typecheck extra-check\n"
     )
     proc, bindir = _run(tmp_path, cpp_dir="", uv_exit=None, make_exit=0)
-    assert proc.returncode == 0
+    assert proc.returncode == 3
     assert "FLOW_FINISH_GATE: warn" in proc.stdout
     assert "FLOW_FINISH_GATE: ok" not in proc.stdout
     assert "extra-check" in proc.stdout
@@ -1040,12 +1043,15 @@ def test_a_multi_line_aggregate_is_detected(tmp_path: Path) -> None:
 
 @requires_bash
 def test_the_skipped_threshold_is_unchanged(tmp_path: Path) -> None:
-    """Explicitly pinned, because this ticket's scope excluded it: a repo with
-    no gate targets still reports `skipped` at exit 0. Changing that is the
-    oscillation-prone class and was ruled out, so a later reader should see it
-    asserted rather than assume it drifted."""
+    """Pinned by #808/#809, which explicitly excluded exit-code changes from
+    its own scope: a repo with no gate targets reports `skipped`. #1027 is the
+    ticket that DOES change the exit code (0 -> 4, so a caller reading only
+    `$?` can tell "did not run" from a clean `ok`) - see the header table. The
+    THRESHOLD this test's name refers to - when `skipped` fires, not what it
+    exits - is what stays unchanged; a later reader should see the new code
+    asserted rather than assume either half drifted."""
     proc, _ = _run(tmp_path, cpp_dir="", uv_exit=None, make_exit=None)
-    assert proc.returncode == 0
+    assert proc.returncode == 4
     assert "FLOW_FINISH_GATE: skipped" in proc.stdout
 
 
