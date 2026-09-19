@@ -616,6 +616,418 @@ def test_a_non_tool_error_state_is_not_counted_as_a_tool_error(tmp_path: Path) -
     assert contract(run(str(output), "0", "--lane", "gemma").stdout)["DELEGATED_RUN_TOOL_ERRORS"] == ["0"]
 
 
+# ---------------------------------------------------------------------------
+# Issue #1054: the counter above matched ONE harness's shape. `state.status ==
+# "error"` is how OpenCode/gemma writes down a failed tool call; the Codex CLI
+# emits no `state` at all and the Qwen CLI does not either, so on those two
+# lanes `TOOL_ERRORS` was structurally incapable of being non-zero - `0` meant
+# "cannot see" and reads identically to the "checked, none" the line was added
+# to promise.
+#
+# Every codex-lane assertion in this file expected `0`, and both non-zero
+# assertions (`test_a_run_whose_tool_call_was_denied_reports_success_and_says_so`
+# and `test_the_tool_error_counter_can_fire`) are `--lane gemma`. So the counter
+# had a negative control for the shape it could see and none for either shape it
+# could not, which is why this survived #836 and #892. The pins below are those
+# missing controls, one per lane, plus the discrimination controls that keep a
+# recognizer which counts EVERYTHING from satisfying them.
+# ---------------------------------------------------------------------------
+
+
+def test_the_tool_error_counter_can_fire_on_the_codex_lane() -> None:
+    """The missing committed case, on a REAL capture (issue #1054).
+
+    `codex-command-failed.jsonl` is a genuine `codex exec --json` run whose one
+    command exited 3. Measured against the helper as it stood before this
+    change: `DELEGATED_RUN_TOOL_ERRORS: 0`, `DELEGATED_RUN_STATUS: success`,
+    and the prose "no tool call reported an error" - an affirmative claim about
+    a command that had just failed, not a silence.
+
+    Both halves are asserted, as in the #836 pin: `failure` would re-introduce
+    the reverted defect where a denied call fails the run, and a non-zero count
+    with the verdict quietly moved is not this fix.
+    """
+    path = FIXTURES / "codex-command-failed.jsonl"
+    assert path.exists(), f"missing fixture {path}"
+
+    proc = run(str(path), "0", "--lane", "codex", "--expect-tools")
+    found = contract(proc.stdout)
+    assert proc.returncode == 0, proc.stdout
+    assert found["DELEGATED_RUN_TOOL_ERRORS"] == ["1"], proc.stdout
+    assert found["DELEGATED_RUN_STATUS"] == ["success"], (
+        "a failed command is not a failed RUN - widening the verdict is the "
+        "reverted #836 defect, not the fix for this one"
+    )
+
+
+def test_a_real_codex_success_capture_still_counts_no_tool_errors() -> None:
+    """The discrimination control, and it is what makes the pin above mean something.
+
+    `codex-complete.jsonl` is a real run that did real work: eight
+    `command_execution` items, every one `exit_code: 0, status: "completed"`,
+    plus `item.started` events carrying `exit_code: null, status: "in_progress"`
+    for the same ids. A recognizer that counted every codex item, or treated a
+    null exit code as non-zero, would satisfy the test above and report a
+    fabricated number on every successful run - the same defect pointing the
+    other way.
+
+    `EVENTS` is asserted too, so this zero is "looked at 20 events and found
+    none" rather than "parsed nothing", which is the distinction the helper's
+    own denominator exists to draw.
+    """
+    path = FIXTURES / "codex-complete.jsonl"
+    assert path.exists(), f"missing fixture {path}"
+
+    found = contract(run(str(path), "0", "--lane", "codex", "--expect-tools").stdout)
+    assert found["DELEGATED_RUN_TOOL_ERRORS"] == ["0"]
+    assert int(found["DELEGATED_RUN_EVENTS"][0]) > 0, "a zero over nothing is not a zero"
+
+
+def test_a_codex_item_still_running_is_not_counted(tmp_path: Path) -> None:
+    """`item.started` is a call in flight, not a failed one.
+
+    Real values, lifted from `codex-complete.jsonl`: an in-progress command
+    carries `exit_code: null` and `status: "in_progress"`. `None` is not a
+    non-zero integer and `in_progress` is not `failed`, and this pins that
+    neither is read as one - a recognizer that counted any item with an
+    `exit_code` key would fire on every command codex has ever started.
+    """
+    output = write_jsonl(
+        tmp_path / "in-flight.jsonl",
+        [
+            {"type": "item.started", "item": {"id": "item_1", "type": "command_execution",
+                                              "command": "make test", "aggregated_output": "",
+                                              "exit_code": None, "status": "in_progress"}},
+            {"type": "turn.completed"},
+        ],
+    )
+    found = contract(run(str(output), "0", "--lane", "codex").stdout)
+    assert found["DELEGATED_RUN_TOOL_ERRORS"] == ["0"]
+    assert "no-tool-use" not in found.get("DELEGATED_RUN_SIGNAL", []), (
+        "the event must have been RECOGNIZED as a tool call for its zero to mean anything"
+    )
+
+
+def test_a_failed_codex_item_is_counted_once_across_its_lifecycle(tmp_path: Path) -> None:
+    """One failed call must be one, however many events carry it.
+
+    The Codex CLI reports a single call across several events sharing an
+    `item.id`; the binary emits `item.started`, `item.updated` and
+    `item.completed`. Only `completed` carries a terminal status in the
+    captures on disk, so this stream is DEFENSIVE rather than observed - it
+    asserts the dedupe holds, and claims nothing about which events codex
+    actually populates.
+
+    Inflation is this defect's mirror image. A count stuck at zero and a count
+    that multiplies are equally unusable to the caller the line exists for, and
+    only one of them looks wrong.
+    """
+    output = write_jsonl(
+        tmp_path / "one-call-three-events.jsonl",
+        [
+            {"type": "item.started", "item": {"id": "item_7", "type": "command_execution",
+                                              "exit_code": None, "status": "in_progress"}},
+            {"type": "item.updated", "item": {"id": "item_7", "type": "command_execution",
+                                              "exit_code": 2, "status": "failed"}},
+            {"type": "item.completed", "item": {"id": "item_7", "type": "command_execution",
+                                                "exit_code": 2, "status": "failed"}},
+            {"type": "turn.completed"},
+        ],
+    )
+    assert contract(run(str(output), "0", "--lane", "codex").stdout)[
+        "DELEGATED_RUN_TOOL_ERRORS"
+    ] == ["1"]
+
+
+def test_a_non_tool_codex_item_is_not_counted(tmp_path: Path) -> None:
+    """The codex recognizer's ownership boundary, the sibling of the #836 pin.
+
+    `agent_message`, `reasoning` and `todo_list` items are the model talking,
+    not tool calls, so a `status` on one of them is not a tool error however it
+    reads. An item whose own type is `"error"` belongs to `is_fatal_item`,
+    which reaches a verdict this counter must never touch.
+
+    TWO LAYERS DECLINE IT, and which one fires is worth stating because the
+    first version of this test did not know. Measured by deleting the
+    item-level `TOOL_TYPES` check and re-running: this case still passed, and
+    the second case below is the one that went red. The event-level gate at the
+    call site (`any(value in TOOL_TYPES for value in tool_types_in(obj))`)
+    declines a lone `agent_message` event before the recognizer is ever
+    entered, so the first stream pins the OUTER gate, not the inner scope.
+
+    The second stream is therefore SYNTHETIC and says so: no codex version
+    emits an item carrying a `name` of `command_execution`. It exists because
+    every observed non-tool shape is stopped by the outer gate, which would
+    leave the inner scope with no input that can make it report the other
+    verdict - a check with no red case, inside a change about exactly that.
+    """
+    outer_gate = write_jsonl(
+        tmp_path / "chatter.jsonl",
+        [
+            {"type": "item.completed", "item": {"id": "item_0", "type": "agent_message",
+                                                "text": "that did not work", "status": "failed"}},
+            {"type": "item.completed", "item": {"id": "item_1", "type": "command_execution",
+                                                "exit_code": 1, "status": "failed"}},
+            {"type": "turn.completed"},
+        ],
+    )
+    assert contract(run(str(outer_gate), "0", "--lane", "codex").stdout)[
+        "DELEGATED_RUN_TOOL_ERRORS"
+    ] == ["1"], "model chatter carrying a failing status is not a tool error"
+
+    inner_scope = write_jsonl(
+        tmp_path / "chatter-past-the-gate.jsonl",
+        [
+            {"type": "item.completed", "item": {"id": "item_0", "type": "agent_message",
+                                                "name": "command_execution",
+                                                "text": "that did not work", "status": "failed"}},
+            {"type": "turn.completed"},
+        ],
+    )
+    found = contract(run(str(inner_scope), "0", "--lane", "codex").stdout)
+    assert found["DELEGATED_RUN_TOOL_ERRORS"] == ["0"], (
+        "the item's OWN type decides, not a tool name found anywhere in the event"
+    )
+    assert "no-tool-use" not in found.get("DELEGATED_RUN_SIGNAL", []), (
+        "this stream must reach the recognizer, or it pins the outer gate again"
+    )
+
+
+def test_a_boolean_exit_code_is_not_a_non_zero_exit_status(tmp_path: Path) -> None:
+    """`isinstance(True, int)` is True in Python, and this is the guard for it.
+
+    A payload carrying `"exit_code": true` has not told us a command exited
+    non-zero. Counting it would be fabricated specificity - a number that looks
+    like a measurement and was never one - which is the failure mode this whole
+    cluster of issues is about, so the exclusion is pinned rather than trusted
+    to a comment. The stream carries a genuinely failed call so the `1`
+    distinguishes "declined the bool" from "counted neither".
+    """
+    output = write_jsonl(
+        tmp_path / "bool-exit.jsonl",
+        [
+            {"type": "item.completed", "item": {"id": "item_0", "type": "command_execution",
+                                                "exit_code": True, "status": "completed"}},
+            {"type": "item.completed", "item": {"id": "item_1", "type": "command_execution",
+                                                "exit_code": 4, "status": "failed"}},
+            {"type": "turn.completed"},
+        ],
+    )
+    assert contract(run(str(output), "0", "--lane", "codex").stdout)[
+        "DELEGATED_RUN_TOOL_ERRORS"
+    ] == ["1"]
+
+
+def test_each_arm_of_the_codex_failure_predicate_fires_alone(tmp_path: Path) -> None:
+    """A disjunction tested only through payloads carrying both arms is untested.
+
+    The real capture reports `status: "failed"` AND `exit_code: 3` together, so
+    every pin above would still pass if one arm were deleted. These two streams
+    separate them: a failed status with no exit code at all (a `file_change` or
+    `mcp_tool_call` has none), and a non-zero exit code under a status that
+    does not say `failed`.
+
+    Raised by the counter-model review's red cases, which is the stage doing
+    its job: the gap was in the CONTROLS, not the code.
+    """
+    status_only = write_jsonl(
+        tmp_path / "status-only.jsonl",
+        [
+            {"type": "item.completed", "item": {"id": "item_1", "type": "file_change",
+                                                "changes": [{"path": "a.py", "kind": "update"}],
+                                                "status": "failed"}},
+            {"type": "turn.completed"},
+        ],
+    )
+    assert contract(run(str(status_only), "0", "--lane", "codex").stdout)[
+        "DELEGATED_RUN_TOOL_ERRORS"
+    ] == ["1"], "a failing status with no exit_code must still count"
+
+    exit_only = write_jsonl(
+        tmp_path / "exit-only.jsonl",
+        [
+            {"type": "item.completed", "item": {"id": "item_1", "type": "command_execution",
+                                                "exit_code": 3, "status": "completed"}},
+            {"type": "turn.completed"},
+        ],
+    )
+    assert contract(run(str(exit_only), "0", "--lane", "codex").stdout)[
+        "DELEGATED_RUN_TOOL_ERRORS"
+    ] == ["1"], "a non-zero exit_code must count whatever the status says"
+
+
+def test_a_declined_codex_item_is_counted(tmp_path: Path) -> None:
+    """DEFENSIVE, and the provenance is the point (issue #1054 review).
+
+    A counter-model reviewer reported that Codex emits `status: "declined"` for
+    a refused command, citing upstream Rust. Measuring the shipped binary
+    (codex-cli 0.155.1) placed that string in the OTHER protocol: `declined`
+    sits beside the camelCase `inProgress` status matchers and beside none of
+    the 47 snake_case `in_progress` ones, and the exec JSONL this helper reads
+    is snake_case throughout. So this shape is NOT claimed to occur in a
+    `codex exec --json` stream, and no fixture asserts that it does.
+
+    It is matched because the risks are asymmetric: missing it would be the
+    false zero this issue is about, while matching it spuriously requires a
+    payload that literally says `"status": "declined"`, which has one meaning.
+    """
+    output = write_jsonl(
+        tmp_path / "declined.jsonl",
+        [
+            {"type": "item.completed", "item": {"id": "item_1", "type": "command_execution",
+                                                "command": "rm -rf /", "exit_code": None,
+                                                "status": "declined"}},
+            {"type": "turn.completed"},
+        ],
+    )
+    proc = run(str(output), "0", "--lane", "codex")
+    found = contract(proc.stdout)
+    assert found["DELEGATED_RUN_TOOL_ERRORS"] == ["1"]
+    assert found["DELEGATED_RUN_STATUS"] == ["success"], "a refusal is the fence working"
+
+
+def test_the_codex_dedupe_does_not_collapse_distinct_calls(tmp_path: Path) -> None:
+    """The control for the dedupe, without which it could swallow everything.
+
+    `test_a_failed_codex_item_is_counted_once_across_its_lifecycle` asserts
+    `1` from three events. A recognizer that counted only the FIRST failure in
+    the whole stream would satisfy it exactly. Two failed calls with DIFFERENT
+    ids must total 2, which is the input that tells "deduped by id" apart from
+    "stopped counting".
+    """
+    output = write_jsonl(
+        tmp_path / "two-distinct.jsonl",
+        [
+            {"type": "item.completed", "item": {"id": "item_1", "type": "command_execution",
+                                                "exit_code": 2, "status": "failed"}},
+            {"type": "item.completed", "item": {"id": "item_2", "type": "command_execution",
+                                                "exit_code": 1, "status": "failed"}},
+            {"type": "turn.completed"},
+        ],
+    )
+    assert contract(run(str(output), "0", "--lane", "codex").stdout)[
+        "DELEGATED_RUN_TOOL_ERRORS"
+    ] == ["2"]
+
+
+def test_the_tool_error_counter_can_fire_on_the_qwen_lane(tmp_path: Path) -> None:
+    """The third lane, which the issue flagged and did not measure (#1054).
+
+    Measured here before the fix: `TOOL_ERRORS: 0`, same as codex. The shape is
+    read out of the installed CLI's own source rather than guessed -
+    `@qwen-code/qwen-code`'s `emitToolResult` emits a `user` event whose
+    `message.content[]` holds a `tool_result` block with
+    `is_error = Boolean(response.error) || Boolean(responsePartsError)`, and
+    pushes a `permissionDenials` entry when `errorType` is `EXECUTION_DENIED`.
+
+    `is_fatal` reads `is_error` only at an event's TOP level - deliberately, so
+    a denied call is not a failed run - and this one is two levels down, so
+    nothing saw it. Provenance differs from the codex pin above and is stated
+    rather than implied: source plus a synthetic stream, not a captured run.
+    """
+    output = write_jsonl(
+        tmp_path / "qwen-denied.jsonl",
+        [
+            {"type": "system", "subtype": "init", "session_id": "s"},
+            {"type": "assistant", "message": {"role": "assistant", "content": [
+                {"type": "tool_use", "id": "t1", "name": "run_shell_command",
+                 "input": {"command": "make lint"}}]}},
+            {"type": "user", "session_id": "s", "parent_tool_use_id": None,
+             "message": {"role": "user", "content": [
+                 {"type": "tool_result", "tool_use_id": "t1", "is_error": True,
+                  "content": "Tool execution denied by policy"}]}},
+            {"type": "result", "subtype": "success", "is_error": False,
+             "num_turns": 5, "result": "Done."},
+        ],
+    )
+    proc = run(str(output), "0", "--lane", "qwen", "--expect-tools")
+    found = contract(proc.stdout)
+    assert proc.returncode == 0, proc.stdout
+    assert found["DELEGATED_RUN_TOOL_ERRORS"] == ["1"], proc.stdout
+    assert found["DELEGATED_RUN_STATUS"] == ["success"], "the fence working is not a failed run"
+
+
+def test_a_successful_qwen_tool_result_is_not_counted(tmp_path: Path) -> None:
+    """The qwen discrimination control.
+
+    Every tool call in the stream above carries a `tool_result` block; only the
+    failed one carries `is_error: true`. Without this, a recognizer that
+    counted `tool_result` blocks outright would pass the pin above and report a
+    tool error for every successful call qwen ever makes.
+    """
+    output = write_jsonl(
+        tmp_path / "qwen-clean.jsonl",
+        [
+            {"type": "assistant", "message": {"role": "assistant", "content": [
+                {"type": "tool_use", "id": "t1", "name": "read_file"}]}},
+            {"type": "user", "message": {"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": "t1", "is_error": False,
+                 "content": "file contents"}]}},
+            {"type": "result", "subtype": "success", "is_error": False,
+             "num_turns": 4, "result": "Done."},
+        ],
+    )
+    found = contract(run(str(output), "0", "--lane", "qwen", "--expect-tools").stdout)
+    assert found["DELEGATED_RUN_TOOL_ERRORS"] == ["0"]
+    assert "no-tool-use" not in found.get("DELEGATED_RUN_SIGNAL", []), (
+        "the tool_result must have been recognized for its zero to mean anything"
+    )
+
+
+def test_an_is_error_outside_a_tool_result_block_is_not_counted(tmp_path: Path) -> None:
+    """The qwen recognizer's type scope, the sibling of the codex one.
+
+    `is_error` is not the whole signal - the block must be a `tool_result`.
+    A `text` block carrying `is_error: true` is not a tool call, and counting
+    it would let a neighbour inflate the number. The stream carries a genuine
+    failed tool_result so the `1` proves the recognizer ran and declined the
+    other block, rather than the event having been skipped entirely.
+    """
+    output = write_jsonl(
+        tmp_path / "qwen-mixed.jsonl",
+        [
+            {"type": "user", "message": {"role": "user", "content": [
+                {"type": "text", "text": "something went wrong", "is_error": True},
+                {"type": "tool_result", "tool_use_id": "t1", "is_error": True,
+                 "content": "denied"}]}},
+            {"type": "result", "subtype": "success", "is_error": False,
+             "num_turns": 3, "result": "Done."},
+        ],
+    )
+    assert contract(run(str(output), "0", "--lane", "qwen").stdout)[
+        "DELEGATED_RUN_TOOL_ERRORS"
+    ] == ["1"]
+
+
+def test_the_qwen_recognizer_is_structural_not_recursive(tmp_path: Path) -> None:
+    """A `tool_result` outside `message.content[]` is not this counter's business.
+
+    The recognizer reads exactly `node["message"]["content"][]`, so a
+    `tool_result` sitting at an event's top level contributes nothing to the
+    count. That is deliberate and it is what keeps this change away from
+    `is_fatal`, whose top-level-only read of `is_error` is the reason a denied
+    call is not a failed run - a recursive recognizer here would start counting
+    the very nodes that scoping exists to separate.
+
+    Only `TOOL_ERRORS` is asserted. This stream also trips the PRE-EXISTING
+    `error-payload` signal, because a top-level `is_error: true` genuinely is a
+    harness-level failure; that behaviour is `is_fatal`'s and is not what this
+    pin is about.
+    """
+    output = write_jsonl(
+        tmp_path / "qwen-toplevel.jsonl",
+        [
+            {"type": "tool_result", "tool_use_id": "t1", "is_error": True,
+             "content": "denied"},
+            {"type": "result", "subtype": "success", "is_error": False,
+             "num_turns": 3, "result": "Done."},
+        ],
+    )
+    assert contract(run(str(output), "0", "--lane", "qwen").stdout)[
+        "DELEGATED_RUN_TOOL_ERRORS"
+    ] == ["0"]
+
+
 def test_the_success_prose_no_longer_claims_the_work_happened(clean_run: Path) -> None:
     """The sentence was the defect, so the sentence is pinned.
 
