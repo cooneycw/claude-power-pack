@@ -916,6 +916,31 @@ git merge --no-edit origin/main
        --red-cases-proposed 4 --red-cases-already-covered 3
    ```
 
+   **Stage the receipt immediately, on every status including a skip (issue
+   #1030).** `tests/test_counter_model_review.py::test_every_COMMITTED_
+   receipt_is_well_formed_AND_TRACKED` requires every receipt on disk to be
+   TRACKED - `git ls-files`, not merely present. Nothing between writing the
+   receipt above and the quality gates at item 2 stages it, so a fresh
+   receipt on a first run failed that test on its first attempt every time -
+   an ordering defect, not a false green, since the gate correctly refused,
+   but one that cost a second full gate run on every run that reached here.
+   Stage it right after the write, whatever `--status` was used:
+
+   ```bash
+   git add "$(git rev-parse --show-toplevel)/docs/measurements/counter-model/"*.json
+   ```
+
+   `docs/measurements/counter-model/*.json` already has its own explicit
+   `!` negation in `.gitignore` (issue #934) against the file's blanket
+   `*.json` rule, so a plain `git add` here is not the same silent-no-op trap
+   that bit `.gitignore`-covered receipts before that negation existed
+   (issue #936/#953/#924's own failure shape, verified NOT reproduced here:
+   `git check-ignore` on a receipt in this directory resolves to the `!`
+   line, and `git add` stages it normally). If a future receipt directory
+   ever needs its own negation and does not have one yet, that gap would
+   resurface here identically - the negation is what makes plain `git add`
+   safe, not something this line can assume on its own.
+
    The existing receipts under `docs/measurements/counter-model/` naming
    `codex/gpt-5.5` are NOT corrected retroactively. Each records what its own run
    believed at the time; rewriting them would assert that a different model

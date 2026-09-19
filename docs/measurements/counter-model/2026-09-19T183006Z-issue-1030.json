@@ -1,0 +1,19 @@
+{
+  "branch": "issue-1030-flow-auto-step-6-the-review-diff-cannot-see-new-fi",
+  "counts": {
+    "accepted": 0,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "implementer": "claude/sonnet-5",
+  "issue": "1030",
+  "passes": 1,
+  "recorded_at": "2026-09-19T18:30:06Z",
+  "red_cases": {
+    "already_covered": 2,
+    "proposed": 2
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}
