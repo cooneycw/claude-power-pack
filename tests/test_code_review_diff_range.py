@@ -162,3 +162,159 @@ def test_a_failed_merge_base_does_not_become_an_empty_clean_review() -> None:
     assert re.search(r"if ! MERGE_BASE=|\[ -z \"\$MERGE_BASE\" \]", text), (
         "the merge-base resolution is not checked before the diff is taken"
     )
+
+
+# ---------------------------------------------------------------------------
+# Issue #1030, defect 1: a brand-new, never-`git add`ed file is invisible to
+# `git diff <ref>`. A change whose whole content is one or more new files
+# therefore hands the reviewer a diff that omits the change entirely, and
+# "no findings" then means nothing.
+# ---------------------------------------------------------------------------
+
+
+def test_the_command_stages_untracked_files_before_diffing() -> None:
+    text = COMMAND.read_text(encoding="utf-8")
+    assert re.search(r"git add -N \.", text), (
+        "code_review.md no longer stages untracked files as intent-to-add "
+        "before diffing, so a brand-new file is invisible to the review"
+    )
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is required to build the fixture")
+def test_a_new_untracked_file_is_invisible_without_intent_to_add_and_visible_with_it(
+    tmp_path: Path,
+) -> None:
+    """RED/GREEN for defect 1.
+
+    RED: a plain `git diff <base>` never mentions a file nobody staged - this
+    is the artifact the fix exists to remove, reproduced directly rather than
+    assumed.
+    GREEN: `git add -N .` (intent-to-add) is enough to make the same `git
+    diff <base>` show the file as a real addition, with its full content.
+    """
+    def git(*args: str, cwd: Path) -> str:
+        return subprocess.run(
+            ["git", *args], cwd=cwd, check=True, capture_output=True, text=True,
+            env={"HOME": str(tmp_path), "PATH": "/usr/bin:/bin",
+                 "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@x",
+                 "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@x"},
+        ).stdout
+
+    work = tmp_path / "work"
+    work.mkdir()
+    git("init", "-q", "-b", "main", cwd=work)
+    (work / "base.txt").write_text("base\n", encoding="utf-8")
+    git("add", "-A", cwd=work)
+    git("commit", "-qm", "base", cwd=work)
+    base_sha = git("rev-parse", "HEAD", cwd=work).strip()
+
+    # This author's whole change: one brand-new file, never staged.
+    (work / "new_module.py").write_text("def f():\n    return 1\n", encoding="utf-8")
+
+    pre_fix = git("diff", base_sha, cwd=work)
+    assert "new_module.py" not in pre_fix, (
+        "precondition did not reproduce the artifact: an untracked file must be "
+        "invisible to a plain `git diff <ref>`, or this control proves nothing"
+    )
+
+    git("add", "-N", ".", cwd=work)
+    fixed = git("diff", base_sha, cwd=work)
+    assert "new_module.py" in fixed, "the fixed form still omits the new file"
+    assert "+def f():" in fixed, "the fixed form did not show the file's content as added"
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is required to build the fixture")
+def test_intent_to_add_does_not_disturb_other_staged_work(tmp_path: Path) -> None:
+    """`git add -N .` must not be followed by a blanket `git reset` (issue #1030).
+
+    A blind reset after the diff would discard unrelated content a caller
+    staged earlier in the same run - not merely the intent-to-add markers this
+    command adds. Pin that the markers alone do not stage real content: `git
+    diff --cached` for the untracked file must stay empty even after `add -N`.
+    """
+    def git(*args: str, cwd: Path) -> str:
+        return subprocess.run(
+            ["git", *args], cwd=cwd, check=True, capture_output=True, text=True,
+            env={"HOME": str(tmp_path), "PATH": "/usr/bin:/bin",
+                 "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@x",
+                 "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@x"},
+        ).stdout
+
+    work = tmp_path / "work"
+    work.mkdir()
+    git("init", "-q", "-b", "main", cwd=work)
+    (work / "base.txt").write_text("base\n", encoding="utf-8")
+    git("add", "-A", cwd=work)
+    git("commit", "-qm", "base", cwd=work)
+
+    # Real, intentional staged work from earlier in a run this command must not touch.
+    (work / "already_staged.txt").write_text("earlier work\n", encoding="utf-8")
+    git("add", "already_staged.txt", cwd=work)
+
+    (work / "new_module.py").write_text("def f():\n    return 1\n", encoding="utf-8")
+    git("add", "-N", ".", cwd=work)
+
+    cached = git("diff", "--cached", cwd=work)
+    assert "already_staged.txt" in cached and "earlier work" in cached, (
+        "unrelated staged work must survive untouched"
+    )
+    assert "new_module.py" not in cached, (
+        "intent-to-add must not stage the new file's CONTENT, only mark its path"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Issue #1030, defect 4: the command's own output contract used to say "Return
+# ONLY a findings report", so a caller reading code_review.md alone - not
+# supplying the red-cases ask itself, as /flow:auto used to - got no red cases
+# at all. Fixed by making "## Red cases" part of THIS command's documented
+# contract, with an EXPRESSIBLE empty case: a review that changed no
+# instrument must still emit a sentinel, so an absent section stays
+# distinguishable from a considered zero (`red_cases.proposed: 0` recorded
+# honestly, vs. a missing output nobody asked for).
+# ---------------------------------------------------------------------------
+
+
+def test_the_contract_requires_a_red_cases_section_not_only_findings() -> None:
+    text = COMMAND.read_text(encoding="utf-8")
+    # The precise ORIGINAL instruction line, not the shorter phrase the Notes
+    # section legitimately quotes as historical context for why this changed -
+    # a blanket "not in text" check would false-positive on that quote.
+    assert "Return ONLY a findings report in exactly this format:" not in text, (
+        "code_review.md's prompt still tells the reviewer to return ONLY "
+        "findings, so a caller relying on this document alone gets no red "
+        "cases (issue #1030)"
+    )
+    assert "Return a findings report AND a red cases section" in text, (
+        "code_review.md's prompt no longer asks for both outputs"
+    )
+    assert "## Red cases" in text, (
+        "code_review.md's own prompt no longer asks for a '## Red cases' section"
+    )
+
+
+def test_the_empty_red_cases_case_is_expressible_not_merely_absent() -> None:
+    """The empty case must be a SENTINEL the reviewer is told to emit.
+
+    Without an explicit "write this exact sentence" instruction for the
+    no-instrument-changed case, a reviewer that found nothing to say about red
+    cases would simply omit the section - which `counter-model-receipt.py`
+    could not tell apart from a reviewer that never got asked at all. Pinning
+    the literal sentinel text is what keeps a considered zero from silently
+    becoming a missing output.
+    """
+    text = COMMAND.read_text(encoding="utf-8")
+    assert "None - no instrument changed." in text, (
+        "code_review.md's prompt no longer gives the reviewer an explicit "
+        "empty-case sentinel for '## Red cases', so a considered zero and a "
+        "missing section become indistinguishable"
+    )
+    # The instruction must actually tell the reviewer WHEN to use it (no
+    # instrument added or modified) - the bare string alone could be an
+    # unrelated example rather than the documented empty case.
+    assert re.search(
+        r"modifies no instrument.{0,40}None - no instrument changed", text, re.S
+    ), (
+        "the empty-case sentinel is not tied to 'the change modifies no "
+        "instrument' - it must be clear WHEN a reviewer should emit it"
+    )
