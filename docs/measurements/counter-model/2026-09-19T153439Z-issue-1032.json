@@ -1,0 +1,19 @@
+{
+  "branch": "issue-1032-worktree-ownership-records-cannot-distinguish-held",
+  "counts": {
+    "accepted": 5,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "implementer": "claude/opus-5",
+  "issue": "1032",
+  "passes": 2,
+  "recorded_at": "2026-09-19T15:34:39Z",
+  "red_cases": {
+    "already_covered": 5,
+    "proposed": 8
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}

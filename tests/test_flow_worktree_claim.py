@@ -304,3 +304,368 @@ def test_remove_is_unaffected_when_nothing_is_claimed(repo: tuple[Path, Path]) -
     result = _run(REMOVE, str(wt), "--force", "--delete-branch")
     assert result.returncode == 0, result.stderr
     assert not wt.exists()
+
+
+# --- Process identity, not process existence (issue #1032) -------------------
+#
+# `kill -0 <pid>` answers "some process has this number". Linux recycles pids -
+# on a busy host the space wraps in hours - so a claim read that way reports a
+# long-dead session as LIVE. That is the unsafe direction here: it is the
+# reading that BLOCKS recovery, leaving the worktree removable only via
+# --steal, which is supposed to mean "I am overriding a genuinely live owner".
+#
+# Confirmed RED against the pre-fix helper (`git show <base>:` - never
+# `git stash`, issue #1056): a claim whose pid exists with a non-matching
+# start-time read `held`. It now reads `stale`.
+#
+# The witness is written into the claim as `start=`, field 22 of
+# /proc/<pid>/stat. FLOW_CLAIM_PROC_ROOT is the test seam for it - it exists so
+# BOTH lanes, readable and unreadable, are reachable on a host whose /proc
+# works, which is every host this suite runs on.
+
+MATCHING_START = "111111"
+RECYCLED_START = "999999"
+
+
+def _fake_proc(root: Path, pid: str, start: str) -> Path:
+    """A /proc stand-in holding one process with a chosen start-time.
+
+    The comm field deliberately contains a space and a parenthesis - the one
+    field a process controls, and the reason field 22 cannot be reached by
+    splitting the line on whitespace.
+    """
+    d = root / pid
+    d.mkdir(parents=True, exist_ok=True)
+    fields = ["0"] * 20
+    # Field 22 of the line is field 20 of what remains after the comm, and the
+    # remainder's first field is the state - so the start-time is fields[18].
+    # Verified against a real process on this host whose comm contains spaces
+    # ("npm exec tavily"): there `awk '{print $22}'` yields 11 while this
+    # extraction yields the true start-time, which is the whole reason the
+    # script consumes through the last ') ' instead of splitting the line.
+    fields[18] = start
+    (d / "stat").write_text(f"{pid} (odd )name) S " + " ".join(fields) + "\n")
+    return root
+
+
+def _lock_with(main: Path, wt: Path, *, pid: str, start: str | None, age_s: int = 0) -> None:
+    """Write a claim reason directly, so a specific witness/age can be posed."""
+    import time as _time
+
+    ts = int(_time.time()) - age_s
+    reason = (
+        f"flow-claim issue=42 pid={pid} session={OTHER_SESSION} "
+        f"host=testhost ts={ts}"
+    )
+    if start is not None:
+        reason += f" start={start}"
+    _git(main, "worktree", "unlock", str(wt))
+    _git(main, "worktree", "lock", "--reason", reason, str(wt))
+
+
+def _check_witness(
+    wt: Path, proc_root: Path, *, live: str = OTHER_PID, max_age_hours: str = "24"
+) -> subprocess.CompletedProcess[str]:
+    env = os.environ.copy()
+    env.update(
+        {
+            "CLAUDE_PID": SELF_PID,
+            "CLAUDE_CODE_SESSION_ID": SELF_SESSION,
+            "FLOW_CLAIM_HOST": "testhost",
+            "FLOW_CLAIM_LIVE_PIDS": live,
+            "FLOW_CLAIM_PROC_ROOT": str(proc_root),
+            "FLOW_CLAIM_MAX_AGE_HOURS": max_age_hours,
+        }
+    )
+    return subprocess.run(
+        ["bash", str(CLAIM), "check", str(wt)],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+@requires_git
+def test_claim_records_a_start_time_witness(repo: tuple[Path, Path]) -> None:
+    """The claim carries the field the whole fix depends on."""
+    main, wt = repo
+    _run(CLAIM, "claim", str(wt), "--issue", "42")
+
+    porcelain = _git(main, "worktree", "list", "--porcelain").stdout
+    locked = [ln for ln in porcelain.splitlines() if ln.startswith("locked flow-claim")]
+    assert locked, porcelain
+    assert " start=" in locked[0], locked[0]
+
+
+@requires_git
+def test_a_recycled_pid_reads_stale_not_held(tmp_path: Path, repo: tuple[Path, Path]) -> None:
+    """RED: the pid exists, but it is a different process now."""
+    main, wt = repo
+    proc = _fake_proc(tmp_path / "proc-recycled", OTHER_PID, RECYCLED_START)
+    _lock_with(main, wt, pid=OTHER_PID, start=MATCHING_START)
+
+    res = _check_witness(wt, proc)
+
+    assert _field(res, "OWNER_WITNESS") == "mismatched", res.stdout
+    assert _verdict(res) == "stale", res.stdout
+
+
+@requires_git
+def test_a_matching_witness_is_still_held(tmp_path: Path, repo: tuple[Path, Path]) -> None:
+    """GREEN: a genuinely live owner must still refuse.
+
+    Without this half, the demotion above is indistinguishable from a helper
+    that calls every claim stale - which would be worse than the bug, because
+    it fails toward deleting live sessions' work.
+    """
+    main, wt = repo
+    proc = _fake_proc(tmp_path / "proc-live", OTHER_PID, MATCHING_START)
+    _lock_with(main, wt, pid=OTHER_PID, start=MATCHING_START)
+
+    res = _check_witness(wt, proc)
+
+    assert _field(res, "OWNER_WITNESS") == "matched", res.stdout
+    assert _verdict(res) == "held", res.stdout
+
+
+@requires_git
+def test_a_recycled_pid_is_taken_over_without_steal(
+    tmp_path: Path, repo: tuple[Path, Path]
+) -> None:
+    """The consequence that matters: recovery no longer needs the override.
+
+    Before #1032 this claim was reclaimable only via --steal, collapsing the
+    safe path and the deliberate override into one flag.
+    """
+    main, wt = repo
+    proc = _fake_proc(tmp_path / "proc-recycled", OTHER_PID, RECYCLED_START)
+    _lock_with(main, wt, pid=OTHER_PID, start=MATCHING_START)
+
+    env = os.environ.copy()
+    env.update(
+        {
+            "CLAUDE_PID": SELF_PID,
+            "CLAUDE_CODE_SESSION_ID": SELF_SESSION,
+            "FLOW_CLAIM_HOST": "testhost",
+            "FLOW_CLAIM_LIVE_PIDS": OTHER_PID,
+            "FLOW_CLAIM_PROC_ROOT": str(proc),
+        }
+    )
+    taken = subprocess.run(
+        ["bash", str(CLAIM), "claim", str(wt), "--issue", "42"],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert taken.returncode == 0, taken.stdout + taken.stderr
+    assert _verdict(taken) == "self", taken.stdout
+    assert "recycled" in taken.stderr, taken.stderr
+
+
+@requires_git
+def test_an_unverifiable_claim_is_bounded_by_age(
+    tmp_path: Path, repo: tuple[Path, Path]
+) -> None:
+    """A claim written before #1032 carries no witness, so it is aged out.
+
+    Until #1032 the age bound applied only to claims from ANOTHER host, so a
+    same-host claim on a recycled pid never aged out at all: nothing could ever
+    unwedge it. This is the bound that guarantees it always can.
+    """
+    main, wt = repo
+    proc = _fake_proc(tmp_path / "proc-legacy", OTHER_PID, MATCHING_START)
+    _lock_with(main, wt, pid=OTHER_PID, start=None, age_s=48 * 3600)
+
+    res = _check_witness(wt, proc)
+
+    assert _field(res, "OWNER_WITNESS") == "absent", res.stdout
+    assert _verdict(res) == "stale", res.stdout
+
+
+@requires_git
+def test_a_fresh_unverifiable_claim_is_still_held(
+    tmp_path: Path, repo: tuple[Path, Path]
+) -> None:
+    """GREEN for the bound: inside the window, a witness-less claim still holds.
+
+    `absent` must never be rendered as `mismatched` - a check that cannot read
+    identity has not disproved it.
+    """
+    main, wt = repo
+    proc = _fake_proc(tmp_path / "proc-legacy", OTHER_PID, MATCHING_START)
+    _lock_with(main, wt, pid=OTHER_PID, start=None, age_s=0)
+
+    res = _check_witness(wt, proc)
+
+    assert _field(res, "OWNER_WITNESS") == "absent", res.stdout
+    assert _verdict(res) == "held", res.stdout
+
+
+@requires_git
+def test_a_verified_owner_is_never_aged_out(tmp_path: Path, repo: tuple[Path, Path]) -> None:
+    """The two-sided guard on the threshold change (Oscillation Control).
+
+    Extending the age bound to same-host claims could evict a session that has
+    legitimately worked one worktree for days. It cannot: the bound is applied
+    ONLY where identity could not be established, so a matching witness is
+    decisive at any age. This is the case that would have to fail for anyone to
+    want the threshold moved back.
+    """
+    main, wt = repo
+    proc = _fake_proc(tmp_path / "proc-live", OTHER_PID, MATCHING_START)
+    _lock_with(main, wt, pid=OTHER_PID, start=MATCHING_START, age_s=90 * 24 * 3600)
+
+    res = _check_witness(wt, proc)
+
+    assert _field(res, "OWNER_WITNESS") == "matched", res.stdout
+    assert _verdict(res) == "held", res.stdout
+
+
+@requires_git
+def test_an_unreadable_proc_falls_back_rather_than_inventing_staleness(
+    tmp_path: Path, repo: tuple[Path, Path]
+) -> None:
+    """Portability: no /proc (not Linux) degrades to the pre-#1032 reading.
+
+    Degraded, never wrong. The witness may only DEMOTE on a positively read
+    conflicting value; an unreadable one must not.
+    """
+    main, wt = repo
+    empty = tmp_path / "proc-empty"
+    empty.mkdir()
+    _lock_with(main, wt, pid=OTHER_PID, start=MATCHING_START)
+
+    res = _check_witness(wt, empty)
+
+    assert _field(res, "OWNER_WITNESS") == "unreadable", res.stdout
+    assert _verdict(res) == "held", res.stdout
+
+
+@requires_git
+def test_a_recycled_pid_landing_on_our_own_pid_is_not_self(
+    tmp_path: Path, repo: tuple[Path, Path]
+) -> None:
+    """RED (was): the pid-only `self` shortcut bypassed the witness entirely.
+
+    Session id is authoritative, but the fallback matched on the pid ALONE -
+    the same pid-identity mistake this issue is about, pointed at ourselves. A
+    recycled pid can land on OUR number while the claim belongs to a session
+    that has since died.
+
+    This was the worse half, because `self` ALSO makes worktree-remove.sh skip
+    its independent occupancy check (``CLAIM_OWNED_BY_US``): a false `self`
+    removes a guard rather than merely misreporting a state. Found by the
+    counter-model review of this change.
+    """
+    main, wt = repo
+    proc = _fake_proc(tmp_path / "proc-recycled", SELF_PID, RECYCLED_START)
+    # The claim records OUR pid, a DIFFERENT session, and a conflicting witness.
+    _lock_with(main, wt, pid=SELF_PID, start=MATCHING_START)
+
+    res = _check_witness(wt, proc, live=SELF_PID)
+
+    assert _field(res, "OWNER_WITNESS") == "mismatched", res.stdout
+    assert _verdict(res) == "stale", res.stdout
+
+
+@requires_git
+def test_our_own_live_claim_is_still_self(tmp_path: Path, repo: tuple[Path, Path]) -> None:
+    """GREEN for the above: the ordinary self-owned case must be untouched."""
+    main, wt = repo
+    proc = _fake_proc(tmp_path / "proc-live", SELF_PID, MATCHING_START)
+    _lock_with(main, wt, pid=SELF_PID, start=MATCHING_START)
+
+    res = _check_witness(wt, proc, live=SELF_PID)
+    assert _verdict(res) == "self", res.stdout
+
+
+@requires_git
+def test_staleness_names_its_cause_rather_than_asserting_a_death(
+    tmp_path: Path, repo: tuple[Path, Path]
+) -> None:
+    """A claim released by the age bound must not be reported as a dead owner.
+
+    Three causes reach `stale`, and the takeover message asserted one of them
+    for all three. An expired witness-less claim whose pid is STILL RUNNING is
+    expiry, not a death - claiming otherwise states a fact the check never
+    established, which is the failure class this whole issue is about.
+    """
+    main, wt = repo
+    proc = _fake_proc(tmp_path / "proc-live", OTHER_PID, MATCHING_START)
+    _lock_with(main, wt, pid=OTHER_PID, start=None, age_s=48 * 3600)
+
+    res = _check_witness(wt, proc)
+    assert _verdict(res) == "stale", res.stdout
+    assert _field(res, "STALE_REASON") == "aged-out-unverified", res.stdout
+
+    env = os.environ.copy()
+    env.update(
+        {
+            "CLAUDE_PID": SELF_PID,
+            "CLAUDE_CODE_SESSION_ID": SELF_SESSION,
+            "FLOW_CLAIM_HOST": "testhost",
+            "FLOW_CLAIM_LIVE_PIDS": OTHER_PID,
+            "FLOW_CLAIM_PROC_ROOT": str(proc),
+        }
+    )
+    taken = subprocess.run(
+        ["bash", str(CLAIM), "claim", str(wt), "--issue", "42"],
+        env=env, capture_output=True, text=True, check=False,
+    )
+    assert "EXPIRED" in taken.stderr, taken.stderr
+    assert "is gone" not in taken.stderr, taken.stderr
+
+
+@requires_git
+def test_a_departed_owner_still_reads_as_gone(tmp_path: Path, repo: tuple[Path, Path]) -> None:
+    """GREEN for the above: the genuinely-exited case keeps its own wording.
+
+    Without this half, the previous test passes for a helper that has simply
+    stopped saying "gone" at all - which would lose the distinction rather than
+    draw it.
+    """
+    main, wt = repo
+    proc = _fake_proc(tmp_path / "proc-empty", "1", MATCHING_START)
+    _lock_with(main, wt, pid=OTHER_PID, start=MATCHING_START)
+
+    res = _check_witness(wt, proc, live="")
+    assert _verdict(res) == "stale", res.stdout
+    assert _field(res, "STALE_REASON") == "owner-exited", res.stdout
+
+
+@requires_git
+def test_a_takeover_does_not_inherit_the_old_claims_stale_reason(
+    tmp_path: Path, repo: tuple[Path, Path]
+) -> None:
+    """The acquired claim's record must describe the acquired claim.
+
+    After taking over an expired claim, the emit block reported the NEW owner
+    with age 0 alongside the PREVIOUS owner's `aged-out-unverified` - a record
+    asserting something untrue of the thing it names, which is the failure class
+    this issue exists to remove. Found by the second counter-model pass.
+    """
+    main, wt = repo
+    proc = _fake_proc(tmp_path / "proc-live", OTHER_PID, MATCHING_START)
+    _lock_with(main, wt, pid=OTHER_PID, start=None, age_s=48 * 3600)
+
+    env = os.environ.copy()
+    env.update(
+        {
+            "CLAUDE_PID": SELF_PID,
+            "CLAUDE_CODE_SESSION_ID": SELF_SESSION,
+            "FLOW_CLAIM_HOST": "testhost",
+            "FLOW_CLAIM_LIVE_PIDS": OTHER_PID,
+            "FLOW_CLAIM_PROC_ROOT": str(proc),
+        }
+    )
+    taken = subprocess.run(
+        ["bash", str(CLAIM), "claim", str(wt), "--issue", "42"],
+        env=env, capture_output=True, text=True, check=False,
+    )
+
+    assert _verdict(taken) == "self", taken.stdout
+    assert _field(taken, "STALE_REASON") == "-", taken.stdout
+    assert _field(taken, "AGE_MIN") == "0", taken.stdout

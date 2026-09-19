@@ -801,3 +801,264 @@ def test_the_unpushed_marker_says_overridden_rather_than_nothing(
     res = _run_remove(main, str(wt), "--allow-unpushed", "--delete-branch")
     assert res.returncode == 0, res.stderr
     assert "WORKTREE_REMOVE_UNPUSHED: overridden" in res.stderr
+
+
+# --- Attribution: the branch identifies the work, not the directory (#1032) ---
+#
+# Observed specimen: a worktree directory named `...-issue-971-...` (CLOSED, PR
+# #1004 merged) holding the branch `issue-980-lexicon-quoted-token` (OPEN).
+# Anything that judged the tree by its directory name read "closed and merged,
+# safe" about an open lane's checkout.
+#
+# The RED case below was run against the pre-fix script (`git show <base>:` -
+# never `git stash`, issue #1056): it exited 0, removed the worktree, and
+# deleted issue #980's branch. Both halves are committed here because this
+# script lets destructive work through and nothing downstream re-derives its
+# verdict (ADR 0008).
+
+
+def _attribution(res: subprocess.CompletedProcess[str]) -> str:
+    for line in res.stdout.splitlines():
+        if line.startswith("WORKTREE_REMOVE_ATTRIBUTION: "):
+            return line.removeprefix("WORKTREE_REMOVE_ATTRIBUTION: ").strip()
+    return "<none>"
+
+
+@requires_git
+def test_a_directory_named_for_another_issue_is_attributed_to_its_branch(
+    tmp_path: Path,
+) -> None:
+    """RED: dirname says #971, branch says #980 - the branch wins, and the
+    branch is NOT deleted."""
+    main = _repo(tmp_path)
+    wt = _add_worktree(
+        main,
+        tmp_path / "repo-issue-971-workers-cannot-escalate",
+        "issue-980-lexicon-quoted-token",
+    )
+
+    res = _run_remove(main, str(wt), "--force", "--delete-branch")
+
+    assert res.returncode == 8, res.stdout + res.stderr
+    attribution = _attribution(res)
+    assert "issue=980" in attribution, attribution
+    assert "dirname-issue=971" in attribution, attribution
+    assert "DISAGREE" in attribution, attribution
+
+    # The point of the refusal: the wrong issue's branch is still there.
+    branches = _git(main, "branch", "--list", "issue-980-*")
+    assert "issue-980-lexicon-quoted-token" in branches, branches
+    # And the directory the caller named was not silently removed either.
+    assert wt.exists()
+
+
+@requires_git
+def test_matching_names_still_remove_and_delete_the_branch(tmp_path: Path) -> None:
+    """GREEN: the ordinary case is untouched.
+
+    Without this half the refusal above is indistinguishable from a guard that
+    refuses every removal, which would be just as useless.
+    """
+    main = _repo(tmp_path)
+    wt = _add_worktree(main, tmp_path / "repo-issue-55-add-tests", "issue-55-add-tests")
+
+    res = _run_remove(main, str(wt), "--force", "--delete-branch")
+
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert _attribution(res).endswith("agree"), _attribution(res)
+    assert not wt.exists()
+    assert _git(main, "branch", "--list", "issue-55-*").strip() == ""
+
+
+@requires_git
+def test_a_directory_with_no_issue_number_is_not_a_mismatch(tmp_path: Path) -> None:
+    """GREEN: an unkeyed name is `dirname-unkeyed`, never DISAGREE.
+
+    A worktree under FLOW_WORKTREE_BASE, or any hand-made checkout, has a name
+    that encodes no issue. Reporting that as a mismatch would fire the refusal
+    on every non-flow worktree - a guard that fires on the normal case is one
+    everybody learns to pass with the override flag.
+    """
+    main = _repo(tmp_path)
+    wt = _add_worktree(main, tmp_path / "scratchpad", "issue-77-something")
+
+    res = _run_remove(main, str(wt), "--force", "--delete-branch")
+
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert "dirname-unkeyed" in _attribution(res), _attribution(res)
+    assert not wt.exists()
+
+
+@requires_git
+def test_a_renamed_issue_keeping_its_old_slug_is_not_a_mismatch(tmp_path: Path) -> None:
+    """GREEN: attribution compares the issue NUMBER, never the slug.
+
+    A branch legitimately keeps an older title's slug while the issue is renamed
+    (issue #793), so a comparison on full names would fire on that ordinary
+    case.
+    """
+    main = _repo(tmp_path)
+    wt = _add_worktree(main, tmp_path / "repo-issue-42-old-title", "issue-42-new-title")
+
+    res = _run_remove(main, str(wt), "--force", "--delete-branch")
+
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert _attribution(res).endswith("agree"), _attribution(res)
+
+
+@requires_git
+def test_a_mismatch_without_delete_branch_removes_only_the_directory(
+    tmp_path: Path,
+) -> None:
+    """The refusal is scoped to what it protects.
+
+    Removing the directory is local and recoverable; deleting the branch is
+    neither. Only the second is refused, so a caller who genuinely wants the
+    directory gone is not blocked.
+    """
+    main = _repo(tmp_path)
+    wt = _add_worktree(main, tmp_path / "repo-issue-971-old", "issue-980-real-work")
+
+    res = _run_remove(main, str(wt), "--force")
+
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert "DISAGREE" in _attribution(res), _attribution(res)
+    assert not wt.exists()
+    assert "issue-980-real-work" in _git(main, "branch", "--list", "issue-980-*")
+
+
+@requires_git
+def test_steal_overrides_the_attribution_refusal(tmp_path: Path) -> None:
+    """--steal is the deliberate override, consistent with #597/#888/#899.
+
+    --force is NOT: /flow:auto Step 7 passes --force on every run, so a guard it
+    silenced would never fire where the damage happens.
+    """
+    main = _repo(tmp_path)
+    wt = _add_worktree(main, tmp_path / "repo-issue-971-old", "issue-980-real-work")
+
+    res = _run_remove(main, str(wt), "--force", "--delete-branch", "--steal")
+
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert _git(main, "branch", "--list", "issue-980-*").strip() == ""
+
+
+@requires_git
+@requires_proc
+def test_a_stronger_refusal_is_reported_before_the_attribution_one(
+    tmp_path: Path, occupant
+) -> None:
+    """Ordering is a correctness property, not cosmetics.
+
+    Every other refusal means "do not remove this worktree at all". The
+    attribution refusal means only "do not also delete the branch", and its
+    remedy - re-run without --delete-branch - still removes the directory.
+    Reached first, it would hand that remedy to a caller whose tree is occupied,
+    telling them to proceed with a removal the stronger guard had refused.
+    """
+    main = _repo(tmp_path)
+    wt = _add_worktree(main, tmp_path / "repo-issue-971-old", "issue-980-real-work")
+    occupant(wt)
+
+    res = _run_remove(main, str(wt), "--force", "--delete-branch")
+
+    # The occupancy refusal (5) wins over the attribution refusal (8).
+    assert res.returncode == 5, res.stdout + res.stderr
+    # The attribution is still REPORTED - it is context for every later message
+    # that prints this path, including the occupancy one.
+    assert "DISAGREE" in _attribution(res), _attribution(res)
+    assert wt.exists()
+
+
+# --- Attribution parses the OWNING issue, not a quoted one (#1032) ------------
+#
+# Both cases below were RED before the counter-model review of this change: the
+# extraction was greedy, so the LAST `issue-N` in a string won. Slugs quote
+# other issues routinely, and the guard failed in BOTH directions because of it.
+
+
+@requires_git
+def test_a_branch_slug_quoting_another_issue_does_not_hide_a_mismatch(
+    tmp_path: Path,
+) -> None:
+    """RED (was): branch `issue-980-fix-issue-971` parsed as 971, matched the
+    directory, and the guard waved through the deletion it exists to stop."""
+    main = _repo(tmp_path)
+    wt = _add_worktree(main, tmp_path / "repo-issue-971-old", "issue-980-fix-issue-971")
+
+    res = _run_remove(main, str(wt), "--force", "--delete-branch")
+
+    assert res.returncode == 8, res.stdout + res.stderr
+    attribution = _attribution(res)
+    assert "issue=980" in attribution, attribution
+    assert "dirname-issue=971" in attribution, attribution
+    assert "issue-980-fix-issue-971" in _git(main, "branch", "--list", "issue-980-*")
+
+
+@requires_git
+def test_a_branch_slug_quoting_another_issue_does_not_invent_a_mismatch(
+    tmp_path: Path,
+) -> None:
+    """RED (was): branch `issue-42-fix-issue-99` parsed as 99 and disagreed with
+    its own directory - the guard blocking an entirely ordinary removal."""
+    main = _repo(tmp_path)
+    wt = _add_worktree(main, tmp_path / "repo-issue-42-old-title", "issue-42-fix-issue-99")
+
+    res = _run_remove(main, str(wt), "--force", "--delete-branch")
+
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert _attribution(res).endswith("agree"), _attribution(res)
+    assert _git(main, "branch", "--list", "issue-42-*").strip() == ""
+
+
+# --- The repository's OWN name can carry issue-<N> (#1032, review pass 2) -----
+#
+# Worktree directories are `<repo>-<branch>` by construction, so a repository
+# named e.g. `tool-issue-971` puts a foreign issue number AHEAD of the branch's.
+# Taking the first match fixed slugs that quote other issues; it could not fix
+# this, because here the foreign number genuinely comes first. Both failure
+# directions were RED before the fix.
+
+
+def _repo_named(tmp_path: Path, name: str) -> Path:
+    main = tmp_path / name
+    main.mkdir()
+    _git(main, "init", "-q", "-b", "main")
+    (main / "base.txt").write_text("base\n")
+    _git(main, "add", "-A")
+    _git(main, "commit", "-qm", "base")
+    return main
+
+
+@requires_git
+def test_a_repo_name_carrying_an_issue_number_does_not_invent_a_mismatch(
+    tmp_path: Path,
+) -> None:
+    """RED (was): the ordinary worktree of a repo named `tool-issue-971`
+    parsed as 971 and the guard refused an entirely correct removal."""
+    main = _repo_named(tmp_path, "tool-issue-971")
+    wt = _add_worktree(main, tmp_path / "tool-issue-971-issue-980-fix", "issue-980-fix")
+
+    res = _run_remove(main, str(wt), "--force", "--delete-branch")
+
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert _attribution(res).endswith("agree"), _attribution(res)
+    assert _git(main, "branch", "--list", "issue-980-*").strip() == ""
+
+
+@requires_git
+def test_a_repo_name_carrying_an_issue_number_does_not_hide_a_mismatch(
+    tmp_path: Path,
+) -> None:
+    """RED (was): the same repo name made a genuine mismatch read as `agree`,
+    permitting deletion of the wrong issue's branch."""
+    main = _repo_named(tmp_path, "tool-issue-971")
+    wt = _add_worktree(main, tmp_path / "tool-issue-971-issue-980-fix", "issue-971-old")
+
+    res = _run_remove(main, str(wt), "--force", "--delete-branch")
+
+    assert res.returncode == 8, res.stdout + res.stderr
+    attribution = _attribution(res)
+    assert "issue=971" in attribution, attribution
+    assert "dirname-issue=980" in attribution, attribution
+    assert "issue-971-old" in _git(main, "branch", "--list", "issue-971-*")
