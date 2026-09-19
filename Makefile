@@ -11,6 +11,7 @@
        binary-guards-check negative-fixture-check claude-md-budget-check \
        claude-md-links-check claude-md-behavior-check skills-check \
        install-drift-check install-drift-list \
+       tools-version-check toolchain-provenance checkout-readers \
        delegated-core-check delegated-core-write
 
 ## `make` with no target ran `lint` because lint was the first target. Adding
@@ -74,7 +75,34 @@ tools-check:
 		printf 'tools-check: ok - every external tool verify needs is on PATH.\n'; \
 	else \
 		printf 'tools-check: verify continues; each target reports its own verdict.\n'; \
-	fi
+	fi; \
+	scripts/tools-version-check.sh --quiet || true
+
+## PRESENT IS NOT CURRENT (issue #1029). `tools-check` above asks `command -v`,
+## which any version satisfies identically - so a host whose apt supplied
+## shellcheck 0.9.0 gets `tools-check: ok` and a controls/shellcheck-gate verdict
+## that need not match CI's, which is the exact thing .woodpecker.yml pins the
+## image to prevent ("running the gate under two different linters would make the
+## control's verdict depend on which container reached it", its own words).
+## The pinned version is PARSED from the declarations that already exist
+## (SHELLCHECK_IMAGE, GITLEAKS_IMAGE, ci-stage-jq.py's JQ_URL) - never re-typed
+## here, which would be a third copy to go stale. Advisory, like tools-check:
+## it reports and never gates.
+tools-version-check:
+	@scripts/tools-version-check.sh
+
+## WHAT VERSION IS THE EXECUTED COPY? (issue #1029). Every install-parity check
+## compares against THE CHECKOUT and none of them can say how current that is;
+## on 2026-09-15 it was 21 commits behind main while every session ran from it.
+toolchain-provenance:
+	@scripts/toolchain-provenance.sh
+
+## WHO IS HOLDING THE CHECKOUT RIGHT NOW? (issue #1029). Names the pids running
+## DELETED files from this tree (a pull did not reach them) and the pids holding
+## current ones (a pull now hot-swaps instruments under a running gate). `clear`
+## is the declared safe moment for the pull.
+checkout-readers:
+	@scripts/checkout-readers.sh
 
 ## Quality gates (used by /flow:finish)
 

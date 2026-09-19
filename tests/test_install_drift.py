@@ -456,7 +456,7 @@ def test_absent_codex_skills_tree_does_not_defeat_the_global_skip(tmp_path: Path
     assert "INSTALL_DRIFT: skipped" in result.stdout
     assert (
         "no retired CPP marketplace surface, installed checkout helpers, "
-        "or installed Codex skills found" in result.stdout
+        "or installed Codex/Claude skills found" in result.stdout
     )
 
 
@@ -697,3 +697,321 @@ def test_modified_non_sh_helper_is_reported_stale(tmp_path: Path):
     assert set(payload["stale_helpers"]) == {"flow-wave-plan.py", HELPER}
     assert payload["helpers_missing"] == 0
     assert payload["verdict"] == "drift"
+
+
+# ---------------------------------------------------------------------------
+# Job 4: installed ~/.claude/skills parity (issue #1029, specimen 5)
+#
+# `install-drift` covered ~/.codex/skills and not ~/.claude/skills, and the
+# asymmetry was the tell: the right comparison was already implemented for one
+# root and simply not pointed at the other. That root is user-scope - its
+# packages load in EVERY project - it holds real directories rather than
+# symlinks, and ~/.claude is not a git repository, so nothing on the host could
+# diff them.
+#
+# The controls are the two ends plus the ownership boundary, and the boundary is
+# the interesting one: ~/.claude/skills/boot on the reference host is a
+# DIFFERENT project's skill colliding by name with CPP's .claude/skills/boot. A
+# name-keyed comparison would report it stale forever, and a job that cries wolf
+# on every run is one nobody reads.
+# ---------------------------------------------------------------------------
+
+CANONICAL_SKILL = """\
+---
+name: demo
+description: A demo skill package.
+trigger: demo
+metadata:
+  provenance:
+    class: cpp-authored
+---
+
+# Demo
+
+Body.
+"""
+
+MANAGED_SKILL = """\
+---
+name: demo
+description: A demo skill package.
+trigger: demo
+metadata:
+  provenance:
+    class: cpp-authored
+  source: https://github.com/cooneycw/claude-power-pack/blob/main/.claude/skills/demo/SKILL.md
+---
+
+# Demo
+
+Body.
+"""
+
+#: A package with no CPP marker at all - the `boot` collision, generalised.
+UNMARKED_SKILL = """\
+---
+name: demo
+description: Somebody else's package that happens to share our name.
+trigger: demo
+metadata:
+  provenance:
+    class: cpp-authored
+---
+
+# Demo
+
+Entirely different body.
+"""
+
+
+def _install_real_skills_checker(checkout: Path) -> Path:
+    """Copy the REAL scripts/skills-check.py into a fake checkout.
+
+    install-drift shells out to the checker in the checkout it is judging, so a
+    fake checkout needs the real one. Using the real script is the point: a stub
+    would test this module's idea of the comparison rather than the comparison.
+    """
+    destination = checkout / "scripts" / "skills-check.py"
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(ROOT / "scripts" / "skills-check.py", destination)
+    return destination
+
+
+def _make_canonical_skill(checkout: Path, name: str = "demo") -> Path:
+    package = checkout / ".claude" / "skills" / name
+    package.mkdir(parents=True)
+    (package / "SKILL.md").write_text(CANONICAL_SKILL, encoding="utf-8")
+    (package / "helper.sh").write_text("#!/bin/sh\necho helper\n", encoding="utf-8")
+    return package
+
+
+def _make_installed_skill(home: Path, body: str, name: str = "demo") -> Path:
+    package = home / ".claude" / "skills" / name
+    package.mkdir(parents=True)
+    (package / "SKILL.md").write_text(body, encoding="utf-8")
+    (package / "helper.sh").write_text("#!/bin/sh\necho helper\n", encoding="utf-8")
+    return package
+
+
+@pytest.mark.skipif(shutil.which("python3") is None, reason="requires python3 on PATH")
+def test_negative_control_a_current_claude_skill_is_not_stale(tmp_path: Path):
+    """The half that separates a working comparison from one matching nothing."""
+    checkout = _make_checkout(tmp_path / "checkout")
+    _install_real_skills_checker(checkout)
+    _make_canonical_skill(checkout)
+    home = tmp_path / "home"
+    _make_installed_skill(home, MANAGED_SKILL)
+
+    report = _run(checkout, home)
+    payload = json.loads(_run(checkout, home, "--json").stdout)
+
+    assert payload["claude_skills_checked"] is True
+    assert payload["claude_skills_managed"] == 1
+    assert payload["claude_skills_clean"] == 1
+    assert payload["claude_skills_stale"] == 0
+    assert "1 CPP-marked, 1 clean, 0 stale" in report.stdout
+
+
+@pytest.mark.skipif(shutil.which("python3") is None, reason="requires python3 on PATH")
+def test_positive_control_a_modified_claude_skill_is_reported_stale(tmp_path: Path):
+    """A payload file edited under ~/.claude/skills must be found."""
+    checkout = _make_checkout(tmp_path / "checkout")
+    _install_real_skills_checker(checkout)
+    _make_canonical_skill(checkout)
+    home = tmp_path / "home"
+    installed = _make_installed_skill(home, MANAGED_SKILL)
+    (installed / "helper.sh").write_text("#!/bin/sh\necho STALE\n", encoding="utf-8")
+
+    report = _run(checkout, home)
+    quiet = _run(checkout, home, "--quiet")
+    payload = json.loads(_run(checkout, home, "--json").stdout)
+
+    assert payload["claude_skills_stale"] == 1
+    assert payload["stale_claude_skills"] == ["demo"]
+    assert payload["verdict"] == "drift"
+    assert "Stale Claude skills: demo" in report.stdout
+    assert "INSTALL_DRIFT: drift" in report.stdout
+    assert "1 Claude skill(s) stale" in quiet.stdout
+
+
+@pytest.mark.skipif(shutil.which("python3") is None, reason="requires python3 on PATH")
+def test_ownership_a_same_named_unmarked_package_is_never_judged(tmp_path: Path):
+    """The `boot` collision: the NAME is not the ownership test.
+
+    This package shares a name with a canonical one and its body differs
+    wholesale, so a name-keyed comparison would call it stale on every run
+    forever. It carries no CPP `metadata.source`, so it is not ours to judge.
+    """
+    checkout = _make_checkout(tmp_path / "checkout")
+    _install_real_skills_checker(checkout)
+    _make_canonical_skill(checkout)
+    home = tmp_path / "home"
+    _make_helpers(home)  # a host with CPP installed; otherwise the global skip fires
+    _make_installed_skill(home, UNMARKED_SKILL)
+
+    report = _run(checkout, home)
+    payload = json.loads(_run(checkout, home, "--json").stdout)
+
+    assert payload["claude_skills_checked"] is True
+    assert payload["claude_skills_managed"] == 0
+    assert payload["claude_skills_stale"] == 0
+    assert "none is ours to judge" in report.stdout
+
+
+@pytest.mark.skipif(shutil.which("python3") is None, reason="requires python3 on PATH")
+def test_blind_control_an_absent_checker_reports_not_checked_never_clean(
+    tmp_path: Path,
+):
+    """Membership floor: a comparison that did not run must not read as clean."""
+    checkout = _make_checkout(tmp_path / "checkout")
+    _make_canonical_skill(checkout)  # deliberately NO skills-check.py in the checkout
+    home = tmp_path / "home"
+    _make_installed_skill(home, MANAGED_SKILL)
+
+    report = _run(checkout, home)
+    payload = json.loads(_run(checkout, home, "--json").stdout)
+
+    assert payload["claude_skills_checked"] is False
+    assert payload["claude_skills_stale"] == 0
+    assert "NOT CHECKED" in report.stdout
+    assert "Unchecked is not clean" in report.stdout
+
+
+@pytest.mark.skipif(shutil.which("python3") is None, reason="requires python3 on PATH")
+def test_blind_control_an_unparseable_checker_reports_not_checked(tmp_path: Path):
+    """A checker whose output format changed did not report zero findings."""
+    checkout = _make_checkout(tmp_path / "checkout")
+    stub = checkout / "scripts" / "skills-check.py"
+    stub.parent.mkdir(parents=True, exist_ok=True)
+    stub.write_text("print('some other shape entirely')\n", encoding="utf-8")
+    _make_canonical_skill(checkout)
+    home = tmp_path / "home"
+    _make_installed_skill(home, MANAGED_SKILL)
+
+    payload = json.loads(_run(checkout, home, "--json").stdout)
+    assert payload["claude_skills_checked"] is False
+
+
+def test_an_absent_claude_skills_root_is_reported_not_checked(tmp_path: Path):
+    """No install root is a different answer from an install root with nothing."""
+    checkout = _make_checkout(tmp_path / "checkout")
+    _install_real_skills_checker(checkout)
+    home = tmp_path / "home"
+    _make_helpers(home)
+
+    payload = json.loads(_run(checkout, home, "--json").stdout)
+    assert payload["claude_skills_checked"] is False
+    assert payload["claude_skills_managed"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Job 5: checkout provenance (issue #1029, specimen 1)
+# ---------------------------------------------------------------------------
+
+
+def test_provenance_is_reported_and_is_never_a_fabricated_zero(tmp_path: Path):
+    """Every job above compares against THE CHECKOUT and none can date it.
+
+    With no provenance helper in the checkout, the field must say so rather than
+    reporting a gap of zero - an unmeasured premise and a satisfied one are
+    different facts, which is the whole of #1029.
+    """
+    checkout = _make_checkout(tmp_path / "checkout")
+    home = tmp_path / "home"
+    _make_helpers(home)
+
+    report = _run(checkout, home)
+    payload = json.loads(_run(checkout, home, "--json").stdout)
+
+    assert payload["toolchain_provenance"] == "unavailable"
+    assert payload["toolchain_behind"] is None
+    assert "NOT MEASURED" in report.stdout
+
+
+def test_provenance_unknown_is_not_reported_as_current(tmp_path: Path):
+    """A real helper over a non-repo checkout reports unknown, not a zero gap."""
+    checkout = _make_checkout(tmp_path / "checkout")
+    shutil.copy2(
+        ROOT / "scripts" / "toolchain-provenance.sh",
+        checkout / "scripts" / "toolchain-provenance.sh",
+    )
+    (checkout / "scripts" / "toolchain-provenance.sh").chmod(0o755)
+    home = tmp_path / "home"
+    _make_helpers(home)
+
+    report = _run(checkout, home)
+    payload = json.loads(_run(checkout, home, "--json").stdout)
+
+    assert payload["toolchain_provenance"] == "unknown"
+    assert payload["toolchain_behind"] is None
+    assert "not a gap of zero" in report.stdout.lower()
+
+
+@pytest.mark.skipif(shutil.which("python3") is None, reason="requires python3 on PATH")
+def test_quiet_reports_an_unanswered_claude_skills_comparison(tmp_path: Path):
+    """The quiet line is the one that reaches a session start.
+
+    Report mode said NOT CHECKED and quiet said nothing at all, so a host whose
+    checker was missing printed byte-identically to a clean host - the
+    report-mode fix applied to one surface and not the one anybody reads
+    (counter-model review, codex/gpt-6-astra).
+    """
+    checkout = _make_checkout(tmp_path / "checkout")  # deliberately no skills-check.py
+    _make_canonical_skill(checkout)
+    home = tmp_path / "home"
+    _make_helpers(home)
+    _make_installed_skill(home, MANAGED_SKILL)
+
+    quiet = _run(checkout, home, "--quiet")
+    assert "NOT checked" in quiet.stdout
+    assert "unchecked, not clean" in quiet.stdout
+
+
+@pytest.mark.skipif(shutil.which("python3") is None, reason="requires python3 on PATH")
+def test_quiet_is_silent_when_the_claude_comparison_actually_ran(tmp_path: Path):
+    """The negative half: the advisory must be a fact, not boilerplate.
+
+    Without it, the fix above could have been an unconditional line, which is a
+    line everyone learns to skip.
+    """
+    checkout = _make_checkout(tmp_path / "checkout")
+    _install_real_skills_checker(checkout)
+    _make_canonical_skill(checkout)
+    home = tmp_path / "home"
+    _make_helpers(home)
+    _make_installed_skill(home, MANAGED_SKILL)
+
+    quiet = _run(checkout, home, "--quiet")
+    assert "NOT checked" not in quiet.stdout
+    assert quiet.stdout.strip() == ""
+
+
+def test_provenance_carries_its_own_qualification(tmp_path: Path):
+    """The gap and the age of the evidence behind it are ONE fact.
+
+    Emitting `current / 0` without the upstream and the evidence age let a
+    checkout matching a ref last fetched months ago reach a consumer as current,
+    which is the original failure with a number attached.
+    """
+    checkout = _make_checkout(tmp_path / "checkout")
+    shutil.copy2(
+        ROOT / "scripts" / "toolchain-provenance.sh",
+        checkout / "scripts" / "toolchain-provenance.sh",
+    )
+    (checkout / "scripts" / "toolchain-provenance.sh").chmod(0o755)
+    home = tmp_path / "home"
+    _make_helpers(home)
+
+    payload = json.loads(_run(checkout, home, "--json").stdout)
+    for field in (
+        "toolchain_provenance",
+        "toolchain_behind",
+        "toolchain_upstream",
+        "toolchain_fetch_age_seconds",
+        "toolchain_fetch_age_source",
+    ):
+        assert field in payload, field
+    # Unmeasurable here, and every unmeasurable field must be null, not zero.
+    assert payload["toolchain_behind"] is None
+    assert payload["toolchain_upstream"] is None
+    assert payload["toolchain_fetch_age_seconds"] is None

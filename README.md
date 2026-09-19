@@ -39,7 +39,7 @@ cd claude-power-pack
 /cpp:init
 ```
 
-Existing CPP marketplace users should run `/plugin uninstall <family>@cpp` for each of the 15 installed families. `scripts/install-drift.sh` keeps two host checks visible: it guards installed `~/.claude/scripts/*.sh` helpers against the checkout through #663's symlink restoration, and names lingering marketplace cache families as retired, non-failing migration state. The symlink tier restored by #663 replaces those caches and follows `git pull` without a separate update stamp.
+Existing CPP marketplace users should run `/plugin uninstall <family>@cpp` for each of the 15 installed families. `scripts/install-drift.sh` keeps the host checks visible: it guards installed `~/.claude/scripts/` helpers against the checkout through #663's symlink restoration, names lingering marketplace cache families as retired, non-failing migration state, and compares the installed `~/.codex/skills/` (#823) and `~/.claude/skills/` (#1029) COPIES - which `git pull` cannot refresh - against their sources. Every verdict is prefixed by `scripts/toolchain-provenance.sh`, because all of those compare against the checkout and none of them can say how current the checkout itself is (#1029). The symlink tier restored by #663 replaces those caches and follows `git pull` without a separate update stamp.
 
 ### Host setup
 
