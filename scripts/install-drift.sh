@@ -63,6 +63,45 @@
 #          belt-and-braces only, not the real boundary: those names simply
 #          have no repo counterpart and carry no GENERATED marker, so the
 #          rule above already leaves them untouched even without it.
+#   4. Compare installed ~/.claude/skills/<pkg>/ packages against their
+#      canonical sources in <checkout>/.claude/skills/ (issue #1029, specimen
+#      5). The asymmetry was the tell: job 3 already implemented exactly the
+#      right comparison for one install root and was simply not pointed at the
+#      other. That root is USER-SCOPE - its packages load in EVERY project, not
+#      only this one - it holds real directories rather than symlinks into a
+#      checkout, and `~/.claude` is not a git repository, so there was no diff,
+#      no history and no manifest for them anywhere on the host.
+#
+#      OWNERSHIP IS BY MARKER, AND THE NAME IS NOT THE MARKER. `~/.claude/skills/boot`
+#      on the reference host is a DIFFERENT project's skill that collides by
+#      name with CPP's `.claude/skills/boot`; a name-keyed comparison would
+#      report it stale forever and teach everyone to ignore the job. A package
+#      is ours only when its frontmatter carries a `metadata.source` linking back
+#      to `claude-power-pack/.claude/skills`, and the canonical package is
+#      resolved FROM THAT MARKER rather than from the directory name - so a
+#      package installed under a different name still compares against the
+#      source it declares.
+#
+#      This job DELEGATES to `skills-check.py --root <checkout> --managed-root
+#      <install root>`, which already owns that rule and the comparison it
+#      implies (SKILL.md normalized to drop the install-only `metadata.source`
+#      key, plus every supporting file). A second, weaker comparison written in
+#      bash here would be a different instrument answering the same question,
+#      and the two would drift. Only its MANAGED_* lines are read.
+#
+#      MEMBERSHIP FLOOR, as everywhere else: the subprocess must emit one of its
+#      recognisable managed-install notes. Absent, unparseable, or a changed
+#      output format reads as `unavailable` - never as "ran, found nothing".
+#
+#   5. Report the checkout's own PROVENANCE as a number (issue #1029, specimen
+#      1) by calling `toolchain-provenance.sh`. Every job above compares an
+#      installed copy against THE CHECKOUT, which silently assumes the checkout
+#      is itself current - and on 2026-09-15 it was 21 commits behind
+#      `origin/main` while every session ran its instruments from it. A helper
+#      that byte-matches a stale checkout is `current` by this script's own
+#      measure and stale by the only measure that matters. This is ADVISORY and
+#      changes no verdict: being behind is not install drift, it is a different
+#      fact that install drift cannot be read without.
 #
 # Combined verdicts give any judged drift priority: a stale or missing
 # helper, or a stale Codex skill package, makes the whole result `drift`,
@@ -307,8 +346,107 @@ if [ "$CODEX_SKILLS_TOTAL" -gt 0 ] || [ "$CODEX_SKILLS_ORPHANED" -gt 0 ]; then
     CODEX_SKILLS_CHECKED=1
 fi
 
-if [ "$RETIRED" -eq 0 ] && [ "$HELPERS_TOTAL" -eq 0 ] && [ "$HELPERS_MISSING" -eq 0 ] && [ "$CODEX_SKILLS_CHECKED" -eq 0 ]; then
-    emit_skip "no retired CPP marketplace surface, installed checkout helpers, or installed Codex skills found"
+# --- Installed Claude skill parity (#1029, specimen 5) ----------------------
+# See the job-4 header comment for why this delegates rather than re-implements,
+# and why the directory NAME is never the ownership test.
+CLAUDE_SKILLS_DIR="${HOME_DIR:+$HOME_DIR/.claude/skills}"
+CLAUDE_SKILLS_CHECKED=0
+CLAUDE_SKILLS_MANAGED=0
+CLAUDE_SKILLS_CLEAN=0
+CLAUDE_SKILLS_STALE=0
+CLAUDE_SKILLS_UNAVAILABLE_REASON=""
+STALE_CLAUDE_SKILLS=()
+SKILLS_CHECKER="$CHECKOUT/scripts/skills-check.py"
+if [ -z "$CLAUDE_SKILLS_DIR" ] || [ ! -d "$CLAUDE_SKILLS_DIR" ]; then
+    CLAUDE_SKILLS_UNAVAILABLE_REASON="no install root at ${CLAUDE_SKILLS_DIR:-<unset>}"
+elif [ ! -f "$SKILLS_CHECKER" ]; then
+    CLAUDE_SKILLS_UNAVAILABLE_REASON="skills-check.py not found in checkout"
+elif ! command -v python3 >/dev/null 2>&1; then
+    CLAUDE_SKILLS_UNAVAILABLE_REASON="python3 not available to run skills-check.py"
+else
+    # Findings go to stderr and notes to stdout, so both are captured. Only
+    # MANAGED_* findings and the managed-install notes are read: this job asks
+    # about the INSTALL tree, and the checker's canonical-surface findings are a
+    # different question that `make skills-check` owns.
+    skills_output="$(python3 "$SKILLS_CHECKER" --root "$CHECKOUT" --managed-root "$CLAUDE_SKILLS_DIR" 2>&1)"
+    while IFS= read -r line; do
+        case "$line" in
+            *"managed installs: no CPP-marked packages"*)
+                CLAUDE_SKILLS_CHECKED=1 ;;
+            *"managed installs: checked "*)
+                CLAUDE_SKILLS_CHECKED=1
+                counts="${line#*managed installs: checked }"
+                CLAUDE_SKILLS_MANAGED="${counts%% *}"
+                CLAUDE_SKILLS_CLEAN="${counts#*package(s), }"
+                CLAUDE_SKILLS_CLEAN="${CLAUDE_SKILLS_CLEAN%% *}" ;;
+            *MANAGED_DRIFT:*|*MANAGED_ORPHAN:*)
+                # `  MANAGED_DRIFT: <path>/SKILL.md: <detail>` -> the package dir.
+                pkg="${line#*: }"
+                pkg="${pkg%%:*}"
+                pkg="${pkg%/SKILL.md}"
+                STALE_CLAUDE_SKILLS+=("${pkg##*/}") ;;
+        esac
+    done <<< "$skills_output"
+    CLAUDE_SKILLS_STALE=${#STALE_CLAUDE_SKILLS[@]}
+    case "$CLAUDE_SKILLS_MANAGED$CLAUDE_SKILLS_CLEAN" in
+        *[!0-9]*) CLAUDE_SKILLS_MANAGED=0; CLAUDE_SKILLS_CLEAN=0 ;;
+    esac
+    if [ "$CLAUDE_SKILLS_CHECKED" -eq 0 ]; then
+        CLAUDE_SKILLS_UNAVAILABLE_REASON="skills-check.py produced no recognisable managed-install note"
+    fi
+fi
+
+# AN UNANSWERED QUESTION KEEPS THE REPORT ALIVE. The terse global skip says "no
+# installed ... Claude skills found", which is a CLAIM - and it is one this
+# script has no right to make when the install root exists and it could not look
+# inside it. "There is no root" and "there is a root and the checker was absent"
+# are different answers, and only the first of them is a finding of absence.
+CLAUDE_SKILLS_UNANSWERED=0
+if [ -n "$CLAUDE_SKILLS_DIR" ] && [ -d "$CLAUDE_SKILLS_DIR" ] && [ "$CLAUDE_SKILLS_CHECKED" -eq 0 ]; then
+    CLAUDE_SKILLS_UNANSWERED=1
+fi
+
+# --- Checkout provenance (#1029, specimen 1) --------------------------------
+# Advisory. Every comparison above is against THIS checkout, so how current the
+# checkout itself is, is the premise all of them rest on and none of them state.
+TOOLCHAIN_HELPER="$CHECKOUT/scripts/toolchain-provenance.sh"
+TOOLCHAIN_VERDICT="unavailable"
+TOOLCHAIN_BEHIND="-"
+TOOLCHAIN_UPSTREAM="-"
+TOOLCHAIN_AGE="-"
+TOOLCHAIN_AGE_SOURCE="-"
+TOOLCHAIN_LINE=""
+if [ -x "$TOOLCHAIN_HELPER" ]; then
+    # ONE invocation, every value from the SAME output. Separate runs could
+    # disagree if a concurrent fetch moved the ref between them, and numbers that
+    # cannot have been measured together are not one observation.
+    #
+    # The KEY=value contract, NOT the JSON. Pulling these back out of JSON with
+    # a regex truncated any value containing an escaped quote - a branch named
+    # `fea"ture` yielded `origin/fea\` - and install-drift then re-emitted that
+    # fragment into its OWN JSON, making the whole response unparseable while
+    # exiting 0 (counter-model review pass 2).
+    TOOLCHAIN_REPORT="$("$TOOLCHAIN_HELPER" --path "$CHECKOUT" 2>/dev/null)"
+    if [ -n "$TOOLCHAIN_REPORT" ]; then
+        TOOLCHAIN_VERDICT="$(printf '%s\n' "$TOOLCHAIN_REPORT" | sed -n 's/^TOOLCHAIN_PROVENANCE: //p' | tail -1)"
+        TOOLCHAIN_BEHIND="$(printf '%s\n' "$TOOLCHAIN_REPORT" | sed -n 's/^TOOLCHAIN_BEHIND=//p' | tail -1)"
+        TOOLCHAIN_UPSTREAM="$(printf '%s\n' "$TOOLCHAIN_REPORT" | sed -n 's/^TOOLCHAIN_UPSTREAM=//p' | tail -1)"
+        TOOLCHAIN_AGE="$(printf '%s\n' "$TOOLCHAIN_REPORT" | sed -n 's/^TOOLCHAIN_FETCH_AGE=//p' | tail -1)"
+        TOOLCHAIN_AGE_SOURCE="$(printf '%s\n' "$TOOLCHAIN_REPORT" | sed -n 's/^TOOLCHAIN_FETCH_AGE_SOURCE=//p' | tail -1)"
+        [ -n "$TOOLCHAIN_VERDICT" ] || TOOLCHAIN_VERDICT="unavailable"
+        # `-` is the helper's honest "not measured"; it must never become 0.
+        for var in TOOLCHAIN_BEHIND TOOLCHAIN_UPSTREAM TOOLCHAIN_AGE TOOLCHAIN_AGE_SOURCE; do
+            eval "value=\$$var"
+            [ -n "$value" ] || eval "$var='-'"
+        done
+    fi
+    TOOLCHAIN_LINE="$("$TOOLCHAIN_HELPER" --path "$CHECKOUT" --quiet 2>/dev/null)"
+fi
+
+if [ "$RETIRED" -eq 0 ] && [ "$HELPERS_TOTAL" -eq 0 ] && [ "$HELPERS_MISSING" -eq 0 ] \
+   && [ "$CODEX_SKILLS_CHECKED" -eq 0 ] && [ "$CLAUDE_SKILLS_MANAGED" -eq 0 ] \
+   && [ "$CLAUDE_SKILLS_UNANSWERED" -eq 0 ]; then
+    emit_skip "no retired CPP marketplace surface, installed checkout helpers, or installed Codex/Claude skills found"
 fi
 
 SPLIT=0
@@ -317,7 +455,8 @@ if [ "$RETIRED" -eq 1 ] && [ "$HELPERS_CURRENT" -gt 0 ] && [ "$HELPERS_STALE" -e
 fi
 
 VERDICT="ok"
-if [ "$HELPERS_STALE" -gt 0 ] || [ "$HELPERS_MISSING" -gt 0 ] || [ "$CODEX_SKILLS_STALE" -gt 0 ]; then
+if [ "$HELPERS_STALE" -gt 0 ] || [ "$HELPERS_MISSING" -gt 0 ] || [ "$CODEX_SKILLS_STALE" -gt 0 ] \
+   || [ "$CLAUDE_SKILLS_STALE" -gt 0 ]; then
     VERDICT="drift"
 elif [ "$RETIRED" -eq 1 ] || [ "$CODEX_SKILLS_ORPHANED" -gt 0 ]; then
     VERDICT="skipped"
@@ -356,6 +495,17 @@ if [ "$MODE" = "quiet" ]; then
     if [ "$CODEX_SKILLS_ORPHANED" -gt 0 ]; then
         clauses+=("${CODEX_SKILLS_ORPHANED} Codex skill(s) orphaned (no longer shipped)")
     fi
+    if [ "$CLAUDE_SKILLS_STALE" -gt 0 ]; then
+        clauses+=("${CLAUDE_SKILLS_STALE} Claude skill(s) stale in ${CLAUDE_SKILLS_DIR} - re-install from the checkout")
+    fi
+    # AN UNANSWERED QUESTION REACHES THE QUIET SURFACE TOO. Report mode said
+    # "NOT CHECKED" and quiet said nothing at all, so a host whose checker was
+    # missing printed exactly what a clean host prints - the report-mode fix
+    # applied to one surface and not the one that actually reaches a session
+    # start (counter-model review).
+    if [ "$CLAUDE_SKILLS_UNANSWERED" -eq 1 ]; then
+        clauses+=("Claude skills at ${CLAUDE_SKILLS_DIR} NOT checked (${CLAUDE_SKILLS_UNAVAILABLE_REASON}) - unchecked, not clean")
+    fi
     if [ "$RETIRED" -eq 1 ]; then
         clauses+=("$(retired_quiet_clause)")
     fi
@@ -366,8 +516,21 @@ if [ "$MODE" = "quiet" ]; then
         done
         echo "CPP install: ${joined}"
     fi
+    # The provenance line is SEPARATE and unconditional-on-its-own-verdict: the
+    # helper prints nothing when the checkout is current, and a line when it is
+    # not. Folding it into the clause list above would let a repo with no
+    # install drift suppress the one fact that says every clause above was
+    # measured against a stale reference (#1029).
+    [ -n "$TOOLCHAIN_LINE" ] && echo "$TOOLCHAIN_LINE"
     exit 0
 fi
+
+json_escape() {
+    # `tr` first for the record separators sed cannot see - see the twin in
+    # toolchain-provenance.sh. Backslash before quote, or it doubles its own work.
+    printf '%s' "$1" | tr '\n\r\t' '   ' |
+        sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/[[:cntrl:]]/ /g'
+}
 
 if [ "$MODE" = "json" ]; then
     printf '{"verdict":"%s",' "$VERDICT"
@@ -411,7 +574,27 @@ if [ "$MODE" = "json" ]; then
         printf '%s"%s"' "$separator" "$skill"
         separator=,
     done
-    printf ']}\n'
+    printf '],"claude_skills_root":%s,"claude_skills_checked":%s,' \
+        "$([ -n "$CLAUDE_SKILLS_DIR" ] && printf '"%s"' "$CLAUDE_SKILLS_DIR" || printf 'null')" \
+        "$([ "$CLAUDE_SKILLS_CHECKED" -eq 1 ] && echo true || echo false)"
+    printf '"claude_skills_managed":%s,"claude_skills_clean":%s,"claude_skills_stale":%s,"stale_claude_skills":[' \
+        "$CLAUDE_SKILLS_MANAGED" "$CLAUDE_SKILLS_CLEAN" "$CLAUDE_SKILLS_STALE"
+    separator=""
+    for skill in "${STALE_CLAUDE_SKILLS[@]}"; do
+        printf '%s"%s"' "$separator" "$skill"
+        separator=,
+    done
+    printf '],"toolchain_provenance":"%s","toolchain_behind":%s,' \
+        "$TOOLCHAIN_VERDICT" \
+        "$([ "$TOOLCHAIN_BEHIND" = "-" ] && printf 'null' || printf '%s' "$TOOLCHAIN_BEHIND")"
+    # The gap's QUALIFICATION travels with it. `current, behind 0` against a
+    # remote-tracking ref last refreshed months ago is not the same claim as
+    # `current` against a fresh one, and a consumer given only the first two
+    # fields cannot tell them apart.
+    printf '"toolchain_upstream":%s,"toolchain_fetch_age_seconds":%s,"toolchain_fetch_age_source":%s}\n' \
+        "$([ "$TOOLCHAIN_UPSTREAM" = "-" ] && printf 'null' || printf '"%s"' "$(json_escape "$TOOLCHAIN_UPSTREAM")")" \
+        "$([ "$TOOLCHAIN_AGE" = "-" ] && printf 'null' || printf '%s' "$TOOLCHAIN_AGE")" \
+        "$([ "$TOOLCHAIN_AGE_SOURCE" = "-" ] && printf 'null' || printf '"%s"' "$TOOLCHAIN_AGE_SOURCE")"
     exit 0
 fi
 
@@ -448,6 +631,40 @@ if [ "${#ORPHANED_CODEX_SKILLS[@]}" -gt 0 ]; then
     echo "    ${ORPHANED_CODEX_SKILLS[*]}"
 fi
 
+echo ""
+echo "  claude skills      ${CLAUDE_SKILLS_DIR:-<none>}"
+if [ "$CLAUDE_SKILLS_CHECKED" -eq 1 ]; then
+    echo "    ${CLAUDE_SKILLS_MANAGED} CPP-marked, ${CLAUDE_SKILLS_CLEAN} clean, ${CLAUDE_SKILLS_STALE} stale"
+    if [ "$CLAUDE_SKILLS_MANAGED" -eq 0 ]; then
+        echo "    (packages here carry no CPP metadata.source marker, so none is ours to judge -"
+        echo "     a name that matches one of our packages is NOT the ownership test, issue #1029)"
+    fi
+else
+    echo "    NOT CHECKED: ${CLAUDE_SKILLS_UNAVAILABLE_REASON:-unknown reason}"
+    echo "    Unchecked is not clean - this root loads in EVERY project (issue #1029)."
+fi
+if [ "${#STALE_CLAUDE_SKILLS[@]}" -gt 0 ]; then
+    echo ""
+    echo "  Stale Claude skills: ${STALE_CLAUDE_SKILLS[*]}"
+fi
+
+echo ""
+echo "  checkout provenance"
+case "$TOOLCHAIN_VERDICT" in
+    current)
+        echo "    current - every comparison above is against a checkout at its upstream tip"
+        echo "    measured against ${TOOLCHAIN_UPSTREAM}, evidence ${TOOLCHAIN_AGE}s old (source: ${TOOLCHAIN_AGE_SOURCE})" ;;
+    unavailable)
+        echo "    NOT MEASURED - toolchain-provenance.sh is absent or produced nothing."
+        echo "    Every verdict above compares against THIS checkout and cannot say how current it is." ;;
+    unknown)
+        echo "    unknown - the gap could not be measured. This is not a gap of zero (issue #1029)." ;;
+    *)
+        echo "    ${TOOLCHAIN_VERDICT} (behind ${TOOLCHAIN_BEHIND}) - the comparisons above are against a"
+        echo "    checkout that is not at its upstream tip, so 'current' here means 'matches a stale"
+        echo "    reference', which is what #1029 was filed about." ;;
+esac
+
 if [ "$RETIRED" -eq 1 ]; then
     echo ""
     echo "install-drift: retired CPP marketplace surface detected (issue #662)"
@@ -481,9 +698,23 @@ case "$VERDICT" in
         if [ "$CODEX_SKILLS_STALE" -gt 0 ]; then
             echo "Reconcile stale Codex skills with codex-skill-sync.py --install."
         fi
+        if [ "$CLAUDE_SKILLS_STALE" -gt 0 ]; then
+            echo "Reconcile stale Claude skills by re-installing them from ${CHECKOUT}/.claude/skills."
+        fi
         echo "INSTALL_DRIFT: drift" ;;
     ok)
-        echo "install-drift: installed helpers and Codex skills match the checkout."
+        # NAME ONLY WHAT WAS ACTUALLY COMPARED. "CPP-marked Claude skills match"
+        # is vacuously true of zero packages, and a success line that claims more
+        # than its input population supports is the detector-contract failure this
+        # repository gates on elsewhere.
+        ok_subjects="installed helpers and Codex skills"
+        if [ "$CLAUDE_SKILLS_MANAGED" -gt 0 ]; then
+            ok_subjects="$ok_subjects and ${CLAUDE_SKILLS_MANAGED} CPP-marked Claude skill(s)"
+        fi
+        echo "install-drift: $ok_subjects match the checkout."
+        if [ "$CLAUDE_SKILLS_UNANSWERED" -eq 1 ]; then
+            echo "  NOT included in that statement: ${CLAUDE_SKILLS_DIR} (${CLAUDE_SKILLS_UNAVAILABLE_REASON})."
+        fi
         echo "INSTALL_DRIFT: ok" ;;
     skipped)
         echo "INSTALL_DRIFT: skipped" ;;

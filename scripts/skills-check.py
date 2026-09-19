@@ -14,9 +14,19 @@ packages are compared with their canonical source; everything else is treated
 as user-authored and ignored. This script is a scanner only: it has no write,
 delete, repair, or install mode.
 
+The managed root defaults to ``<root>/.agents/skills``. ``--managed-root``
+points the same comparison at a DIFFERENT install tree without moving the
+canonical one, which is what ``install-drift.sh`` uses to cover
+``~/.claude/skills`` (issue #1029, specimen 5): that root holds real
+directories, not symlinks into a checkout, ``~/.claude`` is not a git
+repository, and so nothing on the host could previously diff them. The flag
+exposes the parameter ``check_repository`` already had, rather than adding a
+second, weaker comparison in another language.
+
 Usage:
     python3 scripts/skills-check.py
     python3 scripts/skills-check.py --root DIR
+    python3 scripts/skills-check.py --root DIR --managed-root ~/.claude/skills
 """
 
 from __future__ import annotations
@@ -543,9 +553,19 @@ def main(argv: list[str] | None = None) -> int:
         default=REPO_ROOT,
         help="repository root (default: the checkout containing this script)",
     )
+    parser.add_argument(
+        "--managed-root",
+        type=Path,
+        default=None,
+        help=(
+            "install tree to compare against the canonical packages "
+            "(default: <root>/.agents/skills)"
+        ),
+    )
     args = parser.parse_args(argv)
     root = args.root.resolve()
-    report = check_repository(root)
+    managed_root = args.managed_root.expanduser().resolve() if args.managed_root else None
+    report = check_repository(root, managed_root)
 
     for note in report.notes:
         print(f"skills-check: {note}")

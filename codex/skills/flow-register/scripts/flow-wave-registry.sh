@@ -2164,6 +2164,48 @@ case "$VERB" in
     echo "FLOW_WAVE_DRIVER_CONTAINER=$(driver_cap_dash "$REG_DRIVER" CONTAINER)"
     echo "FLOW_WAVE_DRIVER_META=$(driver_cap_dash "$REG_DRIVER" META)"
     echo "FLOW_WAVE_DRIVER_CANNOT=$(driver_cap_dash "$REG_DRIVER" CANNOT)"
+    # THE TOOLCHAIN THIS SESSION WILL ACTUALLY RUN (#1029). Registration is where
+    # a session declares its vantage, and until now vantage meant address, lane
+    # and policy - never which VERSION of the instruments it holds. On 2026-09-15
+    # a wave ran for eleven hours on a shared checkout 21 commits behind
+    # `origin/main`: every helper resolved, every gate was green, and none of the
+    # merged work those commits carried was reachable from any of it. The gap was
+    # found only when a worker tried to use a flag that had shipped and did not
+    # exist here.
+    #
+    # A NUMBER, not a boolean, and `unknown` is not zero - the helper owns that
+    # distinction and this only relays it. Emitted on EVERY registration, because
+    # re-registering is the documented cheap re-brief (#670) and a stale
+    # toolchain is exactly the kind of fact a compacted worker needs re-told.
+    # Advisory: no verdict changes, no exit code moves, and a missing helper
+    # reports `unavailable` rather than silently reporting nothing.
+    TOOLCHAIN_STATE=unavailable
+    TOOLCHAIN_N="-"
+    TC_HELPER=""
+    for candidate in "$SELF_DIR/toolchain-provenance.sh" "$HOME/.claude/scripts/toolchain-provenance.sh"; do
+        [ -x "$candidate" ] && { TC_HELPER="$candidate"; break; }
+    done
+    if [ -n "$TC_HELPER" ]; then
+      TC_JSON="$("$TC_HELPER" --json 2>/dev/null)"
+      if [ -n "$TC_JSON" ]; then
+        TOOLCHAIN_STATE="$(printf '%s' "$TC_JSON" | jq -r '.verdict // "unavailable"' 2>/dev/null || echo unavailable)"
+        TOOLCHAIN_N="$(printf '%s' "$TC_JSON" | jq -r '.behind // "-"' 2>/dev/null || echo -)"
+        [ -n "$TOOLCHAIN_STATE" ] || TOOLCHAIN_STATE=unavailable
+        [ -n "$TOOLCHAIN_N" ] || TOOLCHAIN_N="-"
+      fi
+    fi
+    echo "FLOW_WAVE_TOOLCHAIN=$TOOLCHAIN_STATE"
+    echo "FLOW_WAVE_TOOLCHAIN_BEHIND=$TOOLCHAIN_N"
+    case "$TOOLCHAIN_STATE" in
+      behind|diverged)
+        echo "flow-wave-registry: this session's CPP toolchain is ${TOOLCHAIN_N} commit(s) BEHIND its upstream." >&2
+        echo "  Helpers here predate what main ships: a flag that merged may simply not exist in the copy you run (#1029)." >&2
+        echo "  Pull at a declared safe moment - scripts/checkout-readers.sh says when no gate is running out of the tree." >&2
+        ;;
+      unknown|unavailable)
+        echo "flow-wave-registry: this session's CPP toolchain provenance is ${TOOLCHAIN_STATE} - NOT a measured zero (#1029)." >&2
+        ;;
+    esac
     E_SOCKET="$SOCK"; E_PID="$SELF_PID"; E_SESSION="$SELF_SESSION"; E_LIVE=live; E_BASIS=self
     E_VERIFIED="$KEEP_VERIFIED"; E_MISMATCH="$KEEP_MISMATCH"
     E_SOURCE="$SOCK_SOURCE"; E_REASON="$SOCK_REASON"
