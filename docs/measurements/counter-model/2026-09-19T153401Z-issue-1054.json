@@ -1,0 +1,19 @@
+{
+  "branch": "issue-1054-delegated-run-check-tool-errors-cannot-be-non-zero",
+  "counts": {
+    "accepted": 1,
+    "deferred": 1,
+    "rejected": 0
+  },
+  "implementer": "claude/opus-5",
+  "issue": "1054",
+  "passes": 2,
+  "recorded_at": "2026-09-19T15:34:01Z",
+  "red_cases": {
+    "already_covered": 3,
+    "proposed": 6
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}
