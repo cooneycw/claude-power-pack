@@ -32,6 +32,8 @@ the gate checks what it MEANT; only a known-bad input checks what it CAN say.
 
 from __future__ import annotations
 
+import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -107,6 +109,45 @@ def test_the_gate_reports_UNKNOWN_when_the_staged_binary_is_absent(
     )
 
 
+def test_a_declared_staging_that_did_not_deliver_FAILS_rather_than_skips() -> None:
+    """The gap the counter-model review found (#1086, gpt-6-astra, MEDIUM).
+
+    Every other test here survives the binary going missing: the absence case
+    builds its own empty PATH and passes regardless, and the positive control
+    below SKIPS. So if `shellcheck-stage` silently stopped delivering, the
+    `negative-controls` step would redden and `validate` - the pytest run - would
+    go GREEN. The acceptance item names both steps, and only one of them was
+    covered.
+
+    This is the #1017 shape exactly: `tests/test_flow_driver_retirement.py`
+    carried a module-level `skipif(which("jq") is None)` and skipped all 26 of its
+    tests in CI while `validate` stayed green - load-bearing on a dev box, inert
+    in the one environment a reviewer can re-derive.
+
+    THE DISCRIMINATOR IS `.ci-bin` ON PATH, not a CI environment variable. Both
+    consuming steps prepend `$PWD/.ci-bin` to PATH; that prefix is the run
+    DECLARING that a staged toolchain is supposed to be there. Where it is
+    declared, an absent binary is a broken stage and must fail. Where it is not -
+    an ordinary dev box - nothing was promised, and skipping is honest. Keying on
+    a CI variable instead would make this inert anywhere that variable is unset,
+    which is the same defect one level up.
+    """
+    on_path = [
+        part for part in os.environ.get("PATH", "").split(os.pathsep)
+        if part.rstrip("/").endswith(".ci-bin")
+    ]
+    if not on_path:
+        pytest.skip("no .ci-bin on PATH - this run declares no staged toolchain")
+
+    found = shutil.which("shellcheck")
+    assert found is not None, (
+        f"PATH declares a staged toolchain ({on_path}) but no shellcheck is "
+        f"reachable, so `shellcheck-stage` did not deliver. Every control that "
+        f"needs it will report UNSIGNALLED and this suite would otherwise have "
+        f"passed without noticing."
+    )
+
+
 @pytest.mark.skipif(
     shutil.which("shellcheck") is None,
     reason="the positive control needs a real shellcheck (CI stages the pinned one into .ci-bin)",
@@ -166,26 +207,115 @@ def test_the_staging_step_exists_and_stages_the_pinned_binary() -> None:
     )
 
 
+#: A step that EXECUTES the suite or the control battery. These are the only
+#: steps whose start time the staging split was about, and scoping to them is
+#: pass 2 of the counter-model review (#1086, gpt-6-astra, MEDIUM).
+#:
+#: Derived from what a step DOES, never a hardcoded name list: a future
+#: `validate2` that runs pytest inherits this guard, and a `publish` step that
+#: merely reads `.ci-bin` for jq does not. The previous cut keyed on ".ci-bin
+#: appears in the commands", which swept in exactly that publish step and failed
+#: it under a message claiming the lint was back in front of pytest - a non-zero
+#: that could not tell our regression from a neighbour's legitimate edge.
+EXECUTORS = re.compile(r"(?<![\w./-])pytest(?![\w./-])|check-negative-controls\.py")
+
+
+def _ancestors(steps: dict, name: str) -> set:
+    """Every step `name` transitively waits on.
+
+    Transitive rather than direct: an intermediate step is how the gate comes
+    back onto the critical path without anyone naming `shellcheck` in a consumer.
+    """
+    seen: set = set()
+    stack = list((steps.get(name) or {}).get("depends_on") or [])
+    while stack:
+        current = stack.pop()
+        if current in seen:
+            continue
+        seen.add(current)
+        stack.extend((steps.get(current) or {}).get("depends_on") or [])
+    return seen
+
+
+def _executors(steps: dict) -> list:
+    return [
+        name for name, step in steps.items()
+        if any(EXECUTORS.search(str(c)) for c in (step.get("commands") or []))
+    ]
+
+
 def test_the_gate_step_no_longer_blocks_the_critical_path() -> None:
-    """Nothing may depend on the `shellcheck` step - that is the whole change.
+    """No step that RUNS the suite may transitively wait on the `shellcheck` gate.
 
     Stated as a property of the graph rather than as a comment, because the
-    30 seconds comes back silently: a future step that adds `shellcheck` to its
-    `depends_on` for the binary would be correct-looking, green, and would undo
-    #1086 without anything saying so.
+    30 seconds comes back silently: a future step that adds `shellcheck` to a
+    consumer's `depends_on` for the binary would be correct-looking, green, and
+    would undo #1086 without anything saying so.
     """
     steps = _steps()
-    dependents = [
-        name
-        for name, step in steps.items()
-        if "shellcheck" in (step.get("depends_on") or [])
-    ]
-    assert dependents == [], (
-        f"{dependents} depend on the `shellcheck` GATE step rather than on "
-        f"`shellcheck-stage`, so the 30-second lint is back on the critical path. "
-        f"If the binary is what they need, depend on `shellcheck-stage`."
+    executors = _executors(steps)
+    assert executors, (
+        "no step runs pytest or the control battery, so this guard has no subject "
+        "and would pass vacuously - the executing steps are gone or renamed"
     )
+
+    offenders = {
+        name: sorted(_ancestors(steps, name))
+        for name in executors
+        if "shellcheck" in _ancestors(steps, name)
+    }
+    assert not offenders, (
+        f"a step that RUNS the suite waits on the `shellcheck` gate: {offenders}. "
+        f"That puts the 30-second lint back in front of pytest, which is what "
+        f"#1086 removed. If the binary is what it needs, depend on "
+        f"`shellcheck-stage`."
+    )
+
     assert "shellcheck-stage" not in (steps["shellcheck"].get("depends_on") or []), (
         "the gate step now waits for the staging step, which serialises the two "
         "for no reason - they are independent"
+    )
+
+
+def test_a_downstream_step_may_depend_on_the_shellcheck_gate() -> None:
+    """The accepted case, committed (counter-model review pass 2).
+
+    A publishing step that waits for the lint delays nothing that gates pytest.
+    The previous guard rejected it and said the lint was back on the critical
+    path, which was false. A guard that cannot tell our regression from a
+    neighbour's legitimate dependency gets routed around, and the routing-around
+    is what removes the protection.
+    """
+    graph = {
+        "validate": {"depends_on": ["shellcheck-stage"], "commands": ["uv run pytest -n 4"]},
+        "shellcheck-stage": {"depends_on": ["secret-scan"], "commands": ["cp /bin/shellcheck .ci-bin/"]},
+        "shellcheck": {"depends_on": ["secret-scan"], "commands": ["sh scripts/shellcheck-gate.sh"]},
+        "secret-scan": {"commands": ["gitleaks detect"]},
+        "publish": {
+            "depends_on": ["validate", "shellcheck"],
+            "commands": ['PATH="$PWD/.ci-bin:$PATH" jq . release.json'],
+        },
+    }
+    assert _executors(graph) == ["validate"], (
+        "the publish step reads .ci-bin but runs no tests - it must not be treated "
+        "as an executor, which is precisely the over-reach this case pins"
+    )
+    assert "shellcheck" not in _ancestors(graph, "validate")
+    assert "shellcheck" in _ancestors(graph, "publish")  # allowed, and not our subject
+
+
+def test_an_INTERMEDIATE_dependency_still_reds() -> None:
+    """...and narrowing the guard did not blind it to the real regression.
+
+    `validate -> intermediate -> shellcheck` names `shellcheck` nowhere in
+    `validate`, and is exactly how the 30 seconds returns unnoticed.
+    """
+    graph = {
+        "validate": {"depends_on": ["intermediate"], "commands": ["uv run pytest -n 4"]},
+        "intermediate": {"depends_on": ["shellcheck"], "commands": ["true"]},
+        "shellcheck": {"depends_on": [], "commands": ["sh scripts/shellcheck-gate.sh"]},
+    }
+    assert "shellcheck" in _ancestors(graph, "validate"), (
+        "the transitive walk stopped at the direct dependencies, so an "
+        "intermediate step hides the gate from this guard entirely"
     )

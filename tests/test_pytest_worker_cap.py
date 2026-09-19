@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import re
 import subprocess
 from pathlib import Path
 
@@ -200,10 +201,23 @@ def _executed_lines() -> dict[str, list[str]]:
     lists, parsed, so a `#` comment anywhere in that file is structurally out of
     scope rather than stripped by a pattern that might not strip it.
     """
-    makefile = [
-        ln for ln in (ROOT / "Makefile").read_text(encoding="utf-8").splitlines()
-        if ln.startswith("\t")
-    ]
+    raw = (ROOT / "Makefile").read_text(encoding="utf-8").splitlines()
+    # Recipe lines JOINED across `\` continuations, so one logical shell command
+    # is one entry. `make test` resolves the cap and invokes pytest on the same
+    # continued line, and splitting them would make the two halves look like
+    # unrelated commands to the guard below - which is precisely the mistake it
+    # exists to catch in the yaml.
+    makefile: list[str] = []
+    pending = ""
+    for ln in raw:
+        if not ln.startswith("\t") and not pending:
+            continue
+        pending += ln.rstrip("\\") if ln.endswith("\\") else ln
+        if not ln.endswith("\\"):
+            makefile.append(pending)
+            pending = ""
+    if pending:
+        makefile.append(pending)
     spec = yaml.safe_load((ROOT / ".woodpecker.yml").read_text(encoding="utf-8"))
     commands = [
         command
@@ -213,21 +227,105 @@ def _executed_lines() -> dict[str, list[str]]:
     return {"Makefile": makefile, ".woodpecker.yml": commands}
 
 
-def test_no_shipped_caller_passes_n_auto() -> None:
-    """The prohibition, made checkable.
+#: A REAL pytest invocation. `(?![\w./-])` is what keeps `pytest-workers.sh` out:
+#: a bare `"pytest" in cmd` substring test is satisfied by the RESOLVER's own
+#: filename, so `sh scripts/pytest-workers.sh -n 8` - which runs no tests at all -
+#: passed the first two versions of these guards (counter-model review pass 2,
+#: #1086, gpt-6-astra). The guard was reading its own helper as its subject.
+PYTEST_TOKEN = re.compile(r"(?<![\w./-])pytest(?![\w./-])")
 
-    A comment saying "never `auto`" is a claim about intent. This is a claim
-    about what executes: neither build surface may hand `-n auto` to pytest,
-    however the number is otherwise resolved.
+#: The `-n` argument, with its quoting. Attribution matters as much as the value:
+#: an unrelated `grep -n auto README.md` in a recipe is not a pytest worker count,
+#: and the literal-substring version rejected it. Conversely `-n "auto"` IS one
+#: and the literal version missed it. Both directions were reproduced.
+#: `\S+` LAST, because it cannot span the spaces inside `$(sh scripts/... )`:
+#: against `-n "$(sh scripts/pytest-workers.sh)"` it captured `"$(sh` and the
+#: wiring check then saw no resolver at all. A quoted string or a command
+#: substitution is ONE argument and must be captured whole.
+DASH_N = re.compile(r"""-n[=\s]+("[^"]*"|'[^']*'|\$\([^)]*\)|\S+)""")
+
+#: Same LENGTH as the resolver's filename, so masking it to keep `PYTEST_TOKEN`
+#: off the helper does not shift the offsets used to read the original string.
+_MASK = "R" * len("pytest-workers.sh")
+
+
+def _pytest_invocations(commands: list[str]) -> list[str]:
+    """Commands that actually run pytest, resolver mentions excluded."""
+    out = []
+    for cmd in commands:
+        stripped = _normalise(cmd).replace("pytest-workers.sh", _MASK)
+        if PYTEST_TOKEN.search(stripped):
+            out.append(cmd)
+    return out
+
+
+def _normalise(cmd: str) -> str:
+    """One spelling for both surfaces.
+
+    `make` escapes a shell `$` as `$$` in a recipe, so the SAME command reads
+    `"$$workers"` in the Makefile and `"$workers"` in the yaml. A guard that
+    understands only one of those silently stops applying to the other - and the
+    Makefile is the surface `/flow:finish` actually runs.
+    """
+    return cmd.replace("$$", "$")
+
+
+def _worker_arg(cmd: str) -> str | None:
+    """The value pytest's `-n` receives, unquoted, or None if it has none.
+
+    Read from the ORIGINAL text at an offset found in the masked copy, so the
+    resolver's filename is invisible to the pytest-token search and still visible
+    in the value - which is the whole point of the wiring check.
+    """
+    norm = _normalise(cmd)
+    masked = norm.replace("pytest-workers.sh", _MASK)
+    token = PYTEST_TOKEN.search(masked)
+    if not token:
+        return None
+    m = DASH_N.search(norm, token.start())
+    if not m:
+        return None
+    return m.group(1).strip().strip("\"'")
+
+
+def test_no_shipped_caller_passes_n_auto() -> None:
+    """The prohibition, attributed to the pytest invocation that owns the flag.
+
+    Two failures the literal `"-n auto" in line` version had, both reproduced:
+    it MISSED `pytest -n "auto"`, which the shell passes to pytest as `auto`; and
+    it REJECTED `grep -n auto README.md`, which is not a worker count at all.
+    Reading the argument of an actual pytest invocation answers the question that
+    was being asked instead of one that merely looks like it.
     """
     for name, lines in _executed_lines().items():
-        offending = [
-            line.strip() for line in lines if "-n auto" in line or "-n=auto" in line
-        ]
-        assert not offending, (
-            f"{name} passes `-n auto`: {offending}. On this host that is 24 "
-            f"workers per invocation, multiplied by everything else in flight."
-        )
+        for cmd in _pytest_invocations(lines):
+            value = _worker_arg(cmd)
+            assert value != "auto", (
+                f"{name} passes `-n auto` to pytest: {cmd.strip()[:160]}. On this "
+                f"host that is 24 workers per invocation, multiplied by everything "
+                f"else in flight."
+            )
+
+
+def test_an_unrelated_dash_n_is_not_read_as_a_worker_count() -> None:
+    """The other direction of the same guard, committed as a case.
+
+    A prohibition that fires on `grep -n` would be routed around within a week,
+    and the routing-around is what actually removes the protection. This pins
+    that it does not.
+    """
+    assert _pytest_invocations(["grep -n auto README.md"]) == []
+    assert _pytest_invocations(["sh scripts/pytest-workers.sh -n 8"]) == [], (
+        "the resolver's own filename contains 'pytest' - if it is read as a "
+        "pytest invocation, a command that runs no tests satisfies every guard here"
+    )
+    assert _worker_arg('uv run pytest -n "auto"') == "auto"
+    assert _worker_arg("uv run pytest -n 8") == "8"
+    # A command substitution is ONE argument, spaces and all.
+    assert _worker_arg('uv run pytest -n "$(sh scripts/pytest-workers.sh)"') == (
+        "$(sh scripts/pytest-workers.sh)"
+    )
+    assert _worker_arg("uv run pytest") is None
 
 
 def test_both_build_surfaces_actually_go_through_the_resolver() -> None:
@@ -239,10 +337,45 @@ def test_both_build_surfaces_actually_go_through_the_resolver() -> None:
     auto" from "does not run tests".
     """
     for name, lines in _executed_lines().items():
-        joined = "\n".join(lines)
-        assert "pytest-workers.sh" in joined, (
-            f"{name} no longer resolves its worker count through "
-            f"scripts/pytest-workers.sh, so the `auto` refusal does not apply to "
-            f"it and the guard above is asserting nothing about this surface"
+        # ONE command must carry all three, not three substrings scattered across
+        # the file. The first cut joined every command and asked whether
+        # `pytest-workers.sh` and `-n ` appeared ANYWHERE - so deleting the real
+        # pytest invocation and leaving an unrelated step that merely mentioned
+        # the resolver kept both assertions green (counter-model review, #1086,
+        # gpt-6-astra, MEDIUM: "the guard searches all commands for two
+        # independent substrings without establishing that pytest executes or
+        # consumes the resolver's output").
+        invocations = _pytest_invocations(lines)
+        assert invocations, (
+            f"{name} runs no pytest at all, so the `auto` prohibition above is "
+            f"asserting nothing about this surface. Commands examined:\n"
+            + "\n".join(f"  {c[:120]}" for c in lines[:40])
         )
-        assert "-n " in joined, f"{name} does not pass -n to pytest at all"
+
+        # THE CAP MUST REACH PYTEST, not merely be computed nearby. Both earlier
+        # versions accepted `workers="$(sh scripts/pytest-workers.sh)"; uv run
+        # pytest -n 24` - resolver invoked, verdict discarded, hard-coded 24 sent
+        # instead (counter-model review pass 2). So the `-n` argument itself must
+        # be tied to the resolver: either a direct command substitution, or a
+        # variable this same command assigned from one.
+        wired = []
+        for cmd in invocations:
+            value = _worker_arg(cmd)
+            if value is None:
+                continue
+            if "pytest-workers.sh" in value:
+                wired.append(cmd)
+                continue
+            var = re.fullmatch(r"\$\{?(\w+)\}?", value)
+            # `["\']?` because the assignment is `workers="$(...)"`, quote included.
+            if var and re.search(
+                rf"{re.escape(var.group(1))}=[\"']?\$\([^)]*pytest-workers\.sh[^)]*\)",
+                _normalise(cmd),
+            ):
+                wired.append(cmd)
+        assert wired, (
+            f"{name} runs pytest, but no invocation takes its `-n` value from "
+            f"scripts/pytest-workers.sh - so the resolver's refusal of `auto` and "
+            f"its cap do not govern what actually runs. Invocations examined:\n"
+            + "\n".join(f"  {c.strip()[:160]}" for c in invocations)
+        )

@@ -141,6 +141,18 @@ def _run_fixture_suite(tmp_path: Path, scoping: str) -> subprocess.CompletedProc
     )
 
 
+def carries_worker_id(worker: str, path: Path) -> bool:
+    """Does `path` sit under the basetemp belonging to `worker`?
+
+    A SEPARATE function, not an inline `worker in str(tmp_path)`, so the property
+    has a red case of its own (`test_the_live_assertion_can_fail`). Matching on
+    path COMPONENTS rather than substring: `gw1 in ".../popen-gw10/..."` is true
+    and means nothing, and a suite with ten or more workers is the case where
+    that silently starts mattering.
+    """
+    return any(part == worker or part.endswith(f"-{worker}") for part in path.parts)
+
+
 def _claimed_names(tmp_path: Path, scoping: str) -> list[str]:
     return sorted(p.name for p in (tmp_path / f"case-{scoping}" / "resources").iterdir())
 
@@ -236,8 +248,30 @@ def test_tmp_path_carries_the_worker_id_under_xdist(tmp_path: Path) -> None:
         )
         return
 
-    assert worker in str(tmp_path), (
+    assert carries_worker_id(worker, tmp_path), (
         f"tmp_path {tmp_path} does not carry worker id {worker!r}. Every test in "
         f"this suite that relies on tmp_path for isolation is now sharing a "
         f"directory with the other workers."
+    )
+
+
+def test_the_live_assertion_can_fail() -> None:
+    """The red case for the assertion above (counter-model review, #1086).
+
+    On a serial run the assertion above does not execute at all, and on a healthy
+    parallel run it passes - so nothing in either run shows it CAN fail. That is
+    the shape where an assertion quietly stops meaning anything: it would look
+    identical if `carries_worker_id` always returned True.
+
+    The input that makes it report the other verdict, named rather than intended:
+    worker id `gw1` against a path under `popen-gw0`.
+    """
+    assert carries_worker_id("gw0", Path("/tmp/pytest-of-u/pytest-1/popen-gw0/test_x0"))
+    assert not carries_worker_id("gw1", Path("/tmp/pytest-of-u/pytest-1/popen-gw0/test_x0")), (
+        "a worker id belonging to a DIFFERENT worker reads as carried, so the "
+        "live assertion cannot detect a tmp_path that is not worker-scoped"
+    )
+    assert not carries_worker_id("gw0", Path("/tmp/pytest-of-u/pytest-1/test_x0")), (
+        "a path with no worker component at all reads as carried - which is "
+        "exactly the un-scoped basetemp this suite must notice"
     )

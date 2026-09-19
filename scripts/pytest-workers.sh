@@ -76,11 +76,34 @@ case "$workers" in
         echo "pytest-workers: REFUSED - $source='$workers' is not a positive integer." >&2
         exit 2
         ;;
-    0)
-        echo "pytest-workers: REFUSED - $source=0 would run no workers at all." >&2
+    *[!0]*)
+        # All-digit and carrying at least one non-zero digit: accepted below.
+        ;;
+    *)
+        # Every digit is a zero. `0` is the obvious case; `00` and `000` are not,
+        # and they are the ones that got through - counter-model review (#1086)
+        # reproduced `PYTEST_WORKERS=00` resolving to an accepted cap of "00",
+        # which pytest reads as zero workers. Matching the literal `0` alone
+        # tested the SPELLING of the value rather than the value.
+        echo "pytest-workers: REFUSED - $source='$workers' would run no workers at all." >&2
         exit 2
         ;;
 esac
+
+# Leading zeros are stripped AFTER validation, so `-n 08` reaches pytest as 8
+# rather than as a string it may or may not parse.
+#
+# NOT `$((10#$workers))`. That is a bashism: this script runs under POSIX sh (the
+# CI image has no bash), where `10#` is an arithmetic syntax error that aborts the
+# shell - so EVERY value, valid ones included, exited 2. Caught by re-running the
+# known-GOOD case after fixing the known-bad one; testing only the bad half would
+# have shipped a resolver that refuses everything.
+while :; do
+    case "$workers" in
+        0?*) workers="${workers#0}" ;;
+        *)   break ;;
+    esac
+done
 
 # Advisory only. A cap above the core count is usually a typo, and it is also a
 # legitimate choice for a suite that WAITS rather than computes - which this one

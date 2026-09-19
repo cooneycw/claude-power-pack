@@ -1,0 +1,19 @@
+{
+  "branch": "issue-1086-ci-the-pipeline-is-84-one-serial-pytest-step-and-v",
+  "counts": {
+    "accepted": 7,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "implementer": "claude/opus-5",
+  "issue": "1086",
+  "passes": 2,
+  "recorded_at": "2026-09-19T17:08:05Z",
+  "red_cases": {
+    "already_covered": 8,
+    "proposed": 10
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}
