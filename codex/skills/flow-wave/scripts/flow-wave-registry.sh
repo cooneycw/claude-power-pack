@@ -2179,8 +2179,15 @@ case "$VERB" in
     # toolchain is exactly the kind of fact a compacted worker needs re-told.
     # Advisory: no verdict changes, no exit code moves, and a missing helper
     # reports `unavailable` rather than silently reporting nothing.
+    # The gap and the AGE OF THE EVIDENCE behind it are one fact. Emitting only
+    # the verdict and the count let `current / 0` reach an orchestrator with no
+    # way to see it was measured against a remote-tracking ref last refreshed
+    # months ago - the original failure with a number attached (counter-model
+    # review, codex/gpt-6-astra).
     TOOLCHAIN_STATE=unavailable
     TOOLCHAIN_N="-"
+    TOOLCHAIN_UP="-"
+    TOOLCHAIN_AGE="-"
     TC_HELPER=""
     for candidate in "$SELF_DIR/toolchain-provenance.sh" "$HOME/.claude/scripts/toolchain-provenance.sh"; do
         [ -x "$candidate" ] && { TC_HELPER="$candidate"; break; }
@@ -2189,13 +2196,24 @@ case "$VERB" in
       TC_JSON="$("$TC_HELPER" --json 2>/dev/null)"
       if [ -n "$TC_JSON" ]; then
         TOOLCHAIN_STATE="$(printf '%s' "$TC_JSON" | jq -r '.verdict // "unavailable"' 2>/dev/null || echo unavailable)"
-        TOOLCHAIN_N="$(printf '%s' "$TC_JSON" | jq -r '.behind // "-"' 2>/dev/null || echo -)"
+        # `// "-"` is NOT enough for a numeric field: jq's alternative operator
+        # fires on null AND on false, but `0` is neither - it passes through,
+        # which is correct here and is exactly why the null case needs its own
+        # spelling rather than a default that happens to look right.
+        TOOLCHAIN_N="$(printf '%s' "$TC_JSON" | jq -r 'if .behind == null then "-" else .behind end' 2>/dev/null || echo -)"
+        TOOLCHAIN_UP="$(printf '%s' "$TC_JSON" | jq -r '.upstream // "-"' 2>/dev/null || echo -)"
+        TOOLCHAIN_AGE="$(printf '%s' "$TC_JSON" | jq -r 'if .fetch_age_seconds == null then "-" else .fetch_age_seconds end' 2>/dev/null || echo -)"
         [ -n "$TOOLCHAIN_STATE" ] || TOOLCHAIN_STATE=unavailable
-        [ -n "$TOOLCHAIN_N" ] || TOOLCHAIN_N="-"
+        for tc_var in TOOLCHAIN_N TOOLCHAIN_UP TOOLCHAIN_AGE; do
+          eval "tc_value=\$$tc_var"
+          [ -n "$tc_value" ] || eval "$tc_var='-'"
+        done
       fi
     fi
     echo "FLOW_WAVE_TOOLCHAIN=$TOOLCHAIN_STATE"
     echo "FLOW_WAVE_TOOLCHAIN_BEHIND=$TOOLCHAIN_N"
+    echo "FLOW_WAVE_TOOLCHAIN_UPSTREAM=$TOOLCHAIN_UP"
+    echo "FLOW_WAVE_TOOLCHAIN_AGE=$TOOLCHAIN_AGE"
     case "$TOOLCHAIN_STATE" in
       behind|diverged)
         echo "flow-wave-registry: this session's CPP toolchain is ${TOOLCHAIN_N} commit(s) BEHIND its upstream." >&2
@@ -2204,6 +2222,14 @@ case "$VERB" in
         ;;
       unknown|unavailable)
         echo "flow-wave-registry: this session's CPP toolchain provenance is ${TOOLCHAIN_STATE} - NOT a measured zero (#1029)." >&2
+        ;;
+      current)
+        # A zero gap against week-old evidence is still a zero gap against
+        # week-old evidence. Said once, at the point the wave is briefed.
+        if [ "$TOOLCHAIN_AGE" != "-" ] && [ "$TOOLCHAIN_AGE" -gt 86400 ] 2>/dev/null; then
+          echo "flow-wave-registry: toolchain reads current against ${TOOLCHAIN_UP}, but that reference was last refreshed $(( TOOLCHAIN_AGE / 86400 ))d ago (#1029)." >&2
+          echo "  The gap is measured against what this checkout last fetched, not against the remote as it is now." >&2
+        fi
         ;;
     esac
     E_SOCKET="$SOCK"; E_PID="$SELF_PID"; E_SESSION="$SELF_SESSION"; E_LIVE=live; E_BASIS=self
