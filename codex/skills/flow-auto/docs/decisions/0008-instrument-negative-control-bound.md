@@ -275,6 +275,16 @@ another repo (the escalation clause); a row can be both.
 > is this repository's CI, which merges or refuses on the verdict. Same binary,
 > different decisions, and only the second one lets work through unexamined.
 
+> **Row 60's pip-audit half now carries a committed negative control (#1044).**
+> It lives in `tests/test_pip_audit.py` and covers a missing binary, a missing
+> dependency population that refuses an ambient-environment fallback, a missing
+> `uv` binary when `uv.lock` is the only population, and invalid JSON returned
+> with exit zero. `make verify` exercises it through pytest; it does **not** live
+> under `controls/`, so `scripts/check-negative-controls.py` does not include it
+> in the row-63 "N control(s) discriminate" count. The harness therefore
+> understates row 60's control coverage rather than showing it absent; #1036 is
+> the underlying observation that this denominator is not homogeneous.
+
 ### A control must be valid WHERE THE HARNESS RUNS (#960, #964)
 
 A control is not a file; it is a thing that executes. So its dependencies have to
