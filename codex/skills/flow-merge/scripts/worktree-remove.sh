@@ -6,36 +6,42 @@
 # .git file) to prevent breaking your shell session.
 #
 # A worktree CLAIMED by another live /flow session (issue #597) is never
-# removed: the claim is checked first and a live foreign owner is a hard stop
+# removed: the claim is checked first and a live identified owner is a hard stop
 # (exit 4), because removing it is exactly the silent-data-loss failure that
 # motivated the claim. A self-owned or stale claim is released and removed as
-# usual, and --steal is the deliberate override.
+# usual, and --steal is the deliberate override. A lock that does not identify
+# a /flow session is only a warning; the independent safety checks below decide
+# whether removal is safe.
 #
 # A claim only protects a worktree where one was staked, though, and `free`,
 # `unsupported` and `unknown` are not claims. So a worktree that no claim names
-# is checked a second way (issue #888): if a live process has its working
-# directory inside it AND it holds uncommitted work, removal is refused (exit
-# 5). --force does NOT suppress that refusal - --force is what every /flow:auto
-# Step 7 passes, so a guard it silences never fires where the damage happens.
-# --steal overrides it as usual. On a host with no readable /proc the check
-# reports `unknown` and falls open, rather than reporting a clean result it did
-# not establish.
+# is checked a second way (issues #888 and #1032): if a live process has its
+# working directory inside it, removal is refused (exit 5), whether the tree is
+# currently dirty or clean. --force does NOT suppress that refusal - --force is
+# what every /flow:auto Step 7 passes, so a guard it silences never fires where
+# the damage happens. --steal overrides it as usual. On a host with no readable
+# /proc the check reports `unknown` and falls open, rather than reporting a clean
+# result it did not establish.
 #
 # Usage:
-#   worktree-remove.sh <worktree-path> [--force] [--delete-branch] [--steal]
+#   worktree-remove.sh <worktree-path> [--force] [--delete-branch] [--steal] [--allow-dirty] [--allow-unpushed]
 #
 # Options:
-#   --force          Remove even if worktree has uncommitted changes
-#                    (does not override the #888 in-use refusal)
+#   --force          Pass --force to git worktree remove; does not override
+#                    any data-loss refusal
 #   --delete-branch  Also delete the associated branch after removal
 #   --steal          Remove even when another live session claims it (#597),
-#                    or when it is in use with uncommitted work (#888)
+#                    or when it is in use by a live process (#888, #1032)
+#   --allow-dirty    Remove even though uncommitted work would be destroyed
+#   --allow-unpushed Remove even though commits exist on no remote ref
 #
 # Exit codes:
 #   0  removed (or already absent - stale refs pruned)
-#   1  usage error, not a worktree, or uncommitted changes without --force
+#   1  usage, path, or repository validation error
 #   4  claimed by another live /flow session (#597)
-#   5  in use by a live process AND holding uncommitted work (#888)
+#   5  in use by a live process (#888, #1032)
+#   6  holds uncommitted work without --allow-dirty (#899)
+#   7  holds commits on no remote ref without --allow-unpushed (#899)
 #
 # Examples:
 #   worktree-remove.sh /home/user/Projects/nhl-api-issue-42
@@ -85,7 +91,7 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         -h|--help)
-            echo "Usage: worktree-remove.sh <worktree-path> [--force] [--delete-branch]"
+            echo "Usage: worktree-remove.sh <worktree-path> [--force] [--delete-branch] [--steal] [--allow-dirty] [--allow-unpushed]"
             echo ""
             echo "Safely remove git worktrees. If you're currently inside the worktree"
             echo "being removed, the script automatically changes to the main repository"
@@ -126,7 +132,7 @@ done
 
 if [[ -z "$WORKTREE_PATH" ]]; then
     echo -e "${RED}Error: Worktree path is required${NC}" >&2
-    echo "Usage: worktree-remove.sh <worktree-path> [--force] [--delete-branch]"
+    echo "Usage: worktree-remove.sh <worktree-path> [--force] [--delete-branch] [--steal] [--allow-dirty] [--allow-unpushed]"
     exit 1
 fi
 
@@ -144,7 +150,7 @@ CWD="${CWD%/}"
 
 # Check if we're inside the worktree being removed
 INSIDE_WORKTREE=false
-if [[ -n "$CWD" && "$CWD" == "$WORKTREE_PATH"* ]]; then
+if [[ -n "$CWD" && ( "$CWD" == "$WORKTREE_PATH" || "${CWD#"$WORKTREE_PATH"/}" != "$CWD" ) ]]; then
     INSIDE_WORKTREE=true
 fi
 
@@ -216,8 +222,10 @@ BRANCH_NAME=$(git -C "$WORKTREE_PATH" rev-parse --abbrev-ref HEAD 2>/dev/null ||
 # --- Cross-session claim check (issue #597) ----------------------------------
 # Another LIVE /flow session may be driving this checkout right now. Removing it
 # out from under that session is the silent-data-loss failure this guard exists
-# for, so a live foreign claim is a hard stop. A claim owned by THIS session, or
-# left behind by a session that has since died, is simply released first.
+# for, so a live parseable claim is a hard stop. A claim owned by THIS session,
+# or left behind by a session that has since died, is simply released first. An
+# unparseable lock identifies no owner and falls through to the independent
+# occupancy and work checks below.
 #
 # Fail-open in both directions: a missing helper, an unreadable lock, or a git
 # too old to report one leaves the previous behavior exactly as it was.
@@ -239,7 +247,7 @@ if [[ -n "$CLAIM_HELPER" ]]; then
     CLAIM_ISSUE=$(printf '%s\n' "$CLAIM_OUT" | sed -n 's/^FLOW_CLAIM_ISSUE=//p' | tail -1)
 
     case "${CLAIM_STATE:-unknown}" in
-        held | foreign)
+        held)
             if [[ "$STEAL" != true ]]; then
                 echo -e "${RED}Error: refusing to remove a worktree claimed by another session${NC}" >&2
                 echo "" >&2
@@ -253,6 +261,16 @@ if [[ -n "$CLAIM_HELPER" ]]; then
             fi
             echo -e "${YELLOW}Warning: --steal given; removing a worktree claimed by pid ${CLAIM_PID:--}.${NC}" >&2
             bash "$CLAIM_HELPER" release "$WORKTREE_PATH" --force >/dev/null 2>&1 || true
+            ;;
+        foreign)
+            echo -e "${YELLOW}Warning: this worktree carries a lock that does not identify a session${NC}" >&2
+            echo "" >&2
+            echo "  Worktree: $WORKTREE_PATH" >&2
+            echo "  Claim:    unparseable lock (identifies no issue, pid, or session)" >&2
+            echo "" >&2
+            echo "  This is not evidence the worktree is idle OR in use (issue #1032)." >&2
+            echo "  Checking live occupancy and uncommitted/unpushed work independently" >&2
+            echo "  before deciding." >&2
             ;;
         self)
             # Ours - drop the lock so the removal below can proceed.
@@ -277,10 +295,11 @@ if [[ -n "$CLAIM_HELPER" ]]; then
 fi
 
 # --- Live-occupancy check (issue #888) ---------------------------------------
-# The claim above protects a worktree only where one was actually staked. Three
-# states leave it unprotected - `free` (no claim ever filed), `unsupported` (git
-# too old to lock) and `unknown` (the lock could not be read) - and an unclaimed
-# worktree is indistinguishable from an idle one, so it was removed.
+# The claim above protects a worktree only where one was actually staked. Four
+# states leave it unprotected - `free` (no claim ever filed), `foreign` (a lock
+# that identifies no /flow owner), `unsupported` (git too old to lock) and
+# `unknown` (the lock could not be read) - and an unclaimed worktree is
+# indistinguishable from an idle one, so it was removed.
 #
 # That is how a LIVE session loses unsaved work. On 2026-09-13 a session sitting
 # in `flow-finish-gate` held a 21KB staged file in a worktree reporting
@@ -290,12 +309,13 @@ fi
 # occupied.
 #
 # So when the claim did not positively name THIS session as owner, ask a second
-# question no time window can blind: is a live process sitting in it? A worktree
-# someone is standing in, holding work that exists nowhere else, is not ours to
-# delete. Unlike the dirty-tree check below, --force does NOT suppress this one:
-# --force is precisely what every /flow:auto Step 7 passes, so a guard it
-# silences is a guard that never fires where the damage happens. --steal remains
-# the deliberate override.
+# question no time window can blind: is a live process sitting in it? A process
+# whose cwd would be unlinked may create unreachable work immediately after a
+# clean scan, so an occupied worktree is not ours to delete. Unlike the
+# dirty-tree check below, --force does NOT suppress this one: --force is
+# precisely what every /flow:auto Step 7 passes, so a guard it silences is a
+# guard that never fires where the damage happens. --steal remains the
+# deliberate override.
 
 # /proc/<pid>/cwd is fully resolved, so compare against a resolved path.
 WT_REAL="$(readlink -f "$WORKTREE_PATH" 2>/dev/null || echo "$WORKTREE_PATH")"
@@ -376,8 +396,20 @@ if [[ "$CLAIM_OWNED_BY_US" != true && "$STEAL" != true ]]; then
             echo "  pass --steal if you are certain those processes can be killed." >&2
             exit 5
         fi
-        # Occupied but clean: nothing unrecoverable to lose, so removal stands.
         echo "WORKTREE_REMOVE_OCCUPANCY: occupied-clean" >&2
+        echo -e "${RED}Error: refusing to remove a clean worktree that is in use by a live process${NC}" >&2
+        echo "" >&2
+        echo "  Worktree: $WORKTREE_PATH" >&2
+        echo "  Claim:    ${CLAIM_STATE:-none} (no claim naming this session)" >&2
+        echo "" >&2
+        echo "  Live processes with their working directory inside it:" >&2
+        printf '    %s\n' "$OCC_OUT" >&2
+        echo "" >&2
+        echo "  There is no uncommitted work right now, but a live process could create" >&2
+        echo "  work after this check. Removing the worktree would unlink that process's" >&2
+        echo "  working directory (issue #1032). --force does not override this; wait for" >&2
+        echo "  the process to finish, or pass --steal if you are certain it can be killed." >&2
+        exit 5
     else
         echo "WORKTREE_REMOVE_OCCUPANCY: clear" >&2
     fi
@@ -538,6 +570,9 @@ fi
 
 # Remove the worktree
 echo -e "${BLUE}Removing worktree: ${WORKTREE_PATH}${NC}"
+if [[ "${CLAIM_STATE:-unknown}" == foreign ]]; then
+    git -C "$WORKTREE_PATH" worktree unlock "$WORKTREE_PATH" >/dev/null 2>&1 || true
+fi
 git -C "$MAIN_REPO" worktree remove "$WORKTREE_PATH" $FORCE
 
 echo -e "${GREEN}Worktree removed successfully.${NC}"
