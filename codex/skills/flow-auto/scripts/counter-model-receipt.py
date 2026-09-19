@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from datetime import datetime, timezone
@@ -183,6 +184,52 @@ def _slug(text: str) -> str:
     return re.sub(r"[^a-zA-Z0-9]+", "-", text).strip("-")[:60] or "unknown"
 
 
+def _derive_reviewer_from_exec_log(
+    exec_log: Path, sessions_dir: Path
+) -> tuple[str | None, str | None]:
+    """Derive the reviewing model from one exec stream and its own rollout."""
+    try:
+        exec_text = exec_log.read_text(encoding="utf-8")
+    except OSError as exc:
+        return None, f"cannot read reviewer exec log {exec_log}: {exc}"
+
+    thread_match = re.search(r'"thread_id"\s*:\s*"([^"]*)"', exec_text)
+    if thread_match is None or not thread_match.group(1):
+        return None, f"reviewer exec log {exec_log} contains no thread_id"
+    thread_id = thread_match.group(1)
+
+    try:
+        matches = sorted(
+            path
+            for path in sessions_dir.rglob("*.jsonl")
+            if path.is_file() and path.name.endswith(f"{thread_id}.jsonl")
+        )
+    except OSError as exc:
+        return None, f"cannot search Codex sessions directory {sessions_dir}: {exc}"
+    if not matches:
+        return None, (
+            f"no rollout matching thread_id {thread_id!r} under Codex sessions "
+            f"directory {sessions_dir}"
+        )
+
+    rollout = matches[0]
+    try:
+        rollout_text = rollout.read_text(encoding="utf-8")
+    except OSError as exc:
+        return None, f"cannot read matching rollout {rollout}: {exc}"
+    model_match = re.search(r'"model"\s*:\s*"([^"]*)"', rollout_text)
+    if model_match is None or not model_match.group(1):
+        return None, f"matching rollout {rollout} contains no model field"
+    return f"codex/{model_match.group(1)}", None
+
+
+def _default_codex_sessions_dir() -> Path:
+    codex_home = os.environ.get("CODEX_HOME")
+    if codex_home:
+        return Path(codex_home) / "sessions"
+    return Path.home() / ".codex" / "sessions"
+
+
 def build(args: argparse.Namespace) -> dict:
     receipt: dict = {
         "schema": SCHEMA,
@@ -310,6 +357,18 @@ def validate(receipt: dict, source: str = "<receipt>") -> list[str]:
 
 
 def cmd_write(args: argparse.Namespace) -> int:
+    if args.status == "ran":
+        sessions_dir = args.codex_sessions_dir or _default_codex_sessions_dir()
+        reviewer, error = _derive_reviewer_from_exec_log(
+            args.reviewer_exec_log, sessions_dir
+        )
+        if error is not None:
+            print(f"counter-model-receipt: {error}", file=sys.stderr)
+            return EXIT_INVALID
+        args.reviewer = reviewer
+    else:
+        args.reviewer = None
+
     receipt = build(args)
     problems = validate(receipt, "new receipt")
     if problems:
@@ -403,7 +462,16 @@ def main() -> int:
     w.add_argument("--branch", required=True)
     w.add_argument("--status", required=True, choices=STATUSES)
     w.add_argument("--reason", choices=SKIP_REASONS, help="required when --status skipped")
-    w.add_argument("--reviewer", help="the REVIEWING model")
+    w.add_argument(
+        "--reviewer-exec-log",
+        type=Path,
+        help="Codex --json exec stream from which to derive the REVIEWING model",
+    )
+    w.add_argument(
+        "--codex-sessions-dir",
+        type=Path,
+        help="Codex sessions root (defaults to $CODEX_HOME/sessions or ~/.codex/sessions)",
+    )
     w.add_argument("--implementer", required=True, help="the IMPLEMENTING model")
     w.add_argument("--passes", type=int, default=1)
     for k in COUNTS:
@@ -424,12 +492,12 @@ def main() -> int:
     args = ap.parse_args()
     if args.cmd == "write" and args.status == "skipped" and not args.reason:
         ap.error("--status skipped requires --reason")
-    if (args.cmd == "write" and args.status == "skipped" and args.reviewer is not None
-            and args.reviewer.strip()):
-        ap.error("--status skipped must not name a reviewer; no review happened")
+    if (args.cmd == "write" and args.status == "skipped"
+            and args.reviewer_exec_log is not None):
+        ap.error("--status skipped must not carry --reviewer-exec-log; no review happened")
     if (args.cmd == "write" and args.status == "ran"
-            and (args.reviewer is None or not args.reviewer.strip())):
-        ap.error("--status ran requires a non-empty --reviewer")
+            and args.reviewer_exec_log is None):
+        ap.error("--status ran requires --reviewer-exec-log")
     return int(args.func(args))
 
 
