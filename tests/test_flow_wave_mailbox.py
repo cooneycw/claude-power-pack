@@ -2187,6 +2187,264 @@ class TestSupervise:
         finally:
             self._kill_daemon(pid)
 
+    @pytest.mark.skipif(
+        shutil.which("jq") is None, reason="requires jq (flow-wave-registry.sh)"
+    )
+    def test_a_live_role_elsewhere_in_the_wave_keeps_it_supervising(
+        self, tmp_path: Path
+    ) -> None:
+        """issue #1095, negative case: the wave has a genuinely live role
+        (this supervisor's own registration, never released, and never
+        pinned dead) - `--any-live` must answer `yes` and the daemon must
+        keep polling exactly as it does today, with no wave-wide check at
+        all."""
+        registry = ROOT / "scripts" / "flow-wave-registry.sh"
+        env = os.environ.copy()
+        env["FLOW_WAVE_MAILBOX_DIR"] = str(tmp_path / "mb")
+        env["FLOW_WAVE_REGISTRY_DIR"] = str(tmp_path / "mb")
+        subprocess.run(
+            ["bash", str(registry), "register", "1", "--wave", WAVE, "--socket", "uds:/tmp/x.sock"],
+            capture_output=True, text=True, env={**env, "CLAUDE_PID": str(os.getpid())}, check=False,
+        )
+        self._launch(
+            tmp_path, timeout="2",
+            extra_env={"FLOW_WAVE_REGISTRY_DIR": str(tmp_path / "mb")},
+        )
+        pid = _daemon_pid(tmp_path, WAVE, "1")
+        try:
+            time.sleep(3)
+            assert _pid_alive(pid), "a wave with a live role must not be treated as having none"
+        finally:
+            self._kill_daemon(pid)
+
+    @pytest.mark.skipif(
+        shutil.which("jq") is None, reason="requires jq (flow-wave-registry.sh)"
+    )
+    def test_shuts_down_when_every_role_in_the_wave_has_ended(
+        self, tmp_path: Path
+    ) -> None:
+        """issue #1095: the release check alone only ever asks about THIS
+        role. Register it, then pin the whole process table dead
+        (`FLOW_WAVE_LIVE_PIDS=none` - the same "no real pid ever matches"
+        sentinel `tests/test_flow_wave_registry.py` uses) so the role reads
+        `stale`, never explicitly released. RED against the pre-#1095
+        daemon (see the discrimination test below); GREEN here."""
+        registry = ROOT / "scripts" / "flow-wave-registry.sh"
+        env = os.environ.copy()
+        env["FLOW_WAVE_MAILBOX_DIR"] = str(tmp_path / "mb")
+        env["FLOW_WAVE_REGISTRY_DIR"] = str(tmp_path / "mb")
+        subprocess.run(
+            ["bash", str(registry), "register", "1", "--wave", WAVE, "--socket", "uds:/tmp/x.sock"],
+            capture_output=True, text=True, env={**env, "FLOW_WAVE_LIVE_PIDS": "none"}, check=False,
+        )
+        self._launch(
+            tmp_path, timeout="2",
+            extra_env={"FLOW_WAVE_REGISTRY_DIR": str(tmp_path / "mb"), "FLOW_WAVE_LIVE_PIDS": "none"},
+        )
+        pid = _daemon_pid(tmp_path, WAVE, "1")
+        try:
+            assert _wait_for(lambda: not _pid_alive(pid), timeout=15), (
+                "a wave whose every registered role has ended must shut the daemon down"
+            )
+            log_text = _supervise_log(tmp_path, WAVE, "1").read_text()
+            assert "no live roles" in log_text.lower() and "ended" in log_text.lower()
+        finally:
+            if _pid_alive(pid):
+                self._kill_daemon(pid)
+
+    def test_a_role_that_was_never_registered_at_all_keeps_supervising(
+        self, tmp_path: Path
+    ) -> None:
+        """issue #1095, the boundary this PR deliberately did NOT cross:
+        `--wave` pointed at somewhere nothing was ever registered is
+        OBSERVATIONALLY IDENTICAL to `supervise` deliberately never using
+        the registry at all (the `free`-verdict case just above, #814's own
+        ratified boundary - "a LEGITIMATE, independent way to use
+        supervise"). There is no signal here that distinguishes "this is a
+        --wave typo" from "this session was never meant to touch the
+        registry", so the wave-wide check is gated on THIS role having a
+        real entry (`get`'s verdict is not `-`) before it runs at all -
+        proven here by confirming the daemon does NOT exit, matching
+        pre-#1095 behavior exactly. See the code comment at the gate for
+        why the broader case is left to a future, explicit opt-in rather
+        than inferred here."""
+        self._launch(
+            tmp_path, timeout="2",
+            extra_env={"FLOW_WAVE_REGISTRY_DIR": str(tmp_path / "mb")},
+        )
+        pid = _daemon_pid(tmp_path, WAVE, "1")
+        try:
+            time.sleep(3)
+            assert _pid_alive(pid), (
+                "a role that was never registered at all must keep supervising - "
+                "this is indistinguishable from legitimate registry-optional usage (#814)"
+            )
+        finally:
+            self._kill_daemon(pid)
+
+    @pytest.mark.skipif(
+        shutil.which("jq") is None, reason="requires jq (flow-wave-registry.sh)"
+    )
+    def test_a_registry_wiped_out_from_under_a_registered_role_still_keeps_supervising(
+        self, tmp_path: Path
+    ) -> None:
+        """The consequence of the #814 gate worth pinning explicitly: once
+        the registry file is wiped, `get` reads THIS role back as `-`
+        (free) on the very next cycle, same as if it had never been
+        registered - and the gate correctly stops checking wave-wide
+        liveness at that point. A wipe is therefore NOT distinguishable
+        from "never used the registry" once it has happened, and falls back
+        to keep-supervising rather than a phantom exit - the only behavior
+        consistent with #814 once this role's own entry is gone too."""
+        registry = ROOT / "scripts" / "flow-wave-registry.sh"
+        env = os.environ.copy()
+        env["FLOW_WAVE_MAILBOX_DIR"] = str(tmp_path / "mb")
+        env["FLOW_WAVE_REGISTRY_DIR"] = str(tmp_path / "mb")
+        subprocess.run(
+            ["bash", str(registry), "register", "1", "--wave", WAVE, "--socket", "uds:/tmp/x.sock"],
+            capture_output=True, text=True, env={**env, "CLAUDE_PID": str(os.getpid())}, check=False,
+        )
+        self._launch(
+            tmp_path, timeout="2",
+            extra_env={"FLOW_WAVE_REGISTRY_DIR": str(tmp_path / "mb")},
+        )
+        pid = _daemon_pid(tmp_path, WAVE, "1")
+        try:
+            time.sleep(1)
+            assert _pid_alive(pid), "must not exit before the registry is wiped"
+            (tmp_path / "mb" / "registry.json").write_text("{}")
+            time.sleep(3)
+            assert _pid_alive(pid), (
+                "a wiped registry reads identically to 'never registered' from the next "
+                "cycle onward, and must not be misread as a proven wind-down"
+            )
+        finally:
+            self._kill_daemon(pid)
+
+    @pytest.mark.skipif(
+        shutil.which("jq") is None, reason="requires jq (flow-wave-registry.sh)"
+    )
+    def test_a_witness_absent_legacy_role_is_live_and_does_not_trigger_the_exit(
+        self, tmp_path: Path
+    ) -> None:
+        """issue #1095 x #1094: a role registered before the start-time
+        witness existed has no `pid_started` at all and reads `live` with
+        basis `pid-present-witness-absent` (#1094's own ruling - absence of
+        a witness is not evidence of recycling, and every consumer of
+        `liveness_of` must keep treating it as live). A wave-any-live check
+        that could not tell this apart from a genuinely dead role would
+        silently reclassify every pre-#1094 registration as 'wave has no
+        live roles' the moment #1095 shipped - exactly the fleet-wide
+        regression #1094's mapping ruling exists to prevent, one consumer
+        further downstream."""
+        registry = ROOT / "scripts" / "flow-wave-registry.sh"
+        env = os.environ.copy()
+        env["FLOW_WAVE_MAILBOX_DIR"] = str(tmp_path / "mb")
+        env["FLOW_WAVE_REGISTRY_DIR"] = str(tmp_path / "mb")
+        holder = subprocess.Popen(["sleep", "30"])
+        try:
+            subprocess.run(
+                ["bash", str(registry), "register", "1", "--wave", WAVE, "--socket", "uds:/tmp/x.sock"],
+                capture_output=True, text=True, env={**env, "CLAUDE_PID": str(holder.pid)}, check=False,
+            )
+            entry_path = tmp_path / "mb" / "registry.json"
+            data = json.loads(entry_path.read_text())
+            role = data[WAVE]["roles"]["1"]
+            assert "pid_started" in role, "register must always write the field, even if blank"
+            role["pid_started"] = "-"
+            entry_path.write_text(json.dumps(data))
+
+            self._launch(
+                tmp_path, timeout="2",
+                extra_env={"FLOW_WAVE_REGISTRY_DIR": str(tmp_path / "mb")},
+            )
+            pid = _daemon_pid(tmp_path, WAVE, "1")
+            try:
+                time.sleep(3)
+                assert _pid_alive(pid), (
+                    "a witness-absent legacy role is LIVE and must not be read as "
+                    "'no live roles in the wave'"
+                )
+            finally:
+                self._kill_daemon(pid)
+        finally:
+            holder.terminate()
+            holder.wait(timeout=5)
+
+    @pytest.mark.skipif(
+        shutil.which("jq") is None, reason="requires jq (flow-wave-registry.sh)"
+    )
+    def test_the_old_release_only_logic_does_not_catch_the_same_ended_wave(
+        self, tmp_path: Path
+    ) -> None:
+        """Proves the new wave-any-live check is LOAD-BEARING rather than
+        the fixture being odd: substitute the pre-#1095 daemon body (the
+        release check only, no wave-wide check) back in, run it against the
+        IDENTICAL all-roles-ended fixture
+        `test_shuts_down_when_every_role_in_the_wave_has_ended` uses, and
+        confirm it does NOT shut down - it must still just keep polling,
+        which is exactly the false negative #1095 exists to close."""
+        current = MAILBOX.read_text()
+        marker_start = '        # issue #1095: the check above answers'
+        marker_end = (
+            '        if [ "$REL_LIVENESS" != "-" ]; then\n'
+            '          WAVE_ANY_LIVE="$(bash "$SUP_REGISTRY" list --wave "$WAVE" --any-live '
+            '2>/dev/null | sed -n \'s/^FLOW_WAVE_ANY_LIVE=//p\')"\n'
+            '          if [ "$WAVE_ANY_LIVE" = "no-roles-ended" ]; then\n'
+            '            log_event "wave has no live roles left (every registered role has ended) - shutting down"\n'
+            '            exit 0\n'
+            '          fi\n'
+            '        fi\n'
+        )
+        # .index() raises ValueError, failing loudly, if either marker no
+        # longer matches the source - the substitution cannot silently no-op.
+        start = current.index(marker_start)
+        end = current.index(marker_end, start) + len(marker_end)
+        patched = current[:start] + current[end:]
+        assert "WAVE_ANY_LIVE" not in patched, (
+            "the #1095 block was not fully removed - the old-logic proof "
+            "would still exercise the new code"
+        )
+
+        patched_dir = tmp_path / "old-logic"
+        patched_dir.mkdir()
+        patched_script = patched_dir / "flow-wave-mailbox.sh"
+        patched_script.write_text(patched)
+        patched_script.chmod(0o755)
+        # `__supervise_daemon` resolves its registry sibling relative to its
+        # OWN script's directory (issue #1033 item 2) - the patched copy
+        # needs the real registry alongside it for that resolution to land
+        # anywhere at all.
+        shutil.copy(REGISTRY, patched_dir / "flow-wave-registry.sh")
+
+        env = os.environ.copy()
+        env["FLOW_WAVE_MAILBOX_DIR"] = str(tmp_path / "mb")
+        env["FLOW_WAVE_REGISTRY_DIR"] = str(tmp_path / "mb")
+        subprocess.run(
+            ["bash", str(patched_dir / "flow-wave-registry.sh"), "register", "1", "--wave", WAVE,
+             "--socket", "uds:/tmp/x.sock"],
+            capture_output=True, text=True, env={**env, "FLOW_WAVE_LIVE_PIDS": "none"}, check=False,
+        )
+        proc = subprocess.run(
+            [
+                "bash", str(patched_script), "supervise", "--role", "1", "--wave", WAVE,
+                "--timeout", "2", "--interval", "1",
+            ],
+            capture_output=True, text=True,
+            env={**env, "FLOW_WAVE_LIVE_PIDS": "none"}, check=False, timeout=30,
+        )
+        assert proc.returncode == 0
+        pid = _daemon_pid(tmp_path, WAVE, "1")
+        try:
+            time.sleep(5)
+            assert _pid_alive(pid), (
+                "the OLD logic must still be fooled by this fixture - if it "
+                "is not, the fixture no longer isolates what the new "
+                "check adds"
+            )
+        finally:
+            self._kill_daemon(pid)
+
 
 # --------------------------------------------------------------------------
 # Watcher identity across wave directories (issue #821)

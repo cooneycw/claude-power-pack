@@ -2603,6 +2603,52 @@ EOF
           log_event "role released - shutting down"
           exit 0
         fi
+
+        # issue #1095: the check above answers "was MY OWN role explicitly
+        # released" - it says nothing about whether anyone is still left in
+        # the WAVE this role belongs to. `release` is a step a session takes
+        # deliberately; nothing forces it once there is no one left to hand
+        # this role work, so a supervisor can outlive its entire wave and
+        # poll forever, a real daemon holding its lifetime flock with
+        # nothing left to supervise. Ask the wave as a whole.
+        #
+        # GATED ON THIS ROLE ITSELF BEING REGISTERED (`$REL_LIVENESS` is not
+        # `-`, `get`'s sentinel for "no entry at all"), and deliberately so:
+        # "this role was never registered" is `get`'s `free` verdict, which
+        # the check above already documents as a LEGITIMATE, independent way
+        # to use `supervise` - the registry is an optional companion, not a
+        # dependency (#814's own boundary, ratified before #1095 and not
+        # renegotiated here). A wave-wide check that ran unconditionally
+        # could not tell "this session deliberately never uses the
+        # registry" apart from "this session's --wave is a typo" - both
+        # look IDENTICAL from here, an empty wave and a free role - and
+        # #814 already settled which of those two readings wins. Measured
+        # directly: every existing supervise-without-registry test in this
+        # suite broke the instant this check ran unconditionally.
+        #
+        # Only `no-roles-ended` is handled here. `--any-live`'s other two
+        # non-`yes` answers correctly fall through to "keep supervising":
+        # `undeterminable` (matches the release check's own fail-open, and
+        # `list --any-live` has its own committed cases in
+        # tests/test_flow_wave_registry.py), and `no-roles-registered` -
+        # which, reached from THIS gate, would mean this role's own entry
+        # vanished in the instant between the `get` above and the `list`
+        # below. That is indistinguishable from "the registry was just
+        # wiped", and once wiped, `get` reads `-` again on the very next
+        # cycle - back to the exact state #814 says must not shut this
+        # daemon down. There is no cycle in which `no-roles-registered`
+        # would fire and be the CORRECT call once this gate is in place; it
+        # is not wired to an exit here for that reason, not by oversight.
+        # The broader "wrong --wave id, never registered at all" case #1095
+        # also named needs a mechanism this check does not have (e.g. an
+        # explicit opt-in flag), not a default this daemon can infer safely.
+        if [ "$REL_LIVENESS" != "-" ]; then
+          WAVE_ANY_LIVE="$(bash "$SUP_REGISTRY" list --wave "$WAVE" --any-live 2>/dev/null | sed -n 's/^FLOW_WAVE_ANY_LIVE=//p')"
+          if [ "$WAVE_ANY_LIVE" = "no-roles-ended" ]; then
+            log_event "wave has no live roles left (every registered role has ended) - shutting down"
+            exit 0
+          fi
+        fi
       fi
 
       # --peek, never --consume (#867, #873). A detached daemon printing to a
