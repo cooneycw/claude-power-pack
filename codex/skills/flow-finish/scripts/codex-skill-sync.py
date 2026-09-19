@@ -545,7 +545,32 @@ def run_check(selected: list[str]) -> int:
             file=sys.stderr,
         )
         return 1
-    print(f"codex-skill-sync: {len(outputs)} skill(s) in sync ({', '.join(selected)})")
+    # NAME THE COMPARED TREES, and name the one this did NOT look at (issue
+    # #1029, specimen 4). "N skill(s) in sync" is the line a session reaches for
+    # when it wants to know whether its INSTALLED skills are current, and it
+    # answers a different question: both sides of this comparison live inside
+    # the checkout, so it is a GENERATION-parity check. `--check` is the DEFAULT
+    # mode, which is exactly why the wrong reading is the easy one.
+    #
+    # The failure was measured, twice, four days apart on two hosts: in the same
+    # session this printed its green, `install-drift.sh` reported `65 current, 10
+    # stale`, and the staleness was real - the installed
+    # `flow-check/scripts/flow-finish-gate.sh` still carried pre-#939 wording.
+    # `SKILL.md` was byte-identical in all ten, so the whole drift lived in the
+    # bundled payload scripts - the part this comparison structurally cannot see.
+    #
+    # No negative control is owed for a string change. The pairing test is that
+    # these two instruments' success lines can no longer be read as answering the
+    # same question, and tests/test_codex_skill_sync.py pins it.
+    print(
+        f"codex-skill-sync: {len(outputs)} skill(s) in sync"
+        f" ({SOURCE_ROOT.name}/<family>/ -> {OUTPUT_ROOT.parent.name}/{OUTPUT_ROOT.name}/,"
+        f" both IN-CHECKOUT; families: {', '.join(selected)})"
+    )
+    print(
+        "codex-skill-sync: this says NOTHING about the installed copies under"
+        f" {install_dest_root()} - run install-drift.sh for those"
+    )
     return 0
 
 
@@ -579,10 +604,18 @@ def run_write(selected: list[str]) -> int:
         shutil.rmtree(orphan)
         print(f"codex-skill-sync: removed orphan skill {orphan.name}")
         removed += 1
+    # Same boundary as run_check's line above (#1029): --write regenerates the
+    # IN-CHECKOUT mirror and touches no install tree, so "current" here must not
+    # be readable as a statement about the host.
     print(
-        f"codex-skill-sync: {len(outputs)} skill(s) current"
+        f"codex-skill-sync: {len(outputs)} skill(s) current in"
+        f" {OUTPUT_ROOT.parent.name}/{OUTPUT_ROOT.name}/"
         f" ({written} file(s) written, {pruned} stale file(s) pruned,"
         f" {removed} orphan(s) removed)"
+    )
+    print(
+        "codex-skill-sync: the installed copies under"
+        f" {install_dest_root()} are UNCHANGED - run --install to update those"
     )
     return 0
 
@@ -636,7 +669,13 @@ def run_install() -> int:
         shutil.rmtree(orphan)
         print(f"codex-skill-sync: removed orphaned installed skill {orphan.name}")
         removed += 1
-    print(f"codex-skill-sync: installed {count} skill(s) -> {dest_root} ({removed} orphan(s) removed)")
+    # The one mode that DOES touch the host, and it says so by naming both ends
+    # (#1029): this is the only line here whose subject is the install tree.
+    print(
+        f"codex-skill-sync: installed {count} skill(s)"
+        f" from {OUTPUT_ROOT.parent.name}/{OUTPUT_ROOT.name}/ -> {dest_root}"
+        f" ({removed} orphan(s) removed)"
+    )
     return 0
 
 
