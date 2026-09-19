@@ -66,16 +66,38 @@ rarely change and are not deploy-critical. `bash-prep.sh` is idempotent and safe
 
 **Reconciliation:** `scripts/bash-prep.sh --apply`
 
-### 3. Woodpecker Secrets
+### 3. Woodpecker Secrets and Agent Hosts
 
 | Artifact | Source Script | Installed Location | Category |
 |----------|-------------|--------------------|----------|
 | `docker.env` | `woodpecker/bootstrap-secrets.py` | `woodpecker/docker.env` | Provisioning-only |
+| CI agent host | `woodpecker/bootstrap-agent-host.sh` | `~/woodpecker/` on the agent box | Provisioning-only |
 
 **Risk:** Low. Credentials are fetched from AWS Secrets Manager during initial Woodpecker
 setup. The file is gitignored. Credential rotation requires re-running the bootstrap.
 
 **Reconciliation:** `python3 woodpecker/bootstrap-secrets.py`
+
+**`bootstrap-agent-host.sh`** provisions a dedicated agent box: docker and the
+guest agent, a `umask 077` agent.env holding only the agent secret, the pinned
+`woodpeckerci/woodpecker-agent` compose file, a gRPC reachability probe, and a
+weekly image prune. It reads every value from the environment and stores no
+project secrets - the deploy SSH key stays a Woodpecker *server* secret
+materialised inside the ephemeral deploy container. Run it ON the target box, or
+over SSH with the secret travelling on stdin (never on argv, never in output);
+its own header carries both invocations.
+
+**Why it is listed here at all (issue #1029, specimen 6).** Until #1029 this
+script existed ONLY as an untracked file in one shared fleet checkout - `??` in
+`git status`, which means untracked AND un-ignored, so its absence from the
+index was never a decision: `.gitignore` deliberately covers the three
+generated/secret files in that directory and not this one. Nothing in the
+repository referenced it, so `git grep bootstrap-agent-host` returned nothing and
+NO CHECK WOULD HAVE GONE RED IF IT VANISHED - in a checkout that concurrent
+sessions reset. It is committed, and this paragraph is the reference that makes
+its loss visible. The lab addresses in its usage examples were replaced with
+placeholders on the way in; this repository is public and the script reads every
+real value from the environment.
 
 ### 4. User-Level Hook Registration + Scripts
 
