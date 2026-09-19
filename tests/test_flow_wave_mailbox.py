@@ -2379,25 +2379,63 @@ class TestPsLaneArgvTruncation:
     """
 
     @staticmethod
-    def _without_ww(tmp: Path) -> Path:
-        """A copy of the script with `-ww` removed - the pre-fix behaviour.
+    def _without_ww(tmp: Path, pids: list[int]) -> Path:
+        """The pre-fix scan, restricted to explicitly owned process IDs.
 
-        The control has to be the REAL script minus the one token, not a
-        reimplementation: the claim is about this scan, and a hand-written
-        equivalent would only prove the copy agrees with itself.
+        Keep the real script's truncation and verdict logic. Only its input
+        population changes: neighbours must not poison the control (#1092).
+        Require a nonempty allowlist so future callers cannot scan the host by
+        accident. Drop `-e`: ps selectors are additive, so `-e --pid` still
+        selects every process rather than restricting the scan.
         """
+        if not pids:
+            raise ValueError("the control requires a nonempty PID allowlist")
         src = MAILBOX.read_text(encoding="utf-8")
-        assert "ps -ww -eo pid,ppid,args" in src, (
+        scan = "ps -ww -eo pid,ppid,args --no-headers"
+        assert scan in src, (
             "the -ww invocation is gone from flow-wave-mailbox.sh - if the scan "
             "was rewritten, update this control; do NOT delete it (issue #904)"
         )
         copy = tmp / "mailbox-without-ww.sh"
         copy.write_text(
-            src.replace("ps -ww -eo pid,ppid,args", "ps -eo pid,ppid,args", 1),
+            src.replace(
+                scan,
+                "ps -o pid,ppid,args --no-headers --pid "
+                + ",".join(str(pid) for pid in pids),
+                1,
+            ),
             encoding="utf-8",
         )
         copy.chmod(0o755)
         return copy
+
+    def test_without_ww_requires_a_nonempty_pid_allowlist(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="nonempty PID allowlist"):
+            self._without_ww(tmp_path, [])
+
+    def test_scoped_ps_still_cuts_the_watcher_line_before_role(
+        self, tmp_path: Path
+    ) -> None:
+        """Selecting only our PID must preserve the #904 truncation defect."""
+        watcher = _live_watcher(tmp_path, "1", WAVE)
+        try:
+            env = os.environ.copy()
+            env["COLUMNS"] = "60"
+            out = subprocess.run(
+                ["ps", "-o", "pid,ppid,args", "--no-headers",
+                 "--pid", str(watcher.pid)],
+                capture_output=True, text=True, env=env, check=True, timeout=10,
+            ).stdout
+            lines = out.splitlines()
+            assert [line.split()[0] for line in lines] == [str(watcher.pid)], (
+                f"the PID allowlist did not select exactly our watcher: {out!r}"
+            )
+            assert "--role" not in lines[0], (
+                f"scoping ps erased the #904 truncation precondition: {lines[0]!r}"
+            )
+        finally:
+            watcher.kill()
+            watcher.communicate(timeout=10)
 
     def test_a_narrow_COLUMNS_cuts_the_watcher_line_before_role(
         self, tmp_path: Path
@@ -2444,25 +2482,68 @@ class TestPsLaneArgvTruncation:
         """THE CONTROL: the pre-fix script, and the answer it gives is wrong.
 
         Not merely a lower count - a CONFIDENT one. The watcher is live and
-        armed, and the lane says nothing is there.
+        armed, and the lane says nothing is there. A neighbour whose truncated
+        argv would poison a host-wide scan must not change that answer (#1092).
         """
         watcher = _live_watcher(tmp_path, "1", WAVE)
         try:
-            env = os.environ.copy()
-            env["FLOW_WAVE_MAILBOX_DIR"] = str(tmp_path / "mb")
-            env["FLOW_WAVE_NOW"] = str(int(time.time()))
-            env["FLOW_WAVE_WATCHER_SCAN"] = "ps"
-            env["COLUMNS"] = "60"
-            proc = subprocess.run(
-                ["bash", str(self._without_ww(tmp_path)),
-                 "list", "--wave", WAVE],
-                capture_output=True, text=True, env=env, check=False, timeout=60,
+            decoy_role = "d"
+            decoy_wave = "neighbour-1092-decoy-wave"
+            decoy_dir = tmp_path / "decoy"
+            decoy_env = os.environ.copy()
+            decoy_env["FLOW_WAVE_MAILBOX_DIR"] = str(decoy_dir)
+            # Measured at COLUMNS=60: "... watch --role d --w". Starting in
+            # ROOT with scripts/ in argv cuts before the role on this host.
+            decoy = subprocess.Popen(
+                ["bash", "flow-wave-mailbox.sh", "watch", "--role", decoy_role,
+                 "--wave", decoy_wave, "--timeout", "30", "--interval", "1", "--peek"],
+                cwd=ROOT / "scripts", env=decoy_env,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
             )
-            row = _watch_rows(proc)["1"]
-            assert row[1] == "0", (
-                f"expected the pre-fix confident zero that #904 is about, got "
-                f"{row!r}:\n{proc.stdout}"
-            )
+            try:
+                heartbeat = decoy_dir / decoy_wave / f".watch-{decoy_role}"
+                assert _wait_for(heartbeat.exists), "decoy never armed"
+
+                env = os.environ.copy()
+                env["FLOW_WAVE_MAILBOX_DIR"] = str(tmp_path / "mb")
+                env["FLOW_WAVE_NOW"] = str(int(time.time()))
+                env["FLOW_WAVE_WATCHER_SCAN"] = "ps"
+                env["COLUMNS"] = "60"
+
+                # PROVE the decoy is genuinely poisoning-shaped before trusting
+                # its exclusion below. Same scoped scan, decoy PID INCLUDED:
+                # if this does not flip away from "0", the decoy never reached
+                # the truncation danger zone and the isolation check beneath it
+                # would pass for the wrong reason - proving nothing (#1092,
+                # same discipline as the class's own COLUMNS precondition test).
+                poisoned = subprocess.run(
+                    ["bash", str(self._without_ww(tmp_path, [watcher.pid, decoy.pid])),
+                     "list", "--wave", WAVE],
+                    capture_output=True, text=True, env=env, check=False, timeout=60,
+                )
+                assert decoy.poll() is None, "decoy exited before the poisoning check ran"
+                poisoned_row = _watch_rows(poisoned)["1"]
+                assert poisoned_row[1] != "0", (
+                    f"the decoy did not land in the truncation danger zone, so "
+                    f"including it did not poison the scan - this fixture does "
+                    f"not reproduce #1092 and the isolation check below proves "
+                    f"nothing: {poisoned_row!r}:\n{poisoned.stdout}"
+                )
+
+                proc = subprocess.run(
+                    ["bash", str(self._without_ww(tmp_path, [watcher.pid])),
+                     "list", "--wave", WAVE],
+                    capture_output=True, text=True, env=env, check=False, timeout=60,
+                )
+                assert decoy.poll() is None, "decoy exited before the isolated scan finished"
+                row = _watch_rows(proc)["1"]
+                assert row[1] == "0", (
+                    f"expected the pre-fix confident zero despite a live neighbour "
+                    f"outside the PID allowlist, got {row!r}:\n{proc.stdout}"
+                )
+            finally:
+                decoy.kill()
+                decoy.communicate(timeout=10)
         finally:
             watcher.kill()
             watcher.communicate(timeout=10)
