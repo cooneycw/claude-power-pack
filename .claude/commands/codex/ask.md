@@ -1,12 +1,14 @@
 ---
-description: Delegate a read-only question to Codex (gpt-5.5) and relay its answer - read-only by default, network opt-in on explicit request
+description: Delegate a read-only question to Codex and relay its answer - read-only by default, network opt-in on explicit request
 allowed-tools: Bash(codex:*), Bash(mktemp:*), Bash(cat:*), Bash(rm:*), Bash(test:*), Bash(command -v codex), Read
 ---
 
 # Codex Ask: Delegate a Read-Only Question to Codex
 
-Send a question (or read-only analysis task) to OpenAI Codex (`gpt-5.5`) through the
-`codex` CLI and relay its answer back, clearly attributed. Codex runs **read-only**:
+Send a question (or read-only analysis task) to OpenAI Codex through the
+`codex` CLI and relay its answer back, clearly attributed. **Which model answers
+is host configuration, not a property of this command** - see Options below, and
+name the model you actually ran rather than one read from here. Codex runs **read-only**:
 it may read files in the current directory to answer questions about the codebase,
 but it cannot modify anything.
 
@@ -72,7 +74,7 @@ While it runs, the stdout stream shows Codex's progress - surface anything notab
 ### Step 3: Relay the answer
 
 ```bash
-echo "===== Codex (gpt-5.5) answer ====="
+echo "===== Codex answer ====="
 cat "$ANSWER"
 rm -f "$ANSWER"
 ```
@@ -89,9 +91,67 @@ an answer.
 
 Adjust the Step 2 command when the user asks for any of these:
 
-- **Different model / reasoning effort:** add `-m <model>` (e.g. `-m gpt-5.5`) or
-  `-c model_reasoning_effort=high`. Defaults come from `~/.codex/config.toml`
-  (currently `gpt-5.5`, `xhigh`).
+- **Different model / reasoning effort:** add `-m <model>` (e.g.
+  `-m gpt-6-astra`) or `-c model_reasoning_effort=high`. With neither flag the
+  invocation inherits from the layered configuration described below.
+
+  **The user config file is ONE LAYER, not the resolved model.** A profile
+  (`--profile`, layering `$CODEX_HOME/<name>.config.toml`), a `-c model=...`
+  override, a trusted repository's own config, and managed defaults all sit
+  above or beside it, and `CODEX_HOME` moves the whole tree. So reading the file
+  predicts; it does not establish. Measured 2026-09-19 the user file held
+  `gpt-5.6-sol` / `high`, and this document named `gpt-5.5` / `xhigh` for long
+  enough that nothing noticed - a claim about mutable host state, written where
+  no reader could check it. The stamp makes a stale value visible AS stale; it
+  is not a promise about today.
+
+  ```bash
+  CODEX_DIR="${CODEX_HOME:-$HOME/.codex}"
+  grep -E '^(model|model_reasoning_effort)' "$CODEX_DIR/config.toml"   # predicts
+  ```
+
+  **To establish what actually answered, anchor on the run's own thread.**
+  `codex exec --json` names no model anywhere in its stream - it emits
+  `thread.started`, `turn.started`, `item.completed`, `turn.completed` and
+  nothing else - so a run cannot report its own model directly. The rollout
+  record can, and `--json` and `--output-last-message` may be passed together,
+  so capturing the thread id costs nothing:
+
+  ```bash
+  CODEX_DIR="${CODEX_HOME:-$HOME/.codex}"
+  THREAD=$(grep -o '"thread_id":"[^"]*"' "$STREAM" | head -1 | cut -d\" -f4)
+  # FAIL CLOSED. With THREAD empty the -name pattern degrades to "*.jsonl",
+  # which matches EVERY rollout on the host - measured 2026-09-19: 394 files,
+  # head -1 returning a confident model name from a session 12 days old and
+  # unrelated. An empty THREAD means UNKNOWN and must never become a name.
+  if [ -z "$THREAD" ]; then
+      MODEL=""
+  else
+      ROLLOUT=$(find "$CODEX_DIR/sessions" -type f -name "*$THREAD.jsonl" | head -1)
+      if [ -n "$ROLLOUT" ]; then
+          MODEL=$(grep -o '"model":"[^"]*"' "$ROLLOUT" | head -1 | cut -d\" -f4)
+      else
+          MODEL=""
+      fi
+  fi
+  ```
+
+  **Never take the NEWEST rollout instead.** It is the obvious shortcut and it
+  is wrong twice over: this fleet runs many concurrent sessions, so the newest
+  rollout belongs to whoever finished last rather than to you; and when no
+  review ran at all, it necessarily names some unrelated run, manufacturing a
+  reviewer out of a skip. Anchoring on the thread id is what makes the answer
+  about THIS invocation. Verified 2026-09-19 that the field discriminates: it
+  read `gpt-6-astra` for a run pinned with `-m gpt-6-astra` and `gpt-5.6-sol`
+  for runs that inherited.
+
+  **An unrecognized `-m` value does fail, and the caller does see it.** It warns
+  `Model metadata for <name> not found. Defaulting to fallback metadata` and then
+  errors; measured 2026-09-19, the process exits **1** where a valid model exits
+  0. So check the captured exit status rather than scanning the transcript for
+  the warning - and note that no amount of reading the configured default
+  validates the spelling of a DIFFERENT model passed with `-m`.
+
 - **Ask about a different directory:** add `-C <DIR>` (alias `--cd`) so Codex reads that
   project instead of the current one.
 - **Attach a file or piped context:** pipe it on stdin - it is appended as a `<stdin>` block:

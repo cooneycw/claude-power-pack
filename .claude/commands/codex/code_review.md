@@ -5,11 +5,60 @@ allowed-tools: Bash(codex:*), Bash(git:*), Bash(mktemp:*), Bash(cat:*), Bash(rm:
 
 # Codex Code Review: Cross-Model Review of the Current Branch
 
-Have OpenAI Codex (`gpt-5.5`) review the code changes on the current branch as an
+Have OpenAI Codex review the code changes on the current branch as an
 independent second model, and relay its findings in a structured format a caller
 can act on. Codex runs **read-only**: it reads the diff and the surrounding files,
 it cannot modify anything. The review is advisory - Claude (or the user) triages
 the findings and decides what to fix.
+
+**Which model reviews is host configuration, and this stage reports it rather
+than asserting it.** Step 3 passes no `-m`, so the model comes from the layered
+Codex configuration. Measured 2026-09-19 that resolved to `gpt-5.6-sol` / `high`;
+this document named `gpt-5.5` inline until then, which was wrong and could not
+say so.
+
+The requirement this stage exists to satisfy is a PROPERTY - **the reviewing
+model must not be the implementing model** ([ADR
+0007](../../../docs/decisions/0007-counter-model-review.md)) - and a name copied
+out of a document is not evidence about it.
+
+**Capture the model OUTSIDE the findings transcript.** Do not ask the reviewer to
+put its model in the report: Step 3's prompt fixes the heading as exactly
+`## Findings`, and `counter-model-receipt.py` keys on that spelling, so a model
+name added inside the transcript turns a successful review into `unparseable` -
+recorded as `skipped / reviewer-unavailable`, a review that happened and was
+counted as absent. Add `--json` alongside `--output-last-message` (they coexist),
+take the thread id from the stream, and read that thread's rollout:
+
+```bash
+CODEX_DIR="${CODEX_HOME:-$HOME/.codex}"
+THREAD=$(grep -o '"thread_id":"[^"]*"' "$STREAM" | head -1 | cut -d\" -f4)
+# FAIL CLOSED. With THREAD empty the -name pattern degrades to "*.jsonl",
+# which matches EVERY rollout on the host - measured 2026-09-19: 394 files,
+# head -1 returning a confident model name from a session 12 days old and
+# unrelated. An empty THREAD means UNKNOWN and must never become a name.
+if [ -z "$THREAD" ]; then
+    REVIEW_MODEL=""
+else
+    ROLLOUT=$(find "$CODEX_DIR/sessions" -type f -name "*$THREAD.jsonl" | head -1)
+    if [ -n "$ROLLOUT" ]; then
+        REVIEW_MODEL=$(grep -o '"model":"[^"]*"' "$ROLLOUT" | head -1 | cut -d\" -f4)
+    else
+        REVIEW_MODEL=""
+    fi
+fi
+```
+
+`$STREAM` is the `--json` stream captured in Step 3; an empty `REVIEW_MODEL`
+means the model could not be established, and the banner and any receipt must
+say so rather than name one.
+
+Anchor on the thread id, never on the newest rollout: with concurrent sessions
+the newest belongs to whoever finished last, and on a skipped review it belongs
+to an unrelated run - which would name a reviewer that never ran. Stamp
+`$REVIEW_MODEL` in the Step 4 relay banner and pass it as `codex/$REVIEW_MODEL`
+to any downstream receipt. When no review ran, there is no reviewer: leave the
+field to the skip path rather than filling it from a neighbouring session.
 
 This is the reviewer counterpart to the other Codex commands:
 
@@ -123,11 +172,16 @@ clean answer.
 
 ```bash
 FINDINGS=$(mktemp /tmp/codex-review.XXXXXX.md)
+# STREAM carries the thread id that Step 4 needs to identify the reviewing
+# model. Without --json there is no thread id, and the Step-4 lookup silently
+# matches every rollout on the host instead of this run's.
+STREAM=$(mktemp /tmp/codex-review.XXXXXX.jsonl)
 
 cat "$DIFF_FILE" | codex exec \
     --sandbox read-only \
     --color never \
     --skip-git-repo-check \
+    --json \
     --output-last-message "$FINDINGS" \
     "You are reviewing a code change as an independent reviewer. The unified diff is provided on stdin; you may also open the files in this repository (read-only) for surrounding context. Review intent/context: ${CONTEXT:-none provided}.
 
@@ -144,9 +198,15 @@ Return ONLY a findings report in exactly this format:
 - Issue: <one-paragraph description of the defect and the failure scenario>
 - Suggestion: <concrete fix>
 
-Severity is one of CRITICAL, HIGH, MEDIUM, LOW. Order findings most severe first. If the change is sound, return '## Findings' followed by 'None - no defects found.' Do not pad with praise or restate the diff."
+Severity is one of CRITICAL, HIGH, MEDIUM, LOW. Order findings most severe first. If the change is sound, return '## Findings' followed by 'None - no defects found.' Do not pad with praise or restate the diff." | tee "$STREAM"
 
-CODEX_EXIT=$?
+# `--json` puts the event stream on stdout, so TEE it: the caller still sees the
+# run and $STREAM keeps the thread id Step 4 needs to identify the model.
+#
+# Read codex's status from PIPESTATUS, not $?. This was already a pipeline
+# (`cat | codex`) and the tee makes it three stages; $? is the LAST stage, so a
+# failed review would report success and be relayed as an empty findings report.
+CODEX_EXIT=${PIPESTATUS[1]}
 ```
 
 Deep reviews of large diffs can run for many minutes; for anything non-trivial
@@ -156,9 +216,14 @@ run the command in the background and poll, exactly as documented in
 ### Step 4: Relay the findings
 
 ```bash
-echo "===== Codex (gpt-5.5) code review ====="
+# A shell variable does NOT cross a command boundary: /flow:auto cannot read
+# $REVIEW_MODEL out of this command's shell, and the findings transcript
+# deliberately carries no model. Emit a marker, same convention as
+# FLOW_CI_STATUS / COUNTER_MODEL_REVIEW, and let the caller consume it.
+echo "CODEX_REVIEW_MODEL: ${REVIEW_MODEL:-unknown}"
+echo "===== Codex (${REVIEW_MODEL:-model unread}) code review ====="
 cat "$FINDINGS"
-rm -f "$DIFF_FILE" "$FINDINGS"
+rm -f "$DIFF_FILE" "$FINDINGS" "$STREAM"
 ```
 
 Present the findings **attributed to Codex** - never silently merged into your
