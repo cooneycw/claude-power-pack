@@ -1,0 +1,96 @@
+{
+  "_comment": [
+    "Registration for scripts/slate-reconcile.py (issue #1099).",
+    "WHY THIS GATE NEEDS A COMMITTED CASE (ADR 0008): an operator may read its",
+    "clean verdict as an accounted slate without independently re-deriving membership.",
+    "Losing the instrument silently weakens every later measurement, not just one finding.",
+    "Open-set captures and hand-authored claims have independent origins. All cases are",
+    "synthetic offline inputs, never a statement about the current real open-issue set.",
+    "Pytest copies these exact fixtures under tmp_path and asserts expected_exit and",
+    "expected_output, refining BAD into distinct findings and membership-floor UNKNOWNs.",
+    "The harness checks GOOD/BAD plus detect_signal; pytest additionally checks exact text.",
+    "There is no separate --selftest: pytest and direct case runs exercise this same register.",
+    "Missing claimed.json is intentional. Every case supplies --open-set-capture; no live gh runs.",
+    "The balanced case defeats a naive totals comparison: 2 entries, 2 open issues,",
+    "but #101 occurs twice and #102 is entirely unaccounted."
+  ],
+  "gate": "scripts/slate-reconcile.py",
+  "invocation": [
+    "python3",
+    "{gate}",
+    "--open-set-capture",
+    "{case}/open.json",
+    "--claimed-file",
+    "{case}/claimed.json"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^SLATE-(FINDING|UNKNOWN):",
+  "cases": [
+    {
+      "name": "bad-unaccounted",
+      "input": "cases/bad-unaccounted",
+      "expect": "BAD",
+      "why": "Open issue #102 is in neither a lane nor a bucket.",
+      "expected_exit": 1,
+      "expected_output": "SLATE-FINDING: UNACCOUNTED #102\nSLATE-FINDING: open=2 claimed=1 UNACCOUNTED=1 PHANTOM=0 DUPLICATE=0"
+    },
+    {
+      "name": "bad-phantom",
+      "input": "cases/bad-phantom",
+      "expect": "BAD",
+      "why": "Bucket entry #102 is absent from the independently captured open set.",
+      "expected_exit": 1,
+      "expected_output": "SLATE-FINDING: PHANTOM #102 in buckets.backlog\nSLATE-FINDING: open=1 claimed=2 UNACCOUNTED=0 PHANTOM=1 DUPLICATE=0"
+    },
+    {
+      "name": "bad-duplicate-while-balanced",
+      "input": "cases/bad-duplicate-while-balanced",
+      "expect": "BAD",
+      "why": "Two claims equal two open issues in aggregate, but #101 is double-listed and #102 is missing.",
+      "expected_exit": 1,
+      "expected_output": "SLATE-FINDING: UNACCOUNTED #102\nSLATE-FINDING: DUPLICATE #101 in lanes.cpp-w1, buckets.backlog\nSLATE-FINDING: open=2 claimed=1 UNACCOUNTED=1 PHANTOM=0 DUPLICATE=1"
+    },
+    {
+      "name": "bad-missing-claimed-file",
+      "input": "cases/bad-missing-claimed-file",
+      "expect": "BAD",
+      "why": "claimed.json is intentionally absent: absence must not become zero claims.",
+      "expected_exit": 2,
+      "expected_output": "SLATE-UNKNOWN: missing claimed file\nSLATE-UNKNOWN: open=1 claimed=unknown UNACCOUNTED=unknown PHANTOM=unknown DUPLICATE=unknown"
+    },
+    {
+      "name": "bad-malformed-claimed-file",
+      "input": "cases/bad-malformed-claimed-file",
+      "expect": "BAD",
+      "why": "Valid JSON is missing the required lanes map, distinct from a missing file.",
+      "expected_exit": 2,
+      "expected_output": "SLATE-UNKNOWN: malformed claimed file: lanes must be an object\nSLATE-UNKNOWN: open=1 claimed=unknown UNACCOUNTED=unknown PHANTOM=unknown DUPLICATE=unknown"
+    },
+    {
+      "name": "bad-unusable-open-set",
+      "input": "cases/bad-unusable-open-set",
+      "expect": "BAD",
+      "why": "The independent open-set capture cannot be parsed; claims remain readable.",
+      "expected_exit": 2,
+      "expected_output": "SLATE-UNKNOWN: unusable open-set source: cannot read capture as a list of integers\nSLATE-UNKNOWN: open=unknown claimed=1 UNACCOUNTED=unknown PHANTOM=unknown DUPLICATE=0"
+    },
+    {
+      "name": "good-clean",
+      "input": "cases/good-clean",
+      "expect": "GOOD",
+      "why": "Every open issue is accounted for exactly once, including an explicit backlog entry and verified empty lists.",
+      "expected_exit": 0,
+      "expected_output": "SLATE-OK: open=2 claimed=2 UNACCOUNTED=0 PHANTOM=0 DUPLICATE=0"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "n/a",
+      "origin": "scripts/slate-reconcile.py",
+      "path": "anchors/constructed-count-report-only-slate-reconcile.py",
+      "sha256": "529abe3f55f9774866aef0b86efb740dfb76d480750d08fe3d53336a79852659",
+      "why": "CONSTRUCTED, not historical, and PERMANENTLY so. This new gate has no blind ancestor; --verify-provenance will read unverified forever. Integrity is established by sha256, historicity is not. WHAT IT IS: a count-report-only inventory checker that treats unreadable inputs as empty and never enforces membership or even total agreement. It MISSES every registered BAD case and AGREES with the GOOD case, as the harness requires. In particular, the balanced duplicate case has equal aggregate totals, so adding a simple totals comparison would still miss it. This constructed anchor demonstrates summary reporting mistaken for verification; it does not claim to reproduce the lost scratchpad."
+    }
+  ]
+}
