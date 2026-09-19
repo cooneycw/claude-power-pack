@@ -402,14 +402,18 @@ case "$CMD" in
         web="${rest%%|*}"; rest="${rest#*|}"
         web_basis="${rest%%|*}"; rest="${rest#*|}"
         scope_basis="${rest%%|*}"; rest="${rest#*|}"
-        container="${rest%%|*}"; container_basis="${rest#*|}"
+        container="${rest%%|*}"; rest="${rest#*|}"
+        container_basis="${rest%%|*}"; rest="${rest#*|}"
+        meta="${rest%%|*}"; meta_basis="${rest#*|}"
         row="$(jq -n --arg d "$d" --arg s "$scope" --arg w "$web" \
                      --arg wb "$web_basis" --arg sb "$scope_basis" \
                      --arg cnt "$container" --arg cntb "$container_basis" \
-                     --arg f "$(fence_of "$scope" "$web" "$container")" \
-                     --arg c "$(cannot_of "$scope" "$web" "$container")" \
+                     --arg m "$meta" --arg mb "$meta_basis" \
+                     --arg f "$(fence_of "$scope" "$web" "$container" "$meta")" \
+                     --arg c "$(cannot_of "$scope" "$web" "$container" "$meta")" \
               '{driver:$d, scope:$s, web:$w, web_basis:$wb, scope_basis:$sb,
                 container:$cnt, container_basis:$cntb,
+                meta:$m, meta_basis:$mb,
                 fence:$f, cannot:($c | if . == "" then [] else split(" ") end)}')"
         out="$out$row"
       done
@@ -426,8 +430,10 @@ case "$CMD" in
         scope="${rec%%|*}"; rest="${rec#*|}"
         web="${rest%%|*}"; rest="${rest#*|}"
         rest="${rest#*|}"; rest="${rest#*|}"
-        container="${rest%%|*}"
-        cannot="$(cannot_of "$scope" "$web" "$container")"
+        container="${rest%%|*}"; rest="${rest#*|}"
+        rest="${rest#*|}"
+        meta="${rest%%|*}"
+        cannot="$(cannot_of "$scope" "$web" "$container" "$meta")"
         printf '  %-12s %-20s web=%-4s container=%-4s cannot=%s\n' \
           "$d" "$scope" "$web" "$container" "${cannot:--}"
       done

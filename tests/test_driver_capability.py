@@ -401,6 +401,11 @@ def test_list_covers_every_declared_driver() -> None:
     assert proc.returncode == 0, proc.stderr
     for driver in ("flow:auto", "codex:auto", "qwen:auto", "gemma:auto"):
         assert driver in proc.stdout, proc.stdout
+    codex_row = next(
+        line for line in proc.stdout.splitlines() if line.lstrip().startswith("codex:auto ")
+    )
+    assert codex_row.endswith("cannot=research web container meta")
+    assert "unbound variable" not in proc.stderr
 
 
 @requires_bash
@@ -415,6 +420,9 @@ def test_json_list_covers_every_declared_driver() -> None:
         "qwen:auto",
         "gemma:auto",
     }
+    codex_row = next(row for row in rows if row["driver"] == "codex:auto")
+    assert codex_row["cannot"] == ["research", "web", "container", "meta"]
+    assert "|" not in codex_row["container_basis"]
 
 
 @requires_bash
