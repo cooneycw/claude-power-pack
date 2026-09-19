@@ -1,0 +1,25 @@
+{
+  "cpp-completion": {
+    "roles": {
+      "orchestrator": {
+        "socket": "unknown", "pid": 999009, "session": "-", "host": "control-host",
+        "released": false, "driver": "flow:auto", "policy_rev": 1
+      },
+      "worker-A": {
+        "socket": "uds:/run/user/1000/cc-socks/999003.sock", "pid": 999003,
+        "session": "-", "host": "control-host",
+        "released": true, "driver": "flow:auto_codex", "policy_rev": 1
+      },
+      "worker-B": {
+        "socket": "uds:/run/user/1000/cc-socks/999004.sock", "pid": 999004,
+        "session": "-", "host": "control-host",
+        "released": false, "driver": "flow:auto_codex", "policy_rev": 1
+      },
+      "worker-C": {
+        "socket": "unknown", "pid": 999005, "session": "-", "host": "control-host",
+        "released": false, "driver": "flow:auto_codex", "policy_rev": 1
+      }
+    },
+    "policy": { "driver": "flow:auto_codex", "rev": 1, "ts": 1789200000 }
+  }
+}

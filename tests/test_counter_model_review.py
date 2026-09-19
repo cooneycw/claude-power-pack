@@ -474,34 +474,25 @@ def test_a_fenced_FINDING_example_is_still_not_a_finding() -> None:
     assert CM.parse_review(clean)[0] == CM.PARSE_CLEAN
 
 
-def test_the_retirement_query_excludes_registry_METADATA() -> None:
-    """`unregistered_claims` (#687) is an ARRAY sitting beside the role objects.
-
-    A filter dropping only `wave_policy` then asks an array for `.liveness`, jq
-    dies, and the check reports `unknown` on a roster that was perfectly
-    readable - a wrong answer in the safe direction, which is still wrong and
-    never resolves.
-    """
-    text = (COMMANDS / "flow" / "auto_codex.md").read_text(encoding="utf-8")
-    assert "unregistered_claims" in text
-    assert 'select(type == "object")' in text
-
-
-def test_UNDETERMINED_liveness_does_not_authorise_retirement() -> None:
-    """Liveness is a four-value vocabulary: live, released, stale, unknown.
-
-    Filtering on `== "live"` alone treats `unknown` - the registry could not
-    determine whether the process exists - as absence, and would authorise
-    deleting the command out from under a session still running on it. That is
-    the same "unknown is not clean" rule this repository applies everywhere
-    else, and this check is where it is easiest to get wrong, because the
-    tempting filter reads correctly.
-    """
-    text = (COMMANDS / "flow" / "auto_codex.md").read_text(encoding="utf-8")
-    assert '.liveness == "unknown"' in text, (
-        "the retirement check does not distinguish undetermined liveness"
-    )
-    assert "RETIREMENT: unknown (" in text
+# --------------------------------------------------------------------------- #
+# THE RETIREMENT TRIGGER MOVED OUT OF THIS FILE (#1017).
+#
+# Three tests here asserted the trigger's properties by GREPPING the prose of
+# `.claude/commands/flow/auto_codex.md` - that it filtered on liveness, that it
+# distinguished `unknown`, that it could report all three outcomes, that it
+# excluded the registry metadata keys. They were right about what the procedure
+# MEANT and silent about what it could SAY, and what it could say was wrong:
+# `flow-wave-registry.sh list` exits 0 on an absent registry, so the branch that
+# existed to report "I could not look" was unreachable and a host with no
+# registry read `RETIREMENT: clear`. A text search for the word `unknown` finds
+# that check in perfect health.
+#
+# The trigger was then evaluated, found clear, and the command retired. The same
+# properties are now asserted BEHAVIOURALLY against
+# `scripts/flow-driver-retirement-check.sh` in `tests/test_flow_driver_retirement.py`,
+# against four committed cases. A pointer rather than a deletion, because the
+# next reader here will be looking for exactly these assertions.
+# --------------------------------------------------------------------------- #
 
 
 def test_an_EMPTY_model_identity_is_refused(tmp_path: Path) -> None:
@@ -587,23 +578,6 @@ def test_the_receipt_helper_is_RESOLVED_not_assumed_present() -> None:
     assert "CLAUDE_PLUGIN_ROOT" in text.split("### Step 6:", 1)[1].split("### Step 7:", 1)[0]
 
 
-def test_the_retirement_check_has_THREE_outcomes() -> None:
-    """An empty result means "nobody is driving on it", "the registry could not
-    be read", or "the helper is absent". Only the first authorises deletion.
-
-    It must also filter on LIVENESS and match the driver EXACTLY: `list` renders
-    released roles with their drivers, and in the wave that wrote this,
-    `worker-A` is released while still carrying `driver: flow:auto_codex`. A
-    substring scan counts it and blocks the retirement forever.
-    """
-    text = (COMMANDS / "flow" / "auto_codex.md").read_text(encoding="utf-8")
-    for outcome in ("RETIREMENT: clear", "RETIREMENT: blocked", "RETIREMENT: unknown"):
-        assert outcome in text, f"the retirement check cannot report {outcome!r}"
-    assert '.liveness == "live"' in text, "the check does not filter on liveness"
-    assert '.driver == "flow:auto_codex"' in text, "the check does not match the driver exactly"
-    assert "unknown` is not\n`clear`" in text or "`unknown` is not" in text
-
-
 # --------------------------------------------------------------------------- #
 # The command surfaces. What must be true of them, and what must NOT change.
 # --------------------------------------------------------------------------- #
@@ -655,21 +629,6 @@ def test_the_step_numbering_is_UNCHANGED() -> None:
     for n in range(1, 10):
         assert f"Step {n}/9" in text, f"no Step {n}/9 report line"
     assert "/10" not in text, "flow/auto.md has been renumbered to ten steps"
-
-
-def test_flow_auto_codex_still_WORKS_and_is_not_retired() -> None:
-    """It is this wave's declared driver.
-
-    Retiring it while live roles declare `driver=flow:auto_codex` removes the
-    lifecycle command those sessions are running on, including the one
-    implementing the removal. The retirement is recorded with its trigger
-    instead; this pins that it did not happen early.
-    """
-    path = COMMANDS / "flow" / "auto_codex.md"
-    assert path.exists(), "flow/auto_codex.md was deleted while it is a live driver"
-    text = path.read_text(encoding="utf-8")
-    assert "RETIREMENT TRIGGER" in text
-    assert "no live role in any wave declares" in text.lower()
 
 
 def test_adding_the_stage_LEFT_THE_ELI5_GATE_BYTE_IDENTICAL() -> None:

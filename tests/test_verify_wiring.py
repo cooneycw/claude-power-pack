@@ -25,6 +25,7 @@ import re
 from pathlib import Path
 
 import pytest
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 MAKEFILE = ROOT / "Makefile"
@@ -118,7 +119,7 @@ def test_the_declared_tool_set_cannot_be_quietly_shortened() -> None:
     assert hard and native, "the declared tool sets are gone entirely"
 
     declared = set(hard.group(1).split()) | set(native.group(1).split())
-    required = {"git", "python3", "uv", "shellcheck", "gitleaks"}
+    required = {"git", "python3", "uv", "shellcheck", "gitleaks", "jq"}
     dropped = required - declared
     assert not dropped, (
         f"{sorted(dropped)} no longer appear in the declared set, so "
@@ -126,6 +127,53 @@ def test_the_declared_tool_set_cannot_be_quietly_shortened() -> None:
         f"Two undeclared dependencies reached `make verify` in one day (#960, "
         f"#935); that is what this list exists to stop happening a third time."
     )
+
+
+def test_the_steps_that_need_a_staged_tool_still_DEPEND_on_its_stager() -> None:
+    """A staged binary is only there if the staging step ran FIRST.
+
+    Woodpecker runs steps concurrently unless `depends_on` orders them, so a
+    consumer that stops depending on its stager does not fail loudly - it races,
+    and loses intermittently. The failure then looks like the tool being absent,
+    which is exactly the verdict the staging exists to prevent and is
+    indistinguishable from it in the log.
+
+    `jq` is here because it was the fourth undeclared dependency to reach a gate
+    (#960 shellcheck, #935 gitleaks, #987, then #1017): the CI image has none,
+    `controls/flow-driver-retirement-check` reported BLIND, and
+    `tests/test_flow_driver_retirement.py` silently SKIPPED all 26 of its tests
+    while `validate` went green.
+
+    PARSED, NOT SPLIT ON TEXT, and that is not a style preference. The first cut
+    of this guard did `text.split("  validate:")[1].split("\n  commands:")[0]` -
+    and the YAML indents `commands:` by FOUR spaces, so the delimiter never
+    matched, the "block" was the whole rest of the file, and the assertion found
+    `jq-stage` in some later step. It PASSED on the mutation it exists to catch,
+    found only because the mutation was actually run.
+    """
+    spec = yaml.safe_load(WOODPECKER.read_text(encoding="utf-8"))
+    steps = spec["steps"]
+
+    assert "jq-stage" in steps, (
+        "the jq-stage step is gone; the controls and tests that need jq will "
+        "report BLIND and skip respectively"
+    )
+    assert any("scripts/ci-stage-jq.py" in c for c in steps["jq-stage"]["commands"]), (
+        "jq-stage no longer invokes the stager"
+    )
+
+    for consumer in ("validate", "negative-controls"):
+        assert "jq-stage" in steps[consumer].get("depends_on", []), (
+            f"the `{consumer}` step no longer depends on `jq-stage`, so the "
+            f"staged jq may not exist when it runs - a race whose failure mode "
+            f"is indistinguishable from jq being absent"
+        )
+        # ...and a dependency ordering a step whose product is never looked at
+        # is a dependency on nothing.
+        assert any(".ci-bin:$PATH" in c for c in steps[consumer]["commands"]), (
+            f"`{consumer}` depends on the stagers but no longer prepends "
+            f"`.ci-bin` to PATH, so the staged tools are present and unused"
+        )
 
 
 # --------------------------------------------------------------------------- #
