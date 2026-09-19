@@ -63,6 +63,9 @@
 
 set -uo pipefail
 
+# Exit status on stderr, last thing written, so it survives `| tail` (issue #1031).
+trap 'printf "FLOW_CI_EXIT=%d\n" "$?" >&2' EXIT
+
 SHA=""
 CHECK_PATH=""
 REPO=""

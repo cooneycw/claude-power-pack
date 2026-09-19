@@ -1,0 +1,40 @@
+{
+  "gate": "scripts/deletion-accounting.sh",
+  "invocation": [
+    "bash",
+    "{gate}",
+    "--root",
+    "{case}",
+    "--top",
+    "0"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^DELETION_ACCOUNTING_FINDING: [0-9]+ deleted line",
+  "limits": "Covers DIFF TEXT supplied as *.diff/*.patch under a case directory, which is the `--root` lane. The `--base <ref>` lane - resolving a ref to a sha and running `git diff` - is NOT exercised here and is covered by tests/test_deletion_accounting.py instead, because a control case cannot carry a git history. detect_signal keys on the FINDING line rather than on the exit status because exit 2 (UNKNOWN: no such ref, unreadable input, an empty population) is also non-zero, and an instrument that could not look must not score as one that found something: an UNKNOWN run prints no FINDING line and therefore lands in UNSIGNALLED, which is crash-distinct rather than 'detected'.",
+  "cases": [
+    {
+      "name": "bad-blindspot-deletions",
+      "input": "cases/bad-blindspot-deletions",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-deleted-rule",
+      "input": "cases/bad-deleted-rule",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-additions-only",
+      "input": "cases/good-additions-only",
+      "expect": "GOOD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "synthetic",
+      "sha": "0000000",
+      "origin": "the `^-[^-]` pre-push check retired by issue #1031 (nit store #864 comment 5681293647)",
+      "path": "anchors/0000000-blind-caret-dash.sh",
+      "sha256": "436945ab8eb5c34108548fe6d4910ee5cfdbcbf2d972f84ecbf4461ca1e71b31"
+    }
+  ]
+}

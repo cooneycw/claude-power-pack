@@ -124,6 +124,9 @@
 
 set -uo pipefail
 
+# Exit status on stderr, last thing written, so it survives `| tail` (issue #1031).
+trap 'printf "FLOW_FINISH_GATE_EXIT=%d\n" "$?" >&2' EXIT
+
 PLAN="finish"
 MODE="gate"
 RERUN_ENABLED="${FLOW_GATE_RERUN:-1}"

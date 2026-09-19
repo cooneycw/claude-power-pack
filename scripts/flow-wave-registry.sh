@@ -376,6 +376,9 @@
 
 set -uo pipefail
 
+# Exit status on stderr, last thing written, so it survives `| tail` (issue #1031).
+trap 'printf "FLOW_WAVE_EXIT=%d\n" "$?" >&2' EXIT
+
 UID_NUM="$(id -u)"
 REG_DIR="${FLOW_WAVE_REGISTRY_DIR:-${XDG_RUNTIME_DIR:-/run/user/$UID_NUM}/cc-flow-wave}"
 REG_FILE="$REG_DIR/registry.json"
@@ -2496,7 +2499,12 @@ case "$VERB" in
     #: for a diff of ten - which is why the denominator is worth printing.
     TOUCHED_TMP="${TMPDIR:-/tmp}/flow-lane.$$"
     UNTRACKED_TMP="${TMPDIR:-/tmp}/flow-lane-untracked.$$"
-    trap 'rm -f "$TOUCHED_TMP" "$UNTRACKED_TMP"' EXIT INT TERM
+    # CHAINED, NOT REPLACED (issue #1031): a bare `trap ... EXIT` here would
+    # silently discard the FLOW_WAVE_EXIT= line installed at the top of this file,
+    # and nothing would report its absence. $? is captured FIRST, before the
+    # cleanup runs, or the reported status becomes `rm`'s.
+    trap '_rc=$?; rm -f "$TOUCHED_TMP" "$UNTRACKED_TMP"; printf "FLOW_WAVE_EXIT=%d\n" "$_rc" >&2' EXIT
+    trap 'rm -f "$TOUCHED_TMP" "$UNTRACKED_TMP"' INT TERM
     if ! git diff -z --no-renames --name-only "$MERGE_BASE" > "$TOUCHED_TMP" 2>/dev/null; then
       echo "FLOW_WAVE_LANE_CHECK=unknown"
       echo "flow-wave-registry: UNKNOWN - git diff failed against '$MERGE_BASE'; TOUCHED=0 here would be a failed observation, not a clean one." >&2

@@ -135,6 +135,9 @@
 
 set -uo pipefail
 
+# Exit status on stderr, last thing written, so it survives `| tail` (issue #1031).
+trap 'printf "DELEGATED_RUN_EXIT=%d\n" "$?" >&2' EXIT
+
 OUTPUT_FILE=""
 EXIT_CODE=""
 LANE="unknown"

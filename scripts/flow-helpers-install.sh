@@ -48,6 +48,15 @@
 
 set -uo pipefail
 
+# The exit status, on stderr, as the last thing written (issue #1031).
+# `helper | tail -3; echo $?` reports TAIL's status, not this script's, and
+# `pipefail` is not set in the calling lane. Printing it makes it survive the
+# pipe. STDERR and not stdout: stdout is this helper's machine-readable
+# contract and is captured with $(...) by sibling helpers, so metadata there
+# corrupts them - and stderr bypasses the pipe entirely rather than merely
+# landing at the end of it. See docs/agents/evidence-deleting-idioms.md.
+trap 'printf "FLOW_HELPERS_EXIT=%d\n" "$?" >&2' EXIT
+
 # PROVENANCE, on EVERY verdict (issue #927). An `ok` from a 22-entry allowlist
 # and an `ok` from a 24-entry one were the same line, so a verdict could not be
 # read against what produced it - the denominator convention (#952) applied to

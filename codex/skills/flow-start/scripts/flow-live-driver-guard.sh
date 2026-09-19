@@ -39,6 +39,9 @@
 
 set -uo pipefail
 
+# Exit status on stderr, last thing written, so it survives `| tail` (issue #1031).
+trap 'printf "FLOW_LIVE_DRIVER_EXIT=%d\n" "$?" >&2' EXIT
+
 GIT="${FLOW_LIVE_DRIVER_GIT:-git}"
 THRESHOLD_MIN=30
 WANT_EXIT_CODE=0

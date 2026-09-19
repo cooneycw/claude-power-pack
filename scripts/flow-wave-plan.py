@@ -146,8 +146,10 @@ Explicit "Serialized-resource: <name>" body lines are the precise override.
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
+import traceback
 from collections import defaultdict
 from pathlib import Path
 
@@ -677,4 +679,46 @@ def main(argv: list[str]) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv))
+    # The exit status, on stderr, as the last thing written (issue #1031).
+    # `helper | tail -3; echo $?` reports TAIL's status, not this script's.
+    # STDERR and not stdout: stdout is this script's data channel.
+    #
+    # THE TRACEBACK IS PRINTED HERE, BEFORE THE MARKER, and that ordering is the
+    # whole point. A `finally` runs BEFORE the interpreter prints an uncaught
+    # traceback, so re-raising put the diagnostic AFTER the status and
+    # `2>&1 | tail -1` deleted the marker - this file's own defence removed by
+    # the idiom it exists to survive (counter-model finding, #1031).
+    _code = 1
+    try:
+        _code = main(sys.argv)
+    except SystemExit as _exc:          # argparse --help and argparse errors
+        _code = _exc.code if isinstance(_exc.code, int) else int(bool(_exc.code))
+    except BaseException:               # noqa: BLE001 - re-reported, then exited
+        traceback.print_exc()
+        _code = 1
+    # stdout is block-buffered when it is a pipe, so without this the status
+    # lands BEFORE the contract under `2>&1 | tail -N` and the one property
+    # claimed for it - being last - is false (measured).
+    #
+    # AND THE FLUSH ITSELF CAN FAIL - a full disk, `>/dev/full`, a reader that
+    # closed the pipe. Left outside the handler it raised, the marker was never
+    # written, and the interpreter exited 120: the one path where a caller most
+    # needs the status is the one that had none (counter-model finding, #1031).
+    _flush_failed = False
+    try:
+        sys.stdout.flush()
+    except BaseException:               # noqa: BLE001 - reported, then exited
+        traceback.print_exc()
+        _flush_failed = True
+        if _code == 0:
+            _code = 1
+    print(f"FLOW_WAVE_PLAN_EXIT={_code}", file=sys.stderr)
+    if _flush_failed:
+        # Interpreter shutdown would retry the same doomed flush, raise again,
+        # and REPLACE this status with 120 - deleting the line just written.
+        try:
+            sys.stderr.flush()
+        except BaseException:           # noqa: BLE001 - nothing left to report with
+            pass
+        os._exit(_code)
+    raise SystemExit(_code)

@@ -16,6 +16,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.helper_exit_line import without_status
+
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "install-drift.sh"
 HELPER = "flow-start-resolve.sh"
@@ -215,7 +217,7 @@ def test_plugins_less_checkout_with_lingering_cache_is_retired_info(tmp_path: Pa
     assert "retired CPP marketplace surface" in result.stdout
     assert "/plugin uninstall flow@cpp" in result.stdout
     assert "INSTALL_DRIFT: skipped" in result.stdout
-    assert "drift" not in result.stderr.lower()
+    assert "drift" not in without_status(result.stderr).lower()
 
 
 def test_multiple_cached_families_are_named(tmp_path: Path):

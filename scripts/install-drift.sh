@@ -94,6 +94,9 @@
 
 set -uo pipefail
 
+# Exit status on stderr, last thing written, so it survives `| tail` (issue #1031).
+trap 'printf "INSTALL_DRIFT_EXIT=%d\n" "$?" >&2' EXIT
+
 SELF="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")"
 SELF_DIR="$(cd "$(dirname "$SELF")" && pwd)"
 HOME_DIR="${CPP_INSTALL_DRIFT_HOME:-${HOME:-}}"

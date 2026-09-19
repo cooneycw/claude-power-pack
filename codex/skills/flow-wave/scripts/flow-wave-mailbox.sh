@@ -607,6 +607,9 @@
 
 set -uo pipefail
 
+# Exit status on stderr, last thing written, so it survives `| tail` (issue #1031).
+trap 'printf "FLOW_MAILBOX_EXIT=%d\n" "$?" >&2' EXIT
+
 UID_NUM="$(id -u)"
 WAVE_ROOT="${FLOW_WAVE_MAILBOX_DIR:-${FLOW_WAVE_REGISTRY_DIR:-${XDG_RUNTIME_DIR:-/run/user/$UID_NUM}/cc-flow-wave}}"
 
@@ -2355,7 +2358,12 @@ EOF
     #: under the lock, is what makes the claim describe the state that holds at
     #: claim time rather than the state that held when we started looking.
     ESC_CLAIM="${TMPDIR:-/tmp}/flow-esc-claim.$$"
-    trap 'rm -f "$ESC_CLAIM"' EXIT INT TERM
+    # CHAINED, NOT REPLACED (issue #1031): a bare `trap ... EXIT` here would
+    # silently discard the FLOW_MAILBOX_EXIT= line installed at the top of this file,
+    # and nothing would report its absence. $? is captured FIRST, before the
+    # cleanup runs, or the reported status becomes `rm`'s.
+    trap '_rc=$?; rm -f "$ESC_CLAIM"; printf "FLOW_MAILBOX_EXIT=%d\n" "$_rc" >&2' EXIT
+    trap 'rm -f "$ESC_CLAIM"' INT TERM
     (
       flock -w 10 9 || { echo "flow-wave-mailbox: could not lock $WAVE_DIR" >&2; exit 3; }
       _ts="$(oldest_unacked_ts "$BOX")"
