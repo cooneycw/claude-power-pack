@@ -42,6 +42,8 @@ SCRIPT = ROOT / "scripts" / "flow-pr-watch.sh"
 
 HEAD = "aa11bb22cc33dd44ee55ff66aa77bb88cc99dd00"
 NEW_HEAD = "ff00ee11dd22cc33bb44aa55ff66ee77dd88cc99"
+PR_CONTEXT = "ci/woodpecker/pr/woodpecker"
+PUSH_CONTEXT = "ci/woodpecker/push/woodpecker"
 
 requires_bash = pytest.mark.skipif(
     any(
@@ -64,9 +66,11 @@ def _write_fake_gh(
 
     ``heads`` is consumed one entry per ``headRefOid`` call (the last entry
     repeats), which is how a mid-watch force-push is simulated. ``rollup`` is the
-    already-``--jq``-filtered ``url|state`` output, because the real invocation
-    always passes its own filter; ``rollups`` gives one such block PER POLL (the
-    last repeating), which is how a re-run appearing mid-watch is simulated.
+    already-``--jq``-filtered ``context|url|state`` output, because the real
+    invocation always passes its own filter. For backward compatibility, a
+    ``url|state`` row is assigned to the default PR context. ``rollups`` gives
+    one such block PER POLL (the last repeating), which is how a re-run appearing
+    mid-watch is simulated.
     """
     if rollups is None:
         rollups = [rollup or []]
@@ -78,8 +82,17 @@ def _write_fake_gh(
     rollup_dir = tmp_path / "gh-rollups"
     rollup_dir.mkdir(exist_ok=True)
     for index, block in enumerate(rollups, start=1):
+        normalized = []
+        for row in block:
+            separators = row.count("|")
+            if separators == 1:
+                normalized.append(f"{PR_CONTEXT}|{row}")
+            elif separators == 2:
+                normalized.append(row)
+            else:
+                raise ValueError(f"rollup row must have 2 or 3 fields: {row!r}")
         (rollup_dir / str(index)).write_text(
-            "\n".join(block) + ("\n" if block else ""), encoding="utf-8"
+            "\n".join(normalized) + ("\n" if normalized else ""), encoding="utf-8"
         )
     body = f"""#!/usr/bin/env bash
 for arg in "$@"; do
@@ -101,7 +114,19 @@ for arg in "$@"; do
       n=$((n + 1))
       echo "$n" > "{rollup_counter}"
       [ "$n" -gt "{len(rollups)}" ] && n="{len(rollups)}"
-      cat "{rollup_dir}/$n"
+      with_context=0
+      for filter_arg in "$@"; do
+        case "$filter_arg" in
+          *'.context // .name'*) with_context=1 ;;
+        esac
+      done
+      if [ "$with_context" -eq 1 ]; then
+        cat "{rollup_dir}/$n"
+      else
+        while IFS='|' read -r context url state; do
+          printf '%s|%s\n' "$url" "$state"
+        done < "{rollup_dir}/$n"
+      fi
       exit 0
       ;;
   esac
@@ -127,15 +152,26 @@ def _write_fake_wpcli(
     ``ls_blocks`` gives one ``pipeline ls`` result PER POLL (the last repeating),
     so a re-run that only becomes visible on a later poll can be simulated; the
     helper calls ``ls`` more than once per poll, so blocks advance on a coarse
-    counter and a block must describe a whole poll's worth of truth.
+    counter and a block must describe a whole poll's worth of truth. A three-field
+    row is assigned to the default ``pull_request`` event; an explicit four-field
+    row passes through unchanged.
     """
     if ls_blocks is None:
         ls_blocks = [ls_rows or []]
     ls_dir = tmp_path / "wp-ls-blocks"
     ls_dir.mkdir(exist_ok=True)
     for index, block in enumerate(ls_blocks, start=1):
+        normalized = []
+        for row in block:
+            separators = row.count("|")
+            if separators == 2:
+                normalized.append(f"{row}|pull_request")
+            elif separators == 3:
+                normalized.append(row)
+            else:
+                raise ValueError(f"pipeline row must have 3 or 4 fields: {row!r}")
         (ls_dir / str(index)).write_text(
-            "\n".join(block) + ("\n" if block else ""), encoding="utf-8"
+            "\n".join(normalized) + ("\n" if normalized else ""), encoding="utf-8"
         )
     ls_counter = tmp_path / "wp-ls-calls"
     ps_file = tmp_path / "wp-ps"
@@ -152,7 +188,19 @@ case "${{2:-}}" in
     n=$((n + 1))
     echo "$n" > "{ls_counter}"
     [ "$n" -gt "{len(ls_blocks)}" ] && n="{len(ls_blocks)}"
-    cat "{ls_dir}/$n"
+    with_event=0
+    for output_arg in "$@"; do
+      case "$output_arg" in
+        *'.Event'*) with_event=1 ;;
+      esac
+    done
+    if [ "$with_event" -eq 1 ]; then
+      cat "{ls_dir}/$n"
+    else
+      while IFS='|' read -r number status commit event; do
+        printf '%s|%s|%s\n' "$number" "$status" "$commit"
+      done < "{ls_dir}/$n"
+    fi
     exit 0
     ;;
   ps)  cat "{ps_file}"; exit 0 ;;
@@ -234,6 +282,126 @@ def test_green_pipeline_reports_green_and_exits_zero(tmp_path):
     assert fields["FLOW_PR_WATCH_PIPELINE"] == ["1354"]
     assert fields["FLOW_PR_WATCH_URL"] == ["https://wp.example/repos/7/pipeline/1354"]
     assert fields["FLOW_PR_WATCH_HEAD"] == [HEAD]
+    assert result.returncode == 0
+
+
+@requires_bash
+def test_disagreeing_contexts_report_the_named_context_not_the_higher_number(tmp_path):
+    gh = _write_fake_gh(
+        tmp_path,
+        heads=[HEAD],
+        rollup=[
+            f"{PR_CONTEXT}|https://wp.example/repos/7/pipeline/2100|SUCCESS",
+            f"{PUSH_CONTEXT}|https://wp.example/repos/7/pipeline/2101|FAILURE",
+        ],
+    )
+    result = _run(tmp_path, "42", "--repo", "o/r", env={"FLOW_PR_WATCH_GH": str(gh)})
+    fields = _fields(result.stdout)
+    assert fields["VERDICT"] == ["green"], result.stdout + result.stderr
+    assert fields["FLOW_PR_WATCH_PIPELINE"] == ["2100"]
+    assert result.returncode == 0
+
+
+@requires_bash
+def test_disagreeing_contexts_inverse_reports_named_context_not_lower_number(tmp_path):
+    gh = _write_fake_gh(
+        tmp_path,
+        heads=[HEAD],
+        rollup=[
+            f"{PUSH_CONTEXT}|https://wp.example/repos/7/pipeline/2110|SUCCESS",
+            f"{PR_CONTEXT}|https://wp.example/repos/7/pipeline/2111|FAILURE",
+        ],
+    )
+    result = _run(tmp_path, "42", "--repo", "o/r", env={"FLOW_PR_WATCH_GH": str(gh)})
+    fields = _fields(result.stdout)
+    assert fields["VERDICT"] == ["red"], result.stdout + result.stderr
+    assert fields["FLOW_PR_WATCH_PIPELINE"] == ["2111"]
+    assert result.returncode == 1
+
+
+@requires_bash
+def test_named_context_is_polled_until_its_own_state_is_terminal(tmp_path):
+    gh = _write_fake_gh(
+        tmp_path,
+        heads=[HEAD],
+        rollups=[
+            [
+                f"{PR_CONTEXT}|https://wp.example/repos/7/pipeline/2115|PENDING",
+                f"{PUSH_CONTEXT}|https://wp.example/repos/7/pipeline/2116|SUCCESS",
+            ],
+            [
+                f"{PR_CONTEXT}|https://wp.example/repos/7/pipeline/2115|SUCCESS",
+                f"{PUSH_CONTEXT}|https://wp.example/repos/7/pipeline/2116|SUCCESS",
+            ],
+        ],
+    )
+    result = _run(
+        tmp_path,
+        "42",
+        "--repo",
+        "o/r",
+        "--timeout",
+        "30",
+        "--interval",
+        "1",
+        env={"FLOW_PR_WATCH_GH": str(gh)},
+    )
+    fields = _fields(result.stdout)
+    assert fields["VERDICT"] == ["green"], result.stdout + result.stderr
+    assert fields["FLOW_PR_WATCH_PIPELINE"] == ["2115"]
+    assert result.returncode == 0
+
+
+@requires_bash
+@pytest.mark.parametrize(
+    "context_args", [("--context", PUSH_CONTEXT), (f"--context={PUSH_CONTEXT}",)]
+)
+def test_context_option_selects_the_other_lane(tmp_path, context_args):
+    gh = _write_fake_gh(
+        tmp_path,
+        heads=[HEAD],
+        rollup=[
+            f"{PUSH_CONTEXT}|https://wp.example/repos/7/pipeline/2120|SUCCESS",
+            f"{PR_CONTEXT}|https://wp.example/repos/7/pipeline/2121|FAILURE",
+        ],
+    )
+    result = _run(
+        tmp_path,
+        "42",
+        "--repo",
+        "o/r",
+        *context_args,
+        env={"FLOW_PR_WATCH_GH": str(gh)},
+    )
+    fields = _fields(result.stdout)
+    assert fields["VERDICT"] == ["green"], result.stdout + result.stderr
+    assert fields["FLOW_PR_WATCH_PIPELINE"] == ["2120"]
+    assert result.returncode == 0
+
+
+@requires_bash
+def test_wpcli_lane_does_not_override_a_correctly_scoped_pipeline_with_the_wrong_event(
+    tmp_path,
+):
+    gh = _write_fake_gh(
+        tmp_path,
+        heads=[HEAD],
+        rollup=[f"{PR_CONTEXT}|https://wp.example/repos/7/pipeline/2130|SUCCESS"],
+    )
+    wpcli = _write_fake_wpcli(
+        tmp_path,
+        ls_rows=[f"2131|failure|{HEAD}|push"],
+    )
+    result = _run(
+        tmp_path,
+        "42",
+        "--repo",
+        "o/r",
+        env={"FLOW_PR_WATCH_GH": str(gh), "FLOW_PR_WATCH_WPCLI": str(wpcli)},
+    )
+    fields = _fields(result.stdout)
+    assert fields["VERDICT"] == ["green"], result.stdout + result.stderr
+    assert fields["FLOW_PR_WATCH_PIPELINE"] == ["2130"]
     assert result.returncode == 0
 
 
@@ -674,6 +842,8 @@ def test_default_baseline_is_read_from_the_declared_checkout(tmp_path):
         (),
         ("not-a-number",),
         ("42", "--timeout", "soon"),
+        ("42", "--context", ""),
+        ("42", "--context="),
         ("42", "--frobnicate"),
     ],
 )

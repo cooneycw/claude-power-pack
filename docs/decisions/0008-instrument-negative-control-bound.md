@@ -185,7 +185,7 @@ another repo (the escalation clause); a row can be both.
 | 8 | `flow-worktree-sweep.sh` | five conditions per worktree; `SWEEP_WORKTREE:` | removal of other sessions' checkouts (ADR 0006) | X |
 | 9 | `gh-pr-merge.sh` | review-required, deletions, base-moved, negated/incidental close, completeness | whether the squash lands on main | G |
 | 10 | `flow-ci-status.sh` | `FLOW_CI_STATUS` | Step 8 deploy-or-stop | G |
-| 11 | `flow-pr-watch.sh` | `FLOW_PR_WATCH` classified verdict | the wave merge queue, in another session | X |
+| 11 | `flow-pr-watch.sh` | `FLOW_PR_WATCH` classified verdict, now resolved within the named status context rather than by raw pipeline number (#975) | the wave merge queue, in another session | X |
 | 12 | `flow-driver-capability.sh` | `FLOW_DRIVER_CHECK: fit\|mismatch` | which lane an orchestrator assigns an issue to | X |
 | 13 | `delegated-run-check.sh` | `DELEGATED_RUN_STATUS` | whether a `/codex:*`, `/qwen:*`, `/gemma:*` run is treated as success (#892) | G |
 | 14 | `lane-serveability-check.sh` | `LANE_SERVE_STATUS` | whether `/qwen:auto` and `/gemma:auto` delegate at all (#921) | G |
