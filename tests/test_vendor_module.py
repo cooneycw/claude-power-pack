@@ -546,8 +546,19 @@ def test_the_control_case_json_negation_does_not_leak_past_controls() -> None:
     # repository it models. The leak to guard against is anything OUTSIDE
     # controls/*/cases/.
     assert not ignored("controls/eli5-vendor/cases/good-pinned-core/notes.json")
+    # The anchor-fixture negation (#1017) is the second hole in this line, and it
+    # is NAMED rather than globbed for the reason this test exists: its first cut
+    # was `!controls/*/anchors/**/*.json`, which re-included every JSON in every
+    # anchors directory and turned the exception into the rule. Pinned here so the
+    # boundary is asserted from both sides.
+    anchor_fixture = "controls/flow-driver-retirement-check/anchors/wrong-object-roster.json"
+    assert (ROOT / anchor_fixture).is_file(), "precondition: the anchor fixture is really there"
+    assert not ignored(anchor_fixture), "the negation must reach the anchor fixture"
     for still_ignored in (
         "controls/eli5-vendor/anchors/notes.json",  # a control dir, but not a case tree
+        # ...and an anchors dir is not a blanket either: only the NAMED fixture
+        # above is re-included, so a sibling JSON beside it stays out.
+        "controls/flow-driver-retirement-check/anchors/notes.json",
         ".claude/settings.local.json",
         "docs/somewhere/else.json",
         "scratch.json",

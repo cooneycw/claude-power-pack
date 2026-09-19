@@ -3,6 +3,8 @@
 - Status: Accepted
 - Date: 2026-09-15
 - Amended: 2026-09-16 (#1015 - the skip-reason set narrowed to the inability class)
+- Amended: 2026-09-16 (#1017 - the retirement trigger was evaluated and met;
+  the `/flow:auto_codex` alias is retired)
 - Issue: #934
 - Supersedes: the separate `/flow:auto_codex` review stage
 - Related: [ADR 0008](0008-instrument-negative-control-bound.md) (this stage's
@@ -323,7 +325,31 @@ it is accumulating.
 - Every `/flow:auto` run spends a counter-model call, or records why it did not.
 - The accumulated receipts are the first data this project has ever had about
   whether cross-model review finds anything the implementer would not have.
-- `/flow:auto_codex` survives as a delegating alias with its own retirement
+- `/flow:auto_codex` survived as a delegating alias with its own retirement
   trigger: **no live role in any wave declares `driver=flow:auto_codex`.**
   Retiring it while roles are driving on it removes the lifecycle command those
   sessions are executing.
+
+  **The trigger was evaluated on 2026-09-16 (#1017) and found CLEAR, and the
+  alias is retired.** Six waves enumerated from the registry's own top-level
+  keys; four roles carried the driver, all of them in `cpp-completion` -
+  `worker-A` released, `worker-B`/`C`/`D` stale - and zero were `live` or
+  `unknown`. The non-zero match count is the load-bearing half: a green from a
+  blind query and a green from a working one look identical, and `matched=4`
+  is what distinguishes them.
+
+  **Evaluating it changed how the trigger is held.** It was committed as a
+  paragraph of shell beside the command, and running it showed that its first
+  guard could not fire: `flow-wave-registry.sh list` exits 0 with an empty
+  roster when the registry does not exist, so the branch that existed to say
+  "the registry could not be enumerated" was unreachable and a host with no
+  registry read `RETIREMENT: clear`. The procedure warned against exactly that
+  collapse in three paragraphs and then performed it. It now lives in
+  `scripts/flow-driver-retirement-check.sh` with four committed cases under
+  `controls/flow-driver-retirement-check/` - a live role must block, an
+  undetermined one must block, an absent registry must read unknown, and a wave
+  of released and stale roles must clear - and it takes a `--driver` argument,
+  so the next driver retirement inherits the instrument rather than improvising
+  it. Its anchor is not an earlier revision of the gate but the check that was
+  actually run while #1017 was filed: one pointed at `~/.claude/daemon/roster.json`,
+  the wrong object, which reports clear on every input.

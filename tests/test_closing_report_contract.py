@@ -5,8 +5,9 @@ WHY THIS IS SHAPED LIKE `tests/test_detector_contracts.py` AND NOT LIKE
 ---------------------------------------------------------------------------
 #965 proposed the eli5-gate test as the model. It is the wrong one, and the
 reason is the defect this test exists to prevent, one level up: that test pins a
-HARDCODED four-name tuple, `("eli5.md", "auto.md", "auto_codex.md", "help.md")`,
-and all four live under `.claude/commands/flow/`. It has never reached
+HARDCODED name tuple - `("eli5.md", "auto.md", "auto_codex.md", "help.md")` when
+this was written, one member shorter since #1017 retired that command - and every
+one of them lives under `.claude/commands/flow/`. It has never reached
 `codex/auto.md`, `qwen/auto.md` or `gemma/auto.md`. Nothing is wrong with its
 assertions; its POPULATION is three surfaces short of its name, and a hardcoded
 list is why.
@@ -84,7 +85,6 @@ SCANNED_ROOTS = _scanned_roots()
 # empty or shrunken set cannot pass silently.
 KNOWN_SURFACES = {
     Path(".claude/commands/flow/auto.md"),
-    Path(".claude/commands/flow/auto_codex.md"),
     Path(".claude/commands/flow/finish.md"),
     Path(".claude/commands/flow/merge.md"),
     Path(".claude/commands/codex/auto.md"),
@@ -112,7 +112,7 @@ KNOWN_SURFACES = {
 # run-closer named something else (`flow/auto_gemini.md`, say) is not. That is
 # narrower than "any document that closes a run" and is the residual this
 # instrument carries.
-CLOSER_FILENAMES = ("auto.md", "auto_codex.md", "finish.md", "merge.md")
+CLOSER_FILENAMES = ("auto.md", "finish.md", "merge.md")
 
 
 def candidate_closing_surfaces(*roots: Path) -> list[Path]:

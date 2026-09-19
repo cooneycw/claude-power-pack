@@ -9,7 +9,6 @@ Every command that ENDS a run emits a closing report against this contract:
 | Surface | What it closes |
 |---|---|
 | `.claude/commands/flow/auto.md` | the full lifecycle |
-| `.claude/commands/flow/auto_codex.md` | the same, plus a cross-model review stage |
 | `.claude/commands/codex/auto.md` | a lifecycle delegated to Codex |
 | `.claude/commands/qwen/auto.md` | a lifecycle delegated to local Qwen |
 | `.claude/commands/gemma/auto.md` | a lifecycle delegated to local Gemma |
@@ -133,7 +132,7 @@ was never checked and everything stayed green - the defect this contract is
 about, inside the test written to enforce it. A counter-model found it.
 
 **The derivation has a stated bound.** Candidates are recognised by filename
-convention - `auto.md`, `auto_codex.md`, `finish.md`, `merge.md` - so a
+convention - `auto.md`, `finish.md`, `merge.md` - so a
 run-closer named anything else is not caught. That is narrower than "any
 document that ends a run", and it is the residual this instrument carries
 rather than a gap it hides.
