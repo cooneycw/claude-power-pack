@@ -230,6 +230,49 @@ def _default_codex_sessions_dir() -> Path:
     return Path.home() / ".codex" / "sessions"
 
 
+def _derive_implementer_from_session(
+    session_id: str, projects_dir: Path
+) -> tuple[str | None, str | None]:
+    """Derive the latest real model from the implementing Claude session."""
+    try:
+        matches = sorted(
+            path
+            for path in projects_dir.rglob("*.jsonl")
+            if path.stem == session_id and path.is_file()
+        )
+    except OSError as exc:
+        return None, f"cannot search Claude projects directory {projects_dir}: {exc}"
+    if not matches:
+        return None, (
+            f"no transcript matching session_id {session_id!r} under Claude "
+            f"projects directory {projects_dir}"
+        )
+    if len(matches) > 1:
+        return None, (
+            f"multiple transcripts matching session_id {session_id!r} under Claude "
+            f"projects directory {projects_dir}"
+        )
+
+    transcript = matches[0]
+    try:
+        transcript_text = transcript.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        return None, f"cannot read matching transcript {transcript}: {exc}"
+    model = None
+    for match in re.finditer(r'"model"\s*:\s*"([^"]*)"', transcript_text):
+        value = match.group(1).strip()
+        # Sessions can switch models; sentinels after a real turn do not erase it.
+        if value and not value.startswith("<"):
+            model = value
+    if model is None:
+        return None, f"matching transcript {transcript} contains no real-shaped model entry"
+    return f"claude/{model}", None
+
+
+def _default_claude_projects_dir() -> Path:
+    return Path.home() / ".claude" / "projects"
+
+
 def build(args: argparse.Namespace) -> dict:
     receipt: dict = {
         "schema": SCHEMA,
@@ -369,6 +412,21 @@ def cmd_write(args: argparse.Namespace) -> int:
     else:
         args.reviewer = None
 
+    session_id = args.implementer_session_id or os.environ.get("CLAUDE_CODE_SESSION_ID")
+    if not session_id:
+        print(
+            "counter-model-receipt: missing implementer session id; supply "
+            "--implementer-session-id or set CLAUDE_CODE_SESSION_ID",
+            file=sys.stderr,
+        )
+        return EXIT_INVALID
+    projects_dir = args.claude_projects_dir or _default_claude_projects_dir()
+    implementer, error = _derive_implementer_from_session(session_id, projects_dir)
+    if error is not None:
+        print(f"counter-model-receipt: {error}", file=sys.stderr)
+        return EXIT_INVALID
+    args.implementer = implementer
+
     receipt = build(args)
     problems = validate(receipt, "new receipt")
     if problems:
@@ -456,7 +514,7 @@ def main() -> int:
     )
     sub = ap.add_subparsers(dest="cmd", required=True)
 
-    w = sub.add_parser("write", help="record one run")
+    w = sub.add_parser("write", help="record one run", allow_abbrev=False)
     w.add_argument("--dir", default=str(RECEIPT_DIR))
     w.add_argument("--issue", required=True)
     w.add_argument("--branch", required=True)
@@ -472,7 +530,16 @@ def main() -> int:
         type=Path,
         help="Codex sessions root (defaults to $CODEX_HOME/sessions or ~/.codex/sessions)",
     )
-    w.add_argument("--implementer", required=True, help="the IMPLEMENTING model")
+    w.add_argument(
+        "--implementer-session-id",
+        help="Claude session from which to derive the IMPLEMENTING model "
+             "(defaults to $CLAUDE_CODE_SESSION_ID)",
+    )
+    w.add_argument(
+        "--claude-projects-dir",
+        type=Path,
+        help="Claude projects root (defaults to ~/.claude/projects)",
+    )
     w.add_argument("--passes", type=int, default=1)
     for k in COUNTS:
         w.add_argument(f"--{k}", type=int, default=0)

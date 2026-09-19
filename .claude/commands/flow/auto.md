@@ -906,10 +906,28 @@ git merge --no-edit origin/main
    so `--reviewer-exec-log` must not be passed; the writer already refuses a
    skip that names one (#1046).
 
+   **`--implementer` is ALSO derived now, not asserted (issue #1047).** It
+   used to be the literal `"claude/opus-5"` - a claim that the property this
+   receipt exists to check (the reviewing model must not be the implementing
+   model) could never actually fail on the implementer's side, because
+   nothing measured it. The writer now derives it from this Claude Code
+   session's own transcript (`~/.claude/projects/<project>/
+   $CLAUDE_CODE_SESSION_ID.jsonl`, the same store this session's conversation
+   already lives in) and REFUSES to write when it cannot - a missing session
+   id, no matching transcript, or a transcript with no real model entry to
+   read. **This is on the skip path too, not only `ran`**: a skip receipt now
+   requires a derivable implementer exactly as it requires a reason, so an
+   environment with no `~/.claude/projects` (a container without that mount,
+   for instance) can fail a skip write that used to succeed. That is the
+   correct direction - fail closed rather than assume an identity - but it is
+   a real behaviour change on the path people reach when something has
+   already gone wrong.
+
    ```bash
    python3 "$CM_RECEIPT" write --dir "$(git rev-parse --show-toplevel)/docs/measurements/counter-model" \
        --issue "$ISSUE_NUM" --branch "$BRANCH" \
-       --status ran --reviewer-exec-log "$STREAM" --implementer "claude/opus-5" \
+       --status ran --reviewer-exec-log "$STREAM" \
+       --implementer-session-id "$CLAUDE_CODE_SESSION_ID" \
        --passes 2 --accepted 3 --rejected 1 --deferred 0 \
        --red-cases-proposed 4 --red-cases-already-covered 3
    ```
