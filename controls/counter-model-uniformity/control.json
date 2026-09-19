@@ -1,0 +1,82 @@
+{
+  "_comment": [
+    "Registration for scripts/counter-model-uniformity-check.py (issue #1091).",
+    "WHY THIS GATE NEEDS A COMMITTED CASE (ADR 0008): this is a NEW instrument",
+    "whose verdict may be read by the operator when deciding the 13 landed",
+    "receipts' disposition, and nothing downstream re-derives that reading.",
+    "Uniformity alone is not a defect: the cases distinguish a copied literal",
+    "from a genuine constant, and missing evidence from an empty population.",
+    "The historical 13 identical values are not the current corpus population.",
+    "All receipts and exec logs here are synthetic. Paths in evidence manifests",
+    "are relative to the manifest directory. No real Codex artifacts are used.",
+    "Pytest copies these exact case directories under tmp_path; --selftest",
+    "copies them to temporary directories. No second set of fixtures exists.",
+    "expected_exit and expected_output refine GOOD/BAD into exact verdicts",
+    "for selftest and pytest, including the denominator on every clean run.",
+    "Evidence confirms a supplied association; these fixtures do not establish",
+    "the authenticity of a real receipt-to-log link, which old receipts lack."
+  ],
+  "gate": "scripts/counter-model-uniformity-check.py",
+  "invocation": [
+    "python3",
+    "{gate}",
+    "--receipts-dir",
+    "{case}/receipts",
+    "--evidence-dir",
+    "{case}/evidence"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^UNIFORMITY-(FINDING|UNKNOWN):",
+  "cases": [
+    {
+      "name": "bad-copied-literal",
+      "input": "cases/bad-copied-literal",
+      "expect": "BAD",
+      "why": "Two identical stored reviewers, but independently supplied evidence derives a different model for review-1.json. Uniformity with disagreement is a finding.",
+      "expected_exit": 1,
+      "expected_output": "UNIFORMITY-FINDING: review-1.json: stored reviewer='codex/gpt-5.5', cross-verification derived='codex/gpt-6-astra'\nUNIFORMITY-SUMMARY: examined=2 verifiable=1 distinct=1"
+    },
+    {
+      "name": "bad-empty-corpus",
+      "input": "cases/bad-empty-corpus",
+      "expect": "BAD",
+      "why": "Only a skipped receipt: no reviewer was examined. An empty population must never pass as a clean corpus.",
+      "expected_exit": 2,
+      "expected_output": "UNIFORMITY-UNKNOWN: examined=0 verifiable=0 distinct=0 - nothing was examined (empty or misconfigured receipts-dir)"
+    },
+    {
+      "name": "bad-unverified-uniform",
+      "input": "cases/bad-unverified-uniform",
+      "expect": "BAD",
+      "why": "Identical reviewers with no matching evidence manifests. The constant could be copied or true; the checker cannot decide.",
+      "expected_exit": 2,
+      "expected_output": "UNIFORMITY-UNKNOWN: examined=2 verifiable=0 distinct=1 - uniform, but 0 of 2 receipt(s) had verifiable evidence; could not distinguish a constant from a genuinely unchanging model"
+    },
+    {
+      "name": "good-diverse",
+      "input": "cases/good-diverse",
+      "expect": "GOOD",
+      "why": "Three receipts with two stored reviewers. Diversity raises no uniformity concern, even without evidence.",
+      "expected_exit": 0,
+      "expected_output": "UNIFORMITY-OK: examined=3 verifiable=0 distinct=2 - 2 distinct reviewer value(s), corpus is diverse"
+    },
+    {
+      "name": "good-verified-uniform",
+      "input": "cases/good-verified-uniform",
+      "expect": "GOOD",
+      "why": "Identical reviewers with one independent confirmation and no disagreement. Rejecting all uniform corpora would falsely flag this GOOD case.",
+      "expected_exit": 0,
+      "expected_output": "UNIFORMITY-OK: examined=2 verifiable=1 distinct=1 - uniform, verified against 1 receipt(s) of exec-log evidence, no mismatch"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "n/a",
+      "origin": "scripts/counter-model-uniformity-check.py",
+      "path": "anchors/constructed-presence-only-uniformity-check.py",
+      "sha256": "e1748af0e1f710f2014de87b0c7b2ecb51233a92c99ed36516a5bb9155a95eb5",
+      "why": "CONSTRUCTED, not historical, and PERMANENTLY so. A gate introduced by its own pull request has no blind ancestor on main; --verify-provenance will therefore read unverified forever. Integrity is established by the sha256 above, historicity is not. WHAT IT IS: a presence-only checker that treats any nonempty receipt population as clean, never filtering skipped receipts or attempting cross-verification. It MISSES all three known-bad inputs, including the skipped-only population in bad-empty-corpus, and AGREES with the real gate on BOTH known-good cases. Presence is mistaken for examination, and examination for verification. The harness requires the anchor to miss every registered BAD case; this weaker checker demonstrates each missing distinction."
+    }
+  ]
+}
