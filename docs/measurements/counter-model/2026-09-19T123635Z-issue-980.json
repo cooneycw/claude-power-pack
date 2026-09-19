@@ -1,0 +1,19 @@
+{
+  "branch": "issue-980-flow-wave-lexicon-a-quoted-token-is-parsed-as-an-i",
+  "counts": {
+    "accepted": 5,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "implementer": "claude/opus-5",
+  "issue": "980",
+  "passes": 2,
+  "recorded_at": "2026-09-19T12:36:35Z",
+  "red_cases": {
+    "already_covered": 9,
+    "proposed": 14
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}

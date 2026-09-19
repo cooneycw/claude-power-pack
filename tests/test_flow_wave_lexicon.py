@@ -674,3 +674,665 @@ def test_lane_grant_is_unchanged(tmp_path: Path) -> None:
     out = _validate(tmp_path, "LANE: GRANT worker-a src/x.py\n")
     assert "FLOW_LEXICON: ok" in out.stdout, out.stdout
     assert "GRANT worker-a src/x.py" in out.stdout, out.stdout
+
+
+# --------------------------------------------------------------------------- #
+# #980 - a QUOTED token is not an ISSUED one
+#
+# THE SPECIMEN. An orchestrator drafted a message whose entire purpose was to
+# WITHDRAW a merge authorisation carrying an underspecified predicate. The draft
+# quoted the bad line verbatim, indented two spaces, with prose around it saying
+# it was wrong. `validate` reported a live `MERGE: AUTHORIZED #243` - a fresh
+# grant of merge authority under the exact predicate being withdrawn. The same
+# shape applied to `GATE: HOLD` blocks the planner on a phantom hold whose
+# recorded `reason` is the quoted text, which reads as authentic to whoever
+# investigates it later.
+#
+# THE TWO ARMS (ADR 0008). Every test below that asserts a token does NOT take
+# effect is paired with one asserting the SAME token still does at column 0.
+# Without the second arm a validator that refused or ignored everything would
+# satisfy the first, and this file would be measuring nothing - the exact
+# anti-decoration failure the suite docstring is about. The arms are written
+# next to each other rather than in separate classes so removing one is visible.
+# --------------------------------------------------------------------------- #
+
+
+#: Arm A from the issue, verbatim: prose that RETRACTS the very hold it quotes.
+#: Pre-fix this recorded `{"issue":999,"ruling":"hold",...}` - a hold on #999
+#: derived from a message which says in prose that no hold stands on #999.
+RETRACTION_INDENTED = (
+    "Retrospective. Earlier I wrongly wrote:\n"
+    "\n"
+    "  GATE: HOLD #999 behind #998\n"
+    "\n"
+    "That was my error and I am retracting it. No hold stands on #999.\n"
+)
+
+#: The same retraction, quoting properly.
+RETRACTION_QUOTED = (
+    "Retrospective. Earlier I wrongly wrote:\n"
+    "\n"
+    "> GATE: HOLD #999 behind #998\n"
+    "\n"
+    "That was my error and I am retracting it. No hold stands on #999.\n"
+)
+
+
+def _citations(proc: subprocess.CompletedProcess[str]) -> list[str]:
+    return [
+        ln.split("=", 1)[1]
+        for ln in proc.stdout.splitlines()
+        if ln.startswith("FLOW_LEXICON_CITATION=")
+    ]
+
+
+@requires_bash
+class TestAnIndentedTokenIsRefusedRatherThanGuessed:
+    """The ambiguous shape, and why it REFUSES instead of picking a side.
+
+    Both silent readings are wrong. Read as issued it is the defect above. Read
+    as cited it silently DROPS a real transition typed with a stray leading
+    space - and a dropped ``GATE: HOLD`` fails OPEN, letting a wave start an
+    issue somebody is holding, which is the worse direction. A refusal is the
+    only disposition that cannot fail open either way.
+    """
+
+    def test_the_field_specimen_is_refused(self, tmp_path: Path):
+        proc = _validate(tmp_path, RETRACTION_INDENTED)
+        assert proc.returncode == 1, proc.stdout
+        assert _verdict(proc) == "invalid", proc.stdout
+        assert _detail(proc, "GATES") == "0", proc.stdout
+
+    def test_the_refusal_names_both_remedies(self, tmp_path: Path):
+        """The author of an indented token has a definite intention, and which
+        one it was is the single fact the parser cannot recover. A refusal that
+        named only one remedy would push every such line to that side - which
+        is how a teaching message becomes a transition, or a transition
+        becomes prose.
+        """
+        proc = _validate(tmp_path, RETRACTION_INDENTED)
+        blob = proc.stdout + proc.stderr
+        assert "line 3:" in blob, blob
+        assert "remove the leading whitespace" in blob, blob
+        assert "'> '" in blob, blob
+        assert "fenced" in blob, blob
+
+    def test_it_records_nothing(self, tmp_path: Path):
+        """THE RED ARM, and the one that fails on the pre-fix code.
+
+        Run against ``scripts/flow-wave-lexicon.sh`` before #980 this body
+        exits 0 with ``FLOW_LEXICON_RECORDED=1`` and writes a hold on #999 into
+        ``verdicts.json``. `validate` only reports; `record` MUTATES, so the
+        arm that matters is asserted against the file on disk, not the verdict.
+        """
+        proc = _run(tmp_path, "record", "--wave", WAVE, stdin=RETRACTION_INDENTED)
+        assert proc.returncode == 1, proc.stdout
+        assert not (tmp_path / "wave" / WAVE / "verdicts.json").exists(), (
+            "a message that retracts a hold in prose wrote that hold to the ledger"
+        )
+
+    def test_the_same_token_at_column_zero_still_issues(self, tmp_path: Path):
+        """THE OTHER ARM. A parser that refused every GATE line would satisfy
+        every assertion above and tell us nothing at all.
+        """
+        proc = _validate(tmp_path, "GATE: HOLD #999 behind #998\n")
+        assert proc.returncode == 0, proc.stdout
+        assert _verdict(proc) == "ok", proc.stdout
+        assert _transitions(proc) == ["GATE: HOLD #999"], proc.stdout
+
+    def test_a_reserved_word_indented_but_not_a_token_is_still_prose(
+        self, tmp_path: Path
+    ):
+        """The refusal is scoped to lines that OPEN a reserved token.
+
+        An indented sentence merely mentioning one stays prose, or every
+        bulleted design discussion of the lexicon becomes unsendable.
+        """
+        proc = _validate(
+            tmp_path,
+            "Options:\n"
+            "  - whether GATE: GO should carry a reason at all\n"
+            "  - whether LANE: GRANT is the right name\n",
+        )
+        assert proc.returncode == 0, proc.stdout
+        assert _verdict(proc) == "none", proc.stdout
+
+
+@requires_bash
+class TestCitationIsInertButNeverSilent:
+    """Fenced and ``>``-quoted tokens are references, not transitions.
+
+    ``>`` already failed to parse before #980 - ``trim`` left the ``>`` in place
+    so the ``GATE:*`` match missed - but accidentally, undocumented, and
+    UNREPORTED. The reporting is the half that makes skipping safe: inert and
+    dropped produce identical silence, and the whole argument for having a skip
+    at all is that the sender is told which one happened.
+    """
+
+    def test_a_fenced_token_is_a_citation(self, tmp_path: Path):
+        proc = _validate(
+            tmp_path,
+            "Earlier ruling, for reference:\n\n```\nGATE: HOLD #999 behind #998\n```\n",
+        )
+        assert proc.returncode == 0, proc.stdout
+        assert _verdict(proc) == "none", proc.stdout
+        assert _transitions(proc) == [], proc.stdout
+        assert _detail(proc, "CITATIONS") == "1", proc.stdout
+
+    def test_a_quoted_token_is_a_citation(self, tmp_path: Path):
+        proc = _validate(tmp_path, RETRACTION_QUOTED)
+        assert proc.returncode == 0, proc.stdout
+        assert _verdict(proc) == "none", proc.stdout
+        assert _detail(proc, "CITATIONS") == "1", proc.stdout
+
+    def test_the_citation_names_its_line_and_context(self, tmp_path: Path):
+        """A count alone would not let a sender find the line, and the count is
+        what they will read first. The context word is what tells them WHICH
+        thing they did, so the remedy is obvious without re-reading the rule.
+        """
+        proc = _validate(tmp_path, RETRACTION_QUOTED)
+        assert _citations(proc) == ["quote line 3: GATE: HOLD #999 behind #998"], (
+            proc.stdout
+        )
+
+    def test_a_fenced_citation_names_the_fence(self, tmp_path: Path):
+        proc = _validate(
+            tmp_path, "Ref:\n\n```\nMERGE: AUTHORIZED #243 when CI passes\n```\n"
+        )
+        assert _citations(proc) == [
+            "fence line 4: MERGE: AUTHORIZED #243 when CI passes"
+        ], proc.stdout
+
+    def test_a_cited_malformed_token_is_not_refused_either(self, tmp_path: Path):
+        """Quoting a token BECAUSE it is wrong is the retraction use case.
+
+        The predicate ``when CI passes`` is refused when issued (it is the
+        VAGUE_PREDICATES specimen), and must NOT be refused when cited, or the
+        channel still cannot carry the message that corrects it.
+        """
+        proc = _validate(
+            tmp_path,
+            "Your authorisation was underspecified:\n\n"
+            "> MERGE: AUTHORIZED #243 when CI passes\n\n"
+            "Name the pipeline. Re-send it against ci/woodpecker/pr/woodpecker.\n",
+        )
+        assert proc.returncode == 0, proc.stdout
+        assert _verdict(proc) == "none", proc.stdout
+        assert _detail(proc, "ERRORS") == "0", proc.stdout
+
+    def test_the_same_tokens_uncited_still_take_effect(self, tmp_path: Path):
+        """THE OTHER ARM for this class, stated once over both contexts."""
+        proc = _validate(
+            tmp_path,
+            "GATE: HOLD #999 behind #998\n"
+            "MERGE: AUTHORIZED #243 when ci/woodpecker/pr/woodpecker reports success\n",
+        )
+        assert _verdict(proc) == "ok", proc.stdout
+        assert _detail(proc, "TRANSITIONS") == "2", proc.stdout
+        assert _detail(proc, "CITATIONS") == "0", proc.stdout
+
+    def test_record_says_why_it_found_no_verdict(self, tmp_path: Path):
+        """"You wrote no gate" and "your gate was read as a citation" are
+        different diagnoses, and the second is the one somebody will hit.
+        """
+        proc = _run(tmp_path, "record", "--wave", WAVE, stdin=RETRACTION_QUOTED)
+        assert proc.returncode == 1, proc.stdout
+        assert "read as CITATIONS" in proc.stderr, proc.stderr
+        assert not (tmp_path / "wave" / WAVE / "verdicts.json").exists()
+
+
+@requires_bash
+class TestFenceDetectionHoldsAtTheEdges:
+    def test_a_tilde_fence_cites_too(self, tmp_path: Path):
+        proc = _validate(tmp_path, "Ref:\n\n~~~\nGATE: GO #701 fine\n~~~\n")
+        assert _verdict(proc) == "none", proc.stdout
+        assert _detail(proc, "CITATIONS") == "1", proc.stdout
+
+    def test_an_info_string_still_opens_a_fence(self, tmp_path: Path):
+        proc = _validate(tmp_path, "Ref:\n\n```text\nGATE: GO #701 fine\n```\n")
+        assert _verdict(proc) == "none", proc.stdout
+        assert _detail(proc, "CITATIONS") == "1", proc.stdout
+
+    def test_a_fence_is_closed_only_by_its_own_character(self, tmp_path: Path):
+        """A ``~~~`` SHOWN inside a backtick block must not close it.
+
+        If it did, the very next line would re-arm the defect - and a message
+        demonstrating one fence style inside another is exactly the shape a
+        teaching message takes.
+        """
+        body = "```\n~~~\nGATE: GO #701 still inside the fence\n```\n"
+        proc = _validate(tmp_path, body)
+        assert _verdict(proc) == "none", proc.stdout
+        assert _detail(proc, "CITATIONS") == "1", proc.stdout
+        assert _detail(proc, "TRANSITIONS") == "0", proc.stdout
+
+    def test_a_reopened_fence_does_not_swallow_the_text_between(
+        self, tmp_path: Path
+    ):
+        """Between two fenced citations, a column-0 token still ISSUES.
+
+        The state machine has to CLOSE, not merely open. A fence tracker that
+        never cleared would turn every later transition into a citation, which
+        is the fail-open this whole change is careful about.
+        """
+        body = (
+            "```\nGATE: HOLD #1 behind #2\n```\n"
+            "\nSo, ruling:\n\n"
+            "GATE: GO #701 the quoted hold above is withdrawn\n"
+            "\n```\nGATE: HOLD #3 behind #4\n```\n"
+        )
+        proc = _validate(tmp_path, body)
+        assert _verdict(proc) == "ok", proc.stdout
+        assert _transitions(proc) == ["GATE: GO #701"], proc.stdout
+        assert _detail(proc, "CITATIONS") == "2", proc.stdout
+
+    def test_an_unterminated_fence_reports_every_token_it_swallows(
+        self, tmp_path: Path
+    ):
+        """THE NAMED RISK, made checkable rather than described.
+
+        A stray opening fence runs to EOF and silences every later token - the
+        fail-open direction in miniature. It is tolerated because each swallowed
+        token is REPORTED: the sender sees the tokens named as citations rather
+        than inferring the loss from a transition that never arrived. If this
+        assertion is ever relaxed, the reversal trigger recorded in the script
+        header applies.
+        """
+        body = "Here is the shape:\n\n```\nGATE: GO #701 approved\nLANE: GRANT worker-a src/x.py\n"
+        proc = _validate(tmp_path, body)
+        assert _verdict(proc) == "none", proc.stdout
+        assert _detail(proc, "CITATIONS") == "2", proc.stdout
+        assert _citations(proc) == [
+            "fence line 4: GATE: GO #701 approved",
+            "fence line 5: LANE: GRANT worker-a src/x.py",
+        ], proc.stdout
+
+
+@requires_bash
+@requires_jq
+class TestInertContentCannotSupplyALiveTokensFields:
+    """The continuation grammar is where a citation can still change a RULING.
+
+    ``- <condition>`` and ``serializes: <marker>`` lines beneath a token become
+    that token's recorded ``reason`` and ``adds_serialized``, and the planner
+    unions the latter into ``serialized_resources``. So content that is inert as
+    a TRANSITION is not automatically inert as a FIELD, and the first cut of
+    #980 missed exactly that: making a citation transparent to block
+    continuation let a quoted ruling's conditions and serialization marker land
+    in a LIVE gate's ledger entry. Found twice independently - once by reasoning
+    about blockquotes, once by the counter-model reviewer about fences - which is
+    why both halves are pinned here rather than the one that was noticed first.
+    """
+
+    #: The measured specimen. Before the fix this recorded #55 with reason
+    #: "rerun the obsolete pipeline" and adds_serialized ["obsolete-lock"],
+    #: neither of which appears anywhere in #55's own ruling.
+    ABSORB = (
+        "GATE: GO #55 approved on its own merits\n"
+        "\n"
+        "Earlier ruling, quoted for reference only:\n"
+        "\n"
+        "> GATE: GO-WITH-CONDITIONS #60 obsolete\n"
+        "\n"
+        "- rerun the obsolete pipeline\n"
+        "serializes: obsolete-lock\n"
+    )
+
+    def _ledger(self, tmp: Path) -> list[dict]:
+        return json.loads((tmp / "wave" / WAVE / "verdicts.json").read_text())
+
+    def test_a_quoted_rulings_fields_do_not_reach_a_live_one(self, tmp_path: Path):
+        proc = _run(tmp_path, "record", "--wave", WAVE, stdin=self.ABSORB)
+        assert _verdict(proc) == "recorded", proc.stdout + proc.stderr
+        entries = self._ledger(tmp_path)
+        assert [e["issue"] for e in entries] == [55], entries
+        assert entries[0]["reason"] == "approved on its own merits", (
+            "a quoted ruling's conditions became the live gate's recorded reason"
+        )
+        assert "adds_serialized" not in entries[0], (
+            "a quoted ruling's serializes: marker entered the live gate's ledger "
+            "entry, and the planner serialises the wave on it"
+        )
+
+    def test_a_fenced_condition_does_not_satisfy_a_live_conditional(
+        self, tmp_path: Path
+    ):
+        """The counter-model half: no reserved token is involved at all.
+
+        A fenced ``- obsolete condition`` carries no token, so the citation
+        classes never see it - it is inert because it is fenced CONTENT. Left as
+        ordinary content it silently qualified a conditional approval that
+        carried none.
+        """
+        proc = _validate(
+            tmp_path,
+            "GATE: GO-WITH-CONDITIONS #60\n\n```\n- obsolete condition\nserializes: obsolete-lock\n```\n",
+        )
+        assert proc.returncode == 1, proc.stdout
+        assert "carries no conditions" in proc.stdout + proc.stderr
+
+    def test_the_refusal_says_why_the_conditions_were_not_read(
+        self, tmp_path: Path
+    ):
+        """A sender looking at conditions RIGHT THERE needs to be told why they
+        did not count, or the refusal reads as a parser bug and gets worked
+        around rather than fixed.
+        """
+        proc = _validate(
+            tmp_path, "GATE: GO-WITH-CONDITIONS #60\n\n```\n- obsolete condition\n```\n"
+        )
+        blob = proc.stdout + proc.stderr
+        assert "INERT" in blob, blob
+        assert "specimen" in blob, blob
+
+    def test_live_conditions_still_qualify_it(self, tmp_path: Path):
+        """THE OTHER ARM. A parser that read no conditions from anywhere would
+        satisfy both refusals above and break every real conditional approval.
+        """
+        proc = _run(
+            tmp_path,
+            "record",
+            "--wave",
+            WAVE,
+            stdin="GATE: GO-WITH-CONDITIONS #60\n\n- real condition\nserializes: migrations/0009\n",
+        )
+        assert _verdict(proc) == "recorded", proc.stdout + proc.stderr
+        entry = self._ledger(tmp_path)[0]
+        assert entry["reason"] == "real condition"
+        assert entry["adds_serialized"] == ["migrations/0009"]
+
+    def test_an_illustrative_fence_does_not_truncate_the_conditions_after_it(
+        self, tmp_path: Path
+    ):
+        """Fenced content is SKIPPED, not a terminator - the one place the two
+        inert classes differ from a citation.
+
+        A closing fence makes the boundary unambiguous, so an example shown
+        mid-block has no business ending the block. A quoted TOKEN does end it,
+        because the lines under a quoted ruling belong to that ruling; a fence
+        with nothing reserved in it makes no such claim.
+        """
+        proc = _run(
+            tmp_path,
+            "record",
+            "--wave",
+            WAVE,
+            stdin=(
+                "GATE: GO-WITH-CONDITIONS #60\n"
+                "\n- rerun the pipeline\n"
+                "\n```\nexample output, not a condition\n```\n"
+                "\nserializes: migrations/0009\n"
+            ),
+        )
+        assert _verdict(proc) == "recorded", proc.stdout + proc.stderr
+        entry = self._ledger(tmp_path)[0]
+        assert entry["reason"] == "rerun the pipeline"
+        assert entry["adds_serialized"] == ["migrations/0009"]
+
+
+@requires_bash
+class TestFenceClosureIsLengthAware:
+    """A fence closes only on its own character, a run at least as long, and
+    nothing after it.
+
+    Comparing only the character - the first cut - meant a four-backtick block
+    containing a three-backtick example closed one line early, and any
+    ```` ```bash ```` info line inside a block closed it. The next reserved token
+    was then live again, inside a message whose author can plainly see it is
+    fenced. That is the phantom-verdict defect restored by the repair for it,
+    which is the failure mode worth a dedicated class.
+    """
+
+    def test_a_shorter_run_does_not_close_a_longer_fence(self, tmp_path: Path):
+        proc = _validate(
+            tmp_path, "````\n```\nGATE: HOLD #999 behind #998\n````\n"
+        )
+        assert _verdict(proc) == "none", proc.stdout
+        assert _detail(proc, "TRANSITIONS") == "0", proc.stdout
+        assert _detail(proc, "CITATIONS") == "1", proc.stdout
+
+    def test_a_run_carrying_an_info_string_does_not_close_a_fence(
+        self, tmp_path: Path
+    ):
+        proc = _validate(
+            tmp_path, "```\n```bash\nGATE: HOLD #999 behind #998\n```\n"
+        )
+        assert _verdict(proc) == "none", proc.stdout
+        assert _detail(proc, "TRANSITIONS") == "0", proc.stdout
+        assert _detail(proc, "CITATIONS") == "1", proc.stdout
+
+    def test_a_matching_run_does_close_it(self, tmp_path: Path):
+        """THE OTHER ARM. A fence that never closed would satisfy both tests
+        above by swallowing the whole message, and this is what notices.
+        """
+        proc = _validate(
+            tmp_path,
+            "````\nGATE: HOLD #1 behind #2\n````\n\nGATE: GO #701 live ruling\n",
+        )
+        assert _verdict(proc) == "ok", proc.stdout
+        assert _transitions(proc) == ["GATE: GO #701"], proc.stdout
+        assert _detail(proc, "CITATIONS") == "1", proc.stdout
+
+
+@requires_bash
+class TestAQuotedTokenInsideAFenceIsStillReported:
+    """The reported zero has to mean "I looked and found nothing".
+
+    Inside a fence, reserved-token detection ran before the blockquote prefix was
+    stripped, so a fenced ``> GATE: HOLD`` was classified as ordinary fenced
+    content: skipped correctly, and reported as ZERO citations. A zero that
+    cannot distinguish "no citation here" from "a reserved token I silently
+    passed over" defeats the reporting the whole skip depends on - and quoting a
+    worker's token back to them inside a fence is a shape this channel is
+    explicitly for.
+    """
+
+    def test_it_is_counted_and_named(self, tmp_path: Path):
+        proc = _validate(
+            tmp_path, "Showing what they sent:\n\n```\n> GATE: HOLD #999 behind #998\n```\n"
+        )
+        assert _detail(proc, "CITATIONS") == "1", proc.stdout
+        assert _citations(proc) == ["fence line 4: GATE: HOLD #999 behind #998"], (
+            proc.stdout
+        )
+
+    def test_ordinary_quoted_prose_in_a_fence_counts_nothing(
+        self, tmp_path: Path
+    ):
+        """THE OTHER ARM. Counting every ``>`` line inside a fence would satisfy
+        the test above and make the count meaningless.
+        """
+        proc = _validate(tmp_path, "```\n> just some quoted prose\n```\n")
+        assert _detail(proc, "CITATIONS") == "0", proc.stdout
+        assert _verdict(proc) == "none", proc.stdout
+
+
+@requires_bash
+@requires_jq
+class TestTheCitationDistinctionReachesThePlanner:
+    """The anti-decoration contract applied to #980 specifically.
+
+    Asserting on ``FLOW_LEXICON:`` alone would prove only that a shell script
+    prints a word. These two runs feed the REAL planner identical issue data and
+    assert its EXIT CODE differs: a hold that was ISSUED blocks the wave, and the
+    same hold CITED does not. That difference is the whole value of the change,
+    and it is measured at the consumer rather than at the parser.
+    """
+
+    ISSUES = [{"number": 52, "title": "compiler fix", "body": "work", "state": "OPEN"}]
+
+    def _plan(self, tmp: Path, *extra: str):
+        issues = tmp / "issues.json"
+        issues.write_text(json.dumps(self.ISSUES))
+        return subprocess.run(
+            ["python3", str(PLANNER), str(issues), *extra],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+
+    def test_an_issued_hold_blocks_and_a_cited_one_does_not(self, tmp_path: Path):
+        issued = tmp_path / "issued"
+        cited = tmp_path / "cited"
+        issued.mkdir()
+        cited.mkdir()
+
+        _run(issued, "record", "--wave", WAVE, stdin="GATE: HOLD #52 behind #56 migration first\n")
+        issued_ledger = issued / "wave" / WAVE / "verdicts.json"
+        assert issued_ledger.exists(), "the issued arm recorded nothing - the control is dead"
+        blocked = self._plan(tmp_path, "--in-flight", "52", "--verdicts", str(issued_ledger))
+        assert blocked.returncode == 4, blocked.stdout + blocked.stderr
+
+        cited_body = (
+            "Retracting what I sent an hour ago:\n"
+            "\n"
+            "> GATE: HOLD #52 behind #56 migration first\n"
+            "\n"
+            "#56 merged. No hold stands on #52.\n"
+        )
+        proc = _run(cited, "record", "--wave", WAVE, stdin=cited_body)
+        assert proc.returncode == 1, proc.stdout
+        cited_ledger = cited / "wave" / WAVE / "verdicts.json"
+        assert not cited_ledger.exists()
+
+        unblocked = self._plan(tmp_path, "--in-flight", "52")
+        assert unblocked.returncode == 0, (
+            "the retraction must leave the planner able to start #52 - "
+            "that is the behaviour the phantom hold took away"
+        )
+
+
+@requires_bash
+class TestTheMailboxTellsTheSenderAboutACitation:
+    """The report only counts if it reaches a human, and this is the only place
+    a sender sees the validator's answer on a SUCCESSFUL send.
+
+    ``send`` discards the validator's stdout on exit 0, so without this the
+    ``FLOW_LEXICON_CITATION=`` lines would exist and be seen by nobody - a
+    report that is not delivered is the same as no report, and the safety
+    argument for skipping rests entirely on it.
+    """
+
+    def _send(self, tmp: Path, body: str, *extra: str):
+        env = os.environ.copy()
+        env["FLOW_WAVE_MAILBOX_DIR"] = str(tmp / "mb")
+        return subprocess.run(
+            ["bash", str(MAILBOX), "send", "--to", "worker-a", "--wave", WAVE,
+             "--body", body, *extra],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=60,
+        )
+
+    def test_a_cited_token_delivers_and_is_reported(self, tmp_path: Path):
+        proc = self._send(tmp_path, RETRACTION_QUOTED)
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        assert "FLOW_MAILBOX: sent" in proc.stdout, proc.stdout
+        assert "FLOW_LEXICON_CITATION=quote line 3:" in proc.stderr, proc.stderr
+        assert "did NOT take effect" in proc.stderr, proc.stderr
+
+    def test_a_message_with_no_citation_says_nothing_about_them(
+        self, tmp_path: Path
+    ):
+        """The other arm: a NOTE printed on every send is a NOTE nobody reads.
+
+        If this ever starts failing, the report has become ambient and stopped
+        distinguishing the case it was added for.
+        """
+        proc = self._send(tmp_path, "Verify against the tree before you start.")
+        assert proc.returncode == 0, proc.stderr
+        assert "FLOW_LEXICON_CITATION=" not in proc.stderr, proc.stderr
+        assert "did NOT take effect" not in proc.stderr, proc.stderr
+
+    def test_an_indented_token_is_refused_at_send(self, tmp_path: Path):
+        """The ambiguous shape never reaches an inbox at all."""
+        proc = self._send(tmp_path, RETRACTION_INDENTED)
+        assert proc.returncode == 6, proc.stdout + proc.stderr
+        assert "FLOW_MAILBOX: refused" in proc.stdout, proc.stdout
+        assert not (tmp_path / "mb" / WAVE / "outbox-worker-a.md").exists()
+
+
+@requires_bash
+class TestAFenceDelimiterMustNotBeIndentedContent:
+    """A delimiter indented four or more spaces is CONTENT, not a fence.
+
+    Fence detection ran on the TRIMMED line - the same shortcut that made this
+    whole class of bug possible - so an indented ``~~~`` inside a block closed it
+    early and the next reserved token went live again, reported as a real verdict
+    with ZERO citations. The phantom verdict restored by an incomplete repair of
+    the phantom verdict, which is why it is pinned rather than left to the
+    length-aware check that did not catch it.
+    """
+
+    def test_a_four_space_delimiter_does_not_close_a_fence(self, tmp_path: Path):
+        proc = _validate(
+            tmp_path, "~~~\n    ~~~\nGATE: HOLD #999 behind #998\n~~~\n"
+        )
+        assert _verdict(proc) == "none", proc.stdout
+        assert _detail(proc, "TRANSITIONS") == "0", proc.stdout
+        assert _detail(proc, "CITATIONS") == "1", proc.stdout
+
+    def test_a_tab_indented_delimiter_does_not_close_a_fence(self, tmp_path: Path):
+        proc = _validate(
+            tmp_path, "~~~\n\t~~~\nGATE: HOLD #999 behind #998\n~~~\n"
+        )
+        assert _verdict(proc) == "none", proc.stdout
+        assert _detail(proc, "CITATIONS") == "1", proc.stdout
+
+    def test_a_three_space_delimiter_still_closes_it(self, tmp_path: Path):
+        """THE OTHER ARM, and the boundary itself.
+
+        Rejecting every indented delimiter would satisfy both tests above by
+        never closing a fence at all - swallowing the rest of every message that
+        contains one. Three spaces is the limit, so three must still work.
+        """
+        proc = _validate(
+            tmp_path,
+            "~~~\nGATE: HOLD #1 behind #2\n   ~~~\n\nGATE: GO #701 live ruling\n",
+        )
+        assert _verdict(proc) == "ok", proc.stdout
+        assert _transitions(proc) == ["GATE: GO #701"], proc.stdout
+        assert _detail(proc, "CITATIONS") == "1", proc.stdout
+
+
+@requires_bash
+class TestAnEmptyQuoteMarkerIsNotLiveContent:
+    """``strip_quote`` cannot tell an empty blockquote from an unquoted line.
+
+    Both strip to ``''``, so a bare ``>`` fell through to live content and a
+    ``PUSHBACK`` whose only "argument" was the quote marker passed - exactly the
+    skimmed-past-as-agreement failure the mandatory argument exists to prevent.
+    The prefix is a property of the LINE; the payload is a separate question, and
+    conflating them is what let an empty one count.
+    """
+
+    def test_a_bare_quote_marker_is_not_a_pushback_argument(self, tmp_path: Path):
+        proc = _validate(tmp_path, "PUSHBACK\n>\n> quoted specimen\n")
+        assert proc.returncode == 1, proc.stdout
+        assert "carries no argument" in proc.stdout + proc.stderr
+
+    def test_quoted_ledger_sections_do_not_satisfy_it(self, tmp_path: Path):
+        proc = _validate(
+            tmp_path, "LEDGER\n> delivered:\n> in-scope:\n> residual:\n"
+        )
+        assert proc.returncode == 1, proc.stdout
+        assert "missing section(s)" in proc.stdout + proc.stderr
+
+    def test_a_real_argument_still_passes(self, tmp_path: Path):
+        """THE OTHER ARM. A parser that read no continuation content would
+        satisfy both refusals above and break every real PUSHBACK.
+        """
+        proc = _validate(
+            tmp_path, "PUSHBACK\nActual objection: the lane fences my own file out.\n"
+        )
+        assert _verdict(proc) == "ok", proc.stdout
+        assert _transitions(proc) == [
+            "PUSHBACK: Actual objection: the lane fences my own file out."
+        ], proc.stdout
+
+    def test_real_ledger_sections_still_pass(self, tmp_path: Path):
+        proc = _validate(
+            tmp_path, "LEDGER\ndelivered: the fix\nin-scope: the tests\nresidual: none\n"
+        )
+        assert _verdict(proc) == "ok", proc.stdout

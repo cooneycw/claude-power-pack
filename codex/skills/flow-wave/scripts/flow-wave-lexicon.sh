@@ -54,9 +54,61 @@
 #
 # ---- The vocabulary ---------------------------------------------------------
 #
-# Reserved lines are LINE-ANCHORED (the token begins the line, leading
-# whitespace allowed) - the same rule the #607 edge grammar uses, so a mention
-# inside a sentence can never be mistaken for a declaration.
+# Reserved lines are LINE-ANCHORED (the token begins the line) - the same rule
+# the #607 edge grammar uses, so a mention inside a sentence can never be
+# mistaken for a declaration.
+#
+# ---- Citation: a reference to a transition is not a transition (issue #980) --
+#
+# The scan originally trimmed each line and then matched, so a token QUOTED in
+# prose was indistinguishable from one ISSUED. That made the channel unable to
+# express the thing an authority channel most needs to express: a reference to a
+# past transition that is not itself a transition. Retracting a bad gate,
+# teaching from a prior ruling, or quoting a worker's token back to them in
+# order to correct it all RE-ISSUED it - and a re-issued `GATE: HOLD` blocks the
+# planner on a phantom hold whose stated reason is the quoted text, which reads
+# as authentic to whoever investigates. The specimen: a draft written to WITHDRAW
+# a merge authorisation, quoting the bad line indented two spaces, parsed as a
+# fresh `MERGE: AUTHORIZED #243` under the exact predicate being withdrawn.
+#
+# Four contexts, three dispositions. The default is unchanged - a token is a
+# transition - and quoting is the thing that must be spelled out:
+#
+#   at column 0, outside a fence   -> ISSUED. Unchanged.
+#   inside a ``` or ~~~ fence      -> CITED: inert, and REPORTED.
+#   behind a `>` blockquote prefix -> CITED: inert, and REPORTED.
+#   indented, no fence, no `>`     -> REFUSED, naming both remedies.
+#
+# WHY THE INDENTED CASE REFUSES RATHER THAN PICKING A SIDE. It is the only
+# genuinely ambiguous shape, and both silent readings are wrong: reading it as
+# issued is the defect above, and reading it as cited silently DROPS a real
+# transition typed with a stray leading space - which fails open, the worse
+# direction, because a dropped `GATE: HOLD` lets a wave start an issue somebody
+# is holding. A refusal is the only disposition that cannot fail open in either
+# direction, and it is the one that TEACHES: the orchestrator who hit this did
+# not know a citation marker existed, so an escape alone would not have saved
+# them. Refusal names both remedies at the moment they are needed.
+#
+# WHY A SKIP IS NOT SILENCE. Every inert token is reported -
+# `FLOW_LEXICON_CITATIONS=<n>` plus one `FLOW_LEXICON_CITATION=` line per token,
+# with its line number and context - and `flow-wave-mailbox.sh send` prints them
+# to the sender on the DELIVERING path, not only on a refusal. So a `GATE: HOLD`
+# you fenced but meant to issue is named back at you at send time. Without that
+# report the skip would be exactly the fail-open it exists to avoid.
+#
+# A `>` prefix already failed to parse before #980 - `trim` leaves the `>` in
+# place, so the `GATE:*` match missed. That was accidental, undocumented and
+# unreported; this makes it a declared escape that says what it did.
+#
+# REVERSAL TRIGGER (issue #936 / ADR 0009, committed here rather than left to a
+# later judgement): this is a two-sided change, and the other side's pain is a
+# DROPPED transition. If a wave ever loses a real transition because its author
+# fenced or blockquoted a line they meant to issue, AND the
+# `FLOW_LEXICON_CITATION=` report did not stop them, then the skip is too wide -
+# move the fenced and quoted contexts to REFUSE as well, joining the indented
+# case, leaving column 0 as the only way to say anything at all. The report is
+# the mitigation, so its failure is the trigger; do not widen the skip further
+# without retiring this note and saying why.
 #
 #   GATE: GO #N [reason]
 #   GATE: HOLD #N behind #M[, #M...] [reason]
@@ -110,9 +162,13 @@
 #                               [--ledger FILE] [--dry-run]
 #
 #   validate  Parse the message. Print one FLOW_LEXICON_TRANSITION= line per
-#             recognized token, then the verdict. A malformed reserved token is
-#             reported with its line number and reason, and REFUSES (exit 1).
-#             A message with NO reserved token is `none` and exits 0.
+#             recognized token and one FLOW_LEXICON_CITATION= line per token
+#             read as a CITATION (#980), then the verdict. A malformed reserved
+#             token is reported with its line number and reason, and REFUSES
+#             (exit 1); so is an INDENTED one, which is ambiguous rather than
+#             malformed and is refused for that reason. A message with NO
+#             reserved token is `none` and exits 0 - and so is one carrying only
+#             citations, since a citation declares no transition.
 #   record    validate, then append a ledger entry DERIVED from each GATE token
 #             to the wave's #645 verdict ledger
 #             ($XDG_RUNTIME_DIR/cc-flow-wave/<wave>/verdicts.json), tmp+rename
@@ -122,7 +178,11 @@
 #
 # Output ends with a machine-readable verdict line:
 #   FLOW_LEXICON: ok | invalid | none | recorded | error
-# preceded by FLOW_LEXICON_*= detail lines ('-' when not applicable).
+# preceded by FLOW_LEXICON_*= detail lines ('-' when not applicable), including
+# FLOW_LEXICON_CITATIONS=<n> - the count of tokens read as citations rather than
+# transitions. A non-zero count on a message you MEANT to carry a transition is
+# the signal that it was fenced or quoted; read the FLOW_LEXICON_CITATION= lines
+# above it, which name each one's line number and context.
 #
 # Exit codes: 0 normal, 1 invalid (or nothing to record), 2 usage error,
 # 3 lock/IO failure.
@@ -151,6 +211,7 @@ emit() {
   echo "FLOW_LEXICON_WAVE=${E_WAVE:--}"
   echo "FLOW_LEXICON_TRANSITIONS=${E_COUNT:--}"
   echo "FLOW_LEXICON_GATES=${E_GATES:--}"
+  echo "FLOW_LEXICON_CITATIONS=${E_CITED:--}"
   echo "FLOW_LEXICON_ERRORS=${E_ERRORS:--}"
   echo "FLOW_LEXICON_RECORDED=${E_RECORDED:--}"
   echo "FLOW_LEXICON_LEDGER=${E_LEDGER:--}"
@@ -189,8 +250,10 @@ lower() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 # nobody would remember to type.
 
 declare -a BODY_LINES=()
+declare -a LINE_CLASS=()
 declare -a TR_KIND=() TR_DETAIL=()
 declare -a ERR_LINE=() ERR_MSG=()
+declare -a CITE_LINE=() CITE_CTX=() CITE_TEXT=()
 declare -a GATE_ISSUE=() GATE_RULING=() GATE_BEHIND=() GATE_REASON=() GATE_SERIAL=()
 
 read_body() {
@@ -214,28 +277,238 @@ $raw
 EOF
 }
 
-# is_reserved LINE -> 0 when the line OPENS a reserved token (line-anchored).
-is_reserved() {
-  local s
-  s="$(trim "$1")"
+# reserved_kind STRING -> echoes the reserved token a already-trimmed STRING
+# opens ('' when it opens none). The single home of the vocabulary's spelling:
+# classification, dispatch and block termination all read it, so a token added
+# in one place cannot be missed by the other two.
+reserved_kind() {
+  case "$1" in
+    GATE:*)    printf 'GATE' ;;
+    LANE:*)    printf 'LANE' ;;
+    MERGE:*)   printf 'MERGE' ;;
+    STATE:*)   printf 'STATE' ;;
+    RATIFY|RATIFY\ *)     printf 'RATIFY' ;;
+    OVERRULE|OVERRULE\ *) printf 'OVERRULE' ;;
+    PUSHBACK|PUSHBACK\ *|PUSHBACK:*) printf 'PUSHBACK' ;;
+    LEDGER|LEDGER\ *|LEDGER:*)       printf 'LEDGER' ;;
+    *) printf '' ;;
+  esac
+}
+
+# fence_scan STRING -> echoes "<char> <runlen> <rest>" when an already-trimmed
+# STRING opens with a run of three or more backticks or tildes; '' otherwise.
+#
+# The RUN LENGTH is carried, not just the character. A fence is closed only by a
+# run of the SAME character at least as long as the one that opened it, followed
+# by nothing but whitespace - the CommonMark rule, and it is load-bearing here
+# rather than pedantry. Comparing only the character (the first cut of #980)
+# meant a four-backtick block containing a three-backtick example closed one
+# line early, and any ```` ```bash ```` info line inside a block closed it -
+# after which the next reserved token was live again. Both re-create the exact
+# phantom-verdict defect this change exists to remove, inside a message whose
+# author can see the token is plainly fenced.
+fence_scan() {
+  local s="$1" ch run rest
   case "$s" in
-    GATE:*|LANE:*|MERGE:*|STATE:*) return 0 ;;
-    RATIFY|RATIFY\ *|OVERRULE|OVERRULE\ *) return 0 ;;
-    PUSHBACK|PUSHBACK\ *|PUSHBACK:*) return 0 ;;
-    LEDGER|LEDGER\ *|LEDGER:*) return 0 ;;
+    '```'*) ch='`' ;;
+    '~~~'*) ch='~' ;;
+    *) printf ''; return ;;
+  esac
+  run=0
+  while [ "${s:$run:1}" = "$ch" ]; do run=$((run + 1)); done
+  rest="${s:$run}"
+  printf '%s %s %s' "$ch" "$run" "$rest"
+}
+
+# has_quote STRING -> 0 when an already-trimmed STRING carries a blockquote
+# marker, REGARDLESS of whether anything follows it.
+#
+# Separate from strip_quote because that function cannot tell an EMPTY
+# blockquote from an unquoted line - both strip to '' - so a bare `>` fell
+# through to live content. `PUSHBACK` then accepted a message whose only
+# "argument" was the quote marker itself, which is precisely the
+# skimmed-past-as-agreement failure the mandatory argument exists to prevent.
+# The prefix is a property of the LINE; the payload is a separate question.
+has_quote() {
+  case "$1" in
+    '>'*) return 0 ;;
     *) return 1 ;;
   esac
 }
 
-add_err() { ERR_LINE+=("$1"); ERR_MSG+=("$2"); }
-add_tr()  { TR_KIND+=("$1"); TR_DETAIL+=("$2"); }
+# strip_quote STRING -> echoes an already-trimmed STRING with any leading
+# markdown blockquote markers removed ('> ', '>>', '> > '). Nested quoting is
+# stripped too: a quote of a quote is still a quote. Ask has_quote whether there
+# was a prefix at all - an empty result here is ambiguous by construction.
+strip_quote() {
+  local s="$1"
+  while :; do
+    case "$s" in
+      '>'*) s="$(trim "${s#>}")" ;;
+      *) break ;;
+    esac
+  done
+  printf '%s' "$s"
+}
 
-# block_lines START -> echoes the continuation lines after index START, stopping
-# at the next reserved line or EOF.
+# fence_indent_ok LINE -> 0 when the RAW line's indentation permits it to be a
+# fence delimiter at all: at most three spaces, and no tab (CommonMark).
+#
+# Checked on the raw line because fence_scan sees a TRIMMED one, and trimming is
+# what made this class of bug possible in the first place. A delimiter indented
+# four or more spaces is CONTENT, not a fence: accepting it as a closer ended the
+# block early and the next reserved token went live again - reported as a real
+# verdict with zero citations, inside a message whose author can see the token is
+# plainly fenced. That is the phantom verdict this whole change removes, restored
+# by an incomplete repair of it.
+fence_indent_ok() {
+  local indent="${1%%[![:space:]]*}"
+  case "$indent" in
+    *"$(printf '\t')"*) return 1 ;;
+  esac
+  [ "${#indent}" -le 3 ]
+}
+
+# classify_lines -> fills LINE_CLASS, one entry per BODY_LINES entry (issue #980):
+#
+#   issue      a reserved token at column 0, outside a fence: a TRANSITION.
+#   cite-fence a reserved token inside a ``` or ~~~ fence: inert, reported.
+#   cite-quote a reserved token behind a `>` prefix: inert, reported.
+#   ambiguous  a reserved token INDENTED with no fence and no `>`: refused.
+#   fenced     any other line inside a fence, its delimiters included: INERT
+#              CONTENT - skipped by block_lines, never a live condition.
+#   quoted     any other line behind a `>` prefix: inert content, likewise.
+#   plain      everything else: live content.
+#
+# Computed in ONE pass, ahead of parsing, because three readers have to agree
+# about it: parse_body dispatches on it, block_lines decides continuation from
+# it, and the citation report is derived from it. Recomputing the context per
+# reader is how a block ends up reading content the dispatcher had already
+# decided was a specimen.
+#
+# WHY `fenced` AND `quoted` ARE THEIR OWN CLASSES RATHER THAN `plain`. The
+# continuation grammar reads `- <condition>` and `serializes: <marker>` lines
+# out of the block beneath a token, and those two lines change what lands in
+# verdicts.json. Left as `plain`, a condition SHOWN inside a fence satisfies a
+# live `GATE: GO-WITH-CONDITIONS`, and a `serializes:` shown there enters its
+# `adds_serialized` - so a quoted example silently supplies the fields of a live
+# ruling and the planner serialises on a marker nobody declared. Demonstrated on
+# both halves of the distinction (a fenced condition, and a quoted one), which is
+# why a fence and a blockquote get the same treatment.
+classify_lines() {
+  local i=0 n="${#BODY_LINES[@]}" line s scan ch run rest q
+  local fence_ch="" fence_len=0
+  while [ "$i" -lt "$n" ]; do
+    line="${BODY_LINES[$i]}"
+    s="$(trim "$line")"
+    # A delimiter indented four or more spaces is CONTENT, never a fence, so the
+    # raw line's indentation is consulted before its trimmed text is.
+    if fence_indent_ok "$line"; then scan="$(fence_scan "$s")"; else scan=""; fi
+    ch="${scan%% *}"; rest="${scan#* }"; run="${rest%% *}"; rest="${rest#* }"
+    [ -n "$scan" ] || { ch=""; run=0; rest=""; }
+
+    if [ -n "$fence_ch" ]; then
+      # Inside a fence. It closes only on the SAME character, a run at least as
+      # long as the opener's, and nothing but whitespace after it.
+      if [ -n "$scan" ] && [ "$ch" = "$fence_ch" ] && [ "$run" -ge "$fence_len" ] && [ -z "$(trim "$rest")" ]; then
+        fence_ch=""; fence_len=0
+        LINE_CLASS+=("fenced")
+      else
+        # Strip a blockquote prefix BEFORE asking whether this is a token: a
+        # quoted token shown inside a fence is still a reserved token, and
+        # classifying it `fenced` would drop it from the citation report - a
+        # reported zero that cannot tell "no citations here" from "a token I
+        # silently skipped", which is the reporting the whole skip relies on.
+        if has_quote "$s"; then q="$(strip_quote "$s")"; else q="$s"; fi
+        if [ -n "$(reserved_kind "$q")" ]; then
+          LINE_CLASS+=("cite-fence")
+        else
+          LINE_CLASS+=("fenced")
+        fi
+      fi
+      i=$((i + 1)); continue
+    fi
+
+    # An opening backtick fence may carry an info string, but never a backtick
+    # inside it (CommonMark); a tilde fence may carry anything.
+    if [ -n "$scan" ] && { [ "$ch" = '~' ] || case "$rest" in *'`'*) false ;; *) true ;; esac; }; then
+      # An UNTERMINATED opening fence runs to EOF, so every later token reads as
+      # a citation. That is the fail-open direction in miniature - which is
+      # exactly why each one is REPORTED: a stray ``` that silences the rest of
+      # a message is visible in the sender's own output rather than inferred
+      # from a transition that never arrived.
+      fence_ch="$ch"; fence_len="$run"
+      LINE_CLASS+=("fenced")
+      i=$((i + 1)); continue
+    fi
+
+    # has_quote, not a non-empty strip: a bare `>` is a quoted EMPTY line, and
+    # classifying it `plain` let it stand in for a live PUSHBACK argument.
+    if has_quote "$s"; then
+      q="$(strip_quote "$s")"
+      if [ -n "$(reserved_kind "$q")" ]; then
+        LINE_CLASS+=("cite-quote")
+      else
+        LINE_CLASS+=("quoted")
+      fi
+      i=$((i + 1)); continue
+    fi
+
+    if [ -n "$(reserved_kind "$s")" ]; then
+      # Column 0 ISSUES; ANY leading whitespace is the ambiguous shape. Tested
+      # on the RAW line, never the trimmed one - trimming first is precisely the
+      # step that made a quoted token indistinguishable from an issued one.
+      case "$line" in
+        [[:space:]]*) LINE_CLASS+=("ambiguous") ;;
+        *)            LINE_CLASS+=("issue") ;;
+      esac
+    else
+      LINE_CLASS+=("plain")
+    fi
+    i=$((i + 1))
+  done
+}
+
+add_err()  { ERR_LINE+=("$1"); ERR_MSG+=("$2"); }
+add_tr()   { TR_KIND+=("$1"); TR_DETAIL+=("$2"); }
+add_cite() { CITE_LINE+=("$1"); CITE_CTX+=("$2"); CITE_TEXT+=("$3"); }
+
+# block_lines START -> echoes the LIVE continuation lines after index START,
+# stopping at the next line that opens or purports to open a reserved token.
+#
+# Three rules, and each one is a measured defect rather than a preference
+# (issue #980):
+#
+#   TERMINATE on issue|ambiguous|cite-fence|cite-quote. A CITATION ends the
+#   block for the same reason an issued token does: the lines beneath a quoted
+#   ruling belong to the quoted ruling. Letting a citation be transparent was
+#   the first cut, and it recorded `GATE: GO #55 approved on its own merits`
+#   with the reason and `adds_serialized` marker of a `GATE: GO-WITH-CONDITIONS
+#   #60` quoted below it - a quoted ruling silently rewriting a live one, which
+#   is the very class of defect this change repairs. Terminating restores the
+#   pre-#980 behaviour for fences (a fenced token was "reserved" and stopped the
+#   block) and moves blockquotes the same way.
+#
+#   SKIP fenced|quoted. These are inert CONTENT: a `- <condition>` shown inside
+#   a fence must not satisfy a live GO-WITH-CONDITIONS, and a `serializes:`
+#   shown there must not enter its ledger entry. Skipping rather than
+#   terminating is deliberate - an illustrative block mid-message should not
+#   truncate the conditions that follow it, which is the reading the closing
+#   fence makes unambiguous.
+#
+#   EMIT plain. Live prose, live conditions, live sections.
+#
+# Every failure this arrangement can produce is LOUD: conditions that end up
+# outside the block make a GO-WITH-CONDITIONS refuse for carrying none, and a
+# refusal is correctable at the sender. The alternative failed silently, in the
+# ledger, on a live ruling.
 block_lines() {
   local i="$1" n="${#BODY_LINES[@]}"
   while [ "$i" -lt "$n" ]; do
-    if is_reserved "${BODY_LINES[$i]}"; then break; fi
+    case "${LINE_CLASS[$i]:-plain}" in
+      issue|ambiguous|cite-fence|cite-quote) break ;;
+      fenced|quoted) i=$((i + 1)); continue ;;
+    esac
     printf '%s\n' "${BODY_LINES[$i]}"
     i=$((i + 1))
   done
@@ -280,7 +553,7 @@ parse_gate() { # parse_gate LINENO REST BLOCK_START
   serial="$(trim "$serial")"
 
   if [ "$verb" = "GO-WITH-CONDITIONS" ] && [ -z "$(trim "$conds")" ]; then
-    add_err "$ln" "GATE: GO-WITH-CONDITIONS #$issue carries no conditions - list them as '- <condition>' lines beneath it"
+    add_err "$ln" "GATE: GO-WITH-CONDITIONS #$issue carries no conditions - list them as '- <condition>' lines beneath it. Note that a fenced or '>' quoted line is INERT (issue #980): a condition shown inside a fence is a specimen, not a condition, and a quoted token ENDS the block, so conditions below one are read as belonging to what you quoted"
     return
   fi
 
@@ -490,12 +763,40 @@ parse_ledger() { # parse_ledger LINENO BLOCK_START
   add_tr "LEDGER" "delivered/in-scope/residual"
 }
 
+# parse_ambiguous LINENO KIND TEXT - the indented reserved token (issue #980).
+#
+# Refused rather than resolved, because both silent readings are wrong and the
+# refusal is the only one that teaches. The message names BOTH remedies: the
+# author of such a line has a definite intention, and which one it was is the
+# single fact this parser cannot recover.
+parse_ambiguous() {
+  local ln="$1" kind="$2"
+  add_err "$ln" "$kind is INDENTED, which is ambiguous - a reserved token at column 0 ISSUES the transition, so this one is refused rather than guessed (issue #980). To ISSUE it, remove the leading whitespace. To CITE it - quote a past ruling, or a token you are retracting, without re-performing it - prefix the line with '> ' or put it inside a fenced block; both are recorded as citations and reported, never as transitions"
+}
+
 parse_body() {
-  local i=0 n="${#BODY_LINES[@]}" line s ln
+  local i=0 n="${#BODY_LINES[@]}" line s ln cls kind
   while [ "$i" -lt "$n" ]; do
     line="${BODY_LINES[$i]}"
     s="$(trim "$line")"
     ln=$((i + 1))
+    cls="${LINE_CLASS[$i]:-plain}"
+
+    case "$cls" in
+      cite-fence|cite-quote)
+        # Inert, but NEVER silent: a dropped transition and a deliberate
+        # citation are indistinguishable without this line, and the whole
+        # safety argument for skipping rests on the sender seeing it.
+        if has_quote "$s"; then s="$(strip_quote "$s")"; fi
+        add_cite "$ln" "${cls#cite-}" "$s"
+        i=$((i + 1)); continue ;;
+      ambiguous)
+        parse_ambiguous "$ln" "$(reserved_kind "$s")"
+        i=$((i + 1)); continue ;;
+      fenced|quoted|plain)
+        i=$((i + 1)); continue ;;
+    esac
+
     case "$s" in
       GATE:*)     parse_gate    "$ln" "${s#GATE:}"  "$((i + 1))" ;;
       LANE:*)     parse_lane    "$ln" "${s#LANE:}" ;;
@@ -515,12 +816,19 @@ report_parse() {
   for i in "${!TR_KIND[@]}"; do
     echo "FLOW_LEXICON_TRANSITION=${TR_KIND[$i]}: ${TR_DETAIL[$i]}"
   done
+  # On stdout beside the transitions, not stderr with the errors: a citation is
+  # a normal, correct outcome, and the reader who needs it is the sender of a
+  # message that VALIDATED (issue #980).
+  for i in "${!CITE_LINE[@]}"; do
+    echo "FLOW_LEXICON_CITATION=${CITE_CTX[$i]} line ${CITE_LINE[$i]}: ${CITE_TEXT[$i]}"
+  done
   for i in "${!ERR_LINE[@]}"; do
     echo "flow-wave-lexicon: line ${ERR_LINE[$i]}: ${ERR_MSG[$i]}" >&2
   done
   E_COUNT="${#TR_KIND[@]}"
   E_GATES="${#GATE_ISSUE[@]}"
   E_ERRORS="${#ERR_LINE[@]}"
+  E_CITED="${#CITE_LINE[@]}"
 }
 
 # ---- arg parsing ------------------------------------------------------------
@@ -561,9 +869,10 @@ done
 
 valid_name "$WAVE" || usage_fail "invalid wave name: '$WAVE' (letters, digits, '_', '.', '-'; no leading dot)"
 
-E_WAVE="$WAVE"; E_COUNT=""; E_GATES=""; E_ERRORS=""; E_RECORDED=""; E_LEDGER=""
+E_WAVE="$WAVE"; E_COUNT=""; E_GATES=""; E_CITED=""; E_ERRORS=""; E_RECORDED=""; E_LEDGER=""
 
 read_body
+classify_lines
 parse_body
 
 case "$VERB" in
@@ -591,6 +900,13 @@ case "$VERB" in
     fi
     if [ "${#GATE_ISSUE[@]}" -eq 0 ]; then
       echo "flow-wave-lexicon: no parseable GATE verdict in this message - a gate cannot be recorded as judged without one (issue #701)" >&2
+      # Name the likely cause rather than leaving the caller to guess it. A
+      # verdict fenced or quoted is the #980 shape, and the difference between
+      # "you wrote no gate" and "your gate was read as a citation" is the whole
+      # diagnosis.
+      if [ "${#CITE_LINE[@]}" -gt 0 ]; then
+        echo "flow-wave-lexicon: ${#CITE_LINE[@]} reserved token(s) here were read as CITATIONS, not transitions - see the FLOW_LEXICON_CITATION= lines above. If one of them was the verdict you meant to record, move it to column 0, outside any fence and with no '>' prefix (issue #980)." >&2
+      fi
       emit none
       exit 1
     fi
