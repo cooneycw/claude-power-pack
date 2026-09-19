@@ -156,8 +156,37 @@ fi
 # larger than what this change actually added means the review is about to
 # see files nobody intended to include - worth surfacing before the review
 # runs, not after.
-UNTRACKED_COUNT=$(git ls-files --others --exclude-standard | wc -l | tr -d ' ')
-git add -N . 2>/dev/null || true
+#
+# BOTH commands run from the WORKTREE ROOT explicitly, not the caller's cwd
+# (codex review, Codex-flagged): `git add -N .` and `git ls-files` are
+# relative to cwd, so invoked from a subdirectory they would only mark
+# untracked files beneath it - a new file elsewhere in the worktree would
+# stay invisible to the diff exactly as before this fix, while the count
+# would silently omit it too.
+#
+# A FAILED intent-to-add MUST NOT become a review that reports itself
+# complete (codex review, Codex-flagged): swallowing the exit status left a
+# locked or unwritable index looking identical to success, so new files
+# stayed invisible while the count message still claimed they were included.
+#
+# ENUMERATED PATHS ONLY, never a bare `git add -N .` (codex review,
+# Codex-flagged, re-review): `-N .` walks the whole pathspec, which includes
+# tracked files DELETED from the working tree but not yet `git rm`'d - and
+# `add -N` stages that deletion into the index, not merely a placeholder for
+# it. A deletion nobody asked this review to stage would then ride along into
+# whatever the caller commits next. Untracked additions are the only thing
+# this step needs to fix (a tracked deletion is already visible in a plain
+# `git diff <ref>` with no staging at all), so mark exactly those paths -
+# NUL-delimited, to survive a filename containing a space or newline.
+GIT_ROOT="$(git rev-parse --show-toplevel)"
+mapfile -d '' -t UNTRACKED_FILES < <(git -C "$GIT_ROOT" ls-files --others --exclude-standard -z)
+UNTRACKED_COUNT=${#UNTRACKED_FILES[@]}
+if [ "$UNTRACKED_COUNT" -gt 0 ] && ! git -C "$GIT_ROOT" add -N -- "${UNTRACKED_FILES[@]}"; then
+    echo "CODEX_REVIEW: unavailable (could not stage untracked files as intent-to-add -" >&2
+    echo "  new files would be invisible to the review, which would then report itself" >&2
+    echo "  complete over an incomplete diff. Check for a locked or unwritable index.)" >&2
+    exit 3
+fi
 if ! git diff "$MERGE_BASE" > "$DIFF_FILE"; then
     echo "CODEX_REVIEW: unavailable (diff against $MERGE_BASE failed)" >&2
     exit 3
