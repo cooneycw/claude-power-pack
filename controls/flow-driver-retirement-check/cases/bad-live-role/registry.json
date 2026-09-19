@@ -8,6 +8,7 @@
       },
       "worker-B": {
         "socket": "uds:/run/user/1000/cc-socks/999002.sock", "pid": 999002,
+        "pid_started": "1000",
         "session": "-", "host": "control-host",
         "released": false, "driver": "flow:auto_codex", "policy_rev": 1
       }

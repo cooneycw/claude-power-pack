@@ -1343,6 +1343,39 @@ without `--force` - only a PROVEN death frees a role, because not knowing an
 owner is gone is not the same as knowing it is. The refusal and the forced
 takeover both name the basis.
 
+**pid EXISTENCE is not pid IDENTITY (#1094).** Everything above answers "does a
+process with this number exist", never "is it the SAME process this entry
+recorded" - a registered pid that exits and is later reused by the kernel for
+an unrelated process reads `alive` either way, exactly as genuinely as the
+process that actually registered it. `register` also captures a **start-time
+witness** (`pid_started`, `/proc/<pid>/stat` field 22, clock ticks since boot)
+for the pid it records; a later liveness check compares the CURRENT process's
+start time against that recorded one, and a mismatch means the pid was
+recycled - the role is actually gone, not alive, whatever `kill -0`/`/proc`
+existence alone would say. This closes the gap without a lifetime `flock` or a
+persistent daemon: `register` is a one-shot invocation with nothing that could
+hold a lock for the life of the session it records, unlike the sibling
+mailbox's `supervise`, which can because it explicitly forks one.
+
+**A blank witness is never read as a match.** Every registry entry that
+predates #1094 has no `pid_started` field at all, and treating "never
+recorded" the same as "recorded and equal" would report the strongest verdict
+this instrument can give - `live`, `pid-present` - for every one of them, on no
+evidence at all. `FLOW_WAVE_LIVENESS_BASIS` therefore carries three distinct
+values for a pid that currently exists, not two:
+
+| basis | meaning |
+|-------|---------|
+| `pid-present` | exists, AND its start time matches what was recorded - identity confirmed |
+| `pid-present-witness-absent` | exists, but the entry has no recorded witness to compare against - identity **not** confirmed either way |
+| `pid-present-witness-undeterminable` | exists, but the CURRENT start time could not be read - identity not confirmed |
+| `pid-recycled` | exists, but its start time does NOT match what was recorded - a different process now holds this number |
+
+Only `pid-present` reads `live`; the other three read `unknown` (the first two)
+or `stale` (`pid-recycled`) - the same "only a proven fact promotes to `live`
+or `stale`, everything else stays `unknown`" discipline the errno table above
+already uses, applied one layer deeper.
+
 ## Output contract
 
 Every verb ends with a machine-readable verdict:
@@ -1399,7 +1432,7 @@ from "this call does not report policy":
 | `FLOW_WAVE_BRIEFED_REV` | the rev THIS role was briefed on (`register` / `get`) |
 | `FLOW_WAVE_BRIEF` | `current` / `stale` / `none`. `stale` = the policy was amended after this role registered; re-register to take the re-brief |
 | `FLOW_WAVE_LIVENESS` | `live` / `stale` / `unknown` / `released` |
-| `FLOW_WAVE_LIVENESS_BASIS` (#869) | WHICH RULE decided the liveness, so a proven death is never read as an undecidable one: `pid-present`, `pid-gone`, `other-host`, `released`, `self`, or `pid-undeterminable-{socket-present,socket-absent,no-socket-proof,no-address}`. The socket-file terms record CORROBORATION of an already-undeterminable pid - they never promote it to `live` |
+| `FLOW_WAVE_LIVENESS_BASIS` (#869, #1094) | WHICH RULE decided the liveness, so a proven death is never read as an undecidable one: `pid-present`, `pid-gone`, `pid-recycled`, `pid-present-witness-absent`, `pid-present-witness-undeterminable`, `other-host`, `released`, `self`, or `pid-undeterminable-{socket-present,socket-absent,no-socket-proof,no-address}`. The socket-file terms record CORROBORATION of an already-undeterminable pid - they never promote it to `live`. `pid-present` now additionally requires a matching start-time witness - see below |
 
 Two lane-scoping lines (#800), so an unknowable overlap answer is never read as
 a clean one:

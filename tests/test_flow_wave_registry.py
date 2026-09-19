@@ -107,12 +107,38 @@ def _run(
     *args: str,
     pid: str = SELF_PID,
     session: str = SELF_SESSION,
-    live: str = "",
+    live: str | None = None,
     unknown: str = "",
+    starttimes: str | None = None,
     now: str = "1700000000",
     cwd: Path | None = None,
     extra_env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
+    # `live` (issue #1094): most existing callers never passed it at
+    # `register` time - only on a LATER `get`/`list` call meant to pin
+    # liveness for the CHECK. Before pid_started existed that was harmless;
+    # now `register` also captures a start-time witness for whichever pid it
+    # is told is "self", and a witness captured with no live-pid hook active
+    # falls through to a real /proc lookup that a synthetic test pid (never
+    # SELF_PID/OTHER_PID's real process) cannot satisfy - recorded as blank,
+    # which then reads `unknown` forever regardless of what a later call
+    # pins. Defaulting `live` to the registering `pid` ITSELF, but ONLY for
+    # `register` and only when a test did not explicitly ask for something
+    # else, matches what every one of these tests already assumed ("the
+    # session registering itself is presently alive") without having to
+    # touch each call site individually.
+    if live is None:
+        live = pid if (args and args[0] == "register") else ""
+    # `starttimes` (issue #1094): derived deterministically from `live` so
+    # any two `_run` calls that agree on which pids are alive also agree on
+    # those pids' witnesses, without needing literal shared state between
+    # separate subprocess invocations - each pid gets a FIXED, pid-derived
+    # value. A test exercising the recycling/absence behaviour on purpose
+    # passes `starttimes` explicitly, which overrides this default entirely.
+    if starttimes is None:
+        starttimes = ":".join(
+            f"{p}=witness-{p}" for p in live.split(":") if p
+        )
     env = os.environ.copy()
     env.update(
         {
@@ -123,6 +149,7 @@ def _run(
             "FLOW_WAVE_HOST": HOST,
             "FLOW_WAVE_LIVE_PIDS": live,
             "FLOW_WAVE_UNKNOWN_PIDS": unknown,
+            "FLOW_WAVE_PID_STARTTIMES": starttimes,
             "FLOW_WAVE_NOW": now,
         }
     )
@@ -668,7 +695,10 @@ class TestLeftoverSocketIsNotProofOfLife:
             if proc.stdout.readline().strip() != "up":
                 pytest.skip("helper could not bind an AF_UNIX socket here")
             pid = str(proc.pid)
-            _run(tmp_path, "register", "1", "--socket", f"uds:{sock_path}", pid=pid)
+            # live="" explicitly: this test's whole point is the REAL process
+            # table end to end (issue #1094 too - a real pid's real /proc
+            # start time, never a faked witness).
+            _run(tmp_path, "register", "1", "--socket", f"uds:{sock_path}", pid=pid, live="")
 
             # Bound, owner alive -> file exists, and the roster agrees.
             assert _detail(_run(tmp_path, "get", "1", pid=pid), "FLOW_WAVE_LIVENESS") == "live"
@@ -721,7 +751,9 @@ class TestLeftoverSocketIsNotProofOfLife:
         # would turn a missing binary into an ERROR rather than a skip.
         with pytest.raises(PermissionError):
             os.kill(1, 0)
-        _run(tmp_path, "register", "1", "--socket", "uds:/nonexistent/none.sock", pid="1")
+        # live="" explicitly (issue #1094): pid 1 is real here, and this
+        # test's point is the REAL EPERM path, never a faked witness.
+        _run(tmp_path, "register", "1", "--socket", "uds:/nonexistent/none.sock", pid="1", live="")
         p = _run(tmp_path, "get", "1", pid="1")
         assert _detail(p, "FLOW_WAVE_LIVENESS") == "live"
         assert _detail(p, "FLOW_WAVE_LIVENESS_BASIS") == "pid-present"
@@ -734,6 +766,199 @@ class TestLeftoverSocketIsNotProofOfLife:
         assert "[stale," in dead.stdout
         alive = _run(tmp_path, "get", "1", live="999998")
         assert _detail(alive, "FLOW_WAVE_LIVENESS") == "live"
+
+
+@requires_tools
+class TestPidRecyclingWitness:
+    """pid EXISTENCE is not pid IDENTITY (issue #1094).
+
+    `pid_state` alone answers "does a process with this number exist", never
+    "is it the SAME process a registry entry recorded" - a registered pid
+    that exits and is later reused by the kernel for an unrelated process
+    reads `alive` either way. `pid_started` (a process start-time witness,
+    `/proc/<pid>/stat` field 22) closes that gap without a persistent daemon
+    or a flock - `register` is a one-shot invocation with nothing that could
+    hold a lock for the life of the session it records.
+
+    A real pid cannot be forced to recycle on demand for a test, so every
+    fixture here is built from the RECORD side instead: an entry whose
+    recorded `pid_started` differs from what a live pid's CURRENT witness
+    reads is indistinguishable, to the checker, from a genuinely recycled
+    pid. `FLOW_WAVE_PID_STARTTIMES` (a test hook) is what makes that
+    constructible - it overrides the CURRENT read for a chosen pid
+    independent of what was recorded for it at registration.
+    """
+
+    def test_a_never_recorded_witness_is_unknown_not_a_silent_live(
+        self, tmp_path: Path
+    ) -> None:
+        """BLANK IS NOT A MATCH. Every registry entry that predates issue
+        #1094 has no `pid_started` field at all - falling through to "the
+        comparison passed" for one would report the strongest verdict this
+        instrument can give, for every pre-existing entry in the fleet, on
+        no evidence at all. Never-recorded and recorded-and-equal must stay
+        different facts in the output, not just internally."""
+        _run(tmp_path, "register", "1", "--socket", "uds:/tmp/legacy.sock", pid="31337", live="")
+        entry_path = tmp_path / "reg" / "registry.json"
+        data = json.loads(entry_path.read_text())
+        role = data["default"]["roles"]["1"]
+        assert "pid_started" in role, "register must always write the field, even if blank"
+        role.pop("pid_started")
+        entry_path.write_text(json.dumps(data))
+
+        p = _run(tmp_path, "get", "1", pid="31337", live="31337")
+        assert _detail(p, "FLOW_WAVE_LIVENESS") == "unknown"
+        assert _detail(p, "FLOW_WAVE_LIVENESS_BASIS") == "pid-present-witness-absent"
+
+    def test_a_differing_witness_reads_recycled_not_live(self, tmp_path: Path) -> None:
+        """The positive control: register with one witness, then read the
+        SAME pid back with a DIFFERENT one - the record-side fixture that
+        stands in for a real recycled pid, since the kernel cannot be made
+        to hand out a chosen number on demand."""
+        _run(
+            tmp_path, "register", "1", "--socket", "uds:/tmp/a.sock",
+            pid="55001", live="55001", starttimes="55001=1000",
+        )
+        p = _run(tmp_path, "get", "1", pid="55001", live="55001", starttimes="55001=9999")
+        assert _detail(p, "FLOW_WAVE_LIVENESS") == "stale"
+        assert _detail(p, "FLOW_WAVE_LIVENESS_BASIS") == "pid-recycled"
+
+    def test_a_matching_witness_reads_live_the_mirror_of_the_above(
+        self, tmp_path: Path
+    ) -> None:
+        """The mirror of the recycling case, same fixture shape, only the
+        SECOND witness changed - this is what proves the check
+        DISCRIMINATES rather than just refusing every read."""
+        _run(
+            tmp_path, "register", "1", "--socket", "uds:/tmp/a.sock",
+            pid="55002", live="55002", starttimes="55002=1000",
+        )
+        p = _run(tmp_path, "get", "1", pid="55002", live="55002", starttimes="55002=1000")
+        assert _detail(p, "FLOW_WAVE_LIVENESS") == "live"
+        assert _detail(p, "FLOW_WAVE_LIVENESS_BASIS") == "pid-present"
+
+    def test_the_old_pid_only_logic_does_not_catch_the_same_fixture(
+        self, tmp_path: Path
+    ) -> None:
+        """Proves the new comparison is LOAD-BEARING rather than the fixture
+        being odd: substitute the pre-#1094 `_liveness_compute` (pid
+        existence only, no witness) back in, run it against the IDENTICAL
+        recycling fixture the RED/GREEN tests above use, and confirm it
+        does NOT report `pid-recycled` - it must still say `live`, which is
+        exactly the false positive #1094 exists to close."""
+        old_compute = (
+            'st="$(pid_state "$pid")"\n'
+            "  case \"$st\" in\n"
+            '    alive) echo "live pid-present"; return ;;\n'
+            "    gone)  echo \"stale pid-gone\"; return ;;\n"
+            "  esac"
+        )
+        current = REGISTRY.read_text()
+        start = current.index('  st="$(pid_state "$pid")"')
+        end = current.index("esac", start) + len("esac")
+        assert current[start:end] != old_compute, (
+            "the source no longer contains the block this test replaces - "
+            "update the substitution rather than let it silently no-op"
+        )
+        patched = current[:start] + old_compute + current[end:]
+        patched_script = tmp_path / "flow-wave-registry-old-logic.sh"
+        patched_script.write_text(patched)
+        patched_script.chmod(0o755)
+
+        env = os.environ.copy()
+        env.update(
+            {
+                "CLAUDE_PID": "55003",
+                "CLAUDE_CODE_SESSION_ID": SELF_SESSION,
+                "FLOW_WAVE_REGISTRY_DIR": str(tmp_path / "reg"),
+                "FLOW_WAVE_SOCK_DIR": str(tmp_path / "socks"),
+                "FLOW_WAVE_HOST": HOST,
+                "FLOW_WAVE_NOW": "1700000000",
+            }
+        )
+
+        def _run_old(*args: str, live: str, starttimes: str) -> subprocess.CompletedProcess[str]:
+            e = env.copy()
+            e["FLOW_WAVE_LIVE_PIDS"] = live
+            e["FLOW_WAVE_PID_STARTTIMES"] = starttimes
+            return subprocess.run(
+                ["bash", str(patched_script), *args],
+                capture_output=True, text=True, env=e, check=False,
+            )
+
+        _run_old(
+            "register", "1", "--socket", "uds:/tmp/a.sock",
+            live="55003", starttimes="55003=1000",
+        )
+        p = _run_old("get", "1", live="55003", starttimes="55003=9999")
+        assert _detail(p, "FLOW_WAVE_LIVENESS") == "live", (
+            "the OLD logic must still be fooled by this fixture - if it "
+            "is not, the fixture no longer isolates what the new "
+            "comparison adds"
+        )
+
+    def test_starttime_parsing_survives_a_comm_with_a_space_and_a_paren(
+        self, tmp_path: Path
+    ) -> None:
+        """THE PARSING TRAP IS ITSELF WORTH A COMMITTED CASE. `comm` (field 2
+        of /proc/<pid>/stat) is parenthesised and may itself contain spaces
+        or parens - a naive positional `awk '{print $22}'` silently shifts
+        every field after it. Measured directly during planning: a raw $22
+        read a start time from before the process could have existed. This
+        feeds a CRAFTED stat line through the real parser via
+        FLOW_WAVE_PROC_ROOT and asserts the correct field, split past the
+        LAST `)` - a naive positional parse of the same line would read
+        field 22 counting from the FRONT and get a value from the middle of
+        the comm-adjacent fields instead."""
+        pid = "77001"
+        proc_root = tmp_path / "proc"
+        (proc_root / pid).mkdir(parents=True)
+        # A comm containing both a space and a literal paren: "od d)d". The
+        # real fields after the LAST ')' are, in order: state ppid pgrp
+        # session tty_nr tpgid flags minflt cminflt majflt cmajflt utime
+        # stime cutime cstime priority nice num_threads itrealvalue
+        # starttime - 20 tokens, starttime last, deliberately set to a
+        # value (424242) nowhere else in the line so a naive parse cannot
+        # stumble onto it by accident.
+        stat_line = (
+            f"{pid} (od d)d) R 1 1 1 0 -1 4194304 "
+            "10 0 0 0 5 6 0 0 20 0 1 0 424242 6410240 384 "
+            "18446744073709551615 0 0 0 0 0 0 0 0 0 0 17 0 0 0 0 0 0 0 0"
+        )
+        (proc_root / pid / "stat").write_text(stat_line)
+
+        env = os.environ.copy()
+        env["FLOW_WAVE_PROC_ROOT"] = str(proc_root)
+        # A NAIVE split-on-space, whole-line, field-22 read - what this
+        # parser must NOT reproduce - to show the trap is real on this exact
+        # line, not just asserted.
+        naive = stat_line.split()[21]  # 0-indexed: field 22
+        assert naive != "424242", (
+            "the fixture's naive-parse field must differ from the real "
+            "starttime, or this test cannot tell the two parsers apart"
+        )
+
+        # Extract ONLY the function under test, never `source` the whole
+        # script: the file is a top-level `case "$VERB" in ... esac`
+        # dispatch with no verb-safe guard, so sourcing it with no
+        # arguments runs straight into `usage_fail`'s `exit`, which would
+        # tear down this test's own shell before pid_started_of ever ran.
+        source_text = REGISTRY.read_text()
+        fn_start = source_text.index("pid_started_of() {")
+        fn_end = source_text.index("\n}\n", fn_start) + len("\n}\n")
+        fn_only = source_text[fn_start:fn_end]
+        assert fn_only.strip().startswith("pid_started_of() {"), (
+            "extraction failed - update the markers rather than let this "
+            "test silently source nothing"
+        )
+        fn_file = tmp_path / "pid_started_of.sh"
+        fn_file.write_text(fn_only)
+
+        result = subprocess.run(
+            ["bash", "-c", f'source "{fn_file}"; pid_started_of "{pid}"'],
+            capture_output=True, text=True, env=env, check=False,
+        )
+        assert result.stdout.strip() == "424242"
 
 
 @requires_tools

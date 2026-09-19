@@ -60,6 +60,12 @@ PINNED_ENV = {
     "FLOW_WAVE_HOST": "control-host",
     "FLOW_WAVE_UNKNOWN_PIDS": "999001",
     "FLOW_WAVE_LIVE_PIDS": "999002",
+    # Matches the `pid_started` recorded for pid 999002 in the `bad-live-role`
+    # fixture (issue #1094): pid existence alone no longer reads `live` - the
+    # start-time witness must also match, so the fixture's committed JSON and
+    # this pinned "current" reading have to agree, exactly as a real
+    # register-then-check pair would.
+    "FLOW_WAVE_PID_STARTTIMES": "999002=1000",
 }
 
 
@@ -330,7 +336,8 @@ def test_a_LIVE_role_on_ANOTHER_DRIVER_does_not_block(tmp_path: Path) -> None:
     friction and then gets removed.
     """
     registry = {"w": {"roles": {
-        "worker-Z": {"socket": "unknown", "pid": 999002, "host": "control-host",
+        "worker-Z": {"socket": "unknown", "pid": 999002, "pid_started": "1000",
+                     "host": "control-host",
                      "released": False, "driver": "gemma:auto"},
         "worker-A": {"socket": "unknown", "pid": 999003, "host": "control-host",
                      "released": True, "driver": DRIVER},
