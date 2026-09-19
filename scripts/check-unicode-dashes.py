@@ -68,9 +68,16 @@ class Violation:
 
 
 def _tracked_md_files(root: Path) -> list[str]:
-    proc = subprocess.run(
-        ["git", "ls-files", "*.md"], cwd=root, capture_output=True, text=True,
-    )
+    """An empty result (git missing, or git failing) is caught by
+    MIN_TRACKED_MD_FILES below - `git` not being on PATH at all raises
+    `FileNotFoundError` before there is a returncode, which CI's `validate`
+    image hits directly (issue #1037, pipeline 2128)."""
+    try:
+        proc = subprocess.run(
+            ["git", "ls-files", "*.md"], cwd=root, capture_output=True, text=True,
+        )
+    except OSError:
+        return []
     if proc.returncode != 0:
         return []
     return [

@@ -31,6 +31,20 @@ def _run(root: Path) -> subprocess.CompletedProcess[str]:
     )
 
 
+def _run_without_git(root: Path) -> subprocess.CompletedProcess[str]:
+    """PATH containing only Python's own directory - no `git` reachable at
+    all, reproducing CI's `validate` image (issue #1037, pipeline 2128:
+    `FileNotFoundError: [Errno 2] No such file or directory: 'git'` raised
+    from inside `subprocess.run` before any script code could react to it)."""
+    git_free_path = str(Path(sys.executable).parent)
+    assert shutil.which("git", path=git_free_path) is None, "fixture must lack git"
+    return subprocess.run(
+        [sys.executable, str(SCRIPT), "--root", str(root)],
+        capture_output=True, text=True,
+        env={"PATH": git_free_path},
+    )
+
+
 def _git(*args: str, cwd: Path) -> None:
     subprocess.run(
         ["git", *args], cwd=cwd, check=True, capture_output=True, text=True,
@@ -127,6 +141,20 @@ def test_git_ls_files_failure_is_unknown_not_outvoted_by_readme(tmp_path: Path) 
     assert "git ls-files" in proc.stderr
 
 
+def test_git_binary_entirely_absent_is_unknown_not_a_crash(tmp_path: Path) -> None:
+    """CI pipeline 2128 (issue #1037): `git` not on PATH at all raised an
+    uncaught FileNotFoundError - not a script-detected failure, a crash. No
+    `@requires_git`: this test's whole point is running WITHOUT git."""
+    repo = _build_repo(tmp_path, claude_version="8.0.0")
+
+    proc = _run_without_git(repo)
+    assert proc.returncode == 2, (
+        f"expected UNKNOWN (exit 2) with git entirely absent, got "
+        f"{proc.returncode}:\n{proc.stdout}{proc.stderr}"
+    )
+    assert "Traceback" not in proc.stderr
+
+
 @requires_git
 def test_a_vendored_readme_version_is_excluded(tmp_path: Path) -> None:
     """Codex review (#1037): a vendored project's own version claim is a
@@ -144,6 +172,7 @@ def test_a_vendored_readme_version_is_excluded(tmp_path: Path) -> None:
     assert proc.returncode == 0, proc.stdout + proc.stderr
 
 
+@requires_git
 def test_the_real_repo_is_currently_consistent() -> None:
     """Regression-test EXECUTION against the live tree, not a committed case.
 
@@ -152,6 +181,12 @@ def test_the_real_repo_is_currently_consistent() -> None:
     the fixtures, it stops being a red/green pair the moment CLAUDE.md
     happens to be correct, which is why the committed fixtures above exist
     independently of this test's own history.
+
+    Guarded like the fixture tests: the script's own git absence handling
+    is what the git-failure fixture above pins, not this test's job (issue
+    #1037, CI pipeline 2128 - the `validate` image has no `git` binary at
+    all, and this test crashed uncaught before the script itself was fixed
+    to report UNKNOWN instead).
     """
     proc = subprocess.run(
         [sys.executable, str(SCRIPT)], cwd=ROOT, capture_output=True, text=True,

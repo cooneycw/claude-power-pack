@@ -66,23 +66,32 @@ MIN_TRACKED_FILES = 50
 def _tracked_file_count(root: Path) -> int | None:
     """Eligible tracked files under the same exclusions as the grep itself.
 
-    ``None`` means `git ls-files` failed.
+    ``None`` means `git ls-files` failed - including `git` not being on PATH
+    at all, which raises `FileNotFoundError` before there is a returncode
+    (CI's `validate` image has no `git` binary; issue #1037, pipeline 2128).
     """
-    proc = subprocess.run(
-        ["git", "ls-files", "--", ".", *EXCLUDE_PATHSPECS],
-        cwd=root, capture_output=True, text=True,
-    )
+    try:
+        proc = subprocess.run(
+            ["git", "ls-files", "--", ".", *EXCLUDE_PATHSPECS],
+            cwd=root, capture_output=True, text=True,
+        )
+    except OSError:
+        return None
     if proc.returncode != 0:
         return None
     return sum(1 for line in proc.stdout.splitlines() if line)
 
 
 def find_pinned_trailers(root: Path) -> tuple[list[str] | None, int]:
-    """(matching lines, returncode). Lines is None when git grep itself failed."""
-    proc = subprocess.run(
-        ["git", "grep", "-n", "-I", "-P", TRAILER_PATTERN, "--", ".", *EXCLUDE_PATHSPECS],
-        cwd=root, capture_output=True, text=True,
-    )
+    """(matching lines, returncode). Lines is None when git grep itself
+    failed, including `git` missing entirely (see `_tracked_file_count`)."""
+    try:
+        proc = subprocess.run(
+            ["git", "grep", "-n", "-I", "-P", TRAILER_PATTERN, "--", ".", *EXCLUDE_PATHSPECS],
+            cwd=root, capture_output=True, text=True,
+        )
+    except OSError:
+        return None, -1
     if proc.returncode not in (0, 1):
         return None, proc.returncode
     if proc.returncode == 1:

@@ -38,6 +38,18 @@ def _run(root: Path) -> subprocess.CompletedProcess[str]:
     )
 
 
+def _run_without_git(root: Path) -> subprocess.CompletedProcess[str]:
+    """PATH containing only Python's own directory - no `git` reachable at
+    all, reproducing CI's `validate` image (issue #1037, pipeline 2128)."""
+    git_free_path = str(Path(sys.executable).parent)
+    assert shutil.which("git", path=git_free_path) is None, "fixture must lack git"
+    return subprocess.run(
+        [sys.executable, str(SCRIPT), "--root", str(root)],
+        capture_output=True, text=True,
+        env={"PATH": git_free_path},
+    )
+
+
 def _git(*args: str, cwd: Path) -> None:
     subprocess.run(
         ["git", *args], cwd=cwd, check=True, capture_output=True, text=True,
@@ -63,6 +75,22 @@ def _repo_with(tmp_path: Path, content: str) -> Path:
     _git("add", "-A", cwd=repo)
     _git("commit", "-qm", "base", cwd=repo)
     return repo
+
+
+@requires_git
+def test_git_binary_entirely_absent_is_unknown_not_a_crash(tmp_path: Path) -> None:
+    """CI pipeline 2128 (issue #1037): `git` not on PATH at all raised an
+    uncaught FileNotFoundError - not a script-detected failure, a crash.
+    `@requires_git` guards building the fixture only; the script itself then
+    runs with no git reachable, which is the whole point of this test."""
+    repo = _repo_with(tmp_path, "Nothing about attribution here.")
+
+    proc = _run_without_git(repo)
+    assert proc.returncode == 2, (
+        f"expected UNKNOWN (exit 2) with git entirely absent, got "
+        f"{proc.returncode}:\n{proc.stdout}{proc.stderr}"
+    )
+    assert "Traceback" not in proc.stderr
 
 
 @requires_git
@@ -132,8 +160,13 @@ def test_git_grep_failure_is_unknown_not_clean(monkeypatch: pytest.MonkeyPatch, 
     assert module.main(["--root", str(tmp_path)]) == 2
 
 
+@requires_git
 def test_the_real_repo_has_no_pinned_trailer() -> None:
-    """Regression-test EXECUTION against the live tree, not a committed case."""
+    """Regression-test EXECUTION against the live tree, not a committed case.
+
+    Guarded: CI's `validate` image has no `git` binary at all (issue #1037,
+    pipeline 2128) - the script's own handling of that is what the
+    git-grep-failure test above pins, not this test's job."""
     proc = subprocess.run(
         [sys.executable, str(SCRIPT)], cwd=ROOT, capture_output=True, text=True,
     )

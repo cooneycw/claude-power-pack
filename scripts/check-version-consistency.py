@@ -95,11 +95,18 @@ def _tracked_md_files(root: Path) -> list[str] | None:
     Returns ``None`` when `git ls-files` itself fails - distinguishable from
     a successful run finding zero files, so a broken enumeration cannot be
     silently absorbed into "no tracked-file locations" and outvoted by
-    README/CHANGELOG alone (Codex review, issue #1037).
+    README/CHANGELOG alone (Codex review, issue #1037). Covers `git` not
+    being on PATH at all, not only a non-zero exit: CI's `validate` image
+    carries no `git` binary (issue #1037, CI pipeline 2128) and an unguarded
+    `subprocess.run` raises `FileNotFoundError` before there is a returncode
+    to check.
     """
-    proc = subprocess.run(
-        ["git", "ls-files", "*.md"], cwd=root, capture_output=True, text=True,
-    )
+    try:
+        proc = subprocess.run(
+            ["git", "ls-files", "*.md"], cwd=root, capture_output=True, text=True,
+        )
+    except OSError:
+        return None
     if proc.returncode != 0:
         return None
     return [
