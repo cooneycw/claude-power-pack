@@ -132,7 +132,8 @@ Browser automation uses the upstream `@playwright/mcp` npx/stdio server (registe
 Woodpecker CI runs on every push and PR via a self-hosted agent:
 
 - **Secret scan:** gitleaks over the tree before anything else runs
-- **Validate:** lint (ruff) + test (pytest) + typecheck (mypy) in a single consolidated step
+- **Tool staging:** `shellcheck-stage` and `jq-stage` copy their content-pinned binaries into `.ci-bin` for the steps that need them. Staging is deliberately SEPARATE from the gates that use those tools (#1086): `validate` needed one second of copying from a step that also spent thirty seconds linting, and `pytest` sat behind all of it
+- **Validate:** lint (ruff) + test (pytest, parallel with an explicit worker cap - never `-n auto`) + typecheck (mypy) in a single consolidated step
 - **Negative controls:** every registered gate must still report BAD on its known-bad fixture and GOOD on its known-good one, and each control must be demonstrated against a vendored anchor that MISSES the known-bad input - a control with no anchor is `UNPROVEN` and fails the step (#924)
 - **Dockerfile lint:** hadolint over any remaining Dockerfile
 - **CI verification:** `flow:auto` polls the Woodpecker API after merge to confirm the pipeline passes
