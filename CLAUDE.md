@@ -35,6 +35,7 @@ these rules remain in [commands-reference.md](docs/commands-reference.md) and
 - `docs/reference/CLAUDE_CODE_BEST_PRACTICES_FULL.md` - full best-practices guide.
 - `docs/commands-reference.md` - command decisions, histories, and workflow detail.
 - `docs/scripts.md` - script inventory and per-script behavioral history; its population is derived from `scripts/` and gated by `make scripts-inventory-check`.
+- `docs/decisions/0008-instrument-negative-control-bound.md` - the instrument census; its MEMBERSHIP is derived from `scripts/` and gated by `make instrument-census-check`, so a new instrument cannot arrive unenumerated.
 - `docs/agents/issue-contract.md` - canonical issue contract and proportional spec routing.
 - `docs/agents/detector-contracts.md` - canonical detector-claim contract and its instance index.
 - `docs/agents/knowledge-lifecycle.md` - canonical completed-spec graduation policy.

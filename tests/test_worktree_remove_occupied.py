@@ -17,9 +17,10 @@ already outlived by being in a long test run - so both guards read "clear" on a
 checkout that was plainly occupied.
 
 The fix: when no claim names this session, scan for live processes whose working
-directory is inside the worktree. Occupied AND dirty is a hard stop (exit 5) that
-``--force`` does not suppress; ``--steal`` still overrides. A host that cannot
-scan reports ``unknown``, never ``clear``.
+directory is inside the worktree. Occupancy is a hard stop (exit 5), whether the
+tree is currently dirty or clean, because a live process may write immediately
+after the scan. ``--force`` does not suppress it; ``--steal`` still overrides. A
+host that cannot scan reports ``unknown``, never ``clear``.
 """
 
 from __future__ import annotations
@@ -168,16 +169,24 @@ def test_occupied_and_dirty_refused_despite_force(tmp_path: Path, occupant) -> N
 
 @requires_git
 @requires_proc
-def test_occupied_but_clean_is_still_removed(tmp_path: Path, occupant) -> None:
-    """Occupancy alone does not block: with nothing unsaved, nothing is lost."""
+def test_occupied_and_clean_is_now_refused(tmp_path: Path, occupant) -> None:
+    """#1032: clean occupancy is unsafe because the live process may write next.
+
+    This inverts the earlier assertion deliberately after specimen 4 measured
+    ten live processes in a worktree every other signal called safe to merge.
+    """
+    # Historical #889 reasoning, retained as context for the inversion:
+    # "Occupancy alone does not block: with nothing unsaved, nothing is lost."
     main = _repo(tmp_path)
     wt = _add_worktree(main, tmp_path / "wt", "feature")
     occupant(wt)
 
     res = _run_remove(main, str(wt), "--force", "--delete-branch")
 
-    assert res.returncode == 0, f"clean occupied worktree should remove:\n{res.stderr}"
-    assert not wt.exists()
+    assert res.returncode == 5, (
+        f"clean occupied worktree must be refused:\n{res.stderr}"
+    )
+    assert wt.exists(), "worktree was removed out from under a live process"
     assert "WORKTREE_REMOVE_OCCUPANCY: occupied-clean" in res.stderr
 
 
@@ -279,6 +288,25 @@ def test_sibling_worktree_sharing_a_path_prefix_is_not_occupancy(
 
 @requires_git
 @requires_proc
+def test_invocation_from_sibling_path_prefix_is_not_inside_target(
+    tmp_path: Path,
+) -> None:
+    """The remover's own cwd in ``<wt>-2`` is not inside target ``<wt>``."""
+    main = _repo(tmp_path)
+    wt = _add_worktree(main, tmp_path / "wt", "feature")
+    sibling = _add_worktree(main, tmp_path / "wt-2", "feature-2")
+
+    res = _run_remove(sibling, str(wt), "--force", "--delete-branch")
+
+    assert res.returncode == 0, res.stderr
+    assert "Currently inside worktree being removed" not in res.stderr
+    assert "Currently inside worktree being removed" not in res.stdout
+    assert not wt.exists()
+    assert sibling.exists()
+
+
+@requires_git
+@requires_proc
 def test_steal_overrides_the_occupancy_refusal(tmp_path: Path, occupant) -> None:
     """--steal stays the deliberate override, as it is for a #597 claim."""
     main = _repo(tmp_path)
@@ -305,6 +333,61 @@ def test_steal_overrides_the_occupancy_refusal(tmp_path: Path, occupant) -> None
 
     assert res.returncode == 0, f"--steal must override the #888 stop:\n{res.stderr}"
     assert not wt.exists()
+
+
+@requires_git
+@requires_proc
+def test_steal_overrides_clean_occupancy_refusal(tmp_path: Path, occupant) -> None:
+    """--steal remains the explicit override when the occupied tree is clean."""
+    main = _repo(tmp_path)
+    wt = _add_worktree(main, tmp_path / "wt", "feature")
+    occupant(wt)
+
+    res = _run_remove(main, str(wt), "--force", "--delete-branch", "--steal")
+
+    assert res.returncode == 0, f"--steal must override clean occupancy:\n{res.stderr}"
+    assert not wt.exists()
+
+
+@requires_git
+@requires_proc
+def test_native_foreign_lock_is_checked_then_safely_removed(tmp_path: Path) -> None:
+    """An unparseable git-native lock is uncertainty, not a claimed session."""
+    main = _repo(tmp_path)
+    wt = tmp_path / "wt"
+    _git(main, "worktree", "add", "--lock", "-b", "feature", str(wt))
+
+    res = _run_remove(main, str(wt), "--force", "--delete-branch")
+
+    assert res.returncode == 0, f"safe foreign-locked tree must remove:\n{res.stderr}"
+    assert not wt.exists()
+    assert "Another /flow session is driving this checkout" not in res.stderr
+    assert "does not identify a session" in res.stderr
+
+
+@requires_git
+@requires_proc
+def test_live_parseable_flow_claim_is_still_refused(
+    tmp_path: Path, occupant
+) -> None:
+    """A parseable claim naming a genuinely live pid remains an exit-4 stop."""
+    main = _repo(tmp_path)
+    wt = _add_worktree(main, tmp_path / "wt", "feature")
+    owner = occupant(wt)
+    host = os.environ.get("HOSTNAME") or os.uname().nodename
+    timestamp = int(time.time())
+    reason = (
+        f"flow-claim issue=1032 pid={owner.pid} session=held-test "
+        f"host={host} ts={timestamp}"
+    )
+    _git(main, "worktree", "lock", "--reason", reason, str(wt))
+
+    res = _run_remove(main, str(wt), "--force", "--delete-branch")
+
+    assert res.returncode == 4, f"live flow claim must be refused:\n{res.stderr}"
+    assert wt.exists()
+    assert "Another /flow session is driving this checkout" in res.stderr
+    assert f"issue #1032, pid {owner.pid}, session held-test" in res.stderr
 
 
 @requires_git

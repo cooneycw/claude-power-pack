@@ -240,6 +240,32 @@ another repo (the escalation clause); a row can be both.
 | 63 | `check-negative-controls.py` (`--strict`, CI `negative-controls`) | per-gate `PASS\|BLIND\|INERT\|UNRESOLVED\|UNPROVEN\|UNSIGNALLED`, then `negative-controls: ok - N control(s) discriminate` or a non-zero refusal | CI at `.woodpecker.yml`, and `make verify`, both of which let work through on its verdict; read by other sessions and other repos without re-derivation (#964, #981) | G, X |
 | 64 | `npm-global-upgrade.sh` | `NPM_UPGRADE: upgraded\|current\|downgraded\|capped\|not-upgraded\|failed\|unknown` | `/cpp:update` Step 5d.2 and 5d.3 compose the Step 10 `Local-Model Lanes` line from it, and neither the operator reading that line nor a later session re-derives the installed version (#1022) | X |
 | 65 | `dependency-audit.py` (`make dep-audit`, CI `dependency-audit`) | `dependency-audit: ok - N file(s) examined (source=walk\|capture), M package(s), G gating finding(s), S stale allowlist line(s)`, or `DEP-AUDIT-FINDING:` / `DEP-AUDIT-STALE:` (exit 1) / `DEP-AUDIT-UNKNOWN:` (exit 2) | CI at `.woodpecker.yml`, which lets work through on its verdict and does not re-derive it. NOT `lib/security/modules/pip_audit.py`, which is a different instrument with a different consumer: that adapter runs only inside `/security:scan`, skips silently when the binary is absent, and reads a `requirements.txt` this repository does not have (#961) | G |
+| 66 | `check-oscillation.py` (`make oscillation`, CI `validate`) | `OSCILLATION_FINDING:` per two-sided change, else a clean verdict line | `make verify`, which lets work through on it; ADR 0009's detector, and nothing downstream re-derives whether a change reverses an earlier one (#936) | G |
+| 67 | `counter-model-receipt.py parse` | `COUNTER_MODEL_REVIEW: findings\|clean\|unparseable` | `/flow:auto` Step 6 item 1c decides from it whether a review happened at all, and writes the receipt other sessions and ADR 0007's measurement read without re-deriving (#934, #1046) | G, X |
+| 68 | `delegated-core-vendor.py check` | drift verdict over the vendored delegated-driver core, or non-zero | `make verify` and the CI `delegated-core-check` step, both of which let work through on it (#1011) | G |
+| 69 | `eli5-core-drift.sh` | drift warning against the upstream `eli5-gate` core, or clean | the CI `eli5-upstream-drift` step; the vendored core in `.claude/commands/flow/eli5.md` is not otherwise compared to its canonical home (#443) | G |
+| 70 | `flow-driver-retirement-check.sh` | `unknown` / non-zero per retirement precondition | `/flow:auto` Step 6's retirement gate authorised removing a driver on its verdict; nothing re-derives a retirement once taken (#1017) | G, X |
+| 71 | `scripts-inventory-check.py` (`make scripts-inventory-check`, CI `scripts-inventory-check`) | `MISSING:` / `UNDECLARED:` per finding, then `scripts-inventory-check: ok - all N file(s) ... have an entry` | `make verify` and the CI step let work through on it, and six test modules quote `docs/scripts.md` as if complete on the strength of it (#1013) | G |
+| 72 | `secret-scan-check.sh` (`make secret-scan`, CI `secret-scan`) | `gitleaks`' findings, wrapped: exit 0 clean, non-zero on a leak | THE WRAPPER IS WHAT RUNS. Row 44 is the binary; this row is the instrument `make` and CI actually invoke, and the one `controls/secret-scan` registers (#935) | G |
+| 73 | `instrument-census-check.py` (`make instrument-census-check`, CI `instrument-census-check`) | `UNACCOUNTED:` / `STALE:` per finding, then `instrument-census-check: ok - all N file(s) in scripts/ are accounted for` | `make verify` and the CI step let work through on it; its green is read as "this table describes the tree", which is the claim every count below rests on (#1060) | G |
+
+> **Rows 66-73 were added by #1060, and how they were found is the point.** None
+> of the eight was a judgement that had been made and deferred - they were simply
+> never asked about. Seven predate #1060 by between four days and three weeks;
+> `counter-model-receipt.py` (row 67) is the one that then shipped carrying
+> #1047 and #1048, the exact defect class this table exists to bound.
+>
+> `scripts/instrument-census-check.py` now derives this membership from
+> `scripts/` and goes red on a file named by neither table, so the next
+> instrument cannot arrive unasked. Row 73 is that gate accounting for itself;
+> without its own row it would report itself `UNACCOUNTED` on its first run,
+> which is the self-reference working rather than a paradox.
+>
+> **The count moved 65 -> 73, and the coverage fraction got worse, correctly.**
+> `check-negative-controls.py` printed `13 of 65` before this change and `13 of
+> 73` after. Nothing regressed: the denominator stopped under-counting. Anyone
+> quoting the older figure - the v8.0.0 notes do - is quoting a number taken
+> against a table that described a smaller repository than the one that existed.
 
 > **Row 63 closes an ACCOUNTING gap, not a verification one.** The harness that
 > checks whether instruments carry controls was itself missing from the list of
@@ -381,10 +407,31 @@ ticket with a different binary:
 | `hook-mask-output.sh`, `secrets-mask.sh` | filters, not verdicts; `CLAUDE.md` states the masking hook "does not authorize reading credentials" - nobody is entitled to rely on it |
 | `cpp-commands-link.sh`, `flow-helpers-install.sh`, `install-memory-harness.sh`, `memories-db-setup.sh`, `setup-woodpecker-cli.sh`, `bash-prep.sh`, `codex-skill-sync.py --write`, `eli5-vendor.py --revendor`, `project-next-vendor.py --revendor`, `retired-surface-prune.py --prune`, `prompt-context.sh`, `cpp-memory`, `project-init.py`, `c4-mermaid.py`; the rendering half of `speckit-tasks-to-issues.sh` (its guards are row 25) | installers, generators, ledgers and renderers; the state they produce is re-derived by the drift and parity checks in rows 31-37, 46, 51-52 |
 | `sandbox-phase1-trial.sh` | a one-off experiment whose decision is recorded in ADR 0002; re-running it is the re-derivation |
+| `ci-stage-jq.py`, `counter-model-receipt.py write` (its `counter-model-receipt.py parse` half is row 67) | a stager and a recorder. `ci-stage-jq.py` installs a content-pinned `jq` into `.ci-bin/` and emits no verdict - the gate that then uses `jq` is row 70, and a failed stage surfaces there as `unknown` rather than as a pass. The receipt writer records what the run decided; the deciding is row 67 |
 | `lib.cicd container`, `pipeline`, `infra-init`, `infra-discover`, `infra-pipeline`, `init-manifest` | generators; their output is a file the caller reviews, not a verdict |
 | `lib.creds` (8 subcommands) | `get`, `set`, `delete`, `list`, `rotate`, `run`, `ui` are actions, not verdicts. `validate` reports a credential usable; the use that follows re-derives it loudly (a bad credential fails at the call), which is the bound's own exclusion - it is the one entry in the universe excluded by re-derivation rather than by kind |
 | verification commands in docs | instructions to run an instrument, not instruments; the instrument they name is already a row above |
 | `make deploy`, `make update_docs`, `make format`, `make clean` and the other action targets | informative no-ops or actions in this repository |
+
+**Subjects with no file under `scripts/`.** Fourteen rows above name a
+third-party binary or a Python module entry point - there is no file for a
+`#: NEGATIVE-CONTROL:` marker to live in, which is the structural half of
+#1036's second point. They are declared here so
+`scripts/instrument-census-check.py` can tell "names something outside
+`scripts/`" from "names a script that has been deleted", which need opposite
+responses and otherwise render identically. The list NARROWS what is checked, so
+it fails loudly: an undeclared non-file subject is reported `STALE` until
+someone adds it here.
+
+<!-- instrument-census: external-subjects: ruff, mypy, pytest, gitleaks, hadolint, make, lib.cicd, lib.security, lib.creds, pipeline, infra-init, infra-discover, infra-pipeline, init-manifest -->
+
+`ruff`, `mypy`, `pytest`, `gitleaks`, `hadolint`, `make` (the `verify`
+aggregate, row 40), `lib.cicd`, `lib.security`, `lib.creds`, and the `lib.cicd`
+subcommands `pipeline`, `infra-init`, `infra-discover`, `infra-pipeline` and
+`init-manifest`. Being on this list is a statement about where the instrument
+LIVES, never that it is out of the bound - `gitleaks` is row 44 and carries a
+control today, reached by wrapping it in `secret-scan-check.sh` (row 72). The
+wrapper is the route for the others.
 
 No script-level instrument is excluded by the re-derivation clause alone. The
 first enumeration listed `flow-stale-check.sh` there on the grounds that Step 7

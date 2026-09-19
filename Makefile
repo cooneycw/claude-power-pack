@@ -1,5 +1,5 @@
 .PHONY: test lint format typecheck verify shellcheck secret-scan tools-check \
-	scripts-inventory-check dep-audit dep-audit-selftest dep-audit-capture \
+	scripts-inventory-check instrument-census-check dep-audit dep-audit-selftest dep-audit-capture \
        oscillation update_docs clean \
        bootstrap-check drift-check deploy setup-woodpecker-cli \
        codex-init codex-skills codex-skills-check codex-install \
@@ -226,7 +226,7 @@ verify: tools-check lint test typecheck shellcheck oscillation \
 	binary-guards-check negative-fixture-check \
 	claude-md-budget-check claude-md-links-check claude-md-behavior-check \
 	project-next-check delegated-core-check \
-	scripts-inventory-check
+	scripts-inventory-check instrument-census-check
 
 ## Vendored delegated-driver core (issue #1011)
 ## `/codex:auto`, `/qwen:auto` and `/gemma:auto` describe ONE lifecycle, rendered
@@ -262,6 +262,22 @@ delegated-core-write:
 
 scripts-inventory-check:
 	@python3 scripts/scripts-inventory-check.py
+
+## ADR 0008's census MEMBERSHIP, derived from scripts/ (issue #1060)
+## #1002 made the census COUNT derived; the ROWS stayed hand-appended, and
+## nothing noticed when an instrument was never added. Eight were in neither
+## table when this landed - among them counter-model-receipt.py, which then
+## shipped carrying #1047 and #1048, the defect class the census exists to
+## bound. An instrument in neither table is not counted as uncontrolled; it is
+## not counted at all.
+## Reds on ENUMERATION, never on coverage: an enumerated row with no control
+## stays green. A gate that failed 59 rows on day one would be switched off
+## inside a week, which is the oscillation ADR 0009 predicts.
+## stdlib-only, offline, git-free, so the slim CI image gives the same verdict.
+## controls/instrument-census registers the committed BAD/GOOD cases.
+
+instrument-census-check:
+	@python3 scripts/instrument-census-check.py
 
 ## Enforce the CLAUDE.md "guard tests that shell out to git/docker/gitleaks"
 ## directive (issue #602). It failed three times as prose (#451, #489, #577)
