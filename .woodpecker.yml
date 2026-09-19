@@ -31,13 +31,37 @@ steps:
       # populations; the control covers the second and says so.
       - mkdir -p .ci-bin && cp "$(command -v gitleaks)" .ci-bin/gitleaks
 
+  # `jq`, CONTENT-PINNED, staged into `.ci-bin` for the steps below (issue #1017).
+  # `controls/flow-driver-retirement-check` is the first registered control whose
+  # gate needs jq, and this image has none - so the gate reported `unknown` on
+  # every case, the register reported BLIND, and CI went red. It did exactly what
+  # it should: the harness REFUSES to skip a control it cannot run.
+  #
+  # The pytest module was the worse half. Its `skipif(which("jq") is None)` made
+  # all 26 of its tests SKIP here while `validate` stayed green - load-bearing on
+  # a dev box, inert in the one environment a reviewer can re-derive.
+  #
+  # Pinned by SHA256 rather than by tag, for the reason the shellcheck step
+  # states about itself: running a gate under two different tool versions makes
+  # the control's verdict depend on which container reached it. Not hypothetical
+  # here - `scripts/flow-wave-registry.sh` carries a "#699 jq-1.6 update trap"
+  # comment about an expression that DELETES the key it was told to update on one
+  # version and not the other. Python does the fetch because this image is
+  # guaranteed to have python3 and is not guaranteed to have curl or wget.
+  jq-stage:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
+    depends_on: [secret-scan]
+    commands:
+      - python3 scripts/ci-stage-jq.py
+
   validate:
     image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
-    depends_on: [secret-scan, shellcheck]
+    depends_on: [secret-scan, shellcheck, jq-stage]
     commands:
       - uv sync --extra dev --frozen
       - uv run ruff check .
-      # `.ci-bin` carries the pinned shellcheck staged by the shellcheck step.
+      # `.ci-bin` carries the pinned shellcheck staged by the shellcheck step
+      # and the pinned jq staged by jq-stage.
       # test_the_real_control_discriminates_and_its_anchor_is_blind drives the
       # WHOLE control register, so this image needs every registered control's
       # tool - not just the ones whose own step happens to run here (#960).
@@ -152,9 +176,10 @@ steps:
   # byte-verified against git history on a dev box and in the pre-push hook.
   negative-controls:
     image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
-    depends_on: [secret-scan, shellcheck]
+    depends_on: [secret-scan, shellcheck, jq-stage]
     commands:
-      # `.ci-bin` carries the PINNED shellcheck staged by the shellcheck step.
+      # `.ci-bin` carries the PINNED shellcheck staged by the shellcheck step
+      # and the PINNED jq staged by jq-stage.
       # The harness refuses to SKIP a control it cannot run - it reports
       # UNSIGNALLED and fails - so a registered control's tool must be present
       # HERE, not merely somewhere in the pipeline.

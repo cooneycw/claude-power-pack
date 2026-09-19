@@ -45,7 +45,7 @@
 ## and those need the scanner on PATH. Reporting "available via docker" for the
 ## test path would be the overclaim this target exists to remove.
 TOOLS_HARD := git python3 uv
-TOOLS_NATIVE := shellcheck gitleaks
+TOOLS_NATIVE := shellcheck gitleaks jq
 
 tools-check:
 	@missing=""; \

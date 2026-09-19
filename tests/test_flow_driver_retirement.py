@@ -119,10 +119,23 @@ def _verdict(proc: subprocess.CompletedProcess[str]) -> str:
     return "<no marker>"
 
 
-pytestmark = pytest.mark.skipif(
+#: A MODULE-LEVEL skipif made this file vacuous in CI, and that is the whole
+#: story of this marker (#1017). The image has no jq, so all 26 tests skipped,
+#: `validate` went green, and the suite was load-bearing on a dev box and inert
+#: in the one environment a reviewer can re-derive. What caught it was the
+#: negative-control register, which REFUSES to skip a control it cannot run and
+#: reported the gate BLIND.
+#:
+#: jq is now staged into CI (`.woodpecker.yml` jq-stage, sha256-pinned), so this
+#: no longer fires there. It is kept for a dev box that genuinely lacks jq - and
+#: applied PER TEST rather than to the module, so the assertions that need no jq
+#: at all (the files exist, the manifest pins what it claims, the command is
+#: gone) run everywhere. A skip that silently covers a whole file is not a
+#: coverage map.
+needs_jq = pytest.mark.skipif(
     shutil.which("jq") is None,
-    reason="the gate parses rosters with jq; absent, it correctly reports unknown "
-           "and every case below would collapse to the same verdict",
+    reason="this test runs the gate, which parses rosters with jq; absent, it "
+           "correctly reports unknown and every case would collapse to one verdict",
 )
 
 
@@ -131,6 +144,7 @@ pytestmark = pytest.mark.skipif(
 # destructive action and nothing downstream re-derives it.
 # --------------------------------------------------------------------------- #
 
+@needs_jq
 def test_a_LIVE_role_on_the_driver_BLOCKS_retirement() -> None:
     """The reason the command outlived the stage by two months.
 
@@ -143,6 +157,7 @@ def test_a_LIVE_role_on_the_driver_BLOCKS_retirement() -> None:
     assert proc.returncode == BLOCKED, proc.stdout
 
 
+@needs_jq
 def test_UNDETERMINED_liveness_BLOCKS_retirement() -> None:
     """Liveness is a FOUR-value vocabulary - live, released, stale, unknown -
     and only the middle two are conclusively inactive.
@@ -159,6 +174,7 @@ def test_UNDETERMINED_liveness_BLOCKS_retirement() -> None:
     assert "undetermined liveness" in proc.stdout
 
 
+@needs_jq
 def test_an_ABSENT_REGISTRY_is_unknown_and_not_clear() -> None:
     """The defect #1017 found by running the procedure #934 committed.
 
@@ -174,6 +190,7 @@ def test_an_ABSENT_REGISTRY_is_unknown_and_not_clear() -> None:
     assert "does not exist" in proc.stdout
 
 
+@needs_jq
 def test_RELEASED_and_STALE_roles_do_not_block_retirement() -> None:
     """The other direction, and the one that never resolves on its own.
 
@@ -187,6 +204,7 @@ def test_RELEASED_and_STALE_roles_do_not_block_retirement() -> None:
     assert proc.returncode == CLEAR, proc.stdout
 
 
+@needs_jq
 def test_the_clear_case_actually_MATCHED_roles_on_this_driver() -> None:
     """A green from a blind extractor and a green from a working one look
     identical, so the clear case above is only worth its verdict if the query
@@ -205,6 +223,7 @@ def test_the_clear_case_actually_MATCHED_roles_on_this_driver() -> None:
 # The blindnesses a text search could not reach.
 # --------------------------------------------------------------------------- #
 
+@needs_jq
 def test_registry_METADATA_does_not_kill_the_query() -> None:
     """`unregistered_claims` (#687) is an ARRAY sitting beside the role objects,
     and `merge_starvation` is emitted on every listing including an empty one.
@@ -221,6 +240,7 @@ def test_registry_METADATA_does_not_kill_the_query() -> None:
     assert "unparseable" not in proc.stdout, proc.stdout
 
 
+@needs_jq
 def test_an_UNRESOLVABLE_HELPER_is_unknown_and_not_clear() -> None:
     """A helper that is not installed produces no matching roles, which is
     indistinguishable from a clear wave.
@@ -237,6 +257,7 @@ def test_an_UNRESOLVABLE_HELPER_is_unknown_and_not_clear() -> None:
     assert "could not be resolved" in proc.stdout
 
 
+@needs_jq
 def test_a_registry_that_does_not_PARSE_is_unknown(tmp_path: Path) -> None:
     """A truncated or half-written registry is not an empty one."""
     (tmp_path / "registry.json").write_text("{ this is not json", encoding="utf-8")
@@ -245,6 +266,7 @@ def test_a_registry_that_does_not_PARSE_is_unknown(tmp_path: Path) -> None:
     assert proc.returncode == UNKNOWN, proc.stdout
 
 
+@needs_jq
 def test_a_registry_with_NO_WAVE_is_unknown(tmp_path: Path) -> None:
     """A parseable registry holding no wave is not a clear verdict: there is no
     population to have looked at, and the distinction between an empty answer
@@ -255,6 +277,7 @@ def test_a_registry_with_NO_WAVE_is_unknown(tmp_path: Path) -> None:
     assert proc.returncode == UNKNOWN, proc.stdout
 
 
+@needs_jq
 def test_WAVES_ARE_ENUMERATED_rather_than_supplied(tmp_path: Path) -> None:
     """The registry helper has no verb that lists waves, so #934's procedure was
     per-wave by construction and "a wave nobody thought to check" was a standing
@@ -287,6 +310,7 @@ def test_WAVES_ARE_ENUMERATED_rather_than_supplied(tmp_path: Path) -> None:
     assert _verdict(narrowed) == "clear", narrowed.stdout
 
 
+@needs_jq
 def test_the_DRIVER_is_matched_EXACTLY() -> None:
     """A substring scan counts `flow:auto_codex` when asked about `flow:auto`,
     and the fixtures carry both."""
@@ -295,6 +319,7 @@ def test_the_DRIVER_is_matched_EXACTLY() -> None:
     assert "matched=1" in proc.stdout, proc.stdout
 
 
+@needs_jq
 def test_a_LIVE_role_on_ANOTHER_DRIVER_does_not_block(tmp_path: Path) -> None:
     """The detector question in its second form: can a non-zero tell our thing
     from a neighbour's?
@@ -323,6 +348,7 @@ def test_a_LIVE_role_on_ANOTHER_DRIVER_does_not_block(tmp_path: Path) -> None:
     assert _verdict(other) == "blocked", other.stdout
 
 
+@needs_jq
 def test_NO_DRIVER_is_unknown_rather_than_a_verdict() -> None:
     """Nothing was examined, so there is nothing to report about."""
     proc = _run("--registry-dir", str(CASES / "good-released-and-stale"))
@@ -414,6 +440,7 @@ def test_the_CONTROL_CASES_are_present_and_tracked() -> None:
 # was reproduced on the pre-fix gate before the fix was written.
 # --------------------------------------------------------------------------- #
 
+@needs_jq
 def test_a_MISSPELT_WAVE_is_unknown_and_not_clear() -> None:
     """`--wave` recreated, through the narrowing flag, the very failure the gate
     exists to prevent.
@@ -434,6 +461,7 @@ def test_a_MISSPELT_WAVE_is_unknown_and_not_clear() -> None:
     assert _verdict(narrowed) == "blocked", narrowed.stdout
 
 
+@needs_jq
 def test_a_MISSING_liveness_key_does_not_authorise_retirement(tmp_path: Path) -> None:
     """Inactivity is a TERMINAL SET, never "not live".
 
@@ -449,6 +477,7 @@ def test_a_MISSING_liveness_key_does_not_authorise_retirement(tmp_path: Path) ->
     assert proc.returncode == UNKNOWN, proc.stdout
 
 
+@needs_jq
 def test_an_UNRECOGNISED_liveness_value_does_not_authorise_retirement(tmp_path: Path) -> None:
     """The same defect from the other side: a state this gate has never heard of.
 
@@ -463,6 +492,7 @@ def test_an_UNRECOGNISED_liveness_value_does_not_authorise_retirement(tmp_path: 
     assert proc.returncode == UNKNOWN, proc.stdout
 
 
+@needs_jq
 def test_a_VALID_PREFIX_followed_by_GARBAGE_is_unknown(tmp_path: Path) -> None:
     """A non-empty stdout is not evidence that the parse succeeded.
 
@@ -480,6 +510,7 @@ def test_a_VALID_PREFIX_followed_by_GARBAGE_is_unknown(tmp_path: Path) -> None:
     assert "unparseable" in proc.stdout
 
 
+@needs_jq
 def test_TWO_JSON_VALUES_do_not_clear_a_wave_holding_a_LIVE_role(tmp_path: Path) -> None:
     """A defect the FIX for the finding above introduced, found on the second
     review pass - and strictly worse than the blindness it was added to remove.
@@ -504,6 +535,7 @@ def test_TWO_JSON_VALUES_do_not_clear_a_wave_holding_a_LIVE_role(tmp_path: Path)
     assert "clear" not in proc.stdout, proc.stdout
 
 
+@needs_jq
 def test_a_NON_ARRAY_roster_is_unknown(tmp_path: Path) -> None:
     """`null` is a valid JSON value and not a roster.
 
@@ -522,6 +554,7 @@ def test_a_NON_ARRAY_roster_is_unknown(tmp_path: Path) -> None:
     assert proc.returncode == UNKNOWN, proc.stdout
 
 
+@needs_jq
 def test_an_UNREADABLE_WAVE_is_counted_apart_from_an_UNDETERMINED_ROLE(tmp_path: Path) -> None:
     """Both block, and they are not the same fact.
 
@@ -535,6 +568,7 @@ def test_an_UNREADABLE_WAVE_is_counted_apart_from_an_UNDETERMINED_ROLE(tmp_path:
     assert "1 wave(s) unreadable" in proc.stdout, proc.stdout
 
 
+@needs_jq
 def test_the_ANCHORS_blindness_does_not_depend_on_AMBIENT_HOST_STATE() -> None:
     """An anchor that can stop being blind without an edit is not an anchor.
 
@@ -597,6 +631,7 @@ def test_the_CONTROL_pins_the_CHECKOUT_helper() -> None:
     assert argv[argv.index("--helper") + 1] == "scripts/flow-wave-registry.sh"
 
 
+@needs_jq
 def test_the_PRODUCTION_resolution_order_still_falls_back_to_the_sibling(tmp_path: Path) -> None:
     """The property the pinning above removed from the control, asserted where
     it belongs: with no `--helper` and no installed copy, the gate finds the
