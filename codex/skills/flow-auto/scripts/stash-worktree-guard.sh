@@ -414,6 +414,11 @@ for _arg in "$@"; do
     esac
 done
 if [ -n "$_ACTION" ]; then
+    # Exit status on stderr so it survives `| tail` (issue #1031) - ADMIN LANE
+    # ONLY. The hook lane below runs on EVERY ref update, so a line there would
+    # print on every `git commit` and `git fetch` in every repository carrying
+    # the guard - a guard that makes ordinary git noisy is a guard people remove.
+    trap 'printf "STASH_GUARD_EXIT=%d\n" "$?" >&2' EXIT
     _run_admin "$_ACTION" "${_REPO:-.}" "$_QUIET"
     exit $?
 fi

@@ -22,6 +22,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.helper_exit_line import without_status
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -233,7 +235,7 @@ def test_guard_silent_when_main_clean(tmp_path: Path) -> None:
     _main, wt = _make_repo_with_worktree(tmp_path)
     res = _run(wt)
     assert res.returncode == 0
-    assert res.stdout == "" and res.stderr == ""
+    assert res.stdout == "" and without_status(res.stderr) == ""
 
 
 @requires_git
@@ -343,7 +345,7 @@ def test_guard_noop_in_main_checkout_even_when_dirty(tmp_path: Path) -> None:
     (main / "tracked.txt").write_text("dirty-but-intentional\n")
     res = _run(main, "--strict")
     assert res.returncode == 0
-    assert res.stderr == ""
+    assert without_status(res.stderr) == ""
 
 
 @requires_git
@@ -352,7 +354,7 @@ def test_guard_fail_open_outside_git_repo(tmp_path: Path) -> None:
     plain.mkdir()
     res = _run(plain, "--strict")
     assert res.returncode == 0
-    assert res.stderr == ""
+    assert without_status(res.stderr) == ""
 
 
 @requires_git

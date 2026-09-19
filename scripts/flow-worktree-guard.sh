@@ -79,6 +79,9 @@
 
 set -uo pipefail
 
+# Exit status on stderr, last thing written, so it survives `| tail` (issue #1031).
+trap 'printf "FLOW_WORKTREE_GUARD_EXIT=%d\n" "$?" >&2' EXIT
+
 GIT="${FLOW_WORKTREE_GIT:-git}"
 FRESH_MIN="${FLOW_LEAK_FRESH_MIN:-30}"
 

@@ -324,6 +324,9 @@
 
 set -uo pipefail
 
+# Exit status on stderr, last thing written, so it survives `| tail` (issue #1031).
+trap 'printf "GH_PR_MERGE_EXIT=%d\n" "$?" >&2' EXIT
+
 # Parse optional per-invocation flags from anywhere in the argv, keeping the two
 # positional args (pr-number, branch-name) backward-compatible for every caller.
 ADMIN_OPT_IN=0

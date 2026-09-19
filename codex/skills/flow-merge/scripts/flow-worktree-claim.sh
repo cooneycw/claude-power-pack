@@ -116,6 +116,9 @@
 
 set -uo pipefail
 
+# Exit status on stderr, last thing written, so it survives `| tail` (issue #1031).
+trap 'printf "FLOW_CLAIM_EXIT=%d\n" "$?" >&2' EXIT
+
 GIT="${FLOW_CLAIM_GIT:-git}"
 MAX_AGE_HOURS="${FLOW_CLAIM_MAX_AGE_HOURS:-24}"
 SELF_PID="${CLAUDE_PID:-$PPID}"

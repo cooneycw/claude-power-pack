@@ -255,6 +255,9 @@
 
 set -uo pipefail
 
+# Exit status on stderr, last thing written, so it survives `| tail` (issue #1031).
+trap 'printf "LANE_SERVE_EXIT=%d\n" "$?" >&2' EXIT
+
 ENDPOINT=""
 MODEL=""
 LANE="unknown"
@@ -521,7 +524,11 @@ REQUEST=$(printf '{"model":%s,"prompt":"hi","stream":false,"think":false,"option
     "$(printf '%s' "$MODEL" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))' 2>/dev/null || printf '"%s"' "$MODEL")")
 
 BODY_FILE=$(mktemp -t lane-serve-XXXXXX.json)
-trap 'rm -f "$BODY_FILE"' EXIT
+# CHAINED, NOT REPLACED (issue #1031): a bare `trap ... EXIT` here would
+# silently discard the LANE_SERVE_EXIT= line installed at the top of this file,
+# and nothing would report its absence. $? is captured FIRST, before the
+# cleanup runs, or the reported status becomes `rm`'s.
+trap '_rc=$?; rm -f "$BODY_FILE"; printf "LANE_SERVE_EXIT=%d\n" "$_rc" >&2' EXIT
 
 # -s so progress noise stays out of the contract; deliberately NOT -f, which
 # would discard the 500 body - and that body is the entire diagnosis.

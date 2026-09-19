@@ -14,6 +14,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.helper_exit_line import without_status
+
 ROOT = Path(__file__).resolve().parents[1]
 GUARD = ROOT / "scripts" / "check-ignored-additions.sh"
 
@@ -53,7 +55,7 @@ def test_clean_repo_is_silent(tmp_path: Path) -> None:
     result = _run(repo)
     assert result.returncode == 0
     assert result.stdout == ""
-    assert result.stderr == ""
+    assert without_status(result.stderr) == ""
 
 
 def test_warns_on_ignored_source_file(tmp_path: Path) -> None:
@@ -91,7 +93,7 @@ def test_ignores_venv_and_cache_noise(tmp_path: Path) -> None:
 
     result = _run(repo)
     assert result.returncode == 0
-    assert result.stderr == ""
+    assert without_status(result.stderr) == ""
 
 
 def test_negated_file_is_not_flagged(tmp_path: Path) -> None:
@@ -102,7 +104,7 @@ def test_negated_file_is_not_flagged(tmp_path: Path) -> None:
 
     result = _run(repo)
     assert result.returncode == 0
-    assert result.stderr == ""
+    assert without_status(result.stderr) == ""
 
 
 def test_intentional_ignore_is_silent(tmp_path: Path) -> None:
@@ -117,7 +119,7 @@ def test_intentional_ignore_is_silent(tmp_path: Path) -> None:
 
     result = _run(repo)
     assert result.returncode == 0
-    assert result.stderr == ""
+    assert without_status(result.stderr) == ""
 
 
 def test_unlisted_claude_file_still_warns(tmp_path: Path) -> None:
