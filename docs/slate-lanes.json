@@ -1,20 +1,26 @@
 {
   "lanes": {
-    "cpp-w1": [1092],
-    "cpp-w2": [1095],
+    "cpp-w1": [],
+    "cpp-w2": [],
     "cpp-w3": []
   },
   "buckets": {
-    "owner-decision": [1033],
+    "owner-decision": [],
     "blocked": [],
     "deferred": [],
-    "backlog": [864, 871, 921, 959, 962, 970, 972, 977, 1014, 1028, 1034, 1035, 1036, 1037, 1041, 1048, 1061, 1067, 1068, 1069, 1070, 1071, 1072, 1073, 1074, 1075, 1076, 1079, 1080, 1081, 1082, 1083, 1084, 1085]
+    "backlog": [864, 871, 921, 959, 962, 970, 972, 977, 1014, 1028, 1034, 1035, 1036, 1041, 1048, 1061, 1067, 1068, 1069, 1070, 1071, 1072, 1073, 1074, 1075, 1076, 1079, 1080, 1081, 1082, 1083, 1084, 1085, 1107]
   },
   "notes": {
     "1030": "Closed via PR #1100. Previously w3's lane (defect 3 only; items 1, 2, 4 shipped in PR #1097) - removed on closure, since a closed issue is no longer open and must not be claimed.",
-    "1033": "items 1, 2, 4 shipped in PR #1096; remaining item 3 was tracked at #1094, closed via PR #1102 (start-time witness fix). #1033 stays in owner-decision - whether #1033 itself closes is the owner's call, not the reconciler's.",
-    "1047": "Closed via PR #1103 (implementer derivation for the counter-model receipt). Dropped from cpp-w1's lane; #1092 assigned to cpp-w1 in its place (mailbox 1073).",
-    "1094": "Closed via PR #1102 (start-time witness for the pid-recycling identity gap). Dropped from cpp-w2's lane; #1095 assigned to cpp-w2 in its place (mailbox 1064).",
-    "1099": "Closed via PR #1101 - the slate reconciler's own issue, merged. Dropped from cpp-w1's lane (its first live post-merge run correctly reported this as PHANTOM before this update landed - see mailbox 1050/1051)."
+    "1033": "Closed by the owner at 20:28:55Z with a record comment naming all five deliveries. Removed from owner-decision on closure.",
+    "1034": "Assigned to cpp-w1 (mailbox 1090) then immediately retracted for operator wind-down before work started (mailbox 1091). Unclaimed, in backlog - never opened, never touched.",
+    "1037": "Closed via PR #1104 (Closes #1037) - main fast-forwarded to f174be0. Dropped from cpp-w3's lane.",
+    "1047": "Closed via PR #1103 (implementer derivation for the counter-model receipt). Dropped from cpp-w1's lane.",
+    "1092": "Closed via PR #1105 (scoped TestPsLaneArgvTruncation control to owned PIDs). Dropped from cpp-w1's lane.",
+    "1094": "Closed via PR #1102 (start-time witness for the pid-recycling identity gap). Dropped from cpp-w2's lane.",
+    "1095": "Closed via PR #1106. Dropped from cpp-w2's lane.",
+    "1099": "Closed via PR #1101 - the slate reconciler's own issue, merged. Dropped from cpp-w1's lane (its first live post-merge run correctly reported this as PHANTOM before this update landed - see mailbox 1050/1051).",
+    "1107": "New issue, filed 2026-09-19T20:19:45Z by cpp-w2 as a follow-up from the #1095 scope correction. In backlog, unclaimed, at group wind-down - not picked up before the group stopped.",
+    "wind-down": "All three worker lanes are present-and-empty (verified-empty, not absent) as of this commit - the group has stopped and no issue is assigned to any worker. This is the last update this run will make to this file."
   }
 }
