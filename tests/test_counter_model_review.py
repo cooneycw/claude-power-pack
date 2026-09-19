@@ -871,3 +871,96 @@ def test_adding_the_stage_LEFT_THE_ELI5_GATE_BYTE_IDENTICAL() -> None:
         "the ELI5 approval gate changed while adding the counter-model stage; "
         "this stage is additional, never a substitute for approval (#775)"
     )
+
+
+# ---------------------------------------------------------------------------
+# Issue #1030, defect 3: the receipt is written after the point the gate
+# requires it to be TRACKED. Nothing staged a fresh receipt between item 1d's
+# write and item 2's quality gates, so the first run to reach here always
+# failed test_every_COMMITTED_receipt_is_well_formed_AND_TRACKED on its first
+# attempt - an ordering defect, not a false green (the gate correctly
+# refused), but one that cost a wasted full gate run every single time.
+# ---------------------------------------------------------------------------
+
+
+def test_the_receipt_is_staged_before_the_quality_gates_run() -> None:
+    text = _auto()
+    step6 = text.split("### Step 6:", 1)[1].split("### Step 6b:", 1)[0]
+    write_call = step6.index('python3 "$CM_RECEIPT" write')
+    gates = step6.index("**Quality gates**")
+    assert write_call < gates, "the write call moved outside Step 6 as expected"
+    stage = step6.find("git add", write_call)
+    assert stage != -1 and stage < gates, (
+        "the receipt write is not followed by a `git add` staging step before "
+        "the quality gates run, so a fresh receipt fails the tracked-receipt "
+        "test on the gate's first attempt (issue #1030)"
+    )
+    assert "docs/measurements/counter-model" in step6[stage : stage + 200], (
+        "the staging step does not target the receipts directory"
+    )
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="requires git")
+def test_the_published_staging_command_actually_tracks_a_fresh_receipt(
+    tmp_path: Path,
+) -> None:
+    """Executes the PUBLISHED command, not a paraphrase of it.
+
+    RED (implicit): before issue #1030's fix, there was no such command to
+    extract at all - this test could not have existed against the pre-fix
+    document. GREEN: build a repo with the same `.gitignore` negation rule
+    the real repo carries for this directory (issue #934), write an untracked
+    receipt exactly as `counter-model-receipt.py write` would, run the
+    extracted command, and confirm `git ls-files` now lists it.
+    """
+    import re
+
+    text = _auto()
+    step6 = text.split("### Step 6:", 1)[1].split("### Step 6b:", 1)[0]
+    anchor = step6.index("Stage the receipt immediately")
+    match = re.search(r"```bash\n(.*?)```", step6[anchor:], re.S)
+    assert match, "no fenced bash block found after the staging instruction"
+    stage_command = match.group(1).strip()
+    assert stage_command.startswith("git add"), (
+        f"unexpected staging command extracted: {stage_command!r}"
+    )
+
+    def git(*args: str, cwd: Path) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["git", *args], cwd=cwd, capture_output=True, text=True,
+            # negative-fixture: allow PATH is isolation, not an absence
+            env={"HOME": str(tmp_path), "PATH": "/usr/bin:/bin",
+                 "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@x",
+                 "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@x"},
+        )
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    assert git("init", "-q", "-b", "main", cwd=repo).returncode == 0
+    (repo / ".gitignore").write_text(
+        "*.json\n!docs/measurements/counter-model/*.json\n", encoding="utf-8"
+    )
+    receipts_dir = repo / "docs" / "measurements" / "counter-model"
+    receipts_dir.mkdir(parents=True)
+    git("add", "-A", cwd=repo)
+    git("commit", "-qm", "base", cwd=repo)
+
+    # A fresh, UNTRACKED receipt - exactly the state right after cmd_write().
+    (receipts_dir / "2026-01-01T000000Z-issue-9999.json").write_text(
+        "{}\n", encoding="utf-8"
+    )
+
+    proc = subprocess.run(
+        ["bash", "-c", stage_command],
+        cwd=repo, capture_output=True, text=True,
+        # negative-fixture: allow PATH is isolation, not an absence
+        env={"HOME": str(tmp_path), "PATH": "/usr/bin:/bin",
+             "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@x",
+             "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@x"},
+    )
+    assert proc.returncode == 0, proc.stderr
+
+    tracked = git("ls-files", "--", "docs/measurements/counter-model", cwd=repo).stdout
+    assert "2026-01-01T000000Z-issue-9999.json" in tracked, (
+        f"the published command did not track the fresh receipt:\n{tracked}"
+    )
