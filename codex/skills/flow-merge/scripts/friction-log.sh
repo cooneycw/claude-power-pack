@@ -55,6 +55,9 @@
 # Deliberately NO `set -e`: fail-open means we swallow errors and exit 0.
 set -u 2>/dev/null || true
 
+# Exit status on stderr, last thing written, so it survives `| tail` (issue #1031).
+trap 'printf "FRICTION_LOG_EXIT=%d\n" "$?" >&2' EXIT
+
 CLASS=""
 SIGNAL=""
 FIX=""

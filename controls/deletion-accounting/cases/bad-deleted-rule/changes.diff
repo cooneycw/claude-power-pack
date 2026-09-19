@@ -1,0 +1,11 @@
+diff --git a/rule.md b/rule.md
+index ef44730..1d4cf3a 100644
+--- a/rule.md
++++ b/rule.md
+@@ -4,6 +4,4 @@ title: Rule
+ 
+ # Rule
+ 
+----
+-
+ After the thematic break.

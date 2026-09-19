@@ -42,6 +42,7 @@ these rules remain in [commands-reference.md](docs/commands-reference.md) and
 - `docs/agents/glossary.md` - defined terms: instrument (with the ADR 0008 bound), harness, counter-model.
 - `docs/agents/closing-report-contract.md` - canonical closing-report contract: owner TO-DO first, then plain language, then evidence.
 - `docs/agents/shared-stash-stack.md` - why a worktree shares one stash stack, the safe alternatives, and what `stash-worktree-guard.sh` does and cannot do.
+- `docs/agents/evidence-deleting-idioms.md` - the git and shell idioms that remove the diagnostic and keep the success line: the pinned base, deletion accounting before a push, `$?` after a pipe, and which distinction a tidying flag deletes.
 - `ISSUE_DRIVEN_DEVELOPMENT.md` - issue-driven development source.
 - `PROGRESSIVE_DISCLOSURE_GUIDE.md` - context-loading guidance.
 - `MCP_TOKEN_AUDIT_CHECKLIST.md` - MCP context-efficiency checklist.

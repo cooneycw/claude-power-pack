@@ -34,6 +34,9 @@
 
 set -euo pipefail
 
+# Exit status on stderr, last thing written, so it survives `| tail` (issue #1031).
+trap 'printf "CHECK_IGNORED_ADDITIONS_EXIT=%d\n" "$?" >&2' EXIT
+
 STRICT=0
 for arg in "$@"; do
   case "$arg" in

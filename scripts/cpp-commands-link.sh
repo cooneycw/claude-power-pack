@@ -66,6 +66,9 @@
 
 set -uo pipefail
 
+# Exit status on stderr, last thing written, so it survives `| tail` (issue #1031).
+trap 'printf "CPP_COMMANDS_LINK_EXIT=%d\n" "$?" >&2' EXIT
+
 MODE="install"
 SOURCE_OVERRIDE=""
 

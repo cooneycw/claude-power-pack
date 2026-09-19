@@ -50,6 +50,9 @@
 
 set -euo pipefail
 
+# Exit status on stderr, last thing written, so it survives `| tail` (issue #1031).
+trap 'printf "WORKTREE_REMOVE_EXIT=%d\n" "$?" >&2' EXIT
+
 # Colors
 RED='\033[0;31m'
 YELLOW='\033[1;33m'
