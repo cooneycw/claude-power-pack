@@ -1,0 +1,19 @@
+{
+  "branch": "issue-1056-git-stash-s-shared-stack-bit-again-through-cpp-upd",
+  "counts": {
+    "accepted": 8,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "implementer": "claude/opus-5",
+  "issue": "1056",
+  "passes": 2,
+  "recorded_at": "2026-09-19T12:17:36Z",
+  "red_cases": {
+    "already_covered": 6,
+    "proposed": 13
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}
