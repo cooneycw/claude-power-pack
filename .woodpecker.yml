@@ -140,6 +140,27 @@ steps:
     commands:
       - python3 scripts/instrument-census-check.py
 
+  # The Codex-consolidation ledger's completeness (issue #1068). Its own line
+  # because the diagnosis is unlike any gate above it: not "a check failed" but
+  # "an obligation of the retiring repository is accounted for nowhere". The
+  # children that read the ledger do not re-derive it, so an omission here is
+  # not caught later - it is caught never, and the capability is simply gone at
+  # archive time.
+  #
+  # Compares against a COMMITTED snapshot rather than querying GitHub, so it is
+  # stdlib-only, offline and git-free and runs directly under the slim image.
+  # That also means it is deliberately blind to issues opened after the
+  # baseline; `--refresh` on a networked host is what moves the baseline, and a
+  # refresh that adds a number is expected to turn this red. Same command
+  # `make consolidation-ledger-check` wraps. Its ability to FAIL is proven
+  # separately by controls/ledger-completeness, which the `negative-controls`
+  # step and the `validate` pytest run both drive.
+  consolidation-ledger-check:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
+    depends_on: [secret-scan]
+    commands:
+      - python3 scripts/check-consolidation-ledger.py
+
   # Dependency vulnerability audit (issue #961). CPP ran none: both sets of
   # advisories it carried were found by a person looking - #922 on the root lock,
   # #943 on mcp-evaluate - and the only variable was whether anyone was looking

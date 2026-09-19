@@ -1,0 +1,19 @@
+{
+  "branch": "issue-1068-codex-consolidation-establish-the-migration-spec-c",
+  "counts": {
+    "accepted": 6,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "implementer": "claude/opus-5",
+  "issue": "1068",
+  "passes": 1,
+  "recorded_at": "2026-09-19T15:34:19Z",
+  "red_cases": {
+    "already_covered": 1,
+    "proposed": 3
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}

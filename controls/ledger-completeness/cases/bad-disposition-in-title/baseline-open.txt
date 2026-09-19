@@ -1,0 +1,5 @@
+# Snapshot fixture: three open CxPP entries.
+# Captured the same way the real snapshot is - from GitHub, never from a ledger.
+189
+227
+239
