@@ -12,7 +12,8 @@
        claude-md-links-check claude-md-behavior-check skills-check \
        install-drift-check install-drift-list \
        tools-version-check toolchain-provenance checkout-readers \
-       delegated-core-check delegated-core-write
+       delegated-core-check delegated-core-write \
+       version-consistency-check unicode-dashes-check co-authored-by-trailer-check
 
 ## `make` with no target ran `lint` because lint was the first target. Adding
 ## tools-check above it silently made THAT the default - bare `make` would print
@@ -284,7 +285,8 @@ verify: tools-check lint test typecheck shellcheck oscillation \
 	claude-md-budget-check claude-md-links-check claude-md-behavior-check \
 	project-next-check delegated-core-check \
 	scripts-inventory-check instrument-census-check \
-	consolidation-ledger-check
+	consolidation-ledger-check \
+	version-consistency-check unicode-dashes-check co-authored-by-trailer-check
 
 ## Vendored delegated-driver core (issue #1011)
 ## `/codex:auto`, `/qwen:auto` and `/gemma:auto` describe ONE lifecycle, rendered
@@ -371,6 +373,15 @@ claude-md-budget-check:
 
 claude-md-links-check:
 	@python3 scripts/check-claude-md-links.py
+
+version-consistency-check:
+	@python3 scripts/check-version-consistency.py
+
+unicode-dashes-check:
+	@python3 scripts/check-unicode-dashes.py
+
+co-authored-by-trailer-check:
+	@python3 scripts/check-co-authored-by-trailer.py
 
 claude-md-behavior-check:
 	@python3 scripts/check-claude-md-behavior.py

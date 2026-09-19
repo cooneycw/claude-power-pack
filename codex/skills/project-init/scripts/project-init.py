@@ -77,10 +77,13 @@ INTERROGATIVE_LEAD_WORDS = frozenset(
     {"who", "what", "where", "when", "why", "how", "is", "does", "should", "can"}
 )
 
-INITIAL_COMMIT_MESSAGE = (
-    "Initial project scaffold\n\n"
-    "Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
-)
+#: No `Co-Authored-By:` trailer: this deterministic script has no way to know
+#: which assistant model is running the session that invoked it, and a
+#: hardcoded model+version literal here goes stale every time the model
+#: changes without anything to catch it - this constant was itself found
+#: still naming "Claude Opus 4.6" as an executed commit message, not merely
+#: unenforced prose, during issue #1037.
+INITIAL_COMMIT_MESSAGE = "Initial project scaffold"
 
 USAGE = """usage: project-init.py --project-name NAME --framework FRAMEWORK --target-dir PATH [options]
   --module-path PATH       required for Go projects

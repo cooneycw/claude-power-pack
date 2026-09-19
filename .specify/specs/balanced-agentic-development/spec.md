@@ -198,7 +198,7 @@ execution guidance.
 
 **Acceptance Criteria:**
 - [ ] `CLAUDE.md` contains repository identity, safety constraints, source-of-truth
-      pointers, verification commands, and workflow routing—not command histories
+      pointers, verification commands, and workflow routing - not command histories
       or duplicated manuals.
 - [ ] Detailed state machines remain in the skill or reference that owns them.
 - [ ] An automated budget and reference check prevents persistent context from

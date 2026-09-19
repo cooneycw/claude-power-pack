@@ -29,8 +29,8 @@
 Before proceeding, verify alignment with your project constitution.
 Replace the placeholders below with your project's actual principles:
 
-- [ ] **P1:** {First principle — does this change align?}
-- [ ] **P2:** {Second principle — does this change align?}
+- [ ] **P1:** {First principle - does this change align?}
+- [ ] **P2:** {Second principle - does this change align?}
 - [ ] **Proportional response:** Is this the lightest process that fits?
 
 ---
