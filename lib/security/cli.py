@@ -68,7 +68,17 @@ def cmd_explain(args: argparse.Namespace) -> int:
 
 
 def cmd_gate(args: argparse.Namespace) -> int:
-    """Check if scan results pass a flow gate."""
+    """Check if scan results pass a flow gate.
+
+    Prints ONE terminal summary line on every exit path (issue #1027, part of
+    the same class as flow-finish-gate's ok/warn/skipped confusion): a passing
+    run with WARN-level findings used to print nothing but the WARNING lines
+    themselves - no verdict, no threshold, no counts - so `... | tail -20`
+    rendered a passing gate as an unbroken wall of warnings indistinguishable
+    from a failing one missing its last line. The summary line is unconditional
+    and always the same shape, so pass and fail differ by a line that SAYS
+    which happened rather than one that has to be counted.
+    """
     config = SecurityConfig.load(args.path)
     result = scan_quick(args.path, config)
     passed, messages = check_gate(result, args.gate_name, config)
@@ -76,9 +86,24 @@ def cmd_gate(args: argparse.Namespace) -> int:
     for msg in messages:
         print(msg)
 
+    blocked_count = sum(1 for m in messages if m.startswith("BLOCKED"))
+    warned_count = sum(1 for m in messages if m.startswith("WARNING"))
+
+    gate = config.gates.get(args.gate_name)
+    if gate is not None:
+        blocks_on = ",".join(s.name for s in gate.block_on) or "none"
+        warns_on = ",".join(s.name for s in gate.warn_on) or "none"
+        threshold = f"blocks-on={blocks_on} warns-on={warns_on}"
+    else:
+        threshold = "no policy for this gate name - nothing blocks or warns"
+
+    verdict = "PASS" if passed else "FAIL"
+    print(
+        f"SECURITY_GATE: {args.gate_name} {verdict} "
+        f"(blocked={blocked_count} warned={warned_count}; {threshold})"
+    )
+
     if passed:
-        if not messages:
-            print("Security gate passed.")
         return 0
     else:
         print(f"\nSecurity gate '{args.gate_name}' FAILED. Fix critical issues before proceeding.")

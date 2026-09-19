@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import os
 import shutil
 import stat
@@ -10,6 +11,7 @@ from pathlib import Path
 
 import pytest
 
+from lib.security import cli
 from lib.security.config import SecurityConfig
 from lib.security.models import Finding, ScanResult, Severity, Suppression
 from lib.security.modules import debug_flags, gitignore, permissions, secrets
@@ -314,6 +316,71 @@ class TestCheckGate:
         config = SecurityConfig._defaults()
         passed, _ = check_gate(result, "nonexistent_gate", config)
         assert passed is True
+
+
+class TestCmdGate:
+    """`python -m lib.security gate` must print a verdict on EVERY exit path
+    (issue #1027 - the same class as flow-finish-gate's ok/warn/skipped
+    confusion, one repo layer down).
+
+    Before this: a PASSING gate with WARN-level findings printed nothing but
+    the WARNING lines themselves - no verdict, no threshold, no counts. A
+    measured example from the issue: 22 lines, every one `WARNING: HIGH: ...`,
+    and `... | tail -20` rendered it indistinguishable from a gate one line
+    short of a real failure. `cmd_gate` always re-scans `args.path` from disk
+    (it has no way to accept a pre-built `ScanResult`), so these monkeypatch
+    `scan_quick` at the CLI module boundary rather than driving real scanners.
+    """
+
+    @staticmethod
+    def _args(gate_name: str = "flow_finish", path: str = ".") -> argparse.Namespace:
+        return argparse.Namespace(gate_name=gate_name, path=path)
+
+    def test_passing_gate_with_warnings_prints_verdict_threshold_and_counts(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        result = ScanResult(findings=[
+            Finding(id="A", severity=Severity.HIGH, title="High issue"),
+        ])
+        monkeypatch.setattr(cli, "scan_quick", lambda path, config: result)
+
+        exit_code = cli.cmd_gate(self._args())
+
+        out = capsys.readouterr().out
+        assert exit_code == 0
+        assert "WARNING" in out
+        assert "SECURITY_GATE: flow_finish PASS (blocked=0 warned=1;" in out
+        assert "blocks-on=CRITICAL warns-on=HIGH" in out
+
+    def test_failing_gate_prints_verdict_too(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        result = ScanResult(findings=[
+            Finding(id="A", severity=Severity.CRITICAL, title="Critical issue"),
+        ])
+        monkeypatch.setattr(cli, "scan_quick", lambda path, config: result)
+
+        exit_code = cli.cmd_gate(self._args())
+
+        out = capsys.readouterr().out
+        assert exit_code == 1
+        assert "SECURITY_GATE: flow_finish FAIL (blocked=1 warned=0;" in out
+        assert "FAILED" in out
+
+    def test_clean_gate_prints_the_verdict_line_too(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A gate with NOTHING to report must still print the summary line -
+        the pre-fix code only did this by coincidence, when `messages` was
+        empty; this asserts it as its own property so it cannot regress
+        independently of the warnings case above."""
+        monkeypatch.setattr(cli, "scan_quick", lambda path, config: ScanResult())
+
+        exit_code = cli.cmd_gate(self._args())
+
+        out = capsys.readouterr().out
+        assert exit_code == 0
+        assert "SECURITY_GATE: flow_finish PASS (blocked=0 warned=0;" in out
 
 
 class TestApplySuppressions:
