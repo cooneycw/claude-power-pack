@@ -1050,7 +1050,9 @@ git merge --no-edit origin/main
 3. **Commit** - if there are uncommitted changes:
    - Conventional commit format, using the selected reference:
      `type(scope): Description (${ISSUE_REF})`
-   - Include `Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>`
+   - Include a `Co-Authored-By: <name> <noreply@anthropic.com>` trailer naming
+     the current session's own assistant model - never a literal copied from
+     this document (issue #1037)
    - **An already-clean tree here is a LEGITIMATE state, not a failure** (issue
      #635): when the stale-base merge above ran, the Step-4 work is already on
      the branch in the `wip(flow): pre-merge snapshot` commit. Skip this commit

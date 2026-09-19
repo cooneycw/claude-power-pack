@@ -19,7 +19,7 @@ helpers own deterministic behavior.
 - A pattern-matching fixture must not interpolate an absolute path it does not control; use a fixture-owned relative value and assert the intended classification.
 - After any fix, verify through the full pipeline with `make verify`.
 - Use `/cpp:dockers` for container status, health, and project linkages.
-- Use single dashes (-), never Unicode em or en dashes, in markdown, comments, and documentation.
+- Use single dashes (-), never Unicode em or en dashes, in markdown, comments, and documentation. Enforced for tracked `.md` files by `scripts/check-unicode-dashes.py` (`make verify`); comments and other non-markdown source are advisory only pending broader tooling (Nit Store #864).
 - Never wrap a read-only command in `cd X && ...`; use `git -C`, an absolute path, or the tool's path argument.
 - Resolve edit paths from `git rev-parse --show-toplevel`; never hand-build an absolute worktree path (#486).
 - In shared checkouts, characterize branch content with ref-scoped reads only; never substitute a working-tree read or cwd-relative pathspec for a branch measurement.
@@ -39,6 +39,7 @@ these rules remain in [commands-reference.md](docs/commands-reference.md) and
 - `docs/agents/issue-contract.md` - canonical issue contract and proportional spec routing.
 - `docs/agents/detector-contracts.md` - canonical detector-claim contract and its instance index.
 - `docs/agents/knowledge-lifecycle.md` - canonical completed-spec graduation policy.
+- `docs/agents/delivery-pilots.md` - maintained report on what the balanced-delivery wave observed: evidence classes, what each does not establish, and the wave's own approval/duplication/requirement failures.
 - `docs/agents/glossary.md` - defined terms: instrument (with the ADR 0008 bound), harness, counter-model.
 - `docs/agents/closing-report-contract.md` - canonical closing-report contract: owner TO-DO first, then plain language, then evidence.
 - `docs/agents/shared-stash-stack.md` - why a worktree shares one stash stack, the safe alternatives, and what `stash-worktree-guard.sh` does and cannot do.
@@ -164,4 +165,4 @@ arguments, or logs.
 
 ## Version
 
-Current version: 7.5.0
+Current version: 8.0.0

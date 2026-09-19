@@ -300,7 +300,7 @@ discipline; on exit 127 skip it):
 - If there are uncommitted changes, help the user commit them using standard git commit workflow.
 - Conventional commit format, using the selected reference:
   `type(scope): Description (${ISSUE_REF})`
-- Include `Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>` if Claude helped write the code.
+- Include a `Co-Authored-By: <name> <noreply@anthropic.com>` trailer naming the current session's own assistant model if Claude helped write the code - never a literal copied from this document (issue #1037).
 - **An already-clean tree here is a LEGITIMATE state, not a failure** (issue
   #635): when the Step-1 stale-base merge ran, the work is already on the
   branch in the `wip(flow): pre-merge snapshot` commit. Skip cleanly and leave

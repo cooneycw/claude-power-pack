@@ -353,7 +353,7 @@ Optional longer description explaining the change.
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 
-Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>
+Co-Authored-By: <current session's own assistant model> <noreply@anthropic.com>
 ```
 
 ### Types
@@ -394,7 +394,7 @@ Implements database persistence for player landing data.
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 
-Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>
+Co-Authored-By: <current session's own assistant model> <noreply@anthropic.com>
 EOF
 )"
 ```
@@ -723,7 +723,7 @@ type(scope): Description (Closes #N)
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 
-Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>
+Co-Authored-By: <current session's own assistant model> <noreply@anthropic.com>
 ```
 
 ---
@@ -738,7 +738,7 @@ Not every issue needs the full ceremony. Match process weight to change scope:
 | **Tier 2 (Considered)** | 4-10 files, new model/endpoint | Branch → ELI5+approval → implement+test → PR. |
 | **Tier 3 (Architectural)** | New subsystem, security boundary, multi-issue | Full .specify/ pipeline → ELI5 → implement → PR. |
 
-Default to Tier 1. Escalate only when analysis shows the need — the cost of
+Default to Tier 1. Escalate only when analysis shows the need - the cost of
 governance process must not exceed the cost of the change it governs. The full
 spec→plan→tasks pipeline described in this guide is Tier 3; most day-to-day
 issues ship through `/flow:auto` at Tier 1 or 2.

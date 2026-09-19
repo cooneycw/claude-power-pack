@@ -888,7 +888,10 @@ fi
    actually in play rather than assuming a rewrite is needed. A delegated run that delivered part of
    the work is still mergeable; it just must not close the promise. The canonical rule
    is docs/agents/issue-contract.md.
-   - Include `Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>`
+   - Include a `Co-Authored-By: <name> <noreply@anthropic.com>` trailer naming
+     the current session's own assistant model - never copy a model+version
+     literal from this document, which goes stale every time the assistant
+     model changes and was already wrong in 8 places at once (issue #1037)
    - Note the Qwen model tag as implementer in the commit body
      (e.g., `Implemented-By: qwen3.8-code:latest via Qwen Code CLI (headless)`)
 

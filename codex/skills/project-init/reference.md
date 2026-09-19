@@ -288,8 +288,10 @@ fi
 git add .
 git commit -m "Initial project scaffold
 
-Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
+Co-Authored-By: <name> <noreply@anthropic.com>"
 ```
+
+Replace `<name>` with the current session's own assistant model - never a literal copied from this document (issue #1037).
 
 Ask the user about repository visibility using `AskUserQuestion`:
 
@@ -596,7 +598,9 @@ git diff --cached --stat
 # Commit the CPP setup
 git commit -m "chore: add CPP setup, Makefile, and spec structure
 
-Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
+Co-Authored-By: <name> <noreply@anthropic.com>"
+# Replace <name> with the current session's own assistant model - never a
+# literal copied from this document (issue #1037).
 
 # Push
 git push origin main

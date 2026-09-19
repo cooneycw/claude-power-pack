@@ -8,7 +8,7 @@
 
 ## o3 (o3)
 
-# Claude Power Pack – CI/CD Reliability Upgrade  
+# Claude Power Pack - CI/CD Reliability Upgrade  
 _Senior-engineer second opinion_
 
 ---
@@ -284,10 +284,10 @@ Pros:
 
 Migration path:
 
-1. Release `0.10` – Pydantic validation only when `.claude/enable_strict = true`.
+1. Release `0.10` - Pydantic validation only when `.claude/enable_strict = true`.
 2. Gather telemetry.  
-3. `0.11` – warn on invalid keys.  
-4. `1.0` – strict by default, opt-out file.
+3. `0.11` - warn on invalid keys.  
+4. `1.0` - strict by default, opt-out file.
 
 Code snippet:
 
@@ -303,7 +303,7 @@ Effort: 0.5 day.
 
 ---
 
-### 2.5 Drift detection – `cpp sync`
+### 2.5 Drift detection - `cpp sync`
 
 Location: `lib/cicd/cli.py`
 
@@ -323,7 +323,7 @@ def sync(all_repos: Annotated[bool, typer.Option("--all")] = False):
             util.create_branch(repo, branch)
             util.apply_patch(repo, diff)
             util.push_branch(repo, branch)
-            util.create_pr(repo, branch, "CPP Sync – automated drift fix")
+            util.create_pr(repo, branch, "CPP Sync - automated drift fix")
 ```
 
 Runs in Woodpecker nightly cron or `flow:auto`. Uses GitHub API token from existing secrets store.
@@ -390,19 +390,19 @@ Effort: 0.5 day each (2 days total).
 ## 3. Alternative approaches
 
 1. Keep prompt-only but introduce “prompt checkpoints”  
-   + zero new tooling, – still stochastic.
+   + zero new tooling, - still stochastic.
 
 2. Use GitHub Actions Matrix instead of Woodpecker  
-   + ecosystem size, – on-prem docker-socket harder.
+   + ecosystem size, - on-prem docker-socket harder.
 
 3. Bazel build system replacing Makefiles  
-   + hermetic builds, – steep learning curve.
+   + hermetic builds, - steep learning curve.
 
 4. Kubernetes+ArgoCD GitOps deploy instead of custom strategies  
-   + best-in-class drift management, – infra heavy.
+   + best-in-class drift management, - infra heavy.
 
 5. Rewrite in Go for single static binary  
-   + distribution, – Python lib reuse lost.
+   + distribution, - Python lib reuse lost.
 
 ---
 
@@ -470,7 +470,7 @@ Add:
 
 ## 10. Documentation & readability
 
-• `docs/runner.md` – end-to-end example  
+• `docs/runner.md` - end-to-end example  
 • Auto-generated HTML from docstrings via `mkdocs-material`  
 • Sphinx type hints + MyPy passes as doc tests.  
 • Changelog in Keep-a-Changelog format.
@@ -484,7 +484,7 @@ Add:
 3. Week 3: schema validation opt-in, drift sync command.  
 4. Week 4: enforce new runner on `main`, deprecate prompt-state logic.
 
-Total engineering effort: ≈ 8–10 days for 1 senior + 1 junior.
+Total engineering effort: ≈ 8-10 days for 1 senior + 1 junior.
 
 ---
 
@@ -496,7 +496,7 @@ Justification: proposed designs follow well-known patterns, fit current codebase
 
 ---
 
-Feel free to copy-paste the class skeletons—each file is deliberately self-contained and ready for PR.
+Feel free to copy-paste the class skeletons - each file is deliberately self-contained and ready for PR.
 
 ---
 
@@ -614,9 +614,9 @@ python -m lib.cicd.runner --flow finish
 
 **Migration Path:**  
 - Ship runner side-by-side with existing prompt-based flows.  
-- Encourage new flows to call runner; deprecate pure-LLM flows over 2–3 sprints.
+- Encourage new flows to call runner; deprecate pure-LLM flows over 2-3 sprints.
 
-**Effort:** 3–5 days to implement core runner + step library.
+**Effort:** 3-5 days to implement core runner + step library.
 
 ---
 
@@ -677,7 +677,7 @@ runner.run()
 - Support legacy `cicd.yml` & merge tasks from Makefile introspection if manifest absent.  
 - After 2 sprints, require `cicd_tasks.yml` for advanced flows.
 
-**Effort:** 2–3 days for schema + loader + CLI support.
+**Effort:** 2-3 days for schema + loader + CLI support.
 
 ---
 
@@ -795,7 +795,7 @@ def sync_repo(path):
 4. **Tailscale ACL**  
    - Run `tailscale up --authkey=${TS_KEY} --acl=ci-acl.json` in CI container.
 
-**Effort:** 2–3 days for template + documentation.
+**Effort:** 2-3 days for template + documentation.
 
 ---
 
@@ -867,8 +867,8 @@ Trade-offs: Balanced determinism vs. velocity and infra overhead.
 ## 12. Confidence Level
 
 75%.  
-– Runner and manifest patterns are proven, but actual integration with Claude Code prompts may require minor adjustments.  
-– Woodpecker tweaks rely on available plugins and may need CI environment tweaks.
+- Runner and manifest patterns are proven, but actual integration with Claude Code prompts may require minor adjustments.  
+- Woodpecker tweaks rely on available plugins and may need CI environment tweaks.
 
 ---
 
@@ -1216,7 +1216,7 @@ This architecture directly addresses the known limitations of LLM-driven orchest
 
 ## GPT-5.3 Codex (gpt-5.3-codex)
 
-# CPP CI/CD Reliability — Concrete Implementation Plan (Second Opinion)
+# CPP CI/CD Reliability - Concrete Implementation Plan (Second Opinion)
 
 You’re at the point where **architecture needs to move from “LLM-orchestrated intent” to “code-orchestrated execution.”** Keep prompts as UX, but make Python the state machine.
 
@@ -1239,7 +1239,7 @@ You’re at the point where **architecture needs to move from “LLM-orchestrate
 Current flows are markdown interpreted by LLM, so state transitions are probabilistic. Failures are ambiguous; retry/resume semantics are undefined; no canonical execution log.
 
 ## Severity
-**Critical** — orchestration nondeterminism is the top reliability risk.
+**Critical** - orchestration nondeterminism is the top reliability risk.
 
 ## Target design
 
@@ -1341,7 +1341,7 @@ LLM still user-facing, but does not decide execution order.
 - Phase 2: flow prompts call runner always.
 - Phase 3: disable direct prompt orchestration by policy flag.
 
-**Effort:** 3–5 days initial, +2 days hardening.
+**Effort:** 3-5 days initial, +2 days hardening.
 
 ---
 
@@ -1402,14 +1402,14 @@ readiness:
 - load+validate manifest → compile `ExecutionPlan` DAG.
 - enforce `depends_on`, policies, artifact availability.
 
-**Effort:** 2–3 days schema+loader+docs.
+**Effort:** 2-3 days schema+loader+docs.
 
 ---
 
 ## 3) Deployment Strategy Patterns
 
 ## Severity
-**Critical/High** — no rollout/readiness/rollback makes deploy brittle.
+**Critical/High** - no rollout/readiness/rollback makes deploy brittle.
 
 ### Protocol
 ```python
@@ -1439,7 +1439,7 @@ class ReadinessPolicy:
 ```
 Poll until `success_threshold` consecutive successes or timeout. Store probe history in run state.
 
-**Effort:** 3–6 days depending on AWS breadth.
+**Effort:** 3-6 days depending on AWS breadth.
 
 ---
 
@@ -1458,14 +1458,14 @@ Why:
 - CLI command: `python -m lib.cicd validate --fix-suggestions`.
 - After 2 releases, enforce strict by default.
 
-**Effort:** 1–2 days initial + 1 day compatibility shims.
+**Effort:** 1-2 days initial + 1 day compatibility shims.
 
 ---
 
 ## 5) Drift Detection (`cpp sync`)
 
 ## Severity
-**Medium-High** — config drift silently reduces guarantees.
+**Medium-High** - config drift silently reduces guarantees.
 
 ### Command behavior
 `cpp sync [--org ORG] [--repo REPO] [--all] [--create-pr]`
@@ -1485,7 +1485,7 @@ Multi-repo:
 - Read list from `.claude/sync_repos.yml` or GitHub org query.
 - Parallelize with bounded workers.
 
-**Effort:** 3–4 days single repo; +2–3 days multi-repo PR automation.
+**Effort:** 3-4 days single repo; +2-3 days multi-repo PR automation.
 
 ---
 
@@ -1515,7 +1515,7 @@ Automate refresh via scheduled `cpp sync`.
 - ACL allow only MCP host ports and required SSH targets.
 - Block lateral movement to non-deploy infra.
 
-**Effort:** 1–2 days.
+**Effort:** 1-2 days.
 
 ---
 
