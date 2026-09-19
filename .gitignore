@@ -94,6 +94,24 @@ desktop.ini
 # passing on every dev box. The `**` is load-bearing - a case tree nests as deep
 # as the repository it models. Same trap as #964/#953, third location.
 !controls/*/cases/**/*.json
+# Negative-control ANCHOR data that is itself JSON (issue #1017) - tracked
+# despite *.json above, and it is the FOURTH location of this same trap after
+# #964, #953 and #1012. An anchor is a program that must MISS the known-bad
+# input, and one whose blindness depends on a file that is absent in a clean
+# clone is not blind on purpose - it is blind by accident, and the accident is
+# reversible without an edit. `controls/flow-driver-retirement-check` pins its
+# reconstructed wrong-object roster here precisely so the anchor's verdict stops
+# depending on ambient host state; untracked, it would depend on a clean clone
+# instead, which is the same defect wearing the opposite clothes.
+#
+# NAMED, NOT GLOBBED, and the first cut got this wrong. `!controls/*/anchors/**/*.json`
+# re-included every JSON in every anchors directory, which
+# tests/test_vendor_module.py::test_the_control_case_json_negation_does_not_leak_past_controls
+# caught by name - "the negation is a hole, not a hole-saw". The `*` on the
+# CONTROL name follows `!controls/*/control.json` above and covers the next
+# consumer; the FILE is named because the next anchor fixture earns its own
+# line rather than widening this one.
+!controls/*/anchors/wrong-object-roster.json
 # Counter-model review receipts (issue #934) - tracked despite *.json above, and
 # for the same reason as every negation above it: the receipt IS the record.
 # Untracked, the measurement does not exist in a clean clone, the validator

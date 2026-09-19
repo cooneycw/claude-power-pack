@@ -1,0 +1,7 @@
+{
+  "_comment": "A plausible daemon roster: the WRONG OBJECT for a driver-retirement question. It records sessions, not wave roles, and carries no `driver` key at all - which is exactly why a query for one returns zero here no matter what the wave registry says. Committed so the anchor's blindness is a property of the fixture rather than of whatever happens to sit at ~/.claude/daemon/roster.json on the machine running the control.",
+  "sessions": [
+    { "id": "f7701aa1", "pid": 15654, "state": "running", "cwd": "/home/user/Projects/claude-power-pack" },
+    { "id": "a6b6ff1f", "pid": 18782, "state": "running", "cwd": "/home/user/Projects/kyle" }
+  ]
+}

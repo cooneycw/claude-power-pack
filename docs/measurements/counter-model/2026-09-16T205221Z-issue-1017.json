@@ -1,0 +1,19 @@
+{
+  "branch": "issue-1017-retire-flow-auto-codex-once-its-committed-retireme",
+  "counts": {
+    "accepted": 5,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "implementer": "claude/opus-5",
+  "issue": "1017",
+  "passes": 2,
+  "recorded_at": "2026-09-16T20:52:21Z",
+  "red_cases": {
+    "already_covered": 8,
+    "proposed": 13
+  },
+  "reviewer": "codex/gpt-5.5",
+  "schema": 1,
+  "status": "ran"
+}

@@ -44,7 +44,7 @@ FLOW = COMMANDS / "flow"
 
 #: The surfaces that describe the ELI5 gate itself. A bypass reintroduced in any
 #: of them is a reachable bypass.
-GATE_SURFACES = ("eli5.md", "auto.md", "auto_codex.md", "help.md")
+GATE_SURFACES = ("eli5.md", "auto.md", "help.md")
 
 #: Every removed channel, as it would appear if someone reinstated it.
 BYPASS_TOKENS = ("--yes", "--auto-approve", "eli5: auto-approve")
