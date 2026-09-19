@@ -22,7 +22,10 @@ decisions Q1-Q6 are surfaced as pending, not resolved.
 
 Disjoint file sets; may run in parallel after Phase 0.
 
-- **#1069** transfers canonical ownership of `project_next` to CPP. This is the
+- **#1069** transfers canonical ownership of `project_next` to CPP. **Blocked on
+  owner decision Q8** (does the code travel with its git history?) - the answer
+  changes the mechanism, not just the paperwork, and deciding it after the move
+  means having decided it by accident. This is the
   hard prerequisite for archival (spec, "The bidirectional vendor dependency"):
   until it lands, archiving CxPP strands `lib/vendor.py`. Carries `templates/`
   and `project-next.schema.json`, which are consumer-facing contracts.
@@ -56,7 +59,10 @@ stay OPEN unless fulfilled or withdrawn with recorded authority.
 
 ### Phase 4 - Distribution (#1073)
 
-Prerequisites: #1069, #1070, #1071, #1072.
+Prerequisites: #1069, #1070, #1071, #1072, **and owner decision Q6 resolved**.
+What this phase packages differs entirely depending on whether the Codex surface
+stays native or becomes generated, so starting before Q6 means building a
+distribution for an undecided surface.
 
 Ships pinned Codex plugins from CPP with safe hook update and rollback. Spec
 **B2** is the governing constraint: three of CxPP's five hook handlers resolve to
@@ -71,7 +77,14 @@ silently (ledger §D).
 
 ### Phase 5 - Release proof (#1074)
 
-Prerequisites: Phases 1-4.
+Prerequisites: Phases 1-4, **and owner decision Q7** (unknown consumer
+populations: discover, migrate, or accept-break). Q7 scopes whose behaviour this
+phase must prove, so it cannot be answered by the phase that depends on it.
+
+**Q7's discover option needs its measurement planned HERE, not at Phase 7.**
+Three archive blockers are unknown consumer populations, and none can be closed
+by reading the two repositories - only by enumeration on hosts. Discovering that
+at the archive gate is discovering it too late.
 
 Demonstrates every cell of the spec's release matrix from isolated installs. A
 cell that was not run is recorded as **not run**, never inferred from a
@@ -88,7 +101,11 @@ rollback path.
 
 Also reconciles the backlog: this is where ledger dispositions become issue state
 under the authority this step carries. #1068 closed nothing; #1075 is where
-`already-covered` rows may be acted on.
+`already-covered` rows may be acted on. **Nit-store triage lands here** - both
+stores, 194 comments at baseline - because the archive criteria require it and
+no other phase owned it. **Q9 questions this placement**: reconciling after
+#1074 has already proved the release means a missed obligation invalidates that
+proof. Resequencing is the owner's call, not this plan's.
 
 ### Phase 7 - Archive (#1076)
 
@@ -97,7 +114,8 @@ Prerequisite: #1075. Requires final explicit owner approval.
 Blocked at baseline by **7 ledger rows**, three of which are unknown consumer
 populations that cannot be resolved by reading these two repositories - only by
 enumeration on hosts. **Plan for that measurement in Phase 5, not in Phase 7**,
-or it will be discovered at the last gate.
+or it will be discovered at the last gate. Also blocked on **Q3** (PR cxpp#239)
+and **Q7** (the unknown-consumer disposition).
 
 ---
 

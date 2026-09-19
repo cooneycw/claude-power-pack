@@ -77,6 +77,60 @@ recorded, 2 accepted as risks for the owner), 2 rejected with reasons, 1 split.*
 
 ---
 
+## Second panel: counter-model review of the change itself
+
+The panel above reviewed the PLAN, from a summary. A second, separate review
+read the actual diff: `/flow:auto` Step 6's counter-model stage
+([ADR 0007](../../decisions/0007-counter-model-review.md)), which runs by
+default and whose rule is the same property - the reviewing model must not be
+the implementing model.
+
+| | |
+|---|---|
+| Reviewer | **`codex/gpt-6-astra`** - read from this run's rollout via its thread id, not copied from a document |
+| Implementer | `claude/opus-5` |
+| Input | the full 2,250-line diff, read-only sandbox, with repository access for context |
+| Passes | 1 |
+| Result | **6 findings, 6 accepted, 0 rejected, 0 deferred** |
+
+| # | Severity | Finding | Disposition |
+|---|---|---|---|
+| **F1** | MEDIUM | The gate counted EVERY `cxpp#N` in cell 1, and searched the WHOLE row for a disposition. So a cross-reference in another row's title discharged an entry's obligation, and a backticked vocabulary word in a title satisfied an empty disposition column. | **ACCEPTED, FIXED.** Subject is now the FIRST token of cell 1; the disposition is searched OUTSIDE cell 1. Two committed cases: `bad-cross-reference-in-title`, `bad-disposition-in-title`. |
+| **F2** | MEDIUM | The credential inventory recorded CPP's secrets as AWS Secrets Manager only, omitting `${XDG_CONFIG_HOME:-~/.config}/claude-power-pack/secrets/` - a real local store resolved by `lib/creds`' always-available DotEnv provider. | **ACCEPTED, FIXED.** Verified in `lib/creds/__init__.py` before accepting. Added to spec **B1** and inventory §6, with why it mattered: the omission made isolation read as a Codex-side concern when the two stores are siblings one directory apart. |
+| **F3** | MEDIUM | Q7-Q9 were added to the spec's Open Questions and propagated to neither the ledger's decision table nor the plan's prerequisites - so a worker following those documents could start #1069 or #1074 before the ruling they depend on. | **ACCEPTED, FIXED.** Q7-Q9 added to ledger §A with blocking effects; Q6/Q7/Q8 propagated into plan Phases 1, 4, 5; pending count corrected 6 -> 9. |
+| **F4** | MEDIUM | The spec's US2 and R6 still constrained the vocabulary to FIVE dispositions while the ledger and gate had six. The authoritative document contradicted the thing it governs. | **ACCEPTED, FIXED.** US2 and R6 now name six, and carry `already-covered`'s parity requirement and `transfer`'s cited-acceptance requirement as acceptance criteria rather than only as ledger prose. |
+| **F5** | LOW | Fence stripping recognised backticks only, so a `~~~markdown` illustration of a ledger row accounted for the obligation it illustrated. | **ACCEPTED, FIXED.** Both fence characters, with run-length tracking so a nested different-character fence is content. Committed case: `bad-tilde-fenced-example`. |
+| **F6** | LOW | `--refresh` copied the old provenance header verbatim - capture date and baseline SHAs - so a new observation wore the original capture's date, and flattened the issue/PR split under both labels. | **ACCEPTED, FIXED.** The header is regenerated: observation date from the run, code baseline carried forward and labelled as a distinct fact, issue and PR sections counted separately. |
+
+**All six were accepted and none was a false positive.** Four of them - F1, F4,
+F5 and the plan/ledger drift in F3 - are defects the first panel could not have
+caught, because it reviewed a summary and these live in the source and in the
+consistency between documents. That is the argument for both stages existing
+rather than either standing in for the other.
+
+**F1 and F5 share a shape with the defect the negative control caught, and that
+is the finding underneath the findings.** All three are ways for correct-looking
+prose to satisfy a check: an explanatory sentence, a cross-reference, a worked
+example. This gate reads a document that is *about* the numbers it checks for,
+so the document's own vocabulary is adversarial to it by construction. Five of
+the control's six cases now pin one such path each.
+
+### Red cases returned by the counter-model stage
+
+The reviewer was asked, per the Negative Control directive, to name the input
+that makes each instrument report the OTHER verdict. It returned three, and they
+are recorded here because two of them were **not** already covered:
+
+| Red case proposed | Status |
+|---|---|
+| `bad-missing-issue` exits 1 naming `cxpp#227`; `bad-row-without-disposition` exits 1; empty snapshot exits 2 | **already covered** before the review |
+| Title-token, cross-reference and tilde-fence inputs "should fail but currently pass" | **NOT covered - now committed** as three cases (F1, F5) |
+| Substituting the blind anchor for the gate must report BLIND; and removing every `cxpp#227` occurrence INCLUDING prose must make even the anchor exit 1 | **already covered** by the control framework's anchor evaluation; the second half is what makes the anchor a blind predecessor rather than a broken script |
+
+Proposed: 3. Already covered by our tests: 1. Newly committed from this review: 2.
+
+---
+
 ## What the review changed, and one thing it did not
 
 Four defects in this document set were found by reviewers and not by its author:

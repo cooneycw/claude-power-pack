@@ -56,7 +56,8 @@ carries. #1068 closes nothing.
 ## A. Owner decisions - PENDING
 
 These are the choices #1068 deliberately did **not** make (spec US6, Open
-Questions Q1-Q6). Each blocks the child named. An implementer who resolves one of
+Questions Q1-Q9). Each blocks the child named. Q7-Q9 came from independent
+review, not from the epic - see [review.md](review.md) findings R2, R8 and R9. An implementer who resolves one of
 these on their own authority has violated spec **B4**/**B5**.
 
 | ID | Decision | Options and consequence | Blocks |
@@ -67,6 +68,9 @@ these on their own authority has violated spec **B4**/**B5**.
 | **Q4** | Balanced-delivery program overlap | CPP has `.specify/specs/balanced-agentic-development` (Approved). Is cxpp#219/#220/#223/#224/#225/#226 (a) **already-covered** by it, or (b) carrying obligations CPP's spec does not? A wrong (a) silently drops six issues | #1072 |
 | **Q5** | CxPP-only instruments | `harness_lint`, `skill_contract_lint`, `skill_eval`, `release_validate` have no CPP analogue. (a) **adapt** into CPP; (b) **owner-approved-retirement**. See inventory §5: the asymmetry runs both ways | #1071 |
 | **Q6** | Native vs generated skill model | Does the Codex adapter keep CxPP's 85 **native** skills as native, or converge on CPP's generated-surface model (75)? This is the central compatibility choice; it determines whether an installed Codex host sees a changed skill surface | #1071 |
+| **Q7** | Unknown consumer populations | Installed Codex hosts, plugin-marketplace installs and template adopters are unenumerable from either repository (inventory §9). (a) **discover** them before cutover - needs a measurement plan, not a document; (b) **migrate** what can be reached; (c) **accept-break** with a published deprecation notice. The archive criteria as first written let (c) happen by default, unstated | #1074, #1076 |
+| **Q8** | Git history for relocated code | Does `project_next` - and whatever Q1 moves - travel with its history (subtree / filter-repo) or arrive as a fresh copy? A copy loses `git blame` for every line, and with it the provenance of decisions rows in this ledger depend on. Choosing late means choosing a copy by default | #1069 |
+| **Q9** | Backlog-reconciliation ORDERING (raised against the epic) | #1075 reconciles the backlog AFTER #1074 proves the release. A missed obligation surfacing at #1075 invalidates #1074's evidence and forces a re-run. Reordering changes #1067's own sequence, so it is surfaced rather than decided here | #1074, #1075 |
 
 ---
 
@@ -237,9 +241,15 @@ exactly the items nobody would notice going missing.
 | Open CxPP PRs accounted | **1 / 1** |
 | Relevant CPP issues recorded | 14 |
 | Capabilities with no issue | 19 |
-| Owner decisions pending | 6 |
+| Owner decisions pending | 9 |
 | Rows `unresolved` | 32 |
 | Rows blocking #1076 (archive) | 7 |
+
+**Nine pending decisions, not six.** Three were added by independent review
+after the first cut of this ledger, which is worth recording: the review did not
+find bad answers to the questions here, it found questions that were not being
+asked. Q7 in particular was implicit in an archive criterion that would have
+passed while breaking consumers nobody had enumerated.
 
 **32 unresolved rows is the deliverable, not a shortfall.** #1068's job was to
 find out what is undecided, and a ledger reporting few unresolved rows this early

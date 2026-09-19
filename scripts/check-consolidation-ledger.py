@@ -50,6 +50,7 @@ import argparse
 import re
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 DEFAULT_LEDGER = ".specify/specs/codex-consolidation/ledger.md"
@@ -79,7 +80,7 @@ CXPP_REPO = "cooneycw/codex-power-pack"
 #: records the same family", "landed via PR cxpp#287" - which are cross
 #: references, not accountings. A row must be a row.
 CLAIM_RE = re.compile(r"\bcxpp#(\d+)\b")
-ROW_RE = re.compile(r"^\s*\|(?P<first>[^|]*)\|")
+ROW_RE = re.compile(r"^\s*\|(?P<first>[^|]*)\|(?P<rest>.*)$")
 
 #: A row must also SAY something. Independent review (#1068 review.md, finding
 #: R3) pointed out that presence alone lets a row read `| cxpp#239 | | | | |`
@@ -104,17 +105,32 @@ DISPOSITIONS = (
 
 #: Fenced blocks are examples, not the document speaking. A `cxpp#123` inside a
 #: worked example would otherwise satisfy a real obligation's missing row.
-FENCE_RE = re.compile(r"^\s*```", re.MULTILINE)
+#:
+#: BOTH fence characters, because CommonMark has two and recognising only one
+#: leaves the other as a hole in the rule (counter-model finding F5). A
+#: `~~~markdown` block holding an illustrative ledger row satisfied a real
+#: obligation under the first cut. A fence closes only on the same character at
+#: the same length or longer, so the opener is remembered rather than toggled -
+#: a ``` line inside a ~~~ block is content, not a close.
+FENCE_RE = re.compile(r"^\s*(?P<char>`{3,}|~{3,})")
 
 
 def strip_fences(text: str) -> str:
     """Drop fenced code blocks; an illustrative token is not an accounting."""
-    out, inside = [], False
+    out: list[str] = []
+    opener: str | None = None
     for line in text.splitlines():
-        if FENCE_RE.match(line):
-            inside = not inside
-            continue
-        if not inside:
+        m = FENCE_RE.match(line)
+        if m:
+            run = m.group("char")
+            if opener is None:
+                opener = run
+                continue
+            if run[0] == opener[0] and len(run) >= len(opener):
+                opener = None
+                continue
+            # A different fence character, or a shorter run: content, not a close.
+        if opener is None:
             out.append(line)
     return "\n".join(out)
 
@@ -142,19 +158,30 @@ def read_claims(path: Path) -> tuple[set[int], set[int]]:
         row = ROW_RE.match(line)
         if not row:
             continue
-        nums = {int(m) for m in CLAIM_RE.findall(row.group("first"))}
-        if not nums:
+        # THE SUBJECT IS THE FIRST TOKEN, NOT EVERY TOKEN (counter-model finding
+        # F1). A first cell reading `cxpp#189 - related to cxpp#227` is a row
+        # ABOUT 189 that mentions 227; counting both let a cross-reference in
+        # someone else's title discharge 227's own missing row. A row has one
+        # subject, and it is the one it leads with - the same rule
+        # `scripts-inventory-check.py` and `instrument-census-check.py` use.
+        subjects = CLAIM_RE.findall(row.group("first"))
+        if not subjects:
             continue
-        if any(f"`{d}`" in line for d in DISPOSITIONS):
-            accounted |= nums
+        num = int(subjects[0])
+        # THE DISPOSITION IS SEARCHED OUTSIDE CELL 1 (same finding). Searching
+        # the whole row let a backticked vocabulary word in the TITLE stand in
+        # for an empty disposition column - "the `unresolved` nit store" would
+        # satisfy a row that records nothing.
+        if any(f"`{d}`" in row.group("rest") for d in DISPOSITIONS):
+            accounted.add(num)
         else:
-            undisposed |= nums
+            undisposed.add(num)
     return accounted, undisposed
 
 
 def refresh(snapshot: Path) -> int:
     """Re-capture the snapshot from GitHub. Never reads the ledger."""
-    numbers: list[int] = []
+    captured: dict[str, list[int]] = {}
     for kind in ("issue", "pr"):
         proc = subprocess.run(
             ["gh", kind, "list", "--repo", CXPP_REPO, "--state", "open",
@@ -165,14 +192,52 @@ def refresh(snapshot: Path) -> int:
             print(f"check-consolidation-ledger: refresh failed on {kind} list: "
                   f"{proc.stderr.strip()}", file=sys.stderr)
             return 2
-        numbers.extend(int(n) for n in proc.stdout.split())
+        captured[kind] = [int(n) for n in proc.stdout.split()]
+    issues, prs = captured["issue"], captured["pr"]
 
-    header = [ln for ln in snapshot.read_text(encoding="utf-8").splitlines()
-              if ln.lstrip().startswith("#")]
-    body = "\n".join(str(n) for n in sorted(set(numbers)))
-    snapshot.write_text("\n".join(header) + "\n" + body + "\n", encoding="utf-8")
+    # REGENERATE THE PROVENANCE, NEVER COPY IT (counter-model finding F6). The
+    # first cut carried every old comment line through unchanged - including
+    # `Captured: <date>` and the two baseline SHAs - so a refresh produced a NEW
+    # observation wearing the ORIGINAL capture's date. That defeats the one
+    # thing this file exists to provide: the ability to tell a changed fact from
+    # an omitted one. It also flattened the issue/PR split under both labels.
+    #
+    # The CODE baseline and the OBSERVATION time are different facts and are
+    # printed as such: the SHAs say which tree the ledger was written against,
+    # the capture date says when GitHub was last asked.
+    prior = snapshot.read_text(encoding="utf-8").splitlines()
+    baseline = [ln for ln in prior if ln.lstrip().startswith("#")
+                and ("baseline:" in ln or "CxPP baseline" in ln or "CPP  baseline" in ln)]
+    today = datetime.now(timezone.utc).date().isoformat()
+    header = [
+        "# Open codex-power-pack issues and PRs.",
+        "#",
+        "# PROVENANCE - captured from GitHub, NEVER derived from the ledger.",
+        "# A snapshot built by reading the ledger would make the completeness check a",
+        "# closed loop: the ledger would be compared against itself and could never be",
+        "# found incomplete. Captured with:",
+        "#",
+        "#   gh issue list --repo cooneycw/codex-power-pack --state open --limit 200 \\",
+        "#       --json number --jq '.[].number'",
+        "#   gh pr list   --repo cooneycw/codex-power-pack --state open --limit 200 \\",
+        "#       --json number --jq '.[].number'",
+        "#",
+        f"# Captured: {today}   (this is the OBSERVATION date, regenerated on every",
+        "#                      --refresh; it is NOT the code baseline below)",
+        *baseline,
+        "#",
+        "# Refresh with: python3 scripts/check-consolidation-ledger.py --refresh",
+        "# A refresh that ADDS a number makes the check red until the ledger accounts",
+        "# for it. That is the intended behaviour, not a failure of the snapshot.",
+        "#",
+        f"# issue numbers ({len(set(issues))})",
+        *[str(n) for n in sorted(set(issues))],
+        f"# pull request numbers ({len(set(prs))})",
+        *[str(n) for n in sorted(set(prs))],
+    ]
+    snapshot.write_text("\n".join(header) + "\n", encoding="utf-8")
     print(f"check-consolidation-ledger: refreshed {snapshot} - "
-          f"{len(set(numbers))} open entry(ies)")
+          f"{len(set(issues))} issue(s), {len(set(prs))} PR(s), captured {today}")
     return 0
 
 

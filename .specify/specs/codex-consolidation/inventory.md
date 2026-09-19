@@ -182,7 +182,19 @@ Recorded by **name only** (spec **B1**). No value appears here.
 
 **Claude side.** `~/.claude/` (`commands/`, `scripts/`, `plugins/`,
 `plugins/cache/cpp/`, `plugins/marketplaces/cpp`, `projects/`, `boot-types/`,
-`daemon/roster`); `~/.claude-power-pack/`; CPP secrets via AWS Secrets Manager.
+`daemon/roster`); `~/.claude-power-pack/`;
+`${XDG_CONFIG_HOME:-~/.config}/claude-power-pack/secrets/{project_id}/` and its
+`.env` files, resolved by `lib/creds`' DotEnv provider - the always-available
+fallback when AWS is not configured - plus the CPP audit log; and AWS Secrets
+Manager.
+
+**The two local stores are exact siblings, one directory apart**
+(`~/.config/codex-power-pack/secrets/` and
+`~/.config/claude-power-pack/secrets/`). That is precisely the shape a
+consolidation tidies up by merging, and spec **B1** forbids it. This row was
+absent from the first cut of this inventory (counter-model finding F2): CPP's
+credentials were recorded as AWS-only, which made the isolation constraint look
+like a one-sided concern about the Codex side.
 
 **These namespaces do not merge.** A co-installed host keeps both. Consolidating
 the source does not relocate a Codex user's credentials or history, and

@@ -106,8 +106,14 @@ this."
 - [ ] Every one of the 40 open CxPP issues and PR cxpp#239 appears in
       [ledger.md](ledger.md) with source, delivery status, owner, destination and
       disposition.
-- [ ] Disposition is one of: `already-covered`, `move`, `adapt`,
+- [ ] Disposition is one of: `already-covered`, `move`, `adapt`, `transfer`,
       `owner-approved-retirement`, `unresolved`.
+- [ ] `already-covered` names the CPP surface **and states parity** - what was
+      compared, and which dimensions were not examined. A shared name is not
+      parity.
+- [ ] `transfer` names a destination outside CPP **and cites that owner's
+      acceptance**. Without the citation the row is `unresolved`, not a
+      transfer: an unaccepted handover is a drop with a forwarding address.
 - [ ] `owner-approved-retirement` is used only where an owner ruling exists and
       is cited. Absent a ruling the row is `unresolved`, not retirement.
 - [ ] Unresolved rows state their **blocking effect**: which child cannot
@@ -202,11 +208,22 @@ otherwise.
 | Client | Config / state | Credentials |
 |---|---|---|
 | Codex (CxPP) | `~/.codex/` (`config`, `history`, `rules/default`, `scripts/`, `skills/`), `CODEX_HOME` | `~/.config/codex-power-pack/secrets/`, `~/.config/codex-power-pack/audit.log` |
-| Claude (CPP) | `~/.claude/` (`commands/`, `scripts/`, `plugins/`, `projects/`, `boot-types/`, `daemon/roster`), `~/.claude-power-pack/` | CPP secrets lane (AWS Secrets Manager) |
+| Claude (CPP) | `~/.claude/` (`commands/`, `scripts/`, `plugins/`, `projects/`, `boot-types/`, `daemon/roster`), `~/.claude-power-pack/` | **`${XDG_CONFIG_HOME:-~/.config}/claude-power-pack/secrets/`** (the DotEnv provider, always-available fallback) **and** AWS Secrets Manager |
 
 A co-installed host has both. Consolidating the *source* does not consolidate the
 *state*: a Codex user's credentials and history remain where Codex looks for
 them. Path names are inventory; **values are never recorded**.
+
+**The CPP local store was missing from the first cut of this table, and the
+omission mattered more than a missing row usually does** (counter-model finding
+F2). It was recorded as "AWS Secrets Manager" alone, which read as: CxPP keeps
+credentials on disk, CPP keeps them in a managed service - so isolation is
+something only the Codex side needs. In fact `lib/creds` resolves
+`${XDG_CONFIG_HOME:-~/.config}/claude-power-pack/secrets/{project_id}/` through
+an always-available DotEnv provider, making the two stores exact siblings one
+directory apart. A consolidation reasoning from the incomplete table would have
+had no reason to think the CPP side needed isolating at all - which is how two
+sibling directories get merged for tidiness.
 
 ### B2. A plugin install is not hook trust
 
@@ -418,7 +435,7 @@ Explicitly NOT part of the migration as a whole:
 | R3 | Record credential/state namespaces by name only, never by value | Must | US1 |
 | R4 | Record unconfirmed consumers as `unknown`, never omit them | Must | US1 |
 | R5 | One ledger row per open CxPP issue and PR, with five recorded fields | Must | US2 |
-| R6 | Constrain disposition to the five defined values | Must | US2 |
+| R6 | Constrain disposition to the six defined values, with `already-covered` requiring a parity statement and `transfer` a cited external acceptance | Must | US2 |
 | R7 | State the blocking effect of every `unresolved` row | Must | US2 |
 | R8 | Separate shipped native-wave foundations from unfinished support | Must | US3 |
 | R9 | Record dependency order, release matrix and serialization rules | Must | US4 |
