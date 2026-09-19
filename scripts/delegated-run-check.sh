@@ -59,8 +59,8 @@
 #   DELEGATED_RUN_EXIT:   <the exit code as passed>
 #   DELEGATED_RUN_SIGNAL: <one line per signal found; omitted when none>
 #   DELEGATED_RUN_DETAIL: <the first error text found, truncated; omitted when none>
-#   DELEGATED_RUN_TOOL_ERRORS: <count of tool calls whose own state.status was
-#                         "error"; ALWAYS emitted, including 0 - see below>
+#   DELEGATED_RUN_TOOL_ERRORS: <count of tool calls that reported an error, in
+#                         any harness's shape; ALWAYS emitted, 0 too - see below>
 #   DELEGATED_RUN_STATUS: success | failure
 #
 # Two conventions live in that block, and the difference is deliberate rather
@@ -92,6 +92,23 @@
 #   its own means matching each harness's deny-rule wording, which is a guess
 #   about format; this script commits to verified format facts instead. So the
 #   count says TOOL_ERRORS, and means exactly that.
+#
+# One counter, three harnesses, three shapes (issue #1054):
+#   The count above was written against ONE of them. It matched a tool call's
+#   nested `state.status == "error"`, which is the OpenCode/gemma shape, and no
+#   other - so on the codex and qwen lanes it was structurally incapable of
+#   returning non-zero, whatever happened. Measured on a real `/codex:auto` run:
+#   four commands exited non-zero, two of them the delegated model's own
+#   `make lint` and `make test-file`, which a blocked download meant never ran
+#   at all - and the helper reported `TOOL_ERRORS: 0`, `STATUS: success`, and
+#   the sentence "no tool call reported an error". That is the #836 false-clean
+#   exactly, one lane over: `0` meant "cannot see" and read as "checked, none".
+#
+#   So the recognizer is per-harness, and the always-emitted `0` is only as
+#   good as that list of shapes. Adding a lane means adding a shape here, and
+#   a committed case on THAT lane asserting a non-zero count - the reason this
+#   survived is that the counter had a negative control for the shape it could
+#   see and none for either shape it could not.
 #
 # Signals:
 #   exit-nonzero     the CLI's own status was not 0
@@ -350,6 +367,13 @@ def texts_of(node, depth=0):
 def errored_tool_calls(node, depth=0):
     """Count tool calls whose own `state.status` is "error" (issue #836).
 
+    ONE of three recognizers, and the qualifier is load-bearing (issue
+    #1054). This matches the OpenCode/gemma shape. The Codex CLI does not
+    emit `state` at all and the Qwen CLI does not either, so for two of the
+    three lanes this function alone could never return non-zero - see
+    `errored_codex_item` and `errored_tool_results` below, and the header's
+    "One counter, three harnesses, three shapes".
+
     This is a COUNT and nothing else. It never reaches `is_fatal`, never enters
     `signals`, and never changes the verdict - the scoping below was litigated
     once already and is correct: a denied call is the fence working, not a
@@ -381,6 +405,139 @@ def errored_tool_calls(node, depth=0):
         if isinstance(value, (dict, list)):
             found += errored_tool_calls(value, depth + 1)
     return found
+
+
+#: Item ids already counted as a failed Codex tool call. The Codex CLI reports
+#: ONE call across SEVERAL events carrying the same `item.id` - `item.started`
+#: then `item.completed` in every capture on disk, and the binary also emits
+#: `item.updated`. Counting per event would let a single failed command inflate
+#: the number, which is this defect's mirror image: a count that cannot be
+#: trusted in the other direction is no more usable than one stuck at zero.
+counted_codex_items = set()
+
+
+#: Item statuses that report a call did not succeed.
+#:
+#: `failed` is observed in the exec stream this helper reads
+#: (`codex-command-failed.jsonl`). `declined` is NOT, and the difference is
+#: recorded rather than smoothed over: a counter-model reviewer raised it from
+#: upstream Rust source, and measuring the shipped binary (codex-cli 0.155.1)
+#: put it in the OTHER protocol - `declined` sits beside the camelCase
+#: `inProgress` status matchers (2 of 80 occurrences) and beside NONE of the 47
+#: snake_case `in_progress` ones, and the exec JSONL is snake_case throughout.
+#:
+#: It is matched anyway, because the two risks are not symmetric. Missing it
+#: would be a false zero, which is this issue's whole defect; matching it
+#: spuriously is impossible, since only a payload literally carrying
+#: `"status": "declined"` can match and that string has exactly one meaning.
+#: This buys nothing today and costs nothing, which is the only shape of
+#: speculative match that belongs in a file committed to verified format facts.
+FAILED_ITEM_STATUSES = {"failed", "declined"}
+
+
+def item_reports_failure(item):
+    """Either of Codex's two failure signals on a tool item (issue #1054).
+
+    A failing `status` is the harness's verdict on the call; a non-zero
+    `exit_code` is the command's own. Both are checked rather than one assumed
+    redundant, because this counter's entire defect was a recognizer that
+    matched a single spelling of a fact and reported 0 for every other - and
+    the two arms are pinned INDEPENDENTLY in the suite, since a payload
+    carrying both proves only that their disjunction works.
+
+    `isinstance(True, int)` is True in Python, so bools are excluded
+    explicitly: `"exit_code": true` is not a non-zero exit status, and counting
+    it would be fabricated specificity - a number that looks like evidence and
+    was never measured.
+    """
+    if str(item.get("status", "")).lower() in FAILED_ITEM_STATUSES:
+        return True
+    exit_code = item.get("exit_code")
+    if isinstance(exit_code, bool) or not isinstance(exit_code, int):
+        return False
+    return exit_code != 0
+
+
+def errored_codex_item(node):
+    """Count a Codex CLI tool item that reported failure (issue #1054).
+
+    Verified against a real capture, not inferred from the docs:
+    `tests/fixtures/delegated_runs/codex-command-failed.jsonl` is a genuine
+    `codex exec --json` run whose command exited 3, and it lands as
+
+        {"type": "item.completed",
+         "item": {"id": "item_1", "type": "command_execution",
+                  "command": "...", "exit_code": 3, "status": "failed"}}
+
+    with no `state` key anywhere, which is why `errored_tool_calls` above
+    returned 0 for it and the helper then said "no tool call reported an
+    error" - an affirmative claim, not a silence.
+
+    Structural, like `is_fatal_item`, and for its reason: it reads exactly
+    `node["item"]` and no other depth, so a gemma tool call - whose error lives
+    under `part.state` and which has no `item` key - cannot reach it, and a
+    `status` belonging to some neighbouring object cannot either.
+
+    Scoped to items whose OWN type is a tool type. `agent_message`, `reasoning`
+    and `todo_list` items are the model talking, not tool calls. An item whose
+    own type is `"error"` is the harness talking about ITSELF; that is
+    `is_fatal_item`'s population, and it feeds a verdict this counter must
+    never touch.
+    """
+    if not type_of(node).startswith("item."):
+        return 0
+    item = node.get("item")
+    if not isinstance(item, dict):
+        return 0
+    if str(item.get("type", "")).lower() not in TOOL_TYPES:
+        return 0
+    if not item_reports_failure(item):
+        return 0
+    item_id = item.get("id")
+    if isinstance(item_id, str) and item_id:
+        if item_id in counted_codex_items:
+            return 0
+        counted_codex_items.add(item_id)
+    return 1
+
+
+def errored_tool_results(node):
+    """Count Claude-shaped `tool_result` blocks whose `is_error` is true (#1054).
+
+    The Qwen lane. Read out of the installed CLI's own source rather than
+    guessed - `@qwen-code/qwen-code`'s `emitToolResult` builds
+
+        {"type": "user",
+         "message": {"role": "user", "content": [
+             {"type": "tool_result", "tool_use_id": "...", "is_error": true}]}}
+
+    from `is_error = Boolean(response.error) || Boolean(responsePartsError)`,
+    which is exactly a denied or independently failed call: this counter's
+    population, in the same breadth the name claims. The same source pushes a
+    `permissionDenials` entry when `errorType` is `EXECUTION_DENIED`, so denial
+    is in there too, indistinguishable at this level as everywhere else.
+
+    `is_fatal` reads `is_error` only at an event's TOP level - deliberately, so
+    a denied call is not a failed run - and this one is two levels down, so
+    nothing in the helper saw it at all.
+
+    Structural for the third time, for the third instance of one reason:
+    reading exactly `node["message"]["content"][]` keeps an `is_error`
+    belonging to something else out of the count.
+    """
+    message = node.get("message")
+    if not isinstance(message, dict):
+        return 0
+    content = message.get("content")
+    if not isinstance(content, list):
+        return 0
+    return sum(
+        1
+        for block in content
+        if isinstance(block, dict)
+        and str(block.get("type", "")).lower() == "tool_result"
+        and block.get("is_error") is True
+    )
 
 
 def is_fatal(node):
@@ -486,7 +643,14 @@ with open(path, "r", encoding="utf-8", errors="replace") as handle:
         if any(value in TOOL_TYPES for value in tool_types_in(obj)):
             saw_tool = True
             # Only within a tool event: see errored_tool_calls' ownership note.
+            # Three recognizers because there are three harnesses and each
+            # writes a failed call down differently (issue #1054). They are
+            # disjoint on every stream on disk - a codex item carries no
+            # `state`, a gemma part no `item`, a qwen tool_result neither -
+            # so one call cannot be counted twice by two of them.
             tool_errors += errored_tool_calls(obj)
+            tool_errors += errored_codex_item(obj)
+            tool_errors += errored_tool_results(obj)
 
         terminal = kind in TERMINAL_TYPES
         if terminal:
