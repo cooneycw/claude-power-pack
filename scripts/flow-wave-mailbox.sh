@@ -238,8 +238,19 @@
 #
 # Shutdown and the tight-loop guard. The daemon polls the sibling
 # `flow-wave-registry.sh get <role> --wave <wave>` and exits cleanly -
-# releasing the flock - the moment that role's `FLOW_WAVE_LIVENESS` reads
-# `released`. Fails OPEN, TWICE over: if the registry sibling is unavailable
+# releasing the flock - once that role's `FLOW_WAVE_LIVENESS` reads
+# `released`. NOT the moment it is released (issue #1033 item 4): the
+# registry check sits at the top of this loop, and the loop body then
+# blocks in the inner `watch --timeout`, so a release is honoured within one
+# `--timeout` of when it happened, never instantly - `watch --status` reports
+# this daemon's own `--timeout` (`FLOW_MAILBOX_SUPERVISE_TIMEOUT`) precisely
+# so a reader can compute that bound instead of assuming zero latency. The
+# same bound applies to a TERM/INT signal for the identical reason: bash
+# defers a trapped signal until the current foreground command (the blocking
+# inner watch) returns, so `kill <daemon-pid>` can likewise take up to one
+# full `--timeout` before this daemon actually exits, measured directly at
+# t+4.0s against `--timeout 4` (see the Nit Store, claude-power-pack#864).
+# Fails OPEN, TWICE over: if the registry sibling is unavailable
 # at all (a supervisor that cannot check for release is not worse than none,
 # it just keeps supervising), and if the role was simply never registered
 # (`get`'s `free` verdict) - the registry is a separate, optional companion
@@ -2083,11 +2094,21 @@ case "$VERB" in
           echo "flow-wave-mailbox: the process table could not be enumerated, so whether role '$ROLE' is listening is UNKNOWN - do NOT read this as armed (#801)." >&2
           ;;
       esac
+      # A `supervise` daemon shuts down only when its NEXT registry check runs
+      # release, and that check sits behind the current blocking watch call -
+      # so shutdown lands within one `--timeout` of release, never instantly
+      # (issue #1033 item 4). Surfacing the daemon's own timeout here lets a
+      # reader compute that bound (`released Xs ago, timeout is N` -> still
+      # legitimately armed for up to N-X more seconds) instead of having to
+      # read argv by hand to tell "winding down" from "leaked".
+      SUP_TIMEOUT_SEEN="$(cat "$WAVE_DIR/.supervise-$ROLE.timeout" 2>/dev/null || echo -)"
+      case "$SUP_TIMEOUT_SEEN" in ''|*[!0-9]*) SUP_TIMEOUT_SEEN=- ;; esac
       E_ROLE="$ROLE"
       echo "FLOW_MAILBOX_WATCH_STATE=$WSTATE"
       echo "FLOW_MAILBOX_WATCH_AGE=$WAGE"
       echo "FLOW_MAILBOX_WATCHER_COUNT=$WCOUNT"
       echo "FLOW_MAILBOX_REARMED=$REARMED"
+      echo "FLOW_MAILBOX_SUPERVISE_TIMEOUT=$SUP_TIMEOUT_SEEN"
       emit status
       exit 0
     fi
@@ -2442,6 +2463,21 @@ EOF
     SUP_LOCK="$WAVE_DIR/.supervise-$ROLE.lock"
     SUP_PIDFILE="$WAVE_DIR/.supervise-$ROLE.pid"
     SUP_LOG="$WAVE_DIR/.supervise-$ROLE.log"
+    SUP_TIMEOUT_FILE="$WAVE_DIR/.supervise-$ROLE.timeout"
+
+    # Resolved to an ABSOLUTE path ONCE, here, while the invoking cwd is
+    # certainly still valid - not left as the raw (possibly relative) `$0`
+    # for the daemon to re-resolve later (issue #1033 item 2). A worktree
+    # removed out from under a long-lived daemon invalidates its cwd, and a
+    # relative `$0` re-evaluated after that points nowhere: two
+    # `__supervise_daemon` processes were found pinned at `rc=127` for
+    # 13h48m this way, because the daemon's own re-arm (`bash "$0" watch
+    # ...`) silently depended on a cwd that no longer existed. `$0` itself
+    # does not change after a process starts, so resolving it once here and
+    # handing the daemon the absolute form makes every later use inside
+    # `__supervise_daemon` - the re-arm loop included - immune to the
+    # invoking cwd's fate for the rest of the daemon's life.
+    SUP_SELF="$(readlink -f "$0" 2>/dev/null || echo "$0")"
 
     # A lifetime flock, not a PID file, decides ownership (issue #814,
     # required correction from #821: a recorded PID can be reused by the
@@ -2453,7 +2489,12 @@ EOF
     exec 8>"$SUP_LOCK"
     if ! flock -n 8; then
       E_ROLE="$ROLE"
-      echo "flow-wave-mailbox: refusing to supervise - a live supervisor already holds role '$ROLE' in wave '$WAVE' (issue #814). Check $SUP_PIDFILE / $SUP_LOG for who; the lock, not that file, is what decided this." >&2
+      # Name what is actually known, not a guess dressed as one (issue
+      # #1033 item 1): the lock is what refused this, and `$SUP_PIDFILE` is
+      # diagnostic-only, so say plainly that it may be stale rather than
+      # implying it is the authoritative holder.
+      HOLDER_PID="$(cat "$SUP_PIDFILE" 2>/dev/null || echo '-')"
+      echo "flow-wave-mailbox: refusing to supervise - the lifetime lock for role '$ROLE' in wave '$WAVE' is currently held (issue #814); a live supervisor's last recorded PID here was $HOLDER_PID ($SUP_PIDFILE), but that file is diagnostic only and may be stale - the lock, never the file, is what decided this refusal. See $SUP_LOG for evidence. If you need to kill the holder, kill its children too (\`kill \$pid \$(pgrep -P \"\$pid\")\`): an orphaned child of a killed daemon can inherit and keep holding this same lock." >&2
       emit duplicate
       exit 4
     fi
@@ -2468,10 +2509,10 @@ EOF
     # kernel releasing a flock on process death is what lets the NEXT
     # `supervise` tell "dead" from "alive" without asking anything else.
     if command -v setsid >/dev/null 2>&1; then
-      setsid bash "$0" __supervise_daemon --role "$ROLE" --wave "$WAVE" \
+      setsid bash "$SUP_SELF" __supervise_daemon --role "$ROLE" --wave "$WAVE" \
         --timeout "$TIMEOUT" --interval "$INTERVAL" >>"$SUP_LOG" 2>&1 &
     else
-      bash "$0" __supervise_daemon --role "$ROLE" --wave "$WAVE" \
+      bash "$SUP_SELF" __supervise_daemon --role "$ROLE" --wave "$WAVE" \
         --timeout "$TIMEOUT" --interval "$INTERVAL" >>"$SUP_LOG" 2>&1 &
     fi
     DAEMON_PID=$!
@@ -2479,6 +2520,11 @@ EOF
     # Diagnostics only - who a human should look at - never the liveness
     # test itself (that is the flock, above).
     echo "$DAEMON_PID" > "$SUP_PIDFILE" 2>/dev/null || true
+    # Diagnostic only, same category as the pidfile (issue #1033 item 4): lets
+    # `watch --status` distinguish "winding down" from "leaked" by computing
+    # how much of this daemon's own re-arm timeout remains after a release,
+    # rather than a reader having to inspect argv by hand.
+    echo "$TIMEOUT" > "$SUP_TIMEOUT_FILE" 2>/dev/null || true
     E_ROLE="$ROLE"
     echo "flow-wave-mailbox: supervising role '$ROLE' in wave '$WAVE' as PID $DAEMON_PID (issue #814) - it re-arms watch continuously until role release or the wave ends; see $SUP_LOG for sanitized evidence (timestamps and exit codes only, never message bodies)." >&2
     emit supervising
@@ -2491,11 +2537,30 @@ EOF
     # stops looking free, or a TERM/INT signal - its own exit is what
     # releases the lifetime flock `supervise` opened and handed it.
     [ -n "$ROLE" ] || usage_fail "__supervise_daemon requires --role <role>"
+    # `$0` here is already the ABSOLUTE `$SUP_SELF` the `supervise` case
+    # resolved before launching this daemon (issue #1033 item 2) - `$0` never
+    # changes after a process starts, so this `readlink -f` is a defensive
+    # no-op, not the resolution itself. The re-arm loop below reuses `$0` for
+    # exactly this reason: it is immune to the invoking cwd going away for
+    # the rest of this daemon's life, unlike a fresh relative-path lookup
+    # would be.
     SUP_LOG_SELF_DIR="$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")"
     SUP_REGISTRY="$SUP_LOG_SELF_DIR/flow-wave-registry.sh"
     BACKOFF_BASE="${FLOW_WAVE_SUPERVISE_BACKOFF_BASE:-2}"
     BACKOFF_CAP="${FLOW_WAVE_SUPERVISE_BACKOFF_CAP:-60}"
     BACKOFF=0
+    # A cap reached is normal (a persistent-but-transient outage). A cap
+    # reached with the SAME rc, cycle after cycle, is not: nothing about
+    # retrying again changes the input that keeps producing it, so it cannot
+    # self-heal by waiting longer (issue #1033 item 2 - the #900-relative-$0
+    # incident's own symptom, rc=127 pinned at the cap for 13h48m, is exactly
+    # this shape). Terminal only after several consecutive identical-rc
+    # cycles AT the cap, never on the first - a single cap hit is still the
+    # ordinary "persistently failing cause" case #814 already handles by
+    # backing off, not a reason to shut down.
+    LAST_INNER_RC=""
+    CAP_STREAK=0
+    TERMINAL_CAP_STREAK="${FLOW_WAVE_SUPERVISE_TERMINAL_STREAK:-3}"
     # This daemon's own record of what it has SURFACED (#867/#873) - never a
     # receipt, and never read by anything that reports on deafness. It exists
     # only so a non-consuming watch does not re-fire on the same mail forever.
@@ -2545,9 +2610,19 @@ EOF
       # below is what keeps a non-consuming watch from re-firing on the same
       # mail forever; it is the daemon's own record of what it SURFACED and
       # nothing that reports on deafness ever reads it.
+      #
+      # `8>&-` closes THIS subprocess's inherited copy of the lifetime flock
+      # (issue #1033 item 1). Without it, a SIGKILL of this daemon leaves
+      # whatever this child currently is - reparented to init - still holding
+      # fd 8 until IT exits on its own, so a new `supervise` refuses as
+      # `duplicate` against a lock the daemon that held it is already dead.
+      # Verified directly: SIGKILL the daemon, then attempt a new `supervise`
+      # immediately - with this line, it succeeds at once, WITH the orphaned
+      # child still alive in the process table; the orphan no longer matters
+      # because it no longer holds anything.
       bash "$0" watch --role "$ROLE" --wave "$WAVE" --peek \
         --surfaced-state "$SUP_SURFACED" \
-        --timeout "$TIMEOUT" --interval "$INTERVAL" >/dev/null 2>&1
+        --timeout "$TIMEOUT" --interval "$INTERVAL" >/dev/null 2>&1 8>&-
       INNER_RC=$?
 
       case "$INNER_RC" in
@@ -2559,11 +2634,15 @@ EOF
           # It is not, it never was, and the log now says which fact it holds.
           log_event "surfaced rc=0 (NOT acknowledged - mail stays unread until the agent acks it)"
           BACKOFF=0
+          LAST_INNER_RC=""
+          CAP_STREAK=0
           ;;
         5)
           # A plain, expected timeout - the daemon re-arms silently, this is
           # the normal steady state of a persistent listener.
           BACKOFF=0
+          LAST_INNER_RC=""
+          CAP_STREAK=0
           ;;
         *)
           # Anything else is a crash-class exit (killed, duplicate-refused
@@ -2573,7 +2652,29 @@ EOF
           # explicit "no tight restart loop" requirement).
           if [ "$BACKOFF" -eq 0 ]; then BACKOFF="$BACKOFF_BASE"; else BACKOFF=$((BACKOFF * 2)); fi
           [ "$BACKOFF" -gt "$BACKOFF_CAP" ] && BACKOFF="$BACKOFF_CAP"
+          if [ "$BACKOFF" -eq "$BACKOFF_CAP" ] && [ "$INNER_RC" = "$LAST_INNER_RC" ]; then
+            CAP_STREAK=$((CAP_STREAK + 1))
+          else
+            CAP_STREAK=0
+          fi
+          LAST_INNER_RC="$INNER_RC"
           log_event "inner watch exited rc=$INNER_RC - backing off ${BACKOFF}s"
+          # issue #1033 item 2 (behaviour change, deliberate): a cap reached
+          # with a CONSTANT rc means retrying again cannot change the
+          # outcome - the #900-relative-$0 incident's own symptom (rc=127,
+          # pinned at the cap, for 13h48m) is exactly this shape, and this
+          # daemon used to retry it forever. Terminal ONLY after several
+          # consecutive identical-rc cycles at the cap; a single cap hit, or
+          # a cap hit whose rc keeps changing, still just backs off as
+          # before. Exiting is what releases the flock - a caller relying on
+          # this daemon retrying forever through a transient outage will now
+          # see it stop instead, which is the intended trade: an inner cause
+          # this daemon cannot fix should not be supervised forever in
+          # silence.
+          if [ "$CAP_STREAK" -ge "$TERMINAL_CAP_STREAK" ]; then
+            log_event "inner watch pinned at the backoff cap with a constant rc=$INNER_RC for $CAP_STREAK consecutive cycles - this cannot self-heal, shutting down"
+            exit 0
+          fi
           sleep "$BACKOFF"
           ;;
       esac

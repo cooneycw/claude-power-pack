@@ -466,8 +466,13 @@ and is wiped by the OS at reboot - exactly when every session's address dies too
    `flow-wave-mailbox.sh watch --status --role 1 --wave cpp` (still accurate -
    `supervise` arms a real `watch` underneath) before assuming none is
    running. Release is automatic: `supervise` polls the registry and shuts
-   itself down the moment this role is released, so - unlike bare `watch` -
-   there is nothing to remember not to re-arm either.
+   itself down **within one `--timeout` of** this role being released - not
+   the moment it is released, and the same bound applies to killing the
+   daemon directly, since a trapped signal is not processed until the
+   daemon's current blocking watch call returns either (issue #1033). Check
+   `--status`'s `FLOW_MAILBOX_SUPERVISE_TIMEOUT` field to see how long that
+   window can legitimately still be. Unlike bare `watch`, though, there is
+   nothing to remember not to re-arm.
 
    **Fallback: a bare, manually re-armed `watch` remains documented and
    supported**, for a host without `supervise`'s process-detachment
