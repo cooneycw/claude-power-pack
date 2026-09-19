@@ -123,8 +123,8 @@ binary files it could not line-count, and the census. Exit 0 = nothing deleted,
 1 = deletions to review, 2 = **it could not look** - which is a different fact
 from "nothing is deleted" and does not share an exit code with it. Its verdict
 is consumed by whoever is about to push, and nothing downstream re-derives it,
-so it carries a committed negative control (ADR 0008 row 75,
-`controls/deletion-accounting`).
+so it carries a committed negative control (its row in ADR 0008's census,
+and `controls/deletion-accounting`).
 
 **A worked instance of this page's own class, from building it.** The first cut
 of that parser recognised headers by their TEXT, narrowed to git's `a/` and `b/`
@@ -313,7 +313,8 @@ diff remove anything?" - with `--numstat` as the direct query there.
 - [the shared stash stack](shared-stash-stack.md) - the same refs-are-shared
   mechanism as item 1, one ref along
 - [ADR 0008](../decisions/0008-instrument-negative-control-bound.md) - when an
-  instrument needs a committed negative control; row 75 is item 2's
+  instrument needs a committed negative control; item 2's instrument is a
+  row in its census
 - `docs/scripts.md` - `deletion-accounting`, the instrument item 2 ships
 - `.claude/commands/flow/auto.md` Step 6 - the safe collapse recipe (#657), which
   is item 1 applied
