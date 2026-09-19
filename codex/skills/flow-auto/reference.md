@@ -877,13 +877,62 @@ git merge --no-edit origin/main
    **1d. Write the receipt - ALWAYS, including on a skip** (helper resolved in
    1a):
 
+   **`--reviewer` is a MEASUREMENT, so read it from the run - do not copy the
+   value below.** The counts in this example are illustrative and obviously so;
+   a model name is not, and until 2026-09-19 this example read
+   `codex/gpt-5.5` while the configured model was something else entirely. A run
+   that faithfully copied it recorded, in a durable receipt, a reviewer that did
+   not perform the review - worse than an absent field, because it looks like
+   data.
+
+   `/codex:code_review` prints `CODEX_REVIEW_MODEL: <model|unknown>` in its
+   relay. **Take the value from that marker.** A shell variable set inside that
+   command does not cross the boundary into this one, and the findings
+   transcript deliberately carries no model - so without the marker there is
+   nothing to consume and a run would re-derive it, which is how the fail-open
+   below returns. Only if the marker is absent (an older mirror), re-derive it,
+   and fail closed if anything is missing:
+
+   ```bash
+   CODEX_DIR="${CODEX_HOME:-$HOME/.codex}"
+   THREAD=$(grep -o '"thread_id":"[^"]*"' "$STREAM" | head -1 | cut -d\" -f4)
+   # FAIL CLOSED. With THREAD empty the -name pattern degrades to "*.jsonl",
+   # which matches EVERY rollout on the host - measured 2026-09-19: 394 files,
+   # head -1 returning a confident model name from a session 12 days old and
+   # unrelated. An empty THREAD means UNKNOWN and must never become a name.
+   if [ -z "$THREAD" ]; then
+       REVIEW_MODEL=""
+   else
+       ROLLOUT=$(find "$CODEX_DIR/sessions" -type f -name "*$THREAD.jsonl" | head -1)
+       if [ -n "$ROLLOUT" ]; then
+           REVIEW_MODEL=$(grep -o '"model":"[^"]*"' "$ROLLOUT" | head -1 | cut -d\" -f4)
+       else
+           REVIEW_MODEL=""
+       fi
+   fi
+   ```
+
+   **Anchor on the review's thread id, never on the newest rollout.** Several
+   sessions run concurrently here, so the newest rollout belongs to whoever
+   finished last; and on a SKIP it belongs to an unrelated run entirely, which
+   would fabricate a reviewer for a review that never happened. On
+   `codex-absent` or `reviewer-unavailable` there is no reviewer - the skip
+   receipt records the reason, and the field must not be filled from a
+   neighbouring session.
+
    ```bash
    python3 "$CM_RECEIPT" write --dir "$(git rev-parse --show-toplevel)/docs/measurements/counter-model" \
        --issue "$ISSUE_NUM" --branch "$BRANCH" \
-       --status ran --reviewer "codex/gpt-5.5" --implementer "claude/opus-5" \
+       --status ran --reviewer "codex/${REVIEW_MODEL:?refusing to record an unknown reviewer}" --implementer "claude/opus-5" \
        --passes 2 --accepted 3 --rejected 1 --deferred 0 \
        --red-cases-proposed 4 --red-cases-already-covered 3
    ```
+
+   The existing receipts under `docs/measurements/counter-model/` naming
+   `codex/gpt-5.5` are NOT corrected retroactively. Each records what its own run
+   believed at the time; rewriting them would assert that a different model
+   reviewed work it never saw, and the receipts' only value is that they say what
+   was true then.
 
    A skip with a receipt is a state; a skip without one is indistinguishable
    from a stage that was never wired in. The receipts are the record - **the PR
