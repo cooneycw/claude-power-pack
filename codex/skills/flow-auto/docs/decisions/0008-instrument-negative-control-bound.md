@@ -248,6 +248,7 @@ another repo (the escalation clause); a row can be both.
 | 71 | `scripts-inventory-check.py` (`make scripts-inventory-check`, CI `scripts-inventory-check`) | `MISSING:` / `UNDECLARED:` per finding, then `scripts-inventory-check: ok - all N file(s) ... have an entry` | `make verify` and the CI step let work through on it, and six test modules quote `docs/scripts.md` as if complete on the strength of it (#1013) | G |
 | 72 | `secret-scan-check.sh` (`make secret-scan`, CI `secret-scan`) | `gitleaks`' findings, wrapped: exit 0 clean, non-zero on a leak | THE WRAPPER IS WHAT RUNS. Row 44 is the binary; this row is the instrument `make` and CI actually invoke, and the one `controls/secret-scan` registers (#935) | G |
 | 73 | `instrument-census-check.py` (`make instrument-census-check`, CI `instrument-census-check`) | `UNACCOUNTED:` / `STALE:` per finding, then `instrument-census-check: ok - all N file(s) in scripts/ are accounted for` | `make verify` and the CI step let work through on it; its green is read as "this table describes the tree", which is the claim every count below rests on (#1060) | G |
+| 74 | `stash-worktree-guard.sh` | refusal on `git stash push` from a linked worktree, exit 1 aborting the ref transaction; `STASH_GUARD:` on the installer lane | THE CALLER, at the moment of the stash - and nothing re-derives it: a permitted push is indistinguishable from a safe one, which is how #1056's worker popped another session's work. Bounded to `push`: on `pop`/`drop` git removes the entry BEFORE the hook can veto, so the guard deliberately stays silent there and its silence is not approval (#1056) | G |
 
 > **Rows 66-73 were added by #1060, and how they were found is the point.** None
 > of the eight was a judgement that had been made and deferred - they were simply
@@ -422,6 +423,14 @@ third-party binary or a Python module entry point - there is no file for a
 responses and otherwise render identically. The list NARROWS what is checked, so
 it fails loudly: an undeclared non-file subject is reported `STALE` until
 someone adds it here.
+
+**Row 74's control is in `tests/`, not `controls/`.** Its negative control needs a
+real repository with a real linked worktree, and git is absent from the
+`negative-controls` CI image by design - the anchors are vendored precisely
+because of that. A git-dependent control registered there reports UNSIGNALLED and
+fails the pipeline, so registering one would trade a working control for a red
+build. `tests/test_stash_worktree_guard.py` carries both halves issue #1056
+names, plus a blind-hook variant asserting the known-bad outcome flips.
 
 <!-- instrument-census: external-subjects: ruff, mypy, pytest, gitleaks, hadolint, make, lib.cicd, lib.security, lib.creds, pipeline, infra-init, infra-discover, infra-pipeline, init-manifest -->
 
