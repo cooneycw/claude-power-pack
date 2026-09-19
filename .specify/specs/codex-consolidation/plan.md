@@ -153,7 +153,7 @@ Disjoint implementations may overlap once their prerequisites are met.
 
 | Claim | Instrument |
 |---|---|
-| The ledger accounts for every open CxPP obligation | `make consolidation-ledger-check` (`scripts/check-consolidation-ledger.py`), ADR 0008 census row 75 |
+| The ledger accounts for every open CxPP obligation | `make consolidation-ledger-check` (`scripts/check-consolidation-ledger.py`), enumerated in the ADR 0008 census |
 | That instrument can fail | `controls/ledger-completeness` - known-bad case + blind anchor, driven by `make negative-fixture-check` and `tests/test_codex_consolidation_ledger.py` |
 | The spec set exists and is referenced, not copied | `tests/test_codex_consolidation_ledger.py::test_the_spec_set_is_present`; issue bodies link sections |
 | Independent review happened | [review.md](review.md), reviewer identity recorded per finding |

@@ -98,7 +98,7 @@
   populations are recorded as **unknown**, which cannot be closed by reading
   either repository.
   `scripts/check-consolidation-ledger.py` (`make consolidation-ledger-check`, CI,
-  ADR 0008 census row 75) compares the ledger against a snapshot captured from
+  enumerated in the ADR 0008 census) compares the ledger against a snapshot captured from
   `gh` and **never derived from the ledger** - a snapshot built by scanning the
   ledger would compare it against itself and could never be red.
   `controls/ledger-completeness` carries three cases and a blind anchor. The
