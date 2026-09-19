@@ -64,7 +64,7 @@
 #     - <condition>                     (>=1 required; list items)
 #     serializes: <marker>              (optional; unions into the ledger's
 #                                        adds_serialized, the two-`0009`s fix)
-#   LANE: GRANT|EXTEND <role> <path> [<path>...]
+#   LANE: GRANT|SET <role> <path> [<path>...]   (REPLACES the role's lane)
 #   LANE: REVOKE <role> [<path>...]
 #   MERGE: AUTHORIZED #N when <predicate>
 #   MERGE: PRIORITY #N <argument>
@@ -310,9 +310,26 @@ parse_lane() { # parse_lane LINENO REST
   args="$(trim "${rest#"$verb"}")"
 
   case "$verb" in
-    GRANT|EXTEND|REVOKE) : ;;
-    '') add_err "$ln" "LANE: needs a verb - GRANT, EXTEND or REVOKE"; return ;;
-    *)  add_err "$ln" "unknown LANE verb '$verb' (expected GRANT, EXTEND or REVOKE)"; return ;;
+    GRANT|SET|REVOKE) : ;;
+    #: `EXTEND` IS REFUSED BY NAME, not left to the unknown-verb arm (#1026).
+    #:
+    #: The registry's `--files` REPLACES a role's lane wholesale, so a role
+    #: re-registered on an "EXTEND" loses every path the new list omits - at the
+    #: moment it is most likely to have just merged the file. The token names the
+    #: INVERSE of the mechanism, so a sender who reads it as written produces the
+    #: opposite of what they intend. It fired twice in one day, the second time by
+    #: an orchestrator who had reported the first occurrence two hours earlier.
+    #:
+    #: This is the treatment `MERGE: HOLD|BLOCK|FREEZE` already gets a few
+    #: functions down, for the identical reason ("reads as its own inverse"), so
+    #: the principle was already enforced one token over. An unknown-verb error
+    #: would say `EXTEND` is not a verb; the sender's actual mistake is believing
+    #: it does something, and only a message naming the mechanism corrects that.
+    EXTEND)
+      add_err "$ln" "LANE: EXTEND does not extend - the registry's --files REPLACES a role's lane wholesale, so re-registering on an 'EXTEND' DROPS every path the new list omits. Name the COMPLETE lane with 'LANE: SET <role> <every path it should still hold>' (GRANT is the same replace semantics under its established name)"
+      return ;;
+    '') add_err "$ln" "LANE: needs a verb - GRANT, SET or REVOKE"; return ;;
+    *)  add_err "$ln" "unknown LANE verb '$verb' (expected GRANT, SET or REVOKE)"; return ;;
   esac
 
   role="${args%%[[:space:]]*}"

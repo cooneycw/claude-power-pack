@@ -1,0 +1,19 @@
+{
+  "branch": "issue-1026-flow-wave-registry-a-declared-lane-lapses-silently",
+  "counts": {
+    "accepted": 9,
+    "deferred": 2,
+    "rejected": 0
+  },
+  "implementer": "claude/opus-5",
+  "issue": "1026",
+  "passes": 2,
+  "recorded_at": "2026-09-19T08:52:28Z",
+  "red_cases": {
+    "already_covered": 11,
+    "proposed": 14
+  },
+  "reviewer": "codex/gpt-5.6-sol",
+  "schema": 1,
+  "status": "ran"
+}

@@ -111,6 +111,7 @@ def _run(
     unknown: str = "",
     now: str = "1700000000",
     cwd: Path | None = None,
+    extra_env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     env.update(
@@ -125,6 +126,11 @@ def _run(
             "FLOW_WAVE_NOW": now,
         }
     )
+    # #1026: the merge-strict shelf life is configurable, so a test has to be
+    # able to set FLOW_WAVE_MERGE_STRICT_TTL - including to a MALFORMED value,
+    # which is the case that proved the guard could fail open.
+    if extra_env:
+        env.update(extra_env)
     # `cwd` defaults to None (inherit pytest's own cwd, as before every #891
     # call site below started passing it) so every existing call is unaffected.
     # #891 needs it to prove the registry answers the SAME way regardless of
@@ -3055,3 +3061,492 @@ def test_identical_lanes_still_collide(tmp_path: Path) -> None:
     """Exact-match must be unregressed: containment ADDED a case, it replaced none."""
     out = _two_lanes(tmp_path, "scripts/same.sh", "scripts/same.sh")
     assert "overlapping FILE LANES" in out.stdout, out.stdout
+
+
+# --------------------------------------------------------------------------- #
+# #1026 - declarations that were stored and never read back
+#
+# Every case below shares one shape: something is DECLARED and nothing reports
+# it, so a broken declaration and a working one print identically. Each test is
+# paired with its opposite, because a check that only ever fires - or only ever
+# passes - carries the same amount of information as no check at all.
+# --------------------------------------------------------------------------- #
+
+
+@requires_tools
+def test_a_dropped_lane_path_is_reported(tmp_path: Path) -> None:
+    """THE RED CASE. ``--files`` REPLACES, and the drop was silent.
+
+    A role re-registering for its next issue with a new list loses its claim on
+    everything it held - at the moment it is most likely to have just merged the
+    file. Afterwards the roster cannot distinguish *nobody has claimed this path*
+    from *nobody is in conflict over it*: both render as silence, which is the
+    failure class this whole helper exists to refuse.
+
+    The assertion is on the path being NAMED, not merely on a count: a warning
+    that says a drop happened without saying what was dropped cannot be acted on.
+    """
+    _run(tmp_path, "register", "w", "--wave", "zz", "--repo", "/tmp",
+         "--files", "src/a.py,src/b.py")
+    out = _run(tmp_path, "register", "w", "--wave", "zz", "--repo", "/tmp",
+               "--files", "src/b.py")
+    assert _detail(out, "FLOW_WAVE_FILES_DROPPED") == "src/a.py", out.stdout
+    assert _detail(out, "FLOW_WAVE_FILES") == "src/b.py", out.stdout
+    assert "src/a.py" in out.stderr, out.stderr
+    assert "REPLACES" in out.stderr, out.stderr
+
+
+@requires_tools
+def test_an_unchanged_lane_reports_no_drop(tmp_path: Path) -> None:
+    """THE GREEN CASE (ADR 0008). Without it the report above proves nothing.
+
+    A drop report that fired on every re-registration would satisfy the test
+    above and be worthless - re-registering is the DOCUMENTED cheap re-brief
+    (#670), so it happens constantly and a warning on it trains everyone to
+    ignore the warning.
+    """
+    _run(tmp_path, "register", "w", "--wave", "zz", "--repo", "/tmp",
+         "--files", "src/a.py,src/b.py")
+    out = _run(tmp_path, "register", "w", "--wave", "zz", "--repo", "/tmp",
+               "--files", "src/a.py,src/b.py")
+    assert _detail(out, "FLOW_WAVE_FILES_DROPPED") == "-", out.stdout
+    assert _detail(out, "FLOW_WAVE_FILES_ADDED") == "-", out.stdout
+    assert "DROPPED" not in out.stderr, out.stderr
+
+
+@requires_tools
+def test_omitting_files_entirely_is_not_a_drop(tmp_path: Path) -> None:
+    """Role-level facts are PRESERVED when their flag is omitted (#699).
+
+    The re-brief that recovers a compacted worker's protocol passes no ``--files``
+    at all, and reporting that as a drop would make the loudest warning in the
+    helper fire on its most routine invocation.
+    """
+    _run(tmp_path, "register", "w", "--wave", "zz", "--repo", "/tmp",
+         "--files", "src/a.py")
+    out = _run(tmp_path, "register", "w", "--wave", "zz", "--repo", "/tmp")
+    assert _detail(out, "FLOW_WAVE_FILES") == "src/a.py", out.stdout
+    assert _detail(out, "FLOW_WAVE_FILES_DROPPED") == "-", out.stdout
+
+
+@requires_tools
+def test_respelling_a_held_path_is_not_a_drop(tmp_path: Path) -> None:
+    """Two legitimate spellings of one path must not read as two files.
+
+    ``src`` and ``src/`` are the same declaration, and narrowing to a file inside
+    a directory you still hold drops nothing. String equality here would
+    manufacture a finding out of how somebody typed a path - and a drop report
+    that cries wolf on a respelling is one nobody reads, which is exactly the
+    silence this replaced.
+    """
+    _run(tmp_path, "register", "w", "--wave", "zz", "--repo", "/tmp", "--files", "src")
+    out = _run(tmp_path, "register", "w", "--wave", "zz", "--repo", "/tmp", "--files", "src/")
+    assert _detail(out, "FLOW_WAVE_FILES_DROPPED") == "-", out.stdout
+    # ...and the containment direction that DOES drop still does.
+    narrowed = _run(tmp_path, "register", "w", "--wave", "zz", "--repo", "/tmp",
+                    "--files", "src/a.py")
+    assert _detail(narrowed, "FLOW_WAVE_FILES_DROPPED") == "src", narrowed.stdout
+
+
+@requires_tools
+def test_register_reads_back_its_own_driver(tmp_path: Path) -> None:
+    """A silently-accepted flag and a silently-IGNORED one were identical here.
+
+    ``register`` stored ``--driver`` and emitted nothing, so the one moment a
+    caller could still catch a typo produced no evidence either way. ``get``
+    answered, but a worker asking ``get`` about itself to find out what it just
+    said is the round trip this removes.
+    """
+    out = _run(tmp_path, "register", "w", "--wave", "zz", "--repo", "/tmp",
+               "--driver", "flow:auto")
+    assert _detail(out, "FLOW_WAVE_DRIVER") == "flow:auto", out.stdout
+    # The #783 capability fence travels with it, or an orchestrator still has to
+    # ask a second question to route anything.
+    assert _detail(out, "FLOW_WAVE_DRIVER_SCOPE") != "", out.stdout
+    # The green/red pair: a role that declared none reads `-`, never a fabricated
+    # driver name.
+    bare = _run(tmp_path, "register", "x", "--wave", "zz", "--repo", "/tmp")
+    assert _detail(bare, "FLOW_WAVE_DRIVER") == "-", bare.stdout
+
+
+@requires_tools
+def test_driver_undeclared_is_counted_only_where_the_question_arises(tmp_path: Path) -> None:
+    """Three states, and the third is why this is not a bare count.
+
+    A wave-level ``policy set --driver`` is inherited DOCTRINE - it populates no
+    role's ``driver=`` - so a worker quietly running something else produces a
+    byte-identical roster row. But ``register.md``'s canonical invocation is not
+    required to pass ``--driver``, so counting every driverless role would fire
+    on the ordinary shape (#674).
+
+    Hence: ``-`` when the wave declares no driver (the question does not arise),
+    a real count when it does. ``0`` would claim a measurement that was never
+    taken, and a counter that silently matches nothing renders identically to a
+    working one.
+    """
+    _run(tmp_path, "register", "w", "--wave", "zz", "--repo", "/tmp", live=SELF_PID)
+    no_policy = _run(tmp_path, "list", "--wave", "zz", live=SELF_PID)
+    assert _detail(no_policy, "FLOW_WAVE_DRIVER_UNDECLARED") == "-", no_policy.stdout
+
+    _run(tmp_path, "policy", "set", "--wave", "zz", "--driver", "codex:auto")
+    exposed = _run(tmp_path, "list", "--wave", "zz", live=SELF_PID)
+    assert _detail(exposed, "FLOW_WAVE_DRIVER_UNDECLARED") == "1", exposed.stdout
+    assert "codex:auto" in exposed.stdout, "the roster must name the wave's driver"
+
+    _run(tmp_path, "register", "w", "--wave", "zz", "--repo", "/tmp",
+         "--driver", "codex:auto", live=SELF_PID)
+    declared = _run(tmp_path, "list", "--wave", "zz", live=SELF_PID)
+    assert _detail(declared, "FLOW_WAVE_DRIVER_UNDECLARED") == "0", declared.stdout
+
+
+@requires_tools
+def test_driver_undeclared_is_reported_on_every_render_path(tmp_path: Path) -> None:
+    """An instrument visible in one output mode and invisible in another is the
+    same blind-spot failure one level up - the reason #800 counts above the
+    ``--json`` branch rather than inside it."""
+    _run(tmp_path, "register", "w", "--wave", "zz", "--repo", "/tmp", live=SELF_PID)
+    _run(tmp_path, "policy", "set", "--wave", "zz", "--driver", "codex:auto")
+    for args in (("list", "--wave", "zz"), ("list", "--wave", "zz", "--json")):
+        out = _run(tmp_path, *args, live=SELF_PID)
+        assert _detail(out, "FLOW_WAVE_DRIVER_UNDECLARED") == "1", (args, out.stdout)
+    empty = _run(tmp_path, "list", "--wave", "no-such-wave", live=SELF_PID)
+    assert "FLOW_WAVE_DRIVER_UNDECLARED=" in empty.stdout, empty.stdout
+
+
+@requires_tools
+def test_a_stale_merge_strict_no_stops_suppressing_starvation(tmp_path: Path) -> None:
+    """THE TWO-SIDED CONTROL. One declaration, two verdicts, clock the only input.
+
+    ``merge_strict=no`` switches starvation detection OFF, and branch protection
+    is repo state anyone with admin can change - including from outside the wave.
+    So a wave that declared ``no`` went silently blind the moment protection was
+    TIGHTENED, which is precisely the change that makes starvation possible. The
+    staleness was unbounded because nothing dated the reading.
+
+    Both halves run here on the SAME stored policy, so the difference cannot be
+    attributed to anything but the age of the observation.
+    """
+    for base in ("a", "b", "c"):
+        _run(tmp_path, "register", "w", "--wave", "zz", "--repo", "/tmp",
+             "--pr", "5", "--base", base, "--diff", "same", live=SELF_PID)
+    _run(tmp_path, "policy", "set", "--wave", "zz", "--merge-strict", "no")
+
+    fresh = _run(tmp_path, "list", "--wave", "zz", live=SELF_PID)
+    assert _detail(fresh, "FLOW_WAVE_MERGE_STRICT") == "no", fresh.stdout
+    assert _detail(fresh, "FLOW_WAVE_MERGE_STRICT_SUPPRESSING") == "yes", fresh.stdout
+    assert _detail(fresh, "FLOW_WAVE_STARVATION") == "0", fresh.stdout
+
+    # Same registry, same declaration, two days later.
+    stale = _run(tmp_path, "list", "--wave", "zz", live=SELF_PID, now="1700172800")
+    assert _detail(stale, "FLOW_WAVE_POLICY_MERGE_STRICT_STALE") == "yes", stale.stdout
+    assert _detail(stale, "FLOW_WAVE_MERGE_STRICT_SUPPRESSING") == "no", stale.stdout
+    assert _detail(stale, "FLOW_WAVE_STARVATION") != "0", stale.stdout
+    assert "NOT suppressed" in stale.stderr, stale.stderr
+    # The DECLARATION is still reported as declared - expiry changes what it
+    # governs, never what it says.
+    assert _detail(stale, "FLOW_WAVE_MERGE_STRICT") == "no", stale.stdout
+
+
+@requires_tools
+def test_an_unstamped_merge_strict_is_not_treated_as_fresh(tmp_path: Path) -> None:
+    """Undatable is not recent (the scan-silence rule, applied to a timestamp).
+
+    A policy written before the stamp existed carries ``merge_strict`` and no
+    ``merge_strict_ts``. Reading that as a fresh observation would restore the
+    unbounded staleness in exactly the case nobody would think to check.
+    """
+    for base in ("a", "b", "c"):
+        _run(tmp_path, "register", "w", "--wave", "zz", "--repo", "/tmp",
+             "--pr", "5", "--base", base, "--diff", "same", live=SELF_PID)
+    _run(tmp_path, "policy", "set", "--wave", "zz", "--merge-strict", "no")
+    reg = _registry_json(tmp_path)
+    del reg["zz"]["policy"]["merge_strict_ts"]
+    (tmp_path / "reg" / "registry.json").write_text(json.dumps(reg))
+
+    out = _run(tmp_path, "list", "--wave", "zz", live=SELF_PID)
+    assert _detail(out, "FLOW_WAVE_POLICY_MERGE_STRICT_STALE") == "unknown", out.stdout
+    assert _detail(out, "FLOW_WAVE_MERGE_STRICT_SUPPRESSING") == "no", out.stdout
+    assert _detail(out, "FLOW_WAVE_STARVATION") != "0", out.stdout
+
+
+@requires_tools
+def test_authority_model_has_a_value_for_the_most_restrictive_answer(tmp_path: Path) -> None:
+    """The enum's only escape hatch used to be PERMISSIVE.
+
+    With just ``orchestrator-only`` and ``user-and-orchestrator`` on offer, an
+    operator declaring a NARROWER authority than the enum contemplated had to
+    either leave the field empty - which reads as undeclared - or store a value
+    granting authority the owner never delegated. For a field whose whole job is
+    to say who may authorise work, that is the wrong direction to fail in.
+    """
+    out = _run(tmp_path, "policy", "set", "--wave", "zz", "--authority-model", "user-only")
+    assert out.returncode == 0, out.stdout + out.stderr
+    assert _detail(out, "FLOW_WAVE_POLICY_AUTHORITY_MODEL") == "user-only", out.stdout
+    # The enum must still BE an enum, or widening it proves nothing.
+    typo = _run(tmp_path, "policy", "set", "--wave", "zz", "--authority-model", "user only")
+    assert typo.returncode == 2, typo.stdout + typo.stderr
+
+
+@requires_git_tools
+def test_a_lane_wider_than_its_grant_refuses(tmp_path: Path) -> None:
+    """THE RED CASE for the one comparison nothing made (#1026).
+
+    Everything else compares a lane against other LANES, or against a DIFF. The
+    grant that authorised it was never a party to either - and the grant is the
+    side that changes shape on the way in: prose in a message, data in the
+    registry. A lane claiming what nobody handed over is how one role quietly
+    takes another's file, and unlike the diff check it is knowable before a line
+    is written.
+    """
+    repo = _lane_repo(tmp_path)
+    _run(tmp_path, "register", "w", "--wave", "zz", "--repo", str(repo),
+         "--files", "mine.sh,theirs.md")
+    out = _run(tmp_path, "lane-check", "w", "--wave", "zz",
+               "--granted", "mine.sh", cwd=repo)
+    assert out.returncode == 1, (out.returncode, out.stdout, out.stderr)
+    assert "FLOW_WAVE_LANE_CHECK=ungranted" in out.stdout, out.stdout
+    assert _detail(out, "FLOW_WAVE_LANE_UNGRANTED") == "1", out.stdout
+    assert "theirs.md" in out.stdout + out.stderr, "the offending path must be NAMED"
+
+
+@requires_git_tools
+def test_a_lane_inside_its_grant_passes(tmp_path: Path) -> None:
+    """THE GREEN CASE, and the spelling control with it.
+
+    The grant here names a DIRECTORY that contains the declared lane. A
+    string-equality comparison would call that two different files and refuse a
+    correct lane - manufacturing a finding out of how somebody typed a path, and
+    turning the gate into one people route around.
+    """
+    repo = _lane_repo(tmp_path)
+    (repo / "mine.sh").write_text("#!/bin/sh\necho b\n")
+    _run(tmp_path, "register", "w", "--wave", "zz", "--repo", str(repo),
+         "--files", "mine.sh")
+    exact = _run(tmp_path, "lane-check", "w", "--wave", "zz",
+                 "--granted", "mine.sh", cwd=repo)
+    assert exact.returncode == 0, (exact.returncode, exact.stdout, exact.stderr)
+    assert _detail(exact, "FLOW_WAVE_LANE_UNGRANTED") == "0", exact.stdout
+    assert _detail(exact, "FLOW_WAVE_LANE_UNCLAIMED") == "0", exact.stdout
+
+
+@requires_git_tools
+def test_a_granted_path_missing_from_the_lane_is_loud_but_not_a_refusal(tmp_path: Path) -> None:
+    """The lapse seen from the other side - and deliberately NOT a refusal.
+
+    A granted path the lane dropped is unprotected: another role can claim it and
+    overlap detection reports nothing. That is worth saying every time. But the
+    worker's DIFF may be perfectly correct, and blocking a good push over a
+    bookkeeping gap is how a guard gets worked around. So it is counted and said
+    aloud, and the exit code is left alone.
+    """
+    repo = _lane_repo(tmp_path)
+    (repo / "mine.sh").write_text("#!/bin/sh\necho b\n")
+    _run(tmp_path, "register", "w", "--wave", "zz", "--repo", str(repo),
+         "--files", "mine.sh")
+    out = _run(tmp_path, "lane-check", "w", "--wave", "zz",
+               "--granted", "mine.sh,theirs.md", cwd=repo)
+    assert out.returncode == 0, (out.returncode, out.stdout, out.stderr)
+    assert _detail(out, "FLOW_WAVE_LANE_UNCLAIMED") == "1", out.stdout
+    assert _detail(out, "FLOW_WAVE_LANE_UNGRANTED") == "0", out.stdout
+    assert "theirs.md" in out.stderr, out.stderr
+
+
+@requires_git_tools
+def test_no_grant_supplied_reads_as_not_asked_never_as_zero(tmp_path: Path) -> None:
+    """``-``, not ``0``. A zero claims a comparison nobody requested.
+
+    This is the distinction that keeps every other assertion in this group
+    meaningful: without it, a caller that forgot ``--granted`` would read a clean
+    grant check that never ran.
+    """
+    repo = _lane_repo(tmp_path)
+    (repo / "mine.sh").write_text("#!/bin/sh\necho b\n")
+    _run(tmp_path, "register", "w", "--wave", "zz", "--repo", str(repo),
+         "--files", "mine.sh")
+    out = _run(tmp_path, "lane-check", "w", "--wave", "zz", cwd=repo)
+    assert out.returncode == 0, (out.returncode, out.stdout, out.stderr)
+    assert _detail(out, "FLOW_WAVE_LANE_UNGRANTED") == "-", out.stdout
+    assert _detail(out, "FLOW_WAVE_LANE_UNCLAIMED") == "-", out.stdout
+
+
+@requires_git_tools
+def test_an_empty_grant_is_a_missing_measurement_not_a_grant_of_nothing(tmp_path: Path) -> None:
+    """``--granted ''`` would otherwise make EVERY lane entry ungranted.
+
+    An empty value is the signature of a variable that did not expand, and
+    resolving it to "nothing was granted" turns a caller's bug into a wall of
+    findings about paths that were in fact granted.
+    """
+    repo = _lane_repo(tmp_path)
+    _run(tmp_path, "register", "w", "--wave", "zz", "--repo", str(repo),
+         "--files", "mine.sh")
+    out = _run(tmp_path, "lane-check", "w", "--wave", "zz", "--granted", "", cwd=repo)
+    assert out.returncode == 2, (out.returncode, out.stdout, out.stderr)
+    assert "FLOW_WAVE_LANE_CHECK=unknown" in out.stdout, out.stdout
+
+
+# --------------------------------------------------------------------------- #
+# #1026, counter-model review (Codex gpt-5.5) - defects found in the fix itself
+#
+# Every one of these is the same class the issue is about, committed by the fix:
+# an instrument that stops discriminating without saying so.
+# --------------------------------------------------------------------------- #
+
+
+@requires_tools
+def test_a_malformed_ttl_does_not_silently_disable_the_shelf_life(tmp_path: Path) -> None:
+    """THE FAIL-OPEN CASE. An unusable TTL must not read as "never expires".
+
+    ``[ "$age" -gt "$TTL" ]`` with a non-numeric TTL is a bash integer-expression
+    ERROR, which returns false, which falls through to "fresh". So a typo in an
+    environment variable would have silently restored the unbounded staleness
+    this shelf life exists to bound - and, being a suppression, would have
+    announced nothing at all.
+    """
+    for base in ("a", "b", "c"):
+        _run(tmp_path, "register", "w", "--wave", "zz", "--repo", "/tmp",
+             "--pr", "5", "--base", base, "--diff", "same", live=SELF_PID)
+    _run(tmp_path, "policy", "set", "--wave", "zz", "--merge-strict", "no")
+
+    env = {"FLOW_WAVE_MERGE_STRICT_TTL": "bogus"}
+    out = _run(tmp_path, "list", "--wave", "zz", live=SELF_PID, now="1700172800", extra_env=env)
+    assert _detail(out, "FLOW_WAVE_POLICY_MERGE_STRICT_STALE") == "yes", out.stdout
+    assert _detail(out, "FLOW_WAVE_MERGE_STRICT_SUPPRESSING") == "no", out.stdout
+    assert "not a non-negative integer" in out.stderr, out.stderr
+    # The green half: a VALID override must still take effect, or "validated"
+    # would just mean "ignored".
+    wide = _run(tmp_path, "list", "--wave", "zz", live=SELF_PID, now="1700172800",
+                extra_env={"FLOW_WAVE_MERGE_STRICT_TTL": "999999"})
+    assert _detail(wide, "FLOW_WAVE_MERGE_STRICT_SUPPRESSING") == "yes", wide.stdout
+
+
+@requires_tools
+def test_a_stamp_from_the_future_is_unknown_not_very_fresh(tmp_path: Path) -> None:
+    """Clock skew produces a NEGATIVE age. That is a broken observation.
+
+    Rounding it down to "fresh" would suppress starvation detection on the
+    strength of a reading we have positive evidence against - the permissive
+    direction, in the one field where permissive is the wrong way to fail.
+    """
+    for base in ("a", "b", "c"):
+        _run(tmp_path, "register", "w", "--wave", "zz", "--repo", "/tmp",
+             "--pr", "5", "--base", base, "--diff", "same", live=SELF_PID)
+    _run(tmp_path, "policy", "set", "--wave", "zz", "--merge-strict", "no")
+    # The registry was stamped at 1700000000; read it from an hour earlier.
+    out = _run(tmp_path, "list", "--wave", "zz", live=SELF_PID, now="1699996400")
+    assert _detail(out, "FLOW_WAVE_POLICY_MERGE_STRICT_STALE") == "unknown", out.stdout
+    assert _detail(out, "FLOW_WAVE_MERGE_STRICT_SUPPRESSING") == "no", out.stdout
+
+
+@requires_tools
+def test_the_driver_zero_carries_the_population_it_inspected(tmp_path: Path) -> None:
+    """A zero must distinguish "looked and found none" from "nothing to look at".
+
+    Under a declared policy driver an EMPTY wave and a wave whose every live
+    worker declares one both report ``UNDECLARED=0``. Without a denominator the
+    two are byte-identical, which is this repo's own detector contract failing on
+    the counter that was added to enforce it.
+    """
+    empty = _run(tmp_path, "policy", "set", "--wave", "zz", "--driver", "codex:auto")
+    assert empty.returncode == 0, empty.stdout + empty.stderr
+    nobody = _run(tmp_path, "list", "--wave", "zz", live=SELF_PID)
+    assert _detail(nobody, "FLOW_WAVE_DRIVER_UNDECLARED") == "0", nobody.stdout
+    assert _detail(nobody, "FLOW_WAVE_DRIVER_POPULATION") == "0", (
+        "an empty wave must not report the same evidence as an all-clear one"
+    )
+
+    _run(tmp_path, "register", "w", "--wave", "zz", "--repo", "/tmp",
+         "--driver", "codex:auto", live=SELF_PID)
+    allclear = _run(tmp_path, "list", "--wave", "zz", live=SELF_PID)
+    assert _detail(allclear, "FLOW_WAVE_DRIVER_UNDECLARED") == "0", allclear.stdout
+    assert _detail(allclear, "FLOW_WAVE_DRIVER_POPULATION") == "1", allclear.stdout
+
+
+@requires_tools
+def test_a_lane_path_containing_a_space_is_one_path(tmp_path: Path) -> None:
+    """``norm_path`` keeps inner spaces, so the lane model supports them.
+
+    Reporting the delta as a space-joined string and counting it with ``wc -w``
+    turned one valid entry into two - a count the caller cannot reconcile with a
+    list they cannot parse. Commas are the lane's own serialization, so the
+    result feeds straight back into ``--files``.
+    """
+    _run(tmp_path, "register", "w", "--wave", "zz", "--repo", "/tmp",
+         "--files", "docs/My File.md,src/b.py")
+    out = _run(tmp_path, "register", "w", "--wave", "zz", "--repo", "/tmp",
+               "--files", "src/b.py")
+    assert _detail(out, "FLOW_WAVE_FILES_DROPPED") == "docs/My File.md", out.stdout
+    assert "DROPPED 1 path(s)" in out.stderr, out.stderr
+
+
+@requires_tools
+def test_the_drop_warning_claims_only_what_register_inspected(tmp_path: Path) -> None:
+    """``register`` never reads the roster, so it cannot say who holds a path.
+
+    The warning previously asserted "nothing else holds these paths now" - a
+    roster-wide fact this command does not look up, and one another live role can
+    flatly contradict. Fabricated specificity in a warning is how a reader stops
+    believing the ones that are earned.
+    """
+    _run(tmp_path, "register", "w", "--wave", "zz", "--repo", "/tmp",
+         "--files", "src/a.py,src/b.py")
+    out = _run(tmp_path, "register", "w", "--wave", "zz", "--repo", "/tmp",
+               "--files", "src/b.py")
+    assert "Nothing else holds" not in out.stderr, out.stderr
+    assert "THIS role no longer holds" in out.stderr, out.stderr
+    assert "list --wave zz" in out.stderr, "the reader must be sent where the answer is"
+
+
+@requires_tools
+def test_reusing_a_released_role_is_not_a_drop(tmp_path: Path) -> None:
+    """``release`` IS the withdrawal; the next registration must not re-report it.
+
+    A released entry keeps its ``files`` - it is marked, not erased - so reading
+    the field without asking about ``released`` made ordinary role re-use fire
+    the loudest warning in this helper. A warning on the normal path is the #674
+    defect, and here it would land on the very report that has to be believed.
+    """
+    _run(tmp_path, "register", "w", "--wave", "zz", "--repo", "/tmp", "--files", "src/a.py")
+    _run(tmp_path, "release", "w", "--wave", "zz")
+    out = _run(tmp_path, "register", "w", "--wave", "zz", "--repo", "/tmp", "--files", "src/b.py")
+    assert _detail(out, "FLOW_WAVE_FILES_DROPPED") == "-", out.stdout
+    assert "DROPPED" not in out.stderr, out.stderr
+    # The green/red pair: an UNRELEASED predecessor still reports its drop, or
+    # this fix would have disabled the detector rather than scoped it.
+    _run(tmp_path, "register", "v", "--wave", "zz", "--repo", "/tmp", "--files", "src/a.py")
+    live = _run(tmp_path, "register", "v", "--wave", "zz", "--repo", "/tmp", "--files", "src/b.py")
+    assert _detail(live, "FLOW_WAVE_FILES_DROPPED") == "src/a.py", live.stdout
+
+
+@requires_git_tools
+def test_a_whitespace_only_grant_is_a_missing_measurement(tmp_path: Path) -> None:
+    """``--granted $'\\t'`` must not become "nothing was granted".
+
+    A hand-rolled emptiness test that strips only commas and spaces let a tab
+    through, which ``lane_split`` then trimmed to nothing - and a grant of
+    nothing makes EVERY declared lane entry ungranted. A caller's unexpanded
+    variable would have produced a wall of confident findings and an exit 1.
+    """
+    repo = _lane_repo(tmp_path)
+    _run(tmp_path, "register", "w", "--wave", "zz", "--repo", str(repo), "--files", "mine.sh")
+    out = _run(tmp_path, "lane-check", "w", "--wave", "zz", "--granted", "\t", cwd=repo)
+    assert out.returncode == 2, (out.returncode, out.stdout, out.stderr)
+    assert "FLOW_WAVE_LANE_CHECK=unknown" in out.stdout, out.stdout
+    assert "FLOW_WAVE_LANE_UNGRANTED=1" not in out.stdout, (
+        "a whitespace grant must not indict the lane it failed to read"
+    )
+
+
+@requires_tools
+def test_merge_strict_suppression_is_reported_on_every_render_path(tmp_path: Path) -> None:
+    """Including the EMPTY roster, which returned before deriving it.
+
+    ``list --json`` on an empty wave emitted the key and plain ``list`` did not,
+    so a consumer reading the text form could not tell "not suppressing" from
+    "this render path never reported suppression" - the same blind-spot shape
+    #800 fixed one counter over.
+    """
+    _run(tmp_path, "policy", "set", "--wave", "zz", "--merge-strict", "no")
+    for args in (("list", "--wave", "zz"), ("list", "--wave", "zz", "--json")):
+        out = _run(tmp_path, *args, live=SELF_PID)
+        assert "FLOW_WAVE_MERGE_STRICT_SUPPRESSING=" in out.stdout, (args, out.stdout)
