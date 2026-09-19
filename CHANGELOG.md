@@ -75,6 +75,44 @@
 
 ### Added
 
+- **2026-09-19 - the Codex-consolidation contract: spec, inventory, disposition
+  ledger, and a check that the ledger is complete** (issue #1068) - #1067
+  proposed retiring codex-power-pack (CxPP) in favour of CPP, and said of itself
+  that it was a proposal rather than permission to implement. Nine children
+  depend on it, and with no authoritative contract each would have re-derived
+  for itself what the migration must protect - so anything no child remembered
+  would have been lost without ever being decided. `.specify/specs/codex-consolidation/`
+  now holds the spec (trust boundaries, dependency order, release matrix,
+  cutover/rollback, archive exit criteria), a rebaselined capability inventory,
+  the disposition ledger, the plan, and the independent-review record. Rebaselining
+  mattered: #1067 recorded CPP main at `194f7305` and main was already two merges
+  past it, so two ledger rows are `already-covered` **because of** cpp#1027, a fix
+  a worker verifying against the epic's SHA would have found absent.
+  The ledger accounts for 40/40 open CxPP issues and 1/1 open PR; 32 rows are
+  `unresolved` and each names the child it blocks, which is the deliverable rather
+  than a shortfall - #1068's job was to find out what is undecided, and six owner
+  decisions are surfaced as pending rather than resolved on an implementer's
+  authority. Two findings the epic did not carry: the vendor dependency is
+  **bidirectional** (CxPP's PIN pulls CPP's `codex/skills/` at `f64a654f`, behind
+  main), which constrains archival order in both directions; and three consumer
+  populations are recorded as **unknown**, which cannot be closed by reading
+  either repository.
+  `scripts/check-consolidation-ledger.py` (`make consolidation-ledger-check`, CI,
+  ADR 0008 census row 75) compares the ledger against a snapshot captured from
+  `gh` and **never derived from the ledger** - a snapshot built by scanning the
+  ledger would compare it against itself and could never be red.
+  `controls/ledger-completeness` carries three cases and a blind anchor. The
+  control earned its keep before merge: the gate's first cut matched `cxpp#N`
+  anywhere in the file and the known-bad fixture PASSED it, because the fixture's
+  prose explains that `cxpp#227` has no row and that sentence contains the token.
+  Better prose makes a whole-file text scan more likely to pass, not less. The
+  rejected rule is vendored as the anchor, so the blindness is a committed
+  artifact rather than a remembered one. Independent review by three non-Anthropic
+  models (the reviewer must not be the implementing model) returned 11 accepted
+  findings, four of them loss paths the author missed - including that
+  `already-covered` required naming a CPP surface but not parity, and that the
+  vocabulary had no word for transferring a capability to an owner outside CPP.
+
 - **2026-09-19 - `/project:next` had no engine on a fresh install** (issue
   #1066) - `.claude/commands/project/next.md` states that
   `~/.claude/scripts/project-next.py` "is always present with this command" and

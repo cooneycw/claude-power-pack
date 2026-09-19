@@ -1,0 +1,63 @@
+# Open codex-power-pack issues and PRs at the #1068 baseline.
+#
+# PROVENANCE - this file is captured from GitHub, NEVER derived from the ledger.
+# A snapshot built by reading the ledger would make the completeness check a
+# closed loop: the ledger would be compared against itself and could never be
+# found incomplete. Captured with:
+#
+#   gh issue list --repo cooneycw/codex-power-pack --state open --limit 200 \
+#       --json number --jq '.[].number'
+#   gh pr list   --repo cooneycw/codex-power-pack --state open --limit 200 \
+#       --json number --jq '.[].number'
+#
+# Captured: 2026-09-19
+# CxPP baseline: 681ea26b68ff30debdc1efcfa7c57f814f01a0da
+# CPP  baseline: 5ceb966aac96ca4ec1ddafd4cd330b5a174d9a00
+#
+# Refresh with: python3 scripts/check-consolidation-ledger.py --refresh
+# A refresh that ADDS a number makes the check red until the ledger accounts
+# for it. That is the intended behaviour, not a failure of the snapshot.
+#
+# issue numbers
+189
+192
+193
+194
+201
+202
+203
+206
+208
+219
+220
+223
+224
+225
+226
+227
+228
+229
+230
+236
+241
+242
+247
+248
+249
+250
+256
+257
+259
+274
+275
+276
+277
+279
+280
+281
+282
+283
+284
+285
+# pull request numbers
+239

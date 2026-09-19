@@ -1,0 +1,78 @@
+{
+  "_comment": [
+    "Registration for scripts/check-consolidation-ledger.py (issue #1068).",
+    "",
+    "THE CASES ARE A LEDGER AND A SNAPSHOT, AND THEY DIFFER IN EXACTLY ONE",
+    "THING. good-complete and bad-missing-issue carry the same 3-entry snapshot",
+    "and the same out-of-snapshot citation (cxpp#287); the only difference is",
+    "that the bad case's table has no row for cxpp#227. Anything else that",
+    "differed would let the control pass for a reason other than the one it is",
+    "testing.",
+    "",
+    "THE BAD CASE ALREADY EARNED ITS KEEP. The gate's first cut matched",
+    "`cxpp#<n>` anywhere in the file, and this case PASSED it - the fixture's",
+    "prose explains that cxpp#227 has no row, and that sentence contains the",
+    "token, so the scan read the explanation of the absence as the account of",
+    "it. The matching rule is now first-cell-of-a-table-row because this case",
+    "was red-run against the loose one and came back green. That is the whole",
+    "argument for committing a known-bad input rather than re-reading the gate:",
+    "re-reading checks what it MEANT, and it meant the right thing both times.",
+    "",
+    "WHY cxpp#227 IS THE ENTRY REMOVED. It is the Nit Store, which the spec's",
+    "archive exit criteria name explicitly (\"no unresolved finding is lost\").",
+    "An omission there is the most consequential one the real ledger could",
+    "carry, so the control is aimed at the shape of failure that matters rather",
+    "than at an arbitrary number.",
+    "",
+    "detect_signal keys on the gate's own LEDGER_MISSING line rather than on",
+    "exit status, because the gate exits non-zero for two different reasons: 1",
+    "for a finding and 2 for an unreadable or vacuous input. Without the signal",
+    "a missing ledger file would score as a successful detection while nothing",
+    "had been compared at all.",
+    "",
+    "A SECOND BAD CASE WAS ADDED BY INDEPENDENT REVIEW (#1068 review.md, finding R3). bad-row-without-disposition carries a row for cxpp#227 with an EMPTY disposition cell: under the presence-only rule the first cut shipped with, that row satisfied the check while recording nothing about what happens to the entry. Two reviewers reached it independently, and neither was looking at the gate's source - which is the argument for asking a model that did not write the thing.",
+    "ONE-DIRECTIONAL BY DESIGN - see `limits`."
+  ],
+  "gate": "scripts/check-consolidation-ledger.py",
+  "invocation": [
+    "python3",
+    "{gate}",
+    "--ledger",
+    "{case}/ledger.md",
+    "--snapshot",
+    "{case}/baseline-open.txt"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^LEDGER_MISSING: ",
+  "limits": "Covers OMISSION only: an open CxPP entry with no ledger row. It deliberately does not flag the reverse - a ledger citing a number outside the snapshot - because the real ledger legitimately cites pre-baseline PRs (cxpp#287) and CPP issue numbers, and a gate that went red on correct prose would be switched off (ADR 0009). It checks that a row exists AND names one of the six dispositions, but never judges whether that disposition is RIGHT; `owner-approved-retirement` with no cited ruling is a defect this control cannot see, and spec US2 leaves that to review. The required population is a COMMITTED snapshot, so the gate is blind to issues opened in CxPP after the baseline until `--refresh` is run - the snapshot's provenance header says so, and a refresh that adds a number is expected to turn this red. Two integrity checks are deliberately absent and were accepted-but-deferred by review (findings R7): a duplicate cxpp#N across two rows with conflicting dispositions, and a first-cell citation of a number that is not in the snapshot at all (a typo or a renumber). Both are positive-claim integrity rather than omission, they need their own cases, and folding them in here would blur what a red from this gate means.",
+  "cases": [
+    {
+      "name": "bad-missing-issue",
+      "input": "cases/bad-missing-issue",
+      "expect": "BAD",
+      "why": "cxpp#227 is in the snapshot and has no table row. If this scores GOOD the gate cannot tell an accounted obligation from an unaccounted one, which is the only question it exists to answer - and, measured, the first cut did score it GOOD."
+    },
+    {
+      "name": "bad-row-without-disposition",
+      "input": "cases/bad-row-without-disposition",
+      "expect": "BAD",
+      "why": "cxpp#227 has a row and an empty disposition cell. If this scores GOOD, a ledger can account for every obligation by listing its number and saying nothing about any of them - the shape of completeness with none of the content. Differs from good-complete in exactly one cell."
+    },
+    {
+      "name": "good-complete",
+      "input": "cases/good-complete",
+      "expect": "GOOD",
+      "why": "THE HALF THAT MATTERS. All three snapshot entries have rows, AND the ledger cites cxpp#287, which is not in the snapshot. A gate that flagged the extra citation would be red on every correct ledger in the repository, get overridden within a week, and take the omission check down with it."
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "n/a",
+      "origin": "scripts/check-consolidation-ledger.py, first cut - the whole-file match rule, replaced during #1068 after this control's known-bad case defeated it",
+      "path": "anchors/constructed-whole-file-scan.py",
+      "sha256": "f71185ac4f2ddd6f6e087409b713f0b325e3f8911890cc21db75faacf3f3c0dc",
+      "why": "CONSTRUCTED because the gate is new and has no released predecessor - but not invented: this is the rule the gate actually shipped with for the length of one test run, and its blindness was observed rather than assumed. It counts a cxpp# token anywhere in the file, so the bad fixture's explanatory prose satisfies it: it MISSES the known-bad input and AGREES with the current gate on the known-good one. It also misses the second bad case: counting tokens anywhere in the file cannot see an empty disposition cell, because the token is present either way."
+    }
+  ]
+}
