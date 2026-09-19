@@ -193,6 +193,8 @@ def build(args: argparse.Namespace) -> dict:
         # THE PROPERTY, recorded per run rather than asserted once in prose.
         # "the reviewing model must not be the implementing model" is the rule;
         # a receipt naming both is what makes a violation findable later.
+        # A skip had no reviewing model, so it records JSON null rather than
+        # fabricating an identity for a review that never happened.
         "reviewer": args.reviewer,
         "implementer": args.implementer,
     }
@@ -233,8 +235,16 @@ def validate(receipt: dict, source: str = "<receipt>") -> list[str]:
         bad.append(f"{source}: status {status!r} not in {STATUSES}")
         return bad
 
-    reviewer = need("reviewer", str)
     implementer = need("implementer", str)
+    reviewer = receipt.get("reviewer")
+    if status == "skipped":
+        if reviewer is not None:
+            bad.append(
+                f"{source}: a skipped run must not carry a reviewer; no review happened"
+            )
+        reviewer = None
+    else:
+        reviewer = need("reviewer", str)
     # AN EMPTY IDENTITY IS NOT AN IDENTITY. The first cut guarded the comparison
     # with `if reviewer and implementer`, so a receipt naming NEITHER model
     # skipped the check and validated clean - recording "two different models
@@ -393,7 +403,7 @@ def main() -> int:
     w.add_argument("--branch", required=True)
     w.add_argument("--status", required=True, choices=STATUSES)
     w.add_argument("--reason", choices=SKIP_REASONS, help="required when --status skipped")
-    w.add_argument("--reviewer", required=True, help="the REVIEWING model")
+    w.add_argument("--reviewer", help="the REVIEWING model")
     w.add_argument("--implementer", required=True, help="the IMPLEMENTING model")
     w.add_argument("--passes", type=int, default=1)
     for k in COUNTS:
@@ -414,6 +424,12 @@ def main() -> int:
     args = ap.parse_args()
     if args.cmd == "write" and args.status == "skipped" and not args.reason:
         ap.error("--status skipped requires --reason")
+    if (args.cmd == "write" and args.status == "skipped" and args.reviewer is not None
+            and args.reviewer.strip()):
+        ap.error("--status skipped must not name a reviewer; no review happened")
+    if (args.cmd == "write" and args.status == "ran"
+            and (args.reviewer is None or not args.reviewer.strip())):
+        ap.error("--status ran requires a non-empty --reviewer")
     return int(args.func(args))
 
 
