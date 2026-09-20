@@ -627,3 +627,71 @@ class TestManifestPlansIncludeTypecheck:
                 f"CPP's own '{plan_name}' plan does not run typecheck, but CI does (#617)"
             )
         assert manifest.validate_plan_references() == []
+
+
+class TestGeneratedPlansCoverDeclaredGates:
+    """A manifest CPP generates must not be one CPP's own finish gate rejects.
+
+    `generate_manifest` built plan membership by filtering a literal id list on
+    what the project could actually run, so a project without a `verify:` target
+    got a finish plan with no `verify` in it. Harmless until #1155, which
+    reconciles the resolved plan against the built-in declaration and FAILS on a
+    dropped gate - at which point the generator and the gate contradicted each
+    other and every newly scaffolded project carried the contradiction.
+
+    Caught by counter-model review, not by the suite: every existing test
+    resolved THIS repository's manifest, where every target exists, so the
+    filter never removed anything and the two behaviours were indistinguishable.
+    """
+
+    @staticmethod
+    def _bare_python_project(tmp_path):
+        (tmp_path / "pyproject.toml").write_text("[tool.ruff]\n")
+        return tmp_path
+
+    def test_generated_finish_plan_covers_every_declared_gate(self, tmp_path):
+        from lib.cicd.manifest import generate_manifest, get_manifest_plan_steps
+        from lib.cicd.steps import dropped_gate_ids
+
+        root = self._bare_python_project(tmp_path)
+        manifest = generate_manifest(str(root))
+        resolved = get_manifest_plan_steps(manifest, "finish")
+
+        dropped = dropped_gate_ids("finish", resolved)
+        assert dropped == [], (
+            f"a generated finish plan drops declared gate(s) {dropped}. "
+            f"flow-finish-gate.sh fails by name on that since #1155, so CPP "
+            f"would be generating manifests its own gate rejects"
+        )
+
+    def test_a_missing_target_becomes_a_SKIP_not_an_omission(self, tmp_path):
+        """The mechanism, not just the outcome.
+
+        This project has no Makefile at all. `verify` must still be IN the plan,
+        carrying a `skip_if` that skips it - so the gate reports it by name
+        through #628 rather than the step vanishing. Dropping is silent;
+        skipping is loud, and that distinction is what #1155 turns on.
+        """
+        from lib.cicd.manifest import generate_manifest
+
+        root = self._bare_python_project(tmp_path)
+        assert not (root / "Makefile").exists()
+        manifest = generate_manifest(str(root))
+
+        assert "verify" in manifest.plans["finish"].steps
+        assert "verify" in manifest.steps
+        skip_if = manifest.steps["verify"].skip_if
+        assert skip_if and "verify:" in skip_if, (
+            "the generated verify step must carry the skip_if that skips it "
+            "where the target is absent - without it the step cannot run and "
+            "cannot skip either"
+        )
+
+    def test_check_plan_too(self, tmp_path):
+        from lib.cicd.manifest import generate_manifest, get_manifest_plan_steps
+        from lib.cicd.steps import dropped_gate_ids
+
+        root = self._bare_python_project(tmp_path)
+        manifest = generate_manifest(str(root))
+        resolved = get_manifest_plan_steps(manifest, "check")
+        assert dropped_gate_ids("check", resolved) == []

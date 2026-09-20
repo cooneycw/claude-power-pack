@@ -128,10 +128,12 @@ _MINIMAL_RUNNER_JSON = '{\n  "success": true\n}'
 def _with_gates(payload: str) -> str:
     """Make a synthetic payload a COHERENT runner payload, not just a partial one.
 
-    Two fields are injected together because the gate reads them together: the
-    `gates` array (which ids are quality gates) and, when the payload has no
-    per-step record of its own, a `step_details` entry so every declared gate is
-    ACCOUNTED FOR - it ran, or it is in `skipped`. A real runner always emits
+    Three fields are injected together because the gate reads them together: the
+    `gates` array (which ids are quality gates), `dropped_gates` (whether the
+    manifest left a declared gate out of the plan, #1155 - injected as `[]`,
+    reconciled and clean) and, when the payload has no per-step record of its
+    own, a `step_details` entry so every declared gate is ACCOUNTED FOR - it
+    ran, or it is in `skipped`. A real runner always emits
     both; a fixture declaring five gates and recording none of them is not a
     runner payload, and since #1147 the gate correctly warns about it.
 
@@ -165,9 +167,12 @@ def _with_gates(payload: str) -> str:
             )
 
     gates = ",\n".join(f'    "{g}"' for g in declared)
+    # `dropped_gates` only when the payload does not state its own: a fixture
+    # whose subject IS reconciliation builds it explicitly and never comes here.
+    dropped = "" if '"dropped_gates"' in payload else '\n  "dropped_gates": [],'
     head, sep, tail = payload.partition("{")
     assert sep, f"not a JSON object payload: {payload!r}"
-    return f'{head}{{\n  "gates": [\n{gates}\n  ],{add_details}{tail}'
+    return f'{head}{{\n  "gates": [\n{gates}\n  ],{dropped}{add_details}{tail}'
 
 
 def _fake_cpp(tmp_path: Path) -> Path:
@@ -994,6 +999,7 @@ def test_the_shell_reads_the_gate_set_from_the_json_not_a_list(
     payload = (
         '{\n  "success": true,\n  "steps_completed": 2,\n  "steps_total": 2,\n'
         '  "gates": [\n    "lint",\n    "quux_check"\n  ],\n'
+        '  "dropped_gates": [],\n'
         '  "skipped": [\n    "quux_check"\n  ],\n'
         '  "step_details": [\n'
         '    {\n      "id": "lint",\n      "status": "success"\n    }\n'
@@ -1021,6 +1027,7 @@ def test_a_non_gate_skip_is_still_ok_when_the_json_says_so(
     payload = (
         '{\n  "success": true,\n  "steps_completed": 2,\n  "steps_total": 2,\n'
         '  "gates": [\n    "lint",\n    "quux_check"\n  ],\n'
+        '  "dropped_gates": [],\n'
         '  "skipped": [\n    "stale_commit_check"\n  ],\n'
         '  "step_details": [\n'
         '    {\n      "id": "lint",\n      "status": "success"\n    },\n'
@@ -1150,6 +1157,7 @@ def test_an_empty_gate_set_is_not_an_unreadable_one(tmp_path: Path) -> None:
         '{\n  "success": true,\n  "plan": "deploy",\n'
         '  "steps_completed": 1,\n  "steps_total": 1,\n'
         '  "gates": [],\n'
+        '  "dropped_gates": [],\n'
         '  "step_details": [\n'
         '    {\n      "id": "deploy",\n      "status": "success"\n    }\n'
         "  ]\n}"
@@ -1211,6 +1219,121 @@ def test_a_prerequisite_nothing_ran_is_still_reported(tmp_path: Path) -> None:
 
 
 @requires_bash
+def test_a_manifest_that_drops_a_declared_gate_fails_by_name(
+    tmp_path: Path,
+) -> None:
+    """#1155's subject at the layer that prints the verdict.
+
+    `.claude/cicd_tasks.yml` wins over BUILTIN_PLANS, so a manifest can leave a
+    declared gate out of a plan entirely. It then never runs AND is never
+    recorded as skipped, so every other check here sees nothing: the skipped
+    filter matches nothing, the accountability check is satisfied because the
+    published gate set came from the resolved plan too. The marker reads `ok`.
+
+    That is how #1147 shipped a green over four of five gates, and
+    codex-power-pack is carrying the same defect for `typecheck` and `verify`
+    today (cooneycw/codex-power-pack#290).
+
+    FAIL, not warn, and the contrast is the reason: a gate that is PRESENT and
+    skips reports #628's `warn (skipped gates: ...)` WITH its reason. A dropped
+    gate has no reason because nothing recorded it at all. Dropping is silent;
+    skipping is loud.
+    """
+    cpp = _fake_cpp(tmp_path)
+    payload = (
+        '{\n  "success": true,\n  "plan": "finish",\n'
+        '  "gates": [\n    "lint"\n  ],\n'
+        '  "dropped_gates": [\n    "typecheck",\n    "verify"\n  ],\n'
+        '  "step_details": [\n'
+        '    {\n      "id": "lint",\n      "status": "success"\n    }\n'
+        "  ]\n}"
+    )
+    proc = _run_with_uv_stub(tmp_path, cpp, payload, inject_gates=False)
+
+    assert proc.returncode == 1
+    assert (
+        "FLOW_FINISH_GATE: fail (gate dropped from the plan: typecheck verify)"
+        in proc.stdout
+    )
+    assert "FLOW_FINISH_GATE: ok" not in proc.stdout
+
+
+@requires_bash
+def test_a_reconciled_plan_with_nothing_dropped_stays_ok(tmp_path: Path) -> None:
+    """The guard rail. "Fail when a gate is dropped" is satisfiable by failing
+    always, which would take the whole gate down; an empty `dropped_gates` is
+    the ordinary case and must stay a bare `ok`."""
+    cpp = _fake_cpp(tmp_path)
+    payload = (
+        '{\n  "success": true,\n  "plan": "finish",\n'
+        '  "gates": [\n    "lint"\n  ],\n'
+        '  "dropped_gates": [],\n'
+        '  "step_details": [\n'
+        '    {\n      "id": "lint",\n      "status": "success"\n    }\n'
+        "  ]\n}"
+    )
+    proc = _run_with_uv_stub(tmp_path, cpp, payload, inject_gates=False)
+
+    assert proc.returncode == 0
+    assert "FLOW_FINISH_GATE: ok" in proc.stdout
+    assert "dropped from the plan" not in proc.stdout
+
+
+@requires_bash
+def test_a_plan_with_no_builtin_declaration_says_not_applicable(
+    tmp_path: Path,
+) -> None:
+    """`null` is NOT `[]`, and the difference is the point (#1155).
+
+    A manifest may define a plan the built-ins know nothing about. There is then
+    no declaration to reconcile against - which is a different fact from
+    "reconciled, nothing missing". Rendering both as zero-dropped would let a
+    plan nobody can check report exactly what a clean plan reports: unscanned
+    reading as clean.
+
+    So the reader says so BY NAME, naming the plan, and does not fail - there is
+    no finding here, only an absence of one to make.
+    """
+    cpp = _fake_cpp(tmp_path)
+    payload = (
+        '{\n  "success": true,\n  "plan": "bespoke",\n'
+        '  "gates": [\n    "lint"\n  ],\n'
+        '  "dropped_gates": null,\n'
+        '  "step_details": [\n'
+        '    {\n      "id": "lint",\n      "status": "success"\n    }\n'
+        "  ]\n}"
+    )
+    proc = _run_with_uv_stub(tmp_path, cpp, payload, inject_gates=False)
+
+    assert proc.returncode == 0
+    assert "not applicable" in proc.stdout
+    assert "no builtin plan named 'bespoke'" in proc.stdout
+    assert "FLOW_FINISH_GATE: ok" in proc.stdout
+    # It must not borrow the clean case's silence.
+    assert "dropped from the plan" not in proc.stdout
+
+
+@requires_bash
+def test_a_runner_that_cannot_reconcile_is_not_a_pass(tmp_path: Path) -> None:
+    """A runner carrying #1147 but not #1155 publishes `gates` and no
+    `dropped_gates`. Reconciliation did not happen, and NOT CHECKED must not
+    read as clean - the same fail-closed rule the gate-set field already gets."""
+    cpp = _fake_cpp(tmp_path)
+    payload = (
+        '{\n  "success": true,\n  "plan": "finish",\n'
+        '  "gates": [\n    "lint"\n  ],\n'
+        '  "step_details": [\n'
+        '    {\n      "id": "lint",\n      "status": "success"\n    }\n'
+        "  ]\n}"
+    )
+    proc = _run_with_uv_stub(tmp_path, cpp, payload, inject_gates=False)
+
+    assert proc.returncode == 1
+    assert "FLOW_FINISH_GATE: fail (reconciliation unavailable)" in proc.stdout
+    assert "FLOW_FINISH_GATE: ok" not in proc.stdout
+
+
+@requires_bash
 def test_a_declared_gate_that_never_ran_is_not_ok(tmp_path: Path) -> None:
     """The guard for the defect above, at the layer that prints the verdict.
 
@@ -1235,6 +1358,7 @@ def test_a_declared_gate_that_never_ran_is_not_ok(tmp_path: Path) -> None:
     payload = (
         '{\n  "success": true,\n  "steps_completed": 2,\n  "steps_total": 2,\n'
         '  "gates": [\n    "lint",\n    "verify"\n  ],\n'
+        '  "dropped_gates": [],\n'
         '  "step_details": [\n'
         '    {\n      "id": "lint",\n      "status": "success"\n    },\n'
         '    {\n      "id": "stale_commit_check",\n      "status": "success"\n    }\n'
@@ -1260,6 +1384,7 @@ def test_gates_that_all_ran_stay_ok(tmp_path: Path) -> None:
     payload = (
         '{\n  "success": true,\n  "steps_completed": 3,\n  "steps_total": 3,\n'
         '  "gates": [\n    "lint",\n    "verify"\n  ],\n'
+        '  "dropped_gates": [],\n'
         '  "step_details": [\n'
         '    {\n      "id": "lint",\n      "status": "success"\n    },\n'
         '    {\n      "id": "verify",\n      "status": "success"\n    },\n'
@@ -1288,6 +1413,7 @@ def test_a_declared_gate_recorded_as_skipped_is_accounted_for(
     payload = (
         '{\n  "success": true,\n  "steps_completed": 1,\n  "steps_total": 2,\n'
         '  "gates": [\n    "lint",\n    "verify"\n  ],\n'
+        '  "dropped_gates": [],\n'
         '  "skipped": [\n    "verify"\n  ],\n'
         '  "step_details": [\n'
         '    {\n      "id": "lint",\n      "status": "success"\n    }\n'

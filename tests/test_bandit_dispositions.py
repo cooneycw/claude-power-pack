@@ -519,7 +519,15 @@ class TestCommandTrustBoundary:
                     '[ "$(git branch --show-current)" != "main" ] '
                     '|| [ "${CPP_OFFLINE:-0}" = "1" ]',
                 ),
-                "security_scan": ("python3 -m lib.security gate flow_deploy", scan),
+                # KEY renamed, COMMAND unchanged (#1155). This pins the
+                # committed plan's command set by id, so a step id that moves
+                # has to move here too - the id is half the assertion. The
+                # command is byte-identical; had it changed, that would be the
+                # security downgrade this rename exists to avoid.
+                "deploy_security_scan": (
+                    "python3 -m lib.security gate flow_deploy",
+                    scan,
+                ),
                 "deploy": ("make deploy", None),
             },
         }

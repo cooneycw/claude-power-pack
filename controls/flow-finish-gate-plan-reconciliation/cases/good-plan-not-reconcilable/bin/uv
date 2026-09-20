@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Stands in for `uv run ... python -m lib.cicd run`: prints this case's
+# runner JSON on stdout, the channel the gate reads (it tees stdout).
+cat "$(dirname "$0")/../runner.json"
+exit 0

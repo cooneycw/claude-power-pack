@@ -1,7 +1,7 @@
 {
   "success": true,
   "run_id": "finish-bcff5db4",
-  "plan": "finish",
+  "plan": "bespoke",
   "steps_completed": 5,
   "steps_total": 5,
   "tests": {
@@ -149,5 +149,5 @@
       "status": "success"
     }
   ],
-  "dropped_gates": []
+  "dropped_gates": null
 }

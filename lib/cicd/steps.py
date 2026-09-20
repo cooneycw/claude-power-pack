@@ -609,7 +609,23 @@ BUILTIN_PLANS: dict[str, list[StepDef]] = {
             skip_if='[ "$(git branch --show-current)" != "main" ] || [ "${CPP_OFFLINE:-0}" = "1" ]',
         ),
         StepDef(
-            id="security_scan",
+            # RENAMED from `security_scan` (issue #1155). BUILTIN_PLANS is keyed
+            # per plan, so it could reuse one id for two different commands -
+            # `flow_finish` in finish, `flow_deploy` here. A manifest cannot:
+            # its `steps:` namespace is FLAT, one id to one command. So
+            # `.claude/cicd_tasks.yml` had to call this one something else, and
+            # the divergence was FORCED by the schema rather than chosen.
+            #
+            # Since gate-ness now inherits by id and reconciliation keys on id,
+            # the two namespaces have to agree - and the manifest is the side
+            # that cannot move. Renaming the other way was considered and
+            # REFUSED: `security_scan` already exists in the manifest as the
+            # FINISH scan, so pointing deploy at it would silently swap
+            # `flow_deploy` (blocks CRITICAL and HIGH) for `flow_finish`
+            # (blocks CRITICAL only) and stop HIGH findings blocking a deploy.
+            # tests/test_runner.py pins the command, which is the input that
+            # would have caught that.
+            id="deploy_security_scan",
             gate=True,
             command="python3 -m lib.security gate flow_deploy",
             description="Run security scan before deploy",
@@ -662,36 +678,55 @@ def plan_gate_ids(plan_name: str, step_defs: list[StepDef]) -> list[str]:
     """Which ids in THIS plan's RESOLVED steps are quality gates.
 
     `GATE_STEP_IDS` is the union across every plan, and that is the right set
-    for "is this id a gate anywhere". It is the WRONG set to tell a consumer
-    which gates a particular run should have executed: a successful
+    for "is this id a gate anywhere". It is the WRONG set to publish to a
+    consumer that requires every member to be accounted for: a successful
     `--plan check` runs lint/test/typecheck and has no security_scan or verify
-    in it at all, and `--plan deploy` shares none of the five. Handing the
-    global set to a reader that requires every member to be accounted for turns
-    both of those into failures (counter-model review, #1147).
+    in it, and `--plan deploy` shares none of the five. Handing the global set
+    to such a reader turns both into failures (#1147, counter-model review).
 
-    So the set is scoped to the plan, and membership is decided two ways
-    because the two sources disagree by construction:
+    Since #1155 this is simply the resolved steps' own `gate` flags. It used to
+    read `s.gate or s.id in declared`, consulting the built-in declaration a
+    SECOND time, because a manifest-resolved StepDef always had `gate=False` -
+    `step_model_to_step_def` never passed the field. That conversion now
+    inherits gate-ness by id, so the flag on the step is the answer and this is
+    the only consumer of it.
 
-      * `step.gate` on the resolved StepDef - correct for BUILTIN_PLANS;
-      * the built-in plan's own gate declaration, for the SAME plan name -
-        needed because a manifest-resolved StepDef ALWAYS has `gate=False`
-        (`step_model_to_step_def` never passes the field and the manifest
-        schema has no key for it, issue #1155), so without this clause every
-        manifest-driven repository would report an empty gate set.
-
-    What this deliberately does NOT do is report a gate the built-in plan
-    declares and the resolved plan lacks. That case - a manifest silently
-    dropping a gate, which is #1147's own regression - cannot be told apart
-    HERE from a manifest legitimately naming a different step for the job
-    (CPP's own deploy plan replaces `security_scan` with
-    `deploy_security_scan`), so treating it as a finding would fail a correct
-    configuration. It is caught instead by
-    tests/test_flow_finish_gate.py::test_the_resolved_finish_plan_runs_every_gate_the_builtin_plan_declares,
-    which knows which plan it is asking about. #1155 is the fix that would let
-    this function answer it directly.
+    Whether the resolved plan is MISSING a gate the built-in plan declares is a
+    different question, answered by `dropped_gate_ids` below.
     """
-    declared = {s.id for s in BUILTIN_PLANS.get(plan_name, []) if s.gate}
-    return sorted({s.id for s in step_defs if s.gate or s.id in declared})
+    return sorted({s.id for s in step_defs if s.gate})
+
+
+def dropped_gate_ids(
+    plan_name: str, step_defs: list[StepDef]
+) -> Optional[list[str]]:
+    """Gates the built-in plan of this NAME declares that the resolved plan lacks.
+
+    This is the #1155 reconciliation: `.claude/cicd_tasks.yml` wins over
+    `BUILTIN_PLANS`, so a manifest can drop a declared gate and - before this -
+    nothing compared the two. #1147 shipped a green over four of five gates
+    that way, and codex-power-pack is carrying the same defect for `typecheck`
+    and `verify` today (cooneycw/codex-power-pack#290).
+
+    KEYED BY PLAN NAME, and the missing-plan case is DISTINCT from the
+    zero-dropped one. A manifest may define a plan the built-ins know nothing
+    about; there is then no declaration to reconcile against, which is not the
+    same fact as "reconciled, nothing missing". Returning `[]` for both would
+    let a plan nobody can check report exactly what a clean plan reports -
+    unscanned rendering as clean, which is the failure this whole family of
+    guards exists to refuse. `None` means NOT APPLICABLE and the reader says so
+    by name.
+
+    A gate that is PRESENT and skips is not dropped: it appears in the resolved
+    steps, and its skip is reported by #628's `warn (skipped gates: ...)` with
+    the reason attached. Dropping is silent, skipping is loud, and keeping those
+    distinguishable is the point - a repository that lacks a target should LIST
+    the step and let `skip_if` skip it.
+    """
+    if plan_name not in BUILTIN_PLANS:
+        return None
+    declared = {s.id for s in BUILTIN_PLANS[plan_name] if s.gate}
+    return sorted(declared - {s.id for s in step_defs})
 
 
 # Gates the Makefile-fallback lane in scripts/flow-finish-gate.sh cannot run, with
