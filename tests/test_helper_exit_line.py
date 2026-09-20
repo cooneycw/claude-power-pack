@@ -74,6 +74,7 @@ NAMESPACES = {
     "flow-wave-plan.py": "FLOW_WAVE_PLAN",
     "speckit-context.py": "SPECKIT_CONTEXT",
     "flow-driver-capability.sh": "FLOW_DRIVER",
+    "flow-vantage.sh": "FLOW_VANTAGE",
     "flow-finish-gate.sh": "FLOW_FINISH_GATE",
     "flow-ci-status.sh": "FLOW_CI",
     "flow-pr-watch.sh": "FLOW_PR_WATCH",
