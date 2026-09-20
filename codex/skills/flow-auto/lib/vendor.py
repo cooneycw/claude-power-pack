@@ -1,10 +1,15 @@
 """One vendor core for CPP's external-repo links (issue #1012).
 
-CPP pulls two cores out of OTHER repositories and keeps a copy here so CI and
-local runs never depend on a sibling checkout:
+CPP pulls its external cores out of OTHER repositories and keeps a copy here so
+CI and local runs never depend on a sibling checkout:
 
     .claude/commands/flow/eli5.md    <- cooneycw/eli5-gate       (a marker slice)
-    vendor/project_next/**           <- cooneycw/codex-power-pack (16 whole files)
+
+There was a second link until issue #1069: `vendor/project_next/**`, 16 whole
+files from cooneycw/codex-power-pack. CPP took ownership of that engine, so it
+is not vendored from anywhere now and its integrity is checked by
+`scripts/project-next-ownership.py` against CPP's own pins instead. The
+FileSetLayout below is what served it and is KEPT - see its own docstring.
 
 Before this module each link carried its own ~290-line script. The scripts were
 separately-written solutions to one job - fetch, compare against a recorded
@@ -492,7 +497,16 @@ class MarkerSectionLayout:
 
 @dataclass(frozen=True)
 class FileSetLayout:
-    """A fixed set of whole files under one subtree (the project-next link).
+    """A fixed set of whole files under one subtree.
+
+    KEPT WITH NO CALLER IN THIS REPOSITORY as of issue #1069, deliberately. It
+    served the project-next link until CPP took ownership of that engine, and
+    this module's whole premise (#1012) is that a new external core should be a
+    DECLARATION rather than a third ~290-line script. Deleting the only
+    whole-file layout would make the next such core rewrite it from scratch.
+    It does not become untested dead code: tests/test_vendor_module.py drives it
+    through a synthetic `probe-vendor` spec that never referenced project-next,
+    so its coverage is unchanged by the transfer.
 
     `files` is the HARDCODED UNIVERSE and the manifest supplies the MEMBERS: a
     manifest whose key set differs from `files` is refused rather than trusted,
