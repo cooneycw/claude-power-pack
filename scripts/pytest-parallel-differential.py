@@ -82,10 +82,30 @@ def _verdict(case: ET.Element) -> str:
 
 
 def load(path: Path) -> dict[str, str]:
-    """`{node_id: verdict}` for one JUnit XML report."""
+    """`{node_id: verdict}` for one JUnit XML report.
+
+    XML PROVENANCE, and why this uses stdlib `ElementTree` rather than
+    `defusedxml` (issue #1113, bandit B314). The XXE and billion-laughs attacks
+    B314 warns about need an attacker who controls the DOCUMENT. The documents
+    here are the two JUnit reports `pytest --junitxml` wrote minutes earlier in
+    this same run, from `.woodpecker.yml` and the control cases committed under
+    `controls/pytest-parallel-differential/cases/`. There is no input path by
+    which a third party supplies one: an attacker who could write these files
+    could write this script.
+
+    So the honest disposition is ACCEPTED-with-provenance, recorded in
+    `docs/security/bandit-finding-dispositions.md` and pinned in
+    `.bandit-audit-allow`, not a `defusedxml` dependency bought to move a
+    linter count. If this loader is ever pointed at a report produced OUTSIDE
+    the run - a CI artifact downloaded from elsewhere, a report uploaded by a
+    contributor - that disposition expires with the assumption it rests on, and
+    the register is where a reader finds that out.
+    """
     if not path.is_file():
         raise Unknown(f"{path} does not exist")
     try:
+        # NOT suppressed: bandit still reports B314 here, by design - the
+        # provenance note in this docstring is the disposition.
         tree = ET.parse(path)
     except ET.ParseError as exc:
         raise Unknown(f"{path} is not parseable XML: {exc}") from exc
