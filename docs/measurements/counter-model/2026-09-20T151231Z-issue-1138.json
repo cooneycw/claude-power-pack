@@ -1,0 +1,19 @@
+{
+  "branch": "issue-1138-cpp-init-reports-success-having-installed-nothing",
+  "counts": {
+    "accepted": 5,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "implementer": "claude/claude-opus-5",
+  "issue": "1138",
+  "passes": 2,
+  "recorded_at": "2026-09-20T15:12:31Z",
+  "red_cases": {
+    "already_covered": 6,
+    "proposed": 6
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}

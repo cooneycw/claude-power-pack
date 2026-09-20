@@ -1,0 +1,38 @@
+{
+  "gate": "scripts/cpp-commands-link.sh",
+  "invocation": [
+    "env",
+    "CPP_COMMANDS_LINK_HOME={case}/home",
+    "CPP_COMMANDS_LINK_NO_PROBE=1",
+    "bash",
+    "{gate}",
+    "--source",
+    "controls/cpp-commands-link/source/.claude/commands",
+    "--check"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^CPP_COMMANDS_LINK: unowned$",
+  "limits": "THE SOURCE IS SHARED AND RELATIVE; ONLY THE HOME VARIES PER CASE, and that is load-bearing rather than tidy. The gate compares a link's LITERAL readlink target against the source path it was given, so a known-GOOD case needs a committed symlink whose target string matches exactly - and an absolute target cannot be committed (it would embed the author's home directory, the interpolated-absolute-path failure CLAUDE.md names). A single relative `--source` makes that string stable in any clone, so `good-partially-ours` can carry a real owned link. Both cases run in `--check` mode, which is READ-ONLY: install mode would write symlinks into the case fixtures and leave the tree dirty, and `--check` is also the mode `.claude/commands/cpp/update.md` actually consumes. `CPP_COMMANDS_LINK_NO_PROBE=1` suppresses the #685 content advisory, which shells out to git against the source dir - without it the control's output would vary with the checkout's working-tree state and with whether git is on PATH, which is ambient state rather than the input under test. WHAT THIS ESTABLISHES: that a target whose family names are occupied by entries this installer does not own reports `unowned` (exit 4) rather than `ok` (exit 0), in the read-only mode a command document acts on. WHAT IT DOES NOT: that the verdict is correct about any real host or container. The known-bad fixture is a DIRECTORY where a link should be, which is what a read-only bind mount looks like to this script's ownership rule - it is not itself a bind mount, and no committed fixture can be one. The container measurement that motivated this is recorded in issue #1138 and is not re-run here; a control that needed a live container would report UNAVAILABLE in the negative-controls image and could never demonstrate anything there. THE GOOD CASE IS DELIBERATELY MIXED (one family owned, one foreign) rather than all-owned: `unowned` must not fire on a host where a user keeps some of their own command families, and an all-owned good case would not test that boundary at all. THE GOOD CASE'S OWNED LINK DOES NOT RESOLVE, and that is a stated property rather than an oversight (counter-model review, codex, 2026-09-20). Its committed target `controls/cpp-commands-link/source/.claude/commands/alpha` is the string the gate compares against - the gate matches readlink output LITERALLY - but a symlink resolves relative to its own directory, and from the case's home that path does not exist. No committed link can satisfy both: the literal must equal a repo-root-relative source, and resolution is relative to the link. What the case therefore establishes is exactly what the gate is: `ok` IS A TOPOLOGY VERDICT, NOT A HEALTH VERDICT (the gate's own header, #685) - one family reads as owned-and-current, which is what keeps `unowned` from firing on a partially-foreign host, and that boundary is the case's whole job. What it does NOT establish is that a healthy mixed surface SERVES the family from the source. That needs an absolute, resolving link, which belongs in a tmp fixture rather than a committed one: `tests/test_cpp_commands_link.py::test_one_family_of_ours_is_enough_to_stay_ok` builds it and asserts the same boundary against a link that really resolves. Two fixtures, because a committed one cannot carry an absolute path and a tmp one cannot be a registered case.",
+  "cases": [
+    {
+      "name": "bad-all-foreign",
+      "input": "cases/bad-all-foreign",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-partially-ours",
+      "input": "cases/good-partially-ours",
+      "expect": "GOOD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "historical",
+      "sha": "a144b54",
+      "origin": "scripts/cpp-commands-link.sh",
+      "path": "anchors/a144b54-cpp-commands-link.sh",
+      "sha256": "949f3861cd6a75fd9f9d2c4c770c72c10052172c15b7194d9c9b7e36e284297d",
+      "why": "HISTORICAL, not constructed: this is the gate exactly as it stood at a144b54, the commit before #1138. No reconstruction was needed because the blindness is the shipped behaviour - on the known-bad input it prints `families: 2 ok: 0 ... foreign: 2` and `CPP_COMMANDS_LINK: ok`, exit 0, on the same line. It therefore MISSES the known-bad input, and agrees with the fixed gate on the known-good one, which is the pair this framework requires. What makes it worth keeping rather than obvious: the pre-fix verdict was not an oversight but a deliberate rule - `foreign` entries are the user's own content and the user's choice wins, which is right - and the defect was that a state where EVERY name was foreign still reported the same word as a clean install. An anchor that simply crashed would prove nothing about that distinction; this one reproduces the exact reasoning that produced the false green."
+    }
+  ]
+}

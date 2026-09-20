@@ -25,8 +25,6 @@
 #   ~/.claude/commands/ - hand-written commands, other tools' surfaces - are
 #   preserved untouched.
 #
-#: NEGATIVE-CONTROL: controls/cpp-commands-link
-#
 # Ownership rule (what this script may ever touch):
 #   A target entry is OWNED only when it is a SYMLINK whose readlink target
 #   ends in `/.claude/commands/<family>` - the shape only this installer
@@ -41,7 +39,7 @@
 #   cpp-commands-link.sh --source <dir>  # override the source commands dir (tests)
 #
 # Contract (last line):
-#   CPP_COMMANDS_LINK: ok | installed | drift | drift-missing | unowned | error
+#   CPP_COMMANDS_LINK: ok | installed | drift | drift-missing | error
 #     install mode: `installed` when anything changed, `ok` when nothing did
 #     --check:      `ok` (exit 0) when no missing or stale state is found;
 #                   `drift` (exit 1) when any link is stale, including an
@@ -49,37 +47,6 @@
 #                   (exit 3) when links are missing but none are stale; `error`
 #                   exits 2. Foreign entries are NOT drift - the user's
 #                   content wins.
-#     install mode: `error` (exit 2) when any `ln`/`rm` FAILED - a mutation that
-#                   was attempted and lost is not one that happened, and no
-#                   other verdict could describe a state this run never reached
-#     BOTH modes:   `unowned` (exit 4) when NOT ONE family is linked by this
-#                   installer and every name it would use is occupied by
-#                   content it does not own (issue #1138).
-#
-#   `ok: 0` MAY NOT PRINT `ok` (issue #1138). Until that verdict existed, a run
-#   that linked nothing because every target name was already taken emitted
-#   `families: 18 ok: 0 ... foreign: 18` and `CPP_COMMANDS_LINK: ok`, exit 0 -
-#   on the SAME line. An installer that reports success having installed
-#   nothing is indistinguishable from one that worked, and every consumer
-#   downstream reads the same word either way.
-#
-#   Measured in a faithful clone of a live kyle session container, 2026-09-20:
-#   all 18 families classify foreign there, because kyle projects the command
-#   surface as READ-ONLY BIND MOUNTS and a bind-mounted directory is not a
-#   symlink this installer created. The ownership rule is right; what was wrong
-#   was the verdict it fed.
-#
-#   `--check` SHARED THE BLIND SPOT, which is why both modes carry the verdict.
-#   ADR 0008 excluded this script from its census on the grounds that an
-#   installer's state "is re-derived by the drift and parity checks"; on this
-#   input the re-derivation returns the identical wrong answer, so their
-#   agreement carried no information. The exclusion is retired in that ADR by
-#   the same change that added this verdict.
-#
-#   `unowned` DESCRIBES A STATE, IT DOES NOT ACCUSE. A user who has
-#   deliberately put their own content in every family name reaches it too, and
-#   for them it is the correct, useful answer: their choice still wins, and the
-#   command surface is genuinely not installed from this checkout.
 #
 #   `ok` IS A TOPOLOGY VERDICT, NOT A HEALTH VERDICT (#685). It says every family
 #   link resolves to this checkout. It says NOTHING about whether the checkout's
@@ -123,47 +90,17 @@ while [ $# -gt 0 ]; do
 done
 
 # Resolve the source commands dir: explicit override, else the checkout this
-# script lives in.
-#
-# THE DERIVATION ASSUMES A SYMLINK, AND SAYS SO WHEN THAT FAILS (issue #1138).
-# At the stable path `~/.claude/scripts/cpp-commands-link.sh` is normally a
-# SYMLINK into the checkout, so `readlink -f` lands there and the two `dirname`
-# hops reach the checkout root. In a kyle session container the same path is a
-# read-only BIND MOUNT, which `readlink -f` resolves to ITSELF - the hops then
-# land in `~/.claude`, and SRC becomes `~/.claude/.claude/commands`, which does
-# not exist.
-#
-# A symlink and a bind mount are indistinguishable to `ls`; they resolve
-# differently. The refusal below already existed and was correct, but it named
-# the PHANTOM PATH and left the reader hunting for a directory that was never
-# supposed to be there. It now names the cause, and detects it positively -
-# `self_is_symlink` is checked rather than inferred from the missing directory,
-# so the diagnosis does not depend on which wrong path happened to be absent.
+# script lives in (~/.claude/scripts/cpp-commands-link.sh is a symlink into
+# the checkout, so readlink -f lands there).
 if [ -n "$SOURCE_OVERRIDE" ]; then
     SRC="$SOURCE_OVERRIDE"
-    SRC_BASIS="--source override"
 else
-    SELF_RAW="${BASH_SOURCE[0]}"
-    SELF="$(readlink -f "$SELF_RAW")"
+    SELF="$(readlink -f "${BASH_SOURCE[0]}")"
     SRC="$(dirname "$(dirname "$SELF")")/.claude/commands"
-    if [ -L "$SELF_RAW" ]; then
-        SRC_BASIS="derived from the symlink at $SELF_RAW"
-    else
-        SRC_BASIS="derived from a NON-SYMLINK at $SELF_RAW"
-    fi
 fi
 
 if [ ! -d "$SRC" ]; then
     echo "cpp-commands-link: source commands dir not found: $SRC" >&2
-    echo "cpp-commands-link: basis - $SRC_BASIS" >&2
-    if [ -z "$SOURCE_OVERRIDE" ] && [ ! -L "$SELF_RAW" ]; then
-        echo "  This script locates its source by resolving its own path, which assumes the" >&2
-        echo "  stable path is a SYMLINK into a CPP checkout. Here it is not a symlink - a" >&2
-        echo "  bind mount resolves to itself - so the derived source is wrong rather than" >&2
-        echo "  merely absent. Pass --source <checkout>/.claude/commands to install from a" >&2
-        echo "  checkout, or accept that this session's command surface is provided by" >&2
-        echo "  something other than this installer (issue #1138)." >&2
-    fi
     echo "CPP_COMMANDS_LINK: error"
     exit 2
 fi
@@ -172,21 +109,6 @@ HOME_DIR="${CPP_COMMANDS_LINK_HOME:-$HOME}"
 TARGET="$HOME_DIR/.claude/commands"
 
 changed=0
-# Mutations this run ATTEMPTED and lost (counter-model review pass 2, #1138).
-# `ln`, `rm` and `mkdir` results were not checked, so on a read-only target a
-# failed replacement still printed `updated`, still incremented the counters,
-# and still reported `installed`, exit 0 - measured: `families: 2 ok: 0
-# changed: 1 ... foreign: 1` with nothing changed on disk. The same
-# false-success shape this issue is about, one level under the verdict that was
-# added to remove it: a count of INTENTIONS reported as a count of RESULTS.
-failed=0
-# Family links made THIS run, counted apart from `changed` (counter-model
-# review, #1138). `changed` also counts orphan prunes, and an install where
-# every current family is foreign but one retired owned symlink got pruned
-# therefore reported `installed`, exit 0, with not one family linked -
-# measured: `families: 1 ok: 0 changed: 1 ... foreign: 1`. The false success
-# this verdict exists to remove, surviving through the prune path.
-linked=0
 missing=0
 stale=0
 foreign=0
@@ -206,11 +128,7 @@ if [ "${#families[@]}" -eq 0 ]; then
     exit 2
 fi
 
-if [ "$MODE" = "install" ] && ! mkdir -p "$TARGET" 2>/dev/null; then
-    echo "cpp-commands-link: cannot create the target dir: $TARGET" >&2
-    echo "CPP_COMMANDS_LINK: error"
-    exit 2
-fi
+[ "$MODE" = "install" ] && mkdir -p "$TARGET"
 
 owned() {
     # $1 = path, $2 = family. Owned iff a symlink whose literal target ends
@@ -233,14 +151,9 @@ for fam in "${families[@]}"; do
             else
                 # Owned but pointing at another checkout - stale.
                 if [ "$MODE" = "install" ]; then
-                    if ln -sfn "$src_fam" "$dst" 2>/dev/null; then
-                        echo "updated  $fam -> $src_fam"
-                        changed=$((changed + 1))
-                        linked=$((linked + 1))
-                    else
-                        echo "FAILED   $fam -> $src_fam (could not replace the link)" >&2
-                        failed=$((failed + 1))
-                    fi
+                    ln -sfn "$src_fam" "$dst"
+                    echo "updated  $fam -> $src_fam"
+                    changed=$((changed + 1))
                 else
                     echo "stale    $fam -> $(readlink "$dst")"
                     stale=$((stale + 1))
@@ -255,14 +168,9 @@ for fam in "${families[@]}"; do
         foreign=$((foreign + 1))
     else
         if [ "$MODE" = "install" ]; then
-            if ln -s "$src_fam" "$dst" 2>/dev/null; then
-                echo "linked   $fam -> $src_fam"
-                changed=$((changed + 1))
-                linked=$((linked + 1))
-            else
-                echo "FAILED   $fam -> $src_fam (could not create the link)" >&2
-                failed=$((failed + 1))
-            fi
+            ln -s "$src_fam" "$dst"
+            echo "linked   $fam -> $src_fam"
+            changed=$((changed + 1))
         else
             echo "missing  $fam"
             missing=$((missing + 1))
@@ -284,13 +192,9 @@ if [ -d "$TARGET" ]; then
         [ "$skip" -eq 1 ] && continue
         if owned "$entry" "$name"; then
             if [ "$MODE" = "install" ]; then
-                if rm "$entry" 2>/dev/null; then
-                    echo "pruned   $name (family no longer shipped)"
-                    changed=$((changed + 1))
-                else
-                    echo "FAILED   $name (could not prune the orphan link)" >&2
-                    failed=$((failed + 1))
-                fi
+                rm "$entry"
+                echo "pruned   $name (family no longer shipped)"
+                changed=$((changed + 1))
             else
                 # Deliberately stale, not missing: pruning an orphan removes a
                 # command family the user can currently see, so it is not a
@@ -302,7 +206,7 @@ if [ -d "$TARGET" ]; then
     done
 fi
 
-echo "families: ${#families[@]} ok: $ok changed: $changed missing: $missing stale: $stale foreign: $foreign failed: $failed"
+echo "families: ${#families[@]} ok: $ok changed: $changed missing: $missing stale: $stale foreign: $foreign"
 
 # --- Content advisory (issue #685) -----------------------------------------
 # Topology and content are separate questions and this script only answers the
@@ -339,19 +243,6 @@ content_advisory() {
     echo "checkout: $tracked tracked modified, $untracked untracked (-uall) - links resolve; content not verified"
 }
 
-# Says WHAT WAS FOUND, never what the user did wrong (issue #1138). Both the
-# substrate case and the deliberate-user case reach this verdict, and the line
-# has to be true and useful in both - so it reports the state and names the two
-# readings rather than picking one.
-unowned_report() {
-    echo "cpp-commands-link: 0 of ${#families[@]} families are linked by this installer;" >&2
-    echo "  every name it would use is occupied by content it does not own, so nothing was installed." >&2
-    echo "  If these are files a substrate projects into this session (kyle mounts them read-only)," >&2
-    echo "  there is nothing for this installer to do here." >&2
-    echo "  If they are yours, your content still wins - but the command surface is NOT" >&2
-    echo "  installed from this checkout, and a later 'ok' would have said it was." >&2
-}
-
 if [ "$MODE" = "check" ]; then
     content_advisory
     if [ "$stale" -gt 0 ]; then
@@ -365,46 +256,13 @@ if [ "$MODE" = "check" ]; then
         echo "CPP_COMMANDS_LINK: drift-missing"
         exit 3
     fi
-    # AFTER drift and drift-missing, deliberately (issue #1138). Those two name
-    # something actionable about links that exist or are absent; `unowned` is
-    # the case where neither applies because not one family is ours at all. A
-    # run with both stale links and foreign names is a drift report first - the
-    # louder, more specific answer wins.
-    if [ "$ok" -eq 0 ] && [ "$foreign" -gt 0 ]; then
-        unowned_report
-        echo "CPP_COMMANDS_LINK: unowned"
-        exit 4
-    fi
     echo "CPP_COMMANDS_LINK: ok"
     exit 0
 fi
 
-# A MUTATION WAS ATTEMPTED AND LOST. Reported before any other install-mode
-# verdict: this run does not know what the surface looks like now, and every
-# word below would be a claim about a state it failed to reach.
-if [ "$failed" -gt 0 ]; then
-    echo "cpp-commands-link: $failed link operation(s) failed - the target may be read-only." >&2
-    echo "CPP_COMMANDS_LINK: error"
-    exit 2
-fi
-
-# NOTHING OURS, AND EVERY NAME TAKEN (issue #1138). Decided on the CURRENT
-# FAMILY population and checked BEFORE `installed`, because `changed` also
-# counts orphan prunes: pruning a retired link is a real change that installs
-# nothing, and letting it report `installed` preserved the exact false success
-# this verdict removes (counter-model review). A partially-installed surface
-# still reports through the ordinary verdicts, so this cannot fire on a host
-# where the installer is doing its job.
-if [ "$ok" -eq 0 ] && [ "$linked" -eq 0 ] && [ "$foreign" -gt 0 ]; then
-    unowned_report
-    echo "CPP_COMMANDS_LINK: unowned"
-    exit 4
-fi
-
 if [ "$changed" -gt 0 ]; then
     echo "CPP_COMMANDS_LINK: installed"
-    exit 0
+else
+    echo "CPP_COMMANDS_LINK: ok"
 fi
-
-echo "CPP_COMMANDS_LINK: ok"
 exit 0
