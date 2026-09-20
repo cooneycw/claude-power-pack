@@ -1,1 +1,1 @@
-placeholder for lib/project_next/collect.py
+COLLECT = 'fixture placeholder'

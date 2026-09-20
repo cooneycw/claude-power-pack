@@ -1,1 +1,1 @@
-placeholder for lib/project_next/models.py
+MODELS = 'fixture placeholder'

@@ -1,1 +1,1 @@
-placeholder for lib/project_next/rank.py
+RANK = 'fixture placeholder'

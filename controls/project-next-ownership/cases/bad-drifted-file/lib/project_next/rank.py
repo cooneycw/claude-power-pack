@@ -1,2 +1,2 @@
-placeholder for lib/project_next/rank.py
+RANK = 'fixture placeholder'
 # an edit that never re-pinned

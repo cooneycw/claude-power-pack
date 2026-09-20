@@ -184,7 +184,10 @@ def main(argv: list[str] | None = None) -> int:
     if findings:
         for line in findings:
             print(line)
-        print(f"\nproject-next ownership: {len(findings)} finding(s). Re-pin with 'make project-next-repin' if the change was deliberate.")
+        print(
+            f"\nproject-next ownership: {len(findings)} finding(s). "
+            "Re-pin with 'make project-next-repin' if the change was deliberate."
+        )
         return 1
     print(f"project-next ownership: {len(PINNED_FILES)} files match their pins at contract v{_derived_version(root)}.")
     return 0
