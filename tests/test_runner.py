@@ -3017,3 +3017,99 @@ class TestSubsumedGates:
             "that name what never ran are invisible to every reader (#1152)"
         )
         assert {e["id"] for e in result.step_details} >= {"lint", "verify"}
+
+
+    def test_a_gate_past_a_continuation_line_is_still_derived(self, tmp_path):
+        """The parser pin that actually pins the CONSUMER (counter-model review).
+
+        The repository-wide count above catches a truncating parser only
+        because this repository happens to have 29 prerequisites; it does not
+        prove `subsumed_gate_ids` uses the good one, since lint, test and
+        typecheck all sit on the first physical line and a first-line-only
+        parser would return them anyway.
+
+        Here `typecheck` sits AFTER a backslash continuation. A parser that
+        stops at the first physical line - which is exactly what
+        lib/cicd/makefile.py::parse_makefile does (#1162) - derives {lint, test}
+        and silently leaves typecheck running on its own. That is not a
+        correctness failure, but it is the tell that the wrong reader is wired
+        in, and this is the assertion that catches it.
+        """
+        from lib.cicd.steps import get_plan_steps, subsumed_gate_ids
+
+        root = self._tree(
+            tmp_path,
+            "lint:\n\t@true\ntest:\n\t@true\ntypecheck:\n\t@true\n"
+            "security_scan:\n\t@true\n"
+            "verify: lint test \\\n\ttypecheck\n\t@true\n",
+        )
+        steps = get_plan_steps("finish", project_root=str(root))
+        subsumed = subsumed_gate_ids("finish", steps, str(root))
+        assert set(subsumed) == {"lint", "test", "typecheck"}, (
+            f"derived {sorted(subsumed)} from a rule whose third gate is past a "
+            f"line continuation - a reader that stops at the first physical "
+            f"line returns {{lint, test}} (#1162)"
+        )
+
+    @requires_make
+    def test_an_aggregate_that_subsumes_test_still_qualifies_an_empty_suite(
+        self, tmp_path
+    ):
+        """#621 must survive subsumption (counter-model review, post-merge).
+
+        `is_test_step()` reads the id and the command, and `make verify` names
+        neither pytest nor test - so deferring `test` to it removed the
+        empty-suite qualification outright. MEASURED on the merged code: a
+        target printing "0 passed, 66 skipped" inside a green `make verify`
+        produced `tests: {}` and `warnings: []`, and the gate reported ok.
+
+        That is #621's own false green, reintroduced by a COST fix - the one
+        thing #1152 was not allowed to do. An aggregate now inherits the need
+        to parse a test summary from whatever it subsumes.
+        """
+        import io
+
+        from lib.cicd.runner import DeterministicRunner
+
+        root = self._tree(
+            tmp_path,
+            "lint:\n\t@true\n"
+            'test:\n\t@echo "== 0 passed, 66 skipped in 0.1s =="\n'
+            "typecheck:\n\t@true\nsecurity_scan:\n\t@true\n"
+            "verify: lint test typecheck\n\t@true\n",
+        )
+        result = DeterministicRunner(
+            project_root=root, output=io.StringIO()
+        ).run("finish")
+
+        assert result.success is True
+        assert result.tests, "the aggregate's test summary was not parsed at all"
+        assert any("executed NO tests" in w for w in result.warnings), (
+            f"a suite that ran nothing inside a green aggregate produced "
+            f"warnings {result.warnings} - #621's qualification is gone"
+        )
+
+    def test_failure_attribution_prefers_the_terminal_outer_diagnostic(self):
+        """A nested make failure must not be named as the cause.
+
+        `search` took the first match anywhere in the combined streams, so a
+        recipe tolerating a nested failure - or a fixture exercising one -
+        printed `make[1]: *** [...] Error 1` first and the helper named that
+        target. Naming a neighbour is the "a wrong name is worse than none"
+        this function's own docstring warns about.
+        """
+        from lib.cicd.runner import _failing_prerequisite
+
+        noisy = (
+            "make[1]: *** [fixtures/Makefile:7: expected-failure] Error 1\n"
+            "other output\n"
+            "make: *** [Makefile:121: lint] Error 1\n"
+        )
+        assert _failing_prerequisite(noisy) == "lint"
+        # A nested diagnostic is still used when the outer make printed none -
+        # some of the information beats none of it.
+        assert (
+            _failing_prerequisite("make[1]: *** [M:9: typecheck] Error 2")
+            == "typecheck"
+        )
+        assert _failing_prerequisite("nothing matchable here") is None

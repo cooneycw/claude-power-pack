@@ -276,7 +276,7 @@ def _build_step_env(project_root: Optional[Path] = None) -> dict[str, str]:
 
 
 _MAKE_FAILING_TARGET = re.compile(
-    r"^make(?:\[\d+\])?: \*\*\* \[[^\]]*?:\s*(?P<target>[A-Za-z0-9_.-]+)\]",
+    r"^make(?P<nested>\[\d+\])?: \*\*\* \[[^\]]*?:\s*(?P<target>[A-Za-z0-9_.-]+)\]",
     re.MULTILINE,
 )
 
@@ -293,8 +293,23 @@ def _failing_prerequisite(output: str) -> Optional[str]:
     """
     if not output:
         return None
-    match = _MAKE_FAILING_TARGET.search(output)
-    return match.group("target") if match else None
+    matches = list(_MAKE_FAILING_TARGET.finditer(output))
+    if not matches:
+        return None
+    # THE TERMINAL DIAGNOSTIC, NOT THE FIRST (counter-model review, post-merge).
+    # `search` took the first match anywhere in the combined streams, and a
+    # recipe that tolerates a nested failure - `$(MAKE) something || true`, or a
+    # fixture deliberately exercising one - prints `make[1]: *** [...] Error 1`
+    # BEFORE the real failure. The helper then named a neighbour's target, which
+    # is precisely the "wrong name is worse than none" this function's own
+    # docstring warns about, sending a reader somewhere specific and innocent.
+    #
+    # Prefer the OUTERMOST make - the one with no `[n]` depth marker, which is
+    # the invocation the runner itself started - and among those the LAST, which
+    # is the one it stopped on. Fall back to the last nested diagnostic only
+    # when the outer make printed none.
+    outer = [m for m in matches if not m.group("nested")]
+    return (outer or matches)[-1].group("target")
 
 
 @dataclass
@@ -712,7 +727,14 @@ class DeterministicRunner:
 
         for idx in range(state.current_index, len(state.step_records)):
             step_def = step_defs[idx]
-            step = ShellStep(step_def)
+            # An aggregate that something was deferred TO inherits the need to
+            # parse a test summary from whatever it subsumes (issue #1152).
+            _covers_test = any(
+                agg == step_def.id
+                and ShellStep(step_defs[i]).is_test_step()
+                for i, agg in deferred.items()
+            )
+            step = ShellStep(step_def, covers_test_step=_covers_test)
 
             # DEFERRED TO AN AGGREGATE (issue #1152). Not executed here and
             # deliberately not marked yet: the honest status depends on whether
