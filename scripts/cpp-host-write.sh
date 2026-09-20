@@ -14,6 +14,11 @@
 #: HOST-SURFACE: ~/.claude owner=cpp write=mkdir certified=authored
 #: HOST-SURFACE: ~/.claude/scripts owner=cpp write=mkdir certified=authored
 #: HOST-SURFACE: ~/.bashrc owner=user write=append certified=authored
+#: HOST-SURFACE: ~/.zshrc owner=user write=append certified=authored
+#  The shell rc is chosen at run time from $SHELL, so BOTH are declared:
+#  a defer-set must be able to name what the code CAN write, not only what
+#  it happened to write on the machine someone last looked at. A zsh user
+#  whose defer-set cannot name ~/.zshrc has no way to protect it.
 #
 # cpp-host-write.sh - the one place /cpp:init and /cpp:update write host
 # surfaces, and the seam a managed environment defers (issue #1139).
@@ -60,6 +65,7 @@ cpp-host-write.sh <command> [--defer SURFACE]... [args]
 
   ensure-dir <path>              mkdir -p a directory under $HOME
   settings-merge <template>      merge a permissions template into settings.json
+  rc-append <rc> <marker> <file> append a guarded block to a caller-named shell rc
   bashrc-append <marker> <file>  append a guarded block to ~/.bashrc
                                  (--no-guard preserves a pre-existing defect;
                                   see the note at cmd_bashrc_append)
@@ -159,6 +165,34 @@ cmd_settings_merge() {
 #: That defect is recorded separately and is NOT repaired here - preserving
 #: behaviour is the only claim that makes a move reviewable. The guard below is
 #: the behaviour of the block that HAD one; the caller decides which it gets.
+#: Append to a shell rc the CALLER names - ~/.bashrc or ~/.zshrc, chosen from
+#: $SHELL by the command document. bashrc-append is the fixed-target form kept
+#: for its existing callers; this is the same operation with the target passed.
+#:
+#: It exists because ~/.bashrc was HALF-SEAMED: two blocks went through
+#: bashrc-append while the Qwen and Gemma endpoint exports wrote the same file
+#: inline, twenty lines below where $QWEN_RC was assigned. A defer-set naming
+#: ~/.bashrc therefore refused two writes, PRINTED A STATED REFUSAL, and wrote
+#: the file anyway - worse than not honouring it, because the caller is told
+#: the surface was protected.
+cmd_rc_append() {
+    local rc="$1" marker="$2" content_file="$3"
+    is_deferred "$rc" && { refuse "$rc" user; return $?; }
+    local content
+    if [ "$content_file" = "-" ]; then
+        content="$(cat)"
+    else
+        [ -f "$content_file" ] || { printf 'cpp-host-write: FAILED content not found: %s\n' "$content_file" >&2; return 1; }
+        content="$(cat "$content_file")"
+    fi
+    if [ -f "$rc" ] && grep -qF "$marker" "$rc" 2>/dev/null; then
+        printf 'cpp-host-write: ok %s (%s already present, skipped)\n' "$(normalise "$rc")" "$marker"
+        return 0
+    fi
+    printf '%s\n' "$content" >> "$rc" || return 1
+    printf 'cpp-host-write: ok %s (%s appended)\n' "$(normalise "$rc")" "$marker"
+}
+
 cmd_bashrc_append() {
     local marker="$1" content_file="$2"
     local target="$HOME/.bashrc"
@@ -220,6 +254,7 @@ main() {
         surfaces)       cmd_surfaces ;;
         ensure-dir)     cmd_ensure_dir "${args[0]:?path required}" ;;
         settings-merge) cmd_settings_merge "${args[0]:?template required}" ;;
+        rc-append)      cmd_rc_append "${args[0]:?rc path required}" "${args[1]:?marker required}" "${args[2]:?content file required}" ;;
         bashrc-append)  cmd_bashrc_append "${args[0]:?marker required}" "${args[1]:?content file required}" ;;
         *) printf 'cpp-host-write: unknown command: %s\n' "$cmd" >&2; usage >&2; return 2 ;;
     esac

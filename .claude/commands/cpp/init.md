@@ -1577,13 +1577,17 @@ Add to ${QWEN_RC_DISPLAY}? [y/N]
 
 If yes:
 ```bash
-if grep -q 'QWEN_OLLAMA_URL' "$QWEN_RC" 2>/dev/null; then
-  echo "-> QWEN_OLLAMA_URL already in $QWEN_RC_DISPLAY (skipped)"
-else
-  printf '\n# Claude Power Pack - Qwen serving endpoint (issue #755)\nexport QWEN_OLLAMA_URL=%s\n' "$QWEN_ENDPOINT" >> "$QWEN_RC"
-  echo "✓ QWEN_OLLAMA_URL saved in $QWEN_RC_DISPLAY"
-  echo "  Restart the shell or source $QWEN_RC_DISPLAY"
-fi
+# Through the declaring seam (#1132). This block used to write "$QWEN_RC"
+# inline - the same ~/.bashrc that two other blocks already routed through the
+# helper - so a defer-set naming ~/.bashrc refused those two, printed a stated
+# refusal, and wrote this one anyway. rc-append carries the marker guard this
+# block already had, and honours --defer for ~/.bashrc AND ~/.zshrc.
+~/.claude/scripts/cpp-host-write.sh rc-append "$QWEN_RC" 'QWEN_OLLAMA_URL' - <<QWEN_RC_EOF
+
+# Claude Power Pack - Qwen serving endpoint (issue #755)
+export QWEN_OLLAMA_URL=$QWEN_ENDPOINT
+QWEN_RC_EOF
+echo "  Restart the shell or source $QWEN_RC_DISPLAY
 ```
 
 If no:
@@ -1730,13 +1734,17 @@ Add to ${GEMMA_RC_DISPLAY}? [y/N]
 
 If yes:
 ```bash
-if grep -q 'GEMMA_OLLAMA_URL' "$GEMMA_RC" 2>/dev/null; then
-  echo "-> GEMMA_OLLAMA_URL already in $GEMMA_RC_DISPLAY (skipped)"
-else
-  printf '\n# Claude Power Pack - Gemma serving endpoint (issue #755)\nexport GEMMA_OLLAMA_URL=%s\n' "$GEMMA_ENDPOINT" >> "$GEMMA_RC"
-  echo "✓ GEMMA_OLLAMA_URL saved in $GEMMA_RC_DISPLAY"
-  echo "  Restart the shell or source $GEMMA_RC_DISPLAY"
-fi
+# Through the declaring seam (#1132). This block used to write "$GEMMA_RC"
+# inline - the same ~/.bashrc that two other blocks already routed through the
+# helper - so a defer-set naming ~/.bashrc refused those two, printed a stated
+# refusal, and wrote this one anyway. rc-append carries the marker guard this
+# block already had, and honours --defer for ~/.bashrc AND ~/.zshrc.
+~/.claude/scripts/cpp-host-write.sh rc-append "$GEMMA_RC" 'GEMMA_OLLAMA_URL' - <<GEMMA_RC_EOF
+
+# Claude Power Pack - Gemma serving endpoint (issue #755)
+export GEMMA_OLLAMA_URL=$GEMMA_ENDPOINT
+GEMMA_RC_EOF
+echo "  Restart the shell or source $GEMMA_RC_DISPLAY
 ```
 
 If no:
