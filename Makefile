@@ -374,9 +374,11 @@ verify: tools-check lint test typecheck shellcheck bandit-audit oscillation \
 ##
 ## THE POPULATION THAT CATCHES A NEW CHECKER IS `scripts/`, NOT THIS FILE. A
 ## framework that classified only Makefile targets would be satisfied by a
-## checker that never gets one, and 56 of this repository's 89 scripts have no
-## target - `check-negative-controls.py`, one of the four #1028 subjects, among
-## them. Scripts no build surface invokes are accounted for in
+## checker that never gets one, and 56 of this repository's 90 scripts have no
+## target. `check-negative-controls.py` was one of them until the target below
+## was added - one of #1028's own four subjects, invocable only by remembering a
+## script path and its `--strict`, which is exactly how a checker goes unnoticed.
+## Scripts no build surface invokes are accounted for in
 ## `.claude/verify-coverage.json`, and a new file in `scripts/` reddens this
 ## gate until it has an entry there or a target here.
 ##

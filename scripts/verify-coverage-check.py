@@ -61,10 +61,12 @@ instrument cannot be `not-a-checker` here, and the two files now have to agree.
 THE MECHANISM FOR NEW CHECKERS IS THE SECOND POPULATION, NOT THE FIRST.
 A framework that only classified Makefile targets would be satisfied by a
 checker that never gets a target - which is not hypothetical: 56 of this
-repository's 89 scripts have no target, `check-negative-controls.py` among
-them, and it is one of the four `#1028` subjects. So the population is
-`scripts/`, and a new file there turns this gate red until it is accounted for.
-Adding a checker and forgetting to wire it now costs a red, not a silence.
+repository's 90 scripts have no target. `check-negative-controls.py` was one of
+them until #1028 added `make negative-controls`, and it is one of that issue's
+own four subjects: the register could be run only by someone who remembered the
+script path and its `--strict`. So the population is `scripts/`, and a new file
+there turns this gate red until it is accounted for. Adding a checker and
+forgetting to wire it now costs a red, not a silence.
 
 WHY `utility` CARRIES A TRIPWIRE
 --------------------------------
