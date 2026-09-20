@@ -129,9 +129,27 @@ def _findings(root: Path) -> list[str]:
     # all intact and the executed engine was not the pinned one.
     package = root / PACKAGE_REL
     if package.is_dir():
+        # A SYMLINKED DIRECTORY inside the package is refused outright (#1069
+        # re-review). `rglob` does not traverse directory symlinks, so
+        # `lib/project_next/rank -> ../../alternate_rank` left every pin intact
+        # and produced no finding, while Python still resolved the linked
+        # package ahead of the pinned `rank.py` - the original shadowing defect
+        # in a different filesystem shape. Rejecting them is narrower than
+        # traversing: there is no legitimate symlinked directory in an owned
+        # engine, and traversal would need cycle and boundary handling to be
+        # correct.
+        for entry in sorted(package.rglob("*")):
+            if entry.is_symlink() and entry.is_dir():
+                rel = entry.relative_to(root).as_posix()
+                findings.append(
+                    f"DRIFT: {rel} is a symlinked directory inside the owned package."
+                )
+        # No __pycache__ exclusion: it filtered on `module.parts`, the ABSOLUTE
+        # path, so a checkout beneath a directory named __pycache__ skipped every
+        # module and an unrelated ancestor decided whether the package was
+        # examined. The glob is "*.py" and bytecode is ".pyc", so nothing needed
+        # excluding.
         for module in sorted(package.rglob("*.py")):
-            if "__pycache__" in module.parts:
-                continue
             rel = module.relative_to(root).as_posix()
             if rel not in files:
                 findings.append(f"DRIFT: {rel} sits in the package and is pinned by nothing.")
@@ -197,8 +215,37 @@ def _repin(root: Path) -> int:
     # BEFORE this re-pin: if any pinned file's hash moves while the derived
     # version does not, the bump is missing and the re-pin is refused.
     previous = _recorded(root)
+    if previous is None and (root / MANIFEST_REL).is_file():
+        # A manifest EXISTS and could not be read as a baseline. Skipping the
+        # comparison here was the bug `_recorded`'s own docstring warned about -
+        # "the caller must treat that as unknown rather than as agreement" - and
+        # the caller treated it as agreement. An unreadable baseline is not
+        # evidence that nothing changed.
+        print(
+            f"REFUSED: {MANIFEST_REL} exists but no baseline could be read from it, "
+            "so a changed engine cannot be distinguished from an unchanged one.",
+            file=sys.stderr,
+        )
+        print("  Repair the manifest, or delete it to pin from scratch.", file=sys.stderr)
+        return 1
     if previous is not None:
         prior_version, prior_files = previous
+        # An engine module PINNED BY THE CONTRACT but absent from the baseline is
+        # an unusable comparison for that path, not a passing one. Editing a
+        # module and dropping its pin bypassed the guard entirely.
+        unbaselined = sorted(
+            rel for rel in PINNED_FILES
+            if rel.startswith(f"{PACKAGE_REL}/") and rel.endswith(".py") and rel not in prior_files
+        )
+        if unbaselined and derived == prior_version:
+            print(
+                f"REFUSED: {len(unbaselined)} engine module(s) have no baseline pin, "
+                f"so a change to them cannot be detected at contract version {derived!r}.",
+                file=sys.stderr,
+            )
+            for rel in unbaselined:
+                print(f"  no baseline: {rel}", file=sys.stderr)
+            return 1
         # SCOPED TO THE ENGINE, not to every pinned path. The defect is "the
         # executed engine changed and its consumer-facing version did not", so
         # the guard watches `lib/project_next/**`. The contract DOCUMENT is

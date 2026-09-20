@@ -1,10 +1,28 @@
 {
-  "$schema": "https://github.com/cooneycw/codex-power-pack/blob/main/templates/project-next.schema.json",
+  "$schema": "https://github.com/cooneycw/claude-power-pack/blob/main/templates/project-next.schema.json",
   "issue_limit": 200,
   "default_mode": "compact",
-  "critical_labels": ["security", "blocker", "critical", "urgent", "sev-1", "p0"],
-  "high_priority_labels": ["p0", "p1", "priority-high", "high-priority", "high"],
-  "medium_priority_labels": ["p2", "priority-medium", "medium-priority", "medium"],
+  "critical_labels": [
+    "security",
+    "blocker",
+    "critical",
+    "urgent",
+    "sev-1",
+    "p0"
+  ],
+  "high_priority_labels": [
+    "p0",
+    "p1",
+    "priority-high",
+    "high-priority",
+    "high"
+  ],
+  "medium_priority_labels": [
+    "p2",
+    "priority-medium",
+    "medium-priority",
+    "medium"
+  ],
   "quick_win_labels": [
     "documentation",
     "docs",
@@ -15,6 +33,12 @@
     "quick-win",
     "easy"
   ],
-  "planning_labels": ["epic", "planning", "discussion", "tracking", "meta"],
+  "planning_labels": [
+    "epic",
+    "planning",
+    "discussion",
+    "tracking",
+    "meta"
+  ],
   "stale_after_days": 30
 }

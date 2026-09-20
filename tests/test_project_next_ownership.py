@@ -313,3 +313,90 @@ def test_the_shipped_schema_accepts_the_shipped_example() -> None:
     )
     undeclared = sorted(set(example) - set(schema.get("properties", {})))
     assert not undeclared, f"the shipped schema rejects its own example: {undeclared}"
+
+
+# --- regressions from the #1069 fix RE-REVIEW (pass 2) ------------------------
+#
+# The first fix introduced three of its own, two of them reproducing the original
+# shadowing defect through a different filesystem shape. The review that found
+# them is the one re-review the contract allows.
+
+
+def test_repin_refuses_when_an_engine_module_has_no_baseline_pin(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A missing baseline entry is an unusable comparison, not a passing one.
+
+    The first guard compared only paths present in the recorded manifest, so
+    editing `rank.py` AND dropping its pin bypassed it completely: zero changed
+    files, because the one that changed was not being compared.
+    """
+    root = _sandbox(tmp_path)
+    engine = root / "lib" / "project_next" / "rank.py"
+    engine.write_text(engine.read_text(encoding="utf-8") + "# change\n", encoding="utf-8")
+
+    manifest = _manifest(root)
+    data = json.loads(manifest.read_text(encoding="utf-8"))
+    del data["files"]["lib/project_next/rank.py"]
+    manifest.write_text(json.dumps(data), encoding="utf-8")
+
+    assert pno.main(["--repin", "--root", str(root)]) == 1
+    assert "no baseline pin" in capsys.readouterr().err
+
+
+def test_repin_refuses_an_unreadable_baseline_rather_than_assuming_agreement(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`_recorded`'s docstring said an unreadable baseline must read as unknown,
+    never as agreement. Its caller skipped the comparison entirely, which is
+    agreement. The docstring was right and the code did the other thing."""
+    root = _sandbox(tmp_path)
+    _manifest(root).write_text("{ not json", encoding="utf-8")
+
+    assert pno.main(["--repin", "--root", str(root)]) == 1
+    assert "no baseline could be read" in capsys.readouterr().err
+
+
+def test_a_symlinked_directory_in_the_package_is_refused(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`rglob` does not traverse directory symlinks, so the recursive scan that
+    fixed the nested-package escape still let the same shadow through as a link.
+
+    Python resolves the linked package ahead of the pinned module exactly as it
+    resolves a real one; every pin stays byte-identical either way.
+    """
+    root = _sandbox(tmp_path)
+    assert pno.main(["check", "--root", str(root)]) == 0, "fixture must start clean"
+
+    alternate = root / "alternate_rank"
+    alternate.mkdir()
+    (alternate / "__init__.py").write_text("SHADOW = True\n", encoding="utf-8")
+    link = root / "lib" / "project_next" / "rank"
+    link.symlink_to("../../alternate_rank", target_is_directory=True)
+    assert link.is_symlink() and link.is_dir(), "fixture must be a directory symlink"
+
+    assert pno.main(["check", "--root", str(root)]) == 1
+    assert "symlinked directory inside the owned package" in capsys.readouterr().out
+
+
+def test_an_ancestor_named_pycache_does_not_disable_the_scan(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The exclusion filtered on `module.parts` - the ABSOLUTE path - so a
+    checkout beneath any directory named `__pycache__` skipped every module and
+    an unrelated ancestor decided whether the owned package was examined.
+
+    The exclusion is gone rather than narrowed: the glob is `*.py` and bytecode
+    is `.pyc`, so it never had anything to exclude.
+    """
+    nested = tmp_path / "__pycache__"
+    nested.mkdir()
+    root = _sandbox(nested)
+
+    shadow = root / "lib" / "project_next" / "rank"
+    shadow.mkdir()
+    (shadow / "__init__.py").write_text("SHADOW = True\n", encoding="utf-8")
+
+    assert pno.main(["check", "--root", str(root)]) == 1
+    assert "rank/__init__.py sits in the package and is pinned by nothing" in capsys.readouterr().out
