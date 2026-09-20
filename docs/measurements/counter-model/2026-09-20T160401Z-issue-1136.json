@@ -1,0 +1,19 @@
+{
+  "branch": "issue-1136-the-codex-skill-re-sync-trigger-is-blind-to-bundle",
+  "counts": {
+    "accepted": 7,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "implementer": "claude/claude-opus-5",
+  "issue": "1136",
+  "passes": 2,
+  "recorded_at": "2026-09-20T16:04:01Z",
+  "red_cases": {
+    "already_covered": 10,
+    "proposed": 10
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}
