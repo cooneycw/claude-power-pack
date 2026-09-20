@@ -180,7 +180,15 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  {doc}", file=sys.stderr)
         return 1
 
-    print("claude-md-links: ok - every repository-local pointer resolves")
+    # THE DENOMINATOR FORM (issue #1036). "every repository-local pointer" is a
+    # claim about a CLASS; what this gate establishes is that the pointers it
+    # could extract resolve, over a population it can state. The counts are the
+    # ones already computed above, so the line cannot describe a different run
+    # from the one that produced the verdict.
+    print(
+        f"claude-md-links: ok - {examined} repository-local pointer(s) resolved, "
+        f"{canonical_disk_count} canonical {CANONICAL_AGENTS_DIR}/*.md file(s) all referenced"
+    )
     return 0
 
 

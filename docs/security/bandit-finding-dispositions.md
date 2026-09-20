@@ -26,7 +26,7 @@ assumption that would expire it.
 
 | In scope | Out of scope | Where the rest lives |
 |---|---|---|
-| MEDIUM-or-worse findings over `lib/` and `scripts/` | The 133 LOW-severity findings | issue #1114 |
+| MEDIUM-or-worse findings over `lib/` and `scripts/` | The LOW-severity band | #1114, [ADR 0010](../decisions/0010-bandit-low-band-disposition.md) - dispositioned by RULE CLASS rather than by `(file, rule)`, and a `reviewed-low` record in `.bandit-audit-allow` marks each class as read |
 | | Shell scripts | issue #972 (shellcheck) |
 | | Dependency advisories | `dependency-advisory-dispositions.md` |
 

@@ -140,7 +140,7 @@ Woodpecker CI runs on every push and PR via a self-hosted agent:
 - **Tool staging:** `shellcheck-stage` and `jq-stage` copy their content-pinned binaries into `.ci-bin` for the steps that need them. Staging is deliberately SEPARATE from the gates that use those tools (#1086): `validate` needed one second of copying from a step that also spent thirty seconds linting, and `pytest` sat behind all of it
 - **Validate:** lint (ruff) + test (pytest, parallel with an explicit worker cap - never `-n auto`) + typecheck (mypy) in a single consolidated step
 - **Negative controls:** every registered gate must still report BAD on its known-bad fixture and GOOD on its known-good one, and each control must be demonstrated against a vendored anchor that MISSES the known-bad input - a control with no anchor is `UNPROVEN` and fails the step (#924)
-- **Python SAST:** `bandit` over `lib/` and `scripts/`, gated at severity >= MEDIUM (#962). The skip list is EMPTY: codex-power-pack's inherited `--skip B104,B108,B310,B602` was measured against this tree and found to remove 10 of its 11 MEDIUM+ findings, because `shell=True` and hard-coded `/tmp` paths are what a repository of shell-out helpers does. The accepted residual lives one line per (file, rule, count) in `.bandit-audit-allow`, so a new site is a finding and a fixed one turns the gate red until its line comes out - though a same-count replacement is a named, tested blind spot rather than a claim. The step runs the live positive control BEFORE the audit, because a scan that cannot see prints the same clean line as a clean tree
+- **Python SAST:** `bandit` over `lib/` and `scripts/`, gated at severity >= MEDIUM (#962). The skip list is EMPTY: codex-power-pack's inherited `--skip B104,B108,B310,B602` was measured against this tree and found to remove 10 of its 11 MEDIUM+ findings, because `shell=True` and hard-coded `/tmp` paths are what a repository of shell-out helpers does. The accepted residual lives one line per (file, rule, count) in `.bandit-audit-allow`, so a new site is a finding and a fixed one turns the gate red until its line comes out - though a same-count replacement is a named, tested blind spot rather than a claim. The step runs the live positive control BEFORE the audit, because a scan that cannot see prints the same clean line as a clean tree. The band BELOW that threshold is enumerated by RULE CLASS rather than counted in aggregate (#1114): all seven classes in this tree were read and accepted, each carries a `reviewed-low` record pointing at [ADR 0010](docs/decisions/0010-bandit-low-band-disposition.md), and a LOW finding whose class has no record reddens the gate - which is the opposite of the `--skip` #962 rejected, since it suppresses nothing and adds a distinction the count could not draw
 - **Dockerfile lint:** hadolint over any remaining Dockerfile
 - **CI verification:** `flow:auto` polls the Woodpecker API after merge to confirm the pipeline passes
 
@@ -183,6 +183,24 @@ registered - `check-negative-controls`, `check-negative-fixture-preconditions`,
 `shellcheck-gate`. The framework is registered in its own framework, which is
 the point: a control battery nothing checks is the defect it exists to find.
 
+> **The rest of this section is a dated snapshot of 2026-09-15, and two of its
+> statements were closed by #1036 on 2026-09-20.** The snapshot is kept rather
+> than rewritten, because what it records is a repository that could see its own
+> accounting defect and say so before it had a fix - and a passage edited to look
+> correct would destroy exactly that. What changed:
+>
+> - `check-oscillation` was added to the census by 967c098 (#1060), so the live
+>   non-member named below no longer exists.
+> - **the summary line no longer has the defect it is criticised for here.** It
+>   now states the RELATION rather than two counts pressed together -
+>   `22 registered, 22 of 90 enumerated instruments ... carry a control that
+>   discriminates, none registered outside the census; the denominator is 76
+>   registrable + 14 external subject(s) with no file under scripts/ for a
+>   marker, reachable only by wrapping; discovery reads scripts/* (top-level
+>   files only ...)`. A registered control whose gate is absent from the census
+>   is NAMED, derived on every run. Reporting it is not yet FAILING on it; that
+>   is a separate decision and printing the fact does not pre-empt it.
+
 **Deliberately not stated as a coverage fraction over the 63-row census, because
 the two numbers are counted independently.** Five of the six register against a
 row in [ADR 0008](docs/decisions/0008-instrument-negative-control-bound.md)'s
@@ -191,8 +209,9 @@ enumerate, so the registration count is not a subset of the census and "6 of 63"
 would be a fraction whose numerator and denominator do not describe the same
 set. `secret-scan` also covers only the working-tree half of its row - the CI
 step scans git history as well - and its manifest says so. The gate's own
-summary line does print `N of 63`; **that line has the same defect** and is
-recorded rather than quietly worked around.
+summary line does print `N of 63`; **that line had the same defect** and was
+recorded rather than quietly worked around - then fixed under #1036, which is
+what the note above describes.
 
 **Two counts, both honest, and neither is the other:** six registered controls,
 and 63 enumerated instruments. Of the 63, discovery can currently find a

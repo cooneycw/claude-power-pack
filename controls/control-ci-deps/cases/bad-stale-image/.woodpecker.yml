@@ -1,0 +1,18 @@
+# A MINIATURE PIPELINE, not a copy of the real one. The question this fixture
+# asks is whether the gate can tell a control the battery's step can run from
+# one it cannot - so it carries exactly the shape that answer depends on: a
+# step that runs the battery, an image, and nothing staged.
+when:
+  - event: [push]
+
+steps:
+  negative-controls:
+    image: python:3.12-alpine@sha256:0000000000000000000000000000000000000000000000000000000000000000
+    depends_on: [validate]
+    commands:
+      - python3 scripts/check-negative-controls.py --strict
+
+  validate:
+    image: python:3.12-alpine@sha256:0000000000000000000000000000000000000000000000000000000000000000
+    commands:
+      - python3 -c "pass"

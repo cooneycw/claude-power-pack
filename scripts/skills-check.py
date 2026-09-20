@@ -101,6 +101,16 @@ class Report:
 
     findings: list[Finding] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    #: How many canonical packages were actually validated (issue #1036). The
+    #: managed half already states its population on a note (#1034); the
+    #: canonical half did not, so `skills-check: ok - canonical packages and
+    #: managed installs are valid` was an unqualified claim about a class over
+    #: a population nothing named. The number is INCREMENTED where a package is
+    #: validated, never re-derived from the directory afterwards: a count taken
+    #: by re-listing would keep reporting packages that every `continue` above
+    #: it skipped.
+    canonical_checked: int = 0
+    managed_checked: int = 0
 
     @property
     def ok(self) -> bool:
@@ -531,6 +541,7 @@ def _validate_canonical(report: Report, root: Path) -> None:
             )
             continue
         slugs[slug] = entry
+        report.canonical_checked += 1
         _validate_package(report, entry, names)
 
 
@@ -687,6 +698,7 @@ def _validate_managed(report: Report, root: Path, managed_root: Path) -> None:
     # packages", "managed installs: checked ", "package(s), ", and now
     # ", skipped ". The skipped count is APPENDED after the existing anchors
     # rather than woven between them, so the established parse is unchanged.
+    report.managed_checked = managed_count
     if managed_count == 0:
         report.notes.append(
             "managed installs: no CPP-marked packages, "
@@ -735,7 +747,14 @@ def main(argv: list[str] | None = None) -> int:
     for note in report.notes:
         print(f"skills-check: {note}")
     if report.ok:
-        print("skills-check: ok - canonical packages and managed installs are valid")
+        # THE DENOMINATOR FORM (issue #1036): what was examined, not a
+        # quantifier over a class. `0 canonical` is impossible here - an empty
+        # canonical directory is already a finding (#841) - so this number
+        # cannot be a zero-population green.
+        print(
+            f"skills-check: ok - {report.canonical_checked} canonical package(s) and "
+            f"{report.managed_checked} CPP-marked managed install(s) validated"
+        )
         return 0
 
     print(f"skills-check: {len(report.findings)} failure(s)", file=sys.stderr)

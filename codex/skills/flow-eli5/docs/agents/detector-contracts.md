@@ -38,6 +38,21 @@ Two gates in this repository, measured against an empty input:
 | `check-claude-md-budget.py` | `ok - 0/2000 words`, exit 0 | **yes** - a numeric aggregate; the number *is* the population count |
 | `check-claude-md-links.py`, before #841 | `ok - every repository-local pointer resolves`, exit 0 | **no** - vacuously true over zero pointers |
 | `check-claude-md-links.py`, after #841 | `contains no repository-local pointers - nothing was checked`, exit 1 | **yes** - the empty population is now a state it can report |
+| `check-claude-md-links.py`, after #1036 | `ok - 52 repository-local pointer(s) resolved, 8 canonical docs/agents/*.md file(s) all referenced` | **yes, and now on the NON-empty input too** - #841 fixed the empty case and left the universal standing everywhere else |
+
+THE EMPTY CASE WAS NOT THE WHOLE OF IT (#1036). #841's remedy made the gate able
+to report an empty population, which is the row above, and the universal
+survived untouched on every input that was not empty: `every repository-local
+pointer resolves` still claimed a CLASS while the check inspected the
+link-shaped tokens its extractor could see. A pointer written in a shape the
+extractor does not model produced the identical green, over a population nobody
+could read off the line. Three sibling gates carried the same shape and were
+converted with it - `binary-guards`, `skills-check`, and `negative-controls`
+itself, whose `21 of 89 enumerated instruments` was two independently-derived
+counts printed as a ratio.
+
+The remedy is the denominator form, NOT deleting the quantifier: a success line
+that just says `ok` reads as clean while saying even less.
 
 Both original forms exited 0 having examined nothing. Only one was a defect,
 because only one asserted something about every member of a set it never

@@ -1338,10 +1338,50 @@ class _ModuleAnalysis:
         )
 
 
+@dataclass
+class Scan:
+    """What this gate EXAMINED, alongside what it found (issue #1036).
+
+    The success line used to read `binary-guards: ok - every shelling-out test
+    is guarded`. "Every shelling-out test" is a claim about a CLASS, while the
+    check inspects one statically-visible shape - as this file's own docstring
+    scopes it. A test reaching a binary through a shape the parser does not
+    model produced the identical green line, so the word `every` converted a
+    FLOOR into apparent TOTAL COVERAGE, in a gate that sits in `make verify` and
+    whose green is therefore consumed by every commit.
+
+    The remedy is the denominator form this repository already uses elsewhere -
+    `claude-md-budget: ok - 1310/2000 words`, `shellcheck-gate: ok - 96 file(s)
+    scanned at severity=error` - and NOT deleting the quantifier: a success line
+    that simply says `ok` reads as clean while saying even less.
+
+    `reaching` is the load-bearing number, not `tests`. A denominator that never
+    moves is the same defect one level down, so the count that matters is the
+    one that changes when the population does.
+    """
+
+    files: int = 0
+    tests: int = 0
+    reaching: int = 0
+    #: Of `reaching`, how many were accepted through a
+    #: `# binary-guard: allow <reason>` rather than through a guard. Counted
+    #: SEPARATELY because the first cut of this denominator folded them in and
+    #: still said "all guarded" - so an exempted test and a guarded one were
+    #: again the same number, which is the conflation this whole change is
+    #: about, reintroduced by the fix for it (found by the counter-model
+    #: review, codex/gpt-6-astra, on this branch).
+    exempted: int = 0
+    findings: list[Finding] = field(default_factory=list)
+
+
 def _check_module(path: Path, source: str) -> list[Finding]:
+    return _scan_module(path, source).findings
+
+
+def _scan_module(path: Path, source: str) -> Scan:
     tree = ast.parse(source, filename=str(path))
     analysis = _ModuleAnalysis(tree, source, path)
-    findings: list[Finding] = []
+    scan = Scan(files=1)
 
     def visit(node: ast.AST, class_guard: set[str]) -> None:
         for child in ast.iter_child_nodes(node):
@@ -1349,13 +1389,20 @@ def _check_module(path: Path, source: str) -> list[Finding]:
                 visit(child, class_guard | analysis._decorator_guard(child.decorator_list))
             elif isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 if child.name.startswith("test_"):
-                    finding = _check_test(path, analysis, child, class_guard)
+                    scan.tests += 1
+                    reaching, exempted, finding = _check_test(
+                        path, analysis, child, class_guard
+                    )
+                    if reaching:
+                        scan.reaching += 1
+                    if exempted:
+                        scan.exempted += 1
                     if finding is not None:
-                        findings.append(finding)
+                        scan.findings.append(finding)
             # Nested defs inside a test are part of that test's subtree already.
 
     visit(tree, set())
-    return findings
+    return scan
 
 
 def _check_test(
@@ -1363,7 +1410,15 @@ def _check_test(
     analysis: _ModuleAnalysis,
     func: FunctionDef,
     class_guard: set[str],
-) -> Finding | None:
+) -> tuple[bool, bool, Finding | None]:
+    """`(reaches a guarded binary, was exempted, finding)` - these feed the denominator.
+
+    The flag is returned rather than re-derived by a second walk (issue #1036):
+    the count in this gate's success line has to describe THE POPULATION THIS
+    GATE EXAMINED, and a parallel counter that walked the tree its own way would
+    be a second definition of "reaching a binary" - the same two-readers drift
+    `test_files` already refuses for the file set one level up.
+    """
     direct = analysis._shell_out(func)
     needed = set(direct.binaries)
     seen_scripts: dict[Path, set[str]] = {}
@@ -1377,14 +1432,14 @@ def _check_test(
             needed |= helper
             _merge_scripts(seen_scripts, analysis.helper_scripts.get(name, {}))
     if not needed:
-        return None
+        return False, False, None
 
     # A `# binary-guard: allow <reason>` on any shell-out line, or on the def.
     # For the indirect shape there is no call line to annotate, so the def line
     # is the escape.
     allow_lines = analysis.allow_lines
     if func.lineno in allow_lines or any(line in allow_lines for line in direct.linenos):
-        return None
+        return True, True, None
 
     guarded = (
         class_guard
@@ -1394,8 +1449,8 @@ def _check_test(
     )
     missing = needed - guarded
     if not missing:
-        return None
-    return Finding(
+        return True, False, None
+    return True, False, Finding(
         path=path,
         lineno=func.lineno,
         test=func.name,
@@ -1407,10 +1462,26 @@ def _check_test(
 
 def check_paths(paths: list[Path]) -> list[Finding]:
     """Check the given test modules; returns findings sorted by location."""
-    findings: list[Finding] = []
+    return scan_paths(paths).findings
+
+
+def scan_paths(paths: list[Path]) -> Scan:
+    """`check_paths` plus the population it examined (issue #1036).
+
+    `check_paths` stays a list of findings because the whole suite calls it that
+    way; the counts ride alongside rather than changing that signature, so the
+    denominator and the findings can never describe different runs.
+    """
+    scan = Scan()
     for path in sorted(paths):
-        findings.extend(_check_module(path, path.read_text(encoding="utf-8")))
-    return sorted(findings, key=lambda f: (str(f.path), f.lineno))
+        module = _scan_module(path, path.read_text(encoding="utf-8"))
+        scan.files += module.files
+        scan.tests += module.tests
+        scan.reaching += module.reaching
+        scan.exempted += module.exempted
+        scan.findings.extend(module.findings)
+    scan.findings.sort(key=lambda f: (str(f.path), f.lineno))
+    return scan
 
 
 def test_files(tests_dir: Path) -> list[Path]:
@@ -1428,6 +1499,11 @@ def test_files(tests_dir: Path) -> list[Path]:
 def check_tree(tests_dir: Path) -> list[Finding]:
     """Check every ``test_*.py`` (and ``conftest.py``) under ``tests_dir``."""
     return check_paths(test_files(tests_dir))
+
+
+def scan_tree(tests_dir: Path) -> Scan:
+    """``check_tree`` plus the population it examined (issue #1036)."""
+    return scan_paths(test_files(tests_dir))
 
 
 # --------------------------------------------------------------------------- #
@@ -1549,9 +1625,19 @@ def main(argv: list[str] | None = None) -> int:
         print(f"binary-guards: tests/ under {root} contains no test files - nothing was scanned")
         return 1
 
-    findings = check_paths(paths)
+    scan = scan_paths(paths)
+    findings = scan.findings
     if not findings:
-        print("binary-guards: ok - every shelling-out test is guarded")
+        # THE DENOMINATOR FORM, not the class quantifier (issue #1036). This
+        # states a floor over a named population - which is what the check
+        # actually establishes - instead of "every shelling-out test", a claim
+        # about a class the parser cannot enumerate.
+        guarded = scan.reaching - scan.exempted
+        print(
+            f"binary-guards: ok - {scan.files} test file(s) scanned, {scan.tests} test(s) "
+            f"examined, {scan.reaching} statically reaching a guarded binary: "
+            f"{guarded} guarded, {scan.exempted} exempted by `# binary-guard: allow`"
+        )
         return 0
 
     print(f"binary-guards: {len(findings)} unguarded test(s)\n")
