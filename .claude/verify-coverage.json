@@ -50,6 +50,11 @@
       "consumer": "tests/test_tool_risk_drift.py",
       "reason": "the canonical risk tier behind the allow-rule candidates /security:permissions proposes"
     },
+    "codex-skill-resync.sh": {
+      "class": "tested",
+      "consumer": "tests/test_codex_skill_resync.py",
+      "reason": "decides whether the generated Codex mirrors need regenerating by asking codex-skill-sync.py --check what drifted, rather than matching a path pattern; /flow:auto Step 6 and Step 7 and /flow:finish act on its verdict, and no Makefile target invokes it"
+    },
     "commands-mirror-sync.sh": {
       "class": "runtime",
       "consumer": ".claude/commands/cpp/update.md",
