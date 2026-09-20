@@ -621,8 +621,7 @@ negative-fixture-check:
 ## Keep always-loaded repository guidance bounded, resolvable, and behaviorally
 ## findable after narrative moves to owned documentation (issue #724).
 
-## verify-coverage: gate agents-md-budget-check - the Codex agent-context file stays inside its word budget
-## ci: runs agents-md-budget-check
+## verify-coverage: gate agents-md-budget-check - the Codex agent-context file stays inside its word budget; ci: runs agents-md-budget-check
 ## The budget is set by what it FORBIDS (#1071): AGENTS.md is a pointer to
 ## CLAUDE.md plus what is Codex-specific, and the failure it exists to prevent is
 ## someone restating CLAUDE.md's Core Directives block in it - the second copy the
@@ -633,7 +632,6 @@ agents-md-budget-check:
 	@python3 scripts/check-claude-md-budget.py AGENTS.md --budget 450
 
 ## verify-coverage: gate claude-md-budget-check - always-loaded guidance stays inside its word budget
-## ci: runs claude-md-budget-check
 claude-md-budget-check:
 	@python3 scripts/check-claude-md-budget.py
 
