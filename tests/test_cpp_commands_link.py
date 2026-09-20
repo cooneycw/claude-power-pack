@@ -46,6 +46,35 @@ def _run(tmp_path: Path, src: Path, *args) -> subprocess.CompletedProcess:
     )
 
 
+def _extract_step1() -> str:
+    """The Step 1 locator block, read FROM the command document (issue #1138).
+
+    Extracted rather than restated: a copy here would pass forever while the
+    document it claims to test drifted, which is the decoration failure this
+    repository keeps finding. `update.md` carries the same block and is
+    asserted identical by the test below.
+    """
+    import re
+
+    doc = (REPO / ".claude" / "commands" / "cpp" / "init.md").read_text()
+    m = re.search(r"\n```bash\nCPP_DIR=\"\"\n(.*?)\n```\n", doc, re.S)
+    assert m, "the Step 1 locator block is no longer findable in init.md"
+    return 'CPP_DIR=""\n' + m.group(1)
+
+
+def test_both_command_documents_carry_the_same_locator():
+    """init.md and update.md must not drift apart - they had the same defect."""
+    import re
+
+    blocks = []
+    for name in ("init.md", "update.md"):
+        doc = (REPO / ".claude" / "commands" / "cpp" / name).read_text()
+        m = re.search(r"\n```bash\nCPP_DIR=\"\"\n(.*?)\n```\n", doc, re.S)
+        assert m, f"no locator block in {name}"
+        blocks.append(m.group(1))
+    assert blocks[0] == blocks[1], "cpp/init.md and cpp/update.md locators have drifted"
+
+
 def _target(tmp_path: Path) -> Path:
     return tmp_path / "home" / ".claude" / "commands"
 
@@ -437,3 +466,287 @@ def test_header_states_ok_is_topology_not_health() -> None:
         "the header no longer explains WHY topology and content differ - a link "
         "follows the ref, not the working tree (issue #685)"
     )
+
+
+# --------------------------------------------------------------------------- #
+# `ok: 0` may not print `ok` (issue #1138)
+# --------------------------------------------------------------------------- #
+#
+# Measured in a faithful clone of a live kyle session container on 2026-09-20:
+# all 18 command families classify `foreign` there, because the substrate
+# projects the command surface as READ-ONLY BIND MOUNTS and a bind-mounted
+# directory is not a symlink this installer created. The run then printed
+# `families: 18 ok: 0 ... foreign: 18` and `CPP_COMMANDS_LINK: ok`, exit 0, on
+# the same line - an installer reporting success having installed nothing,
+# indistinguishable downstream from one that worked.
+#
+# The ownership rule was never the defect and is unchanged. What was wrong was
+# that two different states shared one word.
+
+
+def _all_foreign(tmp_path: Path, families=("flow", "cicd", "cpp")) -> Path:
+    """Every family name occupied by a real directory - the bind-mount shape.
+
+    A committed fixture cannot BE a bind mount, and does not need to be: what
+    the script sees is `a real directory where a link of mine should be`, which
+    is what a read-only bind mount presents to its ownership test.
+    """
+    src = _make_source(tmp_path, families)
+    target = _target(tmp_path)
+    for fam in families:
+        (target / fam).mkdir(parents=True)
+        (target / fam / "projected.md").write_text("# not ours\n")
+    return src
+
+
+@pytest.mark.parametrize("mode", ([], ["--check"]), ids=("install", "check"))
+def test_all_foreign_does_not_report_ok(tmp_path: Path, mode: list):
+    """BOTH modes, because `--check` shared the blind spot.
+
+    ADR 0008 excluded this script from its census on the grounds that an
+    installer's state "is re-derived by the drift and parity checks". On this
+    input the re-derivation returned the identical wrong answer, so the two
+    agreeing carried no information. `--check` is also the mode
+    `/cpp:update` Step 5b actually consumes.
+    """
+    src = _all_foreign(tmp_path)
+    result = _run(tmp_path, src, *mode)
+    assert "families: 3 ok: 0" in result.stdout, result.stdout
+    assert "CPP_COMMANDS_LINK: unowned" in result.stdout, result.stdout
+    assert "CPP_COMMANDS_LINK: ok" not in result.stdout
+    assert result.returncode == 4, result.stdout
+
+
+def test_unowned_describes_the_state_without_accusing(tmp_path: Path):
+    """A user who keeps their own families in every slot reaches this too.
+
+    The verdict has to be true and useful for them as well as for a container,
+    so it reports what was found and names both readings rather than picking
+    one. A message that called it an installation FAILURE would be wrong in the
+    case the ownership rule exists to protect.
+    """
+    src = _all_foreign(tmp_path)
+    result = _run(tmp_path, src)
+    assert "does not own" in result.stderr
+    assert "your content still wins" in result.stderr
+    for accusation in ("failed", "error", "invalid", "corrupt"):
+        assert accusation not in result.stderr.lower(), result.stderr
+
+
+def test_one_family_of_ours_is_enough_to_stay_ok(tmp_path: Path):
+    """NEGATIVE MEMBERSHIP: `unowned` must not fire on a partially-foreign host.
+
+    A user with some of their own command families is the ordinary case the
+    ownership rule was written for, and a verdict that fired there would be one
+    nobody reads. Only `not one family is ours` reaches it.
+    """
+    src = _make_source(tmp_path, ("flow", "cicd"))
+    target = _target(tmp_path)
+    target.mkdir(parents=True)
+    (target / "cicd").mkdir()
+    (target / "cicd" / "mine.md").write_text("# mine\n")
+    (target / "flow").symlink_to(src / "flow")
+
+    result = _run(tmp_path, src, "--check")
+    assert "ok: 1" in result.stdout and "foreign: 1" in result.stdout, result.stdout
+    assert "CPP_COMMANDS_LINK: ok" in result.stdout, result.stdout
+    assert result.returncode == 0
+
+
+def test_drift_still_outranks_unowned(tmp_path: Path):
+    """A stale link is more specific and more actionable, so it wins.
+
+    Without an explicit order a tree with both would report whichever branch
+    happened to come first, and `unowned` would mask a stale link pointing at
+    another checkout - which is the louder problem.
+    """
+    src = _make_source(tmp_path, ("flow", "cicd"))
+    target = _target(tmp_path)
+    target.mkdir(parents=True)
+    (target / "cicd").mkdir()
+    (target / "cicd" / "mine.md").write_text("# mine\n")
+    # Owned shape, but pointing at a DIFFERENT checkout - stale.
+    other = tmp_path / "elsewhere" / ".claude" / "commands" / "flow"
+    other.mkdir(parents=True)
+    (target / "flow").symlink_to(other)
+
+    result = _run(tmp_path, src, "--check")
+    assert "CPP_COMMANDS_LINK: drift" in result.stdout, result.stdout
+    assert "unowned" not in result.stdout
+    assert result.returncode == 1
+
+
+# --------------------------------------------------------------------------- #
+# The source locator names its cause (issue #1138)
+# --------------------------------------------------------------------------- #
+
+
+def test_a_non_symlink_stable_path_names_the_cause(tmp_path: Path):
+    """The refusal existed and named a phantom path; now it names why.
+
+    `scripts/cpp-commands-link.sh` derives its source by resolving its own
+    path, which assumes the stable path is a SYMLINK into a checkout. In a kyle
+    container it is a bind mount, which `readlink -f` resolves to itself - so
+    the derived source is WRONG rather than merely absent, and the old message
+    sent the reader hunting for `~/.claude/.claude/commands`.
+    """
+    fake_home = tmp_path / "home"
+    (fake_home / ".claude" / "scripts").mkdir(parents=True)
+    copied = fake_home / ".claude" / "scripts" / "cpp-commands-link.sh"
+    shutil.copy2(SCRIPT, copied)
+    # Precondition: a real copy, not a symlink - the shape under test.
+    assert not copied.is_symlink(), "fixture must be a NON-symlink copy"
+
+    env = dict(os.environ)
+    env["CPP_COMMANDS_LINK_HOME"] = str(fake_home)
+    result = subprocess.run(
+        ["bash", str(copied), "--check"], capture_output=True, text=True, env=env
+    )
+    assert result.returncode == 2
+    assert "CPP_COMMANDS_LINK: error" in result.stdout
+    assert "NON-SYMLINK" in result.stderr, result.stderr
+    assert "--source" in result.stderr, result.stderr
+
+
+def test_an_explicit_source_is_never_second_guessed(tmp_path: Path):
+    """`--source` short-circuits the derivation, so the diagnosis stays silent.
+
+    The container advice would be wrong and confusing for a caller who told the
+    script exactly where to look and simply named a path that is not there.
+    """
+    src = _make_source(tmp_path)
+    missing = tmp_path / "nowhere" / ".claude" / "commands"
+    result = _run(tmp_path, missing)
+    assert result.returncode == 2
+    assert "--source override" in result.stderr, result.stderr
+    assert "NON-SYMLINK" not in result.stderr
+    assert src.exists()
+
+
+def test_a_prune_alone_is_not_an_install(tmp_path: Path):
+    """`changed` counts orphan prunes, so it could not decide `unowned` (#1138).
+
+    An install where every current family is foreign but one retired owned
+    symlink gets pruned is a real change that installs nothing. Deciding on
+    `changed` reported `installed`, exit 0, with not one family linked -
+    the false success this verdict exists to remove, surviving through the
+    prune path. Found by the counter-model review; reproduced before the fix.
+    """
+    src = _make_source(tmp_path, ("flow",))
+    target = _target(tmp_path)
+    (target / "flow").mkdir(parents=True)
+    (target / "flow" / "theirs.md").write_text("# not ours\n")
+    # An owned-shape link whose family no longer ships - a prune candidate.
+    (target / "retired").symlink_to(tmp_path / "gone" / ".claude" / "commands" / "retired")
+
+    result = _run(tmp_path, src)
+    assert "pruned   retired" in result.stdout, result.stdout
+    assert "CPP_COMMANDS_LINK: unowned" in result.stdout, result.stdout
+    assert "CPP_COMMANDS_LINK: installed" not in result.stdout
+    assert result.returncode == 4
+
+
+def test_a_neighbours_command_does_not_make_the_locator_claim_cpp(tmp_path: Path):
+    """The Step 1 availability check must name OUR surface, not any surface.
+
+    The first cut counted every immediate entry under ~/.claude/commands, so a
+    single hand-written `personal.md` announced "CPP IS AVAILABLE" and
+    discouraged a clone in a session with no CPP surface at all. That is this
+    issue's own defect class committed by its own fix - a check reading one
+    property to answer another - and the counter-model review asked exactly the
+    prescribed question of it: can a non-zero tell our thing from a neighbour's.
+    """
+    step1 = _extract_step1()
+    home = tmp_path / "home"
+    (home / ".claude" / "commands").mkdir(parents=True)
+    (home / ".claude" / "commands" / "personal.md").write_text("# my own note\n")
+    # Precondition: a neighbour's content, and no CPP family at all.
+    assert not (home / ".claude" / "commands" / "cpp").exists()
+
+    env = dict(os.environ)
+    env["HOME"] = str(home)
+    # EVERY candidate pinned to an absent path, not just $HOME's two. The
+    # locator also searches /opt/claude-power-pack, which $HOME cannot reach:
+    # on a host that has one, this test would take the checkout-found branch
+    # and assert against the wrong thing (counter-model review pass 2).
+    env["CPP_INIT_CANDIDATES"] = str(tmp_path / "no-checkout-here")
+    assert not (tmp_path / "no-checkout-here").exists(), "fixture must LACK a checkout"
+    result = subprocess.run(
+        ["bash", "-c", step1], capture_output=True, text=True, env=env
+    )
+    assert "CPP IS AVAILABLE" not in result.stdout, result.stdout
+    assert "CPP command surface served here: no" in result.stdout, result.stdout
+    assert result.returncode == 1
+
+
+def test_the_locator_recognises_a_real_cpp_surface(tmp_path: Path):
+    """The other direction: with CPP's own document present it must NOT advise a clone.
+
+    Without this the test above passes against a locator wedged at
+    "unavailable", which would send every container user to a clone again.
+    """
+    step1 = _extract_step1()
+    home = tmp_path / "home"
+    (home / ".claude" / "commands" / "cpp").mkdir(parents=True)
+    (home / ".claude" / "commands" / "cpp" / "init.md").write_text("# cpp:init\n")
+
+    env = dict(os.environ)
+    env["HOME"] = str(home)
+    env["CPP_INIT_CANDIDATES"] = str(tmp_path / "no-checkout-here")
+    assert not (tmp_path / "no-checkout-here").exists(), "fixture must LACK a checkout"
+    result = subprocess.run(
+        ["bash", "-c", step1], capture_output=True, text=True, env=env
+    )
+    assert "CPP IS AVAILABLE" in result.stdout, result.stdout
+    assert "git clone" not in result.stdout, result.stdout
+    assert result.returncode == 0
+
+
+def test_a_failed_link_is_not_reported_as_an_install(tmp_path: Path):
+    """A mutation attempted and lost is not one that happened (#1138).
+
+    `ln`, `rm` and `mkdir` results were unchecked, so on a read-only target a
+    failed replacement printed `updated`, incremented the counters and reported
+    `installed`, exit 0, with nothing changed on disk. That is a count of
+    INTENTIONS reported as a count of RESULTS - the same false-success shape
+    this issue is about, sitting one level under the verdict added to remove
+    it. Found by the counter-model review, second pass.
+    """
+    src = _make_source(tmp_path, ("alpha", "beta"))
+    target = _target(tmp_path)
+    (target / "beta").mkdir(parents=True)
+    (target / "beta" / "theirs.md").write_text("# not ours\n")
+    (target / "alpha").symlink_to(tmp_path / "elsewhere" / ".claude" / "commands" / "alpha")
+    target.chmod(0o555)
+    try:
+        # Precondition: the target really is unwritable, or this asserts nothing.
+        probe = target / ".probe"
+        try:
+            probe.touch()
+            pytest.fail("fixture must be a READ-ONLY target directory")
+        except PermissionError:
+            pass
+        result = _run(tmp_path, src)
+        assert "FAILED   alpha" in result.stderr, result.stderr
+        assert "failed: 1" in result.stdout, result.stdout
+        assert "CPP_COMMANDS_LINK: error" in result.stdout, result.stdout
+        assert "CPP_COMMANDS_LINK: installed" not in result.stdout
+        assert result.returncode == 2
+    finally:
+        target.chmod(0o755)
+
+
+def test_the_default_candidate_list_is_unchanged(tmp_path: Path):
+    """`CPP_INIT_CANDIDATES` exists for tests; production must not depend on it.
+
+    An override with a default is a quiet way to change shipped behaviour, so
+    the shipped list is asserted here rather than trusted to a comment.
+    """
+    step1 = _extract_step1()
+    for candidate in (
+        "~/Projects/claude-power-pack",
+        "/opt/claude-power-pack",
+        "~/.claude-power-pack",
+    ):
+        assert candidate in step1, f"{candidate} is no longer a default search path"
+    assert "${CPP_INIT_CANDIDATES:-" in step1
