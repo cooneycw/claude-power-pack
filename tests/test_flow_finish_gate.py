@@ -30,6 +30,7 @@ checkout resolution.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -79,11 +80,14 @@ def _run(
     make_exit: int | None = None,
     cwd: Path | None = None,
     uv_stdout: str = "",
+    inject_gates: bool = True,
 ) -> tuple[subprocess.CompletedProcess[str], Path]:
     """Run the helper with stubbed uv/make; returns (proc, stub bin dir)."""
     bindir = tmp_path / "bin"
     bindir.mkdir(exist_ok=True)
     if uv_exit is not None:
+        if uv_stdout and inject_gates:
+            uv_stdout = _with_gates(uv_stdout)
         _make_stub(bindir, "uv", uv_exit, stdout=uv_stdout)
     if make_exit is not None:
         _make_stub(bindir, "make", make_exit)
@@ -100,6 +104,70 @@ def _run(
         text=True,
     )
     return proc, bindir
+
+
+# A TRANSCRIPT of the `gates` array a post-#1147 runner emits, not a second
+# declaration of it. The shell reads which step ids are quality gates out of
+# the runner JSON (issue #1147); a synthetic payload without the field is not
+# a runner payload, and the gate now fails closed on one - so every fixture
+# below that is about something ELSE has to carry it, or it would silently
+# become a test of the fail-closed branch.
+#
+# Written literally, and deliberately NOT derived from lib.cicd.steps: a
+# fixture that imports the set under discussion would make the shell-side
+# assertions circular. What PRODUCTION emits is pinned separately, against the
+# runner itself, by test_runner_json_carries_the_derived_gate_set.
+_FIXTURE_GATES = ("lint", "test", "typecheck", "security_scan", "verify")
+
+# The smallest thing a runner actually prints. A `uv` stub that exits 0 and
+# prints NOTHING is not a runner that succeeded - it is a runner whose
+# output could not be read, and the gate fails closed on that by design.
+_MINIMAL_RUNNER_JSON = '{\n  "success": true\n}'
+
+
+def _with_gates(payload: str) -> str:
+    """Make a synthetic payload a COHERENT runner payload, not just a partial one.
+
+    Two fields are injected together because the gate reads them together: the
+    `gates` array (which ids are quality gates) and, when the payload has no
+    per-step record of its own, a `step_details` entry so every declared gate is
+    ACCOUNTED FOR - it ran, or it is in `skipped`. A real runner always emits
+    both; a fixture declaring five gates and recording none of them is not a
+    runner payload, and since #1147 the gate correctly warns about it.
+
+    So the declared set is derived from what the payload already accounts for
+    rather than stated: gates the fixture reports skipped, plus gates it records
+    as run. A payload that accounts for no gate at all gets the minimal coherent
+    pair - one gate, declared and run - which keeps fixtures whose subject is
+    something else (reruns, timeouts, carried results) saying what they always
+    said.
+
+    Inserted after the opening brace so it survives payloads ending in a nested
+    object or array. A payload that already names its own gate set is returned
+    untouched: those are the tests whose subject IS the field, and they pass
+    inject_gates=False to reach this function not at all.
+    """
+    if '"gates"' in payload:
+        return payload
+
+    accounted = set(re.findall(r'"id": "([a-z_]+)"', payload))
+    for block in re.findall(r'"skipped": \[(.*?)\]', payload, re.S):
+        accounted.update(re.findall(r'"([a-z_]+)"', block))
+    declared = [g for g in _FIXTURE_GATES if g in accounted]
+
+    add_details = ""
+    if not declared:
+        declared = ["lint"]
+        if '"step_details"' not in payload:
+            add_details = (
+                '\n  "step_details": [\n    {\n      "id": "lint",\n'
+                '      "status": "success"\n    }\n  ],'
+            )
+
+    gates = ",\n".join(f'    "{g}"' for g in declared)
+    head, sep, tail = payload.partition("{")
+    assert sep, f"not a JSON object payload: {payload!r}"
+    return f'{head}{{\n  "gates": [\n{gates}\n  ],{add_details}{tail}'
 
 
 def _fake_cpp(tmp_path: Path) -> Path:
@@ -220,7 +288,9 @@ def test_the_qualified_line_still_fires_for_a_real_no_tests_warning(
 @requires_bash
 def test_runner_ok(tmp_path: Path) -> None:
     cpp = _fake_cpp(tmp_path)
-    proc, bindir = _run(tmp_path, cpp_dir=str(cpp), uv_exit=0)
+    proc, bindir = _run(
+        tmp_path, cpp_dir=str(cpp), uv_exit=0, uv_stdout=_MINIMAL_RUNNER_JSON
+    )
     assert proc.returncode == 0
     assert "FLOW_FINISH_GATE: ok" in proc.stdout
     argv = (bindir / "uv.log").read_text()
@@ -238,7 +308,14 @@ def test_runner_fail(tmp_path: Path) -> None:
 @requires_bash
 def test_plan_passthrough(tmp_path: Path) -> None:
     cpp = _fake_cpp(tmp_path)
-    proc, bindir = _run(tmp_path, "--plan", "check", cpp_dir=str(cpp), uv_exit=0)
+    proc, bindir = _run(
+        tmp_path,
+        "--plan",
+        "check",
+        cpp_dir=str(cpp),
+        uv_exit=0,
+        uv_stdout=_MINIMAL_RUNNER_JSON,
+    )
     assert proc.returncode == 0
     assert "--plan check" in (bindir / "uv.log").read_text()
 
@@ -247,14 +324,41 @@ def test_plan_passthrough(tmp_path: Path) -> None:
 
 
 @requires_bash
-def test_fallback_all_three_targets_is_ok(tmp_path: Path) -> None:
+def test_fallback_all_gate_targets_is_ok(tmp_path: Path) -> None:
+    """Every gate the finish plan declares has a target here, `verify` included
+    (issue #1147) - so the fallback runs all four and reports a bare `ok`."""
     (tmp_path / "Makefile").write_text(
-        "lint:\n\ttrue\ntest:\n\ttrue\ntypecheck:\n\ttrue\n"
+        "lint:\n\ttrue\ntest:\n\ttrue\ntypecheck:\n\ttrue\nverify:\n\ttrue\n"
     )
     proc, bindir = _run(tmp_path, cpp_dir="", uv_exit=None, make_exit=0)
     assert proc.returncode == 0
     assert "FLOW_FINISH_GATE: ok" in proc.stdout
     assert "Makefile fallback" in proc.stdout
+    argv = (bindir / "make.log").read_text().splitlines()
+    assert argv == ["lint", "test", "typecheck", "verify"]
+
+
+@requires_bash
+def test_fallback_missing_verify_target_reports_warn_named(tmp_path: Path) -> None:
+    """The red case for the fallback half of #1147.
+
+    A repo with lint/test/typecheck but no `verify:` target: three gates ran,
+    the fourth could not, and #628 says a gate that did not run is never a bare
+    `ok`. Before this issue the fallback did not know `verify` was a gate at
+    all and this fixture reported `ok` - a green over a gate nobody ran.
+
+    This is the change with the widest blast radius in #1147: every repository
+    with no `verify` target now ends the fallback lane at `warn`, exactly as
+    one with no typecheck route already did.
+    """
+    (tmp_path / "Makefile").write_text(
+        "lint:\n\ttrue\ntest:\n\ttrue\ntypecheck:\n\ttrue\n"
+    )
+    proc, bindir = _run(tmp_path, cpp_dir="", uv_exit=None, make_exit=0)
+    assert proc.returncode == 3
+    assert "FLOW_FINISH_GATE: warn (skipped gates: verify)" in proc.stdout
+    assert "FLOW_FINISH_GATE: ok" not in proc.stdout
+    # The three that CAN run still ran - this is a reporting change.
     argv = (bindir / "make.log").read_text().splitlines()
     assert argv == ["lint", "test", "typecheck"]
 
@@ -284,12 +388,18 @@ def test_fallback_uses_uv_when_no_makefile_but_pyproject(tmp_path: Path) -> None
         "[tool.ruff]\n[tool.pytest.ini_options]\n[tool.mypy]\n"
     )
     proc, bindir = _run(tmp_path, cpp_dir="", uv_exit=0)
-    assert proc.returncode == 0
-    assert "FLOW_FINISH_GATE: ok" in proc.stdout
     argv = (bindir / "uv.log").read_text()
     assert "run --extra dev ruff check ." in argv
     assert "run --extra dev pytest" in argv
     assert "run --extra dev mypy ." in argv
+    # `verify` is a Makefile aggregate with no `uv run` equivalent, so with no
+    # Makefile at all it cannot run by either route and is named as skipped
+    # (#1147). The three tool-backed gates above still ran, which is what this
+    # test is about; `uv run --extra dev` with an EMPTY command must never be
+    # one of the invocations.
+    assert proc.returncode == 3
+    assert "FLOW_FINISH_GATE: warn (skipped gates: verify)" in proc.stdout
+    assert "run --extra dev\n" not in argv
 
 
 @requires_bash
@@ -405,10 +515,13 @@ def _run_with_uv_stub(
     payload: str,
     exit_code: int = 0,
     flow_gate_rerun: str | None = None,
+    inject_gates: bool = True,
 ) -> subprocess.CompletedProcess[str]:
     bindir = tmp_path / "bin"
     bindir.mkdir(exist_ok=True)
-    _uv_stub_printing(bindir, payload, exit_code)
+    _uv_stub_printing(
+        bindir, _with_gates(payload) if inject_gates else payload, exit_code
+    )
     env = os.environ.copy()
     env["PATH"] = f"{bindir}:{env['PATH']}"
     env["FLOW_GATE_CPP_DIR"] = str(cpp)
@@ -567,10 +680,9 @@ def test_disabled_rerun_overrides_an_inherited_opt_in(tmp_path: Path) -> None:
     runs under an outer gate that already exported the opt-in - so an opt-out
     that only omits the assignment disables nothing where it matters most."""
     cpp = _fake_cpp(tmp_path)
-    payload = '{\n  "success": true\n}'
     bindir = tmp_path / "bin"
     bindir.mkdir(exist_ok=True)
-    _uv_stub_printing(bindir, payload, 0)
+    _uv_stub_printing(bindir, _with_gates(_MINIMAL_RUNNER_JSON), 0)
     env = os.environ.copy()
     env["PATH"] = f"{bindir}:{env['PATH']}"
     env["FLOW_GATE_CPP_DIR"] = str(cpp)
@@ -645,7 +757,9 @@ def _fallback_make_stub(
 
 @requires_bash
 def test_fallback_rerun_passes_and_warns(tmp_path: Path) -> None:
-    (tmp_path / "Makefile").write_text("lint:\n\ntest:\n\ntypecheck:\n")
+    (tmp_path / "Makefile").write_text(
+        "lint:\n\ntest:\n\ntypecheck:\n\nverify:\n"
+    )
     bindir = tmp_path / "bin"
     bindir.mkdir()
     _fallback_make_stub(bindir, rerun_passes=True)
@@ -662,7 +776,9 @@ def test_fallback_rerun_passes_and_warns(tmp_path: Path) -> None:
 
 @requires_bash
 def test_fallback_rerun_failure_stays_failed(tmp_path: Path) -> None:
-    (tmp_path / "Makefile").write_text("lint:\n\ntest:\n\ntypecheck:\n")
+    (tmp_path / "Makefile").write_text(
+        "lint:\n\ntest:\n\ntypecheck:\n\nverify:\n"
+    )
     bindir = tmp_path / "bin"
     bindir.mkdir()
     _fallback_make_stub(bindir, rerun_passes=False)
@@ -711,7 +827,9 @@ def test_fallback_prints_rerun_ids_even_when_a_later_gate_fails(
     ids on exactly the red-and-flaky run that is hardest to read - a test cleared
     by its re-run, then a genuinely failing typecheck - which is the fallback
     silently diverging from the runner, the #617/#621/#628 trap."""
-    (tmp_path / "Makefile").write_text("lint:\n\ntest:\n\ntypecheck:\n")
+    (tmp_path / "Makefile").write_text(
+        "lint:\n\ntest:\n\ntypecheck:\n\nverify:\n"
+    )
     bindir = tmp_path / "bin"
     bindir.mkdir()
     _fallback_make_stub(bindir, rerun_passes=True, fail_target="typecheck")
@@ -729,7 +847,9 @@ def test_fallback_rerun_appends_to_host_pytest_addopts(tmp_path: Path) -> None:
     """The runner's rerun_env APPENDS to any host PYTEST_ADDOPTS; the fallback
     must not replace it, or the two attempts are not the same invocation and the
     caller's own pytest options silently vanish on the re-run only."""
-    (tmp_path / "Makefile").write_text("lint:\n\ntest:\n\ntypecheck:\n")
+    (tmp_path / "Makefile").write_text(
+        "lint:\n\ntest:\n\ntypecheck:\n\nverify:\n"
+    )
     bindir = tmp_path / "bin"
     bindir.mkdir()
     _fallback_make_stub(bindir, rerun_passes=True)
@@ -812,64 +932,408 @@ def test_runner_skipped_non_gate_still_ok(tmp_path: Path) -> None:
     assert "warn" not in proc.stdout
 
 
+def test_runner_json_carries_the_derived_gate_set() -> None:
+    """The producer half of #1147: the runner SAYS which ids are quality gates.
+
+    This replaces test_gate_filter_matches_GATE_STEP_IDS, whose subject - a
+    `grep -oE` alternation duplicating GATE_STEP_IDS into the shell - no longer
+    exists. That test kept two lists equal; the fix removed the second list, so
+    what needs pinning now is the channel that carries the one remaining
+    declaration across the language boundary.
+
+    Emitted UNCONDITIONALLY, which is the load-bearing half. A conditional
+    emit would make "this plan has no gates" and "this runner is too old to
+    say" the same bytes, and the shell fails closed on absence - so a runner
+    that dropped the field on an empty set would hard-fail every such run.
+    `deploy` is exactly that plan, so this is not a theoretical shape.
+
+    The set is PLAN-SCOPED, not the global GATE_STEP_IDS - see
+    test_the_emitted_gate_set_never_exceeds_the_plan_that_ran for why
+    publishing the union broke every non-finish plan.
+    """
+    from lib.cicd.runner import RunResult
+    from lib.cicd.steps import get_plan_steps, plan_gate_ids
+
+    steps = get_plan_steps("finish", project_root=str(ROOT))
+    d = RunResult(
+        success=True,
+        run_id="r",
+        plan_name="finish",
+        gates=plan_gate_ids("finish", steps),
+    ).to_dict()
+    assert "gates" in d, (
+        "the runner JSON carries no 'gates' field - scripts/flow-finish-gate.sh "
+        "reads which steps are quality gates out of it and fails closed without "
+        "it, so this is a hard failure of every gate run (issue #1147)"
+    )
+    assert d["gates"] == sorted(plan_gate_ids("finish", steps))
+    assert d["gates"], "an empty gate set means the derivation found nothing"
+
+    # The field survives a result carrying NOTHING else optional. Every
+    # neighbour in to_dict() is conditional on its own truthiness, and this one
+    # sitting among them is exactly where a later edit would make it match.
+    assert "skipped" not in d and "warnings" not in d
+
+
 @requires_bash
-def test_runner_skipped_security_scan_reports_warn(tmp_path: Path) -> None:
-    """The #890 symptom, asserted end to end - and the half the issue's own fix
-    would have missed.
+def test_the_shell_reads_the_gate_set_from_the_json_not_a_list(
+    tmp_path: Path,
+) -> None:
+    """The consumer half, with an id NO hardcoded list could contain.
 
-    Adding `security_scan` to GATE_STEP_IDS changes what the RUNNER logs and puts
-    in its JSON. It does not change this helper, which filters that array through
-    its own hardcoded name list before deciding the verdict. With the Python set
-    fixed and this script untouched, the id reached the array, was filtered out
-    here, and `FLOW_FINISH_GATE: ok` was still printed - the exact symptom #890
-    reports, surviving #890's suggested fix.
+    `quux_check` is not a step in any plan and never was. A JSON declaring it a
+    gate and reporting it skipped therefore distinguishes the two possible
+    shells: one that filters `skipped` against the JSON's own set names it, and
+    one filtering against an internal list - the pre-#1147 alternation - drops
+    it and reports a bare `ok`.
 
-    This is the test that would have caught that, because it asserts the marker
-    rather than the set.
+    Run against the pre-fix script this fails, which is the point: that script
+    prints `FLOW_FINISH_GATE: ok` for a run with an unexamined gate.
     """
     cpp = _fake_cpp(tmp_path)
     payload = (
-        '{\n  "success": true,\n  "steps_completed": 4,\n  "steps_total": 4,\n'
-        '  "skipped": [\n    "security_scan"\n  ]\n}'
+        '{\n  "success": true,\n  "steps_completed": 2,\n  "steps_total": 2,\n'
+        '  "gates": [\n    "lint",\n    "quux_check"\n  ],\n'
+        '  "skipped": [\n    "quux_check"\n  ],\n'
+        '  "step_details": [\n'
+        '    {\n      "id": "lint",\n      "status": "success"\n    }\n'
+        "  ]\n}"
     )
-    proc = _run_with_uv_stub(tmp_path, cpp, payload)
+    proc = _run_with_uv_stub(tmp_path, cpp, payload, inject_gates=False)
+
     assert proc.returncode == 3
-    assert "FLOW_FINISH_GATE: warn (skipped gates: security_scan)" in proc.stdout
+    assert "FLOW_FINISH_GATE: warn (skipped gates: quux_check)" in proc.stdout
     assert "FLOW_FINISH_GATE: ok" not in proc.stdout
-    assert "issue #628" in proc.stdout
 
 
-def test_gate_filter_matches_GATE_STEP_IDS() -> None:
-    """The shell filter and the Python set are one list in two languages (#890).
+@requires_bash
+def test_a_non_gate_skip_is_still_ok_when_the_json_says_so(
+    tmp_path: Path,
+) -> None:
+    """The other side of the same read, so "name everything skipped" does not
+    satisfy the test above.
 
-    flow-finish-gate.sh cannot import lib.cicd, so the gate names are duplicated
-    into a `grep -oE` alternation. Duplicated state drifts - that is the whole
-    defect this issue is about, and it had already happened once between
-    GATE_STEP_IDS and this regex. Parse the alternation out of the script and
-    require set EQUALITY, so drift in either direction fails:
-
-      * a gate added in Python and not here -> the marker keeps saying `ok` for a
-        gate that proved nothing, which is #890 itself;
-      * a name here that is not a gate in Python -> the marker warns about a
-        legitimate skip, the over-correction that makes the warning noise.
+    Same payload shape, but the skipped id is absent from the declared gate
+    set. A shell that simply reported every skipped step would warn here, and
+    that over-correction is what makes the #628 warning noise nobody reads.
     """
-    import re
-
-    from lib.cicd.steps import GATE_STEP_IDS
-
-    body = (ROOT / "scripts" / "flow-finish-gate.sh").read_text()
-    m = re.search(r"grep -oE '\"\(([^)]+)\)\"'", body)
-    assert m, (
-        "could not find the skipped-gate grep alternation in flow-finish-gate.sh - "
-        "if the extraction was rewritten, update this parser; do NOT drop the "
-        "assertion, which is the only thing keeping the two lists equal (#890)"
+    cpp = _fake_cpp(tmp_path)
+    payload = (
+        '{\n  "success": true,\n  "steps_completed": 2,\n  "steps_total": 2,\n'
+        '  "gates": [\n    "lint",\n    "quux_check"\n  ],\n'
+        '  "skipped": [\n    "stale_commit_check"\n  ],\n'
+        '  "step_details": [\n'
+        '    {\n      "id": "lint",\n      "status": "success"\n    },\n'
+        '    {\n      "id": "quux_check",\n      "status": "success"\n    }\n'
+        "  ]\n}"
     )
-    shell_gates = set(m.group(1).split("|"))
-    assert shell_gates, "parsed an empty alternation - the parser is broken"
-    assert shell_gates == set(GATE_STEP_IDS), (
-        f"flow-finish-gate.sh filters skipped steps to {sorted(shell_gates)} but "
-        f"GATE_STEP_IDS is {sorted(GATE_STEP_IDS)}. These are one list in two "
-        f"languages and must be equal (issue #890)."
+    proc = _run_with_uv_stub(tmp_path, cpp, payload, inject_gates=False)
+
+    assert proc.returncode == 0
+    assert "FLOW_FINISH_GATE: ok" in proc.stdout
+
+
+def test_the_resolved_finish_plan_runs_every_gate_the_builtin_plan_declares() -> None:
+    """The manifest WINS over BUILTIN_PLANS, so a gate added to the built-in
+    plan and not listed in `.claude/cicd_tasks.yml` is dead config (#617, #1147).
+
+    This is the pin for a trap the repository has now fallen into twice. #617
+    hit it with `typecheck` and wrote the warning as a comment INSIDE the
+    manifest - where a reader editing lib/cicd/steps.py never sees it. #1147 hit
+    it with `verify` anyway: the built-in finish plan grew a fifth gate, the
+    manifest still listed four, and the runner declared five gates in its JSON
+    while executing four and reporting `ok`.
+
+    Measured, not reasoned about. The gate ran in 163.68s - the same figure as
+    before a 229.8s step was supposedly added - and that is what gave it away.
+
+    Asserted against the RESOLVED plan rather than by reading the YAML, so it
+    holds however the manifest expresses the step.
+    """
+    from lib.cicd.steps import BUILTIN_PLANS, get_plan_steps
+
+    declared = {s.id for s in BUILTIN_PLANS["finish"] if s.gate}
+    resolved = {s.id for s in get_plan_steps("finish", project_root=str(ROOT))}
+    missing = sorted(declared - resolved)
+    assert not missing, (
+        f"the finish plan this repository actually runs omits declared gate(s) "
+        f"{missing}. `.claude/cicd_tasks.yml` takes precedence over "
+        f"BUILTIN_PLANS, so a gate defined in steps.py and not listed under "
+        f"plans.finish.steps is never executed - and GATE_STEP_IDS still "
+        f"declares it, so the JSON claims a gate the run never had (#617, #1147)"
+    )
+
+
+def test_the_emitted_gate_set_never_exceeds_the_plan_that_ran() -> None:
+    """A plan is only answerable for ITS OWN gates (counter-model review, #1147).
+
+    `GATE_STEP_IDS` is the union across every plan. Publishing that to a
+    consumer which requires every member to be accounted for turns two
+    perfectly good runs into failures: `--plan check` executes lint/test/
+    typecheck and has no security_scan or verify in it, and `--plan deploy`
+    shares none of the five. Measured before the fix: check reported
+    `fail (declared but never ran: security_scan verify)` and deploy reported
+    all five.
+
+    The invariant is containment, asserted for EVERY built-in plan rather than
+    for the one that broke - the defect was not specific to `check`, it was
+    that the published set had nothing to do with the plan.
+    """
+    from lib.cicd.steps import BUILTIN_PLANS, get_plan_steps, plan_gate_ids
+
+    for plan in sorted(BUILTIN_PLANS):
+        resolved = [d.id for d in get_plan_steps(plan, project_root=str(ROOT))]
+        gates = plan_gate_ids(plan, get_plan_steps(plan, project_root=str(ROOT)))
+        extra = sorted(set(gates) - set(resolved))
+        assert not extra, (
+            f"the '{plan}' plan publishes gate(s) {extra} that its resolved "
+            f"steps {resolved} do not contain. flow-finish-gate.sh requires "
+            f"every published gate to appear in step_details or skipped, so "
+            f"this makes a successful run report `fail (declared but never "
+            f"ran: ...)` (#1147)"
+        )
+
+
+def test_the_finish_plan_still_publishes_its_gates() -> None:
+    """The guard rail for the containment test above.
+
+    Containment is satisfiable by publishing nothing at all, which would make
+    the accountability check inert and take #1147's own guard with it. The
+    finish plan - the one the gate runs by default - must still name its gates.
+    """
+    from lib.cicd.steps import get_plan_steps, plan_gate_ids
+
+    steps = get_plan_steps("finish", project_root=str(ROOT))
+    gates = set(plan_gate_ids("finish", steps))
+    assert {"lint", "test", "typecheck", "verify"} <= gates, (
+        f"the finish plan publishes {sorted(gates)}, which is missing one of "
+        f"the gates it runs - the accountability check cannot see a gate that "
+        f"is not published (#1147)"
+    )
+
+
+def test_a_generated_manifest_runs_the_verify_gate() -> None:
+    """A manifest CPP generates must run the gate CPP's own plan declares.
+
+    Counter-model review finding: `BUILTIN_PLANS` and this repository's
+    checked-in manifest both gained `verify`, while `generate_manifest` still
+    produced a four-step finish plan and skipped `verify` by name in its
+    extra-targets loop. Every project scaffolded by CPP would therefore have a
+    finish gate that never ran the project's own verification - #1147's defect,
+    shipped to every new repository instead of this one.
+    """
+    from lib.cicd.manifest import generate_manifest
+
+    manifest = generate_manifest(str(ROOT))
+    assert "verify" in manifest.steps, "generated manifest defines no verify step"
+    assert "verify" in manifest.plans["finish"].steps, (
+        "the generated finish plan does not REFERENCE verify. A step defined "
+        "and never referenced is dead config - the #617/#1147 precedence trap"
+    )
+    # The budget matters: `make verify` measured 229.8s here and grows with the
+    # suite, and the extra-targets loop's default is 600.
+    assert manifest.steps["verify"].timeout >= 1800
+
+
+@requires_bash
+def test_an_empty_gate_set_is_not_an_unreadable_one(tmp_path: Path) -> None:
+    """`"gates": []` is an ANSWER; an absent field is not (#1147).
+
+    A plan can legitimately have no quality gate - `deploy` resolves to
+    bootstrap/drift/deploy steps and publishes an empty set. The fail-closed
+    branch therefore has to test the field's PRESENCE, not whether the parsed
+    set came back empty; testing emptiness would fail every run of such a plan
+    while claiming the runner was too old to report.
+    """
+    cpp = _fake_cpp(tmp_path)
+    payload = (
+        '{\n  "success": true,\n  "plan": "deploy",\n'
+        '  "steps_completed": 1,\n  "steps_total": 1,\n'
+        '  "gates": [],\n'
+        '  "step_details": [\n'
+        '    {\n      "id": "deploy",\n      "status": "success"\n    }\n'
+        "  ]\n}"
+    )
+    proc = _run_with_uv_stub(tmp_path, cpp, payload, inject_gates=False)
+
+    assert proc.returncode == 0
+    assert "FLOW_FINISH_GATE: ok" in proc.stdout
+    assert "gate set unreadable" not in proc.stdout
+
+
+@requires_bash
+def test_an_aggregate_prerequisite_run_by_verify_is_not_called_unrun(
+    tmp_path: Path,
+) -> None:
+    """Counter-model review, #1147: running an aggregate ran its prerequisites.
+
+    `verify` and `check-all` name the same prerequisites. This lane runs
+    `make verify`, which executes `extra-check`; the #808 detector excluded the
+    target it ran but not that target's PREREQUISITES, so it went on to report
+    `check-all`'s `extra-check` as unrun. Adding a second aggregate that names
+    the same prerequisites changed the verdict without changing one thing about
+    what was verified.
+    """
+    (tmp_path / "Makefile").write_text(
+        "lint:\n\ttrue\n"
+        "test:\n\ttrue\n"
+        "typecheck:\n\ttrue\n"
+        "extra-check:\n\ttrue\n"
+        "verify: lint test typecheck extra-check\n"
+        "check-all: lint test typecheck extra-check\n"
+    )
+    proc, _ = _run(tmp_path, cpp_dir="", uv_exit=None, make_exit=0)
+    assert proc.returncode == 0
+    assert "FLOW_FINISH_GATE: ok" in proc.stdout
+    assert "not run by fallback" not in proc.stdout
+
+
+@requires_bash
+def test_a_prerequisite_nothing_ran_is_still_reported(tmp_path: Path) -> None:
+    """The guard rail: the expansion must not silence #808 generally.
+
+    `check-all` names `lonely-check`, which no target this lane ran depends on.
+    That is still an aggregate whose prerequisites went unexamined, and it must
+    still warn - otherwise "cover prerequisites of what we ran" would have been
+    implemented as "stop asking".
+    """
+    (tmp_path / "Makefile").write_text(
+        "lint:\n\ttrue\n"
+        "test:\n\ttrue\n"
+        "typecheck:\n\ttrue\n"
+        "verify:\n\ttrue\n"
+        "lonely-check:\n\ttrue\n"
+        "check-all: lint test typecheck lonely-check\n"
+    )
+    proc, _ = _run(tmp_path, cpp_dir="", uv_exit=None, make_exit=0)
+    assert proc.returncode == 3
+    assert "FLOW_FINISH_GATE: warn (not run by fallback: lonely-check)" in proc.stdout
+
+
+@requires_bash
+def test_a_declared_gate_that_never_ran_is_not_ok(tmp_path: Path) -> None:
+    """The guard for the defect above, at the layer that prints the verdict.
+
+    A gate dropped from the executed plan is in NEITHER list: it did not run, and
+    nothing recorded it as skipped. The skipped-gate filter therefore finds
+    nothing and the marker reads `ok` - which is how #1147's own fix shipped a
+    green over four gates while declaring five.
+
+    FAIL, not warn. #628's `warn (skipped gates: X)` means the gate could not run
+    and RECORDS WHY - a consistent runner reporting a fact about the repository.
+    Here the runner declared the gate and both of its own records of what became
+    of it omit it, so the accounting itself is inconsistent and there is no
+    reason to report. The gate fails closed rather than degrading to a softer
+    verdict (wave orchestrator ruling, 2026-09-20).
+
+    The payload is the REAL runner JSON shape from that run, reduced: `gates`
+    names verify, `step_details` does not, and there is no `skipped` array at
+    all. Replayed through the pre-fix script it prints `FLOW_FINISH_GATE: ok`
+    and exits 0.
+    """
+    cpp = _fake_cpp(tmp_path)
+    payload = (
+        '{\n  "success": true,\n  "steps_completed": 2,\n  "steps_total": 2,\n'
+        '  "gates": [\n    "lint",\n    "verify"\n  ],\n'
+        '  "step_details": [\n'
+        '    {\n      "id": "lint",\n      "status": "success"\n    },\n'
+        '    {\n      "id": "stale_commit_check",\n      "status": "success"\n    }\n'
+        "  ]\n}"
+    )
+    proc = _run_with_uv_stub(tmp_path, cpp, payload, inject_gates=False)
+
+    assert proc.returncode == 1
+    assert "FLOW_FINISH_GATE: fail (declared but never ran: verify)" in proc.stdout
+    assert "FLOW_FINISH_GATE: ok" not in proc.stdout
+
+
+@requires_bash
+def test_gates_that_all_ran_stay_ok(tmp_path: Path) -> None:
+    """The guard rail for the test above.
+
+    "Warn when a declared gate is unaccounted for" is satisfiable by warning on
+    every run, which would make the warning noise and cost it its readers. A
+    payload whose every declared gate appears in `step_details` must stay a bare
+    `ok`, and a non-gate step running alongside them must not change that.
+    """
+    cpp = _fake_cpp(tmp_path)
+    payload = (
+        '{\n  "success": true,\n  "steps_completed": 3,\n  "steps_total": 3,\n'
+        '  "gates": [\n    "lint",\n    "verify"\n  ],\n'
+        '  "step_details": [\n'
+        '    {\n      "id": "lint",\n      "status": "success"\n    },\n'
+        '    {\n      "id": "verify",\n      "status": "success"\n    },\n'
+        '    {\n      "id": "stale_commit_check",\n      "status": "success"\n    }\n'
+        "  ]\n}"
+    )
+    proc = _run_with_uv_stub(tmp_path, cpp, payload, inject_gates=False)
+
+    assert proc.returncode == 0
+    assert "FLOW_FINISH_GATE: ok" in proc.stdout
+    assert "declared but never ran" not in proc.stdout
+
+
+@requires_bash
+def test_a_declared_gate_recorded_as_skipped_is_accounted_for(
+    tmp_path: Path,
+) -> None:
+    """A skipped gate IS accounted for - it keeps #628's own wording.
+
+    Without this the two checks would collide: every skipped gate is also absent
+    from `step_details`, so a guard reading only that list would relabel every
+    #628 skip as "declared but never ran" and the distinction between "this repo
+    has no such target" and "the plan silently dropped it" would be lost.
+    """
+    cpp = _fake_cpp(tmp_path)
+    payload = (
+        '{\n  "success": true,\n  "steps_completed": 1,\n  "steps_total": 2,\n'
+        '  "gates": [\n    "lint",\n    "verify"\n  ],\n'
+        '  "skipped": [\n    "verify"\n  ],\n'
+        '  "step_details": [\n'
+        '    {\n      "id": "lint",\n      "status": "success"\n    }\n'
+        "  ]\n}"
+    )
+    proc = _run_with_uv_stub(tmp_path, cpp, payload, inject_gates=False)
+
+    assert proc.returncode == 3
+    assert "FLOW_FINISH_GATE: warn (skipped gates: verify)" in proc.stdout
+    assert "declared but never ran" not in proc.stdout
+
+
+@requires_bash
+def test_a_runner_json_without_a_gate_set_fails_closed(tmp_path: Path) -> None:
+    """The absence case, and it is NEVER a pass.
+
+    A runner too old to emit `gates`, or a JSON this parse cannot read, leaves
+    the shell unable to tell which skipped steps were gates. An empty set
+    filters everything away, so the silent outcome is `ok` - #1147's own defect,
+    arriving through the fix for it.
+
+    The single-marker assertion is not decoration. `verdict` PRINTS and does not
+    exit; the first cut of this guard omitted the exit, so the script emitted
+    `fail (gate set unreadable)` and then carried on to `verdict ok; exit 0`.
+    Both markers were in the output and a test asserting only the first
+    substring would have passed over an exit-0 false green.
+    """
+    cpp = _fake_cpp(tmp_path)
+    payload = (
+        '{\n  "success": true,\n  "steps_completed": 2,\n  "steps_total": 2,\n'
+        '  "skipped": [\n    "typecheck"\n  ]\n}'
+    )
+    proc = _run_with_uv_stub(tmp_path, cpp, payload, inject_gates=False)
+
+    assert proc.returncode == 1
+    assert "FLOW_FINISH_GATE: fail (gate set unreadable)" in proc.stdout
+    assert "FLOW_FINISH_GATE: ok" not in proc.stdout
+    markers = [
+        line
+        for line in proc.stdout.splitlines()
+        if line.startswith("FLOW_FINISH_GATE: ")
+    ]
+    assert len(markers) == 1, (
+        f"the gate emitted {len(markers)} verdict markers, {markers} - a caller "
+        f"reads one. `verdict` prints without exiting, so a branch that forgets "
+        f"its exit falls through to the next verdict (issue #1147)"
     )
 
 
@@ -970,15 +1434,59 @@ def test_skipped_gates_still_win_over_unverified_carry(tmp_path: Path) -> None:
 def test_fallback_names_the_gates_it_ran(tmp_path: Path) -> None:
     """Coverage should be readable, not inferred from an absence of complaint."""
     (tmp_path / "Makefile").write_text(
-        "lint:\n\ttrue\ntest:\n\ttrue\ntypecheck:\n\ttrue\n"
+        "lint:\n\ttrue\ntest:\n\ttrue\ntypecheck:\n\ttrue\nverify:\n\ttrue\n"
     )
     proc, _ = _run(tmp_path, cpp_dir="", uv_exit=None, make_exit=0)
     assert proc.returncode == 0
-    assert "gates executed: make lint make test make typecheck" in proc.stdout
+    assert (
+        "gates executed: make lint make test make typecheck make verify"
+        in proc.stdout
+    )
 
 
 @requires_bash
 def test_an_aggregate_gate_the_fallback_cannot_run_is_a_warn(tmp_path: Path) -> None:
+    """#808 holds for an aggregate this lane does NOT run.
+
+    The aggregate here is `check-all`, not `verify`: since #1147 `verify` is a
+    gate this lane runs itself, so it is no longer an example of a target
+    whose prerequisites went unexamined. Repos name their aggregate all sorts
+    of things, and for every name but the one we run, #808 is unchanged.
+    """
+    (tmp_path / "Makefile").write_text(
+        "lint:\n\ttrue\n"
+        "test:\n\ttrue\n"
+        "typecheck:\n\ttrue\n"
+        "verify:\n\ttrue\n"
+        "extra-check:\n\ttrue\n"
+        "check-all: lint test typecheck extra-check\n"
+    )
+    proc, bindir = _run(tmp_path, cpp_dir="", uv_exit=None, make_exit=0)
+    assert proc.returncode == 3
+    assert "FLOW_FINISH_GATE: warn (not run by fallback: extra-check)" in proc.stdout
+    assert "FLOW_FINISH_GATE: ok" not in proc.stdout
+    assert "make check-all" in proc.stdout
+    # The gates it knows still ran - this is a reporting change, not a refusal.
+    argv = (bindir / "make.log").read_text().splitlines()
+    assert argv == ["lint", "test", "typecheck", "verify"]
+
+
+@requires_bash
+def test_an_aggregate_this_lane_runs_is_not_reported_as_unrun(
+    tmp_path: Path,
+) -> None:
+    """The red case for #1147 against #808.
+
+    `verify: lint test typecheck extra-check` with every target present. This
+    lane now RUNS `make verify`, so extra-check ran - as a prerequisite of the
+    command we issued. #808's warning says the aggregate's prerequisites "did
+    NOT run here", and emitting it would be the gate asserting a fact its own
+    previous line falsified.
+
+    Before the detector was taught to skip a target this lane ran, this
+    fixture reported `warn (not run by fallback: extra-check)` over a run that
+    had just executed extra-check.
+    """
     (tmp_path / "Makefile").write_text(
         "lint:\n\ttrue\n"
         "test:\n\ttrue\n"
@@ -987,14 +1495,11 @@ def test_an_aggregate_gate_the_fallback_cannot_run_is_a_warn(tmp_path: Path) -> 
         "verify: lint test typecheck extra-check\n"
     )
     proc, bindir = _run(tmp_path, cpp_dir="", uv_exit=None, make_exit=0)
-    assert proc.returncode == 3
-    assert "FLOW_FINISH_GATE: warn" in proc.stdout
-    assert "FLOW_FINISH_GATE: ok" not in proc.stdout
-    assert "extra-check" in proc.stdout
-    assert "make verify" in proc.stdout
-    # The three it knows still ran - this is a reporting change, not a refusal.
+    assert proc.returncode == 0
+    assert "FLOW_FINISH_GATE: ok" in proc.stdout
+    assert "not run by fallback" not in proc.stdout
     argv = (bindir / "make.log").read_text().splitlines()
-    assert argv == ["lint", "test", "typecheck"]
+    assert argv == ["lint", "test", "typecheck", "verify"]
 
 
 @requires_bash
@@ -1003,7 +1508,7 @@ def test_a_repo_where_the_fallback_is_the_gate_is_still_ok(tmp_path: Path) -> No
     warning on everything, which would train readers to ignore the warning -
     strictly worse than not having it."""
     (tmp_path / "Makefile").write_text(
-        "lint:\n\ttrue\ntest:\n\ttrue\ntypecheck:\n\ttrue\n"
+        "lint:\n\ttrue\ntest:\n\ttrue\ntypecheck:\n\ttrue\nverify:\n\ttrue\n"
     )
     proc, _ = _run(tmp_path, cpp_dir="", uv_exit=None, make_exit=0)
     assert "FLOW_FINISH_GATE: ok" in proc.stdout
@@ -1020,8 +1525,8 @@ def test_a_phony_declaration_is_not_mistaken_for_an_aggregate(tmp_path: Path) ->
     Makefile without a .PHONY line would never have shown it.
     """
     (tmp_path / "Makefile").write_text(
-        ".PHONY: lint test typecheck docs clean\n"
-        "lint:\n\ttrue\ntest:\n\ttrue\ntypecheck:\n\ttrue\n"
+        ".PHONY: lint test typecheck verify docs clean\n"
+        "lint:\n\ttrue\ntest:\n\ttrue\ntypecheck:\n\ttrue\nverify:\n\ttrue\n"
     )
     proc, _ = _run(tmp_path, cpp_dir="", uv_exit=None, make_exit=0)
     assert "FLOW_FINISH_GATE: ok" in proc.stdout
@@ -1031,15 +1536,21 @@ def test_a_phony_declaration_is_not_mistaken_for_an_aggregate(tmp_path: Path) ->
 
 @requires_bash
 def test_a_multi_line_aggregate_is_detected(tmp_path: Path) -> None:
-    """This repo's own `verify` spans four continuation lines, so a
-    line-at-a-time scan would see one prerequisite and miss five."""
+    """A real aggregate spans continuation lines, so a line-at-a-time scan
+    would see one prerequisite and miss five.
+
+    Named `check-all` rather than `verify` for the same reason as the test
+    above: `verify` is now a gate this lane runs, so it is excluded from the
+    unrun-aggregate question by construction and would test nothing here.
+    """
     (tmp_path / "Makefile").write_text(
         "lint:\n\ttrue\n"
         "test:\n\ttrue\n"
         "typecheck:\n\ttrue\n"
+        "verify:\n\ttrue\n"
         "alpha-check:\n\ttrue\n"
         "beta-check:\n\ttrue\n"
-        "verify: lint test typecheck \\\n\talpha-check \\\n\tbeta-check\n"
+        "check-all: lint test typecheck \\\n\talpha-check \\\n\tbeta-check\n"
     )
     proc, _ = _run(tmp_path, cpp_dir="", uv_exit=None, make_exit=0)
     assert "FLOW_FINISH_GATE: warn" in proc.stdout
@@ -1242,7 +1753,9 @@ def test_fallback_lane_detects_a_gate_that_examined_nothing(tmp_path: Path) -> N
     sharing an exit code, so a runner-only fix would have left the measured
     case blind.
     """
-    (tmp_path / "Makefile").write_text("lint:\n\ntest:\n\ntypecheck:\n")
+    (tmp_path / "Makefile").write_text(
+        "lint:\n\ntest:\n\ntypecheck:\n\nverify:\n"
+    )
     bindir = tmp_path / "bin"
     bindir.mkdir()
     _zero_coverage_make_stub(
@@ -1271,7 +1784,9 @@ def test_fallback_lane_stays_ok_when_the_gates_examined_something(
     tmp_path: Path,
 ) -> None:
     """The half that catches a fallback detector matching everything."""
-    (tmp_path / "Makefile").write_text("lint:\n\ntest:\n\ntypecheck:\n")
+    (tmp_path / "Makefile").write_text(
+        "lint:\n\ntest:\n\ntypecheck:\n\nverify:\n"
+    )
     bindir = tmp_path / "bin"
     bindir.mkdir()
     _zero_coverage_make_stub(bindir, "checked 40 files")
@@ -1302,7 +1817,9 @@ def test_fallback_lane_still_reports_a_failing_gate(tmp_path: Path) -> None:
     success for every failing gate. They grade on `PIPESTATUS[0]` instead; this
     is the test that fails if that ever regresses to `$?`.
     """
-    (tmp_path / "Makefile").write_text("lint:\n\ntest:\n\ntypecheck:\n")
+    (tmp_path / "Makefile").write_text(
+        "lint:\n\ntest:\n\ntypecheck:\n\nverify:\n"
+    )
     bindir = tmp_path / "bin"
     bindir.mkdir()
     stub = bindir / "make"

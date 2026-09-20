@@ -535,6 +535,40 @@ BUILTIN_PLANS: dict[str, list[StepDef]] = {
             skip_if="! python3 -c 'import lib.security' 2>/dev/null",
             env={"PYTHONPATH": _CPP_ROOT},
         ),
+        # `make verify`, THE GATE THIS HELPER WAS ALREADY SPEAKING FOR (#1147).
+        #
+        # `/flow:auto` clears a PR on this plan's verdict, and CLAUDE.md's own
+        # directive is "after any fix, verify through the full pipeline with
+        # `make verify`" - but the plan ran three of verify's prerequisites and
+        # nothing else, so the gate consumed verify's authority without running
+        # it. Measured on af348f8: 25 verify gates, 3 run, 22 never. #1145 is
+        # the instance - `claude-md-behavior-check` exited 2 on that tree while
+        # this gate reported `ok` and cleared PR #1144.
+        #
+        # A TEST OF AN INSTRUMENT IS NOT A RUN OF IT. That checker's own tests
+        # passed in the same suite, because the checker works; its verdict on
+        # the real tree was never asked for.
+        #
+        # No `uv run` fallback, unlike the three above: `verify` is a Makefile
+        # aggregate with no tool equivalent, so a repo without the target has
+        # nothing to degrade to. It SKIPS there, and the skip is reported by
+        # name - "this repo has no verify target" and "verify passed" must not
+        # render the same.
+        #
+        # KNOWN COST, measured and not hidden: verify's own prerequisites
+        # include lint, test and typecheck (Makefile:385), and these are
+        # separate `make` invocations, so those three run twice per gate. The
+        # subsumption - running verify INSTEAD of the three where it exists - is
+        # a change to the existing ids and is tracked separately.
+        StepDef(
+            id="verify",
+            gate=True,
+            command="make verify",
+            description="Run the repository's full verification pipeline (make verify)",
+            timeout_seconds=1800,
+            max_attempts=1,
+            skip_if='! grep -q "^verify:" Makefile 2>/dev/null',
+        ),
     ],
     "check": [
         _gate_step("lint", "ruff check .", "ruff", 300),
@@ -622,6 +656,43 @@ BUILTIN_PLANS: dict[str, list[StepDef]] = {
 GATE_STEP_IDS: frozenset[str] = frozenset(
     step.id for steps in BUILTIN_PLANS.values() for step in steps if step.gate
 )
+
+
+def plan_gate_ids(plan_name: str, step_defs: list[StepDef]) -> list[str]:
+    """Which ids in THIS plan's RESOLVED steps are quality gates.
+
+    `GATE_STEP_IDS` is the union across every plan, and that is the right set
+    for "is this id a gate anywhere". It is the WRONG set to tell a consumer
+    which gates a particular run should have executed: a successful
+    `--plan check` runs lint/test/typecheck and has no security_scan or verify
+    in it at all, and `--plan deploy` shares none of the five. Handing the
+    global set to a reader that requires every member to be accounted for turns
+    both of those into failures (counter-model review, #1147).
+
+    So the set is scoped to the plan, and membership is decided two ways
+    because the two sources disagree by construction:
+
+      * `step.gate` on the resolved StepDef - correct for BUILTIN_PLANS;
+      * the built-in plan's own gate declaration, for the SAME plan name -
+        needed because a manifest-resolved StepDef ALWAYS has `gate=False`
+        (`step_model_to_step_def` never passes the field and the manifest
+        schema has no key for it, issue #1155), so without this clause every
+        manifest-driven repository would report an empty gate set.
+
+    What this deliberately does NOT do is report a gate the built-in plan
+    declares and the resolved plan lacks. That case - a manifest silently
+    dropping a gate, which is #1147's own regression - cannot be told apart
+    HERE from a manifest legitimately naming a different step for the job
+    (CPP's own deploy plan replaces `security_scan` with
+    `deploy_security_scan`), so treating it as a finding would fail a correct
+    configuration. It is caught instead by
+    tests/test_flow_finish_gate.py::test_the_resolved_finish_plan_runs_every_gate_the_builtin_plan_declares,
+    which knows which plan it is asking about. #1155 is the fix that would let
+    this function answer it directly.
+    """
+    declared = {s.id for s in BUILTIN_PLANS.get(plan_name, []) if s.gate}
+    return sorted({s.id for s in step_defs if s.gate or s.id in declared})
+
 
 # Gates the Makefile-fallback lane in scripts/flow-finish-gate.sh cannot run, with
 # the reason it cannot. This exists because GATE_STEP_IDS is read by two

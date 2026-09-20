@@ -36,6 +36,7 @@ from .steps import (
     ShellStep,
     StepDef,
     get_plan_steps,
+    plan_gate_ids,
 )
 
 
@@ -289,6 +290,12 @@ class RunResult:
     # reported {id, status} and one identical green whether they examined the
     # whole tree or nothing in it.
     coverage: dict[str, dict[str, Any]] = field(default_factory=dict)
+    # Which ids in THIS run's plan are quality gates (issue #1147). Carried on
+    # the result rather than recomputed in `to_dict` because the answer needs
+    # the RESOLVED step list, which only the executing code has: see
+    # `steps.plan_gate_ids` for why the global GATE_STEP_IDS is the wrong set
+    # to publish here.
+    gates: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     # Test steps that failed, were re-run ONCE against only their failed ids, and
     # the outcome of that re-run (issue #769). This is its own channel, NOT
@@ -359,6 +366,23 @@ class RunResult:
             d["reruns"] = self.reruns
         if self.skipped_steps:
             d["skipped"] = self.skipped_steps
+        # WHICH IDS ARE GATES, emitted so the shell does not have to restate them
+        # (issue #1147). `GATE_STEP_IDS` is derived from each step's `gate=`
+        # declaration - #890 made it so after a hand-written literal drifted -
+        # but it never reached this JSON, so `scripts/flow-finish-gate.sh` kept
+        # a SECOND copy as a regex alternation it could not import. That copy is
+        # now deleted and the shell filters on this field.
+        #
+        # Same reason as `coverage` and `timed_out_step` above, and the third
+        # instance of it: the gate reads this JSON, so a field that never
+        # reaches it cannot be acted on however carefully it was set (#812).
+        #
+        # Emitted UNCONDITIONALLY, unlike its neighbours, and that asymmetry is
+        # the point: the shell fails closed when the field is absent, so an
+        # empty set has to be distinguishable from a runner too old to send one.
+        # A conditional emit would make "no gates ran" and "this runner does not
+        # say" the same bytes.
+        d["gates"] = sorted(self.gates)
         # The gate parses this JSON, so a field that never reaches it cannot be
         # acted on however carefully it was set (issue #812). Emitted at the top
         # level and keyed by name so the shell reader anchors on the field
@@ -465,6 +489,10 @@ class DeterministicRunner:
                 plan_name=state.plan_name,
                 steps_completed=state.current_index,
                 steps_total=len(state.step_records),
+                gates=plan_gate_ids(
+                    state.plan_name,
+                    get_plan_steps(state.plan_name, project_root=str(self.project_root)),
+                ),
                 error=f"Run is {state.status}, not resumable" if state.status != "success" else None,
             )
 
@@ -1001,6 +1029,7 @@ class DeterministicRunner:
                     plan_name=state.plan_name,
                     steps_completed=completed,
                     steps_total=len(step_defs),
+                    gates=plan_gate_ids(state.plan_name, step_defs),
                     failed_step=step.id,
                     timed_out_step=step.id if timed_out else None,
                     timed_out_after=(
@@ -1161,6 +1190,7 @@ class DeterministicRunner:
             plan_name=state.plan_name,
             steps_completed=completed,
             steps_total=len(step_defs),
+            gates=plan_gate_ids(state.plan_name, step_defs),
             tests=tests,
             coverage=coverage,
             warnings=warnings,

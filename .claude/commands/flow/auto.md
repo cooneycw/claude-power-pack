@@ -1010,7 +1010,8 @@ git merge --no-edit origin/main
 2. **Quality gates** - ONE audited helper owns the deterministic-runner
    invocation (issue #613, the #581 pattern): CPP-checkout resolution, the `uv`
    check, the documented `PYTHONPATH` / `uv run --project` contract (#430), and
-   the `make lint` + `make test` + `make typecheck` fallback all live in
+   the Makefile fallback (`make lint`, `make test`, `make typecheck` and,
+   since issue #1147, `make verify`) all live in
    `scripts/flow-finish-gate.sh`. Do NOT re-implement any of it as inline bash -
    a leading env-var assignment plus an interpolated `$CPP_DIR` can never match
    a permission prefix rule, so the inline shape prompts on every finish and
@@ -1058,9 +1059,15 @@ git merge --no-edit origin/main
      gates passed" either.
    - `FLOW_FINISH_GATE: fail` (exit 1): parse the runner/make output above the
      marker, report the failed step, **STOP**.
-   - `FLOW_FINISH_GATE: skipped` (exit 4): no runner AND no Makefile
-     lint/test/typecheck targets - this gate did NOT run and proved nothing;
-     warn the user, then proceed.
+   - `FLOW_FINISH_GATE: skipped` (exit 4): no runner AND no Makefile gate
+     targets at all - this gate did NOT run and proved nothing; warn the user,
+     then proceed.
+   - `FLOW_FINISH_GATE: warn (skipped gates: verify)` is the ORDINARY verdict in
+     a repository with no `verify:` target (issue #1147), and it is #628's
+     existing rule applied to a new gate rather than a new policy: a gate that
+     did not run proved nothing, exactly as a repo with no typecheck route
+     already reported. It does not stop the flow. If you see it in a repo that
+     DOES have a verify target, the target was not found - check the Makefile.
 
    **Ignored-additions guard** (issue #430, Finding 1): before committing, warn
    if a blanket `.gitignore` rule silently swallowed a new file you meant to
