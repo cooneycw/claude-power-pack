@@ -10,7 +10,7 @@
        tool-risk-check tool-risk-drift \
        branch-protection-check branch-protection-apply branch-protection-show \
        host-surfaces-check host-surfaces-plan host-surfaces-prune memory-harness \
-       binary-guards-check negative-fixture-check claude-md-budget-check \
+       binary-guards-check negative-fixture-check negative-controls claude-md-budget-check \
        claude-md-links-check claude-md-behavior-check skills-check \
        install-drift-check install-drift-list \
        tools-version-check toolchain-provenance checkout-readers \
@@ -69,8 +69,8 @@ tools-check:
 		if command -v docker > /dev/null 2>&1; then \
 			printf '  docker is present, so `make shellcheck` and `make secret-scan` still run, pinned:\n'; \
 			printf '    %s\n    %s\n' '$(SHELLCHECK_IMAGE)' '$(GITLEAKS_IMAGE)'; \
-			printf '  but `make test` runs controls that invoke these scanners DIRECTLY and has no such fallback,\n'; \
-			printf '  so controls/shellcheck-gate and controls/secret-scan will report UNSIGNALLED there.\n'; \
+			printf '  but `make test` and `make negative-controls` run controls that invoke these scanners DIRECTLY, with no such fallback,\n'; \
+			printf '  so controls/shellcheck-gate and controls/secret-scan report UNAVAILABLE there (#1117): unexamined, not clean.\n'; \
 		else \
 			printf '  docker is absent too, so the shellcheck and secret-scan targets cannot run either.\n'; \
 		fi; \
@@ -383,7 +383,7 @@ oscillation:
 
 ## verify-coverage: gate verify - the aggregate itself - its own failure mode is a sub-gate dropped from this list, which is what verify-coverage-check exists to catch
 verify: tools-check lint test typecheck shellcheck bandit-audit undeclared-import-audit oscillation \
-	binary-guards-check negative-fixture-check \
+	binary-guards-check negative-fixture-check negative-controls \
 	claude-md-budget-check claude-md-links-check claude-md-behavior-check \
 	project-next-check delegated-core-check codex-skills-check \
 	scripts-inventory-check instrument-census-check verify-coverage-check \
@@ -436,38 +436,58 @@ verify-coverage-check:
 ## the condition is structurally invisible here unless something asks the question
 ## deliberately.
 ##
-## IN `verify` PRECISELY BECAUSE THE BATTERY IS NOT. `negative-controls` above sits
-## out for an environment reason, so without this target the whole subject would be
-## unexamined locally and the failure would keep arriving as a CI red on a step that
-## names a different control than the one at fault. This gate needs no binary the
-## battery needs: it READS the pipeline and the manifests, it runs nothing.
+## IT ASKS A QUESTION THE BATTERY CANNOT ASK OF ITSELF, and that is why it is a
+## separate target rather than folded in. #1036 wrote "in `verify` precisely
+## because the battery is NOT", which was true for one day: #1117 put the battery
+## in `verify` too, so the reason has changed even though the target has not. What
+## it does that running the battery cannot is answer the question for the CI
+## IMAGE rather than for this host - it READS the pipeline and the manifests and
+## runs nothing, so it needs no binary the battery needs and gives the same
+## verdict on a dev box as in the image it is asking about. A green battery here
+## still says nothing about whether those controls can run there.
 ## verify-coverage: gate control-ci-deps-check - every registered control's examined surface resolves against the binaries the battery's CI step provides
 control-ci-deps-check:
 	@python3 scripts/check-control-ci-deps.py
 
-## THE CONTROL BATTERY, LOCALLY RUNNABLE - AND DELIBERATELY NOT IN `verify`
-## (issue #1028). It had no Makefile target at all, so the only way to run the
-## register outside CI was to remember the script's path and its `--strict`.
+## THE CONTROL BATTERY, NOW CONSUMED BY `verify` (issue #1117, closing #1028's
+## other half). #1028 gave this a target and had `verify` NAME it as unexamined,
+## with the reason; this is the half that makes the reason go away.
 ##
-## It stays out of `verify` for the reason `dep-audit` does: `controls/secret-scan`
-## needs gitleaks and `controls/flow-driver-retirement-check` needs jq, and the
-## harness REFUSES to skip a control it cannot run - it reports UNSIGNALLED and
-## fails - so a host missing either would fail `verify` for an environment
-## reason. The closing report above names it as unexamined, with that reason,
-## which is what converts a silent gap into a stated one at no environmental cost.
-##
-## WHAT `make verify` ALREADY PAYS FOR AND DOES NOT READ: `make test` runs the
+## WHAT `make verify` ALREADY PAID FOR AND DID NOT READ: `make test` runs the
 ## whole battery twice, through `tests/test_negative_controls.py:567` and `:876`.
 ## Neither passes `--strict` and neither asserts a battery-wide verdict - one
-## reads a single control's block, the other the universe line - so 19 of 20
-## verdicts are computed and discarded. Consuming them needs the harness to tell
-## "UNSIGNALLED because the tool is absent" from "UNSIGNALLED because the gate
-## stopped signalling", a distinction its verdict vocabulary does not yet carry.
-## That is its own change to the instrument that decides control health, and it
-## is tracked at issue #1117 rather than smuggled in here.
-## verify-coverage: excluded negative-controls - the battery needs gitleaks and jq on PATH, and reports UNSIGNALLED without them, so a host missing either would fail verify for an environment reason. CI runs it with --strict; `make test` runs the battery but consumes only one control's verdict (#1028)
+## reads a single control's block, the other the universe line - so 21 of 22
+## verdicts were computed and discarded on every local run. A control that
+## stopped discriminating on a dev box was silent here and reddened only in CI.
+##
+## WHY IT COULD NOT SIMPLY BE ADDED. `controls/secret-scan` needs gitleaks,
+## `controls/shellcheck-gate` needs shellcheck and
+## `controls/flow-driver-retirement-check` needs jq, and the harness REFUSES to
+## skip a control it cannot run - correctly. But it filed that refusal as a fault
+## in OUR CODE: UNSIGNALLED for the first two and, MEASURED, BLIND for the jq one,
+## whose unavailability line is a legitimate member of its own detection pattern.
+## So a host missing any of the three would have failed `verify` for an
+## environment reason. #1117 split UNAVAILABLE out as its own verdict, which is
+## what makes this target consumable here.
+##
+## `--allow-unavailable` IS THE LOCAL POSTURE AND NOT THE CI ONE. CI keeps bare
+## `--strict` (.woodpecker.yml `negative-controls`), where an absent binary means
+## a staging step stopped delivering and is still a red - both that file and
+## tests/test_shellcheck_stage.py rest on exactly that.
+##
+## WHAT IT TOLERATES IT ALSO SAYS: the run names every unexamined control and
+## drops it from the "N discriminate" numerator, so a green here on a tool-less
+## box cannot be read as the evidence CI has. `tools-check` above names the
+## missing binaries at the top of the same verify run.
+##
+## controls/check-negative-controls-unavailable registers the committed BAD/GOOD
+## pair for the UNAVAILABLE-versus-UNSIGNALLED distinction itself, anchored
+## against #1117 implemented naively - a gate that lets work through cannot be
+## trusted on a clean tree alone, and this one is the gate that decides whether
+## the other gates can fail.
+## verify-coverage: gate negative-controls - runs the whole registered control battery with --strict --allow-unavailable; UNAVAILABLE (a gate whose own tool is absent) is named as unexamined rather than failed, every other non-PASS verdict reds (#1117)
 negative-controls:
-	@python3 scripts/check-negative-controls.py --strict
+	@python3 scripts/check-negative-controls.py --strict --allow-unavailable
 
 ## Vendored delegated-driver core (issue #1011)
 ## `/codex:auto`, `/qwen:auto` and `/gemma:auto` describe ONE lifecycle, rendered

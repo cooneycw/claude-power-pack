@@ -8,6 +8,7 @@
   ],
   "good_exit": 0,
   "detect_signal": "^shellcheck-gate: [0-9]+ file\\(s\\) scanned at severity=.*findings reported",
+  "unavailable_signal": "^shellcheck-gate: UNKNOWN - shellcheck is not installed\\b",
   "cases": [
     {
       "name": "bad-extensionless",
