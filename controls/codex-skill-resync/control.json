@@ -1,0 +1,41 @@
+{
+  "gate": "scripts/codex-skill-resync.sh",
+  "invocation": [
+    "env",
+    "CODEX_SKILL_SYNC={case}/stub-sync.sh",
+    "CODEX_RESYNC_CHANGED_PATHS={case}/changed-paths.txt",
+    "bash",
+    "{gate}",
+    "--quiet"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^CODEX_RESYNC: (resynced|error)$",
+  "limits": "EACH SIDE READS ITS OWN INPUT FROM THE SAME CASE, and that is the whole design. A case carries two files: `stub-sync.sh`, standing in for what `codex-skill-sync.py --check` reports, and `changed-paths.txt`, the list the OLD condition consumed from `git diff --name-only ORIG_HEAD..HEAD`. The gate reads only the first and the anchor reads only the second - which IS the defect and its fix, side by side: the fixed helper asks the generator what actually drifted, the blind condition asked a path pattern. Neither file is the answer; both are inputs. WHAT THIS ESTABLISHES: that the helper's re-sync decision comes from the sync script's verdict rather than from a path glob, so a bundled-doc edit touching no command document still triggers a re-sync. WHAT IT DOES NOT: that `codex-skill-sync.py`'s own drift detection is correct - that is its own subject, exercised by `tests/test_codex_skill_sync.py` against the real tree. The stub deliberately does not generate anything; a control that regenerated 74 real skills would be testing the generator, not the trigger. THE STUB IS SHELL, NOT PYTHON, so the case runs in the negative-controls image with `env` and `bash` alone. `--quiet` is passed so the scored output is the contract line rather than the relayed DRIFT report, which varies with whatever the stub prints. THE GOOD CASE IS A CURRENT MIRROR, not a command-document edit. The orchestrator's brief asked for the latter, and it cannot be a registered GOOD case: on a command-document edit the old condition FIRES, so the anchor would catch the input and this control would score INERT rather than demonstrating anything. That the anchor is not simply a constant function is pinned instead by `tests/test_codex_skill_resync.py::test_the_anchor_is_blind_by_input_not_by_being_a_stub`, which feeds it a command-document path and requires it to fire. THE BAD CASE ENDS IN `error`, NOT `resynced`, and that is a correction rather than a compromise (counter-model review pass 2). An earlier stub kept a marker in $TMPDIR so `--check` could pass after `--write`, modelling a stateful generator so the case could end in `resynced`. It RACED: the control runner gives no per-run isolation, so two runs in two worktrees - the ordinary shape of a wave - shared one path and whichever wrote first had its marker consumed by the other. A fixture whose verdict depends on who else is running is not a fixture. The stateless stub demonstrates exactly the same thing, which is all this control ever claimed: on a bundled-doc edit with no command document, the gate reports the mirrors are NOT current and the anchor reports `current` and stays silent. The `resynced` repair path is pinned in tests/test_codex_skill_resync.py, where pytest's tmp_path gives every run its own directory - a committed fixture cannot model a stateful generator without a shared side channel, and the shared side channel IS the race. TWO SOURCE CLASSES, BECAUSE THE POPULATION THAT FAILED HAS TWO. The generator bundles repository DOCS and repository SCRIPTS into each skill, and the retired grep intersected neither - a fact the issue body did not record, because its two occurrences were both docs. A third occurrence on 2026-09-20 drifted six script mirrors (`hook-permission-census.sh`, `stash-worktree-guard.sh`, `codex-skill-sync.py`). Verified independently on this tree before the case was written: appending one line to `scripts/stash-worktree-guard.sh` drifts three mirrors while the old condition stays silent. `--check` covers both classes structurally - it compares every bundled source whatever its class - but a control with a docs-only case would have PROVEN it for one class of two, which is the shape of under-coverage this issue is about. The same anchor misses both cases, for the same reason.",
+  "cases": [
+    {
+      "name": "bad-drift-no-command-doc",
+      "input": "cases/bad-drift-no-command-doc",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-drift-bundled-script",
+      "input": "cases/bad-drift-bundled-script",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-mirror-current",
+      "input": "cases/good-mirror-current",
+      "expect": "GOOD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "synthetic",
+      "sha": "a144b54",
+      "origin": ".claude/commands/flow/auto.md:698, .claude/commands/flow/auto.md:1199, .claude/commands/flow/finish.md:65",
+      "path": "anchors/condition-at-a144b54.sh",
+      "sha256": "18adbceb559ec61c53e7389da30142fa41b1062a15975ada4da70b3f98c1b05f",
+      "why": "SYNTHETIC because there is no historical FILE to vendor: the blind condition never lived in a script. It was three inline copies of one shell line inside markdown command documents, at the three sites named in `origin` as they stood at a144b54. This lifts that line into an executable unchanged in substance - same input, same pattern, same decision - so the framework can run it. The single adaptation is that the changed-path list is read from a file instead of from `git diff --name-only ORIG_HEAD..HEAD`: running real git would make the anchor's verdict depend on whatever repository state the control happened to run in, which is the ambient-state failure recorded against controls/flow-driver-retirement-check's anchor. The list is what the condition consumed; where it came from is not under test. It MISSES the known-bad input - a bundled-doc edit drifts five mirrors and this reports `current` - which is the blindness that cost two full gate cycles in two hours on 2026-09-20, and it agrees with the fixed helper on the known-good one."
+    }
+  ]
+}

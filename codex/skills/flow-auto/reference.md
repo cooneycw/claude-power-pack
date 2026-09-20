@@ -693,12 +693,25 @@ if [ "$(git rev-list --count HEAD..origin/main)" -gt 0 ]; then
         echo "NOTE: your Step-4 work is safe in the 'wip(flow): pre-merge snapshot' commit on this branch."
         exit 1
     fi
-    # Keep the generated Codex surface current when the merge pulled ANY command
-    # source (issue #506; marketplace copies retired in #662). Use the LOCAL
-    # script so it re-syncs THIS worktree, not $CPP_DIR; [ -x ... ] keeps this
-    # CPP-only and a no-op elsewhere. The Step-6 commit stages generated files.
-    if [ -x scripts/codex-skill-sync.py ] && git diff --name-only ORIG_HEAD..HEAD | grep -q '^\.claude/commands/.*\.md$'; then
-        python3 scripts/codex-skill-sync.py --write || true
+    # Keep the generated Codex surface current when the merge pulled ANY source
+    # the skills bundle (issues #506, #1136). The Step-6 commit stages generated
+    # files. ONE HELPER, invoked BARE (#581) - it decides by asking
+    # codex-skill-sync.py what actually drifted, names it, and re-syncs.
+    #
+    # It replaced `git diff --name-only ORIG_HEAD..HEAD | grep -q
+    # '^\.claude/commands/.*\.md$'` at THREE sites (#1136): the skills bundle
+    # repository docs too, so a bundled-doc edit drifts the mirror while
+    # touching no command document, and the grep stayed silent. That cost two
+    # full gate cycles in two hours. Do not reintroduce a path pattern here -
+    # tests/test_codex_skill_resync.py fails if one reappears.
+    # `[ -x ]` KEEPS THIS CPP-ONLY (counter-model review, #1136). /flow-auto and
+    # /flow-finish run in other repositories, which have neither this helper nor
+    # the generator; a bare call there dies with exit 127 before the helper can
+    # report its own `unavailable`. This is an EXISTENCE guard, not a decision
+    # about what changed - the path-pattern condition it replaced is the one
+    # that must not come back.
+    if [ -x scripts/codex-skill-resync.sh ]; then
+        bash scripts/codex-skill-resync.sh
     fi
 fi
 ```
@@ -1198,8 +1211,14 @@ fill this step.
        # carrying stale copies and fail the parity gates on main - the exact race
        # this guards. LOCAL scripts re-sync THIS worktree; [ -x ... ] keeps each
        # CPP-only.
-       if [ -x scripts/codex-skill-sync.py ] && git diff --name-only ORIG_HEAD..HEAD | grep -q '^\.claude/commands/.*\.md$'; then
-           python3 scripts/codex-skill-sync.py --write || true
+       # `[ -x ]` KEEPS THIS CPP-ONLY (counter-model review, #1136). /flow-auto and
+       # /flow-finish run in other repositories, which have neither this helper nor
+       # the generator; a bare call there dies with exit 127 before the helper can
+       # report its own `unavailable`. This is an EXISTENCE guard, not a decision
+       # about what changed - the path-pattern condition it replaced is the one
+       # that must not come back.
+       if [ -x scripts/codex-skill-resync.sh ]; then
+           bash scripts/codex-skill-resync.sh
        fi
        if ! git diff --quiet -- codex/skills/; then
            git add codex/skills/

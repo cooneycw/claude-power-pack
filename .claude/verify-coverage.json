@@ -50,6 +50,11 @@
       "consumer": "tests/test_tool_risk_drift.py",
       "reason": "the canonical risk tier behind the allow-rule candidates /security:permissions proposes"
     },
+    "codex-skill-resync.sh": {
+      "class": "tested",
+      "consumer": "tests/test_codex_skill_resync.py",
+      "reason": "decides whether the generated Codex mirrors need regenerating by asking codex-skill-sync.py --check what drifted, rather than matching a path pattern; /flow:auto Step 6 and Step 7 and /flow:finish act on its verdict, and no Makefile target invokes it"
+    },
     "commands-mirror-sync.sh": {
       "class": "runtime",
       "consumer": ".claude/commands/cpp/update.md",
@@ -71,8 +76,9 @@
       "reason": "tells a copied reviewer literal from verified uniformity"
     },
     "cpp-commands-link.sh": {
-      "class": "not-a-checker",
-      "reason": "links command documents onto the host; it issues no verdict"
+      "class": "tested",
+      "consumer": "tests/test_cpp_commands_link.py",
+      "reason": "installs the user-scope command surface AND issues five verdicts - ok|installed|drift|drift-missing|unowned - which /cpp:init Tier 1 and /cpp:update Step 5b act on. SUPERSEDED BY #1138: this entry read class `not-a-checker`, reason `links command documents onto the host; it issues no verdict`. That was false when written, and is kept here rather than overwritten because the pair it formed with ADR 0008's exclusions row is the point - the cross-check between the two documents PASSED, both being wrong in the same direction, one having been written from the other. Agreement is evidence only when the parties could have disagreed."
     },
     "cpp-memory": {
       "class": "not-a-checker",

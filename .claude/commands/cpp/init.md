@@ -15,21 +15,92 @@ Find where claude-power-pack is installed:
 
 ```bash
 CPP_DIR=""
-for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-pack; do
+# The search list is overridable so a test can control it, and defaults to the
+# shipped paths so nothing changes in production (#1138). Without this the two
+# locator tests could only make a checkout absent by overriding $HOME, which
+# leaves /opt/claude-power-pack ambient: on a host that has one they take the
+# checkout-found branch and assert against the wrong thing - a test whose input
+# is host state, load-bearing on one box and inert on another.
+for dir in ${CPP_INIT_CANDIDATES:-~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-pack}; do
   if [ -d "$dir" ] && [ -f "$dir/CLAUDE.md" ]; then
     CPP_DIR="$dir"
     break
   fi
 done
 
-if [ -z "$CPP_DIR" ]; then
-  echo "ERROR: claude-power-pack not found"
+if [ -n "$CPP_DIR" ]; then
+  echo "Found claude-power-pack at: $CPP_DIR"
+else
+  # TWO DIFFERENT FACTS (issue #1138). "No checkout here" is not "CPP is
+  # unavailable", and this block used to measure the first and report the
+  # second. In a kyle session container the command surface and the helpers are
+  # projected in read-only by the substrate, with no checkout anywhere - so the
+  # old message announced that CPP was not installed to a session that was
+  # running a CPP command at that moment, and advised a clone that is the one
+  # action leading into the install path that cannot work there.
+  #
+  # This tests for the OBJECTS - is a checkout here, is a surface here, can it
+  # be written - and never for a particular substrate. Which substrate, if any,
+  # is providing the surface is a separate question with its own issue (#1132);
+  # answering it here would decide it by accident.
+  # COUNT CPP'S SURFACE, NOT EVERY NEIGHBOUR'S (counter-model review, #1138).
+  # The first cut counted every immediate entry under ~/.claude/commands, so a
+  # single hand-written `personal.md` was enough to announce "CPP IS AVAILABLE"
+  # and discourage a clone in a session with no CPP surface at all - measured.
+  # That is this issue's own defect class committed by its own fix: a check
+  # reading one property (how many things are here) to answer another (is OUR
+  # thing here). The availability claim now rests on CPP's own command document
+  # being READABLE; the family count is reported beside it as context and
+  # decides nothing.
+  #
+  # `-L ... -type d` follows symlinks deliberately: an installed family IS a
+  # symlink to a directory, so a bare -type d would count zero on a correctly
+  # installed host, while a DANGLING link stays excluded - it is type l even
+  # under -L, and a broken link is not a served family.
+  cpp_surface=no
+  [ -r ~/.claude/commands/cpp/init.md ] && cpp_surface=yes
+  families=$(find -L ~/.claude/commands -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
+  helpers=$(find -L ~/.claude/scripts -mindepth 1 -maxdepth 1 -type f 2>/dev/null | wc -l)
+
+  # A PROBE, NOT `[ -w ]` (issue #1138). Permission bits are not the authority
+  # on whether a write succeeds: measured in a kyle container, the projected
+  # ~/.claude/settings.json is mode -rw-rw-r-- owned by the running user and an
+  # append-open still returns "Read-only file system", because the mount is
+  # read-only. A check reading the mode to answer a question the mount decides
+  # is the same defect class as the one this issue is about.
+  # The subshell is load-bearing: `if : > "$probe" 2>/dev/null` still leaks
+  # "Permission denied", because the shell processes redirections left to right
+  # and reports the failed one BEFORE 2>/dev/null takes effect. Measured.
+  surface_writable=no
+  probe=~/.claude/commands/.cpp-init-write-probe.$$
+  if ( : > "$probe" ) 2>/dev/null; then surface_writable=yes; rm -f "$probe"; fi
+
+  echo "No claude-power-pack CHECKOUT found at any known path."
+  echo "  CPP command surface served here: $cpp_surface (~/.claude/commands/cpp/init.md readable)"
+  echo "  command families already served: $families"
+  echo "  helpers already served:          $helpers"
+  echo "  ~/.claude/commands writable:     $surface_writable (probed, not inferred from mode bits)"
+  echo
+
+  if [ "$cpp_surface" = yes ]; then
+    echo "CPP IS AVAILABLE IN THIS SESSION - $families command families are already being served,"
+    echo "which is how you invoked this command. What is absent is the source CHECKOUT that"
+    echo "installing FROM requires."
+    echo
+    echo "Do NOT clone a checkout to get past this message. If something else is providing"
+    echo "the surface (a container substrate projects it read-only, for instance), a clone"
+    echo "adds a redundant copy and carries you into an install that cannot change anything"
+    echo "and, before #1138, reported success for doing so."
+    echo
+    echo "Nothing to do here. Install or update CPP where the checkout lives instead."
+    exit 0
+  fi
+
+  echo "ERROR: claude-power-pack not found, and no command surface is being served here."
   echo "Please clone it first:"
   echo "  git clone https://github.com/cooneycw/claude-power-pack ~/Projects/claude-power-pack"
   exit 1
 fi
-
-echo "Found claude-power-pack at: $CPP_DIR"
 ```
 
 ---
