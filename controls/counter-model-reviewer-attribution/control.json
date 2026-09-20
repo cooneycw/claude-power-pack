@@ -1,0 +1,105 @@
+{
+  "_comment": [
+    "Registration for scripts/counter-model-reviewer-attribution.py (issue #1048).",
+    "WHY THIS INSTRUMENT NEEDS A COMMITTED CASE (ADR 0008): its verdict is read",
+    "by the OPERATOR deciding the disposition of the 13 landed counter-model",
+    "receipts, and nothing downstream re-derives that reading.",
+    "THE REPOSITORY BOUNDARY is supplied as --repo-name rather than derived here:",
+    "the fixtures are synthetic trees under tmp_path with no git checkout to derive",
+    "from. In real use it comes from git's COMMON dir, and a scan that can",
+    "establish neither REFUSES rather than matching on a branch suffix alone.",
+    "THE LOAD-BEARING PAIR is bad-disagreement and bad-blind-extractor. They",
+    "supply the SAME disagreement; only the extractor's demonstrated",
+    "discrimination differs, and the verdict must differ with it. An instrument",
+    "that reports a finding in both is echoing a constant, which is the very",
+    "defect the 13 receipts are an instance of.",
+    "All receipts and rollouts here are synthetic. No real Codex artifact is",
+    "read, no network is required, and docs/measurements/counter-model/ is not",
+    "touched by this control or by the instrument it registers.",
+    "Pytest copies these exact case directories under tmp_path; --selftest",
+    "copies them to temporary directories. No second set of fixtures exists.",
+    "expected_exit and expected_output are the observed verdicts, including the",
+    "denominator, which prints on every run including the clean one."
+  ],
+  "gate": "scripts/counter-model-reviewer-attribution.py",
+  "invocation": [
+    "python3",
+    "{gate}",
+    "--receipts-dir",
+    "{case}/receipts",
+    "--rollouts-dir",
+    "{case}/rollouts",
+    "--repo-name",
+    "repo"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^ATTRIBUTION-(FINDING|UNKNOWN):",
+  "cases": [
+    {
+      "name": "bad-ambiguous",
+      "input": "cases/bad-ambiguous",
+      "expect": "BAD",
+      "why": "One receipt linked to two rollouts recording different models. The association does not determine an answer, so it is verified neither way - picking the nearest or newest would manufacture a specific answer out of an unresolved one.",
+      "expected_exit": 2,
+      "expected_output": "ATTRIBUTION-UNKNOWN: examined=1 linked=0 agreed=0 disagreed=0 ambiguous=1 unlinked=0 extractor_distinct=2 repo=repo - 0 of 1 receipt(s) yielded an unambiguous link; an unattributed corpus is unknown, never clean\nATTRIBUTION-NOTE: review-1.json: 2 linked rollout(s) disagree (gpt-5.6-sol, gpt-6-astra); verified neither way"
+    },
+    {
+      "name": "bad-blind-extractor",
+      "input": "cases/bad-blind-extractor",
+      "expect": "BAD",
+      "why": "BYTE-IDENTICAL disagreement to bad-disagreement, except every rollout reads the same model. A constant and a correct reading produce the same output, so the finding must be WITHDRAWN to UNKNOWN. Without this case, 'derives' and 'echoes a constant' look identical from the outside - the exact defect #1048 is about.",
+      "expected_exit": 2,
+      "expected_output": "ATTRIBUTION-UNKNOWN: examined=1 linked=1 agreed=0 disagreed=1 ambiguous=0 unlinked=0 extractor_distinct=1 repo=repo - the model extractor read 1 distinct value(s) across 2 rollout(s); a constant cannot be told from a correct reading, so no attribution is reported"
+    },
+    {
+      "name": "bad-disagreement",
+      "input": "cases/bad-disagreement",
+      "expect": "BAD",
+      "why": "Stored reviewer is the copied literal; the rollout linked by worktree branch and time window derives a different model, and the extractor is demonstrably discriminating. This is the real corpus's shape, and it must report a finding.",
+      "expected_exit": 1,
+      "expected_output": "ATTRIBUTION-FINDING: review-1.json: stored reviewer='codex/gpt-5.5', linked rollout derived='codex/gpt-6-astra'\nATTRIBUTION-SUMMARY: examined=1 linked=1 agreed=0 disagreed=1 ambiguous=0 unlinked=0 extractor_distinct=2 repo=repo"
+    },
+    {
+      "name": "bad-foreign-repo",
+      "input": "cases/bad-foreign-repo",
+      "expect": "BAD",
+      "why": "The only in-window candidate is ANOTHER repository's worktree whose basename ends with the same branch. A branch name is not a repository boundary, and the sessions directory spans every repository on the host, so suffix matching let a neighbour's rollout supply a confident attribution. This is the detector contract's second question - can a finding tell our thing from a neighbour's - and it must be answered by refusing to link, not by reporting on the neighbour. Found by counter-model review.",
+      "expected_exit": 2,
+      "expected_output": "ATTRIBUTION-UNKNOWN: examined=1 linked=0 agreed=0 disagreed=0 ambiguous=0 unlinked=1 extractor_distinct=2 repo=repo - 0 of 1 receipt(s) yielded an unambiguous link; an unattributed corpus is unknown, never clean"
+    },
+    {
+      "name": "bad-nothing-linked",
+      "input": "cases/bad-nothing-linked",
+      "expect": "BAD",
+      "why": "Receipts whose branch matches no rollout. Nothing was attributed, so nothing is clean; an unattributed corpus must never pass as a verified one.",
+      "expected_exit": 2,
+      "expected_output": "ATTRIBUTION-UNKNOWN: examined=1 linked=0 agreed=0 disagreed=0 ambiguous=0 unlinked=1 extractor_distinct=2 repo=repo - 0 of 1 receipt(s) yielded an unambiguous link; an unattributed corpus is unknown, never clean"
+    },
+    {
+      "name": "bad-unreadable-candidate",
+      "input": "cases/bad-unreadable-candidate",
+      "expect": "BAD",
+      "why": "One of two linked rollouts declares no model. Dropping it made the rest look unanimous and produced a confident agreement, when the unreadable rollout could itself be the reviewer. Unresolved evidence is not absent evidence. Found by counter-model review.",
+      "expected_exit": 2,
+      "expected_output": "ATTRIBUTION-UNKNOWN: examined=1 linked=0 agreed=0 disagreed=0 ambiguous=1 unlinked=0 extractor_distinct=2 repo=repo - 0 of 1 receipt(s) yielded an unambiguous link; an unattributed corpus is unknown, never clean\nATTRIBUTION-NOTE: review-1.json: 1 of 2 linked rollout(s) declare no model; the unreadable one could be the reviewer, so this receipt is verified neither way"
+    },
+    {
+      "name": "good-agreement",
+      "input": "cases/good-agreement",
+      "expect": "GOOD",
+      "why": "Stored reviewer matches the model its linked rollout records, with a discriminating extractor. Treating every attribution as suspect would falsely flag this GOOD case.",
+      "expected_exit": 0,
+      "expected_output": "ATTRIBUTION-OK: examined=1 linked=1 agreed=1 disagreed=0 ambiguous=0 unlinked=0 extractor_distinct=2 repo=repo - every one of 1 linked receipt(s) agrees with its rollout"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "n/a",
+      "origin": "scripts/counter-model-reviewer-attribution.py",
+      "path": "anchors/constructed-presence-only-attribution.py",
+      "sha256": "ed80585d920c896994984f3a21c833c70c152dea862b9d3eeba591c837436403",
+      "why": "CONSTRUCTED, not historical, and PERMANENTLY so. An instrument introduced by its own pull request has no blind ancestor on main, so --verify-provenance will read unverified forever; integrity is established by the sha256 above, historicity is not. WHAT IT IS: a presence-only attributor that reports OK whenever any receipt exists. It never reads a rollout, never compares stored against derived, never measures whether its extractor can discriminate, and has no notion of an ambiguous link. It MISSES all four registered BAD cases and AGREES with the real instrument on the GOOD one, demonstrating that every distinction the real instrument draws is load-bearing rather than decorative. It ACCEPTS AND IGNORES --repo-name: an anchor that crashed on the flag would demonstrate nothing, because a crash is not a miss - the battery correctly reports that as UNRESOLVED rather than as a pass."
+    }
+  ]
+}

@@ -958,10 +958,21 @@ git merge --no-edit origin/main
    safe, not something this line can assume on its own.
 
    The existing receipts under `docs/measurements/counter-model/` naming
-   `codex/gpt-5.5` are NOT corrected retroactively. Each records what its own run
-   believed at the time; rewriting them would assert that a different model
-   reviewed work it never saw, and the receipts' only value is that they say what
-   was true then.
+   `codex/gpt-5.5` are NOT corrected retroactively (owner ruling, #1048: annotate,
+   do not rewrite). Each records what its own run believed at the time, and that
+   is the evidence of how a documented literal propagated across thirteen
+   independent runs - a corpus rewritten to look correct would destroy exactly
+   that.
+
+   The rationale that used to sit here was that rewriting them "would assert that
+   a different model reviewed work it never saw". On the evidence that is
+   backwards, and it is corrected rather than quietly dropped:
+   `scripts/counter-model-reviewer-attribution.py` links each receipt to the
+   rollout that produced it and finds all 13 were reviewed by `codex/gpt-6-astra`
+   - `gpt-5.5` is the model that never saw the work, and appears in no rollout on
+   the host at all. What was true is recorded in
+   `docs/measurements/counter-model-reviewer-attribution.md`; the receipts stay as
+   the contemporaneous record.
 
    A skip with a receipt is a state; a skip without one is indistinguishable
    from a stage that was never wired in. The receipts are the record - **the PR

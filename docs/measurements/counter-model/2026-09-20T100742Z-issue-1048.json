@@ -1,0 +1,19 @@
+{
+  "branch": "issue-1048-every-counter-model-receipt-ever-written-records-t",
+  "counts": {
+    "accepted": 5,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "implementer": "claude/claude-opus-5",
+  "issue": "1048",
+  "passes": 2,
+  "recorded_at": "2026-09-20T10:07:42Z",
+  "red_cases": {
+    "already_covered": 7,
+    "proposed": 7
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}

@@ -1,0 +1,2 @@
+{"timestamp":"2026-09-16T20:30:00Z","ordinal":0,"type":"session_meta","payload":{"session_id":"control","cwd":"/w/repo-issue-9002-beta","originator":"codex_exec","timestamp":"2026-09-16T20:30:00Z"}}
+{"type":"turn_context","payload":{"model":"gpt-6-astra"}}
