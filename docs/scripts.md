@@ -699,3 +699,31 @@ namespaces: a consumer is the first user of a general contract, never a branch.
 catch** a declaring script that UNDERSTATES, which needs observation rather than
 parsing - see the module docstring for why a write-verb scanner was rejected,
 and why a PATH shim to widen observation coverage was rejected with it.
+
+## `cpp-host-write` (#1139)
+
+The one place `/cpp:init` and `/cpp:update` write host surfaces, and the seam a
+managed environment defers.
+
+These writes used to sit as inline shell inside two 75KB command documents,
+which had two consequences. Nothing could DECLARE them - a manifest derived
+from the helpers missed `~/.bashrc` entirely, because no helper wrote it, the
+document did. And nothing could REFUSE them: a defer-set has no code to consult
+when the write is prose-shell in a markdown file, so the deferral half of #1139
+was not implementable until the writes lived here.
+
+The defer-set is **passed, never detected** - `--defer ~/.bashrc`, or
+`CPP_DEFER_SURFACES` for a wrapper that cannot reach argv. Nothing here names
+any manager, reads a manager's variable, or inspects containers, mounts or
+namespaces. A user who passes nothing gets today's behaviour, not because CPP
+detected they were unmanaged but because there was nothing to detect. An
+environment marker would not do: variables are inheritable, and a tmux server
+hands its environment to every pane started after it, so a marker can arrive in
+a session nothing started that way.
+
+A deferred write **exits 3 and names the surface and its declared owner** -
+distinct from both success and failure, so a caller can tell "the manager owns
+this" from "this went wrong". Skipping quietly is #1138's defect.
+
+`--no-guard` exists only to preserve an unguarded append across the #1139
+relocation and is removed by #1142.

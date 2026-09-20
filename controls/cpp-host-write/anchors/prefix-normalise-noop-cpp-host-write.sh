@@ -1,15 +1,23 @@
 #!/usr/bin/env bash
-#: NEGATIVE-CONTROL: controls/cpp-host-write
-#:
-#: Three verdicts - 0 wrote, 3 deferred by request, 1 failed - and /cpp:init
-#: and /cpp:update read the exit to decide whether to proceed, skip-and-say-so,
-#: or stop, without re-deriving whether the write happened. ADR 0008's bound
-#: therefore requires a committed case. The registration lives in THIS FILE
-#: because that is what check-negative-controls.py enumerates: a control
-#: directory alone is invisible to the battery, which then reports ok over a
-#: register the new control is not in - which is exactly what it did here
-#: before this marker was added.
-#:
+# ANCHOR - the PRE-FIX version of scripts/cpp-host-write.sh.
+#
+# DO NOT FIX THIS FILE. It is evidence, not code that runs in anger. The
+# register swaps it in for the real gate and requires it to MISS the known-bad
+# input; an anchor that catches it proves the control is not load-bearing.
+#
+# THIS IS NOT CONSTRUCTED. It is the code as it actually stood, with one line
+# restored verbatim: normalise() written as `s="${s/#$HOME\//~/}"`, which reads
+# as "replace a leading $HOME/ with ~/" and silently does nothing, because the
+# escaped separator does not parse the way it looks.
+#
+# THE FAILURE IT PRODUCES is the worst one this seam can have. Every defer
+# request compared "$HOME/.bashrc" against "~/.bashrc", never matched, and the
+# helper WROTE THE SURFACE IT HAD BEEN ASKED TO SKIP while exiting 0. Not a
+# missed detection - a wrong verdict, reporting success having done the
+# forbidden thing, which nothing downstream re-derives.
+#
+# It was found by RUNNING the helper against a sandboxed $HOME, in one call,
+# after the line had been read twice. That is this control's whole argument.
 #: HOST-SURFACE: ~/.claude/settings.json owner=cpp write=merge certified=yes
 #: HOST-SURFACE: ~/.claude owner=cpp write=mkdir certified=yes
 #: HOST-SURFACE: ~/.claude/scripts owner=cpp write=mkdir certified=yes
@@ -100,9 +108,7 @@ normalise() {
     #: WROTE THE SURFACE IT HAD BEEN ASKED TO SKIP while exiting 0. A silent
     #: non-refusal is the worst failure this seam can have, so the comparison
     #: is now written in a form whose behaviour is obvious on sight.
-    case "$s" in
-        "$HOME"/*) s="~/${s#"$HOME"/}" ;;
-    esac
+    s="${s/#$HOME\//~/}"
     printf '%s' "$s"
 }
 

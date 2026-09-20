@@ -1,0 +1,69 @@
+{
+  "_comment": [
+    "Registration for scripts/cpp-host-write.sh (issue #1139).",
+    "",
+    "WHY THIS INSTRUMENT NEEDS A COMMITTED CASE (ADR 0008): it issues three",
+    "verdicts - 0 wrote, 3 deferred by request, 1 failed - and /cpp:init and",
+    "/cpp:update read the exit to decide whether to proceed, skip-and-say-so, or",
+    "stop. Neither re-derives whether the write happened. A wrong verdict here is",
+    "not a missed detection, it is CPP writing a surface a managed environment",
+    "asked it not to touch while reporting success.",
+    "",
+    "THE ANCHOR IS NOT CONSTRUCTED. It is the code as it actually stood earlier in",
+    "this issue, one line restored: normalise() as `s=\"${s/#$HOME\\//~/}\"`, which",
+    "reads as 'replace a leading $HOME/ with ~/' and silently does nothing. Every",
+    "defer comparison then failed and the helper wrote the surface it was asked to",
+    "skip, exiting 0. The line had been read twice; one sandboxed run found it.",
+    "",
+    "THE SPELLING IN THE BAD CASE IS THE WHOLE CASE. A defer spelled",
+    "\"$HOME/.bashrc\" matches by plain string equality even with normalisation",
+    "broken, so it cannot tell a working helper from the pre-fix one. Only the",
+    "MIXED spelling - caller says ~/.bashrc, helper resolves $HOME - discriminates.",
+    "Choosing the input that happens to pass is how a control proves nothing.",
+    "",
+    "THE BAD PROBE CHECKS THE SURFACE, NOT THE VERDICT. A helper that exits 3",
+    "having written the file is the defect wearing the right answer, and the exit",
+    "code cannot see it. The probe fails the case if ~/.bashrc exists afterwards.",
+    "",
+    "EACH PROBE RUNS IN ITS OWN mktemp $HOME and removes it on exit. The battery",
+    "substitutes {case} in place with no temp copy, so a gate that WRITES would",
+    "otherwise mutate its own committed fixture and stop being idempotent.",
+    "",
+    "LIMITS. --no-guard is not a verdict; it exists only to preserve an unguarded",
+    "append across the relocation and belongs to #1142, so no case exercises it.",
+    "The six install-path helpers that reach outside $HOME are not observable at",
+    "all - see scripts/host-surface-check.py for why a PATH shim was rejected."
+  ],
+  "gate": "scripts/cpp-host-write.sh",
+  "invocation": [
+    "bash",
+    "{case}/probe.sh",
+    "{gate}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^cpp-host-write: DEFERRED .* \\(owner=.*\\) - not written, by request",
+  "cases": [
+    {
+      "name": "bad-deferred-surface-written",
+      "input": "cases/bad-deferred-surface-written",
+      "expect": "BAD",
+      "why": "A defer request the helper must honour, spelled ~/.bashrc while the helper resolves $HOME. Correct verdict 3 with the surface absent; the pre-fix anchor exits 0 having written it."
+    },
+    {
+      "name": "good-undeferred-write",
+      "input": "cases/good-undeferred-write",
+      "expect": "GOOD",
+      "why": "The ordinary path, no defer-set. Separates a working helper from one wedged at refuse-everything, which would score BAD on the bad case alone and look identical to a correct one."
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "vendored",
+      "sha": "prefix-normalise-noop",
+      "origin": "scripts/cpp-host-write.sh",
+      "path": "anchors/prefix-normalise-noop-cpp-host-write.sh",
+      "sha256": "efaa79d73338dababa9e5492ebcdc607d9f45acb2a3b8e3362c8a34175b43d56",
+      "why": "VENDORED, not constructed: this is the real pre-fix code with normalise() restored verbatim. It MISSES bad-deferred-surface-written by writing the deferred surface and exiting 0 - a wrong verdict rather than a missed detection - and AGREES on good-undeferred-write, which keeps the demonstration isolated."
+    }
+  ]
+}
