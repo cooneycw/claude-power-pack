@@ -245,7 +245,7 @@ conducted *for* this pattern.
 
 ## The instance index
 
-The twenty-five instances this contract was derived from. Kept here, in the guidance,
+The twenty-six instances this contract was derived from. Kept here, in the guidance,
 rather than in the issue that indexed them - a finding that lives only in a closed
 issue is the condition #834 was filed to end. Link new instances here.
 
@@ -271,6 +271,7 @@ issue is the condition #834 was filed to end. Link new instances here.
 | #867 | has *anything* acknowledged this message | did the agent behind this role receive it | open |
 | #869 | is there a socket file at this path | is that session alive | open |
 | #877 | is this deliverable a code change | can this driver do *this issue* (fence-forbidden paths) | open |
+| #1109 | is there a `"model"` string in this transcript | which model was the assistant (tool arguments answer too) | fixed |
 | this change (pkill) | does a process match `pgrep -f <pattern>` | does a process OTHER THAN ME match it | fixed in flight |
 | this change (base sync) | are the ADDED LINES byte-identical | is the change still what was approved | fixed in flight |
 | this change (index rule) | does this diff delete any FILE | does this change delete anything | fixed in flight |

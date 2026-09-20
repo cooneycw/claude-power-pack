@@ -313,12 +313,26 @@ def test_an_implementer_transcript_without_model_entries_is_refused(tmp_path: Pa
 
 
 def test_the_latest_real_implementer_model_wins(tmp_path: Path) -> None:
+    """A genuine mid-session model switch is preserved; sentinels do not erase it.
+
+    PRESERVATION, NOT REGRESSION: this passes on both sides of #1109 and is not
+    offered as evidence for that fix. Its SPECIMEN changed, though, and that is
+    worth saying plainly - it used to be four bare `{"model": ...}` lines, which
+    are not assistant messages and under #1109 correctly supply nothing. The
+    property under test is unchanged; the input is now structurally the thing
+    the property is about.
+    """
     session_id, projects_dir = _implementer_session_fixture(tmp_path, "discarded")
     next(projects_dir.rglob("*.jsonl")).write_text(
-        '{"model":"claude-opus-5"}\n'
-        '{"model":"claude-sonnet-5"}\n'
-        '{"model":"  <future-session-placeholder>  "}\n'
-        '{"model":" "}\n',
+        "".join(
+            json.dumps({"type": "assistant", "message": {"model": model}}) + "\n"
+            for model in (
+                "claude-opus-5",
+                "claude-sonnet-5",
+                "  <future-session-placeholder>  ",
+                " ",
+            )
+        ),
         encoding="utf-8",
     )
     proc = _write_session_receipt(
@@ -327,6 +341,274 @@ def test_the_latest_real_implementer_model_wins(tmp_path: Path) -> None:
     assert proc.returncode == CM.EXIT_OK, proc.stderr
     receipt = json.loads(next(tmp_path.glob("*.json")).read_text(encoding="utf-8"))
     assert receipt["implementer"] == "claude/claude-sonnet-5"
+
+
+# --------------------------------------------------------------------------- #
+# Issue #1109: an identity comes from the assistant, not from what it asked for.
+#
+# The extractor these pin replaced a whole-file regex for `"model": "..."` that
+# kept the LAST hit. A transcript records every tool call the assistant made,
+# arguments included, and some of those arguments are named `model` - on this
+# host `mcp__substrate__add_worker` carries `input.model: "opus"`. So the field
+# that exists to prove "the reviewer was a different model from the author"
+# could be filled from a request the author happened to make last.
+#
+# Every case below except the two marked PRESERVATION fails on the pre-#1109
+# extractor. That was verified by running them against a copy of the old source,
+# not asserted; a fixture that is green on the buggy code proves nothing.
+# --------------------------------------------------------------------------- #
+
+def _nested_tool_record(assistant_model: str | None) -> dict:
+    """The issue's specimen: a decoy `model` inside a tool_use argument.
+
+    Key order matters and is deliberate. `message.model` is serialised BEFORE
+    `content`, so the decoy is the LAST `"model"` substring in the line - which
+    is precisely what a last-match-wins text scan selects.
+    """
+    message: dict = {}
+    if assistant_model is not None:
+        message["model"] = assistant_model
+    message["content"] = [
+        {
+            "type": "tool_use",
+            "id": "tool-1",
+            "name": "mcp__substrate__add_worker",
+            "input": {"model": "tool-request-model"},
+        }
+    ]
+    return {"type": "assistant", "message": message}
+
+
+def _overwrite_transcript(projects_dir: Path, *records: object) -> Path:
+    """Replace the fixture transcript with these JSONL lines (str written raw)."""
+    transcript = next(projects_dir.rglob("*.jsonl"))
+    transcript.write_text(
+        "".join(
+            (r if isinstance(r, str) else json.dumps(r)) + "\n" for r in records
+        ),
+        encoding="utf-8",
+    )
+    return transcript
+
+
+def test_a_nested_tool_argument_cannot_supply_the_implementer(tmp_path: Path) -> None:
+    """The headline defect, through the PUBLIC writer.
+
+    Pre-#1109 this recorded `claude/tool-request-model`: the name of a model the
+    session ASKED a tool for, standing in for the model that did the work.
+    """
+    session_id, projects_dir = _implementer_session_fixture(tmp_path, "discarded")
+    _overwrite_transcript(projects_dir, _nested_tool_record("claude-sonnet-5"))
+    proc = _write_session_receipt(
+        tmp_path, projects_dir, "--implementer-session-id", session_id
+    )
+    assert proc.returncode == CM.EXIT_OK, proc.stderr
+    receipt = json.loads(next(tmp_path.glob("*.json")).read_text(encoding="utf-8"))
+    assert receipt["implementer"] == "claude/claude-sonnet-5"
+
+
+def test_an_assistant_message_without_a_model_refuses_to_write(tmp_path: Path) -> None:
+    """Absence must read as absence, not as the nearest available string.
+
+    The sharpest half of the defect: deleting the real identity changed NOTHING
+    pre-#1109 - the decoy answered either way, so "the transcript says who wrote
+    this" and "the transcript does not" produced byte-identical receipts.
+    """
+    session_id, projects_dir = _implementer_session_fixture(tmp_path, "discarded")
+    _overwrite_transcript(projects_dir, _nested_tool_record(None))
+    proc = _write_session_receipt(
+        tmp_path, projects_dir, "--implementer-session-id", session_id
+    )
+    assert proc.returncode == CM.EXIT_INVALID, proc.stdout
+    assert "contains no real-shaped model entry" in proc.stderr
+    assert "nested tool arguments cannot supply one" in proc.stderr
+    assert "tool-request-model" not in proc.stderr
+    assert list(tmp_path.glob("*.json")) == []
+
+
+def test_a_non_assistant_record_cannot_supply_the_implementer(tmp_path: Path) -> None:
+    """Eligibility is the record's TYPE, not the presence of a model key.
+
+    Both decoys sit AFTER the real assistant turn, so a last-match-wins scan
+    prefers them; a structural parser cannot see them as identities at all.
+    """
+    session_id, projects_dir = _implementer_session_fixture(tmp_path, "discarded")
+    _overwrite_transcript(
+        projects_dir,
+        {"type": "assistant", "message": {"model": "claude-opus-5"}},
+        {"type": "user", "message": {"model": "user-side-decoy"}},
+        {"model": "bare-record-decoy"},
+    )
+    proc = _write_session_receipt(
+        tmp_path, projects_dir, "--implementer-session-id", session_id
+    )
+    assert proc.returncode == CM.EXIT_OK, proc.stderr
+    receipt = json.loads(next(tmp_path.glob("*.json")).read_text(encoding="utf-8"))
+    assert receipt["implementer"] == "claude/claude-opus-5"
+
+
+def test_a_truncated_record_cannot_fabricate_an_implementer(tmp_path: Path) -> None:
+    """Malformed input is COUNTED and refused, never pattern-matched.
+
+    A transcript truncated mid-write is an ordinary accident, and pre-#1109 it
+    was the most alarming case: the scan lifted a model out of a record the
+    parser could not read, and the writer exited 0 on it.
+    """
+    session_id, projects_dir = _implementer_session_fixture(tmp_path, "discarded")
+    _overwrite_transcript(
+        projects_dir,
+        '{"type":"assistant","message":{"model":"fabricated-from-garbage"',
+    )
+    proc = _write_session_receipt(
+        tmp_path, projects_dir, "--implementer-session-id", session_id
+    )
+    assert proc.returncode == CM.EXIT_INVALID, proc.stdout
+    assert "fabricated-from-garbage" not in proc.stderr
+    # The census is the point: "1 unparseable" and "0 eligible" are different
+    # facts about an empty result, and a diagnostic that cannot tell them apart
+    # sends the reader looking in the wrong place.
+    assert "read 1 record(s); 1 unparseable" in proc.stderr
+    assert "0 eligible assistant message(s)" in proc.stderr
+    assert list(tmp_path.glob("*.json")) == []
+
+
+def test_the_extractor_answers_the_issue_1109_specimens_directly(tmp_path: Path) -> None:
+    """The same two specimens at the EXTRACTION seam, not only through the CLI.
+
+    Both writer-level cases above route through `cmd_write`, so a regression
+    that moved the decision into the caller could leave them green. This pins
+    the function the issue names.
+    """
+    _, projects_dir = _implementer_session_fixture(tmp_path, "discarded")
+    session_id = "session-for-counter-model-test"
+
+    _overwrite_transcript(projects_dir, _nested_tool_record("real-implementer"))
+    identity, error = CM._derive_implementer_from_session(session_id, projects_dir)
+    assert (identity, error) == ("claude/real-implementer", None)
+
+    _overwrite_transcript(projects_dir, _nested_tool_record(None))
+    identity, error = CM._derive_implementer_from_session(session_id, projects_dir)
+    assert identity is None
+    assert error is not None and "no real-shaped model entry" in error
+
+
+@pytest.mark.parametrize(
+    "separator",
+    # BUILT WITH chr(), never written raw into this file. A source file
+    # holding a raw U+0085/U+2028/U+2029 is itself ambiguous to every tool
+    # that numbers its lines with str.splitlines() - including one of this
+    # repository's own gates, which mis-numbered this file's waiver comments
+    # and reported two correctly-waived sites as violations. The runtime
+    # VALUE is identical, so the property under test is unchanged.
+    [chr(0x85), chr(0x2028), chr(0x2029), "\v", "\f",
+     chr(0x1C), chr(0x1D), chr(0x1E)],
+)
+def test_message_content_cannot_decide_the_identity(
+    tmp_path: Path, separator: str
+) -> None:
+    """A separator character inside message TEXT must not move the verdict.
+
+    Raised by the counter-model review of #1109 and accepted. JSONL is
+    newline-delimited, but `str.splitlines()` also breaks on these eight
+    characters, every one of which is legal raw inside a JSON string. Splitting
+    on them tore one record into fragments, so the older model won a switch the
+    newer record had made - unrelated message content deciding the identity,
+    which is the very defect #1109 exists to close, re-entering through the
+    parser meant to close it.
+
+    ONLY THREE OF THE EIGHT PARAMS ARE REGRESSION CASES, and saying so is the
+    point of this paragraph. Verified against the `splitlines()` source: U+0085,
+    U+2028 and U+2029 fail there; `\\v`, `\\f`, U+001C, U+001D and U+001E pass,
+    because `json.dumps` escapes those five rather than emitting them raw. The
+    five are kept as PRESERVATION - they pin that the escaping is what makes
+    them safe, so a writer that ever emitted one raw would be caught - but they
+    are not evidence for this fix and must not be counted as such.
+
+    Reachable, not hypothetical: 1 of 120 real transcripts on the authoring host
+    already carried 19 of these characters (7 NEL, 10 LS, 2 PS - exactly the
+    three that are raw-reachable).
+    """
+    session_id, projects_dir = _implementer_session_fixture(tmp_path, "discarded")
+    _overwrite_transcript(
+        projects_dir,
+        {"type": "assistant", "message": {"model": "claude-opus-5"}},
+        # `ensure_ascii=False` writes the separator RAW, as a real transcript does.
+        json.dumps(
+            {
+                "type": "assistant",
+                "message": {
+                    "model": "claude-sonnet-5",
+                    "content": [{"type": "text", "text": f"a{separator}b"}],
+                },
+            },
+            ensure_ascii=False,
+        ),
+    )
+    proc = _write_session_receipt(
+        tmp_path, projects_dir, "--implementer-session-id", session_id
+    )
+    assert proc.returncode == CM.EXIT_OK, proc.stderr
+    receipt = json.loads(next(tmp_path.glob("*.json")).read_text(encoding="utf-8"))
+    assert receipt["implementer"] == "claude/claude-sonnet-5"
+
+
+@pytest.mark.parametrize(
+    ("records", "census"),
+    [
+        pytest.param((), "read 0 record(s); 0 unparseable; 0 eligible", id="empty"),
+        pytest.param(
+            ({"type": "assistant", "message": {"model": "<synthetic>"}},),
+            "read 1 record(s); 0 unparseable; 1 eligible",
+            id="sentinel-only",
+        ),
+    ],
+)
+def test_the_refusal_census_separates_empty_from_sentinel_only(
+    tmp_path: Path, records: tuple, census: str
+) -> None:
+    """Two empty results that mean different things must not print alike.
+
+    From the review's red cases. Both transcripts here yield no identity, but
+    one was never asked anything and the other answered with a placeholder -
+    'there was nothing to look at' versus 'I looked and found nothing'. A
+    diagnostic that cannot separate them sends the reader to the wrong place.
+    """
+    session_id, projects_dir = _implementer_session_fixture(tmp_path, "discarded")
+    _overwrite_transcript(projects_dir, *records)
+    proc = _write_session_receipt(
+        tmp_path, projects_dir, "--implementer-session-id", session_id
+    )
+    assert proc.returncode == CM.EXIT_INVALID, proc.stdout
+    assert census in proc.stderr
+    assert list(tmp_path.glob("*.json")) == []
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        {"model": 5},
+        {"model": None},
+        {"model": ["claude-opus-5"]},
+        "a message that is not an object",
+    ],
+)
+def test_a_non_string_declared_model_is_not_an_identity(
+    tmp_path: Path, message: object
+) -> None:
+    """PRESERVATION of the refusal path under shapes the old scan never saw.
+
+    A regex over text could only ever yield a string. A structural parser meets
+    integers, nulls and lists, and each has to land in the same refusal rather
+    than in a `claude/5`-shaped receipt or a traceback.
+    """
+    session_id, projects_dir = _implementer_session_fixture(tmp_path, "discarded")
+    _overwrite_transcript(projects_dir, {"type": "assistant", "message": message})
+    proc = _write_session_receipt(
+        tmp_path, projects_dir, "--implementer-session-id", session_id
+    )
+    assert proc.returncode == CM.EXIT_INVALID, proc.stdout
+    assert "contains no real-shaped model entry" in proc.stderr
+    assert list(tmp_path.glob("*.json")) == []
 
 
 def test_a_skip_derives_its_implementer_and_keeps_a_null_reviewer(tmp_path: Path) -> None:
