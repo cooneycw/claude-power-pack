@@ -1,3 +1,36 @@
+# CONSTRUCTED BLIND ARTIFACT - NOT A HISTORICAL REVISION OF THIS HARNESS.
+#
+# This reconstructs issue #1129 IMPLEMENTED NAIVELY. The naive version never
+# existed as a commit, because the declared-marker requirement landed together
+# with the UNKNOWN expectation - so there is no `git show` that produces it and
+# the artifact is built rather than fetched, exactly as
+# controls/check-negative-controls-unavailable's anchor was for #1117.
+#
+# IT IS THE SHIPPED HARNESS WITH ONE DECISION CHANGED, and being derived from
+# the current file rather than an older copy is what keeps it that way: every
+# other difference would be a second variable, and an anchor that differs in
+# two places cannot isolate either. (It was regenerated once during #1129 for
+# exactly this reason, after fixes from the counter-model review landed in the
+# harness and left the frozen copy differing in four places rather than one.)
+#
+# THE ONE DECISION: `_observe` still PARSES `unknown_signal` and then never
+# consults it, scoring any non-zero exit that did not announce a finding as a
+# refusal. That is the fail-open a reasonable person writes on purpose - "the
+# gate obviously has a refusal branch, so the exact wording should not matter" -
+# and it is issue #946's defect re-created inside the field #1129 adds: a gate
+# that FELL OVER and a gate that REFUSED both exit non-zero and say nothing the
+# detection pattern matches, so this version calls both correct.
+#
+# As frozen it MISSES the known-bad input - the crashing toy gate, which it
+# scores PASS/exit 0 where the current harness reports UNSIGNALLED/exit 1 - and
+# AGREES with the current harness on the known-good tree. So it would not notice
+# this harness regressing to the very fail-open the UNKNOWN expectation creates
+# the room for.
+#
+# DO NOT "FIX" THIS FILE. Its blindness is the measurement; repairing it silently
+# converts a working control into one that proves nothing (INERT), and the
+# sha256 in control.json is what detects an edit.
+#!/usr/bin/env python3
 #!/usr/bin/env python3
 """Run every gate's registered NEGATIVE CONTROL, and prove the control can fail (issue #924).
 
@@ -843,9 +876,10 @@ def _observe(
         return GOOD
     if unavailable is not None and unavailable.search(output):
         return UNAVAILABLE
-    if unknown is not None and unknown.search(output):
-        return UNKNOWN
-    return BAD if signal.search(output) else UNSIGNALLED
+    # THE MUTATION (see the banner at the top of this file). The declared
+    # marker is parsed and then never consulted: anything that exited non-zero
+    # and did not announce a finding is attributed to a refusal.
+    return BAD if signal.search(output) else UNKNOWN
 
 
 #: What a discrimination failure ACTUALLY WAS, keyed by (expected, observed).
