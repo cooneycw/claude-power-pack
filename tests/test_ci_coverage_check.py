@@ -150,6 +150,58 @@ def test_an_unrecognised_exclusion_reason_is_accepted() -> None:
 
 
 # --------------------------------------------------------------------------
+# The orphaned clause. A line that reads as a declaration and is not one.
+# --------------------------------------------------------------------------
+
+
+def test_a_clause_on_its_own_line_is_named_by_file_and_line() -> None:
+    """The CAUSE is reported, not only the symptom, and it is reported FIRST.
+
+    `UNDECLARED` alone is a false diagnosis here: it says "say `ci: runs
+    <step>`" to someone looking straight at a line reading `## ci: runs ...`,
+    which from where they sit is indistinguishable from a broken gate. Found
+    when #1071 and #1146 met at merge.
+    """
+    result = run(CASES / "bad-orphaned-clause")
+    assert result.returncode == 1, result.stdout + result.stderr
+    lines = result.stdout.splitlines()
+    orphan = next(i for i, line in enumerate(lines) if line.startswith("ORPHANED-CLAUSE: "))
+    undeclared = next(i for i, line in enumerate(lines) if line.startswith("UNDECLARED: "))
+    assert orphan < undeclared, "the cause must be reported before the symptom"
+    assert re.match(r"^ORPHANED-CLAUSE: Makefile:\d+ reads `## ci: ", lines[orphan]), lines[orphan]
+
+
+def test_an_orphaned_clause_does_not_count_as_the_declaration() -> None:
+    """The half that makes the finding more than cosmetic.
+
+    `beta-check` in that tree has a `## ci: excluded needs-git` line directly
+    above it. If the scan credited it, the target would be dispositioned and
+    only the orphan would red - which is the notation quietly working, the
+    thing this finding exists to deny.
+    """
+    result = run(CASES / "bad-orphaned-clause")
+    assert "UNDECLARED: `beta-check`" in result.stdout, result.stdout
+
+
+def test_prose_mentioning_the_notation_is_not_an_orphaned_clause() -> None:
+    """Anchored on the line start, because writing ABOUT the notation is ordinary.
+
+    The good case carries "`ci: runs <step>` is a claim" mid-sentence, and the
+    real Makefile's own explanation of this gate contains such a line. A loose
+    pattern would red the repository over its own documentation - and this gate
+    is a `make verify` prerequisite, so that blocks every merge.
+    """
+    text = (CASES / "good-fully-declared" / "Makefile").read_text()
+    assert "`ci: runs <step>` is a claim" in text, "fixture must carry the prose form"
+    assert run(CASES / "good-fully-declared").returncode == 0
+
+    assert re.search(r"^##.*\bci: runs", MAKEFILE.read_text(), re.MULTILINE), (
+        "the real Makefile must still carry a mid-line mention, or this proves nothing"
+    )
+    assert "ORPHANED-CLAUSE" not in run(ROOT).stdout
+
+
+# --------------------------------------------------------------------------
 # The real repository.
 # --------------------------------------------------------------------------
 

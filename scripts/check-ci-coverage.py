@@ -28,6 +28,9 @@ and it refuses three ways:
                 `ci: excluded <reason>`.
   ABSENT-STEP   a gate declaring `ci: runs <step>` for a step `.woodpecker.yml`
                 does not have.
+  ORPHANED-CLAUSE
+                a `## ci: ...` line written outside a directive, where it reads
+                as a declaration to a human and is invisible to this gate.
 
 A DECLARATION IS A CLAIM, WHICH IS WHY THE STEP SIDE IS READ. `ci: runs foo`
 with no `foo` step is the same silence this gate exists to end, written down in
@@ -145,6 +148,29 @@ RUNS_RE = re.compile(r"^runs\s+([A-Za-z0-9_][A-Za-z0-9_.-]*)$")
 #: absent reason is a missing argument, not an open-vocabulary one.
 EXCLUDED_RE = re.compile(r"^excluded\s+(\S.*)$")
 
+#: A COMMENT LINE THAT OPENS WITH `ci:` AND IS NOT PART OF A DIRECTIVE.
+#:
+#: This is the notation reintroducing the defect it was written to remove
+#: (found when #1071 and #1146 met at merge). A worker who had not seen the
+#: inline form wrote the clause on its own line:
+#:
+#:     ## verify-coverage: gate agents-md-budget-check - stays inside its budget
+#:     ## ci: runs agents-md-budget-check
+#:
+#: which READS AS A DECLARATION TO A HUMAN AND IS INVISIBLE TO THIS GATE - a
+#: declaration nothing consumes, which is the whole of #1146 one level in. Left
+#: to surface as `UNDECLARED` it is worse than silence: the remedy line says
+#: "say `ci: runs <step>`" to someone looking straight at a line reading
+#: `## ci: runs agents-md-budget-check`, and from where they sit that is
+#: indistinguishable from a broken gate.
+#:
+#: ANCHORED ON THE LINE START, because prose about the notation is ordinary and
+#: must not red. The Makefile's own explanation of this gate contains
+#: "`ci: runs <step>` is a claim" mid-sentence; the good case carries a line of
+#: the same shape so the discrimination is committed rather than asserted.
+#: Within a Makefile comment, an opening `ci:` is RESERVED for the clause.
+ORPHANED_CLAUSE_RE = re.compile(r"^##\s*ci:\s*(\S.*)$")
+
 #: A step name in the mapping form `.woodpecker.yml` uses: a key two columns
 #: deeper than the `steps:` key that opened the block. The list form
 #: (`- name: validate`) is deliberately NOT read - see the empty-population
@@ -160,7 +186,14 @@ class Unknown(Exception):
 
 
 def _load_makefile(root: Path):
-    """The imported `Makefile` parser applied to `root`'s Makefile."""
+    """`(parsed Makefile, its text)` from ONE read of `root`'s Makefile.
+
+    The text comes back with the parse because two reads of one file are two
+    facts about two moments. This tree is a shared checkout that other sessions
+    edit, and the orphaned-clause scan reports LINE NUMBERS - a second read
+    would let a verdict cite a line from a file the populations did not come
+    from.
+    """
     parser_path = REPO_ROOT / PARSER_REL
     if not parser_path.is_file():
         raise Unknown(
@@ -184,7 +217,7 @@ def _load_makefile(root: Path):
         text = makefile_path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as exc:
         raise Unknown(f"{MAKEFILE_REL} is unreadable ({exc})") from exc
-    return module.Makefile(text)
+    return module.Makefile(text), text
 
 
 def verify_prerequisites(mk) -> list[str]:
@@ -230,6 +263,21 @@ def ci_steps(text: str) -> list[str]:
     return names
 
 
+def orphaned_clauses(text: str) -> list[tuple[int, str]]:
+    """`(line number, text)` for every `ci:` clause written outside a directive.
+
+    A `## verify-coverage:` line carries its clause in the reason and is matched
+    by `DIRECTIVE_RE`, never here: this pattern requires `ci:` to be the first
+    token after the comment marker, which a directive line cannot be.
+    """
+    found: list[tuple[int, str]] = []
+    for number, line in enumerate(text.splitlines(), start=1):
+        match = ORPHANED_CLAUSE_RE.match(line)
+        if match:
+            found.append((number, match.group(1).strip()))
+    return found
+
+
 def parse_declaration(reason: str) -> tuple[str, str] | None:
     """`("runs", step)`, `("excluded", reason)`, `("malformed", text)`, or None.
 
@@ -252,7 +300,7 @@ def parse_declaration(reason: str) -> tuple[str, str] | None:
 
 def run_check(root: Path) -> int:
     try:
-        mk = _load_makefile(root)
+        mk, makefile_text = _load_makefile(root)
         prerequisites = verify_prerequisites(mk)
         if not prerequisites:
             raise Unknown(
@@ -280,6 +328,18 @@ def run_check(root: Path) -> int:
     findings: list[str] = []
     runs = 0
     excluded = 0
+
+    # Reported FIRST, because it is the cause and the `UNDECLARED` beside it is
+    # the symptom. A reader who meets the symptom alone goes looking for a gate
+    # bug. It contributes NOTHING to the counts below: an orphaned clause is not
+    # a declaration, which is the finding.
+    for number, clause in orphaned_clauses(makefile_text):
+        findings.append(
+            f"ORPHANED-CLAUSE: {MAKEFILE_REL}:{number} reads `## ci: {clause}` on "
+            f"its own line, where nothing consumes it - the clause belongs on the "
+            f"`## verify-coverage:` directive itself, after the reason: "
+            f"`## verify-coverage: gate <target> - <reason>; ci: {clause}`"
+        )
 
     for target in prerequisites:
         directive = mk.directives.get(target)
@@ -316,7 +376,7 @@ def run_check(root: Path) -> int:
     if findings:
         for finding in findings:
             print(finding)
-        print(f"check-ci-coverage: FAIL - {len(findings)} undispositioned gate(s)")
+        print(f"check-ci-coverage: FAIL - {len(findings)} finding(s)")
         return 1
 
     print(

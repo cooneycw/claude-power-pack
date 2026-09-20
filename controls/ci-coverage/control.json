@@ -58,6 +58,20 @@
     "                               reader passes this one. `verify-coverage-check`",
     "                               chose name-binding and documented why; this",
     "                               case is what holds the inherited decision.",
+    "  bad-orphaned-clause          a `## ci: excluded needs-git` line written on",
+    "                               its OWN line rather than on the directive -",
+    "                               the notation reintroducing the defect it",
+    "                               removes. It reads as a declaration to a human",
+    "                               and is invisible to a gate parsing only",
+    "                               directives. Found when #1071 and #1146 met at",
+    "                               merge: a worker who branched before the inline",
+    "                               form existed invented this one, plausibly, and",
+    "                               was told by two readers that it matched. The",
+    "                               line must be NAMED, because the UNDECLARED",
+    "                               emitted beside it is a false diagnosis alone -",
+    "                               it says \"say `ci: runs <step>`\" to someone",
+    "                               looking straight at a line that says exactly",
+    "                               that, which reads as a broken gate.",
     "",
     "THE GOOD CASE IS NOT JUST THE PASSING PATH. It carries both dispositions at",
     "once - a `runs` whose step exists and an `excluded` with a reason - and its",
@@ -93,7 +107,7 @@
     "{case}"
   ],
   "good_exit": 0,
-  "detect_signal": "^(UNDECLARED|MALFORMED|ABSENT-STEP): ",
+  "detect_signal": "^(UNDECLARED|MALFORMED|ABSENT-STEP|ORPHANED-CLAUSE): ",
   "unknown_signal": "^check-ci-coverage: UNKNOWN - ",
   "cases": [
     {
@@ -127,10 +141,16 @@
       "why": "A well-formed declaration naming `beta-chek`, sitting directly above the real `beta-check`. Proves the clause is read by NAME and not by POSITION: a positional reader binds it to the target below and scores the tree clean."
     },
     {
+      "name": "bad-orphaned-clause",
+      "input": "cases/bad-orphaned-clause",
+      "expect": "BAD",
+      "why": "A `## ci: excluded needs-git` line written on its OWN line above the target, instead of on the directive. The notation reintroducing the defect it removes: it reads as a declaration to a human and is invisible to a gate that parses only directives. Found when #1071 and #1146 met at merge - a worker who branched before the inline form existed invented this one, plausibly. The gate must name the LINE, because the `UNDECLARED` it also emits is a false diagnosis on its own: it tells someone to write `ci: runs <step>` while they are looking at a line that says exactly that."
+    },
+    {
       "name": "good-fully-declared",
       "input": "cases/good-fully-declared",
       "expect": "GOOD",
-      "why": "Both dispositions at once - a `runs` whose step exists, an `excluded` with a reason - over a `verify:` rule written across a line continuation, which is the reformat that would empty the first population. THE HALF THAT MATTERS for a gate wedged at 'fail': this gate is a `make verify` prerequisite, so a false red blocks every merge in the repository."
+      "why": "Both dispositions at once - a `runs` whose step exists, an `excluded` with a reason - over a `verify:` rule written across a line continuation, which is the reformat that would empty the first population. It also carries PROSE mentioning `ci: runs <step>` mid-sentence, so the orphaned-clause scan's line-start anchoring is committed rather than asserted; the real Makefile's own explanation of this gate contains such a sentence, and a loose pattern would red the repository over its own documentation. THE HALF THAT MATTERS for a gate wedged at 'fail': this gate is a `make verify` prerequisite, so a false red blocks every merge in the repository."
     }
   ],
   "anchors": [
@@ -140,7 +160,7 @@
       "origin": "scripts/check-ci-coverage.py",
       "path": "anchors/constructed-count-the-declarations.py",
       "sha256": "6c645292376725ce9bd2f268205f0fd414b0acb0389c84d5260e1a37e32f9b93",
-      "why": "CONSTRUCTED: the gate is new, so there is no previous blind version to vendor. What IS on the record is the framing that preceded it - commit a9408bc of this same issue appended a `ci:` clause to all 27 gates and reported '22 runs, 5 excluded', a number obtained by grepping the Makefile. This file is that grep. It counts declarations and checks neither side, so it MISSES all five known-bad inputs and AGREES with the real gate on the known-good one."
+      "why": "CONSTRUCTED: the gate is new, so there is no previous blind version to vendor. What IS on the record is the framing that preceded it - commit a9408bc of this same issue appended a `ci:` clause to all 27 gates and reported '22 runs, 5 excluded', a number obtained by grepping the Makefile. This file is that grep. It counts declarations and checks neither side - and its own pattern requires the `verify-coverage:` prefix on the line, so an orphaned clause is invisible to it too - so it MISSES all six known-bad inputs and AGREES with the real gate on the known-good one."
     }
   ]
 }
