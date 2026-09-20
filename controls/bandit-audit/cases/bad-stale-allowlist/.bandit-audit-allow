@@ -1,0 +1,14 @@
+# The paths in the capture beside this file are FIXTURE paths, and that is
+# deliberate rather than laziness. The first cut named lib/cicd/steps.py -
+# a real file, and one the repository's own .bandit-audit-allow accepts -
+# so the case was suppressible by the very mechanism it exists to exercise
+# the moment anyone ran the gate against it with the default --allow-file.
+# tests/test_bandit_audit.py caught that and now pins the property.
+#
+# A SUPPRESSION THAT SUPPRESSES NOTHING. The capture is clean, so the line
+# below accounts for a finding that is no longer there - the state the tree
+# enters the moment someone FIXES a recorded site. The forward direction
+# alone scores that tree clean, so without this case the ledger could
+# accumulate lines covering nothing and nobody would be told. The anchor has
+# no allowlist at all - a `--skip` cannot go stale - so it misses this.
+finding lib/fixture/shellout.py B602 1 #1113
