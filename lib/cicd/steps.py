@@ -12,6 +12,7 @@ import signal
 import subprocess
 import threading
 import time
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional, Protocol
@@ -483,6 +484,50 @@ def _test_step_timeout() -> int:
     return DEFAULT_TEST_STEP_TIMEOUT
 
 
+def gate_conditional_command(step_id: str, fallback: str) -> str:
+    """THE one spelling of the generated gate command, for every producer.
+
+    Two places emitted this string independently - `BUILTIN_PLANS` here and
+    `generate_manifest` in manifest.py - and a third place, the subsumption
+    allowlist, tried to RECOGNISE it with a regex over shell text. That regex
+    is where two counter-model findings landed: `\\s` spans newlines, so
+    `make\\nlint` satisfied the direct form, and the conditional form matched a
+    PREFIX, so `... else true\\nfi\\nexit 1\\n#; fi` was recognised while
+    exiting 1. Both suppressed a step whose failure the aggregate cannot
+    reproduce.
+
+    So there is one producer and recognition is EQUALITY against it
+    (`command_runs_make_target`). A generated command is recognised by identity
+    with its own source; anything else is not recognised, and the gate runs
+    twice. This function is why that is a fact about the code rather than about
+    a pattern's cleverness.
+
+    It lives HERE, not in manifest.py, on purpose: manifest.py imports pydantic
+    and `lib.cicd.steps` must stay importable without it (#1163), so the
+    dependency runs generator -> steps and never the other way.
+    """
+    return (
+        f'if grep -q "^{step_id}:" Makefile 2>/dev/null; then make {step_id}; '
+        f"else {fallback}; fi"
+    )
+
+
+def _generated_fallback(command: str, target: str) -> Optional[str]:
+    """The fallback slot of ``command``, if it is the generated shape at all.
+
+    Taken by removing the builder's OWN literal prefix and suffix - not by
+    matching a pattern - so the only freedom left is the fallback text, and
+    `command_runs_make_target` then rebuilds and compares bytes. Trailing shell
+    cannot survive: the suffix must end the string.
+    """
+    sentinel = "\x00FALLBACK\x00"
+    template = gate_conditional_command(target, sentinel)
+    prefix, _, suffix = template.partition(sentinel)
+    if not command.startswith(prefix) or not command.endswith(suffix):
+        return None
+    return command[len(prefix): len(command) - len(suffix)]
+
+
 def _gate_step(
     step_id: str, uv_tool: str, pyproject_token: str, timeout_seconds: int
 ) -> "StepDef":
@@ -501,10 +546,7 @@ def _gate_step(
     return StepDef(
         id=step_id,
         gate=True,
-        command=(
-            f'if grep -q "^{step_id}:" Makefile 2>/dev/null; then make {step_id}; '
-            f"else uv run --extra dev {uv_tool}; fi"
-        ),
+        command=gate_conditional_command(step_id, f"uv run --extra dev {uv_tool}"),
         description=f"Run {step_id} (make {step_id}, else uv run {uv_tool.split()[0]})",
         timeout_seconds=timeout_seconds,
         max_attempts=1,
@@ -715,63 +757,660 @@ def plan_gate_ids(plan_name: str, step_defs: list[StepDef]) -> list[str]:
     return sorted({s.id for s in step_defs if s.gate})
 
 
+#: One `make -p -n` per (root, target) per process. The read is cheap - 0.00s
+#: and 56KB on this repository - but it PARSES the target makefile, and a
+#: makefile's `$(shell ...)` runs at parse time (measured: one execution under
+#: `-p -n`). Doing it once per gate run rather than once per question keeps
+#: that at the minimum the answer requires.
+_MAKE_PREREQ_CACHE: dict[tuple[Any, ...], Optional[str]] = {}
+
+#: A makefile that reads `MAKEFLAGS` can resolve differently under the query
+#: than under the run, because `-p -n` ARE make flags (counter-model review,
+#: round 2). Measured: `verify: lint` guarded by
+#: `ifneq (,$(findstring n,$(MAKEFLAGS)))` is reported by the query and is NOT
+#: run by `make verify`, which is this issue's false green with the conditional
+#: keyed on the query itself. Naming the goal fixed `MAKECMDGOALS`; nothing can
+#: fix `MAKEFLAGS` while the query needs flags. So a makefile that mentions it
+#: is refused outright rather than answered wrongly.
+_MAKEFLAGS_SENSITIVE = re.compile(r"\bMAKEFLAGS\b")
+
+#: Make's OWN variables, removed from the query's environment.
+#:
+#: A parent make exports these to everything it runs, so a derivation invoked
+#: from inside a make recipe - `make verify` running the test suite is exactly
+#: that - inherits the outer make's flags. Measured: with `MAKEFLAGS=w` and
+#: `MAKELEVEL=1` in the environment, the query's make announces `Entering
+#: directory`, the recursion guard fires, and subsumption silently turns OFF
+#: for a makefile that is perfectly inside the grammar. It fails SAFE (every
+#: gate runs), but it is still wrong, and it would have removed the whole
+#: saving in the nested case without saying so.
+#:
+#: The query is a question about a MAKEFILE, not about whichever make happens
+#: to be running us, so it is asked in a controlled environment. This is the
+#: same lesson as the MAKEFLAGS grammar refusal one layer down: flags that
+#: reach the query change its answer.
+_MAKE_OWN_ENV = frozenset(
+    {"MAKEFLAGS", "MFLAGS", "MAKELEVEL", "MAKE_TERMOUT", "MAKE_TERMERR", "MAKECMDGOALS"}
+)
+
+
+def _query_env(env: Optional[dict[str, str]]) -> dict[str, str]:
+    """``env`` with the outer make's own variables removed."""
+    base = dict(os.environ if env is None else env)
+    for name in _MAKE_OWN_ENV:
+        base.pop(name, None)
+    return base
+
+
+def reset_make_prerequisite_cache() -> None:
+    """Drop every memoised `make -p -n` answer; call once per RUN.
+
+    The cache spans a PROCESS, and the makefile it answers about is a file on
+    disk that a resumed run, a long-lived server, or the step before this one
+    can have changed (counter-model review). A stale entry does not fail - it
+    suppresses gates according to a makefile that is no longer there, which is
+    this issue's own defect with a different reader. The runner clears it at
+    the top of every run; within a run the makefile is fixed and the memo is
+    what keeps `make -p -n` to one execution per aggregate.
+    """
+    _MAKE_PREREQ_CACHE.clear()
+
+
+def _make_database(
+    project_root: str, target: str, env: Optional[dict[str, str]] = None
+) -> Optional[str]:
+    """The `make -p -n <target>` dump, or None when make cannot be asked.
+
+    CACHED AS THE DUMP rather than as the parsed answer, so the two questions
+    asked of it - what are `target`'s prerequisites, and is a given name a rule
+    in its own right - cost ONE make invocation between them and are answered
+    from the same database. Two invocations could disagree with each other.
+
+    ASKS MAKE RATHER THAN READING THE MAKEFILE, and that is the whole of issue
+    #1165. A textual reader cannot evaluate `ifeq`, `ifdef`, `include` or
+    variable expansion, so it reports prerequisites make will never run.
+    Measured on a fixture whose `verify: lint` sits inside `ifeq (1,0)`:
+
+        textual reader -> ['lint', 'test', 'typecheck']
+        make -p -n     -> verify: test typecheck
+        make -n verify -> runs test, typecheck; lint never runs
+
+    Subsumption built on the first marks `lint` covered, and a BROKEN LINT then
+    passes as a `subsumed` gate - a false green produced by a cost fix.
+
+    A better textual parser is the same defect one conditional at a time, and a
+    textual reader consulted ALONGSIDE make is that defect with a quorum: every
+    case where the two differ is a case where the text is wrong, and wrong in
+    the unsafe direction. So the text is not consulted here at all.
+
+    `-p` rather than `-n`: `-n` prints RECIPES, and mapping recipe lines back to
+    target names is a second inference. `-p` prints the rule database with
+    conditionals already resolved, so the rule is read rather than
+    reconstructed. EXPLICIT rules only - an implicit or pattern-derived match is
+    not a statement that these prerequisites run for this target.
+
+    THE COST, STATED: `make -p -n` parses the target makefile, and `$(shell ...)`
+    executes AT PARSE TIME - confirmed, one execution under these flags. That
+    cost has a bound worth knowing: the gate is about to run `make verify` in
+    this same tree, which parses the same makefile and runs the same `$(shell)`.
+    This front-runs one parse; it introduces no side effect the run was not
+    already going to have.
+
+    None means MAKE DID NOT ANSWER - absent, a makefile that will not parse, or
+    no explicit rule for the target - and every caller treats that as "nothing
+    is subsumed". The failure mode is duplicated work, never a skipped check.
+    """
+    # THE ENVIRONMENT IS PART OF THE QUESTION, so it is part of the key
+    # (counter-model review, round 2). A step may carry `env` overrides, and a
+    # makefile conditional can read them - so "what does `verify` run" has a
+    # different answer per environment, and a memo keyed on the path alone
+    # would serve one environment's answer to another.
+    key = (str(project_root), target, tuple(sorted((env or {}).items())))
+    if key in _MAKE_PREREQ_CACHE:
+        return _MAKE_PREREQ_CACHE[key]
+
+    result: Optional[str] = None
+    makefile = Path(project_root) / "Makefile"
+    # THE GRAMMAR IS CHECKED FIRST, so a makefile outside it is never QUERIED -
+    # `$(MAKE)` recursion and MAKEFLAGS conditionals do not execute (#1165, B).
+    if makefile.is_file() and makefile_grammar_refusal(project_root) is None:
+        try:
+            # THE TARGET IS NAMED (counter-model review). Without it make
+            # evaluates its DEFAULT goal with an empty `MAKECMDGOALS`, so a
+            # rule guarded by `ifneq ($(MAKECMDGOALS),verify)` resolves the
+            # other way: measured, the query returned ['test', 'lint'] for a
+            # tree where `make verify` runs only test. Asking about the wrong
+            # goal is the same defect as reading the wrong text.
+            proc = subprocess.run(
+                ["make", "-p", "-n", target],
+                env=_query_env(env),
+                cwd=project_root,
+                capture_output=True,
+                text=True,
+                timeout=120,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            proc = None
+        # A FAILED QUERY IS NOT AN ANSWER (counter-model review). GNU make
+        # emits a PARTIAL database even when it exits non-zero: measured, a
+        # makefile whose `$(error ...)` aborts the parse still printed a
+        # `verify: lint` line, and parsing it returned ['lint'] from a make
+        # that had refused to run. "Cannot answer means subsume nothing" has to
+        # include "answered badly".
+        if proc is not None and proc.returncode == 0 and proc.stdout:
+            result = proc.stdout
+    _MAKE_PREREQ_CACHE[key] = result
+    return result
+
+
+def make_prerequisites(
+    project_root: str, target: str, env: Optional[dict[str, str]] = None
+) -> Optional[list[str]]:
+    """``target``'s prerequisites as make resolves them, or None if unanswerable."""
+    database = _make_database(project_root, target, env)
+    return None if database is None else _explicit_rule(database, target)
+
+
+def make_declares_target(
+    project_root: str, target: str, name: str, env: Optional[dict[str, str]] = None
+) -> bool:
+    r"""Is ``name`` an explicit RULE in the database ``target`` was queried from?
+
+    A PREREQUISITE NAME IS NOT PROOF A TARGET OF THAT NAME EXISTS, and one
+    shape makes the two genuinely indistinguishable in the dump: a filename
+    containing an escaped space. `make -p` prints `verify: lint\ aux test` as
+
+        verify: lint aux test
+
+    with the backslash GONE, so one file named `lint aux` and two files named
+    `lint` and `aux` are BYTE-IDENTICAL there. No parser can separate them -
+    this is a limit of the output, not a bug in the reader - and the wrong
+    reading credits a step called `lint` to an aggregate that never runs one.
+
+    The targets are not ambiguous, though: the same dump prints the rule as
+    `lint aux:`, and no `lint:` line exists. So a prerequisite is credited only
+    when the database also declares it as a rule in its own right, which is in
+    any case the only kind of prerequisite `make <name>` can mean
+    (counter-model review, round 2).
+    """
+    database = _make_database(project_root, target, env)
+    if database is None:
+        return False
+    prefix = f"{name}:"
+    in_files = False
+    for line in database.splitlines():
+        if line.startswith("# Files"):
+            in_files = True
+            continue
+        if in_files and line.startswith("# files hash-table stats"):
+            break
+        if in_files and line.startswith(prefix):
+            return True
+    return False
+
+
+#: THE POSITIVE GRAMMAR (issue #1165, orchestrator ratification of option B).
+#:
+#: Two counter-model passes produced FIFTEEN findings against this derivation,
+#: every one of them a way for a quality gate to be recorded as covered while
+#: never running, and every one a construct the reader had not anticipated:
+#: inactive conditionals, MAKECMDGOALS, MAKEFLAGS, recursive `$(MAKE)`,
+#: target-specific variables, escaped hashes, escaped spaces, `$(error)`. A
+#: sixteenth was always going to exist, because a list of FORBIDDEN constructs
+#: can only ever name the ones somebody already thought of.
+#:
+#: So the set is what is ALLOWED, and it is CLOSED. A makefile is queried only
+#: when every one of its logical lines is one of four shapes; anything else -
+#: including a shape nobody has imagined yet - refuses by construction, names
+#: the line and the construct, and every gate runs. The cost of refusing is a
+#: duplicate run. The cost of accepting wrongly is the check not happening.
+#:
+#: DO NOT "relax the grammar a little". The grammar IS the instrument; widening
+#: it re-opens the class above one construct at a time, which is the history
+#: this replaced.
+_PLAIN_NAME = re.compile(r"\A[A-Za-z0-9_.-]+\Z")
+
+#: `NAME = value`, `:=`, `?=`, `+=`. The name uses the same plain class as a
+#: target, so make's own dotted specials (`.DEFAULT_GOAL`) are ordinary
+#: assignments - CPP's Makefile carries one, and a narrower class would have
+#: put this repository outside its own grammar.
+_ASSIGNMENT = re.compile(
+    r"\A[A-Za-z0-9_.-]+[ \t]*(?::=|\?=|\+=|=)(?P<value>.*)\Z", re.S
+)
+
+#: Values that make the makefile's meaning depend on something other than its
+#: own text: a subprocess, a re-parse, a recursive make, or make's own flags.
+_GRAMMAR_FORBIDDEN_VALUES = (
+    "$(shell", "${shell", "$(eval", "${eval",
+    "$(MAKE)", "${MAKE}", "MAKEFLAGS",
+)
+
+_NAMED_CONSTRUCTS = (
+    ("an include", ("include ", "-include ", "sinclude ")),
+    ("a conditional", ("ifeq", "ifneq", "ifdef", "ifndef", "else", "endif")),
+    ("a define block", ("define ", "endef")),
+    ("an export directive", ("export ", "unexport ")),
+    ("a vpath directive", ("vpath ",)),
+)
+
+
+def _construct_name(line: str) -> str:
+    """Name what refused, so the duplicate run explains itself."""
+    stripped = line.strip()
+    for name, prefixes in _NAMED_CONSTRUCTS:
+        if any(stripped == pre.strip() or stripped.startswith(pre) for pre in prefixes):
+            return name
+    if "%" in stripped:
+        return "a pattern rule"
+    if "::" in stripped:
+        return "a double-colon rule"
+    if "$$" in stripped:
+        return "a secondary expansion"
+    if "\\" in stripped:
+        return "a backslash escape in a rule line"
+    if "#" in stripped:
+        return "a hash in a rule line"
+    return "a line the grammar does not recognise"
+
+
+def _logical_lines(text: str) -> Iterator[tuple[int, str]]:
+    """Physical lines joined on a trailing backslash, with the START line number.
+
+    A TRAILING backslash is a continuation - the ordinary way to write a long
+    prerequisite list, and CPP's own `verify` uses it across eight physical
+    lines. It is not the hazard. A backslash ESCAPING a character inside a name
+    (`lint\\ aux`, `lint\\#aux`) is, and that one SURVIVES the join and is
+    refused below. Joining first is what keeps the grammar a statement about
+    makefiles rather than a statement about where the line breaks fall.
+    """
+    buf, start = "", 1
+    for number, raw in enumerate(text.splitlines(), 1):
+        if not buf:
+            start = number
+        if raw.endswith("\\"):
+            buf += raw[:-1] + " "
+            continue
+        yield start, buf + raw
+        buf = ""
+    if buf:
+        yield start, buf
+
+
+def makefile_grammar_refusal(project_root: str) -> Optional[str]:
+    """None when the makefile is inside the grammar, else line and construct.
+
+    RUN BEFORE THE `make -p -n` QUERY, and that ordering is load-bearing: a
+    file outside the grammar is never queried, so `$(MAKE)` recursion and
+    MAKEFLAGS-sensitive conditionals never execute at all. Both this and the
+    query must agree or nothing is subsumed.
+    """
+    makefile = Path(project_root) / "Makefile"
+    try:
+        text = makefile.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        return f"the makefile could not be read ({exc.__class__.__name__})"
+
+    for number, line in _logical_lines(text):
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue  # blank, or a comment
+        if line.startswith("\t"):
+            continue  # a recipe line; its contents are make's business, not ours
+        assignment = _ASSIGNMENT.match(line)
+        if assignment is not None:
+            value = assignment.group("value")
+            for token in _GRAMMAR_FORBIDDEN_VALUES:
+                if token in value:
+                    return (
+                        f"line {number}: an assignment whose value contains {token}"
+                    )
+            continue
+        head, separator, tail = line.partition(":")
+        if separator and "=" not in head and not tail.startswith(":"):
+            if not any(ch in line for ch in ("\\", "#", "%")):
+                targets, prerequisites = head.split(), tail.split()
+                if targets and all(
+                    _PLAIN_NAME.match(name) for name in targets + prerequisites
+                ):
+                    continue  # a rule, all plain names
+        return f"line {number}: {_construct_name(line)}"
+    return None
+
+
+def _reads_makeflags(makefile: Path) -> bool:
+    """Does this makefile resolve differently depending on make's own flags?
+
+    The query runs `make -p -n`; the gate runs `make verify`. Those differ in
+    `MAKEFLAGS`, and a makefile is allowed to branch on it - so for such a tree
+    the query answers a question about itself. Measured (counter-model review,
+    round 2): `verify: lint` guarded by `ifneq (,$(findstring n,$(MAKEFLAGS)))`
+    is REPORTED by the query and is NOT run by `make verify`, so a broken lint
+    would be suppressed in favour of an aggregate that never runs it.
+
+    THE BOUND, STATED: this reads the top-level `Makefile` only. A reference
+    inside an `include`d file is not seen, so this narrows the hazard rather
+    than closing it. It is worth having anyway - the shape is rare, the check
+    is two lines, and the failure it removes is a silent false green - but a
+    reader must not take a pass here as proof the tree is flag-insensitive.
+    Unreadable counts AS sensitive: refusing costs a duplicate run.
+    """
+    try:
+        return bool(_MAKEFLAGS_SENSITIVE.search(makefile.read_text(encoding="utf-8", errors="replace")))
+    except OSError:
+        return True
+
+
+def _explicit_rule(database: str, target: str) -> Optional[list[str]]:
+    """``target``'s prerequisites from a `make -p` dump, explicit rules only.
+
+    `-p` also prints pattern rules and entries make merely considered, so a
+    bare search for the name would answer a different question. An entry
+    preceded by `# Not a target:` is exactly that, and is skipped.
+    """
+    # ONE DATABASE, OR NONE. `-n` does NOT suppress a recipe line containing
+    # `$(MAKE)` - documented GNU behaviour - so a tree using recursive make runs
+    # its children during the query, and a child's `-p` dump is printed BEFORE
+    # the parent's. Measured: a parent whose rule is `verify: test` returned
+    # `['lint']`, read out of a child makefile in a subdirectory. The parser
+    # cannot tell whose database it is reading, so where there is more than one
+    # it reads none (counter-model review, round 2).
+    if database.count("\n# Files") > 1 or "Entering directory" in database:
+        return None
+
+    prefix = f"{target}:"
+    previous = ""
+    in_files = False
+    for line in database.splitlines():
+        # SCOPED TO THE FILES SECTION. `-p` prints variables, directories and
+        # implicit rules as well, and a `verify: lint` occurring inside a
+        # multi-line variable value is not a rule - measured, it was read as
+        # one. The dump labels the section; anchoring on the label is what
+        # makes this a rule reader rather than a text search.
+        if line.startswith("# Files"):
+            in_files = True
+            continue
+        if in_files and line.startswith("# files hash-table stats"):
+            break
+        if not in_files:
+            continue
+        if line.startswith(prefix) and not line.startswith(f"{target}::"):
+            if previous.strip().startswith("# Not a target"):
+                previous = line
+                continue
+            rhs = line[len(prefix):]
+            # AMBIGUOUS MEANS REFUSED, NOT GUESSED. Splitting on whitespace and
+            # cutting at `#` is correct only for a rule whose prerequisites are
+            # plain names, and three shapes break it - each measured returning a
+            # WRONG NAME rather than an error (counter-model review, round 2):
+            #
+            #   `verify: CHECK/LIST = lint`  -> ['CHECK/LIST', '=', 'lint']
+            #        a target-specific variable. The previous guard keyed on the
+            #        variable NAME, so any name outside its character class
+            #        walked straight past it; `=` anywhere is the general tell.
+            #   `verify: lint\#aux`          -> ['lint']
+            #        an escaped `#` is part of the filename, and cutting there
+            #        invents a target `lint` that does not exist.
+            #   `verify: lint\ aux test`     -> ['lint', 'aux', 'test']
+            #        an escaped space is ONE file; splitting makes it two.
+            #
+            # Every wrong name is a gate id that may match a real step and
+            # suppress it. There is no reading of these where guessing beats
+            # running the gate twice, so any marker refuses the whole rule.
+            # CPP's own `verify` carries none, which the 29-prerequisite
+            # consumer-side pin re-confirms on every run.
+            # AN ASSIGNMENT IS SKIPPED; AN AMBIGUOUS RULE REFUSES. The two
+            # are different facts and deserve different answers. `=` anywhere
+            # in the right-hand side means this line assigns a target-specific
+            # variable, so it is not a prerequisite list at all - skip it and
+            # keep looking for the real rule, which is what make itself does.
+            # `#` or `\` mean the prerequisite LIST cannot be tokenised
+            # reliably, and there is no further line to fall back to, so the
+            # whole target refuses.
+            if "=" in rhs:
+                previous = line
+                continue
+            if "#" in rhs or "\\" in rhs:
+                return None
+            seen: set[str] = set()
+            out: list[str] = []
+            for name in rhs.split():
+                if name not in seen:
+                    seen.add(name)
+                    out.append(name)
+            return out
+        previous = line
+    return None
+
+
+#: Step commands that are a recognised way of running `make <target>`.
+#:
+#: An ALLOWLIST, defaulting to "not subsumed", because the question - does this
+#: step run the same check the aggregate's prerequisite runs? - is not decidable
+#: in general from a shell string. Two shapes exist in this repository and both
+#: are genuinely equivalent where the question arises:
+#:
+#:   `make lint`
+#:   `if grep -q "^lint:" Makefile 2>/dev/null; then make lint; else <alt>; fi`
+#:
+#: The second runs `make lint` exactly when a `lint:` target exists - and
+#: subsumption only arises when make NAMED lint a prerequisite, which requires
+#: that target. Anything else is reported by name WITH its command, so the
+#: duplicate run explains itself and the allowlist grows from evidence rather
+#: than from guessing.
+#: HORIZONTAL whitespace only, and the WHOLE command must match. `\s` spans
+#: newlines, so `make\nlint` - two shell commands - satisfied the direct form;
+#: and the conditional form matched a PREFIX, so `... && false; then make lint;
+#: else exit 1; fi` and a trailing `; exit 1` were both accepted. Suppressing
+#: such a step removes a failure the aggregate cannot reproduce (counter-model
+#: review).
+_MAKE_INVOCATION = re.compile(r"\Amake[ \t]+(?P<target>[A-Za-z0-9_.-]+)[ \t]*\Z")
+_GENERATED_CONDITIONAL = re.compile(
+    r'\Aif[ \t]+grep[ \t]+-q[ \t]+"\^(?P<guard>[A-Za-z0-9_.-]+):"[ \t]+Makefile'
+    r"[ \t]*(?:2>/dev/null)?[ \t]*;[ \t]*"
+    r"then[ \t]+make[ \t]+(?P<target>[A-Za-z0-9_.-]+);[ \t]*"
+    r"else[ \t]+[^;]+;[ \t]*fi[ \t]*\Z"
+)
+#: `verify: CHECKS = lint` and friends - an assignment, not a rule.
+_TARGET_VARIABLE = re.compile(r"\A[ \t]*[A-Za-z0-9_.-]+[ \t]*[:+?]?=")
+
+
+def command_runs_make_target(
+    command: str, target: str, project_root: Optional[str] = None
+) -> bool:
+    """Does ``command`` run `make <target>` on the path it will take HERE?
+
+    "On the path it will take here" is the whole contract, and the generated
+    conditional is where it bites. `generate_manifest` emits
+
+        if grep -q "^lint:" Makefile; then make lint; else <fallback>; fi
+
+    and recognising the shape only establishes what the command CAN do. Which
+    branch it takes is decided by that grep, against this project's makefile -
+    so this runs the same grep rather than assuming the `then` side. A tree
+    whose target comes from a variable (`$(CHECKS):`) has no literal `lint:`
+    line, takes the ELSE branch, and runs a fallback `make verify` never runs.
+    Suppressing it there would drop the check entirely (counter-model review).
+
+    `project_root=None` means the guard CANNOT be evaluated, so the conditional
+    form is refused. The cost of refusing is one duplicate run; the cost of
+    accepting is a gate that never executes.
+    """
+    text = command.strip()
+    # ONE LINE, OR NOT RECOGNISED. Both recognised shapes are single-line, and
+    # a newline is how trailing shell got past the old pattern.
+    if "\n" in text or "\r" in text:
+        return False
+    # Horizontal whitespace only - `str.split()` would fold a newline away and
+    # undo the line above.
+    normalised = " ".join(text.split(" "))
+    normalised = " ".join(normalised.split("\t"))
+    while "  " in normalised:
+        normalised = normalised.replace("  ", " ")
+    normalised = normalised.strip()
+
+    # EQUALITY, NOT PATTERN (#1165, option B). The direct form is one string.
+    if normalised == f"make {target}":
+        return True
+
+    # The generated form is recognised by IDENTITY WITH ITS PRODUCER: strip the
+    # builder's own literal prefix and suffix, rebuild with what is left, and
+    # require the bytes to match. No regex touches the shell text.
+    fallback = _generated_fallback(normalised, target)
+    if fallback is None:
+        return False
+    if normalised != gate_conditional_command(target, fallback):
+        return False
+    # The fallback runs only when the grep MISSES, and `_makefile_declares`
+    # below proves it hits - so its contents never execute on the path that
+    # matters. Refused anyway if it could chain: a slot that can carry `;` is a
+    # slot that can carry anything, and this is the one place a caller's text
+    # reaches an accepted command.
+    if any(ch in fallback for ch in (";", "&", "|", "`", "\n")):
+        return False
+    return _makefile_declares(project_root, target)
+
+
+def _makefile_declares(project_root: Optional[str], target: str) -> bool:
+    """The `grep -q "^<target>:" Makefile` the generated command itself runs."""
+    if project_root is None:
+        return False
+    makefile = Path(project_root) / "Makefile"
+    try:
+        text = makefile.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    prefix = f"{target}:"
+    return any(line.startswith(prefix) for line in text.splitlines())
+
+
 def subsumed_gate_ids(
     plan_name: str, step_defs: list[StepDef], project_root: str
-) -> dict[str, str]:
-    """Gate id -> the aggregate gate in THIS plan whose recipe already runs it.
+) -> tuple[dict[str, str], list[str]]:
+    """Gate id -> the aggregate that already runs it, and the refusals.
 
-    `make verify` in this repository lists `lint test typecheck` among its
-    prerequisites, so a finish plan running all four executes those three TWICE
-    - measured at 390.77s against 233.44s for the same coverage (issue #1152).
+    `make verify` here lists `lint test typecheck` among its prerequisites, so
+    the finish plan executed those three TWICE - measured at 390.77s against
+    233.44s for the same coverage (issue #1152).
 
-    DIRECT PREREQUISITES ONLY. A target two levels down is not claimed, even
-    though make would still run it: the derivation would then rest on a
-    transitive walk with cycle handling, and being wrong in that direction
-    means a gate is marked as covered when it was not. The safe failure is
-    running a gate TWICE, which costs time; the unsafe one is skipping a gate
-    that nothing ran, which costs the thing the gate exists for. So this stays
-    shallow on purpose and the cost of that choice is duplicate work, never a
-    missing check.
+    WHICH prerequisites is answered by MAKE, not by reading the makefile
+    (issue #1165): see `make_prerequisites`. WHETHER the step runs the same
+    check is answered by `command_runs_make_target`, an allowlist that refuses
+    what it does not recognise. Both refusals cost a duplicate run; accepting
+    either wrongly costs the thing the gate exists for.
 
-    ONE PARSER. `scripts/verify-coverage-check.py`'s `Makefile` is the
-    repository's canonical Makefile reader and is what `check-ci-coverage.py`
-    already loads - this adds no second reader of the same file.
-    `lib/cicd/makefile.py::parse_makefile` is deliberately NOT used: it does not
-    join backslash continuations and returns 9 of this repository's 29 verify
-    prerequisites, the last being a literal backslash (issue #1162). It would
-    have been right BY LUCK here, since lint, test and typecheck all sit on the
-    first physical line.
-
-    Returns an empty mapping when there is no Makefile, no aggregate gate in the
-    plan, or no parser - every one of which means "nothing is known to be
-    covered", so every gate runs on its own, which is the pre-#1152 behaviour.
+    Returns the mapping and a list of human-readable refusals, so a reader sees
+    why a gate was NOT subsumed instead of inferring it from silence.
     """
-    from importlib.util import module_from_spec, spec_from_file_location
-
     aggregates = [d.id for d in step_defs if d.gate and d.id in _AGGREGATE_GATE_IDS]
     if not aggregates:
-        return {}
-    parser_path = Path(_CPP_ROOT) / "scripts" / "verify-coverage-check.py"
-    makefile_path = Path(project_root) / "Makefile"
-    if not parser_path.is_file() or not makefile_path.is_file():
-        return {}
-    try:
-        spec = spec_from_file_location("cpp_makefile_reader", parser_path)
-        if spec is None or spec.loader is None:
-            return {}
-        module = module_from_spec(spec)
-        spec.loader.exec_module(module)
-        parsed = module.Makefile(makefile_path.read_text(encoding="utf-8"))
-    except Exception:  # noqa: BLE001 - an unusable parser means "nothing known"
-        return {}
+        return {}, []
 
+    by_id = {d.id: d for d in step_defs}
     in_plan = {d.id for d in step_defs if d.gate}
     covered: dict[str, str] = {}
+    refusals: list[str] = []
+
+    # THE GRAMMAR DECIDES FIRST, AND SAYS WHICH LINE (#1165, option B). A
+    # makefile outside the positive grammar is never queried - so `$(MAKE)`
+    # recursion and MAKEFLAGS conditionals do not execute - and the reader is
+    # told the line number and the construct rather than left with a generic
+    # "make could not be asked". The author who pays for a duplicate run can
+    # see exactly what put their makefile outside the set.
+    # AN ABSENT MAKEFILE IS A DIFFERENT FACT from one outside the grammar, and
+    # the two must not share a sentence: "there is no makefile to ask about"
+    # and "this makefile uses a construct I cannot be sure about" send a reader
+    # to different places. Absence falls through to the existing refusal below.
+    grammar = (
+        makefile_grammar_refusal(project_root)
+        if (Path(project_root) / "Makefile").is_file()
+        else None
+    )
+    if grammar is not None:
+        refusals.append(
+            f"the makefile is outside the grammar subsumption requires "
+            f"({grammar}), so nothing is subsumed and every gate runs"
+        )
+        return {}, refusals
+
     for aggregate in aggregates:
-        for prereq in parsed.prereqs.get(aggregate, ()):
-            if prereq in in_plan and prereq != aggregate and prereq not in covered:
-                covered[prereq] = aggregate
-    return covered
+        # THE AGGREGATE'S OWN COMMAND IS CHECKED FIRST (counter-model review).
+        # Every suppression below rests on `make verify` running the
+        # prerequisite - which rests on this step running `make verify`. It was
+        # never verified: a step declared `id: verify` whose command was `true`
+        # (or `make verify-fast`, or a wrapper) still credited the whole plan,
+        # so the gates were suppressed in favour of an aggregate that ran none
+        # of them. The step ids are labels; only the command runs.
+        aggregate_step = by_id.get(aggregate)
+        if aggregate_step is None or not command_runs_make_target(
+            aggregate_step.command, aggregate, project_root
+        ):  # noqa: SIM114 - the two refusals report different reasons
+            refusals.append(
+                f"`{aggregate}` is declared as the aggregate but this plan runs it as "
+                f"{aggregate_step.command!r} - not a recognised way of running "
+                f"`make {aggregate}`, so it cannot be credited with running anything "
+                f"and every gate runs on its own"
+                if aggregate_step is not None
+                else f"`{aggregate}` is declared as the aggregate but is not a step here"
+            )
+            continue
+        # ASKED IN THE ENVIRONMENT THE AGGREGATE WILL RUN IN (counter-model
+        # review, round 2). A step may carry `env` overrides and a makefile
+        # conditional may read them, so the query and the run can disagree
+        # about what `verify` does while both are correct about their own
+        # environment. Measured: a `verify` step with `env={"SKIP_LINT": "1"}`
+        # whose makefile drops lint under that variable was reported as
+        # covering lint, with no refusal, while standalone lint failed.
+        aggregate_env = dict(os.environ)
+        aggregate_env.update(aggregate_step.env)
+        prereqs = make_prerequisites(project_root, aggregate, aggregate_env)
+        if prereqs is None:
+            refusals.append(
+                f"make could not be asked what `{aggregate}` runs (absent, unparseable, "
+                f"or no explicit rule), so nothing is subsumed and every gate runs"
+            )
+            continue
+        for prereq in prereqs:
+            if prereq not in in_plan or prereq == aggregate or prereq in covered:
+                continue
+            # ...AND ONLY A NAME THE DATABASE DECLARES AS A RULE. An escaped
+            # space makes `lint aux` and `lint` + `aux` byte-identical in the
+            # prerequisite list, so the name alone cannot be trusted; the rule
+            # lines can (counter-model review, round 2).
+            if not make_declares_target(project_root, aggregate, prereq, aggregate_env):
+                refusals.append(
+                    f"`{prereq}` appears in `{aggregate}`'s prerequisite list but the "
+                    f"database declares no `{prereq}:` rule - the name may be part of "
+                    f"a filename containing a space, which make prints without its "
+                    f"escape, so it is NOT subsumed"
+                )
+                continue
+            step = by_id.get(prereq)
+            # A PREREQUISITE STEP WITH A DIFFERENT ENVIRONMENT RUNS A
+            # DIFFERENT CHECK, whatever its command says. `make lint` under
+            # `env={"STRICT": "1"}` is not the `make lint` the aggregate runs,
+            # so an identical command string is not equivalence (counter-model
+            # review, round 2).
+            if step is not None and step.env != aggregate_step.env:
+                refusals.append(
+                    f"`{prereq}` is a prerequisite of `{aggregate}`, but the two steps "
+                    f"declare different environments ({step.env!r} against "
+                    f"{aggregate_step.env!r}) - the same command in a different "
+                    f"environment is not the same check, so it is NOT subsumed"
+                )
+                continue
+            if step is None or not command_runs_make_target(
+                step.command, prereq, project_root
+            ):
+                refusals.append(
+                    f"`{prereq}` is a prerequisite of `{aggregate}`, but this plan runs it "
+                    f"as {step.command!r} - not a recognised way of running "
+                    f"`make {prereq}`, so it is NOT subsumed and runs on its own"
+                    if step is not None
+                    else f"`{prereq}` is a prerequisite of `{aggregate}` but is not a step here"
+                )
+                continue
+            covered[prereq] = aggregate
+    return covered, refusals
 
 
 def dropped_gate_ids(

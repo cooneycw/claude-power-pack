@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Stands in for `uv run --project <CPP> python -m lib.cicd run --plan <p>` by
+# running the REAL lib.cicd on the interpreter that is already here.
+#
+# This is what issue #1163 bought. Before it, `lib/cicd/__init__.py` re-exported
+# sixteen submodules eagerly and `cli.py` imported seven more at module scope -
+# several reaching `.config`, which imports pydantic. So `python3 -m lib.cicd`
+# could not START in the negative-controls image and no control could reach the
+# runner at all. Both are deferred now, so the derivation under test runs on the
+# stdlib alone: no virtualenv, no network, no pydantic.
+#
+# It stands in for uv's ENVIRONMENT RESOLUTION and nothing else. The module that
+# executes is the repository's own, so this case measures the real derivation
+# rather than a re-description of it.
+#
+# SPLIT ON THE INTERPRETER, not on keywords. The first cut matched `run` and
+# dropped it - and `run` appears TWICE in the real invocation, once as uv's
+# subcommand and once as lib.cicd's command. It ate both, argparse saw
+# `--plan finish` with no command, and the case failed for a reason that had
+# nothing to do with its subject.
+project=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        python|python3) shift; break ;;
+        --project) project="$2"; shift 2 ;;
+        --extra|--with) shift 2 ;;
+        *) shift ;;
+    esac
+done
+[[ -n "$project" ]] || { echo "uv-stub: no --project in the invocation" >&2; exit 2; }
+PYTHONPATH="$project${PYTHONPATH:+:$PYTHONPATH}" exec python3 "$@"

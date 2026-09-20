@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# A make that RUNS TARGETS but CANNOT ANSWER THE DERIVATION QUERY.
+#
+# This case is the SAFETY PROPERTY of issue #1165: when make cannot say what an
+# aggregate runs, NOTHING is subsumed and every gate runs on its own. That is
+# the direction the fix must fail in - the alternative, falling back to a
+# textual read, is the false green the issue is about. A control proving only
+# that the derivation WORKS says nothing about what happens when it cannot.
+#
+# ONE VARIABLE IS MOVED, deliberately. Refusing everything would fail the gate
+# on the steps rather than demonstrate the fall-back, and refusing only `-p`
+# models the real shapes this has to survive: a make too old for the flag, a
+# `-p` that errors on an include it cannot resolve, a dump the parser cannot
+# find an explicit rule in. In all of them targets still run and the question
+# still goes unanswered.
+#
+# The Makefile beside this file lists lint/test/typecheck as verify's
+# prerequisites, so a derivation that fell back to READING it would subsume all
+# three - and this case would then run only `verify`. It runs all four, which
+# is the property.
+for arg in "$@"; do
+    case "$arg" in
+        -p|-n|-pn|-np) echo "make: this stub cannot dump its database" >&2; exit 127 ;;
+    esac
+done
+target="${1:-all}"
+grep -q "^${target}:" Makefile 2>/dev/null || { echo "make: no rule '$target'" >&2; exit 2; }
+# THE RECIPE'S STATUS IS THE STUB'S STATUS. This used to pipe into `while` and
+# then `exit 0` unconditionally - two ways of throwing the answer away: the
+# loop body ran in the pipeline's SUBSHELL, so a failing line could not reach
+# the parent, and the trailing `exit 0` overwrote it in any case. A stub that
+# always succeeds cannot model a make, and a case whose broken target still
+# exits 0 measures nothing. Process substitution keeps the loop in this shell.
+status=0
+while IFS= read -r line; do
+    eval "$line" || { status=$?; break; }
+done < <(sed -n "/^${target}:/,/^[a-zA-Z]/p" Makefile | sed -n 's/^\t@\?//p')
+exit "$status"

@@ -53,6 +53,7 @@ _GATE_PYPROJECT_TOKENS = {"lint": "ruff", "test": "pytest", "typecheck": "mypy"}
 # Re-exported from the reader-free module so the two cannot drift; steps.py
 # needs the path when THIS module is the thing that will not import (#1163).
 from .manifest_path import MANIFEST_FILENAME, MANIFEST_PATH  # noqa: E402
+from .steps import gate_conditional_command  # noqa: E402
 
 SUPPORTED_VERSIONS = {"1"}
 
@@ -376,10 +377,9 @@ def generate_manifest(
         if step_name in _GATE_PYPROJECT_TOKENS and is_python and (have_runner or have_make):
             runner_cmd = runners.get(step_name)
             if have_make and runner_cmd:
-                command = (
-                    f'if grep -q "^{step_name}:" Makefile 2>/dev/null; '
-                    f"then make {step_name}; else {runner_cmd}; fi"
-                )
+                # ONE PRODUCER for this string; the subsumption allowlist
+                # recognises it by EQUALITY against the same function (#1165).
+                command = gate_conditional_command(step_name, runner_cmd)
             elif have_make:
                 command = f"make {step_name}"
             else:
