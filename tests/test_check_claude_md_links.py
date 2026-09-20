@@ -142,3 +142,59 @@ def test_the_real_repo_documents_every_canonical_agents_doc() -> None:
     missing, disk_count = links.find_undocumented_canonical_docs(root, source)
     assert disk_count >= links.MIN_CANONICAL_AGENT_DOCS
     assert missing == []
+
+
+# --------------------------------------------------------------------------- #
+# #1036 - #841 fixed the EMPTY case and left the universal standing everywhere
+#         else
+# --------------------------------------------------------------------------- #
+
+
+def test_the_success_line_counts_what_it_resolved(tmp_path: Path, capsys) -> None:
+    """`every repository-local pointer resolves` claimed a CLASS.
+
+    #841 made the gate able to report an EMPTY population, which is a different
+    fix: on every non-empty input the universal survived untouched, and a
+    pointer written in a shape the extractor does not model produced the
+    identical green over a population nobody could read off the line.
+    `docs/agents/detector-contracts.md` carries the table this row belongs to.
+    """
+    root = _build_agents_tree(tmp_path, count=8)
+    named = [f"topic-{i}.md" for i in range(8)]
+    (root / "CLAUDE.md").write_text(_claude_md_naming(root, named), encoding="utf-8")
+
+    assert links.main(["--root", str(root)]) == 0
+    line = capsys.readouterr().out.strip()
+    assert "every repository-local pointer" not in line, (
+        f"the class quantifier is back: {line!r}"
+    )
+    assert "8 canonical" in line, line
+
+
+def test_the_pointer_count_moves_with_the_population(tmp_path: Path, capsys) -> None:
+    """A denominator that never moves is not a denominator.
+
+    Two trees of different sizes is the only thing that separates a count
+    derived from the population actually examined from a number that merely
+    looks like one. Both sit at or above `MIN_CANONICAL_AGENT_DOCS`, since
+    below it the gate correctly reports UNKNOWN rather than a count (#847).
+    """
+    small = _build_agents_tree(tmp_path / "small", count=8)
+    (small / "CLAUDE.md").write_text(
+        _claude_md_naming(small, [f"topic-{i}.md" for i in range(8)]), encoding="utf-8"
+    )
+    assert links.main(["--root", str(small)]) == 0
+    first = capsys.readouterr().out.strip()
+
+    large = _build_agents_tree(tmp_path / "large", count=12)
+    (large / "CLAUDE.md").write_text(
+        _claude_md_naming(large, [f"topic-{i}.md" for i in range(12)]), encoding="utf-8"
+    )
+    assert links.main(["--root", str(large)]) == 0
+    second = capsys.readouterr().out.strip()
+
+    assert first != second, (
+        f"identical success line over an 8-doc and a 12-doc tree: {first!r}"
+    )
+    assert "8 canonical" in first, first
+    assert "12 canonical" in second, second

@@ -387,6 +387,7 @@ verify: tools-check lint test typecheck shellcheck bandit-audit undeclared-impor
 	claude-md-budget-check claude-md-links-check claude-md-behavior-check \
 	project-next-check delegated-core-check codex-skills-check \
 	scripts-inventory-check instrument-census-check verify-coverage-check \
+	control-ci-deps-check \
 	consolidation-ledger-check \
 	version-consistency-check unicode-dashes-check co-authored-by-trailer-check
 	@python3 scripts/verify-coverage-check.py --report
@@ -424,6 +425,25 @@ verify: tools-check lint test typecheck shellcheck bandit-audit undeclared-impor
 ## verify-coverage: gate verify-coverage-check - every Makefile target is classified against this list, and every file in scripts/ is accounted for
 verify-coverage-check:
 	@python3 scripts/verify-coverage-check.py
+
+## Would a registered control RUN in the image that runs the battery? (issue #1036)
+##
+## A control registered committed bare git repositories as its cases; `git` is not
+## in the `negative-controls` image, and because the harness REFUSES to skip a
+## control it cannot run, that one control made the gate that reports on every
+## other control unable to report. It passed `make verify`, `--strict`, sixteen
+## killed mutations and two review passes locally first - the dev box has git, so
+## the condition is structurally invisible here unless something asks the question
+## deliberately.
+##
+## IN `verify` PRECISELY BECAUSE THE BATTERY IS NOT. `negative-controls` above sits
+## out for an environment reason, so without this target the whole subject would be
+## unexamined locally and the failure would keep arriving as a CI red on a step that
+## names a different control than the one at fault. This gate needs no binary the
+## battery needs: it READS the pipeline and the manifests, it runs nothing.
+## verify-coverage: gate control-ci-deps-check - every registered control's examined surface resolves against the binaries the battery's CI step provides
+control-ci-deps-check:
+	@python3 scripts/check-control-ci-deps.py
 
 ## THE CONTROL BATTERY, LOCALLY RUNNABLE - AND DELIBERATELY NOT IN `verify`
 ## (issue #1028). It had no Makefile target at all, so the only way to run the

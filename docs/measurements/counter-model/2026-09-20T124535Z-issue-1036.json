@@ -1,0 +1,19 @@
+{
+  "branch": "issue-1036-check-negative-controls-n-of-m-enumerated-instrume",
+  "counts": {
+    "accepted": 10,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "implementer": "claude/claude-opus-5",
+  "issue": "1036",
+  "passes": 2,
+  "recorded_at": "2026-09-20T12:45:35Z",
+  "red_cases": {
+    "already_covered": 5,
+    "proposed": 14
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}
