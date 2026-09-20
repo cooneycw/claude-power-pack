@@ -1,0 +1,42 @@
+{
+  "gate": "scripts/flow-vantage.sh",
+  "invocation": [
+    "env",
+    "FLOW_VANTAGE_DECLARE=",
+    "bash",
+    "{gate}",
+    "--fixture",
+    "{case}",
+    "--quiet"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^FLOW_VANTAGE: (container|unknown)$",
+  "limits": "THE SIGNALS ARE RELOCATED, THE DERIVATION IS NOT. Every case runs the REAL scripts/flow-vantage.sh; `--fixture` moves the PATHS it reads (`ns-pid`, `etc/machine-id`) and supplies no verdict - nothing in a case directory can name an answer, which is what keeps these cases able to fail. `ns-pid` is a real symlink read by the same `readlink` that reads /proc/self/ns/pid, so the namespace comparison under test is the production one. WHY `good_exit` IS host RATHER THAN THE POLARITY #959 SKETCHED. The issue illustrated the control with a record-count anchor, whose cases run the other way: a lone host session as the known-BAD input. That polarity forces `good_exit` to mean `container`, i.e. a production contract in which exit 0 says 'I am inside a container' - indefensible for every other caller of this helper, and this helper has callers. Exit 0 means host (nothing to report), 3 container, 4 unknown, and the anchor is the OTHER blindness #958 measured, which fails toward `host` and therefore misses the bad inputs as this framework requires. The record-count blindness is not dropped: it is pinned as a behavioural invariant in tests/test_flow_vantage.py, where the count can be varied and the verdict asserted not to move. WHAT THIS DOES NOT ESTABLISH: that the gate's verdict is correct about the machine it is actually running on. That question is answered by running it, and its answer is a fact about that process at that moment - which is why `flow-wave-registry.sh` stores the verdict it derived rather than a verdict anyone can re-derive later from somewhere else. It also does not establish that `pid:[4026531836]` IS the initial namespace on every kernel; that is a Linux convention the gate leans on and names as one. THE MOUNT TABLE IS COMMITTED, NOT READ FROM /proc: an anchor consulting the live /proc/self/mountinfo would make its blindness depend on ambient host state, the counter-model finding recorded against controls/flow-driver-retirement-check. `bad-unknown-disagreement` carries no etc/ directory by design - the absence IS the fixture, and its README.md is what keeps the directory in a clean clone. WHAT THIS CONTROL IS MEASURED TO MISS (2026-09-20): a record-COUNT branch added to the gate - the #958 blindness - leaves every case here GOOD/BAD as expected and reports PASS, `--strict` exit 0, because the committed cases carry no session records and the blindness is therefore invisible to them by construction. Only `tests/test_flow_vantage.py::test_the_verdict_does_not_move_with_the_record_count[host]` fails under it. Stated here rather than left to be discovered, because a control's silence about a blindness reads exactly like coverage of it. The mutation this control DOES catch was run the same day: inverting the namespace comparison makes it report BLIND. `FLOW_VANTAGE_DECLARE` IS NEUTRALISED IN THE INVOCATION (set EMPTY via `env VAR=`, which the gate treats as undeclared), and that is load-bearing (counter-model review, codex/gpt-6-astra, 2026-09-20). The gate reads that variable FIRST and short-circuits every measurement below it, so a control that inherited the calling session's environment would never reach the fixtures at all: measured the same day, this control reports PASS with the variable absent and BLIND with either `host` or `container` exported. Its red would then be a fact about whoever ran it rather than about the gate - a non-zero that cannot tell our thing from a neighbour's, arriving inside the framework built for that failure. The unit suite clears the variable per run; the control could not, because the invocation is data. The EMPTY form is used rather than `env -u`: `check-control-ci-deps.py` reads the token after `env` as the command when it is not a `VAR=value` assignment, so `env -u FLOW_VANTAGE_DECLARE bash ...` made the whole battery red with `flow-vantage needs \\u0060-u\\u0060` - nit-stored against #864. Empty-is-undeclared is pinned in the gate and by test, not left as an implementation accident. THE KNOWN DEFEATER OF THE SIGNAL ITSELF, stated so the cases are not read as covering more than they do: a container started with `docker run --pid=host` shares the initial pid namespace, so the gate reports `host` inside it, and no case here constructs that input. What these cases establish is that the gate distinguishes the initial pid namespace from another one - not that `host` implies lane 1 can reach a fleet peer. The measured kyle container does not share the namespace (`pid:[4026533495]`, 2026-09-13), so the narrow claim is correct for the population this ships to; the larger question is peer REACHABILITY at the routing site, nit-stored against #864.",
+  "cases": [
+    {
+      "name": "good-host",
+      "input": "cases/good-host",
+      "expect": "GOOD"
+    },
+    {
+      "name": "bad-container",
+      "input": "cases/bad-container",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-unknown-disagreement",
+      "input": "cases/bad-unknown-disagreement",
+      "expect": "BAD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "n/a",
+      "origin": "scripts/flow-vantage.sh",
+      "path": "anchors/constructed-mountinfo-blind-flow-vantage.sh",
+      "sha256": "3e6a3b6c6a45de4f47e3ac2f6a2ca393cff2d7228b45088ff94c92400f723711",
+      "why": "CONSTRUCTED, because scripts/flow-vantage.sh is new and has no blind ancestor to vendor - `git show <pre-fix sha>:<gate>` has nothing to fetch. It reconstructs a check that was REALLY RECOMMENDED rather than an earlier revision of this script: flow/register.md told a session to establish its vantage from `~/.claude/sessions/` until 2026-09-16, and #958 measured both readings of that directory and found both blind. This vendors the mount-shaped one - `~/.claude/sessions/` in /proc/self/mountinfo, measured as 0 matches on the host and absent in the container, i.e. IDENTICAL BOTH SIDES. It therefore answers `host` on every input, missing both known-bad cases (a container, and a genuine signal disagreement) while agreeing with the current gate on the known-good one. The blindness runs in the dangerous direction, which is the point: a containerised session told `host` routes to lane 1, which reports success and delivers into a population holding no fleet peer. #959's own suggested record-count anchor was considered and rejected on a structural ground rather than a preference - it answers `container` on a LONE HOST SESSION, so it would disagree with the gate on this control's known-GOOD input and score INERT, proving nothing. That blindness is pinned instead by tests/test_flow_vantage.py::test_the_verdict_does_not_move_with_the_record_count, so both measured blindnesses have an instrument and neither is left unproven."
+    }
+  ]
+}

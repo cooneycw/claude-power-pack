@@ -314,6 +314,34 @@
 #                            the wave-level default driver (register/get/list/
 #                            policy)
 #
+# Vantage detail lines (#959), derived from the sibling flow-vantage.sh at
+# REGISTER time and stored on the role, because the orchestrator reading them
+# runs on a different machine and cannot re-derive a fact about this process.
+# NOTE the name: `FLOW_WAVE_DRIVER_CONTAINER` above answers something else
+# entirely - can this DRIVER's shell reach docker/kubectl/terraform - so vantage
+# is spelled VANTAGE everywhere to keep the two apart on sight (#959):
+#   FLOW_WAVE_VANTAGE        host | container | unknown | unavailable (register,
+#                            get). `unavailable` = no helper installed; `get`
+#                            reports `unrecorded` for an entry registered before
+#                            #959. FOUR WORDS, NOT TWO: "nobody measured", "the
+#                            helper is absent" and "the signals disagreed" send a
+#                            reader to three different places, and none of them
+#                            is `host`
+#   FLOW_WAVE_VANTAGE_SOURCE measured | declared - a declared override is NEVER
+#                            merged into a measured basis, and the roster keeps
+#                            them apart the way the helper does
+#   FLOW_WAVE_VANTAGE_BASIS  which signals had an opinion, named individually -
+#                            never a count. "2 signals agreed" cannot be checked
+#                            by the reader; `ns-pid(pid:[...]: host) +
+#                            machine-id(present: ...)` can be
+#
+# `list` renders it on the role row as `vantage=container[lane1-empty]` /
+# `vantage=unknown[route-mailbox]` / `vantage=host`, beside `driver=`: the
+# routing consequence travels with the fact, because the consequence is the half
+# that decides anything. ROUTE `unknown` TO THE MAILBOX and leave it visible -
+# a host session on the mailbox loses a little speed, a containerised session on
+# lane 1 loses the message while being told it succeeded.
+#
 # The #1026 read-back lines - each one a declaration that was stored and never
 # reported, so a broken declaration and a working one printed identically:
 #   FLOW_WAVE_FILES          the role's file lane as now recorded (register)
@@ -440,6 +468,130 @@ driver_cap() {
 driver_cap_dash() {
   local out; out="$(driver_cap "$1" "$2")"
   printf '%s' "${out:--}"
+}
+
+# Vantage (#959) - which side of the container boundary the REGISTERING session
+# is on, derived from the sibling `flow-vantage.sh` and never restated here, for
+# the same reason the driver fence above is derived.
+#
+# WHY IT IS STORED RATHER THAN RE-DERIVED AT READ TIME. The orchestrator runs
+# `get` and `list` on ITS machine. Vantage is a fact about the WORKER's process,
+# and no amount of care re-derives it from somewhere else - a `get` that measured
+# locally would confidently report the orchestrator's own vantage under the
+# worker's role name. So `register` measures once, in the only place the answer
+# exists, and the roster serves what was measured. Same shape as #1029's
+# toolchain provenance, relayed at registration for the same reason.
+#
+# WHY IT MATTERS AT ALL: the delivery lane INVERTS across that boundary
+# (register.md, #947/#958). Past it the mailbox is lane 1 and `SendMessage`
+# addresses a population holding no fleet peer - not empty, populated with the
+# wrong sessions, which returns success and delivers nothing. An orchestrator
+# that can see `vantage=container` BEFORE assigning does not have to discover it
+# from the silence afterwards.
+#
+# Fail-open, and the failure word is its own: no helper means `unavailable`,
+# which is neither `unknown` (the helper ran and could not decide) nor `host`
+# (a measurement). Three states that must never collapse into two.
+VANTAGE_HELPER=""
+for _vh in "$SELF_DIR/flow-vantage.sh" "$HOME/.claude/scripts/flow-vantage.sh"; do
+  [ -x "$_vh" ] && { VANTAGE_HELPER="$_vh"; break; }
+done
+unset _vh
+
+#: Sets V_VANTAGE / V_SOURCE / V_BASIS from one run of the helper. Never reads
+#: the exit code as the verdict: the contract LINE is the verdict, and a helper
+#: killed before it printed anything must read `unavailable` rather than
+#: inheriting whatever `$?` happens to be.
+vantage_derive() {
+  V_VANTAGE=unavailable
+  V_SOURCE="-"
+  V_BASIS="-"
+  [ -n "$VANTAGE_HELPER" ] || return 0
+  local out
+  out="$("$VANTAGE_HELPER" --quiet 2>/dev/null)" || true
+  # EXACTLY ONE VERDICT LINE, AND IT MUST BE A WORD THIS CONTRACT DEFINES
+  # (counter-model review, codex/gpt-6-astra, 2026-09-20). The first cut took
+  # `head -1` of every matching line, so anything that put a second
+  # `FLOW_VANTAGE:` line into the helper's stdout decided this value - measured
+  # with `FLOW_VANTAGE_DECLARE=$'x\nFLOW_VANTAGE: host'`, which made a REFUSED
+  # declaration arrive here as a verdict. The helper now sanitises its own
+  # echo, and this is the second half of the same fix: a relay that validates
+  # only at the source trusts every future source. `unparseable` is its own
+  # word for the same reason `unavailable` is not `unknown` - "the helper said
+  # something I cannot read" and "the helper could not decide" send a reader to
+  # different places, and neither of them is `host`.
+  local n
+  n="$(printf '%s\n' "$out" | grep -c '^FLOW_VANTAGE: ' || true)"
+  if [ "$n" != "1" ]; then
+    [ "$n" = "0" ] && return 0      # nothing usable at all: stays `unavailable`
+    V_VANTAGE=unparseable
+    V_BASIS="helper emitted $n FLOW_VANTAGE lines"
+    return 0
+  fi
+  # THE SAME RULE FOR THE SOURCE LINE (counter-model review, codex/gpt-6-astra,
+  # pass 2). The multiplicity check above covered the VERDICT only, so
+  # `measured` followed by `declared` was accepted as measured and the roster
+  # dropped the `[declared]` annotation - the injection closed on one line and
+  # left open on the line that says how much to trust it. Both fields decide
+  # something, so both are checked; the BASIS line is deliberately not, being
+  # descriptive text that changes no routing decision.
+  local m
+  m="$(printf '%s\n' "$out" | grep -c '^FLOW_VANTAGE_SOURCE: ' || true)"
+  if [ "$m" != "1" ]; then
+    V_VANTAGE=unparseable
+    V_BASIS="helper emitted $m FLOW_VANTAGE_SOURCE lines"
+    return 0
+  fi
+  local v s b
+  v="$(printf '%s\n' "$out" | sed -n 's/^FLOW_VANTAGE: //p' | head -1)"
+  s="$(printf '%s\n' "$out" | sed -n 's/^FLOW_VANTAGE_SOURCE: //p' | head -1)"
+  b="$(printf '%s\n' "$out" | sed -n 's/^FLOW_VANTAGE_BASIS: //p' | head -1)"
+  case "$v" in
+    host|container|unknown) ;;
+    *)
+      V_VANTAGE=unparseable
+      V_BASIS="helper reported a verdict this contract does not define"
+      return 0
+      ;;
+  esac
+  case "$s" in
+    measured|declared) ;;
+    *)
+      # A verdict whose PROVENANCE is unreadable cannot be rendered honestly -
+      # the roster would have to guess between `measured` and `declared`, which
+      # is the distinction the field exists to carry.
+      V_VANTAGE=unparseable
+      V_BASIS="helper reported a source this contract does not define"
+      return 0
+      ;;
+  esac
+  V_VANTAGE="$v"
+  V_SOURCE="$s"
+  V_BASIS="${b:--}"
+}
+
+#: The roster annotation for a stored vantage, rendered like the driver fence:
+#: the fact and its routing consequence as ONE token, because the consequence is
+#: the half that decides anything. `unknown` carries one too - it is the state a
+#: safe default would otherwise absorb silently, and a default nobody notices
+#: firing is how the third state dies.
+vantage_annotation() {
+  local v="$1" src="${2:-}" note=""
+  case "$v" in
+    container) note="lane1-empty" ;;
+    unknown)   note="route-mailbox" ;;
+  esac
+  # PROVENANCE TRAVELS WITH THE VALUE (counter-model review, codex/gpt-6-astra,
+  # 2026-09-20). The roster rendered `.vantage` alone, so a container
+  # registered with `FLOW_VANTAGE_DECLARE=host` printed the identical
+  # `vantage=host` token as a measured host - and the roster is the surface an
+  # orchestrator actually reads at assignment time. Keeping `measured` and
+  # `declared` apart everywhere EXCEPT there would have hidden precisely the
+  # stale-declaration risk that is the argument for deriving in the first
+  # place. Measured stays unannotated: it is the ordinary case, and a tag on
+  # every row is a tag nobody reads.
+  [ "$src" = "declared" ] && note="${note:+$note,}declared"
+  printf '%s%s' "$v" "${note:+[$note]}"
 }
 
 command -v jq >/dev/null 2>&1 || {
@@ -2072,6 +2224,11 @@ case "$VERB" in
     # process, never re-derived later against whatever the kernel currently
     # has that number pointing at.
     SELF_PID_STARTED="$(pid_started_of "$SELF_PID")"
+    # Vantage (#959), measured HERE because here is the only place the answer
+    # exists - see `vantage_derive` above. Recorded like `pid_started`: captured
+    # now, while this process is unambiguously the registering session's own,
+    # never re-derived later by a reader on another machine.
+    vantage_derive
     with_lock '
       .[$w] //= {"roles": {}} |
       (.[$w].roles[$r] // {}) as $prev |
@@ -2087,6 +2244,16 @@ case "$VERB" in
         files:           (if $files_set == "1" then $files else ($prev.files // "") end),
         capacity:        (if $cap_set   == "1" then $cap   else ($prev.capacity // "") end),
         driver:          (if $drv_set   == "1" then $drv   else ($prev.driver // "") end),
+        #: MEASURED EVERY REGISTRATION, never preserved from $prev (#959). The
+        #: role-level facts above are preserved because they describe a GRANT
+        #: the session was given; this describes WHERE THE PROCESS IS, and a
+        #: re-register can be a different process - a worker restarted inside a
+        #: container under a role a host session held. A preserved vantage would
+        #: then assert the placement of the day before with full confidence,
+        #: which is the exact objection #959 raises against a declared indicator.
+        vantage:         $vantage,
+        vantage_source:  $vsource,
+        vantage_basis:   $vbasis,
         #: Written only as a COMPLETE observation, and identity is (repo, pr) -
         #: not pr alone, or repository B #5 would increment repository A #5.
         pr:       (if $obs == "1" then $pr   else ($prev.pr // "") end),
@@ -2126,6 +2293,7 @@ case "$VERB" in
       --arg cap "$A_CAPACITY" --arg cap_set "$A_CAPACITY_SET" \
       --arg pr "$A_PR" --arg base "$A_BASE" --arg diff "$A_DIFF" --arg obs "$A_OBS" \
       --arg drv "$P_DRIVER" --arg drv_set "$P_DRIVER_SET" \
+      --arg vantage "$V_VANTAGE" --arg vsource "$V_SOURCE" --arg vbasis "$V_BASIS" \
       --arg polrev "$POL_REV" \
       --arg now "$NOW"
     # Honest failure surface (#672): name the CAUSE, and never promise a verify
@@ -2351,6 +2519,31 @@ case "$VERB" in
         fi
         ;;
     esac
+    # WHICH SIDE OF THE CONTAINER BOUNDARY THIS SESSION IS ON (#959). Read back
+    # from the STORED entry rather than from the variables just measured, for
+    # the #800 reason: what a later reader sees is what was recorded, so a field
+    # that silently failed to store must not print here as though it had.
+    REG_VANTAGE="$(printf '%s' "$NEW_ENTRY" | jq -r '.vantage // "unavailable" | if . == "" then "unavailable" else . end')"
+    echo "FLOW_WAVE_VANTAGE=$REG_VANTAGE"
+    echo "FLOW_WAVE_VANTAGE_SOURCE=$(printf '%s' "$NEW_ENTRY" | jq -r '.vantage_source // "-" | if . == "" then "-" else . end')"
+    echo "FLOW_WAVE_VANTAGE_BASIS=$(printf '%s' "$NEW_ENTRY" | jq -r '.vantage_basis // "-" | if . == "" then "-" else . end')"
+    case "$REG_VANTAGE" in
+      container)
+        # NOT a warning. In a fleet whose target placement is a per-session
+        # container this is the ORDINARY state, and an alarm that fires on the
+        # ordinary state is one nobody reads (#674). It is a re-brief: the lane
+        # order inverts here, and a compacted worker needs re-telling.
+        echo "flow-wave-registry: CONTAINER vantage - the mailbox is lane 1 here, and 'SendMessage' reaches no fleet peer (#959)." >&2
+        ;;
+      unknown)
+        echo "flow-wave-registry: vantage UNKNOWN - the signals disagreed or could not be read; this is NOT 'host' (#959)." >&2
+        echo "  Route through the MAILBOX until it resolves, and leave the unknown visible rather than defaulting past it." >&2
+        ;;
+      unavailable)
+        echo "flow-wave-registry: flow-vantage.sh is not installed - vantage is unavailable, which is NOT a measured 'host' (#959)." >&2
+        echo "  Install the helper family with /flow:repair to record it." >&2
+        ;;
+    esac
     E_SOCKET="$SOCK"; E_PID="$SELF_PID"; E_SESSION="$SELF_SESSION"; E_LIVE=live; E_BASIS=self
     E_VERIFIED="$KEEP_VERIFIED"; E_MISMATCH="$KEEP_MISMATCH"
     E_SOURCE="$SOCK_SOURCE"; E_REASON="$SOCK_REASON"
@@ -2393,6 +2586,16 @@ case "$VERB" in
     echo "FLOW_WAVE_PERMISSION_MODE=$(printf '%s' "$CUR" | jq -r '.permission_mode // "-" | if . == "" then "-" else . end')"
     echo "FLOW_WAVE_FILES=$(printf '%s' "$CUR" | jq -r '.files // "-" | if . == "" then "-" else . end')"
     echo "FLOW_WAVE_CAPACITY=$(printf '%s' "$CUR" | jq -r '.capacity // "-" | if . == "" then "-" else . end')"
+    # Vantage (#959), SERVED not re-derived. `get` is the scripting contract an
+    # orchestrator routes on, and it runs on the ORCHESTRATOR's machine - so
+    # measuring here would answer a question about the wrong process while
+    # printing it under this role's name. An entry registered before #959 has no
+    # stored value and reads `unrecorded`: a word of its own, because "nobody
+    # measured this" and "the measurement came back unknown" send a reader to
+    # different places, and neither is `host`.
+    echo "FLOW_WAVE_VANTAGE=$(printf '%s' "$CUR" | jq -r '.vantage // "unrecorded" | if . == "" then "unrecorded" else . end')"
+    echo "FLOW_WAVE_VANTAGE_SOURCE=$(printf '%s' "$CUR" | jq -r '.vantage_source // "-" | if . == "" then "-" else . end')"
+    echo "FLOW_WAVE_VANTAGE_BASIS=$(printf '%s' "$CUR" | jq -r '.vantage_basis // "-" | if . == "" then "-" else . end')"
     # Whether this role's lane can be overlap-checked AT ALL (#800). `get` is the
     # scripting contract, and FLOW_WAVE_REPO / FLOW_WAVE_FILES answer this only
     # for a caller who already knows the same-repo scoping rule - so the answer
@@ -3204,6 +3407,20 @@ EOF
         dvf="$(driver_cap "$dv" FENCE)"
         [ -n "$dvf" ] && extra="$extra driver=${dv}[${dvf}]" || extra="$extra driver=$dv"
       fi
+      # Vantage and its routing consequence as one token (#959), rendered like
+      # the driver fence directly above and for the same reason: the mismatch
+      # must be visible when the orchestrator ASSIGNS, not when the worker's
+      # message vanishes into a population with no fleet peer in it.
+      #
+      # `unknown` and `unavailable` are rendered too, deliberately. Every other
+      # field here is shown only when declared, which is right for a grant - but
+      # this is the field whose whole failure mode is a safe default absorbing
+      # the third state until nobody remembers there was one. An entry from
+      # before #959 has no stored value and renders nothing, so a pre-#959
+      # roster is unchanged.
+      vt="$(printf '%s' "$e" | jq -r '.vantage // ""')"
+      vsrc="$(printf '%s' "$e" | jq -r '.vantage_source // ""')"
+      [ -n "$vt" ] && extra="$extra vantage=$(vantage_annotation "$vt" "$vsrc")"
       # Brief staleness is shown for LIVE roles only: a stale or released entry
       # is not running on anything, so calling its brief superseded would be
       # noise on a row nobody is going to re-brief.

@@ -118,6 +118,7 @@ HELPERS=(
     flow-wave-plan.py
     speckit-context.py
     flow-driver-capability.sh
+    flow-vantage.sh
     flow-finish-gate.sh
     flow-ci-status.sh
     flow-pr-watch.sh
