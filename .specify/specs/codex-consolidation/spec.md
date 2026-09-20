@@ -399,12 +399,12 @@ CxPP may go dormant only when **all** of the following hold:
 - [ ] **PR cxpp#239 is merged** (Q3). The research documents sit on a branch;
       merging is what makes "keep the Codex review docs in Codex" true of
       `main`.
-- [ ] **Q10 is answered.** Eleven `unresolved` rows are defect findings, not
-      capabilities, and several name families CPP is known or suspected to
-      share. The governing principle disposes of capabilities; it does not
-      authorise discarding a finding that may describe a live CPP bug. This
-      replaces the old "both Nit Stores are triaged" criterion with a narrower
-      and checkable one.
+- [x] **Q10 is answered** (2026-09-20). All eleven defect-finding rows are
+      `owner-approved-retirement` under the owner's presumption that CPP does
+      not carry CxPP's vulnerabilities absent proof. This criterion is
+      DISCHARGED, and it replaced the old "both Nit Stores are triaged"
+      criterion - note the consequence that carries: cxpp#227's 29 findings
+      retire unread, readable in the dormant repository but routed nowhere.
 - [ ] Every CxPP issue closed under a 2026-09-20 ruling **cites that ruling** as
       its recorded authority, per `docs/agents/issue-contract.md`. A bulk close
       with no cited authority is the failure this ledger exists to prevent.
@@ -521,25 +521,34 @@ this list is the index, not the record.
 - [x] **Q9.** Ordering: **dissolved.** No archive gate, so no release proof for
       a late reconciliation to invalidate.
 
-### Q10. Which of the remaining findings describe live CPP defects? (PENDING)
+### Q10. Do CxPP's defect findings transfer to CPP? RESOLVED 2026-09-20
 
-Raised **by** the Q1-Q9 rulings, not left open by them. The governing principle
-disposes of *capabilities*. Eleven `unresolved` rows in the ledger are **defect
-findings**, several naming families CPP is known or suspected to share:
-cxpp#274 is a secret-scan blind spot against a CPP control nobody has compared.
-All eleven were verified OPEN on 2026-09-20; the CPP issues they lean on were
-re-checked at the same time, and cpp#1029 and cpp#1036 both proved CLOSED.
+Raised **by** the Q1-Q9 rulings, not left open by them: the governing principle
+disposes of capabilities, and eleven ledger rows are defect **findings**. The
+owner ruled the same day:
 
-- [ ] **Q10.** For each of cxpp#227, #256, #257, #259, #274, #275, #277, #279,
-      #281, #282 and #283: does CPP have the same defect? **Yes** gives
-      `already-covered` with a parity statement, or a filed CPP issue. **No**
-      gives `owner-approved-retirement`. Blocks dormancy, not #1068.
+> just because cxpp has vulnerabilities, we don't import those. and we should
+> presume cpp doesn't have those vulnerabilities until proven otherwise.
 
-**Why this is a question and not an implementer's judgement call.** Answering
-"no" by inspection - reading CPP's code and concluding it looks fine - is
-exactly the failure mode `already-covered` was given a parity requirement to
-prevent, and the same one ADR 0008 addresses for control batteries. Each "no"
-needs the comparison stated, not asserted.
+- [x] **Q10.** All eleven - cxpp#227, #256, #257, #259, #274, #275, #277, #279,
+      #281, #282, #283 - are `owner-approved-retirement`. **Q10 does not block
+      dormancy.**
+
+**The presumption is the ruling.** Absent a demonstrated, reproducible defect in
+CPP's own code, a CxPP finding does not transfer. A shared family, an analogous
+CPP component, and nobody having checked are each insufficient on their own. It
+sets a burden of proof and does not forbid looking: check a CPP component
+cheaply and file if the check produces a finding; do not file on suspicion, and
+do not hold a row open because it is unexamined.
+
+**Why the alternative was worse.** The pass first proposed here asked "does CPP
+have the same defect? Yes gives `already-covered` or a filed issue; No gives
+retirement" - which leaves a row nobody compared as neither Yes nor No, so
+**unexamined** silently became a reason to hold eleven rows open indefinitely.
+
+cxpp#276 is not among the eleven and stays `move`: the defective code is what
+#1069 relocates into CPP, so it arrives as code rather than as an imported
+finding.
 
 ---
 

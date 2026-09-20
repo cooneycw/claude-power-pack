@@ -94,7 +94,7 @@ hook-transition capability has to be rebuilt rather than remembered.
 
 ### Phase 3 - Clean-install proof (#1074, rescoped)
 
-Prerequisites: Phases 1 and 2, **and Q10 answered**.
+Prerequisites: Phases 1 and 2. (Q10 was answered on 2026-09-20 and no longer gates this phase.)
 
 The dual-client release matrix is retired with the distribution program. What
 remains is one demonstration: **a Codex host, from a clean install, reaching
@@ -102,8 +102,10 @@ CPP's surface and running a workflow end to end.** A cell that was not run is
 recorded as **not run**, never inferred from a neighbour. Known-bad inputs must
 be REJECTED.
 
-Q10 sits here rather than at dormancy because its answer can file CPP issues,
-and a CPP issue filed after the proof has to be weighed against it.
+Q10 previously sat here because its answer could file CPP issues that a later
+proof would have to be weighed against. The owner's 2026-09-20 ruling retired
+all eleven rows on a presumption, so nothing is pending and this phase is
+gated only by Phases 1 and 2.
 
 ### Phase 4 - Dormancy (#1075 + #1076, merged)
 
@@ -112,9 +114,10 @@ Prerequisite: Phase 3. Requires explicit final owner approval.
 #1075 and #1076 were separate because cutover-then-archive was two irreversible
 steps with a proof between them. Dormancy is one step, so they merge.
 
-1. Answer **Q10** and act on it: each of the eleven findings becomes
-   `already-covered` with a parity statement, a filed CPP issue, or
-   `owner-approved-retirement`.
+1. ~~Answer Q10~~ - **done 2026-09-20.** All eleven findings are
+   `owner-approved-retirement` under the owner's presumption that CPP does not
+   carry CxPP's vulnerabilities absent proof. Nothing to do here but note that
+   cxpp#227's 29 findings retire unread.
 2. Merge **PR cxpp#239** (Q3), so "keep the Codex review docs in Codex" is true
    of `main` and not only of a branch.
 3. Close CxPP's 40 open issues, **each citing the 2026-09-20 ruling** as its
@@ -149,8 +152,11 @@ longer contended - nothing in the reduced program edits them.
 
 - **It does not delete or archive CxPP.** The repository persists, private and
   dormant. This is what makes Q8's fresh copy safe.
-- **It does not discard findings.** The governing principle retires
-  capabilities. Q10 exists precisely because eleven rows are not capabilities.
+- **It does not discard findings silently.** The governing principle retires
+  capabilities; the eleven defect findings were retired by a SEPARATE owner
+  ruling, on a stated presumption, recorded in ledger section A under Q10. The
+  distinction matters: one is "CPP does not want this", the other is "CPP is
+  presumed not to have this". Both are decisions; neither is an omission.
 - **It does not wait on all of cpp#1061.** Only the instrument contracts a
   given phase actually depends on.
 - **It does not cancel urgent safety work on CxPP.** A safety fix for an

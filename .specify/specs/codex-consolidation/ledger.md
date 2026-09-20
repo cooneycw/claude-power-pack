@@ -81,37 +81,41 @@ source. See "Dormancy exit criteria", which replaces the archive criteria.
 | **Q8** Git history | **Fresh copy. No history transfer** | The premise the question was posed under does not hold: history is only lost if the source disappears, and a private dormant repository still serves `git blame` and every provenance link this ledger cites. Exactly one commit (`f39bcf3`, a docs change) has touched `lib/project_next` since CPP's vendored pin `1724e7d9`, so the content transfer is close to a no-op |
 | **Q9** Backlog-reconciliation ordering | **Dissolved. No archive gate is needed** | The question existed because a missed obligation surfacing at reconciliation would invalidate a release proof produced for an archive gate. With no archive gate there is no proof for it to invalidate, and reconciliation becomes part of going dormant |
 
-### Q10 - what the governing principle does NOT dispose of (NEW, PENDING)
+### Q10 - RESOLVED 2026-09-20, by reversing the presumption
 
-The principle is about **capabilities**. Twelve rows in §B and §D are not
-capabilities - they are **defect findings and unresolved findings**, several of
-them describing families CPP is known or suspected to share. Discarding a
-capability CPP does not want is the ruling. Discarding a finding that may
-describe a live CPP bug is a different act, and the principle does not authorise
-it.
+Q10 was raised by the Q1-Q9 rulings, not left open by them: the governing
+principle disposes of *capabilities*, and eleven rows are defect **findings**.
+The owner ruled it the same day:
 
-| Row | State @ 2026-09-20 | Why the principle does not settle it |
-|---|---|---|
-| cxpp#227 - Nit Store, 29 comments | OPEN (verified) | Findings, not capability. Dormancy makes 29 unresolved findings unreadable in practice |
-| cxpp#256 - `cicd-verify` dispatches to nothing (14 sites) | OPEN (verified) | Live defect. Whether CPP's `lib/cicd` has the same hole is unexamined |
-| cxpp#257 - `make verify` exits 0 on a broken pin reproduction | OPEN (verified) | Live defect in a pin-integrity gate. CPP has pin gates of its own |
-| cxpp#259 - Four of six verify gates only aimable through an adapter | OPEN (verified) | Live defect; CPP's gate-aiming has not been compared |
-| cxpp#274 - Secret scan cannot see its own config, or history | OPEN (verified) | **Live security defect.** CPP has `controls/secret-scan`; same question, unexamined |
-| cxpp#275 - Three instruments name a subject they never examined | OPEN (verified) | Live defect. cpp#1029 is the same family and is **CLOSED** (2026-09-19T16:20:56Z) - the family was addressed once, which does not establish that the variant named here was |
-| cxpp#277 - Three unhomed findings | OPEN (verified) | Unverified at baseline. Migrating them as verified was already forbidden; discarding them unverified is the mirror error |
-| cxpp#279 - Carried CI results not invalidated on source change | OPEN (verified) | Live defect. CPP has the analogous hazard recorded |
-| cxpp#281 - Runner subprocess trees unbounded, timeout evidence lost | OPEN (verified) | Live defect; no CPP comparison exists |
-| cxpp#282 - Reproducible test baseline across scanner versions | OPEN (verified) | Partially delivered; the undelivered part is unexamined against CPP |
-| cxpp#283 - Negative-control coverage without overstating it | OPEN (verified) | Bears on CPP `controls/check-negative-controls` (live) and cpp#1036, which is **CLOSED** (2026-09-20T13:07:47Z) |
-| cxpp#276 - project-next recommends `continue_work` on a CLOSED issue | **Cannot be discarded at all:** the defective code is what #1069 moves into CPP. Recorded `move`, not residue |
+> just because cxpp has vulnerabilities, we don't import those. and we should
+> presume cpp doesn't have those vulnerabilities until proven otherwise.
 
-The disposition needed is cheap and bounded: for each row, does CPP have the
-same defect? Yes gives `already-covered` with a parity statement, or a filed CPP
-issue. No gives `owner-approved-retirement`. It is one pass, and it is the only
-thing standing between "CxPP went dormant" and "eleven findings stopped being
-read". **Q10 blocks the dormancy step, not #1068** - Q1-Q9 discharge #1068's
-acceptance item 6, and Q10 is a question the rulings created rather than one
-they left unanswered.
+**All eleven are `owner-approved-retirement`**, citing that ruling.
+
+**What it settles, and why the proposed alternative was worse.** The pass
+originally proposed here was "does CPP have the same defect? Yes gives
+`already-covered` or a filed CPP issue; No gives retirement." That has a gap: a
+row nobody has compared is neither Yes nor No, so **unexamined** became a reason
+to hold - and eleven rows would have stayed open indefinitely on the strength of
+nobody having looked. The ruling closes the gap toward retirement. Absent proof
+CPP has the defect, CPP does not have it.
+
+The three reasons these rows actually gave - the family looks shared, CPP has an
+analogous component, nobody has checked - are each **insufficient on their own**
+under this ruling. A row escalates only on a demonstrated, reproducible defect in
+CPP's own code, and at that point it is a CPP issue on its own merits and the
+CxPP row is irrelevant to it.
+
+**What it does not say.** It sets a burden of proof; it does not forbid looking.
+Checking a CPP component cheaply and filing only when the check produces a
+finding is consistent with it. Forbidden is filing on suspicion, and carrying
+rows open on the strength of "unexamined".
+
+**Q10 no longer blocks dormancy.**
+
+**cxpp#276 is untouched and is not one of the eleven.** It stays `move`: the
+defective code is what #1069 relocates into CPP, so it arrives as *code* rather
+than as an imported finding, and it is owned under #1069.
 
 ---
 
@@ -158,7 +162,7 @@ these six, and this ledger must not read as though somebody had.
 
 | Entry | Status | Owner | Destination | Disposition |
 |---|---|---|---|---|
-| cxpp#227 - **Nit Store** (29 comments @ baseline) | active inbox | owner | CPP cpp#864, after triage | `unresolved` - **Q10.** Findings, not capability, so the governing principle does not dispose of them. 29 comments go unread rather than triaged if dormancy lands first |
+| cxpp#227 - **Nit Store** (29 comments @ baseline) | active inbox | owner | retired with CxPP | `owner-approved-retirement` - **Q10, owner ruling 2026-09-20** (presume CPP does not have CxPP's defect until proven otherwise). **Cost recorded, not hidden:** 29 findings retire unread. They stay readable in the dormant repository; nothing routes them to cpp#864 |
 | cxpp#228 - claude-code-review is native so no CPP edit reaches it | open finding | unassigned | #1071 (adapter) | `owner-approved-retirement` - Q6 removes the native surface this defect is about. The reciprocal-review requirement itself carries into the Codex compat layer |
 | cxpp#248 - No skill routes a finding to the Nit Store (0 of 85) | open defect | unassigned | #1071 | `owner-approved-retirement` - Q6 retires the 85 native skills the count refers to. **The requirement carries:** CPP's generated Codex surface must route findings to cpp#864 |
 
@@ -172,22 +176,22 @@ these six, and this ledger must not read as though somebody had.
 | cxpp#247 - Skipped security gate reports ok, not warn | open defect | unassigned | CPP #1027 shipped per-verdict exit codes (PR #1057, merged 2026-09-19) | `already-covered` - **verify against `5ceb966a`**, not against #1067's `194f7305`, which predates the fix |
 | cxpp#249 - No shellcheck: 81 `.sh` unlinted | open defect | unassigned | CPP `make shellcheck`, `controls/shellcheck-gate` | `already-covered` by the gate's existence; CPP #972 records its own 175-finding backlog, so the protection transfers with a known debt |
 | cxpp#250 - Mutation-prove the negative-control battery | open | unassigned | CPP #970 (same requirement, ADR 0008 bound) | `already-covered` - cpp#970 **merged 2026-09-20** (`aebb33c`, PR #1128), so the mutation requirement is now delivered rather than pending. Parity examined: the ADR 0008 bound and its mutation requirement; CxPP's own battery is not carried |
-| cxpp#256 - cicd-verify dispatches to nothing (14 sites) | **live defect** | unassigned | #1070 | `unresolved` - **Q10.** No shared runtime now, so CxPP's defect dies with CxPP. Whether CPP's `lib/cicd` has the same dispatch hole is unexamined |
-| cxpp#257 - make verify exits 0 on a broken pin reproduction | **live defect** | unassigned | #1069/#1073 | `unresolved` - **Q10.** A verify-exits-0 pin-integrity gap. CPP runs its own pin gates; unexamined |
-| cxpp#259 - Four of six verify gates only aimable through an adapter | open defect | unassigned | CPP comparison pending | `unresolved` - **Q10.** Gate-aiming not compared against CPP |
-| cxpp#274 - Secret scan cannot see its own config, or history | **live defect** | unassigned | #1070 | `unresolved` - **Q10, security-relevant.** Whether CPP's `controls/secret-scan` shares the blind spot is unexamined |
-| cxpp#275 - Three instruments name a subject they never examined | **live defect** | unassigned | #1070 | `unresolved` - **Q10.** cpp#1029 is the same family and is OPEN, so this one has a known CPP counterpart |
-| cxpp#283 - Complete negative-control coverage without overstating it | open | unassigned | CPP `controls/check-negative-controls` + #1036 | `unresolved` - **Q10.** Bears on two live CPP instruments |
+| cxpp#256 - cicd-verify dispatches to nothing (14 sites) | **live defect** | unassigned | retired with CxPP | `owner-approved-retirement` - **Q10, owner ruling 2026-09-20** (presume CPP does not have CxPP's defect until proven otherwise). Unexamined is no longer a reason to hold. CPP's `lib/cicd` registers `verify`; no defect has been demonstrated in it |
+| cxpp#257 - make verify exits 0 on a broken pin reproduction | **live defect** | unassigned | retired with CxPP | `owner-approved-retirement` - **Q10, owner ruling 2026-09-20** (presume CPP does not have CxPP's defect until proven otherwise). CPP runs its own pin gates and none has been shown to exit 0 on a broken reproduction |
+| cxpp#259 - Four of six verify gates only aimable through an adapter | open defect | unassigned | retired with CxPP | `owner-approved-retirement` - **Q10, owner ruling 2026-09-20** (presume CPP does not have CxPP's defect until proven otherwise). No comparison was made and none is owed; CPP's gate-aiming is presumed sound absent a demonstration |
+| cxpp#274 - Secret scan cannot see its own config, or history | **live defect** | unassigned | retired with CxPP | `owner-approved-retirement` - **Q10, owner ruling 2026-09-20** (presume CPP does not have CxPP's defect until proven otherwise). Security-relevant, and retired on the same presumption as the rest: CPP's `controls/secret-scan` has not been shown to share the blind spot. A demonstration would make it a CPP issue on its own merits |
+| cxpp#275 - Three instruments name a subject they never examined | **live defect** | unassigned | retired with CxPP | `owner-approved-retirement` - **Q10, owner ruling 2026-09-20** (presume CPP does not have CxPP's defect until proven otherwise). cpp#1029 is the same family and is **CLOSED** (2026-09-19) - a shared family was never sufficient, and this one is not even live |
+| cxpp#283 - Complete negative-control coverage without overstating it | open | unassigned | retired with CxPP | `owner-approved-retirement` - **Q10, owner ruling 2026-09-20** (presume CPP does not have CxPP's defect until proven otherwise). cpp#1036 is **CLOSED** (2026-09-20); `controls/check-negative-controls` is live and undemonstrated against this defect |
 | cxpp#284 - Adopt remaining CPP testing/review contracts | open | unassigned | superseded by this migration | `owner-approved-retirement` - adopting CPP contracts into a dormant repository is work with no consumer |
 
 ### B.5 Runner, results and baseline reproducibility (5)
 
 | Entry | Status | Owner | Destination | Disposition |
 |---|---|---|---|---|
-| cxpp#279 - Invalidate carried CI/CD results on source/plan change | open defect | unassigned | #1070 | `unresolved` - **Q10.** CPP has the analogous hazard recorded; no runtime merge now, so the CPP side must be checked on its own |
+| cxpp#279 - Invalidate carried CI/CD results on source/plan change | open defect | unassigned | retired with CxPP | `owner-approved-retirement` - **Q10, owner ruling 2026-09-20** (presume CPP does not have CxPP's defect until proven otherwise). "CPP has an analogous hazard recorded" is one of the three reasons the ruling names as insufficient on its own |
 | cxpp#280 - finish/check must report executed gates and real test evidence | open defect | unassigned | CPP #1027 (shipped, PR #1057) + #1070 | `already-covered` - cpp#1027's per-verdict exit codes. Parity examined: executed/skip/unknown reporting. The Codex-side path is retired with Q6, not adapted |
-| cxpp#281 - Bound runner subprocess trees, retain timeout evidence | open defect | unassigned | CPP comparison pending | `unresolved` - **Q10.** No CPP comparison exists |
-| cxpp#282 - Reproducible test baseline across scanner versions | **partially delivered** - fixture-policy slice landed via PR cxpp#287 | unassigned | #1070 | `unresolved` - **Q10.** Only the fixture-policy slice landed; the remainder is unexamined against CPP |
+| cxpp#281 - Bound runner subprocess trees, retain timeout evidence | open defect | unassigned | retired with CxPP | `owner-approved-retirement` - **Q10, owner ruling 2026-09-20** (presume CPP does not have CxPP's defect until proven otherwise). No CPP comparison exists and none is owed |
+| cxpp#282 - Reproducible test baseline across scanner versions | **partially delivered** - fixture-policy slice landed via PR cxpp#287 | unassigned | retired with CxPP | `owner-approved-retirement` - **Q10, owner ruling 2026-09-20** (presume CPP does not have CxPP's defect until proven otherwise). The undelivered remainder is a CxPP gap; CPP's own baseline reproducibility is undemonstrated as defective |
 | cxpp#285 - Close the CPP testing-protocol gap | open | unassigned | superseded by this migration | `owner-approved-retirement` - same shape as cxpp#284: a gap in a repository that is going dormant |
 
 ### B.6 project-next and evergreen (3)
@@ -196,7 +200,7 @@ these six, and this ledger must not read as though somebody had.
 |---|---|---|---|---|
 | cxpp#276 - project-next recommends continue_work on a CLOSED issue | **live defect** | unassigned | **#1069** | `move` - travels with project-next ownership. CPP #1035 records the same family of defect; reuse both scopes and their tests, do not file duplicates |
 | cxpp#230 - Evergreen: revalidate Codex harness, messaging, watcher assumptions | recurring | unassigned | CPP #871 is the analogous evergreen | `already-covered` - cpp#871 is the maintained evergreen. Parity examined: the recurring re-check of harness/messaging assumptions. The Codex-specific half narrows to the compat layer |
-| cxpp#277 - Three unhomed 2026-09-12 findings (needs re-verification first) | open, unverified | unassigned | pending re-verification | `unresolved` - **Q10.** Unverified at baseline. Migrating them as verified was the original error; discarding them unverified is its mirror |
+| cxpp#277 - Three unhomed 2026-09-12 findings (needs re-verification first) | open, unverified | unassigned | retired with CxPP | `owner-approved-retirement` - **Q10, owner ruling 2026-09-20** (presume CPP does not have CxPP's defect until proven otherwise). Unverified at baseline and unverified now. The ruling resolves the symmetry the row named: an unverified finding is not evidence of a CPP defect |
 
 ### B.7 Open pull request (1)
 
@@ -283,8 +287,8 @@ exactly the items nobody would notice going missing.
 | Open CxPP PRs accounted | **1 / 1** | **1 / 1** |
 | Relevant CPP issues recorded | 14 | 14 |
 | Capabilities with no issue | 19 | 19 |
-| Owner decisions pending | 9 | **0 of Q1-Q9; 1 new (Q10)** |
-| Rows `unresolved` | 32 | **11** |
+| Owner decisions pending | 9 | **0** - Q1-Q9 and Q10 all ruled 2026-09-20 |
+| Rows `unresolved` | 32 | **0** |
 | Rows blocking archive | 7 | **n/a - there is no archive gate** |
 
 **21 rows moved from `unresolved` to a disposition on one ruling.** That is what
@@ -292,16 +296,28 @@ a governing principle buys, and it is also the reason to be careful with it: a
 sentence that disposes of twenty-one rows at once will dispose of a
 twenty-second nobody checked.
 
-**The 11 that remain are not leftovers; they are the ones the principle does not
-reach.** The ruling is about capabilities. These are defect findings and
-unverified findings, several naming families CPP is known or suspected to share -
-cxpp#274 is a secret-scan blind spot against a CPP control nobody has compared,
-and cxpp#275's CPP counterpart cpp#1029 is CLOSED - which says the family was
-addressed once, not that this variant was. **All eleven CxPP rows were verified
-OPEN on 2026-09-20**; the CPP issues they lean on were not, and two of those
-claims were wrong. Retiring a capability CPP does not want is the decision that
-was made. Retiring a finding that may describe a live CPP bug is a different
-one, and it has not been made. See **Q10**.
+**Zero rows remain `unresolved`, and the last eleven closed on a PRESUMPTION -
+which a later reader must be able to see, or they will re-open the question.**
+
+Those eleven were defect FINDINGS rather than capabilities, so the governing
+principle did not reach them. The owner ruled them separately the same day:
+**presume CPP does not have CxPP's vulnerabilities until proven otherwise.** All
+eleven are therefore `owner-approved-retirement`.
+
+**This is a burden of proof, not a finding of fact.** Nobody established that
+CPP lacks these defects. What was established is who carries the burden: absent
+a demonstrated, reproducible defect in CPP's own code, the CxPP row retires. The
+eleven titles read like live defects because they *are* live defects - **in
+CxPP**, verified OPEN there on 2026-09-20. They say nothing about CPP, and that
+is exactly the inference the ruling forbids.
+
+So a later reader finding eleven alarming titles marked retired is not looking
+at an oversight. Three specific temptations are already answered: a shared
+family is not evidence (cxpp#275's counterpart cpp#1029 is CLOSED); an analogous
+CPP component is not evidence (cxpp#279); and nobody having checked is not
+evidence (cxpp#259, cxpp#281). If you can demonstrate the defect in CPP's code,
+file it as a CPP issue on its own merits - the CxPP row is irrelevant to it and
+reopening this ledger is not the route.
 
 **What went the other way.** Two rows improved on evidence rather than on ruling:
 cxpp#250 is now `already-covered` because cpp#970 merged on 2026-09-20
