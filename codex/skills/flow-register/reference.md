@@ -849,8 +849,45 @@ calibrated on the `holds exactly one record` row above, which counts sessions
 correctly, then runs `ls` and sees 2 inside a container, with nothing saying
 which number was meant.
 
-A derived contract that removes the prose-reading step from this decision
-entirely is CPP #959, deliberately not built here.
+**The derived contract now exists - run it instead of reading this table (#959).**
+`scripts/flow-vantage.sh` makes the signals above executable, so the lane
+decision stops depending on anyone reading the right paragraph and believing it:
+
+```bash
+~/.claude/scripts/flow-vantage.sh          # or scripts/flow-vantage.sh in a CPP checkout
+```
+
+**Established on 2.1.266, 2026-09-20**, from the host, against the container
+rows established on 2.1.266, 2026-09-13:
+
+| Line | Values |
+|---|---|
+| `FLOW_VANTAGE_BASIS:` | which signals had an opinion, named individually - never a count |
+| `FLOW_VANTAGE_SOURCE:` | `measured` or `declared`; a `FLOW_VANTAGE_DECLARE` override is reported as `declared` and NEVER merged into a measured basis |
+| `FLOW_VANTAGE:` | `host` (exit 0), `container` (exit 3), `unknown` (exit 4) |
+
+It derives, it does not accept a substrate flag as the default, and the reason is
+the same one this section keeps running into: absent cannot mean host. A missing
+indicator is `unknown`, and a flag whose absence is indistinguishable from the
+negative case decides nothing.
+
+**`unknown` IS REACHABLE, and its routing cost is decided rather than left
+open.** The two usable signals can disagree - the pid namespace says host while
+`/etc/machine-id` is absent, which is an ordinary minimal Linux host - and the
+namespace may be unreadable entirely. **Route `unknown` to the MAILBOX**, lane 2
+above. The asymmetry is the whole argument: a host session on the mailbox loses a
+little speed and fails quiet, while a containerised session on lane 1 addresses a
+population that returns success and delivers nothing. And keep it VISIBLE when
+you do - a default that is safe in every case is one nobody notices firing, which
+is how a three-state answer quietly becomes a two-state one. `flow-wave-registry.sh`
+renders it on the roster row (`vantage=unknown[route-mailbox]`) for that reason.
+
+**The orchestrator sees it before assigning.** `flow-wave-registry.sh register`
+derives vantage once, on the worker's own machine, and STORES it on the role;
+`get` and `list` serve what was measured rather than re-deriving it, because a
+`get` run by the orchestrator would otherwise measure the orchestrator's own
+placement and print it under the worker's name. So `vantage=container[lane1-empty]`
+is visible at ASSIGNMENT time, not after the silence.
 
 **A hazard on lane 1 whose status is version-dependent - read the stamps.**
 Cross-session message delivery has been observed to kill the receiver's

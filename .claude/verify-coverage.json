@@ -98,7 +98,12 @@
       "consumer": "tests/test_flow_ci_status.py",
       "reason": "resolves a pipeline for a commit SHA; /flow:auto Step 8 deploys or stops on it"
     },
-    "flow-driver-capability.sh": {
+    "flow-vantage.sh": {
+    "class": "tested",
+    "consumer": "tests/test_flow_vantage.py",
+    "reason": "derives which side of the container boundary this session is on; its verdict decides the delivery lane, and flow-wave-registry.sh serves it to an orchestrator that cannot re-derive it"
+  },
+  "flow-driver-capability.sh": {
       "class": "tested",
       "consumer": "tests/test_driver_capability.py",
       "reason": "reports whether a driver can take an issue's lane"

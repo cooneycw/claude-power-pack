@@ -41,6 +41,7 @@
       "Bash(~/.claude/scripts/flow-wave-lexicon.sh:*)",
       "Bash(~/.claude/scripts/flow-wave-plan.py:*)",
       "Bash(~/.claude/scripts/flow-driver-capability.sh:*)",
+      "Bash(~/.claude/scripts/flow-vantage.sh:*)",
       "Bash(~/.claude/scripts/flow-finish-gate.sh:*)",
       "Bash(~/.claude/scripts/flow-ci-status.sh:*)",
       "Bash(~/.claude/scripts/flow-pr-watch.sh:*)",

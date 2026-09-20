@@ -1,0 +1,19 @@
+{
+  "branch": "issue-959-give-cpp-a-derived-vantage-contract-flow-vantage-s",
+  "counts": {
+    "accepted": 6,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "implementer": "claude/claude-opus-5",
+  "issue": "959",
+  "passes": 2,
+  "recorded_at": "2026-09-20T13:27:57Z",
+  "red_cases": {
+    "already_covered": 7,
+    "proposed": 8
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}
