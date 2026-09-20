@@ -49,7 +49,16 @@ set -u
 # FINDINGS CODE, on any host whose /bin/sh is bash. A caller could not tell "you
 # passed --root with nothing after it" from "shellcheck found problems". The
 # module's usage exit is outside every verdict number this gate declares.
-. "$(dirname "$0")/gate-lib.sh"
+# `${0%/*}`, NEVER `$(dirname "$0")`. `dirname` is an external binary, and
+# sourcing the module is the FIRST thing these gates do - so a PATH without it
+# left the gate unable to load at all, and therefore unable to say UNKNOWN in
+# exactly the environment where UNKNOWN is the answer. Caught by
+# `tests/test_shellcheck_stage.py`, which constructs that PATH deliberately and
+# which this slice may not edit; that is what the byte-identical constraint is
+# for. Parameter expansion forks nothing and needs nothing on PATH.
+_gate_lib_dir=${0%/*}
+[ "$_gate_lib_dir" = "$0" ] && _gate_lib_dir=.
+. "$_gate_lib_dir/gate-lib.sh"
 
 gate_map ok=0 findings=1 unknown=2
 

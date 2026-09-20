@@ -42,7 +42,16 @@ set -u
 # are gitleaks' own `RuleID:` lines, which its control keys on, and its other
 # output is `secret-scan-control: ...` prose - neither is a `KEY: verdict`
 # contract line, and inventing one would change what the control reads.
-. "$(dirname "$0")/gate-lib.sh"
+# `${0%/*}`, NEVER `$(dirname "$0")`. `dirname` is an external binary, and
+# sourcing the module is the FIRST thing these gates do - so a PATH without it
+# left the gate unable to load at all, and therefore unable to say UNKNOWN in
+# exactly the environment where UNKNOWN is the answer. Caught by
+# `tests/test_shellcheck_stage.py`, which constructs that PATH deliberately and
+# which this slice may not edit; that is what the byte-identical constraint is
+# for. Parameter expansion forks nothing and needs nothing on PATH.
+_gate_lib_dir=${0%/*}
+[ "$_gate_lib_dir" = "$0" ] && _gate_lib_dir=.
+. "$_gate_lib_dir/gate-lib.sh"
 
 gate_map clean=0 findings=1 usage=2 unavailable=3
 

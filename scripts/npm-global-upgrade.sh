@@ -54,7 +54,16 @@
 # willing to have become indistinguishable from the others again.
 set -u
 
-. "$(dirname "$0")/gate-lib.sh"
+# `${0%/*}`, NEVER `$(dirname "$0")`. `dirname` is an external binary, and
+# sourcing the module is the FIRST thing these gates do - so a PATH without it
+# left the gate unable to load at all, and therefore unable to say UNKNOWN in
+# exactly the environment where UNKNOWN is the answer. Caught by
+# `tests/test_shellcheck_stage.py`, which constructs that PATH deliberately and
+# which this slice may not edit; that is what the byte-identical constraint is
+# for. Parameter expansion forks nothing and needs nothing on PATH.
+_gate_lib_dir=${0%/*}
+[ "$_gate_lib_dir" = "$0" ] && _gate_lib_dir=.
+. "$_gate_lib_dir/gate-lib.sh"
 
 gate_map upgraded=0 downgraded=1 unknown=2 error=3
 

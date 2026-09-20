@@ -77,7 +77,16 @@ set -u
 # The comment below about usage and unknown SHARING exit 3 is now history for
 # the usage half, and is left in place because it explains why the `unknown`
 # verdict still exits 3. Usage errors no longer land there.
-. "$(dirname "$0")/gate-lib.sh"
+# `${0%/*}`, NEVER `$(dirname "$0")`. `dirname` is an external binary, and
+# sourcing the module is the FIRST thing these gates do - so a PATH without it
+# left the gate unable to load at all, and therefore unable to say UNKNOWN in
+# exactly the environment where UNKNOWN is the answer. Caught by
+# `tests/test_shellcheck_stage.py`, which constructs that PATH deliberately and
+# which this slice may not edit; that is what the byte-identical constraint is
+# for. Parameter expansion forks nothing and needs nothing on PATH.
+_gate_lib_dir=${0%/*}
+[ "$_gate_lib_dir" = "$0" ] && _gate_lib_dir=.
+. "$_gate_lib_dir/gate-lib.sh"
 
 gate_map clear=0 blocked=1 unknown=3
 
