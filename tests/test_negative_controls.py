@@ -99,6 +99,115 @@ import sys
 sys.exit(0)
 """
 
+#: The marker the toy manifests declare for a REFUSAL (issue #1129). A gate that
+#: could not look says so in its own words, and a case may now register that it
+#: must - so the harness has to tell this apart from a finding and from a crash,
+#: which is what the gates below are for.
+TOY_UNKNOWN = r"^toy-gate: UNKNOWN - "
+
+#: Three branches, like every real gate here: it found something, it found
+#: nothing, or the INPUT defeated it. The third fires on a case tree rather than
+#: on this machine, which is what makes it registrable at all - contrast
+#: UNAVAILABLE_GATE below, whose tool is absent on every input.
+#:
+#: Chatty on the clean path ON PURPOSE, so a pattern anchored on its ok line is
+#: available to the "must not match a clean run" test without a second gate.
+REFUSING_GATE = """#!/usr/bin/env python3
+import sys
+from pathlib import Path
+#: NEGATIVE-CONTROL: controls/toy
+root = Path(sys.argv[sys.argv.index("--root") + 1])
+if (root / "tests" / "UNEXAMINABLE").exists():
+    print("toy-gate: UNKNOWN - this input cannot be examined; 0 examined is not 0 findings.",
+          file=sys.stderr)
+    sys.exit(3)
+if (root / "tests" / "BAD").exists():
+    print("toy-gate: 1 finding(s)")
+    sys.exit(1)
+print("toy-gate: ok - nothing found")
+sys.exit(0)
+"""
+
+#: THE FAILURE THE REFUSAL BRANCH EXISTS TO PREVENT: it reports a confident
+#: CLEAN about a population it could not examine. Identical to REFUSING_GATE in
+#: every other branch, so the pair establishes which one the harness is reading.
+FALSE_CLEAN_ON_UNKNOWN_GATE = """#!/usr/bin/env python3
+import sys
+from pathlib import Path
+#: NEGATIVE-CONTROL: controls/toy
+root = Path(sys.argv[sys.argv.index("--root") + 1])
+if (root / "tests" / "UNEXAMINABLE").exists():
+    print("toy-gate: ok - nothing found")
+    sys.exit(0)
+if (root / "tests" / "BAD").exists():
+    print("toy-gate: 1 finding(s)")
+    sys.exit(1)
+print("toy-gate: ok - nothing found")
+sys.exit(0)
+"""
+
+#: Issue #946 re-created inside the field #1129 adds. It FALLS OVER where it was
+#: registered to refuse. A crash and a refusal both exit non-zero and neither
+#: prints the detection signal, so a harness scoring a registered UNKNOWN case on
+#: the exit code alone calls this gate correct - which is the exact blindness the
+#: committed anchor in controls/check-negative-controls-unknown embodies.
+CRASH_ON_UNKNOWN_GATE = """#!/usr/bin/env python3
+import sys
+from pathlib import Path
+#: NEGATIVE-CONTROL: controls/toy
+root = Path(sys.argv[sys.argv.index("--root") + 1])
+if (root / "tests" / "UNEXAMINABLE").exists():
+    raise ZeroDivisionError("the gate fell over instead of refusing")
+if (root / "tests" / "BAD").exists():
+    print("toy-gate: 1 finding(s)")
+    sys.exit(1)
+print("toy-gate: ok - nothing found")
+sys.exit(0)
+"""
+
+#: An anchor must AGREE on a refusal exactly as it must agree on a clean run, so
+#: this one REFUSES the unexaminable input and stays blind to the known-bad one.
+#: Blind in one named way and identical in every other.
+BLIND_BUT_REFUSING_ANCHOR = """#!/usr/bin/env python3
+import sys
+from pathlib import Path
+#: NEGATIVE-CONTROL: controls/toy
+root = Path(sys.argv[sys.argv.index("--root") + 1])
+if (root / "tests" / "UNEXAMINABLE").exists():
+    print("toy-gate: UNKNOWN - this input cannot be examined.", file=sys.stderr)
+    sys.exit(3)
+print("toy-gate: ok - nothing found")
+sys.exit(0)
+"""
+
+#: Blind to the REFUSAL as well as to the finding: it reports clean everywhere.
+#: That is a second difference from the current gate, so the demonstration is no
+#: longer isolated - INERT, by the same rule a GOOD-case disagreement triggers.
+BLIND_TO_REFUSAL_ANCHOR = """#!/usr/bin/env python3
+import sys
+#: NEGATIVE-CONTROL: controls/toy
+print("toy-gate: ok - nothing found")
+sys.exit(0)
+"""
+
+#: An anchor that REFUSES the known-bad input. It did not CATCH anything, so
+#: calling it INERT would accuse a sound artifact of being load-bearing; the
+#: required property is simply not established.
+REFUSES_THE_BAD_INPUT_ANCHOR = """#!/usr/bin/env python3
+import sys
+#: NEGATIVE-CONTROL: controls/toy
+print("toy-gate: UNKNOWN - this input cannot be examined.", file=sys.stderr)
+sys.exit(3)
+"""
+
+#: The registration a gate with a refusal branch carries: GOOD and BAD are still
+#: required (a one-sided control tests nothing), and the refusal is ADDITIONAL.
+UNKNOWN_CASES = [
+    {"name": "bad", "input": "cases/bad", "expect": "BAD"},
+    {"name": "good", "input": "cases/good", "expect": "GOOD"},
+    {"name": "unknown", "input": "cases/unknown", "expect": "UNKNOWN"},
+]
+
 #: Wedged at "fail": it reports a finding on EVERY input, the known-good one
 #: included. It prints the signal because that is what a stuck gate does - the
 #: good case is what separates it from a working one, not the signal.
@@ -241,6 +350,7 @@ def build_tree(
     cases: list[dict[str, str]] | None = None,
     detect_signal: str | None = TOY_SIGNAL,
     unavailable_signal: str | None = None,
+    unknown_signal: str | None = None,
 ) -> Path:
     (tmp_path / "scripts").mkdir()
     (tmp_path / "scripts" / "toy-gate.py").write_text(gate_src, encoding="utf-8")
@@ -248,6 +358,11 @@ def build_tree(
     (ctl / "cases" / "bad" / "tests").mkdir(parents=True)
     (ctl / "cases" / "good" / "tests").mkdir(parents=True)
     (ctl / "cases" / "bad" / "tests" / "BAD").write_text("x", encoding="utf-8")
+    # Always materialised, registered only when a test passes UNKNOWN_CASES
+    # (issue #1129). An unregistered directory is never invoked, so this costs
+    # the existing tests nothing and keeps the third case tree in one place.
+    (ctl / "cases" / "unknown" / "tests").mkdir(parents=True)
+    (ctl / "cases" / "unknown" / "tests" / "UNEXAMINABLE").write_text("x", encoding="utf-8")
     anchors: list[dict[str, str]] = []
     if anchor_src is not None:
         (ctl / "anchors").mkdir()
@@ -273,6 +388,8 @@ def build_tree(
         manifest["detect_signal"] = detect_signal
     if unavailable_signal is not None:
         manifest["unavailable_signal"] = unavailable_signal
+    if unknown_signal is not None:
+        manifest["unknown_signal"] = unknown_signal
     (ctl / "control.json").write_text(json.dumps(manifest), encoding="utf-8")
     return tmp_path
 
@@ -1670,3 +1787,198 @@ def test_the_instrument_numerator_does_not_double_count_one_gate(tmp_path: Path)
         "the registration count is a true fact about this run and must still be "
         "reported, not dropped to make the instrument count correct\n" + result.stdout
     )
+
+
+# --------------------------------------------------------------------------- #
+# A CASE MAY REGISTER A REFUSAL (issue #1129)
+#
+# Every gate in this tree answers in three branches - clean, a finding, and "I
+# could not look, or could not look completely" - and until #1129 only two of
+# them could be registered. The third is the one that exists to stop a gate
+# reporting a confident clean about a population it never examined, so it is the
+# one whose failure is hardest to notice from outside.
+#
+# These run under PYTEST, a different process and a different entry point from
+# the harness judging itself in controls/check-negative-controls-unknown. That
+# separation is the point: a second opinion from the same program is not one.
+# --------------------------------------------------------------------------- #
+
+
+def test_a_gate_that_refuses_an_unexaminable_input_passes(tmp_path: Path) -> None:
+    """The registrable half: a case demands a refusal and the gate delivers one."""
+    root = build_tree(
+        tmp_path, REFUSING_GATE, anchor_src=BLIND_BUT_REFUSING_ANCHOR,
+        cases=UNKNOWN_CASES, unknown_signal=TOY_UNKNOWN,
+    )
+    result = run_harness(root, "--strict")
+    assert verdict_of(result.stdout) == "PASS", result.stdout
+    assert result.returncode == 0
+    assert "case unknown: expected=UNKNOWN observed=UNKNOWN" in result.stdout, (
+        "the refusal must be OBSERVED as one, not merely tolerated\n" + result.stdout
+    )
+
+
+def test_a_false_clean_where_a_refusal_was_registered_is_blind(tmp_path: Path) -> None:
+    """The failure the refusal branch exists to prevent, and the reason #1129
+    called this half the one most worth controlling: a gate reporting CLEAN
+    about a population it could not examine. A blind clean and a real clean are
+    the same bytes, so nothing but a registered case catches this."""
+    root = build_tree(
+        tmp_path, FALSE_CLEAN_ON_UNKNOWN_GATE, anchor_src=BLIND_BUT_REFUSING_ANCHOR,
+        cases=UNKNOWN_CASES, unknown_signal=TOY_UNKNOWN,
+    )
+    result = run_harness(root, "--strict")
+    assert verdict_of(result.stdout) == "BLIND", result.stdout
+    assert result.returncode == 1
+    assert "reported CLEAN on an input it cannot examine" in result.stdout, (
+        "a BLIND verdict decides where someone looks, so the sentence must name "
+        "the false-clean rather than borrow the known-bad or known-good wording\n"
+        + result.stdout
+    )
+
+
+def test_a_crash_where_a_refusal_was_registered_is_not_excused_as_one(tmp_path: Path) -> None:
+    """Issue #946, re-created inside the field #1129 adds - and refused.
+
+    A crash and a refusal both exit non-zero and neither prints the detection
+    signal. A harness that scored a registered UNKNOWN case on the exit code
+    alone would call a gate that FELL OVER correct, which is the pre-#946
+    fail-open restored by a third route. This is the single property the
+    committed anchor in controls/check-negative-controls-unknown is blind to.
+    """
+    root = build_tree(
+        tmp_path, CRASH_ON_UNKNOWN_GATE, anchor_src=BLIND_BUT_REFUSING_ANCHOR,
+        cases=UNKNOWN_CASES, unknown_signal=TOY_UNKNOWN,
+    )
+    result = run_harness(root, "--strict")
+    assert verdict_of(result.stdout) == "UNSIGNALLED", (
+        "a gate that fell over must not be excused as one that refused\n" + result.stdout
+    )
+    assert result.returncode == 1
+
+
+def test_an_unknown_case_with_no_unknown_signal_is_refused(tmp_path: Path) -> None:
+    """Without a marker to recognise a refusal by, the case can NEVER observe
+    one: it falls through to UNSIGNALLED or BAD and reads as a gate alarm, which
+    sends a reader into the gate's detection logic for a missing line in the
+    manifest. Refused with the sentence that names the real defect."""
+    root = build_tree(tmp_path, REFUSING_GATE, anchor_src=BLIND_BUT_REFUSING_ANCHOR,
+                      cases=UNKNOWN_CASES)
+    result = run_harness(root, "--strict")
+    assert verdict_of(result.stdout) == "UNRESOLVED", result.stdout
+    assert "declares no unknown_signal" in result.stdout, result.stdout
+    assert result.returncode == 1
+
+
+def test_an_unknown_signal_that_matches_the_empty_string_is_refused(tmp_path: Path) -> None:
+    """The structural fail-open: a pattern matching silence turns every
+    non-zero exit into "it must have refused", which is scoring on the exit code
+    again, wearing a third field's name."""
+    root = build_tree(
+        tmp_path, REFUSING_GATE, anchor_src=BLIND_BUT_REFUSING_ANCHOR,
+        cases=UNKNOWN_CASES, unknown_signal=r"^toy-gate: UNKNOWN - |",
+    )
+    result = run_harness(root, "--strict")
+    assert verdict_of(result.stdout) == "UNRESOLVED", result.stdout
+    assert "matches empty output" in result.stdout, result.stdout
+    assert result.returncode == 1
+
+
+def test_an_unknown_signal_that_also_matches_the_clean_run_is_refused(tmp_path: Path) -> None:
+    """Checked against REAL output, not against the author's intention: a
+    pattern anchored on the gate's ok line reports a gate that examined
+    everything and found nothing as one that could not look - and does so on the
+    very cases that prove the gate works."""
+    root = build_tree(
+        tmp_path, REFUSING_GATE, anchor_src=BLIND_BUT_REFUSING_ANCHOR,
+        cases=UNKNOWN_CASES, unknown_signal=r"^toy-gate: ok",
+    )
+    result = run_harness(root, "--strict")
+    assert verdict_of(result.stdout) == "UNRESOLVED", result.stdout
+    assert "reports a working gate as having refused" in result.stdout, result.stdout
+    assert result.returncode == 1
+
+
+def test_an_unknown_signal_that_also_matches_a_detection_is_refused(tmp_path: Path) -> None:
+    """The refusal issue #1129 names in terms: a marker that also identified a
+    finding would make a refusal and a detection the same evidence, "which is
+    #946 undone".
+
+    Consulting the refusal marker BEFORE the detection one is a precedence rule,
+    not a licence for the two to overlap. Where they do, the ordering silently
+    decides which of two honest-looking patterns wins, and a gate that started
+    REPORTING what it used to REFUSE would keep scoring UNKNOWN and pass.
+    """
+    root = build_tree(
+        tmp_path, REFUSING_GATE, anchor_src=BLIND_BUT_REFUSING_ANCHOR,
+        cases=UNKNOWN_CASES, unknown_signal=TOY_SIGNAL,
+    )
+    result = run_harness(root, "--strict")
+    assert verdict_of(result.stdout) == "UNRESOLVED", result.stdout
+    assert "a refusal and a finding are the same evidence" in result.stdout, result.stdout
+    assert result.returncode == 1
+
+
+def test_an_absent_tool_is_still_unavailable_and_never_a_registered_refusal(
+    tmp_path: Path,
+) -> None:
+    """PRECEDENCE, and it is load-bearing rather than tidy (issue #1129).
+
+    This reproduces the real shape of `scripts/shellcheck-gate.sh`, which reports
+    BOTH its absent linter and its other refusals through one `UNKNOWN - `
+    marker - so the tool-absent line is a strict SUBSET of the refusal marker.
+    Consulted in the other order, a host that simply lacks the tool would observe
+    UNKNOWN, be scored against an expectation, and turn an environment fact back
+    into an accusation about our code: #1117 undone by the change that cites it.
+    """
+    root = build_tree(
+        tmp_path, UNAVAILABLE_GATE,
+        unavailable_signal=TOY_UNAVAILABLE,
+        unknown_signal=r"^toy-gate: UNAVAILABLE - ",
+    )
+    result = run_harness(root, "--strict", "--allow-unavailable")
+    assert verdict_of(result.stdout) == "UNAVAILABLE", (
+        "the more specific unavailability pattern must win over the general "
+        "refusal marker that also matches it\n" + result.stdout
+    )
+    assert result.returncode == 0
+
+
+def test_an_anchor_that_refuses_the_known_bad_input_is_unresolved_not_inert(
+    tmp_path: Path,
+) -> None:
+    """It did not CATCH anything - it said it could not look. Calling that INERT
+    accuses a perfectly blind artifact of being load-bearing and sends someone to
+    replace a sound file; the honest claim is that the required property was not
+    established. The same narrowing #946 made for a crashing anchor."""
+    root = build_tree(
+        tmp_path, REFUSING_GATE, anchor_src=REFUSES_THE_BAD_INPUT_ANCHOR,
+        cases=UNKNOWN_CASES, unknown_signal=TOY_UNKNOWN,
+    )
+    result = run_harness(root, "--strict")
+    assert verdict_of(result.stdout) == "UNRESOLVED", result.stdout
+    assert "REFUSED the known-bad input" in result.stdout, result.stdout
+    assert result.returncode == 1
+
+
+def test_an_anchor_blind_to_the_refusal_too_is_inert(tmp_path: Path) -> None:
+    """Anchor-sanity applies to a refusal exactly as it does to a clean run: an
+    anchor that disagrees there differs for reasons beyond the blindness under
+    test, so the demonstration isolates nothing.
+
+    This is the rule's real cost, pinned deliberately rather than discovered by
+    whoever adds the next case: an anchor frozen from before a gate's refusal
+    branch existed reports clean where the gate refuses, and forbids any UNKNOWN
+    case on that control while it stands.
+    """
+    root = build_tree(
+        tmp_path, REFUSING_GATE, anchor_src=BLIND_TO_REFUSAL_ANCHOR,
+        cases=UNKNOWN_CASES, unknown_signal=TOY_UNKNOWN,
+    )
+    result = run_harness(root, "--strict")
+    assert verdict_of(result.stdout) == "INERT", result.stdout
+    assert "known-UNEXAMINABLE" in result.stdout, (
+        "the message must name the kind of input that disagreed, or a reader "
+        "hunts for a clean-run disagreement that is not there\n" + result.stdout
+    )
+    assert result.returncode == 1

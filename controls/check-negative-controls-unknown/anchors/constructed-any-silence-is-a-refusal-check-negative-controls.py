@@ -1,3 +1,29 @@
+# CONSTRUCTED BLIND ARTIFACT - NOT A HISTORICAL REVISION OF THIS HARNESS.
+#
+# This reconstructs issue #1129 IMPLEMENTED NAIVELY. The naive version never
+# existed as a commit, because the declared-marker requirement landed together
+# with the UNKNOWN expectation - so there is no `git show` that produces it and
+# the artifact is built rather than fetched, exactly as
+# controls/check-negative-controls-unavailable's anchor was for #1117.
+#
+# ONE decision differs from the shipped harness, and one is enough here (unlike
+# the #1117 anchor, which needed two): `_observe` still PARSES `unknown_signal`
+# and then never consults it, scoring any non-zero exit that did not announce a
+# finding as a refusal. That is the fail-open a reasonable person writes on
+# purpose - "the gate obviously has a refusal branch, so the exact wording
+# should not matter" - and it is issue #946's defect re-created inside the field
+# #1129 adds: a gate that FELL OVER and a gate that REFUSED exit non-zero and
+# say nothing the detection pattern matches, so this version calls both correct.
+#
+# As frozen it MISSES the known-bad input - the crashing toy gate, which it
+# scores PASS/exit 0 where the current harness reports UNSIGNALLED/exit 1 - and
+# AGREES with the current harness on the known-good tree. So it would not notice
+# this harness regressing to the very fail-open the UNKNOWN expectation creates
+# the room for.
+#
+# DO NOT "FIX" THIS FILE. Its blindness is the measurement; repairing it silently
+# converts a working control into one that proves nothing (INERT), and the
+# sha256 in control.json is what detects an edit.
 #!/usr/bin/env python3
 """Run every gate's registered NEGATIVE CONTROL, and prove the control can fail (issue #924).
 
@@ -393,27 +419,6 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 #:     It inherits the self-registration caveat stated in full above and does
 #:     not repeat it: this harness judging itself is the weaker half, and
 #:     `tests/test_negative_controls.py` under pytest is the external opinion.
-#: NEGATIVE-CONTROL: controls/check-negative-controls-unknown
-#:     A THIRD registration on this gate (issue #1129), covering the property
-#:     the other two do not: that a gate which REFUSED a verdict is still told
-#:     apart from one that FELL OVER, now that `cases[].expect` can register the
-#:     refusal. The three sit in a row on purpose - #946 asks whether a crashing
-#:     gate is told from a detecting one, #1117 whether a silent gate is told
-#:     from one whose own TOOL is absent, and this one whether a silent gate is
-#:     told from one the INPUT defeated. Each new way for a non-zero exit to be
-#:     excused needs its own committed demonstration, because each is a fresh
-#:     route back to scoring on the exit code alone.
-#:
-#:     SEPARATE RATHER THAN TWO MORE CASES ON THE FIRST CONTROL, and this was
-#:     MEASURED rather than assumed: run against this control's known-bad tree,
-#:     that control's frozen pre-#946 anchor reports UNRESOLVED and exits 1
-#:     ("control.json has case(s) with an unknown expect value: ['UNKNOWN']").
-#:     An anchor exiting non-zero on the known-bad input reads as having CAUGHT
-#:     it, so those cases would report a working control INERT and send someone
-#:     to replace a sound artifact.
-#:
-#:     It inherits the self-registration caveat stated in full above and does
-#:     not repeat it.
 #: The registration directive, read out of the GATE file itself so the control
 #: cannot outlive the instrument it covers. Deleting the gate deletes the
 #: registration with it; a directive naming a directory that is not there is an
@@ -824,9 +829,10 @@ def _observe(
         return GOOD
     if unavailable is not None and unavailable.search(output):
         return UNAVAILABLE
-    if unknown is not None and unknown.search(output):
-        return UNKNOWN
-    return BAD if signal.search(output) else UNSIGNALLED
+    # THE MUTATION (see the banner at the top of this file). The declared
+    # marker is parsed and then never consulted: anything that exited non-zero
+    # and did not announce a finding is attributed to a refusal.
+    return BAD if signal.search(output) else UNKNOWN
 
 
 #: What a discrimination failure ACTUALLY WAS, keyed by (expected, observed).

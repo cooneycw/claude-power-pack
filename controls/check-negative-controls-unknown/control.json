@@ -1,0 +1,38 @@
+{
+  "gate": "scripts/check-negative-controls.py",
+  "invocation": [
+    "python3",
+    "{gate}",
+    "--root",
+    "{case}",
+    "--strict"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^negative-controls: \\S+ -> UNSIGNALLED$",
+  "unknown_signal": "^negative-controls: THE HARNESS ITSELF REFUSED TO LOOK$",
+  "limits": "A THIRD registration on this gate (issue #1129), covering a property neither of the two beside it does: that a gate which REFUSED a verdict is still told apart from one that FELL OVER, now that a case may register the refusal. controls/check-negative-controls asks whether a crashing gate is told from a detecting one (#946); controls/check-negative-controls-unavailable asks whether a silent gate is told from one whose own TOOL is absent (#1117); this one asks whether a silent gate is told from one the INPUT defeated. SEPARATE RATHER THAN TWO MORE CASES ON THE EXISTING CONTROL, and the reason is MEASURED rather than argued: run against this control's known-bad tree, that control's frozen pre-#946 anchor reports UNRESOLVED and exits 1 ('control.json has case(s) with an unknown expect value: [UNKNOWN]') - it predates the expectation entirely. An anchor that exits non-zero on the known-bad input reads as having CAUGHT it, so adding these cases there would report a working control INERT and send someone to replace a perfectly good artifact. Several registrations per gate have been supported since #986. WHAT THIS DOES NOT ESTABLISH: that the anchor's naive design is the only way to get #1129 wrong. It is one, chosen because it is the one a reasonable person writes on purpose; the other refusals (a marker matching empty output, a clean run, or a detection) are pinned by tests/test_negative_controls.py, which is a different process and the external opinion this harness cannot be for itself. unknown_signal is declared as a string this harness NEVER EMITS, ON PURPOSE - the same decision the control beside it made about unavailable_signal, for the same reason. The honest omission would be 'this gate has no refusal branch', but a control whose subject IS the refusal machinery should exercise the declaration path rather than the omission path, and a pattern that can never match demonstrates that DECLARING the field cannot by itself excuse anything. That is precisely the fail-open the anchor embodies: it parses the field and never consults it.",
+  "cases": [
+    {
+      "name": "bad-crashing-gate",
+      "input": "cases/bad-crashing-gate",
+      "expect": "BAD",
+      "why": "A toy gate that FALLS OVER on the input its control registers as UNKNOWN. The harness must report UNSIGNALLED - a crash is not a refusal - and exit 1."
+    },
+    {
+      "name": "good-unknown-gate",
+      "input": "cases/good-unknown-gate",
+      "expect": "GOOD",
+      "why": "The same toy gate with one branch changed: it REFUSES in the words its manifest declares. The harness must reach PASS and exit 0. One branch apart from the known-bad tree, so the pair establishes WHICH distinction the harness is reading."
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "n/a",
+      "origin": "scripts/check-negative-controls.py",
+      "path": "anchors/constructed-any-silence-is-a-refusal-check-negative-controls.py",
+      "sha256": "dffba6e2f529b0201aeb9c9f3e36d0c846947e3386c6ae4d343292e14104ace6",
+      "why": "CONSTRUCTED, reconstructing #1129 IMPLEMENTED NAIVELY rather than an earlier revision of this gate - the naive version never existed as a commit, because the declared-marker requirement landed with the expectation. ONE decision differs from the shipped harness and it is enough (the #1117 anchor needed two): _observe still PARSES unknown_signal and then never consults it, attributing any non-zero exit that did not announce a finding to a refusal. MEASURED as frozen: it scores the crashing tree PASS/exit 0 where the current harness reports UNSIGNALLED/exit 1, and agrees with the current harness on the known-good tree - so it misses the known-bad input and differs in nothing else."
+    }
+  ]
+}
