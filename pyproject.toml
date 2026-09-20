@@ -18,6 +18,12 @@ dev = ["mypy>=1.10", "pytest>=8.0", "pytest-timeout>=2.3", "pytest-xdist>=3.6", 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+# `pytester` is pytest's own fixture for running pytest inside a test. It is
+# how tests/test_flow_wave_mailbox.py checks that the autouse supervise-daemon
+# reaper actually fires during the teardown of a FAILING test (issue #1116) -
+# the one leak path that cannot be observed from inside a passing test. It
+# only registers fixtures; it changes nothing for the rest of the suite.
+addopts = ["-p", "pytester"]
 # Per-test wall-clock cap: a single wedged test aborts with a traceback instead
 # of silently eating the runner's whole-suite budget (issue #537). Dogfoods the
 # per-test-timeout the finish runner recommends to every project.
