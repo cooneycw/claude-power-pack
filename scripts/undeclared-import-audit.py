@@ -605,11 +605,12 @@ def selftest(repo_root: Path) -> int:
     on committed cases. Neither is sufficient alone.
     """
     live = repo_root / "controls" / "undeclared-import-audit" / "live"
-    expectations = (
-        (live / "bad-undeclared", EXIT_FINDING, f"{FINDING} scraper.py:", "`requests`"),
-        (live / "good-clean", EXIT_OK, None, None),
+    #: (fixture, expected exit, the (line prefix, substring) ONE finding must carry)
+    expectations: tuple[tuple[Path, int, tuple[str, str] | None], ...] = (
+        (live / "bad-undeclared", EXIT_FINDING, (f"{FINDING} scraper.py:", "`requests`")),
+        (live / "good-clean", EXIT_OK, None),
     )
-    for case, want, required, also_required in expectations:
+    for case, want, required in expectations:
         if not case.is_dir():
             print(f"{UNKNOWN} selftest fixture {case} is missing, so the scan was never shown able to see")
             return EXIT_UNKNOWN
@@ -624,16 +625,17 @@ def selftest(repo_root: Path) -> int:
                 print(f"  {line}")
             return EXIT_UNKNOWN
         if required is not None:
+            prefix, substring = required
             # ONE LINE must carry BOTH the path and the name. Searching the joined
             # report for each independently let two unrelated lines supply one
             # half each - a `scraper.py` finding about some other package plus a
             # stale ledger entry mentioning `requests` scored as the planted
             # detection (counter-model re-review). That is the same substitution
             # this selftest was hardened against one pass earlier, one level down.
-            if not any(line.startswith(required) and also_required in line for line in lines):
+            if not any(line.startswith(prefix) and substring in line for line in lines):
                 print(
                     f"{UNKNOWN} selftest on {case.name}: exited {got} with no single finding carrying both "
-                    f"{required!r} and {also_required!r} - the expected detection was replaced by some other failure"
+                    f"{prefix!r} and {substring!r} - the expected detection was replaced by some other failure"
                 )
                 for line in lines:
                     print(f"  {line}")

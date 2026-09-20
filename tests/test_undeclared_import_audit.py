@@ -121,7 +121,10 @@ def test_an_unknown_alias_reds_rather_than_passing_quietly(tmp_path: Path) -> No
     [
         pytest.param("def f():\n    import requests\n    return requests\n", id="function-body"),
         pytest.param("try:\n    import requests\nexcept ImportError:\n    requests = None\n", id="import-error-guard"),
-        pytest.param("from typing import TYPE_CHECKING\n\nif TYPE_CHECKING:\n    import requests\n", id="type-checking"),
+        pytest.param(
+            "from typing import TYPE_CHECKING\n\nif TYPE_CHECKING:\n    import requests\n",
+            id="type-checking",
+        ),
     ],
 )
 def test_an_import_that_cannot_crash_an_importer_is_not_a_finding(tmp_path: Path, body: str) -> None:
