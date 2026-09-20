@@ -540,6 +540,26 @@ steps:
   # and GIT-FREE: the anchor is vendored precisely because git is absent from this
   # image (the #451/#489/#577 trap), so provenance reports `unverified` here and is
   # byte-verified against git history on a dev box and in the pre-push hook.
+  # DO NOT ADD `depends_on: [validate]` HERE (issue #1163). It looks like the
+  # cheap way to give this step a virtualenv, and it would make the battery
+  # SILENT exactly when it matters: Woodpecker SKIPS a step whose dependency
+  # failed, so a red `validate` would suppress every control's verdict rather
+  # than reporting it. The battery exists to catch blind instruments; making it
+  # downstream of the step most likely to fail means nobody hears from it on a
+  # red tree. It would also make one step's verdict depend on another step's
+  # side effect, which is the ambient-state coupling this repository keeps
+  # recording against itself.
+  #
+  # Syncing here instead (`uv sync --extra dev --frozen`, measured 0.887s cold)
+  # was the other candidate, and it adds a NETWORK dependency to a step that has
+  # none - where a registry outage and a blind instrument look alike in the log.
+  #
+  # Neither was needed: #1163 removed the need instead, by deferring the
+  # re-exports in `lib/cicd/__init__.py` and the module-scope imports in
+  # `lib/cicd/cli.py` that reached pydantic. A control can now exercise a gate
+  # whose path runs `python3 -m lib.cicd` with no venv, no network and no
+  # pydantic - verified as a whole control under this exact image digest with
+  # --network none and a read-only workspace.
   negative-controls:
     image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
     depends_on: [secret-scan, shellcheck-stage, jq-stage]

@@ -29,24 +29,29 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import NoReturn
+from typing import TYPE_CHECKING, NoReturn
 
-from .config import CICDConfig
-from .container import generate_container_files
+if TYPE_CHECKING:
+    # Annotations only - `_check_secrets_source` takes a CICDConfig and type
+    # checkers must still resolve it. Never imported at runtime, which is the
+    # whole point of the note below.
+    from .config import CICDConfig
+
+# `.config`, `.manifest` and every module that reaches them are imported
+# INSIDE the commands that use them
+# (issue #1163), not here. Both pull in pydantic, and `python3 -m lib.cicd run`
+# - the entry point scripts/flow-finish-gate.sh invokes - needs neither:
+# cmd_run, cmd_resume and cmd_status touch no configuration at all.
+#
+# That mattered to the negative-controls battery, whose CI image has no pydantic
+# and no virtualenv: with these at module scope `-m lib.cicd` could not START
+# there, so no control could exercise a gate reaching lib.cicd. The package
+# `__init__` was the other half of the same chain.
+#
+# tests/test_cicd_imports.py runs this entry point in a subprocess with pydantic
+# blocked, so putting either back at module scope fails loudly.
 from .detector import detect_framework, detect_infrastructure
-from .health import run_health_checks
-from .infrastructure import generate_discovery_script, generate_infra_pipeline, scaffold_infrastructure
-from .makefile import check_makefile
-from .manifest import generate_manifest, load_manifest, write_manifest
-from .pipeline import generate_pipeline
 from .runner import resume_run, run_plan, show_status
-from .smoke import run_smoke_tests
-from .verify import (
-    Verdict,
-    capture_snapshot,
-    save_baseline,
-    verify_deployment,
-)
 
 
 def cmd_detect(args: argparse.Namespace) -> int:
@@ -77,6 +82,8 @@ def cmd_detect(args: argparse.Namespace) -> int:
 
 def cmd_check(args: argparse.Namespace) -> int:
     """Validate Makefile completeness."""
+    from .config import CICDConfig
+    from .makefile import check_makefile
     config = CICDConfig.load(args.path)
     result = check_makefile(args.path, config)
 
@@ -178,6 +185,8 @@ def _check_secrets_source(config: CICDConfig) -> list[str]:
 
 def cmd_pipeline(args: argparse.Namespace) -> int:
     """Generate CI/CD pipeline files."""
+    from .config import CICDConfig
+    from .pipeline import generate_pipeline
     info = detect_framework(args.path)
     config = CICDConfig.load(args.path)
 
@@ -230,6 +239,8 @@ def cmd_pipeline(args: argparse.Namespace) -> int:
 
 def cmd_health(args: argparse.Namespace) -> int:
     """Run health checks against configured endpoints and processes."""
+    from .config import CICDConfig
+    from .health import run_health_checks
     config = CICDConfig.load(args.path)
     result = run_health_checks(config=config, project_root=args.path)
 
@@ -274,6 +285,8 @@ def cmd_health(args: argparse.Namespace) -> int:
 
 def cmd_smoke(args: argparse.Namespace) -> int:
     """Run smoke tests from cicd.yml configuration."""
+    from .config import CICDConfig
+    from .smoke import run_smoke_tests
     config = CICDConfig.load(args.path)
     result = run_smoke_tests(config=config, project_root=args.path)
 
@@ -333,6 +346,8 @@ def _print_snapshot_table(snapshot, title: str) -> None:
 
 def cmd_verify(args: argparse.Namespace) -> int:
     """Capture a baseline, or verify a deployment against one (proceed/rollback)."""
+    from .config import CICDConfig
+    from .verify import Verdict, capture_snapshot, save_baseline, verify_deployment
     config = CICDConfig.load(args.path)
 
     # --baseline: capture the pre-deploy snapshot and persist it.
@@ -408,6 +423,8 @@ def cmd_verify(args: argparse.Namespace) -> int:
 
 def cmd_container(args: argparse.Namespace) -> int:
     """Generate container files (Dockerfile, compose, dockerignore)."""
+    from .config import CICDConfig
+    from .container import generate_container_files
     info = detect_framework(args.path)
     config = CICDConfig.load(args.path)
 
@@ -439,6 +456,8 @@ def cmd_container(args: argparse.Namespace) -> int:
 
 def cmd_infra_init(args: argparse.Namespace) -> int:
     """Scaffold IaC directory structure."""
+    from .config import CICDConfig
+    from .infrastructure import scaffold_infrastructure
     config = CICDConfig.load(args.path)
 
     # Check if infra already exists
@@ -477,6 +496,8 @@ def cmd_infra_init(args: argparse.Namespace) -> int:
 
 def cmd_infra_discover(args: argparse.Namespace) -> int:
     """Generate cloud resource discovery script."""
+    from .config import CICDConfig
+    from .infrastructure import generate_discovery_script
     config = CICDConfig.load(args.path)
     cloud = args.cloud or config.infrastructure.cloud
 
@@ -517,6 +538,8 @@ def cmd_infra_discover(args: argparse.Namespace) -> int:
 
 def cmd_infra_pipeline(args: argparse.Namespace) -> int:
     """Generate CI/CD pipelines for infrastructure tiers."""
+    from .config import CICDConfig
+    from .infrastructure import generate_infra_pipeline
     config = CICDConfig.load(args.path)
     provider = args.provider or config.pipeline.provider
 
@@ -549,6 +572,8 @@ def cmd_infra_pipeline(args: argparse.Namespace) -> int:
 def cmd_init_manifest(args: argparse.Namespace) -> int:
     """Generate a default cicd_tasks.yml manifest."""
     import os
+
+    from .manifest import generate_manifest, write_manifest
 
     manifest_path = os.path.join(args.path, ".claude", "cicd_tasks.yml")
 
@@ -584,6 +609,7 @@ def cmd_init_manifest(args: argparse.Namespace) -> int:
 
 def cmd_validate_manifest(args: argparse.Namespace) -> int:
     """Validate an existing cicd_tasks.yml manifest."""
+    from .manifest import load_manifest
     try:
         manifest = load_manifest(args.path)
     except ValueError as e:
@@ -627,6 +653,7 @@ def cmd_validate_manifest(args: argparse.Namespace) -> int:
 
 def cmd_validate(args: argparse.Namespace) -> int:
     """Validate CI/CD configuration file."""
+    from .config import CICDConfig
     config_path = Path(args.path) / ".claude" / "cicd.yml"
 
     if args.schema:
