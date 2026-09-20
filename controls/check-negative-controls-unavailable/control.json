@@ -1,0 +1,37 @@
+{
+  "gate": "scripts/check-negative-controls.py",
+  "invocation": [
+    "python3",
+    "{gate}",
+    "--root",
+    "{case}",
+    "--strict",
+    "--allow-unavailable"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^negative-controls: \\S+ -> UNSIGNALLED$",
+  "unavailable_signal": "^negative-controls: THE HARNESS ITSELF CANNOT RUN$",
+  "limits": "A SECOND registration on the same gate, and it covers a DIFFERENT property from controls/check-negative-controls beside it: that one asks whether the harness still tells a crashing gate from a detecting one, and this one asks whether it still tells a SILENT gate from one whose own tool is absent (issue #1117). They are separate controls rather than two more cases on one because they need different INVOCATIONS - this property is only observable under --allow-unavailable, and adding a flag to the existing control's invocation would make its frozen pre-#946 anchor exit 2 on an unrecognised argument, turning a working control UNRESOLVED. The harness has supported several registrations per gate since #986. WHAT THIS DOES NOT ESTABLISH: that --allow-unavailable is the right POSTURE for make verify. That is a judgement about which consumer tolerates what, and no control can settle it; the evidence for it is the Makefile comment and this file's docstring. unavailable_signal is declared as a string this harness never emits, ON PURPOSE. The field is optional and the honest value here is 'this gate drives no external tool', but a control whose subject IS the unavailability machinery should exercise the declaration path rather than the omission path - and a pattern that can never match proves the field's presence cannot by itself excuse anything, which is the property the anchor beside it attacks.",
+  "cases": [
+    {
+      "name": "bad-silent-gate",
+      "input": "cases/bad-silent-gate",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-unavailable-gate",
+      "input": "cases/good-unavailable-gate",
+      "expect": "GOOD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "n/a",
+      "origin": "scripts/check-negative-controls.py",
+      "path": "anchors/constructed-absence-is-unavailable-check-negative-controls.py",
+      "sha256": "ac6ff5b67db82cd69c4b018ba3900f3a1e054e15a31e7127b5602d9b91ba3b0e",
+      "why": "CONSTRUCTED, and it reconstructs issue #1117 IMPLEMENTED NAIVELY rather than an earlier revision of this gate - the naive version never existed, because the contradiction check landed with the verdict. Two decisions differ from the shipped harness and neither alone produces the blindness, which was MEASURED while building this anchor: (1) a non-zero exit carrying no recognised message is attributed to a missing tool whenever the manifest declares an unavailability signal at all; (2) the cross-case contradiction check is absent. The first cut of this file carried only mutation 1 and was NOT blind - the contradiction check caught the silent gate anyway and scored it UNRESOLVED, which would have made this control INERT. That failed attempt is why the pairing is the artifact: mutation 1 is the fail-open a reasonable person writes on purpose ('the gate obviously has an optional tool, so the exact wording should not matter'), and mutation 2 is what a first cut would simply not have thought of. As frozen it MISSES the silent gate - exit 0 where the current harness exits 1 - and agrees with it on the known-good input, so it would not notice this harness regressing to the very fail-open the UNAVAILABLE verdict creates the room for."
+    }
+  ]
+}

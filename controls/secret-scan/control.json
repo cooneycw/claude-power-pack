@@ -8,6 +8,7 @@
   ],
   "good_exit": 0,
   "detect_signal": "^RuleID:",
+  "unavailable_signal": "^secret-scan-control: gitleaks is not installed\\b",
   "limits": "Covers the WORKING-TREE population only. The gate script passes --no-git, the flag `make secret-scan` uses; CI runs gitleaks WITHOUT --no-git and therefore scans git HISTORY, which this control does not exercise. detect_signal keys on gitleaks' finding output rather than on its exit status because gitleaks exits 1 BOTH for findings and for a config-load failure - a malformed .gitleaks.toml would otherwise report a successful detection while scanning nothing (#946, on the secret gate). A config failure prints FTL on stderr with no RuleID line, so it lands in UNSIGNALLED, which is crash-distinct rather than 'detected'.",
   "cases": [
     {"name": "bad-private-key", "input": "cases/bad-private-key", "expect": "BAD"},

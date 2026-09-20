@@ -155,12 +155,92 @@ sys.exit(0)
 """
 
 
+#: Issue #1117. Its tool is not installed, so it says so and exits non-zero on
+#: EVERY input - which is what an absent binary does. Before the UNAVAILABLE
+#: verdict this scored UNSIGNALLED: an accusation about the gate for a fact about
+#: the machine.
+TOY_UNAVAILABLE = r"^toy-gate: UNAVAILABLE - the toy tool is not installed"
+
+UNAVAILABLE_GATE = """#!/usr/bin/env python3
+import sys
+#: NEGATIVE-CONTROL: controls/toy
+print("toy-gate: UNAVAILABLE - the toy tool is not installed", file=sys.stderr)
+sys.exit(3)
+"""
+
+#: The contradiction the cross-case check exists for: unavailable on the known-bad
+#: input and CLEAN on the known-good one. No missing binary produces that - it is
+#: what a pattern loose enough to match a genuine finding looks like on a host
+#: where the tool IS present.
+UNAVAILABLE_ON_BAD_ONLY_GATE = """#!/usr/bin/env python3
+import sys
+from pathlib import Path
+#: NEGATIVE-CONTROL: controls/toy
+root = Path(sys.argv[sys.argv.index("--root") + 1])
+if (root / "tests" / "BAD").exists():
+    print("toy-gate: UNAVAILABLE - the toy tool is not installed", file=sys.stderr)
+    sys.exit(3)
+sys.exit(0)
+"""
+
+#: THE REAL jq SHAPE, synthesised. `flow-driver-retirement-check.sh` declares
+#: `^RETIREMENT: (blocked|unknown)\b` as its detection signal - correctly, since
+#: for that gate an `unknown` verdict IS the finding a caller must not delete on
+#: - and reports a missing jq as `RETIREMENT: unknown - jq is not installed`. So
+#: its unavailability message is a MEMBER of its own detection pattern, and no
+#: refinement of the detection pattern separates them. This is the specimen that
+#: decides the order the two signals are consulted in.
+TOY_OVERLAPPING_DETECT = r"^toy-gate: (finding|unknown)\b"
+TOY_OVERLAPPING_UNAVAILABLE = r"^toy-gate: unknown - the toy tool is not installed"
+
+OVERLAPPING_UNAVAILABLE_GATE = """#!/usr/bin/env python3
+import sys
+#: NEGATIVE-CONTROL: controls/toy
+print("toy-gate: unknown - the toy tool is not installed")
+sys.exit(3)
+"""
+
+#: The counter-model finding, as a fixture: it DETECTS its known-bad input
+#: correctly and then claims its tool is absent on the known-good one. The tool
+#: was demonstrably present - it just ran and found something - so the
+#: unavailability claim cannot be about a missing binary. The first cut of the
+#: cross-case check counted only CLEAN runs as proof the gate ran and therefore
+#: saw no contradiction here at all.
+DETECTS_THEN_UNAVAILABLE_GATE = """#!/usr/bin/env python3
+import sys
+from pathlib import Path
+#: NEGATIVE-CONTROL: controls/toy
+root = Path(sys.argv[sys.argv.index("--root") + 1])
+if (root / "tests" / "BAD").exists():
+    print("toy-gate: 1 finding(s)")
+    sys.exit(1)
+print("toy-gate: UNAVAILABLE - the toy tool is not installed", file=sys.stderr)
+sys.exit(3)
+"""
+
+#: Prints the unavailability wording on its CLEAN run too, so the declared
+#: pattern would report a working gate as unexaminable. The mirror of
+#: CHATTY_GATE, one field over.
+CHATTY_UNAVAILABLE_GATE = """#!/usr/bin/env python3
+import sys
+from pathlib import Path
+#: NEGATIVE-CONTROL: controls/toy
+root = Path(sys.argv[sys.argv.index("--root") + 1])
+if (root / "tests" / "BAD").exists():
+    print("toy-gate: 1 finding(s)")
+    sys.exit(1)
+print("toy-gate: UNAVAILABLE - the toy tool is not installed")
+sys.exit(0)
+"""
+
+
 def build_tree(
     tmp_path: Path,
     gate_src: str,
     anchor_src: str | None = BLIND_GATE,
     cases: list[dict[str, str]] | None = None,
     detect_signal: str | None = TOY_SIGNAL,
+    unavailable_signal: str | None = None,
 ) -> Path:
     (tmp_path / "scripts").mkdir()
     (tmp_path / "scripts" / "toy-gate.py").write_text(gate_src, encoding="utf-8")
@@ -191,6 +271,8 @@ def build_tree(
     }
     if detect_signal is not None:
         manifest["detect_signal"] = detect_signal
+    if unavailable_signal is not None:
+        manifest["unavailable_signal"] = unavailable_signal
     (ctl / "control.json").write_text(json.dumps(manifest), encoding="utf-8")
     return tmp_path
 
@@ -1217,3 +1299,374 @@ def test_a_marker_in_a_scripts_subdirectory_is_not_discovered(tmp_path: Path) ->
         f"so DISCOVERY_SCOPE in check-negative-controls.py is now wrong\n{out.stdout}"
     )
     assert "controls/nowhere" not in out.stdout, out.stdout
+
+
+# #1117 - "its tool is missing" is not "it stopped discriminating"
+# --------------------------------------------------------------------------- #
+
+
+def test_a_gate_whose_own_tool_is_absent_reports_UNAVAILABLE(tmp_path: Path) -> None:
+    """The distinction this issue exists for.
+
+    A gate that cannot look is not a gate that looked and missed. Both exit
+    non-zero, so before the declared unavailability signal the harness filed the
+    first as the second - UNSIGNALLED for two of the three real gates, and BLIND
+    for the jq one, whose unavailability line is a legitimate member of its own
+    detection pattern. The correct response to either is "install a tool", and
+    neither verdict says that.
+    """
+    root = build_tree(tmp_path, UNAVAILABLE_GATE, unavailable_signal=TOY_UNAVAILABLE)
+    result = run_harness(root, "--strict")
+    assert verdict_of(result.stdout) == "UNAVAILABLE", result.stdout
+    assert "not installed" in result.stdout, result.stdout
+
+
+def test_the_SAME_silence_without_a_declared_pattern_stays_UNSIGNALLED(tmp_path: Path) -> None:
+    """THE RED CASE FOR THE FIELD'S EXISTENCE, and the half that keeps it honest.
+
+    Same harness, same posture; the only difference is whether the manifest
+    declares a pattern the gate's words match. The test above would pass against
+    a harness that returned UNAVAILABLE for every non-zero exit carrying no
+    detection signal - which is the fail-open
+    `controls/check-negative-controls-unavailable` pins as a frozen artifact, and
+    it would be an even quieter version of the #946 defect. So a gate that goes
+    silent must still be UNSIGNALLED, declaration present or not.
+    """
+    # Declared, and the gate does not say it: this is the discriminating half.
+    root = build_tree(tmp_path, CRASHING_GATE, unavailable_signal=TOY_UNAVAILABLE)
+    result = run_harness(root, "--strict")
+    assert verdict_of(result.stdout) == "UNSIGNALLED", result.stdout
+    assert result.returncode == 1
+
+    # And with no declaration at all, behaviour is byte-identical to pre-#1117.
+    (tmp_path / "nested").mkdir()
+    other = build_tree(tmp_path / "nested", CRASHING_GATE)
+    assert verdict_of(run_harness(other, "--strict").stdout) == "UNSIGNALLED"
+
+
+def test_an_unavailable_signal_matching_empty_output_is_refused(tmp_path: Path) -> None:
+    """`.*` would excuse every silent non-zero exit, wearing the new field's name.
+
+    Structural, checked before any case runs, and the exact mirror of the
+    detect_signal refusal: a pattern that matches nothing-at-all cannot separate
+    a missing tool from a crash by construction.
+    """
+    root = build_tree(tmp_path, CRASHING_GATE, unavailable_signal=".*")
+    result = run_harness(root, "--strict")
+    assert verdict_of(result.stdout) == "UNRESOLVED", result.stdout
+    assert "matches empty output" in result.stdout, result.stdout
+    assert result.returncode == 1
+
+
+def test_an_unavailable_signal_matching_a_clean_run_is_refused(tmp_path: Path) -> None:
+    """A pattern anchored on something the gate prints when it is WORKING.
+
+    That reports a healthy gate as unexaminable, which is the opposite error from
+    the one above and just as quiet: the control stops covering anything and the
+    run still exits 0 under the local posture.
+    """
+    root = build_tree(tmp_path, CHATTY_UNAVAILABLE_GATE, unavailable_signal=TOY_UNAVAILABLE)
+    result = run_harness(root, "--strict")
+    assert verdict_of(result.stdout) == "UNRESOLVED", result.stdout
+    assert "CLEAN output" in result.stdout, result.stdout
+
+
+def test_unavailable_on_one_case_while_another_ran_cleanly_is_refused(tmp_path: Path) -> None:
+    """The cross-case contradiction, and the reason the ordering is safe.
+
+    `unavailable_signal` is consulted BEFORE `detect_signal`, because the jq
+    gate's two messages are not separable in the other direction. That ordering
+    would be a silent precedence rule without this: a binary that is absent is
+    absent for every case, so "unavailable here, clean there" is not something a
+    missing tool produces. It is what a pattern broad enough to swallow a genuine
+    finding produces on a machine that HAS the tool - every CI run, where the
+    three are pinned into the image on purpose.
+    """
+    root = build_tree(tmp_path, UNAVAILABLE_ON_BAD_ONLY_GATE, unavailable_signal=TOY_UNAVAILABLE)
+    result = run_harness(root, "--strict")
+    assert verdict_of(result.stdout) == "UNRESOLVED", result.stdout
+    assert "A missing binary is missing for every case" in result.stdout, result.stdout
+
+
+def test_strict_ALONE_still_fails_on_UNAVAILABLE(tmp_path: Path) -> None:
+    """THE CI POSTURE, pinned so the local one cannot quietly become it.
+
+    `.woodpecker.yml` stages pinned gitleaks, shellcheck and jq into `.ci-bin`
+    and its comment rests on this harness reddening rather than reporting a
+    shorter battery if a staging step stops delivering one;
+    `tests/test_shellcheck_stage.py` holds the same claim. Both are about `make`-
+    free CI, which passes `--strict` and nothing else. If tolerance ever leaks
+    into the bare flag, an absent binary in CI becomes a silent shorter battery
+    and those guarantees are gone with no edit to either file.
+    """
+    root = build_tree(tmp_path, UNAVAILABLE_GATE, unavailable_signal=TOY_UNAVAILABLE)
+    result = run_harness(root, "--strict")
+    assert verdict_of(result.stdout) == "UNAVAILABLE", result.stdout
+    assert result.returncode == 1, (
+        "bare --strict must keep failing on UNAVAILABLE - CI reads it\n" + result.stdout
+    )
+
+
+def test_allow_unavailable_excuses_UNAVAILABLE_and_NOTHING_ELSE(tmp_path: Path) -> None:
+    """THE LOCAL POSTURE, two-sided.
+
+    One-sided this would pass against a flag that simply suppressed every
+    failure, so the same flag is asserted NOT to rescue a silent gate. That is
+    the whole difference between a posture and an off switch.
+    """
+    for sub in ("a", "b", "c"):
+        (tmp_path / sub).mkdir()
+    unavailable = build_tree(tmp_path / "a", UNAVAILABLE_GATE, unavailable_signal=TOY_UNAVAILABLE)
+    excused = run_harness(unavailable, "--strict", "--allow-unavailable")
+    assert excused.returncode == 0, excused.stdout
+    assert verdict_of(excused.stdout) == "UNAVAILABLE", excused.stdout
+
+    silent = build_tree(tmp_path / "b", CRASHING_GATE, unavailable_signal=TOY_UNAVAILABLE)
+    refused = run_harness(silent, "--strict", "--allow-unavailable")
+    assert refused.returncode == 1, (
+        "--allow-unavailable must not rescue a gate that went silent\n" + refused.stdout
+    )
+    assert verdict_of(refused.stdout) == "UNSIGNALLED", refused.stdout
+
+    blind = build_tree(tmp_path / "c", BLIND_GATE, unavailable_signal=TOY_UNAVAILABLE)
+    still_blind = run_harness(blind, "--strict", "--allow-unavailable")
+    assert still_blind.returncode == 1, still_blind.stdout
+    assert verdict_of(still_blind.stdout) == "BLIND", still_blind.stdout
+
+
+def test_an_excused_control_is_NAMED_and_not_counted_as_discriminating(tmp_path: Path) -> None:
+    """What it tolerates it must also say, in both directions.
+
+    A tolerated verdict that is silent is the failure this whole file refuses: a
+    developer whose box lacks gitleaks would read a green `make verify` as the
+    evidence CI has. Two separate claims, and each can regress without the other:
+    the unexamined control is NAMED, and it is not absorbed into the numerator of
+    the "N of M ... discriminate" line, which would be a fresh overclaim
+    introduced by the very change that exists to stop one.
+    """
+    root = build_tree(tmp_path, UNAVAILABLE_GATE, unavailable_signal=TOY_UNAVAILABLE)
+    # A READABLE CENSUS, so the headline reaches its membership branch (#1036).
+    # Without one the universe is unknown and the sentence never states the
+    # relation this test is about.
+    write_census(root, ["toy-gate.py"])
+    result = run_harness(root, "--strict", "--allow-unavailable")
+    assert result.returncode == 0, result.stdout
+    assert "NEGATIVE_CONTROL_UNAVAILABLE: 1" in result.stdout, result.stdout
+    assert "NOT EXAMINED here" in result.stdout, result.stdout
+    assert "scripts/toy-gate.py" in result.stdout.rsplit("NOT EXAMINED here", 1)[-1], result.stdout
+    assert "0 of 1 enumerated instruments" in result.stdout, (
+        "the only control was unexamined, so the count of instruments carrying a "
+        "control that discriminates is 0 - counting it would claim coverage "
+        "nothing established\n" + result.stdout
+    )
+    assert "1 registered" in result.stdout, (
+        "the registration still exists and that is a separate, true fact - "
+        "the run must not hide it to make the coverage number honest\n" + result.stdout
+    )
+
+
+def test_the_unavailable_count_is_printed_even_when_it_is_zero(tmp_path: Path) -> None:
+    """A line that appears only when non-zero cannot be told from an absent one.
+
+    A consumer reading for it would learn "unexamined: absent", which is equally
+    consistent with "none" and with "an older harness that never emitted this".
+    Same rule as the universe line #979 added.
+    """
+    root = build_tree(tmp_path, SEEING_GATE)
+    result = run_harness(root, "--strict")
+    assert "NEGATIVE_CONTROL_UNAVAILABLE: 0" in result.stdout, result.stdout
+
+
+@requires_git
+def test_allow_unavailable_does_not_excuse_an_UNTRACKED_control(tmp_path: Path) -> None:
+    """The two axes stay independent (#978 x #1117).
+
+    "This machine lacks gitleaks" and "this control does not exist in a clean
+    clone" are unrelated facts that happen to meet in one Result. Tolerating the
+    first must not swallow the second - an untracked control is a green that does
+    not survive a clone, and no amount of missing tooling makes that acceptable.
+    """
+    root = build_tree(tmp_path, UNAVAILABLE_GATE, unavailable_signal=TOY_UNAVAILABLE)
+    subprocess.run(["git", "init", "-q", str(root)], check=True, timeout=60)
+    result = run_harness(root, "--strict", "--allow-unavailable")
+    assert "NEGATIVE_CONTROL_TRACKING: UNTRACKED" in result.stdout, (
+        "fixture precondition: the control's files must be untracked here\n" + result.stdout
+    )
+    assert result.returncode == 1, (
+        "--allow-unavailable excused a control that does not exist in a clean clone\n"
+        + result.stdout
+    )
+
+
+def test_two_registrations_on_one_gate_are_distinguishable_in_the_output() -> None:
+    """A block's only identifying field was the gate, and a gate may declare several.
+
+    `scripts/check-negative-controls.py` carries two registrations as of #1117 -
+    the first gate in the repository to do so, though discovery has supported it
+    since #986. Without the control line, the two blocks are byte-identical in
+    everything a reader or a consumer could key on, so a failure in one would be
+    diagnosed against the other's fixtures.
+    """
+    out = run_harness(ROOT).stdout
+    controls = [
+        line.split(": ", 1)[1]
+        for line in out.splitlines()
+        if line.startswith("NEGATIVE_CONTROL_CONTROL: ")
+    ]
+    assert "controls/check-negative-controls" in controls, out
+    assert "controls/check-negative-controls-unavailable" in controls, out
+    assert len(controls) == len(set(controls)), f"two blocks share an identity: {controls}"
+
+
+def test_the_real_unavailability_control_discriminates_and_its_anchor_is_blind() -> None:
+    """The committed demonstration for #1117, executed rather than asserted.
+
+    Scoped to THIS control (see `control_block`), which is why the #1117 contract
+    line exists: both registrations report the same gate, so scoping by gate name
+    would silently address the neighbour. No `--strict`: the exit code is a
+    property of every control, not of this one.
+    """
+    out = run_harness(ROOT).stdout
+    block, collecting = [], False
+    for line in out.splitlines():
+        if line.startswith("NEGATIVE_CONTROL_CONTROL: "):
+            collecting = line.split(": ", 1)[1] == "controls/check-negative-controls-unavailable"
+        if collecting:
+            block.append(line)
+            if line.startswith("NEGATIVE_CONTROL_VERDICT: "):
+                break
+    text = "\n".join(block)
+    assert text, f"the unavailability control is not in the register at all\n{out}"
+    assert verdict_of(text) == "PASS", text
+    assert "missed the known-bad input" in text, text
+
+
+def test_the_real_unavailability_anchor_misses_the_silence_the_gate_catches() -> None:
+    """The #1117 claim measured directly: one fixture, both artifacts, opposite answers.
+
+    The harness's own verdict about itself is the weaker half (its control says
+    so), so this runs the two programs and compares exit codes rather than
+    reading the harness's judgement of the comparison.
+    """
+    control = ROOT / "controls" / "check-negative-controls-unavailable"
+    silent = control / "cases" / "bad-silent-gate"
+    anchor = control / "anchors" / "constructed-absence-is-unavailable-check-negative-controls.py"
+    flags = ["--root", str(silent), "--strict", "--allow-unavailable"]
+    current = subprocess.run(
+        [sys.executable, str(HARNESS), *flags], capture_output=True, text=True, timeout=120,
+    )
+    historical = subprocess.run(
+        [sys.executable, str(anchor), *flags], capture_output=True, text=True, timeout=120,
+    )
+    assert current.returncode == 1, f"the current harness should flag a silent gate: {current.stdout}"
+    assert "UNSIGNALLED" in current.stdout, current.stdout
+    assert historical.returncode == 0, (
+        f"the anchor should MISS it - if it catches it, this control is not "
+        f"load-bearing: {historical.stdout}"
+    )
+
+
+def test_unavailability_is_read_BEFORE_detection_when_the_two_patterns_overlap(tmp_path: Path) -> None:
+    """The ordering, pinned against the specimen that decides it.
+
+    Every other test here passes under EITHER order, because the toy gates print
+    an unavailability line their detection pattern does not match - so this is
+    the only one that can fail when the two are swapped. That makes it the whole
+    of the ordering's coverage, and the reason it exists as its own case.
+
+    Measured on the real gate, 2026-09-20: with jq removed from an otherwise
+    identical PATH, `controls/flow-driver-retirement-check` reported BLIND - "the
+    gate did not discriminate", the loudest alarm in this vocabulary - for a
+    machine that simply lacked a binary. Detection-first reproduces exactly that
+    here, because `toy-gate: unknown - ...` matches a detection pattern whose
+    `unknown` branch is deliberately there.
+    """
+    root = build_tree(
+        tmp_path,
+        OVERLAPPING_UNAVAILABLE_GATE,
+        detect_signal=TOY_OVERLAPPING_DETECT,
+        unavailable_signal=TOY_OVERLAPPING_UNAVAILABLE,
+    )
+    result = run_harness(root, "--strict")
+    assert verdict_of(result.stdout) == "UNAVAILABLE", (
+        "the specific pattern must win over the general one. BLIND here is the "
+        "real jq defect reproduced: an environment fact reported as the gate "
+        "having stopped discriminating\n" + result.stdout
+    )
+
+
+def test_a_gate_that_DETECTED_cannot_then_claim_its_tool_is_absent(tmp_path: Path) -> None:
+    """The counter-model finding on this change (MEDIUM), as a red case.
+
+    A SUCCESSFUL DETECTION IS PROOF THE TOOL WAS THERE, exactly as a clean run
+    is. The first cut of the cross-case check recorded only `observed == GOOD`
+    as evidence the gate ran, so this shape - detect the known-bad input, then
+    report the tool absent on the known-good one - produced no contradiction and
+    was excused as UNAVAILABLE, exiting 0 under the local posture. The gate had
+    already shown it could work, and its failure on the other input was written
+    off as a fact about the machine.
+
+    That is the same excusal the whole cross-case guard exists to refuse,
+    reachable through the half the guard was not looking at.
+    """
+    root = build_tree(
+        tmp_path, DETECTS_THEN_UNAVAILABLE_GATE, unavailable_signal=TOY_UNAVAILABLE
+    )
+    result = run_harness(root, "--strict", "--allow-unavailable")
+    assert verdict_of(result.stdout) == "UNRESOLVED", (
+        "a gate that detected one input cannot claim a missing tool on another\n"
+        + result.stdout
+    )
+    assert result.returncode == 1, (
+        "the local posture must not exit 0 here - this is not an environment fact\n"
+        + result.stdout
+    )
+    assert "produced a real verdict" in result.stdout, result.stdout
+
+
+def test_the_instrument_numerator_does_not_double_count_one_gate(tmp_path: Path) -> None:
+    """The second counter-model finding on #1117 (MEDIUM), as a red case.
+
+    The denominator counts ADR 0008 census rows, which are INSTRUMENTS. Until
+    #1117 no gate carried two registrations, so a count of CONTROLS was the same
+    number and the difference could not show. It can now: adding a second
+    control to an ALREADY-covered gate would otherwise raise the claimed
+    coverage while covering no additional instrument - a coverage figure that
+    goes up when nothing new is covered.
+
+    WHICH CODE PROVIDES THE PROPERTY, stated because it is not this branch's.
+    #1036 landed between the finding and this merge, and its `census_membership`
+    already resolves registrations to a SET of gate basenames - so the
+    deduplication this test asserts is its work, not #1117's. What #1117
+    contributes is the first tree that can tell the difference: this is the only
+    test in the file that registers two controls on one gate, so before it the
+    dedup was implemented and unexercised. Verified by removing the `set()` from
+    `census_membership`, which reddens this test and nothing else.
+
+    Both numbers are asserted, because reporting only the deduplicated one would
+    lose a true fact rather than fix a false one.
+    """
+    root = build_tree(tmp_path, SEEING_GATE)
+    # A SECOND registration on the same gate, pointing at its own control dir.
+    gate = root / "scripts" / "toy-gate.py"
+    gate.write_text(
+        gate.read_text(encoding="utf-8").replace(
+            "#: NEGATIVE-CONTROL: controls/toy",
+            "#: NEGATIVE-CONTROL: controls/toy\n#: NEGATIVE-CONTROL: controls/toy2",
+        ),
+        encoding="utf-8",
+    )
+    shutil.copytree(root / "controls" / "toy", root / "controls" / "toy2")
+
+    write_census(root, ["toy-gate.py"])
+    result = run_harness(root, "--strict")
+    assert result.returncode == 0, result.stdout
+    assert "NEGATIVE_CONTROL_REGISTERED: 2" in result.stdout, result.stdout
+    assert "1 of 1 enumerated instruments" in result.stdout, (
+        "two controls on ONE gate cover one instrument, not two - the coverage "
+        "count is being taken in controls\n" + result.stdout
+    )
+    assert "2 registered" in result.stdout, (
+        "the registration count is a true fact about this run and must still be "
+        "reported, not dropped to make the instrument count correct\n" + result.stdout
+    )

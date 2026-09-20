@@ -25,7 +25,8 @@ ways it can go wrong, and each has a case below:
 NO TEST IN THIS REPOSITORY ASSERTED (2) BEFORE #1086. The refusal is real and it
 is implemented in two places - `scripts/shellcheck-gate.sh` exits 2 with UNKNOWN
 when `command -v shellcheck` fails, and `check-negative-controls.py` scores a gate
-it cannot run as UNSIGNALLED rather than skipping it - but "the tool was present
+it cannot run as UNAVAILABLE rather than skipping it (#1117; UNSIGNALLED before
+that, and still a red under the bare `--strict` CI passes) - but "the tool was present
 on every run so far" is not evidence about what happens when it is not. Re-reading
 the gate checks what it MEANT; only a known-bad input checks what it CAN say.
 """
@@ -143,7 +144,7 @@ def test_a_declared_staging_that_did_not_deliver_FAILS_rather_than_skips() -> No
     assert found is not None, (
         f"PATH declares a staged toolchain ({on_path}) but no shellcheck is "
         f"reachable, so `shellcheck-stage` did not deliver. Every control that "
-        f"needs it will report UNSIGNALLED and this suite would otherwise have "
+        f"needs it will report UNAVAILABLE and this suite would otherwise have "
         f"passed without noticing."
     )
 
@@ -189,7 +190,7 @@ def test_the_staging_step_exists_and_stages_the_pinned_binary() -> None:
     assert "shellcheck-stage" in steps, (
         "the shellcheck-stage step is gone; `validate` and `negative-controls` "
         "would have no pinned shellcheck and every control needing it reports "
-        "UNSIGNALLED"
+        "UNAVAILABLE - still a red under the bare --strict this pipeline passes"
     )
     stage = steps["shellcheck-stage"]
     # `str(c)`: a YAML command need not be a string - a bare `true` parses as a

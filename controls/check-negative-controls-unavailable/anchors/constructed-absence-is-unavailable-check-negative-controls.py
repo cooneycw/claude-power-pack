@@ -1,4 +1,30 @@
 #!/usr/bin/env python3
+# CONSTRUCTED BLIND ARTIFACT for controls/check-negative-controls-unavailable.
+# DO NOT EDIT, DO NOT LINT, DO NOT "FIX". Its sha256 is pinned by that control's
+# control.json and this file is meant to stay wrong.
+#
+# WHAT IT RECONSTRUCTS: issue #1117 implemented naively - the version that adds
+# an UNAVAILABLE verdict and stops there. Two decisions differ from the shipped
+# harness, both marked inline as MUTATION 1 and MUTATION 2, and NEITHER alone is
+# enough to produce the blindness:
+#
+#   1. a non-zero exit with no recognised message is attributed to a missing
+#      tool whenever the manifest declares an unavailability signal at all;
+#   2. the cross-case contradiction check does not exist.
+#
+# That pairing is the point. Mutation 1 is the fail-open someone writes on
+# purpose, reasoning that the gate obviously has an optional tool so the exact
+# wording should not matter. Mutation 2 is what a first cut simply would not
+# have thought of. With the contradiction check present, Mutation 1 is caught
+# anyway - MEASURED while building this anchor, which is why the first version
+# of this file failed to be blind and was replaced.
+#
+# So this artifact MISSES a gate that goes silent, which is the blindness #946
+# removed and #1117 could have reintroduced, and it agrees with the shipped
+# harness on every input where a tool really is absent. A copy that always
+# exited 0 would satisfy the framework's two checks and demonstrate nothing;
+# this one demonstrates the specific regression the change is one edit away
+# from.
 """Run every gate's registered NEGATIVE CONTROL, and prove the control can fail (issue #924).
 
 Seven of CPP's open issues are one defect in different gates: an instrument that
@@ -192,16 +218,12 @@ the manifest author's intention:
   2. IT MAY NOT MATCH A CLEAN RUN. A pattern anchored on the gate's ok line
      would report a working gate as unexaminable. Checked against the known-GOOD
      case's REAL output.
-  3. IT MAY NOT SURVIVE A RUN THAT PROVES THE TOOL WAS THERE. If any case
-     reports unavailability while another case through the SAME gate produced a
-     REAL VERDICT - a clean run OR a genuine detection - the tool was present
-     enough to run one and not the other, which is not what a missing binary
-     does. That contradiction is UNRESOLVED, and it is what catches a pattern
-     loose enough to swallow a genuine finding on a host where the tool IS
-     installed. Both verdicts count as proof the gate ran: counting only the
-     clean one left a gate that DETECTED its known-bad input and then claimed
-     unavailability on the known-good one entirely unguarded (counter-model
-     review of this change).
+  3. IT MAY NOT SURVIVE A RUN THAT PROVES THE TOOL WAS THERE. If a known-bad
+     case reports unavailability while a known-good case through the SAME gate
+     ran cleanly, the tool was present enough to run one and not the other -
+     which is not what a missing binary does. That contradiction is UNRESOLVED,
+     and it is what catches a pattern loose enough to swallow a genuine finding
+     on a host where the tool IS installed.
 
 THE FIELD IS OPTIONAL, and the asymmetry with `detect_signal` is deliberate
 rather than an oversight. `detect_signal` had to be required because defaulting
@@ -243,14 +265,8 @@ import os
 import re
 import shutil
 import subprocess
-import sys
 from dataclasses import dataclass, field
-from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
-
-#: This checkout, so the census EXTRACTION RULE is loaded from the program while
-#: the census DOCUMENT is read from `--root`. See `_census_rule` below.
-REPO_ROOT = Path(__file__).resolve().parents[1]
 
 #: NEGATIVE-CONTROL: controls/check-negative-controls
 #:     Registered per issue #964. ADR 0008 hands the living list of instruments
@@ -279,21 +295,6 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 #:     mutation, the external control has become decoration and this
 #:     self-registration is all that remains, which is the state this design
 #:     exists to prevent.
-#: NEGATIVE-CONTROL: controls/check-negative-controls-unavailable
-#:     A SECOND registration on this gate (issue #1117), covering a property the
-#:     row above does not: that a gate reporting its own tool absent is still
-#:     told apart from a gate that went silent. Separate rather than two more
-#:     cases on the existing control because the property is only observable
-#:     under `--allow-unavailable`, and adding that flag to the other control's
-#:     invocation would make its frozen pre-#946 anchor exit 2 on an
-#:     unrecognised argument - turning a working control UNRESOLVED to test an
-#:     unrelated one. Several registrations per gate have been supported since
-#:     #986; this is the first gate to use it, which is worth knowing if that
-#:     path ever looks untested.
-#:
-#:     It inherits the self-registration caveat stated in full above and does
-#:     not repeat it: this harness judging itself is the weaker half, and
-#:     `tests/test_negative_controls.py` under pytest is the external opinion.
 #: The registration directive, read out of the GATE file itself so the control
 #: cannot outlive the instrument it covers. Deleting the gate deletes the
 #: registration with it; a directive naming a directory that is not there is an
@@ -420,161 +421,17 @@ def _census_text(text: str) -> str:
     return ADR_COMMENT_RE.sub("", "\n".join(out))
 
 
-#: The sibling gate that owns "what subject is this census row about" - the
-#: first backticked token of column 2, head word only (issue #1060). The rule is
-#: IMPORTED rather than re-implemented, for the reason #1060 recorded when it
-#: split this file's row parser from that one: two readers of one table drift
-#: apart silently, and the drift is invisible precisely because both keep
-#: printing numbers. `verify-coverage-check.py` imports it the same way (#1028).
-CENSUS_GATE_REL = "scripts/instrument-census-check.py"
-
-
-def _census_rule():
-    """The census extraction rule, loaded from THIS CHECKOUT, or None.
-
-    THE RULE COMES FROM THE PROGRAM, THE DOCUMENT FROM `--root`. Loading the
-    rule from `root` would execute the target tree's own Python - and `--root`
-    is pointed at fixture trees on every run of this file's own control. It is
-    also wrong on the merits: "what counts as a census subject" is this
-    repository's rule, not something each tree redefines.
-
-    None means the rule is UNREADABLE, never "there are no subjects". Every
-    caller reports `unknown` on it; an absent rule must not read as an empty
-    census, which would make membership vacuously perfect.
-    """
-    gate = REPO_ROOT / CENSUS_GATE_REL
-    if not gate.is_file():
-        return None
-    try:
-        spec = spec_from_file_location("instrument_census_check", gate)
-        if spec is None or spec.loader is None:
-            return None
-        module = module_from_spec(spec)
-        spec.loader.exec_module(module)
-    except Exception:  # noqa: BLE001 - any failure here is UNREAD, never EMPTY
-        return None
-    if not hasattr(module, "census_subjects") or not hasattr(module, "declared_externals"):
-        return None
-    return module
-
-
-@dataclass
-class Census:
-    """What ADR 0008's table says, as three separate facts (issue #1036).
-
-    `rows` alone was the whole denominator, and printing it beside a count of
-    REGISTERED CONTROLS produced `21 of 89` - a sentence whose two numbers come
-    from populations nothing relates. This carries the relationship instead:
-
-    rows        how many instruments the census enumerates. The denominator.
-    subjects    WHICH instruments, so a registered control's gate can be
-                resolved against them. None when the rule or the document
-                could not be read - never an empty set, which would report
-                every registered control as a non-member.
-    external    how many of those rows name a subject the document itself
-                declares has no file under `scripts/` (`ruff`, `pytest`,
-                `gitleaks`, `make`, the `lib.*` entry points). The denominator
-                is not homogeneous and said nothing about it.
-
-                THESE ARE NOT "UNREGISTRABLE", and the issue that asked for
-                this count corrected itself on exactly that word. They cannot
-                carry a marker THEMSELVES, but `controls/secret-scan` already
-                covers `gitleaks` by wrapping it in
-                `scripts/secret-scan-check.sh`. Wrapping is the route for the
-                rest, so this number describes the CURRENT DISCOVERY RULE, not
-                a ceiling on what can be controlled.
-    """
-
-    rows: int | None = None
-    subjects: set[str] | None = None
-    external: int | None = None
-    whence: str = ""
-    #: Set when the two readers of this one table disagree about how many rows
-    #: it has. Membership is then reported `unknown` rather than computed from a
-    #: subject set that is provably not the row set - the drift #1060 warned of,
-    #: arriving as a wrong answer instead of a missing one.
-    disagreement: str = ""
-
-
-def instrument_census(root: Path) -> Census:
-    """ADR 0008's census: how many rows, which subjects, how many external."""
+def instrument_universe(root: Path) -> tuple[int | None, str]:
+    """(count, provenance-phrase) for ADR 0008's enumerated instruments."""
     adr = root / ADR_0008
     try:
         text = adr.read_text(encoding="utf-8")
     except OSError:
-        return Census(whence=f"{ADR_0008} is unreadable")
+        return None, f"{ADR_0008} is unreadable"
     rows = len(ADR_ROW_RE.findall(_census_text(text)))
     if rows == 0:
-        return Census(whence=f"{ADR_0008} parsed to 0 enumerated rows")
-
-    census = Census(rows=rows, whence=str(ADR_0008))
-    rule = _census_rule()
-    if rule is None:
-        census.disagreement = f"{CENSUS_GATE_REL} could not be loaded"
-        return census
-    try:
-        subjects = rule.census_subjects(text)
-        externals = rule.declared_externals(text)
-    except Exception as exc:  # noqa: BLE001 - a broken rule is UNREAD, never EMPTY
-        census.disagreement = f"{CENSUS_GATE_REL} raised {type(exc).__name__}: {exc}"
-        return census
-
-    # A row this file counts but the sibling extracts no subject from (no
-    # backticked token in column 2) means the two readers are looking at
-    # different documents. Reporting membership against the smaller set would
-    # name real rows as non-members, so the honest answer is `unknown`.
-    if len(subjects) != rows:
-        census.disagreement = (
-            f"{ADR_0008} parses to {rows} row(s) here and {len(subjects)} subject(s) "
-            f"via {CENSUS_GATE_REL}"
-        )
-        return census
-
-    census.subjects = set(subjects)
-    census.external = sum(1 for subject in subjects if subject in externals)
-    return census
-
-
-#: WHERE A MARKER CAN BE SEEN AT ALL, stated because "no control found" and "I
-#: did not look there" are otherwise the same silence (issue #1036). `discover`
-#: below calls `iterdir()`, not `rglob()`, so a registration is invisible in
-#: `controls/`, in `lib/`, in a config file such as `.gitleaks.toml`, and in any
-#: `scripts/` SUBDIRECTORY.
-#:
-#: THAT FITS CPP AND IS NOT A UNIVERSAL RULE. This repository's instruments are
-#: overwhelmingly top-level scripts, and `instrument-census-check.py` derives the
-#: census population with the same `scripts/`-only rule - so widening one without
-#: the other would split the numerator's population from the denominator's, which
-#: is the defect this whole line of work is about. A repository whose instruments
-#: are library modules (kyle: 64 of 77 enumerated verdict contracts are not under
-#: `scripts/`) needs that decision made for BOTH readers at once, not here.
-#:
-#: This constant is a CLAIM, and `tests/test_negative_controls.py` holds it: a
-#: marker planted in a `scripts/` subdirectory must not be discovered. Widen
-#: `discover` and that case fails, which is what brings someone back to this text.
-DISCOVERY_SCOPE = "scripts/* (top-level files only; subdirectories are not read)"
-
-
-def census_membership(
-    registrations: list[tuple[Path, str]], census: Census
-) -> tuple[int | None, list[str] | None]:
-    """`(members, nonmembers)` for the discovered registrations (issue #1036).
-
-    The gate a registration covers is the FILE THE DIRECTIVE LIVES IN -
-    `evaluate` refuses any manifest that declares otherwise - so the census
-    subject to resolve against is that file's basename, which is the form the
-    census table uses.
-
-    `(None, None)` when the census subjects could not be read. An unreadable
-    membership list must not report every control as a non-member, and must not
-    report every control as a member either: both are confident answers to a
-    question nothing answered.
-    """
-    if census.subjects is None:
-        return None, None
-    names = sorted({path.name for path, _ in registrations})
-    nonmembers = [name for name in names if name not in census.subjects]
-    return len(names) - len(nonmembers), nonmembers
+        return None, f"{ADR_0008} parsed to 0 enumerated rows"
+    return rows, f"{ADR_0008}"
 
 
 def discover(root: Path) -> list[tuple[Path, str]]:
@@ -673,6 +530,14 @@ def _observe(
     if exit_code == good_exit:
         return GOOD
     if unavailable is not None and unavailable.search(output):
+        return UNAVAILABLE
+    # MUTATION 1 of 2. A control that DECLARES an unavailability signal is read
+    # as "this gate drives a tool that can go missing", so a non-zero exit
+    # carrying no recognised message is charitably attributed to that tool
+    # instead of being called UNSIGNALLED. It reads as tolerance for a gate whose
+    # wording drifted; it is the pre-#946 fail-open arriving by a new route, and
+    # it excuses a gate that CRASHES.
+    if unavailable is not None and not signal.search(output):
         return UNAVAILABLE
     return BAD if signal.search(output) else UNSIGNALLED
 
@@ -871,21 +736,12 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
     # -- DISCRIMINATION ---------------------------------------------------- #
     bad_cases: list[Path] = []
     #: Names of the cases whose gate reported its own tool absent, and of the
-    #: cases where the gate DEMONSTRABLY RAN. Collected across the whole loop
-    #: rather than acted on in it, because the contradiction that catches a loose
+    #: cases that ran CLEANLY. Collected across the whole loop rather than acted
+    #: on in it, because the contradiction that catches a loose
     #: `unavailable_signal` is a relationship BETWEEN cases and cannot be seen
     #: from inside one (issue #1117).
-    #:
-    #: "RAN" IS BOTH VERDICTS, NOT JUST THE CLEAN ONE (counter-model review,
-    #: MEDIUM). The first cut recorded only `observed == GOOD`, so a gate that
-    #: genuinely DETECTED its known-bad input and then reported its tool absent
-    #: on the known-good one produced no contradiction at all and was excused as
-    #: UNAVAILABLE - exit 0 under the local posture. A successful detection is
-    #: proof the tool was there every bit as much as a clean run is; excluding it
-    #: made the guard blind to the half where the gate had already shown it could
-    #: work.
     unavailable_cases: list[str] = []
-    ran_cases: list[str] = []
+    clean_cases: list[str] = []
     unavailable_reason = ""
     for case in cases:
         case_path = control_dir / case["input"]
@@ -940,8 +796,8 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
                             unavailable_reason = line.strip()
                             break
             continue
-        if observed in (GOOD, BAD):
-            ran_cases.append(case["name"])
+        if observed == GOOD:
+            clean_cases.append(case["name"])
         if observed is UNSIGNALLED:
             res.verdict = UNSIGNALLED
             res.details.append(
@@ -993,16 +849,10 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
     # rule; with it, an author who writes a pattern broad enough to swallow
     # detections gets a red on any machine that can actually run the gate - which
     # is every CI run, where the tools are pinned into the image on purpose.
-    if unavailable_cases and ran_cases:
-        res.verdict = UNRESOLVED
-        res.details.append(
-            f"control.json unavailable_signal /{raw_unavailable}/ reports the gate's tool absent "
-            f"on case(s) {', '.join(unavailable_cases)} while case(s) {', '.join(ran_cases)} "
-            f"produced a real verdict through the same gate, so the tool was present. A missing "
-            f"binary is missing for every case; this pattern is matching something else "
-            f"(issue #1117)"
-        )
-        return res
+    # MUTATION 2 of 2. The cross-case contradiction check is ABSENT here -
+    # 'unavailable on one case, clean on another' is accepted rather than
+    # refused. Its absence is what lets Mutation 1 stand: with the check in
+    # place, a silent gate whose sibling case ran cleanly is caught anyway.
     if unavailable_cases:
         res.verdict = UNAVAILABLE
         res.details.append(
@@ -1115,76 +965,6 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
     return res
 
 
-def _headline(
-    results: list[Result],
-    census: Census,
-    members: int | None,
-    nonmembers: list[str] | None,
-    whence: str,
-    registered: int | None = None,
-) -> str:
-    """The sentence everyone quotes - as a relationship, not a fraction (#1036).
-
-    `21 of 89 enumerated instruments carry a control that discriminates` was
-    two independently-derived counts printed as one ratio. The numerator was
-    REGISTERED CONTROLS, the denominator ADR 0008 CENSUS ROWS, and nothing
-    asserted a registered control's gate appeared in the census at all - so the
-    line read "21 of the 89 are controlled" and meant "21 controls exist, some
-    unknown number of which are among the 89". A registered control whose gate
-    was absent from the census produced exactly the same output as one present.
-
-    Three facts now, each with its own population:
-
-      how many controls were REGISTERED AND DISCRIMINATE          (the numerator)
-      how many of those are CENSUS MEMBERS, and which are not     (the relation)
-      what the DENOMINATOR is made of                             (the composition)
-
-    A non-member is NAMED. That is the whole remedy asked for, and it is derived
-    - there is no list to maintain and no exception to remember.
-
-    `results` IS THE DISCRIMINATING POPULATION AND `registered` IS EVERY
-    REGISTRATION (issue #1117). They were the same number until UNAVAILABLE
-    existed, because anything short of PASS failed the run and never reached
-    this sentence. They can differ now, and the sentence keeps them apart on
-    purpose: "23 registered" is a fact about the register, "21 of 90 carry a
-    control that discriminates" is a fact about this run, and collapsing them
-    would let an unexamined control read as a covered instrument.
-    """
-    discriminating = len(results)
-    total = discriminating if registered is None else registered
-    if census.rows is None:
-        return (
-            f"{discriminating} discriminating control(s) of {total} registered, against an "
-            f"UNKNOWN universe ({whence}) - this is a sample, and how large a sample "
-            "cannot be said"
-        )
-    if members is None or nonmembers is None:
-        return (
-            f"{total} registered; how many are among the {census.rows} enumerated "
-            f"instruments ({whence}) is UNKNOWN - {census.disagreement or 'the census subjects could not be read'}"
-        )
-
-    outside = (
-        "none registered outside the census"
-        if not nonmembers
-        else f"{len(nonmembers)} registered OUTSIDE the census ({', '.join(nonmembers)})"
-    )
-    composition = (
-        ""
-        if census.external is None
-        else (
-            f"; the denominator is {census.rows - census.external} registrable + "
-            f"{census.external} external subject(s) with no file under scripts/ for a "
-            "marker, reachable only by wrapping"
-        )
-    )
-    return (
-        f"{total} registered, {members} of {census.rows} enumerated instruments "
-        f"({whence}) carry a control that discriminates, {outside}{composition}; "
-        f"discovery reads {DISCOVERY_SCOPE}"
-    )
-
-
 def _aggregate_provenance(values: list[str]) -> str:
     """Conservative: a `MISMATCH` anywhere survives, and `ok` needs EVERY anchor.
 
@@ -1250,54 +1030,22 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--verify-provenance", action="store_true", help="byte-compare anchors against git history")
     parser.add_argument("--quiet", action="store_true", help="contract lines only")
-    #: A NARROWING SELECTOR, added for issue #970's mutation probe, which needs to
-    #: ask "did THIS control notice" rather than "did the register notice". Running
-    #: the whole register to answer that dilutes the signal in both directions: an
-    #: unrelated control already red makes every mutation read as caught, and 22
-    #: healthy controls do not make the 23rd's silence any quieter.
-    #:
-    #: A selector that silently selects NOTHING is the hazard, not the feature - it
-    #: turns an empty run into an exit-0 "clean". So a `--control` that matches no
-    #: registration refuses, non-zero, WITHOUT `--strict`: an unmatched selector is
-    #: an unchecked run, which is the same rule the no-registrations branch below
-    #: already applies to the whole register.
-    parser.add_argument("--control", default=None, metavar="REL",
-                        help="evaluate only the control registered at this path "
-                             "(e.g. controls/shellcheck-gate); refuses if it matches nothing")
     args = parser.parse_args(argv)
 
     root: Path = args.root.resolve()
     stamp = _source_stamp(root)
     registrations = discover(root)
 
-    if args.control is not None:
-        wanted = args.control.rstrip("/")
-        registrations = [pair for pair in registrations if pair[1].rstrip("/") == wanted]
-        if not registrations:
-            print("NEGATIVE_CONTROL_SOURCE: " + stamp)
-            print("NEGATIVE_CONTROL_REGISTERED: 0")
-            print(f"negative-controls: --control {args.control!r} matched no registration - "
-                  "nothing was checked. This is UNCHECKED, not clean.", file=sys.stderr)
-            return 1
-
     # The universe is a property of the TREE, not of the results, so it is stated
     # on every exit including the ones that found nothing (#979). A run that
     # reports no denominator is the defect whatever its verdict.
-    census = instrument_census(root)
-    universe, whence = census.rows, census.whence
+    universe, whence = instrument_universe(root)
     universe_line = f"NEGATIVE_CONTROL_UNIVERSE: {universe if universe is not None else 'unknown'}"
-
-    # WHERE THE MARKERS WERE LOOKED FOR, on every exit (issue #1036). A register
-    # that reports its count without its search scope invites the reader to take
-    # the count as a statement about the repository; it is a statement about
-    # `scripts/`.
-    scope_line = f"NEGATIVE_CONTROL_DISCOVERY_SCOPE: {DISCOVERY_SCOPE}"
 
     if not registrations:
         print("NEGATIVE_CONTROL_SOURCE: " + stamp)
         print("NEGATIVE_CONTROL_REGISTERED: 0")
         print(universe_line)
-        print(scope_line)
         print("NEGATIVE_CONTROL_UNAVAILABLE: 0")
         print("negative-controls: no gate carries a registration - nothing was checked. "
               "This is UNCHECKED, not clean.")
@@ -1309,7 +1057,6 @@ def main(argv: list[str] | None = None) -> int:
     # registrations were discovered - and is not re-purposed.
     print(f"NEGATIVE_CONTROL_REGISTERED: {len(registrations)}")
     print(universe_line)
-    print(scope_line)
     # A COUNT ON EVERY RUN, INCLUDING ZERO (issue #1117). A line that appears
     # only when something is unexamined cannot be told from a line nobody
     # emitted, so a consumer reading it would learn "unexamined: absent" and have
@@ -1317,43 +1064,8 @@ def main(argv: list[str] | None = None) -> int:
     unavailable_results = [r for r in results if r.verdict == UNAVAILABLE]
     print(f"NEGATIVE_CONTROL_UNAVAILABLE: {len(unavailable_results)}")
 
-    # THE RELATIONSHIP BETWEEN THE TWO NUMBERS, not two numbers side by side
-    # (issue #1036). Every discovered registration's gate is resolved against
-    # the census's own subjects, and a gate that is not among them is NAMED.
-    # Without this, `21 of 89` reads as "21 of the 89 are controlled" while
-    # meaning "21 controls exist, an unknown number of which are among the 89".
-    #
-    # A NON-MEMBER IS REPORTED, NOT FAILED, and that is a decision rather than
-    # an oversight: whether it should fail is a separate question (the issue
-    # says so in terms), and printing the fact does not pre-empt it. What is
-    # closed here is that the two states used to produce identical output.
-    members, nonmembers = census_membership(registrations, census)
-    print(f"NEGATIVE_CONTROL_CENSUS_MEMBERS: {'unknown' if members is None else members}")
-    print(f"NEGATIVE_CONTROL_CENSUS_NONMEMBERS: "
-          f"{'unknown' if nonmembers is None else len(nonmembers)}")
-    for name in nonmembers or []:
-        print(f"NEGATIVE_CONTROL_CENSUS_NONMEMBER: {name}")
-    if census.disagreement:
-        print(f"NEGATIVE_CONTROL_CENSUS_UNREAD: {census.disagreement}")
-    print(f"NEGATIVE_CONTROL_UNIVERSE_EXTERNAL: "
-          f"{'unknown' if census.external is None else census.external}")
-    registrable = (
-        None if census.rows is None or census.external is None
-        else census.rows - census.external
-    )
-    print(f"NEGATIVE_CONTROL_UNIVERSE_REGISTRABLE: "
-          f"{'unknown' if registrable is None else registrable}")
-
     for res in results:
         print(f"NEGATIVE_CONTROL_GATE: {res.gate}")
-        # WHICH CONTROL, not just which gate (issue #1117). A gate may carry
-        # several registrations - #986 made discovery see them all - and until
-        # this line existed the blocks for two controls on ONE gate were
-        # byte-identical in their only identifying field. A reader chasing a
-        # failure, and any consumer scoping an assertion to one control, would
-        # have silently addressed whichever came first. The Result has carried
-        # `control_dir` since the beginning; it was simply never printed.
-        print(f"NEGATIVE_CONTROL_CONTROL: {res.control_dir}")
         print(f"NEGATIVE_CONTROL_SOURCE: {stamp}")
         for line in res.details:
             print(f"NEGATIVE_CONTROL_DETAIL: {line}")
@@ -1387,33 +1099,25 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"    {line}")
         else:
             # The message states what this run actually established, including the
-            # #946 half: every claim here has an input population behind it -
-            # and, since #1036, the RELATION between the two populations rather
-            # than the two numbers pressed together.
+            # #946 half: every claim here has an input population behind it.
             #
-            # THE POPULATION IS THE CONTROLS THAT DISCRIMINATED, not every
-            # registration (issue #1117). Those were the same set until
-            # UNAVAILABLE existed, because anything short of PASS made the run
-            # fail and never reached this branch. Under `--allow-unavailable` an
-            # unexamined control DOES reach it, and counting it among the ones
-            # that "carry a control that discriminates" would be a fresh
-            # overclaim introduced by the change that exists to stop one.
-            #
-            # Membership is therefore re-derived over the discriminating
-            # registrations alone. The CONTRACT lines above keep #1036's own
-            # population - every discovered registration - because the question
-            # they answer ("is this control's gate in the census at all?") is
-            # about registration, not about how the run went.
+            # THE NUMERATOR IS THE CONTROLS THAT DISCRIMINATED, not the controls
+            # that were registered (issue #1117). Those were the same number
+            # until UNAVAILABLE existed; counting an unexamined control as one
+            # that "carries a control that discriminates" would be a fresh
+            # overclaim introduced by the very change that exists to stop one.
             discriminating = [r for r in results if r.verdict == PASS]
-            disc_registrations = [
-                reg for reg, res in zip(registrations, results) if res.verdict == PASS
-            ]
-            disc_members, disc_nonmembers = census_membership(disc_registrations, census)
-            headline = _headline(
-                discriminating, census, disc_members, disc_nonmembers, whence,
-                registered=len(registrations),
-            )
-            print(f"negative-controls: ok - {headline}, "
+            if universe is None:
+                scope = (
+                    f"{len(discriminating)} control(s) of an UNKNOWN universe "
+                    f"({whence}) - this is a sample, and how large a sample cannot be said"
+                )
+            else:
+                scope = (
+                    f"{len(discriminating)} of {universe} enumerated instruments "
+                    f"({whence}) carry a control that discriminates"
+                )
+            print(f"negative-controls: ok - {scope}, "
                   "each reporting its declared detection signal on the known-bad input "
                   "and demonstrated against an anchor that misses it")
     # NAMED, NOT COUNTED, AND PRINTED ON EVERY RUN THAT HAS ANY - including a

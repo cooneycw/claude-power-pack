@@ -583,41 +583,63 @@ def test_the_real_repository_is_fully_accounted() -> None:
     assert result.returncode == 0, result.stdout
 
 
-def test_the_real_report_names_control_health_as_unexamined() -> None:
-    """Issue #1028 item 3's acceptance, in the form the issue offers.
+def test_the_real_report_no_longer_names_control_health_as_unexamined() -> None:
+    """Issue #1028 item 3's acceptance, taken to the OTHER remedy (#1117).
 
-    The battery is deliberately not a `verify` prerequisite - it needs gitleaks
-    and jq, and a host without either would fail the gate for an environment
-    reason. What the issue asks instead is that the gap be STATED rather than
-    silent, so this asserts the statement exists rather than that the wiring
-    does.
+    #1028 allowed either: wire the checker in, or have `verify` NAME it as
+    unexamined. This one was named, because the battery needs gitleaks,
+    shellcheck and jq and the harness could not then tell "UNSIGNALLED because
+    the tool is absent" from "UNSIGNALLED because the gate stopped signalling" -
+    so a host without one would have failed the gate for an environment reason.
+    #1117 split UNAVAILABLE out and wired the battery in, which retires the
+    reason and therefore the sentence.
+
+    ASSERTED IN BOTH DIRECTIONS, because each fails on its own. The battery must
+    be a real prerequisite, and the report must not still be calling it
+    unexamined - a report that kept the line after the wiring landed would be
+    lying in the direction that reads as conscientious, which is the harder one
+    to notice.
     """
     result = run(ROOT, "--report")
     assert result.returncode == 0, result.stdout
     assert "what this run did NOT examine" in result.stdout
-    assert "make negative-controls" in result.stdout
+    assert "make negative-controls" not in result.stdout, (
+        "the battery is a verify prerequisite since #1117, so naming it "
+        "unexamined is the report lying\n" + result.stdout
+    )
+    verify = (ROOT / "Makefile").read_text().split("\nverify:", 1)[1].split("\n\n", 1)[0]
+    assert "negative-controls" in verify, (
+        "the battery was dropped from verify's prerequisites - if that is "
+        "deliberate, the report above has to start naming it unexamined again"
+    )
 
 
 def test_the_real_report_names_every_1028_subject_it_does_not_run() -> None:
     """The acceptance for items 1 and 3, which took the reporting route.
 
     #1028 allows either remedy - wire the checker in, or have `verify` NAME it
-    as unexamined - and these two are named rather than wired, for reasons in
-    their directives: `skills-check` compares host-local managed installs, and
-    the control battery needs gitleaks and jq. Item 2 took the wiring route and
-    is asserted by test_verify_runs_this_gate_as_a_prerequisite_and_as_its_report
-    plus `codex-skills-check`'s presence in the prerequisite list.
+    as unexamined. `skills-check` is named rather than wired, for the reason in
+    its directive: it compares host-local managed installs, so its verdict
+    depends on the box. Item 2 took the wiring route, and `negative-controls`
+    JOINED IT at #1117 once UNAVAILABLE made the battery runnable on a host
+    missing gitleaks, shellcheck or jq.
 
     Asserting the LINE and not merely the report's existence is the point: a
-    report that quietly stopped naming one of them would still print a heading.
+    report that quietly stopped naming `skills-check` would still print a
+    heading. The wired pair is asserted ABSENT for the mirror-image reason, and
+    the two halves are what keep this test honest as subjects move between them -
+    `negative-controls` has now moved, and it moved from the first list to the
+    second rather than simply vanishing from the test.
     """
     report = run(ROOT, "--report").stdout
-    for target in ("make skills-check", "make negative-controls"):
-        assert target in report, f"{target} is no longer named as unexamined\n{report}"
-    assert "codex-skills-check" not in report, (
-        "codex-skills-check is a verify prerequisite now, so naming it unexamined "
-        "would be the report lying in the other direction"
+    assert "make skills-check" in report, (
+        f"make skills-check is no longer named as unexamined\n{report}"
     )
+    for wired in ("codex-skills-check", "make negative-controls"):
+        assert wired not in report, (
+            f"{wired} is a verify prerequisite now, so naming it unexamined "
+            f"would be the report lying in the other direction\n{report}"
+        )
 
 
 def test_verify_runs_this_gate_as_a_prerequisite_and_as_its_report() -> None:
