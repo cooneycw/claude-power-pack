@@ -350,6 +350,61 @@ def test_a_probe_whose_answer_depends_on_the_shell_is_unknown(tmp_path: Path) ->
     assert "sh exited 2 and bash exited 1" in done.stderr
 
 
+# --------------------------------------------------------------------------- #
+# Regressions from the #1126 counter-model review (Codex)                      #
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize("call", ["gate_exit", "gate_emit PROBE"])
+def test_a_composite_string_that_only_substring_matches_the_map_is_refused(
+    tmp_path: Path, call: str
+) -> None:
+    """The map is a flat string, so an unvalidated lookup is a substring match.
+
+    RED BEFORE THE FIX, measured under sh and bash both: with
+    ` finding=1 ok=0 usage=64 ` declared, `gate_exit "finding=1 ok"` matched
+    ` finding=1 ok=`, resolved to `0`, and EXITED 0 - an undeclared verdict
+    reaching the good exit through the function written to stop exactly that.
+
+    The fix is one grammar shared by the half that DECLARES and the half that
+    LOOKS UP; until the review, only the declaring half validated anything.
+    """
+    body = f'gate_map finding=1 ok=0\n{call} "finding=1 ok"'
+    for shell, done in _both_shells(tmp_path, body).items():
+        assert done.returncode == 64, f"{shell}: exit {done.returncode}\n{done.stdout}{done.stderr}"
+        assert "is not in the declared map" in done.stderr, shell
+
+
+def test_equal_exit_codes_with_only_one_refusal_are_unknown_not_refused(
+    tmp_path: Path,
+) -> None:
+    """Matching exit codes are not matching causes.
+
+    RED BEFORE THE FIX: the runner read the refusal marker out of `sh`'s output
+    only, so a probe that REFUSED under sh and died SILENTLY under bash with the
+    same code was reported `GATE_LIB: refused - the module refused identically
+    under sh and bash (exit 64)`, exit 1. The control would have counted a crash
+    as a detection - this module's own defect class, one level up, and the #946
+    rule applied to the wrong half of the comparison.
+    """
+    case = tmp_path / "asymmetric"
+    case.mkdir()
+    (case / "probe.sh").write_text(
+        'if [ -n "${BASH_VERSION-}" ]; then exit 64; fi\n'
+        f'. "{MODULE}"\n'
+        "gate_map ok=0\n"
+        "gate_exit unknown\n",
+        encoding="utf-8",
+    )
+
+    done = _run("sh", MODULE, "--check", str(case))
+
+    assert done.returncode == 2, done.stdout + done.stderr
+    assert "GATE_LIB: unknown - " in done.stderr
+    assert "only one printed a gate-lib refusal" in done.stderr
+    assert "GATE_LIB: refused" not in done.stdout + done.stderr
+
+
 def test_the_self_check_refuses_a_case_directory_it_cannot_read(tmp_path: Path) -> None:
     done = _run("sh", MODULE, "--check", str(tmp_path / "nope"))
     assert done.returncode == 2

@@ -120,11 +120,25 @@ _gate_check() {
     # A CRASH IS NOT A REFUSAL - the #946 lesson, applied inside the instrument
     # written for it. A probe that falls over also exits non-zero, so a non-zero
     # exit counts as a refusal only when the module SAID so.
-    case "$_gate_out_sh" in
-        *"gate-lib: refused - "*) ;;
-        *) _gate_check_say unknown 2 \
-               "the probe exited $_gate_rc_sh under both shells and printed no gate-lib refusal; that is a crash, not a refusal" ;;
-    esac
+    #
+    # BOTH OUTPUTS ARE READ, and the first cut read only sh's. Matching exit
+    # codes are not matching causes: a probe that refuses under sh and dies
+    # silently under bash with the same code was reported "refused identically",
+    # so the control counted a crash as a detection - this control's own defect
+    # class, one level up, found by the #1126 counter-model review.
+    _gate_saw_sh=0
+    _gate_saw_bash=0
+    case "$_gate_out_sh" in *"gate-lib: refused - "*) _gate_saw_sh=1 ;; esac
+    case "$_gate_out_bash" in *"gate-lib: refused - "*) _gate_saw_bash=1 ;; esac
+
+    if [ "$_gate_saw_sh" -eq 0 ] && [ "$_gate_saw_bash" -eq 0 ]; then
+        _gate_check_say unknown 2 \
+            "the probe exited $_gate_rc_sh under both shells and printed no gate-lib refusal; that is a crash, not a refusal"
+    fi
+    if [ "$_gate_saw_sh" -ne "$_gate_saw_bash" ]; then
+        _gate_check_say unknown 2 \
+            "both shells exited $_gate_rc_sh but only one printed a gate-lib refusal (sh=$_gate_saw_sh bash=$_gate_saw_bash); equal exit codes are not equal causes"
+    fi
 
     _gate_check_say refused 1 \
         "the module refused identically under sh and bash (exit $_gate_rc_sh)"
