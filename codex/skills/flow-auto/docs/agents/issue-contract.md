@@ -70,6 +70,57 @@ what makes it **challengeable on the merits** rather than by preference.
   Silent reclassification is the failure this section exists to prevent: an agent may
   argue a constraint away, but never quietly treat it as optional.
 
+## Codex-consolidation context - a TIME-BOUNDED clause
+
+> **This clause expires.** It retires when CxPP dormancy lands and the backlog is
+> reconciled - #1075 and #1076 both closed. After that it asks authors to reason
+> about a finished migration, which is ritual rather than diligence. Whoever
+> closes #1076 deletes this section; that is part of closing it.
+
+While the Codex consolidation is in flight, **every issue filed considers what the
+consolidation means for it, and records the answer in the issue.** Owner directive,
+2026-09-20: *"every issue needs to be considered in this context now."*
+
+Four dispositions, and the fourth is the one that does the work:
+
+| Disposition | Means |
+|---|---|
+| `moot` | the consolidation dissolves this issue's subject |
+| `changed` | the issue survives, but its surface, owner or scope moves |
+| `urgent` | the consolidation makes this a prerequisite, or gives it a deadline |
+| `none` | no interaction - **stated as a finding, never left as a silence** |
+
+**`none` is written down.** An issue with no consideration recorded and an issue
+nobody considered are the same bytes. This repository's standing rule is that an
+unscanned population reads UNKNOWN rather than clean, and that rule applies to this
+clause as much as to any gate.
+
+**Look in both directions, and then at the subject.** Established by the #1133
+sweep, which found its own first two passes structurally incomplete:
+
+1. **Outward** - does the issue reference the consolidation?
+2. **Inward** - does the consolidation's ledger reference the issue? Three issues
+   in that sweep were named by the ledger while their own bodies never said
+   "codex" once.
+3. **Subject overlap** - do the two describe the same surface without either naming
+   the other? Six of twenty findings were reachable *only* this way. A
+   reference-based search finds interactions somebody already wrote down, and those
+   are the ones already known.
+
+**When a pass-3 finding is recorded, name the other side by issue number or spec
+section.** The interaction existed in no text until that moment, so the record is
+the fix: it converts a derived interaction into a referenced one that the next
+reader can reach. Otherwise the most valuable findings are also the most
+perishable.
+
+**Do not file CPP issues mirroring CxPP defects.** Owner ruling, 2026-09-20:
+*presume CPP does not have CxPP's vulnerabilities until proven otherwise.* A shared
+family, an analogous component, and nobody having checked are each insufficient on
+their own. A demonstrated, reproducible defect in CPP's own code is a CPP issue on
+its own merits, and the CxPP row is irrelevant to it.
+
+Governing spec: `.specify/specs/codex-consolidation/`. Epic #1067.
+
 ## How much document
 
 | Tier | Shape of the work | What the contract lives in |
