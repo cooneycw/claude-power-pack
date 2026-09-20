@@ -120,9 +120,18 @@ def _findings(root: Path) -> list[str]:
 
     # An unpinned module inside the package is how an engine grows a file that
     # no version bump ever has to account for.
+    #
+    # RECURSIVE since the #1069 post-merge review. `glob("*.py")` saw immediate
+    # children only, and Python resolves a PACKAGE ahead of a module of the same
+    # name: adding `lib/project_next/rank/__init__.py` leaves all 11 pinned files
+    # byte-identical, so the gate stayed green while `import lib.project_next.rank`
+    # resolved to the new package instead of the pinned `rank.py`. The pins were
+    # all intact and the executed engine was not the pinned one.
     package = root / PACKAGE_REL
     if package.is_dir():
-        for module in sorted(package.glob("*.py")):
+        for module in sorted(package.rglob("*.py")):
+            if "__pycache__" in module.parts:
+                continue
             rel = module.relative_to(root).as_posix()
             if rel not in files:
                 findings.append(f"DRIFT: {rel} sits in the package and is pinned by nothing.")
@@ -142,6 +151,26 @@ def _findings(root: Path) -> list[str]:
     return findings
 
 
+def _recorded(root: Path) -> tuple[str | None, dict[str, str]] | None:
+    """The manifest as it stands BEFORE a re-pin, or None if unreadable.
+
+    None means "no baseline to compare against" - a first pin, or a manifest
+    too damaged to read - and the caller must treat that as unknown rather than
+    as agreement. An unreadable baseline is not evidence that nothing changed.
+    """
+    path = root / MANIFEST_REL
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+    files = data.get("files")
+    if not isinstance(files, dict):
+        return None
+    return data.get("contract_version"), files
+
+
 def _repin(root: Path) -> int:
     manifest_path = root / MANIFEST_REL
     derived = _derived_version(root)
@@ -153,6 +182,55 @@ def _repin(root: Path) -> int:
         for rel in missing:
             print(f"REFUSED: {rel} is in the ownership contract and absent from the tree.", file=sys.stderr)
         return 1
+
+    # REFUSE A CHANGED ENGINE AT AN UNCHANGED VERSION (#1069 post-merge review).
+    #
+    # This module's docstring claimed re-pinning without touching the contract
+    # document was refused. It was not: `_repin` recomputed every hash and
+    # re-derived the version from the document, so editing the engine and
+    # re-pinning succeeded at the same version and `check` went green over
+    # changed bytes. The claim was the gate's whole reason for existing, and
+    # nothing implemented it.
+    #
+    # The property is about a TRANSITION, which is why neither committed case
+    # caught it - each describes one state. Compare against what was recorded
+    # BEFORE this re-pin: if any pinned file's hash moves while the derived
+    # version does not, the bump is missing and the re-pin is refused.
+    previous = _recorded(root)
+    if previous is not None:
+        prior_version, prior_files = previous
+        # SCOPED TO THE ENGINE, not to every pinned path. The defect is "the
+        # executed engine changed and its consumer-facing version did not", so
+        # the guard watches `lib/project_next/**`. The contract DOCUMENT is
+        # where the version lives - editing it IS the bump - and the schema and
+        # LICENSE are contract surface whose repair should not require a
+        # behaviour-version bump. A guard over all eleven paths would demand a
+        # contract bump to fix a typo in a template, which is the kind of
+        # friction that gets a gate switched off rather than satisfied.
+        changed = sorted(
+            rel for rel in PINNED_FILES
+            if rel.startswith(f"{PACKAGE_REL}/")
+            and rel.endswith(".py")
+            and rel in prior_files
+            and _sha256(root / rel) != prior_files[rel]
+        )
+        if changed and derived == prior_version:
+            print(
+                f"REFUSED: {len(changed)} engine module(s) changed while "
+                f"{CONTRACT_REL} still states contract version {derived!r}.",
+                file=sys.stderr,
+            )
+            for rel in changed:
+                print(f"  changed: {rel}", file=sys.stderr)
+            print(
+                "  contract_version is consumer-facing - the schema, the "
+                "/project:next runtime pin, and the rendered decision-policy "
+                "label all read it. Bump it in "
+                f"{CONTRACT_REL}, or revert the engine change.",
+                file=sys.stderr,
+            )
+            return 1
+
     manifest = {
         "_comment": (
             "CPP owns lib/project_next outright (issue #1069). It was vendored from "
