@@ -181,6 +181,11 @@
       "class": "not-a-checker",
       "reason": "appends a friction record, fail-open by design; it issues no verdict"
     },
+    "gate-lib.sh": {
+      "class": "tested",
+      "consumer": "tests/test_gate_lib.py",
+      "reason": "the shared argument and verdict module (#1126); its --check self-check is driven by controls/gate-lib through make negative-controls, and its refusals are driven directly by the test module named here"
+    },
     "gh-pr-merge.sh": {
       "class": "tested",
       "consumer": "tests/test_gh_pr_merge.py",
