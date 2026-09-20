@@ -48,6 +48,35 @@ OBSERVATION instead - running a declaring helper against a sandboxed `$HOME`
 and diffing what appeared against what it claimed - which is ADR 0008's logic
 and #970's, and is a separate instrument from this one.
 
+## Why observation certifies only NINE of the fifteen, as a decision
+
+Six reachable scripts reach outside `$HOME`, where a redirected `HOME` does not
+sandbox them: `bash-prep.sh` (sudo), `drift-detect.sh` (systemctl),
+`hook-permission-census.sh` (git push, gh, docker), `mcp-drift.py` (docker,
+sudo), `memories-db-setup.sh` (apt, curl), `npm-global-upgrade.sh` (npm -g,
+sudo). Executing those to watch what they write would install packages, restart
+units and push to a remote on a shared host. They are therefore declared and
+NOT observed, marked per script, with the escaping binary named.
+
+**A PATH shim was considered and REJECTED**, so nobody re-derives it as an
+oversight. Stubbing `sudo`, `apt-get`, `docker`, `systemctl`, `npm` and `gh` to
+log and exit 0 would let the six run under a redirected `HOME`. Three reasons,
+and the third is specific to this repository and decisive:
+
+1. #695's precedent: a test proving a fail-open emptied `PATH` and removed `ln`,
+   `mkdir`, `readlink` and `bash` along with its target, so the script failed
+   for unrelated reasons while the assertions still passed.
+2. A stub returning 0 can take a branch the real binary would not, so what is
+   certified is a different execution from the one that runs.
+3. **A stub would manufacture the exact defect these scripts were written to
+   detect.** `npm-global-upgrade.sh` exists because `npm install -g` exits 0
+   having installed nothing, and its contract says so in terms: "THE VERDICT IS
+   THE INSTALLED VERSION, NOT THE EXIT CODE." A stubbed `npm` produces exit 0
+   with nothing moved - verbatim the false success that script was written to
+   catch. The better a script is at distrusting an exit code, the more wrong a
+   stubbed harness is about it, and this repository writes scripts that way on
+   purpose.
+
 Usage:
     host-surface-check.py [--root DIR] [--manifest]
 
