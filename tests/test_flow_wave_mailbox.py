@@ -43,12 +43,18 @@ import os
 import shutil
 import signal
 import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
 
 import pytest
 
+from tests.supervise_reap import (
+    kill_supervise_daemon,
+    reap_supervise_daemons,
+)
+from tests.supervise_reap import pid_alive as _pid_not_zombie
 from tests.wave_namespace import unique_wave
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -1803,14 +1809,32 @@ class TestSupervise:
                 "--timeout", timeout, "--interval", interval,
             ],
             capture_output=True, text=True, env=env, check=False, timeout=30,
+            # The daemon inherits this cwd and holds it for its whole life
+            # (issue #1116). Unset, that is pytest's cwd - the repository
+            # worktree - and a leaked daemon then pins the worktree open, so
+            # `worktree-remove.sh`'s #888 occupancy guard refuses to remove it
+            # at the end of a `/flow:auto` run. Rooting it in the test's own
+            # tmp_path means even a daemon that escapes every reaper below
+            # cannot block flow cleanup. That matters because one leak path -
+            # an xdist worker dying outright - runs no teardown at all, so no
+            # in-process reaper can cover it.
+            cwd=str(tmp_path),
         )
 
     def _kill_daemon(self, pid: int) -> None:
-        try:
-            os.kill(pid, signal.SIGTERM)
-        except (OSError, ProcessLookupError):
-            return
-        _wait_for(lambda: not _pid_alive(pid), timeout=10)
+        """The fast path: kill this daemon now rather than waiting for the
+        `autouse` reaper in tests/conftest.py to do it at teardown.
+
+        It delegates so that the fast path and the backstop cannot diverge.
+        The previous implementation SIGTERMed the pid alone and then waited
+        10s, discarding the result - which leaked two ways at once: bash
+        defers the trap until the blocking inner `watch` returns (measured
+        7.30s at `--timeout 10`, against 0.10s for the process group), and
+        the two tests that launch with `--timeout 30` therefore outran that
+        10s waiter every time. Neither the timeout nor the surviving inner
+        `watch` was ever reported.
+        """
+        kill_supervise_daemon(pid)
 
     def test_supervise_returns_promptly_with_its_own_verdict_line(
         self, tmp_path: Path
@@ -2085,6 +2109,7 @@ class TestSupervise:
         proc = subprocess.run(
             ["bash", str(MAILBOX), "supervise", "--role", "../escape", "--wave", WAVE],
             capture_output=True, text=True, env=env, check=False, timeout=10,
+            cwd=str(tmp_path),  # never the worktree (issue #1116)
         )
         assert proc.returncode == 2
         time.sleep(1)
@@ -2432,6 +2457,7 @@ class TestSupervise:
             ],
             capture_output=True, text=True,
             env={**env, "FLOW_WAVE_LIVE_PIDS": "none"}, check=False, timeout=30,
+            cwd=str(tmp_path),  # never the worktree (issue #1116)
         )
         assert proc.returncode == 0
         pid = _daemon_pid(tmp_path, WAVE, "1")
@@ -2462,6 +2488,42 @@ class TestSupervise:
 # candidate's own /proc/<pid>/environ), not the wave name string. This is a
 # CROSS-context fix, verified as exactly that - both halves are pinned
 # below, not just the one that looks good.
+    def test_a_supervise_daemon_never_inherits_the_repository_as_its_cwd(
+        self, tmp_path: Path
+    ) -> None:
+        """A daemon that escapes every reaper must still not block flow
+        cleanup (issue #1116).
+
+        The reapers stop daemons leaking; this stops a leak that gets through
+        from mattering. A detached process holds its working directory open
+        for its whole life, so a daemon started with pytest's cwd pins the
+        REPOSITORY WORKTREE - and `worktree-remove.sh`'s #888 occupancy guard
+        then refuses, correctly, to remove it. Measured on this host: one
+        leaked test daemon held the `issue-962` worktree from a run hours
+        earlier. The refusal firing routinely is the real damage, because its
+        documented escape hatch (`--steal`) kills the occupant, and a guard
+        that cries wolf on our litter is one people learn to walk past.
+
+        This is also the only cover for the one leak path no fixture can
+        reach: an xdist worker dying outright runs no teardown at all.
+        """
+        self._launch(tmp_path)
+        pid = _daemon_pid(tmp_path, WAVE, "1")
+        try:
+            cwd = Path(os.readlink(f"/proc/{pid}/cwd")).resolve()
+            assert cwd != ROOT and ROOT not in cwd.parents, (
+                f"daemon {pid} holds {cwd}, inside the repository at {ROOT} - "
+                "a leak here pins the worktree and blocks flow cleanup"
+            )
+            tmp = tmp_path.resolve()
+            assert cwd == tmp or tmp in cwd.parents, (
+                f"daemon {pid} holds {cwd}, which is not under this test's "
+                f"tmp_path {tmp}"
+            )
+        finally:
+            self._kill_daemon(pid)
+
+
 # --------------------------------------------------------------------------
 
 
@@ -2989,18 +3051,43 @@ class TestSupervisorNeverAcknowledges:
             ["bash", str(MAILBOX), "supervise", "--role", role, "--wave", WAVE,
              "--timeout", timeout, "--interval", interval],
             capture_output=True, text=True, env=env, check=False, timeout=30,
+            # Never the repository worktree - see TestSupervise._launch
+            # (issue #1116).
+            cwd=str(tmp_path),
         )
 
     def _teardown(self, tmp_path: Path, role: str = "1") -> None:
-        pf = _supervise_pidfile(tmp_path, WAVE, role)
-        if pf.exists():
-            try:
-                pid = int(pf.read_text().strip())
-            except (ValueError, OSError):
-                return
-            if _pid_alive(pid):
-                os.kill(pid, signal.SIGTERM)
-                _wait_for(lambda: not _pid_alive(pid), timeout=10)
+        """Same fast path as TestSupervise._kill_daemon, same reason it
+        delegates (issue #1116): this used to SIGTERM the pid alone and wait
+        10s without checking, so it leaked on exactly the daemons that were
+        slowest to die."""
+        result = reap_supervise_daemons(tmp_path)
+        assert not result.survivors, (
+            f"supervise daemon(s) {result.survivors} survived SIGKILL"
+        )
+
+    def test_its_daemon_also_never_inherits_the_repository_as_its_cwd(
+        self, tmp_path: Path
+    ) -> None:
+        """The same property as TestSupervise's, pinned on THIS class's own
+        launcher (issue #1116).
+
+        Two classes in this module start supervise daemons, each through its
+        own `_launch`. A control that covered only one would leave the other
+        free to regress silently, and the whole point of the property is that
+        no leaked daemon anywhere in this suite can pin the worktree.
+        """
+        self._launch(tmp_path)
+        pf = _supervise_pidfile(tmp_path, WAVE, "1")
+        assert _wait_for(pf.exists, timeout=10), "supervise never wrote a pidfile"
+        pid = int(pf.read_text().strip())
+        try:
+            cwd = Path(os.readlink(f"/proc/{pid}/cwd")).resolve()
+            assert cwd != ROOT and ROOT not in cwd.parents, (
+                f"daemon {pid} holds {cwd}, inside the repository at {ROOT}"
+            )
+        finally:
+            self._teardown(tmp_path)
 
     def test_supervised_mail_stays_unread_until_the_agent_acks(
         self, tmp_path: Path
@@ -3539,3 +3626,332 @@ def test_escalate_refuses_to_guess_an_unresolvable_target(tmp_path: Path) -> Non
                   "escalate", "--role", "w1", "--wave", "zz", "--to", "ghost")
     assert "FLOW_MAILBOX_ESCALATE=unresolved" in out.stdout, out.stdout
     assert out.returncode == 3, (out.returncode, out.stdout, out.stderr)
+
+
+# --------------------------------------------------------------------------
+# Leaked-daemon reaping (issue #1116)
+#
+# `supervise` detaches by construction (#814), so a test that starts a daemon
+# owns a process pytest will never clean up. Left behind, it is reparented to
+# `systemd --user` and holds its working directory open - which, before this
+# fix, was the per-issue worktree, so `worktree-remove.sh`'s #888 occupancy
+# guard refused to remove it at the end of nearly every `/flow:auto` run in
+# this repo.
+#
+# The two controls below answer the two separable questions, because passing
+# one while failing the other is exactly how this defect survived: the
+# per-test kill calls WERE present and did run - they just could not finish
+# the job.
+# --------------------------------------------------------------------------
+
+
+@requires_bash
+class TestLeakedSuperviseDaemonsAreReaped:
+    def _launch(
+        self, tmp_path: Path, timeout: str = "30", role: str = "1"
+    ) -> None:
+        env = os.environ.copy()
+        env["FLOW_WAVE_MAILBOX_DIR"] = str(tmp_path / "mb")
+        subprocess.run(
+            [
+                "bash", str(MAILBOX), "supervise", "--role", role, "--wave", WAVE,
+                "--timeout", timeout, "--interval", "1",
+            ],
+            capture_output=True, text=True, env=env, check=False, timeout=30,
+            cwd=str(tmp_path),
+        )
+
+    def test_reaping_kills_the_daemon_and_the_inner_watch_it_blocks_on(
+        self, tmp_path: Path
+    ) -> None:
+        """The kill MECHANISM, bounded so that the old one cannot pass it.
+
+        The previous `_kill_daemon` sent SIGTERM to the daemon's pid alone and
+        waited 10s, discarding the result. bash defers a trapped signal until
+        its blocking foreground child returns, and that child is the inner
+        `watch`, which blocks for its full `--timeout`. Measured on this host
+        at `--timeout 10`: 7.30s for the pid, 0.10s for the process group.
+        This test launches at `--timeout 30` and asserts the reap completes in
+        under 5s, so a pid-only SIGTERM - which would have to wait out roughly
+        28 remaining seconds - cannot satisfy it. The bound is the assertion;
+        "it eventually died" would have passed on the broken version too.
+
+        The inner `watch` is asserted dead separately because it shares the
+        daemon's working directory: reaping the parent alone can leave the
+        directory pinned by the child that outlived it.
+        """
+        self._launch(tmp_path)
+        pid = _daemon_pid(tmp_path, WAVE, "1")
+
+        # Preconditions. The whole point is to reap a daemon that is WEDGED
+        # inside its blocking window, so the test must establish that it is
+        # there before measuring how long it takes to die.
+        assert _wait_for(lambda: bool(_children_of(pid)), timeout=15), (
+            "the daemon never spawned an inner watch - nothing to block on, so "
+            "this test would time a case it does not mean to exercise"
+        )
+        time.sleep(2)  # firmly inside the inner watch's 30s window
+        children = _children_of(pid)
+        assert children, "the inner watch vanished before the reap was timed"
+        assert _pid_alive(pid)
+
+        started = time.monotonic()
+        result = reap_supervise_daemons(tmp_path)
+        elapsed = time.monotonic() - started
+
+        assert pid in result.leaked, (
+            f"the reaper did not recognise {pid} as a live leaked daemon; it "
+            f"reported {result.leaked}"
+        )
+        assert not result.survivors, f"the reap gave up on {result.survivors}"
+        # Zombie-aware liveness, NOT this module's `_pid_alive` (counter-model
+        # review, issue #1116). `_pid_alive` asks `kill(pid, 0)`, which a
+        # zombie still answers, and a killed child whose parent has not yet
+        # reaped it IS a zombie for a moment - so the old helper would report
+        # a successful kill as a surviving process. What this test cares about
+        # is whether anything still HOLDS the working directory, and a zombie
+        # holds nothing.
+        assert not _pid_not_zombie(pid), f"daemon {pid} survived the reap"
+        for child in children:
+            assert not _pid_not_zombie(child), (
+                f"inner watch {child} survived the reap and still holds the "
+                "daemon's working directory"
+            )
+        assert elapsed < 5.0, (
+            f"the reap took {elapsed:.2f}s - slow enough that it waited out the "
+            "inner watch instead of killing the process group, which is the "
+            "defect this replaced"
+        )
+
+    def test_a_failing_test_still_gets_its_leaked_daemon_reaped(
+        self, pytester: pytest.Pytester, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The WIRING, exercised through a real pytest teardown.
+
+        The mechanism above can be perfect and still never run. The failure
+        this issue is about is a test that does not reach its own kill call,
+        so the only honest way to check the backstop is to run a test that
+        fails and then look at what survived it.
+
+        Nothing here is hand-copied: the sub-run gets the REAL
+        `tests/conftest.py` file and imports the REAL `tests.supervise_reap`
+        off `PYTHONPATH`. Delete `autouse=True` from that conftest, or break
+        the reaper, and this goes red - which is the property that makes it a
+        control rather than a restatement.
+        """
+        pid_out = tmp_path / "leaked.pid"
+        shutil.copy(ROOT / "tests" / "conftest.py", pytester.path / "conftest.py")
+        monkeypatch.setenv("PYTHONPATH", str(ROOT))
+        pytester.makepyfile(
+            test_leaks_a_daemon=f"""
+            import os, subprocess, time
+            from pathlib import Path
+
+            MAILBOX = {str(MAILBOX)!r}
+            PID_OUT = {str(pid_out)!r}
+
+            def test_leaks_a_supervise_daemon_then_fails(tmp_path):
+                env = os.environ.copy()
+                env["FLOW_WAVE_MAILBOX_DIR"] = str(tmp_path / "mb")
+                subprocess.run(
+                    ["bash", MAILBOX, "supervise", "--role", "1",
+                     "--wave", "reapprobe", "--timeout", "30", "--interval", "1"],
+                    capture_output=True, text=True, env=env, check=False,
+                    timeout=30, cwd=str(tmp_path),
+                )
+                pf = tmp_path / "mb" / "reapprobe" / ".supervise-1.pid"
+                deadline = time.time() + 15
+                while time.time() < deadline and not pf.exists():
+                    time.sleep(0.1)
+                assert pf.exists(), "supervise never wrote a pidfile"
+                Path(PID_OUT).write_text(pf.read_text())
+                time.sleep(2)  # let the inner watch get inside its window
+                # The leak this suite actually suffers: the test ends without
+                # ever reaching a kill call.
+                assert False, "deliberate failure - this test never kills its daemon"
+            """
+        )
+
+        result = pytester.runpytest_subprocess("-p", "no:cacheprovider", "-q")
+        result.assert_outcomes(failed=1)
+
+        assert pid_out.exists(), "the sub-run never recorded a daemon pid"
+        pid = int(pid_out.read_text().strip())
+        try:
+            assert not _pid_not_zombie(pid), (
+                f"daemon {pid} survived a failing test's teardown - the autouse "
+                "reaper in tests/conftest.py did not run, or did not finish"
+            )
+        finally:
+            # Never let THIS test become the leak it is about.
+            kill_supervise_daemon(pid)
+
+    def test_a_recycled_pid_is_not_reaped_just_because_a_pidfile_names_it(
+        self, tmp_path: Path
+    ) -> None:
+        """Negative membership: the reaper must be able to say NO.
+
+        Pids are recycled - the space wraps every few hours on a busy host -
+        so a pidfile written by a daemon that died an hour ago can name a
+        completely unrelated LIVE process today. These pidfiles outlive their
+        daemons by design (they are diagnostic, not the liveness test, see
+        #814), so a reaper that signalled on the strength of the file alone
+        would eventually SIGKILL a stranger. Reaping is the one thing here
+        that is not undoable, so the guard that refuses gets its own case.
+
+        The impostor is a plain `python -c sleep`, deliberately NOT this
+        process: `reap_supervise_daemons` skips its own pid outright, so
+        using ours would pass on the self-guard without ever reaching the
+        identity check this test is about.
+        """
+        victim = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(60)"]
+        )
+        try:
+            pidfile = tmp_path / "mb" / WAVE / ".supervise-1.pid"
+            pidfile.parent.mkdir(parents=True)
+            pidfile.write_text(f"{victim.pid}\n")
+            # Precondition: an impostor that is already dead would let a
+            # reaper that kills indiscriminately pass this test anyway.
+            assert victim.poll() is None, "the impostor died before the reap"
+            assert _pid_alive(victim.pid)
+
+            result = reap_supervise_daemons(tmp_path)
+
+            assert result.leaked == [], (
+                f"the reaper reported {result.leaked} as leaked daemons - it "
+                "trusted the pidfile without asking whether that pid is ours"
+            )
+            assert victim.poll() is None, (
+                f"the reaper killed pid {victim.pid}: an unrelated live process "
+                "that merely inherited a pid named in a stale pidfile"
+            )
+        finally:
+            victim.kill()
+            victim.wait(timeout=10)
+
+    def test_a_different_role_in_the_same_wave_is_not_mistaken_for_ours(
+        self, tmp_path: Path
+    ) -> None:
+        """Token membership is not identity (counter-model review, #1116).
+
+        Every supervise daemon carries `--interval 1`, so the bare token "1"
+        appears in the argv of EVERY daemon regardless of its role. A reaper
+        that asked `role in argv` therefore matched a role-2 daemon against a
+        role-1 pidfile - and reaped a live sibling supervisor. The reviewer
+        reproduced exactly this; the fix reads `--role` positionally, and this
+        is the case that keeps it read that way.
+        """
+        self._launch(tmp_path, role="2")
+        victim = _daemon_pid(tmp_path, WAVE, "2")
+        try:
+            # Precondition: the impostor must be alive, or a reaper that kills
+            # indiscriminately would pass this test anyway.
+            assert _pid_not_zombie(victim)
+            # Remove the daemon's OWN pidfile first. Without this the reaper
+            # finds `.supervise-2.pid` as well and reaps the daemon through
+            # it - legitimately - so the test could not tell a correct match
+            # from the role-1 mismatch it exists to forbid. (It failed exactly
+            # that way on first run.) The pidfile is diagnostic only; #814
+            # makes the flock the liveness test, and nothing reads this file
+            # back. What remains is same mailbox root, same wave, DIFFERENT
+            # role - which isolates the role comparison and nothing else.
+            _supervise_pidfile(tmp_path, WAVE, "2").unlink()
+            role_one = _supervise_pidfile(tmp_path, WAVE, "1")
+            role_one.write_text(f"{victim}\n")
+
+            result = reap_supervise_daemons(tmp_path)
+
+            assert victim not in result.leaked, (
+                f"the reaper claimed the role-2 daemon {victim} for a role-1 "
+                "pidfile - it matched the token '1' from '--interval 1'"
+            )
+            assert _pid_not_zombie(victim), (
+                f"the reaper killed role-2 daemon {victim}, a live sibling "
+                "supervisor it does not own"
+            )
+        finally:
+            kill_supervise_daemon(victim)
+
+    def test_a_daemon_serving_another_mailbox_is_not_mistaken_for_ours(
+        self, tmp_path: Path
+    ) -> None:
+        """Role and wave can legitimately coincide across two mailbox roots
+        (counter-model review, #1116), so they do not identify a daemon on
+        their own. The mailbox directory the process is ACTUALLY serving -
+        read from its own environment, not from the name of the file that
+        claims it - is what settles ownership.
+        """
+        theirs = tmp_path / "theirs"
+        ours = tmp_path / "ours"
+        theirs.mkdir()
+        ours.mkdir()
+
+        self._launch(theirs)
+        victim = _daemon_pid(theirs, WAVE, "1")
+        try:
+            assert _pid_not_zombie(victim)
+            # Same wave, same role, DIFFERENT mailbox root.
+            impostor = _supervise_pidfile(ours, WAVE, "1")
+            impostor.parent.mkdir(parents=True)
+            impostor.write_text(f"{victim}\n")
+
+            result = reap_supervise_daemons(ours)
+
+            assert result.leaked == [], (
+                f"the reaper claimed {result.leaked} from another mailbox "
+                "root - matching role and wave is not ownership"
+            )
+            assert _pid_not_zombie(victim), (
+                f"the reaper killed {victim}, a daemon serving {theirs / 'mb'}"
+            )
+        finally:
+            kill_supervise_daemon(victim)
+
+    def test_an_ordinary_watch_is_not_mistaken_for_a_daemon_by_its_wave_name(
+        self, tmp_path: Path
+    ) -> None:
+        """The verb is read at its POSITION, not looked for in the argv
+        (counter-model re-review, issue #1116).
+
+        `valid_name` accepts `__supervise_daemon` as a wave name - letters and
+        underscores only - so this is reachable, not hypothetical. An ordinary
+        `watch --wave __supervise_daemon` contains the token the identity
+        check was looking for, so a membership test accepted it as a daemon
+        and a stale pidfile naming it would have SIGKILLed a live watcher: the
+        very deafness `supervise` exists to prevent, caused by its own reaper.
+        """
+        env = os.environ.copy()
+        env["FLOW_WAVE_MAILBOX_DIR"] = str(tmp_path / "mb")
+        watcher = subprocess.Popen(
+            [
+                "bash", str(MAILBOX), "watch", "--role", "1",
+                "--wave", "__supervise_daemon", "--peek",
+                "--timeout", "30", "--interval", "1",
+            ],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            env=env, cwd=str(tmp_path),
+        )
+        try:
+            pidfile = _supervise_pidfile(tmp_path, "__supervise_daemon", "1")
+            assert _wait_for(pidfile.parent.is_dir, timeout=10), (
+                "the watch never created its wave directory"
+            )
+            # Precondition: an impostor that is already dead would let a
+            # reaper that kills indiscriminately pass this test anyway.
+            assert watcher.poll() is None and _pid_not_zombie(watcher.pid)
+            pidfile.write_text(f"{watcher.pid}\n")
+
+            result = reap_supervise_daemons(tmp_path)
+
+            assert result.leaked == [], (
+                f"the reaper claimed {result.leaked}: an ordinary `watch` "
+                "matched only because its WAVE is named __supervise_daemon"
+            )
+            assert watcher.poll() is None, (
+                f"the reaper killed watcher {watcher.pid} - a live listener, "
+                "which is precisely what supervision exists to keep alive"
+            )
+        finally:
+            watcher.kill()
+            watcher.wait(timeout=10)

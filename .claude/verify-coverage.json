@@ -1,0 +1,297 @@
+{
+  "_comment": [
+    "Scripts no build surface invokes, accounted for by hand (issue #1028).",
+    "",
+    "`scripts/verify-coverage-check.py` derives everything it can: a script a",
+    "Makefile target invokes is `gate` or `excluded` by whether `make verify`",
+    "reaches that target, and one a .woodpecker.yml step invokes is `ci`. This",
+    "file is the remainder - the scripts the tree cannot answer for - and a new",
+    "file in `scripts/` reds that gate until it has a target or an entry here.",
+    "",
+    "THREE CLASSES, AND ONE OF THEM IS CROSS-CHECKED:",
+    "",
+    "  tested         a module under tests/ drives it, so `make test` - which IS",
+    "                 in `make verify` - exercises it. `consumer` names that module.",
+    "  runtime        a command or hook reads its verdict at run time; no build",
+    "                 gate exercises it. `consumer` names that surface. The closing",
+    "                 report counts these, because they are the honest gap.",
+    "  not-a-checker  it issues no verdict at all. Reported nowhere - which is why",
+    "                 it is the one class checked against ADR 0008's census: a",
+    "                 script the census enumerates as an instrument cannot be",
+    "                 filed here, so parking a checker where the report never",
+    "                 names it costs a red instead of a silence.",
+    "",
+    "`consumer` IS A CLAIM, NOT A SENTENCE. The gate opens the named path and",
+    "searches it for the script's own name, so an entry goes STALE when the",
+    "consumer is deleted or stops mentioning it - which is exactly how a",
+    "hand-written justification usually rots.",
+    "",
+    "A `tested` entry asserts that the named module drives the SCRIPT, not that",
+    "it mentions the name. Several modules name a script only as a fixture or an",
+    "allowlist member; those are not what makes a green load-bearing, and they do",
+    "not belong here."
+  ],
+  "scripts": {
+    "bash-prep.sh": {
+      "class": "not-a-checker",
+      "reason": "prepares a bash environment for /cpp:init; it issues no verdict"
+    },
+    "c4-mermaid.py": {
+      "class": "not-a-checker",
+      "reason": "renders C4 Mermaid diagrams; it issues no verdict"
+    },
+    "check-ignored-additions.sh": {
+      "class": "tested",
+      "consumer": "tests/test_check_ignored_additions.py",
+      "reason": "warns when a blanket .gitignore rule swallowed a new file"
+    },
+    "classify-tool-risk.py": {
+      "class": "tested",
+      "consumer": "tests/test_tool_risk_drift.py",
+      "reason": "the canonical risk tier behind the allow-rule candidates /security:permissions proposes"
+    },
+    "commands-mirror-sync.sh": {
+      "class": "runtime",
+      "consumer": ".claude/commands/cpp/update.md",
+      "reason": "compares a host command mirror with the checkout; /cpp:update acts on its --check verdict"
+    },
+    "counter-model-receipt.py": {
+      "class": "tested",
+      "consumer": "tests/test_counter_model_review.py",
+      "reason": "derives and writes the ADR 0007 counter-model receipt, refusing rather than asserting an identity"
+    },
+    "counter-model-reviewer-attribution.py": {
+      "class": "tested",
+      "consumer": "tests/test_counter_model_reviewer_attribution.py",
+      "reason": "links each landed receipt to the rollout that produced it"
+    },
+    "counter-model-uniformity-check.py": {
+      "class": "tested",
+      "consumer": "tests/test_counter_model_uniformity_check.py",
+      "reason": "tells a copied reviewer literal from verified uniformity"
+    },
+    "cpp-commands-link.sh": {
+      "class": "not-a-checker",
+      "reason": "links command documents onto the host; it issues no verdict"
+    },
+    "cpp-memory": {
+      "class": "not-a-checker",
+      "reason": "the common-memory CLI; it records and retrieves, and issues no verdict"
+    },
+    "delegated-run-check.sh": {
+      "class": "tested",
+      "consumer": "tests/test_delegated_run_check.py",
+      "reason": "decides whether a delegated /codex /qwen /gemma run counts as success"
+    },
+    "deletion-accounting.sh": {
+      "class": "tested",
+      "consumer": "tests/test_deletion_accounting.py",
+      "reason": "counts what a push deletes before it lands"
+    },
+    "eli5-core-drift.sh": {
+      "class": "runtime",
+      "consumer": ".claude/commands/flow/eli5.md",
+      "reason": "the advisory upstream drift check for the vendored eli5 core; a shim onto eli5-vendor.py, whose offline half `make eli5-check` gates"
+    },
+    "flow-ci-status.sh": {
+      "class": "tested",
+      "consumer": "tests/test_flow_ci_status.py",
+      "reason": "resolves a pipeline for a commit SHA; /flow:auto Step 8 deploys or stops on it"
+    },
+    "flow-driver-capability.sh": {
+      "class": "tested",
+      "consumer": "tests/test_driver_capability.py",
+      "reason": "reports whether a driver can take an issue's lane"
+    },
+    "flow-driver-retirement-check.sh": {
+      "class": "tested",
+      "consumer": "tests/test_flow_driver_retirement.py",
+      "reason": "refuses to retire a driver whose obligations are unaccounted"
+    },
+    "flow-finish-gate.sh": {
+      "class": "tested",
+      "consumer": "tests/test_flow_finish_gate.py",
+      "reason": "the /flow:finish quality gate, whose verdict the commit, push and PR read"
+    },
+    "flow-helpers-install.sh": {
+      "class": "not-a-checker",
+      "reason": "installs the flow helper family into ~/.claude/scripts; it issues no verdict"
+    },
+    "flow-live-driver-guard.sh": {
+      "class": "tested",
+      "consumer": "tests/test_flow_live_driver_guard.py",
+      "reason": "reports whether another session is mid-implementation in this checkout"
+    },
+    "flow-pr-watch.sh": {
+      "class": "tested",
+      "consumer": "tests/test_flow_pr_watch.py",
+      "reason": "classifies a PR's checks for the wave merge queue, in another session"
+    },
+    "flow-stale-check.sh": {
+      "class": "tested",
+      "consumer": "tests/test_flow_stale_check.py",
+      "reason": "reports whether the base moved under an in-flight branch"
+    },
+    "flow-start-resolve.sh": {
+      "class": "tested",
+      "consumer": "tests/test_flow_start_resolve.py",
+      "reason": "decides whether a checkout is created, entered or taken over"
+    },
+    "flow-wave-lexicon.sh": {
+      "class": "tested",
+      "consumer": "tests/test_flow_wave_lexicon.py",
+      "reason": "accepts or rejects a wave transition token"
+    },
+    "flow-wave-mailbox.sh": {
+      "class": "tested",
+      "consumer": "tests/test_flow_wave_mailbox.py",
+      "reason": "reports whether an orchestrator's message can be heard"
+    },
+    "flow-wave-plan.py": {
+      "class": "tested",
+      "consumer": "tests/test_flow_wave_plan.py",
+      "reason": "the startable set and path-contention index an orchestrator hands out"
+    },
+    "flow-wave-registry.sh": {
+      "class": "tested",
+      "consumer": "tests/test_flow_wave_registry.py",
+      "reason": "role-to-address resolution read by a different session"
+    },
+    "flow-wave-residuals.py": {
+      "class": "tested",
+      "consumer": "tests/test_flow_wave_residuals.py",
+      "reason": "decides whether a residual candidate becomes an issue after the wave"
+    },
+    "flow-worktree-claim.sh": {
+      "class": "tested",
+      "consumer": "tests/test_flow_worktree_claim.py",
+      "reason": "cross-session take-over and removal decisions"
+    },
+    "flow-worktree-guard.sh": {
+      "class": "tested",
+      "consumer": "tests/test_flow_worktree_native.py",
+      "reason": "blocks a commit when an edit leaked into the main tree"
+    },
+    "flow-worktree-sweep.sh": {
+      "class": "tested",
+      "consumer": "tests/test_worktree_sweep.py",
+      "reason": "decides whether another session's checkout is removed"
+    },
+    "friction-log.sh": {
+      "class": "not-a-checker",
+      "reason": "appends a friction record, fail-open by design; it issues no verdict"
+    },
+    "gh-pr-merge.sh": {
+      "class": "tested",
+      "consumer": "tests/test_gh_pr_merge.py",
+      "reason": "decides whether the squash lands on main"
+    },
+    "hook-mask-output.sh": {
+      "class": "not-a-checker",
+      "reason": "the PostToolUse masking hook; it rewrites output and issues no verdict"
+    },
+    "hook-pending-retro.sh": {
+      "class": "not-a-checker",
+      "reason": "an opt-in advisory reminder; it issues no verdict"
+    },
+    "hook-permission-census.sh": {
+      "class": "tested",
+      "consumer": "tests/test_hook_permission_census.py",
+      "reason": "the PermissionRequest census hook and its vendored copy of the risk taxonomy"
+    },
+    "knowledge-graduation-check.py": {
+      "class": "tested",
+      "consumer": "tests/test_knowledge_graduation_check.py",
+      "reason": "decides whether a completed spec may be removed"
+    },
+    "lane-serveability-check.sh": {
+      "class": "tested",
+      "consumer": "tests/test_lane_serveability.py",
+      "reason": "decides whether /qwen:auto and /gemma:auto delegate at all"
+    },
+    "mcp-drift.py": {
+      "class": "tested",
+      "consumer": "tests/test_mcp_drift.py",
+      "reason": "compares configured MCP servers with the checkout"
+    },
+    "measurement-shape-scan.py": {
+      "class": "tested",
+      "consumer": "tests/test_measurement_shape_scan.py",
+      "reason": "warn counts the retro folds into classification without re-scanning"
+    },
+    "memories-db-setup.sh": {
+      "class": "not-a-checker",
+      "reason": "creates the local memories database; it issues no verdict"
+    },
+    "npm-global-upgrade.sh": {
+      "class": "tested",
+      "consumer": "tests/test_npm_global_upgrade.py",
+      "reason": "reports the harness version transition rather than npm's exit code"
+    },
+    "playwright-desk.py": {
+      "class": "tested",
+      "consumer": "tests/test_playwright_desk.py",
+      "reason": "leases a browser desk, or refuses; /browser:session acts on the result"
+    },
+    "project-init.py": {
+      "class": "not-a-checker",
+      "reason": "scaffolds a new project; it issues no verdict"
+    },
+    "project-next.py": {
+      "class": "tested",
+      "consumer": "tests/test_project_next_contract.py",
+      "reason": "the startable classification /project:next declares authoritative"
+    },
+    "prompt-context.sh": {
+      "class": "not-a-checker",
+      "reason": "assembles prompt context for a session; it issues no verdict"
+    },
+    "pytest-parallel-differential.py": {
+      "class": "tested",
+      "consumer": "tests/test_parallel_differential.py",
+      "reason": "tells a parallelism-sensitive failure from a real one"
+    },
+    "run-delivery-pilots.py": {
+      "class": "not-a-checker",
+      "reason": "runs the delivery-pilot experiment and writes its report; it issues no verdict"
+    },
+    "sandbox-phase1-trial.sh": {
+      "class": "not-a-checker",
+      "reason": "a one-off sandbox trial harness; it issues no verdict"
+    },
+    "secret-scan-check.sh": {
+      "class": "tested",
+      "consumer": "tests/test_secret_scan.py",
+      "reason": "the registered secret-scan control's gate, over the working tree"
+    },
+    "secrets-mask.sh": {
+      "class": "not-a-checker",
+      "reason": "masks secret values in output; it issues no verdict"
+    },
+    "slate-reconcile.py": {
+      "class": "tested",
+      "consumer": "tests/test_slate_reconcile.py",
+      "reason": "reconciles the slate against its claimed files"
+    },
+    "speckit-context.py": {
+      "class": "tested",
+      "consumer": "tests/test_speckit_context.py",
+      "reason": "SPECKIT_CONTEXT_STATE, which decides how Step 2 plans a generated issue"
+    },
+    "speckit-tasks-to-issues.sh": {
+      "class": "tested",
+      "consumer": "tests/test_speckit_tasks_to_issues.py",
+      "reason": "refuses on an unreadable inventory or an ambiguous task identity before creating issues"
+    },
+    "stash-worktree-guard.sh": {
+      "class": "tested",
+      "consumer": "tests/test_stash_worktree_guard.py",
+      "reason": "refuses a stash push from a linked worktree"
+    },
+    "worktree-remove.sh": {
+      "class": "tested",
+      "consumer": "tests/test_worktree_remove_occupied.py",
+      "reason": "decides whether a checkout is destroyed"
+    }
+  }
+}
