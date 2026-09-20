@@ -50,8 +50,10 @@ logger = logging.getLogger(__name__)
 # when the tool is genuinely unconfigured rather than hard-fail.
 _GATE_PYPROJECT_TOKENS = {"lint": "ruff", "test": "pytest", "typecheck": "mypy"}
 
-MANIFEST_FILENAME = "cicd_tasks.yml"
-MANIFEST_PATH = ".claude/cicd_tasks.yml"
+# Re-exported from the reader-free module so the two cannot drift; steps.py
+# needs the path when THIS module is the thing that will not import (#1163).
+from .manifest_path import MANIFEST_FILENAME, MANIFEST_PATH  # noqa: E402
+
 SUPPORTED_VERSIONS = {"1"}
 
 
