@@ -1,0 +1,19 @@
+{
+  "branch": "issue-1126-gate-sh-one-home-for-the-argument-and-verdict-conv",
+  "counts": {
+    "accepted": 2,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "implementer": "claude/claude-opus-5",
+  "issue": "1126",
+  "passes": 2,
+  "recorded_at": "2026-09-20T13:50:10Z",
+  "red_cases": {
+    "already_covered": 6,
+    "proposed": 8
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}
