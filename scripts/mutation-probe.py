@@ -229,9 +229,28 @@ def build_sandbox(root: Path, dest: Path) -> tuple[bool, str]:
             names = [n for n in out.split("\0") if n]
             for rel in names:
                 src = root / rel
+                target = dest / rel
+                # A TRACKED SYMLINK IS A TRACKED FILE (issue #959). `is_file()`
+                # follows the link, so a symlink whose target does not exist
+                # answered False and the path was SKIPPED - silently, on the
+                # branch that does not raise. `controls/flow-vantage` commits
+                # three of them on purpose: `readlink /proc/self/ns/pid` returns
+                # `pid:[4026531836]`, a string that is not a path, so the only
+                # faithful stand-in is a symlink with that target. The snapshot
+                # was therefore missing the very fixtures a control depends on,
+                # and the probe reported `ok` over it - the "partial copy still
+                # runs and produces confident verdicts" failure the OSError
+                # branch below refuses, arriving through the branch that does
+                # not. Recreated as a link rather than dereferenced: what the
+                # link SAYS is the content here.
+                if src.is_symlink():
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    if target.is_symlink() or target.exists():
+                        target.unlink()
+                    os.symlink(os.readlink(src), target)
+                    continue
                 if not src.is_file():
                     continue
-                target = dest / rel
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(src, target)
             source = f"git ls-files ({len(names)} path(s))"
@@ -240,7 +259,12 @@ def build_sandbox(root: Path, dest: Path) -> tuple[bool, str]:
             # virtualenv or a package cache is not the repository's code, and
             # copying one into the sandbox makes the sandbox's behaviour depend
             # on what happens to be installed in THIS checkout.
-            shutil.copytree(root, dest, dirs_exist_ok=True,
+            # symlinks=True for the same reason (issue #959): the default
+            # DEREFERENCES, so a dangling tracked symlink raises ENOENT and
+            # takes this whole step down. That is what CI met - git is absent
+            # from the image by design, so THIS is the lane that runs there,
+            # and it is the lane the dev box never exercises.
+            shutil.copytree(root, dest, dirs_exist_ok=True, symlinks=True,
                             ignore=shutil.ignore_patterns(
                                 ".git", ".venv", "venv", "node_modules",
                                 "__pycache__", ".mypy_cache", ".pytest_cache",
