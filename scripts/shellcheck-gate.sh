@@ -31,13 +31,35 @@
 # OVERSTATE the denominator - the exact failure this gate exists to report.
 set -u
 
+# THE SHARED GATE MODULE (issue #1127, first migration slice of #1061). What
+# moves here is the ARGUMENT RULE and the EXIT MAPPING, not this gate's output:
+# every contract line below is unchanged, byte for byte, because the four
+# registered controls are the evidence that this migration changed nothing a
+# gate can see, and a rewrite that also rewrites its evidence shows nothing.
+#
+# This gate adopts `gate_map` and `gate_arg_value`. It does NOT adopt
+# `gate_emit`: that formats as `KEY: verdict - detail`, and this gate's lines
+# are `shellcheck-gate: N file(s) scanned at severity=...`, which carries no
+# verdict word. Reshaping them to fit would be exactly the change the slice
+# forbids, so the `echo`s stay and the module owns the two things it can own
+# without touching output.
+#
+# WHAT THE USAGE EXIT WAS, AND WHY IT MOVED. `${2:?...}` exits 1 under bash and
+# 2 under dash - so this gate reported a usage error with 1, WHICH IS ITS OWN
+# FINDINGS CODE, on any host whose /bin/sh is bash. A caller could not tell "you
+# passed --root with nothing after it" from "shellcheck found problems". The
+# module's usage exit is outside every verdict number this gate declares.
+. "$(dirname "$0")/gate-lib.sh"
+
+gate_map ok=0 findings=1 unknown=2
+
 SEVERITY="${SHELLCHECK_SEVERITY:-error}"
 ROOT="."
 
 while [ $# -gt 0 ]; do
     case "$1" in
-        --root) ROOT="${2:?--root needs a directory}"; shift 2 ;;
-        --severity) SEVERITY="${2:?--severity needs a value}"; shift 2 ;;
+        --root) gate_arg_value "$1" "$#" "${2-}"; ROOT=$GATE_VALUE; shift 2 ;;
+        --severity) gate_arg_value "$1" "$#" "${2-}"; SEVERITY=$GATE_VALUE; shift 2 ;;
         -h|--help) sed -n '2,31p' "$0"; exit 0 ;;
         *) echo "shellcheck-gate: unknown argument: $1" >&2; exit 2 ;;
     esac
