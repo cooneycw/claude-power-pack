@@ -3,7 +3,9 @@
 import os
 import re
 import shutil
+import stat
 import subprocess
+import tempfile
 from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
@@ -16,6 +18,7 @@ from lib.cicd.runner import (
     DeterministicRunner,
     RunResult,
     _build_step_env,
+    _ensure_private_dir,
     _is_offline,
     _project_python_floor,
     run_plan,
@@ -29,6 +32,17 @@ from lib.cicd.steps import (
     ShellStep,
     StepDef,
 )
+
+
+def _expected_uv_cache_dir() -> Path:
+    """The per-uid cache path `_build_step_env` must default to (issue #1113).
+
+    Derived the same way the runner derives it rather than spelled out, so this
+    helper cannot pin a path the code stopped using. The PROPERTIES - uid in the
+    name, under the temp dir, stable across calls - are asserted separately in
+    TestBuildStepEnv; this is only the equality the older tests already made.
+    """
+    return Path(tempfile.gettempdir()) / f"uv-cache-{os.getuid()}"
 
 
 @pytest.fixture
@@ -261,7 +275,7 @@ class TestDeterministicRunner:
             result = runner.run("check", step_defs=steps)
 
         assert result.success
-        assert env_file.read_text().strip() == "/tmp/uv-cache"
+        assert env_file.read_text().strip() == str(_expected_uv_cache_dir())
 
     def test_step_level_env_override(self, tmp_project: Path):
         """Step-level env vars merge on top of context env."""
@@ -912,7 +926,147 @@ class TestBuildStepEnv:
         env_without_uv = {k: v for k, v in os.environ.items() if k != "UV_CACHE_DIR"}
         with patch.dict(os.environ, env_without_uv, clear=True):
             env = _build_step_env()
-            assert env["UV_CACHE_DIR"] == "/tmp/uv-cache"
+            assert env["UV_CACHE_DIR"] == str(_expected_uv_cache_dir())
+
+    # --- B108: the default must not be a uid-independent shared path (#1113) ---
+    #
+    # `/tmp/uv-cache` is guessable and world-writable, so any local user can
+    # create it first and own what uv then reads back out of it - a package
+    # cache is executable content. Unlike the deploy lock next door, a cache
+    # has no cross-process contract to preserve, so the per-uid path costs
+    # nothing and the finding goes away for real.
+    #
+    # These fail on the pre-#1113 literal: it carries no uid.
+
+    def test_default_uv_cache_dir_is_uid_scoped(self):
+        env_without_uv = {k: v for k, v in os.environ.items() if k != "UV_CACHE_DIR"}
+        with patch.dict(os.environ, env_without_uv, clear=True):
+            cache = Path(_build_step_env()["UV_CACHE_DIR"])
+        assert str(os.getuid()) in cache.name, (
+            f"{cache} is shared across every user on the host"
+        )
+        assert cache.parent == Path(tempfile.gettempdir())
+
+    def test_private_dir_creates_it_0700_and_owned_by_us(self):
+        target = Path(tempfile.mkdtemp()) / "cache"
+        assert _ensure_private_dir(target) == target
+        assert stat.S_IMODE(target.stat().st_mode) == 0o700
+        assert target.stat().st_uid == os.getuid()
+
+    def test_private_dir_accepts_an_existing_directory_of_ours(self):
+        """The half that must NOT fire: a cache is reused every run.
+
+        A validator that refused a directory it created last time would make
+        every run a cold download, and nothing else would go red.
+        """
+        target = Path(tempfile.mkdtemp()) / "cache"
+        _ensure_private_dir(target)
+        (target / "artifact").write_text("cached")
+        assert _ensure_private_dir(target) == target
+        assert (target / "artifact").read_text() == "cached"
+
+    def test_private_dir_refuses_a_symlink(self):
+        """The hazard the uid suffix does NOT close (counter-model, #1113).
+
+        `/tmp/uv-cache-<uid>` is as pre-creatable as `/tmp/uv-cache`; a uid in
+        the name says who should own it, not who does. This is the check that
+        makes the disposition's claim true.
+        """
+        tmp = Path(tempfile.mkdtemp())
+        (tmp / "elsewhere").mkdir()
+        link = tmp / "cache"
+        link.symlink_to(tmp / "elsewhere")
+        with pytest.raises(RuntimeError, match="symlink"):
+            _ensure_private_dir(link)
+
+    def test_private_dir_refuses_a_directory_owned_by_someone_else(self):
+        """The foreign-owner case, with `lstat` stubbed to report another uid.
+
+        Creating a genuinely foreign-owned directory needs a second uid, which
+        a unit test does not have. Stubbing the stat is honest about what is
+        being exercised - the BRANCH, not the kernel - and the symlink test
+        above covers a real on-disk hostile shape.
+        """
+        target = Path(tempfile.mkdtemp()) / "cache"
+        target.mkdir(mode=0o700)
+        real = Path.lstat
+
+        def foreign(self):  # noqa: ANN001
+            st = real(self)
+            if self == target:
+                return os.stat_result(
+                    (st.st_mode, st.st_ino, st.st_dev, st.st_nlink,
+                     os.getuid() + 1, st.st_gid, st.st_size,
+                     int(st.st_atime), int(st.st_mtime), int(st.st_ctime))
+                )
+            return st
+
+        with patch.object(Path, "lstat", foreign):
+            with pytest.raises(RuntimeError, match="owned by uid"):
+                _ensure_private_dir(target)
+
+    def test_build_step_env_refuses_a_hijacked_cache(self, tmp_path: Path):
+        """End to end: the refusal reaches the caller, not just the helper.
+
+        A validator nothing calls is the failure this test exists to catch -
+        `_build_step_env` is the only path that actually hands `uv` the value.
+        """
+        hostile = tmp_path / "hostile"
+        (tmp_path / "real").mkdir()
+        hostile.symlink_to(tmp_path / "real")
+        env_without_uv = {k: v for k, v in os.environ.items() if k != "UV_CACHE_DIR"}
+        with patch.dict(os.environ, env_without_uv, clear=True):
+            with patch("lib.cicd.runner._default_uv_cache_dir", return_value=hostile):
+                with pytest.raises(RuntimeError, match="symlink"):
+                    _build_step_env()
+
+    def test_private_dir_refuses_a_world_writable_directory_we_own(self):
+        """Ownership is not exclusivity (counter-model, second pass).
+
+        `mkdir(mode=0o700, exist_ok=True)` applies the mode only when it
+        CREATES the directory. A pre-existing 0777 cache - an older run under a
+        permissive umask - is owned by us and writable by everyone, which is
+        the entire hazard, and the owner check alone waves it through.
+        """
+        target = Path(tempfile.mkdtemp()) / "cache"
+        target.mkdir(mode=0o777)
+        os.chmod(target, 0o777)  # defeat umask, which would have trimmed it
+        with pytest.raises(RuntimeError, match="writable by other users"):
+            _ensure_private_dir(target)
+
+    def test_an_explicit_cache_override_does_not_touch_the_default(self):
+        """`setdefault` evaluates its argument eagerly (counter-model, 2nd pass).
+
+        With the default written as `env.setdefault(k, _ensure_private_dir(...))`
+        a hijacked DEFAULT cache aborted every run - including runs that had
+        explicitly chosen a different, safe cache and would never have used the
+        default. That contradicts `_build_step_env`'s stated contract that an
+        explicit caller env always wins.
+        """
+        calls: list[str] = []
+
+        def exploding_default():
+            calls.append("evaluated")
+            raise RuntimeError("the default cache is hijacked")
+
+        with patch.dict(os.environ, {"UV_CACHE_DIR": "/custom/cache"}):
+            with patch("lib.cicd.runner._default_uv_cache_dir", exploding_default):
+                env = _build_step_env()
+        assert env["UV_CACHE_DIR"] == "/custom/cache"
+        assert not calls, "the default cache was resolved despite an explicit override"
+
+    def test_default_uv_cache_dir_is_stable_across_calls(self):
+        """A cache that moved every call would not be a cache.
+
+        The half that must NOT fire: `tempfile.mkdtemp()` would clear the
+        bandit finding too, and would silently turn every run into a cold
+        download. Nothing else in the suite would go red.
+        """
+        env_without_uv = {k: v for k, v in os.environ.items() if k != "UV_CACHE_DIR"}
+        with patch.dict(os.environ, env_without_uv, clear=True):
+            first = _build_step_env()["UV_CACHE_DIR"]
+            second = _build_step_env()["UV_CACHE_DIR"]
+        assert first == second
 
     def test_preserves_explicit_uv_cache_dir(self):
         with patch.dict(os.environ, {"UV_CACHE_DIR": "/custom/cache"}):

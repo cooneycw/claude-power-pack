@@ -36,6 +36,7 @@ from __future__ import annotations
 import hashlib
 import stat
 import sys
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -55,6 +56,93 @@ def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def _require_https(url: str) -> None:
+    """Refuse a non-https URL before it reaches `urlopen` (issue #1113).
+
+    `JQ_URL` above is a constant, so today this can only fire if someone edits
+    it. That is the point at which it is worth having: the sha256 pin below
+    guarantees WHAT bytes we accept and says nothing about HOW they arrived, so
+    an edit to `file:///...` or `http://...` would keep the pin satisfied while
+    changing this from a pinned download into a local file read, or into one
+    that a network attacker can answer. Two lines make the transport part of
+    what is pinned.
+
+    Raises `ValueError`; `main` classifies it into the existing non-zero
+    "this is not a pass" path, so an unusable URL and an unreachable one exit
+    the same way rather than one of them tracebacking.
+
+    This does NOT clear bandit's B310 - that rule is a call blacklist with no
+    dataflow, so it reports `urlopen` whatever guards it. The finding is
+    dispositioned in `docs/security/bandit-finding-dispositions.md`.
+    """
+    scheme = urllib.parse.urlsplit(url).scheme
+    if scheme != "https":
+        raise ValueError(
+            f"refusing a non-https URL (scheme {scheme or 'none'!r}): {url}"
+        )
+
+
+class _HttpsOnlyRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Re-check the scheme on every REDIRECT, not only on `JQ_URL` itself.
+
+    This matters MORE here than at the initial URL, because `JQ_URL` is a
+    GitHub release link and GitHub answers it with a 302 to its object store -
+    so this download is redirected on every single run, and the redirect
+    target is the URL the bytes actually come from. The stdlib's default
+    handler permits a redirect to `http` or `ftp`
+    (`HTTPRedirectHandler.http_error_302`), so without this the only scheme
+    check would be on the one URL that never serves the payload.
+
+    The sha256 pin below would still catch substituted BYTES. It would not
+    catch the request going out in the clear, and it is not a reason to skip
+    the cheaper guarantee.
+    """
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        _require_https(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def _build_https_only_opener() -> urllib.request.OpenerDirector:
+    """An opener that can speak https and NOTHING else, by construction.
+
+    `urllib.request.build_opener()` installs `FileHandler`, `FTPHandler`,
+    `DataHandler` and `HTTPHandler` alongside the https one. Measured: an
+    opener built that way returns the bytes of a `file:///...` URL. So an
+    opener built the default way is exactly as scheme-permissive as the bare
+    `urlopen` it replaced, and the ONLY thing standing between it and a local
+    file read would be the caller remembering to call `_require_https` first.
+
+    Registering the handlers explicitly moves that from a discipline to a
+    property: an unhandled scheme reaches `UnknownHandler`, which raises
+    `URLError("unknown url type: file")` - so a future caller who forgets the
+    check still cannot read a file with this opener.
+
+    `ProxyHandler()` is included and self-configures from the environment; with
+    no proxy set it registers no methods and is not retained, so it costs
+    nothing and a proxied CI runner still works.
+
+    `_require_https` is kept in front of this rather than replaced by it. The
+    opener decides what is POSSIBLE; the check produces the classified,
+    readable error the callers already handle, and refuses before a request is
+    built.
+    """
+    opener = urllib.request.OpenerDirector()
+    for handler in (
+        urllib.request.ProxyHandler(),
+        urllib.request.HTTPSHandler(),
+        urllib.request.HTTPDefaultErrorHandler(),
+        _HttpsOnlyRedirectHandler(),
+        urllib.request.HTTPErrorProcessor(),
+        urllib.request.UnknownHandler(),
+    ):
+        opener.add_handler(handler)
+    return opener
+
+
+_HTTPS_ONLY_OPENER = _build_https_only_opener()
+
+
 def main() -> int:
     if DEST.is_file():
         have = _sha256(DEST.read_bytes())
@@ -64,7 +152,11 @@ def main() -> int:
         print(f"ci-stage-jq: {DEST} exists but hashes {have}, re-staging", file=sys.stderr)
 
     try:
-        with urllib.request.urlopen(JQ_URL, timeout=120) as response:  # noqa: S310
+        _require_https(JQ_URL)
+        # NOT suppressed: bandit still reports B310 here, by design. The
+        # scheme is enforced on JQ_URL one line up and on every redirect
+        # target by the opener - GitHub redirects this download every run.
+        with _HTTPS_ONLY_OPENER.open(JQ_URL, timeout=120) as response:  # noqa: S310
             payload = response.read()
     except Exception as exc:  # noqa: BLE001 - the cause is reported, not classified
         print(f"ci-stage-jq: FAILED to download {JQ_URL}: {exc}", file=sys.stderr)

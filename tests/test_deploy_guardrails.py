@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import stat
 import subprocess
 import tempfile
 from pathlib import Path
@@ -10,8 +12,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from lib.cicd.deploy.guardrails import (
+    DEPLOY_LOCK_PATH,
     CapabilityCheck,
     CapabilityResult,
+    LockPathUnsafe,
     check_docker_socket,
     check_stale_commit,
     deploy_lock,
@@ -132,6 +136,105 @@ class TestDeployLock:
                 with pytest.raises(TimeoutError, match="Could not acquire"):
                     with deploy_lock(lock_path=lock_path, timeout_seconds=1):
                         pass  # pragma: no cover
+
+    # --- B108 hardening (issue #1113) -------------------------------------
+    #
+    # DEPLOY_LOCK_PATH stays a fixed, shared path in the system temp dir, and
+    # that is deliberate: a lock in a per-uid or $TMPDIR-derived location stops
+    # excluding the other users it exists to exclude, which is the property the
+    # module docstring promises for "shared Docker hosts". So the hazard bandit
+    # names (B108) is not removed by moving the file - it is removed by
+    # refusing to open the wrong file when we get there.
+    #
+    # The sharp edge is a symlink: any local user can pre-create
+    # /tmp/claude-power-pack-deploy.lock pointing at a file the deploying user
+    # can write, and the pre-#1113 `open(path, "w")` would follow it and
+    # truncate the target. These two tests are the ones that fail on that code.
+
+    def test_refuses_a_symlinked_lock_path(self):
+        """A pre-created symlink must be refused, not followed and truncated."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            victim = Path(tmpdir) / "victim"
+            victim.write_text("precious\n")
+            lock_path = Path(tmpdir) / "test.lock"
+            lock_path.symlink_to(victim)
+
+            with pytest.raises(LockPathUnsafe, match="symlink|not a regular file"):
+                with deploy_lock(lock_path=lock_path, timeout_seconds=1):
+                    pass  # pragma: no cover
+
+            # The whole point: the target survived untouched.
+            assert victim.read_text() == "precious\n"
+
+    @pytest.mark.timeout(10)
+    def test_refuses_a_lock_path_that_is_not_a_regular_file(self):
+        """A FIFO (or any non-regular file) left at the path is refused too.
+
+        Narrower than the symlink case and not covered by it: O_NOFOLLOW stops
+        a symlink, and nothing else. A FIFO at the path is opened happily by
+        O_NOFOLLOW and then BLOCKS forever waiting for a reader - a deploy that
+        hangs rather than one that fails, which is strictly harder to diagnose.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            lock_path = Path(tmpdir) / "test.lock"
+            os.mkfifo(lock_path)
+
+            with pytest.raises(LockPathUnsafe, match="not a regular file"):
+                with deploy_lock(lock_path=lock_path, timeout_seconds=1):
+                    pass  # pragma: no cover
+
+    def test_reuses_an_ordinary_pre_existing_lock_file(self):
+        """The half that must NOT fire: a plain leftover lock still works.
+
+        A previous deploy leaves a regular file behind and never unlinks it, so
+        every subsequent deploy on the host meets a pre-existing lock. If the
+        hardening above refused that, it would refuse every deploy after the
+        first - a false red on the only path that actually runs in production.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            lock_path = Path(tmpdir) / "test.lock"
+            lock_path.write_text("pid=1 time=0\n")
+
+            with deploy_lock(lock_path=lock_path, timeout_seconds=5):
+                assert lock_path.is_file()
+
+    def test_lock_file_permissions_match_the_unhardened_open(self):
+        """The hardening must not narrow who can take the lock (#1113).
+
+        `open(path, "w")` requests 0o666 and lets umask decide. Hardcoding a
+        tighter mode in the `os.open` replacement looks like hardening and
+        silently removes the cross-user coordination the shared path exists
+        for: under `umask 002` a second deploying user in the group gets
+        EACCES instead of the lock. Asserted under that umask specifically -
+        the default 022 makes both modes 0644 and the regression invisible.
+        """
+        old_umask = os.umask(0o002)
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                hardened = Path(tmpdir) / "hardened.lock"
+                with deploy_lock(lock_path=hardened, timeout_seconds=5):
+                    pass
+                reference = Path(tmpdir) / "reference.lock"
+                with open(reference, "w"):  # what this replaced
+                    pass
+                assert (
+                    stat.S_IMODE(hardened.stat().st_mode)
+                    == stat.S_IMODE(reference.stat().st_mode)
+                    == 0o664
+                )
+        finally:
+            os.umask(old_umask)
+
+    def test_lock_path_is_shared_not_per_uid(self):
+        """Pins the decision, so a later 'fix' for B108 cannot silently undo it.
+
+        Making DEPLOY_LOCK_PATH per-uid or $TMPDIR-derived is the obvious way
+        to clear the bandit finding, and it would delete the cross-user mutual
+        exclusion the lock exists for - silently, since nothing else would go
+        red. This test is what goes red instead.
+        """
+        assert str(DEPLOY_LOCK_PATH) == "/tmp/claude-power-pack-deploy.lock"
+        assert str(os.getuid()) not in DEPLOY_LOCK_PATH.name
 
 
 class TestCheckDockerSocket:
