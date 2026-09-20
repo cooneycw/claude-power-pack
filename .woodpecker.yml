@@ -199,6 +199,31 @@ steps:
     commands:
       - python3 scripts/verify-coverage-check.py
 
+  # Do CLAUDE.md's recorded obligations still appear in CLAUDE.md? (#1145)
+  #
+  # THIS STEP EXISTS BECAUSE ITS ABSENCE LET A RED GATE MERGE. #1144 removed the
+  # sentence an obligation required and left the obligation in place, so
+  # `make verify` failed on main from the moment it landed - and CI was green,
+  # because this checker ran ONLY inside `make verify` and appeared nowhere
+  # here. A gate a developer runs and the pipeline does not is a gate that
+  # fails after the merge, in front of whoever pulls next, rather than at PR
+  # time in front of its author.
+  #
+  # A needle will go stale again; that is not the defect being fixed. What
+  # changes is WHEN it goes stale visibly.
+  #
+  # Stdlib-only, offline and git-free - argparse, importlib.util, json, re,
+  # sys, dataclasses, pathlib, and it opens only repo-relative paths - so it
+  # runs directly under the slim image and gives the same verdict as a dev box.
+  # Demonstrated rather than assumed, under this exact digest: exit 0 on the
+  # fixed tree, exit 1 on the pre-fix fixture. A step that could not fail in
+  # the image would be green by absence, which is #1036.
+  claude-md-behavior-check:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
+    depends_on: [secret-scan]
+    commands:
+      - python3 scripts/check-claude-md-behavior.py
+
   # Would a registered control RUN in the image `negative-controls` uses? (#1036)
   #
   # ITS OWN STEP, AND DELIBERATELY NOT FOLDED INTO `negative-controls`. This gate
