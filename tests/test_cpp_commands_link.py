@@ -717,23 +717,42 @@ def test_a_failed_link_is_not_reported_as_an_install(tmp_path: Path):
     (target / "beta").mkdir(parents=True)
     (target / "beta" / "theirs.md").write_text("# not ours\n")
     (target / "alpha").symlink_to(tmp_path / "elsewhere" / ".claude" / "commands" / "alpha")
-    target.chmod(0o555)
-    try:
-        # Precondition: the target really is unwritable, or this asserts nothing.
-        probe = target / ".probe"
-        try:
-            probe.touch()
-            pytest.fail("fixture must be a READ-ONLY target directory")
-        except PermissionError:
-            pass
-        result = _run(tmp_path, src)
-        assert "FAILED   alpha" in result.stderr, result.stderr
-        assert "failed: 1" in result.stdout, result.stdout
-        assert "CPP_COMMANDS_LINK: error" in result.stdout, result.stdout
-        assert "CPP_COMMANDS_LINK: installed" not in result.stdout
-        assert result.returncode == 2
-    finally:
-        target.chmod(0o755)
+
+    # A FAILING `ln` STUB, not chmod. CI runs as root, and root ignores
+    # directory permission bits - so `chmod 0o555` produced a writable target
+    # there and the precondition assertion below fired instead of the test
+    # passing vacuously. The stub is uid-independent, which is what makes this
+    # test mean the same thing on a dev box and in the CI image.
+    #
+    # PATH is PREPENDED, never replaced: emptying it would remove `rm`,
+    # `mkdir`, `readlink` and `basename` too, and the script would then fail
+    # for reasons that have nothing to do with the thing under test - the #695
+    # shape `scripts/check-negative-fixture-preconditions.py` exists to catch.
+    stub_dir = tmp_path / "stub-bin"
+    stub_dir.mkdir()
+    stub_ln = stub_dir / "ln"
+    stub_ln.write_text("#!/bin/sh\nexit 1\n")
+    stub_ln.chmod(0o755)
+
+    env = dict(os.environ)
+    env["CPP_COMMANDS_LINK_HOME"] = str(tmp_path / "home")
+    env["PATH"] = f"{stub_dir}:{env['PATH']}"
+    # Precondition: the stub really is the `ln` that will run, and it really
+    # fails. Without both, this test asserts nothing.
+    assert shutil.which("ln", path=env["PATH"]) == str(stub_ln), "stub ln must win PATH"
+    assert subprocess.run(["ln"], env=env).returncode == 1, "stub ln must fail"
+
+    result = subprocess.run(
+        ["bash", str(SCRIPT), "--source", str(src)],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert "FAILED   alpha" in result.stderr, result.stderr
+    assert "failed: 1" in result.stdout, result.stdout
+    assert "CPP_COMMANDS_LINK: error" in result.stdout, result.stdout
+    assert "CPP_COMMANDS_LINK: installed" not in result.stdout
+    assert result.returncode == 2
 
 
 def test_the_default_candidate_list_is_unchanged(tmp_path: Path):
