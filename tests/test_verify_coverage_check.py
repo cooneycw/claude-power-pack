@@ -224,6 +224,94 @@ def test_a_command_substitution_inside_quotes_is_still_an_invocation(tree: Path)
     )
 
 
+def test_a_commented_out_prerequisite_is_not_in_the_closure(tree: Path) -> None:
+    """THE GATE'S OWN FAILURE MODE, reachable in the gate (#1028 review, pass 2).
+
+    `verify: alpha-check # beta-check` runs only alpha - make stops at the `#`.
+    Splitting the raw text kept beta in the closure, so a gate commented out of
+    the list still reported as examined, and the tree scored `ok`. That is
+    precisely "a sub-gate silently dropped from the list" - the thing ADR 0008
+    census row 40 says no member target can self-report, and the reason this
+    instrument exists.
+    """
+    text = (tree / "Makefile").read_text().replace(
+        "verify: alpha-check\n", "verify: alpha-check # beta-check\n"
+    ).replace(
+        "## verify-coverage: excluded beta-check - needs a binary this tree may not have",
+        "## verify-coverage: gate beta-check - claims to be in the gate",
+    )
+    (tree / "Makefile").write_text(text)
+    result = run(tree)
+    assert result.returncode == 1, result.stdout
+    assert "MISCLASSIFIED: `beta-check` is declared `gate`" in result.stdout
+
+
+def test_a_quoted_flag_does_not_hide_a_checker_under_utility(tree: Path) -> None:
+    """A quote is not a disguise (#1028 review, pass 2).
+
+    `sh scripts/beta-check.sh "--check"` is the same invocation as the unquoted
+    form. Requiring whitespace before the flag let a quoted one park a checker in
+    `utility`, the one class the closing report never names.
+    """
+    text = (tree / "Makefile").read_text().replace(
+        "@sh scripts/beta-check.sh --check", '@sh scripts/beta-check.sh "--check"'
+    ).replace(
+        "## verify-coverage: excluded beta-check - needs a binary this tree may not have",
+        "## verify-coverage: utility beta-check - honestly not a check",
+    )
+    (tree / "Makefile").write_text(text)
+    result = run(tree)
+    assert result.returncode == 1, result.stdout
+    assert "parked where the closing report will never name it" in result.stdout
+
+
+def test_an_unquoted_echo_of_a_script_is_not_an_invocation(tree: Path) -> None:
+    """Stripping quotes was never the discrimination - the COMMAND is.
+
+    `@echo scripts/ghost.sh` has no quotes at all, and accounted for an
+    otherwise unreferenced checker (#1028 review, pass 2). A segment whose
+    command is a printer is output, quoted or not.
+    """
+    (tree / "scripts" / "ghost.sh").write_text("#!/bin/sh\nexit 0\n")
+    text = (tree / "Makefile").read_text().replace(
+        "@sh scripts/alpha-check.sh",
+        "@echo scripts/ghost.sh\n\t@sh scripts/alpha-check.sh",
+    )
+    (tree / "Makefile").write_text(text)
+    result = run(tree)
+    assert result.returncode == 1
+    assert "UNACCOUNTED: `scripts/ghost.sh`" in result.stdout
+
+
+def test_a_rule_name_this_gate_cannot_validate_is_reported(tree: Path) -> None:
+    """Unsupported syntax is REPORTED, never skipped (#1028 review, pass 2).
+
+    A pattern rule is the case with no sensible classification - so it must not
+    vanish into no population while the verdict says every target is classified.
+    """
+    (tree / "Makefile").write_text(
+        (tree / "Makefile").read_text() + "\n%.o: %.c\n\t@true\n"
+    )
+    result = run(tree)
+    assert result.returncode == 1
+    assert "a rule name this gate cannot validate" in result.stdout
+
+
+def test_a_target_name_with_a_slash_is_in_the_population(tree: Path) -> None:
+    """`security/check:` is an ordinary target (#1028 review, pass 2).
+
+    The earlier pattern excluded `/`, a leading `_` and a leading digit, so such
+    a target left the count unchanged while the verdict claimed every target was
+    classified.
+    """
+    (tree / "Makefile").write_text(
+        (tree / "Makefile").read_text() + "\nsecurity/check:\n\t@true\n"
+    )
+    result = run(tree)
+    assert result.returncode == 1
+    assert "UNACCOUNTED: target `security/check`" in result.stdout
+
+
 def test_every_target_of_a_multi_target_rule_is_accounted(tree: Path) -> None:
     """`a b:` declares two targets (#1028 counter-model review).
 
@@ -278,7 +366,35 @@ def test_a_tested_entry_must_name_a_test_module(tree: Path) -> None:
     )
     result = run(tree)
     assert result.returncode == 1
-    assert "is not under tests/" in result.stdout
+    assert "pytest would collect" in result.stdout
+
+
+def test_a_document_under_tests_is_not_a_test_consumer(tree: Path) -> None:
+    """Living under `tests/` is not being collected (#1028 review, pass 2).
+
+    `tests/README.md` passed the first rule the moment it mentioned a script's
+    name, and the report then counted that script as exercised by a suite that
+    never loads it. The separate binding heuristic does not settle it either -
+    a document containing a Python example satisfies that too.
+    """
+    (tree / "scripts" / "delta-check.sh").write_text("#!/bin/sh\nexit 0\n")
+    (tree / "tests").mkdir()
+    (tree / "tests" / "README.md").write_text(
+        "`delta-check.sh` is covered somewhere, honest\n"
+    )
+    declare(
+        tree,
+        **{
+            "delta-check.sh": {
+                "class": "tested",
+                "consumer": "tests/README.md",
+                "reason": "x",
+            }
+        },
+    )
+    result = run(tree)
+    assert result.returncode == 1
+    assert "pytest would collect" in result.stdout
 
 
 def test_tested_scripts_are_reported_unexamined_when_the_runner_leaves_the_gate(

@@ -178,6 +178,37 @@ def test_real_repo_eli5_drift_check_runs_from_its_own_bundle(tmp_path):
     assert "has drifted" in result.stderr
 
 
+def test_real_repo_eli5_bare_invocation_fails_loudly_and_never_reports_in_sync():
+    """The LIMIT of the eli5 fix, pinned rather than left to be discovered.
+
+    The counter-model review's second pass is right that the bundled shim cannot
+    produce a verdict with no `--root`: the skill directory carries the drift
+    check's code but not `.claude/eli5-vendor.json`, nor the document that
+    manifest identifies. Bundling those would mean this generator learning the
+    layout of one particular script's config, and the honest subject of a drift
+    check run from an installed skill is a CHECKOUT, which only `--root` can
+    name.
+
+    So the bare invocation is expected to fail - and what this pins is that it
+    fails LOUDLY, naming the missing manifest, and can never print the in-sync
+    line. A fail-open advisory that went quietly green with nothing to compare
+    would be the blind instrument this whole issue is about, shipped inside the
+    fix for it.
+    """
+    shim = ROOT / "codex" / "skills" / "flow-eli5" / "scripts" / "eli5-core-drift.sh"
+    result = subprocess.run(
+        ["bash", str(shim)],
+        capture_output=True, text=True, timeout=120, check=False,
+        cwd=str(shim.parent),
+    )
+    combined = result.stdout + result.stderr
+    assert result.returncode != 0, f"a bare run must not succeed\n{combined}"
+    assert "manifest not found" in combined, combined
+    assert "is in sync" not in combined, (
+        "the bundled drift check reported in-sync with nothing to compare"
+    )
+
+
 def test_real_repo_project_next_runs_a_real_query_from_its_own_bundle(tmp_path):
     """The second live instance of the same defect, which #1028 did not name.
 

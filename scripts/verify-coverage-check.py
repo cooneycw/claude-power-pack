@@ -154,6 +154,19 @@ CENSUS_GATE_REL = "scripts/instrument-census-check.py"
 TESTS_REL = "tests"
 TEST_TARGET = "test"
 
+#: pytest's default collection patterns. A `tested` consumer must be a module
+#: pytest would actually COLLECT - not merely a file that happens to live under
+#: `tests/` (found by the #1028 counter-model review, pass 2). `tests/README.md`
+#: passed the earlier rule the moment it mentioned a script's name, and the
+#: report then counted that script as exercised by a suite that never loads it.
+COLLECTED_TEST_RE = re.compile(r"(?:^|/)(?:test_[^/]+|[^/]+_test)\.py$")
+
+
+def _is_collected_test(consumer: str) -> bool:
+    return consumer.startswith(f"{TESTS_REL}/") and bool(
+        COLLECTED_TEST_RE.search(consumer)
+    )
+
 #: `name:` at column 0, and NOT `name :=` (a variable) - the `(?!=)` is what
 #: keeps `TOOLS_HARD := git python3 uv` out of the target population.
 #:
@@ -171,9 +184,17 @@ TEST_TARGET = "test"
 #: SEVERAL TARGETS MAY SHARE ONE RULE - `a b:` declares both (found by the
 #: #1028 counter-model review). Reading only the first name left the second in
 #: no population at all: not classified, not reported, not counted.
-TARGET_RE = re.compile(
-    r"^(\.?[A-Za-z][A-Za-z0-9_.-]*(?:[ \t]+\.?[A-Za-z][A-Za-z0-9_.-]*)*):(?!=)\s*(.*)$"
-)
+#: A rule line is matched PERMISSIVELY and its names validated afterwards, so an
+#: unsupported spelling becomes a FINDING rather than a silent omission (found by
+#: the #1028 counter-model review, pass 2). The earlier pattern excluded `/`, a
+#: leading `_` and a leading digit, so `security/check:` left the target count
+#: unchanged while the verdict claimed every target was classified.
+RULE_LINE_RE = re.compile(r"^([^\s:=#][^:=]*):(?!=)\s*(.*)$")
+
+#: What an ordinary target name may look like. A name outside this is not
+#: skipped - it is reported, which is the difference between a gate that narrows
+#: and one that says it cannot answer (pattern rules like `%.o` land here).
+TARGET_NAME_RE = re.compile(r"^\.?[A-Za-z0-9_][A-Za-z0-9_./-]*$")
 
 #: GNU make's built-in special targets. Hardcoded deliberately - this is the
 #: fixed universe, not a population derived from the tree - and a name outside it
@@ -198,9 +219,15 @@ SCRIPT_REF_RE = re.compile(r"(?<![\w/-])scripts/([A-Za-z0-9._-]+)")
 
 #: Checking flags and subcommands. Matched only against recipe text with the
 #: invoked script paths removed, so a filename never decides the verdict.
+#: A QUOTE IS NOT A DISGUISE. `sh scripts/beta-check.sh "--check"` is the same
+#: invocation as the unquoted form, and requiring whitespace before the flag let
+#: a quoted one slip a checker into `utility`, where the closing report never
+#: names it (found by the #1028 counter-model review, pass 2). Printed text
+#: cannot reach here any more - `_executable_recipe` drops whole printer
+#: segments - so admitting quotes costs nothing and closes the gap.
 SMELL_RE = re.compile(
-    r"(?:^|\s)(?:--(?:check|strict|verify|lint|scan|drift|audit)\b"
-    r"|(?:check|verify|lint)(?=\s|$))"
+    r"""(?:^|[\s"'])(?:--(?:check|strict|verify|lint|scan|drift|audit)\b"""
+    r"""|(?:check|verify|lint)(?=[\s"']|$))"""
 )
 
 
@@ -219,37 +246,47 @@ def _executable_recipe(text: str) -> str:
         runs nothing at all. That direction is worse: this gate is a `make
         verify` prerequisite, so it would block every merge in the repository.
 
-    Quoted strings go too - BUT NOT A COMMAND SUBSTITUTION INSIDE ONE. Stripping
-    every double-quoted run was the first cut of this fix, and it immediately
-    mis-read `make test`:
+    THE DISCRIMINATION IS THE COMMAND, NOT THE QUOTES. Two earlier cuts of this
+    got it wrong in opposite directions, and both were found rather than
+    reasoned:
 
-        workers="$(sh scripts/pytest-workers.sh)"
+      * keeping everything let `# see scripts/x.sh` and
+        `echo "scripts/x.sh explains why"` account for a checker nothing runs;
+      * dropping every quoted run erased `workers="$(sh scripts/pytest-workers.sh)"`
+        from `make test`, so the report called that helper "run only by CI, never
+        locally" - and stayed green, because CI also runs it. It also erased
+        `sh scripts/beta-check.sh "--check"`, letting a quoted flag hide a
+        checker under `utility`.
 
-    That is an invocation wearing quotes. The report then listed
-    `pytest-workers.sh` under "run only by .woodpecker.yml, never locally" while
-    `make test` ran it on every invocation - a false statement of exactly the
-    kind this gate exists to remove, introduced by the fix for the previous one.
-    It stayed green only because CI also runs it, so the wrong class was
-    reachable without a finding.
-
-    So a double-quoted run survives when it contains `$(` or a backtick, and is
-    dropped otherwise. Single quotes are always dropped: the shell performs no
-    substitution inside them, so their contents really are literal text.
+    So a SEGMENT whose command is a printer (`echo`, `printf`, `:`) is dropped
+    whole - its arguments are output, quoted or not - and every other segment is
+    kept intact, quotes and command substitutions included. That is the actual
+    difference between text a recipe prints and work a recipe does.
     """
+    printers = {"echo", "printf", ":", "true", "false"}
     out: list[str] = []
-    for line in text.splitlines():
-        stripped = line.lstrip("@-+ \t")
-        if stripped.startswith("#"):
+    for raw in text.splitlines():
+        if raw.lstrip("@-+ \t").startswith("#"):
             continue
-        line = re.sub(
-            r'"[^"]*"',
-            lambda m: m.group(0) if ("$(" in m.group(0) or "`" in m.group(0)) else " ",
-            line,
-        )
-        line = re.sub(r"'[^']*'", " ", line)
-        line = re.split(r"(?:^|\s)#", line, maxsplit=1)[0]
-        out.append(line)
+        line = re.split(r"(?:^|\s)#", raw, maxsplit=1)[0]
+        for segment in re.split(r";|&&|\|\|", line):
+            words = segment.strip().lstrip("@-+ \t").split()
+            if not words or words[0].lstrip("@-+") in printers:
+                continue
+            out.append(segment)
     return "\n".join(out)
+
+
+def _prerequisites(text: str) -> list[str]:
+    """A rule's prerequisite names, with make's comments removed.
+
+    `verify: alpha-check # beta-check` runs ONLY alpha - make stops at the `#`.
+    Splitting the raw text kept `beta-check` in the closure, so a gate commented
+    out of the list still reported as examined. That is the precise failure this
+    instrument exists to detect, and it was reachable in the instrument itself
+    (found by the #1028 counter-model review, pass 2).
+    """
+    return re.split(r"(?:^|\s)#", text, maxsplit=1)[0].split()
 
 
 def _strip_script_paths(text: str) -> str:
@@ -274,6 +311,8 @@ class Makefile:
         self.duplicate_directives: list[tuple[str, int]] = []
         #: first target of a multi-target rule -> every target sharing its recipe
         self.shared: dict[str, list[str]] = {}
+        #: (name, line) for rule names this parser cannot validate - reported
+        self.unsupported: list[tuple[str, int]] = []
         self._parse(text)
 
     def _parse(self, text: str) -> None:
@@ -296,7 +335,7 @@ class Makefile:
                     self.recipes[current].append(line[1:])
                 i += 1
                 continue
-            match = TARGET_RE.match(line)
+            match = RULE_LINE_RE.match(line)
             if match:
                 names, rest = match.groups()
                 # A prerequisite list continued with trailing backslashes.
@@ -304,6 +343,14 @@ class Makefile:
                     i += 1
                     rest = rest[:-1] + " " + lines[i].strip()
                 declared = [n for n in names.split() if n not in MAKE_SPECIAL_TARGETS]
+                # A NAME THIS PARSER CANNOT VALIDATE IS REPORTED, NOT DROPPED.
+                # Silently skipping an unrecognised spelling is how `security/check:`
+                # and `%.o:` would leave the population while the verdict still
+                # said "all Makefile targets are classified".
+                unsupported = [n for n in declared if not TARGET_NAME_RE.match(n)]
+                if unsupported:
+                    self.unsupported.extend((n, i + 1) for n in unsupported)
+                    declared = [n for n in declared if TARGET_NAME_RE.match(n)]
                 if not declared:
                     # A directive to make (`.PHONY:`), not a target anyone runs.
                     current = None
@@ -314,7 +361,7 @@ class Makefile:
                         self.order.append(name)
                         self.prereqs[name] = []
                         self.recipes[name] = []
-                    self.prereqs[name].extend(rest.split())
+                    self.prereqs[name].extend(_prerequisites(rest))
                 # Every target of a multi-target rule shares its recipe.
                 self.shared[declared[0]] = declared
                 current = declared[0]
@@ -363,16 +410,33 @@ def _ci_scripts(text: str) -> set[str]:
 
     A pipeline this heavily commented is why: the comments are longer than the
     commands and name more scripts than the commands do.
+
+    STRIPPING COMMENTS WAS NOT ENOUGH (found by the review's second pass): an
+    `environment:` value, or any other uncommented field, still counted. So this
+    reads ONLY the list items under a `commands:` key, and applies the same
+    printer rule the Makefile recipes get - `- echo "scripts/ghost.sh"` is a
+    step printing a name, not a step running it.
     """
-    body: list[str] = []
-    for line in text.splitlines():
-        stripped = line.lstrip()
-        if stripped.startswith("#"):
+    commands: list[str] = []
+    in_commands = False
+    key_indent = 0
+    for raw in text.splitlines():
+        line = raw.split("#", 1)[0] if raw.lstrip().startswith("#") else raw
+        stripped = line.strip()
+        if not stripped:
             continue
-        # A trailing comment, conservatively: ` #` outside any quoting we care
-        # about. Command lines here are unquoted shell, and none contains ` #`.
-        body.append(re.split(r"\s#", line, maxsplit=1)[0])
-    return set(SCRIPT_REF_RE.findall("\n".join(body)))
+        indent = len(line) - len(line.lstrip())
+        if re.match(r"^commands:\s*$", stripped):
+            in_commands, key_indent = True, indent
+            continue
+        if in_commands:
+            # A list item deeper than the `commands:` key is one of its entries;
+            # anything at or above that indent has ended the block.
+            if stripped.startswith("- ") and indent > key_indent:
+                commands.append(stripped[2:])
+                continue
+            in_commands = False
+    return set(SCRIPT_REF_RE.findall(_executable_recipe("\n".join(commands))))
 
 
 def _load_declarations(path: Path) -> tuple[dict[str, dict], list[str]]:
@@ -446,6 +510,14 @@ def run_check(root: Path, report: bool = False) -> int:
         findings.append(
             f"UNDECLARED: {MAKEFILE_REL} has no `{VERIFY_TARGET}` target, so "
             f"there is no aggregate whose coverage this gate can report"
+        )
+
+    for name, line_no in mk.unsupported:
+        findings.append(
+            f"UNDECLARED: {MAKEFILE_REL}:{line_no} declares `{name}`, a rule name "
+            f"this gate cannot validate, so it is in NO population. Rename it to "
+            f"an ordinary target name, or teach this gate the spelling - never "
+            f"leave it unreported"
         )
 
     for target, line_no in mk.duplicate_directives:
@@ -574,7 +646,7 @@ def run_check(root: Path, report: bool = False) -> int:
                             f"STALE: {DECL_REL} says `{name}` is consumed by "
                             f"`{consumer}`, which does not mention it"
                         )
-                    elif cls == "tested" and not consumer.startswith(f"{TESTS_REL}/"):
+                    elif cls == "tested" and not _is_collected_test(consumer):
                         # `tested` MEANS "the test runner exercises it", and the
                         # mention check alone could not tell that from `runtime`
                         # (found by the #1028 counter-model review): pointing a
@@ -582,9 +654,10 @@ def run_check(root: Path, report: bool = False) -> int:
                         # silently removed the script from the unexamined report.
                         findings.append(
                             f"MISCLASSIFIED: {DECL_REL} classifies `{name}` "
-                            f"`tested` but its consumer `{consumer}` is not under "
-                            f"{TESTS_REL}/. `tested` claims the test runner "
-                            f"exercises it; a command document is `runtime`"
+                            f"`tested` but its consumer `{consumer}` is not a "
+                            f"module pytest would collect under {TESTS_REL}/. "
+                            f"`tested` claims the test runner exercises it; a "
+                            f"command document or a README is not that"
                         )
             classified[name] = (cls, reason)
         else:
