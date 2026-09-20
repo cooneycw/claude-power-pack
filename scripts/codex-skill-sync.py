@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-#: HOST-SURFACE: ~/.codex/skills/<skill> owner=cpp write=copy certified=yes mode=--install
+#: HOST-SURFACE: ~/.codex/skills/<skill> owner=cpp write=copy certified=authored mode=--install
 
 """codex-skill-sync.py - single-source -> Codex SKILL.md skill generation.
 

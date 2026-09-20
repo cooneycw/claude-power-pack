@@ -48,6 +48,35 @@ OBSERVATION instead - running a declaring helper against a sandboxed `$HOME`
 and diffing what appeared against what it claimed - which is ADR 0008's logic
 and #970's, and is a separate instrument from this one.
 
+## The `certified=` field, and why nothing says `yes` yet
+
+Every declaration carries `certified=`, and today every one reads **`authored`**.
+
+| value | means |
+|---|---|
+| `authored` | a person read the code and wrote down what it writes |
+| `observed` | a COMMITTED instrument ran it against a sandboxed `$HOME` and diffed
+  what appeared against what it claimed |
+
+**No declaration is `observed` yet, and that is deliberate.** The relocation in
+this change WAS proved by sandboxed runs - old-way and new-way against separate
+`$HOME`s, diffed byte-identical, the guarded case checked across two runs. Those
+runs were real, and they are not certification: nobody can re-run them, nothing
+notices if they stop, and they left no artifact. A run like that is exactly what
+#924 ruled on for review-time mutation.
+
+So `authored` is the honest value for all of them today. A declaration marked
+`observed` on the strength of a run nobody can repeat is an authored claim
+wearing an observed one's label, and a consumer weighing the two differently -
+which is the point of having two - would be misled in the reassuring direction.
+
+**The upgrade has a defined trigger, not a judgement call:** a committed
+instrument that runs a helper against a sandboxed `$HOME`, diffs the surfaces
+that appeared against the surfaces declared, and fails when they differ. When
+that exists, the nine helpers that stay inside `$HOME` can move to `observed`.
+The six that reach outside it cannot, for the reason below, and their
+`authored` is permanent until that changes.
+
 ## Why observation certifies only NINE of the fifteen, as a decision
 
 Six reachable scripts reach outside `$HOME`, where a redirected `HOME` does not

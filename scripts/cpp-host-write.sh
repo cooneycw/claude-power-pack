@@ -10,10 +10,10 @@
 #: register the new control is not in - which is exactly what it did here
 #: before this marker was added.
 #:
-#: HOST-SURFACE: ~/.claude/settings.json owner=cpp write=merge certified=yes
-#: HOST-SURFACE: ~/.claude owner=cpp write=mkdir certified=yes
-#: HOST-SURFACE: ~/.claude/scripts owner=cpp write=mkdir certified=yes
-#: HOST-SURFACE: ~/.bashrc owner=user write=append certified=yes
+#: HOST-SURFACE: ~/.claude/settings.json owner=cpp write=merge certified=authored
+#: HOST-SURFACE: ~/.claude owner=cpp write=mkdir certified=authored
+#: HOST-SURFACE: ~/.claude/scripts owner=cpp write=mkdir certified=authored
+#: HOST-SURFACE: ~/.bashrc owner=user write=append certified=authored
 #
 # cpp-host-write.sh - the one place /cpp:init and /cpp:update write host
 # surfaces, and the seam a managed environment defers (issue #1139).

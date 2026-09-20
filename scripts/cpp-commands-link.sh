@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-#: HOST-SURFACE: ~/.claude/commands/<family> owner=cpp write=symlink certified=yes
+#: HOST-SURFACE: ~/.claude/commands/<family> owner=cpp write=symlink certified=authored
 #: HOST-SURFACE: note - target is $HOME_DIR/.claude/commands, overridable by CPP_COMMANDS_LINK_HOME
 
 # cpp-commands-link.sh - user-scope command-surface symlinks (issue #663)

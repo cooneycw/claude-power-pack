@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-#: HOST-SURFACE: ~/.local/bin/cpp-memory owner=cpp write=symlink certified=yes
-#: HOST-SURFACE: ~/.codex/prompts/cpp-memory.md owner=cpp write=copy certified=yes
+#: HOST-SURFACE: ~/.local/bin/cpp-memory owner=cpp write=symlink certified=authored
+#: HOST-SURFACE: ~/.codex/prompts/cpp-memory.md owner=cpp write=copy certified=authored
 
 # Install the harness-neutral common-memory surfaces so BOTH Claude Code and
 # Codex can utilize the store:
