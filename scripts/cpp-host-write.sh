@@ -15,6 +15,8 @@
 #: HOST-SURFACE: ~/.claude/scripts owner=cpp write=mkdir certified=authored
 #: HOST-SURFACE: ~/.bashrc owner=user write=append certified=authored
 #: HOST-SURFACE: ~/.zshrc owner=user write=append certified=authored
+#: HOST-SURFACE: ~/.config/opencode/opencode.json owner=cpp write=json-merge certified=authored
+#: HOST-SURFACE: ~/.config/claude-power-pack/secrets/cpp-memories.backend owner=cpp write=replace certified=authored
 #  The shell rc is chosen at run time from $SHELL, so BOTH are declared:
 #  a defer-set must be able to name what the code CAN write, not only what
 #  it happened to write on the machine someone last looked at. A zsh user
@@ -64,6 +66,10 @@ usage() {
 cpp-host-write.sh <command> [--defer SURFACE]... [args]
 
   ensure-dir <path>              mkdir -p a directory under $HOME
+  link-into <src> <dir> <name>   symlink a file into a host directory
+  file-write <target> <content>  replace a host file's contents
+  json-merge-sections <tmpl> <target> <section>...
+                                 merge template sections into a JSON target
   settings-edit [--arg K V]...   apply a jq program (stdin) to settings.json
   settings-merge <template>      merge a permissions template into settings.json
   rc-append <rc> <marker> <file> append a guarded block to a caller-named shell rc
@@ -190,6 +196,72 @@ cmd_settings_merge() {
 #:     cpp-host-write.sh settings-edit [--arg NAME VALUE]... <<'JQ'
 #:       .hooks = (.hooks // {}) | ...
 #:     JQ
+#: Merge named top-level sections of a JSON template into a JSON target,
+#: through the seam. Replicates exactly what /cpp:init and /cpp:update did
+#: inline: setdefault the template's "$schema", then setdefault-and-update each
+#: named section. Existing keys inside a section are OVERWRITTEN by the
+#: template and keys outside the named sections are untouched - `.update()`
+#: semantics, preserved deliberately rather than improved.
+#:
+#: This one was written by EMBEDDED PYTHON inside a heredoc, which is why no
+#: shell pattern found it: a `cfg_path.write_text(...)` satisfies no grep for a
+#: redirect, cp, tee, mv or ln. Four write FORMS exist in these documents and
+#: that was the fourth.
+#: Replace a host file's whole contents, through the seam. The narrowest write
+#: form there is, and the one `/cpp:init` used three times for the memories
+#: backend selector - `echo "md" > "$BACKEND_FILE"` and two siblings, one per
+#: branch. The parent directory is created here so a caller cannot satisfy the
+#: defer-set and then mkdir the tree anyway.
+#: Symlink a file into a host directory, through the seam. `/cpp:init` and
+#: `/cpp:update` loop over the checkout's scripts and link each into
+#: ~/.claude/scripts/, which is a write to a host surface however small each
+#: individual link is - and the loop shape is why no single-site enumeration
+#: found it: there is ONE `ln -sf` in the source that becomes ninety-odd links
+#: at run time.
+#:
+#: The defer check is on the DIRECTORY, tested once per call, so a defer-set
+#: naming ~/.claude/scripts refuses the whole loop by name rather than emitting
+#: one refusal per file.
+cmd_link_into() {
+    local src="$1" dir="$2" name="$3"
+    is_deferred "$dir" && { refuse "$dir" cpp; return $?; }
+    [ -e "$src" ] || { printf 'cpp-host-write: FAILED source not found: %s\n' "$src" >&2; return 1; }
+    mkdir -p "$dir" || return 1
+    if [ -L "$dir/$name" ]; then
+        printf 'cpp-host-write: ok %s/%s (already linked, skipped)\n' "$(normalise "$dir")" "$name"
+        return 0
+    fi
+    ln -sf "$src" "$dir/$name" || return 1
+    printf 'cpp-host-write: ok %s/%s (linked)\n' "$(normalise "$dir")" "$name"
+}
+
+cmd_file_write() {
+    local target="$1" content="$2"
+    is_deferred "$target" && { refuse "$target" cpp; return $?; }
+    mkdir -p "$(dirname "$target")" || return 1
+    printf '%s\n' "$content" > "$target" || return 1
+    printf 'cpp-host-write: ok %s (written)\n' "$(normalise "$target")"
+}
+
+cmd_json_merge_sections() {
+    local template="$1" target="$2"; shift 2
+    is_deferred "$target" && { refuse "$target" cpp; return $?; }
+    [ -f "$template" ] || { printf 'cpp-host-write: FAILED template not found: %s\n' "$template" >&2; return 1; }
+    mkdir -p "$(dirname "$target")" || return 1
+    PYTHONPATH= python3 - "$template" "$target" "$@" <<'PYMERGE' || return 1
+import json, sys, pathlib
+tmpl_path, cfg_path, sections = sys.argv[1], pathlib.Path(sys.argv[2]), sys.argv[3:]
+tmpl = json.loads(pathlib.Path(tmpl_path).read_text())
+cfg = json.loads(cfg_path.read_text()) if cfg_path.exists() else {}
+if "$schema" in tmpl:
+    cfg.setdefault("$schema", tmpl["$schema"])
+for section in sections:
+    cfg.setdefault(section, {}).update(tmpl[section])
+cfg_path.write_text(json.dumps(cfg, indent=2) + "\n")
+PYMERGE
+    printf 'cpp-host-write: ok %s (sections merged: %s)\n' "$(normalise "$target")" "$*"
+}
+
 cmd_settings_edit() {
     local target="$HOME/.claude/settings.json"
     is_deferred "$target" && { refuse "$target" cpp; return $?; }
@@ -289,6 +361,9 @@ main() {
     case "$cmd" in
         surfaces)       cmd_surfaces ;;
         ensure-dir)     cmd_ensure_dir "${args[0]:?path required}" ;;
+        link-into)      cmd_link_into "${args[0]:?source required}" "${args[1]:?dir required}" "${args[2]:?name required}" ;;
+        file-write)     cmd_file_write "${args[0]:?target required}" "${args[1]-}" ;;
+        json-merge-sections) cmd_json_merge_sections "${args[0]:?template required}" "${args[1]:?target required}" "${args[@]:2}" ;;
         settings-edit)  cmd_settings_edit ;;
         settings-merge) cmd_settings_merge "${args[0]:?template required}" ;;
         rc-append)      cmd_rc_append "${args[0]:?rc path required}" "${args[1]:?marker required}" "${args[2]:?content file required}" ;;

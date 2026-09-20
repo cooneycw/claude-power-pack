@@ -637,7 +637,7 @@ stands.
 
 ```bash
 # Create scripts directory
-mkdir -p ~/.claude/scripts
+~/.claude/scripts/cpp-host-write.sh ensure-dir ~/.claude/scripts
 
 # Symlink all executable helpers, regardless of extension (issue #669: the
 # old *.sh-only glob skipped flow-wave-plan.py, so its shipped allow rule in
@@ -647,12 +647,10 @@ mkdir -p ~/.claude/scripts
 for script in "$CPP_DIR"/scripts/*; do
   [ -f "$script" ] && [ -x "$script" ] || continue
   name=$(basename "$script")
-  if [ ! -L ~/.claude/scripts/"$name" ]; then
-    ln -sf "$script" ~/.claude/scripts/"$name"
-    echo "✓ $name installed"
-  else
-    echo "→ $name already installed (skipped)"
-  fi
+  # Through the declaring seam (#1132). One `ln -sf` in the source becomes
+  # ninety-odd links at run time, which is why no per-site enumeration found
+  # this write. The helper carries the already-linked skip this block had.
+  ~/.claude/scripts/cpp-host-write.sh link-into "$script" ~/.claude/scripts "$name"
 done
 
 # Copy hooks.json if not exists
@@ -1765,19 +1763,12 @@ own providers and agents.
 
 ```bash
 OC_CONFIG="$HOME/.config/opencode/opencode.json"
-mkdir -p "$(dirname "$OC_CONFIG")"
 
-PYTHONPATH= python3 - "$CPP_DIR/templates/opencode-gemma.json" "$OC_CONFIG" <<'PYEOF'
-import json, sys, pathlib
-tmpl_path, cfg_path = sys.argv[1], pathlib.Path(sys.argv[2])
-tmpl = json.loads(pathlib.Path(tmpl_path).read_text())
-cfg = json.loads(cfg_path.read_text()) if cfg_path.exists() else {}
-cfg.setdefault("$schema", tmpl["$schema"])
-for section in ("provider", "agent"):
-    cfg.setdefault(section, {}).update(tmpl[section])
-cfg_path.write_text(json.dumps(cfg, indent=2) + "\n")
-print(f"[x] merged gemma-ollama provider + gemma-implementer agent into {cfg_path}")
-PYEOF
+# Through the declaring seam (#1132). This merge was embedded PYTHON, which is
+# why no shell pattern found it: a cfg_path.write_text() satisfies no grep for a
+# redirect, cp, tee, mv or ln. Same .update() semantics, moved not improved.
+~/.claude/scripts/cpp-host-write.sh json-merge-sections \
+  "$CPP_DIR/templates/opencode-gemma.json" "$OC_CONFIG" provider agent
 ```
 
 Two things are being installed here, and the second is the safety-critical one:
@@ -2089,16 +2080,15 @@ Persist the choice to the backend file the client reads
 
 ```bash
 BACKEND_FILE="$HOME/.config/claude-power-pack/secrets/cpp-memories.backend"
-mkdir -p "$(dirname "$BACKEND_FILE")"
 
 case "$MEM_BACKEND_CHOICE" in
   i|md)
-    echo "md" > "$BACKEND_FILE"
+    ~/.claude/scripts/cpp-host-write.sh file-write "$BACKEND_FILE" "md"
     echo "✓ common-memory backend: md (tier i) - local-only, no federation"
     echo "  Ledger: <repo>/.claude/learnings.md  (+ .claude/learnings.rejected.jsonl)"
     ;;
   ii|local-pg)
-    echo "local-pg" > "$BACKEND_FILE"
+    ~/.claude/scripts/cpp-host-write.sh file-write "$BACKEND_FILE" "local-pg"
     echo "✓ common-memory backend: local-pg (tier ii) - full dedup, no federation"
     if command -v docker >/dev/null 2>&1; then
       read -r -p "Start the local postgres:17 store now (docker compose up -d)? [y/N] " START_PG
@@ -2114,7 +2104,7 @@ case "$MEM_BACKEND_CHOICE" in
     echo "  Default DSN: postgresql://cpp_memory:cpp_memory@127.0.0.1:5433/cpp_memory"
     ;;
   iii|remote-pg)
-    echo "remote-pg" > "$BACKEND_FILE"
+    ~/.claude/scripts/cpp-host-write.sh file-write "$BACKEND_FILE" "remote-pg"
     echo "✓ common-memory backend: remote-pg (tier iii) - full dedup, FLEET federation"
     echo "  DSN resolves fail-open: CPP_MEMORIES_DSN -> ~/.config/claude-power-pack/secrets/cpp-memories.dsn -> AWS SM (essent-ai)."
     echo "  Provision a new remote store with scripts/memories-db-setup.sh (idempotent)."

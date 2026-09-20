@@ -607,10 +607,9 @@ if [ -d ~/.claude/scripts ]; then
   for script in "$CPP_DIR"/scripts/*; do
     [ -f "$script" ] && [ -x "$script" ] || continue
     name=$(basename "$script")
-    if [ ! -L ~/.claude/scripts/"$name" ]; then
-      ln -sf "$script" ~/.claude/scripts/"$name"
-      echo "✓ $name newly linked"
-    fi
+    # Through the declaring seam (#1132). The helper carries the already-linked
+    # skip this block had, and honours --defer ~/.claude/scripts by name.
+    ~/.claude/scripts/cpp-host-write.sh link-into "$script" ~/.claude/scripts "$name"
   done
 else
   echo "→ Script refresh skipped (no ~/.claude/scripts - Tier 0/1 install)"
@@ -1031,17 +1030,11 @@ print("; ".join(states))
 PYSTATUS
   )
 
-  PYTHONPATH= python3 - "$CPP_DIR/templates/opencode-gemma.json" "$OC_CONFIG" <<'PYEOF'
-import json, sys, pathlib
-tmpl_path, cfg_path = sys.argv[1], pathlib.Path(sys.argv[2])
-tmpl = json.loads(pathlib.Path(tmpl_path).read_text())
-cfg = json.loads(cfg_path.read_text()) if cfg_path.exists() else {}
-cfg.setdefault("$schema", tmpl["$schema"])
-for section in ("provider", "agent"):
-    cfg.setdefault(section, {}).update(tmpl[section])
-cfg_path.write_text(json.dumps(cfg, indent=2) + "\n")
-print(f"[x] merged gemma-ollama provider + gemma-implementer agent into {cfg_path}")
-PYEOF
+  # Through the declaring seam (#1132). This merge was embedded PYTHON, which is
+  # why no shell pattern found it: a cfg_path.write_text() satisfies no grep for
+  # a redirect, cp, tee, mv or ln. Same .update() semantics, moved not improved.
+  ~/.claude/scripts/cpp-host-write.sh json-merge-sections \
+    "$CPP_DIR/templates/opencode-gemma.json" "$OC_CONFIG" provider agent
 
   echo "✓ Tier 7 Gemma profile: $GEMMA_PROFILE_STATUS"
   echo "    Re-merge keeps the gemma-implementer mechanical fence from going stale."
