@@ -1,0 +1,38 @@
+{
+  "gate": "scripts/toy-gate.sh",
+  "invocation": [
+    "sh",
+    "{gate}",
+    "--root",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^toy-gate: FINDING",
+  "unknown_signal": "^toy-gate: UNKNOWN - ",
+  "cases": [
+    {
+      "name": "bad",
+      "input": "cases/bad",
+      "expect": "BAD"
+    },
+    {
+      "name": "good",
+      "input": "cases/good",
+      "expect": "GOOD"
+    },
+    {
+      "name": "unknown",
+      "input": "cases/unknown",
+      "expect": "UNKNOWN"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "historical",
+      "sha": "0000000",
+      "origin": "scripts/toy-gate.sh",
+      "path": "anchors/0000000-toy-gate.sh",
+      "sha256": "6c8cde1323e7ab146112665236b385818c027e0e65138100d9a81591eea9e4a1"
+    }
+  ]
+}

@@ -74,6 +74,17 @@ With those, **4 of 12 are caught**.
 
 ### The structural finding: the register cannot control an UNKNOWN verdict
 
+> **Resolved in part by #1129, and what it found is not what this section
+> predicted.** The register now carries `expect: "UNKNOWN"` and a declared
+> `unknown_signal`, so a case CAN register a refusal, and
+> `controls/shellcheck-gate/cases/unknown-zero-matched` does. But **none of the
+> seven mutations became `STALE`.** Removing the vocabulary blocker on
+> `zero-matched-is-unknown` revealed a second, independent one that only
+> mutation could show: it and `linter-crash-is-unknown` mutually mask each
+> other, so neither can be removed and noticed one at a time. The reasons in
+> `controls/shellcheck-gate/control.json` are current; the paragraphs below
+> record what was believed on 2026-09-20 and are deliberately not rewritten.
+
 Seven of the eight remaining protections are not uncovered through inattention.
 They are **inexpressible in the register as it stands**, and the reason is one
 shared property: each reports **UNKNOWN (exit 2)** with a

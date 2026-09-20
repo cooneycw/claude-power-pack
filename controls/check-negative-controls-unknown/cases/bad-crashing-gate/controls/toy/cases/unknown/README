@@ -1,0 +1,2 @@
+No `subject-*` file, on purpose: this is the population the toy gate cannot
+examine, so it must REFUSE rather than report a confident clean.
