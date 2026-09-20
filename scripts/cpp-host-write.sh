@@ -50,6 +50,8 @@ cpp-host-write.sh <command> [--defer SURFACE]... [args]
   ensure-dir <path>              mkdir -p a directory under $HOME
   settings-merge <template>      merge a permissions template into settings.json
   bashrc-append <marker> <file>  append a guarded block to ~/.bashrc
+                                 (--no-guard preserves a pre-existing defect;
+                                  see the note at cmd_bashrc_append)
   surfaces                       list the surfaces this helper can write
 
 Exit: 0 wrote (or already present), 3 deferred by request, 1 failed.
@@ -151,6 +153,25 @@ cmd_bashrc_append() {
     local target="$HOME/.bashrc"
     is_deferred "$target" && { refuse "$target" user; return $?; }
     [ -f "$content_file" ] || { printf 'cpp-host-write: FAILED content not found: %s\n' "$content_file" >&2; return 1; }
+    #: --no-guard exists ONLY to preserve an existing defect across the #1139
+    #: relocation, and it should be deleted when that defect is fixed.
+    #:
+    #: /cpp:init appends TWO blocks to ~/.bashrc. The tmux block guards itself
+    #: with `grep -q 'tmux new-session'`; the PS1 block seventeen lines above
+    #: it guards nothing, so running /cpp:init twice appends the export twice.
+    #: Same file, same command, one guarded and one not - which is what makes
+    #: it an oversight rather than deliberate minimalism.
+    #:
+    #: Routing the PS1 block through the guard would REPAIR that while moving
+    #: it, and a refactor that also repairs cannot demonstrate it preserved
+    #: behaviour - preservation being the only claim that makes a move
+    #: reviewable. So the move carries the defect forward faithfully, and the
+    #: fix is afterwards: drop --no-guard at the call site, delete this branch.
+    if [ "${NO_GUARD:-0}" = "1" ]; then
+        cat "$content_file" >> "$target" || return 1
+        printf 'cpp-host-write: ok ~/.bashrc (%s appended, UNGUARDED - see --no-guard)\n' "$marker"
+        return 0
+    fi
     if [ -f "$target" ] && grep -qF "$marker" "$target" 2>/dev/null; then
         printf 'cpp-host-write: ok ~/.bashrc (%s already present, skipped)\n' "$marker"
         return 0
@@ -168,6 +189,7 @@ main() {
     while [ $# -gt 0 ]; do
         case "$1" in
             --defer) DEFERRED+=("${2:-}"); shift 2 ;;
+            --no-guard) NO_GUARD=1; shift ;;
             -h|--help) usage; return 0 ;;
             *) args+=("$1"); shift ;;
         esac
