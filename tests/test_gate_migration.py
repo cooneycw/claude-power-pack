@@ -43,6 +43,7 @@ every case fails, and the PR body pastes the kind of red per gate.
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
@@ -68,10 +69,21 @@ INTERPRETERS = ("sh", "bash")
 
 
 def _module_usage_exit() -> int:
-    """`GATE_USAGE_EXIT`, the module's DEFAULT, read rather than retyped."""
-    m = re.search(r"^GATE_USAGE_EXIT=(\d+)", GATE_LIB.read_text(), re.M)
-    assert m, "gate-lib.sh no longer declares GATE_USAGE_EXIT"
-    return int(m.group(1))
+    """The module's DEFAULT usage exit, OBSERVED not parsed.
+
+    The first cut regexed `^GATE_USAGE_EXIT=(\\d+)` out of the source, so
+    `GATE_USAGE_EXIT="64"` - identical behaviour, quoted - broke every routing
+    test (counter-model review pass 2, #1127). Same lesson as the refusal
+    wording one finding earlier: a test whose subject is "the gates agree with
+    the module" must not also be a test of how the module is spelled.
+    """
+    probe = 'gate_map ok=0 finding=1\nset -- --probe\ngate_arg_value --probe "$#" "${2-}"\n'
+    result = subprocess.run(
+        ["sh", "-c", f'. "{GATE_LIB}"\n{probe}'],
+        capture_output=True, text=True, timeout=15,
+    )
+    assert result.returncode != 0, "the module did not refuse a dangling flag"
+    return result.returncode
 
 
 def _gate_usage_exit(gate: str) -> int:
@@ -290,66 +302,96 @@ def test_an_empty_value_reaches_the_gates_own_check(
     )
 
 
-#: EVERY migrated value-taking flag, not the one per gate the first cut covered.
-#: The empty-value claim was "each gate catches what it now accepts", and that
-#: was asserted for `--root`, `--package` and `--driver` only - so it was a
-#: claim about four flags proven for three, and the reviewer found the gap where
-#: it mattered (counter-model review, #1127). `--sudo` and `--skip-install` are
-#: absent because they take no value; there is nothing to supply empty.
-MIGRATED_FLAGS = (
-    ("shellcheck-gate.sh", "--root", ()),
-    ("shellcheck-gate.sh", "--severity", ()),
-    ("secret-scan-check.sh", "--root", ()),
-    ("npm-global-upgrade.sh", "--package", ("--binary", "b", "--skip-install")),
-    ("npm-global-upgrade.sh", "--binary", ("--package", "p", "--skip-install")),
-    ("npm-global-upgrade.sh", "--label", ("--package", "p", "--binary", "b", "--skip-install")),
-    ("npm-global-upgrade.sh", "--npm", ("--package", "p", "--binary", "b", "--skip-install")),
-    ("npm-global-upgrade.sh", "--node", ("--package", "p", "--binary", "b", "--skip-install")),
-    ("flow-driver-retirement-check.sh", "--driver", ()),
-    ("flow-driver-retirement-check.sh", "--wave", ("--driver", "d")),
-    ("flow-driver-retirement-check.sh", "--registry-dir", ("--driver", "d")),
-    ("flow-driver-retirement-check.sh", "--helper", ("--driver", "d")),
+#: An empty value does NOT mean the same thing for every migrated flag, and the
+#: first cut asserted that it did - "every empty value produces non-zero" - which
+#: was false for two of twelve and passed only because those cases named a
+#: harness binary that does not exist, so the gate exited `unknown` before
+#: reaching the behaviour under test (counter-model review pass 2, #1127).
+#:
+#: Measured with the committed `good-already-current` harness on PATH:
+#: `--label ""` and `--node ""` both reach `current`, exit 0. So the honest
+#: contract is per flag, and it is written out here rather than flattened.
+#:
+#: REQUIRED: the gate cannot answer without it, and an empty one must refuse.
+REQUIRED_FLAGS = (
+    ("shellcheck-gate.sh", "--root", (), "is not a directory"),
+    ("secret-scan-check.sh", "--root", (), "--root is required"),
+    ("npm-global-upgrade.sh", "--package", ("--binary", "b"), "--package is required"),
+    ("npm-global-upgrade.sh", "--binary", ("--package", "p"), "--binary is required"),
+    ("flow-driver-retirement-check.sh", "--driver", (), "no --driver was given"),
+    ("flow-driver-retirement-check.sh", "--wave", ("--driver", "d"), "--wave was given an empty value"),
+    ("flow-driver-retirement-check.sh", "--registry-dir", ("--driver", "d"), "--registry-dir was given an empty value"),
+    ("flow-driver-retirement-check.sh", "--helper", ("--driver", "d"), "--helper was given an empty value"),
+)
+
+#: TOLERATED: the gate accepts an empty one and still produces a verdict. Pinned
+#: by WHAT IT DOES, because "it must fail" is simply untrue for these and a test
+#: asserting it would be wrong rather than strict.
+NPM_HARNESS = ROOT / "controls" / "npm-global-upgrade" / "cases" / "good-already-current" / "bin"
+TOLERATED_FLAGS = (
+    ("npm-global-upgrade.sh", "--label", "current"),
+    ("npm-global-upgrade.sh", "--node", "current"),
+    ("npm-global-upgrade.sh", "--npm", "unknown"),
 )
 
 
 @requires_shells
 @pytest.mark.parametrize(
-    ("gate", "flag", "extra"),
-    MIGRATED_FLAGS,
-    ids=[f"{g.removesuffix('.sh')}{f}" for g, f, _ in MIGRATED_FLAGS],
+    ("gate", "flag", "extra", "marker"),
+    REQUIRED_FLAGS,
+    ids=[f"{g.removesuffix('.sh')}{f}" for g, f, _, _ in REQUIRED_FLAGS],
 )
-def test_no_migrated_flag_reaches_a_good_verdict_on_an_empty_value(
-    gate: str, flag: str, extra: tuple
+def test_an_empty_required_value_is_refused_and_named(
+    gate: str, flag: str, extra: tuple, marker: str
 ) -> None:
-    """EVERY migrated flag, because the claim was about all of them.
+    """A flag the gate cannot answer without must refuse an empty one, BY NAME.
 
-    `gate_arg_value` accepts `--flag ""` by design (#1126: a value supplied is
-    not a value missing), so each gate must handle it. The dangerous shape is
-    not a crash - it is an empty value read as "omitted", because a gate then
-    resolves a DEFAULT and answers about something the caller never asked
-    about.
-
-    Measured before the fix: `flow-driver-retirement-check.sh --registry-dir ""`
-    discarded the registry it was given and examined the HOST's - three
-    unrelated waves instead of the one named. It reported `unknown` on that run
-    only because those waves happened to be unparseable from there; on a
-    readable registry the same mistake reaches `clear`, the verdict that
-    authorises deleting a command.
-
-    So the assertion is the one that matters regardless of which gate or which
-    default: an empty value must never produce the good exit.
+    Non-zero alone is not enough, and that distinction is what the HIGH finding
+    turned on: before the fix, `--registry-dir ""` on the retirement gate DID
+    exit non-zero - by luck, because the host registry it silently fell back to
+    happened to be unreadable. Pinning the symptom would have proven nothing.
     """
     result = subprocess.run(
         ["sh", str(ROOT / "scripts" / gate), *extra, flag, ""],
-        capture_output=True,
-        text=True,
-        timeout=30,
+        capture_output=True, text=True, timeout=30,
     )
-    assert result.returncode != 0, (
-        f"{gate} {flag} '' reached the GOOD exit. An empty value read as "
-        f"'omitted' makes the gate answer about a default the caller never "
-        f"named: {(result.stdout + result.stderr)[:400]!r}"
+    combined = result.stdout + result.stderr
+    assert marker in combined, f"{gate} {flag} '': expected {marker!r} in {combined[:300]!r}"
+    assert result.returncode != 0, combined[:300]
+
+
+@requires_shells
+@pytest.mark.parametrize(
+    ("gate", "flag", "verdict"),
+    TOLERATED_FLAGS,
+    ids=[f"{g.removesuffix('.sh')}{f}" for g, f, _ in TOLERATED_FLAGS],
+)
+def test_a_tolerated_empty_value_still_produces_its_verdict(
+    gate: str, flag: str, verdict: str
+) -> None:
+    """These three accept an empty value; assert what they then SAY.
+
+    Run with the committed harness on PATH, so the gate reaches the behaviour
+    under test rather than exiting early on a missing binary - which is exactly
+    how the previous version of this test passed while establishing nothing.
+
+    `--label ""` defaulting to the package name is legitimate: the label is a
+    display string and the version verdict is unaffected. `--node ""` reaching
+    `current` is NOT obviously right - an engine check that cannot run has
+    silently not run - but it is pre-existing behaviour, unchanged by this
+    migration, and altering a verdict is outside this slice. It is recorded
+    here so the next reader sees it as observed rather than intended.
+    """
+    env = dict(os.environ)
+    env["PATH"] = f"{NPM_HARNESS}:{env['PATH']}"
+    assert (NPM_HARNESS / "npm").exists(), "fixture harness missing from the checkout"
+    result = subprocess.run(
+        ["sh", str(ROOT / "scripts" / gate), "--package", "p",
+         "--binary", "fixture-harness", "--skip-install", flag, ""],
+        capture_output=True, text=True, timeout=30, env=env,
     )
+    combined = result.stdout + result.stderr
+    assert f"NPM_UPGRADE: {verdict}" in combined, combined[:300]
 
 
 @requires_shells
