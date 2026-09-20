@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/cooneycw/codex-power-pack/blob/main/templates/project-next.schema.json",
+  "title": "Project Next repository policy",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "issue_limit": {"type": "integer", "minimum": 1, "default": 200},
+    "default_mode": {"enum": ["brief", "compact", "full"], "default": "compact"},
+    "critical_labels": {"$ref": "#/$defs/labels", "default": ["security", "blocker"]},
+    "high_priority_labels": {"$ref": "#/$defs/labels", "default": ["p0", "p1", "priority-high"]},
+    "medium_priority_labels": {"$ref": "#/$defs/labels", "default": ["p2", "priority-medium"]},
+    "quick_win_labels": {
+      "$ref": "#/$defs/labels",
+      "default": ["documentation", "docs", "chore", "small", "size-s"]
+    },
+    "planning_labels": {"$ref": "#/$defs/labels", "default": ["epic", "planning", "discussion"]},
+    "stale_after_days": {"type": "integer", "minimum": 0, "default": 30}
+  },
+  "$defs": {
+    "labels": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true
+    }
+  }
+}
