@@ -3,7 +3,8 @@
 #
 # Pipeline:
 #   PR/push -> secret-scan -> validate (lint+test+typecheck) + codex-skills-check
-#              + delegated-core-check + dependency-audit + eli5-vendor-check
+#              + delegated-core-check + dependency-audit + bandit-audit
+#              + eli5-vendor-check
 #              + eli5-upstream-drift (advisory)
 #              + tool-risk-drift
 #
@@ -206,6 +207,46 @@ steps:
     commands:
       - python3 scripts/dependency-audit.py --selftest
       - python3 scripts/dependency-audit.py
+
+  # Python static security analysis (issue #962). CPP ran no SAST at all, over
+  # 113 tracked files under lib/ and scripts/ - while lib/security/ is this
+  # repository's own secret scanner and lib/creds/ handles credential
+  # retrieval. A repository shipping security tooling that runs no static
+  # analysis over that tooling is the gap this step closes.
+  #
+  # ITS OWN STEP, not folded into `validate`, for the reason #556, #591 and
+  # #961 each got one: a security finding lands on its own line rather than
+  # inside a lint failure.
+  #
+  # `uv sync --frozen` because bandit is PINNED IN THE DEV EXTRA rather than
+  # fetched with `uvx`. A linter's ruleset moves between releases, and the
+  # shellcheck steps below already record what that costs - "running the gate
+  # under two different linters would make the control's verdict depend on
+  # which container reached it". The lock buys the same parity for a Python
+  # tool, which cannot be pinned by image digest the way a static binary can.
+  #
+  # `--selftest` RUNS FIRST, AND THAT ORDER IS THE POINT. A broken scan's zeros
+  # look exactly like real ones, so before any clean verdict is issued the same
+  # live path is pointed at a committed fixture holding a B307 `eval` it must
+  # report and a clean fixture it must not. Its ability to ADJUDICATE on
+  # replayed input is proven separately by controls/bandit-audit, which the
+  # `validate` pytest run and the negative-controls step both drive - and which
+  # replays captures precisely because THIS binary is absent from the bare
+  # `python3` those steps run.
+  #
+  # HARD, with no `failure: ignore`: an unaccounted MEDIUM+ finding exits 1, a
+  # stale allowlist line exits 1, an inline `# nosec` or any `--skip` reaching
+  # the tool exits 1, and UNKNOWN - bandit unavailable, a file it could not
+  # parse, a zero-file population, an unreadable ledger - exits 2. Unknown is
+  # not a pass (the shellcheck gate's rule for a missing binary), and "no
+  # finding" and "could not look" never print the same sentence.
+  bandit-audit:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
+    depends_on: [secret-scan]
+    commands:
+      - uv sync --extra dev --frozen
+      - uv run python scripts/bandit-audit.py --selftest
+      - uv run python scripts/bandit-audit.py
 
   # Vendored eli5-gate core gates (issue #591). The canonical home of the
   # /flow:eli5 necessity gate is cooneycw/eli5-gate; CPP vendors its core

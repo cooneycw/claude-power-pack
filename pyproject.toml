@@ -13,7 +13,15 @@ dependencies = ["pydantic>=2.0", "pyyaml>=6.0"]
 # core on a 24-core box with system time exceeding user time. `make test` and the CI
 # `validate` step both pass an EXPLICIT `-n`, never `auto`; scripts/pytest-workers.sh
 # owns the cap and refuses `auto` outright.
-dev = ["mypy>=1.10", "pytest>=8.0", "pytest-timeout>=2.3", "pytest-xdist>=3.6", "ruff>=0.4", "types-PyYAML>=6.0", "types-requests>=2.31"]
+# bandit: the Python SAST gate (issue #962), PINNED THROUGH THE LOCK rather than
+# fetched with `uvx` at run time. A linter's ruleset moves between releases, and
+# .woodpecker.yml already states what that costs - "running the gate under two
+# different linters would make the control's verdict depend on which container
+# reached it" - which is why it pins shellcheck by digest. Declaring bandit here
+# buys the same parity through uv.lock, and buys it offline: after `uv sync` the
+# gate needs no network, which is what lets `make bandit-audit` join `verify`
+# where `make dep-audit` deliberately cannot.
+dev = ["bandit>=1.9,<2", "mypy>=1.10", "pytest>=8.0", "pytest-timeout>=2.3", "pytest-xdist>=3.6", "ruff>=0.4", "types-PyYAML>=6.0", "types-requests>=2.31"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
