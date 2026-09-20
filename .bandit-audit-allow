@@ -1,0 +1,59 @@
+# The accepted residual for scripts/bandit-audit.py (issue #962).
+#
+# ONE LINE PER (file, rule), with the COUNT and the issue tracking it. This
+# file is the mechanism that replaced codex-power-pack's inherited
+# `--skip B104,B108,B310,B602`, and the difference is the whole of #962:
+#
+#   * a --skip turns a rule off across the whole tree, forever, invisibly.
+#     Measured here, it removes 10 of this tree's 11 MEDIUM+ findings.
+#   * a line below is a COUNT BASELINE for one (file, rule). A new site in the
+#     same file is a finding; a new site in a fresh file is a finding; and a
+#     recorded site that gets FIXED turns the gate red until its line comes
+#     out, so a suppression cannot outlive the count it records.
+#
+# WHAT A COUNT DOES NOT ESTABLISH, said here because a reader of this file is
+# the person most likely to rely on it: it is not a per-site identity. Fix one
+# accepted site and add a different one in the same file, and the count is
+# unchanged and the gate stays green - the REPLACEMENT is invisible. That is a
+# deliberate bound, not an oversight: a line number is invalidated by every
+# edit above it and a snippet hash by every reformat, and a ledger that reddens
+# on unrelated edits gets switched off (ADR 0009). Whether an accepted site is
+# still the same site is a question for review of the diff that moved it and
+# for #1113, and `tests/test_bandit_audit.py` pins the blind spot so it stays a
+# committed fact rather than a claim in a comment.
+#
+# Format: finding <path> <test-id> <count> <issue>
+# Whole-line comments only - `#` also opens every issue reference on a record.
+#
+# Every line here is dispositioned by #1113. The 136 LOW-severity findings are
+# BELOW this gate's threshold, are counted and printed on every run, and are
+# tracked by #1114 - they are deliberately not listed here.
+
+# B602 - subprocess with shell=True. Six sites, all in lib/cicd, all running a
+# command string that arrives from project configuration (.claude/cicd.yml
+# steps and skip_if conditions, .claude/deploy.yaml guardrail and smoke
+# commands). The shell is the feature; the open question #1113 carries is whose
+# string is allowed to reach it.
+finding lib/cicd/bootstrap.py B602 1 #1113
+finding lib/cicd/deploy/docker_compose.py B602 1 #1113
+finding lib/cicd/deploy/guardrails.py B602 1 #1113
+finding lib/cicd/smoke.py B602 1 #1113
+finding lib/cicd/steps.py B602 2 #1113
+
+# B108 - hard-coded temp path. The deploy lock is the one with a real story: a
+# predictable path in a world-writable directory is pre-creatable by any local
+# user, and a deploy lock someone else can hold is not a subtle failure.
+finding lib/cicd/deploy/guardrails.py B108 1 #1113
+finding lib/cicd/runner.py B108 1 #1113
+
+# B310 - urlopen with an unchecked scheme. Both sites already carry a
+# `# noqa: S310` and a comment asserting a fixed https host, so someone has
+# reasoned about them; the gap #1113 carries is that the assertion is a comment
+# rather than a scheme check.
+finding lib/vendor.py B310 1 #1113
+finding scripts/ci-stage-jq.py B310 1 #1113
+
+# B314 - xml.etree parse. The XML is a JUnit report this repository itself just
+# produced, so the untrusted-input premise does not hold here; #1113 records the
+# provenance rather than adding a defusedxml dependency for it.
+finding scripts/pytest-parallel-differential.py B314 1 #1113

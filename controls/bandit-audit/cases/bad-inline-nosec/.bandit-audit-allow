@@ -1,0 +1,14 @@
+# The paths in the capture beside this file are FIXTURE paths, and that is
+# deliberate rather than laziness. The first cut named lib/cicd/steps.py -
+# a real file, and one the repository's own .bandit-audit-allow accepts -
+# so the case was suppressible by the very mechanism it exists to exercise
+# the moment anyone ran the gate against it with the default --allow-file.
+# tests/test_bandit_audit.py caught that and now pins the property.
+#
+# THE LEDGER'S BYPASS. The capture reports NO results and declares nosec=1,
+# which is what bandit emits when a `# nosec` comment deleted a finding
+# before the report was written. Measured directly: a `# nosec` on a
+# shell=True line removed its B602 entirely. A suppression invisible to the
+# instrument reading the report is what ADR 0008's 'suppressions are visible
+# or they do not happen' rules out, so the gate must report
+# BANDIT-SUPPRESSION. The anchor never reads the field.
