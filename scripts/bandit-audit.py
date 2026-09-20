@@ -123,9 +123,11 @@ inputs that the control itself feeds this gate with `--from-capture`.
 WHAT THIS GATE DOES NOT CLAIM, stated rather than left to be discovered
 ---------------------------------------------------------------------------
 The population is `lib/` and `scripts/` - issue #962's scope. `tests/`,
-`extras/`, the two root-level `*reddit*.py` scripts and the generated
-`codex/skills/` copies are OUTSIDE it, and the roots print on every run so the
-claim is bounded rather than silently narrow. Widening is a decision, not an
+`extras/` and the generated `codex/skills/` copies are OUTSIDE it (the two
+root-level `*reddit*.py` scripts this paragraph used to name were deleted by
+#1041, which corrected the same sentence in docs/scripts.md and not this one),
+and the roots print on every run so the claim is bounded rather than silently
+narrow. Widening is a decision, not an
 omission to be quietly fixed: measured 2026-09-20, bandit over `tests/` reports
 9,400 findings, 8,618 of them B101 `assert_used` - which is a description of a
 test suite, not a finding about one.

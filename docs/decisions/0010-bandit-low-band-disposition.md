@@ -6,7 +6,9 @@
 - Supersedes: nothing
 - Related: #962 (the adoption that created this residual, and whose re-decided
   skip list this ADR must not quietly reintroduce), #1113 (the MEDIUM+ residual,
-  pinned per finding in `.bandit-audit-allow` - explicitly not in scope here),
+  pinned per finding in `.bandit-audit-allow`, dispositioned in
+  [docs/security/bandit-finding-dispositions.md](../security/bandit-finding-dispositions.md)
+  - the band above this one, and explicitly not in scope here),
   #972 (the identical shellcheck residual, still undispositioned),
   [ADR 0008](0008-instrument-negative-control-bound.md) (the adoption shape this
   gate inherited), [ADR 0009](0009-oscillation-control.md) (this decision carries
@@ -15,11 +17,17 @@
 ## TL;DR
 
 `bandit` gates at severity >= MEDIUM. Below that threshold this tree reports
-**135 findings across 40 files in 7 rule classes** (measured 2026-09-20, bandit
-1.9.4, 114 tracked `.py` under `lib/` and `scripts/`, 30,570 loc, 0 scan errors,
-0 inline `# nosec`). **All seven classes were read. All seven are accepted, and
-no code changed as a result** - the reading found no site worth altering, which
-is a result rather than an absence of one.
+**138 findings across 41 files in 7 rule classes** (re-measured 2026-09-20 after
+merging #1113 and #1041, bandit 1.9.4, 115 tracked `.py` under `lib/` and
+`scripts/`, 31,438 loc, 0 scan errors, 0 inline `# nosec`). **All seven classes
+were read. All seven are accepted, and no code changed as a result** - the
+reading found no site worth altering, which is a result rather than an absence
+of one.
+
+The first reading of this band measured 135 findings in 40 files; two sibling
+PRs landed mid-review and moved it to 138 in 41, WITHOUT adding a rule class.
+That is the ordinary case this decision is built for, and it is recorded rather
+than smoothed over: the counts move, the classes are what were read.
 
 The threshold stays at MEDIUM. What changes is that the gate can now tell a rule
 class somebody read from one nobody has: each accepted class carries a
@@ -53,7 +61,7 @@ Every site of every class was read. The evidence is stated per class, because a
 count with no reading behind it is a number nobody can act on - and so is a
 disposition with no evidence behind it.
 
-### B603 - `subprocess` call without `shell=True` (57 findings, 29 files)
+### B603 - `subprocess` call without `shell=True` (58 findings, 30 files)
 
 **Accepted.** This is the *safe* form; bandit flags it to ask one question,
 which issue #1114 stated precisely: *is argv[0] attacker-controlled?* That is a
@@ -62,12 +70,14 @@ much smaller question than 57, and it is answered here rather than asserted.
 Answered by walking the AST of every flagged site and extracting the argv[0]
 expression, not by reading the diff or grepping - a text search over these files
 matches their own documentation, and several of them document `subprocess` at
-length. Across the 90 B603+B607 rows:
+length. Across all 91 B603+B607 rows, and the rows sum to 91 deliberately:
 
 | argv[0] | n | what it is |
 |---|---|---|
-| string literal | 64 | `git`, `docker`, `gh`, `uv`, `aws`, `gitleaks`, `pip-audit`, `tar`, `npm`, `codex` |
-| `shutil.which()` result | 24 | `curl_path`, `pgrep_path`, `ss_path`, `lsof_path`, `systemctl_path`, and the `git` / `docker` / `uv` locals resolved the same way |
+| a literal at the call site | 66 | `git`, `docker`, `gh`, `uv`, `aws`, `gitleaks`, `pip-audit`, `tar`, `npm`, `codex` |
+| a literal via a list built in the same function, or a module constant | 8 | `_compose_base_cmd` -> `["docker", ...]`, `["aws", ...]`, `["gitleaks", ...]`, `["uv", ...]`, `["pip-audit", ...]`, `GIT_LOG_ARGS`, `PlannedCommand.argv` |
+| a `shutil.which()` result | 13 | `curl_path`, `pgrep_path`, `ss_path`, `lsof_path`, `systemctl_path`, and the `git` / `docker` / `uv` / `pip-audit` / `bandit` prefixes resolved the same way |
+| a helper's own parameter, every caller passing a literal | 2 | `mcp-drift._run_capture`, `run-delivery-pilots.run` |
 | taken from data | 2 | the two below |
 
 **The two that take argv from data, both read:**
@@ -90,16 +100,16 @@ from untrusted input is a B603 like any other and this ADR will not notice it.
 What the ledger record buys is narrower and worth being exact about: it makes a
 NEW rule class visible, not a new site of an old one.
 
-### B607 - process started with a partial executable path (32 findings, 17 files)
+### B607 - process started with a partial executable path (33 findings, 18 files)
 
-**Accepted, permanently.** `git` rather than `/usr/bin/git`, 23 times; then
+**Accepted, permanently.** `git` rather than `/usr/bin/git`, 24 times; then
 `gh` x2, `aws`, `npm`, `tar`, `codex`. This repository's gates resolve tools
 through `PATH` on purpose - the `.ci-bin` staging in `.woodpecker.yml` is built
 on exactly that - so absolute paths would break the design rather than harden
 it. The `shutil.which()` sites in the B603 table above are the same decision
 made explicitly where a resolution failure needs its own diagnostic.
 
-### B404 - `import subprocess` (32 findings, 32 files)
+### B404 - `import subprocess` (33 findings, 33 files)
 
 **Accepted, permanently.** One per file that shells out. CPP's product is a
 family of helper scripts and gate runners; `import subprocess` is not a finding
@@ -168,8 +178,8 @@ produced, so the untrusted-input premise does not hold.
 
 ### 1. The threshold stays at MEDIUM
 
-Raising it to LOW would fail 39 of 112 files on day one, and 119 of the 133
-findings then were B603 + B607 + B404 - the same observation stated three times,
+Raising it to LOW would fail 41 of 115 files, and 124 of the 138 findings are
+B603 + B607 + B404 - the same observation stated three times,
 that this repository shells out on purpose, everywhere. A gate that fails
 everything on day one is switched off inside a week, which is the oscillation
 [ADR 0009](0009-oscillation-control.md) exists to predict, arriving as the
@@ -203,8 +213,10 @@ is the third state this issue's own framing warns about: not a disabled check
 (invisible) and not an issue (visible), but a decision recorded where nothing
 re-derives it.
 
-It gated **zero** findings on the day it landed: all 135 fall in the seven
-recorded classes. It fires when a genuinely new pattern appears - a weak hash,
+It gated **zero** findings on the day it landed: all 138 fall in the seven
+recorded classes. Merging #1041 mid-review is the first live test of that - it
+added a whole new script that shells out, moving the band by three findings, and
+the gate stayed green because those are reviewed classes rather than new ones. It fires when a genuinely new pattern appears - a weak hash,
 a `try/except/pass`, an insecure deserializer - and the remedy is to read that
 class and add one line, or fix the sites.
 
@@ -244,8 +256,11 @@ failed.
   2026-09-20. A new site of an accepted class is accepted without a second
   reading - that is what accepting a class means, and the ledger record does not
   pretend otherwise.
-- **Nothing about the MEDIUM+ band.** Those 11 findings are #1113's, pinned per
-  finding with their own reasons.
+- **Nothing about the MEDIUM+ band.** Those findings are #1113's, pinned per
+  finding with their own reasons in
+  [docs/security/bandit-finding-dispositions.md](../security/bandit-finding-dispositions.md);
+  it closed three of its eleven while this was in review, which is why the
+  gate's `accepted` count reads 8 rather than 11.
 - **Nothing about `tests/`, `extras/`, or the generated `codex/skills/`
   copies.** The population is `lib/` and `scripts/`, which is #962's scope and
   is printed on every run. Measured 2026-09-20, bandit over `tests/` reports
