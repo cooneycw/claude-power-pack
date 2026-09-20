@@ -4,148 +4,164 @@
 > not restate the contract or add constraints of its own.
 > **Established by:** #1068 | **Epic:** #1067
 > **Baseline:** CPP `5ceb966a`, CxPP `681ea26b`, 2026-09-19
+> **Amended:** 2026-09-20 - rewritten against the owner's Q1-Q9 rulings. The
+> seven-phase migrate-prove-cutover-archive program is superseded by four
+> phases. See [ledger.md](ledger.md) §A.
+
+---
+
+## What changed, and why the plan got smaller
+
+The original plan sequenced a capability migration: move the native wave, build
+an adapter that preserves 85 native skills, package and ship pinned Codex
+plugins with hook-trust transition, prove a dual-client release matrix, cut
+over, then archive.
+
+The owner's 2026-09-20 ruling removed the premise. CPP is the platform; CxPP
+carries no capability CPP wants; the only difference worth building is CPP
+working seamlessly **when invoked by Codex**. Nothing is migrated, so nothing
+needs an adapter to preserve it, a distribution to ship it, or a matrix to
+prove it.
+
+**Three phases lost their content entirely** - #1070 (shared runtime), #1072
+(native-wave relocation) and #1073 (plugin distribution). They are closed
+citing the ruling, not left open looking like planned work. A cancelled phase
+that stays open is indistinguishable from a late one.
 
 ---
 
 ## Phases
 
-### Phase 0 - Decision gate (#1068) - THIS ISSUE
+### Phase 0 - Decision gate (#1068) - COMPLETE
 
-Produce the spec set. Documentation and inventory only: no installs, no runtime
-moves, no issue closures or transfers, no archival.
+Produced the spec set and surfaced Q1-Q9. **All nine ruled 2026-09-20**, which
+discharges acceptance item 6 and closes this issue. The rulings raised **Q10**,
+which blocks Phase 3 rather than reopening this one.
 
-**Exit:** spec, inventory, ledger, plan and review exist; the ledger accounts for
-40/40 open CxPP issues and 1/1 open PR under a machine-checked control; owner
-decisions Q1-Q6 are surfaced as pending, not resolved.
+### Phase 1 - project-next ownership (#1069) - THE ORDERING CONSTRAINT
 
-### Phase 1 - Ownership and runtime (#1069, #1070)
+Transfers canonical ownership of `project_next` to CPP as a **fresh copy, no
+history** (Q8). Carries `templates/` and `project-next.schema.json`, which are
+consumer-facing contracts. Reuses cpp#1035 and cxpp#276 - the same defect
+family - rather than filing duplicates. **cxpp#276 cannot be discarded with the
+rest of CxPP's defects: the defective code is what this phase moves.**
 
-Disjoint file sets; may run in parallel after Phase 0.
+**This phase gates the privacy flip.** `scripts/project-next-vendor.py:90-91`
+hardcodes the CxPP `api_root` and `raw_root`; `lib/vendor.py` fetches them
+through plain `urllib.request` and carries no auth handling at all. So
+`make project-next-drift` and `make project-next-revendor` break the moment
+CxPP goes private, and a hardcoded URL constant does not degrade gracefully. Nothing in
+`make verify` is affected: `project-next-check` is an offline manifest hash and
+`consolidation-ledger-check` reads the committed snapshot.
 
-- **#1069** transfers canonical ownership of `project_next` to CPP. **Blocked on
-  owner decision Q8** (does the code travel with its git history?) - the answer
-  changes the mechanism, not just the paperwork, and deciding it after the move
-  means having decided it by accident. This is the
-  hard prerequisite for archival (spec, "The bidirectional vendor dependency"):
-  until it lands, archiving CxPP strands `lib/vendor.py`. Carries `templates/`
-  and `project-next.schema.json`, which are consumer-facing contracts.
-  Reuses cpp#1035 and cxpp#276 - the same defect family - rather than filing
-  duplicates.
-- **#1070** establishes one tested runtime while preserving Codex state and
-  security contracts. Blocked on owner decision **Q2** (SAST continuity).
-  Receives cxpp#256, #259, #274, #279, #281 and the `adapt` half of #280.
+Exit: CPP owns the engine, `lib/vendor.py` and the vendor bridge are gone, and
+no CPP path resolves to `cooneycw/codex-power-pack`.
 
-### Phase 2 - Adapter (#1071)
+### Phase 2 - Codex invocation compat (#1071, rescoped)
 
-Prerequisite: #1070. Blocked on owner decisions **Q5** and **Q6**.
+**This is the only thing being built.** #1071's original scope - "preserve
+native skills and reciprocal review in a thin CPP adapter" - is wrong under Q6
+and must be rewritten before work starts.
 
-Preserves native skills and reciprocal review in a thin CPP adapter. **Q6 is the
-central compatibility choice of the whole migration**: whether an installed Codex
-host keeps the 85 native skills or moves to CPP's generated-surface model. It
-determines whether cutover is invisible to a Codex user or is a change they must
-be told about.
+The deliverable is a **thin, Codex-specific `AGENTS.md`**. CPP has none today.
+It defers to `CLAUDE.md` by reference rather than restating it, so the two
+cannot disagree and no parity instrument is needed - the structural reason CxPP
+required `agents-md-lint` and a skill-trigger parity test, and the reason this
+shape does not.
 
-Receives cxpp#228 and cxpp#248 (nit-store routing on the Codex surface).
+What is genuinely Codex-specific, and therefore all that belongs in it:
 
-### Phase 3 - Native-wave disposition (#1072)
+- the Codex surface is **generated** - edit `.claude/commands/**` and run
+  `make codex-skills`; never edit `codex/skills/` directly. This is the one
+  hazard a Codex session cannot infer from the repository.
+- skills arrive as named Codex skills, not `/flow:*` slash commands.
+- state and credentials live under `~/.codex/`, separate from `~/.claude/`
+  (spec **B1** - the namespaces stay isolated).
+- Codex's own sandbox and approval model governs execution.
 
-Prerequisite: Phase 0. Blocked on owner decisions **Q1** and **Q4**.
+Everything else - every Core Directive, the Makefile contract, the security
+rules, the gate chain - resolves through one pointer to `CLAUDE.md`.
 
-Relocates or retires the native-wave foundations. Spec **US3** binds here: the
-`lib/native_wave` modules and the transport proof are FOUNDATIONS, not a working
-wave, and cxpp#203 - a complete wave with three independent Codex workers - has
-never been demonstrated. Whichever way Q1 goes, cxpp#201/#202/#203/#206/#208
-stay OPEN unless fulfilled or withdrawn with recorded authority.
+Two obligations carry into this phase from retired rows: the Codex surface
+must **route findings to cpp#864** (cxpp#248's requirement survives its row's
+retirement), and reciprocal review must reach the Codex surface (cxpp#228).
 
-### Phase 4 - Distribution (#1073)
+Constraints: cap the file with a budget check in the shape of
+`check-claude-md-budget.py`. **Spec B2 is dormant, not gone** - CPP's
+`make codex-install` writes `~/.codex/skills` only, so there is no installed
+hook path today; if CPP ever ships a Codex hook, B2 reactivates and the
+hook-transition capability has to be rebuilt rather than remembered.
 
-Prerequisites: #1069, #1070, #1071, #1072, **and owner decision Q6 resolved**.
-What this phase packages differs entirely depending on whether the Codex surface
-stays native or becomes generated, so starting before Q6 means building a
-distribution for an undecided surface.
+### Phase 3 - Clean-install proof (#1074, rescoped)
 
-Ships pinned Codex plugins from CPP with safe hook update and rollback. Spec
-**B2** is the governing constraint: three of CxPP's five hook handlers resolve to
-`~/.codex/scripts/`, so an update that repoints an installed path at different
-bytes is a hook-trust change even though no hook definition visibly changed.
-`scripts/cxpp-hook-transition.py` is the capability that manages this and must
-survive, not be reimplemented from memory.
+Prerequisites: Phases 1 and 2. (Q10 was answered on 2026-09-20 and no longer gates this phase.)
 
-Also resolves the `vendor/claude-power-pack/overlays/` question: those encode
-CxPP-local adaptations, and retiring the bridge without re-homing them loses them
-silently (ledger §D).
+The dual-client release matrix is retired with the distribution program. What
+remains is one demonstration: **a Codex host, from a clean install, reaching
+CPP's surface and running a workflow end to end.** A cell that was not run is
+recorded as **not run**, never inferred from a neighbour. Known-bad inputs must
+be REJECTED.
 
-### Phase 5 - Release proof (#1074)
+Q10 previously sat here because its answer could file CPP issues that a later
+proof would have to be weighed against. The owner's 2026-09-20 ruling retired
+all eleven rows on a presumption, so nothing is pending and this phase is
+gated only by Phases 1 and 2.
 
-Prerequisites: Phases 1-4, **and owner decision Q7** (unknown consumer
-populations: discover, migrate, or accept-break). Q7 scopes whose behaviour this
-phase must prove, so it cannot be answered by the phase that depends on it.
+### Phase 4 - Dormancy (#1075 + #1076, merged)
 
-**Q7's discover option needs its measurement planned HERE, not at Phase 7.**
-Three archive blockers are unknown consumer populations, and none can be closed
-by reading the two repositories - only by enumeration on hosts. Discovering that
-at the archive gate is discovering it too late.
+Prerequisite: Phase 3. Requires explicit final owner approval.
 
-Demonstrates every cell of the spec's release matrix from isolated installs. A
-cell that was not run is recorded as **not run**, never inferred from a
-neighbouring pass. Known-bad inputs must be REJECTED.
+#1075 and #1076 were separate because cutover-then-archive was two irreversible
+steps with a proof between them. Dormancy is one step, so they merge.
 
-The 6 existing plugin-marketplace e2e records in CxPP `docs/` are prior evidence
-of the behaviour this phase must re-demonstrate - useful as a starting shape,
-never as a substitute for running it.
-
-### Phase 6 - Cutover (#1075)
-
-Prerequisite: #1074. Requires explicit owner approval and a **demonstrated**
-rollback path.
-
-Also reconciles the backlog: this is where ledger dispositions become issue state
-under the authority this step carries. #1068 closed nothing; #1075 is where
-`already-covered` rows may be acted on. **Nit-store triage lands here** - both
-stores, 194 comments at baseline - because the archive criteria require it and
-no other phase owned it. **Q9 questions this placement**: reconciling after
-#1074 has already proved the release means a missed obligation invalidates that
-proof. Resequencing is the owner's call, not this plan's.
-
-### Phase 7 - Archive (#1076)
-
-Prerequisite: #1075. Requires final explicit owner approval.
-
-Blocked at baseline by **7 ledger rows**, three of which are unknown consumer
-populations that cannot be resolved by reading these two repositories - only by
-enumeration on hosts. **Plan for that measurement in Phase 5, not in Phase 7**,
-or it will be discovered at the last gate. Also blocked on **Q3** (PR cxpp#239)
-and **Q7** (the unknown-consumer disposition).
+1. ~~Answer Q10~~ - **done 2026-09-20.** All eleven findings are
+   `owner-approved-retirement` under the owner's presumption that CPP does not
+   carry CxPP's vulnerabilities absent proof. Nothing to do here but note that
+   cxpp#227's 29 findings retire unread.
+2. Merge **PR cxpp#239** (Q3), so "keep the Codex review docs in Codex" is true
+   of `main` and not only of a branch.
+3. Close CxPP's 40 open issues, **each citing the 2026-09-20 ruling** as its
+   recorded authority per `docs/agents/issue-contract.md`. A bulk close with no
+   cited authority is the failure this ledger exists to prevent.
+4. Publish a dated deprecation notice **before** the privacy flip. Q7 is
+   accept-break; a break announced after the repository stops being readable is
+   not announced.
+5. Uninstall CxPP's host-level artifacts, including `~/.codex/scripts/` (review
+   finding **R5**: going private does not unwrite a user's disk, and an
+   abandoned trusted path is a hijack target).
+6. Flip the repository private. **Irreversible for anyone outside the org.**
 
 ---
 
 ## Serialization
 
-Shared surfaces are edited by one child at a time, and the integrated SHA is
-revalidated after each merge:
+Far less contention than the original program, because only Phases 1 and 2
+touch CPP code and they touch disjoint trees. Two surfaces still need care:
 
 | Shared surface | Why serialized |
 |---|---|
-| `Makefile` | Every phase adds or moves targets; concurrent edits conflict silently in the `verify` chain |
-| `uv.lock` / `pyproject.toml` | A lock resolved against two different trees is not the tree either child tested |
-| `.woodpecker.yml` | Step names and `depends_on` graphs |
-| `scripts/codex-skill-sync.py` and the generated `codex/skills/` | Regenerating from a partially-migrated command tree produces a surface neither child intended |
-| Installer / bootstrap paths | Spec **B2**; a half-applied installer change is a trust change |
+| `Makefile` | Phase 1 removes vendor targets, Phase 2 may add a budget target; concurrent edits conflict silently in the `verify` chain |
+| `scripts/codex-skill-sync.py` and the generated `codex/skills/` | Phase 2's compat work and any command-tree change regenerate the same surface |
 
-Disjoint implementations may overlap once their prerequisites are met.
+`uv.lock`/`pyproject.toml`, `.woodpecker.yml` and the installer paths are no
+longer contended - nothing in the reduced program edits them.
 
 ---
 
 ## What this plan deliberately does not do
 
-- **It does not recreate the CxPP parity backlog before moving.** #1067 says so
-  explicitly.
-- **It does not wait on all of cpp#1061.** Only the instrument contracts a given
-  child actually depends on.
-- **It does not cancel urgent safety work on CxPP.** The implementation freeze is
-  a recommendation; a safety fix for installations still running CxPP remains
-  possible with explicit task authority.
-- **It does not resolve Q1-Q6.** Those are the owner's.
+- **It does not delete or archive CxPP.** The repository persists, private and
+  dormant. This is what makes Q8's fresh copy safe.
+- **It does not discard findings silently.** The governing principle retires
+  capabilities; the eleven defect findings were retired by a SEPARATE owner
+  ruling, on a stated presumption, recorded in ledger section A under Q10. The
+  distinction matters: one is "CPP does not want this", the other is "CPP is
+  presumed not to have this". Both are decisions; neither is an omission.
+- **It does not wait on all of cpp#1061.** Only the instrument contracts a
+  given phase actually depends on.
+- **It does not cancel urgent safety work on CxPP.** A safety fix for an
+  installation still running CxPP remains possible with explicit task
+  authority, up until dormancy.
 
 ---
 
@@ -155,8 +171,17 @@ Disjoint implementations may overlap once their prerequisites are met.
 |---|---|
 | The ledger accounts for every open CxPP obligation | `make consolidation-ledger-check` (`scripts/check-consolidation-ledger.py`), enumerated in the ADR 0008 census |
 | That instrument can fail | `controls/ledger-completeness` - known-bad case + blind anchor, driven by `make negative-fixture-check` and `tests/test_codex_consolidation_ledger.py` |
-| The spec set exists and is referenced, not copied | `tests/test_codex_consolidation_ledger.py::test_the_spec_set_is_present`; issue bodies link sections |
+| The spec set exists and is referenced, not copied | `tests/test_codex_consolidation_ledger.py::test_the_spec_set_is_present` |
+| Every Q1-Q9 ruling is recorded with its consequence | [ledger.md](ledger.md) §A; each row cites the ruling |
 | Independent review happened | [review.md](review.md), reviewer identity recorded per finding |
 
 **The first two rows are the pair.** The first alone is a claim about one run;
-together they are a claim about the check.
+together they are a claim about the check. Re-proved against the amended ledger
+on 2026-09-20: emptying cxpp#189's disposition produces
+`LEDGER_MISSING: cxpp#189 ... no disposition` and exit 1, while the real file
+exits 0.
+
+**What no instrument here checks.** Nothing verifies that a disposition is
+*right* - the gate says so itself ("presence and non-emptiness only"). Q10 is
+the standing evidence that a machine-checked ledger can be complete and still
+wrong about eleven rows.
