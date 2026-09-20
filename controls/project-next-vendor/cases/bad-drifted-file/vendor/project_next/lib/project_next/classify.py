@@ -1,1 +1,0 @@
-CLASSIFY = 'fixture placeholder'

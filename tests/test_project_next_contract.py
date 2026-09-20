@@ -88,7 +88,7 @@ def test_vendored_human_and_json_goldens_are_executable() -> None:
     assert json.dumps(recommend(empty).to_dict(), indent=2, sort_keys=True) == expected_json
 
 
-def test_cpp_entry_point_runs_vendored_fixture_without_optional_checkout(tmp_path: Path) -> None:
+def test_cpp_entry_point_runs_the_owned_fixture_without_optional_checkout(tmp_path: Path) -> None:
     scenarios = json.loads((FIXTURES / "scenarios.json").read_text(encoding="utf-8"))
     state_path = tmp_path / "state.json"
     state_path.write_text(json.dumps(scenarios["active_pr_and_safe_issue"]["state"]), encoding="utf-8")
@@ -110,18 +110,28 @@ def test_cpp_entry_point_runs_vendored_fixture_without_optional_checkout(tmp_pat
     assert completed.returncode == 0, completed.stderr
     payload = json.loads(completed.stdout)
     assert payload["contract_version"] == CONTRACT_VERSION
-    assert payload["decision_policy"] == f"contract v{CONTRACT_VERSION} (vendored engine)"
+    # RE-POINTED (#1069). The label read "(vendored engine)", which is now false.
+    # Its JOB - saying the decision came VERBATIM from the engine rather than
+    # from the adapter or a prompt - survives the transfer; only the vendoring
+    # claim retires, so the assertion moves rather than going away.
+    assert payload["decision_policy"] == f"contract v{CONTRACT_VERSION} (project-next engine)"
     assert payload["next_startable_issue"] == 2
     assert "cpp_extensions" in payload
 
 
-def test_offline_vendor_hash_gate_is_part_of_the_suite() -> None:
+def test_offline_ownership_hash_gate_is_part_of_the_suite() -> None:
+    """RE-POINTED (#1069): same property, successor gate.
+
+    The point was never "the vendor script runs" - it is that the offline hash
+    gate `make verify` depends on is exercised by the suite too, so a gate that
+    breaks is caught by the tests and not only by the aggregate.
+    """
     completed = subprocess.run(
-        [sys.executable, str(ROOT / "scripts" / "project-next-vendor.py")],
+        [sys.executable, str(ROOT / "scripts" / "project-next-ownership.py"), "check"],
         capture_output=True,
         text=True,
         check=False,
     )
 
     assert completed.returncode == 0, completed.stderr
-    assert "16 files match" in completed.stdout
+    assert "11 files match" in completed.stdout

@@ -1,1 +1,0 @@
-COLLECT = 'fixture placeholder'

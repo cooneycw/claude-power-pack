@@ -38,6 +38,17 @@ import re
 import sys
 from pathlib import Path
 
+#: NEGATIVE-CONTROL: controls/project-next-ownership
+#:     Registered per issue #1069. This gate lets work THROUGH - it is a
+#:     prerequisite of `make verify` (ADR 0008), whose green is read as "the
+#:     engine CPP ships is the one CPP pinned" by sessions that do not
+#:     re-derive it. After the ownership transfer no upstream comparison
+#:     remains to catch a drifted file by accident, so a blind version of this
+#:     gate prints the same "11 files match" line over an edited engine.
+#:
+#:     It REPLACES controls/project-next-vendor rather than inheriting it: that
+#:     control scored the upstream-fidelity question, which no longer exists.
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 MANIFEST_REL = ".claude/project-next-ownership.json"
 PACKAGE_REL = "lib/project_next"

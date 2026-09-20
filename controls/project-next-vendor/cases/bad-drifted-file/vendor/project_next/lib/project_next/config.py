@@ -1,1 +1,0 @@
-CONFIG = 'fixture placeholder'

@@ -33,6 +33,16 @@ from typing import Sequence
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 MANIFEST_PATH = REPO_ROOT / ".claude" / "project-next-ownership.json"
+# `.resolve()` first, so this works through a symlinked copy as well as from the
+# checkout: normal installations expose this as ~/.claude/scripts/project-next.py,
+# and sys.path[0] is the directory of the path as INVOKED, not the real one.
+#
+# This insert used to point at `vendor/project_next`, where the engine lived.
+# It is RE-POINTED at the repo root rather than deleted (#1069): `lib` is not
+# importable from `scripts/` on its own, so dropping it breaks every invocation
+# as a PROGRAM while leaving every in-process import working - which is why the
+# subprocess test in tests/test_project_next_contract.py exists.
+sys.path.insert(0, str(REPO_ROOT))
 
 from lib.project_next.classify import _dependencies, _task_issue_index  # noqa: E402
 from lib.project_next.collect import CollectionError, collect_repository  # noqa: E402

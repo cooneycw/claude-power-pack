@@ -68,6 +68,19 @@ task ID with a complete inventory is read the same way as a reference to a
 closed issue — already satisfied — and becomes uncertainty only when the
 inventory is incomplete.
 
+The relationship to CPP's wave-lane grammar is a decided partial convergence,
+not accidental drift ([CPP#648](https://github.com/cooneycw/claude-power-pack/issues/648);
+see the [`flow-wave-plan.py` header](https://github.com/cooneycw/claude-power-pack/blob/621134002e96a03d163d0f5469beda89bf89e771/scripts/flow-wave-plan.py)).
+Both grammars require a line-anchored declaration with immediate references,
+strip fenced and inline code before parsing edges, and tolerate Markdown
+emphasis and punctuation around the keyword. Grading, the `uncertain` class,
+and `Blockers:` / `Prerequisites:` remain contract-only because the judged wave
+gate handles unresolved declarations; ranges remain contract-only after zero
+occurrences in 240 measured bodies and because CPP's issue generator emits
+explicit lists; duplicate spec-task claims resolve to neither here while the
+wave planner instead reports `unresolved_tasks` and `spec_drift`. This note
+records that boundary without changing either grammar's behavior.
+
 In-flight issues remain in the dependency graph so their dependents stay
 blocked.
 

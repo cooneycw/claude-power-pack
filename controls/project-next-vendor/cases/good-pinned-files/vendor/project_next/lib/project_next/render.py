@@ -1,1 +1,0 @@
-RENDER = 'fixture placeholder'

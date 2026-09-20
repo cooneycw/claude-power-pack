@@ -1,0 +1,67 @@
+{
+  "_comment": [
+    "Registration for scripts/project-next-ownership.py (issue #1069).",
+    "",
+    "REPLACES controls/project-next-vendor, which is retired with the gate it",
+    "scored. Those cases are NOT edited into this shape: they encode the",
+    "upstream-fidelity question ('does our copy match what codex-power-pack",
+    "published'), and this gate asks a different one. Editing a case to fit a",
+    "new question keeps the file and loses the distinction it drew.",
+    "",
+    "WHY THIS GATE NEEDS A COMMITTED CASE (ADR 0008): it is a gate that lets",
+    "work THROUGH - a prerequisite of `make verify`, whose green is read as",
+    "'the engine CPP ships is the one CPP pinned' by sessions that do not",
+    "re-derive it. Nothing downstream re-derives it, and after #1069 there is",
+    "no upstream comparison left to catch a drifted file by accident.",
+    "",
+    "WHAT THE GATE IS FOR, which decides the known-bad case: contract_version",
+    "is consumer-facing - it pins .project-next.json through the schema, it is",
+    "the runtime pin /project:next reads, and it is rendered into every report.",
+    "A silent edit to lib/project_next that leaves that version alone is the",
+    "change that breaks a consumer while every check stays green.",
+    "",
+    "THE CASES CARRY ALL 11 PINNED PATHS, and must: the manifest key set is",
+    "checked against the hardcoded contract BEFORE any hash is compared, so a",
+    "case with fewer paths is refused for the wrong reason and never reaches",
+    "the comparison under test. The contract document additionally has to carry",
+    "a derivable 'Contract version `1.3`' line, or the good case fails on the",
+    "version path rather than passing on the hash path.",
+    "",
+    "Stdlib-only, network-free and git-free, like the gate."
+  ],
+  "gate": "scripts/project-next-ownership.py",
+  "invocation": [
+    "python3",
+    "{gate}",
+    "check",
+    "--root",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^DRIFT: .* does not match the manifest pin\\.$",
+  "limits": "Covers the OFFLINE per-file hash comparison. It says nothing about whether the REAL engine tree is correct - that is the gate's own run under `make verify`, over the real tree. The derived-contract-version path, the unpinned-module scan and the dropped-pin refusal each need a differently-malformed input and a case can only carry one, so they are exercised by tests/test_project_next_ownership.py instead.",
+  "cases": [
+    {
+      "name": "bad-drifted-file",
+      "input": "cases/bad-drifted-file",
+      "expect": "BAD",
+      "why": "One line appended to lib/project_next/rank.py with its pin untouched - an edit to the engine that never re-pinned. Per-file pins exist so a failure names the exact file; if this scores GOOD they name nothing, and after #1069 no upstream comparison remains to catch it instead."
+    },
+    {
+      "name": "good-pinned-files",
+      "input": "cases/good-pinned-files",
+      "expect": "GOOD",
+      "why": "The same 11-file tree with every file matching its pin and the document's contract version agreeing with the manifest. Separates a working gate from one wedged at 'fail', which the bad case alone cannot do - and this gate is a prerequisite of `make verify`, so a wedged one blocks every merge."
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "n/a",
+      "origin": "scripts/project-next-ownership.py",
+      "path": "anchors/constructed-presence-only-project-next-ownership.py",
+      "sha256": "324580a747c616179a8ee15b2bec1635dda7c0d113f39653b7559b1403340fca",
+      "why": "CONSTRUCTED, not historical: the ownership gate is new at #1069, so no earlier version of it exists to anchor on and inventing one would be a fiction. This is the plausible weaker check written instead: confirm every pinned path is present and call that owned - 'complete' mistaken for 'correct'. It catches a deleted file and is blind to one edited in place. It MISSES the known-bad input and AGREES with the current gate on the known-good one."
+    }
+  ]
+}

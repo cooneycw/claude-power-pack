@@ -2,7 +2,7 @@
 
 # Project Next Steps Recommendation
 
-Run CPP's always-present vendored project-next engine and return its read-only,
+Run CPP's always-present project-next engine and return its read-only,
 deterministic recommendation. This command never modifies issues, branches,
 worktrees, specifications, or lifecycle ledgers. Do not enter plan mode - this
 is a report, not a change.
@@ -19,27 +19,31 @@ is a report, not a change.
 - `--full`: the complete operational, specification, lifecycle, relationship,
   worktree, and cleanup report.
 
-## Step 0: Resolve the pinned vendored contract
+## Step 0: Resolve the contract version
 
-CPP vendors codex-power-pack's engine, contract, and fixture corpus under
-`vendor/project_next/`. The executable CPP entry point is
+CPP OWNS the engine, contract, and fixture corpus outright (issue #1069):
+the package is `lib/project_next/`, the contract is
+`docs/project-next-contract.md`, and the fixtures are
+`tests/project_next/fixtures/`. It was vendored from codex-power-pack until
+#1069 and is not vendored from anywhere now. The executable CPP entry point is
 `scripts/project-next.py`; normal installations expose it as
 `~/.claude/scripts/project-next.py`. It is always present with this command, so
 there is no sibling-checkout probe and no prompt-policy fallback.
 
-Read `.claude/project-next-vendor.json` from the CPP checkout and use its
+Read `.claude/project-next-ownership.json` from the CPP checkout and use its
 `contract_version` as the runtime pin. The wrapper performs the same check and
-fails loudly if the vendored engine speaks a different version. Never fetch a
-contract at runtime. Upstream movement is maintenance evidence surfaced by
-`make project-next-drift`, not an invitation to silently change behavior.
+fails loudly if the engine speaks a different version. Never fetch a contract at
+runtime. There is no upstream to drift from: `make project-next-check` verifies
+this repository's own integrity, and the `project-next-drift` advisory against
+codex-power-pack was retired with the ownership transfer.
 
 The decision policy - classification, ranking, `top_action`,
-`next_startable_issue`, and candidates - comes VERBATIM from the vendored
+`next_startable_issue`, and candidates - comes VERBATIM from the
 engine. CPP's adapter normalizes collector evidence before that decision and
 adds `cpp_extensions` afterward; it never re-ranks, filters, or corrects the
 engine result. Label every report:
 
-`decision policy: contract v<manifest contract_version> (vendored engine)`
+`decision policy: contract v<manifest contract_version> (project-next engine)`
 
 ## Step 1: Resolve the project
 
@@ -181,7 +185,7 @@ issue on premise grounds stays a reviewer decision.
 - Planning-only Wayfinder artifacts never display a `/flow-auto` route.
 - A premise flag annotates a ranked issue; it never re-ranks, filters, or hides
   one.
-- A malformed vendored package, fixture corpus, manifest hash, import, or
+- A malformed engine package, fixture corpus, manifest hash, import, or
   contract-version pin is a hard failure, never a skipped optional dogfood.
 
 ## Notes
@@ -191,4 +195,4 @@ issue on premise grounds stays a reviewer decision.
 - Use `/project-init` for a Wayfinder planning/resolution route.
 - Use `/project-lite` for orientation without issue analysis.
 - Optional ranking configuration remains in `.project-next.json`, per the
-  vendored contract.
+  contract.
