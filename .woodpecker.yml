@@ -4,6 +4,7 @@
 # Pipeline:
 #   PR/push -> secret-scan -> validate (lint+test+typecheck) + codex-skills-check
 #              + delegated-core-check + dependency-audit + bandit-audit
+#              + undeclared-import-audit
 #              + eli5-vendor-check
 #              + eli5-upstream-drift (advisory)
 #              + tool-risk-drift
@@ -296,6 +297,32 @@ steps:
       - uv sync --extra dev --frozen
       - uv run python scripts/bandit-audit.py --selftest
       - uv run python scripts/bandit-audit.py
+
+  # Undeclared-import gate (issue #1041). `dependency-audit` above asks OSV about
+  # what uv.lock PINS; a package imported directly and declared nowhere is never
+  # queried, so it cannot appear in any advisory row however vulnerable it is.
+  # That blind spot was stated in docs/security/dependency-advisory-dispositions.md
+  # and had three live instances, unseen since the initial commit.
+  #
+  # NO `uv sync`, unlike its neighbour: this gate is stdlib-only (`ast` +
+  # `tomllib`) and reads COMMITTED METADATA ONLY - pyproject.toml and the tree. It
+  # deliberately never consults importlib.metadata, because that reads what is
+  # INSTALLED and the verdict would then depend on which container reached it,
+  # which is the ambient-scan failure #1044 closed one gate over.
+  #
+  # The selftest runs FIRST and is not decoration: a scan that cannot see prints
+  # the same clean line as a clean tree, so the real code path is pointed at a
+  # committed tree holding a planted `import requests` it must report before any
+  # clean verdict is issued here.
+  #
+  # HARD, with no `failure: ignore`: a finding or a stale ledger line exits 1, and
+  # UNKNOWN exits 2. Unknown is not a pass.
+  undeclared-import-audit:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
+    depends_on: [secret-scan]
+    commands:
+      - python3 scripts/undeclared-import-audit.py --selftest
+      - python3 scripts/undeclared-import-audit.py
 
   # Vendored eli5-gate core gates (issue #591). The canonical home of the
   # /flow:eli5 necessity gate is cooneycw/eli5-gate; CPP vendors its core

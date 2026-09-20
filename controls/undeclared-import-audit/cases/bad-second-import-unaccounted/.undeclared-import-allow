@@ -1,0 +1,2 @@
+# Accepts the first import only. The second must still be a finding.
+allow fetcher.py requests #1041

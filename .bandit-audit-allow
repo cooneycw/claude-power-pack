@@ -40,18 +40,28 @@ finding lib/cicd/deploy/guardrails.py B602 1 #1113
 finding lib/cicd/smoke.py B602 1 #1113
 finding lib/cicd/steps.py B602 2 #1113
 
-# B108 - hard-coded temp path. The deploy lock is the one with a real story: a
-# predictable path in a world-writable directory is pre-creatable by any local
-# user, and a deploy lock someone else can hold is not a subtle failure.
+# B108 - hard-coded temp path. ONE site left, and it is the one with the real
+# story: the deploy lock's predictable path in a world-writable directory IS
+# the cross-user mutual-exclusion mechanism, so moving it (per-uid, or
+# $TMPDIR-derived) would clear this finding by deleting the property the lock
+# exists for. #1113 hardened the OPEN instead - O_NOFOLLOW against a symlink
+# whose target `open(path,"w")` truncated, O_NONBLOCK + S_ISREG against a FIFO
+# that hung the deploy - and accepted the finding with that reasoning recorded
+# in docs/security/bandit-finding-dispositions.md.
+#
+# `lib/cicd/runner.py B108` was here and is CLOSED (#1113): the uv cache had no
+# such contract to preserve, so it became a uid-scoped path created 0700 and
+# validated for symlink, type, owner and group/other-writability before use.
 finding lib/cicd/deploy/guardrails.py B108 1 #1113
-finding lib/cicd/runner.py B108 1 #1113
 
-# B310 - urlopen with an unchecked scheme. Both sites already carry a
-# `# noqa: S310` and a comment asserting a fixed https host, so someone has
-# reasoned about them; the gap #1113 carries is that the assertion is a comment
-# rather than a scheme check.
-finding lib/vendor.py B310 1 #1113
-finding scripts/ci-stage-jq.py B310 1 #1113
+# B310 - CLOSED, both sites (#1113). They carried `# noqa: S310` and a comment
+# asserting a fixed https host; the comment is now code. A scheme check alone
+# would NOT have cleared these - B310 is a call blacklist with no dataflow - so
+# what closed them is that neither site calls `urllib.request.urlopen` any
+# more: both use an OpenerDirector registering only https handlers, which
+# cannot open `file:` or `ftp:` at all, plus an initial-URL check and a
+# redirect-target check (urllib's default handler permits an https -> http
+# downgrade). See the register's B310 section before reverting any of it.
 
 # B314 - xml.etree parse. The XML is a JUnit report this repository itself just
 # produced, so the untrusted-input premise does not hold here; #1113 records the

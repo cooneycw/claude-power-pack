@@ -1,0 +1,27 @@
+# Accepted undeclared module-level imports (issue #1041).
+#
+# One line per (path, import name): `allow <path> <import-name> <issue>`.
+# Whole-line comments only - `#` opens a comment and also opens every issue
+# reference on a record, which is the lesson `.bandit-audit-allow` records.
+#
+# THIS LEDGER IS TWO-SIDED. An entry that accounts for nothing is a finding
+# (`UNDECLARED-IMPORT-STALE`, exit 1), so a line cannot outlive the import it
+# records and rot into a permanent blindfold. That is the property a blanket
+# skip has no way to express.
+#
+# An entry here says "this file is deliberately run outside the project
+# environment, and its import is therefore not owed a declaration". It is NOT a
+# place to park an import that should be declared.
+#
+# IT IS EMPTY, AND THE EMPTINESS WAS EARNED RATHER THAN DEFAULTED. #1041 opened
+# with one intended entry - `woodpecker/bootstrap-secrets.py` importing boto3,
+# genuine host tooling run under the system interpreter. Declaring the six
+# guarded `lib/` integrations as extras in the same change put boto3 in
+# `pyproject.toml`, which resolved that import too, and the stale direction above
+# reported the entry on its first run: the record would have been false the
+# moment it was written. Declaring the package beat recording an exception, and
+# the ledger is what said so.
+#
+# So: prefer a declaration. Reach for a line here only when the file genuinely
+# does not run from this project's environment AND the package genuinely does not
+# belong in its metadata.

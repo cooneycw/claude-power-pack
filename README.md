@@ -89,6 +89,9 @@ claude-power-pack/
   docs/security/dependency-advisory-dispositions.md
                         Per-advisory verdicts for the root uv.lock: look a scanner's
                         GHSA/PYSEC/CVE id up here before re-deriving it (#922)
+  docs/security/bandit-finding-dispositions.md
+                        Per-finding verdicts for bandit's MEDIUM+ residual: look a
+                        (file, rule) pair up here before re-deriving it (#1113)
   woodpecker/           Woodpecker CI server + agent deployment configs
   templates/            Makefile, workflow, and container templates
   scripts/              Shell utilities

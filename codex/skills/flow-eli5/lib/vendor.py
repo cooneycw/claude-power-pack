@@ -56,6 +56,7 @@ import json
 import re
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -129,6 +130,100 @@ def write_manifest(path: Path, data: Mapping[str, Any]) -> None:
     path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
 
+def _require_https(url: str) -> None:
+    """Refuse any URL that is not `https`, BEFORE it reaches `urlopen`.
+
+    This replaces a comment (issue #1113). The call below used to carry
+    `# noqa: S310 - fixed https hosts`, which is an assertion about every
+    present and future caller, enforced by nobody. `urllib.request.urlopen`
+    handles `file:`, `ftp:` and `data:` as happily as `https:`, so a caller that
+    ever passed one through - a URL read from a manifest, a redirect target, a
+    default that lost its prefix - would get a silent local file read where the
+    comment promised a network fetch. Measured on the pre-#1113 code: a
+    `file://` URL returned the file's bytes.
+
+    `SourceUnavailable`, not a new exception type, because every caller already
+    handles it and this IS the source being unusable. The class contract in
+    `Fetcher` - one exception classification point - is preserved.
+
+    NOTE, so nobody chases it twice: this does NOT clear bandit's B310. B310 is
+    a call blacklist with no dataflow analysis, so it reports
+    `urllib.request.urlopen` wherever it appears, whatever guards it. The
+    finding is dispositioned in `docs/security/bandit-finding-dispositions.md`
+    and stays in `.bandit-audit-allow`; what changed here is the hazard, not the
+    count.
+    """
+    scheme = urllib.parse.urlsplit(url).scheme
+    if scheme != "https":
+        raise SourceUnavailable(
+            f"{url}: refusing a non-https URL (scheme {scheme or 'none'!r}); "
+            f"this fetcher speaks https only"
+        )
+
+
+class _HttpsOnlyRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Re-check the scheme on every REDIRECT, not only on the first URL.
+
+    Checking the caller's URL is not enough (counter-model review, #1113).
+    `urllib.request.HTTPRedirectHandler.http_error_302` permits a redirect to
+    any of `http`, `https`, `ftp` or a relative target - the stdlib says so in
+    a comment beginning "For security reasons" - so a server answering an
+    `https` request with `302 Location: http://...` gets followed, and the
+    fetch this function promised was https silently is not. That downgrade is
+    the position a network attacker needs.
+
+    Enforcing it here rather than post-hoc on `response.url` is the part that
+    matters: by the time a downgraded response exists, the plaintext request
+    has already crossed the network.
+    """
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
+        _require_https(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def _build_https_only_opener() -> urllib.request.OpenerDirector:
+    """An opener that can speak https and NOTHING else, by construction.
+
+    `urllib.request.build_opener()` installs `FileHandler`, `FTPHandler`,
+    `DataHandler` and `HTTPHandler` alongside the https one. Measured: an
+    opener built that way returns the bytes of a `file:///...` URL. So an
+    opener built the default way is exactly as scheme-permissive as the bare
+    `urlopen` it replaced, and the ONLY thing standing between it and a local
+    file read would be the caller remembering to call `_require_https` first.
+
+    Registering the handlers explicitly moves that from a discipline to a
+    property: an unhandled scheme reaches `UnknownHandler`, which raises
+    `URLError("unknown url type: file")` - so a future caller who forgets the
+    check still cannot read a file with this opener.
+
+    `ProxyHandler()` is included and self-configures from the environment; with
+    no proxy set it registers no methods and is not retained, so it costs
+    nothing and a proxied CI runner still works.
+
+    `_require_https` is kept in front of this rather than replaced by it. The
+    opener decides what is POSSIBLE; the check produces the classified,
+    readable error the callers already handle, and refuses before a request is
+    built.
+    """
+    opener = urllib.request.OpenerDirector()
+    for handler in (
+        urllib.request.ProxyHandler(),
+        urllib.request.HTTPSHandler(),
+        urllib.request.HTTPDefaultErrorHandler(),
+        _HttpsOnlyRedirectHandler(),
+        urllib.request.HTTPErrorProcessor(),
+        urllib.request.UnknownHandler(),
+    ):
+        opener.add_handler(handler)
+    return opener
+
+
+#: Built once, module level, so tests can assert `bytes_at` uses THIS opener
+#: rather than the global `urlopen` default.
+_HTTPS_ONLY_OPENER = _build_https_only_opener()
+
+
 @dataclass(frozen=True)
 class Fetcher:
     """HTTPS reads with ONE exception classification point.
@@ -144,9 +239,14 @@ class Fetcher:
     timeout: int = 15
 
     def bytes_at(self, url: str) -> bytes:
+        _require_https(url)
         request = urllib.request.Request(url, headers={"User-Agent": self.user_agent})
         try:
-            with urllib.request.urlopen(request, timeout=self.timeout) as response:  # noqa: S310 - fixed https hosts
+            # NOT suppressed: bandit still reports B310 here, by design - see
+            # `_require_https` above and the register. The scheme is enforced
+            # on the initial URL one line up AND on every redirect target, by
+            # the opener's `_HttpsOnlyRedirectHandler`.
+            with _HTTPS_ONLY_OPENER.open(request, timeout=self.timeout) as response:  # noqa: S310
                 data = response.read()
         except (urllib.error.URLError, OSError, TimeoutError, ValueError) as exc:
             raise SourceUnavailable(f"{url}: {exc}") from exc
