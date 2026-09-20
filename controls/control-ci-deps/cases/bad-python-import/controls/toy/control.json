@@ -1,0 +1,10 @@
+{
+  "_comment": [
+    "A miniature registration whose gate is PYTHON. Only the two fields this",
+    "gate reads are real: `gate` and `invocation`. The invocation names python3",
+    "explicitly, which is the shape the import walk resolves - a `bash -c`",
+    "wrapper is deliberately not resolved, because the command is shell text."
+  ],
+  "gate": "scripts/toy-gate.py",
+  "invocation": ["python3", "{gate}", "--root", "{case}"]
+}
