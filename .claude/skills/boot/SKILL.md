@@ -1,6 +1,6 @@
 ---
-name: Boot
-description: Menu-driven session identity registration for Kyle-compatible local-network discovery
+name: boot
+description: Menu-driven session identity registration for Kyle-compatible local-network discovery. Use to boot or register a session, declare a session type, or adopt a kyle fleet identity.
 trigger: boot, register, identity, session type, kyle
 metadata:
   provenance:

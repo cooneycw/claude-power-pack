@@ -36,6 +36,7 @@ import ast
 import os
 import re
 import sys
+import unicodedata
 from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -51,6 +52,25 @@ UPSTREAM_FIELDS = (
     "local_changes",
 )
 DESCRIPTION_MAX = 200
+NAME_MAX = 64
+
+# The Agent Skills `name` rule (agentskills.io/specification): 1-64 characters,
+# lowercase alphanumerics and hyphens, no leading, trailing or consecutive
+# hyphen, matching the parent directory name.
+#
+# The character class is UNICODE, not ASCII, and the difference is not
+# cosmetic. The spec's prose says "unicode lowercase alphanumeric characters"
+# and its reference validator (skills-ref) implements exactly
+# `c.isalnum() or c == "-"` over an NFKC-normalized name plus `name ==
+# name.lower()` - so `name: cafe-tools` in `cafe-tools/` with an accent is
+# spec-valid. A first cut here used `^[a-z0-9]+(?:-[a-z0-9]+)*$`, which would
+# have rejected such a package while reporting "not a spec identifier" - a
+# finding that names a specification it does not implement. Caught in the
+# counter-model review of #1034.
+#
+# The hyphen POSITION clauses stay a regex, because they are about structure
+# rather than the alphabet: `-a`, `a-`, `a--b` are all rejected below.
+HYPHEN_POSITION_RE = re.compile(r"^-|-$|--")
 
 MARKDOWN_LINK_RE = re.compile(r"!?\[[^\]]*\]\(\s*<?([^\s)>]+)")
 
@@ -295,6 +315,125 @@ def _validate_references(report: Report, skill_dir: Path, skill_path: Path, body
             )
 
 
+def _validate_name(report: Report, skill_dir: Path, skill_path: Path, name: str) -> None:
+    """Enforce the Agent Skills `name` rule (issue #1034).
+
+    `name` is the identifier other agents and installers key on, and the spec
+    fixes both its shape and its relation to the directory. A human title such
+    as ``Code Quality`` satisfies neither, and was invisible to the surface
+    built to catch exactly this class until the rule existed: 18 of 18 canonical
+    packages carried one.
+
+    A shape violation returns without also reporting the directory mismatch it
+    implies - that would double every count without naming a second thing to
+    fix. A well-shaped name pointing at the wrong directory IS a separate
+    defect, and is reported on its own.
+
+    `name` is passed unstripped on purpose: surrounding whitespace is itself
+    outside the permitted character set, so the regex must see it.
+    """
+    normalized = unicodedata.normalize("NFKC", name)
+    if len(normalized) > NAME_MAX:
+        _add(
+            report,
+            "INVALID_NAME",
+            skill_path,
+            f"name is {len(normalized)} characters; the spec limit is {NAME_MAX}",
+        )
+        return
+    if (
+        not normalized
+        or not all(char.isalnum() or char == "-" for char in normalized)
+        or normalized != normalized.lower()
+        or HYPHEN_POSITION_RE.search(normalized)
+    ):
+        _add(
+            report,
+            "INVALID_NAME",
+            skill_path,
+            f"name {name!r} is not a spec identifier: lowercase alphanumerics "
+            "and single internal hyphens only",
+        )
+        return
+    if normalized != unicodedata.normalize("NFKC", skill_dir.name):
+        _add(
+            report,
+            "INVALID_NAME",
+            skill_path,
+            f"name {name!r} does not match its directory {skill_dir.name!r}",
+        )
+
+
+def _term_occurs(term: str, description: str) -> bool:
+    """Is `term` present in `description` as a term, not as a fragment?
+
+    A bare `in` test reports vocabulary reachable when it is not: the trigger
+    term `idd` is "present" in the word `middleware`, so a description about
+    middleware would clear the floor without carrying the cue at all. Found in
+    the counter-model review of #1034.
+
+    The test is containment with non-alphanumeric flanks rather than a `\b`
+    word-boundary regex, because a third of these terms carry punctuation -
+    `.env`, `CI/CD`, `c4`, `uv init`, `pyproject.toml`. `\b` asserts a
+    word/non-word transition, which is the wrong assertion immediately before
+    the dot of `.env`, and would silently stop matching it.
+    """
+    needle = term.casefold()
+    haystack = description.casefold()
+    if not needle:
+        return False
+    start = haystack.find(needle)
+    while start != -1:
+        before = haystack[start - 1] if start else ""
+        after = haystack[start + len(needle) : start + len(needle) + 1]
+        if not before.isalnum() and not after.isalnum():
+            return True
+        start = haystack.find(needle, start + 1)
+    return False
+
+
+def _validate_trigger_reachability(
+    report: Report,
+    skill_path: Path,
+    metadata: dict[str, object],
+) -> None:
+    """Report trigger vocabulary the loading model can never see (issue #1034).
+
+    `trigger` is not a field in the Agent Skills specification, so nothing loads
+    it. `description` is the only always-loaded pointer, and its wording is what
+    decides whether a model-invoked skill fires at all. A `trigger` list whose
+    terms appear nowhere in the description is inert: the vocabulary was
+    written, and stored where no agent reads it.
+
+    THIS IS A FLOOR, NOT A MEASURE OF DESCRIPTION QUALITY, and reading it as one
+    would overclaim. A single shared term satisfies it, so it catches only
+    wholly unreachable vocabulary and says nothing about whether a description
+    states a triggering CONDITION rather than a capability - that is editorial
+    judgement. A rule demanding some SHARE of the terms was considered and
+    rejected: it is satisfied by keyword-stuffing the one field this protects.
+    Measured when the rule landed: 17 of 18 canonical packages already cleared
+    it, `secrets` being the one that did not.
+    """
+    trigger = metadata.get("trigger")
+    description = metadata.get("description")
+    if not isinstance(trigger, str) or not trigger.strip():
+        return
+    if not isinstance(description, str) or not description.strip():
+        return
+    terms = [term.strip() for term in trigger.split(",") if term.strip()]
+    if not terms:
+        return
+    if any(_term_occurs(term, description) for term in terms):
+        return
+    _add(
+        report,
+        "UNREACHABLE_TRIGGER",
+        skill_path,
+        f"description carries none of the {len(terms)} trigger term(s); "
+        "nothing loads `trigger`, so this vocabulary cannot fire the skill",
+    )
+
+
 def _validate_package(
     report: Report,
     skill_dir: Path,
@@ -330,6 +469,7 @@ def _validate_package(
 
     name = metadata.get("name")
     if isinstance(name, str) and name.strip():
+        _validate_name(report, skill_dir, skill_path, name)
         normalized = name.strip().casefold()
         if normalized in names:
             other = names[normalized]
@@ -342,6 +482,7 @@ def _validate_package(
         else:
             names[normalized] = skill_path
 
+    _validate_trigger_reachability(report, skill_path, metadata)
     _validate_provenance(report, skill_path, metadata)
     _validate_references(report, skill_dir, skill_path, body)
 
@@ -485,22 +626,37 @@ def _validate_managed(report: Report, root: Path, managed_root: Path) -> None:
 
     managed_count = 0
     clean_count = 0
+    # Issue #1034: every package directory is either COMPARED or SKIPPED, and
+    # the summary says which. The comparison is opt-in through `metadata.source`
+    # - a value stored inside the very file being verified - so a package that
+    # loses that line is skipped with no finding and no per-package note, and
+    # `Report.ok` is `not findings`. A run that examined nothing therefore
+    # printed the same "ok" as a run that examined everything. Counting the
+    # skips states the population without moving the protection boundary:
+    # unmarked content is still never judged, it is merely no longer silent.
+    skipped_count = 0
     for package in sorted(managed_root.iterdir(), key=lambda path: path.name.casefold()):
         if not package.is_dir():
+            # Not a package at all, so it is not part of the population the
+            # counts describe: managed + skipped == package directories.
             continue
         skill_path = package / "SKILL.md"
         if not skill_path.is_file():
+            skipped_count += 1
             continue
         try:
             header = _frontmatter_header(skill_path)
         except (OSError, UnicodeError, FrontmatterError):
             # Without a valid CPP source marker this is protected neighbor
             # content, not a broken managed install we can attribute to CPP.
+            skipped_count += 1
             continue
         if header is None:
+            skipped_count += 1
             continue
         source = _cpp_managed_source(header)
         if source is None:
+            skipped_count += 1
             continue
 
         managed_count += 1
@@ -526,11 +682,20 @@ def _validate_managed(report: Report, root: Path, managed_root: Path) -> None:
             clean_count += 1
             report.notes.append(f"managed install {package.name}: clean parity")
 
+    # `install-drift.sh` parses these two lines by string-chopping, so the
+    # anchors it keys on are load-bearing: "managed installs: no CPP-marked
+    # packages", "managed installs: checked ", "package(s), ", and now
+    # ", skipped ". The skipped count is APPENDED after the existing anchors
+    # rather than woven between them, so the established parse is unchanged.
     if managed_count == 0:
-        report.notes.append("managed installs: no CPP-marked packages; user content ignored")
+        report.notes.append(
+            "managed installs: no CPP-marked packages, "
+            f"skipped {skipped_count} (no CPP source marker; user content is not examined)"
+        )
     else:
         report.notes.append(
-            f"managed installs: checked {managed_count} CPP-marked package(s), {clean_count} clean"
+            f"managed installs: checked {managed_count} CPP-marked package(s), "
+            f"{clean_count} clean, skipped {skipped_count} (no CPP source marker)"
         )
 
 

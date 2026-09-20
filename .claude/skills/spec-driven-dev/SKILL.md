@@ -1,6 +1,6 @@
 ---
-name: Spec-Driven Development
-description: Contract-first development, proportional spec routing, and planning
+name: spec-driven-dev
+description: Contract-first development, proportional spec routing and planning. Use for spec driven work (SDD) - writing a specification, capturing requirements, or applying the issue contract.
 trigger: spec driven, specification, SDD, planning, requirements, issue contract
 metadata:
   provenance:

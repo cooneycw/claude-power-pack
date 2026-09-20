@@ -1,6 +1,6 @@
 ---
-name: CLAUDE.md Configuration
-description: CLAUDE.md structure, optimization, and best practices
+name: claude-md-config
+description: CLAUDE.md structure, optimization and conventions. Use when writing or reviewing a CLAUDE.md, during project setup, or when deciding which configuration belongs in always-loaded guidance.
 trigger: CLAUDE.md, configuration, project setup, conventions
 metadata:
   provenance:

@@ -1,6 +1,6 @@
 ---
-name: MCP Optimization
-description: MCP token optimization, Code-Mode, and tool selection
+name: mcp-optimization
+description: MCP token optimization, Code-Mode and tool selection. Use when MCP servers dominate token consumption, or for tool optimization and deciding which servers to leave enabled.
 trigger: MCP, token consumption, tool optimization, code-mode
 metadata:
   provenance:

@@ -550,6 +550,44 @@
 
 ### Fixed
 
+- **2026-09-20 - the skill surface gets validation that can fail** (issue
+  #1034) - three defects in one header, consolidated from the Nit Store (#864).
+  (1) The Agent Skills spec requires `name` to be 1-64 lowercase alphanumerics
+  and single internal hyphens, and to match the parent directory. **18 of 18
+  canonical packages violated it**, carrying human titles (`Code Quality`,
+  `CI/CD & Verification`, `Python Packaging (PEP 621 & PEP 723)`) where an
+  identifier belongs - and `skills-check.py`, the surface built to catch exactly
+  this class, had no rule for it. Each `name` is now its directory slug; the
+  human title was never lost, because every package already carried it as the
+  body's H1. (2) All 18 packages stored good cue vocabulary in a `trigger:`
+  frontmatter key that **is not a spec field, so nothing loads it**, while
+  `description` - the only always-loaded pointer, and what decides whether a
+  model-invoked skill fires - stated capability alone. The descriptions were
+  rewritten to state a triggering condition, and `UNREACHABLE_TRIGGER` guards
+  the regression. **That check is a floor, not a quality measure**: one shared
+  term satisfies it and 17 of 18 already cleared it before the rewrite, so its
+  green says the vocabulary is reachable and nothing about whether the wording
+  is good. A share-of-terms rule was considered and rejected - keyword-stuffing
+  the field it protects satisfies it. (3) The managed-mirror comparison is
+  opt-in through `metadata.source`, a value stored inside the file being
+  verified, and `Report.ok` is `not findings` - so a copy that drops that line
+  is skipped with no finding, no note, and an unchanged `ok`. The summary now
+  names the skipped population; the boundary is unmoved, since unmarked content
+  is still never judged, only no longer silent. `install-drift` reports it too,
+  and initialises the counter to `?`/null rather than 0, so a parse that never
+  ran cannot render as a measured zero.
+  **Negative controls, all committed, both halves each.** The unfixed tree was
+  the red case for the name rule: 18 `INVALID_NAME` before the rename, 0 after.
+  Verified by mutation on the restored tree - blinding the name rule reddens 5
+  tests, the trigger rule 1, the skipped counter 2 (and 2 more in
+  `test_install_drift.py`), with all 62 green again on restore.
+  **A blind spot found by nearly shipping it, and NOT fixed here**: CPP's
+  stdlib frontmatter parser splits on the first colon, so a plain scalar
+  containing `: ` parses cleanly while any real YAML loader rejects it. Three
+  rewritten descriptions hit this and `skills-check` reported `ok` on all three;
+  they were reworded, and the gap is filed for its own ticket rather than
+  widened into this change.
+
 - **2026-09-16 - root lockfile clears its last two advisories** (issue #922) -
   `uv lock --upgrade-package pygments --upgrade-package pytest` moves
   `pygments 2.19.2 -> 2.21.0` (CVE-2026-4539) and `pytest 9.0.2 -> 9.1.1`

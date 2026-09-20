@@ -1,6 +1,6 @@
 ---
-name: Documentation & Diagrams
-description: Generate C4 architecture diagrams (GitHub-renderable Mermaid) and PowerPoint presentations (PPTX via the native Anthropic pptx skill)
+name: documentation
+description: Generate C4 architecture diagrams as GitHub-renderable Mermaid, and PowerPoint slides. Use to update docs, or draw a c4 diagram, flowchart, sequence diagram, org chart, timeline or mind map.
 trigger: documentation, c4, c4 diagram, architecture diagram, update docs, powerpoint, pptx, diagram, flowchart, sequence diagram, org chart, timeline, mind map, presentation, slides
 metadata:
   provenance:

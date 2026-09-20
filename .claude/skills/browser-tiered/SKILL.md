@@ -1,6 +1,6 @@
 ---
-name: Tiered Browser Automation
-description: Use bdg CLI for lightweight operations, escalating to Playwright MCP for complex workflows
+name: browser-tiered
+description: Use the bdg CLI for lightweight work and escalate to Playwright MCP for complex flows. Use for browser automation, browser testing, screenshots, or rendering a page to PDF.
 trigger: browser automation, bdg, Playwright MCP, browser testing, screenshots, PDF
 metadata:
   provenance:

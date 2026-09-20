@@ -1,6 +1,6 @@
 ---
-name: Project Deployment
-description: Deploy and test changes in projects with deployment scripts
+name: project-deploy
+description: Deploy and exercise changes in projects with deployment scripts. Use to deploy, start servers, restart dev servers, run locally, or test changes against a running stack.
 trigger: deploy, start servers, run locally, test changes, restart dev, restart servers
 metadata:
   provenance:

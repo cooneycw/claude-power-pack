@@ -120,7 +120,7 @@ Makefile targets are the canonical build interface. Required local gates are:
 - `make test` - run the test suite.
 - `make typecheck` - run static type checks.
 - `make verify` - full pre-deploy verification, including persistent-context checks.
-- `make skills-check` - validate topic-skill provenance and surfaces.
+- `make skills-check` - validate topic-skill names, trigger reachability, provenance, and mirror parity.
 - `make project-next-check` - verify the vendored project-next hash contract.
 - `make codex-skills` - regenerate mirrors after command-document changes.
 

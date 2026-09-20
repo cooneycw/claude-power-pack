@@ -731,6 +731,21 @@ metadata:
 Body.
 """
 
+UNMANAGED_SKILL = """\
+---
+name: someone-elses
+description: A package another project installed here.
+trigger: someone else
+metadata:
+  provenance:
+    class: cpp-authored
+---
+
+# Someone else's
+
+Not ours to judge.
+"""
+
 MANAGED_SKILL = """\
 ---
 name: demo
@@ -810,6 +825,67 @@ def test_negative_control_a_current_claude_skill_is_not_stale(tmp_path: Path):
     assert payload["claude_skills_clean"] == 1
     assert payload["claude_skills_stale"] == 0
     assert "1 CPP-marked, 1 clean, 0 stale" in report.stdout
+    # Issue #1034: with nothing unmarked in the root, the skipped population is
+    # zero - and the zero is PRINTED, so a reader can tell it from an absent one.
+    # A MEASURED zero. The counter initialises to "?" precisely so this
+    # assertion fails when the parse never ran, rather than reading an
+    # initialiser as evidence about the install root (issue #1029 doctrine).
+    assert payload["claude_skills_skipped"] == 0
+    assert "0 skipped (unmarked, never judged)" in report.stdout
+
+
+@pytest.mark.skipif(shutil.which("python3") is None, reason="requires python3 on PATH")
+def test_an_unmarked_neighbour_package_is_reported_as_skipped(tmp_path: Path):
+    """Issue #1034: the install root's unexamined population is named.
+
+    Ownership is by marker, so a package with no CPP `metadata.source` is
+    correctly never judged - but it used to be invisible, and a run that judged
+    nothing printed the same counts as one that judged everything. The neighbour
+    here is exactly the #1029 hazard shape: a DIFFERENT project's skill sitting
+    in the same root, which must be counted as skipped and never as stale.
+    """
+    checkout = _make_checkout(tmp_path / "checkout")
+    _install_real_skills_checker(checkout)
+    _make_canonical_skill(checkout)
+    home = tmp_path / "home"
+    _make_installed_skill(home, MANAGED_SKILL)
+    _make_installed_skill(home, UNMANAGED_SKILL, name="someone-elses")
+
+    report = _run(checkout, home)
+    payload = json.loads(_run(checkout, home, "--json").stdout)
+
+    assert payload["claude_skills_managed"] == 1
+    assert payload["claude_skills_stale"] == 0
+    assert payload["claude_skills_skipped"] == 1
+    assert "1 CPP-marked, 1 clean, 0 stale, 1 skipped (unmarked, never judged)" in report.stdout
+
+
+@pytest.mark.skipif(shutil.which("python3") is None, reason="requires python3 on PATH")
+def test_a_root_of_only_unmarked_packages_still_names_its_population(tmp_path: Path):
+    """Issue #1034, counter-model finding: the early exit hid the whole point.
+
+    With nothing else installed, the pre-#1034 exit condition was satisfied by
+    CLAUDE_SKILLS_MANAGED == 0 alone - so a root whose packages had all LOST
+    their marker emitted a skip whose reason denied those packages existed.
+    That is the exact failure the skipped count was added to expose, taking the
+    one path that reports before the count is printed.
+    """
+    checkout = _make_checkout(tmp_path / "checkout")
+    _install_real_skills_checker(checkout)
+    _make_canonical_skill(checkout)
+    home = tmp_path / "home"
+    _make_installed_skill(home, UNMANAGED_SKILL, name="someone-elses")
+
+    report = _run(checkout, home)
+    payload = json.loads(_run(checkout, home, "--json").stdout)
+
+    assert payload["claude_skills_managed"] == 0
+    assert payload["claude_skills_skipped"] == 1
+    assert (
+        "no retired CPP marketplace surface, installed checkout helpers, "
+        "or installed Codex/Claude skills found" not in report.stdout
+    )
+    assert "0 CPP-marked, 0 clean, 0 stale, 1 skipped (unmarked, never judged)" in report.stdout
 
 
 @pytest.mark.skipif(shutil.which("python3") is None, reason="requires python3 on PATH")
@@ -832,6 +908,39 @@ def test_positive_control_a_modified_claude_skill_is_reported_stale(tmp_path: Pa
     assert "Stale Claude skills: demo" in report.stdout
     assert "INSTALL_DRIFT: drift" in report.stdout
     assert "1 Claude skill(s) stale" in quiet.stdout
+
+
+@pytest.mark.skipif(shutil.which("python3") is None, reason="requires python3 on PATH")
+def test_an_older_checkers_note_leaves_the_population_unknown_not_absent(tmp_path: Path):
+    """#1034 second counter-model pass: `?` must not be read as zero.
+
+    A checkout carrying a PRE-#1034 skills-check emits a note with no
+    `, skipped ` anchor, so the count is unreadable. Folding that in with a
+    measured zero let the early exit declare "no installed Claude skills
+    found" over a root holding packages it never counted - an unmeasured
+    population rendered as an asserted absence.
+    """
+    checkout = _make_checkout(tmp_path / "checkout")
+    stub = checkout / "scripts" / "skills-check.py"
+    stub.write_text(
+        "#!/usr/bin/env python3\n"
+        "print('skills-check: managed installs: no CPP-marked packages; user content ignored')\n",
+        encoding="utf-8",
+    )
+    _make_canonical_skill(checkout)
+    home = tmp_path / "home"
+    _make_installed_skill(home, UNMANAGED_SKILL, name="someone-elses")
+
+    report = _run(checkout, home)
+    payload = json.loads(_run(checkout, home, "--json").stdout)
+
+    assert payload["claude_skills_checked"] is True
+    assert payload["claude_skills_skipped"] is None
+    assert (
+        "no retired CPP marketplace surface, installed checkout helpers, "
+        "or installed Codex/Claude skills found" not in report.stdout
+    )
+    assert "? skipped (unmarked, never judged)" in report.stdout
 
 
 @pytest.mark.skipif(shutil.which("python3") is None, reason="requires python3 on PATH")

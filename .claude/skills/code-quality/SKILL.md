@@ -1,6 +1,6 @@
 ---
-name: Code Quality
-description: Code review patterns, testing, and quality best practices
+name: code-quality
+description: Code review, testing and quality patterns. Use when reviewing code, deciding what testing a change needs, or judging whether it is production ready. Overlaps the general best practices skill.
 trigger: code review, quality, testing, production ready, best practices
 metadata:
   provenance:

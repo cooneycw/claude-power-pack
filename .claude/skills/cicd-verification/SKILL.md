@@ -1,6 +1,6 @@
 ---
-name: CI/CD & Verification
-description: Build system, health checks, CI/CD pipeline, and container patterns
+name: cicd-verification
+description: Build system, health check, pipeline and container patterns. Use for CI/CD - a pipeline, Makefile generation, GitHub Actions, a Dockerfile, docker-compose, a smoke test or post-deploy verification.
 trigger: CI/CD, pipeline, health check, smoke test, Makefile generation, GitHub Actions, Dockerfile, docker-compose, verification, post-deploy
 metadata:
   provenance:

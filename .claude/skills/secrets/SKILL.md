@@ -1,6 +1,6 @@
 ---
-name: Secrets Management
-description: Secure credential access with tiered providers, output masking, and web UI
+name: secrets
+description: Secure credential access with tiered providers, masking and a web UI. Use for secrets, credentials, an api key, a database password, aws secrets, .env environment variables or a connection string.
 trigger: secrets, credentials, database password, api key, aws secrets, environment variables, .env, get credentials, connection string, secret management
 metadata:
   provenance:
