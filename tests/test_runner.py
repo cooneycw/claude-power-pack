@@ -18,7 +18,6 @@ from lib.cicd.runner import (
     DeterministicRunner,
     RunResult,
     _build_step_env,
-    _default_uv_cache_dir,
     _ensure_private_dir,
     _is_offline,
     _project_python_floor,

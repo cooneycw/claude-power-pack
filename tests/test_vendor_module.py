@@ -244,8 +244,8 @@ class _FakeResponse:
     def __enter__(self) -> "_FakeResponse":
         return self
 
-    def __exit__(self, *exc: object) -> bool:
-        return False
+    def __exit__(self, *exc: object) -> None:
+        return None
 
 
 def test_a_non_json_body_is_source_unavailable_not_a_traceback(monkeypatch: pytest.MonkeyPatch) -> None:

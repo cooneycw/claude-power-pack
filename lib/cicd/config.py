@@ -25,14 +25,18 @@ who can write those files can already write `Makefile` or `conftest.py`;
 The actual sources, because naming them wrongly is the easy failure here and the
 first draft of this docstring did exactly that (counter-model review):
 
-| executed by | field | comes from |
-|---|---|---|
-| `bootstrap.py:check_dependency` | `BootstrapDependency.check_command` | `.claude/bootstrap.yaml`, else built-ins in `bootstrap.py` |
-| `smoke.py:run_single_test` | `SmokeTest.command` | `.claude/cicd.yml` `health.smoke_tests[]` - THIS module |
-| `steps.py:should_skip` | `StepDef.skip_if` | `.claude/cicd_tasks.yml`, else `BUILTIN_PLANS` |
-| `steps.py:execute` | `StepDef.command` | `.claude/cicd_tasks.yml`, else `BUILTIN_PLANS` |
-| `docker_compose.py:_run_shell` | `DeployConfig.deploy_command` / `.rollback_command` | `.claude/cicd_tasks.yml` `config:`, else a caller-supplied dict |
-| `guardrails.py:CapabilityCheck.run` | `ReadinessPolicy.capability_checks[].command` | `.claude/cicd_tasks.yml` readiness config |
+- `bootstrap.py:check_dependency` runs `BootstrapDependency.check_command`,
+  from `.claude/bootstrap.yaml`, else built-in constants in `bootstrap.py`.
+- `smoke.py:run_single_test` runs `SmokeTest.command`, from `.claude/cicd.yml`
+  `health.smoke_tests[]` - defined in THIS module.
+- `steps.py:should_skip` runs `StepDef.skip_if`, and `steps.py:execute` runs
+  `StepDef.command`, both from `.claude/cicd_tasks.yml`, else `BUILTIN_PLANS`.
+- `docker_compose.py:_run_shell` runs `DeployConfig.deploy_command` or
+  `.rollback_command`, from `.claude/cicd_tasks.yml` `config:`, else a
+  caller-supplied dict.
+- `guardrails.py:CapabilityCheck.run` runs
+  `ReadinessPolicy.capability_checks[].command`, from the same manifest's
+  readiness config.
 
 Note what is NOT in that table: `.claude/deploy.yaml`. It is read by the
 `/flow:*` command documents in shell, never by `lib/cicd`, and an earlier draft
