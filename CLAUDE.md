@@ -60,7 +60,7 @@ these rules remain in [commands-reference.md](docs/commands-reference.md) and
 - `lib/creds/` - secret retrieval, injection, UI, and audit support.
 - `lib/cpp_memory/` - fail-open local or federated friction-knowledge ledger.
 - `templates/` - Makefile, workflow, permission, and container templates.
-- `vendor/project_next/` - pinned project-next engine vendored from codex-power-pack.
+- `lib/project_next/` - the project-next engine; CPP-owned since #1069, pinned by `.claude/project-next-ownership.json`.
 - `.woodpecker.yml` - repository CI pipeline.
 
 Component contracts and retired-surface history are routed through
@@ -97,7 +97,7 @@ the smallest applicable workflow and load its command document for execution:
 
 - `/flow:*` - issue worktrees, planning gate, implementation, finish, merge, wave orchestration, and cleanup.
 - `/project:init` - destination-first project creation and optional Wayfinder/spec handoff.
-- `/project:next` - planning-aware next-action routing through the always-present vendored engine.
+- `/project:next` - planning-aware next-action routing through the always-present project-next engine.
 - `/spec:adopt` and `/speckit-*` - official spec-kit authoring; implementation routes to `/flow:auto`.
 - `/cicd:*` - Makefile, container, pipeline, health, smoke, deploy, and infrastructure workflows.
 - `/security:*` - deterministic scans; use native `/security-review` for semantic vulnerability review.
@@ -122,7 +122,7 @@ Makefile targets are the canonical build interface. Required local gates are:
 - `make typecheck` - run static type checks.
 - `make verify` - full pre-deploy verification, including persistent-context checks. It closes by naming every checker it did NOT run, with the reason; a checker accounted for nowhere reds the gate (`make verify-coverage-check`).
 - `make skills-check` - validate topic-skill names, trigger reachability, provenance, and mirror parity. Deliberately NOT in `make verify` (#1028): it compares host-local managed installs, so its verdict depends on the box. `verify` covers the canonical half through `make test` and names the rest as unexamined.
-- `make project-next-check` - verify the vendored project-next hash contract.
+- `make project-next-check` - verify the project-next engine against its ownership pins.
 - `make codex-skills` - regenerate mirrors after command-document changes.
 
 Flow runner, deployment, baseline, and fallback behavior remains in

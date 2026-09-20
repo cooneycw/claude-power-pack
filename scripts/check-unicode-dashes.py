@@ -15,14 +15,27 @@ measured surface (9 files). CLAUDE.md:22 is reworded alongside this script to
 say what is actually enforced; the non-markdown gap is filed to the Nit Store
 (issue #864) naming the two files above, not silently dropped.
 
-A SECOND, mechanically-forced exclusion: `vendor/project_next/**` is pinned by
-sha256 in `.claude/project-next-vendor.json` and verified by
-`make project-next-check` (see `lib/vendor.py`). It is a neighbour's content,
-not ours to rewrite - the same distinction `docs/agents/detector-contracts.md`
-already names for every check in this repo - and editing it to satisfy this
-gate would desynchronize the vendor pin instead of fixing anything. Three of
-the nine files this issue originally measured live under `vendor/`; excluded
-here, they are also excluded from the count this check enforces.
+A SECOND, mechanically-forced exclusion, RE-POINTED at issue #1069. It used to
+read `vendor/project_next/**`, justified as "a neighbour's content, not ours to
+rewrite". CPP now OWNS that engine, so that justification EXPIRED - and the
+exclusion is kept anyway, because two different reasons replaced it and a
+correct outcome must not rest on a reason that has stopped being true:
+
+1. `docs/project-next-contract.md` is pinned by sha256 in
+   `.claude/project-next-ownership.json` and verified by `make
+   project-next-check`. Editing it to satisfy this gate desynchronizes that pin
+   rather than fixing anything - the same mechanical force as before, now
+   pointing at CPP's own manifest instead of a vendoring one.
+2. `tests/project_next/fixtures/**` are GOLDEN FIXTURES: they record what
+   `lib/project_next/render.py` actually emits, and that renderer emits U+2014
+   itself (render.py lines 31, 39, 88, 103). Rewriting them to satisfy a PROSE
+   convention would make the fixtures disagree with the engine they exist to
+   verify - a broken test corpus traded for a typographic preference. This
+   reason is new and is the stronger of the two: it would hold even if nothing
+   were pinned.
+
+This gate is about CPP's own PROSE. Engine output and a hash-pinned contract
+document are neither.
 
 A dash inside a fenced code block (``` or ~~~) is not prose - it may be an
 example command, a quoted shell/log line, or a UTF-8 sample - so fenced
@@ -82,8 +95,17 @@ def _tracked_md_files(root: Path) -> list[str]:
         return []
     return [
         line for line in proc.stdout.splitlines()
-        if line and not line.startswith("vendor/")
+        if line and not line.startswith(EXCLUDED_PREFIXES)
     ]
+
+
+#: Hash-pinned contract text and engine-rendered golden output - see the module
+#: docstring for why each is excluded and why the ORIGINAL reason no longer
+#: applies. `str.startswith` takes a tuple, so this stays one comparison.
+EXCLUDED_PREFIXES = (
+    "docs/project-next-contract.md",
+    "tests/project_next/fixtures/",
+)
 
 
 def find_dashes(text: str) -> list[tuple[int, str]]:

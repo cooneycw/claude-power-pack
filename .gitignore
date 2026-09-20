@@ -81,6 +81,21 @@ desktop.ini
 # with MISSING. The pattern is the bundle location, not one file, so the next
 # bundled manifest is covered too.
 !codex/skills/**/.claude/*.json
+# CPP's ownership pin for the project-next engine (#1069) - checked in by
+# design, and the blanket *.json rule is exactly what it must survive. It IS the
+# offline gate's source of truth AND the runtime contract-version pin that
+# scripts/project-next.py reads at rank time, so a copy that existed only on the
+# author's box would fail `make project-next-check` and `/project:next` itself in
+# every fresh clone. Its predecessor `.claude/project-next-vendor.json` needed no
+# negation only because it was already TRACKED before the blanket rule could
+# reach it; a new file gets no such grace.
+!.claude/project-next-ownership.json
+!controls/**/.claude/project-next-ownership.json
+# The .project-next.json consumer schema (#1069), transferred with the engine.
+# It is the contract an installed consumer validates its config against, and the
+# ownership gate pins it - so ignored, the gate reds in every clean clone for a
+# file nobody can see.
+!templates/project-next.schema.json
 !templates/playwright-pool.example.json
 !templates/sandbox/settings-bash-sandbox.json
 # OpenCode provider + agent profile shipped by /cpp:init Tier 7 (issue #752).

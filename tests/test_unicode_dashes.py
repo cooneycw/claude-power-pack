@@ -94,6 +94,47 @@ def test_a_dash_inside_a_fence_passes(tmp_path: Path) -> None:
 
 
 @requires_git
+def test_the_pinned_exclusions_are_narrow_and_do_not_blind_the_check(tmp_path: Path) -> None:
+    """The #1069 exclusion boundary, asserted in BOTH directions at once.
+
+    `docs/project-next-contract.md` and `tests/project_next/fixtures/**` are
+    excluded because the first is sha256-pinned by the ownership manifest and
+    the second is `lib/project_next/render.py`'s own rendered output, which
+    emits U+2014 itself. Rewriting either to satisfy a PROSE convention breaks
+    the thing it exists to be.
+
+    Both halves live in ONE test on purpose. Asserting only that the excluded
+    paths pass would be satisfied by a check that had gone blanket-blind, and
+    asserting only that other files fail would not notice the exclusion had
+    stopped working. A widened exclusion is exactly where a check quietly loses
+    the distinction it was built to draw, so the guard has to fail if EITHER
+    direction breaks.
+    """
+    dash = "Something \u2014 with an em dash outside a fence.\n"
+
+    # Direction 1: the excluded paths carry dashes and the tree is still clean.
+    files = _padded_population(60)
+    files["docs/project-next-contract.md"] = f"# Contract\n\n{dash}"
+    files["tests/project_next/fixtures/golden/compact.md"] = f"## rendered\n\n{dash}"
+    (tmp_path / "excluded").mkdir()
+    repo = _init_repo_with_md_files(tmp_path / "excluded", files)
+    proc = _run(repo)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+    # Direction 2: the SAME dash one directory over is still caught, so the
+    # exclusion is a named set and not a blanket.
+    files["docs/project-next-provenance.md"] = f"# Provenance\n\n{dash}"
+    (tmp_path / "not-excluded").mkdir()
+    repo = _init_repo_with_md_files(tmp_path / "not-excluded", files)
+    proc = _run(repo)
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert "docs/project-next-provenance.md" in proc.stderr
+    # ...and the excluded neighbours are NOT named in the finding.
+    assert "project-next-contract.md" not in proc.stderr
+    assert "fixtures/golden/compact.md" not in proc.stderr
+
+
+@requires_git
 def test_a_dash_inside_a_blockquoted_fence_passes(tmp_path: Path) -> None:
     """Codex review (#1037): a fence marker prefixed by Markdown blockquote
     (`> \\`\\`\\``) is still a fence, not prose - a legitimate quoted code

@@ -6,7 +6,7 @@
        bootstrap-check drift-check deploy setup-woodpecker-cli \
        codex-init codex-skills codex-skills-check codex-install \
        eli5-check eli5-drift eli5-revendor \
-       project-next-check project-next-drift project-next-revendor \
+       project-next-check project-next-repin \
        tool-risk-check tool-risk-drift \
        branch-protection-check branch-protection-apply branch-protection-show \
        host-surfaces-check host-surfaces-plan host-surfaces-prune memory-harness \
@@ -711,21 +711,21 @@ eli5-drift:
 eli5-revendor:
 	@python3 scripts/eli5-vendor.py --revendor
 
-## Vendored codex-power-pack project-next engine (issue #723). The offline
-## per-file manifest check is a hard gate. The live upstream comparison is a
-## fail-open network advisory; refresh only after reviewing upstream drift.
+## CPP-OWNED project-next engine (issues #723, #1069). The engine was vendored
+## from codex-power-pack until #1069 and is CPP's outright now, so the offline
+## check no longer asks "does this match upstream" - there is no upstream. It
+## asks whether the engine can change without its consumer-facing contract
+## version changing. `project-next-drift` and `project-next-revendor` were
+## retired with the transfer: both fetched from codex-power-pack, which is going
+## private and dormant, and lib/vendor.py carries no auth to reach it after that.
 
-## verify-coverage: gate project-next-check - the vendored project-next engine still matches its manifest
+## verify-coverage: gate project-next-check - the owned project-next engine still matches its pins and its contract version
 project-next-check:
-	@python3 scripts/project-next-vendor.py check
+	@python3 scripts/project-next-ownership.py check
 
-## verify-coverage: excluded project-next-drift - a network advisory against the canonical codex-power-pack engine
-project-next-drift:
-	@python3 scripts/project-next-vendor.py --upstream
-
-## verify-coverage: utility project-next-revendor - re-fetches and re-pins the vendored engine; it issues no verdict
-project-next-revendor:
-	@python3 scripts/project-next-vendor.py --revendor
+## verify-coverage: utility project-next-repin - recomputes the ownership pins after a deliberate engine change; it issues no verdict
+project-next-repin:
+	@python3 scripts/project-next-ownership.py --repin
 
 ## Shared permission-risk taxonomy (issue #576)
 ## classify-tool-risk.py (canonical) and the copy vendored inline in

@@ -1,6 +1,6 @@
 """Tests for lib/vendor.py - the shared vendor core (issue #1012).
 
-`scripts/eli5-vendor.py` and `scripts/project-next-vendor.py` were two
+`scripts/eli5-vendor.py` and the retired `scripts/project-next-vendor.py` were two
 separately-written solutions to one job. This module is that job, written once;
 the two scripts are declarations over it. Their own suites assert what each LINK
 must do. What is asserted here is what the SHARED machinery must do, and in
@@ -32,7 +32,12 @@ import pytest
 from lib import vendor
 
 ROOT = Path(__file__).resolve().parents[1]
-CONTROL_DIRS = (ROOT / "controls" / "eli5-vendor", ROOT / "controls" / "project-next-vendor")
+# ONE entry since #1069, and the shrink is the point rather than an oversight:
+# `lib/vendor.py` links EXTERNAL cores, and project-next stopped being one when
+# CPP took ownership of it. Its successor gate keeps this same DRIFT vocabulary
+# and carries its own control (controls/project-next-ownership), but it is not a
+# vendor link and does not belong in a tuple that means "every vendored core".
+CONTROL_DIRS = (ROOT / "controls" / "eli5-vendor",)
 
 requires_git = pytest.mark.skipif(shutil.which("git") is None, reason="git absent in the CI validate image")
 
@@ -614,7 +619,7 @@ def test_upstream_answers_without_a_manifest_the_layout_does_not_need(
 
     Every coordinate a file-set comparison needs - the API root, the raw root,
     the file list - is in the declaration. Requiring a readable manifest here
-    made `make project-next-drift` refuse to answer on exactly the repository
+    made `make eli5-drift` refuse to answer on exactly the repository
     state an operator would run it to understand. Found on the second
     counter-model pass, after the first fix addressed only `revendor`.
     """
