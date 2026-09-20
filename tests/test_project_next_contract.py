@@ -1,4 +1,10 @@
-"""Unconditional contract and fixture dogfood for the vendored engine (#723)."""
+"""Unconditional contract and fixture dogfood for the project-next engine (#723).
+
+Re-pointed at the #1069 ownership transfer. What each assertion below now tests,
+and why, is recorded at the assertion rather than in this docstring: the ones
+that pinned the VENDORING arrangement had to be re-pointed or retired, and a
+retired assertion that is simply deleted takes the distinction it drew with it.
+"""
 
 from __future__ import annotations
 
@@ -8,27 +14,41 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VENDOR = ROOT / "vendor" / "project_next"
-FIXTURES = VENDOR / "tests" / "project_next" / "fixtures"
+FIXTURES = ROOT / "tests" / "project_next" / "fixtures"
 NEXT_MD = ROOT / ".claude" / "commands" / "project" / "next.md"
-MANIFEST = ROOT / ".claude" / "project-next-vendor.json"
+MANIFEST = ROOT / ".claude" / "project-next-ownership.json"
 
-sys.path.insert(0, str(VENDOR))
+# No sys.path insert: `lib/project_next` is CPP's own package now (issue #1069)
+# and resolves from the repo root like `lib.cicd` or `lib.security`. The insert
+# that used to be here pointed at `vendor/project_next`, which no longer exists.
 from lib.project_next import CONTRACT_VERSION  # noqa: E402
 from lib.project_next.models import RepositoryState  # noqa: E402
 from lib.project_next.rank import recommend  # noqa: E402
 from lib.project_next.render import render_result  # noqa: E402
 
 
-def test_wiring_always_uses_the_vendored_engine_and_manifest_pin() -> None:
+def test_wiring_always_uses_the_owned_engine_and_manifest_pin() -> None:
     text = NEXT_MD.read_text(encoding="utf-8")
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
 
-    assert "vendor/project_next/" in text
+    # RE-POINTED (#1069). The doc must still name where the engine lives; only
+    # the location changed, so the assertion survives at its new target.
+    assert "lib/project_next/" in text
+    # UNCHANGED. The entry point did not move.
     assert "scripts/project-next.py" in text
-    assert ".claude/project-next-vendor.json" in text
+    # RE-POINTED (#1069): the manifest is an ownership record, not a vendor pin.
+    assert ".claude/project-next-ownership.json" in text
+    # UNCHANGED, and the most load-bearing line here: the decision comes VERBATIM
+    # from the engine. Ownership changed; that invariant did not.
     assert "VERBATIM" in text
-    assert "vendored engine" in text
+    # RETIRED AND REPLACED (#1069). This asserted `"vendored engine" in text`.
+    # Keeping it would re-assert the premise the transfer retired, and deleting
+    # it outright would drop the question it was really asking - does the doc
+    # state where the decision policy comes from? It now asserts OWNERSHIP,
+    # which is what silently regresses if anyone re-vendors this engine.
+    assert "CPP OWNS the engine" in text
+    assert "not vendored from anywhere now" in text
+    # UNCHANGED.
     assert "no sibling-checkout probe" in text
     assert manifest["contract_version"] == CONTRACT_VERSION
 
@@ -41,7 +61,7 @@ def test_old_host_probe_and_prompt_fallback_are_fully_superseded() -> None:
     assert "Engine found" not in text
 
 
-def test_vendored_fixture_corpus_matches_engine_classification() -> None:
+def test_owned_fixture_corpus_matches_engine_classification() -> None:
     scenarios = json.loads((FIXTURES / "scenarios.json").read_text(encoding="utf-8"))
 
     for name, scenario in scenarios.items():

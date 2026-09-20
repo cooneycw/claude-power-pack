@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""CPP entry point for the always-present vendored project-next engine.
+"""CPP entry point for the project-next engine.
 
-The vendored package owns classification, ranking, candidates, and top-action
-selection. This adapter keeps that ``RecommendationResult`` byte-for-byte at
-the model boundary while adding CPP-only evidence the upstream v1.3 model does
-not represent yet:
+``lib/project_next`` owns classification, ranking, candidates, and top-action
+selection. CPP owns that package outright (issue #1069); it is no longer
+vendored from codex-power-pack, and there is no upstream to drift from. This
+adapter keeps its ``RecommendationResult`` byte-for-byte at the model boundary
+while adding CPP-only evidence the v1.3 contract does not represent yet:
 
 - native GitHub issue relationships and explicitly uncertain text fallbacks;
 - Wayfinder planning routes that never send decision work to ``flow:auto``;
@@ -12,9 +13,10 @@ not represent yet:
 - premise-staleness flags for spec-derived issues whose parent spec predates
   a live architecture decision in the same domain.
 
-Lifecycle is intentionally outside ``vendor/project_next``. A graduation
-ledger can describe an absent spec, so frontmatter alone cannot represent the
-policy, and editing the vendored engine would break its upstream hash pin.
+Lifecycle is intentionally outside ``lib/project_next``. A graduation ledger
+can describe an absent spec, so frontmatter alone cannot represent the policy.
+The engine stays harness-neutral and the adapter stays thin: that separation
+outlived the vendoring that first motivated it, and is kept on its own merits.
 """
 
 from __future__ import annotations
@@ -30,9 +32,7 @@ from pathlib import Path
 from typing import Sequence
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-VENDOR_ROOT = REPO_ROOT / "vendor" / "project_next"
-MANIFEST_PATH = REPO_ROOT / ".claude" / "project-next-vendor.json"
-sys.path.insert(0, str(VENDOR_ROOT))
+MANIFEST_PATH = REPO_ROOT / ".claude" / "project-next-ownership.json"
 
 from lib.project_next.classify import _dependencies, _task_issue_index  # noqa: E402
 from lib.project_next.collect import CollectionError, collect_repository  # noqa: E402
@@ -241,7 +241,7 @@ def normalize_relationships(
 
     Native ``blockedBy``/``blocking`` edges become the only asserted blockers.
     A dependency found only in text remains named in the CPP relationship model,
-    but the normalized state supplies a dangling declaration so the vendored
+    but the normalized state supplies a dangling declaration so the engine's
     classifier places the issue in ``uncertain`` rather than ``blocked``.
     Parent and sub-issue relationships are collected as hierarchy evidence and
     do not invent dependency semantics.
@@ -739,7 +739,7 @@ def render_cpp(
     extensions: CppExtensions,
 ) -> str:
     base = _apply_route_rendering(render_result(result, state, mode), extensions.planning_routes)
-    lines = [f"_decision policy: contract v{result.contract_version} (vendored engine)_", "", base]
+    lines = [f"_decision policy: contract v{result.contract_version} (project-next engine)_", "", base]
     counts = {name: 0 for name in sorted(LIFECYCLE_STATES)}
     for decision in extensions.spec_lifecycle:
         counts[decision.state] += 1
@@ -814,7 +814,7 @@ def render_cpp(
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="CPP's vendored project-next entry point")
+    parser = argparse.ArgumentParser(description="CPP's project-next entry point")
     parser.add_argument("repository", nargs="?", default=".")
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument("--brief", action="store_const", const="brief", dest="mode")
@@ -872,7 +872,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     if args.json:
         payload = result.to_dict()
-        payload["decision_policy"] = f"contract v{pinned_version} (vendored engine)"
+        payload["decision_policy"] = f"contract v{pinned_version} (project-next engine)"
         payload["cpp_extensions"] = extensions.to_dict()
         print(json.dumps(payload, indent=2, sort_keys=True))
     else:
