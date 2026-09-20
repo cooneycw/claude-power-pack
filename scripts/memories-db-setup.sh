@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+#: HOST-SURFACE: none under $HOME - writes PG_HBA, a system path, not a home surface. Reaches outside $HOME via apt, apt-get and curl, so it is NOT observation-certified.
+
 # Provision the CPP common-memory Postgres store on this host (idempotent).
 # Intended for a dedicated lab VM (e.g. proxvmmemories15 / 192.168.4.62).
 #

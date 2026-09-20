@@ -1,4 +1,6 @@
 #!/bin/bash
+#: HOST-SURFACE: none - emits a prompt string on stdout; read-only, no $HOME reference.
+
 # prompt-context.sh - Generate worktree context for shell prompt
 #
 # Purpose: Display current project and issue number in shell prompt

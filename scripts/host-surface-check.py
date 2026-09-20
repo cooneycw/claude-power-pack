@@ -161,7 +161,7 @@ DOCSTRING_RE = re.compile(r'"""|\'\'\'')
 #: say so, because "declared nothing" and "nobody looked" are the same bytes
 #: otherwise. That is the same rule this repository applies to every gate.
 DECLARE_RE = re.compile(
-    r"^\s*(?:#|//)\s*HOST-SURFACE:\s*(?P<body>\S.*?)\s*$", re.M
+    r"^\s*(?:#|//)[:!]?\s*HOST-SURFACE:\s*(?P<body>\S.*?)\s*$", re.M
 )
 
 #: A declaration whose surface is `none`, with the reason that must follow it.

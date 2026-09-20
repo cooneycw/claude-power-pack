@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+#: HOST-SURFACE: ~/.codex/skills/<skill> owner=cpp write=copy certified=yes mode=--install
+
 """codex-skill-sync.py - single-source -> Codex SKILL.md skill generation.
 
 Issue #555 (companion to codex-power-pack epic cooneycw/codex-power-pack#64,

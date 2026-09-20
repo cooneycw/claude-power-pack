@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+#: HOST-SURFACE: none - read-only reporter, INCLUDING under --fix. fix() echoes a remediation command, it does not run one; the only systemctl calls executed are list-units and list-unit-files. The Makefile's verify-coverage annotation for drift-check claims it REPAIRS and writes to HOME - that claim is wrong and is recorded on the Nit Store, and this declaration follows the CODE.
+
 # drift-detect.sh - Detect drift between repo-owned artifacts and host-installed state
 # Part of Claude Power Pack (CPP)
 #

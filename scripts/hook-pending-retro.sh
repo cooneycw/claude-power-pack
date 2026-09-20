@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+#: HOST-SURFACE: none - SessionStart hook that surfaces counts only; never codifies, never applies, contains no $HOME reference.
+
 # hook-pending-retro.sh - SessionStart hook: opt-in reminder that pending retro
 # material exists (issue #530). It SURFACES counts only and points at
 # /self-improvement:retro; it never codifies, never applies, never blocks.
