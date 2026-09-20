@@ -91,9 +91,31 @@ non-directory `--root` cannot be committed or passed at all.
 
 **This is a finding about the register, not about #960.** Every gate in this
 repository has an UNKNOWN branch - "0 examined is not 0 findings" is a house
-convention - and none of them can carry a control for it today. It is adjacent to
-#1117 (UNSIGNALLED needs splitting from UNAVAILABLE) and is filed rather than
-fixed here.
+convention - and none of them can carry a control for it today. Filed as #1129
+rather than fixed here.
+
+**#1117 landed while this was being written, and it does NOT close the gap - a
+correction made here rather than left for a reader to discover.** That change
+splits UNAVAILABLE out of UNSIGNALLED, which is the same vocabulary gap seen from
+the consumer's side, and it is the closest the register comes. It still does not
+reach any of the seven:
+
+- UNAVAILABLE is an OBSERVATION the harness makes about a run, not a registrable
+  expectation. `cases[].expect` still takes only `GOOD` or `BAD`
+  (`check-negative-controls.py:860`), so no committed case can DEMAND that branch.
+- Its scope is the gate's own TOOL being absent, and its own recorded reversal
+  trigger says so: *"If a control ever needs an `unavailable_signal` for a message
+  its gate emits for a reason OTHER than its own tool being absent, the
+  declared-signal design is the wrong guard for that case and this comes out
+  rather than widening to accommodate it."* Six of the seven report UNKNOWN for
+  reasons that are not that - zero files matched, an unreadable file, a
+  non-directory root, a newline in a path, a failed enumeration, a linter that
+  did not run.
+- The seventh, `linter-absent-is-unknown`, IS a tool-absent condition and is the
+  one #1117 speaks to - and it is still uncontrollable, for a second reason: that
+  change's constraint 3 makes an unavailability report UNRESOLVED whenever another
+  case through the same gate produced a real verdict, which every run on a host
+  that HAS shellcheck does.
 
 The eighth, `sh-extension`, is inexpressible for a different reason and the
 distinction matters: exercising the `*.sh` arm needs a BAD case whose offending
@@ -275,7 +297,8 @@ Mutation is paid once per instrument at authoring time, not per run, which is wh
 ## Filed from this examination
 
 - The register cannot express a control for a gate's UNKNOWN verdict (#960's
-  seven, and every gate in the tree has such a branch).
+  seven, and every gate in the tree has such a branch) - **#1129**, filed with
+  #1117's partial overlap accounted for rather than assumed.
 - An anchor's own blindness can forbid a whole class of committed BAD case
   (#960's `.sh` path).
 - #955's sweep is red on main: its RED bucket control was falsified by
