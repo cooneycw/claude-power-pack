@@ -14,6 +14,7 @@ import tempfile
 import time
 import uuid
 from dataclasses import asdict, dataclass, field, fields
+from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any, Optional
@@ -27,6 +28,17 @@ class StepStatus(str, Enum):
     SUCCESS = "success"
     FAILED = "failed"
     SKIPPED = "skipped"
+    # A gate that RAN, inside an aggregate that covers it (issue #1152). NOT
+    # `skipped`: a skipped gate proved nothing and #628 warns on it, while a
+    # subsumed one was executed as a prerequisite of a target that succeeded.
+    # Collapsing them would make the cost fix report a false warn on every run.
+    SUBSUMED = "subsumed"
+    # A gate deferred to an aggregate that then FAILED, so it never ran at all
+    # (issue #1152). Distinct from both: `subsumed` would claim it passed inside
+    # the aggregate, and that is false the moment the aggregate stops early -
+    # make halts at the first failing prerequisite, so everything after it in
+    # the list was never reached.
+    NOT_RUN = "not-run"
 
 
 @dataclass
@@ -54,6 +66,13 @@ class StepRecord:
     # and one that examined nothing. Optional and defaulted for the same reason
     # ``tests`` is: a state file written before this field existed still loads.
     coverage: Optional[dict[str, Any]] = None
+    # The aggregate step id that ran this gate, when status is SUBSUMED, and
+    # why it did not run, when status is NOT_RUN (issue #1152). Carried so a
+    # report NAMES the derivation instead of leaving a reader to infer it.
+    # Optional and defaulted for the same reason the two above are: a state
+    # file written before these fields existed still loads.
+    subsumed_by: Optional[str] = None
+    not_run_reason: Optional[str] = None
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
@@ -155,6 +174,40 @@ def compute_tree_signature(project_root: Path) -> Optional[str]:
         return None
     signature = result.stdout.strip()
     return signature or None
+
+
+# The one spelling of a step timestamp. `_now()` writes it and
+# `_duration_seconds()` reads it; a change to either without the other would
+# silently stop every duration being derivable (issue #1152).
+_TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%S%z"
+
+
+def _duration_seconds(started: Optional[str], finished: Optional[str]) -> Optional[float]:
+    """Wall seconds between two ISO timestamps, or None if either is missing.
+
+    None rather than 0.0 for an unstarted or unfinished step: a zero reads as
+    "ran instantly", and a cost report that cannot tell that from "never ran"
+    is the failure this field was added to remove.
+
+    GRANULARITY IS ONE SECOND, because `_now()` writes whole seconds. A step
+    faster than that reports 0.0, which is true to the nearest second and is
+    NOT the same as None. Stated rather than implied: the figures this field
+    exists for are minutes apart (390.77s against 233.44s), so second
+    resolution is adequate - but a reader comparing two sub-second steps is
+    comparing noise, and nothing in the number says so.
+    """
+    if not started or not finished:
+        return None
+    # Parsed with the EXACT format `_now()` writes, not fromisoformat: the
+    # timestamps are this module's own output, so the format is known, and
+    # matching it means a future change to `_now()` fails here loudly instead
+    # of silently returning None for every step.
+    try:
+        began = datetime.strptime(started, _TIMESTAMP_FORMAT)
+        ended = datetime.strptime(finished, _TIMESTAMP_FORMAT)
+    except (ValueError, TypeError):
+        return None
+    return round((ended - began).total_seconds(), 2)
 
 
 @dataclass
@@ -282,6 +335,25 @@ class RunState:
         record.finished_at = _now()
         self.current_index = index + 1
 
+    def mark_step_subsumed(self, index: int, aggregate_id: str) -> None:
+        """This gate RAN, as a prerequisite of ``aggregate_id`` (issue #1152).
+
+        Only ever called after that aggregate SUCCEEDED. On a failure the
+        aggregate stopped at its first failing prerequisite and everything
+        after it was never reached, so the honest record is NOT_RUN.
+        """
+        record = self.step_records[index]
+        record.status = StepStatus.SUBSUMED
+        record.subsumed_by = aggregate_id
+        record.finished_at = _now()
+
+    def mark_step_not_run(self, index: int, reason: str) -> None:
+        """Deferred to an aggregate that failed, so it never ran (issue #1152)."""
+        record = self.step_records[index]
+        record.status = StepStatus.NOT_RUN
+        record.not_run_reason = reason
+        record.finished_at = _now()
+
     def mark_complete(self) -> None:
         """Mark the entire run as successful."""
         self.status = "success"
@@ -358,6 +430,21 @@ class RunState:
         steps_summary = []
         for index, r in enumerate(self.step_records):
             entry: dict[str, Any] = {"id": r.step_id, "status": r.status.value}
+            # WALL TIME PER STEP (issue #1152). The runner published no timing
+            # at all, which made it the wrong instrument for a cost question:
+            # every before/after figure in that issue had to be measured
+            # OUTSIDE the gate, and a later reader could not check the claim
+            # against the artifact that made it. Derived from timestamps the
+            # record already carried rather than by adding state. ADDITIVE -
+            # readers anchor on `id` and `status`, and the shell's awk matches
+            # the id line only.
+            duration = _duration_seconds(r.started_at, r.finished_at)
+            if duration is not None:
+                entry["duration_seconds"] = duration
+            if r.subsumed_by:
+                entry["subsumed_by"] = r.subsumed_by
+            if r.not_run_reason:
+                entry["not_run_reason"] = r.not_run_reason
             if executed_from is not None and index < executed_from:
                 # Only meaningful for a record that HAS a result; a pending
                 # step before the resume point has nothing to be stale about.
@@ -397,7 +484,7 @@ class RunState:
 
 def _now() -> str:
     """ISO timestamp."""
-    return time.strftime("%Y-%m-%dT%H:%M:%S%z", time.localtime())
+    return time.strftime(_TIMESTAMP_FORMAT, time.localtime())
 
 
 def _truncate(s: str, max_len: int) -> str:

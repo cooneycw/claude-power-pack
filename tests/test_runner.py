@@ -2806,3 +2806,214 @@ class TestCarriedZeroCoverageSurvivesResume:
         assert any(
             "invocations examined NOTHING" in w for w in second.warnings
         ), second.warnings
+
+
+requires_make = pytest.mark.skipif(
+    shutil.which("make") is None, reason="requires make on PATH"
+)
+
+
+class TestSubsumedGates:
+    """A gate an aggregate already runs is not run twice (issue #1152).
+
+    `make verify` here lists `lint test typecheck` among its prerequisites, so
+    the finish plan executed those three twice: 390.77s against 233.44s for the
+    same coverage. The remedy must not weaken what the gate proves, and the two
+    ways it could are what these tests pin.
+    """
+
+    @staticmethod
+    def _tree(tmp_path, makefile: str):
+        (tmp_path / "Makefile").write_text(makefile)
+        return tmp_path
+
+    def test_the_subsumed_set_on_this_repository_is_exactly_the_three(self):
+        """THE PARSER PIN, from the consumer side (#1152).
+
+        The derivation reads this repository's own `verify:` rule through the
+        canonical Makefile reader - the one `check-ci-coverage.py` loads - and
+        that reader now feeds two instruments. Pinning it from here rather than
+        by testing the parser directly means a parser change that silently
+        drops prerequisites fails as a CHANGE IN WHAT IS DEDUPLICATED, which is
+        the consequence anyone would care about.
+
+        The count is asserted too. `lib/cicd/makefile.py::parse_makefile` returns
+        9 of these 29 - it stops at the first physical line and takes the
+        trailing backslash as a dependency (#1162) - and it would have been
+        RIGHT BY LUCK for the subsumed set, because lint, test and typecheck all
+        sit on that first line. A set assertion alone would not have caught the
+        wrong parser being used; the count does.
+        """
+        from importlib.util import module_from_spec, spec_from_file_location
+
+        from lib.cicd.steps import get_plan_steps, subsumed_gate_ids
+
+        root = Path(__file__).resolve().parent.parent
+        steps = get_plan_steps("finish", project_root=str(root))
+        subsumed = subsumed_gate_ids("finish", steps, str(root))
+
+        assert set(subsumed) == {"lint", "test", "typecheck"}
+        assert set(subsumed.values()) == {"verify"}
+
+        spec = spec_from_file_location(
+            "vcc", root / "scripts" / "verify-coverage-check.py"
+        )
+        module = module_from_spec(spec)
+        spec.loader.exec_module(module)
+        prereqs = module.Makefile((root / "Makefile").read_text()).prereqs["verify"]
+        assert len(prereqs) == 29, (
+            f"this repository's `verify:` rule has {len(prereqs)} direct "
+            f"prerequisites by the canonical reader, not 29. If the Makefile "
+            f"genuinely changed, update the number; if it did not, the reader "
+            f"stopped seeing part of the rule - which is exactly how "
+            f"lib/cicd/makefile.py returns 9 and a literal backslash (#1162)"
+        )
+        assert "\\" not in prereqs
+
+    @requires_make
+    def test_subsumed_is_asserted_only_when_the_aggregate_PASSES(self, tmp_path):
+        """The committed case for the condition this issue turns on (#1152).
+
+        `make` stops at its first failing prerequisite. When verify fails at
+        lint, test and typecheck were never reached - so recording them as
+        `subsumed` would claim they ran and passed inside an aggregate that
+        stopped before them. That is a false green produced by the COST fix,
+        which is the one outcome this change was not allowed to have.
+        """
+        import io
+
+        from lib.cicd.runner import DeterministicRunner
+
+        root = self._tree(
+            tmp_path,
+            "lint:\n\t@echo BROKEN; exit 1\n"
+            "test:\n\t@echo test ran\n"
+            "typecheck:\n\t@echo typecheck ran\n"
+            "security_scan:\n\t@true\n"
+            "verify: lint test typecheck\n\t@echo verify ran\n",
+        )
+        result = DeterministicRunner(
+            project_root=root, output=io.StringIO()
+        ).run("finish")
+
+        assert result.success is False
+        assert result.to_dict()["subsumed_gates"] == {}, (
+            "an aggregate that FAILED cannot have run the gates deferred to it"
+        )
+        by_id = {e["id"]: e for e in result.step_details}
+        for gate in ("lint", "test", "typecheck"):
+            assert by_id[gate]["status"] == "not-run"
+            assert "verify failed" in by_id[gate]["not_run_reason"]
+        # make named the prerequisite it stopped at, so the report does too -
+        # `verify` has 29 of them and "verify failed" searches all 29.
+        assert result.failed_prerequisite == "lint"
+        assert by_id["lint"]["not_run_reason"].endswith("at prerequisite lint")
+
+    @requires_make
+    def test_a_gate_the_aggregate_does_not_LIST_still_runs(self, tmp_path):
+        """THE RED CASE. `verify:` names test and typecheck but NOT lint, and
+        lint is broken. The gate must still run lint and red.
+
+        This is what a subsumption rule gets wrong when it assumes the presence
+        of a `verify:` target covers the three, instead of DERIVING which ones
+        it names. Under that assumption lint is skipped, verify never runs it,
+        and the gate reports ok over a broken lint.
+        """
+        import io
+
+        from lib.cicd.runner import DeterministicRunner
+        from lib.cicd.steps import get_plan_steps, subsumed_gate_ids
+
+        root = self._tree(
+            tmp_path,
+            "lint:\n\t@echo LINT IS BROKEN; exit 1\n"
+            "test:\n\t@echo test ran\n"
+            "typecheck:\n\t@echo typecheck ran\n"
+            "security_scan:\n\t@true\n"
+            "verify: test typecheck\n\t@echo verify ran\n",
+        )
+        steps = get_plan_steps("finish", project_root=str(root))
+        subsumed = subsumed_gate_ids("finish", steps, str(root))
+        assert "lint" not in subsumed, "lint is not a prerequisite of this verify"
+
+        result = DeterministicRunner(
+            project_root=root, output=io.StringIO()
+        ).run("finish")
+        assert result.success is False
+        assert result.failed_step == "lint"
+
+    @requires_make
+    def test_no_aggregate_means_nothing_is_subsumed(self, tmp_path):
+        """The guard rail, and the bare-repository case.
+
+        With no `verify:` target there is nothing to derive from, so all four
+        gates run exactly as before - by construction rather than by a special
+        case. A derivation that returned a non-empty map here would be skipping
+        gates on the strength of a target that does not exist.
+        """
+        from lib.cicd.steps import get_plan_steps, subsumed_gate_ids
+
+        root = self._tree(
+            tmp_path, "lint:\n\t@true\ntest:\n\t@true\ntypecheck:\n\t@true\n"
+        )
+        steps = get_plan_steps("finish", project_root=str(root))
+        assert subsumed_gate_ids("finish", steps, str(root)) == {}
+
+    @requires_make
+    def test_step_details_carry_wall_time(self, tmp_path):
+        """The evidence channel this issue's verdict rests on (#1152).
+
+        The runner published no timing at all, so every before/after figure had
+        to be measured outside the gate and no later reader could check the
+        claim against the artifact that made it.
+        """
+        import io
+
+        from lib.cicd.runner import DeterministicRunner
+
+        root = self._tree(
+            tmp_path,
+            "lint:\n\t@true\ntest:\n\t@true\ntypecheck:\n\t@true\n"
+            "security_scan:\n\t@true\n",
+        )
+        result = DeterministicRunner(
+            project_root=root, output=io.StringIO()
+        ).run("finish")
+        executed = [
+            e for e in result.step_details if e["status"] == "success"
+        ]
+        assert executed, "nothing ran, so there is no timing to assert"
+        for entry in executed:
+            assert "duration_seconds" in entry
+            assert isinstance(entry["duration_seconds"], float)
+
+
+    @requires_make
+    def test_the_failure_result_carries_per_step_records(self, tmp_path):
+        """step_details on the FAILURE path too (issue #1152).
+
+        It was set only on the success result, so a run that failed inside an
+        aggregate published no per-step records at all - and the `not-run` rows
+        naming what never ran are exactly what a reader needs THERE. A reader
+        told only "verify failed" has 29 prerequisites to search.
+        """
+        import io
+
+        from lib.cicd.runner import DeterministicRunner
+
+        root = self._tree(
+            tmp_path,
+            "lint:\n\t@echo BROKEN; exit 1\n"
+            "test:\n\t@true\ntypecheck:\n\t@true\nsecurity_scan:\n\t@true\n"
+            "verify: lint test typecheck\n\t@true\n",
+        )
+        result = DeterministicRunner(
+            project_root=root, output=io.StringIO()
+        ).run("finish")
+
+        assert result.success is False
+        assert result.step_details, (
+            "a failed run published no per-step records, so the not-run rows "
+            "that name what never ran are invisible to every reader (#1152)"
+        )
+        assert {e["id"] for e in result.step_details} >= {"lint", "verify"}

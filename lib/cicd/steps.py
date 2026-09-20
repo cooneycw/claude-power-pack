@@ -669,6 +669,13 @@ BUILTIN_PLANS: dict[str, list[StepDef]] = {
 # by an exhaustive classification test over the verification plans
 # (tests/test_runner.py::TestGateDeclarationIsExhaustive), which fails on a step
 # in neither bucket AND on an exemption for a step that no longer exists.
+# Gate ids whose recipe is an AGGREGATE over other gates (issue #1152). Named
+# rather than derived because "is this target an aggregate" is not a property of
+# the Makefile - every target with prerequisites has some - it is a statement
+# about which of OUR gates is meant to stand in for the others. `verify` is the
+# one CLAUDE.md names as the full pipeline.
+_AGGREGATE_GATE_IDS: frozenset[str] = frozenset({"verify"})
+
 GATE_STEP_IDS: frozenset[str] = frozenset(
     step.id for steps in BUILTIN_PLANS.values() for step in steps if step.gate
 )
@@ -695,6 +702,65 @@ def plan_gate_ids(plan_name: str, step_defs: list[StepDef]) -> list[str]:
     different question, answered by `dropped_gate_ids` below.
     """
     return sorted({s.id for s in step_defs if s.gate})
+
+
+def subsumed_gate_ids(
+    plan_name: str, step_defs: list[StepDef], project_root: str
+) -> dict[str, str]:
+    """Gate id -> the aggregate gate in THIS plan whose recipe already runs it.
+
+    `make verify` in this repository lists `lint test typecheck` among its
+    prerequisites, so a finish plan running all four executes those three TWICE
+    - measured at 390.77s against 233.44s for the same coverage (issue #1152).
+
+    DIRECT PREREQUISITES ONLY. A target two levels down is not claimed, even
+    though make would still run it: the derivation would then rest on a
+    transitive walk with cycle handling, and being wrong in that direction
+    means a gate is marked as covered when it was not. The safe failure is
+    running a gate TWICE, which costs time; the unsafe one is skipping a gate
+    that nothing ran, which costs the thing the gate exists for. So this stays
+    shallow on purpose and the cost of that choice is duplicate work, never a
+    missing check.
+
+    ONE PARSER. `scripts/verify-coverage-check.py`'s `Makefile` is the
+    repository's canonical Makefile reader and is what `check-ci-coverage.py`
+    already loads - this adds no second reader of the same file.
+    `lib/cicd/makefile.py::parse_makefile` is deliberately NOT used: it does not
+    join backslash continuations and returns 9 of this repository's 29 verify
+    prerequisites, the last being a literal backslash (issue #1162). It would
+    have been right BY LUCK here, since lint, test and typecheck all sit on the
+    first physical line.
+
+    Returns an empty mapping when there is no Makefile, no aggregate gate in the
+    plan, or no parser - every one of which means "nothing is known to be
+    covered", so every gate runs on its own, which is the pre-#1152 behaviour.
+    """
+    from importlib.util import module_from_spec, spec_from_file_location
+
+    aggregates = [d.id for d in step_defs if d.gate and d.id in _AGGREGATE_GATE_IDS]
+    if not aggregates:
+        return {}
+    parser_path = Path(_CPP_ROOT) / "scripts" / "verify-coverage-check.py"
+    makefile_path = Path(project_root) / "Makefile"
+    if not parser_path.is_file() or not makefile_path.is_file():
+        return {}
+    try:
+        spec = spec_from_file_location("cpp_makefile_reader", parser_path)
+        if spec is None or spec.loader is None:
+            return {}
+        module = module_from_spec(spec)
+        spec.loader.exec_module(module)
+        parsed = module.Makefile(makefile_path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001 - an unusable parser means "nothing known"
+        return {}
+
+    in_plan = {d.id for d in step_defs if d.gate}
+    covered: dict[str, str] = {}
+    for aggregate in aggregates:
+        for prereq in parsed.prereqs.get(aggregate, ()):
+            if prereq in in_plan and prereq != aggregate and prereq not in covered:
+                covered[prereq] = aggregate
+    return covered
 
 
 def dropped_gate_ids(

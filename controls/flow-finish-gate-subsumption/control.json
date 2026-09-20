@@ -1,0 +1,36 @@
+{
+  "gate": "scripts/flow-finish-gate.sh",
+  "invocation": [
+    "bash",
+    "-c",
+    "cd \"$1\" || exit 9; PATH=\"$1/bin:$PATH\" FLOW_GATE_CPP_DIR=\"$1/cpp\" bash \"$2\"",
+    "--",
+    "{case}",
+    "{gate}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^FLOW_FINISH_GATE: fail \\(recorded not-run: ",
+  "limits": "WHAT THIS ESTABLISHES: that a quality gate recorded NOT-RUN cannot coexist with a passing verdict. A gate is recorded not-run when it was deferred to an aggregate - `make verify` - that then FAILED; make stops at its first failing prerequisite, so everything after it was never reached. A runner reporting overall success while carrying such a record has two disagreeing accounts of the same run, and the reading that lets work through is the one saying three quality gates never executed. The gate believes the per-step record. WHAT IT DOES NOT ESTABLISH, and this is the load-bearing limit: THE DERIVATION. Whether the subsumed set comes from the repository's own `verify:` prerequisite list, or merely from the PRESENCE of a `verify:` target, is decided in `lib/cicd/steps.py::subsumed_gate_ids` and is NOT covered here. That distinction is what #1152 is actually about - a `verify:` naming test and typecheck but not lint must still run lint - and it is pinned by five tests that run under the `validate` step, where a virtualenv exists: tests/test_runner.py::TestSubsumedGates::test_the_subsumed_set_on_this_repository_is_exactly_the_three (the parser pin, set AND the count of 29), ::test_a_gate_the_aggregate_does_not_LIST_still_runs (the red case, run RED once against an assume-subsumption derivation, which reported success over a broken lint nothing ran), ::test_subsumed_is_asserted_only_when_the_aggregate_PASSES, ::test_no_aggregate_means_nothing_is_subsumed, and ::test_step_details_carry_wall_time. WHY THE DERIVATION IS NOT CONTROLLED HERE is a property of the harness, not a choice: no control whose gate path reaches `lib.cicd` can run in the negative-controls image. Measured inside it - a read-only workspace makes `uv` fail on the venv lock and the gate print `fail`, which would have scored this control BAD for a reason with nothing to do with its subject; with a writable workspace and no network BOTH cases fail, so the GOOD case reds the battery; bare `python3` has no `pydantic`, which `lib/cicd/__init__.py` imports; and `lib/cicd/steps.py` has module-level relative imports so it will not load by file path. The step's `depends_on` does not include the one that runs `uv sync`, so the venv is not reliably there either. Filed as issue #1163, the third instance after #987 and #1036. THE CASES ARE STUBBED AT `uv`, so nothing here needs a virtualenv, a network, or pydantic - which is exactly why this half IS registerable.",
+  "cases": [
+    {
+      "name": "bad-not-run-recorded-with-success",
+      "input": "cases/bad-not-run-recorded-with-success",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-subsumed-and-passed",
+      "input": "cases/good-subsumed-and-passed",
+      "expect": "GOOD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "historical",
+      "sha": "529d470",
+      "origin": "scripts/flow-finish-gate.sh",
+      "path": "anchors/529d470-flow-finish-gate.sh",
+      "sha256": "b2b9732643b041acde2fdac50cf520f394d587f20f231f648bf6fa7baa0864d5",
+      "why": "The gate exactly as it stood at 529d470 - the merge of #1155, the commit this issue branched from - vendored byte-for-byte and unmodified. HISTORICAL rather than constructed, which is a correction to the plan this control was approved under: the approved design assumed the only blind article would have to be written by hand, and it turned out the shipped gate is already blind to this input for a reason that needs no construction - it has no notion of a `not-run` record, so it reads the top-level `success` and stops. Measured: on the known-bad input it prints `FLOW_FINISH_GATE: ok` and exits 0 over a run that never executed lint, and it agrees with the fixed gate on the known-good one. It needs no adaptation because the fixture supplies everything it reads - a `uv` on PATH and a directory containing CLAUDE.md."
+    }
+  ]
+}
