@@ -240,6 +240,162 @@ def test_an_accepted_gap_that_is_still_uncaught_is_not_a_failure(tmp_path: Path)
     assert result.returncode == 0
 
 
+def test_an_absolute_gate_path_cannot_escape_the_sandbox(tmp_path: Path) -> None:
+    """Counter-model review, HIGH, accepted (issue #970).
+
+    `Path("/sandbox") / "/real/gate.py"` is `/real/gate.py` - pathlib treats an
+    absolute right-hand side as a replacement, not a suffix. A manifest naming an
+    absolute `gate` therefore had its mutation written into the REAL checkout
+    while the battery ran against the sandbox copy: every verdict about a file
+    the mutation never touched, and a weakened instrument left behind if the run
+    is interrupted between write and restore.
+    """
+    root = _tree(tmp_path, good_case=True, mutations=[COMMENT_REJECTION])
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    victim = outside / "gate.py"
+    victim.write_text(GATE)
+    before = _witness(outside)
+
+    manifest = root / "controls" / "toy" / "control.json"
+    spec = json.loads(manifest.read_text())
+    spec["gate"] = str(victim)
+    manifest.write_text(json.dumps(spec))
+
+    result = _probe(root, "--strict")
+    # The safety claim FIRST: the refusal message is how it is refused, but the
+    # property is that nothing outside the sandbox was written. Measured on the
+    # pre-fix probe, this assertion is the one that fails.
+    assert _witness(outside) == before, "a file outside the sandbox was written"
+    assert "MUTATION-UNRESOLVED" in result.stdout
+    assert "OUTSIDE the sandbox" in result.stdout
+    assert result.returncode == 1
+
+
+def test_a_dotdot_battery_cwd_cannot_escape_the_sandbox(tmp_path: Path) -> None:
+    """The same escape through the other path the manifest supplies."""
+    root = _tree(tmp_path, good_case=True, mutations=[COMMENT_REJECTION])
+    manifest = root / "controls" / "toy" / "control.json"
+    spec = json.loads(manifest.read_text())
+    spec["battery_cwd"] = "../../.."
+    manifest.write_text(json.dumps(spec))
+    result = _probe(root, "--strict")
+    assert "MUTATION-UNRESOLVED" in result.stdout
+    assert "OUTSIDE this run's sandbox" in result.stdout
+    assert result.returncode == 1
+
+
+def test_a_battery_side_effect_cannot_certify_a_mutation(tmp_path: Path) -> None:
+    """Counter-model review, MEDIUM, accepted (issue #970).
+
+    With one sandbox shared across the baseline and every mutation, only the GATE
+    was restored between runs. A battery that drops a marker on its first
+    invocation and fails whenever that marker exists passes the baseline and then
+    reports EVERY later mutation CAUGHT without the gate being consulted - a
+    non-zero that cannot tell "this mutation" from "the previous run".
+
+    The mutation declared here is one the battery genuinely does NOT cover, so
+    the only thing that could turn it red is the contamination.
+    """
+    root = _tree(tmp_path, good_case=False, mutations=[COMMENT_REJECTION])
+    (root / "scripts" / "toy-battery.py").write_text(
+        "import pathlib\nimport sys\n"
+        "marker = pathlib.Path(__file__).resolve().parents[1] / 'ran.marker'\n"
+        "if marker.exists():\n"
+        "    print('TOY-BATTERY-FAIL: a previous run was here', file=sys.stderr)\n"
+        "    raise SystemExit(1)\n"
+        "marker.write_text('x')\n"
+        "print('toy-battery: ok')\n"
+    )
+    result = _probe(root, "--strict")
+    assert "MUTATION-UNCAUGHT" in result.stdout, result.stdout + result.stderr
+    assert "MUTATION-CAUGHT" not in result.stdout
+
+
+def test_a_battery_cwd_escaping_into_a_sibling_sandbox_is_refused(tmp_path: Path) -> None:
+    """Counter-model review pass 2, accepted (issue #970).
+
+    Checking containment once, against the BASELINE sandbox, let
+    `battery_cwd: "../tree-1"` through - `tree-1/../tree-1` is `tree-1` - and
+    every later mutation then ran its battery in the baseline's sandbox, against
+    an UNMUTATED gate, while the probe reported verdicts about the mutation.
+    """
+    root = _tree(tmp_path, good_case=True, mutations=[COMMENT_REJECTION])
+    manifest = root / "controls" / "toy" / "control.json"
+    spec = json.loads(manifest.read_text())
+    spec["battery_cwd"] = "../tree-1"
+    manifest.write_text(json.dumps(spec))
+    result = _probe(root, "--strict")
+    assert "MUTATION-UNRESOLVED" in result.stdout
+    assert "OUTSIDE this run's sandbox" in result.stdout
+    assert "MUTATION-CAUGHT" not in result.stdout
+    assert result.returncode == 1
+
+
+def test_a_neighbouring_edit_after_the_baseline_cannot_change_a_verdict(tmp_path: Path) -> None:
+    """Counter-model review pass 2, accepted (issue #970).
+
+    Rebuilding each sandbox from the LIVE checkout makes every run a fresh
+    sample of a tree other processes are editing. Here the battery itself edits
+    the checkout on its first invocation, so a rebuilt sandbox would carry that
+    edit alongside the mutation: the registered bad case stops being bad, the
+    battery goes red because a NEIGHBOUR changed, and a mutation nothing caught
+    is certified CAUGHT.
+
+    The declared mutation is one this battery genuinely does NOT cover, so
+    UNCAUGHT is the honest verdict and CAUGHT can only come from contamination.
+    """
+    root = _tree(tmp_path, good_case=False, mutations=[COMMENT_REJECTION])
+    victim = root / "controls" / "toy" / "cases" / "bad" / "input.txt"
+    # The battery still EVALUATES ITS CASES - it only also nudges the checkout on
+    # the way past. A stand-in that merely wrote the file and exited 0 would
+    # report UNCAUGHT whatever the probe did, which is a test that cannot fail:
+    # measured, it passed against the unfixed probe too.
+    (root / "scripts" / "toy-battery.py").write_text(
+        "import pathlib\n"
+        f"pathlib.Path({str(victim)!r}).write_text('no finding here\\n')\n"
+        + BATTERY
+    )
+    result = _probe(root, "--strict")
+    assert "MUTATION-UNCAUGHT" in result.stdout, result.stdout + result.stderr
+    assert "MUTATION-CAUGHT" not in result.stdout
+
+
+def test_a_zero_count_declaration_cannot_be_an_accepted_gap(tmp_path: Path) -> None:
+    """Counter-model review, MEDIUM, accepted (issue #970).
+
+    `count: 0` satisfied the count check against a pattern matching nothing, so a
+    declaration naming a protection that does not exist ran the battery
+    unchanged, reported ACCEPTED beside a written reason, and exited 0 under
+    `--strict`. A mutation that removes no protection is not a mutation.
+    """
+    mutation = dict(COMMENT_REJECTION, find="NOT_PRESENT_ANYWHERE", count=0,
+                    expect="uncaught", why="claims to be an accepted gap")
+    root = _tree(tmp_path, good_case=True, mutations=[mutation])
+    result = _probe(root, "--strict")
+    assert "MUTATION-ACCEPTED" not in result.stdout
+    assert "MUTATION-INAPPLICABLE" in result.stdout
+    assert "positive integer" in result.stdout
+    assert result.returncode == 1
+
+
+def test_a_replacement_that_changes_nothing_is_inapplicable(tmp_path: Path) -> None:
+    """The count says the pattern MATCHED; only a byte comparison says it CHANGED.
+
+    A `replace` equal to the text it matches substitutes the declared number of
+    times and leaves the gate byte-identical, so the battery runs against an
+    unmutated instrument and its green is read as a verdict about coverage.
+    """
+    mutation = dict(COMMENT_REJECTION,
+                    replace='if line.strip().startswith("#"):')
+    root = _tree(tmp_path, good_case=True, mutations=[mutation])
+    result = _probe(root, "--strict")
+    assert "MUTATION-INAPPLICABLE" in result.stdout
+    assert "BYTE-IDENTICAL" in result.stdout
+    assert "MUTATION-CAUGHT" not in result.stdout
+    assert result.returncode == 1
+
+
 def test_no_manifest_at_all_is_unchecked_not_clean(tmp_path: Path) -> None:
     """A run that examined nothing must never exit 0 (the #952 rule)."""
     root = tmp_path / "empty"

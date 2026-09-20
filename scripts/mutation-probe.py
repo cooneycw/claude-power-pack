@@ -129,6 +129,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -274,6 +275,29 @@ def build_sandbox(root: Path, dest: Path) -> tuple[bool, str]:
     return True, source
 
 
+def inside(path: Path, base: Path) -> bool:
+    """Is `path` REALLY under `base` once symlinks and `..` are resolved?
+
+    Counter-model review, accepted (issue #970). Every path this tool writes to
+    is built by joining a manifest-supplied string onto the sandbox - and
+    `Path("/sandbox") / "/etc/gate.py"` is `/etc/gate.py`, because pathlib treats
+    an absolute right-hand side as a replacement rather than a suffix. A `..`
+    walks out just as quietly. So a manifest naming an ABSOLUTE `gate` had its
+    mutation written into the REAL checkout while the battery ran against the
+    sandbox copy: the tree left weakened if the run is interrupted, and every
+    verdict about a file the mutation never touched.
+
+    Checked rather than trusted, because the manifest is exactly the input this
+    tool is handed by a caller, and "it will be repo-relative" is an assumption
+    about the caller rather than a property of the path.
+    """
+    try:
+        path.resolve().relative_to(base.resolve())
+    except (ValueError, OSError):
+        return False
+    return True
+
+
 def syntax_ok(path: Path) -> tuple[bool, str]:
     """Does this file still PARSE? Three answers, and `unchecked` is not `yes`.
 
@@ -337,8 +361,20 @@ def _battery_evidence(output: str) -> str:
     return lines[-1] if lines else "(no output)"
 
 
-def run_manifest(manifest_rel: str, root: Path, sandbox: Path, quiet: bool) -> list[Probe]:
-    """Probe every mutation one manifest declares. Returns one Probe per mutation."""
+def run_manifest(manifest_rel: str, root: Path, new_sandbox: Callable[[], Path],
+                 quiet: bool) -> list[Probe]:
+    """Probe every mutation one manifest declares. Returns one Probe per mutation.
+
+    `new_sandbox` yields a PRISTINE sandbox, and it is called once per battery
+    run rather than once per manifest. Counter-model review, accepted (issue
+    #970): sharing one sandbox restored only the GATE between runs, so anything
+    else a battery wrote persisted into the next. A battery that drops a marker
+    on its first invocation and fails whenever that marker exists passes the
+    baseline and then reports every later mutation CAUGHT without the gate being
+    consulted at all - a non-zero that cannot tell "this mutation" from "the
+    previous run". Rebuilding costs about a second against battery runs measured
+    in tens of seconds, which is not a trade worth making for that.
+    """
     spec_path = root / manifest_rel
     control_rel = str(Path(manifest_rel).parent).replace(os.sep, "/")
 
@@ -357,20 +393,38 @@ def run_manifest(manifest_rel: str, root: Path, sandbox: Path, quiet: bool) -> l
     gate_rel = spec.get("gate", "")
     if not gate_rel:
         return unresolved("*", "manifest names no gate")
-    #: A manifest under `docs/research/` names its gate relative to ITSELF; one
-    #: under `controls/` names it from the repository root. Resolving only the
-    #: second would read the research prototypes' gate as absent and report a
-    #: whole battery UNRESOLVED for a path convention.
-    gate = sandbox / gate_rel
-    if not gate.is_file():
-        gate = sandbox / Path(manifest_rel).parent / gate_rel
-    if not gate.is_file():
-        return unresolved("*", f"declared gate is absent from the sandbox: {gate_rel}")
+
+    def resolve_gate(sandbox: Path) -> Path | None:
+        #: A manifest under `docs/research/` names its gate relative to ITSELF;
+        #: one under `controls/` names it from the repository root. Resolving
+        #: only the second would read the research prototypes' gate as absent
+        #: and report a whole battery UNRESOLVED for a path convention.
+        for candidate in (sandbox / gate_rel, sandbox / Path(manifest_rel).parent / gate_rel):
+            if candidate.is_file() and inside(candidate, sandbox):
+                return candidate
+        return None
 
     battery = spec.get("battery") or default_battery(control_rel)
     cwd_rel = spec.get("battery_cwd", ".")
 
-    def run_battery() -> tuple[int | None, str]:
+    probe_sandbox = new_sandbox()
+    gate = resolve_gate(probe_sandbox)
+    if gate is None:
+        if (probe_sandbox / gate_rel).is_file() or (
+                probe_sandbox / Path(manifest_rel).parent / gate_rel).is_file():
+            return unresolved("*", (
+                f"declared gate {gate_rel!r} resolves OUTSIDE the sandbox, so mutating it "
+                "would write into the real checkout; declare it repository-relative"))
+        return unresolved("*", f"declared gate is absent from the sandbox: {gate_rel}")
+    def run_battery(sandbox: Path) -> tuple[int | None, str]:
+        #: Containment is re-checked HERE, on every invocation, and there is no
+        #: second copy of this check anywhere. Counter-model review pass 2,
+        #: accepted (issue #970): checking it once against the BASELINE sandbox
+        #: let `battery_cwd: "../tree-1"` pass - `tree-1/../tree-1` is `tree-1` -
+        #: and every later mutation then ran its battery in the baseline's
+        #: sandbox, against an UNMUTATED gate, while the probe reported verdicts
+        #: about the mutation. A containment check that runs once is a check on
+        #: the first path, not on the paths.
         #: `{python}` is THIS process's interpreter, and a battery that needs the
         #: project's dependencies must ask for it rather than write `python3`.
         #: The sandbox holds tracked files only, so it has no `.venv`; a battery
@@ -379,12 +433,16 @@ def run_manifest(manifest_rel: str, root: Path, sandbox: Path, quiet: bool) -> l
         #: battery failure, which is the UNRESOLVED-versus-BLIND collapse. Run
         #: the probe itself under the project interpreter (`make mutation-probe`
         #: does) and `{python}` carries it through.
+        cwd = sandbox / cwd_rel
+        if not inside(cwd, sandbox):
+            return None, (f"battery_cwd {cwd_rel!r} resolves OUTSIDE this run's sandbox, so "
+                          "the battery would not be running against the gate under test")
         argv = [part.replace("{root}", str(sandbox)).replace("{python}", sys.executable)
                 for part in battery]
-        return _run(argv, sandbox / cwd_rel, timeout=BATTERY_TIMEOUT)
+        return _run(argv, cwd, timeout=BATTERY_TIMEOUT)
 
     original = gate.read_text(encoding="utf-8")
-    base_code, base_out = run_battery()
+    base_code, base_out = run_battery(probe_sandbox)
     if base_code is None:
         return unresolved("*", f"the unmutated battery could not be run: {base_out}")
     if base_code != 0:
@@ -404,8 +462,19 @@ def run_manifest(manifest_rel: str, root: Path, sandbox: Path, quiet: bool) -> l
         find = entry.get("find")
         replace = entry.get("replace")
         want = entry.get("count")
-        if not isinstance(find, str) or not isinstance(replace, str) or not isinstance(want, int):
-            probe.details.append("mutation declares no usable find/replace/count triple")
+        #: `count` must be a POSITIVE integer, and `isinstance(True, int)` is
+        #: True in Python so the bool is excluded explicitly. Counter-model
+        #: review, accepted (issue #970): `count: 0` satisfied `got != want`
+        #: against a pattern matching nothing, so a declaration naming a
+        #: protection that does not exist ran the battery unchanged, reported
+        #: ACCEPTED beside a written reason, and exited 0 under `--strict` -
+        #: a mutation that removed no protection, certified.
+        if (not isinstance(find, str) or not isinstance(replace, str)
+                or isinstance(want, bool) or not isinstance(want, int) or want < 1):
+            probe.verdict = INAPPLICABLE
+            probe.details.append(
+                "mutation declares no usable find/replace/count triple (`count` must be a "
+                "positive integer: a declaration that removes nothing is not a mutation)")
             probes.append(probe)
             continue
         if expect == "uncaught" and not str(entry.get("why", "")).strip():
@@ -437,21 +506,39 @@ def run_manifest(manifest_rel: str, root: Path, sandbox: Path, quiet: bool) -> l
                 "NOT weakened, so a green battery here says nothing about the battery")
             probes.append(probe)
             continue
+        #: The count says the pattern MATCHED; only this says the file CHANGED.
+        #: Counter-model review, accepted (issue #970): a `replace` equal to the
+        #: text it matches substitutes the declared number of times and leaves
+        #: the gate byte-identical, so the battery is run against an unmutated
+        #: instrument and its green is read as a verdict about coverage.
+        if mutated == original:
+            probe.verdict = INAPPLICABLE
+            probe.details.append(
+                f"`find` matched {got} time(s) but `replace` left the gate BYTE-IDENTICAL, so "
+                "no protection was removed and the battery's verdict is about the original")
+            probes.append(probe)
+            continue
 
-        gate.write_text(mutated, encoding="utf-8")
-        try:
-            parses, why = syntax_ok(gate)
-            if not parses:
-                probe.verdict = INAPPLICABLE
-                probe.details.append(
-                    f"the mutated gate does not parse ({why}); a broken file is not a weaker "
-                    "instrument, and a battery reddened by one proves nothing")
-                probes.append(probe)
-                continue
-            probe.details.append(f"mutated gate syntax: {why}")
-            code, out = run_battery()
-        finally:
-            gate.write_text(original, encoding="utf-8")
+        #: A FRESH sandbox per mutation, so the only difference between this run
+        #: and the baseline is the gate (counter-model review, accepted).
+        run_sandbox = new_sandbox()
+        run_gate = resolve_gate(run_sandbox)
+        if run_gate is None:
+            probe.verdict = UNRESOLVED
+            probe.details.append("the gate could not be resolved in a fresh sandbox")
+            probes.append(probe)
+            continue
+        run_gate.write_text(mutated, encoding="utf-8")
+        parses, why = syntax_ok(run_gate)
+        if not parses:
+            probe.verdict = INAPPLICABLE
+            probe.details.append(
+                f"the mutated gate does not parse ({why}); a broken file is not a weaker "
+                "instrument, and a battery reddened by one proves nothing")
+            probes.append(probe)
+            continue
+        probe.details.append(f"mutated gate syntax: {why}")
+        code, out = run_battery(run_sandbox)
 
         if code is None:
             probe.verdict = UNRESOLVED
@@ -517,19 +604,48 @@ def main(argv: list[str] | None = None) -> int:
     results: list[Probe] = []
     declaring = 0
     with tempfile.TemporaryDirectory(prefix="mutation-probe-") as tmp:
-        sandbox = Path(tmp) / "tree"
-        sandbox.mkdir(parents=True)
-        built, how = build_sandbox(root, sandbox)
-        print(f"MUTATION_PROBE_SANDBOX: {how}")
-        if not built:
-            print(f"mutation-probe: the sandbox could not be built - {how}. "
-                  "Nothing was probed; this is UNRESOLVED, not clean.", file=sys.stderr)
+        serial = [0]
+        snapshot: list[Path | None] = [None]
+
+        def new_sandbox() -> Path:
+            """A PRISTINE copy, one per battery run (counter-model review, #970).
+
+            Built ONCE from the checkout and then COPIED per run, never rebuilt
+            from the live tree. Counter-model review pass 2, accepted: rebuilding
+            each time makes every sandbox a fresh sample of a tree that other
+            processes are editing, so a battery input changed after the green
+            baseline arrives alongside the mutation - and the battery goes red
+            because a NEIGHBOUR changed, certifying a mutation nothing caught. A
+            fresh directory prevents a battery's own writes from persisting; only
+            a fixed source makes the runs comparable.
+
+            Raises rather than returning a half-built tree: a partial copy still
+            runs and still produces verdicts, and those verdicts are about a tree
+            missing files nobody named.
+            """
+            if snapshot[0] is None:
+                source = Path(tmp) / "snapshot"
+                source.mkdir(parents=True)
+                built, how = build_sandbox(root, source)
+                print(f"MUTATION_PROBE_SANDBOX: {how}")
+                if not built:
+                    raise OSError(how)
+                snapshot[0] = source
+            serial[0] += 1
+            sandbox = Path(tmp) / f"tree-{serial[0]}"
+            shutil.copytree(snapshot[0], sandbox, symlinks=True)
+            return sandbox
+
+        try:
+            for rel in selected:
+                probes = run_manifest(rel, root, new_sandbox, args.quiet)
+                if probes:
+                    declaring += 1
+                results.extend(probes)
+        except OSError as exc:
+            print(f"mutation-probe: the sandbox could not be built - {exc}. "
+                  "Nothing further was probed; this is UNRESOLVED, not clean.", file=sys.stderr)
             return 1
-        for rel in selected:
-            probes = run_manifest(rel, root, sandbox, args.quiet)
-            if probes:
-                declaring += 1
-            results.extend(probes)
 
     for probe in results:
         line = f"{probe.manifest}::{probe.name}"
