@@ -737,8 +737,9 @@ A deferred write **exits 3 and names the surface and its declared owner** -
 distinct from both success and failure, so a caller can tell "the manager owns
 this" from "this went wrong". Skipping quietly is #1138's defect.
 
-`--no-guard` exists only to preserve an unguarded append across the #1139
-relocation and is removed by #1142.
+`--no-guard` was removed under #1142. It existed only to preserve the
+unguarded PS1 append across #1139's relocation, so that the move could be
+shown behaviour-preserving before the defect was repaired separately.
 
 ## `check-cpp-host-writes` (#1132)
 

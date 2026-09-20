@@ -876,10 +876,10 @@ If yes:
 # Add to bashrc through the declaring helper (#1139). The helper declares
 # ~/.bashrc as a host surface it writes, and a managed environment can defer
 # it with --defer ~/.bashrc and get a stated refusal rather than a failure.
-# --no-guard preserves TODAY'S unguarded behaviour byte for byte; #1142
-# removes the flag and the duplicate-append defect together.
+# Guarded by its marker, like the tmux block below: running /cpp:init twice
+# leaves one export, not two (#1142).
 ~/.claude/scripts/cpp-host-write.sh bashrc-append \
-  '# Claude Power Pack - worktree context in prompt' - --no-guard <<'PS1_EOF'
+  '# Claude Power Pack - worktree context in prompt' - <<'PS1_EOF'
 
 # Claude Power Pack - worktree context in prompt
 export PS1='$(~/.claude/scripts/prompt-context.sh)\w $ '
