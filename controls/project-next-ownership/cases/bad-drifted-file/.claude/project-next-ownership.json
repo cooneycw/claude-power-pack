@@ -1,0 +1,18 @@
+{
+  "_comment": "Committed control case 'bad-drifted-file' for scripts/project-next-ownership.py (issue #1069).",
+  "owner": "cooneycw/claude-power-pack",
+  "contract_version": "1.3",
+  "files": {
+    "lib/project_next/__init__.py": "729518b84a10bec472a3dbb2d138b0561c6224279631889d1e8b3a02da5d9812",
+    "lib/project_next/classify.py": "a3625a6b1956cfddbddb5618977afbc68ac72c5e3e640a97e5f558f26b4e6b32",
+    "lib/project_next/cli.py": "6503931f669a835ea30371559604cc44a8e7af777be7d215beeb07970886c22e",
+    "lib/project_next/collect.py": "f5877c9ed338204a98da5b27055181fefff16cc96d76c762953ddbf498eb3d81",
+    "lib/project_next/config.py": "3e5ed074cc54352a75a027180e24658b9f65c3b16f38c10f702fd5165a59a13c",
+    "lib/project_next/models.py": "ad7062cc40c3208bc7ba1eaa01bfded10585d54a876bdf791709f1583395d95a",
+    "lib/project_next/rank.py": "708bc1c6595984f2d3443564f0fbbbcd29b924983f185132dd7fd9bfee69477d",
+    "lib/project_next/render.py": "805f64263dc88920e42b835462f42f167f72cc00588c7f81fd95766b0d861394",
+    "lib/project_next/LICENSE": "96feea969b9a419171160389087afa79796e59d8aea7ccf40498742e13b48c9c",
+    "docs/project-next-contract.md": "c18253b932cde720388584d88c035518ba55f434fab139d7a69ef15fc03ac500",
+    "templates/project-next.schema.json": "d750e877b261139b9475ebe4a88ad3c49100c210e87e8a9f80f850095cf9bbce"
+  }
+}

@@ -279,8 +279,8 @@ another repo (the escalation clause); a row can be both.
 | 28 | `check-claude-md-budget.py` | `ok - N/2000 words` | `make verify` | G |
 | 29 | `check-claude-md-links.py` | resolves / `nothing was checked`; since #1037 also every on-disk `docs/agents/*.md` referenced by CLAUDE.md's Project Map, or `UNKNOWN` (exit 2) when the disk glob falls below its membership floor | `make verify` | G |
 | 30 | `check-claude-md-behavior.py` | findability pass/fail | `make verify` | G |
-| 31 | `project-next-vendor.py check` | per-file manifest hashes match | `make verify` | G |
-| 32 | `project-next-vendor.py --upstream` | upstream moved / current (fail-open) | the revendor decision | G |
+| 31 | `project-next-ownership.py check` | per-file ownership pins match, and the contract version DERIVED from `docs/project-next-contract.md` agrees with the manifest | `make verify` | G |
+<!-- row 32 retired under #1069; see the retirement note below. Do not close the gap. -->
 | 33 | `codex-skill-sync.py --check` | `DRIFT` / `MISSING` / `STALE` | CI `codex-skills-check`; the merge re-sync | G, X |
 | 34 | `eli5-vendor.py` (manifest; `eli5-core-drift.sh` is a shim) | vendored core matches the pinned hash | CI `eli5-vendor-check` | G |
 | 35 | `eli5-vendor.py --upstream` | upstream moved / current (fail-open, `failure: ignore`) | the revendor decision | G |
@@ -536,7 +536,7 @@ the answer generalises past bandit:
 | 2,408 test functions, individually | the carve-out: the suite catches an individual test's failure; the suite is row 43 |
 | `hook-permission-census.sh`, `hook-pending-retro.sh`, `friction-log.sh`, `run-delivery-pilots.py`, `lib.cicd status`; the recording operations of `flow-wave-residuals.py` and `playwright-desk.py` | recorders and reporters; nothing decides on their output without reading it, and `delivery-pilots.md` states per instrument what it does not establish. The guarded operations of the two ledgers are rows 19 and 24 |
 | `hook-mask-output.sh`, `secrets-mask.sh` | filters, not verdicts; `CLAUDE.md` states the masking hook "does not authorize reading credentials" - nobody is entitled to rely on it |
-| `flow-helpers-install.sh`, `install-memory-harness.sh`, `memories-db-setup.sh`, `setup-woodpecker-cli.sh`, `bash-prep.sh`, `codex-skill-sync.py --write`, `eli5-vendor.py --revendor`, `project-next-vendor.py --revendor`, `retired-surface-prune.py --prune`, `prompt-context.sh`, `cpp-memory`, `project-init.py`, `c4-mermaid.py`; the rendering half of `speckit-tasks-to-issues.sh` (its guards are row 25) | installers, generators, ledgers and renderers; the state they produce is re-derived by the drift and parity checks in rows 31-37, 46, 51-52. `cpp-commands-link.sh` WAS LISTED HERE and is now row 97 - see the re-derivation note below |
+| `flow-helpers-install.sh`, `install-memory-harness.sh`, `memories-db-setup.sh`, `setup-woodpecker-cli.sh`, `bash-prep.sh`, `codex-skill-sync.py --write`, `eli5-vendor.py --revendor`, `project-next-ownership.py --repin`, `retired-surface-prune.py --prune`, `prompt-context.sh`, `cpp-memory`, `project-init.py`, `c4-mermaid.py`; the rendering half of `speckit-tasks-to-issues.sh` (its guards are row 25) | installers, generators, ledgers and renderers; the state they produce is re-derived by the drift and parity checks in rows 31-37, 46, 51-52. `cpp-commands-link.sh` WAS LISTED HERE and is now row 97 - see the re-derivation note below |
 | `sandbox-phase1-trial.sh` | a one-off experiment whose decision is recorded in ADR 0002; re-running it is the re-derivation |
 | `ci-stage-jq.py`, `counter-model-receipt.py write` (its `counter-model-receipt.py parse` half is row 67) | a stager and a recorder. `ci-stage-jq.py` installs a content-pinned `jq` into `.ci-bin/` and emits no verdict - the gate that then uses `jq` is row 70, and a failed stage surfaces there as `unknown` rather than as a pass. The receipt writer records what the run decided; the deciding is row 67 |
 | `lib.cicd container`, `pipeline`, `infra-init`, `infra-discover`, `infra-pipeline`, `init-manifest` | generators; their output is a file the caller reviews, not a verdict |
@@ -572,6 +572,20 @@ subcommands `pipeline`, `infra-init`, `infra-discover`, `infra-pipeline` and
 LIVES, never that it is out of the bound - `gitleaks` is row 44 and carries a
 control today, reached by wrapping it in `secret-scan-check.sh` (row 72). The
 wrapper is the route for the others.
+
+`project-next-vendor.py --upstream` was row 32 until issue #1069 and is RETIRED,
+not reclassified: it was the fail-open advisory against codex-power-pack, and CPP
+now owns the project-next engine outright, so there is no upstream to advise on.
+Its offline sibling survives as row 31, re-pointed at
+`project-next-ownership.py check`. The row is removed rather than kept as a
+subject-less placeholder because every row in this table is read TWICE - as a
+denominator by `check-negative-controls.py` and as a subject by
+`instrument-census-check.py` - and a row carrying no resolvable subject makes
+those two readers count different documents, which
+`test_the_two_readers_of_the_census_count_the_same_rows` exists to refuse.
+Removing the LINE renumbers nothing: the numbers in this table are literal
+markdown, so rows 33 onward keep the numbers they already have and a gap at 32 is
+the record that something was retired there.
 
 No script-level instrument is excluded by the re-derivation clause alone. The
 first enumeration listed `flow-stale-check.sh` there on the grounds that Step 7
