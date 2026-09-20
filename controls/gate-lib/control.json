@@ -1,0 +1,55 @@
+{
+  "gate": "scripts/gate-lib.sh",
+  "invocation": [
+    "sh",
+    "{gate}",
+    "--check",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^GATE_LIB: refused - ",
+  "unavailable_signal": "^GATE_LIB: unknown - bash is not installed\\b",
+  "limits": "Covers the MODULE's refusals, not any caller's use of them - nothing sources scripts/gate-lib.sh yet, and #1061's constraint 1 is why this control lands first. Each case's probe.sh is run under sh AND bash and the two are required to agree, because the idiom this module replaces does not: '${2:?}' exits 1 under bash and 2 under dash, so scripts/shellcheck-gate.sh - which declares exit 1 = findings - reports a usage error as a finding under one shell and as UNKNOWN under the other. A single-shell control cannot see that, which is why the disagreement is its own verdict here rather than folded into either answer. detect_signal keys on the runner's 'refused' line rather than on the exit status because a probe that CRASHES also exits non-zero (#946): the runner requires the module to have SAID 'gate-lib: refused - ' in the probe's own output, and a crash without it lands in unknown/exit 2, which is crash-distinct rather than 'detected'. NOT covered: whether a migrated gate actually routes through the module - that is #1127's question and needs that gate's own control, not this one.",
+  "cases": [
+    {
+      "name": "bad-final-flag",
+      "input": "cases/bad-final-flag",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-unknown-maps-to-good",
+      "input": "cases/bad-unknown-maps-to-good",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-unmapped-verdict",
+      "input": "cases/bad-unmapped-verdict",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-no-map",
+      "input": "cases/bad-no-map",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-flag-with-value",
+      "input": "cases/good-flag-with-value",
+      "expect": "GOOD"
+    },
+    {
+      "name": "good-empty-value",
+      "input": "cases/good-empty-value",
+      "expect": "GOOD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "synthetic",
+      "sha": "0000000",
+      "origin": "the 'substitute a sensible default' module design refuted by #1061 constraint 2",
+      "path": "anchors/0000000-naive-gate-lib.sh",
+      "sha256": "2b10b002d9fe84bb4d1a81194acbe29b7187f27425ccc754767ac029f93adc47",
+      "note": "No historical commit exists because this module has no pre-fix version - the control is required to land BEFORE any caller. What is vendored is therefore the DESIGN this module rejects, with the same --check runner so a verdict difference isolates the four library functions and nothing else. Provenance reads 'unverified' for that structural reason rather than a temporary one: there is nothing in git history for --verify-provenance to resolve, and there never will be."
+    }
+  ]
+}

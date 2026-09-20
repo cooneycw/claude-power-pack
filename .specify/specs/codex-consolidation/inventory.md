@@ -152,7 +152,7 @@ Codex host.
 |---|---|---|
 | Secret scan | `make secret-scan`, `.gitleaks.toml`, `scripts/secrets-mask.sh` | `make secret-scan`, `.gitleaks.toml`, `controls/secret-scan` |
 | Dependency audit | `make dep-audit` | `make dep-audit`, `dep-audit-selftest`, `dep-audit-capture`, `.dependency-audit-allow` |
-| Python SAST | present (see cxpp#282/#274 for its limits) | **absent** - CPP #962 owns bandit adoption |
+| Python SAST | present (see cxpp#282/#274 for its limits) | **present** - `bandit-audit` in `make verify`, with `bandit-audit-selftest` (live positive control) and `controls/bandit-audit` (adjudication control). **Corrected 2026-09-20:** adopted in `3d4a9a3` (PR #1118); cpp#962 CLOSED 12:03Z |
 | shellcheck | **absent** - cxpp#249: 81 tracked `.sh`, none linted | `make shellcheck`, `controls/shellcheck-gate`; CPP #972 records 175 sub-error findings |
 | Negative controls | cxpp#250, cxpp#283 - coverage incomplete | `controls/check-negative-controls`, `check-negative-fixture-preconditions`, ADR 0008 |
 | Oscillation control | cxpp#242 - adoption proposed, not done | `make oscillation`, `controls/check-oscillation` |
@@ -162,11 +162,18 @@ Codex host.
 | Pin / payload integrity | `codex-skills-pin-check`, `codex-skills-currency-check`, `codex-skills-upstream-report` | `delegated-core-check`, `install-drift-check`, `drift-check` |
 | Test suites | 66 test modules | 122 test modules |
 
-**Asymmetry runs in both directions.** CPP has shellcheck and a mature
-negative-control battery that CxPP lacks; CxPP has SAST, harness lint, skill
-contract lint, skill evaluation and release validation that CPP lacks. A
-migration that moves only toward CPP's current shape **loses the second column**.
-This is the substance of spec Open Question **Q5** and of cpp#962 (SAST).
+**Asymmetry runs in both directions** - but one column shrank in a day. CPP has
+shellcheck, a mature negative-control battery and, since 2026-09-20, SAST. CxPP
+retains harness lint, skill contract lint, skill evaluation and release
+validation with no CPP analogue. Under the owner's 2026-09-20 ruling those four
+are `owner-approved-retirement` (Q5) and SAST is moot (Q2).
+
+**This row is the ledger's own cautionary case.** Written on 2026-09-19, "Python
+SAST: absent" was true. It was false nineteen hours later, and Q2 - a decision
+framed as "accept a measurable reduction in protection, or duplicate work cpp#962
+owns" - was posed against a repository state that no longer existed when it
+reached the owner. An inventory is a measurement with a timestamp, not a fact.
+Re-derive §5 against the tree before relying on any row of it.
 
 ---
 
@@ -303,10 +310,24 @@ is a stated gap rather than a clean finding.
 
 **Three of six are `unknown`, and that is the finding.** An inventory that listed
 only the three knowns would read as complete. Per spec **US1**, these are
-recorded as unknown with the reason they could not be confirmed; resolving them
-is #1076's archive-readiness work ("every known active consumer is migrated or
-explicitly retired"), and #1076 cannot discharge that criterion while these rows
-remain unknown.
+recorded as unknown with the reason they could not be confirmed.
+
+**Owner ruling 2026-09-20 (Q7): accept-break.** The three unknown populations are
+not enumerated and not migrated; making the repository private breaks whatever
+they are. The enumerable signals were measured on 2026-09-20 and show no human
+adoption - 0 stars, 0 forks, 0 watchers, 8 unique viewers in 14 days - while
+clone traffic over the same window (1109 clones, 184 uniques) is **unattributed
+and narrows nothing**: it cannot distinguish CI, the CPP-CxPP bridge, and mirror
+bots from an adopter. The ruling is a decision taken with that uncertainty
+stated, not a measurement that removed it.
+
+**The two KNOWN consumers still constrain the order.**
+`scripts/project-next-vendor.py:90-91` hardcodes the CxPP `api_root`/`raw_root`
+and `lib/vendor.py` fetches them with no auth handling at all, so
+`make project-next-drift` and `make project-next-revendor` break the moment the
+repository is private. #1069 lands first. `make verify` is unaffected:
+`project-next-check` is an offline manifest hash and `consolidation-ledger-check`
+reads the committed snapshot.
 
 ---
 
