@@ -1468,10 +1468,8 @@ Rationale and caveats: templates/claude-settings-permissions.md)  [y/N]
 If yes, run the same merge as `/cpp:init`:
 
 ```bash
-mkdir -p "$HOME/.claude"
-[ -f "$TARGET" ] || echo '{}' > "$TARGET"
-jq -s '.[0].permissions.allow = (((.[0].permissions.allow // []) + .[1].permissions.allow) | unique) | .[0]' \
-  "$TARGET" "$TEMPLATE" > "$TARGET.tmp" && mv "$TARGET.tmp" "$TARGET"
+# Through the declaring seam (#1132), same call /cpp:init makes.
+~/.claude/scripts/cpp-host-write.sh settings-merge "$TEMPLATE"
 echo "✓ Flow allowlist merged ($(jq '.permissions.allow | length' "$TARGET") total allow rules)"
 ```
 
@@ -1522,16 +1520,17 @@ data. Never blocks or alters a permission decision.  [y/N]
 If yes, run the same idempotent merge as `/cpp:init`:
 
 ```bash
-mkdir -p "$HOME/.claude"
-[ -f "$TARGET" ] || echo '{}' > "$TARGET"
-jq --arg cmd "$CENSUS_CMD" '
+# Through the declaring seam (#1132): the helper owns the write, this
+# document keeps the jq program. --defer ~/.claude/settings.json yields a
+# stated refusal instead of a silent skip.
+~/.claude/scripts/cpp-host-write.sh settings-edit --arg cmd "$CENSUS_CMD" <<'JQ'
   .hooks = (.hooks // {})
   | .hooks.PermissionRequest = (.hooks.PermissionRequest // [])
   | if any(.hooks.PermissionRequest[]?; (.hooks // [])[]?.command == $cmd)
     then .
     else .hooks.PermissionRequest += [{"hooks":[{"type":"command","command":$cmd}]}]
     end
-' "$TARGET" > "$TARGET.tmp" && mv "$TARGET.tmp" "$TARGET"
+JQ
 echo "✓ PermissionRequest census hook registered in ~/.claude/settings.json"
 ```
 
@@ -1587,16 +1586,17 @@ Silent when there is nothing to report.  [y/N default N]
 If yes, run the same idempotent merge as `/cpp:init`:
 
 ```bash
-mkdir -p "$HOME/.claude"
-[ -f "$TARGET" ] || echo '{}' > "$TARGET"
-jq --arg cmd "$RETRO_CMD" '
+# Through the declaring seam (#1132): the helper owns the write, this
+# document keeps the jq program. --defer ~/.claude/settings.json yields a
+# stated refusal instead of a silent skip.
+~/.claude/scripts/cpp-host-write.sh settings-edit --arg cmd "$RETRO_CMD" <<'JQ'
   .hooks = (.hooks // {})
   | .hooks.SessionStart = (.hooks.SessionStart // [])
   | if any(.hooks.SessionStart[]?; (.command == $cmd) or ((.hooks // [])[]?.command == $cmd))
     then .
     else .hooks.SessionStart += [{"hooks":[{"type":"command","command":$cmd}]}]
     end
-' "$TARGET" > "$TARGET.tmp" && mv "$TARGET.tmp" "$TARGET"
+JQ
 echo "✓ Session-open pending-retro reminder registered in ~/.claude/settings.json"
 ```
 

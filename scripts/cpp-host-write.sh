@@ -64,6 +64,7 @@ usage() {
 cpp-host-write.sh <command> [--defer SURFACE]... [args]
 
   ensure-dir <path>              mkdir -p a directory under $HOME
+  settings-edit [--arg K V]...   apply a jq program (stdin) to settings.json
   settings-merge <template>      merge a permissions template into settings.json
   rc-append <rc> <marker> <file> append a guarded block to a caller-named shell rc
   bashrc-append <marker> <file>  append a guarded block to ~/.bashrc
@@ -175,6 +176,40 @@ cmd_settings_merge() {
 #: ~/.bashrc therefore refused two writes, PRINTED A STATED REFUSAL, and wrote
 #: the file anyway - worse than not honouring it, because the caller is told
 #: the surface was protected.
+#: Apply a caller-supplied jq program to ~/.claude/settings.json, through the
+#: seam. The helper owns the WRITE - defer check, parent directory, the `{}`
+#: bootstrap, the atomic tmp+mv - and the caller owns the TRANSFORM, which
+#: stays in the command document where it is readable and reviewable.
+#:
+#: Six sites across init.md and update.md wrote this file inline in two
+#: shapes: a template merge and a hook registration. Giving each its own
+#: subcommand would put jq programs in this file and leave the documents
+#: saying less than they do now; giving the seam the write and keeping the
+#: program at the call site changes only who performs the write.
+#:
+#:     cpp-host-write.sh settings-edit [--arg NAME VALUE]... <<'JQ'
+#:       .hooks = (.hooks // {}) | ...
+#:     JQ
+cmd_settings_edit() {
+    local target="$HOME/.claude/settings.json"
+    is_deferred "$target" && { refuse "$target" cpp; return $?; }
+    local program
+    program="$(cat)"
+    [ -n "$program" ] || { printf 'cpp-host-write: FAILED empty jq program on stdin\n' >&2; return 1; }
+    mkdir -p "$HOME/.claude" || return 1
+    [ -f "$target" ] || echo '{}' > "$target"
+    #: JQ_ARGS is populated by the --arg pairs collected in main(). Unquoted on
+    #: purpose: each element is already one argv word.
+    # shellcheck disable=SC2086
+    if ! jq ${JQ_ARGS:-} "$program" "$target" > "$target.tmp"; then
+        rm -f "$target.tmp"
+        printf 'cpp-host-write: FAILED jq program did not apply\n' >&2
+        return 1
+    fi
+    mv "$target.tmp" "$target" || return 1
+    printf 'cpp-host-write: ok ~/.claude/settings.json (edited)\n'
+}
+
 cmd_rc_append() {
     local rc="$1" marker="$2" content_file="$3"
     is_deferred "$rc" && { refuse "$rc" user; return $?; }
@@ -246,6 +281,7 @@ main() {
         case "$1" in
             --defer) DEFERRED+=("${2:-}"); shift 2 ;;
             --no-guard) NO_GUARD=1; shift ;;
+            --arg) JQ_ARGS="${JQ_ARGS:-} --arg ${2:-} ${3:-}"; shift 3 ;;
             -h|--help) usage; return 0 ;;
             *) args+=("$1"); shift ;;
         esac
@@ -253,6 +289,7 @@ main() {
     case "$cmd" in
         surfaces)       cmd_surfaces ;;
         ensure-dir)     cmd_ensure_dir "${args[0]:?path required}" ;;
+        settings-edit)  cmd_settings_edit ;;
         settings-merge) cmd_settings_merge "${args[0]:?template required}" ;;
         rc-append)      cmd_rc_append "${args[0]:?rc path required}" "${args[1]:?marker required}" "${args[2]:?content file required}" ;;
         bashrc-append)  cmd_bashrc_append "${args[0]:?marker required}" "${args[1]:?content file required}" ;;

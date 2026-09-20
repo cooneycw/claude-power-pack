@@ -730,12 +730,13 @@ If yes:
 ```bash
 TEMPLATE="$CPP_DIR/templates/claude-settings-permissions.json"
 TARGET="$HOME/.claude/settings.json"
-mkdir -p "$HOME/.claude"
-[ -f "$TARGET" ] || echo '{}' > "$TARGET"
 
-BEFORE=$(jq '(.permissions.allow // []) | length' "$TARGET")
-jq -s '.[0].permissions.allow = (((.[0].permissions.allow // []) + .[1].permissions.allow) | unique) | .[0]' \
-  "$TARGET" "$TEMPLATE" > "$TARGET.tmp" && mv "$TARGET.tmp" "$TARGET"
+BEFORE=$([ -f "$TARGET" ] && jq '(.permissions.allow // []) | length' "$TARGET" || echo 0)
+# Through the declaring seam (#1132): the helper owns the write - defer
+# check, parent dir, `{}` bootstrap, atomic tmp+mv - and this document keeps
+# the jq program. A managed environment passes --defer ~/.claude/settings.json
+# and gets a stated refusal naming the surface and its owner.
+~/.claude/scripts/cpp-host-write.sh settings-merge "$TEMPLATE"
 AFTER=$(jq '.permissions.allow | length' "$TARGET")
 
 echo "✓ Flow allowlist merged into ~/.claude/settings.json ($((AFTER - BEFORE)) new rules, $AFTER total)"
@@ -776,18 +777,19 @@ If yes:
 ```bash
 TARGET="$HOME/.claude/settings.json"
 CENSUS_CMD="~/.claude/scripts/hook-permission-census.sh"
-mkdir -p "$HOME/.claude"
-[ -f "$TARGET" ] || echo '{}' > "$TARGET"
+# Through the declaring seam (#1132): the helper owns the write, this
+# document keeps the jq program. --defer ~/.claude/settings.json yields a
+# stated refusal instead of a silent skip.
+~/.claude/scripts/cpp-host-write.sh settings-edit --arg cmd "$CENSUS_CMD" <<'JQ'
 
 # Idempotent: add the hook only if this exact command is not already registered.
-jq --arg cmd "$CENSUS_CMD" '
   .hooks = (.hooks // {})
   | .hooks.PermissionRequest = (.hooks.PermissionRequest // [])
   | if any(.hooks.PermissionRequest[]?; (.hooks // [])[]?.command == $cmd)
     then .
     else .hooks.PermissionRequest += [{"hooks":[{"type":"command","command":$cmd}]}]
     end
-' "$TARGET" > "$TARGET.tmp" && mv "$TARGET.tmp" "$TARGET"
+JQ
 echo "✓ PermissionRequest census hook registered in ~/.claude/settings.json"
 ```
 
@@ -832,19 +834,20 @@ If yes:
 ```bash
 TARGET="$HOME/.claude/settings.json"
 RETRO_CMD="~/.claude/scripts/hook-pending-retro.sh"
-mkdir -p "$HOME/.claude"
-[ -f "$TARGET" ] || echo '{}' > "$TARGET"
+# Through the declaring seam (#1132): the helper owns the write, this
+# document keeps the jq program. --defer ~/.claude/settings.json yields a
+# stated refusal instead of a silent skip.
+~/.claude/scripts/cpp-host-write.sh settings-edit --arg cmd "$RETRO_CMD" <<'JQ'
 
 # Idempotent: add the hook only if this exact command is not already registered
 # (tolerant of both the {hooks:[...]} group shape and a bare {command} entry).
-jq --arg cmd "$RETRO_CMD" '
   .hooks = (.hooks // {})
   | .hooks.SessionStart = (.hooks.SessionStart // [])
   | if any(.hooks.SessionStart[]?; (.command == $cmd) or ((.hooks // [])[]?.command == $cmd))
     then .
     else .hooks.SessionStart += [{"hooks":[{"type":"command","command":$cmd}]}]
     end
-' "$TARGET" > "$TARGET.tmp" && mv "$TARGET.tmp" "$TARGET"
+JQ
 echo "✓ Session-open retro reminder registered in ~/.claude/settings.json"
 ```
 
@@ -1587,7 +1590,7 @@ If yes:
 # Claude Power Pack - Qwen serving endpoint (issue #755)
 export QWEN_OLLAMA_URL=$QWEN_ENDPOINT
 QWEN_RC_EOF
-echo "  Restart the shell or source $QWEN_RC_DISPLAY
+echo "  Restart the shell or source $QWEN_RC_DISPLAY"
 ```
 
 If no:
@@ -1744,7 +1747,7 @@ If yes:
 # Claude Power Pack - Gemma serving endpoint (issue #755)
 export GEMMA_OLLAMA_URL=$GEMMA_ENDPOINT
 GEMMA_RC_EOF
-echo "  Restart the shell or source $GEMMA_RC_DISPLAY
+echo "  Restart the shell or source $GEMMA_RC_DISPLAY"
 ```
 
 If no:
