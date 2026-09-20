@@ -26,14 +26,32 @@
 # Usage: secret-scan-check.sh --root <dir>
 set -u
 
+# THE SHARED GATE MODULE (issue #1127, 2 of 4). This gate is the one that was
+# ALREADY RIGHT: its `[ $# -ge 2 ]` on the line above the shift is the fifth
+# idiom in the tree and the only one that decided on the COUNT rather than on
+# the emptiness of the candidate - which is the semantics #1126 chose for
+# `gate_arg_value`. So `--root ""` was accepted here before this migration and
+# is accepted after it; nothing about this gate's handling of an empty value is
+# new, and it is the reason the other three now agree with it rather than the
+# other way round.
+#
+# A line-scoped grep for `${2:?}` reads this block as unguarded. It was not.
+# Read the block, not the matched line.
+#
+# Adopts `gate_map` and `gate_arg_value`. NOT `gate_emit`: this gate's findings
+# are gitleaks' own `RuleID:` lines, which its control keys on, and its other
+# output is `secret-scan-control: ...` prose - neither is a `KEY: verdict`
+# contract line, and inventing one would change what the control reads.
+. "$(dirname "$0")/gate-lib.sh"
+
+gate_map clean=0 findings=1 usage=2 unavailable=3
+
 die() { echo "secret-scan-control: $1" >&2; exit 2; }
 
 ROOT=""
 while [ $# -gt 0 ]; do
     case "$1" in
-        --root)
-            [ $# -ge 2 ] || die "--root requires a value"
-            ROOT="$2"; shift 2 ;;
+        --root) gate_arg_value "$1" "$#" "${2-}"; ROOT=$GATE_VALUE; shift 2 ;;
         *) die "unknown argument: $1" ;;
     esac
 done

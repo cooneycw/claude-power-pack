@@ -24,7 +24,13 @@ THE EXPECTED STRINGS ARE DERIVED FROM ``scripts/gate-lib.sh``, NEVER RETYPED
 (issue #1127, orchestrator condition). A test that hardcodes the module's
 message asserts that the gates agree with this file, not that they agree with
 the module - and the two drift the first time the module's wording is improved.
-The same applies to the usage exit: it is read from the module's own constant.
+
+The usage EXIT is derived per gate, and the first cut got that wrong: it read
+the module's default and asserted it of all four, which would have forced
+`secret-scan-check.sh` to move a number that was already stable across shells
+and collided with none of its verdicts. The module offers `gate_map ... usage=N`
+precisely so it need not, and a test that assumed the default was asserting
+something the module does not promise.
 
 THE QUESTION THIS FILE HAD TO ASK OF ITSELF: a migration onto a module built to
 stop hand-rolled argument loops must not hand-roll one to prove it. So nothing
@@ -62,10 +68,31 @@ INTERPRETERS = ("sh", "bash")
 
 
 def _module_usage_exit() -> int:
-    """`GATE_USAGE_EXIT`, read from the module rather than retyped."""
+    """`GATE_USAGE_EXIT`, the module's DEFAULT, read rather than retyped."""
     m = re.search(r"^GATE_USAGE_EXIT=(\d+)", GATE_LIB.read_text(), re.M)
     assert m, "gate-lib.sh no longer declares GATE_USAGE_EXIT"
     return int(m.group(1))
+
+
+def _gate_usage_exit(gate: str) -> int:
+    """This GATE's usage exit: its own `usage=` if it declares one, else the default.
+
+    Derived per gate, not globally. The module supports `gate_map ... usage=N`
+    precisely so a gate whose usage code is already stable and collision-free
+    can keep it, and a test that assumed the default would have forced every
+    gate to move a number for no reason - which is the opposite of what a
+    migration proving "nothing changed" should do.
+
+    `secret-scan-check.sh` is the case: its usage exit is 2 under BOTH shells
+    today and collides with none of its verdicts, so it keeps 2. The other three
+    exited 1 under bash - a number each of them also uses for a real verdict -
+    and move to the module's default.
+    """
+    text = (ROOT / "scripts" / gate).read_text()
+    m = re.search(r"^\s*gate_map\s+([^\n]*)", text, re.M)
+    assert m, f"{gate} does not call gate_map"
+    declared = re.search(r"\busage=(\d+)", m.group(1))
+    return int(declared.group(1)) if declared else _module_usage_exit()
 
 
 def _module_refusal(flag: str) -> str:
@@ -135,9 +162,11 @@ def test_a_dangling_value_flag_produces_the_modules_refusal(
         f"{gate} under {interpreter} did not route through gate_arg_value.\n"
         f"expected: {expected!r}\nstderr:   {result.stderr!r}"
     )
-    assert result.returncode == _module_usage_exit(), (
+    expected_exit = _gate_usage_exit(gate)
+    assert result.returncode == expected_exit, (
         f"{gate} under {interpreter}: usage exit is {result.returncode}, "
-        f"expected the module's {_module_usage_exit()}"
+        f"expected {expected_exit} (its own `usage=` if declared, else the "
+        f"module's default {_module_usage_exit()})"
     )
 
 
@@ -157,9 +186,22 @@ def test_the_usage_exit_is_not_a_verdict_code(gate: str, flag: str) -> None:
     gates declare. Asserted as a property - above the range a gate uses - rather
     than as the number 64, so it survives the module choosing a different one.
     """
-    assert _module_usage_exit() > 3, (
-        "the module's usage exit is inside the range these gates use for "
-        "verdicts (0-3), so a usage error can still be read as one"
+    # Per gate, because the answer differs per gate and the reason differs too.
+    # secret-scan-check keeps 2, which is its `die` code - an operational error,
+    # not a verdict - so a usage error there is already distinguishable from
+    # `clean` (0) and `findings` (1). The other three move out of the 0-3 range
+    # entirely, because the number they used IS one of their verdicts.
+    text = (ROOT / "scripts" / gate).read_text()
+    verdicts = re.search(r"^\s*gate_map\s+([^\n]*)", text, re.M)
+    assert verdicts, f"{gate} does not call gate_map"
+    codes = {
+        int(c)
+        for name, c in re.findall(r"\b([a-z-]+)=(\d+)", verdicts.group(1))
+        if name != "usage"
+    }
+    assert _gate_usage_exit(gate) not in codes, (
+        f"{gate}: its usage exit {_gate_usage_exit(gate)} is also one of its "
+        f"verdict codes {sorted(codes)}, so a usage error can be read as a verdict"
     )
 
 
