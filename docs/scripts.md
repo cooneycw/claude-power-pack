@@ -739,3 +739,23 @@ this" from "this went wrong". Skipping quietly is #1138's defect.
 
 `--no-guard` exists only to preserve an unguarded append across the #1139
 relocation and is removed by #1142.
+
+## `check-cpp-host-writes` (#1132)
+
+Refuses an inline host write in `.claude/commands/cpp/init.md` and
+`update.md`. Every host write in those two documents goes through
+`scripts/cpp-host-write.sh`, which declares the surface and can be told to
+defer it; this gate keeps it that way.
+
+**Scans by write FORM, not by surface**, because every enumeration by surface
+during #1132 missed something: a same-line redirect, an indirect one (target
+assigned twenty lines above its use), embedded python inside a heredoc, and
+`mkdir`/`ln` into a host directory.
+
+**A line is a comment only when its first non-whitespace character is `#`.** A
+filter that dropped any line containing a hash would excuse
+`printf '# managed by cpp' >> "$RC"` - a real write whose line merely looks
+like one, and the write such a filter is most likely to meet.
+
+Its verdict names the two documents it scanned and claims nothing about the
+other command families, which are not in its input.

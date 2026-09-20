@@ -69,9 +69,11 @@ else
   # The subshell is load-bearing: `if : > "$probe" 2>/dev/null` still leaks
   # "Permission denied", because the shell processes redirections left to right
   # and reports the failed one BEFORE 2>/dev/null takes effect. Measured.
-  surface_writable=no
-  probe=~/.claude/commands/.cpp-init-write-probe.$$
-  if ( : > "$probe" ) 2>/dev/null; then surface_writable=yes; rm -f "$probe"; fi
+  # Through the declaring seam (#1132). A probe in intent, a write in fact -
+  # it creates a file under the surface and removes it. Deferring the surface
+  # answers the question the probe asks, so a deferred probe reports `no`
+  # rather than writing to find out what it was already told.
+  surface_writable=$(~/.claude/scripts/cpp-host-write.sh probe-writable ~/.claude/commands 2>/dev/null)
 
   echo "No claude-power-pack CHECKOUT found at any known path."
   echo "  CPP command surface served here: $cpp_surface (~/.claude/commands/cpp/init.md readable)"
@@ -607,10 +609,9 @@ if [ -d ~/.claude/scripts ]; then
   for script in "$CPP_DIR"/scripts/*; do
     [ -f "$script" ] && [ -x "$script" ] || continue
     name=$(basename "$script")
-    if [ ! -L ~/.claude/scripts/"$name" ]; then
-      ln -sf "$script" ~/.claude/scripts/"$name"
-      echo "✓ $name newly linked"
-    fi
+    # Through the declaring seam (#1132). The helper carries the already-linked
+    # skip this block had, and honours --defer ~/.claude/scripts by name.
+    ~/.claude/scripts/cpp-host-write.sh link-into "$script" ~/.claude/scripts "$name"
   done
 else
   echo "→ Script refresh skipped (no ~/.claude/scripts - Tier 0/1 install)"
@@ -1031,17 +1032,11 @@ print("; ".join(states))
 PYSTATUS
   )
 
-  PYTHONPATH= python3 - "$CPP_DIR/templates/opencode-gemma.json" "$OC_CONFIG" <<'PYEOF'
-import json, sys, pathlib
-tmpl_path, cfg_path = sys.argv[1], pathlib.Path(sys.argv[2])
-tmpl = json.loads(pathlib.Path(tmpl_path).read_text())
-cfg = json.loads(cfg_path.read_text()) if cfg_path.exists() else {}
-cfg.setdefault("$schema", tmpl["$schema"])
-for section in ("provider", "agent"):
-    cfg.setdefault(section, {}).update(tmpl[section])
-cfg_path.write_text(json.dumps(cfg, indent=2) + "\n")
-print(f"[x] merged gemma-ollama provider + gemma-implementer agent into {cfg_path}")
-PYEOF
+  # Through the declaring seam (#1132). This merge was embedded PYTHON, which is
+  # why no shell pattern found it: a cfg_path.write_text() satisfies no grep for
+  # a redirect, cp, tee, mv or ln. Same .update() semantics, moved not improved.
+  ~/.claude/scripts/cpp-host-write.sh json-merge-sections \
+    "$CPP_DIR/templates/opencode-gemma.json" "$OC_CONFIG" provider agent
 
   echo "✓ Tier 7 Gemma profile: $GEMMA_PROFILE_STATUS"
   echo "    Re-merge keeps the gemma-implementer mechanical fence from going stale."
@@ -1468,10 +1463,8 @@ Rationale and caveats: templates/claude-settings-permissions.md)  [y/N]
 If yes, run the same merge as `/cpp:init`:
 
 ```bash
-mkdir -p "$HOME/.claude"
-[ -f "$TARGET" ] || echo '{}' > "$TARGET"
-jq -s '.[0].permissions.allow = (((.[0].permissions.allow // []) + .[1].permissions.allow) | unique) | .[0]' \
-  "$TARGET" "$TEMPLATE" > "$TARGET.tmp" && mv "$TARGET.tmp" "$TARGET"
+# Through the declaring seam (#1132), same call /cpp:init makes.
+~/.claude/scripts/cpp-host-write.sh settings-merge "$TEMPLATE"
 echo "✓ Flow allowlist merged ($(jq '.permissions.allow | length' "$TARGET") total allow rules)"
 ```
 
@@ -1522,16 +1515,17 @@ data. Never blocks or alters a permission decision.  [y/N]
 If yes, run the same idempotent merge as `/cpp:init`:
 
 ```bash
-mkdir -p "$HOME/.claude"
-[ -f "$TARGET" ] || echo '{}' > "$TARGET"
-jq --arg cmd "$CENSUS_CMD" '
+# Through the declaring seam (#1132): the helper owns the write, this
+# document keeps the jq program. --defer ~/.claude/settings.json yields a
+# stated refusal instead of a silent skip.
+~/.claude/scripts/cpp-host-write.sh settings-edit --arg cmd "$CENSUS_CMD" <<'JQ'
   .hooks = (.hooks // {})
   | .hooks.PermissionRequest = (.hooks.PermissionRequest // [])
   | if any(.hooks.PermissionRequest[]?; (.hooks // [])[]?.command == $cmd)
     then .
     else .hooks.PermissionRequest += [{"hooks":[{"type":"command","command":$cmd}]}]
     end
-' "$TARGET" > "$TARGET.tmp" && mv "$TARGET.tmp" "$TARGET"
+JQ
 echo "✓ PermissionRequest census hook registered in ~/.claude/settings.json"
 ```
 
@@ -1587,16 +1581,17 @@ Silent when there is nothing to report.  [y/N default N]
 If yes, run the same idempotent merge as `/cpp:init`:
 
 ```bash
-mkdir -p "$HOME/.claude"
-[ -f "$TARGET" ] || echo '{}' > "$TARGET"
-jq --arg cmd "$RETRO_CMD" '
+# Through the declaring seam (#1132): the helper owns the write, this
+# document keeps the jq program. --defer ~/.claude/settings.json yields a
+# stated refusal instead of a silent skip.
+~/.claude/scripts/cpp-host-write.sh settings-edit --arg cmd "$RETRO_CMD" <<'JQ'
   .hooks = (.hooks // {})
   | .hooks.SessionStart = (.hooks.SessionStart // [])
   | if any(.hooks.SessionStart[]?; (.command == $cmd) or ((.hooks // [])[]?.command == $cmd))
     then .
     else .hooks.SessionStart += [{"hooks":[{"type":"command","command":$cmd}]}]
     end
-' "$TARGET" > "$TARGET.tmp" && mv "$TARGET.tmp" "$TARGET"
+JQ
 echo "✓ Session-open pending-retro reminder registered in ~/.claude/settings.json"
 ```
 

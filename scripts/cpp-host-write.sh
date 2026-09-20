@@ -14,6 +14,13 @@
 #: HOST-SURFACE: ~/.claude owner=cpp write=mkdir certified=authored
 #: HOST-SURFACE: ~/.claude/scripts owner=cpp write=mkdir certified=authored
 #: HOST-SURFACE: ~/.bashrc owner=user write=append certified=authored
+#: HOST-SURFACE: ~/.zshrc owner=user write=append certified=authored
+#: HOST-SURFACE: ~/.config/opencode/opencode.json owner=cpp write=json-merge certified=authored
+#: HOST-SURFACE: ~/.config/claude-power-pack/secrets/cpp-memories.backend owner=cpp write=replace certified=authored
+#  The shell rc is chosen at run time from $SHELL, so BOTH are declared:
+#  a defer-set must be able to name what the code CAN write, not only what
+#  it happened to write on the machine someone last looked at. A zsh user
+#  whose defer-set cannot name ~/.zshrc has no way to protect it.
 #
 # cpp-host-write.sh - the one place /cpp:init and /cpp:update write host
 # surfaces, and the seam a managed environment defers (issue #1139).
@@ -59,7 +66,14 @@ usage() {
 cpp-host-write.sh <command> [--defer SURFACE]... [args]
 
   ensure-dir <path>              mkdir -p a directory under $HOME
+  probe-writable <dir>           print yes|no; deferred prints no and exits 3
+  link-into <src> <dir> <name>   symlink a file into a host directory
+  file-write <target> <content>  replace a host file's contents
+  json-merge-sections <tmpl> <target> <section>...
+                                 merge template sections into a JSON target
+  settings-edit [--arg K V]...   apply a jq program (stdin) to settings.json
   settings-merge <template>      merge a permissions template into settings.json
+  rc-append <rc> <marker> <file> append a guarded block to a caller-named shell rc
   bashrc-append <marker> <file>  append a guarded block to ~/.bashrc
                                  (--no-guard preserves a pre-existing defect;
                                   see the note at cmd_bashrc_append)
@@ -159,6 +173,170 @@ cmd_settings_merge() {
 #: That defect is recorded separately and is NOT repaired here - preserving
 #: behaviour is the only claim that makes a move reviewable. The guard below is
 #: the behaviour of the block that HAD one; the caller decides which it gets.
+#: Append to a shell rc the CALLER names - ~/.bashrc or ~/.zshrc, chosen from
+#: $SHELL by the command document. bashrc-append is the fixed-target form kept
+#: for its existing callers; this is the same operation with the target passed.
+#:
+#: It exists because ~/.bashrc was HALF-SEAMED: two blocks went through
+#: bashrc-append while the Qwen and Gemma endpoint exports wrote the same file
+#: inline, twenty lines below where $QWEN_RC was assigned. A defer-set naming
+#: ~/.bashrc therefore refused two writes, PRINTED A STATED REFUSAL, and wrote
+#: the file anyway - worse than not honouring it, because the caller is told
+#: the surface was protected.
+#: Apply a caller-supplied jq program to ~/.claude/settings.json, through the
+#: seam. The helper owns the WRITE - defer check, parent directory, the `{}`
+#: bootstrap, the atomic tmp+mv - and the caller owns the TRANSFORM, which
+#: stays in the command document where it is readable and reviewable.
+#:
+#: Six sites across init.md and update.md wrote this file inline in two
+#: shapes: a template merge and a hook registration. Giving each its own
+#: subcommand would put jq programs in this file and leave the documents
+#: saying less than they do now; giving the seam the write and keeping the
+#: program at the call site changes only who performs the write.
+#:
+#:     cpp-host-write.sh settings-edit [--arg NAME VALUE]... <<'JQ'
+#:       .hooks = (.hooks // {}) | ...
+#:     JQ
+#: Merge named top-level sections of a JSON template into a JSON target,
+#: through the seam. Replicates exactly what /cpp:init and /cpp:update did
+#: inline: setdefault the template's "$schema", then setdefault-and-update each
+#: named section. Existing keys inside a section are OVERWRITTEN by the
+#: template and keys outside the named sections are untouched - `.update()`
+#: semantics, preserved deliberately rather than improved.
+#:
+#: This one was written by EMBEDDED PYTHON inside a heredoc, which is why no
+#: shell pattern found it: a `cfg_path.write_text(...)` satisfies no grep for a
+#: redirect, cp, tee, mv or ln. Four write FORMS exist in these documents and
+#: that was the fourth.
+#: Replace a host file's whole contents, through the seam. The narrowest write
+#: form there is, and the one `/cpp:init` used three times for the memories
+#: backend selector - `echo "md" > "$BACKEND_FILE"` and two siblings, one per
+#: branch. The parent directory is created here so a caller cannot satisfy the
+#: defer-set and then mkdir the tree anyway.
+#: Symlink a file into a host directory, through the seam. `/cpp:init` and
+#: `/cpp:update` loop over the checkout's scripts and link each into
+#: ~/.claude/scripts/, which is a write to a host surface however small each
+#: individual link is - and the loop shape is why no single-site enumeration
+#: found it: there is ONE `ln -sf` in the source that becomes ninety-odd links
+#: at run time.
+#:
+#: The defer check is on the DIRECTORY, tested once per call, so a defer-set
+#: naming ~/.claude/scripts refuses the whole loop by name rather than emitting
+#: one refusal per file.
+#: Answer "can CPP write here", through the seam. A PROBE rather than a write
+#: in intent, but a write in fact: it creates a file under the surface and
+#: removes it, which is why the static check flags the inline form.
+#:
+#: DEFERRED MEANS NOT-WRITABLE-BY-US, and that is the whole point. A manager
+#: that defers ~/.claude/commands has already answered the question the probe
+#: asks; probing a surface you have been told not to touch is both rude and
+#: uninformative. So a deferred probe reports `no` and exits 3 rather than
+#: creating the probe file to discover what it was already told.
+#:
+#: The subshell is load-bearing and is preserved from the inline form:
+#: `if : > "$probe" 2>/dev/null` still leaks "Permission denied", because the
+#: shell processes redirections left to right and reports the failed one
+#: BEFORE 2>/dev/null takes effect. Measured, per the note in init.md.
+cmd_probe_writable() {
+    local dir="$1"
+    if is_deferred "$dir"; then
+        #: The VERDICT goes to stdout and the REFUSAL to stderr, because the
+        #: caller reads this with a command substitution. Printing both to
+        #: stdout made the answer depend on `head -1` at the call site - a
+        #: correct result for a fragile reason, and the next caller that omits
+        #: the pipe silently captures the refusal text as the verdict.
+        printf 'no\n'
+        refuse "$dir" cpp >&2
+        return "$CPP_HOST_WRITE_EXIT_DEFERRED"
+    fi
+    local probe="$dir/.cpp-write-probe.$$"
+    if ( : > "$probe" ) 2>/dev/null; then
+        rm -f "$probe"
+        printf 'yes\n'
+        return 0
+    fi
+    printf 'no\n'
+    return 0
+}
+
+cmd_link_into() {
+    local src="$1" dir="$2" name="$3"
+    is_deferred "$dir" && { refuse "$dir" cpp; return $?; }
+    [ -e "$src" ] || { printf 'cpp-host-write: FAILED source not found: %s\n' "$src" >&2; return 1; }
+    mkdir -p "$dir" || return 1
+    if [ -L "$dir/$name" ]; then
+        printf 'cpp-host-write: ok %s/%s (already linked, skipped)\n' "$(normalise "$dir")" "$name"
+        return 0
+    fi
+    ln -sf "$src" "$dir/$name" || return 1
+    printf 'cpp-host-write: ok %s/%s (linked)\n' "$(normalise "$dir")" "$name"
+}
+
+cmd_file_write() {
+    local target="$1" content="$2"
+    is_deferred "$target" && { refuse "$target" cpp; return $?; }
+    mkdir -p "$(dirname "$target")" || return 1
+    printf '%s\n' "$content" > "$target" || return 1
+    printf 'cpp-host-write: ok %s (written)\n' "$(normalise "$target")"
+}
+
+cmd_json_merge_sections() {
+    local template="$1" target="$2"; shift 2
+    is_deferred "$target" && { refuse "$target" cpp; return $?; }
+    [ -f "$template" ] || { printf 'cpp-host-write: FAILED template not found: %s\n' "$template" >&2; return 1; }
+    mkdir -p "$(dirname "$target")" || return 1
+    PYTHONPATH= python3 - "$template" "$target" "$@" <<'PYMERGE' || return 1
+import json, sys, pathlib
+tmpl_path, cfg_path, sections = sys.argv[1], pathlib.Path(sys.argv[2]), sys.argv[3:]
+tmpl = json.loads(pathlib.Path(tmpl_path).read_text())
+cfg = json.loads(cfg_path.read_text()) if cfg_path.exists() else {}
+if "$schema" in tmpl:
+    cfg.setdefault("$schema", tmpl["$schema"])
+for section in sections:
+    cfg.setdefault(section, {}).update(tmpl[section])
+cfg_path.write_text(json.dumps(cfg, indent=2) + "\n")
+PYMERGE
+    printf 'cpp-host-write: ok %s (sections merged: %s)\n' "$(normalise "$target")" "$*"
+}
+
+cmd_settings_edit() {
+    local target="$HOME/.claude/settings.json"
+    is_deferred "$target" && { refuse "$target" cpp; return $?; }
+    local program
+    program="$(cat)"
+    [ -n "$program" ] || { printf 'cpp-host-write: FAILED empty jq program on stdin\n' >&2; return 1; }
+    mkdir -p "$HOME/.claude" || return 1
+    [ -f "$target" ] || echo '{}' > "$target"
+    #: JQ_ARGS is populated by the --arg pairs collected in main(). Unquoted on
+    #: purpose: each element is already one argv word.
+    # shellcheck disable=SC2086
+    if ! jq ${JQ_ARGS:-} "$program" "$target" > "$target.tmp"; then
+        rm -f "$target.tmp"
+        printf 'cpp-host-write: FAILED jq program did not apply\n' >&2
+        return 1
+    fi
+    mv "$target.tmp" "$target" || return 1
+    printf 'cpp-host-write: ok ~/.claude/settings.json (edited)\n'
+}
+
+cmd_rc_append() {
+    local rc="$1" marker="$2" content_file="$3"
+    is_deferred "$rc" && { refuse "$rc" user; return $?; }
+    local content
+    if [ "$content_file" = "-" ]; then
+        content="$(cat)"
+    else
+        [ -f "$content_file" ] || { printf 'cpp-host-write: FAILED content not found: %s\n' "$content_file" >&2; return 1; }
+        content="$(cat "$content_file")"
+    fi
+    if [ -f "$rc" ] && grep -qF "$marker" "$rc" 2>/dev/null; then
+        printf 'cpp-host-write: ok %s (%s already present, skipped)\n' "$(normalise "$rc")" "$marker"
+        return 0
+    fi
+    printf '%s\n' "$content" >> "$rc" || return 1
+    printf 'cpp-host-write: ok %s (%s appended)\n' "$(normalise "$rc")" "$marker"
+}
+
 cmd_bashrc_append() {
     local marker="$1" content_file="$2"
     local target="$HOME/.bashrc"
@@ -212,6 +390,7 @@ main() {
         case "$1" in
             --defer) DEFERRED+=("${2:-}"); shift 2 ;;
             --no-guard) NO_GUARD=1; shift ;;
+            --arg) JQ_ARGS="${JQ_ARGS:-} --arg ${2:-} ${3:-}"; shift 3 ;;
             -h|--help) usage; return 0 ;;
             *) args+=("$1"); shift ;;
         esac
@@ -219,7 +398,13 @@ main() {
     case "$cmd" in
         surfaces)       cmd_surfaces ;;
         ensure-dir)     cmd_ensure_dir "${args[0]:?path required}" ;;
+        probe-writable) cmd_probe_writable "${args[0]:?directory required}" ;;
+        link-into)      cmd_link_into "${args[0]:?source required}" "${args[1]:?dir required}" "${args[2]:?name required}" ;;
+        file-write)     cmd_file_write "${args[0]:?target required}" "${args[1]-}" ;;
+        json-merge-sections) cmd_json_merge_sections "${args[0]:?template required}" "${args[1]:?target required}" "${args[@]:2}" ;;
+        settings-edit)  cmd_settings_edit ;;
         settings-merge) cmd_settings_merge "${args[0]:?template required}" ;;
+        rc-append)      cmd_rc_append "${args[0]:?rc path required}" "${args[1]:?marker required}" "${args[2]:?content file required}" ;;
         bashrc-append)  cmd_bashrc_append "${args[0]:?marker required}" "${args[1]:?content file required}" ;;
         *) printf 'cpp-host-write: unknown command: %s\n' "$cmd" >&2; usage >&2; return 2 ;;
     esac

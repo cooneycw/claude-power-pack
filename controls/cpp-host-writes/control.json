@@ -1,0 +1,88 @@
+{
+  "_comment": [
+    "Registration for scripts/check-cpp-host-writes.py (issue #1132).",
+    "",
+    "WHY THIS GATE NEEDS A COMMITTED CASE (ADR 0008): it lets work THROUGH.",
+    "`make verify` and the CI step read its green as 'every host write in the two",
+    "cpp command documents goes through the seam', and nothing downstream",
+    "re-derives it. A blind version reports the same clean line over the",
+    "half-seamed state #1139 shipped, where a defer-set naming ~/.bashrc refused",
+    "two writes, printed a stated refusal, and wrote the file anyway.",
+    "",
+    "FOUR WRITE FORMS, ONE CASE EACH, because every enumeration BY SURFACE in",
+    "this issue missed something and the forms are what the gate actually reads.",
+    "",
+    "THE FIFTH AND SIXTH CASES TEST THE FILTER ITSELF. A comment filter is not a",
+    "neutral refinement - it is a new way to be blind, so it needs both",
+    "directions: a comment must not red, and a write that merely LOOKS like one",
+    "must. Without the sixth, the obvious `\"#\" in line` implementation passes",
+    "every other case in this register.",
+    "",
+    "POPULATION: the gate scans two documents and says so in its verdict. It",
+    "claims nothing about the other command families, which are not in its input.",
+    "",
+    "Stdlib-only and git-free, like the gate: nothing here is absent from the",
+    "slim CI image, so the control gives the same verdict there as here.",
+    "",
+    "A CASE THAT WAS WRITTEN AND THEN REMOVED: `bad-same-line-redirect`. The",
+    "anchor CATCHES it, because a same-line redirect is the one form the first",
+    "framing did implement, so the case cannot distinguish the gate from the",
+    "blind version. A case whose expected answer BOTH sides produce demonstrates",
+    "nothing about the difference between them - the same trap that nearly",
+    "shipped in #1139's control. The form is still exercised on every run, by the",
+    "real documents."
+  ],
+  "gate": "scripts/check-cpp-host-writes.py",
+  "invocation": [
+    "python3",
+    "{gate}",
+    "--root",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^INLINE-HOST-WRITE: ",
+  "unknown_signal": "^check-cpp-host-writes: UNKNOWN - ",
+  "cases": [
+    {
+      "name": "bad-indirect-shell",
+      "input": "cases/bad-indirect-shell",
+      "expect": "BAD",
+      "why": "The target is assigned $HOME on one line and written eight lines later. This is the shape that hid two ~/.bashrc writes through #1139 and a review: the verb and the path never share a line, so every same-line survey reported the file clean."
+    },
+    {
+      "name": "bad-embedded-python",
+      "input": "cases/bad-embedded-python",
+      "expect": "BAD",
+      "why": "A write_text() inside a python heredoc. Satisfies no grep for a redirect, cp, tee, mv or ln, which is why ~/.config/opencode/opencode.json was absent from three successive enumerations."
+    },
+    {
+      "name": "bad-mkdir",
+      "input": "cases/bad-mkdir",
+      "expect": "BAD",
+      "why": "mkdir -p of a host directory. A directory is a surface: a defer-set naming ~/.claude must refuse its creation, not fall through to a permission error."
+    },
+    {
+      "name": "bad-hash-inside-a-string",
+      "input": "cases/bad-hash-inside-a-string",
+      "expect": "BAD",
+      "why": "THE FILTER'S OWN BAD CASE. printf '# managed by cpp' >> \"$RC\" is a real write whose line contains a hash inside a string. A comment filter written as `\"#\" in line` - the obvious first version - excuses it, and a block appended to a shell rc almost always carries exactly such a banner. The filter added to remove false positives is a new way to be blind, and this is the direction nobody re-checks."
+    },
+    {
+      "name": "good-writes-only-in-comments",
+      "input": "cases/good-writes-only-in-comments",
+      "expect": "GOOD",
+      "why": "Every write FORM present, each inside a real comment, plus one harmless echo. Three false positives in this issue's own analysis came from quoting a write in prose, so the filter must exist; this case is what stops it being removed, and it is byte-adjacent to the bad case above so the pair isolates the filter's rule rather than its existence."
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "first-framing",
+      "origin": "scripts/check-cpp-host-writes.py",
+      "path": "anchors/first-framing-check-cpp-host-writes.py",
+      "sha256": "79c4ab024eae528bd5a0225bfb3d3846f3ba3c3a46fd83340109e9f5d4cbb126",
+      "note": "Constructed, so --verify-provenance reports unverified, which is correct and must never be read as ok.",
+      "why": "The framing this issue actually started from: grep for a redirect to a $HOME path, and treat any line containing a hash as a comment. It misses all four bad cases and each was a real miss before it was a fixture - the indirect form hid two ~/.bashrc writes through #1139 and a review, embedded python hid opencode.json from three enumerations, mkdir was never counted as a surface, and the naive filter excuses a banner line. It agrees on the good case, which is what keeps the demonstration isolated."
+    }
+  ]
+}

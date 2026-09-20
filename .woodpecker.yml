@@ -224,6 +224,23 @@ steps:
     commands:
       - python3 scripts/check-claude-md-behavior.py
 
+  # Is every host write in /cpp:init and /cpp:update still through the seam? (#1132)
+  #
+  # IN CI ON ARRIVAL, not filed for later: #1146 recorded ten `make verify`
+  # gates with no CI invocation, and #1144 merged green over one of them. A
+  # gate a developer runs and the pipeline does not is a gate that fails after
+  # the merge rather than at PR time.
+  #
+  # Stdlib-only, offline and git-free - argparse, re, sys, pathlib - reading
+  # two files in the checkout, so it gives the same verdict here as on a dev
+  # box. Shown red under this digest on the pre-fix tree, not merely shown to
+  # run: a step that cannot FAIL in the image is green by absence (#1036).
+  cpp-host-writes-check:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
+    depends_on: [secret-scan]
+    commands:
+      - python3 scripts/check-cpp-host-writes.py
+
   # Would a registered control RUN in the image `negative-controls` uses? (#1036)
   #
   # ITS OWN STEP, AND DELIBERATELY NOT FOLDED INTO `negative-controls`. This gate
