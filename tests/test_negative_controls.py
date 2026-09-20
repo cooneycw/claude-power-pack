@@ -200,6 +200,24 @@ print("toy-gate: unknown - the toy tool is not installed")
 sys.exit(3)
 """
 
+#: The counter-model finding, as a fixture: it DETECTS its known-bad input
+#: correctly and then claims its tool is absent on the known-good one. The tool
+#: was demonstrably present - it just ran and found something - so the
+#: unavailability claim cannot be about a missing binary. The first cut of the
+#: cross-case check counted only CLEAN runs as proof the gate ran and therefore
+#: saw no contradiction here at all.
+DETECTS_THEN_UNAVAILABLE_GATE = """#!/usr/bin/env python3
+import sys
+from pathlib import Path
+#: NEGATIVE-CONTROL: controls/toy
+root = Path(sys.argv[sys.argv.index("--root") + 1])
+if (root / "tests" / "BAD").exists():
+    print("toy-gate: 1 finding(s)")
+    sys.exit(1)
+print("toy-gate: UNAVAILABLE - the toy tool is not installed", file=sys.stderr)
+sys.exit(3)
+"""
+
 #: Prints the unavailability wording on its CLEAN run too, so the declared
 #: pattern would report a working gate as unexaminable. The mirror of
 #: CHATTY_GATE, one field over.
@@ -1249,7 +1267,7 @@ def test_an_excused_control_is_NAMED_and_not_counted_as_discriminating(tmp_path:
     assert "NEGATIVE_CONTROL_UNAVAILABLE: 1" in result.stdout, result.stdout
     assert "NOT EXAMINED here" in result.stdout, result.stdout
     assert "scripts/toy-gate.py" in result.stdout.rsplit("NOT EXAMINED here", 1)[-1], result.stdout
-    assert "0 control(s)" in result.stdout, (
+    assert "0 instrument(s)" in result.stdout, (
         "the only control was unexamined, so the discriminating count is 0 - "
         "counting it would claim coverage nothing established\n" + result.stdout
     )
@@ -1382,4 +1400,71 @@ def test_unavailability_is_read_BEFORE_detection_when_the_two_patterns_overlap(t
         "the specific pattern must win over the general one. BLIND here is the "
         "real jq defect reproduced: an environment fact reported as the gate "
         "having stopped discriminating\n" + result.stdout
+    )
+
+
+def test_a_gate_that_DETECTED_cannot_then_claim_its_tool_is_absent(tmp_path: Path) -> None:
+    """The counter-model finding on this change (MEDIUM), as a red case.
+
+    A SUCCESSFUL DETECTION IS PROOF THE TOOL WAS THERE, exactly as a clean run
+    is. The first cut of the cross-case check recorded only `observed == GOOD`
+    as evidence the gate ran, so this shape - detect the known-bad input, then
+    report the tool absent on the known-good one - produced no contradiction and
+    was excused as UNAVAILABLE, exiting 0 under the local posture. The gate had
+    already shown it could work, and its failure on the other input was written
+    off as a fact about the machine.
+
+    That is the same excusal the whole cross-case guard exists to refuse,
+    reachable through the half the guard was not looking at.
+    """
+    root = build_tree(
+        tmp_path, DETECTS_THEN_UNAVAILABLE_GATE, unavailable_signal=TOY_UNAVAILABLE
+    )
+    result = run_harness(root, "--strict", "--allow-unavailable")
+    assert verdict_of(result.stdout) == "UNRESOLVED", (
+        "a gate that detected one input cannot claim a missing tool on another\n"
+        + result.stdout
+    )
+    assert result.returncode == 1, (
+        "the local posture must not exit 0 here - this is not an environment fact\n"
+        + result.stdout
+    )
+    assert "produced a real verdict" in result.stdout, result.stdout
+
+
+def test_the_instrument_numerator_does_not_double_count_one_gate(tmp_path: Path) -> None:
+    """The second counter-model finding (MEDIUM), as a red case.
+
+    The denominator counts ADR 0008 census rows, which are INSTRUMENTS. Until
+    #1117 no gate carried two registrations, so a numerator counting CONTROLS
+    was the same number and the difference could not show. It can now: adding a
+    second control to an ALREADY-covered gate would otherwise raise the claimed
+    coverage while covering no additional instrument - a coverage figure that
+    goes up when nothing new is covered.
+
+    Both numbers are asserted, because reporting only the deduplicated one would
+    lose a true fact rather than fix a false one.
+    """
+    root = build_tree(tmp_path, SEEING_GATE)
+    # A SECOND registration on the same gate, pointing at its own control dir.
+    gate = root / "scripts" / "toy-gate.py"
+    gate.write_text(
+        gate.read_text(encoding="utf-8").replace(
+            "#: NEGATIVE-CONTROL: controls/toy",
+            "#: NEGATIVE-CONTROL: controls/toy\n#: NEGATIVE-CONTROL: controls/toy2",
+        ),
+        encoding="utf-8",
+    )
+    shutil.copytree(root / "controls" / "toy", root / "controls" / "toy2")
+
+    result = run_harness(root, "--strict")
+    assert result.returncode == 0, result.stdout
+    assert "NEGATIVE_CONTROL_REGISTERED: 2" in result.stdout, result.stdout
+    assert "1 instrument(s)" in result.stdout, (
+        "two controls on ONE gate cover one instrument, not two - the numerator "
+        "is being counted in controls\n" + result.stdout
+    )
+    assert "2 control(s)" in result.stdout, (
+        "the control count is a true fact about this run and must still be "
+        "reported, not dropped to make the instrument count correct\n" + result.stdout
     )

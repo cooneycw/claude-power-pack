@@ -192,12 +192,16 @@ the manifest author's intention:
   2. IT MAY NOT MATCH A CLEAN RUN. A pattern anchored on the gate's ok line
      would report a working gate as unexaminable. Checked against the known-GOOD
      case's REAL output.
-  3. IT MAY NOT SURVIVE A RUN THAT PROVES THE TOOL WAS THERE. If a known-bad
-     case reports unavailability while a known-good case through the SAME gate
-     ran cleanly, the tool was present enough to run one and not the other -
-     which is not what a missing binary does. That contradiction is UNRESOLVED,
-     and it is what catches a pattern loose enough to swallow a genuine finding
-     on a host where the tool IS installed.
+  3. IT MAY NOT SURVIVE A RUN THAT PROVES THE TOOL WAS THERE. If any case
+     reports unavailability while another case through the SAME gate produced a
+     REAL VERDICT - a clean run OR a genuine detection - the tool was present
+     enough to run one and not the other, which is not what a missing binary
+     does. That contradiction is UNRESOLVED, and it is what catches a pattern
+     loose enough to swallow a genuine finding on a host where the tool IS
+     installed. Both verdicts count as proof the gate ran: counting only the
+     clean one left a gate that DETECTED its known-bad input and then claimed
+     unavailability on the known-good one entirely unguarded (counter-model
+     review of this change).
 
 THE FIELD IS OPTIONAL, and the asymmetry with `detect_signal` is deliberate
 rather than an oversight. `detect_signal` had to be required because defaulting
@@ -717,12 +721,21 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
     # -- DISCRIMINATION ---------------------------------------------------- #
     bad_cases: list[Path] = []
     #: Names of the cases whose gate reported its own tool absent, and of the
-    #: cases that ran CLEANLY. Collected across the whole loop rather than acted
-    #: on in it, because the contradiction that catches a loose
+    #: cases where the gate DEMONSTRABLY RAN. Collected across the whole loop
+    #: rather than acted on in it, because the contradiction that catches a loose
     #: `unavailable_signal` is a relationship BETWEEN cases and cannot be seen
     #: from inside one (issue #1117).
+    #:
+    #: "RAN" IS BOTH VERDICTS, NOT JUST THE CLEAN ONE (counter-model review,
+    #: MEDIUM). The first cut recorded only `observed == GOOD`, so a gate that
+    #: genuinely DETECTED its known-bad input and then reported its tool absent
+    #: on the known-good one produced no contradiction at all and was excused as
+    #: UNAVAILABLE - exit 0 under the local posture. A successful detection is
+    #: proof the tool was there every bit as much as a clean run is; excluding it
+    #: made the guard blind to the half where the gate had already shown it could
+    #: work.
     unavailable_cases: list[str] = []
-    clean_cases: list[str] = []
+    ran_cases: list[str] = []
     unavailable_reason = ""
     for case in cases:
         case_path = control_dir / case["input"]
@@ -777,8 +790,8 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
                             unavailable_reason = line.strip()
                             break
             continue
-        if observed == GOOD:
-            clean_cases.append(case["name"])
+        if observed in (GOOD, BAD):
+            ran_cases.append(case["name"])
         if observed is UNSIGNALLED:
             res.verdict = UNSIGNALLED
             res.details.append(
@@ -830,13 +843,14 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
     # rule; with it, an author who writes a pattern broad enough to swallow
     # detections gets a red on any machine that can actually run the gate - which
     # is every CI run, where the tools are pinned into the image on purpose.
-    if unavailable_cases and clean_cases:
+    if unavailable_cases and ran_cases:
         res.verdict = UNRESOLVED
         res.details.append(
             f"control.json unavailable_signal /{raw_unavailable}/ reports the gate's tool absent "
-            f"on case(s) {', '.join(unavailable_cases)} while case(s) {', '.join(clean_cases)} ran "
-            f"CLEANLY through the same gate, so the tool was present. A missing binary is missing "
-            f"for every case; this pattern is matching something else (issue #1117)"
+            f"on case(s) {', '.join(unavailable_cases)} while case(s) {', '.join(ran_cases)} "
+            f"produced a real verdict through the same gate, so the tool was present. A missing "
+            f"binary is missing for every case; this pattern is matching something else "
+            f"(issue #1117)"
         )
         return res
     if unavailable_cases:
@@ -1101,15 +1115,31 @@ def main(argv: list[str] | None = None) -> int:
             # that "carries a control that discriminates" would be a fresh
             # overclaim introduced by the very change that exists to stop one.
             discriminating = [r for r in results if r.verdict == PASS]
+            # AND THE UNIT OF THE NUMERATOR IS THE INSTRUMENT, NOT THE CONTROL
+            # (counter-model review of #1117, MEDIUM). The denominator counts
+            # ADR 0008 census rows - instruments - so a numerator counting
+            # CONTROLS compares unlike things the moment one gate carries two
+            # registrations, which #1117 is the first change to do. Two controls
+            # on one gate would have read as two instruments covered, so adding a
+            # second control to an ALREADY-covered gate would have raised the
+            # claimed coverage while covering nothing new. Deduplicated by gate;
+            # the control count is still printed, as its own number, because it
+            # is the honest answer to a different question.
+            instruments = {r.gate for r in discriminating}
+            controls_note = (
+                f" ({len(discriminating)} control(s), since a gate may carry more than one)"
+                if len(discriminating) != len(instruments)
+                else ""
+            )
             if universe is None:
                 scope = (
-                    f"{len(discriminating)} control(s) of an UNKNOWN universe "
+                    f"{len(instruments)} instrument(s){controls_note} of an UNKNOWN universe "
                     f"({whence}) - this is a sample, and how large a sample cannot be said"
                 )
             else:
                 scope = (
-                    f"{len(discriminating)} of {universe} enumerated instruments "
-                    f"({whence}) carry a control that discriminates"
+                    f"{len(instruments)} of {universe} enumerated instruments "
+                    f"({whence}) carry a control that discriminates{controls_note}"
                 )
             print(f"negative-controls: ok - {scope}, "
                   "each reporting its declared detection signal on the known-bad input "
