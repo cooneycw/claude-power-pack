@@ -66,6 +66,7 @@ usage() {
 cpp-host-write.sh <command> [--defer SURFACE]... [args]
 
   ensure-dir <path>              mkdir -p a directory under $HOME
+  probe-writable <dir>           print yes|no; deferred prints no and exits 3
   link-into <src> <dir> <name>   symlink a file into a host directory
   file-write <target> <content>  replace a host file's contents
   json-merge-sections <tmpl> <target> <section>...
@@ -222,6 +223,42 @@ cmd_settings_merge() {
 #: The defer check is on the DIRECTORY, tested once per call, so a defer-set
 #: naming ~/.claude/scripts refuses the whole loop by name rather than emitting
 #: one refusal per file.
+#: Answer "can CPP write here", through the seam. A PROBE rather than a write
+#: in intent, but a write in fact: it creates a file under the surface and
+#: removes it, which is why the static check flags the inline form.
+#:
+#: DEFERRED MEANS NOT-WRITABLE-BY-US, and that is the whole point. A manager
+#: that defers ~/.claude/commands has already answered the question the probe
+#: asks; probing a surface you have been told not to touch is both rude and
+#: uninformative. So a deferred probe reports `no` and exits 3 rather than
+#: creating the probe file to discover what it was already told.
+#:
+#: The subshell is load-bearing and is preserved from the inline form:
+#: `if : > "$probe" 2>/dev/null` still leaks "Permission denied", because the
+#: shell processes redirections left to right and reports the failed one
+#: BEFORE 2>/dev/null takes effect. Measured, per the note in init.md.
+cmd_probe_writable() {
+    local dir="$1"
+    if is_deferred "$dir"; then
+        #: The VERDICT goes to stdout and the REFUSAL to stderr, because the
+        #: caller reads this with a command substitution. Printing both to
+        #: stdout made the answer depend on `head -1` at the call site - a
+        #: correct result for a fragile reason, and the next caller that omits
+        #: the pipe silently captures the refusal text as the verdict.
+        printf 'no\n'
+        refuse "$dir" cpp >&2
+        return "$CPP_HOST_WRITE_EXIT_DEFERRED"
+    fi
+    local probe="$dir/.cpp-write-probe.$$"
+    if ( : > "$probe" ) 2>/dev/null; then
+        rm -f "$probe"
+        printf 'yes\n'
+        return 0
+    fi
+    printf 'no\n'
+    return 0
+}
+
 cmd_link_into() {
     local src="$1" dir="$2" name="$3"
     is_deferred "$dir" && { refuse "$dir" cpp; return $?; }
@@ -361,6 +398,7 @@ main() {
     case "$cmd" in
         surfaces)       cmd_surfaces ;;
         ensure-dir)     cmd_ensure_dir "${args[0]:?path required}" ;;
+        probe-writable) cmd_probe_writable "${args[0]:?directory required}" ;;
         link-into)      cmd_link_into "${args[0]:?source required}" "${args[1]:?dir required}" "${args[2]:?name required}" ;;
         file-write)     cmd_file_write "${args[0]:?target required}" "${args[1]-}" ;;
         json-merge-sections) cmd_json_merge_sections "${args[0]:?template required}" "${args[1]:?target required}" "${args[@]:2}" ;;

@@ -69,9 +69,11 @@ else
   # The subshell is load-bearing: `if : > "$probe" 2>/dev/null` still leaks
   # "Permission denied", because the shell processes redirections left to right
   # and reports the failed one BEFORE 2>/dev/null takes effect. Measured.
-  surface_writable=no
-  probe=~/.claude/commands/.cpp-init-write-probe.$$
-  if ( : > "$probe" ) 2>/dev/null; then surface_writable=yes; rm -f "$probe"; fi
+  # Through the declaring seam (#1132). A probe in intent, a write in fact -
+  # it creates a file under the surface and removes it. Deferring the surface
+  # answers the question the probe asks, so a deferred probe reports `no`
+  # rather than writing to find out what it was already told.
+  surface_writable=$(~/.claude/scripts/cpp-host-write.sh probe-writable ~/.claude/commands 2>/dev/null)
 
   echo "No claude-power-pack CHECKOUT found at any known path."
   echo "  CPP command surface served here: $cpp_surface (~/.claude/commands/cpp/init.md readable)"
