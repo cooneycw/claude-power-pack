@@ -1,0 +1,19 @@
+{
+  "branch": "fix-1069-ownership-gate-repin-nested-schema",
+  "counts": {
+    "accepted": 3,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "implementer": "claude/claude-opus-5",
+  "issue": "1069",
+  "passes": 2,
+  "recorded_at": "2026-09-20T20:49:14Z",
+  "red_cases": {
+    "already_covered": 3,
+    "proposed": 7
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}

@@ -212,3 +212,191 @@ def test_the_shipped_invocation_still_works_as_a_subprocess() -> None:
     )
     assert completed.returncode == 0, completed.stderr
     assert "11 files match" in completed.stdout
+
+
+# --- regressions from the #1069 POST-MERGE counter-model review ---------------
+#
+# All three were found by codex/gpt-6-astra after the change had merged, because
+# the Step 6 review was skipped on that run. Each is a case the committed control
+# could not carry: two describe a TRANSITION or a nested tree, and the third is
+# about two files agreeing with each other.
+
+
+def test_repin_refuses_a_changed_engine_at_an_unchanged_contract_version(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The guarantee this module's docstring always claimed, now implemented.
+
+    Before the fix, `--repin` recomputed every hash and re-derived the version
+    from the contract document, so editing the engine and re-pinning succeeded
+    at the same version and `check` went green over changed bytes. The docstring
+    said that was refused; nothing refused it.
+
+    Neither committed case could catch this: each describes ONE state, and the
+    property is about the transition edit -> repin. That is why it is a test.
+    """
+    root = _sandbox(tmp_path)
+    assert pno.main(["check", "--root", str(root)]) == 0, "fixture must start clean"
+
+    engine = root / "lib" / "project_next" / "rank.py"
+    engine.write_text(engine.read_text(encoding="utf-8") + "# behaviour change\n", encoding="utf-8")
+
+    assert pno.main(["--repin", "--root", str(root)]) == 1
+    err = capsys.readouterr().err
+    assert "engine module(s) changed" in err
+    assert "lib/project_next/rank.py" in err
+
+
+def test_repin_still_succeeds_when_the_contract_version_moves_with_the_engine(
+    tmp_path: Path,
+) -> None:
+    """The other half, without which the guard above is indistinguishable from
+    a `--repin` that is simply broken. A legitimate bump must still re-pin."""
+    root = _sandbox(tmp_path)
+    engine = root / "lib" / "project_next" / "rank.py"
+    engine.write_text(engine.read_text(encoding="utf-8") + "# behaviour change\n", encoding="utf-8")
+
+    contract = root / "docs" / "project-next-contract.md"
+    contract.write_text(
+        contract.read_text(encoding="utf-8").replace("Contract version `1.3`", "Contract version `1.4`"),
+        encoding="utf-8",
+    )
+
+    assert pno.main(["--repin", "--root", str(root)]) == 0
+    assert pno.main(["check", "--root", str(root)]) == 0
+
+
+def test_a_nested_package_shadowing_a_pinned_module_is_reported(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Python resolves a PACKAGE ahead of a module of the same name.
+
+    `lib/project_next/rank/__init__.py` leaves all eleven pinned files
+    byte-identical - every hash matches - while `import lib.project_next.rank`
+    resolves to the new package instead of the pinned `rank.py`. The scan was
+    `glob("*.py")`, immediate children only, so the gate reported clean over an
+    engine whose executed ranking code was not the pinned one.
+    """
+    root = _sandbox(tmp_path)
+    assert pno.main(["check", "--root", str(root)]) == 0, "fixture must start clean"
+
+    shadow = root / "lib" / "project_next" / "rank"
+    shadow.mkdir()
+    (shadow / "__init__.py").write_text("SHADOW = True\n", encoding="utf-8")
+    assert (root / "lib" / "project_next" / "rank.py").is_file(), "the pinned module must still be present"
+
+    assert pno.main(["check", "--root", str(root)]) == 1
+    assert "lib/project_next/rank/__init__.py sits in the package and is pinned by nothing" in capsys.readouterr().out
+
+
+def test_the_shipped_schema_accepts_the_shipped_example() -> None:
+    """The published contract must not reject the example published beside it.
+
+    `additionalProperties: false` plus an undeclared `$schema` meant the schema
+    refused its own example - and `lib/project_next/config.py` strips `$schema`
+    before validating, so the runtime accepted a config the published schema
+    rejected. Two files that ship together and disagree.
+
+    LIMIT, stated rather than implied: this asserts the exact property that
+    failed - under `additionalProperties: false`, every key in the example is
+    declared in the schema. It is NOT full JSON Schema validation; `jsonschema`
+    is not a declared dependency of this repo and adding one for a single test
+    would be the more expensive answer. A type or range error in the example
+    would pass this test.
+    """
+    schema = json.loads((ROOT / "templates" / "project-next.schema.json").read_text(encoding="utf-8"))
+    example = json.loads((ROOT / "templates" / "project-next.json.example").read_text(encoding="utf-8"))
+
+    assert schema.get("additionalProperties") is False, (
+        "this test is only meaningful while the schema is closed; if it opens, "
+        "the undeclared-key failure mode is gone and so is this assertion's subject"
+    )
+    undeclared = sorted(set(example) - set(schema.get("properties", {})))
+    assert not undeclared, f"the shipped schema rejects its own example: {undeclared}"
+
+
+# --- regressions from the #1069 fix RE-REVIEW (pass 2) ------------------------
+#
+# The first fix introduced three of its own, two of them reproducing the original
+# shadowing defect through a different filesystem shape. The review that found
+# them is the one re-review the contract allows.
+
+
+def test_repin_refuses_when_an_engine_module_has_no_baseline_pin(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A missing baseline entry is an unusable comparison, not a passing one.
+
+    The first guard compared only paths present in the recorded manifest, so
+    editing `rank.py` AND dropping its pin bypassed it completely: zero changed
+    files, because the one that changed was not being compared.
+    """
+    root = _sandbox(tmp_path)
+    engine = root / "lib" / "project_next" / "rank.py"
+    engine.write_text(engine.read_text(encoding="utf-8") + "# change\n", encoding="utf-8")
+
+    manifest = _manifest(root)
+    data = json.loads(manifest.read_text(encoding="utf-8"))
+    del data["files"]["lib/project_next/rank.py"]
+    manifest.write_text(json.dumps(data), encoding="utf-8")
+
+    assert pno.main(["--repin", "--root", str(root)]) == 1
+    assert "no baseline pin" in capsys.readouterr().err
+
+
+def test_repin_refuses_an_unreadable_baseline_rather_than_assuming_agreement(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`_recorded`'s docstring said an unreadable baseline must read as unknown,
+    never as agreement. Its caller skipped the comparison entirely, which is
+    agreement. The docstring was right and the code did the other thing."""
+    root = _sandbox(tmp_path)
+    _manifest(root).write_text("{ not json", encoding="utf-8")
+
+    assert pno.main(["--repin", "--root", str(root)]) == 1
+    assert "no baseline could be read" in capsys.readouterr().err
+
+
+def test_a_symlinked_directory_in_the_package_is_refused(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`rglob` does not traverse directory symlinks, so the recursive scan that
+    fixed the nested-package escape still let the same shadow through as a link.
+
+    Python resolves the linked package ahead of the pinned module exactly as it
+    resolves a real one; every pin stays byte-identical either way.
+    """
+    root = _sandbox(tmp_path)
+    assert pno.main(["check", "--root", str(root)]) == 0, "fixture must start clean"
+
+    alternate = root / "alternate_rank"
+    alternate.mkdir()
+    (alternate / "__init__.py").write_text("SHADOW = True\n", encoding="utf-8")
+    link = root / "lib" / "project_next" / "rank"
+    link.symlink_to("../../alternate_rank", target_is_directory=True)
+    assert link.is_symlink() and link.is_dir(), "fixture must be a directory symlink"
+
+    assert pno.main(["check", "--root", str(root)]) == 1
+    assert "symlinked directory inside the owned package" in capsys.readouterr().out
+
+
+def test_an_ancestor_named_pycache_does_not_disable_the_scan(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The exclusion filtered on `module.parts` - the ABSOLUTE path - so a
+    checkout beneath any directory named `__pycache__` skipped every module and
+    an unrelated ancestor decided whether the owned package was examined.
+
+    The exclusion is gone rather than narrowed: the glob is `*.py` and bytecode
+    is `.pyc`, so it never had anything to exclude.
+    """
+    nested = tmp_path / "__pycache__"
+    nested.mkdir()
+    root = _sandbox(nested)
+
+    shadow = root / "lib" / "project_next" / "rank"
+    shadow.mkdir()
+    (shadow / "__init__.py").write_text("SHADOW = True\n", encoding="utf-8")
+
+    assert pno.main(["check", "--root", str(root)]) == 1
+    assert "rank/__init__.py sits in the package and is pinned by nothing" in capsys.readouterr().out
