@@ -356,6 +356,11 @@ CLAUDE_SKILLS_DIR="${HOME_DIR:+$HOME_DIR/.claude/skills}"
 CLAUDE_SKILLS_CHECKED=0
 CLAUDE_SKILLS_MANAGED=0
 CLAUDE_SKILLS_CLEAN=0
+# Packages present in the install root that skills-check did NOT examine, because
+# they carry no CPP `metadata.source` marker (issue #1034). They are deliberately
+# never judged - ownership is by marker - but leaving them uncounted made a run
+# that compared nothing print the same line as one that compared everything.
+CLAUDE_SKILLS_SKIPPED="?"
 CLAUDE_SKILLS_STALE=0
 CLAUDE_SKILLS_UNAVAILABLE_REASON=""
 STALE_CLAUDE_SKILLS=()
@@ -375,13 +380,17 @@ else
     while IFS= read -r line; do
         case "$line" in
             *"managed installs: no CPP-marked packages"*)
-                CLAUDE_SKILLS_CHECKED=1 ;;
+                CLAUDE_SKILLS_CHECKED=1
+                skipped="${line#*, skipped }"
+                CLAUDE_SKILLS_SKIPPED="${skipped%% *}" ;;
             *"managed installs: checked "*)
                 CLAUDE_SKILLS_CHECKED=1
                 counts="${line#*managed installs: checked }"
                 CLAUDE_SKILLS_MANAGED="${counts%% *}"
                 CLAUDE_SKILLS_CLEAN="${counts#*package(s), }"
-                CLAUDE_SKILLS_CLEAN="${CLAUDE_SKILLS_CLEAN%% *}" ;;
+                CLAUDE_SKILLS_CLEAN="${CLAUDE_SKILLS_CLEAN%% *}"
+                skipped="${line#*, skipped }"
+                CLAUDE_SKILLS_SKIPPED="${skipped%% *}" ;;
             *MANAGED_DRIFT:*|*MANAGED_ORPHAN:*)
                 # `  MANAGED_DRIFT: <path>/SKILL.md: <detail>` -> the package dir.
                 pkg="${line#*: }"
@@ -393,6 +402,12 @@ else
     CLAUDE_SKILLS_STALE=${#STALE_CLAUDE_SKILLS[@]}
     case "$CLAUDE_SKILLS_MANAGED$CLAUDE_SKILLS_CLEAN" in
         *[!0-9]*) CLAUDE_SKILLS_MANAGED=0; CLAUDE_SKILLS_CLEAN=0 ;;
+    esac
+    # A chop that found no ", skipped " anchor leaves the whole line here, which
+    # must not be printed as a count. An older checker emitting the pre-#1034
+    # note lands in exactly that state, so it reports `?`, never a fabricated 0.
+    case "$CLAUDE_SKILLS_SKIPPED" in
+        ""|*[!0-9]*) CLAUDE_SKILLS_SKIPPED="?" ;;
     esac
     if [ "$CLAUDE_SKILLS_CHECKED" -eq 0 ]; then
         CLAUDE_SKILLS_UNAVAILABLE_REASON="skills-check.py produced no recognisable managed-install note"
@@ -446,9 +461,32 @@ if [ -x "$TOOLCHAIN_HELPER" ]; then
     TOOLCHAIN_LINE="$("$TOOLCHAIN_HELPER" --path "$CHECKOUT" --quiet 2>/dev/null)"
 fi
 
+# An install root holding packages is NOT "no installed Claude skills found",
+# even when none of them is ours to judge (issue #1034, counter-model finding).
+# The early exit keyed on CLAUDE_SKILLS_MANAGED alone, so a root whose packages
+# had all LOST their `metadata.source` marker took it - and emitted a skip whose
+# reason denied the existence of the very packages that went unexamined. That is
+# the precise scenario the skipped count was added to expose, disappearing down
+# the one path that reports before the count is ever printed.
+# UNKNOWN IS NOT ZERO. The first cut folded `?` in with 0, which converted an
+# unmeasured population into an asserted absence on the one path where that is
+# supported: an OLDER checker emits the pre-#1034 note, so the root is CHECKED
+# but its skipped count is unreadable - and the early exit below then reported
+# "no installed Claude skills found" over packages it never counted. Live on
+# the reference host, where all 12 packages under ~/.claude/skills are
+# unmarked. Caught in the second counter-model pass of #1034.
+CLAUDE_SKILLS_UNJUDGED=0
+if [ "$CLAUDE_SKILLS_CHECKED" -eq 1 ]; then
+    case "$CLAUDE_SKILLS_SKIPPED" in
+        0)           ;;                            # measured, and empty
+        ""|*[!0-9]*) CLAUDE_SKILLS_UNJUDGED=1 ;;   # unknown - never "absent"
+        *)           CLAUDE_SKILLS_UNJUDGED=1 ;;   # measured, and non-empty
+    esac
+fi
+
 if [ "$RETIRED" -eq 0 ] && [ "$HELPERS_TOTAL" -eq 0 ] && [ "$HELPERS_MISSING" -eq 0 ] \
    && [ "$CODEX_SKILLS_CHECKED" -eq 0 ] && [ "$CLAUDE_SKILLS_MANAGED" -eq 0 ] \
-   && [ "$CLAUDE_SKILLS_UNANSWERED" -eq 0 ]; then
+   && [ "$CLAUDE_SKILLS_UNANSWERED" -eq 0 ] && [ "$CLAUDE_SKILLS_UNJUDGED" -eq 0 ]; then
     emit_skip "no retired CPP marketplace surface, installed checkout helpers, or installed Codex/Claude skills found"
 fi
 
@@ -580,8 +618,9 @@ if [ "$MODE" = "json" ]; then
     printf '],"claude_skills_root":%s,"claude_skills_checked":%s,' \
         "$([ -n "$CLAUDE_SKILLS_DIR" ] && printf '"%s"' "$CLAUDE_SKILLS_DIR" || printf 'null')" \
         "$([ "$CLAUDE_SKILLS_CHECKED" -eq 1 ] && echo true || echo false)"
-    printf '"claude_skills_managed":%s,"claude_skills_clean":%s,"claude_skills_stale":%s,"stale_claude_skills":[' \
-        "$CLAUDE_SKILLS_MANAGED" "$CLAUDE_SKILLS_CLEAN" "$CLAUDE_SKILLS_STALE"
+    printf '"claude_skills_managed":%s,"claude_skills_clean":%s,"claude_skills_stale":%s,"claude_skills_skipped":%s,"stale_claude_skills":[' \
+        "$CLAUDE_SKILLS_MANAGED" "$CLAUDE_SKILLS_CLEAN" "$CLAUDE_SKILLS_STALE" \
+        "$([ "$CLAUDE_SKILLS_SKIPPED" = "?" ] && echo null || echo "$CLAUDE_SKILLS_SKIPPED")"
     separator=""
     for skill in "${STALE_CLAUDE_SKILLS[@]}"; do
         printf '%s"%s"' "$separator" "$skill"
@@ -637,7 +676,7 @@ fi
 echo ""
 echo "  claude skills      ${CLAUDE_SKILLS_DIR:-<none>}"
 if [ "$CLAUDE_SKILLS_CHECKED" -eq 1 ]; then
-    echo "    ${CLAUDE_SKILLS_MANAGED} CPP-marked, ${CLAUDE_SKILLS_CLEAN} clean, ${CLAUDE_SKILLS_STALE} stale"
+    echo "    ${CLAUDE_SKILLS_MANAGED} CPP-marked, ${CLAUDE_SKILLS_CLEAN} clean, ${CLAUDE_SKILLS_STALE} stale, ${CLAUDE_SKILLS_SKIPPED} skipped (unmarked, never judged)"
     if [ "$CLAUDE_SKILLS_MANAGED" -eq 0 ]; then
         echo "    (packages here carry no CPP metadata.source marker, so none is ours to judge -"
         echo "     a name that matches one of our packages is NOT the ownership test, issue #1029)"

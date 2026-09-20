@@ -1,6 +1,6 @@
 ---
-name: Issue-Driven Development
-description: IDD workflow with git worktrees and issue hierarchy
+name: idd-workflow
+description: IDD workflow with git worktrees and issue hierarchy. Use for issue driven development, creating a git worktree, or running parallel development across several issues at once.
 trigger: issue driven, worktree, IDD, parallel development, git worktree
 metadata:
   provenance:

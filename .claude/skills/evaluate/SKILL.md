@@ -1,6 +1,6 @@
 ---
-name: Evaluation Domain Prompts
-description: "Domain-aware evaluation prompts for multi-model analysis. Provides structured prompts for Phase 1 (divergence scan) and Phase 3 (validation) across 5 domain types."
+name: evaluate
+description: Domain-aware prompts for multi-model analysis. Use to evaluate an architecture, concept, algorithm, ui-design or workflow, with a Phase 1 divergence scan and Phase 3 validation.
 trigger: evaluate, multi-model analysis, divergence scan, validation, architecture, concept, algorithm, ui-design, workflow
 globs: .claude/commands/evaluate/**
 metadata:

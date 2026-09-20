@@ -1,6 +1,6 @@
 ---
-name: Best Practices Dispatcher
-description: Routes to topic-specific best practices skills for context efficiency
+name: best-practices
+description: Routes to topic-specific best practices skills instead of loading them all. Use for Claude Code help, tips, or a how to question whose topic is not yet obvious.
 trigger: best practices, claude code help, how to, tips
 metadata:
   provenance:

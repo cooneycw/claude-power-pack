@@ -1,6 +1,6 @@
 ---
-name: Python Packaging (PEP 621 & PEP 723)
-description: Modern Python project configuration with pyproject.toml and inline script metadata
+name: python-packaging
+description: Modern Python project configuration. Use for pyproject.toml, PEP 621, PEP 723 inline script metadata, uv init, dependencies, or migrating off setup.py and requirements.txt.
 trigger: pyproject.toml, PEP 621, PEP 723, setup.py, requirements.txt, python packaging, dependencies, uv init, inline script
 metadata:
   provenance:
