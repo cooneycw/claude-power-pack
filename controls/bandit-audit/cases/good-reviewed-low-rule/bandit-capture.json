@@ -1,0 +1,61 @@
+{
+  "files": [
+    "lib/fixture/hashing.py",
+    "scripts/fixture-helper.py"
+  ],
+  "report": {
+    "errors": [],
+    "generated_at": "2026-09-20T00:00:00Z",
+    "metrics": {
+      "_totals": {
+        "CONFIDENCE.HIGH": 0,
+        "CONFIDENCE.LOW": 0,
+        "CONFIDENCE.MEDIUM": 0,
+        "CONFIDENCE.UNDEFINED": 0,
+        "SEVERITY.HIGH": 0,
+        "SEVERITY.LOW": 0,
+        "SEVERITY.MEDIUM": 0,
+        "SEVERITY.UNDEFINED": 0,
+        "loc": 80,
+        "nosec": 0,
+        "skipped_tests": 0
+      },
+      "lib/fixture/hashing.py": {
+        "loc": 40,
+        "nosec": 0,
+        "skipped_tests": 0
+      },
+      "scripts/fixture-helper.py": {
+        "loc": 40,
+        "nosec": 0,
+        "skipped_tests": 0
+      }
+    },
+    "results": [
+      {
+        "code": "",
+        "col_offset": 0,
+        "filename": "lib/fixture/hashing.py",
+        "issue_confidence": "HIGH",
+        "issue_cwe": {
+          "id": 703,
+          "link": "https://cwe.mitre.org/data/definitions/703.html"
+        },
+        "issue_severity": "LOW",
+        "issue_text": "Try, Except, Pass detected.",
+        "line_number": 12,
+        "line_range": [
+          12
+        ],
+        "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
+        "test_id": "B110",
+        "test_name": "try_except_pass"
+      }
+    ]
+  },
+  "roots": [
+    "lib",
+    "scripts"
+  ],
+  "schema": 1
+}

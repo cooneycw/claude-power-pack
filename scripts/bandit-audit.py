@@ -123,16 +123,38 @@ inputs that the control itself feeds this gate with `--from-capture`.
 WHAT THIS GATE DOES NOT CLAIM, stated rather than left to be discovered
 ---------------------------------------------------------------------------
 The population is `lib/` and `scripts/` - issue #962's scope. `tests/`,
-`extras/`, the two root-level `*reddit*.py` scripts and the generated
-`codex/skills/` copies are OUTSIDE it, and the roots print on every run so the
-claim is bounded rather than silently narrow. Widening is a decision, not an
+`extras/` and the generated `codex/skills/` copies are OUTSIDE it (the two
+root-level `*reddit*.py` scripts this paragraph used to name were deleted by
+#1041, which corrected the same sentence in docs/scripts.md and not this one),
+and the roots print on every run so the claim is bounded rather than silently
+narrow. Widening is a decision, not an
 omission to be quietly fixed: measured 2026-09-20, bandit over `tests/` reports
 9,400 findings, 8,618 of them B101 `assert_used` - which is a description of a
 test suite, not a finding about one.
 
 The gate is severity-thresholded at MEDIUM. The LOW band is COUNTED and PRINTED
-on every run rather than discarded, and is tracked by its own issue (#1114), so
-"below the gate" never reads as "not examined".
+on every run rather than discarded, so "below the gate" never reads as "not
+examined".
+
+AND, SINCE #1114, THE BAND IS ALSO ENUMERATED BY RULE CLASS, because the total
+alone could not say the one thing that matters about it. Every LOW rule class
+this tree contains was read at the #1114 disposition and each carries a
+`reviewed-low <test-id> <issue>` record in `.bandit-audit-allow`, backed by
+docs/decisions/0010-bandit-low-band-disposition.md. A LOW finding whose rule
+class has NO such record is reported and reddens the gate - not because LOW
+gates (it does not, and the threshold is untouched), but because an UNREAD rule
+class is a different fact from a read one, and a single integer cannot hold
+both. On adoption of this rule the tree's unreviewed count was 0: all 135
+findings fall in the 7 reviewed classes, so this gates nothing that existed
+when it landed and fires only on a pattern nobody has looked at yet.
+
+THAT IS THE OPPOSITE OF THE `--skip` #962 REJECTED, and the difference is worth
+being exact about, because the two would sit in the same file. A `--skip`
+REMOVES a distinction the tool could draw; a `reviewed-low` record ADDS one the
+gate could not. It suppresses nothing - the LOW band was already below the
+threshold - and it cannot suppress anything, because a record's only effect is
+to mark its class as read. The reversal trigger for the redden-on-unreviewed
+half is recorded in ADR 0010 beside the decision, per ADR 0009.
 
 ---------------------------------------------------------------------------
 Three inputs, because the control has to run where the harness runs (ADR 0008)
@@ -206,6 +228,15 @@ STALE = "BANDIT-STALE"
 SUPPRESSION = "BANDIT-SUPPRESSION"
 UNKNOWN = "BANDIT-UNKNOWN"
 SELFTEST = "BANDIT-SELFTEST"
+#: A LOW-band rule class no `reviewed-low` record accounts for (issue #1114).
+#: Its own marker rather than a `FINDING`, because the two say different things
+#: and a reader acts on them differently: a FINDING is an unaccounted security
+#: finding at the gated severity, this is an UNREAD rule class below it. The
+#: registered control's `detect_signal` matches both.
+LOW_UNREVIEWED = "BANDIT-LOW-UNREVIEWED"
+#: A `reviewed-low` record that matched nothing this run. Deliberately NOT in
+#: `detect_signal` and deliberately not a finding - see `adjudicate`.
+LOW_NOTE = "BANDIT-LOW-NOTE"
 
 EXIT_OK = 0
 EXIT_FINDING = 1
@@ -274,28 +305,69 @@ class AllowEntry:
     matched: int = 0
 
 
+@dataclass
+class ReviewedLow:
+    """One LOW-band rule class that has been READ, and the issue that read it.
+
+    THIS IS NOT A SUPPRESSION, and the distinction is the whole of issue #1114.
+    An `AllowEntry` accepts findings that WOULD otherwise gate; a record here
+    accepts nothing, because the LOW band is already below the threshold and
+    gates nothing to begin with. What it does is the opposite of a `--skip`: it
+    ADDS a distinction this gate could not previously draw - between a rule
+    class somebody read and dispositioned, and one that has never been looked
+    at. Before it, both were a single number.
+    """
+
+    test_id: str
+    issue: str
+    source_line: int
+    matched: int = 0
+
+
+@dataclass
+class Ledger:
+    """Everything `.bandit-audit-allow` declares, in its two record types."""
+
+    findings: list[AllowEntry]
+    reviewed_low: list[ReviewedLow]
+
+
 # --------------------------------------------------------------------------- #
 # The allowlist
 # --------------------------------------------------------------------------- #
 
-def parse_allow(path: Path) -> list[AllowEntry]:
-    """Read `.bandit-audit-allow`, or an empty list when it is absent.
+def parse_allow(path: Path) -> Ledger:
+    """Read `.bandit-audit-allow`, or an empty ledger when it is absent.
 
     An ABSENT file is legitimately empty - a tree with no accepted residual -
     and is not UNKNOWN. An UNREADABLE or MALFORMED one is UNKNOWN: a suppression
     ledger that could not be read leaves every finding's disposition undecided,
     and guessing "nothing is suppressed" would redden a tree that is correctly
     accounted for while guessing the opposite would hide everything.
+
+    TWO RECORD TYPES, AND THEY DO DIFFERENT THINGS (issue #1114):
+
+        finding <path> <test-id> <count> <issue>    accepts GATED findings
+        reviewed-low <test-id> <issue>              declares a LOW rule class READ
+
+    An UNRECOGNISED first field is UNKNOWN rather than ignored, which is what
+    makes the second type safe to add: a typo cannot degrade into a silently
+    skipped line, and a `reviewed-low` record whose rule id is misspelled cannot
+    open a hole either - the class it was meant to cover simply stays
+    unreviewed and the gate reddens, while the misspelled record matches
+    nothing and is named in a NOTE. Both halves of a typo are visible.
     """
     if not path.exists():
-        return []
+        return Ledger([], [])
     try:
         text = path.read_text(encoding="utf-8")
     except OSError as exc:
         raise Unknown(f"allowlist {path} is unreadable: {exc}") from exc
 
     entries: list[AllowEntry] = []
+    reviewed: list[ReviewedLow] = []
     seen: dict[tuple[str, str], int] = {}
+    seen_low: dict[str, int] = {}
     for number, raw in enumerate(text.splitlines(), start=1):
         line = raw.strip()
         # WHOLE-LINE COMMENTS ONLY, and a trailing one is a parse error rather
@@ -306,10 +378,32 @@ def parse_allow(path: Path) -> list[AllowEntry]:
         if not line or line.startswith("#"):
             continue
         parts = line.split()
+        if parts[0] == "reviewed-low":
+            if len(parts) != 3:
+                raise Unknown(
+                    f"allowlist {path} line {number} is not a record this gate understands: "
+                    f"{raw.strip()!r} (expected `reviewed-low <test-id> <issue>`)"
+                )
+            _, test_id, issue = parts
+            # ONE LINE PER RULE CLASS, for the reason the finding records give:
+            # a duplicate is how a second, differently-reasoned disposition gets
+            # appended beside the first instead of replacing it, leaving two
+            # issue references for one decision and no way to tell which is live.
+            if test_id in seen_low:
+                raise Unknown(
+                    f"allowlist {path} line {number} repeats reviewed-low {test_id}, already "
+                    f"recorded on line {seen_low[test_id]} - one line per rule class, so a "
+                    "disposition is revised by editing the record rather than by appending "
+                    "beside it"
+                )
+            seen_low[test_id] = number
+            reviewed.append(ReviewedLow(test_id, issue, number))
+            continue
         if len(parts) != 5 or parts[0] != "finding":
             raise Unknown(
                 f"allowlist {path} line {number} is not a record this gate understands: "
-                f"{raw.strip()!r} (expected `finding <path> <test-id> <count> <issue>`)"
+                f"{raw.strip()!r} (expected `finding <path> <test-id> <count> <issue>` "
+                "or `reviewed-low <test-id> <issue>`)"
             )
         _, file_path, test_id, count_text, issue = parts
         if not count_text.isdigit() or int(count_text) < 1:
@@ -333,21 +427,27 @@ def parse_allow(path: Path) -> list[AllowEntry]:
             )
         seen[key] = number
         entries.append(AllowEntry(file_path, test_id, int(count_text), issue, number))
-    return entries
+    return Ledger(entries, reviewed)
 
 
 # --------------------------------------------------------------------------- #
 # Reading bandit's own report
 # --------------------------------------------------------------------------- #
 
-def findings_from_report(report: dict, examined: set[str]) -> list[Finding]:
-    """Every GATED finding in one bandit JSON report.
+def _all_findings(report: dict, examined: set[str]) -> list[Finding]:
+    """Every finding in one bandit JSON report, at every severity.
 
     `examined` is the population this run enumerated. A finding whose file is
     outside it means the report does not describe the tree we asked about -
     a capture recorded against a different root, or a walk and a scan that
     disagree - so it is UNKNOWN rather than a finding, because attributing it
     would be attributing it to a file nobody looked at.
+
+    ONE VALIDATED PASS, TWO BANDS. The gated and below-threshold views are
+    filters of this list rather than two traversals, so the validation above
+    cannot come to apply to one band and not the other - which is how a report
+    gets validated for the findings that gate and trusted blindly for the ones
+    that only get counted.
     """
     results = report.get("results")
     if not isinstance(results, list):
@@ -370,8 +470,6 @@ def findings_from_report(report: dict, examined: set[str]) -> list[Finding]:
                 f"enumerated ({len(examined)} file(s)) - the report and the walk "
                 "disagree about what was scanned"
             )
-        if severity not in GATED_SEVERITIES:
-            continue
         found.append(Finding(
             path=path,
             test_id=test_id,
@@ -382,18 +480,25 @@ def findings_from_report(report: dict, examined: set[str]) -> list[Finding]:
     return sorted(found, key=lambda f: (f.path, f.test_id, f.line))
 
 
-def below_threshold(report: dict) -> int:
-    """How many findings this run saw BELOW the gated band.
+def findings_from_report(report: dict, examined: set[str]) -> list[Finding]:
+    """Every GATED finding in one bandit JSON report."""
+    return [f for f in _all_findings(report, examined) if f.severity in GATED_SEVERITIES]
+
+
+def below_threshold_findings(report: dict, examined: set[str]) -> list[Finding]:
+    """Every finding this run saw BELOW the gated band.
 
     Counted and printed rather than dropped: "below the gate" and "not
     examined" are the two states the denominator exists to keep apart, and a
     threshold with no count behind it reads as the second.
+
+    RETURNED AS FINDINGS RATHER THAN AS A NUMBER (issue #1114). A single total
+    keeps those two states apart and nothing else: it cannot tell the seven
+    rule classes somebody read from an eighth that arrived last week, because
+    both are increments of the same integer. The rule classes are what a reader
+    dispositions, so they are what this returns.
     """
-    return sum(
-        1 for raw in report.get("results", []) or []
-        if isinstance(raw, dict)
-        and str(raw.get("issue_severity", "")).strip().upper() not in GATED_SEVERITIES
-    )
+    return [f for f in _all_findings(report, examined) if f.severity not in GATED_SEVERITIES]
 
 
 def coverage(report: dict, expected: set[str]) -> tuple[set[str], list[str]]:
@@ -652,13 +757,20 @@ def write_capture(path: Path, collected: dict) -> None:
 # The verdict
 # --------------------------------------------------------------------------- #
 
-def adjudicate(collected: dict, allow: list[AllowEntry], source: str) -> tuple[list[str], int]:
+def adjudicate(collected: dict, allow: Ledger, source: str) -> tuple[list[str], int]:
     """Print the report, return `(finding lines, exit code)`.
 
     Every gated finding is one of two: SUPPRESSED (an allowlist line for its
     file and rule still has room in its count) or GATING (nothing accounts for
     it). Plus STALE: an allowlist line whose count is higher than what this run
     reported, including the zero case where the finding is gone entirely.
+
+    And, below the threshold, one further distinction (issue #1114): a rule
+    class somebody READ against a `reviewed-low` record, versus one that has
+    never been looked at. That is not a severity decision - the LOW band's
+    severity is still below the gate and no LOW finding gates because of its
+    severity - it is a REVIEW decision, and it is the only one of the two that
+    a count can never carry.
     """
     files = set(collected["files"])
     report = collected["report"]
@@ -669,7 +781,7 @@ def adjudicate(collected: dict, allow: list[AllowEntry], source: str) -> tuple[l
 
     found = findings_from_report(report, files)
     observed = Counter((f.path, f.test_id) for f in found)
-    index = {(e.path, e.test_id): e for e in allow}
+    index = {(e.path, e.test_id): e for e in allow.findings}
 
     lines: list[str] = []
 
@@ -717,7 +829,7 @@ def adjudicate(collected: dict, allow: list[AllowEntry], source: str) -> tuple[l
     # different sentences, because "it is gone" and "there are fewer now" send a
     # reader to different places.
     stale: list[AllowEntry] = []
-    for entry in allow:
+    for entry in allow.findings:
         seen_count = observed.get((entry.path, entry.test_id), 0)
         if seen_count >= entry.count:
             continue
@@ -740,22 +852,79 @@ def adjudicate(collected: dict, allow: list[AllowEntry], source: str) -> tuple[l
                 f"reported {seen_count} - lower the count to {seen_count}."
             )
 
+    # ------------------------------------------------------------------- #
+    # The band below the threshold - issue #1114
+    # ------------------------------------------------------------------- #
+    # A LOW finding NEVER gates because of its severity; that is the #962
+    # threshold decision and this does not touch it. What gates here is the
+    # absence of a REVIEW: a rule class nobody has read yet, which the total
+    # alone cannot express, because an eighth class and a fifty-eighth finding
+    # of the first class move the same integer by one.
+    low = below_threshold_findings(report, files)
+    low_by_rule = Counter(f.test_id for f in low)
+    reviewed_index = {r.test_id: r for r in allow.reviewed_low}
+    for test_id, count in sorted(low_by_rule.items()):
+        record = reviewed_index.get(test_id)
+        if record is not None:
+            record.matched += count
+            continue
+        where = sorted({f.path for f in low if f.test_id == test_id})
+        shown = ", ".join(where[:3]) + ("..." if len(where) > 3 else "")
+        lines.append(
+            f"{LOW_UNREVIEWED}: {test_id} reported {count} time(s) in {len(where)} file(s) "
+            f"below severity>={GATED_SEVERITIES[0]} ({shown}), and no {ALLOW_FILE} "
+            f"`reviewed-low` record accounts for that rule class. Below the gate is not "
+            f"the same as read: disposition it (see docs/decisions/"
+            f"0010-bandit-low-band-disposition.md), then record it - or fix the sites."
+        )
+
+    # A RECORD THAT MATCHED NOTHING IS A NOTE, NOT A FINDING, and the asymmetry
+    # with the STALE rule above is deliberate rather than an oversight. A stale
+    # `finding` line is a SUPPRESSION outliving its finding - a blindfold, so it
+    # reddens. A `reviewed-low` record suppresses nothing, so one whose class has
+    # left the tree hides nothing; reddening for it would mean deleting the last
+    # `import subprocess` in a file turns the build red, which is precisely the
+    # "reddens on unrelated edits, so somebody switches it off" failure ADR 0009
+    # names. Pinned by tests/test_bandit_audit.py rather than left to this
+    # comment.
+    for record in sorted(allow.reviewed_low, key=lambda r: r.source_line):
+        if record.matched:
+            continue
+        print(
+            f"{LOW_NOTE}: {ALLOW_FILE} line {record.source_line} records {record.test_id} as a "
+            f"reviewed LOW rule class ({record.issue}), and this run reported none. Harmless - "
+            "it suppresses nothing - but the record now accounts for nothing and can be removed.",
+            file=sys.stderr,
+        )
+
     gating = sum(1 for line in lines if line.startswith(FINDING))
-    suppressed = sum(min(e.matched, e.count) for e in allow)
-    low = below_threshold(report)
+    unreviewed = sum(1 for line in lines if line.startswith(LOW_UNREVIEWED))
+    suppressed = sum(min(e.matched, e.count) for e in allow.findings)
     loc = int(tot.get("loc") or 0)
 
-    residual = f", {suppressed} accepted ({', '.join(sorted({e.issue for e in allow}))})" if allow else ""
+    residual = (
+        f", {suppressed} accepted ({', '.join(sorted({e.issue for e in allow.findings}))})"
+        if allow.findings else ""
+    )
     verdict = "ok - " if not lines else ""
-    # `source=` names the DERIVATION, not just the count (ADR 0008's shape). A
-    # `walk` verdict is about the tree as it is now; a `capture` verdict is about
-    # a report someone recorded earlier, and the two must never read alike.
+    # BOTH NUMBERS, because either alone is the claim this gate must not make.
+    # "135 below threshold" says how much is down there and nothing about
+    # whether anyone looked; "7 reviewed" over an unstated population says
+    # everything was read without saying how much there was. Printed together
+    # they are checkable against each other, and a gap between them is already
+    # explained by the LOW-UNREVIEWED lines above.
     print(
         f"{SUMMARY}: {verdict}{len(files)} file(s) examined under {roots} "
         f"(source={source}), {loc} loc, {gating} gating finding(s) at "
         f"severity>={GATED_SEVERITIES[0]}, {len(stale)} stale allowlist line(s), "
-        f"{low} below threshold (#1114){residual}"
+        f"{len(low)} below threshold in {len(low_by_rule)} rule class(es), "
+        f"{len(low_by_rule) - unreviewed} reviewed (#1114){residual}"
     )
+    if low:
+        print(
+            f"{SUMMARY}: below-threshold band by rule - "
+            + ", ".join(f"{rule} x{count}" for rule, count in low_by_rule.most_common())
+        )
     return lines, EXIT_FINDING if lines else EXIT_OK
 
 

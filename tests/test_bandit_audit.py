@@ -221,10 +221,14 @@ def test_an_issue_reference_survives_the_comment_stripper(tmp_path):
     fails because the record loses its fifth field and becomes unparseable.
     """
     module = _load_gate()
-    path = _allow(tmp_path, "finding lib/a.py B602 1 #1113\n")
-    entries = module.parse_allow(path)
-    assert len(entries) == 1
-    assert entries[0].issue == "#1113"
+    path = _allow(tmp_path, "finding lib/a.py B602 1 #1113\nreviewed-low B404 #1114\n")
+    ledger = module.parse_allow(path)
+    assert len(ledger.findings) == 1
+    assert ledger.findings[0].issue == "#1113"
+    # BOTH record types carry an issue reference, so both are exposed to the
+    # stripper this test exists to catch (issue #1114).
+    assert len(ledger.reviewed_low) == 1
+    assert ledger.reviewed_low[0].issue == "#1114"
 
 
 def test_a_line_accepting_fewer_than_the_reported_count_is_stale(tmp_path):
@@ -351,13 +355,166 @@ def test_a_same_count_site_replacement_is_a_known_blind_spot(tmp_path):
 
 
 def test_a_low_severity_finding_is_counted_and_never_gating(tmp_path):
-    """"Below the gate" and "not examined" are the two states the count keeps apart."""
+    """"Below the gate" and "not examined" are the two states the count keeps apart.
+
+    The SEVERITY half of the threshold decision, unchanged by #1114: a LOW
+    finding of a REVIEWED rule class is counted and exits 0. What #1114 added is
+    a second, independent question about the same finding - has anyone read this
+    rule class - and the record below is the answer to that one, not a change to
+    this one.
+    """
+    capture = _capture(
+        tmp_path, files=["lib/a.py"], results=[_result("lib/a.py", "B404", severity="LOW")],
+    )
+    allow = _allow(tmp_path, "reviewed-low B404 #1114\n")
+    proc = _run("--from-capture", str(capture), "--allow-file", str(allow))
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "1 below threshold in 1 rule class(es), 1 reviewed (#1114)" in proc.stdout
+    assert "below-threshold band by rule - B404 x1" in proc.stdout
+
+
+# --------------------------------------------------------------------------- #
+# The band below the threshold - issue #1114
+# --------------------------------------------------------------------------- #
+
+def test_an_unreviewed_low_rule_class_is_a_finding(tmp_path):
+    """THE POSITIVE CONTROL for #1114's check: it can fire at all.
+
+    Same capture as the test above, same severity, same file - and an EMPTY
+    ledger. If this exits 0 the gate has no way to tell a rule class somebody
+    read from one nobody has, which is the single distinction #1114 exists to
+    add, and ADR 0010's seven dispositions become a claim nothing re-derives.
+    """
     capture = _capture(
         tmp_path, files=["lib/a.py"], results=[_result("lib/a.py", "B404", severity="LOW")],
     )
     proc = _run("--from-capture", str(capture), "--allow-file", str(_allow(tmp_path, "")))
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert "BANDIT-LOW-UNREVIEWED: B404" in proc.stderr
+    assert "1 below threshold in 1 rule class(es), 0 reviewed (#1114)" in proc.stdout
+
+
+def test_a_record_for_one_class_does_not_review_another(tmp_path):
+    """A record accounts for ITS rule class, not for the band.
+
+    The cheap wrong implementation - any record at all means the LOW band is
+    reviewed - passes the pair of tests above and fails here. Without this, a
+    single `reviewed-low` line would silently become the `--skip` issue #962
+    rejected, wearing a different name.
+    """
+    capture = _capture(
+        tmp_path, files=["lib/a.py"],
+        results=[
+            _result("lib/a.py", "B404", severity="LOW"),
+            _result("lib/a.py", "B603", severity="LOW", line=2),
+        ],
+    )
+    allow = _allow(tmp_path, "reviewed-low B404 #1114\n")
+    proc = _run("--from-capture", str(capture), "--allow-file", str(allow))
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert "BANDIT-LOW-UNREVIEWED: B603" in proc.stderr
+    assert "BANDIT-LOW-UNREVIEWED: B404" not in proc.stderr
+    assert "2 below threshold in 2 rule class(es), 1 reviewed (#1114)" in proc.stdout
+
+
+def test_a_reviewed_low_record_that_matches_nothing_is_a_note_not_a_finding(tmp_path):
+    """THE PINNED ASYMMETRY, and the direction that is easy to "fix" wrongly.
+
+    A stale `finding` record reddens: a suppression outliving its finding is a
+    blindfold nobody re-reads. A `reviewed-low` record that matches nothing
+    suppressed nothing, so it prints a NOTE and exits 0 - because reddening
+    there means deleting the last `import subprocess` in a file turns the build
+    red, and a ledger that reddens on unrelated edits is one somebody switches
+    off (ADR 0009). Written as a test rather than as a comment so that making
+    the two directions symmetric has to be a decision.
+    """
+    capture = _capture(
+        tmp_path, files=["lib/a.py"], results=[_result("lib/a.py", "B404", severity="LOW")],
+    )
+    allow = _allow(tmp_path, "reviewed-low B404 #1114\nreviewed-low B101 #1114\n")
+    proc = _run("--from-capture", str(capture), "--allow-file", str(allow))
     assert proc.returncode == 0, proc.stdout + proc.stderr
-    assert "1 below threshold (#1114)" in proc.stdout
+    assert "BANDIT-LOW-NOTE" in proc.stderr
+    assert "B101" in proc.stderr
+    assert "bandit-audit: ok" in proc.stdout
+
+
+def test_a_reviewed_low_record_cannot_suppress_a_gated_finding(tmp_path):
+    """The two record types are not interchangeable, and this is the dangerous way.
+
+    `reviewed-low` is deliberately cheaper than a `finding` record - no path, no
+    count - so if it could also account for a MEDIUM+ finding it would be a
+    one-line, tree-wide, permanent suppression of exactly the band #962's empty
+    skip list exists to keep visible.
+    """
+    capture = _capture(
+        tmp_path, files=["lib/a.py"], results=[_result("lib/a.py", "B602", severity="HIGH")],
+    )
+    allow = _allow(tmp_path, "reviewed-low B602 #1114\n")
+    proc = _run("--from-capture", str(capture), "--allow-file", str(allow))
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert "BANDIT-FINDING: lib/a.py:1 B602" in proc.stderr
+
+
+def test_a_duplicate_reviewed_low_record_is_refused(tmp_path):
+    """Two dispositions for one rule class, and no way to tell which is live."""
+    module = _load_gate()
+    path = _allow(tmp_path, "reviewed-low B404 #1114\nreviewed-low B404 #1113\n")
+    with pytest.raises(module.Unknown) as excinfo:
+        module.parse_allow(path)
+    assert "repeats reviewed-low B404" in str(excinfo.value)
+
+
+def test_a_malformed_reviewed_low_record_is_unknown_not_ignored(tmp_path):
+    """An unparseable record must never degrade into a silently skipped line.
+
+    That property is what makes a second record type safe to add at all: a typo
+    in the first field cannot become "some other record type I do not handle",
+    and a record with the wrong arity cannot become a hole.
+    """
+    module = _load_gate()
+    for text in ("reviewed-low B404\n", "reviewed-low B404 #1114 3\n", "reviewed B404 #1114\n"):
+        with pytest.raises(module.Unknown):
+            module.parse_allow(_allow(tmp_path, text))
+
+
+def test_the_ledger_and_adr_0010_name_the_same_reviewed_rule_classes():
+    """The record and the reading it points at, checked against each other.
+
+    A `reviewed-low` record is a POINTER: it says this rule class was read, and
+    names the issue whose reading is written up in ADR 0010. Those are two
+    enumerations of one set, kept in two files, and nothing but this test
+    notices when they diverge - a record added without a disposition is an
+    acceptance nobody wrote down, and a disposition whose record was dropped in
+    a refactor reddens the gate for a class that WAS read.
+
+    Asserted without bandit deliberately: the gate already enforces the tree
+    side on every run, and a test that needed the binary would be skipped
+    exactly where the ledger is most likely to be edited blind.
+    """
+    module = _load_gate()
+    ledger = module.parse_allow(ALLOW)
+    recorded = {r.test_id for r in ledger.reviewed_low}
+    assert recorded, (
+        "the repository's ledger records no reviewed LOW rule class, so either the "
+        "LOW band is empty (it is not) or ADR 0010's disposition has been dropped"
+    )
+    adr = REPO / "docs" / "decisions" / "0010-bandit-low-band-disposition.md"
+    assert adr.is_file(), f"{adr} is missing - the records below point at nothing"
+    dispositioned = set(re.findall(r"^### (B\d+) ", adr.read_text(encoding="utf-8"), re.M))
+    assert dispositioned, (
+        f"{adr.name} carries no `### B<id>` disposition heading, so this test would "
+        "compare the ledger against an empty set and pass vacuously"
+    )
+    assert recorded == dispositioned, (
+        f"the ledger records {sorted(recorded)} and {adr.name} dispositions "
+        f"{sorted(dispositioned)} - only in one: {sorted(recorded ^ dispositioned)}"
+    )
+    for record in ledger.reviewed_low:
+        assert record.issue.startswith("#"), (
+            f"reviewed-low {record.test_id} names no issue - the record is the pointer "
+            "to where the reading lives, and one without it is an unsourced assertion"
+        )
 
 
 # --------------------------------------------------------------------------- #
@@ -397,7 +554,16 @@ def test_the_live_bad_fixture_uses_a_rule_outside_both_suppression_lists():
         f"fixture rule(s) {sorted(gated & CXPP_SKIP)} are on codex-power-pack's inherited "
         "skip list, so this control would pass for the wrong reason (issue #962)"
     )
-    allowed_rules = {e.test_id for e in module.parse_allow(ALLOW)}
+    # THE `finding` RECORDS ONLY, and `reviewed-low` deliberately NOT (issue
+    # #1114, counter-model review pass 2). Widening this to both record types
+    # looks like belt-and-braces and is not: a `reviewed-low` record cannot
+    # suppress a GATED finding - `selftest()` never reads the ledger at all -
+    # so the only thing the wider assertion can do is fail when SOMEBODY ELSE's
+    # ledger grows a record, reporting a neighbour's correct change as this
+    # fixture having stopped discriminating. That a review record cannot account
+    # for a MEDIUM+ finding is asserted directly and on its own, by
+    # test_a_reviewed_low_record_cannot_suppress_a_gated_finding.
+    allowed_rules = {e.test_id for e in module.parse_allow(ALLOW).findings}
     assert not (gated & allowed_rules), (
         f"fixture rule(s) {sorted(gated & allowed_rules)} appear in {module.ALLOW_FILE}, "
         "the mechanism that replaced the skip list"
@@ -419,7 +585,8 @@ def test_no_registered_case_is_covered_by_the_repositorys_own_allowlist():
     with the default `--allow-file`.
     """
     module = _load_gate()
-    repo_pairs = {(e.path, e.test_id) for e in module.parse_allow(ALLOW)}
+    ledger = module.parse_allow(ALLOW)
+    repo_pairs = {(e.path, e.test_id) for e in ledger.findings}
     for case in sorted(CASES.iterdir()):
         if not case.name.startswith("bad-"):
             continue
@@ -430,6 +597,44 @@ def test_no_registered_case_is_covered_by_the_repositorys_own_allowlist():
                 f"case {case.name} reports {pair}, which {module.ALLOW_FILE} already accepts - "
                 "the case would be suppressed by the mechanism it exists to exercise"
             )
+
+
+def test_every_case_is_adjudicated_against_its_own_ledger_not_the_repositorys():
+    """What actually makes a case independent of this repository's residual.
+
+    The pair check above protects `finding` records by construction, because the
+    case fixtures name paths that exist nowhere. The SECOND record type has no
+    such protection: `reviewed-low` keys on the RULE CLASS alone, so a fixture
+    path nobody else uses buys nothing, and the only thing standing between a
+    case and the repository's ledger is that the manifest hands the gate the
+    case's OWN `--allow-file`.
+
+    THIS ASSERTS THAT, RATHER THAN CONSTRAINING WHICH RULES A FIXTURE MAY USE
+    (counter-model review, codex). The first cut asserted the latter - that no
+    bad case may report a LOW class the repository has reviewed - and that check
+    cannot tell "our fixture stopped discriminating" from "a neighbour's ledger
+    grew a record", which is the second detector-contract question. It would
+    have failed the day somebody legitimately dispositioned B110 for `lib/`,
+    while the fixture went on scoring BAD exactly as designed, and sent them to
+    rewrite a control fixture that was not broken.
+
+    Stated bound: this does NOT cover a hand-run of the gate against a case
+    capture with the DEFAULT `--allow-file`. That is not how the harness
+    consumes these cases, and for `reviewed-low` no per-case assertion can cover
+    it - the key is a rule class the repository is free to review later.
+    """
+    spec = json.loads((CONTROL / "control.json").read_text(encoding="utf-8"))
+    invocation = spec["invocation"]
+    assert "--allow-file" in invocation, (
+        "the registered invocation passes no --allow-file, so EVERY case is adjudicated "
+        "against the repository's own .bandit-audit-allow - the systemic form of the "
+        "hazard the per-case checks above only cover one instance of"
+    )
+    ledger_arg = invocation[invocation.index("--allow-file") + 1]
+    assert "{case}" in ledger_arg, (
+        f"the registered invocation supplies --allow-file {ledger_arg!r}, which does not "
+        "resolve per case - a case cannot be independent of a ledger it does not own"
+    )
 
 
 def test_the_clean_live_fixture_is_clean_at_every_severity():
