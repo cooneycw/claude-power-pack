@@ -1,5 +1,23 @@
 #!/usr/bin/env python3
-"""Pull Woodpecker secrets from AWS Secrets Manager and write docker .env"""
+"""Pull Woodpecker secrets from AWS Secrets Manager and write docker .env
+
+RUNS ON THE WOODPECKER HOST, UNDER THE SYSTEM INTERPRETER - not from this
+project's environment (issue #1041). `boto3` is imported below and is declared in
+no dependency metadata here, deliberately: this file is operator tooling for the
+CI host, it is imported by nothing in this repository, and `tests/test_bootstrap.py`
+gives its remediation as `python woodpecker/bootstrap-secrets.py`.
+`templates/woodpecker/bootstrap-secrets.py.example` ships the same program for
+other projects to copy.
+
+boto3 IS declared, as the `aws` extra, because `lib/creds/providers/aws.py`
+needs it too - so `make undeclared-import-audit` has nothing to report here and
+`.undeclared-import-allow` carries no entry for this file. That is the outcome
+#1041 preferred: an exception recorded in a ledger is worth less than a
+declaration, and the ledger's own stale check is what established it. Running this
+from the project environment therefore works under `uv sync --extra aws`; running
+it on the host under the system interpreter, as the CI bootstrap does, is what it
+is actually for.
+"""
 import json
 import os
 

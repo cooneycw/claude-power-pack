@@ -1,0 +1,3 @@
+# The state a tree enters the moment someone FIXES a recorded site: the import
+# this line accepts is not in the tree any more, so the line accounts for nothing.
+allow fetcher.py requests #1041

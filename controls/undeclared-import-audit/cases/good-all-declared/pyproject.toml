@@ -1,0 +1,7 @@
+[project]
+name = "fixture-all-declared"
+version = "0"
+dependencies = ["pyyaml>=6.0"]
+
+[project.optional-dependencies]
+aws = ["boto3>=1.34"]
