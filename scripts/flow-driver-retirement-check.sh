@@ -61,22 +61,46 @@
 #   flow-driver-retirement-check.sh --driver X --registry-dir <dir>   # controls
 set -u
 
+# THE SHARED GATE MODULE (issue #1127, 4 of 4). Adopts `gate_map` and
+# `gate_arg_value`; NOT `gate_emit` - `unknown()` and the tail print
+# `RETIREMENT: <verdict> ...`, which this gate's control keys on and which is
+# not the module's `KEY: verdict - detail` shape.
+#
+# THIS IS THE ONE WHERE IT MATTERED MOST. `${2:?...}` exits 1 under bash, and 1
+# is THIS gate's `blocked` code - so a dangling `--driver` reported as "at least
+# one LIVE role drives on it", the verdict that REFUSES a retirement. A usage
+# error rendering as the safe-side answer is the worst direction for it to be
+# wrong in, because nobody investigates a refusal that agrees with caution: the
+# operator sees "blocked", does not delete, and never learns the gate never ran.
+# The module's usage exit is outside every verdict this gate declares.
+#
+# The comment below about usage and unknown SHARING exit 3 is now history for
+# the usage half, and is left in place because it explains why the `unknown`
+# verdict still exits 3. Usage errors no longer land there.
+# `${0%/*}`, NEVER `$(dirname "$0")`. `dirname` is an external binary, and
+# sourcing the module is the FIRST thing these gates do - so a PATH without it
+# left the gate unable to load at all, and therefore unable to say UNKNOWN in
+# exactly the environment where UNKNOWN is the answer. Caught by
+# `tests/test_shellcheck_stage.py`, which constructs that PATH deliberately and
+# which this slice may not edit; that is what the byte-identical constraint is
+# for. Parameter expansion forks nothing and needs nothing on PATH.
+_gate_lib_dir=${0%/*}
+[ "$_gate_lib_dir" = "$0" ] && _gate_lib_dir=.
+. "$_gate_lib_dir/gate-lib.sh"
+
+gate_map clear=0 blocked=1 unknown=3
+
 DRIVER=""
 ONE_WAVE=""
 REG_DIR="${FLOW_WAVE_REGISTRY_DIR:-}"
 HELPER="${FLOW_WAVE_REGISTRY_BIN:-}"
 
-while [ $# -gt 0 ]; do
-    case "$1" in
-        --driver)       DRIVER="${2:?--driver needs a driver name}"; shift 2 ;;
-        --wave)         ONE_WAVE="${2:?--wave needs a wave name}"; shift 2 ;;
-        --registry-dir) REG_DIR="${2:?--registry-dir needs a directory}"; shift 2 ;;
-        --helper)       HELPER="${2:?--helper needs a path}"; shift 2 ;;
-        -h|--help)      sed -n '2,61p' "$0"; exit 0 ;;
-        *) echo "flow-driver-retirement-check: unknown argument: $1" >&2; exit 3 ;;
-    esac
-done
-
+# DEFINED BEFORE THE ARGUMENT LOOP, because `require_selector` below calls it
+# from inside that loop (#1127). A shell resolves a function at CALL time, so
+# leaving this where it was - after the loop - made the guard die with
+# `unknown: not found` instead of reporting. Moving a definition changes
+# nothing observable; calling one that does not exist yet changes everything.
+#
 # An unknown VERDICT and a usage error are different facts, but both exit 3:
 # neither answered the question, and a caller that deletes on anything but 0 is
 # already wrong. The marker line says which.
@@ -84,6 +108,39 @@ unknown() {
     echo "RETIREMENT: unknown - $1"
     exit 3
 }
+
+# AN EXPLICITLY SUPPLIED EMPTY SELECTOR IS NOT AN OMITTED ONE (counter-model
+# review, #1127). `gate_arg_value` accepts `--flag ""` by design - #1126 ruled
+# that a value supplied is not a value missing, and that rule stays - but what
+# a gate DOES with it is the gate's own business, and here the empty string is
+# the default for `--wave`, `--registry-dir` and `--helper` alike. So an empty
+# one did not fail: it read as "not given", and the gate silently resolved a
+# DIFFERENT scope.
+#
+# Measured before this guard: `--registry-dir ""` against a case fixture
+# examined the HOST registry instead - three unrelated waves (codex-conversion,
+# kyle-revisions, nitprobe-tmp) rather than the one named. The caller asked
+# about one registry and the gate answered about another. It reported `unknown`
+# on that run only because those waves happened to be unparseable from there;
+# on a readable host registry the same mistake reaches `clear`, which is the
+# verdict that AUTHORISES deleting a command.
+#
+# `--driver` needs no entry here: `[ -n "$DRIVER" ]` below already catches an
+# empty one, and its empty value is not a scope selector.
+require_selector() {
+    [ -n "$2" ] || unknown "$1 was given an empty value; that is not the same as omitting it, and resolving the default here would answer about a different scope than the one asked for"
+}
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --driver)       gate_arg_value "$1" "$#" "${2-}"; DRIVER=$GATE_VALUE; shift 2 ;;
+        --wave)         gate_arg_value "$1" "$#" "${2-}"; require_selector "$1" "$GATE_VALUE"; ONE_WAVE=$GATE_VALUE; shift 2 ;;
+        --registry-dir) gate_arg_value "$1" "$#" "${2-}"; require_selector "$1" "$GATE_VALUE"; REG_DIR=$GATE_VALUE; shift 2 ;;
+        --helper)       gate_arg_value "$1" "$#" "${2-}"; require_selector "$1" "$GATE_VALUE"; HELPER=$GATE_VALUE; shift 2 ;;
+        -h|--help)      sed -n '2,61p' "$0"; exit 0 ;;
+        *) echo "flow-driver-retirement-check: unknown argument: $1" >&2; exit 3 ;;
+    esac
+done
 
 [ -n "$DRIVER" ] || unknown "no --driver was given, so nothing was examined"
 

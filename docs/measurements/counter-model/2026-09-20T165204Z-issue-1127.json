@@ -1,0 +1,19 @@
+{
+  "branch": "issue-1127-migrate-the-four-controlled-shell-gates-onto-gate",
+  "counts": {
+    "accepted": 4,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "implementer": "claude/claude-opus-5",
+  "issue": "1127",
+  "passes": 2,
+  "recorded_at": "2026-09-20T16:52:04Z",
+  "red_cases": {
+    "already_covered": 11,
+    "proposed": 11
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}

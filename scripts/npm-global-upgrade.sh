@@ -54,6 +54,19 @@
 # willing to have become indistinguishable from the others again.
 set -u
 
+# `${0%/*}`, NEVER `$(dirname "$0")`. `dirname` is an external binary, and
+# sourcing the module is the FIRST thing these gates do - so a PATH without it
+# left the gate unable to load at all, and therefore unable to say UNKNOWN in
+# exactly the environment where UNKNOWN is the answer. Caught by
+# `tests/test_shellcheck_stage.py`, which constructs that PATH deliberately and
+# which this slice may not edit; that is what the byte-identical constraint is
+# for. Parameter expansion forks nothing and needs nothing on PATH.
+_gate_lib_dir=${0%/*}
+[ "$_gate_lib_dir" = "$0" ] && _gate_lib_dir=.
+. "$_gate_lib_dir/gate-lib.sh"
+
+gate_map upgraded=0 downgraded=1 unknown=2 error=3
+
 PACKAGE=""
 BINARY=""
 LABEL=""
@@ -67,13 +80,28 @@ usage() {
     exit 0
 }
 
+# THE SHARED GATE MODULE (issue #1127, 3 of 4). Adopts `gate_map` and
+# `gate_arg_value`; NOT `gate_emit` - this gate's `verdict()` prints
+# `NPM_UPGRADE: <verdict> <detail>`, which its control keys on and which is not
+# the module's `KEY: verdict - detail` shape.
+#
+# ONLY THE FIVE VALUE-TAKING FLAGS MOVE. `--sudo` and `--skip-install` take no
+# value and stay exactly as they are: `gate_arg_value` answers "was a value
+# supplied", and a boolean flag has none to supply. Converting them would be
+# the over-application worth avoiding - a module adopted past the question it
+# answers.
+#
+# WHAT THE USAGE EXIT WAS. `${2:?...}` exits 1 under bash, and 1 is THIS
+# gate's `downgraded` code - so a dangling `--package` reported as "the
+# installed version moved BACKWARD", a real and alarming verdict, on any host
+# whose /bin/sh is bash. No verdict code moves: 0/1/2/3 unchanged.
 while [ $# -gt 0 ]; do
     case "$1" in
-        --package) PACKAGE="${2:?--package needs an npm package name}"; shift 2 ;;
-        --binary) BINARY="${2:?--binary needs a command name}"; shift 2 ;;
-        --label) LABEL="${2:?--label needs a value}"; shift 2 ;;
-        --npm) NPM_CMD="${2:?--npm needs a command}"; shift 2 ;;
-        --node) NODE_CMD="${2:?--node needs a command}"; shift 2 ;;
+        --package) gate_arg_value "$1" "$#" "${2-}"; PACKAGE=$GATE_VALUE; shift 2 ;;
+        --binary) gate_arg_value "$1" "$#" "${2-}"; BINARY=$GATE_VALUE; shift 2 ;;
+        --label) gate_arg_value "$1" "$#" "${2-}"; LABEL=$GATE_VALUE; shift 2 ;;
+        --npm) gate_arg_value "$1" "$#" "${2-}"; NPM_CMD=$GATE_VALUE; shift 2 ;;
+        --node) gate_arg_value "$1" "$#" "${2-}"; NODE_CMD=$GATE_VALUE; shift 2 ;;
         --sudo) USE_SUDO=1; shift ;;
         --skip-install) RUN_INSTALL=0; shift ;;
         -h|--help) usage ;;
