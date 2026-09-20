@@ -274,12 +274,38 @@ Stated so that a gap in the method is not mistaken for a clean result.
 
 **A lockfile scan only asks about what is pinned.** A module imported directly but
 declared in no dependency metadata is never queried, so it cannot appear in any row
-above however vulnerable it is. This repository has a known instance:
-`scrape_reddit.py:11` does `import requests`, and no `requests` entry exists in
-`uv.lock` - only `types-requests`, the type stubs. Nothing catches it, because
-`ignore_missing_imports = true` under mypy and ruff's selected rules (`E`, `F`, `W`,
-`I`) do not check that an import is declared. Tracked as issue #1041; it is a
-declare-or-drop decision, not an advisory.
+above however vulnerable it is. The METHOD gap is permanent and is why this entry
+stays; the instances are closed.
+
+Two corrections to what this paragraph used to say, recorded rather than quietly
+edited, because the shape of the error is the useful part. It named **one** known
+instance - `scrape_reddit.py:11` doing `import requests` against a lock carrying only
+`types-requests`, the type stubs. There were **three** module-level instances and
+nine guarded ones, across six packages, several inside `lib/creds/` - this
+repository's own credential retrieval and secrets UI. And the count was not wrong
+through carelessness: it was as accurate as a hand search gets. Eleven of the twelve
+were found by building the instrument, which is the argument for building one.
+
+Closed by #1041, in three ways that are not interchangeable:
+
+- `scrape_reddit.py` and `fetch_reddit_posts.py` were DELETED. Both were seeding
+  research from the repository's pre-rename `claude-best-practices` era (`750ee43`),
+  referenced by nothing, and unable to run from the locked environment since the
+  initial commit.
+- The six guarded optional integrations - boto3, botocore, python-dotenv, psycopg,
+  fastapi, uvicorn - were DECLARED as `[project.optional-dependencies]` extras. Every
+  one of those imports was correctly guarded and none could crash an importer, which
+  is exactly why nobody noticed; guarded is not the same as declared, and only
+  declaring them puts them in `uv.lock` and therefore in this register's population.
+  `uv sync --extra dev` still installs none of them.
+- `scripts/undeclared-import-audit.py` now GATES the question, in `make verify` and
+  in CI. Nothing had, because `ignore_missing_imports = true` under mypy and ruff's
+  selected rules (`E`, `F`, `W`, `I`) do not check that an import is declared.
+
+**What the new gate still cannot see**, so its green is not read as more than it is:
+a dynamic `importlib.import_module(name)` or `__import__` call, neither of which is a
+syntactic import; and a package that is declared but whose code is never reached.
+Re-measure rather than inheriting this paragraph's conclusion.
 
 **OSV has its own coverage and freshness.** A count is a measurement with a
 timestamp, not a permanent property of the lockfile. "0 of 22" above is what OSV read

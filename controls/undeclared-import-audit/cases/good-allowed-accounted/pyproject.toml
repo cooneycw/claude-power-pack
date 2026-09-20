@@ -1,0 +1,4 @@
+[project]
+name = "fixture-allowed"
+version = "0"
+dependencies = ["pydantic>=2.0"]

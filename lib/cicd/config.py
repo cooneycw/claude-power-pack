@@ -6,6 +6,71 @@ otherwise uses sensible defaults.
 Uses Pydantic v2 for validation with extra="ignore" for backwards
 compatibility - existing configs load without errors even if they
 contain unknown keys.
+
+TRUST MODEL FOR COMMAND-BEARING FIELDS (issue #1113, bandit B602)
+-----------------------------------------------------------------
+Six places in `lib/cicd` run a command string through a shell (`shell=True`),
+and bandit flags every one. The shell is the FEATURE, not an oversight: these
+fields exist so a project can write `make test | tee log` and have it mean what
+it says. Removing `shell=True` would remove the capability, not a bug. So the
+question bandit cannot answer, and which is answered here, is WHOSE STRING
+REACHES IT.
+
+**The assumption: every command string executed by `lib/cicd` originates either
+in a file committed to the project checkout, or in a constant in CPP's own
+source** - and both are therefore at the SAME TRUST LEVEL AS THE CODE. Anyone
+who can write those files can already write `Makefile` or `conftest.py`;
+`shell=True` grants them nothing they did not have.
+
+The actual sources, because naming them wrongly is the easy failure here and the
+first draft of this docstring did exactly that (counter-model review):
+
+- `bootstrap.py:check_dependency` runs `BootstrapDependency.check_command`,
+  from `.claude/bootstrap.yaml`, else built-in constants in `bootstrap.py`.
+- `smoke.py:run_single_test` runs `SmokeTest.command`, from `.claude/cicd.yml`
+  `health.smoke_tests[]` - defined in THIS module.
+- `steps.py:should_skip` runs `StepDef.skip_if`, and `steps.py:execute` runs
+  `StepDef.command`, both from `.claude/cicd_tasks.yml`, else `BUILTIN_PLANS`.
+- `docker_compose.py:_run_shell` runs `DeployConfig.deploy_command` or
+  `.rollback_command`, from `.claude/cicd_tasks.yml` `config:`, else a
+  caller-supplied dict.
+- `guardrails.py:CapabilityCheck.run` runs
+  `ReadinessPolicy.capability_checks[].command`, from the same manifest's
+  readiness config.
+
+Note what is NOT in that table: `.claude/deploy.yaml`. It is read by the
+`/flow:*` command documents in shell, never by `lib/cicd`, and an earlier draft
+of this note named it - which would have sent a reader looking for these
+commands in a file that does not supply them.
+
+`CICDConfig.load()` - this module - reads `<project_root>/.claude/cicd.yml` and
+nothing else. There is no environment-variable, CLI-argument, network or
+CI-event path into any command-bearing field it owns, and `smoke_tests` defaults
+to EMPTY.
+
+**Built-in plan commands are NOT nothing, and this is where a summary would
+mislead.** A project with no config files still executes the `BUILTIN_PLANS`
+steps in `steps.py` - `make deploy`, `python3 -m lib.security gate flow_deploy`
+and so on. Those are constants in CPP's source, which is the strongest end of
+the trust model, not an exception to it; but "no config means no strings" is
+false and must not be written or tested as if it were true.
+
+`tests/test_bandit_dispositions.py` pins all of it: the six `shell=True` sites
+are enumerated from the AST WITH their per-function call counts, a seventh site
+or a duplicated call fails the suite until dispositioned, the built-in commands
+are pinned as a known committed set, and the loader is tested to ignore a
+hostile environment and a foreign cwd.
+
+**What this does NOT cover, stated so the boundary is usable.** A value that a
+CI EVENT can influence - a branch name, a PR title, a tag - is a different trust
+level and must never be interpolated into one of these strings. Where such a
+value is already interpolated into a GENERATED pipeline command,
+`_SAFE_SHELL_TOKEN` below constrains it to safe path/target characters; that
+guard covers the generation path, not this execution path, and the two should
+not be confused.
+
+Full disposition for the remaining eight MEDIUM+ findings:
+`docs/security/bandit-finding-dispositions.md`.
 """
 
 from __future__ import annotations

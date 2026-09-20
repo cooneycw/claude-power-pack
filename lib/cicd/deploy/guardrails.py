@@ -9,10 +9,12 @@ Pre-deploy validation gates that prevent common deployment failures:
 
 from __future__ import annotations
 
+import errno
 import fcntl
 import logging
 import os
 import shutil
+import stat
 import subprocess
 import time
 from contextlib import contextmanager
@@ -25,7 +27,86 @@ from ..steps import StepResult
 
 logger = logging.getLogger(__name__)
 
+#: The deploy lock. A FIXED, SHARED, WORLD-READABLE PATH, DELIBERATELY - see
+#: `docs/security/bandit-finding-dispositions.md` (B108, issue #1113).
+#:
+#: bandit flags the hardcoded `/tmp` literal, and the two obvious ways to clear
+#: that finding both delete the property this lock exists for. Per-uid
+#: (`...-{os.getuid()}.lock`) stops excluding the OTHER users the module
+#: docstring promises to exclude on a shared Docker host. `tempfile.gettempdir()`
+#: reads `$TMPDIR`, so a user with a custom one silently stops participating in
+#: the lock - the worst of the three, because nothing would look wrong.
+#:
+#: A lock in a shared directory is shared on purpose. What is NOT acceptable is
+#: opening whatever happens to be sitting at that path, and `_open_lock_file`
+#: below is where that is handled instead.
 DEPLOY_LOCK_PATH = Path("/tmp/claude-power-pack-deploy.lock")
+
+
+class LockPathUnsafe(RuntimeError):
+    """The deploy lock path is not a plain file we can safely take.
+
+    Raised instead of quietly proceeding, because both cases mean another local
+    user has already put something at the path we were about to write.
+    """
+
+
+def _open_lock_file(path: Path):  # type: ignore[no-untyped-def]
+    """Open `path` for locking, refusing anything that is not a regular file.
+
+    The pre-#1113 line was `open(path, "w")`, and in a world-writable directory
+    that is two distinct hazards, closed here by two distinct flags. Both were
+    measured on the old code rather than reasoned about (issue #1113):
+
+    ``O_NOFOLLOW`` - a symlink at the path. Any local user can point
+    `/tmp/claude-power-pack-deploy.lock` at a file the deploying user can write,
+    and `open(..., "w")` follows it and TRUNCATES the target. Probed on the old
+    code: a victim file holding ``precious`` came back holding ``pid=1 time=0``.
+    Linux's ``fs.protected_symlinks`` blocks this in the common sticky-directory
+    case, but it is a sysctl someone else owns, not a property of this code.
+
+    ``O_NONBLOCK`` + ``S_ISREG`` - a FIFO at the path. ``O_NOFOLLOW`` permits it,
+    and opening a FIFO for writing BLOCKS until a reader appears: a deploy that
+    HANGS rather than one that fails, which is strictly harder to diagnose.
+    Measured on the old code as a 120s pytest-timeout kill inside `open()`.
+    Checking the fd we actually got (``fstat``), rather than the path before
+    opening it (``lstat``), is what makes this free of a swap-in-between race.
+
+    No ``O_EXCL``: a leftover regular lock file from a previous deploy is the
+    NORMAL state on any host that has deployed once, and refusing it would
+    refuse every deploy after the first.
+
+    THE CREATION MODE IS ``0o666``, MATCHING ``open(path, "w")`` EXACTLY, and it
+    is not a typo (counter-model review, #1113). Hardcoding the more restrictive
+    ``0o644`` here looks like hardening and is the opposite: `open(path, "w")`
+    requests ``0o666`` and lets the process umask decide, so on a shared-group
+    deploy host running ``umask 002`` the lock was created ``0664`` and a SECOND
+    deploying user could open it ``O_RDWR``. At ``0o644`` that user gets
+    ``EACCES`` and cannot take the lock at all - which breaks the cross-user
+    mutual exclusion this whole path exists to preserve, in the name of securing
+    it. Requesting ``0o666`` keeps the permission behaviour byte-identical to the
+    code this replaced; the hardening is the FLAGS, not the mode.
+    """
+    flags = os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK
+    try:
+        fd = os.open(path, flags, 0o666)
+    except OSError as exc:
+        if exc.errno in (errno.ELOOP, errno.EMLINK):
+            raise LockPathUnsafe(
+                f"deploy lock path {path} is a symlink; refusing to follow it"
+            ) from exc
+        raise
+
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise LockPathUnsafe(
+                f"deploy lock path {path} is not a regular file; refusing to use it"
+            )
+    except BaseException:
+        os.close(fd)
+        raise
+
+    return os.fdopen(fd, "r+")
 
 
 @dataclass
@@ -184,7 +265,7 @@ def deploy_lock(
     path.parent.mkdir(parents=True, exist_ok=True)
 
     start = time.monotonic()
-    lock_file = open(path, "w")
+    lock_file = _open_lock_file(path)
     acquired = False
 
     try:
@@ -192,6 +273,10 @@ def deploy_lock(
             try:
                 fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
                 acquired = True
+                # `_open_lock_file` does not pass O_TRUNC (see its docstring), so
+                # a leftover line from a previous deploy is cleared here instead.
+                lock_file.seek(0)
+                lock_file.truncate()
                 lock_file.write(f"pid={os.getpid()} time={time.time():.0f}\n")
                 lock_file.flush()
                 logger.info("Deploy lock acquired: %s", path)
