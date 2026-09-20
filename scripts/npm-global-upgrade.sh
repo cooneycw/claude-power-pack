@@ -1,5 +1,7 @@
 #!/usr/bin/env sh
-#: HOST-SURFACE: none under $HOME - operates on the npm global prefix, a system path. Reaches outside $HOME via npm install -g and sudo, so it is NOT observation-certified.
+#: HOST-SURFACE: none under $HOME
+#  operates on the npm global prefix, a system path. Reaches outside $HOME via npm install -g and sudo, so it
+#  is NOT observation-certified.
 
 # Upgrade a global npm harness and report the VERSION TRANSITION (issue #1022).
 #

@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-#: HOST-SURFACE: unresolved - surface_path() returns Path(entry['path']).expanduser(), so the target is read from DATA at run time and cannot be resolved statically. Reported as unresolved rather than omitted: an unresolvable target dropped from a manifest reads as 'no surface here', which is the drift this seam exists to make visible.
+#: HOST-SURFACE: unresolved
+#  surface_path() returns Path(entry['path']).expanduser(), so the target is read from DATA at run time and
+#  cannot be resolved statically. Reported as unresolved rather than omitted: an unresolvable target dropped
+#  from a manifest reads as 'no surface here', which is the drift this seam exists to make visible.
 
 """retired-surface-prune.py - tear down GENERATED file surfaces CPP retired.
 

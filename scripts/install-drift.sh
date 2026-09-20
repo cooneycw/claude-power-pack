@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-#: HOST-SURFACE: none - read-only reporter. Compares ~/.claude/{plugins,scripts,skills}, ~/.codex/skills and ~/.claude-power-pack against the checkout and reports; no cp, ln, mkdir, tee or rm is executed.
+#: HOST-SURFACE: none
+#  read-only reporter. Compares ~/.claude/{plugins,scripts,skills}, ~/.codex/skills and ~/.claude-power-pack
+#  against the checkout and reports; no cp, ln, mkdir, tee or rm is executed.
 
 # install-drift.sh - guard installed CPP helpers and report retired marketplace
 # state left on a host (issues #622/#662/#823).

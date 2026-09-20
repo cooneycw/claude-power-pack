@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-#: HOST-SURFACE: none - refuses git stash from a linked worktree. --install writes a hook inside the REPO, not under $HOME.
+#: HOST-SURFACE: none
+#  refuses git stash from a linked worktree. --install writes a hook inside the REPO, not under $HOME.
 
 # CPP-GUARD-ID: stash-worktree-guard
 # stash-worktree-guard.sh - refuse `git stash push` from a LINKED WORKTREE

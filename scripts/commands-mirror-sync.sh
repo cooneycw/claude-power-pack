@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-#: HOST-SURFACE: none - operates on repo-relative paths; the single ~/ occurrence is an illustrative path inside a comment.
+#: HOST-SURFACE: none
+#  operates on repo-relative paths; the single ~/ occurrence is an illustrative path inside a comment.
 
 # commands-mirror-sync.sh - drift guard + refresher for an out-of-repo commands mirror.
 #
