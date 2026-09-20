@@ -102,10 +102,15 @@ def test_the_agents_budget_does_NOT_forbid_a_replacement_copy(tmp_path: Path) ->
     Core Directives block in its place, and the result is ~399 words - under the
     cap, and exactly the second copy the thin-pointer design exists to prevent.
 
-    This asserts the instrument's BLIND SPOT on purpose. If someone later widens
-    the cap's claim back to "forbids a copy", this test fails and says why -
-    which is the only durable record that the narrow claim was the honest one.
-    The semantic property belongs to review, not to this word counter.
+    This asserts the instrument's BLIND SPOT on purpose: an under-budget
+    replacement is ACCEPTED, so the cap demonstrably does not forbid one.
+
+    WHAT IT DOES NOT DO, corrected at the re-review: an earlier version of this
+    docstring said restoring the "forbids a copy" claim would fail this test. It
+    would not. The test reads no prose - it measures word counts - so restoring
+    that claim anywhere leaves it green. Asserting otherwise was another
+    unsupported assurance, introduced in the commit correcting unsupported
+    assurances. The prose is kept honest by review, not by this test.
     """
     pointer_plus_block = 6 + 389
 
@@ -138,14 +143,78 @@ def test_production_and_the_tests_read_the_SAME_budget(tmp_path: Path) -> None:
     assert budget.DOCUMENT_BUDGETS["CLAUDE.md"] == budget.WORD_BUDGET
 
 
+def _production_invocations(text: str, comment_prefix: str) -> list[str]:
+    """Executable invocations of the budget checker, with continuations joined.
+
+    Line-at-a-time was the first shape and it was wrong three ways, all found by
+    the re-review: `--budget 700` on a Makefile or YAML CONTINUATION escaped it
+    entirely; a COMMENT merely mentioning the script and the flag failed it; and
+    with no invocations at all the loop body never ran, so the test passed over
+    an empty population - the success-claims-more-than-its-input defect this very
+    PR exists to correct, committed in the test correcting it.
+    """
+    joined: list[str] = []
+    pending = ""
+    for raw in text.splitlines():
+        stripped = raw.strip()
+        if stripped.startswith(comment_prefix):
+            continue  # documentation is not an invocation
+        line = pending + stripped
+        if line.endswith("\\"):
+            pending = line[:-1] + " "
+            continue
+        pending = ""
+        if "check-claude-md-budget.py" in line:
+            joined.append(line)
+    if pending and "check-claude-md-budget.py" in pending:
+        joined.append(pending)
+    return joined
+
+
 def test_no_production_call_site_carries_a_literal_budget() -> None:
-    """The single source is only single while nothing re-introduces a literal."""
+    """The single source is only single while nothing re-introduces a literal.
+
+    Asserts the population FIRST: an empty result is "I found no callers", which
+    is not the same fact as "no caller carries a literal" and must not report as
+    one.
+    """
     root = Path(__file__).parents[1]
-    for rel in ("Makefile", ".woodpecker.yml"):
-        text = (root / rel).read_text(encoding="utf-8")
-        for line in text.splitlines():
-            if "check-claude-md-budget.py" in line:
-                assert "--budget" not in line, (
-                    f"{rel} passes a literal budget: {line.strip()!r}. "
-                    "The budget belongs in DOCUMENT_BUDGETS, where the tests can see it."
-                )
+    expected = {"Makefile": ("#", 2), ".woodpecker.yml": ("#", 2)}
+
+    for rel, (comment_prefix, minimum) in expected.items():
+        invocations = _production_invocations(
+            (root / rel).read_text(encoding="utf-8"), comment_prefix
+        )
+        assert len(invocations) >= minimum, (
+            f"{rel} has {len(invocations)} budget-checker invocation(s), expected at least "
+            f"{minimum}. An empty or shrunken population makes this test vacuous rather "
+            "than passing - the callers it exists to check are not there."
+        )
+        for line in invocations:
+            assert "--budget" not in line, (
+                f"{rel} passes a literal budget: {line.strip()!r}. "
+                "The budget belongs in DOCUMENT_BUDGETS, where the tests can see it."
+            )
+
+
+def test_the_caller_guard_ignores_documentation_and_sees_continuations(tmp_path: Path) -> None:
+    """The guard's own two failure modes, pinned (#1071 re-review).
+
+    A comment mentioning the flag is not an override; a continuation carrying it
+    is. Both were wrong in the first version and neither is observable from the
+    real repository, which contains neither.
+    """
+    comment_only = (
+        "# scripts/check-claude-md-budget.py supports --budget for custom files\n"
+        "\t@python3 scripts/check-claude-md-budget.py AGENTS.md\n"
+    )
+    assert _production_invocations(comment_only, "#") == [
+        "@python3 scripts/check-claude-md-budget.py AGENTS.md"
+    ], "a comment must not register as an invocation"
+
+    continued = "\t@python3 scripts/check-claude-md-budget.py AGENTS.md \\\n\t\t--budget 700\n"
+    found = _production_invocations(continued, "#")
+    assert len(found) == 1 and "--budget 700" in found[0], (
+        "a continuation must be joined into the command it belongs to, or an "
+        "override simply moves to the next line"
+    )
