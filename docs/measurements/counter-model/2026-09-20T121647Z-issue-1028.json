@@ -1,17 +1,17 @@
 {
   "branch": "issue-1028-four-checkers-with-no-path-to-a-verdict-skills-che",
   "counts": {
-    "accepted": 5,
+    "accepted": 11,
     "deferred": 0,
-    "rejected": 0
+    "rejected": 1
   },
   "implementer": "claude/claude-opus-5",
   "issue": "1028",
-  "passes": 1,
-  "recorded_at": "2026-09-20T12:07:33Z",
+  "passes": 2,
+  "recorded_at": "2026-09-20T12:16:47Z",
   "red_cases": {
-    "already_covered": 6,
-    "proposed": 11
+    "already_covered": 9,
+    "proposed": 22
   },
   "reviewer": "codex/gpt-6-astra",
   "schema": 1,
