@@ -8,7 +8,7 @@
        eli5-check eli5-drift eli5-revendor \
        project-next-check project-next-repin \
        host-surface-check host-surface-manifest \
-       cpp-host-writes-check \
+       cpp-host-writes-check ci-coverage-check \
        tool-risk-check tool-risk-drift \
        branch-protection-check branch-protection-apply branch-protection-show \
        host-surfaces-check host-surfaces-plan host-surfaces-prune memory-harness \
@@ -389,7 +389,7 @@ verify: tools-check lint test typecheck shellcheck bandit-audit undeclared-impor
 	claude-md-budget-check claude-md-links-check claude-md-behavior-check \
 	project-next-check delegated-core-check codex-skills-check \
 	scripts-inventory-check instrument-census-check verify-coverage-check \
-	control-ci-deps-check \
+	control-ci-deps-check ci-coverage-check \
 	consolidation-ledger-check host-surface-check cpp-host-writes-check \
 	version-consistency-check unicode-dashes-check co-authored-by-trailer-check
 	@python3 scripts/verify-coverage-check.py --report
@@ -427,6 +427,35 @@ verify: tools-check lint test typecheck shellcheck bandit-audit undeclared-impor
 ## verify-coverage: gate verify-coverage-check - every Makefile target is classified against this list, and every file in scripts/ is accounted for; ci: runs verify-coverage-check
 verify-coverage-check:
 	@python3 scripts/verify-coverage-check.py
+
+## DOES THE PIPELINE RUN WHAT `verify` RUNS? (issue #1146)
+##
+## `make verify` chained 27 gates and `.woodpecker.yml` ran 16. Nothing in the
+## tree recorded which 11 were missing, so #1144 merged green over a gate that
+## was in `verify` and absent from CI, and `main` was red from the moment it
+## landed - in front of whoever pulled next, rather than at PR time in front of
+## its author. The accounting that failed was an ABSENCE read as fine.
+##
+## A SIBLING OF `verify-coverage-check` AND NOT A BRANCH INSIDE IT. That gate's
+## green already stands for two populations at once (every Makefile target is
+## classified, every file in scripts/ is accounted for) and its own docstring
+## calls it a tripwire rather than a coverage enumeration. This is a third pair -
+## `verify` prerequisites against pipeline steps - and it IS an enumeration:
+## per-prerequisite, exhaustive, green only when every member is dispositioned.
+## Folding it in would make one green stand for two unrelated claims, which is
+## the reading failure this issue is about, one level up. The Makefile PARSER is
+## imported from that gate rather than copied, because two readers of one format
+## drift and both stay green while they do.
+##
+## The declaration lives beside the gate, on the directive the Makefile already
+## carries, and BOTH SIDES of it are read: `ci: runs <step>` is a claim, and a
+## claim naming a step .woodpecker.yml has not got is the same silence in a more
+## convincing font. Stdlib-only, git-free and offline, which is why it is also
+## in CI - a check that audits "does the pipeline run what verify runs" and is
+## itself absent from the pipeline is the class it audits.
+## verify-coverage: gate ci-coverage-check - every verify prerequisite declares whether CI runs it, and every `ci: runs` names a step that exists; ci: runs ci-coverage-check
+ci-coverage-check:
+	@python3 scripts/check-ci-coverage.py
 
 ## Would a registered control RUN in the image that runs the battery? (issue #1036)
 ##

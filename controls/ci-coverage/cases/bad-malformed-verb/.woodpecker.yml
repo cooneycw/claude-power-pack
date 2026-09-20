@@ -1,0 +1,15 @@
+# A two-step pipeline in the mapping form this gate reads.
+when:
+  - event: [push, pull_request]
+
+steps:
+  secret-scan:
+    image: example/gitleaks
+    commands:
+      - gitleaks detect --source .
+
+  alpha-check:
+    image: example/python
+    depends_on: [secret-scan]
+    commands:
+      - python3 scripts/alpha-check.py

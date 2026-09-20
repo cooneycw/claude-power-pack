@@ -261,6 +261,26 @@ steps:
     commands:
       - python3 scripts/host-surface-check.py
 
+  # Does the pipeline run what `make verify` runs? (#1146)
+  #
+  # THE GATE THAT AUDITS THIS QUESTION IS A MEMBER OF ITS OWN POPULATION, so its
+  # absence here would be the class it audits. It reads the `verify:` rule, the
+  # step names in this file, and the `ci:` clause each gate declares beside
+  # itself, and reds when a prerequisite is undispositioned, when a declaration
+  # does not parse, or when `ci: runs <step>` names a step this file has not
+  # got - a claim is checked against both sides, not counted.
+  #
+  # Stdlib-only, offline and git-free - argparse, importlib.util, re, sys,
+  # pathlib, opening two repo-relative files - so it gives the same verdict here
+  # as on a dev box. Shown RED under this digest against a tree with a
+  # prerequisite whose `ci:` clause was stripped, not merely shown to run: a
+  # step that cannot fail in the image is green by absence (#1036).
+  ci-coverage-check:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
+    depends_on: [secret-scan]
+    commands:
+      - python3 scripts/check-ci-coverage.py
+
   # Does every test that shells out to a real binary carry its skip guard? (#1146)
   #
   # In `make verify` since before this change and in CI since #1146, which
