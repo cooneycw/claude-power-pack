@@ -71,9 +71,11 @@ else
   # The subshell is load-bearing: `if : > "$probe" 2>/dev/null` still leaks
   # "Permission denied", because the shell processes redirections left to right
   # and reports the failed one BEFORE 2>/dev/null takes effect. Measured.
-  surface_writable=no
-  probe=~/.claude/commands/.cpp-init-write-probe.$$
-  if ( : > "$probe" ) 2>/dev/null; then surface_writable=yes; rm -f "$probe"; fi
+  # Through the declaring seam (#1132). A probe in intent, a write in fact -
+  # it creates a file under the surface and removes it. Deferring the surface
+  # answers the question the probe asks, so a deferred probe reports `no`
+  # rather than writing to find out what it was already told.
+  surface_writable=$(~/.claude/scripts/cpp-host-write.sh probe-writable ~/.claude/commands 2>/dev/null)
 
   echo "No claude-power-pack CHECKOUT found at any known path."
   echo "  CPP command surface served here: $cpp_surface (~/.claude/commands/cpp/init.md readable)"
@@ -637,7 +639,7 @@ stands.
 
 ```bash
 # Create scripts directory
-mkdir -p ~/.claude/scripts
+~/.claude/scripts/cpp-host-write.sh ensure-dir ~/.claude/scripts
 
 # Symlink all executable helpers, regardless of extension (issue #669: the
 # old *.sh-only glob skipped flow-wave-plan.py, so its shipped allow rule in
@@ -647,12 +649,10 @@ mkdir -p ~/.claude/scripts
 for script in "$CPP_DIR"/scripts/*; do
   [ -f "$script" ] && [ -x "$script" ] || continue
   name=$(basename "$script")
-  if [ ! -L ~/.claude/scripts/"$name" ]; then
-    ln -sf "$script" ~/.claude/scripts/"$name"
-    echo "✓ $name installed"
-  else
-    echo "→ $name already installed (skipped)"
-  fi
+  # Through the declaring seam (#1132). One `ln -sf` in the source becomes
+  # ninety-odd links at run time, which is why no per-site enumeration found
+  # this write. The helper carries the already-linked skip this block had.
+  ~/.claude/scripts/cpp-host-write.sh link-into "$script" ~/.claude/scripts "$name"
 done
 
 # Copy hooks.json if not exists
@@ -730,12 +730,13 @@ If yes:
 ```bash
 TEMPLATE="$CPP_DIR/templates/claude-settings-permissions.json"
 TARGET="$HOME/.claude/settings.json"
-mkdir -p "$HOME/.claude"
-[ -f "$TARGET" ] || echo '{}' > "$TARGET"
 
-BEFORE=$(jq '(.permissions.allow // []) | length' "$TARGET")
-jq -s '.[0].permissions.allow = (((.[0].permissions.allow // []) + .[1].permissions.allow) | unique) | .[0]' \
-  "$TARGET" "$TEMPLATE" > "$TARGET.tmp" && mv "$TARGET.tmp" "$TARGET"
+BEFORE=$([ -f "$TARGET" ] && jq '(.permissions.allow // []) | length' "$TARGET" || echo 0)
+# Through the declaring seam (#1132): the helper owns the write - defer
+# check, parent dir, `{}` bootstrap, atomic tmp+mv - and this document keeps
+# the jq program. A managed environment passes --defer ~/.claude/settings.json
+# and gets a stated refusal naming the surface and its owner.
+~/.claude/scripts/cpp-host-write.sh settings-merge "$TEMPLATE"
 AFTER=$(jq '.permissions.allow | length' "$TARGET")
 
 echo "✓ Flow allowlist merged into ~/.claude/settings.json ($((AFTER - BEFORE)) new rules, $AFTER total)"
@@ -776,18 +777,19 @@ If yes:
 ```bash
 TARGET="$HOME/.claude/settings.json"
 CENSUS_CMD="~/.claude/scripts/hook-permission-census.sh"
-mkdir -p "$HOME/.claude"
-[ -f "$TARGET" ] || echo '{}' > "$TARGET"
+# Through the declaring seam (#1132): the helper owns the write, this
+# document keeps the jq program. --defer ~/.claude/settings.json yields a
+# stated refusal instead of a silent skip.
+~/.claude/scripts/cpp-host-write.sh settings-edit --arg cmd "$CENSUS_CMD" <<'JQ'
 
 # Idempotent: add the hook only if this exact command is not already registered.
-jq --arg cmd "$CENSUS_CMD" '
   .hooks = (.hooks // {})
   | .hooks.PermissionRequest = (.hooks.PermissionRequest // [])
   | if any(.hooks.PermissionRequest[]?; (.hooks // [])[]?.command == $cmd)
     then .
     else .hooks.PermissionRequest += [{"hooks":[{"type":"command","command":$cmd}]}]
     end
-' "$TARGET" > "$TARGET.tmp" && mv "$TARGET.tmp" "$TARGET"
+JQ
 echo "✓ PermissionRequest census hook registered in ~/.claude/settings.json"
 ```
 
@@ -832,19 +834,20 @@ If yes:
 ```bash
 TARGET="$HOME/.claude/settings.json"
 RETRO_CMD="~/.claude/scripts/hook-pending-retro.sh"
-mkdir -p "$HOME/.claude"
-[ -f "$TARGET" ] || echo '{}' > "$TARGET"
+# Through the declaring seam (#1132): the helper owns the write, this
+# document keeps the jq program. --defer ~/.claude/settings.json yields a
+# stated refusal instead of a silent skip.
+~/.claude/scripts/cpp-host-write.sh settings-edit --arg cmd "$RETRO_CMD" <<'JQ'
 
 # Idempotent: add the hook only if this exact command is not already registered
 # (tolerant of both the {hooks:[...]} group shape and a bare {command} entry).
-jq --arg cmd "$RETRO_CMD" '
   .hooks = (.hooks // {})
   | .hooks.SessionStart = (.hooks.SessionStart // [])
   | if any(.hooks.SessionStart[]?; (.command == $cmd) or ((.hooks // [])[]?.command == $cmd))
     then .
     else .hooks.SessionStart += [{"hooks":[{"type":"command","command":$cmd}]}]
     end
-' "$TARGET" > "$TARGET.tmp" && mv "$TARGET.tmp" "$TARGET"
+JQ
 echo "✓ Session-open retro reminder registered in ~/.claude/settings.json"
 ```
 
@@ -870,10 +873,17 @@ Add to ~/.bashrc? [y/N]
 
 If yes:
 ```bash
-# Add to bashrc
-echo '' >> ~/.bashrc
-echo '# Claude Power Pack - worktree context in prompt' >> ~/.bashrc
-echo 'export PS1='\''$(~/.claude/scripts/prompt-context.sh)\w $ '\''' >> ~/.bashrc
+# Add to bashrc through the declaring helper (#1139). The helper declares
+# ~/.bashrc as a host surface it writes, and a managed environment can defer
+# it with --defer ~/.bashrc and get a stated refusal rather than a failure.
+# Guarded by its marker, like the tmux block below: running /cpp:init twice
+# leaves one export, not two (#1142).
+~/.claude/scripts/cpp-host-write.sh bashrc-append \
+  '# Claude Power Pack - worktree context in prompt' - <<'PS1_EOF'
+
+# Claude Power Pack - worktree context in prompt
+export PS1='$(~/.claude/scripts/prompt-context.sh)\w $ '
+PS1_EOF
 echo "✓ Shell prompt configured (restart shell or source ~/.bashrc)"
 ```
 
@@ -902,19 +912,16 @@ if ! command -v tmux &>/dev/null; then
   echo "  sudo apt install tmux"
   echo "  Skipping tmux auto-start."
 else
-  # Check if already configured
-  if grep -q 'tmux new-session' ~/.bashrc 2>/dev/null; then
-    echo "→ tmux auto-start already in ~/.bashrc (skipped)"
-  else
-    cat >> ~/.bashrc << 'TMUX_EOF'
+  # Through the declaring helper (#1139), which owns the marker guard this
+  # block already had. A managed environment defers it with --defer ~/.bashrc
+  # and gets a stated refusal naming the surface and its owner.
+  ~/.claude/scripts/cpp-host-write.sh bashrc-append 'tmux new-session' - <<'TMUX_EOF'
 
 # Claude Power Pack - tmux auto-start
 if command -v tmux &>/dev/null && [ -z "$TMUX" ] && [[ $- == *i* ]]; then
     tmux new-session
 fi
 TMUX_EOF
-    echo "✓ tmux auto-start configured (restart shell or source ~/.bashrc)"
-  fi
 fi
 ```
 
@@ -1573,13 +1580,17 @@ Add to ${QWEN_RC_DISPLAY}? [y/N]
 
 If yes:
 ```bash
-if grep -q 'QWEN_OLLAMA_URL' "$QWEN_RC" 2>/dev/null; then
-  echo "-> QWEN_OLLAMA_URL already in $QWEN_RC_DISPLAY (skipped)"
-else
-  printf '\n# Claude Power Pack - Qwen serving endpoint (issue #755)\nexport QWEN_OLLAMA_URL=%s\n' "$QWEN_ENDPOINT" >> "$QWEN_RC"
-  echo "✓ QWEN_OLLAMA_URL saved in $QWEN_RC_DISPLAY"
-  echo "  Restart the shell or source $QWEN_RC_DISPLAY"
-fi
+# Through the declaring seam (#1132). This block used to write "$QWEN_RC"
+# inline - the same ~/.bashrc that two other blocks already routed through the
+# helper - so a defer-set naming ~/.bashrc refused those two, printed a stated
+# refusal, and wrote this one anyway. rc-append carries the marker guard this
+# block already had, and honours --defer for ~/.bashrc AND ~/.zshrc.
+~/.claude/scripts/cpp-host-write.sh rc-append "$QWEN_RC" 'QWEN_OLLAMA_URL' - <<QWEN_RC_EOF
+
+# Claude Power Pack - Qwen serving endpoint (issue #755)
+export QWEN_OLLAMA_URL=$QWEN_ENDPOINT
+QWEN_RC_EOF
+echo "  Restart the shell or source $QWEN_RC_DISPLAY"
 ```
 
 If no:
@@ -1726,13 +1737,17 @@ Add to ${GEMMA_RC_DISPLAY}? [y/N]
 
 If yes:
 ```bash
-if grep -q 'GEMMA_OLLAMA_URL' "$GEMMA_RC" 2>/dev/null; then
-  echo "-> GEMMA_OLLAMA_URL already in $GEMMA_RC_DISPLAY (skipped)"
-else
-  printf '\n# Claude Power Pack - Gemma serving endpoint (issue #755)\nexport GEMMA_OLLAMA_URL=%s\n' "$GEMMA_ENDPOINT" >> "$GEMMA_RC"
-  echo "✓ GEMMA_OLLAMA_URL saved in $GEMMA_RC_DISPLAY"
-  echo "  Restart the shell or source $GEMMA_RC_DISPLAY"
-fi
+# Through the declaring seam (#1132). This block used to write "$GEMMA_RC"
+# inline - the same ~/.bashrc that two other blocks already routed through the
+# helper - so a defer-set naming ~/.bashrc refused those two, printed a stated
+# refusal, and wrote this one anyway. rc-append carries the marker guard this
+# block already had, and honours --defer for ~/.bashrc AND ~/.zshrc.
+~/.claude/scripts/cpp-host-write.sh rc-append "$GEMMA_RC" 'GEMMA_OLLAMA_URL' - <<GEMMA_RC_EOF
+
+# Claude Power Pack - Gemma serving endpoint (issue #755)
+export GEMMA_OLLAMA_URL=$GEMMA_ENDPOINT
+GEMMA_RC_EOF
+echo "  Restart the shell or source $GEMMA_RC_DISPLAY"
 ```
 
 If no:
@@ -1750,19 +1765,12 @@ own providers and agents.
 
 ```bash
 OC_CONFIG="$HOME/.config/opencode/opencode.json"
-mkdir -p "$(dirname "$OC_CONFIG")"
 
-PYTHONPATH= python3 - "$CPP_DIR/templates/opencode-gemma.json" "$OC_CONFIG" <<'PYEOF'
-import json, sys, pathlib
-tmpl_path, cfg_path = sys.argv[1], pathlib.Path(sys.argv[2])
-tmpl = json.loads(pathlib.Path(tmpl_path).read_text())
-cfg = json.loads(cfg_path.read_text()) if cfg_path.exists() else {}
-cfg.setdefault("$schema", tmpl["$schema"])
-for section in ("provider", "agent"):
-    cfg.setdefault(section, {}).update(tmpl[section])
-cfg_path.write_text(json.dumps(cfg, indent=2) + "\n")
-print(f"[x] merged gemma-ollama provider + gemma-implementer agent into {cfg_path}")
-PYEOF
+# Through the declaring seam (#1132). This merge was embedded PYTHON, which is
+# why no shell pattern found it: a cfg_path.write_text() satisfies no grep for a
+# redirect, cp, tee, mv or ln. Same .update() semantics, moved not improved.
+~/.claude/scripts/cpp-host-write.sh json-merge-sections \
+  "$CPP_DIR/templates/opencode-gemma.json" "$OC_CONFIG" provider agent
 ```
 
 Two things are being installed here, and the second is the safety-critical one:
@@ -2074,16 +2082,15 @@ Persist the choice to the backend file the client reads
 
 ```bash
 BACKEND_FILE="$HOME/.config/claude-power-pack/secrets/cpp-memories.backend"
-mkdir -p "$(dirname "$BACKEND_FILE")"
 
 case "$MEM_BACKEND_CHOICE" in
   i|md)
-    echo "md" > "$BACKEND_FILE"
+    ~/.claude/scripts/cpp-host-write.sh file-write "$BACKEND_FILE" "md"
     echo "✓ common-memory backend: md (tier i) - local-only, no federation"
     echo "  Ledger: <repo>/.claude/learnings.md  (+ .claude/learnings.rejected.jsonl)"
     ;;
   ii|local-pg)
-    echo "local-pg" > "$BACKEND_FILE"
+    ~/.claude/scripts/cpp-host-write.sh file-write "$BACKEND_FILE" "local-pg"
     echo "✓ common-memory backend: local-pg (tier ii) - full dedup, no federation"
     if command -v docker >/dev/null 2>&1; then
       read -r -p "Start the local postgres:17 store now (docker compose up -d)? [y/N] " START_PG
@@ -2099,7 +2106,7 @@ case "$MEM_BACKEND_CHOICE" in
     echo "  Default DSN: postgresql://cpp_memory:cpp_memory@127.0.0.1:5433/cpp_memory"
     ;;
   iii|remote-pg)
-    echo "remote-pg" > "$BACKEND_FILE"
+    ~/.claude/scripts/cpp-host-write.sh file-write "$BACKEND_FILE" "remote-pg"
     echo "✓ common-memory backend: remote-pg (tier iii) - full dedup, FLEET federation"
     echo "  DSN resolves fail-open: CPP_MEMORIES_DSN -> ~/.config/claude-power-pack/secrets/cpp-memories.dsn -> AWS SM (essent-ai)."
     echo "  Provision a new remote store with scripts/memories-db-setup.sh (idempotent)."

@@ -1,0 +1,72 @@
+{
+  "_comment": [
+    "Registration for scripts/cpp-host-write.sh (issue #1139).",
+    "",
+    "WHY THIS INSTRUMENT NEEDS A COMMITTED CASE (ADR 0008): it issues three",
+    "verdicts - 0 wrote, 3 deferred by request, 1 failed - and /cpp:init and",
+    "/cpp:update read the exit to decide whether to proceed, skip-and-say-so, or",
+    "stop. Neither re-derives whether the write happened. A wrong verdict here is",
+    "not a missed detection, it is CPP writing a surface a managed environment",
+    "asked it not to touch while reporting success.",
+    "",
+    "THE ANCHOR IS NOT CONSTRUCTED. It is the code as it actually stood earlier in",
+    "this issue, one line restored: normalise() as `s=\"${s/#$HOME\\//~/}\"`, which",
+    "reads as 'replace a leading $HOME/ with ~/' and silently does nothing. Every",
+    "defer comparison then failed and the helper wrote the surface it was asked to",
+    "skip, exiting 0. The line had been read twice; one sandboxed run found it.",
+    "",
+    "THE SPELLING IN THE BAD CASE IS THE WHOLE CASE. A defer spelled",
+    "\"$HOME/.bashrc\" matches by plain string equality even with normalisation",
+    "broken, so it cannot tell a working helper from the pre-fix one. Only the",
+    "MIXED spelling - caller says ~/.bashrc, helper resolves $HOME - discriminates.",
+    "Choosing the input that happens to pass is how a control proves nothing.",
+    "",
+    "THE BAD PROBE CHECKS THE SURFACE, NOT THE VERDICT. A helper that exits 3",
+    "having written the file is the defect wearing the right answer, and the exit",
+    "code cannot see it. The probe fails the case if ~/.bashrc exists afterwards.",
+    "",
+    "EACH PROBE RUNS IN ITS OWN mktemp $HOME and removes it on exit. The battery",
+    "substitutes {case} in place with no temp copy, so a gate that WRITES would",
+    "otherwise mutate its own committed fixture and stop being idempotent.",
+    "",
+    "LIMITS. --no-guard is not a verdict; it exists only to preserve an unguarded",
+    "append across the relocation and belongs to #1142, so no case exercises it.",
+    "The six install-path helpers that reach outside $HOME are not observable at",
+    "all - see scripts/host-surface-check.py for why a PATH shim was rejected.",
+    "",
+    "ANCHOR HASH NOTE: the anchor carries the same certified=authored downgrade as the live helper. It is vendored evidence of ONE defect - normalise() as a no-op - not a frozen snapshot of every unrelated string, and leaving the pre-downgrade value in it would have left the very string this change removes sitting in the tree, where a later absence check would trip on the text explaining the removal. The pin was recomputed deliberately rather than the edit skipped."
+  ],
+  "gate": "scripts/cpp-host-write.sh",
+  "invocation": [
+    "bash",
+    "{case}/probe.sh",
+    "{gate}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^cpp-host-write: DEFERRED .* \\(owner=.*\\) - not written, by request",
+  "cases": [
+    {
+      "name": "bad-deferred-surface-written",
+      "input": "cases/bad-deferred-surface-written",
+      "expect": "BAD",
+      "why": "A defer request the helper must honour, spelled ~/.bashrc while the helper resolves $HOME. Correct verdict 3 with the surface absent; the pre-fix anchor exits 0 having written it."
+    },
+    {
+      "name": "good-undeferred-write",
+      "input": "cases/good-undeferred-write",
+      "expect": "GOOD",
+      "why": "The ordinary path, no defer-set. Separates a working helper from one wedged at refuse-everything, which would score BAD on the bad case alone and look identical to a correct one."
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "vendored",
+      "sha": "prefix-normalise-noop",
+      "origin": "scripts/cpp-host-write.sh",
+      "path": "anchors/prefix-normalise-noop-cpp-host-write.sh",
+      "sha256": "7240cb2f3c04b0668806936d7a6cec6a375e50f7ca817383990546b886b30543",
+      "why": "VENDORED, not constructed: this is the real pre-fix code with normalise() restored verbatim. It MISSES bad-deferred-surface-written by writing the deferred surface and exiting 0 - a wrong verdict rather than a missed detection - and AGREES on good-undeferred-write, which keeps the demonstration isolated.",
+      "note": "HASH RECOMPUTED DELIBERATELY. This anchor carries the same certified= downgrade as the live helper, so its bytes changed and the pin was recalculated. Defensible because the kind is vendored with a label rather than a real sha: there is no git-show claim for a recomputed hash to falsify, and provenance reads unverified structurally. An anchor is evidence of ONE defect - normalise() as a no-op - not a frozen snapshot of every unrelated string. The edit touches no byte that participates in the demonstration, and the battery was re-run afterwards: the anchor still misses the known-bad and still agrees on the known-good. A HISTORICAL anchor with a real sha must NOT be edited this way - the recomputed hash would make --verify-provenance read MISMATCH and the record would become a lie; there, the answer is a documented exclusion."
+    }
+  ]
+}

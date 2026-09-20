@@ -7,6 +7,8 @@
        codex-init codex-skills codex-skills-check codex-install \
        eli5-check eli5-drift eli5-revendor \
        project-next-check project-next-repin \
+       host-surface-check host-surface-manifest \
+       cpp-host-writes-check \
        tool-risk-check tool-risk-drift \
        branch-protection-check branch-protection-apply branch-protection-show \
        host-surfaces-check host-surfaces-plan host-surfaces-prune memory-harness \
@@ -388,7 +390,7 @@ verify: tools-check lint test typecheck shellcheck bandit-audit undeclared-impor
 	project-next-check delegated-core-check codex-skills-check \
 	scripts-inventory-check instrument-census-check verify-coverage-check \
 	control-ci-deps-check \
-	consolidation-ledger-check \
+	consolidation-ledger-check host-surface-check cpp-host-writes-check \
 	version-consistency-check unicode-dashes-check co-authored-by-trailer-check
 	@python3 scripts/verify-coverage-check.py --report
 
@@ -567,6 +569,24 @@ scripts-inventory-check:
 ## verify-coverage: gate instrument-census-check - ADR 0008's census accounts for every file in scripts/
 instrument-census-check:
 	@python3 scripts/instrument-census-check.py
+
+## Host-surface declaration (issue #1139). Derives which install-path helpers
+## must declare a host surface, so a managed environment can compose a defer-set
+## from CPP's own code rather than from a hand-maintained list that goes stale.
+## Inline host writes in the cpp command documents (issue #1132). The seam is
+## total today; without this it is partial the first time someone adds a printf.
+## verify-coverage: gate cpp-host-writes-check - no inline host write in /cpp:init or /cpp:update
+cpp-host-writes-check:
+	@python3 scripts/check-cpp-host-writes.py
+
+## verify-coverage: gate host-surface-check - every helper reachable from /cpp:init and /cpp:update declares its host surfaces
+host-surface-check:
+	@python3 scripts/host-surface-check.py
+
+## Emit the declaration as JSON, for a consumer to read. Issues no verdict.
+## verify-coverage: utility host-surface-manifest - emits the declared host surfaces as JSON; it issues no verdict
+host-surface-manifest:
+	@python3 scripts/host-surface-check.py --manifest
 
 ## verify-coverage: gate consolidation-ledger-check - the Codex-consolidation ledger is complete against its committed snapshot
 consolidation-ledger-check:

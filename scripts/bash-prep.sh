@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+#: HOST-SURFACE: none
+#  Linux workstation tuning; contains no $HOME reference. Reaches outside $HOME via sudo (8 call sites), so it
+#  is NOT observation-certified.
+
 # bash-prep.sh — Linux workstation tuning for Claude Code
 # Part of Claude Power Pack (CPP)
 #
