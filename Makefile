@@ -8,7 +8,7 @@
        eli5-check eli5-drift eli5-revendor \
        project-next-check project-next-repin \
        host-surface-check host-surface-manifest \
-       cpp-host-writes-check \
+       cpp-host-writes-check ci-coverage-check \
        tool-risk-check tool-risk-drift \
        branch-protection-check branch-protection-apply branch-protection-show \
        host-surfaces-check host-surfaces-plan host-surfaces-prune memory-harness \
@@ -53,7 +53,7 @@
 TOOLS_HARD := git python3 uv
 TOOLS_NATIVE := shellcheck gitleaks jq
 
-## verify-coverage: gate tools-check - reports every external tool verify needs, before the target that needs it
+## verify-coverage: gate tools-check - reports every external tool verify needs, before the target that needs it; ci: excluded host-state
 tools-check:
 	@missing=""; \
 	for t in $(TOOLS_HARD); do \
@@ -115,7 +115,7 @@ checkout-readers:
 
 ## Quality gates (used by /flow:finish)
 
-## verify-coverage: gate lint - ruff over the tree
+## verify-coverage: gate lint - ruff over the tree; ci: runs validate
 lint:
 	uv run --extra dev ruff check .
 
@@ -149,12 +149,12 @@ format:
 ## message is about pytest usage rather than about the cap that was rejected. `set
 ## -e` inside the recipe's single shell makes the refusal the failure that stops
 ## the target, with the resolver's own diagnosis already on stderr.
-## verify-coverage: gate test - the pytest suite, which is also where several checkers' real-repo pins live
+## verify-coverage: gate test - the pytest suite, which is also where several checkers' real-repo pins live; ci: runs validate
 test:
 	@set -e; workers="$$(sh scripts/pytest-workers.sh)"; \
 		uv run --extra dev pytest -n "$$workers"
 
-## verify-coverage: gate typecheck - mypy over the tree
+## verify-coverage: gate typecheck - mypy over the tree; ci: runs validate
 typecheck:
 	uv run --extra dev mypy .
 
@@ -180,7 +180,7 @@ typecheck:
 ## the tool, never to soften the gate.
 SHELLCHECK_IMAGE := koalaman/shellcheck-alpine:v0.10.0@sha256:5921d946dac740cbeec2fb1c898747b6105e585130cc7f0602eec9a10f7ddb63
 
-## verify-coverage: gate shellcheck - every shell script in the tree, with a pinned docker fallback
+## verify-coverage: gate shellcheck - every shell script in the tree, with a pinned docker fallback; ci: runs shellcheck
 shellcheck:
 	@if command -v shellcheck > /dev/null 2>&1; then \
 		sh scripts/shellcheck-gate.sh; \
@@ -300,7 +300,7 @@ dep-audit-capture:
 ## the gate under two different linters would make the control's verdict depend
 ## on which container reached it."
 
-## verify-coverage: gate bandit-audit - static security analysis; bandit is pinned in the dev extra, so this needs nothing but the checkout
+## verify-coverage: gate bandit-audit - static security analysis; bandit is pinned in the dev extra, so this needs nothing but the checkout; ci: runs bandit-audit
 bandit-audit: bandit-audit-selftest
 	@uv run --extra dev python scripts/bandit-audit.py
 
@@ -339,7 +339,7 @@ bandit-audit-capture:
 ## file that will not parse, an unreadable ledger, a zero-file population - exits
 ## 2. Unknown is not a pass, and "no finding" and "could not look" never print the
 ## same sentence.
-## verify-coverage: gate undeclared-import-audit - refuses an import no dependency metadata declares; stdlib-only and offline, so it needs nothing but the checkout
+## verify-coverage: gate undeclared-import-audit - refuses an import no dependency metadata declares; stdlib-only and offline, so it needs nothing but the checkout; ci: runs undeclared-import-audit
 undeclared-import-audit: undeclared-import-audit-selftest
 	@python3 scripts/undeclared-import-audit.py
 
@@ -379,7 +379,7 @@ undeclared-import-audit-selftest:
 ## controls/check-oscillation feeds the gate committed `git log` captures
 ## (`--from-log`), which need no git, so CI proves the detector CAN discriminate
 ## while these local runs prove it IS used. Neither alone is enough.
-## verify-coverage: gate oscillation - reports knobs moved back; needs git, which is why it is here and not in CI
+## verify-coverage: gate oscillation - reports knobs moved back; needs git, which is why it is here and not in CI; ci: excluded needs-git
 oscillation:
 	@python3 scripts/check-oscillation.py
 
@@ -389,7 +389,7 @@ verify: tools-check lint test typecheck shellcheck bandit-audit undeclared-impor
 	claude-md-budget-check claude-md-links-check claude-md-behavior-check \
 	project-next-check delegated-core-check codex-skills-check \
 	scripts-inventory-check instrument-census-check verify-coverage-check \
-	control-ci-deps-check \
+	control-ci-deps-check ci-coverage-check \
 	consolidation-ledger-check host-surface-check cpp-host-writes-check \
 	version-consistency-check unicode-dashes-check co-authored-by-trailer-check
 	@python3 scripts/verify-coverage-check.py --report
@@ -424,9 +424,38 @@ verify: tools-check lint test typecheck shellcheck bandit-audit undeclared-impor
 ## least of all: a report that under-names is indistinguishable from a
 ## repository with less to name.
 
-## verify-coverage: gate verify-coverage-check - every Makefile target is classified against this list, and every file in scripts/ is accounted for
+## verify-coverage: gate verify-coverage-check - every Makefile target is classified against this list, and every file in scripts/ is accounted for; ci: runs verify-coverage-check
 verify-coverage-check:
 	@python3 scripts/verify-coverage-check.py
+
+## DOES THE PIPELINE RUN WHAT `verify` RUNS? (issue #1146)
+##
+## `make verify` chained 27 gates and `.woodpecker.yml` ran 16. Nothing in the
+## tree recorded which 11 were missing, so #1144 merged green over a gate that
+## was in `verify` and absent from CI, and `main` was red from the moment it
+## landed - in front of whoever pulled next, rather than at PR time in front of
+## its author. The accounting that failed was an ABSENCE read as fine.
+##
+## A SIBLING OF `verify-coverage-check` AND NOT A BRANCH INSIDE IT. That gate's
+## green already stands for two populations at once (every Makefile target is
+## classified, every file in scripts/ is accounted for) and its own docstring
+## calls it a tripwire rather than a coverage enumeration. This is a third pair -
+## `verify` prerequisites against pipeline steps - and it IS an enumeration:
+## per-prerequisite, exhaustive, green only when every member is dispositioned.
+## Folding it in would make one green stand for two unrelated claims, which is
+## the reading failure this issue is about, one level up. The Makefile PARSER is
+## imported from that gate rather than copied, because two readers of one format
+## drift and both stay green while they do.
+##
+## The declaration lives beside the gate, on the directive the Makefile already
+## carries, and BOTH SIDES of it are read: `ci: runs <step>` is a claim, and a
+## claim naming a step .woodpecker.yml has not got is the same silence in a more
+## convincing font. Stdlib-only, git-free and offline, which is why it is also
+## in CI - a check that audits "does the pipeline run what verify runs" and is
+## itself absent from the pipeline is the class it audits.
+## verify-coverage: gate ci-coverage-check - every verify prerequisite declares whether CI runs it, and every `ci: runs` names a step that exists; ci: runs ci-coverage-check
+ci-coverage-check:
+	@python3 scripts/check-ci-coverage.py
 
 ## Would a registered control RUN in the image that runs the battery? (issue #1036)
 ##
@@ -447,7 +476,7 @@ verify-coverage-check:
 ## runs nothing, so it needs no binary the battery needs and gives the same
 ## verdict on a dev box as in the image it is asking about. A green battery here
 ## still says nothing about whether those controls can run there.
-## verify-coverage: gate control-ci-deps-check - every registered control's examined surface resolves against the binaries the battery's CI step provides
+## verify-coverage: gate control-ci-deps-check - every registered control's examined surface resolves against the binaries the battery's CI step provides; ci: runs control-ci-deps-check
 control-ci-deps-check:
 	@python3 scripts/check-control-ci-deps.py
 
@@ -487,7 +516,7 @@ control-ci-deps-check:
 ## against #1117 implemented naively - a gate that lets work through cannot be
 ## trusted on a clean tree alone, and this one is the gate that decides whether
 ## the other gates can fail.
-## verify-coverage: gate negative-controls - runs the whole registered control battery with --strict --allow-unavailable; UNAVAILABLE (a gate whose own tool is absent) is named as unexamined rather than failed, every other non-PASS verdict reds (#1117)
+## verify-coverage: gate negative-controls - runs the whole registered control battery with --strict --allow-unavailable; UNAVAILABLE (a gate whose own tool is absent) is named as unexamined rather than failed, every other non-PASS verdict reds (#1117); ci: runs negative-controls
 negative-controls:
 	@python3 scripts/check-negative-controls.py --strict --allow-unavailable
 
@@ -530,7 +559,7 @@ mutation-probe:
 ## controls/delegated-core-vendor registers the committed BAD/GOOD pair, since a
 ## gate that lets work through cannot be trusted on a clean tree alone.
 
-## verify-coverage: gate delegated-core-check - the vendored delegated-driver core still matches its template
+## verify-coverage: gate delegated-core-check - the vendored delegated-driver core still matches its template; ci: runs delegated-core-check
 delegated-core-check:
 	@python3 scripts/delegated-core-vendor.py check
 
@@ -549,7 +578,7 @@ delegated-core-write:
 ## controls/scripts-inventory registers the committed BAD/GOOD cases, since a
 ## gate that lets work through cannot be trusted on a clean tree alone.
 
-## verify-coverage: gate scripts-inventory-check - docs/scripts.md covers every file in scripts/
+## verify-coverage: gate scripts-inventory-check - docs/scripts.md covers every file in scripts/; ci: runs scripts-inventory-check
 scripts-inventory-check:
 	@python3 scripts/scripts-inventory-check.py
 
@@ -566,7 +595,7 @@ scripts-inventory-check:
 ## stdlib-only, offline, git-free, so the slim CI image gives the same verdict.
 ## controls/instrument-census registers the committed BAD/GOOD cases.
 
-## verify-coverage: gate instrument-census-check - ADR 0008's census accounts for every file in scripts/
+## verify-coverage: gate instrument-census-check - ADR 0008's census accounts for every file in scripts/; ci: runs instrument-census-check
 instrument-census-check:
 	@python3 scripts/instrument-census-check.py
 
@@ -575,11 +604,11 @@ instrument-census-check:
 ## from CPP's own code rather than from a hand-maintained list that goes stale.
 ## Inline host writes in the cpp command documents (issue #1132). The seam is
 ## total today; without this it is partial the first time someone adds a printf.
-## verify-coverage: gate cpp-host-writes-check - no inline host write in /cpp:init or /cpp:update
+## verify-coverage: gate cpp-host-writes-check - no inline host write in /cpp:init or /cpp:update; ci: runs cpp-host-writes-check
 cpp-host-writes-check:
 	@python3 scripts/check-cpp-host-writes.py
 
-## verify-coverage: gate host-surface-check - every helper reachable from /cpp:init and /cpp:update declares its host surfaces
+## verify-coverage: gate host-surface-check - every helper reachable from /cpp:init and /cpp:update declares its host surfaces; ci: runs host-surface-check
 host-surface-check:
 	@python3 scripts/host-surface-check.py
 
@@ -588,7 +617,7 @@ host-surface-check:
 host-surface-manifest:
 	@python3 scripts/host-surface-check.py --manifest
 
-## verify-coverage: gate consolidation-ledger-check - the Codex-consolidation ledger is complete against its committed snapshot
+## verify-coverage: gate consolidation-ledger-check - the Codex-consolidation ledger is complete against its committed snapshot; ci: runs consolidation-ledger-check
 consolidation-ledger-check:
 	@python3 scripts/check-consolidation-ledger.py
 
@@ -599,7 +628,7 @@ consolidation-ledger-check:
 ## same verdict here as in the slim CI image. Also asserted by
 ## tests/test_test_binary_guards.py, which is what runs it in CI `validate`.
 
-## verify-coverage: gate binary-guards-check - tests that shell out to git/docker/gitleaks guard the binary
+## verify-coverage: gate binary-guards-check - tests that shell out to git/docker/gitleaks guard the binary; ci: runs binary-guards-check
 binary-guards-check:
 	@python3 scripts/check-test-binary-guards.py
 
@@ -613,34 +642,34 @@ binary-guards-check:
 ## it in CI `validate` - and which MUTATES the one real instance to prove this
 ## gate can still fire, since a clean tree alone cannot show that.
 
-## verify-coverage: gate negative-fixture-check - every constructed absence asserts its own precondition
+## verify-coverage: gate negative-fixture-check - every constructed absence asserts its own precondition; ci: runs negative-fixture-check
 negative-fixture-check:
 	@python3 scripts/check-negative-fixture-preconditions.py
 
 ## Keep always-loaded repository guidance bounded, resolvable, and behaviorally
 ## findable after narrative moves to owned documentation (issue #724).
 
-## verify-coverage: gate claude-md-budget-check - always-loaded guidance stays inside its word budget
+## verify-coverage: gate claude-md-budget-check - always-loaded guidance stays inside its word budget; ci: runs claude-md-budget-check
 claude-md-budget-check:
 	@python3 scripts/check-claude-md-budget.py
 
-## verify-coverage: gate claude-md-links-check - every path CLAUDE.md names resolves
+## verify-coverage: gate claude-md-links-check - every path CLAUDE.md names resolves; ci: runs claude-md-links-check
 claude-md-links-check:
 	@python3 scripts/check-claude-md-links.py
 
-## verify-coverage: gate version-consistency-check - the version is the same everywhere it is written
+## verify-coverage: gate version-consistency-check - the version is the same everywhere it is written; ci: excluded needs-git
 version-consistency-check:
 	@python3 scripts/check-version-consistency.py
 
-## verify-coverage: gate unicode-dashes-check - no unicode dashes in the tree
+## verify-coverage: gate unicode-dashes-check - no unicode dashes in the tree; ci: excluded needs-git
 unicode-dashes-check:
 	@python3 scripts/check-unicode-dashes.py
 
-## verify-coverage: gate co-authored-by-trailer-check - the Co-Authored-By trailer names a real model
+## verify-coverage: gate co-authored-by-trailer-check - the Co-Authored-By trailer names a real model; ci: excluded needs-git
 co-authored-by-trailer-check:
 	@python3 scripts/check-co-authored-by-trailer.py
 
-## verify-coverage: gate claude-md-behavior-check - CLAUDE.md directives stay behaviorally findable
+## verify-coverage: gate claude-md-behavior-check - CLAUDE.md directives stay behaviorally findable; ci: runs claude-md-behavior-check
 claude-md-behavior-check:
 	@python3 scripts/check-claude-md-behavior.py
 
@@ -686,7 +715,7 @@ setup-woodpecker-cli:
 ## deprecated flat codex/prompts/ surface (issue #446) and its codex-prompts /
 ## codex-prompts-check targets were retired at the #556 cutover.
 
-## verify-coverage: gate codex-skills-check - codex/skills/ still matches what the generator produces from .claude/commands/
+## verify-coverage: gate codex-skills-check - codex/skills/ still matches what the generator produces from .claude/commands/; ci: runs codex-skills-check
 codex-skills-check:
 	@python3 scripts/codex-skill-sync.py --check
 
@@ -739,7 +768,7 @@ eli5-revendor:
 ## retired with the transfer: both fetched from codex-power-pack, which is going
 ## private and dormant, and lib/vendor.py carries no auth to reach it after that.
 
-## verify-coverage: gate project-next-check - the owned project-next engine still matches its pins and its contract version
+## verify-coverage: gate project-next-check - the owned project-next engine still matches its pins and its contract version; ci: runs project-next-check
 project-next-check:
 	@python3 scripts/project-next-ownership.py check
 
