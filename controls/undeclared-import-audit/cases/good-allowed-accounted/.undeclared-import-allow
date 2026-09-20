@@ -1,0 +1,3 @@
+# The ACCEPT direction. Without a GOOD case here, a gate that ignored the ledger
+# entirely would still pass every bad case, and the ledger would be decorative.
+allow host-tool.py boto3 #1041

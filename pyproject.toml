@@ -8,6 +8,30 @@ requires-python = ">=3.11"
 dependencies = ["pydantic>=2.0", "pyyaml>=6.0"]
 
 [project.optional-dependencies]
+# THE OPTIONAL RUNTIME INTEGRATIONS ARE DECLARED, NOT MERELY GUARDED (issue #1041).
+# Six packages were imported by `lib/` and declared in no dependency metadata at
+# all: boto3/botocore (`lib/creds/providers/aws.py`), python-dotenv
+# (`lib/creds/providers/env.py`), psycopg (`lib/cpp_memory/client.py`), and
+# fastapi/uvicorn (`lib/creds/ui/app.py`). Every one of those imports IS correctly
+# guarded - a `try/except ImportError` with a documented `*_AVAILABLE` fallback, or
+# a lazy import inside `_import_deps()` - so none of them could crash an importer,
+# and that is exactly why nobody noticed.
+#
+# GUARDED IS NOT THE SAME AS DECLARED, and the difference is what #1041 is about.
+# `scripts/dependency-audit.py` asks OSV about what `uv.lock` pins. A package
+# imported directly and pinned nowhere is never queried, so it cannot appear in any
+# advisory row however vulnerable it is - and these six sit in this repository's own
+# credential retrieval, secrets UI and memory client. Declaring them as EXTRAS puts
+# them in `uv.lock` (uv resolves every extra) and therefore under that scan, while
+# `uv sync --extra dev` still installs none of them: the graceful degradation the
+# guards provide is unchanged, and the advisory blind spot over them is closed.
+#
+# The extra NAMES are the ones already advertised to users: `lib/creds/ui/app.py`
+# tells an operator to `pip install 'creds[ui]'` when FastAPI is missing.
+aws = ["boto3>=1.34", "botocore>=1.34"]
+env = ["python-dotenv>=1.0"]
+memory = ["psycopg>=3.1"]
+ui = ["fastapi>=0.110", "uvicorn>=0.29"]
 # pytest-xdist: the suite is spawn-bound, not CPU-bound (issue #1086) - 70 of 119
 # test modules import `subprocess`, and two serial runs recorded 83% and 77% of ONE
 # core on a 24-core box with system time exceeding user time. `make test` and the CI
