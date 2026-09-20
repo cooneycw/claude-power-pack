@@ -624,3 +624,46 @@ def test_real_repo_skills_are_valid_without_host_managed_state(tmp_path):
     report = skills_check.check_repository(ROOT, absent_managed_root)
     assert report.ok, [finding.render(ROOT) for finding in report.findings]
     assert any("nothing to check" in note for note in report.notes)
+
+
+# --------------------------------------------------------------------------- #
+# #1036 - "canonical packages and managed installs are valid" names no
+#         population
+# --------------------------------------------------------------------------- #
+
+
+def test_the_success_line_counts_the_packages_it_validated(tmp_path, capsys):
+    """The managed half already stated its population (#1034); this half did not.
+
+    `skills-check: ok - canonical packages and managed installs are valid` is a
+    claim about a class over a population nothing named, in a gate that sits in
+    `make verify`. The remedy is the denominator form this repository already
+    uses, not deleting the quantifier - a bare `ok` reads as clean while saying
+    even less.
+    """
+    _write_skill(tmp_path, "alpha")
+    _write_skill(tmp_path, "beta")
+    assert skills_check.main(["--root", str(tmp_path), "--managed-root", str(tmp_path / "none")]) == 0
+    line = capsys.readouterr().out.strip().splitlines()[-1]
+    assert "canonical packages and managed installs are valid" not in line, (
+        f"the unqualified quantifier is back: {line!r}"
+    )
+    assert "2 canonical package(s)" in line, line
+
+
+def test_the_canonical_count_moves_with_the_population(tmp_path, capsys):
+    """A denominator that never moves is the same defect one level down."""
+    one = tmp_path / "one"
+    _write_skill(one, "alpha")
+    assert skills_check.main(["--root", str(one), "--managed-root", str(one / "none")]) == 0
+    first = capsys.readouterr().out.strip().splitlines()[-1]
+
+    three = tmp_path / "three"
+    for slug in ("alpha", "beta", "gamma"):
+        _write_skill(three, slug)
+    assert skills_check.main(["--root", str(three), "--managed-root", str(three / "none")]) == 0
+    second = capsys.readouterr().out.strip().splitlines()[-1]
+
+    assert first != second, f"identical success line over a 1- and a 3-package tree: {first!r}"
+    assert "1 canonical package(s)" in first, first
+    assert "3 canonical package(s)" in second, second

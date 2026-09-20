@@ -95,8 +95,13 @@ def test_the_two_readers_of_the_census_count_the_same_rows():
     pass.
     """
     text = (ROOT / icc.ADR_REL).read_text(encoding="utf-8")
-    universe, _ = cnc.instrument_universe(ROOT)
-    assert len(icc.census_subjects(text)) == universe
+    census = cnc.instrument_census(ROOT)
+    assert len(icc.census_subjects(text)) == census.rows
+    # #1036 turned this test's invariant into a RUNTIME one: the battery now
+    # compares the two readers on every run and reports membership `unknown`
+    # rather than computing it against a subject set that is provably not the
+    # row set. This asserts the runtime check agrees with the test.
+    assert not census.disagreement, census.disagreement
 
 
 def test_a_fenced_or_commented_row_inflates_neither_reader(tmp_path):
@@ -116,8 +121,8 @@ def test_a_fenced_or_commented_row_inflates_neither_reader(tmp_path):
         tail="\n```\n| 2 | `fenced.sh` | v | c | G |\n```\n\n<!--\n| 3 | `commented.sh` | v | c | G |\n-->\n",
     )
     (adr_dir / "0008-instrument-negative-control-bound.md").write_text(text, encoding="utf-8")
-    universe, _ = cnc.instrument_universe(tmp_path)
-    assert universe == 1, f"the battery counted {universe} rows over a 1-row census"
+    census = cnc.instrument_census(tmp_path)
+    assert census.rows == 1, f"the battery counted {census.rows} rows over a 1-row census"
     assert len(icc.census_subjects(text)) == 1
 
 
