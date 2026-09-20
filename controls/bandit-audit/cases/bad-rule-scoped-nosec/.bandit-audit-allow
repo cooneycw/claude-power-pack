@@ -1,0 +1,23 @@
+# The paths in the capture beside this file are FIXTURE paths, and that is
+# deliberate rather than laziness. The first cut named lib/cicd/steps.py -
+# a real file, and one the repository's own .bandit-audit-allow accepts -
+# so the case was suppressible by the very mechanism it exists to exercise
+# the moment anyone ran the gate against it with the default --allow-file.
+# tests/test_bandit_audit.py caught that and now pins the property.
+#
+# THE LEDGER'S SECOND BYPASS, AND THIS CASE REPLACED ONE THAT WAS WRONG.
+# It used to be `bad-skip-list-present`: a capture declaring skipped_tests=4
+# on the belief that the field counts a `--skip` reaching the tool. It does
+# not. Measured on bandit 1.9.4, `--skip B307` produces skipped_tests=0 and
+# simply omits the finding, while `# nosec B307` - a RULE-SCOPED inline
+# suppression - produces skipped_tests=1 and leaves `nosec` at 0. So the old
+# case modelled a report bandit never emits: a fixture built to the author's
+# belief rather than to the tool, which is the failure this whole directory
+# exists to catch, occurring inside it. Found by the counter-model review.
+#
+# What it models now is real, and is a hole the bare-`nosec` check MISSED: a
+# clean `results` list beside skipped_tests=1 for lib/fixture/shellout.py.
+# The two comment forms are one character apart in source and land in
+# different fields, so the rule-scoped one - the form a careful author is
+# MORE likely to write, since it suppresses less - was entirely invisible.
+# The anchor reads neither field.

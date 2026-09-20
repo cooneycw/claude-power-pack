@@ -284,7 +284,8 @@ another repo (the escalation clause); a row can be both.
 | 87 | `check-unicode-dashes.py` | `ok - N tracked .md file(s) clean`, occurrences of U+2014/U+2013 outside fenced blocks (blockquoted fences included), or `UNKNOWN` (exit 2) when the tracked `.md` population falls below its floor, a file cannot be read, or `git` is not on PATH at all | `make verify` | G |
 | 88 | `check-co-authored-by-trailer.py` | `ok - no pinned ... trailer found`, matching lines, or `UNKNOWN` (exit 2) when `git grep` itself fails, `git` is not on PATH at all, or the eligible tracked-file population falls below its floor (counter-model review, #1037: exit 1 alone cannot tell "searched, found nothing" from "nothing to search") | `make verify` | G |
 | 89 | `counter-model-reviewer-attribution.py` | `ATTRIBUTION-OK:` / `ATTRIBUTION-FINDING:` / `ATTRIBUTION-UNKNOWN:`, always with `examined=<n> linked=<m> agreed=<a> disagreed=<d> ambiguous=<x> unlinked=<u> extractor_distinct=<k>` (exit 0/1/2) | THE OPERATOR deciding the disposition of the 13 landed counter-model receipts (#1048 items 1-2), which will not independently re-derive whether a receipt's stored reviewer matches the rollout that produced it. Distinct from row 83, which asks whether the CORPUS's uniformity is a copied literal; this asks whether an INDIVIDUAL receipt agrees with its own evidence, and can answer it for receipts that carry no exec-log manifest - the case row 83 records as unreachable. Advisory only, wired into no gate or CI step: its subject is a decided disposition (annotate, do not rewrite), not a condition to block on. Its own blindness refusal (`extractor_distinct <= 1` withdraws any finding to UNKNOWN) is the load-bearing half, controlled by a committed PAIR supplying the same disagreement under a discriminating and a non-discriminating extractor. Controlled at `controls/counter-model-reviewer-attribution` (#1048) | X |
-| 90 | `verify-coverage-check.py` | `VERIFY_COVERAGE_TARGETS:` / `_EXAMINED:` / `_SCRIPTS:` / `_CENSUS:` on every run, then `UNACCOUNTED:` / `MISCLASSIFIED:` / `STALE:` / `UNDECLARED:` findings (exit 1) or `verify-coverage-check: ok - ...` (exit 0); `_CENSUS: unread` says the `not-a-checker` cross-check did not run, because unread must not read as empty | `make verify` - as a prerequisite, and again as the RECIPE that prints the closing 'what this run did NOT examine' report. Nothing downstream re-derives either: the report IS the consumer, and a report that under-names is indistinguishable from a repository with less to name. It is the only instrument that can see row 40's own failure mode - a sub-gate silently dropped from `verify`'s prerequisite list, which no member row can self-report - and the only one that asks whether a checker in `scripts/` is reachable from any gate at all (#1028). Controlled at `controls/verify-coverage` | G |
+| 90 | `bandit-audit.py` (`make bandit-audit`, CI `bandit-audit`) | `bandit-audit: ok - N file(s) examined under <roots> (source=walk\|capture), L loc, G gating finding(s) at severity>=MEDIUM, S stale allowlist line(s), B below threshold, A accepted`, or `BANDIT-FINDING:` / `BANDIT-STALE:` / `BANDIT-SUPPRESSION:` (exit 1) / `BANDIT-UNKNOWN:` (exit 2) | `make verify` and the CI `bandit-audit` step, both of which let work through on its verdict and neither of which re-derives it. NOT `lib/security/modules/` - those nine adapters carry no Python SAST at all, so `/security:scan` cannot produce this verdict and this does not duplicate it. The SUPPRESSION verdicts are load-bearing rather than decorative: a bare `# nosec` (`metrics.<file>.nosec`) and a rule-scoped `# nosec <ID>` (`metrics.<file>.skipped_tests` - a DIFFERENT field, which the first cut missed) each delete a finding before the report exists, so without both the visible ledger has an invisible twin. `skipped_tests` does NOT report a CLI `--skip`; that question is answered by pinning the argv, not by reading a metric (#962) | G |
+| 91 | `verify-coverage-check.py` | `VERIFY_COVERAGE_TARGETS:` / `_EXAMINED:` / `_SCRIPTS:` / `_CENSUS:` on every run, then `UNACCOUNTED:` / `MISCLASSIFIED:` / `STALE:` / `UNDECLARED:` findings (exit 1) or `verify-coverage-check: ok - ...` (exit 0); `_CENSUS: unread` says the `not-a-checker` cross-check did not run, because unread must not read as empty | `make verify` - as a prerequisite, and again as the RECIPE that prints the closing 'what this run did NOT examine' report. Nothing downstream re-derives either: the report IS the consumer, and a report that under-names is indistinguishable from a repository with less to name. It is the only instrument that can see row 40's own failure mode - a sub-gate silently dropped from `verify`'s prerequisite list, which no member row can self-report - and the only one that asks whether a checker in `scripts/` is reachable from any gate at all (#1028). Controlled at `controls/verify-coverage` | G |
 
 > **Rows 66-73 were added by #1060, and how they were found is the point.** None
 > of the eight was a judgement that had been made and deferred - they were simply
@@ -429,6 +430,37 @@ ticket with a different binary:
     the naive implementation as its own merged PR and anchoring to ITS squash
     commit becomes correct, and this ruling should be revisited. Named here so
     #961 and #962 inherit the decision rather than re-litigating it.
+  - *Taken up by #962, and worth recording because the anchor stopped being a
+    construction:* bandit's blind implementation is codex-power-pack's live
+    one-liner, vendored verbatim, so the control's demonstration IS the issue's
+    thesis rather than an illustration of it. `kind: constructed` still, because
+    the artifact has no commit in THIS repository's history - but "constructed"
+    should not be read as "invented".
+
+#### What #962 settled that #960 and #961 did not: the SHAPE of a suppression
+
+`shellcheck` adopted with **zero** suppressions and #961 with a per-finding
+ledger, so neither had to answer what to do with an inherited one. #962 did, and
+the answer generalises past bandit:
+
+- **A `--skip` is not a short allowlist, it is a different instrument.** It
+  turns a rule off across the whole population, forever, and has no direction in
+  which it can go stale. Measured: codex-power-pack's `--skip
+  B104,B108,B310,B602` removes **10 of CPP's 11** MEDIUM+ findings, because the
+  two rules it suppresses most are the two this tree's design produces most.
+- **So the residual is recorded per (file, rule, COUNT).** That makes three
+  distinctions a blanket skip cannot draw into reds: a new site in a file that
+  already has one, a new site in a fresh file, and a recorded site that gets
+  FIXED and leaves its line behind.
+- **Adopting a neighbour's configuration is inheriting their evidence.** The
+  skip list was correct about codex-power-pack's tree, and nobody measured it
+  against this one. The precedent the issue cited is CPP's own four disabled
+  mypy error codes, load-bearing in two repositories because the same move was
+  made once and never re-derived.
+- **Enforce the decision, do not merely document it.** A skip reaching the tool
+  by any route, and an inline `# nosec`, are both findings - read off
+  `metrics._totals.skipped_tests` and `metrics.<file>.nosec`. A decision nothing
+  checks lasts until the next person edits a Makefile.
 - **Excluding a fixture DIRECTORY is not suppressing a check.** The gate skips
   `controls/*/cases/**` (deliberately-bad inputs, still linted by the control
   itself with `--root`) and `controls/*/anchors/**` (frozen byte-identical

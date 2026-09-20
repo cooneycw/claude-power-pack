@@ -1,0 +1,25 @@
+# The paths in the capture beside this file are FIXTURE paths, and that is
+# deliberate rather than laziness. The first cut named lib/cicd/steps.py -
+# a real file, and one the repository's own .bandit-audit-allow accepts -
+# so the case was suppressible by the very mechanism it exists to exercise
+# the moment anyone ran the gate against it with the default --allow-file.
+# tests/test_bandit_audit.py caught that and now pins the property.
+#
+# THE HALF THAT MATTERS FOR A GATE WEDGED AT 'fail'. A check that refuses
+# every input is indistinguishable from a working one on the bad cases
+# alone, and this gate reddens CI, so a false red blocks every merge in the
+# repository.
+#
+# It exercises the COUNT, not merely the pair: the shellout fixture reports
+# two B602 findings and its line accepts exactly two. A gate matching on
+# (file, rule) alone would pass this case too, so the count is what makes a
+# THIRD shell=True in that file a finding rather than a silent inheritance.
+#
+# Both rules here are on CxPP's skip list ON PURPOSE. The anchor must AGREE
+# with the gate on every known-GOOD case or it differs for reasons beyond
+# the blindness under test, and it can only agree on findings it drops. The
+# converse - that the allowlist also suppresses a rule OUTSIDE that skip
+# list - is coverage no single anchor can carry, so it is pinned by
+# tests/test_bandit_audit.py instead.
+finding lib/fixture/shellout.py B602 2 #1113
+finding lib/fixture/tempdir.py B108 1 #1113

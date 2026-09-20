@@ -1,0 +1,67 @@
+{
+  "files": [
+    "lib/fixture/shellout.py",
+    "lib/fixture/tempdir.py",
+    "scripts/fixture-helper.py"
+  ],
+  "report": {
+    "errors": [],
+    "generated_at": "2026-09-20T00:00:00Z",
+    "metrics": {
+      "_totals": {
+        "CONFIDENCE.HIGH": 0,
+        "CONFIDENCE.LOW": 0,
+        "CONFIDENCE.MEDIUM": 0,
+        "CONFIDENCE.UNDEFINED": 0,
+        "SEVERITY.HIGH": 0,
+        "SEVERITY.LOW": 0,
+        "SEVERITY.MEDIUM": 0,
+        "SEVERITY.UNDEFINED": 0,
+        "loc": 120,
+        "nosec": 0,
+        "skipped_tests": 0
+      },
+      "lib/fixture/shellout.py": {
+        "loc": 40,
+        "nosec": 0,
+        "skipped_tests": 0
+      },
+      "lib/fixture/tempdir.py": {
+        "loc": 40,
+        "nosec": 0,
+        "skipped_tests": 0
+      },
+      "scripts/fixture-helper.py": {
+        "loc": 40,
+        "nosec": 0,
+        "skipped_tests": 0
+      }
+    },
+    "results": [
+      {
+        "code": "",
+        "col_offset": 8,
+        "filename": "lib/fixture/shellout.py",
+        "issue_confidence": "HIGH",
+        "issue_cwe": {
+          "id": 78,
+          "link": "https://cwe.mitre.org/data/definitions/78.html"
+        },
+        "issue_severity": "HIGH",
+        "issue_text": "subprocess call with shell=True identified, security issue.",
+        "line_number": 307,
+        "line_range": [
+          307
+        ],
+        "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/subprocess_popen_with_shell_equals_true.html",
+        "test_id": "B602",
+        "test_name": "subprocess_popen_with_shell_equals_true"
+      }
+    ]
+  },
+  "roots": [
+    "lib",
+    "scripts"
+  ],
+  "schema": 1
+}
