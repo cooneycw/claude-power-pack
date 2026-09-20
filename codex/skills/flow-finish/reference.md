@@ -61,11 +61,20 @@ if [ "$(git rev-list --count HEAD..origin/main)" -gt 0 ]; then
         echo "NOTE: your work is safe in the 'wip(flow): pre-merge snapshot' commit on this branch."
         exit 1
     fi
-    # Re-sync generated Codex skills if the merge pulled ANY command-family source
-    # (issue #506; marketplace copies retired in #662). The LOCAL script re-syncs
-    # THIS tree; [ -x ... ] keeps the step CPP-only.
-    if [ -x scripts/codex-skill-sync.py ] && git diff --name-only ORIG_HEAD..HEAD | grep -q '^\.claude/commands/.*\.md$'; then
-        python3 scripts/codex-skill-sync.py --write || true
+    # Re-sync the generated Codex skills if the merge pulled ANY source they
+    # bundle (issues #506, #1136). ONE HELPER, invoked BARE (#581); it asks
+    # codex-skill-sync.py what drifted, names it, and re-syncs. This site
+    # carried the same blind path-grep as /flow-auto's two and is the one
+    # #1136's own issue body missed - /flow-finish is standalone, so runs reach
+    # it without passing through /flow-auto at all.
+    # `[ -x ]` KEEPS THIS CPP-ONLY (counter-model review, #1136). /flow-auto and
+    # /flow-finish run in other repositories, which have neither this helper nor
+    # the generator; a bare call there dies with exit 127 before the helper can
+    # report its own `unavailable`. This is an EXISTENCE guard, not a decision
+    # about what changed - the path-pattern condition it replaced is the one
+    # that must not come back.
+    if [ -x scripts/codex-skill-resync.sh ]; then
+        bash scripts/codex-skill-resync.sh
     fi
 fi
 ```
