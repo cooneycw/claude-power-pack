@@ -1,0 +1,112 @@
+{
+  "_comment": [
+    "Registration for scripts/verify-coverage-check.py (issue #1028).",
+    "",
+    "WHY THIS GATE NEEDS A COMMITTED CASE (ADR 0008): it is a gate that lets work",
+    "THROUGH, and it is the aggregate one. `make verify` reads its green twice -",
+    "once as a prerequisite, once as the recipe that prints the closing 'what this",
+    "run did NOT examine' report - and nothing downstream re-derives either. The",
+    "report IS the consumer.",
+    "",
+    "THAT IS ALSO WHY A CLEAN TREE PROVES LESS HERE THAN USUAL. A report that",
+    "under-names is indistinguishable from a repository with less to name: both",
+    "print a short, confident, well-formatted list. There is no symptom to notice",
+    "and no second reader, so the only way to know the enumeration works is to",
+    "commit trees where something IS hidden and watch it be found.",
+    "",
+    "THE CASES ARE WHOLE FIXTURE TREES, not the real repository - a four-target",
+    "Makefile and a three-script `scripts/`. The question is whether the gate can",
+    "tell an accounted tree from an unaccounted one, not whether it can read 58",
+    "targets. Each bad tree hides one checker in a DIFFERENT place, because the",
+    "gate draws four distinctions and a control exercising one leaves three",
+    "unproven:",
+    "",
+    "  bad-unclassified-target           a target added and never classified. The",
+    "                                    ordinary shape: someone adds a gate and",
+    "                                    the accounting is simply not updated.",
+    "  bad-class-disagrees-with-verify   a target DECLARED `gate` that `verify`",
+    "                                    does not reach. This is ADR 0008 census",
+    "                                    row 40's own named failure - 'a sub-gate",
+    "                                    silently dropped from the list, which no",
+    "                                    member row can see' - and the only",
+    "                                    direction that catches a wiring which was",
+    "                                    correct and then quietly stopped being.",
+    "  bad-checker-parked-as-utility     a checker filed under the one class the",
+    "                                    closing report never mentions. Its own",
+    "                                    case because `utility` is where the four",
+    "                                    #1028 subjects would end up if anyone",
+    "                                    wanted them out of the report, and a gate",
+    "                                    that only checked the OTHER two classes",
+    "                                    would score that tree clean.",
+    "  bad-unaccounted-script            a script no Makefile target and no CI step",
+    "                                    invokes. THE CASE THAT MAKES THIS A",
+    "                                    MECHANISM RATHER THAN A ONE-OFF: 56 of the",
+    "                                    repository's 89 scripts have no target, so",
+    "                                    a framework checking only targets would be",
+    "                                    satisfied by exactly the checkers it exists",
+    "                                    to catch - `check-negative-controls.py`,",
+    "                                    one of the four #1028 subjects, among them.",
+    "",
+    "THE GOOD CASE EXERCISES EVERY CLASS, not just the passing path: a `gate` that",
+    "verify reaches, an `excluded` check whose recipe DOES carry a checking flag",
+    "(so the `utility` tripwire is shown not to fire on a correctly-classified",
+    "check), and a `utility` writer. A gate wedged at 'fail' is indistinguishable",
+    "from a working one on the bad cases alone, and this gate is a `make verify`",
+    "prerequisite, so a false red blocks every merge in the repository.",
+    "",
+    "Stdlib-only, git-free and offline, like the gate: no binary these fixtures",
+    "need is absent from the slim CI image, so the control gives the same verdict",
+    "there as here."
+  ],
+  "gate": "scripts/verify-coverage-check.py",
+  "invocation": [
+    "python3",
+    "{gate}",
+    "--root",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^(UNACCOUNTED|MISCLASSIFIED|STALE|UNDECLARED): ",
+  "cases": [
+    {
+      "name": "bad-unclassified-target",
+      "input": "cases/bad-unclassified-target",
+      "expect": "BAD",
+      "why": "A target with no `## verify-coverage:` directive. If this scores GOOD the gate cannot see an unaccounted target at all, which is the first half of what it exists to see."
+    },
+    {
+      "name": "bad-class-disagrees-with-verify",
+      "input": "cases/bad-class-disagrees-with-verify",
+      "expect": "BAD",
+      "why": "A target declared `gate` that `verify` does not reach. Every directive is present and well-formed here, so a gate that only checked for MISSING directives scores this tree clean - and it is the exact failure ADR 0008 row 40 says no member target can self-report."
+    },
+    {
+      "name": "bad-checker-parked-as-utility",
+      "input": "cases/bad-checker-parked-as-utility",
+      "expect": "BAD",
+      "why": "A checker declared `utility`, the one class the closing report never names. Directives are complete and the prerequisite graph agrees, so both checks above pass over this tree; without this case the report could be silently shortened one target at a time."
+    },
+    {
+      "name": "bad-unaccounted-script",
+      "input": "cases/bad-unaccounted-script",
+      "expect": "BAD",
+      "why": "A script in `scripts/` that no Makefile target and no CI step invokes and nothing accounts for. The Makefile in this tree is fully and correctly classified, so every target-side check passes - which is the point: this is the only case that proves a NEW CHECKER cannot be added without landing in the framework."
+    },
+    {
+      "name": "good-complete",
+      "input": "cases/good-complete",
+      "expect": "GOOD",
+      "why": "A tree accounted for in every class at once - a reached `gate`, an `excluded` check whose recipe carries `--check` (proving the utility tripwire does not fire on a correctly-classified check), and a `utility` writer. THE HALF THAT MATTERS for a gate wedged at 'fail': this gate is a `make verify` prerequisite, so a false red blocks every merge in the repository."
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "n/a",
+      "origin": "scripts/verify-coverage-check.py",
+      "path": "anchors/constructed-verify-exists-only-verify-coverage-check.py",
+      "sha256": "9423b4d9eabc7928bd1881c0afaac2f3954e290410daff86a5457b0be5202d8a",
+      "why": "CONSTRUCTED: the gate is new, so there is no previous blind version to vendor. This is the check the OTHER framing of the problem produces, and that framing is on the record rather than invented here - issue #1028 asks 'what gate consumes this', and the cheapest thing that looks like an answer is to confirm the aggregate gate exists and has members. It never compares the LIST against the TREE, so it MISSES all four known-bad inputs and AGREES with the real gate on the known-good one."
+    }
+  ]
+}

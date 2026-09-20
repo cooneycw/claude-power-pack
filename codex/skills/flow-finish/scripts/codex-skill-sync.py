@@ -269,14 +269,129 @@ def detect_adaptations(body: str) -> list[str]:
 _SCRIPT_REF = re.compile(r"scripts/([A-Za-z0-9._-]+\.(?:sh|py))")
 
 
+#: A shell script running a SIBLING out of its own directory:
+#: `"$SELF_DIR/eli5-vendor.py"`, `"$_self_dir/speckit-context.py"`,
+#: `"$(dirname "$0")/x.sh"`. THE `$VAR/` PREFIX IS THE WHOLE SIGNAL, and it is
+#: what separates a dependency from a mention (issue #1028).
+#:
+#: `eli5-core-drift.sh` is why the rule is not a `scripts/<name>` grep: its only
+#: `scripts/` token is in the header comment, while the line that actually runs
+#: is `exec python3 "$SELF_DIR/eli5-vendor.py"`. So the bundler saw no
+#: dependency, shipped the shim alone, and every invocation from the Codex
+#: surface died on a missing file instead of reporting drift - in a script whose
+#: own header says it exists "so there is exactly ONE implementation behind
+#: them".
+#:
+#: The rule is tight in the other direction too. `flow-wave-registry.sh` prints
+#: `"... scripts/checkout-readers.sh says when ..."` inside an `echo`, and
+#: `speckit-tasks-to-issues.sh` names `scripts/flow-wave-registry.sh` in a
+#: comment; neither is a dependency, and neither has a `$VAR/` prefix.
+_SIBLING_REF = re.compile(
+    r"(?:\$\{?\w+\}?|\$\((?:dirname|readlink)[^)]*\))/([A-Za-z0-9._-]+\.(?:sh|py))"
+)
+
+#: `from lib.x import ...` / `import lib.x`. A Python helper's real dependency is
+#: its import, not a filename in its prose, so this is the only Python signal
+#: read here.
+_LIB_IMPORT = re.compile(r"^\s*(?:from|import)\s+(lib(?:\.[A-Za-z_][A-Za-z0-9_]*)+)", re.M)
+
+
 def find_bundled_scripts(body: str) -> list[str]:
-    """Helper-script basenames referenced by the body that exist in scripts/."""
+    """Helper-script basenames the body references, plus what THOSE scripts run.
+
+    A closure, the same shape `find_bundled_docs` uses for sibling doc links:
+    it starts from what the command body actually names and stops when no new
+    file is reached. The bundler used to discover only the body's own
+    references, so a bundled script's own helper was simply absent and the
+    shipped copy could not run at all (issue #1028).
+    """
+    pending = [
+        name for name in {m.group(1) for m in _SCRIPT_REF.finditer(body)}
+        if (SCRIPTS_ROOT / name).is_file()
+    ]
     found: set[str] = set()
-    for match in _SCRIPT_REF.finditer(body):
-        name = match.group(1)
-        if (SCRIPTS_ROOT / name).is_file():
-            found.add(name)
+    while pending:
+        name = pending.pop()
+        if name in found:
+            continue
+        found.add(name)
+        for match in _SIBLING_REF.finditer((SCRIPTS_ROOT / name).read_text()):
+            sibling = match.group(1)
+            if sibling not in found and (SCRIPTS_ROOT / sibling).is_file():
+                pending.append(sibling)
     return sorted(found)
+
+
+def _lib_package_path(dotted: str) -> Path | None:
+    """Where `lib.x.y` lives, as a path RELATIVE TO THE REPO ROOT.
+
+    Bundled at that same relative path, the import resolves without any
+    rewriting: every one of these scripts derives its own root from
+    `Path(__file__).resolve().parents[1]`, which IS the skill directory once the
+    script is bundled under `<skill>/scripts/`. `eli5-vendor.py` inserts that
+    root and finds `<skill>/lib/vendor.py`; `project-next.py` inserts
+    `<root>/vendor/project_next` and finds
+    `<skill>/vendor/project_next/lib/project_next/`. One rule, two layouts, no
+    per-script knowledge.
+
+    Only the roots this repository actually has are searched, and the search is
+    ORDERED rather than globbed-and-hoped: an ambiguous match would silently
+    bundle whichever the filesystem returned first.
+    """
+    rel = Path(*dotted.split("."))
+    for base in (REPO_ROOT, *sorted((REPO_ROOT / "vendor").glob("*"))):
+        if not base.is_dir():
+            continue
+        package = base / rel
+        if package.is_dir() and (package / "__init__.py").is_file():
+            return package.relative_to(REPO_ROOT)
+        module = package.with_suffix(".py")
+        if module.is_file():
+            return module.relative_to(REPO_ROOT)
+    return None
+
+
+def find_bundled_libs(scripts: list[str]) -> dict[str, Path]:
+    """Map skill-relative path -> source path for the libraries `scripts` import.
+
+    An unresolvable `lib.*` import RAISES rather than being skipped. Skipping is
+    what the pre-#1028 bundler effectively did, and the artifact it produced was
+    indistinguishable from a working one until someone ran it.
+    """
+    out: dict[str, Path] = {}
+    for name in scripts:
+        path = SCRIPTS_ROOT / name
+        if path.suffix != ".py":
+            continue
+        for match in _LIB_IMPORT.finditer(path.read_text()):
+            dotted = match.group(1)
+            rel = _lib_package_path(dotted)
+            if rel is None:
+                raise SystemExit(
+                    f"codex-skill-sync: scripts/{name} imports `{dotted}`, which "
+                    f"resolves to no package under the repository root or vendor/. "
+                    f"Bundling it would ship a script that cannot start."
+                )
+            source = REPO_ROOT / rel
+            if source.is_dir():
+                for child in sorted(source.rglob("*.py")):
+                    out[str(child.relative_to(REPO_ROOT))] = child
+            else:
+                out[str(rel)] = source
+            # EVERY `__init__.py` ON THE WAY DOWN. `from lib.project_next.rank
+            # import ...` resolves to one module, so bundling only that module
+            # leaves the package's own `__init__.py` behind - and the six
+            # modules import each other relatively (`from .models import ...`),
+            # which needs the package to BE one. Python would fall back to a
+            # namespace package and skip an `__init__.py` that is 488 bytes of
+            # real code, so the bundle would import and then behave differently
+            # from the checkout: the worst failure shape for a mirror whose
+            # whole purpose is being byte-identical.
+            for parent in rel.parents:
+                init = REPO_ROOT / parent / "__init__.py"
+                if init.is_file():
+                    out[str(init.relative_to(REPO_ROOT))] = init
+    return out
 
 
 # Only SOURCE-RELATIVE markdown links (`](../../../docs/x.md)`) are in scope: those
@@ -428,6 +543,10 @@ def generate_skill(
         files["reference.md"] = f"{marker}\n\n{body.rstrip(chr(10))}\n"
     for script in scripts:
         files[f"scripts/{script}"] = (SCRIPTS_ROOT / script).read_text()
+    # Bundled at their repo-relative path, which is what makes the scripts'
+    # own `parents[1]` resolution land inside the skill directory.
+    for rel, source in find_bundled_libs(scripts).items():
+        files[rel] = source.read_text()
     for doc in docs:
         # Bundled verbatim, at the same relative path, so sibling links between
         # bundled docs keep resolving without rewriting their contents.
@@ -469,8 +588,22 @@ def is_managed(skill_dir: Path) -> bool:
     return False
 
 
+#: Interpreter output, not skill content. Bundling real Python PACKAGES (#1028)
+#: made this necessary: running a bundled script anywhere - a Codex session, a
+#: developer trying the drift check, this repository's own tests - writes
+#: `__pycache__/*.pyc` beside the module, inside the bundle. Without this the
+#: next `--check` reports each one `STALE: ... (no longer generated)` and CI
+#: goes red over a file no commit created and the generator never wrote. Before
+#: #1028 no bundled file was ever imported, so the case could not arise.
+_GENERATED_BYTECODE = ("__pycache__",)
+
+
 def skill_files(skill_dir: Path) -> list[Path]:
-    return sorted(p for p in skill_dir.rglob("*") if p.is_file())
+    return sorted(
+        p
+        for p in skill_dir.rglob("*")
+        if p.is_file() and not any(part in _GENERATED_BYTECODE for part in p.parts)
+    )
 
 
 def find_orphans(outputs: dict[str, dict[str, str]], selected: list[str]) -> list[Path]:

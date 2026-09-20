@@ -29,6 +29,8 @@ git-less validate container (see the cpp_validate_container_no_git learning).
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
 import sys
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
@@ -98,6 +100,151 @@ def test_real_repo_bundled_scripts_byte_identical():
         source = ROOT / "scripts" / bundled.name
         assert source.is_file(), bundled
         assert bundled.read_bytes() == source.read_bytes(), bundled
+
+
+def test_real_repo_bundled_libraries_byte_identical():
+    """The same property for the LIBRARIES bundled since #1028.
+
+    This glob is separate rather than widened because the path rule differs: a
+    bundled script is flattened to `scripts/<name>` and matched by basename,
+    while a bundled library keeps its REPO-RELATIVE path - which is precisely
+    what makes each script's own `parents[1]` resolution land inside the skill
+    directory. Matching a library by basename would pass over a copy bundled at
+    the wrong depth, and the wrong depth is the whole failure being fixed.
+    """
+    skills = ROOT / "codex" / "skills"
+    bundled = [
+        p
+        for p in skills.rglob("*.py")
+        if p.is_file()
+        and "scripts" not in p.relative_to(skills).parts[1:2]
+        and "__pycache__" not in p.parts
+    ]
+    assert bundled, "no libraries are bundled at all - #1028's fix is gone"
+    for path in sorted(bundled):
+        rel = path.relative_to(skills).parts[1:]
+        source = ROOT.joinpath(*rel)
+        assert source.is_file(), f"{path} corresponds to no file in the checkout"
+        assert path.read_bytes() == source.read_bytes(), path
+
+
+def test_real_repo_eli5_drift_check_runs_from_its_own_bundle(tmp_path):
+    """Issue #1028 item 4's acceptance, executed rather than asserted.
+
+    The committed red case is the pre-#1028 tree: the bundler discovered
+    `scripts/<name>` references in the command BODY, and `eli5-core-drift.sh`'s
+    only `scripts/` token is in its header comment - the line that actually runs
+    is `exec python3 "$SELF_DIR/eli5-vendor.py"`. So the shim shipped alone and
+    every invocation from the Codex surface died on a missing file, in a script
+    whose own header says it exists "so there is exactly ONE implementation
+    behind them". On that tree this test fails at the first assertion.
+
+    Executed against a real drifted tree rather than re-grepping the bundle,
+    deliberately: a check that re-derived the dependency rule would share the
+    resolver's blind spots and agree with it by construction.
+    """
+    shim = ROOT / "codex" / "skills" / "flow-eli5" / "scripts" / "eli5-core-drift.sh"
+    assert shim.is_file()
+    assert (shim.parent / "eli5-vendor.py").is_file(), "the shim's implementation is not bundled"
+    assert (shim.parent.parent / "lib" / "vendor.py").is_file(), "its library is not bundled"
+
+    drifted = tmp_path / "drifted"
+    (drifted / ".claude" / "commands" / "flow").mkdir(parents=True)
+    shutil.copy(ROOT / ".claude" / "eli5-vendor.json", drifted / ".claude")
+    core = (ROOT / ".claude" / "commands" / "flow" / "eli5.md").read_text()
+    assert "\n## What this is for\n" in core
+    (drifted / ".claude" / "commands" / "flow" / "eli5.md").write_text(
+        core.replace("\n## What this is for\n", "\n## What this is for (LOCAL EDIT)\n", 1)
+    )
+
+    result = subprocess.run(
+        ["bash", str(shim), "--root", str(drifted)],
+        capture_output=True, text=True, timeout=120, check=False,
+    )
+    # Fail-open by design: no network means no verdict, and that is not a pass
+    # to assert against either. Skip rather than let a plane ride look like a fix.
+    if "upstream unavailable" in result.stderr:
+        pytest.skip("canonical eli5-gate unreachable; the advisory is fail-open")
+    assert result.returncode == 1, f"drift went unreported\n{result.stdout}{result.stderr}"
+    assert "has drifted" in result.stderr
+
+
+def test_real_repo_project_next_starts_from_its_own_bundle():
+    """The second live instance of the same defect, which #1028 did not name.
+
+    `codex/skills/project-next/scripts/project-next.py` died on
+    `ModuleNotFoundError: No module named 'lib'` for the same reason: the
+    bundler carried the entry point and none of what it imports. One bundler
+    bug, two shipped artifacts that could not run.
+    """
+    entry = ROOT / "codex" / "skills" / "project-next" / "scripts" / "project-next.py"
+    assert entry.is_file()
+    result = subprocess.run(
+        [sys.executable, str(entry), "--help"],
+        capture_output=True, text=True, timeout=120, check=False,
+    )
+    assert result.returncode == 0, f"{result.stdout}{result.stderr}"
+    assert "usage:" in result.stdout
+
+
+def test_a_mention_is_not_a_dependency(tmp_repo):
+    """The closure follows `$VAR/<name>`, never a `scripts/<name>` mention.
+
+    `flow-wave-registry.sh` PRINTS `"... scripts/checkout-readers.sh says when
+    ..."` inside an echo; `speckit-tasks-to-issues.sh` names a sibling in a
+    comment. Neither is a dependency, and a textual rule would bundle a whole
+    subtree for a sentence - while still missing `eli5-core-drift.sh`, whose
+    real dependency has no `scripts/` prefix at all.
+    """
+    scripts = tmp_repo / "scripts"
+    (scripts / "helper.sh").write_text(
+        "#!/bin/bash\n"
+        "# see scripts/mentioned.sh for the history\n"
+        'echo "scripts/mentioned.sh explains why" >&2\n'
+        'SELF_DIR=$(dirname "$0")\n'
+        'exec "$SELF_DIR/really-used.sh"\n'
+    )
+    (scripts / "mentioned.sh").write_text("#!/bin/bash\n")
+    (scripts / "really-used.sh").write_text("#!/bin/bash\n")
+
+    codex_skill_sync.main(["--write"])
+    bundled = tmp_repo / "codex" / "skills" / "flow-auto" / "scripts"
+    assert (bundled / "really-used.sh").is_file(), "the invoked sibling was not bundled"
+    assert not (bundled / "mentioned.sh").exists(), "a mention was bundled as a dependency"
+
+
+def test_an_unresolvable_library_import_refuses_rather_than_shipping(tmp_repo):
+    """Skipping is what the pre-#1028 bundler effectively did.
+
+    The artifact it produced was indistinguishable from a working one until
+    someone ran it, which is why this raises instead of bundling what it can.
+    """
+    (tmp_repo / "scripts" / "helper.sh").write_text("#!/bin/bash\n")
+    (tmp_repo / "scripts" / "absent.sh").write_text("#!/bin/bash\n")
+    (tmp_repo / ".claude" / "commands" / "flow" / "auto.md").write_text(
+        "# Flow Auto\n\nUses scripts/importer.py.\n"
+    )
+    (tmp_repo / "scripts" / "importer.py").write_text(
+        "from lib.nowhere_at_all import thing\n"
+    )
+    with pytest.raises(SystemExit, match="resolves to no package"):
+        codex_skill_sync.main(["--write"])
+
+
+def test_interpreter_bytecode_beside_a_bundled_library_is_not_stale(tmp_repo):
+    """A file no commit created and the generator never wrote (#1028).
+
+    Bundling real packages made this reachable: running a bundled script writes
+    `__pycache__/*.pyc` INSIDE the bundle, and the next `--check` called each one
+    `STALE: ... (no longer generated)`. Before #1028 no bundled file was ever
+    imported, so the case could not arise.
+    """
+    codex_skill_sync.main(["--write"])
+    skill = tmp_repo / "codex" / "skills" / "flow-auto"
+    cache = skill / "scripts" / "__pycache__"
+    cache.mkdir(parents=True, exist_ok=True)
+    (cache / "helper.cpython-312.pyc").write_bytes(b"\x00\x01")
+    assert codex_skill_sync.main(["--check"]) == 0
 
 
 def test_real_repo_folded_top_level_commands_generated():

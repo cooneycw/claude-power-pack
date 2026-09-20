@@ -1,0 +1,581 @@
+#!/usr/bin/env python3
+"""Account for every checker this repository owns, and make `verify` say what it skipped (issue #1028).
+
+`make verify` is the aggregate local gate. It prints a green and says nothing
+about the checks it never ran, so the green reads wider than it is - and a
+reader who finds a checker in the tree reasonably infers the surface it covers
+is being watched. Issue #1028 found four checkers in that state at once and
+asked the same question of all four: *what gate consumes this, and what does a
+green from `verify` claim about what it did NOT run?*
+
+This gate answers the second half mechanically, and the first half by refusing
+to let a checker exist without a declared answer.
+
+WHAT IT DERIVES AND WHAT IT DEMANDS
+-----------------------------------
+Two populations, both derived from the tree - never from a list typed here:
+
+  * every target in the `Makefile`;
+  * every file in `scripts/`.
+
+For targets, the class is DECLARED beside the target, on a directive the
+Makefile carries:
+
+    ## verify-coverage: excluded secret-scan - needs gitleaks on PATH; CI runs it
+
+and the declaration is then CHECKED against the real prerequisite graph, in
+both directions. A target declared `gate` that `verify` does not reach is a
+red, and so is a `verify` prerequisite declared anything else. That is the
+failure mode ADR 0008's own census row 40 names for `make verify` - "a sub-gate
+silently dropped from the list, which no member row can see" - and it is the
+one thing a member row cannot self-report.
+
+For scripts, the class is DERIVED wherever the tree can answer:
+
+  gate       a Makefile target invokes it and `verify` reaches that target
+  excluded   a Makefile target invokes it and `verify` does not
+  ci         no Makefile target invokes it, but a `.woodpecker.yml` step does
+
+and only where the tree CANNOT answer - a script no build surface invokes at
+all - must a human declare it, in `.claude/verify-coverage.json`:
+
+  tested          its behaviour is driven by a module under `tests/`, so
+                  `make test` - which IS in this gate - exercises it.
+  runtime         consumed by a command, hook or sibling script at run time.
+  not-a-checker   an installer, generator or helper that issues no verdict.
+
+`tested` and `runtime` must name a `consumer` path, which this gate then opens
+and greps: an excuse that names a file becomes a claim that can be false,
+instead of a sentence that cannot.
+
+`not-a-checker` IS THE HIDING PLACE, AND IT IS CROSS-CHECKED RATHER THAN
+TRUSTED. It is the one class whose entries the closing report never mentions, so
+a checker filed there disappears exactly the way the four #1028 subjects did.
+The check is free, because the repository already maintains the answer: ADR
+0008's census enumerates every instrument, its MEMBERSHIP is derived from
+`scripts/` and gated by `make instrument-census-check`, and the extraction rule
+is IMPORTED from that gate rather than re-implemented here - two copies of one
+rule is how the documents would drift apart. A script the census calls an
+instrument cannot be `not-a-checker` here, and the two files now have to agree.
+
+THE MECHANISM FOR NEW CHECKERS IS THE SECOND POPULATION, NOT THE FIRST.
+A framework that only classified Makefile targets would be satisfied by a
+checker that never gets a target - which is not hypothetical: 56 of this
+repository's 89 scripts have no target, `check-negative-controls.py` among
+them, and it is one of the four `#1028` subjects. So the population is
+`scripts/`, and a new file there turns this gate red until it is accounted for.
+Adding a checker and forgetting to wire it now costs a red, not a silence.
+
+WHY `utility` CARRIES A TRIPWIRE
+--------------------------------
+`utility` is the class that says "this target is not a check", and it is
+therefore the one place a checker could be parked where the report will never
+mention it - the same wrong inference this gate exists to remove, reintroduced
+one level up. So a `utility` recipe carrying a checking FLAG or SUBCOMMAND
+(`--check`, `--strict`, `check`, `verify`, ...) is refused outright.
+
+The rule matches flags and subcommands, never the invoked script's name:
+`dependency-audit.py --capture` is a writer whose filename says "audit", and a
+name-matching rule would force it into the report as a check that was not run,
+which is a lie in the other direction. It is a TRIPWIRE, not a coverage
+enumeration - it fires loudly on what it catches and claims nothing about what
+it does not (`bootstrap-check.sh` invoked bare trips nothing here, and is
+`excluded` on its own merits).
+
+Stdlib-only, git-free and offline, so `make verify` and the slim CI image give
+the same verdict.
+
+Usage:
+    verify-coverage-check.py [--root DIR] [--report]
+
+`--report` prints, after the check passes, the closing summary `make verify`
+ends on: every checker in this repository that this run did not examine, with
+the reason each was left out. It runs the check first and refuses to print a
+summary derived from an incomplete classification - a report is only worth the
+enumeration behind it.
+
+Output: one `UNACCOUNTED:` / `MISCLASSIFIED:` / `STALE:` / `UNDECLARED:` line
+per finding, then a verdict line. Exit 0 when every target and every script is
+accounted for, 1 otherwise.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import sys
+from importlib.util import module_from_spec, spec_from_file_location
+from pathlib import Path
+
+#: NEGATIVE-CONTROL: controls/verify-coverage
+#:
+#: This gate lets work THROUGH, and it is the aggregate one: `make verify`'s own
+#: recipe reads its green as "every checker in this repository is accounted for,
+#: and the closing report names the ones I skipped". Nothing downstream
+#: re-derives that - the report IS the downstream consumer, and a blind version
+#: prints a confident, well-formatted, short list.
+#:
+#: That is the sharpest reason this particular gate needs a committed case
+#: rather than a clean-tree green: a report that under-names is indistinguishable
+#: from a repository with less to name. The control's known-bad trees each hide
+#: one checker in a different place - unclassified, misclassified against the
+#: real prerequisite graph, and parked under `utility` - and the anchor is the
+#: framing that only asks whether a `verify` target exists at all.
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+MAKEFILE_REL = "Makefile"
+SCRIPTS_REL = "scripts"
+CI_REL = ".woodpecker.yml"
+DECL_REL = ".claude/verify-coverage.json"
+
+#: The aggregate target whose prerequisite closure defines "examined".
+VERIFY_TARGET = "verify"
+
+TARGET_CLASSES = ("gate", "excluded", "utility")
+SCRIPT_CLASSES = ("tested", "runtime", "not-a-checker")
+
+#: Classes that must name the file that reads them. The named path is opened and
+#: searched for the script's own name, so the entry is a claim rather than an
+#: assertion - `STALE:` when the consumer is gone or has stopped mentioning it.
+CONSUMER_REQUIRED = ("tested", "runtime")
+
+#: ADR 0008's census, and the gate that derives its membership. The census
+#: answers "is this an instrument"; this gate asks it rather than deciding again.
+CENSUS_REL = "docs/decisions/0008-instrument-negative-control-bound.md"
+CENSUS_GATE_REL = "scripts/instrument-census-check.py"
+
+#: `name:` at column 0, and NOT `name :=` (a variable) - the `(?!=)` is what
+#: keeps `TOOLS_HARD := git python3 uv` out of the target population. Leading
+#: `.` is excluded so `.PHONY` and `.DEFAULT_GOAL` are not read as targets.
+TARGET_RE = re.compile(r"^([A-Za-z][A-Za-z0-9_-]*):(?!=)\s*(.*)$")
+
+#: `## verify-coverage: <class> <target> - <reason>`. The target is NAMED rather
+#: than inferred from position, so the directive survives being moved and a
+#: comment block that drifts away from its recipe cannot silently re-point.
+DIRECTIVE_RE = re.compile(
+    r"^##\s*verify-coverage:\s*(\S+)\s+(\S+)\s*-\s*(.*?)\s*$"
+)
+
+#: A `scripts/<name>` invocation. Same shape the Codex bundler discovers, and
+#: deliberately extension-bearing: the recipe calls the file, not its stem.
+SCRIPT_REF_RE = re.compile(r"(?<![\w/-])scripts/([A-Za-z0-9._-]+)")
+
+#: Checking flags and subcommands. Matched only against recipe text with the
+#: invoked script paths removed, so a filename never decides the verdict.
+SMELL_RE = re.compile(
+    r"(?:^|\s)(?:--(?:check|strict|verify|lint|scan|drift|audit)\b"
+    r"|(?:check|verify|lint)(?=\s|$))"
+)
+
+
+def _strip_script_paths(text: str) -> str:
+    """Recipe text with `scripts/<name>` tokens removed.
+
+    The smell test asks what the recipe DOES, and a script's own name is not
+    that. `dependency-audit.py --capture` writes a capture file; leaving the
+    filename in would classify it as a check that `verify` skipped, which is a
+    false entry in the one report this gate exists to keep honest.
+    """
+    return SCRIPT_REF_RE.sub(" ", text)
+
+
+class Makefile:
+    """The target graph, the recipes, and the `verify-coverage` directives."""
+
+    def __init__(self, text: str) -> None:
+        self.prereqs: dict[str, list[str]] = {}
+        self.recipes: dict[str, list[str]] = {}
+        self.order: list[str] = []
+        self.directives: dict[str, tuple[str, str, int]] = {}
+        self.duplicate_directives: list[tuple[str, int]] = []
+        self._parse(text)
+
+    def _parse(self, text: str) -> None:
+        current: str | None = None
+        lines = text.splitlines()
+        i = 0
+        while i < len(lines):
+            line = lines[i]
+            directive = DIRECTIVE_RE.match(line)
+            if directive:
+                cls, target, reason = directive.groups()
+                if target in self.directives:
+                    self.duplicate_directives.append((target, i + 1))
+                else:
+                    self.directives[target] = (cls, reason, i + 1)
+                i += 1
+                continue
+            if line.startswith("\t"):
+                if current is not None:
+                    self.recipes[current].append(line[1:])
+                i += 1
+                continue
+            match = TARGET_RE.match(line)
+            if match:
+                name, rest = match.groups()
+                # A prerequisite list continued with trailing backslashes.
+                while rest.endswith("\\") and i + 1 < len(lines):
+                    i += 1
+                    rest = rest[:-1] + " " + lines[i].strip()
+                if name not in self.prereqs:
+                    self.order.append(name)
+                    self.prereqs[name] = []
+                    self.recipes[name] = []
+                self.prereqs[name].extend(rest.split())
+                current = name
+                i += 1
+                continue
+            if line.strip():
+                current = None
+            i += 1
+
+    def closure(self, root: str) -> set[str]:
+        """Every target `root` reaches, including itself."""
+        seen: set[str] = set()
+        stack = [root]
+        while stack:
+            name = stack.pop()
+            if name in seen or name not in self.prereqs:
+                continue
+            seen.add(name)
+            stack.extend(self.prereqs[name])
+        return seen
+
+    def recipe_text(self, target: str) -> str:
+        return "\n".join(self.recipes.get(target, ()))
+
+    def scripts_invoked(self, target: str) -> set[str]:
+        return set(SCRIPT_REF_RE.findall(self.recipe_text(target)))
+
+
+def _ci_scripts(text: str) -> set[str]:
+    """Scripts a `.woodpecker.yml` step RUNS - never one a comment discusses.
+
+    The first cut grepped the whole file and reported four scripts as "run only
+    by CI" that the pipeline merely talks ABOUT: `secret-scan-check.sh` is named
+    in a comment explaining why gitleaks is staged, `classify-tool-risk.py` and
+    `flow-wave-registry.sh` in comments about why a step is pinned. Every one of
+    them was then counted as examined, which is the wrong direction for this
+    gate to be wrong in - it makes an unrun checker look covered, the exact
+    inference issue #1028 is about, produced by the fix for it.
+
+    A pipeline this heavily commented is why: the comments are longer than the
+    commands and name more scripts than the commands do.
+    """
+    body: list[str] = []
+    for line in text.splitlines():
+        stripped = line.lstrip()
+        if stripped.startswith("#"):
+            continue
+        # A trailing comment, conservatively: ` #` outside any quoting we care
+        # about. Command lines here are unquoted shell, and none contains ` #`.
+        body.append(re.split(r"\s#", line, maxsplit=1)[0])
+    return set(SCRIPT_REF_RE.findall("\n".join(body)))
+
+
+def _load_declarations(path: Path) -> tuple[dict[str, dict], list[str]]:
+    """The hand-written accounting for scripts no build surface invokes."""
+    if not path.is_file():
+        return {}, [f"UNDECLARED: {DECL_REL} is missing - every script with no "
+                    f"Makefile target or CI step needs its entry there"]
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, ValueError) as exc:
+        return {}, [f"UNDECLARED: {DECL_REL} is unreadable ({exc})"]
+    if not isinstance(data, dict) or not isinstance(data.get("scripts"), dict):
+        return {}, [f"UNDECLARED: {DECL_REL} has no `scripts` object"]
+    return data["scripts"], []
+
+
+def census_instruments(root: Path) -> set[str] | None:
+    """The scripts ADR 0008 enumerates as instruments, or None if unreadable.
+
+    The extraction rule is IMPORTED from `instrument-census-check.py`, never
+    re-implemented: that gate already owns "the first backticked token of column
+    2, head word only", it is tested, and a second copy here would drift from it
+    silently - leaving two documents that disagree about what an instrument is.
+
+    None means UNREAD, not EMPTY. A tree without the census (every fixture, and
+    any repository that has not adopted it) cannot answer the question, and an
+    unanswered question must not read as "nothing is an instrument" - that is
+    the blind-scan shape this whole file is about. Callers report it.
+    """
+    census = root / CENSUS_REL
+    gate = root / CENSUS_GATE_REL
+    if not census.is_file() or not gate.is_file():
+        return None
+    try:
+        spec = spec_from_file_location("instrument_census_check", gate)
+        if spec is None or spec.loader is None:
+            return None
+        module = module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return set(module.census_subjects(census.read_text()))
+    except Exception:  # noqa: BLE001 - any failure here is UNREAD, never EMPTY
+        return None
+
+
+def _script_population(scripts_dir: Path) -> list[str]:
+    """Every file in `scripts/`. Directories (`__pycache__`) are not scripts."""
+    if not scripts_dir.is_dir():
+        return []
+    return sorted(p.name for p in scripts_dir.iterdir() if p.is_file())
+
+
+def run_check(root: Path, report: bool = False) -> int:
+    findings: list[str] = []
+
+    makefile_path = root / MAKEFILE_REL
+    if not makefile_path.is_file():
+        print(f"UNDECLARED: {MAKEFILE_REL} not found under {root}")
+        print("verify-coverage-check: 1 finding(s).")
+        return 1
+
+    mk = Makefile(makefile_path.read_text())
+    targets = set(mk.order)
+    examined = mk.closure(VERIFY_TARGET) if VERIFY_TARGET in mk.prereqs else set()
+
+    if VERIFY_TARGET not in mk.prereqs:
+        findings.append(
+            f"UNDECLARED: {MAKEFILE_REL} has no `{VERIFY_TARGET}` target, so "
+            f"there is no aggregate whose coverage this gate can report"
+        )
+
+    for target, line_no in mk.duplicate_directives:
+        findings.append(
+            f"STALE: {MAKEFILE_REL}:{line_no} is a second verify-coverage "
+            f"directive for `{target}`; one target, one class"
+        )
+
+    # -- targets -----------------------------------------------------------
+    for target, (cls, reason, line_no) in sorted(mk.directives.items()):
+        if target not in targets:
+            findings.append(
+                f"STALE: {MAKEFILE_REL}:{line_no} classifies `{target}`, which "
+                f"is not a target in this Makefile"
+            )
+            continue
+        if cls not in TARGET_CLASSES:
+            findings.append(
+                f"MISCLASSIFIED: {MAKEFILE_REL}:{line_no} gives `{target}` the "
+                f"unknown class `{cls}` (expected one of {', '.join(TARGET_CLASSES)})"
+            )
+            continue
+        if not reason:
+            findings.append(
+                f"UNDECLARED: {MAKEFILE_REL}:{line_no} classifies `{target}` "
+                f"`{cls}` with no reason after the `-`"
+            )
+        reaches = target in examined
+        if cls == "gate" and not reaches:
+            findings.append(
+                f"MISCLASSIFIED: `{target}` is declared `gate` but `make "
+                f"{VERIFY_TARGET}` does not reach it - the sub-gate-dropped-from-"
+                f"the-list failure, which no member target can self-report"
+            )
+        if cls != "gate" and reaches:
+            findings.append(
+                f"MISCLASSIFIED: `{target}` is declared `{cls}` but `make "
+                f"{VERIFY_TARGET}` DOES reach it, so the closing report names it "
+                f"unexamined while it runs on every verify"
+            )
+        if cls == "utility":
+            smell = SMELL_RE.search(_strip_script_paths(mk.recipe_text(target)))
+            if smell:
+                findings.append(
+                    f"MISCLASSIFIED: `{target}` is declared `utility` but its "
+                    f"recipe runs `{smell.group(0).strip()}` - a checker parked "
+                    f"where the closing report will never name it. Classify it "
+                    f"`gate` or `excluded`"
+                )
+
+    for target in mk.order:
+        if target not in mk.directives:
+            findings.append(
+                f"UNACCOUNTED: target `{target}` carries no `## verify-coverage:` "
+                f"directive. Add `## verify-coverage: <{'|'.join(TARGET_CLASSES)}> "
+                f"{target} - <reason>` beside it"
+            )
+
+    # -- scripts -----------------------------------------------------------
+    scripts = _script_population(root / SCRIPTS_REL)
+    by_target: dict[str, str] = {}
+    for target in mk.order:
+        for name in mk.scripts_invoked(target):
+            # A script reached by any examined target is examined; otherwise the
+            # first target that invokes it names it. `gate` wins over `excluded`
+            # so a helper shared by both is not reported as skipped.
+            if by_target.get(name) != "gate":
+                by_target[name] = "gate" if target in examined else "excluded"
+
+    ci_path = root / CI_REL
+    ci_scripts = _ci_scripts(ci_path.read_text()) if ci_path.is_file() else set()
+
+    declared, decl_errors = _load_declarations(root / DECL_REL)
+    findings.extend(decl_errors)
+
+    instruments = census_instruments(root)
+
+    classified: dict[str, tuple[str, str]] = {}
+    for name in scripts:
+        if name in by_target:
+            classified[name] = (by_target[name], "")
+        elif name in ci_scripts:
+            classified[name] = ("ci", "")
+        elif name in declared:
+            entry = declared[name]
+            cls = entry.get("class", "") if isinstance(entry, dict) else ""
+            reason = entry.get("reason", "") if isinstance(entry, dict) else ""
+            if cls not in SCRIPT_CLASSES:
+                findings.append(
+                    f"MISCLASSIFIED: {DECL_REL} gives `{name}` the unknown class "
+                    f"`{cls}` (expected one of {', '.join(SCRIPT_CLASSES)})"
+                )
+                continue
+            if not reason:
+                findings.append(
+                    f"UNDECLARED: {DECL_REL} classifies `{name}` `{cls}` with no "
+                    f"reason"
+                )
+            if cls == "not-a-checker" and instruments is not None and name in instruments:
+                findings.append(
+                    f"MISCLASSIFIED: {DECL_REL} calls `{name}` `not-a-checker`, "
+                    f"but {CENSUS_REL} enumerates it as an instrument. "
+                    f"`not-a-checker` is the one class the closing report never "
+                    f"names, so a checker filed there disappears. Classify it "
+                    f"`tested` or `runtime`, or take it out of the census"
+                )
+            if cls in CONSUMER_REQUIRED:
+                consumer = entry.get("consumer", "")
+                if not consumer:
+                    findings.append(
+                        f"UNDECLARED: {DECL_REL} classifies `{name}` `{cls}` "
+                        f"with no `consumer` path. A `{cls}` entry names the "
+                        f"surface that reads it, so the claim can be false"
+                    )
+                else:
+                    target_path = root / consumer
+                    if not target_path.is_file():
+                        findings.append(
+                            f"STALE: {DECL_REL} says `{name}` is consumed by "
+                            f"`{consumer}`, which does not exist"
+                        )
+                    elif name not in target_path.read_text():
+                        findings.append(
+                            f"STALE: {DECL_REL} says `{name}` is consumed by "
+                            f"`{consumer}`, which does not mention it"
+                        )
+            classified[name] = (cls, reason)
+        else:
+            findings.append(
+                f"UNACCOUNTED: `{SCRIPTS_REL}/{name}` is invoked by no Makefile "
+                f"target and no {CI_REL} step, and has no entry in {DECL_REL}. A "
+                f"checker nothing runs is the state issue #1028 is about"
+            )
+
+    for name in sorted(declared):
+        if name not in scripts:
+            findings.append(
+                f"STALE: {DECL_REL} classifies `{name}`, which is not a file in "
+                f"{SCRIPTS_REL}/"
+            )
+        elif name in by_target or name in ci_scripts:
+            findings.append(
+                f"STALE: {DECL_REL} classifies `{name}`, but a Makefile target or "
+                f"{CI_REL} step already invokes it - the derived class is the "
+                f"truth and the entry can only go stale against it"
+            )
+
+    # PROVENANCE ON EVERY VERDICT: an `ok` over 56 targets and an `ok` over a
+    # two-target fixture are otherwise the same line.
+    print(f"VERIFY_COVERAGE_TARGETS: {len(targets)}")
+    print(f"VERIFY_COVERAGE_EXAMINED: {len(examined)}")
+    print(f"VERIFY_COVERAGE_SCRIPTS: {len(scripts)}")
+    # UNREAD IS NOT EMPTY. When the census cannot be read, the `not-a-checker`
+    # cross-check did not run - and a line saying so is the difference between
+    # "nothing was parked there" and "nobody looked".
+    print(
+        f"VERIFY_COVERAGE_CENSUS: "
+        f"{'unread' if instruments is None else len(instruments)}"
+    )
+
+    if findings:
+        for finding in findings:
+            print(finding)
+        print(
+            f"verify-coverage-check: {len(findings)} finding(s). Every Makefile "
+            f"target needs a `## verify-coverage:` directive, and every file in "
+            f"{SCRIPTS_REL}/ needs a build surface that invokes it or an entry in "
+            f"{DECL_REL}."
+        )
+        return 1
+
+    print(
+        f"verify-coverage-check: ok - all {len(targets)} Makefile target(s) are "
+        f"classified against `make {VERIFY_TARGET}`, and all {len(scripts)} file(s) "
+        f"in {SCRIPTS_REL}/ are accounted for."
+    )
+
+    if report:
+        print_report(mk, classified, examined)
+    return 0
+
+
+def print_report(
+    mk: Makefile,
+    classified: dict[str, tuple[str, str]],
+    examined: set[str],
+) -> None:
+    """The closing summary: what this `verify` did NOT examine, and why.
+
+    Printed only after the check passes. A summary derived from an incomplete
+    classification is the failure this whole gate exists to remove, so it is
+    never printed beside a finding.
+    """
+    excluded = [
+        (t, mk.directives[t][1])
+        for t in mk.order
+        if mk.directives.get(t, ("", "", 0))[0] == "excluded"
+    ]
+    ci_only = sorted(n for n, (c, _) in classified.items() if c == "ci")
+    runtime = sorted(n for n, (c, _) in classified.items() if c == "runtime")
+
+    print("")
+    print(f"make {VERIFY_TARGET}: what this run did NOT examine")
+    print("")
+    if excluded:
+        print(f"  {len(excluded)} check(s) this repository owns and this gate did not run:")
+        for target, reason in excluded:
+            print(f"    make {target} - {reason}")
+    else:
+        print("  every check with a Makefile target is in this gate.")
+    if ci_only:
+        print("")
+        print(f"  {len(ci_only)} checker(s) run only by {CI_REL}, never locally:")
+        for name in ci_only:
+            print(f"    {SCRIPTS_REL}/{name}")
+    if runtime:
+        print("")
+        print(
+            f"  {len(runtime)} run-time instrument(s) are consumed by commands and "
+            f"hooks rather than by any build gate; see {DECL_REL}."
+        )
+    print("")
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    ap.add_argument("--root", default=str(REPO_ROOT), help="tree to operate on")
+    ap.add_argument(
+        "--report",
+        action="store_true",
+        help="print the closing 'what verify did not examine' summary",
+    )
+    args = ap.parse_args(argv)
+    return run_check(Path(args.root).resolve(), report=args.report)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

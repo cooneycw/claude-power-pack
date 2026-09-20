@@ -172,6 +172,31 @@ steps:
     commands:
       - python3 scripts/check-consolidation-ledger.py
 
+  # Every checker accounted for, and `make verify` saying what it skipped
+  # (issue #1028). Its own line because the diagnosis is unlike any gate above
+  # it: not "a check failed" but "a check exists that no gate consumes, and
+  # nothing says so". Four were in that state at once when this landed, and a
+  # reader who found any of them in the tree reasonably inferred the surface it
+  # covers was being watched.
+  #
+  # IT RUNS HERE AS WELL AS IN `make verify` ON PURPOSE, and the two answer
+  # different questions. Locally it also prints the closing "what this run did
+  # NOT examine" report, which is the half a developer reads. Here it is the
+  # half nobody can skip: the accounting is a property of the committed tree,
+  # so a branch that adds a checker and wires it nowhere reddens whether or not
+  # its author ran `make verify`.
+  #
+  # Stdlib-only, offline and git-free, so it runs directly under the slim image
+  # and gives the same verdict as a dev box. Same command `make
+  # verify-coverage-check` wraps. Its ability to FAIL is proven separately by
+  # controls/verify-coverage, which the `negative-controls` step and the
+  # `validate` pytest run both drive.
+  verify-coverage-check:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
+    depends_on: [secret-scan]
+    commands:
+      - python3 scripts/verify-coverage-check.py
+
   # Dependency vulnerability audit (issue #961). CPP ran none: both sets of
   # advisories it carried were found by a person looking - #922 on the root lock,
   # #943 on mcp-evaluate - and the only variable was whether anyone was looking

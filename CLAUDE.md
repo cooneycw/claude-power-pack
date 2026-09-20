@@ -36,6 +36,7 @@ these rules remain in [commands-reference.md](docs/commands-reference.md) and
 - `docs/commands-reference.md` - command decisions, histories, and workflow detail.
 - `docs/scripts.md` - script inventory and per-script behavioral history; its population is derived from `scripts/` and gated by `make scripts-inventory-check`.
 - `docs/decisions/0008-instrument-negative-control-bound.md` - the instrument census; its MEMBERSHIP is derived from `scripts/` and gated by `make instrument-census-check`, so a new instrument cannot arrive unenumerated.
+- `.claude/verify-coverage.json` - how each script no build surface invokes is accounted for; its population is derived from `scripts/` and gated by `make verify-coverage-check`, so a new checker cannot arrive wired to nothing.
 - `docs/agents/issue-contract.md` - canonical issue contract and proportional spec routing.
 - `docs/agents/detector-contracts.md` - canonical detector-claim contract and its instance index.
 - `docs/agents/knowledge-lifecycle.md` - canonical completed-spec graduation policy.
@@ -119,7 +120,7 @@ Makefile targets are the canonical build interface. Required local gates are:
 - `make lint` - lint source.
 - `make test` - run the test suite.
 - `make typecheck` - run static type checks.
-- `make verify` - full pre-deploy verification, including persistent-context checks.
+- `make verify` - full pre-deploy verification, including persistent-context checks. It closes by naming every checker it did NOT run, with the reason; a checker accounted for nowhere reds the gate (`make verify-coverage-check`).
 - `make skills-check` - validate topic-skill names, trigger reachability, provenance, and mirror parity.
 - `make project-next-check` - verify the vendored project-next hash contract.
 - `make codex-skills` - regenerate mirrors after command-document changes.
