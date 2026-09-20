@@ -84,6 +84,59 @@ step that catches a different consequence of the same error (a merge conflict
 after a missed file-overlap warning) is a backstop, not a re-derivation, and
 does not exclude the earlier instrument.
 
+### Necessary, and not sufficient (#970)
+
+> A committed negative control is **necessary and not sufficient**. A battery's
+> soundness is established by **mutation** - break each protection in turn and
+> require some control to fail - and never by inspection.
+
+The bound above says WHICH instruments need a committed control. It does not say
+that having one makes a battery sound, and the difference is not a nuance.
+
+An instrument is not one decision. It is a STACK of protections, and a single
+end-to-end case only travels whichever path its own input happens to take. Every
+OTHER protection can be deleted with the battery still green.
+
+Demonstrated in wave `cpp-completion` on 2026-09-15. A battery of nine controls
+was committed with a reachability sweep in #955, including a RED that genuinely
+failed on the unfixed code and a GREEN positive control. The orchestrator read the
+battery at the plan gate, judged the set correct, and explicitly called the
+positive control load-bearing. A second model then disabled comment rejection,
+command-position matching, hook detection and transitive scanning, one protection
+at a time. **All nine controls kept passing, exit 0 every time.**
+
+**Inspection structurally cannot catch this, and that is a fact about gates rather
+than a criticism of any ruling.** A battery that survives its own protections being
+removed and one with full coverage produce identical output and look identical on
+the page. Reading is the only method a review gate has. So a clearance that rested
+on "it has a committed negative control" established that the control exists, never
+that the battery covers the instrument - and every clearance given on that basis is
+in the same position, including the ones given by whoever is reading this.
+
+**What follows from that, and what does not.** The requirement is on the AUTHOR of
+an instrument the bound captures, at the point the battery is written: name the
+protections, break each one, and record which control failed. It is not a new
+review gate, not a tier, and not a per-run cost - mutation is paid once per
+instrument, not once per run, so #952's per-run rejection criterion does not bite.
+What #970 measured about affordability is in
+[the re-examination](../research/battery-mutation-re-examination-2026-09-20.md);
+it is not assumed here.
+
+`scripts/mutation-probe.py` makes this a command rather than an exhortation.
+Declarations live in the battery's own `control.json`, and a protection whose
+control genuinely cannot be written is recorded as `expect: "uncaught"` with a
+written reason - a STATED gap rather than a hidden one - which reverts to a red
+the moment a control does reach it. `make mutation-probe` and the CI step of the
+same name run it; `docs/scripts.md` holds the contract.
+
+**The re-examination this produced, and what it found.** Four merged batteries had
+never been mutation-tested, which #955's own author raised against their own work:
+*"my #957 control pair should be held to the same standard, and it has not been."*
+Of the enumerated protections actually probed, **#960's shellcheck battery
+exercised 2 of 12**, **#955's sweep 3 of 5 despite its own self-test reporting 5 of
+5**, and **#953's prototype 4 of 7**. None of those numbers was obtainable by
+reading, and none of the authors was wrong about anything they claimed.
+
 ### The carve-out
 
 A unit test whose failure would be caught by the next test in the same file
@@ -287,6 +340,7 @@ another repo (the escalation clause); a row can be both.
 | 90 | `bandit-audit.py` (`make bandit-audit`, CI `bandit-audit`) | `bandit-audit: ok - N file(s) examined under <roots> (source=walk\|capture), L loc, G gating finding(s) at severity>=MEDIUM, S stale allowlist line(s), B below threshold, A accepted`, or `BANDIT-FINDING:` / `BANDIT-STALE:` / `BANDIT-SUPPRESSION:` (exit 1) / `BANDIT-UNKNOWN:` (exit 2) | `make verify` and the CI `bandit-audit` step, both of which let work through on its verdict and neither of which re-derives it. NOT `lib/security/modules/` - those nine adapters carry no Python SAST at all, so `/security:scan` cannot produce this verdict and this does not duplicate it. The SUPPRESSION verdicts are load-bearing rather than decorative: a bare `# nosec` (`metrics.<file>.nosec`) and a rule-scoped `# nosec <ID>` (`metrics.<file>.skipped_tests` - a DIFFERENT field, which the first cut missed) each delete a finding before the report exists, so without both the visible ledger has an invisible twin. `skipped_tests` does NOT report a CLI `--skip`; that question is answered by pinning the argv, not by reading a metric (#962) | G |
 | 91 | `verify-coverage-check.py` | `VERIFY_COVERAGE_TARGETS:` / `_EXAMINED:` / `_SCRIPTS:` / `_CENSUS:` on every run, then `UNACCOUNTED:` / `MISCLASSIFIED:` / `STALE:` / `UNDECLARED:` findings (exit 1) or `verify-coverage-check: ok - ...` (exit 0); `_CENSUS: unread` says the `not-a-checker` cross-check did not run, because unread must not read as empty | `make verify` - as a prerequisite, and again as the RECIPE that prints the closing 'what this run did NOT examine' report. Nothing downstream re-derives either: the report IS the consumer, and a report that under-names is indistinguishable from a repository with less to name. It is the only instrument that can see row 40's own failure mode - a sub-gate silently dropped from `verify`'s prerequisite list, which no member row can self-report - and the only one that asks whether a checker in `scripts/` is reachable from any gate at all (#1028). Controlled at `controls/verify-coverage` | G |
 | 92 | `undeclared-import-audit.py` (`make undeclared-import-audit`, CI `undeclared-import-audit`) | `undeclared-import-audit: ok - N file(s) examined under <root>/ (pruned: ...), I distinct module-level third-party import name(s), U undeclared, A accepted, S stale allow line(s); D guarded/deferred name(s) are outside this gate's question`, or `UNDECLARED-IMPORT:` / `UNDECLARED-IMPORT-STALE:` (exit 1) / `UNDECLARED-IMPORT-UNKNOWN:` (exit 2) | `make verify` and the CI `undeclared-import-audit` step, both of which let work through on its verdict and neither of which re-derives it. It is the instrument for the blind spot `dependency-audit` (row 87) structurally cannot cover: that gate asks OSV about what `uv.lock` PINS, so a package imported directly and declared nowhere is never queried and cannot appear in any advisory row however vulnerable it is. The STALE direction is load-bearing rather than decorative - an entry that accounts for nothing exits 1, and it fired on its own author's intended entry before that entry was committed (#1041). Resolution reads COMMITTED METADATA ONLY and never `importlib.metadata`, which reports what is installed and would make the verdict depend on the machine, the ambient-scan failure #1044 closed one gate over | G |
+| 93 | `mutation-probe.py` (`make mutation-probe`, CI `mutation-probe`) | `MUTATION_PROBE_SOURCE:` / `_SANDBOX:` / `_BASELINE:` / `_POPULATION:` / `_COVERAGE:` on every run, then `MUTATION-CAUGHT:` / `MUTATION-ACCEPTED:` per declared protection, or `MUTATION-UNCAUGHT:` / `MUTATION-STALE:` / `MUTATION-INAPPLICABLE:` / `MUTATION-UNRESOLVED:` (exit 1 under `--strict`) | The CI `mutation-probe` step, which lets work through on its verdict and which nothing downstream re-derives. It answers the question `negative-controls` (row 60) structurally cannot: that gate asks whether a control DISCRIMINATES, and a battery can discriminate perfectly while covering one of an instrument's protections - #955's nine controls all passed with four protections disabled (#970). The ACCEPTED verdict is load-bearing rather than decorative in both directions: it records a gap whose control cannot be written, and reverts to `MUTATION-STALE` (exit 1) the moment a control does reach it, so an acceptance cannot outlive its reason. The declared count is NOT a coverage fraction and the summary line says so - enumerating an instrument's protections is not a mechanical question, so the number states how hard somebody looked | G |
 
 > **Rows 66-73 were added by #1060, and how they were found is the point.** None
 > of the eight was a judgement that had been made and deferred - they were simply
@@ -582,6 +636,25 @@ only this host, and kyle session containers do not mount `~/.claude/CLAUDE.md`
 at all (kyle#1176), so a containerised session builds instruments under a rule
 it cannot read until that mount lands.
 
+**#970's amendment to that block is PROPOSED here and NOT applied.** The same
+host-managed file is outside this repository, and a change to it takes effect for
+every project on the machine rather than for this one, so it is the owner's edit
+to make. Quoted so it is auditable and so the decision is not lost if it is
+declined - the block gains one bullet, after the three above:
+
+```
+- A committed control is NECESSARY and NOT SUFFICIENT. An instrument is a stack
+  of protections and one end-to-end case travels only its own path, so the rest
+  can be deleted with the battery still green. Establish a battery by MUTATION -
+  break each protection in turn, require some control to fail - never by reading
+  it. A protection whose control cannot be written is recorded as a stated gap,
+  not left silent.
+```
+
+Until it is applied, the rule reaches instruments built in this repository -
+where this ADR, `docs/scripts.md`, `make mutation-probe` and the CI step all
+state it - and does not reach instruments built elsewhere on this host.
+
 ## Consequences
 
 - `instrument`, `harness` and `counter-model` are defined terms
@@ -606,7 +679,11 @@ it cannot read until that mount lands.
   of them have a control today is not measured here. That is #924's job, one
   instrument at a time, starting with #933.
 - **It does not make the suite discriminate.** The carve-out moves the
-  question to mutation testing and answers nothing about it.
+  question to mutation testing, and #970 answers it only for a battery that
+  declares its protections - `mutation-probe` asks whether a DECLARED protection
+  is exercised, never whether the declaration is complete, and it says so in its
+  own summary line. Whether the 2,408-function suite discriminates remains
+  unmeasured.
 - **It does not reach the other repos' instruments.** kyle's fleet checks and
   health probes (kyle#1209) and codex-power-pack's adoption (CxPP#240) apply
   the same bound to their own trees; this enumeration is CPP's only.

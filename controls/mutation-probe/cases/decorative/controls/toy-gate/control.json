@@ -1,0 +1,46 @@
+{
+  "_comment": "DECORATIVE: the battery exercises ONE of toy-gate's two protections. Removing quote rejection changes no registered verdict, so the battery stays green and the protection is decoration. mutation-probe must report MUTATION-UNCAUGHT and exit non-zero on this tree (expect=BAD in the parent control). This is the whole of issue #970 reduced to six files: read against the covered tree, the two manifests differ by ONE case, and no amount of reading the GATE tells them apart.",
+  "gate": "scripts/toy-gate.py",
+  "invocation": [
+    "python3",
+    "{gate}",
+    "--root",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^TOY-FINDING:",
+  "battery": [
+    "python3",
+    "scripts/toy-battery.py"
+  ],
+  "cases": [
+    {
+      "name": "bad-indented",
+      "input": "cases/bad-indented",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-comment",
+      "input": "cases/good-comment",
+      "expect": "GOOD"
+    }
+  ],
+  "mutations": [
+    {
+      "name": "comment-rejection",
+      "protection": "a commented-out occurrence is not an occurrence",
+      "find": "if line\\.strip\\(\\)\\.startswith\\(\"#\"\\):",
+      "replace": "if False:",
+      "count": 1,
+      "expect": "caught"
+    },
+    {
+      "name": "quote-rejection",
+      "protection": "an occurrence inside a quoted string is advice, not the thing",
+      "find": "if '\"' \\+ TOKEN \\+ '\"' in line:",
+      "replace": "if False:",
+      "count": 1,
+      "expect": "caught"
+    }
+  ]
+}

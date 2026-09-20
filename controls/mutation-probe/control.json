@@ -1,0 +1,50 @@
+{
+  "gate": "scripts/mutation-probe.py",
+  "invocation": ["python3", "{gate}", "--root", "{case}", "--strict"],
+  "good_exit": 0,
+  "detect_signal": "^MUTATION-(UNCAUGHT|STALE|INAPPLICABLE|UNRESOLVED):",
+  "limits": "The committed pair exercises the ONE property this tool exists for: does the battery's verdict CHANGE when a declared protection is removed. It does NOT exercise (a) the default register-narrowed battery wiring, which is exercised instead by the real run over controls/shellcheck-gate, nor (b) the INAPPLICABLE, STALE and syntax-refusal paths, which tests/test_mutation_probe.py covers - ADR 0008's carve-out, applied deliberately: their failure is caught by the surrounding suite, so the suite's green is what is load-bearing there. Each case tree carries its own miniature battery (scripts/toy-battery.py) rather than a vendored copy of the register, so the fixture cannot drift from an implementation it does not contain.",
+  "cases": [
+    {
+      "name": "covered",
+      "input": "cases/covered",
+      "expect": "GOOD",
+      "why": "POSITIVE CONTROL, and load-bearing: the toy battery exercises BOTH protections, so without an input that must report ok a probe wedged at UNCAUGHT would look exactly like a working one."
+    },
+    {
+      "name": "decorative",
+      "input": "cases/decorative",
+      "expect": "BAD",
+      "why": "The known-bad input: the same gate, the same two declared mutations, and a battery missing the ONE case that depends on quote rejection. It differs from the covered tree by a single registered case, which is precisely the difference no amount of reading the gate can recover."
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "synthetic",
+      "sha": "0000000",
+      "origin": "the run-the-battery-and-call-it-proven design, which is where a first cut lands",
+      "path": "anchors/0000000-ran-the-battery.py",
+      "sha256": "a4af9a0e51d8039afb7714dcd6953382700da7b58230892ff42ca87b74f213e5",
+      "note": "Reports every declared mutation proven because the battery RAN, never comparing the verdict before the mutation with the verdict after. It therefore passes the decorative tree, which is the blindness the pair demonstrates. No commit resolves sha=0000000: --verify-provenance reads unverified here for a terminal reason, and the sha256 above is what establishes integrity."
+    }
+  ],
+  "mutations": [
+    {
+      "name": "verdict-comparison",
+      "protection": "a mutation counts as caught only when the battery goes RED; running it is not the proof",
+      "find": "elif code != 0:",
+      "replace": "elif True:",
+      "count": 1,
+      "expect": "caught"
+    },
+    {
+      "name": "baseline-green",
+      "protection": "a mutation scored against an already-red battery is not evidence",
+      "find": "    if base_code != 0:",
+      "replace": "    if False:",
+      "count": 1,
+      "expect": "uncaught",
+      "why": "The committed pair cannot reach this protection: both trees have a GREEN unmutated battery by construction, so removing the refusal changes no verdict here. Reaching it needs a case tree whose battery is red before any mutation - a control for 'this tool declines to score against a broken battery' rather than for its discrimination - and that is tests/test_mutation_probe.py::test_an_already_red_battery_is_unresolved_not_caught. Recorded as an ACCEPTED gap rather than left silent; if a future case tree closes it, this entry reports STALE and must be dropped."
+    }
+  ]
+}

@@ -18,6 +18,18 @@
       "name": "good-extensionless",
       "input": "cases/good-extensionless",
       "expect": "GOOD"
+    },
+    {
+      "name": "bad-optionlike",
+      "input": "cases/bad-optionlike",
+      "expect": "BAD",
+      "why": "Added by the issue #970 re-examination. A file NAMED after a flag: without the '--' option terminator the linter reads it as --help, prints usage and exits 0 having examined nothing, and the gate reports a confident 0 findings. Nothing in the original pair depended on that terminator."
+    },
+    {
+      "name": "good-fixture-skip",
+      "input": "cases/good-fixture-skip",
+      "expect": "GOOD",
+      "why": "Added by the issue #970 re-examination. A deliberately-broken script sitting at controls/*/cases/*, which the gate must SKIP - that population belongs to the control that owns it. Nothing in the original pair depended on the exclusion. The offender is extensionless on purpose: a *.sh name would also be caught by the vendored anchor, which globs *.sh, and an anchor disagreeing on a known-GOOD input cannot isolate the blindness under test."
     }
   ],
   "anchors": [
@@ -28,6 +40,112 @@
       "path": "anchors/ed5349c-shellcheck-gate.sh",
       "sha256": "078cd27f9a2d668e3c401c57ee62ce565bc5641e9b898fb86633418aad39308e",
       "note": "PERMANENTLY UNRESOLVABLE AFTER SQUASH, BY DESIGN. This is a pre-squash commit on the #960 branch; squash-merging orphans it, so `git show` can never resolve it on main. That does NOT weaken the control: the operative check is the sha256 of this VENDORED file, which is git-independent, and CI runs --strict WITHOUT --verify-provenance because git is not in the CI image. What it means is that --verify-provenance reads `unverified` here for a TERMINAL reason (unresolvable anywhere, forever) rather than the ordinary temporary one (git absent on this machine). Same word, two causes. Integrity is established; historicity is not. The anchor itself is deliberately git-FREE so its blindness is demonstrable in the CI image too - a git-dependent anchor reports UNKNOWN there and cannot be told from a crash, which is this issue's own defect class inside the tool built for it."
+    }
+  ],
+  "mutations": [
+    {
+      "name": "fixture-exclusion",
+      "protection": "a deliberately-bad fixture under controls/*/cases/* is not this gate's population",
+      "find": "controls/\\*/cases/\\*\\) continue ;;",
+      "replace": "controls/*/cases/*) : ;;",
+      "count": 1,
+      "expect": "caught"
+    },
+    {
+      "name": "sh-extension",
+      "protection": "a .sh file is shell, whatever its first line says",
+      "find": "\\*\\.sh\\) set -- \"\\$@\" \"\\$f\"; COUNT=\\$\\(\\(COUNT \\+ 1\\)\\); continue ;;",
+      "replace": "zzz-no-extension) set -- \"$@\" \"$f\"; COUNT=$((COUNT + 1)); continue ;;",
+      "count": 1,
+      "expect": "uncaught",
+      "why": "STRUCTURALLY INEXPRESSIBLE while this anchor stands. Exercising the *.sh arm needs a BAD case whose offending file is a .sh file with no shebang - and the vendored anchor ed5349c globs *.sh, so it would CATCH that input and the control would be reported INERT ('the anchor is not blind') instead. The anchor's own blindness therefore forbids any committed BAD case on the whole .sh path. This is a real property of the pair, found by mutation and invisible to reading either file."
+    },
+    {
+      "name": "interpreter-allowlist",
+      "protection": "an extensionless file is shell only when its shebang names a shell",
+      "find": "sh\\|bash\\|dash\\|ksh\\|ksh93\\|mksh\\|zsh\\|ash\\|busybox\\) set --",
+      "replace": "zzz-no-such-interpreter) set --",
+      "count": 1,
+      "expect": "caught"
+    },
+    {
+      "name": "env-shebang-resolution",
+      "protection": "a `#!/usr/bin/env bash` shebang resolves to bash, not to env",
+      "find": "\\n    case \"\\$\\{interp##\\*/\\}\" in\\n        env\\)",
+      "replace": "\n    case \"${interp##*/}\" in\n        zzz-env)",
+      "count": 1,
+      "expect": "caught"
+    },
+    {
+      "name": "zero-matched-is-unknown",
+      "protection": "0 files examined is UNKNOWN, never 0 findings",
+      "find": "\\[ \"\\$COUNT\" -gt 0 \\] \\|\\| unknown",
+      "replace": "[ \"$COUNT\" -ge 0 ] || unknown",
+      "count": 1,
+      "expect": "uncaught",
+      "why": "STRUCTURALLY INEXPRESSIBLE in this register, not an oversight. This protection reports UNKNOWN (exit 2) with a 'shellcheck-gate: UNKNOWN - ...' message. A case registers only GOOD or BAD against good_exit=0, and the UNKNOWN message does not match this control's detect_signal, so such a case scores UNSIGNALLED and takes the whole control down rather than exercising the branch. Closing it needs the register to carry a third expected verdict; filed as the #970 re-examination's structural finding. If a future register gains one and a case lands, this entry reports STALE."
+    },
+    {
+      "name": "newline-path-audit",
+      "protection": "a path this enumeration cannot carry safely is refused, not mangled",
+      "find": "\\[ \"\\$NULS\" = \"\\$LINES\" \\] \\|\\| unknown",
+      "replace": "[ \"$NULS\" = \"$NULS\" ] || unknown",
+      "count": 1,
+      "expect": "uncaught",
+      "why": "STRUCTURALLY INEXPRESSIBLE twice over: the input is a filename containing a NEWLINE, which git cannot carry portably in a checked-out fixture, and the branch reports UNKNOWN, which this register cannot register. STRUCTURALLY INEXPRESSIBLE in this register, not an oversight. This protection reports UNKNOWN (exit 2) with a 'shellcheck-gate: UNKNOWN - ...' message. A case registers only GOOD or BAD against good_exit=0, and the UNKNOWN message does not match this control's detect_signal, so such a case scores UNSIGNALLED and takes the whole control down rather than exercising the branch. Closing it needs the register to carry a third expected verdict; filed as the #970 re-examination's structural finding. If a future register gains one and a case lands, this entry reports STALE."
+    },
+    {
+      "name": "option-terminator",
+      "protection": "a file NAMED like a flag is an argument, not an option",
+      "find": "-f gcc -- \"\\$@\"",
+      "replace": "-f gcc \"$@\"",
+      "count": 1,
+      "expect": "caught"
+    },
+    {
+      "name": "unreadable-is-unknown",
+      "protection": "a file that could not be read leaves the population unclassified",
+      "find": "\\[ -r \"\\$ROOT/\\$f\" \\] \\|\\| unknown",
+      "replace": "[ -e \"$ROOT/$f\" ] || unknown",
+      "count": 1,
+      "expect": "uncaught",
+      "why": "STRUCTURALLY INEXPRESSIBLE: the input is a file the process cannot READ, and git records only the executable bit, so a checked-out fixture is always readable. STRUCTURALLY INEXPRESSIBLE in this register, not an oversight. This protection reports UNKNOWN (exit 2) with a 'shellcheck-gate: UNKNOWN - ...' message. A case registers only GOOD or BAD against good_exit=0, and the UNKNOWN message does not match this control's detect_signal, so such a case scores UNSIGNALLED and takes the whole control down rather than exercising the branch. Closing it needs the register to carry a third expected verdict; filed as the #970 re-examination's structural finding. If a future register gains one and a case lands, this entry reports STALE."
+    },
+    {
+      "name": "linter-absent-is-unknown",
+      "protection": "no linter means nothing was examined, not nothing was found",
+      "find": "command -v shellcheck >/dev/null 2>&1 \\|\\| unknown",
+      "replace": "command -v sh >/dev/null 2>&1 || unknown",
+      "count": 1,
+      "expect": "uncaught",
+      "why": "STRUCTURALLY INEXPRESSIBLE: the condition is a property of the HOST (shellcheck off PATH), not of any case tree, so no committed input can produce it. STRUCTURALLY INEXPRESSIBLE in this register, not an oversight. This protection reports UNKNOWN (exit 2) with a 'shellcheck-gate: UNKNOWN - ...' message. A case registers only GOOD or BAD against good_exit=0, and the UNKNOWN message does not match this control's detect_signal, so such a case scores UNSIGNALLED and takes the whole control down rather than exercising the branch. Closing it needs the register to carry a third expected verdict; filed as the #970 re-examination's structural finding. If a future register gains one and a case lands, this entry reports STALE."
+    },
+    {
+      "name": "linter-crash-is-unknown",
+      "protection": "a linter that failed to RUN is not a findings verdict",
+      "find": "\\*\\) unknown \"shellcheck exited \\$RC",
+      "replace": "*) exit 0 ;; zzz) unknown \"shellcheck exited $RC",
+      "count": 1,
+      "expect": "uncaught",
+      "why": "STRUCTURALLY INEXPRESSIBLE: the condition is the linter exiting with something that is neither 0 nor 1 - an operational failure of the tool, not a property of the input. STRUCTURALLY INEXPRESSIBLE in this register, not an oversight. This protection reports UNKNOWN (exit 2) with a 'shellcheck-gate: UNKNOWN - ...' message. A case registers only GOOD or BAD against good_exit=0, and the UNKNOWN message does not match this control's detect_signal, so such a case scores UNSIGNALLED and takes the whole control down rather than exercising the branch. Closing it needs the register to carry a third expected verdict; filed as the #970 re-examination's structural finding. If a future register gains one and a case lands, this entry reports STALE."
+    },
+    {
+      "name": "root-must-be-a-directory",
+      "protection": "a root that is not a directory is UNKNOWN, not clean",
+      "find": "\\[ -d \"\\$ROOT\" \\] \\|\\| unknown",
+      "replace": "[ -e \"$ROOT\" ] || unknown",
+      "count": 1,
+      "expect": "uncaught",
+      "why": "STRUCTURALLY INEXPRESSIBLE: check-negative-controls refuses a case whose input is not a directory (`case_path.is_dir()`), so a non-directory root cannot be registered at all. STRUCTURALLY INEXPRESSIBLE in this register, not an oversight. This protection reports UNKNOWN (exit 2) with a 'shellcheck-gate: UNKNOWN - ...' message. A case registers only GOOD or BAD against good_exit=0, and the UNKNOWN message does not match this control's detect_signal, so such a case scores UNSIGNALLED and takes the whole control down rather than exercising the branch. Closing it needs the register to carry a third expected verdict; filed as the #970 re-examination's structural finding. If a future register gains one and a case lands, this entry reports STALE."
+    },
+    {
+      "name": "git-enumeration-failure",
+      "protection": "a file list that failed partway is incomplete, not short",
+      "find": "\\|\\| unknown \"git enumeration failed",
+      "replace": "|| : \"git enumeration failed",
+      "count": 1,
+      "expect": "uncaught",
+      "why": "STRUCTURALLY INEXPRESSIBLE: the condition is `git ls-files` failing mid-enumeration, a property of the environment rather than of the tree under --root. STRUCTURALLY INEXPRESSIBLE in this register, not an oversight. This protection reports UNKNOWN (exit 2) with a 'shellcheck-gate: UNKNOWN - ...' message. A case registers only GOOD or BAD against good_exit=0, and the UNKNOWN message does not match this control's detect_signal, so such a case scores UNSIGNALLED and takes the whole control down rather than exercising the branch. Closing it needs the register to carry a third expected verdict; filed as the #970 re-examination's structural finding. If a future register gains one and a case lands, this entry reports STALE."
     }
   ]
 }

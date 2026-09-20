@@ -377,6 +377,33 @@ steps:
       # HERE, not merely somewhere in the pipeline.
       - PATH="$PWD/.ci-bin:$PATH" python3 scripts/check-negative-controls.py --strict
 
+  # THE SECOND HALF OF THE SAME QUESTION (issue #970). `negative-controls` above
+  # asks "does this control discriminate". It cannot ask "does this BATTERY cover
+  # the gate", and no reading can: an instrument is a stack of protections, one
+  # end-to-end case travels only its own path, and every other protection can be
+  # deleted with the battery still green. On 2026-09-15 a second model disabled
+  # four protections of a freshly-merged tool one at a time and all nine of its
+  # committed controls kept passing, exit 0 every time.
+  #
+  # So this step breaks each DECLARED protection in turn and requires a control to
+  # fail. Its own step for the same reason the one above has one, and AFTER it in
+  # the dependency order deliberately: every mutation is scored against a battery
+  # that must be green first, so a register already red would make every mutation
+  # read CAUGHT for free. Running the two in parallel would let that happen
+  # without anything saying so.
+  #
+  # It needs the same PINNED tools - it drives the same batteries - and uv here is
+  # not decoration: `{python}` in a manifest's declared battery resolves to the
+  # interpreter running the probe, and the sandbox it builds holds TRACKED FILES
+  # ONLY, so a battery that resolves its runner by walking parents for a .venv
+  # finds none. Under a bare interpreter such a battery reports every case UNKNOWN
+  # and the step would redden on an environment fact.
+  mutation-probe:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
+    depends_on: [negative-controls]
+    commands:
+      - PATH="$PWD/.ci-bin:$PATH" uv run --extra dev python scripts/mutation-probe.py --strict
+
   # STAGING ONLY, SPLIT OUT OF THE GATE (issue #1086). `validate` depends on the
   # shellcheck side of the pipeline for exactly one thing - the PINNED binary in
   # `.ci-bin` - and the copy takes about a second. The gate that produced it in
