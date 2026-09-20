@@ -1,0 +1,60 @@
+{
+  "_comment": [
+    "Registration for scripts/check-claude-md-budget.py (ADR 0008 row 28, control added #1071).",
+    "",
+    "WHY NOW: #1071 parameterised this script (a positional document and --budget)",
+    "so one instrument caps both CLAUDE.md and AGENTS.md. The Negative Control rule's",
+    "second clause applies to CHANGING an instrument, not only to adding one - widening",
+    "a check is exactly where the distinction it draws can silently disappear - so the",
+    "control lands in the same commit as the parameter.",
+    "",
+    "WHY THIS GATE NEEDS ONE: it is a gate that lets work THROUGH, a prerequisite of",
+    "`make verify`, and nothing downstream re-derives it. A blind version prints the",
+    "same 'ok - N/2000 words' line over a document that has doubled.",
+    "",
+    "WHAT THE CAP IS FOR: an always-loaded document is loaded into every session on",
+    "its surface, so its size is a tax on every one of them. For AGENTS.md the budget",
+    "additionally forbids a specific thing - restating CLAUDE.md's Core Directives",
+    "block, which would recreate the two-documents-that-disagree defect the thin design",
+    "removes. That is why its budget is 450 and not a round number.",
+    "",
+    "The cases carry CLAUDE.md because that is the default invocation and the one row",
+    "28 records. The AGENTS.md parameterisation is exercised by",
+    "tests/test_check_claude_md_budget.py, which can vary the budget per case where a",
+    "committed case tree carries only one."
+  ],
+  "gate": "scripts/check-claude-md-budget.py",
+  "invocation": [
+    "python3",
+    "{gate}",
+    "--root",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^claude-md-budget: .* has [0-9]+ words; budget is [0-9]+ \\([0-9]+ over\\)$",
+  "limits": "Covers the WORD COUNT against a budget, for the default document and budget. It says nothing about whether the real CLAUDE.md or AGENTS.md is correct - that is the gate's own run under `make verify` over the real tree - and nothing about the --budget/positional paths, which need a differently-parameterised invocation per case and are covered by tests/test_check_claude_md_budget.py instead.",
+  "cases": [
+    {
+      "name": "bad-over-budget",
+      "input": "cases/bad-over-budget",
+      "expect": "BAD",
+      "why": "A CLAUDE.md of 2100 words against a 2000 budget - 100 over. Distinct tokens rather than one repeated word, so the case cannot pass for a reason peculiar to the counter. This is the only failure a word cap exists for; if it scores GOOD the cap is decoration."
+    },
+    {
+      "name": "good-within-budget",
+      "input": "cases/good-within-budget",
+      "expect": "GOOD",
+      "why": "The same shape at 100 words. Separates a working gate from one wedged at 'fail', which the bad case alone cannot do - and this gate is a prerequisite of `make verify`, so a wedged one blocks every merge."
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "n/a",
+      "origin": "scripts/check-claude-md-budget.py",
+      "path": "anchors/constructed-presence-only-claude-md-budget.py",
+      "sha256": "f3ed74512c91edea2739e7d1b1511e85488e771d4a95d1522d042185d612f3c7",
+      "why": "CONSTRUCTED, and deliberately NOT the pre-#1071 script. That version carries --root, can be pointed at a case tree, and EXITS 1 on cases/bad-over-budget - it detects the known-bad input, which disqualifies it as an anchor. This is the plausible weaker check instead: confirm the document is present and non-empty and call that within budget - 'it is there' mistaken for 'it is small enough'. It catches a missing or empty file and is blind to one over budget. It MISSES the known-bad input and AGREES with the current gate on the known-good one."
+    }
+  ]
+}

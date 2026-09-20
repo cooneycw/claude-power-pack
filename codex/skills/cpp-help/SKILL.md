@@ -9,7 +9,7 @@ description: "Overview of Claude Power Pack (CPP) commands"
 Generated from a Claude Code command. Where the procedure references these Claude-only surfaces, adapt as follows:
 
 - MCP tools: use the MCP servers configured in `~/.codex/config.toml`, or fall back to the referenced repo scripts and CLI entry points.
-- `CLAUDE.md` references: Codex reads `AGENTS.md`; treat them as the target repo's agent-context file.
+- `CLAUDE.md` references: read `AGENTS.md` first - it is the Codex entry point. Where it defers to `CLAUDE.md`, follow that pointer and `CLAUDE.md` is the rules; where it does not, `AGENTS.md` is. Where the repository has no `AGENTS.md`, read `CLAUDE.md`.
 
 # Claude Power Pack Commands
 

@@ -9,7 +9,7 @@ description: "Flow: Auto - Full Issue Lifecycle in One Shot - Complete end-to-en
 Generated from a Claude Code command. Where the procedure references these Claude-only surfaces, adapt as follows:
 
 - Native worktrees (`EnterWorktree`/`ExitWorktree` tool calls, `.claude/worktrees/` paths): use plain git instead, with the worktree as a VISIBLE SIBLING of the repo - `git worktree add ../<repo>-<branch> -b <branch>` (or `$FLOW_WORKTREE_BASE/<repo>-<branch>` when that env var is set), work inside it, then `git worktree remove ../<repo>-<branch>` when done.
-- `CLAUDE.md` references: Codex reads `AGENTS.md`; treat them as the target repo's agent-context file.
+- `CLAUDE.md` references: read `AGENTS.md` first - it is the Codex entry point. Where it defers to `CLAUDE.md`, follow that pointer and `CLAUDE.md` is the rules; where it does not, `AGENTS.md` is. Where the repository has no `AGENTS.md`, read `CLAUDE.md`.
 - Helper scripts referenced as `scripts/<name>` are bundled under `scripts/` in this skill directory (byte-identical copies from the claude-power-pack checkout); some expect sibling repo resources, so prefer a full checkout when one is available.
 - Canonical guidance linked as `docs/<path>` is bundled under `docs/` in this skill directory (byte-identical copies from the claude-power-pack checkout). The source-relative `../../../docs/...` link in the command body resolves outside an installed skill, so the generated copy points at the bundled path instead. docs/ remains the only writable source.
 

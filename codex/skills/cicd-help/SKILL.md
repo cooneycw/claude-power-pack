@@ -8,7 +8,7 @@ description: "CI/CD Commands - Build, verify, and deploy automation for Claude C
 
 Generated from a Claude Code command. Where the procedure references these Claude-only surfaces, adapt as follows:
 
-- `CLAUDE.md` references: Codex reads `AGENTS.md`; treat them as the target repo's agent-context file.
+- `CLAUDE.md` references: read `AGENTS.md` first - it is the Codex entry point. Where it defers to `CLAUDE.md`, follow that pointer and `CLAUDE.md` is the rules; where it does not, `AGENTS.md` is. Where the repository has no `AGENTS.md`, read `CLAUDE.md`.
 
 # CI/CD Commands
 
