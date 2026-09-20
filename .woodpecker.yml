@@ -109,6 +109,16 @@ steps:
       # WHOLE control register, so this image needs every registered control's
       # tool - not just the ones whose own step happens to run here (#960).
       - PATH="$PWD/.ci-bin:$PATH" uv run pytest -n "$(sh scripts/pytest-workers.sh)"
+      # NAME THE SUBSUMPTION TESTS, because the full run's summary CANNOT say
+      # whether they ran (#1165). Those tests carry a `shutil.which("make")`
+      # guard per CLAUDE.md, and this image has no system make - it has the one
+      # `make-stage` puts in `.ci-bin`. If that staging ever stops delivering,
+      # they SKIP, and a skip is invisible in `4759 passed, 591 skipped`: the
+      # suite stays green while the issue's own red cases go untested in the one
+      # environment a reviewer can re-derive. `-rs` over just this class prints
+      # the count and any skip reason in a handful of lines, so "they ran" is
+      # something a reader can SEE instead of infer from the stager's exit code.
+      - PATH="$PWD/.ci-bin:$PATH" uv run pytest tests/test_runner.py -k SubsumedGates -q -rs --no-header
       - uv run mypy .
 
   # Explicit Codex-skill drift gate (issue #556): the pytest suite already checks
