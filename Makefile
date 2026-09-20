@@ -387,6 +387,7 @@ verify: tools-check lint test typecheck shellcheck bandit-audit undeclared-impor
 	claude-md-budget-check claude-md-links-check claude-md-behavior-check \
 	project-next-check delegated-core-check codex-skills-check \
 	scripts-inventory-check instrument-census-check verify-coverage-check \
+	control-ci-deps-check \
 	consolidation-ledger-check \
 	version-consistency-check unicode-dashes-check co-authored-by-trailer-check
 	@python3 scripts/verify-coverage-check.py --report
@@ -424,6 +425,29 @@ verify: tools-check lint test typecheck shellcheck bandit-audit undeclared-impor
 ## verify-coverage: gate verify-coverage-check - every Makefile target is classified against this list, and every file in scripts/ is accounted for
 verify-coverage-check:
 	@python3 scripts/verify-coverage-check.py
+
+## Would a registered control RUN in the image that runs the battery? (issue #1036)
+##
+## A control registered committed bare git repositories as its cases; `git` is not
+## in the `negative-controls` image, and because the harness REFUSES to skip a
+## control it cannot run, that one control made the gate that reports on every
+## other control unable to report. It passed `make verify`, `--strict`, sixteen
+## killed mutations and two review passes locally first - the dev box has git, so
+## the condition is structurally invisible here unless something asks the question
+## deliberately.
+##
+## IT ASKS A QUESTION THE BATTERY CANNOT ASK OF ITSELF, and that is why it is a
+## separate target rather than folded in. #1036 wrote "in `verify` precisely
+## because the battery is NOT", which was true for one day: #1117 put the battery
+## in `verify` too, so the reason has changed even though the target has not. What
+## it does that running the battery cannot is answer the question for the CI
+## IMAGE rather than for this host - it READS the pipeline and the manifests and
+## runs nothing, so it needs no binary the battery needs and gives the same
+## verdict on a dev box as in the image it is asking about. A green battery here
+## still says nothing about whether those controls can run there.
+## verify-coverage: gate control-ci-deps-check - every registered control's examined surface resolves against the binaries the battery's CI step provides
+control-ci-deps-check:
+	@python3 scripts/check-control-ci-deps.py
 
 ## THE CONTROL BATTERY, NOW CONSUMED BY `verify` (issue #1117, closing #1028's
 ## other half). #1028 gave this a target and had `verify` NAME it as unexamined,

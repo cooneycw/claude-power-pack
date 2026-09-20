@@ -1118,6 +1118,189 @@ def test_a_toy_gate_still_accepts_a_normal_root(rel: str, tmp_path: Path) -> Non
 
 
 # --------------------------------------------------------------------------- #
+# #1036 - two numbers printed as one ratio, a denominator that does not say
+#         what it is made of, and a search scope nothing states
+# --------------------------------------------------------------------------- #
+#
+# THESE ARE PYTEST CASES AND NOT FIXTURE CASES UNDER `controls/`, deliberately.
+# The framework scores a case on an EXIT CODE plus a detect_signal, and the
+# property here is about OUTPUT: a registered control outside the census is
+# REPORTED, not failed, because whether it should fail is a separate decision
+# that printing the fact does not pre-empt. A control directory cannot express
+# "the exit code is unchanged and the text must differ", so the committed red
+# lives where it can actually fail - a different process, asserting on stdout,
+# which is the same reason `test_pytest_catches_the_breakage_the_self_
+# registration_cannot` exists above.
+
+
+def write_census(root: Path, subjects: list[str], externals: list[str] | None = None) -> Path:
+    """A miniature ADR 0008 with one numbered row per subject.
+
+    Shaped like the real document rather than like the parser: numbered rows
+    whose column 2 opens with a backticked subject, an external-subjects marker
+    in an HTML comment, and a fenced example that must NOT be counted. The fence
+    is not decoration - both readers strip fences, and a fixture without one
+    would leave that agreement unexercised here.
+    """
+    adr = root / "docs" / "decisions"
+    adr.mkdir(parents=True, exist_ok=True)
+    declared = ", ".join(externals or [])
+    rows = "\n".join(
+        f"| {index} | `{subject}` | a verdict | a consumer | G |"
+        for index, subject in enumerate(subjects, start=1)
+    )
+    path = adr / "0008-instrument-negative-control-bound.md"
+    path.write_text(
+        "# Census\n\n"
+        f"<!-- instrument-census: external-subjects: {declared} -->\n\n"
+        "An illustrative row, which is an EXAMPLE and not the census speaking:\n\n"
+        "```\n| 99 | `illustrative-tool.sh` | x | y | G |\n```\n\n"
+        "| # | instrument | verdict | consumed by | class |\n"
+        "|---|---|---|---|---|\n"
+        f"{rows}\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+def contract(out: str, key: str) -> str | None:
+    for line in out.splitlines():
+        if line.startswith(f"{key}: "):
+            return line.split(": ", 1)[1].strip()
+    return None
+
+
+def test_a_registered_control_outside_the_census_is_NAMED(tmp_path: Path) -> None:
+    """THE COMMITTED RED for #1036's headline defect.
+
+    `21 of 89 enumerated instruments carry a control that discriminates` was two
+    independently-derived counts printed as a ratio: the numerator counted
+    REGISTERED CONTROLS, the denominator ADR 0008 CENSUS ROWS, and nothing
+    asserted a registered control's gate appeared in the census at all. A
+    registered control whose gate was absent produced the SAME OUTPUT as one
+    present, so the line overstated its own coverage in the one sentence every
+    consumer quotes.
+
+    The issue's own red case - `check-oscillation`, which registered a control
+    under #936 and was never added to the table - was fixed by 967c098 (#1060)
+    before this landed, so the live instance is gone. That is the reason this
+    case is CONSTRUCTED rather than pointed at the tree: a red that depends on
+    someone not yet having fixed something evaporates the moment they do.
+    """
+    root = build_tree(tmp_path, SEEING_GATE)
+    write_census(root, ["some-other-gate.py", "and-another.py"])
+    out = run_harness(root)
+    assert contract(out.stdout, "NEGATIVE_CONTROL_CENSUS_NONMEMBERS") == "1", out.stdout
+    assert "NEGATIVE_CONTROL_CENSUS_NONMEMBER: toy-gate.py" in out.stdout, out.stdout
+    assert "toy-gate.py" in out.stdout.split("negative-controls: ok -")[-1], (
+        "the headline must NAME the non-member, not merely count it - absorbing "
+        f"the exception is the defect\n{out.stdout}"
+    )
+
+
+def test_a_registered_control_inside_the_census_is_not_named(tmp_path: Path) -> None:
+    """The other direction, and it is not symmetry for its own sake.
+
+    A membership check that named EVERY control would pass the red case above on
+    its own while telling a reader nothing, and it would do so loudly enough to
+    look like diligence. This is what separates "resolves gates against the
+    census" from "prints a list".
+    """
+    root = build_tree(tmp_path, SEEING_GATE)
+    write_census(root, ["toy-gate.py", "some-other-gate.py"])
+    out = run_harness(root)
+    assert contract(out.stdout, "NEGATIVE_CONTROL_CENSUS_MEMBERS") == "1", out.stdout
+    assert contract(out.stdout, "NEGATIVE_CONTROL_CENSUS_NONMEMBERS") == "0", out.stdout
+    assert "NEGATIVE_CONTROL_CENSUS_NONMEMBER:" not in out.stdout, out.stdout
+
+
+def test_a_census_with_an_external_row_reports_a_non_zero_external_count(tmp_path: Path) -> None:
+    """The denominator is not homogeneous, and now it says so (#1036).
+
+    Fourteen of the real census's rows name subjects with no file under
+    `scripts/` for a marker to live in - `ruff`, `pytest`, `gitleaks`, `make`,
+    the `lib.*` entry points. Nothing reported that, so every row read as
+    equally reachable.
+    """
+    root = build_tree(tmp_path, SEEING_GATE)
+    write_census(root, ["toy-gate.py", "ruff", "pytest"], externals=["ruff", "pytest"])
+    out = run_harness(root)
+    assert contract(out.stdout, "NEGATIVE_CONTROL_UNIVERSE") == "3", out.stdout
+    assert contract(out.stdout, "NEGATIVE_CONTROL_UNIVERSE_EXTERNAL") == "2", out.stdout
+    assert contract(out.stdout, "NEGATIVE_CONTROL_UNIVERSE_REGISTRABLE") == "1", out.stdout
+
+
+def test_a_census_of_only_registrable_rows_reports_zero_external(tmp_path: Path) -> None:
+    """The half that makes the count above evidence rather than decoration.
+
+    A composition report wedged at "some are external" passes the case above on
+    its own. This is the direction where it must NOT fire - and it is the same
+    reason the register refuses a control with no GOOD case.
+    """
+    root = build_tree(tmp_path, SEEING_GATE)
+    write_census(root, ["toy-gate.py", "other-gate.py"], externals=["ruff"])
+    out = run_harness(root)
+    assert contract(out.stdout, "NEGATIVE_CONTROL_UNIVERSE_EXTERNAL") == "0", out.stdout
+    assert contract(out.stdout, "NEGATIVE_CONTROL_UNIVERSE_REGISTRABLE") == "2", out.stdout
+
+
+def test_membership_is_unknown_when_the_two_readers_disagree(tmp_path: Path) -> None:
+    """A parser disagreement must not become a confident membership answer.
+
+    This file counts census ROWS; `instrument-census-check.py` extracts census
+    SUBJECTS. #1060 recorded that splitting those parsers is how two readers of
+    one table drift apart while both keep printing numbers. A row with no
+    backticked subject in column 2 makes them disagree - and computing
+    membership against the smaller set would report real rows as non-members,
+    which is a wrong answer where the honest one is `unknown`.
+    """
+    root = build_tree(tmp_path, SEEING_GATE)
+    census = write_census(root, ["toy-gate.py"])
+    census.write_text(
+        census.read_text(encoding="utf-8") + "| 2 | an unbackticked subject | v | c | G |\n",
+        encoding="utf-8",
+    )
+    out = run_harness(root)
+    assert contract(out.stdout, "NEGATIVE_CONTROL_UNIVERSE") == "2", out.stdout
+    assert contract(out.stdout, "NEGATIVE_CONTROL_CENSUS_MEMBERS") == "unknown", out.stdout
+    assert contract(out.stdout, "NEGATIVE_CONTROL_CENSUS_NONMEMBERS") == "unknown", out.stdout
+    assert "NEGATIVE_CONTROL_CENSUS_UNREAD: " in out.stdout, out.stdout
+
+
+def test_the_run_states_where_it_looked_for_registrations(tmp_path: Path) -> None:
+    """"No control found" and "I did not look there" were the same silence."""
+    root = build_tree(tmp_path, SEEING_GATE)
+    scope = contract(run_harness(root).stdout, "NEGATIVE_CONTROL_DISCOVERY_SCOPE")
+    assert scope and "scripts/" in scope, scope
+
+
+def test_a_marker_in_a_scripts_subdirectory_is_not_discovered(tmp_path: Path) -> None:
+    """The case that PINS the scope line to what `discover` actually does.
+
+    `DISCOVERY_SCOPE` is a claim written in prose beside `iterdir()`, and prose
+    does not fail. This is what brings someone back to it: widen discovery to
+    `rglob()` and this case goes red, so the sentence cannot go on describing a
+    search that changed underneath it.
+
+    Whether to widen is a real question and deliberately not answered here - the
+    census population is derived with the same `scripts/`-only rule, so widening
+    one reader without the other splits the numerator's population from the
+    denominator's, which is the defect this whole line of work is about.
+    """
+    root = build_tree(tmp_path, SEEING_GATE)
+    nested = root / "scripts" / "nested"
+    nested.mkdir()
+    (nested / "hidden-gate.py").write_text(
+        "#: NEGATIVE-CONTROL: controls/nowhere\nprint('x')\n", encoding="utf-8"
+    )
+    out = run_harness(root)
+    assert contract(out.stdout, "NEGATIVE_CONTROL_REGISTERED") == "1", (
+        "a marker in a scripts/ SUBDIRECTORY was discovered - discovery widened, "
+        f"so DISCOVERY_SCOPE in check-negative-controls.py is now wrong\n{out.stdout}"
+    )
+    assert "controls/nowhere" not in out.stdout, out.stdout
+
+
 # #1117 - "its tool is missing" is not "it stopped discriminating"
 # --------------------------------------------------------------------------- #
 
@@ -1262,14 +1445,23 @@ def test_an_excused_control_is_NAMED_and_not_counted_as_discriminating(tmp_path:
     introduced by the very change that exists to stop one.
     """
     root = build_tree(tmp_path, UNAVAILABLE_GATE, unavailable_signal=TOY_UNAVAILABLE)
+    # A READABLE CENSUS, so the headline reaches its membership branch (#1036).
+    # Without one the universe is unknown and the sentence never states the
+    # relation this test is about.
+    write_census(root, ["toy-gate.py"])
     result = run_harness(root, "--strict", "--allow-unavailable")
     assert result.returncode == 0, result.stdout
     assert "NEGATIVE_CONTROL_UNAVAILABLE: 1" in result.stdout, result.stdout
     assert "NOT EXAMINED here" in result.stdout, result.stdout
     assert "scripts/toy-gate.py" in result.stdout.rsplit("NOT EXAMINED here", 1)[-1], result.stdout
-    assert "0 instrument(s)" in result.stdout, (
-        "the only control was unexamined, so the discriminating count is 0 - "
-        "counting it would claim coverage nothing established\n" + result.stdout
+    assert "0 of 1 enumerated instruments" in result.stdout, (
+        "the only control was unexamined, so the count of instruments carrying a "
+        "control that discriminates is 0 - counting it would claim coverage "
+        "nothing established\n" + result.stdout
+    )
+    assert "1 registered" in result.stdout, (
+        "the registration still exists and that is a separate, true fact - "
+        "the run must not hide it to make the coverage number honest\n" + result.stdout
     )
 
 
@@ -1433,14 +1625,23 @@ def test_a_gate_that_DETECTED_cannot_then_claim_its_tool_is_absent(tmp_path: Pat
 
 
 def test_the_instrument_numerator_does_not_double_count_one_gate(tmp_path: Path) -> None:
-    """The second counter-model finding (MEDIUM), as a red case.
+    """The second counter-model finding on #1117 (MEDIUM), as a red case.
 
     The denominator counts ADR 0008 census rows, which are INSTRUMENTS. Until
-    #1117 no gate carried two registrations, so a numerator counting CONTROLS
-    was the same number and the difference could not show. It can now: adding a
-    second control to an ALREADY-covered gate would otherwise raise the claimed
+    #1117 no gate carried two registrations, so a count of CONTROLS was the same
+    number and the difference could not show. It can now: adding a second
+    control to an ALREADY-covered gate would otherwise raise the claimed
     coverage while covering no additional instrument - a coverage figure that
     goes up when nothing new is covered.
+
+    WHICH CODE PROVIDES THE PROPERTY, stated because it is not this branch's.
+    #1036 landed between the finding and this merge, and its `census_membership`
+    already resolves registrations to a SET of gate basenames - so the
+    deduplication this test asserts is its work, not #1117's. What #1117
+    contributes is the first tree that can tell the difference: this is the only
+    test in the file that registers two controls on one gate, so before it the
+    dedup was implemented and unexercised. Verified by removing the `set()` from
+    `census_membership`, which reddens this test and nothing else.
 
     Both numbers are asserted, because reporting only the deduplicated one would
     lose a true fact rather than fix a false one.
@@ -1457,14 +1658,15 @@ def test_the_instrument_numerator_does_not_double_count_one_gate(tmp_path: Path)
     )
     shutil.copytree(root / "controls" / "toy", root / "controls" / "toy2")
 
+    write_census(root, ["toy-gate.py"])
     result = run_harness(root, "--strict")
     assert result.returncode == 0, result.stdout
     assert "NEGATIVE_CONTROL_REGISTERED: 2" in result.stdout, result.stdout
-    assert "1 instrument(s)" in result.stdout, (
-        "two controls on ONE gate cover one instrument, not two - the numerator "
-        "is being counted in controls\n" + result.stdout
+    assert "1 of 1 enumerated instruments" in result.stdout, (
+        "two controls on ONE gate cover one instrument, not two - the coverage "
+        "count is being taken in controls\n" + result.stdout
     )
-    assert "2 control(s)" in result.stdout, (
-        "the control count is a true fact about this run and must still be "
+    assert "2 registered" in result.stdout, (
+        "the registration count is a true fact about this run and must still be "
         "reported, not dropped to make the instrument count correct\n" + result.stdout
     )

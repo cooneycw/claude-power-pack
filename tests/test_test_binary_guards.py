@@ -1714,3 +1714,142 @@ def test_every_test_forcing_the_ps_lane_is_guarded_for_ps() -> None:
     assert not unguarded, (
         f"these force the ps lane and would PASS vacuously without ps: {unguarded}"
     )
+
+
+# --------------------------------------------------------------------------- #
+# #1036 - "every shelling-out test is guarded" is a claim about a CLASS
+# --------------------------------------------------------------------------- #
+
+
+def _clean_tree(tmp_path: Path, files: dict[str, str]) -> Path:
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir(parents=True)
+    for name, source in files.items():
+        (tests_dir / name).write_text(source, encoding="utf-8")
+    return tmp_path
+
+
+GUARDED_TEST = '''
+import shutil
+import subprocess
+
+import pytest
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="no git")
+def test_uses_git():
+    subprocess.run(["git", "status"], check=False)
+
+
+def test_uses_nothing():
+    assert True
+'''
+
+PLAIN_TEST = '''
+def test_nothing_at_all():
+    assert True
+'''
+
+
+def test_the_success_line_states_a_denominator_not_a_quantifier(tmp_path: Path, capsys) -> None:
+    """The remedy shape, and NOT deleting the word `every`.
+
+    `binary-guards: ok - every shelling-out test is guarded` claims a CLASS
+    while the check inspects one statically-visible shape, as this file's own
+    docstring scopes it - so a test reaching a binary through a shape the parser
+    does not model produced the identical green. The gate sits in `make verify`,
+    so that green is consumed by every commit, and `every` converts a floor into
+    apparent total coverage.
+
+    A bare `ok` would be worse, not better: silence reads as clean. The repo
+    already has the right shape in `claude-md-budget: ok - 1310/2000 words`.
+    """
+    root = _clean_tree(tmp_path, {"test_a.py": GUARDED_TEST})
+    assert checker.main(["--root", str(root)]) == 0
+    line = capsys.readouterr().out.strip()
+    assert "every shelling-out test" not in line, (
+        f"the class quantifier is back: {line!r}"
+    )
+    assert re.search(r"\b1 test file\(s\) scanned\b", line), line
+    assert re.search(r"\b1 statically reaching a guarded binary\b", line), line
+
+
+def test_the_denominator_moves_when_a_test_file_is_added(tmp_path: Path, capsys) -> None:
+    """THE COMMITTED RED for #1036's fourth acceptance item.
+
+    "The count must change when a test file is added or removed. A denominator
+    that never moves is the same defect one level down" - a hardcoded number, or
+    one derived from something other than the population actually scanned, reads
+    exactly like a real one. Two trees of different sizes is the only thing that
+    tells them apart.
+    """
+    one = _clean_tree(tmp_path / "one", {"test_a.py": GUARDED_TEST})
+    assert checker.main(["--root", str(one)]) == 0
+    first = capsys.readouterr().out.strip()
+
+    two = _clean_tree(
+        tmp_path / "two", {"test_a.py": GUARDED_TEST, "test_b.py": PLAIN_TEST}
+    )
+    assert checker.main(["--root", str(two)]) == 0
+    second = capsys.readouterr().out.strip()
+
+    assert first != second, (
+        "the success line is identical over a one-file and a two-file tree, so "
+        f"its denominator describes neither: {first!r}"
+    )
+    assert "1 test file(s) scanned" in first, first
+    assert "2 test file(s) scanned" in second, second
+    # The REACHING count is the load-bearing one: `test_b.py` adds a test that
+    # touches no binary, so a gate counting files alone would move while the
+    # number a reader cares about stood still.
+    assert "1 statically reaching a guarded binary" in first, first
+    assert "1 statically reaching a guarded binary" in second, second
+
+
+def test_the_reaching_count_moves_when_a_shelling_out_test_is_added(tmp_path: Path, capsys) -> None:
+    """The other half: the number that describes the SUBJECT must move too."""
+    one = _clean_tree(tmp_path / "one", {"test_a.py": GUARDED_TEST})
+    assert checker.main(["--root", str(one)]) == 0
+    first = capsys.readouterr().out.strip()
+
+    two = _clean_tree(
+        tmp_path / "two", {"test_a.py": GUARDED_TEST, "test_b.py": GUARDED_TEST}
+    )
+    assert checker.main(["--root", str(two)]) == 0
+    second = capsys.readouterr().out.strip()
+
+    assert "1 statically reaching a guarded binary" in first, first
+    assert "2 statically reaching a guarded binary" in second, second
+
+
+EXEMPTED_TEST = '''
+import subprocess
+
+
+def test_uses_git_but_is_allowed():  # binary-guard: allow fixture for the count
+    subprocess.run(["git", "status"], check=False)
+'''
+
+
+def test_an_exempted_test_is_not_counted_as_guarded(tmp_path: Path, capsys) -> None:
+    """The first denominator still said "all guarded" over exemptions.
+
+    `# binary-guard: allow <reason>` suppresses a finding; it does not add a
+    guard. Folding those into one number reproduced the very conflation this
+    change removes - a verified guard and a written-down exception reported as
+    the same thing - inside the fix for it. Found by the counter-model review
+    (codex/gpt-6-astra) on this branch; the real tree carries two.
+    """
+    root = _clean_tree(tmp_path, {"test_a.py": EXEMPTED_TEST})
+    assert checker.main(["--root", str(root)]) == 0
+    line = capsys.readouterr().out.strip()
+    assert "all guarded" not in line, f"an exemption is being reported as a guard: {line!r}"
+    assert "0 guarded, 1 exempted" in line, line
+
+
+def test_a_guarded_test_is_not_counted_as_exempted(tmp_path: Path, capsys) -> None:
+    """The other direction: the split must not just relabel everything."""
+    root = _clean_tree(tmp_path, {"test_a.py": GUARDED_TEST})
+    assert checker.main(["--root", str(root)]) == 0
+    line = capsys.readouterr().out.strip()
+    assert "1 guarded, 0 exempted" in line, line

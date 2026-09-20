@@ -1,0 +1,90 @@
+{
+  "_comment": [
+    "Registration for scripts/check-control-ci-deps.py (issue #1036).",
+    "",
+    "WHY THIS GATE NEEDS A COMMITTED CASE (ADR 0008): it is a gate that lets work",
+    "THROUGH. `make verify` reads its green as 'no registered control needs a binary",
+    "the battery's CI step lacks', and nothing downstream re-derives that.",
+    "",
+    "AND IT IS THE HARDEST KIND TO NOTICE GOING BLIND, which is the real argument",
+    "for these cases. Every surface it judges belongs to an environment it is not",
+    "running in: the dev box has git, jq, shellcheck and gitleaks, so a version of",
+    "this gate that checked NOTHING would print the same green here, forever, and",
+    "the first evidence of the blindness would be the CI red it exists to prevent -",
+    "which is precisely the sequence that produced this issue.",
+    "",
+    "THE CASES ARE WHOLE FIXTURE TREES, not the real repository. The gate takes",
+    "--root, so a case is a miniature repo: a two-step .woodpecker.yml, one",
+    "controls/toy/control.json, and one scripts/toy-gate.sh. Deliberately tiny -",
+    "the question is whether the gate can tell a runnable control from one that",
+    "would take the register down.",
+    "",
+    "TWO BAD CASES, because the gate draws two distinctions and they fail in",
+    "different directions:",
+    "",
+    "  bad-missing-binary  a control whose GATE hard-requires `git`, while its",
+    "                      invocation (`sh`) is entirely unremarkable. This is the",
+    "                      real failure's shape: the control that took the whole",
+    "                      battery down declared nothing unusual either. A gate",
+    "                      that read only the invocation scores this clean, and",
+    "                      the committed anchor does exactly that.",
+    "  bad-stale-image     the pipeline runs an image the recorded contents list",
+    "                      does not describe. Every answer about what is provided",
+    "                      is then about a container that no longer runs the",
+    "                      battery, so the honest verdict is UNKNOWN. Without this",
+    "                      case the pin could rot silently and the gate would keep",
+    "                      reporting confident greens against a retired image -",
+    "                      the hand-maintained-number failure one level up from",
+    "                      the one this gate catches.",
+    "",
+    "THE GOOD CASE IS THE HALF THAT MATTERS for a gate wedged at 'fail': a check",
+    "that refuses every tree passes both bad cases on its own, and this gate is in",
+    "`make verify`, so a false red blocks every merge in the repository.",
+    "",
+    "Stdlib-only and git-free, like the gate: no binary this fixture needs is",
+    "absent from the slim CI image, so the control gives the same verdict there as",
+    "here. That property is not incidental - a control for a gate ABOUT CI",
+    "dependencies that itself needed a binary CI lacks would be this issue's own",
+    "defect, one level further in."
+  ],
+  "gate": "scripts/check-control-ci-deps.py",
+  "invocation": [
+    "python3",
+    "{gate}",
+    "check",
+    "--root",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^(CI_DEP|CI_PIPELINE): ",
+  "cases": [
+    {
+      "name": "bad-missing-binary",
+      "input": "cases/bad-missing-binary",
+      "expect": "BAD",
+      "why": "The toy gate hard-requires `git`, which the derived CI set does not provide. If this scores GOOD the gate cannot see the dependency shape that actually took the register down - one carried by the gate script, not by the invocation."
+    },
+    {
+      "name": "bad-stale-image",
+      "input": "cases/bad-stale-image",
+      "expect": "BAD",
+      "why": "The pipeline's battery step runs an image the recorded contents list does not describe. If this scores GOOD the provided-binary set can silently describe a retired container while the gate keeps reporting confident greens against it."
+    },
+    {
+      "name": "good-all-present",
+      "input": "cases/good-all-present",
+      "expect": "GOOD",
+      "why": "A tree whose one control needs only `sh`, which the image provides, and whose pipeline runs the pinned image. THE HALF THAT MATTERS for a gate wedged at 'fail': a check that refuses every tree is indistinguishable from a working one on the bad cases alone, and this gate sits in `make verify`, so a false red blocks every merge."
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "constructed-argv0-only",
+      "origin": "scripts/check-control-ci-deps.py",
+      "path": "anchors/constructed-argv0-only-check-control-ci-deps.py",
+      "sha256": "f50469f5c7c9c3d633e54750bcc334f2c9775e3bf03cccd4434e8ddd8071d481",
+      "why": "CONSTRUCTED: the gate is new and never shipped blind, so there is no revision to vendor - `--verify-provenance` therefore reports `unverified`, which is correct and must never be read as `ok`. This is the FIRST FRAMING, on the record: the issue asked for 'a tripwire checking each registered control's declared invocation ... against the binaries the CI image actually provides', and written straight from that sentence you get this file. It reads invocation[0] and stops, so it misses bad-missing-binary (the dependency is in the gate script) and bad-stale-image (it never checks the pin), and agrees with the real gate on good-all-present, which is what makes the demonstration isolated."
+    }
+  ]
+}

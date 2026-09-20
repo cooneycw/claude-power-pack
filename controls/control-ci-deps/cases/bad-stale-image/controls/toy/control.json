@@ -1,0 +1,11 @@
+{
+  "_comment": [
+    "A miniature registration. Only the two fields this gate reads are real:",
+    "`gate` (whose shebang and, for a shell gate, whose hard-required binaries",
+    "are examined) and `invocation` (whose command is examined). The rest is",
+    "absent deliberately - a fixture that carried a full manifest would invite",
+    "a reader to think this gate validates one, which it does not."
+  ],
+  "gate": "scripts/toy-gate.sh",
+  "invocation": ["sh", "{gate}", "--root", "{case}"]
+}

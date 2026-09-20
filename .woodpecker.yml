@@ -199,6 +199,30 @@ steps:
     commands:
       - python3 scripts/verify-coverage-check.py
 
+  # Would a registered control RUN in the image `negative-controls` uses? (#1036)
+  #
+  # ITS OWN STEP, AND DELIBERATELY NOT FOLDED INTO `negative-controls`. This gate
+  # exists because one control's unmet dependency takes the whole battery down -
+  # the harness refuses to skip a control it cannot run, so the register becomes
+  # the thing that cannot report. A tripwire for that failure has to be able to
+  # answer WHILE the battery is red, which it cannot do from inside it.
+  #
+  # It also runs in `make verify`, which is where it earns its keep: the battery
+  # itself is excluded from `verify` for an environment reason, so this is the
+  # only local instrument that asks the question at all. Here it is the half
+  # nobody can skip.
+  #
+  # It reads `.woodpecker.yml` and the manifests and RUNS NOTHING, so it needs no
+  # staged binary and cannot itself become the dependency failure it reports -
+  # which would be this issue's own defect, one level further in. Stdlib-only,
+  # offline and git-free. Its ability to FAIL is proven separately by
+  # controls/control-ci-deps, which the `negative-controls` step drives.
+  control-ci-deps-check:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
+    depends_on: [secret-scan]
+    commands:
+      - python3 scripts/check-control-ci-deps.py
+
   # Dependency vulnerability audit (issue #961). CPP ran none: both sets of
   # advisories it carried were found by a person looking - #922 on the root lock,
   # #943 on mcp-evaluate - and the only variable was whether anyone was looking
