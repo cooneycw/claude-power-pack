@@ -8,6 +8,48 @@ from pathlib import Path
 
 import pytest
 
+from tests.supervise_reap import drain_unreaped, reap_supervise_daemons
+
+
+@pytest.fixture(autouse=True)
+def _reap_leaked_supervise_daemons(tmp_path: Path):
+    """Reap any detached `supervise` daemon a test left behind (issue #1116).
+
+    `supervise` daemons outlive the command that starts them by design (issue
+    #814), so a test that starts one owns a process pytest will not clean up.
+    Left alone they are reparented to `systemd --user` and hold their working
+    directory - the per-issue worktree - open, which makes
+    `worktree-remove.sh`'s #888 occupancy guard refuse to remove it at the end
+    of a `/flow:auto` run. The guard is right; it should not be spending its
+    credibility on our litter.
+
+    This is `autouse` deliberately, and that is the substance of the fix rather
+    than a detail of it. Per-test kill calls are the fast path and stay where
+    they are, but they only run on the paths a test actually reaches: a test
+    that raises early, or whose own kill times out, skips them entirely - and
+    those are precisely the paths that leak. Teardown runs either way, for
+    every test in the suite, including ones written after this comment by
+    someone who never read it.
+    """
+    yield
+    result = reap_supervise_daemons(tmp_path)
+    # A cleanup that cannot report its own failure is the defect this fixture
+    # exists to remove (counter-model review, issue #1116): the code it
+    # replaced discarded its waiter's result, so a daemon that outlived the
+    # kill produced no signal at all. Surviving SIGKILL plus its grace period
+    # is a real fault - loud here, or invisible until it pins someone's
+    # worktree hours later.
+    # Two populations, because neither covers the other (counter-model
+    # re-review, issue #1116). `survivors` is what THIS reap could not kill.
+    # `drain_unreaped()` is what a test's own fast-path kill already gave up
+    # on - which the reap cannot rediscover when the test overwrote or removed
+    # the pidfile, as two tests here deliberately do.
+    unreaped = drain_unreaped()
+    assert not result.survivors and not unreaped, (
+        f"supervise daemon(s) {sorted({*result.survivors, *unreaped})} survived "
+        "cleanup; they still hold this test's working directory"
+    )
+
 
 @pytest.fixture
 def tmp_project(tmp_path: Path) -> Path:
