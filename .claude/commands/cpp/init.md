@@ -870,10 +870,17 @@ Add to ~/.bashrc? [y/N]
 
 If yes:
 ```bash
-# Add to bashrc
-echo '' >> ~/.bashrc
-echo '# Claude Power Pack - worktree context in prompt' >> ~/.bashrc
-echo 'export PS1='\''$(~/.claude/scripts/prompt-context.sh)\w $ '\''' >> ~/.bashrc
+# Add to bashrc through the declaring helper (#1139). The helper declares
+# ~/.bashrc as a host surface it writes, and a managed environment can defer
+# it with --defer ~/.bashrc and get a stated refusal rather than a failure.
+# --no-guard preserves TODAY'S unguarded behaviour byte for byte; #1142
+# removes the flag and the duplicate-append defect together.
+~/.claude/scripts/cpp-host-write.sh bashrc-append \
+  '# Claude Power Pack - worktree context in prompt' - --no-guard <<'PS1_EOF'
+
+# Claude Power Pack - worktree context in prompt
+export PS1='$(~/.claude/scripts/prompt-context.sh)\w $ '
+PS1_EOF
 echo "✓ Shell prompt configured (restart shell or source ~/.bashrc)"
 ```
 
@@ -902,19 +909,16 @@ if ! command -v tmux &>/dev/null; then
   echo "  sudo apt install tmux"
   echo "  Skipping tmux auto-start."
 else
-  # Check if already configured
-  if grep -q 'tmux new-session' ~/.bashrc 2>/dev/null; then
-    echo "→ tmux auto-start already in ~/.bashrc (skipped)"
-  else
-    cat >> ~/.bashrc << 'TMUX_EOF'
+  # Through the declaring helper (#1139), which owns the marker guard this
+  # block already had. A managed environment defers it with --defer ~/.bashrc
+  # and gets a stated refusal naming the surface and its owner.
+  ~/.claude/scripts/cpp-host-write.sh bashrc-append 'tmux new-session' - <<'TMUX_EOF'
 
 # Claude Power Pack - tmux auto-start
 if command -v tmux &>/dev/null && [ -z "$TMUX" ] && [[ $- == *i* ]]; then
     tmux new-session
 fi
 TMUX_EOF
-    echo "✓ tmux auto-start configured (restart shell or source ~/.bashrc)"
-  fi
 fi
 ```
 

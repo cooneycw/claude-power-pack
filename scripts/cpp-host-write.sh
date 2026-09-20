@@ -152,7 +152,18 @@ cmd_bashrc_append() {
     local marker="$1" content_file="$2"
     local target="$HOME/.bashrc"
     is_deferred "$target" && { refuse "$target" user; return $?; }
-    [ -f "$content_file" ] || { printf 'cpp-host-write: FAILED content not found: %s\n' "$content_file" >&2; return 1; }
+    #: `-` reads the block from stdin, so a caller can pass a heredoc instead
+    #: of committing a template file for three lines of shell. The content is
+    #: buffered BEFORE the guard check, because reading stdin after deciding to
+    #: skip would leave the caller's heredoc unconsumed and desynchronise the
+    #: surrounding script.
+    local content
+    if [ "$content_file" = "-" ]; then
+        content="$(cat)"
+    else
+        [ -f "$content_file" ] || { printf 'cpp-host-write: FAILED content not found: %s\n' "$content_file" >&2; return 1; }
+        content="$(cat "$content_file")"
+    fi
     #: --no-guard exists ONLY to preserve an existing defect across the #1139
     #: relocation, and it should be deleted when that defect is fixed.
     #:
@@ -168,7 +179,7 @@ cmd_bashrc_append() {
     #: reviewable. So the move carries the defect forward faithfully, and the
     #: fix is afterwards: drop --no-guard at the call site, delete this branch.
     if [ "${NO_GUARD:-0}" = "1" ]; then
-        cat "$content_file" >> "$target" || return 1
+        printf '%s\n' "$content" >> "$target" || return 1
         printf 'cpp-host-write: ok ~/.bashrc (%s appended, UNGUARDED - see --no-guard)\n' "$marker"
         return 0
     fi
@@ -176,7 +187,7 @@ cmd_bashrc_append() {
         printf 'cpp-host-write: ok ~/.bashrc (%s already present, skipped)\n' "$marker"
         return 0
     fi
-    cat "$content_file" >> "$target" || return 1
+    printf '%s\n' "$content" >> "$target" || return 1
     printf 'cpp-host-write: ok ~/.bashrc (%s appended)\n' "$marker"
 }
 
