@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Optional, Protocol
 
 from .coverage import StageCoverage, merge_stream_coverage, parse_stage_coverage
+from .manifest_path import MANIFEST_PATH
 from .outcomes import SuiteOutcome, merge_stream_outcomes, parse_suite_outcome
 from .state import StepStatus
 
@@ -899,16 +900,47 @@ def get_plan_steps(plan_name: str, project_root: Optional[str] = None) -> list[S
 
     root = Path(project_root) if project_root else Path(".")
 
-    # Try loading from manifest first
+    # A MANIFEST THAT EXISTS AND CANNOT BE READ IS A HARD FAILURE (issue #1163,
+    # counter-model review post-merge). This used to catch ImportError and fall
+    # through to BUILTIN_PLANS, which was harmless only because the CLI could
+    # not START without pydantic - the process died before reaching here.
+    #
+    # #1163 deliberately removed that: `python3 -m lib.cicd run` now starts on
+    # the stdlib alone, so the fall-through became reachable, and it SILENTLY
+    # SUBSTITUTES A DIFFERENT PLAN. Measured on this repository with pydantic
+    # blocked: `deploy` returned the built-in steps, losing `drift_check` and
+    # gaining `stale_commit_check`, with no warning and a successful run. A
+    # loud failure had been turned into a quiet change of which checks execute,
+    # by a change whose whole purpose was to make a lane reachable.
+    #
+    # So the two cases are separated. No manifest FILE means there is nothing
+    # to lose and the built-in plans are the right answer. A manifest that is
+    # present but whose reader will not load means the caller asked for a
+    # configured plan and cannot be given one, and saying so is the only honest
+    # option. An INVALID manifest keeps its old fall-back: that is a different
+    # question from a missing dependency, and narrowing it belongs with whoever
+    # decides what an unparseable manifest should mean.
+    manifest_path = root / MANIFEST_PATH
     try:
         from .manifest import get_manifest_plan_steps, load_manifest
-
-        manifest = load_manifest(root)
-        if manifest is not None and plan_name in manifest.plans:
-            return get_manifest_plan_steps(manifest, plan_name)
-    except (ImportError, ValueError):
-        # Pydantic not installed or manifest invalid - fall back to built-in
-        pass
+    except ImportError as exc:
+        if manifest_path.is_file():
+            raise RuntimeError(
+                f"{manifest_path} exists but its reader could not be imported "
+                f"({exc}). Refusing to fall back to the built-in plans: they are "
+                f"a DIFFERENT set of steps, and substituting them silently would "
+                f"change which checks run (issue #1163). Install the manifest "
+                f"dependencies, or remove the manifest to use the built-ins "
+                f"deliberately."
+            ) from exc
+    else:
+        try:
+            manifest = load_manifest(root)
+            if manifest is not None and plan_name in manifest.plans:
+                return get_manifest_plan_steps(manifest, plan_name)
+        except ValueError:
+            # An invalid manifest falls back as it always has.
+            pass
 
     # Fall back to built-in plans
     if plan_name not in BUILTIN_PLANS:
