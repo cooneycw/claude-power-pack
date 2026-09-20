@@ -1,0 +1,66 @@
+{
+  "gate": "scripts/host-surface-check.py",
+  "invocation": [
+    "python3",
+    "{gate}",
+    "--root",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^UNDECLARED: scripts/.* carries no",
+  "unknown_signal": "^host-surface: UNKNOWN - ",
+  "cases": [
+    {
+      "name": "bad-undeclared-helper",
+      "input": "cases/bad-undeclared-helper",
+      "expect": "BAD",
+      "why": "A helper reachable from the fixture's /cpp:init writes $HOME/.claude/fixture and carries no declaration. This is the drift the seam exists to make visible: a surface a consumer's defer-set cannot name because CPP never declared it."
+    },
+    {
+      "name": "good-all-declared",
+      "input": "cases/good-all-declared",
+      "expect": "GOOD",
+      "why": "Byte-identical to the bad case except the helper declares the surface it writes. The pair isolates the declaration as the only difference, so a green cannot come from the fixture being trivially empty."
+    }
+  ],
+  "_comment": [
+    "Registration for scripts/host-surface-check.py (issue #1139).",
+    "",
+    "WHY THIS GATE NEEDS A COMMITTED CASE (ADR 0008): it is a gate that lets work",
+    "THROUGH, and its green is consumed OUTSIDE this repository. A managed",
+    "environment reads the manifest this gate validates and sizes its own defer-set",
+    "and drift coverage against it; nothing downstream re-derives which helpers were",
+    "supposed to declare. A blind version here hands a consumer a short list that",
+    "looks complete, and the consumer then fences the surfaces it knows about while",
+    "CPP writes one it does not.",
+    "",
+    "THE CASES ARE WHOLE FIXTURE TREES, not the real repository. The gate takes",
+    "--root, so a case is a miniature repo: a `.claude/commands/cpp/` with two",
+    "command documents and a one-line `scripts/` helper they invoke.",
+    "",
+    "THE PAIR IS BYTE-IDENTICAL EXCEPT FOR THE DECLARATION LINE. Both fixtures",
+    "contain the same helper writing the same $HOME path from the same fenced",
+    "invocation; only the `#: HOST-SURFACE:` line differs. So a green on the good",
+    "case cannot come from the fixture being trivially empty, and the bad case",
+    "cannot score BAD for an incidental second reason.",
+    "",
+    "WHAT THIS CONTROL DOES NOT PROVE, stated because the gate's own verdict says",
+    "so: it exercises the MISSING-DECLARATION direction only. A declaring helper",
+    "that UNDERSTATES its surfaces is not detectable by this gate at all - that",
+    "needs observation, not parsing - so no case here can exercise it, and its",
+    "absence is a bound rather than a gap in coverage.",
+    "",
+    "Stdlib-only and git-free, like the gate: nothing this fixture needs is absent",
+    "from the slim CI image, so the control gives the same verdict there as here."
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "constructed-hardcoded-membership",
+      "origin": "scripts/host-surface-check.py",
+      "path": "anchors/constructed-hardcoded-membership-host-surface-check.py",
+      "sha256": "98deb8d4c727198da9a8f4f7fd882f1dbcdd12d4c36ce0811d3aef4147734827",
+      "why": "CONSTRUCTED: the gate is new and never shipped blind, so there is no revision to vendor - `--verify-provenance` therefore reports `unverified`, which is correct and must never be read as `ok`. This is the FIRST FRAMING and the one #1139 was filed against: a HAND-MAINTAINED list of helpers believed to write host surfaces. #1132's table named five, a doc-grep suggested fourteen, a wider grep thirty-eight - each a hardcoded membership. The single difference from the real gate is that membership is a constant here and derived from reachability there; the declaration syntax, verdict lines and exit codes are identical, so the demonstration isolates the derivation. It MISSES bad-undeclared-helper because the fixture's helper is not on the list, which is precisely how a hand-maintained list fails in production, and it AGREES on good-all-declared, which keeps the demonstration isolated rather than a blanket disagreement."
+    }
+  ]
+}
