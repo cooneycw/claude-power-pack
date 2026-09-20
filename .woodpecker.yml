@@ -261,6 +261,66 @@ steps:
     commands:
       - python3 scripts/host-surface-check.py
 
+  # Does every test that shells out to a real binary carry its skip guard? (#1146)
+  #
+  # In `make verify` since before this change and in CI since #1146, which
+  # found it among ten gates a merge relied on without ever running. Shown RED
+  # under this digest with a test file shelling out with no `shutil.which` guard, not merely shown to run: a step that
+  # cannot fail in the image is green by absence (#1036).
+  binary-guards-check:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
+    depends_on: [secret-scan]
+    commands:
+      - python3 scripts/check-test-binary-guards.py
+
+  # Does every fixture that constructs an ABSENCE assert that precondition? (#1146)
+  #
+  # In `make verify` since before this change and in CI since #1146, which
+  # found it among ten gates a merge relied on without ever running. Shown RED
+  # under this digest with a fixture emptying PATH without asserting the binary is gone, not merely shown to run: a step that
+  # cannot fail in the image is green by absence (#1036).
+  negative-fixture-check:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
+    depends_on: [secret-scan]
+    commands:
+      - python3 scripts/check-negative-fixture-preconditions.py
+
+  # Is CLAUDE.md still inside its 2,000-word ceiling? (#1146)
+  #
+  # In `make verify` since before this change and in CI since #1146, which
+  # found it among ten gates a merge relied on without ever running. Shown RED
+  # under this digest with 3,000 words of padding appended, not merely shown to run: a step that
+  # cannot fail in the image is green by absence (#1036).
+  claude-md-budget-check:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
+    depends_on: [secret-scan]
+    commands:
+      - python3 scripts/check-claude-md-budget.py
+
+  # Does every repository-local pointer in CLAUDE.md resolve? (#1146)
+  #
+  # In `make verify` since before this change and in CI since #1146, which
+  # found it among ten gates a merge relied on without ever running. Shown RED
+  # under this digest with a link to a file that does not exist, not merely shown to run: a step that
+  # cannot fail in the image is green by absence (#1036).
+  claude-md-links-check:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
+    depends_on: [secret-scan]
+    commands:
+      - python3 scripts/check-claude-md-links.py
+
+  # Does the project-next engine still match its ownership pins? (#1146)
+  #
+  # In `make verify` since before this change and in CI since #1146, which
+  # found it among ten gates a merge relied on without ever running. Shown RED
+  # under this digest with one engine file tampered with, not merely shown to run: a step that
+  # cannot fail in the image is green by absence (#1036).
+  project-next-check:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
+    depends_on: [secret-scan]
+    commands:
+      - python3 scripts/project-next-ownership.py
+
   # Would a registered control RUN in the image `negative-controls` uses? (#1036)
   #
   # ITS OWN STEP, AND DELIBERATELY NOT FOLDED INTO `negative-controls`. This gate
