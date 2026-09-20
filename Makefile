@@ -1,6 +1,7 @@
 .PHONY: test lint format typecheck verify shellcheck secret-scan tools-check \
 	scripts-inventory-check instrument-census-check dep-audit dep-audit-selftest dep-audit-capture \
 	bandit-audit bandit-audit-selftest bandit-audit-capture \
+	undeclared-import-audit undeclared-import-audit-selftest \
        oscillation update_docs clean \
        bootstrap-check drift-check deploy setup-woodpecker-cli \
        codex-init codex-skills codex-skills-check codex-install \
@@ -318,6 +319,39 @@ bandit-audit-selftest:
 bandit-audit-capture:
 	@uv run --extra dev python scripts/bandit-audit.py --capture bandit-audit-capture.json
 
+## Undeclared-import gate (issue #1041)
+## `dep-audit` asks OSV about what `uv.lock` PINS, so a package imported directly
+## and declared nowhere is never queried and cannot appear in any advisory row
+## however vulnerable it is. Three files did exactly that, since the initial
+## commit; `[tool.mypy] ignore_missing_imports = true` and ruff's E/F/W/I could
+## none of them see it.
+##
+## IN `verify`, and the reason is the mirror of `dep-audit`'s exclusion one target
+## up. This gate reads COMMITTED METADATA ONLY - `pyproject.toml` and the tree -
+## never the network and never the ambient environment, which #1044 closed one
+## gate over. Stdlib-only (`ast` + `tomllib`), so a bare `python3` gives the same
+## verdict on the plane, in `verify`, and in the slim CI image.
+##
+## HARD, with no `failure: ignore`: an undeclared module-level import exits 1, a
+## ledger line that accounts for nothing exits 1, and UNKNOWN - no pyproject, a
+## file that will not parse, an unreadable ledger, a zero-file population - exits
+## 2. Unknown is not a pass, and "no finding" and "could not look" never print the
+## same sentence.
+## verify-coverage: gate undeclared-import-audit - refuses an import no dependency metadata declares; stdlib-only and offline, so it needs nothing but the checkout
+undeclared-import-audit: undeclared-import-audit-selftest
+	@python3 scripts/undeclared-import-audit.py
+
+## The LIVE positive control, run BEFORE the audit above on purpose. A scan that
+## cannot see prints the same clean line as a clean tree, so the real code path is
+## pointed at two committed trees first - one holding a planted module-level
+## `import requests` it must report, one clean it must not - and the real verdict
+## is only issued afterwards. Its offline sibling, controls/undeclared-import-audit,
+## proves the ADJUDICATION discriminates; this proves the scan ran at all, over the
+## files we meant. Neither is sufficient alone.
+## verify-coverage: gate undeclared-import-audit-selftest - the live positive control undeclared-import-audit runs first, so this gate reaches it too
+undeclared-import-audit-selftest:
+	@python3 scripts/undeclared-import-audit.py --selftest
+
 ## Pre-deploy gate (runs all quality checks)
 
 ## Report knobs that have been moved BACK (issue #936, ADR 0009). It REPORTS:
@@ -348,7 +382,7 @@ oscillation:
 	@python3 scripts/check-oscillation.py
 
 ## verify-coverage: gate verify - the aggregate itself - its own failure mode is a sub-gate dropped from this list, which is what verify-coverage-check exists to catch
-verify: tools-check lint test typecheck shellcheck bandit-audit oscillation \
+verify: tools-check lint test typecheck shellcheck bandit-audit undeclared-import-audit oscillation \
 	binary-guards-check negative-fixture-check \
 	claude-md-budget-check claude-md-links-check claude-md-behavior-check \
 	project-next-check delegated-core-check codex-skills-check \

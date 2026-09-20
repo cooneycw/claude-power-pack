@@ -1,0 +1,7 @@
+[project]
+name = "fixture-second-import"
+version = "0"
+dependencies = ["pydantic>=2.0"]
+
+[project.optional-dependencies]
+dev = ["types-requests>=2.31", "types-urllib3>=1.26"]

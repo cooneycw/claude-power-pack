@@ -1,0 +1,19 @@
+{
+  "branch": "issue-1041-scrape-reddit-py-imports-requests-which-is-declare",
+  "counts": {
+    "accepted": 7,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "implementer": "claude/claude-opus-5",
+  "issue": "1041",
+  "passes": 2,
+  "recorded_at": "2026-09-20T12:25:20Z",
+  "red_cases": {
+    "already_covered": 5,
+    "proposed": 12
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}

@@ -1,0 +1,4 @@
+[project]
+name = "fixture-stale-allow"
+version = "0"
+dependencies = ["pyyaml>=6.0"]

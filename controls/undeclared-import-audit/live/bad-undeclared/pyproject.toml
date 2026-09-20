@@ -1,0 +1,4 @@
+[project]
+name = "live-bad-undeclared"
+version = "0"
+dependencies = ["pydantic>=2.0"]
