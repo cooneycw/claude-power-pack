@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import urllib.request
 from pathlib import Path
 
 import pytest
@@ -78,10 +79,173 @@ def test_every_network_error_becomes_source_unavailable(monkeypatch: pytest.Monk
         raised.append(getattr(request, "full_url", "?"))
         raise TimeoutError("read timed out")
 
-    monkeypatch.setattr(vendor.urllib.request, "urlopen", explode)
+    # Patches the OPENER, not `urllib.request.urlopen` (#1113): `bytes_at`
+    # stopped using the global urlopen when the https-only redirect handler was
+    # installed, and a stub left on the old name would be silently bypassed -
+    # this test would then make a REAL network call and fail on DNS. The
+    # `assert raised` below is what turns that from a silent bypass into a
+    # visible one, which is why it is an assertion and not a comment.
+    monkeypatch.setattr(vendor._HTTPS_ONLY_OPENER, "open", explode)
     with pytest.raises(vendor.SourceUnavailable):
         vendor.Fetcher(user_agent="test").bytes_at("https://example.invalid/x")
     assert raised, "the stub was never reached, so nothing was classified"
+
+
+# --- B310: the https assertion, as code rather than a comment (issue #1113) ---
+#
+# `bytes_at` carried `# noqa: S310 - fixed https hosts`, which is an assertion
+# about every caller, enforced by nobody. These tests are what make it true.
+#
+# They FAIL on the pre-#1113 code in the way that matters: `file://` is not
+# refused there, it is FETCHED. A test that only asserted "raises" would be
+# satisfied by a URL that happens to be unreachable, so each one below pins
+# that the refusal happened WITHOUT a network or filesystem read - the stub
+# records every call, and an empty record is the assertion.
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "file:///etc/passwd",
+        "http://example.invalid/x",
+        "ftp://example.invalid/x",
+        "//example.invalid/x",  # scheme-relative: urlsplit gives scheme ''
+        "/etc/passwd",  # a bare path, if one ever reaches a URL argument
+    ],
+)
+def test_non_https_urls_are_refused_before_any_fetch(
+    url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    reached: list[str] = []
+
+    def spy(request, timeout=None):  # noqa: ANN001 - stands in for urlopen
+        reached.append(getattr(request, "full_url", str(request)))
+        raise AssertionError(f"urlopen was reached for {url!r}")
+
+    monkeypatch.setattr(vendor._HTTPS_ONLY_OPENER, "open", spy)
+    with pytest.raises(vendor.SourceUnavailable, match="https"):
+        vendor.Fetcher(user_agent="test").bytes_at(url)
+    assert not reached, f"{url!r} reached the opener; the scheme check did not run"
+
+
+def test_a_file_url_cannot_read_a_real_file(tmp_path) -> None:  # noqa: ANN001
+    """The concrete harm, with no stub in the way.
+
+    The parametrized test above proves urlopen is not REACHED. This one proves
+    what reaching it would have cost: on the pre-#1113 code this call returns
+    the file's bytes, because `urllib.request.urlopen` handles `file:` and
+    nobody had told it not to.
+    """
+    secret = tmp_path / "secret.txt"
+    secret.write_text("do-not-exfiltrate\n")
+
+    with pytest.raises(vendor.SourceUnavailable, match="https"):
+        vendor.Fetcher(user_agent="test").bytes_at(secret.as_uri())
+
+
+# --- B310: the redirect half of the same guarantee (counter-model, #1113) ----
+#
+# Checking the caller's URL is not enough. urllib's default redirect handler
+# permits https -> http and https -> ftp by design (see the "For security
+# reasons" comment in `HTTPRedirectHandler.http_error_302`), so an initial-URL
+# check alone leaves the downgrade a server can force wide open.
+#
+# These fail on the first-cut #1113 code, which had `_require_https` and still
+# used the bare `urllib.request.urlopen`.
+
+
+@pytest.mark.parametrize("target", ["http://evil.invalid/x", "ftp://evil.invalid/x"])
+def test_a_redirect_cannot_downgrade_the_scheme(target: str) -> None:
+    handler = vendor._HttpsOnlyRedirectHandler()
+    with pytest.raises(vendor.SourceUnavailable, match="https"):
+        handler.redirect_request(
+            urllib.request.Request("https://example.invalid/x"),
+            None,
+            302,
+            "Found",
+            {},
+            target,
+        )
+
+
+def test_an_https_redirect_is_still_followed() -> None:
+    """The half that must NOT fire.
+
+    A handler that refused every redirect would pass the two cases above and
+    break real downloads - GitHub release URLs redirect on every request, which
+    is precisely `scripts/ci-stage-jq.py`'s only code path.
+    """
+    handler = vendor._HttpsOnlyRedirectHandler()
+    new = handler.redirect_request(
+        urllib.request.Request("https://example.invalid/x"),
+        None,
+        302,
+        "Found",
+        {},
+        "https://cdn.example.invalid/y",
+    )
+    assert new is not None
+    assert new.full_url == "https://cdn.example.invalid/y"
+
+
+def test_the_opener_cannot_speak_file_or_ftp_at_all(tmp_path) -> None:  # noqa: ANN001
+    """The guard as a PROPERTY, not a discipline (counter-model follow-up).
+
+    `_require_https` protects the two current callers. It does nothing for a
+    future third one that forgets it - and once `bytes_at` stopped calling
+    `urllib.request.urlopen`, bandit stopped reporting the site too, so that
+    future caller would get no warning from either direction.
+
+    Measured on `urllib.request.build_opener()`, which was the first cut: it
+    returns the bytes of a `file://` URL. This asserts the replacement cannot.
+    """
+    secret = tmp_path / "secret.txt"
+    secret.write_text("do-not-exfiltrate\n")
+    with pytest.raises(Exception) as caught:  # noqa: PT011 - URLError subclass
+        vendor._HTTPS_ONLY_OPENER.open(secret.as_uri(), timeout=2)
+    assert "unknown url type" in str(caught.value)
+
+    installed = {type(h).__name__ for h in vendor._HTTPS_ONLY_OPENER.handlers}
+    assert not installed & {"FileHandler", "FTPHandler", "DataHandler", "HTTPHandler"}
+
+
+def test_bytes_at_uses_the_hardened_opener_not_the_global_urlopen() -> None:
+    """A handler nothing installs is the failure this catches.
+
+    The two tests above exercise the handler directly, so they would both pass
+    with `bytes_at` still calling the permissive `urllib.request.urlopen`. This
+    is the one that says the guard is on the path the code actually takes.
+    """
+    import inspect
+
+    source = inspect.getsource(vendor.Fetcher.bytes_at)
+    assert "_HTTPS_ONLY_OPENER.open(" in source
+    assert "urllib.request.urlopen(" not in source
+
+
+def test_https_still_works(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The half that must NOT fire: a scheme check that refuses everything
+    would pass every test above and break every real fetch."""
+    monkeypatch.setattr(
+        vendor._HTTPS_ONLY_OPENER,
+        "open",
+        lambda request, timeout=None: _FakeResponse(b"payload"),  # noqa: ANN001
+    )
+    assert vendor.Fetcher(user_agent="test").bytes_at("https://example.invalid/x") == b"payload"
+
+
+class _FakeResponse:
+    def __init__(self, data: bytes) -> None:
+        self._data = data
+
+    def read(self) -> bytes:
+        return self._data
+
+    def __enter__(self) -> "_FakeResponse":
+        return self
+
+    def __exit__(self, *exc: object) -> bool:
+        return False
 
 
 def test_a_non_json_body_is_source_unavailable_not_a_traceback(monkeypatch: pytest.MonkeyPatch) -> None:

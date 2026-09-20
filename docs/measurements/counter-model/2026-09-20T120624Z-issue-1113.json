@@ -1,0 +1,19 @@
+{
+  "branch": "issue-1113-bandit-11-medium-findings-accepted-at-adoption-eac",
+  "counts": {
+    "accepted": 9,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "implementer": "claude/claude-opus-5",
+  "issue": "1113",
+  "passes": 2,
+  "recorded_at": "2026-09-20T12:06:24Z",
+  "red_cases": {
+    "already_covered": 8,
+    "proposed": 20
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}

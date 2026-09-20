@@ -20,7 +20,9 @@ import json
 import os
 import re
 import socket
+import stat
 import sys
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional, TextIO
@@ -154,12 +156,96 @@ def _is_offline() -> bool:
         return True
 
 
+def _default_uv_cache_dir() -> Path:
+    """Where child `uv run` steps cache packages when the caller names nowhere.
+
+    UID-SCOPED, and that is the whole change from the old `/tmp/uv-cache`
+    literal (issue #1113, bandit B108). A fixed name in a world-writable
+    directory is pre-creatable by any other local user on the host, and a
+    package cache is executable content - whoever owns the directory decides
+    what `uv` unpacks out of it on the next run.
+
+    Unlike the deploy lock in `lib/cicd/deploy/guardrails.py`, which is
+    deliberately shared and is hardened at the open instead, a cache has no
+    cross-process contract to preserve, so scoping it costs nothing.
+
+    STABLE across calls on purpose: `tempfile.mkdtemp()` would clear the same
+    finding and silently turn every run into a cold download, with nothing else
+    going red. `tests/test_runner.py` pins both properties.
+
+    Still under the temp dir rather than `~/.cache`: the reason the default
+    exists at all is that a sandboxed `~/.cache` is read-only (#534).
+
+    THE UID SUFFIX ALONE IS NOT THE FIX, and saying so was the first version's
+    mistake (counter-model review, #1113). `/tmp/uv-cache-1000` is every bit as
+    predictable as `/tmp/uv-cache`; a uid in the name says who SHOULD own it,
+    not who does. Any other local user can still create that exact directory
+    first and own what `uv` unpacks out of it. So the name is only half of it
+    and `_ensure_private_dir` below is the other half: create it 0700 and
+    refuse to hand `uv` a directory that is a symlink, or that somebody else
+    owns.
+    """
+    return Path(tempfile.gettempdir()) / f"uv-cache-{os.getuid()}"
+
+
+def _ensure_private_dir(path: Path) -> Path:
+    """Create `path` owned by us and mode 0700, or refuse to use it.
+
+    The predictable-path hazard bandit's B108 names is not that the name is
+    guessable - it is that a guessable name in a world-writable directory can
+    already be OCCUPIED when we get there. Checking the directory we actually
+    got is the part that answers it.
+
+    Returns `path` on success. Raises `RuntimeError` on a hijacked directory
+    rather than silently falling back: a cache supplied by somebody else is
+    executable content, and quietly using a different path would leave the
+    operator with a mystery slow run instead of a stated refusal.
+
+    `lstat`, not `stat`, so a symlink is caught rather than followed to a
+    directory that passes every other check. The residual race - the directory
+    being swapped between this check and `uv` opening it - is not closable from
+    here without holding a descriptor `uv` never receives; it is far narrower
+    than the standing pre-creation it replaces, and it is named rather than
+    implied.
+    """
+    path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    st = path.lstat()
+    if stat.S_ISLNK(st.st_mode):
+        raise RuntimeError(
+            f"uv cache path {path} is a symlink; refusing to use it"
+        )
+    if not stat.S_ISDIR(st.st_mode):
+        raise RuntimeError(
+            f"uv cache path {path} is not a directory; refusing to use it"
+        )
+    if st.st_uid != os.getuid():
+        raise RuntimeError(
+            f"uv cache path {path} is owned by uid {st.st_uid}, not {os.getuid()}; "
+            f"refusing to use a package cache another user controls"
+        )
+    # OWNERSHIP IS NOT EXCLUSIVITY (counter-model review, second pass). `mkdir`
+    # applies `mode` only when it CREATES the directory, so a pre-existing
+    # `0777` cache - left by an older run under a permissive umask - passes the
+    # owner check and is still writable by everybody on the host, which is the
+    # whole hazard. Refuse rather than `chmod`: tightening the mode would keep
+    # whatever contents were already placed there, and a cache is trusted for
+    # its contents, not its permissions.
+    if st.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+        raise RuntimeError(
+            f"uv cache path {path} is mode {stat.S_IMODE(st.st_mode):04o} and so is "
+            f"writable by other users; refusing to use it. Remove it and let this "
+            f"run recreate it 0700."
+        )
+    return path
+
+
 def _build_step_env(project_root: Optional[Path] = None) -> dict[str, str]:
     """Build a sanitized copy of os.environ for child step processes.
 
     Makes the child environment sandbox-aware (issue #534):
     - strips launcher/parent-venv leakage (see RUNNER_STRIP_VARS),
-    - defaults UV_CACHE_DIR to a writable path (sandbox ~/.cache is read-only),
+    - defaults UV_CACHE_DIR to a writable, uid-scoped path (sandbox ~/.cache is
+      read-only; see `_default_uv_cache_dir`),
     - pins UV_PYTHON to the target project's required floor so child ``uv run``
       steps do not fall back to a stale system interpreter.
     All defaults use ``setdefault`` so an explicit caller env always wins.
@@ -168,7 +254,14 @@ def _build_step_env(project_root: Optional[Path] = None) -> dict[str, str]:
     that materializes CPP_OFFLINE runs once in the runner's execute loop.
     """
     env = {k: v for k, v in os.environ.items() if k not in RUNNER_STRIP_VARS}
-    env.setdefault("UV_CACHE_DIR", "/tmp/uv-cache")
+    # NOT `env.setdefault(..., _ensure_private_dir(...))` (counter-model review,
+    # second pass): Python evaluates the default argument eagerly, so that form
+    # created and validated the DEFAULT cache even when the caller had already
+    # chosen one - and a hijacked default then aborted a run that was never
+    # going to use it. That contradicts this function's own contract two
+    # paragraphs up: "an explicit caller env always wins".
+    if "UV_CACHE_DIR" not in env:
+        env["UV_CACHE_DIR"] = str(_ensure_private_dir(_default_uv_cache_dir()))
     floor = _project_python_floor(project_root)
     if floor:
         env.setdefault("UV_PYTHON", floor)
