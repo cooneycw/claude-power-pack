@@ -53,24 +53,65 @@ carries. #1068 closes nothing.
 
 ---
 
-## A. Owner decisions - PENDING
+## A. Owner decisions - RESOLVED 2026-09-20
 
-These are the choices #1068 deliberately did **not** make (spec US6, Open
-Questions Q1-Q9). Each blocks the child named. Q7-Q9 came from independent
-review, not from the epic - see [review.md](review.md) findings R2, R8 and R9. An implementer who resolves one of
-these on their own authority has violated spec **B4**/**B5**.
+All nine were ruled by the owner on 2026-09-20. The rulings arrived as one
+governing principle plus four specific calls, and the principle does most of the
+work:
 
-| ID | Decision | Options and consequence | Blocks |
-|---|---|---|---|
-| **Q1** | Native-wave disposition | (a) **move** to CPP - CPP inherits 14 modules and 5 open stories it has no analogue for; (b) **`transfer` to Kyle** - Kyle's scope is unconfirmed (see inventory §9), so this may transfer to a consumer that has not agreed. `transfer` requires cited acceptance by that owner, which does not exist at baseline; (c) **owner-approved-retirement** - loses the transport proof and 4 contract documents. Note: whichever is chosen, cxpp#201/#202/#203/#206/#208 remain OPEN unless fulfilled or withdrawn with recorded authority | #1072 |
-| **Q2** | SAST continuity | (a) **move** CxPP's SAST now - duplicates work cpp#962 owns; (b) **lapse pending cpp#962** - a measurable reduction in protection for the interval, which #1067 explicitly warns against ("the migration must not silently lose CxPP's SAST protection"). Lapsing needs a ruling *because* it is a reduction | #1070 |
-| **Q3** | PR cxpp#239 | (a) **merge** before freeze; (b) **migrate** the docs content to CPP; (c) **close** with content preserved elsewhere. Option (c) requires the durable destination, not the intention. Spec **B6** forbids losing it | #1076 |
-| **Q4** | Balanced-delivery program overlap | CPP has `.specify/specs/balanced-agentic-development` (Approved). Is cxpp#219/#220/#223/#224/#225/#226 (a) **already-covered** by it, or (b) carrying obligations CPP's spec does not? A wrong (a) silently drops six issues | #1072 |
-| **Q5** | CxPP-only instruments | `harness_lint`, `skill_contract_lint`, `skill_eval`, `release_validate` have no CPP analogue. (a) **adapt** into CPP; (b) **owner-approved-retirement**. See inventory §5: the asymmetry runs both ways | #1071 |
-| **Q6** | Native vs generated skill model | Does the Codex adapter keep CxPP's 85 **native** skills as native, or converge on CPP's generated-surface model (75)? This is the central compatibility choice; it determines whether an installed Codex host sees a changed skill surface | #1071 |
-| **Q7** | Unknown consumer populations | Installed Codex hosts, plugin-marketplace installs and template adopters are unenumerable from either repository (inventory §9). (a) **discover** them before cutover - needs a measurement plan, not a document; (b) **migrate** what can be reached; (c) **accept-break** with a published deprecation notice. The archive criteria as first written let (c) happen by default, unstated | #1074, #1076 |
-| **Q8** | Git history for relocated code | Does `project_next` - and whatever Q1 moves - travel with its history (subtree / filter-repo) or arrive as a fresh copy? A copy loses `git blame` for every line, and with it the provenance of decisions rows in this ledger depend on. Choosing late means choosing a copy by default | #1069 |
-| **Q9** | Backlog-reconciliation ORDERING (raised against the epic) | #1075 reconciles the backlog AFTER #1074 proves the release. A missed obligation surfacing at #1075 invalidates #1074's evidence and forces a re-run. Reordering changes #1067's own sequence, so it is surfaced rather than decided here | #1074, #1075 |
+> CxPP should not have any incremental capability not in CPP. Its only
+> differences should be the ability of CPP to work more seamlessly when invoked
+> by Codex. If there are incremental capabilities, they can be discarded.
+
+Paired with a disposal route that is **not** the one this spec was written
+against: **CxPP is not deleted and not archived.** It stops being updated and
+installed, its local folders are uninstalled, and the repository goes **private
+and dormant**. History, issues, PRs and attribution stay readable at their
+source. See "Dormancy exit criteria", which replaces the archive criteria.
+
+| ID | Ruling | Consequence |
+|---|---|---|
+| **Q1** Native-wave | **`owner-approved-retirement`** - incremental capability with no CPP analogue | cxpp#189/#192/#193/#194/#201/#202/#203/#206/#208/#229 close under this ruling as the recorded authority. The 14 `lib/native_wave` modules, the transport proof and the 6 contract documents stay readable in the dormant repository; nothing is deleted |
+| **Q2** SAST continuity | **MOOT - not a choice any more.** CPP adopted bandit on 2026-09-20 (`3d4a9a3`, PR #1118, cpp#962 CLOSED 12:03Z) | `bandit-audit` is in `make verify` with a live positive control (`bandit-audit-selftest`) and an adjudication control (`controls/bandit-audit`). The owner's ruling - "if we have security exposures from anything scaffolded to make the CPP functionality work in Codex, we should SAST review as we would any new scaffolded feature" - is discharged by the existing gate. **Inventory §5 recorded SAST as absent and went stale in 19 hours**; corrected there |
+| **Q3** PR cxpp#239 | **Keep the Codex review docs in CxPP.** Merge the PR before dormancy | The three research documents live on a branch today. "Keep them in Codex" is true of `main` only once the PR is merged, so merging is the act that makes the ruling true. Dormancy then preserves them |
+| **Q4** Balanced-delivery overlap | **`owner-approved-retirement`** under the governing principle | cxpp#219/#220/#223/#224/#225/#226 close under this ruling. **No parity comparison is required**, because nothing is being claimed as `already-covered`: the obligations are withdrawn, not transferred |
+| **Q5** CxPP-only instruments | **`owner-approved-retirement`** - `harness_lint`, `skill_contract_lint`, `skill_eval`, `release_validate` | All four are incremental capability with no CPP analogue (inventory §5) |
+| **Q6** Native vs generated skills | **CPP's generated surface.** The 85 native and 74 plugin-packaged skills are not carried | Codex reaches CPP's own surface, generated from `.claude/commands/**` by `scripts/codex-skill-sync.py`. This also moots the two derived-repo tells in cxpp#242 and the native-surface framing of cxpp#228/#248 |
+| **Q7** Unknown consumer populations | **accept-break.** The privacy flip executes it | **Ordering constraint, not a caveat:** `scripts/project-next-vendor.py:90-91` hardcodes `api_root=https://api.github.com/repos/cooneycw/codex-power-pack` and `raw_root=https://raw.githubusercontent.com/cooneycw/codex-power-pack`, fetched by `lib/vendor.py` - the shared core, which carries **no auth handling at all** (no `authorization`, `bearer`, `GH_TOKEN` or `GITHUB_TOKEN`; the whole request is `Request(url, headers={"User-Agent": ...})`). So `make project-next-drift` and `make project-next-revendor` break the moment the repository is private, and because the CxPP URL is a hardcoded constant rather than configuration, **nothing degrades gracefully**. **#1069 must land first.** `make verify` is unaffected: `project-next-check` hashes the vendored manifest offline, and `consolidation-ledger-check` reads the committed snapshot and touches the network only under `--refresh` |
+| **Q8** Git history | **Fresh copy. No history transfer** | The premise the question was posed under does not hold: history is only lost if the source disappears, and a private dormant repository still serves `git blame` and every provenance link this ledger cites. Exactly one commit (`f39bcf3`, a docs change) has touched `lib/project_next` since CPP's vendored pin `1724e7d9`, so the content transfer is close to a no-op |
+| **Q9** Backlog-reconciliation ordering | **Dissolved. No archive gate is needed** | The question existed because a missed obligation surfacing at reconciliation would invalidate a release proof produced for an archive gate. With no archive gate there is no proof for it to invalidate, and reconciliation becomes part of going dormant |
+
+### Q10 - what the governing principle does NOT dispose of (NEW, PENDING)
+
+The principle is about **capabilities**. Twelve rows in §B and §D are not
+capabilities - they are **defect findings and unresolved findings**, several of
+them describing families CPP is known or suspected to share. Discarding a
+capability CPP does not want is the ruling. Discarding a finding that may
+describe a live CPP bug is a different act, and the principle does not authorise
+it.
+
+| Row | State @ 2026-09-20 | Why the principle does not settle it |
+|---|---|---|
+| cxpp#227 - Nit Store, 29 comments | OPEN (verified) | Findings, not capability. Dormancy makes 29 unresolved findings unreadable in practice |
+| cxpp#256 - `cicd-verify` dispatches to nothing (14 sites) | OPEN (verified) | Live defect. Whether CPP's `lib/cicd` has the same hole is unexamined |
+| cxpp#257 - `make verify` exits 0 on a broken pin reproduction | OPEN (verified) | Live defect in a pin-integrity gate. CPP has pin gates of its own |
+| cxpp#259 - Four of six verify gates only aimable through an adapter | OPEN (verified) | Live defect; CPP's gate-aiming has not been compared |
+| cxpp#274 - Secret scan cannot see its own config, or history | OPEN (verified) | **Live security defect.** CPP has `controls/secret-scan`; same question, unexamined |
+| cxpp#275 - Three instruments name a subject they never examined | OPEN (verified) | Live defect. cpp#1029 is the same family and is **CLOSED** (2026-09-19T16:20:56Z) - the family was addressed once, which does not establish that the variant named here was |
+| cxpp#277 - Three unhomed findings | OPEN (verified) | Unverified at baseline. Migrating them as verified was already forbidden; discarding them unverified is the mirror error |
+| cxpp#279 - Carried CI results not invalidated on source change | OPEN (verified) | Live defect. CPP has the analogous hazard recorded |
+| cxpp#281 - Runner subprocess trees unbounded, timeout evidence lost | OPEN (verified) | Live defect; no CPP comparison exists |
+| cxpp#282 - Reproducible test baseline across scanner versions | OPEN (verified) | Partially delivered; the undelivered part is unexamined against CPP |
+| cxpp#283 - Negative-control coverage without overstating it | OPEN (verified) | Bears on CPP `controls/check-negative-controls` (live) and cpp#1036, which is **CLOSED** (2026-09-20T13:07:47Z) |
+| cxpp#276 - project-next recommends `continue_work` on a CLOSED issue | **Cannot be discarded at all:** the defective code is what #1069 moves into CPP. Recorded `move`, not residue |
+
+The disposition needed is cheap and bounded: for each row, does CPP have the
+same defect? Yes gives `already-covered` with a parity statement, or a filed CPP
+issue. No gives `owner-approved-retirement`. It is one pass, and it is the only
+thing standing between "CxPP went dormant" and "eleven findings stopped being
+read". **Q10 blocks the dormancy step, not #1068** - Q1-Q9 discharge #1068's
+acceptance item 6, and Q10 is a question the rulings created rather than one
+they left unanswered.
 
 ---
 
@@ -83,84 +124,85 @@ status at baseline, not a judgement of worth.
 
 | Entry | Status | Owner | Destination | Disposition |
 |---|---|---|---|---|
-| cxpp#189 - Native Codex platform delivery (epic) | unfinished; foundations only (inventory §8) | unassigned | pending Q1 | `unresolved` - blocks #1072 |
-| cxpp#192 - Wave 3: ship native flow-register/flow-wave | unfinished | unassigned | pending Q1 | `unresolved` - blocks #1072 |
-| cxpp#193 - Wave 4: integrate native formations into Kyle | unfinished; Kyle scope unconfirmed | unassigned | pending Q1 | `unresolved` - blocks #1072 |
-| cxpp#194 - Wave 5: spec-to-platform scaffolding | unfinished | unassigned | pending Q1 | `unresolved` - blocks #1072 |
-| cxpp#201 - Bind wave planning, judged gates, worker lifecycle, exact-head CI | unfinished | unassigned | pending Q1 | `unresolved` - blocks #1072 |
-| cxpp#202 - Package flow-register/flow-wave with installed deps | unfinished | unassigned | pending Q1 | `unresolved` - blocks #1072 |
-| cxpp#203 - Validate a complete wave with three Codex workers | **never demonstrated** - the evidence #1067 warns not to assume | unassigned | pending Q1 | `unresolved` - blocks #1072 |
-| cxpp#206 - Native session wake and delivery adapters | unfinished | unassigned | pending Q1 | `unresolved` - blocks #1072 |
-| cxpp#208 - Local Kylex delivery with reproducible evidence | unfinished | unassigned | pending Q1 | `unresolved` - blocks #1072 |
-| cxpp#229 - Harden native wave delivery, listening, worker recovery | unfinished | unassigned | pending Q1 | `unresolved` - blocks #1072 |
+| cxpp#189 - Native Codex platform delivery (epic) | unfinished; foundations only (inventory §8) | unassigned | retired with CxPP | `owner-approved-retirement` - Q1 |
+| cxpp#192 - Wave 3: ship native flow-register/flow-wave | unfinished | unassigned | retired with CxPP | `owner-approved-retirement` - Q1 |
+| cxpp#193 - Wave 4: integrate native formations into Kyle | unfinished; Kyle scope unconfirmed | unassigned | retired with CxPP | `owner-approved-retirement` - Q1 |
+| cxpp#194 - Wave 5: spec-to-platform scaffolding | unfinished | unassigned | retired with CxPP | `owner-approved-retirement` - Q1 |
+| cxpp#201 - Bind wave planning, judged gates, worker lifecycle, exact-head CI | unfinished | unassigned | retired with CxPP | `owner-approved-retirement` - Q1 |
+| cxpp#202 - Package flow-register/flow-wave with installed deps | unfinished | unassigned | retired with CxPP | `owner-approved-retirement` - Q1 |
+| cxpp#203 - Validate a complete wave with three Codex workers | **never demonstrated** - the evidence #1067 warns not to assume | unassigned | retired with CxPP | `owner-approved-retirement` - Q1 |
+| cxpp#206 - Native session wake and delivery adapters | unfinished | unassigned | retired with CxPP | `owner-approved-retirement` - Q1 |
+| cxpp#208 - Local Kylex delivery with reproducible evidence | unfinished | unassigned | retired with CxPP | `owner-approved-retirement` - Q1 |
+| cxpp#229 - Harden native wave delivery, listening, worker recovery | unfinished | unassigned | retired with CxPP | `owner-approved-retirement` - Q1 |
 
 ### B.2 Balanced delivery program (6)
 
 | Entry | Status | Owner | Destination | Disposition |
 |---|---|---|---|---|
-| cxpp#219 - Wave 2: preserve context, evidence-based plan revision | unfinished | unassigned | pending Q4 | `unresolved` - blocks #1072 |
-| cxpp#220 - Wave 3: verify outcomes, demonstrate implementation freedom | unfinished | unassigned | pending Q4 | `unresolved` - blocks #1072 |
-| cxpp#223 - Preserve governing outcomes across handoffs | unfinished | unassigned | CPP `docs/agents/issue-contract.md` covers part | `unresolved` - pending Q4 |
-| cxpp#224 - Let agents challenge requirements, revise plans | unfinished | unassigned | CPP flow:auto Step 4 (#859) covers part | `unresolved` - pending Q4 |
-| cxpp#225 - Account for delivered outcomes in PR evidence | unfinished | unassigned | CPP flow:auto Step 6 (#860) covers part | `unresolved` - pending Q4 |
-| cxpp#226 - Prove handoffs and agent freedom with integration coverage | unfinished | unassigned | pending Q4 | `unresolved` - blocks #1072 |
+| cxpp#219 - Wave 2: preserve context, evidence-based plan revision | unfinished | unassigned | retired with CxPP | `owner-approved-retirement` - Q4 |
+| cxpp#220 - Wave 3: verify outcomes, demonstrate implementation freedom | unfinished | unassigned | retired with CxPP | `owner-approved-retirement` - Q4 |
+| cxpp#223 - Preserve governing outcomes across handoffs | unfinished | unassigned | CPP `docs/agents/issue-contract.md` covers part | `owner-approved-retirement` - Q4. The named CPP surface is context, NOT a coverage claim: the obligation is withdrawn, not transferred |
+| cxpp#224 - Let agents challenge requirements, revise plans | unfinished | unassigned | CPP flow:auto Step 4 (#859) covers part | `owner-approved-retirement` - Q4. The named CPP surface is context, NOT a coverage claim: the obligation is withdrawn, not transferred |
+| cxpp#225 - Account for delivered outcomes in PR evidence | unfinished | unassigned | CPP flow:auto Step 6 (#860) covers part | `owner-approved-retirement` - Q4. The named CPP surface is context, NOT a coverage claim: the obligation is withdrawn, not transferred |
+| cxpp#226 - Prove handoffs and agent freedom with integration coverage | unfinished | unassigned | retired with CxPP | `owner-approved-retirement` - Q4 |
 
-**Why these are not `already-covered` despite the named CPP surfaces.** CPP's
-#859/#860 work and `issue-contract.md` address the same *concerns*. Whether they
-discharge these specific *obligations* is exactly what Q4 asks, and answering it
-by inspection is the failure mode `already-covered` is most prone to. Three rows
-name the candidate CPP surface so Q4 can be answered from evidence rather than
-from scratch.
+**Why these are `owner-approved-retirement` and NOT `already-covered`.** The
+distinction survives Q4's answer and matters more because of it. `already-covered`
+claims CPP does this job, and owes a parity statement proving it; the owner's
+ruling makes no such claim. It withdraws the obligations. Three rows still name a
+candidate CPP surface because that context is true and useful, but **naming it is
+not a coverage claim** - nobody compared #859/#860 or `issue-contract.md` against
+these six, and this ledger must not read as though somebody had.
 
 ### B.3 Nit stores and findings routing (3)
 
 | Entry | Status | Owner | Destination | Disposition |
 |---|---|---|---|---|
-| cxpp#227 - **Nit Store** (29 comments @ baseline) | active inbox | owner | CPP cpp#864, after triage | `unresolved` - **blocks #1076.** Spec archive criterion: "no unresolved finding is lost". 29 comments must be triaged, not bulk-migrated |
-| cxpp#228 - claude-code-review is native so no CPP edit reaches it | open finding | unassigned | #1071 (adapter) | `adapt` - it is the reciprocal-review problem #1071 exists to solve |
-| cxpp#248 - No skill routes a finding to the Nit Store (0 of 85) | open defect | unassigned | #1071 | `adapt` - CPP routes via global directive; the Codex surface needs the equivalent |
+| cxpp#227 - **Nit Store** (29 comments @ baseline) | active inbox | owner | CPP cpp#864, after triage | `unresolved` - **Q10.** Findings, not capability, so the governing principle does not dispose of them. 29 comments go unread rather than triaged if dormancy lands first |
+| cxpp#228 - claude-code-review is native so no CPP edit reaches it | open finding | unassigned | #1071 (adapter) | `owner-approved-retirement` - Q6 removes the native surface this defect is about. The reciprocal-review requirement itself carries into the Codex compat layer |
+| cxpp#248 - No skill routes a finding to the Nit Store (0 of 85) | open defect | unassigned | #1071 | `owner-approved-retirement` - Q6 retires the 85 native skills the count refers to. **The requirement carries:** CPP's generated Codex surface must route findings to cpp#864 |
 
 ### B.4 Instruments, gates and verification (13)
 
 | Entry | Status | Owner | Destination | Disposition |
 |---|---|---|---|---|
-| cxpp#236 - Wayfinder map: CxPP resilience as a derived repo | open | unassigned | superseded in effect by this spec set | `unresolved` - the map's *question* is answered here; whether the issue is discharged is #1075's call |
+| cxpp#236 - Wayfinder map: CxPP resilience as a derived repo | open | unassigned | superseded in effect by this spec set | `owner-approved-retirement` - the map's question is answered by this spec set and the 2026-09-20 rulings |
 | cxpp#241 - Promote claude-code-review to a routine counter-model stage | open | unassigned | CPP flow:auto Step 6 counter-model review (#934, ADR 0007) | `already-covered` - CPP runs it by default with a receipt; CxPP's direction (Claude counters Codex) is the mirror of CPP's and needs the #1071 adapter to reach the Codex surface |
-| cxpp#242 - Adopt the Oscillation Control (+ derived-repo tells) | open | unassigned | CPP `make oscillation`, `controls/check-oscillation` | `already-covered` for the control itself; the two derived-repo tells (native vs generated) are **`unresolved`** and become moot only if Q6 removes the derived surface |
+| cxpp#242 - Adopt the Oscillation Control (+ derived-repo tells) | open | unassigned | CPP `make oscillation`, `controls/check-oscillation` | `already-covered` - parity examined: the oscillation control itself, present in CPP as `make oscillation` + `controls/check-oscillation`. The two derived-repo tells are **moot**: Q6 removed the derived surface they were tells for |
 | cxpp#247 - Skipped security gate reports ok, not warn | open defect | unassigned | CPP #1027 shipped per-verdict exit codes (PR #1057, merged 2026-09-19) | `already-covered` - **verify against `5ceb966a`**, not against #1067's `194f7305`, which predates the fix |
 | cxpp#249 - No shellcheck: 81 `.sh` unlinted | open defect | unassigned | CPP `make shellcheck`, `controls/shellcheck-gate` | `already-covered` by the gate's existence; CPP #972 records its own 175-finding backlog, so the protection transfers with a known debt |
-| cxpp#250 - Mutation-prove the negative-control battery | open | unassigned | CPP #970 (same requirement, ADR 0008 bound) | `already-covered` by CPP #970 remaining open - **the obligation transfers to an open CPP issue, it is not discharged** |
-| cxpp#256 - cicd-verify dispatches to nothing (14 sites) | **live defect** | unassigned | #1070 | `adapt` - CPP's `lib/cicd` registers `verify`; the fix arrives with the shared runtime |
-| cxpp#257 - make verify exits 0 on a broken pin reproduction | **live defect** | unassigned | #1069/#1073 | `adapt` - a pin-integrity gap; see inventory §3, the pin is stale at baseline |
-| cxpp#259 - Four of six verify gates only aimable through an adapter | open defect | unassigned | #1070 | `adapt` |
-| cxpp#274 - Secret scan cannot see its own config, or history | **live defect** | unassigned | #1070 | `adapt` - CPP's `controls/secret-scan` is the destination; the two remedies' conflict must be resolved there, not dropped |
-| cxpp#275 - Three instruments name a subject they never examined | **live defect** | unassigned | #1070 | `adapt` - directly the stale-pin/wrong-repo family; inventory §3 |
-| cxpp#283 - Complete negative-control coverage without overstating it | open | unassigned | CPP `controls/check-negative-controls` + #1036 | `adapt` |
-| cxpp#284 - Adopt remaining CPP testing/review contracts | open | unassigned | superseded by this migration | `unresolved` - adopting CPP contracts *into CxPP* is work the consolidation may make unnecessary; #1075 decides |
+| cxpp#250 - Mutation-prove the negative-control battery | open | unassigned | CPP #970 (same requirement, ADR 0008 bound) | `already-covered` - cpp#970 **merged 2026-09-20** (`aebb33c`, PR #1128), so the mutation requirement is now delivered rather than pending. Parity examined: the ADR 0008 bound and its mutation requirement; CxPP's own battery is not carried |
+| cxpp#256 - cicd-verify dispatches to nothing (14 sites) | **live defect** | unassigned | #1070 | `unresolved` - **Q10.** No shared runtime now, so CxPP's defect dies with CxPP. Whether CPP's `lib/cicd` has the same dispatch hole is unexamined |
+| cxpp#257 - make verify exits 0 on a broken pin reproduction | **live defect** | unassigned | #1069/#1073 | `unresolved` - **Q10.** A verify-exits-0 pin-integrity gap. CPP runs its own pin gates; unexamined |
+| cxpp#259 - Four of six verify gates only aimable through an adapter | open defect | unassigned | CPP comparison pending | `unresolved` - **Q10.** Gate-aiming not compared against CPP |
+| cxpp#274 - Secret scan cannot see its own config, or history | **live defect** | unassigned | #1070 | `unresolved` - **Q10, security-relevant.** Whether CPP's `controls/secret-scan` shares the blind spot is unexamined |
+| cxpp#275 - Three instruments name a subject they never examined | **live defect** | unassigned | #1070 | `unresolved` - **Q10.** cpp#1029 is the same family and is OPEN, so this one has a known CPP counterpart |
+| cxpp#283 - Complete negative-control coverage without overstating it | open | unassigned | CPP `controls/check-negative-controls` + #1036 | `unresolved` - **Q10.** Bears on two live CPP instruments |
+| cxpp#284 - Adopt remaining CPP testing/review contracts | open | unassigned | superseded by this migration | `owner-approved-retirement` - adopting CPP contracts into a dormant repository is work with no consumer |
 
 ### B.5 Runner, results and baseline reproducibility (5)
 
 | Entry | Status | Owner | Destination | Disposition |
 |---|---|---|---|---|
-| cxpp#279 - Invalidate carried CI/CD results on source/plan change | open defect | unassigned | #1070 | `adapt` - CPP has the analogous hazard recorded; the contract must survive the runtime merge |
-| cxpp#280 - finish/check must report executed gates and real test evidence | open defect | unassigned | CPP #1027 (shipped, PR #1057) + #1070 | `already-covered` in CPP's gate verdicts; the Codex-side reporting path is `adapt` under #1070 |
-| cxpp#281 - Bound runner subprocess trees, retain timeout evidence | open defect | unassigned | #1070 | `adapt` |
-| cxpp#282 - Reproducible test baseline across scanner versions | **partially delivered** - fixture-policy slice landed via PR cxpp#287 | unassigned | #1070 | `adapt` - **do not record all of #282 as complete** (#1067 says so explicitly); only the fixture-policy slice landed |
-| cxpp#285 - Close the CPP testing-protocol gap | open | unassigned | superseded by this migration | `unresolved` - same shape as cxpp#284; #1075 decides |
+| cxpp#279 - Invalidate carried CI/CD results on source/plan change | open defect | unassigned | #1070 | `unresolved` - **Q10.** CPP has the analogous hazard recorded; no runtime merge now, so the CPP side must be checked on its own |
+| cxpp#280 - finish/check must report executed gates and real test evidence | open defect | unassigned | CPP #1027 (shipped, PR #1057) + #1070 | `already-covered` - cpp#1027's per-verdict exit codes. Parity examined: executed/skip/unknown reporting. The Codex-side path is retired with Q6, not adapted |
+| cxpp#281 - Bound runner subprocess trees, retain timeout evidence | open defect | unassigned | CPP comparison pending | `unresolved` - **Q10.** No CPP comparison exists |
+| cxpp#282 - Reproducible test baseline across scanner versions | **partially delivered** - fixture-policy slice landed via PR cxpp#287 | unassigned | #1070 | `unresolved` - **Q10.** Only the fixture-policy slice landed; the remainder is unexamined against CPP |
+| cxpp#285 - Close the CPP testing-protocol gap | open | unassigned | superseded by this migration | `owner-approved-retirement` - same shape as cxpp#284: a gap in a repository that is going dormant |
 
 ### B.6 project-next and evergreen (3)
 
 | Entry | Status | Owner | Destination | Disposition |
 |---|---|---|---|---|
 | cxpp#276 - project-next recommends continue_work on a CLOSED issue | **live defect** | unassigned | **#1069** | `move` - travels with project-next ownership. CPP #1035 records the same family of defect; reuse both scopes and their tests, do not file duplicates |
-| cxpp#230 - Evergreen: revalidate Codex harness, messaging, watcher assumptions | recurring | unassigned | CPP #871 is the analogous evergreen | `adapt` - an evergreen has no completion state; it needs a maintained home or it silently stops running |
-| cxpp#277 - Three unhomed 2026-09-12 findings (needs re-verification first) | open, unverified | unassigned | pending re-verification | `unresolved` - **the findings are unverified at baseline.** Migrating an unverified finding as though it were verified is the error this row exists to prevent |
+| cxpp#230 - Evergreen: revalidate Codex harness, messaging, watcher assumptions | recurring | unassigned | CPP #871 is the analogous evergreen | `already-covered` - cpp#871 is the maintained evergreen. Parity examined: the recurring re-check of harness/messaging assumptions. The Codex-specific half narrows to the compat layer |
+| cxpp#277 - Three unhomed 2026-09-12 findings (needs re-verification first) | open, unverified | unassigned | pending re-verification | `unresolved` - **Q10.** Unverified at baseline. Migrating them as verified was the original error; discarding them unverified is its mirror |
 
 ### B.7 Open pull request (1)
 
 | Entry | Status | Owner | Destination | Disposition |
 |---|---|---|---|---|
-| **PR cxpp#239** - docs: mirror the 2026-09-14 research set under `docs/research/` (open, @cooneycw, 2026-09-14) | open, unmerged user work | owner | pending Q3 | `unresolved` - **blocks #1076.** Spec **B6** requires user work be preserved; an archive with this PR unresolved destroys it |
+| **PR cxpp#239** - docs: mirror the 2026-09-14 research set under `docs/research/` (open, @cooneycw, 2026-09-14) | open, unmerged user work | owner | CxPP `main` | `move` - **Q3: merge before dormancy.** The docs sit on a branch today, so merging is the act that makes "keep them in Codex" true of `main` |
 
 ---
 
@@ -173,14 +215,14 @@ existing CPP obligation the migration must not silently absorb or discharge.
 |---|---|---|
 | cpp#864 - **Nit Store** (165 comments @ baseline) | Destination for cxpp#227's findings | Triage both before archive (spec archive criteria). Do not bulk-append |
 | cpp#962 - No Python SAST (bandit) | Owns SAST adoption | Q2 depends on it. Migration must not lose CxPP's SAST protection meanwhile |
-| cpp#970 - Inspection cannot distinguish load-bearing from decorative control | Receives cxpp#250's obligation | Stays open; receiving an obligation is not discharging one |
+| cpp#970 - Inspection cannot distinguish load-bearing from decorative control | **CLOSED 2026-09-20** (`aebb33c`, PR #1128) | Received cxpp#250's obligation and DISCHARGED it. The baseline row said "stays open"; that was true for one day |
 | cpp#972 - shellcheck: 175 sub-error findings unreviewed | Known debt carried with the shellcheck gate | Disclosed, not hidden, when cxpp#249 is recorded `already-covered` |
 | cpp#1028 - Four checkers with no path to a verdict | Includes `codex-skills-check` and the eli5 drift check on the Codex surface | Directly affects #1071/#1073 |
-| cpp#1029 - The executed copy cannot say what it holds | Stale checkout / wrong-tree drift checks | Same family as cxpp#275 |
+| cpp#1029 - The executed copy cannot say what it holds | **CLOSED 2026-09-19** | Same family as cxpp#275. A closed counterpart weakens the liveness claim; it does not discharge the variant |
 | cpp#1030 - flow:auto Step 6 review blind to new files; no nit-store routing | Affects the counter-model stage this very run uses | Same family as cxpp#228/#248 |
 | cpp#1034 - Skill surface has no working validation | Bears on Q6 (native vs generated) | #1071 evidence dependency |
 | cpp#1035 - project:next ranks an inbox as top startable issue | Same defect family as cxpp#276 | Reuse scope and tests under #1069; do not duplicate |
-| cpp#1036 - check-negative-controls: N of M is not a fraction | Bears on cxpp#283 | #1070/#1071 evidence dependency |
+| cpp#1036 - check-negative-controls: N of M is not a fraction | **CLOSED 2026-09-20** | Bore on cxpp#283; no longer a live dependency |
 | cpp#1047 - Receipt hardcodes `--implementer` | Counter-model receipt integrity | Affects the review evidence this migration produces |
 | cpp#1048 - Every receipt records the same reviewer | Counter-model receipt integrity | Same |
 | cpp#1054 - delegated-run-check: TOOL_ERRORS never non-zero on the codex lane | Codex lane instrument blindness | #1070/#1071 evidence dependency |
@@ -211,52 +253,88 @@ exactly the items nobody would notice going missing.
 
 | Capability | Source | Destination | Disposition |
 |---|---|---|---|
-| `lib/project_next` | CxPP `lib/project_next` + CPP `vendor/project_next/**` | CPP canonical | `move` - #1069. **Hard prerequisite for archival** (inventory §3) |
-| `vendor/claude-power-pack/` pull bridge (PIN, adoption-policy, overlays, sha256) | CxPP | retired when CxPP retires | `unresolved` - the *overlays* encode CxPP-local adaptations. Retiring the bridge without re-homing them loses them silently. Blocks #1073 |
-| `lib/skill_eval` + `make skill-eval-check`/`skill-eval-live` | CxPP | pending Q5 | `unresolved` - blocks #1071 |
-| `scripts/harness_lint.py` + allowlist | CxPP | pending Q5 | `unresolved` - blocks #1071 |
-| `scripts/skill_contract_lint.py`, `skill_contract_baseline.py` | CxPP | pending Q5 | `unresolved` - blocks #1071 |
-| `scripts/release_validate.py` + `make release-validate` | CxPP | pending Q5 | `unresolved` - blocks #1071; bears directly on #1074's release proof |
-| `scripts/cxpp-hook-transition.py` | CxPP | #1073 | `adapt` - spec **B2**: the safe-hook-update capability, not an implementation detail |
-| `~/.codex/scripts/` installed helper resolution | CxPP | #1073 | `adapt` - CPP's three-tier fallback is a *different* contract (inventory §4) |
-| `lib/friction` (library) | CxPP | CPP `friction-log.sh` + `.claude/friction.jsonl` | `adapt` - different shapes; the Codex hook lane needs a writer |
-| `.codex/hooks.json` (5 events) | CxPP | #1073 | `adapt` under spec **B2** |
-| `extensions/cxpp-issue-sync` | CxPP | none identified | `unresolved` - no destination named. Blocks #1076 |
-| `extras/sequential-thinking` | CxPP | none identified | `unresolved` - no destination named. Blocks #1076 |
-| `templates/project-next.schema.json`, `templates/*` | CxPP | CPP with #1069 | `move` - consumer-facing contract; relocating changes what downstreams resolve |
-| 6 native-wave contract documents | CxPP `docs/` | pending Q1 | `unresolved` - blocks #1072 |
-| `docs/release-process.md` | CxPP | #1074 | `adapt` |
-| Plugin-marketplace e2e records (6 docs) | CxPP `docs/` | #1074 evidence | `adapt` - prior evidence of the behaviour #1074 must re-demonstrate |
-| **Unknown installed Codex hosts** | inventory §9 | unenumerable | `unresolved` - **blocks #1076.** Cannot satisfy "every known active consumer is migrated or explicitly retired" while the population is unknown |
-| **Unknown plugin-marketplace installs** | inventory §9 | unenumerable | `unresolved` - blocks #1076 |
-| **Unknown template adopters** | inventory §9 | unenumerable | `unresolved` - blocks #1076 |
+| `lib/project_next` | CxPP `lib/project_next` + CPP `vendor/project_next/**` | CPP canonical | `move` - #1069, **fresh copy, no history (Q8)**. **Hard prerequisite for the privacy flip, not for archival** (Q7): the vendor fetch is unauthenticated |
+| `vendor/claude-power-pack/` pull bridge (PIN, adoption-policy, overlays, sha256) | CxPP | retired with CxPP | `owner-approved-retirement` - the overlays exist to adapt CPP content FOR CxPP. With CxPP dormant they have no subject, so there is nothing to re-home |
+| `lib/skill_eval` + `make skill-eval-check`/`skill-eval-live` | retired with CxPP | `owner-approved-retirement` - Q5 |
+| `scripts/harness_lint.py` + allowlist | retired with CxPP | `owner-approved-retirement` - Q5 |
+| `scripts/skill_contract_lint.py`, `skill_contract_baseline.py` | retired with CxPP | `owner-approved-retirement` - Q5 |
+| `scripts/release_validate.py` + `make release-validate` | retired with CxPP | `owner-approved-retirement` - Q5. The release proof it served is retired with the plugin-distribution program |
+| `scripts/cxpp-hook-transition.py` | retired with CxPP | `owner-approved-retirement` - **CPP ships no hooks into the Codex namespace.** `make codex-install` writes `~/.codex/skills` only, so there is no installed-hook path to transition. **Spec B2 survives as a constraint**: if CPP ever ships a Codex hook, B2 reactivates and this capability has to be rebuilt, not remembered |
+| `~/.codex/scripts/` installed helper resolution | retired with CxPP | `owner-approved-retirement` - CPP's generated skills are self-contained under `~/.codex/skills`; nothing resolves from `~/.codex/scripts/` |
+| `lib/friction` (library) | CPP `friction-log.sh` + `.claude/friction.jsonl` | `already-covered` - parity examined: friction capture and its ledger. The Codex hook lane that needed a writer is retired with the hooks |
+| `.codex/hooks.json` (5 events) | retired with CxPP | `owner-approved-retirement` - CPP ships no Codex hooks |
+| `extensions/cxpp-issue-sync` | retired with CxPP | `owner-approved-retirement` - Q1's principle: incremental capability with no CPP analogue |
+| `extras/sequential-thinking` | retired with CxPP | `owner-approved-retirement` - Q1's principle: incremental capability with no CPP analogue |
+| `templates/project-next.schema.json`, `templates/*` | CPP with #1069 | `move` - consumer-facing contract. Q7 rules the downstream break accepted; the relocation still has to happen before the privacy flip |
+| 6 native-wave contract documents | CxPP `docs/` | retired with CxPP | `owner-approved-retirement` - Q1 |
+| `docs/release-process.md` | retired with CxPP | `owner-approved-retirement` - CPP owns its own release process |
+| Plugin-marketplace e2e records (6 docs) | retired with CxPP | `owner-approved-retirement` - Q6 retires the plugin-distribution program these records are evidence for |
+| **Unknown installed Codex hosts** | unenumerable | `owner-approved-retirement` - **Q7: accept-break.** Chosen, not defaulted into. The privacy flip executes it |
+| **Unknown plugin-marketplace installs** | unenumerable | `owner-approved-retirement` - **Q7: accept-break** |
+| **Unknown template adopters** | unenumerable | `owner-approved-retirement` - **Q7: accept-break** |
 
 ---
 
-## E. Accounting summary @ baseline
+## E. Accounting summary @ baseline, and after the 2026-09-20 rulings
 
-| | Count |
+| | @ baseline | After rulings |
+|---|---:|---:|
+| Open CxPP issues accounted | **40 / 40** | **40 / 40** |
+| Open CxPP PRs accounted | **1 / 1** | **1 / 1** |
+| Relevant CPP issues recorded | 14 | 14 |
+| Capabilities with no issue | 19 | 19 |
+| Owner decisions pending | 9 | **0 of Q1-Q9; 1 new (Q10)** |
+| Rows `unresolved` | 32 | **11** |
+| Rows blocking archive | 7 | **n/a - there is no archive gate** |
+
+**21 rows moved from `unresolved` to a disposition on one ruling.** That is what
+a governing principle buys, and it is also the reason to be careful with it: a
+sentence that disposes of twenty-one rows at once will dispose of a
+twenty-second nobody checked.
+
+**The 11 that remain are not leftovers; they are the ones the principle does not
+reach.** The ruling is about capabilities. These are defect findings and
+unverified findings, several naming families CPP is known or suspected to share -
+cxpp#274 is a secret-scan blind spot against a CPP control nobody has compared,
+and cxpp#275's CPP counterpart cpp#1029 is CLOSED - which says the family was
+addressed once, not that this variant was. **All eleven CxPP rows were verified
+OPEN on 2026-09-20**; the CPP issues they lean on were not, and two of those
+claims were wrong. Retiring a capability CPP does not want is the decision that
+was made. Retiring a finding that may describe a live CPP bug is a different
+one, and it has not been made. See **Q10**.
+
+**What went the other way.** Two rows improved on evidence rather than on ruling:
+cxpp#250 is now `already-covered` because cpp#970 merged on 2026-09-20
+(`aebb33c`, PR #1128), and Q2 dissolved entirely because cpp#962 closed the same
+morning. Both were written as pending 19 hours earlier.
+
+**Then the same check was run across ALL of section C, and the decay is not two
+rows - it is ten of fourteen.** Every CPP issue this ledger leans on was
+re-queried on 2026-09-20:
+
+| State @ 2026-09-20 | CPP issues |
 |---|---|
-| Open CxPP issues accounted | **40 / 40** |
-| Open CxPP PRs accounted | **1 / 1** |
-| Relevant CPP issues recorded | 14 |
-| Capabilities with no issue | 19 |
-| Owner decisions pending | 9 |
-| Rows `unresolved` | 32 |
-| Rows blocking #1076 (archive) | 7 |
+| **CLOSED** (10) | cpp#962, #970, #1027, #1028, #1029, #1030, #1034, #1036, #1047, #1048, #1054, #1066 - twelve counting the two the baseline already recorded |
+| OPEN (4) | cpp#864, #972, #1035, #1061 |
 
-**Nine pending decisions, not six.** Three were added by independent review
-after the first cut of this ledger, which is worth recording: the review did not
-find bad answers to the questions here, it found questions that were not being
-asked. Q7 in particular was implicit in an archive criterion that would have
-passed while breaking consumers nobody had enumerated.
+Section C is headed "existing CPP obligations the migration must not silently
+absorb or discharge". Most of them had already been discharged by CPP's own
+work, one and two days before anyone read the table. **The eleven CxPP rows in
+Q10 were verified OPEN in the same sweep**, so the findings themselves are live;
+it is the CPP counterparts they were argued against that moved.
 
-**32 unresolved rows is the deliverable, not a shortfall.** #1068's job was to
-find out what is undecided, and a ledger reporting few unresolved rows this early
-would mean an implementer had been deciding things. Each unresolved row names the
-child it blocks; none of them may be cleared by an implementer's judgement (spec
-**US6**, **B7**).
+**Two of those stale claims were load-bearing and were asserted by this
+document.** The Q10 case originally rested partly on "cxpp#275 has an OPEN CPP
+counterpart in cpp#1029" and "cxpp#283 bears on cpp#1036, both live". Both were
+false. Q10 survives on the remaining rows, but an argument for keeping eleven
+findings alive that cites two closed tickets as evidence of liveness is making
+the reader's mistake for them.
 
-**Three of the seven archive blockers are `unknown` consumer populations.** They
-cannot be closed by analysis of these two repositories - only by enumeration on
-hosts. #1076 should plan for that measurement rather than discovering it late.
+**The method, since it is the transferable part.** State was read per issue with
+a control on the extraction itself - cpp#962 asserted CLOSED and cpp#864
+asserted OPEN before trusting any other answer - because a query that returns
+nothing and a query that is broken are indistinguishable, and a sweep reporting
+everything OPEN would have looked exactly like the unswept original.
+
+A ledger that is not re-derived against the tree it describes decays this fast.
+Re-run this sweep before citing section C, not after.

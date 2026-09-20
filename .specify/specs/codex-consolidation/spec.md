@@ -3,6 +3,7 @@
 > **Branch:** `issue-1068-codex-consolidation-establish-the-migration-spec-c`
 > **Created:** 2026-09-19
 > **Status:** Draft
+> **Amended:** 2026-09-20 - owner rulings Q1-Q9 recorded; archive route replaced by dormancy
 > **Epic:** #1067 | **Established by:** #1068
 > **Companion documents:** [inventory.md](inventory.md) (what exists),
 > [ledger.md](ledger.md) (what happens to each thing), [plan.md](plan.md)
@@ -370,40 +371,68 @@ measured regressions cannot be corrected safely. Escalate the observation.
 
 ---
 
-## Archive exit criteria
+## Dormancy exit criteria
 
-CxPP may be archived (#1076) only when **all** of the following hold:
+**Superseded 2026-09-20.** This section previously read "Archive exit criteria"
+and gated an archive. The owner ruled that **CxPP is neither deleted nor
+archived**: it stops being updated and installed, its local folders are
+uninstalled, and the repository goes **private and dormant**. History, issues,
+PRs and attribution stay readable at their source.
 
-- [ ] Every shipped capability has a demonstrated replacement, or an explicitly
-      approved retirement.
-- [ ] Every known active consumer is migrated or explicitly retired.
-- [ ] Unfinished programs have durable owners and destinations.
-- [ ] Open PRs and user work (incl. cxpp#239) have recorded dispositions.
-- [ ] Both Nit Stores are triaged; no unresolved finding is lost.
-- [ ] No active build, install or update path requires CxPP.
-- [ ] The last supported CxPP release is preserved, and rollback to it has been
-      demonstrated.
-- [ ] **Unknown consumer classes have an explicit owner-approved disposition** -
-      discover, migrate, or accept-break - and a deprecation notice plus
-      migration guide is published to every channel CxPP was distributed
-      through. (Review finding **R2**: "every *known* active consumer is
-      migrated" is satisfiable while breaking consumers nobody enumerated, and
-      this inventory records three such populations. All three reviewers reached
-      this independently.)
-- [ ] **Host-level artifacts CxPP installed are uninstalled, adopted, or
-      explicitly left with recorded reason.** Three of its five hook handlers
-      execute from `~/.codex/scripts/`, so "no active build/install/update path
-      requires CxPP" can be true while a user's machine still runs its bytes on
-      every tool call. An abandoned trusted path is also a hijack target: a
-      later package writing to it inherits execution context. (Review finding
-      **R5**.)
+That is a weaker action than archival, and it retires some criteria honestly
+while making one *harder*. The criteria that fell away did so because their
+subject fell away - there is no release to roll back to if nothing is being
+released, and no capability to replace if the ruling retires it rather than
+migrating it. The one that got harder is the privacy flip, which is
+irreversible for anyone outside the org and executes Q7's accepted break the
+moment it happens.
+
+CxPP may go dormant only when **all** of the following hold:
+
+- [ ] **#1069 has landed.** `scripts/project-next-vendor.py:90-91` hardcodes
+      the CxPP `api_root`/`raw_root`, fetched by `lib/vendor.py`, which carries
+      no auth handling at all. `make project-next-drift` and
+      `make project-next-revendor` break when the repository goes private, and
+      a hardcoded URL does not degrade gracefully. This is the one hard
+      ordering constraint the dormancy route creates. (`make verify` is
+      unaffected.)
+- [ ] **PR cxpp#239 is merged** (Q3). The research documents sit on a branch;
+      merging is what makes "keep the Codex review docs in Codex" true of
+      `main`.
+- [ ] **Q10 is answered.** Eleven `unresolved` rows are defect findings, not
+      capabilities, and several name families CPP is known or suspected to
+      share. The governing principle disposes of capabilities; it does not
+      authorise discarding a finding that may describe a live CPP bug. This
+      replaces the old "both Nit Stores are triaged" criterion with a narrower
+      and checkable one.
+- [ ] Every CxPP issue closed under a 2026-09-20 ruling **cites that ruling** as
+      its recorded authority, per `docs/agents/issue-contract.md`. A bulk close
+      with no cited authority is the failure this ledger exists to prevent.
+- [ ] **Host-level artifacts CxPP installed are uninstalled.** The owner's own
+      machine is in scope ("I will uninstall its folders here"). Three of
+      CxPP's five hook handlers execute from `~/.codex/scripts/`; an abandoned
+      trusted path is also a hijack target, because a later package writing to
+      it inherits execution context. (Review finding **R5** survives dormancy
+      unchanged - going private does not unwrite a user's disk.)
 - [ ] **No documentation, install snippet or example still routes an active
-      flow through CxPP.** Copy-pasted instructions are a dependency path that
-      no build-graph check sees. (Review finding **R6**.)
+      flow through CxPP.** Copy-pasted instructions are a dependency path no
+      build-graph check sees. (Review finding **R6**.)
+- [ ] **A dated deprecation notice is published BEFORE the privacy flip**, not
+      after. Q7 is accept-break; a break announced only after the repository
+      stops being readable is not announced. (Review finding **R2**, which
+      survives the change of route: the original criterion permitted an archive
+      that breaks consumers nobody enumerated, and a privacy flip does exactly
+      the same thing faster.)
 - [ ] Explicit final owner approval is recorded.
 
-**Do not archive while consumers still need CxPP maintenance.** Historical
-provenance links are allowed and expected to remain.
+**Retired criteria, and why.** "Every shipped capability has a demonstrated
+replacement" and "unfinished programs have durable owners and destinations" are
+discharged by Q1/Q4/Q5/Q6 as `owner-approved-retirement` rather than satisfied.
+"The last supported release is preserved and rollback demonstrated" has no
+subject: nothing is being released, and the repository itself is the
+preservation. Recording *why* a criterion was dropped is the point - a criterion
+that quietly disappears from a checklist is indistinguishable from one that was
+met.
 
 ---
 
@@ -471,42 +500,46 @@ Explicitly NOT part of the migration as a whole:
 
 ## Open Questions
 
-These are tracked as `OWNER DECISION - PENDING` rows in [ledger.md](ledger.md).
-Listed here so the spec's reader sees what it deliberately did not decide.
+Q1-Q9 were **resolved by the owner on 2026-09-20**. The rulings, their
+consequences and their citations are recorded in [ledger.md](ledger.md) §A;
+this list is the index, not the record.
 
-- [ ] **Q1.** Native-wave (cxpp#189/#192/#193/#194 and stories): relocate to CPP,
-      transfer to Kyle, or owner-approved retirement? Blocks #1072.
-- [ ] **Q2.** SAST: CPP #962 owns bandit adoption. Does CxPP's existing SAST
-      protection move, or lapse pending #962? Lapsing is a reduction in
-      protection and needs a ruling. Blocks #1070.
-- [ ] **Q3.** PR cxpp#239 (open, docs mirror): merge before freeze, migrate the
-      content to CPP, or close with the work preserved elsewhere? Blocks #1076.
-- [ ] **Q4.** The balanced-delivery program (cxpp#219/#220 and stories
-      #223-#226): CPP already has `.specify/specs/balanced-agentic-development`.
-      Is the CxPP program already-covered, or does it carry obligations CPP's
-      spec does not? Blocks #1072.
-- [ ] **Q5.** CxPP-native instruments with no CPP analogue (`harness_lint`,
-      `skill_contract_lint`, `skill_eval`, `release_validate`): adapt into CPP,
-      or retire with approval? Blocks #1071.
-- [ ] **Q6.** Does the Codex adapter keep CxPP's **native** skills as native, or
-      converge on CPP's generated-surface model? This is the central
-      compatibility choice of #1071.
-- [ ] **Q7.** Unknown consumer populations (installed Codex hosts,
-      plugin-marketplace installs, template adopters): **discover** them before
-      cutover, **migrate** what can be reached, or **accept-break** with a
-      published notice? Blocks #1074 and #1076. Raised by all three independent
-      reviewers; the archive criteria as first written permitted an archive that
-      breaks them.
-- [ ] **Q8.** Git history for relocated code: does `project_next`, and whatever
-      Q1 moves, travel with its history (subtree/filter-repo) or arrive as a
-      fresh copy? A copy loses `git blame` and the provenance of every decision
-      in it, which is obligation context, not just convenience. Blocks #1069.
-- [ ] **Q9 (ORDERING, raised against the epic itself).** #1075 performs backlog
-      reconciliation **after** #1074 proves the release. If reconciliation then
-      surfaces a missed obligation, #1074's evidence is invalidated and must be
-      re-run. Reordering is a change to the epic's own sequence and therefore
-      not a change this spec may make; it is surfaced here as review finding
-      **R9** for the owner.
+- [x] **Q1.** Native-wave: **owner-approved-retirement.**
+- [x] **Q2.** SAST: **moot.** CPP adopted bandit 2026-09-20 (`3d4a9a3`, PR
+      #1118, cpp#962 CLOSED). The question was posed against a repository state
+      that had already changed.
+- [x] **Q3.** PR cxpp#239: **keep the docs in CxPP; merge before dormancy.**
+- [x] **Q4.** Balanced-delivery program: **owner-approved-retirement.** No
+      parity comparison required, because nothing is claimed `already-covered`.
+- [x] **Q5.** CxPP-only instruments: **owner-approved-retirement** (all four).
+- [x] **Q6.** Skill model: **CPP's generated surface.** The 85 native and 74
+      plugin-packaged skills are not carried.
+- [x] **Q7.** Unknown consumers: **accept-break**, executed by the privacy
+      flip, with the deprecation notice published before it.
+- [x] **Q8.** Git history: **fresh copy.** The question's premise - that a copy
+      loses provenance - does not hold when the source repository persists.
+- [x] **Q9.** Ordering: **dissolved.** No archive gate, so no release proof for
+      a late reconciliation to invalidate.
+
+### Q10. Which of the remaining findings describe live CPP defects? (PENDING)
+
+Raised **by** the Q1-Q9 rulings, not left open by them. The governing principle
+disposes of *capabilities*. Eleven `unresolved` rows in the ledger are **defect
+findings**, several naming families CPP is known or suspected to share:
+cxpp#274 is a secret-scan blind spot against a CPP control nobody has compared.
+All eleven were verified OPEN on 2026-09-20; the CPP issues they lean on were
+re-checked at the same time, and cpp#1029 and cpp#1036 both proved CLOSED.
+
+- [ ] **Q10.** For each of cxpp#227, #256, #257, #259, #274, #275, #277, #279,
+      #281, #282 and #283: does CPP have the same defect? **Yes** gives
+      `already-covered` with a parity statement, or a filed CPP issue. **No**
+      gives `owner-approved-retirement`. Blocks dormancy, not #1068.
+
+**Why this is a question and not an implementer's judgement call.** Answering
+"no" by inspection - reading CPP's code and concluding it looks fine - is
+exactly the failure mode `already-covered` was given a parity requirement to
+prevent, and the same one ADR 0008 addresses for control batteries. Each "no"
+needs the comparison stated, not asserted.
 
 ---
 
