@@ -84,6 +84,59 @@ step that catches a different consequence of the same error (a merge conflict
 after a missed file-overlap warning) is a backstop, not a re-derivation, and
 does not exclude the earlier instrument.
 
+### Necessary, and not sufficient (#970)
+
+> A committed negative control is **necessary and not sufficient**. A battery's
+> soundness is established by **mutation** - break each protection in turn and
+> require some control to fail - and never by inspection.
+
+The bound above says WHICH instruments need a committed control. It does not say
+that having one makes a battery sound, and the difference is not a nuance.
+
+An instrument is not one decision. It is a STACK of protections, and a single
+end-to-end case only travels whichever path its own input happens to take. Every
+OTHER protection can be deleted with the battery still green.
+
+Demonstrated in wave `cpp-completion` on 2026-09-15. A battery of nine controls
+was committed with a reachability sweep in #955, including a RED that genuinely
+failed on the unfixed code and a GREEN positive control. The orchestrator read the
+battery at the plan gate, judged the set correct, and explicitly called the
+positive control load-bearing. A second model then disabled comment rejection,
+command-position matching, hook detection and transitive scanning, one protection
+at a time. **All nine controls kept passing, exit 0 every time.**
+
+**Inspection structurally cannot catch this, and that is a fact about gates rather
+than a criticism of any ruling.** A battery that survives its own protections being
+removed and one with full coverage produce identical output and look identical on
+the page. Reading is the only method a review gate has. So a clearance that rested
+on "it has a committed negative control" established that the control exists, never
+that the battery covers the instrument - and every clearance given on that basis is
+in the same position, including the ones given by whoever is reading this.
+
+**What follows from that, and what does not.** The requirement is on the AUTHOR of
+an instrument the bound captures, at the point the battery is written: name the
+protections, break each one, and record which control failed. It is not a new
+review gate, not a tier, and not a per-run cost - mutation is paid once per
+instrument, not once per run, so #952's per-run rejection criterion does not bite.
+What #970 measured about affordability is in
+[the re-examination](../research/battery-mutation-re-examination-2026-09-20.md);
+it is not assumed here.
+
+`scripts/mutation-probe.py` makes this a command rather than an exhortation.
+Declarations live in the battery's own `control.json`, and a protection whose
+control genuinely cannot be written is recorded as `expect: "uncaught"` with a
+written reason - a STATED gap rather than a hidden one - which reverts to a red
+the moment a control does reach it. `make mutation-probe` and the CI step of the
+same name run it; `docs/scripts.md` holds the contract.
+
+**The re-examination this produced, and what it found.** Four merged batteries had
+never been mutation-tested, which #955's own author raised against their own work:
+*"my #957 control pair should be held to the same standard, and it has not been."*
+Of the enumerated protections actually probed, **#960's shellcheck battery
+exercised 2 of 12**, **#955's sweep 3 of 5 despite its own self-test reporting 5 of
+5**, and **#953's prototype 4 of 7**. None of those numbers was obtainable by
+reading, and none of the authors was wrong about anything they claimed.
+
 ### The carve-out
 
 A unit test whose failure would be caught by the next test in the same file
@@ -257,7 +310,7 @@ another repo (the escalation clause); a row can be both.
 | 60 | `lib.security scan` / `quick` / `deep` | findings by severity | `/security:*` in any repo | X |
 | 61 | `lib.security gate` (quick scan only) | two policies: `flow_finish` blocks CRITICAL and warns HIGH; `flow_deploy` blocks CRITICAL and HIGH and warns MEDIUM (`lib/security/config.py`) | `/flow:finish` and `/flow:deploy` in any repo; a control has to cover the HIGH case that passes finish and blocks deploy | G, X |
 | 62 | `shellcheck-gate.sh` (`make shellcheck`, CI `shellcheck`) | `shellcheck-gate: ok - N file(s) scanned at severity=S, 0 findings (source=git\|find)`, or non-zero; `UNKNOWN` (exit 2) when it could not look | `make verify` and the CI pipeline, which let work through on its verdict (#960) | G |
-| 63 | `check-negative-controls.py` (`--strict`, CI `negative-controls`) | per-gate `PASS\|BLIND\|INERT\|UNRESOLVED\|UNPROVEN\|UNSIGNALLED`, then `negative-controls: ok - N control(s) discriminate` or a non-zero refusal | CI at `.woodpecker.yml`, which lets work through on its verdict; read by other sessions and other repos without re-derivation (#964, #981). CORRECTED (#1028): this cell also named `make verify`, which has never consumed it - there was no `negative-controls` target at all until #1028 added one, deliberately OUTSIDE `verify`. `make test` does run the whole battery, twice, through `tests/test_negative_controls.py:567` and `:876`, but neither passes `--strict` and neither asserts a battery-wide verdict, so 19 of 20 verdicts are computed and discarded (#1117). A census cell asserting a consumer that does not exist is how #1028's own premise came to be written down as settled | G, X |
+| 63 | `check-negative-controls.py` (CI `negative-controls` with `--strict`; `make negative-controls`, in `verify`, with `--strict --allow-unavailable`) | per-gate `PASS\|BLIND\|INERT\|UNRESOLVED\|UNPROVEN\|UNSIGNALLED\|UNAVAILABLE`, then `negative-controls: ok - N of M enumerated instruments ... discriminate` plus a NAMED list of any UNEXAMINED controls, or a non-zero refusal. `UNAVAILABLE` (#1117) is the gate's own tool being absent - an environment fact rather than a claim about the control, tolerated only under `--allow-unavailable` and never silently: bare `--strict`, which is what CI passes, still fails on it | CI at `.woodpecker.yml`, and `make verify`, both of which let work through on its verdict; read by other sessions and other repos without re-derivation (#964, #981). TWICE-CORRECTED, and the sequence is the point. This cell named `make verify` for months while no `negative-controls` target existed at all; #1028 corrected it to CI-only and added the target deliberately OUTSIDE `verify`, because the harness could not then tell "UNSIGNALLED because the tool is absent" from "UNSIGNALLED because the gate stopped signalling" and a host without gitleaks, shellcheck or jq would have failed the gate for an environment reason. #1117 split that distinction out and put the target IN `verify`, so the consumer is real now in a way it was not when it was first written down. A census cell asserting a consumer that does not exist is how #1028's own premise came to be written down as settled | G, X |
 | 64 | `npm-global-upgrade.sh` | `NPM_UPGRADE: upgraded\|current\|downgraded\|capped\|not-upgraded\|failed\|unknown` | `/cpp:update` Step 5d.2 and 5d.3 compose the Step 10 `Local-Model Lanes` line from it, and neither the operator reading that line nor a later session re-derives the installed version (#1022) | X |
 | 65 | `dependency-audit.py` (`make dep-audit`, CI `dependency-audit`) | `dependency-audit: ok - N file(s) examined (source=walk\|capture), M package(s), G gating finding(s), S stale allowlist line(s)`, or `DEP-AUDIT-FINDING:` / `DEP-AUDIT-STALE:` (exit 1) / `DEP-AUDIT-UNKNOWN:` (exit 2) | CI at `.woodpecker.yml`, which lets work through on its verdict and does not re-derive it. NOT `lib/security/modules/pip_audit.py`, which is a different instrument with a different consumer: that adapter runs only inside `/security:scan`, skips silently when the binary is absent, and reads a `requirements.txt` this repository does not have (#961) | G |
 | 66 | `check-oscillation.py` (`make oscillation`, CI `validate`) | `OSCILLATION_FINDING:` per two-sided change, else a clean verdict line | `make verify`, which lets work through on it; ADR 0009's detector, and nothing downstream re-derives whether a change reverses an earlier one (#936) | G |
@@ -288,7 +341,8 @@ another repo (the escalation clause); a row can be both.
 | 91 | `verify-coverage-check.py` | `VERIFY_COVERAGE_TARGETS:` / `_EXAMINED:` / `_SCRIPTS:` / `_CENSUS:` on every run, then `UNACCOUNTED:` / `MISCLASSIFIED:` / `STALE:` / `UNDECLARED:` findings (exit 1) or `verify-coverage-check: ok - ...` (exit 0); `_CENSUS: unread` says the `not-a-checker` cross-check did not run, because unread must not read as empty | `make verify` - as a prerequisite, and again as the RECIPE that prints the closing 'what this run did NOT examine' report. Nothing downstream re-derives either: the report IS the consumer, and a report that under-names is indistinguishable from a repository with less to name. It is the only instrument that can see row 40's own failure mode - a sub-gate silently dropped from `verify`'s prerequisite list, which no member row can self-report - and the only one that asks whether a checker in `scripts/` is reachable from any gate at all (#1028). Controlled at `controls/verify-coverage` | G |
 | 92 | `undeclared-import-audit.py` (`make undeclared-import-audit`, CI `undeclared-import-audit`) | `undeclared-import-audit: ok - N file(s) examined under <root>/ (pruned: ...), I distinct module-level third-party import name(s), U undeclared, A accepted, S stale allow line(s); D guarded/deferred name(s) are outside this gate's question`, or `UNDECLARED-IMPORT:` / `UNDECLARED-IMPORT-STALE:` (exit 1) / `UNDECLARED-IMPORT-UNKNOWN:` (exit 2) | `make verify` and the CI `undeclared-import-audit` step, both of which let work through on its verdict and neither of which re-derives it. It is the instrument for the blind spot `dependency-audit` (row 87) structurally cannot cover: that gate asks OSV about what `uv.lock` PINS, so a package imported directly and declared nowhere is never queried and cannot appear in any advisory row however vulnerable it is. The STALE direction is load-bearing rather than decorative - an entry that accounts for nothing exits 1, and it fired on its own author's intended entry before that entry was committed (#1041). Resolution reads COMMITTED METADATA ONLY and never `importlib.metadata`, which reports what is installed and would make the verdict depend on the machine, the ambient-scan failure #1044 closed one gate over | G |
 | 93 | `check-control-ci-deps.py` (`make control-ci-deps-check`) | `CI_DEPS_STEP:` / `CI_DEPS_STAGED:` (and `CI_DEPS_UNRESOLVED_STAGE:` when a staging step cannot be read), then `CI_DEP:` / `CI_PIPELINE:` findings (exit 1) or `control-ci-deps: ok - N of M registered control(s) ...` (exit 0) | `make verify`, which lets work through on it, and nothing downstream re-derives it. It is the ONLY instrument whose subject is an environment it does not run in: a registered control that needs a binary the `negative-controls` image lacks does not fail alone, it makes the whole register unable to report (the harness refuses to SKIP a control it cannot run), and the condition is invisible on a dev box where every tool is present. The provided set is DERIVED - the battery step's image from `.woodpecker.yml`, pinned against `CI_IMAGE` in `check-test-binary-guards.py`, plus what its `depends_on` steps stage into `.ci-bin` (#1036). Controlled at `controls/control-ci-deps` | G |
-| 94 | `flow-vantage.sh` | `FLOW_VANTAGE_BASIS:` / `FLOW_VANTAGE_SOURCE: measured\|declared` / `FLOW_VANTAGE: host\|container\|unknown`, one exit code per verdict (0/3/4) | `flow-wave-registry.sh register` derives it once and STORES it on the role entry, and `get` / `list` serve it to the ORCHESTRATOR - a different session, on a different machine, which cannot re-derive a fact about somebody else's process. The decision it feeds inverts across the boundary: past it the mailbox is lane 1 and `SendMessage` addresses a population holding no fleet peer, so a wrong `host` is not a slower send but a silent non-delivery that returns success (#947, #958). `unknown` is a first-class third state for the same reason - the two usable signals can disagree, and a default that quietly absorbs the disagreement is how a three-state contract decays into a two-state one. Controlled at `controls/flow-vantage`, whose anchor is CONSTRUCTED: the gate is new, so there is no blind ancestor to vendor, and the vendored artifact is instead the mount-shaped check `register.md` recommended until 2026-09-16, which answers `host` on both sides of the boundary | X |
+| 94 | `mutation-probe.py` (`make mutation-probe`, CI `mutation-probe`) | `MUTATION_PROBE_SOURCE:` / `_SANDBOX:` / `_BASELINE:` / `_POPULATION:` / `_COVERAGE:` on every run, then `MUTATION-CAUGHT:` / `MUTATION-ACCEPTED:` per declared protection, or `MUTATION-UNCAUGHT:` / `MUTATION-STALE:` / `MUTATION-INAPPLICABLE:` / `MUTATION-UNRESOLVED:` (exit 1 under `--strict`) | The CI `mutation-probe` step, which lets work through on its verdict and which nothing downstream re-derives. It answers the question `negative-controls` (row 60) structurally cannot: that gate asks whether a control DISCRIMINATES, and a battery can discriminate perfectly while covering one of an instrument's protections - #955's nine controls all passed with four protections disabled (#970). The ACCEPTED verdict is load-bearing rather than decorative in both directions: it records a gap whose control cannot be written, and reverts to `MUTATION-STALE` (exit 1) the moment a control does reach it, so an acceptance cannot outlive its reason. The declared count is NOT a coverage fraction and the summary line says so - enumerating an instrument's protections is not a mechanical question, so the number states how hard somebody looked | G |
+| 95 | `flow-vantage.sh` | `FLOW_VANTAGE_BASIS:` / `FLOW_VANTAGE_SOURCE: measured\|declared` / `FLOW_VANTAGE: host\|container\|unknown`, one exit code per verdict (0/3/4) | `flow-wave-registry.sh register` derives it once and STORES it on the role entry, and `get` / `list` serve it to the ORCHESTRATOR - a different session, on a different machine, which cannot re-derive a fact about somebody else's process. The decision it feeds inverts across the boundary: past it the mailbox is lane 1 and `SendMessage` addresses a population holding no fleet peer, so a wrong `host` is not a slower send but a silent non-delivery that returns success (#947, #958). `unknown` is a first-class third state for the same reason - the two usable signals can disagree, and a default that quietly absorbs the disagreement is how a three-state contract decays into a two-state one. Controlled at `controls/flow-vantage`, whose anchor is CONSTRUCTED: the gate is new, so there is no blind ancestor to vendor, and the vendored artifact is instead the mount-shaped check `register.md` recommended until 2026-09-16, which answers `host` on both sides of the boundary | X |
 
 > **Rows 66-73 were added by #1060, and how they were found is the point.** None
 > of the eight was a judgement that had been made and deferred - they were simply
@@ -584,6 +638,25 @@ only this host, and kyle session containers do not mount `~/.claude/CLAUDE.md`
 at all (kyle#1176), so a containerised session builds instruments under a rule
 it cannot read until that mount lands.
 
+**#970's amendment to that block is PROPOSED here and NOT applied.** The same
+host-managed file is outside this repository, and a change to it takes effect for
+every project on the machine rather than for this one, so it is the owner's edit
+to make. Quoted so it is auditable and so the decision is not lost if it is
+declined - the block gains one bullet, after the three above:
+
+```
+- A committed control is NECESSARY and NOT SUFFICIENT. An instrument is a stack
+  of protections and one end-to-end case travels only its own path, so the rest
+  can be deleted with the battery still green. Establish a battery by MUTATION -
+  break each protection in turn, require some control to fail - never by reading
+  it. A protection whose control cannot be written is recorded as a stated gap,
+  not left silent.
+```
+
+Until it is applied, the rule reaches instruments built in this repository -
+where this ADR, `docs/scripts.md`, `make mutation-probe` and the CI step all
+state it - and does not reach instruments built elsewhere on this host.
+
 ## Consequences
 
 - `instrument`, `harness` and `counter-model` are defined terms
@@ -608,7 +681,11 @@ it cannot read until that mount lands.
   of them have a control today is not measured here. That is #924's job, one
   instrument at a time, starting with #933.
 - **It does not make the suite discriminate.** The carve-out moves the
-  question to mutation testing and answers nothing about it.
+  question to mutation testing, and #970 answers it only for a battery that
+  declares its protections - `mutation-probe` asks whether a DECLARED protection
+  is exercised, never whether the declaration is complete, and it says so in its
+  own summary line. Whether the 2,408-function suite discriminates remains
+  unmeasured.
 - **It does not reach the other repos' instruments.** kyle's fleet checks and
   health probes (kyle#1209) and codex-power-pack's adoption (CxPP#240) apply
   the same bound to their own trees; this enumeration is CPP's only.

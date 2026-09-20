@@ -396,10 +396,46 @@ steps:
     commands:
       # `.ci-bin` carries the PINNED shellcheck staged by shellcheck-stage
       # and the PINNED jq staged by jq-stage.
-      # The harness refuses to SKIP a control it cannot run - it reports
-      # UNSIGNALLED and fails - so a registered control's tool must be present
-      # HERE, not merely somewhere in the pipeline.
+      # The harness refuses to SKIP a control it cannot run - so a registered
+      # control's tool must be present HERE, not merely somewhere in the
+      # pipeline. Since #1117 it reports that refusal as UNAVAILABLE rather than
+      # UNSIGNALLED or BLIND, which is a better DIAGNOSIS and deliberately not a
+      # softer verdict: BARE `--strict` still fails on it.
+      #
+      # DO NOT ADD `--allow-unavailable` HERE. That flag exists for `make verify`
+      # on a developer box, which may legitimately lack gitleaks, shellcheck or
+      # jq. This step stages all three on purpose, so an absent one means a
+      # staging step stopped delivering - and the note under `shellcheck-stage`
+      # below, plus tests/test_shellcheck_stage.py, both rest on this step
+      # REDDENING in exactly that case rather than reporting a shorter battery.
       - PATH="$PWD/.ci-bin:$PATH" python3 scripts/check-negative-controls.py --strict
+
+  # THE SECOND HALF OF THE SAME QUESTION (issue #970). `negative-controls` above
+  # asks "does this control discriminate". It cannot ask "does this BATTERY cover
+  # the gate", and no reading can: an instrument is a stack of protections, one
+  # end-to-end case travels only its own path, and every other protection can be
+  # deleted with the battery still green. On 2026-09-15 a second model disabled
+  # four protections of a freshly-merged tool one at a time and all nine of its
+  # committed controls kept passing, exit 0 every time.
+  #
+  # So this step breaks each DECLARED protection in turn and requires a control to
+  # fail. Its own step for the same reason the one above has one, and AFTER it in
+  # the dependency order deliberately: every mutation is scored against a battery
+  # that must be green first, so a register already red would make every mutation
+  # read CAUGHT for free. Running the two in parallel would let that happen
+  # without anything saying so.
+  #
+  # It needs the same PINNED tools - it drives the same batteries - and uv here is
+  # not decoration: `{python}` in a manifest's declared battery resolves to the
+  # interpreter running the probe, and the sandbox it builds holds TRACKED FILES
+  # ONLY, so a battery that resolves its runner by walking parents for a .venv
+  # finds none. Under a bare interpreter such a battery reports every case UNKNOWN
+  # and the step would redden on an environment fact.
+  mutation-probe:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
+    depends_on: [negative-controls]
+    commands:
+      - PATH="$PWD/.ci-bin:$PATH" uv run --extra dev python scripts/mutation-probe.py --strict
 
   # STAGING ONLY, SPLIT OUT OF THE GATE (issue #1086). `validate` depends on the
   # shellcheck side of the pipeline for exactly one thing - the PINNED binary in
@@ -425,7 +461,10 @@ steps:
   # quietly green. `scripts/shellcheck-gate.sh` reports UNKNOWN and exits 2 when
   # the binary is absent - never 0 - and `check-negative-controls.py` refuses to
   # SKIP a control it cannot run, so `negative-controls` reddens rather than
-  # reporting a shorter battery. `tests/test_shellcheck_stage.py` holds that
+  # reporting a shorter battery. Unchanged by #1117: that issue renamed the
+  # verdict here from UNSIGNALLED to UNAVAILABLE, which is a different DIAGNOSIS
+  # and not a softer one - the step above passes bare `--strict`, which fails on
+  # it exactly as before. `tests/test_shellcheck_stage.py` holds that
   # refusal as a committed case, because "the tool was there on every run so far"
   # is not evidence about what happens when it is not.
   shellcheck-stage:

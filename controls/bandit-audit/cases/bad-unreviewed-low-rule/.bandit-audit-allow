@@ -1,0 +1,7 @@
+# Fixture ledger for controls/bandit-audit/cases/bad-unreviewed-low-rule (issue #1114).
+#
+# A record for a DIFFERENT LOW class than the one the capture reports. That is
+# the point of the case: an empty ledger would also score BAD, and would leave
+# "the gate reads this file at all" unproven - a case that passes because the
+# parser found nothing proves nothing about the check under test.
+reviewed-low B404 #1114

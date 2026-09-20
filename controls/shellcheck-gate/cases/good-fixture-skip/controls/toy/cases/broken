@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# A DELIBERATELY BROKEN fixture sitting where a control keeps its own bad cases.
+# The gate must SKIP it: controls/*/cases/* is a deliberately-bad population that
+# the control owning it lints, not this gate. Extensionless on purpose - a *.sh
+# name here would also be caught by the vendored anchor, which globs *.sh and has
+# no such exclusion, and an anchor that disagrees on a known-GOOD input cannot
+# isolate the blindness under test.
+set -eu
+prefix=build
+echo "$prefix[release]"

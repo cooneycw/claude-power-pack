@@ -62,8 +62,10 @@ have exited non-zero. Three observations replace two:
 
     GOOD         exit == good_exit                    - reported nothing
     BAD          exit != good_exit AND signal present - reported a finding
-    UNSIGNALLED  exit != good_exit AND signal absent  - exited like a finding
-                                                        and said nothing that
+    UNAVAILABLE  exit != good_exit AND the DECLARED   - could not look: its own
+                 unavailability signal present          tool is not installed
+    UNSIGNALLED  exit != good_exit AND neither        - exited like a finding
+                 present                                and said nothing that
                                                         identifies one
 
 A declared signal is not automatically a usable one, and two ways of getting it
@@ -107,7 +109,7 @@ blind artifact is checked in, and git is used only to VERIFY its provenance,
 where git happens to exist.
 
 ---------------------------------------------------------------------------
-Six verdicts, because collapsing any of them loses a distinction that has
+Seven verdicts, because collapsing any of them loses a distinction that has
 already cost someone work
 ---------------------------------------------------------------------------
 PASS        discrimination holds and the anchor demonstrates the blindness.
@@ -126,11 +128,94 @@ UNSIGNALLED the gate exited like a finding and said nothing that identifies
             an alarm about the GATE, but a DIFFERENT one from BLIND: "it missed
             the input" sends a reader into the detection logic, and this gate is
             throwing. Keeping them apart is the same rule as UNRESOLVED-vs-BLIND.
+UNAVAILABLE the gate reported that ITS OWN TOOL is not installed, so it could
+            not look here (issue #1117). An ENVIRONMENT fact, and the only
+            verdict in this list that is not a statement about the control or
+            the gate at all - which is exactly why it may not share a word with
+            any of them. See the next section.
 
 PROVENANCE is a SEPARATE AXIS, never folded into the verdict and never a verdict
 of its own: `ok` when the vendored anchor was byte-compared against its recorded sha,
 `unverified` when git was unavailable to check. `unverified` must never print as
 `ok` - the same rule as "unknown is not 0".
+
+---------------------------------------------------------------------------
+"ITS TOOL IS MISSING" IS NOT "IT STOPPED DISCRIMINATING" (issue #1117)
+---------------------------------------------------------------------------
+Three registered gates drive an external binary: `secret-scan-check.sh` needs
+gitleaks, `shellcheck-gate.sh` needs shellcheck, `flow-driver-retirement-check.sh`
+needs jq. Each correctly REFUSES to report a clean verdict when its tool is
+absent - the refusal is the honest behaviour and none of it is changing here.
+What was wrong is how this harness then filed that refusal.
+
+MEASURED on 2026-09-20 by removing one binary at a time from a PATH otherwise
+identical to the real one (every other executable symlinked through, so the
+absence is one tool rather than a bare `PATH=`):
+
+    gitleaks absent    -> controls/secret-scan                  UNSIGNALLED
+    shellcheck absent  -> controls/shellcheck-gate              UNSIGNALLED
+    jq absent          -> controls/flow-driver-retirement-check BLIND
+    git absent         -> no control changes verdict
+
+Two different wrong answers, and the second is the louder one. UNSIGNALLED says
+"the gate exited like a finding and said nothing that identifies one", which
+sends a reader into that gate's detection logic. BLIND says "the gate did not
+discriminate", the strongest alarm in this vocabulary. Both are accusations
+about OUR CODE for a fact about THIS MACHINE, and the correct response - install
+a tool - appears in neither.
+
+The jq case is worth stating separately because it is the one the ticket for
+this work predicted as UNSIGNALLED and it is not. That gate reports
+`RETIREMENT: unknown - jq is not installed`, and its control declares
+`^RETIREMENT: (blocked|unknown)\b` as `detect_signal` - deliberately, since for
+that gate an `unknown` verdict IS the finding a caller must not delete on. So
+the unavailability message MATCHES the detection pattern, the known-GOOD case
+scores BAD, and the control lands on BLIND.
+
+WHY UNAVAILABILITY IS CHECKED BEFORE DETECTION, which is the whole design.
+An ordering rule that put `detect_signal` first reads naturally - a reported
+finding is a finding - and leaves the jq case exactly as broken as it is today,
+because that gate's two messages are not separable in that direction. The
+specific pattern has to win over the general one, so `unavailable_signal` is
+consulted first and `detect_signal` second.
+
+That ordering is a FAIL-OPEN unless the pattern is constrained, because a loose
+`unavailable_signal` would now excuse real findings. Three constraints, and each
+is checked against output this harness already has in hand rather than against
+the manifest author's intention:
+
+  1. IT MAY NOT MATCH EMPTY OUTPUT. `.*`, a bare `^`, a trailing `|` - each
+     turns every silent non-zero exit into "the tool must have been missing",
+     which is the pre-#946 fail-open restored wearing a new field's name. This
+     is the blindness `controls/check-negative-controls-unavailable` pins as a
+     committed artifact.
+  2. IT MAY NOT MATCH A CLEAN RUN. A pattern anchored on the gate's ok line
+     would report a working gate as unexaminable. Checked against the known-GOOD
+     case's REAL output.
+  3. IT MAY NOT SURVIVE A RUN THAT PROVES THE TOOL WAS THERE. If any case
+     reports unavailability while another case through the SAME gate produced a
+     REAL VERDICT - a clean run OR a genuine detection - the tool was present
+     enough to run one and not the other, which is not what a missing binary
+     does. That contradiction is UNRESOLVED, and it is what catches a pattern
+     loose enough to swallow a genuine finding on a host where the tool IS
+     installed. Both verdicts count as proof the gate ran: counting only the
+     clean one left a gate that DETECTED its known-bad input and then claimed
+     unavailability on the known-good one entirely unguarded (counter-model
+     review of this change).
+
+THE FIELD IS OPTIONAL, and the asymmetry with `detect_signal` is deliberate
+rather than an oversight. `detect_signal` had to be required because defaulting
+it left every control exactly as blind as before the fix. Omitting
+`unavailable_signal` has the opposite effect: nothing can be excused, every
+verdict stays what it is today, and a gate with no external tool has nothing
+truthful to declare. Absence fails CLOSED here, so it costs nothing to allow.
+
+WHAT MOVES THIS BACK (the reversal trigger, ADR 0009). If a control ever needs
+an `unavailable_signal` for a message its gate emits for a reason OTHER than its
+own tool being absent, the declared-signal design is the wrong guard for that
+case and this comes out rather than widening to accommodate it. The check to run
+is reading the three manifests' patterns against their gates' message sets, not
+waiting for a report.
 
 ---------------------------------------------------------------------------
 Never read the installed copy
@@ -145,7 +230,8 @@ that looked like a successful demonstration: right about the file it read, and
 silent about main.
 
 Usage:
-    check-negative-controls.py [--root DIR] [--strict] [--verify-provenance] [--quiet]
+    check-negative-controls.py [--root DIR] [--strict] [--allow-unavailable]
+                               [--verify-provenance] [--quiet]
 """
 
 from __future__ import annotations
@@ -157,6 +243,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from dataclasses import dataclass, field
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
@@ -192,6 +279,21 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 #:     mutation, the external control has become decoration and this
 #:     self-registration is all that remains, which is the state this design
 #:     exists to prevent.
+#: NEGATIVE-CONTROL: controls/check-negative-controls-unavailable
+#:     A SECOND registration on this gate (issue #1117), covering a property the
+#:     row above does not: that a gate reporting its own tool absent is still
+#:     told apart from a gate that went silent. Separate rather than two more
+#:     cases on the existing control because the property is only observable
+#:     under `--allow-unavailable`, and adding that flag to the other control's
+#:     invocation would make its frozen pre-#946 anchor exit 2 on an
+#:     unrecognised argument - turning a working control UNRESOLVED to test an
+#:     unrelated one. Several registrations per gate have been supported since
+#:     #986; this is the first gate to use it, which is worth knowing if that
+#:     path ever looks untested.
+#:
+#:     It inherits the self-registration caveat stated in full above and does
+#:     not repeat it: this harness judging itself is the weaker half, and
+#:     `tests/test_negative_controls.py` under pytest is the external opinion.
 #: The registration directive, read out of the GATE file itself so the control
 #: cannot outlive the instrument it covers. Deleting the gate deletes the
 #: registration with it; a directive naming a directory that is not there is an
@@ -206,6 +308,13 @@ BAD = "BAD"
 #: only GOOD or BAD. A manifest cannot ask for UNSIGNALLED, because "I expect
 #: this gate to fall over" is not a property anyone should be able to register.
 UNSIGNALLED = "UNSIGNALLED"
+
+#: A FOURTH observation and, unlike UNSIGNALLED, also a verdict (issue #1117).
+#: `cases[].expect` still takes only GOOD or BAD for the same reason: "I expect
+#: this machine not to have gitleaks" is not a property of the control, and a
+#: manifest that could register it would be asserting the environment rather
+#: than the gate.
+UNAVAILABLE = "UNAVAILABLE"
 
 PASS = "PASS"
 BLIND = "BLIND"
@@ -540,16 +649,31 @@ def _run(argv: list[str], cwd: Path) -> tuple[int | None, str, str]:
     return proc.returncode, output, stderr.splitlines()[-1] if stderr else ""
 
 
-def _observe(exit_code: int, good_exit: int, output: str, signal: re.Pattern[str]) -> str:
-    """What the run SAYS happened - three answers, not two (issue #946).
+def _observe(
+    exit_code: int,
+    good_exit: int,
+    output: str,
+    signal: re.Pattern[str],
+    unavailable: re.Pattern[str] | None = None,
+) -> str:
+    """What the run SAYS happened - four answers, not two (issues #946, #1117).
 
     The exit code alone cannot separate "I found the planted problem" from "I
     fell over", because a crash exits non-zero too. So a non-zero exit is only
     read as detection when the gate also emitted its declared signal; without it
     the honest answer is UNSIGNALLED, which is neither verdict.
+
+    `unavailable` is consulted BEFORE `signal`, and the docstring section
+    "ITS TOOL IS MISSING IS NOT IT STOPPED DISCRIMINATING" is where that order
+    is argued: the two messages are not separable in the other direction for
+    `flow-driver-retirement-check.sh`, whose unavailability line is a legitimate
+    member of its own detection pattern. The constraints that keep this from
+    being a fail-open are enforced by the caller, against real output.
     """
     if exit_code == good_exit:
         return GOOD
+    if unavailable is not None and unavailable.search(output):
+        return UNAVAILABLE
     return BAD if signal.search(output) else UNSIGNALLED
 
 
@@ -699,6 +823,34 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
         )
         return res
 
+    # OPTIONAL, unlike detect_signal, and the asymmetry is argued in the
+    # docstring: omitting this excuses nothing, so absence fails CLOSED. What is
+    # NOT optional is usability once declared. An uncompilable pattern would
+    # silently never match and leave the conflation in place under a field that
+    # claims to have fixed it; a pattern matching EMPTY output would excuse every
+    # silent non-zero exit, which is the pre-#946 fail-open restored by a new
+    # route. Both are refused here, structurally, before any case runs. The two
+    # refusals that need real output - a pattern matching a clean run, and one
+    # surviving a run that proves the tool was there - are enforced below, where
+    # that output exists.
+    raw_unavailable = spec.get("unavailable_signal", "")
+    unavailable: re.Pattern[str] | None = None
+    if raw_unavailable:
+        if not isinstance(raw_unavailable, str) or not raw_unavailable.strip():
+            res.details.append("control.json unavailable_signal is not a usable pattern")
+            return res
+        try:
+            unavailable = re.compile(raw_unavailable, re.MULTILINE)
+        except re.error as exc:
+            res.details.append(f"control.json unavailable_signal is not a usable regex: {exc}")
+            return res
+        if unavailable.search(""):
+            res.details.append(
+                f"control.json unavailable_signal /{raw_unavailable}/ matches empty output, so "
+                "every silent non-zero exit would be excused as a missing tool (issue #1117)"
+            )
+            return res
+
     # A one-sided control tests nothing, so it may not reach PASS. This was only
     # DOCUMENTED before, and the code required a non-empty list: a GOOD-only
     # control passed against a gate that was genuinely blind, and a BAD-only one
@@ -718,6 +870,23 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
 
     # -- DISCRIMINATION ---------------------------------------------------- #
     bad_cases: list[Path] = []
+    #: Names of the cases whose gate reported its own tool absent, and of the
+    #: cases where the gate DEMONSTRABLY RAN. Collected across the whole loop
+    #: rather than acted on in it, because the contradiction that catches a loose
+    #: `unavailable_signal` is a relationship BETWEEN cases and cannot be seen
+    #: from inside one (issue #1117).
+    #:
+    #: "RAN" IS BOTH VERDICTS, NOT JUST THE CLEAN ONE (counter-model review,
+    #: MEDIUM). The first cut recorded only `observed == GOOD`, so a gate that
+    #: genuinely DETECTED its known-bad input and then reported its tool absent
+    #: on the known-good one produced no contradiction at all and was excused as
+    #: UNAVAILABLE - exit 0 under the local posture. A successful detection is
+    #: proof the tool was there every bit as much as a clean run is; excluding it
+    #: made the guard blind to the half where the gate had already shown it could
+    #: work.
+    unavailable_cases: list[str] = []
+    ran_cases: list[str] = []
+    unavailable_reason = ""
     for case in cases:
         case_path = control_dir / case["input"]
         if not case_path.is_dir():
@@ -728,7 +897,7 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
         if code is UNRUNNABLE:
             res.details.append(f"case {case['name']}: the gate could not be executed - {diag}")
             return res
-        observed = _observe(code, good_exit, output, signal)
+        observed = _observe(code, good_exit, output, signal, unavailable)
         res.details.append(
             f"case {case['name']}: expected={expected} observed={observed} (exit {code})"
             + (f" [stderr: {diag}]" if diag else "")
@@ -738,6 +907,41 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
         # input would otherwise be reported as having "flagged a known-good
         # input" - a false-alarm diagnosis that sends a reader into detection
         # logic for a gate that is simply throwing.
+        # BEFORE the UNSIGNALLED check below, because a clean run that also
+        # matches the unavailability pattern is a defect in the PATTERN and must
+        # not be reported as anything about the gate. Mirror of the
+        # detect_signal refusal further down, and it fires on every case rather
+        # than only the known-good one: a gate wedged clean would otherwise hide
+        # it on the known-bad side.
+        if observed == GOOD and unavailable is not None and unavailable.search(output):
+            res.verdict = UNRESOLVED
+            res.details.append(
+                f"control.json unavailable_signal /{raw_unavailable}/ also matches this gate's "
+                f"CLEAN output on case {case['name']}, so it reports a working gate as "
+                f"unexaminable"
+            )
+            return res
+        # Recorded and skipped, NOT compared against `expect`. A missing tool
+        # makes the gate say nothing about this input, so scoring it against an
+        # expectation is how "your machine lacks gitleaks" became BLIND.
+        if observed == UNAVAILABLE:
+            unavailable_cases.append(case["name"])
+            if not unavailable_reason:
+                # THE LINE THAT MATCHED, not the last line of stderr. `_run`
+                # hands back the trailing stderr line, which for these gates is
+                # the reassurance ("this is not a pass.") rather than the fact
+                # ("shellcheck is not installed"). The matching line is the one
+                # that identified the unavailability, so it is the one a reader
+                # needs; falling back to `diag` keeps a reason present either way.
+                unavailable_reason = diag
+                if unavailable is not None:
+                    for line in output.splitlines():
+                        if unavailable.search(line):
+                            unavailable_reason = line.strip()
+                            break
+            continue
+        if observed in (GOOD, BAD):
+            ran_cases.append(case["name"])
         if observed is UNSIGNALLED:
             res.verdict = UNSIGNALLED
             res.details.append(
@@ -776,6 +980,39 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
         if expected == BAD:
             bad_cases.append(case_path)
 
+    # -- UNAVAILABILITY, ADJUDICATED ACROSS THE CASES ---------------------- #
+    # THE CONTRADICTION THAT CATCHES A LOOSE PATTERN (issue #1117). A binary that
+    # is not installed is not installed for every case, so "unavailable here,
+    # clean there" is not something a missing tool produces - it is what a
+    # pattern loose enough to match a genuine finding produces on a host where
+    # the tool IS present, which is the fail-open this field could otherwise
+    # introduce. Refused as UNRESOLVED, naming both sides, rather than excused.
+    #
+    # This is the constraint that makes consulting `unavailable_signal` before
+    # `detect_signal` safe. Without it the ordering would be a silent precedence
+    # rule; with it, an author who writes a pattern broad enough to swallow
+    # detections gets a red on any machine that can actually run the gate - which
+    # is every CI run, where the tools are pinned into the image on purpose.
+    if unavailable_cases and ran_cases:
+        res.verdict = UNRESOLVED
+        res.details.append(
+            f"control.json unavailable_signal /{raw_unavailable}/ reports the gate's tool absent "
+            f"on case(s) {', '.join(unavailable_cases)} while case(s) {', '.join(ran_cases)} "
+            f"produced a real verdict through the same gate, so the tool was present. A missing "
+            f"binary is missing for every case; this pattern is matching something else "
+            f"(issue #1117)"
+        )
+        return res
+    if unavailable_cases:
+        res.verdict = UNAVAILABLE
+        res.details.append(
+            f"the gate reports its own tool is not installed, so case(s) "
+            f"{', '.join(unavailable_cases)} examined nothing here. This control is UNEXAMINED, "
+            f"not clean, and says nothing about the gate"
+            + (f": {unavailable_reason}" if unavailable_reason else "")
+        )
+        return res
+
     # -- ANCHOR + ANCHOR SANITY -------------------------------------------- #
     if not anchors:
         res.verdict = UNPROVEN
@@ -813,7 +1050,18 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
                 res.verdict = UNRESOLVED
                 res.details.append(f"anchor {anchor['sha']} could not be executed - {diag}")
                 return res
-            observed = _observe(code, good_exit, output, signal)
+            observed = _observe(code, good_exit, output, signal, unavailable)
+            # Reached only when every CASE ran, so the tool was present a moment
+            # ago; an anchor reporting it absent is therefore about the anchor,
+            # not the environment. UNRESOLVED either way - the required property
+            # was not established - but the sentence a reader gets differs.
+            if observed == UNAVAILABLE:
+                res.verdict = UNRESOLVED
+                res.details.append(
+                    f"anchor {anchor['sha']} reports its tool absent on the known-bad input while "
+                    f"the current gate ran, so it cannot be confirmed to have MISSED it"
+                )
+                return res
             if observed is UNSIGNALLED:
                 res.verdict = UNRESOLVED
                 res.details.append(
@@ -838,7 +1086,14 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
                 res.verdict = UNRESOLVED
                 res.details.append(f"anchor {anchor['sha']} could not be executed - {diag}")
                 return res
-            observed = _observe(code, good_exit, output, signal)
+            observed = _observe(code, good_exit, output, signal, unavailable)
+            if observed == UNAVAILABLE:
+                res.verdict = UNRESOLVED
+                res.details.append(
+                    f"anchor {anchor['sha']} reports its tool absent on a known-GOOD input while "
+                    f"the current gate ran, so the anchor-sanity check cannot be resolved"
+                )
+                return res
             if observed is UNSIGNALLED:
                 res.verdict = UNRESOLVED
                 res.details.append(
@@ -866,6 +1121,7 @@ def _headline(
     members: int | None,
     nonmembers: list[str] | None,
     whence: str,
+    registered: int | None = None,
 ) -> str:
     """The sentence everyone quotes - as a relationship, not a fraction (#1036).
 
@@ -885,12 +1141,22 @@ def _headline(
 
     A non-member is NAMED. That is the whole remedy asked for, and it is derived
     - there is no list to maintain and no exception to remember.
+
+    `results` IS THE DISCRIMINATING POPULATION AND `registered` IS EVERY
+    REGISTRATION (issue #1117). They were the same number until UNAVAILABLE
+    existed, because anything short of PASS failed the run and never reached
+    this sentence. They can differ now, and the sentence keeps them apart on
+    purpose: "23 registered" is a fact about the register, "21 of 90 carry a
+    control that discriminates" is a fact about this run, and collapsing them
+    would let an unexamined control read as a covered instrument.
     """
-    total = len(results)
+    discriminating = len(results)
+    total = discriminating if registered is None else registered
     if census.rows is None:
         return (
-            f"{total} control(s) of an UNKNOWN universe ({whence}) - this is a sample, "
-            "and how large a sample cannot be said"
+            f"{discriminating} discriminating control(s) of {total} registered, against an "
+            f"UNKNOWN universe ({whence}) - this is a sample, and how large a sample "
+            "cannot be said"
         )
     if members is None or nonmembers is None:
         return (
@@ -965,13 +1231,54 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--strict", action="store_true", help="exit non-zero on anything that is not PASS")
+    # THE LOCAL POSTURE, AND DELIBERATELY NOT THE CI ONE (issue #1117). `--strict`
+    # keeps its meaning exactly: UNAVAILABLE fails it like everything that is not
+    # PASS. CI pins gitleaks, shellcheck and jq into the image on purpose, and
+    # `.woodpecker.yml` rests on this harness reddening rather than reporting a
+    # shorter battery if a staging step stops delivering one - so tolerating
+    # unavailability THERE would retire that guarantee silently.
+    #
+    # `make verify` is the caller that needs the other posture: it is a local
+    # gate on a developer box that may legitimately lack any of the three, and
+    # before this flag the battery could not be consumed locally at all. What it
+    # tolerates it must also SAY, so the summary names every unexamined control.
+    parser.add_argument(
+        "--allow-unavailable",
+        action="store_true",
+        help="with --strict: do not fail on UNAVAILABLE (a gate whose own tool is absent); "
+             "report it as unexamined instead",
+    )
     parser.add_argument("--verify-provenance", action="store_true", help="byte-compare anchors against git history")
     parser.add_argument("--quiet", action="store_true", help="contract lines only")
+    #: A NARROWING SELECTOR, added for issue #970's mutation probe, which needs to
+    #: ask "did THIS control notice" rather than "did the register notice". Running
+    #: the whole register to answer that dilutes the signal in both directions: an
+    #: unrelated control already red makes every mutation read as caught, and 22
+    #: healthy controls do not make the 23rd's silence any quieter.
+    #:
+    #: A selector that silently selects NOTHING is the hazard, not the feature - it
+    #: turns an empty run into an exit-0 "clean". So a `--control` that matches no
+    #: registration refuses, non-zero, WITHOUT `--strict`: an unmatched selector is
+    #: an unchecked run, which is the same rule the no-registrations branch below
+    #: already applies to the whole register.
+    parser.add_argument("--control", default=None, metavar="REL",
+                        help="evaluate only the control registered at this path "
+                             "(e.g. controls/shellcheck-gate); refuses if it matches nothing")
     args = parser.parse_args(argv)
 
     root: Path = args.root.resolve()
     stamp = _source_stamp(root)
     registrations = discover(root)
+
+    if args.control is not None:
+        wanted = args.control.rstrip("/")
+        registrations = [pair for pair in registrations if pair[1].rstrip("/") == wanted]
+        if not registrations:
+            print("NEGATIVE_CONTROL_SOURCE: " + stamp)
+            print("NEGATIVE_CONTROL_REGISTERED: 0")
+            print(f"negative-controls: --control {args.control!r} matched no registration - "
+                  "nothing was checked. This is UNCHECKED, not clean.", file=sys.stderr)
+            return 1
 
     # The universe is a property of the TREE, not of the results, so it is stated
     # on every exit including the ones that found nothing (#979). A run that
@@ -991,6 +1298,7 @@ def main(argv: list[str] | None = None) -> int:
         print("NEGATIVE_CONTROL_REGISTERED: 0")
         print(universe_line)
         print(scope_line)
+        print("NEGATIVE_CONTROL_UNAVAILABLE: 0")
         print("negative-controls: no gate carries a registration - nothing was checked. "
               "This is UNCHECKED, not clean.")
         return 1 if args.strict else 0
@@ -1002,6 +1310,12 @@ def main(argv: list[str] | None = None) -> int:
     print(f"NEGATIVE_CONTROL_REGISTERED: {len(registrations)}")
     print(universe_line)
     print(scope_line)
+    # A COUNT ON EVERY RUN, INCLUDING ZERO (issue #1117). A line that appears
+    # only when something is unexamined cannot be told from a line nobody
+    # emitted, so a consumer reading it would learn "unexamined: absent" and have
+    # no way to know whether that means none or means an older harness.
+    unavailable_results = [r for r in results if r.verdict == UNAVAILABLE]
+    print(f"NEGATIVE_CONTROL_UNAVAILABLE: {len(unavailable_results)}")
 
     # THE RELATIONSHIP BETWEEN THE TWO NUMBERS, not two numbers side by side
     # (issue #1036). Every discovered registration's gate is resolved against
@@ -1032,6 +1346,14 @@ def main(argv: list[str] | None = None) -> int:
 
     for res in results:
         print(f"NEGATIVE_CONTROL_GATE: {res.gate}")
+        # WHICH CONTROL, not just which gate (issue #1117). A gate may carry
+        # several registrations - #986 made discovery see them all - and until
+        # this line existed the blocks for two controls on ONE gate were
+        # byte-identical in their only identifying field. A reader chasing a
+        # failure, and any consumer scoping an assertion to one control, would
+        # have silently addressed whichever came first. The Result has carried
+        # `control_dir` since the beginning; it was simply never printed.
+        print(f"NEGATIVE_CONTROL_CONTROL: {res.control_dir}")
         print(f"NEGATIVE_CONTROL_SOURCE: {stamp}")
         for line in res.details:
             print(f"NEGATIVE_CONTROL_DETAIL: {line}")
@@ -1041,7 +1363,21 @@ def main(argv: list[str] | None = None) -> int:
 
     # UNTRACKED fails alongside a bad verdict (#978). A control can discriminate
     # perfectly and still not exist downstream, so PASS alone is not sufficient.
-    failing = [r for r in results if r.verdict != PASS or r.tracking == "UNTRACKED"]
+    #
+    # UNAVAILABLE is EXCUSED ONLY WHEN ASKED FOR, and never when the control is
+    # also UNTRACKED (issue #1117): "this machine lacks gitleaks" and "this
+    # control does not exist in a clean clone" are independent facts, and
+    # tolerating the first must not swallow the second. The axes stay separate
+    # here exactly as they do in the Result.
+    excused = (
+        {id(r) for r in unavailable_results if r.tracking != "UNTRACKED"}
+        if (args.strict and args.allow_unavailable)
+        else set()
+    )
+    failing = [
+        r for r in results
+        if (r.verdict != PASS or r.tracking == "UNTRACKED") and id(r) not in excused
+    ]
     if not args.quiet:
         print()
         if failing:
@@ -1054,9 +1390,48 @@ def main(argv: list[str] | None = None) -> int:
             # #946 half: every claim here has an input population behind it -
             # and, since #1036, the RELATION between the two populations rather
             # than the two numbers pressed together.
-            print(f"negative-controls: ok - {_headline(results, census, members, nonmembers, whence)}, "
+            #
+            # THE POPULATION IS THE CONTROLS THAT DISCRIMINATED, not every
+            # registration (issue #1117). Those were the same set until
+            # UNAVAILABLE existed, because anything short of PASS made the run
+            # fail and never reached this branch. Under `--allow-unavailable` an
+            # unexamined control DOES reach it, and counting it among the ones
+            # that "carry a control that discriminates" would be a fresh
+            # overclaim introduced by the change that exists to stop one.
+            #
+            # Membership is therefore re-derived over the discriminating
+            # registrations alone. The CONTRACT lines above keep #1036's own
+            # population - every discovered registration - because the question
+            # they answer ("is this control's gate in the census at all?") is
+            # about registration, not about how the run went.
+            discriminating = [r for r in results if r.verdict == PASS]
+            disc_registrations = [
+                reg for reg, res in zip(registrations, results) if res.verdict == PASS
+            ]
+            disc_members, disc_nonmembers = census_membership(disc_registrations, census)
+            headline = _headline(
+                discriminating, census, disc_members, disc_nonmembers, whence,
+                registered=len(registrations),
+            )
+            print(f"negative-controls: ok - {headline}, "
                   "each reporting its declared detection signal on the known-bad input "
                   "and demonstrated against an anchor that misses it")
+    # NAMED, NOT COUNTED, AND PRINTED ON EVERY RUN THAT HAS ANY - including a
+    # failing one, where an unexamined control is part of why the picture is
+    # incomplete. A tolerated verdict that is not said out loud is the silence
+    # this whole file exists to refuse: a developer whose box lacks gitleaks
+    # would otherwise read a green `make verify` as the same evidence CI has.
+    if unavailable_results and not args.quiet:
+        print()
+        print(
+            f"negative-controls: {len(unavailable_results)} control(s) NOT EXAMINED here - the "
+            f"gate's own tool is not installed. This is unexamined, not clean:"
+        )
+        for res in unavailable_results:
+            print(f"    {res.gate} -> UNAVAILABLE")
+            for line in res.details:
+                if "not installed" in line:
+                    print(f"        {line}")
     return 1 if (failing and args.strict) else 0
 
 

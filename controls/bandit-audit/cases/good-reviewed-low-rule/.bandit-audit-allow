@@ -1,0 +1,13 @@
+# Fixture ledger for controls/bandit-audit/cases/good-reviewed-low-rule (issue #1114).
+#
+# THE SAME capture as bad-unreviewed-low-rule, and the same B404 record. The
+# ONLY difference between the two cases is the B110 line below, so the verdict
+# can only have come from it - a measurement rather than two assertions.
+#
+# The B404 record matches nothing in this capture, and this case expects GOOD.
+# That is the second thing it pins: a `reviewed-low` record accounting for
+# nothing is a NOTE, never a finding. The asymmetry with a stale `finding`
+# record - which DOES redden, because a suppression outliving its finding is a
+# blindfold - is the whole reason both directions need a committed case.
+reviewed-low B404 #1114
+reviewed-low B110 #1114

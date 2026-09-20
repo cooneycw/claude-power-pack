@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Named after a FLAG on purpose. Without the `--` option terminator in the
+# linter invocation, this argument is read as --help: shellcheck prints its
+# usage summary and exits 0, having examined nothing at all, and the gate
+# reports a confident "0 findings". The SC1087 below is error severity.
+set -eu
+prefix=build
+echo "$prefix[release]"
