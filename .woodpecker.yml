@@ -241,6 +241,26 @@ steps:
     commands:
       - python3 scripts/check-cpp-host-writes.py
 
+  # Does every install-path helper still declare its host surfaces? (#1139)
+  #
+  # THIS STEP IS A GAP I MADE. #1139 registered host-surface-check in four
+  # places - the `verify:` chain, ADR 0008's census, docs/scripts.md, a
+  # committed control - and not here. #1132 then added its sibling WITH a CI
+  # step and a commit message citing #1146's lesson, and did not come back for
+  # this one. Applied forward, not backward, which is the weaker half.
+  #
+  # Until now its verdict was consumed by `make verify` on a developer's box
+  # and by nothing that decides a merge - which is the whole of #1146.
+  #
+  # Stdlib-only, offline and git-free, and shown RED under this digest against
+  # a tree with an undeclared helper, not merely shown to run: a step that
+  # cannot fail in the image is green by absence (#1036).
+  host-surface-check:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
+    depends_on: [secret-scan]
+    commands:
+      - python3 scripts/host-surface-check.py
+
   # Would a registered control RUN in the image `negative-controls` uses? (#1036)
   #
   # ITS OWN STEP, AND DELIBERATELY NOT FOLDED INTO `negative-controls`. This gate
