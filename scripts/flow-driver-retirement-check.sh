@@ -61,6 +61,26 @@
 #   flow-driver-retirement-check.sh --driver X --registry-dir <dir>   # controls
 set -u
 
+# THE SHARED GATE MODULE (issue #1127, 4 of 4). Adopts `gate_map` and
+# `gate_arg_value`; NOT `gate_emit` - `unknown()` and the tail print
+# `RETIREMENT: <verdict> ...`, which this gate's control keys on and which is
+# not the module's `KEY: verdict - detail` shape.
+#
+# THIS IS THE ONE WHERE IT MATTERED MOST. `${2:?...}` exits 1 under bash, and 1
+# is THIS gate's `blocked` code - so a dangling `--driver` reported as "at least
+# one LIVE role drives on it", the verdict that REFUSES a retirement. A usage
+# error rendering as the safe-side answer is the worst direction for it to be
+# wrong in, because nobody investigates a refusal that agrees with caution: the
+# operator sees "blocked", does not delete, and never learns the gate never ran.
+# The module's usage exit is outside every verdict this gate declares.
+#
+# The comment below about usage and unknown SHARING exit 3 is now history for
+# the usage half, and is left in place because it explains why the `unknown`
+# verdict still exits 3. Usage errors no longer land there.
+. "$(dirname "$0")/gate-lib.sh"
+
+gate_map clear=0 blocked=1 unknown=3
+
 DRIVER=""
 ONE_WAVE=""
 REG_DIR="${FLOW_WAVE_REGISTRY_DIR:-}"
@@ -68,10 +88,10 @@ HELPER="${FLOW_WAVE_REGISTRY_BIN:-}"
 
 while [ $# -gt 0 ]; do
     case "$1" in
-        --driver)       DRIVER="${2:?--driver needs a driver name}"; shift 2 ;;
-        --wave)         ONE_WAVE="${2:?--wave needs a wave name}"; shift 2 ;;
-        --registry-dir) REG_DIR="${2:?--registry-dir needs a directory}"; shift 2 ;;
-        --helper)       HELPER="${2:?--helper needs a path}"; shift 2 ;;
+        --driver)       gate_arg_value "$1" "$#" "${2-}"; DRIVER=$GATE_VALUE; shift 2 ;;
+        --wave)         gate_arg_value "$1" "$#" "${2-}"; ONE_WAVE=$GATE_VALUE; shift 2 ;;
+        --registry-dir) gate_arg_value "$1" "$#" "${2-}"; REG_DIR=$GATE_VALUE; shift 2 ;;
+        --helper)       gate_arg_value "$1" "$#" "${2-}"; HELPER=$GATE_VALUE; shift 2 ;;
         -h|--help)      sed -n '2,61p' "$0"; exit 0 ;;
         *) echo "flow-driver-retirement-check: unknown argument: $1" >&2; exit 3 ;;
     esac
