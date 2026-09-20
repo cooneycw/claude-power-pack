@@ -249,6 +249,106 @@ steps:
     commands:
       - python3 scripts/check-cpp-host-writes.py
 
+  # Does every install-path helper still declare its host surfaces? (#1139)
+  #
+  # THIS STEP IS A GAP I MADE. #1139 registered host-surface-check in four
+  # places - the `verify:` chain, ADR 0008's census, docs/scripts.md, a
+  # committed control - and not here. #1132 then added its sibling WITH a CI
+  # step and a commit message citing #1146's lesson, and did not come back for
+  # this one. Applied forward, not backward, which is the weaker half.
+  #
+  # Until now its verdict was consumed by `make verify` on a developer's box
+  # and by nothing that decides a merge - which is the whole of #1146.
+  #
+  # Stdlib-only, offline and git-free, and shown RED under this digest against
+  # a tree with an undeclared helper, not merely shown to run: a step that
+  # cannot fail in the image is green by absence (#1036).
+  host-surface-check:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
+    depends_on: [secret-scan]
+    commands:
+      - python3 scripts/host-surface-check.py
+
+  # Does the pipeline run what `make verify` runs? (#1146)
+  #
+  # THE GATE THAT AUDITS THIS QUESTION IS A MEMBER OF ITS OWN POPULATION, so its
+  # absence here would be the class it audits. It reads the `verify:` rule, the
+  # step names in this file, and the `ci:` clause each gate declares beside
+  # itself, and reds when a prerequisite is undispositioned, when a declaration
+  # does not parse, or when `ci: runs <step>` names a step this file has not
+  # got - a claim is checked against both sides, not counted.
+  #
+  # Stdlib-only, offline and git-free - argparse, importlib.util, re, sys,
+  # pathlib, opening two repo-relative files - so it gives the same verdict here
+  # as on a dev box. Shown RED under this digest against a tree with a
+  # prerequisite whose `ci:` clause was stripped, not merely shown to run: a
+  # step that cannot fail in the image is green by absence (#1036).
+  ci-coverage-check:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
+    depends_on: [secret-scan]
+    commands:
+      - python3 scripts/check-ci-coverage.py
+
+  # Does every test that shells out to a real binary carry its skip guard? (#1146)
+  #
+  # In `make verify` since before this change and in CI since #1146, which
+  # found it among ten gates a merge relied on without ever running. Shown RED
+  # under this digest with a test file shelling out with no `shutil.which` guard, not merely shown to run: a step that
+  # cannot fail in the image is green by absence (#1036).
+  binary-guards-check:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
+    depends_on: [secret-scan]
+    commands:
+      - python3 scripts/check-test-binary-guards.py
+
+  # Does every fixture that constructs an ABSENCE assert that precondition? (#1146)
+  #
+  # In `make verify` since before this change and in CI since #1146, which
+  # found it among ten gates a merge relied on without ever running. Shown RED
+  # under this digest with a fixture emptying PATH without asserting the binary is gone, not merely shown to run: a step that
+  # cannot fail in the image is green by absence (#1036).
+  negative-fixture-check:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
+    depends_on: [secret-scan]
+    commands:
+      - python3 scripts/check-negative-fixture-preconditions.py
+
+  # Is CLAUDE.md still inside its 2,000-word ceiling? (#1146)
+  #
+  # In `make verify` since before this change and in CI since #1146, which
+  # found it among ten gates a merge relied on without ever running. Shown RED
+  # under this digest with 3,000 words of padding appended, not merely shown to run: a step that
+  # cannot fail in the image is green by absence (#1036).
+  claude-md-budget-check:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
+    depends_on: [secret-scan]
+    commands:
+      - python3 scripts/check-claude-md-budget.py
+
+  # Does every repository-local pointer in CLAUDE.md resolve? (#1146)
+  #
+  # In `make verify` since before this change and in CI since #1146, which
+  # found it among ten gates a merge relied on without ever running. Shown RED
+  # under this digest with a link to a file that does not exist, not merely shown to run: a step that
+  # cannot fail in the image is green by absence (#1036).
+  claude-md-links-check:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
+    depends_on: [secret-scan]
+    commands:
+      - python3 scripts/check-claude-md-links.py
+
+  # Does the project-next engine still match its ownership pins? (#1146)
+  #
+  # In `make verify` since before this change and in CI since #1146, which
+  # found it among ten gates a merge relied on without ever running. Shown RED
+  # under this digest with one engine file tampered with, not merely shown to run: a step that
+  # cannot fail in the image is green by absence (#1036).
+  project-next-check:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
+    depends_on: [secret-scan]
+    commands:
+      - python3 scripts/project-next-ownership.py
+
   # Would a registered control RUN in the image `negative-controls` uses? (#1036)
   #
   # ITS OWN STEP, AND DELIBERATELY NOT FOLDED INTO `negative-controls`. This gate
