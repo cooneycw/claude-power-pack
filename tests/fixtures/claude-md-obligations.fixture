@@ -23,7 +23,7 @@
     {"slug": "worktree-path-resolution", "needle": "worktree path-resolution rule"},
     {"slug": "concurrent-worktree-claim", "needle": "concurrent flow sessions"},
     {"slug": "extracted-skill-source", "needle": "skills with standalone value are extracted"},
-    {"slug": "project-next-vendored", "needle": "project-next engine vendored"},
+    {"slug": "project-next-owned", "needle": "cpp-owned since #1069"},
     {"slug": "project-init-native-init", "needle": "config scaffolding (claude.md, skills, hooks)"},
     {"slug": "spec-kit-supported", "needle": "official spec-kit"},
     {"slug": "make-canonical-interface", "needle": "canonical build interface"},
