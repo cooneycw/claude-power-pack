@@ -243,6 +243,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from dataclasses import dataclass, field
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
@@ -1249,11 +1250,35 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--verify-provenance", action="store_true", help="byte-compare anchors against git history")
     parser.add_argument("--quiet", action="store_true", help="contract lines only")
+    #: A NARROWING SELECTOR, added for issue #970's mutation probe, which needs to
+    #: ask "did THIS control notice" rather than "did the register notice". Running
+    #: the whole register to answer that dilutes the signal in both directions: an
+    #: unrelated control already red makes every mutation read as caught, and 22
+    #: healthy controls do not make the 23rd's silence any quieter.
+    #:
+    #: A selector that silently selects NOTHING is the hazard, not the feature - it
+    #: turns an empty run into an exit-0 "clean". So a `--control` that matches no
+    #: registration refuses, non-zero, WITHOUT `--strict`: an unmatched selector is
+    #: an unchecked run, which is the same rule the no-registrations branch below
+    #: already applies to the whole register.
+    parser.add_argument("--control", default=None, metavar="REL",
+                        help="evaluate only the control registered at this path "
+                             "(e.g. controls/shellcheck-gate); refuses if it matches nothing")
     args = parser.parse_args(argv)
 
     root: Path = args.root.resolve()
     stamp = _source_stamp(root)
     registrations = discover(root)
+
+    if args.control is not None:
+        wanted = args.control.rstrip("/")
+        registrations = [pair for pair in registrations if pair[1].rstrip("/") == wanted]
+        if not registrations:
+            print("NEGATIVE_CONTROL_SOURCE: " + stamp)
+            print("NEGATIVE_CONTROL_REGISTERED: 0")
+            print(f"negative-controls: --control {args.control!r} matched no registration - "
+                  "nothing was checked. This is UNCHECKED, not clean.", file=sys.stderr)
+            return 1
 
     # The universe is a property of the TREE, not of the results, so it is stated
     # on every exit including the ones that found nothing (#979). A run that
