@@ -153,5 +153,69 @@
       "expect_amendments": 0,
       "why": "Codex pass 2, MEDIUM. The counter counted distinct non-empty LINES, so an unrelated log line became an amendment. Records are parsed and shape-checked now; this anchor carries two log lines and a non-JSON line beside one real claim and must still report 0 amendments."
     }
+  ],
+  "battery": [
+    "{python}",
+    "forced-claim-check.py",
+    "--selftest"
+  ],
+  "battery_cwd": "docs/research/forced-claim-prototype-2026-09-15",
+  "mutations": [
+    {
+      "name": "assertion-not-crash",
+      "protection": "a pre-fix test that FAILED by raising is not a discrimination; only an assertion is",
+      "find": "if tail\\.startswith\\(\"assert\"\\) or tail\\.startswith\\(\"AssertionError\"\\):",
+      "replace": "if True:",
+      "count": 1,
+      "expect": "caught"
+    },
+    {
+      "name": "exit0-is-not-pass",
+      "protection": "pytest exit 0 also means SKIPPED or XFAIL; only a reported PASSED is a pass",
+      "find": "if f\"PASSED \\{node_id\\}\" in out:",
+      "replace": "if True:",
+      "count": 1,
+      "expect": "caught"
+    },
+    {
+      "name": "collected-nothing",
+      "protection": "pytest exit 5 is 'no tests collected', not a clean run",
+      "find": "if proc\\.returncode == 5:",
+      "replace": "if False:",
+      "count": 1,
+      "expect": "caught"
+    },
+    {
+      "name": "claim-must-be-an-object",
+      "protection": "valid JSON of the wrong shape is refused before it is used, not raised out of",
+      "find": "if not isinstance\\(claim, dict\\):",
+      "replace": "if False:",
+      "count": 1,
+      "expect": "caught"
+    },
+    {
+      "name": "claim-tests-must-be-strings",
+      "protection": "'tests' must be a list of strings",
+      "find": "if not isinstance\\(tests, list\\) or not all\\(isinstance\\(t, str\\) for t in tests\\):",
+      "replace": "if False:",
+      "count": 1,
+      "expect": "caught"
+    },
+    {
+      "name": "tests-added-must-be-a-count",
+      "protection": "'tests_added' must be a non-negative integer, and a bool is not one",
+      "find": "if isinstance\\(n, bool\\) or not isinstance\\(n, int\\) or n < 0:",
+      "replace": "if False:",
+      "count": 1,
+      "expect": "caught"
+    },
+    {
+      "name": "test-file-naming",
+      "protection": "a changed .py file is only a TEST when its name says so",
+      "find": "return Path\\(rel\\)\\.name\\.startswith\\(\"test_\"\\) and rel\\.endswith\\(\"\\.py\"\\)",
+      "replace": "return rel.endswith(\".py\")",
+      "count": 1,
+      "expect": "caught"
+    }
   ]
 }

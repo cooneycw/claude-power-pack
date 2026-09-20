@@ -1,0 +1,31 @@
+{
+  "_comment": "COVERED: the battery exercises BOTH of toy-gate's protections, so removing either turns it red. mutation-probe must report ok on this tree (expect=GOOD in the parent control).",
+  "gate": "scripts/toy-gate.py",
+  "invocation": ["python3", "{gate}", "--root", "{case}"],
+  "good_exit": 0,
+  "detect_signal": "^TOY-FINDING:",
+  "battery": ["python3", "scripts/toy-battery.py"],
+  "cases": [
+    {"name": "bad-indented", "input": "cases/bad-indented", "expect": "BAD"},
+    {"name": "good-comment", "input": "cases/good-comment", "expect": "GOOD"},
+    {"name": "good-quoted", "input": "cases/good-quoted", "expect": "GOOD"}
+  ],
+  "mutations": [
+    {
+      "name": "comment-rejection",
+      "protection": "a commented-out occurrence is not an occurrence",
+      "find": "if line\\.strip\\(\\)\\.startswith\\(\"#\"\\):",
+      "replace": "if False:",
+      "count": 1,
+      "expect": "caught"
+    },
+    {
+      "name": "quote-rejection",
+      "protection": "an occurrence inside a quoted string is advice, not the thing",
+      "find": "if '\"' \\+ TOKEN \\+ '\"' in line:",
+      "replace": "if False:",
+      "count": 1,
+      "expect": "caught"
+    }
+  ]
+}

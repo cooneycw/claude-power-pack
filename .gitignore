@@ -173,6 +173,20 @@ desktop.ini
 # covers locations nobody has enumerated yet; this line only covers today's.
 !docs/research/forced-claim-prototype-2026-09-15/control.json
 !docs/research/forced-claim-prototype-2026-09-15/cases/*/claim.json
+
+# The #955 sweep's MUTATION DECLARATIONS (issue #970) - tracked despite *.json,
+# and the blanket rule is exactly what they must survive. They are the committed
+# record of the re-examination that found the sweep's own --self-test mutating a
+# re-implementation for 4 of its 5 protections; untracked, the declarations exist
+# on one machine and the finding is re-derivable by nobody. `git add` NO-OPS
+# SILENTLY on an ignored path, so without this negation the file looks staged and
+# ships absent - which `scripts/check-ignored-additions.sh` is what caught here.
+#
+# It is NOT a register manifest and is deliberately not named control.json:
+# `mutation-probe.py` discovers `controls/*/control.json` only, so a manifest
+# under docs/research/ is read when NAMED and never enters the population of a
+# run examining the tree it sits in.
+!docs/research/class-enumeration-2026-09-15/mutations.json
 node_modules/
 .claude/settings*.json
 .claude/plans/

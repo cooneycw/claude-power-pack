@@ -1,0 +1,19 @@
+{
+  "branch": "issue-970-a-gate-clearing-a-control-battery-by-inspection-ca",
+  "counts": {
+    "accepted": 5,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "implementer": "claude/claude-opus-5",
+  "issue": "970",
+  "passes": 2,
+  "recorded_at": "2026-09-20T13:35:40Z",
+  "red_cases": {
+    "already_covered": 11,
+    "proposed": 11
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}

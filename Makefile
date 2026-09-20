@@ -489,6 +489,30 @@ control-ci-deps-check:
 negative-controls:
 	@python3 scripts/check-negative-controls.py --strict --allow-unavailable
 
+## MUTATION-PROBING THE REGISTERED BATTERIES (issue #970), AND WHY IT IS NOT IN
+## `verify`. ADR 0008's committed-control bound is necessary and not sufficient:
+## an instrument is a stack of protections, one end-to-end case travels only its
+## own path, and every other protection can be deleted with the battery still
+## green. This target breaks each DECLARED protection in turn and requires a
+## control to fail.
+##
+## It is excluded from `verify` for the same reason `negative-controls` is, and
+## one more. The same reason: the batteries it drives need gitleaks and jq on
+## PATH, so a host missing either fails for an environment reason rather than a
+## repository one. The extra reason: each mutation runs a whole battery, so this
+## costs roughly (mutations + 1) battery runs, which is a wall-clock profile
+## `verify` should not inherit on every invocation.
+##
+## It runs under `uv` deliberately. `{python}` in a manifest's declared battery
+## resolves to THIS interpreter, and a battery needing the project's dependencies
+## - the #953 prototype needs pytest - finds none in the sandbox, which holds
+## tracked files only and therefore has no .venv for a runner-resolution walk to
+## find. Under the system interpreter that battery reports every case UNKNOWN,
+## which is an environment fact scored as a battery failure.
+## verify-coverage: excluded mutation-probe - each mutation runs a whole battery, and those batteries need gitleaks and jq on PATH exactly as `negative-controls` does; CI runs it with --strict in its own step (#970)
+mutation-probe:
+	@uv run --extra dev python scripts/mutation-probe.py --strict
+
 ## Vendored delegated-driver core (issue #1011)
 ## `/codex:auto`, `/qwen:auto` and `/gemma:auto` describe ONE lifecycle, rendered
 ## from templates/delegated-driver-core.md into each driver between the

@@ -1,0 +1,52 @@
+{
+  "_comment": "Issue #970 re-examination of the #955 sweep. NOT a register manifest and NOT discovered by check-negative-controls: it is read only when named explicitly, `mutation-probe.py --manifest docs/research/class-enumeration-2026-09-15/mutations.json`. Its mutations are applied to sweep.py's REAL source, which is the difference from the sweep's own --self-test. The battery is run_controls() ALONE, not `sweep.py`, and deliberately: the sweep's bucket controls are currently RED on main (the #591 claim that eli5-core-drift.sh is unautomated was falsified by tests/test_codex_skill_sync.py, which invokes it through subprocess.run), so a whole-program battery would be red before any mutation and score nothing. Isolating the committed CONTROL_CASES is what makes the answer about THEM.",
+  "gate": "sweep.py",
+  "battery": [
+    "{python}",
+    "-c",
+    "import importlib.util,sys;spec=importlib.util.spec_from_file_location('sweep','sweep.py');m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m);f=m.run_controls(verbose=False);print('SWEEP_CONTROL_FAIL: '+', '.join(x[0] for x in f)) if f else print('sweep controls: all cases behaved as registered');sys.exit(1 if f else 0)"
+  ],
+  "battery_cwd": "docs/research/class-enumeration-2026-09-15",
+  "mutations": [
+    {
+      "name": "cmdpos",
+      "protection": "an invocation must sit in COMMAND POSITION; a line merely beginning with the name is prose",
+      "find": "^_CMDPOS = r'[^\\n]*'",
+      "replace": "_CMDPOS = r'(?:^)\\s*\\.?/?[\\w./$@{}~-]*'",
+      "count": 1,
+      "expect": "caught"
+    },
+    {
+      "name": "quote",
+      "protection": "a name inside a quoted run is advice or test data, not an invocation",
+      "find": "if m and not _in_quoted_string\\(line, m\\.end\\(\\) - len\\(name\\)\\):",
+      "replace": "if m:",
+      "count": 2,
+      "expect": "caught"
+    },
+    {
+      "name": "interp",
+      "protection": "an interpreter must sit at a token start, so '.sh' inside a quoted filename cannot act as one",
+      "find": "^_INTERP = r'[^\\n]*'",
+      "replace": "_INTERP = r'(?:bash|sh|zsh|python3?)\\s*[^\\n]{0,80}?'",
+      "count": 1,
+      "expect": "caught"
+    },
+    {
+      "name": "comment",
+      "protection": "a commented-out invocation is not an invocation",
+      "find": "    if line\\.strip\\(\\)\\.startswith\\(\"#\"\\):",
+      "replace": "    if False:",
+      "count": 1,
+      "expect": "caught"
+    },
+    {
+      "name": "ast",
+      "protection": "a PYTHON file is read with ast, so a docstring cannot register as an invocation",
+      "find": "            if f\\.suffix == \"\\.py\":",
+      "replace": "            if False:",
+      "count": 1,
+      "expect": "caught"
+    }
+  ]
+}
