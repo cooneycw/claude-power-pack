@@ -9,7 +9,7 @@
        tool-risk-check tool-risk-drift \
        branch-protection-check branch-protection-apply branch-protection-show \
        host-surfaces-check host-surfaces-plan host-surfaces-prune memory-harness \
-       binary-guards-check negative-fixture-check claude-md-budget-check \
+       binary-guards-check negative-fixture-check negative-controls claude-md-budget-check \
        claude-md-links-check claude-md-behavior-check skills-check \
        install-drift-check install-drift-list \
        tools-version-check toolchain-provenance checkout-readers \
@@ -67,8 +67,8 @@ tools-check:
 		if command -v docker > /dev/null 2>&1; then \
 			printf '  docker is present, so `make shellcheck` and `make secret-scan` still run, pinned:\n'; \
 			printf '    %s\n    %s\n' '$(SHELLCHECK_IMAGE)' '$(GITLEAKS_IMAGE)'; \
-			printf '  but `make test` runs controls that invoke these scanners DIRECTLY and has no such fallback,\n'; \
-			printf '  so controls/shellcheck-gate and controls/secret-scan will report UNSIGNALLED there.\n'; \
+			printf '  but `make test` and `make negative-controls` run controls that invoke these scanners DIRECTLY, with no such fallback,\n'; \
+			printf '  so controls/shellcheck-gate and controls/secret-scan report UNAVAILABLE there (#1117): unexamined, not clean.\n'; \
 		else \
 			printf '  docker is absent too, so the shellcheck and secret-scan targets cannot run either.\n'; \
 		fi; \
@@ -330,8 +330,41 @@ bandit-audit-capture:
 oscillation:
 	@python3 scripts/check-oscillation.py
 
+## THE CONTROL BATTERY, CONSUMED LOCALLY (issue #1117)
+## `make verify` ALREADY PAID FOR THIS AND THREW IT AWAY. `make test` runs the
+## whole battery twice - tests/test_negative_controls.py:567 reads one control's
+## block out of it and :876 reads the universe line - so 21 of 22 verdicts were
+## computed and discarded on every local run. A control that stopped
+## discriminating on a dev box was silent here and reddened only in CI.
+##
+## `--allow-unavailable` IS THE LOCAL POSTURE AND NOT THE CI ONE, deliberately.
+## Three registered gates drive an external binary (gitleaks, shellcheck, jq)
+## and REFUSE to report a clean verdict without it, which is correct. Before
+## #1117 that refusal was filed as UNSIGNALLED or - for the jq gate, whose
+## unavailability line is a legitimate member of its own detection pattern -
+## BLIND: accusations about our code for a fact about this machine. Wiring the
+## battery in without the split would therefore have failed every merge on any
+## box lacking one of the three.
+##
+## CI KEEPS BARE `--strict` (.woodpecker.yml `negative-controls`), so an absent
+## binary there is still a red. That is load-bearing: the pipeline STAGES pinned
+## gitleaks, shellcheck and jq into .ci-bin on purpose, and both that file and
+## tests/test_shellcheck_stage.py rest on this harness reddening rather than
+## reporting a shorter battery if a staging step stops delivering one.
+##
+## WHAT IT TOLERATES IT ALSO SAYS: the run names every unexamined control and
+## drops it from the "N discriminate" numerator, so a green here on a tool-less
+## box cannot be read as the evidence CI has. `tools-check` above names the
+## missing binaries at the top of the same verify run.
+##
+## controls/check-negative-controls-unavailable registers the committed BAD/GOOD
+## pair for the distinction itself, anchored against #1117 implemented naively -
+## a gate that lets work through cannot be trusted on a clean tree alone.
+negative-controls:
+	@python3 scripts/check-negative-controls.py --strict --allow-unavailable
+
 verify: tools-check lint test typecheck shellcheck bandit-audit oscillation \
-	binary-guards-check negative-fixture-check \
+	binary-guards-check negative-fixture-check negative-controls \
 	claude-md-budget-check claude-md-links-check claude-md-behavior-check \
 	project-next-check delegated-core-check \
 	scripts-inventory-check instrument-census-check \

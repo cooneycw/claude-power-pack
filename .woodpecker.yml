@@ -320,9 +320,18 @@ steps:
     commands:
       # `.ci-bin` carries the PINNED shellcheck staged by shellcheck-stage
       # and the PINNED jq staged by jq-stage.
-      # The harness refuses to SKIP a control it cannot run - it reports
-      # UNSIGNALLED and fails - so a registered control's tool must be present
-      # HERE, not merely somewhere in the pipeline.
+      # The harness refuses to SKIP a control it cannot run - so a registered
+      # control's tool must be present HERE, not merely somewhere in the
+      # pipeline. Since #1117 it reports that refusal as UNAVAILABLE rather than
+      # UNSIGNALLED or BLIND, which is a better DIAGNOSIS and deliberately not a
+      # softer verdict: BARE `--strict` still fails on it.
+      #
+      # DO NOT ADD `--allow-unavailable` HERE. That flag exists for `make verify`
+      # on a developer box, which may legitimately lack gitleaks, shellcheck or
+      # jq. This step stages all three on purpose, so an absent one means a
+      # staging step stopped delivering - and the note under `shellcheck-stage`
+      # below, plus tests/test_shellcheck_stage.py, both rest on this step
+      # REDDENING in exactly that case rather than reporting a shorter battery.
       - PATH="$PWD/.ci-bin:$PATH" python3 scripts/check-negative-controls.py --strict
 
   # STAGING ONLY, SPLIT OUT OF THE GATE (issue #1086). `validate` depends on the
@@ -349,7 +358,10 @@ steps:
   # quietly green. `scripts/shellcheck-gate.sh` reports UNKNOWN and exits 2 when
   # the binary is absent - never 0 - and `check-negative-controls.py` refuses to
   # SKIP a control it cannot run, so `negative-controls` reddens rather than
-  # reporting a shorter battery. `tests/test_shellcheck_stage.py` holds that
+  # reporting a shorter battery. Unchanged by #1117: that issue renamed the
+  # verdict here from UNSIGNALLED to UNAVAILABLE, which is a different DIAGNOSIS
+  # and not a softer one - the step above passes bare `--strict`, which fails on
+  # it exactly as before. `tests/test_shellcheck_stage.py` holds that
   # refusal as a committed case, because "the tool was there on every run so far"
   # is not evidence about what happens when it is not.
   shellcheck-stage:

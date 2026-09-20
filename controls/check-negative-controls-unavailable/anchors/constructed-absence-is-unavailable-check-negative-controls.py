@@ -1,4 +1,30 @@
 #!/usr/bin/env python3
+# CONSTRUCTED BLIND ARTIFACT for controls/check-negative-controls-unavailable.
+# DO NOT EDIT, DO NOT LINT, DO NOT "FIX". Its sha256 is pinned by that control's
+# control.json and this file is meant to stay wrong.
+#
+# WHAT IT RECONSTRUCTS: issue #1117 implemented naively - the version that adds
+# an UNAVAILABLE verdict and stops there. Two decisions differ from the shipped
+# harness, both marked inline as MUTATION 1 and MUTATION 2, and NEITHER alone is
+# enough to produce the blindness:
+#
+#   1. a non-zero exit with no recognised message is attributed to a missing
+#      tool whenever the manifest declares an unavailability signal at all;
+#   2. the cross-case contradiction check does not exist.
+#
+# That pairing is the point. Mutation 1 is the fail-open someone writes on
+# purpose, reasoning that the gate obviously has an optional tool so the exact
+# wording should not matter. Mutation 2 is what a first cut simply would not
+# have thought of. With the contradiction check present, Mutation 1 is caught
+# anyway - MEASURED while building this anchor, which is why the first version
+# of this file failed to be blind and was replaced.
+#
+# So this artifact MISSES a gate that goes silent, which is the blindness #946
+# removed and #1117 could have reintroduced, and it agrees with the shipped
+# harness on every input where a tool really is absent. A copy that always
+# exited 0 would satisfy the framework's two checks and demonstrate nothing;
+# this one demonstrates the specific regression the change is one edit away
+# from.
 """Run every gate's registered NEGATIVE CONTROL, and prove the control can fail (issue #924).
 
 Seven of CPP's open issues are one defect in different gates: an instrument that
@@ -269,21 +295,6 @@ from pathlib import Path
 #:     mutation, the external control has become decoration and this
 #:     self-registration is all that remains, which is the state this design
 #:     exists to prevent.
-#: NEGATIVE-CONTROL: controls/check-negative-controls-unavailable
-#:     A SECOND registration on this gate (issue #1117), covering a property the
-#:     row above does not: that a gate reporting its own tool absent is still
-#:     told apart from a gate that went silent. Separate rather than two more
-#:     cases on the existing control because the property is only observable
-#:     under `--allow-unavailable`, and adding that flag to the other control's
-#:     invocation would make its frozen pre-#946 anchor exit 2 on an
-#:     unrecognised argument - turning a working control UNRESOLVED to test an
-#:     unrelated one. Several registrations per gate have been supported since
-#:     #986; this is the first gate to use it, which is worth knowing if that
-#:     path ever looks untested.
-#:
-#:     It inherits the self-registration caveat stated in full above and does
-#:     not repeat it: this harness judging itself is the weaker half, and
-#:     `tests/test_negative_controls.py` under pytest is the external opinion.
 #: The registration directive, read out of the GATE file itself so the control
 #: cannot outlive the instrument it covers. Deleting the gate deletes the
 #: registration with it; a directive naming a directory that is not there is an
@@ -519,6 +530,14 @@ def _observe(
     if exit_code == good_exit:
         return GOOD
     if unavailable is not None and unavailable.search(output):
+        return UNAVAILABLE
+    # MUTATION 1 of 2. A control that DECLARES an unavailability signal is read
+    # as "this gate drives a tool that can go missing", so a non-zero exit
+    # carrying no recognised message is charitably attributed to that tool
+    # instead of being called UNSIGNALLED. It reads as tolerance for a gate whose
+    # wording drifted; it is the pre-#946 fail-open arriving by a new route, and
+    # it excuses a gate that CRASHES.
+    if unavailable is not None and not signal.search(output):
         return UNAVAILABLE
     return BAD if signal.search(output) else UNSIGNALLED
 
@@ -830,15 +849,10 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
     # rule; with it, an author who writes a pattern broad enough to swallow
     # detections gets a red on any machine that can actually run the gate - which
     # is every CI run, where the tools are pinned into the image on purpose.
-    if unavailable_cases and clean_cases:
-        res.verdict = UNRESOLVED
-        res.details.append(
-            f"control.json unavailable_signal /{raw_unavailable}/ reports the gate's tool absent "
-            f"on case(s) {', '.join(unavailable_cases)} while case(s) {', '.join(clean_cases)} ran "
-            f"CLEANLY through the same gate, so the tool was present. A missing binary is missing "
-            f"for every case; this pattern is matching something else (issue #1117)"
-        )
-        return res
+    # MUTATION 2 of 2. The cross-case contradiction check is ABSENT here -
+    # 'unavailable on one case, clean on another' is accepted rather than
+    # refused. Its absence is what lets Mutation 1 stand: with the check in
+    # place, a silent gate whose sibling case ran cleanly is caught anyway.
     if unavailable_cases:
         res.verdict = UNAVAILABLE
         res.details.append(
@@ -1052,14 +1066,6 @@ def main(argv: list[str] | None = None) -> int:
 
     for res in results:
         print(f"NEGATIVE_CONTROL_GATE: {res.gate}")
-        # WHICH CONTROL, not just which gate (issue #1117). A gate may carry
-        # several registrations - #986 made discovery see them all - and until
-        # this line existed the blocks for two controls on ONE gate were
-        # byte-identical in their only identifying field. A reader chasing a
-        # failure, and any consumer scoping an assertion to one control, would
-        # have silently addressed whichever came first. The Result has carried
-        # `control_dir` since the beginning; it was simply never printed.
-        print(f"NEGATIVE_CONTROL_CONTROL: {res.control_dir}")
         print(f"NEGATIVE_CONTROL_SOURCE: {stamp}")
         for line in res.details:
             print(f"NEGATIVE_CONTROL_DETAIL: {line}")

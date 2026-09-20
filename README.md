@@ -211,9 +211,17 @@ dependencies.** Registration is a discovery count and reports `6` regardless of
 whether each control can run. The verdicts are what depend on tooling:
 `controls/secret-scan` needs `gitleaks`, which CI stages into the
 negative-controls step and a typical developer host does not have, and there it
-reports `UNSIGNALLED` rather than passing. It is the inverse of the usual trap -
-load-bearing where it gates, unrunnable where it was written - so a clone that
-sees `UNSIGNALLED` is missing a tool, not reading a wrong figure.
+refuses rather than passing. It is the inverse of the usual trap - load-bearing
+where it gates, unrunnable where it was written - so a clone that sees the
+refusal is missing a tool, not reading a wrong figure.
+
+That refusal was `UNSIGNALLED` when this was written, which said "the gate
+exited like a finding and said nothing that identifies one" - an accusation
+about our code for a fact about the machine. Since #1117 it is `UNAVAILABLE`,
+and `make verify` consumes the battery locally with `--allow-unavailable`,
+which names every unexamined control instead of either failing on it or
+counting it as covered. CI still passes bare `--strict`, where a missing tool
+means a staging step stopped delivering and is still a red.
 
 **What the counter-model stage measured on its first run.** 16 red cases
 proposed, **3 already covered** by the implementer's tests - 13 novel. Taken on
