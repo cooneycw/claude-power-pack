@@ -73,6 +73,14 @@ desktop.ini
 # own copies under controls/, which this pattern covers too.
 !.claude/verify-coverage.json
 !controls/**/.claude/verify-coverage.json
+# Runtime data a bundled Codex helper reads (#1028) - checked in by design, and
+# the blanket *.json rule is exactly what it must survive. `codex-skill-sync.py`
+# bundles `.claude/project-next-vendor.json` beside the entry point that reads it
+# at rank time; ignored, the generated mirror is INCOMPLETE in every fresh clone
+# while looking complete on the author's box, and `codex-skills-check` reds in CI
+# with MISSING. The pattern is the bundle location, not one file, so the next
+# bundled manifest is covered too.
+!codex/skills/**/.claude/*.json
 !templates/playwright-pool.example.json
 !templates/sandbox/settings-bash-sandbox.json
 # OpenCode provider + agent profile shipped by /cpp:init Tier 7 (issue #752).
