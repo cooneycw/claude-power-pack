@@ -1,6 +1,6 @@
 ---
-name: Session Management
-description: Session resets, context degradation, and plan mode best practices
+name: session-management
+description: Session resets, context degradation and plan mode practice. Use when a session is degrading or compacting, when deciding whether to reset, or when choosing plan mode.
 trigger: session, reset, plan mode, context degradation, compacting
 metadata:
   provenance:

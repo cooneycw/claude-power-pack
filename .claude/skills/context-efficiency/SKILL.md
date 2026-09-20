@@ -1,6 +1,6 @@
 ---
-name: Context Efficiency
-description: Progressive disclosure, token budgets, and optimization techniques
+name: context-efficiency
+description: Progressive disclosure, token budgets and optimization. Use when context is filling up, when tokens must be cut to a budget, or when deciding what to load eagerly versus on demand.
 trigger: context, tokens, optimization, token budget, progressive disclosure
 metadata:
   provenance:

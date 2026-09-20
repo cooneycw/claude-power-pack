@@ -1,6 +1,6 @@
 ---
-name: Hooks & Automation
-description: Hook types, lifecycle, and automation patterns
+name: hooks-automation
+description: Hook types, lifecycle and automation patterns. Use when adding or debugging hooks such as SessionStart or UserPromptSubmit, or automating a step that must run on every session.
 trigger: hooks, automation, hook lifecycle, SessionStart, UserPromptSubmit
 metadata:
   provenance:
