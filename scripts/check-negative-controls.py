@@ -1384,8 +1384,11 @@ def main(argv: list[str] | None = None) -> int:
                 reg for reg, res in zip(registrations, results) if res.verdict == PASS
             ]
             disc_members, disc_nonmembers = census_membership(disc_registrations, census)
-            print("negative-controls: ok - "
-                  f"{_headline(discriminating, census, disc_members, disc_nonmembers, whence, registered=len(registrations))}, "
+            headline = _headline(
+                discriminating, census, disc_members, disc_nonmembers, whence,
+                registered=len(registrations),
+            )
+            print(f"negative-controls: ok - {headline}, "
                   "each reporting its declared detection signal on the known-bad input "
                   "and demonstrated against an anchor that misses it")
     # NAMED, NOT COUNTED, AND PRINTED ON EVERY RUN THAT HAS ANY - including a
