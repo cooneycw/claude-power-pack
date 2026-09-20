@@ -25,9 +25,47 @@
 # Format: finding <path> <test-id> <count> <issue>
 # Whole-line comments only - `#` also opens every issue reference on a record.
 #
-# Every line here is dispositioned by #1113. The 136 LOW-severity findings are
-# BELOW this gate's threshold, are counted and printed on every run, and are
-# tracked by #1114 - they are deliberately not listed here.
+# Every `finding` line here is dispositioned by #1113.
+#
+# ---------------------------------------------------------------------------
+# THE SECOND RECORD TYPE, AND WHY IT IS NOT A SUPPRESSION (issue #1114)
+# ---------------------------------------------------------------------------
+# Format: reviewed-low <test-id> <issue>
+#
+# The LOW-severity band is below this gate's threshold and gates nothing. It is
+# counted and printed on every run, which keeps "below the gate" from reading as
+# "not examined" - but a single total cannot say the thing a reader actually
+# needs: whether anyone READ what is down there. Seven known rule classes and an
+# eighth nobody has ever looked at move the same integer by one.
+#
+# So each LOW rule class present in this tree carries one line below, recording
+# that it was read and where the reasoning lives. A LOW finding whose rule class
+# has no such line is reported and reddens the gate.
+#
+# THIS IS THE OPPOSITE OF A `--skip`, which is worth stating in the file where
+# both would live. A `--skip` REMOVES a distinction bandit could draw, tree-wide,
+# forever, invisibly. A line below ADDS one this gate could not draw at all, and
+# suppresses nothing - there is nothing below the threshold for it to suppress.
+# Its only effect is to mark a class as read.
+#
+# Deliberate asymmetry with the `finding` records above: a `finding` line that
+# matches nothing is STALE and reddens (a suppression outliving its finding is a
+# blindfold), while a `reviewed-low` line that matches nothing is a printed NOTE
+# and does not (it hid nothing, and reddening on the removal of the last
+# `import subprocess` in a file is how a ledger gets switched off - ADR 0009).
+#
+# No count on these records, deliberately. A count is what makes a `finding`
+# line a baseline that a new site breaks; a rule class is read or it is not, and
+# a count here would redden on every ordinary edit that adds a `subprocess`
+# call while saying nothing about whether anybody read anything.
+#
+# The dispositions, per class, with the evidence:
+#   docs/decisions/0010-bandit-low-band-disposition.md
+#
+# The current counts are NOT written down here. Three hardcoded numbers for this
+# band already went stale (133 in issue #1114, 136 in this header, 135 on the
+# tree that fixed them); the gate prints the live count and the per-rule
+# breakdown on every run, which is where a number belongs.
 
 # B602 - subprocess with shell=True. Six sites, all in lib/cicd, all running a
 # command string that arrives from project configuration (.claude/cicd.yml
@@ -67,3 +105,44 @@ finding lib/cicd/deploy/guardrails.py B108 1 #1113
 # produced, so the untrusted-input premise does not hold here; #1113 records the
 # provenance rather than adding a defusedxml dependency for it.
 finding scripts/pytest-parallel-differential.py B314 1 #1113
+
+# ---------------------------------------------------------------------------
+# Reviewed LOW rule classes (issue #1114, ADR 0010). One line per class.
+# ---------------------------------------------------------------------------
+
+# B603 - subprocess call without shell=True, i.e. the SAFE form. Bandit flags it
+# to ask whether argv[0] is attacker-controlled. Answered site by site with an
+# AST walk rather than a reading: every site's argv[0] is a string literal or a
+# `shutil.which()` result, except two that take argv from data - and both were
+# read. See ADR 0010.
+reviewed-low B603 #1114
+
+# B404 - `import subprocess`. One per file that shells out. A description of
+# this repository, not a finding about it.
+reviewed-low B404 #1114
+
+# B607 - process started with a partial executable path (`git`, not
+# `/usr/bin/git`). Absolute paths would break the deliberate PATH-resolution
+# design these gates are built on (`.ci-bin` staging in `.woodpecker.yml`).
+reviewed-low B607 #1114
+
+# B105 - possible hard-coded password string. Every site read; every one a false
+# positive on an identifier NAME (`PASS = "PASS"`, a `"password": "****"` mask,
+# dictionary keys inside help text explaining what a hardcoded password is).
+reviewed-low B105 #1114
+
+# B107 - possible hard-coded password default argument. Same shape: the defaults
+# name a FIELD (`password_key: str = "password"`, `secret_id: str = "DB"`), not a
+# credential.
+reviewed-low B107 #1114
+
+# B101 - `assert` used, which compiles away under `python -O`. All sites read:
+# each narrows a value an enclosing guard or a same-module contract has already
+# established, so none is a validation of external input and none is a security
+# boundary. The distinction, and why it is the one that matters, is in ADR 0010.
+reviewed-low B101 #1114
+
+# B405 - `import xml.etree`. One site, in the same file whose B314 parse #1113
+# already accepts and for the same reason: the XML is a JUnit report this
+# repository itself just produced.
+reviewed-low B405 #1114

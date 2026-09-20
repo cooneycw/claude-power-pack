@@ -59,7 +59,7 @@
     "never shown able to find something. Neither half is sufficient alone; naming",
     "which one covers which is the point.",
     "",
-    "FIVE CASES, because the gate draws four distinctions and a control that",
+    "SEVEN CASES, because the gate draws five distinctions and a control that",
     "exercises one leaves the others unproven:",
     "",
     "  bad-unaccounted-shell    a B602 nothing accounts for - the case issue #962",
@@ -76,6 +76,20 @@
     "                           its B602 entirely - so an allowlist that is tracked,",
     "                           counted and printed can sit beside an untracked,",
     "                           uncounted, unprinted one in the source.",
+    "  bad-unreviewed-low-rule  the band BELOW the threshold, added by #1114. A LOW",
+    "                           finding gates nothing by severity and never will -",
+    "                           that is #962's threshold decision and it is",
+    "                           untouched. What this case exercises is a different",
+    "                           question the count alone could not hold: is this rule",
+    "                           class one somebody READ, or one nobody has looked at?",
+    "                           An eighth class arriving and a fifty-eighth finding of",
+    "                           the first move the same integer by one. Its pair,",
+    "                           good-reviewed-low-rule, replays the SAME capture and",
+    "                           differs only by the reviewed-low record, so the verdict",
+    "                           can only have come from that record - and it carries a",
+    "                           record matching NOTHING while still expecting GOOD,",
+    "                           which pins the deliberate asymmetry with the stale",
+    "                           `finding` record above.",
     "  bad-rule-scoped-nosec    the ledger's OTHER bypass, in the field the first",
     "                           cut read for the wrong thing. `# nosec B307`",
     "                           increments `skipped_tests` and leaves `nosec` at 0,",
@@ -113,7 +127,7 @@
     "{case}/.bandit-audit-allow"
   ],
   "good_exit": 0,
-  "detect_signal": "^BANDIT-(FINDING|STALE|SUPPRESSION): ",
+  "detect_signal": "^BANDIT-(FINDING|STALE|SUPPRESSION|LOW-UNREVIEWED): ",
   "cases": [
     {
       "name": "bad-unaccounted-shell",
@@ -138,6 +152,18 @@
       "input": "cases/bad-rule-scoped-nosec",
       "expect": "BAD",
       "why": "No results, and metrics declaring skipped_tests=1 for lib/fixture/shellout.py - what bandit emits for a RULE-SCOPED `# nosec B307`, which leaves `nosec` at 0. If this scores GOOD, the form of inline suppression a careful author is more likely to write is invisible while the bare form is caught, and the visible ledger has an invisible twin after all. The anchor reads neither field. This case replaced `bad-skip-list-present`, which declared skipped_tests=4 on the incorrect belief that the field counts a CLI `--skip`; see the comment above."
+    },
+    {
+      "name": "bad-unreviewed-low-rule",
+      "input": "cases/bad-unreviewed-low-rule",
+      "expect": "BAD",
+      "why": "One LOW B110 in the fixture path lib/fixture/hashing.py, against a ledger holding a reviewed-low record for a DIFFERENT class (B404). Issue #1114's mechanism: the LOW band is below the threshold and gates nothing, so before this the gate could count it but could not tell a rule class somebody READ from one nobody has - both are increments of the same integer. If this scores GOOD that distinction does not exist and the seven dispositions in ADR 0010 are a claim nothing re-derives. The ledger deliberately is not empty: an empty one would also score BAD while leaving 'the gate reads this file at all' unproven. The anchor drops everything below MEDIUM by -ll, so it prints a clean line here - the blindness under test, one band down from the one it was built for."
+    },
+    {
+      "name": "good-reviewed-low-rule",
+      "input": "cases/good-reviewed-low-rule",
+      "expect": "GOOD",
+      "why": "THE SAME capture as bad-unreviewed-low-rule and the same B404 record, differing only by a reviewed-low B110 line - so the verdict can only have come from that line, which makes the pair a measurement rather than two assertions. It pins the other half too: the B404 record matches nothing here and this case still expects GOOD, because a reviewed-low record accounting for nothing is a NOTE and never a finding. That asymmetry with a STALE `finding` record (which does redden - a suppression outliving its finding is a blindfold) is deliberate, and a gate that reddened on it would redden when somebody deletes the last `import subprocess` in a file, which is how a ledger gets switched off (ADR 0009)."
     },
     {
       "name": "good-all-accounted",
