@@ -66,6 +66,20 @@ steps:
   # comment about an expression that DELETES the key it was told to update on one
   # version and not the other. Python does the fetch because this image is
   # guaranteed to have python3 and is not guaranteed to have curl or wget.
+  # `make`, CONTENT-PINNED, staged into `.ci-bin` for the steps below (#1165).
+  # Subsumption asks MAKE which prerequisites an aggregate actually runs, because
+  # a textual reader cannot evaluate `ifeq` and so names prerequisites make will
+  # never run - which let a broken lint pass as a `subsumed` gate. This image has
+  # no make, measured, so without this step the derivation answers "cannot ask",
+  # `controls/flow-finish-gate-derivation` measures make's ABSENCE instead of its
+  # subject, and TestSubsumedGates SKIPS in validate - the issue's own red case
+  # untested where a reviewer can re-derive it. Same shape and same reason as
+  # jq-stage above (#1017).
+  make-stage:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
+    commands:
+      - python3 scripts/ci-stage-make.py
+
   jq-stage:
     image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
     depends_on: [secret-scan]
@@ -74,7 +88,7 @@ steps:
 
   validate:
     image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
-    depends_on: [secret-scan, shellcheck-stage, jq-stage]
+    depends_on: [secret-scan, shellcheck-stage, jq-stage, make-stage]
     # THE CAP IS DECLARED, NEVER `auto` (issues #640, #1086). `-n auto` means one
     # worker per core, and `nproc` is 24 on the agent host while flow sessions run
     # full suites beside the pipeline; multiplied by the invocations actually in
@@ -95,6 +109,16 @@ steps:
       # WHOLE control register, so this image needs every registered control's
       # tool - not just the ones whose own step happens to run here (#960).
       - PATH="$PWD/.ci-bin:$PATH" uv run pytest -n "$(sh scripts/pytest-workers.sh)"
+      # NAME THE SUBSUMPTION TESTS, because the full run's summary CANNOT say
+      # whether they ran (#1165). Those tests carry a `shutil.which("make")`
+      # guard per CLAUDE.md, and this image has no system make - it has the one
+      # `make-stage` puts in `.ci-bin`. If that staging ever stops delivering,
+      # they SKIP, and a skip is invisible in `4759 passed, 591 skipped`: the
+      # suite stays green while the issue's own red cases go untested in the one
+      # environment a reviewer can re-derive. `-rs` over just this class prints
+      # the count and any skip reason in a handful of lines, so "they ran" is
+      # something a reader can SEE instead of infer from the stager's exit code.
+      - PATH="$PWD/.ci-bin:$PATH" uv run pytest tests/test_runner.py -k SubsumedGates -q -rs --no-header
       - uv run mypy .
 
   # Explicit Codex-skill drift gate (issue #556): the pytest suite already checks
@@ -562,7 +586,7 @@ steps:
   # --network none and a read-only workspace.
   negative-controls:
     image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
-    depends_on: [secret-scan, shellcheck-stage, jq-stage]
+    depends_on: [secret-scan, shellcheck-stage, jq-stage, make-stage]
     commands:
       # `.ci-bin` carries the PINNED shellcheck staged by shellcheck-stage
       # and the PINNED jq staged by jq-stage.

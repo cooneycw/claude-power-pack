@@ -80,10 +80,17 @@ _PROBE = textwrap.dedent(
     )
     resolved = [d.id for d in steps.get_plan_steps("finish", project_root=str(scratch))]
     assert resolved[:3] == ["lint", "test", "typecheck"], resolved
-    derived = steps.subsumed_gate_ids(
+    covered, refusals = steps.subsumed_gate_ids(
         "finish", steps.get_plan_steps("finish", project_root=str(scratch)), str(scratch)
     )
-    assert derived == {{"lint": "verify", "test": "verify", "typecheck": "verify"}}, derived
+    assert covered == {{"lint": "verify", "test": "verify", "typecheck": "verify"}}, covered
+    # THE REFUSALS ARE ASSERTED TOO, not discarded (#1165). They are how the
+    # derivation says it could NOT answer - `make` absent from this
+    # environment, or an unreadable rule - and an empty mapping with a refusal
+    # beside it is a DIFFERENT fact from an empty mapping with none. Binding
+    # the tuple and checking only its first half would let this probe pass
+    # while reporting that make could not be asked at all.
+    assert refusals == [], refusals
     assert runner.DeterministicRunner is not None
     print("OK")
     """

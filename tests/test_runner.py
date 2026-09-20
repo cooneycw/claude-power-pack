@@ -2844,31 +2844,34 @@ class TestSubsumedGates:
         sit on that first line. A set assertion alone would not have caught the
         wrong parser being used; the count does.
         """
-        from importlib.util import module_from_spec, spec_from_file_location
 
         from lib.cicd.steps import get_plan_steps, subsumed_gate_ids
 
         root = Path(__file__).resolve().parent.parent
         steps = get_plan_steps("finish", project_root=str(root))
-        subsumed = subsumed_gate_ids("finish", steps, str(root))
+        subsumed, _refusals = subsumed_gate_ids("finish", steps, str(root))
 
         assert set(subsumed) == {"lint", "test", "typecheck"}
         assert set(subsumed.values()) == {"verify"}
 
-        spec = spec_from_file_location(
-            "vcc", root / "scripts" / "verify-coverage-check.py"
-        )
-        module = module_from_spec(spec)
-        spec.loader.exec_module(module)
-        prereqs = module.Makefile((root / "Makefile").read_text()).prereqs["verify"]
+        # THE PIN MOVED FROM THE TEXT TO MAKE (#1165). It used to read this
+        # repository's `verify:` rule with the canonical TEXTUAL parser, and a
+        # textual reader cannot evaluate `ifeq` - so it names prerequisites make
+        # will never run, which is precisely how a broken lint passed as a
+        # `subsumed` gate. The count is still the tripwire; the authority is now
+        # the thing that will actually run them.
+        from lib.cicd.steps import make_prerequisites
+
+        prereqs = make_prerequisites(str(root), "verify")
+        assert prereqs is not None, "make could not be asked what `verify` runs"
         assert len(prereqs) == 29, (
-            f"this repository's `verify:` rule has {len(prereqs)} direct "
-            f"prerequisites by the canonical reader, not 29. If the Makefile "
-            f"genuinely changed, update the number; if it did not, the reader "
-            f"stopped seeing part of the rule - which is exactly how "
-            f"lib/cicd/makefile.py returns 9 and a literal backslash (#1162)"
+            f"make reports {len(prereqs)} prerequisites for this repository's "
+            f"`verify` rule, not 29. If the Makefile genuinely changed, update "
+            f"the number; if it did not, something changed what make RESOLVES - "
+            f"a conditional, an include, or a variable - and the subsumed set "
+            f"moved with it (#1165)"
         )
-        assert "\\" not in prereqs
+        assert "\\" not in prereqs, "make never yields a line continuation as a prerequisite"
 
     @requires_make
     def test_subsumed_is_asserted_only_when_the_aggregate_PASSES(self, tmp_path):
@@ -2933,7 +2936,7 @@ class TestSubsumedGates:
             "verify: test typecheck\n\t@echo verify ran\n",
         )
         steps = get_plan_steps("finish", project_root=str(root))
-        subsumed = subsumed_gate_ids("finish", steps, str(root))
+        subsumed, _refusals = subsumed_gate_ids("finish", steps, str(root))
         assert "lint" not in subsumed, "lint is not a prerequisite of this verify"
 
         result = DeterministicRunner(
@@ -2957,7 +2960,7 @@ class TestSubsumedGates:
             tmp_path, "lint:\n\t@true\ntest:\n\t@true\ntypecheck:\n\t@true\n"
         )
         steps = get_plan_steps("finish", project_root=str(root))
-        assert subsumed_gate_ids("finish", steps, str(root)) == {}
+        assert subsumed_gate_ids("finish", steps, str(root))[0] == {}
 
     @requires_make
     def test_step_details_carry_wall_time(self, tmp_path):
@@ -3044,7 +3047,7 @@ class TestSubsumedGates:
             "verify: lint test \\\n\ttypecheck\n\t@true\n",
         )
         steps = get_plan_steps("finish", project_root=str(root))
-        subsumed = subsumed_gate_ids("finish", steps, str(root))
+        subsumed, _refusals = subsumed_gate_ids("finish", steps, str(root))
         assert set(subsumed) == {"lint", "test", "typecheck"}, (
             f"derived {sorted(subsumed)} from a rule whose third gate is past a "
             f"line continuation - a reader that stops at the first physical "
@@ -3113,3 +3116,650 @@ class TestSubsumedGates:
             == "typecheck"
         )
         assert _failing_prerequisite("nothing matchable here") is None
+
+    @requires_make
+    def test_an_inactive_conditional_prerequisite_is_not_subsumed(self, tmp_path):
+        """THE #1165 FALSE GREEN. `verify: lint` inside `ifeq (1,0)`.
+
+        A textual reader cannot evaluate the conditional, so it reports lint as
+        a prerequisite of verify. Subsumption then marks lint covered, `make
+        verify` runs without it, and a BROKEN LINT passes as a `subsumed` gate.
+        Measured on the pre-fix derivation, this exact tree:
+
+            SUBSUMED: lint, test, typecheck ran as prerequisite(s) of `verify`
+            FLOW_FINISH_GATE: ok
+
+        over a lint that exits 1 and that nothing ran. Asking make instead -
+        `make -p -n` reports `verify: test typecheck` - leaves lint unsubsumed,
+        so it runs on its own and reds the gate.
+        """
+        import io
+
+        from lib.cicd.runner import DeterministicRunner
+        from lib.cicd.steps import make_prerequisites
+
+        root = self._tree(
+            tmp_path,
+            "lint:\n\t@echo BROKEN; exit 1\n"
+            "test:\n\t@true\ntypecheck:\n\t@true\nsecurity_scan:\n\t@true\n"
+            "ifeq (1,0)\nverify: lint\nendif\n"
+            "verify: test typecheck\n\t@true\n",
+        )
+        from lib.cicd.steps import makefile_grammar_refusal
+
+        # SINCE OPTION B the query never runs here: `ifeq` is outside the
+        # positive grammar, so the makefile is refused BEFORE `make -p -n`
+        # and nothing is subsumed. The gate reds for a stronger reason than
+        # it used to - not "make said test and typecheck" but "this makefile
+        # is not one I can be sure about".
+        refusal = makefile_grammar_refusal(str(root))
+        assert refusal is not None and "a conditional" in refusal, refusal
+        assert make_prerequisites(str(root), "verify") is None
+
+        result = DeterministicRunner(
+            project_root=root, output=io.StringIO()
+        ).run("finish")
+        assert result.success is False
+        assert result.failed_step == "lint"
+        assert "lint" not in result.to_dict()["subsumed_gates"]
+
+    @requires_make
+    def test_a_step_that_does_not_run_the_prerequisite_is_not_subsumed(self, tmp_path):
+        """The second #1165 finding: a matching ID is not a matching command.
+
+        `verify: lint` says make runs the TARGET `lint`. It says nothing about
+        what this plan's step called `lint` runs - and a manifest may configure
+        it to run something else entirely. Suppressing that step on the strength
+        of an unrelated Makefile rule reports a check as passed that never ran.
+
+        The refusal is reported BY NAME WITH THE COMMAND, so the duplicate run
+        explains itself and the allowlist grows from evidence.
+        """
+        from lib.cicd.steps import get_plan_steps, subsumed_gate_ids
+
+        root = self._tree(
+            tmp_path,
+            "lint:\n\t@true\ntest:\n\t@true\ntypecheck:\n\t@true\n"
+            "security_scan:\n\t@true\nverify: lint test typecheck\n\t@true\n",
+        )
+        (root / ".claude").mkdir()
+        (root / ".claude" / "cicd_tasks.yml").write_text(
+            'version: "1"\n'
+            "steps:\n"
+            "  lint:\n    command: ruff check --select=E501 .\n"
+            "  test:\n    command: make test\n"
+            "  typecheck:\n    command: make typecheck\n"
+            "  verify:\n    command: make verify\n"
+            "plans:\n  finish:\n    steps: [lint, test, typecheck, verify]\n"
+        )
+        steps = get_plan_steps("finish", project_root=str(root))
+        subsumed, refusals = subsumed_gate_ids("finish", steps, str(root))
+
+        assert "lint" not in subsumed
+        assert {"test", "typecheck"} <= set(subsumed)
+        assert any("ruff check" in r and "lint" in r for r in refusals), refusals
+
+    @requires_make
+    def test_the_query_does_not_inherit_the_OUTER_make(self, monkeypatch):
+        """A derivation run from inside a make recipe asks the same question.
+
+        A parent make exports its own variables to everything it runs, and
+        `make verify` running this very suite is exactly that case. Measured
+        with `MAKEFLAGS=w` and `MAKELEVEL=1` in the environment: the query's
+        make announced `Entering directory`, the recursion guard fired, and
+        subsumption turned OFF for a makefile squarely inside the grammar - the
+        whole saving gone in the nested case, silently, while every gate still
+        ran. Failing safe is not the same as being right.
+
+        Caught only by the FULL suite: every targeted run of these tests was
+        serial and outside make, where the variables are absent. The green from
+        a narrower run said nothing about the environment the gate meets.
+        """
+        from lib.cicd.steps import (
+            get_plan_steps,
+            reset_make_prerequisite_cache,
+            subsumed_gate_ids,
+        )
+
+        root = Path(__file__).resolve().parent.parent
+        monkeypatch.setenv("MAKEFLAGS", "w")
+        monkeypatch.setenv("MAKELEVEL", "1")
+        monkeypatch.setenv("MFLAGS", "-w")
+        reset_make_prerequisite_cache()
+        covered, _ = subsumed_gate_ids(
+            "finish", get_plan_steps("finish", project_root=str(root)), str(root)
+        )
+        assert set(covered) == {"lint", "test", "typecheck"}, (
+            "an outer make's exported flags must not change what the query is "
+            f"asked; got {covered}"
+        )
+
+    def test_THIS_repository_is_inside_the_grammar(self):
+        """The measurement that decides whether option B is option D (#1165).
+
+        Subsumption exists to save ~157s on THIS repository's gate run. If
+        CPP's own Makefile falls outside the grammar, the feature refuses here
+        too and the whole thing is dead weight - so the fact is pinned rather
+        than assumed. Measured at b3bf666 and on this branch: inside, with the
+        one interesting line being `.DEFAULT_GOAL := lint`, an assignment whose
+        name begins with a dot.
+
+        IF THIS TEST FAILS, the Makefile gained a construct outside the set -
+        an include, a conditional, a `$(shell)` assignment. That is not
+        automatically wrong, but it turns subsumption OFF for this repository,
+        and the choice should be made deliberately rather than discovered as a
+        slower gate. Do not widen the grammar to make this pass.
+        """
+        from lib.cicd.steps import makefile_grammar_refusal
+
+        root = Path(__file__).resolve().parent.parent
+        refusal = makefile_grammar_refusal(str(root))
+        assert refusal is None, (
+            f"CPP's own Makefile is now OUTSIDE the subsumption grammar: {refusal}. "
+            f"Subsumption is therefore disabled for this repository and `make verify`'s "
+            f"gates will run twice. See docs/scripts.md (#1165, option B)."
+        )
+
+    def test_the_grammar_is_a_closed_positive_set(self, tmp_path):
+        """What is ALLOWED is listed; everything else refuses, by construction.
+
+        Two counter-model passes produced fifteen findings against a derivation
+        that named FORBIDDEN constructs, because such a list can only contain
+        what somebody already thought of. These cases are therefore not the
+        specification - the four allowed shapes are - but they pin that the
+        shapes which actually bit us fall outside it, and that the ordinary
+        makefile does not.
+        """
+        from lib.cicd.steps import makefile_grammar_refusal
+
+        def refusal_for(text):
+            (tmp_path / "Makefile").write_text(text)
+            return makefile_grammar_refusal(str(tmp_path))
+
+        inside = [
+            ("a plain rule and recipe", "lint:\n\t@true\nverify: lint\n\t@true\n"),
+            (".PHONY", ".PHONY: lint verify\nlint:\n\t@true\n"),
+            ("a plain assignment", "PY = python3\nlint:\n\t@true\n"),
+            ("a dotted special", ".DEFAULT_GOAL := lint\nlint:\n\t@true\n"),
+            ("a comment", "# a comment\nlint:\n\t@true\n"),
+            (
+                "a continued prerequisite list",
+                "lint:\n\t@true\ntest:\n\t@true\nverify: lint \\\n\ttest\n\t@true\n",
+            ),
+        ]
+        for label, text in inside:
+            assert refusal_for(text) is None, f"{label} must be INSIDE the grammar"
+
+        outside = [
+            ("an include", "include other.mk\nlint:\n\t@true\n", "an include"),
+            ("a conditional", "ifeq (1,0)\nverify: lint\nendif\n", "a conditional"),
+            ("a define", "define X\nY\nendef\n", "a define block"),
+            ("a pattern rule", "%.o: %.c\n\t@true\n", "a pattern rule"),
+            ("a double-colon rule", "verify:: test\n", "a double-colon rule"),
+            ("an export", "export FOO = 1\n", "an export directive"),
+            (
+                "a $(shell) assignment",
+                "STAMP := $(shell date)\nlint:\n\t@true\n",
+                "$(shell",
+            ),
+            (
+                "an $(eval) assignment",
+                "X := $(eval Y)\nlint:\n\t@true\n",
+                "$(eval",
+            ),
+            (
+                "a recursive make in a value",
+                "SUB = $(MAKE) -C sub\nlint:\n\t@true\n",
+                "$(MAKE)",
+            ),
+            (
+                "MAKEFLAGS in a value",
+                "F := $(MAKEFLAGS)\nlint:\n\t@true\n",
+                "MAKEFLAGS",
+            ),
+            (
+                "a target-specific variable",
+                "verify: CHECKS = lint\nverify: test\n",
+                "does not recognise",
+            ),
+            (
+                "an escaped hash in a rule",
+                "verify: lint\\#aux test\n",
+                "backslash escape",
+            ),
+            (
+                "an escaped space in a rule",
+                "verify: lint\\ aux test\n",
+                "backslash escape",
+            ),
+        ]
+        for label, text, expected in outside:
+            refusal = refusal_for(text)
+            assert refusal is not None, f"{label} must be OUTSIDE the grammar"
+            assert expected in refusal, f"{label}: {refusal!r} must name {expected!r}"
+            assert refusal.startswith("line "), f"{label}: {refusal!r} must name the line"
+
+    def test_a_recognised_command_is_EQUAL_to_its_producer(self, tmp_path):
+        """Recognition is equality with `gate_conditional_command`, not a regex.
+
+        The regex it replaced carried two findings: `\\s` spans newlines, so
+        `make\\nlint` satisfied the direct form, and the conditional form
+        matched a PREFIX, so trailing shell after `fi` rode along and executed.
+        Equality against the one producer closes both by construction - there
+        is no pattern left to be clever about.
+        """
+        from lib.cicd.steps import command_runs_make_target, gate_conditional_command
+
+        (tmp_path / "Makefile").write_text("lint:\n\t@true\n")
+        root = str(tmp_path)
+
+        generated = gate_conditional_command("lint", "uv run --extra dev ruff check .")
+        assert command_runs_make_target(generated, "lint", root)
+        assert command_runs_make_target("make lint", "lint")
+        assert command_runs_make_target("make  lint", "lint"), "horizontal space folds"
+
+        for rejected in (
+            "make typecheck",
+            "ruff check .",
+            "make lint && rm -rf /",
+            "make lint; exit 1",
+            "make\nlint",
+            generated + "; exit 1",
+            generated.replace("; fi", "; fi\nexit 1"),
+            'if grep -q "^lint:" Makefile; then make lint; else true\nfi\nexit 1\n#; fi',
+        ):
+            assert not command_runs_make_target(rejected, "lint", root), rejected
+
+        # The fallback slot is the only freedom, and it cannot chain.
+        assert not command_runs_make_target(
+            gate_conditional_command("lint", "true; exit 1"), "lint", root
+        )
+
+    @requires_make
+    def test_a_makeflags_sensitive_makefile_is_refused(self, tmp_path):
+        """The query IS make flags, so a tree reading them cannot be asked.
+
+        Naming the goal fixed `MAKECMDGOALS`; nothing fixes `MAKEFLAGS` while
+        the query needs `-p -n`. Measured (counter-model round 2): with
+        `verify: lint` under `ifneq (,$(findstring n,$(MAKEFLAGS)))` the query
+        returned `['test', 'lint']` and `make verify` ran only test - the
+        conditional false green, keyed on the query itself.
+        """
+        from lib.cicd.steps import make_prerequisites, reset_make_prerequisite_cache
+
+        (tmp_path / "Makefile").write_text(
+            "lint:\n\t@exit 1\ntest:\n\t@true\n"
+            "ifneq (,$(findstring n,$(MAKEFLAGS)))\nverify: lint\nendif\n"
+            "verify: test\n\t@true\n"
+        )
+        reset_make_prerequisite_cache()
+        assert make_prerequisites(str(tmp_path), "verify") is None
+
+    @requires_make
+    def test_a_recursive_make_child_database_is_refused(self, tmp_path):
+        """`-n` does not suppress a recipe line containing `$(MAKE)`.
+
+        So the query RUNS the children, and a child's `-p` dump precedes the
+        parent's. Measured: a parent whose rule is `verify: test` returned
+        `['lint']` - read out of a subdirectory's makefile. Crediting a
+        neighbour's target as coverage is the defect this issue is about,
+        arriving through make rather than through text.
+        """
+        from lib.cicd.steps import make_prerequisites, reset_make_prerequisite_cache
+
+        child = tmp_path / "sub"
+        child.mkdir()
+        (child / "Makefile").write_text("lint:\n\t@true\nverify: lint\n\t@true\n")
+        (tmp_path / "Makefile").write_text(
+            "lint:\n\t@exit 1\ntest:\n\t@$(MAKE) -C sub verify\nverify: test\n\t@true\n"
+        )
+        reset_make_prerequisite_cache()
+        assert make_prerequisites(str(tmp_path), "verify") is None
+
+    @requires_make
+    def test_an_odd_named_target_variable_is_skipped_not_read_as_prerequisites(
+        self, tmp_path
+    ):
+        """The assignment guard keys on `=`, not on the variable's NAME.
+
+        Keying on the name meant any name outside the character class walked
+        past it: measured, `verify: CHECK/LIST = lint` returned
+        `['CHECK/LIST', '=', 'lint']`. An assignment is SKIPPED rather than
+        refused - make itself keeps looking for the rule, and so does this.
+        """
+        from lib.cicd.steps import make_prerequisites, reset_make_prerequisite_cache
+
+        (tmp_path / "Makefile").write_text(
+            "lint:\n\t@exit 1\ntest:\n\t@true\n"
+            "verify: CHECK/LIST = lint\nverify: test\n\t@true\n"
+        )
+        reset_make_prerequisite_cache()
+        from lib.cicd.steps import makefile_grammar_refusal
+
+        # REFUSED BY THE GRAMMAR now, one step earlier: a target-specific
+        # variable is not a rule, a recipe, an assignment or `.PHONY`, so
+        # it is not a line the grammar recognises and the file is never
+        # queried. The parser behaviour below is kept as the regression.
+        refusal = makefile_grammar_refusal(str(tmp_path))
+        assert refusal is not None and "does not recognise" in refusal, refusal
+        assert make_prerequisites(str(tmp_path), "verify") is None
+
+    @requires_make
+    def test_an_escaped_hash_in_a_prerequisite_refuses_the_rule(self, tmp_path):
+        """`verify: lint\\#aux` is ONE file, and cutting at `#` invents `lint`.
+
+        Measured: the reader returned `['lint']` - a target that does not
+        exist, which would suppress a real step called `lint`.
+        """
+        from lib.cicd.steps import make_prerequisites, reset_make_prerequisite_cache
+
+        (tmp_path / "Makefile").write_text(
+            "lint\\#aux:\n\t@true\ntest:\n\t@true\nverify: lint\\#aux test\n\t@true\n"
+        )
+        reset_make_prerequisite_cache()
+        assert make_prerequisites(str(tmp_path), "verify") is None
+
+    @requires_make
+    def test_an_escaped_space_credits_only_names_make_declares_as_rules(
+        self, tmp_path
+    ):
+        """The one ambiguity no parser can resolve, closed from the other side.
+
+        `make -p` prints `verify: lint\\ aux test` as `verify: lint aux test`
+        with the escape GONE, so one file named `lint aux` and two files named
+        `lint` and `aux` are byte-identical there. The RULES are not ambiguous:
+        the dump carries `lint aux:` and no `lint:`. So a prerequisite is
+        credited only when the database declares it as a rule in its own right
+        (counter-model round 2).
+        """
+        from lib.cicd.steps import (
+            StepDef,
+            make_prerequisites,
+            reset_make_prerequisite_cache,
+            subsumed_gate_ids,
+        )
+
+        (tmp_path / "Makefile").write_text(
+            "lint\\ aux:\n\t@true\ntest:\n\t@true\nverify: lint\\ aux test\n\t@true\n"
+        )
+        reset_make_prerequisite_cache()
+        # REFUSED BY THE GRAMMAR before the query: the escape survives the
+        # continuation join and a rule line carrying one is outside the set.
+        # The declares-a-rule check below remains the second layer, for a
+        # file that is inside the grammar and still ambiguous in the dump.
+        from lib.cicd.steps import makefile_grammar_refusal
+
+        refusal = makefile_grammar_refusal(str(tmp_path))
+        assert refusal is not None and "backslash escape" in refusal, refusal
+        assert make_prerequisites(str(tmp_path), "verify") is None
+        plan = [
+            StepDef(id="lint", command="make lint", gate=True),
+            StepDef(id="test", command="make test", gate=True),
+            StepDef(id="verify", command="make verify", gate=True),
+        ]
+        reset_make_prerequisite_cache()
+        covered, refusals = subsumed_gate_ids("finish", plan, str(tmp_path))
+        assert covered == {}, "the grammar refused this file; nothing is subsumed"
+        assert any("backslash escape" in r for r in refusals), refusals
+
+    @requires_make
+    def test_a_step_environment_that_differs_from_the_aggregate_is_not_subsumed(
+        self, tmp_path
+    ):
+        """The same command in a different environment is a different check.
+
+        Measured (counter-model round 2): a `verify` step carrying
+        `env={"SKIP_LINT": "1"}`, over a makefile that drops lint under that
+        variable, reported lint as covered with NO refusal - while standalone
+        lint failed. The query is now asked in the aggregate's environment, and
+        a prerequisite step declaring a different one is refused by name.
+        """
+        from lib.cicd.steps import StepDef, reset_make_prerequisite_cache, subsumed_gate_ids
+
+        (tmp_path / "Makefile").write_text(
+            "lint:\n\t@exit 1\ntest:\n\t@true\n"
+            "ifndef SKIP_LINT\nverify: lint\nendif\nverify: test\n\t@true\n"
+        )
+        plan = [
+            StepDef(id="lint", command="make lint", gate=True),
+            StepDef(id="test", command="make test", gate=True),
+            StepDef(id="verify", command="make verify", gate=True, env={"SKIP_LINT": "1"}),
+        ]
+        reset_make_prerequisite_cache()
+        covered, refusals = subsumed_gate_ids("finish", plan, str(tmp_path))
+        # TWO refusals are available here and the grammar's comes first:
+        # `ifndef` is outside the set, so the file is never queried. The
+        # environment check stays as the guard for a file INSIDE the grammar
+        # whose steps disagree, which is pinned in the sibling test below.
+        assert "lint" not in covered, "the aggregate's env drops lint; it must run"
+        assert refusals, "a refusal must be NAMED, not left to silence"
+
+    @requires_make
+    def test_a_multiline_command_is_never_a_recognised_make_invocation(self, tmp_path):
+        """Every negated class in the patterns matches a newline.
+
+        So `if grep -q "^lint:" Makefile; then make lint; else true\\nfi\\nexit 1\\n#; fi`
+        satisfied the conditional form while executing `exit 1` afterwards -
+        measured recognised=True, exit=1. Both recognised shapes are single
+        line, so a newline anywhere refuses (counter-model round 2).
+        """
+        from lib.cicd.steps import command_runs_make_target
+
+        (tmp_path / "Makefile").write_text("lint:\n\t@true\n")
+        trailing = (
+            'if grep -q "^lint:" Makefile; then make lint; else true\nfi\nexit 1\n#; fi'
+        )
+        assert not command_runs_make_target(trailing, "lint", str(tmp_path))
+
+    @requires_make
+    def test_make_is_asked_about_THIS_target_not_the_default_goal(self, tmp_path):
+        """`MAKECMDGOALS` is part of the question (counter-model review).
+
+        A rule guarded by `ifneq ($(MAKECMDGOALS),verify)` resolves one way
+        when make is asked about `verify` and the OTHER way when it is asked
+        about nothing. Measured on the pre-fix code, which ran `make -p -n`
+        with no target: the query returned `['test', 'lint']` for a tree where
+        `make verify` runs only `test`, so `lint` would have been suppressed in
+        favour of an aggregate that never runs it.
+
+        This is the SAME defect the issue is about - a derivation that answers
+        a neighbouring question - and it survived into the fix.
+        """
+        from lib.cicd.steps import make_prerequisites, reset_make_prerequisite_cache
+
+        (tmp_path / "Makefile").write_text(
+            "lint:\n\t@true\ntest:\n\t@true\n"
+            "ifneq ($(MAKECMDGOALS),verify)\nverify: lint\nendif\n"
+            "verify: test\n\t@true\n"
+        )
+        reset_make_prerequisite_cache()
+        from lib.cicd.steps import makefile_grammar_refusal
+
+        # The goal fix still matters for any file INSIDE the grammar; this
+        # particular file is now refused one step earlier, as a conditional.
+        refusal = makefile_grammar_refusal(str(tmp_path))
+        assert refusal is not None and "a conditional" in refusal, refusal
+        assert make_prerequisites(str(tmp_path), "verify") is None
+
+    @requires_make
+    def test_a_target_specific_variable_is_not_a_prerequisite_list(self, tmp_path):
+        """`verify: CHECKS = lint` assigns; it does not depend (counter-model).
+
+        Measured on the pre-fix code, whose `[:1]` assignment guard looked at
+        the wrong character: the query returned `['CHECKS', '=', 'lint']`, so
+        a step whose id happened to be `lint` was credited to an aggregate that
+        merely mentions it in a variable.
+        """
+        from lib.cicd.steps import make_prerequisites, reset_make_prerequisite_cache
+
+        (tmp_path / "Makefile").write_text(
+            "lint:\n\t@true\ntest:\n\t@true\n"
+            "verify: CHECKS = lint\nverify: test\n\t@true\n"
+        )
+        reset_make_prerequisite_cache()
+        from lib.cicd.steps import makefile_grammar_refusal
+
+        # REFUSED BY THE GRAMMAR now, one step earlier: a target-specific
+        # variable is not a rule, a recipe, an assignment or `.PHONY`, so
+        # it is not a line the grammar recognises and the file is never
+        # queried. The parser behaviour below is kept as the regression.
+        refusal = makefile_grammar_refusal(str(tmp_path))
+        assert refusal is not None and "does not recognise" in refusal, refusal
+        assert make_prerequisites(str(tmp_path), "verify") is None
+
+    @requires_make
+    def test_a_FAILED_make_query_is_not_an_answer(self, tmp_path):
+        """A non-zero make still prints a database; it is not evidence.
+
+        GNU make emits a PARTIAL database even when it aborts. Measured on the
+        pre-fix code, which checked only that stdout was non-empty: a makefile
+        whose `$(error)` stops the parse still yielded `['lint']` - a
+        subsumption derived from a make that had refused to run. "Cannot ask
+        means subsume nothing" has to cover "asked, and was refused".
+        """
+        from lib.cicd.steps import make_prerequisites, reset_make_prerequisite_cache
+
+        (tmp_path / "Makefile").write_text(
+            "verify: lint\nlint:\n\t@true\n$(error deliberately unparseable)\n"
+        )
+        reset_make_prerequisite_cache()
+        assert make_prerequisites(str(tmp_path), "verify") is None
+
+    @requires_make
+    def test_the_prerequisite_cache_does_not_outlive_a_run(self, tmp_path):
+        """The memo spans a PROCESS; the makefile it answers about does not.
+
+        One `make -p -n` per aggregate is the reason the memo exists. Spanning
+        runs is not: a resumed run would suppress gates according to a makefile
+        read earlier and since changed. Reset is the runner's first act.
+        """
+        from lib.cicd.steps import make_prerequisites, reset_make_prerequisite_cache
+
+        makefile = tmp_path / "Makefile"
+        makefile.write_text("lint:\n\t@true\ntest:\n\t@true\nverify: lint test\n\t@true\n")
+        reset_make_prerequisite_cache()
+        assert make_prerequisites(str(tmp_path), "verify") == ["lint", "test"]
+
+        makefile.write_text("test:\n\t@true\nverify: test\n\t@true\n")
+        assert make_prerequisites(str(tmp_path), "verify") == [
+            "lint",
+            "test",
+        ], "within one run the memo is the point"
+        reset_make_prerequisite_cache()
+        assert make_prerequisites(str(tmp_path), "verify") == ["test"]
+
+    @requires_make
+    def test_the_generated_conditional_command_IS_recognised(self, tmp_path):
+        """The guard rail for the allowlist.
+
+        `generate_manifest` emits
+        `if grep -q "^lint:" Makefile; then make lint; else <alt>; fi`, which
+        runs `make lint` exactly when a `lint:` target exists - and subsumption
+        only arises when make NAMED lint a prerequisite, which requires that
+        target. Refusing this shape would turn the deduplication off for every
+        generated project, which is "refuse everything", not a bound.
+        """
+        from lib.cicd.steps import command_runs_make_target
+
+        generated = (
+            'if grep -q "^lint:" Makefile 2>/dev/null; then make lint; '
+            "else uv run --extra dev ruff check .; fi"
+        )
+        (tmp_path / "Makefile").write_text("lint:\n\t@true\n")
+        assert command_runs_make_target(generated, "lint", str(tmp_path))
+        # The direct form needs no root - there is no branch to decide.
+        assert command_runs_make_target("make lint", "lint")
+        # and it does not accept a neighbour's target, nor an unrecognised shape
+        assert not command_runs_make_target("make typecheck", "lint")
+        assert not command_runs_make_target("ruff check .", "lint")
+        assert not command_runs_make_target("make lint && rm -rf /", "lint")
+        # HORIZONTAL whitespace only: `make\nlint` is TWO commands, and the
+        # pre-fix `\s+` accepted it as one (counter-model review).
+        assert not command_runs_make_target("make\nlint", "lint")
+        assert not command_runs_make_target("make lint; exit 1", "lint")
+
+    @requires_make
+    def test_the_generated_conditional_is_refused_when_its_grep_would_miss(
+        self, tmp_path
+    ):
+        """The guard is a `grep`, so it is RUN, not assumed (counter-model).
+
+        Recognising the shape establishes only what the command CAN do. This
+        tree declares its targets through a variable, so there is no literal
+        `lint:` line, the grep fails, and the ELSE branch runs - a fallback
+        `make verify` never runs. Crediting subsumption from the shape alone
+        would drop the lint check entirely, which is this issue's own defect
+        (a derivation that answers a neighbouring question) one layer out.
+        """
+        from lib.cicd.steps import command_runs_make_target
+
+        generated = (
+            'if grep -q "^lint:" Makefile 2>/dev/null; then make lint; '
+            "else uv run --extra dev ruff check .; fi"
+        )
+        (tmp_path / "Makefile").write_text("CHECKS = lint\n$(CHECKS):\n\t@true\n")
+        assert not command_runs_make_target(generated, "lint", str(tmp_path))
+        # And with no root there is no grep to run, so it cannot be proven.
+        assert not command_runs_make_target(generated, "lint")
+
+    @requires_make
+    def test_an_aggregate_whose_command_is_not_make_verify_subsumes_nothing(
+        self, tmp_path
+    ):
+        """Every suppression rests on the aggregate RUNNING (counter-model).
+
+        A step is credited with running lint and test because it runs
+        `make verify`, and that was never checked - the id was taken as the
+        fact. Measured on the pre-fix code: a `verify` step whose command is
+        `true` suppressed both gates, so the plan ran no checks at all and
+        reported them subsumed. The ids are labels; only the command runs.
+        """
+        from lib.cicd.steps import (
+            StepDef,
+            reset_make_prerequisite_cache,
+            subsumed_gate_ids,
+        )
+
+        (tmp_path / "Makefile").write_text(
+            "lint:\n\t@true\ntest:\n\t@true\nverify: lint test\n\t@true\n"
+        )
+
+        def plan(verify_command):
+            return [
+                StepDef(id="lint", command="make lint", gate=True),
+                StepDef(id="test", command="make test", gate=True),
+                StepDef(id="verify", command=verify_command, gate=True),
+            ]
+
+        reset_make_prerequisite_cache()
+        covered, _ = subsumed_gate_ids("finish", plan("make verify"), str(tmp_path))
+        assert sorted(covered) == ["lint", "test"], "the honest plan still dedupes"
+
+        for impostor in ("true", "make verify-fast", "echo make verify"):
+            reset_make_prerequisite_cache()
+            covered, refusals = subsumed_gate_ids(
+                "finish", plan(impostor), str(tmp_path)
+            )
+            assert covered == {}, f"{impostor!r} must credit nothing"
+            assert any(
+                "declared as the aggregate" in r for r in refusals
+            ), f"{impostor!r} must SAY why, not refuse silently"
+
+    @requires_make
+    def test_make_unavailable_subsumes_nothing(self, tmp_path):
+        """When make cannot answer, every gate runs.
+
+        A tree with no Makefile has no rule to read, so the derivation returns
+        nothing subsumed rather than falling back to a textual guess. The
+        failure mode is duplicated work, never a skipped check - which is what
+        stops this fix introducing a false green through its own unavailability,
+        the trap #1163 walked into.
+        """
+        from lib.cicd.steps import get_plan_steps, make_prerequisites, subsumed_gate_ids
+
+        (tmp_path / "pyproject.toml").write_text("[tool.ruff]\n")
+        assert make_prerequisites(str(tmp_path), "verify") is None
+        steps = get_plan_steps("finish", project_root=str(tmp_path))
+        subsumed, refusals = subsumed_gate_ids("finish", steps, str(tmp_path))
+        assert subsumed == {}
+        assert any("make could not be asked" in r for r in refusals), refusals

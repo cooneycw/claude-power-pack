@@ -571,12 +571,14 @@ battery-in-ci-image:
 		echo "battery-in-ci-image: UNAVAILABLE - docker is not installed, so the battery"; \
 		echo "  was NOT run in the image. This is unexamined, not clean."; exit 2; }; \
 	stage=$$(mktemp -d); mkdir -p "$$stage/.ci-bin"; \
-	( cd "$$stage" && python3 "$(CURDIR)/scripts/ci-stage-jq.py" >/dev/null 2>&1 ) || true; \
+	for stager in ci-stage-jq ci-stage-make; do \
+		( cd "$$stage" && python3 "$(CURDIR)/scripts/$$stager.py" >/dev/null 2>&1 ) || true; \
+	done; \
 	for t in gitleaks shellcheck; do \
 		src=$$(command -v $$t 2>/dev/null) && cp "$$src" "$$stage/.ci-bin/$$t" 2>/dev/null || true; \
 	done; \
 	unusable=""; \
-	for t in jq shellcheck gitleaks; do \
+	for t in jq make shellcheck gitleaks; do \
 		if [ ! -x "$$stage/.ci-bin/$$t" ]; then unusable="$$unusable $$t(absent)"; continue; fi; \
 		docker run --rm --network none -v "$$stage/.ci-bin:/b:ro" "$$digest" \
 			/b/$$t --version >/dev/null 2>&1 || unusable="$$unusable $$t(does-not-run)"; \

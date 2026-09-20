@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# THE SAME `-p`-REFUSING MAKE AS `good-make-absent`, over a BROKEN LINT.
+#
+# `good-make-absent` proves the fall-back direction is safe by running all four
+# gates green. It cannot prove that is WHAT HAPPENED: every gate passes there,
+# so a derivation that fell back to reading the Makefile - subsuming lint, test
+# and typecheck into `verify` and running only `verify` - would ALSO exit 0.
+# The case would stay green while the property it names had been lost, which is
+# absence-of-a-signal reading as clean (counter-model review, MEDIUM 2).
+#
+# So this case moves ONE variable against that one: lint FAILS. Now the two
+# behaviours separate, and they separate in the verdict:
+#
+#   nothing subsumed (correct) -> the gate runs `make lint` on its own -> RED
+#   textual fall-back          -> lint is "covered" by verify -> only `verify`
+#                                 runs -> this stub executes the verify RECIPE,
+#                                 which does not run its prerequisites -> GREEN
+#
+# That second line is the regression this case exists to catch, and it is the
+# exact shape of the false green the whole issue is about, one layer out: an
+# instrument reporting coverage it derived instead of coverage that happened.
+for arg in "$@"; do
+    case "$arg" in
+        -p|-n|-pn|-np) echo "make: this stub cannot dump its database" >&2; exit 127 ;;
+    esac
+done
+target="${1:-all}"
+grep -q "^${target}:" Makefile 2>/dev/null || { echo "make: no rule '$target'" >&2; exit 2; }
+# THE RECIPE'S STATUS IS THE STUB'S STATUS. This used to pipe into `while` and
+# then `exit 0` unconditionally - two ways of throwing the answer away: the
+# loop body ran in the pipeline's SUBSHELL, so a failing line could not reach
+# the parent, and the trailing `exit 0` overwrote it in any case. A stub that
+# always succeeds cannot model a make, and a case whose broken target still
+# exits 0 measures nothing. Process substitution keeps the loop in this shell.
+status=0
+while IFS= read -r line; do
+    eval "$line" || { status=$?; break; }
+done < <(sed -n "/^${target}:/,/^[a-zA-Z]/p" Makefile | sed -n 's/^\t@\?//p')
+exit "$status"
