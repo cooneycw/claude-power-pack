@@ -1,0 +1,36 @@
+{
+  "gate": "scripts/flow-finish-gate.sh",
+  "invocation": [
+    "bash",
+    "-c",
+    "W=$(mktemp -d) || exit 9; cp -R \"$1\"/. \"$W\"/ || exit 9; CPP=\"${2%/*}\"; CPP=\"${CPP%/*}\"; cd \"$W\" || exit 9; PATH=\"$W/bin:$PATH\" FLOW_GATE_CPP_DIR=\"$CPP\" bash \"$2\"; rc=$?; rm -rf \"$W\"; exit $rc",
+    "--",
+    "{case}",
+    "{gate}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^FLOW_FINISH_GATE: fail$",
+  "limits": "THE RUNNER-LANE HALF, and the first control in this repository to exercise a gate path that reaches `lib.cicd`. That was impossible until issue #1163: `lib/cicd/__init__.py` re-exported sixteen submodules eagerly, two of them importing pydantic, so `python3 -m lib.cicd` could not start in the negative-controls image - measured four ways before the change. The re-exports are deferred now and the derivation runs on the stdlib alone. Verified as the WHOLE control under the pinned image digest with `--network none` and a read-only workspace. WHAT THIS ESTABLISHES: that subsumption is DERIVED from the aggregate's own prerequisite list rather than assumed from the presence of a `verify:` target. The bad case's `verify:` names test and typecheck and NOT lint, and lint is broken: the gate must still run lint and red. WHAT IT DOES NOT ESTABLISH: that a derived prerequisite is one make would actually RUN - an inactive `ifeq` rule and a step whose configured command differs from `make <target>` are both still read as coverage (issue #1165) - nor anything about the `not-run` accounting, which is `controls/flow-finish-gate-subsumption`'s subject. SEPARATE FROM THAT SIBLING ON MEASUREMENT, not preference: `check-negative-controls.py` runs EVERY anchor against EVERY bad case and requires each to miss, and the sibling's 529d470 anchor already carries #1152's derivation, so it CATCHES this case and would score it INERT. The same split, for the same reason, as `controls/flow-finish-gate-plan-reconciliation`. TWO STUBS, EACH STANDING IN FOR AN ENVIRONMENT AND NOTHING ELSE: `bin/make`, because make is absent from the image, with the Makefile beside it real text that the derivation actually reads; and `bin/uv`, which resolves `uv run --project <CPP> python -m lib.cicd` to the interpreter already present. The module that executes is the repository's own, so the derivation under test is the shipped one rather than a re-description of it.",
+  "cases": [
+    {
+      "name": "bad-unlisted-gate-skipped",
+      "input": "cases/bad-unlisted-gate-skipped",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-all-listed",
+      "input": "cases/good-all-listed",
+      "expect": "GOOD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "-",
+      "origin": "lib/cicd/steps.py::subsumed_gate_ids",
+      "path": "anchors/constructed-assume-subsumption.sh",
+      "sha256": "f13621c3de04d8594024e588ea9964f581a2cb7bd32543a93776fb3e76c914fd",
+      "why": "CONSTRUCTED because no historical article carries this defect: no released gate deduplicated gates at all before #1152, so none of them can be blind to a bad derivation. What it reproduces is the obvious WRONG FIX - treat the presence of a `verify:` target as covering lint, test and typecheck instead of deriving which of them it names. Deliberately not the real gate with one line changed: the real gate reaches its verdict through the Python runner, and an anchor carrying all of that would measure the harness rather than the decision. Measured on both cases: it prints `FLOW_FINISH_GATE: ok` and exits 0 on the known-bad input - it runs `make verify`, which succeeds precisely because it never runs the broken lint - and it agrees with the fixed gate on the known-good one."
+    }
+  ]
+}

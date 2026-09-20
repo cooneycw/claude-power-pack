@@ -32,6 +32,7 @@
 #: NEGATIVE-CONTROL: controls/flow-finish-gate-declared-gates
 #: NEGATIVE-CONTROL: controls/flow-finish-gate-plan-reconciliation
 #: NEGATIVE-CONTROL: controls/flow-finish-gate-subsumption
+#: NEGATIVE-CONTROL: controls/flow-finish-gate-derivation
 #
 # Usage:
 #   flow-finish-gate.sh                  # run the 'finish' quality-gate plan
