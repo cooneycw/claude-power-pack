@@ -136,7 +136,17 @@ class ShellStep:
     (make lint, make test, git push, etc.)
     """
 
-    def __init__(self, step_def: StepDef):
+    def __init__(self, step_def: StepDef, covers_test_step: bool = False):
+        # An AGGREGATE that subsumes a test step must still be parsed for a
+        # test summary (issue #1152, counter-model review post-merge).
+        # `is_test_step()` reads the id and command, and `make verify` names
+        # neither pytest nor test - so deferring `test` to it removed the #621
+        # empty-suite qualification entirely. MEASURED on the merged code: a
+        # target printing "0 passed, 66 skipped" inside a green `make verify`
+        # produced `tests: {}` and `warnings: []`, and the gate said ok. That
+        # is the #621 false green, restored by the fix for a COST issue - the
+        # one thing #1152 was not allowed to do.
+        self._covers_test_step = covers_test_step
         self.id = step_def.id
         self.command = step_def.command
         self.timeout_seconds = step_def.timeout_seconds
@@ -225,7 +235,7 @@ class ShellStep:
         The result records which streams it was derived from, so a caller
         reports what its verdict came FROM rather than a bare one (issue #952).
         """
-        if not self.is_test_step():
+        if not (self.is_test_step() or self._covers_test_step):
             return None
         return merge_stream_outcomes(
             [
