@@ -544,3 +544,83 @@ def test_the_register_narrowing_selector_evaluates_only_the_named_control() -> N
     gates = [line for line in result.stdout.splitlines()
              if line.startswith("NEGATIVE_CONTROL_GATE:")]
     assert gates == ["NEGATIVE_CONTROL_GATE: scripts/mutation-probe.py"]
+
+
+# --------------------------------------------------------------------------- #
+# The snapshot must carry a tracked SYMLINK, in both lanes (issue #959)
+# --------------------------------------------------------------------------- #
+
+
+def _build_sandbox(tmp_path: Path):
+    """`build_sandbox` loaded from the probe, so the real function is exercised."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("mutation_probe_under_test", PROBE)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    # Registered BEFORE exec: the probe defines dataclasses under
+    # `from __future__ import annotations`, and resolving those annotations
+    # looks the module up in `sys.modules` by name. Without this the import
+    # fails with a bare `AttributeError: 'NoneType' object has no attribute
+    # '__dict__'` from dataclasses.py, which says nothing about the cause.
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module.build_sandbox
+
+
+@pytest.mark.parametrize("git_lane", (True, False), ids=("git-lane", "wholesale-lane"))
+def test_the_snapshot_preserves_a_tracked_dangling_symlink(
+    tmp_path: Path, git_lane: bool
+) -> None:
+    """A DANGLING symlink is a legitimate tracked artifact, and both lanes lost it.
+
+    `controls/flow-vantage` commits three on purpose: `readlink /proc/self/ns/pid`
+    returns `pid:[4026531836]`, a string that is not a path, so the only faithful
+    stand-in for that read is a symlink carrying that target. The probe's two
+    snapshot lanes each mishandled it, in opposite and equally bad ways:
+
+      * the GIT lane tested `src.is_file()`, which FOLLOWS the link - False for a
+        dangling one - and skipped the path silently. The snapshot was missing a
+        control's fixtures and the probe still reported `ok`. That is the
+        "partial copy produces confident verdicts about a tree missing files
+        nobody named" failure the OSError branch refuses, arriving through the
+        branch that does not raise.
+      * the WHOLESALE lane used `copytree` with the default `symlinks=False`,
+        which DEREFERENCES: ENOENT, and the step dies. That lane is the one CI
+        runs, because git is absent from the image by design - so the dev box
+        never exercises it and the red arrived only after the push (measured:
+        Woodpecker pipeline 2220, step `mutation-probe`).
+
+    Both lanes are driven here, because a fix to one is invisible to the other.
+    """
+    if git_lane and shutil.which("git") is None:
+        pytest.skip("requires git on PATH for the git-enumeration lane")
+
+    source = tmp_path / "src"
+    (source / "controls" / "case").mkdir(parents=True)
+    (source / "controls" / "case" / "plain.txt").write_text("ordinary\n")
+    link = source / "controls" / "case" / "ns-pid"
+    link.symlink_to("pid:[4026531836]")
+    # Precondition: the fixture really is the shape under test - a symlink whose
+    # target does not resolve. Without this the test could pass over an
+    # ordinary file and assert nothing about symlinks at all.
+    assert link.is_symlink() and not link.exists(), "fixture must be a DANGLING symlink"
+
+    if git_lane:
+        subprocess.run(["git", "init", "-q", str(source)], check=True)
+        subprocess.run(["git", "-C", str(source), "add", "-A"], check=True)
+    else:
+        # No repository, so `git ls-files` cannot enumerate and the probe falls
+        # through to the wholesale copy - the CI lane, reproduced by absence
+        # rather than by mocking.
+        assert not (source / ".git").exists(), "fixture must NOT be a git repo"
+
+    dest = tmp_path / "snapshot"
+    ok, detail = _build_sandbox(tmp_path)(source, dest)
+    assert ok, detail
+
+    copied = dest / "controls" / "case" / "ns-pid"
+    assert copied.is_symlink(), f"the snapshot lost the symlink ({detail})"
+    import os
+
+    assert os.readlink(copied) == "pid:[4026531836]"
