@@ -96,25 +96,37 @@ def _gate_usage_exit(gate: str) -> int:
 
 
 def _module_refusal(flag: str) -> str:
-    """The exact line `gate_arg_value` emits for a dangling flag, DERIVED.
+    """The exact line `gate_arg_value` emits for a dangling flag, RUN not READ.
 
-    Two pieces, both lifted from `scripts/gate-lib.sh`: the `_gate_refuse`
-    prefix, and the message `gate_arg_value` passes it. Retyping either would
-    make this file the authority on the module's wording, which is backwards -
-    the module is the authority, and a test that disagrees with it should fail
-    rather than quietly pin a stale string.
+    Derived by ASKING THE MODULE: source it, declare a map, call
+    `gate_arg_value` with a dangling flag, and take what it prints. That is the
+    behaviour the gates must reproduce, and it is the only derivation that
+    survives the module being reimplemented.
+
+    The first cut read the module's SOURCE with two regexes - the `_gate_refuse`
+    format string and the message `gate_arg_value` passes it. That made this
+    file sensitive to how the module is WRITTEN rather than to what it DOES:
+    replacing the formatter with an equivalent `printf '%s\\n' "gate-lib:
+    refused - $1"` preserves the output and the exit code byte for byte and
+    still broke the regex, so every migrated gate would have gone red for a
+    change that altered nothing about them (counter-model review, #1127).
+
+    A test whose subject is "these four agree with the module" must fail when
+    they stop agreeing, and only then.
     """
-    text = GATE_LIB.read_text()
-
-    prefix = re.search(r"printf '([^']*refused[^']*)\\n'", text)
-    assert prefix, "gate-lib.sh no longer formats its refusal with a 'refused' prefix"
-    # `gate-lib: refused - %s` -> `gate-lib: refused - `
-    lead = prefix.group(1).replace("%s", "")
-
-    msg = re.search(r'_gate_refuse "\$1 (needs a value[^"]*)"', text)
-    assert msg, "gate_arg_value no longer refuses a dangling flag with a '$1 needs a value' message"
-
-    return f"{lead}{flag} {msg.group(1)}"
+    probe = f'gate_map ok=0 finding=1\nset -- {flag}\ngate_arg_value {flag} "$#" "${{2-}}"\n'
+    result = subprocess.run(
+        ["sh", "-c", f'. "{GATE_LIB}"\n{probe}'],
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    line = result.stderr.strip()
+    assert line, (
+        "the module did not refuse a dangling flag at all, so there is no "
+        f"expected line to compare against: {result!r}"
+    )
+    return line
 
 
 requires_shells = pytest.mark.skipif(
@@ -133,9 +145,13 @@ def test_the_module_still_exposes_what_this_file_derives():
     """
     assert _module_usage_exit() > 0, "a usage error is never the good exit"
     refusal = _module_refusal("--root")
-    assert refusal.startswith("gate-lib:"), refusal
+    # Asserted as PROPERTIES, not as the module's exact sentence: the refusal
+    # must name the flag it is about, or a caller cannot act on it - which is
+    # the property `test_a_toy_gate_refuses_a_dangling_root_under_either_shell`
+    # already requires of its own subject. The wording itself is the module's
+    # to change.
     assert "--root" in refusal, refusal
-    assert "needs a value" in refusal, refusal
+    assert refusal, "the module must say something a caller can read"
 
 
 @requires_shells
@@ -272,3 +288,94 @@ def test_an_empty_value_reaches_the_gates_own_check(
         f"{gate}: an empty {flag} reached a SUCCESS exit; a usage error must "
         f"never render as the go-ahead verdict"
     )
+
+
+#: EVERY migrated value-taking flag, not the one per gate the first cut covered.
+#: The empty-value claim was "each gate catches what it now accepts", and that
+#: was asserted for `--root`, `--package` and `--driver` only - so it was a
+#: claim about four flags proven for three, and the reviewer found the gap where
+#: it mattered (counter-model review, #1127). `--sudo` and `--skip-install` are
+#: absent because they take no value; there is nothing to supply empty.
+MIGRATED_FLAGS = (
+    ("shellcheck-gate.sh", "--root", ()),
+    ("shellcheck-gate.sh", "--severity", ()),
+    ("secret-scan-check.sh", "--root", ()),
+    ("npm-global-upgrade.sh", "--package", ("--binary", "b", "--skip-install")),
+    ("npm-global-upgrade.sh", "--binary", ("--package", "p", "--skip-install")),
+    ("npm-global-upgrade.sh", "--label", ("--package", "p", "--binary", "b", "--skip-install")),
+    ("npm-global-upgrade.sh", "--npm", ("--package", "p", "--binary", "b", "--skip-install")),
+    ("npm-global-upgrade.sh", "--node", ("--package", "p", "--binary", "b", "--skip-install")),
+    ("flow-driver-retirement-check.sh", "--driver", ()),
+    ("flow-driver-retirement-check.sh", "--wave", ("--driver", "d")),
+    ("flow-driver-retirement-check.sh", "--registry-dir", ("--driver", "d")),
+    ("flow-driver-retirement-check.sh", "--helper", ("--driver", "d")),
+)
+
+
+@requires_shells
+@pytest.mark.parametrize(
+    ("gate", "flag", "extra"),
+    MIGRATED_FLAGS,
+    ids=[f"{g.removesuffix('.sh')}{f}" for g, f, _ in MIGRATED_FLAGS],
+)
+def test_no_migrated_flag_reaches_a_good_verdict_on_an_empty_value(
+    gate: str, flag: str, extra: tuple
+) -> None:
+    """EVERY migrated flag, because the claim was about all of them.
+
+    `gate_arg_value` accepts `--flag ""` by design (#1126: a value supplied is
+    not a value missing), so each gate must handle it. The dangerous shape is
+    not a crash - it is an empty value read as "omitted", because a gate then
+    resolves a DEFAULT and answers about something the caller never asked
+    about.
+
+    Measured before the fix: `flow-driver-retirement-check.sh --registry-dir ""`
+    discarded the registry it was given and examined the HOST's - three
+    unrelated waves instead of the one named. It reported `unknown` on that run
+    only because those waves happened to be unparseable from there; on a
+    readable registry the same mistake reaches `clear`, the verdict that
+    authorises deleting a command.
+
+    So the assertion is the one that matters regardless of which gate or which
+    default: an empty value must never produce the good exit.
+    """
+    result = subprocess.run(
+        ["sh", str(ROOT / "scripts" / gate), *extra, flag, ""],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode != 0, (
+        f"{gate} {flag} '' reached the GOOD exit. An empty value read as "
+        f"'omitted' makes the gate answer about a default the caller never "
+        f"named: {(result.stdout + result.stderr)[:400]!r}"
+    )
+
+
+@requires_shells
+@pytest.mark.parametrize(
+    "flag", ("--wave", "--registry-dir", "--helper"), ids=lambda f: f.lstrip("-")
+)
+def test_an_empty_retirement_selector_is_refused_not_defaulted(flag: str) -> None:
+    """The HIGH finding, pinned by its cause rather than by its symptom.
+
+    The test above asserts only "not the good exit", which the pre-fix gate
+    also satisfied - by luck, on a host whose registry happened to be
+    unreadable. This asserts the gate REFUSED the empty selector, naming it,
+    rather than resolving a default and answering about another scope.
+    """
+    result = subprocess.run(
+        [
+            "sh",
+            str(ROOT / "scripts" / "flow-driver-retirement-check.sh"),
+            "--driver", "flow:auto_codex",
+            flag, "",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    combined = result.stdout + result.stderr
+    assert f"{flag} was given an empty value" in combined, combined
+    assert "RETIREMENT: unknown" in combined, combined
+    assert result.returncode == 3, result.returncode
