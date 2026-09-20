@@ -1,0 +1,19 @@
+{
+  "branch": "issue-1117-make-verify-runs-the-whole-control-battery-and-dis",
+  "counts": {
+    "accepted": 2,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "implementer": "claude/claude-opus-5",
+  "issue": "1117",
+  "passes": 2,
+  "recorded_at": "2026-09-20T12:51:11Z",
+  "red_cases": {
+    "already_covered": 9,
+    "proposed": 10
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}
