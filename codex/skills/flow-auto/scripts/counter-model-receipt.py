@@ -230,10 +230,53 @@ def _default_codex_sessions_dir() -> Path:
     return Path.home() / ".codex" / "sessions"
 
 
+def _eligible_assistant_model(record: object) -> str | None:
+    """The model an assistant-message record declares as its OWN identity.
+
+    ELIGIBILITY IS STRUCTURAL, and that is the whole point of this function
+    (issue #1109). A transcript record is allowed to supply an implementer only
+    when it IS an assistant message and the value is read from the one field
+    where an assistant's own identity lives - `message.model`. Every other
+    `"model"` in the file belongs to something else: the arguments the
+    assistant passed to a tool, a tool result, session metadata. Those describe
+    what was ASKED FOR, never who answered.
+
+    Returns the declared string unchanged - trimming and sentinel handling are
+    the caller's, because "this record declares an identity" and "that identity
+    is real-shaped" are different questions and collapsing them here would hide
+    a sentinel-only transcript behind a no-assistant-records diagnostic.
+    """
+    if not isinstance(record, dict) or record.get("type") != "assistant":
+        return None
+    message = record.get("message")
+    if not isinstance(message, dict):
+        return None
+    model = message.get("model")
+    # A non-string model is not an identity. `isinstance(True, int)` is the
+    # usual trap here; strings have no such alias, so a plain check suffices.
+    return model if isinstance(model, str) else None
+
+
 def _derive_implementer_from_session(
     session_id: str, projects_dir: Path
 ) -> tuple[str | None, str | None]:
-    """Derive the latest real model from the implementing Claude session."""
+    """Derive the latest real model from the implementing Claude session.
+
+    WHY THIS PARSES INSTEAD OF SEARCHING (issue #1109). This used to regex the
+    whole transcript for `"model": "..."` and keep the last hit. A transcript
+    is not a bag of strings: it also records every tool call the assistant
+    made, arguments included, and some of those arguments are themselves named
+    `model`. On this host `mcp__substrate__add_worker` carries
+    `input.model: "opus"`, so a session whose last action was spawning a worker
+    recorded `claude/opus` as its own implementer - an identity that came out
+    of a REQUEST, not out of the assistant. Worse, deleting the real
+    `message.model` changed nothing: the decoy answered either way, so the
+    absence of an identity was indistinguishable from having one.
+
+    There is deliberately NO fallback to the old scan. A fallback would restore
+    exactly the fabrication this refuses, on the path reached when something has
+    already gone wrong.
+    """
     try:
         matches = sorted(
             path
@@ -258,14 +301,53 @@ def _derive_implementer_from_session(
         transcript_text = transcript.read_text(encoding="utf-8")
     except (OSError, UnicodeError) as exc:
         return None, f"cannot read matching transcript {transcript}: {exc}"
+    records = 0
+    unparseable = 0
+    eligible = 0
     model = None
-    for match in re.finditer(r'"model"\s*:\s*"([^"]*)"', transcript_text):
-        value = match.group(1).strip()
-        # Sessions can switch models; sentinels after a real turn do not erase it.
+    # `split("\n")`, NEVER `splitlines()` (counter-model review of this change).
+    # JSONL is newline-delimited and `\n` is its only delimiter, but
+    # `str.splitlines()` also breaks on U+0085, U+2028, U+2029, \v, \f and the
+    # ASCII file/group/record separators - every one of which is legal RAW
+    # inside a JSON string. A record whose text merely CONTAINS one would be
+    # torn into fragments, so a single valid assistant turn became "2 records,
+    # 2 unparseable" and a mid-session switch silently reported the OLDER
+    # model: unrelated message content deciding the identity verdict, which is
+    # the exact defect class #1109 exists to close. Not hypothetical - 1 of 120
+    # real transcripts on this host already carries 19 such characters.
+    for line in transcript_text.split("\n"):
+        if not line.strip():
+            continue
+        records += 1
+        try:
+            record = json.loads(line)
+        except ValueError:
+            # A truncated or corrupt line is COUNTED, not silently dropped and
+            # not pattern-matched. The old scan would happily lift a `"model"`
+            # out of a half-written record; a line this parser cannot read is a
+            # line it knows nothing about, and it says so in the census below.
+            unparseable += 1
+            continue
+        declared = _eligible_assistant_model(record)
+        if declared is None:
+            continue
+        eligible += 1
+        value = declared.strip()
+        # THE DOCUMENTED RULE: the LAST eligible assistant model wins, so a
+        # genuine mid-session model switch is preserved rather than pinned to
+        # whatever answered first. Sentinels (`<synthetic>`) and blanks are
+        # declarations without an identity - they are eligible records, so
+        # their presence is reported, but they never overwrite a real value.
         if value and not value.startswith("<"):
             model = value
     if model is None:
-        return None, f"matching transcript {transcript} contains no real-shaped model entry"
+        return None, (
+            f"matching transcript {transcript} contains no real-shaped model entry "
+            f"(read {records} record(s); {unparseable} unparseable; "
+            f"{eligible} eligible assistant message(s) with a declared model). "
+            f"An implementer is taken only from an assistant message's own "
+            f"'message.model'; nested tool arguments cannot supply one."
+        )
     return f"claude/{model}", None
 
 

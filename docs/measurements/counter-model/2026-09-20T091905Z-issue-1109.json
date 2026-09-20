@@ -1,0 +1,19 @@
+{
+  "branch": "issue-1109-counter-model-receipt-derive-implementer-from-assi",
+  "counts": {
+    "accepted": 1,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "implementer": "claude/claude-opus-5",
+  "issue": "1109",
+  "passes": 2,
+  "recorded_at": "2026-09-20T09:19:05Z",
+  "red_cases": {
+    "already_covered": 3,
+    "proposed": 4
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}
