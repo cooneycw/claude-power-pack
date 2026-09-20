@@ -217,18 +217,33 @@ def _executable_recipe(text: str) -> str:
         runs nothing at all. That direction is worse: this gate is a `make
         verify` prerequisite, so it would block every merge in the repository.
 
-    Quoted strings go too, which is deliberately the safe direction for the
-    script scan: a script genuinely invoked from inside double quotes becomes
-    UNACCOUNTED - loud, and fixed by a declaration - rather than silently
-    attributed to a target it may not belong to. No recipe in this repository
-    invokes one that way.
+    Quoted strings go too - BUT NOT A COMMAND SUBSTITUTION INSIDE ONE. Stripping
+    every double-quoted run was the first cut of this fix, and it immediately
+    mis-read `make test`:
+
+        workers="$(sh scripts/pytest-workers.sh)"
+
+    That is an invocation wearing quotes. The report then listed
+    `pytest-workers.sh` under "run only by .woodpecker.yml, never locally" while
+    `make test` ran it on every invocation - a false statement of exactly the
+    kind this gate exists to remove, introduced by the fix for the previous one.
+    It stayed green only because CI also runs it, so the wrong class was
+    reachable without a finding.
+
+    So a double-quoted run survives when it contains `$(` or a backtick, and is
+    dropped otherwise. Single quotes are always dropped: the shell performs no
+    substitution inside them, so their contents really are literal text.
     """
     out: list[str] = []
     for line in text.splitlines():
         stripped = line.lstrip("@-+ \t")
         if stripped.startswith("#"):
             continue
-        line = re.sub(r'"[^"]*"', " ", line)
+        line = re.sub(
+            r'"[^"]*"',
+            lambda m: m.group(0) if ("$(" in m.group(0) or "`" in m.group(0)) else " ",
+            line,
+        )
         line = re.sub(r"'[^']*'", " ", line)
         line = re.split(r"(?:^|\s)#", line, maxsplit=1)[0]
         out.append(line)

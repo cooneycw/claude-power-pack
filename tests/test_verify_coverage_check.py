@@ -196,6 +196,34 @@ def test_an_echoed_word_does_not_trip_the_utility_tripwire(tree: Path) -> None:
     assert result.returncode == 0, result.stdout
 
 
+def test_a_command_substitution_inside_quotes_is_still_an_invocation(tree: Path) -> None:
+    """An invocation wearing quotes (found by reading this gate's own report).
+
+    The first cut of the comment/quote stripping dropped every double-quoted run,
+    which mis-read this repository's own `make test`:
+
+        workers="$(sh scripts/pytest-workers.sh)"
+
+    `pytest-workers.sh` then appeared under "run only by .woodpecker.yml, never
+    locally" while `make test` ran it every time. It stayed GREEN because CI also
+    invokes it, so the wrong class was reachable with no finding at all - the
+    report was simply wrong, quietly, in the direction this gate exists to
+    prevent.
+    """
+    (tree / "scripts" / "workers.sh").write_text("#!/bin/sh\necho 4\n")
+    text = (tree / "Makefile").read_text().replace(
+        "alpha-check:\n\t@sh scripts/alpha-check.sh",
+        'alpha-check:\n\t@n="$(sh scripts/workers.sh)"; sh scripts/alpha-check.sh "$$n"',
+    )
+    (tree / "Makefile").write_text(text)
+    result = run(tree, "--report")
+    assert result.returncode == 0, result.stdout
+    assert "scripts/workers.sh" not in result.stdout, (
+        "a script invoked through a command substitution was not counted as "
+        "invoked, so the report named it unexamined"
+    )
+
+
 def test_every_target_of_a_multi_target_rule_is_accounted(tree: Path) -> None:
     """`a b:` declares two targets (#1028 counter-model review).
 

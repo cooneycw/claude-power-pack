@@ -295,11 +295,22 @@ _SIBLING_REF = re.compile(
 #: read here.
 _LIB_IMPORT = re.compile(r"^\s*(?:from|import)\s+(lib(?:\.[A-Za-z_][A-Za-z0-9_]*)+)", re.M)
 
-#: `from .b import value` inside a bundled package module. Single-dot only:
-#: these packages are vendored whole from their own root, so a parent-relative
-#: import would reach outside the tree being bundled and is not a shape this
-#: repository has.
+#: Single-dot relative imports inside a bundled package module, in BOTH spellings:
+#:
+#:     from .b import value     -> the module `b`
+#:     from . import b, c       -> the modules `b` and `c`
+#:
+#: The second form is absent from this repository today, and that is exactly why
+#: it is here: a rule written against only the shapes currently present is one
+#: refactor away from silently bundling an incomplete package, and the symptom
+#: would be an ImportError in a shipped artifact rather than a red here.
+#:
+#: Parent-relative (`from ..x`) is deliberately NOT matched: these packages are
+#: vendored whole from their own root, so a parent-relative import reaches
+#: outside the tree being bundled and means the vendoring boundary is wrong -
+#: which is a thing to notice, not to paper over by copying more files.
 _RELATIVE_IMPORT = re.compile(r"^\s*from\s+\.([A-Za-z_][A-Za-z0-9_]*)\s+import", re.M)
+_RELATIVE_FROM_PACKAGE = re.compile(r"^\s*from\s+\.\s+import\s+([^\n#]+)", re.M)
 
 #: A module-level constant naming a REPO-RELATIVE DATA FILE:
 #: `MANIFEST_PATH = REPO_ROOT / ".claude" / "project-next-vendor.json"`.
@@ -474,9 +485,17 @@ def find_bundled_libs(scripts: list[str]) -> dict[str, Path]:
         # Only meaningful once we are walking a package's own modules, which is
         # exactly what the worklist made possible.
         if path.parent != SCRIPTS_ROOT:
-            for match in _RELATIVE_IMPORT.finditer(text):
-                sibling = path.parent / f"{match.group(1)}.py"
-                subpackage = path.parent / match.group(1) / "__init__.py"
+            names = [m.group(1) for m in _RELATIVE_IMPORT.finditer(text)]
+            for match in _RELATIVE_FROM_PACKAGE.finditer(text):
+                names.extend(
+                    part.split(" as ")[0].strip().strip("()")
+                    for part in match.group(1).split(",")
+                )
+            for module in names:
+                if not module.isidentifier():
+                    continue
+                sibling = path.parent / f"{module}.py"
+                subpackage = path.parent / module / "__init__.py"
                 for candidate in (sibling, subpackage):
                     if candidate.is_file():
                         rel_child = candidate.relative_to(REPO_ROOT)

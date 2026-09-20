@@ -289,6 +289,42 @@ def test_an_indirect_import_is_bundled_and_the_bundle_runs(tmp_repo):
     assert "reached the indirect module" in result.stdout
 
 
+def test_the_from_package_import_form_is_followed_too(tmp_repo):
+    """`from . import b` is the same dependency as `from .b import value`.
+
+    This spelling appears nowhere in the repository today, which is precisely
+    why it is pinned: a closure written against only the shapes currently
+    present is one refactor away from bundling an incomplete package, and the
+    symptom would be an ImportError in a shipped artifact rather than a red here.
+    """
+    lib = tmp_repo / "lib" / "deep"
+    lib.mkdir(parents=True)
+    (lib / "__init__.py").write_text("")
+    (lib / "a.py").write_text("from . import b\nvalue = b.value\n")
+    (lib / "b.py").write_text("value = 'reached via from-package import'\n")
+    (tmp_repo / "scripts" / "importer.py").write_text(
+        "import sys\n"
+        "from pathlib import Path\n"
+        "REPO_ROOT = Path(__file__).resolve().parents[1]\n"
+        "sys.path.insert(0, str(REPO_ROOT))\n"
+        "from lib.deep.a import value\n"
+        "print(value)\n"
+    )
+    (tmp_repo / ".claude" / "commands" / "flow" / "auto.md").write_text(
+        "# Flow Auto\n\nUses scripts/importer.py.\n"
+    )
+
+    codex_skill_sync.main(["--write"])
+    bundled = tmp_repo / "codex" / "skills" / "flow-auto"
+    assert (bundled / "lib" / "deep" / "b.py").is_file()
+    result = subprocess.run(
+        [sys.executable, str(bundled / "scripts" / "importer.py")],
+        capture_output=True, text=True, timeout=120, check=False,
+    )
+    assert result.returncode == 0, f"{result.stdout}{result.stderr}"
+    assert "reached via from-package import" in result.stdout
+
+
 def test_a_runtime_data_file_the_entry_point_reads_is_bundled(tmp_repo):
     """Code is not the whole dependency (#1028 counter-model review).
 
