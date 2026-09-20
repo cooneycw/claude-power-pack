@@ -13,6 +13,6 @@
     "lib/project_next/models.py": "c8da2d0730070008a4a1e27022de6a284c6a1386a88b174bcb737f514dee787f",
     "lib/project_next/rank.py": "fa27d94de2e3752d96388d5af7b9f209fd631d2649899686aa9ec2a1c940de9d",
     "lib/project_next/render.py": "3fd2958fa281dc97418697d4fb718b374ea58d334efe8d2fb522920f489340ec",
-    "templates/project-next.schema.json": "cccb051a922358aa4cc29b0dd79e3f6955e6e61f77d60c5bb39a003f6671d6c7"
+    "templates/project-next.schema.json": "c31bc81d053c226df4543fa226871d1ea525faff74a6e12c5b922a3166bfb0d2"
   }
 }
