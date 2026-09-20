@@ -1,0 +1,26 @@
+{
+  "success": true,
+  "plan": "finish",
+  "steps_completed": 5,
+  "steps_total": 5,
+  "gates": [
+    "lint",
+    "verify"
+  ],
+  "subsumed_gates": {
+    "lint": "verify"
+  },
+  "dropped_gates": [],
+  "step_details": [
+    {
+      "id": "lint",
+      "status": "subsumed",
+      "subsumed_by": "verify"
+    },
+    {
+      "id": "verify",
+      "status": "success",
+      "duration_seconds": 231.32
+    }
+  ]
+}

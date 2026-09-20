@@ -42,6 +42,7 @@ from .steps import (
     dropped_gate_ids,
     get_plan_steps,
     plan_gate_ids,
+    subsumed_gate_ids,
 )
 
 
@@ -274,6 +275,28 @@ def _build_step_env(project_root: Optional[Path] = None) -> dict[str, str]:
     return env
 
 
+_MAKE_FAILING_TARGET = re.compile(
+    r"^make(?:\[\d+\])?: \*\*\* \[[^\]]*?:\s*(?P<target>[A-Za-z0-9_.-]+)\]",
+    re.MULTILINE,
+)
+
+
+def _failing_prerequisite(output: str) -> Optional[str]:
+    """The target make named when it stopped, or None (issue #1152).
+
+    `make: *** [Makefile:121: lint] Error 1` names the prerequisite that
+    failed, which is the useful half of an aggregate failure - "verify failed"
+    sends a reader to read all 29 of its prerequisites. Returns None when make
+    said nothing matchable, and the caller then reports the aggregate alone
+    rather than guessing a target: a WRONG prerequisite name is worse than no
+    name, because it sends the reader somewhere specific and innocent.
+    """
+    if not output:
+        return None
+    match = _MAKE_FAILING_TARGET.search(output)
+    return match.group("target") if match else None
+
+
 @dataclass
 class RunResult:
     """Result of a complete runner execution."""
@@ -306,6 +329,16 @@ class RunResult:
     # of this name, so there is nothing to reconcile against - which is a
     # different fact from "reconciled, none missing" and must not render as it.
     dropped_gates: Optional[list[str]] = None
+    # Gate id -> the aggregate that ran it (issue #1152). Published so the
+    # report NAMES the derivation: a reader seeing three gates absent from the
+    # executed list must be able to see WHY without re-deriving it.
+    subsumed_gates: dict[str, str] = field(default_factory=dict)
+    # When an AGGREGATE gate failed and make named the prerequisite it stopped
+    # at (issue #1152). `verify` has 29 prerequisites here, so "verify failed"
+    # asks a reader to search all of them; this is the one make pointed at.
+    # None when make said nothing matchable - a wrong name is worse than none,
+    # because it sends the reader somewhere specific and innocent.
+    failed_prerequisite: Optional[str] = None
     warnings: list[str] = field(default_factory=list)
     # Test steps that failed, were re-run ONCE against only their failed ids, and
     # the outcome of that re-run (issue #769). This is its own channel, NOT
@@ -398,6 +431,12 @@ class RunResult:
         # clean (`[]`), reconciled and missing (`[...]`), and not applicable
         # (`null`) - and a field absent for one of them collapses it into "this
         # runner is too old to say" (#1155).
+        # Always emitted, `{}` included: "nothing was subsumed" and "this runner
+        # does not deduplicate" must not be the same bytes, for the same reason
+        # `gates` is unconditional (#1147).
+        d["subsumed_gates"] = dict(sorted(self.subsumed_gates.items()))
+        if self.failed_prerequisite:
+            d["failed_prerequisite"] = self.failed_prerequisite
         d["dropped_gates"] = (
             None if self.dropped_gates is None else sorted(self.dropped_gates)
         )
@@ -431,6 +470,45 @@ class DeterministicRunner:
         self.project_root = project_root or Path(".")
         self.output = output or sys.stderr
         self.rerun_failed = rerun_failed
+
+    def _resolve_deferred(
+        self,
+        state: RunState,
+        deferred: dict[int, str],
+        finished_step_id: str,
+        *,
+        aggregate_ok: bool,
+        failing_prerequisite: Optional[str] = None,
+    ) -> None:
+        """Settle gates deferred to ``finished_step_id`` now that it has run."""
+        mine = [i for i, agg in deferred.items() if agg == finished_step_id]
+        if not mine:
+            return
+        for index in mine:
+            if aggregate_ok:
+                state.mark_step_subsumed(index, finished_step_id)
+            else:
+                at = (
+                    f" at prerequisite {failing_prerequisite}"
+                    if failing_prerequisite
+                    else ""
+                )
+                state.mark_step_not_run(
+                    index, f"{finished_step_id} failed{at}"
+                )
+            del deferred[index]
+        names = ", ".join(state.step_records[i].step_id for i in mine)
+        if aggregate_ok:
+            self._log(
+                f"  SUBSUMED: {names} ran as prerequisite(s) of "
+                f"`{finished_step_id}`, which passed"
+            )
+        else:
+            self._log(
+                f"  NOT RUN: {names} were deferred to `{finished_step_id}`, "
+                f"which FAILED - make stops at its first failing prerequisite, "
+                f"so these were never reached"
+            )
 
     def run(self, plan_name: str, step_defs: Optional[list[StepDef]] = None) -> RunResult:
         """Execute a named plan from scratch or resume a failed run.
@@ -620,10 +698,36 @@ class DeterministicRunner:
         warnings: list[str] = []
         reruns: list[dict[str, Any]] = []
         skipped: list[str] = []
+        # Gates an aggregate in this plan already runs (issue #1152). Derived
+        # from the repository's OWN `verify:` prerequisite list, so a Makefile
+        # that does not name a gate does not get it deduplicated.
+        subsumable = subsumed_gate_ids(
+            state.plan_name, step_defs, str(self.project_root)
+        )
+        # index -> aggregate id, for gates deferred to an aggregate that has
+        # not run yet. Resolved when that aggregate finishes, and ONLY then:
+        # whether these ran is a fact about the aggregate's outcome, not about
+        # the derivation.
+        deferred: dict[int, str] = {}
 
         for idx in range(state.current_index, len(state.step_records)):
             step_def = step_defs[idx]
             step = ShellStep(step_def)
+
+            # DEFERRED TO AN AGGREGATE (issue #1152). Not executed here and
+            # deliberately not marked yet: the honest status depends on whether
+            # the aggregate succeeds, and it has not run. Left PENDING until
+            # then, so an interrupted run records the truth - deferred and
+            # unresolved - rather than a pass nobody earned.
+            if step.id in subsumable:
+                aggregate = subsumable[step.id]
+                self._log(
+                    f"  [{idx + 1}/{len(step_defs)}] {step.id}: DEFERRED to "
+                    f"`{aggregate}`, which lists it as a direct prerequisite"
+                )
+                deferred[idx] = aggregate
+                completed = idx + 1
+                continue
 
             # Check skip condition
             if step.should_skip(context):
@@ -800,6 +904,10 @@ class DeterministicRunner:
                 state.mark_step_success(
                     idx, result.output, tests=outcome_dict, coverage=cover_dict
                 )
+                # The aggregate finished GREEN, so everything it lists as a
+                # prerequisite did run and did pass (issue #1152). Only now is
+                # `subsumed` an honest record.
+                self._resolve_deferred(state, deferred, step.id, aggregate_ok=True)
                 state.save(self.project_root)
                 completed = idx + 1
             else:
@@ -1043,6 +1151,20 @@ class DeterministicRunner:
                     tests=outcome_dict,
                     coverage=cover_dict,
                 )
+                # The aggregate stopped early, so make never reached the
+                # prerequisites after the failing one and NONE of the deferred
+                # gates can be claimed as run (issue #1152). `subsumed` here
+                # would be the exact false green this whole family of guards
+                # exists to refuse, produced by the COST fix.
+                self._resolve_deferred(
+                    state,
+                    deferred,
+                    step.id,
+                    aggregate_ok=False,
+                    failing_prerequisite=_failing_prerequisite(
+                        f"{result.output}\n{result.error or ''}"
+                    ),
+                )
                 state.save(self.project_root)
 
                 return RunResult(
@@ -1053,7 +1175,22 @@ class DeterministicRunner:
                     steps_total=len(step_defs),
                     gates=plan_gate_ids(state.plan_name, step_defs),
                     dropped_gates=dropped_gate_ids(state.plan_name, step_defs),
+                    subsumed_gates={
+                        r.step_id: r.subsumed_by
+                        for r in state.step_records
+                        if r.subsumed_by
+                    },
+                    # CARRIED ON THE FAILURE PATH TOO (issue #1152). It was
+                    # only on the success result, so a run that failed inside
+                    # an aggregate published no per-step records at all - and
+                    # the `not-run (verify failed at prerequisite lint)` rows
+                    # are exactly what a reader needs THERE. A reader told only
+                    # "verify failed" has 29 prerequisites to search.
+                    step_details=state.summary(executed_from=executed_from)["steps"],
                     failed_step=step.id,
+                    failed_prerequisite=_failing_prerequisite(
+                        f"{result.output}\n{result.error or ''}"
+                    ),
                     timed_out_step=step.id if timed_out else None,
                     timed_out_after=(
                         step_def.timeout_seconds if timed_out else None
@@ -1207,6 +1344,10 @@ class DeterministicRunner:
                     "results do not describe it."
                 )
 
+        resolved_subsumed = {
+            r.step_id: r.subsumed_by for r in state.step_records if r.subsumed_by
+        }
+
         # Clean up state file on success
         state.cleanup(self.project_root)
 
@@ -1221,6 +1362,7 @@ class DeterministicRunner:
             steps_total=len(step_defs),
             gates=plan_gate_ids(state.plan_name, step_defs),
             dropped_gates=dropped_gate_ids(state.plan_name, step_defs),
+            subsumed_gates=resolved_subsumed,
             tests=tests,
             coverage=coverage,
             warnings=warnings,

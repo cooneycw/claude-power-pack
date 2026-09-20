@@ -31,7 +31,6 @@
 #: NEGATIVE-CONTROL: controls/flow-finish-gate
 #: NEGATIVE-CONTROL: controls/flow-finish-gate-declared-gates
 #: NEGATIVE-CONTROL: controls/flow-finish-gate-plan-reconciliation
-#: NEGATIVE-CONTROL: controls/flow-finish-gate-subsumption
 #
 # Usage:
 #   flow-finish-gate.sh                  # run the 'finish' quality-gate plan
@@ -313,40 +312,6 @@ if [[ "$RUNNER_OK" -eq 1 ]]; then
             if (id != "") print id
         }
     ' "$RUNNER_JSON" 2>/dev/null | tr '\n' ' ' | sed 's/ *$//')
-    # Gates an aggregate already ran (issue #1152), and the prerequisite make
-    # stopped at when an aggregate failed. Read here with the rest, while the
-    # JSON still exists.
-    SUBSUMED_GATES=$(awk '
-        /^  "subsumed_gates": \{\},?$/ { exit }
-        /^  "subsumed_gates": \{$/ { in_s = 1; next }
-        in_s && /^  \}[,]?$/ { exit }
-        in_s {
-            id = $0
-            sub(/^[[:space:]]*"/, "", id)
-            sub(/":.*$/, "", id)
-            if (id != "") print id
-        }
-    ' "$RUNNER_JSON" 2>/dev/null | tr '\n' ' ' | sed 's/ *$//')
-    SUBSUMED_BY=$(awk '
-        /^  "subsumed_gates": \{$/ { in_s = 1; next }
-        in_s && /^  \}[,]?$/ { exit }
-        in_s { v = $0; sub(/^.*": "/, "", v); sub(/",?$/, "", v); print v }
-    ' "$RUNNER_JSON" 2>/dev/null | head -1)
-    # Gates recorded NOT-RUN: deferred to an aggregate that then failed, so
-    # they never ran (issue #1152). Read from the per-step records because that
-    # is where the runner puts them.
-    NOT_RUN_IDS=$(awk '
-        /^  "step_details": \[$/ { in_details = 1; next }
-        in_details && /^  \][,]?$/ { exit }
-        in_details && /^      "id": "[^"]*",?$/ {
-            id = $0
-            sub(/^[[:space:]]*"id": "/, "", id)
-            sub(/",?$/, "", id)
-        }
-        in_details && /^      "status": "not-run",?$/ { if (id != "") print id }
-    ' "$RUNNER_JSON" 2>/dev/null | tr '\n' ' ' | sed 's/ *$//')
-    FAILED_PREREQ=$(sed -n 's/^  "failed_prerequisite": "\([^"]*\)",\?$/\1/p' "$RUNNER_JSON" 2>/dev/null | head -1)
-
     # The plan name, so the not-applicable line can NAME the plan it could not
     # reconcile rather than reporting an anonymous abstention.
     PLAN_NAME=$(sed -n 's/^  "plan": "\([^"]*\)",\?$/\1/p' "$RUNNER_JSON" 2>/dev/null | head -1)
@@ -572,28 +537,6 @@ if [[ "$RUNNER_OK" -eq 1 ]]; then
             verdict "fail (declared but never ran: $UNACCOUNTED_GATES)"
             exit 1
         fi
-        # Report the DERIVATION by name, never silently (issue #1152). A reader
-        # seeing three gates absent from the executed list must be able to see
-        # WHY without re-deriving it - and `subsumed` is the one status here
-        # that means a gate RAN, so leaving it unsaid would look exactly like
-        # the silent omissions #1147 and #1155 exist to refuse.
-        # A NOT-RUN GATE CANNOT COEXIST WITH A PASS (issue #1152). `not-run`
-        # means a gate was deferred to an aggregate that then failed, so make
-        # stopped before reaching it. If the runner nonetheless reports overall
-        # success, its own two records disagree - and the reading that lets the
-        # run through is the one that says three quality gates were never
-        # executed. Fail closed on the disagreement rather than believing the
-        # top-level verdict, which is what a gate reading only `success` did.
-        if [[ -n "$NOT_RUN_IDS" ]]; then
-            echo "WARNING: the runner reported SUCCESS while recording quality gate(s) as NOT RUN: $NOT_RUN_IDS." >&2
-            echo "  A gate is recorded not-run when it was deferred to an aggregate that FAILED - make stops at its first failing prerequisite - so these were never executed and nothing proved anything about them." >&2
-            echo "  A success verdict and a not-run gate cannot both be true; this gate believes the per-step record (issue #1152)." >&2
-            verdict "fail (recorded not-run: $NOT_RUN_IDS)"
-            exit 1
-        fi
-        if [[ -n "$SUBSUMED_GATES" ]]; then
-            echo "flow-finish-gate: SUBSUMED: $SUBSUMED_GATES ran as direct prerequisite(s) of 'make ${SUBSUMED_BY:-the aggregate}', which passed - not re-run (issue #1152)."
-        fi
         if [[ -n "$SKIPPED_GATES" ]]; then
             echo "WARNING: quality gates did NOT run: $SKIPPED_GATES (no Makefile target and no configured tool). This gate proved nothing about those checks - do not read as 'safe to merge' (issue #628)." >&2
             verdict "warn (skipped gates: $SKIPPED_GATES)"
@@ -663,14 +606,6 @@ if [[ "$RUNNER_OK" -eq 1 ]]; then
         verdict "fail (timeout: $TIMED_OUT_STEP after ${TIMED_OUT_AFTER:-?}s)"
         exit 1
     fi
-    if [[ -n "$FAILED_PREREQ" ]]; then
-        # An aggregate has many prerequisites - `verify` has 29 in this repo -
-        # so `fail` alone asks the reader to search all of them. make named the
-        # one it stopped at; carry it (issue #1152).
-        echo "flow-finish-gate: the failing step is an aggregate; make stopped at prerequisite '$FAILED_PREREQ'." >&2
-        verdict "fail (at prerequisite $FAILED_PREREQ)"
-        exit 1
-    fi
     verdict fail
     exit 1
 fi
@@ -681,12 +616,6 @@ fi
 # pyproject configures the tool and no target exists, and a gate that can run
 # NEITHER is reported as `warn` with the skipped gates named - never a bare `ok`.
 echo "NOTE: deterministic runner unavailable ($REASON); using Makefile fallback." >&2
-# Stated, never silent (issue #1152). This lane cannot import the Python
-# Makefile reader the runner lane derives subsumption with, and adding a second
-# reader here would be the duplicate-parser defect this repository keeps
-# removing. So it runs every gate - correct, just slower - and SAYS so, because
-# a reader comparing the two lanes' timings deserves the reason.
-echo "flow-finish-gate: subsumption: not derived in the fallback lane; all gates run." >&2
 RAN=0
 FAILED=0
 SKIPPED_GATES=""

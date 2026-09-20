@@ -1,0 +1,24 @@
+{
+  "success": true,
+  "plan": "finish",
+  "steps_completed": 5,
+  "steps_total": 5,
+  "gates": [
+    "lint",
+    "verify"
+  ],
+  "subsumed_gates": {},
+  "dropped_gates": [],
+  "step_details": [
+    {
+      "id": "lint",
+      "status": "not-run",
+      "not_run_reason": "verify failed at prerequisite lint"
+    },
+    {
+      "id": "verify",
+      "status": "success",
+      "duration_seconds": 231.32
+    }
+  ]
+}

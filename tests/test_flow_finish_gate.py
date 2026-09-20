@@ -1219,6 +1219,121 @@ def test_a_prerequisite_nothing_ran_is_still_reported(tmp_path: Path) -> None:
 
 
 @requires_bash
+def test_subsumption_is_reported_by_name(tmp_path: Path) -> None:
+    """A gate absent from the executed list because an aggregate ran it must
+    SAY so (issue #1152).
+
+    `subsumed` is the one status in this vocabulary that means a gate RAN.
+    Leaving it unreported would make a deduplicated run look exactly like the
+    silent omissions #1147 and #1155 exist to refuse - three gates missing from
+    the executed list with nothing saying why - and a reader would have to
+    re-derive the Makefile prerequisite list to find out.
+    """
+    cpp = _fake_cpp(tmp_path)
+    payload = (
+        '{\n  "success": true,\n  "plan": "finish",\n'
+        '  "gates": [\n    "lint",\n    "verify"\n  ],\n'
+        '  "dropped_gates": [],\n'
+        '  "subsumed_gates": {\n    "lint": "verify"\n  },\n'
+        '  "step_details": [\n'
+        '    {\n      "id": "lint",\n      "status": "subsumed"\n    },\n'
+        '    {\n      "id": "verify",\n      "status": "success"\n    }\n'
+        "  ]\n}"
+    )
+    proc = _run_with_uv_stub(tmp_path, cpp, payload, inject_gates=False)
+
+    assert proc.returncode == 0
+    assert "SUBSUMED: lint" in proc.stdout
+    assert "make verify" in proc.stdout
+    assert "FLOW_FINISH_GATE: ok" in proc.stdout
+    # A subsumed gate RAN, so it must not be reported as skipped - #628's warn
+    # would be false, and a false warn is how a true one stops being read.
+    assert "skipped gates" not in proc.stdout
+
+
+@requires_bash
+def test_a_not_run_record_cannot_coexist_with_a_pass(tmp_path: Path) -> None:
+    """The shell-reachable half of #1152's standing question.
+
+    `not-run` means a gate was deferred to an aggregate that FAILED, so make
+    stopped before reaching it. A runner reporting overall success while
+    carrying such a record has two disagreeing accounts of one run, and the
+    reading that lets work through is the one saying quality gates never
+    executed. The gate believes the per-step record.
+
+    Run against the gate at 529d470 this reports `ok` and exits 0 - it has no
+    notion of a not-run record, reads the top-level `success`, and stops. That
+    is `controls/flow-finish-gate-subsumption`'s known-bad input.
+    """
+    cpp = _fake_cpp(tmp_path)
+    payload = (
+        '{\n  "success": true,\n  "plan": "finish",\n'
+        '  "gates": [\n    "lint",\n    "verify"\n  ],\n'
+        '  "dropped_gates": [],\n'
+        '  "subsumed_gates": {},\n'
+        '  "step_details": [\n'
+        '    {\n      "id": "lint",\n      "status": "not-run"\n    },\n'
+        '    {\n      "id": "verify",\n      "status": "success"\n    }\n'
+        "  ]\n}"
+    )
+    proc = _run_with_uv_stub(tmp_path, cpp, payload, inject_gates=False)
+
+    assert proc.returncode == 1
+    assert "FLOW_FINISH_GATE: fail (recorded not-run: lint)" in proc.stdout
+    assert "FLOW_FINISH_GATE: ok" not in proc.stdout
+
+
+@requires_bash
+def test_an_aggregate_failure_names_the_prerequisite(tmp_path: Path) -> None:
+    """`verify` has 29 direct prerequisites in this repository, so `fail` alone
+    asks a reader to search all of them (issue #1152).
+
+    make names the one it stopped at. The gate carries that name rather than
+    discarding it - and reports the aggregate alone when make said nothing
+    matchable, because a WRONG prerequisite name sends the reader somewhere
+    specific and innocent.
+    """
+    cpp = _fake_cpp(tmp_path)
+    payload = (
+        '{\n  "success": false,\n  "plan": "finish",\n'
+        '  "gates": [\n    "lint",\n    "verify"\n  ],\n'
+        '  "dropped_gates": [],\n'
+        '  "subsumed_gates": {},\n'
+        '  "failed_step": "verify",\n'
+        '  "failed_prerequisite": "lint",\n'
+        '  "step_details": [\n'
+        '    {\n      "id": "lint",\n      "status": "not-run"\n    }\n'
+        "  ]\n}"
+    )
+    proc = _run_with_uv_stub(tmp_path, cpp, payload, exit_code=1, inject_gates=False)
+
+    assert proc.returncode == 1
+    assert "FLOW_FINISH_GATE: fail (at prerequisite lint)" in proc.stdout
+
+
+@requires_bash
+def test_the_fallback_lane_says_it_does_not_deduplicate(tmp_path: Path) -> None:
+    """Stated, never silent (issue #1152).
+
+    The fallback cannot import the Python Makefile reader the runner lane
+    derives subsumption with, and a second reader here would be the
+    duplicate-parser defect this repository keeps removing. So it runs every
+    gate - correct, just slower - and a reader comparing the two lanes' timings
+    is owed the reason rather than left to infer it.
+    """
+    (tmp_path / "Makefile").write_text(
+        "lint:\n\ttrue\ntest:\n\ttrue\ntypecheck:\n\ttrue\nverify:\n\ttrue\n"
+    )
+    proc, bindir = _run(tmp_path, cpp_dir="", uv_exit=None, make_exit=0)
+
+    assert proc.returncode == 0
+    assert "subsumption: not derived in the fallback lane; all gates run" in proc.stdout
+    # and it really did run all four
+    argv = (bindir / "make.log").read_text().splitlines()
+    assert argv == ["lint", "test", "typecheck", "verify"]
+
+
+@requires_bash
 def test_a_manifest_that_drops_a_declared_gate_fails_by_name(
     tmp_path: Path,
 ) -> None:
