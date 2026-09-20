@@ -2,8 +2,8 @@
   "success": true,
   "run_id": "finish-bcff5db4",
   "plan": "finish",
-  "steps_completed": 5,
-  "steps_total": 5,
+  "steps_completed": 4,
+  "steps_total": 4,
   "tests": {
     "test": {
       "passed": 5245,
@@ -68,8 +68,7 @@
     "lint",
     "security_scan",
     "test",
-    "typecheck",
-    "verify"
+    "typecheck"
   ],
   "step_details": [
     {
@@ -143,11 +142,9 @@
           "stdout"
         ]
       }
-    },
-    {
-      "id": "verify",
-      "status": "success"
     }
   ],
-  "dropped_gates": []
+  "dropped_gates": [
+    "verify"
+  ]
 }

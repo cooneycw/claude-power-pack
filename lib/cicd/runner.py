@@ -31,10 +31,15 @@ from .coverage import SCOPE_COMPONENT, ZERO
 from .outcomes import parse_failed_node_ids
 from .state import RunState, StepStatus, compute_tree_signature
 from .steps import (
-    GATE_STEP_IDS,
+    # GATE_STEP_IDS is deliberately NOT imported here any more (#1155). The
+    # runner had one consumer of the global union - the #628 skipped-gate
+    # filter - and it now reads each step's own `gate` flag, which is the
+    # plan-scoped and correct question. The union survives in steps.py for
+    # `step_model_to_step_def`, where inheriting gate-ness BY ID is the point.
     TIMEOUT_EXIT_CODE,
     ShellStep,
     StepDef,
+    dropped_gate_ids,
     get_plan_steps,
     plan_gate_ids,
 )
@@ -296,6 +301,11 @@ class RunResult:
     # `steps.plan_gate_ids` for why the global GATE_STEP_IDS is the wrong set
     # to publish here.
     gates: list[str] = field(default_factory=list)
+    # Gates the BUILT-IN plan of this name declares that the resolved plan does
+    # not contain (issue #1155). `None` means NOT APPLICABLE - no built-in plan
+    # of this name, so there is nothing to reconcile against - which is a
+    # different fact from "reconciled, none missing" and must not render as it.
+    dropped_gates: Optional[list[str]] = None
     warnings: list[str] = field(default_factory=list)
     # Test steps that failed, were re-run ONCE against only their failed ids, and
     # the outcome of that re-run (issue #769). This is its own channel, NOT
@@ -383,6 +393,14 @@ class RunResult:
         # A conditional emit would make "no gates ran" and "this runner does not
         # say" the same bytes.
         d["gates"] = sorted(self.gates)
+        # Emitted UNCONDITIONALLY, with `null` preserved, for the same reason
+        # `gates` is: the shell has to tell three states apart - reconciled and
+        # clean (`[]`), reconciled and missing (`[...]`), and not applicable
+        # (`null`) - and a field absent for one of them collapses it into "this
+        # runner is too old to say" (#1155).
+        d["dropped_gates"] = (
+            None if self.dropped_gates is None else sorted(self.dropped_gates)
+        )
         # The gate parses this JSON, so a field that never reaches it cannot be
         # acted on however carefully it was set (issue #812). Emitted at the top
         # level and keyed by name so the shell reader anchors on the field
@@ -490,6 +508,10 @@ class DeterministicRunner:
                 steps_completed=state.current_index,
                 steps_total=len(state.step_records),
                 gates=plan_gate_ids(
+                    state.plan_name,
+                    get_plan_steps(state.plan_name, project_root=str(self.project_root)),
+                ),
+                dropped_gates=dropped_gate_ids(
                     state.plan_name,
                     get_plan_steps(state.plan_name, project_root=str(self.project_root)),
                 ),
@@ -1030,6 +1052,7 @@ class DeterministicRunner:
                     steps_completed=completed,
                     steps_total=len(step_defs),
                     gates=plan_gate_ids(state.plan_name, step_defs),
+                    dropped_gates=dropped_gate_ids(state.plan_name, step_defs),
                     failed_step=step.id,
                     timed_out_step=step.id if timed_out else None,
                     timed_out_after=(
@@ -1057,7 +1080,13 @@ class DeterministicRunner:
         #     and derived into GATE_STEP_IDS, issue #890), and
         #   - a first-attempt test failure passed its one targeted re-run, which
         #     is green but explicitly not a clean pass (issue #769).
-        skipped_gates = [s for s in skipped if s in GATE_STEP_IDS]
+        # The step's OWN flag, not the global union (issue #1155). GATE_STEP_IDS
+        # answers "is this id a gate anywhere"; the question here is whether
+        # skipping it in THIS plan proved nothing, which is plan-scoped. Since
+        # #1155 a manifest-resolved StepDef inherits the flag by id, so the
+        # per-step answer exists and is the narrower, correct one.
+        _gate_ids = {d.id for d in step_defs if d.gate}
+        skipped_gates = [s for s in skipped if s in _gate_ids]
         qualifiers: list[str] = []
         if skipped_gates:
             qualifiers.append(
@@ -1191,6 +1220,7 @@ class DeterministicRunner:
             steps_completed=completed,
             steps_total=len(step_defs),
             gates=plan_gate_ids(state.plan_name, step_defs),
+            dropped_gates=dropped_gate_ids(state.plan_name, step_defs),
             tests=tests,
             coverage=coverage,
             warnings=warnings,

@@ -1194,10 +1194,79 @@ class TestStepDefinitionsSandboxAware:
             step.should_skip({"project_root": str(tmp_project), "env": {}}) is True
         )
 
-    def test_deploy_security_scan_dehardcoded(self):
-        step = {s.id: s for s in BUILTIN_PLANS["deploy"]}["security_scan"]
+    def test_deploy_security_step_dehardcoded(self):
+        """Renamed with its subject (#1155): the deploy plan's security step is
+        `deploy_security_scan`, not `security_scan`. The PROPERTY is unchanged -
+        no hardcoded checkout path, PYTHONPATH from _CPP_ROOT."""
+        step = {s.id: s for s in BUILTIN_PLANS["deploy"]}["deploy_security_scan"]
         assert "Projects/claude-power-pack" not in step.command
         assert step.env.get("PYTHONPATH") == _CPP_ROOT
+
+    def test_the_deploy_plan_runs_the_DEPLOY_security_policy(self):
+        """THE COMMITTED RED CASE for the rename that was refused (#1155).
+
+        `flow_deploy` blocks on CRITICAL and HIGH; `flow_finish` blocks on
+        CRITICAL only (lib/security/config.py). The manifest's `steps:`
+        namespace is FLAT, so `security_scan` there is already the FINISH scan -
+        which is why pointing the deploy plan at that id, the first-cut
+        "alignment", would have silently stopped HIGH findings blocking a
+        deploy. That is a security downgrade wearing a rename's clothes, and
+        nothing asserted the command, so nothing would have failed.
+
+        Asserted for BOTH resolution paths, because they are different code:
+        the built-in plan, and the plan this repository's manifest actually
+        resolves to. A test covering only the built-in would pass while the
+        manifest served the wrong scan.
+        """
+        from lib.cicd.steps import get_plan_steps
+
+        builtin = {s.id: s for s in BUILTIN_PLANS["deploy"]}
+        gate_steps = [s for s in builtin.values() if s.gate]
+        assert len(gate_steps) == 1, f"expected one deploy gate, got {gate_steps}"
+        assert "flow_deploy" in gate_steps[0].command
+        assert "flow_finish" not in gate_steps[0].command
+
+        repo_root = Path(__file__).resolve().parent.parent
+        resolved = get_plan_steps("deploy", project_root=str(repo_root))
+        resolved_gates = [s for s in resolved if s.gate]
+        assert resolved_gates, (
+            "the resolved deploy plan has no gate step - the manifest and the "
+            "built-in plan disagree on the id, which is what #1155 reconciles"
+        )
+        for step in resolved_gates:
+            assert "flow_deploy" in step.command, (
+                f"the resolved deploy plan's gate {step.id!r} runs "
+                f"{step.command!r}. `flow_finish` blocks on CRITICAL only, so "
+                f"serving it here stops HIGH findings blocking a deploy (#1155)"
+            )
+
+        # THIRD SUBJECT: the plan `generate_manifest` EMITS (#1160). The first
+        # two cover what this repository runs; neither can see what CPP hands a
+        # project it scaffolds. That path had the defect: the generated deploy
+        # plan referenced `security_scan`, which in a generated manifest is the
+        # FINISH scan, so every scaffolded project's deploy gate blocked on
+        # CRITICAL only. Two subjects passed while it was live.
+        import tempfile
+
+        from lib.cicd.manifest import generate_manifest, get_manifest_plan_steps
+
+        scratch = tempfile.mkdtemp()
+        (Path(scratch) / "pyproject.toml").write_text("[tool.ruff]\n")
+        generated = generate_manifest(scratch)
+        generated_gates = [
+            st for st in get_manifest_plan_steps(generated, "deploy") if st.gate
+        ]
+        assert generated_gates, (
+            "a generated deploy plan has no gate step - the generator and the "
+            "builtin declaration disagree, which is what #1155 reconciles"
+        )
+        for step in generated_gates:
+            assert "flow_deploy" in step.command, (
+                f"a GENERATED deploy plan's gate {step.id!r} runs "
+                f"{step.command!r}. Every project CPP scaffolds would block on "
+                f"CRITICAL only, so a HIGH finding would not stop its deploy "
+                f"(#1160)"
+            )
 
     def test_cpp_root_is_parent_of_lib(self):
         """_CPP_ROOT must be the parent of lib/ so `-m lib.security` resolves."""
@@ -1915,10 +1984,19 @@ class TestGateDeclarationIsExhaustive:
     def test_no_step_id_is_declared_both_ways(self):
         """GATE_STEP_IDS is keyed by ID, and ids repeat across plans.
 
-        `security_scan` is in both `finish` and `deploy`. A derived set keyed on
-        id would silently resolve a disagreement between two declarations of the
-        same id - "gate here, not there" becomes "gate everywhere" with nobody
-        told. Make the disagreement fail instead of resolving it.
+        A derived set keyed on id would silently resolve a disagreement between
+        two declarations of the same id - "gate here, not there" becomes "gate
+        everywhere" with nobody told. Make the disagreement fail instead of
+        resolving it.
+
+        The worked example used to be `security_scan`, which was in both
+        `finish` and `deploy`. Since #1155 it is not: the deploy step is
+        `deploy_security_scan`, because ids must be globally unique once
+        gate-ness INHERITS by id into manifest-resolved steps. The invariant is
+        unchanged and is the reason inheritance by id is safe at all, so the
+        test stays; only its example is gone, and no builtin id repeats across
+        plans today. That is not something to assert here - this test must keep
+        working the day one does.
         """
         by_id: dict[str, set[bool]] = {}
         for _, step in self._all_builtin_steps():
@@ -1978,14 +2056,32 @@ class TestSkippedGateReporting:
     missed. That is what a legitimate non-gate skip looks like."""
 
     @staticmethod
-    def _always_skip(step_id: str) -> StepDef:
+    def _always_skip(step_id: str, *, gate: bool) -> StepDef:
         # skip_if 'true' always skips - mimics a Makefile-less repo with the tool
         # unconfigured (the real skip_if resolves to the same outcome there).
-        return StepDef(id=step_id, command="false", skip_if="true", timeout_seconds=30)
+        #
+        # `gate` IS DECLARED BY THE CALLER AND HAS NO DEFAULT (#1155). The runner
+        # used to decide gate-ness by looking the id up in GATE_STEP_IDS, so
+        # these fixtures could stay silent and the test distinguished a gate
+        # from a non-gate by NAME. Since #1155 the declaration travels on the
+        # step, and that is the whole point of the issue - so the fixture has to
+        # say which it is, and the test's subject becomes "a skipped step
+        # DECLARED a gate qualifies the run", which is the runner behaviour
+        # actually under test. Whether `typecheck` is in fact a gate is a
+        # different question, owned by the BUILTIN_PLANS declarations and
+        # TestGateDeclarationIsExhaustive.
+        #
+        # No default, deliberately: a default would let a new call site omit it
+        # and silently test the non-gate path while reading like the gate one.
+        return StepDef(
+            id=step_id, command="false", skip_if="true", timeout_seconds=30, gate=gate
+        )
 
     @staticmethod
-    def _always_run(step_id: str) -> StepDef:
-        return StepDef(id=step_id, command="true", timeout_seconds=30)
+    def _always_run(step_id: str, *, gate: bool = True) -> StepDef:
+        # Defaults True: every call site here runs a real quality gate, and the
+        # steps that RAN are not what any assertion in this class turns on.
+        return StepDef(id=step_id, command="true", timeout_seconds=30, gate=gate)
 
     def test_skipped_gates_qualify_the_run(self, tmp_project: Path):
         log = StringIO()
@@ -1993,9 +2089,9 @@ class TestSkippedGateReporting:
         result = runner.run(
             "check",
             step_defs=[
-                self._always_skip("lint"),
-                self._always_skip("test"),
-                self._always_skip("typecheck"),
+                self._always_skip("lint", gate=True),
+                self._always_skip("test", gate=True),
+                self._always_skip("typecheck", gate=True),
             ],
         )
         # A skip is exit 0 - the fix surfaces the hole, it does not invent a gate.
@@ -2030,7 +2126,9 @@ class TestSkippedGateReporting:
             "finish",
             step_defs=[
                 self._always_run("lint"),
-                self._always_skip("stale_commit_check"),
+                # The non-gate exemplar: declared NOT a gate, so its skip is
+                # designed-normal and must not qualify the run.
+                self._always_skip("stale_commit_check", gate=False),
             ],
         )
         assert result.success
@@ -2053,7 +2151,10 @@ class TestSkippedGateReporting:
         runner = DeterministicRunner(project_root=tmp_project, output=log)
         result = runner.run(
             "finish",
-            step_defs=[self._always_run("lint"), self._always_skip("security_scan")],
+            step_defs=[
+                self._always_run("lint"),
+                self._always_skip("security_scan", gate=True),
+            ],
         )
         assert result.success, "a skip is exit 0 - this surfaces the hole, it does not invent a failure"
         assert result.skipped_steps == ["security_scan"]
@@ -2076,7 +2177,7 @@ class TestSkippedGateReporting:
                     command="echo '== 66 skipped in 0.4s =='",
                     timeout_seconds=30,
                 ),
-                self._always_skip("typecheck"),
+                self._always_skip("typecheck", gate=True),
             ],
         )
         assert result.success

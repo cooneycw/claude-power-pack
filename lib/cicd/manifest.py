@@ -213,15 +213,86 @@ def load_manifest(project_root: str | Path) -> Optional[TaskManifest]:
     return manifest
 
 
+def _plan_steps_covering_declared_gates(
+    plan_name: str, steps: dict[str, Any], also: tuple[str, ...] = ()
+) -> list[str]:
+    """Ordered plan membership that always covers the built-in plan's gates.
+
+    `generate_manifest` used to build a plan by filtering a literal id list on
+    what the project could run. That silently DROPS a gate for any project
+    lacking its target - the state #1155's reconciliation exists to refuse - so
+    the generator and the gate contradicted each other.
+
+    Any declared gate with no step defined is synthesised here from the built-in
+    StepDef, whose `skip_if` already encodes "this repository has no such
+    target". The gate then appears in the plan and SKIPS, which #628 reports by
+    name, instead of disappearing.
+
+    EVERY plan goes through this, `deploy` included. It was briefly scoped to
+    finish and check, on the ground that deploy's security step is #1160's
+    subject - but a generator with one derived rule for two plans and a literal
+    list for the third is the same two-sources defect this issue is about, one
+    file over. Deriving it also fixes #1160: the synthesised
+    `deploy_security_scan` is built from the BUILT-IN StepDef, so it carries
+    `flow_deploy` - which blocks CRITICAL and HIGH - instead of the
+    `security_scan` the generated deploy plan used to reference, which is the
+    FINISH scan and blocks CRITICAL only.
+
+    `also` carries the plan's NON-gate members, which have no declaration to
+    derive from and stay availability-filtered - `deploy` itself is one. They
+    are appended after the gates, which is the built-in order.
+    """
+    from .steps import BUILTIN_PLANS
+
+    declared = [d for d in BUILTIN_PLANS.get(plan_name, []) if d.gate]
+    out: list[str] = []
+    for step_def in declared:
+        if step_def.id not in steps:
+            steps[step_def.id] = StepModel(
+                command=step_def.command,
+                description=step_def.description,
+                timeout=step_def.timeout_seconds,
+                max_attempts=step_def.max_attempts,
+                skip_if=step_def.skip_if,
+                env=dict(step_def.env),
+            )
+        out.append(step_def.id)
+    for step_id in also:
+        if step_id in steps and step_id not in out:
+            out.append(step_id)
+    return out
+
+
 def step_model_to_step_def(step_id: str, model: StepModel) -> Any:
     """Convert a Pydantic StepModel to a dataclass StepDef for the runner.
 
     This bridges the manifest layer (Pydantic) with the execution layer (dataclasses).
     """
-    from .steps import StepDef
+    from .steps import GATE_STEP_IDS, StepDef
 
     return StepDef(
         id=step_id,
+        # GATE-NESS IS INHERITED BY ID, NEVER DECLARED HERE (issue #1155).
+        #
+        # This field used not to be passed at all, so every manifest-resolved
+        # step took the `False` default - and since the manifest WINS over
+        # BUILTIN_PLANS, that made the gate set and the executed plan two
+        # populations read from different files with nothing comparing them.
+        # #1147 shipped a green over four of five gates through that gap.
+        #
+        # The alternative considered and rejected was a `gate:` key on
+        # StepModel. It fails on its DEFAULT: every manifest in existence
+        # defines lint/test/typecheck/security_scan with no such key, so the
+        # day the key ships they all become non-gates - this issue's own defect,
+        # made total and silent, by the fix for it. An author who omits the key
+        # recreates it. Inheritance has no dangerous default and adds no third
+        # place: an id the built-in plans declare a gate is a gate wherever it
+        # appears, and an id they do not know is not one.
+        #
+        # Keyed by ID, which is the invariant already enforced - GATE_STEP_IDS
+        # is id-keyed and tests/test_runner.py::TestGateDeclarationIsExhaustive
+        # already refuses an id that is a gate in one plan and not another.
+        gate=step_id in GATE_STEP_IDS,
         command=model.command,
         description=model.description,
         timeout_seconds=model.timeout,
@@ -376,7 +447,14 @@ def generate_manifest(
     # gate while every NEWLY GENERATED manifest still produced a four-step
     # finish plan, so a project scaffolded by CPP would never run its own
     # verification.
-    if "verify" in makefile_targets:
+    # DEFINED UNCONDITIONALLY (#1155). It used to be `if "verify" in
+    # makefile_targets`, which omitted the step from projects without the
+    # target - and an omitted gate is exactly what #1155's reconciliation
+    # refuses, so CPP would have generated manifests its own finish gate
+    # rejects. The `skip_if` below already answers "this repo has no such
+    # target" the right way: the step is in the plan, it skips, and #628
+    # reports it BY NAME with its reason. Dropping is silent; skipping is loud.
+    if True:
         steps["verify"] = StepModel(
             command="make verify",
             description="Run the repository's full verification pipeline (make verify)",
@@ -407,9 +485,20 @@ def generate_manifest(
     # the PR opens, and CI (which runs `make typecheck` in every shipped
     # template) goes red. Each step is filtered on `in steps`, so a project with
     # no typecheck target still gets a two-step plan.
-    finish_steps = [
-        s for s in ["lint", "test", "typecheck", "security_scan", "verify"] if s in steps
-    ]
+    # MEMBERSHIP IS DERIVED FROM THE DECLARATION, not from what this project
+    # happens to have (#1155). The old form filtered on `s in steps`, so a
+    # project without a verify target got a finish plan without `verify` - and
+    # the reconciliation this issue adds then reports that gate as DROPPED and
+    # fails the gate. CPP would have been generating manifests its own finish
+    # gate rejects, which a counter-model review caught and the author's tests
+    # did not: every test resolved THIS repository's manifest, where every
+    # target exists.
+    #
+    # Any declared gate this project cannot define a step for is synthesised
+    # from the built-in StepDef, which already carries the right command and
+    # the `skip_if` that skips it. So the plan always lists every gate, and a
+    # gate this repo cannot run is REPORTED as skipped rather than vanishing.
+    finish_steps = _plan_steps_covering_declared_gates("finish", steps)
     if finish_steps:
         plans["finish"] = PlanModel(
             steps=finish_steps,
@@ -417,7 +506,7 @@ def generate_manifest(
         )
 
     # check plan: lint -> test -> typecheck
-    check_steps = [s for s in ["lint", "test", "typecheck"] if s in steps]
+    check_steps = _plan_steps_covering_declared_gates("check", steps)
     if check_steps:
         plans["check"] = PlanModel(
             steps=check_steps,
@@ -425,7 +514,14 @@ def generate_manifest(
         )
 
     # deploy plan: security_scan -> deploy
-    deploy_steps = [s for s in ["security_scan", "deploy"] if s in steps]
+    # Derived like the others (#1155). The literal used to be
+    # ["security_scan", "deploy"], and `security_scan` in a generated manifest
+    # is the FINISH scan - so every generated deploy plan ran `flow_finish`,
+    # blocking on CRITICAL only, where the deploy policy blocks on CRITICAL and
+    # HIGH. A HIGH finding did not stop a deploy (#1160). Deriving from the
+    # declaration synthesises `deploy_security_scan` with the built-in
+    # `flow_deploy` command and fixes it.
+    deploy_steps = _plan_steps_covering_declared_gates("deploy", steps, also=("deploy",))
     if deploy_steps:
         plans["deploy"] = PlanModel(
             steps=deploy_steps,

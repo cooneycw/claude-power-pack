@@ -30,7 +30,6 @@
 #
 #: NEGATIVE-CONTROL: controls/flow-finish-gate
 #: NEGATIVE-CONTROL: controls/flow-finish-gate-declared-gates
-#: NEGATIVE-CONTROL: controls/flow-finish-gate-plan-reconciliation
 #
 # Usage:
 #   flow-finish-gate.sh                  # run the 'finish' quality-gate plan
@@ -283,39 +282,6 @@ if [[ "$RUNNER_OK" -eq 1 ]]; then
         }
     ' "$RUNNER_JSON" 2>/dev/null | tr '\n' ' ' | sed 's/ *$//')
 
-    # THE #1155 RECONCILIATION, read beside its sibling and for the same reason
-    # (the JSON is removed before the verdict lanes). Three states, and they are
-    # deliberately three:
-    #
-    #   [...]  the manifest DROPPED a gate the built-in plan of this name
-    #          declares - it is not in the plan at all, so it never ran and was
-    #          never recorded as skipped
-    #   []     reconciled, nothing missing
-    #   null   NOT APPLICABLE - no built-in plan of this name, so there is
-    #          nothing to reconcile against
-    #
-    # `null` must never render as `[]`. A plan nobody can check would then
-    # report exactly what a clean plan reports, which is unscanned reading as
-    # clean - the failure this family of guards exists to refuse.
-    DROPPED_FIELD_PRESENT=0
-    grep -q '"dropped_gates":' "$RUNNER_JSON" 2>/dev/null && DROPPED_FIELD_PRESENT=1
-    DROPPED_NOT_APPLICABLE=0
-    grep -q '"dropped_gates": null' "$RUNNER_JSON" 2>/dev/null && DROPPED_NOT_APPLICABLE=1
-    DROPPED_GATES=$(awk '
-        /^  "dropped_gates": (null|\[\]),?$/ { exit }
-        /^  "dropped_gates": \[$/ { in_d = 1; next }
-        in_d && /^  \][,]?$/ { exit }
-        in_d {
-            id = $0
-            sub(/^[[:space:]]*"/, "", id)
-            sub(/",?$/, "", id)
-            if (id != "") print id
-        }
-    ' "$RUNNER_JSON" 2>/dev/null | tr '\n' ' ' | sed 's/ *$//')
-    # The plan name, so the not-applicable line can NAME the plan it could not
-    # reconcile rather than reporting an anonymous abstention.
-    PLAN_NAME=$(sed -n 's/^  "plan": "\([^"]*\)",\?$/\1/p' "$RUNNER_JSON" 2>/dev/null | head -1)
-
     # Does the runner SAY, at all? Read here, beside the parse and while the
     # JSON still exists - the temp file is removed further down, before the
     # verdict lanes, so a presence test down there reads a deleted file and
@@ -498,32 +464,6 @@ if [[ "$RUNNER_OK" -eq 1 ]]; then
         # records of what happened to that gate both omit it. A green from an
         # inconsistent runner is the false green this whole chain exists to
         # stop, so it fails closed rather than degrading to a softer verdict.
-        # A gate the manifest DROPPED FROM THE PLAN (issue #1155). Distinct
-        # from "declared but never ran" below: that one is an inconsistency
-        # inside a single run's own accounting, this one is a disagreement
-        # between two FILES - `.claude/cicd_tasks.yml` wins over BUILTIN_PLANS,
-        # so a manifest can drop a declared gate and, before #1155, nothing
-        # compared them. #1147 shipped a green over four of five gates that
-        # way. It fails by name, because a dropped gate is silent where a
-        # SKIPPED one is loud: a repository that lacks a target should LIST the
-        # step and let `skip_if` skip it, which reports #628's warn WITH the
-        # reason attached.
-        if [[ "$DROPPED_FIELD_PRESENT" -ne 1 ]]; then
-            echo "flow-finish-gate: the runner JSON carries no 'dropped_gates' field, so whether this plan dropped a declared gate was NOT checked." >&2
-            echo "  Not checked is not clean: re-run with a lib/cicd carrying #1155." >&2
-            verdict "fail (reconciliation unavailable)"
-            exit 1
-        fi
-        if [[ "$DROPPED_NOT_APPLICABLE" -eq 1 ]]; then
-            echo "flow-finish-gate: gate reconciliation not applicable: no builtin plan named '${PLAN_NAME:-?}', so there is no declaration to compare this plan against (#1155)." >&2
-        elif [[ -n "$DROPPED_GATES" ]]; then
-            echo "WARNING: this repository's .claude/cicd_tasks.yml DROPPED quality gate(s) the builtin '${PLAN_NAME:-?}' plan declares: $DROPPED_GATES." >&2
-            echo "  The manifest WINS over lib/cicd/steps.py, so those gates are not in the plan at all - they did not run and nothing recorded them as skipped." >&2
-            echo "  This gate proved nothing about them. Add each id under plans.${PLAN_NAME:-<plan>}.steps; if this repo has no such target, LIST the step anyway and let skip_if skip it, which reports it by name instead of silently (#617, #1147, #1155)." >&2
-            verdict "fail (gate dropped from the plan: $DROPPED_GATES)"
-            exit 1
-        fi
-
         UNACCOUNTED_GATES=""
         for _gid in $GATE_IDS; do
             _seen=0
